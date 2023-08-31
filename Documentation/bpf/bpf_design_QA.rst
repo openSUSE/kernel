@@ -208,6 +208,10 @@ data structures and compile with kernel internal headers. Both of these
 kernel internals are subject to change and can break with newer kernels
 such that the program needs to be adapted accordingly.
 
+New BPF functionality is generally added through the use of kfuncs instead of
+new helpers. Kfuncs are not considered part of the stable API, and have their own
+lifecycle expectations as described in :ref:`BPF_kfunc_lifecycle_expectations`.
+
 Q: Are tracepoints part of the stable ABI?
 ------------------------------------------
 A: NO. Tracepoints are tied to internal implementation details hence they are
@@ -236,8 +240,8 @@ A: NO. Classic BPF programs are converted into extend BPF instructions.
 
 Q: Can BPF call arbitrary kernel functions?
 -------------------------------------------
-A: NO. BPF programs can only call a set of helper functions which
-is defined for every program type.
+A: NO. BPF programs can only call specific functions exposed as BPF helpers or
+kfuncs. The set of available functions is defined for every program type.
 
 Q: Can BPF overwrite arbitrary kernel memory?
 ---------------------------------------------
@@ -263,7 +267,12 @@ Q: New functionality via kernel modules?
 Q: Can BPF functionality such as new program or map types, new
 helpers, etc be added out of kernel module code?
 
-A: NO.
+A: Yes, through kfuncs and kptrs
+
+The core BPF functionality such as program types, maps and helpers cannot be
+added to by modules. However, modules can expose functionality to BPF programs
+by exporting kfuncs (which may return pointers to module-internal data
+structures as kptrs).
 
 Q: Directly calling kernel function is an ABI?
 ----------------------------------------------
@@ -278,7 +287,8 @@ kernel functions have already been used by other kernel tcp
 cc (congestion-control) implementations.  If any of these kernel
 functions has changed, both the in-tree and out-of-tree kernel tcp cc
 implementations have to be changed.  The same goes for the bpf
-programs and they have to be adjusted accordingly.
+programs and they have to be adjusted accordingly. See
+:ref:`BPF_kfunc_lifecycle_expectations` for details.
 
 Q: Attaching to arbitrary kernel functions is an ABI?
 -----------------------------------------------------
@@ -304,7 +314,7 @@ Q: What is the compatibility story for special BPF types in map values?
 Q: Users are allowed to embed bpf_spin_lock, bpf_timer fields in their BPF map
 values (when using BTF support for BPF maps). This allows to use helpers for
 such objects on these fields inside map values. Users are also allowed to embed
-pointers to some kernel types (with __kptr and __kptr_ref BTF tags). Will the
+pointers to some kernel types (with __kptr_untrusted and __kptr BTF tags). Will the
 kernel preserve backwards compatibility for these features?
 
 A: It depends. For bpf_spin_lock, bpf_timer: YES, for kptr and everything else:
@@ -314,7 +324,7 @@ For struct types that have been added already, like bpf_spin_lock and bpf_timer,
 the kernel will preserve backwards compatibility, as they are part of UAPI.
 
 For kptrs, they are also part of UAPI, but only with respect to the kptr
-mechanism. The types that you can use with a __kptr and __kptr_ref tagged
+mechanism. The types that you can use with a __kptr_untrusted and __kptr tagged
 pointer in your struct are NOT part of the UAPI contract. The supported types can
 and will change across kernel releases. However, operations like accessing kptr
 fields and bpf_kptr_xchg() helper will continue to be supported across kernel
@@ -340,6 +350,7 @@ compatibility for these features?
 
 A: NO.
 
-Unlike map value types, there are no stability guarantees for this case. The
-whole API to work with allocated objects and any support for special fields
-inside them is unstable (since it is exposed through kfuncs).
+Unlike map value types, the API to work with allocated objects and any support
+for special fields inside them is exposed through kfuncs, and thus has the same
+lifecycle expectations as the kfuncs themselves. See
+:ref:`BPF_kfunc_lifecycle_expectations` for details.

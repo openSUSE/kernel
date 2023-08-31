@@ -60,6 +60,89 @@ int ftrace_regs_query_register_offset(const char *name)
 }
 #endif
 
+unsigned long ftrace_call_adjust(unsigned long addr)
+{
+	/*
+	 * When using mcount, addr is the address of the mcount call
+	 * instruction, and no adjustment is necessary.
+	 */
+	if (!IS_ENABLED(CONFIG_DYNAMIC_FTRACE_WITH_ARGS))
+		return addr;
+
+	/*
+	 * When using patchable-function-entry without pre-function NOPS, addr
+	 * is the address of the first NOP after the function entry point.
+	 *
+	 * The compiler has either generated:
+	 *
+	 * addr+00:	func:	NOP		// To be patched to MOV X9, LR
+	 * addr+04:		NOP		// To be patched to BL <caller>
+	 *
+	 * Or:
+	 *
+	 * addr-04:		BTI	C
+	 * addr+00:	func:	NOP		// To be patched to MOV X9, LR
+	 * addr+04:		NOP		// To be patched to BL <caller>
+	 *
+	 * We must adjust addr to the address of the NOP which will be patched
+	 * to `BL <caller>`, which is at `addr + 4` bytes in either case.
+	 *
+	 */
+	if (!IS_ENABLED(CONFIG_DYNAMIC_FTRACE_WITH_CALL_OPS))
+		return addr + AARCH64_INSN_SIZE;
+
+	/*
+	 * When using patchable-function-entry with pre-function NOPs, addr is
+	 * the address of the first pre-function NOP.
+	 *
+	 * Starting from an 8-byte aligned base, the compiler has either
+	 * generated:
+	 *
+	 * addr+00:		NOP		// Literal (first 32 bits)
+	 * addr+04:		NOP		// Literal (last 32 bits)
+	 * addr+08:	func:	NOP		// To be patched to MOV X9, LR
+	 * addr+12:		NOP		// To be patched to BL <caller>
+	 *
+	 * Or:
+	 *
+	 * addr+00:		NOP		// Literal (first 32 bits)
+	 * addr+04:		NOP		// Literal (last 32 bits)
+	 * addr+08:	func:	BTI	C
+	 * addr+12:		NOP		// To be patched to MOV X9, LR
+	 * addr+16:		NOP		// To be patched to BL <caller>
+	 *
+	 * We must adjust addr to the address of the NOP which will be patched
+	 * to `BL <caller>`, which is at either addr+12 or addr+16 depending on
+	 * whether there is a BTI.
+	 */
+
+	if (!IS_ALIGNED(addr, sizeof(unsigned long))) {
+		WARN_RATELIMIT(1, "Misaligned patch-site %pS\n",
+			       (void *)(addr + 8));
+		return 0;
+	}
+
+	/* Skip the NOPs placed before the function entry point */
+	addr += 2 * AARCH64_INSN_SIZE;
+
+	/* Skip any BTI */
+	if (IS_ENABLED(CONFIG_ARM64_BTI_KERNEL)) {
+		u32 insn = le32_to_cpu(*(__le32 *)addr);
+
+		if (aarch64_insn_is_bti(insn)) {
+			addr += AARCH64_INSN_SIZE;
+		} else if (insn != aarch64_insn_gen_nop()) {
+			WARN_RATELIMIT(1, "unexpected insn in patch-site %pS: 0x%08x\n",
+				       (void *)addr, insn);
+		}
+	}
+
+	/* Skip the first NOP after function entry */
+	addr += AARCH64_INSN_SIZE;
+
+	return addr;
+}
+
 /*
  * Replace a single instruction, which may be a branch or NOP.
  * If @validate == true, a replaced instruction is checked against 'old'.
@@ -98,6 +181,13 @@ int ftrace_update_ftrace_func(ftrace_func_t func)
 	unsigned long pc;
 	u32 new;
 
+	/*
+	 * When using CALL_OPS, the function to call is associated with the
+	 * call site, and we don't have a global function pointer to update.
+	 */
+	if (IS_ENABLED(CONFIG_DYNAMIC_FTRACE_WITH_CALL_OPS))
+		return 0;
+
 	pc = (unsigned long)ftrace_call;
 	new = aarch64_insn_gen_branch_imm(pc, (unsigned long)func,
 					  AARCH64_INSN_BRANCH_LINK);
@@ -105,15 +195,22 @@ int ftrace_update_ftrace_func(ftrace_func_t func)
 	return ftrace_modify_code(pc, 0, new, false);
 }
 
-static struct plt_entry *get_ftrace_plt(struct module *mod, unsigned long addr)
+static struct plt_entry *get_ftrace_plt(struct module *mod)
 {
 #ifdef CONFIG_ARM64_MODULE_PLTS
 	struct plt_entry *plt = mod->arch.ftrace_trampolines;
 
-	if (addr == FTRACE_ADDR)
-		return &plt[FTRACE_PLT_IDX];
-#endif
+	return &plt[FTRACE_PLT_IDX];
+#else
 	return NULL;
+#endif
+}
+
+static bool reachable_by_bl(unsigned long addr, unsigned long pc)
+{
+	long offset = (long)addr - (long)pc;
+
+	return offset >= -SZ_128M && offset < SZ_128M;
 }
 
 /*
@@ -130,14 +227,21 @@ static bool ftrace_find_callable_addr(struct dyn_ftrace *rec,
 				      unsigned long *addr)
 {
 	unsigned long pc = rec->ip;
-	long offset = (long)*addr - (long)pc;
 	struct plt_entry *plt;
+
+	/*
+	 * If a custom trampoline is unreachable, rely on the ftrace_caller
+	 * trampoline which knows how to indirectly reach that trampoline
+	 * through ops->direct_call.
+	 */
+	if (*addr != FTRACE_ADDR && !reachable_by_bl(*addr, pc))
+		*addr = FTRACE_ADDR;
 
 	/*
 	 * When the target is within range of the 'BL' instruction, use 'addr'
 	 * as-is and branch to that directly.
 	 */
-	if (offset >= -SZ_128M && offset < SZ_128M)
+	if (reachable_by_bl(*addr, pc))
 		return true;
 
 	/*
@@ -166,7 +270,7 @@ static bool ftrace_find_callable_addr(struct dyn_ftrace *rec,
 	if (WARN_ON(!mod))
 		return false;
 
-	plt = get_ftrace_plt(mod, *addr);
+	plt = get_ftrace_plt(mod);
 	if (!plt) {
 		pr_err("ftrace: no module PLT for %ps\n", (void *)*addr);
 		return false;
@@ -176,6 +280,44 @@ static bool ftrace_find_callable_addr(struct dyn_ftrace *rec,
 	return true;
 }
 
+#ifdef CONFIG_DYNAMIC_FTRACE_WITH_CALL_OPS
+static const struct ftrace_ops *arm64_rec_get_ops(struct dyn_ftrace *rec)
+{
+	const struct ftrace_ops *ops = NULL;
+
+	if (rec->flags & FTRACE_FL_CALL_OPS_EN) {
+		ops = ftrace_find_unique_ops(rec);
+		WARN_ON_ONCE(!ops);
+	}
+
+	if (!ops)
+		ops = &ftrace_list_ops;
+
+	return ops;
+}
+
+static int ftrace_rec_set_ops(const struct dyn_ftrace *rec,
+			      const struct ftrace_ops *ops)
+{
+	unsigned long literal = ALIGN_DOWN(rec->ip - 12, 8);
+	return aarch64_insn_write_literal_u64((void *)literal,
+					      (unsigned long)ops);
+}
+
+static int ftrace_rec_set_nop_ops(struct dyn_ftrace *rec)
+{
+	return ftrace_rec_set_ops(rec, &ftrace_nop_ops);
+}
+
+static int ftrace_rec_update_ops(struct dyn_ftrace *rec)
+{
+	return ftrace_rec_set_ops(rec, arm64_rec_get_ops(rec));
+}
+#else
+static int ftrace_rec_set_nop_ops(struct dyn_ftrace *rec) { return 0; }
+static int ftrace_rec_update_ops(struct dyn_ftrace *rec) { return 0; }
+#endif
+
 /*
  * Turn on the call to ftrace_caller() in instrumented function
  */
@@ -183,6 +325,11 @@ int ftrace_make_call(struct dyn_ftrace *rec, unsigned long addr)
 {
 	unsigned long pc = rec->ip;
 	u32 old, new;
+	int ret;
+
+	ret = ftrace_rec_update_ops(rec);
+	if (ret)
+		return ret;
 
 	if (!ftrace_find_callable_addr(rec, NULL, &addr))
 		return -EINVAL;
@@ -192,6 +339,31 @@ int ftrace_make_call(struct dyn_ftrace *rec, unsigned long addr)
 
 	return ftrace_modify_code(pc, old, new, true);
 }
+
+#ifdef CONFIG_DYNAMIC_FTRACE_WITH_CALL_OPS
+int ftrace_modify_call(struct dyn_ftrace *rec, unsigned long old_addr,
+		       unsigned long addr)
+{
+	unsigned long pc = rec->ip;
+	u32 old, new;
+	int ret;
+
+	ret = ftrace_rec_set_ops(rec, arm64_rec_get_ops(rec));
+	if (ret)
+		return ret;
+
+	if (!ftrace_find_callable_addr(rec, NULL, &old_addr))
+		return -EINVAL;
+	if (!ftrace_find_callable_addr(rec, NULL, &addr))
+		return -EINVAL;
+
+	old = aarch64_insn_gen_branch_imm(pc, old_addr,
+					  AARCH64_INSN_BRANCH_LINK);
+	new = aarch64_insn_gen_branch_imm(pc, addr, AARCH64_INSN_BRANCH_LINK);
+
+	return ftrace_modify_code(pc, old, new, true);
+}
+#endif
 
 #ifdef CONFIG_DYNAMIC_FTRACE_WITH_ARGS
 /*
@@ -209,7 +381,7 @@ int ftrace_make_call(struct dyn_ftrace *rec, unsigned long addr)
  * | NOP      | MOV X9, LR | MOV X9, LR |
  * | NOP      | NOP        | BL <entry> |
  *
- * The LR value will be recovered by ftrace_regs_entry, and restored into LR
+ * The LR value will be recovered by ftrace_caller, and restored into LR
  * before returning to the regular function prologue. When a function is not
  * being traced, the MOV is not harmful given x9 is not live per the AAPCS.
  *
@@ -220,6 +392,11 @@ int ftrace_init_nop(struct module *mod, struct dyn_ftrace *rec)
 {
 	unsigned long pc = rec->ip - AARCH64_INSN_SIZE;
 	u32 old, new;
+	int ret;
+
+	ret = ftrace_rec_set_nop_ops(rec);
+	if (ret)
+		return ret;
 
 	old = aarch64_insn_gen_nop();
 	new = aarch64_insn_gen_move_reg(AARCH64_INSN_REG_9,
@@ -237,8 +414,13 @@ int ftrace_make_nop(struct module *mod, struct dyn_ftrace *rec,
 {
 	unsigned long pc = rec->ip;
 	u32 old = 0, new;
+	int ret;
 
 	new = aarch64_insn_gen_nop();
+
+	ret = ftrace_rec_set_nop_ops(rec);
+	if (ret)
+		return ret;
 
 	/*
 	 * When using mcount, callsites in modules may have been initalized to

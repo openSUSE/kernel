@@ -258,19 +258,17 @@ static void mousevsc_on_receive(struct hv_device *device,
 
 	switch (hid_msg_hdr->type) {
 	case SYNTH_HID_PROTOCOL_RESPONSE:
+		len = struct_size(pipe_msg, data, pipe_msg->size);
+
 		/*
 		 * While it will be impossible for us to protect against
 		 * malicious/buggy hypervisor/host, add a check here to
 		 * ensure we don't corrupt memory.
 		 */
-		if (struct_size(pipe_msg, data, pipe_msg->size)
-			> sizeof(struct mousevsc_prt_msg)) {
-			WARN_ON(1);
+		if (WARN_ON(len > sizeof(struct mousevsc_prt_msg)))
 			break;
-		}
 
-		memcpy(&input_dev->protocol_resp, pipe_msg,
-				struct_size(pipe_msg, data, pipe_msg->size));
+		memcpy(&input_dev->protocol_resp, pipe_msg, len);
 		complete(&input_dev->wait_event);
 		break;
 
@@ -424,7 +422,7 @@ static int mousevsc_hid_raw_request(struct hid_device *hid,
 	return 0;
 }
 
-static struct hid_ll_driver mousevsc_ll_driver = {
+static const struct hid_ll_driver mousevsc_ll_driver = {
 	.parse = mousevsc_hid_parse,
 	.open = mousevsc_hid_open,
 	.close = mousevsc_hid_close,
@@ -524,7 +522,7 @@ probe_err0:
 }
 
 
-static int mousevsc_remove(struct hv_device *dev)
+static void mousevsc_remove(struct hv_device *dev)
 {
 	struct mousevsc_dev *input_dev = hv_get_drvdata(dev);
 
@@ -533,8 +531,6 @@ static int mousevsc_remove(struct hv_device *dev)
 	hid_hw_stop(input_dev->hid_device);
 	hid_destroy_device(input_dev->hid_device);
 	mousevsc_free_device(input_dev);
-
-	return 0;
 }
 
 static int mousevsc_suspend(struct hv_device *dev)

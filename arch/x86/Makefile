@@ -3,10 +3,10 @@
 
 # select defconfig based on actual architecture
 ifeq ($(ARCH),x86)
-  ifeq ($(shell uname -m),x86_64)
-        KBUILD_DEFCONFIG := x86_64_defconfig
-  else
+  ifeq ($(shell uname -m | sed -e 's/i.86/i386/'),i386)
         KBUILD_DEFCONFIG := i386_defconfig
+  else
+        KBUILD_DEFCONFIG := x86_64_defconfig
   endif
 else
         KBUILD_DEFCONFIG := $(ARCH)_defconfig
@@ -303,6 +303,18 @@ ifeq ($(RETPOLINE_CFLAGS),)
 	@echo "Please update your compiler." >&2
 	@false
 endif
+endif
+
+ifdef CONFIG_UNWINDER_ORC
+orc_hash_h := arch/$(SRCARCH)/include/generated/asm/orc_hash.h
+orc_hash_sh := $(srctree)/scripts/orc_hash.sh
+targets += $(orc_hash_h)
+quiet_cmd_orc_hash = GEN     $@
+      cmd_orc_hash = mkdir -p $(dir $@); \
+		     $(CONFIG_SHELL) $(orc_hash_sh) < $< > $@
+$(orc_hash_h): $(srctree)/arch/x86/include/asm/orc_types.h $(orc_hash_sh) FORCE
+	$(call if_changed,orc_hash)
+archprepare: $(orc_hash_h)
 endif
 
 archclean:

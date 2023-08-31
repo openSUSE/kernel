@@ -146,7 +146,6 @@ struct devlink_port {
 	   initialized:1;
 	struct delayed_work type_warn_dw;
 	struct list_head reporter_list;
-	struct mutex reporters_lock; /* Protects reporter_list */
 
 	struct devlink_rate *devlink_rate;
 	struct devlink_linecard *linecard;
@@ -221,7 +220,7 @@ struct devlink_dpipe_field {
 /**
  * struct devlink_dpipe_header - dpipe header object
  * @name: header name
- * @id: index, global/local detrmined by global bit
+ * @id: index, global/local determined by global bit
  * @fields: fields
  * @fields_count: number of fields
  * @global: indicates if header is shared like most protocol header
@@ -241,7 +240,7 @@ struct devlink_dpipe_header {
  * @header_index: header index (packets can have several headers of same
  *		  type like in case of tunnels)
  * @header: header
- * @fieled_id: field index
+ * @field_id: field index
  */
 struct devlink_dpipe_match {
 	enum devlink_dpipe_match_type type;
@@ -256,7 +255,7 @@ struct devlink_dpipe_match {
  * @header_index: header index (packets can have several headers of same
  *		  type like in case of tunnels)
  * @header: header
- * @fieled_id: field index
+ * @field_id: field index
  */
 struct devlink_dpipe_action {
 	enum devlink_dpipe_action_type type;
@@ -292,7 +291,7 @@ struct devlink_dpipe_value {
  * struct devlink_dpipe_entry - table entry object
  * @index: index of the entry in the table
  * @match_values: match values
- * @matche_values_count: count of matches tuples
+ * @match_values_count: count of matches tuples
  * @action_values: actions values
  * @action_values_count: count of actions values
  * @counter: value of counter
@@ -342,7 +341,9 @@ struct devlink_dpipe_table_ops;
  */
 struct devlink_dpipe_table {
 	void *priv;
+	/* private: */
 	struct list_head list;
+	/* public: */
 	const char *name;
 	bool counters_enabled;
 	bool counter_control_extern;
@@ -355,13 +356,13 @@ struct devlink_dpipe_table {
 
 /**
  * struct devlink_dpipe_table_ops - dpipe_table ops
- * @actions_dump - dumps all tables actions
- * @matches_dump - dumps all tables matches
- * @entries_dump - dumps all active entries in the table
- * @counters_set_update - when changing the counter status hardware sync
+ * @actions_dump: dumps all tables actions
+ * @matches_dump: dumps all tables matches
+ * @entries_dump: dumps all active entries in the table
+ * @counters_set_update:  when changing the counter status hardware sync
  *			  maybe needed to allocate/free counter related
  *			  resources
- * @size_get - get size
+ * @size_get: get size
  */
 struct devlink_dpipe_table_ops {
 	int (*actions_dump)(void *priv, struct sk_buff *skb);
@@ -374,8 +375,8 @@ struct devlink_dpipe_table_ops {
 
 /**
  * struct devlink_dpipe_headers - dpipe headers
- * @headers - header array can be shared (global bit) or driver specific
- * @headers_count - count of headers
+ * @headers: header array can be shared (global bit) or driver specific
+ * @headers_count: count of headers
  */
 struct devlink_dpipe_headers {
 	struct devlink_dpipe_header **headers;
@@ -387,7 +388,7 @@ struct devlink_dpipe_headers {
  * @size_min: minimum size which can be set
  * @size_max: maximum size which can be set
  * @size_granularity: size granularity
- * @size_unit: resource's basic unit
+ * @unit: resource's basic unit
  */
 struct devlink_resource_size_params {
 	u64 size_min;
@@ -457,6 +458,7 @@ struct devlink_flash_notify {
 
 /**
  * struct devlink_param - devlink configuration parameter data
+ * @id: devlink parameter id number
  * @name: name of the parameter
  * @generic: indicates if the parameter is generic or driver specific
  * @type: parameter type
@@ -490,6 +492,10 @@ struct devlink_param_item {
 	const struct devlink_param *param;
 	union devlink_param_value driverinit_value;
 	bool driverinit_value_valid;
+	union devlink_param_value driverinit_value_new; /* Not reachable
+							 * until reload.
+							 */
+	bool driverinit_value_new_valid;
 };
 
 enum devlink_param_generic_id {
@@ -628,6 +634,7 @@ enum devlink_param_generic_id {
  * struct devlink_flash_update_params - Flash Update parameters
  * @fw: pointer to the firmware data to update from
  * @component: the flash component to update
+ * @overwrite_mask: which types of flash update are supported (may be %0)
  *
  * With the exception of fw, drivers must opt-in to parameters by
  * setting the appropriate bit in the supported_flash_update_params field in
@@ -1646,7 +1653,9 @@ static inline struct devlink *devlink_alloc(const struct devlink_ops *ops,
 {
 	return devlink_alloc_ns(ops, priv_size, &init_net, dev);
 }
-void devlink_set_features(struct devlink *devlink, u64 features);
+
+int devl_register(struct devlink *devlink);
+void devl_unregister(struct devlink *devlink);
 void devlink_register(struct devlink *devlink);
 void devlink_unregister(struct devlink *devlink);
 void devlink_free(struct devlink *devlink);
@@ -1685,9 +1694,9 @@ void devl_rate_nodes_destroy(struct devlink *devlink);
 void devlink_port_linecard_set(struct devlink_port *devlink_port,
 			       struct devlink_linecard *linecard);
 struct devlink_linecard *
-devlink_linecard_create(struct devlink *devlink, unsigned int linecard_index,
-			const struct devlink_linecard_ops *ops, void *priv);
-void devlink_linecard_destroy(struct devlink_linecard *linecard);
+devl_linecard_create(struct devlink *devlink, unsigned int linecard_index,
+		     const struct devlink_linecard_ops *ops, void *priv);
+void devl_linecard_destroy(struct devlink_linecard *linecard);
 void devlink_linecard_provision_set(struct devlink_linecard *linecard,
 				    const char *type);
 void devlink_linecard_provision_clear(struct devlink_linecard *linecard);
@@ -1766,21 +1775,23 @@ void devl_resource_occ_get_unregister(struct devlink *devlink,
 
 void devlink_resource_occ_get_unregister(struct devlink *devlink,
 					 u64 resource_id);
+int devl_params_register(struct devlink *devlink,
+			 const struct devlink_param *params,
+			 size_t params_count);
 int devlink_params_register(struct devlink *devlink,
+			    const struct devlink_param *params,
+			    size_t params_count);
+void devl_params_unregister(struct devlink *devlink,
 			    const struct devlink_param *params,
 			    size_t params_count);
 void devlink_params_unregister(struct devlink *devlink,
 			       const struct devlink_param *params,
 			       size_t params_count);
-int devlink_param_register(struct devlink *devlink,
-			   const struct devlink_param *param);
-void devlink_param_unregister(struct devlink *devlink,
-			      const struct devlink_param *param);
-int devlink_param_driverinit_value_get(struct devlink *devlink, u32 param_id,
-				       union devlink_param_value *init_val);
-int devlink_param_driverinit_value_set(struct devlink *devlink, u32 param_id,
-				       union devlink_param_value init_val);
-void devlink_param_value_changed(struct devlink *devlink, u32 param_id);
+int devl_param_driverinit_value_get(struct devlink *devlink, u32 param_id,
+				    union devlink_param_value *val);
+void devl_param_driverinit_value_set(struct devlink *devlink, u32 param_id,
+				     union devlink_param_value init_val);
+void devl_param_value_changed(struct devlink *devlink, u32 param_id);
 struct devlink_region *devl_region_create(struct devlink *devlink,
 					  const struct devlink_region_ops *ops,
 					  u32 region_max_snapshots,
@@ -1863,20 +1874,30 @@ int devlink_fmsg_binary_pair_put(struct devlink_fmsg *fmsg, const char *name,
 				 const void *value, u32 value_len);
 
 struct devlink_health_reporter *
-devlink_health_reporter_create(struct devlink *devlink,
-			       const struct devlink_health_reporter_ops *ops,
-			       u64 graceful_period, void *priv);
+devl_port_health_reporter_create(struct devlink_port *port,
+				 const struct devlink_health_reporter_ops *ops,
+				 u64 graceful_period, void *priv);
 
 struct devlink_health_reporter *
 devlink_port_health_reporter_create(struct devlink_port *port,
 				    const struct devlink_health_reporter_ops *ops,
 				    u64 graceful_period, void *priv);
 
-void
-devlink_health_reporter_destroy(struct devlink_health_reporter *reporter);
+struct devlink_health_reporter *
+devl_health_reporter_create(struct devlink *devlink,
+			    const struct devlink_health_reporter_ops *ops,
+			    u64 graceful_period, void *priv);
+
+struct devlink_health_reporter *
+devlink_health_reporter_create(struct devlink *devlink,
+			       const struct devlink_health_reporter_ops *ops,
+			       u64 graceful_period, void *priv);
 
 void
-devlink_port_health_reporter_destroy(struct devlink_health_reporter *reporter);
+devl_health_reporter_destroy(struct devlink_health_reporter *reporter);
+
+void
+devlink_health_reporter_destroy(struct devlink_health_reporter *reporter);
 
 void *
 devlink_health_reporter_priv(struct devlink_health_reporter *reporter);

@@ -386,7 +386,7 @@ out:
 
 static int rtl8192cu_load_firmware(struct rtl8xxxu_priv *priv)
 {
-	char *fw_name;
+	const char *fw_name;
 	int ret;
 
 	if (!priv->vendor_umc)
@@ -404,7 +404,6 @@ static int rtl8192cu_load_firmware(struct rtl8xxxu_priv *priv)
 static int rtl8192cu_parse_efuse(struct rtl8xxxu_priv *priv)
 {
 	struct rtl8192cu_efuse *efuse = &priv->efuse_wifi.efuse8192;
-	int i;
 
 	if (efuse->rtl_id != cpu_to_le16(0x8129))
 		return -EINVAL;
@@ -442,11 +441,6 @@ static int rtl8192cu_parse_efuse(struct rtl8xxxu_priv *priv)
 	       efuse->ht20_max_power_offset,
 	       sizeof(efuse->ht20_max_power_offset));
 
-	dev_info(&priv->udev->dev, "Vendor: %.7s\n",
-		 efuse->vendor_name);
-	dev_info(&priv->udev->dev, "Product: %.20s\n",
-		 efuse->device_name);
-
 	priv->power_base = &rtl8192c_power_base;
 
 	if (efuse->rf_regulatory & 0x20) {
@@ -457,15 +451,6 @@ static int rtl8192cu_parse_efuse(struct rtl8xxxu_priv *priv)
 		priv->power_base = &rtl8188r_power_base;
 	}
 
-	if (rtl8xxxu_debug & RTL8XXXU_DEBUG_EFUSE) {
-		unsigned char *raw = priv->efuse_wifi.raw;
-
-		dev_info(&priv->udev->dev,
-			 "%s: dumping efuse (0x%02zx bytes):\n",
-			 __func__, sizeof(struct rtl8192cu_efuse));
-		for (i = 0; i < sizeof(struct rtl8192cu_efuse); i += 8)
-			dev_info(&priv->udev->dev, "%02x: %8ph\n", i, &raw[i]);
-	}
 	return 0;
 }
 
@@ -604,6 +589,7 @@ struct rtl8xxxu_fileops rtl8192cu_fops = {
 	.load_firmware = rtl8192cu_load_firmware,
 	.power_on = rtl8192cu_power_on,
 	.power_off = rtl8xxxu_power_off,
+	.read_efuse = rtl8xxxu_read_efuse,
 	.reset_8051 = rtl8xxxu_reset_8051,
 	.llt_init = rtl8xxxu_init_llt_table,
 	.init_phy_bb = rtl8xxxu_gen1_init_phy_bb,
@@ -612,6 +598,7 @@ struct rtl8xxxu_fileops rtl8192cu_fops = {
 	.phy_iq_calibrate = rtl8xxxu_gen1_phy_iq_calibrate,
 	.config_channel = rtl8xxxu_gen1_config_channel,
 	.parse_rx_desc = rtl8xxxu_parse_rxdesc16,
+	.parse_phystats = rtl8723au_rx_parse_phystats,
 	.init_aggregation = rtl8xxxu_gen1_init_aggregation,
 	.enable_rf = rtl8xxxu_gen1_enable_rf,
 	.disable_rf = rtl8xxxu_gen1_disable_rf,
@@ -619,6 +606,7 @@ struct rtl8xxxu_fileops rtl8192cu_fops = {
 	.set_tx_power = rtl8xxxu_gen1_set_tx_power,
 	.update_rate_mask = rtl8xxxu_update_rate_mask,
 	.report_connect = rtl8xxxu_gen1_report_connect,
+	.report_rssi = rtl8xxxu_gen1_report_rssi,
 	.fill_txdesc = rtl8xxxu_fill_txdesc_v1,
 	.cck_rssi = rtl8723a_cck_rssi,
 	.writeN_block_size = 128,

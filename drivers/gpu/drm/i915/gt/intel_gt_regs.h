@@ -9,8 +9,6 @@
 #include "i915_reg_defs.h"
 #include "display/intel_display_reg_defs.h"	/* VLV_DISPLAY_BASE */
 
-#define MCR_REG(offset)	((const i915_mcr_reg_t){ .reg = (offset) })
-
 /*
  * The perf control registers are technically multicast registers, but the
  * driver never needs to read/write them directly; we only use them to build
@@ -67,6 +65,7 @@
 #define GMD_ID_MEDIA				_MMIO(MTL_MEDIA_GSI_BASE + 0xd8c)
 
 #define MCFG_MCR_SELECTOR			_MMIO(0xfd0)
+#define MTL_STEER_SEMAPHORE			_MMIO(0xfd0)
 #define MTL_MCR_SELECTOR			_MMIO(0xfd4)
 #define SF_MCR_SELECTOR				_MMIO(0xfd8)
 #define GEN8_MCR_SELECTOR			_MMIO(0xfdc)
@@ -332,9 +331,11 @@
 #define GEN8_PRIVATE_PAT_HI			_MMIO(0x40e0 + 4)
 #define GEN10_PAT_INDEX(index)			_MMIO(0x40e0 + (index) * 4)
 #define BSD_HWS_PGA_GEN7			_MMIO(0x4180)
-#define GEN12_GFX_CCS_AUX_NV			_MMIO(0x4208)
-#define GEN12_VD0_AUX_NV			_MMIO(0x4218)
-#define GEN12_VD1_AUX_NV			_MMIO(0x4228)
+
+#define GEN12_CCS_AUX_INV			_MMIO(0x4208)
+#define GEN12_VD0_AUX_INV			_MMIO(0x4218)
+#define GEN12_VE0_AUX_INV			_MMIO(0x4238)
+#define GEN12_BCS0_AUX_INV			_MMIO(0x4248)
 
 #define GEN8_RTCR				_MMIO(0x4260)
 #define GEN8_M1TCR				_MMIO(0x4264)
@@ -342,14 +343,12 @@
 #define GEN8_BTCR				_MMIO(0x426c)
 #define GEN8_VTCR				_MMIO(0x4270)
 
-#define GEN12_VD2_AUX_NV			_MMIO(0x4298)
-#define GEN12_VD3_AUX_NV			_MMIO(0x42a8)
-#define GEN12_VE0_AUX_NV			_MMIO(0x4238)
-
 #define BLT_HWS_PGA_GEN7			_MMIO(0x4280)
 
-#define GEN12_VE1_AUX_NV			_MMIO(0x42b8)
+#define GEN12_VD2_AUX_INV			_MMIO(0x4298)
+#define GEN12_CCS0_AUX_INV			_MMIO(0x42c8)
 #define   AUX_INV				REG_BIT(0)
+
 #define VEBOX_HWS_PGA_GEN7			_MMIO(0x4380)
 
 #define GEN12_AUX_ERR_DBG			_MMIO(0x43f4)
@@ -406,6 +405,8 @@
 #define GEN9_WM_CHICKEN3			_MMIO(0x5588)
 #define   GEN9_FACTOR_IN_CLR_VAL_HIZ		(1 << 9)
 
+#define XEHP_CULLBIT1				MCR_REG(0x6100)
+
 #define CHICKEN_RASTER_1			MCR_REG(0x6204)
 #define   DIS_SF_ROUND_NEAREST_EVEN		REG_BIT(8)
 
@@ -456,10 +457,12 @@
 #define   HZ_DEPTH_TEST_LE_GE_OPT_DISABLE	REG_BIT(13)
 #define   BDW_HIZ_POWER_COMPILER_CLOCK_GATING_DISABLE	REG_BIT(3)
 
+#define XEHP_CULLBIT2				MCR_REG(0x7030)
+
 #define GEN8_L3CNTLREG				_MMIO(0x7034)
 #define   GEN8_ERRDETBCTRL			(1 << 9)
 
-#define PSS_MODE2				_MMIO(0x703c)
+#define XEHP_PSS_MODE2				MCR_REG(0x703c)
 #define   SCOREBOARD_STALL_FLUSH_CONTROL	REG_BIT(5)
 
 #define GEN7_SC_INSTDONE			_MMIO(0x7100)
@@ -474,6 +477,9 @@
 #define   HDC_FORCE_CONTEXT_SAVE_RESTORE_NON_COHERENT	(1 << 5)
 #define   HDC_FORCE_NON_COHERENT		(1 << 4)
 #define   HDC_BARRIER_PERFORMANCE_DISABLE	(1 << 10)
+
+#define COMMON_SLICE_CHICKEN4			_MMIO(0x7300)
+#define   DISABLE_TDC_LOAD_BALANCING_CALC	REG_BIT(6)
 
 #define GEN8_HDC_CHICKEN1			_MMIO(0x7304)
 
@@ -764,9 +770,6 @@
 #define GEN10_DFR_RATIO_EN_AND_CHICKEN		MCR_REG(0x9550)
 #define   DFR_DISABLE				(1 << 9)
 
-#define INF_UNIT_LEVEL_CLKGATE			MCR_REG(0x9560)
-#define   CGPSF_CLKGATE_DIS			(1 << 3)
-
 #define MICRO_BP0_0				_MMIO(0x9800)
 #define MICRO_BP0_2				_MMIO(0x9804)
 #define MICRO_BP0_1				_MMIO(0x9808)
@@ -919,6 +922,10 @@
 #define  MSG_IDLE_FW_MASK	REG_GENMASK(13, 9)
 #define  MSG_IDLE_FW_SHIFT	9
 
+#define	RC_PSMI_CTRL_GSCCS	_MMIO(0x11a050)
+#define	  IDLE_MSG_DISABLE	REG_BIT(0)
+#define	PWRCTX_MAXCNT_GSCCS	_MMIO(0x11a054)
+
 #define FORCEWAKE_MEDIA_GEN9			_MMIO(0xa270)
 #define FORCEWAKE_RENDER_GEN9			_MMIO(0xa278)
 
@@ -951,10 +958,11 @@
 #define   GEN7_DISABLE_SAMPLER_PREFETCH		(1 << 30)
 
 #define GEN8_GARBCNTL				_MMIO(0xb004)
-#define   GEN9_GAPS_TSV_CREDIT_DISABLE		(1 << 7)
-#define   GEN11_ARBITRATION_PRIO_ORDER_MASK	(0x3f << 22)
-#define   GEN11_HASH_CTRL_EXCL_MASK		(0x7f << 0)
-#define   GEN11_HASH_CTRL_EXCL_BIT0		(1 << 0)
+#define   GEN11_ARBITRATION_PRIO_ORDER_MASK	REG_GENMASK(27, 22)
+#define   GEN12_BUS_HASH_CTL_BIT_EXC		REG_BIT(7)
+#define   GEN9_GAPS_TSV_CREDIT_DISABLE		REG_BIT(7)
+#define   GEN11_HASH_CTRL_EXCL_MASK		REG_GENMASK(6, 0)
+#define   GEN11_HASH_CTRL_EXCL_BIT0		REG_FIELD_PREP(GEN11_HASH_CTRL_EXCL_MASK, 0x1)
 
 #define GEN9_SCRATCH_LNCF1			_MMIO(0xb008)
 #define   GEN9_LNCF_NONIA_COHERENT_ATOMICS_ENABLE	REG_BIT(0)
@@ -1083,6 +1091,7 @@
 #define XEHP_BLT_TLB_INV_CR			MCR_REG(0xcee4)
 #define GEN12_COMPCTX_TLB_INV_CR		_MMIO(0xcf04)
 #define XEHP_COMPCTX_TLB_INV_CR			MCR_REG(0xcf04)
+#define XELPMP_GSC_TLB_INV_CR			_MMIO(0xcf04)   /* media GT only */
 
 #define XEHP_MERT_MOD_CTRL			MCR_REG(0xcf28)
 #define RENDER_MOD_CTRL				MCR_REG(0xcf2c)
@@ -1135,6 +1144,8 @@
 #define   ENABLE_SMALLPL			REG_BIT(15)
 #define   SC_DISABLE_POWER_OPTIMIZATION_EBB	REG_BIT(9)
 #define   GEN11_SAMPLER_ENABLE_HEADLESS_MSG	REG_BIT(5)
+#define   MTL_DISABLE_SAMPLER_SC_OOO		REG_BIT(3)
+#define   GEN11_INDIRECT_STATE_BASE_ADDR_OVERRIDE	REG_BIT(0)
 
 #define GEN9_HALF_SLICE_CHICKEN7		MCR_REG(0xe194)
 #define   DG2_DISABLE_ROUND_ENABLE_ALLOW_FOR_SSLA	REG_BIT(15)
@@ -1146,7 +1157,13 @@
 #define   ENABLE_EU_COUNT_FOR_TDL_FLUSH		REG_BIT(10)
 #define   DISABLE_ECC				REG_BIT(5)
 #define   FLOAT_BLEND_OPTIMIZATION_ENABLE	REG_BIT(4)
+/*
+ * We have both ENABLE and DISABLE defines below using the same bit because the
+ * meaning depends on the target platform. There are no platform prefix for them
+ * because different steppings of DG2 pick one or the other semantics.
+ */
 #define   ENABLE_PREFETCH_INTO_IC		REG_BIT(3)
+#define   DISABLE_PREFETCH_INTO_IC		REG_BIT(3)
 
 #define EU_PERF_CNTL0				PERF_REG(0xe458)
 #define EU_PERF_CNTL4				PERF_REG(0xe45c)
@@ -1161,7 +1178,9 @@
 #define   THREAD_EX_ARB_MODE_RR_AFTER_DEP	REG_FIELD_PREP(THREAD_EX_ARB_MODE, 0x2)
 
 #define HSW_ROW_CHICKEN3			_MMIO(0xe49c)
+#define GEN9_ROW_CHICKEN3			MCR_REG(0xe49c)
 #define   HSW_ROW_CHICKEN3_L3_GLOBAL_ATOMICS_DISABLE	(1 << 6)
+#define   MTL_DISABLE_FIX_FOR_EOT_FLUSH		REG_BIT(9)
 
 #define GEN8_ROW_CHICKEN			MCR_REG(0xe4f0)
 #define   FLOW_CONTROL_ENABLE			REG_BIT(15)

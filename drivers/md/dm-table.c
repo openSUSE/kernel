@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (C) 2001 Sistina Software (UK) Limited.
  * Copyright (C) 2004-2008 Red Hat, Inc. All rights reserved.
@@ -72,7 +73,7 @@ static sector_t high(struct dm_table *t, unsigned int l, unsigned int n)
 		n = get_child(n, CHILDREN_PER_NODE - 1);
 
 	if (n >= t->counts[l])
-		return (sector_t) - 1;
+		return (sector_t) -1;
 
 	return get_node(t, l, n)[KEYS_PER_NODE - 1];
 }
@@ -211,7 +212,7 @@ static struct dm_dev_internal *find_device(struct list_head *l, dev_t dev)
 {
 	struct dm_dev_internal *dd;
 
-	list_for_each_entry (dd, l, list)
+	list_for_each_entry(dd, l, list)
 		if (dd->dm_dev->bdev->bd_dev == dev)
 			return dd;
 
@@ -234,8 +235,7 @@ static int device_area_is_invalid(struct dm_target *ti, struct dm_dev *dev,
 		return 0;
 
 	if ((start >= dev_size) || (start + len > dev_size)) {
-		DMERR("%s: %pg too small for target: "
-		      "start=%llu, len=%llu, dev_size=%llu",
+		DMERR("%s: %pg too small for target: start=%llu, len=%llu, dev_size=%llu",
 		      dm_device_name(ti->table->md), bdev,
 		      (unsigned long long)start,
 		      (unsigned long long)len,
@@ -280,8 +280,7 @@ static int device_area_is_invalid(struct dm_target *ti, struct dm_dev *dev,
 		return 0;
 
 	if (start & (logical_block_size_sectors - 1)) {
-		DMERR("%s: start=%llu not aligned to h/w "
-		      "logical block size %u of %pg",
+		DMERR("%s: start=%llu not aligned to h/w logical block size %u of %pg",
 		      dm_device_name(ti->table->md),
 		      (unsigned long long)start,
 		      limits->logical_block_size, bdev);
@@ -289,8 +288,7 @@ static int device_area_is_invalid(struct dm_target *ti, struct dm_dev *dev,
 	}
 
 	if (len & (logical_block_size_sectors - 1)) {
-		DMERR("%s: len=%llu not aligned to h/w "
-		      "logical block size %u of %pg",
+		DMERR("%s: len=%llu not aligned to h/w logical block size %u of %pg",
 		      dm_device_name(ti->table->md),
 		      (unsigned long long)len,
 		      limits->logical_block_size, bdev);
@@ -364,6 +362,8 @@ int dm_get_device(struct dm_target *ti, const char *path, fmode_t mode,
 		if (!dev)
 			return -ENODEV;
 	}
+	if (dev == disk_devt(t->md->disk))
+		return -EINVAL;
 
 	dd = find_device(&t->devices, dev);
 	if (!dd) {
@@ -371,7 +371,8 @@ int dm_get_device(struct dm_target *ti, const char *path, fmode_t mode,
 		if (!dd)
 			return -ENOMEM;
 
-		if ((r = dm_get_table_device(t->md, dev, mode, &dd->dm_dev))) {
+		r = dm_get_table_device(t->md, dev, mode, &dd->dm_dev);
+		if (r) {
 			kfree(dd);
 			return r;
 		}
@@ -880,8 +881,7 @@ static int dm_table_determine_type(struct dm_table *t)
 			bio_based = 1;
 
 		if (bio_based && request_based) {
-			DMERR("Inconsistent table: different target types"
-			      " can't be mixed up");
+			DMERR("Inconsistent table: different target types can't be mixed up");
 			return -EINVAL;
 		}
 	}
@@ -1184,8 +1184,7 @@ static int dm_table_register_integrity(struct dm_table *t)
 	 * profile the new profile should not conflict.
 	 */
 	if (blk_integrity_compare(dm_disk(md), template_disk) < 0) {
-		DMERR("%s: conflict with existing integrity profile: "
-		      "%s profile mismatch",
+		DMERR("%s: conflict with existing integrity profile: %s profile mismatch",
 		      dm_device_name(t->md),
 		      template_disk->disk_name);
 		return 1;
@@ -1203,21 +1202,12 @@ struct dm_crypto_profile {
 	struct mapped_device *md;
 };
 
-struct dm_keyslot_evict_args {
-	const struct blk_crypto_key *key;
-	int err;
-};
-
 static int dm_keyslot_evict_callback(struct dm_target *ti, struct dm_dev *dev,
 				     sector_t start, sector_t len, void *data)
 {
-	struct dm_keyslot_evict_args *args = data;
-	int err;
+	const struct blk_crypto_key *key = data;
 
-	err = blk_crypto_evict_key(dev->bdev, args->key);
-	if (!args->err)
-		args->err = err;
-	/* Always try to evict the key from all devices. */
+	blk_crypto_evict_key(dev->bdev, key);
 	return 0;
 }
 
@@ -1230,7 +1220,6 @@ static int dm_keyslot_evict(struct blk_crypto_profile *profile,
 {
 	struct mapped_device *md =
 		container_of(profile, struct dm_crypto_profile, profile)->md;
-	struct dm_keyslot_evict_args args = { key };
 	struct dm_table *t;
 	int srcu_idx;
 
@@ -1243,11 +1232,12 @@ static int dm_keyslot_evict(struct blk_crypto_profile *profile,
 
 		if (!ti->type->iterate_devices)
 			continue;
-		ti->type->iterate_devices(ti, dm_keyslot_evict_callback, &args);
+		ti->type->iterate_devices(ti, dm_keyslot_evict_callback,
+					  (void *)key);
 	}
 
 	dm_put_live_table(md, srcu_idx);
-	return args.err;
+	return 0;
 }
 
 static int
@@ -1526,7 +1516,7 @@ static bool dm_table_any_dev_attr(struct dm_table *t,
 		if (ti->type->iterate_devices &&
 		    ti->type->iterate_devices(ti, func, data))
 			return true;
-        }
+	}
 
 	return false;
 }
@@ -1671,8 +1661,12 @@ int dm_calculate_queue_limits(struct dm_table *t,
 
 		blk_set_stacking_limits(&ti_limits);
 
-		if (!ti->type->iterate_devices)
+		if (!ti->type->iterate_devices) {
+			/* Set I/O hints portion of queue limits */
+			if (ti->type->io_hints)
+				ti->type->io_hints(ti, &ti_limits);
 			goto combine_limits;
+		}
 
 		/*
 		 * Combine queue limits of all the devices this target uses.
@@ -1707,8 +1701,7 @@ combine_limits:
 		 * for the table.
 		 */
 		if (blk_stack_limits(limits, &ti_limits, 0) < 0)
-			DMWARN("%s: adding target device "
-			       "(start sect %llu len %llu) "
+			DMWARN("%s: adding target device (start sect %llu len %llu) "
 			       "caused an alignment inconsistency",
 			       dm_device_name(t->md),
 			       (unsigned long long) ti->begin,
@@ -1970,8 +1963,7 @@ int dm_table_set_restrictions(struct dm_table *t, struct request_queue *q,
 		blk_queue_flag_set(QUEUE_FLAG_DAX, q);
 		if (dm_table_supports_dax(t, device_not_dax_synchronous_capable))
 			set_dax_synchronous(t->md->dax_dev);
-	}
-	else
+	} else
 		blk_queue_flag_clear(QUEUE_FLAG_DAX, q);
 
 	if (dm_table_any_dev_attr(t, device_dax_write_cache_enabled, NULL))

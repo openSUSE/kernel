@@ -712,11 +712,21 @@ struct drm_mode_config {
 	 * between different TV connector types.
 	 */
 	struct drm_property *tv_select_subconnector_property;
+
 	/**
-	 * @tv_mode_property: Optional TV property to select
+	 * @legacy_tv_mode_property: Optional TV property to select
 	 * the output TV mode.
+	 *
+	 * Superseded by @tv_mode_property
+	 */
+	struct drm_property *legacy_tv_mode_property;
+
+	/**
+	 * @tv_mode_property: Optional TV property to select the TV
+	 * standard output on the connector.
 	 */
 	struct drm_property *tv_mode_property;
+
 	/**
 	 * @tv_left_margin_property: Optional TV property to set the left
 	 * margin (expressed in pixels).
@@ -879,13 +889,6 @@ struct drm_mode_config {
 
 	/* dumb ioctl parameters */
 	uint32_t preferred_depth, prefer_shadow;
-
-	/**
-	 * @prefer_shadow_fbdev:
-	 *
-	 * Hint to framebuffer emulation to prefer shadow-fb rendering.
-	 */
-	bool prefer_shadow_fbdev;
 
 	/**
 	 * @quirk_addfb_prefer_xbgr_30bpp:

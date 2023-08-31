@@ -98,6 +98,26 @@ fetch_store_symstring(unsigned long addr, void *dest, void *base)
 	return sprint_symbol(__dest, addr);
 }
 
+/* common part of process_fetch_insn*/
+static nokprobe_inline int
+process_common_fetch_insn(struct fetch_insn *code, unsigned long *val)
+{
+	switch (code->op) {
+	case FETCH_OP_IMM:
+		*val = code->immediate;
+		break;
+	case FETCH_OP_COMM:
+		*val = (unsigned long)current->comm;
+		break;
+	case FETCH_OP_DATA:
+		*val = (unsigned long)code->data;
+		break;
+	default:
+		return -EILSEQ;
+	}
+	return 0;
+}
+
 /* From the 2nd stage, routine is same */
 static nokprobe_inline int
 process_fetch_insn_bottom(struct fetch_insn *code, unsigned long val,
@@ -136,11 +156,11 @@ stage3:
 			code++;
 			goto array;
 		case FETCH_OP_ST_USTRING:
-			ret += fetch_store_strlen_user(val + code->offset);
+			ret = fetch_store_strlen_user(val + code->offset);
 			code++;
 			goto array;
 		case FETCH_OP_ST_SYMSTR:
-			ret += fetch_store_symstrlen(val + code->offset);
+			ret = fetch_store_symstrlen(val + code->offset);
 			code++;
 			goto array;
 		default:
@@ -184,6 +204,8 @@ stage3:
 array:
 	/* the last stage: Loop on array */
 	if (code->op == FETCH_OP_LP_ARRAY) {
+		if (ret < 0)
+			ret = 0;
 		total += ret;
 		if (++i < code->param) {
 			code = s3;
@@ -245,39 +267,9 @@ store_trace_args(void *data, struct trace_probe *tp, void *rec,
 		if (unlikely(arg->dynamic))
 			*dl = make_data_loc(maxlen, dyndata - base);
 		ret = process_fetch_insn(arg->code, rec, dl, base);
-		if (unlikely(ret < 0 && arg->dynamic)) {
-			*dl = make_data_loc(0, dyndata - base);
-		} else {
+		if (arg->dynamic && likely(ret > 0)) {
 			dyndata += ret;
 			maxlen -= ret;
 		}
 	}
-}
-
-static inline int
-print_probe_args(struct trace_seq *s, struct probe_arg *args, int nr_args,
-		 u8 *data, void *field)
-{
-	void *p;
-	int i, j;
-
-	for (i = 0; i < nr_args; i++) {
-		struct probe_arg *a = args + i;
-
-		trace_seq_printf(s, " %s=", a->name);
-		if (likely(!a->count)) {
-			if (!a->type->print(s, data + a->offset, field))
-				return -ENOMEM;
-			continue;
-		}
-		trace_seq_putc(s, '{');
-		p = data + a->offset;
-		for (j = 0; j < a->count; j++) {
-			if (!a->type->print(s, p, field))
-				return -ENOMEM;
-			trace_seq_putc(s, j == a->count - 1 ? '}' : ',');
-			p += a->type->size;
-		}
-	}
-	return 0;
 }

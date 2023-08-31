@@ -347,6 +347,21 @@ struct sta_rec_ba_uni {
 	u8 __rsv[3];
 } __packed;
 
+struct sta_rec_eht {
+	__le16 tag;
+	__le16 len;
+	u8 tid_bitmap;
+	u8 _rsv;
+	__le16 mac_cap;
+	__le64 phy_cap;
+	__le64 phy_cap_ext;
+	u8 mcs_map_bw20[4];
+	u8 mcs_map_bw80[3];
+	u8 mcs_map_bw160[3];
+	u8 mcs_map_bw320[3];
+	u8 _rsv2[3];
+} __packed;
+
 struct sec_key_uni {
 	__le16 wlan_idx;
 	u8 mgmt_prot;
@@ -381,7 +396,7 @@ struct sta_rec_hdr_trans {
 	u8 from_ds;
 	u8 to_ds;
 	u8 dis_rx_hdr_tran;
-	u8 rsv;
+	u8 mesh;
 } __packed;
 
 struct hdr_trans_en {
@@ -554,6 +569,7 @@ enum {
 					 sizeof(struct sta_rec_sec) +		\
 					 sizeof(struct sta_rec_ra_fixed) +	\
 					 sizeof(struct sta_rec_he_6g_capa) +	\
+					 sizeof(struct sta_rec_eht) +		\
 					 sizeof(struct sta_rec_hdrt) +		\
 					 sizeof(struct sta_rec_hdr_trans) +	\
 					 sizeof(struct tlv))
@@ -632,23 +648,21 @@ enum {
 };
 
 enum {
-	UNI_CMD_SER_QUERY = 0x0,
-	UNI_CMD_SER_SET = 0x2,
-	UNI_CMD_SER_TRIGGER = 0x3,
-};
-
-enum {
-	SER_QUERY,
+	UNI_CMD_SER_QUERY,
 	/* recovery */
-	SER_SET_RECOVER_L1,
-	SER_SET_RECOVER_L2,
-	SER_SET_RECOVER_L3_RX_ABORT,
-	SER_SET_RECOVER_L3_TX_ABORT,
-	SER_SET_RECOVER_L3_TX_DISABLE,
-	SER_SET_RECOVER_L3_BF,
+	UNI_CMD_SER_SET_RECOVER_L1,
+	UNI_CMD_SER_SET_RECOVER_L2,
+	UNI_CMD_SER_SET_RECOVER_L3_RX_ABORT,
+	UNI_CMD_SER_SET_RECOVER_L3_TX_ABORT,
+	UNI_CMD_SER_SET_RECOVER_L3_TX_DISABLE,
+	UNI_CMD_SER_SET_RECOVER_L3_BF,
+	UNI_CMD_SER_SET_RECOVER_L4_MDP,
+	UNI_CMD_SER_SET_RECOVER_FULL,
+	UNI_CMD_SER_SET_SYSTEM_ASSERT,
 	/* action */
-	SER_ENABLE = 2,
-	SER_RECOVER
+	UNI_CMD_SER_ENABLE = 1,
+	UNI_CMD_SER_SET,
+	UNI_CMD_SER_TRIGGER
 };
 
 enum {

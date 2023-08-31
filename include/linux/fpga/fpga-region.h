@@ -48,6 +48,8 @@ struct fpga_region {
 	struct fpga_compat_id *compat_id;
 	void *priv;
 	int (*get_bridges)(struct fpga_region *region);
+
+	void *suse_kabi_padding;
 };
 
 #define to_fpga_region(d) container_of(d, struct fpga_region, dev)

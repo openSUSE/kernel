@@ -148,9 +148,10 @@ struct vcap_counter {
 	bool sticky;
 };
 
-/* Enable/Disable the VCAP instance lookups. Chain id 0 means disable */
+/* Enable/Disable the VCAP instance lookups */
 int vcap_enable_lookups(struct vcap_control *vctrl, struct net_device *ndev,
-			int chain_id, unsigned long cookie, bool enable);
+			int from_cid, int to_cid, unsigned long cookie,
+			bool enable);
 
 /* VCAP rule operations */
 /* Allocate a rule and fill in the basic information */
@@ -200,7 +201,12 @@ int vcap_rule_add_action_bit(struct vcap_rule *rule,
 int vcap_rule_add_action_u32(struct vcap_rule *rule,
 			     enum vcap_action_field action, u32 value);
 
+/* Get number of rules in a vcap instance lookup chain id range */
+int vcap_admin_rule_count(struct vcap_admin *admin, int cid);
+
 /* VCAP rule counter operations */
+int vcap_get_rule_count_by_cookie(struct vcap_control *vctrl,
+				  struct vcap_counter *ctr, u64 cookie);
 int vcap_rule_set_counter(struct vcap_rule *rule, struct vcap_counter *ctr);
 int vcap_rule_get_counter(struct vcap_rule *rule, struct vcap_counter *ctr);
 
@@ -214,8 +220,12 @@ const struct vcap_field *vcap_lookup_keyfield(struct vcap_rule *rule,
 					      enum vcap_key_field key);
 /* Find a rule id with a provided cookie */
 int vcap_lookup_rule_by_cookie(struct vcap_control *vctrl, u64 cookie);
+/* Calculate the value used for chaining VCAP rules */
+int vcap_chain_offset(struct vcap_control *vctrl, int from_cid, int to_cid);
 /* Is the next chain id in the following lookup, possible in another VCAP */
 bool vcap_is_next_lookup(struct vcap_control *vctrl, int cur_cid, int next_cid);
+/* Is this chain id the last lookup of all VCAPs */
+bool vcap_is_last_chain(struct vcap_control *vctrl, int cid, bool ingress);
 /* Provide all rules via a callback interface */
 int vcap_rule_iter(struct vcap_control *vctrl,
 		   int (*callback)(void *, struct vcap_rule *), void *arg);
@@ -262,4 +272,14 @@ int vcap_rule_mod_action_u32(struct vcap_rule *rule,
 int vcap_rule_get_key_u32(struct vcap_rule *rule, enum vcap_key_field key,
 			  u32 *value, u32 *mask);
 
+/* Remove a key field with value and mask in the rule */
+int vcap_rule_rem_key(struct vcap_rule *rule, enum vcap_key_field key);
+
+/* Select the keyset from the list that results in the smallest rule size */
+enum vcap_keyfield_set
+vcap_select_min_rule_keyset(struct vcap_control *vctrl, enum vcap_type vtype,
+			    struct vcap_keyset_list *kslist);
+
+struct vcap_client_actionfield *
+vcap_find_actionfield(struct vcap_rule *rule, enum vcap_action_field act);
 #endif /* __VCAP_API_CLIENT__ */

@@ -4,7 +4,7 @@
  * Copyright 2006-2007	Jiri Benc <jbenc@suse.cz>
  * Copyright 2013-2014  Intel Mobile Communications GmbH
  * Copyright (C) 2015 - 2017 Intel Deutschland GmbH
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  */
 
 #include <linux/module.h>
@@ -593,6 +593,9 @@ __sta_info_alloc(struct ieee80211_sub_if_data *sdata,
 	ieee80211_init_frag_cache(&sta->frags);
 
 	sta->sta_state = IEEE80211_STA_NONE;
+
+	if (sdata->vif.type == NL80211_IFTYPE_MESH_POINT)
+		sta->amsdu_mesh_control = -1;
 
 	/* Mark TID as unreserved */
 	sta->reserved_tid = IEEE80211_TID_UNRESERVED;
@@ -1289,6 +1292,18 @@ static void __sta_info_destroy_part2(struct sta_info *sta)
 	if (sta->sta_state == IEEE80211_STA_AUTHORIZED) {
 		ret = sta_info_move_state(sta, IEEE80211_STA_ASSOC);
 		WARN_ON_ONCE(ret);
+	}
+
+	/* Flush queues before removing keys, as that might remove them
+	 * from hardware, and then depending on the offload method, any
+	 * frames sitting on hardware queues might be sent out without
+	 * any encryption at all.
+	 */
+	if (local->ops->set_key) {
+		if (local->ops->flush_sta)
+			drv_flush_sta(local, sta->sdata, sta);
+		else
+			ieee80211_flush_queues(local, sta->sdata, false);
 	}
 
 	/* now keys can no longer be reached */
@@ -2407,6 +2422,13 @@ static void sta_stats_decode_rate(struct ieee80211_local *local, u32 rate,
 		rinfo->he_ru_alloc = STA_STATS_GET(HE_RU, rate);
 		rinfo->he_dcm = STA_STATS_GET(HE_DCM, rate);
 		break;
+	case STA_STATS_RATE_TYPE_EHT:
+		rinfo->flags = RATE_INFO_FLAGS_EHT_MCS;
+		rinfo->mcs = STA_STATS_GET(EHT_MCS, rate);
+		rinfo->nss = STA_STATS_GET(EHT_NSS, rate);
+		rinfo->eht_gi = STA_STATS_GET(EHT_GI, rate);
+		rinfo->eht_ru_alloc = STA_STATS_GET(EHT_RU, rate);
+		break;
 	}
 }
 
@@ -2890,6 +2912,8 @@ int ieee80211_sta_activate_link(struct sta_info *sta, unsigned int link_id)
 
 	if (!test_sta_flag(sta, WLAN_STA_INSERTED))
 		goto hash;
+
+	ieee80211_recalc_min_chandef(sdata, link_id);
 
 	/* Ensure the values are updated for the driver,
 	 * redone by sta_remove_link on failure.

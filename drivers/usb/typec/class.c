@@ -22,7 +22,6 @@ static DEFINE_IDA(typec_index_ida);
 
 struct class typec_class = {
 	.name = "typec",
-	.owner = THIS_MODULE,
 };
 
 /* ------------------------------------------------------------------------- */
@@ -583,6 +582,7 @@ void typec_unregister_altmode(struct typec_altmode *adev)
 {
 	if (IS_ERR_OR_NULL(adev))
 		return;
+	typec_retimer_put(to_altmode(adev)->retimer);
 	typec_mux_put(to_altmode(adev)->mux);
 	device_unregister(&adev->dev);
 }
@@ -1277,8 +1277,7 @@ static ssize_t select_usb_power_delivery_show(struct device *dev,
 {
 	struct typec_port *port = to_typec_port(dev);
 	struct usb_power_delivery **pds;
-	struct usb_power_delivery *pd;
-	int ret = 0;
+	int i, ret = 0;
 
 	if (!port->ops || !port->ops->pd_get)
 		return -EOPNOTSUPP;
@@ -1287,11 +1286,11 @@ static ssize_t select_usb_power_delivery_show(struct device *dev,
 	if (!pds)
 		return 0;
 
-	for (pd = pds[0]; pd; pd++) {
-		if (pd == port->pd)
-			ret += sysfs_emit(buf + ret, "[%s] ", dev_name(&pd->dev));
+	for (i = 0; pds[i]; i++) {
+		if (pds[i] == port->pd)
+			ret += sysfs_emit_at(buf, ret, "[%s] ", dev_name(&pds[i]->dev));
 		else
-			ret += sysfs_emit(buf + ret, "%s ", dev_name(&pd->dev));
+			ret += sysfs_emit_at(buf, ret, "%s ", dev_name(&pds[i]->dev));
 	}
 
 	buf[ret - 1] = '\n';
@@ -1737,7 +1736,7 @@ static const struct attribute_group *typec_groups[] = {
 	NULL
 };
 
-static int typec_uevent(struct device *dev, struct kobj_uevent_env *env)
+static int typec_uevent(const struct device *dev, struct kobj_uevent_env *env)
 {
 	int ret;
 
@@ -2108,16 +2107,26 @@ typec_port_register_altmode(struct typec_port *port,
 {
 	struct typec_altmode *adev;
 	struct typec_mux *mux;
+	struct typec_retimer *retimer;
 
 	mux = typec_mux_get(&port->dev, desc);
 	if (IS_ERR(mux))
 		return ERR_CAST(mux);
 
-	adev = typec_register_altmode(&port->dev, desc);
-	if (IS_ERR(adev))
+	retimer = typec_retimer_get(&port->dev);
+	if (IS_ERR(retimer)) {
 		typec_mux_put(mux);
-	else
+		return ERR_CAST(retimer);
+	}
+
+	adev = typec_register_altmode(&port->dev, desc);
+	if (IS_ERR(adev)) {
+		typec_retimer_put(retimer);
+		typec_mux_put(mux);
+	} else {
 		to_altmode(adev)->mux = mux;
+		to_altmode(adev)->retimer = retimer;
+	}
 
 	return adev;
 }
@@ -2278,6 +2287,8 @@ struct typec_port *typec_register_port(struct device *parent,
 		return ERR_PTR(ret);
 	}
 
+	port->pd = cap->pd;
+
 	ret = device_add(&port->dev);
 	if (ret) {
 		dev_err(parent, "failed to register port (%d)\n", ret);
@@ -2285,7 +2296,7 @@ struct typec_port *typec_register_port(struct device *parent,
 		return ERR_PTR(ret);
 	}
 
-	ret = typec_port_set_usb_power_delivery(port, cap->pd);
+	ret = usb_power_delivery_link_device(port->pd, &port->dev);
 	if (ret) {
 		dev_err(&port->dev, "failed to link pd\n");
 		device_unregister(&port->dev);

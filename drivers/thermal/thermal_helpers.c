@@ -19,9 +19,8 @@
 #include <linux/string.h>
 #include <linux/sysfs.h>
 
-#include <trace/events/thermal.h>
-
 #include "thermal_core.h"
+#include "thermal_trace.h"
 
 int get_tz_trend(struct thermal_zone_device *tz, int trip)
 {
@@ -83,7 +82,7 @@ int __thermal_zone_get_temp(struct thermal_zone_device *tz, int *temp)
 	int ret = -EINVAL;
 	int count;
 	int crit_temp = INT_MAX;
-	enum thermal_trip_type type;
+	struct thermal_trip trip;
 
 	lockdep_assert_held(&tz->lock);
 
@@ -91,10 +90,9 @@ int __thermal_zone_get_temp(struct thermal_zone_device *tz, int *temp)
 
 	if (IS_ENABLED(CONFIG_THERMAL_EMULATION) && tz->emul_temperature) {
 		for (count = 0; count < tz->num_trips; count++) {
-			ret = tz->ops->get_trip_type(tz, count, &type);
-			if (!ret && type == THERMAL_TRIP_CRITICAL) {
-				ret = tz->ops->get_trip_temp(tz, count,
-						&crit_temp);
+			ret = __thermal_zone_get_trip(tz, count, &trip);
+			if (!ret && trip.type == THERMAL_TRIP_CRITICAL) {
+				crit_temp = trip.temperature;
 				break;
 			}
 		}
@@ -107,6 +105,9 @@ int __thermal_zone_get_temp(struct thermal_zone_device *tz, int *temp)
 		if (!ret && *temp < crit_temp)
 			*temp = tz->emul_temperature;
 	}
+
+	if (ret)
+		dev_dbg(&tz->device, "Failed to get temperature: %d\n", ret);
 
 	return ret;
 }
@@ -146,67 +147,6 @@ unlock:
 	return ret;
 }
 EXPORT_SYMBOL_GPL(thermal_zone_get_temp);
-
-/**
- * __thermal_zone_set_trips - Computes the next trip points for the driver
- * @tz: a pointer to a thermal zone device structure
- *
- * The function computes the next temperature boundaries by browsing
- * the trip points. The result is the closer low and high trip points
- * to the current temperature. These values are passed to the backend
- * driver to let it set its own notification mechanism (usually an
- * interrupt).
- *
- * This function must be called with tz->lock held. Both tz and tz->ops
- * must be valid pointers.
- *
- * It does not return a value
- */
-void __thermal_zone_set_trips(struct thermal_zone_device *tz)
-{
-	int low = -INT_MAX;
-	int high = INT_MAX;
-	int trip_temp, hysteresis;
-	int i, ret;
-
-	lockdep_assert_held(&tz->lock);
-
-	if (!tz->ops->set_trips || !tz->ops->get_trip_hyst)
-		return;
-
-	for (i = 0; i < tz->num_trips; i++) {
-		int trip_low;
-
-		tz->ops->get_trip_temp(tz, i, &trip_temp);
-		tz->ops->get_trip_hyst(tz, i, &hysteresis);
-
-		trip_low = trip_temp - hysteresis;
-
-		if (trip_low < tz->temperature && trip_low > low)
-			low = trip_low;
-
-		if (trip_temp > tz->temperature && trip_temp < high)
-			high = trip_temp;
-	}
-
-	/* No need to change trip points */
-	if (tz->prev_low_trip == low && tz->prev_high_trip == high)
-		return;
-
-	tz->prev_low_trip = low;
-	tz->prev_high_trip = high;
-
-	dev_dbg(&tz->device,
-		"new temperature boundaries: %d < x < %d\n", low, high);
-
-	/*
-	 * Set a temperature window. When this window is left the driver
-	 * must inform the thermal core via thermal_zone_device_update.
-	 */
-	ret = tz->ops->set_trips(tz, low, high);
-	if (ret)
-		dev_err(&tz->device, "Failed to set trips: %d\n", ret);
-}
 
 static void thermal_cdev_set_cur_state(struct thermal_cooling_device *cdev,
 				       int target)

@@ -14,6 +14,7 @@
 #include <net/inet_common.h>
 #include <net/inet_connection_sock.h>
 #include <net/request_sock.h>
+#include <trace/events/sock.h>
 
 #include <xen/events.h>
 #include <xen/grant_table.h>
@@ -173,6 +174,8 @@ static bool pvcalls_conn_back_write(struct sock_mapping *map)
 	RING_IDX cons, prod, size, array_size;
 	int ret;
 
+	atomic_set(&map->write, 0);
+
 	cons = intf->out_cons;
 	prod = intf->out_prod;
 	/* read the indexes before dealing with the data */
@@ -197,7 +200,6 @@ static bool pvcalls_conn_back_write(struct sock_mapping *map)
 		iov_iter_kvec(&msg.msg_iter, ITER_SOURCE, vec, 2, size);
 	}
 
-	atomic_set(&map->write, 0);
 	ret = inet_sendmsg(map->sock, &msg, size);
 	if (ret == -EAGAIN) {
 		atomic_inc(&map->write);
@@ -300,6 +302,8 @@ static void pvcalls_sk_data_ready(struct sock *sock)
 	struct sock_mapping *map = sock->sk_user_data;
 	struct pvcalls_ioworker *iow;
 
+	trace_sk_data_ready(sock);
+
 	if (map == NULL)
 		return;
 
@@ -321,8 +325,10 @@ static struct sock_mapping *pvcalls_new_active_socket(
 	void *page;
 
 	map = kzalloc(sizeof(*map), GFP_KERNEL);
-	if (map == NULL)
+	if (map == NULL) {
+		sock_release(sock);
 		return NULL;
+	}
 
 	map->fedata = fedata;
 	map->sock = sock;
@@ -414,10 +420,8 @@ static int pvcalls_back_connect(struct xenbus_device *dev,
 					req->u.connect.ref,
 					req->u.connect.evtchn,
 					sock);
-	if (!map) {
+	if (!map)
 		ret = -EFAULT;
-		sock_release(sock);
-	}
 
 out:
 	rsp = RING_GET_RESPONSE(&fedata->ring, fedata->ring.rsp_prod_pvt++);
@@ -557,7 +561,6 @@ static void __pvcalls_back_accept(struct work_struct *work)
 					sock);
 	if (!map) {
 		ret = -EFAULT;
-		sock_release(sock);
 		goto out_error;
 	}
 
@@ -587,6 +590,8 @@ static void pvcalls_pass_sk_data_ready(struct sock *sock)
 	struct xen_pvcalls_response *rsp;
 	unsigned long flags;
 	int notify;
+
+	trace_sk_data_ready(sock);
 
 	if (mappass == NULL)
 		return;
@@ -1185,7 +1190,7 @@ static void pvcalls_back_remove(struct xenbus_device *dev)
 {
 }
 
-static int pvcalls_back_uevent(struct xenbus_device *xdev,
+static int pvcalls_back_uevent(const struct xenbus_device *xdev,
 			       struct kobj_uevent_env *env)
 {
 	return 0;

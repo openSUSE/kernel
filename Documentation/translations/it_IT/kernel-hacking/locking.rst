@@ -1029,6 +1029,11 @@ Dato che questo è un problema abbastanza comune con una propensione
 alle corse critiche, dovreste usare timer_delete_sync()
 (``include/linux/timer.h``) per gestire questo caso.
 
+Prima di rilasciare un temporizzatore dovreste chiamare la funzione
+timer_shutdown() o timer_shutdown_sync() di modo che non venga più riarmato.
+Ogni successivo tentativo di riarmare il temporizzatore verrà silenziosamente
+ignorato.
+
 Velocità della sincronizzazione
 ===============================
 
@@ -1307,11 +1312,11 @@ se i dati vengono occasionalmente utilizzati da un contesto utente o
 da un'interruzione software. Il gestore d'interruzione non utilizza alcun
 *lock*, e tutti gli altri accessi verranno fatti così::
 
-        spin_lock(&lock);
+        mutex_lock(&lock);
         disable_irq(irq);
         ...
         enable_irq(irq);
-        spin_unlock(&lock);
+        mutex_unlock(&lock);
 
 La funzione disable_irq() impedisce al gestore d'interruzioni
 d'essere eseguito (e aspetta che finisca nel caso fosse in esecuzione su

@@ -473,7 +473,7 @@ struct nvme_id_ns_nvm {
 };
 
 enum {
-	NVME_ID_NS_NVM_STS_MASK		= 0x3f,
+	NVME_ID_NS_NVM_STS_MASK		= 0x7f,
 	NVME_ID_NS_NVM_GUARD_SHIFT	= 7,
 	NVME_ID_NS_NVM_GUARD_MASK	= 0x3,
 };
@@ -812,6 +812,7 @@ enum nvme_opcode {
 		nvme_opcode_name(nvme_cmd_compare),		\
 		nvme_opcode_name(nvme_cmd_write_zeroes),	\
 		nvme_opcode_name(nvme_cmd_dsm),			\
+		nvme_opcode_name(nvme_cmd_verify),		\
 		nvme_opcode_name(nvme_cmd_resv_register),	\
 		nvme_opcode_name(nvme_cmd_resv_report),		\
 		nvme_opcode_name(nvme_cmd_resv_acquire),	\
@@ -1144,10 +1145,14 @@ enum nvme_admin_opcode {
 		nvme_admin_opcode_name(nvme_admin_ns_mgmt),		\
 		nvme_admin_opcode_name(nvme_admin_activate_fw),		\
 		nvme_admin_opcode_name(nvme_admin_download_fw),		\
+		nvme_admin_opcode_name(nvme_admin_dev_self_test),	\
 		nvme_admin_opcode_name(nvme_admin_ns_attach),		\
 		nvme_admin_opcode_name(nvme_admin_keep_alive),		\
 		nvme_admin_opcode_name(nvme_admin_directive_send),	\
 		nvme_admin_opcode_name(nvme_admin_directive_recv),	\
+		nvme_admin_opcode_name(nvme_admin_virtual_mgmt),	\
+		nvme_admin_opcode_name(nvme_admin_nvme_mi_send),	\
+		nvme_admin_opcode_name(nvme_admin_nvme_mi_recv),	\
 		nvme_admin_opcode_name(nvme_admin_dbbuf),		\
 		nvme_admin_opcode_name(nvme_admin_format_nvm),		\
 		nvme_admin_opcode_name(nvme_admin_security_send),	\

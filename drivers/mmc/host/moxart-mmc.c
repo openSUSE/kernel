@@ -338,13 +338,7 @@ static void moxart_transfer_pio(struct moxart_host *host)
 				return;
 			}
 			for (len = 0; len < remain && len < host->fifo_width;) {
-				/* SCR data must be read in big endian. */
-				if (data->mrq->cmd->opcode == SD_APP_SEND_SCR)
-					*sgp = ioread32be(host->base +
-							  REG_DATA_WINDOW);
-				else
-					*sgp = ioread32(host->base +
-							REG_DATA_WINDOW);
+				*sgp = ioread32(host->base + REG_DATA_WINDOW);
 				sgp++;
 				len += 4;
 			}
@@ -611,6 +605,9 @@ static int moxart_probe(struct platform_device *pdev)
 	mmc->f_max = DIV_ROUND_CLOSEST(host->sysclk, 2);
 	mmc->f_min = DIV_ROUND_CLOSEST(host->sysclk, CLK_DIV_MASK * 2);
 	mmc->ocr_avail = 0xffff00;	/* Support 2.0v - 3.6v power. */
+	mmc->max_blk_size = 2048; /* Max. block length in REG_DATA_CONTROL */
+	mmc->max_req_size = DATA_LEN_MASK; /* bits 0-23 in REG_DATA_LENGTH */
+	mmc->max_blk_count = mmc->max_req_size / 512;
 
 	if (IS_ERR(host->dma_chan_tx) || IS_ERR(host->dma_chan_rx)) {
 		if (PTR_ERR(host->dma_chan_tx) == -EPROBE_DEFER ||
@@ -628,6 +625,8 @@ static int moxart_probe(struct platform_device *pdev)
 		}
 		dev_dbg(dev, "PIO mode transfer enabled\n");
 		host->have_dma = false;
+
+		mmc->max_seg_size = mmc->max_req_size;
 	} else {
 		dev_dbg(dev, "DMA channels found (%p,%p)\n",
 			 host->dma_chan_tx, host->dma_chan_rx);
@@ -646,6 +645,10 @@ static int moxart_probe(struct platform_device *pdev)
 		cfg.src_addr = host->reg_phys + REG_DATA_WINDOW;
 		cfg.dst_addr = 0;
 		dmaengine_slave_config(host->dma_chan_rx, &cfg);
+
+		mmc->max_seg_size = min3(mmc->max_req_size,
+			dma_get_max_seg_size(host->dma_chan_rx->device->dev),
+			dma_get_max_seg_size(host->dma_chan_tx->device->dev));
 	}
 
 	if (readl(host->base + REG_BUS_WIDTH) & BUS_WIDTH_4_SUPPORT)

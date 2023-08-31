@@ -1211,23 +1211,26 @@ void ata_sff_flush_pio_task(struct ata_port *ap)
 	 */
 	spin_lock_irq(ap->lock);
 	ap->hsm_task_state = HSM_ST_IDLE;
-	spin_unlock_irq(ap->lock);
 
 	ap->sff_pio_task_link = NULL;
+	spin_unlock_irq(ap->lock);
 }
 
 static void ata_sff_pio_task(struct work_struct *work)
 {
 	struct ata_port *ap =
 		container_of(work, struct ata_port, sff_pio_task.work);
-	struct ata_link *link = ap->sff_pio_task_link;
+	struct ata_link *link;
 	struct ata_queued_cmd *qc;
 	u8 status;
 	int poll_next;
 
 	spin_lock_irq(ap->lock);
 
-	BUG_ON(ap->sff_pio_task_link == NULL);
+	link = ap->sff_pio_task_link;
+	if (WARN_ON(!link))
+		goto out_unlock;
+
 	/* qc can be NULL if timeout occurred */
 	qc = ata_qc_from_tag(ap, link->active_tag);
 	if (!qc) {
@@ -1377,14 +1380,10 @@ EXPORT_SYMBOL_GPL(ata_sff_qc_issue);
  *
  *	LOCKING:
  *	spin_lock_irqsave(host lock)
- *
- *	RETURNS:
- *	true indicating that result TF is successfully filled.
  */
-bool ata_sff_qc_fill_rtf(struct ata_queued_cmd *qc)
+void ata_sff_qc_fill_rtf(struct ata_queued_cmd *qc)
 {
 	qc->ap->ops->sff_tf_read(qc->ap, &qc->result_tf);
-	return true;
 }
 EXPORT_SYMBOL_GPL(ata_sff_qc_fill_rtf);
 
@@ -2073,7 +2072,7 @@ void ata_sff_error_handler(struct ata_port *ap)
 	unsigned long flags;
 
 	qc = __ata_qc_from_tag(ap, ap->link.active_tag);
-	if (qc && !(qc->flags & ATA_QCFLAG_FAILED))
+	if (qc && !(qc->flags & ATA_QCFLAG_EH))
 		qc = NULL;
 
 	spin_lock_irqsave(ap->lock, flags);
@@ -2285,7 +2284,7 @@ EXPORT_SYMBOL_GPL(ata_pci_sff_prepare_host);
  */
 int ata_pci_sff_activate_host(struct ata_host *host,
 			      irq_handler_t irq_handler,
-			      struct scsi_host_template *sht)
+			      const struct scsi_host_template *sht)
 {
 	struct device *dev = host->dev;
 	struct pci_dev *pdev = to_pci_dev(dev);
@@ -2382,7 +2381,7 @@ static const struct ata_port_info *ata_sff_find_valid_pi(
 
 static int ata_pci_init_one(struct pci_dev *pdev,
 		const struct ata_port_info * const *ppi,
-		struct scsi_host_template *sht, void *host_priv,
+		const struct scsi_host_template *sht, void *host_priv,
 		int hflags, bool bmdma)
 {
 	struct device *dev = &pdev->dev;
@@ -2456,7 +2455,7 @@ out:
  */
 int ata_pci_sff_init_one(struct pci_dev *pdev,
 		 const struct ata_port_info * const *ppi,
-		 struct scsi_host_template *sht, void *host_priv, int hflag)
+		 const struct scsi_host_template *sht, void *host_priv, int hflag)
 {
 	return ata_pci_init_one(pdev, ppi, sht, host_priv, hflag, 0);
 }
@@ -2796,7 +2795,7 @@ void ata_bmdma_error_handler(struct ata_port *ap)
 	bool thaw = false;
 
 	qc = __ata_qc_from_tag(ap, ap->link.active_tag);
-	if (qc && !(qc->flags & ATA_QCFLAG_FAILED))
+	if (qc && !(qc->flags & ATA_QCFLAG_EH))
 		qc = NULL;
 
 	/* reset PIO HSM and stop DMA engine */
@@ -3179,7 +3178,7 @@ EXPORT_SYMBOL_GPL(ata_pci_bmdma_prepare_host);
  */
 int ata_pci_bmdma_init_one(struct pci_dev *pdev,
 			   const struct ata_port_info * const * ppi,
-			   struct scsi_host_template *sht, void *host_priv,
+			   const struct scsi_host_template *sht, void *host_priv,
 			   int hflags)
 {
 	return ata_pci_init_one(pdev, ppi, sht, host_priv, hflags, 1);

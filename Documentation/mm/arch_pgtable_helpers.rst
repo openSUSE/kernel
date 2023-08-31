@@ -1,7 +1,5 @@
 .. SPDX-License-Identifier: GPL-2.0
 
-.. _arch_page_table_helpers:
-
 ===============================
 Architecture Page Table Helpers
 ===============================
@@ -216,7 +214,7 @@ HugeTLB Page Table Helpers
 +---------------------------+--------------------------------------------------+
 | pte_huge                  | Tests a HugeTLB                                  |
 +---------------------------+--------------------------------------------------+
-| pte_mkhuge                | Creates a HugeTLB                                |
+| arch_make_huge_pte        | Creates a HugeTLB                                |
 +---------------------------+--------------------------------------------------+
 | huge_pte_dirty            | Tests a dirty HugeTLB                            |
 +---------------------------+--------------------------------------------------+

@@ -1017,7 +1017,7 @@ lock_and_cleanup_extent_if_need(struct btrfs_inode *inode, struct page **pages,
 				unlock_page(pages[i]);
 				put_page(pages[i]);
 			}
-			btrfs_start_ordered_extent(ordered, 1);
+			btrfs_start_ordered_extent(ordered);
 			btrfs_put_ordered_extent(ordered);
 			return -EAGAIN;
 		}
@@ -3730,10 +3730,15 @@ static int check_direct_read(struct btrfs_fs_info *fs_info,
 	if (!iter_is_iovec(iter))
 		return 0;
 
-	for (seg = 0; seg < iter->nr_segs; seg++)
-		for (i = seg + 1; i < iter->nr_segs; i++)
-			if (iter->iov[seg].iov_base == iter->iov[i].iov_base)
+	for (seg = 0; seg < iter->nr_segs; seg++) {
+		for (i = seg + 1; i < iter->nr_segs; i++) {
+			const struct iovec *iov1 = iter_iov(iter) + seg;
+			const struct iovec *iov2 = iter_iov(iter) + i;
+
+			if (iov1->iov_base == iov2->iov_base)
 				return -EINVAL;
+		}
+	}
 	return 0;
 }
 

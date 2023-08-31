@@ -163,11 +163,14 @@ struct atmel_i2s_gck_param {
 
 #define I2S_MCK_12M288		12288000UL
 #define I2S_MCK_11M2896		11289600UL
+#define I2S_MCK_6M144		6144000UL
 
 /* mck = (32 * (imckfs+1) / (imckdiv+1)) * fs */
 static const struct atmel_i2s_gck_param gck_params[] = {
+	/* mck = 6.144Mhz */
+	{  8000, I2S_MCK_6M144,  1, 47},	/* mck =  768 fs */
+
 	/* mck = 12.288MHz */
-	{  8000, I2S_MCK_12M288, 0, 47},	/* mck = 1536 fs */
 	{ 16000, I2S_MCK_12M288, 1, 47},	/* mck =  768 fs */
 	{ 24000, I2S_MCK_12M288, 3, 63},	/* mck =  512 fs */
 	{ 32000, I2S_MCK_12M288, 3, 47},	/* mck =  384 fs */
@@ -717,13 +720,11 @@ static int atmel_i2s_probe(struct platform_device *pdev)
 	return 0;
 }
 
-static int atmel_i2s_remove(struct platform_device *pdev)
+static void atmel_i2s_remove(struct platform_device *pdev)
 {
 	struct atmel_i2s_dev *dev = platform_get_drvdata(pdev);
 
 	clk_disable_unprepare(dev->pclk);
-
-	return 0;
 }
 
 static struct platform_driver atmel_i2s_driver = {
@@ -732,7 +733,7 @@ static struct platform_driver atmel_i2s_driver = {
 		.of_match_table	= of_match_ptr(atmel_i2s_dt_ids),
 	},
 	.probe		= atmel_i2s_probe,
-	.remove		= atmel_i2s_remove,
+	.remove_new	= atmel_i2s_remove,
 };
 module_platform_driver(atmel_i2s_driver);
 

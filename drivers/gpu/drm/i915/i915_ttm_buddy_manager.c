@@ -5,8 +5,8 @@
 
 #include <linux/slab.h>
 
-#include <drm/ttm/ttm_bo_driver.h>
 #include <drm/ttm/ttm_placement.h>
+#include <drm/ttm/ttm_bo.h>
 
 #include <drm/drm_buddy.h>
 
@@ -138,13 +138,6 @@ static int i915_ttm_buddy_man_alloc(struct ttm_resource_manager *man,
 		bman->visible_avail -= bman_res->used_visible_size;
 
 	mutex_unlock(&bman->lock);
-
-	if (place->lpfn - place->fpfn == n_pages)
-		bman_res->base.start = place->fpfn;
-	else if (lpfn <= bman->visible_size)
-		bman_res->base.start = 0;
-	else
-		bman_res->base.start = bman->visible_size;
 
 	*res = &bman_res->base;
 	return 0;

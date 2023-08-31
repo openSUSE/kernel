@@ -88,29 +88,10 @@ static const struct regmap_config rt5682_sdw_indirect_regmap = {
 	.reg_write = rt5682_sdw_write,
 };
 
-struct sdw_stream_data {
-	struct sdw_stream_runtime *sdw_stream;
-};
-
 static int rt5682_set_sdw_stream(struct snd_soc_dai *dai, void *sdw_stream,
 				 int direction)
 {
-	struct sdw_stream_data *stream;
-
-	if (!sdw_stream)
-		return 0;
-
-	stream = kzalloc(sizeof(*stream), GFP_KERNEL);
-	if (!stream)
-		return -ENOMEM;
-
-	stream->sdw_stream = sdw_stream;
-
-	/* Use tx_mask or rx_mask to configure stream tag and set dma_data */
-	if (direction == SNDRV_PCM_STREAM_PLAYBACK)
-		dai->playback_dma_data = stream;
-	else
-		dai->capture_dma_data = stream;
+	snd_soc_dai_dma_data_set(dai, direction, sdw_stream);
 
 	return 0;
 }
@@ -118,11 +99,7 @@ static int rt5682_set_sdw_stream(struct snd_soc_dai *dai, void *sdw_stream,
 static void rt5682_sdw_shutdown(struct snd_pcm_substream *substream,
 				struct snd_soc_dai *dai)
 {
-	struct sdw_stream_data *stream;
-
-	stream = snd_soc_dai_get_dma_data(dai, substream);
 	snd_soc_dai_set_dma_data(dai, substream, NULL);
-	kfree(stream);
 }
 
 static int rt5682_sdw_hw_params(struct snd_pcm_substream *substream,
@@ -133,14 +110,14 @@ static int rt5682_sdw_hw_params(struct snd_pcm_substream *substream,
 	struct rt5682_priv *rt5682 = snd_soc_component_get_drvdata(component);
 	struct sdw_stream_config stream_config = {0};
 	struct sdw_port_config port_config = {0};
-	struct sdw_stream_data *stream;
+	struct sdw_stream_runtime *sdw_stream;
 	int retval;
 	unsigned int val_p = 0, val_c = 0, osr_p = 0, osr_c = 0;
 
 	dev_dbg(dai->dev, "%s %s", __func__, dai->name);
 
-	stream = snd_soc_dai_get_dma_data(dai, substream);
-	if (!stream)
+	sdw_stream = snd_soc_dai_get_dma_data(dai, substream);
+	if (!sdw_stream)
 		return -ENOMEM;
 
 	if (!rt5682->slave)
@@ -155,7 +132,7 @@ static int rt5682_sdw_hw_params(struct snd_pcm_substream *substream,
 		port_config.num = 2;
 
 	retval = sdw_stream_add_slave(rt5682->slave, &stream_config,
-				      &port_config, 1, stream->sdw_stream);
+				      &port_config, 1, sdw_stream);
 	if (retval) {
 		dev_err(dai->dev, "Unable to configure port\n");
 		return retval;
@@ -249,13 +226,13 @@ static int rt5682_sdw_hw_free(struct snd_pcm_substream *substream,
 {
 	struct snd_soc_component *component = dai->component;
 	struct rt5682_priv *rt5682 = snd_soc_component_get_drvdata(component);
-	struct sdw_stream_data *stream =
+	struct sdw_stream_runtime *sdw_stream =
 		snd_soc_dai_get_dma_data(dai, substream);
 
 	if (!rt5682->slave)
 		return -EINVAL;
 
-	sdw_stream_remove_slave(rt5682->slave, stream->sdw_stream);
+	sdw_stream_remove_slave(rt5682->slave, sdw_stream);
 	return 0;
 }
 
@@ -776,8 +753,15 @@ static int __maybe_unused rt5682_dev_resume(struct device *dev)
 	if (!rt5682->first_hw_init)
 		return 0;
 
-	if (!slave->unattach_request)
+	if (!slave->unattach_request) {
+		if (rt5682->disable_irq == true) {
+			mutex_lock(&rt5682->disable_irq_lock);
+			sdw_write_no_pm(slave, SDW_SCP_INTMASK1, SDW_SCP_INT1_IMPL_DEF);
+			rt5682->disable_irq = false;
+			mutex_unlock(&rt5682->disable_irq_lock);
+		}
 		goto regmap_sync;
+	}
 
 	time = wait_for_completion_timeout(&slave->initialization_complete,
 				msecs_to_jiffies(RT5682_PROBE_TIMEOUT));

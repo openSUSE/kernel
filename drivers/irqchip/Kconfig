@@ -7,6 +7,7 @@ config IRQCHIP
 
 config ARM_GIC
 	bool
+	depends on OF
 	select IRQ_DOMAIN_HIERARCHY
 	select GENERIC_IRQ_EFFECTIVE_AFF_MASK if SMP
 
@@ -35,6 +36,7 @@ config ARM_GIC_V3
 	select IRQ_DOMAIN_HIERARCHY
 	select PARTITION_PERCPU
 	select GENERIC_IRQ_EFFECTIVE_AFF_MASK if SMP
+	select HAVE_ARM_SMCCC_DISCOVERY
 
 config ARM_GIC_V3_ITS
 	bool
@@ -133,11 +135,6 @@ config BRCMSTB_L2_IRQ
 	tristate "Broadcom STB generic L2 interrupt controller driver"
 	depends on ARCH_BCM2835 || ARCH_BRCMSTB || BMIPS_GENERIC
 	default ARCH_BCM2835 || ARCH_BRCMSTB || BMIPS_GENERIC
-	select GENERIC_IRQ_CHIP
-	select IRQ_DOMAIN
-
-config DAVINCI_AINTC
-	bool
 	select GENERIC_IRQ_CHIP
 	select IRQ_DOMAIN
 
@@ -389,7 +386,7 @@ config LS_EXTIRQ
 
 config LS_SCFG_MSI
 	def_bool y if SOC_LS1021A || ARCH_LAYERSCAPE
-	depends on PCI && PCI_MSI
+	depends on PCI_MSI
 
 config PARTITION_PERCPU
 	bool
@@ -540,6 +537,7 @@ config TI_PRUSS_INTC
 config RISCV_INTC
 	bool
 	depends on RISCV
+	select IRQ_DOMAIN_HIERARCHY
 
 config SIFIVE_PLIC
 	bool
@@ -658,6 +656,7 @@ config APPLE_AIC
 	bool "Apple Interrupt Controller (AIC)"
 	depends on ARM64
 	depends on ARCH_APPLE || COMPILE_TEST
+	select GENERIC_IRQ_IPI_MUX
 	help
 	  Support for the Apple Interrupt Controller found on Apple Silicon SoCs,
 	  such as the M1.

@@ -93,6 +93,8 @@
 #define FEATURE_GA		(1ULL<<7)
 #define FEATURE_HE		(1ULL<<8)
 #define FEATURE_PC		(1ULL<<9)
+#define FEATURE_GATS_SHIFT	(12)
+#define FEATURE_GATS_MASK	(3ULL)
 #define FEATURE_GAM_VAPIC	(1ULL<<21)
 #define FEATURE_GIOSUP		(1ULL<<48)
 #define FEATURE_EPHSUP		(1ULL<<50)
@@ -172,6 +174,7 @@
 #define CONTROL_GAINT_EN	29
 #define CONTROL_XT_EN		50
 #define CONTROL_INTCAPXT_EN	51
+#define CONTROL_IRTCACHEDIS	59
 #define CONTROL_SNPAVIC_EN	61
 
 #define CTRL_INV_TO_MASK	(7 << CONTROL_INV_TIMEOUT)
@@ -305,6 +308,9 @@
 #define PAGE_MODE_6_LEVEL 0x06
 #define PAGE_MODE_7_LEVEL 0x07
 
+#define GUEST_PGTABLE_4_LEVEL	0x00
+#define GUEST_PGTABLE_5_LEVEL	0x01
+
 #define PM_LEVEL_SHIFT(x)	(12 + ((x) * 9))
 #define PM_LEVEL_SIZE(x)	(((x) < 6) ? \
 				  ((1ULL << PM_LEVEL_SHIFT((x))) - 1): \
@@ -397,6 +403,8 @@
 #define DTE_GCR3_SHIFT_A	58
 #define DTE_GCR3_SHIFT_B	16
 #define DTE_GCR3_SHIFT_C	43
+
+#define DTE_GPT_LEVEL_SHIFT	54
 
 #define GCR3_VALID		0x01ULL
 
@@ -549,6 +557,7 @@ struct protection_domain {
 	spinlock_t lock;	/* mostly used to lock the page table*/
 	u16 id;			/* the domain id written to the device table */
 	int glx;		/* Number of levels for GCR3 table */
+	int nid;		/* Node ID */
 	u64 *gcr3_tbl;		/* Guest CR3 table */
 	unsigned long flags;	/* flags to find out type of domain */
 	unsigned dev_cnt;	/* devices assigned to this domain */
@@ -707,6 +716,9 @@ struct amd_iommu {
 
 	/* if one, we need to send a completion wait command */
 	bool need_sync;
+
+	/* true if disable irte caching */
+	bool irtcachedis_enabled;
 
 	/* Handle for IOMMU core code */
 	struct iommu_device iommu;
@@ -1001,8 +1013,8 @@ struct amd_ir_data {
 	 */
 	struct irq_cfg *cfg;
 	int ga_vector;
-	int ga_root_ptr;
-	int ga_tag;
+	u64 ga_root_ptr;
+	u32 ga_tag;
 };
 
 struct amd_irte_ops {

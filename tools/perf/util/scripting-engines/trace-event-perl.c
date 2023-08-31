@@ -315,12 +315,14 @@ static SV *perl_process_callchain(struct perf_sample *sample,
 
 		if (node->ms.map) {
 			struct map *map = node->ms.map;
+			struct dso *dso = map ? map__dso(map) : NULL;
 			const char *dsoname = "[unknown]";
-			if (map && map->dso) {
-				if (symbol_conf.show_kernel_path && map->dso->long_name)
-					dsoname = map->dso->long_name;
+
+			if (dso) {
+				if (symbol_conf.show_kernel_path && dso->long_name)
+					dsoname = dso->long_name;
 				else
-					dsoname = map->dso->name;
+					dsoname = dso->name;
 			}
 			if (!hv_stores(elem, "dso", newSVpv(dsoname,0))) {
 				hv_undef(elem);
@@ -393,10 +395,8 @@ static void perl_process_tracepoint(struct perf_sample *sample,
 			if (field->flags & TEP_FIELD_IS_DYNAMIC) {
 				offset = *(int *)(data + field->offset);
 				offset &= 0xffff;
-#ifdef HAVE_LIBTRACEEVENT_TEP_FIELD_IS_RELATIVE
-				if (field->flags & TEP_FIELD_IS_RELATIVE)
+				if (tep_field_is_relative(field->flags))
 					offset += field->offset + field->size;
-#endif
 			} else
 				offset = field->offset;
 			XPUSHs(sv_2mortal(newSVpv((char *)data + offset, 0)));

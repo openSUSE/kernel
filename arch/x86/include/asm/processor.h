@@ -542,7 +542,6 @@ enum idle_boot_override {IDLE_NO_OVERRIDE=0, IDLE_HALT, IDLE_NOMWAIT,
 			 IDLE_POLL};
 
 extern void enable_sep_cpu(void);
-extern int sysenter_setup(void);
 
 
 /* Defined in head.S */
@@ -648,7 +647,11 @@ static inline void spin_lock_prefetch(const void *x)
 #define KSTK_ESP(task)		(task_pt_regs(task)->sp)
 
 #else
-#define INIT_THREAD { }
+extern unsigned long __end_init_task[];
+
+#define INIT_THREAD {							    \
+	.sp	= (unsigned long)&__end_init_task - sizeof(struct pt_regs), \
+}
 
 extern unsigned long KSTK_ESP(struct task_struct *task);
 
@@ -680,9 +683,13 @@ extern u16 get_llc_id(unsigned int cpu);
 #ifdef CONFIG_CPU_SUP_AMD
 extern u32 amd_get_nodes_per_socket(void);
 extern u32 amd_get_highest_perf(void);
+extern bool cpu_has_ibpb_brtype_microcode(void);
+extern void amd_clear_divider(void);
 #else
 static inline u32 amd_get_nodes_per_socket(void)	{ return 0; }
 static inline u32 amd_get_highest_perf(void)		{ return 0; }
+static inline bool cpu_has_ibpb_brtype_microcode(void)	{ return false; }
+static inline void amd_clear_divider(void)		{ }
 #endif
 
 extern unsigned long arch_align_stack(unsigned long sp);
@@ -724,5 +731,7 @@ int arch_memory_failure(unsigned long pfn, int flags);
 bool arch_is_platform_page(u64 paddr);
 #define arch_is_platform_page arch_is_platform_page
 #endif
+
+extern bool gds_ucode_mitigated(void);
 
 #endif /* _ASM_X86_PROCESSOR_H */

@@ -161,6 +161,12 @@ Default is to monitor all CPUS.
 -M::
 --disassembler-style=:: Set disassembler style for objdump.
 
+--addr2line=<path>::
+        Path to addr2line binary.
+
+--objdump=<path>::
+        Path to objdump binary.
+
 --prefix=PREFIX::
 --prefix-strip=N::
         Remove first N entries from source file path names in executables
@@ -248,6 +254,10 @@ Default is to monitor all CPUS.
 	The various filters must be specified as a comma separated list: --branch-filter any_ret,u,k
 	Note that this feature may not be available on all processors.
 
+--branch-history::
+	Add the addresses of sampled taken branches to the callstack.
+	This allows to examine the path the program took to each sample.
+
 --raw-trace::
 	When displaying traceevent output, do not use print fmt or plugins.
 
@@ -334,7 +344,7 @@ use '-e e1 -e e2 -G foo,foo' or just use '-e e1 -e e2 -G foo'.
 	callgraph. The option must be used with --call-graph lbr recording.
 	Disabled by default. In common cases with call stack overflows,
 	it can recreate better call stacks than the default lbr call stack
-	output. But this approach is not full proof. There can be cases
+	output. But this approach is not foolproof. There can be cases
 	where it creates incorrect call stacks from incorrect matches.
 	The known limitations include exception handing such as
 	setjmp/longjmp will have calls/returns not match.

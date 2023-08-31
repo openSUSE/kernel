@@ -35,6 +35,7 @@
 #include <linux/rculist.h>
 #include <linux/dmi.h>
 #include <net/genetlink.h>
+#include <net/gso.h>
 #include <net/net_namespace.h>
 #include <net/netns/generic.h>
 #include <net/pkt_cls.h>
@@ -235,9 +236,6 @@ void ovs_dp_detach_port(struct vport *p)
 
 	/* First drop references to device. */
 	hlist_del_rcu(&p->dp_hash_node);
-
-	/* Free percpu memory */
-	free_percpu(p->upcall_stats);
 
 	/* Then destroy it. */
 	ovs_vport_del(p);
@@ -1831,7 +1829,7 @@ static int ovs_dp_cmd_new(struct sk_buff *skb, struct genl_info *info)
 	parms.port_no = OVSP_LOCAL;
 	parms.upcall_portids = a[OVS_DP_ATTR_UPCALL_PID];
 	parms.desired_ifindex = a[OVS_DP_ATTR_IFINDEX]
-		? nla_get_u32(a[OVS_DP_ATTR_IFINDEX]) : 0;
+		? nla_get_s32(a[OVS_DP_ATTR_IFINDEX]) : 0;
 
 	/* So far only local changes have been made, now need the lock. */
 	ovs_lock();
@@ -1858,12 +1856,6 @@ static int ovs_dp_cmd_new(struct sk_buff *skb, struct genl_info *info)
 		goto err_destroy_portids;
 	}
 
-	vport->upcall_stats = netdev_alloc_pcpu_stats(struct vport_upcall_stats_percpu);
-	if (!vport->upcall_stats) {
-		err = -ENOMEM;
-		goto err_destroy_vport;
-	}
-
 	err = ovs_dp_cmd_fill_info(dp, reply, info->snd_portid,
 				   info->snd_seq, 0, OVS_DP_CMD_NEW);
 	BUG_ON(err < 0);
@@ -1876,8 +1868,6 @@ static int ovs_dp_cmd_new(struct sk_buff *skb, struct genl_info *info)
 	ovs_notify(&dp_datapath_genl_family, reply, info);
 	return 0;
 
-err_destroy_vport:
-	ovs_dp_detach_port(vport);
 err_destroy_portids:
 	kfree(rcu_dereference_raw(dp->upcall_portids));
 err_unlock_and_destroy_meters:
@@ -2059,7 +2049,7 @@ static const struct nla_policy datapath_policy[OVS_DP_ATTR_MAX + 1] = {
 	[OVS_DP_ATTR_USER_FEATURES] = { .type = NLA_U32 },
 	[OVS_DP_ATTR_MASKS_CACHE_SIZE] =  NLA_POLICY_RANGE(NLA_U32, 0,
 		PCPU_MIN_UNIT_SIZE / sizeof(struct mask_cache_entry)),
-	[OVS_DP_ATTR_IFINDEX] = {.type = NLA_U32 },
+	[OVS_DP_ATTR_IFINDEX] = NLA_POLICY_MIN(NLA_S32, 0),
 };
 
 static const struct genl_small_ops dp_datapath_genl_ops[] = {
@@ -2312,7 +2302,7 @@ restart:
 	parms.port_no = port_no;
 	parms.upcall_portids = a[OVS_VPORT_ATTR_UPCALL_PID];
 	parms.desired_ifindex = a[OVS_VPORT_ATTR_IFINDEX]
-		? nla_get_u32(a[OVS_VPORT_ATTR_IFINDEX]) : 0;
+		? nla_get_s32(a[OVS_VPORT_ATTR_IFINDEX]) : 0;
 
 	vport = new_vport(&parms);
 	err = PTR_ERR(vport);
@@ -2320,12 +2310,6 @@ restart:
 		if (err == -EAGAIN)
 			goto restart;
 		goto exit_unlock_free;
-	}
-
-	vport->upcall_stats = netdev_alloc_pcpu_stats(struct vport_upcall_stats_percpu);
-	if (!vport->upcall_stats) {
-		err = -ENOMEM;
-		goto exit_unlock_free_vport;
 	}
 
 	err = ovs_vport_cmd_fill_info(vport, reply, genl_info_net(info),
@@ -2345,8 +2329,6 @@ restart:
 	ovs_notify(&dp_vport_genl_family, reply, info);
 	return 0;
 
-exit_unlock_free_vport:
-	ovs_dp_detach_port(vport);
 exit_unlock_free:
 	ovs_unlock();
 	kfree_skb(reply);
@@ -2557,7 +2539,7 @@ static const struct nla_policy vport_policy[OVS_VPORT_ATTR_MAX + 1] = {
 	[OVS_VPORT_ATTR_TYPE] = { .type = NLA_U32 },
 	[OVS_VPORT_ATTR_UPCALL_PID] = { .type = NLA_UNSPEC },
 	[OVS_VPORT_ATTR_OPTIONS] = { .type = NLA_NESTED },
-	[OVS_VPORT_ATTR_IFINDEX] = { .type = NLA_U32 },
+	[OVS_VPORT_ATTR_IFINDEX] = NLA_POLICY_MIN(NLA_S32, 0),
 	[OVS_VPORT_ATTR_NETNSID] = { .type = NLA_S32 },
 	[OVS_VPORT_ATTR_UPCALL_STATS] = { .type = NLA_NESTED },
 };

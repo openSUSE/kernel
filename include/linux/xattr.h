@@ -42,10 +42,26 @@ struct xattr_handler {
 		   struct inode *inode, const char *name, void *buffer,
 		   size_t size);
 	int (*set)(const struct xattr_handler *,
-		   struct user_namespace *mnt_userns, struct dentry *dentry,
+		   struct mnt_idmap *idmap, struct dentry *dentry,
 		   struct inode *inode, const char *name, const void *buffer,
 		   size_t size, int flags);
 };
+
+/**
+ * xattr_handler_can_list - check whether xattr can be listed
+ * @handler: handler for this type of xattr
+ * @dentry: dentry whose inode xattr to list
+ *
+ * Determine whether the xattr associated with @dentry can be listed given
+ * @handler.
+ *
+ * Return: true if xattr can be listed, false if not.
+ */
+static inline bool xattr_handler_can_list(const struct xattr_handler *handler,
+					  struct dentry *dentry)
+{
+	return handler && (!handler->list || handler->list(dentry));
+}
 
 const char *xattr_full_name(const struct xattr_handler *, const char *);
 
@@ -56,29 +72,29 @@ struct xattr {
 };
 
 ssize_t __vfs_getxattr(struct dentry *, struct inode *, const char *, void *, size_t);
-ssize_t vfs_getxattr(struct user_namespace *, struct dentry *, const char *,
+ssize_t vfs_getxattr(struct mnt_idmap *, struct dentry *, const char *,
 		     void *, size_t);
 ssize_t vfs_listxattr(struct dentry *d, char *list, size_t size);
-int __vfs_setxattr(struct user_namespace *, struct dentry *, struct inode *,
+int __vfs_setxattr(struct mnt_idmap *, struct dentry *, struct inode *,
 		   const char *, const void *, size_t, int);
-int __vfs_setxattr_noperm(struct user_namespace *, struct dentry *,
+int __vfs_setxattr_noperm(struct mnt_idmap *, struct dentry *,
 			  const char *, const void *, size_t, int);
-int __vfs_setxattr_locked(struct user_namespace *, struct dentry *,
+int __vfs_setxattr_locked(struct mnt_idmap *, struct dentry *,
 			  const char *, const void *, size_t, int,
 			  struct inode **);
-int vfs_setxattr(struct user_namespace *, struct dentry *, const char *,
+int vfs_setxattr(struct mnt_idmap *, struct dentry *, const char *,
 		 const void *, size_t, int);
-int __vfs_removexattr(struct user_namespace *, struct dentry *, const char *);
-int __vfs_removexattr_locked(struct user_namespace *, struct dentry *,
+int __vfs_removexattr(struct mnt_idmap *, struct dentry *, const char *);
+int __vfs_removexattr_locked(struct mnt_idmap *, struct dentry *,
 			     const char *, struct inode **);
-int vfs_removexattr(struct user_namespace *, struct dentry *, const char *);
+int vfs_removexattr(struct mnt_idmap *, struct dentry *, const char *);
 
 ssize_t generic_listxattr(struct dentry *dentry, char *buffer, size_t buffer_size);
-int vfs_getxattr_alloc(struct user_namespace *mnt_userns,
+int vfs_getxattr_alloc(struct mnt_idmap *idmap,
 		       struct dentry *dentry, const char *name,
 		       char **xattr_value, size_t size, gfp_t flags);
 
-int xattr_supported_namespace(struct inode *inode, const char *prefix);
+int xattr_supports_user_prefix(struct inode *inode);
 
 static inline const char *xattr_prefix(const struct xattr_handler *handler)
 {
@@ -109,5 +125,6 @@ ssize_t simple_xattr_list(struct inode *inode, struct simple_xattrs *xattrs,
 			  char *buffer, size_t size);
 void simple_xattr_add(struct simple_xattrs *xattrs,
 		      struct simple_xattr *new_xattr);
+int xattr_list_one(char **buffer, ssize_t *remaining_size, const char *name);
 
 #endif	/* _LINUX_XATTR_H */

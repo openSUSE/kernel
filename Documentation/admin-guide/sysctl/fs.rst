@@ -167,6 +167,42 @@ allocate up to 1024 pipes at their default size. When set to 0, no limit is
 applied.
 
 
+procfs-drop-fd-dentries
+-----------------------
+
+* SUSE-specific; This option may be removed in a future release.
+
+This option controls when the proc files representing a task's
+opene files are removed.  It applies to the following directories:
+- /proc/pid/fd
+- /proc/pid/fdinfo
+- /proc/pid/task/*/fd
+- /proc/pid/task/*/fdinfo
+
+By default, dentries belonging to tasks that are still running
+will be retained and those belonging to exited tasks will be
+dropped immediately.
+
+This policy ensures that memory is not wasted, but can run into
+scalability issues on very large systems when a task with thousands
+of threads and many open files exits.  When many tasks exit
+simultaneously, substantial contention on the global inode spinlock
+may result in suboptimal performance of the system until the inodes
+are released.
+
+When set to "0" (default), the policy is to retain dentries for running
+tasks and delete dentries from tasks which have exited immediately.  Once
+the dentry is released, the inode will be freed immediately.
+
+When set to "1", the policy is to delete the dentries immediately after
+the last reference is dropped.  Once the dentry is released, the inode
+will be freed immediately.  This ensures that the thread which created
+the inodes will also clean them up, eliminating much of the lock
+contention.  The tradeoff is that frequent use of fd/fdinfo will be
+slower as these files will need to be recreated each time they
+are accessed.
+
+
 protected_fifos
 ---------------
 

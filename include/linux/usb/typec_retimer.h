@@ -15,6 +15,8 @@ struct typec_retimer_state {
 	struct typec_altmode *alt;
 	unsigned long mode;
 	void *data;
+
+	void *suse_kabi_padding;
 };
 
 typedef int (*typec_retimer_set_fn_t)(struct typec_retimer *retimer,
@@ -25,6 +27,8 @@ struct typec_retimer_desc {
 	typec_retimer_set_fn_t set;
 	const char *name;
 	void *drvdata;
+
+	void *suse_kabi_padding;
 };
 
 struct typec_retimer *fwnode_typec_retimer_get(struct fwnode_handle *fwnode);

@@ -138,13 +138,11 @@ int vdso_join_timens(struct task_struct *task, struct time_namespace *ns)
 	mmap_read_lock(mm);
 
 	for_each_vma(vmi, vma) {
-		unsigned long size = vma->vm_end - vma->vm_start;
-
 		if (vma_is_special_mapping(vma, vdso_info[VDSO_ABI_AA64].dm))
-			zap_page_range(vma, vma->vm_start, size);
+			zap_vma_pages(vma);
 #ifdef CONFIG_COMPAT_VDSO
 		if (vma_is_special_mapping(vma, vdso_info[VDSO_ABI_AA32].dm))
-			zap_page_range(vma, vma->vm_start, size);
+			zap_vma_pages(vma);
 #endif
 	}
 
@@ -290,7 +288,7 @@ static int aarch32_alloc_kuser_vdso_page(void)
 
 	memcpy((void *)(vdso_page + 0x1000 - kuser_sz), __kuser_helper_start,
 	       kuser_sz);
-	aarch32_vectors_page = virt_to_page(vdso_page);
+	aarch32_vectors_page = virt_to_page((void *)vdso_page);
 	return 0;
 }
 

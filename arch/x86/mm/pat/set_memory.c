@@ -234,7 +234,7 @@ within_inclusive(unsigned long addr, unsigned long start, unsigned long end)
  * take full advantage of the the limited (s32) immediate addressing range (2G)
  * of x86_64.
  *
- * See Documentation/x86/x86_64/mm.rst for more detail.
+ * See Documentation/arch/x86/x86_64/mm.rst for more detail.
  */
 
 static inline unsigned long highmap_start_pfn(void)
@@ -2151,7 +2151,8 @@ static int __set_memory_enc_pgtable(unsigned long addr, int numpages, bool enc)
 		cpa_flush(&cpa, x86_platform.guest.enc_cache_flush_required());
 
 	/* Notify hypervisor that we are about to set/clr encryption attribute. */
-	x86_platform.guest.enc_status_change_prepare(addr, numpages, enc);
+	if (!x86_platform.guest.enc_status_change_prepare(addr, numpages, enc))
+		return -EIO;
 
 	ret = __change_page_attr_set_clr(&cpa, 1);
 
@@ -2175,9 +2176,6 @@ static int __set_memory_enc_pgtable(unsigned long addr, int numpages, bool enc)
 
 static int __set_memory_enc_dec(unsigned long addr, int numpages, bool enc)
 {
-	if (hv_is_isolation_supported())
-		return hv_set_mem_host_visibility(addr, numpages, !enc);
-
 	if (cc_platform_has(CC_ATTR_MEM_ENCRYPT))
 		return __set_memory_enc_pgtable(addr, numpages, enc);
 

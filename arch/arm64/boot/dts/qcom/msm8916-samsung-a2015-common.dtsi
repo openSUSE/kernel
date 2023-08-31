@@ -252,10 +252,6 @@
 	linux,code = <KEY_VOLUMEDOWN>;
 };
 
-&pronto {
-	status = "okay";
-};
-
 &sdhc_1 {
 	status = "okay";
 
@@ -434,7 +430,7 @@
 		bias-pull-down;
 	};
 
-	motor_en_default: motor-en-default-stae {
+	motor_en_default: motor-en-default-state {
 		pins = "gpio76";
 		function = "gpio";
 

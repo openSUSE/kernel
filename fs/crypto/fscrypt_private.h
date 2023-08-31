@@ -101,7 +101,7 @@ static inline const u8 *fscrypt_context_nonce(const union fscrypt_context *ctx)
 	case FSCRYPT_CONTEXT_V2:
 		return ctx->v2.nonce;
 	}
-	WARN_ON(1);
+	WARN_ON_ONCE(1);
 	return NULL;
 }
 
@@ -264,7 +264,7 @@ typedef enum {
 
 /* crypto.c */
 extern struct kmem_cache *fscrypt_info_cachep;
-int fscrypt_initialize(unsigned int cop_flags);
+int fscrypt_initialize(struct super_block *sb);
 int fscrypt_crypt_block(const struct inode *inode, fscrypt_direction_t rw,
 			u64 lblk_num, struct page *src_page,
 			struct page *dest_page, unsigned int len,
@@ -386,7 +386,7 @@ fscrypt_prepare_inline_crypt_key(struct fscrypt_prepared_key *prep_key,
 				 const u8 *raw_key,
 				 const struct fscrypt_info *ci)
 {
-	WARN_ON(1);
+	WARN_ON_ONCE(1);
 	return -EOPNOTSUPP;
 }
 
@@ -573,6 +573,9 @@ fscrypt_find_master_key(struct super_block *sb,
 int fscrypt_get_test_dummy_key_identifier(
 			  u8 key_identifier[FSCRYPT_KEY_IDENTIFIER_SIZE]);
 
+int fscrypt_add_test_dummy_key(struct super_block *sb,
+			       struct fscrypt_key_specifier *key_spec);
+
 int fscrypt_verify_key_added(struct super_block *sb,
 			     const u8 identifier[FSCRYPT_KEY_IDENTIFIER_SIZE]);
 
@@ -651,6 +654,7 @@ bool fscrypt_policies_equal(const union fscrypt_policy *policy1,
 			    const union fscrypt_policy *policy2);
 int fscrypt_policy_to_key_spec(const union fscrypt_policy *policy,
 			       struct fscrypt_key_specifier *key_spec);
+const union fscrypt_policy *fscrypt_get_dummy_policy(struct super_block *sb);
 bool fscrypt_supported_policy(const union fscrypt_policy *policy_u,
 			      const struct inode *inode);
 int fscrypt_policy_from_context(union fscrypt_policy *policy_u,

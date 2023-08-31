@@ -44,6 +44,22 @@
 #include <asm/svm.h>
 #include <asm/e820/api.h>
 
+/*
+ * SLE-specific.
+ *
+ * Allow disabling of PV spinlock in kernel command line (kernel param).
+ * Similar idea to what Xen does. Upstream, however, uses a different
+ * approach such that hypervisor admins can pass the VM_HINTS_DEDICATED
+ * via qemu.
+ */
+static bool kvm_pvspin = true;
+static __init int kvm_parse_nopvspin(char *arg)
+{
+	kvm_pvspin = false;
+	return 0;
+}
+early_param("kvm_nopvspin", kvm_parse_nopvspin);
+
 DEFINE_STATIC_KEY_FALSE(kvm_async_pf_enabled);
 
 static int kvmapf = 1;
@@ -1089,6 +1105,11 @@ void __init kvm_spinlock_init(void)
 
 	if (num_possible_cpus() == 1) {
 		pr_info("PV spinlocks disabled, single CPU\n");
+		goto out;
+	}
+
+	if (!kvm_pvspin) {
+		pr_info("KVM: disabled paravirtual spinlock by kernel parameter\n");
 		goto out;
 	}
 

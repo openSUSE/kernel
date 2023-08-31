@@ -542,7 +542,7 @@ fail:
 	return ret;
 }
 
-#ifdef CONFIG_PCI_MSI_ARCH_FALLBACKS
+#if defined(CONFIG_PCI_MSI_ARCH_FALLBACKS) || defined(CONFIG_PCI_XEN)
 /**
  * msi_device_populate_sysfs - Populate msi_irqs sysfs entries for a device
  * @dev:	The device (PCI, platform etc) which will get sysfs entries
@@ -574,7 +574,7 @@ void msi_device_destroy_sysfs(struct device *dev)
 	msi_for_each_desc(desc, dev, MSI_DESC_ALL)
 		msi_sysfs_remove_desc(dev, desc);
 }
-#endif /* CONFIG_PCI_MSI_ARCH_FALLBACK */
+#endif /* CONFIG_PCI_MSI_ARCH_FALLBACK || CONFIG_PCI_XEN */
 #else /* CONFIG_SYSFS */
 static inline int msi_sysfs_create_group(struct device *dev) { return 0; }
 static inline int msi_sysfs_populate_desc(struct device *dev, struct msi_desc *desc) { return 0; }
@@ -830,11 +830,8 @@ static struct irq_domain *__msi_create_irq_domain(struct fwnode_handle *fwnode,
 	domain = irq_domain_create_hierarchy(parent, flags | IRQ_DOMAIN_FLAG_MSI, 0,
 					     fwnode, &msi_domain_ops, info);
 
-	if (domain) {
-		if (!domain->name && info->chip)
-			domain->name = info->chip->name;
+	if (domain)
 		irq_domain_update_bus_token(domain, info->bus_token);
-	}
 
 	return domain;
 }
@@ -1651,3 +1648,30 @@ struct msi_domain_info *msi_get_domain_info(struct irq_domain *domain)
 {
 	return (struct msi_domain_info *)domain->host_data;
 }
+
+/**
+ * msi_device_has_isolated_msi - True if the device has isolated MSI
+ * @dev: The device to check
+ *
+ * Isolated MSI means that HW modeled by an irq_domain on the path from the
+ * initiating device to the CPU will validate that the MSI message specifies an
+ * interrupt number that the device is authorized to trigger. This must block
+ * devices from triggering interrupts they are not authorized to trigger.
+ * Currently authorization means the MSI vector is one assigned to the device.
+ *
+ * This is interesting for securing VFIO use cases where a rouge MSI (eg created
+ * by abusing a normal PCI MemWr DMA) must not allow the VFIO userspace to
+ * impact outside its security domain, eg userspace triggering interrupts on
+ * kernel drivers, a VM triggering interrupts on the hypervisor, or a VM
+ * triggering interrupts on another VM.
+ */
+bool msi_device_has_isolated_msi(struct device *dev)
+{
+	struct irq_domain *domain = dev_get_msi_domain(dev);
+
+	for (; domain; domain = domain->parent)
+		if (domain->flags & IRQ_DOMAIN_FLAG_ISOLATED_MSI)
+			return true;
+	return arch_is_isolated_msi();
+}
+EXPORT_SYMBOL_GPL(msi_device_has_isolated_msi);

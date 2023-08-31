@@ -693,17 +693,18 @@ ice_eswitch_add_tc_fltr(struct ice_vsi *vsi, struct ice_tc_flower_fltr *fltr)
 	 * results into order of switch rule evaluation.
 	 */
 	rule_info.priority = 7;
+	rule_info.flags_info.act_valid = true;
 
 	if (fltr->direction == ICE_ESWITCH_FLTR_INGRESS) {
 		rule_info.sw_act.flag |= ICE_FLTR_RX;
 		rule_info.sw_act.src = hw->pf_id;
 		rule_info.rx = true;
+		rule_info.flags_info.act = ICE_SINGLE_ACT_LB_ENABLE;
 	} else {
 		rule_info.sw_act.flag |= ICE_FLTR_TX;
 		rule_info.sw_act.src = vsi->idx;
 		rule_info.rx = false;
 		rule_info.flags_info.act = ICE_SINGLE_ACT_LAN_ENABLE;
-		rule_info.flags_info.act_valid = true;
 	}
 
 	/* specify the cookie as filter_rule_id */
@@ -734,17 +735,16 @@ exit:
 /**
  * ice_locate_vsi_using_queue - locate VSI using queue (forward to queue action)
  * @vsi: Pointer to VSI
- * @tc_fltr: Pointer to tc_flower_filter
+ * @queue: Queue index
  *
- * Locate the VSI using specified queue. When ADQ is not enabled, always
- * return input VSI, otherwise locate corresponding VSI based on per channel
- * offset and qcount
+ * Locate the VSI using specified "queue". When ADQ is not enabled,
+ * always return input VSI, otherwise locate corresponding
+ * VSI based on per channel "offset" and "qcount"
  */
-static struct ice_vsi *
-ice_locate_vsi_using_queue(struct ice_vsi *vsi,
-			   struct ice_tc_flower_fltr *tc_fltr)
+struct ice_vsi *
+ice_locate_vsi_using_queue(struct ice_vsi *vsi, int queue)
 {
-	int num_tc, tc, queue;
+	int num_tc, tc;
 
 	/* if ADQ is not active, passed VSI is the candidate VSI */
 	if (!ice_is_adq_active(vsi->back))
@@ -754,7 +754,6 @@ ice_locate_vsi_using_queue(struct ice_vsi *vsi,
 	 * upon queue number)
 	 */
 	num_tc = vsi->mqprio_qopt.qopt.num_tc;
-	queue = tc_fltr->action.fwd.q.queue;
 
 	for (tc = 0; tc < num_tc; tc++) {
 		int qcount = vsi->mqprio_qopt.qopt.count[tc];
@@ -792,10 +791,11 @@ static struct ice_vsi *
 ice_tc_forward_action(struct ice_vsi *vsi, struct ice_tc_flower_fltr *tc_fltr)
 {
 	struct ice_rx_ring *ring = NULL;
-	struct ice_vsi *ch_vsi = NULL;
+	struct ice_vsi *dest_vsi = NULL;
 	struct ice_pf *pf = vsi->back;
 	struct device *dev;
 	u32 tc_class;
+	int q;
 
 	dev = ice_pf_to_dev(pf);
 
@@ -810,7 +810,7 @@ ice_tc_forward_action(struct ice_vsi *vsi, struct ice_tc_flower_fltr *tc_fltr)
 			return ERR_PTR(-EOPNOTSUPP);
 		}
 		/* Locate ADQ VSI depending on hw_tc number */
-		ch_vsi = vsi->tc_map_vsi[tc_class];
+		dest_vsi = vsi->tc_map_vsi[tc_class];
 		break;
 	case ICE_FWD_TO_Q:
 		/* Locate the Rx queue */
@@ -824,7 +824,8 @@ ice_tc_forward_action(struct ice_vsi *vsi, struct ice_tc_flower_fltr *tc_fltr)
 		/* Determine destination VSI even though the action is
 		 * FWD_TO_QUEUE, because QUEUE is associated with VSI
 		 */
-		ch_vsi = tc_fltr->dest_vsi;
+		q = tc_fltr->action.fwd.q.queue;
+		dest_vsi = ice_locate_vsi_using_queue(vsi, q);
 		break;
 	default:
 		dev_err(dev,
@@ -832,13 +833,13 @@ ice_tc_forward_action(struct ice_vsi *vsi, struct ice_tc_flower_fltr *tc_fltr)
 			tc_fltr->action.fltr_act);
 		return ERR_PTR(-EINVAL);
 	}
-	/* Must have valid ch_vsi (it could be main VSI or ADQ VSI) */
-	if (!ch_vsi) {
+	/* Must have valid dest_vsi (it could be main VSI or ADQ VSI) */
+	if (!dest_vsi) {
 		dev_err(dev,
 			"Unable to add filter because specified destination VSI doesn't exist\n");
 		return ERR_PTR(-EINVAL);
 	}
-	return ch_vsi;
+	return dest_vsi;
 }
 
 /**
@@ -860,7 +861,7 @@ ice_add_tc_flower_adv_fltr(struct ice_vsi *vsi,
 	struct ice_pf *pf = vsi->back;
 	struct ice_hw *hw = &pf->hw;
 	u32 flags = tc_fltr->flags;
-	struct ice_vsi *ch_vsi;
+	struct ice_vsi *dest_vsi;
 	struct device *dev;
 	u16 lkups_cnt = 0;
 	u16 l4_proto = 0;
@@ -883,9 +884,11 @@ ice_add_tc_flower_adv_fltr(struct ice_vsi *vsi,
 	}
 
 	/* validate forwarding action VSI and queue */
-	ch_vsi = ice_tc_forward_action(vsi, tc_fltr);
-	if (IS_ERR(ch_vsi))
-		return PTR_ERR(ch_vsi);
+	if (ice_is_forward_action(tc_fltr->action.fltr_act)) {
+		dest_vsi = ice_tc_forward_action(vsi, tc_fltr);
+		if (IS_ERR(dest_vsi))
+			return PTR_ERR(dest_vsi);
+	}
 
 	lkups_cnt = ice_tc_count_lkups(flags, headers, tc_fltr);
 	list = kcalloc(lkups_cnt, sizeof(*list), GFP_ATOMIC);
@@ -904,7 +907,7 @@ ice_add_tc_flower_adv_fltr(struct ice_vsi *vsi,
 
 	switch (tc_fltr->action.fltr_act) {
 	case ICE_FWD_TO_VSI:
-		rule_info.sw_act.vsi_handle = ch_vsi->idx;
+		rule_info.sw_act.vsi_handle = dest_vsi->idx;
 		rule_info.priority = ICE_SWITCH_FLTR_PRIO_VSI;
 		rule_info.sw_act.src = hw->pf_id;
 		rule_info.rx = true;
@@ -915,7 +918,7 @@ ice_add_tc_flower_adv_fltr(struct ice_vsi *vsi,
 	case ICE_FWD_TO_Q:
 		/* HW queue number in global space */
 		rule_info.sw_act.fwd_id.q_id = tc_fltr->action.fwd.q.hw_queue;
-		rule_info.sw_act.vsi_handle = ch_vsi->idx;
+		rule_info.sw_act.vsi_handle = dest_vsi->idx;
 		rule_info.priority = ICE_SWITCH_FLTR_PRIO_QUEUE;
 		rule_info.sw_act.src = hw->pf_id;
 		rule_info.rx = true;
@@ -923,14 +926,15 @@ ice_add_tc_flower_adv_fltr(struct ice_vsi *vsi,
 			tc_fltr->action.fwd.q.queue,
 			tc_fltr->action.fwd.q.hw_queue, lkups_cnt);
 		break;
-	default:
-		rule_info.sw_act.flag |= ICE_FLTR_TX;
-		/* In case of Tx (LOOKUP_TX), src needs to be src VSI */
-		rule_info.sw_act.src = vsi->idx;
-		/* 'Rx' is false, direction of rule(LOOKUPTRX) */
-		rule_info.rx = false;
+	case ICE_DROP_PACKET:
+		rule_info.sw_act.flag |= ICE_FLTR_RX;
+		rule_info.sw_act.src = hw->pf_id;
+		rule_info.rx = true;
 		rule_info.priority = ICE_SWITCH_FLTR_PRIO_VSI;
 		break;
+	default:
+		ret = -EOPNOTSUPP;
+		goto exit;
 	}
 
 	ret = ice_add_adv_rule(hw, list, lkups_cnt, &rule_info, &rule_added);
@@ -953,11 +957,11 @@ ice_add_tc_flower_adv_fltr(struct ice_vsi *vsi,
 	tc_fltr->dest_vsi_handle = rule_added.vsi_handle;
 	if (tc_fltr->action.fltr_act == ICE_FWD_TO_VSI ||
 	    tc_fltr->action.fltr_act == ICE_FWD_TO_Q) {
-		tc_fltr->dest_vsi = ch_vsi;
+		tc_fltr->dest_vsi = dest_vsi;
 		/* keep track of advanced switch filter for
 		 * destination VSI
 		 */
-		ch_vsi->num_chnl_fltr++;
+		dest_vsi->num_chnl_fltr++;
 
 		/* keeps track of channel filters for PF VSI */
 		if (vsi->type == ICE_VSI_PF &&
@@ -977,6 +981,10 @@ ice_add_tc_flower_adv_fltr(struct ice_vsi *vsi,
 			lkups_cnt, flags, tc_fltr->action.fwd.q.queue,
 			tc_fltr->action.fwd.q.hw_queue, rule_added.rid,
 			rule_added.rule_id);
+		break;
+	case ICE_DROP_PACKET:
+		dev_dbg(dev, "added switch rule (lkups_cnt %u, flags 0x%x), action is drop, rid %u, rule_id %u\n",
+			lkups_cnt, flags, rule_added.rid, rule_added.rule_id);
 		break;
 	default:
 		break;
@@ -1694,7 +1702,7 @@ ice_tc_forward_to_queue(struct ice_vsi *vsi, struct ice_tc_flower_fltr *fltr,
 	/* If ADQ is configured, and the queue belongs to ADQ VSI, then prepare
 	 * ADQ switch filter
 	 */
-	ch_vsi = ice_locate_vsi_using_queue(vsi, fltr);
+	ch_vsi = ice_locate_vsi_using_queue(vsi, fltr->action.fwd.q.queue);
 	if (!ch_vsi)
 		return -EINVAL;
 	fltr->dest_vsi = ch_vsi;
@@ -1712,6 +1720,9 @@ ice_tc_parse_action(struct ice_vsi *vsi, struct ice_tc_flower_fltr *fltr,
 	case FLOW_ACTION_RX_QUEUE_MAPPING:
 		/* forward to queue */
 		return ice_tc_forward_to_queue(vsi, fltr, act);
+	case FLOW_ACTION_DROP:
+		fltr->action.fltr_act = ICE_DROP_PACKET;
+		return 0;
 	default:
 		NL_SET_ERR_MSG_MOD(fltr->extack, "Unsupported TC action");
 		return -EOPNOTSUPP;

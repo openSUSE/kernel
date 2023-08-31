@@ -50,7 +50,6 @@ struct netlink_kernel_cfg {
 	struct mutex	*cb_mutex;
 	int		(*bind)(struct net *net, int group);
 	void		(*unbind)(struct net *net, int group);
-	bool		(*compare)(struct net *net, struct sock *sk);
 };
 
 struct sock *__netlink_kernel_create(struct net *net, int unit,
@@ -130,6 +129,16 @@ struct netlink_ext_ack {
 #define NL_SET_ERR_MSG_FMT_MOD(extack, fmt, args...)	\
 	NL_SET_ERR_MSG_FMT((extack), KBUILD_MODNAME ": " fmt, ##args)
 
+#define NL_SET_ERR_MSG_WEAK(extack, msg) do {		\
+	if ((extack) && !(extack)->_msg)		\
+		NL_SET_ERR_MSG((extack), msg);		\
+} while (0)
+
+#define NL_SET_ERR_MSG_WEAK_MOD(extack, msg) do {	\
+	if ((extack) && !(extack)->_msg)		\
+		NL_SET_ERR_MSG_MOD((extack), msg);	\
+} while (0)
+
 #define NL_SET_BAD_ATTR_POLICY(extack, attr, pol) do {	\
 	if ((extack)) {					\
 		(extack)->bad_attr = (attr);		\
@@ -152,8 +161,30 @@ struct netlink_ext_ack {
 	}							\
 } while (0)
 
+#define NL_SET_ERR_MSG_ATTR_POL_FMT(extack, attr, pol, fmt, args...) do {	\
+	struct netlink_ext_ack *__extack = (extack);				\
+										\
+	if (!__extack)								\
+		break;								\
+										\
+	if (snprintf(__extack->_msg_buf, NETLINK_MAX_FMTMSG_LEN,		\
+		     "%s" fmt "%s", "", ##args, "") >=				\
+	    NETLINK_MAX_FMTMSG_LEN)						\
+		net_warn_ratelimited("%s" fmt "%s", "truncated extack: ",       \
+				     ##args, "\n");				\
+										\
+	do_trace_netlink_extack(__extack->_msg_buf);				\
+										\
+	__extack->_msg = __extack->_msg_buf;					\
+	__extack->bad_attr = (attr);						\
+	__extack->policy = (pol);						\
+} while (0)
+
 #define NL_SET_ERR_MSG_ATTR(extack, attr, msg)		\
 	NL_SET_ERR_MSG_ATTR_POL(extack, attr, NULL, msg)
+
+#define NL_SET_ERR_MSG_ATTR_FMT(extack, attr, msg, args...) \
+	NL_SET_ERR_MSG_ATTR_POL_FMT(extack, attr, NULL, msg, ##args)
 
 #define NL_SET_ERR_ATTR_MISS(extack, nest, type)  do {	\
 	struct netlink_ext_ack *__extack = (extack);	\
@@ -262,6 +293,10 @@ struct netlink_callback {
 		long		args[6];
 	};
 };
+
+#define NL_ASSERT_DUMP_CTX_FITS(type_name)				\
+	BUILD_BUG_ON(sizeof(type_name) >				\
+		     sizeof_field(struct netlink_callback, ctx))
 
 struct netlink_notify {
 	struct net *net;

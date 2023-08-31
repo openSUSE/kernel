@@ -19,6 +19,7 @@
 #define MT_DMA_CTL_TO_HOST_A		BIT(12)
 #define MT_DMA_CTL_DROP			BIT(14)
 #define MT_DMA_CTL_TOKEN		GENMASK(31, 16)
+#define MT_DMA_CTL_WO_DROP		BIT(8)
 
 #define MT_DMA_PPE_CPU_REASON		GENMASK(15, 11)
 #define MT_DMA_PPE_ENTRY		GENMASK(30, 16)
@@ -56,5 +57,6 @@ enum mt76_mcu_evt_type {
 int mt76_dma_rx_poll(struct napi_struct *napi, int budget);
 void mt76_dma_attach(struct mt76_dev *dev);
 void mt76_dma_cleanup(struct mt76_dev *dev);
+int mt76_dma_wed_setup(struct mt76_dev *dev, struct mt76_queue *q, bool reset);
 
 #endif

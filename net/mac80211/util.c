@@ -6,7 +6,7 @@
  * Copyright 2007	Johannes Berg <johannes@sipsolutions.net>
  * Copyright 2013-2014  Intel Mobile Communications GmbH
  * Copyright (C) 2015-2017	Intel Deutschland GmbH
- * Copyright (C) 2018-2022 Intel Corporation
+ * Copyright (C) 2018-2023 Intel Corporation
  *
  * utilities for mac80211
  */
@@ -834,19 +834,6 @@ static void __iterate_stations(struct ieee80211_local *local,
 		iterator(data, &sta->sta);
 	}
 }
-
-void ieee80211_iterate_stations(struct ieee80211_hw *hw,
-				void (*iterator)(void *data,
-						 struct ieee80211_sta *sta),
-				void *data)
-{
-	struct ieee80211_local *local = hw_to_local(hw);
-
-	mutex_lock(&local->sta_mtx);
-	__iterate_stations(local, iterator, data);
-	mutex_unlock(&local->sta_mtx);
-}
-EXPORT_SYMBOL_GPL(ieee80211_iterate_stations);
 
 void ieee80211_iterate_stations_atomic(struct ieee80211_hw *hw,
 			void (*iterator)(void *data,
@@ -1975,6 +1962,14 @@ static int ieee80211_build_preq_ies_band(struct ieee80211_sub_if_data *sdata,
 	rate_flags = ieee80211_chandef_rate_flags(chandef);
 	shift = ieee80211_chandef_get_shift(chandef);
 
+	/* For direct scan add S1G IE and consider its override bits */
+	if (band == NL80211_BAND_S1GHZ) {
+		if (end - pos < 2 + sizeof(struct ieee80211_s1g_cap))
+			goto out_err;
+		pos = ieee80211_ie_build_s1g_cap(pos, &sband->s1g_cap);
+		goto done;
+	}
+
 	num_rates = 0;
 	for (i = 0; i < sband->n_bitrates; i++) {
 		if ((BIT(i) & rate_mask) == 0)
@@ -2126,8 +2121,7 @@ static int ieee80211_build_preq_ies_band(struct ieee80211_sub_if_data *sdata,
 		*offset = noffset;
 	}
 
-	he_cap = ieee80211_get_he_iftype_cap(sband,
-					     ieee80211_vif_type_p2p(&sdata->vif));
+	he_cap = ieee80211_get_he_iftype_cap_vif(sband, &sdata->vif);
 	if (he_cap &&
 	    cfg80211_any_usable_channels(local->hw.wiphy, BIT(sband->band),
 					 IEEE80211_CHAN_NO_HE)) {
@@ -2136,8 +2130,7 @@ static int ieee80211_build_preq_ies_band(struct ieee80211_sub_if_data *sdata,
 			goto out_err;
 	}
 
-	eht_cap = ieee80211_get_eht_iftype_cap(sband,
-					       ieee80211_vif_type_p2p(&sdata->vif));
+	eht_cap = ieee80211_get_eht_iftype_cap_vif(sband, &sdata->vif);
 
 	if (eht_cap &&
 	    cfg80211_any_usable_channels(local->hw.wiphy, BIT(sband->band),
@@ -2155,8 +2148,7 @@ static int ieee80211_build_preq_ies_band(struct ieee80211_sub_if_data *sdata,
 		struct ieee80211_supported_band *sband6;
 
 		sband6 = local->hw.wiphy->bands[NL80211_BAND_6GHZ];
-		he_cap = ieee80211_get_he_iftype_cap(sband6,
-				ieee80211_vif_type_p2p(&sdata->vif));
+		he_cap = ieee80211_get_he_iftype_cap_vif(sband6, &sdata->vif);
 
 		if (he_cap) {
 			enum nl80211_iftype iftype =
@@ -3020,7 +3012,7 @@ void ieee80211_recalc_min_chandef(struct ieee80211_sub_if_data *sdata,
 
 		chanctx = container_of(chanctx_conf, struct ieee80211_chanctx,
 				       conf);
-		ieee80211_recalc_chanctx_min_def(local, chanctx);
+		ieee80211_recalc_chanctx_min_def(local, chanctx, NULL);
 	}
  unlock:
 	mutex_unlock(&local->chanctx_mtx);
@@ -3032,6 +3024,21 @@ size_t ieee80211_ie_split_vendor(const u8 *ies, size_t ielen, size_t offset)
 
 	while (pos < ielen && ies[pos] != WLAN_EID_VENDOR_SPECIFIC)
 		pos += 2 + ies[pos + 1];
+
+	return pos;
+}
+
+u8 *ieee80211_ie_build_s1g_cap(u8 *pos, struct ieee80211_sta_s1g_cap *s1g_cap)
+{
+	*pos++ = WLAN_EID_S1G_CAPABILITIES;
+	*pos++ = sizeof(struct ieee80211_s1g_cap);
+	memset(pos, 0, sizeof(struct ieee80211_s1g_cap));
+
+	memcpy(pos, &s1g_cap->cap, sizeof(s1g_cap->cap));
+	pos += sizeof(s1g_cap->cap);
+
+	memcpy(pos, &s1g_cap->nss_mcs, sizeof(s1g_cap->nss_mcs));
+	pos += sizeof(s1g_cap->nss_mcs);
 
 	return pos;
 }
@@ -3475,6 +3482,77 @@ out:
 	return pos;
 }
 
+u8 *ieee80211_ie_build_eht_oper(u8 *pos, struct cfg80211_chan_def *chandef,
+				const struct ieee80211_sta_eht_cap *eht_cap)
+
+{
+	const struct ieee80211_eht_mcs_nss_supp_20mhz_only *eht_mcs_nss =
+					&eht_cap->eht_mcs_nss_supp.only_20mhz;
+	struct ieee80211_eht_operation *eht_oper;
+	struct ieee80211_eht_operation_info *eht_oper_info;
+	u8 eht_oper_len = offsetof(struct ieee80211_eht_operation, optional);
+	u8 eht_oper_info_len =
+		offsetof(struct ieee80211_eht_operation_info, optional);
+	u8 chan_width = 0;
+
+	*pos++ = WLAN_EID_EXTENSION;
+	*pos++ = 1 + eht_oper_len + eht_oper_info_len;
+	*pos++ = WLAN_EID_EXT_EHT_OPERATION;
+
+	eht_oper = (struct ieee80211_eht_operation *)pos;
+
+	memcpy(&eht_oper->basic_mcs_nss, eht_mcs_nss, sizeof(*eht_mcs_nss));
+	eht_oper->params |= IEEE80211_EHT_OPER_INFO_PRESENT;
+	pos += eht_oper_len;
+
+	eht_oper_info =
+		(struct ieee80211_eht_operation_info *)eht_oper->optional;
+
+	eht_oper_info->ccfs0 =
+		ieee80211_frequency_to_channel(chandef->center_freq1);
+	if (chandef->center_freq2)
+		eht_oper_info->ccfs1 =
+			ieee80211_frequency_to_channel(chandef->center_freq2);
+	else
+		eht_oper_info->ccfs1 = 0;
+
+	switch (chandef->width) {
+	case NL80211_CHAN_WIDTH_320:
+		chan_width = IEEE80211_EHT_OPER_CHAN_WIDTH_320MHZ;
+		eht_oper_info->ccfs1 = eht_oper_info->ccfs0;
+		if (chandef->chan->center_freq < chandef->center_freq1)
+			eht_oper_info->ccfs0 -= 16;
+		else
+			eht_oper_info->ccfs0 += 16;
+		break;
+	case NL80211_CHAN_WIDTH_160:
+		eht_oper_info->ccfs1 = eht_oper_info->ccfs0;
+		if (chandef->chan->center_freq < chandef->center_freq1)
+			eht_oper_info->ccfs0 -= 8;
+		else
+			eht_oper_info->ccfs0 += 8;
+		fallthrough;
+	case NL80211_CHAN_WIDTH_80P80:
+		chan_width = IEEE80211_EHT_OPER_CHAN_WIDTH_160MHZ;
+		break;
+	case NL80211_CHAN_WIDTH_80:
+		chan_width = IEEE80211_EHT_OPER_CHAN_WIDTH_80MHZ;
+		break;
+	case NL80211_CHAN_WIDTH_40:
+		chan_width = IEEE80211_EHT_OPER_CHAN_WIDTH_40MHZ;
+		break;
+	default:
+		chan_width = IEEE80211_EHT_OPER_CHAN_WIDTH_20MHZ;
+		break;
+	}
+	eht_oper_info->control = chan_width;
+	pos += eht_oper_info_len;
+
+	/* TODO: eht_oper_info->optional */
+
+	return pos;
+}
+
 bool ieee80211_chandef_ht_oper(const struct ieee80211_ht_operation *ht_oper,
 			       struct cfg80211_chan_def *chandef)
 {
@@ -3720,10 +3798,8 @@ bool ieee80211_chandef_he_6ghz_oper(struct ieee80211_sub_if_data *sdata,
 	}
 
 	eht_cap = ieee80211_get_eht_iftype_cap(sband, iftype);
-	if (!eht_cap) {
-		sdata_info(sdata, "Missing iftype sband data/EHT cap");
+	if (!eht_cap)
 		eht_oper = NULL;
-	}
 
 	he_6ghz_oper = ieee80211_he_6ghz_oper(he_oper);
 
@@ -4036,6 +4112,19 @@ u64 ieee80211_calculate_rx_timestamp(struct ieee80211_local *local,
 
 	/* Fill cfg80211 rate info */
 	switch (status->encoding) {
+	case RX_ENC_EHT:
+		ri.flags |= RATE_INFO_FLAGS_EHT_MCS;
+		ri.mcs = status->rate_idx;
+		ri.nss = status->nss;
+		ri.eht_ru_alloc = status->eht.ru;
+		if (status->enc_flags & RX_ENC_FLAG_SHORT_GI)
+			ri.flags |= RATE_INFO_FLAGS_SHORT_GI;
+		/* TODO/FIXME: is this right? handle other PPDUs */
+		if (status->flag & RX_FLAG_MACTIME_PLCP_START) {
+			mpdu_offset += 2;
+			ts += 36;
+		}
+		break;
 	case RX_ENC_HE:
 		ri.flags |= RATE_INFO_FLAGS_HE_MCS;
 		ri.mcs = status->rate_idx;
@@ -4955,7 +5044,7 @@ u8 *ieee80211_ie_build_eht_cap(u8 *pos,
 	return pos;
 }
 
-void ieee80211_fragment_element(struct sk_buff *skb, u8 *len_pos)
+void ieee80211_fragment_element(struct sk_buff *skb, u8 *len_pos, u8 frag_id)
 {
 	unsigned int elem_len;
 
@@ -4975,7 +5064,7 @@ void ieee80211_fragment_element(struct sk_buff *skb, u8 *len_pos)
 		memmove(len_pos + 255 + 3, len_pos + 255 + 1, elem_len);
 		/* place the fragment ID */
 		len_pos += 255 + 1;
-		*len_pos = WLAN_EID_FRAGMENT;
+		*len_pos = frag_id;
 		/* and point to fragment length to update later */
 		len_pos++;
 	}

@@ -4,7 +4,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <fcntl.h>
 #include <sys/param.h>
+#include <unistd.h>
 
 #include <api/fs/tracing_path.h>
 #include <linux/stddef.h>
@@ -56,7 +58,18 @@ static const struct event_symbol event_symbols_tool[PERF_TOOL_MAX] = {
 /*
  * Print the events from <debugfs_mount_point>/tracing/events
  */
-void print_tracepoint_events(const struct print_callbacks *print_cb, void *print_state)
+void print_tracepoint_events(const struct print_callbacks *print_cb __maybe_unused, void *print_state __maybe_unused)
+{
+	char *events_path = get_tracing_file("events");
+	int events_fd = open(events_path, O_PATH);
+
+	put_tracing_file(events_path);
+	if (events_fd < 0) {
+		printf("Error: failed to open tracing events directory\n");
+		return;
+	}
+
+#ifdef HAVE_SCANDIRAT_SUPPORT
 {
 	struct dirent **sys_namelist = NULL;
 	int sys_items = tracing_events__scandir_alphasort(&sys_namelist);
@@ -64,30 +77,34 @@ void print_tracepoint_events(const struct print_callbacks *print_cb, void *print
 	for (int i = 0; i < sys_items; i++) {
 		struct dirent *sys_dirent = sys_namelist[i];
 		struct dirent **evt_namelist = NULL;
-		char *dir_path;
+		int dir_fd;
 		int evt_items;
 
 		if (sys_dirent->d_type != DT_DIR ||
 		    !strcmp(sys_dirent->d_name, ".") ||
 		    !strcmp(sys_dirent->d_name, ".."))
-			continue;
+			goto next_sys;
 
-		dir_path = get_events_file(sys_dirent->d_name);
-		if (!dir_path)
-			continue;
+		dir_fd = openat(events_fd, sys_dirent->d_name, O_PATH);
+		if (dir_fd < 0)
+			goto next_sys;
 
-		evt_items = scandir(dir_path, &evt_namelist, NULL, alphasort);
+		evt_items = scandirat(events_fd, sys_dirent->d_name, &evt_namelist, NULL, alphasort);
 		for (int j = 0; j < evt_items; j++) {
 			struct dirent *evt_dirent = evt_namelist[j];
 			char evt_path[MAXPATHLEN];
+			int evt_fd;
 
 			if (evt_dirent->d_type != DT_DIR ||
 			    !strcmp(evt_dirent->d_name, ".") ||
 			    !strcmp(evt_dirent->d_name, ".."))
-				continue;
+				goto next_evt;
 
-			if (tp_event_has_id(dir_path, evt_dirent) != 0)
-				continue;
+			snprintf(evt_path, sizeof(evt_path), "%s/id", evt_dirent->d_name);
+			evt_fd = openat(dir_fd, evt_path, O_RDONLY);
+			if (evt_fd < 0)
+				goto next_evt;
+			close(evt_fd);
 
 			snprintf(evt_path, MAXPATHLEN, "%s:%s",
 				 sys_dirent->d_name, evt_dirent->d_name);
@@ -101,14 +118,23 @@ void print_tracepoint_events(const struct print_callbacks *print_cb, void *print
 					"Tracepoint event",
 					/*desc=*/NULL,
 					/*long_desc=*/NULL,
-					/*encoding_desc=*/NULL,
-					/*metric_name=*/NULL,
-					/*metric_expr=*/NULL);
+					/*encoding_desc=*/NULL);
+next_evt:
+			free(evt_namelist[j]);
 		}
-		free(dir_path);
+		close(dir_fd);
 		free(evt_namelist);
+next_sys:
+		free(sys_namelist[i]);
 	}
+
 	free(sys_namelist);
+}
+#else
+	printf("\nWARNING: Your libc doesn't have the scandirat function, please ask its maintainers to implement it.\n"
+	       "         As a rough fallback, please do 'ls %s' to see the available tracepoint events.\n", events_path);
+#endif
+	close(events_fd);
 }
 
 void print_sdt_events(const struct print_callbacks *print_cb, void *print_state)
@@ -195,9 +221,7 @@ void print_sdt_events(const struct print_callbacks *print_cb, void *print_state)
 				"SDT event",
 				/*desc=*/NULL,
 				/*long_desc=*/NULL,
-				/*encoding_desc=*/NULL,
-				/*metric_name=*/NULL,
-				/*metric_expr=*/NULL);
+				/*encoding_desc=*/NULL);
 
 		free(evt_name);
 	}
@@ -255,9 +279,7 @@ int print_hwcache_events(const struct print_callbacks *print_cb, void *print_sta
 				event_type_descriptors[PERF_TYPE_HW_CACHE],
 				/*desc=*/NULL,
 				/*long_desc=*/NULL,
-				/*encoding_desc=*/NULL,
-				/*metric_name=*/NULL,
-				/*metric_expr=*/NULL);
+				/*encoding_desc=*/NULL);
 	}
 	strlist__delete(evt_name_list);
 	return 0;
@@ -277,9 +299,7 @@ void print_tool_events(const struct print_callbacks *print_cb, void *print_state
 				"Tool event",
 				/*desc=*/NULL,
 				/*long_desc=*/NULL,
-				/*encoding_desc=*/NULL,
-				/*metric_name=*/NULL,
-				/*metric_expr=*/NULL);
+				/*encoding_desc=*/NULL);
 	}
 }
 
@@ -331,9 +351,7 @@ void print_symbol_events(const struct print_callbacks *print_cb, void *print_sta
 				event_type_descriptors[type],
 				/*desc=*/NULL,
 				/*long_desc=*/NULL,
-				/*encoding_desc=*/NULL,
-				/*metric_name=*/NULL,
-				/*metric_expr=*/NULL);
+				/*encoding_desc=*/NULL);
 	}
 	strlist__delete(evt_name_list);
 }
@@ -364,9 +382,7 @@ void print_events(const struct print_callbacks *print_cb, void *print_state)
 			event_type_descriptors[PERF_TYPE_RAW],
 			/*desc=*/NULL,
 			/*long_desc=*/NULL,
-			/*encoding_desc=*/NULL,
-			/*metric_name=*/NULL,
-			/*metric_expr=*/NULL);
+			/*encoding_desc=*/NULL);
 
 	print_cb->print_event(print_state,
 			/*topic=*/NULL,
@@ -378,9 +394,7 @@ void print_events(const struct print_callbacks *print_cb, void *print_state)
 			event_type_descriptors[PERF_TYPE_RAW],
 			"(see 'man perf-list' on how to encode it)",
 			/*long_desc=*/NULL,
-			/*encoding_desc=*/NULL,
-			/*metric_name=*/NULL,
-			/*metric_expr=*/NULL);
+			/*encoding_desc=*/NULL);
 
 	print_cb->print_event(print_state,
 			/*topic=*/NULL,
@@ -392,9 +406,7 @@ void print_events(const struct print_callbacks *print_cb, void *print_state)
 			event_type_descriptors[PERF_TYPE_BREAKPOINT],
 			/*desc=*/NULL,
 			/*long_desc=*/NULL,
-			/*encoding_desc=*/NULL,
-			/*metric_name=*/NULL,
-			/*metric_expr=*/NULL);
+			/*encoding_desc=*/NULL);
 
 	print_tracepoint_events(print_cb, print_state);
 

@@ -21,34 +21,6 @@
 
 static struct mhi_channel_config ath11k_mhi_channels_qca6390[] = {
 	{
-		.num = 0,
-		.name = "LOOPBACK",
-		.num_elements = 32,
-		.event_ring = 0,
-		.dir = DMA_TO_DEVICE,
-		.ee_mask = 0x4,
-		.pollcfg = 0,
-		.doorbell = MHI_DB_BRST_DISABLE,
-		.lpm_notify = false,
-		.offload_channel = false,
-		.doorbell_mode_switch = false,
-		.auto_queue = false,
-	},
-	{
-		.num = 1,
-		.name = "LOOPBACK",
-		.num_elements = 32,
-		.event_ring = 0,
-		.dir = DMA_FROM_DEVICE,
-		.ee_mask = 0x4,
-		.pollcfg = 0,
-		.doorbell = MHI_DB_BRST_DISABLE,
-		.lpm_notify = false,
-		.offload_channel = false,
-		.doorbell_mode_switch = false,
-		.auto_queue = false,
-	},
-	{
 		.num = 20,
 		.name = "IPCR",
 		.num_elements = 64,
@@ -488,9 +460,14 @@ int ath11k_mhi_start(struct ath11k_pci *ab_pci)
 	return 0;
 }
 
-void ath11k_mhi_stop(struct ath11k_pci *ab_pci)
+void ath11k_mhi_stop(struct ath11k_pci *ab_pci, bool is_suspend)
 {
-	mhi_power_down(ab_pci->mhi_ctrl, true);
+	/* FIXME: why not always destroy device? */
+	if (is_suspend)
+		mhi_power_down_no_destroy(ab_pci->mhi_ctrl, true);
+	else
+		mhi_power_down(ab_pci->mhi_ctrl, true);
+
 	mhi_unprepare_after_power_down(ab_pci->mhi_ctrl);
 }
 
@@ -524,4 +501,14 @@ int ath11k_mhi_resume(struct ath11k_pci *ab_pci)
 	}
 
 	return 0;
+}
+
+int ath11k_mhi_prepare_for_transfer(struct ath11k_pci *ab_pci)
+{
+	return mhi_prepare_all_for_transfer_autoqueue(ab_pci->mhi_ctrl);
+}
+
+int ath11k_mhi_unprepare_from_transfer(struct ath11k_pci *ab_pci)
+{
+	return mhi_unprepare_all_from_transfer(ab_pci->mhi_ctrl);
 }

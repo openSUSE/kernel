@@ -170,7 +170,7 @@ static struct w1_family w1_default_family = {
 	.fops = &w1_default_fops,
 };
 
-static int w1_uevent(struct device *dev, struct kobj_uevent_env *env);
+static int w1_uevent(const struct device *dev, struct kobj_uevent_env *env);
 
 static struct bus_type w1_bus_type = {
 	.name = "w1",
@@ -577,11 +577,11 @@ void w1_destroy_master_attributes(struct w1_master *master)
 	sysfs_remove_group(&master->dev.kobj, &w1_master_defattr_group);
 }
 
-static int w1_uevent(struct device *dev, struct kobj_uevent_env *env)
+static int w1_uevent(const struct device *dev, struct kobj_uevent_env *env)
 {
-	struct w1_master *md = NULL;
-	struct w1_slave *sl = NULL;
-	char *event_owner, *name;
+	const struct w1_master *md = NULL;
+	const struct w1_slave *sl = NULL;
+	const char *event_owner, *name;
 	int err = 0;
 
 	if (dev->driver == &w1_master_driver) {
@@ -1263,10 +1263,10 @@ err_out_exit_init:
 
 static void __exit w1_fini(void)
 {
-	struct w1_master *dev;
+	struct w1_master *dev, *n;
 
 	/* Set netlink removal messages and some cleanup */
-	list_for_each_entry(dev, &w1_masters, w1_master_entry)
+	list_for_each_entry_safe(dev, n, &w1_masters, w1_master_entry)
 		__w1_remove_master_device(dev);
 
 	w1_fini_netlink();

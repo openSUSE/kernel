@@ -8,7 +8,7 @@
  * Copyright 2007, Michael Wu <flamingice@sourmilk.net>
  * Copyright 2013-2014  Intel Mobile Communications GmbH
  * Copyright (C) 2015 - 2017 Intel Deutschland GmbH
- * Copyright (C) 2018 - 2022 Intel Corporation
+ * Copyright (C) 2018 - 2023 Intel Corporation
  */
 
 #include <linux/delay.h>
@@ -87,6 +87,80 @@ MODULE_PARM_DESC(probe_wait_ms,
  * before starting to indicate signal change events.
  */
 #define IEEE80211_SIGNAL_AVE_MIN_COUNT	4
+
+/*
+ * Extract from the given disabled subchannel bitmap (raw format
+ * from the EHT Operation Element) the bits for the subchannel
+ * we're using right now.
+ */
+static u16
+ieee80211_extract_dis_subch_bmap(const struct ieee80211_eht_operation *eht_oper,
+				 struct cfg80211_chan_def *chandef, u16 bitmap)
+{
+	struct ieee80211_eht_operation_info *info = (void *)eht_oper->optional;
+	struct cfg80211_chan_def ap_chandef = *chandef;
+	u32 ap_center_freq, local_center_freq;
+	u32 ap_bw, local_bw;
+	int ap_start_freq, local_start_freq;
+	u16 shift, mask;
+
+	if (!(eht_oper->params & IEEE80211_EHT_OPER_INFO_PRESENT) ||
+	    !(eht_oper->params &
+	      IEEE80211_EHT_OPER_DISABLED_SUBCHANNEL_BITMAP_PRESENT))
+		return 0;
+
+	/* set 160/320 supported to get the full AP definition */
+	ieee80211_chandef_eht_oper(eht_oper, true, true, &ap_chandef);
+	ap_center_freq = ap_chandef.center_freq1;
+	ap_bw = 20 * BIT(u8_get_bits(info->control,
+				     IEEE80211_EHT_OPER_CHAN_WIDTH));
+	ap_start_freq = ap_center_freq - ap_bw / 2;
+	local_center_freq = chandef->center_freq1;
+	local_bw = 20 * BIT(ieee80211_chan_width_to_rx_bw(chandef->width));
+	local_start_freq = local_center_freq - local_bw / 2;
+	shift = (local_start_freq - ap_start_freq) / 20;
+	mask = BIT(local_bw / 20) - 1;
+
+	return (bitmap >> shift) & mask;
+}
+
+/*
+ * Handle the puncturing bitmap, possibly downgrading bandwidth to get a
+ * valid bitmap.
+ */
+static void
+ieee80211_handle_puncturing_bitmap(struct ieee80211_link_data *link,
+				   const struct ieee80211_eht_operation *eht_oper,
+				   u16 bitmap, u64 *changed)
+{
+	struct cfg80211_chan_def *chandef = &link->conf->chandef;
+	u16 extracted;
+	u64 _changed = 0;
+
+	if (!changed)
+		changed = &_changed;
+
+	while (chandef->width > NL80211_CHAN_WIDTH_40) {
+		extracted =
+			ieee80211_extract_dis_subch_bmap(eht_oper, chandef,
+							 bitmap);
+
+		if (cfg80211_valid_disable_subchannel_bitmap(&bitmap,
+							     chandef))
+			break;
+		link->u.mgd.conn_flags |=
+			ieee80211_chandef_downgrade(chandef);
+		*changed |= BSS_CHANGED_BANDWIDTH;
+	}
+
+	if (chandef->width <= NL80211_CHAN_WIDTH_40)
+		extracted = 0;
+
+	if (link->conf->eht_puncturing != extracted) {
+		link->conf->eht_puncturing = extracted;
+		*changed |= BSS_CHANGED_EHT_PUNCTURING;
+	}
+}
 
 /*
  * We can have multiple work items (and connection probing)
@@ -413,7 +487,7 @@ static int ieee80211_config_bw(struct ieee80211_link_data *link,
 			       const struct ieee80211_he_operation *he_oper,
 			       const struct ieee80211_eht_operation *eht_oper,
 			       const struct ieee80211_s1g_oper_ie *s1g_oper,
-			       const u8 *bssid, u32 *changed)
+			       const u8 *bssid, u64 *changed)
 {
 	struct ieee80211_sub_if_data *sdata = link->sdata;
 	struct ieee80211_local *local = sdata->local;
@@ -437,16 +511,14 @@ static int ieee80211_config_bw(struct ieee80211_link_data *link,
 
 	/* don't check HE if we associated as non-HE station */
 	if (link->u.mgd.conn_flags & IEEE80211_CONN_DISABLE_HE ||
-	    !ieee80211_get_he_iftype_cap(sband,
-					 ieee80211_vif_type_p2p(&sdata->vif))) {
+	    !ieee80211_get_he_iftype_cap_vif(sband, &sdata->vif)) {
 		he_oper = NULL;
 		eht_oper = NULL;
 	}
 
 	/* don't check EHT if we associated as non-EHT station */
 	if (link->u.mgd.conn_flags & IEEE80211_CONN_DISABLE_EHT ||
-	    !ieee80211_get_eht_iftype_cap(sband,
-					 ieee80211_vif_type_p2p(&sdata->vif)))
+	    !ieee80211_get_eht_iftype_cap_vif(sband, &sdata->vif))
 		eht_oper = NULL;
 
 	/*
@@ -702,8 +774,7 @@ static void ieee80211_add_he_ie(struct ieee80211_sub_if_data *sdata,
 	const struct ieee80211_sta_he_cap *he_cap;
 	u8 he_cap_size;
 
-	he_cap = ieee80211_get_he_iftype_cap(sband,
-					     ieee80211_vif_type_p2p(&sdata->vif));
+	he_cap = ieee80211_get_he_iftype_cap_vif(sband, &sdata->vif);
 	if (WARN_ON(!he_cap))
 		return;
 
@@ -732,10 +803,8 @@ static void ieee80211_add_eht_ie(struct ieee80211_sub_if_data *sdata,
 	const struct ieee80211_sta_eht_cap *eht_cap;
 	u8 eht_cap_size;
 
-	he_cap = ieee80211_get_he_iftype_cap(sband,
-					     ieee80211_vif_type_p2p(&sdata->vif));
-	eht_cap = ieee80211_get_eht_iftype_cap(sband,
-					       ieee80211_vif_type_p2p(&sdata->vif));
+	he_cap = ieee80211_get_he_iftype_cap_vif(sband, &sdata->vif);
+	eht_cap = ieee80211_get_eht_iftype_cap_vif(sband, &sdata->vif);
 
 	/*
 	 * EHT capabilities element is only added if the HE capabilities element
@@ -1143,6 +1212,7 @@ static void ieee80211_add_non_inheritance_elem(struct sk_buff *skb,
 					       const u16 *inner)
 {
 	unsigned int skb_len = skb->len;
+	bool at_extension = false;
 	bool added = false;
 	int i, j;
 	u8 *len, *list_len = NULL;
@@ -1154,7 +1224,6 @@ static void ieee80211_add_non_inheritance_elem(struct sk_buff *skb,
 	for (i = 0; i < PRESENT_ELEMS_MAX && outer[i]; i++) {
 		u16 elem = outer[i];
 		bool have_inner = false;
-		bool at_extension = false;
 
 		/* should at least be sorted in the sense of normal -> ext */
 		WARN_ON(at_extension && elem < PRESENT_ELEM_EXT_OFFS);
@@ -1183,8 +1252,14 @@ static void ieee80211_add_non_inheritance_elem(struct sk_buff *skb,
 		}
 		*list_len += 1;
 		skb_put_u8(skb, (u8)elem);
+		added = true;
 	}
 
+	/* if we added a list but no extension list, make a zero-len one */
+	if (added && (!at_extension || !list_len))
+		skb_put_u8(skb, 0);
+
+	/* if nothing added remove extension element completely */
 	if (!added)
 		skb_trim(skb, skb_len);
 	else
@@ -1292,10 +1367,11 @@ static void ieee80211_assoc_add_ml_elem(struct ieee80211_sub_if_data *sdata,
 		ieee80211_add_non_inheritance_elem(skb, outer_present_elems,
 						   link_present_elems);
 
-		ieee80211_fragment_element(skb, subelem_len);
+		ieee80211_fragment_element(skb, subelem_len,
+					   IEEE80211_MLE_SUBELEM_FRAGMENT);
 	}
 
-	ieee80211_fragment_element(skb, ml_elem_len);
+	ieee80211_fragment_element(skb, ml_elem_len, WLAN_EID_FRAGMENT);
 }
 
 static int ieee80211_send_assoc(struct ieee80211_sub_if_data *sdata)
@@ -1704,7 +1780,7 @@ static void ieee80211_chswitch_post_beacon(struct ieee80211_link_data *link)
 		return;
 	}
 
-	cfg80211_ch_switch_notify(sdata->dev, &link->reserved_chandef, 0);
+	cfg80211_ch_switch_notify(sdata->dev, &link->reserved_chandef, 0, 0);
 }
 
 void ieee80211_chswitch_done(struct ieee80211_vif *vif, bool success)
@@ -1914,7 +1990,7 @@ ieee80211_sta_process_chanswitch(struct ieee80211_link_data *link,
 	mutex_unlock(&local->mtx);
 
 	cfg80211_ch_switch_started_notify(sdata->dev, &csa_ie.chandef, 0,
-					  csa_ie.count, csa_ie.mode);
+					  csa_ie.count, csa_ie.mode, 0);
 
 	if (local->ops->channel_switch) {
 		/* use driver's channel switch callback */
@@ -2670,7 +2746,7 @@ static u32 ieee80211_handle_bss_capability(struct ieee80211_link_data *link,
 	return changed;
 }
 
-static u32 ieee80211_link_set_associated(struct ieee80211_link_data *link,
+static u64 ieee80211_link_set_associated(struct ieee80211_link_data *link,
 					 struct cfg80211_bss *cbss)
 {
 	struct ieee80211_sub_if_data *sdata = link->sdata;
@@ -3153,7 +3229,7 @@ static void ieee80211_mgd_probe_ap(struct ieee80211_sub_if_data *sdata,
 	struct ieee80211_if_managed *ifmgd = &sdata->u.mgd;
 	bool already = false;
 
-	if (WARN_ON(sdata->vif.valid_links))
+	if (WARN_ON_ONCE(sdata->vif.valid_links))
 		return;
 
 	if (!ieee80211_sdata_running(sdata))
@@ -3868,8 +3944,7 @@ static bool ieee80211_twt_req_supported(struct ieee80211_sub_if_data *sdata,
 					const struct ieee802_11_elems *elems)
 {
 	const struct ieee80211_sta_he_cap *own_he_cap =
-		ieee80211_get_he_iftype_cap(sband,
-					    ieee80211_vif_type_p2p(&sdata->vif));
+		ieee80211_get_he_iftype_cap_vif(sband, &sdata->vif);
 
 	if (elems->ext_capab_len < 10)
 		return false;
@@ -3905,8 +3980,7 @@ static bool ieee80211_twt_bcast_support(struct ieee80211_sub_if_data *sdata,
 					struct link_sta_info *link_sta)
 {
 	const struct ieee80211_sta_he_cap *own_he_cap =
-		ieee80211_get_he_iftype_cap(sband,
-					    ieee80211_vif_type_p2p(&sdata->vif));
+		ieee80211_get_he_iftype_cap_vif(sband, &sdata->vif);
 
 	return bss_conf->he_support &&
 		(link_sta->pub->he_cap.he_cap_elem.mac_cap_info[2] &
@@ -4145,6 +4219,7 @@ static bool ieee80211_assoc_config_link(struct ieee80211_link_data *link,
 							    link_sta);
 
 			bss_conf->eht_support = link_sta->pub->eht_cap.has_eht;
+			*changed |= BSS_CHANGED_EHT_PUNCTURING;
 		} else {
 			bss_conf->eht_support = false;
 		}
@@ -4542,8 +4617,7 @@ ieee80211_verify_sta_he_mcs_support(struct ieee80211_sub_if_data *sdata,
 				    const struct ieee80211_he_operation *he_op)
 {
 	const struct ieee80211_sta_he_cap *sta_he_cap =
-		ieee80211_get_he_iftype_cap(sband,
-					    ieee80211_vif_type_p2p(&sdata->vif));
+		ieee80211_get_he_iftype_cap_vif(sband, &sdata->vif);
 	u16 ap_min_req_set;
 	int i;
 
@@ -4677,15 +4751,13 @@ static int ieee80211_prep_channel(struct ieee80211_sub_if_data *sdata,
 		*conn_flags |= IEEE80211_CONN_DISABLE_EHT;
 	}
 
-	if (!ieee80211_get_he_iftype_cap(sband,
-					 ieee80211_vif_type_p2p(&sdata->vif))) {
+	if (!ieee80211_get_he_iftype_cap_vif(sband, &sdata->vif)) {
 		mlme_dbg(sdata, "HE not supported, disabling HE and EHT\n");
 		*conn_flags |= IEEE80211_CONN_DISABLE_HE;
 		*conn_flags |= IEEE80211_CONN_DISABLE_EHT;
 	}
 
-	if (!ieee80211_get_eht_iftype_cap(sband,
-					  ieee80211_vif_type_p2p(&sdata->vif))) {
+	if (!ieee80211_get_eht_iftype_cap_vif(sband, &sdata->vif)) {
 		mlme_dbg(sdata, "EHT not supported, disabling EHT\n");
 		*conn_flags |= IEEE80211_CONN_DISABLE_EHT;
 	}
@@ -5477,6 +5549,45 @@ static bool ieee80211_rx_our_beacon(const u8 *tx_bssid,
 	return ether_addr_equal(tx_bssid, bss->transmitted_bss->bssid);
 }
 
+static bool ieee80211_config_puncturing(struct ieee80211_link_data *link,
+					const struct ieee80211_eht_operation *eht_oper,
+					u64 *changed)
+{
+	u16 bitmap = 0, extracted;
+
+	if ((eht_oper->params & IEEE80211_EHT_OPER_INFO_PRESENT) &&
+	    (eht_oper->params &
+	     IEEE80211_EHT_OPER_DISABLED_SUBCHANNEL_BITMAP_PRESENT)) {
+		const struct ieee80211_eht_operation_info *info =
+			(void *)eht_oper->optional;
+		const u8 *disable_subchannel_bitmap = info->optional;
+
+		bitmap = get_unaligned_le16(disable_subchannel_bitmap);
+	}
+
+	extracted = ieee80211_extract_dis_subch_bmap(eht_oper,
+						     &link->conf->chandef,
+						     bitmap);
+
+	/* accept if there are no changes */
+	if (!(*changed & BSS_CHANGED_BANDWIDTH) &&
+	    extracted == link->conf->eht_puncturing)
+		return true;
+
+	if (!cfg80211_valid_disable_subchannel_bitmap(&bitmap,
+						      &link->conf->chandef)) {
+		link_info(link,
+			  "Got an invalid disable subchannel bitmap from AP %pM: bitmap = 0x%x, bw = 0x%x. disconnect\n",
+			  link->u.mgd.bssid,
+			  bitmap,
+			  link->conf->chandef.width);
+		return false;
+	}
+
+	ieee80211_handle_puncturing_bitmap(link, eht_oper, bitmap, changed);
+	return true;
+}
+
 static void ieee80211_rx_mgmt_beacon(struct ieee80211_link_data *link,
 				     struct ieee80211_hdr *hdr, size_t len,
 				     struct ieee80211_rx_status *rx_status)
@@ -5494,7 +5605,7 @@ static void ieee80211_rx_mgmt_beacon(struct ieee80211_link_data *link,
 	struct ieee80211_channel *chan;
 	struct link_sta_info *link_sta;
 	struct sta_info *sta;
-	u32 changed = 0;
+	u64 changed = 0;
 	bool erp_valid;
 	u8 erp_value = 0;
 	u32 ncrc = 0;
@@ -5779,7 +5890,7 @@ static void ieee80211_rx_mgmt_beacon(struct ieee80211_link_data *link,
 		goto free;
 	}
 
-	if (sta && elems->opmode_notif)
+	if (elems->opmode_notif)
 		ieee80211_vht_handle_opmode(sdata, link_sta,
 					    *elems->opmode_notif,
 					    rx_status->band);
@@ -5790,6 +5901,21 @@ static void ieee80211_rx_mgmt_beacon(struct ieee80211_link_data *link,
 					       elems->country_elem_len,
 					       elems->pwr_constr_elem,
 					       elems->cisco_dtpc_elem);
+
+	if (elems->eht_operation &&
+	    !(link->u.mgd.conn_flags & IEEE80211_CONN_DISABLE_EHT)) {
+		if (!ieee80211_config_puncturing(link, elems->eht_operation,
+						 &changed)) {
+			ieee80211_set_disassoc(sdata, IEEE80211_STYPE_DEAUTH,
+					       WLAN_REASON_DEAUTH_LEAVING,
+					       true, deauth_buf);
+			ieee80211_report_disconnect(sdata, deauth_buf,
+						    sizeof(deauth_buf), true,
+						    WLAN_REASON_DEAUTH_LEAVING,
+						    false);
+			goto free;
+		}
+	}
 
 	ieee80211_link_info_change_notify(sdata, link, changed);
 free:
@@ -6892,9 +7018,12 @@ ieee80211_setup_assoc_link(struct ieee80211_sub_if_data *sdata,
 		ieee80211_apply_htcap_overrides(sdata, &sta_ht_cap);
 	}
 
+	link->conf->eht_puncturing = 0;
+
 	rcu_read_lock();
 	beacon_ies = rcu_dereference(cbss->beacon_ies);
 	if (beacon_ies) {
+		const struct ieee80211_eht_operation *eht_oper;
 		const struct element *elem;
 		u8 dtim_count = 0;
 
@@ -6923,6 +7052,31 @@ ieee80211_setup_assoc_link(struct ieee80211_sub_if_data *sdata,
 			link->conf->ema_ap = true;
 		else
 			link->conf->ema_ap = false;
+
+		elem = cfg80211_find_ext_elem(WLAN_EID_EXT_EHT_OPERATION,
+					      beacon_ies->data, beacon_ies->len);
+		eht_oper = (const void *)(elem->data + 1);
+
+		if (elem &&
+		    ieee80211_eht_oper_size_ok((const void *)(elem->data + 1),
+					       elem->datalen - 1) &&
+		    (eht_oper->params & IEEE80211_EHT_OPER_INFO_PRESENT) &&
+		    (eht_oper->params & IEEE80211_EHT_OPER_DISABLED_SUBCHANNEL_BITMAP_PRESENT)) {
+			const struct ieee80211_eht_operation_info *info =
+				(void *)eht_oper->optional;
+			const u8 *disable_subchannel_bitmap = info->optional;
+			u16 bitmap;
+
+			bitmap = get_unaligned_le16(disable_subchannel_bitmap);
+			if (cfg80211_valid_disable_subchannel_bitmap(&bitmap,
+								     &link->conf->chandef))
+				ieee80211_handle_puncturing_bitmap(link,
+								   eht_oper,
+								   bitmap,
+								   NULL);
+			else
+				conn_flags |= IEEE80211_CONN_DISABLE_EHT;
+		}
 	}
 	rcu_read_unlock();
 

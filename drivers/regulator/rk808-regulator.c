@@ -1336,6 +1336,7 @@ static int rk808_regulator_probe(struct platform_device *pdev)
 
 	config.dev = &pdev->dev;
 	config.dev->of_node = pdev->dev.parent->of_node;
+	config.dev->of_node_reused = true;
 	config.driver_data = pdata;
 	config.regmap = regmap;
 
@@ -1354,7 +1355,8 @@ static int rk808_regulator_probe(struct platform_device *pdev)
 static struct platform_driver rk808_regulator_driver = {
 	.probe = rk808_regulator_probe,
 	.driver = {
-		.name = "rk808-regulator"
+		.name = "rk808-regulator",
+		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
 	},
 };
 

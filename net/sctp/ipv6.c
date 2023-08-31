@@ -155,7 +155,7 @@ static void sctp_v6_err_handle(struct sctp_transport *t, struct sk_buff *skb,
 		sk->sk_err = err;
 		sk_error_report(sk);
 	} else {
-		sk->sk_err_soft = err;
+		WRITE_ONCE(sk->sk_err_soft, err);
 	}
 }
 
@@ -806,8 +806,6 @@ static struct sock *sctp_v6_create_accept_sk(struct sock *sk,
 	sctp_v6_to_sk_daddr(&asoc->peer.primary_addr, newsk);
 
 	newsk->sk_v6_rcv_saddr = sk->sk_v6_rcv_saddr;
-
-	sk_refcnt_debug_inc(newsk);
 
 	if (newsk->sk_prot->init(newsk)) {
 		sk_common_release(newsk);

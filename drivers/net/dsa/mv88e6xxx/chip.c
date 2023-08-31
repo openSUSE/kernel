@@ -109,6 +109,13 @@ int mv88e6xxx_wait_mask(struct mv88e6xxx_chip *chip, int addr, int reg,
 			usleep_range(1000, 2000);
 	}
 
+	err = mv88e6xxx_read(chip, addr, reg, &data);
+	if (err)
+		return err;
+
+	if ((data & mask) == val)
+		return 0;
+
 	dev_err(chip->dev, "Timeout while waiting for switch\n");
 	return -ETIMEDOUT;
 }
@@ -611,10 +618,10 @@ static void mv88e6185_phylink_get_caps(struct mv88e6xxx_chip *chip, int port,
 }
 
 static const u8 mv88e6xxx_phy_interface_modes[] = {
-	[MV88E6XXX_PORT_STS_CMODE_MII_PHY]	= PHY_INTERFACE_MODE_MII,
+	[MV88E6XXX_PORT_STS_CMODE_MII_PHY]	= PHY_INTERFACE_MODE_REVMII,
 	[MV88E6XXX_PORT_STS_CMODE_MII]		= PHY_INTERFACE_MODE_MII,
 	[MV88E6XXX_PORT_STS_CMODE_GMII]		= PHY_INTERFACE_MODE_GMII,
-	[MV88E6XXX_PORT_STS_CMODE_RMII_PHY]	= PHY_INTERFACE_MODE_RMII,
+	[MV88E6XXX_PORT_STS_CMODE_RMII_PHY]	= PHY_INTERFACE_MODE_REVRMII,
 	[MV88E6XXX_PORT_STS_CMODE_RMII]		= PHY_INTERFACE_MODE_RMII,
 	[MV88E6XXX_PORT_STS_CMODE_100BASEX]	= PHY_INTERFACE_MODE_100BASEX,
 	[MV88E6XXX_PORT_STS_CMODE_1000BASEX]	= PHY_INTERFACE_MODE_1000BASEX,
@@ -1728,11 +1735,11 @@ static int mv88e6xxx_vtu_get(struct mv88e6xxx_chip *chip, u16 vid,
 	return err;
 }
 
-static int mv88e6xxx_vtu_walk(struct mv88e6xxx_chip *chip,
-			      int (*cb)(struct mv88e6xxx_chip *chip,
-					const struct mv88e6xxx_vtu_entry *entry,
-					void *priv),
-			      void *priv)
+int mv88e6xxx_vtu_walk(struct mv88e6xxx_chip *chip,
+		       int (*cb)(struct mv88e6xxx_chip *chip,
+				 const struct mv88e6xxx_vtu_entry *entry,
+				 void *priv),
+		       void *priv)
 {
 	struct mv88e6xxx_vtu_entry entry = {
 		.vid = mv88e6xxx_max_vid(chip),
@@ -2999,6 +3006,14 @@ static void mv88e6xxx_hardware_reset(struct mv88e6xxx_chip *chip)
 
 	/* If there is a GPIO connected to the reset pin, toggle it */
 	if (gpiod) {
+		/* If the switch has just been reset and not yet completed
+		 * loading EEPROM, the reset may interrupt the I2C transaction
+		 * mid-byte, causing the first EEPROM read after the reset
+		 * from the wrong location resulting in the switch booting
+		 * to wrong mode and inoperable.
+		 */
+		mv88e6xxx_g1_wait_eeprom_done(chip);
+
 		gpiod_set_value_cansleep(gpiod, 1);
 		usleep_range(10000, 20000);
 		gpiod_set_value_cansleep(gpiod, 0);
@@ -3685,11 +3700,220 @@ static int mv88e6390_setup_errata(struct mv88e6xxx_chip *chip)
 	return mv88e6xxx_software_reset(chip);
 }
 
+/* prod_id for switch families which do not have a PHY model number */
+static const u16 family_prod_id_table[] = {
+	[MV88E6XXX_FAMILY_6341] = MV88E6XXX_PORT_SWITCH_ID_PROD_6341,
+	[MV88E6XXX_FAMILY_6390] = MV88E6XXX_PORT_SWITCH_ID_PROD_6390,
+	[MV88E6XXX_FAMILY_6393] = MV88E6XXX_PORT_SWITCH_ID_PROD_6393X,
+};
+
+static int mv88e6xxx_mdio_read(struct mii_bus *bus, int phy, int reg)
+{
+	struct mv88e6xxx_mdio_bus *mdio_bus = bus->priv;
+	struct mv88e6xxx_chip *chip = mdio_bus->chip;
+	u16 prod_id;
+	u16 val;
+	int err;
+
+	if (!chip->info->ops->phy_read)
+		return -EOPNOTSUPP;
+
+	mv88e6xxx_reg_lock(chip);
+	err = chip->info->ops->phy_read(chip, bus, phy, reg, &val);
+	mv88e6xxx_reg_unlock(chip);
+
+	/* Some internal PHYs don't have a model number. */
+	if (reg == MII_PHYSID2 && !(val & 0x3f0) &&
+	    chip->info->family < ARRAY_SIZE(family_prod_id_table)) {
+		prod_id = family_prod_id_table[chip->info->family];
+		if (prod_id)
+			val |= prod_id >> 4;
+	}
+
+	return err ? err : val;
+}
+
+static int mv88e6xxx_mdio_read_c45(struct mii_bus *bus, int phy, int devad,
+				   int reg)
+{
+	struct mv88e6xxx_mdio_bus *mdio_bus = bus->priv;
+	struct mv88e6xxx_chip *chip = mdio_bus->chip;
+	u16 val;
+	int err;
+
+	if (!chip->info->ops->phy_read_c45)
+		return -EOPNOTSUPP;
+
+	mv88e6xxx_reg_lock(chip);
+	err = chip->info->ops->phy_read_c45(chip, bus, phy, devad, reg, &val);
+	mv88e6xxx_reg_unlock(chip);
+
+	return err ? err : val;
+}
+
+static int mv88e6xxx_mdio_write(struct mii_bus *bus, int phy, int reg, u16 val)
+{
+	struct mv88e6xxx_mdio_bus *mdio_bus = bus->priv;
+	struct mv88e6xxx_chip *chip = mdio_bus->chip;
+	int err;
+
+	if (!chip->info->ops->phy_write)
+		return -EOPNOTSUPP;
+
+	mv88e6xxx_reg_lock(chip);
+	err = chip->info->ops->phy_write(chip, bus, phy, reg, val);
+	mv88e6xxx_reg_unlock(chip);
+
+	return err;
+}
+
+static int mv88e6xxx_mdio_write_c45(struct mii_bus *bus, int phy, int devad,
+				    int reg, u16 val)
+{
+	struct mv88e6xxx_mdio_bus *mdio_bus = bus->priv;
+	struct mv88e6xxx_chip *chip = mdio_bus->chip;
+	int err;
+
+	if (!chip->info->ops->phy_write_c45)
+		return -EOPNOTSUPP;
+
+	mv88e6xxx_reg_lock(chip);
+	err = chip->info->ops->phy_write_c45(chip, bus, phy, devad, reg, val);
+	mv88e6xxx_reg_unlock(chip);
+
+	return err;
+}
+
+static int mv88e6xxx_mdio_register(struct mv88e6xxx_chip *chip,
+				   struct device_node *np,
+				   bool external)
+{
+	static int index;
+	struct mv88e6xxx_mdio_bus *mdio_bus;
+	struct mii_bus *bus;
+	int err;
+
+	if (external) {
+		mv88e6xxx_reg_lock(chip);
+		err = mv88e6xxx_g2_scratch_gpio_set_smi(chip, true);
+		mv88e6xxx_reg_unlock(chip);
+
+		if (err)
+			return err;
+	}
+
+	bus = mdiobus_alloc_size(sizeof(*mdio_bus));
+	if (!bus)
+		return -ENOMEM;
+
+	mdio_bus = bus->priv;
+	mdio_bus->bus = bus;
+	mdio_bus->chip = chip;
+	INIT_LIST_HEAD(&mdio_bus->list);
+	mdio_bus->external = external;
+
+	if (np) {
+		bus->name = np->full_name;
+		snprintf(bus->id, MII_BUS_ID_SIZE, "%pOF", np);
+	} else {
+		bus->name = "mv88e6xxx SMI";
+		snprintf(bus->id, MII_BUS_ID_SIZE, "mv88e6xxx-%d", index++);
+	}
+
+	bus->read = mv88e6xxx_mdio_read;
+	bus->write = mv88e6xxx_mdio_write;
+	bus->read_c45 = mv88e6xxx_mdio_read_c45;
+	bus->write_c45 = mv88e6xxx_mdio_write_c45;
+	bus->parent = chip->dev;
+	bus->phy_mask = ~GENMASK(chip->info->phy_base_addr +
+				 mv88e6xxx_num_ports(chip) - 1,
+				 chip->info->phy_base_addr);
+
+	if (!external) {
+		err = mv88e6xxx_g2_irq_mdio_setup(chip, bus);
+		if (err)
+			goto out;
+	}
+
+	err = of_mdiobus_register(bus, np);
+	if (err) {
+		dev_err(chip->dev, "Cannot register MDIO bus (%d)\n", err);
+		mv88e6xxx_g2_irq_mdio_free(chip, bus);
+		goto out;
+	}
+
+	if (external)
+		list_add_tail(&mdio_bus->list, &chip->mdios);
+	else
+		list_add(&mdio_bus->list, &chip->mdios);
+
+	return 0;
+
+out:
+	mdiobus_free(bus);
+	return err;
+}
+
+static void mv88e6xxx_mdios_unregister(struct mv88e6xxx_chip *chip)
+
+{
+	struct mv88e6xxx_mdio_bus *mdio_bus, *p;
+	struct mii_bus *bus;
+
+	list_for_each_entry_safe(mdio_bus, p, &chip->mdios, list) {
+		bus = mdio_bus->bus;
+
+		if (!mdio_bus->external)
+			mv88e6xxx_g2_irq_mdio_free(chip, bus);
+
+		mdiobus_unregister(bus);
+		mdiobus_free(bus);
+	}
+}
+
+static int mv88e6xxx_mdios_register(struct mv88e6xxx_chip *chip)
+{
+	struct device_node *np = chip->dev->of_node;
+	struct device_node *child;
+	int err;
+
+	/* Always register one mdio bus for the internal/default mdio
+	 * bus. This maybe represented in the device tree, but is
+	 * optional.
+	 */
+	child = of_get_child_by_name(np, "mdio");
+	err = mv88e6xxx_mdio_register(chip, child, false);
+	of_node_put(child);
+	if (err)
+		return err;
+
+	/* Walk the device tree, and see if there are any other nodes
+	 * which say they are compatible with the external mdio
+	 * bus.
+	 */
+	for_each_available_child_of_node(np, child) {
+		if (of_device_is_compatible(
+			    child, "marvell,mv88e6xxx-mdio-external")) {
+			err = mv88e6xxx_mdio_register(chip, child, true);
+			if (err) {
+				mv88e6xxx_mdios_unregister(chip);
+				of_node_put(child);
+				return err;
+			}
+		}
+	}
+
+	return 0;
+}
+
 static void mv88e6xxx_teardown(struct dsa_switch *ds)
 {
+	struct mv88e6xxx_chip *chip = ds->priv;
+
 	mv88e6xxx_teardown_devlink_params(ds);
 	dsa_devlink_resources_unregister(ds);
 	mv88e6xxx_teardown_devlink_regions_global(ds);
+	mv88e6xxx_mdios_unregister(chip);
 }
 
 static int mv88e6xxx_setup(struct dsa_switch *ds)
@@ -3698,6 +3922,10 @@ static int mv88e6xxx_setup(struct dsa_switch *ds)
 	u8 cmode;
 	int err;
 	int i;
+
+	err = mv88e6xxx_mdios_register(chip);
+	if (err)
+		return err;
 
 	chip->ds = ds;
 	ds->slave_mii_bus = mv88e6xxx_default_mdio_bus(chip);
@@ -3825,7 +4053,7 @@ unlock:
 	mv88e6xxx_reg_unlock(chip);
 
 	if (err)
-		return err;
+		goto out_mdios;
 
 	/* Have to be called without holding the register lock, since
 	 * they take the devlink lock, and we later take the locks in
@@ -3834,7 +4062,7 @@ unlock:
 	 */
 	err = mv88e6xxx_setup_devlink_resources(ds);
 	if (err)
-		return err;
+		goto out_mdios;
 
 	err = mv88e6xxx_setup_devlink_params(ds);
 	if (err)
@@ -3850,6 +4078,8 @@ out_params:
 	mv88e6xxx_teardown_devlink_params(ds);
 out_resources:
 	dsa_devlink_resources_unregister(ds);
+out_mdios:
+	mv88e6xxx_mdios_unregister(chip);
 
 	return err;
 }
@@ -3862,172 +4092,6 @@ static int mv88e6xxx_port_setup(struct dsa_switch *ds, int port)
 static void mv88e6xxx_port_teardown(struct dsa_switch *ds, int port)
 {
 	mv88e6xxx_teardown_devlink_regions_port(ds, port);
-}
-
-/* prod_id for switch families which do not have a PHY model number */
-static const u16 family_prod_id_table[] = {
-	[MV88E6XXX_FAMILY_6341] = MV88E6XXX_PORT_SWITCH_ID_PROD_6341,
-	[MV88E6XXX_FAMILY_6390] = MV88E6XXX_PORT_SWITCH_ID_PROD_6390,
-	[MV88E6XXX_FAMILY_6393] = MV88E6XXX_PORT_SWITCH_ID_PROD_6393X,
-};
-
-static int mv88e6xxx_mdio_read(struct mii_bus *bus, int phy, int reg)
-{
-	struct mv88e6xxx_mdio_bus *mdio_bus = bus->priv;
-	struct mv88e6xxx_chip *chip = mdio_bus->chip;
-	u16 prod_id;
-	u16 val;
-	int err;
-
-	if (!chip->info->ops->phy_read)
-		return -EOPNOTSUPP;
-
-	mv88e6xxx_reg_lock(chip);
-	err = chip->info->ops->phy_read(chip, bus, phy, reg, &val);
-	mv88e6xxx_reg_unlock(chip);
-
-	/* Some internal PHYs don't have a model number. */
-	if (reg == MII_PHYSID2 && !(val & 0x3f0) &&
-	    chip->info->family < ARRAY_SIZE(family_prod_id_table)) {
-		prod_id = family_prod_id_table[chip->info->family];
-		if (prod_id)
-			val |= prod_id >> 4;
-	}
-
-	return err ? err : val;
-}
-
-static int mv88e6xxx_mdio_write(struct mii_bus *bus, int phy, int reg, u16 val)
-{
-	struct mv88e6xxx_mdio_bus *mdio_bus = bus->priv;
-	struct mv88e6xxx_chip *chip = mdio_bus->chip;
-	int err;
-
-	if (!chip->info->ops->phy_write)
-		return -EOPNOTSUPP;
-
-	mv88e6xxx_reg_lock(chip);
-	err = chip->info->ops->phy_write(chip, bus, phy, reg, val);
-	mv88e6xxx_reg_unlock(chip);
-
-	return err;
-}
-
-static int mv88e6xxx_mdio_register(struct mv88e6xxx_chip *chip,
-				   struct device_node *np,
-				   bool external)
-{
-	static int index;
-	struct mv88e6xxx_mdio_bus *mdio_bus;
-	struct mii_bus *bus;
-	int err;
-
-	if (external) {
-		mv88e6xxx_reg_lock(chip);
-		err = mv88e6xxx_g2_scratch_gpio_set_smi(chip, true);
-		mv88e6xxx_reg_unlock(chip);
-
-		if (err)
-			return err;
-	}
-
-	bus = mdiobus_alloc_size(sizeof(*mdio_bus));
-	if (!bus)
-		return -ENOMEM;
-
-	mdio_bus = bus->priv;
-	mdio_bus->bus = bus;
-	mdio_bus->chip = chip;
-	INIT_LIST_HEAD(&mdio_bus->list);
-	mdio_bus->external = external;
-
-	if (np) {
-		bus->name = np->full_name;
-		snprintf(bus->id, MII_BUS_ID_SIZE, "%pOF", np);
-	} else {
-		bus->name = "mv88e6xxx SMI";
-		snprintf(bus->id, MII_BUS_ID_SIZE, "mv88e6xxx-%d", index++);
-	}
-
-	bus->read = mv88e6xxx_mdio_read;
-	bus->write = mv88e6xxx_mdio_write;
-	bus->parent = chip->dev;
-
-	if (!external) {
-		err = mv88e6xxx_g2_irq_mdio_setup(chip, bus);
-		if (err)
-			goto out;
-	}
-
-	err = of_mdiobus_register(bus, np);
-	if (err) {
-		dev_err(chip->dev, "Cannot register MDIO bus (%d)\n", err);
-		mv88e6xxx_g2_irq_mdio_free(chip, bus);
-		goto out;
-	}
-
-	if (external)
-		list_add_tail(&mdio_bus->list, &chip->mdios);
-	else
-		list_add(&mdio_bus->list, &chip->mdios);
-
-	return 0;
-
-out:
-	mdiobus_free(bus);
-	return err;
-}
-
-static void mv88e6xxx_mdios_unregister(struct mv88e6xxx_chip *chip)
-
-{
-	struct mv88e6xxx_mdio_bus *mdio_bus, *p;
-	struct mii_bus *bus;
-
-	list_for_each_entry_safe(mdio_bus, p, &chip->mdios, list) {
-		bus = mdio_bus->bus;
-
-		if (!mdio_bus->external)
-			mv88e6xxx_g2_irq_mdio_free(chip, bus);
-
-		mdiobus_unregister(bus);
-		mdiobus_free(bus);
-	}
-}
-
-static int mv88e6xxx_mdios_register(struct mv88e6xxx_chip *chip,
-				    struct device_node *np)
-{
-	struct device_node *child;
-	int err;
-
-	/* Always register one mdio bus for the internal/default mdio
-	 * bus. This maybe represented in the device tree, but is
-	 * optional.
-	 */
-	child = of_get_child_by_name(np, "mdio");
-	err = mv88e6xxx_mdio_register(chip, child, false);
-	of_node_put(child);
-	if (err)
-		return err;
-
-	/* Walk the device tree, and see if there are any other nodes
-	 * which say they are compatible with the external mdio
-	 * bus.
-	 */
-	for_each_available_child_of_node(np, child) {
-		if (of_device_is_compatible(
-			    child, "marvell,mv88e6xxx-mdio-external")) {
-			err = mv88e6xxx_mdio_register(chip, child, true);
-			if (err) {
-				mv88e6xxx_mdios_unregister(chip);
-				of_node_put(child);
-				return err;
-			}
-		}
-	}
-
-	return 0;
 }
 
 static int mv88e6xxx_get_eeprom_len(struct dsa_switch *ds)
@@ -4162,8 +4226,10 @@ static const struct mv88e6xxx_ops mv88e6097_ops = {
 	.ip_pri_map = mv88e6085_g1_ip_pri_map,
 	.irl_init_all = mv88e6352_g2_irl_init_all,
 	.set_switch_mac = mv88e6xxx_g2_set_switch_mac,
-	.phy_read = mv88e6xxx_g2_smi_phy_read,
-	.phy_write = mv88e6xxx_g2_smi_phy_write,
+	.phy_read = mv88e6xxx_g2_smi_phy_read_c22,
+	.phy_write = mv88e6xxx_g2_smi_phy_write_c22,
+	.phy_read_c45 = mv88e6xxx_g2_smi_phy_read_c45,
+	.phy_write_c45 = mv88e6xxx_g2_smi_phy_write_c45,
 	.port_set_link = mv88e6xxx_port_set_link,
 	.port_sync_link = mv88e6185_port_sync_link,
 	.port_set_speed_duplex = mv88e6185_port_set_speed_duplex,
@@ -4211,8 +4277,10 @@ static const struct mv88e6xxx_ops mv88e6123_ops = {
 	.ip_pri_map = mv88e6085_g1_ip_pri_map,
 	.irl_init_all = mv88e6352_g2_irl_init_all,
 	.set_switch_mac = mv88e6xxx_g2_set_switch_mac,
-	.phy_read = mv88e6xxx_g2_smi_phy_read,
-	.phy_write = mv88e6xxx_g2_smi_phy_write,
+	.phy_read = mv88e6xxx_g2_smi_phy_read_c22,
+	.phy_write = mv88e6xxx_g2_smi_phy_write_c22,
+	.phy_read_c45 = mv88e6xxx_g2_smi_phy_read_c45,
+	.phy_write_c45 = mv88e6xxx_g2_smi_phy_write_c45,
 	.port_set_link = mv88e6xxx_port_set_link,
 	.port_sync_link = mv88e6xxx_port_sync_link,
 	.port_set_speed_duplex = mv88e6185_port_set_speed_duplex,
@@ -4292,8 +4360,10 @@ static const struct mv88e6xxx_ops mv88e6141_ops = {
 	.get_eeprom = mv88e6xxx_g2_get_eeprom8,
 	.set_eeprom = mv88e6xxx_g2_set_eeprom8,
 	.set_switch_mac = mv88e6xxx_g2_set_switch_mac,
-	.phy_read = mv88e6xxx_g2_smi_phy_read,
-	.phy_write = mv88e6xxx_g2_smi_phy_write,
+	.phy_read = mv88e6xxx_g2_smi_phy_read_c22,
+	.phy_write = mv88e6xxx_g2_smi_phy_write_c22,
+	.phy_read_c45 = mv88e6xxx_g2_smi_phy_read_c45,
+	.phy_write_c45 = mv88e6xxx_g2_smi_phy_write_c45,
 	.port_set_link = mv88e6xxx_port_set_link,
 	.port_sync_link = mv88e6xxx_port_sync_link,
 	.port_set_rgmii_delay = mv88e6390_port_set_rgmii_delay,
@@ -4356,8 +4426,10 @@ static const struct mv88e6xxx_ops mv88e6161_ops = {
 	.ip_pri_map = mv88e6085_g1_ip_pri_map,
 	.irl_init_all = mv88e6352_g2_irl_init_all,
 	.set_switch_mac = mv88e6xxx_g2_set_switch_mac,
-	.phy_read = mv88e6xxx_g2_smi_phy_read,
-	.phy_write = mv88e6xxx_g2_smi_phy_write,
+	.phy_read = mv88e6xxx_g2_smi_phy_read_c22,
+	.phy_write = mv88e6xxx_g2_smi_phy_write_c22,
+	.phy_read_c45 = mv88e6xxx_g2_smi_phy_read_c45,
+	.phy_write_c45 = mv88e6xxx_g2_smi_phy_write_c45,
 	.port_set_link = mv88e6xxx_port_set_link,
 	.port_sync_link = mv88e6xxx_port_sync_link,
 	.port_set_speed_duplex = mv88e6185_port_set_speed_duplex,
@@ -4439,8 +4511,10 @@ static const struct mv88e6xxx_ops mv88e6171_ops = {
 	.ip_pri_map = mv88e6085_g1_ip_pri_map,
 	.irl_init_all = mv88e6352_g2_irl_init_all,
 	.set_switch_mac = mv88e6xxx_g2_set_switch_mac,
-	.phy_read = mv88e6xxx_g2_smi_phy_read,
-	.phy_write = mv88e6xxx_g2_smi_phy_write,
+	.phy_read = mv88e6xxx_g2_smi_phy_read_c22,
+	.phy_write = mv88e6xxx_g2_smi_phy_write_c22,
+	.phy_read_c45 = mv88e6xxx_g2_smi_phy_read_c45,
+	.phy_write_c45 = mv88e6xxx_g2_smi_phy_write_c45,
 	.port_set_link = mv88e6xxx_port_set_link,
 	.port_sync_link = mv88e6xxx_port_sync_link,
 	.port_set_rgmii_delay = mv88e6352_port_set_rgmii_delay,
@@ -4485,8 +4559,10 @@ static const struct mv88e6xxx_ops mv88e6172_ops = {
 	.get_eeprom = mv88e6xxx_g2_get_eeprom16,
 	.set_eeprom = mv88e6xxx_g2_set_eeprom16,
 	.set_switch_mac = mv88e6xxx_g2_set_switch_mac,
-	.phy_read = mv88e6xxx_g2_smi_phy_read,
-	.phy_write = mv88e6xxx_g2_smi_phy_write,
+	.phy_read = mv88e6xxx_g2_smi_phy_read_c22,
+	.phy_write = mv88e6xxx_g2_smi_phy_write_c22,
+	.phy_read_c45 = mv88e6xxx_g2_smi_phy_read_c45,
+	.phy_write_c45 = mv88e6xxx_g2_smi_phy_write_c45,
 	.port_set_link = mv88e6xxx_port_set_link,
 	.port_sync_link = mv88e6xxx_port_sync_link,
 	.port_set_rgmii_delay = mv88e6352_port_set_rgmii_delay,
@@ -4540,8 +4616,10 @@ static const struct mv88e6xxx_ops mv88e6175_ops = {
 	.ip_pri_map = mv88e6085_g1_ip_pri_map,
 	.irl_init_all = mv88e6352_g2_irl_init_all,
 	.set_switch_mac = mv88e6xxx_g2_set_switch_mac,
-	.phy_read = mv88e6xxx_g2_smi_phy_read,
-	.phy_write = mv88e6xxx_g2_smi_phy_write,
+	.phy_read = mv88e6xxx_g2_smi_phy_read_c22,
+	.phy_write = mv88e6xxx_g2_smi_phy_write_c22,
+	.phy_read_c45 = mv88e6xxx_g2_smi_phy_read_c45,
+	.phy_write_c45 = mv88e6xxx_g2_smi_phy_write_c45,
 	.port_set_link = mv88e6xxx_port_set_link,
 	.port_sync_link = mv88e6xxx_port_sync_link,
 	.port_set_rgmii_delay = mv88e6352_port_set_rgmii_delay,
@@ -4586,8 +4664,10 @@ static const struct mv88e6xxx_ops mv88e6176_ops = {
 	.get_eeprom = mv88e6xxx_g2_get_eeprom16,
 	.set_eeprom = mv88e6xxx_g2_set_eeprom16,
 	.set_switch_mac = mv88e6xxx_g2_set_switch_mac,
-	.phy_read = mv88e6xxx_g2_smi_phy_read,
-	.phy_write = mv88e6xxx_g2_smi_phy_write,
+	.phy_read = mv88e6xxx_g2_smi_phy_read_c22,
+	.phy_write = mv88e6xxx_g2_smi_phy_write_c22,
+	.phy_read_c45 = mv88e6xxx_g2_smi_phy_read_c45,
+	.phy_write_c45 = mv88e6xxx_g2_smi_phy_write_c45,
 	.port_set_link = mv88e6xxx_port_set_link,
 	.port_sync_link = mv88e6xxx_port_sync_link,
 	.port_set_rgmii_delay = mv88e6352_port_set_rgmii_delay,
@@ -4686,8 +4766,10 @@ static const struct mv88e6xxx_ops mv88e6190_ops = {
 	.get_eeprom = mv88e6xxx_g2_get_eeprom8,
 	.set_eeprom = mv88e6xxx_g2_set_eeprom8,
 	.set_switch_mac = mv88e6xxx_g2_set_switch_mac,
-	.phy_read = mv88e6xxx_g2_smi_phy_read,
-	.phy_write = mv88e6xxx_g2_smi_phy_write,
+	.phy_read = mv88e6xxx_g2_smi_phy_read_c22,
+	.phy_write = mv88e6xxx_g2_smi_phy_write_c22,
+	.phy_read_c45 = mv88e6xxx_g2_smi_phy_read_c45,
+	.phy_write_c45 = mv88e6xxx_g2_smi_phy_write_c45,
 	.port_set_link = mv88e6xxx_port_set_link,
 	.port_sync_link = mv88e6xxx_port_sync_link,
 	.port_set_rgmii_delay = mv88e6390_port_set_rgmii_delay,
@@ -4749,8 +4831,10 @@ static const struct mv88e6xxx_ops mv88e6190x_ops = {
 	.get_eeprom = mv88e6xxx_g2_get_eeprom8,
 	.set_eeprom = mv88e6xxx_g2_set_eeprom8,
 	.set_switch_mac = mv88e6xxx_g2_set_switch_mac,
-	.phy_read = mv88e6xxx_g2_smi_phy_read,
-	.phy_write = mv88e6xxx_g2_smi_phy_write,
+	.phy_read = mv88e6xxx_g2_smi_phy_read_c22,
+	.phy_write = mv88e6xxx_g2_smi_phy_write_c22,
+	.phy_read_c45 = mv88e6xxx_g2_smi_phy_read_c45,
+	.phy_write_c45 = mv88e6xxx_g2_smi_phy_write_c45,
 	.port_set_link = mv88e6xxx_port_set_link,
 	.port_sync_link = mv88e6xxx_port_sync_link,
 	.port_set_rgmii_delay = mv88e6390_port_set_rgmii_delay,
@@ -4812,8 +4896,10 @@ static const struct mv88e6xxx_ops mv88e6191_ops = {
 	.get_eeprom = mv88e6xxx_g2_get_eeprom8,
 	.set_eeprom = mv88e6xxx_g2_set_eeprom8,
 	.set_switch_mac = mv88e6xxx_g2_set_switch_mac,
-	.phy_read = mv88e6xxx_g2_smi_phy_read,
-	.phy_write = mv88e6xxx_g2_smi_phy_write,
+	.phy_read = mv88e6xxx_g2_smi_phy_read_c22,
+	.phy_write = mv88e6xxx_g2_smi_phy_write_c22,
+	.phy_read_c45 = mv88e6xxx_g2_smi_phy_read_c45,
+	.phy_write_c45 = mv88e6xxx_g2_smi_phy_write_c45,
 	.port_set_link = mv88e6xxx_port_set_link,
 	.port_sync_link = mv88e6xxx_port_sync_link,
 	.port_set_rgmii_delay = mv88e6390_port_set_rgmii_delay,
@@ -4875,8 +4961,10 @@ static const struct mv88e6xxx_ops mv88e6240_ops = {
 	.get_eeprom = mv88e6xxx_g2_get_eeprom16,
 	.set_eeprom = mv88e6xxx_g2_set_eeprom16,
 	.set_switch_mac = mv88e6xxx_g2_set_switch_mac,
-	.phy_read = mv88e6xxx_g2_smi_phy_read,
-	.phy_write = mv88e6xxx_g2_smi_phy_write,
+	.phy_read = mv88e6xxx_g2_smi_phy_read_c22,
+	.phy_write = mv88e6xxx_g2_smi_phy_write_c22,
+	.phy_read_c45 = mv88e6xxx_g2_smi_phy_read_c45,
+	.phy_write_c45 = mv88e6xxx_g2_smi_phy_write_c45,
 	.port_set_link = mv88e6xxx_port_set_link,
 	.port_sync_link = mv88e6xxx_port_sync_link,
 	.port_set_rgmii_delay = mv88e6352_port_set_rgmii_delay,
@@ -4938,8 +5026,10 @@ static const struct mv88e6xxx_ops mv88e6250_ops = {
 	.get_eeprom = mv88e6xxx_g2_get_eeprom16,
 	.set_eeprom = mv88e6xxx_g2_set_eeprom16,
 	.set_switch_mac = mv88e6xxx_g2_set_switch_mac,
-	.phy_read = mv88e6xxx_g2_smi_phy_read,
-	.phy_write = mv88e6xxx_g2_smi_phy_write,
+	.phy_read = mv88e6xxx_g2_smi_phy_read_c22,
+	.phy_write = mv88e6xxx_g2_smi_phy_write_c22,
+	.phy_read_c45 = mv88e6xxx_g2_smi_phy_read_c45,
+	.phy_write_c45 = mv88e6xxx_g2_smi_phy_write_c45,
 	.port_set_link = mv88e6xxx_port_set_link,
 	.port_sync_link = mv88e6xxx_port_sync_link,
 	.port_set_rgmii_delay = mv88e6352_port_set_rgmii_delay,
@@ -4977,8 +5067,10 @@ static const struct mv88e6xxx_ops mv88e6290_ops = {
 	.get_eeprom = mv88e6xxx_g2_get_eeprom8,
 	.set_eeprom = mv88e6xxx_g2_set_eeprom8,
 	.set_switch_mac = mv88e6xxx_g2_set_switch_mac,
-	.phy_read = mv88e6xxx_g2_smi_phy_read,
-	.phy_write = mv88e6xxx_g2_smi_phy_write,
+	.phy_read = mv88e6xxx_g2_smi_phy_read_c22,
+	.phy_write = mv88e6xxx_g2_smi_phy_write_c22,
+	.phy_read_c45 = mv88e6xxx_g2_smi_phy_read_c45,
+	.phy_write_c45 = mv88e6xxx_g2_smi_phy_write_c45,
 	.port_set_link = mv88e6xxx_port_set_link,
 	.port_sync_link = mv88e6xxx_port_sync_link,
 	.port_set_rgmii_delay = mv88e6390_port_set_rgmii_delay,
@@ -5030,7 +5122,7 @@ static const struct mv88e6xxx_ops mv88e6290_ops = {
 	.serdes_get_regs = mv88e6390_serdes_get_regs,
 	.gpio_ops = &mv88e6352_gpio_ops,
 	.avb_ops = &mv88e6390_avb_ops,
-	.ptp_ops = &mv88e6352_ptp_ops,
+	.ptp_ops = &mv88e6390_ptp_ops,
 	.phylink_get_caps = mv88e6390_phylink_get_caps,
 };
 
@@ -5042,8 +5134,10 @@ static const struct mv88e6xxx_ops mv88e6320_ops = {
 	.get_eeprom = mv88e6xxx_g2_get_eeprom16,
 	.set_eeprom = mv88e6xxx_g2_set_eeprom16,
 	.set_switch_mac = mv88e6xxx_g2_set_switch_mac,
-	.phy_read = mv88e6xxx_g2_smi_phy_read,
-	.phy_write = mv88e6xxx_g2_smi_phy_write,
+	.phy_read = mv88e6xxx_g2_smi_phy_read_c22,
+	.phy_write = mv88e6xxx_g2_smi_phy_write_c22,
+	.phy_read_c45 = mv88e6xxx_g2_smi_phy_read_c45,
+	.phy_write_c45 = mv88e6xxx_g2_smi_phy_write_c45,
 	.port_set_link = mv88e6xxx_port_set_link,
 	.port_sync_link = mv88e6xxx_port_sync_link,
 	.port_set_rgmii_delay = mv88e6320_port_set_rgmii_delay,
@@ -5087,8 +5181,10 @@ static const struct mv88e6xxx_ops mv88e6321_ops = {
 	.get_eeprom = mv88e6xxx_g2_get_eeprom16,
 	.set_eeprom = mv88e6xxx_g2_set_eeprom16,
 	.set_switch_mac = mv88e6xxx_g2_set_switch_mac,
-	.phy_read = mv88e6xxx_g2_smi_phy_read,
-	.phy_write = mv88e6xxx_g2_smi_phy_write,
+	.phy_read = mv88e6xxx_g2_smi_phy_read_c22,
+	.phy_write = mv88e6xxx_g2_smi_phy_write_c22,
+	.phy_read_c45 = mv88e6xxx_g2_smi_phy_read_c45,
+	.phy_write_c45 = mv88e6xxx_g2_smi_phy_write_c45,
 	.port_set_link = mv88e6xxx_port_set_link,
 	.port_sync_link = mv88e6xxx_port_sync_link,
 	.port_set_rgmii_delay = mv88e6320_port_set_rgmii_delay,
@@ -5113,6 +5209,7 @@ static const struct mv88e6xxx_ops mv88e6321_ops = {
 	.set_cpu_port = mv88e6095_g1_set_cpu_port,
 	.set_egress_port = mv88e6095_g1_set_egress_port,
 	.watchdog_ops = &mv88e6390_watchdog_ops,
+	.mgmt_rsvd2cpu = mv88e6352_g2_mgmt_rsvd2cpu,
 	.reset = mv88e6352_g1_reset,
 	.vtu_getnext = mv88e6185_g1_vtu_getnext,
 	.vtu_loadpurge = mv88e6185_g1_vtu_loadpurge,
@@ -5130,8 +5227,10 @@ static const struct mv88e6xxx_ops mv88e6341_ops = {
 	.get_eeprom = mv88e6xxx_g2_get_eeprom8,
 	.set_eeprom = mv88e6xxx_g2_set_eeprom8,
 	.set_switch_mac = mv88e6xxx_g2_set_switch_mac,
-	.phy_read = mv88e6xxx_g2_smi_phy_read,
-	.phy_write = mv88e6xxx_g2_smi_phy_write,
+	.phy_read = mv88e6xxx_g2_smi_phy_read_c22,
+	.phy_write = mv88e6xxx_g2_smi_phy_write_c22,
+	.phy_read_c45 = mv88e6xxx_g2_smi_phy_read_c45,
+	.phy_write_c45 = mv88e6xxx_g2_smi_phy_write_c45,
 	.port_set_link = mv88e6xxx_port_set_link,
 	.port_sync_link = mv88e6xxx_port_sync_link,
 	.port_set_rgmii_delay = mv88e6390_port_set_rgmii_delay,
@@ -5196,8 +5295,10 @@ static const struct mv88e6xxx_ops mv88e6350_ops = {
 	.ip_pri_map = mv88e6085_g1_ip_pri_map,
 	.irl_init_all = mv88e6352_g2_irl_init_all,
 	.set_switch_mac = mv88e6xxx_g2_set_switch_mac,
-	.phy_read = mv88e6xxx_g2_smi_phy_read,
-	.phy_write = mv88e6xxx_g2_smi_phy_write,
+	.phy_read = mv88e6xxx_g2_smi_phy_read_c22,
+	.phy_write = mv88e6xxx_g2_smi_phy_write_c22,
+	.phy_read_c45 = mv88e6xxx_g2_smi_phy_read_c45,
+	.phy_write_c45 = mv88e6xxx_g2_smi_phy_write_c45,
 	.port_set_link = mv88e6xxx_port_set_link,
 	.port_sync_link = mv88e6xxx_port_sync_link,
 	.port_set_rgmii_delay = mv88e6352_port_set_rgmii_delay,
@@ -5240,8 +5341,10 @@ static const struct mv88e6xxx_ops mv88e6351_ops = {
 	.ip_pri_map = mv88e6085_g1_ip_pri_map,
 	.irl_init_all = mv88e6352_g2_irl_init_all,
 	.set_switch_mac = mv88e6xxx_g2_set_switch_mac,
-	.phy_read = mv88e6xxx_g2_smi_phy_read,
-	.phy_write = mv88e6xxx_g2_smi_phy_write,
+	.phy_read = mv88e6xxx_g2_smi_phy_read_c22,
+	.phy_write = mv88e6xxx_g2_smi_phy_write_c22,
+	.phy_read_c45 = mv88e6xxx_g2_smi_phy_read_c45,
+	.phy_write_c45 = mv88e6xxx_g2_smi_phy_write_c45,
 	.port_set_link = mv88e6xxx_port_set_link,
 	.port_sync_link = mv88e6xxx_port_sync_link,
 	.port_set_rgmii_delay = mv88e6352_port_set_rgmii_delay,
@@ -5288,8 +5391,10 @@ static const struct mv88e6xxx_ops mv88e6352_ops = {
 	.get_eeprom = mv88e6xxx_g2_get_eeprom16,
 	.set_eeprom = mv88e6xxx_g2_set_eeprom16,
 	.set_switch_mac = mv88e6xxx_g2_set_switch_mac,
-	.phy_read = mv88e6xxx_g2_smi_phy_read,
-	.phy_write = mv88e6xxx_g2_smi_phy_write,
+	.phy_read = mv88e6xxx_g2_smi_phy_read_c22,
+	.phy_write = mv88e6xxx_g2_smi_phy_write_c22,
+	.phy_read_c45 = mv88e6xxx_g2_smi_phy_read_c45,
+	.phy_write_c45 = mv88e6xxx_g2_smi_phy_write_c45,
 	.port_set_link = mv88e6xxx_port_set_link,
 	.port_sync_link = mv88e6xxx_port_sync_link,
 	.port_set_rgmii_delay = mv88e6352_port_set_rgmii_delay,
@@ -5353,8 +5458,10 @@ static const struct mv88e6xxx_ops mv88e6390_ops = {
 	.get_eeprom = mv88e6xxx_g2_get_eeprom8,
 	.set_eeprom = mv88e6xxx_g2_set_eeprom8,
 	.set_switch_mac = mv88e6xxx_g2_set_switch_mac,
-	.phy_read = mv88e6xxx_g2_smi_phy_read,
-	.phy_write = mv88e6xxx_g2_smi_phy_write,
+	.phy_read = mv88e6xxx_g2_smi_phy_read_c22,
+	.phy_write = mv88e6xxx_g2_smi_phy_write_c22,
+	.phy_read_c45 = mv88e6xxx_g2_smi_phy_read_c45,
+	.phy_write_c45 = mv88e6xxx_g2_smi_phy_write_c45,
 	.port_set_link = mv88e6xxx_port_set_link,
 	.port_sync_link = mv88e6xxx_port_sync_link,
 	.port_set_rgmii_delay = mv88e6390_port_set_rgmii_delay,
@@ -5404,7 +5511,7 @@ static const struct mv88e6xxx_ops mv88e6390_ops = {
 	.serdes_irq_status = mv88e6390_serdes_irq_status,
 	.gpio_ops = &mv88e6352_gpio_ops,
 	.avb_ops = &mv88e6390_avb_ops,
-	.ptp_ops = &mv88e6352_ptp_ops,
+	.ptp_ops = &mv88e6390_ptp_ops,
 	.serdes_get_sset_count = mv88e6390_serdes_get_sset_count,
 	.serdes_get_strings = mv88e6390_serdes_get_strings,
 	.serdes_get_stats = mv88e6390_serdes_get_stats,
@@ -5420,8 +5527,10 @@ static const struct mv88e6xxx_ops mv88e6390x_ops = {
 	.get_eeprom = mv88e6xxx_g2_get_eeprom8,
 	.set_eeprom = mv88e6xxx_g2_set_eeprom8,
 	.set_switch_mac = mv88e6xxx_g2_set_switch_mac,
-	.phy_read = mv88e6xxx_g2_smi_phy_read,
-	.phy_write = mv88e6xxx_g2_smi_phy_write,
+	.phy_read = mv88e6xxx_g2_smi_phy_read_c22,
+	.phy_write = mv88e6xxx_g2_smi_phy_write_c22,
+	.phy_read_c45 = mv88e6xxx_g2_smi_phy_read_c45,
+	.phy_write_c45 = mv88e6xxx_g2_smi_phy_write_c45,
 	.port_set_link = mv88e6xxx_port_set_link,
 	.port_sync_link = mv88e6xxx_port_sync_link,
 	.port_set_rgmii_delay = mv88e6390_port_set_rgmii_delay,
@@ -5475,7 +5584,7 @@ static const struct mv88e6xxx_ops mv88e6390x_ops = {
 	.serdes_get_regs = mv88e6390_serdes_get_regs,
 	.gpio_ops = &mv88e6352_gpio_ops,
 	.avb_ops = &mv88e6390_avb_ops,
-	.ptp_ops = &mv88e6352_ptp_ops,
+	.ptp_ops = &mv88e6390_ptp_ops,
 	.phylink_get_caps = mv88e6390x_phylink_get_caps,
 };
 
@@ -5486,8 +5595,10 @@ static const struct mv88e6xxx_ops mv88e6393x_ops = {
 	.get_eeprom = mv88e6xxx_g2_get_eeprom8,
 	.set_eeprom = mv88e6xxx_g2_set_eeprom8,
 	.set_switch_mac = mv88e6xxx_g2_set_switch_mac,
-	.phy_read = mv88e6xxx_g2_smi_phy_read,
-	.phy_write = mv88e6xxx_g2_smi_phy_write,
+	.phy_read = mv88e6xxx_g2_smi_phy_read_c22,
+	.phy_write = mv88e6xxx_g2_smi_phy_write_c22,
+	.phy_read_c45 = mv88e6xxx_g2_smi_phy_read_c45,
+	.phy_write_c45 = mv88e6xxx_g2_smi_phy_write_c45,
 	.port_set_link = mv88e6xxx_port_set_link,
 	.port_sync_link = mv88e6xxx_port_sync_link,
 	.port_set_rgmii_delay = mv88e6390_port_set_rgmii_delay,
@@ -6539,7 +6650,7 @@ static int mv88e6xxx_port_pre_bridge_flags(struct dsa_switch *ds, int port,
 	const struct mv88e6xxx_ops *ops;
 
 	if (flags.mask & ~(BR_LEARNING | BR_FLOOD | BR_MCAST_FLOOD |
-			   BR_BCAST_FLOOD | BR_PORT_LOCKED))
+			   BR_BCAST_FLOOD | BR_PORT_LOCKED | BR_PORT_MAB))
 		return -EINVAL;
 
 	ops = chip->info->ops;
@@ -6558,7 +6669,7 @@ static int mv88e6xxx_port_bridge_flags(struct dsa_switch *ds, int port,
 				       struct netlink_ext_ack *extack)
 {
 	struct mv88e6xxx_chip *chip = ds->priv;
-	int err = -EOPNOTSUPP;
+	int err = 0;
 
 	mv88e6xxx_reg_lock(chip);
 
@@ -6595,6 +6706,12 @@ static int mv88e6xxx_port_bridge_flags(struct dsa_switch *ds, int port,
 		err = mv88e6xxx_port_broadcast_sync(chip, port, broadcast);
 		if (err)
 			goto out;
+	}
+
+	if (flags.mask & BR_PORT_MAB) {
+		bool mab = !!(flags.val & BR_PORT_MAB);
+
+		mv88e6xxx_port_set_mab(chip, port, mab);
 	}
 
 	if (flags.mask & BR_PORT_LOCKED) {
@@ -7068,7 +7185,7 @@ static int mv88e6xxx_probe(struct mdio_device *mdiodev)
 		goto out;
 	}
 	if (chip->reset)
-		usleep_range(1000, 2000);
+		usleep_range(10000, 20000);
 
 	/* Detect if the device is configured in single chip addressing mode,
 	 * otherwise continue with address specific smi init/detection.
@@ -7144,18 +7261,12 @@ static int mv88e6xxx_probe(struct mdio_device *mdiodev)
 	if (err)
 		goto out_g1_atu_prob_irq;
 
-	err = mv88e6xxx_mdios_register(chip, np);
+	err = mv88e6xxx_register_switch(chip);
 	if (err)
 		goto out_g1_vtu_prob_irq;
 
-	err = mv88e6xxx_register_switch(chip);
-	if (err)
-		goto out_mdio;
-
 	return 0;
 
-out_mdio:
-	mv88e6xxx_mdios_unregister(chip);
 out_g1_vtu_prob_irq:
 	mv88e6xxx_g1_vtu_prob_irq_free(chip);
 out_g1_atu_prob_irq:
@@ -7192,7 +7303,6 @@ static void mv88e6xxx_remove(struct mdio_device *mdiodev)
 
 	mv88e6xxx_phy_destroy(chip);
 	mv88e6xxx_unregister_switch(chip);
-	mv88e6xxx_mdios_unregister(chip);
 
 	mv88e6xxx_g1_vtu_prob_irq_free(chip);
 	mv88e6xxx_g1_atu_prob_irq_free(chip);

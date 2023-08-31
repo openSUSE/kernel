@@ -67,6 +67,8 @@
 
 #define OPENOWNER_POOL_SIZE	8
 
+static void nfs4_state_start_reclaim_reboot(struct nfs_client *clp);
+
 const nfs4_stateid zero_stateid = {
 	{ .data = { 0 } },
 	.type = NFS4_SPECIAL_STATEID_TYPE,
@@ -330,6 +332,8 @@ do_confirm:
 	status = nfs4_proc_create_session(clp, cred);
 	if (status != 0)
 		goto out;
+	if (!(clp->cl_exchange_flags & EXCHGID4_FLAG_CONFIRMED_R))
+		nfs4_state_start_reclaim_reboot(clp);
 	nfs41_finish_session_reset(clp);
 	nfs_mark_client_ready(clp, NFS_CS_READY);
 out:
@@ -750,6 +754,23 @@ nfs4_get_open_state(struct inode *inode, struct nfs4_state_owner *owner)
 	}
 out:
 	return state;
+}
+
+struct inode *
+nfs4_get_inode_by_stateid(nfs4_stateid *stateid, struct nfs4_state_owner *owner)
+{
+	struct nfs4_state *state;
+	struct inode *inode = NULL;
+
+	spin_lock(&owner->so_lock);
+	list_for_each_entry(state, &owner->so_states, open_states)
+		if (nfs4_stateid_match_other(stateid, &state->open_stateid)) {
+			inode = state->inode;
+			ihold(inode);
+			break;
+		}
+	spin_unlock(&owner->so_lock);
+	return inode;
 }
 
 void nfs4_put_open_state(struct nfs4_state *state)
@@ -1205,10 +1226,6 @@ void nfs4_schedule_state_manager(struct nfs_client *clp)
 {
 	struct task_struct *task;
 	char buf[INET6_ADDRSTRLEN + sizeof("-manager") + 1];
-	struct rpc_clnt *cl = clp->cl_rpcclient;
-
-	while (cl != cl->cl_parent)
-		cl = cl->cl_parent;
 
 	set_bit(NFS4CLNT_RUN_MANAGER, &clp->cl_state);
 	if (test_and_set_bit(NFS4CLNT_MANAGER_AVAILABLE, &clp->cl_state) != 0) {

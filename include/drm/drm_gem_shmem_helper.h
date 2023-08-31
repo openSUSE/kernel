@@ -61,20 +61,6 @@ struct drm_gem_shmem_object {
 	struct list_head madv_list;
 
 	/**
-	 * @pages_mark_dirty_on_put:
-	 *
-	 * Mark pages as dirty when they are put.
-	 */
-	unsigned int pages_mark_dirty_on_put    : 1;
-
-	/**
-	 * @pages_mark_accessed_on_put:
-	 *
-	 * Mark pages as accessed when they are put.
-	 */
-	unsigned int pages_mark_accessed_on_put : 1;
-
-	/**
 	 * @sgt: Scatter/gather table for imported PRIME buffers
 	 */
 	struct sg_table *sgt;
@@ -98,9 +84,23 @@ struct drm_gem_shmem_object {
 	unsigned int vmap_use_count;
 
 	/**
+	 * @pages_mark_dirty_on_put:
+	 *
+	 * Mark pages as dirty when they are put.
+	 */
+	bool pages_mark_dirty_on_put : 1;
+
+	/**
+	 * @pages_mark_accessed_on_put:
+	 *
+	 * Mark pages as accessed when they are put.
+	 */
+	bool pages_mark_accessed_on_put : 1;
+
+	/**
 	 * @map_wc: map object write-combined (instead of using shmem defaults).
 	 */
-	bool map_wc;
+	bool map_wc : 1;
 };
 
 #define to_drm_gem_shmem_obj(obj) \
@@ -290,8 +290,6 @@ int drm_gem_shmem_dumb_create(struct drm_file *file, struct drm_device *dev,
  * the &drm_driver structure.
  */
 #define DRM_GEM_SHMEM_DRIVER_OPS \
-	.prime_handle_to_fd	= drm_gem_prime_handle_to_fd, \
-	.prime_fd_to_handle	= drm_gem_prime_fd_to_handle, \
 	.gem_prime_import_sg_table = drm_gem_shmem_prime_import_sg_table, \
 	.gem_prime_mmap		= drm_gem_prime_mmap, \
 	.dumb_create		= drm_gem_shmem_dumb_create

@@ -1259,7 +1259,8 @@ static int pqi_get_device_lists(struct pqi_ctrl_info *ctrl_info,
 			"report logical LUNs failed\n");
 
 	/*
-	 * Tack the controller itself onto the end of the logical device list.
+	 * Tack the controller itself onto the end of the logical device list
+	 * by adding a list entry that is all zeros.
 	 */
 
 	logdev_data = *logdev_list;
@@ -7402,7 +7403,7 @@ static struct attribute *pqi_sdev_attrs[] = {
 
 ATTRIBUTE_GROUPS(pqi_sdev);
 
-static struct scsi_host_template pqi_driver_template = {
+static const struct scsi_host_template pqi_driver_template = {
 	.module = THIS_MODULE,
 	.name = DRIVER_NAME_SHORT,
 	.proc_name = DRIVER_NAME_SHORT,

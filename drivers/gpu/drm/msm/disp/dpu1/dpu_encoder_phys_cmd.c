@@ -36,9 +36,7 @@
 #define DEFAULT_TEARCHECK_SYNC_THRESH_START	4
 #define DEFAULT_TEARCHECK_SYNC_THRESH_CONTINUE	4
 
-#define DPU_ENC_WR_PTR_START_TIMEOUT_US 20000
-
-#define DPU_ENC_MAX_POLL_TIMEOUT_US	2000
+static void dpu_encoder_phys_cmd_enable_te(struct dpu_encoder_phys *phys_enc);
 
 static bool dpu_encoder_phys_cmd_is_master(struct dpu_encoder_phys *phys_enc)
 {
@@ -61,6 +59,7 @@ static void _dpu_encoder_phys_cmd_update_intf_cfg(
 	intf_cfg.intf_mode_sel = DPU_CTL_MODE_SEL_CMD;
 	intf_cfg.stream_sel = cmd_enc->stream_sel;
 	intf_cfg.mode_3d = dpu_encoder_helper_get_3d_blend_mode(phys_enc);
+	intf_cfg.dsc = dpu_encoder_helper_get_dsc(phys_enc);
 	ctl->ops.setup_intf_cfg(ctl, &intf_cfg);
 
 	/* setup which pp blk will connect to this intf */
@@ -83,9 +82,7 @@ static void dpu_encoder_phys_cmd_pp_tx_done_irq(void *arg, int irq_idx)
 
 	DPU_ATRACE_BEGIN("pp_done_irq");
 	/* notify all synchronous clients first, then asynchronous clients */
-	if (phys_enc->parent_ops->handle_frame_done)
-		phys_enc->parent_ops->handle_frame_done(phys_enc->parent,
-				phys_enc, event);
+	dpu_encoder_frame_done_callback(phys_enc->parent, phys_enc, event);
 
 	spin_lock_irqsave(phys_enc->enc_spinlock, lock_flags);
 	new_cnt = atomic_add_unless(&phys_enc->pending_kickoff_cnt, -1, 0);
@@ -111,9 +108,7 @@ static void dpu_encoder_phys_cmd_pp_rd_ptr_irq(void *arg, int irq_idx)
 	DPU_ATRACE_BEGIN("rd_ptr_irq");
 	cmd_enc = to_dpu_encoder_phys_cmd(phys_enc);
 
-	if (phys_enc->parent_ops->handle_vblank_virt)
-		phys_enc->parent_ops->handle_vblank_virt(phys_enc->parent,
-			phys_enc);
+	dpu_encoder_vblank_callback(phys_enc->parent, phys_enc);
 
 	atomic_add_unless(&cmd_enc->pending_vblank_cnt, -1, 0);
 	wake_up_all(&cmd_enc->pending_vblank_wq);
@@ -137,9 +132,7 @@ static void dpu_encoder_phys_cmd_underrun_irq(void *arg, int irq_idx)
 {
 	struct dpu_encoder_phys *phys_enc = arg;
 
-	if (phys_enc->parent_ops->handle_underrun_virt)
-		phys_enc->parent_ops->handle_underrun_virt(phys_enc->parent,
-			phys_enc);
+	dpu_encoder_underrun_callback(phys_enc->parent, phys_enc);
 }
 
 static void dpu_encoder_phys_cmd_atomic_mode_set(
@@ -202,9 +195,7 @@ static int _dpu_encoder_phys_cmd_handle_ppdone_timeout(
 	/* request a ctl reset before the next kickoff */
 	phys_enc->enable_state = DPU_ENC_ERR_NEEDS_HW_RESET;
 
-	if (phys_enc->parent_ops->handle_frame_done)
-		phys_enc->parent_ops->handle_frame_done(
-				drm_enc, phys_enc, frame_event);
+	dpu_encoder_frame_done_callback(phys_enc->parent, phys_enc, frame_event);
 
 	return -ETIMEDOUT;
 }
@@ -572,34 +563,15 @@ static void dpu_encoder_phys_cmd_prepare_for_kickoff(
 			  phys_enc->hw_pp->idx - PINGPONG_0);
 	}
 
+	dpu_encoder_phys_cmd_enable_te(phys_enc);
+
 	DPU_DEBUG_CMDENC(cmd_enc, "pp:%d pending_cnt %d\n",
 			phys_enc->hw_pp->idx - PINGPONG_0,
 			atomic_read(&phys_enc->pending_kickoff_cnt));
 }
 
-static bool dpu_encoder_phys_cmd_is_ongoing_pptx(
-		struct dpu_encoder_phys *phys_enc)
+static void dpu_encoder_phys_cmd_enable_te(struct dpu_encoder_phys *phys_enc)
 {
-	struct dpu_hw_pp_vsync_info info;
-
-	if (!phys_enc)
-		return false;
-
-	phys_enc->hw_pp->ops.get_vsync_info(phys_enc->hw_pp, &info);
-	if (info.wr_ptr_line_count > 0 &&
-	    info.wr_ptr_line_count < phys_enc->cached_mode.vdisplay)
-		return true;
-
-	return false;
-}
-
-static void dpu_encoder_phys_cmd_prepare_commit(
-		struct dpu_encoder_phys *phys_enc)
-{
-	struct dpu_encoder_phys_cmd *cmd_enc =
-		to_dpu_encoder_phys_cmd(phys_enc);
-	int trial = 0;
-
 	if (!phys_enc)
 		return;
 	if (!phys_enc->hw_pp)
@@ -607,37 +579,11 @@ static void dpu_encoder_phys_cmd_prepare_commit(
 	if (!dpu_encoder_phys_cmd_is_master(phys_enc))
 		return;
 
-	/* If autorefresh is already disabled, we have nothing to do */
-	if (!phys_enc->hw_pp->ops.get_autorefresh(phys_enc->hw_pp, NULL))
-		return;
-
-	/*
-	 * If autorefresh is enabled, disable it and make sure it is safe to
-	 * proceed with current frame commit/push. Sequence fallowed is,
-	 * 1. Disable TE
-	 * 2. Disable autorefresh config
-	 * 4. Poll for frame transfer ongoing to be false
-	 * 5. Enable TE back
-	 */
-	_dpu_encoder_phys_cmd_connect_te(phys_enc, false);
-	phys_enc->hw_pp->ops.setup_autorefresh(phys_enc->hw_pp, 0, false);
-
-	do {
-		udelay(DPU_ENC_MAX_POLL_TIMEOUT_US);
-		if ((trial * DPU_ENC_MAX_POLL_TIMEOUT_US)
-				> (KICKOFF_TIMEOUT_MS * USEC_PER_MSEC)) {
-			DPU_ERROR_CMDENC(cmd_enc,
-					"disable autorefresh failed\n");
-			break;
-		}
-
-		trial++;
-	} while (dpu_encoder_phys_cmd_is_ongoing_pptx(phys_enc));
-
-	_dpu_encoder_phys_cmd_connect_te(phys_enc, true);
-
-	DPU_DEBUG_CMDENC(to_dpu_encoder_phys_cmd(phys_enc),
-			 "disabled autorefresh\n");
+	if (phys_enc->hw_pp->ops.disable_autorefresh) {
+		phys_enc->hw_pp->ops.disable_autorefresh(phys_enc->hw_pp,
+							 DRMID(phys_enc->parent),
+							 phys_enc->cached_mode.vdisplay);
+	}
 }
 
 static int _dpu_encoder_phys_cmd_wait_for_ctl_start(
@@ -739,7 +685,6 @@ static void dpu_encoder_phys_cmd_trigger_start(
 static void dpu_encoder_phys_cmd_init_ops(
 		struct dpu_encoder_phys_ops *ops)
 {
-	ops->prepare_commit = dpu_encoder_phys_cmd_prepare_commit;
 	ops->is_master = dpu_encoder_phys_cmd_is_master;
 	ops->atomic_mode_set = dpu_encoder_phys_cmd_atomic_mode_set;
 	ops->enable = dpu_encoder_phys_cmd_enable;
@@ -780,7 +725,6 @@ struct dpu_encoder_phys *dpu_encoder_phys_cmd_init(
 
 	dpu_encoder_phys_cmd_init_ops(&phys_enc->ops);
 	phys_enc->parent = p->parent;
-	phys_enc->parent_ops = p->parent_ops;
 	phys_enc->dpu_kms = p->dpu_kms;
 	phys_enc->split_role = p->split_role;
 	phys_enc->intf_mode = INTF_MODE_CMD;

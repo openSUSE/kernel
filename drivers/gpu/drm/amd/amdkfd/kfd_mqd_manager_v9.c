@@ -115,18 +115,19 @@ static struct kfd_mem_obj *allocate_mqd(struct kfd_dev *kfd,
 			&(mqd_mem_obj->gtt_mem),
 			&(mqd_mem_obj->gpu_addr),
 			(void *)&(mqd_mem_obj->cpu_ptr), true);
+
+		if (retval) {
+			kfree(mqd_mem_obj);
+			return NULL;
+		}
 	} else {
 		retval = kfd_gtt_sa_allocate(kfd, sizeof(struct v9_mqd),
 				&mqd_mem_obj);
-	}
-
-	if (retval) {
-		kfree(mqd_mem_obj);
-		return NULL;
+		if (retval)
+			return NULL;
 	}
 
 	return mqd_mem_obj;
-
 }
 
 static void init_mqd(struct mqd_manager *mm, void **mqd,
@@ -135,6 +136,7 @@ static void init_mqd(struct mqd_manager *mm, void **mqd,
 {
 	uint64_t addr;
 	struct v9_mqd *m;
+	struct amdgpu_device *adev = (struct amdgpu_device *)mm->dev->adev;
 
 	m = (struct v9_mqd *) mqd_mem_obj->cpu_ptr;
 	addr = mqd_mem_obj->gpu_addr;
@@ -167,6 +169,20 @@ static void init_mqd(struct mqd_manager *mm, void **mqd,
 	if (q->format == KFD_QUEUE_FORMAT_AQL) {
 		m->cp_hqd_aql_control =
 			1 << CP_HQD_AQL_CONTROL__CONTROL0__SHIFT;
+		if (adev->ip_versions[GC_HWIP][0] == IP_VERSION(9, 4, 3)) {
+			/* On GC 9.4.3, DW 41 is re-purposed as
+			 * compute_tg_chunk_size.
+			 * TODO: review this setting when active CUs in the
+			 * partition play a role
+			 */
+			m->compute_static_thread_mgmt_se6 = 1;
+		}
+	} else {
+		/* PM4 queue */
+		if (adev->ip_versions[GC_HWIP][0] == IP_VERSION(9, 4, 3)) {
+			m->compute_static_thread_mgmt_se6 = 0;
+			/* TODO: program pm4_target_xcc */
+		}
 	}
 
 	if (q->tba_addr) {
@@ -209,6 +225,7 @@ static void update_mqd(struct mqd_manager *mm, void *mqd,
 			struct queue_properties *q,
 			struct mqd_update_info *minfo)
 {
+	struct amdgpu_device *adev = (struct amdgpu_device *)mm->dev->adev;
 	struct v9_mqd *m;
 
 	m = get_mqd(mqd);
@@ -254,10 +271,13 @@ static void update_mqd(struct mqd_manager *mm, void *mqd,
 	m->cp_hqd_vmid = q->vmid;
 
 	if (q->format == KFD_QUEUE_FORMAT_AQL) {
-		m->cp_hqd_pq_control |= CP_HQD_PQ_CONTROL__NO_UPDATE_RPTR_MASK |
+		m->cp_hqd_pq_control |=
 				2 << CP_HQD_PQ_CONTROL__SLOT_BASED_WPTR__SHIFT |
 				1 << CP_HQD_PQ_CONTROL__QUEUE_FULL_EN__SHIFT |
 				1 << CP_HQD_PQ_CONTROL__WPP_CLAMP_EN__SHIFT;
+		if (adev->ip_versions[GC_HWIP][0] != IP_VERSION(9, 4, 3))
+			m->cp_hqd_pq_control |=
+				 CP_HQD_PQ_CONTROL__NO_UPDATE_RPTR_MASK;
 		m->cp_hqd_pq_doorbell_control |= 1 <<
 			CP_HQD_PQ_DOORBELL_CONTROL__DOORBELL_BIF_DROP__SHIFT;
 	}

@@ -71,6 +71,7 @@ config SND_SOC_AMD_RENOIR_MACH
 config SND_SOC_AMD_ACP5x
 	tristate "AMD Audio Coprocessor-v5.x I2S support"
 	depends on X86 && PCI
+	select SND_AMD_ACP_CONFIG
 	help
 	 This option enables ACP v5.x support on AMD platform
 
@@ -81,6 +82,7 @@ config SND_SOC_AMD_VANGOGH_MACH
 	tristate "AMD Vangogh support for NAU8821 CS35L41"
 	select SND_SOC_NAU8821
 	select SND_SOC_CS35L41_SPI
+	select SND_AMD_ACP_CONFIG
 	depends on SND_SOC_AMD_ACP5x && I2C && SPI_MASTER
 	help
 	  This option enables machine driver for Vangogh platform
@@ -90,6 +92,7 @@ config SND_SOC_AMD_VANGOGH_MACH
 
 config SND_SOC_AMD_ACP6x
 	tristate "AMD Audio Coprocessor-v6.x Yellow Carp support"
+	select SND_AMD_ACP_CONFIG
 	depends on X86 && PCI
 	help
 	  This option enables Audio Coprocessor i.e ACP v6.x support on
@@ -130,6 +133,7 @@ config SND_SOC_AMD_RPL_ACP6x
 
 config SND_SOC_AMD_PS
         tristate "AMD Audio Coprocessor-v6.3 Pink Sardine support"
+	select SND_AMD_ACP_CONFIG
         depends on X86 && PCI && ACPI
         help
           This option enables Audio Coprocessor i.e ACP v6.3 support on

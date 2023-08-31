@@ -41,6 +41,7 @@
 #include "xfs_attr_item.h"
 #include "xfs_xattr.h"
 #include "xfs_iunlink_item.h"
+#include "xfs_dahash_test.h"
 
 #include <linux/magic.h>
 #include <linux/fs_context.h>
@@ -247,6 +248,32 @@ xfs_fs_show_options(
 	return 0;
 }
 
+static bool
+xfs_set_inode_alloc_perag(
+	struct xfs_perag	*pag,
+	xfs_ino_t		ino,
+	xfs_agnumber_t		max_metadata)
+{
+	if (!xfs_is_inode32(pag->pag_mount)) {
+		set_bit(XFS_AGSTATE_ALLOWS_INODES, &pag->pag_opstate);
+		clear_bit(XFS_AGSTATE_PREFERS_METADATA, &pag->pag_opstate);
+		return false;
+	}
+
+	if (ino > XFS_MAXINUMBER_32) {
+		clear_bit(XFS_AGSTATE_ALLOWS_INODES, &pag->pag_opstate);
+		clear_bit(XFS_AGSTATE_PREFERS_METADATA, &pag->pag_opstate);
+		return false;
+	}
+
+	set_bit(XFS_AGSTATE_ALLOWS_INODES, &pag->pag_opstate);
+	if (pag->pag_agno < max_metadata)
+		set_bit(XFS_AGSTATE_PREFERS_METADATA, &pag->pag_opstate);
+	else
+		clear_bit(XFS_AGSTATE_PREFERS_METADATA, &pag->pag_opstate);
+	return true;
+}
+
 /*
  * Set parameters for inode allocation heuristics, taking into account
  * filesystem size and inode32/inode64 mount options; i.e. specifically
@@ -310,24 +337,8 @@ xfs_set_inode_alloc(
 		ino = XFS_AGINO_TO_INO(mp, index, agino);
 
 		pag = xfs_perag_get(mp, index);
-
-		if (xfs_is_inode32(mp)) {
-			if (ino > XFS_MAXINUMBER_32) {
-				pag->pagi_inodeok = 0;
-				pag->pagf_metadata = 0;
-			} else {
-				pag->pagi_inodeok = 1;
-				maxagi++;
-				if (index < max_metadata)
-					pag->pagf_metadata = 1;
-				else
-					pag->pagf_metadata = 0;
-			}
-		} else {
-			pag->pagi_inodeok = 1;
-			pag->pagf_metadata = 0;
-		}
-
+		if (xfs_set_inode_alloc_perag(pag, ino, max_metadata))
+			maxagi++;
 		xfs_perag_put(pag);
 	}
 
@@ -358,7 +369,6 @@ xfs_setup_dax_always(
 		return -EINVAL;
 	}
 
-	xfs_warn(mp, "DAX enabled. Warning: EXPERIMENTAL, use at your own risk");
 	return 0;
 
 disable_dax:
@@ -1084,8 +1094,12 @@ xfs_inodegc_init_percpu(
 
 	for_each_possible_cpu(cpu) {
 		gc = per_cpu_ptr(mp->m_inodegc, cpu);
+#if defined(DEBUG) || defined(XFS_WARN)
+		gc->cpu = cpu;
+#endif
 		init_llist_head(&gc->list);
 		gc->items = 0;
+		gc->error = 0;
 		INIT_DELAYED_WORK(&gc->work, xfs_inodegc_worker);
 	}
 	return 0;
@@ -1371,7 +1385,8 @@ xfs_fs_parse_param(
 
 static int
 xfs_fs_validate_params(
-	struct xfs_mount	*mp)
+	struct xfs_mount	*mp,
+	struct xfs_sb		*sb)
 {
 	/* No recovery flag requires a read-only mount */
 	if (xfs_has_norecovery(mp) && !xfs_is_readonly(mp)) {
@@ -1403,7 +1418,8 @@ xfs_fs_validate_params(
 	if ((mp->m_dalign && !mp->m_swidth) ||
 	    (!mp->m_dalign && mp->m_swidth)) {
 		xfs_warn(mp, "sunit and swidth must be specified together");
-		return -EINVAL;
+		if (!sb->sb_unit)
+			return -EINVAL;
 	}
 
 	if (mp->m_dalign && (mp->m_swidth % mp->m_dalign != 0)) {
@@ -1455,7 +1471,7 @@ xfs_fs_fill_super(
 
 	mp->m_super = sb;
 
-	error = xfs_fs_validate_params(mp);
+	error = xfs_fs_validate_params(mp, &mp->m_sb);
 	if (error)
 		goto out_free_names;
 
@@ -1532,6 +1548,19 @@ xfs_fs_fill_super(
 #else
 		xfs_warn(mp,
 	"Deprecated V4 format (crc=0) not supported by kernel.");
+		error = -EINVAL;
+		goto out_free_sb;
+#endif
+	}
+
+	/* ASCII case insensitivity is undergoing deprecation. */
+	if (xfs_has_asciici(mp)) {
+#ifdef CONFIG_XFS_SUPPORT_ASCII_CI
+		xfs_warn_once(mp,
+	"Deprecated ASCII case-insensitivity feature (ascii-ci=1) will not be supported after September 2030.");
+#else
+		xfs_warn(mp,
+	"Deprecated ASCII case-insensitivity feature (ascii-ci=1) not supported by kernel.");
 		error = -EINVAL;
 		goto out_free_sb;
 #endif
@@ -1857,7 +1886,8 @@ xfs_fs_reconfigure(
 	if (xfs_has_crc(mp))
 		fc->sb_flags |= SB_I_VERSION;
 
-	error = xfs_fs_validate_params(new_mp);
+	error = xfs_fs_validate_params(new_mp, &mp->m_sb);
+
 	if (error)
 		return error;
 
@@ -1922,7 +1952,6 @@ static int xfs_init_fs_context(
 		return -ENOMEM;
 
 	spin_lock_init(&mp->m_sb_lock);
-	spin_lock_init(&mp->m_agirotor_lock);
 	INIT_RADIX_TREE(&mp->m_perag_tree, GFP_ATOMIC);
 	spin_lock_init(&mp->m_perag_lock);
 	mutex_init(&mp->m_growlock);
@@ -2276,6 +2305,10 @@ init_xfs_fs(void)
 	int			error;
 
 	xfs_check_ondisk_structs();
+
+	error = xfs_dahash_test();
+	if (error)
+		return error;
 
 	printk(KERN_INFO XFS_VERSION_STRING " with "
 			 XFS_BUILD_OPTIONS " enabled\n");

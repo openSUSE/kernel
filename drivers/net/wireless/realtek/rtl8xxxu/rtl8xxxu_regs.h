@@ -147,7 +147,13 @@
 #define REG_LEDCFG0			0x004c
 #define  LEDCFG0_DPDT_SELECT		BIT(23)
 #define REG_LEDCFG1			0x004d
+#define  LEDCFG1_HW_LED_CONTROL		BIT(1)
+#define  LEDCFG1_LED_DISABLE		BIT(7)
 #define REG_LEDCFG2			0x004e
+#define  LEDCFG2_HW_LED_CONTROL		BIT(1)
+#define  LEDCFG2_HW_LED_ENABLE		BIT(5)
+#define  LEDCFG2_SW_LED_DISABLE		BIT(3)
+#define  LEDCFG2_SW_LED_CONTROL   	BIT(5)
 #define  LEDCFG2_DPDT_SELECT		BIT(7)
 #define REG_LEDCFG3			0x004f
 #define REG_LEDCFG			REG_LEDCFG2
@@ -371,6 +377,11 @@
 #define  PBP_PAGE_SIZE_512		0x3
 #define  PBP_PAGE_SIZE_1024		0x4
 
+/* 8188eu IOL magic */
+#define REG_PKT_BUF_ACCESS_CTRL		0x0106
+#define  PKT_BUF_ACCESS_CTRL_TX		0x69
+#define  PKT_BUF_ACCESS_CTRL_RX		0xa5
+
 #define REG_TRXDMA_CTRL			0x010c
 #define  TRXDMA_CTRL_RXDMA_AGG_EN	BIT(2)
 #define  TRXDMA_CTRL_VOQ_SHIFT		4
@@ -407,6 +418,8 @@
 #define REG_MBIST_START			0x0174
 #define REG_MBIST_DONE			0x0178
 #define REG_MBIST_FAIL			0x017c
+/* 8188EU */
+#define REG_32K_CTRL			0x0194
 #define REG_C2HEVT_MSG_NORMAL		0x01a0
 /* 8192EU/8723BU/8812 */
 #define REG_C2HEVT_CMD_ID_8723B		0x01ae
@@ -476,6 +489,8 @@
 #define  RXDMA_PRO_DMA_MODE		BIT(1)		/* Set to 0x1. */
 #define  RXDMA_PRO_DMA_BURST_CNT	GENMASK(3, 2)	/* Set to 0x3. */
 #define  RXDMA_PRO_DMA_BURST_SIZE	GENMASK(5, 4)	/* Set to 0x1. */
+
+#define REG_EARLY_MODE_CONTROL_8710B	0x02bc
 
 #define REG_RF_BB_CMD_ADDR		0x02c0
 #define REG_RF_BB_CMD_DATA		0x02c4
@@ -832,6 +847,7 @@
 #define REG_BT_CONTROL_8723BU		0x0764
 #define  BT_CONTROL_BT_GRANT		BIT(12)
 
+#define REG_PORT_CONTROL_8710B		0x076d
 #define REG_WLAN_ACT_CONTROL_8723B	0x076e
 
 #define REG_FPGA0_RF_MODE		0x0800
@@ -942,6 +958,16 @@
 #define REG_FPGA1_RF_MODE		0x0900
 
 #define REG_FPGA1_TX_INFO		0x090c
+#define  FPGA1_TX_ANT_MASK		0x0000000f
+#define  FPGA1_TX_ANT_L_MASK		0x000000f0
+#define  FPGA1_TX_ANT_NON_HT_MASK	0x00000f00
+#define  FPGA1_TX_ANT_HT1_MASK		0x0000f000
+#define  FPGA1_TX_ANT_HT2_MASK		0x000f0000
+#define  FPGA1_TX_ANT_HT_S1_MASK	0x00f00000
+#define  FPGA1_TX_ANT_NON_HT_S1_MASK	0x0f000000
+#define  FPGA1_TX_OFDM_TXSC_MASK	0x30000000
+
+#define REG_ANT_MAPPING1		0x0914
 #define REG_DPDT_CTRL			0x092c	/* 8723BU */
 #define REG_RFE_CTRL_ANTA_SRC		0x0930	/* 8723BU */
 #define REG_RFE_PATH_SELECT		0x0940	/* 8723BU */
@@ -954,9 +980,25 @@
 
 #define REG_CCK0_AFE_SETTING		0x0a04
 #define  CCK0_AFE_RX_MASK		0x0f000000
-#define  CCK0_AFE_RX_ANT_AB		BIT(24)
+#define  CCK0_AFE_TX_MASK		0xf0000000
 #define  CCK0_AFE_RX_ANT_A		0
-#define  CCK0_AFE_RX_ANT_B		(BIT(24) | BIT(26))
+#define  CCK0_AFE_RX_ANT_B		BIT(26)
+#define  CCK0_AFE_RX_ANT_C		BIT(27)
+#define  CCK0_AFE_RX_ANT_D		(BIT(26) | BIT(27))
+#define  CCK0_AFE_RX_ANT_OPTION_A	0
+#define  CCK0_AFE_RX_ANT_OPTION_B	BIT(24)
+#define  CCK0_AFE_RX_ANT_OPTION_C	BIT(25)
+#define  CCK0_AFE_RX_ANT_OPTION_D	(BIT(24) | BIT(25))
+#define  CCK0_AFE_TX_ANT_A		BIT(31)
+#define  CCK0_AFE_TX_ANT_B		BIT(30)
+
+#define REG_CCK_ANTDIV_PARA2		0x0a04
+#define REG_BB_POWER_SAVE4		0x0a74
+
+/* 8188eu */
+#define REG_LNA_SWITCH			0x0b2c
+#define  LNA_SWITCH_DISABLE_CSCG	BIT(22)
+#define  LNA_SWITCH_OUTPUT_CG		BIT(31)
 
 #define REG_CCK_PD_THRESH			0x0a0a
 #define  CCK_PD_TYPE1_LV0_TH		0x40
@@ -965,8 +1007,12 @@
 #define  CCK_PD_TYPE1_LV3_TH		0xdd
 #define  CCK_PD_TYPE1_LV4_TH		0xed
 
+#define REG_CCK0_TX_FILTER1		0x0a20
+#define REG_CCK0_TX_FILTER2		0x0a24
+#define REG_CCK0_DEBUG_PORT		0x0a28	/* debug port and Tx filter3 */
 #define REG_AGC_RPT			0xa80
 #define  AGC_RPT_CCK			BIT(7)
+#define REG_CCK0_TX_FILTER3		0x0aac
 
 #define REG_CONFIG_ANT_A		0x0b68
 #define REG_CONFIG_ANT_B		0x0b6c
@@ -1019,6 +1065,9 @@
 #define REG_OFDM0_XD_TX_AFE		0x0c9c
 
 #define REG_OFDM0_RX_IQ_EXT_ANTA	0x0ca0
+
+/* 8188eu */
+#define REG_ANTDIV_PARA1		0x0ca4
 
 /* 8723bu */
 #define REG_OFDM0_TX_PSDO_NOISE_WEIGHT	0x0ce4
@@ -1137,6 +1186,8 @@
 						    Unavailable */
 #define  USB_HIMR_ROK			BIT(0)	/*  Receive DMA OK Interrupt */
 
+#define REG_USB_ACCESS_TIMEOUT		0xfe4c
+
 #define REG_USB_SPECIAL_OPTION		0xfe55
 #define  USB_SPEC_USB_AGG_ENABLE	BIT(3)	/* Enable USB aggregation */
 #define  USB_SPEC_INT_BULK_SELECT	BIT(4)	/* Use interrupt endpoint to
@@ -1161,6 +1212,41 @@
 #define REG_NORMAL_SIE_GPS_EP		0xfe6d	/* RTL8723 only */
 #define REG_NORMAL_SIE_MAC_ADDR		0xfe70	/* 0xfe70 - 0xfe75 */
 #define REG_NORMAL_SIE_STRING		0xfe80	/* 0xfe80 - 0xfedf */
+
+/*
+ * 8710B register addresses between 0x00 and 0xff must have 0x8000
+ * added to them. We take care of that in the rtl8xxxu_read{8,16,32}
+ * and rtl8xxxu_write{8,16,32} functions.
+ */
+#define REG_SYS_FUNC_8710B		0x0004
+#define REG_AFE_CTRL_8710B		0x0050
+#define REG_WL_RF_PSS_8710B		0x005c
+#define REG_EFUSE_INDIRECT_CTRL_8710B	0x006c
+#define  NORMAL_REG_READ_OFFSET		0x83000000
+#define  NORMAL_REG_WRITE_OFFSET	0x84000000
+#define  EFUSE_READ_OFFSET		0x85000000
+#define  EFUSE_WRITE_OFFSET		0x86000000
+#define REG_HIMR0_8710B			0x0080
+#define REG_HISR0_8710B			0x0084
+/*
+ * 8710B uses this instead of REG_MCU_FW_DL, but at least bits
+ * 0-7 have the same meaning.
+ */
+#define REG_8051FW_CTRL_V1_8710B	0x0090
+#define REG_USB_HOST_INDIRECT_DATA_8710B	0x009c
+#define REG_WL_STATUS_8710B		0x00f0
+#define REG_USB_HOST_INDIRECT_ADDR_8710B	0x00f8
+
+/*
+ * 8710B registers which must be accessed through rtl8710b_read_syson_reg
+ * and rtl8710b_write_syson_reg.
+ */
+#define SYSON_REG_BASE_ADDR_8710B	0x40000000
+#define REG_SYS_XTAL_CTRL0_8710B	0x060
+#define REG_SYS_EEPROM_CTRL0_8710B	0x0e0
+#define REG_SYS_SYSTEM_CFG0_8710B	0x1f0
+#define REG_SYS_SYSTEM_CFG1_8710B	0x1f4
+#define REG_SYS_SYSTEM_CFG2_8710B	0x1f8
 
 /* RF6052 registers */
 #define RF6052_REG_AC			0x00

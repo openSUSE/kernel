@@ -35,6 +35,8 @@ struct typec_partner {
 	enum usb_pd_svdm_ver		svdm_version;
 
 	struct usb_power_delivery	*pd;
+
+	void				*suse_kabi_padding;
 };
 
 struct typec_port {
@@ -59,6 +61,8 @@ struct typec_port {
 
 	const struct typec_capability	*cap;
 	const struct typec_operations   *ops;
+
+	void				*suse_kabi_padding;
 };
 
 #define to_typec_port(_dev_) container_of(_dev_, struct typec_port, dev)

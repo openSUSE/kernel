@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0
 
 /* Copyright (c) 2012-2018, The Linux Foundation. All rights reserved.
- * Copyright (C) 2018-2022 Linaro Ltd.
+ * Copyright (C) 2018-2023 Linaro Ltd.
  */
 
 #include <linux/types.h>
@@ -273,16 +273,15 @@ static int ipa_filter_reset(struct ipa *ipa, bool modem)
 	if (ret)
 		return ret;
 
+	ret = ipa_filter_reset_table(ipa, false, true, modem);
+	if (ret || !ipa_table_hash_support(ipa))
+		return ret;
+
 	ret = ipa_filter_reset_table(ipa, true, false, modem);
 	if (ret)
 		return ret;
 
-	ret = ipa_filter_reset_table(ipa, false, true, modem);
-	if (ret)
-		return ret;
-	ret = ipa_filter_reset_table(ipa, true, true, modem);
-
-	return ret;
+	return ipa_filter_reset_table(ipa, true, true, modem);
 }
 
 /* The AP routes and modem routes are each contiguous within the
@@ -291,12 +290,13 @@ static int ipa_filter_reset(struct ipa *ipa, bool modem)
  * */
 static int ipa_route_reset(struct ipa *ipa, bool modem)
 {
+	bool hash_support = ipa_table_hash_support(ipa);
 	u32 modem_route_count = ipa->modem_route_count;
 	struct gsi_trans *trans;
 	u16 first;
 	u16 count;
 
-	trans = ipa_cmd_trans_alloc(ipa, 4);
+	trans = ipa_cmd_trans_alloc(ipa, hash_support ? 4 : 2);
 	if (!trans) {
 		dev_err(&ipa->pdev->dev,
 			"no transaction for %s route reset\n",
@@ -313,10 +313,12 @@ static int ipa_route_reset(struct ipa *ipa, bool modem)
 	}
 
 	ipa_table_reset_add(trans, false, false, false, first, count);
-	ipa_table_reset_add(trans, false, true, false, first, count);
-
 	ipa_table_reset_add(trans, false, false, true, first, count);
-	ipa_table_reset_add(trans, false, true, true, first, count);
+
+	if (hash_support) {
+		ipa_table_reset_add(trans, false, true, false, first, count);
+		ipa_table_reset_add(trans, false, true, true, first, count);
+	}
 
 	gsi_trans_commit_wait(trans);
 
@@ -345,9 +347,8 @@ void ipa_table_reset(struct ipa *ipa, bool modem)
 
 int ipa_table_hash_flush(struct ipa *ipa)
 {
-	const struct ipa_reg *reg;
 	struct gsi_trans *trans;
-	u32 offset;
+	const struct reg *reg;
 	u32 val;
 
 	if (!ipa_table_hash_support(ipa))
@@ -359,15 +360,22 @@ int ipa_table_hash_flush(struct ipa *ipa)
 		return -EBUSY;
 	}
 
-	reg = ipa_reg(ipa, FILT_ROUT_HASH_FLUSH);
-	offset = ipa_reg_offset(reg);
+	if (ipa->version < IPA_VERSION_5_0) {
+		reg = ipa_reg(ipa, FILT_ROUT_HASH_FLUSH);
 
-	val = ipa_reg_bit(reg, IPV6_ROUTER_HASH);
-	val |= ipa_reg_bit(reg, IPV6_FILTER_HASH);
-	val |= ipa_reg_bit(reg, IPV4_ROUTER_HASH);
-	val |= ipa_reg_bit(reg, IPV4_FILTER_HASH);
+		val = reg_bit(reg, IPV6_ROUTER_HASH);
+		val |= reg_bit(reg, IPV6_FILTER_HASH);
+		val |= reg_bit(reg, IPV4_ROUTER_HASH);
+		val |= reg_bit(reg, IPV4_FILTER_HASH);
+	} else {
+		reg = ipa_reg(ipa, FILT_ROUT_CACHE_FLUSH);
 
-	ipa_cmd_register_write_add(trans, offset, val, val, false);
+		/* IPA v5.0+ uses a unified cache (both IPv4 and IPv6) */
+		val = reg_bit(reg, ROUTER_CACHE);
+		val |= reg_bit(reg, FILTER_CACHE);
+	}
+
+	ipa_cmd_register_write_add(trans, reg_offset(reg), val, val, false);
 
 	gsi_trans_commit_wait(trans);
 
@@ -486,17 +494,26 @@ static void ipa_filter_tuple_zero(struct ipa_endpoint *endpoint)
 {
 	u32 endpoint_id = endpoint->endpoint_id;
 	struct ipa *ipa = endpoint->ipa;
-	const struct ipa_reg *reg;
+	const struct reg *reg;
 	u32 offset;
 	u32 val;
 
-	reg = ipa_reg(ipa, ENDP_FILTER_ROUTER_HSH_CFG);
+	if (ipa->version < IPA_VERSION_5_0) {
+		reg = ipa_reg(ipa, ENDP_FILTER_ROUTER_HSH_CFG);
 
-	offset = ipa_reg_n_offset(reg, endpoint_id);
-	val = ioread32(endpoint->ipa->reg_virt + offset);
+		offset = reg_n_offset(reg, endpoint_id);
+		val = ioread32(endpoint->ipa->reg_virt + offset);
 
-	/* Zero all filter-related fields, preserving the rest */
-	val &= ~ipa_reg_fmask(reg, FILTER_HASH_MSK_ALL);
+		/* Zero all filter-related fields, preserving the rest */
+		val &= ~reg_fmask(reg, FILTER_HASH_MSK_ALL);
+	} else {
+		/* IPA v5.0 separates filter and router cache configuration */
+		reg = ipa_reg(ipa, ENDP_FILTER_CACHE_CFG);
+		offset = reg_n_offset(reg, endpoint_id);
+
+		/* Zero all filter-related fields */
+		val = 0;
+	}
 
 	iowrite32(val, endpoint->ipa->reg_virt + offset);
 }
@@ -536,17 +553,26 @@ static bool ipa_route_id_modem(struct ipa *ipa, u32 route_id)
  */
 static void ipa_route_tuple_zero(struct ipa *ipa, u32 route_id)
 {
-	const struct ipa_reg *reg;
+	const struct reg *reg;
 	u32 offset;
 	u32 val;
 
-	reg = ipa_reg(ipa, ENDP_FILTER_ROUTER_HSH_CFG);
-	offset = ipa_reg_n_offset(reg, route_id);
+	if (ipa->version < IPA_VERSION_5_0) {
+		reg = ipa_reg(ipa, ENDP_FILTER_ROUTER_HSH_CFG);
+		offset = reg_n_offset(reg, route_id);
 
-	val = ioread32(ipa->reg_virt + offset);
+		val = ioread32(ipa->reg_virt + offset);
 
-	/* Zero all route-related fields, preserving the rest */
-	val &= ~ipa_reg_fmask(reg, ROUTER_HASH_MSK_ALL);
+		/* Zero all route-related fields, preserving the rest */
+		val &= ~reg_fmask(reg, ROUTER_HASH_MSK_ALL);
+	} else {
+		/* IPA v5.0 separates filter and router cache configuration */
+		reg = ipa_reg(ipa, ENDP_ROUTER_CACHE_CFG);
+		offset = reg_n_offset(reg, route_id);
+
+		/* Zero all route-related fields */
+		val = 0;
+	}
 
 	iowrite32(val, ipa->reg_virt + offset);
 }

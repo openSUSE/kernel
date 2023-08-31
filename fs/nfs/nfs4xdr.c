@@ -1832,7 +1832,10 @@ static void encode_exchange_id(struct xdr_stream *xdr,
 		break;
 	}
 
-	if (send_implementation_id &&
+	/* ->nsproxy is null during final fput() in do_exit(),
+	 * in which case utsname() is not usable.
+	 */
+	if (send_implementation_id && current->nsproxy &&
 	    sizeof(CONFIG_NFS_V4_1_IMPLEMENTATION_ID_DOMAIN) > 1 &&
 	    sizeof(CONFIG_NFS_V4_1_IMPLEMENTATION_ID_DOMAIN)
 		<= sizeof(impl_name) + 1)

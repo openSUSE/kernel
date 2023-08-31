@@ -14,7 +14,7 @@
 #include <linux/of.h>
 #include <linux/platform_device.h>
 #include <linux/pm.h>
-#include <linux/qcom_scm.h>
+#include <linux/firmware/qcom/qcom_scm.h>
 #include <linux/reboot.h>
 #include <linux/seq_file.h>
 #include <linux/slab.h>
@@ -310,6 +310,8 @@ static int msm_config_reg(struct msm_pinctrl *pctrl,
 	case PIN_CONFIG_BIAS_PULL_UP:
 		*bit = g->pull_bit;
 		*mask = 3;
+		if (g->i2c_pull_bit)
+			*mask |= BIT(g->i2c_pull_bit) >> *bit;
 		break;
 	case PIN_CONFIG_DRIVE_OPEN_DRAIN:
 		*bit = g->od_bit;
@@ -321,6 +323,7 @@ static int msm_config_reg(struct msm_pinctrl *pctrl,
 		break;
 	case PIN_CONFIG_OUTPUT:
 	case PIN_CONFIG_INPUT_ENABLE:
+	case PIN_CONFIG_OUTPUT_ENABLE:
 		*bit = g->oe_bit;
 		*mask = 1;
 		break;
@@ -336,6 +339,7 @@ static int msm_config_reg(struct msm_pinctrl *pctrl,
 #define MSM_KEEPER		2
 #define MSM_PULL_UP_NO_KEEPER	2
 #define MSM_PULL_UP		3
+#define MSM_I2C_STRONG_PULL_UP	2200
 
 static unsigned msm_regval_to_drive(u32 val)
 {
@@ -387,6 +391,8 @@ static int msm_config_group_get(struct pinctrl_dev *pctldev,
 	case PIN_CONFIG_BIAS_PULL_UP:
 		if (pctrl->soc->pull_no_keeper)
 			arg = arg == MSM_PULL_UP_NO_KEEPER;
+		else if (arg & BIT(g->i2c_pull_bit))
+			arg = MSM_I2C_STRONG_PULL_UP;
 		else
 			arg = arg == MSM_PULL_UP;
 		if (!arg)
@@ -409,11 +415,9 @@ static int msm_config_group_get(struct pinctrl_dev *pctldev,
 		val = msm_readl_io(pctrl, g);
 		arg = !!(val & BIT(g->in_bit));
 		break;
-	case PIN_CONFIG_INPUT_ENABLE:
-		/* Pin is output */
-		if (arg)
+	case PIN_CONFIG_OUTPUT_ENABLE:
+		if (!arg)
 			return -EINVAL;
-		arg = 1;
 		break;
 	default:
 		return -ENOTSUPP;
@@ -467,6 +471,8 @@ static int msm_config_group_set(struct pinctrl_dev *pctldev,
 		case PIN_CONFIG_BIAS_PULL_UP:
 			if (pctrl->soc->pull_no_keeper)
 				arg = MSM_PULL_UP_NO_KEEPER;
+			else if (g->i2c_pull_bit && arg == MSM_I2C_STRONG_PULL_UP)
+				arg = BIT(g->i2c_pull_bit) | MSM_PULL_UP;
 			else
 				arg = MSM_PULL_UP;
 			break;
@@ -495,8 +501,35 @@ static int msm_config_group_set(struct pinctrl_dev *pctldev,
 			arg = 1;
 			break;
 		case PIN_CONFIG_INPUT_ENABLE:
-			/* disable output */
+			/*
+			 * According to pinctrl documentation this should
+			 * actually be a no-op.
+			 *
+			 * The docs are explicit that "this does not affect
+			 * the pin's ability to drive output" but what we do
+			 * here is to modify the output enable bit. Thus, to
+			 * follow the docs we should remove that.
+			 *
+			 * The docs say that we should enable any relevant
+			 * input buffer, but TLMM there is no input buffer that
+			 * can be enabled/disabled. It's always on.
+			 *
+			 * The points above, explain why this _should_ be a
+			 * no-op. However, for historical reasons and to
+			 * support old device trees, we'll violate the docs
+			 * and still affect the output.
+			 *
+			 * It should further be noted that this old historical
+			 * behavior actually overrides arg to 0. That means
+			 * that "input-enable" and "input-disable" in a device
+			 * tree would _both_ disable the output. We'll
+			 * continue to preserve this behavior as well since
+			 * we have no other use for this attribute.
+			 */
 			arg = 0;
+			break;
+		case PIN_CONFIG_OUTPUT_ENABLE:
+			arg = !!arg;
 			break;
 		default:
 			dev_err(pctrl->dev, "Unsupported config parameter: %x\n",
@@ -1006,6 +1039,7 @@ static int msm_gpio_irq_set_type(struct irq_data *d, unsigned int type)
 	struct gpio_chip *gc = irq_data_get_irq_chip_data(d);
 	struct msm_pinctrl *pctrl = gpiochip_get_data(gc);
 	const struct msm_pingroup *g;
+	u32 intr_target_mask = GENMASK(2, 0);
 	unsigned long flags;
 	bool was_enabled;
 	u32 val;
@@ -1042,13 +1076,15 @@ static int msm_gpio_irq_set_type(struct irq_data *d, unsigned int type)
 	 * With intr_target_use_scm interrupts are routed to
 	 * application cpu using scm calls.
 	 */
+	if (g->intr_target_width)
+		intr_target_mask = GENMASK(g->intr_target_width - 1, 0);
+
 	if (pctrl->intr_target_use_scm) {
 		u32 addr = pctrl->phys_base[0] + g->intr_target_reg;
 		int ret;
 
 		qcom_scm_io_readl(addr, &val);
-
-		val &= ~(7 << g->intr_target_bit);
+		val &= ~(intr_target_mask << g->intr_target_bit);
 		val |= g->intr_target_kpss_val << g->intr_target_bit;
 
 		ret = qcom_scm_io_writel(addr, val);
@@ -1058,7 +1094,7 @@ static int msm_gpio_irq_set_type(struct irq_data *d, unsigned int type)
 				d->hwirq);
 	} else {
 		val = msm_readl_intr_target(pctrl, g);
-		val &= ~(7 << g->intr_target_bit);
+		val &= ~(intr_target_mask << g->intr_target_bit);
 		val |= g->intr_target_kpss_val << g->intr_target_bit;
 		msm_writel_intr_target(val, pctrl, g);
 	}
@@ -1350,7 +1386,7 @@ static int msm_gpio_init(struct msm_pinctrl *pctrl)
 	girq = &chip->irq;
 	gpio_irq_chip_set_chip(girq, &msm_gpio_irq_chip);
 	girq->parent_handler = msm_gpio_irq_handler;
-	girq->fwnode = pctrl->dev->fwnode;
+	girq->fwnode = dev_fwnode(pctrl->dev);
 	girq->num_parents = 1;
 	girq->parents = devm_kcalloc(pctrl->dev, 1, sizeof(*girq->parents),
 				     GFP_KERNEL);
@@ -1473,8 +1509,7 @@ int msm_pinctrl_probe(struct platform_device *pdev,
 				return PTR_ERR(pctrl->regs[i]);
 		}
 	} else {
-		res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-		pctrl->regs[0] = devm_ioremap_resource(&pdev->dev, res);
+		pctrl->regs[0] = devm_platform_get_and_ioremap_resource(pdev, 0, &res);
 		if (IS_ERR(pctrl->regs[0]))
 			return PTR_ERR(pctrl->regs[0]);
 

@@ -25,8 +25,9 @@
 #include <linux/pm_runtime.h>
 #include <linux/badblocks.h>
 #include <linux/part_stat.h>
-#include "blk-throttle.h"
+#include <linux/blktrace_api.h>
 
+#include "blk-throttle.h"
 #include "blk.h"
 #include "blk-mq-sched.h"
 #include "blk-rq-qos.h"
@@ -57,12 +58,7 @@ static DEFINE_IDA(ext_devt_ida);
 
 void set_capacity(struct gendisk *disk, sector_t sectors)
 {
-	struct block_device *bdev = disk->part0;
-
-	spin_lock(&bdev->bd_size_lock);
-	i_size_write(bdev->bd_inode, (loff_t)sectors << SECTOR_SHIFT);
-	bdev->bd_nr_sectors = sectors;
-	spin_unlock(&bdev->bd_size_lock);
+	bdev_set_nr_sectors(disk->part0, sectors);
 }
 EXPORT_SYMBOL(set_capacity);
 
@@ -426,6 +422,9 @@ int __must_check device_add_disk(struct device *parent, struct gendisk *disk,
 	 */
 	elevator_init_mq(disk->queue);
 
+	/* Mark bdev as having a submit_bio, if needed */
+	disk->part0->bd_has_submit_bio = disk->fops->submit_bio != NULL;
+
 	/*
 	 * If the driver provides an explicit major number it also must provide
 	 * the number of minors numbers supported, and those will be used to
@@ -472,12 +471,10 @@ int __must_check device_add_disk(struct device *parent, struct gendisk *disk,
 	if (ret)
 		goto out_device_del;
 
-	if (!sysfs_deprecated) {
-		ret = sysfs_create_link(block_depr, &ddev->kobj,
-					kobject_name(&ddev->kobj));
-		if (ret)
-			goto out_device_del;
-	}
+	ret = sysfs_create_link(block_depr, &ddev->kobj,
+				kobject_name(&ddev->kobj));
+	if (ret)
+		goto out_device_del;
 
 	/*
 	 * avoid probable deadlock caused by allocating memory with
@@ -486,15 +483,11 @@ int __must_check device_add_disk(struct device *parent, struct gendisk *disk,
 	 */
 	pm_runtime_set_memalloc_noio(ddev, true);
 
-	ret = blk_integrity_add(disk);
-	if (ret)
-		goto out_del_block_link;
-
 	disk->part0->bd_holder_dir =
 		kobject_create_and_add("holders", &ddev->kobj);
 	if (!disk->part0->bd_holder_dir) {
 		ret = -ENOMEM;
-		goto out_del_integrity;
+		goto out_del_block_link;
 	}
 	disk->slave_dir = kobject_create_and_add("slaves", &ddev->kobj);
 	if (!disk->slave_dir) {
@@ -557,11 +550,8 @@ out_put_slave_dir:
 	disk->slave_dir = NULL;
 out_put_holder_dir:
 	kobject_put(disk->part0->bd_holder_dir);
-out_del_integrity:
-	blk_integrity_del(disk);
 out_del_block_link:
-	if (!sysfs_deprecated)
-		sysfs_remove_link(block_depr, dev_name(ddev));
+	sysfs_remove_link(block_depr, dev_name(ddev));
 out_device_del:
 	device_del(ddev);
 out_free_ext_minor:
@@ -621,7 +611,6 @@ void del_gendisk(struct gendisk *disk)
 	if (WARN_ON_ONCE(!disk_live(disk) && !(disk->flags & GENHD_FL_HIDDEN)))
 		return;
 
-	blk_integrity_del(disk);
 	disk_del_events(disk);
 
 	mutex_lock(&disk->open_mutex);
@@ -663,8 +652,7 @@ void del_gendisk(struct gendisk *disk)
 
 	part_stat_set_all(disk->part0, 0);
 	disk->part0->bd_stamp = 0;
-	if (!sysfs_deprecated)
-		sysfs_remove_link(block_depr, dev_name(disk_to_dev(disk)));
+	sysfs_remove_link(block_depr, dev_name(disk_to_dev(disk)));
 	pm_runtime_set_memalloc_noio(disk_to_dev(disk), false);
 	device_del(disk_to_dev(disk));
 
@@ -909,7 +897,6 @@ static int __init genhd_device_init(void)
 {
 	int error;
 
-	block_class.dev_kobj = sysfs_dev_block_kobj;
 	error = class_register(&block_class);
 	if (unlikely(error))
 		return error;
@@ -918,8 +905,7 @@ static int __init genhd_device_init(void)
 	register_blkdev(BLOCK_EXT_MAJOR, "blkext");
 
 	/* create top-level block dir */
-	if (!sysfs_deprecated)
-		block_depr = kobject_create_and_add("block", NULL);
+	block_depr = kobject_create_and_add("block", NULL);
 	return 0;
 }
 
@@ -1041,9 +1027,8 @@ ssize_t part_inflight_show(struct device *dev, struct device_attribute *attr,
 static ssize_t disk_capability_show(struct device *dev,
 				    struct device_attribute *attr, char *buf)
 {
-	struct gendisk *disk = dev_to_disk(dev);
-
-	return sprintf(buf, "%x\n", disk->flags);
+	dev_warn_once(dev, "the capability attribute has been deprecated.\n");
+	return sprintf(buf, "0\n");
 }
 
 static ssize_t disk_alignment_offset_show(struct device *dev,
@@ -1160,6 +1145,9 @@ static const struct attribute_group *disk_attr_groups[] = {
 #ifdef CONFIG_BLK_DEV_IO_TRACE
 	&blk_trace_attr_group,
 #endif
+#ifdef CONFIG_BLK_DEV_INTEGRITY
+	&blk_integrity_attr_group,
+#endif
 	NULL
 };
 
@@ -1183,6 +1171,8 @@ static void disk_release(struct device *dev)
 
 	might_sleep();
 	WARN_ON_ONCE(disk_live(disk));
+
+	blk_trace_remove(disk->queue);
 
 	/*
 	 * To undo the all initialization from blk_mq_init_allocated_queue in
@@ -1226,7 +1216,7 @@ struct class block_class = {
 	.dev_uevent	= block_uevent,
 };
 
-static char *block_devnode(struct device *dev, umode_t *mode,
+static char *block_devnode(const struct device *dev, umode_t *mode,
 			   kuid_t *uid, kgid_t *gid)
 {
 	struct gendisk *disk = dev_to_disk(dev);

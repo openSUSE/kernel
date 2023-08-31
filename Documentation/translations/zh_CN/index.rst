@@ -120,7 +120,7 @@ TODOList:
 .. toctree::
    :maxdepth: 2
 
-   arch
+   arch/index
 
 其他文档
 --------
@@ -132,6 +132,15 @@ TODOList:
    :maxdepth: 2
 
    staging/index
+
+术语表
+------
+
+.. toctree::
+   :maxdepth: 1
+
+   glossary
+
 
 索引和表格
 ----------

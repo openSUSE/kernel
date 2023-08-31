@@ -474,7 +474,7 @@ release_fw:
 		goto retry_fw;
 	}
 
-	dev_dbg(priv->dev, "Firmware load failed.\n");
+	dev_err(priv->dev, "Firmware load failed.\n");
 
 	return ret;
 }
@@ -850,7 +850,7 @@ handle_req:
 			goto request_failed;
 
 		if (backlog)
-			backlog->complete(backlog, -EINPROGRESS);
+			crypto_request_complete(backlog, -EINPROGRESS);
 
 		/* In case the send() helper did not issue any command to push
 		 * to the engine because the input data was cached, continue to
@@ -970,17 +970,6 @@ void safexcel_complete(struct safexcel_crypto_priv *priv, int ring)
 	} while (!cdesc->last_seg);
 }
 
-void safexcel_inv_complete(struct crypto_async_request *req, int error)
-{
-	struct safexcel_inv_result *result = req->data;
-
-	if (error == -EINPROGRESS)
-		return;
-
-	result->error = error;
-	complete(&result->completion);
-}
-
 int safexcel_invalidate_cache(struct crypto_async_request *async,
 			      struct safexcel_crypto_priv *priv,
 			      dma_addr_t ctxr_dma, int ring)
@@ -1050,7 +1039,7 @@ handle_results:
 
 		if (should_complete) {
 			local_bh_disable();
-			req->complete(req, ret);
+			crypto_request_complete(req, ret);
 			local_bh_enable();
 		}
 
@@ -1639,19 +1628,23 @@ static int safexcel_probe_generic(void *pdev,
 						     &priv->ring[i].rdr);
 		if (ret) {
 			dev_err(dev, "Failed to initialize rings\n");
-			return ret;
+			goto err_cleanup_rings;
 		}
 
 		priv->ring[i].rdr_req = devm_kcalloc(dev,
 			EIP197_DEFAULT_RING_SIZE,
 			sizeof(*priv->ring[i].rdr_req),
 			GFP_KERNEL);
-		if (!priv->ring[i].rdr_req)
-			return -ENOMEM;
+		if (!priv->ring[i].rdr_req) {
+			ret = -ENOMEM;
+			goto err_cleanup_rings;
+		}
 
 		ring_irq = devm_kzalloc(dev, sizeof(*ring_irq), GFP_KERNEL);
-		if (!ring_irq)
-			return -ENOMEM;
+		if (!ring_irq) {
+			ret = -ENOMEM;
+			goto err_cleanup_rings;
+		}
 
 		ring_irq->priv = priv;
 		ring_irq->ring = i;
@@ -1665,7 +1658,8 @@ static int safexcel_probe_generic(void *pdev,
 						ring_irq);
 		if (irq < 0) {
 			dev_err(dev, "Failed to get IRQ ID for ring %d\n", i);
-			return irq;
+			ret = irq;
+			goto err_cleanup_rings;
 		}
 
 		priv->ring[i].irq = irq;
@@ -1677,8 +1671,10 @@ static int safexcel_probe_generic(void *pdev,
 		snprintf(wq_name, 9, "wq_ring%d", i);
 		priv->ring[i].workqueue =
 			create_singlethread_workqueue(wq_name);
-		if (!priv->ring[i].workqueue)
-			return -ENOMEM;
+		if (!priv->ring[i].workqueue) {
+			ret = -ENOMEM;
+			goto err_cleanup_rings;
+		}
 
 		priv->ring[i].requests = 0;
 		priv->ring[i].busy = false;
@@ -1695,16 +1691,26 @@ static int safexcel_probe_generic(void *pdev,
 	ret = safexcel_hw_init(priv);
 	if (ret) {
 		dev_err(dev, "HW init failed (%d)\n", ret);
-		return ret;
+		goto err_cleanup_rings;
 	}
 
 	ret = safexcel_register_algorithms(priv);
 	if (ret) {
 		dev_err(dev, "Failed to register algorithms (%d)\n", ret);
-		return ret;
+		goto err_cleanup_rings;
 	}
 
 	return 0;
+
+err_cleanup_rings:
+	for (i = 0; i < priv->config.rings; i++) {
+		if (priv->ring[i].irq)
+			irq_set_affinity_hint(priv->ring[i].irq, NULL);
+		if (priv->ring[i].workqueue)
+			destroy_workqueue(priv->ring[i].workqueue);
+	}
+
+	return ret;
 }
 
 static void safexcel_hw_reset_rings(struct safexcel_crypto_priv *priv)

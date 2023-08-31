@@ -36,6 +36,7 @@
 #include <linux/of_platform.h>
 #include <linux/hugetlb.h>
 #include <linux/pgtable.h>
+#include <linux/security.h>
 #include <asm/io.h>
 #include <asm/paca.h>
 #include <asm/processor.h>
@@ -68,6 +69,7 @@
 #include <asm/cpu_has_feature.h>
 #include <asm/kasan.h>
 #include <asm/mce.h>
+#include <asm/secure_boot.h>
 
 #include "setup.h"
 
@@ -630,13 +632,14 @@ static __init void probe_machine(void)
 	for (machine_id = &__machine_desc_start;
 	     machine_id < &__machine_desc_end;
 	     machine_id++) {
-		DBG("  %s ...", machine_id->name);
+		DBG("  %s ...\n", machine_id->name);
+		if (machine_id->compatible && !of_machine_is_compatible(machine_id->compatible))
+			continue;
 		memcpy(&ppc_md, machine_id, sizeof(struct machdep_calls));
-		if (ppc_md.probe()) {
-			DBG(" match !\n");
-			break;
-		}
-		DBG("\n");
+		if (ppc_md.probe && !ppc_md.probe())
+			continue;
+		DBG("   %s match !\n", machine_id->name);
+		break;
 	}
 	/* What can we do if we didn't find ? */
 	if (machine_id >= &__machine_desc_end) {
@@ -911,6 +914,16 @@ void __init setup_arch(char **cmdline_p)
 	 * just cputable (on ppc32).
 	 */
 	initialize_cache_info();
+
+	/*
+	 * Lock down the kernel if booted in secure mode. This is required to
+	 * maintain kernel integrity.
+	 */
+	if (IS_ENABLED(CONFIG_LOCK_DOWN_IN_EFI_SECURE_BOOT)) {
+		if (is_ppc_secureboot_enabled())
+			security_lock_kernel_down("Power Secure Boot mode",
+						  LOCKDOWN_INTEGRITY_MAX);
+	}
 
 	/* Initialize RTAS if available. */
 	rtas_initialize();

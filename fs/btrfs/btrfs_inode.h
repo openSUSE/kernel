@@ -93,12 +93,6 @@ struct btrfs_inode {
 	/* the io_tree does range state (DIRTY, LOCKED etc) */
 	struct extent_io_tree io_tree;
 
-	/* special utility tree used to record which mirrors have already been
-	 * tried when checksums fail for a given block
-	 */
-	struct rb_root io_failure_tree;
-	spinlock_t io_failure_lock;
-
 	/*
 	 * Keep track of where the inode has extent items mapped in order to
 	 * make sure the i_size adjustments are accurate
@@ -148,11 +142,22 @@ struct btrfs_inode {
 	/* a local copy of root's last_log_commit */
 	int last_log_commit;
 
-	/*
-	 * Total number of bytes pending delalloc, used by stat to calculate the
-	 * real block usage of the file. This is used only for files.
-	 */
-	u64 delalloc_bytes;
+	union {
+		/*
+		 * Total number of bytes pending delalloc, used by stat to
+		 * calculate the real block usage of the file. This is used
+		 * only for files.
+		 */
+		u64 delalloc_bytes;
+		/*
+		 * The lowest possible index of the next dir index key which
+		 * points to an inode that needs to be logged.
+		 * This is used only for directories.
+		 * Use the helpers btrfs_get_first_dir_index_to_log() and
+		 * btrfs_set_first_dir_index_to_log() to access this field.
+		 */
+		u64 first_dir_index_to_log;
+	};
 
 	union {
 		/*
@@ -252,6 +257,17 @@ struct btrfs_inode {
 	struct rw_semaphore i_mmap_lock;
 	struct inode vfs_inode;
 };
+
+static inline u64 btrfs_get_first_dir_index_to_log(const struct btrfs_inode *inode)
+{
+	return READ_ONCE(inode->first_dir_index_to_log);
+}
+
+static inline void btrfs_set_first_dir_index_to_log(struct btrfs_inode *inode,
+						    u64 index)
+{
+	WRITE_ONCE(inode->first_dir_index_to_log, index);
+}
 
 static inline struct btrfs_inode *BTRFS_I(const struct inode *inode)
 {
@@ -411,21 +427,12 @@ static inline void btrfs_inode_split_flags(u64 inode_item_flags,
 #define CSUM_FMT				"0x%*phN"
 #define CSUM_FMT_VALUE(size, bytes)		size, bytes
 
-void btrfs_submit_data_write_bio(struct btrfs_inode *inode, struct bio *bio, int mirror_num);
-void btrfs_submit_data_read_bio(struct btrfs_inode *inode, struct bio *bio,
-			int mirror_num, enum btrfs_compression_type compress_type);
-void btrfs_submit_dio_repair_bio(struct btrfs_inode *inode, struct bio *bio, int mirror_num);
-blk_status_t btrfs_submit_bio_start(struct btrfs_inode *inode, struct bio *bio);
-blk_status_t btrfs_submit_bio_start_direct_io(struct btrfs_inode *inode,
-					      struct bio *bio,
-					      u64 dio_file_offset);
 int btrfs_check_sector_csum(struct btrfs_fs_info *fs_info, struct page *page,
 			    u32 pgoff, u8 *csum, const u8 * const csum_expected);
-int btrfs_check_data_csum(struct btrfs_inode *inode, struct btrfs_bio *bbio,
-			  u32 bio_offset, struct page *page, u32 pgoff);
-unsigned int btrfs_verify_data_csum(struct btrfs_bio *bbio,
-				    u32 bio_offset, struct page *page,
-				    u64 start, u64 end);
+int btrfs_extract_ordered_extent(struct btrfs_bio *bbio,
+				 struct btrfs_ordered_extent *ordered);
+bool btrfs_data_csum_ok(struct btrfs_bio *bbio, struct btrfs_device *dev,
+			u32 bio_offset, struct bio_vec *bv);
 noinline int can_nocow_extent(struct inode *inode, u64 offset, u64 *len,
 			      u64 *orig_start, u64 *orig_block_len,
 			      u64 *ram_bytes, bool nowait, bool strict);
@@ -469,7 +476,7 @@ int btrfs_new_inode_prepare(struct btrfs_new_inode_args *args,
 int btrfs_create_new_inode(struct btrfs_trans_handle *trans,
 			   struct btrfs_new_inode_args *args);
 void btrfs_new_inode_args_destroy(struct btrfs_new_inode_args *args);
-struct inode *btrfs_new_subvol_inode(struct user_namespace *mnt_userns,
+struct inode *btrfs_new_subvol_inode(struct mnt_idmap *idmap,
 				     struct inode *dir);
  void btrfs_set_delalloc_extent(struct btrfs_inode *inode, struct extent_state *state,
 			        u32 bits);

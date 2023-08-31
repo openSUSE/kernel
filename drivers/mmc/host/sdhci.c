@@ -1167,6 +1167,8 @@ static void sdhci_prepare_data(struct sdhci_host *host, struct mmc_command *cmd)
 		}
 	}
 
+	sdhci_config_dma(host);
+
 	if (host->flags & SDHCI_REQ_USE_DMA) {
 		int sg_cnt = sdhci_pre_dma_transfer(host, data, COOKIE_MAPPED);
 
@@ -1185,8 +1187,6 @@ static void sdhci_prepare_data(struct sdhci_host *host, struct mmc_command *cmd)
 			sdhci_set_sdma_addr(host, sdhci_sdma_address(host));
 		}
 	}
-
-	sdhci_config_dma(host);
 
 	if (!(host->flags & SDHCI_REQ_USE_DMA)) {
 		int flags;
@@ -4120,9 +4120,6 @@ void __sdhci_read_caps(struct sdhci_host *host, const u16 *ver,
 
 	v = ver ? *ver : sdhci_readw(host, SDHCI_HOST_VERSION);
 	host->version = (v & SDHCI_SPEC_VER_MASK) >> SDHCI_SPEC_VER_SHIFT;
-
-	if (host->quirks & SDHCI_QUIRK_MISSING_CAPS)
-		return;
 
 	if (caps) {
 		host->caps = *caps;

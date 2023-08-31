@@ -56,6 +56,7 @@
 #include <asm/drmem.h>
 #include <asm/ultravisor.h>
 #include <asm/prom.h>
+#include <asm/plpks.h>
 
 #include <mm/mmu_decl.h>
 
@@ -688,7 +689,7 @@ static void __init early_reserve_mem(void)
 }
 
 #ifdef CONFIG_PPC_TRANSACTIONAL_MEM
-static bool tm_disabled __initdata;
+static bool tm_disabled __initdata = true;
 
 static int __init parse_ppc_tm(char *str)
 {
@@ -886,6 +887,9 @@ void __init early_init_devtree(void *params)
 	if (of_flat_dt_is_compatible(of_get_flat_dt_root(), "sony,ps3"))
 		powerpc_firmware_features |= FW_FEATURE_PS3_POSSIBLE;
 #endif
+
+	/* If kexec left a PLPKS password in the DT, get it and clear it */
+	plpks_early_init_devtree();
 
 	tm_init();
 

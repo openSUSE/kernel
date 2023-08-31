@@ -24,13 +24,14 @@
  *
  */
 #include "dcn32_fpu.h"
-#include "dc_link_dp.h"
 #include "dcn32/dcn32_resource.h"
 #include "dcn20/dcn20_resource.h"
 #include "display_mode_vba_util_32.h"
+#include "dml/dcn32/display_mode_vba_32.h"
 // We need this includes for WATERMARKS_* defines
 #include "clk_mgr/dcn32/dcn32_smu13_driver_if.h"
 #include "dcn30/dcn30_resource.h"
+#include "link.h"
 
 #define DC_LOGGER_INIT(logger)
 
@@ -108,7 +109,7 @@ struct _vcs_dpi_soc_bounding_box_st dcn3_2_soc = {
 		{
 			.state = 0,
 			.dcfclk_mhz = 1564.0,
-			.fabricclk_mhz = 400.0,
+			.fabricclk_mhz = 2500.0,
 			.dispclk_mhz = 2150.0,
 			.dppclk_mhz = 2150.0,
 			.phyclk_mhz = 810.0,
@@ -116,7 +117,7 @@ struct _vcs_dpi_soc_bounding_box_st dcn3_2_soc = {
 			.phyclk_d32_mhz = 625.0,
 			.socclk_mhz = 1200.0,
 			.dscclk_mhz = 716.667,
-			.dram_speed_mts = 16000.0,
+			.dram_speed_mts = 18000.0,
 			.dtbclk_mhz = 1564.0,
 		},
 	},
@@ -130,14 +131,14 @@ struct _vcs_dpi_soc_bounding_box_st dcn3_2_soc = {
 	.urgent_latency_pixel_data_only_us = 4.0,
 	.urgent_latency_pixel_mixed_with_vm_data_us = 4.0,
 	.urgent_latency_vm_data_only_us = 4.0,
-	.fclk_change_latency_us = 20,
+	.fclk_change_latency_us = 25,
 	.usr_retraining_latency_us = 2,
 	.smn_latency_us = 2,
 	.mall_allocated_for_dcn_mbytes = 64,
 	.urgent_out_of_order_return_per_channel_pixel_only_bytes = 4096,
 	.urgent_out_of_order_return_per_channel_pixel_and_vm_bytes = 4096,
 	.urgent_out_of_order_return_per_channel_vm_only_bytes = 4096,
-	.pct_ideal_sdp_bw_after_urgent = 100.0,
+	.pct_ideal_sdp_bw_after_urgent = 90.0,
 	.pct_ideal_fabric_bw_after_urgent = 67.0,
 	.pct_ideal_dram_sdp_bw_after_urgent_pixel_only = 20.0,
 	.pct_ideal_dram_sdp_bw_after_urgent_pixel_and_vm = 60.0, // N/A, for now keep as is until DML implemented
@@ -147,7 +148,7 @@ struct _vcs_dpi_soc_bounding_box_st dcn3_2_soc = {
 	.max_avg_fabric_bw_use_normal_percent = 60.0,
 	.max_avg_dram_bw_use_normal_strobe_percent = 50.0,
 	.max_avg_dram_bw_use_normal_percent = 15.0,
-	.num_chans = 8,
+	.num_chans = 24,
 	.dram_channel_width_bytes = 2,
 	.fabric_datapath_to_dcn_data_return_bytes = 64,
 	.return_bus_width_bytes = 64,
@@ -691,7 +692,7 @@ static bool dcn32_assign_subvp_pipe(struct dc *dc,
 		 *   to combine this with SubVP can cause issues with the scheduling).
 		 * - Not TMZ surface
 		 */
-		if (pipe->plane_state && !pipe->top_pipe &&
+		if (pipe->plane_state && !pipe->top_pipe && !dcn32_is_center_timing(pipe) && !dcn32_is_psr_capable(pipe) &&
 				pipe->stream->mall_stream_config.type == SUBVP_NONE && refresh_rate < 120 && !pipe->plane_state->address.tmz_surface &&
 				(vba->ActiveDRAMClockChangeLatencyMarginPerState[vba->VoltageLevel][vba->maxMpcComb][vba->pipe_plane[pipe_idx]] <= 0 ||
 				(vba->ActiveDRAMClockChangeLatencyMarginPerState[vba->VoltageLevel][vba->maxMpcComb][vba->pipe_plane[pipe_idx]] > 0 &&
@@ -879,10 +880,6 @@ static bool subvp_drr_schedulable(struct dc *dc, struct dc_state *context, struc
 	int16_t stretched_drr_us = 0;
 	int16_t drr_stretched_vblank_us = 0;
 	int16_t max_vblank_mallregion = 0;
-	const struct dc_config *config = &dc->config;
-
-	if (config->disable_subvp_drr)
-		return false;
 
 	// Find SubVP pipe
 	for (i = 0; i < dc->res_pool->pipe_count; i++) {
@@ -983,10 +980,12 @@ static bool subvp_vblank_schedulable(struct dc *dc, struct dc_state *context)
 		if (!subvp_pipe && pipe->stream->mall_stream_config.type == SUBVP_MAIN)
 			subvp_pipe = pipe;
 	}
-	// Use ignore_msa_timing_param flag to identify as DRR
-	if (found && context->res_ctx.pipe_ctx[vblank_index].stream->ignore_msa_timing_param) {
-		// SUBVP + DRR case
-		schedulable = subvp_drr_schedulable(dc, context, &context->res_ctx.pipe_ctx[vblank_index]);
+	// Use ignore_msa_timing_param and VRR active, or Freesync flag to identify as DRR On
+	if (found && context->res_ctx.pipe_ctx[vblank_index].stream->ignore_msa_timing_param &&
+			(context->res_ctx.pipe_ctx[vblank_index].stream->allow_freesync ||
+			context->res_ctx.pipe_ctx[vblank_index].stream->vrr_active_variable)) {
+		// SUBVP + DRR case -- only allowed if run through DRR validation path
+		schedulable = false;
 	} else if (found) {
 		main_timing = &subvp_pipe->stream->timing;
 		phantom_timing = &subvp_pipe->stream->mall_stream_config.paired_stream->timing;
@@ -1090,12 +1089,12 @@ static void dcn32_full_validate_bw_helper(struct dc *dc,
 {
 	struct vba_vars_st *vba = &context->bw_ctx.dml.vba;
 	unsigned int dc_pipe_idx = 0;
+	int i = 0;
 	bool found_supported_config = false;
 	struct pipe_ctx *pipe = NULL;
 	uint32_t non_subvp_pipes = 0;
 	bool drr_pipe_found = false;
 	uint32_t drr_pipe_index = 0;
-	uint32_t i = 0;
 
 	dc_assert_fp_enabled();
 
@@ -1175,15 +1174,25 @@ static void dcn32_full_validate_bw_helper(struct dc *dc,
 			pipes[0].clks_cfg.dppclk_mhz = get_dppclk_calculated(&context->bw_ctx.dml, pipes, *pipe_cnt, 0);
 			*vlevel = dml_get_voltage_level(&context->bw_ctx.dml, pipes, *pipe_cnt);
 
+			/* Check that vlevel requested supports pstate or not
+			 * if not, select the lowest vlevel that supports it
+			 */
+			for (i = *vlevel; i < context->bw_ctx.dml.soc.num_states; i++) {
+				if (vba->DRAMClockChangeSupport[i][vba->maxMpcComb] != dm_dram_clock_change_unsupported) {
+					*vlevel = i;
+					break;
+				}
+			}
+
 			if (*vlevel < context->bw_ctx.dml.soc.num_states &&
 			    vba->DRAMClockChangeSupport[*vlevel][vba->maxMpcComb] != dm_dram_clock_change_unsupported
 			    && subvp_validate_static_schedulability(dc, context, *vlevel)) {
 				found_supported_config = true;
-			} else if (*vlevel < context->bw_ctx.dml.soc.num_states &&
-					vba->DRAMClockChangeSupport[*vlevel][vba->maxMpcComb] == dm_dram_clock_change_unsupported) {
-				/* Case where 1 SubVP is added, and DML reports MCLK unsupported. This handles
-				 * the case for SubVP + DRR, where the DRR display does not support MCLK switch
-				 * at it's native refresh rate / timing.
+			} else if (*vlevel < context->bw_ctx.dml.soc.num_states) {
+				/* Case where 1 SubVP is added, and DML reports MCLK unsupported or DRR is allowed.
+				 * This handles the case for SubVP + DRR, where the DRR display does not support MCLK
+				 * switch at it's native refresh rate / timing, or DRR is allowed for the non-subvp
+				 * display.
 				 */
 				for (i = 0; i < dc->res_pool->pipe_count; i++) {
 					pipe = &context->res_ctx.pipe_ctx[i];
@@ -1191,7 +1200,7 @@ static void dcn32_full_validate_bw_helper(struct dc *dc,
 					    pipe->stream->mall_stream_config.type == SUBVP_NONE) {
 						non_subvp_pipes++;
 						// Use ignore_msa_timing_param flag to identify as DRR
-						if (pipe->stream->ignore_msa_timing_param) {
+						if (pipe->stream->ignore_msa_timing_param && pipe->stream->allow_freesync) {
 							drr_pipe_found = true;
 							drr_pipe_index = i;
 						}
@@ -1200,6 +1209,15 @@ static void dcn32_full_validate_bw_helper(struct dc *dc,
 				// If there is only 1 remaining non SubVP pipe that is DRR, check static
 				// schedulability for SubVP + DRR.
 				if (non_subvp_pipes == 1 && drr_pipe_found) {
+					/* find lowest vlevel that supports the config */
+					for (i = *vlevel; i >= 0; i--) {
+						if (vba->ModeSupport[i][vba->maxMpcComb]) {
+							*vlevel = i;
+						} else {
+							break;
+						}
+					}
+
 					found_supported_config = subvp_drr_schedulable(dc, context,
 										       &context->res_ctx.pipe_ctx[drr_pipe_index]);
 				}
@@ -1248,10 +1266,42 @@ static bool is_dtbclk_required(struct dc *dc, struct dc_state *context)
 	for (i = 0; i < dc->res_pool->pipe_count; i++) {
 		if (!context->res_ctx.pipe_ctx[i].stream)
 			continue;
-		if (is_dp_128b_132b_signal(&context->res_ctx.pipe_ctx[i]))
+		if (dc->link_srv->dp_is_128b_132b_signal(&context->res_ctx.pipe_ctx[i]))
 			return true;
 	}
 	return false;
+}
+
+static void dcn20_adjust_freesync_v_startup(const struct dc_crtc_timing *dc_crtc_timing, int *vstartup_start)
+{
+	struct dc_crtc_timing patched_crtc_timing;
+	uint32_t asic_blank_end   = 0;
+	uint32_t asic_blank_start = 0;
+	uint32_t newVstartup	  = 0;
+
+	patched_crtc_timing = *dc_crtc_timing;
+
+	if (patched_crtc_timing.flags.INTERLACE == 1) {
+		if (patched_crtc_timing.v_front_porch < 2)
+			patched_crtc_timing.v_front_porch = 2;
+	} else {
+		if (patched_crtc_timing.v_front_porch < 1)
+			patched_crtc_timing.v_front_porch = 1;
+	}
+
+	/* blank_start = frame end - front porch */
+	asic_blank_start = patched_crtc_timing.v_total -
+					patched_crtc_timing.v_front_porch;
+
+	/* blank_end = blank_start - active */
+	asic_blank_end = asic_blank_start -
+					patched_crtc_timing.v_border_bottom -
+					patched_crtc_timing.v_addressable -
+					patched_crtc_timing.v_border_top;
+
+	newVstartup = asic_blank_end + (patched_crtc_timing.v_total - asic_blank_start);
+
+	*vstartup_start = ((newVstartup > *vstartup_start) ? newVstartup : *vstartup_start);
 }
 
 static void dcn32_calculate_dlg_params(struct dc *dc, struct dc_state *context,
@@ -1276,7 +1326,11 @@ static void dcn32_calculate_dlg_params(struct dc *dc, struct dc_state *context,
 	context->bw_ctx.bw.dcn.clk.p_state_change_support =
 			context->bw_ctx.dml.vba.DRAMClockChangeSupport[vlevel][context->bw_ctx.dml.vba.maxMpcComb]
 					!= dm_dram_clock_change_unsupported;
-	context->bw_ctx.bw.dcn.clk.num_ways = dcn32_helper_calculate_num_ways_for_subvp(dc, context);
+
+	/* Pstate change might not be supported by hardware, but it might be
+	 * possible with firmware driven vertical blank stretching.
+	 */
+	context->bw_ctx.bw.dcn.clk.p_state_change_support |= context->bw_ctx.bw.dcn.clk.fw_based_mclk_switching;
 
 	context->bw_ctx.bw.dcn.clk.dppclk_khz = 0;
 	context->bw_ctx.bw.dcn.clk.dtbclk_en = is_dtbclk_required(dc, context);
@@ -1299,6 +1353,10 @@ static void dcn32_calculate_dlg_params(struct dc *dc, struct dc_state *context,
 		ASSERT(false);
 		unbounded_req_enabled = false;
 	}
+
+	context->bw_ctx.bw.dcn.mall_ss_size_bytes = 0;
+	context->bw_ctx.bw.dcn.mall_ss_psr_active_size_bytes = 0;
+	context->bw_ctx.bw.dcn.mall_subvp_size_bytes = 0;
 
 	for (i = 0, pipe_idx = 0; i < dc->res_pool->pipe_count; i++) {
 		if (!context->res_ctx.pipe_ctx[i].stream)
@@ -1331,6 +1389,34 @@ static void dcn32_calculate_dlg_params(struct dc *dc, struct dc_state *context,
 		else
 			context->res_ctx.pipe_ctx[i].plane_res.bw.dppclk_khz = 0;
 		context->res_ctx.pipe_ctx[i].pipe_dlg_param = pipes[pipe_idx].pipe.dest;
+
+		context->res_ctx.pipe_ctx[i].surface_size_in_mall_bytes = get_surface_size_in_mall(&context->bw_ctx.dml, pipes, pipe_cnt, pipe_idx);
+
+		/* MALL Allocation Sizes */
+		/* count from active, top pipes per plane only */
+		if (context->res_ctx.pipe_ctx[i].stream && context->res_ctx.pipe_ctx[i].plane_state &&
+				(context->res_ctx.pipe_ctx[i].top_pipe == NULL ||
+				context->res_ctx.pipe_ctx[i].plane_state != context->res_ctx.pipe_ctx[i].top_pipe->plane_state) &&
+				context->res_ctx.pipe_ctx[i].prev_odm_pipe == NULL) {
+			/* SS: all active surfaces stored in MALL */
+			if (context->res_ctx.pipe_ctx[i].stream->mall_stream_config.type != SUBVP_PHANTOM) {
+				context->bw_ctx.bw.dcn.mall_ss_size_bytes += context->res_ctx.pipe_ctx[i].surface_size_in_mall_bytes;
+
+				if (context->res_ctx.pipe_ctx[i].stream->link->psr_settings.psr_version == DC_PSR_VERSION_UNSUPPORTED) {
+					/* SS PSR On: all active surfaces part of streams not supporting PSR stored in MALL */
+					context->bw_ctx.bw.dcn.mall_ss_psr_active_size_bytes += context->res_ctx.pipe_ctx[i].surface_size_in_mall_bytes;
+				}
+			} else {
+				/* SUBVP: phantom surfaces only stored in MALL */
+				context->bw_ctx.bw.dcn.mall_subvp_size_bytes += context->res_ctx.pipe_ctx[i].surface_size_in_mall_bytes;
+			}
+		}
+
+		if (context->res_ctx.pipe_ctx[i].stream->adaptive_sync_infopacket.valid)
+			dcn20_adjust_freesync_v_startup(
+				&context->res_ctx.pipe_ctx[i].stream->timing,
+				&context->res_ctx.pipe_ctx[i].pipe_dlg_param.vstartup_start);
+
 		pipe_idx++;
 	}
 	/* If DCN isn't making memory requests we can allow pstate change and lower clocks */
@@ -1350,6 +1436,8 @@ static void dcn32_calculate_dlg_params(struct dc *dc, struct dc_state *context,
 			* 1000;
 	context->bw_ctx.bw.dcn.clk.max_supported_dispclk_khz = context->bw_ctx.dml.soc.clock_limits[vlevel].dispclk_mhz
 			* 1000;
+
+	context->bw_ctx.bw.dcn.clk.num_ways = dcn32_helper_calculate_num_ways_for_subvp(dc, context);
 
 	context->bw_ctx.bw.dcn.compbuf_size_kb = context->bw_ctx.dml.ip.config_return_buffer_size_in_kbytes;
 
@@ -1536,6 +1624,7 @@ bool dcn32_internal_validate_bw(struct dc *dc,
 	}
 
 	dml_log_pipe_params(&context->bw_ctx.dml, pipes, pipe_cnt);
+	context->bw_ctx.dml.soc.max_vratio_pre = dcn32_determine_max_vratio_prefetch(dc, context);
 
 	if (!fast_validate)
 		dcn32_full_validate_bw_helper(dc, context, pipes, &vlevel, split, merge, &pipe_cnt);
@@ -1555,16 +1644,12 @@ bool dcn32_internal_validate_bw(struct dc *dc,
 		 * to support with Prefetch mode 1 (dm_prefetch_support_fclk_and_stutter == 2)
 		 */
 		context->bw_ctx.dml.soc.allow_for_pstate_or_stutter_in_vblank_final =
-			dm_prefetch_support_fclk_and_stutter;
+			dm_prefetch_support_none;
 
+		context->bw_ctx.dml.validate_max_state = fast_validate;
 		vlevel = dml_get_voltage_level(&context->bw_ctx.dml, pipes, pipe_cnt);
 
-		/* Last attempt with Prefetch mode 2 (dm_prefetch_support_stutter == 3) */
-		if (vlevel == context->bw_ctx.dml.soc.num_states) {
-			context->bw_ctx.dml.soc.allow_for_pstate_or_stutter_in_vblank_final =
-				dm_prefetch_support_stutter;
-			vlevel = dml_get_voltage_level(&context->bw_ctx.dml, pipes, pipe_cnt);
-		}
+		context->bw_ctx.dml.validate_max_state = false;
 
 		if (vlevel < context->bw_ctx.dml.soc.num_states) {
 			memset(split, 0, sizeof(split));
@@ -1651,6 +1736,7 @@ bool dcn32_internal_validate_bw(struct dc *dc,
 				dcn20_release_dsc(&context->res_ctx, dc->res_pool, &pipe->stream_res.dsc);
 			memset(&pipe->plane_res, 0, sizeof(pipe->plane_res));
 			memset(&pipe->stream_res, 0, sizeof(pipe->stream_res));
+			memset(&pipe->link_res, 0, sizeof(pipe->link_res));
 			repopulate_pipes = true;
 		} else if (pipe->top_pipe && pipe->top_pipe->plane_state == pipe->plane_state) {
 			struct pipe_ctx *top_pipe = pipe->top_pipe;
@@ -1666,6 +1752,7 @@ bool dcn32_internal_validate_bw(struct dc *dc,
 			pipe->stream = NULL;
 			memset(&pipe->plane_res, 0, sizeof(pipe->plane_res));
 			memset(&pipe->stream_res, 0, sizeof(pipe->stream_res));
+			memset(&pipe->link_res, 0, sizeof(pipe->link_res));
 			repopulate_pipes = true;
 		} else
 			ASSERT(0); /* Should never try to merge master pipe */
@@ -1840,7 +1927,8 @@ void dcn32_calculate_wm_and_dlg_fpu(struct dc *dc, struct dc_state *context,
 	bool subvp_in_use = dcn32_subvp_in_use(dc, context);
 	unsigned int min_dram_speed_mts_margin;
 	bool need_fclk_lat_as_dummy = false;
-	bool is_subvp_p_drr = true;
+	bool is_subvp_p_drr = false;
+	struct dc_stream_state *fpo_candidate_stream = NULL;
 
 	dc_assert_fp_enabled();
 
@@ -1848,7 +1936,8 @@ void dcn32_calculate_wm_and_dlg_fpu(struct dc *dc, struct dc_state *context,
 	if (subvp_in_use) {
 		/* Override DRAMClockChangeSupport for SubVP + DRR case where the DRR cannot switch without stretching it's VBLANK */
 		if (!pstate_en) {
-			context->bw_ctx.dml.vba.DRAMClockChangeSupport[vlevel][context->bw_ctx.dml.vba.maxMpcComb] = dm_dram_clock_change_vblank_w_mall_sub_vp;
+			context->bw_ctx.dml.vba.DRAMClockChangeSupport[vlevel][maxMpcComb] = dm_dram_clock_change_vblank_w_mall_sub_vp;
+			context->bw_ctx.dml.soc.allow_for_pstate_or_stutter_in_vblank_final = dm_prefetch_support_fclk_and_stutter;
 			pstate_en = true;
 			is_subvp_p_drr = true;
 		}
@@ -1866,17 +1955,26 @@ void dcn32_calculate_wm_and_dlg_fpu(struct dc *dc, struct dc_state *context,
 		context->bw_ctx.dml.soc.dram_clock_change_latency_us =
 							dc->clk_mgr->bw_params->wm_table.nv_entries[WM_A].dml_input.pstate_latency_us;
 		dcn32_internal_validate_bw(dc, context, pipes, &pipe_cnt, &vlevel, false);
+		maxMpcComb = context->bw_ctx.dml.vba.maxMpcComb;
 		if (is_subvp_p_drr) {
-			context->bw_ctx.dml.vba.DRAMClockChangeSupport[vlevel][context->bw_ctx.dml.vba.maxMpcComb] = dm_dram_clock_change_vblank_w_mall_sub_vp;
+			context->bw_ctx.dml.vba.DRAMClockChangeSupport[vlevel][maxMpcComb] = dm_dram_clock_change_vblank_w_mall_sub_vp;
 		}
 	}
 
 	context->bw_ctx.bw.dcn.clk.fw_based_mclk_switching = false;
+	for (i = 0; i < context->stream_count; i++) {
+		if (context->streams[i])
+			context->streams[i]->fpo_in_use = false;
+	}
 
-	if (!pstate_en) {
+	if (!pstate_en || (!dc->debug.disable_fpo_optimizations &&
+			pstate_en && vlevel != 0)) {
 		/* only when the mclk switch can not be natural, is the fw based vblank stretch attempted */
-		context->bw_ctx.bw.dcn.clk.fw_based_mclk_switching =
-			dcn30_can_support_mclk_switch_using_fw_based_vblank_stretch(dc, context);
+		fpo_candidate_stream = dcn32_can_support_mclk_switch_using_fw_based_vblank_stretch(dc, context);
+		if (fpo_candidate_stream) {
+			fpo_candidate_stream->fpo_in_use = true;
+			context->bw_ctx.bw.dcn.clk.fw_based_mclk_switching = true;
+		}
 
 		if (context->bw_ctx.bw.dcn.clk.fw_based_mclk_switching) {
 			dummy_latency_index = dcn32_find_dummy_latency_index_for_fw_based_mclk_switch(dc,
@@ -1897,11 +1995,25 @@ void dcn32_calculate_wm_and_dlg_fpu(struct dc *dc, struct dc_state *context,
 				context->bw_ctx.dml.soc.fclk_change_latency_us =
 						dc->clk_mgr->bw_params->dummy_pstate_table[dummy_latency_index].dummy_pstate_latency_us;
 			}
-			dcn32_internal_validate_bw(dc, context, pipes, &pipe_cnt, &vlevel, false);
-			maxMpcComb = context->bw_ctx.dml.vba.maxMpcComb;
-			dcfclk_from_fw_based_mclk_switching = context->bw_ctx.dml.vba.DCFCLKState[vlevel][context->bw_ctx.dml.vba.maxMpcComb];
-			pstate_en = context->bw_ctx.dml.vba.DRAMClockChangeSupport[vlevel][maxMpcComb] !=
-					dm_dram_clock_change_unsupported;
+			dcn32_internal_validate_bw(dc, context, pipes, &pipe_cnt, &vlevel_temp, false);
+			if (vlevel_temp < vlevel) {
+				vlevel = vlevel_temp;
+				maxMpcComb = context->bw_ctx.dml.vba.maxMpcComb;
+				dcfclk_from_fw_based_mclk_switching = context->bw_ctx.dml.vba.DCFCLKState[vlevel][context->bw_ctx.dml.vba.maxMpcComb];
+				pstate_en = true;
+			} else {
+				/* Restore FCLK latency and re-run validation to go back to original validation
+				 * output if we find that enabling FPO does not give us any benefit (i.e. lower
+				 * voltage level)
+				 */
+				context->bw_ctx.bw.dcn.clk.fw_based_mclk_switching = false;
+				for (i = 0; i < context->stream_count; i++) {
+					if (context->streams[i])
+						context->streams[i]->fpo_in_use = false;
+				}
+				context->bw_ctx.dml.soc.fclk_change_latency_us = dc->clk_mgr->bw_params->wm_table.nv_entries[WM_A].dml_input.fclk_change_latency_us;
+				dcn32_internal_validate_bw(dc, context, pipes, &pipe_cnt, &vlevel, false);
+			}
 		}
 	}
 
@@ -2054,7 +2166,13 @@ void dcn32_calculate_wm_and_dlg_fpu(struct dc *dc, struct dc_state *context,
 		 * DCFCLK: Min, as reported by PM FW, when available
 		 * UCLK: Min, as reported by PM FW, when available
 		 */
-		dc->res_pool->funcs->update_soc_for_wm_a(dc, context);
+
+		/* For set A set the correct latency values (i.e. non-dummy values) unconditionally
+		 */
+		context->bw_ctx.dml.soc.dram_clock_change_latency_us = dc->clk_mgr->bw_params->wm_table.nv_entries[WM_A].dml_input.pstate_latency_us;
+		context->bw_ctx.dml.soc.sr_enter_plus_exit_time_us = dc->clk_mgr->bw_params->wm_table.nv_entries[WM_A].dml_input.sr_enter_plus_exit_time_us;
+		context->bw_ctx.dml.soc.sr_exit_time_us = dc->clk_mgr->bw_params->wm_table.nv_entries[WM_A].dml_input.sr_exit_time_us;
+
 		context->bw_ctx.bw.dcn.watermarks.a.urgent_ns = get_wm_urgent(&context->bw_ctx.dml, pipes, pipe_cnt) * 1000;
 		context->bw_ctx.bw.dcn.watermarks.a.cstate_pstate.cstate_enter_plus_exit_ns = get_wm_stutter_enter_exit(&context->bw_ctx.dml, pipes, pipe_cnt) * 1000;
 		context->bw_ctx.bw.dcn.watermarks.a.cstate_pstate.cstate_exit_ns = get_wm_stutter_exit(&context->bw_ctx.dml, pipes, pipe_cnt) * 1000;
@@ -2099,10 +2217,6 @@ void dcn32_calculate_wm_and_dlg_fpu(struct dc *dc, struct dc_state *context,
 		/* Restore full p-state latency */
 		context->bw_ctx.dml.soc.dram_clock_change_latency_us =
 				dc->clk_mgr->bw_params->wm_table.nv_entries[WM_A].dml_input.pstate_latency_us;
-
-	if (context->bw_ctx.bw.dcn.clk.fw_based_mclk_switching) {
-		dcn30_setup_mclk_switch_using_fw_based_vblank_stretch(dc, context);
-	}
 
 	/* revert fclk lat changes if required */
 	if (need_fclk_lat_as_dummy)
@@ -2227,6 +2341,9 @@ static int build_synthetic_soc_states(struct clk_bw_params *bw_params,
 			num_dcfclk_dpms++;
 	}
 
+	if (num_dcfclk_dpms > 0 && bw_params->clk_table.entries[0].fclk_mhz > min_fclk_mhz)
+		min_fclk_mhz = bw_params->clk_table.entries[0].fclk_mhz;
+
 	if (!max_dcfclk_mhz || !max_dispclk_mhz || !max_dtbclk_mhz)
 		return -1;
 
@@ -2335,7 +2452,6 @@ static int build_synthetic_soc_states(struct clk_bw_params *bw_params,
 		for (i = *num_entries - 1; i >= 0 ; i--) {
 			if (table[i].fabricclk_mhz < min_fclk_mhz) {
 				table[i].fabricclk_mhz = min_fclk_mhz;
-				break;
 			}
 		}
 	}
@@ -2344,7 +2460,6 @@ static int build_synthetic_soc_states(struct clk_bw_params *bw_params,
 	for (i = *num_entries - 1; i >= 0 ; i--) {
 		if (table[i].dcfclk_mhz < min_dcfclk_mhz) {
 			table[i].dcfclk_mhz = min_dcfclk_mhz;
-			break;
 		}
 	}
 
@@ -2661,4 +2776,120 @@ bool dcn32_allow_subvp_with_active_margin(struct pipe_ctx *pipe)
 			allow = true;
 	}
 	return allow;
+}
+
+/**
+ * *******************************************************************************************
+ * dcn32_determine_max_vratio_prefetch: Determine max Vratio for prefetch by driver policy
+ *
+ * @param [in]: dc: Current DC state
+ * @param [in]: context: New DC state to be programmed
+ *
+ * @return: Max vratio for prefetch
+ *
+ * *******************************************************************************************
+ */
+double dcn32_determine_max_vratio_prefetch(struct dc *dc, struct dc_state *context)
+{
+	double max_vratio_pre = __DML_MAX_BW_RATIO_PRE__; // Default value is 4
+	int i;
+
+	/* For single display MPO configs, allow the max vratio to be 8
+	 * if any plane is YUV420 format
+	 */
+	if (context->stream_count == 1 && context->stream_status[0].plane_count > 1) {
+		for (i = 0; i < context->stream_status[0].plane_count; i++) {
+			if (context->stream_status[0].plane_states[i]->format == SURFACE_PIXEL_FORMAT_VIDEO_420_YCbCr ||
+					context->stream_status[0].plane_states[i]->format == SURFACE_PIXEL_FORMAT_VIDEO_420_YCrCb) {
+				max_vratio_pre = __DML_MAX_VRATIO_PRE__;
+			}
+		}
+	}
+	return max_vratio_pre;
+}
+
+/**
+ * dcn32_assign_fpo_vactive_candidate - Assign the FPO stream candidate for FPO + VActive case
+ *
+ * This function chooses the FPO candidate stream for FPO + VActive cases (2 stream config).
+ * For FPO + VAtive cases, the assumption is that one display has ActiveMargin > 0, and the
+ * other display has ActiveMargin <= 0. This function will choose the pipe/stream that has
+ * ActiveMargin <= 0 to be the FPO stream candidate if found.
+ *
+ *
+ * @param [in]: dc - current dc state
+ * @param [in]: context - new dc state
+ * @param [out]: fpo_candidate_stream - pointer to FPO stream candidate if one is found
+ *
+ * Return: void
+ */
+void dcn32_assign_fpo_vactive_candidate(struct dc *dc, const struct dc_state *context, struct dc_stream_state **fpo_candidate_stream)
+{
+	unsigned int i, pipe_idx;
+	const struct vba_vars_st *vba = &context->bw_ctx.dml.vba;
+
+	for (i = 0, pipe_idx = 0; i < dc->res_pool->pipe_count; i++) {
+		const struct pipe_ctx *pipe = &context->res_ctx.pipe_ctx[i];
+
+		if (!pipe->stream)
+			continue;
+
+		if (vba->ActiveDRAMClockChangeLatencyMarginPerState[vba->VoltageLevel][vba->maxMpcComb][vba->pipe_plane[pipe_idx]] <= 0) {
+			*fpo_candidate_stream = pipe->stream;
+			break;
+		}
+		pipe_idx++;
+	}
+}
+
+/**
+ * dcn32_find_vactive_pipe - Determines if the config has a pipe that can switch in VACTIVE
+ *
+ * @param [in]: dc - current dc state
+ * @param [in]: context - new dc state
+ * @param [in]: vactive_margin_req_us - The vactive marign required for a vactive pipe to be
+ *                                      considered "found"
+ *
+ * Return: True if VACTIVE display is found, false otherwise
+ */
+bool dcn32_find_vactive_pipe(struct dc *dc, const struct dc_state *context, uint32_t vactive_margin_req_us)
+{
+	unsigned int i, pipe_idx;
+	const struct vba_vars_st *vba = &context->bw_ctx.dml.vba;
+	bool vactive_found = false;
+
+	for (i = 0, pipe_idx = 0; i < dc->res_pool->pipe_count; i++) {
+		const struct pipe_ctx *pipe = &context->res_ctx.pipe_ctx[i];
+
+		if (!pipe->stream)
+			continue;
+
+		if (vba->ActiveDRAMClockChangeLatencyMarginPerState[vba->VoltageLevel][vba->maxMpcComb][vba->pipe_plane[pipe_idx]] >= vactive_margin_req_us) {
+			vactive_found = true;
+			break;
+		}
+		pipe_idx++;
+	}
+	return vactive_found;
+}
+
+void dcn32_set_clock_limits(const struct _vcs_dpi_soc_bounding_box_st *soc_bb)
+{
+	dc_assert_fp_enabled();
+	dcn3_2_soc.clock_limits[0].dcfclk_mhz = 1200.0;
+}
+
+void dcn32_override_min_req_memclk(struct dc *dc, struct dc_state *context)
+{
+	// WA: restrict FPO and SubVP to use first non-strobe mode (DCN32 BW issue)
+	if ((context->bw_ctx.bw.dcn.clk.fw_based_mclk_switching || dcn32_subvp_in_use(dc, context)) &&
+			dc->dml.soc.num_chans <= 8) {
+		int num_mclk_levels = dc->clk_mgr->bw_params->clk_table.num_entries_per_clk.num_memclk_levels;
+
+		if (context->bw_ctx.dml.vba.DRAMSpeed <= dc->clk_mgr->bw_params->clk_table.entries[0].memclk_mhz * 16 &&
+				num_mclk_levels > 1) {
+			context->bw_ctx.dml.vba.DRAMSpeed = dc->clk_mgr->bw_params->clk_table.entries[1].memclk_mhz * 16;
+			context->bw_ctx.bw.dcn.clk.dramclk_khz = context->bw_ctx.dml.vba.DRAMSpeed * 1000 / 16;
+		}
+	}
 }

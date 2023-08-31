@@ -124,7 +124,7 @@ int mi_read(struct mft_inode *mi, bool is_mft)
 	struct rw_semaphore *rw_lock = NULL;
 
 	if (is_mounted(sbi)) {
-		if (!is_mft) {
+		if (!is_mft && mft_ni) {
 			rw_lock = &mft_ni->file.run_lock;
 			down_read(rw_lock);
 		}
@@ -148,7 +148,7 @@ int mi_read(struct mft_inode *mi, bool is_mft)
 		ni_lock(mft_ni);
 		down_write(rw_lock);
 	}
-	err = attr_load_runs_vcn(mft_ni, ATTR_DATA, NULL, 0, &mft_ni->file.run,
+	err = attr_load_runs_vcn(mft_ni, ATTR_DATA, NULL, 0, run,
 				 vbo >> sbi->cluster_bits);
 	if (rw_lock) {
 		up_write(rw_lock);
@@ -180,6 +180,12 @@ ok:
 	return 0;
 
 out:
+	if (err == -E_NTFS_CORRUPT) {
+		ntfs_err(sbi->sb, "mft corrupted");
+		ntfs_set_state(sbi, NTFS_DIRTY_ERROR);
+		err = -EINVAL;
+	}
+
 	return err;
 }
 
@@ -221,7 +227,7 @@ struct ATTRIB *mi_enum_attr(struct mft_inode *mi, struct ATTRIB *attr)
 		}
 
 		if (off + asize < off) {
-			/* overflow check */
+			/* Overflow check. */
 			return NULL;
 		}
 
@@ -247,8 +253,8 @@ struct ATTRIB *mi_enum_attr(struct mft_inode *mi, struct ATTRIB *attr)
 	if ((t32 & 0xf) || (t32 > 0x100))
 		return NULL;
 
-	/* Check boundary. */
-	if (off + asize > used)
+	/* Check overflow and boundary. */
+	if (off + asize < off || off + asize > used)
 		return NULL;
 
 	/* Check size of attribute. */
@@ -419,10 +425,9 @@ struct ATTRIB *mi_insert_attr(struct mft_inode *mi, enum ATTR_TYPE type,
 	struct ntfs_sb_info *sbi = mi->sbi;
 	u32 used = le32_to_cpu(rec->used);
 	const u16 *upcase = sbi->upcase;
-	int diff;
 
 	/* Can we insert mi attribute? */
-	if (used + asize > mi->sbi->record_size)
+	if (used + asize > sbi->record_size)
 		return NULL;
 
 	/*
@@ -431,7 +436,7 @@ struct ATTRIB *mi_insert_attr(struct mft_inode *mi, enum ATTR_TYPE type,
 	 */
 	attr = NULL;
 	while ((attr = mi_enum_attr(mi, attr))) {
-		diff = compare_attr(attr, type, name, name_len, upcase);
+		int diff = compare_attr(attr, type, name, name_len, upcase);
 
 		if (diff < 0)
 			continue;
@@ -442,9 +447,11 @@ struct ATTRIB *mi_insert_attr(struct mft_inode *mi, enum ATTR_TYPE type,
 	}
 
 	if (!attr) {
-		tail = 8; /* Not used, just to suppress warning. */
+		/* Append. */
+		tail = 8;
 		attr = Add2Ptr(rec, used - 8);
 	} else {
+		/* Insert before 'attr'. */
 		tail = used - PtrOffset(rec, attr);
 	}
 

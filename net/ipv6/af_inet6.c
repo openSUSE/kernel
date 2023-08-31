@@ -239,16 +239,6 @@ lookup_protocol:
 		inet->pmtudisc = IP_PMTUDISC_DONT;
 	else
 		inet->pmtudisc = IP_PMTUDISC_WANT;
-	/*
-	 * Increment only the relevant sk_prot->socks debug field, this changes
-	 * the previous behaviour of incrementing both the equivalent to
-	 * answer->prot->socks (inet6_sock_nr) and inet_sock_nr.
-	 *
-	 * This allows better debug granularity as we'll know exactly how many
-	 * UDPv6, TCPv6, etc socks were allocated, not the sum of all IPv6
-	 * transport protocol socks. -acme
-	 */
-	sk_refcnt_debug_inc(sk);
 
 	if (inet->inet_num) {
 		/* It assumes that any protocol which allows
@@ -855,7 +845,7 @@ int inet6_sk_rebuild_header(struct sock *sk)
 		dst = ip6_dst_lookup_flow(sock_net(sk), sk, &fl6, final_p);
 		if (IS_ERR(dst)) {
 			sk->sk_route_caps = 0;
-			sk->sk_err_soft = -PTR_ERR(dst);
+			WRITE_ONCE(sk->sk_err_soft, -PTR_ERR(dst));
 			return PTR_ERR(dst);
 		}
 
@@ -962,6 +952,7 @@ static int __net_init inet6_net_init(struct net *net)
 	net->ipv6.sysctl.icmpv6_echo_ignore_all = 0;
 	net->ipv6.sysctl.icmpv6_echo_ignore_multicast = 0;
 	net->ipv6.sysctl.icmpv6_echo_ignore_anycast = 0;
+	net->ipv6.sysctl.icmpv6_error_anycast_as_unicast = 0;
 
 	/* By default, rate limit error messages.
 	 * Except for pmtu discovery, it would break it.

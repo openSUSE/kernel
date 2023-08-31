@@ -18,7 +18,6 @@
 #define KF_ACQUIRE	(1 << 0) /* kfunc is an acquire function */
 #define KF_RELEASE	(1 << 1) /* kfunc is a release function */
 #define KF_RET_NULL	(1 << 2) /* kfunc returns a pointer that may be NULL */
-#define KF_KPTR_GET	(1 << 3) /* kfunc returns reference to a kptr */
 /* Trusted arguments are those which are guaranteed to be valid when passed to
  * the kfunc. It is used to enforce that pointers obtained from either acquire
  * kfuncs, or from the main kernel on a tracepoint or struct_ops callback
@@ -70,7 +69,19 @@
 #define KF_TRUSTED_ARGS (1 << 4) /* kfunc only takes trusted pointer arguments */
 #define KF_SLEEPABLE    (1 << 5) /* kfunc may sleep */
 #define KF_DESTRUCTIVE  (1 << 6) /* kfunc performs destructive actions */
-#define KF_RCU          (1 << 7) /* kfunc only takes rcu pointer arguments */
+#define KF_RCU          (1 << 7) /* kfunc takes either rcu or trusted pointer arguments */
+/* only one of KF_ITER_{NEW,NEXT,DESTROY} could be specified per kfunc */
+#define KF_ITER_NEW     (1 << 8) /* kfunc implements BPF iter constructor */
+#define KF_ITER_NEXT    (1 << 9) /* kfunc implements BPF iter next method */
+#define KF_ITER_DESTROY (1 << 10) /* kfunc implements BPF iter destructor */
+
+/*
+ * Tag marking a kernel function as a kfunc. This is meant to minimize the
+ * amount of copy-paste that kfunc authors have to include for correctness so
+ * as to avoid issues such as the compiler inlining or eliding either a static
+ * kfunc, or a global kfunc in an LTO build.
+ */
+#define __bpf_kfunc __used noinline
 
 /*
  * Return the name of the passed struct, if exists, or halt the build if for
@@ -101,7 +112,6 @@ struct btf_id_dtor_kfunc {
 struct btf_struct_meta {
 	u32 btf_id;
 	struct btf_record *record;
-	struct btf_field_offs *field_offs;
 };
 
 struct btf_struct_metas {
@@ -109,13 +119,11 @@ struct btf_struct_metas {
 	struct btf_struct_meta types[];
 };
 
-typedef void (*btf_dtor_kfunc_t)(void *);
-
 extern const struct file_operations btf_fops;
 
 void btf_get(struct btf *btf);
 void btf_put(struct btf *btf);
-int btf_new_fd(const union bpf_attr *attr, bpfptr_t uattr);
+int btf_new_fd(const union bpf_attr *attr, bpfptr_t uattr, u32 uattr_sz);
 struct btf *btf_get_by_fd(int fd);
 int btf_get_info_by_fd(const struct btf *btf,
 		       const union bpf_attr *attr,
@@ -197,7 +205,6 @@ int btf_find_timer(const struct btf *btf, const struct btf_type *t);
 struct btf_record *btf_parse_fields(const struct btf *btf, const struct btf_type *t,
 				    u32 field_mask, u32 value_size);
 int btf_check_and_fixup_fields(const struct btf *btf, struct btf_record *rec);
-struct btf_field_offs *btf_parse_field_offs(struct btf_record *rec);
 bool btf_type_is_void(const struct btf_type *t);
 s32 btf_find_by_name_kind(const struct btf *btf, const char *name, u8 kind);
 const struct btf_type *btf_type_skip_modifiers(const struct btf *btf,
@@ -234,6 +241,16 @@ static inline bool btf_type_is_int(const struct btf_type *t)
 static inline bool btf_type_is_small_int(const struct btf_type *t)
 {
 	return btf_type_is_int(t) && t->size <= sizeof(u64);
+}
+
+static inline u8 btf_int_encoding(const struct btf_type *t)
+{
+	return BTF_INT_ENCODING(*(u32 *)(t + 1));
+}
+
+static inline bool btf_type_is_signed_int(const struct btf_type *t)
+{
+	return btf_type_is_int(t) && (btf_int_encoding(t) & BTF_INT_SIGNED);
 }
 
 static inline bool btf_type_is_enum(const struct btf_type *t)
@@ -304,11 +321,6 @@ static inline bool btf_is_ptr(const struct btf_type *t)
 static inline u8 btf_int_offset(const struct btf_type *t)
 {
 	return BTF_INT_OFFSET(*(u32 *)(t + 1));
-}
-
-static inline u8 btf_int_encoding(const struct btf_type *t)
-{
-	return BTF_INT_ENCODING(*(u32 *)(t + 1));
 }
 
 static inline bool btf_type_is_scalar(const struct btf_type *t)

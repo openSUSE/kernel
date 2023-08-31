@@ -46,11 +46,15 @@
 #define __SUBCODE_MASK 0x0600
 #define __PF_RES_FIELD 0x8000000000000000ULL
 
-#define VM_FAULT_BADCONTEXT	((__force vm_fault_t) 0x010000)
-#define VM_FAULT_BADMAP		((__force vm_fault_t) 0x020000)
-#define VM_FAULT_BADACCESS	((__force vm_fault_t) 0x040000)
-#define VM_FAULT_SIGNAL		((__force vm_fault_t) 0x080000)
-#define VM_FAULT_PFAULT		((__force vm_fault_t) 0x100000)
+/*
+ * Allocate private vm_fault_reason from top.  Please make sure it won't
+ * collide with vm_fault_reason.
+ */
+#define VM_FAULT_BADCONTEXT	((__force vm_fault_t)0x80000000)
+#define VM_FAULT_BADMAP		((__force vm_fault_t)0x40000000)
+#define VM_FAULT_BADACCESS	((__force vm_fault_t)0x20000000)
+#define VM_FAULT_SIGNAL		((__force vm_fault_t)0x10000000)
+#define VM_FAULT_PFAULT		((__force vm_fault_t)0x8000000)
 
 enum fault_type {
 	KERNEL_FAULT,
@@ -403,6 +407,32 @@ static inline vm_fault_t do_exception(struct pt_regs *regs, int access)
 		access = VM_WRITE;
 	if (access == VM_WRITE)
 		flags |= FAULT_FLAG_WRITE;
+#ifdef CONFIG_PER_VMA_LOCK
+	if (!(flags & FAULT_FLAG_USER))
+		goto lock_mmap;
+	vma = lock_vma_under_rcu(mm, address);
+	if (!vma)
+		goto lock_mmap;
+	if (!(vma->vm_flags & access)) {
+		vma_end_read(vma);
+		goto lock_mmap;
+	}
+	fault = handle_mm_fault(vma, address, flags | FAULT_FLAG_VMA_LOCK, regs);
+	vma_end_read(vma);
+	if (!(fault & VM_FAULT_RETRY)) {
+		count_vm_vma_lock_event(VMA_LOCK_SUCCESS);
+		if (likely(!(fault & VM_FAULT_ERROR)))
+			fault = 0;
+		goto out;
+	}
+	count_vm_vma_lock_event(VMA_LOCK_RETRY);
+	/* Quick path to respond to signals */
+	if (fault_signal_pending(fault, regs)) {
+		fault = VM_FAULT_SIGNAL;
+		goto out;
+	}
+lock_mmap:
+#endif /* CONFIG_PER_VMA_LOCK */
 	mmap_read_lock(mm);
 
 	gmap = NULL;
@@ -429,8 +459,9 @@ retry:
 	if (unlikely(vma->vm_start > address)) {
 		if (!(vma->vm_flags & VM_GROWSDOWN))
 			goto out_up;
-		if (expand_stack(vma, address))
-			goto out_up;
+		vma = expand_stack(mm, address);
+		if (!vma)
+			goto out;
 	}
 
 	/*

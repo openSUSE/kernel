@@ -22,6 +22,7 @@
 #include <linux/net.h>
 #include <linux/netdevice.h>
 #include <linux/rculist.h>
+#include <linux/vmalloc.h>
 #include <net/xdp_sock_drv.h>
 #include <net/busy_poll.h>
 #include <net/xdp.h>
@@ -504,7 +505,7 @@ static struct sk_buff *xsk_build_skb(struct xdp_sock *xs,
 
 	skb->dev = dev;
 	skb->priority = xs->sk.sk_priority;
-	skb->mark = xs->sk.sk_mark;
+	skb->mark = READ_ONCE(xs->sk.sk_mark);
 	skb_shinfo(skb)->destructor_arg = (void *)(long)desc->addr;
 	skb->destructor = xsk_destruct_skb;
 
@@ -852,7 +853,6 @@ static int xsk_release(struct socket *sock)
 	sock_orphan(sk);
 	sock->sk = NULL;
 
-	sk_refcnt_debug_release(sk);
 	sock_put(sk);
 
 	return 0;
@@ -886,6 +886,7 @@ static int xsk_bind(struct socket *sock, struct sockaddr *addr, int addr_len)
 	struct sock *sk = sock->sk;
 	struct xdp_sock *xs = xdp_sk(sk);
 	struct net_device *dev;
+	int bound_dev_if;
 	u32 flags, qid;
 	int err = 0;
 
@@ -897,6 +898,10 @@ static int xsk_bind(struct socket *sock, struct sockaddr *addr, int addr_len)
 	flags = sxdp->sxdp_flags;
 	if (flags & ~(XDP_SHARED_UMEM | XDP_COPY | XDP_ZEROCOPY |
 		      XDP_USE_NEED_WAKEUP))
+		return -EINVAL;
+
+	bound_dev_if = READ_ONCE(sk->sk_bound_dev_if);
+	if (bound_dev_if && bound_dev_if != sxdp->sxdp_ifindex)
 		return -EINVAL;
 
 	rtnl_lock();
@@ -989,6 +994,7 @@ static int xsk_bind(struct socket *sock, struct sockaddr *addr, int addr_len)
 				err = xp_alloc_tx_descs(xs->pool, xs);
 				if (err) {
 					xp_put_pool(xs->pool);
+					xs->pool = NULL;
 					sockfd_put(sock);
 					goto out_unlock;
 				}
@@ -1301,11 +1307,10 @@ static int xsk_mmap(struct file *file, struct socket *sock,
 	loff_t offset = (loff_t)vma->vm_pgoff << PAGE_SHIFT;
 	unsigned long size = vma->vm_end - vma->vm_start;
 	struct xdp_sock *xs = xdp_sk(sock->sk);
+	int state = READ_ONCE(xs->state);
 	struct xsk_queue *q = NULL;
-	unsigned long pfn;
-	struct page *qpg;
 
-	if (READ_ONCE(xs->state) != XSK_READY)
+	if (state != XSK_READY && state != XSK_BOUND)
 		return -EBUSY;
 
 	if (offset == XDP_PGOFF_RX_RING) {
@@ -1316,9 +1321,11 @@ static int xsk_mmap(struct file *file, struct socket *sock,
 		/* Matches the smp_wmb() in XDP_UMEM_REG */
 		smp_rmb();
 		if (offset == XDP_UMEM_PGOFF_FILL_RING)
-			q = READ_ONCE(xs->fq_tmp);
+			q = state == XSK_READY ? READ_ONCE(xs->fq_tmp) :
+						 READ_ONCE(xs->pool->fq);
 		else if (offset == XDP_UMEM_PGOFF_COMPLETION_RING)
-			q = READ_ONCE(xs->cq_tmp);
+			q = state == XSK_READY ? READ_ONCE(xs->cq_tmp) :
+						 READ_ONCE(xs->pool->cq);
 	}
 
 	if (!q)
@@ -1326,13 +1333,10 @@ static int xsk_mmap(struct file *file, struct socket *sock,
 
 	/* Matches the smp_wmb() in xsk_init_queue */
 	smp_rmb();
-	qpg = virt_to_head_page(q->ring);
-	if (size > page_size(qpg))
+	if (size > q->ring_vmalloc_size)
 		return -EINVAL;
 
-	pfn = virt_to_phys(q->ring) >> PAGE_SHIFT;
-	return remap_pfn_range(vma, vma->vm_start, pfn,
-			       size, vma->vm_page_prot);
+	return remap_vmalloc_range(vma, q->ring, 0);
 }
 
 static int xsk_notifier(struct notifier_block *this,
@@ -1403,8 +1407,6 @@ static void xsk_destruct(struct sock *sk)
 
 	if (!xp_put_pool(xs->pool))
 		xdp_put_umem(xs->umem, !xs->pool);
-
-	sk_refcnt_debug_dec(sk);
 }
 
 static int xsk_create(struct net *net, struct socket *sock, int protocol,
@@ -1434,7 +1436,6 @@ static int xsk_create(struct net *net, struct socket *sock, int protocol,
 	sk->sk_family = PF_XDP;
 
 	sk->sk_destruct = xsk_destruct;
-	sk_refcnt_debug_inc(sk);
 
 	sock_set_flag(sk, SOCK_RCU_FREE);
 

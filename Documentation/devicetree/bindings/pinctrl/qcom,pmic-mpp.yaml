@@ -74,7 +74,7 @@ patternProperties:
     oneOf:
       - $ref: "#/$defs/qcom-pmic-mpp-state"
       - patternProperties:
-          "mpp":
+          '-pins$':
             $ref: "#/$defs/qcom-pmic-mpp-state"
         additionalProperties: false
 
@@ -82,8 +82,8 @@ $defs:
   qcom-pmic-mpp-state:
     type: object
     allOf:
-      - $ref: "pinmux-node.yaml"
-      - $ref: "pincfg-node.yaml"
+      - $ref: pinmux-node.yaml
+      - $ref: pincfg-node.yaml
     properties:
       pins:
         description:
@@ -144,8 +144,9 @@ $defs:
         enum: [0, 1, 2, 3, 4, 5, 6, 7]
 
       qcom,paired:
-        - description:
-            Indicates that the pin should be operating in paired mode.
+        type: boolean
+        description:
+          Indicates that the pin should be operating in paired mode.
 
     required:
       - pins
@@ -179,7 +180,7 @@ examples:
       };
 
       default-state {
-        gpio-mpp {
+        gpio-pins {
           pins = "mpp1", "mpp2", "mpp3", "mpp4";
           function = "digital";
           input-enable;

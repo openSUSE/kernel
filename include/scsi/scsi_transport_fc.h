@@ -496,6 +496,7 @@ enum fc_host_event_code  {
 	FCH_EVT_PORT_FABRIC		= 0x204,
 	FCH_EVT_LINK_UNKNOWN		= 0x500,
 	FCH_EVT_LINK_FPIN		= 0x501,
+	FCH_EVT_LINK_FPIN_ACK		= 0x502,
 	FCH_EVT_VENDOR_UNIQUE		= 0xffff,
 };
 
@@ -764,6 +765,8 @@ struct fc_function_template {
 	unsigned long	show_host_system_hostname:1;
 
 	unsigned long	disable_target_scan:1;
+
+	void *suse_kabi_padding;
 };
 
 /**
@@ -856,7 +859,8 @@ void fc_host_post_fc_event(struct Scsi_Host *shost, u32 event_number,
 	 * Note: when calling fc_host_post_fc_event(), vendor_id may be
 	 *   specified as 0.
 	 */
-void fc_host_fpin_rcv(struct Scsi_Host *shost, u32 fpin_len, char *fpin_buf);
+void fc_host_fpin_rcv(struct Scsi_Host *shost, u32 fpin_len, char *fpin_buf,
+		u8 event_acknowledge);
 struct fc_vport *fc_vport_create(struct Scsi_Host *shost, int channel,
 		struct fc_vport_identifiers *);
 int fc_vport_terminate(struct fc_vport *vport);

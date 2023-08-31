@@ -59,13 +59,11 @@
 				reg = <0x80000000 0x2000>;
 			};
 
-			dma_apbh: dma-apbh@80004000 {
+			dma_apbh: dma-controller@80004000 {
 				compatible = "fsl,imx23-dma-apbh";
 				reg = <0x80004000 0x2000>;
 				interrupts = <0 14 20 0
 					      13 13 13 13>;
-				interrupt-names = "empty", "ssp0", "ssp1", "empty",
-						  "gpmi0", "gpmi1", "gpmi2", "gpmi3";
 				#dma-cells = <1>;
 				dma-channels = <8>;
 				clocks = <&clks 15>;

@@ -10,7 +10,7 @@
 #define GRO_MAX_HEAD (MAX_HEADER + 128)
 
 static DEFINE_SPINLOCK(offload_lock);
-static struct list_head offload_base __read_mostly = LIST_HEAD_INIT(offload_base);
+struct list_head offload_base __read_mostly = LIST_HEAD_INIT(offload_base);
 /* Maximum number of GRO_NORMAL skbs to batch up for list-RX */
 int gro_normal_batch __read_mostly = 8;
 
@@ -92,63 +92,6 @@ void dev_remove_offload(struct packet_offload *po)
 }
 EXPORT_SYMBOL(dev_remove_offload);
 
-/**
- *	skb_eth_gso_segment - segmentation handler for ethernet protocols.
- *	@skb: buffer to segment
- *	@features: features for the output path (see dev->features)
- *	@type: Ethernet Protocol ID
- */
-struct sk_buff *skb_eth_gso_segment(struct sk_buff *skb,
-				    netdev_features_t features, __be16 type)
-{
-	struct sk_buff *segs = ERR_PTR(-EPROTONOSUPPORT);
-	struct packet_offload *ptype;
-
-	rcu_read_lock();
-	list_for_each_entry_rcu(ptype, &offload_base, list) {
-		if (ptype->type == type && ptype->callbacks.gso_segment) {
-			segs = ptype->callbacks.gso_segment(skb, features);
-			break;
-		}
-	}
-	rcu_read_unlock();
-
-	return segs;
-}
-EXPORT_SYMBOL(skb_eth_gso_segment);
-
-/**
- *	skb_mac_gso_segment - mac layer segmentation handler.
- *	@skb: buffer to segment
- *	@features: features for the output path (see dev->features)
- */
-struct sk_buff *skb_mac_gso_segment(struct sk_buff *skb,
-				    netdev_features_t features)
-{
-	struct sk_buff *segs = ERR_PTR(-EPROTONOSUPPORT);
-	struct packet_offload *ptype;
-	int vlan_depth = skb->mac_len;
-	__be16 type = skb_network_protocol(skb, &vlan_depth);
-
-	if (unlikely(!type))
-		return ERR_PTR(-EINVAL);
-
-	__skb_pull(skb, vlan_depth);
-
-	rcu_read_lock();
-	list_for_each_entry_rcu(ptype, &offload_base, list) {
-		if (ptype->type == type && ptype->callbacks.gso_segment) {
-			segs = ptype->callbacks.gso_segment(skb, features);
-			break;
-		}
-	}
-	rcu_read_unlock();
-
-	__skb_push(skb, skb->data - skb_mac_header(skb));
-
-	return segs;
-}
-EXPORT_SYMBOL(skb_mac_gso_segment);
 
 int skb_gro_receive(struct sk_buff *p, struct sk_buff *skb)
 {
@@ -171,16 +114,18 @@ int skb_gro_receive(struct sk_buff *p, struct sk_buff *skb)
 	if (p->pp_recycle != skb->pp_recycle)
 		return -ETOOMANYREFS;
 
-	/* pairs with WRITE_ONCE() in netif_set_gro_max_size() */
-	gro_max_size = READ_ONCE(p->dev->gro_max_size);
+	/* pairs with WRITE_ONCE() in netif_set_gro(_ipv4)_max_size() */
+	gro_max_size = p->protocol == htons(ETH_P_IPV6) ?
+			READ_ONCE(p->dev->gro_max_size) :
+			READ_ONCE(p->dev->gro_ipv4_max_size);
 
 	if (unlikely(p->len + len >= gro_max_size || NAPI_GRO_CB(skb)->flush))
 		return -E2BIG;
 
 	if (unlikely(p->len + len >= GRO_LEGACY_MAX_SIZE)) {
-		if (p->protocol != htons(ETH_P_IPV6) ||
-		    skb_headroom(p) < sizeof(struct hop_jumbo_hdr) ||
-		    ipv6_hdr(p)->nexthdr != IPPROTO_TCP ||
+		if (NAPI_GRO_CB(skb)->proto != IPPROTO_TCP ||
+		    (p->protocol == htons(ETH_P_IPV6) &&
+		     skb_headroom(p) < sizeof(struct hop_jumbo_hdr)) ||
 		    p->encapsulation)
 			return -E2BIG;
 	}
@@ -631,7 +576,7 @@ static gro_result_t napi_skb_finish(struct napi_struct *napi,
 		else if (skb->fclone != SKB_FCLONE_UNAVAILABLE)
 			__kfree_skb(skb);
 		else
-			__kfree_skb_defer(skb);
+			__napi_kfree_skb(skb, SKB_CONSUMED);
 		break;
 
 	case GRO_HELD:

@@ -938,6 +938,7 @@ static int find_closest_bigger(unsigned int target, const unsigned int *table,
  * regulator_set_ramp_delay_regmap - set_ramp_delay() helper
  *
  * @rdev: regulator to operate on
+ * @ramp_delay: ramp-rate value given in units V/S (uV/uS)
  *
  * Regulators that use regmap for their register I/O can set the ramp_reg
  * and ramp_mask fields in their descriptor and then use this as their

@@ -203,6 +203,7 @@ static inline int ice_chnl_dmac_fltr_cnt(struct ice_pf *pf)
 	return pf->num_dmac_chnl_fltrs;
 }
 
+struct ice_vsi *ice_locate_vsi_using_queue(struct ice_vsi *vsi, int queue);
 int
 ice_add_cls_flower(struct net_device *netdev, struct ice_vsi *vsi,
 		   struct flow_cls_offload *cls_flower);
@@ -211,4 +212,14 @@ ice_del_cls_flower(struct ice_vsi *vsi, struct flow_cls_offload *cls_flower);
 void ice_replay_tc_fltrs(struct ice_pf *pf);
 bool ice_is_tunnel_supported(struct net_device *dev);
 
+static inline bool ice_is_forward_action(enum ice_sw_fwd_act_type fltr_act)
+{
+	switch (fltr_act) {
+	case ICE_FWD_TO_VSI:
+	case ICE_FWD_TO_Q:
+		return true;
+	default:
+		return false;
+	}
+}
 #endif /* _ICE_TC_LIB_H_ */

@@ -155,8 +155,10 @@ CONTENTION OPTIONS
 --tid=<value>::
         Record events on existing thread ID (comma separated list).
 
+-M::
 --map-nr-entries=<value>::
-	Maximum number of BPF map entries (default: 10240).
+	Maximum number of BPF map entries (default: 16384).
+	This will be aligned to a power of 2.
 
 --max-stack=<value>::
 	Maximum stack depth when collecting lock contention (default: 8).
@@ -172,6 +174,11 @@ CONTENTION OPTIONS
 --lock-addr::
 	Show lock contention stat by address
 
+-o::
+--lock-owner::
+	Show lock contention stat by owners.  Implies --threads and
+	requires --use-bpf.
+
 -Y::
 --type-filter=<value>::
 	Show lock contention only for given lock types (comma separated list).
@@ -186,6 +193,12 @@ CONTENTION OPTIONS
 -L::
 --lock-filter=<value>::
 	Show lock contention only for given lock addresses or names (comma separated list).
+
+-S::
+--callstack-filter=<value>::
+	Show lock contention only if the callstack contains the given string.
+	Note that it matches the substring so 'rq' would match both 'raw_spin_rq_lock'
+	and 'irq_enter_rcu'.
 
 
 SEE ALSO

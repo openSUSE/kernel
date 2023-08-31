@@ -613,10 +613,10 @@ static int imxfb_activate_var(struct fb_var_screeninfo *var, struct fb_info *inf
 	if (var->hsync_len < 1    || var->hsync_len > 64)
 		printk(KERN_ERR "%s: invalid hsync_len %d\n",
 			info->fix.id, var->hsync_len);
-	if (var->left_margin > 255)
+	if (var->left_margin < 3  || var->left_margin > 255)
 		printk(KERN_ERR "%s: invalid left_margin %d\n",
 			info->fix.id, var->left_margin);
-	if (var->right_margin > 255)
+	if (var->right_margin < 1 || var->right_margin > 255)
 		printk(KERN_ERR "%s: invalid right_margin %d\n",
 			info->fix.id, var->right_margin);
 	if (var->yres < 1 || var->yres > ymax_mask)
@@ -1043,7 +1043,6 @@ failed_cmap:
 failed_map:
 failed_ioremap:
 failed_getclock:
-	release_mem_region(res->start, resource_size(res));
 failed_of_parse:
 	kfree(info->pseudo_palette);
 failed_init:
@@ -1051,7 +1050,7 @@ failed_init:
 	return ret;
 }
 
-static int imxfb_remove(struct platform_device *pdev)
+static void imxfb_remove(struct platform_device *pdev)
 {
 	struct fb_info *info = platform_get_drvdata(pdev);
 	struct imxfb_info *fbi = info->par;
@@ -1064,8 +1063,6 @@ static int imxfb_remove(struct platform_device *pdev)
 		    fbi->map_dma);
 	kfree(info->pseudo_palette);
 	framebuffer_release(info);
-
-	return 0;
 }
 
 static int __maybe_unused imxfb_suspend(struct device *dev)
@@ -1097,7 +1094,7 @@ static struct platform_driver imxfb_driver = {
 		.pm	= &imxfb_pm_ops,
 	},
 	.probe		= imxfb_probe,
-	.remove		= imxfb_remove,
+	.remove_new	= imxfb_remove,
 	.id_table	= imxfb_devtype,
 };
 module_platform_driver(imxfb_driver);

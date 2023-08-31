@@ -70,6 +70,10 @@ static const struct ci_hdrc_imx_platform_flag imx7ulp_usb_data = {
 		CI_HDRC_PMQOS,
 };
 
+static const struct ci_hdrc_imx_platform_flag imx8ulp_usb_data = {
+	.flags = CI_HDRC_SUPPORTS_RUNTIME_PM,
+};
+
 static const struct of_device_id ci_hdrc_imx_dt_ids[] = {
 	{ .compatible = "fsl,imx23-usb", .data = &imx23_usb_data},
 	{ .compatible = "fsl,imx28-usb", .data = &imx28_usb_data},
@@ -80,6 +84,7 @@ static const struct of_device_id ci_hdrc_imx_dt_ids[] = {
 	{ .compatible = "fsl,imx6ul-usb", .data = &imx6ul_usb_data},
 	{ .compatible = "fsl,imx7d-usb", .data = &imx7d_usb_data},
 	{ .compatible = "fsl,imx7ulp-usb", .data = &imx7ulp_usb_data},
+	{ .compatible = "fsl,imx8ulp-usb", .data = &imx8ulp_usb_data},
 	{ /* sentinel */ }
 };
 MODULE_DEVICE_TABLE(of, ci_hdrc_imx_dt_ids);
@@ -152,12 +157,12 @@ static struct imx_usbmisc_data *usbmisc_get_init_data(struct device *dev)
 	 * Check the various over current related properties. If over current
 	 * detection is disabled we're not interested in the polarity.
 	 */
-	if (of_find_property(np, "disable-over-current", NULL)) {
+	if (of_property_read_bool(np, "disable-over-current")) {
 		data->disable_oc = 1;
-	} else if (of_find_property(np, "over-current-active-high", NULL)) {
+	} else if (of_property_read_bool(np, "over-current-active-high")) {
 		data->oc_pol_active_low = 0;
 		data->oc_pol_configured = 1;
-	} else if (of_find_property(np, "over-current-active-low", NULL)) {
+	} else if (of_property_read_bool(np, "over-current-active-low")) {
 		data->oc_pol_active_low = 1;
 		data->oc_pol_configured = 1;
 	} else {
@@ -413,15 +418,19 @@ static int ci_hdrc_imx_probe(struct platform_device *pdev)
 	data->phy = devm_usb_get_phy_by_phandle(dev, "fsl,usbphy", 0);
 	if (IS_ERR(data->phy)) {
 		ret = PTR_ERR(data->phy);
-		if (ret != -ENODEV)
+		if (ret != -ENODEV) {
+			dev_err_probe(dev, ret, "Failed to parse fsl,usbphy\n");
 			goto err_clk;
+		}
 		data->phy = devm_usb_get_phy_by_phandle(dev, "phys", 0);
 		if (IS_ERR(data->phy)) {
 			ret = PTR_ERR(data->phy);
-			if (ret == -ENODEV)
+			if (ret == -ENODEV) {
 				data->phy = NULL;
-			else
+			} else {
+				dev_err_probe(dev, ret, "Failed to parse phys\n");
 				goto err_clk;
+			}
 		}
 	}
 

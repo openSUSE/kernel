@@ -13,6 +13,7 @@
 #include <ctype.h>
 #include <endian.h>
 #include <errno.h>
+#include <limits.h>
 #include <linux/err.h>
 #include <linux/btf.h>
 #include <linux/kernel.h>
@@ -1132,6 +1133,43 @@ static void btf_dump_emit_enum_def(struct btf_dump *d, __u32 id,
 	else
 		btf_dump_emit_enum64_val(d, t, lvl, vlen);
 	btf_dump_printf(d, "\n%s}", pfx(lvl));
+
+	/* special case enums with special sizes */
+	if (t->size == 1) {
+		/* one-byte enums can be forced with mode(byte) attribute */
+		btf_dump_printf(d, " __attribute__((mode(byte)))");
+	} else if (t->size == 8 && d->ptr_sz == 8) {
+		/* enum can be 8-byte sized if one of the enumerator values
+		 * doesn't fit in 32-bit integer, or by adding mode(word)
+		 * attribute (but probably only on 64-bit architectures); do
+		 * our best here to try to satisfy the contract without adding
+		 * unnecessary attributes
+		 */
+		bool needs_word_mode;
+
+		if (btf_is_enum(t)) {
+			/* enum can't represent 64-bit values, so we need word mode */
+			needs_word_mode = true;
+		} else {
+			/* enum64 needs mode(word) if none of its values has
+			 * non-zero upper 32-bits (which means that all values
+			 * fit in 32-bit integers and won't cause compiler to
+			 * bump enum to be 64-bit naturally
+			 */
+			int i;
+
+			needs_word_mode = true;
+			for (i = 0; i < vlen; i++) {
+				if (btf_enum64(t)[i].val_hi32 != 0) {
+					needs_word_mode = false;
+					break;
+				}
+			}
+		}
+		if (needs_word_mode)
+			btf_dump_printf(d, " __attribute__((mode(word)))");
+	}
+
 }
 
 static void btf_dump_emit_fwd_def(struct btf_dump *d, __u32 id,
@@ -2212,9 +2250,25 @@ static int btf_dump_type_data_check_overflow(struct btf_dump *d,
 					     const struct btf_type *t,
 					     __u32 id,
 					     const void *data,
-					     __u8 bits_offset)
+					     __u8 bits_offset,
+					     __u8 bit_sz)
 {
-	__s64 size = btf__resolve_size(d->btf, id);
+	__s64 size;
+
+	if (bit_sz) {
+		/* bits_offset is at most 7. bit_sz is at most 128. */
+		__u8 nr_bytes = (bits_offset + bit_sz + 7) / 8;
+
+		/* When bit_sz is non zero, it is called from
+		 * btf_dump_struct_data() where it only cares about
+		 * negative error value.
+		 * Return nr_bytes in success case to make it
+		 * consistent as the regular integer case below.
+		 */
+		return data + nr_bytes > d->typed_dump->data_end ? -E2BIG : nr_bytes;
+	}
+
+	size = btf__resolve_size(d->btf, id);
 
 	if (size < 0 || size >= INT_MAX) {
 		pr_warn("unexpected size [%zu] for id [%u]\n",
@@ -2369,7 +2423,7 @@ static int btf_dump_dump_type_data(struct btf_dump *d,
 {
 	int size, err = 0;
 
-	size = btf_dump_type_data_check_overflow(d, t, id, data, bits_offset);
+	size = btf_dump_type_data_check_overflow(d, t, id, data, bits_offset, bit_sz);
 	if (size < 0)
 		return size;
 	err = btf_dump_type_data_check_zero(d, t, id, data, bits_offset, bit_sz);

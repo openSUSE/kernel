@@ -322,7 +322,7 @@ static bool symbol_equal(long key1, long key2, void *ctx __maybe_unused)
 	return strcmp((const char *) key1, (const char *) key2) == 0;
 }
 
-static int get_syms(char ***symsp, size_t *cntp)
+static int get_syms(char ***symsp, size_t *cntp, bool kernel)
 {
 	size_t cap = 0, cnt = 0, i;
 	char *name = NULL, **syms = NULL;
@@ -338,7 +338,12 @@ static int get_syms(char ***symsp, size_t *cntp)
 	 * Filtering out duplicates by using hashmap__add, which won't
 	 * add existing entry.
 	 */
-	f = fopen("/sys/kernel/debug/tracing/available_filter_functions", "r");
+
+	if (access("/sys/kernel/tracing/trace", F_OK) == 0)
+		f = fopen("/sys/kernel/tracing/available_filter_functions", "r");
+	else
+		f = fopen("/sys/kernel/debug/tracing/available_filter_functions", "r");
+
 	if (!f)
 		return -EINVAL;
 
@@ -349,8 +354,9 @@ static int get_syms(char ***symsp, size_t *cntp)
 	}
 
 	while (fgets(buf, sizeof(buf), f)) {
-		/* skip modules */
-		if (strchr(buf, '['))
+		if (kernel && strchr(buf, '['))
+			continue;
+		if (!kernel && !strchr(buf, '['))
 			continue;
 
 		free(name);
@@ -375,8 +381,10 @@ static int get_syms(char ***symsp, size_t *cntp)
 			continue;
 
 		err = hashmap__add(map, name, 0);
-		if (err == -EEXIST)
+		if (err == -EEXIST) {
+			err = 0;
 			continue;
+		}
 		if (err)
 			goto error;
 
@@ -404,7 +412,7 @@ error:
 	return err;
 }
 
-void serial_test_kprobe_multi_bench_attach(void)
+static void test_kprobe_multi_bench_attach(bool kernel)
 {
 	LIBBPF_OPTS(bpf_kprobe_multi_opts, opts);
 	struct kprobe_multi_empty *skel = NULL;
@@ -415,7 +423,7 @@ void serial_test_kprobe_multi_bench_attach(void)
 	char **syms = NULL;
 	size_t cnt = 0, i;
 
-	if (!ASSERT_OK(get_syms(&syms, &cnt), "get_syms"))
+	if (!ASSERT_OK(get_syms(&syms, &cnt, kernel), "get_syms"))
 		return;
 
 	skel = kprobe_multi_empty__open_and_load();
@@ -451,6 +459,14 @@ cleanup:
 			free(syms[i]);
 		free(syms);
 	}
+}
+
+void serial_test_kprobe_multi_bench_attach(void)
+{
+	if (test__start_subtest("kernel"))
+		test_kprobe_multi_bench_attach(true);
+	if (test__start_subtest("modules"))
+		test_kprobe_multi_bench_attach(false);
 }
 
 void test_kprobe_multi_test(void)

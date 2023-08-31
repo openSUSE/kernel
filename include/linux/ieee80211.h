@@ -9,7 +9,7 @@
  * Copyright (c) 2006, Michael Wu <flamingice@sourmilk.net>
  * Copyright (c) 2013 - 2014 Intel Mobile Communications GmbH
  * Copyright (c) 2016 - 2017 Intel Deutschland GmbH
- * Copyright (c) 2018 - 2022 Intel Corporation
+ * Copyright (c) 2018 - 2023 Intel Corporation
  */
 
 #ifndef LINUX_IEEE80211_H
@@ -783,20 +783,6 @@ static inline bool ieee80211_is_any_nullfunc(__le16 fc)
 }
 
 /**
- * ieee80211_is_bufferable_mmpdu - check if frame is bufferable MMPDU
- * @fc: frame control field in little-endian byteorder
- */
-static inline bool ieee80211_is_bufferable_mmpdu(__le16 fc)
-{
-	/* IEEE 802.11-2012, definition of "bufferable management frame";
-	 * note that this ignores the IBSS special case. */
-	return ieee80211_is_mgmt(fc) &&
-	       (ieee80211_is_action(fc) ||
-		ieee80211_is_disassoc(fc) ||
-		ieee80211_is_deauth(fc));
-}
-
-/**
  * ieee80211_is_first_frag - check if IEEE80211_SCTL_FRAG is not set
  * @seq_ctrl: frame sequence control bytes in little-endian byteorder
  */
@@ -1356,6 +1342,7 @@ struct ieee80211_mgmt {
 				} __packed wnm_timing_msr;
 			} u;
 		} __packed action;
+		DECLARE_FLEX_ARRAY(u8, body); /* Generic frame body */
 	} u;
 } __packed __aligned(2);
 
@@ -2869,6 +2856,7 @@ ieee80211_he_spr_size(const u8 *he_spr_ie)
 
 /* Maximum number of supported EHT LTF is split */
 #define IEEE80211_EHT_PHY_CAP5_MAX_NUM_SUPP_EHT_LTF_MASK	0xc0
+#define IEEE80211_EHT_PHY_CAP5_SUPP_EXTRA_EHT_LTF		0x40
 #define IEEE80211_EHT_PHY_CAP6_MAX_NUM_SUPP_EHT_LTF_MASK	0x07
 
 #define IEEE80211_EHT_PHY_CAP6_MCS15_SUPP_MASK			0x78
@@ -3556,11 +3544,6 @@ enum ieee80211_unprotected_wnm_actioncode {
 	WLAN_UNPROTECTED_WNM_ACTION_TIMING_MEASUREMENT_RESPONSE = 1,
 };
 
-/* Public action codes */
-enum ieee80211_public_actioncode {
-	WLAN_PUBLIC_ACTION_FTM_RESPONSE = 33,
-};
-
 /* Security key length */
 enum ieee80211_key_len {
 	WLAN_KEY_LEN_WEP40 = 5,
@@ -3652,7 +3635,7 @@ enum ieee80211_pub_actioncode {
 	WLAN_PUB_ACTION_NETWORK_CHANNEL_CONTROL = 30,
 	WLAN_PUB_ACTION_WHITE_SPACE_MAP_ANN = 31,
 	WLAN_PUB_ACTION_FTM_REQUEST = 32,
-	WLAN_PUB_ACTION_FTM = 33,
+	WLAN_PUB_ACTION_FTM_RESPONSE = 33,
 	WLAN_PUB_ACTION_FILS_DISCOVERY = 34,
 };
 
@@ -4137,6 +4120,44 @@ static inline u8 *ieee80211_get_DA(struct ieee80211_hdr *hdr)
 }
 
 /**
+ * ieee80211_is_bufferable_mmpdu - check if frame is bufferable MMPDU
+ * @skb: the skb to check, starting with the 802.11 header
+ */
+static inline bool ieee80211_is_bufferable_mmpdu(struct sk_buff *skb)
+{
+	struct ieee80211_mgmt *mgmt = (void *)skb->data;
+	__le16 fc = mgmt->frame_control;
+
+	/*
+	 * IEEE 802.11 REVme D2.0 definition of bufferable MMPDU;
+	 * note that this ignores the IBSS special case.
+	 */
+	if (!ieee80211_is_mgmt(fc))
+		return false;
+
+	if (ieee80211_is_disassoc(fc) || ieee80211_is_deauth(fc))
+		return true;
+
+	if (!ieee80211_is_action(fc))
+		return false;
+
+	if (skb->len < offsetofend(typeof(*mgmt), u.action.u.ftm.action_code))
+		return true;
+
+	/* action frame - additionally check for non-bufferable FTM */
+
+	if (mgmt->u.action.category != WLAN_CATEGORY_PUBLIC &&
+	    mgmt->u.action.category != WLAN_CATEGORY_PROTECTED_DUAL_OF_ACTION)
+		return true;
+
+	if (mgmt->u.action.u.ftm.action_code == WLAN_PUB_ACTION_FTM_REQUEST ||
+	    mgmt->u.action.u.ftm.action_code == WLAN_PUB_ACTION_FTM_RESPONSE)
+		return false;
+
+	return true;
+}
+
+/**
  * _ieee80211_is_robust_mgmt_frame - check if frame is a robust management frame
  * @hdr: the frame (buffer must include at least the first octet of payload)
  */
@@ -4382,7 +4403,7 @@ static inline bool ieee80211_is_ftm(struct sk_buff *skb)
 		return false;
 
 	if (mgmt->u.action.u.ftm.action_code ==
-		WLAN_PUBLIC_ACTION_FTM_RESPONSE &&
+		WLAN_PUB_ACTION_FTM_RESPONSE &&
 	    skb->len >= offsetofend(typeof(*mgmt), u.action.u.ftm))
 		return true;
 
@@ -4591,15 +4612,12 @@ static inline u8 ieee80211_mle_common_size(const u8 *data)
 	case IEEE80211_ML_CONTROL_TYPE_BASIC:
 	case IEEE80211_ML_CONTROL_TYPE_PREQ:
 	case IEEE80211_ML_CONTROL_TYPE_TDLS:
+	case IEEE80211_ML_CONTROL_TYPE_RECONF:
 		/*
 		 * The length is the first octet pointed by mle->variable so no
 		 * need to add anything
 		 */
 		break;
-	case IEEE80211_ML_CONTROL_TYPE_RECONF:
-		if (control & IEEE80211_MLC_RECONF_PRES_MLD_MAC_ADDR)
-			common += ETH_ALEN;
-		return common;
 	case IEEE80211_ML_CONTROL_TYPE_PRIO_ACCESS:
 		if (control & IEEE80211_MLC_PRIO_ACCESS_PRES_AP_MLD_MAC_ADDR)
 			common += ETH_ALEN;

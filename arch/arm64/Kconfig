@@ -95,6 +95,7 @@ config ARM64
 	select ARCH_SUPPORTS_INT128 if CC_HAS_INT128
 	select ARCH_SUPPORTS_NUMA_BALANCING
 	select ARCH_SUPPORTS_PAGE_TABLE_CHECK
+	select ARCH_SUPPORTS_PER_VMA_LOCK
 	select ARCH_WANT_COMPAT_IPC_PARSE_VERSION if COMPAT
 	select ARCH_WANT_DEFAULT_BPF_JIT
 	select ARCH_WANT_DEFAULT_TOPDOWN_MMAP_LAYOUT
@@ -122,6 +123,8 @@ config ARM64
 	select DMA_DIRECT_REMAP
 	select EDAC_SUPPORT
 	select FRAME_POINTER
+	select FUNCTION_ALIGNMENT_4B
+	select FUNCTION_ALIGNMENT_8B if DYNAMIC_FTRACE_WITH_CALL_OPS
 	select GENERIC_ALLOCATOR
 	select GENERIC_ARCH_TOPOLOGY
 	select GENERIC_CLOCKEVENTS_BROADCAST
@@ -143,6 +146,7 @@ config ARM64
 	select GENERIC_GETTIMEOFDAY
 	select GENERIC_VDSO_TIME_NS
 	select HARDIRQS_SW_RESEND
+	select HAS_IOPORT
 	select HAVE_MOVE_PMD
 	select HAVE_MOVE_PUD
 	select HAVE_PCI
@@ -183,6 +187,13 @@ config ARM64
 	select HAVE_DEBUG_KMEMLEAK
 	select HAVE_DMA_CONTIGUOUS
 	select HAVE_DYNAMIC_FTRACE
+	select HAVE_DYNAMIC_FTRACE_WITH_ARGS \
+		if $(cc-option,-fpatchable-function-entry=2)
+	select HAVE_DYNAMIC_FTRACE_WITH_DIRECT_CALLS \
+		if DYNAMIC_FTRACE_WITH_ARGS && DYNAMIC_FTRACE_WITH_CALL_OPS
+	select HAVE_DYNAMIC_FTRACE_WITH_CALL_OPS \
+		if (DYNAMIC_FTRACE_WITH_ARGS && !CFI_CLANG && \
+		    !CC_OPTIMIZE_FOR_SIZE)
 	select FTRACE_MCOUNT_USE_PATCHABLE_FUNCTION_ENTRY \
 		if DYNAMIC_FTRACE_WITH_ARGS
 	select HAVE_EFFICIENT_UNALIGNED_ACCESS
@@ -214,6 +225,7 @@ config ARM64
 	select IRQ_DOMAIN
 	select IRQ_FORCED_THREADING
 	select KASAN_VMALLOC if KASAN
+	select LOCK_MM_AND_FIND_VMA
 	select MODULES_USE_ELF_RELA
 	select NEED_DMA_MAP_STATE
 	select NEED_SG_DMA_LENGTH
@@ -357,6 +369,20 @@ config ARCH_PROC_KCORE_TEXT
 config BROKEN_GAS_INST
 	def_bool !$(as-instr,1:\n.inst 0\n.rept . - 1b\n\nnop\n.endr\n)
 
+config BUILTIN_RETURN_ADDRESS_STRIPS_PAC
+	bool
+	# Clang's __builtin_return_adddress() strips the PAC since 12.0.0
+	# https://reviews.llvm.org/D75044
+	default y if CC_IS_CLANG && (CLANG_VERSION >= 120000)
+	# GCC's __builtin_return_address() strips the PAC since 11.1.0,
+	# and this was backported to 10.2.0, 9.4.0, 8.5.0, but not earlier
+	# https://gcc.gnu.org/bugzilla/show_bug.cgi?id=94891
+	default y if CC_IS_GCC && (GCC_VERSION >= 110100)
+	default y if CC_IS_GCC && (GCC_VERSION >= 100200) && (GCC_VERSION < 110000)
+	default y if CC_IS_GCC && (GCC_VERSION >=  90400) && (GCC_VERSION < 100000)
+	default y if CC_IS_GCC && (GCC_VERSION >=  80500) && (GCC_VERSION <  90000)
+	default n
+
 config KASAN_SHADOW_OFFSET
 	hex
 	depends on KASAN_GENERIC || KASAN_SW_TAGS
@@ -380,6 +406,25 @@ source "arch/arm64/Kconfig.platforms"
 menu "Kernel Features"
 
 menu "ARM errata workarounds via the alternatives framework"
+
+config AMPERE_ERRATUM_AC03_CPU_38
+        bool "AmpereOne: AC03_CPU_38: Certain bits in the Virtualization Translation Control Register and Translation Control Registers do not follow RES0 semantics"
+	default y
+	help
+	  This option adds an alternative code sequence to work around Ampere
+	  erratum AC03_CPU_38 on AmpereOne.
+
+	  The affected design reports FEAT_HAFDBS as not implemented in
+	  ID_AA64MMFR1_EL1.HAFDBS, but (V)TCR_ELx.{HA,HD} are not RES0
+	  as required by the architecture. The unadvertised HAFDBS
+	  implementation suffers from an additional erratum where hardware
+	  A/D updates can occur after a PTE has been marked invalid.
+
+	  The workaround forces KVM to explicitly set VTCR_EL2.HA to 0,
+	  which avoids enabling unadvertised hardware Access Flag management
+	  at stage-2.
+
+	  If unsure, say Y.
 
 config ARM64_WORKAROUND_CLEAN_CACHE
 	bool
@@ -1145,6 +1190,16 @@ config NVIDIA_CARMEL_CNP_ERRATUM
 
 	  If unsure, say Y.
 
+config ROCKCHIP_ERRATUM_3588001
+	bool "Rockchip 3588001: GIC600 can not support shareability attributes"
+	default y
+	help
+	  The Rockchip RK3588 GIC600 SoC integration does not support ACE/ACE-lite.
+	  This means, that its sharability feature may not be used, even though it
+	  is supported by the IP itself.
+
+	  If unsure, say Y.
+
 config SOCIONEXT_SYNQUACER_PREITS
 	bool "Socionext Synquacer: Workaround for GICv3 pre-ITS"
 	default y
@@ -1469,28 +1524,36 @@ config XEN
 	help
 	  Say Y if you want to run Linux in a Virtual Machine on Xen on ARM64.
 
+# include/linux/mmzone.h requires the following to be true:
+#
+#   MAX_ORDER + PAGE_SHIFT <= SECTION_SIZE_BITS
+#
+# so the maximum value of MAX_ORDER is SECTION_SIZE_BITS - PAGE_SHIFT:
+#
+#     | SECTION_SIZE_BITS |  PAGE_SHIFT  |  max MAX_ORDER  |  default MAX_ORDER |
+# ----+-------------------+--------------+-----------------+--------------------+
+# 4K  |       27          |      12      |       15        |         10         |
+# 16K |       27          |      14      |       13        |         11         |
+# 64K |       29          |      16      |       13        |         13         |
 config ARCH_FORCE_MAX_ORDER
 	int
-	default "14" if ARM64_64K_PAGES
-	default "12" if ARM64_16K_PAGES
-	default "11"
+	default "13" if ARM64_64K_PAGES
+	default "11" if ARM64_16K_PAGES
+	default "10"
 	help
-	  The kernel memory allocator divides physically contiguous memory
-	  blocks into "zones", where each zone is a power of two number of
-	  pages.  This option selects the largest power of two that the kernel
-	  keeps in the memory allocator.  If you need to allocate very large
-	  blocks of physically contiguous memory, then you may need to
-	  increase this value.
+	  The kernel page allocator limits the size of maximal physically
+	  contiguous allocations. The limit is called MAX_ORDER and it
+	  defines the maximal power of two of number of pages that can be
+	  allocated as a single contiguous block. This option allows
+	  overriding the default setting when ability to allocate very
+	  large blocks of physically contiguous memory is required.
 
-	  This config option is actually maximum order plus one. For example,
-	  a value of 11 means that the largest free memory block is 2^10 pages.
+	  The maximal size of allocation cannot exceed the size of the
+	  section, so the value of MAX_ORDER should satisfy
 
-	  We make sure that we can allocate upto a HugePage size for each configuration.
-	  Hence we have :
-		MAX_ORDER = (PMD_SHIFT - PAGE_SHIFT) + 1 => PAGE_SHIFT - 2
+	    MAX_ORDER + PAGE_SHIFT <= SECTION_SIZE_BITS
 
-	  However for 4K, we choose a higher default value, 11 as opposed to 10, giving us
-	  4M allocations matching the default size used by generic code.
+	  Don't change if unsure.
 
 config UNMAP_KERNEL_AT_EL0
 	bool "Unmap kernel when running in userspace (aka \"KAISER\")" if EXPERT
@@ -1831,7 +1894,7 @@ config ARM64_PTR_AUTH_KERNEL
 	bool "Use pointer authentication for kernel"
 	default y
 	depends on ARM64_PTR_AUTH
-	depends on (CC_HAS_SIGN_RETURN_ADDRESS || CC_HAS_BRANCH_PROT_PAC_RET) && AS_HAS_PAC
+	depends on (CC_HAS_SIGN_RETURN_ADDRESS || CC_HAS_BRANCH_PROT_PAC_RET) && AS_HAS_ARMV8_3
 	# Modern compilers insert a .note.gnu.property section note for PAC
 	# which is only understood by binutils starting with version 2.33.1.
 	depends on LD_IS_LLD || LD_VERSION >= 23301 || (CC_IS_GCC && GCC_VERSION < 90100)
@@ -1856,7 +1919,7 @@ config CC_HAS_SIGN_RETURN_ADDRESS
 	# GCC 7, 8
 	def_bool $(cc-option,-msign-return-address=all)
 
-config AS_HAS_PAC
+config AS_HAS_ARMV8_3
 	def_bool $(cc-option,-Wa$(comma)-march=armv8.3-a)
 
 config AS_HAS_CFI_NEGATE_RA_STATE

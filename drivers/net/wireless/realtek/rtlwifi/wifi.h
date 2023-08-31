@@ -2772,6 +2772,8 @@ struct rtl_priv {
 
 	struct rtl_rate_priv *rate_priv;
 
+	void *suse_kabi_padding;
+
 	/* sta entry list for ap adhoc or mesh */
 	struct list_head entry_list;
 
@@ -2831,7 +2833,7 @@ struct rtl_priv {
 	 * beyond  this structure like:
 	 * rtl_pci_priv or rtl_usb_priv
 	 */
-	u8 priv[0] __aligned(sizeof(void *));
+	u8 priv[] __aligned(sizeof(void *));
 };
 
 #define rtl_priv(hw)		(((struct rtl_priv *)(hw)->priv))

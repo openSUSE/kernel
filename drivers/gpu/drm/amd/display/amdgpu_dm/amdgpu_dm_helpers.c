@@ -38,9 +38,38 @@
 #include "amdgpu_dm.h"
 #include "amdgpu_dm_irq.h"
 #include "amdgpu_dm_mst_types.h"
+#include "dpcd_defs.h"
+#include "dc/inc/core_types.h"
 
 #include "dm_helpers.h"
 #include "ddc_service_types.h"
+
+/* MST Dock */
+static const uint8_t SYNAPTICS_DEVICE_ID[] = "SYNA";
+
+static u32 edid_extract_panel_id(struct edid *edid)
+{
+	return (u32)edid->mfg_id[0] << 24   |
+	       (u32)edid->mfg_id[1] << 16   |
+	       (u32)EDID_PRODUCT_ID(edid);
+}
+
+static void apply_edid_quirks(struct edid *edid, struct dc_edid_caps *edid_caps)
+{
+	uint32_t panel_id = edid_extract_panel_id(edid);
+
+	switch (panel_id) {
+	/* Workaround for some monitors which does not work well with FAMS */
+	case drm_edid_encode_panel_id('S', 'A', 'M', 0x0E5E):
+	case drm_edid_encode_panel_id('S', 'A', 'M', 0x7053):
+	case drm_edid_encode_panel_id('S', 'A', 'M', 0x71AC):
+		DRM_DEBUG_DRIVER("Disabling FAMS on monitor with panel id %X\n", panel_id);
+		edid_caps->panel_patch.disable_fams = true;
+		break;
+	default:
+		return;
+	}
+}
 
 /* dm_helpers_parse_edid_caps
  *
@@ -112,6 +141,8 @@ enum dc_edid_status dm_helpers_parse_edid_caps(
 		edid_caps->speaker_flags = sadb[0];
 	else
 		edid_caps->speaker_flags = DEFAULT_SPEAKER_LOCATION;
+
+	apply_edid_quirks(edid_buf, edid_caps);
 
 	kfree(sads);
 	kfree(sadb);
@@ -229,14 +260,14 @@ bool dm_helpers_dp_mst_write_payload_allocation_table(
 	 * that blocks before commit guaranteeing that the state
 	 * is not gonna be swapped while still in use in commit tail */
 
-	if (!aconnector || !aconnector->mst_port)
+	if (!aconnector || !aconnector->mst_root)
 		return false;
 
-	mst_mgr = &aconnector->mst_port->mst_mgr;
+	mst_mgr = &aconnector->mst_root->mst_mgr;
 	mst_state = to_drm_dp_mst_topology_state(mst_mgr->base.state);
 
 	/* It's OK for this to fail */
-	new_payload = drm_atomic_get_mst_payload_state(mst_state, aconnector->port);
+	new_payload = drm_atomic_get_mst_payload_state(mst_state, aconnector->mst_output_port);
 
 	if (enable) {
 		target_payload = new_payload;
@@ -290,10 +321,10 @@ enum act_return_status dm_helpers_dp_mst_poll_for_allocation_change_trigger(
 
 	aconnector = (struct amdgpu_dm_connector *)stream->dm_stream_context;
 
-	if (!aconnector || !aconnector->mst_port)
+	if (!aconnector || !aconnector->mst_root)
 		return ACT_FAILED;
 
-	mst_mgr = &aconnector->mst_port->mst_mgr;
+	mst_mgr = &aconnector->mst_root->mst_mgr;
 
 	if (!mst_mgr->mst_state)
 		return ACT_FAILED;
@@ -317,22 +348,27 @@ bool dm_helpers_dp_mst_send_payload_allocation(
 	struct drm_dp_mst_atomic_payload *payload;
 	enum mst_progress_status set_flag = MST_ALLOCATE_NEW_PAYLOAD;
 	enum mst_progress_status clr_flag = MST_CLEAR_ALLOCATED_PAYLOAD;
+	int ret = 0;
 
 	aconnector = (struct amdgpu_dm_connector *)stream->dm_stream_context;
 
-	if (!aconnector || !aconnector->mst_port)
+	if (!aconnector || !aconnector->mst_root)
 		return false;
 
-	mst_mgr = &aconnector->mst_port->mst_mgr;
+	mst_mgr = &aconnector->mst_root->mst_mgr;
 	mst_state = to_drm_dp_mst_topology_state(mst_mgr->base.state);
 
-	payload = drm_atomic_get_mst_payload_state(mst_state, aconnector->port);
+	payload = drm_atomic_get_mst_payload_state(mst_state, aconnector->mst_output_port);
+
 	if (!enable) {
 		set_flag = MST_CLEAR_ALLOCATED_PAYLOAD;
 		clr_flag = MST_ALLOCATE_NEW_PAYLOAD;
 	}
 
-	if (enable && drm_dp_add_payload_part2(mst_mgr, mst_state->base.state, payload)) {
+	if (enable)
+		ret = drm_dp_add_payload_part2(mst_mgr, mst_state->base.state, payload);
+
+	if (ret) {
 		amdgpu_dm_set_mst_status(&aconnector->mst_status,
 			set_flag, false);
 	} else {
@@ -439,6 +475,7 @@ bool dm_helpers_dp_mst_start_top_mgr(
 		bool boot)
 {
 	struct amdgpu_dm_connector *aconnector = link->priv;
+	int ret;
 
 	if (!aconnector) {
 		DRM_ERROR("Failed to find connector for link!");
@@ -454,7 +491,16 @@ bool dm_helpers_dp_mst_start_top_mgr(
 	DRM_INFO("DM_MST: starting TM on aconnector: %p [id: %d]\n",
 			aconnector, aconnector->base.base.id);
 
-	return (drm_dp_mst_topology_mgr_set_mst(&aconnector->mst_mgr, true) == 0);
+	ret = drm_dp_mst_topology_mgr_set_mst(&aconnector->mst_mgr, true);
+	if (ret < 0) {
+		DRM_ERROR("DM_MST: Failed to set the device into MST mode!");
+		return false;
+	}
+
+	DRM_INFO("DM_MST: DP%x, %d-lane link detected\n", aconnector->mst_mgr.dpcd[0],
+		aconnector->mst_mgr.dpcd[2] & DP_MAX_LANE_COUNT_MASK);
+
+	return true;
 }
 
 bool dm_helpers_dp_mst_stop_top_mgr(
@@ -494,8 +540,8 @@ bool dm_helpers_dp_read_dpcd(
 		return false;
 	}
 
-	return drm_dp_dpcd_read(&aconnector->dm_dp_aux.aux, address,
-			data, size) > 0;
+	return drm_dp_dpcd_read(&aconnector->dm_dp_aux.aux, address, data,
+				size) == size;
 }
 
 bool dm_helpers_dp_write_dpcd(
@@ -551,7 +597,6 @@ bool dm_helpers_submit_i2c(
 	return result;
 }
 
-#if defined(CONFIG_DRM_AMD_DC_DCN)
 static bool execute_synaptics_rc_command(struct drm_dp_aux *aux,
 		bool is_write_cmd,
 		unsigned char cmd,
@@ -668,7 +713,6 @@ static void apply_synaptics_fifo_reset_wa(struct drm_dp_aux *aux)
 		return;
 
 	data[0] |= (1 << 1); // set bit 1 to 1
-		return;
 
 	if (!execute_synaptics_rc_command(aux, false, 0x31, 4, 0x221198, data))
 		return;
@@ -719,7 +763,6 @@ static uint8_t write_dsc_enable_synaptics_non_virtual_dpcd_mst(
 
 	return ret;
 }
-#endif
 
 bool dm_helpers_dp_write_dsc_enable(
 		struct dc_context *ctx,
@@ -745,15 +788,13 @@ bool dm_helpers_dp_write_dsc_enable(
 		if (!aconnector->dsc_aux)
 			return false;
 
-#if defined(CONFIG_DRM_AMD_DC_DCN)
 		// apply w/a to synaptics
 		if (needs_dsc_aux_workaround(aconnector->dc_link) &&
 		    (aconnector->mst_downstream_port_present.byte & 0x7) != 0x3)
 			return write_dsc_enable_synaptics_non_virtual_dpcd_mst(
 				aconnector->dsc_aux, stream, enable_dsc);
-#endif
 
-		port = aconnector->port;
+		port = aconnector->mst_output_port;
 
 		if (enable) {
 			if (port->passthrough_aux) {
@@ -789,17 +830,13 @@ bool dm_helpers_dp_write_dsc_enable(
 	}
 
 	if (stream->signal == SIGNAL_TYPE_DISPLAY_PORT || stream->signal == SIGNAL_TYPE_EDP) {
-#if defined(CONFIG_DRM_AMD_DC_DCN)
 		if (stream->sink->link->dpcd_caps.dongle_type == DISPLAY_DONGLE_NONE) {
-#endif
 			ret = dm_helpers_dp_write_dpcd(ctx, stream->link, DP_DSC_ENABLE, &enable_dsc, 1);
 			DC_LOG_DC("Send DSC %s to SST RX\n", enable_dsc ? "enable" : "disable");
-#if defined(CONFIG_DRM_AMD_DC_DCN)
 		} else if (stream->sink->link->dpcd_caps.dongle_type == DISPLAY_DONGLE_DP_HDMI_CONVERTER) {
 			ret = dm_helpers_dp_write_dpcd(ctx, stream->link, DP_DSC_ENABLE, &enable_dsc, 1);
 			DC_LOG_DC("Send DSC %s to DP-HDMI PCON\n", enable_dsc ? "enable" : "disable");
 		}
-#endif
 	}
 
 	return ret;
@@ -1030,6 +1067,128 @@ void dm_helpers_mst_enable_stream_features(const struct dc_stream_state *stream)
 					 sizeof(new_downspread));
 }
 
+bool dm_helpers_dp_handle_test_pattern_request(
+		struct dc_context *ctx,
+		const struct dc_link *link,
+		union link_test_pattern dpcd_test_pattern,
+		union test_misc dpcd_test_params)
+{
+	enum dp_test_pattern test_pattern;
+	enum dp_test_pattern_color_space test_pattern_color_space =
+			DP_TEST_PATTERN_COLOR_SPACE_UNDEFINED;
+	enum dc_color_depth requestColorDepth = COLOR_DEPTH_UNDEFINED;
+	enum dc_pixel_encoding requestPixelEncoding = PIXEL_ENCODING_UNDEFINED;
+	struct pipe_ctx *pipes = link->dc->current_state->res_ctx.pipe_ctx;
+	struct pipe_ctx *pipe_ctx = NULL;
+	struct amdgpu_dm_connector *aconnector = link->priv;
+	int i;
+
+	for (i = 0; i < MAX_PIPES; i++) {
+		if (pipes[i].stream == NULL)
+			continue;
+
+		if (pipes[i].stream->link == link && !pipes[i].top_pipe &&
+			!pipes[i].prev_odm_pipe) {
+			pipe_ctx = &pipes[i];
+			break;
+		}
+	}
+
+	if (pipe_ctx == NULL)
+		return false;
+
+	switch (dpcd_test_pattern.bits.PATTERN) {
+	case LINK_TEST_PATTERN_COLOR_RAMP:
+		test_pattern = DP_TEST_PATTERN_COLOR_RAMP;
+	break;
+	case LINK_TEST_PATTERN_VERTICAL_BARS:
+		test_pattern = DP_TEST_PATTERN_VERTICAL_BARS;
+	break; /* black and white */
+	case LINK_TEST_PATTERN_COLOR_SQUARES:
+		test_pattern = (dpcd_test_params.bits.DYN_RANGE ==
+				TEST_DYN_RANGE_VESA ?
+				DP_TEST_PATTERN_COLOR_SQUARES :
+				DP_TEST_PATTERN_COLOR_SQUARES_CEA);
+	break;
+	default:
+		test_pattern = DP_TEST_PATTERN_VIDEO_MODE;
+	break;
+	}
+
+	if (dpcd_test_params.bits.CLR_FORMAT == 0)
+		test_pattern_color_space = DP_TEST_PATTERN_COLOR_SPACE_RGB;
+	else
+		test_pattern_color_space = dpcd_test_params.bits.YCBCR_COEFS ?
+				DP_TEST_PATTERN_COLOR_SPACE_YCBCR709 :
+				DP_TEST_PATTERN_COLOR_SPACE_YCBCR601;
+
+	switch (dpcd_test_params.bits.BPC) {
+	case 0: // 6 bits
+		requestColorDepth = COLOR_DEPTH_666;
+		break;
+	case 1: // 8 bits
+		requestColorDepth = COLOR_DEPTH_888;
+		break;
+	case 2: // 10 bits
+		requestColorDepth = COLOR_DEPTH_101010;
+		break;
+	case 3: // 12 bits
+		requestColorDepth = COLOR_DEPTH_121212;
+		break;
+	default:
+		break;
+	}
+
+	switch (dpcd_test_params.bits.CLR_FORMAT) {
+	case 0:
+		requestPixelEncoding = PIXEL_ENCODING_RGB;
+		break;
+	case 1:
+		requestPixelEncoding = PIXEL_ENCODING_YCBCR422;
+		break;
+	case 2:
+		requestPixelEncoding = PIXEL_ENCODING_YCBCR444;
+		break;
+	default:
+		requestPixelEncoding = PIXEL_ENCODING_RGB;
+		break;
+	}
+
+	if ((requestColorDepth != COLOR_DEPTH_UNDEFINED
+		&& pipe_ctx->stream->timing.display_color_depth != requestColorDepth)
+		|| (requestPixelEncoding != PIXEL_ENCODING_UNDEFINED
+		&& pipe_ctx->stream->timing.pixel_encoding != requestPixelEncoding)) {
+		DC_LOG_DEBUG("%s: original bpc %d pix encoding %d, changing to %d  %d\n",
+				__func__,
+				pipe_ctx->stream->timing.display_color_depth,
+				pipe_ctx->stream->timing.pixel_encoding,
+				requestColorDepth,
+				requestPixelEncoding);
+		pipe_ctx->stream->timing.display_color_depth = requestColorDepth;
+		pipe_ctx->stream->timing.pixel_encoding = requestPixelEncoding;
+
+		dc_link_update_dsc_config(pipe_ctx);
+
+		aconnector->timing_changed = true;
+		/* store current timing */
+		if (aconnector->timing_requested)
+			*aconnector->timing_requested = pipe_ctx->stream->timing;
+		else
+			DC_LOG_ERROR("%s: timing storage failed\n", __func__);
+
+	}
+
+	dc_link_dp_set_test_pattern(
+		(struct dc_link *) link,
+		test_pattern,
+		test_pattern_color_space,
+		NULL,
+		NULL,
+		0);
+
+	return false;
+}
+
 void dm_set_phyd32clk(struct dc_context *ctx, int freq_khz)
 {
        // TODO
@@ -1047,3 +1206,38 @@ void dm_helpers_dp_mst_update_branch_bandwidth(
 	// TODO
 }
 
+static bool dm_is_freesync_pcon_whitelist(const uint32_t branch_dev_id)
+{
+	bool ret_val = false;
+
+	switch (branch_dev_id) {
+	case DP_BRANCH_DEVICE_ID_0060AD:
+	case DP_BRANCH_DEVICE_ID_00E04C:
+	case DP_BRANCH_DEVICE_ID_90CC24:
+		ret_val = true;
+		break;
+	default:
+		break;
+	}
+
+	return ret_val;
+}
+
+enum adaptive_sync_type dm_get_adaptive_sync_support_type(struct dc_link *link)
+{
+	struct dpcd_caps *dpcd_caps = &link->dpcd_caps;
+	enum adaptive_sync_type as_type = ADAPTIVE_SYNC_TYPE_NONE;
+
+	switch (dpcd_caps->dongle_type) {
+	case DISPLAY_DONGLE_DP_HDMI_CONVERTER:
+		if (dpcd_caps->adaptive_sync_caps.dp_adap_sync_caps.bits.ADAPTIVE_SYNC_SDP_SUPPORT == true &&
+			dpcd_caps->allow_invalid_MSA_timing_param == true &&
+			dm_is_freesync_pcon_whitelist(dpcd_caps->branch_dev_id))
+			as_type = FREESYNC_TYPE_PCON_IN_WHITELIST;
+		break;
+	default:
+		break;
+	}
+
+	return as_type;
+}

@@ -9,6 +9,7 @@
 
 #include <linux/efi.h>
 #include <asm/efi.h>
+#include <asm/image.h>
 #include <asm/memory.h>
 #include <asm/sysreg.h>
 
@@ -82,21 +83,58 @@ efi_status_t check_platform_features(void)
 	return EFI_SUCCESS;
 }
 
+#ifdef CONFIG_ARM64_WORKAROUND_CLEAN_CACHE
+#define DCTYPE	"civac"
+#else
+#define DCTYPE	"cvau"
+#endif
+
+u32 __weak code_size;
+
 void efi_cache_sync_image(unsigned long image_base,
-			  unsigned long alloc_size,
-			  unsigned long code_size)
+			  unsigned long alloc_size)
 {
 	u32 ctr = read_cpuid_effective_cachetype();
 	u64 lsize = 4 << cpuid_feature_extract_unsigned_field(ctr,
 						CTR_EL0_DminLine_SHIFT);
 
-	do {
-		asm("dc civac, %0" :: "r"(image_base));
-		image_base += lsize;
-		alloc_size -= lsize;
-	} while (alloc_size >= lsize);
+	/* only perform the cache maintenance if needed for I/D coherency */
+	if (!(ctr & BIT(CTR_EL0_IDC_SHIFT))) {
+		unsigned long base = image_base;
+		unsigned long size = code_size;
+
+		do {
+			asm("dc " DCTYPE ", %0" :: "r"(base));
+			base += lsize;
+			size -= lsize;
+		} while (size >= lsize);
+	}
 
 	asm("ic ialluis");
 	dsb(ish);
 	isb();
+
+	efi_remap_image(image_base, alloc_size, code_size);
+}
+
+unsigned long __weak primary_entry_offset(void)
+{
+	/*
+	 * By default, we can invoke the kernel via the branch instruction in
+	 * the image header, so offset #0. This will be overridden by the EFI
+	 * stub build that is linked into the core kernel, as in that case, the
+	 * image header may not have been loaded into memory, or may be mapped
+	 * with non-executable permissions.
+	 */
+       return 0;
+}
+
+void __noreturn efi_enter_kernel(unsigned long entrypoint,
+				 unsigned long fdt_addr,
+				 unsigned long fdt_size)
+{
+	void (* __noreturn enter_kernel)(u64, u64, u64, u64);
+
+	enter_kernel = (void *)entrypoint + primary_entry_offset();
+	enter_kernel(fdt_addr, 0, 0, 0);
 }

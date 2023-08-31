@@ -223,20 +223,6 @@ static void rcar_du_crtc_set_display_timing(struct rcar_du_crtc *rcrtc)
 		 * DU channels that have a display PLL can't use the internal
 		 * system clock, and have no internal clock divider.
 		 */
-
-		/*
-		 * The H3 ES1.x exhibits dot clock duty cycle stability issues.
-		 * We can work around them by configuring the DPLL to twice the
-		 * desired frequency, coupled with a /2 post-divider. Restrict
-		 * the workaround to H3 ES1.x as ES2.0 and all other SoCs have
-		 * no post-divider when a display PLL is present (as shown by
-		 * the workaround breaking HDMI output on M3-W during testing).
-		 */
-		if (rcdu->info->quirks & RCAR_DU_QUIRK_H3_ES1_PCLK_STABILITY) {
-			target *= 2;
-			div = 1;
-		}
-
 		extclk = clk_get_rate(rcrtc->extclock);
 		rcar_du_dpll_divider(rcrtc, &dpll, extclk, target);
 
@@ -245,29 +231,12 @@ static void rcar_du_crtc_set_display_timing(struct rcar_du_crtc *rcrtc)
 		       | DPLLCR_N(dpll.n) | DPLLCR_M(dpll.m)
 		       | DPLLCR_STBY;
 
-		if (rcrtc->index == 1) {
+		if (rcrtc->index == 1)
 			dpllcr |= DPLLCR_PLCS1
 			       |  DPLLCR_INCS_DOTCLKIN1;
-		} else {
-			dpllcr |= DPLLCR_PLCS0_PLL
+		else
+			dpllcr |= DPLLCR_PLCS0
 			       |  DPLLCR_INCS_DOTCLKIN0;
-
-			/*
-			 * On ES2.x we have a single mux controlled via bit 21,
-			 * which selects between DCLKIN source (bit 21 = 0) and
-			 * a PLL source (bit 21 = 1), where the PLL is always
-			 * PLL1.
-			 *
-			 * On ES1.x we have an additional mux, controlled
-			 * via bit 20, for choosing between PLL0 (bit 20 = 0)
-			 * and PLL1 (bit 20 = 1). We always want to use PLL1,
-			 * so on ES1.x, in addition to setting bit 21, we need
-			 * to set the bit 20.
-			 */
-
-			if (rcdu->info->quirks & RCAR_DU_QUIRK_H3_ES1_PLL)
-				dpllcr |= DPLLCR_PLCS0_H3ES1X_PLL1;
-		}
 
 		rcar_du_group_write(rcrtc->group, DPLLCR, dpllcr);
 
@@ -298,10 +267,25 @@ static void rcar_du_crtc_set_display_timing(struct rcar_du_crtc *rcrtc)
 		escr = params.escr;
 	}
 
-	dev_dbg(rcrtc->dev->dev, "%s: ESCR 0x%08x\n", __func__, escr);
+	/*
+	 * The ESCR register only exists in DU channels that can output to an
+	 * LVDS or DPAT, and the OTAR register in DU channels that can output
+	 * to a DPAD.
+	 */
+	if ((rcdu->info->routes[RCAR_DU_OUTPUT_DPAD0].possible_crtcs |
+	     rcdu->info->routes[RCAR_DU_OUTPUT_DPAD1].possible_crtcs |
+	     rcdu->info->routes[RCAR_DU_OUTPUT_LVDS0].possible_crtcs |
+	     rcdu->info->routes[RCAR_DU_OUTPUT_LVDS1].possible_crtcs) &
+	    BIT(rcrtc->index)) {
+		dev_dbg(rcrtc->dev->dev, "%s: ESCR 0x%08x\n", __func__, escr);
 
-	rcar_du_crtc_write(rcrtc, rcrtc->index % 2 ? ESCR13 : ESCR02, escr);
-	rcar_du_crtc_write(rcrtc, rcrtc->index % 2 ? OTAR13 : OTAR02, 0);
+		rcar_du_crtc_write(rcrtc, rcrtc->index % 2 ? ESCR13 : ESCR02, escr);
+	}
+
+	if ((rcdu->info->routes[RCAR_DU_OUTPUT_DPAD0].possible_crtcs |
+	     rcdu->info->routes[RCAR_DU_OUTPUT_DPAD1].possible_crtcs) &
+	    BIT(rcrtc->index))
+		rcar_du_crtc_write(rcrtc, rcrtc->index % 2 ? OTAR13 : OTAR02, 0);
 
 	/* Signal polarities */
 	dsmr = ((mode->flags & DRM_MODE_FLAG_PVSYNC) ? DSMR_VSL : 0)
@@ -747,16 +731,17 @@ static void rcar_du_crtc_atomic_enable(struct drm_crtc *crtc,
 
 	/*
 	 * On D3/E3 the dot clock is provided by the LVDS encoder attached to
-	 * the DU channel. We need to enable its clock output explicitly if
-	 * the LVDS output is disabled.
+	 * the DU channel. We need to enable its clock output explicitly before
+	 * starting the CRTC, as the bridge hasn't been enabled by the atomic
+	 * helpers yet.
 	 */
-	if (rcdu->info->lvds_clk_mask & BIT(rcrtc->index) &&
-	    rstate->outputs == BIT(RCAR_DU_OUTPUT_DPAD0)) {
+	if (rcdu->info->lvds_clk_mask & BIT(rcrtc->index)) {
+		bool dot_clk_only = rstate->outputs == BIT(RCAR_DU_OUTPUT_DPAD0);
 		struct drm_bridge *bridge = rcdu->lvds[rcrtc->index];
 		const struct drm_display_mode *mode =
 			&crtc->state->adjusted_mode;
 
-		rcar_lvds_pclk_enable(bridge, mode->clock * 1000);
+		rcar_lvds_pclk_enable(bridge, mode->clock * 1000, dot_clk_only);
 	}
 
 	/*
@@ -793,15 +778,16 @@ static void rcar_du_crtc_atomic_disable(struct drm_crtc *crtc,
 	rcar_du_crtc_stop(rcrtc);
 	rcar_du_crtc_put(rcrtc);
 
-	if (rcdu->info->lvds_clk_mask & BIT(rcrtc->index) &&
-	    rstate->outputs == BIT(RCAR_DU_OUTPUT_DPAD0)) {
+	if (rcdu->info->lvds_clk_mask & BIT(rcrtc->index)) {
+		bool dot_clk_only = rstate->outputs == BIT(RCAR_DU_OUTPUT_DPAD0);
 		struct drm_bridge *bridge = rcdu->lvds[rcrtc->index];
 
 		/*
 		 * Disable the LVDS clock output, see
-		 * rcar_du_crtc_atomic_enable().
+		 * rcar_du_crtc_atomic_enable(). When the LVDS output is used,
+		 * this also disables the LVDS encoder.
 		 */
-		rcar_lvds_pclk_disable(bridge);
+		rcar_lvds_pclk_disable(bridge, dot_clk_only);
 	}
 
 	if ((rcdu->info->dsi_clk_mask & BIT(rcrtc->index)) &&
@@ -813,7 +799,6 @@ static void rcar_du_crtc_atomic_disable(struct drm_crtc *crtc,
 		 * Disable the DSI clock output, see
 		 * rcar_du_crtc_atomic_enable().
 		 */
-
 		rcar_mipi_dsi_pclk_disable(bridge);
 	}
 

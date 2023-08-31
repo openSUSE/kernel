@@ -18,6 +18,7 @@
 #include <linux/module.h>
 #include <sound/hdaudio_ext.h>
 #include <sound/hda_register.h>
+#include <sound/hda-mlink.h>
 #include <trace/events/sof_intel.h>
 #include "../sof-audio.h"
 #include "../ops.h"
@@ -321,6 +322,9 @@ void hda_dsp_ipc_int_enable(struct snd_sof_dev *sdev)
 	struct sof_intel_hda_dev *hda = sdev->pdata->hw_pdata;
 	const struct sof_intel_dsp_desc *chip = hda->desc;
 
+	if (sdev->dspless_mode_selected)
+		return;
+
 	/* enable IPC DONE and BUSY interrupts */
 	snd_sof_dsp_update_bits(sdev, HDA_DSP_BAR, chip->ipc_ctl,
 			HDA_DSP_REG_HIPCCTL_DONE | HDA_DSP_REG_HIPCCTL_BUSY,
@@ -335,6 +339,9 @@ void hda_dsp_ipc_int_disable(struct snd_sof_dev *sdev)
 {
 	struct sof_intel_hda_dev *hda = sdev->pdata->hw_pdata;
 	const struct sof_intel_dsp_desc *chip = hda->desc;
+
+	if (sdev->dspless_mode_selected)
+		return;
 
 	/* disable IPC interrupt */
 	snd_sof_dsp_update_bits(sdev, HDA_DSP_BAR, HDA_DSP_REG_ADSPIC,
@@ -364,19 +371,12 @@ static int hda_dsp_wait_d0i3c_done(struct snd_sof_dev *sdev)
 
 static int hda_dsp_send_pm_gate_ipc(struct snd_sof_dev *sdev, u32 flags)
 {
-	struct sof_ipc_pm_gate pm_gate;
-	struct sof_ipc_reply reply;
+	const struct sof_ipc_pm_ops *pm_ops = sof_ipc_get_ops(sdev, pm);
 
-	memset(&pm_gate, 0, sizeof(pm_gate));
+	if (pm_ops && pm_ops->set_pm_gate)
+		return pm_ops->set_pm_gate(sdev, flags);
 
-	/* configure pm_gate ipc message */
-	pm_gate.hdr.size = sizeof(pm_gate);
-	pm_gate.hdr.cmd = SOF_IPC_GLB_PM_MSG | SOF_IPC_PM_GATE;
-	pm_gate.flags = flags;
-
-	/* send pm_gate ipc to dsp */
-	return sof_ipc_tx_message_no_pm(sdev->ipc, &pm_gate, sizeof(pm_gate),
-					&reply, sizeof(reply));
+	return 0;
 }
 
 static int hda_dsp_update_d0i3c_register(struct snd_sof_dev *sdev, u8 value)
@@ -424,6 +424,34 @@ static int hda_dsp_update_d0i3c_register(struct snd_sof_dev *sdev, u8 value)
 	return 0;
 }
 
+/*
+ * d0i3 streaming is enabled if all the active streams can
+ * work in d0i3 state and playback is enabled
+ */
+static bool hda_dsp_d0i3_streaming_applicable(struct snd_sof_dev *sdev)
+{
+	struct snd_pcm_substream *substream;
+	struct snd_sof_pcm *spcm;
+	bool playback_active = false;
+	int dir;
+
+	list_for_each_entry(spcm, &sdev->pcm_list, list) {
+		for_each_pcm_streams(dir) {
+			substream = spcm->stream[dir].substream;
+			if (!substream || !substream->runtime)
+				continue;
+
+			if (!spcm->stream[dir].d0i3_compatible)
+				return false;
+
+			if (dir == SNDRV_PCM_STREAM_PLAYBACK)
+				playback_active = true;
+		}
+	}
+
+	return playback_active;
+}
+
 static int hda_dsp_set_D0_state(struct snd_sof_dev *sdev,
 				const struct sof_dsp_power_state *target_state)
 {
@@ -465,6 +493,9 @@ static int hda_dsp_set_D0_state(struct snd_sof_dev *sdev,
 		    !hda_enable_trace_D0I3_S0 ||
 		    sdev->system_suspend_target != SOF_SUSPEND_NONE)
 			flags = HDA_PM_NO_DMA_TRACE;
+
+		if (hda_dsp_d0i3_streaming_applicable(sdev))
+			flags |= HDA_PM_PG_STREAMING;
 	} else {
 		/* prevent power gating in D0I0 */
 		flags = HDA_PM_PPG;
@@ -543,31 +574,11 @@ static void hda_dsp_state_log(struct snd_sof_dev *sdev)
  * is called again either because of a new IPC sent to the DSP or
  * during system suspend/resume.
  */
-int hda_dsp_set_power_state(struct snd_sof_dev *sdev,
-			    const struct sof_dsp_power_state *target_state)
+static int hda_dsp_set_power_state(struct snd_sof_dev *sdev,
+				   const struct sof_dsp_power_state *target_state)
 {
 	int ret = 0;
 
-	/*
-	 * When the DSP is already in D0I3 and the target state is D0I3,
-	 * it could be the case that the DSP is in D0I3 during S0
-	 * and the system is suspending to S0Ix. Therefore,
-	 * hda_dsp_set_D0_state() must be called to disable trace DMA
-	 * by sending the PM_GATE IPC to the FW.
-	 */
-	if (target_state->substate == SOF_HDA_DSP_PM_D0I3 &&
-	    sdev->system_suspend_target == SOF_SUSPEND_S0IX)
-		goto set_state;
-
-	/*
-	 * For all other cases, return without doing anything if
-	 * the DSP is already in the target state.
-	 */
-	if (target_state->state == sdev->dsp_power_state.state &&
-	    target_state->substate == sdev->dsp_power_state.substate)
-		return 0;
-
-set_state:
 	switch (target_state->state) {
 	case SOF_DSP_PM_D0:
 		ret = hda_dsp_set_D0_state(sdev, target_state);
@@ -597,6 +608,42 @@ set_state:
 	sdev->dsp_power_state = *target_state;
 	hda_dsp_state_log(sdev);
 	return ret;
+}
+
+int hda_dsp_set_power_state_ipc3(struct snd_sof_dev *sdev,
+				 const struct sof_dsp_power_state *target_state)
+{
+	/*
+	 * When the DSP is already in D0I3 and the target state is D0I3,
+	 * it could be the case that the DSP is in D0I3 during S0
+	 * and the system is suspending to S0Ix. Therefore,
+	 * hda_dsp_set_D0_state() must be called to disable trace DMA
+	 * by sending the PM_GATE IPC to the FW.
+	 */
+	if (target_state->substate == SOF_HDA_DSP_PM_D0I3 &&
+	    sdev->system_suspend_target == SOF_SUSPEND_S0IX)
+		return hda_dsp_set_power_state(sdev, target_state);
+
+	/*
+	 * For all other cases, return without doing anything if
+	 * the DSP is already in the target state.
+	 */
+	if (target_state->state == sdev->dsp_power_state.state &&
+	    target_state->substate == sdev->dsp_power_state.substate)
+		return 0;
+
+	return hda_dsp_set_power_state(sdev, target_state);
+}
+
+int hda_dsp_set_power_state_ipc4(struct snd_sof_dev *sdev,
+				 const struct sof_dsp_power_state *target_state)
+{
+	/* Return without doing anything if the DSP is already in the target state */
+	if (target_state->state == sdev->dsp_power_state.state &&
+	    target_state->substate == sdev->dsp_power_state.substate)
+		return 0;
+
+	return hda_dsp_set_power_state(sdev, target_state);
 }
 
 /*
@@ -657,6 +704,9 @@ static int hda_suspend(struct snd_sof_dev *sdev, bool runtime_suspend)
 	/* power down all hda links */
 	hda_bus_ml_suspend(bus);
 
+	if (sdev->dspless_mode_selected)
+		goto skip_dsp;
+
 	ret = chip->power_down_dsp(sdev);
 	if (ret < 0) {
 		dev_err(sdev->dev, "failed to power down DSP during suspend\n");
@@ -670,6 +720,7 @@ static int hda_suspend(struct snd_sof_dev *sdev, bool runtime_suspend)
 	/* disable ppcap interrupt */
 	hda_dsp_ctrl_ppcap_enable(sdev, false);
 	hda_dsp_ctrl_ppcap_int_enable(sdev, false);
+skip_dsp:
 
 	/* disable hda bus irq and streams */
 	hda_dsp_ctrl_stop_chip(sdev);
@@ -720,9 +771,11 @@ static int hda_resume(struct snd_sof_dev *sdev, bool runtime_resume)
 			hda_codec_jack_check(sdev);
 	}
 
-	/* enable ppcap interrupt */
-	hda_dsp_ctrl_ppcap_enable(sdev, true);
-	hda_dsp_ctrl_ppcap_int_enable(sdev, true);
+	if (!sdev->dspless_mode_selected) {
+		/* enable ppcap interrupt */
+		hda_dsp_ctrl_ppcap_enable(sdev, true);
+		hda_dsp_ctrl_ppcap_int_enable(sdev, true);
+	}
 
 cleanup:
 	/* display codec can powered off after controller init */
@@ -764,7 +817,7 @@ int hda_dsp_resume(struct snd_sof_dev *sdev)
 		}
 
 		/* restore L1SEN bit */
-		if (hda->l1_support_changed)
+		if (hda->l1_disabled)
 			snd_sof_dsp_update_bits(sdev, HDA_DSP_HDA_BAR,
 						HDA_VS_INTEL_EM2,
 						HDA_VS_INTEL_EM2_L1SEN, 0);
@@ -819,8 +872,10 @@ int hda_dsp_runtime_suspend(struct snd_sof_dev *sdev)
 	};
 	int ret;
 
-	/* cancel any attempt for DSP D0I3 */
-	cancel_delayed_work_sync(&hda->d0i3_work);
+	if (!sdev->dspless_mode_selected) {
+		/* cancel any attempt for DSP D0I3 */
+		cancel_delayed_work_sync(&hda->d0i3_work);
+	}
 
 	/* stop hda controller and power dsp off */
 	ret = hda_suspend(sdev, true);
@@ -842,8 +897,10 @@ int hda_dsp_suspend(struct snd_sof_dev *sdev, u32 target_state)
 	};
 	int ret;
 
-	/* cancel any attempt for DSP D0I3 */
-	cancel_delayed_work_sync(&hda->d0i3_work);
+	if (!sdev->dspless_mode_selected) {
+		/* cancel any attempt for DSP D0I3 */
+		cancel_delayed_work_sync(&hda->d0i3_work);
+	}
 
 	if (target_state == SOF_DSP_PM_D0) {
 		/* Set DSP power state */
@@ -856,11 +913,9 @@ int hda_dsp_suspend(struct snd_sof_dev *sdev, u32 target_state)
 		}
 
 		/* enable L1SEN to make sure the system can enter S0Ix */
-		hda->l1_support_changed =
-			snd_sof_dsp_update_bits(sdev, HDA_DSP_HDA_BAR,
-						HDA_VS_INTEL_EM2,
-						HDA_VS_INTEL_EM2_L1SEN,
-						HDA_VS_INTEL_EM2_L1SEN);
+		if (hda->l1_disabled)
+			snd_sof_dsp_update_bits(sdev, HDA_DSP_HDA_BAR, HDA_VS_INTEL_EM2,
+						HDA_VS_INTEL_EM2_L1SEN, HDA_VS_INTEL_EM2_L1SEN);
 
 		/* stop the CORB/RIRB DMA if it is On */
 		hda_codec_suspend_cmd_io(sdev);

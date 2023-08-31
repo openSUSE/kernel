@@ -46,7 +46,6 @@ static const struct mtk_jpeg_enc_qlt mtk_jpeg_enc_quality[] = {
 	{.quality_param = 97, .hardware_value = JPEG_ENC_QUALITY_Q97},
 };
 
-#if defined(CONFIG_OF)
 static const struct of_device_id mtk_jpegenc_drv_ids[] = {
 	{
 		.compatible = "mediatek,mt8195-jpgenc-hw",
@@ -54,7 +53,6 @@ static const struct of_device_id mtk_jpegenc_drv_ids[] = {
 	{},
 };
 MODULE_DEVICE_TABLE(of, mtk_jpegenc_drv_ids);
-#endif
 
 void mtk_jpeg_enc_reset(void __iomem *base)
 {
@@ -248,8 +246,8 @@ static void mtk_jpegenc_timeout_work(struct work_struct *work)
 	clk_disable_unprepare(cjpeg->venc_clk.clks->clk);
 	pm_runtime_put(cjpeg->dev);
 	cjpeg->hw_state = MTK_JPEG_HW_IDLE;
-	atomic_inc(&master_jpeg->enchw_rdy);
-	wake_up(&master_jpeg->enc_hw_wq);
+	atomic_inc(&master_jpeg->hw_rdy);
+	wake_up(&master_jpeg->hw_wq);
 	v4l2_m2m_buf_done(src_buf, buf_state);
 	mtk_jpegenc_put_buf(cjpeg);
 }
@@ -286,14 +284,10 @@ static irqreturn_t mtk_jpegenc_hw_irq_handler(int irq, void *priv)
 	mtk_jpegenc_put_buf(jpeg);
 	pm_runtime_put(ctx->jpeg->dev);
 	clk_disable_unprepare(jpeg->venc_clk.clks->clk);
-	if (!list_empty(&ctx->fh.m2m_ctx->out_q_ctx.rdy_queue) ||
-	    !list_empty(&ctx->fh.m2m_ctx->cap_q_ctx.rdy_queue)) {
-		queue_work(master_jpeg->workqueue, &ctx->jpeg_work);
-	}
 
 	jpeg->hw_state = MTK_JPEG_HW_IDLE;
-	wake_up(&master_jpeg->enc_hw_wq);
-	atomic_inc(&master_jpeg->enchw_rdy);
+	wake_up(&master_jpeg->hw_wq);
+	atomic_inc(&master_jpeg->hw_rdy);
 
 	return IRQ_HANDLED;
 }
@@ -344,20 +338,6 @@ static int mtk_jpegenc_hw_probe(struct platform_device *pdev)
 	dev->plat_dev = pdev;
 	dev->dev = &pdev->dev;
 
-	if (!master_dev->is_jpgenc_multihw) {
-		master_dev->is_jpgenc_multihw = true;
-		for (i = 0; i < MTK_JPEGENC_HW_MAX; i++)
-			master_dev->enc_hw_dev[i] = NULL;
-
-		init_waitqueue_head(&master_dev->enc_hw_wq);
-		master_dev->workqueue = alloc_ordered_workqueue(MTK_JPEG_NAME,
-								WQ_MEM_RECLAIM
-								| WQ_FREEZABLE);
-		if (!master_dev->workqueue)
-			return -EINVAL;
-	}
-
-	atomic_set(&master_dev->enchw_rdy, MTK_JPEGENC_HW_MAX);
 	spin_lock_init(&dev->hw_lock);
 	dev->hw_state = MTK_JPEG_HW_IDLE;
 
@@ -380,14 +360,10 @@ static int mtk_jpegenc_hw_probe(struct platform_device *pdev)
 	if (ret)
 		return ret;
 
-	for (i = 0; i < MTK_JPEGENC_HW_MAX; i++) {
-		if (master_dev->enc_hw_dev[i])
-			continue;
-
-		master_dev->enc_hw_dev[i] = dev;
-		master_dev->reg_encbase[i] = dev->reg_base;
-		dev->master_dev = master_dev;
-	}
+	i = atomic_add_return(1, &master_dev->hw_index) - 1;
+	master_dev->enc_hw_dev[i] = dev;
+	master_dev->reg_encbase[i] = dev->reg_base;
+	dev->master_dev = master_dev;
 
 	platform_set_drvdata(pdev, dev);
 	pm_runtime_enable(&pdev->dev);
@@ -399,7 +375,7 @@ static struct platform_driver mtk_jpegenc_hw_driver = {
 	.probe = mtk_jpegenc_hw_probe,
 	.driver = {
 		.name = "mtk-jpegenc-hw",
-		.of_match_table = of_match_ptr(mtk_jpegenc_drv_ids),
+		.of_match_table = mtk_jpegenc_drv_ids,
 	},
 };
 

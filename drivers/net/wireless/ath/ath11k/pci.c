@@ -540,14 +540,14 @@ static int ath11k_pci_claim(struct ath11k_pci *ab_pci, struct pci_dev *pdev)
 	if (!ab->mem) {
 		ath11k_err(ab, "failed to map pci bar %d\n", ATH11K_PCI_BAR_NUM);
 		ret = -EIO;
-		goto clear_master;
+		goto release_region;
 	}
+
+	ab->mem_ce = ab->mem;
 
 	ath11k_dbg(ab, ATH11K_DBG_BOOT, "boot pci_mem 0x%pK\n", ab->mem);
 	return 0;
 
-clear_master:
-	pci_clear_master(pdev);
 release_region:
 	pci_release_region(pdev, ATH11K_PCI_BAR_NUM);
 disable_device:
@@ -563,7 +563,6 @@ static void ath11k_pci_free_region(struct ath11k_pci *ab_pci)
 
 	pci_iounmap(pci_dev, ab->mem);
 	ab->mem = NULL;
-	pci_clear_master(pci_dev);
 	pci_release_region(pci_dev, ATH11K_PCI_BAR_NUM);
 	if (pci_is_enabled(pci_dev))
 		pci_disable_device(pci_dev);
@@ -623,7 +622,7 @@ static int ath11k_pci_power_up(struct ath11k_base *ab)
 	return 0;
 }
 
-static void ath11k_pci_power_down(struct ath11k_base *ab)
+static void ath11k_pci_power_down(struct ath11k_base *ab, bool is_suspend)
 {
 	struct ath11k_pci *ab_pci = ath11k_pci_priv(ab);
 
@@ -634,9 +633,109 @@ static void ath11k_pci_power_down(struct ath11k_base *ab)
 
 	ath11k_pci_msi_disable(ab_pci);
 
-	ath11k_mhi_stop(ab_pci);
+	ath11k_mhi_stop(ab_pci, is_suspend);
 	clear_bit(ATH11K_FLAG_DEVICE_INIT_DONE, &ab->dev_flags);
 	ath11k_pci_sw_reset(ab_pci->ab, false);
+}
+
+static int ath11k_pci_save_state(struct ath11k_pci *ab_pci)
+{
+	struct pci_dev *pdev = ab_pci->pdev;
+	int ret;
+
+	ret = pci_save_state(pdev);
+	if (ret) {
+		ath11k_err(ab_pci->ab, "failed to save pci state %d\n", ret);
+		return ret;
+	}
+
+	ab_pci->pci_state = pci_store_saved_state(pdev);
+	if (!ab_pci->pci_state) {
+		ath11k_err(ab_pci->ab, "failed to store saved pci state %d\n", ret);
+		return -EIO;
+	}
+
+	ret = pci_load_saved_state(pdev, NULL);
+	if (ret) {
+		ath11k_err(ab_pci->ab, "failed to clear saved state %d\n", ret);
+		return ret;
+	}
+
+	return 0;
+}
+
+static int ath11k_pci_restore_state(struct ath11k_pci *ab_pci)
+{
+	struct pci_dev *pdev = ab_pci->pdev;
+	int ret;
+
+	ret = pci_load_saved_state(pdev, ab_pci->pci_state);
+	if (ret) {
+		ath11k_err(ab_pci->ab, "failed to load saved state %d\n", ret);
+		return ret;
+	}
+	pci_restore_state(ab_pci->pdev);
+
+	return 0;
+}
+
+static int ath11k_pci_hif_power_down(struct ath11k_base *ab, bool is_suspend)
+{
+	struct ath11k_pci *ab_pci = ath11k_pci_priv(ab);
+	int ret;
+
+	if (is_suspend) {
+		ret = ath11k_pci_save_state(ab_pci);
+		if (ret) {
+			ath11k_err(ab_pci->ab, "failed to save pci state for suspend %d\n",
+				   ret);
+			return ret;
+		}
+
+		ret = ath11k_mhi_unprepare_from_transfer(ab_pci);
+		if (ret) {
+			ath11k_err(ab_pci->ab, "failed to unprepare from transfer %d\n",
+				   ret);
+			return ret;
+		}
+	}
+
+	ath11k_pci_power_down(ab, is_suspend);
+	return 0;
+}
+
+static int ath11k_pci_hif_power_up(struct ath11k_base *ab, bool is_resume)
+{
+	struct ath11k_pci *ab_pci = ath11k_pci_priv(ab);
+	int ret;
+
+	if (is_resume) {
+		ret = ath11k_pci_restore_state(ab_pci);
+		if (ret) {
+			ath11k_err(ab_pci->ab, "failed to restore pci state for resume %d\n",
+				   ret);
+			return ret;
+		}
+	}
+
+	ret =  ath11k_pci_power_up(ab);
+	if (ret) {
+		ath11k_err(ab_pci->ab, "failed to power up %d\n", ret);
+		return ret;
+	}
+
+	if (is_resume) {
+		/* sleep for 500ms to let mhi_pm_mission_mode_transition()
+		 * finishes, or we may be wake up imediatly afetr mission
+		 * mode event received and call
+		 * ath11k_mhi_prepare_for_transfer(), while bottom half of
+		 * mhi_pm_mission_mode_transition() does not finish.
+		 */
+		msleep(500);
+		ret = ath11k_mhi_prepare_for_transfer(ab_pci);
+	}
+
+	return ret;
 }
 
 static int ath11k_pci_hif_suspend(struct ath11k_base *ab)
@@ -686,8 +785,8 @@ static const struct ath11k_hif_ops ath11k_pci_hif_ops = {
 	.read32 = ath11k_pcic_read32,
 	.write32 = ath11k_pcic_write32,
 	.read = ath11k_pcic_read,
-	.power_down = ath11k_pci_power_down,
-	.power_up = ath11k_pci_power_up,
+	.power_down = ath11k_pci_hif_power_down,
+	.power_up = ath11k_pci_hif_power_up,
 	.suspend = ath11k_pci_hif_suspend,
 	.resume = ath11k_pci_hif_resume,
 	.irq_enable = ath11k_pcic_ext_irq_enable,
@@ -934,7 +1033,7 @@ static void ath11k_pci_remove(struct pci_dev *pdev)
 	ath11k_pci_set_irq_affinity_hint(ab_pci, NULL);
 
 	if (test_bit(ATH11K_FLAG_QMI_FAIL, &ab->dev_flags)) {
-		ath11k_pci_power_down(ab);
+		ath11k_pci_power_down(ab, false);
 		ath11k_debugfs_soc_destroy(ab);
 		ath11k_qmi_deinit_service(ab);
 		goto qmi_fail;
@@ -962,7 +1061,7 @@ static void ath11k_pci_shutdown(struct pci_dev *pdev)
 	struct ath11k_pci *ab_pci = ath11k_pci_priv(ab);
 
 	ath11k_pci_set_irq_affinity_hint(ab_pci, NULL);
-	ath11k_pci_power_down(ab);
+	ath11k_pci_power_down(ab, false);
 }
 
 static __maybe_unused int ath11k_pci_pm_suspend(struct device *dev)

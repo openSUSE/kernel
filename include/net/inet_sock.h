@@ -107,11 +107,12 @@ static inline struct inet_request_sock *inet_rsk(const struct request_sock *sk)
 
 static inline u32 inet_request_mark(const struct sock *sk, struct sk_buff *skb)
 {
-	if (!sk->sk_mark &&
-	    READ_ONCE(sock_net(sk)->ipv4.sysctl_tcp_fwmark_accept))
+	u32 mark = READ_ONCE(sk->sk_mark);
+
+	if (!mark && READ_ONCE(sock_net(sk)->ipv4.sysctl_tcp_fwmark_accept))
 		return skb->mark;
 
-	return sk->sk_mark;
+	return mark;
 }
 
 static inline int inet_request_bound_dev_if(const struct sock *sk,
@@ -249,6 +250,10 @@ struct inet_sock {
 	__be32			mc_addr;
 	struct ip_mc_socklist __rcu	*mc_list;
 	struct inet_cork_full	cork;
+	struct {
+		__u16 lo;
+		__u16 hi;
+	}			local_port_range;
 };
 
 #define IPCORK_OPT	1	/* ip-options has been held in ipcork.opt */
@@ -301,10 +306,7 @@ static inline struct sock *skb_to_full_sk(const struct sk_buff *skb)
 	return sk_to_full_sk(skb->sk);
 }
 
-static inline struct inet_sock *inet_sk(const struct sock *sk)
-{
-	return (struct inet_sock *)sk;
-}
+#define inet_sk(ptr) container_of_const(ptr, struct inet_sock, sk)
 
 static inline void __inet_sk_copy_descendant(struct sock *sk_to,
 					     const struct sock *sk_from,

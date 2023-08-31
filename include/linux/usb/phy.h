@@ -72,6 +72,8 @@ struct usb_otg;
 struct usb_phy_io_ops {
 	int (*read)(struct usb_phy *x, u32 reg);
 	int (*write)(struct usb_phy *x, u32 val, u32 reg);
+
+	void *suse_kabi_padding;
 };
 
 struct usb_charger_current {
@@ -155,6 +157,8 @@ struct usb_phy {
 	 * manually detect the charger type.
 	 */
 	enum usb_charger_type (*charger_detect)(struct usb_phy *x);
+
+	void *suse_kabi_padding;
 };
 
 /* for board-specific init logic */

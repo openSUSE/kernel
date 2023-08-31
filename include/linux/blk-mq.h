@@ -57,8 +57,6 @@ typedef __u32 __bitwise req_flags_t;
 #define RQF_SPECIAL_PAYLOAD	((__force req_flags_t)(1 << 18))
 /* The per-zone write lock is held for this request */
 #define RQF_ZONE_WRITE_LOCKED	((__force req_flags_t)(1 << 19))
-/* already slept for hybrid poll */
-#define RQF_MQ_POLL_SLEPT	((__force req_flags_t)(1 << 20))
 /* ->timeout has been called, don't expire again */
 #define RQF_TIMED_OUT		((__force req_flags_t)(1 << 21))
 /* queue has elevator attached */
@@ -439,6 +437,8 @@ struct blk_mq_hw_ctx {
 	struct dentry		*sched_debugfs_dir;
 #endif
 
+	void *suse_kabi_padding;
+
 	/**
 	 * @hctx_list: if this hctx is not in use, this is an entry in
 	 * q->unused_hctx_list.
@@ -479,6 +479,7 @@ enum hctx_type {
 
 /**
  * struct blk_mq_tag_set - tag set that can be shared between request queues
+ * @ops:	   Pointers to functions that implement block driver behavior.
  * @map:	   One or more ctx -> hctx mappings. One map exists for each
  *		   hardware queue type (enum hctx_type) that the driver wishes
  *		   to support. There are no restrictions on maps being of the
@@ -486,7 +487,6 @@ enum hctx_type {
  *		   types.
  * @nr_maps:	   Number of elements in the @map array. A number in the range
  *		   [1, HCTX_MAX_TYPES].
- * @ops:	   Pointers to functions that implement block driver behavior.
  * @nr_hw_queues:  Number of hardware queues supported by the block driver that
  *		   owns this data structure.
  * @queue_depth:   Number of tags per hardware queue, reserved tags included.
@@ -511,9 +511,9 @@ enum hctx_type {
  *		   (BLK_MQ_F_BLOCKING).
  */
 struct blk_mq_tag_set {
+	const struct blk_mq_ops	*ops;
 	struct blk_mq_queue_map	map[HCTX_MAX_TYPES];
 	unsigned int		nr_maps;
-	const struct blk_mq_ops	*ops;
 	unsigned int		nr_hw_queues;
 	unsigned int		queue_depth;
 	unsigned int		reserved_tags;
@@ -660,6 +660,8 @@ struct blk_mq_ops {
 	 */
 	void (*show_rq)(struct seq_file *m, struct request *rq);
 #endif
+
+	void *suse_kabi_padding;
 };
 
 enum {
@@ -748,8 +750,7 @@ struct request *blk_mq_alloc_request_hctx(struct request_queue *q,
 struct blk_mq_tags {
 	unsigned int nr_tags;
 	unsigned int nr_reserved_tags;
-
-	atomic_t active_queues;
+	unsigned int active_queues;
 
 	struct sbitmap_queue bitmap_tags;
 	struct sbitmap_queue breserved_tags;

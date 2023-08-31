@@ -40,10 +40,8 @@ const char *const rxrpc_call_completions[NR__RXRPC_CALL_COMPLETIONS] = {
 
 struct kmem_cache *rxrpc_call_jar;
 
-static struct semaphore rxrpc_call_limiter =
-	__SEMAPHORE_INITIALIZER(rxrpc_call_limiter, 1000);
-static struct semaphore rxrpc_kernel_call_limiter =
-	__SEMAPHORE_INITIALIZER(rxrpc_kernel_call_limiter, 1000);
+static DEFINE_SEMAPHORE(rxrpc_call_limiter, 1000);
+static DEFINE_SEMAPHORE(rxrpc_kernel_call_limiter, 1000);
 
 void rxrpc_poke_call(struct rxrpc_call *call, enum rxrpc_call_poke_trace what)
 {
@@ -169,7 +167,8 @@ struct rxrpc_call *rxrpc_alloc_call(struct rxrpc_sock *rx, gfp_t gfp,
 	call->tx_total_len = -1;
 	call->next_rx_timo = 20 * HZ;
 	call->next_req_timo = 1 * HZ;
-	atomic64_set(&call->ackr_window, 0x100000001ULL);
+	call->ackr_window = 1;
+	call->ackr_wtop = 1;
 
 	memset(&call->sock_node, 0xed, sizeof(call->sock_node));
 
@@ -225,6 +224,13 @@ static struct rxrpc_call *rxrpc_alloc_client_call(struct rxrpc_sock *rx,
 	if (cp->exclusive)
 		__set_bit(RXRPC_CALL_EXCLUSIVE, &call->flags);
 
+	if (p->timeouts.normal)
+		call->next_rx_timo = min(msecs_to_jiffies(p->timeouts.normal), 1UL);
+	if (p->timeouts.idle)
+		call->next_req_timo = min(msecs_to_jiffies(p->timeouts.idle), 1UL);
+	if (p->timeouts.hard)
+		call->hard_timo = p->timeouts.hard * HZ;
+
 	ret = rxrpc_init_client_call_security(call);
 	if (ret < 0) {
 		rxrpc_prefail_call(call, RXRPC_CALL_LOCAL_ERROR, ret);
@@ -256,7 +262,7 @@ void rxrpc_start_call_timer(struct rxrpc_call *call)
 	call->keepalive_at = j;
 	call->expect_rx_by = j;
 	call->expect_req_by = j;
-	call->expect_term_by = j;
+	call->expect_term_by = j + call->hard_timo;
 	call->timer.expires = now;
 }
 
@@ -562,7 +568,7 @@ void rxrpc_release_call(struct rxrpc_sock *rx, struct rxrpc_call *call)
 	rxrpc_put_call_slot(call);
 
 	/* Make sure we don't get any more notifications */
-	write_lock(&rx->recvmsg_lock);
+	spin_lock(&rx->recvmsg_lock);
 
 	if (!list_empty(&call->recvmsg_link)) {
 		_debug("unlinking once-pending call %p { e=%lx f=%lx }",
@@ -575,7 +581,7 @@ void rxrpc_release_call(struct rxrpc_sock *rx, struct rxrpc_call *call)
 	call->recvmsg_link.next = NULL;
 	call->recvmsg_link.prev = NULL;
 
-	write_unlock(&rx->recvmsg_lock);
+	spin_unlock(&rx->recvmsg_lock);
 	if (put)
 		rxrpc_put_call(call, rxrpc_call_put_unnotify);
 

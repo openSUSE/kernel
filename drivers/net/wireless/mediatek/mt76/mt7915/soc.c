@@ -883,6 +883,8 @@ static int mt7986_wmac_wm_enable(struct mt7915_dev *dev, bool enable)
 {
 	u32 cur;
 
+	mt76_wr(dev, MT_CONNINFRA_SKU_DEC_ADDR, 0);
+
 	mt76_rmw_field(dev, MT7986_TOP_WM_RESET,
 		       MT7986_TOP_WM_RESET_MASK, enable);
 	if (!enable)
@@ -1236,6 +1238,8 @@ static const struct of_device_id mt7986_wmac_of_match[] = {
 	{ .compatible = "mediatek,mt7986-wmac", .data = (u32 *)0x7986 },
 	{},
 };
+
+MODULE_DEVICE_TABLE(of, mt7986_wmac_of_match);
 
 struct platform_driver mt7986_wmac_driver = {
 	.driver = {

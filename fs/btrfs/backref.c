@@ -45,7 +45,8 @@ static int check_extent_in_eb(struct btrfs_backref_walk_ctx *ctx,
 	int root_count;
 	bool cached;
 
-	if (!btrfs_file_extent_compression(eb, fi) &&
+	if (!ctx->ignore_extent_item_pos &&
+	    !btrfs_file_extent_compression(eb, fi) &&
 	    !btrfs_file_extent_encryption(eb, fi) &&
 	    !btrfs_file_extent_other_encoding(eb, fi)) {
 		u64 data_offset;
@@ -552,7 +553,7 @@ static int add_all_parents(struct btrfs_backref_walk_ctx *ctx,
 				count++;
 			else
 				goto next;
-			if (!ctx->ignore_extent_item_pos) {
+			if (!ctx->skip_inode_ref_list) {
 				ret = check_extent_in_eb(ctx, &key, eb, fi, &eie);
 				if (ret == BTRFS_ITERATE_EXTENT_INODES_STOP ||
 				    ret < 0)
@@ -564,7 +565,7 @@ static int add_all_parents(struct btrfs_backref_walk_ctx *ctx,
 						  eie, (void **)&old, GFP_NOFS);
 			if (ret < 0)
 				break;
-			if (!ret && !ctx->ignore_extent_item_pos) {
+			if (!ret && !ctx->skip_inode_ref_list) {
 				while (old->next)
 					old = old->next;
 				old->next = eie;
@@ -1252,7 +1253,11 @@ static bool lookup_backref_shared_cache(struct btrfs_backref_share_check_ctx *ct
 					struct btrfs_root *root,
 					u64 bytenr, int level, bool *is_shared)
 {
+	const struct btrfs_fs_info *fs_info = root->fs_info;
 	struct btrfs_backref_shared_cache_entry *entry;
+
+	if (!current->journal_info)
+		lockdep_assert_held(&fs_info->commit_root_sem);
 
 	if (!ctx->use_path_cache)
 		return false;
@@ -1288,7 +1293,7 @@ static bool lookup_backref_shared_cache(struct btrfs_backref_share_check_ctx *ct
 	 * could be a snapshot sharing this extent buffer.
 	 */
 	if (entry->is_shared &&
-	    entry->gen != btrfs_get_last_root_drop_gen(root->fs_info))
+	    entry->gen != btrfs_get_last_root_drop_gen(fs_info))
 		return false;
 
 	*is_shared = entry->is_shared;
@@ -1318,8 +1323,12 @@ static void store_backref_shared_cache(struct btrfs_backref_share_check_ctx *ctx
 				       struct btrfs_root *root,
 				       u64 bytenr, int level, bool is_shared)
 {
+	const struct btrfs_fs_info *fs_info = root->fs_info;
 	struct btrfs_backref_shared_cache_entry *entry;
 	u64 gen;
+
+	if (!current->journal_info)
+		lockdep_assert_held(&fs_info->commit_root_sem);
 
 	if (!ctx->use_path_cache)
 		return;
@@ -1336,7 +1345,7 @@ static void store_backref_shared_cache(struct btrfs_backref_share_check_ctx *ctx
 	ASSERT(level >= 0);
 
 	if (is_shared)
-		gen = btrfs_get_last_root_drop_gen(root->fs_info);
+		gen = btrfs_get_last_root_drop_gen(fs_info);
 	else
 		gen = btrfs_root_last_snapshot(&root->root_item);
 
@@ -1598,7 +1607,7 @@ again:
 				goto out;
 		}
 		if (ref->count && ref->parent) {
-			if (!ctx->ignore_extent_item_pos && !ref->inode_list &&
+			if (!ctx->skip_inode_ref_list && !ref->inode_list &&
 			    ref->level == 0) {
 				struct btrfs_tree_parent_check check = { 0 };
 				struct extent_buffer *eb;
@@ -1639,7 +1648,7 @@ again:
 						  (void **)&eie, GFP_NOFS);
 			if (ret < 0)
 				goto out;
-			if (!ret && !ctx->ignore_extent_item_pos) {
+			if (!ret && !ctx->skip_inode_ref_list) {
 				/*
 				 * We've recorded that parent, so we must extend
 				 * its inode list here.
@@ -1735,7 +1744,7 @@ int btrfs_find_all_leafs(struct btrfs_backref_walk_ctx *ctx)
 static int btrfs_find_all_roots_safe(struct btrfs_backref_walk_ctx *ctx)
 {
 	const u64 orig_bytenr = ctx->bytenr;
-	const bool orig_ignore_extent_item_pos = ctx->ignore_extent_item_pos;
+	const bool orig_skip_inode_ref_list = ctx->skip_inode_ref_list;
 	bool roots_ulist_allocated = false;
 	struct ulist_iterator uiter;
 	int ret = 0;
@@ -1756,7 +1765,7 @@ static int btrfs_find_all_roots_safe(struct btrfs_backref_walk_ctx *ctx)
 		roots_ulist_allocated = true;
 	}
 
-	ctx->ignore_extent_item_pos = true;
+	ctx->skip_inode_ref_list = true;
 
 	ULIST_ITER_INIT(&uiter);
 	while (1) {
@@ -1781,7 +1790,7 @@ static int btrfs_find_all_roots_safe(struct btrfs_backref_walk_ctx *ctx)
 	ulist_free(ctx->refs);
 	ctx->refs = NULL;
 	ctx->bytenr = orig_bytenr;
-	ctx->ignore_extent_item_pos = orig_ignore_extent_item_pos;
+	ctx->skip_inode_ref_list = orig_skip_inode_ref_list;
 
 	return ret;
 }
@@ -1864,6 +1873,8 @@ int btrfs_is_data_extent_shared(struct btrfs_inode *inode, u64 bytenr,
 		.have_delayed_delete_refs = false,
 	};
 	int level;
+	bool leaf_cached;
+	bool leaf_is_shared;
 
 	for (int i = 0; i < BTRFS_BACKREF_CTX_PREV_EXTENTS_SIZE; i++) {
 		if (ctx->prev_extents_cache[i].bytenr == bytenr)
@@ -1885,7 +1896,24 @@ int btrfs_is_data_extent_shared(struct btrfs_inode *inode, u64 bytenr,
 		walk_ctx.time_seq = elem.seq;
 	}
 
-	walk_ctx.ignore_extent_item_pos = true;
+	ctx->use_path_cache = true;
+
+	/*
+	 * We may have previously determined that the current leaf is shared.
+	 * If it is, then we have a data extent that is shared due to a shared
+	 * subtree (caused by snapshotting) and we don't need to check for data
+	 * backrefs. If the leaf is not shared, then we must do backref walking
+	 * to determine if the data extent is shared through reflinks.
+	 */
+	leaf_cached = lookup_backref_shared_cache(ctx, root,
+						  ctx->curr_leaf_bytenr, 0,
+						  &leaf_is_shared);
+	if (leaf_cached && leaf_is_shared) {
+		ret = 1;
+		goto out_trans;
+	}
+
+	walk_ctx.skip_inode_ref_list = true;
 	walk_ctx.trans = trans;
 	walk_ctx.fs_info = fs_info;
 	walk_ctx.refs = &ctx->refs;
@@ -1893,7 +1921,6 @@ int btrfs_is_data_extent_shared(struct btrfs_inode *inode, u64 bytenr,
 	/* -1 means we are in the bytenr of the data extent. */
 	level = -1;
 	ULIST_ITER_INIT(&uiter);
-	ctx->use_path_cache = true;
 	while (1) {
 		const unsigned long prev_ref_count = ctx->refs.nnodes;
 
@@ -2005,6 +2032,7 @@ int btrfs_is_data_extent_shared(struct btrfs_inode *inode, u64 bytenr,
 		ctx->prev_extents_cache_slot = slot;
 	}
 
+out_trans:
 	if (trans) {
 		btrfs_put_tree_mod_seq(fs_info, &elem);
 		btrfs_end_transaction(trans);

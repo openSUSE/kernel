@@ -264,7 +264,7 @@ static void vmemmap_remap_pte(pte_t *pte, unsigned long addr,
  * How many struct page structs need to be reset. When we reuse the head
  * struct page, the special metadata (e.g. page->flags or page->mapping)
  * cannot copy to the tail struct page structs. The invalid value will be
- * checked in the free_tail_pages_check(). In order to avoid the message
+ * checked in the free_tail_page_prepare(). In order to avoid the message
  * of "corrupted mapping in tail page". We need to reset at least 3 (one
  * head struct page struct and two tail struct page structs) struct page
  * structs.
@@ -384,8 +384,9 @@ static int vmemmap_remap_free(unsigned long start, unsigned long end,
 }
 
 static int alloc_vmemmap_page_list(unsigned long start, unsigned long end,
-				   gfp_t gfp_mask, struct list_head *list)
+				   struct list_head *list)
 {
+	gfp_t gfp_mask = GFP_KERNEL | __GFP_RETRY_MAYFAIL | __GFP_THISNODE;
 	unsigned long nr_pages = (end - start) >> PAGE_SHIFT;
 	int nid = page_to_nid((struct page *)start);
 	struct page *page, *next;
@@ -400,7 +401,7 @@ static int alloc_vmemmap_page_list(unsigned long start, unsigned long end,
 	return 0;
 out:
 	list_for_each_entry_safe(page, next, list, lru)
-		__free_pages(page, 0);
+		__free_page(page);
 	return -ENOMEM;
 }
 
@@ -413,12 +414,11 @@ out:
  * @end:	end address of the vmemmap virtual address range that we want to
  *		remap.
  * @reuse:	reuse address.
- * @gfp_mask:	GFP flag for allocating vmemmap pages.
  *
  * Return: %0 on success, negative error code otherwise.
  */
 static int vmemmap_remap_alloc(unsigned long start, unsigned long end,
-			       unsigned long reuse, gfp_t gfp_mask)
+			       unsigned long reuse)
 {
 	LIST_HEAD(vmemmap_pages);
 	struct vmemmap_remap_walk walk = {
@@ -430,7 +430,7 @@ static int vmemmap_remap_alloc(unsigned long start, unsigned long end,
 	/* See the comment in the vmemmap_remap_free(). */
 	BUG_ON(start - reuse != PAGE_SIZE);
 
-	if (alloc_vmemmap_page_list(start, end, gfp_mask, &vmemmap_pages))
+	if (alloc_vmemmap_page_list(start, end, &vmemmap_pages))
 		return -ENOMEM;
 
 	mmap_read_lock(&init_mm);
@@ -476,8 +476,7 @@ int hugetlb_vmemmap_restore(const struct hstate *h, struct page *head)
 	 * When a HugeTLB page is freed to the buddy allocator, previously
 	 * discarded vmemmap pages must be allocated and remapping.
 	 */
-	ret = vmemmap_remap_alloc(vmemmap_start, vmemmap_end, vmemmap_reuse,
-				  GFP_KERNEL | __GFP_NORETRY | __GFP_THISNODE);
+	ret = vmemmap_remap_alloc(vmemmap_start, vmemmap_end, vmemmap_reuse);
 	if (!ret) {
 		ClearHPageVmemmapOptimized(head);
 		static_branch_dec(&hugetlb_optimize_vmemmap_key);
@@ -590,17 +589,15 @@ static struct ctl_table hugetlb_vmemmap_sysctls[] = {
 
 static int __init hugetlb_vmemmap_init(void)
 {
+	const struct hstate *h;
+
 	/* HUGETLB_VMEMMAP_RESERVE_SIZE should cover all used struct pages */
 	BUILD_BUG_ON(__NR_USED_SUBPAGE * sizeof(struct page) > HUGETLB_VMEMMAP_RESERVE_SIZE);
 
-	if (IS_ENABLED(CONFIG_PROC_SYSCTL)) {
-		const struct hstate *h;
-
-		for_each_hstate(h) {
-			if (hugetlb_vmemmap_optimizable(h)) {
-				register_sysctl_init("vm", hugetlb_vmemmap_sysctls);
-				break;
-			}
+	for_each_hstate(h) {
+		if (hugetlb_vmemmap_optimizable(h)) {
+			register_sysctl_init("vm", hugetlb_vmemmap_sysctls);
+			break;
 		}
 	}
 	return 0;

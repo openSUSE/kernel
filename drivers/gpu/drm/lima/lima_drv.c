@@ -276,9 +276,7 @@ static const struct drm_driver lima_drm_driver = {
 	.patchlevel         = 0,
 
 	.gem_create_object  = lima_gem_create_object,
-	.prime_fd_to_handle = drm_gem_prime_fd_to_handle,
 	.gem_prime_import_sg_table = drm_gem_shmem_prime_import_sg_table,
-	.prime_handle_to_fd = drm_gem_prime_handle_to_fd,
 	.gem_prime_mmap = drm_gem_prime_mmap,
 };
 
@@ -392,8 +390,10 @@ static int lima_pdev_probe(struct platform_device *pdev)
 
 	/* Allocate and initialize the DRM device. */
 	ddev = drm_dev_alloc(&lima_drm_driver, &pdev->dev);
-	if (IS_ERR(ddev))
-		return PTR_ERR(ddev);
+	if (IS_ERR(ddev)) {
+		err = PTR_ERR(ddev);
+		goto err_out0;
+	}
 
 	ddev->dev_private = ldev;
 	ldev->ddev = ddev;

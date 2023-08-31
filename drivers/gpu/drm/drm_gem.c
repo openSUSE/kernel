@@ -170,6 +170,20 @@ void drm_gem_private_object_init(struct drm_device *dev,
 EXPORT_SYMBOL(drm_gem_private_object_init);
 
 /**
+ * drm_gem_private_object_fini - Finalize a failed drm_gem_object
+ * @obj: drm_gem_object
+ *
+ * Uninitialize an already allocated GEM object when it initialized failed
+ */
+void drm_gem_private_object_fini(struct drm_gem_object *obj)
+{
+	WARN_ON(obj->dma_buf);
+
+	dma_resv_fini(&obj->_resv);
+}
+EXPORT_SYMBOL(drm_gem_private_object_fini);
+
+/**
  * drm_gem_object_handle_free - release resources bound to userspace handles
  * @obj: GEM object to clean up.
  *
@@ -321,13 +335,6 @@ out:
 	return ret;
 }
 EXPORT_SYMBOL_GPL(drm_gem_dumb_map_offset);
-
-int drm_gem_dumb_destroy(struct drm_file *file,
-			 struct drm_device *dev,
-			 u32 handle)
-{
-	return drm_gem_handle_delete(file, handle);
-}
 
 /**
  * drm_gem_handle_create_tail - internal functions to create a handle
@@ -930,12 +937,11 @@ drm_gem_release(struct drm_device *dev, struct drm_file *file_private)
 void
 drm_gem_object_release(struct drm_gem_object *obj)
 {
-	WARN_ON(obj->dma_buf);
-
 	if (obj->filp)
 		fput(obj->filp);
 
-	dma_resv_fini(&obj->_resv);
+	drm_gem_private_object_fini(obj);
+
 	drm_gem_free_mmap_offset(obj);
 	drm_gem_lru_remove(obj);
 }
@@ -1047,7 +1053,7 @@ int drm_gem_mmap_obj(struct drm_gem_object *obj, unsigned long obj_size,
 			goto err_drm_gem_object_put;
 		}
 
-		vma->vm_flags |= VM_IO | VM_PFNMAP | VM_DONTEXPAND | VM_DONTDUMP;
+		vm_flags_set(vma, VM_IO | VM_PFNMAP | VM_DONTEXPAND | VM_DONTDUMP);
 		vma->vm_page_prot = pgprot_writecombine(vm_get_page_prot(vma->vm_flags));
 		vma->vm_page_prot = pgprot_decrypted(vma->vm_page_prot);
 	}
@@ -1331,7 +1337,15 @@ drm_gem_lru_remove(struct drm_gem_object *obj)
 }
 EXPORT_SYMBOL(drm_gem_lru_remove);
 
-static void
+/**
+ * drm_gem_lru_move_tail_locked - move the object to the tail of the LRU
+ *
+ * Like &drm_gem_lru_move_tail but lru lock must be held
+ *
+ * @lru: The LRU to move the object into.
+ * @obj: The GEM object to move into this LRU
+ */
+void
 drm_gem_lru_move_tail_locked(struct drm_gem_lru *lru, struct drm_gem_object *obj)
 {
 	lockdep_assert_held_once(lru->lock);
@@ -1343,6 +1357,7 @@ drm_gem_lru_move_tail_locked(struct drm_gem_lru *lru, struct drm_gem_object *obj
 	list_add_tail(&obj->lru_node, &lru->list);
 	obj->lru = lru;
 }
+EXPORT_SYMBOL(drm_gem_lru_move_tail_locked);
 
 /**
  * drm_gem_lru_move_tail - move the object to the tail of the LRU
@@ -1458,3 +1473,21 @@ tail:
 	return freed;
 }
 EXPORT_SYMBOL(drm_gem_lru_scan);
+
+/**
+ * drm_gem_evict - helper to evict backing pages for a GEM object
+ * @obj: obj in question
+ */
+int drm_gem_evict(struct drm_gem_object *obj)
+{
+	dma_resv_assert_held(obj->resv);
+
+	if (!dma_resv_test_signaled(obj->resv, DMA_RESV_USAGE_READ))
+		return -EBUSY;
+
+	if (obj->funcs->evict)
+		return obj->funcs->evict(obj);
+
+	return 0;
+}
+EXPORT_SYMBOL(drm_gem_evict);

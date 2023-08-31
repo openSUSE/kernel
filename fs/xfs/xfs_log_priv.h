@@ -448,6 +448,8 @@ struct xlog {
 
 	/* Users of log incompat features should take a read lock. */
 	struct rw_semaphore	l_incompat_users;
+
+	int			l_malformed_inode_warning;
 };
 
 /*

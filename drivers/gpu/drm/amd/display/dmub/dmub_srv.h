@@ -126,7 +126,19 @@ enum dmub_notification_type {
 	DMUB_NOTIFICATION_HPD,
 	DMUB_NOTIFICATION_HPD_IRQ,
 	DMUB_NOTIFICATION_SET_CONFIG_REPLY,
+	DMUB_NOTIFICATION_DPIA_NOTIFICATION,
 	DMUB_NOTIFICATION_MAX
+};
+
+/**
+ * DPIA NOTIFICATION Response Type
+ */
+enum dpia_notify_bw_alloc_status {
+
+	DPIA_BW_REQ_FAILED = 0,
+	DPIA_BW_REQ_SUCCESS,
+	DPIA_EST_BW_CHANGED,
+	DPIA_BW_ALLOC_CAPS_CHANGED
 };
 
 /**
@@ -249,6 +261,8 @@ struct dmub_srv_hw_params {
 	bool usb4_cm_version;
 	bool fw_in_system_memory;
 	bool dpia_hpd_int_enable_supported;
+	bool disable_clock_gate;
+	bool disallow_dispclk_dppclk_ds;
 };
 
 /**
@@ -349,6 +363,8 @@ struct dmub_srv_hw_funcs {
 	void (*emul_set_inbox1_wptr)(struct dmub_srv *dmub, uint32_t wptr_offset);
 
 	bool (*is_supported)(struct dmub_srv *dmub);
+
+	bool (*is_psrsu_supported)(struct dmub_srv *dmub);
 
 	bool (*is_hw_init)(struct dmub_srv *dmub);
 
@@ -453,6 +469,7 @@ struct dmub_srv {
  * @pending_notification: Indicates there are other pending notifications
  * @aux_reply: aux reply
  * @hpd_status: hpd status
+ * @bw_alloc_reply: BW Allocation reply from CM/DPIA
  */
 struct dmub_notification {
 	enum dmub_notification_type type;
@@ -463,6 +480,10 @@ struct dmub_notification {
 		struct aux_reply_data aux_reply;
 		enum dp_hpd_status hpd_status;
 		enum set_config_status sc_status;
+		/**
+		 * DPIA notification command.
+		 */
+		struct dmub_rb_cmd_dpia_notification dpia_notification;
 	};
 };
 
@@ -471,7 +492,7 @@ struct dmub_notification {
  * of a firmware to know if feature or functionality is supported or present.
  */
 #define DMUB_FW_VERSION(major, minor, revision) \
-	((((major) & 0xFF) << 24) | (((minor) & 0xFF) << 16) | ((revision) & 0xFFFF))
+	((((major) & 0xFF) << 24) | (((minor) & 0xFF) << 16) | (((revision) & 0xFF) << 8))
 
 /**
  * dmub_srv_create() - creates the DMUB service.

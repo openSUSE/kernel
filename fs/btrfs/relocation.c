@@ -1266,7 +1266,7 @@ again:
 		level = btrfs_header_level(parent);
 		ASSERT(level >= lowest_level);
 
-		ret = btrfs_bin_search(parent, &key, &slot);
+		ret = btrfs_bin_search(parent, 0, &key, &slot);
 		if (ret < 0)
 			break;
 		if (ret && slot > 0)
@@ -1916,7 +1916,39 @@ again:
 				err = PTR_ERR(root);
 			break;
 		}
-		ASSERT(root->reloc_root == reloc_root);
+
+		if (unlikely(root->reloc_root != reloc_root)) {
+			if (root->reloc_root) {
+				btrfs_err(fs_info,
+"reloc tree mismatch, root %lld has reloc root key (%lld %u %llu) gen %llu, expect reloc root key (%lld %u %llu) gen %llu",
+					  root->root_key.objectid,
+					  root->reloc_root->root_key.objectid,
+					  root->reloc_root->root_key.type,
+					  root->reloc_root->root_key.offset,
+					  btrfs_root_generation(
+						  &root->reloc_root->root_item),
+					  reloc_root->root_key.objectid,
+					  reloc_root->root_key.type,
+					  reloc_root->root_key.offset,
+					  btrfs_root_generation(
+						  &reloc_root->root_item));
+			} else {
+				btrfs_err(fs_info,
+"reloc tree mismatch, root %lld has no reloc root, expect reloc root key (%lld %u %llu) gen %llu",
+					  root->root_key.objectid,
+					  reloc_root->root_key.objectid,
+					  reloc_root->root_key.type,
+					  reloc_root->root_key.offset,
+					  btrfs_root_generation(
+						  &reloc_root->root_item));
+			}
+			list_add(&reloc_root->root_list, &reloc_roots);
+			btrfs_put_root(root);
+			btrfs_abort_transaction(trans, -EUCLEAN);
+			if (!err)
+				err = -EUCLEAN;
+			break;
+		}
 
 		/*
 		 * set reference count to 1, so btrfs_recover_relocation
@@ -1989,7 +2021,7 @@ again:
 		root = btrfs_get_fs_root(fs_info, reloc_root->root_key.offset,
 					 false);
 		if (btrfs_root_refs(&reloc_root->root_item) > 0) {
-			if (IS_ERR(root)) {
+			if (WARN_ON(IS_ERR(root))) {
 				/*
 				 * For recovery we read the fs roots on mount,
 				 * and if we didn't find the root then we marked
@@ -1998,17 +2030,14 @@ again:
 				 * memory.  However there's no reason we can't
 				 * handle the error properly here just in case.
 				 */
-				ASSERT(0);
 				ret = PTR_ERR(root);
 				goto out;
 			}
-			if (root->reloc_root != reloc_root) {
+			if (WARN_ON(root->reloc_root != reloc_root)) {
 				/*
-				 * This is actually impossible without something
-				 * going really wrong (like weird race condition
-				 * or cosmic rays).
+				 * This can happen if on-disk metadata has some
+				 * corruption, e.g. bad reloc tree key offset.
 				 */
-				ASSERT(0);
 				ret = -EINVAL;
 				goto out;
 			}
@@ -2407,7 +2436,7 @@ static int do_relocation(struct btrfs_trans_handle *trans,
 
 		if (upper->eb && !upper->locked) {
 			if (!lowest) {
-				ret = btrfs_bin_search(upper->eb, key, &slot);
+				ret = btrfs_bin_search(upper->eb, 0, key, &slot);
 				if (ret < 0)
 					goto next;
 				BUG_ON(ret);
@@ -2441,7 +2470,7 @@ static int do_relocation(struct btrfs_trans_handle *trans,
 			slot = path->slots[upper->level];
 			btrfs_release_path(path);
 		} else {
-			ret = btrfs_bin_search(upper->eb, key, &slot);
+			ret = btrfs_bin_search(upper->eb, 0, key, &slot);
 			if (ret < 0)
 				goto next;
 			BUG_ON(ret);
@@ -2825,7 +2854,7 @@ static noinline_for_stack int prealloc_file_extent_cluster(
 	 *
 	 * Here we have to manually invalidate the range (i_size, PAGE_END + 1).
 	 */
-	if (!IS_ALIGNED(i_size, PAGE_SIZE)) {
+	if (!PAGE_ALIGNED(i_size)) {
 		struct address_space *mapping = inode->vfs_inode.i_mapping;
 		struct btrfs_fs_info *fs_info = inode->root->fs_info;
 		const u32 sectorsize = fs_info->sectorsize;
@@ -3422,7 +3451,7 @@ int add_data_references(struct reloc_control *rc,
 	btrfs_release_path(path);
 
 	ctx.bytenr = extent_key->objectid;
-	ctx.ignore_extent_item_pos = true;
+	ctx.skip_inode_ref_list = true;
 	ctx.fs_info = rc->extent_root->fs_info;
 
 	ret = btrfs_find_all_leafs(&ctx);

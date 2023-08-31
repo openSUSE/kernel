@@ -12,6 +12,17 @@ enum btrfs_disk_cache_state {
 	BTRFS_DC_SETUP,
 };
 
+enum btrfs_block_group_size_class {
+	/* Unset */
+	BTRFS_BG_SZ_NONE,
+	/* 0 < size <= 128K */
+	BTRFS_BG_SZ_SMALL,
+	/* 128K < size <= 8M */
+	BTRFS_BG_SZ_MEDIUM,
+	/* 8M < size < BG_LENGTH */
+	BTRFS_BG_SZ_LARGE,
+};
+
 /*
  * This describes the state of the block_group for async discard.  This is due
  * to the two pass nature of it where extent discarding is prioritized over
@@ -59,6 +70,11 @@ enum btrfs_block_group_flags {
 	BLOCK_GROUP_FLAG_NEEDS_FREE_SPACE,
 	/* Indicate that the block group is placed on a sequential zone */
 	BLOCK_GROUP_FLAG_SEQUENTIAL_ZONE,
+	/*
+	 * Indicate that block group is in the list of new block groups of a
+	 * transaction.
+	 */
+	BLOCK_GROUP_FLAG_NEW,
 };
 
 enum btrfs_caching_type {
@@ -74,19 +90,13 @@ struct btrfs_caching_control {
 	wait_queue_head_t wait;
 	struct btrfs_work work;
 	struct btrfs_block_group *block_group;
+	/* Track progress of caching during allocation. */
+	atomic_t progress;
 	refcount_t count;
 };
 
 /* Once caching_thread() finds this much free space, it will wake up waiters. */
 #define CACHING_CTL_WAKE_UP SZ_2M
-
-/*
- * Tree to record all locked full stripes of a RAID5/6 block group
- */
-struct btrfs_full_stripe_locks_tree {
-	struct rb_root root;
-	struct mutex lock;
-};
 
 struct btrfs_block_group {
 	struct btrfs_fs_info *fs_info;
@@ -218,9 +228,6 @@ struct btrfs_block_group {
 	 */
 	int swap_extents;
 
-	/* Record locked full stripes for RAID5/6 block group */
-	struct btrfs_full_stripe_locks_tree full_stripe_locks_root;
-
 	/*
 	 * Allocation offset for the block group to implement sequential
 	 * allocation. This is used only on a zoned filesystem.
@@ -233,6 +240,7 @@ struct btrfs_block_group {
 	struct list_head active_bg_list;
 	struct work_struct zone_finish_work;
 	struct extent_buffer *last_eb;
+	enum btrfs_block_group_size_class size_class;
 };
 
 static inline u64 btrfs_block_group_end(struct btrfs_block_group *block_group)
@@ -276,8 +284,8 @@ int btrfs_cache_block_group(struct btrfs_block_group *cache, bool wait);
 void btrfs_put_caching_control(struct btrfs_caching_control *ctl);
 struct btrfs_caching_control *btrfs_get_caching_control(
 		struct btrfs_block_group *cache);
-u64 add_new_free_space(struct btrfs_block_group *block_group,
-		       u64 start, u64 end);
+int add_new_free_space(struct btrfs_block_group *block_group,
+		       u64 start, u64 end, u64 *total_added_ret);
 struct btrfs_trans_handle *btrfs_start_trans_remove_block_group(
 				struct btrfs_fs_info *fs_info,
 				const u64 chunk_offset);
@@ -290,7 +298,7 @@ void btrfs_reclaim_bgs(struct btrfs_fs_info *fs_info);
 void btrfs_mark_bg_to_reclaim(struct btrfs_block_group *bg);
 int btrfs_read_block_groups(struct btrfs_fs_info *info);
 struct btrfs_block_group *btrfs_make_block_group(struct btrfs_trans_handle *trans,
-						 u64 bytes_used, u64 type,
+						 u64 type,
 						 u64 chunk_offset, u64 size);
 void btrfs_create_pending_block_groups(struct btrfs_trans_handle *trans);
 int btrfs_inc_block_group_ro(struct btrfs_block_group *cache,
@@ -302,7 +310,8 @@ int btrfs_setup_space_cache(struct btrfs_trans_handle *trans);
 int btrfs_update_block_group(struct btrfs_trans_handle *trans,
 			     u64 bytenr, u64 num_bytes, bool alloc);
 int btrfs_add_reserved_bytes(struct btrfs_block_group *cache,
-			     u64 ram_bytes, u64 num_bytes, int delalloc);
+			     u64 ram_bytes, u64 num_bytes, int delalloc,
+			     bool force_wrong_size_class);
 void btrfs_free_reserved_bytes(struct btrfs_block_group *cache,
 			       u64 num_bytes, int delalloc);
 int btrfs_chunk_alloc(struct btrfs_trans_handle *trans, u64 flags,
@@ -315,8 +324,7 @@ u64 btrfs_get_alloc_profile(struct btrfs_fs_info *fs_info, u64 orig_flags);
 void btrfs_put_block_group_cache(struct btrfs_fs_info *info);
 int btrfs_free_block_groups(struct btrfs_fs_info *info);
 int btrfs_rmap_block(struct btrfs_fs_info *fs_info, u64 chunk_start,
-		       struct block_device *bdev, u64 physical, u64 **logical,
-		       int *naddrs, int *stripe_len);
+		     u64 physical, u64 **logical, int *naddrs, int *stripe_len);
 
 static inline u64 btrfs_data_alloc_profile(struct btrfs_fs_info *fs_info)
 {
@@ -345,5 +353,11 @@ void btrfs_unfreeze_block_group(struct btrfs_block_group *cache);
 
 bool btrfs_inc_block_group_swap_extents(struct btrfs_block_group *bg);
 void btrfs_dec_block_group_swap_extents(struct btrfs_block_group *bg, int amount);
+
+enum btrfs_block_group_size_class btrfs_calc_block_group_size_class(u64 size);
+int btrfs_use_block_group_size_class(struct btrfs_block_group *bg,
+				     enum btrfs_block_group_size_class size_class,
+				     bool force_wrong_size_class);
+bool btrfs_block_group_should_use_size_class(struct btrfs_block_group *bg);
 
 #endif /* BTRFS_BLOCK_GROUP_H */

@@ -638,12 +638,25 @@ int mhi_async_power_up(struct mhi_controller *mhi_cntrl);
  */
 int mhi_sync_power_up(struct mhi_controller *mhi_cntrl);
 
+void __mhi_power_down(struct mhi_controller *mhi_cntrl, bool graceful,
+		    bool destroy_device);
+
 /**
  * mhi_power_down - Start MHI power down sequence
  * @mhi_cntrl: MHI controller
  * @graceful: Link is still accessible, so do a graceful shutdown process
+ * @destroy_device: whether to destroy MHI devices
  */
-void mhi_power_down(struct mhi_controller *mhi_cntrl, bool graceful);
+static inline void mhi_power_down(struct mhi_controller *mhi_cntrl, bool graceful)
+{
+	__mhi_power_down(mhi_cntrl, graceful, true);
+}
+
+static inline void mhi_power_down_no_destroy(struct mhi_controller *mhi_cntrl,
+					     bool graceful)
+{
+	__mhi_power_down(mhi_cntrl, graceful, false);
+}
 
 /**
  * mhi_unprepare_after_power_down - Free any allocated memory after power down
@@ -766,13 +779,6 @@ int mhi_prepare_for_transfer_autoqueue(struct mhi_device *mhi_dev);
 void mhi_unprepare_from_transfer(struct mhi_device *mhi_dev);
 
 /**
- * mhi_poll - Poll for any available data in DL direction
- * @mhi_dev: Device associated with the channels
- * @budget: # of events to process
- */
-int mhi_poll(struct mhi_device *mhi_dev, u32 budget);
-
-/**
  * mhi_queue_dma - Send or receive DMA mapped buffers from client device
  *                 over MHI channel
  * @mhi_dev: Device associated with the channels
@@ -814,4 +820,6 @@ int mhi_queue_skb(struct mhi_device *mhi_dev, enum dma_data_direction dir,
  */
 bool mhi_queue_is_full(struct mhi_device *mhi_dev, enum dma_data_direction dir);
 
+int mhi_prepare_all_for_transfer_autoqueue(struct mhi_controller *mhi_cntrl);
+int mhi_unprepare_all_from_transfer(struct mhi_controller *mhi_cntrl);
 #endif /* _MHI_H_ */

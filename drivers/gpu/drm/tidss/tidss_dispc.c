@@ -1985,9 +1985,9 @@ dma_addr_t dispc_plane_state_p_uv_addr(const struct drm_plane_state *state)
 		(y * fb->pitches[1] / fb->format->vsub);
 }
 
-int dispc_plane_setup(struct dispc_device *dispc, u32 hw_plane,
-		      const struct drm_plane_state *state,
-		      u32 hw_videoport)
+void dispc_plane_setup(struct dispc_device *dispc, u32 hw_plane,
+		       const struct drm_plane_state *state,
+		       u32 hw_videoport)
 {
 	bool lite = dispc->feat->vid_lite[hw_plane];
 	u32 fourcc = state->fb->format->format;
@@ -2066,15 +2066,11 @@ int dispc_plane_setup(struct dispc_device *dispc, u32 hw_plane,
 	else
 		VID_REG_FLD_MOD(dispc, hw_plane, DISPC_VID_ATTRIBUTES, 0,
 				28, 28);
-
-	return 0;
 }
 
-int dispc_plane_enable(struct dispc_device *dispc, u32 hw_plane, bool enable)
+void dispc_plane_enable(struct dispc_device *dispc, u32 hw_plane, bool enable)
 {
 	VID_REG_FLD_MOD(dispc, hw_plane, DISPC_VID_ATTRIBUTES, !!enable, 0, 0);
-
-	return 0;
 }
 
 static u32 dispc_vid_get_fifo_size(struct dispc_device *dispc, u32 hw_plane)
@@ -2685,6 +2681,8 @@ int dispc_init(struct tidss_device *tidss)
 		if (r)
 			dev_warn(dev, "cannot set DMA masks to 48-bit\n");
 	}
+
+	dma_set_max_seg_size(dev, UINT_MAX);
 
 	dispc = devm_kzalloc(dev, sizeof(*dispc), GFP_KERNEL);
 	if (!dispc)

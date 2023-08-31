@@ -647,6 +647,9 @@ TRACE_DEFINE_ENUM(NFS4_CLOSED_STID);
 TRACE_DEFINE_ENUM(NFS4_REVOKED_DELEG_STID);
 TRACE_DEFINE_ENUM(NFS4_CLOSED_DELEG_STID);
 TRACE_DEFINE_ENUM(NFS4_LAYOUT_STID);
+TRACE_DEFINE_ENUM(NFS4_ADMIN_REVOKED_STID);
+TRACE_DEFINE_ENUM(NFS4_ADMIN_REVOKED_LOCK_STID);
+TRACE_DEFINE_ENUM(NFS4_ADMIN_REVOKED_DELEG_STID);
 
 #define show_stid_type(x)						\
 	__print_flags(x, "|",						\
@@ -656,6 +659,9 @@ TRACE_DEFINE_ENUM(NFS4_LAYOUT_STID);
 		{ NFS4_CLOSED_STID,		"CLOSED" },		\
 		{ NFS4_REVOKED_DELEG_STID,	"REVOKED" },		\
 		{ NFS4_CLOSED_DELEG_STID,	"CLOSED_DELEG" },	\
+		{ NFS4_ADMIN_REVOKED_STID,	"ADMIN_REVOKED" },	\
+		{ NFS4_ADMIN_REVOKED_LOCK_STID,	"ADMIN_REVOKED_LOCK" },	\
+		{ NFS4_ADMIN_REVOKED_DELEG_STID,"ADMIN_REVOKED_DELEG" },\
 		{ NFS4_LAYOUT_STID,		"LAYOUT" })
 
 DECLARE_EVENT_CLASS(nfsd_stid_class,
@@ -1365,19 +1371,19 @@ TRACE_EVENT(nfsd_cb_setup,
 		__field(u32, cl_id)
 		__field(unsigned long, authflavor)
 		__sockaddr(addr, clp->cl_cb_conn.cb_addrlen)
-		__array(unsigned char, netid, 8)
+		__string(netid, netid)
 	),
 	TP_fast_assign(
 		__entry->cl_boot = clp->cl_clientid.cl_boot;
 		__entry->cl_id = clp->cl_clientid.cl_id;
-		strlcpy(__entry->netid, netid, sizeof(__entry->netid));
+		__assign_str(netid, netid);
 		__entry->authflavor = authflavor;
 		__assign_sockaddr(addr, &clp->cl_cb_conn.cb_addr,
 				  clp->cl_cb_conn.cb_addrlen)
 	),
 	TP_printk("addr=%pISpc client %08x:%08x proto=%s flavor=%s",
 		__get_sockaddr(addr), __entry->cl_boot, __entry->cl_id,
-		__entry->netid, show_nfsd_authflavor(__entry->authflavor))
+		__get_str(netid), show_nfsd_authflavor(__entry->authflavor))
 );
 
 TRACE_EVENT(nfsd_cb_setup_err,

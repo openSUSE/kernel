@@ -297,7 +297,7 @@ static void batch_clear_carry(struct pfn_batch *batch, unsigned int keep_pfns)
 	batch->pfns[0] = batch->pfns[batch->end - 1] +
 			 (batch->npfns[batch->end - 1] - keep_pfns);
 	batch->npfns[0] = keep_pfns;
-	batch->end = 0;
+	batch->end = 1;
 }
 
 static void batch_skip_carry(struct pfn_batch *batch, unsigned int skip_pfns)
@@ -456,7 +456,8 @@ static int batch_iommu_map_small(struct iommu_domain *domain,
 			size % PAGE_SIZE);
 
 	while (size) {
-		rc = iommu_map(domain, iova, paddr, PAGE_SIZE, prot);
+		rc = iommu_map(domain, iova, paddr, PAGE_SIZE, prot,
+			       GFP_KERNEL_ACCOUNT);
 		if (rc)
 			goto err_unmap;
 		iova += PAGE_SIZE;
@@ -500,7 +501,8 @@ static int batch_to_domain(struct pfn_batch *batch, struct iommu_domain *domain,
 		else
 			rc = iommu_map(domain, iova,
 				       PFN_PHYS(batch->pfns[cur]) + page_offset,
-				       next_iova - iova, area->iommu_prot);
+				       next_iova - iova, area->iommu_prot,
+				       GFP_KERNEL_ACCOUNT);
 		if (rc)
 			goto err_unmap;
 		iova = next_iova;

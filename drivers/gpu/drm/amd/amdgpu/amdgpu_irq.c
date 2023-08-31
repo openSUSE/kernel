@@ -45,7 +45,6 @@
 #include <linux/irq.h>
 #include <linux/pci.h>
 
-#include <drm/drm_crtc_helper.h>
 #include <drm/drm_vblank.h>
 #include <drm/amdgpu_drm.h>
 #include <drm/drm_drv.h>
@@ -125,7 +124,6 @@ void amdgpu_irq_disable_all(struct amdgpu_device *adev)
 				continue;
 
 			for (k = 0; k < src->num_types; ++k) {
-				atomic_set(&src->enabled_types[k], 0);
 				r = src->funcs->set(adev, src, k,
 						    AMDGPU_IRQ_STATE_DISABLE);
 				if (r)
@@ -595,6 +593,9 @@ int amdgpu_irq_put(struct amdgpu_device *adev, struct amdgpu_irq_src *src,
 		return -EINVAL;
 
 	if (!src->enabled_types || !src->funcs->set)
+		return -EINVAL;
+
+	if (WARN_ON(!amdgpu_irq_enabled(adev, src, type)))
 		return -EINVAL;
 
 	if (atomic_dec_and_test(&src->enabled_types[type]))

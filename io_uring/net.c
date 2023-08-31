@@ -65,6 +65,7 @@ struct io_sr_msg {
 	u16				addr_len;
 	u16				buf_group;
 	void __user			*addr;
+	void __user			*msg_control;
 	/* used only for send zerocopy */
 	struct io_kiocb 		*notif;
 };
@@ -91,6 +92,7 @@ int io_shutdown_prep(struct io_kiocb *req, const struct io_uring_sqe *sqe)
 		return -EINVAL;
 
 	shutdown->how = READ_ONCE(sqe->len);
+	req->flags |= REQ_F_FORCE_ASYNC;
 	return 0;
 }
 
@@ -100,8 +102,7 @@ int io_shutdown(struct io_kiocb *req, unsigned int issue_flags)
 	struct socket *sock;
 	int ret;
 
-	if (issue_flags & IO_URING_F_NONBLOCK)
-		return -EAGAIN;
+	WARN_ON_ONCE(issue_flags & IO_URING_F_NONBLOCK);
 
 	sock = sock_from_file(req->file);
 	if (unlikely(!sock))
@@ -183,9 +184,9 @@ static int io_setup_async_msg(struct io_kiocb *req,
 	if (async_msg->msg.msg_name)
 		async_msg->msg.msg_name = &async_msg->addr;
 	/* if were using fast_iov, set it to the new one */
-	if (!kmsg->free_iov) {
-		size_t fast_idx = kmsg->msg.msg_iter.iov - kmsg->fast_iov;
-		async_msg->msg.msg_iter.iov = &async_msg->fast_iov[fast_idx];
+	if (iter_is_iovec(&kmsg->msg.msg_iter) && !kmsg->free_iov) {
+		size_t fast_idx = iter_iov(&kmsg->msg.msg_iter) - kmsg->fast_iov;
+		async_msg->msg.msg_iter.__iov = &async_msg->fast_iov[fast_idx];
 	}
 
 	return -EAGAIN;
@@ -195,11 +196,15 @@ static int io_sendmsg_copy_hdr(struct io_kiocb *req,
 			       struct io_async_msghdr *iomsg)
 {
 	struct io_sr_msg *sr = io_kiocb_to_cmd(req, struct io_sr_msg);
+	int ret;
 
 	iomsg->msg.msg_name = &iomsg->addr;
 	iomsg->free_iov = iomsg->fast_iov;
-	return sendmsg_copy_msghdr(&iomsg->msg, sr->umsg, sr->msg_flags,
+	ret = sendmsg_copy_msghdr(&iomsg->msg, sr->umsg, sr->msg_flags,
 					&iomsg->free_iov);
+	/* save msg_control as sys_sendmsg() overwrites it */
+	sr->msg_control = iomsg->msg.msg_control_user;
+	return ret;
 }
 
 int io_send_prep_async(struct io_kiocb *req)
@@ -297,6 +302,7 @@ int io_sendmsg(struct io_kiocb *req, unsigned int issue_flags)
 
 	if (req_has_async_data(req)) {
 		kmsg = req->async_data;
+		kmsg->msg.msg_control_user = sr->msg_control;
 	} else {
 		ret = io_sendmsg_copy_hdr(req, &iomsg);
 		if (ret)
@@ -320,6 +326,8 @@ int io_sendmsg(struct io_kiocb *req, unsigned int issue_flags)
 		if (ret == -EAGAIN && (issue_flags & IO_URING_F_NONBLOCK))
 			return io_setup_async_msg(req, kmsg, issue_flags);
 		if (ret > 0 && io_net_retry(sock, flags)) {
+			kmsg->msg.msg_controllen = 0;
+			kmsg->msg.msg_control = NULL;
 			sr->done_io += ret;
 			req->flags |= REQ_F_PARTIAL_IO;
 			return io_setup_async_msg(req, kmsg, issue_flags);
@@ -346,7 +354,6 @@ int io_send(struct io_kiocb *req, unsigned int issue_flags)
 	struct sockaddr_storage __address;
 	struct io_sr_msg *sr = io_kiocb_to_cmd(req, struct io_sr_msg);
 	struct msghdr msg;
-	struct iovec iov;
 	struct socket *sock;
 	unsigned flags;
 	int min_ret = 0;
@@ -380,7 +387,7 @@ int io_send(struct io_kiocb *req, unsigned int issue_flags)
 	if (unlikely(!sock))
 		return -ENOTSOCK;
 
-	ret = import_single_range(ITER_SOURCE, sr->buf, sr->len, &iov, &msg.msg_iter);
+	ret = import_ubuf(ITER_SOURCE, sr->buf, sr->len, &msg.msg_iter);
 	if (unlikely(ret))
 		return ret;
 
@@ -776,25 +783,25 @@ retry_multishot:
 			}
 		}
 
-		kmsg->fast_iov[0].iov_base = buf;
-		kmsg->fast_iov[0].iov_len = len;
-		iov_iter_init(&kmsg->msg.msg_iter, ITER_DEST, kmsg->fast_iov, 1,
-				len);
+		iov_iter_ubuf(&kmsg->msg.msg_iter, ITER_DEST, buf, len);
 	}
 
 	flags = sr->msg_flags;
 	if (force_nonblock)
 		flags |= MSG_DONTWAIT;
-	if (flags & MSG_WAITALL)
-		min_ret = iov_iter_count(&kmsg->msg.msg_iter);
 
 	kmsg->msg.msg_get_inq = 1;
-	if (req->flags & REQ_F_APOLL_MULTISHOT)
+	if (req->flags & REQ_F_APOLL_MULTISHOT) {
 		ret = io_recvmsg_multishot(sock, sr, kmsg, flags,
 					   &mshot_finished);
-	else
+	} else {
+		/* disable partial retry for recvmsg with cmsg attached */
+		if (flags & MSG_WAITALL && !kmsg->msg.msg_controllen)
+			min_ret = iov_iter_count(&kmsg->msg.msg_iter);
+
 		ret = __sys_recvmsg_sock(sock, &kmsg->msg, sr->umsg,
 					 kmsg->uaddr, flags);
+	}
 
 	if (ret < min_ret) {
 		if (ret == -EAGAIN && force_nonblock) {
@@ -847,7 +854,6 @@ int io_recv(struct io_kiocb *req, unsigned int issue_flags)
 	struct io_sr_msg *sr = io_kiocb_to_cmd(req, struct io_sr_msg);
 	struct msghdr msg;
 	struct socket *sock;
-	struct iovec iov;
 	unsigned int cflags;
 	unsigned flags;
 	int ret, min_ret = 0;
@@ -875,7 +881,7 @@ retry_multishot:
 		sr->buf = buf;
 	}
 
-	ret = import_single_range(ITER_DEST, sr->buf, len, &iov, &msg.msg_iter);
+	ret = import_ubuf(ITER_DEST, sr->buf, len, &msg.msg_iter);
 	if (unlikely(ret))
 		goto out_free;
 
@@ -1086,7 +1092,6 @@ int io_send_zc(struct io_kiocb *req, unsigned int issue_flags)
 	struct sockaddr_storage __address;
 	struct io_sr_msg *zc = io_kiocb_to_cmd(req, struct io_sr_msg);
 	struct msghdr msg;
-	struct iovec iov;
 	struct socket *sock;
 	unsigned msg_flags;
 	int ret, min_ret = 0;
@@ -1128,8 +1133,7 @@ int io_send_zc(struct io_kiocb *req, unsigned int issue_flags)
 		msg.sg_from_iter = io_sg_from_iter;
 	} else {
 		io_notif_set_extended(zc->notif);
-		ret = import_single_range(ITER_SOURCE, zc->buf, zc->len, &iov,
-					  &msg.msg_iter);
+		ret = import_ubuf(ITER_SOURCE, zc->buf, zc->len, &msg.msg_iter);
 		if (unlikely(ret))
 			return ret;
 		ret = io_notif_account_mem(zc->notif, zc->len);

@@ -66,6 +66,18 @@ struct aux_sample {
 	void *data;
 };
 
+struct simd_flags {
+	u64	arch:1,	/* architecture (isa) */
+		pred:2;	/* predication */
+};
+
+/* simd architecture flags */
+#define SIMD_OP_FLAGS_ARCH_SVE		0x01	/* ARM SVE */
+
+/* simd predicate flags */
+#define SIMD_OP_FLAGS_PRED_PARTIAL	0x01	/* partial predicate */
+#define SIMD_OP_FLAGS_PRED_EMPTY	0x02	/* empty predicate */
+
 struct perf_sample {
 	u64 ip;
 	u32 pid, tid;
@@ -92,7 +104,10 @@ struct perf_sample {
 	u8  cpumode;
 	u16 misc;
 	u16 ins_lat;
-	u16 p_stage_cyc;
+	union {
+		u16 p_stage_cyc;
+		u16 retire_lat;
+	};
 	bool no_hw_idx;		/* No hw_idx collected in branch_stack */
 	char insn[MAX_INSN];
 	void *raw_data;
@@ -103,6 +118,7 @@ struct perf_sample {
 	struct stack_dump user_stack;
 	struct sample_read read;
 	struct aux_sample aux_sample;
+	struct simd_flags simd_flags;
 };
 
 /*

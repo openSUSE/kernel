@@ -446,6 +446,20 @@ static int check_root_key(struct extent_buffer *leaf, struct btrfs_key *key,
 	btrfs_item_key_to_cpu(leaf, &item_key, slot);
 	is_root_item = (item_key.type == BTRFS_ROOT_ITEM_KEY);
 
+	/*
+	 * Bad rootid for reloc trees.
+	 *
+	 * Reloc trees are only for subvolume trees, other trees only need
+	 * to be COWed to be relocated.
+	 */
+	if (unlikely(is_root_item && key->objectid == BTRFS_TREE_RELOC_OBJECTID &&
+		     !is_fstree(key->offset))) {
+		generic_err(leaf, slot,
+		"invalid reloc tree for root %lld, root id is not a subvolume tree",
+			    key->offset);
+		return -EUCLEAN;
+	}
+
 	/* No such tree id */
 	if (unlikely(key->objectid == 0)) {
 		if (is_root_item)
@@ -847,6 +861,20 @@ int btrfs_check_chunk_valid(struct extent_buffer *leaf,
 		chunk_err(leaf, chunk, logical,
 			  "invalid chunk stripe length: %llu",
 			  stripe_len);
+		return -EUCLEAN;
+	}
+	/*
+	 * We artificially limit the chunk size, so that the number of stripes
+	 * inside a chunk can be fit into a U32.  The current limit (256G) is
+	 * way too large for real world usage anyway, and it's also much larger
+	 * than our existing limit (10G).
+	 *
+	 * Thus it should be a good way to catch obvious bitflips.
+	 */
+	if (unlikely(length >= btrfs_stripe_nr_to_offset(U32_MAX))) {
+		chunk_err(leaf, chunk, logical,
+			  "chunk length too large: have %llu limit %llu",
+			  length, btrfs_stripe_nr_to_offset(U32_MAX));
 		return -EUCLEAN;
 	}
 	if (unlikely(type & ~(BTRFS_BLOCK_GROUP_TYPE_MASK |

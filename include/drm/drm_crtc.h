@@ -390,6 +390,8 @@ struct drm_crtc_state {
 
 	/** @state: backpointer to global drm_atomic_state */
 	struct drm_atomic_state *state;
+
+	void *suse_kabi_padding;
 };
 
 /**

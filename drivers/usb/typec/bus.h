@@ -7,11 +7,13 @@
 
 struct bus_type;
 struct typec_mux;
+struct typec_retimer;
 
 struct altmode {
 	unsigned int			id;
 	struct typec_altmode		adev;
 	struct typec_mux		*mux;
+	struct typec_retimer		*retimer;
 
 	enum typec_port_data		roles;
 
@@ -22,11 +24,13 @@ struct altmode {
 
 	struct altmode			*partner;
 	struct altmode			*plug[2];
+
+	void *				suse_kabi_padding;
 };
 
 #define to_altmode(d) container_of(d, struct altmode, adev)
 
-extern struct bus_type typec_bus;
+extern const struct bus_type typec_bus;
 extern const struct device_type typec_altmode_dev_type;
 
 #define is_typec_altmode(_dev_) (_dev_->type == &typec_altmode_dev_type)

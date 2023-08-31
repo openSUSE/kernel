@@ -52,6 +52,7 @@
 #include <linux/capability.h>
 #include <linux/file.h>
 #include <linux/fdtable.h>
+#include <linux/filelock.h>
 #include <linux/fs.h>
 #include <linux/init.h>
 #include <linux/security.h>
@@ -234,7 +235,7 @@ locks_check_ctx_file_list(struct file *filp, struct list_head *list,
 				char *list_type)
 {
 	struct file_lock *fl;
-	struct inode *inode = locks_inode(filp);
+	struct inode *inode = file_inode(filp);
 	dev_t dev = inode_get_dev(inode);
 
 	list_for_each_entry(fl, list, fl_list)
@@ -889,7 +890,7 @@ posix_test_lock(struct file *filp, struct file_lock *fl)
 {
 	struct file_lock *cfl;
 	struct file_lock_context *ctx;
-	struct inode *inode = locks_inode(filp);
+	struct inode *inode = file_inode(filp);
 	void *owner;
 	void (*func)(void);
 
@@ -1332,7 +1333,7 @@ retry:
 int posix_lock_file(struct file *filp, struct file_lock *fl,
 			struct file_lock *conflock)
 {
-	return posix_lock_inode(locks_inode(filp), fl, conflock);
+	return posix_lock_inode(file_inode(filp), fl, conflock);
 }
 EXPORT_SYMBOL(posix_lock_file);
 
@@ -1631,7 +1632,7 @@ EXPORT_SYMBOL(lease_get_mtime);
 int fcntl_getlease(struct file *filp)
 {
 	struct file_lock *fl;
-	struct inode *inode = locks_inode(filp);
+	struct inode *inode = file_inode(filp);
 	struct file_lock_context *ctx;
 	int type = F_UNLCK;
 	LIST_HEAD(dispose);
@@ -1669,7 +1670,7 @@ int fcntl_getlease(struct file *filp)
 static int
 check_conflicting_open(struct file *filp, const long arg, int flags)
 {
-	struct inode *inode = locks_inode(filp);
+	struct inode *inode = file_inode(filp);
 	int self_wcount = 0, self_rcount = 0;
 
 	if (flags & FL_LAYOUT)
@@ -1705,7 +1706,7 @@ static int
 generic_add_lease(struct file *filp, long arg, struct file_lock **flp, void **priv)
 {
 	struct file_lock *fl, *my_fl = NULL, *lease;
-	struct inode *inode = locks_inode(filp);
+	struct inode *inode = file_inode(filp);
 	struct file_lock_context *ctx;
 	bool is_deleg = (*flp)->fl_flags & FL_DELEG;
 	int error;
@@ -1821,7 +1822,7 @@ static int generic_delete_lease(struct file *filp, void *owner)
 {
 	int error = -EAGAIN;
 	struct file_lock *fl, *victim = NULL;
-	struct inode *inode = locks_inode(filp);
+	struct inode *inode = file_inode(filp);
 	struct file_lock_context *ctx;
 	LIST_HEAD(dispose);
 
@@ -1863,8 +1864,8 @@ static int generic_delete_lease(struct file *filp, void *owner)
 int generic_setlease(struct file *filp, long arg, struct file_lock **flp,
 			void **priv)
 {
-	struct inode *inode = locks_inode(filp);
-	vfsuid_t vfsuid = i_uid_into_vfsuid(file_mnt_user_ns(filp), inode);
+	struct inode *inode = file_inode(filp);
+	vfsuid_t vfsuid = i_uid_into_vfsuid(file_mnt_idmap(filp), inode);
 	int error;
 
 	if ((!vfsuid_eq_kuid(vfsuid, current_fsuid())) && !capable(CAP_LEASE))
@@ -1892,7 +1893,6 @@ int generic_setlease(struct file *filp, long arg, struct file_lock **flp,
 }
 EXPORT_SYMBOL(generic_setlease);
 
-#if IS_ENABLED(CONFIG_SRCU)
 /*
  * Kernel subsystems can register to be notified on any attempt to set
  * a new lease with the lease_notifier_chain. This is used by (e.g.) nfsd
@@ -1925,30 +1925,6 @@ void lease_unregister_notifier(struct notifier_block *nb)
 	srcu_notifier_chain_unregister(&lease_notifier_chain, nb);
 }
 EXPORT_SYMBOL_GPL(lease_unregister_notifier);
-
-#else /* !IS_ENABLED(CONFIG_SRCU) */
-static inline void
-lease_notifier_chain_init(void)
-{
-}
-
-static inline void
-setlease_notifier(long arg, struct file_lock *lease)
-{
-}
-
-int lease_register_notifier(struct notifier_block *nb)
-{
-	return 0;
-}
-EXPORT_SYMBOL_GPL(lease_register_notifier);
-
-void lease_unregister_notifier(struct notifier_block *nb)
-{
-}
-EXPORT_SYMBOL_GPL(lease_unregister_notifier);
-
-#endif /* IS_ENABLED(CONFIG_SRCU) */
 
 /**
  * vfs_setlease        -       sets a lease on an open file
@@ -2353,7 +2329,7 @@ int fcntl_setlk(unsigned int fd, struct file *filp, unsigned int cmd,
 		struct flock *flock)
 {
 	struct file_lock *file_lock = locks_alloc_lock();
-	struct inode *inode = locks_inode(filp);
+	struct inode *inode = file_inode(filp);
 	struct file *f;
 	int error;
 
@@ -2452,7 +2428,6 @@ int fcntl_getlk64(struct file *filp, unsigned int cmd, struct flock64 *flock)
 		if (flock->l_pid != 0)
 			goto out;
 
-		cmd = F_GETLK64;
 		fl->fl_flags |= FL_OFDLCK;
 		fl->fl_owner = filp;
 	}
@@ -2557,7 +2532,7 @@ out:
 void locks_remove_posix(struct file *filp, fl_owner_t owner)
 {
 	int error;
-	struct inode *inode = locks_inode(filp);
+	struct inode *inode = file_inode(filp);
 	struct file_lock lock;
 	struct file_lock_context *ctx;
 
@@ -2594,7 +2569,7 @@ static void
 locks_remove_flock(struct file *filp, struct file_lock_context *flctx)
 {
 	struct file_lock fl;
-	struct inode *inode = locks_inode(filp);
+	struct inode *inode = file_inode(filp);
 
 	if (list_empty(&flctx->flc_flock))
 		return;
@@ -2639,7 +2614,7 @@ void locks_remove_file(struct file *filp)
 {
 	struct file_lock_context *ctx;
 
-	ctx = locks_inode_context(locks_inode(filp));
+	ctx = locks_inode_context(file_inode(filp));
 	if (!ctx)
 		return;
 
@@ -2723,7 +2698,7 @@ static void lock_get_status(struct seq_file *f, struct file_lock *fl,
 	 */
 
 	if (fl->fl_file != NULL)
-		inode = locks_inode(fl->fl_file);
+		inode = file_inode(fl->fl_file);
 
 	seq_printf(f, "%lld: ", id);
 
@@ -2864,7 +2839,7 @@ static void __show_fd_locks(struct seq_file *f,
 void show_fd_locks(struct seq_file *f,
 		  struct file *filp, struct files_struct *files)
 {
-	struct inode *inode = locks_inode(filp);
+	struct inode *inode = file_inode(filp);
 	struct file_lock_context *ctx;
 	int id = 0;
 
