@@ -3056,6 +3056,10 @@ void console_unblank(void)
 	 * In that case, attempt a trylock as best-effort.
 	 */
 	if (oops_in_progress) {
+		/* Semaphores are not NMI-safe. */
+		if (in_nmi())
+			return;
+
 		if (down_trylock_console_sem() != 0)
 			return;
 	} else
@@ -3091,8 +3095,12 @@ void console_flush_on_panic(enum con_flush_mode mode)
 	 * that messages are flushed out.  As this can be called from any
 	 * context and we don't want to get preempted while flushing,
 	 * ensure may_schedule is cleared.
+	 *
+	 * Since semaphores are not NMI-safe, the console lock must be
+	 * ignored if the panic is in NMI context.
 	 */
-	console_trylock();
+	if (!in_nmi())
+		console_trylock();
 	console_may_schedule = 0;
 
 	if (mode == CONSOLE_REPLAY_ALL) {
@@ -3113,7 +3121,8 @@ void console_flush_on_panic(enum con_flush_mode mode)
 		}
 		console_srcu_read_unlock(cookie);
 	}
-	console_unlock();
+	if (!in_nmi())
+		console_unlock();
 }
 
 /*
