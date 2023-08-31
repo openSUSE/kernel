@@ -1415,12 +1415,6 @@ static inline void __downgrade_write(struct rw_semaphore *sem)
 #define rwbase_rtmutex_lock_state(rtm, state)		\
 	__rt_mutex_lock(rtm, state)
 
-#define rwbase_sched_submit_work()			\
-	sched_submit_work()
-
-#define rwbase_sched_resume_work()			\
-	sched_resume_work()
-
 #define rwbase_rtmutex_slowlock_locked(rtm, state)	\
 	__rt_mutex_slowlock_locked(rtm, NULL, state)
 
@@ -1433,8 +1427,14 @@ static inline void __downgrade_write(struct rw_semaphore *sem)
 #define rwbase_signal_pending_state(state, current)	\
 	signal_pending_state(state, current)
 
+#define rwbase_pre_schedule()				\
+	rt_mutex_pre_schedule()
+
 #define rwbase_schedule()				\
-	schedule()
+	rt_mutex_schedule()
+
+#define rwbase_post_schedule()				\
+	rt_mutex_post_schedule()
 
 #include "rwbase_rt.c"
 

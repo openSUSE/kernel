@@ -6776,11 +6776,18 @@ void __noreturn do_task_dead(void)
 		cpu_relax();
 }
 
-void sched_submit_work(void)
+static inline void sched_submit_work(struct task_struct *tsk)
 {
-	struct task_struct *tsk = current;
-	unsigned int task_flags = tsk->flags;
+	static DEFINE_WAIT_OVERRIDE_MAP(sched_map, LD_WAIT_CONFIG);
+	unsigned int task_flags;
 
+	/*
+	 * Establish LD_WAIT_CONFIG context to ensure none of the code called
+	 * will use a blocking primitive -- which would lead to recursion.
+	 */
+	lock_map_acquire_try(&sched_map);
+
+	task_flags = tsk->flags;
 	/*
 	 * If a worker goes to sleep, notify and ask workqueue whether it
 	 * wants to wake up a task to maintain concurrency.
@@ -6804,12 +6811,12 @@ void sched_submit_work(void)
 	 * make sure to submit it to avoid deadlocks.
 	 */
 	blk_flush_plug(tsk->plug, true);
+
+	lock_map_release(&sched_map);
 }
 
-void sched_resume_work(void)
+static void sched_update_worker(struct task_struct *tsk)
 {
-	struct task_struct *tsk = current;
-
 	if (tsk->flags & (PF_WQ_WORKER | PF_IO_WORKER)) {
 		if (tsk->flags & PF_WQ_WORKER)
 			wq_worker_running(tsk);
@@ -6818,7 +6825,7 @@ void sched_resume_work(void)
 	}
 }
 
-static void schedule_loop(unsigned int sched_mode)
+static __always_inline void __schedule_loop(unsigned int sched_mode)
 {
 	do {
 		preempt_disable();
@@ -6829,17 +6836,18 @@ static void schedule_loop(unsigned int sched_mode)
 
 asmlinkage __visible void __sched schedule(void)
 {
-	if (!task_is_running(current))
-		sched_submit_work();
-	schedule_loop(SM_NONE);
-	sched_resume_work();
+	struct task_struct *tsk = current;
+
+#ifdef CONFIG_RT_MUTEXES
+	lockdep_assert(!tsk->sched_rt_mutex);
+#endif
+
+	if (!task_is_running(tsk))
+		sched_submit_work(tsk);
+	__schedule_loop(SM_NONE);
+	sched_update_worker(tsk);
 }
 EXPORT_SYMBOL(schedule);
-
-void schedule_rtmutex(void)
-{
-	schedule_loop(SM_NONE);
-}
 
 /*
  * synchronize_rcu_tasks() makes sure that no task is stuck in preempted
@@ -6900,7 +6908,7 @@ void __sched schedule_preempt_disabled(void)
 #ifdef CONFIG_PREEMPT_RT
 void __sched notrace schedule_rtlock(void)
 {
-	schedule_loop(SM_RTLOCK_WAIT);
+	__schedule_loop(SM_RTLOCK_WAIT);
 }
 NOKPROBE_SYMBOL(schedule_rtlock);
 #endif
@@ -7124,6 +7132,32 @@ static void __setscheduler_prio(struct task_struct *p, int prio)
 }
 
 #ifdef CONFIG_RT_MUTEXES
+
+/*
+ * Would be more useful with typeof()/auto_type but they don't mix with
+ * bit-fields. Since it's a local thing, use int. Keep the generic sounding
+ * name such that if someone were to implement this function we get to compare
+ * notes.
+ */
+#define fetch_and_set(x, v) ({ int _x = (x); (x) = (v); _x; })
+
+void rt_mutex_pre_schedule(void)
+{
+	lockdep_assert(!fetch_and_set(current->sched_rt_mutex, 1));
+	sched_submit_work(current);
+}
+
+void rt_mutex_schedule(void)
+{
+	lockdep_assert(current->sched_rt_mutex);
+	__schedule_loop(SM_NONE);
+}
+
+void rt_mutex_post_schedule(void)
+{
+	sched_update_worker(current);
+	lockdep_assert(fetch_and_set(current->sched_rt_mutex, 0));
+}
 
 static inline int __rt_effective_prio(struct task_struct *pi_task, int prio)
 {
