@@ -98,6 +98,7 @@ int mod_verify_sig(const void *mod, struct load_info *info)
 	if (modlen <= sizeof(ms))
 		return -EBADMSG;
 
+	wholelen = modlen + sizeof(MODULE_SIG_STRING) - 1;
 	memcpy(&ms, mod + (modlen - sizeof(ms)), sizeof(ms));
 
 	ret = mod_check_sig(&ms, modlen, "module");
