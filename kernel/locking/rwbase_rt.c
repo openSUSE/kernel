@@ -133,6 +133,8 @@ static __always_inline int rwbase_read_lock(struct rwbase_rt *rwb,
 {
 	int ret;
 
+	lockdep_assert(!current->pi_blocked_on);
+
 	if (rwbase_read_trylock(rwb))
 		return 0;
 
