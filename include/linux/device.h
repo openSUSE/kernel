@@ -915,6 +915,7 @@ int device_move(struct device *dev, struct device *new_parent,
 		enum dpm_order dpm_order);
 int device_change_owner(struct device *dev, kuid_t kuid, kgid_t kgid);
 int device_is_dependent(struct device *dev, void *target);
+void dev_enable_async_probe(struct device *dev, bool enabled);
 
 static inline bool device_supports_offline(struct device *dev)
 {
