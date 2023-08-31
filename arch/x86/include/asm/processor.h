@@ -1059,8 +1059,11 @@ extern bool cpu_has_amd_erratum(const int *);
 #define AMD_MODEL_RANGE_START(range)	(((range) >> 12) & 0xfff)
 #define AMD_MODEL_RANGE_END(range)	((range) & 0xfff)
 
+extern void amd_clear_divider(void);
+
 #else
 #define cpu_has_amd_erratum(x)	(false)
+static inline void amd_clear_divider(void)		{ }
 #endif /* CONFIG_CPU_SUP_AMD */
 
 enum l1tf_mitigations {

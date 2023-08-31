@@ -217,7 +217,23 @@ dotraplinkage void do_##name(struct pt_regs *regs, long error_code)	\
 	do_trap(trapnr, signr, str, regs, error_code, &info);		\
 }
 
-DO_ERROR_INFO(0, SIGFPE, "divide error", divide_error, FPE_INTDIV, regs->ip)
+
+dotraplinkage void do_divide_error(struct pt_regs *regs, long error_code)
+{V
+	siginfo_t info;
+	info.si_signo = SIGFPE;
+	info.si_errno = 0;
+	info.si_code = FPE_INTDIV;
+	info.si_addr = (void __user *)regs->ip;
+	if (notify_die(DIE_TRAP, "divide error", regs, error_code, trapnr, SIGFPE)
+							== NOTIFY_STOP)
+		return;
+	conditional_sti(regs);
+	do_trap(trapnr, SIGFPE, "divide error", regs, error_code, &info);
+	amd_clear_divider();
+}
+
+//DO_ERROR_INFO(0, SIGFPE, "divide error", divide_error, FPE_INTDIV, regs->ip)
 DO_ERROR(4, SIGSEGV, "overflow", overflow)
 DO_ERROR(5, SIGSEGV, "bounds", bounds)
 DO_ERROR_INFO(6, SIGILL, "invalid opcode", invalid_op, ILL_ILLOPN, regs->ip)
@@ -431,7 +447,7 @@ unknown_nmi_error(unsigned char reason, struct pt_regs *regs)
 		static int controlling_cpu = -1;
 		static DEFINE_SPINLOCK(kdb_nmi_lock);
 		unsigned long flags;
-	
+
 		spin_lock_irqsave(&kdb_nmi_lock, flags);
 		if (controlling_cpu == -1) {
 			controlling_cpu = smp_processor_id();
