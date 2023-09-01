@@ -134,7 +134,10 @@ static void enc_status_change_prepare_noop(unsigned long vaddr, int npages, bool
 static bool enc_status_change_finish_noop(unsigned long vaddr, int npages, bool enc) { return false; }
 static bool enc_tlb_flush_required_noop(bool enc) { return false; }
 static bool enc_cache_flush_required_noop(void) { return false; }
+static bool is_private_mmio_noop(u64 addr) {return false; }
 
+bool (*suse_x86_hyper_runtime_is_private_mmio)(u64 addr) = is_private_mmio_noop;
+EXPORT_SYMBOL_GPL(suse_x86_hyper_runtime_is_private_mmio);
 struct x86_platform_ops x86_platform __ro_after_init = {
 	.calibrate_cpu			= native_calibrate_cpu_early,
 	.calibrate_tsc			= native_calibrate_tsc,
