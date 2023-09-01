@@ -5099,3 +5099,14 @@ int device_match_any(struct device *dev, const void *unused)
 	return 1;
 }
 EXPORT_SYMBOL_GPL(device_match_any);
+
+void dev_enable_async_probe(struct device *dev, bool enabled)
+{
+	if (!dev->p) {
+		if (device_private_init(dev))
+			return;
+	}
+	if (dev->p)
+		dev->p->async_probe_enabled = enabled;
+}
+EXPORT_SYMBOL_GPL(dev_enable_async_probe);

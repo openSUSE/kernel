@@ -1726,6 +1726,10 @@
 		protect_image	Turn on image protection during restoration
 				(that will set all pages holding image data
 				during restoration read-only).
+		sigenforce	Refuse the system to be resumed from a snapshot
+				image which is unsigned or signed by a wrong key.
+				This option equals to
+				CONFIG_HIBERNATE_VERIFICATION_FORCE=y
 
 	highmem=nn[KMG]	[KNL,BOOT] forces the highmem zone to have an exact
 			size of <nn>. This works even on boxes that have no
@@ -6243,10 +6247,6 @@
 	thermal.crt=	[HW,ACPI]
 			-1: disable all critical trip points in all thermal zones
 			<degrees C>: override all critical trip points
-
-	thermal.nocrt=	[HW,ACPI]
-			Set to disable actions on ACPI thermal zone
-			critical and hot trip points.
 
 	thermal.off=	[HW,ACPI]
 			1: disable ACPI thermal control
