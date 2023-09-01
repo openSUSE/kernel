@@ -781,11 +781,11 @@ static int pca953x_irq_set_type(struct irq_data *d, unsigned int type)
 {
 	struct gpio_chip *gc = irq_data_get_irq_chip_data(d);
 	struct pca953x_chip *chip = gpiochip_get_data(gc);
+	struct device *dev = &chip->client->dev;
 	irq_hw_number_t hwirq = irqd_to_hwirq(d);
 
 	if (!(type & IRQ_TYPE_EDGE_BOTH)) {
-		dev_err(&chip->client->dev, "irq %d: unsupported type %d\n",
-			d->irq, type);
+		dev_err(dev, "irq %d: unsupported type %d\n", d->irq, type);
 		return -EINVAL;
 	}
 
@@ -902,7 +902,7 @@ static int pca953x_irq_setup(struct pca953x_chip *chip, int irq_base)
 	int ret;
 
 	if (dmi_first_match(pca953x_dmi_acpi_irq_info)) {
-		ret = pca953x_acpi_get_irq(&client->dev);
+		ret = pca953x_acpi_get_irq(dev);
 		if (ret > 0)
 			client->irq = ret;
 	}
@@ -940,10 +940,9 @@ static int pca953x_irq_setup(struct pca953x_chip *chip, int irq_base)
 	girq->threaded = true;
 	girq->first = irq_base; /* FIXME: get rid of this */
 
-	ret = devm_request_threaded_irq(&client->dev, client->irq,
-					NULL, pca953x_irq_handler,
-					IRQF_ONESHOT | IRQF_SHARED,
-					dev_name(&client->dev), chip);
+	ret = devm_request_threaded_irq(dev, client->irq, NULL, pca953x_irq_handler,
+					IRQF_ONESHOT | IRQF_SHARED, dev_name(dev),
+					chip);
 	if (ret)
 		return dev_err_probe(dev, client->irq, "failed to request irq\n");
 
@@ -951,13 +950,13 @@ static int pca953x_irq_setup(struct pca953x_chip *chip, int irq_base)
 }
 
 #else /* CONFIG_GPIO_PCA953X_IRQ */
-static int pca953x_irq_setup(struct pca953x_chip *chip,
-			     int irq_base)
+static int pca953x_irq_setup(struct pca953x_chip *chip, int irq_base)
 {
 	struct i2c_client *client = chip->client;
+	struct device *dev = &client->dev;
 
 	if (client->irq && irq_base != -1 && (chip->driver_data & PCA_INT))
-		dev_warn(&client->dev, "interrupt support not compiled in\n");
+		dev_warn(dev, "interrupt support not compiled in\n");
 
 	return 0;
 }
@@ -1048,11 +1047,11 @@ static int pca953x_probe(struct i2c_client *client)
 	int ret;
 	const struct regmap_config *regmap_config;
 
-	chip = devm_kzalloc(&client->dev, sizeof(*chip), GFP_KERNEL);
+	chip = devm_kzalloc(dev, sizeof(*chip), GFP_KERNEL);
 	if (chip == NULL)
 		return -ENOMEM;
 
-	pdata = dev_get_platdata(&client->dev);
+	pdata = dev_get_platdata(dev);
 	if (pdata) {
 		irq_base = pdata->irq_base;
 		chip->gpio_start = pdata->gpio_base;
@@ -1069,8 +1068,7 @@ static int pca953x_probe(struct i2c_client *client)
 		 * using "reset" GPIO. Otherwise any of those platform
 		 * must use _DSD method with corresponding property.
 		 */
-		reset_gpio = devm_gpiod_get_optional(&client->dev, "reset",
-						     GPIOD_OUT_LOW);
+		reset_gpio = devm_gpiod_get_optional(dev, "reset", GPIOD_OUT_LOW);
 		if (IS_ERR(reset_gpio))
 			return dev_err_probe(dev, PTR_ERR(reset_gpio),
 					     "Failed to get reset gpio\n");
@@ -1090,10 +1088,10 @@ static int pca953x_probe(struct i2c_client *client)
 	pca953x_setup_gpio(chip, chip->driver_data & PCA_GPIO_MASK);
 
 	if (NBANK(chip) > 2 || PCA_CHIP_TYPE(chip->driver_data) == PCA957X_TYPE) {
-		dev_info(&client->dev, "using AI\n");
+		dev_info(dev, "using AI\n");
 		regmap_config = &pca953x_ai_i2c_regmap;
 	} else {
-		dev_info(&client->dev, "using no AI\n");
+		dev_info(dev, "using no AI\n");
 		regmap_config = &pca953x_i2c_regmap;
 	}
 
