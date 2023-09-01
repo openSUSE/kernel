@@ -897,6 +897,9 @@ asmlinkage unsigned long efi_main(efi_handle_t handle,
 
 	setup_efi_pci(boot_params);
 
+	if (boot_params->secure_boot == efi_secureboot_mode_enabled)
+		efi_setup_secret_key(boot_params);
+
 	setup_quirks(boot_params, bzimage_addr, buffer_end - buffer_start);
 
 	status = exit_boot(boot_params, handle);

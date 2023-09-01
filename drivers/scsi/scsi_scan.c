@@ -699,6 +699,18 @@ static int scsi_probe_lun(struct scsi_device *sdev, unsigned char *inq_result,
 				    (sshdr.ascq == 0))
 					continue;
 			}
+			/*
+			 * The retry count 3 in scsi_execute_req() above has no
+			 * effect, because the mid layer doesn't retry
+			 * REQ_OP_SCSI commands, relying on callers.
+			 * So retry here.
+			 */
+			if (host_byte(result) == DID_TIME_OUT) {
+				SCSI_LOG_SCAN_BUS(3, sdev_printk(KERN_INFO, sdev,
+								 "scsi scan: retry after timeout\n"));
+				continue;
+			}
+
 		} else if (result == 0) {
 			/*
 			 * if nothing was transferred, we try
@@ -1187,6 +1199,9 @@ static int scsi_probe_and_add_lun(struct scsi_target *starget,
 		sdev = scsi_alloc_sdev(starget, lun, hostdata);
 	if (!sdev)
 		goto out;
+
+	dev_enable_async_probe(&sdev->sdev_gendev,
+			       shost->async_device_scan);
 
 	result = kmalloc(result_len, GFP_KERNEL);
 	if (!result)

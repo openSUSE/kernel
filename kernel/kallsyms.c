@@ -188,16 +188,13 @@ static bool cleanup_symbol_name(char *s)
 
 static int compare_symbol_name(const char *name, char *namebuf)
 {
-	int ret;
-
-	ret = strcmp(name, namebuf);
-	if (!ret)
-		return ret;
-
-	if (cleanup_symbol_name(namebuf) && !strcmp(name, namebuf))
-		return 0;
-
-	return ret;
+	/* The kallsyms_seqs_of_names is sorted based on names after
+	 * cleanup_symbol_name() (see scripts/kallsyms.c) if clang lto is enabled.
+	 * To ensure correct bisection in kallsyms_lookup_names(), do
+	 * cleanup_symbol_name(namebuf) before comparing name and namebuf.
+	 */
+	cleanup_symbol_name(namebuf);
+	return strcmp(name, namebuf);
 }
 
 static unsigned int get_symbol_seq(int index)
@@ -282,6 +279,7 @@ unsigned long kallsyms_lookup_name(const char *name)
 
 	return module_kallsyms_lookup_name(name);
 }
+EXPORT_SYMBOL_GPL(kallsyms_lookup_name);
 
 /*
  * Iterate over all symbols in vmlinux.  For symbols from modules use
@@ -304,6 +302,7 @@ int kallsyms_on_each_symbol(int (*fn)(void *, const char *, unsigned long),
 	}
 	return 0;
 }
+EXPORT_SYMBOL_GPL(kallsyms_on_each_symbol);
 
 int kallsyms_on_each_match_symbol(int (*fn)(void *, unsigned long),
 				  const char *name, void *data)
