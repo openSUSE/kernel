@@ -577,7 +577,7 @@ bool bpf_local_storage_unlink_nolock(struct bpf_local_storage *local_storage)
 		 * of the loop will set the free_cgroup_storage to true.
 		 */
 		free_storage = bpf_selem_unlink_storage_nolock(
-			local_storage, selem, false, false);
+			local_storage, selem, true, false);
 	}
 
 	return free_storage;
