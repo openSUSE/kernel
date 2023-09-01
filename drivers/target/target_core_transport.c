@@ -1989,6 +1989,19 @@ void transport_generic_request_failure(struct se_cmd *cmd,
 {
 	int ret = 0, post_ret;
 
+	if (cmd->se_cmd_flags & SCF_COMPARE_AND_WRITE
+	 && sense_reason == TCM_LOGICAL_UNIT_COMMUNICATION_FAILURE
+	 && cmd->scsi_asc == 0x1d) { /* MISCOMPARE DURING VERIFY OPERATION */
+		/*
+		 * workaround for kABI - backends such as target_core_rbd
+		 * can't provide an alternate sense_reason, so propagate
+		 * COMPARE AND WRITE miscompare errors via the cmd->scsi_asc
+		 * field and overwrite sense_reason here to ensure that asc
+		 * and Information fields get filled properly.
+		 */
+		sense_reason = TCM_MISCOMPARE_VERIFY;
+	}
+
 	pr_debug("-----[ Storage Engine Exception; sense_reason %d\n",
 		 sense_reason);
 	target_show_cmd("-----[ ", cmd);
@@ -2029,6 +2042,7 @@ void transport_generic_request_failure(struct se_cmd *cmd,
 	case TCM_TOO_MANY_SEGMENT_DESCS:
 	case TCM_UNSUPPORTED_SEGMENT_DESC_TYPE_CODE:
 	case TCM_INVALID_FIELD_IN_COMMAND_IU:
+	case TCM_MISCOMPARE_VERIFY:
 		break;
 	case TCM_OUT_OF_RESOURCES:
 		cmd->scsi_status = SAM_STAT_TASK_SET_FULL;
