@@ -15,7 +15,7 @@
  */
 #define NCAPINTS			22	   /* N 32-bit words worth of info */
 #define NBUGINTS			1	   /* N 32-bit bug flags */
-
+#define NEXTBUGINTS			1	   /* N 32-bit extended bug flags */
 /*
  * Note: If the comment begins with a quoted string, that string is used
  * in /proc/cpuinfo instead of the macro name.  If the string is "",
@@ -475,4 +475,6 @@
 #define X86_BUG_SRSO			X86_BUG(30) /* AMD SRSO bug */
 #define X86_BUG_GDS			X86_BUG(31) /* CPU is affected by Gather Data Sampling */
 
+/* BUG word 2 */
+#define X86_BUG_DIV0                   X86_BUG(1*32 + 0) /* AMD DIV0 speculation bug */
 #endif /* _ASM_X86_CPUFEATURES_H */

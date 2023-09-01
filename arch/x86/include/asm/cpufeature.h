@@ -49,10 +49,14 @@ extern const char * const x86_power_flags[32];
  * In order to save room, we index into this array by doing
  * X86_BUG_<name> - NCAPINTS*32.
  */
-extern const char * const x86_bug_flags[NBUGINTS*32];
+extern const char * const x86_bug_flags[(NBUGINTS+NEXTBUGINTS)*32];
+
+#define IS_EXT_BUGBIT(bit) ((bit>>5) >= (NCAPINTS+NBUGINTS))
 
 #define test_cpu_cap(c, bit)						\
-	 test_bit(bit, (unsigned long *)((c)->x86_capability))
+	 (IS_EXT_BUGBIT(bit) ? test_bit((bit) - ((NCAPINTS+NBUGINTS)*32), \
+				(unsigned long *)((c)->x86_ext_capability)) : \
+				test_bit(bit, (unsigned long *)((c)->x86_capability)))
 
 /*
  * There are 32 bits/features in each mask word.  The high bits
@@ -143,14 +147,25 @@ extern const char * const x86_bug_flags[NBUGINTS*32];
 
 #define boot_cpu_has(bit)	cpu_has(&boot_cpu_data, bit)
 
-#define set_cpu_cap(c, bit)	set_bit(bit, (unsigned long *)((c)->x86_capability))
+#define set_cpu_cap(c, bit)  do {						  \
+	if (IS_EXT_BUGBIT(bit))							  \
+		set_bit(bit - ((NCAPINTS+NBUGINTS))*32,				  \
+			(unsigned long *)((c)->x86_ext_capability)); \
+	else									  \
+		set_bit(bit, (unsigned long *)((c)->x86_capability));		  \
+} while (0)
+
 
 extern void setup_clear_cpu_cap(unsigned int bit);
 extern void clear_cpu_cap(struct cpuinfo_x86 *c, unsigned int bit);
 
 #define setup_force_cpu_cap(bit) do { \
 	set_cpu_cap(&boot_cpu_data, bit);	\
-	set_bit(bit, (unsigned long *)cpu_caps_set);	\
+	if (IS_EXT_BUGBIT(bit))    \
+		set_bit(bit - ((NCAPINTS+NBUGINTS))*32,				  \
+			(unsigned long *)&cpu_caps_set[NCAPINTS+NBUGINTS]);	  \
+	else \
+		set_bit(bit, (unsigned long *)cpu_caps_set);	\
 } while (0)
 
 #define setup_force_cpu_bug(bit) setup_force_cpu_cap(bit)

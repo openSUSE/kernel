@@ -1674,7 +1674,7 @@ static int cam_cc_sc7180_probe(struct platform_device *pdev)
 		goto disable_pm_runtime;
 	}
 
-	ret = pm_runtime_get(&pdev->dev);
+	ret = pm_runtime_resume_and_get(&pdev->dev);
 	if (ret)
 		goto destroy_pm_clk;
 

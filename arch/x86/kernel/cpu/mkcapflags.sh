@@ -60,7 +60,7 @@ trap 'rm "$OUT"' EXIT
 	dump_array "x86_cap_flags" "NCAPINTS*32" "X86_FEATURE_" "" $2
 	echo ""
 
-	dump_array "x86_bug_flags" "NBUGINTS*32" "X86_BUG_" "NCAPINTS*32" $2
+	dump_array "x86_bug_flags" "(NBUGINTS+NEXTBUGINTS)*32" "X86_BUG_" "NCAPINTS*32" $2
 	echo ""
 
 	echo "#ifdef CONFIG_X86_VMX_FEATURE_NAMES"
