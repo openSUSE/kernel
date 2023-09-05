@@ -1407,7 +1407,7 @@ EXPORT_SYMBOL(rbd_img_request_create);
  * context is captured in rbd_img_object_requests() after exclusive
  * lock is ensured to be held.
  */
-static void rbd_img_capture_header(struct rbd_img_request *img_req)
+void rbd_img_capture_header(struct rbd_img_request *img_req)
 {
 	struct rbd_device *rbd_dev = img_req->rbd_dev;
 
@@ -1419,6 +1419,7 @@ static void rbd_img_capture_header(struct rbd_img_request *img_req)
 	if (rbd_dev_parent_get(rbd_dev))
 		img_request_layered_set(img_req);
 }
+EXPORT_SYMBOL(rbd_img_capture_header);
 
 void rbd_img_request_destroy(struct rbd_img_request *img_request)
 {
