@@ -2182,6 +2182,7 @@ static int vmw_cmd_dx_set_shader_res(struct vmw_private *dev_priv,
 
 	if ((u64) cmd->body.startView + (u64) num_sr_view >
 	    (u64) SVGA3D_DX_MAX_SRVIEWS ||
+	    cmd->body.type < SVGA3D_SHADERTYPE_MIN ||
 	    cmd->body.type >= max_allowed) {
 		VMW_DEBUG_USER("Invalid shader binding.\n");
 		return -EINVAL;
