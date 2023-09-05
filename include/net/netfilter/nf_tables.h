@@ -452,7 +452,6 @@ struct nft_set_elem_expr {
  *
  *	@list: table set list node
  *	@bindings: list of set bindings
- *	@refs: internal refcounting for async set destruction
  *	@table: table this set belongs to
  *	@net: netnamespace this set belongs to
  * 	@name: name of the set
@@ -472,6 +471,7 @@ struct nft_set_elem_expr {
  *	@udlen: user data length
  *	@udata: user data
  *	@expr: stateful expression
+ *	@refs: internal refcounting for async set destruction
  * 	@ops: set ops
  * 	@flags: set flags
  *	@genmask: generation mask
@@ -482,7 +482,49 @@ struct nft_set_elem_expr {
 struct nft_set {
 	struct list_head		list;
 	struct list_head		bindings;
+	struct nft_table		*table;
+	possible_net_t			net;
+	char				*name;
+	u64				handle;
+	u32				ktype;
+	u32				dtype;
+	u32				objtype;
+	u32				size;
+	u8				field_len[NFT_REG32_COUNT];
+	u8				field_count;
+	u32				use;
+	atomic_t			nelems;
+	u32				ndeact;
+	u64				timeout;
+	u32				gc_int;
+	u16				policy;
+	u16				udlen;
+	unsigned char			*udata;
+#ifndef __GENKSYMS__
 	refcount_t			refs;
+#endif
+	/* runtime data below here */
+	const struct nft_set_ops	*ops ____cacheline_aligned;
+#ifndef __GENKSYMS__
+	u16				flags:13,
+					dead:1,
+					genmask:2;
+#else
+	u16				flags:14,
+					genmask:2;
+#endif
+	u8				klen;
+	u8				dlen;
+	u8				num_exprs;
+	struct nft_expr			*exprs[NFT_SET_EXPR_MAX];
+	struct list_head		catchall_list;
+	unsigned char			data[]
+		__attribute__((aligned(__alignof__(u64))));
+};
+
+struct __orig_nft_set {
+	struct list_head		list;
+	struct list_head		bindings;
 	struct nft_table		*table;
 	possible_net_t			net;
 	char				*name;
@@ -503,8 +545,7 @@ struct nft_set {
 	unsigned char			*udata;
 	/* runtime data below here */
 	const struct nft_set_ops	*ops ____cacheline_aligned;
-	u16				flags:13,
-					dead:1,
+	u16				flags:14,
 					genmask:2;
 	u8				klen;
 	u8				dlen;
@@ -514,6 +555,10 @@ struct nft_set {
 	unsigned char			data[]
 		__attribute__((aligned(__alignof__(u64))));
 };
+static_assert(offsetof(struct nft_set, ops) ==
+	      offsetof(struct __orig_nft_set, ops));
+static_assert(offsetof(struct nft_set, klen) ==
+	      offsetof(struct __orig_nft_set, klen));
 
 static inline bool nft_set_is_anonymous(const struct nft_set *set)
 {
