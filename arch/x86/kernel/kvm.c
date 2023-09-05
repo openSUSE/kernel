@@ -1110,10 +1110,12 @@ void __init kvm_spinlock_init(void)
 		goto out;
 	}
 
+	#ifdef CONFIG_SUSE_PRODUCT_SLE
 	if (!kvm_pvspin) {
 		pr_info("KVM: disabled paravirtual spinlock by kernel parameter\n");
 		goto out;
 	}
+	#endif
 
 	if (nopvspin) {
 		pr_info("PV spinlocks disabled, forced by \"nopvspin\" parameter\n");
