@@ -311,19 +311,6 @@ tcm_rbd_execute_cmd(struct se_cmd *cmd, struct rbd_device *rbd_dev,
 		goto err;
 	}
 
-	/*
-	 * Quit early if the mapped snapshot no longer exists.  It's
-	 * still possible the snapshot will have disappeared by the
-	 * time our request arrives at the osd, but there's no sense in
-	 * sending it if we already know.
-	 */
-	if (!test_bit(RBD_DEV_FLAG_EXISTS, &rbd_dev->flags)) {
-		pr_warn("request for non-existent snapshot");
-		BUG_ON(rbd_dev->spec->snap_id == CEPH_NOSNAP);
-		sense = TCM_LOGICAL_UNIT_COMMUNICATION_FAILURE;
-		goto err;
-	}
-
 	if (offset && length > U64_MAX - offset + 1) {
 		pr_warn("bad request range (%llu~%llu)", offset, length);
 		sense = TCM_INVALID_CDB_FIELD;
@@ -581,13 +568,6 @@ tcm_rbd_execute_cmp_and_write(struct se_cmd *cmd)
 	if (rbd_dev->spec->snap_id != CEPH_NOSNAP) {
 		pr_warn("compare-and-write on read-only snapshot");
 		sense = TCM_WRITE_PROTECTED;
-		goto err;
-	}
-
-	if (!test_bit(RBD_DEV_FLAG_EXISTS, &rbd_dev->flags)) {
-		pr_warn("request for non-existent snapshot");
-		BUG_ON(rbd_dev->spec->snap_id == CEPH_NOSNAP);
-		sense = TCM_LOGICAL_UNIT_COMMUNICATION_FAILURE;
 		goto err;
 	}
 
