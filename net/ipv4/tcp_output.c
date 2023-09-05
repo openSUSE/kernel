@@ -2788,7 +2788,9 @@ static bool skb_still_in_host_queue(struct sock *sk,
 		if (skb_fclone_busy(sk, skb)) {
 			NET_INC_STATS(sock_net(sk),
 				      LINUX_MIB_TCPSPURIOUS_RTX_HOSTQUEUES);
-			return true;
+			/* unclog the qdisc queue if previous transmit is still
+			 * there because of a race condition
+			 */
 		}
 	}
 	return false;
