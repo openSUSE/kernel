@@ -1369,7 +1369,7 @@ static bool rbd_dev_parent_get(struct rbd_device *rbd_dev)
 	return counter > 0;
 }
 
-static void rbd_img_request_init(struct rbd_img_request *img_request,
+void rbd_img_request_init(struct rbd_img_request *img_request,
 				 struct rbd_device *rbd_dev,
 				 enum obj_operation_type op_type,
 				 rbd_img_request_end_cb_t end_cb)
@@ -1384,23 +1384,7 @@ static void rbd_img_request_init(struct rbd_img_request *img_request,
 	mutex_init(&img_request->state_mutex);
 	img_request->callback = end_cb;
 }
-
-/* This is for use by LIO RBD so we don't export the caches directly */
-struct rbd_img_request *rbd_img_request_create(
-					struct rbd_device *rbd_dev,
-					enum obj_operation_type op_type,
-					rbd_img_request_end_cb_t end_cb)
-{
-	struct rbd_img_request *img_request;
-
-	img_request = kmem_cache_alloc(rbd_img_request_cache, GFP_NOIO);
-	if (!img_request)
-		return NULL;
-
-	rbd_img_request_init(img_request, rbd_dev, op_type, end_cb);
-	return img_request;
-}
-EXPORT_SYMBOL(rbd_img_request_create);
+EXPORT_SYMBOL(rbd_img_request_init);
 
 /*
  * Only snap_id is captured here, for reads.  For writes, snapshot

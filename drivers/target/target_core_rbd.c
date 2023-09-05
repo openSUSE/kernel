@@ -186,9 +186,9 @@ static sector_t tcm_rbd_get_blocks(struct se_device *dev)
 }
 
 struct tcm_rbd_cmd {
-	struct rbd_img_request *img_request;
+	struct rbd_img_request img_request;
 	/* for sgl->bvec conversion */
-	struct bio_vec *bvecs;
+	struct bio_vec bvecs[];
 };
 
 static sense_reason_t tcm_rbd_execute_sync_cache(struct se_cmd *cmd)
@@ -198,17 +198,11 @@ static sense_reason_t tcm_rbd_execute_sync_cache(struct se_cmd *cmd)
 	return 0;
 }
 
-static int tcm_rbd_sgl_to_bvecs(struct scatterlist *sgl, u32 sgl_nents,
-				struct bio_vec **_bvecs)
+static void tcm_rbd_sgl_to_bvecs(struct scatterlist *sgl, u32 sgl_nents,
+				 struct bio_vec *bvecs)
 {
 	int i;
 	struct scatterlist *sg;
-	struct bio_vec *bvecs;
-
-	bvecs = kcalloc(sgl_nents, sizeof(struct bio_vec), GFP_KERNEL);
-	if (!bvecs) {
-		return -ENOMEM;
-	}
 
 	for_each_sg(sgl, sg, sgl_nents, i) {
 		pr_debug("sg %d: %u@%u\n", i, sg->length, sg->offset);
@@ -217,9 +211,6 @@ static int tcm_rbd_sgl_to_bvecs(struct scatterlist *sgl, u32 sgl_nents,
 		bvecs[i].bv_offset = sg->offset;
 		bvecs[i].bv_len = sg->length;
 	}
-	*_bvecs = bvecs;
-
-	return 0;
 }
 
 /*
@@ -259,8 +250,7 @@ static void tcm_rbd_async_callback(struct rbd_img_request *img_request,
 	cmd->priv = NULL;
 	target_complete_cmd(cmd, status);
 	if (trc) {
-		rbd_img_request_destroy(trc->img_request);
-		kfree(trc->bvecs);
+		rbd_img_request_destroy(&trc->img_request);
 		kfree(trc);
 	}
 }
@@ -316,19 +306,16 @@ tcm_rbd_execute_cmd(struct se_cmd *cmd, struct rbd_device *rbd_dev,
 		goto err;	/* Shouldn't happen */
 	}
 
-	trc = kzalloc(sizeof(struct tcm_rbd_cmd), GFP_KERNEL);
+	trc = kzalloc(sizeof(*trc) + sgl_nents * sizeof(trc->bvecs[0]),
+		      GFP_NOIO);
 	if (!trc) {
 		sense = TCM_OUT_OF_RESOURCES;
 		goto err;
 	}
 
-	img_request = rbd_img_request_create(rbd_dev, op_type,
+	img_request = &trc->img_request;
+	rbd_img_request_init(img_request, rbd_dev, op_type,
 			sync ? tcm_rbd_sync_callback : tcm_rbd_async_callback);
-	if (!img_request) {
-		sense = TCM_OUT_OF_RESOURCES;
-		goto err_trc;
-	}
-	trc->img_request = img_request;
 
 	down_read(&rbd_dev->header_rwsem);
 	mapping_size = rbd_dev->mapping.size;
@@ -347,19 +334,17 @@ tcm_rbd_execute_cmd(struct se_cmd *cmd, struct rbd_device *rbd_dev,
 	pr_debug("rbd_dev %p img_req %p %d %llu~%llu\n", rbd_dev,
 	     img_request, op_type, offset, length);
 
-	if (op_type == OBJ_OP_DISCARD || op_type == OBJ_OP_ZEROOUT)
+	if (op_type == OBJ_OP_DISCARD || op_type == OBJ_OP_ZEROOUT) {
 		result = rbd_img_fill_nodata(img_request, offset, length);
-	else {
+	} else {
 		struct ceph_file_extent img_extent = {
 			.fe_off = offset,
 			.fe_len = length,
 		};
-		result = tcm_rbd_sgl_to_bvecs(sgl, sgl_nents, &trc->bvecs);
-		if (!result) {
-			result = rbd_img_fill_from_bvecs(img_request,
-							 &img_extent, 1,
-							 trc->bvecs);
-		}
+		tcm_rbd_sgl_to_bvecs(sgl, sgl_nents, trc->bvecs);
+		result = rbd_img_fill_from_bvecs(img_request,
+						 &img_extent, 1,
+						 trc->bvecs);
 	}
 	if (result == -ENOMEM) {
 		sense = TCM_OUT_OF_RESOURCES;
@@ -391,8 +376,6 @@ tcm_rbd_execute_cmd(struct se_cmd *cmd, struct rbd_device *rbd_dev,
 
 err_img_request:
 	rbd_img_request_destroy(img_request);
-err_trc:
-	kfree(trc->bvecs);
 	kfree(trc);
 	if (sense)
 		pr_warn("RBD op type %d %llx at %llx sense %d",
@@ -528,8 +511,7 @@ static void tcm_rbd_cmp_and_write_callback(struct rbd_img_request *img_request,
 	}
 
 	if (trc) {
-		rbd_img_request_destroy(trc->img_request);
-		kfree(trc->bvecs);
+		rbd_img_request_destroy(&trc->img_request);
 		kfree(trc);
 	}
 }
@@ -546,6 +528,10 @@ tcm_rbd_execute_cmp_and_write(struct se_cmd *cmd)
 	sense_reason_t sense = TCM_NO_SENSE;
 	u64 offset = rbd_lba_shift(dev, cmd->t_task_lba);
 	u64 length = rbd_lba_shift(dev, cmd->t_task_nolb);
+	struct ceph_file_extent img_extent = {
+		.fe_off = offset,
+		.fe_len = length,
+	};
 	int result;
 
 	if (!length) {
@@ -566,29 +552,32 @@ tcm_rbd_execute_cmp_and_write(struct se_cmd *cmd)
 		goto err;	/* Shouldn't happen */
 	}
 
-	trc = kzalloc(sizeof(struct tcm_rbd_cmd), GFP_KERNEL);
+	/*
+	 * No need to take dev->caw_sem here, as the IO is mapped to a compound
+	 * compare+write OSD request, which is handled atomically by the OSD.
+	 */
+
+	/* need twice as much data for each compare & write operation */
+	if (cmd->data_length < length * 2) {
+		sense = TCM_INVALID_CDB_FIELD;
+		goto err;
+	}
+
+	trc = kzalloc(sizeof(*trc) + cmd->t_data_nents * sizeof(trc->bvecs[0]),
+		      GFP_NOIO);
 	if (!trc) {
 		sense = TCM_OUT_OF_RESOURCES;
 		goto err;
 	}
 
-	img_request = rbd_img_request_create(rbd_dev, OBJ_OP_CMP_AND_WRITE,
-					     tcm_rbd_cmp_and_write_callback);
-	if (!img_request) {
-		sense = TCM_OUT_OF_RESOURCES;
-		goto err_trc;
-	}
-	trc->img_request = img_request;
+	img_request = &trc->img_request;
+	rbd_img_request_init(img_request, rbd_dev, OBJ_OP_CMP_AND_WRITE,
+			     tcm_rbd_cmp_and_write_callback);
 
 	down_read(&rbd_dev->header_rwsem);
 	mapping_size = rbd_dev->mapping.size;
 	rbd_img_capture_header(img_request);
 	up_read(&rbd_dev->header_rwsem);
-
-	/*
-	 * No need to take dev->caw_sem here, as the IO is mapped to a compound
-	 * compare+write OSD request, which is handled atomically by the OSD.
-	 */
 
 	if (offset + length > mapping_size) {
 		pr_warn("beyond EOD (%llu~%llu > %llu)", offset,
@@ -599,12 +588,6 @@ tcm_rbd_execute_cmp_and_write(struct se_cmd *cmd)
 		}
 	}
 
-	/* need twice as much data for each compare & write operation */
-	if (cmd->data_length < length * 2) {
-		sense = TCM_INVALID_CDB_FIELD;
-		goto err_img_request;
-	}
-
 	pr_debug("rbd_dev %p compare-and-write img_req %p %llu~%llu\n",
 		 rbd_dev, img_request, offset, length);
 
@@ -612,18 +595,10 @@ tcm_rbd_execute_cmp_and_write(struct se_cmd *cmd)
 	 * data in cmd->t_data_sg is arrange as:
 	 * [len * data for compare | len * data for write]
 	 */
-	result = tcm_rbd_sgl_to_bvecs(cmd->t_data_sg, cmd->t_data_nents,
-				      &trc->bvecs);
-	if (!result) {
-		struct ceph_file_extent img_extent = {
-			.fe_off = offset,
-			.fe_len = length,
-		};
-		result = rbd_img_fill_cmp_and_write_from_bvecs(img_request,
-						      &img_extent,
-						      trc->bvecs);
-	}
-
+	tcm_rbd_sgl_to_bvecs(cmd->t_data_sg, cmd->t_data_nents, trc->bvecs);
+	result = rbd_img_fill_cmp_and_write_from_bvecs(img_request,
+					      &img_extent,
+					      trc->bvecs);
 	if (result == -ENOMEM) {
 		sense = TCM_OUT_OF_RESOURCES;
 		goto err_img_request;
@@ -641,8 +616,6 @@ tcm_rbd_execute_cmp_and_write(struct se_cmd *cmd)
 
 err_img_request:
 	rbd_img_request_destroy(img_request);
-err_trc:
-	kfree(trc->bvecs);
 	kfree(trc);
 	if (sense)
 		pr_warn("RBD compare-and-write %llx at %llx sense %d",
