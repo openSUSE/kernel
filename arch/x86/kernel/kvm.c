@@ -44,6 +44,7 @@
 #include <asm/svm.h>
 #include <asm/e820/api.h>
 
+#ifdef CONFIG_SUSE_PRODUCT_SLE
 /*
  * SLE-specific.
  *
@@ -59,6 +60,7 @@ static __init int kvm_parse_nopvspin(char *arg)
 	return 0;
 }
 early_param("kvm_nopvspin", kvm_parse_nopvspin);
+#endif
 
 DEFINE_STATIC_KEY_FALSE(kvm_async_pf_enabled);
 
