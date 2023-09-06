@@ -5748,6 +5748,8 @@ static void svm_vcpu_run(struct kvm_vcpu *vcpu)
 	 */
 	x86_spec_ctrl_set_guest(svm->spec_ctrl, svm->virt_spec_ctrl);
 
+	amd_clear_divider();
+
 	local_irq_enable();
 
 	asm volatile (
@@ -5794,16 +5796,7 @@ static void svm_vcpu_run(struct kvm_vcpu *vcpu)
 		"mov %%r14, %c[r14](%[svm]) \n\t"
 		"mov %%r15, %c[r15](%[svm]) \n\t"
 
-#ifdef CONFIG_RETPOLINE
-		ALTERNATIVE_2("", "call zen_untrain_ret", X86_FEATURE_UNRET,
-			      "call entry_ibpb", X86_FEATURE_ENTRY_IBPB)
-#endif
-
-#ifdef CONFIG_CPU_SRSO
-		ALTERNATIVE_2("", "call srso_untrain_ret", X86_FEATURE_SRSO,
-		      "call srso_untrain_ret_alias", X86_FEATURE_SRSO_ALIAS)
-#endif
-		ALTERNATIVE("", "call entry_ibpb", X86_FEATURE_IBPB_ON_VMEXIT)
+		UNTRAIN_RET_VM
 
 		/*
 		* Clear host registers marked as clobbered to prevent

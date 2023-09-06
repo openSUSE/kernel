@@ -434,7 +434,8 @@
 #define X86_BUG_MMIO_STALE_DATA		X86_BUG(25) /* CPU is affected by Processor MMIO Stale Data vulnerabilities */
 #define X86_BUG_RETBLEED		X86_BUG(26) /* CPU is affected by RETBleed */
 #define X86_BUG_EIBRS_PBRSB		X86_BUG(27) /* EIBRS is vulnerable to Post Barrier RSB Predictions */
-#define X86_BUG_GDS			X86_BUG(28) /* CPU is affected by Gather Data Sampling */
-#define X86_BUG_SRSO			X86_BUG(29) /* AMD SRSO bug */
+#define X86_BUG_SRSO			X86_BUG(28) /* AMD SRSO bug */
+#define X86_BUG_GDS			X86_BUG(29) /* CPU is affected by Gather Data Sampling */
+#define X86_BUG_DIV0                    X86_BUG(30) /* AMD DIV0 speculation bug */
 
 #endif /* _ASM_X86_CPUFEATURES_H */
