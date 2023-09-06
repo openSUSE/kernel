@@ -122,10 +122,7 @@ enum {
 struct hv_per_cpu_context {
 	void *synic_message_page;
 	void *synic_event_page;
-	/*
-	 * buffer to post messages to the host.
-	 */
-	void *post_msg_page;
+	void *post_msg_page; /* kABI */
 
 	/*
 	 * Starting with win8, we can take channel interrupts on any CPU;

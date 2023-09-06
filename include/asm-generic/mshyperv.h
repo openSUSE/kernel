@@ -26,6 +26,8 @@
 #include <asm/ptrace.h>
 #include <asm/hyperv-tlfs.h>
 
+#define VTPM_BASE_ADDRESS 0xfed40000
+
 struct ms_hyperv_info {
 	u32 features;
 	u32 priv_high;
@@ -48,6 +50,7 @@ struct ms_hyperv_info {
 	u64 shared_gpa_boundary;
 };
 extern struct ms_hyperv_info ms_hyperv;
+extern bool hv_nested;
 
 extern void * __percpu *hyperv_pcpu_input_arg;
 extern void * __percpu *hyperv_pcpu_output_arg;
