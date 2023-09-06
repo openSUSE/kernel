@@ -36,7 +36,7 @@ struct bsg_device {
 };
 
 #define BSG_DEFAULT_CMDS	64
-#define BSG_MAX_DEVS		32768
+#define BSG_MAX_DEVS		(1 << MINORBITS)
 
 static DEFINE_MUTEX(bsg_mutex);
 static DEFINE_IDR(bsg_minor_idr);
