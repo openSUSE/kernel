@@ -2074,6 +2074,7 @@ void transport_generic_request_failure(struct se_cmd *cmd,
 	case TCM_ALUA_TG_PT_UNAVAILABLE:
 	case TCM_ALUA_STATE_TRANSITION:
 	case TCM_ALUA_OFFLINE:
+	case TCM_MISCOMPARE_VERIFY:
 		break;
 	case TCM_OUT_OF_RESOURCES:
 		cmd->scsi_status = SAM_STAT_TASK_SET_FULL;
