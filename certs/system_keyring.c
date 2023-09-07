@@ -51,6 +51,26 @@ int restrict_link_by_builtin_trusted(struct key *dest_keyring,
 					  builtin_trusted_keys);
 }
 
+/**
+ * restrict_link_by_digsig_builtin - Restrict digitalSignature key additions by the built-in keyring
+ * @dest_keyring: Keyring being linked to.
+ * @type: The type of key being added.
+ * @payload: The payload of the new key.
+ * @restriction_key: A ring of keys that can be used to vouch for the new cert.
+ *
+ * Restrict the addition of keys into a keyring based on the key-to-be-added
+ * being vouched for by a key in the built in system keyring. The new key
+ * must have the digitalSignature usage field set.
+ */
+int restrict_link_by_digsig_builtin(struct key *dest_keyring,
+				    const struct key_type *type,
+				    const union key_payload *payload,
+				    struct key *restriction_key)
+{
+	return restrict_link_by_digsig(dest_keyring, type, payload,
+				       builtin_trusted_keys);
+}
+
 #ifdef CONFIG_SECONDARY_TRUSTED_KEYRING
 /**
  * restrict_link_by_builtin_and_secondary_trusted - Restrict keyring
@@ -83,6 +103,35 @@ int restrict_link_by_builtin_and_secondary_trusted(
 					  secondary_trusted_keys);
 }
 
+/**
+ * restrict_link_by_digsig_builtin_and_secondary - Restrict by digitalSignature.
+ * @dest_keyring: Keyring being linked to.
+ * @type: The type of key being added.
+ * @payload: The payload of the new key.
+ * @restrict_key: A ring of keys that can be used to vouch for the new cert.
+ *
+ * Restrict the addition of keys into a keyring based on the key-to-be-added
+ * being vouched for by a key in either the built-in or the secondary system
+ * keyrings. The new key must have the digitalSignature usage field set.
+ */
+int restrict_link_by_digsig_builtin_and_secondary(struct key *dest_keyring,
+						  const struct key_type *type,
+						  const union key_payload *payload,
+						  struct key *restrict_key)
+{
+	/* If we have a secondary trusted keyring, then that contains a link
+	 * through to the builtin keyring and the search will follow that link.
+	 */
+	if (type == &key_type_keyring &&
+	    dest_keyring == secondary_trusted_keys &&
+	    payload == &builtin_trusted_keys->payload)
+		/* Allow the builtin keyring to be added to the secondary */
+		return 0;
+
+	return restrict_link_by_digsig(dest_keyring, type, payload,
+				       secondary_trusted_keys);
+}
+
 /*
  * Allocate a struct key_restriction for the "builtin and secondary trust"
  * keyring. Only for use in system_trusted_keyring_init().
@@ -102,6 +151,36 @@ static __init struct key_restriction *get_builtin_and_secondary_restriction(void
 		restriction->check = restrict_link_by_builtin_and_secondary_trusted;
 
 	return restriction;
+}
+
+/**
+ * add_to_secondary_keyring - Add to secondary keyring.
+ * @source: Source of key
+ * @data: The blob holding the key
+ * @len: The length of the data blob
+ *
+ * Add a key to the secondary keyring. The key must be vouched for by a key in the builtin,
+ * machine or secondary keyring itself.
+ */
+void __init add_to_secondary_keyring(const char *source, const void *data, size_t len)
+{
+	key_ref_t key;
+	key_perm_t perm;
+
+	perm = (KEY_POS_ALL & ~KEY_POS_SETATTR) | KEY_USR_VIEW;
+
+	key = key_create_or_update(make_key_ref(secondary_trusted_keys, 1),
+				   "asymmetric",
+				   NULL, data, len, perm,
+				   KEY_ALLOC_NOT_IN_QUOTA);
+	if (IS_ERR(key)) {
+		pr_err("Problem loading X.509 certificate from %s to secondary keyring %ld\n",
+		       source, PTR_ERR(key));
+		return;
+	}
+
+	pr_notice("Loaded X.509 cert '%s'\n", key_ref_to_ptr(key)->description);
+	key_ref_put(key);
 }
 #endif
 #ifdef CONFIG_INTEGRITY_MACHINE_KEYRING
