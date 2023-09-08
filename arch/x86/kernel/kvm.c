@@ -44,6 +44,7 @@
 #include <asm/svm.h>
 #include <asm/e820/api.h>
 
+#ifdef CONFIG_SUSE_PRODUCT_SLE
 /*
  * SLE-specific.
  *
@@ -59,6 +60,7 @@ static __init int kvm_parse_nopvspin(char *arg)
 	return 0;
 }
 early_param("kvm_nopvspin", kvm_parse_nopvspin);
+#endif
 
 DEFINE_STATIC_KEY_FALSE(kvm_async_pf_enabled);
 
@@ -1108,10 +1110,12 @@ void __init kvm_spinlock_init(void)
 		goto out;
 	}
 
+	#ifdef CONFIG_SUSE_PRODUCT_SLE
 	if (!kvm_pvspin) {
 		pr_info("KVM: disabled paravirtual spinlock by kernel parameter\n");
 		goto out;
 	}
+	#endif
 
 	if (nopvspin) {
 		pr_info("PV spinlocks disabled, forced by \"nopvspin\" parameter\n");

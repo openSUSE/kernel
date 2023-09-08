@@ -1320,7 +1320,7 @@ static int devlink_nl_cmd_port_split_doit(struct sk_buff *skb,
 
 	if (GENL_REQ_ATTR_CHECK(info, DEVLINK_ATTR_PORT_SPLIT_COUNT))
 		return -EINVAL;
-	if (!devlink->ops->port_split)
+	if (!devlink_port->ops->port_split)
 		return -EOPNOTSUPP;
 
 	count = nla_get_u32(info->attrs[DEVLINK_ATTR_PORT_SPLIT_COUNT]);
@@ -1339,8 +1339,8 @@ static int devlink_nl_cmd_port_split_doit(struct sk_buff *skb,
 		return -EINVAL;
 	}
 
-	return devlink->ops->port_split(devlink, devlink_port, count,
-					info->extack);
+	return devlink_port->ops->port_split(devlink, devlink_port, count,
+					     info->extack);
 }
 
 static int devlink_nl_cmd_port_unsplit_doit(struct sk_buff *skb,
@@ -1349,40 +1349,9 @@ static int devlink_nl_cmd_port_unsplit_doit(struct sk_buff *skb,
 	struct devlink_port *devlink_port = info->user_ptr[1];
 	struct devlink *devlink = info->user_ptr[0];
 
-	if (!devlink->ops->port_unsplit)
+	if (!devlink_port->ops->port_unsplit)
 		return -EOPNOTSUPP;
-	return devlink->ops->port_unsplit(devlink, devlink_port, info->extack);
-}
-
-static int devlink_port_new_notify(struct devlink *devlink,
-				   unsigned int port_index,
-				   struct genl_info *info)
-{
-	struct devlink_port *devlink_port;
-	struct sk_buff *msg;
-	int err;
-
-	msg = nlmsg_new(NLMSG_DEFAULT_SIZE, GFP_KERNEL);
-	if (!msg)
-		return -ENOMEM;
-
-	lockdep_assert_held(&devlink->lock);
-	devlink_port = devlink_port_get_by_index(devlink, port_index);
-	if (!devlink_port) {
-		err = -ENODEV;
-		goto out;
-	}
-
-	err = devlink_nl_port_fill(msg, devlink_port, DEVLINK_CMD_NEW,
-				   info->snd_portid, info->snd_seq, 0, NULL);
-	if (err)
-		goto out;
-
-	return genlmsg_reply(msg, info);
-
-out:
-	nlmsg_free(msg);
-	return err;
+	return devlink_port->ops->port_unsplit(devlink, devlink_port, info->extack);
 }
 
 static int devlink_nl_cmd_port_new_doit(struct sk_buff *skb,
@@ -1391,8 +1360,6 @@ static int devlink_nl_cmd_port_new_doit(struct sk_buff *skb,
 	struct netlink_ext_ack *extack = info->extack;
 	struct devlink_port_new_attrs new_attrs = {};
 	struct devlink *devlink = info->user_ptr[0];
-	unsigned int new_port_index;
-	int err;
 
 	if (!devlink->ops->port_new || !devlink->ops->port_del)
 		return -EOPNOTSUPP;
@@ -1423,36 +1390,20 @@ static int devlink_nl_cmd_port_new_doit(struct sk_buff *skb,
 		new_attrs.sfnum_valid = true;
 	}
 
-	err = devlink->ops->port_new(devlink, &new_attrs, extack,
-				     &new_port_index);
-	if (err)
-		return err;
-
-	err = devlink_port_new_notify(devlink, new_port_index, info);
-	if (err && err != -ENODEV) {
-		/* Fail to send the response; destroy newly created port. */
-		devlink->ops->port_del(devlink, new_port_index, extack);
-	}
-	return err;
+	return devlink->ops->port_new(devlink, &new_attrs, extack);
 }
 
 static int devlink_nl_cmd_port_del_doit(struct sk_buff *skb,
 					struct genl_info *info)
 {
+	struct devlink_port *devlink_port = info->user_ptr[1];
 	struct netlink_ext_ack *extack = info->extack;
 	struct devlink *devlink = info->user_ptr[0];
-	unsigned int port_index;
 
 	if (!devlink->ops->port_del)
 		return -EOPNOTSUPP;
 
-	if (GENL_REQ_ATTR_CHECK(info, DEVLINK_ATTR_PORT_INDEX)) {
-		NL_SET_ERR_MSG(extack, "Port index is not specified");
-		return -EINVAL;
-	}
-	port_index = nla_get_u32(info->attrs[DEVLINK_ATTR_PORT_INDEX]);
-
-	return devlink->ops->port_del(devlink, port_index, extack);
+	return devlink->ops->port_del(devlink, devlink_port, extack);
 }
 
 static int
@@ -6384,6 +6335,7 @@ const struct genl_small_ops devlink_nl_ops[56] = {
 		.cmd = DEVLINK_CMD_PORT_DEL,
 		.doit = devlink_nl_cmd_port_del_doit,
 		.flags = GENL_ADMIN_PERM,
+		.internal_flags = DEVLINK_NL_FLAG_NEED_PORT,
 	},
 	{
 		.cmd = DEVLINK_CMD_LINECARD_GET,
@@ -6815,7 +6767,7 @@ static void devlink_port_type_warn_cancel(struct devlink_port *devlink_port)
  * @devlink: devlink
  * @devlink_port: devlink port
  *
- * Initialize essencial stuff that is needed for functions
+ * Initialize essential stuff that is needed for functions
  * that may be called before devlink port registration.
  * Call to this function is optional and not needed
  * in case the driver does not use such functions.
@@ -6836,7 +6788,7 @@ EXPORT_SYMBOL_GPL(devlink_port_init);
  *
  * @devlink_port: devlink port
  *
- * Deinitialize essencial stuff that is in use for functions
+ * Deinitialize essential stuff that is in use for functions
  * that may be called after devlink port unregistration.
  * Call to this function is optional and not needed
  * in case the driver does not use such functions.
@@ -6847,12 +6799,15 @@ void devlink_port_fini(struct devlink_port *devlink_port)
 }
 EXPORT_SYMBOL_GPL(devlink_port_fini);
 
+static const struct devlink_port_ops devlink_port_dummy_ops = {};
+
 /**
- * devl_port_register() - Register devlink port
+ * devl_port_register_with_ops() - Register devlink port
  *
  * @devlink: devlink
  * @devlink_port: devlink port
  * @port_index: driver-specific numerical identifier of the port
+ * @ops: port ops
  *
  * Register devlink port with provided port index. User can use
  * any indexing, even hw-related one. devlink_port structure
@@ -6860,9 +6815,10 @@ EXPORT_SYMBOL_GPL(devlink_port_fini);
  * Note that the caller should take care of zeroing the devlink_port
  * structure.
  */
-int devl_port_register(struct devlink *devlink,
-		       struct devlink_port *devlink_port,
-		       unsigned int port_index)
+int devl_port_register_with_ops(struct devlink *devlink,
+				struct devlink_port *devlink_port,
+				unsigned int port_index,
+				const struct devlink_port_ops *ops)
 {
 	int err;
 
@@ -6873,6 +6829,7 @@ int devl_port_register(struct devlink *devlink,
 	devlink_port_init(devlink, devlink_port);
 	devlink_port->registered = true;
 	devlink_port->index = port_index;
+	devlink_port->ops = ops ? ops : &devlink_port_dummy_ops;
 	spin_lock_init(&devlink_port->type_lock);
 	INIT_LIST_HEAD(&devlink_port->reporter_list);
 	err = xa_insert(&devlink->ports, port_index, devlink_port, GFP_KERNEL);
@@ -6884,14 +6841,15 @@ int devl_port_register(struct devlink *devlink,
 	devlink_port_notify(devlink_port, DEVLINK_CMD_PORT_NEW);
 	return 0;
 }
-EXPORT_SYMBOL_GPL(devl_port_register);
+EXPORT_SYMBOL_GPL(devl_port_register_with_ops);
 
 /**
- *	devlink_port_register - Register devlink port
+ *	devlink_port_register_with_ops - Register devlink port
  *
  *	@devlink: devlink
  *	@devlink_port: devlink port
  *	@port_index: driver-specific numerical identifier of the port
+ *	@ops: port ops
  *
  *	Register devlink port with provided port index. User can use
  *	any indexing, even hw-related one. devlink_port structure
@@ -6901,18 +6859,20 @@ EXPORT_SYMBOL_GPL(devl_port_register);
  *
  *	Context: Takes and release devlink->lock <mutex>.
  */
-int devlink_port_register(struct devlink *devlink,
-			  struct devlink_port *devlink_port,
-			  unsigned int port_index)
+int devlink_port_register_with_ops(struct devlink *devlink,
+				   struct devlink_port *devlink_port,
+				   unsigned int port_index,
+				   const struct devlink_port_ops *ops)
 {
 	int err;
 
 	devl_lock(devlink);
-	err = devl_port_register(devlink, devlink_port, port_index);
+	err = devl_port_register_with_ops(devlink, devlink_port,
+					  port_index, ops);
 	devl_unlock(devlink);
 	return err;
 }
-EXPORT_SYMBOL_GPL(devlink_port_register);
+EXPORT_SYMBOL_GPL(devlink_port_register_with_ops);
 
 /**
  * devl_port_unregister() - Unregister devlink port
