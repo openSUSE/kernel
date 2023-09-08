@@ -123,6 +123,7 @@ struct devlink_port {
 	struct list_head list;
 	struct list_head region_list;
 	struct devlink *devlink;
+	const struct devlink_port_ops *ops;
 	unsigned int index;
 	spinlock_t type_lock; /* Protects type and type_eth/ib
 			       * structures consistency.
@@ -1265,7 +1266,7 @@ struct devlink_ops {
 	/**
 	 * @supported_flash_update_params:
 	 * mask of parameters supported by the driver's .flash_update
-	 * implemementation.
+	 * implementation.
 	 */
 	u32 supported_flash_update_params;
 	unsigned long reload_actions;
@@ -1279,10 +1280,6 @@ struct devlink_ops {
 			 struct netlink_ext_ack *extack);
 	int (*port_type_set)(struct devlink_port *devlink_port,
 			     enum devlink_port_type port_type);
-	int (*port_split)(struct devlink *devlink, struct devlink_port *port,
-			  unsigned int count, struct netlink_ext_ack *extack);
-	int (*port_unsplit)(struct devlink *devlink, struct devlink_port *port,
-			    struct netlink_ext_ack *extack);
 	int (*sb_pool_get)(struct devlink *devlink, unsigned int sb_index,
 			   u16 pool_index,
 			   struct devlink_sb_pool_info *pool_info);
@@ -1504,7 +1501,6 @@ struct devlink_ops {
 	 * @devlink: Devlink instance
 	 * @attrs: attributes of the new port
 	 * @extack: extack for reporting error messages
-	 * @new_port_index: index of the new port
 	 *
 	 * Devlink core will call this device driver function upon user request
 	 * to create a new port function of a specified flavor and optional
@@ -1519,12 +1515,11 @@ struct devlink_ops {
 	 */
 	int (*port_new)(struct devlink *devlink,
 			const struct devlink_port_new_attrs *attrs,
-			struct netlink_ext_ack *extack,
-			unsigned int *new_port_index);
+			struct netlink_ext_ack *extack);
 	/**
 	 * port_del() - Delete a port function
 	 * @devlink: Devlink instance
-	 * @port_index: port function index to delete
+	 * @port: The devlink port
 	 * @extack: extack for reporting error messages
 	 *
 	 * Devlink core will call this device driver function upon user request
@@ -1538,7 +1533,7 @@ struct devlink_ops {
 	 *
 	 * Return: 0 on success, negative value otherwise.
 	 */
-	int (*port_del)(struct devlink *devlink, unsigned int port_index,
+	int (*port_del)(struct devlink *devlink, struct devlink_port *port,
 			struct netlink_ext_ack *extack);
 	/**
 	 * port_fn_state_get() - Get the state of a port function
@@ -1659,15 +1654,50 @@ void devl_unregister(struct devlink *devlink);
 void devlink_register(struct devlink *devlink);
 void devlink_unregister(struct devlink *devlink);
 void devlink_free(struct devlink *devlink);
+
+/**
+ * struct devlink_port_ops - Port operations
+ * @port_split: Callback used to split the port into multiple ones.
+ * @port_unsplit: Callback used to unsplit the port group back into
+ *		  a single port.
+ */
+struct devlink_port_ops {
+	int (*port_split)(struct devlink *devlink, struct devlink_port *port,
+			  unsigned int count, struct netlink_ext_ack *extack);
+	int (*port_unsplit)(struct devlink *devlink, struct devlink_port *port,
+			    struct netlink_ext_ack *extack);
+};
+
 void devlink_port_init(struct devlink *devlink,
 		       struct devlink_port *devlink_port);
 void devlink_port_fini(struct devlink_port *devlink_port);
-int devl_port_register(struct devlink *devlink,
-		       struct devlink_port *devlink_port,
-		       unsigned int port_index);
-int devlink_port_register(struct devlink *devlink,
-			  struct devlink_port *devlink_port,
-			  unsigned int port_index);
+
+int devl_port_register_with_ops(struct devlink *devlink,
+				struct devlink_port *devlink_port,
+				unsigned int port_index,
+				const struct devlink_port_ops *ops);
+
+static inline int devl_port_register(struct devlink *devlink,
+				     struct devlink_port *devlink_port,
+				     unsigned int port_index)
+{
+	return devl_port_register_with_ops(devlink, devlink_port,
+					   port_index, NULL);
+}
+
+int devlink_port_register_with_ops(struct devlink *devlink,
+				   struct devlink_port *devlink_port,
+				   unsigned int port_index,
+				   const struct devlink_port_ops *ops);
+
+static inline int devlink_port_register(struct devlink *devlink,
+					struct devlink_port *devlink_port,
+					unsigned int port_index)
+{
+	return devlink_port_register_with_ops(devlink, devlink_port,
+					      port_index, NULL);
+}
+
 void devl_port_unregister(struct devlink_port *devlink_port);
 void devlink_port_unregister(struct devlink_port *devlink_port);
 void devlink_port_type_eth_set(struct devlink_port *devlink_port);
