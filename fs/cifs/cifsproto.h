@@ -75,9 +75,7 @@ extern char *cifs_build_path_to_root(struct smb3_fs_context *ctx,
 				     struct cifs_tcon *tcon,
 				     int add_treename);
 extern char *build_wildcard_path_from_dentry(struct dentry *direntry);
-extern char *cifs_compose_mount_options(const char *sb_mountdata,
-		const char *fullpath, const struct dfs_info3_param *ref,
-		char **devname);
+char *cifs_build_devname(char *nodename, const char *prepath);
 /* extern void renew_parental_timestamps(struct dentry *direntry);*/
 extern struct mid_q_entry *AllocMidQEntry(const struct smb_hdr *smb_buffer,
 					struct TCP_Server_Info *server);
@@ -554,9 +552,6 @@ extern int E_md4hash(const unsigned char *passwd, unsigned char *p16,
 			const struct nls_table *codepage);
 extern int SMBencrypt(unsigned char *passwd, const unsigned char *c8,
 			unsigned char *p24);
-
-extern int
-cifs_setup_volume_info(struct smb3_fs_context *ctx, const char *mntopts, const char *devname);
 
 extern struct TCP_Server_Info *
 cifs_find_tcp_session(struct smb3_fs_context *ctx);
