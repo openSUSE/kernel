@@ -2336,6 +2336,14 @@ nvme_tcp_timeout(struct request *rq, bool reserved)
 		"queue %d: timeout request %#x type %d\n",
 		nvme_tcp_queue_id(req->queue), rq->tag, pdu->hdr.type);
 
+	/*
+	 * If the error recovery is started all commands will be
+	 * aborted anyway, and nothing is to be done here.
+	 */
+	if (ctrl->state == NVME_CTRL_RESETTING &&
+	    work_pending(&to_tcp_ctrl(ctrl)->err_work))
+		return BLK_EH_RESET_TIMER;
+
 	if (ctrl->state != NVME_CTRL_LIVE) {
 		/*
 		 * If we are resetting, connecting or deleting we should
