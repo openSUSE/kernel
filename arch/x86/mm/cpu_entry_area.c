@@ -10,6 +10,7 @@
 #include <asm/cpu_entry_area.h>
 #include <asm/fixmap.h>
 #include <asm/desc.h>
+#include <asm/setup.h>
 
 static DEFINE_PER_CPU_PAGE_ALIGNED(struct entry_stack_page, entry_stack_storage);
 
@@ -29,6 +30,12 @@ static __init void init_cea_offsets(void)
 	struct rnd_state rand_state;
 	unsigned int max_cea, rand;
 	unsigned int i, j;
+
+	if (!kaslr_enabled()) {
+		for_each_possible_cpu(i)
+			per_cpu(_cea_offset, i) = i;
+		return;
+	}
 
 	max_cea = (CPU_ENTRY_AREA_MAP_SIZE - PAGE_SIZE) / CPU_ENTRY_AREA_SIZE;
 	prandom_seed_state(&rand_state, kaslr_get_random_long("CPU entry"));

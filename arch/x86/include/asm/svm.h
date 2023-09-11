@@ -255,7 +255,6 @@ enum avic_ipi_failure_cause {
 #define AVIC_MAX_PHYSICAL_ID_COUNT	0xff
 
 #define AVIC_HPA_MASK	~((0xFFFULL << 52) | 0xFFF)
-#define VMCB_AVIC_APIC_BAR_MASK		0xFFFFFFFFFF000ULL
 
 
 struct vmcb_seg {
