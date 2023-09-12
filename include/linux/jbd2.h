@@ -626,6 +626,9 @@ struct transaction_s
 	 */
 	struct journal_head	*t_checkpoint_list;
 
+	/* Unused, kept for kABI compatibility */
+	struct journal_head     *t_checkpoint_io_list;
+
 	/*
 	 * Doubly-linked circular list of metadata buffers being
 	 * shadowed by log IO.  The IO buffers on the iobuf list and
