@@ -400,6 +400,7 @@ bool hv_is_isolation_supported(void)
 }
 
 DEFINE_STATIC_KEY_FALSE(isolation_type_snp);
+DEFINE_STATIC_KEY_FALSE(isolation_type_tdx);
 
 /*
  * hv_isolation_type_snp - Check system runs in the AMD SEV-SNP based
@@ -408,4 +409,9 @@ DEFINE_STATIC_KEY_FALSE(isolation_type_snp);
 bool hv_isolation_type_snp(void)
 {
 	return static_branch_unlikely(&isolation_type_snp);
+}
+
+bool hv_isolation_type_tdx(void)
+{
+	return static_branch_unlikely(&isolation_type_tdx);
 }
