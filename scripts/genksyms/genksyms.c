@@ -33,7 +33,7 @@ char *cur_filename, *source_file;
 int in_source_file;
 
 static int flag_debug, flag_dump_defs, flag_reference, flag_dump_types,
-	   flag_override, flag_preserve, flag_warnings, flag_rel_crcs;
+	   flag_preserve, flag_warnings, flag_rel_crcs;
 
 static int errors;
 static int nsyms;
@@ -243,7 +243,7 @@ static struct symbol *__add_symbol(const char *name, enum symbol_type type,
 				sym->is_declared = 1;
 				return sym;
 			} else if (!sym->is_declared) {
-				if (sym->is_override && flag_override) {
+				if (sym->is_override && flag_preserve) {
 					print_location();
 					fprintf(stderr, "ignoring ");
 					print_type_name(type, name);
@@ -656,13 +656,11 @@ void export_symbol(const char *name)
 			struct symbol *n = sym->expansion_trail;
 
 			if (sym->status != STATUS_UNCHANGED) {
-				int fail = sym->is_override && flag_preserve;
-
 				if (!has_changed) {
 					print_location();
 					fprintf(stderr, "%s: %s: modversion "
 						"changed because of changes "
-						"in ", fail ? "error" :
+						"in ", flag_preserve ? "error" :
 						       "warning", name);
 				} else
 					fprintf(stderr, ", ");
@@ -670,7 +668,7 @@ void export_symbol(const char *name)
 				if (sym->status == STATUS_DEFINED)
 					fprintf(stderr, " (became defined)");
 				has_changed = 1;
-				if (fail)
+				if (flag_preserve)
 					errors++;
 			}
 			sym->expansion_trail = 0;
@@ -730,7 +728,6 @@ static void genksyms_usage(void)
 	      "  -D, --dump            Dump expanded symbol defs (for debugging only)\n"
 	      "  -r, --reference file  Read reference symbols from a file\n"
 	      "  -T, --dump-types file Dump expanded types into file\n"
-	      "  -o, --override        Allow to override reference modversions\n"
 	      "  -p, --preserve        Preserve reference modversions or fail\n"
 	      "  -w, --warnings        Enable warnings\n"
 	      "  -q, --quiet           Disable warnings (default)\n"
@@ -743,7 +740,6 @@ static void genksyms_usage(void)
 	      "  -D                    Dump expanded symbol defs (for debugging only)\n"
 	      "  -r file               Read reference symbols from a file\n"
 	      "  -T file               Dump expanded types into file\n"
-	      "  -o                    Allow to override reference modversions\n"
 	      "  -p                    Preserve reference modversions or fail\n"
 	      "  -w                    Enable warnings\n"
 	      "  -q                    Disable warnings (default)\n"
@@ -768,17 +764,16 @@ int main(int argc, char **argv)
 		{"reference", 1, 0, 'r'},
 		{"dump-types", 1, 0, 'T'},
 		{"preserve", 0, 0, 'p'},
-		{"override", 0, 0, 'o'},
 		{"version", 0, 0, 'V'},
 		{"help", 0, 0, 'h'},
 		{"relative-crc", 0, 0, 'R'},
 		{0, 0, 0, 0}
 	};
 
-	while ((o = getopt_long(argc, argv, "s:dwqVDr:T:ophR",
+	while ((o = getopt_long(argc, argv, "s:dwqVDr:T:phR",
 				&long_opts[0], NULL)) != EOF)
 #else				/* __GNU_LIBRARY__ */
-	while ((o = getopt(argc, argv, "s:dwqVDr:T:ophR")) != EOF)
+	while ((o = getopt(argc, argv, "s:dwqVDr:T:phR")) != EOF)
 #endif				/* __GNU_LIBRARY__ */
 		switch (o) {
 		case 'd':
@@ -812,11 +807,7 @@ int main(int argc, char **argv)
 				return 1;
 			}
 			break;
-		case 'o':
-			flag_override = 1;
-			break;
 		case 'p':
-			flag_override = 1;
 			flag_preserve = 1;
 			break;
 		case 'h':
