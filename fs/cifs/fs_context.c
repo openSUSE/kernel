@@ -335,6 +335,7 @@ smb3_fs_context_dup(struct smb3_fs_context *new_ctx, struct smb3_fs_context *ctx
 	new_ctx->UNC = NULL;
 	new_ctx->source = NULL;
 	new_ctx->iocharset = NULL;
+	new_ctx->leaf_fullpath = NULL;
 	/*
 	 * Make sure to stay in sync with smb3_cleanup_fs_context_contents()
 	 */
@@ -347,6 +348,7 @@ smb3_fs_context_dup(struct smb3_fs_context *new_ctx, struct smb3_fs_context *ctx
 	DUP_CTX_STR(domainname);
 	DUP_CTX_STR(nodename);
 	DUP_CTX_STR(iocharset);
+	DUP_CTX_STR(leaf_fullpath);
 
 	return 0;
 }
@@ -1590,6 +1592,8 @@ smb3_cleanup_fs_context_contents(struct smb3_fs_context *ctx)
 	ctx->iocharset = NULL;
 	kfree(ctx->prepath);
 	ctx->prepath = NULL;
+	kfree(ctx->leaf_fullpath);
+	ctx->leaf_fullpath = NULL;
 }
 
 void
