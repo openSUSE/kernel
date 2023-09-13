@@ -72,8 +72,10 @@ enum ipl_type {
 	IPL_TYPE_NSS		= 16,
 	IPL_TYPE_NVME		= 32,
 	IPL_TYPE_NVME_DUMP	= 64,
+#ifndef __GENKSYMS__
 	IPL_TYPE_ECKD		= 128,
 	IPL_TYPE_ECKD_DUMP	= 256,
+#endif
 };
 
 struct ipl_info
@@ -83,9 +85,11 @@ struct ipl_info
 		struct {
 			struct ccw_dev_id dev_id;
 		} ccw;
+#ifndef __GENKSYMS__
 		struct {
 			struct ccw_dev_id dev_id;
 		} eckd;
+#endif
 		struct {
 			struct ccw_dev_id dev_id;
 			u64 wwpn;
