@@ -107,7 +107,6 @@ static bool cpu_is_self(int cpu)
 static bool __send_ipi_mask_ex(const struct cpumask *mask, int vector,
 		bool exclude_self)
 {
-	struct hv_send_ipi_ex **arg;
 	struct hv_send_ipi_ex *ipi_arg;
 	unsigned long flags;
 	int nr_bank = 0;
@@ -117,9 +116,8 @@ static bool __send_ipi_mask_ex(const struct cpumask *mask, int vector,
 		return false;
 
 	local_irq_save(flags);
-	arg = (struct hv_send_ipi_ex **)this_cpu_ptr(hyperv_pcpu_input_arg);
+	ipi_arg = *this_cpu_ptr(hyperv_pcpu_input_arg);
 
-	ipi_arg = *arg;
 	if (unlikely(!ipi_arg))
 		goto ipi_mask_ex_done;
 
@@ -177,8 +175,11 @@ static bool __send_ipi_mask(const struct cpumask *mask, int vector,
 	    (exclude_self && weight == 1 && cpumask_test_cpu(this_cpu, mask)))
 		return true;
 
-	if (!hv_hypercall_pg)
-		return false;
+	/* A fully enlightened TDX VM uses GHCI rather than hv_hypercall_pg. */
+	if (!hv_hypercall_pg) {
+		if (ms_hyperv.paravisor_present || !hv_isolation_type_tdx())
+			return false;
+	}
 
 	if ((vector < HV_IPI_LOW_VECTOR) || (vector > HV_IPI_HIGH_VECTOR))
 		return false;
@@ -231,8 +232,14 @@ static bool __send_ipi_one(int cpu, int vector)
 
 	trace_hyperv_send_ipi_one(cpu, vector);
 
-	if (!hv_hypercall_pg || (vp == VP_INVAL))
+	if (vp == VP_INVAL)
 		return false;
+
+	/* A fully enlightened TDX VM uses GHCI rather than hv_hypercall_pg. */
+	if (!hv_hypercall_pg) {
+		if (ms_hyperv.paravisor_present || !hv_isolation_type_tdx())
+			return false;
+	}
 
 	if ((vector < HV_IPI_LOW_VECTOR) || (vector > HV_IPI_HIGH_VECTOR))
 		return false;
