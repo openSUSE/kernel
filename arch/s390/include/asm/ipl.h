@@ -21,6 +21,7 @@ struct ipl_parameter_block {
 		struct ipl_pb0_common common;
 		struct ipl_pb0_fcp fcp;
 		struct ipl_pb0_ccw ccw;
+		struct ipl_pb0_eckd eckd;
 		struct ipl_pb0_nvme nvme;
 		char raw[PAGE_SIZE - sizeof(struct ipl_pl_hdr)];
 	};
@@ -39,6 +40,10 @@ struct ipl_parameter_block {
 #define IPL_BP_CCW_LEN (sizeof(struct ipl_pl_hdr) + \
 			      sizeof(struct ipl_pb0_ccw))
 #define IPL_BP0_CCW_LEN (sizeof(struct ipl_pb0_ccw))
+
+#define IPL_BP_ECKD_LEN (sizeof(struct ipl_pl_hdr) + \
+			      sizeof(struct ipl_pb0_eckd))
+#define IPL_BP0_ECKD_LEN (sizeof(struct ipl_pb0_eckd))
 
 #define IPL_MAX_SUPPORTED_VERSION (0)
 
@@ -67,6 +72,7 @@ enum ipl_type {
 	IPL_TYPE_NSS		= 16,
 	IPL_TYPE_NVME		= 32,
 	IPL_TYPE_NVME_DUMP	= 64,
+	IPL_TYPE_ECKD		= 128,
 };
 
 struct ipl_info
@@ -76,6 +82,9 @@ struct ipl_info
 		struct {
 			struct ccw_dev_id dev_id;
 		} ccw;
+		struct {
+			struct ccw_dev_id dev_id;
+		} eckd;
 		struct {
 			struct ccw_dev_id dev_id;
 			u64 wwpn;
