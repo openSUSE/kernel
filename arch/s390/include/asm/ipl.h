@@ -73,6 +73,7 @@ enum ipl_type {
 	IPL_TYPE_NVME		= 32,
 	IPL_TYPE_NVME_DUMP	= 64,
 	IPL_TYPE_ECKD		= 128,
+	IPL_TYPE_ECKD_DUMP	= 256,
 };
 
 struct ipl_info
@@ -107,6 +108,7 @@ extern void set_os_info_reipl_block(void);
 static inline bool is_ipl_type_dump(void)
 {
 	return (ipl_info.type == IPL_TYPE_FCP_DUMP) ||
+		(ipl_info.type == IPL_TYPE_ECKD_DUMP) ||
 		(ipl_info.type == IPL_TYPE_NVME_DUMP);
 }
 
