@@ -554,7 +554,6 @@ static int prot_mask;
 module_param(prot_mask, int, 0444);
 MODULE_PARM_DESC(prot_mask, " host protection capabilities mask, def=0x0 ");
 
-static void debugfs_work_handler_v3_hw(struct work_struct *work);
 static void debugfs_snapshot_regs_v3_hw(struct hisi_hba *hisi_hba);
 
 static u32 hisi_sas_read32(struct hisi_hba *hisi_hba, u32 off)
@@ -3311,7 +3310,6 @@ hisi_sas_shost_alloc_pci(struct pci_dev *pdev)
 	hisi_hba = shost_priv(shost);
 
 	INIT_WORK(&hisi_hba->rst_work, hisi_sas_rst_work_handler);
-	INIT_WORK(&hisi_hba->debugfs_work, debugfs_work_handler_v3_hw);
 	hisi_hba->hw = &hisi_sas_v3_hw;
 	hisi_hba->pci_dev = pdev;
 	hisi_hba->dev = dev;
@@ -3826,7 +3824,9 @@ static ssize_t debugfs_trigger_dump_v3_hw_write(struct file *file,
 	if (buf[0] != '1')
 		return -EFAULT;
 
-	queue_work(hisi_hba->wq, &hisi_hba->debugfs_work);
+	down(&hisi_hba->sem);
+	debugfs_snapshot_regs_v3_hw(hisi_hba);
+	up(&hisi_hba->sem);
 
 	return count;
 }
@@ -4575,14 +4575,6 @@ static void debugfs_fifo_init_v3_hw(struct hisi_hba *hisi_hba)
 		debugfs_create_file("fifo_data", 0400, port_dentry, phy,
 				    &debugfs_fifo_data_v3_hw_fops);
 	}
-}
-
-static void debugfs_work_handler_v3_hw(struct work_struct *work)
-{
-	struct hisi_hba *hisi_hba =
-		container_of(work, struct hisi_hba, debugfs_work);
-
-	debugfs_snapshot_regs_v3_hw(hisi_hba);
 }
 
 static void debugfs_release_v3_hw(struct hisi_hba *hisi_hba, int dump_index)
