@@ -61,6 +61,13 @@ static const struct of_device_id lpasscc_sc8280xp_match_table[] = {
 		.compatible = "qcom,sc8280xp-lpasscc",
 		.data = &lpasscc_sc8280xp_reset_desc,
 	},
+	{
+		.compatible = "qcom,sc8280xp-lpass-audio-csr",
+		.data = &lpass_audiocc_sc8280xp_reset_desc,
+	}, {
+		.compatible = "qcom,sc8280xp-lpass-tcsr",
+		.data = &lpasscc_sc8280xp_reset_desc,
+	},
 	{ }
 };
 MODULE_DEVICE_TABLE(of, lpasscc_sc8280xp_match_table);
