@@ -557,7 +557,8 @@ static void remove_oldest_entry_locked(void)
 }
 
 /* Add a new DFS cache entry */
-static int add_cache_entry_locked(struct dfs_info3_param *refs, int numrefs)
+static struct cache_entry *add_cache_entry_locked(struct dfs_info3_param *refs,
+						  int numrefs)
 {
 	int rc;
 	struct cache_entry *ce;
@@ -572,11 +573,11 @@ static int add_cache_entry_locked(struct dfs_info3_param *refs, int numrefs)
 
 	rc = cache_entry_hash(refs[0].path_name, strlen(refs[0].path_name), &hash);
 	if (rc)
-		return rc;
+		return ERR_PTR(rc);
 
 	ce = alloc_cache_entry(refs, numrefs);
 	if (IS_ERR(ce))
-		return PTR_ERR(ce);
+		return ce;
 
 	spin_lock(&cache_ttl_lock);
 	if (!cache_ttl) {
@@ -593,7 +594,7 @@ static int add_cache_entry_locked(struct dfs_info3_param *refs, int numrefs)
 
 	atomic_inc(&cache_count);
 
-	return 0;
+	return ce;
 }
 
 /* Check if two DFS paths are equal.  @s1 and @s2 are expected to be in @cache_cp's charset */
@@ -766,8 +767,12 @@ static int get_dfs_referral(const unsigned int xid, struct cifs_ses *ses, const 
  *
  * For interlinks, cifs_mount() and expand_dfs_referral() are supposed to
  * handle them properly.
+ *
+ * On success, return entry with acquired lock for reading, otherwise error ptr.
  */
-static int cache_refresh_path(const unsigned int xid, struct cifs_ses *ses, const char *path)
+static struct cache_entry *cache_refresh_path(const unsigned int xid,
+					      struct cifs_ses *ses,
+					      const char *path)
 {
 	struct dfs_info3_param *refs = NULL;
 	struct cache_entry *ce;
@@ -779,10 +784,9 @@ static int cache_refresh_path(const unsigned int xid, struct cifs_ses *ses, cons
 	down_read(&htable_rw_lock);
 
 	ce = lookup_cache_entry(path);
-	if (!IS_ERR(ce) && !cache_entry_expired(ce)) {
-		up_read(&htable_rw_lock);
-		return 0;
-	}
+	if (!IS_ERR(ce) && !cache_entry_expired(ce))
+		return ce;
+
 	/*
 	 * Unlock shared access as we don't want to hold any locks while getting
 	 * a new referral.  The @ses used for performing the I/O could be
@@ -796,8 +800,10 @@ static int cache_refresh_path(const unsigned int xid, struct cifs_ses *ses, cons
 	 * Request a new DFS referral in order to create or update a cache entry.
 	 */
 	rc = get_dfs_referral(xid, ses, path, &refs, &numrefs);
-	if (rc)
+	if (rc) {
+		ce = ERR_PTR(rc);
 		goto out;
+	}
 
 	dump_refs(refs, numrefs);
 
@@ -805,16 +811,24 @@ static int cache_refresh_path(const unsigned int xid, struct cifs_ses *ses, cons
 	/* Re-check as another task might have it added or refreshed already */
 	ce = lookup_cache_entry(path);
 	if (!IS_ERR(ce)) {
-		if (cache_entry_expired(ce))
+		if (cache_entry_expired(ce)) {
 			rc = update_cache_entry_locked(ce, refs, numrefs);
+			if (rc)
+				ce = ERR_PTR(rc);
+		}
 	} else {
-		rc = add_cache_entry_locked(refs, numrefs);
+		ce = add_cache_entry_locked(refs, numrefs);
 	}
 
-	up_write(&htable_rw_lock);
+	if (IS_ERR(ce)) {
+		up_write(&htable_rw_lock);
+		goto out;
+	}
+
+	downgrade_write(&htable_rw_lock);
 out:
 	free_dfs_info_array(refs, numrefs);
-	return rc;
+	return ce;
 }
 
 /*
@@ -934,15 +948,8 @@ int dfs_cache_find(const unsigned int xid, struct cifs_ses *ses, const struct nl
 	if (IS_ERR(npath))
 		return PTR_ERR(npath);
 
-	rc = cache_refresh_path(xid, ses, npath);
-	if (rc)
-		goto out_free_path;
-
-	down_read(&htable_rw_lock);
-
-	ce = lookup_cache_entry(npath);
+	ce = cache_refresh_path(xid, ses, npath);
 	if (IS_ERR(ce)) {
-		up_read(&htable_rw_lock);
 		rc = PTR_ERR(ce);
 		goto out_free_path;
 	}
@@ -1038,10 +1045,13 @@ int dfs_cache_update_tgthint(const unsigned int xid, struct cifs_ses *ses,
 
 	cifs_dbg(FYI, "%s: update target hint - path: %s\n", __func__, npath);
 
-	rc = cache_refresh_path(xid, ses, npath);
-	if (rc)
+	ce = cache_refresh_path(xid, ses, npath);
+	if (IS_ERR(ce)) {
+		rc = PTR_ERR(ce);
 		goto out_free_path;
+	}
 
+	up_read(&htable_rw_lock);
 	down_write(&htable_rw_lock);
 
 	ce = lookup_cache_entry(npath);
