@@ -229,7 +229,6 @@ static inline void req_fail_link_node(struct io_kiocb *req, int res)
 static inline void io_req_add_to_cache(struct io_kiocb *req, struct io_ring_ctx *ctx)
 {
 	wq_stack_add_head(&req->comp_list, &ctx->submit_state.free_list);
-	kasan_poison_object_data(req_cachep, req);
 }
 
 static __cold void io_ring_ctx_ref_free(struct percpu_ref *ref)
@@ -999,8 +998,7 @@ static void __io_req_complete_post(struct io_kiocb *req, unsigned issue_flags)
 		io_put_kbuf_comp(req);
 		if (unlikely(req->flags & IO_REQ_CLEAN_FLAGS))
 			io_clean_op(req);
-		if (!(req->flags & REQ_F_FIXED_FILE))
-			io_put_file(req->file);
+		io_put_file(req);
 
 		rsrc_node = req->rsrc_node;
 		/*
@@ -1534,8 +1532,7 @@ void io_free_batch_list(struct io_ring_ctx *ctx, struct io_wq_work_node *node)
 			if (unlikely(req->flags & IO_REQ_CLEAN_FLAGS))
 				io_clean_op(req);
 		}
-		if (!(req->flags & REQ_F_FIXED_FILE))
-			io_put_file(req->file);
+		io_put_file(req);
 
 		io_req_put_rsrc_locked(req, ctx);
 
@@ -1616,7 +1613,6 @@ static __cold void io_iopoll_try_reap_events(struct io_ring_ctx *ctx)
 static int io_iopoll_check(struct io_ring_ctx *ctx, long min)
 {
 	unsigned int nr_events = 0;
-	int ret = 0;
 	unsigned long check_cq;
 
 	if (!io_allowed_run_tw(ctx))
@@ -1642,6 +1638,8 @@ static int io_iopoll_check(struct io_ring_ctx *ctx, long min)
 		return 0;
 
 	do {
+		int ret = 0;
+
 		/*
 		 * If a submit got punted to a workqueue, we can have the
 		 * application entering polling for a command before it gets
@@ -1670,13 +1668,18 @@ static int io_iopoll_check(struct io_ring_ctx *ctx, long min)
 				break;
 		}
 		ret = io_do_iopoll(ctx, !min);
-		if (ret < 0)
-			break;
-		nr_events += ret;
-		ret = 0;
-	} while (nr_events < min && !need_resched());
+		if (unlikely(ret < 0))
+			return ret;
 
-	return ret;
+		if (task_sigpending(current))
+			return -EINTR;
+		if (need_resched())
+			break;
+
+		nr_events += ret;
+	} while (nr_events < min);
+
+	return 0;
 }
 
 void io_req_task_complete(struct io_kiocb *req, struct io_tw_state *ts)
@@ -2382,7 +2385,9 @@ static bool io_get_sqe(struct io_ring_ctx *ctx, const struct io_uring_sqe **sqe)
 	}
 
 	/* drop invalid entries */
+	spin_lock(&ctx->completion_lock);
 	ctx->cq_extra--;
+	spin_unlock(&ctx->completion_lock);
 	WRITE_ONCE(ctx->rings->sq_dropped,
 		   READ_ONCE(ctx->rings->sq_dropped) + 1);
 	return false;
@@ -4615,8 +4620,20 @@ static int __init io_uring_init(void)
 
 	io_uring_optable_init();
 
-	req_cachep = KMEM_CACHE(io_kiocb, SLAB_HWCACHE_ALIGN | SLAB_PANIC |
-				SLAB_ACCOUNT | SLAB_TYPESAFE_BY_RCU);
+	/*
+	 * Allow user copy in the per-command field, which starts after the
+	 * file in io_kiocb and until the opcode field. The openat2 handling
+	 * requires copying in user memory into the io_kiocb object in that
+	 * range, and HARDENED_USERCOPY will complain if we haven't
+	 * correctly annotated this range.
+	 */
+	req_cachep = kmem_cache_create_usercopy("io_kiocb",
+				sizeof(struct io_kiocb), 0,
+				SLAB_HWCACHE_ALIGN | SLAB_PANIC |
+				SLAB_ACCOUNT | SLAB_TYPESAFE_BY_RCU,
+				offsetof(struct io_kiocb, cmd.data),
+				sizeof_field(struct io_kiocb, cmd.data), NULL);
+
 	return 0;
 };
 __initcall(io_uring_init);
