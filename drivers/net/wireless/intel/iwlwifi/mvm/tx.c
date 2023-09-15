@@ -2076,7 +2076,8 @@ void iwl_mvm_rx_ba_notif(struct iwl_mvm *mvm, struct iwl_rx_cmd_buffer *rxb)
 		u16 tfd_cnt;
 		int i;
 
-		if (unlikely(sizeof(*ba_res) > pkt_len))
+		if (IWL_FW_CHECK(mvm, sizeof(*ba_res) > pkt_len,
+				 "short BA notification (%d)\n", pkt_len))
 			return;
 
 		sta_id = ba_res->sta_id;
@@ -2088,7 +2089,13 @@ void iwl_mvm_rx_ba_notif(struct iwl_mvm *mvm, struct iwl_rx_cmd_buffer *rxb)
 			(void *)(uintptr_t)ba_res->reduced_txp;
 
 		tfd_cnt = le16_to_cpu(ba_res->tfd_cnt);
-		if (!tfd_cnt || struct_size(ba_res, tfd, tfd_cnt) > pkt_len)
+		if (!tfd_cnt)
+			return;
+
+		if (IWL_FW_CHECK(mvm,
+				 struct_size(ba_res, tfd, tfd_cnt) > pkt_len,
+				 "short BA notification (tfds:%d, size:%d)\n",
+				 tfd_cnt, pkt_len))
 			return;
 
 		rcu_read_lock();
@@ -2146,7 +2153,9 @@ void iwl_mvm_rx_ba_notif(struct iwl_mvm *mvm, struct iwl_rx_cmd_buffer *rxb)
 
 	rcu_read_lock();
 	mvmsta = iwl_mvm_sta_from_staid_rcu(mvm, sta_id);
-	if (WARN_ON_ONCE(!mvmsta)) {
+	if (IWL_FW_CHECK(mvm, !mvmsta,
+			 "invalid STA ID %d in BA notif\n",
+			 sta_id)) {
 		rcu_read_unlock();
 		return;
 	}
