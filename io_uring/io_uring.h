@@ -196,10 +196,10 @@ static inline bool req_has_async_data(struct io_kiocb *req)
 	return req->flags & REQ_F_ASYNC_DATA;
 }
 
-static inline void io_put_file(struct file *file)
+static inline void io_put_file(struct io_kiocb *req)
 {
-	if (file)
-		fput(file);
+	if (!(req->flags & REQ_F_FIXED_FILE) && req->file)
+		fput(req->file);
 }
 
 static inline void io_ring_submit_unlock(struct io_ring_ctx *ctx,
@@ -354,7 +354,6 @@ static inline struct io_kiocb *io_extract_req(struct io_ring_ctx *ctx)
 	struct io_kiocb *req;
 
 	req = container_of(ctx->submit_state.free_list.next, struct io_kiocb, comp_list);
-	kasan_unpoison_object_data(req_cachep, req);
 	wq_stack_extract(&ctx->submit_state.free_list);
 	return req;
 }
