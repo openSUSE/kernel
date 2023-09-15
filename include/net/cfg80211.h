@@ -2468,6 +2468,7 @@ struct cfg80211_scan_info {
  * @short_ssid_valid: @short_ssid is valid and can be used
  * @psc_no_listen: when set, and the channel is a PSC channel, no need to wait
  *       20 TUs before starting to send probe requests.
+ * @psd_20: The AP's 20 MHz PSD value.
  */
 struct cfg80211_scan_6ghz_params {
 	u32 short_ssid;
@@ -2476,6 +2477,7 @@ struct cfg80211_scan_6ghz_params {
 	bool unsolicited_probe;
 	bool short_ssid_valid;
 	bool psc_no_listen;
+	s8 psd_20;
 };
 
 /**
