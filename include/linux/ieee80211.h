@@ -4584,6 +4584,14 @@ struct ieee80211_multi_link_elem {
 #define IEEE80211_MED_SYNC_DELAY_SYNC_OFDM_ED_THRESH	0x0f00
 #define IEEE80211_MED_SYNC_DELAY_SYNC_MAX_NUM_TXOPS	0xf000
 
+/*
+ * Described in P802.11be_D3.0
+ * dot11MSDTimerDuration should default to 5484 (i.e. 171.375)
+ * dot11MSDOFDMEDthreshold defaults to -72 (i.e. 0)
+ * dot11MSDTXOPMAX defaults to 1
+ */
+#define IEEE80211_MED_SYNC_DELAY_DEFAULT		0x10ac
+
 #define IEEE80211_EML_CAP_EMLSR_SUPP			0x0001
 #define IEEE80211_EML_CAP_EMLSR_PADDING_DELAY		0x000e
 #define  IEEE80211_EML_CAP_EMLSR_PADDING_DELAY_0US		0
@@ -4719,7 +4727,8 @@ ieee80211_mle_get_bss_param_ch_cnt(const struct ieee80211_multi_link_elem *mle)
  * The element is assumed to be of the correct type (BASIC) and big enough,
  * this must be checked using ieee80211_mle_type_ok().
  *
- * If the medium synchronization is not present, then 0 is returned.
+ * If the medium synchronization is not present, then the default value is
+ * returned.
  */
 static inline u16 ieee80211_mle_get_eml_med_sync_delay(const u8 *data)
 {
@@ -4731,7 +4740,7 @@ static inline u16 ieee80211_mle_get_eml_med_sync_delay(const u8 *data)
 	common += sizeof(struct ieee80211_mle_basic_common_info);
 
 	if (!(control & IEEE80211_MLC_BASIC_PRES_MED_SYNC_DELAY))
-		return 0;
+		return IEEE80211_MED_SYNC_DELAY_DEFAULT;
 
 	if (control & IEEE80211_MLC_BASIC_PRES_LINK_ID)
 		common += 1;
