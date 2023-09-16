@@ -175,7 +175,7 @@ static const struct usb_device_id btusb_table[] = {
 
 MODULE_DEVICE_TABLE(usb, btusb_table);
 
-static const struct usb_device_id blacklist_table[] = {
+static const struct usb_device_id quirks_table[] = {
 	/* CSR BlueCore devices */
 	{ USB_DEVICE(0x0a12, 0x0001), .driver_info = BTUSB_CSR },
 
@@ -476,6 +476,7 @@ static const struct usb_device_id blacklist_table[] = {
 	{ USB_DEVICE(0x8087, 0x0032), .driver_info = BTUSB_INTEL_COMBINED },
 	{ USB_DEVICE(0x8087, 0x0033), .driver_info = BTUSB_INTEL_COMBINED },
 	{ USB_DEVICE(0x8087, 0x0035), .driver_info = BTUSB_INTEL_COMBINED },
+	{ USB_DEVICE(0x8087, 0x0036), .driver_info = BTUSB_INTEL_COMBINED },
 	{ USB_DEVICE(0x8087, 0x07da), .driver_info = BTUSB_CSR },
 	{ USB_DEVICE(0x8087, 0x07dc), .driver_info = BTUSB_INTEL_COMBINED |
 						     BTUSB_INTEL_NO_WBS_SUPPORT |
@@ -657,6 +658,8 @@ static const struct usb_device_id blacklist_table[] = {
 	{ USB_DEVICE(0x2550, 0x8761), .driver_info = BTUSB_REALTEK |
 						     BTUSB_WIDEBAND_SPEECH },
 	{ USB_DEVICE(0x0bda, 0x8771), .driver_info = BTUSB_REALTEK |
+						     BTUSB_WIDEBAND_SPEECH },
+	{ USB_DEVICE(0x6655, 0x8771), .driver_info = BTUSB_REALTEK |
 						     BTUSB_WIDEBAND_SPEECH },
 	{ USB_DEVICE(0x7392, 0xc611), .driver_info = BTUSB_REALTEK |
 						     BTUSB_WIDEBAND_SPEECH },
@@ -858,9 +861,25 @@ static void btusb_intel_cmd_timeout(struct hci_dev *hdev)
 {
 	struct btusb_data *data = hci_get_drvdata(hdev);
 	struct gpio_desc *reset_gpio = data->reset_gpio;
+	struct btintel_data *intel_data = hci_get_priv(hdev);
 
 	if (++data->cmd_timeout_cnt < 5)
 		return;
+
+	if (intel_data->acpi_reset_method) {
+		if (test_and_set_bit(INTEL_ACPI_RESET_ACTIVE, intel_data->flags)) {
+			bt_dev_err(hdev, "acpi: last reset failed ? Not resetting again");
+			return;
+		}
+
+		bt_dev_err(hdev, "Initiating acpi reset method");
+		/* If ACPI reset method fails, lets try with legacy GPIO
+		 * toggling
+		 */
+		if (!intel_data->acpi_reset_method(hdev)) {
+			return;
+		}
+	}
 
 	if (!reset_gpio) {
 		btusb_reset(hdev);
@@ -2405,79 +2424,6 @@ static int btusb_recv_bulk_intel(struct btusb_data *data, void *buffer,
 		return btusb_recv_intr(data, buffer, count);
 
 	return btusb_recv_bulk(data, buffer, count);
-}
-
-static int btusb_intel_diagnostics(struct hci_dev *hdev, struct sk_buff *skb)
-{
-	struct intel_tlv *tlv = (void *)&skb->data[5];
-
-	/* The first event is always an event type TLV */
-	if (tlv->type != INTEL_TLV_TYPE_ID)
-		goto recv_frame;
-
-	switch (tlv->val[0]) {
-	case INTEL_TLV_SYSTEM_EXCEPTION:
-	case INTEL_TLV_FATAL_EXCEPTION:
-	case INTEL_TLV_DEBUG_EXCEPTION:
-	case INTEL_TLV_TEST_EXCEPTION:
-		/* Generate devcoredump from exception */
-		if (!hci_devcd_init(hdev, skb->len)) {
-			hci_devcd_append(hdev, skb);
-			hci_devcd_complete(hdev);
-		} else {
-			bt_dev_err(hdev, "Failed to generate devcoredump");
-			kfree_skb(skb);
-		}
-		return 0;
-	default:
-		bt_dev_err(hdev, "Invalid exception type %02X", tlv->val[0]);
-	}
-
-recv_frame:
-	return hci_recv_frame(hdev, skb);
-}
-
-static int btusb_recv_event_intel(struct hci_dev *hdev, struct sk_buff *skb)
-{
-	struct hci_event_hdr *hdr = (void *)skb->data;
-	const char diagnostics_hdr[] = { 0x87, 0x80, 0x03 };
-
-	if (skb->len > HCI_EVENT_HDR_SIZE && hdr->evt == 0xff &&
-	    hdr->plen > 0) {
-		const void *ptr = skb->data + HCI_EVENT_HDR_SIZE + 1;
-		unsigned int len = skb->len - HCI_EVENT_HDR_SIZE - 1;
-
-		if (btintel_test_flag(hdev, INTEL_BOOTLOADER)) {
-			switch (skb->data[2]) {
-			case 0x02:
-				/* When switching to the operational firmware
-				 * the device sends a vendor specific event
-				 * indicating that the bootup completed.
-				 */
-				btintel_bootup(hdev, ptr, len);
-				break;
-			case 0x06:
-				/* When the firmware loading completes the
-				 * device sends out a vendor specific event
-				 * indicating the result of the firmware
-				 * loading.
-				 */
-				btintel_secure_send_result(hdev, ptr, len);
-				break;
-			}
-		}
-
-		/* Handle all diagnostics events separately. May still call
-		 * hci_recv_frame.
-		 */
-		if (len >= sizeof(diagnostics_hdr) &&
-		    memcmp(&skb->data[2], diagnostics_hdr,
-			   sizeof(diagnostics_hdr)) == 0) {
-			return btusb_intel_diagnostics(hdev, skb);
-		}
-	}
-
-	return hci_recv_frame(hdev, skb);
 }
 
 static int btusb_send_frame_intel(struct hci_dev *hdev, struct sk_buff *skb)
@@ -4111,7 +4057,7 @@ static int btusb_probe(struct usb_interface *intf,
 	if (!id->driver_info) {
 		const struct usb_device_id *match;
 
-		match = usb_match_id(intf, blacklist_table);
+		match = usb_match_id(intf, quirks_table);
 		if (match)
 			id = match;
 	}
@@ -4194,7 +4140,7 @@ static int btusb_probe(struct usb_interface *intf,
 		priv_size += sizeof(struct btintel_data);
 
 		/* Override the rx handlers */
-		data->recv_event = btusb_recv_event_intel;
+		data->recv_event = btintel_recv_event;
 		data->recv_bulk = btusb_recv_bulk_intel;
 	} else if (id->driver_info & BTUSB_REALTEK) {
 		/* Allocate extra space for Realtek device */
