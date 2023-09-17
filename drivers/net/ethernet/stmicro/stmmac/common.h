@@ -69,7 +69,7 @@ struct stmmac_txq_stats {
 	u64 tx_tso_frames;
 	u64 tx_tso_nfrags;
 	struct u64_stats_sync syncp;
-};
+} ____cacheline_aligned_in_smp;
 
 struct stmmac_rxq_stats {
 	u64 rx_bytes;
@@ -78,7 +78,7 @@ struct stmmac_rxq_stats {
 	u64 rx_normal_irq_n;
 	u64 napi_poll;
 	struct u64_stats_sync syncp;
-};
+} ____cacheline_aligned_in_smp;
 
 /* Extra statistic and debug information exposed by ethtool */
 struct stmmac_extra_stats {
@@ -201,6 +201,9 @@ struct stmmac_extra_stats {
 	unsigned long mtl_est_hlbf;
 	unsigned long mtl_est_btre;
 	unsigned long mtl_est_btrlm;
+	/* per queue statistics */
+	struct stmmac_txq_stats txq_stats[MTL_MAX_TX_QUEUES];
+	struct stmmac_rxq_stats rxq_stats[MTL_MAX_RX_QUEUES];
 	unsigned long rx_dropped;
 	unsigned long rx_errors;
 	unsigned long tx_dropped;
