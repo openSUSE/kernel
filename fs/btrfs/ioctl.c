@@ -1574,6 +1574,7 @@ int btrfs_defrag_file(struct inode *inode, struct file *file,
 				last_len = 0;
 			}
 		}
+		cond_resched();
 	}
 
 	ret = defrag_count;
