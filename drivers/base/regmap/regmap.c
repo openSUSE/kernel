@@ -2781,6 +2781,9 @@ static int _regmap_read(struct regmap *map, unsigned int reg,
 	int ret;
 	void *context = _regmap_map_get_context(map);
 
+	if (!regmap_readable(map, reg))
+		return -EIO;
+
 	if (!map->cache_bypass) {
 		ret = regcache_read(map, reg, val);
 		if (ret == 0)
@@ -2789,9 +2792,6 @@ static int _regmap_read(struct regmap *map, unsigned int reg,
 
 	if (map->cache_only)
 		return -EBUSY;
-
-	if (!regmap_readable(map, reg))
-		return -EIO;
 
 	ret = map->reg_read(context, reg, val);
 	if (ret == 0) {
