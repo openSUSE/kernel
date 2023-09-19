@@ -1735,6 +1735,7 @@ config SND_SOC_TAS2781_COMLIB
 	tristate
 
 config SND_SOC_TAS2781_FMWLIB
+	depends on SND_SOC_TAS2781_COMLIB
 	tristate
 	default n
 
