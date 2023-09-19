@@ -1935,9 +1935,11 @@ M:	Martin Povišer <povik+lin@cutebit.org>
 L:	asahi@lists.linux.dev
 L:	alsa-devel@alsa-project.org (moderated for non-subscribers)
 S:	Maintained
+F:	Documentation/devicetree/bindings/sound/adi,ssm3515.yaml
 F:	Documentation/devicetree/bindings/sound/apple,*
 F:	sound/soc/apple/*
 F:	sound/soc/codecs/cs42l83-i2c.c
+F:	sound/soc/codecs/ssm3515.c
 
 ARM/APPLE MACHINE SUPPORT
 M:	Hector Martin <marcan@marcan.st>
@@ -17186,6 +17188,7 @@ F:	sound/soc/codecs/wcd9335.*
 F:	sound/soc/codecs/wcd934x.c
 F:	sound/soc/codecs/wsa881x.c
 F:	sound/soc/codecs/wsa883x.c
+F:	sound/soc/codecs/wsa884x.c
 F:	sound/soc/qcom/
 
 QCOM EMBEDDED USB DEBUGGER (EUD)
