@@ -1746,6 +1746,12 @@ sof_ipc4_prepare_copier_module(struct snd_sof_widget *swidget,
 		       gtw_cfg_config_length,
 		       &ipc4_copier->dma_config_tlv, dma_config_tlv_size);
 
+	/*
+	 * Restore gateway config length now that IPC payload is prepared. This avoids
+	 * counting the DMA CONFIG TLV multiple times
+	 */
+	copier_data->gtw_cfg.config_length = gtw_cfg_config_length / 4;
+
 	return 0;
 }
 
