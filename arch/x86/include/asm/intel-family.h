@@ -159,9 +159,8 @@
 #define INTEL_FAM6_ATOM_TREMONT		0x96 /* Elkhart Lake */
 #define INTEL_FAM6_ATOM_TREMONT_L	0x9C /* Jasper Lake */
 
-#define INTEL_FAM6_SIERRAFOREST_X	0xAF
-
-#define INTEL_FAM6_GRANDRIDGE		0xB6
+#define INTEL_FAM6_ATOM_CRESTMONT_X	0xAF /* Sierra Forest */
+#define INTEL_FAM6_ATOM_CRESTMONT	0xB6 /* Grand Ridge */
 
 #define INTEL_FAM6_SIERRAFOREST_X	0xAF
 
