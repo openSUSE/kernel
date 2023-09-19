@@ -400,7 +400,6 @@ bool hv_is_isolation_supported(void)
 }
 
 DEFINE_STATIC_KEY_FALSE(isolation_type_snp);
-DEFINE_STATIC_KEY_FALSE(isolation_type_tdx);
 
 /*
  * hv_isolation_type_snp - Check system runs in the AMD SEV-SNP based
@@ -411,6 +410,21 @@ bool hv_isolation_type_snp(void)
 	return static_branch_unlikely(&isolation_type_snp);
 }
 
+DEFINE_STATIC_KEY_FALSE(isolation_type_en_snp);
+/*
+ * hv_isolation_type_en_snp - Check system runs in the AMD SEV-SNP based
+ * isolation enlightened VM.
+ */
+bool hv_isolation_type_en_snp(void)
+{
+	return static_branch_unlikely(&isolation_type_en_snp);
+}
+
+DEFINE_STATIC_KEY_FALSE(isolation_type_tdx);
+/*
+ * hv_isolation_type_tdx - Check if the system runs in an Intel TDX based
+ * isolated VM.
+ */
 bool hv_isolation_type_tdx(void)
 {
 	return static_branch_unlikely(&isolation_type_tdx);
