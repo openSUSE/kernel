@@ -58,6 +58,9 @@ struct ms_hyperv_info {
 			u32 reserved2 : 20;
 		};
 	};
+#ifndef __GENKSYMS__
+	u8 vtl, _suse_res1, _suse_res2, _suse_res3;
+#endif
 	u64 shared_gpa_boundary;
 };
 extern struct ms_hyperv_info ms_hyperv;
