@@ -27,6 +27,7 @@ static inline void cc_set_vendor(enum cc_vendor vendor)
 void cc_set_mask(u64 mask);
 u64 cc_mkenc(u64 val);
 u64 cc_mkdec(u64 val);
+extern bool cc_attr_cpu_hotplug_disabled;
 #else
 static inline enum cc_vendor cc_get_vendor(void)
 {

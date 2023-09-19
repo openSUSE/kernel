@@ -600,6 +600,7 @@ void __init hv_vtom_init(void)
 
 	case HV_ISOLATION_TYPE_TDX:
 		cc_set_vendor(CC_VENDOR_INTEL);
+		cc_attr_cpu_hotplug_disabled = false;
 		break;
 
 	default:
