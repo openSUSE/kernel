@@ -60,8 +60,12 @@ int vhost_iotlb_add_range(struct vhost_iotlb *iotlb,
 	 */
 	if (start == 0 && last == ULONG_MAX) {
 		u64 mid = last / 2;
+		int err = vhost_iotlb_add_range(iotlb, start, mid, addr,
+				perm);
 
-		vhost_iotlb_add_range(iotlb, start, mid, addr, perm);
+		if (err)
+			return err;
+
 		addr += mid + 1;
 		start = mid + 1;
 	}
