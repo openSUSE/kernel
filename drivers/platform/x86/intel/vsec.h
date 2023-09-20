@@ -40,6 +40,8 @@ struct intel_vsec_device {
 	int num_resources;
 #ifndef __GENKSYMS__
 	struct intel_vsec_platform_info *info;
+	void *priv_data;
+	size_t priv_data_size;
 #endif
 };
 
