@@ -4233,9 +4233,9 @@ static bool intel_dp_has_connector(struct intel_dp *intel_dp,
 	return false;
 }
 
-static int intel_dp_prep_link_retrain(struct intel_dp *intel_dp,
-				      struct drm_modeset_acquire_ctx *ctx,
-				      u8 *pipe_mask)
+static int intel_dp_get_active_pipes(struct intel_dp *intel_dp,
+				     struct drm_modeset_acquire_ctx *ctx,
+				     u8 *pipe_mask)
 {
 	struct drm_i915_private *i915 = dp_to_i915(intel_dp);
 	struct drm_connector_list_iter conn_iter;
@@ -4243,9 +4243,6 @@ static int intel_dp_prep_link_retrain(struct intel_dp *intel_dp,
 	int ret = 0;
 
 	*pipe_mask = 0;
-
-	if (!intel_dp_needs_link_retrain(intel_dp))
-		return 0;
 
 	drm_connector_list_iter_begin(&i915->drm, &conn_iter);
 	for_each_intel_connector_iter(connector, &conn_iter) {
@@ -4280,9 +4277,6 @@ static int intel_dp_prep_link_retrain(struct intel_dp *intel_dp,
 	}
 	drm_connector_list_iter_end(&conn_iter);
 
-	if (!intel_dp_needs_link_retrain(intel_dp))
-		*pipe_mask = 0;
-
 	return ret;
 }
 
@@ -4311,11 +4305,17 @@ int intel_dp_retrain_link(struct intel_encoder *encoder,
 	if (ret)
 		return ret;
 
-	ret = intel_dp_prep_link_retrain(intel_dp, ctx, &pipe_mask);
+	if (!intel_dp_needs_link_retrain(intel_dp))
+		return 0;
+
+	ret = intel_dp_get_active_pipes(intel_dp, ctx, &pipe_mask);
 	if (ret)
 		return ret;
 
 	if (pipe_mask == 0)
+		return 0;
+
+	if (!intel_dp_needs_link_retrain(intel_dp))
 		return 0;
 
 	drm_dbg_kms(&dev_priv->drm, "[ENCODER:%d:%s] retraining link\n",
