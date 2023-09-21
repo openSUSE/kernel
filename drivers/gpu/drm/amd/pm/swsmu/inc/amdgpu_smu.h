@@ -573,8 +573,6 @@ struct smu_context
 	u32 debug_param_reg;
 	u32 debug_msg_reg;
 	u32 debug_resp_reg;
-
-	struct delayed_work		swctf_delayed_work;
 };
 
 struct i2c_adapter;
