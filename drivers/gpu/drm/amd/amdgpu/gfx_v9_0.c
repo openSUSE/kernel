@@ -1494,7 +1494,7 @@ static void gfx_v9_0_init_always_on_cu_mask(struct amdgpu_device *adev)
 			mask = 1;
 			cu_bitmap = 0;
 			counter = 0;
-			amdgpu_gfx_select_se_sh(adev, i, j, 0xffffffff);
+			amdgpu_gfx_select_se_sh(adev, i, j, 0xffffffff, 0);
 
 			for (k = 0; k < adev->gfx.config.max_cu_per_sh; k ++) {
 				if (cu_info->bitmap[i][j] & mask) {
@@ -1513,7 +1513,7 @@ static void gfx_v9_0_init_always_on_cu_mask(struct amdgpu_device *adev)
 			cu_info->ao_cu_bitmap[i][j] = cu_bitmap;
 		}
 	}
-	amdgpu_gfx_select_se_sh(adev, 0xffffffff, 0xffffffff, 0xffffffff);
+	amdgpu_gfx_select_se_sh(adev, 0xffffffff, 0xffffffff, 0xffffffff, 0);
 	mutex_unlock(&adev->grbm_idx_mutex);
 }
 
@@ -1535,7 +1535,7 @@ static void gfx_v9_0_init_lbpw(struct amdgpu_device *adev)
 
 	mutex_lock(&adev->grbm_idx_mutex);
 	/* set mmRLC_LB_INIT_CU_MASK thru broadcast mode to enable all SE/SH*/
-	amdgpu_gfx_select_se_sh(adev, 0xffffffff, 0xffffffff, 0xffffffff);
+	amdgpu_gfx_select_se_sh(adev, 0xffffffff, 0xffffffff, 0xffffffff, 0);
 	WREG32_SOC15(GC, 0, mmRLC_LB_INIT_CU_MASK, 0xffffffff);
 
 	/* set mmRLC_LB_PARAMS = 0x003F_1006 */
@@ -1584,7 +1584,7 @@ static void gfx_v9_4_init_lbpw(struct amdgpu_device *adev)
 
 	mutex_lock(&adev->grbm_idx_mutex);
 	/* set mmRLC_LB_INIT_CU_MASK thru broadcast mode to enable all SE/SH*/
-	amdgpu_gfx_select_se_sh(adev, 0xffffffff, 0xffffffff, 0xffffffff);
+	amdgpu_gfx_select_se_sh(adev, 0xffffffff, 0xffffffff, 0xffffffff, 0);
 	WREG32_SOC15(GC, 0, mmRLC_LB_INIT_CU_MASK, 0xffffffff);
 
 	/* set mmRLC_LB_PARAMS = 0x003F_1006 */
@@ -2231,7 +2231,7 @@ static void gfx_v9_0_tiling_mode_table_init(struct amdgpu_device *adev)
 }
 
 void gfx_v9_0_select_se_sh(struct amdgpu_device *adev, u32 se_num, u32 sh_num,
-			   u32 instance)
+			   u32 instance, int xcc_id)
 {
 	u32 data;
 
@@ -2280,13 +2280,13 @@ static void gfx_v9_0_setup_rb(struct amdgpu_device *adev)
 	mutex_lock(&adev->grbm_idx_mutex);
 	for (i = 0; i < adev->gfx.config.max_shader_engines; i++) {
 		for (j = 0; j < adev->gfx.config.max_sh_per_se; j++) {
-			amdgpu_gfx_select_se_sh(adev, i, j, 0xffffffff);
+			amdgpu_gfx_select_se_sh(adev, i, j, 0xffffffff, 0);
 			data = gfx_v9_0_get_rb_active_bitmap(adev);
 			active_rbs |= data << ((i * adev->gfx.config.max_sh_per_se + j) *
 					       rb_bitmap_width_per_sh);
 		}
 	}
-	amdgpu_gfx_select_se_sh(adev, 0xffffffff, 0xffffffff, 0xffffffff);
+	amdgpu_gfx_select_se_sh(adev, 0xffffffff, 0xffffffff, 0xffffffff, 0);
 	mutex_unlock(&adev->grbm_idx_mutex);
 
 	adev->gfx.config.backend_enable_mask = active_rbs;
@@ -2423,7 +2423,7 @@ static void gfx_v9_0_wait_for_rlc_serdes(struct amdgpu_device *adev)
 	mutex_lock(&adev->grbm_idx_mutex);
 	for (i = 0; i < adev->gfx.config.max_shader_engines; i++) {
 		for (j = 0; j < adev->gfx.config.max_sh_per_se; j++) {
-			amdgpu_gfx_select_se_sh(adev, i, j, 0xffffffff);
+			amdgpu_gfx_select_se_sh(adev, i, j, 0xffffffff, 0);
 			for (k = 0; k < adev->usec_timeout; k++) {
 				if (RREG32_SOC15(GC, 0, mmRLC_SERDES_CU_MASTER_BUSY) == 0)
 					break;
@@ -2431,7 +2431,7 @@ static void gfx_v9_0_wait_for_rlc_serdes(struct amdgpu_device *adev)
 			}
 			if (k == adev->usec_timeout) {
 				amdgpu_gfx_select_se_sh(adev, 0xffffffff,
-						      0xffffffff, 0xffffffff);
+						      0xffffffff, 0xffffffff, 0);
 				mutex_unlock(&adev->grbm_idx_mutex);
 				DRM_INFO("Timeout wait for RLC serdes %u,%u\n",
 					 i, j);
@@ -2439,7 +2439,7 @@ static void gfx_v9_0_wait_for_rlc_serdes(struct amdgpu_device *adev)
 			}
 		}
 	}
-	amdgpu_gfx_select_se_sh(adev, 0xffffffff, 0xffffffff, 0xffffffff);
+	amdgpu_gfx_select_se_sh(adev, 0xffffffff, 0xffffffff, 0xffffffff, 0);
 	mutex_unlock(&adev->grbm_idx_mutex);
 
 	mask = RLC_SERDES_NONCU_MASTER_BUSY__SE_MASTER_BUSY_MASK |
@@ -6651,7 +6651,7 @@ static void gfx_v9_0_reset_ras_error_count(struct amdgpu_device *adev)
 	for (i = 0; i < ARRAY_SIZE(gfx_v9_0_edc_counter_regs); i++) {
 		for (j = 0; j < gfx_v9_0_edc_counter_regs[i].se_num; j++) {
 			for (k = 0; k < gfx_v9_0_edc_counter_regs[i].instance; k++) {
-				amdgpu_gfx_select_se_sh(adev, j, 0x0, k);
+				amdgpu_gfx_select_se_sh(adev, j, 0x0, k, 0);
 				RREG32(SOC15_REG_ENTRY_OFFSET(gfx_v9_0_edc_counter_regs[i]));
 			}
 		}
@@ -6713,7 +6713,7 @@ static void gfx_v9_0_query_ras_error_count(struct amdgpu_device *adev,
 	for (i = 0; i < ARRAY_SIZE(gfx_v9_0_edc_counter_regs); i++) {
 		for (j = 0; j < gfx_v9_0_edc_counter_regs[i].se_num; j++) {
 			for (k = 0; k < gfx_v9_0_edc_counter_regs[i].instance; k++) {
-				amdgpu_gfx_select_se_sh(adev, j, 0, k);
+				amdgpu_gfx_select_se_sh(adev, j, 0, k, 0);
 				reg_value =
 					RREG32(SOC15_REG_ENTRY_OFFSET(gfx_v9_0_edc_counter_regs[i]));
 				if (reg_value)
@@ -6728,7 +6728,7 @@ static void gfx_v9_0_query_ras_error_count(struct amdgpu_device *adev,
 	err_data->ce_count += sec_count;
 	err_data->ue_count += ded_count;
 
-	amdgpu_gfx_select_se_sh(adev, 0xffffffff, 0xffffffff, 0xffffffff);
+	amdgpu_gfx_select_se_sh(adev, 0xffffffff, 0xffffffff, 0xffffffff, 0);
 	mutex_unlock(&adev->grbm_idx_mutex);
 
 	gfx_v9_0_query_utc_edc_status(adev, err_data);
@@ -7191,7 +7191,7 @@ static int gfx_v9_0_get_cu_info(struct amdgpu_device *adev,
 			mask = 1;
 			ao_bitmap = 0;
 			counter = 0;
-			amdgpu_gfx_select_se_sh(adev, i, j, 0xffffffff);
+			amdgpu_gfx_select_se_sh(adev, i, j, 0xffffffff, 0);
 			gfx_v9_0_set_user_cu_inactive_bitmap(
 				adev, disable_masks[i * adev->gfx.config.max_sh_per_se + j]);
 			bitmap = gfx_v9_0_get_cu_active_bitmap(adev);
@@ -7224,7 +7224,7 @@ static int gfx_v9_0_get_cu_info(struct amdgpu_device *adev,
 			cu_info->ao_cu_bitmap[i % 4][j + i / 4] = ao_bitmap;
 		}
 	}
-	amdgpu_gfx_select_se_sh(adev, 0xffffffff, 0xffffffff, 0xffffffff);
+	amdgpu_gfx_select_se_sh(adev, 0xffffffff, 0xffffffff, 0xffffffff, 0);
 	mutex_unlock(&adev->grbm_idx_mutex);
 
 	cu_info->number = active_cu_number;
