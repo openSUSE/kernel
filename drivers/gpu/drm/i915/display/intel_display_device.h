@@ -10,8 +10,6 @@
 
 #include "display/intel_display_limits.h"
 
-struct drm_i915_private;
-
 #define DEV_INFO_DISPLAY_FOR_EACH_FLAG(func) \
 	/* Keep in alphabetical order */ \
 	func(cursor_needs_physical); \
@@ -31,30 +29,7 @@ struct drm_i915_private;
 	func(overlay_needs_physical); \
 	func(supports_tv);
 
-struct intel_display_runtime_info {
-	struct {
-		u16 ver;
-		u16 rel;
-		u16 step;
-	} ip;
-
-	u8 pipe_mask;
-	u8 cpu_transcoder_mask;
-
-	u8 num_sprites[I915_MAX_PIPES];
-	u8 num_scalers[I915_MAX_PIPES];
-
-	u8 fbc_mask;
-
-	bool has_hdcp;
-	bool has_dmc;
-	bool has_dsc;
-};
-
 struct intel_display_device_info {
-	/* Initial runtime info. */
-	const struct intel_display_runtime_info __runtime_defaults;
-
 	u8 abox_mask;
 
 	struct {
@@ -81,9 +56,5 @@ struct intel_display_device_info {
 		u32 gamma_lut_tests;
 	} color;
 };
-
-const struct intel_display_device_info *
-intel_display_device_probe(struct drm_i915_private *i915, bool has_gmdid,
-			   u16 *ver, u16 *rel, u16 *step);
 
 #endif

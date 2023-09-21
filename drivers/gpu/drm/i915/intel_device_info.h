@@ -197,6 +197,9 @@ struct intel_runtime_info {
 	struct {
 		struct intel_ip_version ip;
 	} media;
+	struct {
+		struct intel_ip_version ip;
+	} display;
 
 	/*
 	 * Platform mask is used for optimizing or-ed IS_PLATFORM calls into
@@ -224,6 +227,21 @@ struct intel_runtime_info {
 	u32 memory_regions; /* regions supported by the HW */
 
 	bool has_pooled_eu;
+
+	/* display */
+	struct {
+		u8 pipe_mask;
+		u8 cpu_transcoder_mask;
+
+		u8 num_sprites[I915_MAX_PIPES];
+		u8 num_scalers[I915_MAX_PIPES];
+
+		u8 fbc_mask;
+
+		bool has_hdcp;
+		bool has_dmc;
+		bool has_dsc;
+	};
 };
 
 struct intel_device_info {
@@ -239,7 +257,7 @@ struct intel_device_info {
 	DEV_INFO_FOR_EACH_FLAG(DEFINE_FLAG);
 #undef DEFINE_FLAG
 
-	const struct intel_display_device_info *display;
+	struct intel_display_device_info display;
 
 	/*
 	 * Initial runtime info. Do not access outside of i915_driver_create().
