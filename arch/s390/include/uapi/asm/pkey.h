@@ -2,7 +2,7 @@
 /*
  * Userspace interface to the pkey device driver
  *
- * Copyright IBM Corp. 2017, 2019
+ * Copyright IBM Corp. 2017, 2023
  *
  * Author: Harald Freudenberger <freude@de.ibm.com>
  *
@@ -26,16 +26,21 @@
 #define MAXCLRKEYSIZE	32	   /* a clear key value may be up to 32 bytes */
 #define MAXAESCIPHERKEYSIZE 136  /* our aes cipher keys have always 136 bytes */
 #define MINEP11AESKEYBLOBSIZE 256  /* min EP11 AES key blob size  */
-#define MAXEP11AESKEYBLOBSIZE 320  /* max EP11 AES key blob size */
+#define MAXEP11AESKEYBLOBSIZE 336  /* max EP11 AES key blob size */
 
 /* Minimum size of a key blob */
 #define MINKEYBLOBSIZE	SECKEYBLOBSIZE
 
 /* defines for the type field within the pkey_protkey struct */
-#define PKEY_KEYTYPE_AES_128		      1
-#define PKEY_KEYTYPE_AES_192		      2
-#define PKEY_KEYTYPE_AES_256		      3
-#define PKEY_KEYTYPE_ECC		      4
+#define PKEY_KEYTYPE_AES_128		1
+#define PKEY_KEYTYPE_AES_192		2
+#define PKEY_KEYTYPE_AES_256		3
+#define PKEY_KEYTYPE_ECC		4
+#define PKEY_KEYTYPE_ECC_P256		5
+#define PKEY_KEYTYPE_ECC_P384		6
+#define PKEY_KEYTYPE_ECC_P521		7
+#define PKEY_KEYTYPE_ECC_ED25519	8
+#define PKEY_KEYTYPE_ECC_ED448		9
 
 /* the newer ioctls use a pkey_key_type enum for type information */
 enum pkey_key_type {

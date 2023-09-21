@@ -122,7 +122,6 @@ $(obj)/%.i: $(src)/%.c FORCE
 genksyms = scripts/genksyms/genksyms		\
 	$(if $(1), -T $(2))			\
 	$(if $(KBUILD_PRESERVE), -p)		\
-	$(if $(KBUILD_OVERRIDE),-o)		\
 	-r $(or $(wildcard $(2:.symtypes=.symref)), /dev/null)
 
 # These mirror gensymtypes_S and co below, keep them in synch.

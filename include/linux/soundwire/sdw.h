@@ -5,6 +5,7 @@
 #define __SOUNDWIRE_H
 
 #include <linux/bug.h>
+#include <linux/lockdep_types.h>
 #include <linux/mod_devicetable.h>
 #include <linux/bitfield.h>
 
@@ -481,6 +482,11 @@ struct sdw_slave_id {
 	__u8 sdw_version:4;
 };
 
+struct sdw_extended_slave_id {
+	int link_id;
+	struct sdw_slave_id id;
+};
+
 /*
  * Helper macros to extract the MIPI-defined IDs
  *
@@ -846,6 +852,7 @@ struct sdw_defer {
  * @post_bank_switch: Callback for post bank switch
  * @read_ping_status: Read status from PING frames, reported with two bits per Device.
  * Bits 31:24 are reserved.
+ * @new_peripheral_assigned: Callback to handle enumeration of new peripheral.
  */
 struct sdw_master_ops {
 	int (*read_prop)(struct sdw_bus *bus);
@@ -860,7 +867,7 @@ struct sdw_master_ops {
 	int (*pre_bank_switch)(struct sdw_bus *bus);
 	int (*post_bank_switch)(struct sdw_bus *bus);
 	u32 (*read_ping_status)(struct sdw_bus *bus);
-
+	void (*new_peripheral_assigned)(struct sdw_bus *bus, int dev_num);
 };
 
 /**
@@ -906,7 +913,9 @@ struct sdw_bus {
 	struct list_head slaves;
 	DECLARE_BITMAP(assigned, SDW_MAX_DEVICES);
 	struct mutex bus_lock;
+	struct lock_class_key bus_lock_key;
 	struct mutex msg_lock;
+	struct lock_class_key msg_lock_key;
 	int (*compute_params)(struct sdw_bus *bus);
 	const struct sdw_master_ops *ops;
 	const struct sdw_master_port_ops *port_ops;
