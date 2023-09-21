@@ -408,6 +408,7 @@ static inline struct intel_gt *to_gt(struct drm_i915_private *i915)
 	     (engine__) = rb_to_uabi_engine(rb_next(&(engine__)->uabi_node)))
 
 #define INTEL_INFO(i915)	(&(i915)->__info)
+#define DISPLAY_INFO(i915)	(INTEL_INFO(i915)->display)
 #define RUNTIME_INFO(i915)	(&(i915)->__runtime)
 #define DRIVER_CAPS(i915)	(&(i915)->caps)
 
@@ -782,9 +783,9 @@ IS_SUBPLATFORM(const struct drm_i915_private *i915,
 	((sizes) & ~RUNTIME_INFO(i915)->page_sizes) == 0; \
 })
 
-#define HAS_OVERLAY(i915)		 (INTEL_INFO(i915)->display.has_overlay)
+#define HAS_OVERLAY(i915)		 (DISPLAY_INFO(i915)->has_overlay)
 #define OVERLAY_NEEDS_PHYSICAL(i915) \
-		(INTEL_INFO(i915)->display.overlay_needs_physical)
+		(DISPLAY_INFO(i915)->overlay_needs_physical)
 
 /* Early gen2 have a totally busted CS tlb and require pinned batches. */
 #define HAS_BROKEN_CS_TLB(i915)	(IS_I830(i915) || IS_I845G(i915))
@@ -806,8 +807,8 @@ IS_SUBPLATFORM(const struct drm_i915_private *i915,
  */
 #define HAS_128_BYTE_Y_TILING(i915) (GRAPHICS_VER(i915) != 2 && \
 					 !(IS_I915G(i915) || IS_I915GM(i915)))
-#define SUPPORTS_TV(i915)		(INTEL_INFO(i915)->display.supports_tv)
-#define I915_HAS_HOTPLUG(i915)	(INTEL_INFO(i915)->display.has_hotplug)
+#define SUPPORTS_TV(i915)		(DISPLAY_INFO(i915)->supports_tv)
+#define I915_HAS_HOTPLUG(i915)	(DISPLAY_INFO(i915)->has_hotplug)
 
 #define HAS_FW_BLC(i915)	(DISPLAY_VER(i915) > 2)
 #define HAS_FBC(i915)	(RUNTIME_INFO(i915)->fbc_mask != 0)
@@ -817,18 +818,18 @@ IS_SUBPLATFORM(const struct drm_i915_private *i915,
 
 #define HAS_IPS(i915)	(IS_HSW_ULT(i915) || IS_BROADWELL(i915))
 
-#define HAS_DP_MST(i915)	(INTEL_INFO(i915)->display.has_dp_mst)
+#define HAS_DP_MST(i915)	(DISPLAY_INFO(i915)->has_dp_mst)
 #define HAS_DP20(i915)	(IS_DG2(i915) || DISPLAY_VER(i915) >= 14)
 
 #define HAS_DOUBLE_BUFFERED_M_N(i915)	(DISPLAY_VER(i915) >= 9 || IS_BROADWELL(i915))
 
-#define HAS_CDCLK_CRAWL(i915)	 (INTEL_INFO(i915)->display.has_cdclk_crawl)
-#define HAS_CDCLK_SQUASH(i915)	 (INTEL_INFO(i915)->display.has_cdclk_squash)
-#define HAS_DDI(i915)		 (INTEL_INFO(i915)->display.has_ddi)
-#define HAS_FPGA_DBG_UNCLAIMED(i915) (INTEL_INFO(i915)->display.has_fpga_dbg)
-#define HAS_PSR(i915)		 (INTEL_INFO(i915)->display.has_psr)
+#define HAS_CDCLK_CRAWL(i915)	 (DISPLAY_INFO(i915)->has_cdclk_crawl)
+#define HAS_CDCLK_SQUASH(i915)	 (DISPLAY_INFO(i915)->has_cdclk_squash)
+#define HAS_DDI(i915)		 (DISPLAY_INFO(i915)->has_ddi)
+#define HAS_FPGA_DBG_UNCLAIMED(i915) (DISPLAY_INFO(i915)->has_fpga_dbg)
+#define HAS_PSR(i915)		 (DISPLAY_INFO(i915)->has_psr)
 #define HAS_PSR_HW_TRACKING(i915) \
-	(INTEL_INFO(i915)->display.has_psr_hw_tracking)
+	(DISPLAY_INFO(i915)->has_psr_hw_tracking)
 #define HAS_PSR2_SEL_FETCH(i915)	 (DISPLAY_VER(i915) >= 12)
 #define HAS_TRANSCODER(i915, trans)	 ((RUNTIME_INFO(i915)->cpu_transcoder_mask & BIT(trans)) != 0)
 
@@ -839,7 +840,7 @@ IS_SUBPLATFORM(const struct drm_i915_private *i915,
 #define HAS_RPS(i915)	(INTEL_INFO(i915)->has_rps)
 
 #define HAS_DMC(i915)	(RUNTIME_INFO(i915)->has_dmc)
-#define HAS_DSB(i915)	(INTEL_INFO(i915)->display.has_dsb)
+#define HAS_DSB(i915)	(DISPLAY_INFO(i915)->has_dsb)
 #define HAS_DSC(__i915)		(RUNTIME_INFO(__i915)->has_dsc)
 #define HAS_HW_SAGV_WM(i915) (DISPLAY_VER(i915) >= 13 && !IS_DGFX(i915))
 
@@ -869,7 +870,7 @@ IS_SUBPLATFORM(const struct drm_i915_private *i915,
  */
 #define HAS_64K_PAGES(i915) (INTEL_INFO(i915)->has_64k_pages)
 
-#define HAS_IPC(i915)		(INTEL_INFO(i915)->display.has_ipc)
+#define HAS_IPC(i915)		(DISPLAY_INFO(i915)->has_ipc)
 #define HAS_SAGV(i915)		(DISPLAY_VER(i915) >= 9 && !IS_LP(i915))
 
 #define HAS_REGION(i915, i) (RUNTIME_INFO(i915)->memory_regions & (i))
@@ -889,7 +890,7 @@ IS_SUBPLATFORM(const struct drm_i915_private *i915,
 
 #define HAS_GLOBAL_MOCS_REGISTERS(i915)	(INTEL_INFO(i915)->has_global_mocs)
 
-#define HAS_GMCH(i915) (INTEL_INFO(i915)->display.has_gmch)
+#define HAS_GMCH(i915) (DISPLAY_INFO(i915)->has_gmch)
 
 #define HAS_GMD_ID(i915)	(INTEL_INFO(i915)->has_gmd_id)
 
