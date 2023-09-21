@@ -64,6 +64,9 @@ int sed_read_key(char *keyname, char *key, u_int *keylen)
 	int ret;
 	u_int len;
 
+	if (!plpks_is_available())
+		return -ENODEV;
+
 	plpks_init_var(&var, keyname);
 	var.data = (u8 *)&data;
 	var.datalen = sizeof(data);
@@ -88,6 +91,9 @@ int sed_write_key(char *keyname, char *key, u_int keylen)
 	struct plpks_var var;
 	struct plpks_sed_object_data data;
 	struct plpks_var_name vname;
+
+	if (!plpks_is_available())
+		return -ENODEV;
 
 	plpks_init_var(&var, keyname);
 

@@ -104,6 +104,7 @@ struct cio2_node_names {
 	char port[7];
 	char endpoint[11];
 	char remote_port[7];
+	char vcm[16];
 };
 
 struct cio2_sensor_config {
