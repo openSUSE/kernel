@@ -471,14 +471,59 @@ struct nft_set_elem_expr {
  *	@udlen: user data length
  *	@udata: user data
  *	@expr: stateful expression
+ *	@refs: internal refcounting for async set destruction
  * 	@ops: set ops
  * 	@flags: set flags
+ *	@dead: set will be freed, never cleared
  *	@genmask: generation mask
  * 	@klen: key length
  * 	@dlen: data length
  * 	@data: private set data
  */
 struct nft_set {
+	struct list_head		list;
+	struct list_head		bindings;
+	struct nft_table		*table;
+	possible_net_t			net;
+	char				*name;
+	u64				handle;
+	u32				ktype;
+	u32				dtype;
+	u32				objtype;
+	u32				size;
+	u8				field_len[NFT_REG32_COUNT];
+	u8				field_count;
+	u32				use;
+	atomic_t			nelems;
+	u32				ndeact;
+	u64				timeout;
+	u32				gc_int;
+	u16				policy;
+	u16				udlen;
+	unsigned char			*udata;
+#ifndef __GENKSYMS__
+	refcount_t			refs;
+#endif
+	/* runtime data below here */
+	const struct nft_set_ops	*ops ____cacheline_aligned;
+#ifndef __GENKSYMS__
+	u16				flags:13,
+					dead:1,
+					genmask:2;
+#else
+	u16				flags:14,
+					genmask:2;
+#endif
+	u8				klen;
+	u8				dlen;
+	u8				num_exprs;
+	struct nft_expr			*exprs[NFT_SET_EXPR_MAX];
+	struct list_head		catchall_list;
+	unsigned char			data[]
+		__attribute__((aligned(__alignof__(u64))));
+};
+
+struct __orig_nft_set {
 	struct list_head		list;
 	struct list_head		bindings;
 	struct nft_table		*table;
@@ -511,6 +556,10 @@ struct nft_set {
 	unsigned char			data[]
 		__attribute__((aligned(__alignof__(u64))));
 };
+static_assert(offsetof(struct nft_set, ops) ==
+	      offsetof(struct __orig_nft_set, ops));
+static_assert(offsetof(struct nft_set, klen) ==
+	      offsetof(struct __orig_nft_set, klen));
 
 static inline bool nft_set_is_anonymous(const struct nft_set *set)
 {
@@ -1464,6 +1513,32 @@ static inline void nft_set_elem_clear_busy(struct nft_set_ext *ext)
 	clear_bit(NFT_SET_ELEM_BUSY_BIT, word);
 }
 
+#define NFT_SET_ELEM_DEAD_MASK	(1 << 3)
+
+#if defined(__LITTLE_ENDIAN_BITFIELD)
+#define NFT_SET_ELEM_DEAD_BIT	3
+#elif defined(__BIG_ENDIAN_BITFIELD)
+#define NFT_SET_ELEM_DEAD_BIT	(BITS_PER_LONG - BITS_PER_BYTE + 3)
+#else
+#error
+#endif
+
+static inline void nft_set_elem_dead(struct nft_set_ext *ext)
+{
+	unsigned long *word = (unsigned long *)ext;
+
+	BUILD_BUG_ON(offsetof(struct nft_set_ext, genmask) != 0);
+	set_bit(NFT_SET_ELEM_DEAD_BIT, word);
+}
+
+static inline int nft_set_elem_is_dead(const struct nft_set_ext *ext)
+{
+	unsigned long *word = (unsigned long *)ext;
+
+	BUILD_BUG_ON(offsetof(struct nft_set_ext, genmask) != 0);
+	return test_bit(NFT_SET_ELEM_DEAD_BIT, word);
+}
+
 /**
  *	struct nft_trans - nf_tables object update in transaction
  *
@@ -1588,6 +1663,38 @@ struct nft_trans_flowtable {
 #define nft_trans_flowtable_flags(trans)	\
 	(((struct nft_trans_flowtable *)trans->data)->flags)
 
+#define NFT_TRANS_GC_BATCHCOUNT	256
+
+struct nft_trans_gc {
+	struct list_head	list;
+	struct net		*net;
+	struct nft_set		*set;
+	u32			seq;
+	u8			count;
+	void			*priv[NFT_TRANS_GC_BATCHCOUNT];
+	struct rcu_head		rcu;
+};
+
+struct nft_trans_gc *nft_trans_gc_alloc(struct nft_set *set,
+					unsigned int gc_seq, gfp_t gfp);
+void nft_trans_gc_destroy(struct nft_trans_gc *trans);
+
+struct nft_trans_gc *nft_trans_gc_queue_async(struct nft_trans_gc *gc,
+					      unsigned int gc_seq, gfp_t gfp);
+void nft_trans_gc_queue_async_done(struct nft_trans_gc *gc);
+
+struct nft_trans_gc *nft_trans_gc_queue_sync(struct nft_trans_gc *gc, gfp_t gfp);
+void nft_trans_gc_queue_sync_done(struct nft_trans_gc *trans);
+
+void nft_trans_gc_elem_add(struct nft_trans_gc *gc, void *priv);
+
+struct nft_trans_gc *nft_trans_gc_catchall(struct nft_trans_gc *gc,
+					   unsigned int gc_seq);
+
+void nft_setelem_data_deactivate(const struct net *net,
+				 const struct nft_set *set,
+				 struct nft_set_elem *elem);
+
 int __init nft_chain_filter_init(void);
 void nft_chain_filter_fini(void);
 
@@ -1613,6 +1720,7 @@ struct nftables_pernet {
 	struct mutex		commit_mutex;
 	unsigned int		base_seq;
 	u8			validate_state;
+	unsigned int		gc_seq;
 };
 
 extern unsigned int nf_tables_net_id;
