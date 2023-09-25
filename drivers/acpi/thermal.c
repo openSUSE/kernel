@@ -92,15 +92,6 @@ MODULE_PARM_DESC(psv, "Disable or override all passive trip points.");
 
 static struct workqueue_struct *acpi_thermal_pm_queue;
 
-struct acpi_thermal_state {
-	u8 critical:1;
-	u8 hot:1;
-	u8 passive:1;
-	u8 active:1;
-	u8 reserved:4;
-	int active_index;
-};
-
 struct acpi_thermal_critical {
 	unsigned long temperature;
 	bool valid;
@@ -148,7 +139,6 @@ struct acpi_thermal {
 	unsigned long polling_frequency;
 	volatile u8 zombie;
 	struct acpi_thermal_flags flags;
-	struct acpi_thermal_state state;
 	struct acpi_thermal_trips trips;
 	struct acpi_handle_list devices;
 	struct thermal_zone_device *thermal_zone;
@@ -1079,7 +1069,6 @@ static int acpi_thermal_resume(struct device *dev)
 				break;
 			}
 		}
-		tz->state.active |= tz->trips.active[i].enabled;
 	}
 
 	acpi_queue_thermal_check(tz);
