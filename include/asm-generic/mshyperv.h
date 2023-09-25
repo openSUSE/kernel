@@ -36,7 +36,18 @@ struct ms_hyperv_info {
 	u32 nested_features;
 	u32 max_vp_index;
 	u32 max_lp_index;
+#ifdef __GENKSYMS__
 	u32 isolation_config_a;
+#else
+	union {
+		u32 isolation_config_a;
+
+		struct {
+			u32 paravisor_present : 1;
+			u32 reserved_a1 : 31;
+		};
+	};
+#endif
 	union {
 		u32 isolation_config_b;
 		struct {
@@ -47,6 +58,9 @@ struct ms_hyperv_info {
 			u32 reserved2 : 20;
 		};
 	};
+#ifndef __GENKSYMS__
+	u8 vtl, _suse_res1, _suse_res2, _suse_res3;
+#endif
 	u64 shared_gpa_boundary;
 };
 extern struct ms_hyperv_info ms_hyperv;
@@ -57,8 +71,8 @@ extern void * __percpu *hyperv_pcpu_output_arg;
 
 extern u64 hv_do_hypercall(u64 control, void *inputaddr, void *outputaddr);
 extern u64 hv_do_fast_hypercall8(u16 control, u64 input8);
-extern bool hv_isolation_type_snp(void);
-extern bool hv_isolation_type_tdx(void);
+bool hv_isolation_type_snp(void);
+bool hv_isolation_type_tdx(void);
 
 /* Helper functions that provide a consistent pattern for checking Hyper-V hypercall status. */
 static inline int hv_result(u64 status)
@@ -270,6 +284,7 @@ enum hv_isolation_type hv_get_isolation_type(void);
 bool hv_is_isolation_supported(void);
 bool hv_isolation_type_snp(void);
 u64 hv_ghcb_hypercall(u64 control, void *input, void *output, u32 input_size);
+u64 hv_tdx_hypercall(u64 control, u64 param1, u64 param2);
 void hyperv_cleanup(void);
 bool hv_query_ext_cap(u64 cap_query);
 void hv_setup_dma_ops(struct device *dev, bool coherent);
