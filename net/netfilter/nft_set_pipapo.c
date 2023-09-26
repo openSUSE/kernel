@@ -1522,7 +1522,7 @@ static void pipapo_drop(struct nft_pipapo_match *m,
 
 /**
  * pipapo_gc() - Drop expired entries from set, destroy start and end elements
- * @set:	nftables API set representation
+ * @_set:	nftables API set representation
  * @m:		Matching data
  */
 static void pipapo_gc(const struct nft_set *set, struct nft_pipapo_match *m)
