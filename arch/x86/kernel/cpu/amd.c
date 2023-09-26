@@ -966,7 +966,7 @@ void amd_clear_divider(void)
 {
 
 	if (div0_bug) {
-		asm volatile("push %%"R"ax" :::);
+		asm volatile("push %"R"ax");
 		asm volatile("div %%al\n\tpop %%"R"ax\n" ::"a"(1));
 	}
 }
