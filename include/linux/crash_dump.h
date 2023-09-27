@@ -52,6 +52,7 @@ void vmcore_cleanup(void);
 #define vmcore_elf64_check_arch(x) (elf_check_arch(x) || vmcore_elf_check_arch_cross(x))
 #endif
 
+#ifndef is_kdump_kernel
 /*
  * is_kdump_kernel() checks whether this kernel is booting after a panic of
  * previous kernel or not. This is determined by checking if previous kernel
@@ -66,6 +67,7 @@ static inline bool is_kdump_kernel(void)
 {
 	return elfcorehdr_addr != ELFCORE_ADDR_MAX;
 }
+#endif
 
 /* is_vmcore_usable() checks if the kernel is booting after a panic and
  * the vmcore region is usable.
@@ -77,7 +79,8 @@ static inline bool is_kdump_kernel(void)
 
 static inline int is_vmcore_usable(void)
 {
-	return is_kdump_kernel() && elfcorehdr_addr != ELFCORE_ADDR_ERR ? 1 : 0;
+	return elfcorehdr_addr != ELFCORE_ADDR_ERR &&
+		elfcorehdr_addr != ELFCORE_ADDR_MAX ? 1 : 0;
 }
 
 /* vmcore_unusable() marks the vmcore as unusable,
@@ -86,8 +89,7 @@ static inline int is_vmcore_usable(void)
 
 static inline void vmcore_unusable(void)
 {
-	if (is_kdump_kernel())
-		elfcorehdr_addr = ELFCORE_ADDR_ERR;
+	elfcorehdr_addr = ELFCORE_ADDR_ERR;
 }
 
 #define HAVE_OLDMEM_PFN_IS_RAM 1
