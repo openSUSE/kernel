@@ -13,17 +13,21 @@
 #include <asm/coco.h>
 #include <asm/processor.h>
 
-static enum cc_vendor vendor __ro_after_init;
+enum cc_vendor cc_vendor __ro_after_init;
+bool cc_attr_cpu_hotplug_disabled __ro_after_init = true;
 static u64 cc_mask __ro_after_init;
 
 static bool intel_cc_platform_has(enum cc_attr attr)
 {
 	switch (attr) {
 	case CC_ATTR_GUEST_UNROLL_STRING_IO:
-	case CC_ATTR_HOTPLUG_DISABLED:
 	case CC_ATTR_GUEST_MEM_ENCRYPT:
 	case CC_ATTR_MEM_ENCRYPT:
 		return true;
+
+	case CC_ATTR_HOTPLUG_DISABLED:
+		return cc_attr_cpu_hotplug_disabled;
+
 	default:
 		return false;
 	}
@@ -99,7 +103,7 @@ static bool amd_cc_platform_has(enum cc_attr attr)
 
 bool cc_platform_has(enum cc_attr attr)
 {
-	switch (vendor) {
+	switch (cc_vendor) {
 	case CC_VENDOR_AMD:
 		return amd_cc_platform_has(attr);
 	case CC_VENDOR_INTEL:
@@ -119,7 +123,7 @@ u64 cc_mkenc(u64 val)
 	 * - for AMD, bit *set* means the page is encrypted
 	 * - for AMD with vTOM and for Intel, *clear* means encrypted
 	 */
-	switch (vendor) {
+	switch (cc_vendor) {
 	case CC_VENDOR_AMD:
 		if (sev_status & MSR_AMD64_SNP_VTOM)
 			return val & ~cc_mask;
@@ -135,7 +139,7 @@ u64 cc_mkenc(u64 val)
 u64 cc_mkdec(u64 val)
 {
 	/* See comment in cc_mkenc() */
-	switch (vendor) {
+	switch (cc_vendor) {
 	case CC_VENDOR_AMD:
 		if (sev_status & MSR_AMD64_SNP_VTOM)
 			return val | cc_mask;
@@ -148,11 +152,6 @@ u64 cc_mkdec(u64 val)
 	}
 }
 EXPORT_SYMBOL_GPL(cc_mkdec);
-
-__init void cc_set_vendor(enum cc_vendor v)
-{
-	vendor = v;
-}
 
 __init void cc_set_mask(u64 mask)
 {

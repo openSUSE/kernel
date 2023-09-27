@@ -594,6 +594,7 @@ static const match_table_t opt_tokens = {
 	{ NVMF_OPT_DISCOVERY,		"discovery"		},
 	{ NVMF_OPT_DHCHAP_SECRET,	"dhchap_secret=%s"	},
 	{ NVMF_OPT_DHCHAP_CTRL_SECRET,	"dhchap_ctrl_secret=%s"	},
+	{ NVMF_OPT_RECOVERY_DELAY,	"recovery_delay=%d"	},
 	{ NVMF_OPT_ERR,			NULL			}
 };
 
@@ -902,6 +903,18 @@ static int nvmf_parse_options(struct nvmf_ctrl_options *opts,
 			}
 			kfree(opts->dhchap_ctrl_secret);
 			opts->dhchap_ctrl_secret = p;
+			break;
+		case NVMF_OPT_RECOVERY_DELAY:
+			if (match_int(args, &token)) {
+				ret = -EINVAL;
+				goto out;
+			}
+			if (token <= 0) {
+				pr_err("Invalid recovery_delay %d\n", token);
+				ret = -EINVAL;
+				goto out;
+			}
+			opts->recovery_delay = token;
 			break;
 		default:
 			pr_warn("unknown parameter or missing value '%s' in ctrl creation request\n",

@@ -123,12 +123,45 @@ static int hv_ce_set_oneshot(struct clock_event_device *evt)
 	return 0;
 }
 
+static int hv_write_efer(void)
+{
+	unsigned long long efer;
+
+	if (!hv_isolation_type_tdx() || !ms_hyperv.paravisor_present)
+		return 0;
+
+	/*
+	 * Write EFER by force, otherwise the paravisor's hypercall
+	 * handler thinks that the VP is in 32-bit mode, and the
+	 * returning RIP is truncated to 32-bits, causing a fatal
+	 * page fault. This is a TDX-spefic issue because it looks
+	 * like the initial default value of EFER on non-boot VPs
+	 * already has the EFER.LMA bit, and when the reading of
+	 * EFER on a non-boot VP is the same as the value of EER
+	 * on VP0, Linux doesn't write the EFER register on a
+	 * non-boot VP: see the code in arch/x86/kernel/head_64.S
+	 * ("Avoid writing EFER if no change was made (for TDX guest)").
+	 * Also see commit 77a512e35db7 ("x86/boot: Avoid #VE during boot for TDX platforms")
+	 * Work around the issue for now by force an EFER write.
+	 *
+	 * This is a temporary hack. The latest Hyper-V dev build has been
+	 * fixed, but the fix won't be ported to Azure until the end of 2023.
+	 * It's safe to have the hack on future fixed Hyper-V.
+	 */
+	rdmsrl(MSR_EFER, efer);
+	wrmsrl(MSR_EFER, efer);
+
+	return 0;
+}
+
 /*
  * hv_stimer_init - Per-cpu initialization of the clockevent
  */
 static int hv_stimer_init(unsigned int cpu)
 {
 	struct clock_event_device *ce;
+
+	hv_write_efer();
 
 	if (!hv_clock_event)
 		return 0;
@@ -365,7 +398,7 @@ EXPORT_SYMBOL_GPL(hv_stimer_global_cleanup);
 static union {
 	struct ms_hyperv_tsc_page page;
 	u8 reserved[PAGE_SIZE];
-} tsc_pg __aligned(PAGE_SIZE);
+} tsc_pg __bss_decrypted __aligned(PAGE_SIZE);
 
 static struct ms_hyperv_tsc_page *tsc_page = &tsc_pg.page;
 static unsigned long tsc_pfn;
