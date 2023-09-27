@@ -1172,7 +1172,7 @@ EXPORT_SYMBOL_NS_GPL(nvme_passthru_end, NVME_TARGET_PASSTHRU);
  *   The host should send Keep Alive commands at half of the Keep Alive Timeout
  *   accounting for transport roundtrip times [..].
  */
-static unsigned long nvme_keep_alive_work_period(struct nvme_ctrl *ctrl)
+unsigned long nvme_keep_alive_work_period(struct nvme_ctrl *ctrl)
 {
 	unsigned long delay = ctrl->kato * HZ / 2;
 
@@ -1186,6 +1186,7 @@ static unsigned long nvme_keep_alive_work_period(struct nvme_ctrl *ctrl)
 		delay /= 2;
 	return delay;
 }
+EXPORT_SYMBOL_GPL(nvme_keep_alive_work_period);
 
 static void nvme_queue_keep_alive_work(struct nvme_ctrl *ctrl)
 {
@@ -3952,6 +3953,35 @@ static DEVICE_ATTR(dhchap_ctrl_secret, S_IRUGO | S_IWUSR,
 	nvme_ctrl_dhchap_ctrl_secret_show, nvme_ctrl_dhchap_ctrl_secret_store);
 #endif
 
+static ssize_t recovery_delay_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct nvme_ctrl *ctrl = dev_get_drvdata(dev);
+	struct nvmf_ctrl_options *opts = ctrl->opts;
+
+	if (opts->recovery_delay == -1)
+		return sysfs_emit(buf, "off\n");
+	return sysfs_emit(buf, "%d\n", opts->recovery_delay);
+}
+
+static ssize_t recovery_delay_store(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t count)
+{
+	struct nvme_ctrl *ctrl = dev_get_drvdata(dev);
+	struct nvmf_ctrl_options *opts = ctrl->opts;
+	unsigned int recovery_delay;
+	int err;
+
+	err = kstrtou32(buf, 10, &recovery_delay);
+	if (err)
+		return err;
+
+	opts->recovery_delay = recovery_delay;
+	return count;
+}
+static DEVICE_ATTR(recovery_delay, S_IRUGO | S_IWUSR,
+	recovery_delay_show, recovery_delay_store);
+
 static struct attribute *nvme_dev_attrs[] = {
 	&dev_attr_reset_controller.attr,
 	&dev_attr_rescan_controller.attr,
@@ -3979,6 +4009,7 @@ static struct attribute *nvme_dev_attrs[] = {
 	&dev_attr_dhchap_secret.attr,
 	&dev_attr_dhchap_ctrl_secret.attr,
 #endif
+	&dev_attr_recovery_delay.attr,
 	NULL
 };
 
@@ -4008,6 +4039,8 @@ static umode_t nvme_dev_attrs_are_visible(struct kobject *kobj,
 	if (a == &dev_attr_dhchap_ctrl_secret.attr && !ctrl->opts)
 		return 0;
 #endif
+	if (a == &dev_attr_recovery_delay.attr && !ctrl->opts)
+		return 0;
 
 	return a->mode;
 }
