@@ -1409,6 +1409,8 @@ const char *io_uring_get_opcode(u8 opcode)
 	return "INVALID";
 }
 
+static unsigned int io_file_get_flags(struct file *file);
+
 struct sock *io_uring_get_socket(struct file *file)
 {
 #if defined(CONFIG_UNIX)
@@ -1972,6 +1974,9 @@ static void io_prep_async_work(struct io_kiocb *req)
 	req->work.cancel_seq = atomic_read(&ctx->cancel_seq);
 	if (req->flags & REQ_F_FORCE_ASYNC)
 		req->work.flags |= IO_WQ_WORK_CONCURRENT;
+
+	if (req->file && !io_req_ffs_set(req))
+		req->flags |= io_file_get_flags(req->file) << REQ_F_SUPPORT_NOWAIT_BIT;
 
 	if (req->flags & REQ_F_ISREG) {
 		if (def->hash_reg_file || (ctx->flags & IORING_SETUP_IOPOLL))
