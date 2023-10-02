@@ -3409,12 +3409,6 @@ static bool io_rw_should_reissue(struct io_kiocb *req)
 
 static bool __io_complete_rw_common(struct io_kiocb *req, long res)
 {
-	if (req->rw.kiocb.ki_flags & IOCB_WRITE) {
-		kiocb_end_write(req);
-		fsnotify_modify(req->file);
-	} else {
-		fsnotify_access(req->file);
-	}
 	if (unlikely(res != req->cqe.res)) {
 		if ((res == -EAGAIN || res == -EOPNOTSUPP) &&
 		    io_rw_should_reissue(req)) {
@@ -3440,6 +3434,18 @@ static inline void io_req_task_complete(struct io_kiocb *req, bool *locked)
 	}
 }
 
+static void io_req_rw_complete(struct io_kiocb *req, bool *locked)
+{
+	if (req->rw.kiocb.ki_flags & IOCB_WRITE) {
+		kiocb_end_write(req);
+		fsnotify_modify(req->file);
+	} else {
+		fsnotify_access(req->file);
+	}
+
+	io_req_task_complete(req, locked);
+}
+
 static void __io_complete_rw(struct io_kiocb *req, long res,
 			     unsigned int issue_flags)
 {
@@ -3456,7 +3462,7 @@ static void io_complete_rw(struct kiocb *kiocb, long res)
 	if (__io_complete_rw_common(req, res))
 		return;
 	req->cqe.res = res;
-	req->io_task_work.func = io_req_task_complete;
+	req->io_task_work.func = io_req_rw_complete;
 	io_req_task_prio_work_add(req);
 }
 
