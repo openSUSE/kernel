@@ -6,7 +6,6 @@
 #include <linux/percpu-rwsem.h>
 #include <linux/rcupdate.h>
 #include <linux/sched.h>
-#include <linux/sched/debug.h>
 #include <linux/errno.h>
 
 #include "rwsem.h"
@@ -42,7 +41,7 @@ void percpu_free_rwsem(struct percpu_rw_semaphore *sem)
 }
 EXPORT_SYMBOL_GPL(percpu_free_rwsem);
 
-int __sched __percpu_down_read(struct percpu_rw_semaphore *sem, int try)
+int __percpu_down_read(struct percpu_rw_semaphore *sem, int try)
 {
 	/*
 	 * Due to having preemption disabled the decrement happens on
@@ -141,7 +140,7 @@ static bool readers_active_check(struct percpu_rw_semaphore *sem)
 	return true;
 }
 
-void __sched percpu_down_write(struct percpu_rw_semaphore *sem)
+void percpu_down_write(struct percpu_rw_semaphore *sem)
 {
 	/* Notify readers to take the slow path. */
 	rcu_sync_enter(&sem->rss);
