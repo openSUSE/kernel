@@ -6,7 +6,6 @@
 #include <linux/percpu-rwsem.h>
 #include <linux/rcupdate.h>
 #include <linux/sched.h>
-#include <linux/sched/debug.h>
 #include <linux/sched/task.h>
 #include <linux/errno.h>
 
@@ -44,7 +43,7 @@ void percpu_free_rwsem(struct percpu_rw_semaphore *sem)
 }
 EXPORT_SYMBOL_GPL(percpu_free_rwsem);
 
-static bool __sched __percpu_down_read_trylock(struct percpu_rw_semaphore *sem)
+static bool __percpu_down_read_trylock(struct percpu_rw_semaphore *sem)
 {
 	this_cpu_inc(*sem->read_count);
 
@@ -163,7 +162,7 @@ static void percpu_rwsem_wait(struct percpu_rw_semaphore *sem, bool reader)
 	__set_current_state(TASK_RUNNING);
 }
 
-bool __sched __percpu_down_read(struct percpu_rw_semaphore *sem, bool try)
+bool __percpu_down_read(struct percpu_rw_semaphore *sem, bool try)
 {
 	if (__percpu_down_read_trylock(sem))
 		return true;
