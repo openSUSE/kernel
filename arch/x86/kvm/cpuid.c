@@ -863,6 +863,7 @@ static inline int __do_cpuid_func(struct kvm_cpuid_array *array, u32 function)
 			entry->eax = entry->ebx = entry->ecx = entry->edx = 0;
 			break;
 		}
+		break;
 
 		/*
 		 * Index 0: Sub-features, MISCSELECT (a.k.a extended features)
