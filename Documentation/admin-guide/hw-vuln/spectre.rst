@@ -622,9 +622,9 @@ kernel command line.
                 retpoline,generic       Retpolines
                 retpoline,lfence        LFENCE; indirect branch
                 retpoline,amd           alias for retpoline,lfence
-                eibrs                   enhanced IBRS
-                eibrs,retpoline         enhanced IBRS + Retpolines
-                eibrs,lfence            enhanced IBRS + LFENCE
+                eibrs                   enhanced/Auto IBRS
+                eibrs,retpoline         enhanced/Auto IBRS + Retpolines
+                eibrs,lfence            enhanced/Auto IBRS + LFENCE
 
 		Not specifying this option is equivalent to
 		spectre_v2=auto.
