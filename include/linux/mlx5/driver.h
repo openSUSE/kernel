@@ -474,6 +474,7 @@ struct mlx5_core_sriov {
 	struct mlx5_vf_context	*vfs_ctx;
 	int			num_vfs;
 	u16			max_vfs;
+	u16			max_ec_vfs;
 };
 
 struct mlx5_fc_pool {
@@ -1254,6 +1255,11 @@ static inline int mlx5_lag_is_lacp_owner(struct mlx5_core_dev *dev)
 	return  MLX5_CAP_GEN(dev, vport_group_manager) &&
 		   (MLX5_CAP_GEN(dev, num_lag_ports) > 1) &&
 		    MLX5_CAP_GEN(dev, lag_master);
+}
+
+static inline u16 mlx5_core_max_ec_vfs(const struct mlx5_core_dev *dev)
+{
+	return dev->priv.sriov.max_ec_vfs;
 }
 
 static inline int mlx5_get_gid_table_len(u16 param)
