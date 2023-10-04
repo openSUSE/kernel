@@ -2550,13 +2550,13 @@ static int __esw_set_master_egress_rule(struct mlx5_core_dev *master,
 	return err;
 }
 
-static int esw_master_egress_create_resources(struct mlx5_flow_namespace *egress_ns,
+static int esw_master_egress_create_resources(struct mlx5_eswitch *esw,
+					      struct mlx5_flow_namespace *egress_ns,
 					      struct mlx5_vport *vport, size_t count)
 {
 	int inlen = MLX5_ST_SZ_BYTES(create_flow_group_in);
 	struct mlx5_flow_table_attr ft_attr = {
 		.max_fte = count, .prio = 0, .level = 0,
-		.flags = MLX5_FLOW_TABLE_OTHER_VPORT,
 	};
 	struct mlx5_flow_table *acl;
 	struct mlx5_flow_group *g;
@@ -2570,6 +2570,9 @@ static int esw_master_egress_create_resources(struct mlx5_flow_namespace *egress
 	flow_group_in = kvzalloc(inlen, GFP_KERNEL);
 	if (!flow_group_in)
 		return -ENOMEM;
+
+	if (vport->vport || mlx5_core_is_ecpf(esw->dev))
+		ft_attr.flags = MLX5_FLOW_TABLE_OTHER_VPORT;
 
 	acl = mlx5_create_vport_flow_table(egress_ns, &ft_attr, vport->vport);
 	if (IS_ERR(acl)) {
@@ -2641,7 +2644,7 @@ static int esw_set_master_egress_rule(struct mlx5_core_dev *master,
 	if (vport->egress.acl && vport->egress.type != VPORT_EGRESS_ACL_TYPE_SHARED_FDB)
 		return 0;
 
-	err = esw_master_egress_create_resources(egress_ns, vport, count);
+	err = esw_master_egress_create_resources(esw, egress_ns, vport, count);
 	if (err)
 		return err;
 
