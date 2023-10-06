@@ -5563,6 +5563,58 @@ static int process_kptr_func(struct bpf_verifier_env *env, int regno,
 	return 0;
 }
 
+int process_dynptr_func(struct bpf_verifier_env *env, int regno,
+			enum bpf_arg_type arg_type,
+			struct bpf_call_arg_meta *meta)
+{
+	struct bpf_reg_state *regs = cur_regs(env), *reg = &regs[regno];
+
+	if (arg_type & MEM_UNINIT) {
+		if (!is_dynptr_reg_valid_uninit(env, reg)) {
+			verbose(env, "Dynptr has to be an uninitialized dynptr\n");
+			return -EINVAL;
+		}
+
+		/* We only support one dynptr being uninitialized at the moment,
+		 * which is sufficient for the helper functions we have right now.
+		 */
+		if (meta->uninit_dynptr_regno) {
+			verbose(env, "verifier internal error: multiple uninitialized dynptr args\n");
+			return -EFAULT;
+		}
+
+		meta->uninit_dynptr_regno = regno;
+	} else {
+		if (!is_dynptr_reg_valid_init(env, reg)) {
+			verbose(env,
+				"Expected an initialized dynptr as arg #%d\n",
+				regno);
+			return -EINVAL;
+		}
+
+		if (!is_dynptr_type_expected(env, reg, arg_type)) {
+			const char *err_extra = "";
+
+			switch (arg_type & DYNPTR_TYPE_FLAG_MASK) {
+			case DYNPTR_TYPE_LOCAL:
+				err_extra = "local";
+				break;
+			case DYNPTR_TYPE_RINGBUF:
+				err_extra = "ringbuf";
+				break;
+			default:
+				err_extra = "<unknown>";
+				break;
+			}
+			verbose(env,
+				"Expected a dynptr of type %s as arg #%d\n",
+				err_extra, regno);
+			return -EINVAL;
+		}
+	}
+	return 0;
+}
+
 static bool arg_type_is_mem_size(enum bpf_arg_type type)
 {
 	return type == ARG_CONST_SIZE ||
@@ -6051,45 +6103,8 @@ skip_type_check:
 		err = check_mem_size_reg(env, reg, regno, true, meta);
 		break;
 	case ARG_PTR_TO_DYNPTR:
-		if (arg_type & MEM_UNINIT) {
-			if (!is_dynptr_reg_valid_uninit(env, reg)) {
-				verbose(env, "Dynptr has to be an uninitialized dynptr\n");
-				return -EINVAL;
-			}
-
-			/* We only support one dynptr being uninitialized at the moment,
-			 * which is sufficient for the helper functions we have right now.
-			 */
-			if (meta->uninit_dynptr_regno) {
-				verbose(env, "verifier internal error: multiple uninitialized dynptr args\n");
-				return -EFAULT;
-			}
-
-			meta->uninit_dynptr_regno = regno;
-		} else if (!is_dynptr_reg_valid_init(env, reg)) {
-			verbose(env,
-				"Expected an initialized dynptr as arg #%d\n",
-				arg + 1);
-			return -EINVAL;
-		} else if (!is_dynptr_type_expected(env, reg, arg_type)) {
-			const char *err_extra = "";
-
-			switch (arg_type & DYNPTR_TYPE_FLAG_MASK) {
-			case DYNPTR_TYPE_LOCAL:
-				err_extra = "local";
-				break;
-			case DYNPTR_TYPE_RINGBUF:
-				err_extra = "ringbuf";
-				break;
-			default:
-				err_extra = "<unknown>";
-				break;
-			}
-			verbose(env,
-				"Expected a dynptr of type %s as arg #%d\n",
-				err_extra, arg + 1);
-			return -EINVAL;
-		}
+		if (process_dynptr_func(env, regno, arg_type, meta))
+			return -EACCES;
 		break;
 	case ARG_CONST_ALLOC_SIZE_OR_ZERO:
 		if (!tnum_is_const(reg->var_off)) {
