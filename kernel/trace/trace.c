@@ -4189,18 +4189,12 @@ static void *s_start(struct seq_file *m, loff_t *pos)
 	loff_t l = 0;
 	int cpu;
 
-	/*
-	 * copy the tracer to avoid using a global lock all around.
-	 * iter->trace is a copy of current_trace, the pointer to the
-	 * name may be used instead of a strcmp(), as iter->trace->name
-	 * will point to the same string as current_trace->name.
-	 */
 	mutex_lock(&trace_types_lock);
-	if (unlikely(tr->current_trace && iter->trace->name != tr->current_trace->name)) {
+	if (unlikely(tr->current_trace != iter->trace)) {
 		/* Close iter->trace before switching to the new current tracer */
 		if (iter->trace->close)
 			iter->trace->close(iter);
-		*iter->trace = *tr->current_trace;
+		iter->trace = tr->current_trace;
 		/* Reopen the new current tracer */
 		if (iter->trace->open)
 			iter->trace->open(iter);
@@ -4853,16 +4847,8 @@ __tracing_open(struct inode *inode, struct file *file, bool snapshot)
 	iter->fmt = NULL;
 	iter->fmt_size = 0;
 
-	/*
-	 * We make a copy of the current tracer to avoid concurrent
-	 * changes on it while we are reading.
-	 */
 	mutex_lock(&trace_types_lock);
-	iter->trace = kzalloc(sizeof(*iter->trace), GFP_KERNEL);
-	if (!iter->trace)
-		goto fail;
-
-	*iter->trace = *tr->current_trace;
+	iter->trace = tr->current_trace;
 
 	if (!zalloc_cpumask_var(&iter->started, GFP_KERNEL))
 		goto fail;
@@ -4927,7 +4913,6 @@ __tracing_open(struct inode *inode, struct file *file, bool snapshot)
 
  fail:
 	mutex_unlock(&trace_types_lock);
-	kfree(iter->trace);
 	kfree(iter->temp);
 	kfree(iter->buffer_iter);
 release:
@@ -5012,7 +4997,6 @@ static int tracing_release(struct inode *inode, struct file *file)
 	free_cpumask_var(iter->started);
 	kfree(iter->fmt);
 	kfree(iter->temp);
-	kfree(iter->trace);
 	kfree(iter->buffer_iter);
 	seq_release_private(inode, file);
 
