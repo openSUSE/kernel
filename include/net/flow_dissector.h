@@ -243,10 +243,12 @@ struct flow_dissector_key_ip {
  * struct flow_dissector_key_meta:
  * @ingress_ifindex: ingress ifindex
  * @ingress_iftype: ingress interface type
+ * @l2_miss: packet did not match an L2 entry during forwarding
  */
 struct flow_dissector_key_meta {
 	int ingress_ifindex;
 	u16 ingress_iftype;
+	u8 l2_miss;
 };
 
 /**
@@ -347,7 +349,8 @@ struct flow_dissector_key {
 };
 
 struct flow_dissector {
-	unsigned int used_keys; /* each bit repesents presence of one key id */
+	unsigned long long  used_keys;
+		/* each bit represents presence of one key id */
 	unsigned short int offset[FLOW_DISSECTOR_KEY_MAX];
 };
 
@@ -407,7 +410,7 @@ void skb_flow_get_icmp_tci(const struct sk_buff *skb,
 static inline bool dissector_uses_key(const struct flow_dissector *flow_dissector,
 				      enum flow_dissector_key_id key_id)
 {
-	return flow_dissector->used_keys & (1 << key_id);
+	return flow_dissector->used_keys & (1ULL << key_id);
 }
 
 static inline void *skb_flow_dissector_target(struct flow_dissector *flow_dissector,
