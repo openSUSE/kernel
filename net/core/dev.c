@@ -150,6 +150,7 @@
 #include <linux/pm_runtime.h>
 #include <linux/prandom.h>
 #include <linux/once_lite.h>
+#include <net/netdev_rx_queue.h>
 
 #include "dev.h"
 #include "net-sysfs.h"
@@ -10583,6 +10584,7 @@ struct net_device *alloc_netdev_mqs(int sizeof_priv, const char *name,
 	dev_net_set(dev, &init_net);
 
 	dev->gso_max_size = GSO_LEGACY_MAX_SIZE;
+	dev->xdp_zc_max_segs = 1;
 	dev->gso_max_segs = GSO_MAX_SEGS;
 	dev->gro_max_size = GRO_LEGACY_MAX_SIZE;
 	dev->gso_ipv4_max_size = GSO_LEGACY_MAX_SIZE;
