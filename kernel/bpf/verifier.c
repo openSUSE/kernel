@@ -254,9 +254,11 @@ struct bpf_call_arg_meta {
 	int mem_size;
 	u64 msize_max_value;
 	int ref_obj_id;
-	int dynptr_id;
 	int map_uid;
 	int func_id;
+#ifndef __GENKSYMS__
+	int dynptr_id;
+#endif
 	struct btf *btf;
 	u32 btf_id;
 	struct btf *ret_btf;

@@ -70,10 +70,14 @@ struct bpf_reg_state {
 			u32 btf_id;
 		};
 
+#ifndef __GENKSYMS__
 		struct { /* for PTR_TO_MEM | PTR_TO_MEM_OR_NULL */
 			u32 mem_size;
 			u32 dynptr_id; /* for dynptr slices */
 		};
+#else
+		u32 mem_size;
+#endif
 
 		/* For dynptr stack slots */
 		struct {
