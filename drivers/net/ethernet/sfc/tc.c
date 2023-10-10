@@ -380,6 +380,7 @@ static int efx_tc_flower_record_encap_match(struct efx_nic *efx,
 					    enum efx_encap_type type,
 					    enum efx_tc_em_pseudo_type em_type,
 					    u8 child_ip_tos_mask,
+					    __be16 child_udp_sport_mask,
 					    struct netlink_ext_ack *extack)
 {
 	struct efx_tc_encap_match *encap, *old, *pseudo = NULL;
@@ -428,11 +429,7 @@ static int efx_tc_flower_record_encap_match(struct efx_nic *efx,
 		NL_SET_ERR_MSG_MOD(extack, "Egress encap match is not exact on dst UDP port");
 		return -EOPNOTSUPP;
 	}
-	if (match->mask.enc_sport) {
-		NL_SET_ERR_MSG_MOD(extack, "Egress encap match on src UDP port not supported");
-		return -EOPNOTSUPP;
-	}
-	if (match->mask.enc_ip_tos) {
+	if (match->mask.enc_sport || match->mask.enc_ip_tos) {
 		struct efx_tc_match pmatch = *match;
 
 		if (em_type == EFX_TC_EM_PSEUDO_MASK) { /* can't happen */
@@ -441,9 +438,12 @@ static int efx_tc_flower_record_encap_match(struct efx_nic *efx,
 		}
 		pmatch.value.enc_ip_tos = 0;
 		pmatch.mask.enc_ip_tos = 0;
+		pmatch.value.enc_sport = 0;
+		pmatch.mask.enc_sport = 0;
 		rc = efx_tc_flower_record_encap_match(efx, &pmatch, type,
 						      EFX_TC_EM_PSEUDO_MASK,
 						      match->mask.enc_ip_tos,
+						      match->mask.enc_sport,
 						      extack);
 		if (rc)
 			return rc;
@@ -455,7 +455,8 @@ static int efx_tc_flower_record_encap_match(struct efx_nic *efx,
 		goto fail_pseudo;
 	}
 
-	rc = efx_mae_check_encap_match_caps(efx, ipv6, match->mask.enc_ip_tos, extack);
+	rc = efx_mae_check_encap_match_caps(efx, ipv6, match->mask.enc_ip_tos,
+					    match->mask.enc_sport, extack);
 	if (rc)
 		goto fail_pseudo;
 
@@ -475,6 +476,9 @@ static int efx_tc_flower_record_encap_match(struct efx_nic *efx,
 	encap->ip_tos = match->value.enc_ip_tos;
 	encap->ip_tos_mask = match->mask.enc_ip_tos;
 	encap->child_ip_tos_mask = child_ip_tos_mask;
+	encap->udp_sport = match->value.enc_sport;
+	encap->udp_sport_mask = match->mask.enc_sport;
+	encap->child_udp_sport_mask = child_udp_sport_mask;
 	encap->type = em_type;
 	encap->pseudo = pseudo;
 	old = rhashtable_lookup_get_insert_fast(&efx->tc->encap_match_ht,
@@ -496,9 +500,9 @@ static int efx_tc_flower_record_encap_match(struct efx_nic *efx,
 			NL_SET_ERR_MSG_MOD(extack, "Pseudo encap match conflicts with existing direct entry");
 			return -EEXIST;
 		case EFX_TC_EM_PSEUDO_MASK:
-			/* old EM is protecting a ToS-qualified filter, so may
-			 * only be shared with another pseudo for the same
-			 * ToS mask.
+			/* old EM is protecting a ToS- or src port-qualified
+			 * filter, so may only be shared with another pseudo
+			 * for the same ToS and src port masks.
 			 */
 			if (em_type != EFX_TC_EM_PSEUDO_MASK) {
 				NL_SET_ERR_MSG_FMT_MOD(extack,
@@ -511,6 +515,13 @@ static int efx_tc_flower_record_encap_match(struct efx_nic *efx,
 						       "Pseudo encap match for TOS mask %#04x conflicts with existing pseudo(MASK) entry for TOS mask %#04x",
 						       child_ip_tos_mask,
 						       old->child_ip_tos_mask);
+				return -EEXIST;
+			}
+			if (child_udp_sport_mask != old->child_udp_sport_mask) {
+				NL_SET_ERR_MSG_FMT_MOD(extack,
+						       "Pseudo encap match for UDP src port mask %#x conflicts with existing pseudo(MASK) entry for mask %#x",
+						       child_udp_sport_mask,
+						       old->child_udp_sport_mask);
 				return -EEXIST;
 			}
 			break;
@@ -705,7 +716,7 @@ static int efx_tc_flower_replace_foreign(struct efx_nic *efx,
 		}
 
 		rc = efx_tc_flower_record_encap_match(efx, &match, type,
-						      EFX_TC_EM_DIRECT, 0,
+						      EFX_TC_EM_DIRECT, 0, 0,
 						      extack);
 		if (rc)
 			return rc;
