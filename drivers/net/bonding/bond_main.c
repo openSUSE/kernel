@@ -89,6 +89,7 @@
 #include <net/tls.h>
 #endif
 #include <net/ip6_route.h>
+#include <net/xdp.h>
 
 #include "bonding_priv.h"
 
