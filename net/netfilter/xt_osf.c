@@ -82,6 +82,14 @@ static int xt_osf_add_callback(struct sock *ctnl, struct sk_buff *skb,
 
 	f = nla_data(osf_attrs[OSF_ATTR_FINGER]);
 
+	if (f->opt_num > ARRAY_SIZE(f->opt))
+		return -EINVAL;
+
+	if (!memchr(f->genre, 0, MAXGENRELEN) ||
+	    !memchr(f->subtype, 0, MAXGENRELEN) ||
+	    !memchr(f->version, 0, MAXGENRELEN))
+		return -EINVAL;
+
 	kf = kmalloc(sizeof(struct xt_osf_finger), GFP_KERNEL);
 	if (!kf)
 		return -ENOMEM;
