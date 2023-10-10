@@ -85,6 +85,7 @@ enum irdma_device_caps_const {
 	IRDMA_Q2_BUF_SIZE =			256,
 	IRDMA_QP_CTX_SIZE =			256,
 	IRDMA_MAX_PDS =				262144,
+	IRDMA_MIN_WQ_SIZE_GEN2 =                8,
 };
 
 enum irdma_addressing_type {
@@ -293,6 +294,12 @@ void irdma_uk_cq_init(struct irdma_cq_uk *cq,
 		      struct irdma_cq_uk_init_info *info);
 int irdma_uk_qp_init(struct irdma_qp_uk *qp,
 		     struct irdma_qp_uk_init_info *info);
+void irdma_uk_calc_shift_wq(struct irdma_qp_uk_init_info *ukinfo, u8 *sq_shift,
+			    u8 *rq_shift);
+int irdma_uk_calc_depth_shift_sq(struct irdma_qp_uk_init_info *ukinfo,
+				 u32 *sq_depth, u8 *sq_shift);
+int irdma_uk_calc_depth_shift_rq(struct irdma_qp_uk_init_info *ukinfo,
+				 u32 *rq_depth, u8 *rq_shift);
 struct irdma_sq_uk_wr_trk_info {
 	u64 wrid;
 	u32 wr_len;
@@ -368,8 +375,12 @@ struct irdma_qp_uk_init_info {
 	u32 max_sq_frag_cnt;
 	u32 max_rq_frag_cnt;
 	u32 max_inline_data;
+	u32 sq_depth;
+	u32 rq_depth;
 	u8 first_sq_wq;
 	u8 type;
+	u8 sq_shift;
+	u8 rq_shift;
 	int abi_ver;
 	bool legacy_mode;
 };
