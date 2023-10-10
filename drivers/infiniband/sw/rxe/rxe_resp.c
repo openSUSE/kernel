@@ -1457,8 +1457,17 @@ static void flush_recv_queue(struct rxe_qp *qp, bool notify)
 	struct rxe_recv_wqe *wqe;
 	int err;
 
-	if (qp->srq)
+	if (qp->srq) {
+		if (notify && qp->ibqp.event_handler) {
+			struct ib_event ev;
+
+			ev.device = qp->ibqp.device;
+			ev.element.qp = &qp->ibqp;
+			ev.event = IB_EVENT_QP_LAST_WQE_REACHED;
+			qp->ibqp.event_handler(&ev, qp->ibqp.qp_context);
+		}
 		return;
+	}
 
 	/* recv queue not created. nothing to do. */
 	if (!qp->rq.queue)
