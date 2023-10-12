@@ -16,6 +16,9 @@
 #include <linux/sed-opal-key.h>
 #include <asm/plpks.h>
 
+static bool plpks_sed_initialized = false;
+static bool plpks_sed_available = false;
+
 /*
  * structure that contains all SED data
  */
@@ -39,8 +42,15 @@ struct plpks_sed_object_data {
 #define PLPKS_SED_AUTHORITY  0x0000000900010001
 #define PLPKS_SED_RANGE      0x0000080200000001
 
-void plpks_init_var(struct plpks_var *var, char *keyname)
+static void plpks_init_var(struct plpks_var *var, char *keyname)
 {
+	if (!plpks_sed_initialized) {
+		plpks_sed_initialized = true;
+		plpks_sed_available = plpks_is_available();
+		if (!plpks_sed_available)
+			pr_err("SED: plpks not available\n");
+	}
+
 	var->name = keyname;
 	var->namelen = strlen(keyname);
 	if (strcmp(PLPKS_SED_KEY, keyname) == 0) {
@@ -64,10 +74,11 @@ int sed_read_key(char *keyname, char *key, u_int *keylen)
 	int ret;
 	u_int len;
 
-	if (!plpks_is_available())
-		return -ENODEV;
-
 	plpks_init_var(&var, keyname);
+
+	if (!plpks_sed_available)
+		return -EOPNOTSUPP;
+
 	var.data = (u8 *)&data;
 	var.datalen = sizeof(data);
 
@@ -92,10 +103,10 @@ int sed_write_key(char *keyname, char *key, u_int keylen)
 	struct plpks_sed_object_data data;
 	struct plpks_var_name vname;
 
-	if (!plpks_is_available())
-		return -ENODEV;
-
 	plpks_init_var(&var, keyname);
+
+	if (!plpks_sed_available)
+		return -EOPNOTSUPP;
 
 	var.datalen = sizeof(struct plpks_sed_object_data);
 	var.data = (u8 *)&data;

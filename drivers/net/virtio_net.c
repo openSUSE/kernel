@@ -22,6 +22,7 @@
 #include <net/route.h>
 #include <net/xdp.h>
 #include <net/net_failover.h>
+#include <net/netdev_rx_queue.h>
 
 static int napi_weight = NAPI_POLL_WEIGHT;
 module_param(napi_weight, int, 0444);
@@ -1155,9 +1156,7 @@ static int virtnet_build_xdp_buff_mrg(struct net_device *dev,
 		}
 
 		frag = &shinfo->frags[shinfo->nr_frags++];
-		__skb_frag_set_page(frag, page);
-		skb_frag_off_set(frag, offset);
-		skb_frag_size_set(frag, len);
+		skb_frag_fill_page_desc(frag, page, offset, len);
 		if (page_is_pfmemalloc(page))
 			xdp_buff_set_frag_pfmemalloc(xdp);
 
