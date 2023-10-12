@@ -150,4 +150,4 @@ unlock_mutex:
 }
 
 /* must execute after PCI subsystem for EFI quirks */
-device_initcall(sysfb_init);
+subsys_initcall_sync(sysfb_init);

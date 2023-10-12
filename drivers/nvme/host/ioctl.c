@@ -787,14 +787,12 @@ int nvme_ns_chr_uring_cmd_iopoll(struct io_uring_cmd *ioucmd,
 	struct nvme_ns *ns;
 	struct request_queue *q;
 
-	rcu_read_lock();
 	bio = READ_ONCE(ioucmd->cookie);
 	ns = container_of(file_inode(ioucmd->file)->i_cdev,
 			struct nvme_ns, cdev);
 	q = ns->queue;
 	if (test_bit(QUEUE_FLAG_POLL, &q->queue_flags) && bio && bio->bi_bdev)
 		ret = bio_poll(bio, iob, poll_flags);
-	rcu_read_unlock();
 	return ret;
 }
 #ifdef CONFIG_NVME_MULTIPATH
