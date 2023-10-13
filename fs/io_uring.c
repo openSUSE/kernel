@@ -1409,6 +1409,8 @@ const char *io_uring_get_opcode(u8 opcode)
 	return "INVALID";
 }
 
+static unsigned int io_file_get_flags(struct file *file);
+
 struct sock *io_uring_get_socket(struct file *file)
 {
 #if defined(CONFIG_UNIX)
@@ -1972,6 +1974,9 @@ static void io_prep_async_work(struct io_kiocb *req)
 	req->work.cancel_seq = atomic_read(&ctx->cancel_seq);
 	if (req->flags & REQ_F_FORCE_ASYNC)
 		req->work.flags |= IO_WQ_WORK_CONCURRENT;
+
+	if (req->file && !io_req_ffs_set(req))
+		req->flags |= io_file_get_flags(req->file) << REQ_F_SUPPORT_NOWAIT_BIT;
 
 	if (req->flags & REQ_F_ISREG) {
 		if (def->hash_reg_file || (ctx->flags & IORING_SETUP_IOPOLL))
@@ -3402,17 +3407,32 @@ static bool io_rw_should_reissue(struct io_kiocb *req)
 }
 #endif
 
-static bool __io_complete_rw_common(struct io_kiocb *req, long res)
+/*
+ * Trigger the notifications after having done some IO, and finish the write
+ * accounting, if any.
+ */
+static void io_req_io_end(struct io_kiocb *req)
 {
-	if (req->rw.kiocb.ki_flags & IOCB_WRITE) {
+	struct io_rw *rw = &req->rw;
+
+	if (rw->kiocb.ki_flags & IOCB_WRITE) {
 		kiocb_end_write(req);
 		fsnotify_modify(req->file);
 	} else {
 		fsnotify_access(req->file);
 	}
+}
+
+static bool __io_complete_rw_common(struct io_kiocb *req, long res)
+{
 	if (unlikely(res != req->cqe.res)) {
 		if ((res == -EAGAIN || res == -EOPNOTSUPP) &&
 		    io_rw_should_reissue(req)) {
+			/*
+			 * Reissue will start accounting again, finish the
+			 * current cycle.
+			 */
+			io_req_io_end(req);
 			req->flags |= REQ_F_REISSUE | REQ_F_PARTIAL_IO;
 			return true;
 		}
@@ -3435,11 +3455,24 @@ static inline void io_req_task_complete(struct io_kiocb *req, bool *locked)
 	}
 }
 
+static void io_req_rw_complete(struct io_kiocb *req, bool *locked)
+{
+	io_req_io_end(req);
+	io_req_task_complete(req, locked);
+}
+
 static void __io_complete_rw(struct io_kiocb *req, long res,
 			     unsigned int issue_flags)
 {
 	if (__io_complete_rw_common(req, res))
 		return;
+
+	/*
+	 * Safe to call io_end from here as we're inline
+	 * from the submission path.
+	 */
+	io_req_io_end(req);
+
 	__io_req_complete(req, issue_flags, req->cqe.res,
 				io_put_kbuf(req, issue_flags));
 }
@@ -3451,7 +3484,7 @@ static void io_complete_rw(struct kiocb *kiocb, long res)
 	if (__io_complete_rw_common(req, res))
 		return;
 	req->cqe.res = res;
-	req->io_task_work.func = io_req_task_complete;
+	req->io_task_work.func = io_req_rw_complete;
 	io_req_task_prio_work_add(req);
 }
 
@@ -4705,7 +4738,7 @@ static int io_linkat_prep(struct io_kiocb *req,
 	struct io_hardlink *lnk = &req->hardlink;
 	const char __user *oldf, *newf;
 
-	if (sqe->rw_flags || sqe->buf_index || sqe->splice_fd_in)
+	if (sqe->buf_index || sqe->splice_fd_in)
 		return -EINVAL;
 	if (unlikely(req->flags & REQ_F_FIXED_FILE))
 		return -EBADF;
@@ -5313,11 +5346,14 @@ static int __io_remove_buffers(struct io_ring_ctx *ctx,
 		return i;
 	}
 
+	/* protects io_buffers_cache */
+	lockdep_assert_held(&ctx->uring_lock);
+
 	while (!list_empty(&bl->buf_list)) {
 		struct io_buffer *nxt;
 
 		nxt = list_first_entry(&bl->buf_list, struct io_buffer, list);
-		list_del(&nxt->list);
+		list_move(&nxt->list, &ctx->io_buffers_cache);
 		if (++i == nbufs)
 			return i;
 		cond_resched();
@@ -10843,8 +10879,8 @@ static __cold void io_ring_ctx_free(struct io_ring_ctx *ctx)
 		__io_cqring_overflow_flush(ctx, true);
 	io_eventfd_unregister(ctx);
 	io_flush_apoll_cache(ctx);
-	mutex_unlock(&ctx->uring_lock);
 	io_destroy_buffers(ctx);
+	mutex_unlock(&ctx->uring_lock);
 	if (ctx->sq_creds)
 		put_cred(ctx->sq_creds);
 
@@ -11872,7 +11908,7 @@ static __cold void __io_uring_show_fdinfo(struct io_ring_ctx *ctx,
 		sq_idx = READ_ONCE(ctx->sq_array[entry & sq_mask]);
 		if (sq_idx > sq_mask)
 			continue;
-		sqe = &ctx->sq_sqes[sq_idx << 1];
+		sqe = &ctx->sq_sqes[sq_idx << sq_shift];
 		seq_printf(m, "%5u: opcode:%s, fd:%d, flags:%x, off:%llu, "
 			      "addr:0x%llx, rw_flags:0x%x, buf_index:%d "
 			      "user_data:%llu",
