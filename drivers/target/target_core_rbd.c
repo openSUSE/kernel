@@ -793,7 +793,7 @@ static unsigned int tcm_rbd_get_io_opt(struct se_device *dev)
 	return bdev_io_opt(bd);
 }
 
-static struct sbc_ops tcm_rbd_sbc_ops = {
+static struct exec_cmd_ops tcm_rbd_sbc_ops = {
 	.execute_rw		= tcm_rbd_execute_rw,
 	.execute_sync_cache	= tcm_rbd_execute_sync_cache,
 	.execute_write_same	= tcm_rbd_execute_write_same,
