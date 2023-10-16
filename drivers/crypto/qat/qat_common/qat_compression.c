@@ -72,7 +72,7 @@ struct qat_compression_instance *qat_compression_get_instance_node(int node)
 	}
 
 	if (!accel_dev) {
-		pr_info("QAT: Could not find a device on node %d\n", node);
+		pr_debug_ratelimited("QAT: Could not find a device on node %d\n", node);
 		/* Get any started device */
 		list_for_each(itr, adf_devmgr_get_head()) {
 			struct adf_accel_dev *tmp_dev;
@@ -234,8 +234,7 @@ static void qat_free_dc_data(struct adf_accel_dev *accel_dev)
 
 	dma_unmap_single(dev, dc_data->ovf_buff_p, dc_data->ovf_buff_sz,
 			 DMA_FROM_DEVICE);
-	memset(dc_data->ovf_buff, 0, dc_data->ovf_buff_sz);
-	kfree(dc_data->ovf_buff);
+	kfree_sensitive(dc_data->ovf_buff);
 	devm_kfree(dev, dc_data);
 	accel_dev->dc_data = NULL;
 }
