@@ -95,7 +95,7 @@ static int tcm_rbd_configure_device(struct se_device *dev)
 	else
 		dev->dev_flags |= DF_READ_ONLY;
 
-	bd = blkdev_get_by_path(tcm_rbd_dev->bd_udev_path, mode, tcm_rbd_dev);
+	bd = blkdev_get_by_path(tcm_rbd_dev->bd_udev_path, mode, tcm_rbd_dev, NULL);
 	if (IS_ERR(bd)) {
 		return PTR_ERR(bd);
 	}
