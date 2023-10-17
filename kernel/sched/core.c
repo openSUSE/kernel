@@ -919,14 +919,13 @@ static bool set_nr_if_polling(struct task_struct *p)
 	struct thread_info *ti = task_thread_info(p);
 	typeof(ti->flags) val = READ_ONCE(ti->flags);
 
-	for (;;) {
+	do {
 		if (!(val & _TIF_POLLING_NRFLAG))
 			return false;
 		if (val & _TIF_NEED_RESCHED)
 			return true;
-		if (try_cmpxchg(&ti->flags, &val, val | _TIF_NEED_RESCHED))
-			break;
-	}
+	} while (!try_cmpxchg(&ti->flags, &val, val | _TIF_NEED_RESCHED));
+
 	return true;
 }
 
@@ -6817,12 +6816,10 @@ static inline void sched_submit_work(struct task_struct *tsk)
 	 * If a worker goes to sleep, notify and ask workqueue whether it
 	 * wants to wake up a task to maintain concurrency.
 	 */
-	if (task_flags & (PF_WQ_WORKER | PF_IO_WORKER)) {
-		if (task_flags & PF_WQ_WORKER)
-			wq_worker_sleeping(tsk);
-		else
-			io_wq_worker_sleeping(tsk);
-	}
+	if (task_flags & PF_WQ_WORKER)
+		wq_worker_sleeping(tsk);
+	else if (task_flags & PF_IO_WORKER)
+		io_wq_worker_sleeping(tsk);
 
 	/*
 	 * spinlock and rwlock must not flush block requests.  This will
@@ -9338,9 +9335,9 @@ void sched_show_task(struct task_struct *p)
 	if (pid_alive(p))
 		ppid = task_pid_nr(rcu_dereference(p->real_parent));
 	rcu_read_unlock();
-	pr_cont(" stack:%-5lu pid:%-5d ppid:%-6d flags:0x%08lx\n",
-		free, task_pid_nr(p), ppid,
-		read_task_thread_flags(p));
+	pr_cont(" stack:%-5lu pid:%-5d tgid:%-5d ppid:%-6d flags:0x%08lx\n",
+		free, task_pid_nr(p), task_tgid_nr(p),
+		ppid, read_task_thread_flags(p));
 
 	print_worker_info(KERN_INFO, p);
 	print_stop_info(KERN_INFO, p);
