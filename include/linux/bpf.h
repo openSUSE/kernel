@@ -274,14 +274,33 @@ static inline void check_and_init_map_value(struct bpf_map *map, void *dst)
 	}
 }
 
-/* copy everything but bpf_spin_lock and bpf_timer. There could be one of each. */
-static inline void copy_map_value(struct bpf_map *map, void *dst, void *src)
+/* memcpy that is used with 8-byte aligned pointers, power-of-8 size and
+ * forced to use 'long' read/writes to try to atomically copy long counters.
+ * Best-effort only.  No barriers here, since it _will_ race with concurrent
+ * updates from BPF programs. Called from bpf syscall and mostly used with
+ * size 8 or 16 bytes, so ask compiler to inline it.
+ */
+static inline void bpf_long_memcpy(void *dst, const void *src, u32 size)
+{
+	const long *lsrc = src;
+	long *ldst = dst;
+
+	size /= sizeof(long);
+	while (size--)
+		*ldst++ = *lsrc++;
+}
+
+/* copy everything but bpf_spin_lock, bpf_timer, and kptrs. There could be one of each. */
+static inline void __copy_map_value(struct bpf_map *map, void *dst, void *src, bool long_memcpy)
 {
 	u32 curr_off = 0;
 	int i;
 
 	if (likely(!map->off_arr)) {
-		memcpy(dst, src, map->value_size);
+		if (long_memcpy)
+			bpf_long_memcpy(dst, src, round_up(map->value_size, 8));
+		else
+			memcpy(dst, src, map->value_size);
 		return;
 	}
 
@@ -289,10 +308,40 @@ static inline void copy_map_value(struct bpf_map *map, void *dst, void *src)
 		u32 next_off = map->off_arr->field_off[i];
 
 		memcpy(dst + curr_off, src + curr_off, next_off - curr_off);
-		curr_off += map->off_arr->field_sz[i];
+		curr_off = next_off + map->off_arr->field_sz[i];
 	}
 	memcpy(dst + curr_off, src + curr_off, map->value_size - curr_off);
 }
+
+static inline void copy_map_value(struct bpf_map *map, void *dst, void *src)
+{
+	__copy_map_value(map, dst, src, false);
+}
+
+static inline void copy_map_value_long(struct bpf_map *map, void *dst, void *src)
+{
+	__copy_map_value(map, dst, src, true);
+}
+
+static inline void zero_map_value(struct bpf_map *map, void *dst)
+{
+	u32 curr_off = 0;
+	int i;
+
+	if (likely(!map->off_arr)) {
+		memset(dst, 0, map->value_size);
+		return;
+	}
+
+	for (i = 0; i < map->off_arr->cnt; i++) {
+		u32 next_off = map->off_arr->field_off[i];
+
+		memset(dst + curr_off, 0, next_off - curr_off);
+		curr_off = next_off + map->off_arr->field_sz[i];
+	}
+	memset(dst + curr_off, 0, map->value_size - curr_off);
+}
+
 void copy_map_value_locked(struct bpf_map *map, void *dst, void *src,
 			   bool lock_src);
 void bpf_timer_cancel_and_free(void *timer);
@@ -1553,11 +1602,6 @@ static inline bool bpf_allow_uninit_stack(void)
 	return perfmon_capable();
 }
 
-static inline bool bpf_allow_ptr_to_map_access(void)
-{
-	return perfmon_capable();
-}
-
 static inline bool bpf_bypass_spec_v1(void)
 {
 	return perfmon_capable();
@@ -1676,22 +1720,6 @@ int bpf_fd_htab_map_lookup_elem(struct bpf_map *map, void *key, u32 *value);
 int bpf_get_file_flag(int flags);
 int bpf_check_uarg_tail_zero(bpfptr_t uaddr, size_t expected_size,
 			     size_t actual_size);
-
-/* memcpy that is used with 8-byte aligned pointers, power-of-8 size and
- * forced to use 'long' read/writes to try to atomically copy long counters.
- * Best-effort only.  No barriers here, since it _will_ race with concurrent
- * updates from BPF programs. Called from bpf syscall and mostly used with
- * size 8 or 16 bytes, so ask compiler to inline it.
- */
-static inline void bpf_long_memcpy(void *dst, const void *src, u32 size)
-{
-	const long *lsrc = src;
-	long *ldst = dst;
-
-	size /= sizeof(long);
-	while (size--)
-		*ldst++ = *lsrc++;
-}
 
 /* verify correctness of eBPF program */
 int bpf_check(struct bpf_prog **fp, union bpf_attr *attr, bpfptr_t uattr);
