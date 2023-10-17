@@ -21,6 +21,8 @@
 #define ADF_4XXXIOV_PCI_DEVICE_ID 0x4941
 #define ADF_401XX_PCI_DEVICE_ID 0x4942
 #define ADF_401XXIOV_PCI_DEVICE_ID 0x4943
+#define ADF_402XX_PCI_DEVICE_ID 0x4944
+#define ADF_402XXIOV_PCI_DEVICE_ID 0x4945
 #define ADF_DEVICE_FUSECTL_OFFSET 0x40
 #define ADF_DEVICE_LEGFUSE_OFFSET 0x4C
 #define ADF_DEVICE_FUSECTL_MASK 0x80000000
@@ -188,9 +190,14 @@ struct adf_hw_device_data {
 	int (*init_admin_comms)(struct adf_accel_dev *accel_dev);
 	void (*exit_admin_comms)(struct adf_accel_dev *accel_dev);
 	int (*send_admin_init)(struct adf_accel_dev *accel_dev);
+	int (*start_timer)(struct adf_accel_dev *accel_dev);
+	void (*stop_timer)(struct adf_accel_dev *accel_dev);
+	void (*check_hb_ctrs)(struct adf_accel_dev *accel_dev);
+	uint32_t (*get_hb_clock)(struct adf_hw_device_data *self);
+	int (*measure_clock)(struct adf_accel_dev *accel_dev);
 	int (*init_arb)(struct adf_accel_dev *accel_dev);
 	void (*exit_arb)(struct adf_accel_dev *accel_dev);
-	const u32 *(*get_arb_mapping)(void);
+	const u32 *(*get_arb_mapping)(struct adf_accel_dev *accel_dev);
 	int (*init_device)(struct adf_accel_dev *accel_dev);
 	int (*enable_pm)(struct adf_accel_dev *accel_dev);
 	bool (*handle_pm_interrupt)(struct adf_accel_dev *accel_dev);
@@ -202,7 +209,7 @@ struct adf_hw_device_data {
 	int (*ring_pair_reset)(struct adf_accel_dev *accel_dev, u32 bank_nr);
 	void (*reset_device)(struct adf_accel_dev *accel_dev);
 	void (*set_msix_rttable)(struct adf_accel_dev *accel_dev);
-	char *(*uof_get_name)(struct adf_accel_dev *accel_dev, u32 obj_num);
+	const char *(*uof_get_name)(struct adf_accel_dev *accel_dev, u32 obj_num);
 	u32 (*uof_get_num_objs)(void);
 	u32 (*uof_get_ae_mask)(struct adf_accel_dev *accel_dev, u32 obj_num);
 	int (*dev_config)(struct adf_accel_dev *accel_dev);
@@ -229,6 +236,7 @@ struct adf_hw_device_data {
 	u8 num_accel;
 	u8 num_logical_accel;
 	u8 num_engines;
+	u32 num_hb_ctrs;
 };
 
 /* CSR write macro */
@@ -241,6 +249,11 @@ struct adf_hw_device_data {
 #define ADF_CFG_NUM_SERVICES	4
 #define ADF_SRV_TYPE_BIT_LEN	3
 #define ADF_SRV_TYPE_MASK	0x7
+#define ADF_AE_ADMIN_THREAD	7
+#define ADF_NUM_THREADS_PER_AE	8
+#define ADF_NUM_PKE_STRAND	2
+#define ADF_AE_STRAND0_THREAD	8
+#define ADF_AE_STRAND1_THREAD	9
 
 #define GET_DEV(accel_dev) ((accel_dev)->accel_pci_dev.pci_dev->dev)
 #define GET_BARS(accel_dev) ((accel_dev)->accel_pci_dev.pci_bars)
@@ -292,9 +305,12 @@ struct adf_accel_dev {
 	unsigned long status;
 	atomic_t ref_count;
 	struct dentry *debugfs_dir;
+	struct dentry *fw_cntr_dbgfile;
 	struct list_head list;
 	struct module *owner;
 	struct adf_accel_pci accel_pci_dev;
+	struct adf_timer *timer;
+	struct adf_heartbeat *heartbeat;
 	union {
 		struct {
 			/* protects VF2PF interrupts access */
@@ -312,6 +328,7 @@ struct adf_accel_dev {
 			u8 pf_compat_ver;
 		} vf;
 	};
+	struct mutex state_lock; /* protect state of the device */
 	bool is_vf;
 	u32 accel_id;
 };
