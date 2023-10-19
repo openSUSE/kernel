@@ -36,8 +36,11 @@ struct intel_vsec_device {
 	struct pci_dev *pcidev;
 	struct resource *resource;
 	struct ida *ida;
-	struct intel_vsec_platform_info *info;
+	unsigned long quirks;
 	int num_resources;
+#ifndef __GENKSYMS__
+	struct intel_vsec_platform_info *info;
+#endif
 };
 
 static inline struct intel_vsec_device *dev_to_ivdev(struct device *dev)
