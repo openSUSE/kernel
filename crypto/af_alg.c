@@ -995,7 +995,7 @@ int af_alg_sendmsg(struct socket *sock, struct msghdr *msg, size_t size,
 		ssize_t plen;
 
 		/* use the existing memory in an allocated page */
-		if (ctx->merge) {
+		if (ctx->merge && !(msg->msg_flags & MSG_SPLICE_PAGES)) {
 			sgl = list_entry(ctx->tsgl_list.prev,
 					 struct af_alg_tsgl, list);
 			sg = sgl->sg + sgl->cur - 1;
@@ -1057,6 +1057,7 @@ int af_alg_sendmsg(struct socket *sock, struct msghdr *msg, size_t size,
 			ctx->used += plen;
 			copied += plen;
 			size -= plen;
+			ctx->merge = 0;
 		} else {
 			do {
 				struct page *pg;
@@ -1088,12 +1089,12 @@ int af_alg_sendmsg(struct socket *sock, struct msghdr *msg, size_t size,
 				size -= plen;
 				sgl->cur++;
 			} while (len && sgl->cur < MAX_SGL_ENTS);
+
+			ctx->merge = plen & (PAGE_SIZE - 1);
 		}
 
 		if (!size)
 			sg_mark_end(sg + sgl->cur - 1);
-
-		ctx->merge = plen & (PAGE_SIZE - 1);
 	}
 
 	err = 0;
