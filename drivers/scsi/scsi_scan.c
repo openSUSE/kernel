@@ -1099,6 +1099,8 @@ static int scsi_add_lun(struct scsi_device *sdev, unsigned char *inq_result,
 	if (sdev->scsi_level >= SCSI_3)
 		scsi_attach_vpd(sdev);
 
+	scsi_cdl_check(sdev);
+
 	sdev->max_queue_depth = sdev->queue_depth;
 	WARN_ON_ONCE(sdev->max_queue_depth > sdev->budget_map.depth);
 	sdev->sdev_bflags = *bflags;
@@ -1652,6 +1654,7 @@ int scsi_rescan_device(struct scsi_device *sdev)
 	}
 
 	scsi_attach_vpd(sdev);
+	scsi_cdl_check(sdev);
 
 	if (sdev->handler && sdev->handler->rescan)
 		sdev->handler->rescan(sdev);
