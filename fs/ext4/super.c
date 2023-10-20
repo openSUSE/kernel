@@ -1098,6 +1098,15 @@ void ext4_update_dynamic_rev(struct super_block *sb)
 	 */
 }
 
+static void ext4_bdev_mark_dead(struct block_device *bdev)
+{
+	ext4_force_shutdown(bdev->bd_holder, EXT4_GOING_FLAGS_NOLOGFLUSH);
+}
+
+static const struct blk_holder_ops ext4_holder_ops = {
+	.mark_dead		= ext4_bdev_mark_dead,
+};
+
 /*
  * Open the external journal device
  */
@@ -1106,7 +1115,7 @@ static struct block_device *ext4_blkdev_get(dev_t dev, struct super_block *sb)
 	struct block_device *bdev;
 
 	bdev = blkdev_get_by_dev(dev, FMODE_READ|FMODE_WRITE|FMODE_EXCL, sb,
-				 NULL);
+				 &ext4_holder_ops);
 	if (IS_ERR(bdev))
 		goto fail;
 	return bdev;
