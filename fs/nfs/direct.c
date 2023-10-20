@@ -891,6 +891,8 @@ static ssize_t nfs_direct_write_schedule_iovec(struct nfs_direct_req *dreq,
 				result = desc.pg_error;
 				break;
 			}
+			req->wb_index = pos >> PAGE_SHIFT;
+			req->wb_offset = pos & ~PAGE_MASK;
 
 			pgbase = 0;
 			bytes -= req_len;
@@ -904,8 +906,6 @@ static ssize_t nfs_direct_write_schedule_iovec(struct nfs_direct_req *dreq,
 			}
 
 			nfs_lock_request(req);
-			req->wb_index = pos >> PAGE_SHIFT;
-			req->wb_offset = pos & ~PAGE_MASK;
 			if (nfs_pageio_add_request(&desc, req))
 				continue;
 
