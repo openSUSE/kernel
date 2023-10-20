@@ -2795,11 +2795,6 @@ static int gup_huge_pud(pud_t orig, pud_t *pudp, unsigned long addr,
 		return 0;
 	}
 
-	if (!pgd_write(orig) && gup_must_unshare(NULL, flags, &folio->page)) {
-		gup_put_folio(folio, refs, flags);
-		return 0;
-	}
-
 	*nr += refs;
 	folio_set_referenced(folio);
 	return 1;
@@ -2826,6 +2821,11 @@ static int gup_huge_pgd(pgd_t orig, pgd_t *pgdp, unsigned long addr,
 		return 0;
 
 	if (unlikely(pgd_val(orig) != pgd_val(*pgdp))) {
+		gup_put_folio(folio, refs, flags);
+		return 0;
+	}
+
+	if (!pgd_write(orig) && gup_must_unshare(NULL, flags, &folio->page)) {
 		gup_put_folio(folio, refs, flags);
 		return 0;
 	}
