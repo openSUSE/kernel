@@ -7266,7 +7266,6 @@ static void rbd_dev_remove_parent(struct rbd_device *rbd_dev)
 static ssize_t do_rbd_remove(const char *buf, size_t count)
 {
 	struct rbd_device *rbd_dev = NULL;
-	struct list_head *tmp;
 	int dev_id;
 	char opt_buf[6];
 	bool force = false;
@@ -7293,8 +7292,7 @@ static ssize_t do_rbd_remove(const char *buf, size_t count)
 
 	ret = -ENOENT;
 	spin_lock(&rbd_dev_list_lock);
-	list_for_each(tmp, &rbd_dev_list) {
-		rbd_dev = list_entry(tmp, struct rbd_device, node);
+	list_for_each_entry(rbd_dev, &rbd_dev_list, node) {
 		if (rbd_dev->dev_id == dev_id) {
 			ret = 0;
 			break;
