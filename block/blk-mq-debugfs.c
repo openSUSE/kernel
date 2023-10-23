@@ -241,14 +241,14 @@ static const char *const cmd_flag_name[] = {
 #define RQF_NAME(name) [ilog2((__force u32)RQF_##name)] = #name
 static const char *const rqf_name[] = {
 	RQF_NAME(STARTED),
-	RQF_NAME(SOFTBARRIER),
 	RQF_NAME(FLUSH_SEQ),
 	RQF_NAME(MIXED_MERGE),
 	RQF_NAME(MQ_INFLIGHT),
 	RQF_NAME(DONTPREP),
+	RQF_NAME(SCHED_TAGS),
+	RQF_NAME(USE_SCHED),
 	RQF_NAME(FAILED),
 	RQF_NAME(QUIET),
-	RQF_NAME(ELVPRIV),
 	RQF_NAME(IO_STAT),
 	RQF_NAME(PM),
 	RQF_NAME(HASHED),
@@ -256,7 +256,6 @@ static const char *const rqf_name[] = {
 	RQF_NAME(SPECIAL_PAYLOAD),
 	RQF_NAME(ZONE_WRITE_LOCKED),
 	RQF_NAME(TIMED_OUT),
-	RQF_NAME(ELV),
 	RQF_NAME(RESV),
 };
 #undef RQF_NAME
