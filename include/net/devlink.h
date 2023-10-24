@@ -1278,8 +1278,6 @@ struct devlink_ops {
 	int (*reload_up)(struct devlink *devlink, enum devlink_reload_action action,
 			 enum devlink_reload_limit limit, u32 *actions_performed,
 			 struct netlink_ext_ack *extack);
-	int (*port_type_set)(struct devlink_port *devlink_port,
-			     enum devlink_port_type port_type);
 	int (*sb_pool_get)(struct devlink *devlink, unsigned int sb_index,
 			   u16 pool_index,
 			   struct devlink_sb_pool_info *pool_info);
@@ -1436,135 +1434,25 @@ struct devlink_ops {
 					const struct devlink_trap_policer *policer,
 					u64 *p_drops);
 	/**
-	 * @port_function_hw_addr_get: Port function's hardware address get function.
-	 *
-	 * Should be used by device drivers to report the hardware address of a function managed
-	 * by the devlink port. Driver should return -EOPNOTSUPP if it doesn't support port
-	 * function handling for a particular port.
-	 *
-	 * Note: @extack can be NULL when port notifier queries the port function.
-	 */
-	int (*port_function_hw_addr_get)(struct devlink_port *port, u8 *hw_addr,
-					 int *hw_addr_len,
-					 struct netlink_ext_ack *extack);
-	/**
-	 * @port_function_hw_addr_set: Port function's hardware address set function.
-	 *
-	 * Should be used by device drivers to set the hardware address of a function managed
-	 * by the devlink port. Driver should return -EOPNOTSUPP if it doesn't support port
-	 * function handling for a particular port.
-	 */
-	int (*port_function_hw_addr_set)(struct devlink_port *port,
-					 const u8 *hw_addr, int hw_addr_len,
-					 struct netlink_ext_ack *extack);
-	/**
-	 * @port_fn_roce_get: Port function's roce get function.
-	 *
-	 * Query RoCE state of a function managed by the devlink port.
-	 * Return -EOPNOTSUPP if port function RoCE handling is not supported.
-	 */
-	int (*port_fn_roce_get)(struct devlink_port *devlink_port,
-				bool *is_enable,
-				struct netlink_ext_ack *extack);
-	/**
-	 * @port_fn_roce_set: Port function's roce set function.
-	 *
-	 * Enable/Disable the RoCE state of a function managed by the devlink
-	 * port.
-	 * Return -EOPNOTSUPP if port function RoCE handling is not supported.
-	 */
-	int (*port_fn_roce_set)(struct devlink_port *devlink_port,
-				bool enable, struct netlink_ext_ack *extack);
-	/**
-	 * @port_fn_migratable_get: Port function's migratable get function.
-	 *
-	 * Query migratable state of a function managed by the devlink port.
-	 * Return -EOPNOTSUPP if port function migratable handling is not
-	 * supported.
-	 */
-	int (*port_fn_migratable_get)(struct devlink_port *devlink_port,
-				      bool *is_enable,
-				      struct netlink_ext_ack *extack);
-	/**
-	 * @port_fn_migratable_set: Port function's migratable set function.
-	 *
-	 * Enable/Disable migratable state of a function managed by the devlink
-	 * port.
-	 * Return -EOPNOTSUPP if port function migratable handling is not
-	 * supported.
-	 */
-	int (*port_fn_migratable_set)(struct devlink_port *devlink_port,
-				      bool enable,
-				      struct netlink_ext_ack *extack);
-	/**
 	 * port_new() - Add a new port function of a specified flavor
 	 * @devlink: Devlink instance
 	 * @attrs: attributes of the new port
 	 * @extack: extack for reporting error messages
+	 * @devlink_port: pointer to store new devlink port pointer
 	 *
 	 * Devlink core will call this device driver function upon user request
 	 * to create a new port function of a specified flavor and optional
 	 * attributes
 	 *
 	 * Notes:
-	 *	- Called without devlink instance lock being held. Drivers must
-	 *	  implement own means of synchronization
 	 *	- On success, drivers must register a port with devlink core
 	 *
 	 * Return: 0 on success, negative value otherwise.
 	 */
 	int (*port_new)(struct devlink *devlink,
 			const struct devlink_port_new_attrs *attrs,
-			struct netlink_ext_ack *extack);
-	/**
-	 * port_del() - Delete a port function
-	 * @devlink: Devlink instance
-	 * @port: The devlink port
-	 * @extack: extack for reporting error messages
-	 *
-	 * Devlink core will call this device driver function upon user request
-	 * to delete a previously created port function
-	 *
-	 * Notes:
-	 *	- Called without devlink instance lock being held. Drivers must
-	 *	  implement own means of synchronization
-	 *	- On success, drivers must unregister the corresponding devlink
-	 *	  port
-	 *
-	 * Return: 0 on success, negative value otherwise.
-	 */
-	int (*port_del)(struct devlink *devlink, struct devlink_port *port,
-			struct netlink_ext_ack *extack);
-	/**
-	 * port_fn_state_get() - Get the state of a port function
-	 * @devlink: Devlink instance
-	 * @port: The devlink port
-	 * @state: Admin configured state
-	 * @opstate: Current operational state
-	 * @extack: extack for reporting error messages
-	 *
-	 * Reports the admin and operational state of a devlink port function
-	 *
-	 * Return: 0 on success, negative value otherwise.
-	 */
-	int (*port_fn_state_get)(struct devlink_port *port,
-				 enum devlink_port_fn_state *state,
-				 enum devlink_port_fn_opstate *opstate,
-				 struct netlink_ext_ack *extack);
-	/**
-	 * port_fn_state_set() - Set the admin state of a port function
-	 * @devlink: Devlink instance
-	 * @port: The devlink port
-	 * @state: Admin state
-	 * @extack: extack for reporting error messages
-	 *
-	 * Set the admin state of a devlink port function
-	 *
-	 * Return: 0 on success, negative value otherwise.
-	 */
-	int (*port_fn_state_set)(struct devlink_port *port,
-				 enum devlink_port_fn_state state,
-				 struct netlink_ext_ack *extack);
+			struct netlink_ext_ack *extack,
+			struct devlink_port **devlink_port);
 
 	/**
 	 * Rate control callbacks.
@@ -1660,12 +1548,108 @@ void devlink_free(struct devlink *devlink);
  * @port_split: Callback used to split the port into multiple ones.
  * @port_unsplit: Callback used to unsplit the port group back into
  *		  a single port.
+ * @port_type_set: Callback used to set a type of a port.
+ * @port_del: Callback used to delete selected port along with related function.
+ *	      Devlink core calls this upon user request to delete
+ *	      a port previously created by devlink_ops->port_new().
+ * @port_fn_hw_addr_get: Callback used to set port function's hardware address.
+ *			 Should be used by device drivers to report
+ *			 the hardware address of a function managed
+ *			 by the devlink port.
+ * @port_fn_hw_addr_set: Callback used to set port function's hardware address.
+ *			 Should be used by device drivers to set the hardware
+ *			 address of a function managed by the devlink port.
+ * @port_fn_roce_get: Callback used to get port function's RoCE capability.
+ *		      Should be used by device drivers to report
+ *		      the current state of RoCE capability of a function
+ *		      managed by the devlink port.
+ * @port_fn_roce_set: Callback used to set port function's RoCE capability.
+ *		      Should be used by device drivers to enable/disable
+ *		      RoCE capability of a function managed
+ *		      by the devlink port.
+ * @port_fn_migratable_get: Callback used to get port function's migratable
+ *			    capability. Should be used by device drivers
+ *			    to report the current state of migratable capability
+ *			    of a function managed by the devlink port.
+ * @port_fn_migratable_set: Callback used to set port function's migratable
+ *			    capability. Should be used by device drivers
+ *			    to enable/disable migratable capability of
+ *			    a function managed by the devlink port.
+ * @port_fn_state_get: Callback used to get port function's state.
+ *		       Should be used by device drivers to report
+ *		       the current admin and operational state of a
+ *		       function managed by the devlink port.
+ * @port_fn_state_set: Callback used to get port function's state.
+ *		       Should be used by device drivers set
+ *		       the admin state of a function managed
+ *		       by the devlink port.
+ * @port_fn_ipsec_crypto_get: Callback used to get port function's ipsec_crypto
+ *			      capability. Should be used by device drivers
+ *			      to report the current state of ipsec_crypto
+ *			      capability of a function managed by the devlink
+ *			      port.
+ * @port_fn_ipsec_crypto_set: Callback used to set port function's ipsec_crypto
+ *			      capability. Should be used by device drivers to
+ *			      enable/disable ipsec_crypto capability of a
+ *			      function managed by the devlink port.
+ * @port_fn_ipsec_packet_get: Callback used to get port function's ipsec_packet
+ *			      capability. Should be used by device drivers
+ *			      to report the current state of ipsec_packet
+ *			      capability of a function managed by the devlink
+ *			      port.
+ * @port_fn_ipsec_packet_set: Callback used to set port function's ipsec_packet
+ *			      capability. Should be used by device drivers to
+ *			      enable/disable ipsec_packet capability of a
+ *			      function managed by the devlink port.
+ *
+ * Note: Driver should return -EOPNOTSUPP if it doesn't support
+ * port function (@port_fn_*) handling for a particular port.
  */
 struct devlink_port_ops {
 	int (*port_split)(struct devlink *devlink, struct devlink_port *port,
 			  unsigned int count, struct netlink_ext_ack *extack);
 	int (*port_unsplit)(struct devlink *devlink, struct devlink_port *port,
 			    struct netlink_ext_ack *extack);
+	int (*port_type_set)(struct devlink_port *devlink_port,
+			     enum devlink_port_type port_type);
+	int (*port_del)(struct devlink *devlink, struct devlink_port *port,
+			struct netlink_ext_ack *extack);
+	int (*port_fn_hw_addr_get)(struct devlink_port *port, u8 *hw_addr,
+				   int *hw_addr_len,
+				   struct netlink_ext_ack *extack);
+	int (*port_fn_hw_addr_set)(struct devlink_port *port,
+				   const u8 *hw_addr, int hw_addr_len,
+				   struct netlink_ext_ack *extack);
+	int (*port_fn_roce_get)(struct devlink_port *devlink_port,
+				bool *is_enable,
+				struct netlink_ext_ack *extack);
+	int (*port_fn_roce_set)(struct devlink_port *devlink_port,
+				bool enable, struct netlink_ext_ack *extack);
+	int (*port_fn_migratable_get)(struct devlink_port *devlink_port,
+				      bool *is_enable,
+				      struct netlink_ext_ack *extack);
+	int (*port_fn_migratable_set)(struct devlink_port *devlink_port,
+				      bool enable,
+				      struct netlink_ext_ack *extack);
+	int (*port_fn_state_get)(struct devlink_port *port,
+				 enum devlink_port_fn_state *state,
+				 enum devlink_port_fn_opstate *opstate,
+				 struct netlink_ext_ack *extack);
+	int (*port_fn_state_set)(struct devlink_port *port,
+				 enum devlink_port_fn_state state,
+				 struct netlink_ext_ack *extack);
+	int (*port_fn_ipsec_crypto_get)(struct devlink_port *devlink_port,
+					bool *is_enable,
+					struct netlink_ext_ack *extack);
+	int (*port_fn_ipsec_crypto_set)(struct devlink_port *devlink_port,
+					bool enable,
+					struct netlink_ext_ack *extack);
+	int (*port_fn_ipsec_packet_get)(struct devlink_port *devlink_port,
+					bool *is_enable,
+					struct netlink_ext_ack *extack);
+	int (*port_fn_ipsec_packet_set)(struct devlink_port *devlink_port,
+					bool enable,
+					struct netlink_ext_ack *extack);
 };
 
 void devlink_port_init(struct devlink *devlink,

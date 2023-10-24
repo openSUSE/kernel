@@ -254,7 +254,7 @@ int __register_blkdev(unsigned int major, const char *name,
 #ifdef CONFIG_BLOCK_LEGACY_AUTOLOAD
 	p->probe = probe;
 #endif
-	strlcpy(p->name, name, sizeof(p->name));
+	strscpy(p->name, name, sizeof(p->name));
 	p->next = NULL;
 	index = major_to_index(major);
 
@@ -371,13 +371,15 @@ int disk_scan_partitions(struct gendisk *disk, fmode_t mode)
 	 * scanners.
 	 */
 	if (!(mode & FMODE_EXCL)) {
-		ret = bd_prepare_to_claim(disk->part0, disk_scan_partitions);
+		ret = bd_prepare_to_claim(disk->part0, disk_scan_partitions,
+					  NULL);
 		if (ret)
 			return ret;
 	}
 
 	set_bit(GD_NEED_PART_SCAN, &disk->state);
-	bdev = blkdev_get_by_dev(disk_devt(disk), mode & ~FMODE_EXCL, NULL);
+	bdev = blkdev_get_by_dev(disk_devt(disk), mode & ~FMODE_EXCL, NULL,
+				 NULL);
 	if (IS_ERR(bdev))
 		ret =  PTR_ERR(bdev);
 	else
@@ -564,6 +566,28 @@ out_exit_elevator:
 }
 EXPORT_SYMBOL(device_add_disk);
 
+static void blk_report_disk_dead(struct gendisk *disk)
+{
+	struct block_device *bdev;
+	unsigned long idx;
+
+	rcu_read_lock();
+	xa_for_each(&disk->part_tbl, idx, bdev) {
+		if (!kobject_get_unless_zero(&bdev->bd_device.kobj))
+			continue;
+		rcu_read_unlock();
+
+		mutex_lock(&bdev->bd_holder_lock);
+		if (bdev->bd_holder_ops && bdev->bd_holder_ops->mark_dead)
+			bdev->bd_holder_ops->mark_dead(bdev);
+		mutex_unlock(&bdev->bd_holder_lock);
+
+		put_device(&bdev->bd_device);
+		rcu_read_lock();
+	}
+	rcu_read_unlock();
+}
+
 /**
  * blk_mark_disk_dead - mark a disk as dead
  * @disk: disk to mark as dead
@@ -573,13 +597,26 @@ EXPORT_SYMBOL(device_add_disk);
  */
 void blk_mark_disk_dead(struct gendisk *disk)
 {
-	set_bit(GD_DEAD, &disk->state);
-	blk_queue_start_drain(disk->queue);
+	/*
+	 * Fail any new I/O.
+	 */
+	if (test_and_set_bit(GD_DEAD, &disk->state))
+		return;
+
+	if (test_bit(GD_OWNS_QUEUE, &disk->state))
+		blk_queue_flag_set(QUEUE_FLAG_DYING, disk->queue);
 
 	/*
 	 * Stop buffered writers from dirtying pages that can't be written out.
 	 */
-	set_capacity_and_notify(disk, 0);
+	set_capacity(disk, 0);
+
+	/*
+	 * Prevent new I/O from crossing bio_queue_enter().
+	 */
+	blk_queue_start_drain(disk->queue);
+
+	blk_report_disk_dead(disk);
 }
 EXPORT_SYMBOL_GPL(blk_mark_disk_dead);
 
@@ -605,6 +642,8 @@ EXPORT_SYMBOL_GPL(blk_mark_disk_dead);
 void del_gendisk(struct gendisk *disk)
 {
 	struct request_queue *q = disk->queue;
+	struct block_device *part;
+	unsigned long idx;
 
 	might_sleep();
 
@@ -613,26 +652,27 @@ void del_gendisk(struct gendisk *disk)
 
 	disk_del_events(disk);
 
+	/*
+	 * Prevent new openers by unlinked the bdev inode, and write out
+	 * dirty data before marking the disk dead and stopping all I/O.
+	 */
 	mutex_lock(&disk->open_mutex);
-	remove_inode_hash(disk->part0->bd_inode);
-	blk_drop_partitions(disk);
+	xa_for_each(&disk->part_tbl, idx, part) {
+		remove_inode_hash(part->bd_inode);
+		fsync_bdev(part);
+		__invalidate_device(part, true);
+	}
 	mutex_unlock(&disk->open_mutex);
 
-	fsync_bdev(disk->part0);
-	__invalidate_device(disk->part0, true);
+	blk_mark_disk_dead(disk);
 
 	/*
-	 * Fail any new I/O.
+	 * Drop all partitions now that the disk is marked dead.
 	 */
-	set_bit(GD_DEAD, &disk->state);
-	if (test_bit(GD_OWNS_QUEUE, &disk->state))
-		blk_queue_flag_set(QUEUE_FLAG_DYING, q);
-	set_capacity(disk, 0);
-
-	/*
-	 * Prevent new I/O from crossing bio_queue_enter().
-	 */
-	blk_queue_start_drain(q);
+	mutex_lock(&disk->open_mutex);
+	xa_for_each_start(&disk->part_tbl, idx, part, 1)
+		drop_partition(part);
+	mutex_unlock(&disk->open_mutex);
 
 	if (!(disk->flags & GENHD_FL_HIDDEN)) {
 		sysfs_remove_link(&disk_to_dev(disk)->kobj, "bdi");

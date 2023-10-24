@@ -95,7 +95,7 @@ static int tcm_rbd_configure_device(struct se_device *dev)
 	else
 		dev->dev_flags |= DF_READ_ONLY;
 
-	bd = blkdev_get_by_path(tcm_rbd_dev->bd_udev_path, mode, tcm_rbd_dev);
+	bd = blkdev_get_by_path(tcm_rbd_dev->bd_udev_path, mode, tcm_rbd_dev, NULL);
 	if (IS_ERR(bd)) {
 		return PTR_ERR(bd);
 	}
@@ -793,7 +793,7 @@ static unsigned int tcm_rbd_get_io_opt(struct se_device *dev)
 	return bdev_io_opt(bd);
 }
 
-static struct sbc_ops tcm_rbd_sbc_ops = {
+static struct exec_cmd_ops tcm_rbd_sbc_ops = {
 	.execute_rw		= tcm_rbd_execute_rw,
 	.execute_sync_cache	= tcm_rbd_execute_sync_cache,
 	.execute_write_same	= tcm_rbd_execute_write_same,

@@ -447,18 +447,18 @@ static void devlink_port_fn_cap_fill(struct nla_bitfield32 *caps,
 		caps->value |= cap;
 }
 
-static int devlink_port_fn_roce_fill(const struct devlink_ops *ops,
-				     struct devlink_port *devlink_port,
+static int devlink_port_fn_roce_fill(struct devlink_port *devlink_port,
 				     struct nla_bitfield32 *caps,
 				     struct netlink_ext_ack *extack)
 {
 	bool is_enable;
 	int err;
 
-	if (!ops->port_fn_roce_get)
+	if (!devlink_port->ops->port_fn_roce_get)
 		return 0;
 
-	err = ops->port_fn_roce_get(devlink_port, &is_enable, extack);
+	err = devlink_port->ops->port_fn_roce_get(devlink_port, &is_enable,
+						  extack);
 	if (err) {
 		if (err == -EOPNOTSUPP)
 			return 0;
@@ -469,19 +469,19 @@ static int devlink_port_fn_roce_fill(const struct devlink_ops *ops,
 	return 0;
 }
 
-static int devlink_port_fn_migratable_fill(const struct devlink_ops *ops,
-					   struct devlink_port *devlink_port,
+static int devlink_port_fn_migratable_fill(struct devlink_port *devlink_port,
 					   struct nla_bitfield32 *caps,
 					   struct netlink_ext_ack *extack)
 {
 	bool is_enable;
 	int err;
 
-	if (!ops->port_fn_migratable_get ||
+	if (!devlink_port->ops->port_fn_migratable_get ||
 	    devlink_port->attrs.flavour != DEVLINK_PORT_FLAVOUR_PCI_VF)
 		return 0;
 
-	err = ops->port_fn_migratable_get(devlink_port, &is_enable, extack);
+	err = devlink_port->ops->port_fn_migratable_get(devlink_port,
+							&is_enable, extack);
 	if (err) {
 		if (err == -EOPNOTSUPP)
 			return 0;
@@ -492,8 +492,51 @@ static int devlink_port_fn_migratable_fill(const struct devlink_ops *ops,
 	return 0;
 }
 
-static int devlink_port_fn_caps_fill(const struct devlink_ops *ops,
-				     struct devlink_port *devlink_port,
+static int devlink_port_fn_ipsec_crypto_fill(struct devlink_port *devlink_port,
+					     struct nla_bitfield32 *caps,
+					     struct netlink_ext_ack *extack)
+{
+	bool is_enable;
+	int err;
+
+	if (!devlink_port->ops->port_fn_ipsec_crypto_get ||
+	    devlink_port->attrs.flavour != DEVLINK_PORT_FLAVOUR_PCI_VF)
+		return 0;
+
+	err = devlink_port->ops->port_fn_ipsec_crypto_get(devlink_port, &is_enable, extack);
+	if (err) {
+		if (err == -EOPNOTSUPP)
+			return 0;
+		return err;
+	}
+
+	devlink_port_fn_cap_fill(caps, DEVLINK_PORT_FN_CAP_IPSEC_CRYPTO, is_enable);
+	return 0;
+}
+
+static int devlink_port_fn_ipsec_packet_fill(struct devlink_port *devlink_port,
+					     struct nla_bitfield32 *caps,
+					     struct netlink_ext_ack *extack)
+{
+	bool is_enable;
+	int err;
+
+	if (!devlink_port->ops->port_fn_ipsec_packet_get ||
+	    devlink_port->attrs.flavour != DEVLINK_PORT_FLAVOUR_PCI_VF)
+		return 0;
+
+	err = devlink_port->ops->port_fn_ipsec_packet_get(devlink_port, &is_enable, extack);
+	if (err) {
+		if (err == -EOPNOTSUPP)
+			return 0;
+		return err;
+	}
+
+	devlink_port_fn_cap_fill(caps, DEVLINK_PORT_FN_CAP_IPSEC_PACKET, is_enable);
+	return 0;
+}
+
+static int devlink_port_fn_caps_fill(struct devlink_port *devlink_port,
 				     struct sk_buff *msg,
 				     struct netlink_ext_ack *extack,
 				     bool *msg_updated)
@@ -501,11 +544,19 @@ static int devlink_port_fn_caps_fill(const struct devlink_ops *ops,
 	struct nla_bitfield32 caps = {};
 	int err;
 
-	err = devlink_port_fn_roce_fill(ops, devlink_port, &caps, extack);
+	err = devlink_port_fn_roce_fill(devlink_port, &caps, extack);
 	if (err)
 		return err;
 
-	err = devlink_port_fn_migratable_fill(ops, devlink_port, &caps, extack);
+	err = devlink_port_fn_migratable_fill(devlink_port, &caps, extack);
+	if (err)
+		return err;
+
+	err = devlink_port_fn_ipsec_crypto_fill(devlink_port, &caps, extack);
+	if (err)
+		return err;
+
+	err = devlink_port_fn_ipsec_packet_fill(devlink_port, &caps, extack);
 	if (err)
 		return err;
 
@@ -691,8 +742,7 @@ static int devlink_nl_port_attrs_put(struct sk_buff *msg,
 	return 0;
 }
 
-static int devlink_port_fn_hw_addr_fill(const struct devlink_ops *ops,
-					struct devlink_port *port,
+static int devlink_port_fn_hw_addr_fill(struct devlink_port *port,
 					struct sk_buff *msg,
 					struct netlink_ext_ack *extack,
 					bool *msg_updated)
@@ -701,10 +751,10 @@ static int devlink_port_fn_hw_addr_fill(const struct devlink_ops *ops,
 	int hw_addr_len;
 	int err;
 
-	if (!ops->port_function_hw_addr_get)
+	if (!port->ops->port_fn_hw_addr_get)
 		return 0;
 
-	err = ops->port_function_hw_addr_get(port, hw_addr, &hw_addr_len,
+	err = port->ops->port_fn_hw_addr_get(port, hw_addr, &hw_addr_len,
 					     extack);
 	if (err) {
 		if (err == -EOPNOTSUPP)
@@ -789,8 +839,7 @@ devlink_port_fn_opstate_valid(enum devlink_port_fn_opstate opstate)
 	       opstate == DEVLINK_PORT_FN_OPSTATE_ATTACHED;
 }
 
-static int devlink_port_fn_state_fill(const struct devlink_ops *ops,
-				      struct devlink_port *port,
+static int devlink_port_fn_state_fill(struct devlink_port *port,
 				      struct sk_buff *msg,
 				      struct netlink_ext_ack *extack,
 				      bool *msg_updated)
@@ -799,10 +848,10 @@ static int devlink_port_fn_state_fill(const struct devlink_ops *ops,
 	enum devlink_port_fn_state state;
 	int err;
 
-	if (!ops->port_fn_state_get)
+	if (!port->ops->port_fn_state_get)
 		return 0;
 
-	err = ops->port_fn_state_get(port, &state, &opstate, extack);
+	err = port->ops->port_fn_state_get(port, &state, &opstate, extack);
 	if (err) {
 		if (err == -EOPNOTSUPP)
 			return 0;
@@ -829,18 +878,30 @@ static int
 devlink_port_fn_mig_set(struct devlink_port *devlink_port, bool enable,
 			struct netlink_ext_ack *extack)
 {
-	const struct devlink_ops *ops = devlink_port->devlink->ops;
-
-	return ops->port_fn_migratable_set(devlink_port, enable, extack);
+	return devlink_port->ops->port_fn_migratable_set(devlink_port, enable,
+							 extack);
 }
 
 static int
 devlink_port_fn_roce_set(struct devlink_port *devlink_port, bool enable,
 			 struct netlink_ext_ack *extack)
 {
-	const struct devlink_ops *ops = devlink_port->devlink->ops;
+	return devlink_port->ops->port_fn_roce_set(devlink_port, enable,
+						   extack);
+}
 
-	return ops->port_fn_roce_set(devlink_port, enable, extack);
+static int
+devlink_port_fn_ipsec_crypto_set(struct devlink_port *devlink_port, bool enable,
+				 struct netlink_ext_ack *extack)
+{
+	return devlink_port->ops->port_fn_ipsec_crypto_set(devlink_port, enable, extack);
+}
+
+static int
+devlink_port_fn_ipsec_packet_set(struct devlink_port *devlink_port, bool enable,
+				 struct netlink_ext_ack *extack)
+{
+	return devlink_port->ops->port_fn_ipsec_packet_set(devlink_port, enable, extack);
 }
 
 static int devlink_port_fn_caps_set(struct devlink_port *devlink_port,
@@ -867,6 +928,20 @@ static int devlink_port_fn_caps_set(struct devlink_port *devlink_port,
 		if (err)
 			return err;
 	}
+	if (caps.selector & DEVLINK_PORT_FN_CAP_IPSEC_CRYPTO) {
+		err = devlink_port_fn_ipsec_crypto_set(devlink_port, caps_value &
+						       DEVLINK_PORT_FN_CAP_IPSEC_CRYPTO,
+						       extack);
+		if (err)
+			return err;
+	}
+	if (caps.selector & DEVLINK_PORT_FN_CAP_IPSEC_PACKET) {
+		err = devlink_port_fn_ipsec_packet_set(devlink_port, caps_value &
+						       DEVLINK_PORT_FN_CAP_IPSEC_PACKET,
+						       extack);
+		if (err)
+			return err;
+	}
 	return 0;
 }
 
@@ -874,7 +949,6 @@ static int
 devlink_nl_port_function_attrs_put(struct sk_buff *msg, struct devlink_port *port,
 				   struct netlink_ext_ack *extack)
 {
-	const struct devlink_ops *ops;
 	struct nlattr *function_attr;
 	bool msg_updated = false;
 	int err;
@@ -883,16 +957,13 @@ devlink_nl_port_function_attrs_put(struct sk_buff *msg, struct devlink_port *por
 	if (!function_attr)
 		return -EMSGSIZE;
 
-	ops = port->devlink->ops;
-	err = devlink_port_fn_hw_addr_fill(ops, port, msg, extack,
-					   &msg_updated);
+	err = devlink_port_fn_hw_addr_fill(port, msg, extack, &msg_updated);
 	if (err)
 		goto out;
-	err = devlink_port_fn_caps_fill(ops, port, msg, extack,
-					&msg_updated);
+	err = devlink_port_fn_caps_fill(port, msg, extack, &msg_updated);
 	if (err)
 		goto out;
-	err = devlink_port_fn_state_fill(ops, port, msg, extack, &msg_updated);
+	err = devlink_port_fn_state_fill(port, msg, extack, &msg_updated);
 out:
 	if (err || !msg_updated)
 		nla_nest_cancel(msg, function_attr);
@@ -1137,14 +1208,13 @@ static int devlink_port_type_set(struct devlink_port *devlink_port,
 {
 	int err;
 
-	if (!devlink_port->devlink->ops->port_type_set)
+	if (!devlink_port->ops->port_type_set)
 		return -EOPNOTSUPP;
 
 	if (port_type == devlink_port->type)
 		return 0;
 
-	err = devlink_port->devlink->ops->port_type_set(devlink_port,
-							port_type);
+	err = devlink_port->ops->port_type_set(devlink_port, port_type);
 	if (err)
 		return err;
 
@@ -1157,7 +1227,6 @@ static int devlink_port_function_hw_addr_set(struct devlink_port *port,
 					     const struct nlattr *attr,
 					     struct netlink_ext_ack *extack)
 {
-	const struct devlink_ops *ops = port->devlink->ops;
 	const u8 *hw_addr;
 	int hw_addr_len;
 
@@ -1178,7 +1247,7 @@ static int devlink_port_function_hw_addr_set(struct devlink_port *port,
 		}
 	}
 
-	return ops->port_function_hw_addr_set(port, hw_addr, hw_addr_len,
+	return port->ops->port_fn_hw_addr_set(port, hw_addr, hw_addr_len,
 					      extack);
 }
 
@@ -1187,22 +1256,20 @@ static int devlink_port_fn_state_set(struct devlink_port *port,
 				     struct netlink_ext_ack *extack)
 {
 	enum devlink_port_fn_state state;
-	const struct devlink_ops *ops;
 
 	state = nla_get_u8(attr);
-	ops = port->devlink->ops;
-	return ops->port_fn_state_set(port, state, extack);
+	return port->ops->port_fn_state_set(port, state, extack);
 }
 
 static int devlink_port_function_validate(struct devlink_port *devlink_port,
 					  struct nlattr **tb,
 					  struct netlink_ext_ack *extack)
 {
-	const struct devlink_ops *ops = devlink_port->devlink->ops;
+	const struct devlink_port_ops *ops = devlink_port->ops;
 	struct nlattr *attr;
 
 	if (tb[DEVLINK_PORT_FUNCTION_ATTR_HW_ADDR] &&
-	    !ops->port_function_hw_addr_set) {
+	    !ops->port_fn_hw_addr_set) {
 		NL_SET_ERR_MSG_ATTR(extack, tb[DEVLINK_PORT_FUNCTION_ATTR_HW_ADDR],
 				    "Port doesn't support function attributes");
 		return -EOPNOTSUPP;
@@ -1232,6 +1299,30 @@ static int devlink_port_function_validate(struct devlink_port *devlink_port,
 			if (devlink_port->attrs.flavour != DEVLINK_PORT_FLAVOUR_PCI_VF) {
 				NL_SET_ERR_MSG_ATTR(extack, attr,
 						    "migratable function attribute supported for VFs only");
+				return -EOPNOTSUPP;
+			}
+		}
+		if (caps.selector & DEVLINK_PORT_FN_CAP_IPSEC_CRYPTO) {
+			if (!ops->port_fn_ipsec_crypto_set) {
+				NL_SET_ERR_MSG_ATTR(extack, attr,
+						    "Port doesn't support ipsec_crypto function attribute");
+				return -EOPNOTSUPP;
+			}
+			if (devlink_port->attrs.flavour != DEVLINK_PORT_FLAVOUR_PCI_VF) {
+				NL_SET_ERR_MSG_ATTR(extack, attr,
+						    "ipsec_crypto function attribute supported for VFs only");
+				return -EOPNOTSUPP;
+			}
+		}
+		if (caps.selector & DEVLINK_PORT_FN_CAP_IPSEC_PACKET) {
+			if (!ops->port_fn_ipsec_packet_set) {
+				NL_SET_ERR_MSG_ATTR(extack, attr,
+						    "Port doesn't support ipsec_packet function attribute");
+				return -EOPNOTSUPP;
+			}
+			if (devlink_port->attrs.flavour != DEVLINK_PORT_FLAVOUR_PCI_VF) {
+				NL_SET_ERR_MSG_ATTR(extack, attr,
+						    "ipsec_packet function attribute supported for VFs only");
 				return -EOPNOTSUPP;
 			}
 		}
@@ -1360,8 +1451,11 @@ static int devlink_nl_cmd_port_new_doit(struct sk_buff *skb,
 	struct netlink_ext_ack *extack = info->extack;
 	struct devlink_port_new_attrs new_attrs = {};
 	struct devlink *devlink = info->user_ptr[0];
+	struct devlink_port *devlink_port;
+	struct sk_buff *msg;
+	int err;
 
-	if (!devlink->ops->port_new || !devlink->ops->port_del)
+	if (!devlink->ops->port_new)
 		return -EOPNOTSUPP;
 
 	if (!info->attrs[DEVLINK_ATTR_PORT_FLAVOUR] ||
@@ -1390,7 +1484,30 @@ static int devlink_nl_cmd_port_new_doit(struct sk_buff *skb,
 		new_attrs.sfnum_valid = true;
 	}
 
-	return devlink->ops->port_new(devlink, &new_attrs, extack);
+	err = devlink->ops->port_new(devlink, &new_attrs,
+				     extack, &devlink_port);
+	if (err)
+		return err;
+
+	msg = nlmsg_new(NLMSG_DEFAULT_SIZE, GFP_KERNEL);
+	if (!msg) {
+		err = -ENOMEM;
+		goto err_out_port_del;
+	}
+	err = devlink_nl_port_fill(msg, devlink_port, DEVLINK_CMD_NEW,
+				   info->snd_portid, info->snd_seq, 0, NULL);
+	if (WARN_ON_ONCE(err))
+		goto err_out_msg_free;
+	err = genlmsg_reply(msg, info);
+	if (err)
+		goto err_out_port_del;
+	return 0;
+
+err_out_msg_free:
+	nlmsg_free(msg);
+err_out_port_del:
+	devlink_port->ops->port_del(devlink, devlink_port, NULL);
+	return err;
 }
 
 static int devlink_nl_cmd_port_del_doit(struct sk_buff *skb,
@@ -1400,10 +1517,10 @@ static int devlink_nl_cmd_port_del_doit(struct sk_buff *skb,
 	struct netlink_ext_ack *extack = info->extack;
 	struct devlink *devlink = info->user_ptr[0];
 
-	if (!devlink->ops->port_del)
+	if (!devlink_port->ops->port_del)
 		return -EOPNOTSUPP;
 
-	return devlink->ops->port_del(devlink, devlink_port, extack);
+	return devlink_port->ops->port_del(devlink, devlink_port, extack);
 }
 
 static int
