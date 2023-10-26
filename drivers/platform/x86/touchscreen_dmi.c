@@ -26,6 +26,21 @@ struct ts_dmi_data {
 
 /* NOTE: Please keep all entries sorted alphabetically */
 
+static const struct property_entry bush_bush_windows_tablet_props[] = {
+	PROPERTY_ENTRY_U32("touchscreen-size-x", 1850),
+	PROPERTY_ENTRY_U32("touchscreen-size-y", 1280),
+	PROPERTY_ENTRY_BOOL("touchscreen-swapped-x-y"),
+	PROPERTY_ENTRY_U32("silead,max-fingers", 10),
+	PROPERTY_ENTRY_BOOL("silead,home-button"),
+	PROPERTY_ENTRY_STRING("firmware-name", "gsl1680-bush-bush-windows-tablet.fw"),
+	{ }
+};
+
+static const struct ts_dmi_data bush_bush_windows_tablet_data = {
+	.acpi_name      = "MSSL1680:00",
+	.properties     = bush_bush_windows_tablet_props,
+};
+
 static const struct property_entry chuwi_hi8_props[] = {
 	PROPERTY_ENTRY_U32("touchscreen-size-x", 1665),
 	PROPERTY_ENTRY_U32("touchscreen-size-y", 1140),
@@ -1053,6 +1068,13 @@ const struct dmi_system_id touchscreen_dmi_table[] = {
 		.matches = {
 			DMI_MATCH(DMI_SYS_VENDOR, "ilife"),
 			DMI_MATCH(DMI_PRODUCT_NAME, "S806"),
+		},
+	},
+	{
+		/* Bush Windows tablet */
+		.driver_data = (void *)&bush_bush_windows_tablet_data,
+		.matches = {
+			DMI_MATCH(DMI_PRODUCT_NAME, "Bush Windows tablet"),
 		},
 	},
 	{
