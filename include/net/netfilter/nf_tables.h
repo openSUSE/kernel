@@ -886,6 +886,8 @@ enum nft_trans_phase {
 	NFT_TRANS_RELEASE
 };
 
+#define NFT_TRANS_PREPARE_ERROR	4
+
 struct nft_flow_rule;
 struct nft_offload_ctx;
 
@@ -1056,6 +1058,7 @@ struct nft_chain {
 
 int nft_chain_validate(const struct nft_ctx *ctx, const struct nft_chain *chain);
 int nf_tables_bind_chain(const struct nft_ctx *ctx, struct nft_chain *chain);
+void nf_tables_unbind_chain(const struct nft_ctx *ctx, struct nft_chain *chain);
 
 enum nft_chain_types {
 	NFT_CHAIN_T_DEFAULT = 0,
