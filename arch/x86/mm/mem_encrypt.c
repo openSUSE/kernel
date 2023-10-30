@@ -76,8 +76,10 @@ static void print_mem_encrypt_feature_info(void)
 	pr_cont("\n");
 }
 
+#if IS_ENABLED(CONFIG_HYPERV)
 void hv_print_mem_enc_feature_info(void);
 extern bool hyperv_paravisor_present;
+#endif
 
 /* Architecture __weak replacement functions */
 void __init mem_encrypt_init(void)
@@ -88,10 +90,12 @@ void __init mem_encrypt_init(void)
 	/* Call into SWIOTLB to update the SWIOTLB DMA buffers */
 	swiotlb_update_mem_attributes();
 
-	if (!hyperv_paravisor_present)
-		print_mem_encrypt_feature_info();
-	else
+#if IS_ENABLED(CONFIG_HYPERV)
+	if (hyperv_paravisor_present)
 		hv_print_mem_enc_feature_info();
+	else
+#endif
+		print_mem_encrypt_feature_info();
 }
 
 int arch_has_restricted_virtio_memory_access(void)
