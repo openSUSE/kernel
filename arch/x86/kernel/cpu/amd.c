@@ -1063,6 +1063,8 @@ static void zenbleed_check(struct cpuinfo_x86 *c)
 
 static void init_amd(struct cpuinfo_x86 *c)
 {
+	u64 vm_cr;
+
 	early_init_amd(c);
 
 	/*
@@ -1110,6 +1112,14 @@ static void init_amd(struct cpuinfo_x86 *c)
 	amd_detect_ppin(c);
 
 	init_amd_cacheinfo(c);
+
+	if (cpu_has(c, X86_FEATURE_SVM)) {
+		rdmsrl(MSR_VM_CR, vm_cr);
+		if (vm_cr & SVM_VM_CR_SVM_DIS_MASK) {
+			pr_notice_once("SVM disabled (by BIOS) in MSR_VM_CR\n");
+			clear_cpu_cap(c, X86_FEATURE_SVM);
+		}
+	}
 
 	if (!cpu_has(c, X86_FEATURE_LFENCE_RDTSC) && cpu_has(c, X86_FEATURE_XMM2)) {
 		/*
