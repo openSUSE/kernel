@@ -73,25 +73,6 @@ if arg_contain -Wa,--version "$@"; then
 	exit 0
 fi
 
-if arg_contain -fpatchable-function-entry=2 "$@"; then
-	base64 -d <<-EOF
-	CS5maWxlCSI8c3RkaW4+IgoJLm1hY2hpbmUgcG93ZXI4CgkuYWJpdmVyc2lvbiAyCgkuc2VjdGlv
-	bgkiLnRleHQiCgkuYWxpZ24gMgoJLnAyYWxpZ24gNCwsMTUKCS5nbG9ibCBmdW5jCgkudHlwZQlm
-	dW5jLCBAZnVuY3Rpb24KZnVuYzoKLkxGQjA6CgkuY2ZpX3N0YXJ0cHJvYwouTENGMDoKMDoJYWRk
-	aXMgMiwxMiwuVE9DLi0uTENGMEBoYQoJYWRkaSAyLDIsLlRPQy4tLkxDRjBAbAoJLmxvY2FsZW50
-	cnkJZnVuYywuLWZ1bmMKCS5zZWN0aW9uCV9fcGF0Y2hhYmxlX2Z1bmN0aW9uX2VudHJpZXMsImF3
-	byIsQHByb2diaXRzLC5MUEZFMAoJLmFsaWduIDMKCS44Ynl0ZQkuTFBGRTAKCS5zZWN0aW9uCSIu
-	dGV4dCIKLkxQRkUwOgoJbm9wCglub3AKCWFkZGlzIDksMiwuTEFOQ0hPUjBAdG9jQGhhCglsd2Eg
-	MywuTEFOQ0hPUjBAdG9jQGwoOSkKCWJscgoJLmxvbmcgMAoJLmJ5dGUgMCwwLDAsMCwwLDAsMCww
-	CgkuY2ZpX2VuZHByb2MKLkxGRTA6Cgkuc2l6ZQlmdW5jLC4tZnVuYwoJLmdsb2JsIHgKCS5zZWN0
-	aW9uCSIuYnNzIgoJLmFsaWduIDIKCS5zZXQJLkxBTkNIT1IwLC4gKyAwCgkudHlwZQl4LCBAb2Jq
-	ZWN0Cgkuc2l6ZQl4LCA0Cng6CgkuemVybwk0CgkuaWRlbnQJIkdDQzogKFNVU0UgTGludXgpIDEz
-	LjIuMSAyMDIzMDkxMiBbcmV2aXNpb24gYjk2ZTY2ZmQ0ZWYzZTM2OTgzOTY5ZmI4Y2RkMTk1NmY1
-	NTFhMDc0Yl0iCgkuc2VjdGlvbgkubm90ZS5HTlUtc3RhY2ssIiIsQHByb2diaXRzCg==
-	EOF
-	exit 0
-fi
-
 if arg_contain -S "$@"; then
 	# For scripts/gcc-x86-*-has-stack-protector.sh
 	if arg_contain -fstack-protector "$@"; then
@@ -108,6 +89,16 @@ if arg_contain -S "$@"; then
 		if ! test -t 0 && ! grep -q notrace; then
 			echo "_mcount"
 		fi
+		exit 0
+	fi
+
+	# For arch/powerpc/tools/gcc-check-fpatchable-function-entry.sh
+	if arg_contain -m64 "$@" && arg_contain -fpatchable-function-entry=2 "$@"; then
+		echo "func:"
+		echo ".section __patchable_function_entries"
+		echo ".localentry"
+		echo "  nop"
+		echo "  nop"
 		exit 0
 	fi
 fi
