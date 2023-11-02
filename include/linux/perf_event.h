@@ -722,6 +722,14 @@ struct perf_event {
 #endif
 
 	struct list_head		sb_list;
+#ifndef __GENKSYMS__
+
+	/* 
+	 * bsc#1216584 CVE-2023-5717 
+	 * move to end of struct for KABI safety reasons
+	 */
+	unsigned int			group_generation;
+#endif /* __GENKSYMS__ */
 #endif /* CONFIG_PERF_EVENTS */
 };
 
