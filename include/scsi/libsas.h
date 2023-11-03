@@ -23,20 +23,10 @@
 
 struct block_device;
 
-enum sas_class {
-	SAS,
-	EXPANDER
-};
-
 enum sas_phy_role {
 	PHY_ROLE_NONE = 0,
 	PHY_ROLE_TARGET = 0x40,
 	PHY_ROLE_INITIATOR = 0x80,
-};
-
-enum sas_phy_type {
-	PHY_TYPE_PHYSICAL,
-	PHY_TYPE_VIRTUAL
 };
 
 /* The events are mnemonically described in sas_dump.c
@@ -258,7 +248,6 @@ struct asd_sas_port {
 /* public: */
 	int id;
 
-	enum sas_class   class;
 	u8               sas_addr[SAS_ADDR_SIZE];
 	u8               attached_sas_addr[SAS_ADDR_SIZE];
 	enum sas_protocol   iproto;
@@ -319,11 +308,9 @@ struct asd_sas_phy {
 	int            enabled;	  /* must be set */
 
 	int            id;	  /* must be set */
-	enum sas_class class;
 	enum sas_protocol iproto;
 	enum sas_protocol tproto;
 
-	enum sas_phy_type  type;
 	enum sas_phy_role  role;
 	enum sas_oob_mode  oob_mode;
 	enum sas_linkrate linkrate;
@@ -346,11 +333,6 @@ struct asd_sas_phy {
 	void *lldd_phy;		  /* not touched by the sas_class_code */
 };
 
-struct scsi_core {
-	struct Scsi_Host *shost;
-
-};
-
 enum sas_ha_state {
 	SAS_HA_REGISTERED,
 	SAS_HA_DRAINING,
@@ -371,12 +353,11 @@ struct sas_ha_struct {
 
 	struct mutex disco_mutex;
 
-	struct scsi_core core;
+	struct Scsi_Host *shost;
 
 /* public: */
 	char *sas_ha_name;
 	struct device *dev;	  /* should be set */
-	struct module *lldd_module; /* should be set */
 
 	struct workqueue_struct *event_q;
 	struct workqueue_struct *disco_q;
@@ -586,9 +567,7 @@ struct sas_ssp_task {
 	u8     retry_count;	  /* hardware retry, should be > 0 */
 
 	u8     LUN[8];
-	u8     enable_first_burst:1;
 	enum   task_attribute task_attr;
-	u8     task_prio;
 	struct scsi_cmnd *cmd;
 };
 
