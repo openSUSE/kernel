@@ -1334,58 +1334,20 @@ do_confirm:
 }
 EXPORT_SYMBOL(udp_sendmsg);
 
-int udp_sendpage(struct sock *sk, struct page *page, int offset,
-		 size_t size, int flags)
+void udp_splice_eof(struct socket *sock)
 {
-	struct inet_sock *inet = inet_sk(sk);
+	struct sock *sk = sock->sk;
 	struct udp_sock *up = udp_sk(sk);
-	int ret;
 
-	if (flags & MSG_SENDPAGE_NOTLAST)
-		flags |= MSG_MORE;
-
-	if (!up->pending) {
-		struct msghdr msg = {	.msg_flags = flags|MSG_MORE };
-
-		/* Call udp_sendmsg to specify destination address which
-		 * sendpage interface can't pass.
-		 * This will succeed only when the socket is connected.
-		 */
-		ret = udp_sendmsg(sk, &msg, 0);
-		if (ret < 0)
-			return ret;
-	}
+	if (!up->pending || READ_ONCE(up->corkflag))
+		return;
 
 	lock_sock(sk);
-
-	if (unlikely(!up->pending)) {
-		release_sock(sk);
-
-		net_dbg_ratelimited("cork failed\n");
-		return -EINVAL;
-	}
-
-	ret = ip_append_page(sk, &inet->cork.fl.u.ip4,
-			     page, offset, size, flags);
-	if (ret == -EOPNOTSUPP) {
-		release_sock(sk);
-		return sock_no_sendpage(sk->sk_socket, page, offset,
-					size, flags);
-	}
-	if (ret < 0) {
-		udp_flush_pending_frames(sk);
-		goto out;
-	}
-
-	up->len += size;
-	if (!(READ_ONCE(up->corkflag) || (flags&MSG_MORE)))
-		ret = udp_push_pending_frames(sk);
-	if (!ret)
-		ret = size;
-out:
+	if (up->pending && !READ_ONCE(up->corkflag))
+		udp_push_pending_frames(sk);
 	release_sock(sk);
-	return ret;
 }
+EXPORT_SYMBOL_GPL(udp_splice_eof);
 
 #define UDP_SKB_IS_STATELESS 0x80000000
 
@@ -2965,7 +2927,7 @@ struct proto udp_prot = {
 	.getsockopt		= udp_getsockopt,
 	.sendmsg		= udp_sendmsg,
 	.recvmsg		= udp_recvmsg,
-	.sendpage		= udp_sendpage,
+	.splice_eof		= udp_splice_eof,
 	.release_cb		= ip4_datagram_release_cb,
 	.hash			= udp_lib_hash,
 	.unhash			= udp_lib_unhash,
