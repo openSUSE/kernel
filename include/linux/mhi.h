@@ -644,12 +644,37 @@ int mhi_async_power_up(struct mhi_controller *mhi_cntrl);
  */
 int mhi_sync_power_up(struct mhi_controller *mhi_cntrl);
 
+void __mhi_power_down(struct mhi_controller *mhi_cntrl, bool graceful,
+		    bool destroy_device);
+
 /**
- * mhi_power_down - Start MHI power down sequence
+ * mhi_power_down - Start MHI power down sequence. See also
+ * mhi_power_down_no_destroy() which is a variant of this for suspend.
+ *
  * @mhi_cntrl: MHI controller
  * @graceful: Link is still accessible, so do a graceful shutdown process
  */
-void mhi_power_down(struct mhi_controller *mhi_cntrl, bool graceful);
+static inline void mhi_power_down(struct mhi_controller *mhi_cntrl, bool graceful)
+{
+	__mhi_power_down(mhi_cntrl, graceful, true);
+}
+
+/**
+ * mhi_power_down_no_destroy - Start MHI power down sequence but don't
+ * destroy struct devices. This is a variant for mhi_power_down() and is a
+ * workaround to make it possible to use mhi_power_up() in a resume
+ * handler. When using this variant the caller must also call
+ * mhi_prepare_all_for_transfer_autoqueue() and
+ * mhi_unprepare_all_from_transfer().
+ *
+ * @mhi_cntrl: MHI controller
+ * @graceful: Link is still accessible, so do a graceful shutdown process
+ */
+static inline void mhi_power_down_no_destroy(struct mhi_controller *mhi_cntrl,
+					     bool graceful)
+{
+	__mhi_power_down(mhi_cntrl, graceful, false);
+}
 
 /**
  * mhi_unprepare_after_power_down - Free any allocated memory after power down
