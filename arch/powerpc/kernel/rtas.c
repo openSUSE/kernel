@@ -464,6 +464,23 @@ static struct rtas_function rtas_function_table[] __ro_after_init = {
 static DEFINE_RAW_SPINLOCK(rtas_lock);
 static struct rtas_args rtas_args;
 
+static struct rtas_function *rtas_function_lookup(const rtas_fn_handle_t handle)
+{
+	const size_t index = handle.index;
+	const bool out_of_bounds = index >= ARRAY_SIZE(rtas_function_table);
+
+	if (WARN_ONCE(out_of_bounds, "invalid function index %zu", index))
+		return NULL;
+	/*
+	 * Various drivers attempt token lookups on non-RTAS
+	 * platforms.
+	 */
+	if (!rtas.dev)
+		return NULL;
+
+	return &rtas_function_table[index];
+}
+
 /**
  * rtas_function_token() - RTAS function token lookup.
  * @handle: Function handle, e.g. RTAS_FN_EVENT_SCAN.
@@ -474,19 +491,9 @@ static struct rtas_args rtas_args;
  */
 s32 rtas_function_token(const rtas_fn_handle_t handle)
 {
-	const size_t index = handle.index;
-	const bool out_of_bounds = index >= ARRAY_SIZE(rtas_function_table);
+	const struct rtas_function *func = rtas_function_lookup(handle);
 
-	if (WARN_ONCE(out_of_bounds, "invalid function index %zu", index))
-		return RTAS_UNKNOWN_SERVICE;
-	/*
-	 * Various drivers attempt token lookups on non-RTAS
-	 * platforms.
-	 */
-	if (!rtas.dev)
-		return RTAS_UNKNOWN_SERVICE;
-
-	return rtas_function_table[index].token;
+	return func ? func->token : RTAS_UNKNOWN_SERVICE;
 }
 EXPORT_SYMBOL_GPL(rtas_function_token);
 
