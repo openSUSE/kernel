@@ -531,8 +531,6 @@ static bool kvm_is_svm_supported(void)
 {
 	int cpu = raw_smp_processor_id();
 	const char *msg;
-	u64 vm_cr;
-
 	if (!cpu_has_svm(&msg)) {
 		pr_err("SVM not supported by CPU %d, %s\n", cpu, msg);
 		return false;
@@ -540,12 +538,6 @@ static bool kvm_is_svm_supported(void)
 
 	if (cc_platform_has(CC_ATTR_GUEST_MEM_ENCRYPT)) {
 		pr_info("KVM is unsupported when running as an SEV guest\n");
-		return false;
-	}
-
-	rdmsrl(MSR_VM_CR, vm_cr);
-	if (vm_cr & (1 << SVM_VM_CR_SVM_DISABLE)) {
-		pr_err("SVM disabled (by BIOS) in MSR_VM_CR on CPU %d\n", cpu);
 		return false;
 	}
 
