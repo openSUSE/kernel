@@ -460,9 +460,16 @@ int ath11k_mhi_start(struct ath11k_pci *ab_pci)
 	return 0;
 }
 
-void ath11k_mhi_stop(struct ath11k_pci *ab_pci)
+void ath11k_mhi_stop(struct ath11k_pci *ab_pci, bool is_suspend)
 {
-	mhi_power_down(ab_pci->mhi_ctrl, true);
+	/* During suspend we need to use mhi_power_down_no_destroy()
+	 * workaround, otherwise mhi_power_up() will fail during resume.
+	 */
+	if (is_suspend)
+		mhi_power_down_no_destroy(ab_pci->mhi_ctrl, true);
+	else
+		mhi_power_down(ab_pci->mhi_ctrl, true);
+
 	mhi_unprepare_after_power_down(ab_pci->mhi_ctrl);
 }
 
@@ -496,4 +503,14 @@ int ath11k_mhi_resume(struct ath11k_pci *ab_pci)
 	}
 
 	return 0;
+}
+
+int ath11k_mhi_prepare_for_transfer(struct ath11k_pci *ab_pci)
+{
+	return mhi_prepare_all_for_transfer_autoqueue(ab_pci->mhi_ctrl);
+}
+
+int ath11k_mhi_unprepare_from_transfer(struct ath11k_pci *ab_pci)
+{
+	return mhi_unprepare_all_from_transfer(ab_pci->mhi_ctrl);
 }
