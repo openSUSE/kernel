@@ -984,8 +984,6 @@ struct ath11k_base {
 		const struct ath11k_pci_ops *ops;
 	} pci;
 
-	struct completion restart_completed;
-
 #ifdef CONFIG_NL80211_TESTMODE
 	struct {
 		u32 data_pos;
