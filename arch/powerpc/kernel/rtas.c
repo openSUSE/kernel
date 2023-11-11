@@ -18,6 +18,7 @@
 #include <linux/kernel.h>
 #include <linux/lockdep.h>
 #include <linux/memblock.h>
+#include <linux/mutex.h>
 #include <linux/of.h>
 #include <linux/of_fdt.h>
 #include <linux/reboot.h>
@@ -70,13 +71,33 @@ struct rtas_filter {
  *                            ppc64le, and we want to keep it that way. It does
  *                            not make sense for this to be set when @filter
  *                            is NULL.
+ * @lock: Pointer to an optional dedicated per-function mutex. This
+ *        should be set for functions that require multiple calls in
+ *        sequence to complete a single operation, and such sequences
+ *        will disrupt each other if allowed to interleave. Users of
+ *        this function are required to hold the associated lock for
+ *        the duration of the call sequence. Add an explanatory
+ *        comment to the function table entry if setting this member.
  */
 struct rtas_function {
 	s32 token;
 	const bool banned_for_syscall_on_le:1;
 	const char * const name;
 	const struct rtas_filter *filter;
+	struct mutex *lock;
 };
+
+/*
+ * Per-function locks. Access these through the
+ * rtas_function_lock/unlock APIs, not directly.
+ */
+static DEFINE_MUTEX(rtas_ibm_activate_firmware_lock);
+static DEFINE_MUTEX(rtas_ibm_get_dynamic_sensor_state_lock);
+static DEFINE_MUTEX(rtas_ibm_get_indices_lock);
+static DEFINE_MUTEX(rtas_ibm_get_vpd_lock);
+static DEFINE_MUTEX(rtas_ibm_lpar_perftools_lock);
+static DEFINE_MUTEX(rtas_ibm_physical_attestation_lock);
+static DEFINE_MUTEX(rtas_ibm_set_dynamic_indicator_lock);
 
 static struct rtas_function rtas_function_table[] __ro_after_init = {
 	[RTAS_FNIDX__CHECK_EXCEPTION] = {
@@ -125,6 +146,13 @@ static struct rtas_function rtas_function_table[] __ro_after_init = {
 			.buf_idx1 = -1, .size_idx1 = -1,
 			.buf_idx2 = -1, .size_idx2 = -1,
 		},
+		/*
+		 * PAPR doesn't explicitly impose any restriction, but
+		 * this typically requires multiple calls before
+		 * success, and there's no reason to allow sequences
+		 * to interleave.
+		 */
+		.lock = &rtas_ibm_activate_firmware_lock,
 	},
 	[RTAS_FNIDX__IBM_CBE_START_PTCAL] = {
 		.name = "ibm,cbe-start-ptcal",
@@ -196,6 +224,12 @@ static struct rtas_function rtas_function_table[] __ro_after_init = {
 			.buf_idx1 = 1, .size_idx1 = -1,
 			.buf_idx2 = -1, .size_idx2 = -1,
 		},
+		/*
+		 * PAPR+ R1–7.3.19–3 is explicit that the OS must not
+		 * call ibm,get-dynamic-sensor-state with different
+		 * inputs until a non-retry status has been returned.
+		 */
+		.lock = &rtas_ibm_get_dynamic_sensor_state_lock,
 	},
 	[RTAS_FNIDX__IBM_GET_INDICES] = {
 		.name = "ibm,get-indices",
@@ -203,6 +237,12 @@ static struct rtas_function rtas_function_table[] __ro_after_init = {
 			.buf_idx1 = 2, .size_idx1 = 3,
 			.buf_idx2 = -1, .size_idx2 = -1,
 		},
+		/*
+		 * PAPR+ R1–7.3.17–2 says that the OS must not
+		 * interleave ibm,get-indices call sequences with
+		 * different inputs.
+		 */
+		.lock = &rtas_ibm_get_indices_lock,
 	},
 	[RTAS_FNIDX__IBM_GET_RIO_TOPOLOGY] = {
 		.name = "ibm,get-rio-topology",
@@ -220,6 +260,11 @@ static struct rtas_function rtas_function_table[] __ro_after_init = {
 			.buf_idx1 = 0, .size_idx1 = -1,
 			.buf_idx2 = 1, .size_idx2 = 2,
 		},
+		/*
+		 * PAPR+ R1–7.3.20–4 indicates that sequences
+		 * should not be allowed to interleave.
+		 */
+		.lock = &rtas_ibm_get_vpd_lock,
 	},
 	[RTAS_FNIDX__IBM_GET_XIVE] = {
 		.name = "ibm,get-xive",
@@ -239,6 +284,11 @@ static struct rtas_function rtas_function_table[] __ro_after_init = {
 			.buf_idx1 = 2, .size_idx1 = 3,
 			.buf_idx2 = -1, .size_idx2 = -1,
 		},
+		/*
+		 * PAPR+ R1–7.3.26–6 says the OS should allow only one
+		 * call sequence in progress at a time.
+		 */
+		.lock = &rtas_ibm_lpar_perftools_lock,
 	},
 	[RTAS_FNIDX__IBM_MANAGE_FLASH_IMAGE] = {
 		.name = "ibm,manage-flash-image",
@@ -277,6 +327,14 @@ static struct rtas_function rtas_function_table[] __ro_after_init = {
 			.buf_idx1 = 0, .size_idx1 = 1,
 			.buf_idx2 = -1, .size_idx2 = -1,
 		},
+		/*
+		 * This follows a sequence-based pattern similar to
+		 * ibm,get-vpd et al. Since PAPR+ restricts
+		 * interleaving call sequences for other functions of
+		 * this style, assume the restriction applies here,
+		 * even though it's not explicit in the spec.
+		 */
+		.lock = &rtas_ibm_physical_attestation_lock,
 	},
 	[RTAS_FNIDX__IBM_PLATFORM_DUMP] = {
 		.name = "ibm,platform-dump",
@@ -284,6 +342,13 @@ static struct rtas_function rtas_function_table[] __ro_after_init = {
 			.buf_idx1 = 4, .size_idx1 = 5,
 			.buf_idx2 = -1, .size_idx2 = -1,
 		},
+		/*
+		 * PAPR+ 7.3.3.4.1 indicates that concurrent sequences
+		 * of ibm,platform-dump are allowed if they are
+		 * operating on different dump tags. So leave
+		 * the lock pointer unset for now. This may need
+		 * reconsideration if kernel-internal users appear.
+		 */
 	},
 	[RTAS_FNIDX__IBM_POWER_OFF_UPS] = {
 		.name = "ibm,power-off-ups",
@@ -326,6 +391,12 @@ static struct rtas_function rtas_function_table[] __ro_after_init = {
 			.buf_idx1 = 2, .size_idx1 = -1,
 			.buf_idx2 = -1, .size_idx2 = -1,
 		},
+		/*
+		 * PAPR+ R1–7.3.18–3 says the OS must not call this
+		 * function with different inputs until a non-retry
+		 * status has been returned.
+		 */
+		.lock = &rtas_ibm_set_dynamic_indicator_lock,
 	},
 	[RTAS_FNIDX__IBM_SET_EEH_OPTION] = {
 		.name = "ibm,set-eeh-option",
@@ -464,6 +535,23 @@ static struct rtas_function rtas_function_table[] __ro_after_init = {
 static DEFINE_RAW_SPINLOCK(rtas_lock);
 static struct rtas_args rtas_args;
 
+static struct rtas_function *rtas_function_lookup(const rtas_fn_handle_t handle)
+{
+	const size_t index = handle.index;
+	const bool out_of_bounds = index >= ARRAY_SIZE(rtas_function_table);
+
+	if (WARN_ONCE(out_of_bounds, "invalid function index %zu", index))
+		return NULL;
+	/*
+	 * Various drivers attempt token lookups on non-RTAS
+	 * platforms.
+	 */
+	if (!rtas.dev)
+		return NULL;
+
+	return &rtas_function_table[index];
+}
+
 /**
  * rtas_function_token() - RTAS function token lookup.
  * @handle: Function handle, e.g. RTAS_FN_EVENT_SCAN.
@@ -474,19 +562,9 @@ static struct rtas_args rtas_args;
  */
 s32 rtas_function_token(const rtas_fn_handle_t handle)
 {
-	const size_t index = handle.index;
-	const bool out_of_bounds = index >= ARRAY_SIZE(rtas_function_table);
+	const struct rtas_function *func = rtas_function_lookup(handle);
 
-	if (WARN_ONCE(out_of_bounds, "invalid function index %zu", index))
-		return RTAS_UNKNOWN_SERVICE;
-	/*
-	 * Various drivers attempt token lookups on non-RTAS
-	 * platforms.
-	 */
-	if (!rtas.dev)
-		return RTAS_UNKNOWN_SERVICE;
-
-	return rtas_function_table[index].token;
+	return func ? func->token : RTAS_UNKNOWN_SERVICE;
 }
 EXPORT_SYMBOL_GPL(rtas_function_token);
 
@@ -544,9 +622,9 @@ static int __init rtas_token_to_function_xarray_init(void)
 }
 arch_initcall(rtas_token_to_function_xarray_init);
 
-static const struct rtas_function *rtas_token_to_function(s32 token)
+static struct rtas_function *rtas_token_to_function(s32 token)
 {
-	const struct rtas_function *func;
+	struct rtas_function *func;
 
 	if (WARN_ONCE(token < 0, "invalid token %d", token))
 		return NULL;
@@ -557,6 +635,28 @@ static const struct rtas_function *rtas_token_to_function(s32 token)
 		return NULL;
 
 	return func;
+}
+
+static void __rtas_function_lock(struct rtas_function *func)
+{
+	if (func && func->lock)
+		mutex_lock(func->lock);
+}
+
+static void __rtas_function_unlock(struct rtas_function *func)
+{
+	if (func && func->lock)
+		mutex_unlock(func->lock);
+}
+
+void rtas_function_lock(const rtas_fn_handle_t handle)
+{
+	__rtas_function_lock(rtas_function_lookup(handle));
+}
+
+void rtas_function_unlock(const rtas_fn_handle_t handle)
+{
+	__rtas_function_unlock(rtas_function_lookup(handle));
 }
 
 /* This is here deliberately so it's only used in this file */
@@ -1637,9 +1737,13 @@ void rtas_activate_firmware(void)
 		return;
 	}
 
+	rtas_function_lock(RTAS_FN_IBM_ACTIVATE_FIRMWARE);
+
 	do {
 		fwrc = rtas_call(token, 0, 1, NULL);
 	} while (rtas_busy_delay(fwrc));
+
+	rtas_function_unlock(RTAS_FN_IBM_ACTIVATE_FIRMWARE);
 
 	if (fwrc)
 		pr_err("ibm,activate-firmware failed (%i)\n", fwrc);
@@ -1862,6 +1966,8 @@ SYSCALL_DEFINE1(rtas, struct rtas_args __user *, uargs)
 
 	buff_copy = get_errorlog_buffer();
 
+	__rtas_function_lock(rtas_token_to_function(token));
+
 	raw_spin_lock_irqsave(&rtas_lock, flags);
 	cookie = lockdep_pin_lock(&rtas_lock);
 
@@ -1876,6 +1982,8 @@ SYSCALL_DEFINE1(rtas, struct rtas_args __user *, uargs)
 
 	lockdep_unpin_lock(&rtas_lock, cookie);
 	raw_spin_unlock_irqrestore(&rtas_lock, flags);
+
+	__rtas_function_unlock(rtas_token_to_function(token));
 
 	if (buff_copy) {
 		if (errbuf)
