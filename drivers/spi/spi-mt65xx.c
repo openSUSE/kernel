@@ -1142,7 +1142,7 @@ static int mtk_spi_probe(struct platform_device *pdev)
 		master->mode_bits |= SPI_CS_HIGH;
 
 	if (mdata->dev_comp->must_tx)
-		master->flags = SPI_MASTER_MUST_TX;
+		master->flags = SPI_CONTROLLER_MUST_TX;
 	if (mdata->dev_comp->ipm_design)
 		master->mode_bits |= SPI_LOOP;
 
