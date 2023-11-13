@@ -305,8 +305,8 @@ readpage_async_filler(void *data, struct page *page)
 
 	aligned_len = min_t(unsigned int, ALIGN(len, rsize), PAGE_SIZE);
 
-	if (!IS_SYNC(page->mapping->host)) {
-		error = nfs_readpage_from_fscache(page->mapping->host, page);
+	if (!IS_SYNC(inode)) {
+		error = nfs_readpage_from_fscache(inode, page);
 		if (error == 0)
 			goto out_unlock;
 	}
