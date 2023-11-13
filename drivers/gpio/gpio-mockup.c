@@ -38,6 +38,8 @@
  * struct gpio_pin_status - structure describing a GPIO status
  * @dir:       Configures direction of gpio as "in" or "out"
  * @value:     Configures status of the gpio as 0(low) or 1(high)
+ * @pull:      Configures the current pull of the GPIO as 0 (pull-down) or
+ *             1 (pull-up)
  */
 struct gpio_mockup_line_status {
 	int dir;
@@ -55,7 +57,6 @@ struct gpio_mockup_chip {
 
 struct gpio_mockup_dbgfs_private {
 	struct gpio_mockup_chip *chip;
-	struct gpio_desc *desc;
 	unsigned int offset;
 };
 
@@ -366,7 +367,6 @@ static void gpio_mockup_debugfs_setup(struct device *dev,
 
 		priv->chip = chip;
 		priv->offset = i;
-		priv->desc = gpiochip_get_desc(gc, i);
 
 		debugfs_create_file(name, 0600, chip->dbg_dir, priv,
 				    &gpio_mockup_debugfs_ops);
