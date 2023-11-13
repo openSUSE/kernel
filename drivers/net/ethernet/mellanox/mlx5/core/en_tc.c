@@ -1551,7 +1551,8 @@ static void remove_unready_flow(struct mlx5e_tc_flow *flow)
 	uplink_priv = &rpriv->uplink_priv;
 
 	mutex_lock(&uplink_priv->unready_flows_lock);
-	unready_flow_del(flow);
+	if (flow_flag_test(flow, NOT_READY))
+		unready_flow_del(flow);
 	mutex_unlock(&uplink_priv->unready_flows_lock);
 }
 
@@ -1578,11 +1579,9 @@ bool mlx5e_tc_is_vf_tunnel(struct net_device *out_dev, struct net_device *route_
 int mlx5e_tc_query_route_vport(struct net_device *out_dev, struct net_device *route_dev, u16 *vport)
 {
 	struct mlx5e_priv *out_priv, *route_priv;
-	struct mlx5_devcom *devcom = NULL;
 	struct mlx5_core_dev *route_mdev;
 	struct mlx5_eswitch *esw;
 	u16 vhca_id;
-	int err;
 
 	out_priv = netdev_priv(out_dev);
 	esw = out_priv->mdev->priv.eswitch;
@@ -1591,6 +1590,9 @@ int mlx5e_tc_query_route_vport(struct net_device *out_dev, struct net_device *ro
 
 	vhca_id = MLX5_CAP_GEN(route_mdev, vhca_id);
 	if (mlx5_lag_is_active(out_priv->mdev)) {
+		struct mlx5_devcom *devcom;
+		int err;
+
 		/* In lag case we may get devices from different eswitch instances.
 		 * If we failed to get vport num, it means, mostly, that we on the wrong
 		 * eswitch.
@@ -1599,16 +1601,16 @@ int mlx5e_tc_query_route_vport(struct net_device *out_dev, struct net_device *ro
 		if (err != -ENOENT)
 			return err;
 
+		rcu_read_lock();
 		devcom = out_priv->mdev->priv.devcom;
-		esw = mlx5_devcom_get_peer_data(devcom, MLX5_DEVCOM_ESW_OFFLOADS);
-		if (!esw)
-			return -ENODEV;
+		esw = mlx5_devcom_get_peer_data_rcu(devcom, MLX5_DEVCOM_ESW_OFFLOADS);
+		err = esw ? mlx5_eswitch_vhca_id_to_vport(esw, vhca_id, vport) : -ENODEV;
+		rcu_read_unlock();
+
+		return err;
 	}
 
-	err = mlx5_eswitch_vhca_id_to_vport(esw, vhca_id, vport);
-	if (devcom)
-		mlx5_devcom_release_peer_data(devcom, MLX5_DEVCOM_ESW_OFFLOADS);
-	return err;
+	return mlx5_eswitch_vhca_id_to_vport(esw, vhca_id, vport);
 }
 
 int mlx5e_tc_add_flow_mod_hdr(struct mlx5e_priv *priv,
@@ -1895,8 +1897,7 @@ static void mlx5e_tc_del_fdb_flow(struct mlx5e_priv *priv,
 	esw_attr = attr->esw_attr;
 	mlx5e_put_flow_tunnel_id(flow);
 
-	if (flow_flag_test(flow, NOT_READY))
-		remove_unready_flow(flow);
+	remove_unready_flow(flow);
 
 	if (mlx5e_is_offloaded_flow(flow)) {
 		if (flow_flag_test(flow, SLOW))
@@ -2401,13 +2402,13 @@ static int parse_tunnel_attr(struct mlx5e_priv *priv,
 		err = mlx5e_tc_set_attr_rx_tun(flow, spec);
 		if (err)
 			return err;
-	} else if (tunnel && tunnel->tunnel_type == MLX5E_TC_TUNNEL_TYPE_VXLAN) {
+	} else if (tunnel) {
 		struct mlx5_flow_spec *tmp_spec;
 
 		tmp_spec = kvzalloc(sizeof(*tmp_spec), GFP_KERNEL);
 		if (!tmp_spec) {
-			NL_SET_ERR_MSG_MOD(extack, "Failed to allocate memory for vxlan tmp spec");
-			netdev_warn(priv->netdev, "Failed to allocate memory for vxlan tmp spec");
+			NL_SET_ERR_MSG_MOD(extack, "Failed to allocate memory for tunnel tmp spec");
+			netdev_warn(priv->netdev, "Failed to allocate memory for tunnel tmp spec");
 			return -ENOMEM;
 		}
 		memcpy(tmp_spec, spec, sizeof(*tmp_spec));
@@ -4054,6 +4055,7 @@ int mlx5e_set_fwd_to_int_port_actions(struct mlx5e_priv *priv,
 
 	esw_attr->dest_int_port = dest_int_port;
 	esw_attr->dests[out_index].flags |= MLX5_ESW_DEST_CHAIN_WITH_SRC_PORT_CHANGE;
+	esw_attr->split_count = out_index;
 
 	/* Forward to root fdb for matching against the new source vport */
 	attr->dest_chain = 0;
@@ -4310,9 +4312,6 @@ __mlx5e_add_fdb_flow(struct mlx5e_priv *priv,
 				   &flow->attr->ct_attr, extack);
 	if (err)
 		goto err_free;
-
-	/* always set IP version for indirect table handling */
-	flow->attr->ip_version = mlx5e_tc_get_ip_version(&parse_attr->spec, true);
 
 	err = parse_tc_fdb_actions(priv, &rule->action, flow, extack);
 	if (err)
@@ -5144,6 +5143,8 @@ int mlx5e_tc_esw_init(struct mlx5_rep_uplink_priv *uplink_priv)
 		goto err_register_fib_notifier;
 	}
 
+	mlx5_esw_offloads_devcom_init(esw);
+
 	return 0;
 
 err_register_fib_notifier:
@@ -5162,6 +5163,16 @@ err_tun_mapping:
 
 void mlx5e_tc_esw_cleanup(struct mlx5_rep_uplink_priv *uplink_priv)
 {
+	struct mlx5e_rep_priv *rpriv;
+	struct mlx5_eswitch *esw;
+	struct mlx5e_priv *priv;
+
+	rpriv = container_of(uplink_priv, struct mlx5e_rep_priv, uplink_priv);
+	priv = netdev_priv(rpriv->netdev);
+	esw = priv->mdev->priv.eswitch;
+
+	mlx5_esw_offloads_devcom_cleanup(esw);
+
 	mlx5e_tc_tun_cleanup(uplink_priv->encap);
 
 	mapping_destroy(uplink_priv->tunnel_enc_opts_mapping);

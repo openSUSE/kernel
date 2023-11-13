@@ -112,6 +112,12 @@ static void lpi_device_get_constraints_amd(void)
 		union acpi_object *package = &out_obj->package.elements[i];
 
 		if (package->type == ACPI_TYPE_PACKAGE) {
+			if (lpi_constraints_table) {
+				acpi_handle_err(lps0_device_handle,
+						"Duplicate constraints list\n");
+				goto free_acpi_buffer;
+			}
+
 			lpi_constraints_table = kcalloc(package->package.count,
 							sizeof(*lpi_constraints_table),
 							GFP_KERNEL);
@@ -122,17 +128,16 @@ static void lpi_device_get_constraints_amd(void)
 			acpi_handle_debug(lps0_device_handle,
 					  "LPI: constraints list begin:\n");
 
-			for (j = 0; j < package->package.count; ++j) {
+			for (j = 0; j < package->package.count; j++) {
 				union acpi_object *info_obj = &package->package.elements[j];
 				struct lpi_device_constraint_amd dev_info = {};
 				struct lpi_constraints *list;
 				acpi_status status;
 
-				for (k = 0; k < info_obj->package.count; ++k) {
-					union acpi_object *obj = &info_obj->package.elements[k];
+				list = &lpi_constraints_table[lpi_constraints_table_size];
 
-					list = &lpi_constraints_table[lpi_constraints_table_size];
-					list->min_dstate = -1;
+				for (k = 0; k < info_obj->package.count; k++) {
+					union acpi_object *obj = &info_obj->package.elements[k];
 
 					switch (k) {
 					case 0:
@@ -148,27 +153,21 @@ static void lpi_device_get_constraints_amd(void)
 						dev_info.min_dstate = obj->integer.value;
 						break;
 					}
-
-					if (!dev_info.enabled || !dev_info.name ||
-					    !dev_info.min_dstate)
-						continue;
-
-					status = acpi_get_handle(NULL, dev_info.name,
-								 &list->handle);
-					if (ACPI_FAILURE(status))
-						continue;
-
-					acpi_handle_debug(lps0_device_handle,
-							  "Name:%s\n", dev_info.name);
-
-					list->min_dstate = dev_info.min_dstate;
-
-					if (list->min_dstate < 0) {
-						acpi_handle_debug(lps0_device_handle,
-								  "Incomplete constraint defined\n");
-						continue;
-					}
 				}
+
+				if (!dev_info.enabled || !dev_info.name ||
+				    !dev_info.min_dstate)
+					continue;
+
+				status = acpi_get_handle(NULL, dev_info.name, &list->handle);
+				if (ACPI_FAILURE(status))
+					continue;
+
+				acpi_handle_debug(lps0_device_handle,
+						  "Name:%s\n", dev_info.name);
+
+				list->min_dstate = dev_info.min_dstate;
+
 				lpi_constraints_table_size++;
 			}
 		}
@@ -213,7 +212,7 @@ static void lpi_device_get_constraints(void)
 		if (!package)
 			continue;
 
-		for (j = 0; j < package->package.count; ++j) {
+		for (j = 0; j < package->package.count; j++) {
 			union acpi_object *element =
 					&(package->package.elements[j]);
 
@@ -245,7 +244,7 @@ static void lpi_device_get_constraints(void)
 
 		constraint->min_dstate = -1;
 
-		for (j = 0; j < package_count; ++j) {
+		for (j = 0; j < package_count; j++) {
 			union acpi_object *info_obj = &info.package[j];
 			union acpi_object *cnstr_pkg;
 			union acpi_object *obj;
@@ -381,29 +380,6 @@ static const struct acpi_device_id amd_hid_ids[] = {
 	{"AMD0005",	(kernel_ulong_t)&amd_picasso,	},
 	{"AMDI0005",	(kernel_ulong_t)&amd_picasso,	},
 	{"AMDI0006",	(kernel_ulong_t)&amd_cezanne,	},
-	{}
-};
-
-static int lps0_prefer_amd(const struct dmi_system_id *id)
-{
-	pr_debug("Using AMD GUID w/ _REV 2.\n");
-	rev_id = 2;
-	return 0;
-}
-static const struct dmi_system_id s2idle_dmi_table[] __initconst = {
-	{
-		/*
-		 * AMD Rembrandt based HP EliteBook 835/845/865 G9
-		 * Contains specialized AML in AMD/_REV 2 path to avoid
-		 * triggering a bug in Qualcomm WLAN firmware. This may be
-		 * removed in the future if that firmware is fixed.
-		 */
-		.callback = lps0_prefer_amd,
-		.matches = {
-			DMI_MATCH(DMI_BOARD_VENDOR, "HP"),
-			DMI_MATCH(DMI_BOARD_NAME, "8990"),
-		},
-	},
 	{}
 };
 
@@ -586,7 +562,6 @@ static const struct platform_s2idle_ops acpi_s2idle_ops_lps0 = {
 
 void __init acpi_s2idle_setup(void)
 {
-	dmi_check_system(s2idle_dmi_table);
 	acpi_scan_add_handler(&lps0_handler);
 	s2idle_set_ops(&acpi_s2idle_ops_lps0);
 }
