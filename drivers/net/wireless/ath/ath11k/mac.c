@@ -8832,7 +8832,6 @@ void ath11k_mac_unregister(struct ath11k_base *ab)
 		if (!ar)
 			continue;
 
-		ath11k_thermal_unregister(ar);
 		__ath11k_mac_unregister(ar);
 	}
 
@@ -9105,22 +9104,17 @@ int ath11k_mac_register(struct ath11k_base *ab)
 			goto err_cleanup;
 
 		init_waitqueue_head(&ar->txmgmt_empty_waitq);
-
-		ret = ath11k_thermal_register(ar);
-		if (ret)
-			goto err_mac_unregister;
 	}
 
 	return 0;
 
-err_mac_unregister:
+err_cleanup:
 	for (i = i - 1; i >= 0; i--) {
 		pdev = &ab->pdevs[i];
 		ar = pdev->ar;
 		__ath11k_mac_unregister(ar);
 	}
 
-err_cleanup:
 	ath11k_peer_rhash_tbl_destroy(ab);
 
 	return ret;
