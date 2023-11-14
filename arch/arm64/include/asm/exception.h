@@ -58,7 +58,7 @@ asmlinkage void call_on_irq_stack(struct pt_regs *regs,
 asmlinkage void enter_from_user_mode(void);
 asmlinkage void exit_to_user_mode(void);
 void do_mem_abort(unsigned long far, unsigned long esr, struct pt_regs *regs);
-void do_undefinstr(struct pt_regs *regs);
+void do_undefinstr(struct pt_regs *regs, unsigned long esr);
 void do_bti(struct pt_regs *regs);
 void do_debug_exception(unsigned long addr_if_watchpoint, unsigned long esr,
 			struct pt_regs *regs);
