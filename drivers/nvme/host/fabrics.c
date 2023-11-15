@@ -647,7 +647,10 @@ static const match_table_t opt_tokens = {
 	{ NVMF_OPT_DISCOVERY,		"discovery"		},
 	{ NVMF_OPT_DHCHAP_SECRET,	"dhchap_secret=%s"	},
 	{ NVMF_OPT_DHCHAP_CTRL_SECRET,	"dhchap_ctrl_secret=%s"	},
-	{ NVMF_OPT_RECOVERY_DELAY,	"recovery_delay=%d"	},
+#ifdef CONFIG_NVME_TCP_TLS
+	{ NVMF_OPT_TLS,			"tls"			},
+#endif
+	{ NVMF_OPT_RECOVERY_DELAY,      "recovery_delay=%d"     },
 	{ NVMF_OPT_ERR,			NULL			}
 };
 
@@ -672,6 +675,7 @@ static int nvmf_parse_options(struct nvmf_ctrl_options *opts,
 	opts->hdr_digest = false;
 	opts->data_digest = false;
 	opts->tos = -1; /* < 0 == use transport default */
+	opts->tls = false;
 
 	options = o = kstrdup(buf, GFP_KERNEL);
 	if (!options)
@@ -956,6 +960,14 @@ static int nvmf_parse_options(struct nvmf_ctrl_options *opts,
 			kfree(opts->dhchap_ctrl_secret);
 			opts->dhchap_ctrl_secret = p;
 			break;
+		case NVMF_OPT_TLS:
+			if (!IS_ENABLED(CONFIG_NVME_TCP_TLS)) {
+				pr_err("TLS is not supported\n");
+				ret = -EINVAL;
+				goto out;
+			}
+			opts->tls = true;
+			break;			
 		case NVMF_OPT_RECOVERY_DELAY:
 			if (match_int(args, &token)) {
 				ret = -EINVAL;
