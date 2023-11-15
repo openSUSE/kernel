@@ -20,6 +20,7 @@ source "drivers/platform/x86/intel/int33fe/Kconfig"
 source "drivers/platform/x86/intel/int3472/Kconfig"
 source "drivers/platform/x86/intel/pmc/Kconfig"
 source "drivers/platform/x86/intel/pmt/Kconfig"
+source "drivers/platform/x86/intel/uncore-frequency/Kconfig"
 
 config INTEL_SDSI
 	tristate "Intel Software Defined Silicon Driver"
@@ -32,6 +33,20 @@ config INTEL_SDSI
 
 	  To compile this driver as a module, choose M here: the module will
 	  be called intel_sdsi.
+
+config INTEL_TPMI
+	tristate "Intel Topology Aware Register and PM Capsule Interface (TPMI)"
+	depends on INTEL_VSEC
+	depends on X86_64
+	help
+	  The Intel Topology Aware Register and PM Capsule Interface (TPMI),
+	  provides enumerable MMIO interface for power management features.
+	  This driver creates devices, so that other PM feature driver can
+	  be loaded for PM specific feature operation.
+
+	  To compile this driver as a module, choose M here: the module will
+	  be called intel_vsec_tpmi.
+
 
 config INTEL_VSEC
 	tristate "Intel Vendor Specific Extended Capabilities Driver"
