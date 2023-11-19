@@ -2629,7 +2629,7 @@ static void kvm_vcpu_write_tsc_offset(struct kvm_vcpu *vcpu, u64 l1_offset)
 	else
 		vcpu->arch.tsc_offset = l1_offset;
 
-	static_call(kvm_x86_write_tsc_offset)(vcpu, vcpu->arch.tsc_offset);
+	static_call(kvm_x86_write_tsc_offset)(vcpu);
 }
 
 static void kvm_vcpu_write_tsc_multiplier(struct kvm_vcpu *vcpu, u64 l1_multiplier)
@@ -2645,8 +2645,7 @@ static void kvm_vcpu_write_tsc_multiplier(struct kvm_vcpu *vcpu, u64 l1_multipli
 		vcpu->arch.tsc_scaling_ratio = l1_multiplier;
 
 	if (kvm_caps.has_tsc_control)
-		static_call(kvm_x86_write_tsc_multiplier)(
-			vcpu, vcpu->arch.tsc_scaling_ratio);
+		static_call(kvm_x86_write_tsc_multiplier)(vcpu);
 }
 
 static inline bool kvm_check_tsc_unstable(void)
