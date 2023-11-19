@@ -569,7 +569,7 @@ static int svm_check_processor_compat(void)
 	return 0;
 }
 
-void __svm_write_tsc_multiplier(u64 multiplier)
+static void __svm_write_tsc_multiplier(u64 multiplier)
 {
 	preempt_disable();
 
@@ -1159,11 +1159,10 @@ static void svm_write_tsc_offset(struct kvm_vcpu *vcpu, u64 offset)
 	vmcb_mark_dirty(svm->vmcb, VMCB_INTERCEPTS);
 }
 
-static void svm_write_tsc_multiplier(struct kvm_vcpu *vcpu, u64 multiplier)
+void svm_write_tsc_multiplier(struct kvm_vcpu *vcpu, u64 multiplier)
 {
 	__svm_write_tsc_multiplier(multiplier);
 }
-
 
 /* Evaluate instruction intercepts that depend on guest CPUID features. */
 static void svm_recalc_instruction_intercepts(struct kvm_vcpu *vcpu,
