@@ -22,15 +22,14 @@
 #include "misc.h"
 #include "error.h"
 #include "../string.h"
+#include "efi.h"
 
 #include <generated/compile.h>
 #include <linux/module.h>
 #include <linux/uts.h>
 #include <linux/utsname.h>
 #include <linux/ctype.h>
-#include <linux/efi.h>
 #include <generated/utsrelease.h>
-#include <asm/efi.h>
 
 /* Macros used by the included decompressor code below. */
 #define STATIC
