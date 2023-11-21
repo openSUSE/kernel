@@ -21,7 +21,9 @@
 #include <linux/sort.h>
 #include <linux/slab.h>
 #include <linux/memblock.h>
+#ifndef __GENKSYMS__
 #include <linux/kmemleak.h>
+#endif
 
 #include "of_private.h"
 
