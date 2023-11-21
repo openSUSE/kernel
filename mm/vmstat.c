@@ -160,6 +160,7 @@ void vm_events_fold_cpu(int cpu)
  * vm_stat contains the global counters
  */
 atomic_long_t vm_zone_stat[NR_VM_ZONE_STAT_ITEMS] __cacheline_aligned_in_smp;
+atomic_long_t vm_zone_stat_2[NR_VM_ZONE_STAT_ITEMS_2] __cacheline_aligned_in_smp;
 atomic_long_t vm_node_stat[NR_VM_NODE_STAT_ITEMS] __cacheline_aligned_in_smp;
 atomic_long_t vm_numa_event[NR_VM_NUMA_EVENT_ITEMS] __cacheline_aligned_in_smp;
 EXPORT_SYMBOL(vm_zone_stat);
@@ -371,6 +372,18 @@ void __mod_zone_page_state(struct zone *zone, enum zone_stat_item item,
 		preempt_enable();
 }
 EXPORT_SYMBOL(__mod_zone_page_state);
+
+void __mod_zone_page_state_2(struct zone *zone, enum zone_stat_item_2 item,
+			   long delta)
+{
+	if (IS_ENABLED(CONFIG_PREEMPT_RT))
+		preempt_disable();
+
+	zone_page_state_add_2(delta, zone, item);
+
+	if (IS_ENABLED(CONFIG_PREEMPT_RT))
+		preempt_enable();
+}
 
 void __mod_node_page_state(struct pglist_data *pgdat, enum node_stat_item item,
 				long delta)
@@ -1000,6 +1013,19 @@ unsigned long sum_zone_node_page_state(int node,
 
 	for (i = 0; i < MAX_NR_ZONES; i++)
 		count += zone_page_state(zones + i, item);
+
+	return count;
+}
+
+unsigned long sum_zone_node_page_state_2(int node,
+				 enum zone_stat_item_2 item)
+{
+	struct zone *zones = NODE_DATA(node)->node_zones;
+	int i;
+	unsigned long count = 0;
+
+	for (i = 0; i < MAX_NR_ZONES; i++)
+		count += zone_page_state_2(zones + i, item);
 
 	return count;
 }

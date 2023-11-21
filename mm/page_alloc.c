@@ -3834,7 +3834,7 @@ static inline long __zone_watermark_unusable_free(struct zone *z,
 		unusable_free += zone_page_state(z, NR_FREE_CMA_PAGES);
 #endif
 #ifdef CONFIG_UNACCEPTED_MEMORY
-	unusable_free += zone_page_state(z, NR_UNACCEPTED);
+	unusable_free += zone_page_state_2(z, NR_UNACCEPTED);
 #endif
 
 	return unusable_free;
@@ -9682,7 +9682,7 @@ static bool try_to_accept_memory_one(struct zone *zone)
 	last = list_empty(&zone->unaccepted_pages);
 
 	__mod_zone_freepage_state(zone, -MAX_ORDER_NR_PAGES, MIGRATE_MOVABLE);
-	__mod_zone_page_state(zone, NR_UNACCEPTED, -MAX_ORDER_NR_PAGES);
+	__mod_zone_page_state_2(zone, NR_UNACCEPTED, -MAX_ORDER_NR_PAGES);
 	spin_unlock_irqrestore(&zone->lock, flags);
 
 	accept_page(page, MAX_ORDER - 1);
@@ -9734,7 +9734,7 @@ static bool __free_unaccepted(struct page *page)
 	first = list_empty(&zone->unaccepted_pages);
 	list_add_tail(&page->lru, &zone->unaccepted_pages);
 	__mod_zone_freepage_state(zone, MAX_ORDER_NR_PAGES, MIGRATE_MOVABLE);
-	__mod_zone_page_state(zone, NR_UNACCEPTED, MAX_ORDER_NR_PAGES);
+	__mod_zone_page_state_2(zone, NR_UNACCEPTED, MAX_ORDER_NR_PAGES);
 	spin_unlock_irqrestore(&zone->lock, flags);
 
 	if (first)

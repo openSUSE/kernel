@@ -160,10 +160,14 @@ enum zone_stat_item {
 	NR_ZSPAGES,		/* allocated in zsmalloc */
 #endif
 	NR_FREE_CMA_PAGES,
+	NR_VM_ZONE_STAT_ITEMS };
+
+enum zone_stat_item_2 {
 #ifdef CONFIG_UNACCEPTED_MEMORY
 	NR_UNACCEPTED,
 #endif
-	NR_VM_ZONE_STAT_ITEMS };
+	NR_VM_ZONE_STAT_ITEMS_2
+};
 
 enum node_stat_item {
 	NR_LRU_BASE,
@@ -612,16 +616,23 @@ struct zone {
 
 	int initialized;
 
+/*
+ * There is a hole on x86_64 thanks to _pad1_ but haven't checked other
+ * architectures so restrict this to CONFIG_X86_64. In case we later enable this
+ * on e.g. arm64, kabi check will fail and we'll need to re-evaluate.
+ */
+#if !defined(__GENKSYMS__) && defined(CONFIG_X86_64)
+#ifdef CONFIG_UNACCEPTED_MEMORY
+	/* Pages to be accepted. All pages on the list are MAX_ORDER */
+	struct list_head	unaccepted_pages;
+#endif
+#endif
+
 	/* Write-intensive fields used from the page allocator */
 	ZONE_PADDING(_pad1_)
 
 	/* free areas of different sizes */
 	struct free_area	free_area[MAX_ORDER];
-
-#ifdef CONFIG_UNACCEPTED_MEMORY
-	/* Pages to be accepted. All pages on the list are MAX_ORDER */
-	struct list_head	unaccepted_pages;
-#endif
 
 	/* zone flags, see below */
 	unsigned long		flags;
@@ -671,7 +682,14 @@ struct zone {
 	/* Zone statistics */
 	atomic_long_t		vm_stat[NR_VM_ZONE_STAT_ITEMS];
 	atomic_long_t		vm_numa_event[NR_VM_NUMA_EVENT_ITEMS];
+#ifndef __GENKSYMS__
+	union {
+		atomic_long_t		vm_stat_2[NR_VM_ZONE_STAT_ITEMS_2];
+		void *suse_kabi_padding;
+	};
+#else
 	void *suse_kabi_padding;
+#endif
 } ____cacheline_internodealigned_in_smp;
 
 enum pgdat_flags {

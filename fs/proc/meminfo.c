@@ -148,7 +148,7 @@ static int meminfo_proc_show(struct seq_file *m, void *v)
 
 #ifdef CONFIG_UNACCEPTED_MEMORY
 	show_val_kb(m, "Unaccepted:     ",
-		    global_zone_page_state(NR_UNACCEPTED));
+		    global_zone_page_state_2(NR_UNACCEPTED));
 #endif
 
 	hugetlb_report_meminfo(m);
