@@ -2917,6 +2917,14 @@ qla2x00_probe_one(struct pci_dev *pdev, const struct pci_device_id *id)
 	struct rsp_que *rsp = NULL;
 	int i;
 
+	if (pdev->device == PCI_DEVICE_ID_QLOGIC_ISP2532 ||
+	    pdev->device == PCI_DEVICE_ID_QLOGIC_ISP2031 ||
+	    pdev->device == PCI_DEVICE_ID_QLOGIC_ISP8031) {
+		pr_warn("Warning: Unmaintained hardware is detected: %s:%04x:%04x @ %s\n",
+			dev_driver_string(&pdev->dev), pdev->device,
+			pdev->vendor, pci_name(pdev));
+	}
+
 	bars = pci_select_bars(pdev, IORESOURCE_MEM | IORESOURCE_IO);
 	sht = &qla2xxx_driver_template;
 	if (pdev->device == PCI_DEVICE_ID_QLOGIC_ISP2422 ||

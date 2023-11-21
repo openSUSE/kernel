@@ -161,6 +161,8 @@ static inline void put_task_struct(struct task_struct *t)
 	call_rcu(&t->rcu, __put_task_struct_rcu_cb);
 }
 
+DEFINE_FREE(put_task, struct task_struct *, if (_T) put_task_struct(_T))
+
 static inline void put_task_struct_many(struct task_struct *t, int nr)
 {
 	if (refcount_sub_and_test(nr, &t->usage))

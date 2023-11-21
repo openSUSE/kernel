@@ -1678,12 +1678,14 @@ static int __mhi_prepare_for_transfer_autoqueue(struct device *dev, void *data)
 		return 0;
 
 	mhi_dev = to_mhi_device(dev);
+
 	/* Only prepare virtual devices thats attached to bus */
 	if (mhi_dev->dev_type == MHI_DEVICE_CONTROLLER)
 		return 0;
 
 	ul_chan = mhi_dev->ul_chan;
 	dl_chan = mhi_dev->dl_chan;
+
 	/*
 	 * If execution environment is specified, remove only those devices that
 	 * started in them based on ee_mask for the channels as we move on to a
@@ -1692,15 +1694,12 @@ static int __mhi_prepare_for_transfer_autoqueue(struct device *dev, void *data)
 	if (data)
 		ee = *(enum mhi_ee_type *)data;
 
-	if (ul_chan) {
-		if (ee != MHI_EE_MAX && !(ul_chan->ee_mask & BIT(ee)))
-			return 0;
-	}
+	if (ul_chan && ee != MHI_EE_MAX && !(ul_chan->ee_mask & BIT(ee)))
+		return 0;
 
-	if (dl_chan) {
-		if (ee != MHI_EE_MAX && !(dl_chan->ee_mask & BIT(ee)))
-			return 0;
-	}
+
+	if (dl_chan && ee != MHI_EE_MAX && !(dl_chan->ee_mask & BIT(ee)))
+		return 0;
 
 	return mhi_prepare_for_transfer_autoqueue(mhi_dev);
 }
@@ -1738,12 +1737,14 @@ static int __mhi_unprepare_from_transfer(struct device *dev, void *data)
 		return 0;
 
 	mhi_dev = to_mhi_device(dev);
+
 	/* Only unprepare virtual devices thats attached to bus */
 	if (mhi_dev->dev_type == MHI_DEVICE_CONTROLLER)
 		return 0;
 
 	ul_chan = mhi_dev->ul_chan;
 	dl_chan = mhi_dev->dl_chan;
+
 	/*
 	 * If execution environment is specified, remove only those devices that
 	 * started in them based on ee_mask for the channels as we move on to a
@@ -1763,6 +1764,7 @@ static int __mhi_unprepare_from_transfer(struct device *dev, void *data)
 	}
 
 	mhi_unprepare_from_transfer(mhi_dev);
+
 	return 0;
 }
 
