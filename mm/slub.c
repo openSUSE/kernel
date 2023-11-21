@@ -3850,7 +3850,7 @@ static inline int calculate_order(unsigned int size)
 	/*
 	 * Doh this slab cannot be placed using slub_max_order.
 	 */
-	order = slab_order(size, 1, MAX_ORDER, 1);
+	order = slab_order(size, 1, MAX_ORDER - 1, 1);
 	if (order < MAX_ORDER)
 		return order;
 	return -ENOSYS;
