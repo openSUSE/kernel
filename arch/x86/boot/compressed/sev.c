@@ -114,9 +114,7 @@ static bool fault_in_kernel_space(unsigned long address)
 }
 
 #undef __init
-#undef __pa
 #define __init
-#define __pa(x)	((unsigned long)(x))
 
 #define __BOOT_COMPRESSED
 
