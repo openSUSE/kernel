@@ -24,7 +24,9 @@
 #include <linux/gfp.h>
 #include <linux/cpufeature.h>
 #include <linux/fs.h>
+#ifndef __GENKSYMS__
 #include <linux/fs_struct.h>
+#endif
 #include <linux/psp.h>
 
 #include <asm/smp.h>
