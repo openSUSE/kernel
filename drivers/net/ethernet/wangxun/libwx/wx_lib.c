@@ -2,7 +2,7 @@
 /* Copyright (c) 2019 - 2022 Beijing WangXun Technology Co., Ltd. */
 
 #include <linux/etherdevice.h>
-#include <net/page_pool.h>
+#include <net/page_pool/helpers.h>
 #include <linux/iopoll.h>
 #include <linux/pci.h>
 
