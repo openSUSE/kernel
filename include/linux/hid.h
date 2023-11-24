@@ -655,6 +655,7 @@ struct hid_device {							/* device report descriptor */
 	struct list_head debug_list;
 	spinlock_t  debug_list_lock;
 	wait_queue_head_t debug_wait;
+	struct kref			ref;
 
 	unsigned int id;						/* system unique id */
 
@@ -662,6 +663,8 @@ struct hid_device {							/* device report descriptor */
 	struct hid_bpf bpf;						/* hid-bpf data */
 #endif /* CONFIG_BPF */
 };
+
+void hiddev_free(struct kref *ref);
 
 #define to_hid_device(pdev) \
 	container_of(pdev, struct hid_device, dev)
