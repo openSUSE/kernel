@@ -6387,7 +6387,7 @@ const struct genl_small_ops devlink_nl_small_ops[56] = {
 		.cmd = DEVLINK_CMD_GET,
 		.validate = GENL_DONT_VALIDATE_STRICT | GENL_DONT_VALIDATE_DUMP,
 		.doit = devlink_nl_get_doit,
-		.dumpit = devlink_nl_instance_iter_dumpit,
+		.dumpit = devlink_nl_get_dumpit,
 		/* can be retrieved by unprivileged users */
 	},
 	{
@@ -6641,7 +6641,7 @@ const struct genl_small_ops devlink_nl_small_ops[56] = {
 		.cmd = DEVLINK_CMD_INFO_GET,
 		.validate = GENL_DONT_VALIDATE_STRICT | GENL_DONT_VALIDATE_DUMP,
 		.doit = devlink_nl_info_get_doit,
-		.dumpit = devlink_nl_instance_iter_dumpit,
+		.dumpit = devlink_nl_info_get_dumpit,
 		/* can be retrieved by unprivileged users */
 	},
 	{
