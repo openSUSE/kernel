@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 #define _GNU_SOURCE
 #include <errno.h>
 #include <fcntl.h>
@@ -38,7 +39,7 @@ static int dev_papr_vpd_get_handle_all(void)
 	FAIL_IF(devfd < 0);
 
 	errno = 0;
-	fd = ioctl(devfd, PAPR_VPD_CREATE_HANDLE, &lc);
+	fd = ioctl(devfd, PAPR_VPD_IOC_CREATE_HANDLE, &lc);
 	FAIL_IF(errno != 0);
 	FAIL_IF(fd < 0);
 
@@ -58,7 +59,7 @@ static int dev_papr_vpd_get_handle_all(void)
 	FAIL_IF(close(fd));
 
 	/* Verify that the buffer looks like VPD */
-	const char needle[] = "System VPD";
+	static const char needle[] = "System VPD";
 	FAIL_IF(!memmem(buf, size, needle, strlen(needle)));
 
 	return 0;
@@ -76,7 +77,7 @@ static int dev_papr_vpd_get_handle_byte_at_a_time(void)
 	FAIL_IF(devfd < 0);
 
 	errno = 0;
-	fd = ioctl(devfd, PAPR_VPD_CREATE_HANDLE, &lc);
+	fd = ioctl(devfd, PAPR_VPD_IOC_CREATE_HANDLE, &lc);
 	FAIL_IF(errno != 0);
 	FAIL_IF(fd < 0);
 
@@ -88,7 +89,7 @@ static int dev_papr_vpd_get_handle_byte_at_a_time(void)
 		char c;
 
 		errno = 0;
-		res = read(fd, &c, sizeof(c));;
+		res = read(fd, &c, sizeof(c));
 		FAIL_IF(res > sizeof(c));
 		FAIL_IF(res < 0);
 		FAIL_IF(errno != 0);
@@ -123,7 +124,7 @@ static int dev_papr_vpd_unterm_loc_code(void)
 	memset(lc.str, 'x', ARRAY_SIZE(lc.str));
 
 	errno = 0;
-	fd = ioctl(devfd, PAPR_VPD_CREATE_HANDLE, &lc);
+	fd = ioctl(devfd, PAPR_VPD_IOC_CREATE_HANDLE, &lc);
 	FAIL_IF(fd != -1);
 	FAIL_IF(errno != EINVAL);
 
@@ -142,7 +143,7 @@ static int dev_papr_vpd_null_handle(void)
 	FAIL_IF(devfd < 0);
 
 	errno = 0;
-	rc = ioctl(devfd, PAPR_VPD_CREATE_HANDLE, NULL);
+	rc = ioctl(devfd, PAPR_VPD_IOC_CREATE_HANDLE, NULL);
 	FAIL_IF(rc != -1);
 	FAIL_IF(errno != EFAULT);
 
@@ -162,7 +163,7 @@ static int papr_vpd_close_handle_without_reading(void)
 	FAIL_IF(devfd < 0);
 
 	errno = 0;
-	fd = ioctl(devfd, PAPR_VPD_CREATE_HANDLE, &lc);
+	fd = ioctl(devfd, PAPR_VPD_IOC_CREATE_HANDLE, &lc);
 	FAIL_IF(errno != 0);
 	FAIL_IF(fd < 0);
 
@@ -185,7 +186,7 @@ static int papr_vpd_reread(void)
 	FAIL_IF(devfd < 0);
 
 	errno = 0;
-	fd = ioctl(devfd, PAPR_VPD_CREATE_HANDLE, &lc);
+	fd = ioctl(devfd, PAPR_VPD_IOC_CREATE_HANDLE, &lc);
 	FAIL_IF(errno != 0);
 	FAIL_IF(fd < 0);
 
@@ -212,8 +213,8 @@ static int papr_vpd_reread(void)
 
 static int get_system_loc_code(struct papr_location_code *lc)
 {
-	const char system_id_path[] = "/sys/firmware/devicetree/base/system-id";
-	const char model_path[] = "/sys/firmware/devicetree/base/model";
+	static const char system_id_path[] = "/sys/firmware/devicetree/base/system-id";
+	static const char model_path[] = "/sys/firmware/devicetree/base/model";
 	char *system_id;
 	char *model;
 	int err = -1;
@@ -270,7 +271,7 @@ static int papr_vpd_system_loc_code(void)
 	FAIL_IF(devfd < 0);
 
 	errno = 0;
-	fd = ioctl(devfd, PAPR_VPD_CREATE_HANDLE, &lc);
+	fd = ioctl(devfd, PAPR_VPD_IOC_CREATE_HANDLE, &lc);
 	FAIL_IF(errno != 0);
 	FAIL_IF(fd < 0);
 
@@ -290,7 +291,7 @@ static int papr_vpd_system_loc_code(void)
 	FAIL_IF(close(fd));
 
 	/* Verify that the buffer looks like VPD */
-	const char needle[] = "System VPD";
+	static const char needle[] = "System VPD";
 	FAIL_IF(!memmem(buf, size, needle, strlen(needle)));
 
 	return 0;
@@ -301,7 +302,7 @@ struct vpd_test {
 	const char *description;
 };
 
-static struct vpd_test vpd_tests[] = {
+static const struct vpd_test vpd_tests[] = {
 	{
 		.function = dev_papr_vpd_open_close,
 		.description = "open/close " DEVPATH,

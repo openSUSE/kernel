@@ -373,7 +373,7 @@ static int nvme_loop_configure_admin_queue(struct nvme_loop_ctrl *ctrl)
 		goto out_cleanup_tagset;
 
 	ctrl->ctrl.max_hw_sectors =
-		(NVME_LOOP_MAX_SEGMENTS - 1) << (PAGE_SHIFT - 9);
+		(NVME_LOOP_MAX_SEGMENTS - 1) << PAGE_SECTORS_SHIFT;
 
 	nvme_unquiesce_admin_queue(&ctrl->ctrl);
 
@@ -466,6 +466,8 @@ static void nvme_loop_reset_ctrl_work(struct work_struct *work)
 out_destroy_io:
 	nvme_loop_destroy_io_queues(ctrl);
 out_destroy_admin:
+	nvme_quiesce_admin_queue(&ctrl->ctrl);
+	nvme_cancel_admin_tagset(&ctrl->ctrl);
 	nvme_loop_destroy_admin_queue(ctrl);
 out_disable:
 	dev_warn(ctrl->ctrl.device, "Removing after reset failure\n");
@@ -600,6 +602,8 @@ static struct nvme_ctrl *nvme_loop_create_ctrl(struct device *dev,
 	return &ctrl->ctrl;
 
 out_remove_admin_queue:
+	nvme_quiesce_admin_queue(&ctrl->ctrl);
+	nvme_cancel_admin_tagset(&ctrl->ctrl);
 	nvme_loop_destroy_admin_queue(ctrl);
 out_free_queues:
 	kfree(ctrl->queues);

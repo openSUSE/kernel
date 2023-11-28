@@ -38,7 +38,7 @@
 #include <linux/debugfs.h>
 #include <linux/if_bridge.h>
 #include <linux/filter.h>
-#include <net/page_pool.h>
+#include <net/page_pool/types.h>
 #include <net/pkt_sched.h>
 #include <net/xdp_sock_drv.h>
 #include "eswitch.h"
@@ -834,7 +834,7 @@ static int mlx5e_alloc_rq(struct mlx5e_params *params,
 		struct page_pool_params pp_params = { 0 };
 
 		pp_params.order     = 0;
-		pp_params.flags     = PP_FLAG_DMA_MAP | PP_FLAG_DMA_SYNC_DEV | PP_FLAG_PAGE_FRAG;
+		pp_params.flags     = PP_FLAG_DMA_MAP | PP_FLAG_DMA_SYNC_DEV;
 		pp_params.pool_size = pool_size;
 		pp_params.nid       = node;
 		pp_params.dev       = rq->pdev;
@@ -4897,9 +4897,6 @@ static int mlx5e_bridge_setlink(struct net_device *dev, struct nlmsghdr *nlh,
 	nla_for_each_nested(attr, br_spec, rem) {
 		if (nla_type(attr) != IFLA_BRIDGE_MODE)
 			continue;
-
-		if (nla_len(attr) < sizeof(mode))
-			return -EINVAL;
 
 		mode = nla_get_u16(attr);
 		if (mode > BRIDGE_MODE_VEPA)

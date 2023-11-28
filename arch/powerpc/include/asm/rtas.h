@@ -406,6 +406,8 @@ static inline bool rtas_function_implemented(const rtas_fn_handle_t handle)
 {
 	return rtas_function_token(handle) != RTAS_UNKNOWN_SERVICE;
 }
+void rtas_function_lock(rtas_fn_handle_t handle);
+void rtas_function_unlock(rtas_fn_handle_t handle);
 extern int rtas_token(const char *service);
 extern int rtas_service_present(const char *service);
 extern int rtas_call(int token, int, int, int *, ...);

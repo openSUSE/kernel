@@ -39,6 +39,7 @@
 #include <linux/phylink.h>
 #include <linux/udp.h>
 #include <linux/bpf_trace.h>
+#include <net/page_pool/helpers.h>
 #include <net/pkt_cls.h>
 #include <net/xdp_sock_drv.h>
 #include "stmmac_ptp.h"
@@ -5409,7 +5410,7 @@ read_again:
 					priv->dma_conf.dma_buf_sz);
 
 			/* Data payload appended into SKB */
-			page_pool_release_page(rx_q->page_pool, buf->page);
+			skb_mark_for_recycle(skb);
 			buf->page = NULL;
 		}
 
@@ -5421,7 +5422,7 @@ read_again:
 					priv->dma_conf.dma_buf_sz);
 
 			/* Data payload appended into SKB */
-			page_pool_release_page(rx_q->page_pool, buf->sec_page);
+			skb_mark_for_recycle(skb);
 			buf->sec_page = NULL;
 		}
 

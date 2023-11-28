@@ -15,7 +15,7 @@
 #include <linux/bpf_trace.h>
 
 #include <net/tcp.h>
-#include <net/page_pool.h>
+#include <net/page_pool/helpers.h>
 #include <net/ip6_checksum.h>
 
 #define NETSEC_REG_SOFT_RST			0x104
@@ -780,7 +780,7 @@ static void netsec_finalize_xdp_rx(struct netsec_priv *priv, u32 xdp_res,
 				   u16 pkts)
 {
 	if (xdp_res & NETSEC_XDP_REDIR)
-		xdp_do_flush_map();
+		xdp_do_flush();
 
 	if (xdp_res & NETSEC_XDP_TX)
 		netsec_xdp_ring_tx_db(priv, pkts);

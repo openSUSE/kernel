@@ -1432,14 +1432,23 @@ static int ath11k_core_pdev_create(struct ath11k_base *ab)
 		goto err_dp_pdev_free;
 	}
 
+	ret = ath11k_thermal_register(ab);
+	if (ret) {
+		ath11k_err(ab, "could not register thermal device: %d\n",
+			   ret);
+		goto err_mac_unregister;
+	}
+
 	ret = ath11k_spectral_init(ab);
 	if (ret) {
 		ath11k_err(ab, "failed to init spectral %d\n", ret);
-		goto err_mac_unregister;
+		goto err_thermal_unregister;
 	}
 
 	return 0;
 
+err_thermal_unregister:
+	ath11k_thermal_unregister(ab);
 err_mac_unregister:
 	ath11k_mac_unregister(ab);
 err_dp_pdev_free:
@@ -1453,6 +1462,7 @@ err_pdev_debug:
 static void ath11k_core_pdev_destroy(struct ath11k_base *ab)
 {
 	ath11k_spectral_deinit(ab);
+	ath11k_thermal_unregister(ab);
 	ath11k_mac_unregister(ab);
 	ath11k_hif_irq_disable(ab);
 	ath11k_dp_pdev_free(ab);
@@ -1660,6 +1670,7 @@ static int ath11k_core_reconfigure_on_crash(struct ath11k_base *ab)
 	int ret;
 
 	mutex_lock(&ab->core_lock);
+	ath11k_thermal_unregister(ab);
 	ath11k_dp_pdev_free(ab);
 	ath11k_spectral_deinit(ab);
 	ath11k_ce_cleanup_pipes(ab);
@@ -1913,8 +1924,8 @@ static void ath11k_core_reset(struct work_struct *work)
 	time_left = wait_for_completion_timeout(&ab->recovery_start,
 						ATH11K_RECOVER_START_TIMEOUT_HZ);
 
-	ath11k_hif_irq_disable(ab);
-	ath11k_hif_ce_irq_disable(ab);
+	ath11k_hif_power_down(ab, false);
+	ath11k_hif_power_up(ab, false);
 
 	ath11k_hif_power_down(ab, false);
 	ath11k_hif_power_up(ab, false);

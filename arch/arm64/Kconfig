@@ -192,9 +192,10 @@ config ARM64
 		if $(cc-option,-fpatchable-function-entry=2)
 	select HAVE_DYNAMIC_FTRACE_WITH_DIRECT_CALLS \
 		if DYNAMIC_FTRACE_WITH_ARGS && DYNAMIC_FTRACE_WITH_CALL_OPS
-	select HAVE_DYNAMIC_FTRACE_WITH_CALL_OPS \
-		if (DYNAMIC_FTRACE_WITH_ARGS && !CFI_CLANG && \
-		    !CC_OPTIMIZE_FOR_SIZE)
+	# bsc#1214934
+	#select HAVE_DYNAMIC_FTRACE_WITH_CALL_OPS \
+	#	if (DYNAMIC_FTRACE_WITH_ARGS && !CFI_CLANG && \
+	#	    !CC_OPTIMIZE_FOR_SIZE)
 	select FTRACE_MCOUNT_USE_PATCHABLE_FUNCTION_ENTRY \
 		if DYNAMIC_FTRACE_WITH_ARGS
 	select HAVE_EFFICIENT_UNALIGNED_ACCESS
@@ -1350,6 +1351,8 @@ choice
 config CPU_BIG_ENDIAN
 	bool "Build big-endian kernel"
 	depends on !LD_IS_LLD || LLD_VERSION >= 130000
+	# https://github.com/llvm/llvm-project/commit/1379b150991f70a5782e9a143c2ba5308da1161c
+	depends on AS_IS_GNU || AS_VERSION >= 150000
 	help
 	  Say Y if you plan on running a kernel with a big-endian userspace.
 
