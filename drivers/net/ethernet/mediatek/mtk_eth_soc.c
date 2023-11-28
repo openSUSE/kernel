@@ -25,6 +25,7 @@
 #include <linux/bitfield.h>
 #include <net/dsa.h>
 #include <net/dst_metadata.h>
+#include <net/page_pool/helpers.h>
 
 #include "mtk_eth_soc.h"
 #include "mtk_wed.h"
@@ -2100,7 +2101,7 @@ rx_done:
 	net_dim(&eth->rx_dim, dim_sample);
 
 	if (xdp_flush)
-		xdp_do_flush_map();
+		xdp_do_flush();
 
 	return done;
 }
