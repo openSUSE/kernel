@@ -2850,6 +2850,8 @@ static const struct drm_driver amdgpu_kms_driver = {
 	.show_fdinfo = amdgpu_show_fdinfo,
 #endif
 
+	.prime_handle_to_fd = drm_gem_prime_handle_to_fd,
+	.prime_fd_to_handle = drm_gem_prime_fd_to_handle,
 	.gem_prime_import = amdgpu_gem_prime_import,
 	.gem_prime_mmap = drm_gem_prime_mmap,
 

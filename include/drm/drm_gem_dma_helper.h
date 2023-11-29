@@ -167,6 +167,8 @@ drm_gem_dma_prime_import_sg_table(struct drm_device *dev,
  */
 #define DRM_GEM_DMA_DRIVER_OPS_WITH_DUMB_CREATE(dumb_create_func) \
 	.dumb_create		= (dumb_create_func), \
+	.prime_handle_to_fd	= drm_gem_prime_handle_to_fd, \
+	.prime_fd_to_handle	= drm_gem_prime_fd_to_handle, \
 	.gem_prime_import_sg_table = drm_gem_dma_prime_import_sg_table, \
 	.gem_prime_mmap		= drm_gem_prime_mmap
 
@@ -203,6 +205,8 @@ drm_gem_dma_prime_import_sg_table(struct drm_device *dev,
  */
 #define DRM_GEM_DMA_DRIVER_OPS_VMAP_WITH_DUMB_CREATE(dumb_create_func) \
 	.dumb_create		= dumb_create_func, \
+	.prime_handle_to_fd	= drm_gem_prime_handle_to_fd, \
+	.prime_fd_to_handle	= drm_gem_prime_fd_to_handle, \
 	.gem_prime_import_sg_table = drm_gem_dma_prime_import_sg_table_vmap, \
 	.gem_prime_mmap		= drm_gem_prime_mmap
 
