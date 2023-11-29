@@ -395,9 +395,9 @@ static int vmw_fb_create_bo(struct vmw_private *vmw_priv,
 	int ret;
 
 	ret = vmw_bo_create(vmw_priv, size,
-			      &vmw_sys_placement,
-			      false, false,
-			      &vmw_bo_bo_free, &vmw_bo);
+			    &vmw_sys_placement,
+			    false, false,
+			    &vmw_bo);
 	if (unlikely(ret != 0))
 		return ret;
 
