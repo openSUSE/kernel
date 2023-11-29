@@ -672,7 +672,7 @@ static int ath11k_pci_hif_power_up(struct ath11k_base *ab, bool is_resume)
 
 	if (is_resume) {
 		/* sleep for 500ms to let mhi_pm_mission_mode_transition()
-		 * finishes, or we may be wake up imediatly afetr mission
+		 * finishes, or we may be wake up immediately after mission
 		 * mode event received and call
 		 * ath11k_mhi_prepare_for_transfer(), while bottom half of
 		 * mhi_pm_mission_mode_transition() does not finish.
