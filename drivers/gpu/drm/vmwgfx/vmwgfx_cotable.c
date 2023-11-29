@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0 OR MIT
 /**************************************************************************
  *
- * Copyright 2014-2015 VMware, Inc., Palo Alto, CA., USA
+ * Copyright 2014-2023 VMware, Inc., Palo Alto, CA., USA
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the
@@ -30,11 +30,12 @@
  * whenever the backing MOB is evicted.
  */
 
-#include <drm/ttm/ttm_placement.h>
-
+#include "vmwgfx_bo.h"
 #include "vmwgfx_drv.h"
 #include "vmwgfx_resource_priv.h"
 #include "vmwgfx_so.h"
+
+#include <drm/ttm/ttm_placement.h>
 
 /**
  * struct vmw_cotable - Context Object Table resource

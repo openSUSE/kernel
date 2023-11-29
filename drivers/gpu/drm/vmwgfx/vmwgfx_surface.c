@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0 OR MIT
 /**************************************************************************
  *
- * Copyright 2009-2015 VMware, Inc., Palo Alto, CA., USA
+ * Copyright 2009-2023 VMware, Inc., Palo Alto, CA., USA
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the
@@ -25,14 +25,15 @@
  *
  **************************************************************************/
 
-#include <drm/ttm/ttm_placement.h>
-
+#include "vmwgfx_bo.h"
 #include "vmwgfx_drv.h"
 #include "vmwgfx_resource_priv.h"
 #include "vmwgfx_so.h"
 #include "vmwgfx_binding.h"
 #include "vmw_surface_cache.h"
 #include "device_include/svga3d_surfacedefs.h"
+
+#include <drm/ttm/ttm_placement.h>
 
 #define SVGA3D_FLAGS_64(upper32, lower32) (((uint64_t)upper32 << 32) | lower32)
 #define SVGA3D_FLAGS_UPPER_32(svga3d_flags) (svga3d_flags >> 32)

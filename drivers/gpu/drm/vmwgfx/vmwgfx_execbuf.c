@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0 OR MIT
 /**************************************************************************
  *
- * Copyright 2009 - 2022 VMware, Inc., Palo Alto, CA., USA
+ * Copyright 2009 - 2023 VMware, Inc., Palo Alto, CA., USA
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the
@@ -24,17 +24,17 @@
  * USE OR OTHER DEALINGS IN THE SOFTWARE.
  *
  **************************************************************************/
-#include <linux/sync_file.h>
-#include <linux/hashtable.h>
-
+#include "vmwgfx_binding.h"
+#include "vmwgfx_bo.h"
 #include "vmwgfx_drv.h"
-#include "vmwgfx_reg.h"
+#include "vmwgfx_mksstat.h"
+#include "vmwgfx_so.h"
+
 #include <drm/ttm/ttm_bo_api.h>
 #include <drm/ttm/ttm_placement.h>
-#include "vmwgfx_so.h"
-#include "vmwgfx_binding.h"
-#include "vmwgfx_mksstat.h"
 
+#include <linux/sync_file.h>
+#include <linux/hashtable.h>
 
 /*
  * Helper macro to get dx_ctx_node if available otherwise print an error

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0 OR MIT
 /**************************************************************************
  *
- * Copyright 2009-2022 VMware, Inc., Palo Alto, CA., USA
+ * Copyright 2009-2023 VMware, Inc., Palo Alto, CA., USA
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the
@@ -24,6 +24,11 @@
  * USE OR OTHER DEALINGS IN THE SOFTWARE.
  *
  **************************************************************************/
+
+#include "vmwgfx_kms.h"
+
+#include "vmwgfx_bo.h"
+#include "vmw_surface_cache.h"
 
 #include <drm/drm_atomic.h>
 #include <drm/drm_atomic_helper.h>

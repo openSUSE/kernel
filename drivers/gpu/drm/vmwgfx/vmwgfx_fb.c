@@ -32,6 +32,7 @@
 #include <drm/drm_fourcc.h>
 #include <drm/ttm/ttm_placement.h>
 
+#include "vmwgfx_bo.h"
 #include "vmwgfx_drv.h"
 #include "vmwgfx_kms.h"
 

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0 OR MIT
 /**************************************************************************
  *
- * Copyright 2009-2015 VMware, Inc., Palo Alto, CA., USA
+ * Copyright 2009-2023 VMware, Inc., Palo Alto, CA., USA
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the
@@ -27,9 +27,10 @@
 
 #include <drm/ttm/ttm_placement.h>
 
-#include "vmwgfx_resource_priv.h"
 #include "vmwgfx_binding.h"
+#include "vmwgfx_bo.h"
 #include "vmwgfx_drv.h"
+#include "vmwgfx_resource_priv.h"
 
 #define VMW_RES_EVICT_ERR_COUNT 10
 

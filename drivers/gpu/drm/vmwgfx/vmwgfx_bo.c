@@ -28,6 +28,7 @@
 
 #include <drm/ttm/ttm_placement.h>
 
+#include "vmwgfx_bo.h"
 #include "vmwgfx_drv.h"
 #include "ttm_object.h"
 
@@ -703,7 +704,7 @@ int vmw_user_bo_lookup(struct drm_file *filp,
 		return -ESRCH;
 	}
 
-	*out = gem_to_vmw_bo(gobj);
+	*out = to_vmw_bo(gobj);
 	ttm_bo_get(&(*out)->base);
 
 	return 0;
