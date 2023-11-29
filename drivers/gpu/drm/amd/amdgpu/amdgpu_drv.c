@@ -2877,7 +2877,6 @@ const struct drm_driver amdgpu_partition_driver = {
 	.release = &amdgpu_driver_release_kms,
 
 	.gem_prime_import = amdgpu_gem_prime_import,
-	.gem_prime_mmap = drm_gem_prime_mmap,
 
 	.name = DRIVER_NAME,
 	.desc = DRIVER_DESC,
