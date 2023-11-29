@@ -1408,7 +1408,7 @@ static int vmw_create_bo_proxy(struct drm_device *dev,
 	/* Reserve and switch the backing mob. */
 	mutex_lock(&res->dev_priv->cmdbuf_mutex);
 	(void) vmw_resource_reserve(res, false, true);
-	vmw_bo_unreference(&res->backup);
+	vmw_user_bo_unref(&res->backup);
 	res->backup = vmw_bo_reference(bo_mob);
 	res->backup_offset = 0;
 	vmw_resource_unreserve(res, false, false, false, NULL, 0);
@@ -1605,10 +1605,8 @@ static struct drm_framebuffer *vmw_kms_fb_create(struct drm_device *dev,
 
 err_out:
 	/* vmw_user_lookup_handle takes one ref so does new_fb */
-	if (bo) {
-		vmw_bo_unreference(&bo);
-		drm_gem_object_put(&bo->base.base);
-	}
+	if (bo)
+		vmw_user_bo_unref(&bo);
 	if (surface)
 		vmw_surface_unreference(&surface);
 
@@ -2927,8 +2925,9 @@ int vmw_du_helper_plane_update(struct vmw_du_update_plane *update)
 	if (update->vfb->bo) {
 		struct vmw_framebuffer_bo *vfbbo =
 			container_of(update->vfb, typeof(*vfbbo), base);
+		struct vmw_buffer_object *buffer = vfbbo->buffer;
 
-		ret = vmw_validation_add_bo(&val_ctx, vfbbo->buffer, false,
+		ret = vmw_validation_add_bo(&val_ctx, buffer, false,
 					    update->cpu_blit);
 	} else {
 		struct vmw_framebuffer_surface *vfbs =

@@ -476,7 +476,7 @@ static int vmw_cotable_resize(struct vmw_resource *res, size_t new_size)
 
 	vmw_resource_mob_attach(res);
 	/* Let go of the old mob. */
-	vmw_bo_unreference(&old_buf);
+	vmw_user_bo_unref(&old_buf);
 	res->id = vcotbl->type;
 
 	ret = dma_resv_reserve_fences(bo->base.resv, 1);
@@ -493,7 +493,7 @@ out_map_new:
 out_wait:
 	ttm_bo_unpin(bo);
 	ttm_bo_unreserve(bo);
-	vmw_bo_unreference(&buf);
+	vmw_user_bo_unref(&buf);
 
 	return ret;
 }

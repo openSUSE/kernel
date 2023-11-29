@@ -181,6 +181,21 @@ static inline struct vmw_buffer_object *vmw_bo_reference(struct vmw_buffer_objec
 	return buf;
 }
 
+static inline struct vmw_buffer_object *vmw_user_bo_ref(struct vmw_buffer_object *vbo)
+{
+	drm_gem_object_get(&vbo->base.base);
+	return vbo;
+}
+
+static inline void vmw_user_bo_unref(struct vmw_buffer_object **buf)
+{
+	struct vmw_buffer_object *tmp_buf = *buf;
+
+	*buf = NULL;
+	if (tmp_buf)
+		drm_gem_object_put(&tmp_buf->base.base);
+}
+
 static inline struct vmw_buffer_object *to_vmw_bo(struct drm_gem_object *gobj)
 {
 	return container_of((gobj), struct vmw_buffer_object, base.base);
