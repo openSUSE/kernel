@@ -24,33 +24,27 @@ static bool gsc_is_in_reset(struct intel_uncore *uncore)
 	       GSC_FW_CURRENT_STATE_RESET;
 }
 
-static u32 gsc_uc_get_fw_status(struct intel_uncore *uncore, bool needs_wakeref)
+static u32 gsc_uc_get_fw_status(struct intel_uncore *uncore)
 {
 	intel_wakeref_t wakeref;
 	u32 fw_status = 0;
 
-	if (needs_wakeref)
-		wakeref = intel_runtime_pm_get(uncore->rpm);
+	with_intel_runtime_pm(uncore->rpm, wakeref)
+		fw_status = intel_uncore_read(uncore, GSC_FW_STATUS_REG);
 
-	fw_status = intel_uncore_read(uncore, GSC_FW_STATUS_REG);
-
-	if (needs_wakeref)
-		intel_runtime_pm_put(uncore->rpm, wakeref);
 	return fw_status;
 }
 
-bool intel_gsc_uc_fw_proxy_init_done(struct intel_gsc_uc *gsc, bool needs_wakeref)
+bool intel_gsc_uc_fw_proxy_init_done(struct intel_gsc_uc *gsc)
 {
 	return REG_FIELD_GET(GSC_FW_CURRENT_STATE,
-			     gsc_uc_get_fw_status(gsc_uc_to_gt(gsc)->uncore,
-						  needs_wakeref)) ==
+			     gsc_uc_get_fw_status(gsc_uc_to_gt(gsc)->uncore)) ==
 	       GSC_FW_PROXY_STATE_NORMAL;
 }
 
 bool intel_gsc_uc_fw_init_done(struct intel_gsc_uc *gsc)
 {
-	return gsc_uc_get_fw_status(gsc_uc_to_gt(gsc)->uncore, false) &
-	       GSC_FW_INIT_COMPLETE_BIT;
+	return gsc_uc_get_fw_status(gsc_uc_to_gt(gsc)->uncore) & GSC_FW_INIT_COMPLETE_BIT;
 }
 
 static int emit_gsc_fw_load(struct i915_request *rq, struct intel_gsc_uc *gsc)
