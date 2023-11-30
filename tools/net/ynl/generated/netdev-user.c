@@ -4,13 +4,11 @@
 /* YNL-GEN user source */
 
 #include <stdlib.h>
+#include <string.h>
 #include "netdev-user.h"
 #include "ynl.h"
 #include <linux/netdev.h>
 
-#include <stdlib.h>
-#include <stdio.h>
-#include <string.h>
 #include <libmnl/libmnl.h>
 #include <linux/genetlink.h>
 
@@ -47,13 +45,26 @@ const char *netdev_xdp_act_str(enum netdev_xdp_act value)
 	return netdev_xdp_act_strmap[value];
 }
 
-/* Policies */
-extern struct ynl_policy_nest netdev_dev_nest;
+static const char * const netdev_xdp_rx_metadata_strmap[] = {
+	[0] = "timestamp",
+	[1] = "hash",
+};
 
+const char *netdev_xdp_rx_metadata_str(enum netdev_xdp_rx_metadata value)
+{
+	value = ffs(value) - 1;
+	if (value < 0 || value >= (int)MNL_ARRAY_SIZE(netdev_xdp_rx_metadata_strmap))
+		return NULL;
+	return netdev_xdp_rx_metadata_strmap[value];
+}
+
+/* Policies */
 struct ynl_policy_attr netdev_dev_policy[NETDEV_A_DEV_MAX + 1] = {
 	[NETDEV_A_DEV_IFINDEX] = { .name = "ifindex", .type = YNL_PT_U32, },
 	[NETDEV_A_DEV_PAD] = { .name = "pad", .type = YNL_PT_IGNORE, },
 	[NETDEV_A_DEV_XDP_FEATURES] = { .name = "xdp-features", .type = YNL_PT_U64, },
+	[NETDEV_A_DEV_XDP_ZC_MAX_SEGS] = { .name = "xdp-zc-max-segs", .type = YNL_PT_U32, },
+	[NETDEV_A_DEV_XDP_RX_METADATA_FEATURES] = { .name = "xdp-rx-metadata-features", .type = YNL_PT_U64, },
 };
 
 struct ynl_policy_nest netdev_dev_nest = {
@@ -83,17 +94,28 @@ int netdev_dev_get_rsp_parse(const struct nlmsghdr *nlh, void *data)
 	dst = yarg->data;
 
 	mnl_attr_for_each(attr, nlh, sizeof(struct genlmsghdr)) {
-		if (mnl_attr_get_type(attr) == NETDEV_A_DEV_IFINDEX) {
+		unsigned int type = mnl_attr_get_type(attr);
+
+		if (type == NETDEV_A_DEV_IFINDEX) {
 			if (ynl_attr_validate(yarg, attr))
 				return MNL_CB_ERROR;
 			dst->_present.ifindex = 1;
 			dst->ifindex = mnl_attr_get_u32(attr);
-		}
-		else if (mnl_attr_get_type(attr) == NETDEV_A_DEV_XDP_FEATURES) {
+		} else if (type == NETDEV_A_DEV_XDP_FEATURES) {
 			if (ynl_attr_validate(yarg, attr))
 				return MNL_CB_ERROR;
 			dst->_present.xdp_features = 1;
 			dst->xdp_features = mnl_attr_get_u64(attr);
+		} else if (type == NETDEV_A_DEV_XDP_ZC_MAX_SEGS) {
+			if (ynl_attr_validate(yarg, attr))
+				return MNL_CB_ERROR;
+			dst->_present.xdp_zc_max_segs = 1;
+			dst->xdp_zc_max_segs = mnl_attr_get_u32(attr);
+		} else if (type == NETDEV_A_DEV_XDP_RX_METADATA_FEATURES) {
+			if (ynl_attr_validate(yarg, attr))
+				return MNL_CB_ERROR;
+			dst->_present.xdp_rx_metadata_features = 1;
+			dst->xdp_rx_metadata_features = mnl_attr_get_u64(attr);
 		}
 	}
 
@@ -173,53 +195,6 @@ free_list:
 void netdev_dev_get_ntf_free(struct netdev_dev_get_ntf *rsp)
 {
 	free(rsp);
-}
-
-/* --------------- Common notification parsing --------------- */
-struct ynl_ntf_base_type *netdev_ntf_parse(struct ynl_sock *ys)
-{
-	struct ynl_parse_arg yarg = { .ys = ys, };
-	struct ynl_ntf_base_type *rsp;
-	struct genlmsghdr *genlh;
-	struct nlmsghdr *nlh;
-	mnl_cb_t parse;
-	int len, err;
-
-	len = mnl_socket_recvfrom(ys->sock, ys->rx_buf, MNL_SOCKET_BUFFER_SIZE);
-	if (len < (ssize_t)(sizeof(*nlh) + sizeof(*genlh)))
-		return NULL;
-
-	nlh = (struct nlmsghdr *)ys->rx_buf;
-	genlh = mnl_nlmsg_get_payload(nlh);
-
-	switch (genlh->cmd) {
-	case NETDEV_CMD_DEV_ADD_NTF:
-	case NETDEV_CMD_DEV_DEL_NTF:
-	case NETDEV_CMD_DEV_CHANGE_NTF:
-		rsp = calloc(1, sizeof(struct netdev_dev_get_ntf));
-		parse = netdev_dev_get_rsp_parse;
-		yarg.rsp_policy = &netdev_dev_nest;
-		rsp->free = (void *)netdev_dev_get_ntf_free;
-		break;
-	default:
-		ynl_error_unknown_notification(ys, genlh->cmd);
-		return NULL;
-	}
-
-	yarg.data = rsp->data;
-
-	err = mnl_cb_run2(ys->rx_buf, len, 0, 0, parse, &yarg,
-			 ynl_cb_array, NLMSG_MIN_TYPE);
-	if (err < 0)
-		goto err_free;
-
-	rsp->family = nlh->nlmsg_type;
-	rsp->cmd = genlh->cmd;
-	return rsp;
-
-err_free:
-	free(rsp);
-	return NULL;
 }
 
 static const struct ynl_ntf_info netdev_ntf_info[] =  {

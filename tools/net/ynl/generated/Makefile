@@ -2,19 +2,24 @@
 
 CC=gcc
 CFLAGS=-std=gnu11 -O2 -W -Wall -Wextra -Wno-unused-parameter -Wshadow \
-	-I../lib/
+	-I../lib/ -idirafter $(UAPI_PATH)
 ifeq ("$(DEBUG)","1")
   CFLAGS += -g -fsanitize=address -fsanitize=leak -static-libasan
 endif
 
+include ../Makefile.deps
+
+YNL_GEN_ARG_ethtool:=--user-header linux/ethtool_netlink.h \
+	--exclude-op stats-get
+
 TOOL:=../ynl-gen-c.py
 
-GENS:=devlink handshake fou netdev
+GENS:=ethtool devlink handshake fou netdev
 SRCS=$(patsubst %,%-user.c,${GENS})
 HDRS=$(patsubst %,%-user.h,${GENS})
 OBJS=$(patsubst %,%-user.o,${GENS})
 
-all: protos.a $(HDRS) $(SRCS) $(KHDRS) $(KSRCS) $(UAPI) regen
+all: protos.a $(HDRS) $(SRCS) $(KHDRS) $(KSRCS) $(UAPI)
 
 protos.a: $(OBJS)
 	@echo -e "\tAR $@"
@@ -22,15 +27,15 @@ protos.a: $(OBJS)
 
 %-user.h: ../../../../Documentation/netlink/specs/%.yaml $(TOOL)
 	@echo -e "\tGEN $@"
-	@$(TOOL) --mode user --header --spec $< > $@
+	@$(TOOL) --mode user --header --spec $< -o $@ $(YNL_GEN_ARG_$*)
 
 %-user.c: ../../../../Documentation/netlink/specs/%.yaml $(TOOL)
 	@echo -e "\tGEN $@"
-	@$(TOOL) --mode user --source --spec $< > $@
+	@$(TOOL) --mode user --source --spec $< -o $@ $(YNL_GEN_ARG_$*)
 
 %-user.o: %-user.c %-user.h
 	@echo -e "\tCC $@"
-	@$(COMPILE.c) -c -o $@ $<
+	@$(COMPILE.c) $(CFLAGS_$*) -o $@ $<
 
 clean:
 	rm -f *.o
