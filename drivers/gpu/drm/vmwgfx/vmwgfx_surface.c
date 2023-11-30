@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0 OR MIT
 /**************************************************************************
  *
- * Copyright 2009-2015 VMware, Inc., Palo Alto, CA., USA
+ * Copyright 2009-2023 VMware, Inc., Palo Alto, CA., USA
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the
@@ -25,14 +25,15 @@
  *
  **************************************************************************/
 
-#include <drm/ttm/ttm_placement.h>
-
+#include "vmwgfx_bo.h"
 #include "vmwgfx_drv.h"
 #include "vmwgfx_resource_priv.h"
 #include "vmwgfx_so.h"
 #include "vmwgfx_binding.h"
 #include "vmw_surface_cache.h"
 #include "device_include/svga3d_surfacedefs.h"
+
+#include <drm/ttm/ttm_placement.h>
 
 #define SVGA3D_FLAGS_64(upper32, lower32) (((uint64_t)upper32 << 32) | lower32)
 #define SVGA3D_FLAGS_UPPER_32(svga3d_flags) (svga3d_flags >> 32)
@@ -683,9 +684,6 @@ static void vmw_user_surface_base_release(struct ttm_base_object **p_base)
 	    container_of(base, struct vmw_user_surface, prime.base);
 	struct vmw_resource *res = &user_srf->srf.res;
 
-	if (res && res->backup)
-		drm_gem_object_put(&res->backup->base.base);
-
 	*p_base = NULL;
 	vmw_resource_unreference(&res);
 }
@@ -859,12 +857,6 @@ int vmw_surface_define_ioctl(struct drm_device *dev, void *data,
 			vmw_resource_unreference(&res);
 			goto out_unlock;
 		}
-		vmw_bo_reference(res->backup);
-		/*
-		 * We don't expose the handle to the userspace and surface
-		 * already holds a gem reference
-		 */
-		drm_gem_handle_delete(file_priv, backup_handle);
 	}
 
 	tmp = vmw_resource_reference(&srf->res);
@@ -1505,7 +1497,7 @@ vmw_gb_surface_define_internal(struct drm_device *dev,
 		if (ret == 0) {
 			if (res->backup->base.base.size < res->backup_size) {
 				VMW_DEBUG_USER("Surface backup buffer too small.\n");
-				vmw_bo_unreference(&res->backup);
+				vmw_user_bo_unref(&res->backup);
 				ret = -EINVAL;
 				goto out_unlock;
 			} else {
@@ -1519,8 +1511,6 @@ vmw_gb_surface_define_internal(struct drm_device *dev,
 							res->backup_size,
 							&backup_handle,
 							&res->backup);
-		if (ret == 0)
-			vmw_bo_reference(res->backup);
 	}
 
 	if (unlikely(ret != 0)) {

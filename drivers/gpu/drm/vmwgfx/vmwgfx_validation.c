@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0 OR MIT
 /**************************************************************************
  *
- * Copyright © 2018 - 2022 VMware, Inc., Palo Alto, CA., USA
+ * Copyright © 2018 - 2023 VMware, Inc., Palo Alto, CA., USA
  * All Rights Reserved.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -25,9 +25,11 @@
  * USE OR OTHER DEALINGS IN THE SOFTWARE.
  *
  **************************************************************************/
-#include <linux/slab.h>
-#include "vmwgfx_validation.h"
+#include "vmwgfx_bo.h"
 #include "vmwgfx_drv.h"
+#include "vmwgfx_validation.h"
+
+#include <linux/slab.h>
 
 
 #define VMWGFX_VALIDATION_MEM_GRAN (16*PAGE_SIZE)
