@@ -12,7 +12,7 @@
 #include <linux/io.h>
 #include <linux/mm.h>
 #include <linux/module.h>
-#include <linux/of_device.h>
+#include <linux/of.h>
 #include <linux/platform_device.h>
 #include <linux/pm.h>
 #include <linux/slab.h>
@@ -606,7 +606,6 @@ static const struct drm_driver rcar_du_driver = {
 	.driver_features	= DRIVER_GEM | DRIVER_MODESET | DRIVER_ATOMIC,
 	.dumb_create		= rcar_du_dumb_create,
 	.gem_prime_import_sg_table = rcar_du_gem_prime_import_sg_table,
-	.gem_prime_mmap		= drm_gem_prime_mmap,
 	.fops			= &rcar_du_fops,
 	.name			= "rcar-du",
 	.desc			= "Renesas R-Car Display Unit",
@@ -640,7 +639,7 @@ static DEFINE_SIMPLE_DEV_PM_OPS(rcar_du_pm_ops,
  * Platform driver
  */
 
-static int rcar_du_remove(struct platform_device *pdev)
+static void rcar_du_remove(struct platform_device *pdev)
 {
 	struct rcar_du_device *rcdu = platform_get_drvdata(pdev);
 	struct drm_device *ddev = &rcdu->ddev;
@@ -649,8 +648,6 @@ static int rcar_du_remove(struct platform_device *pdev)
 	drm_atomic_helper_shutdown(ddev);
 
 	drm_kms_helper_poll_fini(ddev);
-
-	return 0;
 }
 
 static void rcar_du_shutdown(struct platform_device *pdev)
@@ -699,6 +696,10 @@ static int rcar_du_probe(struct platform_device *pdev)
 	/* DRM/KMS objects */
 	ret = rcar_du_modeset_init(rcdu);
 	if (ret < 0) {
+		/*
+		 * Don't use dev_err_probe(), as it would overwrite the probe
+		 * deferral reason recorded in rcar_du_modeset_init().
+		 */
 		if (ret != -EPROBE_DEFER)
 			dev_err(&pdev->dev,
 				"failed to initialize DRM/KMS (%d)\n", ret);
@@ -713,7 +714,7 @@ static int rcar_du_probe(struct platform_device *pdev)
 	if (ret)
 		goto error;
 
-	DRM_INFO("Device %s probed\n", dev_name(&pdev->dev));
+	drm_info(&rcdu->ddev, "Device %s probed\n", dev_name(&pdev->dev));
 
 	drm_fbdev_generic_setup(&rcdu->ddev, 32);
 
@@ -726,7 +727,7 @@ error:
 
 static struct platform_driver rcar_du_platform_driver = {
 	.probe		= rcar_du_probe,
-	.remove		= rcar_du_remove,
+	.remove_new	= rcar_du_remove,
 	.shutdown	= rcar_du_shutdown,
 	.driver		= {
 		.name	= "rcar-du",
