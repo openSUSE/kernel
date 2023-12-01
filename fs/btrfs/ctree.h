@@ -29,6 +29,7 @@
 #include <linux/crc32c.h>
 #include <linux/iomap.h>
 #include <linux/fscrypt.h>
+#include <linux/unsupported-feature.h>
 #include "extent-io-tree.h"
 #include "extent_io.h"
 #include "extent_map.h"
@@ -334,6 +335,12 @@ struct btrfs_root {
 	struct list_head leak_list;
 #endif
 };
+
+/*
+ * Module parameter
+ */
+DECLARE_SUSE_UNSUPPORTED_FEATURE(btrfs)
+#define btrfs_allow_unsupported btrfs_allow_unsupported()
 
 static inline bool btrfs_root_readonly(const struct btrfs_root *root)
 {
