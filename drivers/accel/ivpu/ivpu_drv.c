@@ -110,6 +110,22 @@ void ivpu_file_priv_put(struct ivpu_file_priv **link)
 	kref_put(&file_priv->ref, file_priv_release);
 }
 
+static int ivpu_get_capabilities(struct ivpu_device *vdev, struct drm_ivpu_param *args)
+{
+	switch (args->index) {
+	case DRM_IVPU_CAP_METRIC_STREAMER:
+		args->value = 0;
+		break;
+	case DRM_IVPU_CAP_DMA_MEMORY_RANGE:
+		args->value = 1;
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
 static int ivpu_get_param_ioctl(struct drm_device *dev, void *data, struct drm_file *file)
 {
 	struct ivpu_file_priv *file_priv = file->driver_priv;
@@ -139,7 +155,7 @@ static int ivpu_get_param_ioctl(struct drm_device *dev, void *data, struct drm_f
 		args->value = ivpu_get_context_count(vdev);
 		break;
 	case DRM_IVPU_PARAM_CONTEXT_BASE_ADDRESS:
-		args->value = vdev->hw->ranges.user_low.start;
+		args->value = vdev->hw->ranges.user.start;
 		break;
 	case DRM_IVPU_PARAM_CONTEXT_PRIORITY:
 		args->value = file_priv->priority;
@@ -168,6 +184,9 @@ static int ivpu_get_param_ioctl(struct drm_device *dev, void *data, struct drm_f
 		break;
 	case DRM_IVPU_PARAM_SKU:
 		args->value = vdev->hw->sku;
+		break;
+	case DRM_IVPU_PARAM_CAPABILITIES:
+		ret = ivpu_get_capabilities(vdev, args);
 		break;
 	default:
 		ret = -EINVAL;
@@ -370,7 +389,6 @@ static const struct drm_driver driver = {
 	.open = ivpu_open,
 	.postclose = ivpu_postclose,
 	.gem_prime_import = ivpu_gem_prime_import,
-	.gem_prime_mmap = drm_gem_prime_mmap,
 
 	.ioctls = ivpu_drm_ioctls,
 	.num_ioctls = ARRAY_SIZE(ivpu_drm_ioctls),
