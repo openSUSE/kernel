@@ -895,6 +895,7 @@ nfsd(void *vrqstp)
 		validate_process_creds();
 		svc_process(rqstp);
 		validate_process_creds();
+		flush_delayed_fput();
 	}
 
 	/* Clear signals before calling svc_exit_thread() */
