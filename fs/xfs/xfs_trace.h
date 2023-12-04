@@ -979,22 +979,6 @@ DEFINE_DQUOT_EVENT(xfs_dqflush_done);
 DEFINE_DQUOT_EVENT(xfs_trans_apply_dquot_deltas_before);
 DEFINE_DQUOT_EVENT(xfs_trans_apply_dquot_deltas_after);
 
-#define XFS_QMOPT_FLAGS \
-	{ XFS_QMOPT_UQUOTA,		"UQUOTA" }, \
-	{ XFS_QMOPT_PQUOTA,		"PQUOTA" }, \
-	{ XFS_QMOPT_FORCE_RES,		"FORCE_RES" }, \
-	{ XFS_QMOPT_SBVERSION,		"SBVERSION" }, \
-	{ XFS_QMOPT_GQUOTA,		"GQUOTA" }, \
-	{ XFS_QMOPT_INHERIT,		"INHERIT" }, \
-	{ XFS_QMOPT_RES_REGBLKS,	"RES_REGBLKS" }, \
-	{ XFS_QMOPT_RES_RTBLKS,		"RES_RTBLKS" }, \
-	{ XFS_QMOPT_BCOUNT,		"BCOUNT" }, \
-	{ XFS_QMOPT_ICOUNT,		"ICOUNT" }, \
-	{ XFS_QMOPT_RTBCOUNT,		"RTBCOUNT" }, \
-	{ XFS_QMOPT_DELBCOUNT,		"DELBCOUNT" }, \
-	{ XFS_QMOPT_DELRTBCOUNT,	"DELRTBCOUNT" }, \
-	{ XFS_QMOPT_RES_INOS,		"RES_INOS" }
-
 TRACE_EVENT(xfs_trans_mod_dquot,
 	TP_PROTO(struct xfs_trans *tp, struct xfs_dquot *dqp,
 		 unsigned int field, int64_t delta),
@@ -1807,7 +1791,7 @@ DECLARE_EVENT_CLASS(xfs_da_class,
 		__field(int, namelen)
 		__field(xfs_dahash_t, hashval)
 		__field(xfs_ino_t, inumber)
-		__field(int, op_flags)
+		__field(uint32_t, op_flags)
 	),
 	TP_fast_assign(
 		__entry->dev = VFS_I(args->dp)->i_sb->s_dev;
@@ -1873,7 +1857,7 @@ DECLARE_EVENT_CLASS(xfs_attr_class,
 		__field(xfs_dahash_t, hashval)
 		__field(unsigned int, attr_filter)
 		__field(unsigned int, attr_flags)
-		__field(int, op_flags)
+		__field(uint32_t, op_flags)
 	),
 	TP_fast_assign(
 		__entry->dev = VFS_I(args->dp)->i_sb->s_dev;
@@ -1980,7 +1964,7 @@ DECLARE_EVENT_CLASS(xfs_dir2_space_class,
 	TP_STRUCT__entry(
 		__field(dev_t, dev)
 		__field(xfs_ino_t, ino)
-		__field(int, op_flags)
+		__field(uint32_t, op_flags)
 		__field(int, idx)
 	),
 	TP_fast_assign(
@@ -2011,7 +1995,7 @@ TRACE_EVENT(xfs_dir2_leafn_moveents,
 	TP_STRUCT__entry(
 		__field(dev_t, dev)
 		__field(xfs_ino_t, ino)
-		__field(int, op_flags)
+		__field(uint32_t, op_flags)
 		__field(int, src_idx)
 		__field(int, dst_idx)
 		__field(int, count)

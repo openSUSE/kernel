@@ -485,7 +485,7 @@ STATIC void
 xfs_bmap_validate_ret(
 	xfs_fileoff_t		bno,
 	xfs_filblks_t		len,
-	int			flags,
+	uint32_t		flags,
 	xfs_bmbt_irec_t		*mval,
 	int			nmap,
 	int			ret_nmap)
@@ -1449,7 +1449,7 @@ xfs_bmap_add_extent_delay_real(
 	xfs_bmbt_irec_t		r[3];	/* neighbor extent entries */
 					/* left is 0, right is 1, prev is 2 */
 	int			rval=0;	/* return value (logging flags) */
-	int			state = xfs_bmap_fork_to_state(whichfork);
+	uint32_t		state = xfs_bmap_fork_to_state(whichfork);
 	xfs_filblks_t		da_new; /* new count del alloc blocks used */
 	xfs_filblks_t		da_old; /* old count del alloc blocks used */
 	xfs_filblks_t		temp=0;	/* value for da_new calculations */
@@ -2000,7 +2000,7 @@ xfs_bmap_add_extent_unwritten_real(
 	xfs_bmbt_irec_t		r[3];	/* neighbor extent entries */
 					/* left is 0, right is 1, prev is 2 */
 	int			rval=0;	/* return value (logging flags) */
-	int			state = xfs_bmap_fork_to_state(whichfork);
+	uint32_t		state = xfs_bmap_fork_to_state(whichfork);
 	struct xfs_mount	*mp = ip->i_mount;
 	struct xfs_bmbt_irec	old;
 
@@ -2529,7 +2529,7 @@ xfs_bmap_add_extent_hole_delay(
 	xfs_filblks_t		newlen=0;	/* new indirect size */
 	xfs_filblks_t		oldlen=0;	/* old indirect size */
 	xfs_bmbt_irec_t		right;	/* right neighbor extent entry */
-	int			state = xfs_bmap_fork_to_state(whichfork);
+	uint32_t		state = xfs_bmap_fork_to_state(whichfork);
 	xfs_filblks_t		temp;	 /* temp for indirect calculations */
 
 	ifp = XFS_IFORK_PTR(ip, whichfork);
@@ -2666,7 +2666,7 @@ xfs_bmap_add_extent_hole_real(
 	struct xfs_btree_cur	**curp,
 	struct xfs_bmbt_irec	*new,
 	int			*logflagsp,
-	int			flags)
+	uint32_t		flags)
 {
 	struct xfs_ifork	*ifp = XFS_IFORK_PTR(ip, whichfork);
 	struct xfs_mount	*mp = ip->i_mount;
@@ -2676,7 +2676,7 @@ xfs_bmap_add_extent_hole_real(
 	xfs_bmbt_irec_t		left;	/* left neighbor extent entry */
 	xfs_bmbt_irec_t		right;	/* right neighbor extent entry */
 	int			rval=0;	/* return value (logging flags) */
-	int			state = xfs_bmap_fork_to_state(whichfork);
+	uint32_t		state = xfs_bmap_fork_to_state(whichfork);
 	struct xfs_bmbt_irec	old;
 
 	ASSERT(!isnullstartblock(new->br_startblock));
@@ -3816,7 +3816,7 @@ xfs_bmapi_trim_map(
 	xfs_fileoff_t		obno,
 	xfs_fileoff_t		end,
 	int			n,
-	int			flags)
+	uint32_t		flags)
 {
 	if ((flags & XFS_BMAPI_ENTIRE) ||
 	    got->br_startoff + got->br_blockcount <= obno) {
@@ -3861,7 +3861,7 @@ xfs_bmapi_update_map(
 	xfs_fileoff_t		obno,
 	xfs_fileoff_t		end,
 	int			*n,
-	int			flags)
+	uint32_t		flags)
 {
 	xfs_bmbt_irec_t	*mval = *map;
 
@@ -3914,7 +3914,7 @@ xfs_bmapi_read(
 	xfs_filblks_t		len,
 	struct xfs_bmbt_irec	*mval,
 	int			*nmap,
-	int			flags)
+	uint32_t		flags)
 {
 	struct xfs_mount	*mp = ip->i_mount;
 	int			whichfork = xfs_bmapi_whichfork(flags);
@@ -4234,7 +4234,7 @@ xfs_bmapi_convert_unwritten(
 	struct xfs_bmalloca	*bma,
 	struct xfs_bmbt_irec	*mval,
 	xfs_filblks_t		len,
-	int			flags)
+	uint32_t		flags)
 {
 	int			whichfork = xfs_bmapi_whichfork(flags);
 	struct xfs_ifork	*ifp = XFS_IFORK_PTR(bma->ip, whichfork);
@@ -4362,7 +4362,7 @@ xfs_bmapi_write(
 	struct xfs_inode	*ip,		/* incore inode */
 	xfs_fileoff_t		bno,		/* starting file offs. mapped */
 	xfs_filblks_t		len,		/* length to map in file */
-	int			flags,		/* XFS_BMAPI_... */
+	uint32_t		flags,		/* XFS_BMAPI_... */
 	xfs_extlen_t		total,		/* total blocks needed */
 	struct xfs_bmbt_irec	*mval,		/* output: map values */
 	int			*nmap)		/* i/o: mval size/count */
@@ -4679,7 +4679,7 @@ xfs_bmapi_remap(
 	xfs_fileoff_t		bno,
 	xfs_filblks_t		len,
 	xfs_fsblock_t		startblock,
-	int			flags)
+	uint32_t		flags)
 {
 	struct xfs_mount	*mp = ip->i_mount;
 	struct xfs_ifork	*ifp;
@@ -4851,7 +4851,7 @@ xfs_bmap_del_extent_delay(
 	int64_t			da_old, da_new, da_diff = 0;
 	xfs_fileoff_t		del_endoff, got_endoff;
 	xfs_filblks_t		got_indlen, new_indlen, stolen;
-	int			state = xfs_bmap_fork_to_state(whichfork);
+	uint32_t		state = xfs_bmap_fork_to_state(whichfork);
 	int			error = 0;
 	bool			isrt;
 
@@ -4976,7 +4976,7 @@ xfs_bmap_del_extent_cow(
 	struct xfs_ifork	*ifp = XFS_IFORK_PTR(ip, XFS_COW_FORK);
 	struct xfs_bmbt_irec	new;
 	xfs_fileoff_t		del_endoff, got_endoff;
-	int			state = BMAP_COWFORK;
+	uint32_t		state = BMAP_COWFORK;
 
 	XFS_STATS_INC(mp, xs_del_exlist);
 
@@ -5049,7 +5049,7 @@ xfs_bmap_del_extent_real(
 	xfs_bmbt_irec_t		*del,	/* data to remove from extents */
 	int			*logflagsp, /* inode logging flags */
 	int			whichfork, /* data or attr fork */
-	int			bflags)	/* bmapi flags */
+	uint32_t		bflags)	/* bmapi flags */
 {
 	xfs_fsblock_t		del_endblock=0;	/* first block past del */
 	xfs_fileoff_t		del_endoff;	/* first offset past del */
@@ -5065,7 +5065,7 @@ xfs_bmap_del_extent_real(
 	xfs_bmbt_irec_t		new;	/* new record to be inserted */
 	/* REFERENCED */
 	uint			qfield;	/* quota field to update */
-	int			state = xfs_bmap_fork_to_state(whichfork);
+	uint32_t		state = xfs_bmap_fork_to_state(whichfork);
 	struct xfs_bmbt_irec	old;
 
 	mp = ip->i_mount;
@@ -5331,7 +5331,7 @@ __xfs_bunmapi(
 	struct xfs_inode	*ip,		/* incore inode */
 	xfs_fileoff_t		start,		/* first file offset deleted */
 	xfs_filblks_t		*rlen,		/* i/o: amount remaining */
-	int			flags,		/* misc flags */
+	uint32_t		flags,		/* misc flags */
 	xfs_extnum_t		nexts)		/* number of extents max */
 {
 	struct xfs_btree_cur	*cur;		/* bmap btree cursor */
@@ -5659,7 +5659,7 @@ xfs_bunmapi(
 	struct xfs_inode	*ip,
 	xfs_fileoff_t		bno,
 	xfs_filblks_t		len,
-	int			flags,
+	uint32_t		flags,
 	xfs_extnum_t		nexts,
 	int			*done)
 {
