@@ -21,11 +21,17 @@
 #define TB_PCI_PATH_DOWN		0
 #define TB_PCI_PATH_UP			1
 
+#define TB_PCI_PRIORITY			3
+#define TB_PCI_WEIGHT			1
+
 /* USB3 adapters use always HopID of 8 for both directions */
 #define TB_USB3_HOPID			8
 
 #define TB_USB3_PATH_DOWN		0
 #define TB_USB3_PATH_UP			1
+
+#define TB_USB3_PRIORITY		3
+#define TB_USB3_WEIGHT			3
 
 /* DP adapters use HopID 8 for AUX and 9 for Video */
 #define TB_DP_AUX_TX_HOPID		8
@@ -36,6 +42,12 @@
 #define TB_DP_AUX_PATH_OUT		1
 #define TB_DP_AUX_PATH_IN		2
 
+#define TB_DP_VIDEO_PRIORITY		1
+#define TB_DP_VIDEO_WEIGHT		1
+
+#define TB_DP_AUX_PRIORITY		2
+#define TB_DP_AUX_WEIGHT		1
+
 /* Minimum number of credits needed for PCIe path */
 #define TB_MIN_PCIE_CREDITS		6U
 /*
@@ -45,6 +57,9 @@
 #define TB_DMA_CREDITS			14
 /* Minimum number of credits for DMA path */
 #define TB_MIN_DMA_CREDITS		1
+
+#define TB_DMA_PRIORITY			5
+#define TB_DMA_WEIGHT			1
 
 static unsigned int dma_credits = TB_DMA_CREDITS;
 module_param(dma_credits, uint, 0444);
@@ -234,8 +249,8 @@ static int tb_pci_init_path(struct tb_path *path)
 	path->egress_shared_buffer = TB_PATH_NONE;
 	path->ingress_fc_enable = TB_PATH_ALL;
 	path->ingress_shared_buffer = TB_PATH_NONE;
-	path->priority = 3;
-	path->weight = 1;
+	path->priority = TB_PCI_PRIORITY;
+	path->weight = TB_PCI_WEIGHT;
 	path->drop_packages = 0;
 
 	tb_path_for_each_hop(path, hop) {
@@ -1180,8 +1195,8 @@ static void tb_dp_init_aux_path(struct tb_path *path)
 	path->egress_shared_buffer = TB_PATH_NONE;
 	path->ingress_fc_enable = TB_PATH_ALL;
 	path->ingress_shared_buffer = TB_PATH_NONE;
-	path->priority = 2;
-	path->weight = 1;
+	path->priority = TB_DP_AUX_PRIORITY;
+	path->weight = TB_DP_AUX_WEIGHT;
 
 	tb_path_for_each_hop(path, hop)
 		tb_dp_init_aux_credits(hop);
@@ -1224,8 +1239,8 @@ static int tb_dp_init_video_path(struct tb_path *path)
 	path->egress_shared_buffer = TB_PATH_NONE;
 	path->ingress_fc_enable = TB_PATH_NONE;
 	path->ingress_shared_buffer = TB_PATH_NONE;
-	path->priority = 1;
-	path->weight = 1;
+	path->priority = TB_DP_VIDEO_PRIORITY;
+	path->weight = TB_DP_VIDEO_WEIGHT;
 
 	tb_path_for_each_hop(path, hop) {
 		int ret;
@@ -1497,8 +1512,8 @@ static int tb_dma_init_rx_path(struct tb_path *path, unsigned int credits)
 	path->ingress_fc_enable = TB_PATH_ALL;
 	path->egress_shared_buffer = TB_PATH_NONE;
 	path->ingress_shared_buffer = TB_PATH_NONE;
-	path->priority = 5;
-	path->weight = 1;
+	path->priority = TB_DMA_PRIORITY;
+	path->weight = TB_DMA_WEIGHT;
 	path->clear_fc = true;
 
 	/*
@@ -1531,8 +1546,8 @@ static int tb_dma_init_tx_path(struct tb_path *path, unsigned int credits)
 	path->ingress_fc_enable = TB_PATH_ALL;
 	path->egress_shared_buffer = TB_PATH_NONE;
 	path->ingress_shared_buffer = TB_PATH_NONE;
-	path->priority = 5;
-	path->weight = 1;
+	path->priority = TB_DMA_PRIORITY;
+	path->weight = TB_DMA_WEIGHT;
 	path->clear_fc = true;
 
 	tb_path_for_each_hop(path, hop) {
@@ -1758,14 +1773,17 @@ static int tb_usb3_activate(struct tb_tunnel *tunnel, bool activate)
 static int tb_usb3_consumed_bandwidth(struct tb_tunnel *tunnel,
 		int *consumed_up, int *consumed_down)
 {
-	int pcie_enabled = tb_acpi_may_tunnel_pcie();
+	int pcie_weight = tb_acpi_may_tunnel_pcie() ? TB_PCI_WEIGHT : 0;
 
 	/*
 	 * PCIe tunneling, if enabled, affects the USB3 bandwidth so
 	 * take that it into account here.
 	 */
-	*consumed_up = tunnel->allocated_up * (3 + pcie_enabled) / 3;
-	*consumed_down = tunnel->allocated_down * (3 + pcie_enabled) / 3;
+	*consumed_up = tunnel->allocated_up *
+		(TB_USB3_WEIGHT + pcie_weight) / TB_USB3_WEIGHT;
+	*consumed_down = tunnel->allocated_down *
+		(TB_USB3_WEIGHT + pcie_weight) / TB_USB3_WEIGHT;
+
 	return 0;
 }
 
@@ -1871,8 +1889,8 @@ static void tb_usb3_init_path(struct tb_path *path)
 	path->egress_shared_buffer = TB_PATH_NONE;
 	path->ingress_fc_enable = TB_PATH_ALL;
 	path->ingress_shared_buffer = TB_PATH_NONE;
-	path->priority = 3;
-	path->weight = 3;
+	path->priority = TB_USB3_PRIORITY;
+	path->weight = TB_USB3_WEIGHT;
 	path->drop_packages = 0;
 
 	tb_path_for_each_hop(path, hop)
