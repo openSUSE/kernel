@@ -2700,7 +2700,7 @@ struct reiserfs_iget_args {
 #define get_journal_desc_magic(bh) (bh->b_data + bh->b_size - 12)
 
 #define journal_trans_half(blocksize) \
-	((blocksize - sizeof (struct reiserfs_journal_desc) + sizeof (__u32) - 12) / sizeof (__u32))
+	((blocksize - sizeof(struct reiserfs_journal_desc) - 12) / sizeof(__u32))
 
 /* journal.c see journal.c for all the comments here */
 
@@ -2712,7 +2712,7 @@ struct reiserfs_journal_desc {
 	__le32 j_len;
 
 	__le32 j_mount_id;	/* mount id of this trans */
-	__le32 j_realblock[1];	/* real locations for each block */
+	__le32 j_realblock[];	/* real locations for each block */
 };
 
 #define get_desc_trans_id(d)   le32_to_cpu((d)->j_trans_id)
@@ -2727,7 +2727,7 @@ struct reiserfs_journal_desc {
 struct reiserfs_journal_commit {
 	__le32 j_trans_id;	/* must match j_trans_id from the desc block */
 	__le32 j_len;		/* ditto */
-	__le32 j_realblock[1];	/* real locations for each block */
+	__le32 j_realblock[];	/* real locations for each block */
 };
 
 #define get_commit_trans_id(c) le32_to_cpu((c)->j_trans_id)
