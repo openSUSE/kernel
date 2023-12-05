@@ -154,55 +154,76 @@ int ath11k_thermal_set_throttling(struct ath11k *ar, u32 throttle_state)
 	return ret;
 }
 
-int ath11k_thermal_register(struct ath11k *ar)
+int ath11k_thermal_register(struct ath11k_base *sc)
 {
 	struct thermal_cooling_device *cdev;
 	struct device *hwmon_dev;
-	struct ath11k_base *sc = ar->ab;
-	int ret;
+	struct ath11k *ar;
+	struct ath11k_pdev *pdev;
+	int i, ret;
 
-	cdev = thermal_cooling_device_register("ath11k_thermal", ar,
-					       &ath11k_thermal_ops);
-
-	if (IS_ERR(cdev)) {
-		ath11k_err(sc, "failed to setup thermal device result: %ld\n",
-			   PTR_ERR(cdev));
-		return -EINVAL;
-	}
-
-	ar->thermal.cdev = cdev;
-
-	ret = sysfs_create_link(&ar->hw->wiphy->dev.kobj, &cdev->device.kobj,
-				"cooling_device");
-	if (ret) {
-		ath11k_err(sc, "failed to create cooling device symlink\n");
-		goto err_thermal_destroy;
-	}
-
-	if (!IS_REACHABLE(CONFIG_HWMON))
+	if (test_bit(ATH11K_FLAG_REGISTERED, &sc->dev_flags))
 		return 0;
 
-	hwmon_dev = devm_hwmon_device_register_with_groups(&ar->hw->wiphy->dev,
-							   "ath11k_hwmon", ar,
-							   ath11k_hwmon_groups);
-	if (IS_ERR(hwmon_dev)) {
-		ath11k_err(ar->ab, "failed to register hwmon device: %ld\n",
-			   PTR_ERR(hwmon_dev));
-		ret = -EINVAL;
-		goto err_remove_link;
+	for (i = 0; i < sc->num_radios; i++) {
+		pdev = &sc->pdevs[i];
+		ar = pdev->ar;
+		if (!ar)
+			continue;
+
+		cdev = thermal_cooling_device_register("ath11k_thermal", ar,
+						       &ath11k_thermal_ops);
+
+		if (IS_ERR(cdev)) {
+			ath11k_err(sc, "failed to setup thermal device result: %ld\n",
+				   PTR_ERR(cdev));
+			ret = -EINVAL;
+			goto err_thermal_destroy;
+		}
+
+		ar->thermal.cdev = cdev;
+
+		ret = sysfs_create_link(&ar->hw->wiphy->dev.kobj, &cdev->device.kobj,
+					"cooling_device");
+		if (ret) {
+			ath11k_err(sc, "failed to create cooling device symlink\n");
+			goto err_thermal_destroy;
+		}
+
+		if (!IS_REACHABLE(CONFIG_HWMON))
+			return 0;
+
+		hwmon_dev = devm_hwmon_device_register_with_groups(&ar->hw->wiphy->dev,
+								   "ath11k_hwmon", ar,
+								   ath11k_hwmon_groups);
+		if (IS_ERR(hwmon_dev)) {
+			ath11k_err(ar->ab, "failed to register hwmon device: %ld\n",
+				   PTR_ERR(hwmon_dev));
+			ret = -EINVAL;
+			goto err_thermal_destroy;
+		}
 	}
 
 	return 0;
 
-err_remove_link:
-	sysfs_remove_link(&ar->hw->wiphy->dev.kobj, "cooling_device");
 err_thermal_destroy:
-	thermal_cooling_device_unregister(ar->thermal.cdev);
+	ath11k_thermal_unregister(sc);
 	return ret;
 }
 
-void ath11k_thermal_unregister(struct ath11k *ar)
+void ath11k_thermal_unregister(struct ath11k_base *sc)
 {
+	struct ath11k *ar;
+	struct ath11k_pdev *pdev;
+	int i;
+
+	for (i = 0; i < sc->num_radios; i++) {
+		pdev = &sc->pdevs[i];
+		ar = pdev->ar;
+		if (!ar)
+			continue;
+
 		sysfs_remove_link(&ar->hw->wiphy->dev.kobj, "cooling_device");
 		thermal_cooling_device_unregister(ar->thermal.cdev);
+	}
 }

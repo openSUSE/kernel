@@ -462,7 +462,9 @@ int ath11k_mhi_start(struct ath11k_pci *ab_pci)
 
 void ath11k_mhi_stop(struct ath11k_pci *ab_pci, bool is_suspend)
 {
-	/* FIXME: why not always destroy device? */
+	/* During suspend we need to use mhi_power_down_no_destroy()
+	 * workaround, otherwise mhi_power_up() will fail during resume.
+	 */
 	if (is_suspend)
 		mhi_power_down_no_destroy(ab_pci->mhi_ctrl, true);
 	else

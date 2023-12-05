@@ -641,60 +641,12 @@ static void ath11k_pci_power_down(struct ath11k_base *ab, bool is_suspend)
 	ath11k_pci_sw_reset(ab_pci->ab, false);
 }
 
-static int ath11k_pci_save_state(struct ath11k_pci *ab_pci)
-{
-	struct pci_dev *pdev = ab_pci->pdev;
-	int ret;
-
-	ret = pci_save_state(pdev);
-	if (ret) {
-		ath11k_err(ab_pci->ab, "failed to save pci state %d\n", ret);
-		return ret;
-	}
-
-	ab_pci->pci_state = pci_store_saved_state(pdev);
-	if (!ab_pci->pci_state) {
-		ath11k_err(ab_pci->ab, "failed to store saved pci state %d\n", ret);
-		return -EIO;
-	}
-
-	ret = pci_load_saved_state(pdev, NULL);
-	if (ret) {
-		ath11k_err(ab_pci->ab, "failed to clear saved state %d\n", ret);
-		return ret;
-	}
-
-	return 0;
-}
-
-static int ath11k_pci_restore_state(struct ath11k_pci *ab_pci)
-{
-	struct pci_dev *pdev = ab_pci->pdev;
-	int ret;
-
-	ret = pci_load_saved_state(pdev, ab_pci->pci_state);
-	if (ret) {
-		ath11k_err(ab_pci->ab, "failed to load saved state %d\n", ret);
-		return ret;
-	}
-	pci_restore_state(ab_pci->pdev);
-
-	return 0;
-}
-
 static int ath11k_pci_hif_power_down(struct ath11k_base *ab, bool is_suspend)
 {
 	struct ath11k_pci *ab_pci = ath11k_pci_priv(ab);
 	int ret;
 
 	if (is_suspend) {
-		ret = ath11k_pci_save_state(ab_pci);
-		if (ret) {
-			ath11k_err(ab_pci->ab, "failed to save pci state for suspend %d\n",
-				   ret);
-			return ret;
-		}
-
 		ret = ath11k_mhi_unprepare_from_transfer(ab_pci);
 		if (ret) {
 			ath11k_err(ab_pci->ab, "failed to unprepare from transfer %d\n",
@@ -711,15 +663,6 @@ static int ath11k_pci_hif_power_up(struct ath11k_base *ab, bool is_resume)
 {
 	struct ath11k_pci *ab_pci = ath11k_pci_priv(ab);
 	int ret;
-
-	if (is_resume) {
-		ret = ath11k_pci_restore_state(ab_pci);
-		if (ret) {
-			ath11k_err(ab_pci->ab, "failed to restore pci state for resume %d\n",
-				   ret);
-			return ret;
-		}
-	}
 
 	ret =  ath11k_pci_power_up(ab);
 	if (ret) {

@@ -643,10 +643,11 @@ void __mhi_power_down(struct mhi_controller *mhi_cntrl, bool graceful,
 
 #if 0
 /**
- * mhi_power_down - Start MHI power down sequence
+ * mhi_power_down - Start MHI power down sequence. See also
+ * mhi_power_down_no_destroy() which is a variant of this for suspend.
+ *
  * @mhi_cntrl: MHI controller
  * @graceful: Link is still accessible, so do a graceful shutdown process
- * @destroy_device: whether to destroy MHI devices
  */
 static inline void mhi_power_down(struct mhi_controller *mhi_cntrl, bool graceful)
 {
@@ -657,6 +658,17 @@ static inline void mhi_power_down(struct mhi_controller *mhi_cntrl, bool gracefu
 void mhi_power_down(struct mhi_controller *mhi_cntrl, bool graceful);
 #endif
 
+/**
+ * mhi_power_down_no_destroy - Start MHI power down sequence but don't
+ * destroy struct devices. This is a variant for mhi_power_down() and is a
+ * workaround to make it possible to use mhi_power_up() in a resume
+ * handler. When using this variant the caller must also call
+ * mhi_prepare_all_for_transfer_autoqueue() and
+ * mhi_unprepare_all_from_transfer().
+ *
+ * @mhi_cntrl: MHI controller
+ * @graceful: Link is still accessible, so do a graceful shutdown process
+ */
 static inline void mhi_power_down_no_destroy(struct mhi_controller *mhi_cntrl,
 					     bool graceful)
 {
@@ -832,6 +844,22 @@ int mhi_queue_skb(struct mhi_device *mhi_dev, enum dma_data_direction dir,
  */
 bool mhi_queue_is_full(struct mhi_device *mhi_dev, enum dma_data_direction dir);
 
+/**
+ * mhi_prepare_all_for_transfer_autoqueue - if you are using
+ * mhi_power_down_no_destroy() variant this needs to be called after
+ * calling mhi_power_up().
+ *
+ * @mhi_cntrl: MHI controller
+ */
 int mhi_prepare_all_for_transfer_autoqueue(struct mhi_controller *mhi_cntrl);
+
+/**
+ * mhi_unprepare_all_from_transfer - if you are using
+ * mhi_power_down_no_destroy() variant this function needs to be called
+ * before calling mhi_power_down_no_destroy().
+ *
+ * @mhi_cntrl: MHI controller
+ */
 int mhi_unprepare_all_from_transfer(struct mhi_controller *mhi_cntrl);
+
 #endif /* _MHI_H_ */

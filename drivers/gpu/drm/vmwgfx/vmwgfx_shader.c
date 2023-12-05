@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0 OR MIT
 /**************************************************************************
  *
- * Copyright 2009-2015 VMware, Inc., Palo Alto, CA., USA
+ * Copyright 2009-2023 VMware, Inc., Palo Alto, CA., USA
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the
@@ -27,9 +27,10 @@
 
 #include <drm/ttm/ttm_placement.h>
 
+#include "vmwgfx_binding.h"
+#include "vmwgfx_bo.h"
 #include "vmwgfx_drv.h"
 #include "vmwgfx_resource_priv.h"
-#include "vmwgfx_binding.h"
 
 struct vmw_shader {
 	struct vmw_resource res;
@@ -177,7 +178,7 @@ static int vmw_gb_shader_init(struct vmw_private *dev_priv,
 
 	res->backup_size = size;
 	if (byte_code) {
-		res->backup = vmw_bo_reference(byte_code);
+		res->backup = vmw_user_bo_ref(byte_code);
 		res->backup_offset = offset;
 	}
 	shader->size = size;
@@ -806,8 +807,7 @@ static int vmw_shader_define(struct drm_device *dev, struct drm_file *file_priv,
 				    shader_type, num_input_sig,
 				    num_output_sig, tfile, shader_handle);
 out_bad_arg:
-	vmw_bo_unreference(&buffer);
-	drm_gem_object_put(&buffer->base.base);
+	vmw_user_bo_unref(&buffer);
 	return ret;
 }
 
@@ -894,7 +894,7 @@ int vmw_compat_shader_add(struct vmw_private *dev_priv,
 		return -EINVAL;
 
 	ret = vmw_bo_create(dev_priv, size, &vmw_sys_placement,
-			    true, true, vmw_bo_bo_free, &buf);
+			    true, true, &buf);
 	if (unlikely(ret != 0))
 		goto out;
 

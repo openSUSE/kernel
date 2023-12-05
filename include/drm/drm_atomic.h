@@ -1121,7 +1121,7 @@ struct drm_bridge_state {
 	struct drm_bus_cfg input_bus_cfg;
 
 	/**
-	 * @output_bus_cfg: input bus configuration
+	 * @output_bus_cfg: output bus configuration
 	 */
 	struct drm_bus_cfg output_bus_cfg;
 };

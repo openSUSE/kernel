@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0 OR MIT
 /**************************************************************************
  *
- * Copyright 2009-2014 VMware, Inc., Palo Alto, CA., USA
+ * Copyright 2009-2023 VMware, Inc., Palo Alto, CA., USA
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the
@@ -24,13 +24,13 @@
  * USE OR OTHER DEALINGS IN THE SOFTWARE.
  *
  **************************************************************************/
-
-#include <drm/ttm/ttm_placement.h>
+#include "vmwgfx_bo.h"
+#include "vmwgfx_drv.h"
 
 #include "device_include/svga_overlay.h"
 #include "device_include/svga_escape.h"
 
-#include "vmwgfx_drv.h"
+#include <drm/ttm/ttm_placement.h>
 
 #define VMW_MAX_NUM_STREAMS 1
 #define VMW_OVERLAY_CAP_MASK (SVGA_FIFO_CAP_VIDEO | SVGA_FIFO_CAP_ESCAPE)
@@ -457,8 +457,7 @@ int vmw_overlay_ioctl(struct drm_device *dev, void *data,
 
 	ret = vmw_overlay_update_stream(dev_priv, buf, arg, true);
 
-	vmw_bo_unreference(&buf);
-	drm_gem_object_put(&buf->base.base);
+	vmw_user_bo_unref(&buf);
 
 out_unlock:
 	mutex_unlock(&overlay->mutex);

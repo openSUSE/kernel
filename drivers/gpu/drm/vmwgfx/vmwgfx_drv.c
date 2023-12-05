@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0 OR MIT
 /**************************************************************************
  *
- * Copyright 2009-2022 VMware, Inc., Palo Alto, CA., USA
+ * Copyright 2009-2023 VMware, Inc., Palo Alto, CA., USA
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the
@@ -28,9 +28,10 @@
 
 #include "vmwgfx_drv.h"
 
+#include "vmwgfx_bo.h"
+#include "vmwgfx_binding.h"
 #include "vmwgfx_devcaps.h"
 #include "vmwgfx_mksstat.h"
-#include "vmwgfx_binding.h"
 #include "ttm_object.h"
 
 #include <drm/drm_aperture.h>
@@ -403,8 +404,7 @@ static int vmw_dummy_query_bo_create(struct vmw_private *dev_priv)
 	 * user of the bo currently.
 	 */
 	ret = vmw_bo_create(dev_priv, PAGE_SIZE,
-			    &vmw_sys_placement, false, true,
-			    &vmw_bo_bo_free, &vbo);
+			    &vmw_sys_placement, false, true, &vbo);
 	if (unlikely(ret != 0))
 		return ret;
 

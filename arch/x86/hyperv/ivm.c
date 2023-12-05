@@ -466,7 +466,7 @@ void hv_ivm_msr_read(u64 msr, u64 *value)
 static int hv_mark_gpa_visibility(u16 count, const u64 pfn[],
 			   enum hv_mem_host_visibility visibility)
 {
-	struct hv_gpa_range_for_visibility **input_pcpu, *input;
+	struct hv_gpa_range_for_visibility *input;
 	u16 pages_processed;
 	u64 hv_status;
 	unsigned long flags;
@@ -482,9 +482,8 @@ static int hv_mark_gpa_visibility(u16 count, const u64 pfn[],
 	}
 
 	local_irq_save(flags);
-	input_pcpu = (struct hv_gpa_range_for_visibility **)
-			this_cpu_ptr(hyperv_pcpu_input_arg);
-	input = *input_pcpu;
+	input = *this_cpu_ptr(hyperv_pcpu_input_arg);
+
 	if (unlikely(!input)) {
 		local_irq_restore(flags);
 		return -EINVAL;

@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0 OR MIT */
 /*
- * Copyright 2021 VMware, Inc.
+ * Copyright 2021-2023 VMware, Inc.
  *
  * Permission is hereby granted, free of charge, to any person
  * obtaining a copy of this software and associated documentation
@@ -24,24 +24,11 @@
  *
  */
 
+#include "vmwgfx_bo.h"
 #include "vmwgfx_drv.h"
 
 #include "drm/drm_prime.h"
 #include "drm/drm_gem_ttm_helper.h"
-
-/**
- * vmw_buffer_object - Convert a struct ttm_buffer_object to a struct
- * vmw_buffer_object.
- *
- * @bo: Pointer to the TTM buffer object.
- * Return: Pointer to the struct vmw_buffer_object embedding the
- * TTM buffer object.
- */
-static struct vmw_buffer_object *
-vmw_buffer_object(struct ttm_buffer_object *bo)
-{
-	return container_of(bo, struct vmw_buffer_object, base);
-}
 
 static void vmw_gem_object_free(struct drm_gem_object *gobj)
 {
@@ -65,7 +52,7 @@ static void vmw_gem_object_close(struct drm_gem_object *obj,
 static int vmw_gem_pin_private(struct drm_gem_object *obj, bool do_pin)
 {
 	struct ttm_buffer_object *bo = drm_gem_ttm_of_gem(obj);
-	struct vmw_buffer_object *vbo = vmw_buffer_object(bo);
+	struct vmw_buffer_object *vbo = to_vmw_bo(obj);
 	int ret;
 
 	ret = ttm_bo_reserve(bo, false, false, NULL);
@@ -117,22 +104,6 @@ static const struct drm_gem_object_funcs vmw_gem_object_funcs = {
 	.mmap = drm_gem_ttm_mmap,
 };
 
-/**
- * vmw_gem_destroy - vmw buffer object destructor
- *
- * @bo: Pointer to the embedded struct ttm_buffer_object
- */
-void vmw_gem_destroy(struct ttm_buffer_object *bo)
-{
-	struct vmw_buffer_object *vbo = vmw_buffer_object(bo);
-
-	WARN_ON(vbo->dirty);
-	WARN_ON(!RB_EMPTY_ROOT(&vbo->res_tree));
-	vmw_bo_unmap(vbo);
-	drm_gem_object_release(&vbo->base.base);
-	kfree(vbo);
-}
-
 int vmw_gem_object_create_with_handle(struct vmw_private *dev_priv,
 				      struct drm_file *filp,
 				      uint32_t size,
@@ -145,7 +116,8 @@ int vmw_gem_object_create_with_handle(struct vmw_private *dev_priv,
 			    (dev_priv->has_mob) ?
 				    &vmw_sys_placement :
 				    &vmw_vram_sys_placement,
-			    true, false, &vmw_gem_destroy, p_vbo);
+			    true, false, p_vbo);
+
 	if (ret != 0)
 		goto out_no_bo;
 
@@ -267,7 +239,7 @@ static int vmw_debugfs_gem_info_show(struct seq_file *m, void *unused)
 
 		spin_lock(&file->table_lock);
 		idr_for_each_entry(&file->object_idr, gobj, id) {
-			struct vmw_buffer_object *bo = gem_to_vmw_bo(gobj);
+			struct vmw_buffer_object *bo = to_vmw_bo(gobj);
 
 			vmw_bo_print_info(id, bo, m);
 		}

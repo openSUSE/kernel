@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0 OR MIT
 /**************************************************************************
  *
- * Copyright 2009 - 2022 VMware, Inc., Palo Alto, CA., USA
+ * Copyright 2009 - 2023 VMware, Inc., Palo Alto, CA., USA
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the
@@ -24,17 +24,17 @@
  * USE OR OTHER DEALINGS IN THE SOFTWARE.
  *
  **************************************************************************/
-#include <linux/sync_file.h>
-#include <linux/hashtable.h>
-
+#include "vmwgfx_binding.h"
+#include "vmwgfx_bo.h"
 #include "vmwgfx_drv.h"
-#include "vmwgfx_reg.h"
+#include "vmwgfx_mksstat.h"
+#include "vmwgfx_so.h"
+
 #include <drm/ttm/ttm_bo_api.h>
 #include <drm/ttm/ttm_placement.h>
-#include "vmwgfx_so.h"
-#include "vmwgfx_binding.h"
-#include "vmwgfx_mksstat.h"
 
+#include <linux/sync_file.h>
+#include <linux/hashtable.h>
 
 /*
  * Helper macro to get dx_ctx_node if available otherwise print an error
@@ -1147,7 +1147,7 @@ static int vmw_translate_mob_ptr(struct vmw_private *dev_priv,
 				 SVGAMobId *id,
 				 struct vmw_buffer_object **vmw_bo_p)
 {
-	struct vmw_buffer_object *vmw_bo;
+	struct vmw_buffer_object *vmw_bo, *tmp_bo;
 	uint32_t handle = *id;
 	struct vmw_relocation *reloc;
 	int ret;
@@ -1159,8 +1159,8 @@ static int vmw_translate_mob_ptr(struct vmw_private *dev_priv,
 		return PTR_ERR(vmw_bo);
 	}
 	ret = vmw_validation_add_bo(sw_context->ctx, vmw_bo, true, false);
-	ttm_bo_put(&vmw_bo->base);
-	drm_gem_object_put(&vmw_bo->base.base);
+	tmp_bo = vmw_bo;
+	vmw_user_bo_unref(&tmp_bo);
 	if (unlikely(ret != 0))
 		return ret;
 
@@ -1202,7 +1202,7 @@ static int vmw_translate_guest_ptr(struct vmw_private *dev_priv,
 				   SVGAGuestPtr *ptr,
 				   struct vmw_buffer_object **vmw_bo_p)
 {
-	struct vmw_buffer_object *vmw_bo;
+	struct vmw_buffer_object *vmw_bo, *tmp_bo;
 	uint32_t handle = ptr->gmrId;
 	struct vmw_relocation *reloc;
 	int ret;
@@ -1214,8 +1214,8 @@ static int vmw_translate_guest_ptr(struct vmw_private *dev_priv,
 		return PTR_ERR(vmw_bo);
 	}
 	ret = vmw_validation_add_bo(sw_context->ctx, vmw_bo, false, false);
-	ttm_bo_put(&vmw_bo->base);
-	drm_gem_object_put(&vmw_bo->base.base);
+	tmp_bo = vmw_bo;
+	vmw_user_bo_unref(&tmp_bo);
 	if (unlikely(ret != 0))
 		return ret;
 

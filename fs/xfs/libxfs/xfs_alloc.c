@@ -426,8 +426,8 @@ xfs_alloc_fix_len(
  */
 STATIC int				/* error code */
 xfs_alloc_fixup_trees(
-	xfs_btree_cur_t	*cnt_cur,	/* cursor for by-size btree */
-	xfs_btree_cur_t	*bno_cur,	/* cursor for by-block btree */
+	struct xfs_btree_cur *cnt_cur,	/* cursor for by-size btree */
+	struct xfs_btree_cur *bno_cur,	/* cursor for by-block btree */
 	xfs_agblock_t	fbno,		/* starting block of free extent */
 	xfs_extlen_t	flen,		/* length of free extent */
 	xfs_agblock_t	rbno,		/* starting block of returned extent */
@@ -1200,8 +1200,8 @@ xfs_alloc_ag_vextent_exact(
 	xfs_alloc_arg_t	*args)	/* allocation argument structure */
 {
 	struct xfs_agf __maybe_unused *agf = args->agbp->b_addr;
-	xfs_btree_cur_t	*bno_cur;/* by block-number btree cursor */
-	xfs_btree_cur_t	*cnt_cur;/* by count btree cursor */
+	struct xfs_btree_cur *bno_cur;/* by block-number btree cursor */
+	struct xfs_btree_cur *cnt_cur;/* by count btree cursor */
 	int		error;
 	xfs_agblock_t	fbno;	/* start block of found extent */
 	xfs_extlen_t	flen;	/* length of found extent */
@@ -1658,8 +1658,8 @@ xfs_alloc_ag_vextent_size(
 	xfs_alloc_arg_t	*args)		/* allocation argument structure */
 {
 	struct xfs_agf	*agf = args->agbp->b_addr;
-	xfs_btree_cur_t	*bno_cur;	/* cursor for bno btree */
-	xfs_btree_cur_t	*cnt_cur;	/* cursor for cnt btree */
+	struct xfs_btree_cur *bno_cur;	/* cursor for bno btree */
+	struct xfs_btree_cur *cnt_cur;	/* cursor for cnt btree */
 	int		error;		/* error result */
 	xfs_agblock_t	fbno;		/* start of found freespace */
 	xfs_extlen_t	flen;		/* length of found freespace */
@@ -2705,7 +2705,7 @@ xfs_alloc_get_freelist(
 	xfs_agblock_t		bno;
 	__be32			*agfl_bno;
 	int			error;
-	int			logflags;
+	uint32_t		logflags;
 	struct xfs_mount	*mp = tp->t_mountp;
 	struct xfs_perag	*pag;
 
@@ -2758,9 +2758,9 @@ xfs_alloc_get_freelist(
  */
 void
 xfs_alloc_log_agf(
-	xfs_trans_t	*tp,	/* transaction pointer */
-	struct xfs_buf	*bp,	/* buffer for a.g. freelist header */
-	int		fields)	/* mask of fields to be logged (XFS_AGF_...) */
+	struct xfs_trans	*tp,
+	struct xfs_buf		*bp,
+	uint32_t		fields)
 {
 	int	first;		/* first byte offset */
 	int	last;		/* last byte offset */
@@ -2830,7 +2830,7 @@ xfs_alloc_put_freelist(
 	struct xfs_perag	*pag;
 	__be32			*blockp;
 	int			error;
-	int			logflags;
+	uint32_t		logflags;
 	__be32			*agfl_bno;
 	int			startoff;
 
@@ -3407,8 +3407,8 @@ xfs_alloc_query_range_helper(
 int
 xfs_alloc_query_range(
 	struct xfs_btree_cur			*cur,
-	struct xfs_alloc_rec_incore		*low_rec,
-	struct xfs_alloc_rec_incore		*high_rec,
+	const struct xfs_alloc_rec_incore	*low_rec,
+	const struct xfs_alloc_rec_incore	*high_rec,
 	xfs_alloc_query_range_fn		fn,
 	void					*priv)
 {

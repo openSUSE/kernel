@@ -5,7 +5,7 @@
 #include <linux/types.h>
 #include <linux/nmi.h>
 #include <linux/msi.h>
-#include <asm/io.h>
+#include <linux/io.h>
 #include <asm/hyperv-tlfs.h>
 #include <asm/nospec-branch.h>
 #include <asm/paravirt.h>
@@ -31,6 +31,11 @@ typedef int (*hyperv_fill_flush_list_func)(
 #define hv_get_raw_timer() rdtsc_ordered()
 
 void hyperv_vector_handler(struct pt_regs *regs);
+
+static inline unsigned char hv_get_nmi_reason(void)
+{
+	return 0;
+}
 
 #if IS_ENABLED(CONFIG_HYPERV)
 extern int hyperv_init_cpuhp;
