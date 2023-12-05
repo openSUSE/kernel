@@ -5839,6 +5839,50 @@ static void testmgr_onetime_init(void)
 #endif
 }
 
+#ifdef CONFIG_CRYPTO_FIPS
+static bool suse_fips_is_driver_unapproved(const char *driver)
+{
+	/*
+	 * unapproved_drivers[] contains a sorted list of
+	 * cra_driver_name's to reject in FIPS mode.
+	 */
+	static const char *unapproved_drivers[] = {
+#include "suse_fips_unapproved_drivers.h"
+	};
+	int start = 0;
+	int end = ARRAY_SIZE(unapproved_drivers);
+
+	if (!fips_enabled)
+		return false;
+
+	while (start < end) {
+		int i = (start + end) / 2;
+		int diff = strcmp(unapproved_drivers[i], driver);
+
+		if (diff > 0) {
+			end = i;
+			continue;
+		}
+
+		if (diff < 0) {
+			start = i + 1;
+			continue;
+		}
+
+		pr_info("alg: disabling driver '%s' in FIPS mode\n", driver);
+
+		return true;
+	}
+
+	return false;
+}
+#else /* !CONFIG_CRYPTO_FIPS */
+static bool suse_fips_is_driver_unapproved(const char *driver)
+{
+	return false;
+}
+#endif /* CONFIG_CRYPTO_FIPS */
+
 static int alg_find_test(const char *alg)
 {
 	int start = 0;
@@ -5895,6 +5939,9 @@ int alg_test(const char *driver, const char *alg, u32 type, u32 mask)
 		if (i < 0)
 			goto notest;
 
+		if (suse_fips_is_driver_unapproved(driver))
+			return -EINVAL;
+
 		if (fips_enabled && !alg_test_descs[i].fips_allowed)
 			goto non_fips_alg;
 
@@ -5909,6 +5956,8 @@ int alg_test(const char *driver, const char *alg, u32 type, u32 mask)
 
 	if (fips_enabled) {
 		if (j >= 0 && !alg_test_descs[j].fips_allowed)
+			return -EINVAL;
+		else if (suse_fips_is_driver_unapproved(driver))
 			return -EINVAL;
 
 		if (i >= 0 && !alg_test_descs[i].fips_allowed)
@@ -5945,6 +5994,14 @@ test_done:
 	return rc;
 
 notest:
+	/*
+	 * Unapproved drivers can register constructions for which
+	 * there is no matching test with ->fips_allowed == 0, check
+	 * for this.
+	 */
+	if (suse_fips_is_driver_unapproved(driver))
+		return -EINVAL;
+
 	printk(KERN_INFO "alg: No test for %s (%s)\n", alg, driver);
 
 	if (type & CRYPTO_ALG_FIPS_INTERNAL)
