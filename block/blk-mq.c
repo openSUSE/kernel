@@ -2349,6 +2349,13 @@ static void blk_mq_clear_rq_mapping(struct blk_mq_tag_set *set,
 	struct page *page;
 	unsigned long flags;
 
+	/*
+	 * There is no need to clear mapping if driver tags is not initialized
+	 * or the mapping belongs to the driver tags.
+	 */
+	if (!drv_tags || drv_tags == tags)
+		return;
+
 	list_for_each_entry(page, &tags->page_list, lru) {
 		unsigned long start = (unsigned long)page_address(page);
 		unsigned long end = start + order_to_size(page->private);
