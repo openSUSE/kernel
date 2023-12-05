@@ -122,7 +122,7 @@ void
 xfs_alloc_log_agf(
 	struct xfs_trans *tp,	/* transaction pointer */
 	struct xfs_buf	*bp,	/* buffer for a.g. freelist header */
-	int		fields);/* mask of fields to be logged (XFS_AGF_...) */
+	uint32_t	fields);/* mask of fields to be logged (XFS_AGF_...) */
 
 /*
  * Interface for inode allocation to force the pag data to be initialized.
@@ -225,8 +225,8 @@ typedef int (*xfs_alloc_query_range_fn)(
 	void					*priv);
 
 int xfs_alloc_query_range(struct xfs_btree_cur *cur,
-		struct xfs_alloc_rec_incore *low_rec,
-		struct xfs_alloc_rec_incore *high_rec,
+		const struct xfs_alloc_rec_incore *low_rec,
+		const struct xfs_alloc_rec_incore *high_rec,
 		xfs_alloc_query_range_fn fn, void *priv);
 int xfs_alloc_query_all(struct xfs_btree_cur *cur, xfs_alloc_query_range_fn fn,
 		void *priv);
