@@ -8,35 +8,21 @@ static int qlge_fill_seg_(struct devlink_fmsg *fmsg,
 {
 	int regs_num = (seg_header->seg_size
 			- sizeof(struct mpi_coredump_segment_header)) / sizeof(u32);
-	int err;
 	int i;
 
-	err = devlink_fmsg_pair_nest_start(fmsg, seg_header->description);
-	if (err)
-		return err;
-	err = devlink_fmsg_obj_nest_start(fmsg);
-	if (err)
-		return err;
-	err = devlink_fmsg_u32_pair_put(fmsg, "segment", seg_header->seg_num);
-	if (err)
-		return err;
-	err = devlink_fmsg_arr_pair_nest_start(fmsg, "values");
-	if (err)
-		return err;
+	devlink_fmsg_pair_nest_start(fmsg, seg_header->description);
+	devlink_fmsg_obj_nest_start(fmsg);
+	devlink_fmsg_u32_pair_put(fmsg, "segment", seg_header->seg_num);
+	devlink_fmsg_arr_pair_nest_start(fmsg, "values");
 	for (i = 0; i < regs_num; i++) {
-		err = devlink_fmsg_u32_put(fmsg, *reg_data);
-		if (err)
-			return err;
+		devlink_fmsg_u32_put(fmsg, *reg_data);
 		reg_data++;
 	}
-	err = devlink_fmsg_obj_nest_end(fmsg);
-	if (err)
-		return err;
-	err = devlink_fmsg_arr_pair_nest_end(fmsg);
-	if (err)
-		return err;
-	err = devlink_fmsg_pair_nest_end(fmsg);
-	return err;
+	devlink_fmsg_obj_nest_end(fmsg);
+	devlink_fmsg_arr_pair_nest_end(fmsg);
+	devlink_fmsg_pair_nest_end(fmsg);
+
+	return 0;
 }
 
 #define FILL_SEG(seg_hdr, seg_regs)			                    \

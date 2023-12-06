@@ -658,7 +658,7 @@ static inline void mhi_power_down(struct mhi_controller *mhi_cntrl, bool gracefu
  * destroy struct devices. This is a variant for mhi_power_down() and is a
  * workaround to make it possible to use mhi_power_up() in a resume
  * handler. When using this variant the caller must also call
- * mhi_prepare_all_for_transfer_autoqueue() and
+ * mhi_prepare_all_for_transfer() and
  * mhi_unprepare_all_from_transfer().
  *
  * @mhi_cntrl: MHI controller
@@ -833,13 +833,13 @@ int mhi_queue_skb(struct mhi_device *mhi_dev, enum dma_data_direction dir,
 bool mhi_queue_is_full(struct mhi_device *mhi_dev, enum dma_data_direction dir);
 
 /**
- * mhi_prepare_all_for_transfer_autoqueue - if you are using
+ * mhi_prepare_all_for_transfer - if you are using
  * mhi_power_down_no_destroy() variant this needs to be called after
  * calling mhi_power_up().
  *
  * @mhi_cntrl: MHI controller
  */
-int mhi_prepare_all_for_transfer_autoqueue(struct mhi_controller *mhi_cntrl);
+int mhi_prepare_all_for_transfer(struct mhi_controller *mhi_cntrl);
 
 /**
  * mhi_unprepare_all_from_transfer - if you are using

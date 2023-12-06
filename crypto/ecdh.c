@@ -11,7 +11,8 @@
 #include <crypto/kpp.h>
 #include <crypto/ecdh.h>
 #include <linux/scatterlist.h>
-
+#include <linux/fips.h>
+#include <linux/fips.h>
 struct ecdh_ctx {
 	unsigned int curve_id;
 	unsigned int ndigits;
@@ -94,6 +95,36 @@ static int ecdh_compute_value(struct kpp_request *req)
 				       ctx->private_key, public_key);
 		buf = public_key;
 		nbytes = public_key_sz;
+
+		/*
+		 * SP800-56Arev3, 5.6.2.1.4: ("Owner Assurance of
+		 * Pair-wise Consistency"): recompute the public key
+		 * and check if the results match.
+		 */
+		if (fips_enabled) {
+			u64 *public_key_pct;
+
+			if (ret < 0)
+				goto free_all;
+
+			public_key_pct = kmalloc(public_key_sz, GFP_KERNEL);
+			if (!public_key_pct) {
+				ret = -ENOMEM;
+				goto free_all;
+			}
+
+			ret = ecc_make_pub_key(ctx->curve_id, ctx->ndigits,
+					       ctx->private_key,
+					       public_key_pct);
+			if (ret < 0) {
+				kfree(public_key_pct);
+				goto free_all;
+			}
+
+			if (memcmp(public_key, public_key_pct, public_key_sz))
+				panic("ECDH PCT failed in FIPS mode");
+			kfree(public_key_pct);
+		}
 	}
 
 	if (ret < 0)

@@ -101,7 +101,7 @@ struct proc_dir_entry *proc_create_single_data(const char *name, umode_t mode,
 		int (*show)(struct seq_file *, void *), void *data);
 #define proc_create_single(name, mode, parent, show) \
 	proc_create_single_data(name, mode, parent, show, NULL)
- 
+
 extern struct proc_dir_entry *proc_create_data(const char *, umode_t,
 					       struct proc_dir_entry *,
 					       const struct proc_ops *,
@@ -157,6 +157,8 @@ extern void bpf_iter_fini_seq_net(void *priv_data);
 int proc_pid_arch_status(struct seq_file *m, struct pid_namespace *ns,
 			struct pid *pid, struct task_struct *task);
 #endif /* CONFIG_PROC_PID_ARCH_STATUS */
+
+void arch_proc_pid_thread_features(struct seq_file *m, struct task_struct *task);
 
 #else /* CONFIG_PROC_FS */
 

@@ -636,17 +636,7 @@ static int dev_open(struct drm_device *dev, struct drm_file *file)
 	return 0;
 }
 
-static const struct file_operations omapdriver_fops = {
-	.owner = THIS_MODULE,
-	.open = drm_open,
-	.unlocked_ioctl = drm_ioctl,
-	.compat_ioctl = drm_compat_ioctl,
-	.release = drm_release,
-	.mmap = omap_gem_mmap,
-	.poll = drm_poll,
-	.read = drm_read,
-	.llseek = noop_llseek,
-};
+DEFINE_DRM_GEM_FOPS(omapdriver_fops);
 
 static const struct drm_driver omap_drm_driver = {
 	.driver_features = DRIVER_MODESET | DRIVER_GEM  |
@@ -819,14 +809,12 @@ static int pdev_probe(struct platform_device *pdev)
 	return ret;
 }
 
-static int pdev_remove(struct platform_device *pdev)
+static void pdev_remove(struct platform_device *pdev)
 {
 	struct omap_drm_private *priv = platform_get_drvdata(pdev);
 
 	omapdrm_cleanup(priv);
 	kfree(priv);
-
-	return 0;
 }
 
 #ifdef CONFIG_PM_SLEEP
@@ -857,7 +845,7 @@ static struct platform_driver pdev = {
 		.pm = &omapdrm_pm_ops,
 	},
 	.probe = pdev_probe,
-	.remove = pdev_remove,
+	.remove_new = pdev_remove,
 };
 
 static struct platform_driver * const drivers[] = {

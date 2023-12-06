@@ -389,6 +389,8 @@ static void list_netdevice(struct net_device *dev)
 	hlist_add_head_rcu(&dev->index_hlist,
 			   dev_index_hash(net, dev->ifindex));
 	write_unlock(&dev_base_lock);
+	/* We reserved the ifindex, this can't fail */
+	WARN_ON(xa_store(&net->dev_by_index, dev->ifindex, dev, GFP_KERNEL));
 
 	dev_base_seq_inc(net);
 }
@@ -398,7 +400,11 @@ static void list_netdevice(struct net_device *dev)
  */
 static void unlist_netdevice(struct net_device *dev, bool lock)
 {
+	struct net *net = dev_net(dev);
+
 	ASSERT_RTNL();
+
+	xa_erase(&net->dev_by_index, dev->ifindex);
 
 	/* Unlink dev from the device chain */
 	if (lock)
@@ -8942,6 +8948,28 @@ bool netdev_port_same_parent_id(struct net_device *a, struct net_device *b)
 }
 EXPORT_SYMBOL(netdev_port_same_parent_id);
 
+static void netdev_dpll_pin_assign(struct net_device *dev, struct dpll_pin *dpll_pin)
+{
+#if IS_ENABLED(CONFIG_DPLL)
+	rtnl_lock();
+	dev->dpll_pin = dpll_pin;
+	rtnl_unlock();
+#endif
+}
+
+void netdev_dpll_pin_set(struct net_device *dev, struct dpll_pin *dpll_pin)
+{
+	WARN_ON(!dpll_pin);
+	netdev_dpll_pin_assign(dev, dpll_pin);
+}
+EXPORT_SYMBOL(netdev_dpll_pin_set);
+
+void netdev_dpll_pin_clear(struct net_device *dev)
+{
+	netdev_dpll_pin_assign(dev, NULL);
+}
+EXPORT_SYMBOL(netdev_dpll_pin_clear);
+
 /**
  *	dev_change_proto_down - set carrier according to proto_down.
  *
@@ -9495,23 +9523,35 @@ err_out:
 }
 
 /**
- *	dev_new_index	-	allocate an ifindex
- *	@net: the applicable net namespace
+ * dev_index_reserve() - allocate an ifindex in a namespace
+ * @net: the applicable net namespace
+ * @ifindex: requested ifindex, pass %0 to get one allocated
  *
- *	Returns a suitable unique value for a new device interface
- *	number.  The caller must hold the rtnl semaphore or the
- *	dev_base_lock to be sure it remains unique.
+ * Allocate a ifindex for a new device. Caller must either use the ifindex
+ * to store the device (via list_netdevice()) or call dev_index_release()
+ * to give the index up.
+ *
+ * Return: a suitable unique value for a new device interface number or -errno.
  */
-static int dev_new_index(struct net *net)
+static int dev_index_reserve(struct net *net, u32 ifindex)
 {
-	int ifindex = net->ifindex;
+	int err;
 
-	for (;;) {
-		if (++ifindex <= 0)
-			ifindex = 1;
-		if (!__dev_get_by_index(net, ifindex))
-			return net->ifindex = ifindex;
-	}
+	if (!ifindex)
+		err = xa_alloc_cyclic(&net->dev_by_index, &ifindex, NULL,
+				      xa_limit_31b, &net->ifindex, GFP_KERNEL);
+	else
+		err = xa_insert(&net->dev_by_index, ifindex, NULL, GFP_KERNEL);
+	if (err < 0)
+		return err;
+
+	return ifindex;
+}
+
+static void dev_index_release(struct net *net, int ifindex)
+{
+	/* Expect only unused indexes, unlist_netdevice() removes the used */
+	WARN_ON(xa_erase(&net->dev_by_index, ifindex));
 }
 
 /* Delayed registration/unregisteration */
@@ -9981,11 +10021,10 @@ int register_netdevice(struct net_device *dev)
 		goto err_uninit;
 	}
 
-	ret = -EBUSY;
-	if (!dev->ifindex)
-		dev->ifindex = dev_new_index(net);
-	else if (__dev_get_by_index(net, dev->ifindex))
+	ret = dev_index_reserve(net, dev->ifindex);
+	if (ret < 0)
 		goto err_uninit;
+	dev->ifindex = ret;
 
 	/* Transfer changeable features to wanted_features and enable
 	 * software offloads (GSO and GRO).
@@ -10032,7 +10071,7 @@ int register_netdevice(struct net_device *dev)
 	ret = call_netdevice_notifiers(NETDEV_POST_INIT, dev);
 	ret = notifier_to_errno(ret);
 	if (ret)
-		goto err_uninit;
+		goto err_ifindex_release;
 
 	ret = netdev_register_kobject(dev);
 	write_lock(&dev_base_lock);
@@ -10088,6 +10127,8 @@ out:
 
 err_uninit_notify:
 	call_netdevice_notifiers(NETDEV_PRE_UNINIT, dev);
+err_ifindex_release:
+	dev_index_release(net, dev->ifindex);
 err_uninit:
 	if (dev->netdev_ops->ndo_uninit)
 		dev->netdev_ops->ndo_uninit(dev);
@@ -10963,9 +11004,19 @@ int __dev_change_net_namespace(struct net_device *dev, struct net *net,
 	}
 
 	/* Check that new_ifindex isn't used yet. */
-	err = -EBUSY;
-	if (new_ifindex && __dev_get_by_index(net, new_ifindex))
-		goto out;
+	if (new_ifindex) {
+		err = dev_index_reserve(net, new_ifindex);
+		if (err < 0)
+			goto out;
+	} else {
+		/* If there is an ifindex conflict assign a new one */
+		err = dev_index_reserve(net, dev->ifindex);
+		if (err == -EBUSY)
+			err = dev_index_reserve(net, 0);
+		if (err < 0)
+			goto out;
+		new_ifindex = err;
+	}
 
 	/*
 	 * And now a mini version of register_netdevice unregister_netdevice.
@@ -10993,13 +11044,6 @@ int __dev_change_net_namespace(struct net_device *dev, struct net *net,
 	rcu_barrier();
 
 	new_nsid = peernet2id_alloc(dev_net(dev), net, GFP_KERNEL);
-	/* If there is an ifindex conflict assign a new one */
-	if (!new_ifindex) {
-		if (__dev_get_by_index(net, dev->ifindex))
-			new_ifindex = dev_new_index(net);
-		else
-			new_ifindex = dev->ifindex;
-	}
 
 	rtmsg_ifinfo_newnet(RTM_DELLINK, dev, ~0U, GFP_KERNEL, &new_nsid,
 			    new_ifindex);
@@ -11177,6 +11221,8 @@ static int __net_init netdev_init(struct net *net)
 	if (net->dev_index_head == NULL)
 		goto err_idx;
 
+	xa_init_flags(&net->dev_by_index, XA_FLAGS_ALLOC1);
+
 	RAW_INIT_NOTIFIER_HEAD(&net->netdev_chain);
 
 	return 0;
@@ -11274,6 +11320,7 @@ static void __net_exit netdev_exit(struct net *net)
 {
 	kfree(net->dev_name_head);
 	kfree(net->dev_index_head);
+	xa_destroy(&net->dev_by_index);
 	if (net != &init_net)
 		WARN_ON_ONCE(!list_empty(&net->dev_base_head));
 }

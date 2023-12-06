@@ -41,6 +41,7 @@
 #include <linux/vmalloc.h>
 #include <linux/delay.h>
 #include <linux/interrupt.h>
+#include <linux/io.h>
 #include <linux/fb.h>
 #include <linux/init.h>
 #include <linux/arcfb.h>
@@ -545,7 +546,6 @@ static int arcfb_probe(struct platform_device *dev)
 	par->c2io_addr = c2io_addr;
 	par->cslut[0] = 0x00;
 	par->cslut[1] = 0x06;
-	info->flags = FBINFO_FLAG_DEFAULT;
 	spin_lock_init(&par->lock);
 	if (irq) {
 		par->irq = irq;

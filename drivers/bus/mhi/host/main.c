@@ -1668,7 +1668,7 @@ int mhi_prepare_for_transfer_autoqueue(struct mhi_device *mhi_dev)
 }
 EXPORT_SYMBOL_GPL(mhi_prepare_for_transfer_autoqueue);
 
-static int __mhi_prepare_for_transfer_autoqueue(struct device *dev, void *data)
+static int ____mhi_prepare_for_transfer(struct device *dev, void *data)
 {
 	struct mhi_device *mhi_dev;
 	struct mhi_chan *ul_chan, *dl_chan;
@@ -1679,8 +1679,14 @@ static int __mhi_prepare_for_transfer_autoqueue(struct device *dev, void *data)
 
 	mhi_dev = to_mhi_device(dev);
 
-	/* Only prepare virtual devices thats attached to bus */
+	/* Only prepare virtual devices that are attached to bus */
 	if (mhi_dev->dev_type == MHI_DEVICE_CONTROLLER)
+		return 0;
+
+	/* There are cases where there is no MHI client driver matches
+	 * this device, we are not allowed to do prepare for it.
+	 */
+	if (!mhi_dev->id)
 		return 0;
 
 	ul_chan = mhi_dev->ul_chan;
@@ -1701,15 +1707,18 @@ static int __mhi_prepare_for_transfer_autoqueue(struct device *dev, void *data)
 	if (dl_chan && ee != MHI_EE_MAX && !(dl_chan->ee_mask & BIT(ee)))
 		return 0;
 
-	return mhi_prepare_for_transfer_autoqueue(mhi_dev);
+	if (dl_chan->pre_alloc)
+		return mhi_prepare_for_transfer_autoqueue(mhi_dev);
+	else
+		return mhi_prepare_for_transfer(mhi_dev);
 }
 
-int mhi_prepare_all_for_transfer_autoqueue(struct mhi_controller *mhi_cntrl)
+int mhi_prepare_all_for_transfer(struct mhi_controller *mhi_cntrl)
 {
 	return device_for_each_child(&mhi_cntrl->mhi_dev->dev, NULL,
-				     __mhi_prepare_for_transfer_autoqueue);
+				     ____mhi_prepare_for_transfer);
 }
-EXPORT_SYMBOL_GPL(mhi_prepare_all_for_transfer_autoqueue);
+EXPORT_SYMBOL_GPL(mhi_prepare_all_for_transfer);
 
 void mhi_unprepare_from_transfer(struct mhi_device *mhi_dev)
 {
@@ -1727,7 +1736,7 @@ void mhi_unprepare_from_transfer(struct mhi_device *mhi_dev)
 }
 EXPORT_SYMBOL_GPL(mhi_unprepare_from_transfer);
 
-static int __mhi_unprepare_from_transfer(struct device *dev, void *data)
+static int ____mhi_unprepare_from_transfer(struct device *dev, void *data)
 {
 	struct mhi_device *mhi_dev;
 	struct mhi_chan *ul_chan, *dl_chan;
@@ -1738,8 +1747,15 @@ static int __mhi_unprepare_from_transfer(struct device *dev, void *data)
 
 	mhi_dev = to_mhi_device(dev);
 
-	/* Only unprepare virtual devices thats attached to bus */
+	/* Only unprepare virtual devices that are attached to bus */
 	if (mhi_dev->dev_type == MHI_DEVICE_CONTROLLER)
+		return 0;
+
+	/* There are cases where there is no MHI client driver matches
+	 * this device, so it is not probed or prepared, no need to
+	 * do unprepare for it.
+	 */
+	if (!mhi_dev->id)
 		return 0;
 
 	ul_chan = mhi_dev->ul_chan;
@@ -1771,7 +1787,6 @@ static int __mhi_unprepare_from_transfer(struct device *dev, void *data)
 int mhi_unprepare_all_from_transfer(struct mhi_controller *mhi_cntrl)
 {
 	return device_for_each_child(&mhi_cntrl->mhi_dev->dev, NULL,
-				     __mhi_unprepare_from_transfer);
+				     ____mhi_unprepare_from_transfer);
 }
 EXPORT_SYMBOL_GPL(mhi_unprepare_all_from_transfer);
-

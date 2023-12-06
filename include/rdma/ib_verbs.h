@@ -561,6 +561,7 @@ enum ib_port_speed {
 	IB_SPEED_EDR	= 32,
 	IB_SPEED_HDR	= 64,
 	IB_SPEED_NDR	= 128,
+	IB_SPEED_XDR	= 256,
 };
 
 enum ib_stat_flag {
@@ -840,6 +841,7 @@ enum ib_rate {
 	IB_RATE_50_GBPS  = 20,
 	IB_RATE_400_GBPS = 21,
 	IB_RATE_600_GBPS = 22,
+	IB_RATE_800_GBPS = 23,
 };
 
 /**
@@ -1094,7 +1096,7 @@ struct ib_qp_cap {
 
 	/*
 	 * Maximum number of rdma_rw_ctx structures in flight at a time.
-	 * ib_create_qp() will calculate the right amount of neededed WRs
+	 * ib_create_qp() will calculate the right amount of needed WRs
 	 * and MRs based on this.
 	 */
 	u32	max_rdma_ctxs;
@@ -2608,6 +2610,8 @@ struct ib_device_ops {
 	int (*fill_res_qp_entry)(struct sk_buff *msg, struct ib_qp *ibqp);
 	int (*fill_res_qp_entry_raw)(struct sk_buff *msg, struct ib_qp *ibqp);
 	int (*fill_res_cm_id_entry)(struct sk_buff *msg, struct rdma_cm_id *id);
+	int (*fill_res_srq_entry)(struct sk_buff *msg, struct ib_srq *ib_srq);
+	int (*fill_res_srq_entry_raw)(struct sk_buff *msg, struct ib_srq *ib_srq);
 
 	/* Device lifecycle callbacks */
 	/*
