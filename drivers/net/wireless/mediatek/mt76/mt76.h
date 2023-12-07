@@ -715,6 +715,7 @@ struct mt76_vif {
 	u8 wmm_idx;
 	u8 scan_seq_num;
 	u8 cipher;
+	struct ieee80211_chanctx_conf *ctx;
 };
 
 struct mt76_phy {
