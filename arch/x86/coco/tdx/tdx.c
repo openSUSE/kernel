@@ -10,6 +10,7 @@
 #include <asm/coco.h>
 #include <asm/tdx.h>
 #include <asm/vmx.h>
+#include <asm/ia32.h>
 #include <asm/insn.h>
 #include <asm/insn-eval.h>
 #include <asm/pgtable.h>
@@ -142,7 +143,7 @@ static void __noreturn tdx_panic(const char *msg)
 	} message;
 
 	/* VMM assumes '\0' in byte 65, if the message took all 64 bytes */
-	strncpy(message.str, msg, 64);
+	strtomem_pad(message.str, msg, '\0');
 
 	args.r8  = message.r8;
 	args.r9  = message.r9;
