@@ -741,7 +741,7 @@ err_remove_ports:
 	return ret;
 }
 
-static int pmc_usb_remove(struct platform_device *pdev)
+static void pmc_usb_remove(struct platform_device *pdev)
 {
 	struct pmc_usb *pmc = platform_get_drvdata(pdev);
 	int i;
@@ -753,8 +753,6 @@ static int pmc_usb_remove(struct platform_device *pdev)
 	}
 
 	acpi_dev_put(pmc->iom_adev);
-
-	return 0;
 }
 
 static const struct acpi_device_id pmc_usb_acpi_ids[] = {
@@ -769,7 +767,7 @@ static struct platform_driver pmc_usb_driver = {
 		.acpi_match_table = ACPI_PTR(pmc_usb_acpi_ids),
 	},
 	.probe = pmc_usb_probe,
-	.remove = pmc_usb_remove,
+	.remove_new = pmc_usb_remove,
 };
 
 module_platform_driver(pmc_usb_driver);
