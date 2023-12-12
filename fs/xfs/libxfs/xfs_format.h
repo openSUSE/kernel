@@ -9,7 +9,7 @@
 /*
  * XFS On Disk Format Definitions
  *
- * This header file defines all the on-disk format definitions for 
+ * This header file defines all the on-disk format definitions for
  * general XFS objects. Directory and attribute related objects are defined in
  * xfs_da_format.h, which log and log item formats are defined in
  * xfs_log_format.h. Everything else goes here.
@@ -184,7 +184,7 @@ typedef struct xfs_sb {
  * Superblock - on disk version.  Must match the in core version above.
  * Must be padded to 64 bit alignment.
  */
-typedef struct xfs_dsb {
+struct xfs_dsb {
 	__be32		sb_magicnum;	/* magic number == XFS_SB_MAGIC */
 	__be32		sb_blocksize;	/* logical block size, bytes */
 	__be64		sb_dblocks;	/* number of data blocks */
@@ -263,7 +263,7 @@ typedef struct xfs_dsb {
 	uuid_t		sb_meta_uuid;	/* metadata file system unique id */
 
 	/* must be padded to 64 bit alignment */
-} xfs_dsb_t;
+};
 
 
 /*
@@ -977,7 +977,7 @@ static inline time64_t xfs_bigtime_to_unix(uint64_t ondisk_seconds)
  * padding field for v3 inodes.
  */
 #define	XFS_DINODE_MAGIC		0x494e	/* 'IN' */
-typedef struct xfs_dinode {
+struct xfs_dinode {
 	__be16		di_magic;	/* inode magic # = XFS_DINODE_MAGIC */
 	__be16		di_mode;	/* mode and type of file */
 	__u8		di_version;	/* inode version */
@@ -1022,7 +1022,7 @@ typedef struct xfs_dinode {
 	uuid_t		di_uuid;	/* UUID of the filesystem */
 
 	/* structure must be padded to 64 bit alignment */
-} xfs_dinode_t;
+};
 
 #define XFS_DINODE_CRC_OFF	offsetof(struct xfs_dinode, di_crc)
 
@@ -1412,7 +1412,7 @@ struct xfs_disk_dquot {
  * This is what goes on disk. This is separated from the xfs_disk_dquot because
  * carrying the unnecessary padding would be a waste of memory.
  */
-typedef struct xfs_dqblk {
+struct xfs_dqblk {
 	struct xfs_disk_dquot	dd_diskdq; /* portion living incore as well */
 	char			dd_fill[4];/* filling for posterity */
 
@@ -1422,7 +1422,7 @@ typedef struct xfs_dqblk {
 	__be32		  dd_crc;	/* checksum */
 	__be64		  dd_lsn;	/* last modification in log */
 	uuid_t		  dd_uuid;	/* location information */
-} xfs_dqblk_t;
+};
 
 #define XFS_DQUOT_CRC_OFF	offsetof(struct xfs_dqblk, dd_crc)
 
