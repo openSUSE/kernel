@@ -78,7 +78,7 @@ void rethook_stop(struct rethook *rh)
  */
 void rethook_free(struct rethook *rh)
 {
-	rcu_assign_pointer(rh->handler, NULL);
+	WRITE_ONCE(rh->handler, NULL);
 
 	call_rcu(&rh->rcu, rethook_free_rcu);
 }
