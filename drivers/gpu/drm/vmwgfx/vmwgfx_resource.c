@@ -331,9 +331,7 @@ static int vmw_resource_buf_alloc(struct vmw_resource *res,
 		return 0;
 	}
 
-	ret = vmw_bo_create(res->dev_priv, res->backup_size,
-			    res->func->backup_placement,
-			    interruptible, false, &backup);
+	ret = vmw_gem_object_create(res->dev_priv, res->backup_size, &backup);
 	if (unlikely(ret != 0))
 		goto out_no_bo;
 

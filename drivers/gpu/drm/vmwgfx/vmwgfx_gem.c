@@ -104,11 +104,9 @@ static const struct drm_gem_object_funcs vmw_gem_object_funcs = {
 	.mmap = drm_gem_ttm_mmap,
 };
 
-int vmw_gem_object_create_with_handle(struct vmw_private *dev_priv,
-				      struct drm_file *filp,
-				      uint32_t size,
-				      uint32_t *handle,
-				      struct vmw_buffer_object **p_vbo)
+int vmw_gem_object_create(struct vmw_private *dev_priv,
+			  uint32_t size,
+			  struct vmw_buffer_object **p_vbo)
 {
 	int ret;
 
@@ -122,6 +120,22 @@ int vmw_gem_object_create_with_handle(struct vmw_private *dev_priv,
 		goto out_no_bo;
 
 	(*p_vbo)->base.base.funcs = &vmw_gem_object_funcs;
+
+out_no_bo:
+	return ret;
+}
+
+int vmw_gem_object_create_with_handle(struct vmw_private *dev_priv,
+				      struct drm_file *filp,
+				      uint32_t size,
+				      uint32_t *handle,
+				      struct vmw_buffer_object **p_vbo)
+{
+	int ret;
+
+	ret = vmw_gem_object_create(dev_priv, size, p_vbo);
+	if (ret != 0 )
+		goto out_no_bo;
 
 	ret = drm_gem_handle_create(filp, &(*p_vbo)->base.base, handle);
 out_no_bo:
