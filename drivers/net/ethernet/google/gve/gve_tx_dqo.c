@@ -854,8 +854,6 @@ static int gve_try_tx_skb(struct gve_priv *priv, struct gve_tx_ring *tx,
 	int total_num_descs;
 
 	if (tx->dqo.qpl) {
-		if (skb_is_gso(skb))
-
 		/* We do not need to verify the number of buffers used per
 		 * packet or per segment in case of TSO as with 2K size buffers
 		 * none of the TX packet rules would be violated.
