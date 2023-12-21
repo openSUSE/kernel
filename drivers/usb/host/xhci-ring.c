@@ -144,7 +144,7 @@ static void next_trb(struct xhci_hcd *xhci,
 		struct xhci_segment **seg,
 		union xhci_trb **trb)
 {
-	if (trb_is_link(*trb)) {
+	if (trb_is_link(*trb) || last_trb_on_seg(*seg, *trb)) {
 		*seg = (*seg)->next;
 		*trb = ((*seg)->trbs);
 	} else {
@@ -1906,7 +1906,7 @@ static void handle_port_status(struct xhci_hcd *xhci,
 	xhci_dbg(xhci, "Port change event, %d-%d, id %d, portsc: 0x%x\n",
 		 hcd->self.busnum, hcd_portnum + 1, port_id, portsc);
 
-	trace_xhci_handle_port_status(hcd_portnum, portsc);
+	trace_xhci_handle_port_status(port, portsc);
 
 	if (hcd->state == HC_STATE_SUSPENDED) {
 		xhci_dbg(xhci, "resume root hub\n");
@@ -3013,13 +3013,12 @@ static void xhci_update_erst_dequeue(struct xhci_hcd *xhci,
 		 * Per 4.9.4, Software writes to the ERDP register shall
 		 * always advance the Event Ring Dequeue Pointer value.
 		 */
-		if ((temp_64 & (u64) ~ERST_PTR_MASK) ==
-				((u64) deq & (u64) ~ERST_PTR_MASK))
+		if ((temp_64 & ERST_PTR_MASK) == (deq & ERST_PTR_MASK))
 			return;
 
 		/* Update HC event ring dequeue pointer */
-		temp_64 &= ERST_DESI_MASK;
-		temp_64 |= ((u64) deq & (u64) ~ERST_PTR_MASK);
+		temp_64 = ir->event_ring->deq_seg->num & ERST_DESI_MASK;
+		temp_64 |= deq & ERST_PTR_MASK;
 	}
 
 	/* Clear the event handler busy flag (RW1C) */
