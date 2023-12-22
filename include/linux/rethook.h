@@ -29,7 +29,16 @@ typedef void (*rethook_handler_t) (struct rethook_node *, void *, struct pt_regs
  */
 struct rethook {
 	void			*data;
+	/*
+	 * To avoid sparse warnings, this uses a raw function pointer with
+	 * __rcu, instead of rethook_handler_t. But this must be same as
+	 * rethook_handler_t.
+	 */
+#ifndef __GENKSYMS__
+	void (__rcu *handler) (struct rethook_node *, void *, struct pt_regs *);
+#else
 	rethook_handler_t	handler;
+#endif
 	struct freelist_head	pool;
 	refcount_t		ref;
 	struct rcu_head		rcu;
