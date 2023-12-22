@@ -79,6 +79,16 @@ TRACE_DEFINE_ENUM(XFS_SCRUB_TYPE_FSCOUNTERS);
 	{ XFS_SCRUB_TYPE_PQUOTA,	"prjquota" }, \
 	{ XFS_SCRUB_TYPE_FSCOUNTERS,	"fscounters" }
 
+#define XFS_SCRUB_FLAG_STRINGS \
+	{ XFS_SCRUB_IFLAG_REPAIR,		"repair" }, \
+	{ XFS_SCRUB_OFLAG_CORRUPT,		"corrupt" }, \
+	{ XFS_SCRUB_OFLAG_PREEN,		"preen" }, \
+	{ XFS_SCRUB_OFLAG_XFAIL,		"xfail" }, \
+	{ XFS_SCRUB_OFLAG_XCORRUPT,		"xcorrupt" }, \
+	{ XFS_SCRUB_OFLAG_INCOMPLETE,		"incomplete" }, \
+	{ XFS_SCRUB_OFLAG_WARNING,		"warning" }, \
+	{ XFS_SCRUB_OFLAG_NO_REPAIR_NEEDED,	"norepair" }
+
 DECLARE_EVENT_CLASS(xchk_class,
 	TP_PROTO(struct xfs_inode *ip, struct xfs_scrub_metadata *sm,
 		 int error),
@@ -103,14 +113,14 @@ DECLARE_EVENT_CLASS(xchk_class,
 		__entry->flags = sm->sm_flags;
 		__entry->error = error;
 	),
-	TP_printk("dev %d:%d ino 0x%llx type %s agno 0x%x inum 0x%llx gen 0x%x flags 0x%x error %d",
+	TP_printk("dev %d:%d ino 0x%llx type %s agno 0x%x inum 0x%llx gen 0x%x flags (%s) error %d",
 		  MAJOR(__entry->dev), MINOR(__entry->dev),
 		  __entry->ino,
 		  __print_symbolic(__entry->type, XFS_SCRUB_TYPE_STRINGS),
 		  __entry->agno,
 		  __entry->inum,
 		  __entry->gen,
-		  __entry->flags,
+		  __print_flags(__entry->flags, "|", XFS_SCRUB_FLAG_STRINGS),
 		  __entry->error)
 )
 #define DEFINE_SCRUB_EVENT(name) \
@@ -193,29 +203,21 @@ DECLARE_EVENT_CLASS(xchk_block_error_class,
 		__field(dev_t, dev)
 		__field(unsigned int, type)
 		__field(xfs_agnumber_t, agno)
-		__field(xfs_agblock_t, bno)
+		__field(xfs_agblock_t, agbno)
 		__field(void *, ret_ip)
 	),
 	TP_fast_assign(
-		xfs_fsblock_t	fsbno;
-		xfs_agnumber_t	agno;
-		xfs_agblock_t	bno;
-
-		fsbno = XFS_DADDR_TO_FSB(sc->mp, daddr);
-		agno = XFS_FSB_TO_AGNO(sc->mp, fsbno);
-		bno = XFS_FSB_TO_AGBNO(sc->mp, fsbno);
-
 		__entry->dev = sc->mp->m_super->s_dev;
 		__entry->type = sc->sm->sm_type;
-		__entry->agno = agno;
-		__entry->bno = bno;
+		__entry->agno = xfs_daddr_to_agno(sc->mp, daddr);
+		__entry->agbno = xfs_daddr_to_agbno(sc->mp, daddr);
 		__entry->ret_ip = ret_ip;
 	),
 	TP_printk("dev %d:%d type %s agno 0x%x agbno 0x%x ret_ip %pS",
 		  MAJOR(__entry->dev), MINOR(__entry->dev),
 		  __print_symbolic(__entry->type, XFS_SCRUB_TYPE_STRINGS),
 		  __entry->agno,
-		  __entry->bno,
+		  __entry->agbno,
 		  __entry->ret_ip)
 )
 

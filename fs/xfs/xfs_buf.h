@@ -133,7 +133,12 @@ struct xfs_buf {
 	 * fast-path on locking.
 	 */
 	struct rhash_head	b_rhash_head;	/* pag buffer hash node */
-	xfs_daddr_t		b_bn;		/* block number of buffer */
+
+	/*
+	 * b_bn is the cache index. Do not use directly, use b_maps[0].bm_bn
+	 * for the buffer disk address instead.
+	 */
+	xfs_daddr_t		b_bn;
 	int			b_length;	/* size of buffer in BBs */
 	atomic_t		b_hold;		/* reference count */
 	atomic_t		b_lru_ref;	/* lru reclaim ref count */
@@ -354,12 +359,6 @@ extern int xfs_setsize_buftarg(struct xfs_buftarg *, unsigned int);
 
 #define xfs_getsize_buftarg(buftarg)	block_size((buftarg)->bt_bdev)
 #define xfs_readonly_buftarg(buftarg)	bdev_read_only((buftarg)->bt_bdev)
-
-static inline int
-xfs_buftarg_dma_alignment(struct xfs_buftarg *bt)
-{
-	return queue_dma_alignment(bt->bt_bdev->bd_disk->queue);
-}
 
 int xfs_buf_reverify(struct xfs_buf *bp, const struct xfs_buf_ops *ops);
 bool xfs_verify_magic(struct xfs_buf *bp, __be32 dmagic);

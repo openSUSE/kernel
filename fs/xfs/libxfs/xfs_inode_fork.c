@@ -72,10 +72,10 @@ xfs_init_local_fork(
  */
 STATIC int
 xfs_iformat_local(
-	xfs_inode_t	*ip,
-	xfs_dinode_t	*dip,
-	int		whichfork,
-	int		size)
+	struct xfs_inode	*ip,
+	struct xfs_dinode	*dip,
+	int			whichfork,
+	int			size)
 {
 	/*
 	 * If the size is unreasonable, then something
@@ -84,7 +84,7 @@ xfs_iformat_local(
 	 */
 	if (unlikely(size > XFS_DFORK_SIZE(dip, ip->i_mount, whichfork))) {
 		xfs_warn(ip->i_mount,
-	"corrupt inode %Lu (bad size %d for local fork, size = %zd).",
+	"corrupt inode %llu (bad size %d for local fork, size = %zd).",
 			(unsigned long long) ip->i_ino, size,
 			XFS_DFORK_SIZE(dip, ip->i_mount, whichfork));
 		xfs_inode_verifier_error(ip, -EFSCORRUPTED,
@@ -167,8 +167,8 @@ xfs_iformat_extents(
  */
 STATIC int
 xfs_iformat_btree(
-	xfs_inode_t		*ip,
-	xfs_dinode_t		*dip,
+	struct xfs_inode	*ip,
+	struct xfs_dinode	*dip,
 	int			whichfork)
 {
 	struct xfs_mount	*mp = ip->i_mount;
@@ -198,7 +198,7 @@ xfs_iformat_btree(
 					XFS_DFORK_SIZE(dip, mp, whichfork) ||
 		     ifp->if_nextents > ip->i_nblocks) ||
 		     level == 0 || level > XFS_BM_MAXLEVELS(mp, whichfork)) {
-		xfs_warn(mp, "corrupt inode %Lu (btree).",
+		xfs_warn(mp, "corrupt inode %llu (btree).",
 					(unsigned long long) ip->i_ino);
 		xfs_inode_verifier_error(ip, -EFSCORRUPTED,
 				"xfs_iformat_btree", dfp, size,
@@ -586,8 +586,8 @@ xfs_iextents_copy(
  */
 void
 xfs_iflush_fork(
-	xfs_inode_t		*ip,
-	xfs_dinode_t		*dip,
+	struct xfs_inode	*ip,
+	struct xfs_dinode	*dip,
 	struct xfs_inode_log_item *iip,
 	int			whichfork)
 {

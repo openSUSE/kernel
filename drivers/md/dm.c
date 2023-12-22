@@ -29,6 +29,10 @@
 #include <linux/part_stat.h>
 #include <linux/blk-crypto.h>
 #include <linux/keyslot-manager.h>
+#ifndef __GENKSYMS__
+#include <scsi/sg.h>
+#include <scsi/scsi.h>
+#endif
 
 #define DM_MSG_PREFIX "core"
 
@@ -408,8 +412,9 @@ static int dm_blk_getgeo(struct block_device *bdev, struct hd_geometry *geo)
 	return dm_get_geometry(md, geo);
 }
 
-static int dm_prepare_ioctl(struct mapped_device *md, int *srcu_idx,
-			    struct block_device **bdev)
+static int _dm_prepare_ioctl(struct mapped_device *md, int *srcu_idx,
+			     struct block_device **bdev,
+			     struct dm_target **tgt0)
 {
 	struct dm_target *tgt;
 	struct dm_table *map;
@@ -439,7 +444,16 @@ retry:
 		goto retry;
 	}
 
+	if (r >= 0 && tgt0)
+		*tgt0 = tgt;
+
 	return r;
+}
+
+static int dm_prepare_ioctl(struct mapped_device *md, int *srcu_idx,
+			    struct block_device **bdev)
+{
+	return _dm_prepare_ioctl(md, srcu_idx, bdev, NULL);
 }
 
 static void dm_unprepare_ioctl(struct mapped_device *md, int srcu_idx)
@@ -447,11 +461,118 @@ static void dm_unprepare_ioctl(struct mapped_device *md, int srcu_idx)
 	dm_put_live_table(md, srcu_idx);
 }
 
+static int dm_sg_io_ioctl(struct block_device *bdev, fmode_t mode,
+			  void __user *arg)
+{
+	struct mapped_device *md = bdev->bd_disk->private_data;
+	struct sg_io_hdr hdr;
+	int rc, srcu_idx;
+
+	if (copy_from_user(&hdr, arg, sizeof(hdr)))
+		return -EFAULT;
+
+	if (hdr.interface_id != 'S')
+		return -EINVAL;
+
+	if (hdr.dxfer_len > (queue_max_hw_sectors(bdev->bd_disk->queue) << 9))
+		return -EIO;
+
+	for (;;) {
+		struct dm_target *tgt;
+		struct sg_io_hdr rhdr;
+
+		rc = _dm_prepare_ioctl(md, &srcu_idx, &bdev, &tgt);
+		if (rc < 0) {
+			pr_err("%s: failed to get path: %d\n",
+			       __func__, rc);
+			goto out;
+		}
+
+		rhdr = hdr;
+
+		rc = sg_io(bdev->bd_disk->queue, bdev->bd_disk, &rhdr, mode);
+		dev_dbg(&bdev->bd_disk->part0->bd_device, "rc = %d D%02xH%02xM%02xS%02x %s\n",
+			rc,
+			rhdr.driver_status,
+			rhdr.host_status,
+			rhdr.msg_status,
+			rhdr.status,
+			(rhdr.info & SG_INFO_CHECK ? " INFO!" : ""));
+
+		if (rhdr.info & SG_INFO_CHECK) {
+			/*
+			 * See if this is a target or path error.
+			 * Compare blk_path_error(), scsi_result_to_blk_status(),
+			 * blk_errors[].
+			 */
+			switch (rhdr.host_status) {
+			case DID_OK:
+				if (scsi_status_is_good(rhdr.status))
+					rc = 0;
+				break;
+			case DID_TARGET_FAILURE:
+				rc = -EREMOTEIO;
+				goto out;
+			case DID_NEXUS_FAILURE:
+				rc = -EBADE;
+				goto out;
+			case DID_ALLOC_FAILURE:
+				rc = -ENOSPC;
+				goto out;
+			case DID_MEDIUM_ERROR:
+				rc = -ENODATA;
+				goto out;
+			default:
+				/* Everything else is a path error */
+				rc = -EIO;
+				break;
+			}
+		}
+
+		if (rc == 0) {
+			/* success */
+			if (copy_to_user(arg, &rhdr, sizeof(rhdr)))
+				rc = -EFAULT;
+			goto out;
+		}
+
+		/* Failure - fail path by sending a message to the target */
+		if (!tgt->type->message) {
+			DMWARN("invalid target!");
+			rc = -EIO;
+			goto out;
+		} else {
+			char bdbuf[BDEVNAME_SIZE];
+			char *argv[2] = { "fail_path", bdbuf };
+
+			scnprintf(bdbuf, sizeof(bdbuf), "%u:%u",
+				  MAJOR(bdev->bd_dev), MINOR(bdev->bd_dev));
+			dev_info(&bdev->bd_disk->part0->bd_device, "sending %s %s\n",
+				 argv[0], argv[1]);
+			rc = tgt->type->message(tgt, 2, argv, NULL, 0);
+			if (rc < 0)
+				goto out;
+		}
+
+		dm_unprepare_ioctl(md, srcu_idx);
+	}
+out:
+	dm_unprepare_ioctl(md, srcu_idx);
+	return rc;
+}
+
 static int dm_blk_ioctl(struct block_device *bdev, fmode_t mode,
 			unsigned int cmd, unsigned long arg)
 {
 	struct mapped_device *md = bdev->bd_disk->private_data;
 	int r, srcu_idx;
+
+	if ((dm_get_md_type(md) == DM_TYPE_REQUEST_BASED) &&
+            cmd == SG_IO) {
+		void __user *p = (void __user *)arg;
+
+		return dm_sg_io_ioctl(bdev, mode, p);
+	}
 
 	r = dm_prepare_ioctl(md, &srcu_idx, &bdev);
 	if (r < 0)
