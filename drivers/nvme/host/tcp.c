@@ -2164,10 +2164,11 @@ static void nvme_tcp_teardown_io_queues(struct nvme_ctrl *ctrl,
 
 static void nvme_tcp_reconnect_or_remove(struct nvme_ctrl *ctrl)
 {
+	enum nvme_ctrl_state state = nvme_ctrl_state(ctrl);
+
 	/* If we are resetting/deleting then do nothing */
-	if (ctrl->state != NVME_CTRL_CONNECTING) {
-		WARN_ON_ONCE(ctrl->state == NVME_CTRL_NEW ||
-			ctrl->state == NVME_CTRL_LIVE);
+	if (state != NVME_CTRL_CONNECTING) {
+		WARN_ON_ONCE(state == NVME_CTRL_NEW || state == NVME_CTRL_LIVE);
 		return;
 	}
 
@@ -2227,8 +2228,10 @@ static int nvme_tcp_setup_ctrl(struct nvme_ctrl *ctrl, bool new)
 		 * unless we're during creation of a new controller to
 		 * avoid races with teardown flow.
 		 */
-		WARN_ON_ONCE(ctrl->state != NVME_CTRL_DELETING &&
-			     ctrl->state != NVME_CTRL_DELETING_NOIO);
+		enum nvme_ctrl_state state = nvme_ctrl_state(ctrl);
+
+		WARN_ON_ONCE(state != NVME_CTRL_DELETING &&
+			     state != NVME_CTRL_DELETING_NOIO);
 		WARN_ON_ONCE(new);
 		ret = -EINVAL;
 		goto destroy_io;
@@ -2292,8 +2295,10 @@ static void nvme_tcp_error_recovery_work(struct work_struct *work)
 
 	if (!nvme_change_ctrl_state(ctrl, NVME_CTRL_CONNECTING)) {
 		/* state change failure is ok if we started ctrl delete */
-		WARN_ON_ONCE(ctrl->state != NVME_CTRL_DELETING &&
-			     ctrl->state != NVME_CTRL_DELETING_NOIO);
+		enum nvme_ctrl_state state = nvme_ctrl_state(ctrl);
+
+		WARN_ON_ONCE(state != NVME_CTRL_DELETING &&
+			     state != NVME_CTRL_DELETING_NOIO);
 		return;
 	}
 
@@ -2323,8 +2328,10 @@ static void nvme_reset_ctrl_work(struct work_struct *work)
 
 	if (!nvme_change_ctrl_state(ctrl, NVME_CTRL_CONNECTING)) {
 		/* state change failure is ok if we started ctrl delete */
-		WARN_ON_ONCE(ctrl->state != NVME_CTRL_DELETING &&
-			     ctrl->state != NVME_CTRL_DELETING_NOIO);
+		enum nvme_ctrl_state state = nvme_ctrl_state(ctrl);
+
+		WARN_ON_ONCE(state != NVME_CTRL_DELETING &&
+			     state != NVME_CTRL_DELETING_NOIO);
 		return;
 	}
 
@@ -2446,11 +2453,11 @@ static enum blk_eh_timer_return nvme_tcp_timeout(struct request *rq)
 	 * If the error recovery is started all commands will be
 	 * aborted anyway, and nothing is to be done here.
 	 */
-	if (ctrl->state == NVME_CTRL_RESETTING &&
+	if (nvme_ctrl_state(ctrl) == NVME_CTRL_RESETTING &&
 	    delayed_work_pending(&to_tcp_ctrl(ctrl)->err_work))
 		return BLK_EH_RESET_TIMER;
 
-	if (ctrl->state != NVME_CTRL_LIVE) {
+	if (nvme_ctrl_state(ctrl) != NVME_CTRL_LIVE) {
 		/*
 		 * If we are resetting, connecting or deleting we should
 		 * complete immediately because we may block controller
