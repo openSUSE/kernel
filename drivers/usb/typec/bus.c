@@ -156,10 +156,18 @@ EXPORT_SYMBOL_GPL(typec_altmode_exit);
  */
 void typec_altmode_attention(struct typec_altmode *adev, u32 vdo)
 {
-	struct typec_altmode *pdev = &to_altmode(adev)->partner->adev;
+	struct altmode *partner = to_altmode(adev)->partner;
+	struct typec_altmode *pdev;
+
+	if (!partner)
+		return;
+
+	pdev = &partner->adev;
 
 	if (pdev->ops && pdev->ops->attention)
 		pdev->ops->attention(pdev, vdo);
+
+	return;
 }
 EXPORT_SYMBOL_GPL(typec_altmode_attention);
 
