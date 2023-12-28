@@ -1387,11 +1387,10 @@ static void sd_uninit_command(struct scsi_cmnd *SCpnt)
 		mempool_free(rq->special_vec.bv_page, sd_page_pool);
 }
 
-static bool sd_need_revalidate(struct block_device *bdev,
-		struct scsi_disk *sdkp)
+static bool sd_need_revalidate(struct gendisk *disk, struct scsi_disk *sdkp)
 {
 	if (sdkp->device->removable || sdkp->write_prot) {
-		if (bdev_check_media_change(bdev))
+		if (disk_check_media_change(disk))
 			return true;
 	}
 
@@ -1400,7 +1399,7 @@ static bool sd_need_revalidate(struct block_device *bdev,
 	 * nothing to do with partitions, BLKRRPART is used to force a full
 	 * revalidate after things like a format for historical reasons.
 	 */
-	return test_bit(GD_NEED_PART_SCAN, &bdev->bd_disk->state);
+	return test_bit(GD_NEED_PART_SCAN, &disk->state);
 }
 
 /**
@@ -1437,7 +1436,7 @@ static int sd_open(struct block_device *bdev, fmode_t mode)
 	if (!scsi_block_when_processing_errors(sdev))
 		goto error_out;
 
-	if (sd_need_revalidate(bdev, sdkp))
+	if (sd_need_revalidate(bdev->bd_disk, sdkp))
 		sd_revalidate_disk(bdev->bd_disk);
 
 	/*
