@@ -1141,7 +1141,7 @@ static void ext4_blkdev_remove(struct ext4_sb_info *sbi)
 		 * hotswapped, and it breaks the `ro-after' testing code.
 		 */
 		invalidate_bdev(bdev);
-		blkdev_put(bdev, sbi->s_es);
+		blkdev_put(bdev, sbi->s_sb);
 		sbi->s_journal_bdev = NULL;
 	}
 }
