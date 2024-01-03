@@ -1350,6 +1350,15 @@ unlock:
 	hci_conn_check_pending(hdev);
 }
 
+static void hci_reject_conn(struct hci_dev *hdev, bdaddr_t *bdaddr)
+{
+       struct hci_cp_reject_conn_req cp;
+
+       bacpy(&cp.bdaddr, bdaddr);
+       cp.reason = 0x0f;
+       hci_send_cmd(hdev, HCI_OP_REJECT_CONN_REQ, sizeof(cp), &cp);
+}
+
 static inline void hci_conn_request_evt(struct hci_dev *hdev, struct sk_buff *skb)
 {
 	struct hci_ev_conn_request *ev = (void *) skb->data;
@@ -1357,6 +1366,17 @@ static inline void hci_conn_request_evt(struct hci_dev *hdev, struct sk_buff *sk
 
 	BT_DBG("%s bdaddr %s type 0x%x", hdev->name,
 					batostr(&ev->bdaddr), ev->link_type);
+
+	/* Reject incoming connection from device with same BD ADDR against
+	 * CVE-2020-26555
+	 */
+	if (!bacmp(&hdev->bdaddr, &ev->bdaddr))
+	{
+		BT_DBG("Reject connection with same BD_ADDR %pMR\n",
+			&ev->bdaddr);
+		hci_reject_conn(hdev, &ev->bdaddr);
+		return;
+	}
 
 	mask |= hci_proto_connect_ind(hdev, &ev->bdaddr, ev->link_type);
 
