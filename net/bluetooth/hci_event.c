@@ -45,6 +45,9 @@
 #include <net/bluetooth/bluetooth.h>
 #include <net/bluetooth/hci_core.h>
 
+#define ZERO_KEY "\x00\x00\x00\x00\x00\x00\x00\x00" \
+		 "\x00\x00\x00\x00\x00\x00\x00\x00"
+
 /* Handle HCI Event packets */
 
 static void hci_cc_inquiry_cancel(struct hci_dev *hdev, struct sk_buff *skb)
@@ -2126,6 +2129,14 @@ static inline void hci_link_key_notify_evt(struct hci_dev *hdev, struct sk_buff 
 
 	conn = hci_conn_hash_lookup_ba(hdev, ACL_LINK, &ev->bdaddr);
 	if (conn) {
+		/* Ignore NULL link key against CVE-2020-26555 */
+		if (!memcmp(ev->link_key, ZERO_KEY, 16)) {
+			BT_DBG("Ignore NULL link key (ZERO KEY) for %pMR",
+				&ev->bdaddr);
+			hci_acl_disconn(conn, 0x05);
+			hci_conn_put(conn);
+			goto unlock;
+		}
 		hci_conn_hold(conn);
 		conn->disc_timeout = HCI_DISCONN_TIMEOUT;
 		pin_len = conn->pin_length;
@@ -2140,6 +2151,7 @@ static inline void hci_link_key_notify_evt(struct hci_dev *hdev, struct sk_buff 
 		hci_add_link_key(hdev, conn, 1, &ev->bdaddr, ev->link_key,
 							ev->key_type, pin_len);
 
+unlock:
 	hci_dev_unlock(hdev);
 }
 
