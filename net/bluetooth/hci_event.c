@@ -1370,8 +1370,7 @@ static inline void hci_conn_request_evt(struct hci_dev *hdev, struct sk_buff *sk
 	/* Reject incoming connection from device with same BD ADDR against
 	 * CVE-2020-26555
 	 */
-	if (!bacmp(&hdev->bdaddr, &ev->bdaddr))
-	{
+	if (!bacmp(&hdev->bdaddr, &ev->bdaddr)) {
 		BT_DBG("Reject connection with same BD_ADDR %pMR\n",
 			&ev->bdaddr);
 		hci_reject_conn(hdev, &ev->bdaddr);
