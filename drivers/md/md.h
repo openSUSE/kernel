@@ -213,6 +213,9 @@ enum flag_bits {
 				 * check if there is collision between raid1
 				 * serial bios.
 				 */
+	Holder,			/* rdev is used as holder while opening
+				 * underlying disk exclusively.
+				 */
 	Timeout,		/* Device fault due to timeout.
 				 * 'Faulty' is required to be set.
 				 */
