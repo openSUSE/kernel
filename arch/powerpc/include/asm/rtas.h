@@ -3,6 +3,7 @@
 #define _POWERPC_RTAS_H
 #ifdef __KERNEL__
 
+#include <linux/mutex.h>
 #include <linux/spinlock.h>
 #include <asm/page.h>
 #include <asm/rtas-types.h>
@@ -421,8 +422,6 @@ static inline bool rtas_function_implemented(const rtas_fn_handle_t handle)
 {
 	return rtas_function_token(handle) != RTAS_UNKNOWN_SERVICE;
 }
-void rtas_function_lock(rtas_fn_handle_t handle);
-void rtas_function_unlock(rtas_fn_handle_t handle);
 extern int rtas_token(const char *service);
 extern int rtas_service_present(const char *service);
 extern int rtas_call(int token, int, int, int *, ...);
@@ -516,6 +515,8 @@ extern char rtas_data_buf[RTAS_DATA_BUF_SIZE];
 
 /* RMO buffer reserved for user-space RTAS use */
 extern unsigned long rtas_rmo_buf;
+
+extern struct mutex rtas_ibm_get_vpd_lock;
 
 #define GLOBAL_INTERRUPT_QUEUE 9005
 

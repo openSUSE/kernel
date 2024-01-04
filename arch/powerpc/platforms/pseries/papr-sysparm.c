@@ -11,6 +11,7 @@
 #include <linux/miscdevice.h>
 #include <linux/printk.h>
 #include <linux/slab.h>
+#include <linux/uaccess.h>
 #include <asm/machdep.h>
 #include <asm/papr-sysparm.h>
 #include <asm/rtas-work-area.h>
@@ -319,7 +320,10 @@ static long papr_sysparm_ioctl(struct file *filp, unsigned int ioctl, unsigned l
 		ret = papr_sysparm_ioctl_get(argp);
 		break;
 	case PAPR_SYSPARM_IOC_SET:
-		ret = papr_sysparm_ioctl_set(argp);
+		if (filp->f_mode & FMODE_WRITE)
+			ret = papr_sysparm_ioctl_set(argp);
+		else
+			ret = -EBADF;
 		break;
 	default:
 		ret = -ENOIOCTLCMD;
