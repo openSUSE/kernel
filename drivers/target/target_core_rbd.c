@@ -169,7 +169,7 @@ static void tcm_rbd_destroy_device(struct se_device *dev)
 	struct tcm_rbd_dev *tcm_rbd_dev = TCM_RBD_DEV(dev);
 
 	if (tcm_rbd_dev->bd != NULL)
-		blkdev_put(tcm_rbd_dev->bd, FMODE_WRITE|FMODE_READ|FMODE_EXCL);
+		blkdev_put(tcm_rbd_dev->bd, tcm_rbd_dev);
 }
 
 static sector_t tcm_rbd_get_blocks(struct se_device *dev)

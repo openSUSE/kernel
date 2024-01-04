@@ -2464,7 +2464,10 @@ static void rdev_delayed_delete(struct work_struct *ws)
 
 void md_autodetect_dev(dev_t dev);
 
-static void export_rdev(struct md_rdev *rdev)
+/* just for claiming the bdev */
+static struct md_rdev claim_rdev;
+
+static void export_rdev(struct md_rdev *rdev, struct mddev *mddev)
 {
 	pr_debug("md: export_rdev(%pg)\n", rdev->bdev);
 	md_rdev_clear(rdev);
@@ -2472,7 +2475,8 @@ static void export_rdev(struct md_rdev *rdev)
 	if (test_bit(AutoDetected, &rdev->flags))
 		md_autodetect_dev(rdev->bdev->bd_dev);
 #endif
-	blkdev_put(rdev->bdev, FMODE_READ | FMODE_WRITE | FMODE_EXCL);
+	blkdev_put(rdev->bdev,
+		   test_bit(Holder, &rdev->flags) ? rdev : &claim_rdev);
 	rdev->bdev = NULL;
 	kobject_put(&rdev->kobj);
 }
@@ -2500,7 +2504,7 @@ static void md_kick_rdev_from_array(struct md_rdev *rdev)
 	INIT_WORK(&rdev->del_work, rdev_delayed_delete);
 	kobject_get(&rdev->kobj);
 	queue_work(md_rdev_misc_wq, &rdev->del_work);
-	export_rdev(rdev);
+	export_rdev(rdev, rdev->mddev);
 }
 
 static void export_array(struct mddev *mddev)
@@ -3635,6 +3639,7 @@ int md_rdev_init(struct md_rdev *rdev)
 	return badblocks_init(&rdev->badblocks, 0);
 }
 EXPORT_SYMBOL_GPL(md_rdev_init);
+
 /*
  * Import a device. If 'super_format' >= 0, then sanity check the superblock
  *
@@ -3647,8 +3652,8 @@ EXPORT_SYMBOL_GPL(md_rdev_init);
  */
 static struct md_rdev *md_import_device(dev_t newdev, int super_format, int super_minor)
 {
-	static struct md_rdev claim_rdev; /* just for claiming the bdev */
 	struct md_rdev *rdev;
+	struct md_rdev *holder;
 	sector_t size;
 	int err;
 
@@ -3663,9 +3668,15 @@ static struct md_rdev *md_import_device(dev_t newdev, int super_format, int supe
 	if (err)
 		goto out_clear_rdev;
 
-	rdev->bdev = blkdev_get_by_dev(newdev,
-			FMODE_READ | FMODE_WRITE | FMODE_EXCL,
-			super_format == -2 ? &claim_rdev : rdev, NULL);
+	if (super_format == -2) {
+		holder = &claim_rdev;
+	} else {
+		holder = rdev;
+		set_bit(Holder, &rdev->flags);
+	}
+
+	rdev->bdev = blkdev_get_by_dev(newdev, FMODE_READ | FMODE_WRITE,
+				       holder, NULL);
 	if (IS_ERR(rdev->bdev)) {
 		pr_warn("md: could not open device unknown-block(%u,%u).\n",
 			MAJOR(newdev), MINOR(newdev));
@@ -3702,7 +3713,7 @@ static struct md_rdev *md_import_device(dev_t newdev, int super_format, int supe
 	return rdev;
 
 out_blkdev_put:
-	blkdev_put(rdev->bdev, FMODE_READ | FMODE_WRITE | FMODE_EXCL);
+	blkdev_put(rdev->bdev, holder);
 out_clear_rdev:
 	md_rdev_clear(rdev);
 out_free_rdev:
@@ -4586,7 +4597,7 @@ new_dev_store(struct mddev *mddev, const char *buf, size_t len)
 	err = bind_rdev_to_array(rdev, mddev);
  out:
 	if (err)
-		export_rdev(rdev);
+		export_rdev(rdev, mddev);
 	mddev_unlock(mddev);
 	if (!err)
 		md_new_event();
@@ -6166,7 +6177,7 @@ static void md_clean(struct mddev *mddev)
 	mddev->resync_min = 0;
 	mddev->resync_max = MaxSector;
 	mddev->reshape_position = MaxSector;
-	mddev->external = 0;
+	/* we still need mddev->external in export_rdev, do not clear it yet */
 	mddev->persistent = 0;
 	mddev->level = LEVEL_NONE;
 	mddev->clevel[0] = 0;
@@ -6536,7 +6547,7 @@ static void autorun_devices(int part)
 			rdev_for_each_list(rdev, tmp, &candidates) {
 				list_del_init(&rdev->same_set);
 				if (bind_rdev_to_array(rdev, mddev))
-					export_rdev(rdev);
+					export_rdev(rdev, mddev);
 			}
 			autorun_array(mddev);
 			mddev_unlock(mddev);
@@ -6546,7 +6557,7 @@ static void autorun_devices(int part)
 		 */
 		rdev_for_each_list(rdev, tmp, &candidates) {
 			list_del_init(&rdev->same_set);
-			export_rdev(rdev);
+			export_rdev(rdev, mddev);
 		}
 		mddev_put(mddev);
 	}
@@ -6736,13 +6747,13 @@ int md_add_new_disk(struct mddev *mddev, struct mdu_disk_info_s *info)
 				pr_warn("md: %pg has different UUID to %pg\n",
 					rdev->bdev,
 					rdev0->bdev);
-				export_rdev(rdev);
+				export_rdev(rdev, mddev);
 				return -EINVAL;
 			}
 		}
 		err = bind_rdev_to_array(rdev, mddev);
 		if (err)
-			export_rdev(rdev);
+			export_rdev(rdev, mddev);
 		return err;
 	}
 
@@ -6786,7 +6797,7 @@ int md_add_new_disk(struct mddev *mddev, struct mdu_disk_info_s *info)
 			/* This was a hot-add request, but events doesn't
 			 * match, so reject it.
 			 */
-			export_rdev(rdev);
+			export_rdev(rdev, mddev);
 			return -EINVAL;
 		}
 
@@ -6812,7 +6823,7 @@ int md_add_new_disk(struct mddev *mddev, struct mdu_disk_info_s *info)
 				}
 			}
 			if (has_journal || mddev->bitmap) {
-				export_rdev(rdev);
+				export_rdev(rdev, mddev);
 				return -EBUSY;
 			}
 			set_bit(Journal, &rdev->flags);
@@ -6827,7 +6838,7 @@ int md_add_new_disk(struct mddev *mddev, struct mdu_disk_info_s *info)
 				/* --add initiated by this node */
 				err = md_cluster_ops->add_new_disk(mddev, rdev);
 				if (err) {
-					export_rdev(rdev);
+					export_rdev(rdev, mddev);
 					return err;
 				}
 			}
@@ -6837,7 +6848,7 @@ int md_add_new_disk(struct mddev *mddev, struct mdu_disk_info_s *info)
 		err = bind_rdev_to_array(rdev, mddev);
 
 		if (err)
-			export_rdev(rdev);
+			export_rdev(rdev, mddev);
 
 		if (mddev_is_clustered(mddev)) {
 			if (info->state & (1 << MD_DISK_CANDIDATE)) {
@@ -6900,7 +6911,7 @@ int md_add_new_disk(struct mddev *mddev, struct mdu_disk_info_s *info)
 
 		err = bind_rdev_to_array(rdev, mddev);
 		if (err) {
-			export_rdev(rdev);
+			export_rdev(rdev, mddev);
 			return err;
 		}
 	}
@@ -7025,7 +7036,7 @@ static int hot_add_disk(struct mddev *mddev, dev_t dev)
 	return 0;
 
 abort_export:
-	export_rdev(rdev);
+	export_rdev(rdev, mddev);
 	return err;
 }
 
@@ -7807,13 +7818,13 @@ out_unlock:
 	return err;
 }
 
-static int md_open(struct block_device *bdev, fmode_t mode)
+static int md_open(struct gendisk *disk, fmode_t mode)
 {
 	struct mddev *mddev;
 	int err;
 
 	spin_lock(&all_mddevs_lock);
-	mddev = mddev_get(bdev->bd_disk->private_data);
+	mddev = mddev_get(disk->private_data);
 	spin_unlock(&all_mddevs_lock);
 	if (!mddev)
 		return -ENODEV;
@@ -7829,7 +7840,7 @@ static int md_open(struct block_device *bdev, fmode_t mode)
 	atomic_inc(&mddev->openers);
 	mutex_unlock(&mddev->open_mutex);
 
-	bdev_check_media_change(bdev);
+	disk_check_media_change(disk);
 	return 0;
 
 out_unlock:
@@ -7839,7 +7850,7 @@ out:
 	return err;
 }
 
-static void md_release(struct gendisk *disk, fmode_t mode)
+static void md_release(struct gendisk *disk)
 {
 	struct mddev *mddev = disk->private_data;
 

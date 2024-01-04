@@ -1114,7 +1114,7 @@ static struct block_device *ext4_blkdev_get(dev_t dev, struct super_block *sb)
 {
 	struct block_device *bdev;
 
-	bdev = blkdev_get_by_dev(dev, FMODE_READ|FMODE_WRITE|FMODE_EXCL, sb,
+	bdev = blkdev_get_by_dev(dev, FMODE_READ | FMODE_WRITE, sb,
 				 &ext4_holder_ops);
 	if (IS_ERR(bdev))
 		goto fail;
@@ -1130,11 +1130,6 @@ fail:
 /*
  * Release the journal device
  */
-static void ext4_blkdev_put(struct block_device *bdev)
-{
-	blkdev_put(bdev, FMODE_READ|FMODE_WRITE|FMODE_EXCL);
-}
-
 static void ext4_blkdev_remove(struct ext4_sb_info *sbi)
 {
 	struct block_device *bdev;
@@ -1146,7 +1141,7 @@ static void ext4_blkdev_remove(struct ext4_sb_info *sbi)
 		 * hotswapped, and it breaks the `ro-after' testing code.
 		 */
 		invalidate_bdev(bdev);
-		ext4_blkdev_put(bdev);
+		blkdev_put(bdev, sbi->s_sb);
 		sbi->s_journal_bdev = NULL;
 	}
 }
@@ -5939,7 +5934,7 @@ static journal_t *ext4_get_dev_journal(struct super_block *sb,
 out_journal:
 	jbd2_journal_destroy(journal);
 out_bdev:
-	ext4_blkdev_put(bdev);
+	blkdev_put(bdev, sb);
 	return NULL;
 }
 
