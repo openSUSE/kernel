@@ -227,9 +227,9 @@ static blk_status_t ubiblock_read(struct request *req)
 	return BLK_STS_OK;
 }
 
-static int ubiblock_open(struct block_device *bdev, fmode_t mode)
+static int ubiblock_open(struct gendisk *disk, fmode_t mode)
 {
-	struct ubiblock *dev = bdev->bd_disk->private_data;
+	struct ubiblock *dev = disk->private_data;
 	int ret;
 
 	mutex_lock(&dev->dev_mutex);
@@ -270,7 +270,7 @@ out_unlock:
 	return ret;
 }
 
-static void ubiblock_release(struct gendisk *gd, fmode_t mode)
+static void ubiblock_release(struct gendisk *gd)
 {
 	struct ubiblock *dev = gd->private_data;
 
