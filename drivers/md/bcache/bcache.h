@@ -179,6 +179,7 @@
 #define pr_fmt(fmt) "bcache: %s() " fmt, __func__
 
 #include <linux/bio.h>
+#include <linux/closure.h>
 #include <linux/kobject.h>
 #include <linux/list.h>
 #include <linux/mutex.h>
@@ -192,7 +193,6 @@
 #include "bcache_ondisk.h"
 #include "bset.h"
 #include "util.h"
-#include "closure.h"
 
 struct bucket {
 	atomic_t	pin;
@@ -265,6 +265,7 @@ struct bcache_device {
 #define BCACHE_DEV_WB_RUNNING		3
 #define BCACHE_DEV_RATE_DW_RUNNING	4
 	int			nr_stripes;
+#define BCH_MIN_STRIPE_SZ		((4 << 20) >> SECTOR_SHIFT)
 	unsigned int		stripe_size;
 	atomic_t		*stripe_sectors_dirty;
 	unsigned long		*full_dirty_stripes;
@@ -1004,11 +1005,11 @@ extern struct workqueue_struct *bch_flush_wq;
 extern struct mutex bch_register_lock;
 extern struct list_head bch_cache_sets;
 
-extern struct kobj_type bch_cached_dev_ktype;
-extern struct kobj_type bch_flash_dev_ktype;
-extern struct kobj_type bch_cache_set_ktype;
-extern struct kobj_type bch_cache_set_internal_ktype;
-extern struct kobj_type bch_cache_ktype;
+extern const struct kobj_type bch_cached_dev_ktype;
+extern const struct kobj_type bch_flash_dev_ktype;
+extern const struct kobj_type bch_cache_set_ktype;
+extern const struct kobj_type bch_cache_set_internal_ktype;
+extern const struct kobj_type bch_cache_ktype;
 
 void bch_cached_dev_release(struct kobject *kobj);
 void bch_flash_dev_release(struct kobject *kobj);
