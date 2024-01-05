@@ -9445,8 +9445,13 @@ static void md_start_sync(struct work_struct *ws)
 {
 	struct mddev *mddev = container_of(ws, struct mddev, sync_work);
 	int spares = 0;
+	bool suspend = false;
 
-	mddev_lock_nointr(mddev);
+	if (md_spares_need_change(mddev))
+		suspend = true;
+
+	suspend ? mddev_suspend_and_lock_nointr(mddev) :
+		  mddev_lock_nointr(mddev);
 
 	if (!md_is_rdwr(mddev)) {
 		/*
@@ -9482,7 +9487,7 @@ static void md_start_sync(struct work_struct *ws)
 		goto not_running;
 	}
 
-	mddev_unlock(mddev);
+	suspend ? mddev_unlock_and_resume(mddev) : mddev_unlock(mddev);
 	md_wakeup_thread(mddev->sync_thread);
 	sysfs_notify_dirent_safe(mddev->sysfs_action);
 	md_new_event();
@@ -9494,7 +9499,7 @@ not_running:
 	clear_bit(MD_RECOVERY_REQUESTED, &mddev->recovery);
 	clear_bit(MD_RECOVERY_CHECK, &mddev->recovery);
 	clear_bit(MD_RECOVERY_RUNNING, &mddev->recovery);
-	mddev_unlock(mddev);
+	suspend ? mddev_unlock_and_resume(mddev) : mddev_unlock(mddev);
 
 	wake_up(&resync_wait);
 	if (test_and_clear_bit(MD_RECOVERY_RECOVER, &mddev->recovery) &&
