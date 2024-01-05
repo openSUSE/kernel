@@ -1674,13 +1674,6 @@ static void i915_oa_stream_destroy(struct i915_perf_stream *stream)
 
 	free_oa_buffer(stream);
 
-	/*
-	 * Wa_16011777198:dg2: Unset the override of GUCRC mode to enable rc6.
-	 */
-	if (stream->override_gucrc)
-		drm_WARN_ON(&gt->i915->drm,
-			    intel_guc_slpc_unset_gucrc_mode(&gt->uc.guc.slpc));
-
 	intel_uncore_forcewake_put(stream->uncore, FORCEWAKE_ALL);
 	intel_engine_pm_put(stream->engine);
 
@@ -3226,11 +3219,10 @@ get_sseu_config(struct intel_sseu *out_sseu,
  */
 u32 i915_perf_oa_timestamp_frequency(struct drm_i915_private *i915)
 {
-	/*
-	 * Wa_18013179988:dg2
-	 * Wa_14015846243:mtl
-	 */
-	if (IS_DG2(i915) || IS_METEORLAKE(i915)) {
+	struct intel_gt *gt = to_gt(i915);
+
+	/* Wa_18013179988 */
+	if (IS_DG2(i915) || IS_GFX_GT_IP_RANGE(gt, IP_VER(12, 70), IP_VER(12, 71))) {
 		intel_wakeref_t wakeref;
 		u32 reg, shift;
 
@@ -3271,7 +3263,6 @@ static int i915_oa_stream_init(struct i915_perf_stream *stream,
 	struct drm_i915_private *i915 = stream->perf->i915;
 	struct i915_perf *perf = stream->perf;
 	struct i915_perf_group *g;
-	struct intel_gt *gt;
 	int ret;
 
 	if (!props->engine) {
@@ -3279,7 +3270,6 @@ static int i915_oa_stream_init(struct i915_perf_stream *stream,
 			"OA engine not specified\n");
 		return -EINVAL;
 	}
-	gt = props->engine->gt;
 	g = props->engine->oa_group;
 
 	/*
@@ -3380,25 +3370,6 @@ static int i915_oa_stream_init(struct i915_perf_stream *stream,
 	intel_engine_pm_get(stream->engine);
 	intel_uncore_forcewake_get(stream->uncore, FORCEWAKE_ALL);
 
-	/*
-	 * Wa_16011777198:dg2: GuC resets render as part of the Wa. This causes
-	 * OA to lose the configuration state. Prevent this by overriding GUCRC
-	 * mode.
-	 */
-	if (intel_uc_uses_guc_rc(&gt->uc) &&
-	    (IS_DG2_GRAPHICS_STEP(gt->i915, G10, STEP_A0, STEP_C0) ||
-	     IS_DG2_GRAPHICS_STEP(gt->i915, G11, STEP_A0, STEP_B0))) {
-		ret = intel_guc_slpc_override_gucrc_mode(&gt->uc.guc.slpc,
-							 SLPC_GUCRC_MODE_GUCRC_NO_RC6);
-		if (ret) {
-			drm_dbg(&stream->perf->i915->drm,
-				"Unable to override gucrc mode\n");
-			goto err_gucrc;
-		}
-
-		stream->override_gucrc = true;
-	}
-
 	ret = alloc_oa_buffer(stream);
 	if (ret)
 		goto err_oa_buf_alloc;
@@ -3435,10 +3406,6 @@ err_enable:
 	free_oa_buffer(stream);
 
 err_oa_buf_alloc:
-	if (stream->override_gucrc)
-		intel_guc_slpc_unset_gucrc_mode(&gt->uc.guc.slpc);
-
-err_gucrc:
 	intel_uncore_forcewake_put(stream->uncore, FORCEWAKE_ALL);
 	intel_engine_pm_put(stream->engine);
 
@@ -4222,7 +4189,7 @@ static int read_properties_unlocked(struct i915_perf *perf,
 	 * C6 disable in BIOS. Fail if Media C6 is enabled on steppings where OAM
 	 * does not work as expected.
 	 */
-	if (IS_MTL_MEDIA_STEP(props->engine->i915, STEP_A0, STEP_C0) &&
+	if (IS_MEDIA_GT_IP_STEP(props->engine->gt, IP_VER(13, 0), STEP_A0, STEP_C0) &&
 	    props->engine->oa_group->type == TYPE_OAM &&
 	    intel_check_bios_c6_setup(&props->engine->gt->rc6)) {
 		drm_dbg(&perf->i915->drm,
@@ -4535,7 +4502,7 @@ static bool xehp_is_valid_b_counter_addr(struct i915_perf *perf, u32 addr)
 
 static bool gen12_is_valid_mux_addr(struct i915_perf *perf, u32 addr)
 {
-	if (IS_METEORLAKE(perf->i915))
+	if (GRAPHICS_VER_FULL(perf->i915) >= IP_VER(12, 70))
 		return reg_in_range_table(addr, mtl_oa_mux_regs);
 	else
 		return reg_in_range_table(addr, gen12_oa_mux_regs);
@@ -5323,16 +5290,9 @@ int i915_perf_ioctl_version(struct drm_i915_private *i915)
 	 * C6 disable in BIOS. If Media C6 is enabled in BIOS, return version 6
 	 * to indicate that OA media is not supported.
 	 */
-	if (IS_MTL_MEDIA_STEP(i915, STEP_A0, STEP_C0)) {
-		struct intel_gt *gt;
-		int i;
-
-		for_each_gt(gt, i915, i) {
-			if (gt->type == GT_MEDIA &&
-			    intel_check_bios_c6_setup(&gt->rc6))
-				return 6;
-		}
-	}
+	if (IS_MEDIA_GT_IP_STEP(i915->media_gt, IP_VER(13, 0), STEP_A0, STEP_C0) &&
+	    intel_check_bios_c6_setup(&i915->media_gt->rc6))
+		return 6;
 
 	return 7;
 }
