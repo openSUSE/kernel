@@ -6,12 +6,12 @@
  * Copyright 2012 Google, Inc.
  */
 
+#include <linux/closure.h>
 #include <linux/debugfs.h>
-#include <linux/module.h>
+#include <linux/export.h>
+#include <linux/rcupdate.h>
 #include <linux/seq_file.h>
 #include <linux/sched/debug.h>
-
-#include "closure.h"
 
 static inline void closure_put_after_sub(struct closure *cl, int flags)
 {
@@ -21,6 +21,10 @@ static inline void closure_put_after_sub(struct closure *cl, int flags)
 	BUG_ON(!r && (flags & ~CLOSURE_DESTRUCTOR));
 
 	if (!r) {
+		smp_acquire__after_ctrl_dep();
+
+		cl->closure_get_happened = false;
+
 		if (cl->fn && !(flags & CLOSURE_DESTRUCTOR)) {
 			atomic_set(&cl->remaining,
 				   CLOSURE_REMAINING_INITIALIZER);
@@ -32,7 +36,7 @@ static inline void closure_put_after_sub(struct closure *cl, int flags)
 			closure_debug_destroy(cl);
 
 			if (destructor)
-				destructor(cl);
+				destructor(&cl->work);
 
 			if (parent)
 				closure_put(parent);
@@ -43,16 +47,18 @@ static inline void closure_put_after_sub(struct closure *cl, int flags)
 /* For clearing flags with the same atomic op as a put */
 void closure_sub(struct closure *cl, int v)
 {
-	closure_put_after_sub(cl, atomic_sub_return(v, &cl->remaining));
+	closure_put_after_sub(cl, atomic_sub_return_release(v, &cl->remaining));
 }
+EXPORT_SYMBOL(closure_sub);
 
 /*
  * closure_put - decrement a closure's refcount
  */
 void closure_put(struct closure *cl)
 {
-	closure_put_after_sub(cl, atomic_dec_return(&cl->remaining));
+	closure_put_after_sub(cl, atomic_dec_return_release(&cl->remaining));
 }
+EXPORT_SYMBOL(closure_put);
 
 /*
  * closure_wake_up - wake up all closures on a wait list, without memory barrier
@@ -74,6 +80,7 @@ void __closure_wake_up(struct closure_waitlist *wait_list)
 		closure_sub(cl, CLOSURE_WAITING + 1);
 	}
 }
+EXPORT_SYMBOL(__closure_wake_up);
 
 /**
  * closure_wait - add a closure to a waitlist
@@ -87,20 +94,23 @@ bool closure_wait(struct closure_waitlist *waitlist, struct closure *cl)
 	if (atomic_read(&cl->remaining) & CLOSURE_WAITING)
 		return false;
 
+	cl->closure_get_happened = true;
 	closure_set_waiting(cl, _RET_IP_);
 	atomic_add(CLOSURE_WAITING + 1, &cl->remaining);
 	llist_add(&cl->list, &waitlist->list);
 
 	return true;
 }
+EXPORT_SYMBOL(closure_wait);
 
 struct closure_syncer {
 	struct task_struct	*task;
 	int			done;
 };
 
-static void closure_sync_fn(struct closure *cl)
+static CLOSURE_CALLBACK(closure_sync_fn)
 {
+	struct closure *cl = container_of(ws, struct closure, work);
 	struct closure_syncer *s = cl->s;
 	struct task_struct *p;
 
@@ -127,8 +137,9 @@ void __sched __closure_sync(struct closure *cl)
 
 	__set_current_state(TASK_RUNNING);
 }
+EXPORT_SYMBOL(__closure_sync);
 
-#ifdef CONFIG_BCACHE_CLOSURES_DEBUG
+#ifdef CONFIG_DEBUG_CLOSURES
 
 static LIST_HEAD(closure_list);
 static DEFINE_SPINLOCK(closure_list_lock);
@@ -144,6 +155,7 @@ void closure_debug_create(struct closure *cl)
 	list_add(&cl->all, &closure_list);
 	spin_unlock_irqrestore(&closure_list_lock, flags);
 }
+EXPORT_SYMBOL(closure_debug_create);
 
 void closure_debug_destroy(struct closure *cl)
 {
@@ -156,8 +168,7 @@ void closure_debug_destroy(struct closure *cl)
 	list_del(&cl->all);
 	spin_unlock_irqrestore(&closure_list_lock, flags);
 }
-
-static struct dentry *closure_debug;
+EXPORT_SYMBOL(closure_debug_destroy);
 
 static int debug_show(struct seq_file *f, void *data)
 {
@@ -181,7 +192,7 @@ static int debug_show(struct seq_file *f, void *data)
 			seq_printf(f, " W %pS\n",
 				   (void *) cl->waiting_on);
 
-		seq_printf(f, "\n");
+		seq_puts(f, "\n");
 	}
 
 	spin_unlock_irq(&closure_list_lock);
@@ -190,18 +201,11 @@ static int debug_show(struct seq_file *f, void *data)
 
 DEFINE_SHOW_ATTRIBUTE(debug);
 
-void  __init closure_debug_init(void)
+static int __init closure_debug_init(void)
 {
-	if (!IS_ERR_OR_NULL(bcache_debug))
-		/*
-		 * it is unnecessary to check return value of
-		 * debugfs_create_file(), we should not care
-		 * about this.
-		 */
-		closure_debug = debugfs_create_file(
-			"closures", 0400, bcache_debug, NULL, &debug_fops);
+	debugfs_create_file("closures", 0400, NULL, NULL, &debug_fops);
+	return 0;
 }
-#endif
+late_initcall(closure_debug_init)
 
-MODULE_AUTHOR("Kent Overstreet <koverstreet@google.com>");
-MODULE_LICENSE("GPL");
+#endif
