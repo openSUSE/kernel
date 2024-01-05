@@ -1929,7 +1929,6 @@ static int copy_params(struct dm_ioctl __user *user, struct dm_ioctl *param_kern
 	struct dm_ioctl *dmi;
 	int secure_data;
 	const size_t minimum_data_size = offsetof(struct dm_ioctl, data);
-	unsigned int noio_flag;
 
 	/* check_version() already copied version from userspace, avoid TOCTOU */
 	if (copy_from_user((char *)param_kernel + sizeof(param_kernel->version),
@@ -1959,9 +1958,7 @@ static int copy_params(struct dm_ioctl __user *user, struct dm_ioctl *param_kern
 	 * Use kmalloc() rather than vmalloc() when we can.
 	 */
 	dmi = NULL;
-	noio_flag = memalloc_noio_save();
-	dmi = kvmalloc(param_kernel->data_size, GFP_KERNEL | __GFP_HIGH);
-	memalloc_noio_restore(noio_flag);
+	dmi = kvmalloc(param_kernel->data_size, GFP_NOIO | __GFP_HIGH);
 
 	if (!dmi) {
 		if (secure_data && clear_user(user, param_kernel->data_size))
