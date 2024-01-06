@@ -3,6 +3,7 @@
 #define _POWERPC_RTAS_H
 #ifdef __KERNEL__
 
+#include <linux/mutex.h>
 #include <linux/spinlock.h>
 #include <asm/page.h>
 #include <asm/rtas-types.h>
@@ -201,10 +202,25 @@ typedef struct {
 /* Memory set aside for sys_rtas to use with calls that need a work area. */
 #define RTAS_USER_REGION_SIZE (64 * 1024)
 
-/* RTAS return status codes */
-#define RTAS_BUSY		-2    /* RTAS Busy */
-#define RTAS_EXTENDED_DELAY_MIN	9900
-#define RTAS_EXTENDED_DELAY_MAX	9905
+/*
+ * Common RTAS function return values, derived from the table "RTAS
+ * Status Word Values" in PAPR+ v2.13 7.2.8: "Return Codes". If a
+ * function can return a value in this table then generally it has the
+ * meaning listed here. More extended commentary in the documentation
+ * for rtas_call().
+ *
+ * RTAS functions may use negative and positive numbers not in this
+ * set for function-specific error and success conditions,
+ * respectively.
+ */
+#define RTAS_SUCCESS                     0 /* Success. */
+#define RTAS_HARDWARE_ERROR             -1 /* Hardware or other unspecified error. */
+#define RTAS_BUSY                       -2 /* Retry immediately. */
+#define RTAS_INVALID_PARAMETER          -3 /* Invalid indicator/domain/sensor etc. */
+#define RTAS_UNEXPECTED_STATE_CHANGE    -7 /* Seems limited to EEH and slot reset. */
+#define RTAS_EXTENDED_DELAY_MIN       9900 /* Retry after delaying for ~1ms. */
+#define RTAS_EXTENDED_DELAY_MAX       9905 /* Retry after delaying for ~100s. */
+#define RTAS_ML_ISOLATION_ERROR      -9000 /* Multi-level isolation error. */
 
 /* statuses specific to ibm,suspend-me */
 #define RTAS_SUSPEND_ABORTED     9000 /* Suspension aborted */
@@ -406,8 +422,6 @@ static inline bool rtas_function_implemented(const rtas_fn_handle_t handle)
 {
 	return rtas_function_token(handle) != RTAS_UNKNOWN_SERVICE;
 }
-void rtas_function_lock(rtas_fn_handle_t handle);
-void rtas_function_unlock(rtas_fn_handle_t handle);
 extern int rtas_token(const char *service);
 extern int rtas_service_present(const char *service);
 extern int rtas_call(int token, int, int, int *, ...);
@@ -427,6 +441,7 @@ extern int rtas_set_indicator(int indicator, int index, int new_value);
 extern int rtas_set_indicator_fast(int indicator, int index, int new_value);
 extern void rtas_progress(char *s, unsigned short hex);
 int rtas_ibm_suspend_me(int *fw_status);
+int rtas_error_rc(int rtas_rc);
 
 struct rtc_time;
 extern time64_t rtas_get_boot_time(void);
@@ -500,6 +515,8 @@ extern char rtas_data_buf[RTAS_DATA_BUF_SIZE];
 
 /* RMO buffer reserved for user-space RTAS use */
 extern unsigned long rtas_rmo_buf;
+
+extern struct mutex rtas_ibm_get_vpd_lock;
 
 #define GLOBAL_INTERRUPT_QUEUE 9005
 
