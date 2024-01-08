@@ -744,12 +744,9 @@ nfsd_file_cache_purge(struct net *net)
 			if (net && nf->nf_net != net)
 				continue;
 			del = nfsd_file_unhash_and_release_locked(nf, &dispose);
-
-			/*
-			 * Deadlock detected! Something marked this entry as
-			 * unhased, but hasn't removed it from the hash list.
+			/* If !del, nfsd_file_lru_cb() is working on this
+			 * and will free it soon - just ignore.
 			 */
-			WARN_ON_ONCE(!del);
 		}
 		spin_unlock(&nfb->nfb_lock);
 		nfsd_file_dispose_list(&dispose);
