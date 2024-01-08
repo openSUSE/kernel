@@ -1138,12 +1138,18 @@ int bpf_get_kallsym(unsigned int symnum, unsigned long *value, char *type,
 
 static inline const char *
 bpf_address_lookup(unsigned long addr, unsigned long *size,
-		   unsigned long *off, char **modname, char *sym)
+		   unsigned long *off, char **modname,
+		   const unsigned char **modbuildid, char *sym)
 {
 	const char *ret = __bpf_address_lookup(addr, size, off, sym);
 
-	if (ret && modname)
-		*modname = NULL;
+	if (ret) {
+		if (modname)
+			*modname = NULL;
+		if (modbuildid)
+			*modbuildid = NULL;
+	}
+
 	return ret;
 }
 
@@ -1204,7 +1210,8 @@ static inline int bpf_get_kallsym(unsigned int symnum, unsigned long *value,
 
 static inline const char *
 bpf_address_lookup(unsigned long addr, unsigned long *size,
-		   unsigned long *off, char **modname, char *sym)
+		   unsigned long *off, char **modname,
+		   const unsigned char **modbuildid, char *sym)
 {
 	return NULL;
 }
