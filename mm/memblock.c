@@ -315,7 +315,7 @@ static phys_addr_t __init_memblock memblock_find_in_range_node(phys_addr_t size,
  * Return:
  * Found address on success, 0 on failure.
  */
-phys_addr_t __init_memblock memblock_find_in_range(phys_addr_t start,
+static phys_addr_t __init_memblock memblock_find_in_range(phys_addr_t start,
 					phys_addr_t end, phys_addr_t size,
 					phys_addr_t align)
 {
@@ -913,6 +913,9 @@ int __init_memblock memblock_mark_mirror(phys_addr_t base, phys_addr_t size)
  * covered by the memory map. The struct page representing NOMAP memory
  * frames in the memory map will be PageReserved()
  *
+ * Note: if the memory being marked %MEMBLOCK_NOMAP was allocated from
+ * memblock, the caller must inform kmemleak to ignore that memory
+ *
  * Return: 0 on success, -errno on failure.
  */
 int __init_memblock memblock_mark_nomap(phys_addr_t base, phys_addr_t size)
@@ -1369,6 +1372,15 @@ done:
 		 * address which is not looked up by kmemleak.
 		 */
 		kmemleak_alloc_phys(found, size, 0, 0);
+
+	/*
+	 * Some Virtual Machine platforms, such as Intel TDX or AMD SEV-SNP,
+	 * require memory to be accepted before it can be used by the
+	 * guest.
+	 *
+	 * Accept the memory of the allocated buffer.
+	 */
+	accept_memory(found, found + size);
 
 	return found;
 }
@@ -1942,7 +1954,7 @@ static void __init free_unused_memmap(void)
 		 * presume that there are no holes in the memory map inside
 		 * a pageblock
 		 */
-		start = round_down(start, pageblock_nr_pages);
+		start = pageblock_start_pfn(start);
 
 		/*
 		 * If we had a previous bank, and there is a space
@@ -1956,12 +1968,12 @@ static void __init free_unused_memmap(void)
 		 * presume that there are no holes in the memory map inside
 		 * a pageblock
 		 */
-		prev_end = ALIGN(end, pageblock_nr_pages);
+		prev_end = pageblock_align(end);
 	}
 
 #ifdef CONFIG_SPARSEMEM
 	if (!IS_ALIGNED(prev_end, PAGES_PER_SECTION)) {
-		prev_end = ALIGN(end, pageblock_nr_pages);
+		prev_end = pageblock_align(end);
 		free_memmap(prev_end, ALIGN(prev_end, PAGES_PER_SECTION));
 	}
 #endif
@@ -1972,7 +1984,16 @@ static void __init __free_pages_memory(unsigned long start, unsigned long end)
 	int order;
 
 	while (start < end) {
-		order = min(MAX_ORDER - 1UL, __ffs(start));
+		/*
+		 * Free the pages in the largest chunks alignment allows.
+		 *
+		 * __ffs() behaviour is undefined for 0. start == 0 is
+		 * MAX_ORDER-aligned, set order to MAX_ORDER-1 for the case.
+		 */
+		if (start)
+			order = min_t(int, MAX_ORDER - 1, __ffs(start));
+		else
+			order = MAX_ORDER - 1;
 
 		while (start + (1UL << order) > end)
 			order--;

@@ -17,10 +17,18 @@
 /* cpu_feature_enabled() cannot be used this early */
 #define USE_EARLY_PGTABLE_L5
 
+/*
+ * Boot stub deals with identity mappings, physical and virtual addresses are
+ * the same, so override these defines.
+ *
+ * <asm/page.h> will not define them if they are already defined.
+ */
+#define __pa(x)  ((unsigned long)(x))
+#define __va(x)  ((void *)((unsigned long)(x)))
+
 #include <linux/linkage.h>
 #include <linux/screen_info.h>
 #include <linux/elf.h>
-#include <linux/efi.h>
 #include <asm/page.h>
 #include <asm/boot.h>
 #include <asm/bootparam.h>
@@ -34,6 +42,8 @@
 #define BOOT_BOOT_H
 #include "../ctype.h"
 #include "../io.h"
+
+#include "efi.h"
 
 #ifdef CONFIG_X86_64
 #define memptr long
@@ -232,5 +242,15 @@ static inline unsigned long efi_find_vendor_table(struct boot_params *bp,
 	return 0;
 }
 #endif /* CONFIG_EFI */
+
+#ifdef CONFIG_UNACCEPTED_MEMORY
+bool init_unaccepted_memory(void);
+#else
+static inline bool init_unaccepted_memory(void) { return false; }
+#endif
+
+/* Defined in EFI stub */
+extern struct efi_unaccepted_memory *unaccepted_table;
+void accept_memory(phys_addr_t start, phys_addr_t end);
 
 #endif /* BOOT_COMPRESSED_MISC_H */

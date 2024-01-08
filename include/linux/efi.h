@@ -108,7 +108,8 @@ typedef	struct {
 #define EFI_MEMORY_MAPPED_IO_PORT_SPACE	12
 #define EFI_PAL_CODE			13
 #define EFI_PERSISTENT_MEMORY		14
-#define EFI_MAX_MEMORY_TYPE		15
+#define EFI_UNACCEPTED_MEMORY		15
+#define EFI_MAX_MEMORY_TYPE		16
 
 /* Attribute values: */
 #define EFI_MEMORY_UC		((u64)0x0000000000000001ULL)	/* uncached */
@@ -410,6 +411,8 @@ void efi_native_runtime_setup(void);
 #define LINUX_EFI_INITRD_MEDIA_GUID		EFI_GUID(0x5568e427, 0x68fc, 0x4f3d,  0xac, 0x74, 0xca, 0x55, 0x52, 0x31, 0xcc, 0x68)
 #define LINUX_EFI_MOK_VARIABLE_TABLE_GUID	EFI_GUID(0xc451ed2b, 0x9694, 0x45d3,  0xba, 0xba, 0xed, 0x9f, 0x89, 0x88, 0xa3, 0x89)
 #define LINUX_EFI_COCO_SECRET_AREA_GUID		EFI_GUID(0xadf956ad, 0xe98c, 0x484c,  0xae, 0x11, 0xb5, 0x1c, 0x7d, 0x33, 0x64, 0x47)
+#define LINUX_EFI_BOOT_MEMMAP_GUID		EFI_GUID(0x800f683f, 0xd08b, 0x423a,  0xa2, 0x93, 0x96, 0x5c, 0x3c, 0x6f, 0xe2, 0xb4)
+#define LINUX_EFI_UNACCEPTED_MEM_TABLE_GUID	EFI_GUID(0xd5d1de3c, 0x105c, 0x44f9,  0x9e, 0xa9, 0xbc, 0xef, 0x98, 0x12, 0x00, 0x31)
 
 /*
  * This GUID may be installed onto the kernel image's handle as a NULL protocol
@@ -425,6 +428,9 @@ void efi_native_runtime_setup(void);
 /* OEM GUIDs */
 #define DELLEMC_EFI_RCI2_TABLE_GUID		EFI_GUID(0x2d9f28a2, 0xa886, 0x456a,  0x97, 0xa8, 0xf1, 0x1e, 0xf2, 0x4f, 0xf4, 0x55)
 #define AMD_SEV_MEM_ENCRYPT_GUID		EFI_GUID(0x0cf29b71, 0x9e51, 0x433a,  0xa3, 0xb7, 0x81, 0xf3, 0xab, 0x16, 0xb8, 0x75)
+
+/* OVMF protocol GUIDs */
+#define OVMF_SEV_MEMORY_ACCEPTANCE_PROTOCOL_GUID	EFI_GUID(0xc5a010fe, 0x38a7, 0x4531,  0x8a, 0x4a, 0x05, 0x00, 0xd2, 0xfd, 0x16, 0x49)
 
 typedef struct {
 	efi_guid_t guid;
@@ -515,6 +521,23 @@ typedef union {
 	};
 	efi_system_table_32_t mixed_mode;
 } efi_system_table_t;
+
+struct efi_boot_memmap {
+	unsigned long		map_size;
+	unsigned long		desc_size;
+	u32			desc_ver;
+	unsigned long		map_key;
+	unsigned long		buff_size;
+	efi_memory_desc_t	map[];
+};
+
+struct efi_unaccepted_memory {
+	u32 version;
+	u32 unit_size;
+	u64 phys_base;
+	u64 size;
+	unsigned long bitmap[];
+};
 
 /*
  * Architecture independent structure for describing a memory map for the
@@ -632,6 +655,9 @@ extern struct efi {
 
 	struct efi_memory_map		memmap;
 	unsigned long			flags;
+#ifndef __GENKSYMS__
+	unsigned long			unaccepted;		/* Unaccepted memory table */
+#endif
 } efi;
 
 #define EFI_RT_SUPPORTED_GET_TIME				0x0001
@@ -1324,6 +1350,11 @@ extern void efifb_setup_from_dmi(struct screen_info *si, const char *opt);
 struct linux_efi_coco_secret_area {
 	u64	base_pa;
 	u64	size;
+};
+
+struct linux_efi_initrd {
+	unsigned long	base;
+	unsigned long	size;
 };
 
 /* Header of a populated EFI secret area */

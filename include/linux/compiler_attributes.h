@@ -65,6 +65,12 @@
 #define __always_inline                 inline __attribute__((__always_inline__))
 
 /*
+ *   gcc: https://gcc.gnu.org/onlinedocs/gcc/Common-Variable-Attributes.html#index-cleanup-variable-attribute
+ * clang: https://clang.llvm.org/docs/AttributeReference.html#cleanup
+ */
+#define __cleanup(func)			__attribute__((__cleanup__(func)))
+
+/*
  * The second argument is optional (default 0), so we use a variadic macro
  * to make the shorthand.
  *

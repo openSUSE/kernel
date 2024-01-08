@@ -38,7 +38,7 @@ static int i915_gem_object_get_pages_internal(struct drm_i915_gem_object *obj)
 	struct scatterlist *sg;
 	unsigned int sg_page_sizes;
 	unsigned int npages;
-	int max_order = MAX_ORDER;
+	int max_order = MAX_ORDER - 1;
 	unsigned int max_segment;
 	gfp_t gfp;
 
