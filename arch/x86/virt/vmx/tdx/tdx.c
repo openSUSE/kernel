@@ -15,6 +15,7 @@
 #include <linux/cpu.h>
 #include <linux/spinlock.h>
 #include <linux/percpu-defs.h>
+#include <linux/kexec.h>
 #include <linux/mutex.h>
 #include <linux/list.h>
 #include <linux/memblock.h>
@@ -1438,6 +1439,11 @@ void __init tdx_init(void)
 {
 	u32 tdx_keyid_start, nr_tdx_keyids;
 	int err;
+
+#ifdef CONFIG_KEXEC_CORE
+	pr_info("KEXEC unsupported, disabling...\n");
+	kexec_disable();
+#endif
 
 	err = record_keyid_partitioning(&tdx_keyid_start, &nr_tdx_keyids);
 	if (err)
