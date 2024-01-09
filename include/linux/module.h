@@ -637,6 +637,18 @@ static inline void __module_get(struct module *module)
 	__mod ? __mod->name : "kernel";		\
 })
 
+#ifdef CONFIG_STACKTRACE_BUILD_ID
+static inline const unsigned char *module_buildid(struct module *mod)
+{
+	return mod->build_id;
+}
+#else
+static inline const unsigned char *module_buildid(struct module *mod)
+{
+	return NULL;
+}
+#endif
+
 /* Dereference module function descriptor */
 void *dereference_module_function_descriptor(struct module *mod, void *ptr);
 
@@ -744,6 +756,11 @@ static inline void module_put(struct module *module)
 }
 
 #define module_name(mod) "kernel"
+
+static inline const unsigned char *module_buildid(struct module *mod)
+{
+	return NULL;
+}
 
 /* For kallsyms to ask for address resolution.  NULL means not found. */
 static inline const char *module_address_lookup(unsigned long addr,

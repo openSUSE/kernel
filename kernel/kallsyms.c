@@ -66,6 +66,8 @@ static unsigned int kallsyms_expand_symbol(unsigned int off,
 	const char *tptr;
 	const u8 *data;
 
+	result[0] = '\0';
+
 	/* Get the compressed symbol length from the first symbol byte. */
 	data = &kallsyms_names[off];
 	len = *data;
@@ -310,6 +312,27 @@ int kallsyms_lookup_size_offset(unsigned long addr, unsigned long *symbolsize,
 	       !!__bpf_address_lookup(addr, symbolsize, offset, namebuf);
 }
 
+/*
+ * Find details about the symbol on the given address.
+ *
+ * Return pointer to the symbol name stored in the given @namebuf on success,
+ * NULL on failure.
+ *
+ * The other parameters are set to valid values on success. They are not
+ * touched on failure except for @namebuf[*].
+ *
+ * IMPORTANT: @modname and @modbuildid point to mod->name and mod->buildid
+ *	from the related struct module. The structure is guarded by RCU.
+ *	The caller has to disable preemption to keep them valid.
+ *
+ *	The two parameters are set to NULL when the symbol comes from
+ *	the kernel core. @modbuildid might be NULL also when
+ *	CONFIG_STACKTRACE_BUILD_ID is not enabled.
+ *
+ * [*] On error, @namebuf is updated to contain the empty string. It is
+ *     a historic and obsolete behavior. Some code paths still depend
+ *     on it though.
+ */
 static const char *kallsyms_lookup_buildid(unsigned long addr,
 			unsigned long *symbolsize,
 			unsigned long *offset, char **modname,
@@ -317,7 +340,12 @@ static const char *kallsyms_lookup_buildid(unsigned long addr,
 {
 	const char *ret;
 
-	namebuf[KSYM_NAME_LEN - 1] = 0;
+	/*
+	 * The function returns pointer to namebuf on success and
+	 * NULL on error. But some callers ignore the return value.
+	 * Instead they expect @namebuf filled either with valid
+	 * or empty string.
+	 */
 	namebuf[0] = 0;
 
 	if (is_ksym_addr(addr)) {
@@ -340,12 +368,12 @@ static const char *kallsyms_lookup_buildid(unsigned long addr,
 	ret = module_address_lookup(addr, symbolsize, offset,
 				    modname, modbuildid, namebuf);
 	if (!ret)
-		ret = bpf_address_lookup(addr, symbolsize,
-					 offset, modname, namebuf);
+		ret = bpf_address_lookup(addr, symbolsize, offset,
+					 modname, modbuildid, namebuf);
 
 	if (!ret)
-		ret = ftrace_mod_address_lookup(addr, symbolsize,
-						offset, modname, namebuf);
+		ret = ftrace_mod_address_lookup(addr, symbolsize, offset,
+						modname, modbuildid, namebuf);
 
 found:
 	cleanup_symbol_name(namebuf);
@@ -422,6 +450,34 @@ found:
 	return 0;
 }
 
+#ifdef CONFIG_STACKTRACE_BUILD_ID
+
+static int append_buildid(char *buffer,  const char *modname,
+			  const unsigned char *buildid)
+{
+	if (modname && !buildid) {
+		pr_warn("Undefined buildid for the module %s\n", modname);
+		return 0;
+	}
+
+	/* build ID should match length of sprintf */
+#ifdef CONFIG_MODULES
+	static_assert(sizeof(typeof_member(struct module, build_id)) == 20);
+#endif
+
+	return sprintf(buffer, " %20phN", buildid);
+}
+
+#else /* CONFIG_STACKTRACE_BUILD_ID */
+
+static int append_buildid(char *buffer,   const char *modname,
+			  const unsigned char *buildid)
+{
+	return 0;
+}
+
+#endif /* CONFIG_STACKTRACE_BUILD_ID */
+
 /* Look up a kernel symbol and return it in a text buffer. */
 static int __sprint_symbol(char *buffer, unsigned long address,
 			   int symbol_offset, int add_offset, int add_buildid)
@@ -432,11 +488,16 @@ static int __sprint_symbol(char *buffer, unsigned long address,
 	unsigned long offset, size;
 	int len;
 
+	/* Prevent module removal until modname and modbuildid are printed */
+	preempt_disable();
+
 	address += symbol_offset;
-	name = kallsyms_lookup_buildid(address, &size, &offset, &modname, &buildid,
-				       buffer);
-	if (!name)
-		return sprintf(buffer, "0x%lx", address - symbol_offset);
+	name = kallsyms_lookup_buildid(address, &size, &offset,
+				       &modname, &buildid, buffer);
+	if (!name) {
+		len = sprintf(buffer, "0x%lx", address - symbol_offset);
+		goto out;
+	}
 
 	if (name != buffer)
 		strcpy(buffer, name);
@@ -448,17 +509,13 @@ static int __sprint_symbol(char *buffer, unsigned long address,
 
 	if (modname) {
 		len += sprintf(buffer + len, " [%s", modname);
-#if IS_ENABLED(CONFIG_STACKTRACE_BUILD_ID)
-		if (add_buildid && buildid) {
-			/* build ID should match length of sprintf */
-#if IS_ENABLED(CONFIG_MODULES)
-			static_assert(sizeof(typeof_member(struct module, build_id)) == 20);
-#endif
-			len += sprintf(buffer + len, " %20phN", buildid);
-		}
-#endif
+		if (add_buildid)
+			len += append_buildid(buffer + len, modname, buildid);
 		len += sprintf(buffer + len, "]");
 	}
+
+out:
+	preempt_enable();
 
 	return len;
 }
