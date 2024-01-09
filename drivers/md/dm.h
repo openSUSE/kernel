@@ -188,9 +188,11 @@ void dm_kobject_release(struct kobject *kobj);
 /*
  * Targets for linear and striped mappings
  */
+int linear_map(struct dm_target *ti, struct bio *bio);
 int dm_linear_init(void);
 void dm_linear_exit(void);
 
+int stripe_map(struct dm_target *ti, struct bio *bio);
 int dm_stripe_init(void);
 void dm_stripe_exit(void);
 
@@ -209,9 +211,6 @@ void dm_put_table_device(struct mapped_device *md, struct dm_dev *d);
 
 int dm_kobject_uevent(struct mapped_device *md, enum kobject_action action,
 		      unsigned int cookie, bool need_resize_uevent);
-
-void dm_internal_suspend(struct mapped_device *md);
-void dm_internal_resume(struct mapped_device *md);
 
 int dm_io_init(void);
 void dm_io_exit(void);

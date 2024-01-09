@@ -228,7 +228,7 @@ static void pmic_glink_ucsi_notify(struct work_struct *work)
 
 	con_num = UCSI_CCI_CONNECTOR(cci);
 	if (con_num) {
-		if (con_num < PMIC_GLINK_MAX_PORTS &&
+		if (con_num <= PMIC_GLINK_MAX_PORTS &&
 		    ucsi->port_orientation[con_num - 1]) {
 			int orientation = gpiod_get_value(ucsi->port_orientation[con_num - 1]);
 
@@ -263,7 +263,7 @@ static void pmic_glink_ucsi_callback(const void *data, size_t len, void *priv)
 	struct pmic_glink_ucsi *ucsi = priv;
 	const struct pmic_glink_hdr *hdr = data;
 
-	switch (hdr->opcode) {
+	switch (le32_to_cpu(hdr->opcode)) {
 	case UC_UCSI_READ_BUF_REQ:
 		pmic_glink_ucsi_read_ack(ucsi, data, len);
 		break;

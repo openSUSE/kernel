@@ -1226,7 +1226,7 @@ void dce110_blank_stream(struct pipe_ctx *pipe_ctx)
 	struct dce_hwseq *hws = link->dc->hwseq;
 
 	if (link->local_sink && link->local_sink->sink_signal == SIGNAL_TYPE_EDP) {
-		if (!stream->skip_edp_power_down)
+		if (!link->skip_implict_edp_power_control)
 			hws->funcs.edp_backlight_control(link, false);
 		link->dc->hwss.set_abm_immediate_disable(pipe_ctx);
 	}
@@ -2001,9 +2001,6 @@ static bool should_enable_fbc(struct dc *dc,
 		if (res_ctx->pipe_ctx[i].stream) {
 
 			pipe_ctx = &res_ctx->pipe_ctx[i];
-
-			if (!pipe_ctx)
-				continue;
 
 			/* fbc not applicable on underlay pipe */
 			if (pipe_ctx->pipe_idx != underlay_idx) {
