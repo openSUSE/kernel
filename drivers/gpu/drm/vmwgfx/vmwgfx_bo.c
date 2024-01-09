@@ -590,7 +590,6 @@ static int vmw_user_bo_synccpu_release(struct drm_file *filp,
 		vmw_user_bo_unref(&vmw_bo);
 	}
 
-	drm_gem_object_put(&vmw_bo->base.base);
 	return ret;
 }
 

@@ -846,13 +846,9 @@ int vmw_surface_define_ioctl(struct drm_device *dev, void *data,
 	 * expect a backup buffer to be present.
 	 */
 	if (dev_priv->has_mob && req->shareable) {
-		uint32_t backup_handle;
-
-		ret = vmw_gem_object_create_with_handle(dev_priv,
-							file_priv,
-							res->backup_size,
-							&backup_handle,
-							&res->backup);
+		ret = vmw_gem_object_create(dev_priv,
+					    res->backup_size,
+					    &res->backup);
 		if (unlikely(ret != 0)) {
 			vmw_resource_unreference(&res);
 			goto out_unlock;
