@@ -247,12 +247,12 @@ enum io_uring_op {
 };
 
 /*
- * sqe->uring_cmd_flags
+ * sqe->uring_cmd_flags		top 8bits aren't available for userspace
  * IORING_URING_CMD_FIXED	use registered buffer; pass this flag
  *				along with setting sqe->buf_index.
  */
 #define IORING_URING_CMD_FIXED	(1U << 0)
-
+#define IORING_URING_CMD_MASK	IORING_URING_CMD_FIXED
 
 /*
  * sqe->fsync_flags
