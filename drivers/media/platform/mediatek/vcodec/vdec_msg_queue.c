@@ -234,7 +234,8 @@ void vdec_msg_queue_deinit(struct vdec_msg_queue *msg_queue,
 		lat_buf->private_data = NULL;
 	}
 
-	cancel_work_sync(&msg_queue->core_work);
+	if (msg_queue->wdma_addr.size)
+		cancel_work_sync(&msg_queue->core_work);
 }
 
 static void vdec_msg_queue_core_work(struct work_struct *work)
