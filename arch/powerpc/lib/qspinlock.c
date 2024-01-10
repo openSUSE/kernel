@@ -348,7 +348,7 @@ static __always_inline bool yield_head_to_locked_owner(struct qspinlock *lock, u
 	return __yield_to_locked_owner(lock, val, paravirt, mustq);
 }
 
-static __always_inline void propagate_sleepy(struct qnode *node, u32 val, bool *set_sleepy, bool paravirt)
+static __always_inline void propagate_sleepy(struct qnode *node, u32 val, bool paravirt)
 {
 	struct qnode *next;
 	int owner;
@@ -357,18 +357,17 @@ static __always_inline void propagate_sleepy(struct qnode *node, u32 val, bool *
 		return;
 	if (!pv_yield_propagate_owner)
 		return;
-	if (*set_sleepy)
-		return;
 
 	next = READ_ONCE(node->next);
 	if (!next)
 		return;
 
+	if (next->sleepy)
+		return;
+
 	owner = get_owner_cpu(val);
-	if (vcpu_is_preempted(owner)) {
+	if (vcpu_is_preempted(owner))
 		next->sleepy = 1;
-		*set_sleepy = true;
-	}
 }
 
 /* Called inside spin_begin() */
@@ -383,12 +382,7 @@ static __always_inline bool yield_to_prev(struct qspinlock *lock, struct qnode *
 	if (!pv_yield_propagate_owner)
 		goto yield_prev;
 
-	if (!READ_ONCE(node->sleepy)) {
-		/* Propagate back sleepy==false */
-		if (node->next && node->next->sleepy)
-			node->next->sleepy = 0;
-		goto yield_prev;
-	} else {
+	if (node->sleepy) {
 		u32 val = READ_ONCE(lock->val);
 
 		if (val & _Q_LOCKED_VAL) {
@@ -408,6 +402,7 @@ static __always_inline bool yield_to_prev(struct qspinlock *lock, struct qnode *
 			if (preempted)
 				return preempted;
 		}
+		node->sleepy = false;
 	}
 
 yield_prev:
@@ -531,7 +526,6 @@ static __always_inline void queued_spin_lock_mcs_queue(struct qspinlock *lock, b
 	bool sleepy = false;
 	bool mustq = false;
 	int idx;
-	bool set_sleepy = false;
 	int iters = 0;
 
 	BUILD_BUG_ON(CONFIG_NR_CPUS >= (1U << _Q_TAIL_CPU_BITS));
@@ -584,10 +578,6 @@ static __always_inline void queued_spin_lock_mcs_queue(struct qspinlock *lock, b
 		spec_barrier();
 		spin_end();
 
-		/* Clear out stale propagated sleepy */
-		if (paravirt && pv_yield_propagate_owner && node->sleepy)
-			node->sleepy = 0;
-
 		smp_rmb(); /* acquire barrier for the mcs lock */
 
 		/*
@@ -629,7 +619,7 @@ again:
 			}
 		}
 
-		propagate_sleepy(node, val, &set_sleepy, paravirt);
+		propagate_sleepy(node, val, paravirt);
 		preempted = yield_head_to_locked_owner(lock, val, paravirt);
 		if (!maybe_stealers)
 			continue;
