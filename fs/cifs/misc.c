@@ -453,6 +453,10 @@ checkSMB(struct smb_hdr *smb, __u16 mid, unsigned int length)
 			cERROR(1, "Length less than smb header size");
 		}
 		return 1;
+	} else if (length < sizeof(*smb) + 2 * smb->WordCount) {
+		cERROR(1, "%s: can't read BCC due to invalid WordCount(%u)\n",
+		       __func__, smb->WordCount);
+		return 1;
 	}
 	if (len > CIFSMaxBufSize + MAX_CIFS_HDR_SIZE - 4) {
 		cERROR(1, "smb length greater than MaxBufSize, mid=%d",
