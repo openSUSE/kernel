@@ -21,6 +21,7 @@
 #include <linux/device.h>
 #include <linux/efi.h>
 #include <linux/of.h>
+#include <linux/initrd.h>
 #include <linux/io.h>
 #include <linux/kexec.h>
 #include <linux/platform_device.h>
@@ -49,12 +50,16 @@ struct efi __read_mostly efi = {
 #ifdef CONFIG_EFI_COCO_SECRET
 	.coco_secret		= EFI_INVALID_TABLE_ADDR,
 #endif
+#ifdef CONFIG_UNACCEPTED_MEMORY
+	.unaccepted		= EFI_INVALID_TABLE_ADDR,
+#endif
 };
 EXPORT_SYMBOL(efi);
 
 unsigned long __ro_after_init efi_rng_seed = EFI_INVALID_TABLE_ADDR;
 static unsigned long __initdata mem_reserve = EFI_INVALID_TABLE_ADDR;
 static unsigned long __initdata rt_prop = EFI_INVALID_TABLE_ADDR;
+static unsigned long __initdata initrd = EFI_INVALID_TABLE_ADDR;
 
 struct mm_struct efi_mm = {
 	.mm_rb			= RB_ROOT,
@@ -538,6 +543,7 @@ static const efi_config_table_type_t common_tables[] __initconst = {
 	{LINUX_EFI_TPM_EVENT_LOG_GUID,		&efi.tpm_log,		"TPMEventLog"	},
 	{LINUX_EFI_TPM_FINAL_LOG_GUID,		&efi.tpm_final_log,	"TPMFinalLog"	},
 	{LINUX_EFI_MEMRESERVE_TABLE_GUID,	&mem_reserve,		"MEMRESERVE"	},
+	{LINUX_EFI_INITRD_MEDIA_GUID,		&initrd,		"INITRD"	},
 	{EFI_RT_PROPERTIES_TABLE_GUID,		&rt_prop,		"RTPROP"	},
 #ifdef CONFIG_EFI_RCI2_TABLE
 	{DELLEMC_EFI_RCI2_TABLE_GUID,		&rci2_table_phys			},
@@ -547,6 +553,9 @@ static const efi_config_table_type_t common_tables[] __initconst = {
 #endif
 #ifdef CONFIG_EFI_COCO_SECRET
 	{LINUX_EFI_COCO_SECRET_AREA_GUID,	&efi.coco_secret,	"CocoSecret"	},
+#endif
+#ifdef CONFIG_UNACCEPTED_MEMORY
+	{LINUX_EFI_UNACCEPTED_MEM_TABLE_GUID,	&efi.unaccepted,	"Unaccepted"	},
 #endif
 	{},
 };
@@ -568,6 +577,34 @@ static __init int match_config_table(const efi_guid_t *guid,
 	}
 
 	return 0;
+}
+
+/**
+ * reserve_unaccepted - Map and reserve unaccepted configuration table
+ * @unaccepted: Pointer to unaccepted memory table
+ *
+ * memblock_add() makes sure that the table is mapped in direct mapping. During
+ * normal boot it happens automatically because the table is allocated from
+ * usable memory. But during crashkernel boot only memory specifically reserved
+ * for crash scenario is mapped. memblock_add() forces the table to be mapped
+ * in crashkernel case.
+ *
+ * Align the range to the nearest page borders. Ranges smaller than page size
+ * are not going to be mapped.
+ *
+ * memblock_reserve() makes sure that future allocations will not touch the
+ * table.
+ */
+
+static __init void reserve_unaccepted(struct efi_unaccepted_memory *unaccepted)
+{
+	phys_addr_t start, size;
+
+	start = PAGE_ALIGN_DOWN(efi.unaccepted);
+	size = PAGE_ALIGN(sizeof(*unaccepted) + unaccepted->size);
+
+	memblock_add(start, size);
+	memblock_reserve(start, size);
 }
 
 int __init efi_config_parse_tables(const efi_config_table_t *config_tables,
@@ -680,6 +717,35 @@ int __init efi_config_parse_tables(const efi_config_table_t *config_tables,
 		}
 	}
 
+	if (IS_ENABLED(CONFIG_BLK_DEV_INITRD) &&
+	    initrd != EFI_INVALID_TABLE_ADDR && phys_initrd_size == 0) {
+		struct linux_efi_initrd *tbl;
+
+		tbl = early_memremap(initrd, sizeof(*tbl));
+		if (tbl) {
+			phys_initrd_start = tbl->base;
+			phys_initrd_size = tbl->size;
+			early_memunmap(tbl, sizeof(*tbl));
+		}
+	}
+
+	if (IS_ENABLED(CONFIG_UNACCEPTED_MEMORY) &&
+	    efi.unaccepted != EFI_INVALID_TABLE_ADDR) {
+		struct efi_unaccepted_memory *unaccepted;
+
+		unaccepted = early_memremap(efi.unaccepted, sizeof(*unaccepted));
+		if (unaccepted) {
+
+			if (unaccepted->version == 1) {
+				reserve_unaccepted(unaccepted);
+			} else {
+				efi.unaccepted = EFI_INVALID_TABLE_ADDR;
+			}
+
+			early_memunmap(unaccepted, sizeof(*unaccepted));
+		}
+	}
+
 	return 0;
 }
 
@@ -766,6 +832,7 @@ static __initdata char memory_type_name[][13] = {
 	"MMIO Port",
 	"PAL Code",
 	"Persistent",
+	"Unaccepted",
 };
 
 char * __init efi_md_typeattr_format(char *buf, size_t size,

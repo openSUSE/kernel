@@ -47,8 +47,6 @@ static inline void count_compact_events(enum vm_event_item item, long delta)
 
 #define block_start_pfn(pfn, order)	round_down(pfn, 1UL << (order))
 #define block_end_pfn(pfn, order)	ALIGN((pfn) + 1, 1UL << (order))
-#define pageblock_start_pfn(pfn)	block_start_pfn(pfn, pageblock_order)
-#define pageblock_end_pfn(pfn)		block_end_pfn(pfn, pageblock_order)
 
 /*
  * Fragmentation score check interval for proactive compaction purposes.
@@ -408,7 +406,7 @@ static bool test_and_set_skip(struct compact_control *cc, struct page *page,
 	if (cc->ignore_skip_hint)
 		return false;
 
-	if (!IS_ALIGNED(pfn, pageblock_nr_pages))
+	if (!pageblock_aligned(pfn))
 		return false;
 
 	skip = get_pageblock_skip(page);
@@ -897,7 +895,7 @@ isolate_migratepages_block(struct compact_control *cc, unsigned long low_pfn,
 		 * COMPACT_CLUSTER_MAX at a time so the second call must
 		 * not falsely conclude that the block should be skipped.
 		 */
-		if (!valid_page && IS_ALIGNED(low_pfn, pageblock_nr_pages)) {
+		if (!valid_page && pageblock_aligned(low_pfn)) {
 			if (!cc->ignore_skip_hint && get_pageblock_skip(page)) {
 				low_pfn = end_pfn;
 				page = NULL;
@@ -1909,7 +1907,7 @@ static isolate_migrate_t isolate_migratepages(struct compact_control *cc)
 		 * before making it "skip" so other compaction instances do
 		 * not scan the same block.
 		 */
-		if (IS_ALIGNED(low_pfn, pageblock_nr_pages) &&
+		if (pageblock_aligned(low_pfn) &&
 		    !fast_find_block && !isolation_suitable(cc, page))
 			continue;
 
@@ -2083,7 +2081,7 @@ static enum compact_result __compact_finished(struct compact_control *cc)
 	 * migration source is unmovable/reclaimable but it's not worth
 	 * special casing.
 	 */
-	if (!IS_ALIGNED(cc->migrate_pfn, pageblock_nr_pages))
+	if (!pageblock_aligned(cc->migrate_pfn))
 		return COMPACT_CONTINUE;
 
 	/* Direct compactor: Is a suitable page free? */

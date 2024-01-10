@@ -1409,7 +1409,7 @@ static int vmw_create_bo_proxy(struct drm_device *dev,
 	mutex_lock(&res->dev_priv->cmdbuf_mutex);
 	(void) vmw_resource_reserve(res, false, true);
 	vmw_user_bo_unref(&res->backup);
-	res->backup = vmw_bo_reference(bo_mob);
+	res->backup = vmw_user_bo_ref(bo_mob);
 	res->backup_offset = 0;
 	vmw_resource_unreserve(res, false, false, false, NULL, 0);
 	mutex_unlock(&res->dev_priv->cmdbuf_mutex);

@@ -31,9 +31,13 @@ static void *nvme_add_user_metadata(struct bio *bio, void __user *ubuf,
 	if (!buf)
 		goto out;
 
-	ret = -EFAULT;
-	if (write && copy_from_user(buf, ubuf, len))
-		goto out_free_meta;
+	if (write) {
+		ret = -EFAULT;
+		if (copy_from_user(buf, ubuf, len))
+			goto out_free_meta;
+	} else {
+		memset(buf, 0, len);
+	}
 
 	bip = bio_integrity_alloc(bio, GFP_KERNEL, 1);
 	if (IS_ERR(bip)) {

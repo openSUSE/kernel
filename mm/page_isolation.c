@@ -186,8 +186,8 @@ int start_isolate_page_range(unsigned long start_pfn, unsigned long end_pfn,
 	unsigned long undo_pfn;
 	struct page *page;
 
-	BUG_ON(!IS_ALIGNED(start_pfn, pageblock_nr_pages));
-	BUG_ON(!IS_ALIGNED(end_pfn, pageblock_nr_pages));
+	BUG_ON(!pageblock_aligned(start_pfn));
+	BUG_ON(!pageblock_aligned(end_pfn));
 
 	for (pfn = start_pfn;
 	     pfn < end_pfn;
@@ -223,8 +223,8 @@ void undo_isolate_page_range(unsigned long start_pfn, unsigned long end_pfn,
 	unsigned long pfn;
 	struct page *page;
 
-	BUG_ON(!IS_ALIGNED(start_pfn, pageblock_nr_pages));
-	BUG_ON(!IS_ALIGNED(end_pfn, pageblock_nr_pages));
+	BUG_ON(!pageblock_aligned(start_pfn));
+	BUG_ON(!pageblock_aligned(end_pfn));
 
 	for (pfn = start_pfn;
 	     pfn < end_pfn;

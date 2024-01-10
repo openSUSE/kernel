@@ -544,7 +544,18 @@ static void online_pages_range(unsigned long start_pfn, unsigned long nr_pages)
 	 * this and the first chunk to online will be pageblock_nr_pages.
 	 */
 	for (pfn = start_pfn; pfn < end_pfn;) {
-		int order = min(MAX_ORDER - 1UL, __ffs(pfn));
+		int order;
+
+		/*
+		 * Free to online pages in the largest chunks alignment allows.
+		 *
+		 * __ffs() behaviour is undefined for 0. start == 0 is
+		 * MAX_ORDER-aligned, Set order to MAX_ORDER-1 for the case.
+		 */
+		if (pfn)
+			order = min_t(int, MAX_ORDER - 1, __ffs(pfn));
+		else
+			order = MAX_ORDER - 1;
 
 		(*online_page_callback)(pfn_to_page(pfn), order);
 		pfn += (1UL << order);
@@ -789,8 +800,7 @@ int __ref online_pages(unsigned long pfn, unsigned long nr_pages, struct zone *z
 	 * of the physical memory space for vmemmaps. That space is pageblock
 	 * aligned.
 	 */
-	if (WARN_ON_ONCE(!nr_pages ||
-			 !IS_ALIGNED(pfn, pageblock_nr_pages) ||
+	if (WARN_ON_ONCE(!nr_pages || !pageblock_aligned(pfn) ||
 			 !IS_ALIGNED(pfn + nr_pages, PAGES_PER_SECTION)))
 		return -EINVAL;
 
@@ -1544,8 +1554,7 @@ int __ref offline_pages(unsigned long start_pfn, unsigned long nr_pages)
 	 * of the physical memory space for vmemmaps. That space is pageblock
 	 * aligned.
 	 */
-	if (WARN_ON_ONCE(!nr_pages ||
-			 !IS_ALIGNED(start_pfn, pageblock_nr_pages) ||
+	if (WARN_ON_ONCE(!nr_pages || !pageblock_aligned(start_pfn) ||
 			 !IS_ALIGNED(start_pfn + nr_pages, PAGES_PER_SECTION)))
 		return -EINVAL;
 

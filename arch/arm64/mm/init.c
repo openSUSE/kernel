@@ -30,6 +30,7 @@
 #include <linux/crash_dump.h>
 #include <linux/hugetlb.h>
 #include <linux/acpi_iort.h>
+#include <linux/kmemleak.h>
 
 #include <asm/boot.h>
 #include <asm/fixmap.h>
@@ -100,6 +101,7 @@ phys_addr_t __ro_after_init arm64_dma_phys_limit = PHYS_MASK + 1;
 static void __init reserve_crashkernel(void)
 {
 	unsigned long long crash_base, crash_size;
+	unsigned long long crash_max = arm64_dma_phys_limit;
 	int ret;
 
 	ret = parse_crashkernel(boot_command_line, memblock_phys_mem_size(),
@@ -110,37 +112,27 @@ static void __init reserve_crashkernel(void)
 
 	crash_size = PAGE_ALIGN(crash_size);
 
-	if (crash_base == 0) {
-		/* Current arm64 boot protocol requires 2MB alignment */
-		crash_base = memblock_find_in_range(0, arm64_dma_phys_limit,
-				crash_size, SZ_2M);
-		if (crash_base == 0) {
-			pr_warn("cannot allocate crashkernel (size:0x%llx)\n",
-				crash_size);
-			return;
-		}
-	} else {
-		/* User specifies base address explicitly. */
-		if (!memblock_is_region_memory(crash_base, crash_size)) {
-			pr_warn("cannot reserve crashkernel: region is not memory\n");
-			return;
-		}
+	/* User specifies base address explicitly. */
+	if (crash_base)
+		crash_max = crash_base + crash_size;
 
-		if (memblock_is_region_reserved(crash_base, crash_size)) {
-			pr_warn("cannot reserve crashkernel: region overlaps reserved memory\n");
-			return;
-		}
-
-		if (!IS_ALIGNED(crash_base, SZ_2M)) {
-			pr_warn("cannot reserve crashkernel: base address is not 2MB aligned\n");
-			return;
-		}
+	/* Current arm64 boot protocol requires 2MB alignment */
+	crash_base = memblock_phys_alloc_range(crash_size, SZ_2M,
+					       crash_base, crash_max);
+	if (!crash_base) {
+		pr_warn("cannot allocate crashkernel (size:0x%llx)\n",
+			crash_size);
+		return;
 	}
-	memblock_reserve(crash_base, crash_size);
 
 	pr_info("crashkernel reserved: 0x%016llx - 0x%016llx (%lld MB)\n",
 		crash_base, crash_base + crash_size, crash_size >> 20);
 
+	/*
+	 * The crashkernel memory will be removed from the kernel linear
+	 * map. Inform kmemleak so that it won't try to access it.
+	 */
+	kmemleak_ignore_phys(crash_base);
 	crashk_res.start = crash_base;
 	crashk_res.end = crash_base + crash_size - 1;
 }

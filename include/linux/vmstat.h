@@ -138,6 +138,7 @@ static inline void vm_events_fold_cpu(int cpu)
  * Zone and node-based page accounting with per cpu differentials.
  */
 extern atomic_long_t vm_zone_stat[NR_VM_ZONE_STAT_ITEMS];
+extern atomic_long_t vm_zone_stat_2[NR_VM_ZONE_STAT_ITEMS_2];
 extern atomic_long_t vm_node_stat[NR_VM_NODE_STAT_ITEMS];
 extern atomic_long_t vm_numa_event[NR_VM_NUMA_EVENT_ITEMS];
 
@@ -169,6 +170,13 @@ static inline void zone_page_state_add(long x, struct zone *zone,
 	atomic_long_add(x, &vm_zone_stat[item]);
 }
 
+static inline void zone_page_state_add_2(long x, struct zone *zone,
+				 enum zone_stat_item_2 item)
+{
+	atomic_long_add(x, &zone->vm_stat_2[item]);
+	atomic_long_add(x, &vm_zone_stat_2[item]);
+}
+
 static inline void node_page_state_add(long x, struct pglist_data *pgdat,
 				 enum node_stat_item item)
 {
@@ -179,6 +187,16 @@ static inline void node_page_state_add(long x, struct pglist_data *pgdat,
 static inline unsigned long global_zone_page_state(enum zone_stat_item item)
 {
 	long x = atomic_long_read(&vm_zone_stat[item]);
+#ifdef CONFIG_SMP
+	if (x < 0)
+		x = 0;
+#endif
+	return x;
+}
+
+static inline unsigned long global_zone_page_state_2(enum zone_stat_item_2 item)
+{
+	long x = atomic_long_read(&vm_zone_stat_2[item]);
 #ifdef CONFIG_SMP
 	if (x < 0)
 		x = 0;
@@ -208,6 +226,17 @@ static inline unsigned long zone_page_state(struct zone *zone,
 					enum zone_stat_item item)
 {
 	long x = atomic_long_read(&zone->vm_stat[item]);
+#ifdef CONFIG_SMP
+	if (x < 0)
+		x = 0;
+#endif
+	return x;
+}
+
+static inline unsigned long zone_page_state_2(struct zone *zone,
+					enum zone_stat_item_2 item)
+{
+	long x = atomic_long_read(&zone->vm_stat_2[item]);
 #ifdef CONFIG_SMP
 	if (x < 0)
 		x = 0;
@@ -257,6 +286,8 @@ __count_numa_events(struct zone *zone, enum numa_stat_item item, long delta)
 
 extern unsigned long sum_zone_node_page_state(int node,
 					      enum zone_stat_item item);
+extern unsigned long sum_zone_node_page_state_2(int node,
+					      enum zone_stat_item_2 item);
 extern unsigned long sum_zone_numa_event_state(int node, enum numa_stat_item item);
 extern unsigned long node_page_state(struct pglist_data *pgdat,
 						enum node_stat_item item);
@@ -274,6 +305,7 @@ static inline void fold_vm_numa_events(void)
 
 #ifdef CONFIG_SMP
 void __mod_zone_page_state(struct zone *, enum zone_stat_item item, long);
+void __mod_zone_page_state_2(struct zone *, enum zone_stat_item_2 item, long);
 void __inc_zone_page_state(struct page *, enum zone_stat_item);
 void __dec_zone_page_state(struct page *, enum zone_stat_item);
 
@@ -433,14 +465,14 @@ static inline const char *zone_stat_name(enum zone_stat_item item)
 #ifdef CONFIG_NUMA
 static inline const char *numa_stat_name(enum numa_stat_item item)
 {
-	return vmstat_text[NR_VM_ZONE_STAT_ITEMS +
+	return vmstat_text[NR_VM_ZONE_STAT_ITEMS + NR_VM_ZONE_STAT_ITEMS_2 +
 			   item];
 }
 #endif /* CONFIG_NUMA */
 
 static inline const char *node_stat_name(enum node_stat_item item)
 {
-	return vmstat_text[NR_VM_ZONE_STAT_ITEMS +
+	return vmstat_text[NR_VM_ZONE_STAT_ITEMS + NR_VM_ZONE_STAT_ITEMS_2 +
 			   NR_VM_NUMA_EVENT_ITEMS +
 			   item];
 }
@@ -452,7 +484,7 @@ static inline const char *lru_list_name(enum lru_list lru)
 
 static inline const char *writeback_stat_name(enum writeback_stat_item item)
 {
-	return vmstat_text[NR_VM_ZONE_STAT_ITEMS +
+	return vmstat_text[NR_VM_ZONE_STAT_ITEMS + NR_VM_ZONE_STAT_ITEMS_2 +
 			   NR_VM_NUMA_EVENT_ITEMS +
 			   NR_VM_NODE_STAT_ITEMS +
 			   item];
@@ -461,7 +493,7 @@ static inline const char *writeback_stat_name(enum writeback_stat_item item)
 #if defined(CONFIG_VM_EVENT_COUNTERS) || defined(CONFIG_MEMCG)
 static inline const char *vm_event_name(enum vm_event_item item)
 {
-	return vmstat_text[NR_VM_ZONE_STAT_ITEMS +
+	return vmstat_text[NR_VM_ZONE_STAT_ITEMS + NR_VM_ZONE_STAT_ITEMS_2 +
 			   NR_VM_NUMA_EVENT_ITEMS +
 			   NR_VM_NODE_STAT_ITEMS +
 			   NR_VM_WRITEBACK_STAT_ITEMS +

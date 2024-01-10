@@ -648,12 +648,13 @@ tx_kick_pending:
 	return NETDEV_TX_OK;
 }
 
-static void bnxt_tx_int(struct bnxt *bp, struct bnxt_napi *bnapi, int nr_pkts)
+static void bnxt_tx_int(struct bnxt *bp, struct bnxt_napi *bnapi, int budget)
 {
 	struct bnxt_tx_ring_info *txr = bnapi->tx_ring;
 	struct netdev_queue *txq = netdev_get_tx_queue(bp->dev, txr->txq_index);
 	u16 cons = txr->tx_cons;
 	struct pci_dev *pdev = bp->pdev;
+	int nr_pkts = bnapi->tx_pkts;
 	int i;
 	unsigned int tx_bytes = 0;
 
@@ -704,6 +705,7 @@ next_tx_int:
 	}
 
 	netdev_tx_completed_queue(txq, nr_pkts, tx_bytes);
+	bnapi->tx_pkts = 0;
 	txr->tx_cons = cons;
 
 	/* Need to make the tx_cons update visible to bnxt_start_xmit()
@@ -721,17 +723,24 @@ next_tx_int:
 
 static struct page *__bnxt_alloc_rx_page(struct bnxt *bp, dma_addr_t *mapping,
 					 struct bnxt_rx_ring_info *rxr,
+					 unsigned int *offset,
 					 gfp_t gfp)
 {
 	struct device *dev = &bp->pdev->dev;
 	struct page *page;
 
-	page = page_pool_dev_alloc_pages(rxr->page_pool);
+	if (PAGE_SIZE > BNXT_RX_PAGE_SIZE) {
+		page = page_pool_dev_alloc_frag(rxr->page_pool, offset,
+						BNXT_RX_PAGE_SIZE);
+	} else {
+		page = page_pool_dev_alloc_pages(rxr->page_pool);
+		*offset = 0;
+	}
 	if (!page)
 		return NULL;
 
-	*mapping = dma_map_page_attrs(dev, page, 0, PAGE_SIZE, bp->rx_dir,
-				      DMA_ATTR_WEAK_ORDERING);
+	*mapping = dma_map_page_attrs(dev, page, *offset, BNXT_RX_PAGE_SIZE,
+				      bp->rx_dir, DMA_ATTR_WEAK_ORDERING);
 	if (dma_mapping_error(dev, *mapping)) {
 		page_pool_recycle_direct(rxr->page_pool, page);
 		return NULL;
@@ -771,15 +780,16 @@ int bnxt_alloc_rx_data(struct bnxt *bp, struct bnxt_rx_ring_info *rxr,
 	dma_addr_t mapping;
 
 	if (BNXT_RX_PAGE_MODE(bp)) {
+		unsigned int offset;
 		struct page *page =
-			__bnxt_alloc_rx_page(bp, &mapping, rxr, gfp);
+			__bnxt_alloc_rx_page(bp, &mapping, rxr, &offset, gfp);
 
 		if (!page)
 			return -ENOMEM;
 
 		mapping += bp->rx_dma_offset;
 		rx_buf->data = page;
-		rx_buf->data_ptr = page_address(page) + bp->rx_offset;
+		rx_buf->data_ptr = page_address(page) + offset + bp->rx_offset;
 	} else {
 		u8 *data = __bnxt_alloc_rx_frag(bp, &mapping, gfp);
 
@@ -839,7 +849,7 @@ static inline int bnxt_alloc_rx_page(struct bnxt *bp,
 	unsigned int offset = 0;
 
 	if (BNXT_RX_PAGE_MODE(bp)) {
-		page = __bnxt_alloc_rx_page(bp, &mapping, rxr, gfp);
+		page = __bnxt_alloc_rx_page(bp, &mapping, rxr, &offset, gfp);
 
 		if (!page)
 			return -ENOMEM;
@@ -986,15 +996,15 @@ static struct sk_buff *bnxt_rx_multi_page_skb(struct bnxt *bp,
 		return NULL;
 	}
 	dma_addr -= bp->rx_dma_offset;
-	dma_unmap_page_attrs(&bp->pdev->dev, dma_addr, PAGE_SIZE, bp->rx_dir,
-			     DMA_ATTR_WEAK_ORDERING);
-	skb = build_skb(page_address(page), PAGE_SIZE);
+	dma_unmap_page_attrs(&bp->pdev->dev, dma_addr, BNXT_RX_PAGE_SIZE,
+			     bp->rx_dir, DMA_ATTR_WEAK_ORDERING);
+	skb = build_skb(data_ptr - bp->rx_offset, BNXT_RX_PAGE_SIZE);
 	if (!skb) {
 		page_pool_recycle_direct(rxr->page_pool, page);
 		return NULL;
 	}
 	skb_mark_for_recycle(skb);
-	skb_reserve(skb, bp->rx_dma_offset);
+	skb_reserve(skb, bp->rx_offset);
 	__skb_put(skb, len);
 
 	return skb;
@@ -1020,8 +1030,8 @@ static struct sk_buff *bnxt_rx_page_skb(struct bnxt *bp,
 		return NULL;
 	}
 	dma_addr -= bp->rx_dma_offset;
-	dma_unmap_page_attrs(&bp->pdev->dev, dma_addr, PAGE_SIZE, bp->rx_dir,
-			     DMA_ATTR_WEAK_ORDERING);
+	dma_unmap_page_attrs(&bp->pdev->dev, dma_addr, BNXT_RX_PAGE_SIZE,
+			     bp->rx_dir, DMA_ATTR_WEAK_ORDERING);
 
 	if (unlikely(!payload))
 		payload = eth_get_headlen(bp->dev, data_ptr, len);
@@ -1034,7 +1044,7 @@ static struct sk_buff *bnxt_rx_page_skb(struct bnxt *bp,
 
 	skb_mark_for_recycle(skb);
 	off = (void *)data_ptr - page_address(page);
-	skb_add_rx_frag(skb, 0, page, off, len, PAGE_SIZE);
+	skb_add_rx_frag(skb, 0, page, off, len, BNXT_RX_PAGE_SIZE);
 	memcpy(skb->data - NET_IP_ALIGN, data_ptr - NET_IP_ALIGN,
 	       payload + NET_IP_ALIGN);
 
@@ -1169,7 +1179,7 @@ static struct sk_buff *bnxt_rx_agg_pages_skb(struct bnxt *bp,
 
 	skb->data_len += total_frag_len;
 	skb->len += total_frag_len;
-	skb->truesize += PAGE_SIZE * agg_bufs;
+	skb->truesize += BNXT_RX_PAGE_SIZE * agg_bufs;
 	return skb;
 }
 
@@ -1788,6 +1798,21 @@ static void bnxt_deliver_skb(struct bnxt *bp, struct bnxt_napi *bnapi,
 	napi_gro_receive(&bnapi->napi, skb);
 }
 
+static bool bnxt_rx_ts_valid(struct bnxt *bp, u32 flags,
+			     struct rx_cmp_ext *rxcmp1, u32 *cmpl_ts)
+{
+	u32 ts = le32_to_cpu(rxcmp1->rx_cmp_timestamp);
+
+	if (BNXT_PTP_RX_TS_VALID(flags))
+		goto ts_valid;
+	if (!bp->ptp_all_rx_tstamp || !ts || !BNXT_ALL_RX_TS_VALID(flags))
+		return false;
+
+ts_valid:
+	*cmpl_ts = ts;
+	return true;
+}
+
 /* returns the following:
  * 1       - 1 packet successfully received
  * 0       - successful TPA_START, packet not completed yet
@@ -1813,6 +1838,7 @@ static int bnxt_rx_pkt(struct bnxt *bp, struct bnxt_cp_ring_info *cpr,
 	struct sk_buff *skb;
 	struct xdp_buff xdp;
 	u32 flags, misc;
+	u32 cmpl_ts;
 	void *data;
 	int rc = 0;
 
@@ -2035,10 +2061,8 @@ static int bnxt_rx_pkt(struct bnxt *bp, struct bnxt_cp_ring_info *cpr,
 		}
 	}
 
-	if (unlikely((flags & RX_CMP_FLAGS_ITYPES_MASK) ==
-		     RX_CMP_FLAGS_ITYPE_PTP_W_TS) || bp->ptp_all_rx_tstamp) {
+	if (bnxt_rx_ts_valid(bp, flags, rxcmp1, &cmpl_ts)) {
 		if (bp->flags & BNXT_FLAG_CHIP_P5) {
-			u32 cmpl_ts = le32_to_cpu(rxcmp1->rx_cmp_timestamp);
 			u64 ns, ts;
 
 			if (!bnxt_get_rx_ts_p5(bp, &ts, cmpl_ts)) {
@@ -2598,12 +2622,11 @@ static int __bnxt_poll_work(struct bnxt *bp, struct bnxt_cp_ring_info *cpr,
 	return rx_pkts;
 }
 
-static void __bnxt_poll_work_done(struct bnxt *bp, struct bnxt_napi *bnapi)
+static void __bnxt_poll_work_done(struct bnxt *bp, struct bnxt_napi *bnapi,
+				  int budget)
 {
-	if (bnapi->tx_pkts) {
-		bnapi->tx_int(bp, bnapi, bnapi->tx_pkts);
-		bnapi->tx_pkts = 0;
-	}
+	if (bnapi->tx_pkts)
+		bnapi->tx_int(bp, bnapi, budget);
 
 	if ((bnapi->events & BNXT_RX_EVENT) && !(bnapi->in_reset)) {
 		struct bnxt_rx_ring_info *rxr = bnapi->rx_ring;
@@ -2632,7 +2655,7 @@ static int bnxt_poll_work(struct bnxt *bp, struct bnxt_cp_ring_info *cpr,
 	 */
 	bnxt_db_cq(bp, &cpr->cp_db, cpr->cp_raw_cons);
 
-	__bnxt_poll_work_done(bp, bnapi);
+	__bnxt_poll_work_done(bp, bnapi, budget);
 	return rx_pkts;
 }
 
@@ -2646,6 +2669,7 @@ static int bnxt_poll_nitroa0(struct napi_struct *napi, int budget)
 	struct rx_cmp_ext *rxcmp1;
 	u32 cp_cons, tmp_raw_cons;
 	u32 raw_cons = cpr->cp_raw_cons;
+	bool flush_xdp = false;
 	u32 rx_pkts = 0;
 	u8 event = 0;
 
@@ -2680,6 +2704,8 @@ static int bnxt_poll_nitroa0(struct napi_struct *napi, int budget)
 				rx_pkts++;
 			else if (rc == -EBUSY)	/* partial completion */
 				break;
+			if (event & BNXT_REDIRECT_EVENT)
+				flush_xdp = true;
 		} else if (unlikely(TX_CMP_TYPE(txcmp) ==
 				    CMPL_BASE_TYPE_HWRM_DONE)) {
 			bnxt_hwrm_handler(bp, txcmp);
@@ -2699,6 +2725,8 @@ static int bnxt_poll_nitroa0(struct napi_struct *napi, int budget)
 
 	if (event & BNXT_AGG_EVENT)
 		bnxt_db_write(bp, &rxr->rx_agg_db, rxr->rx_agg_prod);
+	if (flush_xdp)
+		xdp_do_flush();
 
 	if (!bnxt_has_work(bp, cpr) && rx_pkts < budget) {
 		napi_complete_done(napi, rx_pkts);
@@ -2763,7 +2791,7 @@ static int __bnxt_poll_cqs(struct bnxt *bp, struct bnxt_napi *bnapi, int budget)
 }
 
 static void __bnxt_poll_cqs_done(struct bnxt *bp, struct bnxt_napi *bnapi,
-				 u64 dbr_type)
+				 u64 dbr_type, int budget)
 {
 	struct bnxt_cp_ring_info *cpr = &bnapi->cp_ring;
 	int i;
@@ -2779,7 +2807,7 @@ static void __bnxt_poll_cqs_done(struct bnxt *bp, struct bnxt_napi *bnapi,
 			cpr2->had_work_done = 0;
 		}
 	}
-	__bnxt_poll_work_done(bp, bnapi);
+	__bnxt_poll_work_done(bp, bnapi, budget);
 }
 
 static int bnxt_poll_p5(struct napi_struct *napi, int budget)
@@ -2809,7 +2837,8 @@ static int bnxt_poll_p5(struct napi_struct *napi, int budget)
 			if (cpr->has_more_work)
 				break;
 
-			__bnxt_poll_cqs_done(bp, bnapi, DBR_TYPE_CQ_ARMALL);
+			__bnxt_poll_cqs_done(bp, bnapi, DBR_TYPE_CQ_ARMALL,
+					     budget);
 			cpr->cp_raw_cons = raw_cons;
 			if (napi_complete_done(napi, work_done))
 				BNXT_DB_NQ_ARM_P5(&cpr->cp_db,
@@ -2839,7 +2868,7 @@ static int bnxt_poll_p5(struct napi_struct *napi, int budget)
 		}
 		raw_cons = NEXT_RAW_CMP(raw_cons);
 	}
-	__bnxt_poll_cqs_done(bp, bnapi, DBR_TYPE_CQ);
+	__bnxt_poll_cqs_done(bp, bnapi, DBR_TYPE_CQ, budget);
 	if (raw_cons != cpr->cp_raw_cons) {
 		cpr->cp_raw_cons = raw_cons;
 		BNXT_DB_NQ_P5(&cpr->cp_db, raw_cons);
@@ -2972,8 +3001,8 @@ skip_rx_tpa_free:
 		rx_buf->data = NULL;
 		if (BNXT_RX_PAGE_MODE(bp)) {
 			mapping -= bp->rx_dma_offset;
-			dma_unmap_page_attrs(&pdev->dev, mapping, PAGE_SIZE,
-					     bp->rx_dir,
+			dma_unmap_page_attrs(&pdev->dev, mapping,
+					     BNXT_RX_PAGE_SIZE, bp->rx_dir,
 					     DMA_ATTR_WEAK_ORDERING);
 			page_pool_recycle_direct(rxr->page_pool, data);
 		} else {
@@ -3241,6 +3270,8 @@ static int bnxt_alloc_rx_page_pool(struct bnxt *bp,
 	pp.nid = dev_to_node(&bp->pdev->dev);
 	pp.dev = &bp->pdev->dev;
 	pp.dma_dir = DMA_BIDIRECTIONAL;
+	if (PAGE_SIZE > BNXT_RX_PAGE_SIZE)
+		pp.flags |= PP_FLAG_PAGE_FRAG;
 
 	rxr->page_pool = page_pool_create(&pp);
 	if (IS_ERR(rxr->page_pool)) {
@@ -4017,26 +4048,29 @@ void bnxt_set_ring_params(struct bnxt *bp)
  */
 int bnxt_set_rx_skb_mode(struct bnxt *bp, bool page_mode)
 {
+	struct net_device *dev = bp->dev;
+
 	if (page_mode) {
 		bp->flags &= ~BNXT_FLAG_AGG_RINGS;
 		bp->flags |= BNXT_FLAG_RX_PAGE_MODE;
 
-		if (bp->dev->mtu > BNXT_MAX_PAGE_MODE_MTU) {
+		if (bp->xdp_prog->aux->xdp_has_frags)
+			dev->max_mtu = min_t(u16, bp->max_mtu, BNXT_MAX_MTU);
+		else
+			dev->max_mtu =
+				min_t(u16, bp->max_mtu, BNXT_MAX_PAGE_MODE_MTU);
+		if (dev->mtu > BNXT_MAX_PAGE_MODE_MTU) {
 			bp->flags |= BNXT_FLAG_JUMBO;
 			bp->rx_skb_func = bnxt_rx_multi_page_skb;
-			bp->dev->max_mtu =
-				min_t(u16, bp->max_mtu, BNXT_MAX_MTU);
 		} else {
 			bp->flags |= BNXT_FLAG_NO_AGG_RINGS;
 			bp->rx_skb_func = bnxt_rx_page_skb;
-			bp->dev->max_mtu =
-				min_t(u16, bp->max_mtu, BNXT_MAX_PAGE_MODE_MTU);
 		}
 		bp->rx_dir = DMA_BIDIRECTIONAL;
 		/* Disable LRO or GRO_HW */
-		netdev_update_features(bp->dev);
+		netdev_update_features(dev);
 	} else {
-		bp->dev->max_mtu = bp->max_mtu;
+		dev->max_mtu = bp->max_mtu;
 		bp->flags &= ~BNXT_FLAG_RX_PAGE_MODE;
 		bp->rx_dir = DMA_FROM_DEVICE;
 		bp->rx_skb_func = bnxt_rx_skb;
@@ -9426,6 +9460,8 @@ static void bnxt_enable_napi(struct bnxt *bp)
 			cpr->sw_stats.rx.rx_resets++;
 		bnapi->in_reset = false;
 
+		bnapi->tx_pkts = 0;
+
 		if (bnapi->rx_ring) {
 			INIT_WORK(&cpr->dim.work, bnxt_dim_work);
 			cpr->dim.mode = DIM_CQ_PERIOD_MODE_START_FROM_EQE;
@@ -10699,10 +10735,8 @@ static void __bnxt_close_nic(struct bnxt *bp, bool irq_re_init,
 	bnxt_free_mem(bp, irq_re_init);
 }
 
-int bnxt_close_nic(struct bnxt *bp, bool irq_re_init, bool link_re_init)
+void bnxt_close_nic(struct bnxt *bp, bool irq_re_init, bool link_re_init)
 {
-	int rc = 0;
-
 	if (test_bit(BNXT_STATE_IN_FW_RESET, &bp->state)) {
 		/* If we get here, it means firmware reset is in progress
 		 * while we are trying to close.  We can safely proceed with
@@ -10717,15 +10751,18 @@ int bnxt_close_nic(struct bnxt *bp, bool irq_re_init, bool link_re_init)
 
 #ifdef CONFIG_BNXT_SRIOV
 	if (bp->sriov_cfg) {
+		int rc;
+
 		rc = wait_event_interruptible_timeout(bp->sriov_cfg_wait,
 						      !bp->sriov_cfg,
 						      BNXT_SRIOV_CFG_WAIT_TMO);
-		if (rc)
-			netdev_warn(bp->dev, "timeout waiting for SRIOV config operation to complete!\n");
+		if (!rc)
+			netdev_warn(bp->dev, "timeout waiting for SRIOV config operation to complete, proceeding to close!\n");
+		else if (rc < 0)
+			netdev_warn(bp->dev, "SRIOV config operation interrupted, proceeding to close!\n");
 	}
 #endif
 	__bnxt_close_nic(bp, irq_re_init, link_re_init);
-	return rc;
 }
 
 static int bnxt_close(struct net_device *dev)
@@ -13863,6 +13900,8 @@ static int bnxt_resume(struct device *device)
 	rc = bnxt_hwrm_func_qcaps(bp);
 	if (rc)
 		goto resume_exit;
+
+	bnxt_clear_reservations(bp, true);
 
 	if (bnxt_hwrm_func_drv_rgtr(bp, NULL, 0, false)) {
 		rc = -ENODEV;

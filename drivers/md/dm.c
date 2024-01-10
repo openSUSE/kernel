@@ -718,24 +718,6 @@ static void dm_put_live_table_fast(struct mapped_device *md) __releases(RCU)
 	rcu_read_unlock();
 }
 
-static inline struct dm_table *dm_get_live_table_bio(struct mapped_device *md,
-						     int *srcu_idx, unsigned bio_opf)
-{
-	if (bio_opf & REQ_NOWAIT)
-		return dm_get_live_table_fast(md);
-	else
-		return dm_get_live_table(md, srcu_idx);
-}
-
-static inline void dm_put_live_table_bio(struct mapped_device *md, int srcu_idx,
-					 unsigned bio_opf)
-{
-	if (bio_opf & REQ_NOWAIT)
-		dm_put_live_table_fast(md);
-	else
-		dm_put_live_table(md, srcu_idx);
-}
-
 static char *_dm_claim_ptr = "I belong to device-mapper";
 
 /*
@@ -1035,6 +1017,7 @@ static void dm_wq_requeue_work(struct work_struct *work)
 		io->next = NULL;
 		__dm_io_complete(io, false);
 		io = next;
+		cond_resched();
 	}
 }
 
@@ -1538,7 +1521,8 @@ static void setup_split_accounting(struct clone_info *ci, unsigned len)
 }
 
 static void alloc_multiple_bios(struct bio_list *blist, struct clone_info *ci,
-				struct dm_target *ti, unsigned num_bios)
+				struct dm_target *ti, unsigned num_bios,
+				unsigned *len)
 {
 	struct bio *bio;
 	int try;
@@ -1549,7 +1533,7 @@ static void alloc_multiple_bios(struct bio_list *blist, struct clone_info *ci,
 		if (try)
 			mutex_lock(&ci->io->md->table_devices_lock);
 		for (bio_nr = 0; bio_nr < num_bios; bio_nr++) {
-			bio = alloc_tio(ci, ti, bio_nr, NULL,
+			bio = alloc_tio(ci, ti, bio_nr, len,
 					try ? GFP_NOIO : GFP_NOWAIT);
 			if (!bio)
 				break;
@@ -1584,8 +1568,10 @@ static int __send_duplicate_bios(struct clone_info *ci, struct dm_target *ti,
 		ret = 1;
 		break;
 	default:
+		if (len)
+			setup_split_accounting(ci, *len);
 		/* dm_accept_partial_bio() is not supported with shared tio->len_ptr */
-		alloc_multiple_bios(&blist, ci, ti, num_bios);
+		alloc_multiple_bios(&blist, ci, ti, num_bios, len);
 		while ((clone = bio_list_pop(&blist))) {
 			dm_tio_set_flag(clone_to_tio(clone), DM_TIO_IS_DUPLICATE_BIO);
 			__map_bio(clone);
@@ -1862,9 +1848,8 @@ static void dm_submit_bio(struct bio *bio)
 	struct mapped_device *md = bio->bi_bdev->bd_disk->private_data;
 	int srcu_idx;
 	struct dm_table *map;
-	unsigned bio_opf = bio->bi_opf;
 
-	map = dm_get_live_table_bio(md, &srcu_idx, bio_opf);
+	map = dm_get_live_table(md, &srcu_idx);
 
 	/* If suspended, or map not yet available, queue this IO for later */
 	if (unlikely(test_bit(DMF_BLOCK_IO_FOR_SUSPEND, &md->flags)) ||
@@ -1880,7 +1865,7 @@ static void dm_submit_bio(struct bio *bio)
 
 	dm_split_and_process_bio(md, map, bio);
 out:
-	dm_put_live_table_bio(md, srcu_idx, bio_opf);
+	dm_put_live_table(md, srcu_idx);
 }
 
 static bool dm_poll_dm_io(struct dm_io *io, struct io_comp_batch *iob,
