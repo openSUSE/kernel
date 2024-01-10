@@ -543,15 +543,15 @@ found:
 static int append_buildid(char *buffer,  const char *modname,
 			  const unsigned char *buildid)
 {
-	if (modname && !buildid) {
-		pr_warn("Undefined buildid for the module %s\n", modname);
-		return 0;
-	}
-
 	/* build ID should match length of sprintf */
 #ifdef CONFIG_MODULES
 	static_assert(sizeof(typeof_member(struct module, build_id)) == 20);
 #endif
+
+	if (modname && !buildid) {
+		pr_warn("Undefined buildid for the module %s\n", modname);
+		return 0;
+	}
 
 	return sprintf(buffer, " %20phN", buildid);
 }
