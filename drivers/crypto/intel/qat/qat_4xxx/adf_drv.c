@@ -7,8 +7,11 @@
 #include <adf_accel_devices.h>
 #include <adf_cfg.h>
 #include <adf_common_drv.h>
+#include <adf_dbgfs.h>
+#include <adf_heartbeat.h>
 
 #include "adf_4xxx_hw_data.h"
+#include "adf_cfg_services.h"
 #include "qat_compression.h"
 #include "qat_crypto.h"
 #include "adf_transport_access_macros.h"
@@ -21,24 +24,14 @@ static const struct pci_device_id adf_pci_tbl[] = {
 };
 MODULE_DEVICE_TABLE(pci, adf_pci_tbl);
 
-enum configs {
-	DEV_CFG_CY = 0,
-	DEV_CFG_DC,
-};
-
-static const char * const services_operations[] = {
-	ADF_CFG_CY,
-	ADF_CFG_DC,
-};
-
 static void adf_cleanup_accel(struct adf_accel_dev *accel_dev)
 {
 	if (accel_dev->hw_device) {
 		adf_clean_hw_data_4xxx(accel_dev->hw_device);
 		accel_dev->hw_device = NULL;
 	}
+	adf_dbgfs_exit(accel_dev);
 	adf_cfg_dev_remove(accel_dev);
-	debugfs_remove(accel_dev->debugfs_dir);
 	adf_devmgr_rm_dev(accel_dev, NULL);
 }
 
@@ -61,6 +54,8 @@ static int adf_cfg_dev_init(struct adf_accel_dev *accel_dev)
 					  ADF_STR);
 	if (ret)
 		return ret;
+
+	adf_heartbeat_save_cfg_param(accel_dev, ADF_CFG_HB_TIMER_MIN_MS);
 
 	return 0;
 }
@@ -241,6 +236,21 @@ err:
 	return ret;
 }
 
+static int adf_no_dev_config(struct adf_accel_dev *accel_dev)
+{
+	unsigned long val;
+	int ret;
+
+	val = 0;
+	ret = adf_cfg_add_key_value_param(accel_dev, ADF_KERNEL_SEC, ADF_NUM_DC,
+					  &val, ADF_DEC);
+	if (ret)
+		return ret;
+
+	return adf_cfg_add_key_value_param(accel_dev, ADF_KERNEL_SEC, ADF_NUM_CY,
+					  &val, ADF_DEC);
+}
+
 int adf_gen4_dev_config(struct adf_accel_dev *accel_dev)
 {
 	char services[ADF_CFG_MAX_VAL_LEN_IN_BYTES] = {0};
@@ -259,16 +269,21 @@ int adf_gen4_dev_config(struct adf_accel_dev *accel_dev)
 	if (ret)
 		goto err;
 
-	ret = sysfs_match_string(services_operations, services);
+	ret = sysfs_match_string(adf_cfg_services, services);
 	if (ret < 0)
 		goto err;
 
 	switch (ret) {
-	case DEV_CFG_CY:
+	case SVC_CY:
+	case SVC_CY2:
 		ret = adf_crypto_dev_config(accel_dev);
 		break;
-	case DEV_CFG_DC:
+	case SVC_DC:
+	case SVC_DCC:
 		ret = adf_comp_dev_config(accel_dev);
+		break;
+	default:
+		ret = adf_no_dev_config(accel_dev);
 		break;
 	}
 
@@ -289,7 +304,6 @@ static int adf_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 	struct adf_accel_dev *accel_dev;
 	struct adf_accel_pci *accel_pci_dev;
 	struct adf_hw_device_data *hw_data;
-	char name[ADF_DEVICE_NAME_LENGTH];
 	unsigned int i, bar_nr;
 	unsigned long bar_mask;
 	struct adf_bar *bar;
@@ -348,12 +362,6 @@ static int adf_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 		goto out_err;
 	}
 
-	/* Create dev top level debugfs entry */
-	snprintf(name, sizeof(name), "%s%s_%s", ADF_DEVICE_NAME_PREFIX,
-		 hw_data->dev_class->name, pci_name(pdev));
-
-	accel_dev->debugfs_dir = debugfs_create_dir(name, NULL);
-
 	/* Create device configuration table */
 	ret = adf_cfg_dev_add(accel_dev);
 	if (ret)
@@ -410,6 +418,9 @@ static int adf_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 		goto out_err;
 	}
 
+	accel_dev->ras_errors.enabled = true;
+	adf_dbgfs_init(accel_dev);
+
 	ret = adf_dev_up(accel_dev, true);
 	if (ret)
 		goto out_err_dev_stop;
@@ -457,3 +468,4 @@ MODULE_FIRMWARE(ADF_4XXX_MMP);
 MODULE_DESCRIPTION("Intel(R) QuickAssist Technology");
 MODULE_VERSION(ADF_DRV_VERSION);
 MODULE_SOFTDEP("pre: crypto-intel_qat");
+MODULE_IMPORT_NS(CRYPTO_QAT);
