@@ -746,7 +746,7 @@ static const struct mdp_comp_ops *mdp_comp_ops[MDP_COMP_TYPE_COUNT] = {
 	[MDP_COMP_TYPE_CCORR] =		&ccorr_ops,
 };
 
-static const struct of_device_id mdp_comp_dt_ids[] = {
+static const struct of_device_id mdp_comp_dt_ids[] __maybe_unused = {
 	{
 		.compatible = "mediatek,mt8183-mdp3-rdma",
 		.data = (void *)MDP_COMP_TYPE_RDMA,
@@ -1037,6 +1037,7 @@ static int mdp_comp_sub_create(struct mdp_dev *mdp)
 {
 	struct device *dev = &mdp->pdev->dev;
 	struct device_node *node, *parent;
+	int ret = 0;
 
 	parent = dev->of_node->parent;
 
@@ -1062,16 +1063,22 @@ static int mdp_comp_sub_create(struct mdp_dev *mdp)
 			dev_err(dev,
 				"Fail to get sub comp. id: type %d alias %d\n",
 				type, alias_id);
-			return -EINVAL;
+			ret = -EINVAL;
+			goto err_free_node;
 		}
 		mdp_comp_alias_id[type]++;
 
 		comp = mdp_comp_create(mdp, node, id);
-		if (IS_ERR(comp))
-			return PTR_ERR(comp);
+		if (IS_ERR(comp)) {
+			ret = PTR_ERR(comp);
+			goto err_free_node;
+		}
 	}
+	return ret;
 
-	return 0;
+err_free_node:
+	of_node_put(node);
+	return ret;
 }
 
 void mdp_comp_destroy(struct mdp_dev *mdp)
