@@ -49,7 +49,7 @@ extern int mtk_vcodec_dbg;
 	do {											\
 		if (mtk_vcodec_dbg)								\
 			dev_dbg(&(plat_dev)->dev, "[MTK_VCODEC][%d]: %s, %d " fmt "\n",		\
-				inst_id, __func__, __LINE__, ##args);				\	
+				inst_id, __func__, __LINE__, ##args);				\
 	} while (0)
 #else
 #define mtk_v4l2_debug(level, fmt, args...) pr_debug(fmt, ##args)
