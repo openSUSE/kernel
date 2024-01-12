@@ -1744,6 +1744,13 @@ sub check_sections($$$$$) {
 					"description in '$decl_name'\n";
 				++$warnings;
 			}
+			elsif (($decl_type eq "struct") or
+		       	       ($decl_type eq "union")) {
+				emit_warning("${file}:$.",
+					"Excess $decl_type member " .
+					"'$sects[$sx]' " .
+					"description in '$decl_name'\n");
+			}
 		}
 	}
 }
