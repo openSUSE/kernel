@@ -944,6 +944,11 @@ struct kimage *kexec_image;
 struct kimage *kexec_crash_image;
 static int kexec_load_disabled;
 
+void kexec_disable(void)
+{
+	kexec_load_disabled = 1;
+}
+
 #ifdef CONFIG_SYSCTL
 static int kexec_limit_handler(struct ctl_table *table, int write,
 			       void *buffer, size_t *lenp, loff_t *ppos)
