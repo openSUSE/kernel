@@ -848,6 +848,7 @@ int vmw_surface_define_ioctl(struct drm_device *dev, void *data,
 	if (dev_priv->has_mob && req->shareable) {
 		ret = vmw_gem_object_create(dev_priv,
 					    res->backup_size,
+					    false,
 					    &res->backup);
 		if (unlikely(ret != 0)) {
 			vmw_resource_unreference(&res);
