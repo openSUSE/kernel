@@ -2549,7 +2549,7 @@ static ssize_t register_bcache(struct kobject *k, struct kobj_attribute *attr,
 
 	ret = -EINVAL;
 	err = "failed to open device";
-	bdev = blkdev_get_by_path(strim(path), FMODE_READ, NULL, NULL);
+	bdev = blkdev_get_by_path(strim(path), BLK_OPEN_READ, NULL, NULL);
 	if (IS_ERR(bdev))
 		goto out_free_sb;
 
@@ -2569,7 +2569,7 @@ static ssize_t register_bcache(struct kobject *k, struct kobj_attribute *attr,
 	}
 
 	/* Now reopen in exclusive mode with proper holder */
-	bdev2 = blkdev_get_by_dev(bdev->bd_dev, FMODE_READ | FMODE_WRITE,
+	bdev2 = blkdev_get_by_dev(bdev->bd_dev, BLK_OPEN_READ | BLK_OPEN_WRITE,
 				  holder, NULL);
 	blkdev_put(bdev, NULL);
 	bdev = bdev2;
