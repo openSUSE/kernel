@@ -2272,7 +2272,7 @@ static int __exit etm4_remove_platform_dev(struct platform_device *pdev)
 		ret = etm4_remove_dev(drvdata);
 	pm_runtime_disable(&pdev->dev);
 
-	if (drvdata->pclk)
+	if (drvdata && !IS_ERR_OR_NULL(drvdata->pclk))
 		clk_put(drvdata->pclk);
 
 	return ret;
