@@ -840,6 +840,7 @@ static inline bool vmw_resource_mob_attached(const struct vmw_resource *res)
  */
 int vmw_gem_object_create(struct vmw_private *dev_priv,
 			  uint32_t size,
+			  bool pin,
 			  struct vmw_buffer_object **p_vbo);
 
 extern int vmw_gem_object_create_with_handle(struct vmw_private *dev_priv,
