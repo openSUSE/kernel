@@ -1440,11 +1440,6 @@ void __init tdx_init(void)
 	u32 tdx_keyid_start, nr_tdx_keyids;
 	int err;
 
-#ifdef CONFIG_KEXEC_CORE
-	pr_info("KEXEC unsupported, disabling...\n");
-	kexec_disable();
-#endif
-
 	err = record_keyid_partitioning(&tdx_keyid_start, &nr_tdx_keyids);
 	if (err)
 		return;
@@ -1484,6 +1479,10 @@ void __init tdx_init(void)
 	acpi_suspend_lowlevel = NULL;
 #endif
 
+#ifdef CONFIG_KEXEC_CORE
+	pr_info("Disable kexec. Turn off TDX in the BIOS to use kexec.\n");
+	kexec_disable();
+#endif
 	/*
 	 * Just use the first TDX KeyID as the 'global KeyID' and
 	 * leave the rest for TDX guests.
