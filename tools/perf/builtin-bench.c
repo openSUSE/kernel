@@ -105,6 +105,11 @@ static struct bench breakpoint_benchmarks[] = {
 	{ NULL,	NULL, NULL },
 };
 
+static struct bench uprobe_benchmarks[] = {
+	{ "baseline",	"Baseline libc usleep(1000) call",	bench_uprobe_baseline,	},
+	{ NULL,	NULL, NULL },
+};
+
 struct collection {
 	const char	*name;
 	const char	*summary;
@@ -124,6 +129,7 @@ static struct collection collections[] = {
 #endif
 	{ "internals",	"Perf-internals benchmarks",			internals_benchmarks	},
 	{ "breakpoint",	"Breakpoint benchmarks",			breakpoint_benchmarks	},
+	{ "uprobe",	"uprobe benchmarks",				uprobe_benchmarks	},
 	{ "all",	"All benchmarks",				NULL			},
 	{ NULL,		NULL,						NULL			}
 };
