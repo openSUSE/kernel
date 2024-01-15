@@ -102,7 +102,7 @@ struct acpi_thermal_passive {
 	struct acpi_handle_list devices;
 	unsigned long tc1;
 	unsigned long tc2;
-	unsigned long tsp;
+	unsigned long delay;
 };
 
 struct acpi_thermal_active {
@@ -286,12 +286,18 @@ static void __acpi_thermal_trips_update(struct acpi_thermal *tz, int flag)
 				else
 					tz->trips.passive.tc2 = tmp;
 
-				status = acpi_evaluate_integer(tz->device->handle,
-							       "_TSP", NULL, &tmp);
-				if (ACPI_FAILURE(status))
-					tz->trips.passive.trip.valid = false;
-				else
-					tz->trips.passive.tsp = tmp;
+				status = acpi_evaluate_integer(tz->device->handle, 
+							       "_TFP", NULL, &tmp);
+				if (ACPI_SUCCESS(status)) {
+					tz->trips.passive.delay = tmp;
+				} else {
+					status = acpi_evaluate_integer(tz->device->handle,
+								       "_TSP", NULL, &tmp);
+					if (ACPI_FAILURE(status))
+						tz->trips.passive.trip.valid = false;
+					else
+						tz->trips.passive.delay = tmp * 100;
+				}
 			}
 		}
 	}
@@ -696,7 +702,7 @@ static int acpi_thermal_register_thermal_zone(struct acpi_thermal *tz)
 
 	if (tz->trips.passive.trip.valid) {
 		trip_count++;
-		passive_delay = tz->trips.passive.tsp * 100;
+		passive_delay = tz->trips.passive.delay;
 	}
 
 	for (i = 0; i < ACPI_THERMAL_MAX_ACTIVE && tz->trips.active[i].trip.valid; i++)
