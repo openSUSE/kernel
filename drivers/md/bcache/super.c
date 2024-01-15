@@ -732,7 +732,7 @@ out:
 
 /* Bcache device */
 
-static int open_dev(struct gendisk *disk, fmode_t mode)
+static int open_dev(struct gendisk *disk, blk_mode_t mode)
 {
 	struct bcache_device *d = disk->private_data;
 
@@ -750,7 +750,7 @@ static void release_dev(struct gendisk *b)
 	closure_put(&d->cl);
 }
 
-static int ioctl_dev(struct block_device *b, fmode_t mode,
+static int ioctl_dev(struct block_device *b, blk_mode_t mode,
 		     unsigned int cmd, unsigned long arg)
 {
 	struct bcache_device *d = b->bd_disk->private_data;
