@@ -995,7 +995,7 @@ static bool etm4_init_iomem_access(struct etmv4_drvdata *drvdata,
 
 	*csa = CSDEV_ACCESS_IOMEM(drvdata->base);
 
-	if (drvdata->pclk)
+	if (drvdata && !IS_ERR_OR_NULL(drvdata->pclk))
 		clk_put(drvdata->pclk);
 
 	return true;
