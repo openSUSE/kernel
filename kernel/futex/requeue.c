@@ -873,7 +873,7 @@ int futex_wait_requeue_pi(u32 __user *uaddr, unsigned int flags,
 		if (res)
 			ret = (res < 0) ? res : 0;
 
-		futex_unqueue_pi(&q);
+		futex_unqueue_pi(&q, true);
 		spin_unlock(q.lock_ptr);
 
 		if (ret == -EINTR) {

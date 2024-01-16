@@ -1070,6 +1070,7 @@ no_block:
 	 * haven't already.
 	 */
 	res = fixup_pi_owner(uaddr, &q, !ret);
+	futex_unqueue_pi(&q, !ret);
 	/*
 	 * If fixup_pi_owner() returned an error, propagate that.  If it acquired
 	 * the lock, clear our -ETIMEDOUT or -EINTR.
@@ -1077,7 +1078,6 @@ no_block:
 	if (res)
 		ret = (res < 0) ? res : 0;
 
-	futex_unqueue_pi(&q);
 	spin_unlock(q.lock_ptr);
 	goto out;
 
@@ -1135,6 +1135,7 @@ retry:
 
 	hb = futex_hash(&key);
 	spin_lock(&hb->lock);
+retry_hb:
 
 	/*
 	 * Check waiters first. We do not trust user space values at
@@ -1177,12 +1178,15 @@ retry:
 		/*
 		 * Futex vs rt_mutex waiter state -- if there are no rt_mutex
 		 * waiters even though futex thinks there are, then the waiter
-		 * is leaving and the uncontended path is safe to take.
+		 * is leaving. We need to remove it from the list so that the
+		 * current PI-state is not observed by future pi_futex_lock()
+		 * caller before the leaving waiter had a chance to clean up.
 		 */
 		rt_waiter = rt_mutex_top_waiter(&pi_state->pi_mutex);
 		if (!rt_waiter) {
+			__futex_unqueue(top_waiter);
 			raw_spin_unlock_irq(&pi_state->pi_mutex.wait_lock);
-			goto do_uncontended;
+			goto retry_hb;
 		}
 
 		get_pi_state(pi_state);
@@ -1217,7 +1221,6 @@ retry:
 		return ret;
 	}
 
-do_uncontended:
 	/*
 	 * We have no kernel internal state, i.e. no waiters in the
 	 * kernel. Waiters which are about to queue themselves are stuck
