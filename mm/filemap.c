@@ -4009,8 +4009,6 @@ ssize_t __generic_file_write_iter(struct kiocb *iocb, struct iov_iter *from)
 	ssize_t		err;
 	ssize_t		status;
 
-	/* We can write back this queue in page reclaim */
-	current->backing_dev_info = inode_to_bdi(inode);
 	err = file_remove_privs(file);
 	if (err)
 		goto out;
@@ -4071,7 +4069,6 @@ ssize_t __generic_file_write_iter(struct kiocb *iocb, struct iov_iter *from)
 			iocb->ki_pos += written;
 	}
 out:
-	current->backing_dev_info = NULL;
 	return written ? written : err;
 }
 EXPORT_SYMBOL(__generic_file_write_iter);
