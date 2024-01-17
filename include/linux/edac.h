@@ -186,6 +186,7 @@ static inline char *mc_event_error_type(const unsigned int err_type)
  * @MEM_LRDDR5:		Load-Reduced DDR5 memory.
  * @MEM_NVDIMM:		Non-volatile RAM
  * @MEM_WIO2:		Wide I/O 2.
+ * @MEM_HBM2:		High bandwidth Memory Gen 2.
  */
 enum mem_type {
 	MEM_EMPTY = 0,
@@ -216,6 +217,9 @@ enum mem_type {
 	MEM_LRDDR5,
 	MEM_NVDIMM,
 	MEM_WIO2,
+#ifndef __GENKSYMS__
+	MEM_HBM2,
+#endif
 };
 
 #define MEM_FLAG_EMPTY		BIT(MEM_EMPTY)
@@ -245,6 +249,7 @@ enum mem_type {
 #define MEM_FLAG_LRDDR5         BIT(MEM_LRDDR5)
 #define MEM_FLAG_NVDIMM         BIT(MEM_NVDIMM)
 #define MEM_FLAG_WIO2		BIT(MEM_WIO2)
+#define MEM_FLAG_HBM2		BIT(MEM_HBM2)
 
 /**
  * enum edac_type - Error Detection and Correction capabilities and mode
