@@ -225,7 +225,7 @@ int amd_df_indirect_read(u16 node, u8 func, u16 reg, u8 instance_id, u32 *lo)
 	if (!F4)
 		goto out;
 
-	ficaa  = 1;
+	ficaa  = (instance_id == DF_BROADCAST) ? 0 : 1;
 	ficaa |= reg & 0x3FC;
 	ficaa |= (func & 0x7) << 11;
 	ficaa |= instance_id << 16;
