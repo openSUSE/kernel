@@ -2027,7 +2027,7 @@ void folio_zero_new_buffers(struct folio *folio, size_t from, size_t to)
 }
 EXPORT_SYMBOL(folio_zero_new_buffers);
 
-static void
+static int
 iomap_to_bh(struct inode *inode, sector_t block, struct buffer_head *bh,
 		const struct iomap *iomap)
 {
@@ -2041,7 +2041,8 @@ iomap_to_bh(struct inode *inode, sector_t block, struct buffer_head *bh,
 	 * current block, then do not map the buffer and let the caller
 	 * handle it.
 	 */
-	BUG_ON(offset >= iomap->offset + iomap->length);
+	if (offset >= iomap->offset + iomap->length)
+		return -EIO;
 
 	switch (iomap->type) {
 	case IOMAP_HOLE:
@@ -2053,7 +2054,7 @@ iomap_to_bh(struct inode *inode, sector_t block, struct buffer_head *bh,
 		if (!buffer_uptodate(bh) ||
 		    (offset >= i_size_read(inode)))
 			set_buffer_new(bh);
-		break;
+		return 0;
 	case IOMAP_DELALLOC:
 		if (!buffer_uptodate(bh) ||
 		    (offset >= i_size_read(inode)))
@@ -2061,7 +2062,7 @@ iomap_to_bh(struct inode *inode, sector_t block, struct buffer_head *bh,
 		set_buffer_uptodate(bh);
 		set_buffer_mapped(bh);
 		set_buffer_delay(bh);
-		break;
+		return 0;
 	case IOMAP_UNWRITTEN:
 		/*
 		 * For unwritten regions, we always need to ensure that regions
@@ -2078,7 +2079,10 @@ iomap_to_bh(struct inode *inode, sector_t block, struct buffer_head *bh,
 		bh->b_blocknr = (iomap->addr + offset - iomap->offset) >>
 				inode->i_blkbits;
 		set_buffer_mapped(bh);
-		break;
+		return 0;
+	default:
+		WARN_ON_ONCE(1);
+		return -EIO;
 	}
 }
 
@@ -2119,13 +2123,12 @@ int __block_write_begin_int(struct folio *folio, loff_t pos, unsigned len,
 			clear_buffer_new(bh);
 		if (!buffer_mapped(bh)) {
 			WARN_ON(bh->b_size != blocksize);
-			if (get_block) {
+			if (get_block)
 				err = get_block(inode, block, bh, 1);
-				if (err)
-					break;
-			} else {
-				iomap_to_bh(inode, block, bh, iomap);
-			}
+			else
+				err = iomap_to_bh(inode, block, bh, iomap);
+			if (err)
+				break;
 
 			if (buffer_new(bh)) {
 				clean_bdev_bh_alias(bh);
