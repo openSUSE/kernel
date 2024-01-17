@@ -628,10 +628,15 @@ retry:
 /*
  * PI futexes can not be requeued and must remove themselves from the
  * hash bucket. The hash bucket lock (i.e. lock_ptr) is held.
+ * If the PI futex was not acquired (due to timeout or signal) then it removes
+ * its rt_waiter before it removes itself from the futex queue. The unlocker
+ * will remove the futex_q from the queue if it observes an empty waitqueue.
+ * Therefore the unqueue is optional in this case.
  */
-void futex_unqueue_pi(struct futex_q *q)
+void futex_unqueue_pi(struct futex_q *q, bool have_lock)
 {
-	__futex_unqueue(q);
+	if (have_lock || !plist_node_empty(&q->list))
+		__futex_unqueue(q);
 
 	BUG_ON(!q->pi_state);
 	put_pi_state(q->pi_state);
