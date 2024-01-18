@@ -107,6 +107,7 @@ static struct smca_bank_name smca_names[] = {
 	/* UMC v2 is separate because both of them can exist in a single system. */
 	[SMCA_UMC]			= { "umc",		"Unified Memory Controller" },
 	[SMCA_UMC_V2]			= { "umc_v2",		"Unified Memory Controller v2" },
+	[SMCA_MA_LLC]			= { "ma_llc",		"Memory Attached Last Level Cache"},
 	[SMCA_PB]			= { "param_block",	"Parameter Block" },
 	[SMCA_PSP ... SMCA_PSP_V2]	= { "psp",		"Platform Security Processor" },
 	[SMCA_SMU ... SMCA_SMU_V2]	= { "smu",		"System Management Unit" },
@@ -119,6 +120,8 @@ static struct smca_bank_name smca_names[] = {
 	[SMCA_SHUB]			= { "shub",		"System Hub Unit" },
 	[SMCA_SATA]			= { "sata",		"SATA Unit" },
 	[SMCA_USB]			= { "usb",		"USB Unit" },
+	[SMCA_USR_DP]			= { "usr_dp",		"Ultra Short Reach Data Plane Controller"},
+	[SMCA_USR_CP]			= { "usr_cp",		"Ultra Short Reach Control Plane Controller"},
 	[SMCA_GMI_PCS]			= { "gmi_pcs",		"Global Memory Interconnect PCS Unit" },
 	[SMCA_XGMI_PHY]			= { "xgmi_phy",		"Ext Global Memory Interconnect PHY Unit" },
 	[SMCA_WAFL_PHY]			= { "wafl_phy",		"WAFL PHY Unit" },
@@ -178,6 +181,7 @@ static const struct smca_hwid smca_hwid_mcatypes[] = {
 	{ SMCA_CS,	 HWID_MCATYPE(0x2E, 0x0)	},
 	{ SMCA_PIE,	 HWID_MCATYPE(0x2E, 0x1)	},
 	{ SMCA_CS_V2,	 HWID_MCATYPE(0x2E, 0x2)	},
+	{ SMCA_MA_LLC,	 HWID_MCATYPE(0x2E, 0x4)	},
 
 	/* Unified Memory Controller MCA type */
 	{ SMCA_UMC,	 HWID_MCATYPE(0x96, 0x0)	},
@@ -212,6 +216,8 @@ static const struct smca_hwid smca_hwid_mcatypes[] = {
 	{ SMCA_SHUB,	 HWID_MCATYPE(0x80, 0x0)	},
 	{ SMCA_SATA,	 HWID_MCATYPE(0xA8, 0x0)	},
 	{ SMCA_USB,	 HWID_MCATYPE(0xAA, 0x0)	},
+	{ SMCA_USR_DP,	 HWID_MCATYPE(0x170, 0x0)	},
+	{ SMCA_USR_CP,	 HWID_MCATYPE(0x180, 0x0)	},
 	{ SMCA_GMI_PCS,  HWID_MCATYPE(0x241, 0x0)	},
 	{ SMCA_XGMI_PHY, HWID_MCATYPE(0x259, 0x0)	},
 	{ SMCA_WAFL_PHY, HWID_MCATYPE(0x267, 0x0)	},
@@ -925,15 +931,75 @@ out_err:
 }
 EXPORT_SYMBOL_GPL(umc_normaddr_to_sysaddr);
 
+/*
+ * DRAM ECC errors are reported in the Northbridge (bank 4) with
+ * Extended Error Code 8.
+ */
+static bool legacy_mce_is_memory_error(struct mce *m)
+{
+	return m->bank == 4 && XEC(m->status, 0x1f) == 8;
+}
+
+/*
+ * DRAM ECC errors are reported in Unified Memory Controllers with
+ * Extended Error Code 0.
+ */
+static bool smca_mce_is_memory_error(struct mce *m)
+{
+	enum smca_bank_types bank_type;
+
+	if (XEC(m->status, 0x3f))
+		return false;
+
+	bank_type = smca_get_bank_type(m->extcpu, m->bank);
+
+	return bank_type == SMCA_UMC || bank_type == SMCA_UMC_V2;
+}
+
 bool amd_mce_is_memory_error(struct mce *m)
 {
-	/* ErrCodeExt[20:16] */
-	u8 xec = (m->status >> 16) & 0x1f;
-
 	if (mce_flags.smca)
-		return smca_get_bank_type(m->extcpu, m->bank) == SMCA_UMC && xec == 0x0;
+		return smca_mce_is_memory_error(m);
+	else
+		return legacy_mce_is_memory_error(m);
+}
 
-	return m->bank == 4 && xec == 0x8;
+/*
+ * AMD systems do not have an explicit indicator that the value in MCA_ADDR is
+ * a system physical address. Therefore, individual cases need to be detected.
+ * Future cases and checks will be added as needed.
+ *
+ * 1) General case
+ *	a) Assume address is not usable.
+ * 2) Poison errors
+ *	a) Indicated by MCA_STATUS[43]: poison. Defined for all banks except legacy
+ *	   northbridge (bank 4).
+ *	b) Refers to poison consumption in the core. Does not include "no action",
+ *	   "action optional", or "deferred" error severities.
+ *	c) Will include a usable address so that immediate action can be taken.
+ * 3) Northbridge DRAM ECC errors
+ *	a) Reported in legacy bank 4 with extended error code (XEC) 8.
+ *	b) MCA_STATUS[43] is *not* defined as poison in legacy bank 4. Therefore,
+ *	   this bit should not be checked.
+ *
+ * NOTE: SMCA UMC memory errors fall into case #1.
+ */
+bool amd_mce_usable_address(struct mce *m)
+{
+	/* Check special northbridge case 3) first. */
+	if (!mce_flags.smca) {
+		if (legacy_mce_is_memory_error(m))
+			return true;
+		else if (m->bank == 4)
+			return false;
+	}
+
+	/* Check poison bit for all other bank types. */
+	if (m->status & MCI_STATUS_POISON)
+		return true;
+
+	/* Assume address is not usable for all others. */
+	return false;
 }
 
 static void __log_error(unsigned int bank, u64 status, u64 addr, u64 misc)
@@ -1269,7 +1335,7 @@ static const char *get_name(unsigned int cpu, unsigned int bank, struct threshol
 	if (bank_type >= N_SMCA_BANK_TYPES)
 		return NULL;
 
-	if (b && bank_type == SMCA_UMC) {
+	if (b && (bank_type == SMCA_UMC || bank_type == SMCA_UMC_V2)) {
 		if (b->block < ARRAY_SIZE(smca_umc_block_names))
 			return smca_umc_block_names[b->block];
 		return NULL;

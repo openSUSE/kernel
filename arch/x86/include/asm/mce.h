@@ -338,6 +338,11 @@ enum smca_bank_types {
 	SMCA_XGMI_PHY,	/* xGMI PHY Unit */
 	SMCA_WAFL_PHY,	/* WAFL PHY Unit */
 	SMCA_GMI_PHY,	/* GMI PHY Unit */
+#ifndef __GENKSYMS__
+	SMCA_MA_LLC,	/* Memory Attached Last Level Cache */
+	SMCA_USR_DP,	/* Ultra Short Reach Data Plane Controller */
+	SMCA_USR_CP,	/* Ultra Short Reach Control Plane Controller */
+#endif
 	N_SMCA_BANK_TYPES
 };
 
