@@ -1792,7 +1792,8 @@ int remove_conflicting_framebuffers(struct apertures_struct *a,
 	 * ask for this, so let's assume that a real driver for the display
 	 * was already probed and prevent sysfb to register devices later.
 	 */
-	sysfb_disable();
+	if (primary)
+		sysfb_disable();
 
 	mutex_lock(&registration_lock);
 	do_remove_conflicting_framebuffers(a, name, primary);
