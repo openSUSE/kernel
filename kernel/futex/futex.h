@@ -252,7 +252,7 @@ static inline void futex_queue(struct futex_q *q, struct futex_hash_bucket *hb)
 	spin_unlock(&hb->lock);
 }
 
-extern void futex_unqueue_pi(struct futex_q *q, bool have_lock);
+extern void futex_unqueue_pi(struct futex_q *q);
 
 extern void wait_for_owner_exiting(int ret, struct task_struct *exiting);
 
