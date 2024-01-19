@@ -1070,7 +1070,6 @@ no_block:
 	 * haven't already.
 	 */
 	res = fixup_pi_owner(uaddr, &q, !ret);
-	futex_unqueue_pi(&q, !ret);
 	/*
 	 * If fixup_pi_owner() returned an error, propagate that.  If it acquired
 	 * the lock, clear our -ETIMEDOUT or -EINTR.
@@ -1078,6 +1077,7 @@ no_block:
 	if (res)
 		ret = (res < 0) ? res : 0;
 
+	futex_unqueue_pi(&q);
 	spin_unlock(q.lock_ptr);
 	goto out;
 
@@ -1178,9 +1178,11 @@ retry_hb:
 		/*
 		 * Futex vs rt_mutex waiter state -- if there are no rt_mutex
 		 * waiters even though futex thinks there are, then the waiter
-		 * is leaving. We need to remove it from the list so that the
-		 * current PI-state is not observed by future pi_futex_lock()
-		 * caller before the leaving waiter had a chance to clean up.
+		 * is leaving. The entry needs to be removed from the list so a
+		 * new futex_lock_pi() is not using this outdated PI-state while
+		 * the futex is available in userland again.
+		 * There can be more than one task on its way out so it needs
+		 * to retry.
 		 */
 		rt_waiter = rt_mutex_top_waiter(&pi_state->pi_mutex);
 		if (!rt_waiter) {
