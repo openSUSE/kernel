@@ -474,6 +474,7 @@ EXPORT_SYMBOL_GPL(nvme_cancel_tagset);
 
 void nvme_cancel_admin_tagset(struct nvme_ctrl *ctrl)
 {
+	nvme_stop_keep_alive(ctrl);
 	if (ctrl->admin_tagset) {
 		blk_mq_tagset_busy_iter(ctrl->admin_tagset,
 				nvme_cancel_request, ctrl);
@@ -3324,6 +3325,8 @@ int nvme_init_ctrl_finish(struct nvme_ctrl *ctrl)
 
 	ctrl->identified = true;
 
+	nvme_start_keep_alive(ctrl);
+
 	return 0;
 }
 EXPORT_SYMBOL_GPL(nvme_init_ctrl_finish);
@@ -4946,7 +4949,6 @@ void nvme_stop_ctrl(struct nvme_ctrl *ctrl)
 {
 	nvme_mpath_stop(ctrl);
 	nvme_auth_stop(ctrl);
-	nvme_stop_keep_alive(ctrl);
 	nvme_stop_failfast_work(ctrl);
 	flush_work(&ctrl->async_event_work);
 	cancel_work_sync(&ctrl->fw_act_work);
@@ -4957,8 +4959,6 @@ EXPORT_SYMBOL_GPL(nvme_stop_ctrl);
 
 void nvme_start_ctrl(struct nvme_ctrl *ctrl)
 {
-	nvme_start_keep_alive(ctrl);
-
 	nvme_enable_aen(ctrl);
 
 	if (ctrl->queue_count > 1) {
