@@ -24,6 +24,16 @@ static struct netdev_nl_dump_ctx *netdev_dump_ctx(struct netlink_callback *cb)
 	return (struct netdev_nl_dump_ctx *)cb->ctx;
 }
 
+int netdev_nl_napi_get_doit(struct sk_buff *skb, struct genl_info *info)
+{
+	return -EOPNOTSUPP;
+}
+
+int netdev_nl_napi_get_dumpit(struct sk_buff *skb, struct netlink_callback *cb)
+{
+	return -EOPNOTSUPP;
+}
+
 static int
 netdev_nl_dev_fill(struct net_device *netdev, struct sk_buff *rsp,
 		   const struct genl_info *info)
