@@ -70,6 +70,7 @@ struct dev_dax {
 	struct ida ida;
 	struct device dev;
 	struct dev_pagemap *pgmap;
+	bool memmap_on_memory;
 	int nr_range;
 	struct dev_dax_range {
 		unsigned long pgoff;
@@ -77,6 +78,13 @@ struct dev_dax {
 		struct dax_mapping *mapping;
 	} *ranges;
 };
+
+/*
+ * While run_dax() is potentially a generic operation that could be
+ * defined in include/linux/dax.h we don't want to grow any users
+ * outside of drivers/dax/
+ */
+void run_dax(struct dax_device *dax_dev);
 
 static inline struct dev_dax *to_dev_dax(struct device *dev)
 {

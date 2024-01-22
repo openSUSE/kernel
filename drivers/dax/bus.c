@@ -103,7 +103,7 @@ static ssize_t do_id_store(struct device_driver *drv, const char *buf,
 		if (action == ID_ADD) {
 			dax_id = kzalloc(sizeof(*dax_id), GFP_KERNEL);
 			if (dax_id) {
-				strncpy(dax_id->dev_name, buf, DAX_NAME_LEN);
+				strscpy(dax_id->dev_name, buf, DAX_NAME_LEN);
 				list_add(&dax_id->list, &dax_drv->ids);
 			} else
 				rc = -ENOMEM;
@@ -367,6 +367,7 @@ static ssize_t create_store(struct device *dev, struct device_attribute *attr,
 			.dax_region = dax_region,
 			.size = 0,
 			.id = -1,
+			.memmap_on_memory = false,
 		};
 		struct dev_dax *dev_dax = devm_create_dev_dax(&data);
 
@@ -454,11 +455,10 @@ static void dax_region_free(struct kref *kref)
 	kfree(dax_region);
 }
 
-void dax_region_put(struct dax_region *dax_region)
+static void dax_region_put(struct dax_region *dax_region)
 {
 	kref_put(&dax_region->kref, dax_region_free);
 }
-EXPORT_SYMBOL_GPL(dax_region_put);
 
 /* a return value >= 0 indicates this invocation invalidated the id */
 static int __free_dev_dax_id(struct dev_dax *dev_dax)
@@ -641,7 +641,6 @@ struct dax_region *alloc_dax_region(struct device *parent, int region_id,
 		return NULL;
 	}
 
-	kref_get(&dax_region->kref);
 	if (devm_add_action_or_reset(parent, dax_region_unregister, dax_region))
 		return NULL;
 	return dax_region;
@@ -673,8 +672,7 @@ static void unregister_dax_mapping(void *data)
 	dev_dax->ranges[mapping->range_id].mapping = NULL;
 	mapping->range_id = -1;
 
-	device_del(dev);
-	put_device(dev);
+	device_unregister(dev);
 }
 
 static struct dev_dax_range *get_dax_range(struct device *dev)
@@ -1402,6 +1400,8 @@ struct dev_dax *devm_create_dev_dax(struct dev_dax_data *data)
 	dev_dax->target_node = dax_region->target_node;
 	dev_dax->align = dax_region->align;
 	ida_init(&dev_dax->ida);
+
+	dev_dax->memmap_on_memory = data->memmap_on_memory;
 
 	inode = dax_inode(dax_dev);
 	dev->devt = inode->i_rdev;
