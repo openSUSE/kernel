@@ -14061,6 +14061,7 @@ void bnxt_del_ntp_filter(struct bnxt *bp, struct bnxt_ntuple_filter *fltr)
 
 static void bnxt_cfg_ntp_filters(struct bnxt *bp)
 {
+#ifdef CONFIG_RFS_ACCEL
 	int i;
 
 	for (i = 0; i < BNXT_NTP_FLTR_HASH_SIZE; i++) {
@@ -14096,6 +14097,7 @@ static void bnxt_cfg_ntp_filters(struct bnxt *bp)
 				bnxt_del_ntp_filter(bp, fltr);
 		}
 	}
+#endif
 }
 
 static int bnxt_udp_tunnel_set_port(struct net_device *netdev, unsigned int table,
