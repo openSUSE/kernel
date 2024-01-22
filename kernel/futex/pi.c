@@ -1179,8 +1179,8 @@ retry_hb:
 		 * Futex vs rt_mutex waiter state -- if there are no rt_mutex
 		 * waiters even though futex thinks there are, then the waiter
 		 * is leaving. The entry needs to be removed from the list so a
-		 * new futex_lock_pi() is not using this outdated PI-state while
-		 * the futex is available in userland again.
+		 * new futex_lock_pi() is not using this stale PI-state while
+		 * the futex is available in user space again.
 		 * There can be more than one task on its way out so it needs
 		 * to retry.
 		 */
