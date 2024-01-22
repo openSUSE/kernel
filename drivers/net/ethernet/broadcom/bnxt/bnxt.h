@@ -1023,6 +1023,8 @@ struct bnxt_cp_ring_info {
 
 	u8			had_work_done:1;
 	u8			has_more_work:1;
+	u8			had_nqe_notify:1;
+
 	u8			cp_ring_type;
 	u8			cp_idx;
 
