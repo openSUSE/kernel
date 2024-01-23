@@ -1674,7 +1674,7 @@ static int create_con_cq_qp(struct rtrs_clt_con *con)
 		sess->s.dev_ref++;
 		max_send_wr = min_t(int, wr_limit,
 			      /* QD * (REQ + RSP + FR REGS or INVS) + drain */
-			      sess->queue_depth * 3 + 1);
+			      sess->queue_depth * 4 + 1);
 		max_recv_wr = min_t(int, wr_limit,
 			      sess->queue_depth * 3 + 1);
 		max_send_sge = 2;
