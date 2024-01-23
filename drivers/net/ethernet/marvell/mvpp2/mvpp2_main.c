@@ -5587,6 +5587,11 @@ static int mvpp2_ethtool_get_rxnfc(struct net_device *dev,
 		break;
 	case ETHTOOL_GRXCLSRLALL:
 		for (i = 0; i < MVPP2_N_RFS_ENTRIES_PER_FLOW; i++) {
+			if (loc == info->rule_cnt) {
+				ret = -EMSGSIZE;
+				break;
+			}
+
 			if (port->rfs_rules[i])
 				rules[loc++] = i;
 		}
@@ -5630,8 +5635,8 @@ static u32 mvpp2_ethtool_get_rxfh_indir_size(struct net_device *dev)
 	return mvpp22_rss_is_supported(port) ? MVPP22_RSS_TABLE_ENTRIES : 0;
 }
 
-static int mvpp2_ethtool_get_rxfh(struct net_device *dev, u32 *indir, u8 *key,
-				  u8 *hfunc)
+static int mvpp2_ethtool_get_rxfh(struct net_device *dev,
+				  struct ethtool_rxfh_param *rxfh)
 {
 	struct mvpp2_port *port = netdev_priv(dev);
 	int ret = 0;
@@ -5639,17 +5644,17 @@ static int mvpp2_ethtool_get_rxfh(struct net_device *dev, u32 *indir, u8 *key,
 	if (!mvpp22_rss_is_supported(port))
 		return -EOPNOTSUPP;
 
-	if (indir)
-		ret = mvpp22_port_rss_ctx_indir_get(port, 0, indir);
+	if (rxfh->indir)
+		ret = mvpp22_port_rss_ctx_indir_get(port, 0, rxfh->indir);
 
-	if (hfunc)
-		*hfunc = ETH_RSS_HASH_CRC32;
+	rxfh->hfunc = ETH_RSS_HASH_CRC32;
 
 	return ret;
 }
 
-static int mvpp2_ethtool_set_rxfh(struct net_device *dev, const u32 *indir,
-				  const u8 *key, const u8 hfunc)
+static int mvpp2_ethtool_set_rxfh(struct net_device *dev,
+				  struct ethtool_rxfh_param *rxfh,
+				  struct netlink_ext_ack *extack)
 {
 	struct mvpp2_port *port = netdev_priv(dev);
 	int ret = 0;
@@ -5657,20 +5662,22 @@ static int mvpp2_ethtool_set_rxfh(struct net_device *dev, const u32 *indir,
 	if (!mvpp22_rss_is_supported(port))
 		return -EOPNOTSUPP;
 
-	if (hfunc != ETH_RSS_HASH_NO_CHANGE && hfunc != ETH_RSS_HASH_CRC32)
+	if (rxfh->hfunc != ETH_RSS_HASH_NO_CHANGE &&
+	    rxfh->hfunc != ETH_RSS_HASH_CRC32)
 		return -EOPNOTSUPP;
 
-	if (key)
+	if (rxfh->key)
 		return -EOPNOTSUPP;
 
-	if (indir)
-		ret = mvpp22_port_rss_ctx_indir_set(port, 0, indir);
+	if (rxfh->indir)
+		ret = mvpp22_port_rss_ctx_indir_set(port, 0, rxfh->indir);
 
 	return ret;
 }
 
-static int mvpp2_ethtool_get_rxfh_context(struct net_device *dev, u32 *indir,
-					  u8 *key, u8 *hfunc, u32 rss_context)
+static int mvpp2_ethtool_get_rxfh_context(struct net_device *dev,
+					  struct ethtool_rxfh_param *rxfh,
+					  u32 rss_context)
 {
 	struct mvpp2_port *port = netdev_priv(dev);
 	int ret = 0;
@@ -5680,19 +5687,18 @@ static int mvpp2_ethtool_get_rxfh_context(struct net_device *dev, u32 *indir,
 	if (rss_context >= MVPP22_N_RSS_TABLES)
 		return -EINVAL;
 
-	if (hfunc)
-		*hfunc = ETH_RSS_HASH_CRC32;
+	rxfh->hfunc = ETH_RSS_HASH_CRC32;
 
-	if (indir)
-		ret = mvpp22_port_rss_ctx_indir_get(port, rss_context, indir);
+	if (rxfh->indir)
+		ret = mvpp22_port_rss_ctx_indir_get(port, rss_context,
+						    rxfh->indir);
 
 	return ret;
 }
 
 static int mvpp2_ethtool_set_rxfh_context(struct net_device *dev,
-					  const u32 *indir, const u8 *key,
-					  const u8 hfunc, u32 *rss_context,
-					  bool delete)
+					  struct ethtool_rxfh_param *rxfh,
+					  u32 *rss_context, bool delete)
 {
 	struct mvpp2_port *port = netdev_priv(dev);
 	int ret;
@@ -5700,10 +5706,11 @@ static int mvpp2_ethtool_set_rxfh_context(struct net_device *dev,
 	if (!mvpp22_rss_is_supported(port))
 		return -EOPNOTSUPP;
 
-	if (hfunc != ETH_RSS_HASH_NO_CHANGE && hfunc != ETH_RSS_HASH_CRC32)
+	if (rxfh->hfunc != ETH_RSS_HASH_NO_CHANGE &&
+	    rxfh->hfunc != ETH_RSS_HASH_CRC32)
 		return -EOPNOTSUPP;
 
-	if (key)
+	if (rxfh->key)
 		return -EOPNOTSUPP;
 
 	if (delete)
@@ -5715,7 +5722,7 @@ static int mvpp2_ethtool_set_rxfh_context(struct net_device *dev,
 			return ret;
 	}
 
-	return mvpp22_port_rss_ctx_indir_set(port, *rss_context, indir);
+	return mvpp22_port_rss_ctx_indir_set(port, *rss_context, rxfh->indir);
 }
 /* Device ops */
 
