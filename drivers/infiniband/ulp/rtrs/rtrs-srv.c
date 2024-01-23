@@ -1534,7 +1534,6 @@ static void rtrs_srv_close_work(struct work_struct *work)
 
 	sess = container_of(work, typeof(*sess), close_work);
 
-	rtrs_srv_destroy_sess_files(sess);
 	rtrs_srv_stop_hb(sess);
 
 	for (i = 0; i < sess->s.con_num; i++) {
@@ -1553,6 +1552,8 @@ static void rtrs_srv_close_work(struct work_struct *work)
 
 	/* Wait for all completion */
 	wait_for_completion(&sess->complete_done);
+
+	rtrs_srv_destroy_sess_files(sess);
 
 	/* Notify upper layer if we are the last path */
 	rtrs_srv_sess_down(sess);
