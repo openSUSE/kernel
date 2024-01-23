@@ -719,20 +719,23 @@ static void rtrs_srv_info_rsp_done(struct ib_cq *cq, struct ib_wc *wc)
 	WARN_ON(wc->opcode != IB_WC_SEND);
 }
 
-static void rtrs_srv_sess_up(struct rtrs_srv_sess *sess)
+static int rtrs_srv_sess_up(struct rtrs_srv_sess *sess)
 {
 	struct rtrs_srv *srv = sess->srv;
 	struct rtrs_srv_ctx *ctx = srv->ctx;
-	int up;
+	int up, ret = 0;
 
 	mutex_lock(&srv->paths_ev_mutex);
 	up = ++srv->paths_up;
 	if (up == 1)
-		ctx->ops.link_ev(srv, RTRS_SRV_LINK_EV_CONNECTED, NULL);
+		ret = ctx->ops.link_ev(srv, RTRS_SRV_LINK_EV_CONNECTED, NULL);
 	mutex_unlock(&srv->paths_ev_mutex);
 
 	/* Mark session as established */
-	sess->established = true;
+	if (!ret)
+		sess->established = true;
+
+	return ret;
 }
 
 static void rtrs_srv_sess_down(struct rtrs_srv_sess *sess)
@@ -860,7 +863,12 @@ static int process_info_req(struct rtrs_srv_con *con,
 		goto iu_free;
 	kobject_get(&sess->kobj);
 	get_device(&sess->srv->dev);
-	rtrs_srv_change_state(sess, RTRS_SRV_CONNECTED);
+	err = rtrs_srv_change_state(sess, RTRS_SRV_CONNECTED);
+	if (!err) {
+		rtrs_err(s, "rtrs_srv_change_state(), err: %d\n", err);
+		goto iu_free;
+	}
+
 	rtrs_srv_start_hb(sess);
 
 	/*
@@ -869,7 +877,11 @@ static int process_info_req(struct rtrs_srv_con *con,
 	 * all connections are successfully established.  Thus, simply notify
 	 * listener with a proper event if we are the first path.
 	 */
-	rtrs_srv_sess_up(sess);
+	err = rtrs_srv_sess_up(sess);
+	if (err) {
+		rtrs_err(s, "rtrs_srv_sess_up(), err: %d\n", err);
+		goto iu_free;
+	}
 
 	ib_dma_sync_single_for_device(sess->s.dev->ib_dev, tx_iu->dma_addr,
 				      tx_iu->size, DMA_TO_DEVICE);
