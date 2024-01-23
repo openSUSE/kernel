@@ -72,8 +72,9 @@ static bool rtrs_srv_change_state(struct rtrs_srv_sess *sess,
 {
 	enum rtrs_srv_state old_state;
 	bool changed = false;
+	unsigned long flags;
 
-	spin_lock_irq(&sess->state_lock);
+	spin_lock_irqsave(&sess->state_lock, flags);
 	old_state = sess->state;
 	switch (new_state) {
 	case RTRS_SRV_CONNECTED:
@@ -94,7 +95,7 @@ static bool rtrs_srv_change_state(struct rtrs_srv_sess *sess,
 	}
 	if (changed)
 		sess->state = new_state;
-	spin_unlock_irq(&sess->state_lock);
+	spin_unlock_irqrestore(&sess->state_lock, flags);
 
 	return changed;
 }
