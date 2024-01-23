@@ -2329,8 +2329,6 @@ static int init_conns(struct rtrs_clt_sess *sess)
 	if (err)
 		goto destroy;
 
-	rtrs_start_hb(&sess->s);
-
 	return 0;
 
 destroy:
@@ -2600,6 +2598,7 @@ static int init_sess(struct rtrs_clt_sess *sess)
 		goto out;
 	}
 	rtrs_clt_sess_up(sess);
+	rtrs_start_hb(&sess->s);
 out:
 	mutex_unlock(&sess->init_mutex);
 
