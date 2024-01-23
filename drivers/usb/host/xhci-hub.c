@@ -16,6 +16,8 @@
 #include "xhci.h"
 #include "xhci-trace.h"
 
+unsigned long suse_run_graceperiod = 0;
+
 #define	PORT_WAKE_BITS	(PORT_WKOC_E | PORT_WKDISC_E | PORT_WKCONN_E)
 #define	PORT_RWC_BITS	(PORT_CSC | PORT_PEC | PORT_WRC | PORT_OCC | \
 			 PORT_RC | PORT_PLC | PORT_PE)
@@ -1652,11 +1654,11 @@ int xhci_hub_status_data(struct usb_hcd *hcd, char *buf)
 	 * SS devices are only visible to roothub after link training completes.
 	 * Keep polling roothubs for a grace period after xHC start
 	 */
-	if (xhci->run_graceperiod) {
-		if (time_before(jiffies, xhci->run_graceperiod))
+	if (suse_run_graceperiod) {
+		if (time_before(jiffies, suse_run_graceperiod))
 			status = 1;
 		else
-			xhci->run_graceperiod = 0;
+			suse_run_graceperiod = 0;
 	}
 
 	mask = PORT_CSC | PORT_PEC | PORT_OCC | PORT_PLC | PORT_WRC | PORT_CEC;
