@@ -35,7 +35,9 @@
 #include <linux/uaccess.h>
 #include <linux/suspend.h>
 #include "internal.h"
+#ifndef __GENKSYMS__
 #include "../block/blk.h"
+#endif
 
 struct bdev_inode {
 	struct block_device bdev;
