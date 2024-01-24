@@ -2368,6 +2368,9 @@ static int usb_enumerate_device_otg(struct usb_device *udev)
 			}
 		} else if (desc->bLength == sizeof
 				(struct usb_otg_descriptor)) {
+			if (udev->descriptor.idVendor == 0x1753 &&
+					udev->descriptor.idProduct == 0xc901)
+				return 0;
 			/* Set a_alt_hnp_support for legacy otg device */
 			err = usb_control_msg(udev,
 				usb_sndctrlpipe(udev, 0),

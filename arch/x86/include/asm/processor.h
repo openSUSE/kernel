@@ -141,6 +141,8 @@ struct cpuinfo_x86 {
 	u8			x86_cache_bits;
 	unsigned		initialized : 1;
 #ifndef __GENKSYMS__
+	/* protected processor identification number */
+	u64			ppin;
 	__u32		x86_ext_capability[NEXTBUGINTS];
 #endif
 } __randomize_layout;

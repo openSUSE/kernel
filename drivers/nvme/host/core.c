@@ -3324,6 +3324,8 @@ int nvme_init_ctrl_finish(struct nvme_ctrl *ctrl)
 
 	ctrl->identified = true;
 
+	nvme_start_keep_alive(ctrl);
+
 	return 0;
 }
 EXPORT_SYMBOL_GPL(nvme_init_ctrl_finish);
@@ -4957,8 +4959,6 @@ EXPORT_SYMBOL_GPL(nvme_stop_ctrl);
 
 void nvme_start_ctrl(struct nvme_ctrl *ctrl)
 {
-	nvme_start_keep_alive(ctrl);
-
 	nvme_enable_aen(ctrl);
 
 	if (ctrl->queue_count > 1) {

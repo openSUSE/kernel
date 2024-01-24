@@ -106,6 +106,7 @@ static const struct drm_gem_object_funcs vmw_gem_object_funcs = {
 
 int vmw_gem_object_create(struct vmw_private *dev_priv,
 			  uint32_t size,
+			  bool pin,
 			  struct vmw_buffer_object **p_vbo)
 {
 	int ret;
@@ -114,7 +115,7 @@ int vmw_gem_object_create(struct vmw_private *dev_priv,
 			    (dev_priv->has_mob) ?
 				    &vmw_sys_placement :
 				    &vmw_vram_sys_placement,
-			    true, false, p_vbo);
+			    true, pin, p_vbo);
 
 	if (ret != 0)
 		goto out_no_bo;
@@ -133,7 +134,7 @@ int vmw_gem_object_create_with_handle(struct vmw_private *dev_priv,
 {
 	int ret;
 
-	ret = vmw_gem_object_create(dev_priv, size, p_vbo);
+	ret = vmw_gem_object_create(dev_priv, size, false, p_vbo);
 	if (ret != 0 )
 		goto out_no_bo;
 
