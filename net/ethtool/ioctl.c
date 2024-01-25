@@ -1465,7 +1465,8 @@ static int ethtool_set_wol(struct net_device *dev, char __user *useraddr)
 	if (wol.wolopts & ~cur_wol.supported)
 		return -EINVAL;
 
-	if (wol.wolopts == cur_wol.wolopts)
+	if (wol.wolopts == cur_wol.wolopts &&
+	    !memcmp(wol.sopass, cur_wol.sopass, sizeof(wol.sopass)))
 		return 0;
 
 	ret = dev->ethtool_ops->set_wol(dev, &wol);
