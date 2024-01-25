@@ -7405,9 +7405,9 @@ static void ice_rebuild(struct ice_pf *pf, enum ice_reset_req reset_type)
 		goto err_vsi_rebuild;
 	}
 
-	err = ice_vsi_rebuild_by_type(pf, ICE_VSI_SWITCHDEV_CTRL);
+	err = ice_eswitch_rebuild(pf);
 	if (err) {
-		dev_err(dev, "Switchdev CTRL VSI rebuild failed: %d\n", err);
+		dev_err(dev, "Switchdev rebuild failed: %d\n", err);
 		goto err_vsi_rebuild;
 	}
 
