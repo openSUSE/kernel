@@ -2356,11 +2356,9 @@ static void igb_get_strings(struct net_device *netdev, u32 stringset, u8 *data)
 		break;
 	case ETH_SS_STATS:
 		for (i = 0; i < IGB_GLOBAL_STATS_LEN; i++)
-			ethtool_sprintf(&p, "%s",
-					igb_gstrings_stats[i].stat_string);
+			ethtool_puts(&p, igb_gstrings_stats[i].stat_string);
 		for (i = 0; i < IGB_NETDEV_STATS_LEN; i++)
-			ethtool_sprintf(&p, "%s",
-					igb_gstrings_net_stats[i].stat_string);
+			ethtool_puts(&p, igb_gstrings_net_stats[i].stat_string);
 		for (i = 0; i < adapter->num_tx_queues; i++) {
 			ethtool_sprintf(&p, "tx_queue_%u_packets", i);
 			ethtool_sprintf(&p, "tx_queue_%u_bytes", i);
@@ -2434,7 +2432,7 @@ static int igb_get_ts_info(struct net_device *dev,
 	}
 }
 
-#define ETHER_TYPE_FULL_MASK ((__force __be16)~0)
+#define ETHER_TYPE_FULL_MASK cpu_to_be16(FIELD_MAX(U16_MAX))
 static int igb_get_ethtool_nfc_entry(struct igb_adapter *adapter,
 				     struct ethtool_rxnfc *cmd)
 {
@@ -2713,8 +2711,7 @@ static int igb_rxnfc_write_etype_filter(struct igb_adapter *adapter,
 	etqf |= (etype & E1000_ETQF_ETYPE_MASK);
 
 	etqf &= ~E1000_ETQF_QUEUE_MASK;
-	etqf |= ((input->action << E1000_ETQF_QUEUE_SHIFT)
-		& E1000_ETQF_QUEUE_MASK);
+	etqf |= FIELD_PREP(E1000_ETQF_QUEUE_MASK, input->action);
 	etqf |= E1000_ETQF_QUEUE_ENABLE;
 
 	wr32(E1000_ETQF(i), etqf);
@@ -2733,8 +2730,8 @@ static int igb_rxnfc_write_vlan_prio_filter(struct igb_adapter *adapter,
 	u32 vlapqf;
 
 	vlapqf = rd32(E1000_VLAPQF);
-	vlan_priority = (ntohs(input->filter.vlan_tci) & VLAN_PRIO_MASK)
-				>> VLAN_PRIO_SHIFT;
+	vlan_priority = FIELD_GET(VLAN_PRIO_MASK,
+				  ntohs(input->filter.vlan_tci));
 	queue_index = (vlapqf >> (vlan_priority * 4)) & E1000_VLAPQF_QUEUE_MASK;
 
 	/* check whether this vlan prio is already set */
@@ -2817,7 +2814,7 @@ static void igb_clear_vlan_prio_filter(struct igb_adapter *adapter,
 	u8 vlan_priority;
 	u32 vlapqf;
 
-	vlan_priority = (vlan_tci & VLAN_PRIO_MASK) >> VLAN_PRIO_SHIFT;
+	vlan_priority = FIELD_GET(VLAN_PRIO_MASK, vlan_tci);
 
 	vlapqf = rd32(E1000_VLAPQF);
 	vlapqf &= ~E1000_VLAPQF_P_VALID(vlan_priority);
