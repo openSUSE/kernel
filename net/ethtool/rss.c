@@ -13,6 +13,7 @@ struct rss_reply_data {
 	u32				indir_size;
 	u32				hkey_size;
 	u32				hfunc;
+	u32				input_xfrm;
 	u32				*indir_table;
 	u8				*hkey;
 };
@@ -58,7 +59,7 @@ rss_prepare_data(const struct ethnl_req_info *req_base,
 		return -EOPNOTSUPP;
 
 	/* Some drivers don't handle rss_context */
-	if (request->rss_context && !ops->get_rxfh_context)
+	if (request->rss_context && !ops->cap_rss_ctx_supported)
 		return -EOPNOTSUPP;
 
 	ret = ethnl_ops_begin(dev);
@@ -89,16 +90,14 @@ rss_prepare_data(const struct ethnl_req_info *req_base,
 	rxfh.indir = data->indir_table;
 	rxfh.key_size = data->hkey_size;
 	rxfh.key = data->hkey;
+	rxfh.rss_context = request->rss_context;
 
-	if (request->rss_context)
-		ret = ops->get_rxfh_context(dev, &rxfh, request->rss_context);
-	else
-		ret = ops->get_rxfh(dev, &rxfh);
-
+	ret = ops->get_rxfh(dev, &rxfh);
 	if (ret)
 		goto out_ops;
 
 	data->hfunc = rxfh.hfunc;
+	data->input_xfrm = rxfh.input_xfrm;
 out_ops:
 	ethnl_ops_complete(dev);
 	return ret;
@@ -112,6 +111,7 @@ rss_reply_size(const struct ethnl_req_info *req_base,
 	int len;
 
 	len = nla_total_size(sizeof(u32)) +	/* _RSS_HFUNC */
+	      nla_total_size(sizeof(u32)) +	/* _RSS_INPUT_XFRM */
 	      nla_total_size(sizeof(u32) * data->indir_size) + /* _RSS_INDIR */
 	      nla_total_size(data->hkey_size);	/* _RSS_HKEY */
 
@@ -126,6 +126,8 @@ rss_fill_reply(struct sk_buff *skb, const struct ethnl_req_info *req_base,
 
 	if ((data->hfunc &&
 	     nla_put_u32(skb, ETHTOOL_A_RSS_HFUNC, data->hfunc)) ||
+	    (data->input_xfrm &&
+	     nla_put_u32(skb, ETHTOOL_A_RSS_INPUT_XFRM, data->input_xfrm)) ||
 	    (data->indir_size &&
 	     nla_put(skb, ETHTOOL_A_RSS_INDIR,
 		     sizeof(u32) * data->indir_size, data->indir_table)) ||
