@@ -2,17 +2,15 @@
 /*
  * AMD ALSA SoC PDM Driver
  *
- * Copyright (C) 2021 Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2022, 2023 Advanced Micro Devices, Inc. All rights reserved.
  */
 
-#include "acp6x_chip_offset_byte.h"
+#include <sound/acp63_chip_offset_byte.h>
 
 #define ACP_DEVICE_ID 0x15E2
-#define ACP6x_PHY_BASE_ADDRESS 0x1240000
-#define ACP6x_REG_START		0x1240000
-#define ACP6x_REG_END		0x1250200
-#define ACP6x_DEVS		3
-#define ACP6x_PDM_MODE		1
+#define ACP63_REG_START		0x1240000
+#define ACP63_REG_END		0x1250200
+#define ACP63_DEVS		3
 
 #define ACP_SOFT_RESET_SOFTRESET_AUDDONE_MASK	0x00010001
 #define ACP_PGFSM_CNTL_POWER_ON_MASK	1
@@ -20,7 +18,7 @@
 #define ACP_PGFSM_STATUS_MASK		3
 #define ACP_POWERED_ON			0
 #define ACP_POWER_ON_IN_PROGRESS	1
-#define ACP_POWERED_OFF			2
+#define ACP_POWERED_OFF		2
 #define ACP_POWER_OFF_IN_PROGRESS	3
 
 #define ACP_ERROR_MASK 0x20000000
@@ -55,6 +53,14 @@
 /* time in ms for runtime suspend delay */
 #define ACP_SUSPEND_DELAY_MS	2000
 
+#define ACP63_DMIC_ADDR		2
+#define ACP63_PDM_MODE_DEVS		3
+#define ACP63_PDM_DEV_MASK		1
+#define ACP_DMIC_DEV	2
+
+/* time in ms for acp timeout */
+#define ACP_TIMEOUT		500
+
 enum acp_config {
 	ACP_CONFIG_0 = 0,
 	ACP_CONFIG_1,
@@ -74,37 +80,29 @@ enum acp_config {
 	ACP_CONFIG_15,
 };
 
-struct pdm_dev_data {
-	u32 pdm_irq;
-	void __iomem *acp6x_base;
-	struct snd_pcm_substream *capture_stream;
-};
-
 struct pdm_stream_instance {
 	u16 num_pages;
 	u16 channels;
 	dma_addr_t dma_addr;
 	u64 bytescount;
-	void __iomem *acp6x_base;
+	void __iomem *acp63_base;
 };
 
-union acp_pdm_dma_count {
-	struct {
-	u32 low;
-	u32 high;
-	} bcount;
-	u64 bytescount;
+struct pdm_dev_data {
+	u32 pdm_irq;
+	void __iomem *acp63_base;
+	struct mutex *acp_lock;
+	struct snd_pcm_substream *capture_stream;
 };
 
-static inline u32 acp6x_readl(void __iomem *base_addr)
-{
-	return readl(base_addr - ACP6x_PHY_BASE_ADDRESS);
-}
-
-static inline void acp6x_writel(u32 val, void __iomem *base_addr)
-{
-	writel(val, base_addr - ACP6x_PHY_BASE_ADDRESS);
-}
+struct acp63_dev_data {
+	void __iomem *acp63_base;
+	struct resource *res;
+	struct platform_device *pdev[ACP63_DEVS];
+	struct mutex acp_lock; /* protect shared registers */
+	u16 pdev_mask;
+	u16 pdev_count;
+	u16 pdm_dev_index;
+};
 
 int snd_amd_acp_find_config(struct pci_dev *pci);
-
