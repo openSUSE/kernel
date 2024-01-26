@@ -72,8 +72,9 @@ static bool rtrs_srv_change_state(struct rtrs_srv_sess *sess,
 {
 	enum rtrs_srv_state old_state;
 	bool changed = false;
+	unsigned long flags;
 
-	spin_lock_irq(&sess->state_lock);
+	spin_lock_irqsave(&sess->state_lock, flags);
 	old_state = sess->state;
 	switch (new_state) {
 	case RTRS_SRV_CONNECTED:
@@ -94,7 +95,7 @@ static bool rtrs_srv_change_state(struct rtrs_srv_sess *sess,
 	}
 	if (changed)
 		sess->state = new_state;
-	spin_unlock_irq(&sess->state_lock);
+	spin_unlock_irqrestore(&sess->state_lock, flags);
 
 	return changed;
 }
@@ -552,7 +553,10 @@ static void unmap_cont_bufs(struct rtrs_srv_sess *sess)
 		struct rtrs_srv_mr *srv_mr;
 
 		srv_mr = &sess->mrs[i];
-		rtrs_iu_free(srv_mr->iu, sess->s.dev->ib_dev, 1);
+
+		if (always_invalidate)
+			rtrs_iu_free(srv_mr->iu, sess->s.dev->ib_dev, 1);
+
 		ib_dereg_mr(srv_mr->mr);
 		ib_dma_unmap_sg(sess->s.dev->ib_dev, srv_mr->sgt.sgl,
 				srv_mr->sgt.nents, DMA_BIDIRECTIONAL);
@@ -718,20 +722,23 @@ static void rtrs_srv_info_rsp_done(struct ib_cq *cq, struct ib_wc *wc)
 	WARN_ON(wc->opcode != IB_WC_SEND);
 }
 
-static void rtrs_srv_sess_up(struct rtrs_srv_sess *sess)
+static int rtrs_srv_sess_up(struct rtrs_srv_sess *sess)
 {
 	struct rtrs_srv *srv = sess->srv;
 	struct rtrs_srv_ctx *ctx = srv->ctx;
-	int up;
+	int up, ret = 0;
 
 	mutex_lock(&srv->paths_ev_mutex);
 	up = ++srv->paths_up;
 	if (up == 1)
-		ctx->ops.link_ev(srv, RTRS_SRV_LINK_EV_CONNECTED, NULL);
+		ret = ctx->ops.link_ev(srv, RTRS_SRV_LINK_EV_CONNECTED, NULL);
 	mutex_unlock(&srv->paths_ev_mutex);
 
 	/* Mark session as established */
-	sess->established = true;
+	if (!ret)
+		sess->established = true;
+
+	return ret;
 }
 
 static void rtrs_srv_sess_down(struct rtrs_srv_sess *sess)
@@ -859,7 +866,12 @@ static int process_info_req(struct rtrs_srv_con *con,
 		goto iu_free;
 	kobject_get(&sess->kobj);
 	get_device(&sess->srv->dev);
-	rtrs_srv_change_state(sess, RTRS_SRV_CONNECTED);
+	err = rtrs_srv_change_state(sess, RTRS_SRV_CONNECTED);
+	if (!err) {
+		rtrs_err(s, "rtrs_srv_change_state(), err: %d\n", err);
+		goto iu_free;
+	}
+
 	rtrs_srv_start_hb(sess);
 
 	/*
@@ -868,7 +880,11 @@ static int process_info_req(struct rtrs_srv_con *con,
 	 * all connections are successfully established.  Thus, simply notify
 	 * listener with a proper event if we are the first path.
 	 */
-	rtrs_srv_sess_up(sess);
+	err = rtrs_srv_sess_up(sess);
+	if (err) {
+		rtrs_err(s, "rtrs_srv_sess_up(), err: %d\n", err);
+		goto iu_free;
+	}
 
 	ib_dma_sync_single_for_device(sess->s.dev->ib_dev, tx_iu->dma_addr,
 				      tx_iu->size, DMA_TO_DEVICE);
@@ -1518,7 +1534,6 @@ static void rtrs_srv_close_work(struct work_struct *work)
 
 	sess = container_of(work, typeof(*sess), close_work);
 
-	rtrs_srv_destroy_sess_files(sess);
 	rtrs_srv_stop_hb(sess);
 
 	for (i = 0; i < sess->s.con_num; i++) {
@@ -1537,6 +1552,8 @@ static void rtrs_srv_close_work(struct work_struct *work)
 
 	/* Wait for all completion */
 	wait_for_completion(&sess->complete_done);
+
+	rtrs_srv_destroy_sess_files(sess);
 
 	/* Notify upper layer if we are the last path */
 	rtrs_srv_sess_down(sess);
