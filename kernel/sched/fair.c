@@ -8166,9 +8166,22 @@ balance_fair(struct rq *rq, struct task_struct *prev, struct rq_flags *rf)
 }
 #endif /* CONFIG_SMP */
 
-static unsigned long wakeup_gran(struct sched_entity *se)
+static unsigned long
+wakeup_gran(struct sched_entity *curr, struct sched_entity *se)
 {
 	unsigned long gran = sysctl_sched_wakeup_granularity;
+
+	if (sched_feat(SCALE_WAKEUP_GRAN)) {
+		unsigned long delta_exec;
+
+		/*
+		 * Increase the wakeup granularity if curr's runtime
+		 * is less than the minimum preemption granularity.
+		 */
+		delta_exec = curr->sum_exec_runtime - curr->prev_sum_exec_runtime;
+		if (delta_exec < sysctl_sched_min_granularity)
+			gran += sysctl_sched_min_granularity;
+	}
 
 	/*
 	 * Since its curr running now, convert the gran from real-time
@@ -8208,7 +8221,7 @@ wakeup_preempt_entity(struct sched_entity *curr, struct sched_entity *se)
 	if (vdiff <= 0)
 		return -1;
 
-	gran = wakeup_gran(se);
+	gran = wakeup_gran(curr, se);
 	if (vdiff > gran)
 		return 1;
 
