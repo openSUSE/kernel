@@ -576,7 +576,7 @@ struct io_kiocb {
 		__poll_t apoll_events;
 	};
 	atomic_t			refs;
-	atomic_t			poll_refs;
+	bool				cancel_seq_set;
 	struct io_task_work		io_task_work;
 	unsigned			nr_tw;
 	/* for polled requests, i.e. IORING_OP_POLL_ADD and async armed poll */
@@ -586,6 +586,7 @@ struct io_kiocb {
 	/* opcode allocated if it needs to store data for async defer */
 	void				*async_data;
 	/* linked requests, IFF REQ_F_HARDLINK or REQ_F_LINK are set */
+	atomic_t			poll_refs;
 	struct io_kiocb			*link;
 	/* custom credentials, valid IFF REQ_F_CREDS is set */
 	const struct cred		*creds;
