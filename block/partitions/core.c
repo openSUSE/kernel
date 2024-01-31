@@ -260,8 +260,6 @@ static const struct attribute_group *part_attr_groups[] = {
 
 static void part_release(struct device *dev)
 {
-	if (MAJOR(dev->devt) == BLOCK_EXT_MAJOR)
-		blk_free_ext_minor(MINOR(dev->devt));
 	bdput(dev_to_bdev(dev));
 }
 

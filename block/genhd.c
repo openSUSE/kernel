@@ -1086,8 +1086,6 @@ static void disk_release(struct device *dev)
 
 	might_sleep();
 
-	if (MAJOR(dev->devt) == BLOCK_EXT_MAJOR)
-		blk_free_ext_minor(MINOR(dev->devt));
 	disk_release_events(disk);
 	kfree(disk->random);
 	xa_destroy(&disk->part_tbl);
