@@ -4028,8 +4028,6 @@ static struct iommu_domain *intel_iommu_domain_alloc(unsigned type)
 	struct iommu_domain *domain;
 
 	switch (type) {
-	case IOMMU_DOMAIN_BLOCKED:
-		return &blocking_domain;
 	case IOMMU_DOMAIN_DMA:
 	case IOMMU_DOMAIN_UNMANAGED:
 		dmar_domain = alloc_domain(type);
@@ -4932,6 +4930,7 @@ const struct iommu_dirty_ops intel_dirty_ops = {
 };
 
 const struct iommu_ops intel_iommu_ops = {
+	.blocked_domain		= &blocking_domain,
 	.capable		= intel_iommu_capable,
 	.hw_info		= intel_iommu_hw_info,
 	.domain_alloc		= intel_iommu_domain_alloc,
