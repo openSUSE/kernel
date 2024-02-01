@@ -534,6 +534,7 @@ struct iommu_fault_param {
  * @max_pasids:  number of PASIDs this device can consume
  * @attach_deferred: the dma domain attachment is deferred
  * @require_direct: device requires IOMMU_RESV_DIRECT regions
+ * @shadow_on_flush: IOTLB flushes are used to sync shadow tables
  * @pci_32bit_workaround: Limit DMA allocations to 32-bit IOVAs
  *
  * TODO: migrate other per device data pointers under iommu_dev_data, e.g.
@@ -549,6 +550,7 @@ struct dev_iommu {
 	u32				max_pasids;
 	u32				attach_deferred:1;
 	u32				require_direct:1;
+	u32				shadow_on_flush:1;
 	u32				pci_32bit_workaround:1;
 };
 
