@@ -370,6 +370,8 @@ static inline int __iommu_copy_struct_from_user(
  * @owner: Driver module providing these ops
  * @identity_domain: An always available, always attachable identity
  *                   translation.
+ * @blocked_domain: An always available, always attachable blocking
+ *                  translation.
  * @default_domain: If not NULL this will always be set as the default domain.
  *                  This should be an IDENTITY/BLOCKED/PLATFORM domain.
  *                  Do not use in new drivers.
@@ -411,6 +413,7 @@ struct iommu_ops {
 	unsigned long pgsize_bitmap;
 	struct module *owner;
 	struct iommu_domain *identity_domain;
+	struct iommu_domain *blocked_domain;
 	struct iommu_domain *default_domain;
 };
 
