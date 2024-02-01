@@ -691,9 +691,6 @@ struct amd_iommu {
 	/* Extended features 2 */
 	u64 features2;
 
-	/* IOMMUv2 */
-	bool is_iommu_v2;
-
 	/* PCI device id of the IOMMU device */
 	u16 devid;
 
@@ -901,8 +898,6 @@ extern unsigned long *amd_iommu_pd_alloc_bitmap;
 
 /* Smallest max PASID supported by any IOMMU in the system */
 extern u32 amd_iommu_max_pasid;
-
-extern bool amd_iommu_v2_present;
 
 extern bool amd_iommu_force_isolation;
 
