@@ -28,7 +28,9 @@
 #include <linux/mm_inline.h>
 #include <linux/page_ext.h>
 #include <linux/page_owner.h>
+#ifndef __GENKSYMS__
 #include <linux/sched/isolation.h>
+#endif
 
 #include "internal.h"
 
