@@ -383,7 +383,7 @@ static void complete_rdma_req(struct rtrs_clt_io_req *req, int errno,
 	struct rtrs_clt_sess *sess;
 	int err;
 
-	if (WARN_ON(!req->in_use))
+	if (!req->in_use)
 		return;
 	if (WARN_ON(!req->con))
 		return;
@@ -1674,7 +1674,7 @@ static int create_con_cq_qp(struct rtrs_clt_con *con)
 		sess->s.dev_ref++;
 		max_send_wr = min_t(int, wr_limit,
 			      /* QD * (REQ + RSP + FR REGS or INVS) + drain */
-			      sess->queue_depth * 3 + 1);
+			      sess->queue_depth * 4 + 1);
 		max_recv_wr = min_t(int, wr_limit,
 			      sess->queue_depth * 3 + 1);
 		max_send_sge = 2;
@@ -2329,8 +2329,6 @@ static int init_conns(struct rtrs_clt_sess *sess)
 	if (err)
 		goto destroy;
 
-	rtrs_start_hb(&sess->s);
-
 	return 0;
 
 destroy:
@@ -2600,6 +2598,7 @@ static int init_sess(struct rtrs_clt_sess *sess)
 		goto out;
 	}
 	rtrs_clt_sess_up(sess);
+	rtrs_start_hb(&sess->s);
 out:
 	mutex_unlock(&sess->init_mutex);
 
