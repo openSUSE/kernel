@@ -6265,7 +6265,6 @@ static int tcpm_fw_get_caps(struct tcpm_port *port, struct fwnode_handle *fwnode
 	u32 *src_pdo, *snk_pdo;
 	u32 uw, frs_current;
 	int ret = 0, i;
-	int mode;
 
 	if (!fwnode)
 		return -EINVAL;
