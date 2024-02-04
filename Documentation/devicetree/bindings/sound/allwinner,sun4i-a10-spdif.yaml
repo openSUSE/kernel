@@ -61,6 +61,7 @@ allOf:
             enum:
               - allwinner,sun6i-a31-spdif
               - allwinner,sun8i-h3-spdif
+              - allwinner,sun50i-h6-spdif
 
     then:
       required:
@@ -72,7 +73,6 @@ allOf:
           contains:
             enum:
               - allwinner,sun8i-h3-spdif
-              - allwinner,sun50i-h6-spdif
 
     then:
       properties:
