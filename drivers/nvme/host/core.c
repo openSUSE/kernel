@@ -1734,11 +1734,13 @@ static void nvme_config_discard(struct gendisk *disk, struct nvme_ns *ns)
 	struct nvme_ctrl *ctrl = ns->ctrl;
 	struct request_queue *queue = disk->queue;
 	u32 size = queue_logical_block_size(queue);
+	u32 max_discard_sectors;
 
-	if (ctrl->dmrsl && ctrl->dmrsl <= nvme_sect_to_lba(ns, UINT_MAX))
-		ctrl->max_discard_sectors = nvme_lba_to_sect(ns, ctrl->dmrsl);
-
-	if (ctrl->max_discard_sectors == 0) {
+	if (ctrl->dmrsl && ctrl->dmrsl <= nvme_sect_to_lba(ns, UINT_MAX)) {
+		max_discard_sectors = nvme_lba_to_sect(ns, ctrl->dmrsl);
+	} else if (ctrl->oncs & NVME_CTRL_ONCS_DSM) {
+		max_discard_sectors = UINT_MAX;
+	} else {
 		blk_queue_max_discard_sectors(queue, 0);
 		return;
 	}
@@ -1752,7 +1754,7 @@ static void nvme_config_discard(struct gendisk *disk, struct nvme_ns *ns)
 	if (queue->limits.max_discard_sectors)
 		return;
 
-	blk_queue_max_discard_sectors(queue, ctrl->max_discard_sectors);
+	blk_queue_max_discard_sectors(queue, max_discard_sectors);
 	blk_queue_max_discard_segments(queue, ctrl->max_discard_segments);
 
 	if (ctrl->quirks & NVME_QUIRK_DEALLOCATE_ZEROES)
@@ -3075,13 +3077,10 @@ static int nvme_init_non_mdts_limits(struct nvme_ctrl *ctrl)
 	struct nvme_id_ctrl_nvm *id;
 	int ret;
 
-	if (ctrl->oncs & NVME_CTRL_ONCS_DSM) {
-		ctrl->max_discard_sectors = UINT_MAX;
+	if (ctrl->oncs & NVME_CTRL_ONCS_DSM)
 		ctrl->max_discard_segments = NVME_DSM_MAX_RANGES;
-	} else {
-		ctrl->max_discard_sectors = 0;
+	else
 		ctrl->max_discard_segments = 0;
-	}
 
 	/*
 	 * Even though NVMe spec explicitly states that MDTS is not applicable
@@ -4821,6 +4820,8 @@ static void nvme_fw_act_work(struct work_struct *work)
 				struct nvme_ctrl, fw_act_work);
 	unsigned long fw_act_timeout;
 
+	nvme_auth_stop(ctrl);
+
 	if (ctrl->mtfa)
 		fw_act_timeout = jiffies +
 				msecs_to_jiffies(ctrl->mtfa * 100);
@@ -4876,7 +4877,6 @@ static bool nvme_handle_aen_notice(struct nvme_ctrl *ctrl, u32 result)
 		 * firmware activation.
 		 */
 		if (nvme_change_ctrl_state(ctrl, NVME_CTRL_RESETTING)) {
-			nvme_auth_stop(ctrl);
 			requeue = false;
 			queue_work(nvme_wq, &ctrl->fw_act_work);
 		}
