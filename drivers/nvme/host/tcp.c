@@ -1925,8 +1925,8 @@ static int nvme_tcp_alloc_admin_queue(struct nvme_ctrl *ctrl)
 	int ret;
 	key_serial_t pskid = 0;
 
-	if (nvme_tcp_tls(ctrl)) {
-		if (ctrl->opts->tls_key)
+	if (IS_ENABLED(CONFIG_NVME_TCP_TLS) && ctrl->opts->tls) {
+		if (nvme_tcp_tls(ctrl))
 			pskid = key_serial(ctrl->opts->tls_key);
 		else
 			pskid = nvme_tls_psk_default(ctrl->opts->keyring,
