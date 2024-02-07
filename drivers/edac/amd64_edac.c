@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
+#include <linux/ras.h>
 #include "amd64_edac.h"
 #include <asm/amd_nb.h>
 
@@ -2805,9 +2806,10 @@ static void decode_umc_error(int node_id, struct mce *m)
 {
 	u8 ecc_type = (m->status >> 45) & 0x3;
 	struct mem_ctl_info *mci;
+	unsigned long sys_addr;
 	struct amd64_pvt *pvt;
+	struct atl_err a_err;
 	struct err_info err;
-	u64 sys_addr;
 
 	node_id = fixup_node_id(node_id, m);
 
@@ -2838,7 +2840,12 @@ static void decode_umc_error(int node_id, struct mce *m)
 
 	pvt->ops->get_err_info(m, &err);
 
-	if (umc_normaddr_to_sysaddr(m->addr, pvt->mc_node_id, err.channel, &sys_addr)) {
+	a_err.addr = m->addr;
+	a_err.ipid = m->ipid;
+	a_err.cpu  = m->extcpu;
+
+	sys_addr = amd_convert_umc_mca_addr_to_sys_addr(&a_err);
+	if (IS_ERR_VALUE(sys_addr)) {
 		err.err_code = ERR_NORM_ADDR;
 		goto log_error;
 	}
