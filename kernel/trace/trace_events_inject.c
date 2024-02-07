@@ -321,8 +321,7 @@ event_inject_read(struct file *file, char __user *buf, size_t size,
 }
 
 const struct file_operations event_inject_fops = {
-	.open = tracing_open_file_tr,
+	.open = tracing_open_generic,
 	.read = event_inject_read,
 	.write = event_inject_write,
-	.release = tracing_release_file_tr,
 };
