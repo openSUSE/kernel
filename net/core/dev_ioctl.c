@@ -254,12 +254,39 @@ static int dev_eth_ioctl(struct net_device *dev,
 
 static int dev_get_hwtstamp(struct net_device *dev, struct ifreq *ifr)
 {
-	return dev_eth_ioctl(dev, ifr, SIOCGHWTSTAMP);
+	const struct net_device_ops *ops = dev->netdev_ops;
+	struct kernel_hwtstamp_config kernel_cfg = {};
+	struct hwtstamp_config cfg;
+	int err;
+
+	if (!ops->ndo_hwtstamp_get)
+		return dev_eth_ioctl(dev, ifr, SIOCGHWTSTAMP); /* legacy */
+
+	if (!netif_device_present(dev))
+		return -ENODEV;
+
+	kernel_cfg.ifr = ifr;
+	err = ops->ndo_hwtstamp_get(dev, &kernel_cfg);
+	if (err)
+		return err;
+
+	/* If the request was resolved through an unconverted driver, omit
+	 * the copy_to_user(), since the implementation has already done that
+	 */
+	if (!kernel_cfg.copied_to_user) {
+		hwtstamp_config_from_kernel(&cfg, &kernel_cfg);
+
+		if (copy_to_user(ifr->ifr_data, &cfg, sizeof(cfg)))
+			return -EFAULT;
+	}
+
+	return 0;
 }
 
 static int dev_set_hwtstamp(struct net_device *dev, struct ifreq *ifr)
 {
-	struct kernel_hwtstamp_config kernel_cfg;
+	const struct net_device_ops *ops = dev->netdev_ops;
+	struct kernel_hwtstamp_config kernel_cfg = {};
 	struct netlink_ext_ack extack = {};
 	struct hwtstamp_config cfg;
 	int err;
@@ -268,6 +295,7 @@ static int dev_set_hwtstamp(struct net_device *dev, struct ifreq *ifr)
 		return -EFAULT;
 
 	hwtstamp_config_to_kernel(&kernel_cfg, &cfg);
+	kernel_cfg.ifr = ifr;
 
 	err = net_hwtstamp_validate(&kernel_cfg);
 	if (err)
@@ -280,8 +308,83 @@ static int dev_set_hwtstamp(struct net_device *dev, struct ifreq *ifr)
 		return err;
 	}
 
-	return dev_eth_ioctl(dev, ifr, SIOCSHWTSTAMP);
+	if (!ops->ndo_hwtstamp_set)
+		return dev_eth_ioctl(dev, ifr, SIOCSHWTSTAMP); /* legacy */
+
+	if (!netif_device_present(dev))
+		return -ENODEV;
+
+	err = ops->ndo_hwtstamp_set(dev, &kernel_cfg, &extack);
+	if (err) {
+		if (extack._msg)
+			netdev_err(dev, "%s\n", extack._msg);
+		return err;
+	}
+
+	/* The driver may have modified the configuration, so copy the
+	 * updated version of it back to user space
+	 */
+	if (!kernel_cfg.copied_to_user) {
+		hwtstamp_config_from_kernel(&cfg, &kernel_cfg);
+
+		if (copy_to_user(ifr->ifr_data, &cfg, sizeof(cfg)))
+			return -EFAULT;
+	}
+
+	return 0;
 }
+
+static int generic_hwtstamp_ioctl_lower(struct net_device *dev, int cmd,
+					struct kernel_hwtstamp_config *kernel_cfg)
+{
+	struct ifreq ifrr;
+	int err;
+
+	strscpy_pad(ifrr.ifr_name, dev->name, IFNAMSIZ);
+	ifrr.ifr_ifru = kernel_cfg->ifr->ifr_ifru;
+
+	err = dev_eth_ioctl(dev, &ifrr, cmd);
+	if (err)
+		return err;
+
+	kernel_cfg->ifr->ifr_ifru = ifrr.ifr_ifru;
+	kernel_cfg->copied_to_user = true;
+
+	return 0;
+}
+
+int generic_hwtstamp_get_lower(struct net_device *dev,
+			       struct kernel_hwtstamp_config *kernel_cfg)
+{
+	const struct net_device_ops *ops = dev->netdev_ops;
+
+	if (!netif_device_present(dev))
+		return -ENODEV;
+
+	if (ops->ndo_hwtstamp_get)
+		return ops->ndo_hwtstamp_get(dev, kernel_cfg);
+
+	/* Legacy path: unconverted lower driver */
+	return generic_hwtstamp_ioctl_lower(dev, SIOCGHWTSTAMP, kernel_cfg);
+}
+EXPORT_SYMBOL(generic_hwtstamp_get_lower);
+
+int generic_hwtstamp_set_lower(struct net_device *dev,
+			       struct kernel_hwtstamp_config *kernel_cfg,
+			       struct netlink_ext_ack *extack)
+{
+	const struct net_device_ops *ops = dev->netdev_ops;
+
+	if (!netif_device_present(dev))
+		return -ENODEV;
+
+	if (ops->ndo_hwtstamp_set)
+		return ops->ndo_hwtstamp_set(dev, kernel_cfg, extack);
+
+	/* Legacy path: unconverted lower driver */
+	return generic_hwtstamp_ioctl_lower(dev, SIOCSHWTSTAMP, kernel_cfg);
+}
+EXPORT_SYMBOL(generic_hwtstamp_set_lower);
 
 static int dev_siocbond(struct net_device *dev,
 			struct ifreq *ifr, unsigned int cmd)

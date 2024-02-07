@@ -7,7 +7,7 @@
 
 struct papr_location_code {
 	/*
-	 * PAPR+ 12.3.2.4 Converged Location Code Rules - Length
+	 * PAPR+ v2.13 12.3.2.4 Converged Location Code Rules - Length
 	 * Restrictions. 79 characters plus nul.
 	 */
 	char str[80];

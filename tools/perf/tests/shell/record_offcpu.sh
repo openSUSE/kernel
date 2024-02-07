@@ -10,25 +10,25 @@ perfdata=$(mktemp /tmp/__perf_test.perf.data.XXXXX)
 cleanup() {
   rm -f ${perfdata}
   rm -f ${perfdata}.old
-  trap - exit term int
+  trap - EXIT TERM INT
 }
 
 trap_cleanup() {
   cleanup
   exit 1
 }
-trap trap_cleanup exit term int
+trap trap_cleanup EXIT TERM INT
 
 test_offcpu_priv() {
   echo "Checking off-cpu privilege"
 
-  if [ `id -u` != 0 ]
+  if [ "$(id -u)" != 0 ]
   then
     echo "off-cpu test [Skipped permission]"
     err=2
     return
   fi
-  if perf record --off-cpu -o /dev/null --quiet true 2>&1 | grep BUILD_BPF_SKEL
+  if perf version --build-options 2>&1 | grep HAVE_BPF_SKEL | grep -q OFF
   then
     echo "off-cpu test [Skipped missing BPF support]"
     err=2

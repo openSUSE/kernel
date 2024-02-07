@@ -5587,6 +5587,11 @@ static int mvpp2_ethtool_get_rxnfc(struct net_device *dev,
 		break;
 	case ETHTOOL_GRXCLSRLALL:
 		for (i = 0; i < MVPP2_N_RFS_ENTRIES_PER_FLOW; i++) {
+			if (loc == info->rule_cnt) {
+				ret = -EMSGSIZE;
+				break;
+			}
+
 			if (port->rfs_rules[i])
 				rules[loc++] = i;
 		}
@@ -5630,49 +5635,11 @@ static u32 mvpp2_ethtool_get_rxfh_indir_size(struct net_device *dev)
 	return mvpp22_rss_is_supported(port) ? MVPP22_RSS_TABLE_ENTRIES : 0;
 }
 
-static int mvpp2_ethtool_get_rxfh(struct net_device *dev, u32 *indir, u8 *key,
-				  u8 *hfunc)
+static int mvpp2_ethtool_get_rxfh(struct net_device *dev,
+				  struct ethtool_rxfh_param *rxfh)
 {
 	struct mvpp2_port *port = netdev_priv(dev);
-	int ret = 0;
-
-	if (!mvpp22_rss_is_supported(port))
-		return -EOPNOTSUPP;
-
-	if (indir)
-		ret = mvpp22_port_rss_ctx_indir_get(port, 0, indir);
-
-	if (hfunc)
-		*hfunc = ETH_RSS_HASH_CRC32;
-
-	return ret;
-}
-
-static int mvpp2_ethtool_set_rxfh(struct net_device *dev, const u32 *indir,
-				  const u8 *key, const u8 hfunc)
-{
-	struct mvpp2_port *port = netdev_priv(dev);
-	int ret = 0;
-
-	if (!mvpp22_rss_is_supported(port))
-		return -EOPNOTSUPP;
-
-	if (hfunc != ETH_RSS_HASH_NO_CHANGE && hfunc != ETH_RSS_HASH_CRC32)
-		return -EOPNOTSUPP;
-
-	if (key)
-		return -EOPNOTSUPP;
-
-	if (indir)
-		ret = mvpp22_port_rss_ctx_indir_set(port, 0, indir);
-
-	return ret;
-}
-
-static int mvpp2_ethtool_get_rxfh_context(struct net_device *dev, u32 *indir,
-					  u8 *key, u8 *hfunc, u32 rss_context)
-{
-	struct mvpp2_port *port = netdev_priv(dev);
+	u32 rss_context = rxfh->rss_context;
 	int ret = 0;
 
 	if (!mvpp22_rss_is_supported(port))
@@ -5680,33 +5647,34 @@ static int mvpp2_ethtool_get_rxfh_context(struct net_device *dev, u32 *indir,
 	if (rss_context >= MVPP22_N_RSS_TABLES)
 		return -EINVAL;
 
-	if (hfunc)
-		*hfunc = ETH_RSS_HASH_CRC32;
+	rxfh->hfunc = ETH_RSS_HASH_CRC32;
 
-	if (indir)
-		ret = mvpp22_port_rss_ctx_indir_get(port, rss_context, indir);
+	if (rxfh->indir)
+		ret = mvpp22_port_rss_ctx_indir_get(port, rss_context,
+						    rxfh->indir);
 
 	return ret;
 }
 
-static int mvpp2_ethtool_set_rxfh_context(struct net_device *dev,
-					  const u32 *indir, const u8 *key,
-					  const u8 hfunc, u32 *rss_context,
-					  bool delete)
+static int mvpp2_ethtool_set_rxfh(struct net_device *dev,
+				  struct ethtool_rxfh_param *rxfh,
+				  struct netlink_ext_ack *extack)
 {
 	struct mvpp2_port *port = netdev_priv(dev);
-	int ret;
+	u32 *rss_context = &rxfh->rss_context;
+	int ret = 0;
 
 	if (!mvpp22_rss_is_supported(port))
 		return -EOPNOTSUPP;
 
-	if (hfunc != ETH_RSS_HASH_NO_CHANGE && hfunc != ETH_RSS_HASH_CRC32)
+	if (rxfh->hfunc != ETH_RSS_HASH_NO_CHANGE &&
+	    rxfh->hfunc != ETH_RSS_HASH_CRC32)
 		return -EOPNOTSUPP;
 
-	if (key)
+	if (rxfh->key)
 		return -EOPNOTSUPP;
 
-	if (delete)
+	if (*rss_context && rxfh->rss_delete)
 		return mvpp22_port_rss_ctx_delete(port, *rss_context);
 
 	if (*rss_context == ETH_RXFH_CONTEXT_ALLOC) {
@@ -5715,8 +5683,13 @@ static int mvpp2_ethtool_set_rxfh_context(struct net_device *dev,
 			return ret;
 	}
 
-	return mvpp22_port_rss_ctx_indir_set(port, *rss_context, indir);
+	if (rxfh->indir)
+		ret = mvpp22_port_rss_ctx_indir_set(port, *rss_context,
+						    rxfh->indir);
+
+	return ret;
 }
+
 /* Device ops */
 
 static const struct net_device_ops mvpp2_netdev_ops = {
@@ -5736,6 +5709,7 @@ static const struct net_device_ops mvpp2_netdev_ops = {
 };
 
 static const struct ethtool_ops mvpp2_eth_tool_ops = {
+	.cap_rss_ctx_supported	= true,
 	.supported_coalesce_params = ETHTOOL_COALESCE_USECS |
 				     ETHTOOL_COALESCE_MAX_FRAMES,
 	.nway_reset		= mvpp2_ethtool_nway_reset,
@@ -5758,8 +5732,6 @@ static const struct ethtool_ops mvpp2_eth_tool_ops = {
 	.get_rxfh_indir_size	= mvpp2_ethtool_get_rxfh_indir_size,
 	.get_rxfh		= mvpp2_ethtool_get_rxfh,
 	.set_rxfh		= mvpp2_ethtool_set_rxfh,
-	.get_rxfh_context	= mvpp2_ethtool_get_rxfh_context,
-	.set_rxfh_context	= mvpp2_ethtool_set_rxfh_context,
 };
 
 /* Used for PPv2.1, or PPv2.2 with the old Device Tree binding that

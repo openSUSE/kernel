@@ -67,6 +67,7 @@
 #include <asm/set_memory.h>
 #include <asm/traps.h>
 #include <asm/sev.h>
+#include <asm/tdx.h>
 
 #include "cpu.h"
 
@@ -1133,18 +1134,34 @@ void get_cpu_cap(struct cpuinfo_x86 *c)
 void get_cpu_address_sizes(struct cpuinfo_x86 *c)
 {
 	u32 eax, ebx, ecx, edx;
+	bool vp_bits_from_cpuid = true;
 
-	if (c->extended_cpuid_level >= 0x80000008) {
+	if (!cpu_has(c, X86_FEATURE_CPUID) ||
+	    (c->extended_cpuid_level < 0x80000008))
+		vp_bits_from_cpuid = false;
+
+	if (vp_bits_from_cpuid) {
 		cpuid(0x80000008, &eax, &ebx, &ecx, &edx);
 
 		c->x86_virt_bits = (eax >> 8) & 0xff;
 		c->x86_phys_bits = eax & 0xff;
+	} else {
+		if (IS_ENABLED(CONFIG_X86_64)) {
+			c->x86_clflush_size = 64;
+			c->x86_phys_bits = 36;
+			c->x86_virt_bits = 48;
+		} else {
+			c->x86_clflush_size = 32;
+			c->x86_virt_bits = 32;
+			c->x86_phys_bits = 32;
+
+			if (cpu_has(c, X86_FEATURE_PAE) ||
+			    cpu_has(c, X86_FEATURE_PSE36))
+				c->x86_phys_bits = 36;
+		}
 	}
-#ifdef CONFIG_X86_32
-	else if (cpu_has(c, X86_FEATURE_PAE) || cpu_has(c, X86_FEATURE_PSE36))
-		c->x86_phys_bits = 36;
-#endif
 	c->x86_cache_bits = c->x86_phys_bits;
+	c->x86_cache_alignment = c->x86_clflush_size;
 }
 
 static void identify_cpu_without_cpuid(struct cpuinfo_x86 *c)
@@ -1376,8 +1393,13 @@ static void __init cpu_set_bug_bits(struct cpuinfo_x86 *c)
 	/*
 	 * AMD's AutoIBRS is equivalent to Intel's eIBRS - use the Intel feature
 	 * flag and protect from vendor-specific bugs via the whitelist.
+	 *
+	 * Don't use AutoIBRS when SNP is enabled because it degrades host
+	 * userspace indirect branch performance.
 	 */
-	if ((ia32_cap & ARCH_CAP_IBRS_ALL) || cpu_has(c, X86_FEATURE_AUTOIBRS)) {
+	if ((ia32_cap & ARCH_CAP_IBRS_ALL) ||
+	    (cpu_has(c, X86_FEATURE_AUTOIBRS) &&
+	     !cpu_feature_enabled(X86_FEATURE_SEV_SNP))) {
 		setup_force_cpu_cap(X86_FEATURE_IBRS_ENHANCED);
 		if (!cpu_matches(cpu_vuln_whitelist, NO_EIBRS_PBRSB) &&
 		    !(ia32_cap & ARCH_CAP_PBRSB_NO))
@@ -1602,17 +1624,6 @@ static void __init cpu_parse_early_param(void)
  */
 static void __init early_identify_cpu(struct cpuinfo_x86 *c)
 {
-#ifdef CONFIG_X86_64
-	c->x86_clflush_size = 64;
-	c->x86_phys_bits = 36;
-	c->x86_virt_bits = 48;
-#else
-	c->x86_clflush_size = 32;
-	c->x86_phys_bits = 32;
-	c->x86_virt_bits = 32;
-#endif
-	c->x86_cache_alignment = c->x86_clflush_size;
-
 	memset(&c->x86_capability, 0, sizeof(c->x86_capability));
 	c->extended_cpuid_level = 0;
 
@@ -1624,7 +1635,6 @@ static void __init early_identify_cpu(struct cpuinfo_x86 *c)
 		cpu_detect(c);
 		get_cpu_vendor(c);
 		get_cpu_cap(c);
-		get_cpu_address_sizes(c);
 		setup_force_cpu_cap(X86_FEATURE_CPUID);
 		cpu_parse_early_param();
 
@@ -1639,6 +1649,8 @@ static void __init early_identify_cpu(struct cpuinfo_x86 *c)
 	} else {
 		setup_clear_cpu_cap(X86_FEATURE_CPUID);
 	}
+
+	get_cpu_address_sizes(c);
 
 	setup_force_cpu_cap(X86_FEATURE_ALWAYS);
 
@@ -1881,6 +1893,13 @@ static void identify_cpu(struct cpuinfo_x86 *c)
 	c->apicid = apic->phys_pkg_id(c->initial_apicid, 0);
 #endif
 
+
+	/*
+	 * Set default APIC and TSC_DEADLINE MSR fencing flag. AMD and
+	 * Hygon will clear it in ->c_init() below.
+	 */
+	set_cpu_cap(c, X86_FEATURE_APIC_MSRS_FENCE);
+
 	/*
 	 * Vendor-specific initialization.  In this section we
 	 * canonicalize the feature flags, meaning if there are
@@ -2012,6 +2031,7 @@ void __init identify_boot_cpu(void)
 	setup_cr_pinning();
 
 	tsx_init();
+	tdx_init();
 	lkgs_init();
 }
 

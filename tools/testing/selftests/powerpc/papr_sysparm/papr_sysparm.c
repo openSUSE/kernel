@@ -70,7 +70,7 @@ static int get_bad_parameter(void)
 
 static int check_efault_common(unsigned long cmd)
 {
-	const int devfd = open(DEVPATH, O_RDONLY);
+	const int devfd = open(DEVPATH, O_RDWR);
 
 	SKIP_IF_MSG(devfd < 0 && errno == ENOENT,
 		    DEVPATH " not present");
@@ -101,6 +101,28 @@ static int set_hmc0(void)
 	struct papr_sysparm_io_block sp = {
 		.parameter = 0, // HMC0, not a settable parameter
 	};
+	const int devfd = open(DEVPATH, O_RDWR);
+
+	SKIP_IF_MSG(devfd < 0 && errno == ENOENT,
+		    DEVPATH " not present");
+
+	FAIL_IF(devfd < 0);
+
+	// Ensure expected error
+	FAIL_IF(ioctl(devfd, PAPR_SYSPARM_IOC_SET, &sp) != -1);
+	SKIP_IF_MSG(errno == EOPNOTSUPP, "operation not supported");
+	FAIL_IF(errno != EPERM);
+
+	FAIL_IF(close(devfd) != 0);
+
+	return 0;
+}
+
+static int set_with_ro_fd(void)
+{
+	struct papr_sysparm_io_block sp = {
+		.parameter = 0, // HMC0, not a settable parameter.
+	};
 	const int devfd = open(DEVPATH, O_RDONLY);
 
 	SKIP_IF_MSG(devfd < 0 && errno == ENOENT,
@@ -110,7 +132,13 @@ static int set_hmc0(void)
 
 	// Ensure expected error
 	FAIL_IF(ioctl(devfd, PAPR_SYSPARM_IOC_SET, &sp) != -1);
-	FAIL_IF(errno != EPERM);
+	SKIP_IF_MSG(errno == EOPNOTSUPP, "operation not supported");
+
+	// HMC0 isn't a settable parameter and we would normally
+	// expect to get EPERM on attempts to modify it. However, when
+	// the file is open read-only, we expect the driver to prevent
+	// the attempt with a distinct error.
+	FAIL_IF(errno != EBADF);
 
 	FAIL_IF(close(devfd) != 0);
 
@@ -146,6 +174,10 @@ static const struct sysparm_test sysparm_tests[] = {
 	{
 		.function = set_hmc0,
 		.description = "ensure EPERM on attempt to update HMC0",
+	},
+	{
+		.function = set_with_ro_fd,
+		.description = "PAPR_IOC_SYSPARM_SET returns EACCESS on read-only fd",
 	},
 };
 

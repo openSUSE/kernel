@@ -7,16 +7,27 @@
 #include <linux/file.h>
 #include <linux/fs.h>
 #include <linux/init.h>
+#include <linux/lockdep.h>
 #include <linux/kernel.h>
 #include <linux/miscdevice.h>
+#include <linux/signal.h>
 #include <linux/slab.h>
 #include <linux/string.h>
 #include <linux/string_helpers.h>
+#include <linux/uaccess.h>
 #include <asm/machdep.h>
 #include <asm/papr-vpd.h>
 #include <asm/rtas-work-area.h>
 #include <asm/rtas.h>
 #include <uapi/asm/papr-vpd.h>
+
+/*
+ * Function-specific return values for ibm,get-vpd, derived from PAPR+
+ * v2.13 7.3.20 "ibm,get-vpd RTAS Call".
+ */
+#define RTAS_IBM_GET_VPD_COMPLETE    0 /* All VPD has been retrieved. */
+#define RTAS_IBM_GET_VPD_MORE_DATA   1 /* More VPD is available. */
+#define RTAS_IBM_GET_VPD_START_OVER -4 /* VPD changed, restart call sequence. */
 
 /**
  * struct rtas_ibm_get_vpd_params - Parameters (in and out) for ibm,get-vpd.
@@ -62,6 +73,8 @@ static int rtas_ibm_get_vpd(struct rtas_ibm_get_vpd_params *params)
 	s32 fwrc;
 	int ret;
 
+	lockdep_assert_held(&rtas_ibm_get_vpd_lock);
+
 	do {
 		fwrc = rtas_call(rtas_function_token(RTAS_FN_IBM_GET_VPD), 4, 3,
 				 rets,
@@ -72,19 +85,19 @@ static int rtas_ibm_get_vpd(struct rtas_ibm_get_vpd_params *params)
 	} while (rtas_busy_delay(fwrc));
 
 	switch (fwrc) {
-	case -1:
+	case RTAS_HARDWARE_ERROR:
 		ret = -EIO;
 		break;
-	case -3:
+	case RTAS_INVALID_PARAMETER:
 		ret = -EINVAL;
 		break;
-	case -4:
+	case RTAS_IBM_GET_VPD_START_OVER:
 		ret = -EAGAIN;
 		break;
-	case 1:
+	case RTAS_IBM_GET_VPD_MORE_DATA:
 		params->sequence = rets[0];
 		fallthrough;
-	case 0:
+	case RTAS_IBM_GET_VPD_COMPLETE:
 		params->written = rets[1];
 		/*
 		 * Kernel or firmware bug, do not continue.
@@ -238,7 +251,7 @@ static void vpd_sequence_begin(struct vpd_sequence *seq,
 	 * exhaust the limited work area pool for no benefit. So
 	 * allocate the work area under the lock.
 	 */
-	rtas_function_lock(RTAS_FN_IBM_GET_VPD);
+	mutex_lock(&rtas_ibm_get_vpd_lock);
 	static_loc_code = *loc_code;
 	*seq = (struct vpd_sequence) {
 		.params = {
@@ -258,7 +271,7 @@ static void vpd_sequence_begin(struct vpd_sequence *seq,
 static void vpd_sequence_end(struct vpd_sequence *seq)
 {
 	rtas_work_area_free(seq->params.work_area);
-	rtas_function_unlock(RTAS_FN_IBM_GET_VPD);
+	mutex_unlock(&rtas_ibm_get_vpd_lock);
 }
 
 /**
@@ -378,8 +391,8 @@ static const struct vpd_blob *papr_vpd_retrieve(const struct papr_location_code 
 	/*
 	 * EAGAIN means the sequence errored with a -4 (VPD changed)
 	 * status from ibm,get-vpd, and we should attempt a new
-	 * sequence. PAPR+ R1–7.3.20–5 indicates that this should be a
-	 * transient condition, not something that happens
+	 * sequence. PAPR+ v2.13 R1–7.3.20–5 indicates that this
+	 * should be a transient condition, not something that happens
 	 * continuously. But we'll stop trying on a fatal signal.
 	 */
 	do {
@@ -433,12 +446,18 @@ static const struct file_operations papr_vpd_handle_ops = {
 
 /**
  * papr_vpd_create_handle() - Create a fd-based handle for reading VPD.
- * @ulc: Location code in user memory; defines the scope of the VPD to retrieve.
+ * @ulc: Location code in user memory; defines the scope of the VPD to
+ *       retrieve.
  *
  * Handler for PAPR_VPD_IOC_CREATE_HANDLE ioctl command. Validates
- * @ulc and instantiates a VPD "blob" for it. The blob is attached to
- * a file descriptor for reading by user space. The memory associated
- * with the blob is freed when the file is released.
+ * @ulc and instantiates an immutable VPD "blob" for it. The blob is
+ * attached to a file descriptor for reading by user space. The memory
+ * backing the blob is freed when the file is released.
+ *
+ * The entire requested VPD is retrieved by this call and all
+ * necessary RTAS interactions are performed before returning the fd
+ * to user space. This keeps the read handler simple and ensures that
+ * the kernel can prevent interleaving of ibm,get-vpd call sequences.
  *
  * Return: The installed fd number if successful, -ve errno otherwise.
  */

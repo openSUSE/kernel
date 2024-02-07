@@ -93,7 +93,7 @@ static int iblock_configure_device(struct se_device *dev)
 	struct request_queue *q;
 	struct block_device *bd = NULL;
 	struct blk_integrity *bi;
-	fmode_t mode;
+	blk_mode_t mode = BLK_OPEN_READ;
 	unsigned int max_write_zeroes_sectors;
 	int ret;
 
@@ -111,9 +111,8 @@ static int iblock_configure_device(struct se_device *dev)
 	pr_debug( "IBLOCK: Claiming struct block_device: %s\n",
 			ib_dev->ibd_udev_path);
 
-	mode = FMODE_READ;
 	if (!ib_dev->ibd_readonly)
-		mode |= FMODE_WRITE;
+		mode |= BLK_OPEN_WRITE;
 	else
 		dev->dev_flags |= DF_READ_ONLY;
 
@@ -690,7 +689,6 @@ iblock_alloc_bip(struct se_cmd *cmd, struct bio *bio,
 		return PTR_ERR(bip);
 	}
 
-	bip->bip_iter.bi_size = bio_integrity_bytes(bi, bio_sectors(bio));
 	/* virtual start sector must be in integrity interval units */
 	bip_set_seed(bip, bio->bi_iter.bi_sector >>
 				  (bi->interval_exp - SECTOR_SHIFT));
@@ -698,7 +696,7 @@ iblock_alloc_bip(struct se_cmd *cmd, struct bio *bio,
 	pr_debug("IBLOCK BIP Size: %u Sector: %llu\n", bip->bip_iter.bi_size,
 		 (unsigned long long)bip->bip_iter.bi_sector);
 
-	resid = bip->bip_iter.bi_size;
+	resid = bio_integrity_bytes(bi, bio_sectors(bio));
 	while (resid > 0 && sg_miter_next(miter)) {
 
 		len = min_t(size_t, miter->length, resid);

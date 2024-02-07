@@ -241,6 +241,7 @@ static int read_object_code(u64 addr, size_t len, u8 cpumode,
 
 	pr_debug("Reading object code for memory address: %#"PRIx64"\n", addr);
 
+	addr_location__init(&al);
 	if (!thread__find_map(thread, cpumode, addr, &al) || !map__dso(al.map)) {
 		if (cpumode == PERF_RECORD_MISC_HYPERVISOR) {
 			pr_debug("Hypervisor address can not be resolved - skipping\n");
@@ -268,8 +269,18 @@ static int read_object_code(u64 addr, size_t len, u8 cpumode,
 	if (addr + len > map__end(al.map))
 		len = map__end(al.map) - addr;
 
+	/*
+	 * Some architectures (ex: powerpc) have stubs (trampolines) in kernel
+	 * modules to manage long jumps. Check if the ip offset falls in stubs
+	 * sections for kernel modules. And skip module address after text end
+	 */
+	if (dso->is_kmod && al.addr > dso->text_end) {
+		pr_debug("skipping the module address %#"PRIx64" after text end\n", al.addr);
+		goto out;
+	}
+
 	/* Read the object code using perf */
-	ret_len = dso__data_read_offset(dso, maps__machine(thread->maps),
+	ret_len = dso__data_read_offset(dso, maps__machine(thread__maps(thread)),
 					al.addr, buf1, len);
 	if (ret_len != len) {
 		pr_debug("dso__data_read_offset failed\n");
@@ -366,7 +377,7 @@ static int read_object_code(u64 addr, size_t len, u8 cpumode,
 	}
 	pr_debug("Bytes read match those read by objdump\n");
 out:
-	map__put(al.map);
+	addr_location__exit(&al);
 	return err;
 }
 
@@ -720,7 +731,6 @@ out_err:
 	evlist__delete(evlist);
 	perf_cpu_map__put(cpus);
 	perf_thread_map__put(threads);
-	machine__delete_threads(machine);
 	machine__delete(machine);
 
 	return err;

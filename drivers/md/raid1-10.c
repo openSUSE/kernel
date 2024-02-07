@@ -21,6 +21,7 @@
 #define IO_MADE_GOOD ((struct bio *)2)
 
 #define BIO_SPECIAL(bio) ((unsigned long)bio <= 2)
+#define MAX_PLUG_BIO 32
 
 /* for managing resync I/O pages */
 struct resync_pages {
@@ -31,6 +32,7 @@ struct resync_pages {
 struct raid1_plug_cb {
 	struct blk_plug_cb	cb;
 	struct bio_list		pending;
+	unsigned int		count;
 };
 
 static void rbio_pool_free(void *rbio, void *data)
@@ -132,7 +134,7 @@ static inline void raid1_submit_write(struct bio *bio)
 }
 
 static inline bool raid1_add_bio_to_plug(struct mddev *mddev, struct bio *bio,
-				      blk_plug_cb_fn unplug)
+				      blk_plug_cb_fn unplug, int copies)
 {
 	struct raid1_plug_cb *plug = NULL;
 	struct blk_plug_cb *cb;
@@ -152,6 +154,25 @@ static inline bool raid1_add_bio_to_plug(struct mddev *mddev, struct bio *bio,
 
 	plug = container_of(cb, struct raid1_plug_cb, cb);
 	bio_list_add(&plug->pending, bio);
+	if (++plug->count / MAX_PLUG_BIO >= copies) {
+		list_del(&cb->list);
+		cb->callback(cb, false);
+	}
+
 
 	return true;
+}
+
+/*
+ * current->bio_list will be set under submit_bio() context, in this case bitmap
+ * io will be added to the list and wait for current io submission to finish,
+ * while current io submission must wait for bitmap io to be done. In order to
+ * avoid such deadlock, submit bitmap io asynchronously.
+ */
+static inline void raid1_prepare_flush_writes(struct bitmap *bitmap)
+{
+	if (current->bio_list)
+		md_bitmap_unplug_async(bitmap);
+	else
+		md_bitmap_unplug(bitmap);
 }
