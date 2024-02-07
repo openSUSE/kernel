@@ -2795,6 +2795,51 @@ static void umc_get_err_info(struct mce *m, struct err_info *err)
 	err->csrow = m->synd & 0x7;
 }
 
+/*
+ * When a DRAM ECC error occurs on MI300 systems, it is recommended to retire
+ * all memory within that DRAM row. This applies to the memory with a DRAM
+ * bank.
+ *
+ * To find the memory addresses, loop through permutations of the DRAM column
+ * bits and find the System Physical address of each. The column bits are used
+ * to calculate the intermediate Normalized address, so all permutations should
+ * be checked.
+ *
+ * See amd_atl::convert_dram_to_norm_addr_mi300() for MI300 address formats.
+ */
+#define MI300_UMC_MCA_COL	GENMASK(5, 1)
+#define MI300_NUM_COL		BIT(HWEIGHT(MI300_UMC_MCA_COL))
+static void retire_row_mi300(struct atl_err *a_err)
+{
+	unsigned long addr;
+	struct page *p;
+	u8 col;
+
+	for (col = 0; col < MI300_NUM_COL; col++) {
+		a_err->addr &= ~MI300_UMC_MCA_COL;
+		a_err->addr |= FIELD_PREP(MI300_UMC_MCA_COL, col);
+
+		addr = amd_convert_umc_mca_addr_to_sys_addr(a_err);
+		if (IS_ERR_VALUE(addr))
+			continue;
+
+		addr = PHYS_PFN(addr);
+
+		/*
+		 * Skip invalid or already poisoned pages to avoid unnecessary
+		 * error messages from memory_failure().
+		 */
+		p = pfn_to_online_page(addr);
+		if (!p)
+			continue;
+
+		if (PageHWPoison(p))
+			continue;
+
+		memory_failure(addr, 0);
+	}
+}
+
 static void decode_umc_error(int node_id, struct mce *m)
 {
 	u8 ecc_type = (m->status >> 45) & 0x3;
@@ -2844,6 +2889,9 @@ static void decode_umc_error(int node_id, struct mce *m)
 	}
 
 	error_address_to_page_and_offset(sys_addr, &err);
+
+	if (pvt->fam == 0x19 && pvt->dram_type == MEM_HBM3)
+		retire_row_mi300(&a_err);
 
 log_error:
 	__log_ecc_error(mci, &err, ecc_type);
