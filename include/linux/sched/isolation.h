@@ -45,6 +45,12 @@ static inline bool housekeeping_enabled(enum hk_flags flags)
 
 static inline void housekeeping_affine(struct task_struct *t,
 				       enum hk_flags flags) { }
+
+static inline bool housekeeping_test_cpu(int cpu, enum hk_flags flags)
+{
+	return true;
+}
+
 static inline void housekeeping_init(void) { }
 #endif /* CONFIG_CPU_ISOLATION */
 
@@ -55,6 +61,12 @@ static inline bool housekeeping_cpu(int cpu, enum hk_flags flags)
 		return housekeeping_test_cpu(cpu, flags);
 #endif
 	return true;
+}
+
+static inline bool cpu_is_isolated(int cpu)
+{
+	return !housekeeping_test_cpu(cpu, HK_FLAG_DOMAIN) ||
+		 !housekeeping_test_cpu(cpu, HK_FLAG_TICK);
 }
 
 #endif /* _LINUX_SCHED_ISOLATION_H */
