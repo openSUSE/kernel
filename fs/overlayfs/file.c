@@ -273,10 +273,7 @@ static void ovl_aio_cleanup_handler(struct ovl_aio_req *aio_req)
 	if (iocb->ki_flags & IOCB_WRITE) {
 		struct inode *inode = file_inode(orig_iocb->ki_filp);
 
-		/* Actually acquired in ovl_write_iter() */
-		__sb_writers_acquired(file_inode(iocb->ki_filp)->i_sb,
-				      SB_FREEZE_WRITE);
-		file_end_write(iocb->ki_filp);
+		kiocb_end_write(iocb);
 		ovl_copyattr(inode);
 	}
 
@@ -376,6 +373,12 @@ static ssize_t ovl_write_iter(struct kiocb *iocb, struct iov_iter *iter)
 	if (!ovl_should_sync(OVL_FS(inode->i_sb)))
 		ifl &= ~(IOCB_DSYNC | IOCB_SYNC);
 
+	/*
+	 * Overlayfs doesn't support deferred completions, don't copy
+	 * this property in case it is set by the issuer.
+	 */
+	ifl &= ~IOCB_DIO_CALLER_COMP;
+
 	old_cred = ovl_override_creds(file_inode(file)->i_sb);
 	if (is_sync_kiocb(iocb)) {
 		file_start_write(real.file);
@@ -392,10 +395,6 @@ static ssize_t ovl_write_iter(struct kiocb *iocb, struct iov_iter *iter)
 		if (!aio_req)
 			goto out;
 
-		file_start_write(real.file);
-		/* Pacify lockdep, same trick as done in aio_write() */
-		__sb_writers_release(file_inode(real.file)->i_sb,
-				     SB_FREEZE_WRITE);
 		aio_req->fd = real;
 		real.flags = 0;
 		aio_req->orig_iocb = iocb;
@@ -403,6 +402,7 @@ static ssize_t ovl_write_iter(struct kiocb *iocb, struct iov_iter *iter)
 		aio_req->iocb.ki_flags = ifl;
 		aio_req->iocb.ki_complete = ovl_aio_rw_complete;
 		refcount_set(&aio_req->ref, 2);
+		kiocb_start_write(&aio_req->iocb);
 		ret = vfs_iocb_iter_write(real.file, &aio_req->iocb, iter);
 		ovl_aio_put(aio_req);
 		if (ret != -EIOCBQUEUED)

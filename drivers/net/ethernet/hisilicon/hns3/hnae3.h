@@ -378,6 +378,7 @@ struct hnae3_dev_specs {
 	u16 umv_size;
 	u16 mc_mac_size;
 	u32 mac_stats_num;
+	u8 tnl_num;
 };
 
 struct hnae3_client_ops {
@@ -810,6 +811,7 @@ struct hnae3_tc_info {
 	u8 max_tc; /* Total number of TCs */
 	u8 num_tc; /* Total number of enabled TCs */
 	bool mqprio_active;
+	bool dcb_ets_active;
 };
 
 #define HNAE3_MAX_DSCP			64

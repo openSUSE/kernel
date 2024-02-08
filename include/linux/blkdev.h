@@ -112,6 +112,19 @@ struct blk_integrity {
 	unsigned char				tag_size;
 };
 
+typedef unsigned int __bitwise blk_mode_t;
+
+/* open for reading */
+#define BLK_OPEN_READ		((__force blk_mode_t)(1 << 0))
+/* open for writing */
+#define BLK_OPEN_WRITE		((__force blk_mode_t)(1 << 1))
+/* open exclusively (vs other exclusive openers */
+#define BLK_OPEN_EXCL		((__force blk_mode_t)(1 << 2))
+/* opened with O_NDELAY */
+#define BLK_OPEN_NDELAY		((__force blk_mode_t)(1 << 3))
+/* open for "writes" only for ioctls (specialy hack for floppy.c) */
+#define BLK_OPEN_WRITE_IOCTL	((__force blk_mode_t)(1 << 4))
+
 struct gendisk {
 	/*
 	 * major/first_minor/minors should not be set by any new driver, the
@@ -187,6 +200,7 @@ struct gendisk {
 	struct badblocks *bb;
 	struct lockdep_map lockdep_map;
 	u64 diskseq;
+	blk_mode_t open_mode;
 
 	/*
 	 * Independent sector access ranges. This is always NULL for
@@ -528,6 +542,7 @@ struct request_queue {
 #define QUEUE_FLAG_ADD_RANDOM	10	/* Contributes to random pool */
 #define QUEUE_FLAG_SYNCHRONOUS	11	/* always completes in submit context */
 #define QUEUE_FLAG_SAME_FORCE	12	/* force complete on same CPU */
+#define QUEUE_FLAG_HW_WC	13	/* Write back caching supported */
 #define QUEUE_FLAG_INIT_DONE	14	/* queue is initialized */
 #define QUEUE_FLAG_STABLE_WRITES 15	/* don't modify blks until WB is done */
 #define QUEUE_FLAG_POLL		16	/* IO polling enabled if set */
@@ -836,6 +851,7 @@ extern const char *blk_op_str(enum req_op op);
 
 int blk_status_to_errno(blk_status_t status);
 blk_status_t errno_to_blk_status(int errno);
+const char *blk_status_to_str(blk_status_t status);
 
 /* only poll the hardware once, don't continue until a completion was found */
 #define BLK_POLL_ONESHOT		(1 << 0)
@@ -959,7 +975,6 @@ struct blk_plug {
 
 	bool multiple_queues;
 	bool has_elevator;
-	bool nowait;
 
 	struct list_head cb_list; /* md requires an unplug callback */
 };
@@ -1365,10 +1380,12 @@ struct block_device_operations {
 	void (*submit_bio)(struct bio *bio);
 	int (*poll_bio)(struct bio *bio, struct io_comp_batch *iob,
 			unsigned int flags);
-	int (*open)(struct gendisk *disk, fmode_t mode);
-	void (*release) (struct gendisk *);
-	int (*ioctl) (struct block_device *, fmode_t, unsigned, unsigned long);
-	int (*compat_ioctl) (struct block_device *, fmode_t, unsigned, unsigned long);
+	int (*open)(struct gendisk *disk, blk_mode_t mode);
+	void (*release)(struct gendisk *disk);
+	int (*ioctl)(struct block_device *bdev, blk_mode_t mode,
+			unsigned cmd, unsigned long arg);
+	int (*compat_ioctl)(struct block_device *bdev, blk_mode_t mode,
+			unsigned cmd, unsigned long arg);
 	unsigned int (*check_events) (struct gendisk *disk,
 				      unsigned int clearing);
 	void (*unlock_native_capacity) (struct gendisk *);
@@ -1395,7 +1412,7 @@ struct block_device_operations {
 };
 
 #ifdef CONFIG_COMPAT
-extern int blkdev_compat_ptr_ioctl(struct block_device *, fmode_t,
+extern int blkdev_compat_ptr_ioctl(struct block_device *, blk_mode_t,
 				      unsigned int, unsigned long);
 #else
 #define blkdev_compat_ptr_ioctl NULL
@@ -1452,9 +1469,16 @@ struct blk_holder_ops {
 	void (*mark_dead)(struct block_device *bdev);
 };
 
-struct block_device *blkdev_get_by_dev(dev_t dev, fmode_t mode, void *holder,
+/*
+ * Return the correct open flags for blkdev_get_by_* for super block flags
+ * as stored in sb->s_flags.
+ */
+#define sb_open_mode(flags) \
+	(BLK_OPEN_READ | (((flags) & SB_RDONLY) ? 0 : BLK_OPEN_WRITE))
+
+struct block_device *blkdev_get_by_dev(dev_t dev, blk_mode_t mode, void *holder,
 		const struct blk_holder_ops *hops);
-struct block_device *blkdev_get_by_path(const char *path, fmode_t mode,
+struct block_device *blkdev_get_by_path(const char *path, blk_mode_t mode,
 		void *holder, const struct blk_holder_ops *hops);
 int bd_prepare_to_claim(struct block_device *bdev, void *holder,
 		const struct blk_holder_ops *hops);

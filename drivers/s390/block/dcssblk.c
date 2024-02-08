@@ -28,7 +28,7 @@
 #define DCSSBLK_PARM_LEN 400
 #define DCSS_BUS_ID_SIZE 20
 
-static int dcssblk_open(struct gendisk *disk, fmode_t mode);
+static int dcssblk_open(struct gendisk *disk, blk_mode_t mode);
 static void dcssblk_release(struct gendisk *disk);
 static void dcssblk_submit_bio(struct bio *bio);
 static long dcssblk_dax_direct_access(struct dax_device *dax_dev, pgoff_t pgoff,
@@ -54,7 +54,8 @@ static int dcssblk_dax_zero_page_range(struct dax_device *dax_dev,
 	rc = dax_direct_access(dax_dev, pgoff, nr_pages, DAX_ACCESS,
 			&kaddr, NULL);
 	if (rc < 0)
-		return rc;
+		return dax_mem2blk_err(rc);
+
 	memset(kaddr, 0, nr_pages << PAGE_SHIFT);
 	dax_flush(dax_dev, kaddr, nr_pages << PAGE_SHIFT);
 	return 0;
@@ -811,7 +812,7 @@ out_buf:
 }
 
 static int
-dcssblk_open(struct gendisk *disk, fmode_t mode)
+dcssblk_open(struct gendisk *disk, blk_mode_t mode)
 {
 	struct dcssblk_dev_info *dev_info = disk->private_data;
 	int rc;

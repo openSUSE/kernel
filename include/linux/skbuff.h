@@ -568,6 +568,15 @@ struct ubuf_info_msgzc {
 int mm_account_pinned_pages(struct mmpin *mmp, size_t size);
 void mm_unaccount_pinned_pages(struct mmpin *mmp);
 
+/* Preserve some data across TX submission and completion.
+ *
+ * Note, this state is stored in the driver. Extending the layout
+ * might need some special care.
+ */
+struct xsk_tx_metadata_compl {
+	__u64 *tx_timestamp;
+};
+
 /* This data is invariant across clones and lives at
  * the end of the header data, ie. at skb->end.
  */
@@ -580,7 +589,10 @@ struct skb_shared_info {
 	/* Warning: this field is not always filled in (UFO)! */
 	unsigned short	gso_segs;
 	struct sk_buff	*frag_list;
-	struct skb_shared_hwtstamps hwtstamps;
+	union {
+		struct skb_shared_hwtstamps hwtstamps;
+		struct xsk_tx_metadata_compl xsk_meta;
+	};
 	unsigned int	gso_type;
 	u32		tskey;
 
@@ -943,7 +955,7 @@ struct sk_buff {
 	__u8			__mono_tc_offset[0];
 	/* public: */
 	__u8			mono_delivery_time:1;	/* See SKB_MONO_DELIVERY_TIME_MASK */
-#ifdef CONFIG_NET_CLS_ACT
+#ifdef CONFIG_NET_XGRESS
 	__u8			tc_at_ingress:1;	/* See TC_AT_INGRESS_MASK */
 	__u8			tc_skip_classify:1;
 #endif
@@ -992,7 +1004,7 @@ struct sk_buff {
 	__u8			csum_not_inet:1;
 #endif
 
-#ifdef CONFIG_NET_SCHED
+#if defined(CONFIG_NET_SCHED) || defined(CONFIG_NET_XGRESS)
 	__u16			tc_index;	/* traffic control index */
 #endif
 
@@ -4024,7 +4036,7 @@ __skb_header_pointer(const struct sk_buff *skb, int offset, int len,
 	if (likely(hlen - offset >= len))
 		return (void *)data + offset;
 
-	if (!skb || !buffer || unlikely(skb_copy_bits(skb, offset, buffer, len) < 0))
+	if (!skb || unlikely(skb_copy_bits(skb, offset, buffer, len) < 0))
 		return NULL;
 
 	return buffer;
@@ -4035,6 +4047,14 @@ skb_header_pointer(const struct sk_buff *skb, int offset, int len, void *buffer)
 {
 	return __skb_header_pointer(skb, offset, len, skb->data,
 				    skb_headlen(skb), buffer);
+}
+
+static inline void * __must_check
+skb_pointer_if_linear(const struct sk_buff *skb, int offset, int len)
+{
+	if (likely(skb_headlen(skb) - offset >= len))
+		return skb->data + offset;
+	return NULL;
 }
 
 /**
@@ -4210,10 +4230,13 @@ static inline bool __skb_metadata_differs(const struct sk_buff *skb_a,
 {
 	const void *a = skb_metadata_end(skb_a);
 	const void *b = skb_metadata_end(skb_b);
-	/* Using more efficient varaiant than plain call to memcmp(). */
-#if defined(CONFIG_HAVE_EFFICIENT_UNALIGNED_ACCESS) && BITS_PER_LONG == 64
 	u64 diffs = 0;
 
+	if (!IS_ENABLED(CONFIG_HAVE_EFFICIENT_UNALIGNED_ACCESS) ||
+	    BITS_PER_LONG != 64)
+		goto slow;
+
+	/* Using more efficient variant than plain call to memcmp(). */
 	switch (meta_len) {
 #define __it(x, op) (x -= sizeof(u##op))
 #define __it_diff(a, b, op) (*(u##op *)__it(a, op)) ^ (*(u##op *)__it(b, op))
@@ -4233,11 +4256,11 @@ static inline bool __skb_metadata_differs(const struct sk_buff *skb_a,
 		fallthrough;
 	case  4: diffs |= __it_diff(a, b, 32);
 		break;
+	default:
+slow:
+		return memcmp(a - meta_len, b - meta_len, meta_len);
 	}
 	return diffs;
-#else
-	return memcmp(a - meta_len, b - meta_len, meta_len);
-#endif
 }
 
 static inline bool skb_metadata_differs(const struct sk_buff *skb_a,

@@ -16,6 +16,7 @@
 #include <media/v4l2-mem2mem.h>
 #include <media/videobuf2-core.h>
 
+#include "mtk_vcodec_dbgfs.h"
 #include "mtk_vcodec_util.h"
 #include "vdec_msg_queue.h"
 
@@ -347,6 +348,8 @@ enum mtk_vdec_format_types {
 	MTK_VDEC_FORMAT_H264_SLICE = 0x100,
 	MTK_VDEC_FORMAT_VP8_FRAME = 0x200,
 	MTK_VDEC_FORMAT_VP9_FRAME = 0x400,
+	MTK_VDEC_FORMAT_AV1_FRAME = 0x800,
+	MTK_VDEC_FORMAT_HEVC_FRAME = 0x1000,
 	MTK_VCODEC_INNER_RACING = 0x20000,
 };
 
@@ -438,6 +441,7 @@ struct mtk_vcodec_enc_pdata {
  * @reg_base: Mapped address of MTK Vcodec registers.
  * @vdec_pdata: decoder IC-specific data
  * @venc_pdata: encoder IC-specific data
+ * @vdecsys_regmap: VDEC_SYS register space passed through syscon
  *
  * @fw_handler: used to communicate with the firmware.
  * @id_counter: used to identify current opened instance
@@ -461,7 +465,6 @@ struct mtk_vcodec_enc_pdata {
  * @enc_capability: used to identify encode capability
  *
  * @core_workqueue: queue used for core hardware decode
- * @msg_queue_core_ctx: msg queue context used for core workqueue
  *
  * @subdev_dev: subdev hardware device
  * @subdev_prob_done: check whether all used hw device is prob done
@@ -470,6 +473,7 @@ struct mtk_vcodec_enc_pdata {
  * @dec_active_cnt: used to mark whether need to record register value
  * @vdec_racing_info: record register value
  * @dec_racing_info_mutex: mutex lock used for inner racing mode
+ * @dbgfs: debug log related information
  */
 struct mtk_vcodec_dev {
 	struct v4l2_device v4l2_dev;
@@ -486,6 +490,7 @@ struct mtk_vcodec_dev {
 	void __iomem *reg_base[NUM_MAX_VCODEC_REG_BASE];
 	const struct mtk_vcodec_dec_pdata *vdec_pdata;
 	const struct mtk_vcodec_enc_pdata *venc_pdata;
+	struct regmap *vdecsys_regmap;
 
 	struct mtk_vcodec_fw *fw_handler;
 
@@ -510,7 +515,6 @@ struct mtk_vcodec_dev {
 	unsigned int enc_capability;
 
 	struct workqueue_struct *core_workqueue;
-	struct vdec_msg_queue_ctx msg_queue_core_ctx;
 
 	void *subdev_dev[MTK_VDEC_HW_MAX];
 	int (*subdev_prob_done)(struct mtk_vcodec_dev *vdec_dev);
@@ -520,6 +524,8 @@ struct mtk_vcodec_dev {
 	u32 vdec_racing_info[132];
 	/* Protects access to vdec_racing_info data */
 	struct mutex dec_racing_info_mutex;
+
+	struct mtk_vcodec_dbgfs dbgfs;
 };
 
 static inline struct mtk_vcodec_ctx *fh_to_ctx(struct v4l2_fh *fh)

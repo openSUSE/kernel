@@ -9,10 +9,10 @@
 #include <linux/interrupt.h>
 #include <linux/iommu.h>
 #include <linux/module.h>
-#include <linux/of_address.h>
-#include <linux/of_irq.h>
+#include <linux/of.h>
 #include <linux/of_platform.h>
 #include <linux/of_reserved_mem.h>
+#include <linux/platform_device.h>
 #include <linux/sched.h>
 #include <linux/sizes.h>
 #include <linux/dma-mapping.h>
@@ -1018,6 +1018,7 @@ static int mtk_vpu_resume(struct device *dev)
 	clk_prepare(vpu->clk);
 	ret = vpu_clock_enable(vpu);
 	if (ret) {
+		clk_unprepare(vpu->clk);
 		dev_err(dev, "failed to enable vpu clock\n");
 		return ret;
 	}

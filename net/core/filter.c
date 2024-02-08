@@ -82,6 +82,8 @@
 #include <net/mptcp.h>
 #include <net/netfilter/nf_conntrack_bpf.h>
 
+#include "dev.h"
+
 static const struct bpf_func_proto *
 bpf_sk_base_func_proto(enum bpf_func_id func_id);
 
@@ -199,7 +201,7 @@ BPF_CALL_3(bpf_skb_get_nlattr_nest, struct sk_buff *, skb, u32, a, u32, x)
 		return 0;
 
 	nla = (struct nlattr *) &skb->data[a];
-	if (nla->nla_len > skb->len - a)
+	if (!nla_ok(nla, skb->len - a))
 		return 0;
 
 	nla = nla_find_nested(nla, x);
@@ -4207,6 +4209,20 @@ void xdp_do_flush(void)
 }
 EXPORT_SYMBOL_GPL(xdp_do_flush);
 
+#if defined(CONFIG_DEBUG_NET) && defined(CONFIG_BPF_SYSCALL)
+void xdp_do_check_flushed(struct napi_struct *napi)
+{
+	bool ret;
+
+	ret = dev_check_flush();
+	ret |= cpu_map_check_flush();
+	ret |= xsk_map_check_flush();
+
+	WARN_ONCE(ret, "Missing xdp_do_flush() invocation after NAPI by %ps\n",
+		  napi->poll);
+}
+#endif
+
 void bpf_clear_redirect_map(struct bpf_map *map)
 {
 	struct bpf_redirect_info *ri;
@@ -7345,8 +7361,8 @@ BPF_CALL_3(bpf_sk_assign, struct sk_buff *, skb, struct sock *, sk, u64, flags)
 		return -EOPNOTSUPP;
 	if (unlikely(dev_net(skb->dev) != sock_net(sk)))
 		return -ENETUNREACH;
-	if (unlikely(sk_fullsock(sk) && sk->sk_reuseport))
-		return -ESOCKTNOSUPPORT;
+	if (sk_unhashed(sk))
+		return -EOPNOTSUPP;
 	if (sk_is_refcounted(sk) &&
 	    unlikely(!refcount_inc_not_zero(&sk->sk_refcnt)))
 		return -ENOENT;
@@ -9301,7 +9317,7 @@ static struct bpf_insn *bpf_convert_tstamp_read(const struct bpf_prog *prog,
 	__u8 value_reg = si->dst_reg;
 	__u8 skb_reg = si->src_reg;
 
-#ifdef CONFIG_NET_CLS_ACT
+#ifdef CONFIG_NET_XGRESS
 	/* If the tstamp_type is read,
 	 * the bpf prog is aware the tstamp could have delivery time.
 	 * Thus, read skb->tstamp as is if tstamp_type_access is true.
@@ -9335,7 +9351,7 @@ static struct bpf_insn *bpf_convert_tstamp_write(const struct bpf_prog *prog,
 	__u8 value_reg = si->src_reg;
 	__u8 skb_reg = si->dst_reg;
 
-#ifdef CONFIG_NET_CLS_ACT
+#ifdef CONFIG_NET_XGRESS
 	/* If the tstamp_type is read,
 	 * the bpf prog is aware the tstamp could have delivery time.
 	 * Thus, write skb->tstamp as is if tstamp_type_access is true.

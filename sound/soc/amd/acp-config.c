@@ -193,4 +193,5 @@ struct snd_soc_acpi_mach snd_soc_acpi_amd_rmb_sof_machines[] = {
 };
 EXPORT_SYMBOL(snd_soc_acpi_amd_rmb_sof_machines);
 
+MODULE_DESCRIPTION("AMD ACP Machine Configuration Module");
 MODULE_LICENSE("Dual BSD/GPL");

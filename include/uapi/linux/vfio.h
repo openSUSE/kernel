@@ -511,6 +511,9 @@ struct vfio_region_info_cap_nvlink2_lnkspd {
  * then add and unmask vectors, it's up to userspace to make the decision
  * whether to allocate the maximum supported number of vectors or tear
  * down setup and incrementally increase the vectors as each is enabled.
+ * Absence of the NORESIZE flag indicates that vectors can be enabled
+ * and disabled dynamically without impacting other vectors within the
+ * index.
  */
 struct vfio_irq_info {
 	__u32	argsz;
@@ -644,6 +647,15 @@ enum {
 	VFIO_CCW_CRW_IRQ_INDEX,
 	VFIO_CCW_REQ_IRQ_INDEX,
 	VFIO_CCW_NUM_IRQS
+};
+
+/*
+ * The vfio-ap bus driver makes use of the following IRQ index mapping.
+ * Unimplemented IRQ types return a count of zero.
+ */
+enum {
+	VFIO_AP_REQ_IRQ_INDEX,
+	VFIO_AP_NUM_IRQS
 };
 
 /**

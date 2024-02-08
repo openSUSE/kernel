@@ -564,8 +564,6 @@ enum task_attribute {
 };
 
 struct sas_ssp_task {
-	u8     retry_count;	  /* hardware retry, should be > 0 */
-
 	u8     LUN[8];
 	enum   task_attribute task_attr;
 	struct scsi_cmnd *cmd;
@@ -706,8 +704,6 @@ sas_domain_attach_transport(struct sas_domain_function_template *);
 extern struct device_attribute dev_attr_phy_event_threshold;
 
 int  sas_discover_root_expander(struct domain_device *);
-
-void sas_init_ex_attr(void);
 
 int  sas_ex_revalidate_domain(struct domain_device *);
 

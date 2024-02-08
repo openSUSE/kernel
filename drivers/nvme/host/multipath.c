@@ -410,7 +410,7 @@ static void nvme_ns_head_submit_bio(struct bio *bio)
 	srcu_read_unlock(&head->srcu, srcu_idx);
 }
 
-static int nvme_ns_head_open(struct gendisk *disk, fmode_t mode)
+static int nvme_ns_head_open(struct gendisk *disk, blk_mode_t mode)
 {
 	if (!nvme_tryget_ns_head(disk->private_data))
 		return -ENXIO;
@@ -478,7 +478,7 @@ static const struct file_operations nvme_ns_head_chr_fops = {
 	.unlocked_ioctl	= nvme_ns_head_chr_ioctl,
 	.compat_ioctl	= compat_ptr_ioctl,
 	.uring_cmd	= nvme_ns_head_chr_uring_cmd,
-	.uring_cmd_iopoll = nvme_ns_head_chr_uring_cmd_iopoll,
+	.uring_cmd_iopoll = nvme_ns_chr_uring_cmd_iopoll,
 };
 
 static int nvme_add_ns_head_cdev(struct nvme_ns_head *head)
