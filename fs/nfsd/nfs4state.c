@@ -7522,6 +7522,7 @@ nfsd4_release_lockowner(struct svc_rqst *rqstp,
 				return nfserr_locks_held;
 			}
 		}
+		nfs4_get_stateowner(sop);
 		break;
 	}
 	if (!lo) {
