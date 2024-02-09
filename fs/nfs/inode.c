@@ -2330,6 +2330,7 @@ struct inode *nfs_alloc_inode(struct super_block *sb)
 	nfsi->flags = 0UL;
 	nfsi->cache_validity = 0UL;
 	nfsi->ooo = NULL;
+	init_rwsem(&nfsi->rmdir_sem);
 #if IS_ENABLED(CONFIG_NFS_V4)
 	nfsi->nfs4_acl = NULL;
 #endif /* CONFIG_NFS_V4 */
@@ -2370,7 +2371,6 @@ static void init_once(void *foo)
 	atomic_long_set(&nfsi->nrequests, 0);
 	atomic_long_set(&nfsi->commit_info.ncommit, 0);
 	atomic_set(&nfsi->commit_info.rpcs_out, 0);
-	init_rwsem(&nfsi->rmdir_sem);
 	mutex_init(&nfsi->commit_mutex);
 	nfs4_init_once(nfsi);
 	nfsi->cache_change_attribute = 0;
