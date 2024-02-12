@@ -26,17 +26,6 @@ extern int amd_set_subcaches(int, unsigned long);
 
 extern int amd_smn_read(u16 node, u32 address, u32 *value);
 extern int amd_smn_write(u16 node, u32 address, u32 value);
-extern int amd_df_indirect_read(u16 node, u8 func, u16 reg, u8 instance_id, u32 *lo);
-
-static inline int df_indirect_read_instance(u16 node, u8 func, u16 reg, u8 instance_id, u32 *lo)
-{
-	return amd_df_indirect_read(node, func, reg, instance_id, lo);
-}
-
-static inline int df_indirect_read_broadcast(u16 node, u8 func, u16 reg, u32 *lo)
-{
-	return amd_df_indirect_read(node, func, reg, DF_BROADCAST, lo);
-}
 
 struct amd_l3_cache {
 	unsigned indices;
