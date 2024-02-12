@@ -2426,9 +2426,8 @@ static void __init srso_select_mitigation(void)
 
 	if (retbleed_mitigation == RETBLEED_MITIGATION_IBPB) {
 		if (has_microcode) {
-			pr_err("Retbleed IBPB mitigation enabled, using same for SRSO\n");
 			srso_mitigation = SRSO_MITIGATION_IBPB;
-			goto pred_cmd;
+			goto out;
 		}
 	} else {
 		pr_warn("IBPB-extending microcode not applied!\n");
@@ -2503,6 +2502,7 @@ static void __init srso_select_mitigation(void)
 		break;
 	}
 
+out:
 	pr_info("%s\n", srso_strings[srso_mitigation]);
 
 pred_cmd:
