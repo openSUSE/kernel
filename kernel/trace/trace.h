@@ -181,6 +181,7 @@ struct trace_array_cpu {
 	int			ftrace_ignore_pid;
 #endif
 	bool			ignore_pid;
+	void			*suse_kabi_padding;
 };
 
 struct tracer;
@@ -192,6 +193,7 @@ struct array_buffer {
 	struct trace_array_cpu __percpu	*data;
 	u64				time_start;
 	int				cpu;
+	void				*suse_kabi_padding;
 };
 
 #define TRACE_FLAGS_MAX_SIZE		32
@@ -392,6 +394,7 @@ struct trace_array {
 	 * we do not waste memory on systems that are not using tracing.
 	 */
 	bool ring_buffer_expanded;
+	void *suse_kabi_padding;
 };
 
 enum {
