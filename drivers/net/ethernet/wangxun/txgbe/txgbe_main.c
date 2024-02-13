@@ -335,10 +335,8 @@ static int txgbe_sw_init(struct wx *wx)
 
 	/* PCI config space info */
 	err = wx_sw_init(wx);
-	if (err < 0) {
-		wx_err(wx, "read of internal subsystem device id failed\n");
+	if (err < 0)
 		return err;
-	}
 
 	switch (wx->device_id) {
 	case TXGBE_DEV_ID_SP1000:
