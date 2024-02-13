@@ -135,8 +135,7 @@ static inline int cdns_resume_suse(struct cdns *cdns)
 { return 0; }
 static inline int cdns_resume(struct cdns *cdns, u8 set_active)
 { return 0; }
-static inline int cdns_set_active(struct cdns *cdns, u8 set_active)
-{ return 0; }
+static inline void cdns_set_active(struct cdns *cdns, u8 set_active) { }
 static inline int cdns_suspend(struct cdns *cdns)
 { return 0; }
 #endif /* CONFIG_PM_SLEEP */
