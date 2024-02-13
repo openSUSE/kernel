@@ -1255,7 +1255,7 @@ static struct option stat_options[] = {
 	OPT_BOOLEAN(0, "metric-no-merge", &stat_config.metric_no_merge,
 		       "don't try to share events between metrics in a group"),
 	OPT_BOOLEAN(0, "metric-no-threshold", &stat_config.metric_no_threshold,
-		       "don't try to share events between metrics in a group  "),
+		       "disable adding events for the metric threshold calculation"),
 	OPT_BOOLEAN(0, "topdown", &topdown_run,
 			"measure top-down statistics"),
 	OPT_UINTEGER(0, "td-level", &stat_config.topdown_level,
@@ -2695,15 +2695,19 @@ int cmd_stat(int argc, const char **argv)
 	 */
 	if (metrics) {
 		const char *pmu = parse_events_option_args.pmu_filter ?: "all";
+		int ret = metricgroup__parse_groups(evsel_list, pmu, metrics,
+						stat_config.metric_no_group,
+						stat_config.metric_no_merge,
+						stat_config.metric_no_threshold,
+						stat_config.user_requested_cpu_list,
+						stat_config.system_wide,
+						&stat_config.metric_events);
 
-		metricgroup__parse_groups(evsel_list, pmu, metrics,
-					stat_config.metric_no_group,
-					stat_config.metric_no_merge,
-					stat_config.metric_no_threshold,
-					stat_config.user_requested_cpu_list,
-					stat_config.system_wide,
-					&stat_config.metric_events);
 		zfree(&metrics);
+		if (ret) {
+			status = ret;
+			goto out;
+		}
 	}
 
 	if (add_default_attributes())
