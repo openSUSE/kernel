@@ -1505,11 +1505,13 @@ static int copy_params(struct dm_ioctl __user *user, struct dm_ioctl **param)
 {
 	struct dm_ioctl tmp, *dmi;
 	int secure_data;
+	const size_t minimum_data_size = sizeof(tmp) - sizeof(tmp.data);
 
-	if (copy_from_user(&tmp, user, sizeof(tmp) - sizeof(tmp.data)))
+	if (copy_from_user(&tmp, user, minimum_data_size))
 		return -EFAULT;
 
-	if (tmp.data_size < (sizeof(tmp) - sizeof(tmp.data)))
+	if (unlikely(tmp.data_size < minimum_data_size) ||
+	    unlikely(tmp.data_size > DM_MAX_TARGETS * DM_MAX_TARGET_PARAMS))
 		return -EINVAL;
 
 	secure_data = tmp.flags & DM_SECURE_DATA_FLAG;
