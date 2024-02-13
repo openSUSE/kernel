@@ -522,7 +522,7 @@ int cdns_suspend(struct cdns *cdns)
 }
 EXPORT_SYMBOL_GPL(cdns_suspend);
 
-int cdns_resume(struct cdns *cdns)
+int cdns_resume_suse(struct cdns *cdns)
 {
 	enum usb_role real_role;
 	bool role_changed = false;
@@ -557,7 +557,7 @@ int cdns_resume(struct cdns *cdns)
 
 	return 0;
 }
-EXPORT_SYMBOL_GPL(cdns_resume);
+EXPORT_SYMBOL_GPL(cdns_resume_suse);
 
 void cdns_set_active(struct cdns *cdns, u8 set_active)
 {
@@ -572,6 +572,17 @@ void cdns_set_active(struct cdns *cdns, u8 set_active)
 	return;
 }
 EXPORT_SYMBOL_GPL(cdns_set_active);
+
+int cdns_resume(struct cdns *cdns, u8 set_active)
+{
+	int r;
+
+	r = cdns_resume_suse(cdns);
+	cdns_set_active(cdns, set_active);
+
+	return r;
+}
+EXPORT_SYMBOL_GPL(cdns_resume);
 #endif /* CONFIG_PM_SLEEP */
 
 MODULE_AUTHOR("Peter Chen <peter.chen@nxp.com>");

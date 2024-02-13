@@ -210,7 +210,7 @@ static int __maybe_unused cdnsp_pci_resume(struct device *dev)
 	int ret;
 
 	spin_lock_irqsave(&cdns->lock, flags);
-	ret = cdns_resume(cdns);
+	ret = cdns_resume_suse(cdns);
 	spin_unlock_irqrestore(&cdns->lock, flags);
 	cdns_set_active(cdns, 1);
 
