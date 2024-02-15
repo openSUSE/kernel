@@ -24,7 +24,13 @@ struct mb_cache_entry {
 	atomic_t		e_refcnt;
 	/* Key in hash - stable during lifetime of the entry */
 	u32			e_key;
+#ifdef __GENKSYMS__
+	u32			e_referenced:1;
+	u32			e_reusable:1;
+	/* 4-byte hole here on 64-bit */
+#else
 	unsigned long		e_flags;
+#endif
 	/* User provided value - stable during lifetime of the entry */
 	u64			e_value;
 };
