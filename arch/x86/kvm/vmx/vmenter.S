@@ -127,6 +127,9 @@ ENTRY(__vmx_vcpu_run)
 	/* Load guest RAX.  This kills the vmx_vcpu pointer! */
 	mov VCPU_RAX(%_ASM_AX), %_ASM_AX
 
+	/* Clobbers EFLAGS.ZF */
+	CLEAR_CPU_BUFFERS
+
 	/* Check EFLAGS.CF from the VMX_RUN_VMRESUME bit test above. */
 	jnc .Lvmlaunch
 
