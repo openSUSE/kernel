@@ -1302,7 +1302,7 @@ static int dp_display_probe(struct platform_device *pdev)
 	return rc;
 }
 
-static int dp_display_remove(struct platform_device *pdev)
+static void dp_display_remove(struct platform_device *pdev)
 {
 	struct dp_display_private *dp = dev_get_dp_display_private(&pdev->dev);
 
@@ -1310,8 +1310,6 @@ static int dp_display_remove(struct platform_device *pdev)
 	dp_display_deinit_sub_modules(dp);
 
 	platform_set_drvdata(pdev, NULL);
-
-	return 0;
 }
 
 static int dp_pm_resume(struct device *dev)
@@ -1421,7 +1419,7 @@ static const struct dev_pm_ops dp_pm_ops = {
 
 static struct platform_driver dp_display_driver = {
 	.probe  = dp_display_probe,
-	.remove = dp_display_remove,
+	.remove_new = dp_display_remove,
 	.driver = {
 		.name = "msm-dp-display",
 		.of_match_table = dp_dt_match,
