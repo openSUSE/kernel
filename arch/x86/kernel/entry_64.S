@@ -567,7 +567,6 @@ sysret_check:
 	RESTORE_ARGS 1,-ARG_SKIP,0
 	/*CFI_REGISTER	rflags,r11*/
 
-	call mds_clear_user
 	call amd_clear_divider
 	DISABLE_IBRS
 	/*
@@ -945,7 +944,6 @@ retint_swapgs:		/* return to user-space */
 	 */
 
 swapgs_restore_regs_and_return_to_usermode:
-	call mds_clear_user
 	call amd_clear_divider
 	DISABLE_IBRS
 	/*
@@ -1029,7 +1027,6 @@ native_irq_return_ldt:
 	popq_cfi %rdi
 	orq PER_CPU_VAR(espfix_stack),%rax
 
-	call mds_clear_user
 	call amd_clear_divider
 	DISABLE_IBRS
 

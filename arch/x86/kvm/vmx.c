@@ -6928,7 +6928,7 @@ static void __noclone vmx_vcpu_run(struct kvm_vcpu *vcpu)
 	if (static_branch(&vmx_l1d_should_flush)) {
 		if (vcpu->arch.l1tf_flush_l1d)
 			vmx_l1d_flush(vcpu);
-	} else if (unlikely(mds_user_clear)) {
+	} else if (cpu_feature_enabled(X86_FEATURE_CLEAR_CPU_BUF)) {
 		mds_clear_cpu_buffers();
 	}
 
@@ -7086,7 +7086,7 @@ static void vmx_free_vcpu(struct kvm_vcpu *vcpu)
 
 #define L1TF_MSG_SMT "L1TF CPU bug present and SMT on, data leak possible. See CVE-2018-3646 and https://www.kernel.org/doc/html/latest/admin-guide/l1tf.html for details.\n"
 #define L1TF_MSG_L1D "L1TF CPU bug present and virtualization mitigation disabled, data leak possible. See CVE-2018-3646 and https://www.kernel.org/doc/html/latest/admin-guide/l1tf.html for details.\n"
- 
+
 
 static struct kvm_vcpu *vmx_create_vcpu(struct kvm *kvm, unsigned int id)
 {
@@ -8344,7 +8344,7 @@ static int __init vmx_init(void)
 			goto out7;
 		}
 	}
- 
+
 	vmx_disable_intercept_for_msr(MSR_FS_BASE, false);
 	vmx_disable_intercept_for_msr(MSR_GS_BASE, false);
 	vmx_disable_intercept_for_msr(MSR_KERNEL_GS_BASE, true);

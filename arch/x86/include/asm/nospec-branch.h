@@ -235,7 +235,6 @@ static inline void vmexit_fill_RSB(void)
 }
 #include <asm/segment.h>
 
-extern bool mds_user_clear;
 extern bool mds_idle_clear;
 extern u16 mds_verw_sel;
 
@@ -260,17 +259,6 @@ static inline void mds_clear_cpu_buffers(void)
 	 * "cc" clobber is required because VERW modifies ZF.
 	 */
 	asm volatile("verw %[ds]" : : [ds] "m" (ds) : "cc");
-}
-
-/**
- * mds_user_clear_cpu_buffers - Mitigation for MDS and TAA vulnerability
- *
- * Clear CPU buffers if the corresponding static key is enabled
- */
-static inline void mds_user_clear_cpu_buffers(void)
-{
-	if (likely(mds_user_clear))
-		mds_clear_cpu_buffers();
 }
 
 /**
