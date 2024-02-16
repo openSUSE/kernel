@@ -791,17 +791,6 @@ static int aldebaran_emit_clk_levels(struct smu_context *smu,
 			freq_values[2] = max_clk;
 			freq_values[1] = cur_value;
 		}
-
-		for (i = 0; i < display_levels; i++) {
-			clock_mhz = freq_values[i];
-			freq_match = aldebaran_freqs_in_same_level(clock_mhz, cur_value);
-			freq_match |= (display_levels == 1);
-
-			*offset += sysfs_emit_at(buf, *offset, "%d: %uMhz %s\n", i,
-				clock_mhz,
-				(freq_match) ? "*" : "");
-		}
-
 		break;
 
 	case SMU_OD_MCLK:
@@ -816,16 +805,6 @@ static int aldebaran_emit_clk_levels(struct smu_context *smu,
 
 		single_dpm_table = &(dpm_context->dpm_tables.uclk_table);
 		aldebaran_get_clk_table(smu, &clocks, single_dpm_table);
-
-		for (i = 0; i < clocks.num_levels; i++) {
-			clock_mhz = clocks.data[i].clocks_in_khz / 1000;
-			freq_match = aldebaran_freqs_in_same_level(clock_mhz, cur_value);
-			freq_match |= (clocks.num_levels == 1);
-
-			*offset += sysfs_emit_at(buf, *offset, "%d: %uMhz %s\n",
-					i, clock_mhz,
-					(freq_match) ? "*" : "");
-		}
 		break;
 
 	case SMU_SOCCLK:
@@ -837,16 +816,6 @@ static int aldebaran_emit_clk_levels(struct smu_context *smu,
 
 		single_dpm_table = &(dpm_context->dpm_tables.soc_table);
 		aldebaran_get_clk_table(smu, &clocks, single_dpm_table);
-
-		for (i = 0; i < clocks.num_levels; i++) {
-			clock_mhz = clocks.data[i].clocks_in_khz / 1000;
-			freq_match = aldebaran_freqs_in_same_level(clock_mhz, cur_value);
-			freq_match |= (clocks.num_levels == 1);
-
-			*offset += sysfs_emit_at(buf, *offset, "%d: %uMhz %s\n",
-					i, clock_mhz,
-					(freq_match) ? "*" : "");
-		}
 		break;
 
 	case SMU_FCLK:
@@ -858,16 +827,6 @@ static int aldebaran_emit_clk_levels(struct smu_context *smu,
 
 		single_dpm_table = &(dpm_context->dpm_tables.fclk_table);
 		aldebaran_get_clk_table(smu, &clocks, single_dpm_table);
-
-		for (i = 0; i < clocks.num_levels; i++) {
-			clock_mhz = clocks.data[i].clocks_in_khz / 1000;
-			freq_match = aldebaran_freqs_in_same_level(clock_mhz, cur_value);
-			freq_match |= (clocks.num_levels == 1);
-
-			*offset += sysfs_emit_at(buf, *offset, "%d: %uMhz %s\n",
-					i, clock_mhz,
-					(freq_match) ? "*" : "");
-		}
 		break;
 
 	case SMU_VCLK:
@@ -879,16 +838,6 @@ static int aldebaran_emit_clk_levels(struct smu_context *smu,
 
 		single_dpm_table = &(dpm_context->dpm_tables.vclk_table);
 		aldebaran_get_clk_table(smu, &clocks, single_dpm_table);
-
-		for (i = 0; i < clocks.num_levels; i++) {
-			clock_mhz = clocks.data[i].clocks_in_khz / 1000;
-			freq_match = aldebaran_freqs_in_same_level(clock_mhz, cur_value);
-			freq_match |= (clocks.num_levels == 1);
-
-			*offset += sysfs_emit_at(buf, *offset, "%d: %uMhz %s\n",
-					i, clock_mhz,
-					(freq_match) ? "*" : "");
-		}
 		break;
 
 	case SMU_DCLK:
@@ -900,21 +849,44 @@ static int aldebaran_emit_clk_levels(struct smu_context *smu,
 
 		single_dpm_table = &(dpm_context->dpm_tables.dclk_table);
 		aldebaran_get_clk_table(smu, &clocks, single_dpm_table);
+		break;
 
+	default:
+		return -EINVAL;
+	}
+
+	switch (type) {
+	case SMU_OD_SCLK:
+	case SMU_SCLK:
+		for (i = 0; i < display_levels; i++) {
+			clock_mhz = freq_values[i];
+			freq_match = aldebaran_freqs_in_same_level(clock_mhz, cur_value);
+			freq_match |= (display_levels == 1);
+
+			*offset += sysfs_emit_at(buf, *offset, "%d: %uMhz %s\n", i,
+				clock_mhz,
+				(freq_match) ? "*" : "");
+		}
+		break;
+
+	case SMU_OD_MCLK:
+	case SMU_MCLK:
+	case SMU_SOCCLK:
+	case SMU_FCLK:
+	case SMU_VCLK:
+	case SMU_DCLK:
 		for (i = 0; i < clocks.num_levels; i++) {
 			clock_mhz = clocks.data[i].clocks_in_khz / 1000;
 			freq_match = aldebaran_freqs_in_same_level(clock_mhz, cur_value);
 			freq_match |= (clocks.num_levels == 1);
 
 			*offset += sysfs_emit_at(buf, *offset, "%d: %uMhz %s\n",
-					i, clock_mhz,
-					(freq_match) ? "*" : "");
+				i, clock_mhz,
+				(freq_match) ? "*" : "");
 		}
 		break;
-
 	default:
 		return -EINVAL;
-		break;
 	}
 
 	return 0;
