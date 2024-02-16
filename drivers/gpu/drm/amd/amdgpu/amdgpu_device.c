@@ -4266,6 +4266,9 @@ void amdgpu_device_fini_sw(struct amdgpu_device *adev)
 	kfree(adev->bios);
 	adev->bios = NULL;
 
+	kfree(adev->fru_info);
+	adev->fru_info = NULL;
+
 	px = amdgpu_device_supports_px(adev_to_drm(adev));
 
 	if (px || (!dev_is_removable(&adev->pdev->dev) &&
