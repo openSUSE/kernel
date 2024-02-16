@@ -506,7 +506,7 @@ static inline int __do_cpuid_func(struct kvm_cpuid_entry2 *entry, u32 function,
 
 	const u32 kvm_cpuid_8000_0021_eax_x86_features =
 		BIT(0) /* NO_NESTED_DATA_BP */ |
-		BIT(2) /* LFENCE Always serializing */ | 0 /* SmmPgCfgLock */ |
+		F(LFENCE_RDTSC) /* LFENCE Always serializing */ | 0 /* SmmPgCfgLock */ |
 		BIT(6) /* NULL_SEL_CLR_BASE */ | 0 /* PrefetchCtlMsr */;
 
 	/* cpuid 0xC0000001.edx */
@@ -823,8 +823,18 @@ static inline int __do_cpuid_func(struct kvm_cpuid_entry2 *entry, u32 function,
 		 */
 		entry->eax &= kvm_cpuid_8000_0021_eax_x86_features;
 
+		/*
+		 * Synthesize "LFENCE is serializing" into the AMD-defined entry in
+		 * KVM's supported CPUID if the feature is reported as supported by the
+		 * kernel.  LFENCE_RDTSC was a Linux-defined synthetic feature long
+		 * before AMD joined the bandwagon, e.g. LFENCE is serializing on most
+		 * CPUs that support SSE2.  On CPUs that don't support AMD's leaf,
+		 * kvm_cpu_cap_mask() will unfortunately drop the flag due to ANDing
+		 * the mask with the raw host CPUID, and reporting support in AMD's
+		 * leaf can make it easier for userspace to detect the feature.
+		 */
 		if (cpu_feature_enabled(X86_FEATURE_LFENCE_RDTSC))
-			entry->eax |= BIT(2);
+			entry->eax |= F(LFENCE_RDTSC);
 		if (!static_cpu_has_bug(X86_BUG_NULL_SEG))
 			entry->eax |= BIT(6);
 		if (cpu_feature_enabled(X86_FEATURE_SRSO_NO))
