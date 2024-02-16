@@ -970,6 +970,7 @@ restore_all_cr3_switch:
 	SWITCH_TO_USER_CR3 scratch_reg=%eax
 restore_all_no_switch:
 	RESTORE_REGS 4			# skip orig_eax/error_code
+	CLEAR_CPU_BUFFERS
 irq_return:
 	INTERRUPT_RETURN
 
@@ -1783,6 +1784,7 @@ ENTRY(nmi)
 	movl	PER_CPU_VAR(init_tss + TSS_sp1), %esp
 	call	do_nmi
 	movl	%ebx, %esp
+	CLEAR_CPU_BUFFERS
 	jmp	.Lnmi_return
 
 #ifdef CONFIG_X86_ESPFIX32
