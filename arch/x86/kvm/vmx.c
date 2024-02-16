@@ -6930,8 +6930,6 @@ static void __noclone vmx_vcpu_run(struct kvm_vcpu *vcpu)
 	if (static_branch(&vmx_l1d_should_flush)) {
 		if (vcpu->arch.l1tf_flush_l1d)
 			vmx_l1d_flush(vcpu);
-	} else if (cpu_feature_enabled(X86_FEATURE_CLEAR_CPU_BUF)) {
-		mds_clear_cpu_buffers();
 	}
 
 	asm(
@@ -6971,6 +6969,9 @@ static void __noclone vmx_vcpu_run(struct kvm_vcpu *vcpu)
 		"mov %c[r15](%0), %%r15 \n\t"
 #endif
 		"mov %c[rcx](%0), %%"R"cx \n\t" /* kills %0 (ecx) */
+
+		/* Clobbers EFLAGS.ZF */
+		CLEAR_CPU_BUFFERS
 
 		/* Enter guest mode */
 		"jc .Llaunched \n\t"
