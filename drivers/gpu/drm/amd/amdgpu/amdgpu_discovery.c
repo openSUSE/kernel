@@ -330,8 +330,8 @@ static void amdgpu_discovery_harvest_config_quirk(struct amdgpu_device *adev)
 	 * So far, apply this quirk only on those Navy Flounder boards which
 	 * have a bad harvest table of VCN config.
 	 */
-	if ((adev->ip_versions[UVD_HWIP][1] == IP_VERSION(3, 0, 1)) &&
-		(adev->ip_versions[GC_HWIP][0] == IP_VERSION(10, 3, 2))) {
+	if ((amdgpu_ip_version(adev, UVD_HWIP, 1) == IP_VERSION(3, 0, 1)) &&
+	    (amdgpu_ip_version(adev, GC_HWIP, 0) == IP_VERSION(10, 3, 2))) {
 		switch (adev->pdev->revision) {
 		case 0xC1:
 		case 0xC2:
@@ -1382,8 +1382,8 @@ static void amdgpu_discovery_harvest_ip(struct amdgpu_device *adev)
 	 * so read harvest bit per IP data structure to set
 	 * harvest configuration.
 	 */
-	if (adev->ip_versions[GC_HWIP][0] < IP_VERSION(10, 2, 0) &&
-	    adev->ip_versions[GC_HWIP][0] != IP_VERSION(9, 4, 3)) {
+	if (amdgpu_ip_version(adev, GC_HWIP, 0) < IP_VERSION(10, 2, 0) &&
+	    amdgpu_ip_version(adev, GC_HWIP, 0) != IP_VERSION(9, 4, 3)) {
 		if ((adev->pdev->device == 0x731E &&
 			(adev->pdev->revision == 0xC6 ||
 			 adev->pdev->revision == 0xC7)) ||
@@ -1626,7 +1626,7 @@ static int amdgpu_discovery_get_vcn_info(struct amdgpu_device *adev)
 static int amdgpu_discovery_set_common_ip_blocks(struct amdgpu_device *adev)
 {
 	/* what IP to use for this? */
-	switch (adev->ip_versions[GC_HWIP][0]) {
+	switch (amdgpu_ip_version(adev, GC_HWIP, 0)) {
 	case IP_VERSION(9, 0, 1):
 	case IP_VERSION(9, 1, 0):
 	case IP_VERSION(9, 2, 1):
@@ -1664,7 +1664,7 @@ static int amdgpu_discovery_set_common_ip_blocks(struct amdgpu_device *adev)
 	default:
 		dev_err(adev->dev,
 			"Failed to add common ip block(GC_HWIP:0x%x)\n",
-			adev->ip_versions[GC_HWIP][0]);
+			amdgpu_ip_version(adev, GC_HWIP, 0));
 		return -EINVAL;
 	}
 	return 0;
@@ -1673,7 +1673,7 @@ static int amdgpu_discovery_set_common_ip_blocks(struct amdgpu_device *adev)
 static int amdgpu_discovery_set_gmc_ip_blocks(struct amdgpu_device *adev)
 {
 	/* use GC or MMHUB IP version */
-	switch (adev->ip_versions[GC_HWIP][0]) {
+	switch (amdgpu_ip_version(adev, GC_HWIP, 0)) {
 	case IP_VERSION(9, 0, 1):
 	case IP_VERSION(9, 1, 0):
 	case IP_VERSION(9, 2, 1):
@@ -1709,9 +1709,8 @@ static int amdgpu_discovery_set_gmc_ip_blocks(struct amdgpu_device *adev)
 		amdgpu_device_ip_block_add(adev, &gmc_v11_0_ip_block);
 		break;
 	default:
-		dev_err(adev->dev,
-			"Failed to add gmc ip block(GC_HWIP:0x%x)\n",
-			adev->ip_versions[GC_HWIP][0]);
+		dev_err(adev->dev, "Failed to add gmc ip block(GC_HWIP:0x%x)\n",
+			amdgpu_ip_version(adev, GC_HWIP, 0));
 		return -EINVAL;
 	}
 	return 0;
@@ -1719,7 +1718,7 @@ static int amdgpu_discovery_set_gmc_ip_blocks(struct amdgpu_device *adev)
 
 static int amdgpu_discovery_set_ih_ip_blocks(struct amdgpu_device *adev)
 {
-	switch (adev->ip_versions[OSSSYS_HWIP][0]) {
+	switch (amdgpu_ip_version(adev, OSSSYS_HWIP, 0)) {
 	case IP_VERSION(4, 0, 0):
 	case IP_VERSION(4, 0, 1):
 	case IP_VERSION(4, 1, 0):
@@ -1752,7 +1751,7 @@ static int amdgpu_discovery_set_ih_ip_blocks(struct amdgpu_device *adev)
 	default:
 		dev_err(adev->dev,
 			"Failed to add ih ip block(OSSSYS_HWIP:0x%x)\n",
-			adev->ip_versions[OSSSYS_HWIP][0]);
+			amdgpu_ip_version(adev, OSSSYS_HWIP, 0));
 		return -EINVAL;
 	}
 	return 0;
@@ -1760,7 +1759,7 @@ static int amdgpu_discovery_set_ih_ip_blocks(struct amdgpu_device *adev)
 
 static int amdgpu_discovery_set_psp_ip_blocks(struct amdgpu_device *adev)
 {
-	switch (adev->ip_versions[MP0_HWIP][0]) {
+	switch (amdgpu_ip_version(adev, MP0_HWIP, 0)) {
 	case IP_VERSION(9, 0, 0):
 		amdgpu_device_ip_block_add(adev, &psp_v3_1_ip_block);
 		break;
@@ -1806,7 +1805,7 @@ static int amdgpu_discovery_set_psp_ip_blocks(struct amdgpu_device *adev)
 	default:
 		dev_err(adev->dev,
 			"Failed to add psp ip block(MP0_HWIP:0x%x)\n",
-			adev->ip_versions[MP0_HWIP][0]);
+			amdgpu_ip_version(adev, MP0_HWIP, 0));
 		return -EINVAL;
 	}
 	return 0;
@@ -1814,7 +1813,7 @@ static int amdgpu_discovery_set_psp_ip_blocks(struct amdgpu_device *adev)
 
 static int amdgpu_discovery_set_smu_ip_blocks(struct amdgpu_device *adev)
 {
-	switch (adev->ip_versions[MP1_HWIP][0]) {
+	switch (amdgpu_ip_version(adev, MP1_HWIP, 0)) {
 	case IP_VERSION(9, 0, 0):
 	case IP_VERSION(10, 0, 0):
 	case IP_VERSION(10, 0, 1):
@@ -1855,7 +1854,7 @@ static int amdgpu_discovery_set_smu_ip_blocks(struct amdgpu_device *adev)
 	default:
 		dev_err(adev->dev,
 			"Failed to add smu ip block(MP1_HWIP:0x%x)\n",
-			adev->ip_versions[MP1_HWIP][0]);
+			amdgpu_ip_version(adev, MP1_HWIP, 0));
 		return -EINVAL;
 	}
 	return 0;
@@ -1880,8 +1879,8 @@ static int amdgpu_discovery_set_display_ip_blocks(struct amdgpu_device *adev)
 		return 0;
 
 #if defined(CONFIG_DRM_AMD_DC)
-	if (adev->ip_versions[DCE_HWIP][0]) {
-		switch (adev->ip_versions[DCE_HWIP][0]) {
+	if (amdgpu_ip_version(adev, DCE_HWIP, 0)) {
+		switch (amdgpu_ip_version(adev, DCE_HWIP, 0)) {
 		case IP_VERSION(1, 0, 0):
 		case IP_VERSION(1, 0, 1):
 		case IP_VERSION(2, 0, 2):
@@ -1907,11 +1906,11 @@ static int amdgpu_discovery_set_display_ip_blocks(struct amdgpu_device *adev)
 		default:
 			dev_err(adev->dev,
 				"Failed to add dm ip block(DCE_HWIP:0x%x)\n",
-				adev->ip_versions[DCE_HWIP][0]);
+				amdgpu_ip_version(adev, DCE_HWIP, 0));
 			return -EINVAL;
 		}
-	} else if (adev->ip_versions[DCI_HWIP][0]) {
-		switch (adev->ip_versions[DCI_HWIP][0]) {
+	} else if (amdgpu_ip_version(adev, DCI_HWIP, 0)) {
+		switch (amdgpu_ip_version(adev, DCI_HWIP, 0)) {
 		case IP_VERSION(12, 0, 0):
 		case IP_VERSION(12, 0, 1):
 		case IP_VERSION(12, 1, 0):
@@ -1923,7 +1922,7 @@ static int amdgpu_discovery_set_display_ip_blocks(struct amdgpu_device *adev)
 		default:
 			dev_err(adev->dev,
 				"Failed to add dm ip block(DCI_HWIP:0x%x)\n",
-				adev->ip_versions[DCI_HWIP][0]);
+				amdgpu_ip_version(adev, DCI_HWIP, 0));
 			return -EINVAL;
 		}
 	}
@@ -1933,7 +1932,7 @@ static int amdgpu_discovery_set_display_ip_blocks(struct amdgpu_device *adev)
 
 static int amdgpu_discovery_set_gc_ip_blocks(struct amdgpu_device *adev)
 {
-	switch (adev->ip_versions[GC_HWIP][0]) {
+	switch (amdgpu_ip_version(adev, GC_HWIP, 0)) {
 	case IP_VERSION(9, 0, 1):
 	case IP_VERSION(9, 1, 0):
 	case IP_VERSION(9, 2, 1):
@@ -1973,9 +1972,8 @@ static int amdgpu_discovery_set_gc_ip_blocks(struct amdgpu_device *adev)
 		amdgpu_device_ip_block_add(adev, &gfx_v11_0_ip_block);
 		break;
 	default:
-		dev_err(adev->dev,
-			"Failed to add gfx ip block(GC_HWIP:0x%x)\n",
-			adev->ip_versions[GC_HWIP][0]);
+		dev_err(adev->dev, "Failed to add gfx ip block(GC_HWIP:0x%x)\n",
+			amdgpu_ip_version(adev, GC_HWIP, 0));
 		return -EINVAL;
 	}
 	return 0;
@@ -1983,7 +1981,7 @@ static int amdgpu_discovery_set_gc_ip_blocks(struct amdgpu_device *adev)
 
 static int amdgpu_discovery_set_sdma_ip_blocks(struct amdgpu_device *adev)
 {
-	switch (adev->ip_versions[SDMA0_HWIP][0]) {
+	switch (amdgpu_ip_version(adev, SDMA0_HWIP, 0)) {
 	case IP_VERSION(4, 0, 0):
 	case IP_VERSION(4, 0, 1):
 	case IP_VERSION(4, 1, 0):
@@ -2023,7 +2021,7 @@ static int amdgpu_discovery_set_sdma_ip_blocks(struct amdgpu_device *adev)
 	default:
 		dev_err(adev->dev,
 			"Failed to add sdma ip block(SDMA0_HWIP:0x%x)\n",
-			adev->ip_versions[SDMA0_HWIP][0]);
+			amdgpu_ip_version(adev, SDMA0_HWIP, 0));
 		return -EINVAL;
 	}
 	return 0;
@@ -2031,8 +2029,8 @@ static int amdgpu_discovery_set_sdma_ip_blocks(struct amdgpu_device *adev)
 
 static int amdgpu_discovery_set_mm_ip_blocks(struct amdgpu_device *adev)
 {
-	if (adev->ip_versions[VCE_HWIP][0]) {
-		switch (adev->ip_versions[UVD_HWIP][0]) {
+	if (amdgpu_ip_version(adev, VCE_HWIP, 0)) {
+		switch (amdgpu_ip_version(adev, UVD_HWIP, 0)) {
 		case IP_VERSION(7, 0, 0):
 		case IP_VERSION(7, 2, 0):
 			/* UVD is not supported on vega20 SR-IOV */
@@ -2042,10 +2040,10 @@ static int amdgpu_discovery_set_mm_ip_blocks(struct amdgpu_device *adev)
 		default:
 			dev_err(adev->dev,
 				"Failed to add uvd v7 ip block(UVD_HWIP:0x%x)\n",
-				adev->ip_versions[UVD_HWIP][0]);
+				amdgpu_ip_version(adev, UVD_HWIP, 0));
 			return -EINVAL;
 		}
-		switch (adev->ip_versions[VCE_HWIP][0]) {
+		switch (amdgpu_ip_version(adev, VCE_HWIP, 0)) {
 		case IP_VERSION(4, 0, 0):
 		case IP_VERSION(4, 1, 0):
 			/* VCE is not supported on vega20 SR-IOV */
@@ -2055,11 +2053,11 @@ static int amdgpu_discovery_set_mm_ip_blocks(struct amdgpu_device *adev)
 		default:
 			dev_err(adev->dev,
 				"Failed to add VCE v4 ip block(VCE_HWIP:0x%x)\n",
-				adev->ip_versions[VCE_HWIP][0]);
+				amdgpu_ip_version(adev, VCE_HWIP, 0));
 			return -EINVAL;
 		}
 	} else {
-		switch (adev->ip_versions[UVD_HWIP][0]) {
+		switch (amdgpu_ip_version(adev, UVD_HWIP, 0)) {
 		case IP_VERSION(1, 0, 0):
 		case IP_VERSION(1, 0, 1):
 			amdgpu_device_ip_block_add(adev, &vcn_v1_0_ip_block);
@@ -2110,7 +2108,7 @@ static int amdgpu_discovery_set_mm_ip_blocks(struct amdgpu_device *adev)
 		default:
 			dev_err(adev->dev,
 				"Failed to add vcn/jpeg ip block(UVD_HWIP:0x%x)\n",
-				adev->ip_versions[UVD_HWIP][0]);
+				amdgpu_ip_version(adev, UVD_HWIP, 0));
 			return -EINVAL;
 		}
 	}
@@ -2119,7 +2117,7 @@ static int amdgpu_discovery_set_mm_ip_blocks(struct amdgpu_device *adev)
 
 static int amdgpu_discovery_set_mes_ip_blocks(struct amdgpu_device *adev)
 {
-	switch (adev->ip_versions[GC_HWIP][0]) {
+	switch (amdgpu_ip_version(adev, GC_HWIP, 0)) {
 	case IP_VERSION(10, 1, 10):
 	case IP_VERSION(10, 1, 1):
 	case IP_VERSION(10, 1, 2):
@@ -2157,7 +2155,7 @@ static int amdgpu_discovery_set_mes_ip_blocks(struct amdgpu_device *adev)
 
 static void amdgpu_discovery_init_soc_config(struct amdgpu_device *adev)
 {
-	switch (adev->ip_versions[GC_HWIP][0]) {
+	switch (amdgpu_ip_version(adev, GC_HWIP, 0)) {
 	case IP_VERSION(9, 4, 3):
 		aqua_vanjaram_init_soc_config(adev);
 		break;
@@ -2168,7 +2166,7 @@ static void amdgpu_discovery_init_soc_config(struct amdgpu_device *adev)
 
 static int amdgpu_discovery_set_vpe_ip_blocks(struct amdgpu_device *adev)
 {
-	switch (adev->ip_versions[VPE_HWIP][0]) {
+	switch (amdgpu_ip_version(adev, VPE_HWIP, 0)) {
 	case IP_VERSION(6, 1, 0):
 		amdgpu_device_ip_block_add(adev, &vpe_v6_1_ip_block);
 		break;
@@ -2181,7 +2179,7 @@ static int amdgpu_discovery_set_vpe_ip_blocks(struct amdgpu_device *adev)
 
 static int amdgpu_discovery_set_umsch_mm_ip_blocks(struct amdgpu_device *adev)
 {
-	switch (adev->ip_versions[VCN_HWIP][0]) {
+	switch (amdgpu_ip_version(adev, VCN_HWIP, 0)) {
 	case IP_VERSION(4, 0, 5):
 		if (amdgpu_umsch_mm & 0x1) {
 			amdgpu_device_ip_block_add(adev, &umsch_mm_v4_0_ip_block);
@@ -2375,7 +2373,7 @@ int amdgpu_discovery_set_ip_blocks(struct amdgpu_device *adev)
 	amdgpu_discovery_init_soc_config(adev);
 	amdgpu_discovery_sysfs_init(adev);
 
-	switch (adev->ip_versions[GC_HWIP][0]) {
+	switch (amdgpu_ip_version(adev, GC_HWIP, 0)) {
 	case IP_VERSION(9, 0, 1):
 	case IP_VERSION(9, 2, 1):
 	case IP_VERSION(9, 4, 0):
@@ -2429,7 +2427,7 @@ int amdgpu_discovery_set_ip_blocks(struct amdgpu_device *adev)
 		return -EINVAL;
 	}
 
-	switch (adev->ip_versions[GC_HWIP][0]) {
+	switch (amdgpu_ip_version(adev, GC_HWIP, 0)) {
 	case IP_VERSION(9, 1, 0):
 	case IP_VERSION(9, 2, 2):
 	case IP_VERSION(9, 3, 0):
@@ -2448,11 +2446,11 @@ int amdgpu_discovery_set_ip_blocks(struct amdgpu_device *adev)
 		break;
 	}
 
-	if (adev->ip_versions[XGMI_HWIP][0] == IP_VERSION(4, 8, 0))
+	if (amdgpu_ip_version(adev, XGMI_HWIP, 0) == IP_VERSION(4, 8, 0))
 		adev->gmc.xgmi.supported = true;
 
 	/* set NBIO version */
-	switch (adev->ip_versions[NBIO_HWIP][0]) {
+	switch (amdgpu_ip_version(adev, NBIO_HWIP, 0)) {
 	case IP_VERSION(6, 1, 0):
 	case IP_VERSION(6, 2, 0):
 		adev->nbio.funcs = &nbio_v6_1_funcs;
@@ -2514,7 +2512,7 @@ int amdgpu_discovery_set_ip_blocks(struct amdgpu_device *adev)
 		break;
 	}
 
-	switch (adev->ip_versions[HDP_HWIP][0]) {
+	switch (amdgpu_ip_version(adev, HDP_HWIP, 0)) {
 	case IP_VERSION(4, 0, 0):
 	case IP_VERSION(4, 0, 1):
 	case IP_VERSION(4, 1, 0):
@@ -2546,7 +2544,7 @@ int amdgpu_discovery_set_ip_blocks(struct amdgpu_device *adev)
 		break;
 	}
 
-	switch (adev->ip_versions[DF_HWIP][0]) {
+	switch (amdgpu_ip_version(adev, DF_HWIP, 0)) {
 	case IP_VERSION(3, 6, 0):
 	case IP_VERSION(3, 6, 1):
 	case IP_VERSION(3, 6, 2):
@@ -2566,7 +2564,7 @@ int amdgpu_discovery_set_ip_blocks(struct amdgpu_device *adev)
 		break;
 	}
 
-	switch (adev->ip_versions[SMUIO_HWIP][0]) {
+	switch (amdgpu_ip_version(adev, SMUIO_HWIP, 0)) {
 	case IP_VERSION(9, 0, 0):
 	case IP_VERSION(9, 0, 1):
 	case IP_VERSION(10, 0, 0):
@@ -2609,7 +2607,7 @@ int amdgpu_discovery_set_ip_blocks(struct amdgpu_device *adev)
 		break;
 	}
 
-	switch (adev->ip_versions[LSDMA_HWIP][0]) {
+	switch (amdgpu_ip_version(adev, LSDMA_HWIP, 0)) {
 	case IP_VERSION(6, 0, 0):
 	case IP_VERSION(6, 0, 1):
 	case IP_VERSION(6, 0, 2):
