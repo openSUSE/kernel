@@ -717,7 +717,7 @@ blk_status_t nvme_fail_nonready_command(struct nvme_ctrl *ctrl,
 EXPORT_SYMBOL_GPL(nvme_fail_nonready_command);
 
 bool __nvme_check_ready(struct nvme_ctrl *ctrl, struct request *rq,
-		bool queue_live)
+		bool queue_live, enum nvme_ctrl_state state)
 {
 	struct nvme_request *req = nvme_req(rq);
 
@@ -738,7 +738,7 @@ bool __nvme_check_ready(struct nvme_ctrl *ctrl, struct request *rq,
 		 * command, which is require to set the queue live in the
 		 * appropinquate states.
 		 */
-		switch (nvme_ctrl_state(ctrl)) {
+		switch (state) {
 		case NVME_CTRL_CONNECTING:
 			if (blk_rq_is_passthrough(rq) && nvme_is_fabrics(req->cmd) &&
 			    (req->cmd->fabrics.fctype == nvme_fabrics_type_connect ||
@@ -1043,20 +1043,27 @@ EXPORT_SYMBOL_NS_GPL(nvme_execute_rq, NVME_TARGET_PASSTHRU);
  */
 int __nvme_submit_sync_cmd(struct request_queue *q, struct nvme_command *cmd,
 		union nvme_result *result, void *buffer, unsigned bufflen,
-		int qid, int at_head, blk_mq_req_flags_t flags)
+		int qid, nvme_submit_flags_t flags)
 {
 	struct request *req;
 	int ret;
+	blk_mq_req_flags_t blk_flags = 0;
 
+	if (flags & NVME_SUBMIT_NOWAIT)
+		blk_flags |= BLK_MQ_REQ_NOWAIT;
+	if (flags & NVME_SUBMIT_RESERVED)
+		blk_flags |= BLK_MQ_REQ_RESERVED;
 	if (qid == NVME_QID_ANY)
-		req = blk_mq_alloc_request(q, nvme_req_op(cmd), flags);
+		req = blk_mq_alloc_request(q, nvme_req_op(cmd), blk_flags);
 	else
-		req = blk_mq_alloc_request_hctx(q, nvme_req_op(cmd), flags,
+		req = blk_mq_alloc_request_hctx(q, nvme_req_op(cmd), blk_flags,
 						qid - 1);
 
 	if (IS_ERR(req))
 		return PTR_ERR(req);
 	nvme_init_request(req, cmd);
+	if (flags & NVME_SUBMIT_RETRY)
+		req->cmd_flags &= ~REQ_FAILFAST_DRIVER;
 
 	if (buffer && bufflen) {
 		ret = blk_rq_map_kern(q, req, buffer, bufflen, GFP_KERNEL);
@@ -1064,7 +1071,7 @@ int __nvme_submit_sync_cmd(struct request_queue *q, struct nvme_command *cmd,
 			goto out;
 	}
 
-	ret = nvme_execute_rq(req, at_head);
+	ret = nvme_execute_rq(req, flags & NVME_SUBMIT_AT_HEAD);
 	if (result && ret >= 0)
 		*result = nvme_req(req)->result;
  out:
@@ -1077,7 +1084,7 @@ int nvme_submit_sync_cmd(struct request_queue *q, struct nvme_command *cmd,
 		void *buffer, unsigned bufflen)
 {
 	return __nvme_submit_sync_cmd(q, cmd, NULL, buffer, bufflen,
-			NVME_QID_ANY, 0, 0);
+			NVME_QID_ANY, 0);
 }
 EXPORT_SYMBOL_GPL(nvme_submit_sync_cmd);
 
@@ -1553,7 +1560,7 @@ static int nvme_features(struct nvme_ctrl *dev, u8 op, unsigned int fid,
 	c.features.dword11 = cpu_to_le32(dword11);
 
 	ret = __nvme_submit_sync_cmd(dev->admin_q, &c, &res,
-			buffer, buflen, NVME_QID_ANY, 0, 0);
+			buffer, buflen, NVME_QID_ANY, 0);
 	if (ret >= 0 && result)
 		*result = le32_to_cpu(res.u32);
 	return ret;
@@ -2158,7 +2165,7 @@ static int nvme_sec_submit(void *data, u16 spsp, u8 secp, void *buffer, size_t l
 	cmd.common.cdw11 = cpu_to_le32(len);
 
 	return __nvme_submit_sync_cmd(ctrl->admin_q, &cmd, NULL, buffer, len,
-			NVME_QID_ANY, 1, 0);
+			NVME_QID_ANY, NVME_SUBMIT_AT_HEAD);
 }
 
 static void nvme_configure_opal(struct nvme_ctrl *ctrl, bool was_suspended)
