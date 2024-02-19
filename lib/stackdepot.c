@@ -41,15 +41,16 @@
 #define DEPOT_POOL_INDEX_BITS (DEPOT_HANDLE_BITS - DEPOT_VALID_BITS - \
 			       DEPOT_OFFSET_BITS - STACK_DEPOT_EXTRA_BITS)
 #define DEPOT_POOLS_CAP 8192
+/* The pool_index is offset by 1 so the first record does not have a 0 handle. */
 #define DEPOT_MAX_POOLS \
-	(((1LL << (DEPOT_POOL_INDEX_BITS)) < DEPOT_POOLS_CAP) ? \
-	 (1LL << (DEPOT_POOL_INDEX_BITS)) : DEPOT_POOLS_CAP)
+	(((1LL << (DEPOT_POOL_INDEX_BITS)) - 1 < DEPOT_POOLS_CAP) ? \
+	 (1LL << (DEPOT_POOL_INDEX_BITS)) - 1 : DEPOT_POOLS_CAP)
 
 /* Compact structure that stores a reference to a stack. */
 union handle_parts {
 	depot_stack_handle_t handle;
 	struct {
-		u32 pool_index	: DEPOT_POOL_INDEX_BITS;
+		u32 pool_index	: DEPOT_POOL_INDEX_BITS; /* pool_index is offset by 1 */
 		u32 offset	: DEPOT_OFFSET_BITS;
 		u32 valid	: DEPOT_VALID_BITS;
 		u32 extra	: STACK_DEPOT_EXTRA_BITS;
@@ -303,7 +304,7 @@ depot_alloc_stack(unsigned long *entries, int size, u32 hash, void **prealloc)
 	stack = stack_pools[pool_index] + pool_offset;
 	stack->hash = hash;
 	stack->size = size;
-	stack->handle.pool_index = pool_index;
+	stack->handle.pool_index = pool_index + 1;
 	stack->handle.offset = pool_offset >> DEPOT_STACK_ALIGN;
 	stack->handle.valid = 1;
 	stack->handle.extra = 0;
@@ -329,16 +330,17 @@ static struct stack_record *depot_fetch_stack(depot_stack_handle_t handle)
 	 */
 	int pool_index_cached = READ_ONCE(pool_index);
 	void *pool;
+	u32 pool_index_real = parts.pool_index - 1;
 	size_t offset = parts.offset << DEPOT_STACK_ALIGN;
 	struct stack_record *stack;
 
-	if (parts.pool_index > pool_index_cached) {
+	if (pool_index_real > pool_index_cached) {
 		WARN(1, "pool index %d out of bounds (%d) for stack id %08x\n",
 		     parts.pool_index, pool_index_cached, handle);
 		return NULL;
 	}
 
-	pool = stack_pools[parts.pool_index];
+	pool = stack_pools[pool_index_real];
 	if (!pool)
 		return NULL;
 
