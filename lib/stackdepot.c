@@ -280,6 +280,26 @@ void stack_depot_print(depot_stack_handle_t stack)
 }
 EXPORT_SYMBOL_GPL(stack_depot_print);
 
+static struct stack_record *depot_fetch_stack(depot_stack_handle_t handle)
+{
+	union handle_parts parts = { .handle = handle };
+	void *slab;
+	size_t offset = parts.offset << STACK_ALLOC_ALIGN;
+	struct stack_record *stack;
+
+	if (parts.slabindex > depot_index) {
+		WARN(1, "slab index %d out of bounds (%d) for stack id %08x\n",
+			parts.slabindex, depot_index, handle);
+		return NULL;
+	}
+	slab = stack_slabs[parts.slabindex];
+	if (!slab)
+		return NULL;
+
+	stack = slab + offset;
+	return stack;
+}
+
 /**
  * stack_depot_fetch - Fetch stack entries from a depot
  *
@@ -292,21 +312,12 @@ EXPORT_SYMBOL_GPL(stack_depot_print);
 unsigned int stack_depot_fetch(depot_stack_handle_t handle,
 			       unsigned long **entries)
 {
-	union handle_parts parts = { .handle = handle };
-	void *slab;
-	size_t offset = parts.offset << STACK_ALLOC_ALIGN;
 	struct stack_record *stack;
 
 	*entries = NULL;
-	if (parts.slabindex > depot_index) {
-		WARN(1, "slab index %d out of bounds (%d) for stack id %08x\n",
-			parts.slabindex, depot_index, handle);
+	stack = depot_fetch_stack(handle);
+	if (!stack)
 		return 0;
-	}
-	slab = stack_slabs[parts.slabindex];
-	if (!slab)
-		return 0;
-	stack = slab + offset;
 
 	*entries = stack->entries;
 	return stack->size;
