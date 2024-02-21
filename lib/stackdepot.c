@@ -47,14 +47,14 @@
 		STACK_ALLOC_NULL_PROTECTION_BITS - STACK_ALLOC_OFFSET_BITS)
 #define STACK_ALLOC_SLABS_CAP 8192
 #define STACK_ALLOC_MAX_SLABS \
-	(((1LL << (STACK_ALLOC_INDEX_BITS)) < STACK_ALLOC_SLABS_CAP) ? \
-	 (1LL << (STACK_ALLOC_INDEX_BITS)) : STACK_ALLOC_SLABS_CAP)
+	(((1LL << (STACK_ALLOC_INDEX_BITS)) - 1 < STACK_ALLOC_SLABS_CAP) ? \
+	 (1LL << (STACK_ALLOC_INDEX_BITS)) - 1 : STACK_ALLOC_SLABS_CAP)
 
 /* The compact structure to store the reference to stacks. */
 union handle_parts {
 	depot_stack_handle_t handle;
 	struct {
-		u32 slabindex : STACK_ALLOC_INDEX_BITS;
+		u32 slabindex : STACK_ALLOC_INDEX_BITS; /* slabindex is offset by 1 */
 		u32 offset : STACK_ALLOC_OFFSET_BITS;
 		u32 valid : STACK_ALLOC_NULL_PROTECTION_BITS;
 	};
@@ -136,7 +136,7 @@ static struct stack_record *depot_alloc_stack(unsigned long *entries, int size,
 
 	stack->hash = hash;
 	stack->size = size;
-	stack->handle.slabindex = depot_index;
+	stack->handle.slabindex = depot_index + 1;
 	stack->handle.offset = depot_offset >> STACK_ALLOC_ALIGN;
 	stack->handle.valid = 1;
 	refcount_set(&stack->count, REFCOUNT_SATURATED);
@@ -287,15 +287,16 @@ static struct stack_record *depot_fetch_stack(depot_stack_handle_t handle)
 {
 	union handle_parts parts = { .handle = handle };
 	void *slab;
+	u32 slab_index_real = parts.slabindex - 1;
 	size_t offset = parts.offset << STACK_ALLOC_ALIGN;
 	struct stack_record *stack;
 
-	if (parts.slabindex > depot_index) {
+	if (slab_index_real > depot_index) {
 		WARN(1, "slab index %d out of bounds (%d) for stack id %08x\n",
-			parts.slabindex, depot_index, handle);
+			slab_index_real, depot_index, handle);
 		return NULL;
 	}
-	slab = stack_slabs[parts.slabindex];
+	slab = stack_slabs[slab_index_real];
 	if (!slab)
 		return NULL;
 
