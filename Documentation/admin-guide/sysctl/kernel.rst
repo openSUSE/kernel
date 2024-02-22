@@ -978,7 +978,7 @@ user space can read performance monitor counter registers directly.
 
 The default value is 0 (access disabled).
 
-See Documentation/arm64/perf.rst for more information.
+See Documentation/arch/arm64/perf.rst for more information.
 
 
 pid_max

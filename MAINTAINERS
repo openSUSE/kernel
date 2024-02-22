@@ -3070,7 +3070,7 @@ M:	Will Deacon <will@kernel.org>
 L:	linux-arm-kernel@lists.infradead.org (moderated for non-subscribers)
 S:	Maintained
 T:	git git://git.kernel.org/pub/scm/linux/kernel/git/arm64/linux.git
-F:	Documentation/arm64/
+F:	Documentation/arch/arm64/
 F:	arch/arm64/
 F:	tools/testing/selftests/arm64/
 X:	arch/arm64/boot/dts/
@@ -12105,10 +12105,12 @@ F:	Documentation/ABI/testing/sysfs-kernel-livepatch
 F:	Documentation/livepatch/
 F:	arch/powerpc/include/asm/livepatch.h
 F:	include/linux/livepatch.h
+F:	include/uapi/linux/livepatch.h
 F:	kernel/livepatch/
 F:	kernel/module/livepatch.c
 F:	lib/livepatch/
 F:	samples/livepatch/
+F:	scripts/livepatch/
 F:	tools/testing/selftests/livepatch/
 
 LLC (802.2)
