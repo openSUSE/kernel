@@ -221,8 +221,8 @@ static void veth_get_ethtool_stats(struct net_device *dev,
 				data[tx_idx + j] += *(u64 *)(base + offset);
 			}
 		} while (u64_stats_fetch_retry(&rq_stats->syncp, start));
-		pp_idx = tx_idx + VETH_TQ_STATS_LEN;
 	}
+	pp_idx = idx + dev->real_num_tx_queues * VETH_TQ_STATS_LEN;
 
 page_pool_stats:
 	for (i = 0; i < dev->real_num_rx_queues; i++) {

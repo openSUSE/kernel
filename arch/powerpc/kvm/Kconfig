@@ -19,13 +19,11 @@ if VIRTUALIZATION
 
 config KVM
 	bool
-	select PREEMPT_NOTIFIERS
-	select HAVE_KVM_EVENTFD
+	select KVM_COMMON
 	select HAVE_KVM_VCPU_ASYNC_IOCTL
 	select KVM_VFIO
 	select IRQ_BYPASS_MANAGER
 	select HAVE_KVM_IRQ_BYPASS
-	select INTERVAL_TREE
 
 config KVM_BOOK3S_HANDLER
 	bool
@@ -226,7 +224,6 @@ config KVM_MPIC
 	depends on KVM && PPC_E500
 	depends on !PREEMPT_RT
 	select HAVE_KVM_IRQCHIP
-	select HAVE_KVM_IRQFD
 	select HAVE_KVM_IRQ_ROUTING
 	select HAVE_KVM_MSI
 	help
@@ -239,7 +236,6 @@ config KVM_XICS
 	bool "KVM in-kernel XICS emulation"
 	depends on KVM_BOOK3S_64 && !KVM_MPIC
 	select HAVE_KVM_IRQCHIP
-	select HAVE_KVM_IRQFD
 	default y
 	help
 	  Include support for the XICS (eXternal Interrupt Controller
