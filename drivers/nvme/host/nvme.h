@@ -302,7 +302,6 @@ struct nvme_ctrl {
 	u32 max_hw_sectors;
 	u32 max_segments;
 	u32 max_integrity_segments;
-	u32 max_discard_sectors;
 	u32 max_discard_segments;
 	u32 max_zeroes_sectors;
 #ifdef CONFIG_BLK_DEV_ZONED
@@ -803,17 +802,18 @@ blk_status_t nvme_setup_cmd(struct nvme_ns *ns, struct request *req);
 blk_status_t nvme_fail_nonready_command(struct nvme_ctrl *ctrl,
 		struct request *req);
 bool __nvme_check_ready(struct nvme_ctrl *ctrl, struct request *rq,
-		bool queue_live);
+		bool queue_live, enum nvme_ctrl_state state);
 
 static inline bool nvme_check_ready(struct nvme_ctrl *ctrl, struct request *rq,
 		bool queue_live)
 {
-	if (likely(ctrl->state == NVME_CTRL_LIVE))
+	enum nvme_ctrl_state state = nvme_ctrl_state(ctrl);
+
+	if (likely(state == NVME_CTRL_LIVE))
 		return true;
-	if (ctrl->ops->flags & NVME_F_FABRICS &&
-	    ctrl->state == NVME_CTRL_DELETING)
+	if (ctrl->ops->flags & NVME_F_FABRICS && state == NVME_CTRL_DELETING)
 		return queue_live;
-	return __nvme_check_ready(ctrl, rq, queue_live);
+	return __nvme_check_ready(ctrl, rq, queue_live, state);
 }
 
 /*
@@ -834,12 +834,27 @@ static inline bool nvme_is_unique_nsid(struct nvme_ctrl *ctrl,
 		(ctrl->ctratt & NVME_CTRL_CTRATT_NVM_SETS);
 }
 
+/*
+ * Flags for __nvme_submit_sync_cmd()
+ */
+typedef __u32 __bitwise nvme_submit_flags_t;
+
+enum {
+	/* Insert request at the head of the queue */
+	NVME_SUBMIT_AT_HEAD  = (__force nvme_submit_flags_t)(1 << 0),
+	/* Set BLK_MQ_REQ_NOWAIT when allocating request */
+	NVME_SUBMIT_NOWAIT = (__force nvme_submit_flags_t)(1 << 1),
+	/* Set BLK_MQ_REQ_RESERVED when allocating request */
+	NVME_SUBMIT_RESERVED = (__force nvme_submit_flags_t)(1 << 2),
+	/* Retry command when NVME_SC_DNR is not set in the result */
+	NVME_SUBMIT_RETRY = (__force nvme_submit_flags_t)(1 << 3),
+};
+
 int nvme_submit_sync_cmd(struct request_queue *q, struct nvme_command *cmd,
 		void *buf, unsigned bufflen);
 int __nvme_submit_sync_cmd(struct request_queue *q, struct nvme_command *cmd,
 		union nvme_result *result, void *buffer, unsigned bufflen,
-		int qid, int at_head,
-		blk_mq_req_flags_t flags);
+		int qid, nvme_submit_flags_t flags);
 int nvme_set_features(struct nvme_ctrl *dev, unsigned int fid,
 		      unsigned int dword11, void *buffer, size_t buflen,
 		      u32 *result);

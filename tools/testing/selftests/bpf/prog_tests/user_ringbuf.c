@@ -19,9 +19,9 @@
 
 #include "../progs/test_user_ringbuf.h"
 
-static const long c_sample_size = sizeof(struct sample) + BPF_RINGBUF_HDR_SZ;
-static const long c_ringbuf_size = 1 << 12; /* 1 small page */
-static const long c_max_entries = c_ringbuf_size / c_sample_size;
+#define C_SAMPLE_SIZE  (sizeof(struct sample) + BPF_RINGBUF_HDR_SZ)
+#define C_RINGBUF_SIZE (1 << 12) /* 1 small page */
+#define C_MAX_ENTRIES  (C_RINGBUF_SIZE / C_SAMPLE_SIZE)
 
 static void drain_current_samples(void)
 {
@@ -76,11 +76,11 @@ static struct user_ringbuf_success *open_load_ringbuf_skel(void)
 	if (!ASSERT_OK_PTR(skel, "skel_open"))
 		return NULL;
 
-	err = bpf_map__set_max_entries(skel->maps.user_ringbuf, c_ringbuf_size);
+	err = bpf_map__set_max_entries(skel->maps.user_ringbuf, C_RINGBUF_SIZE);
 	if (!ASSERT_OK(err, "set_max_entries"))
 		goto cleanup;
 
-	err = bpf_map__set_max_entries(skel->maps.kernel_ringbuf, c_ringbuf_size);
+	err = bpf_map__set_max_entries(skel->maps.kernel_ringbuf, C_RINGBUF_SIZE);
 	if (!ASSERT_OK(err, "set_max_entries"))
 		goto cleanup;
 
@@ -269,7 +269,7 @@ static void test_user_ringbuf_post_larger_than_ringbuf_sz(void)
 	struct user_ringbuf_success *skel;
 	struct user_ring_buffer *ringbuf;
 	int err;
-	__u32 size = c_ringbuf_size;
+	__u32 size = C_RINGBUF_SIZE;
 
 	err = load_skel_create_user_ringbuf(&skel, &ringbuf);
 	if (!ASSERT_OK(err, "huge_sample_skel"))
@@ -314,7 +314,7 @@ static void test_user_ringbuf_sample_full_ring_buffer(void)
 	if (!ASSERT_OK(err, "ringbuf_full_sample_skel"))
 		return;
 
-	sample = user_ring_buffer__reserve(ringbuf, c_ringbuf_size - BPF_RINGBUF_HDR_SZ);
+	sample = user_ring_buffer__reserve(ringbuf, C_RINGBUF_SIZE - BPF_RINGBUF_HDR_SZ);
 	if (!ASSERT_OK_PTR(sample, "full_sample"))
 		goto cleanup;
 
@@ -362,9 +362,9 @@ static void test_user_ringbuf_overfill(void)
 	if (err)
 		return;
 
-	err = write_samples(ringbuf, c_max_entries * 5);
+	err = write_samples(ringbuf, C_MAX_ENTRIES * 5);
 	ASSERT_ERR(err, "write_samples");
-	ASSERT_EQ(skel->bss->read, c_max_entries, "max_entries");
+	ASSERT_EQ(skel->bss->read, C_MAX_ENTRIES, "max_entries");
 
 	user_ring_buffer__free(ringbuf);
 	user_ringbuf_success__destroy(skel);
@@ -423,7 +423,7 @@ static void test_user_ringbuf_loop(void)
 	uint32_t remaining_samples = total_samples;
 	int err;
 
-	BUILD_BUG_ON(total_samples <= c_max_entries);
+	BUILD_BUG_ON(total_samples <= C_MAX_ENTRIES);
 	err = load_skel_create_user_ringbuf(&skel, &ringbuf);
 	if (err)
 		return;
@@ -431,8 +431,8 @@ static void test_user_ringbuf_loop(void)
 	do  {
 		uint32_t curr_samples;
 
-		curr_samples = remaining_samples > c_max_entries
-			? c_max_entries : remaining_samples;
+		curr_samples = remaining_samples > C_MAX_ENTRIES
+			? C_MAX_ENTRIES : remaining_samples;
 		err = write_samples(ringbuf, curr_samples);
 		if (err != 0) {
 			/* Assert inside of if statement to avoid flooding logs
