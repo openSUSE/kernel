@@ -2207,6 +2207,8 @@ static blk_status_t sg_status_to_blkstat(const struct block_device *path_dev,
 {
 	struct scsi_sense_hdr sshdr = { .sense_key = 0 };
 	bool sense_current = false;
+	u8 sense_buffer[SCSI_SENSE_BUFFERSIZE];
+	unsigned char sbuf_len = sizeof(sense_buffer);
 
 	if (!hdr->info & SG_INFO_CHECK)
 		return BLK_STS_OK;
@@ -2216,16 +2218,19 @@ static blk_status_t sg_status_to_blkstat(const struct block_device *path_dev,
 			    hdr->driver_status, hdr->host_status,
 			    hdr->msg_status, hdr->status);
 
-	sense_current = scsi_normalize_sense(hdr->sbp, hdr->sb_len_wr, &sshdr)
-		&& !scsi_sense_is_deferred(&sshdr);
+	sbuf_len = min(sbuf_len, hdr->sb_len_wr);
+	if (sbuf_len > 0 && !copy_from_user(sense_buffer, hdr->sbp, sbuf_len)) {
+		sense_current = scsi_normalize_sense(hdr->sbp, hdr->sb_len_wr, &sshdr)
+			&& !scsi_sense_is_deferred(&sshdr);
 
-	if (sense_current)
-		dev_dbg_ratelimited(&path_dev->bd_disk->part0->bd_device,
-				    "sense data: %02x %02x/%02x\n",
-				    sshdr.sense_key, sshdr.asc, sshdr.ascq);
-	else
-		/* Ignore deferred sense below */
-		sshdr.sense_key = NO_SENSE;
+		if (sense_current)
+			dev_dbg_ratelimited(&path_dev->bd_disk->part0->bd_device,
+					    "sense data: %02x %02x/%02x\n",
+					    sshdr.sense_key, sshdr.asc, sshdr.ascq);
+		else
+			/* Ignore deferred sense below */
+			sshdr.sense_key = NO_SENSE;
+	}
 
 	/*
 	 * scsi_result_to_blk_status() looks at SCSIML flags first.
