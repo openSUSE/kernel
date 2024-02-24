@@ -2220,7 +2220,7 @@ static blk_status_t sg_status_to_blkstat(const struct block_device *path_dev,
 
 	sbuf_len = min(sbuf_len, hdr->sb_len_wr);
 	if (sbuf_len > 0 && !copy_from_user(sense_buffer, hdr->sbp, sbuf_len)) {
-		sense_current = scsi_normalize_sense(hdr->sbp, hdr->sb_len_wr, &sshdr)
+		sense_current = scsi_normalize_sense(sense_buffer, hdr->sb_len_wr, &sshdr)
 			&& !scsi_sense_is_deferred(&sshdr);
 
 		if (sense_current)
