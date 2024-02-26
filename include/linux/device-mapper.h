@@ -152,6 +152,15 @@ typedef size_t (*dm_dax_copy_iter_fn)(struct dm_target *ti, pgoff_t pgoff,
 typedef int (*dm_dax_zero_page_range_fn)(struct dm_target *ti, pgoff_t pgoff,
 		size_t nr_pages);
 
+/*
+ * Returns:
+ * 0 : success
+ * <0: negative error code
+ */
+typedef int (*dm_sg_io_ioctl_fn)(struct block_device *bdev,
+				 fmode_t mode, void __user *arg);
+
+
 void dm_error(const char *message);
 
 struct dm_dev {
@@ -206,7 +215,17 @@ struct target_type {
 
 	/* For internal device-mapper use. */
 	struct list_head list;
+
+#ifndef __GENKSYMS__
+	dm_sg_io_ioctl_fn sg_io;
+#endif
 };
+
+/* for the sg_io handler */
+int _dm_prepare_ioctl(struct mapped_device *md, int *srcu_idx,
+		      struct block_device **bdev,
+		      struct dm_target **tgt0);
+void dm_unprepare_ioctl(struct mapped_device *md, int srcu_idx);
 
 /*
  * Target features
