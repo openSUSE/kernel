@@ -745,7 +745,8 @@ int bnxt_qplib_query_srq(struct bnxt_qplib_res *res,
 	sb = sbuf->sb;
 	rc = bnxt_qplib_rcfw_send_message(rcfw, (void *)&req, (void *)&resp,
 					  (void *)sbuf, 0);
-	srq->threshold = le16_to_cpu(sb->srq_limit);
+	if (!rc)
+		srq->threshold = le16_to_cpu(sb->srq_limit);
 	bnxt_qplib_rcfw_free_sbuf(rcfw, sbuf);
 
 	return rc;
