@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: BSD-3-Clause-Clear */
 /*
  * Copyright (c) 2019-2020 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef _HIF_H_
@@ -17,7 +18,7 @@ struct ath11k_hif_ops {
 	int (*start)(struct ath11k_base *sc);
 	void (*stop)(struct ath11k_base *sc);
 	int (*power_up)(struct ath11k_base *sc);
-	void (*power_down)(struct ath11k_base *sc);
+	void (*power_down)(struct ath11k_base *sc, bool is_suspend);
 	int (*suspend)(struct ath11k_base *ab);
 	int (*resume)(struct ath11k_base *ab);
 	int (*map_service_to_pipe)(struct ath11k_base *sc, u16 service_id,
@@ -66,12 +67,18 @@ static inline void ath11k_hif_irq_disable(struct ath11k_base *sc)
 
 static inline int ath11k_hif_power_up(struct ath11k_base *sc)
 {
+	if (!sc->hif.ops->power_up)
+		return -EOPNOTSUPP;
+
 	return sc->hif.ops->power_up(sc);
 }
 
-static inline void ath11k_hif_power_down(struct ath11k_base *sc)
+static inline void ath11k_hif_power_down(struct ath11k_base *sc, bool is_suspend)
 {
-	sc->hif.ops->power_down(sc);
+	if (!sc->hif.ops->power_down)
+		return;
+
+	sc->hif.ops->power_down(sc, is_suspend);
 }
 
 static inline int ath11k_hif_suspend(struct ath11k_base *ab)
