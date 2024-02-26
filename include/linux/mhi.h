@@ -649,11 +649,24 @@ int mhi_async_power_up(struct mhi_controller *mhi_cntrl);
 int mhi_sync_power_up(struct mhi_controller *mhi_cntrl);
 
 /**
- * mhi_power_down - Start MHI power down sequence
+ * mhi_power_down - Start MHI power down sequence. See also
+ * mhi_power_down_no_destroy() which is a variant of this for
+ * suspend/hibernation.
+ *
  * @mhi_cntrl: MHI controller
  * @graceful: Link is still accessible, so do a graceful shutdown process
  */
 void mhi_power_down(struct mhi_controller *mhi_cntrl, bool graceful);
+
+/**
+ * mhi_power_down_no_destroy - Start MHI power down sequence but don't destroy
+ * struct devices for channels. This is a variant for mhi_power_down() and
+ * would be useful in suspend/hibernation.
+ *
+ * @mhi_cntrl: MHI controller
+ * @graceful: Link is still accessible, so do a graceful shutdown process
+ */
+void mhi_power_down_no_destroy(struct mhi_controller *mhi_cntrl, bool graceful);
 
 /**
  * mhi_unprepare_after_power_down - Free any allocated memory after power down
