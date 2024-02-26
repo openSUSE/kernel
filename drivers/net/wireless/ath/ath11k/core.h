@@ -991,8 +991,6 @@ struct ath11k_base {
 		DECLARE_BITMAP(fw_features, ATH11K_FW_FEATURE_COUNT);
 	} fw;
 
-	struct completion restart_completed;
-
 #ifdef CONFIG_NL80211_TESTMODE
 	struct {
 		u32 data_pos;
