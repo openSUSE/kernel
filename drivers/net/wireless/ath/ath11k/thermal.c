@@ -162,9 +162,6 @@ int ath11k_thermal_register(struct ath11k_base *sc)
 	struct ath11k_pdev *pdev;
 	int i, ret;
 
-	if (test_bit(ATH11K_FLAG_REGISTERED, &sc->dev_flags))
-		return 0;
-
 	for (i = 0; i < sc->num_radios; i++) {
 		pdev = &sc->pdevs[i];
 		ar = pdev->ar;
