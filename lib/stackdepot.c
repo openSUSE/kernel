@@ -34,38 +34,10 @@
 #include <linux/types.h>
 #include <linux/memblock.h>
 
-#define DEPOT_STACK_BITS (sizeof(depot_stack_handle_t) * 8)
-
-#define STACK_ALLOC_NULL_PROTECTION_BITS 1
-#define STACK_ALLOC_ORDER 2 /* 'Slab' size order for stack depot, 4 pages */
-#define STACK_ALLOC_SIZE (1LL << (PAGE_SHIFT + STACK_ALLOC_ORDER))
-#define STACK_ALLOC_ALIGN 4
-#define STACK_ALLOC_OFFSET_BITS (STACK_ALLOC_ORDER + PAGE_SHIFT - \
-					STACK_ALLOC_ALIGN)
-#define STACK_ALLOC_INDEX_BITS (DEPOT_STACK_BITS - \
-		STACK_ALLOC_NULL_PROTECTION_BITS - STACK_ALLOC_OFFSET_BITS)
 #define STACK_ALLOC_SLABS_CAP 8192
 #define STACK_ALLOC_MAX_SLABS \
-	(((1LL << (STACK_ALLOC_INDEX_BITS)) < STACK_ALLOC_SLABS_CAP) ? \
-	 (1LL << (STACK_ALLOC_INDEX_BITS)) : STACK_ALLOC_SLABS_CAP)
-
-/* The compact structure to store the reference to stacks. */
-union handle_parts {
-	depot_stack_handle_t handle;
-	struct {
-		u32 slabindex : STACK_ALLOC_INDEX_BITS;
-		u32 offset : STACK_ALLOC_OFFSET_BITS;
-		u32 valid : STACK_ALLOC_NULL_PROTECTION_BITS;
-	};
-};
-
-struct stack_record {
-	struct stack_record *next;	/* Link in the hashtable */
-	u32 hash;			/* Hash in the hastable */
-	u32 size;			/* Number of frames in the stack */
-	union handle_parts handle;
-	unsigned long entries[];	/* Variable-sized array of entries. */
-};
+	(((1LL << (STACK_ALLOC_INDEX_BITS)) - 1 < STACK_ALLOC_SLABS_CAP) ? \
+	 (1LL << (STACK_ALLOC_INDEX_BITS)) - 1 : STACK_ALLOC_SLABS_CAP)
 
 static void *stack_slabs[STACK_ALLOC_MAX_SLABS];
 
@@ -134,9 +106,10 @@ depot_alloc_stack(unsigned long *entries, int size, u32 hash, void **prealloc)
 
 	stack->hash = hash;
 	stack->size = size;
-	stack->handle.slabindex = depot_index;
+	stack->handle.slabindex = depot_index + 1;
 	stack->handle.offset = depot_offset >> STACK_ALLOC_ALIGN;
 	stack->handle.valid = 1;
+	refcount_set(&stack->count, REFCOUNT_SATURATED);
 	memcpy(stack->entries, entries, flex_array_size(stack, entries, size));
 	depot_offset += required_size;
 
@@ -280,6 +253,35 @@ void stack_depot_print(depot_stack_handle_t stack)
 }
 EXPORT_SYMBOL_GPL(stack_depot_print);
 
+static struct stack_record *depot_fetch_stack(depot_stack_handle_t handle)
+{
+	union handle_parts parts = { .handle = handle };
+	void *slab;
+	u32 slab_index_real = parts.slabindex - 1;
+	size_t offset = parts.offset << STACK_ALLOC_ALIGN;
+	struct stack_record *stack;
+
+	if (slab_index_real > depot_index) {
+		WARN(1, "slab index %d out of bounds (%d) for stack id %08x\n",
+			slab_index_real, depot_index, handle);
+		return NULL;
+	}
+	slab = stack_slabs[slab_index_real];
+	if (!slab)
+		return NULL;
+
+	stack = slab + offset;
+	return stack;
+}
+
+struct stack_record *__stack_depot_get_stack_record(depot_stack_handle_t handle)
+{
+	if (!handle)
+		return NULL;
+
+	return depot_fetch_stack(handle);
+}
+
 /**
  * stack_depot_fetch - Fetch stack entries from a depot
  *
@@ -292,21 +294,12 @@ EXPORT_SYMBOL_GPL(stack_depot_print);
 unsigned int stack_depot_fetch(depot_stack_handle_t handle,
 			       unsigned long **entries)
 {
-	union handle_parts parts = { .handle = handle };
-	void *slab;
-	size_t offset = parts.offset << STACK_ALLOC_ALIGN;
 	struct stack_record *stack;
 
 	*entries = NULL;
-	if (parts.slabindex > depot_index) {
-		WARN(1, "slab index %d out of bounds (%d) for stack id %08x\n",
-			parts.slabindex, depot_index, handle);
+	stack = depot_fetch_stack(handle);
+	if (!stack)
 		return 0;
-	}
-	slab = stack_slabs[parts.slabindex];
-	if (!slab)
-		return 0;
-	stack = slab + offset;
 
 	*entries = stack->entries;
 	return stack->size;
