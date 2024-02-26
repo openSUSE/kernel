@@ -19,10 +19,11 @@ enum ctx_state {
 };
 
 /* Even value for idle, else odd. */
-#define RCU_DYNTICKS_IDX CONTEXT_MAX
+/* Suse/kABI placeholder: leave 5 bits for eg: IPI deferral */
+#define RCU_DYNTICKS_IDX (CONTEXT_MAX << 5)
 
 #define CT_STATE_MASK (CONTEXT_MAX - 1)
-#define CT_DYNTICKS_MASK (~CT_STATE_MASK)
+#define CT_DYNTICKS_MASK (~(RCU_DYNTICKS_IDX - 1))
 
 struct context_tracking {
 #ifdef CONFIG_CONTEXT_TRACKING_USER
