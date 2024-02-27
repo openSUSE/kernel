@@ -3009,17 +3009,16 @@ state_store(struct md_rdev *rdev, const char *buf, size_t len)
 
 	if (cmd_match(buf, "faulty") && rdev->mddev->pers) {
 		md_error(rdev->mddev, rdev);
-
-		if (test_bit(MD_BROKEN, &rdev->mddev->flags))
-			err = -EBUSY;
-		else
+		if (test_bit(Faulty, &rdev->flags))
 			err = 0;
-       } else if (cmd_match(buf, "timeout") && rdev->mddev->pers) {
-	       md_error(rdev->mddev, rdev);
-	       if (test_bit(Faulty, &rdev->flags))
-		       set_bit(Timeout, &rdev->flags);
-	       err = 0;
-       } else if (cmd_match(buf, "remove")) {
+		else
+			err = -EBUSY;
+	} else if (cmd_match(buf, "timeout") && rdev->mddev->pers) {
+		md_error(rdev->mddev, rdev);
+		if (test_bit(Faulty, &rdev->flags))
+			set_bit(Timeout, &rdev->flags);
+		err = 0;
+	} else if (cmd_match(buf, "remove")) {
 		if (rdev->mddev->pers) {
 			clear_bit(Blocked, &rdev->flags);
 			remove_and_add_spares(rdev->mddev, rdev);
@@ -4388,9 +4387,10 @@ __ATTR_PREALLOC(resync_start, S_IRUGO|S_IWUSR,
  *     like active, but no writes have been seen for a while (100msec).
  *
  * broken
-*     Array is failed. It's useful because mounted-arrays aren't stopped
-*     when array is failed, so this state will at least alert the user that
-*     something is wrong.
+ *     RAID0/LINEAR-only: same as clean, but array is missing a member.
+ *     It's useful because RAID0/LINEAR mounted-arrays aren't stopped
+ *     when a member is gone, so this state will at least alert the
+ *     user that something is wrong.
  */
 enum array_state { clear, inactive, suspended, readonly, read_auto, clean, active,
 		   write_pending, active_idle, broken, bad_word};
@@ -7462,7 +7462,7 @@ static int set_disk_faulty(struct mddev *mddev, dev_t dev)
 		err =  -ENODEV;
 	else {
 		md_error(mddev, rdev);
-		if (test_bit(MD_BROKEN, &mddev->flags))
+		if (!test_bit(Faulty, &rdev->flags))
 			err = -EBUSY;
 	}
 	rcu_read_unlock();
@@ -8008,16 +8008,13 @@ void md_error(struct mddev *mddev, struct md_rdev *rdev)
 
 	if (!mddev->pers || !mddev->pers->error_handler)
 		return;
-	mddev->pers->error_handler(mddev, rdev);
-
-	if (mddev->degraded && !test_bit(MD_BROKEN, &mddev->flags))
+	mddev->pers->error_handler(mddev,rdev);
+	if (mddev->degraded)
 		set_bit(MD_RECOVERY_RECOVER, &mddev->recovery);
 	sysfs_notify_dirent_safe(rdev->sysfs_state);
 	set_bit(MD_RECOVERY_INTR, &mddev->recovery);
-	if (!test_bit(MD_BROKEN, &mddev->flags)) {
-		set_bit(MD_RECOVERY_NEEDED, &mddev->recovery);
-		md_wakeup_thread(mddev->thread);
-	}
+	set_bit(MD_RECOVERY_NEEDED, &mddev->recovery);
+	md_wakeup_thread(mddev->thread);
 	if (mddev->event_work.func)
 		queue_work(md_misc_wq, &mddev->event_work);
 	md_new_event(mddev);
