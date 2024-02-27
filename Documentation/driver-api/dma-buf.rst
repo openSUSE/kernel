@@ -14,6 +14,14 @@ between devices, (2) fence, which provides a mechanism to signal when
 one device has finished access, and (3) reservation, which manages the
 shared or exclusive fence(s) associated with the buffer.
 
+
+Userspace API principles and use
+--------------------------------
+
+For more details on how to design your subsystem's API for dma-buf use, please
+see Documentation/userspace-api/dma-buf-alloc-exchange.rst.
+
+
 Shared DMA Buffers
 ------------------
 

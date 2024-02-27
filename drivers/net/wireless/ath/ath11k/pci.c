@@ -640,49 +640,6 @@ static void ath11k_pci_power_down(struct ath11k_base *ab, bool is_suspend)
 	ath11k_pci_sw_reset(ab_pci->ab, false);
 }
 
-static int ath11k_pci_hif_power_down(struct ath11k_base *ab, bool is_suspend)
-{
-	struct ath11k_pci *ab_pci = ath11k_pci_priv(ab);
-	int ret;
-
-	if (is_suspend) {
-		ret = ath11k_mhi_unprepare_from_transfer(ab_pci);
-		if (ret) {
-			ath11k_err(ab_pci->ab, "failed to unprepare from transfer %d\n",
-				   ret);
-			return ret;
-		}
-	}
-
-	ath11k_pci_power_down(ab, is_suspend);
-	return 0;
-}
-
-static int ath11k_pci_hif_power_up(struct ath11k_base *ab, bool is_resume)
-{
-	struct ath11k_pci *ab_pci = ath11k_pci_priv(ab);
-	int ret;
-
-	ret =  ath11k_pci_power_up(ab);
-	if (ret) {
-		ath11k_err(ab_pci->ab, "failed to power up %d\n", ret);
-		return ret;
-	}
-
-	if (is_resume) {
-		/* sleep for 500ms to let mhi_pm_mission_mode_transition()
-		 * finishes, or we may be wake up immediately after mission
-		 * mode event received and call
-		 * ath11k_mhi_prepare_for_transfer(), while bottom half of
-		 * mhi_pm_mission_mode_transition() does not finish.
-		 */
-		msleep(500);
-		ret = ath11k_mhi_prepare_for_transfer(ab_pci);
-	}
-
-	return ret;
-}
-
 static int ath11k_pci_hif_suspend(struct ath11k_base *ab)
 {
 	struct ath11k_pci *ar_pci = ath11k_pci_priv(ab);
@@ -730,8 +687,8 @@ static const struct ath11k_hif_ops ath11k_pci_hif_ops = {
 	.read32 = ath11k_pcic_read32,
 	.write32 = ath11k_pcic_write32,
 	.read = ath11k_pcic_read,
-	.power_down = ath11k_pci_hif_power_down,
-	.power_up = ath11k_pci_hif_power_up,
+	.power_down = ath11k_pci_power_down,
+	.power_up = ath11k_pci_power_up,
 	.suspend = ath11k_pci_hif_suspend,
 	.resume = ath11k_pci_hif_resume,
 	.irq_enable = ath11k_pcic_ext_irq_enable,
@@ -1043,9 +1000,39 @@ static __maybe_unused int ath11k_pci_pm_resume(struct device *dev)
 	return ret;
 }
 
-static SIMPLE_DEV_PM_OPS(ath11k_pci_pm_ops,
-			 ath11k_pci_pm_suspend,
-			 ath11k_pci_pm_resume);
+static __maybe_unused int ath11k_pci_pm_suspend_late(struct device *dev)
+{
+	struct ath11k_base *ab = dev_get_drvdata(dev);
+	int ret;
+
+	ret = ath11k_core_suspend_late(ab);
+	if (ret)
+		ath11k_warn(ab, "failed to late suspend core: %d\n", ret);
+
+	/* Similar to ath11k_pci_pm_suspend(), we return success here
+	 * even error happens, to allow system suspend/hibernation survive.
+	 */
+	return 0;
+}
+
+static __maybe_unused int ath11k_pci_pm_resume_early(struct device *dev)
+{
+	struct ath11k_base *ab = dev_get_drvdata(dev);
+	int ret;
+
+	ret = ath11k_core_resume_early(ab);
+	if (ret)
+		ath11k_warn(ab, "failed to early resume core: %d\n", ret);
+
+	return ret;
+}
+
+static const struct dev_pm_ops __maybe_unused ath11k_pci_pm_ops = {
+	SET_SYSTEM_SLEEP_PM_OPS(ath11k_pci_pm_suspend,
+				ath11k_pci_pm_resume)
+	SET_LATE_SYSTEM_SLEEP_PM_OPS(ath11k_pci_pm_suspend_late,
+				     ath11k_pci_pm_resume_early)
+};
 
 static struct pci_driver ath11k_pci_driver = {
 	.name = "ath11k_pci",

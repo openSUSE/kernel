@@ -6,7 +6,6 @@
 #ifndef __INTEL_GT__
 #define __INTEL_GT__
 
-#include "i915_drv.h"
 #include "intel_engine_types.h"
 #include "intel_gt_types.h"
 #include "intel_reset.h"
@@ -88,10 +87,7 @@ static inline bool gt_is_root(struct intel_gt *gt)
 	return !gt->info.id;
 }
 
-static inline bool intel_gt_needs_wa_22016122933(struct intel_gt *gt)
-{
-	return MEDIA_VER_FULL(gt->i915) == IP_VER(13, 0) && gt->type == GT_MEDIA;
-}
+bool intel_gt_needs_wa_22016122933(struct intel_gt *gt);
 
 static inline struct intel_gt *uc_to_gt(struct intel_uc *uc)
 {
@@ -180,4 +176,7 @@ enum i915_map_type intel_gt_coherent_map_type(struct intel_gt *gt,
 					      struct drm_i915_gem_object *obj,
 					      bool always_coherent);
 
+void intel_gt_bind_context_set_ready(struct intel_gt *gt);
+void intel_gt_bind_context_set_unready(struct intel_gt *gt);
+bool intel_gt_is_bind_context_ready(struct intel_gt *gt);
 #endif /* __INTEL_GT_H__ */
