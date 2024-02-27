@@ -296,8 +296,6 @@ static void do_host_cpuid(struct kvm_cpuid_entry2 *entry, u32 function,
 	entry->index = index;
 	entry->flags = 0;
 
-	cpuid_count(entry->function, entry->index,
-		    &entry->eax, &entry->ebx, &entry->ecx, &entry->edx);
 
 	switch (function) {
 	case 2:
@@ -317,7 +315,25 @@ static void do_host_cpuid(struct kvm_cpuid_entry2 *entry, u32 function,
 	case 0x8000001d:
 		entry->flags |= KVM_CPUID_FLAG_SIGNIFCANT_INDEX;
 		break;
+	case 0x80000000:
+		/*
+		 * 0x80000021 is sometimes synthesized by __do_cpuid_func, which
+		 * would result in out-of-bounds calls to do_host_cpuid.
+		 */
+		{
+			static int max_cpuid_80000000;
+			if (!READ_ONCE(max_cpuid_80000000))
+				WRITE_ONCE(max_cpuid_80000000, cpuid_eax(0x80000000));
+			if (function > READ_ONCE(max_cpuid_80000000))
+				return;
+		}
+		break;
+
 	}
+
+
+	cpuid_count(entry->function, entry->index,
+		    &entry->eax, &entry->ebx, &entry->ecx, &entry->edx);
 }
 
 static int __do_cpuid_func_emulated(struct kvm_cpuid_entry2 *entry,
@@ -487,6 +503,11 @@ static inline int __do_cpuid_func(struct kvm_cpuid_entry2 *entry, u32 function,
 		F(CLZERO) | F(XSAVEERPTR) |
 		F(WBNOINVD) | F(AMD_IBPB) | F(AMD_IBRS) | F(AMD_SSBD) | F(VIRT_SSBD) |
 		F(AMD_SSB_NO) | F(AMD_STIBP) | F(AMD_STIBP_ALWAYS_ON);
+
+	const u32 kvm_cpuid_8000_0021_eax_x86_features =
+		BIT(0) /* NO_NESTED_DATA_BP */ |
+		F(LFENCE_RDTSC) /* LFENCE Always serializing */ | 0 /* SmmPgCfgLock */ |
+		BIT(6) /* NULL_SEL_CLR_BASE */ | 0 /* PrefetchCtlMsr */;
 
 	/* cpuid 0xC0000001.edx */
 	const u32 kvm_cpuid_C000_0001_edx_x86_features =
@@ -726,7 +747,24 @@ static inline int __do_cpuid_func(struct kvm_cpuid_entry2 *entry, u32 function,
 		entry->edx = 0;
 		break;
 	case 0x80000000:
-		entry->eax = min(entry->eax, 0x8000001f);
+		entry->eax = min(entry->eax, 0x80000021);
+		/*
+		 * Serializing LFENCE is reported in a multitude of ways, and
+		 * NullSegClearsBase is not reported in CPUID on Zen2; help
+		 * userspace by providing the CPUID leaf ourselves.
+		 *
+		 * However, only do it if the host has CPUID leaf 0x8000001d.
+		 * QEMU thinks that it can query the host blindly for that
+		 * CPUID leaf if KVM reports that it supports 0x8000001d or
+		 * above.  The processor merrily returns values from the
+		 * highest Intel leaf which QEMU tries to use as the guest's
+		 * 0x8000001d.  Even worse, this can result in an infinite
+		 * loop if said highest leaf has no subleaves indexed by ECX.
+		 */
+		if (entry->eax >= 0x8000001d &&
+		    (static_cpu_has(X86_FEATURE_LFENCE_RDTSC)
+		     || !static_cpu_has_bug(X86_BUG_NULL_SEG)))
+			entry->eax = max(entry->eax, 0x80000021);
 		break;
 	case 0x80000001:
 		entry->edx &= kvm_cpuid_8000_0001_edx_x86_features;
@@ -774,12 +812,42 @@ static inline int __do_cpuid_func(struct kvm_cpuid_entry2 *entry, u32 function,
 	case 0x80000019:
 		entry->ecx = entry->edx = 0;
 		break;
-	case 0x80000021:
-		if (cpu_feature_enabled(X86_FEATURE_SRSO_NO))
-			entry->eax |= F(SRSO_NO);
-		break;
 	case 0x8000001a:
 	case 0x8000001e:
+		break;
+	case 0x80000020:
+		entry->eax = entry->ebx = entry->ecx = entry->edx = 0;
+		break;
+	case 0x80000021:
+		entry->ebx = entry->ecx = entry->edx = 0;
+		/*
+		 * Pass down these bits:
+		 *    EAX      0      NNDBP, Processor ignores nested data breakpoints
+		 *    EAX      2      LAS, LFENCE always serializing
+		 *    EAX      6      NSCB, Null selector clear base
+		 *
+		 * Other defined bits are for MSRs that KVM does not expose:
+		 *   EAX      3      SPCL, SMM page configuration lock
+		 *   EAX      13     PCMSR, Prefetch control MSR
+		 */
+		entry->eax &= kvm_cpuid_8000_0021_eax_x86_features;
+
+		/*
+		 * Synthesize "LFENCE is serializing" into the AMD-defined entry in
+		 * KVM's supported CPUID if the feature is reported as supported by the
+		 * kernel.  LFENCE_RDTSC was a Linux-defined synthetic feature long
+		 * before AMD joined the bandwagon, e.g. LFENCE is serializing on most
+		 * CPUs that support SSE2.  On CPUs that don't support AMD's leaf,
+		 * kvm_cpu_cap_mask() will unfortunately drop the flag due to ANDing
+		 * the mask with the raw host CPUID, and reporting support in AMD's
+		 * leaf can make it easier for userspace to detect the feature.
+		 */
+		if (cpu_feature_enabled(X86_FEATURE_LFENCE_RDTSC))
+			entry->eax |= F(LFENCE_RDTSC);
+		if (!static_cpu_has_bug(X86_BUG_NULL_SEG))
+			entry->eax |= BIT(6);
+		if (cpu_feature_enabled(X86_FEATURE_SRSO_NO))
+			entry->eax |= F(SRSO_NO);
 		break;
 	/*Add support for Centaur's CPUID instruction*/
 	case 0xC0000000:
