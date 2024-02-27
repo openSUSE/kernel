@@ -118,7 +118,7 @@ static const struct mhi_device_id qcom_mhi_qrtr_id_table[] = {
 };
 MODULE_DEVICE_TABLE(mhi, qcom_mhi_qrtr_id_table);
 
-static int qcom_mhi_qrtr_pm_suspend_late(struct device *dev)
+static int __maybe_unused qcom_mhi_qrtr_pm_suspend_late(struct device *dev)
 {
 	struct mhi_device *mhi_dev = container_of(dev, struct mhi_device, dev);
 
@@ -127,7 +127,7 @@ static int qcom_mhi_qrtr_pm_suspend_late(struct device *dev)
 	return 0;
 }
 
-static int qcom_mhi_qrtr_pm_resume_early(struct device *dev)
+static int __maybe_unused qcom_mhi_qrtr_pm_resume_early(struct device *dev)
 {
 	struct mhi_device *mhi_dev = container_of(dev, struct mhi_device, dev);
 	int rc;
@@ -139,7 +139,7 @@ static int qcom_mhi_qrtr_pm_resume_early(struct device *dev)
 	return rc;
 }
 
-static const struct dev_pm_ops __maybe_unused qcom_mhi_qrtr_pm_ops = {
+static const struct dev_pm_ops qcom_mhi_qrtr_pm_ops = {
 	SET_LATE_SYSTEM_SLEEP_PM_OPS(qcom_mhi_qrtr_pm_suspend_late,
 				     qcom_mhi_qrtr_pm_resume_early)
 };
@@ -152,9 +152,7 @@ static struct mhi_driver qcom_mhi_qrtr_driver = {
 	.id_table = qcom_mhi_qrtr_id_table,
 	.driver = {
 		.name = "qcom_mhi_qrtr",
-#ifdef CONFIG_PM
 		.pm = &qcom_mhi_qrtr_pm_ops,
-#endif
 	},
 };
 
