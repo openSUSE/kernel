@@ -516,6 +516,11 @@ skip_mhi_reset:
 	dev_dbg(dev, "Waiting for all pending threads to complete\n");
 	wake_up_all(&mhi_cntrl->state_event);
 
+	/**
+	 * Some MHI controller drivers, ath11k as an example, would like to keep
+	 * MHI deivces for channels during suspend/hibernation to avoid the
+	 * probe defer issue. Add a check here to make it possible.
+	 */
 	if (destroy_device) {
 		dev_dbg(dev, "Reset all active channels and remove MHI devices\n");
 		device_for_each_child(&mhi_cntrl->mhi_dev->dev, NULL, mhi_destroy_device);
@@ -1216,12 +1221,12 @@ void mhi_power_down(struct mhi_controller *mhi_cntrl, bool graceful)
 }
 EXPORT_SYMBOL_GPL(mhi_power_down);
 
-void mhi_power_down_no_destroy(struct mhi_controller *mhi_cntrl,
+void mhi_power_down_keep_dev(struct mhi_controller *mhi_cntrl,
 			       bool graceful)
 {
 	__mhi_power_down(mhi_cntrl, graceful, false);
 }
-EXPORT_SYMBOL_GPL(mhi_power_down_no_destroy);
+EXPORT_SYMBOL_GPL(mhi_power_down_keep_dev);
 
 int mhi_sync_power_up(struct mhi_controller *mhi_cntrl)
 {
