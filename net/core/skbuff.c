@@ -5153,6 +5153,9 @@ struct sk_buff *sock_dequeue_err_skb(struct sock *sk)
 	bool icmp_next = false;
 	unsigned long flags;
 
+	if (skb_queue_empty_lockless(q))
+		return NULL;
+
 	spin_lock_irqsave(&q->lock, flags);
 	skb = __skb_dequeue(q);
 	if (skb && (skb_next = skb_peek(q))) {
