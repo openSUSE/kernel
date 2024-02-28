@@ -457,6 +457,7 @@ void tcp_init_sock(struct sock *sk)
 
 	WRITE_ONCE(sk->sk_sndbuf, READ_ONCE(sock_net(sk)->ipv4.sysctl_tcp_wmem[1]));
 	WRITE_ONCE(sk->sk_rcvbuf, READ_ONCE(sock_net(sk)->ipv4.sysctl_tcp_rmem[1]));
+	tcp_scaling_ratio_init(sk);
 
 	set_bit(SOCK_SUPPORT_ZC, &sk->sk_socket->flags);
 	sk_sockets_allocated_inc(sk);
@@ -840,7 +841,7 @@ ssize_t tcp_splice_read(struct socket *sock, loff_t *ppos,
 		tss.len -= ret;
 		spliced += ret;
 
-		if (!timeo)
+		if (!tss.len || !timeo)
 			break;
 		release_sock(sk);
 		lock_sock(sk);
@@ -924,10 +925,11 @@ int tcp_send_mss(struct sock *sk, int *size_goal, int flags)
 	return mss_now;
 }
 
-/* In some cases, both sendmsg() could have added an skb to the write queue,
- * but failed adding payload on it.  We need to remove it to consume less
+/* In some cases, sendmsg() could have added an skb to the write queue,
+ * but failed adding payload on it. We need to remove it to consume less
  * memory, but more importantly be able to generate EPOLLOUT for Edge Trigger
- * epoll() users.
+ * epoll() users. Another reason is that tcp_write_xmit() does not like
+ * finding an empty skb in the write queue.
  */
 void tcp_remove_empty_skb(struct sock *sk)
 {
@@ -1285,6 +1287,7 @@ new_segment:
 
 wait_for_space:
 		set_bit(SOCK_NOSPACE, &sk->sk_socket->flags);
+		tcp_remove_empty_skb(sk);
 		if (copied)
 			tcp_push(sk, flags & ~MSG_MORE, mss_now,
 				 TCP_NAGLE_PUSH, size_goal);
@@ -1695,7 +1698,7 @@ EXPORT_SYMBOL(tcp_peek_len);
 /* Make sure sk_rcvbuf is big enough to satisfy SO_RCVLOWAT hint */
 int tcp_set_rcvlowat(struct sock *sk, int val)
 {
-	int cap;
+	int space, cap;
 
 	if (sk->sk_userlocks & SOCK_RCVBUF_LOCK)
 		cap = sk->sk_rcvbuf >> 1;
@@ -1710,10 +1713,10 @@ int tcp_set_rcvlowat(struct sock *sk, int val)
 	if (sk->sk_userlocks & SOCK_RCVBUF_LOCK)
 		return 0;
 
-	val <<= 1;
-	if (val > sk->sk_rcvbuf) {
-		WRITE_ONCE(sk->sk_rcvbuf, val);
-		tcp_sk(sk)->window_clamp = tcp_win_from_space(sk, val);
+	space = tcp_space_from_win(sk, val);
+	if (space > sk->sk_rcvbuf) {
+		WRITE_ONCE(sk->sk_rcvbuf, space);
+		tcp_sk(sk)->window_clamp = val;
 	}
 	return 0;
 }
@@ -3802,6 +3805,15 @@ void tcp_get_info(struct sock *sk, struct tcp_info *info)
 	info->tcpi_rcv_wnd = tp->rcv_wnd;
 	info->tcpi_rehash = tp->plb_rehash + tp->timeout_rehash;
 	info->tcpi_fastopen_client_fail = tp->fastopen_client_fail;
+
+	info->tcpi_total_rto = tp->total_rto;
+	info->tcpi_total_rto_recoveries = tp->total_rto_recoveries;
+	info->tcpi_total_rto_time = tp->total_rto_time;
+	if (tp->rto_stamp) {
+		info->tcpi_total_rto_time += tcp_time_stamp_raw() -
+						tp->rto_stamp;
+	}
+
 	unlock_sock_fast(sk, slow);
 }
 EXPORT_SYMBOL_GPL(tcp_get_info);

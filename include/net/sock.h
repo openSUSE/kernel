@@ -1815,12 +1815,11 @@ static inline bool sock_owned_by_user_nocheck(const struct sock *sk)
 
 static inline void sock_release_ownership(struct sock *sk)
 {
-	if (sock_owned_by_user_nocheck(sk)) {
-		sk->sk_lock.owned = 0;
+	DEBUG_NET_WARN_ON_ONCE(!sock_owned_by_user_nocheck(sk));
+	sk->sk_lock.owned = 0;
 
-		/* The sk_lock has mutex_unlock() semantics: */
-		mutex_release(&sk->sk_lock.dep_map, _RET_IP_);
-	}
+	/* The sk_lock has mutex_unlock() semantics: */
+	mutex_release(&sk->sk_lock.dep_map, _RET_IP_);
 }
 
 /* no reclassification while locks are held */
@@ -2772,9 +2771,25 @@ static inline void skb_setup_tx_timestamp(struct sk_buff *skb, __u16 tsflags)
 			   &skb_shinfo(skb)->tskey);
 }
 
+static inline bool sk_is_inet(const struct sock *sk)
+{
+	int family = READ_ONCE(sk->sk_family);
+
+	return family == AF_INET || family == AF_INET6;
+}
+
 static inline bool sk_is_tcp(const struct sock *sk)
 {
-	return sk->sk_type == SOCK_STREAM && sk->sk_protocol == IPPROTO_TCP;
+	return sk_is_inet(sk) &&
+	       sk->sk_type == SOCK_STREAM &&
+	       sk->sk_protocol == IPPROTO_TCP;
+}
+
+static inline bool sk_is_udp(const struct sock *sk)
+{
+	return sk_is_inet(sk) &&
+	       sk->sk_type == SOCK_DGRAM &&
+	       sk->sk_protocol == IPPROTO_UDP;
 }
 
 /**

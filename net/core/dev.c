@@ -4062,6 +4062,8 @@ egress_verdict:
 	case TC_ACT_QUEUED:
 	case TC_ACT_TRAP:
 		consume_skb(skb);
+		fallthrough;
+	case TC_ACT_CONSUMED:
 		*ret = NET_XMIT_SUCCESS;
 		return NULL;
 	}
@@ -8890,9 +8892,11 @@ int dev_set_mac_address(struct net_device *dev, struct sockaddr *sa,
 	err = dev_pre_changeaddr_notify(dev, sa->sa_data, extack);
 	if (err)
 		return err;
-	err = ops->ndo_set_mac_address(dev, sa);
-	if (err)
-		return err;
+	if (memcmp(dev->dev_addr, sa->sa_data, dev->addr_len)) {
+		err = ops->ndo_set_mac_address(dev, sa);
+		if (err)
+			return err;
+	}
 	dev->addr_assign_type = NET_ADDR_SET;
 	call_netdevice_notifiers(NETDEV_CHANGEADDR, dev);
 	add_device_randomness(dev->dev_addr, dev->addr_len);
@@ -9650,6 +9654,11 @@ err_out:
 static int dev_index_reserve(struct net *net, u32 ifindex)
 {
 	int err;
+
+	if (ifindex > INT_MAX) {
+		DEBUG_NET_WARN_ON_ONCE(1);
+		return -EINVAL;
+	}
 
 	if (!ifindex)
 		err = xa_alloc_cyclic(&net->dev_by_index, &ifindex, NULL,
@@ -10739,8 +10748,10 @@ void netdev_sw_irq_coalesce_default_on(struct net_device *dev)
 {
 	WARN_ON(dev->reg_state == NETREG_REGISTERED);
 
-	dev->gro_flush_timeout = 20000;
-	dev->napi_defer_hard_irqs = 1;
+	if (!IS_ENABLED(CONFIG_PREEMPT_RT)) {
+		dev->gro_flush_timeout = 20000;
+		dev->napi_defer_hard_irqs = 1;
+	}
 }
 EXPORT_SYMBOL_GPL(netdev_sw_irq_coalesce_default_on);
 
@@ -10801,7 +10812,7 @@ struct net_device *alloc_netdev_mqs(int sizeof_priv, const char *name,
 	dev = PTR_ALIGN(p, NETDEV_ALIGN);
 	dev->padded = (char *)dev - (char *)p;
 
-	ref_tracker_dir_init(&dev->refcnt_tracker, 128);
+	ref_tracker_dir_init(&dev->refcnt_tracker, 128, name);
 #ifdef CONFIG_PCPU_DEV_REFCNT
 	dev->pcpu_refcnt = alloc_percpu(int);
 	if (!dev->pcpu_refcnt)

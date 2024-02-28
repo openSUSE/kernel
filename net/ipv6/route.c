@@ -424,6 +424,9 @@ void fib6_select_path(const struct net *net, struct fib6_result *res,
 	if (match->nh && have_oif_match && res->nh)
 		return;
 
+	if (skb)
+		IP6CB(skb)->flags |= IP6SKB_MULTIPATH;
+
 	/* We might have already computed the hash for ICMPv6 errors. In such
 	 * case it will always be non-zero. Otherwise now is the time to do it.
 	 */
@@ -4581,21 +4584,19 @@ struct fib6_info *addrconf_f6i_alloc(struct net *net,
 
 /* remove deleted ip from prefsrc entries */
 struct arg_dev_net_ip {
-	struct net_device *dev;
 	struct net *net;
 	struct in6_addr *addr;
 };
 
 static int fib6_remove_prefsrc(struct fib6_info *rt, void *arg)
 {
-	struct net_device *dev = ((struct arg_dev_net_ip *)arg)->dev;
 	struct net *net = ((struct arg_dev_net_ip *)arg)->net;
 	struct in6_addr *addr = ((struct arg_dev_net_ip *)arg)->addr;
 
 	if (!rt->nh &&
-	    ((void *)rt->fib6_nh->fib_nh_dev == dev || !dev) &&
 	    rt != net->ipv6.fib6_null_entry &&
-	    ipv6_addr_equal(addr, &rt->fib6_prefsrc.addr)) {
+	    ipv6_addr_equal(addr, &rt->fib6_prefsrc.addr) &&
+	    !ipv6_chk_addr(net, addr, rt->fib6_nh->fib_nh_dev, 0)) {
 		spin_lock_bh(&rt6_exception_lock);
 		/* remove prefsrc entry */
 		rt->fib6_prefsrc.plen = 0;
@@ -4608,7 +4609,6 @@ void rt6_remove_prefsrc(struct inet6_ifaddr *ifp)
 {
 	struct net *net = dev_net(ifp->idev->dev);
 	struct arg_dev_net_ip adni = {
-		.dev = ifp->idev->dev,
 		.net = net,
 		.addr = &ifp->addr,
 	};
