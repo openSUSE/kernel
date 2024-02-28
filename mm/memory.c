@@ -3137,7 +3137,7 @@ static vm_fault_t wp_page_copy(struct vm_fault *vmf)
 		 * that left a window where the new PTE could be loaded into
 		 * some TLBs while the old PTE remains in others.
 		 */
-		ptep_clear_flush_notify(vma, vmf->address, vmf->pte);
+		ptep_clear_flush(vma, vmf->address, vmf->pte);
 		folio_add_new_anon_rmap(new_folio, vma, vmf->address);
 		folio_add_lru_vma(new_folio, vma);
 		/*
@@ -3185,11 +3185,8 @@ static vm_fault_t wp_page_copy(struct vm_fault *vmf)
 		folio_put(new_folio);
 
 	pte_unmap_unlock(vmf->pte, vmf->ptl);
-	/*
-	 * No need to double call mmu_notifier->invalidate_range() callback as
-	 * the above ptep_clear_flush_notify() did already call it.
-	 */
-	mmu_notifier_invalidate_range_only_end(&range);
+
+	mmu_notifier_invalidate_range_end(&range);
 	if (old_folio) {
 		if (page_copied)
 			free_swap_cache(&old_folio->page);
