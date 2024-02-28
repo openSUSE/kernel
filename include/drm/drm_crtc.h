@@ -1177,6 +1177,8 @@ struct drm_crtc {
 	 * Initialized via drm_self_refresh_helper_init().
 	 */
 	struct drm_self_refresh_data *self_refresh_data;
+
+	void *suse_kabi_padding;
 };
 
 /**

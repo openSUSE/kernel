@@ -1888,6 +1888,8 @@ struct drm_connector {
 
 	/** @hdr_sink_metadata: HDR Metadata Information read from sink */
 	struct hdr_sink_metadata hdr_sink_metadata;
+
+	void *suse_kabi_padding;
 };
 
 #define obj_to_connector(x) container_of(x, struct drm_connector, base)
