@@ -818,6 +818,7 @@ struct xhci_command {
 	struct completion		*completion;
 	union xhci_trb			*command_trb;
 	struct list_head		cmd_list;
+	void *suse_kabi_padding;
 };
 
 /* drop context bitmasks */
@@ -860,6 +861,7 @@ struct xhci_stream_info {
 	/* For mapping physical TRB addresses to segments in stream rings */
 	struct radix_tree_root		trb_address_map;
 	struct xhci_command		*free_streams_command;
+	void *suse_kabi_padding;
 };
 
 #define	SMALL_STREAM_ARRAY_SIZE		256
@@ -974,6 +976,7 @@ struct xhci_virt_ep {
 	int			next_frame_id;
 	/* Use new Isoch TRB layout needed for extended TBC support */
 	bool			use_extended_tbc;
+	void *suse_kabi_padding;
 };
 
 enum xhci_overhead_type {
@@ -1037,6 +1040,7 @@ struct xhci_virt_device {
 	u16				current_mel;
 	/* Used for the debugfs interfaces. */
 	void				*debugfs_private;
+	void *suse_kabi_padding;
 };
 
 /*
@@ -1552,6 +1556,7 @@ struct xhci_segment {
 	void			*bounce_buf;
 	unsigned int		bounce_offs;
 	unsigned int		bounce_len;
+	void *suse_kabi_padding;
 };
 
 enum xhci_cancelled_td_status {
@@ -1576,6 +1581,7 @@ struct xhci_td {
 	bool			urb_length_set;
 	bool			error_mid_td;
 	unsigned int		num_trbs;
+	void *suse_kabi_padding;
 };
 
 /* xHCI command default timeout value */
@@ -1640,6 +1646,7 @@ struct xhci_ring {
 	enum xhci_ring_type	type;
 	bool			last_td_was_short;
 	struct radix_tree_root	*trb_address_map;
+	void *suse_kabi_padding;
 };
 
 struct xhci_erst_entry {
@@ -1668,6 +1675,7 @@ struct xhci_scratchpad {
 struct urb_priv {
 	int	num_tds;
 	int	num_tds_done;
+	void *suse_kabi_padding;
 	struct	xhci_td	td[];
 };
 
@@ -1708,6 +1716,7 @@ struct xhci_bus_state {
 	u32			port_remote_wakeup;
 	/* which ports have started to resume */
 	unsigned long		resuming_ports;
+	void *suse_kabi_padding;
 };
 
 struct xhci_interrupter {
@@ -1721,6 +1730,7 @@ struct xhci_interrupter {
 	u32	s3_erst_size;
 	u64	s3_erst_base;
 	u64	s3_erst_dequeue;
+	void *suse_kabi_padding;
 };
 /*
  * It can take up to 20 ms to transition from RExit to U0 on the
@@ -1746,6 +1756,7 @@ struct xhci_port {
 	bool			rexit_active;
 	struct completion	rexit_done;
 	struct completion	u3exit_done;
+	void *suse_kabi_padding;
 };
 
 struct xhci_hub {
@@ -1757,6 +1768,7 @@ struct xhci_hub {
 	/* supported prococol extended capabiliy values */
 	u8			maj_rev;
 	u8			min_rev;
+	void *suse_kabi_padding;
 };
 
 /* There is one xhci_hcd structure per controller */
@@ -1939,6 +1951,7 @@ struct xhci_hcd {
 	struct list_head	regset_list;
 
 	void			*dbc;
+	void *suse_kabi_padding;
 	/* platform-specific data -- must come last */
 	unsigned long		priv[] __aligned(sizeof(s64));
 };
@@ -1958,6 +1971,7 @@ struct xhci_driver_overrides {
 			    struct usb_tt *tt, gfp_t mem_flags);
 	int (*hub_control)(struct usb_hcd *hcd, u16 typeReq, u16 wValue,
 			   u16 wIndex, char *buf, u16 wLength);
+	void *suse_kabi_padding;
 };
 
 #define	XHCI_CFC_DELAY		10
