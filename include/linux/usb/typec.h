@@ -365,6 +365,7 @@ int typec_partner_set_usb_power_delivery(struct typec_partner *partner,
 struct typec_connector {
 	void (*attach)(struct typec_connector *con, struct device *dev);
 	void (*deattach)(struct typec_connector *con, struct device *dev);
+	void *suse_kabi_padding;
 };
 
 static inline void typec_attach(struct typec_connector *con, struct device *dev)
