@@ -306,6 +306,8 @@ struct video_device {
 	DECLARE_BITMAP(valid_ioctls, BASE_VIDIOC_PRIVATE);
 
 	struct mutex *lock;
+
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 /**

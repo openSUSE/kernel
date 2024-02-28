@@ -157,6 +157,8 @@ struct videobuf_queue {
 
 	/* driver private data */
 	void                       *priv_data;
+
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 static inline void videobuf_queue_lock(struct videobuf_queue *q)
