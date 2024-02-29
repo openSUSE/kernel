@@ -1459,7 +1459,7 @@ ORed together. The letters are seen in "Tainted" line of Oops reports.
       8192  `(E)`  unsigned module was loaded
      16384  `(L)`  soft lockup occurred
      32768  `(K)`  kernel has been live patched
-     65536  `(X)`  A kernel module with external support was loaded
+     65536  `(X)`  Auxiliary taint, defined and used by for distros
     131072  `(T)`  The kernel was built with the struct randomization plugin
 2147483648  `(n)`  An unsupported kernel module was loaded
 ==========  =====  ==========================================================

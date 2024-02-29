@@ -238,7 +238,14 @@ struct kobject *kernel_kobj;
 EXPORT_SYMBOL_GPL(kernel_kobj);
 
 #ifdef CONFIG_SUSE_KERNEL_SUPPORTED
-const char *supported_printable(int taint)
+static unsigned long support_taint_mask;
+
+void add_support_taint(unsigned flag)
+{
+	set_bit(flag, &support_taint_mask);
+}
+
+const char *supported_printable(unsigned long taint)
 {
 #ifdef CONFIG_SUSE_KERNEL_RELEASED
 	int mask = (1 << TAINT_PROPRIETARY_MODULE) | (1 << TAINT_NO_SUPPORT);
@@ -253,14 +260,19 @@ const char *supported_printable(int taint)
 	else
 		return "Yes";
 #else
-		return "No, Unreleased kernel";
+	return "No, Unreleased kernel";
 #endif
+}
+
+const char *kernel_supported_printable(void)
+{
+	return supported_printable(get_taint() | support_taint_mask);
 }
 
 static ssize_t supported_show(struct kobject *kobj,
 			      struct kobj_attribute *attr, char *buf)
 {
-	return sprintf(buf, "%s\n", supported_printable(get_taint()));
+	return sprintf(buf, "%s\n", kernel_supported_printable());
 }
 KERNEL_ATTR_RO(supported);
 #endif
