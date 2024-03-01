@@ -102,7 +102,6 @@ Bit  Log  Number      Reason that got the kernel tainted
  17  _/T      131072  kernel was built with the struct randomization plugin
  18  _/N      262144  an in-kernel test has been run
  31  _/n  2147483648  an unsupported kernel module was loaded
-
 ===  ===  ==========  ========================================================
 
 Note: The character ``_`` is representing a blank in this table to make reading
