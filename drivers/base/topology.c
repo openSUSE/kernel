@@ -54,6 +54,9 @@ static DEVICE_ATTR_RO(cluster_id);
 define_id_show_func(core_id, "%d");
 static DEVICE_ATTR_RO(core_id);
 
+define_id_show_func(ppin, "0x%llx");
+static DEVICE_ATTR_ADMIN_RO(ppin);
+
 define_siblings_read_func(thread_siblings, sibling_cpumask);
 static BIN_ATTR_RO(thread_siblings, CPUMAP_FILE_MAX_BYTES);
 static BIN_ATTR_RO(thread_siblings_list, CPULIST_FILE_MAX_BYTES);
@@ -129,6 +132,7 @@ static struct attribute *default_attrs[] = {
 #ifdef CONFIG_SCHED_DRAWER
 	&dev_attr_drawer_id.attr,
 #endif
+	&dev_attr_ppin.attr,
 	NULL
 };
 
