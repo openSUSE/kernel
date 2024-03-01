@@ -100,7 +100,7 @@ void *bpf_map_fd_get_ptr(struct bpf_map *map,
 	return inner_map;
 }
 
-void bpf_map_fd_put_ptr(struct bpf_map *map, void *ptr, bool need_defer)
+void bpf_map_fd_put_ptr_new(struct bpf_map *map, void *ptr, bool need_defer)
 {
 	struct bpf_map *inner_map = ptr;
 
@@ -111,6 +111,11 @@ void bpf_map_fd_put_ptr(struct bpf_map *map, void *ptr, bool need_defer)
 	if (need_defer)
 		WRITE_ONCE(inner_map->free_after_mult_rcu_gp, true);
 	bpf_map_put(inner_map);
+}
+
+
+void bpf_map_fd_put_ptr(void *ptr) {
+	bpf_map_fd_put_ptr_new(NULL, ptr, true);
 }
 
 u32 bpf_map_fd_sys_lookup_elem(void *ptr)
