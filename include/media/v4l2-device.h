@@ -56,6 +56,8 @@ struct v4l2_device {
 	struct v4l2_prio_state prio;
 	struct kref ref;
 	void (*release)(struct v4l2_device *v4l2_dev);
+
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 /**
