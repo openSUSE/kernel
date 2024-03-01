@@ -783,8 +783,12 @@ int bpf_fd_array_map_update_elem(struct bpf_map *map, struct file *map_file,
 		old_ptr = xchg(array->ptrs + index, new_ptr);
 	}
 
-	if (old_ptr)
-		map->ops->map_fd_put_ptr(map, old_ptr, true);
+	if (old_ptr) {
+#ifndef __GENKSYMS__
+		map->ops->map_fd_put_ptr_new(map, old_ptr, true);
+#endif
+	}
+
 	return 0;
 }
 
@@ -807,7 +811,9 @@ static int __fd_array_map_delete_elem(struct bpf_map *map, void *key, bool need_
 	}
 
 	if (old_ptr) {
-		map->ops->map_fd_put_ptr(map, old_ptr, need_defer);
+#ifndef __GENKSYMS__
+		map->ops->map_fd_put_ptr_new(map, old_ptr, need_defer);
+#endif
 		return 0;
 	} else {
 		return -ENOENT;
@@ -836,10 +842,15 @@ static void *prog_fd_array_get_ptr(struct bpf_map *map,
 	return prog;
 }
 
-static void prog_fd_array_put_ptr(struct bpf_map *map, void *ptr, bool need_defer)
+static void prog_fd_array_put_ptr_new(struct bpf_map *map, void *ptr, bool need_defer)
 {
 	/* bpf_prog is freed after one RCU or tasks trace grace period */
 	bpf_prog_put(ptr);
+}
+
+static void prog_fd_array_put_ptr(void *ptr)
+{
+	prog_fd_array_put_ptr_new(NULL, ptr, false);
 }
 
 static u32 prog_fd_array_sys_lookup_elem(void *ptr)
@@ -1108,6 +1119,9 @@ const struct bpf_map_ops prog_array_map_ops = {
 	.map_seq_show_elem = prog_array_map_seq_show_elem,
 	.map_btf_name = "bpf_array",
 	.map_btf_id = &prog_array_map_btf_id,
+#ifndef __GENKSYMS__
+	.map_fd_put_ptr_new = prog_fd_array_put_ptr_new,
+#endif
 };
 
 static struct bpf_event_entry *bpf_event_entry_gen(struct file *perf_file,
@@ -1165,10 +1179,15 @@ err_out:
 	return ee;
 }
 
-static void perf_event_fd_array_put_ptr(struct bpf_map *map, void *ptr, bool need_defer)
+static void perf_event_fd_array_put_ptr_new(struct bpf_map *map, void *ptr, bool need_defer)
 {
 	/* bpf_perf_event is freed after one RCU grace period */
 	bpf_event_entry_free_rcu(ptr);
+}
+
+static void perf_event_fd_array_put_ptr(void *ptr)
+{
+	perf_event_fd_array_put_ptr_new(NULL, ptr, false);
 }
 
 static void perf_event_fd_array_release(struct bpf_map *map,
@@ -1212,6 +1231,9 @@ const struct bpf_map_ops perf_event_array_map_ops = {
 	.map_check_btf = map_check_no_btf,
 	.map_btf_name = "bpf_array",
 	.map_btf_id = &perf_event_array_map_btf_id,
+#ifndef __GENKSYMS__
+	.map_fd_put_ptr_new = perf_event_fd_array_put_ptr_new,
+#endif
 };
 
 #ifdef CONFIG_CGROUPS
@@ -1222,10 +1244,16 @@ static void *cgroup_fd_array_get_ptr(struct bpf_map *map,
 	return cgroup_get_from_fd(fd);
 }
 
-static void cgroup_fd_array_put_ptr(struct bpf_map *map, void *ptr, bool need_defer)
+static void cgroup_fd_array_put_ptr_new(struct bpf_map *map, void *ptr, bool need_defer)
 {
 	/* cgroup_put free cgrp after a rcu grace period */
 	cgroup_put(ptr);
+}
+
+
+static void cgroup_fd_array_put_ptr(void *ptr)
+{
+	cgroup_fd_array_put_ptr_new(NULL, ptr, false);
 }
 
 static void cgroup_fd_array_free(struct bpf_map *map)
@@ -1248,6 +1276,9 @@ const struct bpf_map_ops cgroup_array_map_ops = {
 	.map_check_btf = map_check_no_btf,
 	.map_btf_name = "bpf_array",
 	.map_btf_id = &cgroup_array_map_btf_id,
+#ifndef __GENKSYMS__
+	.map_fd_put_ptr_new = cgroup_fd_array_put_ptr_new,
+#endif
 };
 #endif
 
@@ -1336,4 +1367,7 @@ const struct bpf_map_ops array_of_maps_map_ops = {
 	.map_check_btf = map_check_no_btf,
 	.map_btf_name = "bpf_array",
 	.map_btf_id = &array_of_maps_map_btf_id,
+#ifndef __GENKSYMS__
+	.map_fd_put_ptr_new = bpf_map_fd_put_ptr_new,
+#endif
 };

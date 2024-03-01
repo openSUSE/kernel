@@ -806,10 +806,12 @@ static void htab_put_fd_value(struct bpf_htab *htab, struct htab_elem *l)
 	struct bpf_map *map = &htab->map;
 	void *ptr;
 
-	if (map->ops->map_fd_put_ptr) {
+#ifndef __GENKSYMS__
+	if (map->ops->map_fd_put_ptr_new) {
 		ptr = fd_htab_map_get_ptr(map, l);
-		map->ops->map_fd_put_ptr(map, ptr, true);
+		map->ops->map_fd_put_ptr_new(map, ptr, true);
 	}
+#endif
 }
 
 static void free_htab_elem(struct bpf_htab *htab, struct htab_elem *l)
@@ -2233,7 +2235,9 @@ static void fd_htab_map_free(struct bpf_map *map)
 		hlist_nulls_for_each_entry_safe(l, n, head, hash_node) {
 			void *ptr = fd_htab_map_get_ptr(map, l);
 
-			map->ops->map_fd_put_ptr(map, ptr, false);
+#ifndef __GENKSYMS__
+			map->ops->map_fd_put_ptr_new(map, ptr, false);
+#endif
 		}
 	}
 
@@ -2273,8 +2277,11 @@ int bpf_fd_htab_map_update_elem(struct bpf_map *map, struct file *map_file,
 		return PTR_ERR(ptr);
 
 	ret = htab_map_update_elem(map, key, &ptr, map_flags);
-	if (ret)
-		map->ops->map_fd_put_ptr(map, ptr, false);
+	if (ret) {
+#ifndef __GENKSYMS__
+		map->ops->map_fd_put_ptr_new(map, ptr, false);
+#endif
+	}
 
 	return ret;
 }
@@ -2347,4 +2354,7 @@ const struct bpf_map_ops htab_of_maps_map_ops = {
 	.map_check_btf = map_check_no_btf,
 	.map_btf_name = "bpf_htab",
 	.map_btf_id = &htab_of_maps_map_btf_id,
+#ifndef __GENKSYMS__
+	.map_fd_put_ptr_new = bpf_map_fd_put_ptr_new,
+#endif
 };

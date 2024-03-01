@@ -13,7 +13,10 @@ struct bpf_map *bpf_map_meta_alloc(int inner_map_ufd);
 void bpf_map_meta_free(struct bpf_map *map_meta);
 void *bpf_map_fd_get_ptr(struct bpf_map *map, struct file *map_file,
 			 int ufd);
-void bpf_map_fd_put_ptr(struct bpf_map *map, void *ptr, bool need_defer);
+void bpf_map_fd_put_ptr(void *ptr);
+#ifndef __GENKSYMS__
+void bpf_map_fd_put_ptr_new(struct bpf_map *map, void *ptr, bool need_defer);
+#endif
 u32 bpf_map_fd_sys_lookup_elem(void *ptr);
 
 #endif
