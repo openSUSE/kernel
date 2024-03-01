@@ -62,6 +62,7 @@ struct ucsi_operations {
 			   const void *val, size_t val_len);
 	bool (*update_altmodes)(struct ucsi *ucsi, struct ucsi_altmode *orig,
 				struct ucsi_altmode *updated);
+	void *suse_kabi_padding;
 };
 
 struct ucsi *ucsi_create(struct device *dev, const struct ucsi_operations *ops);
@@ -334,6 +335,7 @@ struct ucsi_debugfs_entry {
 	} response;
 	u32 status;
 	struct dentry *dentry;
+	void *suse_kabi_padding;
 };
 
 struct ucsi {
@@ -362,6 +364,7 @@ struct ucsi {
 
 	/* PPM communication flags */
 	unsigned long flags;
+	void *suse_kabi_padding;
 #define EVENT_PENDING	0
 #define COMMAND_PENDING	1
 #define ACK_PENDING	2
@@ -409,6 +412,7 @@ struct ucsi_connector {
 	struct usb_power_delivery_capabilities *partner_sink_caps;
 
 	struct usb_role_switch *usb_role_sw;
+	void *suse_kabi_padding;
 };
 
 int ucsi_send_command(struct ucsi *ucsi, u64 command,

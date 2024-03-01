@@ -11,12 +11,14 @@ struct usb_power_delivery {
 	int id;
 	u16 revision;
 	u16 version;
+	void *suse_kabi_padding;
 };
 
 struct usb_power_delivery_capabilities {
 	struct device dev;
 	struct usb_power_delivery *pd;
 	enum typec_role role;
+	void *suse_kabi_padding;
 };
 
 #define to_usb_power_delivery_capabilities(o) container_of(o, struct usb_power_delivery_capabilities, dev)
