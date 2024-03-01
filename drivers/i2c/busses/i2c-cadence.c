@@ -561,7 +561,7 @@ static int cdns_i2c_master_xfer(struct i2c_adapter *adap, struct i2c_msg *msgs,
 	struct cdns_i2c *id = adap->algo_data;
 	bool hold_quirk;
 
-	ret = pm_runtime_get_sync(id->dev);
+	ret = pm_runtime_resume_and_get(id->dev);
 	if (ret < 0)
 		return ret;
 	/* Check if the bus is free */
