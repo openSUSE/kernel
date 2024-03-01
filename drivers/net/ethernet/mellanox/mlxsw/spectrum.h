@@ -669,6 +669,7 @@ struct mlxsw_sp_acl_block {
 };
 
 struct mlxsw_afk *mlxsw_sp_acl_afk(struct mlxsw_sp_acl *acl);
+struct mlxsw_sp_acl_tcam *mlxsw_sp_acl_to_tcam(struct mlxsw_sp_acl *acl);
 struct mlxsw_sp *mlxsw_sp_acl_block_mlxsw_sp(struct mlxsw_sp_acl_block *block);
 unsigned int mlxsw_sp_acl_block_rule_count(struct mlxsw_sp_acl_block *block);
 void mlxsw_sp_acl_block_disable_inc(struct mlxsw_sp_acl_block *block);
