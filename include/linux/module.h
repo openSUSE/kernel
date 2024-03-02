@@ -611,7 +611,9 @@ bool __is_module_percpu_address(unsigned long addr, unsigned long *can_addr);
 bool is_module_percpu_address(unsigned long addr);
 bool is_module_text_address(unsigned long addr);
 #ifdef CONFIG_SUSE_KERNEL_SUPPORTED
-const char *supported_printable(int taint);
+void add_support_taint(unsigned flag);
+const char *supported_printable(unsigned long taint);
+const char *kernel_supported_printable(void);
 #endif
 
 static inline bool within_module_mem_type(unsigned long addr,
