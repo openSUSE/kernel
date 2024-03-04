@@ -82,7 +82,7 @@ static struct dst_entry *ip6_negative_advice(struct dst_entry *);
 static void		ip6_dst_destroy(struct dst_entry *);
 static void		ip6_dst_ifdown(struct dst_entry *,
 				       struct net_device *dev, int how);
-static void		 ip6_dst_gc(struct dst_ops *ops);
+static int		 ip6_dst_gc(struct dst_ops *ops);
 
 static int		ip6_pkt_discard(struct sk_buff *skb);
 static int		ip6_pkt_discard_out(struct sk_buff *skb);
@@ -1144,7 +1144,7 @@ static void icmp6_clean_all(int (*func)(struct rt6_info *rt, void *arg),
 	spin_unlock_bh(&icmp6_dst_lock);
 }
 
-static void ip6_dst_gc(struct dst_ops *ops)
+static int ip6_dst_gc(struct dst_ops *ops)
 {
 	struct net *net = container_of(ops, struct net, ipv6.ip6_dst_ops);
 	int rt_min_interval = net->ipv6.sysctl.ip6_rt_gc_min_interval;
@@ -1164,6 +1164,7 @@ static void ip6_dst_gc(struct dst_ops *ops)
 		net->ipv6.ip6_rt_gc_expire = rt_gc_timeout>>1;
 out:
 	net->ipv6.ip6_rt_gc_expire -= net->ipv6.ip6_rt_gc_expire>>rt_elasticity;
+	return 0;
 }
 
 /* Clean host part of a prefix. Not necessary in radix tree,

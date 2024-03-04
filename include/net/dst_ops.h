@@ -14,7 +14,7 @@ struct dst_ops {
 	__be16			protocol;
 	unsigned		gc_thresh;
 
-	void			(*gc)(struct dst_ops *ops);
+	int			(*gc)(struct dst_ops *ops);
 	struct dst_entry *	(*check)(struct dst_entry *, __u32 cookie);
 	unsigned int		(*default_advmss)(const struct dst_entry *);
 	unsigned int		(*default_mtu)(const struct dst_entry *);
