@@ -230,11 +230,18 @@ struct bpf_map {
 	 */
 	atomic64_t refcnt ____cacheline_aligned;
 	atomic64_t usercnt;
+#ifndef __GENKSYMS__
 	/* rcu is used before freeing and work is only used during freeing */
 	union {
+#endif
 		struct work_struct work;
+#ifndef __GENKSYMS__
 		struct rcu_head rcu;
 	};
+      /* Assert union of rcu_head and work_struct won't be larger than size
+       * of the original work_struct, thus breaking kABI */
+      static_assert(sizeof(struct work_struct) >= sizeof(struct rcu_head));
+#endif
 	struct mutex freeze_mutex;
 	atomic64_t writecnt;
 	/* 'Ownership' of program-containing map is claimed by the first program
@@ -250,9 +257,14 @@ struct bpf_map {
 	} owner;
 	bool bypass_spec_v1;
 	bool frozen; /* write-once; write-protected by freeze_mutex */
+#ifndef __GENKSYMS__
 	bool free_after_mult_rcu_gp;
+#else
 	void *suse_kabi_padding;
+#endif
 };
+
+static_assert(sizeof(struct work_struct) >= sizeof(struct rcu_head));
 
 static inline bool map_value_has_spin_lock(const struct bpf_map *map)
 {

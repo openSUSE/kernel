@@ -616,6 +616,7 @@ static void bpf_map_free_in_work(struct bpf_map *map)
 
 static void bpf_map_free_rcu_gp(struct rcu_head *rcu)
 {
+
 	bpf_map_free_in_work(container_of(rcu, struct bpf_map, rcu));
 }
 
