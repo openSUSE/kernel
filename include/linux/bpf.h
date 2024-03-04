@@ -24,6 +24,7 @@
 #include <linux/percpu-refcount.h>
 #include <linux/bpfptr.h>
 #include <linux/btf.h>
+#include <linux/rcupdate_trace.h>
 
 struct bpf_verifier_env;
 struct bpf_verifier_log;
