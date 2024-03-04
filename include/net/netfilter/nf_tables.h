@@ -183,9 +183,9 @@ static inline void nft_reg_store64(u64 *dreg, u64 val)
 	put_unaligned(val, dreg);
 }
 
-static inline u64 nft_reg_load64(const u32 *sreg)
+static inline u64 nft_reg_load64(const u64 *sreg)
 {
-	return get_unaligned((u64 *)sreg);
+	return get_unaligned(sreg);
 }
 
 static inline void nft_data_copy(u32 *dst, const struct nft_data *src,
