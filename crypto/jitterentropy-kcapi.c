@@ -340,7 +340,7 @@ static int __init jent_mod_init(void)
 
 	desc->tfm = tfm;
 	crypto_shash_init(desc);
-	ret = jent_entropy_init(0, 0, desc);
+	ret = jent_entropy_init(0, 0, desc, NULL);
 	shash_desc_zero(desc);
 	crypto_free_shash(tfm);
 	if (ret) {
