@@ -70,6 +70,7 @@ modules.order
 /Module.markers
 /modules.builtin
 /modules.builtin.modinfo
+/modules.livepatch
 /modules.nsdeps
 
 #

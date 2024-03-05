@@ -534,6 +534,7 @@ int nvmf_connect_io_queue(struct nvme_ctrl *ctrl, u16 qid)
 	if (ret) {
 		nvmf_log_connect_error(ctrl, ret, le32_to_cpu(res.u32),
 				       &cmd, data);
+		goto out_free_data;
 	}
 	result = le32_to_cpu(res.u32);
 	if (result & (NVME_CONNECT_AUTHREQ_ATR | NVME_CONNECT_AUTHREQ_ASCR)) {
@@ -637,7 +638,7 @@ static struct key *nvmf_parse_key(int key_id)
 	}
 
 	key = key_lookup(key_id);
-	if (!IS_ERR(key))
+	if (IS_ERR(key))
 		pr_err("key id %08x not found\n", key_id);
 	else
 		pr_debug("Using key id %08x\n", key_id);

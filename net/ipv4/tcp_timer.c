@@ -234,14 +234,19 @@ static int tcp_write_timeout(struct sock *sk)
 	struct tcp_sock *tp = tcp_sk(sk);
 	struct net *net = sock_net(sk);
 	bool expired = false, do_reset;
-	int retry_until;
+	int retry_until, max_retransmits;
 
 	if ((1 << sk->sk_state) & (TCPF_SYN_SENT | TCPF_SYN_RECV)) {
 		if (icsk->icsk_retransmits)
 			__dst_negative_advice(sk);
 		retry_until = icsk->icsk_syn_retries ? :
 			READ_ONCE(net->ipv4.sysctl_tcp_syn_retries);
-		expired = icsk->icsk_retransmits >= retry_until;
+
+		max_retransmits = retry_until;
+		if (sk->sk_state == TCP_SYN_SENT)
+			max_retransmits += READ_ONCE(net->ipv4.sysctl_tcp_syn_linear_timeouts);
+
+		expired = icsk->icsk_retransmits >= max_retransmits;
 	} else {
 		if (retransmits_timed_out(sk, READ_ONCE(net->ipv4.sysctl_tcp_retries1), 0)) {
 			/* Black hole detection */
@@ -404,6 +409,19 @@ abort:		tcp_write_err(sk);
 	}
 }
 
+static void tcp_update_rto_stats(struct sock *sk)
+{
+	struct inet_connection_sock *icsk = inet_csk(sk);
+	struct tcp_sock *tp = tcp_sk(sk);
+
+	if (!icsk->icsk_retransmits) {
+		tp->total_rto_recoveries++;
+		tp->rto_stamp = tcp_time_stamp(tp);
+	}
+	icsk->icsk_retransmits++;
+	tp->total_rto++;
+}
+
 /*
  *	Timer for Fast Open socket to retransmit SYNACK. Note that the
  *	sk here is the child socket, not the parent (listener) socket.
@@ -434,7 +452,7 @@ static void tcp_fastopen_synack_timer(struct sock *sk, struct request_sock *req)
 	 */
 	inet_rtx_syn_ack(sk, req);
 	req->num_timeout++;
-	icsk->icsk_retransmits++;
+	tcp_update_rto_stats(sk);
 	if (!tp->retrans_stamp)
 		tp->retrans_stamp = tcp_time_stamp(tp);
 	inet_csk_reset_xmit_timer(sk, ICSK_TIME_RETRANS,
@@ -543,7 +561,7 @@ void tcp_retransmit_timer(struct sock *sk)
 
 	tcp_enter_loss(sk);
 
-	icsk->icsk_retransmits++;
+	tcp_update_rto_stats(sk);
 	if (tcp_retransmit_skb(sk, tcp_rtx_queue_head(sk), 1) > 0) {
 		/* Retransmission failed because of local congestion,
 		 * Let senders fight for local resources conservatively.
@@ -569,7 +587,6 @@ void tcp_retransmit_timer(struct sock *sk)
 	 * implemented ftp to mars will work nicely. We will have to fix
 	 * the 120 second clamps though!
 	 */
-	icsk->icsk_backoff++;
 
 out_reset_timer:
 	/* If stream is thin, use linear timeouts. Since 'icsk_backoff' is
@@ -589,8 +606,13 @@ out_reset_timer:
 		icsk->icsk_rto = clamp(__tcp_set_rto(tp),
 				       tcp_rto_min(sk),
 				       TCP_RTO_MAX);
-	} else {
-		/* Use normal (exponential) backoff */
+	} else if (sk->sk_state != TCP_SYN_SENT ||
+		   tp->total_rto >
+		   READ_ONCE(net->ipv4.sysctl_tcp_syn_linear_timeouts)) {
+		/* Use normal (exponential) backoff unless linear timeouts are
+		 * activated.
+		 */
+		icsk->icsk_backoff++;
 		icsk->icsk_rto = min(icsk->icsk_rto << 1, TCP_RTO_MAX);
 	}
 	inet_csk_reset_xmit_timer(sk, ICSK_TIME_RETRANS,

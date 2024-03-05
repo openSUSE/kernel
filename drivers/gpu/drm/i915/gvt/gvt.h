@@ -38,7 +38,7 @@
 #include <linux/vfio.h>
 #include <linux/mdev.h>
 
-#include "i915_drv.h"
+#include "gt/intel_gt.h"
 #include "intel_gvt.h"
 
 #include "debug.h"
@@ -58,6 +58,8 @@
 #include "page_track.h"
 
 #define GVT_MAX_VGPU 8
+
+struct engine_mmio;
 
 /* Describe per-platform limitations. */
 struct intel_gvt_device_info {
@@ -366,11 +368,6 @@ struct intel_gvt {
 
 	struct dentry *debugfs_root;
 };
-
-static inline struct intel_gvt *to_gvt(struct drm_i915_private *i915)
-{
-	return i915->gvt;
-}
 
 enum {
 	/* Scheduling trigger by timer */

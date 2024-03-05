@@ -693,6 +693,7 @@ struct sdw_slave {
 	bool first_interrupt_done;
 	bool is_mockup_device;
 	struct mutex sdw_dev_lock; /* protect callbacks/remove races */
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 #define dev_to_sdw_dev(_dev) container_of(_dev, struct sdw_slave, dev)
@@ -933,6 +934,7 @@ struct sdw_bus {
 	bool multi_link;
 	int hw_sync_min_links;
 	int dev_num_ida_min;
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 int sdw_bus_master_add(struct sdw_bus *bus, struct device *parent,
@@ -1022,6 +1024,7 @@ struct sdw_stream_runtime {
 	enum sdw_stream_type type;
 	struct list_head master_list;
 	int m_rt_count;
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 struct sdw_stream_runtime *sdw_alloc_stream(const char *stream_name);

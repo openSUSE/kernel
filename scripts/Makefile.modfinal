@@ -14,6 +14,7 @@ include $(srctree)/scripts/Makefile.lib
 
 # find all modules listed in modules.order
 modules := $(call read-file, $(MODORDER))
+modules-klp := $(call read-file, $(MODULES_LIVEPATCH))
 
 __modfinal: $(modules:%.o=%.ko)
 	@:
@@ -64,6 +65,20 @@ ifdef CONFIG_DEBUG_INFO_BTF_MODULES
 endif
 
 targets += $(modules:%.o=%.ko) $(modules:%.o=%.mod.o)
+
+# Livepatch
+# ---------------------------------------------------------------------------
+
+%.tmp.ko: %.o %.mod.o FORCE
+	+$(call if_changed,ld_ko_o)
+
+quiet_cmd_klp_convert = KLP     $@
+      cmd_klp_convert = scripts/livepatch/klp-convert $< $@
+
+$(modules-klp:%.o=%.ko): %.ko: %.tmp.ko FORCE
+	$(call if_changed,klp_convert)
+
+targets += $(modules-klp:.ko=.tmp.ko)
 
 # Add FORCE to the prequisites of a target to force it to be always rebuilt.
 # ---------------------------------------------------------------------------

@@ -38,7 +38,6 @@
 #include "link_dpms.h"
 #include "link_hwss.h"
 #include "link_validation.h"
-#include "accessories/link_fpga.h"
 #include "accessories/link_dp_trace.h"
 #include "protocols/link_dpcd.h"
 #include "protocols/link_ddc.h"
@@ -56,7 +55,10 @@
 #include "dccg.h"
 #include "clk_mgr.h"
 #include "atomfirmware.h"
-#define DC_LOGGER_INIT(logger)
+#define DC_LOGGER \
+	dc_logger
+#define DC_LOGGER_INIT(logger) \
+	struct dal_logger *dc_logger = logger
 
 #define LINK_INFO(...) \
 	DC_LOG_HW_HOTPLUG(  \
@@ -2071,17 +2073,11 @@ static enum dc_status enable_link_dp(struct dc_state *state,
 		}
 	}
 
-	/*
-	 * If the link is DP-over-USB4 do the following:
-	 * - Train with fallback when enabling DPIA link. Conventional links are
+	/* Train with fallback when enabling DPIA link. Conventional links are
 	 * trained with fallback during sink detection.
-	 * - Allocate only what the stream needs for bw in Gbps. Inform the CM
-	 * in case stream needs more or less bw from what has been allocated
-	 * earlier at plug time.
 	 */
-	if (link->ep_type == DISPLAY_ENDPOINT_USB4_DPIA) {
+	if (link->ep_type == DISPLAY_ENDPOINT_USB4_DPIA)
 		do_fallback = true;
-	}
 
 	/*
 	 * Temporary w/a to get DP2.0 link rates to work with SST.
@@ -2263,6 +2259,32 @@ static enum dc_status enable_link(
 	return status;
 }
 
+static bool allocate_usb4_bandwidth_for_stream(struct dc_stream_state *stream, int bw)
+{
+	return true;
+}
+
+static bool allocate_usb4_bandwidth(struct dc_stream_state *stream)
+{
+	bool ret;
+
+	int bw = dc_bandwidth_in_kbps_from_timing(&stream->timing,
+			dc_link_get_highest_encoding_format(stream->sink->link));
+
+	ret = allocate_usb4_bandwidth_for_stream(stream, bw);
+
+	return ret;
+}
+
+static bool deallocate_usb4_bandwidth(struct dc_stream_state *stream)
+{
+	bool ret;
+
+	ret = allocate_usb4_bandwidth_for_stream(stream, 0);
+
+	return ret;
+}
+
 void link_set_dpms_off(struct pipe_ctx *pipe_ctx)
 {
 	struct dc  *dc = pipe_ctx->stream->ctx->dc;
@@ -2270,12 +2292,14 @@ void link_set_dpms_off(struct pipe_ctx *pipe_ctx)
 	struct dc_link *link = stream->sink->link;
 	struct vpg *vpg = pipe_ctx->stream_res.stream_enc->vpg;
 
+	DC_LOGGER_INIT(pipe_ctx->stream->ctx->logger);
+
 	ASSERT(is_master_pipe_for_link(link, pipe_ctx));
 
 	if (dp_is_128b_132b_signal(pipe_ctx))
 		vpg = pipe_ctx->stream_res.hpo_dp_stream_enc->vpg;
-
-	DC_LOGGER_INIT(pipe_ctx->stream->ctx->logger);
+	if (dc_is_virtual_signal(pipe_ctx->stream->signal))
+		return;
 
 	if (pipe_ctx->stream->sink) {
 		if (pipe_ctx->stream->sink->sink_signal != SIGNAL_TYPE_VIRTUAL &&
@@ -2286,9 +2310,6 @@ void link_set_dpms_off(struct pipe_ctx *pipe_ctx)
 		}
 	}
 
-	if (dc_is_virtual_signal(pipe_ctx->stream->signal))
-		return;
-
 	if (!pipe_ctx->stream->sink->edid_caps.panel_patch.skip_avmute) {
 		if (dc_is_hdmi_signal(pipe_ctx->stream->signal))
 			set_avmute(pipe_ctx, true);
@@ -2298,6 +2319,9 @@ void link_set_dpms_off(struct pipe_ctx *pipe_ctx)
 
 	update_psp_stream_config(pipe_ctx, true);
 	dc->hwss.blank_stream(pipe_ctx);
+
+	if (pipe_ctx->stream->link->ep_type == DISPLAY_ENDPOINT_USB4_DPIA)
+		deallocate_usb4_bandwidth(pipe_ctx->stream);
 
 	if (pipe_ctx->stream->signal == SIGNAL_TYPE_DISPLAY_PORT_MST)
 		deallocate_mst_payload(pipe_ctx);
@@ -2358,6 +2382,14 @@ void link_set_dpms_off(struct pipe_ctx *pipe_ctx)
 
 	if (vpg && vpg->funcs->vpg_powerdown)
 		vpg->funcs->vpg_powerdown(vpg);
+
+	/* for psp not exist case */
+	if (link->connector_signal == SIGNAL_TYPE_EDP && dc->debug.psp_disabled_wa) {
+		/* reset internal save state to default since eDP is  off */
+		enum dp_panel_mode panel_mode = dp_get_panel_mode(pipe_ctx->stream->link);
+		/* since current psp not loaded, we need to reset it to default*/
+		link->panel_mode = panel_mode;
+	}
 }
 
 void link_set_dpms_on(
@@ -2375,12 +2407,14 @@ void link_set_dpms_on(
 	bool apply_edp_fast_boot_optimization =
 		pipe_ctx->stream->apply_edp_fast_boot_optimization;
 
+	DC_LOGGER_INIT(pipe_ctx->stream->ctx->logger);
+
 	ASSERT(is_master_pipe_for_link(link, pipe_ctx));
 
 	if (dp_is_128b_132b_signal(pipe_ctx))
 		vpg = pipe_ctx->stream_res.hpo_dp_stream_enc->vpg;
-
-	DC_LOGGER_INIT(pipe_ctx->stream->ctx->logger);
+	if (dc_is_virtual_signal(pipe_ctx->stream->signal))
+		return;
 
 	if (pipe_ctx->stream->sink) {
 		if (pipe_ctx->stream->sink->sink_signal != SIGNAL_TYPE_VIRTUAL &&
@@ -2391,18 +2425,22 @@ void link_set_dpms_on(
 		}
 	}
 
-	if (dc_is_virtual_signal(pipe_ctx->stream->signal))
-		return;
-
 	link_enc = link_enc_cfg_get_link_enc(link);
 	ASSERT(link_enc);
 
 	if (!dc_is_virtual_signal(pipe_ctx->stream->signal)
 			&& !dp_is_128b_132b_signal(pipe_ctx)) {
+		struct stream_encoder *stream_enc = pipe_ctx->stream_res.stream_enc;
+
 		if (link_enc)
 			link_enc->funcs->setup(
 				link_enc,
 				pipe_ctx->stream->signal);
+
+		if (stream_enc && stream_enc->funcs->dig_stream_enable)
+			stream_enc->funcs->dig_stream_enable(
+				stream_enc,
+				pipe_ctx->stream->signal, 1);
 	}
 
 	pipe_ctx->stream->link->link_state_valid = true;
@@ -2464,9 +2502,8 @@ void link_set_dpms_on(
 	 */
 	if (pipe_ctx->stream->timing.flags.DSC) {
 		if (dc_is_dp_signal(pipe_ctx->stream->signal) ||
-			dc_is_virtual_signal(pipe_ctx->stream->signal))
-		link_set_dsc_enable(pipe_ctx, true);
-
+		    dc_is_virtual_signal(pipe_ctx->stream->signal))
+			link_set_dsc_enable(pipe_ctx, true);
 	}
 
 	status = enable_link(state, pipe_ctx);
@@ -2503,10 +2540,18 @@ void link_set_dpms_on(
 	 */
 	if (!(dc_is_virtual_signal(pipe_ctx->stream->signal) ||
 			dp_is_128b_132b_signal(pipe_ctx))) {
+			struct stream_encoder *stream_enc = pipe_ctx->stream_res.stream_enc;
+
 			if (link_enc)
 				link_enc->funcs->setup(
 					link_enc,
 					pipe_ctx->stream->signal);
+
+			if (stream_enc && stream_enc->funcs->dig_stream_enable)
+				stream_enc->funcs->dig_stream_enable(
+					stream_enc,
+					pipe_ctx->stream->signal, 1);
+
 		}
 
 	dc->hwss.enable_stream(pipe_ctx);
@@ -2519,6 +2564,9 @@ void link_set_dpms_on(
 			link_set_dsc_pps_packet(pipe_ctx, true, true);
 		}
 	}
+
+	if (pipe_ctx->stream->link->ep_type == DISPLAY_ENDPOINT_USB4_DPIA)
+		allocate_usb4_bandwidth(pipe_ctx->stream);
 
 	if (pipe_ctx->stream->signal == SIGNAL_TYPE_DISPLAY_PORT_MST)
 		allocate_mst_payload(pipe_ctx);

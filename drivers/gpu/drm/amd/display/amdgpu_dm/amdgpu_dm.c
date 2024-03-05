@@ -141,6 +141,9 @@ MODULE_FIRMWARE(FIRMWARE_RAVEN_DMCU);
 #define FIRMWARE_NAVI12_DMCU            "amdgpu/navi12_dmcu.bin"
 MODULE_FIRMWARE(FIRMWARE_NAVI12_DMCU);
 
+#define FIRMWARE_DCN_35_DMUB "amdgpu/dcn_3_5_dmcub.bin"
+MODULE_FIRMWARE(FIRMWARE_DCN_35_DMUB);
+
 /* Number of bytes in PSP header for firmware. */
 #define PSP_HEADER_BYTES 0x100
 
@@ -409,6 +412,7 @@ static void dm_pflip_high_irq(void *interrupt_params)
 	struct amdgpu_crtc *amdgpu_crtc;
 	struct common_irq_params *irq_params = interrupt_params;
 	struct amdgpu_device *adev = irq_params->adev;
+	struct drm_device *dev = adev_to_drm(adev);
 	unsigned long flags;
 	struct drm_pending_vblank_event *e;
 	u32 vpos, hpos, v_blank_start, v_blank_end;
@@ -419,18 +423,17 @@ static void dm_pflip_high_irq(void *interrupt_params)
 	/* IRQ could occur when in initial stage */
 	/* TODO work and BO cleanup */
 	if (amdgpu_crtc == NULL) {
-		DC_LOG_PFLIP("CRTC is null, returning.\n");
+		drm_dbg_state(dev, "CRTC is null, returning.\n");
 		return;
 	}
 
 	spin_lock_irqsave(&adev_to_drm(adev)->event_lock, flags);
 
 	if (amdgpu_crtc->pflip_status != AMDGPU_FLIP_SUBMITTED) {
-		DC_LOG_PFLIP("amdgpu_crtc->pflip_status = %d !=AMDGPU_FLIP_SUBMITTED(%d) on crtc:%d[%p]\n",
-			     amdgpu_crtc->pflip_status,
-			     AMDGPU_FLIP_SUBMITTED,
-			     amdgpu_crtc->crtc_id,
-			     amdgpu_crtc);
+		drm_dbg_state(dev,
+			      "amdgpu_crtc->pflip_status = %d != AMDGPU_FLIP_SUBMITTED(%d) on crtc:%d[%p]\n",
+			      amdgpu_crtc->pflip_status, AMDGPU_FLIP_SUBMITTED,
+			      amdgpu_crtc->crtc_id, amdgpu_crtc);
 		spin_unlock_irqrestore(&adev_to_drm(adev)->event_lock, flags);
 		return;
 	}
@@ -496,9 +499,9 @@ static void dm_pflip_high_irq(void *interrupt_params)
 	amdgpu_crtc->pflip_status = AMDGPU_FLIP_NONE;
 	spin_unlock_irqrestore(&adev_to_drm(adev)->event_lock, flags);
 
-	DC_LOG_PFLIP("crtc:%d[%p], pflip_stat:AMDGPU_FLIP_NONE, vrr[%d]-fp %d\n",
-		     amdgpu_crtc->crtc_id, amdgpu_crtc,
-		     vrr_active, (int) !e);
+	drm_dbg_state(dev,
+		      "crtc:%d[%p], pflip_stat:AMDGPU_FLIP_NONE, vrr[%d]-fp %d\n",
+		      amdgpu_crtc->crtc_id, amdgpu_crtc, vrr_active, (int)!e);
 }
 
 static void dm_vupdate_high_irq(void *interrupt_params)
@@ -528,9 +531,9 @@ static void dm_vupdate_high_irq(void *interrupt_params)
 			atomic64_set(&irq_params->previous_timestamp, vblank->time);
 		}
 
-		DC_LOG_VBLANK("crtc:%d, vupdate-vrr:%d\n",
-			      acrtc->crtc_id,
-			      vrr_active);
+		drm_dbg_vbl(drm_dev,
+			    "crtc:%d, vupdate-vrr:%d\n", acrtc->crtc_id,
+			    vrr_active);
 
 		/* Core vblank handling is done here after end of front-porch in
 		 * vrr mode, as vblank timestamping will give valid results
@@ -581,8 +584,9 @@ static void dm_crtc_high_irq(void *interrupt_params)
 
 	vrr_active = amdgpu_dm_crtc_vrr_active_irq(acrtc);
 
-	DC_LOG_VBLANK("crtc:%d, vupdate-vrr:%d, planes:%d\n", acrtc->crtc_id,
-		      vrr_active, acrtc->dm_irq_params.active_planes);
+	drm_dbg_vbl(adev_to_drm(adev),
+		    "crtc:%d, vupdate-vrr:%d, planes:%d\n", acrtc->crtc_id,
+		    vrr_active, acrtc->dm_irq_params.active_planes);
 
 	/**
 	 * Core vblank handling at start of front-porch is only possible
@@ -1068,6 +1072,7 @@ static int dm_dmub_hw_init(struct amdgpu_device *adev)
 	const struct firmware *dmub_fw = adev->dm.dmub_fw;
 	struct dmcu *dmcu = adev->dm.dc->res_pool->dmcu;
 	struct abm *abm = adev->dm.dc->res_pool->abm;
+	struct dc_context *ctx = adev->dm.dc->ctx;
 	struct dmub_srv_hw_params hw_params;
 	enum dmub_status status;
 	const unsigned char *fw_inst_const, *fw_bss_data;
@@ -1088,6 +1093,10 @@ static int dm_dmub_hw_init(struct amdgpu_device *adev)
 		DRM_ERROR("No firmware provided for DMUB.\n");
 		return -EINVAL;
 	}
+
+	/* initialize register offsets for ASICs with runtime initialization available */
+	if (dmub_srv->hw_funcs.init_reg_offsets)
+		dmub_srv->hw_funcs.init_reg_offsets(dmub_srv, ctx);
 
 	status = dmub_srv_has_hw_support(dmub_srv, &has_hw_support);
 	if (status != DMUB_STATUS_OK) {
@@ -1164,9 +1173,10 @@ static int dm_dmub_hw_init(struct amdgpu_device *adev)
 	for (i = 0; i < fb_info->num_fb; ++i)
 		hw_params.fb[i] = &fb_info->fb[i];
 
-	switch (adev->ip_versions[DCE_HWIP][0]) {
+	switch (amdgpu_ip_version(adev, DCE_HWIP, 0)) {
 	case IP_VERSION(3, 1, 3):
 	case IP_VERSION(3, 1, 4):
+	case IP_VERSION(3, 5, 0):
 		hw_params.dpia_supported = true;
 		hw_params.disable_dpia = adev->dm.dc->debug.dpia_debug.bits.disable_dpia;
 		break;
@@ -1245,7 +1255,7 @@ static void mmhub_read_system_context(struct amdgpu_device *adev, struct dc_phy_
 	agp_top = adev->gmc.agp_end >> 24;
 
 	/* AGP aperture is disabled */
-	if (agp_bot == agp_top) {
+	if (agp_bot > agp_top) {
 		logical_addr_low = adev->gmc.fb_start >> 18;
 		if (adev->apu_flags & (AMD_APU_IS_RAVEN2 |
 				       AMD_APU_IS_RENOIR |
@@ -1600,7 +1610,7 @@ static int amdgpu_dm_init(struct amdgpu_device *adev)
 
 	init_data.dce_environment = DCE_ENV_PRODUCTION_DRV;
 
-	switch (adev->ip_versions[DCE_HWIP][0]) {
+	switch (amdgpu_ip_version(adev, DCE_HWIP, 0)) {
 	case IP_VERSION(2, 1, 0):
 		switch (adev->dm.dmcub_fw_version) {
 		case 0: /* development */
@@ -1619,40 +1629,23 @@ static int amdgpu_dm_init(struct amdgpu_device *adev)
 		break;
 	}
 
-	switch (adev->asic_type) {
-	case CHIP_CARRIZO:
-	case CHIP_STONEY:
-		init_data.flags.gpu_vm_support = true;
-		break;
-	default:
-		switch (adev->ip_versions[DCE_HWIP][0]) {
-		case IP_VERSION(1, 0, 0):
-		case IP_VERSION(1, 0, 1):
-			/* enable S/G on PCO and RV2 */
-			if ((adev->apu_flags & AMD_APU_IS_RAVEN2) ||
-			    (adev->apu_flags & AMD_APU_IS_PICASSO))
-				init_data.flags.gpu_vm_support = true;
-			break;
-		case IP_VERSION(2, 1, 0):
-		case IP_VERSION(3, 0, 1):
-		case IP_VERSION(3, 1, 2):
-		case IP_VERSION(3, 1, 3):
-		case IP_VERSION(3, 1, 4):
-		case IP_VERSION(3, 1, 5):
-		case IP_VERSION(3, 1, 6):
-			init_data.flags.gpu_vm_support = true;
-			break;
-		default:
-			break;
-		}
-		break;
-	}
-	if (init_data.flags.gpu_vm_support &&
-	    (amdgpu_sg_display == 0))
-		init_data.flags.gpu_vm_support = false;
+	/* APU support S/G display by default except:
+	 * ASICs before Carrizo,
+	 * RAVEN1 (Users reported stability issue)
+	 */
 
-	if (init_data.flags.gpu_vm_support)
-		adev->mode_info.gpu_vm_support = true;
+	if (adev->asic_type < CHIP_CARRIZO) {
+		init_data.flags.gpu_vm_support = false;
+	} else if (adev->asic_type == CHIP_RAVEN) {
+		if (adev->apu_flags & AMD_APU_IS_RAVEN)
+			init_data.flags.gpu_vm_support = false;
+		else
+			init_data.flags.gpu_vm_support = (amdgpu_sg_display != 0);
+	} else {
+		init_data.flags.gpu_vm_support = (amdgpu_sg_display != 0) && (adev->flags & AMD_IS_APU);
+	}
+
+	adev->mode_info.gpu_vm_support = init_data.flags.gpu_vm_support;
 
 	if (amdgpu_dc_feature_mask & DC_FBC_MASK)
 		init_data.flags.fbc_support = true;
@@ -1673,7 +1666,7 @@ static int amdgpu_dm_init(struct amdgpu_device *adev)
 
 	init_data.flags.seamless_boot_edp_requested = false;
 
-	if (check_seamless_boot_capability(adev)) {
+	if (amdgpu_device_seamless_boot_supported(adev)) {
 		init_data.flags.seamless_boot_edp_requested = true;
 		init_data.flags.allow_seamless_boot_optimization = true;
 		DRM_INFO("Seamless boot condition check passed\n");
@@ -1683,6 +1676,7 @@ static int amdgpu_dm_init(struct amdgpu_device *adev)
 
 	init_data.dcn_reg_offsets = adev->reg_offset[DCE_HWIP][0];
 	init_data.nbio_reg_offsets = adev->reg_offset[NBIO_HWIP][0];
+	init_data.clk_reg_offsets = adev->reg_offset[CLK_HWIP][0];
 
 	INIT_LIST_HEAD(&adev->dm.da_list);
 
@@ -1816,21 +1810,12 @@ static int amdgpu_dm_init(struct amdgpu_device *adev)
 			DRM_ERROR("amdgpu: fail to register dmub aux callback");
 			goto error;
 		}
-		if (!register_dmub_notify_callback(adev, DMUB_NOTIFICATION_HPD, dmub_hpd_callback, true)) {
-			DRM_ERROR("amdgpu: fail to register dmub hpd callback");
-			goto error;
-		}
-		if (!register_dmub_notify_callback(adev, DMUB_NOTIFICATION_HPD_IRQ, dmub_hpd_callback, true)) {
-			DRM_ERROR("amdgpu: fail to register dmub hpd callback");
-			goto error;
-		}
-	}
-
-	/* Enable outbox notification only after IRQ handlers are registered and DMUB is alive.
-	 * It is expected that DMUB will resend any pending notifications at this point, for
-	 * example HPD from DPIA.
-	 */
-	if (dc_is_dmub_outbox_supported(adev->dm.dc)) {
+		/* Enable outbox notification only after IRQ handlers are registered and DMUB is alive.
+		 * It is expected that DMUB will resend any pending notifications at this point. Note
+		 * that hpd and hpd_irq handler registration are deferred to register_hpd_handlers() to
+		 * align legacy interface initialization sequence. Connection status will be proactivly
+		 * detected once in the amdgpu_dm_initialize_drm_device.
+		 */
 		dc_enable_dmub_outbox(adev->dm.dc);
 
 		/* DPIA trace goes to dmesg logs only if outbox is enabled */
@@ -1929,7 +1914,7 @@ static void amdgpu_dm_fini(struct amdgpu_device *adev)
 				      &adev->dm.dmub_bo_gpu_addr,
 				      &adev->dm.dmub_bo_cpu_addr);
 
-	if (adev->dm.hpd_rx_offload_wq) {
+	if (adev->dm.hpd_rx_offload_wq && adev->dm.dc) {
 		for (i = 0; i < adev->dm.dc->caps.max_links; i++) {
 			if (adev->dm.hpd_rx_offload_wq[i].wq) {
 				destroy_workqueue(adev->dm.hpd_rx_offload_wq[i].wq);
@@ -2006,7 +1991,7 @@ static int load_dmcu_fw(struct amdgpu_device *adev)
 			return 0;
 		break;
 	default:
-		switch (adev->ip_versions[DCE_HWIP][0]) {
+		switch (amdgpu_ip_version(adev, DCE_HWIP, 0)) {
 		case IP_VERSION(2, 0, 2):
 		case IP_VERSION(2, 0, 3):
 		case IP_VERSION(2, 0, 0):
@@ -2022,6 +2007,7 @@ static int load_dmcu_fw(struct amdgpu_device *adev)
 		case IP_VERSION(3, 1, 6):
 		case IP_VERSION(3, 2, 0):
 		case IP_VERSION(3, 2, 1):
+		case IP_VERSION(3, 5, 0):
 			return 0;
 		default:
 			break;
@@ -2095,7 +2081,7 @@ static int dm_dmub_sw_init(struct amdgpu_device *adev)
 	enum dmub_status status;
 	int r;
 
-	switch (adev->ip_versions[DCE_HWIP][0]) {
+	switch (amdgpu_ip_version(adev, DCE_HWIP, 0)) {
 	case IP_VERSION(2, 1, 0):
 		dmub_asic = DMUB_ASIC_DCN21;
 		break;
@@ -2129,6 +2115,9 @@ static int dm_dmub_sw_init(struct amdgpu_device *adev)
 		break;
 	case IP_VERSION(3, 2, 1):
 		dmub_asic = DMUB_ASIC_DCN321;
+		break;
+	case IP_VERSION(3, 5, 0):
+		dmub_asic = DMUB_ASIC_DCN35;
 		break;
 	default:
 		/* ASIC doesn't support DMUB. */
@@ -2256,6 +2245,7 @@ static int dm_sw_fini(void *handle)
 
 	if (adev->dm.dmub_srv) {
 		dmub_srv_destroy(adev->dm.dmub_srv);
+		kfree(adev->dm.dmub_srv);
 		adev->dm.dmub_srv = NULL;
 	}
 
@@ -2465,7 +2455,7 @@ static int amdgpu_dm_smu_write_watermarks_table(struct amdgpu_device *adev)
 	 * therefore, this function apply to navi10/12/14 but not Renoir
 	 * *
 	 */
-	switch (adev->ip_versions[DCE_HWIP][0]) {
+	switch (amdgpu_ip_version(adev, DCE_HWIP, 0)) {
 	case IP_VERSION(2, 0, 2):
 	case IP_VERSION(2, 0, 0):
 		break;
@@ -2651,6 +2641,8 @@ static int dm_suspend(void *handle)
 
 	WARN_ON(adev->dm.cached_state);
 	adev->dm.cached_state = drm_atomic_helper_suspend(adev_to_drm(adev));
+	if (IS_ERR(adev->dm.cached_state))
+		return PTR_ERR(adev->dm.cached_state);
 
 	s3_handle_mst(adev_to_drm(adev), true);
 
@@ -2688,6 +2680,7 @@ static void emulated_link_detect(struct dc_link *link)
 	struct display_sink_capability sink_caps = { 0 };
 	enum dc_edid_status edid_status;
 	struct dc_context *dc_ctx = link->ctx;
+	struct drm_device *dev = adev_to_drm(dc_ctx->driver_context);
 	struct dc_sink *sink = NULL;
 	struct dc_sink *prev_sink = NULL;
 
@@ -2737,7 +2730,7 @@ static void emulated_link_detect(struct dc_link *link)
 	}
 
 	default:
-		DC_ERROR("Invalid connector type! signal:%d\n",
+		drm_err(dev, "Invalid connector type! signal:%d\n",
 			link->connector_signal);
 		return;
 	}
@@ -2747,7 +2740,7 @@ static void emulated_link_detect(struct dc_link *link)
 
 	sink = dc_sink_create(&sink_init_data);
 	if (!sink) {
-		DC_ERROR("Failed to create sink!\n");
+		drm_err(dev, "Failed to create sink!\n");
 		return;
 	}
 
@@ -2760,7 +2753,7 @@ static void emulated_link_detect(struct dc_link *link)
 			sink);
 
 	if (edid_status != EDID_OK)
-		DC_ERROR("Failed to read EDID");
+		drm_err(dev, "Failed to read EDID\n");
 
 }
 
@@ -2779,7 +2772,7 @@ static void dm_gpureset_commit_state(struct dc_state *dc_state,
 	bundle = kzalloc(sizeof(*bundle), GFP_KERNEL);
 
 	if (!bundle) {
-		dm_error("Failed to allocate update bundle\n");
+		drm_err(dm->ddev, "Failed to allocate update bundle\n");
 		goto cleanup;
 	}
 
@@ -2825,6 +2818,10 @@ static int dm_resume(void *handle)
 	int i, r, j, ret;
 	bool need_hotplug = false;
 
+	if (dm->dc->caps.ips_support) {
+		dc_dmub_srv_exit_low_power_state(dm->dc);
+	}
+
 	if (amdgpu_in_reset(adev)) {
 		dc_state = dm->cached_dc_state;
 
@@ -2850,6 +2847,7 @@ static int dm_resume(void *handle)
 			DRM_ERROR("DMUB interface failed to initialize: status=%d\n", r);
 
 		dc_set_power_state(dm->dc, DC_ACPI_CM_POWER_STATE_D0);
+
 		dc_resume(dm->dc);
 
 		amdgpu_dm_irq_resume_early(adev);
@@ -3227,7 +3225,8 @@ void amdgpu_dm_update_connector_after_detect(
 			aconnector->timing_requested =
 				kzalloc(sizeof(struct dc_crtc_timing), GFP_KERNEL);
 			if (!aconnector->timing_requested)
-				dm_error("failed to create aconnector->requested_timing\n");
+				drm_err(dev,
+					"failed to create aconnector->requested_timing\n");
 		}
 
 		drm_connector_update_edid_property(connector, aconnector->edid);
@@ -3484,6 +3483,14 @@ static void register_hpd_handlers(struct amdgpu_device *adev)
 	int_params.requested_polarity = INTERRUPT_POLARITY_DEFAULT;
 	int_params.current_polarity = INTERRUPT_POLARITY_DEFAULT;
 
+	if (dc_is_dmub_outbox_supported(adev->dm.dc)) {
+		if (!register_dmub_notify_callback(adev, DMUB_NOTIFICATION_HPD, dmub_hpd_callback, true))
+			DRM_ERROR("amdgpu: fail to register dmub hpd callback");
+
+		if (!register_dmub_notify_callback(adev, DMUB_NOTIFICATION_HPD_IRQ, dmub_hpd_callback, true))
+			DRM_ERROR("amdgpu: fail to register dmub hpd callback");
+	}
+
 	list_for_each_entry(connector,
 			&dev->mode_config.connector_list, head)	{
 
@@ -3509,10 +3516,6 @@ static void register_hpd_handlers(struct amdgpu_device *adev)
 					handle_hpd_rx_irq,
 					(void *) aconnector);
 		}
-
-		if (adev->dm.hpd_rx_offload_wq)
-			adev->dm.hpd_rx_offload_wq[connector->index].aconnector =
-				aconnector;
 	}
 }
 
@@ -4412,7 +4415,7 @@ static int amdgpu_dm_initialize_drm_device(struct amdgpu_device *adev)
 		}
 
 	/* Use Outbox interrupt */
-	switch (adev->ip_versions[DCE_HWIP][0]) {
+	switch (amdgpu_ip_version(adev, DCE_HWIP, 0)) {
 	case IP_VERSION(3, 0, 0):
 	case IP_VERSION(3, 1, 2):
 	case IP_VERSION(3, 1, 3):
@@ -4422,6 +4425,7 @@ static int amdgpu_dm_initialize_drm_device(struct amdgpu_device *adev)
 	case IP_VERSION(3, 2, 0):
 	case IP_VERSION(3, 2, 1):
 	case IP_VERSION(2, 1, 0):
+	case IP_VERSION(3, 5, 0):
 		if (register_outbox_irq_handlers(dm->adev)) {
 			DRM_ERROR("DM: Failed to initialize IRQ\n");
 			goto fail;
@@ -4429,12 +4433,12 @@ static int amdgpu_dm_initialize_drm_device(struct amdgpu_device *adev)
 		break;
 	default:
 		DRM_DEBUG_KMS("Unsupported DCN IP version for outbox: 0x%X\n",
-			      adev->ip_versions[DCE_HWIP][0]);
+			      amdgpu_ip_version(adev, DCE_HWIP, 0));
 	}
 
 	/* Determine whether to enable PSR support by default. */
 	if (!(amdgpu_dc_debug_mask & DC_DISABLE_PSR)) {
-		switch (adev->ip_versions[DCE_HWIP][0]) {
+		switch (amdgpu_ip_version(adev, DCE_HWIP, 0)) {
 		case IP_VERSION(3, 1, 2):
 		case IP_VERSION(3, 1, 3):
 		case IP_VERSION(3, 1, 4):
@@ -4442,6 +4446,7 @@ static int amdgpu_dm_initialize_drm_device(struct amdgpu_device *adev)
 		case IP_VERSION(3, 1, 6):
 		case IP_VERSION(3, 2, 0):
 		case IP_VERSION(3, 2, 1):
+		case IP_VERSION(3, 5, 0):
 			psr_feature_enabled = true;
 			break;
 		default:
@@ -4480,6 +4485,10 @@ static int amdgpu_dm_initialize_drm_device(struct amdgpu_device *adev)
 		}
 
 		link = dc_get_link_at_index(dm->dc, i);
+
+		if (dm->hpd_rx_offload_wq)
+			dm->hpd_rx_offload_wq[aconnector->base.index].aconnector =
+				aconnector;
 
 		if (!dc_link_detect_connection_type(link, &new_connection_type))
 			DRM_ERROR("KMS: Failed to detect connector\n");
@@ -4546,7 +4555,7 @@ static int amdgpu_dm_initialize_drm_device(struct amdgpu_device *adev)
 		}
 		break;
 	default:
-		switch (adev->ip_versions[DCE_HWIP][0]) {
+		switch (amdgpu_ip_version(adev, DCE_HWIP, 0)) {
 		case IP_VERSION(1, 0, 0):
 		case IP_VERSION(1, 0, 1):
 		case IP_VERSION(2, 0, 2):
@@ -4564,6 +4573,7 @@ static int amdgpu_dm_initialize_drm_device(struct amdgpu_device *adev)
 		case IP_VERSION(3, 1, 6):
 		case IP_VERSION(3, 2, 0):
 		case IP_VERSION(3, 2, 1):
+		case IP_VERSION(3, 5, 0):
 			if (dcn10_register_irq_handlers(dm->adev)) {
 				DRM_ERROR("DM: Failed to initialize IRQ\n");
 				goto fail;
@@ -4571,7 +4581,7 @@ static int amdgpu_dm_initialize_drm_device(struct amdgpu_device *adev)
 			break;
 		default:
 			DRM_ERROR("Unsupported DCE IP versions: 0x%X\n",
-					adev->ip_versions[DCE_HWIP][0]);
+					amdgpu_ip_version(adev, DCE_HWIP, 0));
 			goto fail;
 		}
 		break;
@@ -4654,14 +4664,14 @@ static int dm_init_microcode(struct amdgpu_device *adev)
 	char *fw_name_dmub;
 	int r;
 
-	switch (adev->ip_versions[DCE_HWIP][0]) {
+	switch (amdgpu_ip_version(adev, DCE_HWIP, 0)) {
 	case IP_VERSION(2, 1, 0):
 		fw_name_dmub = FIRMWARE_RENOIR_DMUB;
 		if (ASICREV_IS_GREEN_SARDINE(adev->external_rev_id))
 			fw_name_dmub = FIRMWARE_GREEN_SARDINE_DMUB;
 		break;
 	case IP_VERSION(3, 0, 0):
-		if (adev->ip_versions[GC_HWIP][0] == IP_VERSION(10, 3, 0))
+		if (amdgpu_ip_version(adev, GC_HWIP, 0) == IP_VERSION(10, 3, 0))
 			fw_name_dmub = FIRMWARE_SIENNA_CICHLID_DMUB;
 		else
 			fw_name_dmub = FIRMWARE_NAVY_FLOUNDER_DMUB;
@@ -4694,13 +4704,14 @@ static int dm_init_microcode(struct amdgpu_device *adev)
 	case IP_VERSION(3, 2, 1):
 		fw_name_dmub = FIRMWARE_DCN_V3_2_1_DMCUB;
 		break;
+	case IP_VERSION(3, 5, 0):
+		fw_name_dmub = FIRMWARE_DCN_35_DMUB;
+		break;
 	default:
 		/* ASIC doesn't support DMUB. */
 		return 0;
 	}
 	r = amdgpu_ucode_request(adev, &adev->dm.dmub_fw, fw_name_dmub);
-	if (r)
-		DRM_ERROR("DMUB firmware loading failed: %d\n", r);
 	return r;
 }
 
@@ -4788,7 +4799,7 @@ static int dm_early_init(void *handle)
 		break;
 	default:
 
-		switch (adev->ip_versions[DCE_HWIP][0]) {
+		switch (amdgpu_ip_version(adev, DCE_HWIP, 0)) {
 		case IP_VERSION(2, 0, 2):
 		case IP_VERSION(3, 0, 0):
 			adev->mode_info.num_crtc = 6;
@@ -4818,13 +4829,14 @@ static int dm_early_init(void *handle)
 		case IP_VERSION(3, 1, 6):
 		case IP_VERSION(3, 2, 0):
 		case IP_VERSION(3, 2, 1):
+		case IP_VERSION(3, 5, 0):
 			adev->mode_info.num_crtc = 4;
 			adev->mode_info.num_hpd = 4;
 			adev->mode_info.num_dig = 4;
 			break;
 		default:
 			DRM_ERROR("Unsupported DCE IP versions: 0x%x\n",
-					adev->ip_versions[DCE_HWIP][0]);
+					amdgpu_ip_version(adev, DCE_HWIP, 0));
 			return -EINVAL;
 		}
 		break;
@@ -5416,6 +5428,24 @@ get_output_color_space(const struct dc_crtc_timing *dc_crtc_timing,
 	return color_space;
 }
 
+static enum display_content_type
+get_output_content_type(const struct drm_connector_state *connector_state)
+{
+	switch (connector_state->content_type) {
+	default:
+	case DRM_MODE_CONTENT_TYPE_NO_DATA:
+		return DISPLAY_CONTENT_TYPE_NO_DATA;
+	case DRM_MODE_CONTENT_TYPE_GRAPHICS:
+		return DISPLAY_CONTENT_TYPE_GRAPHICS;
+	case DRM_MODE_CONTENT_TYPE_PHOTO:
+		return DISPLAY_CONTENT_TYPE_PHOTO;
+	case DRM_MODE_CONTENT_TYPE_CINEMA:
+		return DISPLAY_CONTENT_TYPE_CINEMA;
+	case DRM_MODE_CONTENT_TYPE_GAME:
+		return DISPLAY_CONTENT_TYPE_GAME;
+	}
+}
+
 static bool adjust_colour_depth_from_display_info(
 	struct dc_crtc_timing *timing_out,
 	const struct drm_display_info *info)
@@ -5550,6 +5580,7 @@ static void fill_stream_properties_from_drm_display_mode(
 	}
 
 	stream->output_color_space = get_output_color_space(timing_out, connector_state);
+	stream->content_type = get_output_content_type(connector_state);
 }
 
 static void fill_audio_info(struct audio_info *audio_info,
@@ -6072,7 +6103,9 @@ create_stream_for_sink(struct amdgpu_dm_connector *aconnector,
 		if (recalculate_timing) {
 			freesync_mode = get_highest_refresh_rate_mode(aconnector, false);
 			drm_mode_copy(&saved_mode, &mode);
+			saved_mode.picture_aspect_ratio = mode.picture_aspect_ratio;
 			drm_mode_copy(&mode, freesync_mode);
+			mode.picture_aspect_ratio = saved_mode.picture_aspect_ratio;
 		} else {
 			decide_crtc_timing_for_drm_display_mode(
 					&mode, preferred_mode, scale);
@@ -6098,10 +6131,10 @@ create_stream_for_sink(struct amdgpu_dm_connector *aconnector,
 			requested_bpc);
 
 	if (aconnector->timing_changed) {
-		DC_LOG_DEBUG("%s: overriding timing for automated test, bpc %d, changing to %d\n",
-				__func__,
-				stream->timing.display_color_depth,
-				aconnector->timing_requested->display_color_depth);
+		drm_dbg(aconnector->base.dev,
+			"overriding timing for automated test, bpc %d, changing to %d\n",
+			stream->timing.display_color_depth,
+			aconnector->timing_requested->display_color_depth);
 		stream->timing = *aconnector->timing_requested;
 	}
 
@@ -6404,12 +6437,25 @@ static void amdgpu_dm_connector_funcs_force(struct drm_connector *connector)
 	struct dc_link *dc_link = aconnector->dc_link;
 	struct dc_sink *dc_em_sink = aconnector->dc_em_sink;
 	struct edid *edid;
+	struct i2c_adapter *ddc;
 
-	if (!connector->edid_override)
+	if (dc_link->aux_mode)
+		ddc = &aconnector->dm_dp_aux.aux.ddc;
+	else
+		ddc = &aconnector->i2c->base;
+
+	/*
+	 * Note: drm_get_edid gets edid in the following order:
+	 * 1) override EDID if set via edid_override debugfs,
+	 * 2) firmware EDID if set via edid_firmware module parameter
+	 * 3) regular DDC read.
+	 */
+	edid = drm_get_edid(connector, ddc);
+	if (!edid) {
+		DRM_ERROR("No EDID found on connector: %s.\n", connector->name);
 		return;
+	}
 
-	drm_edid_override_connector_update(&aconnector->base);
-	edid = aconnector->base.edid_blob_ptr->data;
 	aconnector->edid = edid;
 
 	/* Update emulated (virtual) sink's EDID */
@@ -6444,29 +6490,34 @@ static int get_modes(struct drm_connector *connector)
 
 static void create_eml_sink(struct amdgpu_dm_connector *aconnector)
 {
+	struct drm_connector *connector = &aconnector->base;
+	struct dc_link *dc_link = aconnector->dc_link;
 	struct dc_sink_init_data init_params = {
 			.link = aconnector->dc_link,
 			.sink_signal = SIGNAL_TYPE_VIRTUAL
 	};
 	struct edid *edid;
+	struct i2c_adapter *ddc;
 
-	if (!aconnector->base.edid_blob_ptr) {
-		/* if connector->edid_override valid, pass
-		 * it to edid_override to edid_blob_ptr
-		 */
+	if (dc_link->aux_mode)
+		ddc = &aconnector->dm_dp_aux.aux.ddc;
+	else
+		ddc = &aconnector->i2c->base;
 
-		drm_edid_override_connector_update(&aconnector->base);
-
-		if (!aconnector->base.edid_blob_ptr) {
-			DRM_ERROR("No EDID firmware found on connector: %s ,forcing to OFF!\n",
-					aconnector->base.name);
-
-			aconnector->base.force = DRM_FORCE_OFF;
-			return;
-		}
+	/*
+	 * Note: drm_get_edid gets edid in the following order:
+	 * 1) override EDID if set via edid_override debugfs,
+	 * 2) firmware EDID if set via edid_firmware module parameter
+	 * 3) regular DDC read.
+	 */
+	edid = drm_get_edid(connector, ddc);
+	if (!edid) {
+		DRM_ERROR("No EDID found on connector: %s.\n", connector->name);
+		return;
 	}
 
-	edid = (struct edid *) aconnector->base.edid_blob_ptr->data;
+	if (drm_detect_hdmi_monitor(edid))
+		init_params.sink_signal = SIGNAL_TYPE_HDMI_TYPE_A;
 
 	aconnector->edid = edid;
 
@@ -6747,6 +6798,14 @@ amdgpu_dm_connector_atomic_check(struct drm_connector *conn,
 		return 0;
 
 	if (new_con_state->colorspace != old_con_state->colorspace) {
+		new_crtc_state = drm_atomic_get_crtc_state(state, crtc);
+		if (IS_ERR(new_crtc_state))
+			return PTR_ERR(new_crtc_state);
+
+		new_crtc_state->mode_changed = true;
+	}
+
+	if (new_con_state->content_type != old_con_state->content_type) {
 		new_crtc_state = drm_atomic_get_crtc_state(state, crtc);
 		if (IS_ERR(new_crtc_state))
 			return PTR_ERR(new_crtc_state);
@@ -7389,6 +7448,11 @@ void amdgpu_dm_connector_init_helper(struct amdgpu_display_manager *dm,
 	}
 
 	if (connector_type == DRM_MODE_CONNECTOR_HDMIA) {
+		/* Content Type is currently only implemented for HDMI. */
+		drm_connector_attach_content_type_property(&aconnector->base);
+	}
+
+	if (connector_type == DRM_MODE_CONNECTOR_HDMIA) {
 		if (!drm_mode_create_hdmi_colorspace_property(&aconnector->base, supported_colorspaces))
 			drm_connector_attach_colorspace_property(&aconnector->base);
 	} else if ((connector_type == DRM_MODE_CONNECTOR_DisplayPort && !aconnector->mst_root) ||
@@ -7814,8 +7878,9 @@ static void prepare_flip_isr(struct amdgpu_crtc *acrtc)
 	/* Mark this event as consumed */
 	acrtc->base.state->event = NULL;
 
-	DC_LOG_PFLIP("crtc:%d, pflip_stat:AMDGPU_FLIP_SUBMITTED\n",
-		     acrtc->crtc_id);
+	drm_dbg_state(acrtc->base.dev,
+		      "crtc:%d, pflip_stat:AMDGPU_FLIP_SUBMITTED\n",
+		      acrtc->crtc_id);
 }
 
 static void update_freesync_state_on_stream(
@@ -8058,7 +8123,7 @@ static void amdgpu_dm_commit_planes(struct drm_atomic_state *state,
 	bundle = kzalloc(sizeof(*bundle), GFP_KERNEL);
 
 	if (!bundle) {
-		dm_error("Failed to allocate update bundle\n");
+		drm_err(dev, "Failed to allocate update bundle\n");
 		goto cleanup;
 	}
 
@@ -8646,7 +8711,9 @@ static void amdgpu_dm_commit_streams(struct drm_atomic_state *state,
 				status = dc_stream_get_status_from_state(dc_state,
 									 dm_new_crtc_state->stream);
 			if (!status)
-				DC_ERR("got no status for stream %p on acrtc%p\n", dm_new_crtc_state->stream, acrtc);
+				drm_err(dev,
+					"got no status for stream %p on acrtc%p\n",
+					dm_new_crtc_state->stream, acrtc);
 			else
 				acrtc->otg_inst = status->primary_otg_inst;
 		}
@@ -8679,6 +8746,17 @@ static void amdgpu_dm_atomic_commit_tail(struct drm_atomic_state *state)
 	int crtc_disable_count = 0;
 
 	trace_amdgpu_dm_atomic_commit_tail_begin(state);
+
+	if (dm->dc->caps.ips_support) {
+		for_each_oldnew_connector_in_state(state, connector, old_con_state, new_con_state, i) {
+			if (new_con_state->crtc &&
+				new_con_state->crtc->state->active &&
+				drm_atomic_crtc_needs_modeset(new_con_state->crtc->state)) {
+				dc_dmub_srv_exit_low_power_state(dm->dc);
+				break;
+			}
+		}
+	}
 
 	drm_atomic_helper_update_legacy_modeset_state(dev, state);
 	drm_dp_mst_atomic_wait_for_dependencies(state);
@@ -9811,7 +9889,7 @@ static int dm_update_plane_state(struct dc *dc,
 
 		/* Block top most plane from being a video plane */
 		if (plane->type == DRM_PLANE_TYPE_OVERLAY) {
-			if (is_video_format(new_plane_state->fb->format->format) && *is_top_most_overlay)
+			if (amdgpu_dm_plane_is_video_format(new_plane_state->fb->format->format) && *is_top_most_overlay)
 				return -EINVAL;
 
 			*is_top_most_overlay = false;
@@ -10362,11 +10440,13 @@ static int amdgpu_dm_atomic_check(struct drm_device *dev,
 			goto fail;
 		}
 
-		ret = compute_mst_dsc_configs_for_state(state, dm_state->context, vars);
-		if (ret) {
-			DRM_DEBUG_DRIVER("compute_mst_dsc_configs_for_state() failed\n");
-			ret = -EINVAL;
-			goto fail;
+		if (dc_resource_is_dsc_encoding_supported(dc)) {
+			ret = compute_mst_dsc_configs_for_state(state, dm_state->context, vars);
+			if (ret) {
+				DRM_DEBUG_DRIVER("compute_mst_dsc_configs_for_state() failed\n");
+				ret = -EINVAL;
+				goto fail;
+			}
 		}
 
 		ret = dm_update_mst_vcpi_slots_for_dsc(state, dm_state->context, vars);
@@ -10873,7 +10953,8 @@ void dm_write_reg_func(const struct dc_context *ctx, uint32_t address,
 {
 #ifdef DM_CHECK_ADDR_0
 	if (address == 0) {
-		DC_ERR("invalid register write. address = 0");
+		drm_err(adev_to_drm(ctx->driver_context),
+			"invalid register write. address = 0");
 		return;
 	}
 #endif
@@ -10887,7 +10968,8 @@ uint32_t dm_read_reg_func(const struct dc_context *ctx, uint32_t address,
 	u32 value;
 #ifdef DM_CHECK_ADDR_0
 	if (address == 0) {
-		DC_ERR("invalid register read; address = 0\n");
+		drm_err(adev_to_drm(ctx->driver_context),
+			"invalid register read; address = 0\n");
 		return 0;
 	}
 #endif
@@ -10995,27 +11077,6 @@ int amdgpu_dm_process_dmub_set_config_sync(
 		reinit_completion(&adev->dm.dmub_aux_transfer_done);
 	mutex_unlock(&adev->dm.dpia_aux_lock);
 	return ret;
-}
-
-/*
- * Check whether seamless boot is supported.
- *
- * So far we only support seamless boot on CHIP_VANGOGH.
- * If everything goes well, we may consider expanding
- * seamless boot to other ASICs.
- */
-bool check_seamless_boot_capability(struct amdgpu_device *adev)
-{
-	switch (adev->ip_versions[DCE_HWIP][0]) {
-	case IP_VERSION(3, 0, 1):
-		if (!adev->mman.keep_stolen_vga_memory)
-			return true;
-		break;
-	default:
-		break;
-	}
-
-	return false;
 }
 
 bool dm_execute_dmub_cmd(const struct dc_context *ctx, union dmub_rb_cmd *cmd, enum dm_dmub_wait_type wait_type)

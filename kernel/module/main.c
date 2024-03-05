@@ -3303,7 +3303,7 @@ void print_modules(void)
 			last_unloaded_module.taints);
 	pr_cont("\n");
 #ifdef CONFIG_SUSE_KERNEL_SUPPORTED
-	printk("Supported: %s\n", supported_printable(get_taint()));
+	printk("Supported: %s\n", kernel_supported_printable());
 #endif
 }
 
