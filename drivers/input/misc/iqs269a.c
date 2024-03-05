@@ -1688,7 +1688,7 @@ static u16 iqs269_general_get(struct iqs269_private *iqs269)
 	return general | IQS269_SYS_SETTINGS_DIS_AUTO;
 }
 
-static int __maybe_unused iqs269_suspend(struct device *dev)
+static int iqs269_suspend(struct device *dev)
 {
 	struct iqs269_private *iqs269 = dev_get_drvdata(dev);
 	struct i2c_client *client = iqs269->client;
@@ -1708,7 +1708,7 @@ static int __maybe_unused iqs269_suspend(struct device *dev)
 	return error;
 }
 
-static int __maybe_unused iqs269_resume(struct device *dev)
+static int iqs269_resume(struct device *dev)
 {
 	struct iqs269_private *iqs269 = dev_get_drvdata(dev);
 	struct i2c_client *client = iqs269->client;
@@ -1732,7 +1732,7 @@ static int __maybe_unused iqs269_resume(struct device *dev)
 	return error;
 }
 
-static SIMPLE_DEV_PM_OPS(iqs269_pm, iqs269_suspend, iqs269_resume);
+static DEFINE_SIMPLE_DEV_PM_OPS(iqs269_pm, iqs269_suspend, iqs269_resume);
 
 static const struct of_device_id iqs269_of_match[] = {
 	{ .compatible = "azoteq,iqs269a" },
@@ -1744,7 +1744,7 @@ static struct i2c_driver iqs269_i2c_driver = {
 	.driver = {
 		.name = "iqs269a",
 		.of_match_table = iqs269_of_match,
-		.pm = &iqs269_pm,
+		.pm = pm_sleep_ptr(&iqs269_pm),
 	},
 	.probe_new = iqs269_probe,
 };
