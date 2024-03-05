@@ -10,9 +10,10 @@
 	BPF_LDX_MEM(BPF_DW, BPF_REG_0, BPF_REG_6, 0),
 	BPF_EXIT_INSN(),
 	},
+	.result = ACCEPT,
+	.prog_type = BPF_PROG_TYPE_SOCKET_FILTER,
 	.result = REJECT,
 	.errstr = "invalid read from stack R6 off=-8 size=8",
-	.prog_type = BPF_PROG_TYPE_SCHED_CLS,
 },
 {
 	"raw_stack: skb_load_bytes, negative len",
