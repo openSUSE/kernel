@@ -17,8 +17,9 @@
 	BPF_EXIT_INSN(),
 	},
 	.fixup_map_hash_8b = { 2 },
-	.errstr = "invalid indirect read from stack",
-	.result = REJECT,
+	.result = ACCEPT,
+	.errstr_unpriv = "invalid indirect read from stack",
+	.result_unpriv = REJECT,
 },
 {
 	"uninitialized stack2",
@@ -27,8 +28,9 @@
 	BPF_LDX_MEM(BPF_DW, BPF_REG_0, BPF_REG_2, -8),
 	BPF_EXIT_INSN(),
 	},
-	.errstr = "invalid read from stack",
-	.result = REJECT,
+	.result = ACCEPT,
+	.errstr_unpriv = "invalid indirect read from stack",
+	.result_unpriv = REJECT,
 },
 {
 	"invalid fp arithmetic",
