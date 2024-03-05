@@ -624,7 +624,7 @@ static noinline int create_subvol(struct inode *dir,
 	leaf = NULL;
 
 	key.offset = (u64)-1;
-	new_root = btrfs_get_new_fs_root(fs_info, objectid, anon_dev);
+	new_root = btrfs_get_new_fs_root(fs_info, objectid, &anon_dev);
 	if (IS_ERR(new_root)) {
 		free_anon_bdev(anon_dev);
 		ret = PTR_ERR(new_root);
