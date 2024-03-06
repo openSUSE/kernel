@@ -45,8 +45,8 @@
 #include "irq/dcn20/irq_service_dcn20.h"
 #include "dcn20_dpp.h"
 #include "dcn20_optc.h"
-#include "dcn20_hwseq.h"
-#include "dce110/dce110_hw_sequencer.h"
+#include "dcn20/dcn20_hwseq.h"
+#include "dce110/dce110_hwseq.h"
 #include "dcn10/dcn10_resource.h"
 #include "dcn20_opp.h"
 
@@ -723,6 +723,7 @@ static const struct dc_debug_options debug_defaults_drv = {
 		.sanity_checks = false,
 		.underflow_assert_delay_us = 0xFFFFFFFF,
 		.enable_legacy_fast_update = true,
+		.using_dml2 = false,
 };
 
 void dcn20_dpp_destroy(struct dpp **dpp)
@@ -1272,15 +1273,19 @@ static void build_clamping_params(struct dc_stream_state *stream)
 	stream->clamping.pixel_encoding = stream->timing.pixel_encoding;
 }
 
+void dcn20_build_pipe_pix_clk_params(struct pipe_ctx *pipe_ctx)
+{
+	get_pixel_clock_parameters(pipe_ctx, &pipe_ctx->stream_res.pix_clk_params);
+	pipe_ctx->clock_source->funcs->get_pix_clk_dividers(
+			pipe_ctx->clock_source,
+			&pipe_ctx->stream_res.pix_clk_params,
+			&pipe_ctx->pll_settings);
+}
+
 static enum dc_status build_pipe_hw_param(struct pipe_ctx *pipe_ctx)
 {
 
-	get_pixel_clock_parameters(pipe_ctx, &pipe_ctx->stream_res.pix_clk_params);
-
-	pipe_ctx->clock_source->funcs->get_pix_clk_dividers(
-		pipe_ctx->clock_source,
-		&pipe_ctx->stream_res.pix_clk_params,
-		&pipe_ctx->pll_settings);
+	dcn20_build_pipe_pix_clk_params(pipe_ctx);
 
 	pipe_ctx->stream->clamping.pixel_encoding = pipe_ctx->stream->timing.pixel_encoding;
 
@@ -1948,7 +1953,7 @@ int dcn20_validate_apply_pipe_split_flags(
 			v->ODMCombineEnablePerState[vlevel][pipe_plane];
 
 		if (v->ODMCombineEnabled[pipe_plane] == dm_odm_combine_mode_disabled) {
-			if (resource_get_num_mpc_splits(pipe) == 1) {
+			if (resource_get_mpc_slice_count(pipe) == 2) {
 				/*If need split for mpc but 2 way split already*/
 				if (split[i] == 4)
 					split[i] = 2; /* 2 -> 4 MPC */
@@ -1956,7 +1961,7 @@ int dcn20_validate_apply_pipe_split_flags(
 					split[i] = 0; /* 2 -> 2 MPC */
 				else if (pipe->top_pipe && pipe->top_pipe->plane_state == pipe->plane_state)
 					merge[i] = true; /* 2 -> 1 MPC */
-			} else if (resource_get_num_mpc_splits(pipe) == 3) {
+			} else if (resource_get_mpc_slice_count(pipe) == 4) {
 				/*If need split for mpc but 4 way split already*/
 				if (split[i] == 2 && ((pipe->top_pipe && !pipe->top_pipe->top_pipe)
 						|| !pipe->bottom_pipe)) {
@@ -1965,7 +1970,7 @@ int dcn20_validate_apply_pipe_split_flags(
 						pipe->top_pipe->plane_state == pipe->plane_state)
 					merge[i] = true; /* 4 -> 1 MPC */
 				split[i] = 0;
-			} else if (resource_get_num_odm_splits(pipe)) {
+			} else if (resource_get_odm_slice_count(pipe) > 1) {
 				/* ODM -> MPC transition */
 				if (pipe->prev_odm_pipe) {
 					split[i] = 0;
@@ -1973,7 +1978,7 @@ int dcn20_validate_apply_pipe_split_flags(
 				}
 			}
 		} else {
-			if (resource_get_num_odm_splits(pipe) == 1) {
+			if (resource_get_odm_slice_count(pipe) == 2) {
 				/*If need split for odm but 2 way split already*/
 				if (split[i] == 4)
 					split[i] = 2; /* 2 -> 4 ODM */
@@ -1983,7 +1988,7 @@ int dcn20_validate_apply_pipe_split_flags(
 					ASSERT(0); /* NOT expected yet */
 					merge[i] = true; /* exit ODM */
 				}
-			} else if (resource_get_num_odm_splits(pipe) == 3) {
+			} else if (resource_get_odm_slice_count(pipe) == 4) {
 				/*If need split for odm but 4 way split already*/
 				if (split[i] == 2 && ((pipe->prev_odm_pipe && !pipe->prev_odm_pipe->prev_odm_pipe)
 						|| !pipe->next_odm_pipe)) {
@@ -1993,7 +1998,7 @@ int dcn20_validate_apply_pipe_split_flags(
 					merge[i] = true; /* exit ODM */
 				}
 				split[i] = 0;
-			} else if (resource_get_num_mpc_splits(pipe)) {
+			} else if (resource_get_mpc_slice_count(pipe) > 1) {
 				/* MPC -> ODM transition */
 				ASSERT(0); /* NOT expected yet */
 				if (pipe->top_pipe && pipe->top_pipe->plane_state == pipe->plane_state) {
@@ -2141,9 +2146,17 @@ bool dcn20_validate_bandwidth(struct dc *dc, struct dc_state *context,
 		bool fast_validate)
 {
 	bool voltage_supported;
+	display_e2e_pipe_params_st *pipes;
+
+	pipes = kcalloc(dc->res_pool->pipe_count, sizeof(display_e2e_pipe_params_st), GFP_KERNEL);
+	if (!pipes)
+		return false;
+
 	DC_FP_START();
-	voltage_supported = dcn20_validate_bandwidth_fp(dc, context, fast_validate);
+	voltage_supported = dcn20_validate_bandwidth_fp(dc, context, fast_validate, pipes);
 	DC_FP_END();
+
+	kfree(pipes);
 	return voltage_supported;
 }
 
@@ -2211,12 +2224,22 @@ enum dc_status dcn20_patch_unknown_plane_state(struct dc_plane_state *plane_stat
 	return DC_OK;
 }
 
+void dcn20_release_pipe(struct dc_state *context,
+			struct pipe_ctx *pipe,
+			const struct resource_pool *pool)
+{
+	if (resource_is_pipe_type(pipe, OPP_HEAD) && pipe->stream_res.dsc)
+		dcn20_release_dsc(&context->res_ctx, pool, &pipe->stream_res.dsc);
+	memset(pipe, 0, sizeof(*pipe));
+}
+
 static const struct resource_funcs dcn20_res_pool_funcs = {
 	.destroy = dcn20_destroy_resource_pool,
 	.link_enc_create = dcn20_link_encoder_create,
 	.panel_cntl_create = dcn20_panel_cntl_create,
 	.validate_bandwidth = dcn20_validate_bandwidth,
 	.acquire_free_pipe_as_secondary_dpp_pipe = dcn20_acquire_free_pipe_for_layer,
+	.release_pipe = dcn20_release_pipe,
 	.add_stream_to_ctx = dcn20_add_stream_to_ctx,
 	.add_dsc_to_stream_resource = dcn20_add_dsc_to_stream_resource,
 	.remove_stream_from_ctx = dcn20_remove_stream_from_ctx,

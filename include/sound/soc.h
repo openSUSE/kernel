@@ -920,6 +920,8 @@ struct snd_soc_aux_dev {
 
 	/* codec/machine specific init - e.g. add machine controls */
 	int (*init)(struct snd_soc_component *component);
+
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 /* SoC card */
@@ -1051,6 +1053,8 @@ struct snd_soc_card {
 	unsigned int component_chaining:1;
 
 	void *drvdata;
+
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 #define for_each_card_prelinks(card, i, link)				\
 	for ((i) = 0;							\
@@ -1096,8 +1100,6 @@ struct snd_soc_pcm_runtime {
 	struct snd_soc_dai_link *dai_link;
 	struct snd_pcm_ops ops;
 
-	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
-
 	unsigned int c2c_params_select; /* currently selected c2c_param for dai link */
 
 	/* Dynamic PCM BE runtime data */
@@ -1139,6 +1141,8 @@ struct snd_soc_pcm_runtime {
 	unsigned int fe_compr:1; /* for Dynamic PCM */
 
 	bool initialized;
+
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 
 	int num_components;
 	struct snd_soc_component *components[]; /* CPU/Codec/Platform */

@@ -63,7 +63,9 @@ struct pipe_ctx *dcn20_acquire_free_pipe_for_layer(
 		struct dc_state *new_ctx,
 		const struct resource_pool *pool,
 		const struct pipe_ctx *opp_head_pipe);
-
+void dcn20_release_pipe(struct dc_state *context,
+			struct pipe_ctx *pipe,
+			const struct resource_pool *pool);
 struct stream_encoder *dcn20_stream_encoder_create(
 	enum engine_id eng_id,
 	struct dc_context *ctx);
@@ -163,6 +165,7 @@ enum dc_status dcn20_add_stream_to_ctx(struct dc *dc, struct dc_state *new_ctx, 
 enum dc_status dcn20_add_dsc_to_stream_resource(struct dc *dc, struct dc_state *dc_ctx, struct dc_stream_state *dc_stream);
 enum dc_status dcn20_remove_stream_from_ctx(struct dc *dc, struct dc_state *new_ctx, struct dc_stream_state *dc_stream);
 enum dc_status dcn20_patch_unknown_plane_state(struct dc_plane_state *plane_state);
+void dcn20_build_pipe_pix_clk_params(struct pipe_ctx *pipe_ctx);
 
 #endif /* __DC_RESOURCE_DCN20_H__ */
 

@@ -258,6 +258,7 @@ struct ehci_hcd {			/* one per controller */
 						/* us budgeted per uframe */
 	struct list_head	tt_list;
 
+	void *suse_kabi_padding;
 	/* platform-specific data -- must come last */
 	unsigned long		priv[] __aligned(sizeof(s64));
 };
@@ -319,6 +320,7 @@ struct ehci_qtd {
 	struct list_head	qtd_list;		/* sw qtd list */
 	struct urb		*urb;			/* qtd's urb */
 	size_t			length;			/* length of buffer */
+	void *suse_kabi_padding;
 } __aligned(32);
 
 /* mask NakCnt+T in qh->hw_alt_next */
@@ -437,6 +439,7 @@ struct ehci_qh {
 #define QH_UNLINK_REQUESTED	0x20		/* Disable, reset, or dequeue */
 
 	u8			gap_uf;		/* uframes split/csplit gap */
+	void *suse_kabi_padding;
 
 	unsigned		is_out:1;	/* bulk or intr OUT */
 	unsigned		clearing_tt:1;	/* Clear-TT-Buf in progress */
@@ -464,6 +467,7 @@ struct ehci_iso_sched {
 	struct list_head	td_list;
 	unsigned		span;
 	unsigned		first_packet;
+	void *suse_kabi_padding;
 	struct ehci_iso_packet	packet[];
 };
 
@@ -887,6 +891,7 @@ struct ehci_driver_overrides {
 	int		(*reset)(struct usb_hcd *hcd);
 	int		(*port_power)(struct usb_hcd *hcd,
 				int portnum, bool enable);
+	void *suse_kabi_padding;
 };
 
 extern void	ehci_init_driver(struct hc_driver *drv,

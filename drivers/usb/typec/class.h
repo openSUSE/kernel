@@ -15,6 +15,7 @@ struct typec_plug {
 	enum typec_plug_index		index;
 	struct ida			mode_ids;
 	int				num_altmodes;
+	void *suse_kabi_padding;
 };
 
 struct typec_cable {
@@ -23,6 +24,7 @@ struct typec_cable {
 	struct usb_pd_identity		*identity;
 	unsigned int			active:1;
 	u16				pd_revision; /* 0300H = "3.0" */
+	void *suse_kabi_padding;
 };
 
 struct typec_partner {

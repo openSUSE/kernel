@@ -26,6 +26,7 @@
 #include "intel_engine_regs.h"
 #include "intel_gt.h"
 #include "intel_gt_pm.h"
+#include "intel_gt_print.h"
 #include "intel_gt_requests.h"
 #include "intel_mchbar_regs.h"
 #include "intel_pci_config.h"
@@ -161,16 +162,16 @@ static int i915_do_reset(struct intel_gt *gt,
 	struct pci_dev *pdev = to_pci_dev(gt->i915->drm.dev);
 	int err;
 
-	/* Assert reset for at least 20 usec, and wait for acknowledgement. */
+	/* Assert reset for at least 50 usec, and wait for acknowledgement. */
 	pci_write_config_byte(pdev, I915_GDRST, GRDOM_RESET_ENABLE);
 	udelay(50);
-	err = _wait_for_atomic(i915_in_reset(pdev), 50, 0);
+	err = _wait_for_atomic(i915_in_reset(pdev), 50000, 0);
 
 	/* Clear the reset request. */
 	pci_write_config_byte(pdev, I915_GDRST, 0);
 	udelay(50);
 	if (!err)
-		err = _wait_for_atomic(!i915_in_reset(pdev), 50, 0);
+		err = _wait_for_atomic(!i915_in_reset(pdev), 50000, 0);
 
 	return err;
 }
@@ -190,7 +191,7 @@ static int g33_do_reset(struct intel_gt *gt,
 	struct pci_dev *pdev = to_pci_dev(gt->i915->drm.dev);
 
 	pci_write_config_byte(pdev, I915_GDRST, GRDOM_RESET_ENABLE);
-	return _wait_for_atomic(g4x_reset_complete(pdev), 50, 0);
+	return _wait_for_atomic(g4x_reset_complete(pdev), 50000, 0);
 }
 
 static int g4x_do_reset(struct intel_gt *gt,
@@ -207,7 +208,7 @@ static int g4x_do_reset(struct intel_gt *gt,
 
 	pci_write_config_byte(pdev, I915_GDRST,
 			      GRDOM_MEDIA | GRDOM_RESET_ENABLE);
-	ret =  _wait_for_atomic(g4x_reset_complete(pdev), 50, 0);
+	ret =  _wait_for_atomic(g4x_reset_complete(pdev), 50000, 0);
 	if (ret) {
 		GT_TRACE(gt, "Wait for media reset failed\n");
 		goto out;
@@ -215,7 +216,7 @@ static int g4x_do_reset(struct intel_gt *gt,
 
 	pci_write_config_byte(pdev, I915_GDRST,
 			      GRDOM_RENDER | GRDOM_RESET_ENABLE);
-	ret =  _wait_for_atomic(g4x_reset_complete(pdev), 50, 0);
+	ret =  _wait_for_atomic(g4x_reset_complete(pdev), 50000, 0);
 	if (ret) {
 		GT_TRACE(gt, "Wait for render reset failed\n");
 		goto out;
@@ -592,10 +593,10 @@ static int gen8_engine_reset_prepare(struct intel_engine_cs *engine)
 	ret = __intel_wait_for_register_fw(uncore, reg, mask, ack,
 					   700, 0, NULL);
 	if (ret)
-		drm_err(&engine->i915->drm,
-			"%s reset request timed out: {request: %08x, RESET_CTL: %08x}\n",
-			engine->name, request,
-			intel_uncore_read_fw(uncore, reg));
+		gt_err(engine->gt,
+		       "%s reset request timed out: {request: %08x, RESET_CTL: %08x}\n",
+		       engine->name, request,
+		       intel_uncore_read_fw(uncore, reg));
 
 	return ret;
 }
@@ -1199,17 +1200,16 @@ void intel_gt_reset(struct intel_gt *gt,
 		goto unlock;
 
 	if (reason)
-		drm_notice(&gt->i915->drm,
-			   "Resetting chip for %s\n", reason);
+		gt_notice(gt, "Resetting chip for %s\n", reason);
 	atomic_inc(&gt->i915->gpu_error.reset_count);
 
 	awake = reset_prepare(gt);
 
 	if (!intel_has_gpu_reset(gt)) {
 		if (gt->i915->params.reset)
-			drm_err(&gt->i915->drm, "GPU reset not supported\n");
+			gt_err(gt, "GPU reset not supported\n");
 		else
-			drm_dbg(&gt->i915->drm, "GPU reset disabled\n");
+			gt_dbg(gt, "GPU reset disabled\n");
 		goto error;
 	}
 
@@ -1217,7 +1217,7 @@ void intel_gt_reset(struct intel_gt *gt,
 		intel_runtime_pm_disable_interrupts(gt->i915);
 
 	if (do_reset(gt, stalled_mask)) {
-		drm_err(&gt->i915->drm, "Failed to reset chip\n");
+		gt_err(gt, "Failed to reset chip\n");
 		goto taint;
 	}
 
@@ -1236,9 +1236,7 @@ void intel_gt_reset(struct intel_gt *gt,
 	 */
 	ret = intel_gt_init_hw(gt);
 	if (ret) {
-		drm_err(&gt->i915->drm,
-			"Failed to initialise HW following reset (%d)\n",
-			ret);
+		gt_err(gt, "Failed to initialise HW following reset (%d)\n", ret);
 		goto taint;
 	}
 
@@ -1605,9 +1603,7 @@ static void intel_wedge_me(struct work_struct *work)
 {
 	struct intel_wedge_me *w = container_of(work, typeof(*w), work.work);
 
-	drm_err(&w->gt->i915->drm,
-		"%s timed out, cancelling all in-flight rendering.\n",
-		w->name);
+	gt_err(w->gt, "%s timed out, cancelling all in-flight rendering.\n", w->name);
 	intel_gt_set_wedged(w->gt);
 }
 
