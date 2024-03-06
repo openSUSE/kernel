@@ -201,7 +201,12 @@ static int alloc_targets(struct dm_table *t, unsigned int num)
 int dm_table_create(struct dm_table **result, fmode_t mode,
 		    unsigned num_targets, struct mapped_device *md)
 {
-	struct dm_table *t = kzalloc(sizeof(*t), GFP_KERNEL);
+	struct dm_table *t;
+
+	if (num_targets > DM_MAX_TARGETS)
+		return -EOVERFLOW;
+
+	t = kzalloc(sizeof(*t), GFP_KERNEL);
 
 	if (!t)
 		return -ENOMEM;
@@ -219,7 +224,7 @@ int dm_table_create(struct dm_table **result, fmode_t mode,
 	if (alloc_targets(t, num_targets)) {
 		kfree(t);
 		t = NULL;
-		return -ENOMEM;
+		return -EOVERFLOW;
 	}
 
 	t->mode = mode;
