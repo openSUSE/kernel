@@ -17,3 +17,4 @@ are configurable at compile, boot or run time.
    special-register-buffer-data-sampling.rst
    srso
    gather_data_sampling.rst
+   reg-file-data-sampling
