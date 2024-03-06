@@ -1400,7 +1400,7 @@ void btrfs_balance_delayed_items(struct btrfs_fs_info *fs_info)
 	btrfs_wq_run_delayed_node(delayed_root, fs_info, BTRFS_DELAYED_BATCH);
 }
 
-/* Will return 0 or -ENOMEM */
+/* Will return 0, -ENOMEM or -EEXIST (index number collision, unexpected). */
 int btrfs_insert_delayed_dir_index(struct btrfs_trans_handle *trans,
 				   const char *name, int name_len,
 				   struct btrfs_inode *dir,
@@ -1449,7 +1449,10 @@ int btrfs_insert_delayed_dir_index(struct btrfs_trans_handle *trans,
 			  name_len, name, index, delayed_node->root->root_key.objectid,
 			  delayed_node->inode_id, dir->index_cnt,
 			  delayed_node->index_cnt, ret);
-		BUG();
+		btrfs_delayed_item_release_metadata(dir->root, delayed_item);
+		btrfs_release_delayed_item(delayed_item);
+		mutex_unlock(&delayed_node->mutex);
+		goto release_node;
 	}
 	mutex_unlock(&delayed_node->mutex);
 
