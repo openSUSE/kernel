@@ -2277,14 +2277,17 @@ static int hso_stop_serial_device(struct hso_device *hso_dev)
 	return 0;
 }
 
-static void hso_serial_common_free(struct hso_serial *serial)
+static void hso_serial_tty_unregister(struct hso_serial *serial)
 {
-	int i;
-
 	if (serial->parent->dev)
 		device_remove_file(serial->parent->dev, &dev_attr_hsotype);
 
 	tty_unregister_device(tty_drv, serial->minor);
+}
+
+static void hso_serial_common_free(struct hso_serial *serial)
+{
+	int i;
 
 	for (i = 0; i < serial->num_rx_urbs; i++) {
 		/* unlink and free RX URB */
@@ -2367,6 +2370,7 @@ static int hso_serial_common_create(struct hso_serial *serial, int num_urbs,
 
 	return 0;
 exit:
+	hso_serial_tty_unregister(serial);
 	hso_serial_common_free(serial);
 	return -1;
 }
@@ -2751,6 +2755,7 @@ static struct hso_device *hso_create_bulk_serial_device(
 	return hso_dev;
 
 exit2:
+	hso_serial_tty_unregister(serial);
 	hso_serial_common_free(serial);
 exit:
 	hso_free_tiomget(serial);
@@ -3208,6 +3213,7 @@ static void hso_free_interface(struct usb_interface *interface)
 			tty_kref_put(tty);
 			hso_dev->parent->usb_gone = 1;
 			mutex_unlock(&hso_dev->parent->mutex);
+			hso_serial_tty_unregister(serial);
 			kref_put(&serial_table[i]->ref, hso_serial_ref_free);
 		}
 	}
