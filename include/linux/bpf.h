@@ -1468,7 +1468,11 @@ struct bpf_prog_aux {
 		struct work_struct work;
 		struct rcu_head	rcu;
 	};
+#ifndef __GENKSYMS__
+	bool attach_tracing_prog; /* true if tracing another tracing program */
+#else
 	void *suse_kabi_padding;
+#endif
 };
 
 struct bpf_prog {
