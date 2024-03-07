@@ -3208,7 +3208,7 @@ static void hso_free_interface(struct usb_interface *interface)
 			serial->parent->usb_gone = 1;
 			mutex_unlock(&serial->parent->mutex);
 			hso_serial_tty_unregister(serial);
-			kref_put(&serial_table[i]->ref, hso_serial_ref_free);
+			kref_put(&serial->parent->ref, hso_serial_ref_free);
 		}
 	}
 
