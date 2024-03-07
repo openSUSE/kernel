@@ -440,5 +440,6 @@
 #define X86_BUG_SRSO			X86_BUG(28) /* AMD SRSO bug */
 #define X86_BUG_GDS			X86_BUG(29) /* CPU is affected by Gather Data Sampling */
 #define X86_BUG_DIV0                    X86_BUG(30) /* AMD DIV0 speculation bug */
+#define X86_BUG_RFDS			X86_BUG(31) /* CPU is vulnerable to Register File Data Sampling */
 
 #endif /* _ASM_X86_CPUFEATURES_H */

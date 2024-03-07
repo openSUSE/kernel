@@ -1351,6 +1351,9 @@ static u64 kvm_get_arch_capabilities(void)
 	if (!boot_cpu_has_bug(X86_BUG_GDS) || gds_ucode_mitigated())
 		data |= ARCH_CAP_GDS_NO;
 
+	if (!boot_cpu_has_bug(X86_BUG_RFDS))
+		data |= ARCH_CAP_RFDS_NO;
+
 	return data;
 }
 
