@@ -854,6 +854,13 @@ struct stripe_head *raid5_get_active_stripe(struct r5conf *conf,
 
 		set_bit(R5_INACTIVE_BLOCKED, &conf->cache_state);
 		r5l_wake_reclaim(conf->log, 0);
+
+		/* release batch_last before wait to avoid risk of deadlock */
+		if (ctx && ctx->batch_last) {
+			raid5_release_stripe(ctx->batch_last);
+			ctx->batch_last = NULL;
+		}
+
 		wait_event_lock_irq(conf->wait_for_stripe,
 				    is_inactive_blocked(conf, hash),
 				    *(conf->hash_locks + hash));
@@ -5897,11 +5904,11 @@ static bool stripe_ahead_of_reshape(struct mddev *mddev, struct r5conf *conf,
 	int dd_idx;
 
 	for (dd_idx = 0; dd_idx < sh->disks; dd_idx++) {
-		if (dd_idx == sh->pd_idx)
+		if (dd_idx == sh->pd_idx || dd_idx == sh->qd_idx)
 			continue;
 
 		min_sector = min(min_sector, sh->dev[dd_idx].sector);
-		max_sector = min(max_sector, sh->dev[dd_idx].sector);
+		max_sector = max(max_sector, sh->dev[dd_idx].sector);
 	}
 
 	spin_lock_irq(&conf->device_lock);
