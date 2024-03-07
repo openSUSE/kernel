@@ -19,3 +19,4 @@ are configurable at compile, boot or run time.
    processor_mmio_stale_data.rst
    srso
    gather_data_sampling.rst
+   reg-file-data-sampling
