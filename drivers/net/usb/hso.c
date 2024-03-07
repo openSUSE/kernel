@@ -2665,7 +2665,6 @@ static void hso_free_serial_device(struct hso_device *hso_dev)
 
 	if (!serial)
 		return;
-	set_serial_by_index(serial->minor, NULL);
 
 	hso_serial_common_free(serial);
 
@@ -3215,6 +3214,7 @@ static void hso_free_interface(struct usb_interface *interface)
 			mutex_unlock(&hso_dev->parent->mutex);
 			hso_serial_tty_unregister(serial);
 			kref_put(&serial_table[i]->ref, hso_serial_ref_free);
+			set_serial_by_index(i, NULL);
 		}
 	}
 
