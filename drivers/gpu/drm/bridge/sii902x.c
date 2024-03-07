@@ -998,11 +998,6 @@ static int sii902x_init(struct sii902x *sii902x)
 			return ret;
 	}
 
-	sii902x->bridge.funcs = &sii902x_bridge_funcs;
-	sii902x->bridge.of_node = dev->of_node;
-	sii902x->bridge.timings = &default_sii902x_timings;
-	drm_bridge_add(&sii902x->bridge);
-
 	sii902x_audio_codec_init(sii902x, dev);
 
 	i2c_set_clientdata(sii902x->i2c, sii902x);
@@ -1015,7 +1010,16 @@ static int sii902x_init(struct sii902x *sii902x)
 		return -ENOMEM;
 
 	sii902x->i2cmux->priv = sii902x;
-	return i2c_mux_add_adapter(sii902x->i2cmux, 0, 0, 0);
+	ret = i2c_mux_add_adapter(sii902x->i2cmux, 0, 0, 0);
+	if (ret)
+		return ret;
+
+	sii902x->bridge.funcs = &sii902x_bridge_funcs;
+	sii902x->bridge.of_node = dev->of_node;
+	sii902x->bridge.timings = &default_sii902x_timings;
+	drm_bridge_add(&sii902x->bridge);
+
+	return 0;
 }
 
 static int sii902x_probe(struct i2c_client *client,
@@ -1075,12 +1079,11 @@ static int sii902x_probe(struct i2c_client *client,
 }
 
 static int sii902x_remove(struct i2c_client *client)
-
 {
 	struct sii902x *sii902x = i2c_get_clientdata(client);
 
-	i2c_mux_del_adapters(sii902x->i2cmux);
 	drm_bridge_remove(&sii902x->bridge);
+	i2c_mux_del_adapters(sii902x->i2cmux);
 	regulator_bulk_disable(ARRAY_SIZE(sii902x->supplies),
 			       sii902x->supplies);
 

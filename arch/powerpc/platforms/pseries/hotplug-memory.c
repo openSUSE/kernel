@@ -502,7 +502,7 @@ static int dlpar_memory_remove_by_index(u32 drc_index)
 	}
 
 	if (!lmb_found) {
-		pr_info("Failed to look up LMB for drc index %x\n", drc_index);
+		pr_debug("Failed to look up LMB for drc index %x\n", drc_index);
 		rc = -EINVAL;
 	} else if (rc) {
 		pr_debug("Failed to hot-remove memory at %llx\n",
