@@ -34,6 +34,9 @@
 #define DM_TYPE_BIO_BASED	1
 #define DM_TYPE_REQUEST_BASED	2
 
+#define DM_MAX_TARGETS			1048576
+#define DM_MAX_TARGET_PARAMS		1024
+
 /*
  * List of devices that a metadevice uses and should open/close.
  */
