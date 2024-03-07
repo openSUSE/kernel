@@ -5,10 +5,12 @@
 # define __ASM_FORM(x)	x
 # define __ASM_FORM_RAW(x)     x
 # define __ASM_EX_SEC	.section __ex_table, "a"
+# define __ASM_REGPFX	     %
 #else
 # define __ASM_FORM(x)	" " #x " "
 # define __ASM_FORM_RAW(x)     #x
 # define __ASM_EX_SEC	" .section __ex_table,\"a\"\n"
+# define __ASM_REGPFX			%%
 #endif
 
 #ifdef CONFIG_X86_32
@@ -40,6 +42,9 @@
 #define _ASM_BP		__ASM_REG(bp)
 #define _ASM_SI		__ASM_REG(si)
 #define _ASM_DI		__ASM_REG(di)
+
+/* Adds a (%rip) suffix on 64 bits only; for immediate memory references */
+#define _ASM_RIP(x)	__ASM_SEL_RAW(x, x (__ASM_REGPFX rip))
 
 /* Exception table entry */
 #ifdef __ASSEMBLY__

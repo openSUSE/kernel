@@ -179,6 +179,7 @@ GLOBAL(return_to_handler)
 #ifdef CONFIG_PARAVIRT
 ENTRY(native_usergs_sysret64)
 	swapgs
+	CLEAR_CPU_BUFFERS
 	sysretq
 ENDPROC(native_usergs_sysret64)
 #endif /* CONFIG_PARAVIRT */
@@ -566,7 +567,6 @@ sysret_check:
 	RESTORE_ARGS 1,-ARG_SKIP,0
 	/*CFI_REGISTER	rflags,r11*/
 
-	call mds_clear_user
 	call amd_clear_divider
 	DISABLE_IBRS
 	/*
@@ -944,7 +944,6 @@ retint_swapgs:		/* return to user-space */
 	 */
 
 swapgs_restore_regs_and_return_to_usermode:
-	call mds_clear_user
 	call amd_clear_divider
 	DISABLE_IBRS
 	/*
@@ -964,6 +963,7 @@ swapgs_restore_regs_and_return_to_usermode:
 	movq (%rax), %rax
 	SWITCH_USER_CR3_NO_STACK
 	SWAPGS
+	CLEAR_CPU_BUFFERS
 	jmp irq_return
 
 paranoid_userspace_restore_all:
@@ -1027,7 +1027,6 @@ native_irq_return_ldt:
 	popq_cfi %rdi
 	orq PER_CPU_VAR(espfix_stack),%rax
 
-	call mds_clear_user
 	call amd_clear_divider
 	DISABLE_IBRS
 
@@ -1035,6 +1034,7 @@ native_irq_return_ldt:
 	SWAPGS
 	movq %rax,%rsp
 	popq_cfi %rax
+	CLEAR_CPU_BUFFERS
 	jmp native_irq_return_iret
 #endif
 
@@ -2013,6 +2013,12 @@ nmi_restore:
 	movq    $0, 5*8(%rsp)           /* clear "NMI executing" */
 
 	/*
+	 * Skip CLEAR_CPU_BUFFERS here, since it only helps in rare cases like
+	 * NMI in kernel after user state is restored. For an unprivileged user
+	 * these conditions are hard to meet.
+	 /*
+
+	/*
 	 * INTERRUPT_RETURN reads the "iret" frame and exits the NMI
 	 * stack in a single instruction.  We are returning to kernel
 	 * mode, so this cannot result in a fault.
@@ -2045,6 +2051,7 @@ end_repeat_nmi:
 ENTRY(ignore_sysret)
 	CFI_STARTPROC
 	mov $-ENOSYS,%eax
+	CLEAR_CPU_BUFFERS
 	sysret
 	CFI_ENDPROC
 END(ignore_sysret)

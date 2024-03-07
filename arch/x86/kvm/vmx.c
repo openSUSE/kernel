@@ -6881,6 +6881,8 @@ static void vmx_cancel_injection(struct kvm_vcpu *vcpu)
 #define Q "l"
 #endif
 
+#define VMX_RUN_VMRESUME_SHIFT		0
+
 static void __noclone vmx_vcpu_run(struct kvm_vcpu *vcpu)
 {
 	struct vcpu_vmx *vmx = to_vmx(vcpu);
@@ -6928,8 +6930,6 @@ static void __noclone vmx_vcpu_run(struct kvm_vcpu *vcpu)
 	if (static_branch(&vmx_l1d_should_flush)) {
 		if (vcpu->arch.l1tf_flush_l1d)
 			vmx_l1d_flush(vcpu);
-	} else if (unlikely(mds_user_clear)) {
-		mds_clear_cpu_buffers();
 	}
 
 	asm(
@@ -6950,7 +6950,7 @@ static void __noclone vmx_vcpu_run(struct kvm_vcpu *vcpu)
 		"mov %%"R"ax, %%cr2 \n\t"
 		"2: \n\t"
 		/* Check if vmlaunch of vmresume is needed */
-		"cmpl $0, %c[launched](%0) \n\t"
+		"btw $" __stringify(VMX_RUN_VMRESUME_SHIFT) ", %c[launched](%0) \n\t"
 		/* Load guest registers.  Don't clobber flags. */
 		"mov %c[rax](%0), %%"R"ax \n\t"
 		"mov %c[rbx](%0), %%"R"bx \n\t"
@@ -6970,8 +6970,11 @@ static void __noclone vmx_vcpu_run(struct kvm_vcpu *vcpu)
 #endif
 		"mov %c[rcx](%0), %%"R"cx \n\t" /* kills %0 (ecx) */
 
+		/* Clobbers EFLAGS.ZF */
+		CLEAR_CPU_BUFFERS
+
 		/* Enter guest mode */
-		"jne .Llaunched \n\t"
+		"jc .Llaunched \n\t"
 		__ex(ASM_VMX_VMLAUNCH) "\n\t"
 		"jmp .Lkvm_vmx_return \n\t"
 		".Llaunched: " __ex(ASM_VMX_VMRESUME) "\n\t"
@@ -7086,7 +7089,7 @@ static void vmx_free_vcpu(struct kvm_vcpu *vcpu)
 
 #define L1TF_MSG_SMT "L1TF CPU bug present and SMT on, data leak possible. See CVE-2018-3646 and https://www.kernel.org/doc/html/latest/admin-guide/l1tf.html for details.\n"
 #define L1TF_MSG_L1D "L1TF CPU bug present and virtualization mitigation disabled, data leak possible. See CVE-2018-3646 and https://www.kernel.org/doc/html/latest/admin-guide/l1tf.html for details.\n"
- 
+
 
 static struct kvm_vcpu *vmx_create_vcpu(struct kvm *kvm, unsigned int id)
 {
@@ -8344,7 +8347,7 @@ static int __init vmx_init(void)
 			goto out7;
 		}
 	}
- 
+
 	vmx_disable_intercept_for_msr(MSR_FS_BASE, false);
 	vmx_disable_intercept_for_msr(MSR_GS_BASE, false);
 	vmx_disable_intercept_for_msr(MSR_KERNEL_GS_BASE, true);
