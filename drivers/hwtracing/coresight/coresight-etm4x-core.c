@@ -993,9 +993,6 @@ static bool etm4_init_iomem_access(struct etmv4_drvdata *drvdata,
 	drvdata->arch = etm_devarch_to_arch(devarch);
 	*csa = CSDEV_ACCESS_IOMEM(drvdata->base);
 
-	if (drvdata && !IS_ERR_OR_NULL(drvdata->pclk))
-		clk_put(drvdata->pclk);
-
 	return true;
 }
 
@@ -2173,6 +2170,10 @@ static int __exit etm4_remove_platform_dev(struct platform_device *pdev)
 	if (drvdata)
 		ret = etm4_remove_dev(drvdata);
 	pm_runtime_disable(&pdev->dev);
+
+	if (drvdata && !IS_ERR_OR_NULL(drvdata->pclk))
+		clk_put(drvdata->pclk);
+
 	return ret;
 }
 
