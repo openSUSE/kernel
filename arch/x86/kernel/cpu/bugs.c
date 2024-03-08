@@ -513,6 +513,8 @@ static bool x86_bug_mmio;
 
 bool x86_bug_gds = false;
 
+bool x86_bug_rfds = false;
+
 #undef pr_fmt
 #define pr_fmt(fmt)	"MMIO Stale Data: " fmt
 
@@ -604,6 +606,57 @@ static int __init mmio_stale_data_parse_cmdline(char *str)
 early_param("mmio_stale_data", mmio_stale_data_parse_cmdline);
 
 #undef pr_fmt
+#define pr_fmt(fmt)	"Register File Data Sampling: " fmt
+
+enum rfds_mitigations {
+	RFDS_MITIGATION_OFF,
+	RFDS_MITIGATION_VERW,
+	RFDS_MITIGATION_UCODE_NEEDED,
+};
+
+/* Default mitigation for Register File Data Sampling */
+static enum rfds_mitigations rfds_mitigation = RFDS_MITIGATION_VERW;
+
+static const char * const rfds_strings[] = {
+	[RFDS_MITIGATION_OFF]			= "Vulnerable",
+	[RFDS_MITIGATION_VERW]			= "Mitigation: Clear Register File",
+	[RFDS_MITIGATION_UCODE_NEEDED]		= "Vulnerable: No microcode",
+};
+
+static void __init rfds_select_mitigation(void)
+{
+	if (!x86_bug_rfds || cpu_mitigations_off()) {
+		rfds_mitigation = RFDS_MITIGATION_OFF;
+		return;
+	}
+	if (rfds_mitigation == RFDS_MITIGATION_OFF)
+		return;
+
+	if (x86_read_arch_cap_msr() & ARCH_CAP_RFDS_CLEAR)
+		setup_force_cpu_cap(X86_FEATURE_CLEAR_CPU_BUF);
+	else
+		rfds_mitigation = RFDS_MITIGATION_UCODE_NEEDED;
+}
+
+static __init int rfds_parse_cmdline(char *str)
+{
+	if (!str)
+		return -EINVAL;
+
+	if (!x86_bug_rfds)
+		return 0;
+
+	if (!strcmp(str, "off"))
+		rfds_mitigation = RFDS_MITIGATION_OFF;
+	else if (!strcmp(str, "on"))
+		rfds_mitigation = RFDS_MITIGATION_VERW;
+
+	return 0;
+}
+early_param("reg_file_data_sampling", rfds_parse_cmdline);
+
+
+#undef pr_fmt
 #define pr_fmt(fmt)     "" fmt
 
 static void __init md_clear_update_mitigation(void)
@@ -631,6 +684,10 @@ static void __init md_clear_update_mitigation(void)
 		mmio_mitigation = MMIO_MITIGATION_VERW;
 		mmio_select_mitigation();
 	}
+	if (rfds_mitigation == RFDS_MITIGATION_OFF && x86_bug_rfds) {
+		rfds_mitigation = RFDS_MITIGATION_VERW;
+		rfds_select_mitigation();
+	}
 out:
 	if (x86_bug_mds)
 		pr_info("MDS: %s\n", mds_strings[mds_mitigation]);
@@ -638,6 +695,8 @@ out:
 		pr_info("TAA: %s\n", taa_strings[taa_mitigation]);
 	if (x86_bug_mmio)
 		pr_info("MMIO Stale Data: %s\n", mmio_strings[mmio_mitigation]);
+	if (x86_bug_rfds)
+		pr_info("Register File Data Sampling: %s\n", rfds_strings[rfds_mitigation]);
 }
 
 static void __init md_clear_select_mitigation(void)
@@ -645,11 +704,12 @@ static void __init md_clear_select_mitigation(void)
 	mds_select_mitigation();
 	taa_select_mitigation();
 	mmio_select_mitigation();
+	rfds_select_mitigation();
 
 	/*
-	 * As MDS, TAA and MMIO Stale Data mitigations are inter-related, update
-	 * and print their mitigation after MDS, TAA and MMIO Stale Data
-	 * mitigation selection is done.
+	 * As these mitigations are inter-related and rely on VERW instruction
+	 * to clear the microarchitural buffers, update and print their status
+	 * after mitigation selection is done for each of these vulnerabilities.
 	 */
 	md_clear_update_mitigation();
 }
@@ -1205,6 +1265,8 @@ static const __initconst struct x86_cpu_id cpu_vuln_whitelist[] = {
 #define RETBLEED	BIT(2)
 /* CPU is affected by GDS */
 #define GDS		BIT(5)
+/* CPU is affected by Register File Data Sampling */
+#define RFDS		BIT(6)
 
 static const struct x86_cpu_id cpu_vuln_blacklist[] __initconst = {
 	VULNBL_INTEL_STEPPINGS(IVYBRIDGE,	X86_STEPPING_ANY,		SRBDS),
@@ -1228,7 +1290,10 @@ static const struct x86_cpu_id cpu_vuln_blacklist[] __initconst = {
 	VULNBL_INTEL_STEPPINGS(KABYLAKE_MOBILE,	X86_STEPPINGS(0x0, 0x8),	SRBDS | GDS),
 	VULNBL_INTEL_STEPPINGS(KABYLAKE_DESKTOP, X86_STEPPINGS(0x9, 0xD),	SRBDS | MMIO | GDS),
 	VULNBL_INTEL_STEPPINGS(KABYLAKE_DESKTOP, X86_STEPPINGS(0x0, 0x8),	SRBDS | GDS),
-	VULNBL_INTEL_STEPPINGS(ATOM_TREMONT_X,	X86_STEPPING_ANY,		MMIO),
+	VULNBL_INTEL_STEPPINGS(ATOM_TREMONT_X,	X86_STEPPING_ANY,		MMIO | RFDS),
+	VULNBL_INTEL_STEPPINGS(ATOM_GOLDMONT,	X86_STEPPING_ANY,		RFDS),
+	VULNBL_INTEL_STEPPINGS(ATOM_GOLDMONT_X,	X86_STEPPING_ANY,		RFDS),
+	VULNBL_INTEL_STEPPINGS(ATOM_GOLDMONT_PLUS, X86_STEPPING_ANY,		RFDS),
 	{}
 };
 
@@ -1261,6 +1326,24 @@ static bool arch_cap_mmio_immune(u64 ia32_cap)
 	return (ia32_cap & ARCH_CAP_FBSDP_NO &&
 		ia32_cap & ARCH_CAP_PSDP_NO &&
 		ia32_cap & ARCH_CAP_SBDR_SSDP_NO);
+}
+
+static bool __init vulnerable_to_rfds(u64 ia32_cap)
+{
+	/* The "immunity" bit trumps everything else: */
+	if (ia32_cap & ARCH_CAP_RFDS_NO)
+		return false;
+
+	/*
+	 * VMMs set ARCH_CAP_RFDS_CLEAR for processors not in the blacklist to
+	 * indicate that mitigation is needed because guest is running on a
+	 * vulnerable hardware or may migrate to such hardware:
+	 */
+	if (ia32_cap & ARCH_CAP_RFDS_CLEAR)
+		return true;
+
+	/* Only consult the blacklist when there is no enumeration: */
+	return cpu_matches(cpu_vuln_blacklist, RFDS);
 }
 
 void setup_force_cpu_bugs(unsigned long __unused)
@@ -1340,6 +1423,10 @@ void setup_force_cpu_bugs(unsigned long __unused)
 	if (cpu_matches(cpu_vuln_blacklist, GDS) && !(ia32_cap & ARCH_CAP_GDS_NO) &&
 	    boot_cpu_has(X86_FEATURE_AVX))
 		x86_bug_gds = true;
+
+	if (vulnerable_to_rfds(ia32_cap))
+		x86_bug_rfds = true;
+
 }
 
 static void __init spec2_print_if_insecure(const char *reason)
@@ -2151,11 +2238,19 @@ ssize_t cpu_show_mmio_stale_data(struct device *dev, struct device_attribute *at
 			  sched_smt_active() ? "vulnerable" : "disabled");
 }
 
+ssize_t cpu_show_reg_file_data_sampling(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	if (!x86_bug_rfds)
+		return sprintf(buf, "Not affected\n");
+
+	return sprintf(buf, "%s\n", rfds_strings[rfds_mitigation]);
+}
 
 static ssize_t gds_show_state(char *buf)
 {
 	return sprintf(buf, "%s", gds_strings[gds_mitigation]);
 }
+
 
 ssize_t cpu_show_gds(struct device *dev, struct device_attribute *attr, char *buf)
 {

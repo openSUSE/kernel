@@ -634,6 +634,8 @@ config PARAVIRT_CLOCK
 config PARAVIRT_MMU
 	bool
 
+
+
 endif
 
 config PARAVIRT_DEBUG
