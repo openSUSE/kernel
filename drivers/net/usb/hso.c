@@ -3195,23 +3195,23 @@ static void hso_serial_ref_free(struct kref *ref)
 
 static void hso_free_interface(struct usb_interface *interface)
 {
-	struct hso_serial *hso_dev;
+	struct hso_serial *serial;
 	struct tty_struct *tty;
 	int i;
 
 	for (i = 0; i < HSO_SERIAL_TTY_MINORS; i++) {
 		if (serial_table[i] &&
 		    (serial_table[i]->interface == interface)) {
-			hso_dev = dev2ser(serial_table[i]);
-			spin_lock_irq(&hso_dev->serial_lock);
-			tty = tty_kref_get(hso_dev->tty);
-			spin_unlock_irq(&hso_dev->serial_lock);
+			serial = dev2ser(serial_table[i]);
+			spin_lock_irq(&serial->serial_lock);
+			tty = tty_kref_get(serial->tty);
+			spin_unlock_irq(&serial->serial_lock);
 			if (tty)
 				tty_hangup(tty);
-			mutex_lock(&hso_dev->parent->mutex);
+			mutex_lock(&serial->parent->mutex);
 			tty_kref_put(tty);
-			hso_dev->parent->usb_gone = 1;
-			mutex_unlock(&hso_dev->parent->mutex);
+			serial->parent->usb_gone = 1;
+			mutex_unlock(&serial->parent->mutex);
 			hso_serial_tty_unregister(serial);
 			kref_put(&serial_table[i]->ref, hso_serial_ref_free);
 			set_serial_by_index(i, NULL);
