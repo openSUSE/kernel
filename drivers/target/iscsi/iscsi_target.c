@@ -1060,13 +1060,6 @@ int iscsit_setup_scsi_cmd(struct iscsit_conn *conn, struct iscsit_cmd *cmd,
 					     ISCSI_REASON_BOOKMARK_INVALID, buf);
 	}
 
-	if (hdr->opcode & ISCSI_OP_IMMEDIATE) {
-		pr_err("Illegally set Immediate Bit in iSCSI Initiator"
-				" Scsi Command PDU.\n");
-		return iscsit_add_reject_cmd(cmd,
-					     ISCSI_REASON_BOOKMARK_INVALID, buf);
-	}
-
 	if (payload_length && !conn->sess->sess_ops->ImmediateData) {
 		pr_err("ImmediateData=No but DataSegmentLength=%u,"
 			" protocol error.\n", payload_length);
@@ -1261,14 +1254,15 @@ int iscsit_process_scsi_cmd(struct iscsit_conn *conn, struct iscsit_cmd *cmd,
 	/*
 	 * Check the CmdSN against ExpCmdSN/MaxCmdSN here if
 	 * the Immediate Bit is not set, and no Immediate
-	 * Data is attached.
+	 * Data is attached. Also skip the check if this is
+	 * an immediate command.
 	 *
 	 * A PDU/CmdSN carrying Immediate Data can only
 	 * be processed after the DataCRC has passed.
 	 * If the DataCRC fails, the CmdSN MUST NOT
 	 * be acknowledged. (See below)
 	 */
-	if (!cmd->immediate_data) {
+	if (!cmd->immediate_data && !cmd->immediate_cmd) {
 		cmdsn_ret = iscsit_sequence_cmd(conn, cmd,
 					(unsigned char *)hdr, hdr->cmdsn);
 		if (cmdsn_ret == CMDSN_ERROR_CANNOT_RECOVER)
