@@ -89,7 +89,6 @@ struct dpu_kms {
 	struct drm_private_obj global_state;
 
 	struct dpu_rm rm;
-	bool rm_init;
 
 	struct dpu_hw_vbif *hw_vbif[VBIF_MAX];
 	struct dpu_hw_mdp *hw_mdp;
@@ -137,6 +136,7 @@ struct dpu_global_state {
 	uint32_t ctl_to_enc_id[CTL_MAX - CTL_0];
 	uint32_t dspp_to_enc_id[DSPP_MAX - DSPP_0];
 	uint32_t dsc_to_enc_id[DSC_MAX - DSC_0];
+	uint32_t cdm_to_enc_id;
 };
 
 struct dpu_global_state
