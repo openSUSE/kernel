@@ -1849,6 +1849,26 @@ static void vfio_ap_mdev_close_device(struct vfio_device *vdev)
 	vfio_ap_mdev_unset_kvm(matrix_mdev);
 }
 
+static void vfio_ap_mdev_request(struct vfio_device *vdev, unsigned int count)
+{
+	struct device *dev = vdev->dev;
+	struct ap_matrix_mdev *matrix_mdev;
+
+	matrix_mdev = container_of(vdev, struct ap_matrix_mdev, vdev);
+
+	if (matrix_mdev->req_trigger) {
+		if (!(count % 10))
+			dev_notice_ratelimited(dev,
+					       "Relaying device request to user (#%u)\n",
+					       count);
+
+		eventfd_signal(matrix_mdev->req_trigger, 1);
+	} else if (count == 0) {
+		dev_notice(dev,
+			   "No device request registered, blocked until released by user\n");
+	}
+}
+
 static int vfio_ap_mdev_get_device_info(unsigned long arg)
 {
 	unsigned long minsz;
@@ -2083,6 +2103,7 @@ static const struct vfio_device_ops vfio_ap_matrix_dev_ops = {
 	.unbind_iommufd = vfio_iommufd_emulated_unbind,
 	.attach_ioas = vfio_iommufd_emulated_attach_ioas,
 	.detach_ioas = vfio_iommufd_emulated_detach_ioas,
+	.request = vfio_ap_mdev_request
 };
 
 static struct mdev_driver vfio_ap_matrix_driver = {
