@@ -211,6 +211,13 @@ ssize_t nfs_dreq_bytes_left(struct nfs_direct_req *dreq)
 }
 EXPORT_SYMBOL_GPL(nfs_dreq_bytes_left);
 
+ssize_t nfs_dreq_bytes_left_offset(struct nfs_direct_req *dreq, loff_t offset)
+{
+	loff_t start = offset - dreq->io_start;
+	return dreq->max_count - start;
+}
+EXPORT_SYMBOL_GPL(nfs_dreq_bytes_left_offset);
+
 /*
  * Collects and returns the final error value/byte-count.
  */
