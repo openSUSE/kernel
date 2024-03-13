@@ -6510,7 +6510,7 @@ static void create_eml_sink(struct amdgpu_dm_connector *aconnector)
 	struct edid *edid;
 	struct i2c_adapter *ddc;
 
-	if (dc_link->aux_mode)
+	if (dc_link && dc_link->aux_mode)
 		ddc = &aconnector->dm_dp_aux.aux.ddc;
 	else
 		ddc = &aconnector->i2c->base;
