@@ -1154,7 +1154,7 @@ static void iwl_mvm_tas_init(struct iwl_mvm *mvm)
 	if (!iwl_mvm_is_vendor_in_approved_list()) {
 		IWL_DEBUG_RADIO(mvm,
 				"System vendor '%s' is not in the approved list, disabling TAS in US and Canada.\n",
-				dmi_get_system_info(DMI_SYS_VENDOR));
+				dmi_get_system_info(DMI_SYS_VENDOR) ?: "<unknown>");
 		if ((!iwl_mvm_add_to_tas_block_list(cmd.v4.block_list_array,
 						    &cmd.v4.block_list_size,
 							IWL_TAS_US_MCC)) ||
@@ -1168,7 +1168,7 @@ static void iwl_mvm_tas_init(struct iwl_mvm *mvm)
 	} else {
 		IWL_DEBUG_RADIO(mvm,
 				"System vendor '%s' is in the approved list.\n",
-				dmi_get_system_info(DMI_SYS_VENDOR));
+				dmi_get_system_info(DMI_SYS_VENDOR) ?: "<unknown>");
 	}
 
 	/* v4 is the same size as v3, so no need to differentiate here */
