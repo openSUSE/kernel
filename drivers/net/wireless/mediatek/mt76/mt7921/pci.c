@@ -45,6 +45,8 @@ static irqreturn_t mt7921_irq_handler(int irq, void *dev_instance)
 {
 	struct mt7921_dev *dev = dev_instance;
 
+	if (test_bit(MT76_REMOVED, &dev->mphy.state))
+		return IRQ_NONE;
 	mt76_wr(dev, MT_WFDMA0_HOST_INT_ENA, 0);
 
 	if (!test_bit(MT76_STATE_INITIALIZED, &dev->mphy.state))
@@ -378,6 +380,7 @@ static void mt7921_pci_remove(struct pci_dev *pdev)
 	struct mt7921_dev *dev = container_of(mdev, struct mt7921_dev, mt76);
 
 	mt7921e_unregister_device(dev);
+	set_bit(MT76_REMOVED, &mdev->phy.state);
 	devm_free_irq(&pdev->dev, pdev->irq, dev);
 	mt76_free_device(&dev->mt76);
 	pci_free_irq_vectors(pdev);
