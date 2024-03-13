@@ -101,12 +101,8 @@ int hci_uart_unregister_proto(const struct hci_uart_proto *p);
 int hci_uart_register_device_priv(struct hci_uart *hu,
 				  const struct hci_uart_proto *p,
 				  int sizeof_priv);
-
-static inline int hci_uart_register_device(struct hci_uart *hu,
-					   const struct hci_uart_proto *p)
-{
-	return hci_uart_register_device_priv(hu, p, 0);
-}
+int hci_uart_register_device(struct hci_uart *hu,
+			     const struct hci_uart_proto *p);
 
 void hci_uart_unregister_device(struct hci_uart *hu);
 

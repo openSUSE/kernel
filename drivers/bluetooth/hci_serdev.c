@@ -397,6 +397,14 @@ err_rwsem:
 }
 EXPORT_SYMBOL_GPL(hci_uart_register_device_priv);
 
+/* FIXME: SLE kABI compatibility */
+int hci_uart_register_device(struct hci_uart *hu,
+			     const struct hci_uart_proto *p)
+{
+	return hci_uart_register_device_priv(hu, p, 0);
+}
+EXPORT_SYMBOL_GPL(hci_uart_register_device);
+
 void hci_uart_unregister_device(struct hci_uart *hu)
 {
 	struct hci_dev *hdev = hu->hdev;
