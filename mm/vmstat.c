@@ -1206,9 +1206,6 @@ const char * const vmstat_text[] = {
 	"nr_zspages",
 #endif
 	"nr_free_cma",
-#ifdef CONFIG_UNACCEPTED_MEMORY
-	"nr_unaccepted",
-#endif
 
 	/* enum numa_stat_item counters */
 #ifdef CONFIG_NUMA
@@ -1415,6 +1412,11 @@ const char * const vmstat_text[] = {
 	"direct_map_level3_splits",
 #endif
 #endif /* CONFIG_VM_EVENT_COUNTERS || CONFIG_MEMCG */
+
+	/* enum zone_stat_item_2 counters */
+#ifdef CONFIG_UNACCEPTED_MEMORY
+	"nr_unaccepted",
+#endif
 };
 #endif /* CONFIG_PROC_FS || CONFIG_SYSFS || CONFIG_NUMA || CONFIG_MEMCG */
 
@@ -1724,6 +1726,10 @@ static void zoneinfo_show_print(struct seq_file *m, pg_data_t *pgdat,
 		seq_printf(m, "\n      %-12s %lu", zone_stat_name(i),
 			   zone_page_state(zone, i));
 
+	for (i = 0; i < NR_VM_ZONE_STAT_ITEMS_2; i++)
+		seq_printf(m, "\n      %-12s %lu", zone_stat_name_2(i),
+			   zone_page_state_2(zone, i));
+
 #ifdef CONFIG_NUMA
 	for (i = 0; i < NR_VM_NUMA_EVENT_ITEMS; i++)
 		seq_printf(m, "\n      %-12s %lu", numa_stat_name(i),
@@ -1785,7 +1791,8 @@ static const struct seq_operations zoneinfo_op = {
 			 NR_VM_NODE_STAT_ITEMS + \
 			 NR_VM_WRITEBACK_STAT_ITEMS + \
 			 (IS_ENABLED(CONFIG_VM_EVENT_COUNTERS) ? \
-			  NR_VM_EVENT_ITEMS : 0))
+			  NR_VM_EVENT_ITEMS : 0) + \
+			  NR_VM_ZONE_STAT_ITEMS_2)
 
 static void *vmstat_start(struct seq_file *m, loff_t *pos)
 {
@@ -1827,6 +1834,11 @@ static void *vmstat_start(struct seq_file *m, loff_t *pos)
 	v[PGPGIN] /= 2;		/* sectors -> kbytes */
 	v[PGPGOUT] /= 2;
 #endif
+	v += NR_VM_EVENT_ITEMS;
+
+	for (i = 0; i < NR_VM_ZONE_STAT_ITEMS_2; i++)
+		v[i] = global_zone_page_state_2(i);
+
 	return (unsigned long *)m->private + *pos;
 }
 
