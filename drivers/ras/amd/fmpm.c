@@ -54,6 +54,8 @@
 #include <asm/cpu_device_id.h>
 #include <asm/mce.h>
 
+#include "../debugfs.h"
+
 #define INVALID_CPU			UINT_MAX
 
 /* Validation Bits */
@@ -111,6 +113,14 @@ struct fru_rec {
  */
 static struct fru_rec **fru_records;
 
+/* system physical addresses array */
+static u64 *spa_entries;
+
+#define INVALID_SPA	~0ULL
+
+static struct dentry *fmpm_dfs_dir;
+static struct dentry *fmpm_dfs_entries;
+
 #define CPER_CREATOR_FMP						\
 	GUID_INIT(0xcd5c2993, 0xf4b2, 0x41b2, 0xb5, 0xd4, 0xf9, 0xc3,	\
 		  0xa0, 0x33, 0x08, 0x75)
@@ -120,7 +130,7 @@ static struct fru_rec **fru_records;
 		  0x12, 0x0a, 0x44, 0x58)
 
 /**
- * DOC: fru_poison_entries (byte)
+ * DOC: max_nr_entries (byte)
  * Maximum number of descriptor entries possible for each FRU.
  *
  * Values between '1' and '255' are valid.
@@ -140,10 +150,18 @@ static unsigned int max_nr_fru;
 /* Total length of record including headers and list of descriptor entries. */
 static size_t max_rec_len;
 
+/* Total number of SPA entries across all FRUs. */
+static unsigned int spa_nr_entries;
+
 /*
  * Protect the local records cache in fru_records and prevent concurrent
  * writes to storage. This is only needed after init once notifier block
  * registration is done.
+ *
+ * The majority of a record is fixed at module init and will not change
+ * during run time. The entries within a record will be updated as new
+ * errors are reported. The mutex should be held whenever the entries are
+ * accessed during run time.
  */
 static DEFINE_MUTEX(fmpm_update_mutex);
 
@@ -269,6 +287,54 @@ static bool rec_has_fpd(struct fru_rec *rec, struct cper_fru_poison_desc *fpd)
 	return false;
 }
 
+static void save_spa(struct fru_rec *rec, unsigned int entry,
+		     u64 addr, u64 id, unsigned int cpu)
+{
+	unsigned int i, fru_idx, spa_entry;
+	struct atl_err a_err;
+	unsigned long spa;
+
+	if (entry >= max_nr_entries) {
+		pr_warn_once("FRU descriptor entry %d out-of-bounds (max: %d)\n",
+			     entry, max_nr_entries);
+		return;
+	}
+
+	/* spa_nr_entries is always multiple of max_nr_entries */
+	for (i = 0; i < spa_nr_entries; i += max_nr_entries) {
+		fru_idx = i / max_nr_entries;
+		if (fru_records[fru_idx] == rec)
+			break;
+	}
+
+	if (i >= spa_nr_entries) {
+		pr_warn_once("FRU record %d not found\n", i);
+		return;
+	}
+
+	spa_entry = i + entry;
+	if (spa_entry >= spa_nr_entries) {
+		pr_warn_once("spa_entries[] index out-of-bounds\n");
+		return;
+	}
+
+	memset(&a_err, 0, sizeof(struct atl_err));
+
+	a_err.addr = addr;
+	a_err.ipid = id;
+	a_err.cpu  = cpu;
+
+	spa = amd_convert_umc_mca_addr_to_sys_addr(&a_err);
+	if (IS_ERR_VALUE(spa)) {
+		pr_debug("Failed to get system address\n");
+		return;
+	}
+
+	spa_entries[spa_entry] = spa;
+	pr_debug("fru_idx: %u, entry: %u, spa_entry: %u, spa: 0x%016llx\n",
+		 fru_idx, entry, spa_entry, spa_entries[spa_entry]);
+}
+
 static void update_fru_record(struct fru_rec *rec, struct mce *m)
 {
 	struct cper_sec_fru_mem_poison *fmp = &rec->fmp;
@@ -301,6 +367,7 @@ static void update_fru_record(struct fru_rec *rec, struct mce *m)
 	entry  = fmp->nr_entries;
 
 save_fpd:
+	save_spa(rec, entry, m->addr, m->ipid, m->extcpu);
 	fpd_dest  = &rec->entries[entry];
 	memcpy(fpd_dest, &fpd, sizeof(struct cper_fru_poison_desc));
 
@@ -385,6 +452,7 @@ static void retire_mem_fmp(struct fru_rec *rec)
 			continue;
 
 		retire_dram_row(fpd->addr, fpd->hw_id, err_cpu);
+		save_spa(rec, i, fpd->addr, fpd->hw_id, err_cpu);
 	}
 }
 
@@ -696,6 +764,8 @@ static int get_system_info(void)
 	if (!max_nr_entries)
 		max_nr_entries = FMPM_DEFAULT_MAX_NR_ENTRIES;
 
+	spa_nr_entries = max_nr_fru * max_nr_entries;
+
 	max_rec_len  = sizeof(struct fru_rec);
 	max_rec_len += sizeof(struct cper_fru_poison_desc) * max_nr_entries;
 
@@ -714,6 +784,7 @@ static void free_records(void)
 		kfree(rec);
 
 	kfree(fru_records);
+	kfree(spa_entries);
 }
 
 static int allocate_records(void)
@@ -734,15 +805,142 @@ static int allocate_records(void)
 		}
 	}
 
+	spa_entries = kcalloc(spa_nr_entries, sizeof(u64), GFP_KERNEL);
+	if (!spa_entries) {
+		ret = -ENOMEM;
+		goto out_free;
+	}
+
+	for (i = 0; i < spa_nr_entries; i++)
+		spa_entries[i] = INVALID_SPA;
+
 	return ret;
 
 out_free:
-	for (; i >= 0; i--)
+	while (--i >= 0)
 		kfree(fru_records[i]);
 
 	kfree(fru_records);
 out:
 	return ret;
+}
+
+static void *fmpm_start(struct seq_file *f, loff_t *pos)
+{
+	if (*pos >= (spa_nr_entries + 1))
+		return NULL;
+	return pos;
+}
+
+static void *fmpm_next(struct seq_file *f, void *data, loff_t *pos)
+{
+	if (++(*pos) >= (spa_nr_entries + 1))
+		return NULL;
+	return pos;
+}
+
+static void fmpm_stop(struct seq_file *f, void *data)
+{
+}
+
+#define SHORT_WIDTH	8
+#define U64_WIDTH	18
+#define TIMESTAMP_WIDTH	19
+#define LONG_WIDTH	24
+#define U64_PAD		(LONG_WIDTH - U64_WIDTH)
+#define TS_PAD		(LONG_WIDTH - TIMESTAMP_WIDTH)
+static int fmpm_show(struct seq_file *f, void *data)
+{
+	unsigned int fru_idx, entry, spa_entry, line;
+	struct cper_fru_poison_desc *fpd;
+	struct fru_rec *rec;
+
+	line = *(loff_t *)data;
+	if (line == 0) {
+		seq_printf(f, "%-*s", SHORT_WIDTH, "fru_idx");
+		seq_printf(f, "%-*s", LONG_WIDTH,  "fru_id");
+		seq_printf(f, "%-*s", SHORT_WIDTH, "entry");
+		seq_printf(f, "%-*s", LONG_WIDTH,  "timestamp");
+		seq_printf(f, "%-*s", LONG_WIDTH,  "hw_id");
+		seq_printf(f, "%-*s", LONG_WIDTH,  "addr");
+		seq_printf(f, "%-*s", LONG_WIDTH,  "spa");
+		goto out_newline;
+	}
+
+	spa_entry = line - 1;
+	fru_idx	  = spa_entry / max_nr_entries;
+	entry	  = spa_entry % max_nr_entries;
+
+	rec = fru_records[fru_idx];
+	if (!rec)
+		goto out;
+
+	seq_printf(f, "%-*u",		SHORT_WIDTH, fru_idx);
+	seq_printf(f, "0x%016llx%-*s",	rec->fmp.fru_id, U64_PAD, "");
+	seq_printf(f, "%-*u",		SHORT_WIDTH, entry);
+
+	mutex_lock(&fmpm_update_mutex);
+
+	if (entry >= rec->fmp.nr_entries) {
+		seq_printf(f, "%-*s", LONG_WIDTH, "*");
+		seq_printf(f, "%-*s", LONG_WIDTH, "*");
+		seq_printf(f, "%-*s", LONG_WIDTH, "*");
+		seq_printf(f, "%-*s", LONG_WIDTH, "*");
+		goto out_unlock;
+	}
+
+	fpd = &rec->entries[entry];
+
+	seq_printf(f, "%ptT%-*s",	&fpd->timestamp, TS_PAD,  "");
+	seq_printf(f, "0x%016llx%-*s",	fpd->hw_id,	 U64_PAD, "");
+	seq_printf(f, "0x%016llx%-*s",	fpd->addr,	 U64_PAD, "");
+
+	if (spa_entries[spa_entry] == INVALID_SPA)
+		seq_printf(f, "%-*s", LONG_WIDTH, "*");
+	else
+		seq_printf(f, "0x%016llx%-*s", spa_entries[spa_entry], U64_PAD, "");
+
+out_unlock:
+	mutex_unlock(&fmpm_update_mutex);
+out_newline:
+	seq_putc(f, '\n');
+out:
+	return 0;
+}
+
+static const struct seq_operations fmpm_seq_ops = {
+	.start	= fmpm_start,
+	.next	= fmpm_next,
+	.stop	= fmpm_stop,
+	.show	= fmpm_show,
+};
+
+static int fmpm_open(struct inode *inode, struct file *file)
+{
+	return seq_open(file, &fmpm_seq_ops);
+}
+
+static const struct file_operations fmpm_fops = {
+	.open		= fmpm_open,
+	.release	= seq_release,
+	.read		= seq_read,
+	.llseek		= seq_lseek,
+};
+
+static void setup_debugfs(void)
+{
+	struct dentry *dfs = ras_get_debugfs_root();
+
+	if (!dfs)
+		return;
+
+	fmpm_dfs_dir = debugfs_create_dir("fmpm", dfs);
+	if (!fmpm_dfs_dir)
+		return;
+
+	fmpm_dfs_entries = debugfs_create_file("entries", 0400, fmpm_dfs_dir, NULL, &fmpm_fops);
+	if (!fmpm_dfs_entries)
+		debugfs_remove(fmpm_dfs_dir);
 }
 
 static const struct x86_cpu_id fmpm_cpuids[] = {
@@ -786,6 +984,8 @@ static int __init fru_mem_poison_init(void)
 	if (ret)
 		goto out_free;
 
+	setup_debugfs();
+
 	retire_mem_records();
 
 	mce_register_decode_chain(&fru_mem_poison_nb);
@@ -802,6 +1002,7 @@ out:
 static void __exit fru_mem_poison_exit(void)
 {
 	mce_unregister_decode_chain(&fru_mem_poison_nb);
+	debugfs_remove(fmpm_dfs_dir);
 	free_records();
 }
 
