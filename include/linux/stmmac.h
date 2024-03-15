@@ -146,6 +146,9 @@ struct stmmac_txq_cfg {
 	bool use_prio;
 	u32 prio;
 	int tbs_en;
+#ifndef __GENKSYMS__
+	bool coe_unsupported;
+#endif
 };
 
 /* FPE link state */
