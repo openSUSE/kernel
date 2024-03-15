@@ -422,6 +422,7 @@ static struct tc_action_ops act_police_ops = {
 	.cleanup	=	tcf_police_cleanup,
 	.size		=	sizeof(struct tcf_police),
 };
+MODULE_ALIAS_NET_ACT("police");
 
 static __net_init int police_init_net(struct net *net)
 {
