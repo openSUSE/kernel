@@ -502,6 +502,7 @@ static struct tc_action_ops act_pedit_ops = {
 	.lookup		=	tcf_pedit_search,
 	.size		=	sizeof(struct tcf_pedit),
 };
+MODULE_ALIAS_NET_ACT("pedit");
 
 static __net_init int pedit_init_net(struct net *net)
 {

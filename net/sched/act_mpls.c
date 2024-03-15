@@ -377,6 +377,7 @@ static struct tc_action_ops act_mpls_ops = {
 	.lookup		=	tcf_mpls_search,
 	.size		=	sizeof(struct tcf_mpls),
 };
+MODULE_ALIAS_NET_ACT("mpls");
 
 static __net_init int mpls_init_net(struct net *net)
 {

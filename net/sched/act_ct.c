@@ -1503,6 +1503,7 @@ static struct tc_action_ops act_ct_ops = {
 	.stats_update	=	tcf_stats_update,
 	.size		=	sizeof(struct tcf_ct),
 };
+MODULE_ALIAS_NET_ACT("ct");
 
 static __net_init int ct_init_net(struct net *net)
 {

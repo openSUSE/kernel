@@ -267,6 +267,7 @@ static struct tc_action_ops act_gact_ops = {
 	.get_fill_size	=	tcf_gact_get_fill_size,
 	.size		=	sizeof(struct tcf_gact),
 };
+MODULE_ALIAS_NET_ACT("gact");
 
 static __net_init int gact_init_net(struct net *net)
 {
