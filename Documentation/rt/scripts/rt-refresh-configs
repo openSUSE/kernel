@@ -1,0 +1,183 @@
+#!/bin/bash
+die() {
+	echo "ERROR: $@"
+	exit -1
+}
+
+# Add helper scripts to the path
+export PATH=$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null; pwd):$PATH
+
+CONFIG_ARCH=x86_64
+if [ "$1" != "" ]; then
+	CONFIG_ARCH=$1
+fi
+
+if [ ! -e config/x86_64/rt ]; then
+	die "Does not appear to be a SLERT tree, no config/x86_64/rt"
+fi
+
+if [ ! -e tmp/current/Documentation/rt-config-required ]; then
+	echo No rt-config-required file, sequencing patches
+	./scripts/sequence-patch.sh
+fi
+
+if [ ! -e tmp/current/Documentation/rt-config-required ]; then
+	die "No rt-config-required file available, unable to continue"
+	exit -1
+fi
+
+if [ "$PARENT" = "" ]; then
+	PARENT=`grep OBS_PROJECT= rpm/config.sh | cut -d= -f2 | cut -d: -f2 | sed -e 's/SLE-/SLE/' | sed -e 's/ALP$/ALP-current/'`
+	if [ "$PARENT" = "" ]; then
+		die "Unable to identify parent project"
+	fi
+
+	# Special case the ALP preparation tree which is based on Factory for
+	# obs purposes but whose parent project for RT is ALP-current
+	if [ "$PARENT" = "Factory" ]; then
+		PARENT=ALP-current
+	fi
+fi
+
+git rev-parse origin/$PARENT &>/dev/null
+if [ $? -ne 0 ]; then
+	die "Parent branch origin/$PARENT does not appear to exist"
+fi
+
+for CONFIG in debug default kvmsmall; do
+	if [ -e config/$CONFIG_ARCH/$CONFIG ]; then
+		git rm config/$CONFIG_ARCH/$CONFIG
+	fi
+done
+
+echo Copying $PARENT:config/$CONFIG_ARCH/default
+git show origin/$PARENT:config/$CONFIG_ARCH/default > tmp/current/.config
+if [ $? -ne 0 ]; then
+	die "Failed to find default $CONFIG_ARCH config in origin/$PARENT"
+fi
+
+cp tmp/current/.config tmp/current/.config.orig
+apply_spec() {
+	_specfile=$1
+
+	pushd tmp/current &> /dev/null || die "Failed to switch to current"
+	TIFS=$IFS
+	IFS="
+"
+	export MAKE_OPTIONS="CC=scripts/dummy-tools/gcc ARCH=$CONFIG_ARCH"
+	for SPEC in `grep ^[a-z] $_specfile`; do
+		ACTION="`echo $SPEC | cut -d: -f1`"
+		OPTION="`echo $SPEC | cut -d: -f2`"
+		VALUE="`echo $SPEC | cut -d: -f3`"
+
+		if [ "$CONFIG_ARCH" != "x86_64" ]; then
+			if [ "$OPTION" = "CONFIG_CMDLINE_BOOL" ]; then
+				echo Skipping $OPTION on $CONFIG_ARCH
+				continue
+			fi
+
+			if [ "$OPTION" = "CONFIG_CMDLINE" ]; then
+				VALUE=`echo $VALUE | sed -e 's/intel_idle.max_cstate=1 //'`
+				echo Override $OPTION \'$VALUE\'
+			fi
+		fi
+
+		case $ACTION in
+		value)
+			sed -i -e "s@^$OPTION=.*@$OPTION=$VALUE@" .config
+			;;
+		set)
+			config-setoption $OPTION || die "Unable to set option $OPTION"
+			;;
+		unset)
+			config-unsetoption $OPTION || die "Unable to set option $OPTION"
+			;;
+		*)
+			echo ERROR: Unrecognised action $ACTION
+			echo "SPEC:   $SPEC"
+			echo "ACTION: $ACTION"
+			echo "OPTION: $OPTION"
+			echo "VALUE:  $VALUE"
+			exit -1
+			;;
+		esac
+	done
+	IFS=$TIFS
+	popd &>/dev/null || exit -1
+}
+
+echo Applying required configurations for rt
+apply_spec Documentation/rt-config-required
+mkdir -p config/$CONFIG_ARCH/
+cp tmp/current/.config config/$CONFIG_ARCH/rt || die "Failed to copy .config to config/$CONFIG_ARCH/rt"
+sed -i -e 's@^CONFIG_LD_VERSION=.*@CONFIG_LD_VERSION=25000@'			config/$CONFIG_ARCH/rt
+sed -i -e 's@.*CONFIG_TOOLS_SUPPORT_RELR.*@CONFIG_TOOLS_SUPPORT_RELR=y@'	config/$CONFIG_ARCH/rt
+
+if [ "$CONFIG_ARCH" = "arm64" ]; then
+	sed -i -e '/CONFIG_RELR/d'								config/$CONFIG_ARCH/rt
+	sed -i -e '/^CONFIG_ARCH_HAS_RELR=y/a CONFIG_RELR=y'					config/$CONFIG_ARCH/rt
+	sed -i -e 's/.*LD_HAS_FIX_ERRATUM_843419.*/CONFIG_ARM64_LD_HAS_FIX_ERRATUM_843419=y/'	config/$CONFIG_ARCH/rt
+fi
+
+echo Copying rt config
+git status config/$CONFIG_ARCH/rt | grep -q "Untracked files"
+if [ $? -eq 0 ]; then
+	echo Adding to git: config/$CONFIG_ARCH/rt
+	git add config/$CONFIG_ARCH/rt || die "Failed to add config/$CONFIG_ARCH/rt to git repo"
+fi
+
+echo Creating rt_debug from parent debug
+git show origin/$PARENT:config/$CONFIG_ARCH/debug > config/$CONFIG_ARCH/rt_debug
+if [ $? -ne 0 ]; then
+	rm config/$CONFIG_ARCH/rt_debug
+	if [ "$CONFIG_ARCH" = "x86_64" ]; then
+		die "Failed to fetch debug configuration for $CONFIG_ARCH"
+	else
+		echo "WARNING: No debug option available for $CONFIG_ARCH"
+		exit 0
+	fi
+fi
+sed -i -e 's@^CONFIG_LOCALVERSION=.*@CONFIG_LOCALVERSION="-rt_debug"@' 	config/$CONFIG_ARCH/rt_debug
+sed -i -e '/PREEMPT_DYNAMIC/d'						config/$CONFIG_ARCH/rt_debug
+sed -i -e '/DEBUG_PREEMPT/d'						config/$CONFIG_ARCH/rt_debug
+sed -i -e '/UNINLINE_SPIN_UNLOCK/d'					config/$CONFIG_ARCH/rt_debug
+
+echo Applying rt-specific debug options
+for SPEC in `cat tmp/current/Documentation/rt_debug-config-required`; do
+	ACTION="`echo $SPEC | cut -d: -f1`"
+	OPTION="`echo $SPEC | cut -d: -f2`"
+
+	CONFIG_STRING=
+	case $ACTION in
+	set)
+		CONFIG_STRING="$OPTION=y"
+		;;
+	unset)
+		CONFIG_STRING="# $OPTION is not set"
+		;;
+	*)
+		echo ERROR: Unrecognised action $ACTION
+		echo "ACTION: $ACTION"
+		echo "OPTION: $OPTION"
+		exit -1
+		;;
+	esac
+
+	grep -q $OPTION config/$CONFIG_ARCH/rt_debug
+	if [ $? -eq 0 ]; then
+		sed -i -e "s/.*$OPTION.*/$CONFIG_STRING/" config/$CONFIG_ARCH/rt_debug
+	else
+		echo $CONFIG_STRING >> config/$CONFIG_ARCH/rt_debug
+	fi
+done
+
+git status config/$CONFIG_ARCH/rt_debug | grep -q "Untracked files"
+if [ $? -eq 0 ]; then
+	echo Adding to git: config/$CONFIG_ARCH/rt_debug
+	git add config/$CONFIG_ARCH/rt_debug || die "Failed to add config/$CONFIG_ARCH/rt_debug to git repo"
+fi
+
+cd tmp/current
+../../scripts/run_oldconfig.sh -a $CONFIG_ARCH
+
+exit 0

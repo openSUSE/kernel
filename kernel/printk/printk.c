@@ -88,7 +88,7 @@ EXPORT_SYMBOL(oops_in_progress);
 static DEFINE_MUTEX(console_mutex);
 
 /*
- * console_sem protects updates to console->seq and console_suspended,
+ * console_sem protects updates to console->seq
  * and also provides serialization for console printing.
  */
 static DEFINE_SEMAPHORE(console_sem, 1);
@@ -361,7 +361,7 @@ static bool panic_in_progress(void)
  * paths in the console code where we end up in places I want
  * locked without the console semaphore held).
  */
-static int console_locked, console_suspended;
+static int console_locked;
 
 /*
  *	Array of consoles built from command line options (console=)
@@ -2348,6 +2348,7 @@ asmlinkage int vprintk_emit(int facility, int level,
 		defer_console_output();
 	else
 		wake_up_klogd();
+
 	return printed_len;
 }
 EXPORT_SYMBOL(vprintk_emit);
@@ -2605,10 +2606,6 @@ void suspend_console(void)
 	 * completes.
 	 */
 	synchronize_srcu(&console_srcu);
-
-	console_lock();
-	console_suspended = 1;
-	up_console_sem();
 }
 
 void resume_console(void)
@@ -2619,9 +2616,6 @@ void resume_console(void)
 
 	if (!console_suspend_enabled)
 		return;
-	down_console_sem();
-	console_suspended = 0;
-	console_unlock();
 
 	console_list_lock();
 	for_each_console(con)
@@ -2668,6 +2662,26 @@ static int console_cpu_notify(unsigned int cpu)
 	return 0;
 }
 
+/*
+ * Return true if a panic is in progress on a remote CPU.
+ *
+ * On true, the local CPU should immediately release any printing resources
+ * that may be needed by the panic CPU.
+ */
+bool other_cpu_in_panic(void)
+{
+	if (!panic_in_progress())
+		return false;
+
+	/*
+	 * We can use raw_smp_processor_id() here because it is impossible for
+	 * the task to be migrated to the panic_cpu, or away from it. If
+	 * panic_cpu has already been set, and we're not currently executing on
+	 * that CPU, then we never will be.
+	 */
+	return atomic_read(&panic_cpu) != raw_smp_processor_id();
+}
+
 /**
  * console_lock - block the console subsystem from printing
  *
@@ -2680,9 +2694,11 @@ void console_lock(void)
 {
 	might_sleep();
 
+	/* On panic, the console_lock must be left to the panic cpu. */
+	while (other_cpu_in_panic())
+		msleep(1000);
+
 	down_console_sem();
-	if (console_suspended)
-		return;
 	console_locked = 1;
 	console_may_schedule = 1;
 }
@@ -2698,12 +2714,11 @@ EXPORT_SYMBOL(console_lock);
  */
 int console_trylock(void)
 {
+	/* On panic, the console_lock must be left to the panic cpu. */
+	if (other_cpu_in_panic())
+		return 0;
 	if (down_trylock_console_sem())
 		return 0;
-	if (console_suspended) {
-		up_console_sem();
-		return 0;
-	}
 	console_locked = 1;
 	console_may_schedule = 0;
 	return 1;
@@ -2715,25 +2730,6 @@ int is_console_locked(void)
 	return console_locked;
 }
 EXPORT_SYMBOL(is_console_locked);
-
-/*
- * Return true when this CPU should unlock console_sem without pushing all
- * messages to the console. This reduces the chance that the console is
- * locked when the panic CPU tries to use it.
- */
-static bool abandon_console_lock_in_panic(void)
-{
-	if (!panic_in_progress())
-		return false;
-
-	/*
-	 * We can use raw_smp_processor_id() here because it is impossible for
-	 * the task to be migrated to the panic_cpu, or away from it. If
-	 * panic_cpu has already been set, and we're not currently executing on
-	 * that CPU, then we never will be.
-	 */
-	return atomic_read(&panic_cpu) != raw_smp_processor_id();
-}
 
 static void __console_unlock(void)
 {
@@ -3010,7 +3006,7 @@ static bool console_flush_all(bool do_cond_resched, u64 *next_seq, bool *handove
 			any_progress = true;
 
 			/* Allow panic_cpu to take over the consoles safely. */
-			if (abandon_console_lock_in_panic())
+			if (other_cpu_in_panic())
 				goto abandon;
 
 			if (do_cond_resched)
@@ -3087,11 +3083,6 @@ static u64 console_flush_and_unlock(void)
  */
 void console_unlock(void)
 {
-	if (console_suspended) {
-		up_console_sem();
-		return;
-	}
-
 	/*
 	 * PREEMPT_RT relies on kthread and atomic consoles for printing.
 	 * It never attempts to print from console_unlock().
@@ -3123,10 +3114,28 @@ EXPORT_SYMBOL(console_conditional_schedule);
 
 void console_unblank(void)
 {
+	bool found_unblank = false;
 	struct console *c;
 	int cookie;
 
 	if (!have_bkl_console)
+		return;
+
+	/*
+	 * First check if there are any consoles implementing the unblank()
+	 * callback. If not, there is no reason to continue and take the
+	 * console lock, which in particular can be dangerous if
+	 * @oops_in_progress is set.
+	 */
+	cookie = console_srcu_read_lock();
+	for_each_console_srcu(c) {
+		if ((console_srcu_read_flags(c) & CON_ENABLED) && c->unblank) {
+			found_unblank = true;
+			break;
+		}
+	}
+	console_srcu_read_unlock(cookie);
+	if (!found_unblank)
 		return;
 
 	/*
@@ -3141,6 +3150,12 @@ void console_unblank(void)
 		if (in_nmi())
 			return;
 
+		/*
+		 * Attempting to trylock the console lock can deadlock
+		 * if another CPU was stopped while modifying the
+		 * semaphore. "Hope and pray" that this is not the
+		 * current situation.
+		 */
 		if (down_trylock_console_sem() != 0)
 			return;
 	} else
@@ -3171,6 +3186,8 @@ void console_unblank(void)
 void console_flush_on_panic(enum con_flush_mode mode)
 {
 	struct console *c;
+	bool handover;
+	u64 next_seq;
 	short flags;
 	int cookie;
 	u64 seq;
@@ -3196,33 +3213,35 @@ void console_flush_on_panic(enum con_flush_mode mode)
 		return;
 
 	/*
-	 * If someone else is holding the console lock, trylock will fail
-	 * and may_schedule may be set.  Ignore and proceed to unlock so
-	 * that messages are flushed out.  As this can be called from any
-	 * context and we don't want to get preempted while flushing,
-	 * ensure may_schedule is cleared.
+	 * Ignore the console lock and flush out the messages. Attempting a
+	 * trylock would not be useful because:
 	 *
-	 * Since semaphores are not NMI-safe, the console lock must be
-	 * ignored if the panic is in NMI context.
+	 *   - if it is contended, it must be ignored anyway
+	 *   - console_lock() and console_trylock() block and fail
+	 *     respectively in panic for non-panic CPUs
+	 *   - semaphores are not NMI-safe
 	 */
-	if (!in_nmi())
-		console_trylock();
+
+	/*
+	 * If another context is holding the console lock,
+	 * @console_may_schedule might be set. Clear it so that
+	 * this context does not call cond_resched() while flushing.
+	 */
 	console_may_schedule = 0;
 
 	if (mode == CONSOLE_REPLAY_ALL) {
 		cookie = console_srcu_read_lock();
 		for_each_console_srcu(c) {
 			/*
-			 * If the above console_trylock() failed, this is an
-			 * unsynchronized assignment. But in that case, the
+			 * This is an unsynchronized assignment, but the
 			 * kernel is in "hope and pray" mode anyway.
 			 */
 			c->seq = seq;
 		}
 		console_srcu_read_unlock(cookie);
 	}
-	if (!in_nmi())
-		console_unlock();
+
+	console_flush_all(false, &next_seq, &handover);
 }
 
 /*
@@ -3350,10 +3369,7 @@ static int console_bkl_kthread_func(void *unused)
 			continue;
 
 		console_lock();
-		if (console_suspended)
-			up_console_sem();
-		else
-			seq = console_flush_and_unlock();
+		seq = console_flush_and_unlock();
 	}
 	return 0;
 }
@@ -3909,12 +3925,18 @@ static bool __pr_flush(struct console *con, int timeout_ms, bool reset_on_progre
 
 	seq = prb_next_seq(prb);
 
+	/* Flush the consoles so that records up to @seq are printed. */
+	console_lock();
+	console_unlock();
+
 	for (;;) {
 		diff = 0;
 
 		/*
 		 * Hold the console_lock to guarantee safe access to
-		 * console->seq.
+		 * console->seq. Releasing console_lock flushes more
+		 * records in case @seq is still not printed on all
+		 * usable consoles.
 		 */
 		console_lock();
 
@@ -3924,6 +3946,11 @@ static bool __pr_flush(struct console *con, int timeout_ms, bool reset_on_progre
 
 			if (con && con != c)
 				continue;
+			/*
+			 * If consoles are not usable, it cannot be expected
+			 * that they make forward progress, so only increment
+			 * @diff for usable consoles.
+			 */
 
 			flags = console_srcu_read_flags(c);
 
@@ -3948,6 +3975,7 @@ static bool __pr_flush(struct console *con, int timeout_ms, bool reset_on_progre
 
 		console_unlock();
 
+		/* Note: @diff is 0 if there are no usable consoles. */
 		if (diff == 0 || remaining == 0)
 			break;
 
@@ -3981,7 +4009,7 @@ static bool __pr_flush(struct console *con, int timeout_ms, bool reset_on_progre
  * printer has been seen to make some forward progress.
  *
  * Context: Process context. May sleep while acquiring console lock.
- * Return: true if all enabled printers are caught up.
+ * Return: true if all usable printers are caught up.
  */
 static bool pr_flush(int timeout_ms, bool reset_on_progress)
 {
@@ -4050,8 +4078,9 @@ static void __wake_up_klogd(int val)
  * wake_up_klogd - Wake kernel logging daemon
  *
  * Use this function when new records have been added to the ringbuffer
- * and the console printing for those records is handled elsewhere. In
- * this case only the logging daemon needs to be woken.
+ * and the console printing of those records has already occurred or is
+ * known to be handled by some other context. This function will only
+ * wake the logging daemon.
  *
  * Context: Any context.
  */
@@ -4064,9 +4093,11 @@ void wake_up_klogd(void)
  * defer_console_output - Wake kernel logging daemon and trigger
  *	console printing in a deferred context
  *
- * Use this function when new records have been added to the ringbuffer
- * but the current context is unable to perform the console printing.
- * This function also wakes the logging daemon.
+ * Use this function when new records have been added to the ringbuffer,
+ * this context is responsible for console printing those records, but
+ * the current context is not allowed to perform the console printing.
+ * Trigger an irq_work context to perform the console printing. This
+ * function also wakes the logging daemon.
  *
  * Context: Any context.
  */
