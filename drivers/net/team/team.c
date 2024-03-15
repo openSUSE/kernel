@@ -564,8 +564,7 @@ static int __team_change_mode(struct team *team,
 		team_mode_put(team->mode);
 		team_set_no_mode(team);
 		/* zero private data area */
-		memset(&team->mode_priv, 0,
-		       sizeof(struct team) - offsetof(struct team, mode_priv));
+		memset(&team->mode_priv, 0, sizeof(team->mode_priv));
 	}
 
 	if (!new_mode)
