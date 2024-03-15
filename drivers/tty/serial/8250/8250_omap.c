@@ -18,7 +18,6 @@
 #include <linux/platform_device.h>
 #include <linux/slab.h>
 #include <linux/of.h>
-#include <linux/of_device.h>
 #include <linux/of_gpio.h>
 #include <linux/of_irq.h>
 #include <linux/delay.h>
@@ -303,6 +302,9 @@ static void omap8250_restore_regs(struct uart_8250_port *up)
 	struct omap8250_priv *priv = up->port.private_data;
 	struct uart_8250_dma	*dma = up->dma;
 	u8 mcr = serial8250_in_MCR(up);
+
+	/* Port locked to synchronize UART_IER access against the console. */
+	lockdep_assert_held_once(&up->port.lock);
 
 	if (dma && dma->tx_running) {
 		/*
@@ -729,8 +731,11 @@ static int omap_8250_startup(struct uart_port *port)
 		priv->wer |= OMAP_UART_TX_WAKEUP_EN;
 	serial_out(up, UART_OMAP_WER, priv->wer);
 
-	if (up->dma && !(priv->habit & UART_HAS_EFR2))
+	if (up->dma && !(priv->habit & UART_HAS_EFR2)) {
+		spin_lock_irq(&port->lock);
 		up->dma->rx_dma(up);
+		spin_unlock_irq(&port->lock);
+	}
 
 	enable_irq(up->port.irq);
 
@@ -1008,6 +1013,9 @@ static int omap_8250_rx_dma(struct uart_8250_port *p)
 	struct dma_async_tx_descriptor  *desc;
 	unsigned long			flags;
 	u32				reg;
+
+	/* Port locked to synchronize UART_IER access against the console. */
+	lockdep_assert_held_once(&p->port.lock);
 
 	if (priv->rx_dma_broken)
 		return -EINVAL;
@@ -1587,7 +1595,6 @@ static int omap8250_remove(struct platform_device *pdev)
 	return 0;
 }
 
-#ifdef CONFIG_PM_SLEEP
 static int omap8250_prepare(struct device *dev)
 {
 	struct omap8250_priv *priv = dev_get_drvdata(dev);
@@ -1647,12 +1654,7 @@ static int omap8250_resume(struct device *dev)
 
 	return 0;
 }
-#else
-#define omap8250_prepare NULL
-#define omap8250_complete NULL
-#endif
 
-#ifdef CONFIG_PM
 static int omap8250_lost_context(struct uart_8250_port *up)
 {
 	u32 val;
@@ -1754,17 +1756,22 @@ static int omap8250_runtime_resume(struct device *dev)
 	if (priv->line >= 0)
 		up = serial8250_get_port(priv->line);
 
-	if (up && omap8250_lost_context(up))
+	if (up && omap8250_lost_context(up)) {
+		spin_lock_irq(&up->port.lock);
 		omap8250_restore_regs(up);
+		spin_unlock_irq(&up->port.lock);
+	}
 
-	if (up && up->dma && up->dma->rxchan && !(priv->habit & UART_HAS_EFR2))
+	if (up && up->dma && up->dma->rxchan && !(priv->habit & UART_HAS_EFR2)) {
+		spin_lock_irq(&up->port.lock);
 		omap_8250_rx_dma(up);
+		spin_unlock_irq(&up->port.lock);
+	}
 
 	priv->latency = priv->calc_latency;
 	schedule_work(&priv->qos_work);
 	return 0;
 }
-#endif
 
 #ifdef CONFIG_SERIAL_8250_OMAP_TTYO_FIXUP
 static int __init omap8250_console_fixup(void)
@@ -1807,17 +1814,17 @@ console_initcall(omap8250_console_fixup);
 #endif
 
 static const struct dev_pm_ops omap8250_dev_pm_ops = {
-	SET_SYSTEM_SLEEP_PM_OPS(omap8250_suspend, omap8250_resume)
-	SET_RUNTIME_PM_OPS(omap8250_runtime_suspend,
+	SYSTEM_SLEEP_PM_OPS(omap8250_suspend, omap8250_resume)
+	RUNTIME_PM_OPS(omap8250_runtime_suspend,
 			   omap8250_runtime_resume, NULL)
-	.prepare        = omap8250_prepare,
-	.complete       = omap8250_complete,
+	.prepare        = pm_sleep_ptr(omap8250_prepare),
+	.complete       = pm_sleep_ptr(omap8250_complete),
 };
 
 static struct platform_driver omap8250_platform_driver = {
 	.driver = {
 		.name		= "omap8250",
-		.pm		= &omap8250_dev_pm_ops,
+		.pm		= pm_ptr(&omap8250_dev_pm_ops),
 		.of_match_table = omap8250_dt_ids,
 	},
 	.probe			= omap8250_probe,
