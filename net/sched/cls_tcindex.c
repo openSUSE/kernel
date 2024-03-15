@@ -744,6 +744,7 @@ static struct tcf_proto_ops cls_tcindex_ops __read_mostly = {
 	.bind_class	=	tcindex_bind_class,
 	.owner		=	THIS_MODULE,
 };
+MODULE_ALIAS_NET_CLS("tcindex");
 
 static int __init init_tcindex(void)
 {
