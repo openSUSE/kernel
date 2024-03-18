@@ -381,6 +381,7 @@ static struct tc_action_ops act_ipt_ops = {
 	.init		=	tcf_ipt_init,
 	.size		=	sizeof(struct tcf_ipt),
 };
+MODULE_ALIAS_NET_ACT("ipt");
 
 static __net_init int ipt_init_net(struct net *net)
 {
@@ -411,6 +412,7 @@ static struct tc_action_ops act_xt_ops = {
 	.init		=	tcf_xt_init,
 	.size		=	sizeof(struct tcf_ipt),
 };
+MODULE_ALIAS_NET_ACT("xt");
 
 static __net_init int xt_init_net(struct net *net)
 {
