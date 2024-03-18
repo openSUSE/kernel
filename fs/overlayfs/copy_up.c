@@ -696,7 +696,7 @@ static int ovl_copy_up_workdir(struct ovl_copy_up_ctx *c)
 	struct inode *inode;
 	struct inode *udir = d_inode(c->destdir), *wdir = d_inode(c->workdir);
 	struct path path = { .mnt = ovl_upper_mnt(ofs) };
-	struct dentry *temp, *upper;
+	struct dentry *temp, *upper, *trap;
 	struct ovl_cu_creds cc;
 	int err;
 	struct ovl_cattr cattr = {
@@ -708,7 +708,10 @@ static int ovl_copy_up_workdir(struct ovl_copy_up_ctx *c)
 
 	/* workdir and destdir could be the same when copying up to indexdir */
 	err = -EIO;
-	if (lock_rename(c->workdir, c->destdir) != NULL)
+	trap = lock_rename(c->workdir, c->destdir);
+	if (IS_ERR(trap))
+		return err;
+	if (trap != NULL)
 		goto unlock;
 
 	err = ovl_prep_cu_creds(c->dentry, &cc);

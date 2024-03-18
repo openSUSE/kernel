@@ -1188,6 +1188,10 @@ static int ovl_rename(struct mnt_idmap *idmap, struct inode *olddir,
 	}
 
 	trap = lock_rename(new_upperdir, old_upperdir);
+	if (IS_ERR(trap)) {
+		err = PTR_ERR(trap);
+		goto out_revert_creds;
+	}
 
 	olddentry = ovl_lookup_upper(ofs, old->d_name.name, old_upperdir,
 				     old->d_name.len);
