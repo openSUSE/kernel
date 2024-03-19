@@ -2069,6 +2069,9 @@ static int __init iommu_init_pci(struct amd_iommu *iommu)
 	/* Prevent binding other PCI device drivers to IOMMU devices */
 	iommu->dev->match_driver = false;
 
+	/* ACPI _PRT won't have an IRQ for IOMMU */
+	iommu->dev->irq_managed = 1;
+
 	pci_read_config_dword(iommu->dev, cap_ptr + MMIO_CAP_HDR_OFFSET,
 			      &iommu->cap);
 
@@ -3813,23 +3816,28 @@ static int iommu_page_make_shared(void *page)
 		bool assigned;
 
 		ret = snp_lookup_rmpentry(pfn, &assigned, &level);
-		if (ret)
-			pr_warn("IOMMU PFN %lx RMP lookup failed, ret %d\n",
-				pfn, ret);
+		if (ret) {
+			pr_warn("IOMMU PFN %lx RMP lookup failed, ret %d\n", pfn, ret);
+			return ret;
+		}
 
-		if (!assigned)
-			pr_warn("IOMMU PFN %lx not assigned in RMP table\n",
-				pfn);
+		if (!assigned) {
+			pr_warn("IOMMU PFN %lx not assigned in RMP table\n", pfn);
+			return -EINVAL;
+		}
 
 		if (level > PG_LEVEL_4K) {
 			ret = psmash(pfn);
-			if (ret) {
-				pr_warn("IOMMU PFN %lx had a huge RMP entry, but attempted psmash failed, ret: %d, level: %d\n",
-					pfn, ret, level);
-			}
+			if (!ret)
+				goto done;
+
+			pr_warn("PSMASH failed for IOMMU PFN %lx huge RMP entry, ret: %d, level: %d\n",
+				pfn, ret, level);
+			return ret;
 		}
 	}
 
+done:
 	return rmp_make_shared(pfn, PG_LEVEL_4K);
 }
 
