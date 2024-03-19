@@ -67,9 +67,12 @@ free:
 static int
 mt7921_asar_acpi_read_mtcl(struct mt7921_dev *dev, u8 **table, u8 *version)
 {
-	*version = (mt7921_acpi_read(dev, MT7921_ACPI_MTCL, table, NULL) < 0)
+	int ret;
+
+	*version = ((ret = mt7921_acpi_read(dev, MT7921_ACPI_MTCL, table, NULL)) < 0)
 		   ? 1 : 2;
-	return 0;
+
+	return ret;
 }
 
 /* MTDS : Dynamic SAR Power Table */
@@ -163,15 +166,17 @@ int mt7921_init_acpi_sar(struct mt7921_dev *dev)
 	if (!asar)
 		return -ENOMEM;
 
-	mt7921_asar_acpi_read_mtcl(dev, (u8 **)&asar->countrylist, &asar->ver);
+	ret = mt7921_asar_acpi_read_mtcl(dev, (u8 **)&asar->countrylist, &asar->ver);
+	if (ret) {
+		devm_kfree(dev->mt76.dev, asar->countrylist);
+		asar->countrylist = NULL;
+	}
 
 	/* MTDS is mandatory. Return error if table is invalid */
 	ret = mt7921_asar_acpi_read_mtds(dev, (u8 **)&asar->dyn, asar->ver);
 	if (ret) {
 		devm_kfree(dev->mt76.dev, asar->dyn);
-		devm_kfree(dev->mt76.dev, asar->countrylist);
-		devm_kfree(dev->mt76.dev, asar);
-		return ret;
+		asar->dyn = NULL;
 	}
 
 	/* MTGS is optional */
@@ -285,7 +290,7 @@ int mt7921_init_acpi_sar_power(struct mt7921_phy *phy, bool set_default)
 	const struct cfg80211_sar_capa *capa = phy->mt76->hw->wiphy->sar_capa;
 	int i;
 
-	if (!phy->acpisar)
+	if (!phy->acpisar || !((struct mt7921_acpi_sar *)phy->acpisar)->dyn)
 		return 0;
 
 	/* When ACPI SAR enabled in HW, we should apply rules for .frp
