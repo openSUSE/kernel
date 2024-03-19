@@ -1745,6 +1745,10 @@ retry:
 	}
 
 	trap = lock_rename(tdentry, fdentry);
+	if (IS_ERR(trap)) {
+		err = (rqstp->rq_vers == 2) ? nfserr_acces : nfserr_xdev;
+		goto out;
+	}
 	fh_fill_pre_attrs(ffhp);
 	fh_fill_pre_attrs(tfhp);
 
