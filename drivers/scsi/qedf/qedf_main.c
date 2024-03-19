@@ -318,11 +318,17 @@ static struct fc_seq *qedf_elsct_send(struct fc_lport *lport, u32 did,
 	 */
 	if (resp == fc_lport_flogi_resp) {
 		qedf->flogi_cnt++;
+		qedf->flogi_pending++;
+
+                if (test_bit(QEDF_UNLOADING, &qedf->flags)) {
+                        QEDF_ERR(&qedf->dbg_ctx, "Driver unloading\n");
+                        qedf->flogi_pending = 0;
+                }
+
 		if (qedf->flogi_pending >= QEDF_FLOGI_RETRY_CNT) {
 			schedule_delayed_work(&qedf->stag_work, 2);
 			return NULL;
 		}
-		qedf->flogi_pending++;
 		return fc_elsct_send(lport, did, fp, op, qedf_flogi_resp,
 		    arg, timeout);
 	}
@@ -912,6 +918,7 @@ void qedf_ctx_soft_reset(struct fc_lport *lport)
 	struct qed_link_output if_link;
 
 	if (lport->vport) {
+		clear_bit(QEDF_STAG_IN_PROGRESS, &qedf->flags);
 		printk_ratelimited("Cannot issue host reset on NPIV port.\n");
 		return;
 	}
@@ -935,6 +942,7 @@ void qedf_ctx_soft_reset(struct fc_lport *lport)
 	qed_ops->common->get_link(qedf->cdev, &if_link);
 	/* Bail if the physical link is not up */
 	if (!if_link.link_up) {
+		clear_bit(QEDF_STAG_IN_PROGRESS, &qedf->flags);
 		QEDF_INFO(&qedf->dbg_ctx, QEDF_LOG_DISC,
 			  "Physical link is not up.\n");
 		return;
@@ -949,6 +957,7 @@ void qedf_ctx_soft_reset(struct fc_lport *lport)
 		  "Queue link up work.\n");
 	queue_delayed_work(qedf->link_update_wq, &qedf->link_update,
 	    0);
+	clear_bit(QEDF_STAG_IN_PROGRESS, &qedf->flags);
 }
 
 /* Reset the host by gracefully logging out and then logging back in */
@@ -3720,6 +3729,7 @@ static void __qedf_remove(struct pci_dev *pdev, int mode)
 {
 	struct qedf_ctx *qedf;
 	int rc;
+	int cnt = 0;
 
 	if (!pdev) {
 		QEDF_ERR(NULL, "pdev is NULL.\n");
@@ -3736,6 +3746,17 @@ static void __qedf_remove(struct pci_dev *pdev, int mode)
 		QEDF_ERR(&qedf->dbg_ctx, "Already removing PCI function.\n");
 		return;
 	}
+
+stag_in_prog:
+        if (test_bit(QEDF_STAG_IN_PROGRESS, &qedf->flags)) {
+                QEDF_ERR(&qedf->dbg_ctx, "Stag in progress, cnt=%d.\n", cnt);
+                cnt++;
+
+                if (cnt < 5) {
+                        msleep(500);
+                        goto stag_in_prog;
+                }
+        }
 
 	if (mode != QEDF_MODE_RECOVERY)
 		set_bit(QEDF_UNLOADING, &qedf->flags);
@@ -3995,6 +4016,13 @@ void qedf_stag_change_work(struct work_struct *work)
 {
 	struct qedf_ctx *qedf =
 	    container_of(work, struct qedf_ctx, stag_work.work);
+
+	if (test_bit(QEDF_UNLOADING, &qedf->flags)) {
+		QEDF_ERR(&qedf->dbg_ctx, "Driver unloading\n");
+		return;
+	}
+
+	set_bit(QEDF_STAG_IN_PROGRESS, &qedf->flags);
 
 	printk_ratelimited("[%s]:[%s:%d]:%d: Performing software context reset.",
 			dev_name(&qedf->pdev->dev), __func__, __LINE__,

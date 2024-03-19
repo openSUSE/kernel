@@ -842,7 +842,7 @@ static ssize_t iwl_dbgfs_tas_get_status_read(struct file *file,
 				 le16_to_cpu(rsp->block_list[i]));
 
 	pos += scnprintf(pos, endpos - pos, "\nOEM name: %s\n",
-			 dmi_get_system_info(DMI_SYS_VENDOR));
+			 dmi_get_system_info(DMI_SYS_VENDOR) ?: "<unknown>");
 	pos += scnprintf(pos, endpos - pos, "\tVendor In Approved List: %s\n",
 			 iwl_mvm_is_vendor_in_approved_list() ? "YES" : "NO");
 	pos += scnprintf(pos, endpos - pos,
