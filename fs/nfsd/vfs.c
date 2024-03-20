@@ -304,7 +304,8 @@ commit_metadata(struct svc_fh *fhp)
  * NFS semantics and what Linux expects.
  */
 static void
-nfsd_sanitize_attrs(struct inode *inode, struct iattr *iap)
+nfsd_sanitize_attrs(struct dentry *dentry,
+		    struct inode *inode, struct iattr *iap)
 {
 	/* sanitize the mode change */
 	if (iap->ia_valid & ATTR_MODE) {
@@ -323,7 +324,8 @@ nfsd_sanitize_attrs(struct inode *inode, struct iattr *iap)
 				iap->ia_mode &= ~S_ISGID;
 		} else {
 			/* set ATTR_KILL_* bits and let VFS handle it */
-			iap->ia_valid |= (ATTR_KILL_SUID | ATTR_KILL_SGID);
+			iap->ia_valid |= ATTR_KILL_SUID;
+			iap->ia_valid |= should_remove_suid(dentry);
 		}
 	}
 }
@@ -416,7 +418,7 @@ nfsd_setattr(struct svc_rqst *rqstp, struct svc_fh *fhp, struct iattr *iap,
 	if (!iap->ia_valid)
 		return 0;
 
-	nfsd_sanitize_attrs(inode, iap);
+	nfsd_sanitize_attrs(dentry, inode, iap);
 
 	if (check_guard && guardtime != inode->i_ctime.tv_sec)
 		return nfserr_notsync;
