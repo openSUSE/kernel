@@ -2731,6 +2731,64 @@ int is_console_locked(void)
 }
 EXPORT_SYMBOL(is_console_locked);
 
+/*
+ * Check if the given console is currently capable and allowed to print
+ * records. If the caller only works with certain types of consoles, the
+ * caller is responsible for checking the console type before calling
+ * this function.
+ */
+static inline bool console_is_usable(struct console *con, short flags)
+{
+	if (!(flags & CON_ENABLED))
+		return false;
+
+	if ((flags & CON_SUSPENDED))
+		return false;
+
+	/*
+	 * The usability of a console varies depending on whether
+	 * it is a NOBKL console or not.
+	 */
+
+	if (flags & CON_NO_BKL) {
+		if (have_boot_console)
+			return false;
+
+	} else {
+		if (!con->write)
+			return false;
+		/*
+		 * Console drivers may assume that per-cpu resources have
+		 * been allocated. So unless they're explicitly marked as
+		 * being able to cope (CON_ANYTIME) don't call them until
+		 * this CPU is officially up.
+		 */
+		if (!cpu_online(raw_smp_processor_id()) && !(flags & CON_ANYTIME))
+			return false;
+	}
+
+	return true;
+}
+
+/*
+ * Return true when this CPU should unlock console_sem without pushing all
+ * messages to the console. This reduces the chance that the console is
+ * locked when the panic CPU tries to use it.
+ */
+static bool abandon_console_lock_in_panic(void)
+{
+	if (!panic_in_progress())
+		return false;
+
+	/*
+	 * We can use raw_smp_processor_id() here because it is impossible for
+	 * the task to be migrated to the panic_cpu, or away from it. If
+	 * panic_cpu has already been set, and we're not currently executing on
+	 * that CPU, then we never will be.
+	 */
+	return atomic_read(&panic_cpu) != raw_smp_processor_id();
+}
+
 static void __console_unlock(void)
 {
 	console_locked = 0;
@@ -3117,6 +3175,9 @@ void console_unblank(void)
 	bool found_unblank = false;
 	struct console *c;
 	int cookie;
+
+	if (!have_bkl_console)
+		return;
 
 	/*
 	 * First check if there are any consoles implementing the unblank()
