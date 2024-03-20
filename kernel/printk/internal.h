@@ -206,7 +206,7 @@ struct printk_message {
  */
 struct cons_context_data {
 	struct cons_write_context	wctxt[CONS_PRIO_MAX];
-	struct printk_buffers	pbufs;
+	struct printk_buffers		pbufs;
 };
 
 bool printk_get_next_message(struct printk_message *pmsg, u64 seq,
