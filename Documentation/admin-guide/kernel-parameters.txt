@@ -903,6 +903,13 @@
 			0: to disable low allocation.
 			It will be ignored when crashkernel=X,high is not used
 			or memory reserved is below 4G.
+	crashkernel=size[KMG],cma
+			[KNL, X86] Reserve additional crash kernel memory from CMA.
+			This reservation is usable by the 1st system's userspace,
+			so this should not be used if dumping of userspace 
+			memory is intended. A standard crashkernel reservation, 
+			as described above, is still needed to hold the crash 
+			kernel and initrd. 
 
 	cryptomgr.notests
 			[KNL] Disable crypto self-tests
