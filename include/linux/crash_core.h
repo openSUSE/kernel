@@ -20,6 +20,7 @@ extern int crashk_cma_cnt;
 #else
 #define crashk_cma_cnt 0
 #endif
+void crash_cma_clear_pending_dma(void);
 
 #define CRASH_CORE_NOTE_NAME	   "CORE"
 #define CRASH_CORE_NOTE_HEAD_BYTES ALIGN(sizeof(struct elf_note), 4)

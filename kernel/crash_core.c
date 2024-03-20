@@ -16,6 +16,7 @@
 #include <linux/kexec.h>
 #include <linux/kmemleak.h>
 #include <linux/cma.h>
+#include <linux/delay.h>
 #include <linux/suse_version.h>
 
 #include <asm/page.h>
@@ -25,6 +26,8 @@
 
 #include "kallsyms_internal.h"
 #include "kexec_internal.h"
+
+#define CMA_DMA_TIMEOUT_MSEC 1000
 
 /* Per cpu memory for storing cpu states in case of system crash. */
 note_buf_t __percpu *crash_notes;
@@ -537,6 +540,14 @@ void __init reserve_crashkernel_cma(unsigned long long cma_size)
 		pr_warn("crashkernel CMA reservation failed: CMA disabled\n");
 }
 #endif
+
+void crash_cma_clear_pending_dma(void)
+{
+	if (!crashk_cma_cnt)
+		return;
+
+	mdelay(CMA_DMA_TIMEOUT_MSEC);
+}
 
 int crash_prepare_elf64_headers(struct crash_mem *mem, int need_kernel_map,
 			  void **addr, unsigned long *sz)
