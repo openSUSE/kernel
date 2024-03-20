@@ -15,6 +15,7 @@
 #include <linux/memblock.h>
 #include <linux/kexec.h>
 #include <linux/kmemleak.h>
+#include <linux/cma.h>
 #include <linux/suse_version.h>
 
 #include <asm/page.h>
@@ -484,6 +485,57 @@ static __init int insert_crashkernel_resources(void)
 	return 0;
 }
 early_initcall(insert_crashkernel_resources);
+#endif
+
+#ifdef CONFIG_CMA
+#define CRASHKERNEL_CMA_RANGES_MAX 4
+
+struct range crashk_cma_ranges[CRASHKERNEL_CMA_RANGES_MAX];
+int crashk_cma_cnt = 0;
+
+void __init reserve_crashkernel_cma(unsigned long long cma_size)
+{
+	unsigned long long request_size = roundup(cma_size, PAGE_SIZE);
+	unsigned long long reserved_size = 0;
+
+	while (cma_size > reserved_size &&
+	       crashk_cma_cnt < CRASHKERNEL_CMA_RANGES_MAX) {
+
+		struct cma *res;
+
+		if (cma_declare_contiguous(0, request_size, 0, 0, 0, false,
+				       "crashkernel", &res)) {
+			/* reservation failed, try half-sized blocks */
+			if (request_size <= PAGE_SIZE)
+				break;
+
+			request_size = roundup(request_size / 2, PAGE_SIZE);
+			continue;
+		}
+
+		crashk_cma_ranges[crashk_cma_cnt].start = cma_get_base(res);
+		crashk_cma_ranges[crashk_cma_cnt].end =
+			crashk_cma_ranges[crashk_cma_cnt].start +
+			cma_get_size(res) - 1;
+		++crashk_cma_cnt;
+		reserved_size += request_size;
+	}
+
+	if (cma_size > reserved_size)
+		pr_warn("crashkernel CMA reservation failed: %lld MB requested, %lld MB reserved in %d ranges\n",
+			cma_size >> 20, reserved_size >> 20, crashk_cma_cnt);
+	else
+		pr_info("crashkernel CMA reserved: %lld MB in %d ranges\n",
+			reserved_size >> 20, crashk_cma_cnt);
+}
+
+#else /* CONFIG_CMA */
+struct range crashk_cma_ranges[0];
+void __init reserve_crashkernel_cma(unsigned long long cma_size)
+{
+	if (cma_size)
+		pr_warn("crashkernel CMA reservation failed: CMA disabled\n");
+}
 #endif
 
 int crash_prepare_elf64_headers(struct crash_mem *mem, int need_kernel_map,
