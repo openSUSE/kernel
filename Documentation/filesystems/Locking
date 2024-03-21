@@ -74,7 +74,7 @@ symlink:	yes
 mkdir:		yes
 unlink:		yes (both)
 rmdir:		yes (both)	(see below)
-rename:		yes (all)	(see below)
+rename:		yes (both parents, some children)	(see below)
 readlink:	no
 follow_link:	no
 put_link:	no
@@ -92,8 +92,9 @@ fiemap:		no
 update_time:	no
 
 	Additionally, ->rmdir(), ->unlink() and ->rename() have ->i_mutex on
-victim.
-	cross-directory ->rename() has (per-superblock) ->s_vfs_rename_sem.
+all non-directories involved.
+	cross-directory ->rename() has (per-superblock) ->s_vfs_rename_sem and
+->i_mutex on any subdirectory that changes parent.
 	->truncate() is never called directly - it's a callback, not a
 method. It's called by vmtruncate() - deprecated library function used by
 ->setattr(). Locking information above applies to that call (i.e. is
