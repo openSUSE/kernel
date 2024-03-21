@@ -126,6 +126,8 @@ extern long do_handle_open(int mountdirfd,
  * inode.c
  */
 extern spinlock_t inode_sb_list_lock;
+void lock_two_inodes(struct inode *inode1, struct inode *inode2,
+		     unsigned subclass1, unsigned subclass2);
 
 /*
  * fs-writeback.c
