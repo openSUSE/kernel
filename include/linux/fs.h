@@ -867,11 +867,14 @@ static inline int inode_unhashed(struct inode *inode)
  * 2: child/target
  * 3: xattr
  * 4: second non-directory
- * The last is for certain operations (such as rename) which lock two
+ * 5: second parent (when locking independent directories in rename)
+ *
+ * I_MUTEX_NONDIR2 is for certain operations (such as rename) which lock two
  * non-directories at once.
  *
  * The locking order between these classes is
- * parent -> child -> normal -> xattr -> second non-directory
+ * parent[2] -> child -> grandchild -> normal -> xattr -> second non-directory
+ *   -> quota
  */
 enum inode_i_mutex_lock_class
 {
@@ -880,6 +883,7 @@ enum inode_i_mutex_lock_class
 	I_MUTEX_CHILD,
 	I_MUTEX_XATTR,
 	I_MUTEX_NONDIR2,
+	I_MUTEX_PARENT2,
 	I_MUTEX_QUOTA,
 };
 
