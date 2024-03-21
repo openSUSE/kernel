@@ -15,10 +15,11 @@ that "inode pointer" order in the following.
 3) object removal.  Locking rules: caller locks parent, finds victim,
 locks victim and calls the method.
 
-4) rename() that is _not_ cross-directory.  Locking rules: caller locks
-the parent and finds source and target.  If target already exists, lock
-it.  If source is a non-directory, lock it.  If that means we need to
-lock both, lock them in inode pointer order.
+4) rename() that is _not_ cross-directory.  Locking rules: caller locks the
+parent and finds source and target.  We lock both (provided they exist).  If we
+need to lock two inodes of different type (dir vs non-dir), we lock directory
+first.  If we need to lock two inodes of the same type, lock them in inode
+pointer order.  Then call the method.  All locks are exclusive.
 
 5) link creation.  Locking rules:
 	* lock parent
@@ -29,15 +30,17 @@ lock both, lock them in inode pointer order.
 6) cross-directory rename.  The trickiest in the whole bunch.  Locking
 rules:
 	* lock the filesystem
-	* lock parents in "ancestors first" order.
+	* lock parents in "ancestors first" order. If one is not ancestor of
+	  the other, lock them in inode pointer order.
 	* find source and target.
 	* if old parent is equal to or is a descendent of target
 		fail with -ENOTEMPTY
 	* if new parent is equal to or is a descendent of source
 		fail with -ELOOP
-	* If target exists, lock it.  If source is a non-directory, lock
-	  it.  In case that means we need to lock both source and target,
-	  do so in inode pointer order.
+	* Lock both the source and the target provided they exist. If we
+	  need to lock two inodes of different type (dir vs non-dir), we lock
+	  the directory first. If we need to lock two inodes of the same type,
+	  lock them in inode pointer order.
 	* call the method.
 
 
@@ -48,8 +51,9 @@ read, modified or removed by method will be locked by caller.
 If no directory is its own ancestor, the scheme above is deadlock-free.
 Proof:
 
-	First of all, at any moment we have a partial ordering of the
-objects - A < B iff A is an ancestor of B.
+	First of all, at any moment we have a linear ordering of the
+	objects - A < B iff (A is an ancestor of B) or (B is not an ancestor
+        of A and ptr(A) < ptr(B)).
 
 	That ordering can change.  However, the following is true:
 
