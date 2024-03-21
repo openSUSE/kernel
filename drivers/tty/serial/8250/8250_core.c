@@ -259,7 +259,7 @@ static void serial8250_backup_timeout(struct timer_list *t)
 	unsigned int iir, ier = 0, lsr;
 	unsigned long flags;
 
-	spin_lock_irqsave(&up->port.lock, flags);
+	uart_port_lock_irqsave(&up->port, &flags);
 
 	/*
 	 * Must disable interrupts or else we risk racing with the interrupt
@@ -292,7 +292,7 @@ static void serial8250_backup_timeout(struct timer_list *t)
 	if (up->port.irq)
 		serial_out(up, UART_IER, ier);
 
-	spin_unlock_irqrestore(&up->port.lock, flags);
+	uart_port_unlock_irqrestore(&up->port, flags);
 
 	/* Standard timer interval plus 0.2s to keep the port running */
 	mod_timer(&up->timer,
@@ -497,6 +497,7 @@ static struct uart_8250_port *serial8250_setup_port(int index)
 
 	up = &serial8250_ports[index];
 	up->port.line = index;
+	up->port.port_id = index;
 
 	serial8250_init_port(up);
 	if (!base_ops)
@@ -599,6 +600,19 @@ static void univ8250_console_write(struct console *co, const char *s,
 	serial8250_console_write(up, s, count);
 }
 
+static bool univ8250_console_write_atomic(struct console *co,
+					  struct nbcon_write_context *wctxt)
+{
+	struct uart_8250_port *up = &serial8250_ports[co->index];
+
+	return serial8250_console_write_atomic(up, wctxt);
+}
+
+static struct uart_port *univ8250_console_uart_port(struct console *con)
+{
+	return &serial8250_ports[con->index].port;
+}
+
 static int univ8250_console_setup(struct console *co, char *options)
 {
 	struct uart_8250_port *up;
@@ -698,11 +712,14 @@ static int univ8250_console_match(struct console *co, char *name, int idx,
 static struct console univ8250_console = {
 	.name		= "ttyS",
 	.write		= univ8250_console_write,
+	.write_atomic	= univ8250_console_write_atomic,
+	.write_thread	= univ8250_console_write_atomic,
+	.uart_port	= univ8250_console_uart_port,
 	.device		= uart_console_device,
 	.setup		= univ8250_console_setup,
 	.exit		= univ8250_console_exit,
 	.match		= univ8250_console_match,
-	.flags		= CON_PRINTBUFFER | CON_ANYTIME,
+	.flags		= CON_PRINTBUFFER | CON_ANYTIME | CON_NBCON,
 	.index		= -1,
 	.data		= &serial8250_reg,
 };
@@ -991,11 +1008,11 @@ static void serial_8250_overrun_backoff_work(struct work_struct *work)
 	struct uart_port *port = &up->port;
 	unsigned long flags;
 
-	spin_lock_irqsave(&port->lock, flags);
+	uart_port_lock_irqsave(port, &flags);
 	up->ier |= UART_IER_RLSI | UART_IER_RDI;
 	up->port.read_status_mask |= UART_LSR_DR;
 	serial_out(up, UART_IER, up->ier);
-	spin_unlock_irqrestore(&port->lock, flags);
+	uart_port_unlock_irqrestore(port, flags);
 }
 
 /**
@@ -1039,6 +1056,8 @@ int serial8250_register_8250_port(const struct uart_8250_port *up)
 		if (uart->port.dev)
 			uart_remove_one_port(&serial8250_reg, &uart->port);
 
+		uart->port.ctrl_id	= up->port.ctrl_id;
+		uart->port.port_id	= up->port.port_id;
 		uart->port.iobase       = up->port.iobase;
 		uart->port.membase      = up->port.membase;
 		uart->port.irq          = up->port.irq;
@@ -1191,9 +1210,9 @@ void serial8250_unregister_port(int line)
 	if (uart->em485) {
 		unsigned long flags;
 
-		spin_lock_irqsave(&uart->port.lock, flags);
+		uart_port_lock_irqsave(&uart->port, &flags);
 		serial8250_em485_destroy(uart);
-		spin_unlock_irqrestore(&uart->port.lock, flags);
+		uart_port_unlock_irqrestore(&uart->port, flags);
 	}
 
 	uart_remove_one_port(&serial8250_reg, &uart->port);
@@ -1201,6 +1220,7 @@ void serial8250_unregister_port(int line)
 		uart->port.flags &= ~UPF_BOOT_AUTOCONF;
 		uart->port.type = PORT_UNKNOWN;
 		uart->port.dev = &serial8250_isa_devs->dev;
+		uart->port.port_id = line;
 		uart->capabilities = 0;
 		serial8250_init_port(uart);
 		serial8250_apply_quirks(uart);

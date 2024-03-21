@@ -9,6 +9,8 @@
 #include <linux/ratelimit_types.h>
 #include <linux/once_lite.h>
 
+struct uart_port;
+
 extern const char linux_banner[];
 extern const char linux_proc_banner[];
 
@@ -159,13 +161,16 @@ __printf(1, 2) __cold int _printk_deferred(const char *fmt, ...);
 
 extern void __printk_safe_enter(void);
 extern void __printk_safe_exit(void);
+extern void __printk_deferred_enter(void);
+extern void __printk_deferred_exit(void);
+
 /*
  * The printk_deferred_enter/exit macros are available only as a hack for
  * some code paths that need to defer all printk console printing. Interrupts
  * must be disabled for the deferred duration.
  */
-#define printk_deferred_enter __printk_safe_enter
-#define printk_deferred_exit __printk_safe_exit
+#define printk_deferred_enter() __printk_deferred_enter()
+#define printk_deferred_exit() __printk_deferred_exit()
 
 /*
  * Please don't use printk_ratelimit(), because it shares ratelimiting state
@@ -192,6 +197,9 @@ void show_regs_print_info(const char *log_lvl);
 extern asmlinkage void dump_stack_lvl(const char *log_lvl) __cold;
 extern asmlinkage void dump_stack(void) __cold;
 void printk_trigger_flush(void);
+extern void nbcon_atomic_flush_all(void);
+extern void nbcon_handle_port_lock(struct uart_port *up);
+extern void nbcon_handle_port_unlock(struct uart_port *up);
 #else
 static inline __printf(1, 0)
 int vprintk(const char *s, va_list args)
@@ -271,6 +279,19 @@ static inline void dump_stack(void)
 static inline void printk_trigger_flush(void)
 {
 }
+
+static inline void nbcon_atomic_flush_all(void)
+{
+}
+
+static inline void nbcon_handle_port_lock(struct uart_port *up)
+{
+}
+
+static inline void nbcon_handle_port_unlock(struct uart_port *up)
+{
+}
+
 #endif
 
 #ifdef CONFIG_SMP
