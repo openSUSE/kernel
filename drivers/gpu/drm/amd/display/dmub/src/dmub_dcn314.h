@@ -1,5 +1,5 @@
 /*
- * Copyright 2019-2021 Advanced Micro Devices, Inc.
+ * Copyright 2021 Advanced Micro Devices, Inc.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -23,29 +23,13 @@
  *
  */
 
-#ifndef __DCN31_FPU_H__
-#define __DCN31_FPU_H__
+#ifndef _DMUB_DCN314_H_
+#define _DMUB_DCN314_H_
 
-#define DCN3_1_DEFAULT_DET_SIZE 384
-#define DCN3_15_DEFAULT_DET_SIZE 192
-#define DCN3_15_MIN_COMPBUF_SIZE_KB 128
-#define DCN3_16_DEFAULT_DET_SIZE 192
+#include "dmub_dcn31.h"
 
-void dcn31_zero_pipe_dcc_fraction(display_e2e_pipe_params_st *pipes,
-				  int pipe_cnt);
+extern const struct dmub_srv_dcn31_regs dmub_srv_dcn314_regs;
 
-void dcn31_update_soc_for_wm_a(struct dc *dc, struct dc_state *context);
-void dcn315_update_soc_for_wm_a(struct dc *dc, struct dc_state *context);
+bool dmub_dcn314_is_psrsu_supported(struct dmub_srv *dmub);
 
-void dcn31_calculate_wm_and_dlg_fp(
-		struct dc *dc, struct dc_state *context,
-		display_e2e_pipe_params_st *pipes,
-		int pipe_cnt,
-		int vlevel);
-
-void dcn31_update_bw_bounding_box(struct dc *dc, struct clk_bw_params *bw_params);
-void dcn315_update_bw_bounding_box(struct dc *dc, struct clk_bw_params *bw_params);
-void dcn316_update_bw_bounding_box(struct dc *dc, struct clk_bw_params *bw_params);
-int dcn_get_max_non_odm_pix_rate_100hz(struct _vcs_dpi_soc_bounding_box_st *soc);
-
-#endif /* __DCN31_FPU_H__*/
+#endif /* _DMUB_DCN314_H_ */
