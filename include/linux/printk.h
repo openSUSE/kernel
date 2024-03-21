@@ -139,7 +139,6 @@ void early_printk(const char *s, ...) { }
 #endif
 
 struct dev_printk_info;
-struct cons_write_context;
 
 #ifdef CONFIG_PRINTK
 asmlinkage __printf(4, 0)
@@ -158,17 +157,15 @@ int _printk(const char *fmt, ...);
  */
 __printf(1, 2) __cold int _printk_deferred(const char *fmt, ...);
 
-extern void __printk_safe_enter(unsigned long *flags);
-extern void __printk_safe_exit(unsigned long *flags);
-extern void __printk_deferred_enter(void);
-extern void __printk_deferred_exit(void);
+extern void __printk_safe_enter(void);
+extern void __printk_safe_exit(void);
 /*
  * The printk_deferred_enter/exit macros are available only as a hack for
  * some code paths that need to defer all printk console printing. Interrupts
  * must be disabled for the deferred duration.
  */
-#define printk_deferred_enter() __printk_deferred_enter()
-#define printk_deferred_exit() __printk_deferred_exit()
+#define printk_deferred_enter __printk_safe_enter
+#define printk_deferred_exit __printk_safe_exit
 
 /*
  * Please don't use printk_ratelimit(), because it shares ratelimiting state
@@ -195,8 +192,6 @@ void show_regs_print_info(const char *log_lvl);
 extern asmlinkage void dump_stack_lvl(const char *log_lvl) __cold;
 extern asmlinkage void dump_stack(void) __cold;
 void printk_trigger_flush(void);
-extern void cons_atomic_flush(struct cons_write_context *printk_caller_wctxt,
-			      bool skip_unsafe);
 #else
 static inline __printf(1, 0)
 int vprintk(const char *s, va_list args)
@@ -276,12 +271,6 @@ static inline void dump_stack(void)
 static inline void printk_trigger_flush(void)
 {
 }
-
-static inline void cons_atomic_flush(struct cons_write_context *printk_caller_wctxt,
-				     bool skip_unsafe)
-{
-}
-
 #endif
 
 #ifdef CONFIG_SMP
