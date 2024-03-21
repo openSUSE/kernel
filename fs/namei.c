@@ -2115,21 +2115,38 @@ static inline int may_create(struct inode *dir, struct dentry *child,
 	return error;
 }
 
+// p1 != p2, both are on the same filesystem, ->s_vfs_rename_mutex is held
 static struct dentry *lock_two_directories(struct dentry *p1, struct dentry *p2)
 {
-	struct dentry *p;
+	struct dentry *p = p1, *q = p2, *r;
 
-	p = d_ancestor(p2, p1);
-	if (p) {
+	while ((r = p->d_parent) != p2 && r != p)
+		p = r;
+	if (r == p2) {
+		// p is a child of p2 and an ancestor of p1 or p1 itself
 		mutex_lock_nested(&p2->d_inode->i_mutex, I_MUTEX_PARENT);
 		mutex_lock_nested(&p1->d_inode->i_mutex, I_MUTEX_PARENT2);
 		return p;
 	}
 
-	p = d_ancestor(p1, p2);
-	mutex_lock_nested(&p1->d_inode->i_mutex, I_MUTEX_PARENT);
-	mutex_lock_nested(&p2->d_inode->i_mutex, I_MUTEX_PARENT2);
-	return p;
+	// p is the root of connected component that contains p1
+	// p2 does not occur on the path from p to p1
+	while ((r = q->d_parent) != p1 && r != p && r != q)
+		q = r;
+	if (r == p1) {
+		// q is a child of p1 and an ancestor of p2 or p2 itself
+	       	mutex_lock_nested(&p1->d_inode->i_mutex, I_MUTEX_PARENT);
+       		mutex_lock_nested(&p2->d_inode->i_mutex, I_MUTEX_PARENT2);
+		return q;
+	} else if (likely(r == p)) {
+		// both p2 and p1 are descendents of p
+	       	mutex_lock_nested(&p1->d_inode->i_mutex, I_MUTEX_PARENT);
+       		mutex_lock_nested(&p2->d_inode->i_mutex, I_MUTEX_PARENT2);
+		return NULL;
+	} else { // no common ancestor at the time we'd been called
+		mutex_unlock(&p1->d_sb->s_vfs_rename_mutex);
+		return ERR_PTR(-EXDEV);
+	}
 }
 
 /*
@@ -3498,6 +3515,10 @@ retry:
 	newnd.flags |= LOOKUP_RENAME_TARGET;
 
 	trap = lock_rename(new_dir, old_dir);
+	if (IS_ERR(trap)) {
+		error = PTR_ERR(trap);
+		goto exit2;
+	}
 
 	old_dentry = lookup_hash(&oldnd);
 	error = PTR_ERR(old_dentry);
