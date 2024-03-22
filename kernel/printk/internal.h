@@ -54,7 +54,7 @@ extern bool have_boot_console;
  * be printed serially along with the legacy consoles because nbcon
  * consoles cannot print simultaneously with boot consoles.
  */
-#define serialized_printing (have_legacy_console || have_boot_console)
+#define printing_via_unlock (have_legacy_console || have_boot_console)
 
 __printf(4, 0)
 int vprintk_store(int facility, int level,
@@ -82,13 +82,17 @@ void defer_console_output(void);
 
 u16 printk_parse_prefix(const char *text, int *level,
 			enum printk_info_flags *flags);
+void console_lock_spinning_enable(void);
+int console_lock_spinning_disable_and_check(int cookie);
 
 u64 nbcon_seq_read(struct console *con);
 void nbcon_seq_force(struct console *con, u64 seq);
 bool nbcon_alloc(struct console *con);
 void nbcon_init(struct console *con);
 void nbcon_free(struct console *con);
-bool nbcon_console_emit_next_record(struct console *con);
+enum nbcon_prio nbcon_get_default_prio(void);
+void nbcon_atomic_flush_all(void);
+bool nbcon_atomic_emit_next_record(struct console *con, bool *handover, int cookie);
 void nbcon_kthread_create(struct console *con);
 void nbcon_wake_threads(void);
 void nbcon_legacy_kthread_create(void);
@@ -141,7 +145,7 @@ static inline void nbcon_kthread_wake(struct console *con)
 	 * Guarantee any new records can be seen by tasks preparing to wait
 	 * before this context checks if the rcuwait is empty.
 	 *
-	 * The full memory barrier in rcuwait_wake_up()  pairs with the full
+	 * The full memory barrier in rcuwait_wake_up() pairs with the full
 	 * memory barrier within set_current_state() of
 	 * ___rcuwait_wait_event(), which is called after prepare_to_rcuwait()
 	 * adds the waiter but before it has checked the wait condition.
@@ -160,7 +164,7 @@ static inline void nbcon_kthread_wake(struct console *con)
 static inline void nbcon_kthread_wake(struct console *con) { }
 static inline void nbcon_kthread_create(struct console *con) { }
 #define printk_threads_enabled (false)
-#define serialized_printing (false)
+#define printing_via_unlock (false)
 
 /*
  * In !PRINTK builds we still export console_sem
@@ -176,9 +180,13 @@ static inline void nbcon_seq_force(struct console *con, u64 seq) { }
 static inline bool nbcon_alloc(struct console *con) { return false; }
 static inline void nbcon_init(struct console *con) { }
 static inline void nbcon_free(struct console *con) { }
-static bool nbcon_console_emit_next_record(struct console *con) { return false; }
+static inline enum nbcon_prio nbcon_get_default_prio(void) { return NBCON_PRIO_NONE; }
+static inline void nbcon_atomic_flush_all(void) { }
+static inline bool nbcon_atomic_emit_next_record(struct console *con, bool *handover,
+						 int cookie) { return false; }
 
-static inline bool console_is_usable(struct console *con, short flags, bool use_atomic) { return false; }
+static inline bool console_is_usable(struct console *con, short flags,
+				     bool use_atomic) { return false; }
 
 #endif /* CONFIG_PRINTK */
 
@@ -211,6 +219,7 @@ struct printk_message {
 };
 
 bool other_cpu_in_panic(void);
+bool this_cpu_in_panic(void);
 bool printk_get_next_message(struct printk_message *pmsg, u64 seq,
 			     bool is_extended, bool may_supress);
 

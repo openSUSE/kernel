@@ -592,6 +592,7 @@ serial8250_register_ports(struct uart_driver *drv, struct device *dev)
 
 #ifdef CONFIG_SERIAL_8250_CONSOLE
 
+#ifdef CONFIG_SERIAL_8250_LEGACY_CONSOLE
 static void univ8250_console_write(struct console *co, const char *s,
 				   unsigned int count)
 {
@@ -599,7 +600,7 @@ static void univ8250_console_write(struct console *co, const char *s,
 
 	serial8250_console_write(up, s, count);
 }
-
+#else
 static bool univ8250_console_write_atomic(struct console *co,
 					  struct nbcon_write_context *wctxt)
 {
@@ -608,10 +609,28 @@ static bool univ8250_console_write_atomic(struct console *co,
 	return serial8250_console_write_atomic(up, wctxt);
 }
 
-static struct uart_port *univ8250_console_uart_port(struct console *con)
+static bool univ8250_console_write_thread(struct console *co,
+					  struct nbcon_write_context *wctxt)
 {
-	return &serial8250_ports[con->index].port;
+	struct uart_8250_port *up = &serial8250_ports[co->index];
+
+	return serial8250_console_write_thread(up, wctxt);
 }
+
+static void univ8250_console_driver_enter(struct console *con, unsigned long *flags)
+{
+	struct uart_port *up = &serial8250_ports[con->index].port;
+
+	__uart_port_lock_irqsave(up, flags);
+}
+
+static void univ8250_console_driver_exit(struct console *con, unsigned long flags)
+{
+	struct uart_port *up = &serial8250_ports[con->index].port;
+
+	__uart_port_unlock_irqrestore(up, flags);
+}
+#endif /* CONFIG_SERIAL_8250_LEGACY_CONSOLE */
 
 static int univ8250_console_setup(struct console *co, char *options)
 {
@@ -711,15 +730,20 @@ static int univ8250_console_match(struct console *co, char *name, int idx,
 
 static struct console univ8250_console = {
 	.name		= "ttyS",
+#ifdef CONFIG_SERIAL_8250_LEGACY_CONSOLE
 	.write		= univ8250_console_write,
+	.flags		= CON_PRINTBUFFER | CON_ANYTIME,
+#else
 	.write_atomic	= univ8250_console_write_atomic,
-	.write_thread	= univ8250_console_write_atomic,
-	.uart_port	= univ8250_console_uart_port,
+	.write_thread	= univ8250_console_write_thread,
+	.driver_enter	= univ8250_console_driver_enter,
+	.driver_exit	= univ8250_console_driver_exit,
+	.flags		= CON_PRINTBUFFER | CON_ANYTIME | CON_NBCON,
+#endif
 	.device		= uart_console_device,
 	.setup		= univ8250_console_setup,
 	.exit		= univ8250_console_exit,
 	.match		= univ8250_console_match,
-	.flags		= CON_PRINTBUFFER | CON_ANYTIME | CON_NBCON,
 	.index		= -1,
 	.data		= &serial8250_reg,
 };

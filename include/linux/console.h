@@ -306,11 +306,11 @@ struct nbcon_write_context {
  *
  * @write_atomic:	Write callback for atomic context
  * @write_thread:	Write callback for non-atomic context
- * @uart_port:		Callback to provide the associated uart port
+ * @driver_enter:	Callback to begin synchronization with driver code
+ * @driver_exit:	Callback to finish synchronization with driver code
  * @nbcon_state:	State for nbcon consoles
  * @nbcon_seq:		Sequence number of the next record for nbcon to print
  * @pbufs:		Pointer to nbcon private buffer
- * @locked_port:	True, if the port lock is locked by nbcon
  * @kthread:		Printer kthread for this console
  * @rcuwait:		RCU-safe wait object for @kthread waking
  * @irq_work:		Defer @kthread waking to IRQ work context
@@ -339,11 +339,11 @@ struct console {
 						struct nbcon_write_context *wctxt);
 	bool			(*write_thread)(struct console *con,
 						struct nbcon_write_context *wctxt);
-	struct uart_port *	(*uart_port)(struct console *con);
+	void			(*driver_enter)(struct console *con, unsigned long *flags);
+	void			(*driver_exit)(struct console *con, unsigned long flags);
 	atomic_t		__private nbcon_state;
 	atomic_long_t		__private nbcon_seq;
 	struct printk_buffers	*pbufs;
-	bool			locked_port;
 	struct task_struct	*kthread;
 	struct rcuwait		rcuwait;
 	struct irq_work		irq_work;
@@ -474,17 +474,19 @@ static inline bool console_is_registered(const struct console *con)
 	hlist_for_each_entry(con, &console_list, node)
 
 #ifdef CONFIG_PRINTK
-extern enum nbcon_prio nbcon_atomic_enter(enum nbcon_prio prio);
-extern void nbcon_atomic_exit(enum nbcon_prio prio, enum nbcon_prio prev_prio);
+extern void nbcon_cpu_emergency_enter(void);
+extern void nbcon_cpu_emergency_exit(void);
 extern bool nbcon_can_proceed(struct nbcon_write_context *wctxt);
 extern bool nbcon_enter_unsafe(struct nbcon_write_context *wctxt);
 extern bool nbcon_exit_unsafe(struct nbcon_write_context *wctxt);
+extern void nbcon_reacquire(struct nbcon_write_context *wctxt);
 #else
-static inline enum nbcon_prio nbcon_atomic_enter(enum nbcon_prio prio) { return NBCON_PRIO_NONE; }
-static inline void nbcon_atomic_exit(enum nbcon_prio prio, enum nbcon_prio prev_prio) { }
+static inline void nbcon_cpu_emergency_enter(void) { }
+static inline void nbcon_cpu_emergency_exit(void) { }
 static inline bool nbcon_can_proceed(struct nbcon_write_context *wctxt) { return false; }
 static inline bool nbcon_enter_unsafe(struct nbcon_write_context *wctxt) { return false; }
 static inline bool nbcon_exit_unsafe(struct nbcon_write_context *wctxt) { return false; }
+static inline void nbcon_reacquire(struct nbcon_write_context *wctxt) { }
 #endif
 
 extern int console_set_on_cmdline;
