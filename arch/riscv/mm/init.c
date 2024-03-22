@@ -65,7 +65,7 @@ extern char _start[];
 void *_dtb_early_va __initdata;
 uintptr_t _dtb_early_pa __initdata;
 
-static phys_addr_t dma32_phys_limit __initdata;
+phys_addr_t dma32_phys_limit __initdata;
 
 static void __init zone_sizes_init(void)
 {
@@ -1310,65 +1310,25 @@ static inline void setup_vm_final(void)
  * line parameter. The memory reserved is used by dump capture kernel when
  * primary kernel is crashing.
  */
-static void __init reserve_crashkernel(void)
+static void __init arch_reserve_crashkernel(void)
 {
-	unsigned long long crash_base = 0;
-	unsigned long long crash_size = 0;
-	unsigned long search_start = memblock_start_of_DRAM();
-	unsigned long search_end = memblock_end_of_DRAM();
-
-	int ret = 0;
+	unsigned long long low_size = 0;
+	unsigned long long crash_base, crash_size;
+	char *cmdline = boot_command_line;
+	bool high = false;
+	int ret;
 
 	if (!IS_ENABLED(CONFIG_KEXEC_CORE))
 		return;
-	/*
-	 * Don't reserve a region for a crash kernel on a crash kernel
-	 * since it doesn't make much sense and we have limited memory
-	 * resources.
-	 */
-	if (is_kdump_kernel()) {
-		pr_info("crashkernel: ignoring reservation request\n");
-		return;
-	}
 
-	ret = parse_crashkernel(boot_command_line, memblock_phys_mem_size(),
-				&crash_size, &crash_base);
-	if (ret || !crash_size)
+	ret = parse_crashkernel(cmdline, memblock_phys_mem_size(),
+				&crash_size, &crash_base,
+				&low_size, NULL, &high);
+	if (ret)
 		return;
 
-	crash_size = PAGE_ALIGN(crash_size);
-
-	if (crash_base) {
-		search_start = crash_base;
-		search_end = crash_base + crash_size;
-	}
-
-	/*
-	 * Current riscv boot protocol requires 2MB alignment for
-	 * RV64 and 4MB alignment for RV32 (hugepage size)
-	 *
-	 * Try to alloc from 32bit addressible physical memory so that
-	 * swiotlb can work on the crash kernel.
-	 */
-	crash_base = memblock_phys_alloc_range(crash_size, PMD_SIZE,
-					       search_start,
-					       min(search_end, (unsigned long)(SZ_4G - 1)));
-	if (crash_base == 0) {
-		/* Try again without restricting region to 32bit addressible memory */
-		crash_base = memblock_phys_alloc_range(crash_size, PMD_SIZE,
-						search_start, search_end);
-		if (crash_base == 0) {
-			pr_warn("crashkernel: couldn't allocate %lldKB\n",
-				crash_size >> 10);
-			return;
-		}
-	}
-
-	pr_info("crashkernel: reserved 0x%016llx - 0x%016llx (%lld MB)\n",
-		crash_base, crash_base + crash_size, crash_size >> 20);
-
-	crashk_res.start = crash_base;
-	crashk_res.end = crash_base + crash_size - 1;
+	reserve_crashkernel_generic(cmdline, crash_size, crash_base,
+				    low_size, high);
 }
 
 void __init paging_init(void)
@@ -1386,7 +1346,7 @@ void __init misc_mem_init(void)
 	arch_numa_init();
 	sparse_init();
 	zone_sizes_init();
-	reserve_crashkernel();
+	arch_reserve_crashkernel();
 	memblock_dump_all();
 }
 
