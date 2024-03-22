@@ -663,6 +663,10 @@ ecryptfs_rename(struct inode *old_dir, struct dentry *old_dentry,
 	lower_new_dir_dentry = dget_parent(lower_new_dentry);
 	target_inode = new_dentry->d_inode;
 	trap = lock_rename(lower_old_dir_dentry, lower_new_dir_dentry);
+	if (IS_ERR(trap)) {
+		rc = PTR_ERR(trap);
+		goto out_put;
+	}
 	/* source should not be ancestor of target */
 	if (trap == lower_old_dentry) {
 		rc = -EINVAL;
@@ -685,6 +689,7 @@ ecryptfs_rename(struct inode *old_dir, struct dentry *old_dentry,
 		fsstack_copy_attr_all(old_dir, lower_old_dir_dentry->d_inode);
 out_lock:
 	unlock_rename(lower_old_dir_dentry, lower_new_dir_dentry);
+out_put:
 	dput(lower_new_dir_dentry);
 	dput(lower_old_dir_dentry);
 	dput(lower_new_dentry);
