@@ -209,6 +209,7 @@ enum flag_bits {
 	Holder,			/* rdev is used as holder while opening
 				 * underlying disk exclusively.
 				 */
+	Nonrot,			/* non-rotational device (SSD) */
 	Timeout,		/* Device fault due to timeout.
 				 * 'Faulty' is required to be set.
 				 */
