@@ -106,6 +106,6 @@ static inline struct device *mdev_dev(struct mdev_device *mdev)
 	return &mdev->dev;
 }
 
-extern struct bus_type mdev_bus_type;
+extern const struct bus_type mdev_bus_type;
 
 #endif /* MDEV_H */

@@ -569,18 +569,6 @@ static int vaddr_get_pfns(struct mm_struct *mm, unsigned long vaddr,
 	ret = pin_user_pages_remote(mm, vaddr, npages, flags | FOLL_LONGTERM,
 				    pages, NULL);
 	if (ret > 0) {
-		int i;
-
-		/*
-		 * The zero page is always resident, we don't need to pin it
-		 * and it falls into our invalid/reserved test so we don't
-		 * unpin in put_pfn().  Unpin all zero pages in the batch here.
-		 */
-		for (i = 0 ; i < ret; i++) {
-			if (unlikely(is_zero_pfn(page_to_pfn(pages[i]))))
-				unpin_user_page(pages[i]);
-		}
-
 		*pfn = page_to_pfn(pages[0]);
 		goto done;
 	}
@@ -1983,7 +1971,7 @@ static void vfio_iommu_detach_group(struct vfio_domain *domain,
 
 static bool vfio_bus_is_mdev(struct bus_type *bus)
 {
-	struct bus_type *mdev_bus;
+	const struct bus_type *mdev_bus;
 	bool ret = false;
 
 	mdev_bus = symbol_get(mdev_bus_type);
