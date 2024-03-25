@@ -2303,6 +2303,8 @@ struct pci_dev *pci_alloc_dev(struct pci_bus *bus)
 	dev->dev.type = &pci_dev_type;
 	dev->bus = pci_bus_get(bus);
 
+	spin_lock_init(&dev->pcie_cap_lock);
+
 	return dev;
 }
 EXPORT_SYMBOL(pci_alloc_dev);
