@@ -2970,7 +2970,6 @@ static int add_bound_rdev(struct md_rdev *rdev)
 		set_bit(MD_RECOVERY_RECOVER, &mddev->recovery);
 	set_bit(MD_RECOVERY_NEEDED, &mddev->recovery);
 	md_new_event();
-	md_wakeup_thread(mddev->thread);
 	return 0;
 }
 
@@ -3092,10 +3091,8 @@ state_store(struct md_rdev *rdev, const char *buf, size_t len)
 
 			if (err == 0) {
 				md_kick_rdev_from_array(rdev);
-				if (mddev->pers) {
+				if (mddev->pers)
 					set_bit(MD_SB_CHANGE_DEVS, &mddev->sb_flags);
-					md_wakeup_thread(mddev->thread);
-				}
 				md_new_event();
 			}
 		}
@@ -3125,7 +3122,6 @@ state_store(struct md_rdev *rdev, const char *buf, size_t len)
 		clear_bit(BlockedBadBlocks, &rdev->flags);
 		wake_up(&rdev->blocked_wait);
 		set_bit(MD_RECOVERY_NEEDED, &rdev->mddev->recovery);
-		md_wakeup_thread(rdev->mddev->thread);
 
 		err = 0;
 	} else if (cmd_match(buf, "insync") && rdev->raid_disk == -1) {
@@ -3163,7 +3159,6 @@ state_store(struct md_rdev *rdev, const char *buf, size_t len)
 		    !test_bit(Replacement, &rdev->flags))
 			set_bit(WantReplacement, &rdev->flags);
 		set_bit(MD_RECOVERY_NEEDED, &rdev->mddev->recovery);
-		md_wakeup_thread(rdev->mddev->thread);
 		err = 0;
 	} else if (cmd_match(buf, "-want_replacement")) {
 		/* Clearing 'want_replacement' is always allowed.
@@ -3293,7 +3288,6 @@ slot_store(struct md_rdev *rdev, const char *buf, size_t len)
 		if (rdev->raid_disk >= 0)
 			return -EBUSY;
 		set_bit(MD_RECOVERY_NEEDED, &rdev->mddev->recovery);
-		md_wakeup_thread(rdev->mddev->thread);
 	} else if (rdev->mddev->pers) {
 		/* Activating a spare .. or possibly reactivating
 		 * if we ever get bitmaps working here.
@@ -6246,7 +6240,6 @@ int do_md_run(struct mddev *mddev)
 	/* run start up tasks that require md_thread */
 	md_start(mddev);
 
-	md_wakeup_thread(mddev->thread);
 	md_wakeup_thread(mddev->sync_thread); /* possibly kick off a reshape */
 
 	set_capacity_and_notify(mddev->gendisk, mddev->array_sectors);
@@ -6267,7 +6260,6 @@ int md_start(struct mddev *mddev)
 
 	if (mddev->pers->start) {
 		set_bit(MD_RECOVERY_WAIT, &mddev->recovery);
-		md_wakeup_thread(mddev->thread);
 		ret = mddev->pers->start(mddev);
 		clear_bit(MD_RECOVERY_WAIT, &mddev->recovery);
 		md_wakeup_thread(mddev->sync_thread);
@@ -6312,7 +6304,6 @@ static int restart_array(struct mddev *mddev)
 	pr_debug("md: %s switched to read-write mode.\n", mdname(mddev));
 	/* Kick recovery or resync if necessary */
 	set_bit(MD_RECOVERY_NEEDED, &mddev->recovery);
-	md_wakeup_thread(mddev->thread);
 	md_wakeup_thread(mddev->sync_thread);
 	sysfs_notify_dirent_safe(mddev->sysfs_state);
 	return 0;
@@ -6456,7 +6447,6 @@ static int md_set_readonly(struct mddev *mddev, struct block_device *bdev)
 	if (!test_bit(MD_RECOVERY_FROZEN, &mddev->recovery)) {
 		did_freeze = 1;
 		set_bit(MD_RECOVERY_FROZEN, &mddev->recovery);
-		md_wakeup_thread(mddev->thread);
 	}
 
 	stop_sync_thread(mddev, false, false);
@@ -6488,7 +6478,6 @@ out:
 	if ((mddev->pers && !err) || did_freeze) {
 		clear_bit(MD_RECOVERY_FROZEN, &mddev->recovery);
 		set_bit(MD_RECOVERY_NEEDED, &mddev->recovery);
-		md_wakeup_thread(mddev->thread);
 		sysfs_notify_dirent_safe(mddev->sysfs_state);
 	}
 
@@ -6510,7 +6499,6 @@ static int do_md_stop(struct mddev *mddev, int mode,
 	if (!test_bit(MD_RECOVERY_FROZEN, &mddev->recovery)) {
 		did_freeze = 1;
 		set_bit(MD_RECOVERY_FROZEN, &mddev->recovery);
-		md_wakeup_thread(mddev->thread);
 	}
 
 	stop_sync_thread(mddev, true, false);
@@ -6524,7 +6512,6 @@ static int do_md_stop(struct mddev *mddev, int mode,
 		if (did_freeze) {
 			clear_bit(MD_RECOVERY_FROZEN, &mddev->recovery);
 			set_bit(MD_RECOVERY_NEEDED, &mddev->recovery);
-			md_wakeup_thread(mddev->thread);
 		}
 		return -EBUSY;
 	}
@@ -7067,9 +7054,7 @@ kick_rdev:
 
 	md_kick_rdev_from_array(rdev);
 	set_bit(MD_SB_CHANGE_DEVS, &mddev->sb_flags);
-	if (mddev->thread)
-		md_wakeup_thread(mddev->thread);
-	else
+	if (!mddev->thread)
 		md_update_sb(mddev, 1);
 	md_new_event();
 
@@ -7151,7 +7136,6 @@ static int hot_add_disk(struct mddev *mddev, dev_t dev)
 	 * array immediately.
 	 */
 	set_bit(MD_RECOVERY_NEEDED, &mddev->recovery);
-	md_wakeup_thread(mddev->thread);
 	md_new_event();
 	return 0;
 
