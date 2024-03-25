@@ -73,9 +73,6 @@
 
 #define PCIE20_PARF_Q2A_FLUSH			0x1AC
 
-#define PCIE20_MISC_CONTROL_1_REG		0x8BC
-#define DBI_RO_WR_EN				1
-
 #define PERST_DELAY_US				1000
 /* PARF registers */
 #define PCIE20_PARF_PCS_DEEMPH			0x34
@@ -1124,7 +1121,9 @@ static int qcom_pcie_post_init_2_3_3(struct qcom_pcie *pcie)
 	writel(0, pcie->parf + PCIE20_PARF_Q2A_FLUSH);
 
 	writel(PCI_COMMAND_MASTER, pci->dbi_base + PCI_COMMAND);
-	writel(DBI_RO_WR_EN, pci->dbi_base + PCIE20_MISC_CONTROL_1_REG);
+
+	dw_pcie_dbi_ro_wr_en(pci);
+
 	writel(PCIE_CAP_LINK1_VAL, pci->dbi_base + offset + PCI_EXP_SLTCAP);
 
 	val = readl(pci->dbi_base + offset + PCI_EXP_LNKCAP);
