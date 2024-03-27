@@ -753,6 +753,16 @@ static int user_sdma_txadd(struct user_sdma_request *req,
 	len = offset + req->info.fragsize > PAGE_SIZE ?
 		PAGE_SIZE - offset : req->info.fragsize;
 	len = min((datalen - queued), len);
+
+	/*
+	 * Make sure we have not overflown the iov_len which may happen if iov_len % PAGE_SIZE != 0
+	 * and another iovec is required to fill the needed (datalen - queued) bytes.
+	 * Prevents both bugs causing CVE-2023-52474
+	 * See 00cbce5cbf88 ("IB/hfi1: Fix bugs with non-PAGE_SIZE-end multi-iovec user SDMA requests")
+	 */
+	if (iov_offset + len > iovec->iov.iov_len)
+		return -EINVAL;
+
 	ret = sdma_txadd_page(pq->dd, &tx->txreq, iovec->pages[pageidx],
 			      offset, len);
 	if (ret) {
