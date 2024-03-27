@@ -6612,21 +6612,7 @@ static inline void check_update_overutilized_status(struct rq *rq)
 		set_rd_overutilized_status(rq->rd, SG_OVERUTILIZED);
 }
 #else
-static inline void check_update_overutilized_status(struct rq *rq)
-{
-	return 0;
-}
-
-static inline void set_rd_overutilized_status(struct root_domain *rd,
-					      unsigned int status)
-{
-	return 0;
-}
-
-static inline int is_rd_not_overutilized(struct root_domain *rd)
-{
-	return 0;
-}
+static inline void check_update_overutilized_status(struct rq *rq) { }
 #endif
 
 /* Runqueue only has SCHED_IDLE tasks enqueued */
