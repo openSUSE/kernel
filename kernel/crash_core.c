@@ -321,7 +321,6 @@ int __init parse_crashkernel(char *cmdline,
 			     bool *high)
 {
 	int ret;
-	unsigned long long cma_base;
 
 	/* crashkernel=X[@offset] */
 	ret = __parse_crashkernel(cmdline, system_ram, crash_size,
@@ -353,13 +352,12 @@ int __init parse_crashkernel(char *cmdline,
 		*high = true;
 	}
 
-	/*
-	* optional CMA reservation
-	* cma_base is ignored
-	*/
-	if (cma_size)
+	/* optional CMA reservation */
+	if (cma_size) {
+		unsigned long long cma_base;
 		__parse_crashkernel(cmdline, 0, cma_size,
 			&cma_base, suffix_tbl[SUFFIX_CMA]);
+	}
 #endif
 	if (!*crash_size)
 		ret = -EINVAL;
