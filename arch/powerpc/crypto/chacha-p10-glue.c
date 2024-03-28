@@ -197,7 +197,7 @@ static struct skcipher_alg algs[] = {
 
 static int __init chacha_p10_init(void)
 {
-	if (!cpu_has_feature(PPC_FEATURE2_ARCH_3_1))
+	if (!cpu_has_feature(CPU_FTR_ARCH_31))
 		return 0;
 
 	static_branch_enable(&have_p10);
@@ -207,6 +207,9 @@ static int __init chacha_p10_init(void)
 
 static void __exit chacha_p10_exit(void)
 {
+	if (!static_branch_likely(&have_p10))
+		return;
+
 	crypto_unregister_skciphers(algs, ARRAY_SIZE(algs));
 }
 
