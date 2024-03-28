@@ -1017,7 +1017,7 @@ void uart_xchar_out(struct uart_port *uport, int offset);
 #ifdef CONFIG_MAGIC_SYSRQ_SERIAL
 #define SYSRQ_TIMEOUT	(HZ * 5)
 
-bool uart_try_toggle_sysrq(struct uart_port *port, u8 ch);
+bool uart_try_toggle_sysrq(struct uart_port *port, unsigned int ch);
 
 static inline int uart_handle_sysrq_char(struct uart_port *port, u8 ch)
 {
