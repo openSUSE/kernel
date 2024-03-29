@@ -535,6 +535,13 @@ static const struct dmi_system_id maingear_laptop[] = {
 			DMI_MATCH(DMI_PRODUCT_NAME, "MG-VCP2-17A3070T"),
 		},
 	},
+	{
+		/* MAIBENBEN X577 */
+		.matches = {
+			DMI_MATCH(DMI_SYS_VENDOR, "MAIBENBEN"),
+			DMI_MATCH(DMI_BOARD_NAME, "X577"),
+		},
+	},
 	{ }
 };
 
@@ -547,10 +554,15 @@ static const struct dmi_system_id lg_laptop[] = {
 		},
 	},
 	{
-		/* MAIBENBEN X577 */
+		/* Infinity E15-5A165-BM */
 		.matches = {
-			DMI_MATCH(DMI_SYS_VENDOR, "MAIBENBEN"),
-			DMI_MATCH(DMI_BOARD_NAME, "X577"),
+			DMI_MATCH(DMI_BOARD_NAME, "GM5RG1E0009COM"),
+		},
+	},
+	{
+		/* Infinity E15-5A305-1M */
+		.matches = {
+			DMI_MATCH(DMI_BOARD_NAME, "GM5RGEE0016COM"),
 		},
 	},
 	{ }
