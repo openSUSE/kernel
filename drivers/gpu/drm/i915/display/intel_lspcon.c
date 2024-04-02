@@ -240,6 +240,32 @@ static bool lspcon_wake_native_aux_ch(struct intel_lspcon *lspcon)
 	return true;
 }
 
+static bool lspcon_set_expected_mode(struct intel_lspcon *lspcon)
+{
+	struct intel_dp *intel_dp = lspcon_to_intel_dp(lspcon);
+	struct drm_i915_private *i915 = dp_to_i915(intel_dp);
+	enum drm_lspcon_mode expected_mode;
+
+	expected_mode = lspcon_wake_native_aux_ch(lspcon) ?
+			DRM_LSPCON_MODE_PCON : DRM_LSPCON_MODE_LS;
+
+	lspcon->mode = lspcon_wait_mode(lspcon, expected_mode);
+
+	/*
+	 * In the SW state machine, lets Put LSPCON in PCON mode only.
+	 * In this way, it will work with both HDMI 1.4 sinks as well as HDMI
+	 * 2.0 sinks.
+	 */
+	if (lspcon->mode != DRM_LSPCON_MODE_PCON) {
+		if (lspcon_change_mode(lspcon, DRM_LSPCON_MODE_PCON) < 0) {
+			drm_err(&i915->drm, "LSPCON mode change to PCON failed\n");
+			return false;
+		}
+	}
+
+	return true;
+}
+
 static bool lspcon_probe(struct intel_lspcon *lspcon)
 {
 	int retry;
@@ -247,10 +273,6 @@ static bool lspcon_probe(struct intel_lspcon *lspcon)
 	struct intel_dp *intel_dp = lspcon_to_intel_dp(lspcon);
 	struct drm_i915_private *i915 = dp_to_i915(intel_dp);
 	struct i2c_adapter *ddc = &intel_dp->aux.ddc;
-	enum drm_lspcon_mode expected_mode;
-
-	expected_mode = lspcon_wake_native_aux_ch(lspcon) ?
-			DRM_LSPCON_MODE_PCON : DRM_LSPCON_MODE_LS;
 
 	/* Lets probe the adaptor and check its type */
 	for (retry = 0; retry < 6; retry++) {
@@ -270,19 +292,7 @@ static bool lspcon_probe(struct intel_lspcon *lspcon)
 
 	/* Yay ... got a LSPCON device */
 	drm_dbg_kms(&i915->drm, "LSPCON detected\n");
-	lspcon->mode = lspcon_wait_mode(lspcon, expected_mode);
 
-	/*
-	 * In the SW state machine, lets Put LSPCON in PCON mode only.
-	 * In this way, it will work with both HDMI 1.4 sinks as well as HDMI
-	 * 2.0 sinks.
-	 */
-	if (lspcon->mode != DRM_LSPCON_MODE_PCON) {
-		if (lspcon_change_mode(lspcon, DRM_LSPCON_MODE_PCON) < 0) {
-			drm_err(&i915->drm, "LSPCON mode change to PCON failed\n");
-			return false;
-		}
-	}
 	return true;
 }
 
@@ -668,6 +678,11 @@ bool lspcon_init(struct intel_digital_port *dig_port)
 
 	if (!lspcon_probe(lspcon)) {
 		drm_err(&i915->drm, "Failed to probe lspcon\n");
+		return false;
+	}
+
+	if (!lspcon_set_expected_mode(lspcon)) {
+		drm_err(&i915->drm, "LSPCON Set expected Mode failed\n");
 		return false;
 	}
 
