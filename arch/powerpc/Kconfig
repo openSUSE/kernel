@@ -282,6 +282,9 @@ config PPC_BARRIER_NOSPEC
 	default y
 	depends on PPC_BOOK3S_64 || PPC_FSL_BOOK3E
 
+config PPC_HAS_LBARX_LHARX
+	bool
+
 config EARLY_PRINTK
 	bool
 	default y
