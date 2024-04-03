@@ -142,6 +142,22 @@
 .Lskip_rsb_\@:
 .endm
 
+
+/*
+ * The CALL to srso_alias_untrain_ret() must be patched in directly at
+ * the spot where untraining must be done, ie., srso_alias_untrain_ret()
+ * must be the target of a CALL instruction instead of indirectly
+ * jumping to a wrapper which then calls it. Therefore, this macro is
+ * called outside of __UNTRAIN_RET below, for the time being, before the
+ * kernel can support nested alternatives with arbitrary nesting.
+ */
+.macro CALL_UNTRAIN_RET
+ #if CONFIG_RETPOLINE
+	ALTERNATIVE_2 "", "call entry_untrain_ret", X86_FEATURE_UNRET, \
+		          "call srso_alias_untrain_ret", X86_FEATURE_SRSO_ALIAS
+ #endif
+.endm
+
 /*
  * Mitigate RETBleed for AMD/Hygon Zen uarch. Requires KERNEL CR3 because the
  * return thunk isn't mapped into the userspace tables (then again, AMD
@@ -156,18 +172,16 @@
 .macro UNTRAIN_RET
 #ifdef CONFIG_RETPOLINE
 	ANNOTATE_UNRET_END
-	ALTERNATIVE_2 "",						\
-	              "call entry_untrain_ret", X86_FEATURE_UNRET,	\
-		      "call entry_ibpb", X86_FEATURE_ENTRY_IBPB
+	CALL_UNTRAIN_RET
+	ALTERNATIVE "", "call entry_ibpb", X86_FEATURE_ENTRY_IBPB
 #endif
 .endm
 
 
 .macro UNTRAIN_RET_VM
 #if defined(CONFIG_RETPOLINE) || defined(CONFIG_CPU_IBPB_ENTRY) || defined(CONFIG_CPU_SRSO)
-	ALTERNATIVE_2 "",						\
-		      "call entry_untrain_ret", X86_FEATURE_UNRET,	\
-		      "call entry_ibpb", X86_FEATURE_IBPB_ON_VMEXIT
+	CALL_UNTRAIN_RET
+	ALTERNATIVE "", "call entry_ibpb", X86_FEATURE_IBPB_ON_VMEXIT
 
 #endif
 .endm
@@ -198,6 +212,8 @@ extern void __x86_return_thunk(void);
 #else
 static inline void __x86_return_thunk(void) {}
 #endif
+
+extern void srso_alias_untrain_ret(void);
 
 extern void retbleed_return_thunk(void);
 extern void srso_return_thunk(void);
