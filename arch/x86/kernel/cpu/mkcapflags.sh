@@ -57,7 +57,7 @@ trap 'rm "$OUT"' EXIT
 	echo "#endif"
 	echo ""
 
-	dump_array "x86_cap_flags" "NCAPINTS*32" "X86_FEATURE_" "" $2
+	dump_array "x86_cap_flags" "(NCAPINTS+NEXTCAPINTS)*32" "X86_FEATURE_" "" $2
 	echo ""
 
 	dump_array "x86_bug_flags" "(NBUGINTS+NEXTBUGINTS)*32" "X86_BUG_" "NCAPINTS*32" $2

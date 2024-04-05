@@ -678,7 +678,7 @@ static const char *table_lookup_model(struct cpuinfo_x86 *c)
 
 /* Aligned to unsigned long to avoid split lock in atomic bitmap ops */
 __u32 cpu_caps_cleared[NCAPINTS + NBUGINTS] __aligned(sizeof(unsigned long));
-__u32 cpu_caps_set[NCAPINTS + NBUGINTS + NEXTBUGINTS] __aligned(sizeof(unsigned long));
+__u32 cpu_caps_set[NCAPINTS + NBUGINTS + NEXTCAPINTS + NEXTBUGINTS] __aligned(sizeof(unsigned long));
 
 void load_percpu_segment(int cpu)
 {
@@ -941,7 +941,7 @@ static void apply_forced_caps(struct cpuinfo_x86 *c)
 		c->x86_capability[i] |= cpu_caps_set[i];
 	}
 
-	for (i = 0; i < NEXTBUGINTS; i++) {
+	for (i = 0; i < NEXTCAPINTS + NEXTBUGINTS; i++) {
 		c->x86_ext_capability[i] |= cpu_caps_set[NCAPINTS+NBUGINTS + i];
 	}
 

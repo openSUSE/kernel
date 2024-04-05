@@ -143,7 +143,7 @@ struct cpuinfo_x86 {
 #ifndef __GENKSYMS__
 	/* protected processor identification number */
 	u64			ppin;
-	__u32		x86_ext_capability[NEXTBUGINTS];
+	__u32		x86_ext_capability[NEXTCAPINTS+NEXTBUGINTS];
 #endif
 } __randomize_layout;
 
@@ -178,7 +178,7 @@ extern struct cpuinfo_x86	boot_cpu_data;
 extern struct cpuinfo_x86	new_cpu_data;
 
 extern __u32			cpu_caps_cleared[NCAPINTS + NBUGINTS];
-extern __u32			cpu_caps_set[NCAPINTS + NBUGINTS + NEXTBUGINTS];
+extern __u32			cpu_caps_set[NCAPINTS + NBUGINTS + NEXTCAPINTS + NEXTBUGINTS];
 
 #ifdef CONFIG_SMP
 DECLARE_PER_CPU_READ_MOSTLY(struct cpuinfo_x86, cpu_info);

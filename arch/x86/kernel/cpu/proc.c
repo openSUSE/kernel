@@ -102,7 +102,7 @@ static int show_cpuinfo(struct seq_file *m, void *v)
 	show_cpuinfo_misc(m, c);
 
 	seq_puts(m, "flags\t\t:");
-	for (i = 0; i < 32*NCAPINTS; i++)
+	for (i = 0; i < 32*(NCAPINTS+NEXTCAPINTS); i++)
 		if (cpu_has(c, i) && x86_cap_flags[i] != NULL)
 			seq_printf(m, " %s", x86_cap_flags[i]);
 
