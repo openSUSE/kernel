@@ -344,14 +344,18 @@ void __split_page_owner(struct page *page, unsigned int nr)
 
 void __copy_page_owner(struct page *oldpage, struct page *newpage)
 {
+	int i;
 	struct page_ext *old_ext = lookup_page_ext(oldpage);
 	struct page_ext *new_ext = lookup_page_ext(newpage);
 	struct page_owner *old_page_owner, *new_page_owner;
+	depot_stack_handle_t migrate_handle;
 
 	if (unlikely(!old_ext || !new_ext))
 		return;
 
 	old_page_owner = get_page_owner(old_ext);
+	new_page_owner = get_page_owner(new_ext);
+	migrate_handle = new_page_owner->handle;
 	__update_page_owner_handle(new_ext, old_page_owner->handle,
 				   old_page_owner->order, old_page_owner->gfp_mask,
 				   old_page_owner->last_migrate_reason,
@@ -364,6 +368,17 @@ void __copy_page_owner(struct page *oldpage, struct page *newpage)
 	 */
 	__update_page_owner_free_handle(new_ext, 0, old_page_owner->order,
 					old_page_owner->free_ts_nsec);
+
+	/*
+	 * We linked the original stack to the new page, we need to do the same
+	 * for the new one and the old page otherwise there will be an imbalance
+	 * when subtracting those pages from the stack.
+	 */
+	for (i = 0; i < (1 << new_page_owner->order); i++) {
+		old_page_owner->handle = migrate_handle;
+		old_ext = page_ext_next(old_ext);
+		old_page_owner = get_page_owner(old_ext);
+	}
 }
 
 void pagetypeinfo_showmixedcount_print(struct seq_file *m,
