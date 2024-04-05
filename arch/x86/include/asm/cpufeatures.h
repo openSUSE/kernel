@@ -441,6 +441,7 @@
 /* Linux defined features */
 #define X86_FEATURE_CLEAR_BHB_LOOP	(22*32+ 0) /* "" Clear branch history at syscall entry using SW loop */
 #define X86_FEATURE_BHI_CTRL		(22*32+ 1) /* "" BHI_DIS_S HW control available */
+#define X86_FEATURE_CLEAR_BHB_HW	(22*32+ 2) /* "" BHI_DIS_S HW control enabled */
 
 /*
  * BUG word(s)
