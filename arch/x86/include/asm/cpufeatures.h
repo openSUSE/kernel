@@ -437,6 +437,9 @@
 #define X86_FEATURE_IBPB_BRTYPE		(20*32+28) /* "" MSR_PRED_CMD[IBPB] flushes all branch type predictions */
 #define X86_FEATURE_SRSO_NO		(20*32+29) /* "" CPU is not affected by SRSO */
 
+/* Linux defined features */
+#define X86_FEATURE_CLEAR_BHB_LOOP	(22*32+ 0) /* "" Clear branch history at syscall entry using SW loop */
+
 /*
  * BUG word(s)
  */
