@@ -1749,7 +1749,7 @@ retry:
 	trap = lock_rename(tdentry, fdentry);
 	if (IS_ERR(trap)) {
 		err = (rqstp->rq_vers == 2) ? nfserr_acces : nfserr_xdev;
-		goto out;
+		goto out_want_write;
 	}
 	fh_fill_pre_attrs(ffhp);
 	fh_fill_pre_attrs(tfhp);
@@ -1814,6 +1814,7 @@ retry:
 		fh_fill_post_attrs(tfhp);
 	}
 	unlock_rename(tdentry, fdentry);
+out_want_write:
 	fh_drop_write(ffhp);
 
 	/*
