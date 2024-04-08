@@ -2,6 +2,11 @@
 #ifndef __BPF_MISC_H__
 #define __BPF_MISC_H__
 
+#define __msg(msg)		__attribute__((btf_decl_tag("comment:test_expect_msg=" msg)))
+#define __failure		__attribute__((btf_decl_tag("comment:test_expect_failure")))
+#define __success		__attribute__((btf_decl_tag("comment:test_expect_success")))
+#define __log_level(lvl)	__attribute__((btf_decl_tag("comment:test_log_level="#lvl)))
+
 /* Convenience macro for use with 'asm volatile' blocks */
 #define __naked __attribute__((naked))
 #define __clobber_all "r0", "r1", "r2", "r3", "r4", "r5", "r6", "r7", "r8", "r9", "memory"

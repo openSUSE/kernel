@@ -540,6 +540,11 @@ static ssize_t node_read_vmstat(struct device *dev,
 				     pages);
 	}
 
+	for (i = 0; i < NR_VM_ZONE_STAT_ITEMS_2; i++)
+		len += sysfs_emit_at(buf, len, "%s %lu\n",
+				     zone_stat_name_2(i),
+				     sum_zone_node_page_state_2(nid, i));
+
 	return len;
 }
 static DEVICE_ATTR(vmstat, 0444, node_read_vmstat, NULL);

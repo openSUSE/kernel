@@ -126,6 +126,9 @@ int intel_pasid_alloc_table(struct device *dev)
 	pasid_table->max_pasid = 1 << (order + PAGE_SHIFT + 3);
 	info->pasid_table = pasid_table;
 
+	if (!ecap_coherent(info->iommu->ecap))
+		clflush_cache_range(pasid_table->table, (1 << order) * PAGE_SIZE);
+
 	return 0;
 }
 
@@ -212,6 +215,10 @@ retry:
 			      (u64)virt_to_phys(entries) | PASID_PTE_PRESENT)) {
 			free_pgtable_page(entries);
 			goto retry;
+		}
+		if (!ecap_coherent(info->iommu->ecap)) {
+			clflush_cache_range(entries, VTD_PAGE_SIZE);
+			clflush_cache_range(&dir[dir_index].val, sizeof(*dir));
 		}
 	}
 
@@ -363,6 +370,16 @@ static inline void pasid_set_page_snoop(struct pasid_entry *pe, bool value)
 }
 
 /*
+ * Setup No Execute Enable bit (Bit 133) of a scalable mode PASID
+ * entry. It is required when XD bit of the first level page table
+ * entry is about to be set.
+ */
+static inline void pasid_set_nxe(struct pasid_entry *pe)
+{
+	pasid_set_bits(&pe->val[2], 1 << 5, 1 << 5);
+}
+
+/*
  * Setup the Page Snoop (PGSNP) field (Bit 88) of a scalable mode
  * PASID entry.
  */
@@ -426,6 +443,9 @@ devtlb_invalidation_with_pasid(struct intel_iommu *iommu,
 
 	info = dev_iommu_priv_get(dev);
 	if (!info || !info->ats_enabled)
+		return;
+
+	if (pci_dev_is_disconnected(to_pci_dev(dev)))
 		return;
 
 	sid = info->bus << 8 | info->devfn;
@@ -565,6 +585,7 @@ int intel_pasid_setup_first_level(struct intel_iommu *iommu,
 	pasid_set_domain_id(pte, did);
 	pasid_set_address_width(pte, iommu->agaw);
 	pasid_set_page_snoop(pte, !!ecap_smpwc(iommu->ecap));
+	pasid_set_nxe(pte);
 
 	/* Setup Present and PASID Granular Transfer Type: */
 	pasid_set_translation_type(pte, PASID_ENTRY_PGTT_FL_ONLY);

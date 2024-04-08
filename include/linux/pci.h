@@ -515,11 +515,14 @@ struct pci_dev {
 
 	/* These methods index pci_reset_fn_methods[] */
 	u8 reset_methods[PCI_NUM_RESET_METHODS]; /* In priority order */
+#ifndef __GENKSYMS__
+	spinlock_t	pcie_cap_lock;		/* Protects RMW ops in capability accessors */
+#endif
 };
 
 static inline struct pci_dev *pci_physfn(struct pci_dev *dev)
 {
-#ifdef CONFIG_PCI_IOV
+#ifdef CONFIG_PCI_IOe
 	if (dev->is_virtfn)
 		dev = dev->physfn;
 #endif
@@ -1213,6 +1216,10 @@ int pcie_capability_write_word(struct pci_dev *dev, int pos, u16 val);
 int pcie_capability_write_dword(struct pci_dev *dev, int pos, u32 val);
 int pcie_capability_clear_and_set_word(struct pci_dev *dev, int pos,
 				       u16 clear, u16 set);
+int pcie_capability_clear_and_set_word_unlocked(struct pci_dev *dev, int pos,
+						u16 clear, u16 set);
+int pcie_capability_clear_and_set_word_locked(struct pci_dev *dev, int pos,
+					      u16 clear, u16 set);
 int pcie_capability_clear_and_set_dword(struct pci_dev *dev, int pos,
 					u32 clear, u32 set);
 
@@ -2328,6 +2335,11 @@ static inline struct pci_dev *pcie_find_root_port(struct pci_dev *dev)
 	}
 
 	return NULL;
+}
+
+static inline bool pci_dev_is_disconnected(const struct pci_dev *dev)
+{
+	return dev->error_state == pci_channel_io_perm_failure;
 }
 
 void pci_request_acs(void);
