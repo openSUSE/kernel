@@ -15,6 +15,7 @@
  */
 #define NCAPINTS			22	   /* N 32-bit words worth of info */
 #define NBUGINTS			1	   /* N 32-bit bug flags */
+#define NEXTCAPINTS			1          /* N 32-bit words which come after NCAPINTS */
 #define NEXTBUGINTS			1	   /* N 32-bit extended bug flags */
 /*
  * Note: If the comment begins with a quoted string, that string is used
@@ -437,6 +438,12 @@
 #define X86_FEATURE_IBPB_BRTYPE		(20*32+28) /* "" MSR_PRED_CMD[IBPB] flushes all branch type predictions */
 #define X86_FEATURE_SRSO_NO		(20*32+29) /* "" CPU is not affected by SRSO */
 
+/* Linux defined features */
+#define X86_FEATURE_CLEAR_BHB_LOOP	(22*32+ 0) /* "" Clear branch history at syscall entry using SW loop */
+#define X86_FEATURE_BHI_CTRL		(22*32+ 1) /* "" BHI_DIS_S HW control available */
+#define X86_FEATURE_CLEAR_BHB_HW	(22*32+ 2) /* "" BHI_DIS_S HW control enabled */
+#define X86_FEATURE_CLEAR_BHB_LOOP_ON_VMEXIT (22*32+ 3) /* "" Clear branch history at vmexit using SW loop */
+
 /*
  * BUG word(s)
  */
@@ -484,4 +491,5 @@
 /* BUG word 2 */
 #define X86_BUG_DIV0                   X86_BUG(1*32 + 0) /* AMD DIV0 speculation bug */
 #define X86_BUG_RFDS		       X86_BUG(1*32 + 1) /* CPU is vulnerable to Register File Data Sampling */
+#define X86_BUG_BHI		X86_BUG(1*32 + 2) /* CPU is affected by Branch History Injection */
 #endif /* _ASM_X86_CPUFEATURES_H */
