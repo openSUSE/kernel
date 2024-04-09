@@ -106,7 +106,7 @@ static struct stack_record *depot_alloc_stack(unsigned long *entries, int size,
 
 	stack->hash = hash;
 	stack->size = size;
-	stack->handle.slabindex = depot_index + 1;
+	stack->handle.slabindex_plus_1 = depot_index + 1;
 	stack->handle.offset = depot_offset >> STACK_ALLOC_ALIGN;
 	stack->handle.valid = 1;
 	refcount_set(&stack->count, REFCOUNT_SATURATED);
@@ -257,7 +257,7 @@ static struct stack_record *depot_fetch_stack(depot_stack_handle_t handle)
 {
 	union handle_parts parts = { .handle = handle };
 	void *slab;
-	u32 slab_index_real = parts.slabindex - 1;
+	u32 slab_index_real = parts.slabindex_plus_1 - 1;
 	size_t offset = parts.offset << STACK_ALLOC_ALIGN;
 	struct stack_record *stack;
 
