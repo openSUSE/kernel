@@ -840,7 +840,14 @@ static struct workqueue_struct *callback_wq;
 
 static bool nfsd4_queue_cb(struct nfsd4_callback *cb)
 {
-	return queue_work(callback_wq, &cb->cb_work);
+	return queue_delayed_work(callback_wq, &cb->cb_work, 0);
+}
+
+static void nfsd4_queue_cb_delayed(struct nfsd4_callback *cb,
+				   unsigned long msecs)
+{
+	queue_delayed_work(callback_wq, &cb->cb_work,
+			   msecs_to_jiffies(msecs));
 }
 
 static void nfsd41_cb_inflight_begin(struct nfs4_client *clp)
@@ -1124,13 +1131,23 @@ static bool nfsd4_cb_sequence_done(struct rpc_task *task, struct nfsd4_callback 
 		break;
 	case -ESERVERFAULT:
 		++session->se_cb_seq_nr;
-		fallthrough;
-	case 1:
-	case -NFS4ERR_BADSESSION:
 		nfsd4_mark_cb_fault(cb->cb_clp, cb->cb_seq_status);
 		ret = false;
 		break;
+	case 1:
+		/*
+		 * cb_seq_status remains 1 if an RPC Reply was never
+		 * received. NFSD can't know if the client processed
+		 * the CB_SEQUENCE operation. Ask the client to send a
+		 * DESTROY_SESSION to recover.
+		 */
+		fallthrough;
+	case -NFS4ERR_BADSESSION:
+		nfsd4_mark_cb_fault(cb->cb_clp, cb->cb_seq_status);
+		ret = false;
+		goto need_restart;
 	case -NFS4ERR_DELAY:
+		cb->cb_seq_status = 1;
 		if (!rpc_restart_call(task))
 			goto out;
 
@@ -1322,25 +1339,26 @@ static void
 nfsd4_run_cb_work(struct work_struct *work)
 {
 	struct nfsd4_callback *cb =
-		container_of(work, struct nfsd4_callback, cb_work);
+		container_of(work, struct nfsd4_callback, cb_work.work);
 	struct nfs4_client *clp = cb->cb_clp;
 	struct rpc_clnt *clnt;
 	int flags;
-
-	if (cb->cb_need_restart) {
-		cb->cb_need_restart = false;
-	} else {
-		if (cb->cb_ops && cb->cb_ops->prepare)
-			cb->cb_ops->prepare(cb);
-	}
 
 	if (clp->cl_flags & NFSD4_CLIENT_CB_FLAG_MASK)
 		nfsd4_process_cb_update(cb);
 
 	clnt = clp->cl_cb_client;
 	if (!clnt) {
-		/* Callback channel broken, or client killed; give up: */
-		nfsd41_destroy_cb(cb);
+		if (test_bit(NFSD4_CLIENT_CB_KILL, &clp->cl_flags))
+			nfsd41_destroy_cb(cb);
+		else {
+			/*
+			 * XXX: Ideally, we could wait for the client to
+			 *	reconnect, but I haven't figured out how
+			 *	to do that yet.
+			 */
+			nfsd4_queue_cb_delayed(cb, 25);
+		}
 		return;
 	}
 
@@ -1353,6 +1371,12 @@ nfsd4_run_cb_work(struct work_struct *work)
 		return;
 	}
 
+	if (cb->cb_need_restart) {
+		cb->cb_need_restart = false;
+	} else {
+		if (cb->cb_ops && cb->cb_ops->prepare)
+			cb->cb_ops->prepare(cb);
+	}
 	cb->cb_msg.rpc_cred = clp->cl_cb_cred;
 	flags = clp->cl_minorversion ? RPC_TASK_NOCONNECT : RPC_TASK_SOFTCONN;
 	rpc_call_async(clnt, &cb->cb_msg, RPC_TASK_SOFT | flags,
@@ -1367,7 +1391,7 @@ void nfsd4_init_cb(struct nfsd4_callback *cb, struct nfs4_client *clp,
 	cb->cb_msg.rpc_argp = cb;
 	cb->cb_msg.rpc_resp = cb;
 	cb->cb_ops = ops;
-	INIT_WORK(&cb->cb_work, nfsd4_run_cb_work);
+	INIT_DELAYED_WORK(&cb->cb_work, nfsd4_run_cb_work);
 	cb->cb_seq_status = 1;
 	cb->cb_status = 0;
 	cb->cb_need_restart = false;

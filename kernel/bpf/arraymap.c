@@ -826,12 +826,16 @@ int bpf_fd_array_map_update_elem(struct bpf_map *map, struct file *map_file,
 		old_ptr = xchg(array->ptrs + index, new_ptr);
 	}
 
-	if (old_ptr)
-		map->ops->map_fd_put_ptr(old_ptr);
+	if (old_ptr) {
+#ifndef __GENKSYMS__
+		map->ops->map_fd_put_ptr_new(map, old_ptr, true);
+#endif
+	}
+
 	return 0;
 }
 
-static int fd_array_map_delete_elem(struct bpf_map *map, void *key)
+static int __fd_array_map_delete_elem(struct bpf_map *map, void *key, bool need_defer)
 {
 	struct bpf_array *array = container_of(map, struct bpf_array, map);
 	void *old_ptr;
@@ -850,11 +854,18 @@ static int fd_array_map_delete_elem(struct bpf_map *map, void *key)
 	}
 
 	if (old_ptr) {
-		map->ops->map_fd_put_ptr(old_ptr);
+#ifndef __GENKSYMS__
+		map->ops->map_fd_put_ptr_new(map, old_ptr, need_defer);
+#endif
 		return 0;
 	} else {
 		return -ENOENT;
 	}
+}
+
+static int fd_array_map_delete_elem(struct bpf_map *map, void *key)
+{
+	return __fd_array_map_delete_elem(map, key, true);
 }
 
 static void *prog_fd_array_get_ptr(struct bpf_map *map,
@@ -873,9 +884,15 @@ static void *prog_fd_array_get_ptr(struct bpf_map *map,
 	return prog;
 }
 
+static void prog_fd_array_put_ptr_new(struct bpf_map *map, void *ptr, bool need_defer)
+{
+	/* bpf_prog is freed after one RCU or tasks trace grace period */
+	bpf_prog_put(ptr);
+}
+
 static void prog_fd_array_put_ptr(void *ptr)
 {
-	bpf_prog_put(ptr);
+	prog_fd_array_put_ptr_new(NULL, ptr, false);
 }
 
 static u32 prog_fd_array_sys_lookup_elem(void *ptr)
@@ -884,13 +901,13 @@ static u32 prog_fd_array_sys_lookup_elem(void *ptr)
 }
 
 /* decrement refcnt of all bpf_progs that are stored in this map */
-static void bpf_fd_array_map_clear(struct bpf_map *map)
+static void bpf_fd_array_map_clear(struct bpf_map *map, bool need_defer)
 {
 	struct bpf_array *array = container_of(map, struct bpf_array, map);
 	int i;
 
 	for (i = 0; i < array->map.max_entries; i++)
-		fd_array_map_delete_elem(map, &i);
+		__fd_array_map_delete_elem(map, &i, need_defer);
 }
 
 static void prog_array_map_seq_show_elem(struct bpf_map *map, void *key,
@@ -1069,7 +1086,7 @@ static void prog_array_map_clear_deferred(struct work_struct *work)
 {
 	struct bpf_map *map = container_of(work, struct bpf_array_aux,
 					   work)->map;
-	bpf_fd_array_map_clear(map);
+	bpf_fd_array_map_clear(map, true);
 	bpf_map_put(map);
 }
 
@@ -1141,6 +1158,9 @@ const struct bpf_map_ops prog_array_map_ops = {
 	.map_release_uref = prog_array_map_clear,
 	.map_seq_show_elem = prog_array_map_seq_show_elem,
 	.map_btf_id = &array_map_btf_ids[0],
+#ifndef __GENKSYMS__
+	.map_fd_put_ptr_new = prog_fd_array_put_ptr_new,
+#endif
 };
 
 static struct bpf_event_entry *bpf_event_entry_gen(struct file *perf_file,
@@ -1198,9 +1218,15 @@ err_out:
 	return ee;
 }
 
+static void perf_event_fd_array_put_ptr_new(struct bpf_map *map, void *ptr, bool need_defer)
+{
+	/* bpf_perf_event is freed after one RCU grace period */
+	bpf_event_entry_free_rcu(ptr);
+}
+
 static void perf_event_fd_array_put_ptr(void *ptr)
 {
-	bpf_event_entry_free_rcu(ptr);
+	perf_event_fd_array_put_ptr_new(NULL, ptr, false);
 }
 
 static void perf_event_fd_array_release(struct bpf_map *map,
@@ -1217,7 +1243,7 @@ static void perf_event_fd_array_release(struct bpf_map *map,
 	for (i = 0; i < array->map.max_entries; i++) {
 		ee = READ_ONCE(array->ptrs[i]);
 		if (ee && ee->map_file == map_file)
-			fd_array_map_delete_elem(map, &i);
+			__fd_array_map_delete_elem(map, &i, true);
 	}
 	rcu_read_unlock();
 }
@@ -1225,7 +1251,7 @@ static void perf_event_fd_array_release(struct bpf_map *map,
 static void perf_event_fd_array_map_free(struct bpf_map *map)
 {
 	if (map->map_flags & BPF_F_PRESERVE_ELEMS)
-		bpf_fd_array_map_clear(map);
+		bpf_fd_array_map_clear(map, false);
 	fd_array_map_free(map);
 }
 
@@ -1242,6 +1268,9 @@ const struct bpf_map_ops perf_event_array_map_ops = {
 	.map_release = perf_event_fd_array_release,
 	.map_check_btf = map_check_no_btf,
 	.map_btf_id = &array_map_btf_ids[0],
+#ifndef __GENKSYMS__
+	.map_fd_put_ptr_new = perf_event_fd_array_put_ptr_new,
+#endif
 };
 
 #ifdef CONFIG_CGROUPS
@@ -1252,15 +1281,21 @@ static void *cgroup_fd_array_get_ptr(struct bpf_map *map,
 	return cgroup_get_from_fd(fd);
 }
 
-static void cgroup_fd_array_put_ptr(void *ptr)
+static void cgroup_fd_array_put_ptr_new(struct bpf_map *map, void *ptr, bool need_defer)
 {
 	/* cgroup_put free cgrp after a rcu grace period */
 	cgroup_put(ptr);
 }
 
+
+static void cgroup_fd_array_put_ptr(void *ptr)
+{
+	cgroup_fd_array_put_ptr_new(NULL, ptr, false);
+}
+
 static void cgroup_fd_array_free(struct bpf_map *map)
 {
-	bpf_fd_array_map_clear(map);
+	bpf_fd_array_map_clear(map, false);
 	fd_array_map_free(map);
 }
 
@@ -1276,6 +1311,9 @@ const struct bpf_map_ops cgroup_array_map_ops = {
 	.map_fd_put_ptr = cgroup_fd_array_put_ptr,
 	.map_check_btf = map_check_no_btf,
 	.map_btf_id = &array_map_btf_ids[0],
+#ifndef __GENKSYMS__
+	.map_fd_put_ptr_new = cgroup_fd_array_put_ptr_new,
+#endif
 };
 #endif
 
@@ -1304,7 +1342,7 @@ static void array_of_map_free(struct bpf_map *map)
 	 * is protected by fdget/fdput.
 	 */
 	bpf_map_meta_free(map->inner_map_meta);
-	bpf_fd_array_map_clear(map);
+	bpf_fd_array_map_clear(map, false);
 	fd_array_map_free(map);
 }
 
@@ -1364,4 +1402,7 @@ const struct bpf_map_ops array_of_maps_map_ops = {
 	.map_update_batch = generic_map_update_batch,
 	.map_check_btf = map_check_no_btf,
 	.map_btf_id = &array_map_btf_ids[0],
+#ifndef __GENKSYMS__
+	.map_fd_put_ptr_new = bpf_map_fd_put_ptr_new,
+#endif
 };
