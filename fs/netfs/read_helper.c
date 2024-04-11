@@ -404,6 +404,7 @@ static void netfs_rreq_unlock(struct netfs_read_request *rreq)
 	xas_for_each(&xas, page, last_page) {
 		unsigned int pgpos, pgend;
 		bool pg_failed = false;
+		bool page_started;
 
 		if (xas_retry(&xas, page))
 			continue;
@@ -411,13 +412,16 @@ static void netfs_rreq_unlock(struct netfs_read_request *rreq)
 		pgpos = (page->index - start_page) * PAGE_SIZE;
 		pgend = pgpos + thp_size(page);
 
+		page_started = false;
 		for (;;) {
 			if (!subreq) {
 				pg_failed = true;
 				break;
 			}
-			if (test_bit(NETFS_SREQ_WRITE_TO_CACHE, &subreq->flags))
+			if (!page_started && test_bit(NETFS_SREQ_WRITE_TO_CACHE, &subreq->flags)) {
 				set_page_fscache(page);
+				page_started = true;
+			}
 			pg_failed |= subreq_failed;
 			if (pgend < iopos + subreq->len)
 				break;

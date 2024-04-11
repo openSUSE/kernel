@@ -23,6 +23,7 @@
 #include <linux/slab.h>
 #include <linux/percpu-refcount.h>
 #include <linux/bpfptr.h>
+#include <linux/rcupdate_trace.h>
 
 struct bpf_verifier_env;
 struct bpf_verifier_log;
@@ -151,6 +152,14 @@ struct bpf_map_ops {
 
 	/* bpf_iter info used to open a seq_file */
 	const struct bpf_iter_seq_info *iter_seq_info;
+
+#ifndef __GENKSYMS__
+	/* If need_defer is true, the implementation should guarantee that
+	 * the to-be-put element is still alive before the bpf program, which
+	 * may manipulate it, exists.
+	 */
+	void (*map_fd_put_ptr_new)(struct bpf_map *map, void *ptr, bool need_defer);
+#endif
 };
 
 struct bpf_map {
@@ -180,15 +189,29 @@ struct bpf_map {
 	u32 btf_vmlinux_value_type_id;
 	bool bypass_spec_v1;
 	bool frozen; /* write-once; write-protected by freeze_mutex */
+#ifndef __GENKSYMS__
+	bool free_after_mult_rcu_gp;
+#endif
 	void *suse_kabi_padding;
-	/* 22-sizeof(void*) bytes hole */
+	/* 21-sizeof(void*) bytes hole */
 
 	/* The 3rd and 4th cacheline with misc members to avoid false sharing
 	 * particularly with refcounting.
 	 */
 	atomic64_t refcnt ____cacheline_aligned;
 	atomic64_t usercnt;
-	struct work_struct work;
+#ifndef __GENKSYMS__
+	/* rcu is used before freeing and work is only used during freeing */
+	union {
+#endif
+		struct work_struct work;
+#ifndef __GENKSYMS__
+		struct rcu_head rcu;
+	};
+	/* Assert union of rcu_head and work_struct won't be larger than size
+	 * of the original work_struct, thus breaking kABI */
+	static_assert(sizeof(struct work_struct) >= sizeof(struct rcu_head));
+#endif
 	struct mutex freeze_mutex;
 	atomic64_t writecnt;
 };

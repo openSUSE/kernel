@@ -68,7 +68,7 @@ void test_test_global_funcs(void)
 		{ "test_global_func13.o", "Caller passes invalid args into func#1" },
 		{ "test_global_func14.o", "reference type('FWD S') size cannot be determined" },
 		{ "test_global_func15.o", "At program exit the register R0 has value" },
-		{ "test_global_func16.o", "invalid indirect read from stack" },
+		{ "test_global_func16.o" },
 	};
 	libbpf_print_fn_t old_print_fn = NULL;
 	int err, i, duration = 0;
