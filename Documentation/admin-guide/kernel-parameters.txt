@@ -5403,6 +5403,17 @@
 	sonypi.*=	[HW] Sony Programmable I/O Control Device driver
 			See Documentation/admin-guide/laptops/sonypi.rst
 
+	spectre_bhi=	[X86] Control mitigation of Branch History Injection
+			(BHI) vulnerability.
+
+			on   - unconditionally enable.
+			off  - unconditionally disable.
+			auto - (default) enable hardware mitigation
+			       (BHI_DIS_S) if available, otherwise enable
+			       alternate mitigation in KVM. Syscalls are not
+			       mitigated if hardware mitigation is not present.
+
+
 	spectre_v2=	[X86] Control mitigation of Spectre variant 2
 			(indirect branch speculation) vulnerability.
 			The default operation protects the kernel from
