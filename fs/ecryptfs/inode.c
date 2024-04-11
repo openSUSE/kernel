@@ -603,6 +603,8 @@ ecryptfs_rename(struct inode *old_dir, struct dentry *old_dentry,
 	target_inode = d_inode(new_dentry);
 
 	trap = lock_rename(lower_old_dir_dentry, lower_new_dir_dentry);
+	if (IS_ERR(trap))
+		return PTR_ERR(trap);
 	dget(lower_new_dentry);
 	rc = -EINVAL;
 	if (lower_old_dentry->d_parent != lower_old_dir_dentry)

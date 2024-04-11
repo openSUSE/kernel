@@ -1130,6 +1130,10 @@ static int ovl_rename(struct inode *olddir, struct dentry *old,
 	}
 
 	trap = lock_rename(new_upperdir, old_upperdir);
+	if (IS_ERR(trap)) {
+		err = PTR_ERR(trap);
+		goto out_revert_creds;
+	}
 
 	olddentry = lookup_one_len(old->d_name.name, old_upperdir,
 				   old->d_name.len);
