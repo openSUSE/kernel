@@ -396,7 +396,8 @@ void __init_or_module noinline apply_alternatives(struct alt_instr *start,
 		 * - feature not present but ALTINSTR_FLAG_INV is set to mean,
 		 *   patch if feature is *NOT* present.
 		 */
-		if (!boot_cpu_has(feature) == !(a->cpuid & ALTINSTR_FLAG_INV)) {
+		if ((a->cpuid < NCAPINTS && (!boot_cpu_has(feature) == !(a->cpuid & ALTINSTR_FLAG_INV)))
+		    || (a->cpuid > NCAPINTS && (!boot_cpu_has_bug(feature) == !(a->cpuid & ALTINSTR_FLAG_INV)))) {
 			optimize_nops_inplace(instr, a->instrlen);
 			continue;
 		}

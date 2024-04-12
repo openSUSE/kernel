@@ -249,11 +249,12 @@ t_no:
 }
 
 #define static_cpu_has(bit)					\
-(								\
-	__builtin_constant_p(boot_cpu_has(bit)) ?		\
+({								\
+	BUILD_BUG_ON_MSG((bit >> 5) >= NCAPINTS+NBUGINTS, "extended bits/bugs not supported"); \
+	(__builtin_constant_p(boot_cpu_has(bit)) ?		\
 		boot_cpu_has(bit) :				\
-		_static_cpu_has(bit)				\
-)
+		_static_cpu_has(bit));				\
+})
 #endif
 
 #define cpu_has_bug(c, bit) (IS_EXT_BUG_BIT((bit)) ? test_bit((bit) - ((NCAPINTS+NBUGINTS)*32), \
