@@ -522,7 +522,7 @@ struct pci_dev {
 
 static inline struct pci_dev *pci_physfn(struct pci_dev *dev)
 {
-#ifdef CONFIG_PCI_IOe
+#ifdef CONFIG_PCI_IOV
 	if (dev->is_virtfn)
 		dev = dev->physfn;
 #endif
