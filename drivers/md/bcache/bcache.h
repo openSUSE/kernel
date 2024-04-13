@@ -396,8 +396,6 @@ struct cached_dev {
 	unsigned int		error_limit;
 	unsigned int		offline_seconds;
 
-	char			backing_dev_name[BDEVNAME_SIZE];
-
 	/*
 	 * Retry to update writeback_rate if contention happens for
 	 * down_read(dc->writeback_lock) in update_writeback_rate()
