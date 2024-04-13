@@ -76,11 +76,11 @@ struct dm_verity_io {
 	/* original value of bio->bi_end_io */
 	bio_end_io_t *orig_bi_end_io;
 
+	struct bvec_iter iter;
+
 	sector_t block;
 	unsigned n_blocks;
 	bool in_tasklet;
-
-	struct bvec_iter iter;
 
 	struct work_struct work;
 
