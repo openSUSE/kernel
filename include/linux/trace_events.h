@@ -92,7 +92,15 @@ struct trace_iterator {
 	unsigned int		temp_size;
 	char			*fmt;	/* modified format holder */
 	unsigned int		fmt_size;
+
+#if !defined(__GENKSYMS__) || !defined(CONFIG_64BIT)
+	atomic_t		wait_index __aligned(__alignof__(long));
+
+	/* Set when the file is closed to prevent new waiters */
+	bool			closed;
+#else
 	long			wait_index;
+#endif
 
 	/* trace_seq for __print_flags() and __print_symbolic() etc. */
 	struct trace_seq	tmp_seq;
