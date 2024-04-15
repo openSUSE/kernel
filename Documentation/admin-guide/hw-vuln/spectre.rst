@@ -669,10 +669,6 @@ kernel command line.
 			unconditionally enable.
 		off
 			unconditionally disable.
-		auto
-			enable if hardware mitigation
-			control(BHI_DIS_S) is available, otherwise
-			enable alternate mitigation in KVM.
 
 For spectre_v2_user see Documentation/admin-guide/kernel-parameters.txt
 
