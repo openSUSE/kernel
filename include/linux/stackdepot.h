@@ -31,7 +31,7 @@ typedef u32 depot_stack_handle_t;
 union handle_parts {
 	depot_stack_handle_t handle;
 	struct {
-		u32 slabindex : STACK_ALLOC_INDEX_BITS; /* slabindex is offset by 1 */
+		u32 slabindex_plus_1 : STACK_ALLOC_INDEX_BITS; /* slabindex is offset by 1 */
 		u32 offset : STACK_ALLOC_OFFSET_BITS;
 		u32 valid : STACK_ALLOC_NULL_PROTECTION_BITS;
 	};
