@@ -1437,39 +1437,13 @@ void tcp_select_initial_window(const struct sock *sk, int __space,
 			       __u32 *window_clamp, int wscale_ok,
 			       __u8 *rcv_wscale, __u32 init_rcv_wnd);
 
-static inline int __tcp_win_from_space(u8 scaling_ratio, int space)
-{
-	s64 scaled_space = (s64)space * scaling_ratio;
-
-	return scaled_space >> TCP_RMEM_TO_WIN_SCALE;
-}
-
 static inline int tcp_win_from_space(const struct sock *sk, int space)
 {
-	return __tcp_win_from_space(tcp_sk(sk)->scaling_ratio, space);
-}
+	int tcp_adv_win_scale = READ_ONCE(sock_net(sk)->ipv4.sysctl_tcp_adv_win_scale);
 
-/* inverse of __tcp_win_from_space() */
-static inline int __tcp_space_from_win(u8 scaling_ratio, int win)
-{
-	u64 val = (u64)win << TCP_RMEM_TO_WIN_SCALE;
-
-	do_div(val, scaling_ratio);
-	return val;
-}
-
-static inline int tcp_space_from_win(const struct sock *sk, int win)
-{
-	return __tcp_space_from_win(tcp_sk(sk)->scaling_ratio, win);
-}
-
-static inline void tcp_scaling_ratio_init(struct sock *sk)
-{
-	/* Assume a conservative default of 1200 bytes of payload per 4K page.
-	 * This may be adjusted later in tcp_measure_rcv_mss().
-	 */
-	tcp_sk(sk)->scaling_ratio = (1200 << TCP_RMEM_TO_WIN_SCALE) /
-				    SKB_TRUESIZE(4096);
+	return tcp_adv_win_scale <= 0 ?
+		(space>>(-tcp_adv_win_scale)) :
+		space - (space>>tcp_adv_win_scale);
 }
 
 /* Note: caller must be prepared to deal with negative returns */
