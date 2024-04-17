@@ -237,16 +237,6 @@ static void tcp_measure_rcv_mss(struct sock *sk, const struct sk_buff *skb)
 	 */
 	len = skb_shinfo(skb)->gso_size ? : skb->len;
 	if (len >= icsk->icsk_ack.rcv_mss) {
-		/* Note: divides are still a bit expensive.
-		 * For the moment, only adjust scaling_ratio
-		 * when we update icsk_ack.rcv_mss.
-		 */
-		if (unlikely(len != icsk->icsk_ack.rcv_mss)) {
-			u64 val = (u64)skb->len << TCP_RMEM_TO_WIN_SCALE;
-
-			do_div(val, skb->truesize);
-			tcp_sk(sk)->scaling_ratio = val ? val : 1;
-		}
 		icsk->icsk_ack.rcv_mss = min_t(unsigned int, len,
 					       tcp_sk(sk)->advmss);
 		/* Account for possibly-removed options */
@@ -750,8 +740,8 @@ void tcp_rcv_space_adjust(struct sock *sk)
 
 	if (READ_ONCE(sock_net(sk)->ipv4.sysctl_tcp_moderate_rcvbuf) &&
 	    !(sk->sk_userlocks & SOCK_RCVBUF_LOCK)) {
+		int rcvmem, rcvbuf;
 		u64 rcvwin, grow;
-		int rcvbuf;
 
 		/* minimal window to cope with packet losses, assuming
 		 * steady state. Add some cushion because of small variations.
@@ -763,7 +753,12 @@ void tcp_rcv_space_adjust(struct sock *sk)
 		do_div(grow, tp->rcvq_space.space);
 		rcvwin += (grow << 1);
 
-		rcvbuf = min_t(u64, tcp_space_from_win(sk, rcvwin),
+		rcvmem = SKB_TRUESIZE(tp->advmss + MAX_TCP_HEADER);
+		while (tcp_win_from_space(sk, rcvmem) < tp->advmss)
+			rcvmem += 128;
+
+		do_div(rcvwin, tp->advmss);
+		rcvbuf = min_t(u64, rcvwin * rcvmem,
 			       READ_ONCE(sock_net(sk)->ipv4.sysctl_tcp_rmem[2]));
 		if (rcvbuf > sk->sk_rcvbuf) {
 			WRITE_ONCE(sk->sk_rcvbuf, rcvbuf);
