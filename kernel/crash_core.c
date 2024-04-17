@@ -507,6 +507,9 @@ void __init reserve_crashkernel_cma(unsigned long long cma_size)
 	unsigned long long request_size = roundup(cma_size, PAGE_SIZE);
 	unsigned long long reserved_size = 0;
 
+	if (!cma_size)
+		return;
+
 	while (cma_size > reserved_size &&
 	       crashk_cma_cnt < CRASHKERNEL_CMA_RANGES_MAX) {
 
