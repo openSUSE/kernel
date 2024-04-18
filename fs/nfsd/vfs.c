@@ -1723,7 +1723,7 @@ nfsd_rename(struct svc_rqst *rqstp, struct svc_fh *ffhp, char *fname, int flen,
 	trap = lock_rename(tdentry, fdentry);
 	if (IS_ERR(trap)) {
 		err = (rqstp->rq_vers == 2) ? nfserr_acces : nfserr_xdev;
-		goto out;
+		goto out_want_write;
 	}
 	ffhp->fh_locked = tfhp->fh_locked = true;
 	fill_pre_wcc(ffhp);
@@ -1775,6 +1775,7 @@ nfsd_rename(struct svc_rqst *rqstp, struct svc_fh *ffhp, char *fname, int flen,
 	fill_post_wcc(ffhp);
 	fill_post_wcc(tfhp);
 	unlock_rename(tdentry, fdentry);
+out_want_write:
 	ffhp->fh_locked = tfhp->fh_locked = false;
 	fh_drop_write(ffhp);
 
