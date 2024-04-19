@@ -201,7 +201,7 @@ extern void clear_cpu_cap(struct cpuinfo_x86 *c, unsigned int bit);
 		set_bit(bit - ((NCAPINTS+NBUGINTS)*32),                                 \
 			(unsigned long *)&(&boot_cpu_data)->x86_ext_capability[NEXTCAPINTS]); \
 	} else {							      \
-		set_cpu_cap(&boot_cpu_data, bit);			      \
+		set_bit(bit, (unsigned long *)((&boot_cpu_data)->x86_capability));	      \
 		set_bit(bit, (unsigned long *)cpu_caps_set);		      \
 	}								      \
 } while (0)
