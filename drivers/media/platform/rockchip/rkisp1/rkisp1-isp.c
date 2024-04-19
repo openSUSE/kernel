@@ -490,18 +490,25 @@ static void rkisp1_isp_stop(struct rkisp1_device *rkisp1)
 	 * ISP(mi) stop in mi frame end -> Stop ISP(mipi) ->
 	 * Stop ISP(isp) ->wait for ISP isp off
 	 */
-	/* stop and clear MI, MIPI, and ISP interrupts */
-	rkisp1_write(rkisp1, 0, RKISP1_CIF_MIPI_IMSC);
-	rkisp1_write(rkisp1, ~0, RKISP1_CIF_MIPI_ICR);
 
+	/* Mask MI and ISP interrupts */
 	rkisp1_write(rkisp1, 0, RKISP1_CIF_ISP_IMSC);
-	rkisp1_write(rkisp1, ~0, RKISP1_CIF_ISP_ICR);
-
 	rkisp1_write(rkisp1, 0, RKISP1_CIF_MI_IMSC);
+
+	/* Flush posted writes */
+	rkisp1_read(rkisp1, RKISP1_CIF_MI_IMSC);
+
+	/*
+	 * Wait until the IRQ handler has ended. The IRQ handler may get called
+	 * even after this, but it will return immediately as the MI and ISP
+	 * interrupts have been masked.
+	 */
+	synchronize_irq(rkisp1->irq);
+
+	/* Clear MI and ISP interrupt status */
+	rkisp1_write(rkisp1, ~0, RKISP1_CIF_ISP_ICR);
 	rkisp1_write(rkisp1, ~0, RKISP1_CIF_MI_ICR);
-	val = rkisp1_read(rkisp1, RKISP1_CIF_MIPI_CTRL);
-	rkisp1_write(rkisp1, val & (~RKISP1_CIF_MIPI_CTRL_OUTPUT_ENA),
-		     RKISP1_CIF_MIPI_CTRL);
+
 	/* stop ISP */
 	val = rkisp1_read(rkisp1, RKISP1_CIF_ISP_CTRL);
 	val &= ~(RKISP1_CIF_ISP_CTRL_ISP_INFORM_ENABLE |
