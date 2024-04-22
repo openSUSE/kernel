@@ -31,11 +31,10 @@ struct counter_device_allochelper {
 	struct counter_device counter;
 
 	/*
-	 * This ensures private data behaves like if it were kmalloced
-	 * separately. Also ensures the minimum alignment for safe DMA
-	 * operations (which may or may not mean cache alignment).
+	 * This is cache line aligned to ensure private data behaves like if it
+	 * were kmalloced separately.
 	 */
-	unsigned long privdata[] __aligned(ARCH_DMA_MINALIGN);
+	unsigned long privdata[] ____cacheline_aligned;
 };
 
 static void counter_device_release(struct device *dev)
