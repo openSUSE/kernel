@@ -1251,11 +1251,24 @@ static void arm_trbe_register_coresight_cpu(struct trbe_drvdata *drvdata, int cp
 	desc.name = devm_kasprintf(dev, GFP_KERNEL, "trbe%d", cpu);
 	if (!desc.name)
 		goto cpu_clear;
+	/*
+	 * TRBE coresight devices do not need regular connections
+	 * information, as the paths get built between all percpu
+	 * source and their respective percpu sink devices. Though
+	 * coresight_register() expect device connections via the
+	 * platform_data, which TRBE devices do not have. As they
+	 * are not real ACPI devices, coresight_get_platform_data()
+	 * ends up failing. Instead let's allocate a dummy zeroed
+	 * coresight_platform_data structure and assign that back
+	 * into the device for that purpose.
+	 */
+	desc.pdata = devm_kzalloc(dev, sizeof(*desc.pdata), GFP_KERNEL);
+	if (IS_ERR(desc.pdata))
+		goto cpu_clear;
 
 	desc.type = CORESIGHT_DEV_TYPE_SINK;
 	desc.subtype.sink_subtype = CORESIGHT_DEV_SUBTYPE_SINK_PERCPU_SYSMEM;
 	desc.ops = &arm_trbe_cs_ops;
-	desc.pdata = dev_get_platdata(dev);
 	desc.groups = arm_trbe_groups;
 	desc.dev = dev;
 	trbe_csdev = coresight_register(&desc);
@@ -1479,7 +1492,6 @@ static void arm_trbe_remove_irq(struct trbe_drvdata *drvdata)
 
 static int arm_trbe_device_probe(struct platform_device *pdev)
 {
-	struct coresight_platform_data *pdata;
 	struct trbe_drvdata *drvdata;
 	struct device *dev = &pdev->dev;
 	int ret;
@@ -1494,12 +1506,7 @@ static int arm_trbe_device_probe(struct platform_device *pdev)
 	if (!drvdata)
 		return -ENOMEM;
 
-	pdata = coresight_get_platform_data(dev);
-	if (IS_ERR(pdata))
-		return PTR_ERR(pdata);
-
 	dev_set_drvdata(dev, drvdata);
-	dev->platform_data = pdata;
 	drvdata->pdev = pdev;
 	ret = arm_trbe_probe_irq(pdev, drvdata);
 	if (ret)
@@ -1537,7 +1544,16 @@ static const struct of_device_id arm_trbe_of_match[] = {
 };
 MODULE_DEVICE_TABLE(of, arm_trbe_of_match);
 
+#ifdef CONFIG_ACPI
+static const struct platform_device_id arm_trbe_acpi_match[] = {
+	{ ARMV8_TRBE_PDEV_NAME, 0 },
+	{ }
+};
+MODULE_DEVICE_TABLE(platform, arm_trbe_acpi_match);
+#endif
+
 static struct platform_driver arm_trbe_driver = {
+	.id_table = ACPI_PTR(arm_trbe_acpi_match),
 	.driver	= {
 		.name = DRVNAME,
 		.of_match_table = of_match_ptr(arm_trbe_of_match),

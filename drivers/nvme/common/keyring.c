@@ -36,30 +36,12 @@ static bool nvme_tls_psk_match(const struct key *key,
 		pr_debug("%s: no key description\n", __func__);
 		return false;
 	}
-	match_len = strlen(key->description);
-	pr_debug("%s: id %s len %zd\n", __func__, key->description, match_len);
-
 	if (!match_data->raw_data) {
 		pr_debug("%s: no match data\n", __func__);
 		return false;
 	}
 	match_id = match_data->raw_data;
-	if (!memcmp(match_id, "NVMe1", 5)) {
-		char *e = (char *)match_id;
-		size_t offset = 0;
-		int n = 0;
-
-		while (*e != ' ' && offset < match_len) {
-			if (*e == ' ') {
-				n++;
-				if (n == 3)
-					break;
-			}
-			e++;
-			offset++;
-		}
-		match_len = offset;
-	}
+	match_len = strlen(match_id);
 	pr_debug("%s: match '%s' '%s' len %zd\n",
 		 __func__, match_id, key->description, match_len);
 	return !memcmp(key->description, match_id, match_len);

@@ -320,10 +320,8 @@ static inline bool iwl_acpi_is_ppag_approved(struct iwl_fw_runtime *fwrt)
 	return false;
 }
 
-static inline void iwl_acpi_get_phy_filters(struct iwl_fw_runtime *fwrt,
-					    struct iwl_phy_specific_cfg *filters)
-{
-}
+/* macro since the second argument doesn't always exist */
+#define iwl_acpi_get_phy_filters(fwrt, filters) do { } while (0)
 
 #endif /* CONFIG_ACPI */
 

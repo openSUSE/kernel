@@ -761,6 +761,7 @@ enum stripe_result {
 	STRIPE_RETRY,
 	STRIPE_SCHEDULE_AND_RETRY,
 	STRIPE_FAIL,
+	STRIPE_WAIT_RESHAPE,
 };
 
 struct stripe_request_ctx {
@@ -1211,10 +1212,8 @@ again:
 		 */
 		while (op_is_write(op) && rdev &&
 		       test_bit(WriteErrorSeen, &rdev->flags)) {
-			sector_t first_bad;
-			int bad_sectors;
-			int bad = is_badblock(rdev, sh->sector, RAID5_STRIPE_SECTORS(conf),
-					      &first_bad, &bad_sectors);
+			int bad = rdev_has_badblock(rdev, sh->sector,
+						    RAID5_STRIPE_SECTORS(conf));
 			if (!bad)
 				break;
 
@@ -2856,8 +2855,6 @@ static void raid5_end_write_request(struct bio *bi)
 	struct r5conf *conf = sh->raid_conf;
 	int disks = sh->disks, i;
 	struct md_rdev *rdev;
-	sector_t first_bad;
-	int bad_sectors;
 	int replacement = 0;
 
 	for (i = 0 ; i < disks; i++) {
@@ -2889,9 +2886,8 @@ static void raid5_end_write_request(struct bio *bi)
 	if (replacement) {
 		if (bi->bi_status)
 			md_error(conf->mddev, rdev);
-		else if (is_badblock(rdev, sh->sector,
-				     RAID5_STRIPE_SECTORS(conf),
-				     &first_bad, &bad_sectors))
+		else if (rdev_has_badblock(rdev, sh->sector,
+					   RAID5_STRIPE_SECTORS(conf)))
 			set_bit(R5_MadeGoodRepl, &sh->dev[i].flags);
 	} else {
 		if (bi->bi_status) {
@@ -2901,9 +2897,8 @@ static void raid5_end_write_request(struct bio *bi)
 			if (!test_and_set_bit(WantReplacement, &rdev->flags))
 				set_bit(MD_RECOVERY_NEEDED,
 					&rdev->mddev->recovery);
-		} else if (is_badblock(rdev, sh->sector,
-				       RAID5_STRIPE_SECTORS(conf),
-				       &first_bad, &bad_sectors)) {
+		} else if (rdev_has_badblock(rdev, sh->sector,
+					     RAID5_STRIPE_SECTORS(conf))) {
 			set_bit(R5_MadeGood, &sh->dev[i].flags);
 			if (test_bit(R5_ReadError, &sh->dev[i].flags))
 				/* That was a successful write so make
@@ -4675,8 +4670,6 @@ static void analyse_stripe(struct stripe_head *sh, struct stripe_head_state *s)
 	/* Now to look around and see what can be done */
 	for (i=disks; i--; ) {
 		struct md_rdev *rdev;
-		sector_t first_bad;
-		int bad_sectors;
 		int is_bad = 0;
 
 		dev = &sh->dev[i];
@@ -4720,8 +4713,8 @@ static void analyse_stripe(struct stripe_head *sh, struct stripe_head_state *s)
 		rdev = conf->disks[i].replacement;
 		if (rdev && !test_bit(Faulty, &rdev->flags) &&
 		    rdev->recovery_offset >= sh->sector + RAID5_STRIPE_SECTORS(conf) &&
-		    !is_badblock(rdev, sh->sector, RAID5_STRIPE_SECTORS(conf),
-				 &first_bad, &bad_sectors))
+		    !rdev_has_badblock(rdev, sh->sector,
+				       RAID5_STRIPE_SECTORS(conf)))
 			set_bit(R5_ReadRepl, &dev->flags);
 		else {
 			if (rdev && !test_bit(Faulty, &rdev->flags))
@@ -4734,8 +4727,8 @@ static void analyse_stripe(struct stripe_head *sh, struct stripe_head_state *s)
 		if (rdev && test_bit(Faulty, &rdev->flags))
 			rdev = NULL;
 		if (rdev) {
-			is_bad = is_badblock(rdev, sh->sector, RAID5_STRIPE_SECTORS(conf),
-					     &first_bad, &bad_sectors);
+			is_bad = rdev_has_badblock(rdev, sh->sector,
+						   RAID5_STRIPE_SECTORS(conf));
 			if (s->blocked_rdev == NULL
 			    && (test_bit(Blocked, &rdev->flags)
 				|| is_bad < 0)) {
@@ -5464,8 +5457,8 @@ static int raid5_read_one_chunk(struct mddev *mddev, struct bio *raid_bio)
 	struct r5conf *conf = mddev->private;
 	struct bio *align_bio;
 	struct md_rdev *rdev;
-	sector_t sector, end_sector, first_bad;
-	int bad_sectors, dd_idx;
+	sector_t sector, end_sector;
+	int dd_idx;
 	bool did_inc;
 
 	if (!in_chunk_boundary(mddev, raid_bio)) {
@@ -5494,8 +5487,7 @@ static int raid5_read_one_chunk(struct mddev *mddev, struct bio *raid_bio)
 
 	atomic_inc(&rdev->nr_pending);
 
-	if (is_badblock(rdev, sector, bio_sectors(raid_bio), &first_bad,
-			&bad_sectors)) {
+	if (rdev_has_badblock(rdev, sector, bio_sectors(raid_bio))) {
 		rdev_dec_pending(rdev, mddev);
 		return 0;
 	}
@@ -5947,7 +5939,8 @@ static enum stripe_result make_stripe_request(struct mddev *mddev,
 			if (ahead_of_reshape(mddev, logical_sector,
 					     conf->reshape_safe)) {
 				spin_unlock_irq(&conf->device_lock);
-				return STRIPE_SCHEDULE_AND_RETRY;
+				ret = STRIPE_SCHEDULE_AND_RETRY;
+				goto out;
 			}
 		}
 		spin_unlock_irq(&conf->device_lock);
@@ -6026,6 +6019,12 @@ static enum stripe_result make_stripe_request(struct mddev *mddev,
 
 out_release:
 	raid5_release_stripe(sh);
+out:
+	if (ret == STRIPE_SCHEDULE_AND_RETRY && reshape_interrupted(mddev)) {
+		bi->bi_status = BLK_STS_RESOURCE;
+		ret = STRIPE_WAIT_RESHAPE;
+		pr_err_ratelimited("dm-raid456: io across reshape position while reshape can't make progress");
+	}
 	return ret;
 }
 
@@ -6147,7 +6146,7 @@ static bool raid5_make_request(struct mddev *mddev, struct bio * bi)
 	while (1) {
 		res = make_stripe_request(mddev, conf, &ctx, logical_sector,
 					  bi);
-		if (res == STRIPE_FAIL)
+		if (res == STRIPE_FAIL || res == STRIPE_WAIT_RESHAPE)
 			break;
 
 		if (res == STRIPE_RETRY)
@@ -6185,6 +6184,11 @@ static bool raid5_make_request(struct mddev *mddev, struct bio * bi)
 
 	if (rw == WRITE)
 		md_write_end(mddev);
+	if (res == STRIPE_WAIT_RESHAPE) {
+		md_free_cloned_bio(bi);
+		return false;
+	}
+
 	bio_endio(bi);
 	return true;
 }
@@ -6979,10 +6983,8 @@ raid5_store_stripe_size(struct mddev  *mddev, const char *page, size_t len)
 	pr_debug("md/raid: change stripe_size from %lu to %lu\n",
 			conf->stripe_size, new);
 
-	if (mddev->sync_thread ||
-		test_bit(MD_RECOVERY_RUNNING, &mddev->recovery) ||
-		mddev->reshape_position != MaxSector ||
-		mddev->sysfs_active) {
+	if (test_bit(MD_RECOVERY_RUNNING, &mddev->recovery) ||
+	    mddev->reshape_position != MaxSector || mddev->sysfs_active) {
 		err = -EBUSY;
 		goto out_unlock;
 	}
@@ -8919,6 +8921,18 @@ static int raid5_start(struct mddev *mddev)
 	return r5l_start(conf->log);
 }
 
+/*
+ * This is only used for dm-raid456, caller already frozen sync_thread, hence
+ * if rehsape is still in progress, io that is waiting for reshape can never be
+ * done now, hence wake up and handle those IO.
+ */
+static void raid5_prepare_suspend(struct mddev *mddev)
+{
+	struct r5conf *conf = mddev->private;
+
+	wake_up(&conf->wait_for_overlap);
+}
+
 static struct md_personality raid6_personality =
 {
 	.name		= "raid6",
@@ -8942,6 +8956,7 @@ static struct md_personality raid6_personality =
 	.quiesce	= raid5_quiesce,
 	.takeover	= raid6_takeover,
 	.change_consistency_policy = raid5_change_consistency_policy,
+	.prepare_suspend = raid5_prepare_suspend,
 };
 static struct md_personality raid5_personality =
 {
@@ -8966,6 +8981,7 @@ static struct md_personality raid5_personality =
 	.quiesce	= raid5_quiesce,
 	.takeover	= raid5_takeover,
 	.change_consistency_policy = raid5_change_consistency_policy,
+	.prepare_suspend = raid5_prepare_suspend,
 };
 
 static struct md_personality raid4_personality =
@@ -8991,6 +9007,7 @@ static struct md_personality raid4_personality =
 	.quiesce	= raid5_quiesce,
 	.takeover	= raid4_takeover,
 	.change_consistency_policy = raid5_change_consistency_policy,
+	.prepare_suspend = raid5_prepare_suspend,
 };
 
 static int __init raid5_init(void)
