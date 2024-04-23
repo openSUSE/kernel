@@ -1044,7 +1044,7 @@ static int nvme_tcp_try_send_data(struct nvme_tcp_request *req)
 		int req_data_sent = req->data_sent;
 		int ret;
 
-		if (last && !queue->data_digest && !nvme_tcp_queue_more(queue))
+		if (last && !queue->data_digest)
 			msg.msg_flags |= MSG_EOR;
 		else
 			msg.msg_flags |= MSG_MORE;
@@ -1100,7 +1100,7 @@ static int nvme_tcp_try_send_cmd_pdu(struct nvme_tcp_request *req)
 	int len = sizeof(*pdu) + hdgst - req->offset;
 	int ret;
 
-	if (inline_data || nvme_tcp_queue_more(queue))
+	if (inline_data)
 		msg.msg_flags |= MSG_MORE;
 	else
 		msg.msg_flags |= MSG_EOR;
@@ -1170,16 +1170,11 @@ static int nvme_tcp_try_send_ddgst(struct nvme_tcp_request *req)
 	size_t offset = req->offset;
 	u32 h2cdata_left = req->h2cdata_left;
 	int ret;
-	struct msghdr msg = { .msg_flags = MSG_DONTWAIT };
+	struct msghdr msg = { .msg_flags = MSG_DONTWAIT | MSG_EOR };
 	struct kvec iov = {
 		.iov_base = (u8 *)&req->ddgst + req->offset,
 		.iov_len = NVME_TCP_DIGEST_LENGTH - req->offset
 	};
-
-	if (nvme_tcp_queue_more(queue))
-		msg.msg_flags |= MSG_MORE;
-	else
-		msg.msg_flags |= MSG_EOR;
 
 	ret = kernel_sendmsg(queue->sock, &msg, &iov, 1, iov.iov_len);
 	if (unlikely(ret <= 0))
