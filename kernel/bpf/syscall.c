@@ -3456,9 +3456,14 @@ static int bpf_raw_tracepoint_open(const union bpf_attr *attr)
 	return fd;
 }
 
+static enum bpf_prog_type
+attach_type_to_prog_type(enum bpf_attach_type attach_type);
+
 static int bpf_prog_attach_check_attach_type(const struct bpf_prog *prog,
 					     enum bpf_attach_type attach_type)
 {
+	enum bpf_prog_type ptype;
+
 	switch (prog->type) {
 	case BPF_PROG_TYPE_CGROUP_SOCK:
 	case BPF_PROG_TYPE_CGROUP_SOCK_ADDR:
@@ -3471,6 +3476,11 @@ static int bpf_prog_attach_check_attach_type(const struct bpf_prog *prog,
 			 * check permissions at attach time.
 			 */
 			return -EPERM;
+
+		ptype = attach_type_to_prog_type(attach_type);
+		if (prog->type != ptype)
+			return -EINVAL;
+
 		return prog->enforce_expected_attach_type &&
 			prog->expected_attach_type != attach_type ?
 			-EINVAL : 0;
