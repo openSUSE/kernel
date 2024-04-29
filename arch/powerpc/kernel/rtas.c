@@ -7,6 +7,8 @@
  * Copyright (C) 2001 IBM.
  */
 
+#define pr_fmt(fmt)	"rtas: " fmt
+
 #include <linux/stdarg.h>
 #include <linux/kernel.h>
 #include <linux/types.h>
@@ -554,34 +556,34 @@ unsigned int rtas_busy_delay(int status)
 }
 EXPORT_SYMBOL(rtas_busy_delay);
 
-static int rtas_error_rc(int rtas_rc)
+int rtas_error_rc(int rtas_rc)
 {
 	int rc;
 
 	switch (rtas_rc) {
-		case -1: 		/* Hardware Error */
-			rc = -EIO;
-			break;
-		case -3:		/* Bad indicator/domain/etc */
-			rc = -EINVAL;
-			break;
-		case -9000:		/* Isolation error */
-			rc = -EFAULT;
-			break;
-		case -9001:		/* Outstanding TCE/PTE */
-			rc = -EEXIST;
-			break;
-		case -9002:		/* No usable slot */
-			rc = -ENODEV;
-			break;
-		default:
-			printk(KERN_ERR "%s: unexpected RTAS error %d\n",
-					__func__, rtas_rc);
-			rc = -ERANGE;
-			break;
+	case RTAS_HARDWARE_ERROR:	/* Hardware Error */
+		rc = -EIO;
+		break;
+	case RTAS_INVALID_PARAMETER:	/* Bad indicator/domain/etc */
+		rc = -EINVAL;
+		break;
+	case -9000:			/* Isolation error */
+		rc = -EFAULT;
+		break;
+	case -9001:			/* Outstanding TCE/PTE */
+		rc = -EEXIST;
+		break;
+	case -9002:			/* No usable slot */
+		rc = -ENODEV;
+		break;
+	default:
+		pr_err("%s: unexpected error %d\n", __func__, rtas_rc);
+		rc = -ERANGE;
+		break;
 	}
 	return rc;
 }
+EXPORT_SYMBOL_GPL(rtas_error_rc);
 
 int rtas_get_power_level(int powerdomain, int *level)
 {
@@ -780,8 +782,8 @@ void __noreturn rtas_restart(char *cmd)
 {
 	if (rtas_flash_term_hook)
 		rtas_flash_term_hook(SYS_RESTART);
-	printk("RTAS system-reboot returned %d\n",
-	       rtas_call(rtas_token("system-reboot"), 0, 1, NULL));
+	pr_emerg("system-reboot returned %d\n",
+		 rtas_call(rtas_token("system-reboot"), 0, 1, NULL));
 	for (;;);
 }
 
@@ -790,8 +792,8 @@ void rtas_power_off(void)
 	if (rtas_flash_term_hook)
 		rtas_flash_term_hook(SYS_POWER_OFF);
 	/* allow power on only with power button press */
-	printk("RTAS power-off returned %d\n",
-	       rtas_call(rtas_token("power-off"), 2, 1, NULL, -1, -1));
+	pr_emerg("power-off returned %d\n",
+		 rtas_call(rtas_token("power-off"), 2, 1, NULL, -1, -1));
 	for (;;);
 }
 
@@ -800,8 +802,8 @@ void __noreturn rtas_halt(void)
 	if (rtas_flash_term_hook)
 		rtas_flash_term_hook(SYS_HALT);
 	/* allow power on only with power button press */
-	printk("RTAS power-off returned %d\n",
-	       rtas_call(rtas_token("power-off"), 2, 1, NULL, -1, -1));
+	pr_emerg("power-off returned %d\n",
+		 rtas_call(rtas_token("power-off"), 2, 1, NULL, -1, -1));
 	for (;;);
 }
 
@@ -835,7 +837,7 @@ void rtas_os_term(char *str)
 	} while (rtas_busy_delay_time(status));
 
 	if (status != 0)
-		printk(KERN_EMERG "ibm,os-term call failed %d\n", status);
+		pr_emerg("ibm,os-term call failed %d\n", status);
 }
 
 /**
