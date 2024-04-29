@@ -163,23 +163,23 @@ SYM_CODE_END(.Lbad_get_user_8_clac)
 #endif
 
 /* get_user */
-	_ASM_EXTABLE(1b, .Lbad_get_user_clac)
-	_ASM_EXTABLE(2b, .Lbad_get_user_clac)
-	_ASM_EXTABLE(3b, .Lbad_get_user_clac)
+	_ASM_EXTABLE_UA(1b, .Lbad_get_user_clac)
+	_ASM_EXTABLE_UA(2b, .Lbad_get_user_clac)
+	_ASM_EXTABLE_UA(3b, .Lbad_get_user_clac)
 #ifdef CONFIG_X86_64
-	_ASM_EXTABLE(4b, .Lbad_get_user_clac)
+	_ASM_EXTABLE_UA(4b, .Lbad_get_user_clac)
 #else
-	_ASM_EXTABLE(4b, .Lbad_get_user_8_clac)
-	_ASM_EXTABLE(5b, .Lbad_get_user_8_clac)
+	_ASM_EXTABLE_UA(4b, .Lbad_get_user_8_clac)
+	_ASM_EXTABLE_UA(5b, .Lbad_get_user_8_clac)
 #endif
 
 /* __get_user */
-	_ASM_EXTABLE(6b, .Lbad_get_user_clac)
-	_ASM_EXTABLE(7b, .Lbad_get_user_clac)
-	_ASM_EXTABLE(8b, .Lbad_get_user_clac)
+	_ASM_EXTABLE_UA(6b, .Lbad_get_user_clac)
+	_ASM_EXTABLE_UA(7b, .Lbad_get_user_clac)
+	_ASM_EXTABLE_UA(8b, .Lbad_get_user_clac)
 #ifdef CONFIG_X86_64
-	_ASM_EXTABLE(9b, .Lbad_get_user_clac)
+	_ASM_EXTABLE_UA(9b, .Lbad_get_user_clac)
 #else
-	_ASM_EXTABLE(9b, .Lbad_get_user_8_clac)
-	_ASM_EXTABLE(10b, .Lbad_get_user_8_clac)
+	_ASM_EXTABLE_UA(9b, .Lbad_get_user_8_clac)
+	_ASM_EXTABLE_UA(10b, .Lbad_get_user_8_clac)
 #endif
