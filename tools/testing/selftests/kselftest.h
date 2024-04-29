@@ -49,6 +49,7 @@
 #include <unistd.h>
 #include <stdarg.h>
 #include <stdio.h>
+#include <sys/utsname.h>
 #endif
 
 #ifndef ARRAY_SIZE
@@ -76,6 +77,10 @@
 #define KSFT_XFAIL 2
 #define KSFT_XPASS 3
 #define KSFT_SKIP  4
+
+#ifndef __noreturn
+#define __noreturn       __attribute__((__noreturn__))
+#endif
 
 /* counters */
 struct ksft_count {
@@ -229,13 +234,13 @@ static inline void ksft_test_result_error(const char *msg, ...)
 	va_end(args);
 }
 
-static inline int ksft_exit_pass(void)
+static inline __noreturn int ksft_exit_pass(void)
 {
 	ksft_print_cnts();
 	exit(KSFT_PASS);
 }
 
-static inline int ksft_exit_fail(void)
+static inline __noreturn int ksft_exit_fail(void)
 {
 	ksft_print_cnts();
 	exit(KSFT_FAIL);
@@ -262,7 +267,7 @@ static inline int ksft_exit_fail(void)
 		  ksft_cnt.ksft_xfail +	\
 		  ksft_cnt.ksft_xskip)
 
-static inline int ksft_exit_fail_msg(const char *msg, ...)
+static inline __noreturn int ksft_exit_fail_msg(const char *msg, ...)
 {
 	int saved_errno = errno;
 	va_list args;
@@ -277,19 +282,19 @@ static inline int ksft_exit_fail_msg(const char *msg, ...)
 	exit(KSFT_FAIL);
 }
 
-static inline int ksft_exit_xfail(void)
+static inline __noreturn int ksft_exit_xfail(void)
 {
 	ksft_print_cnts();
 	exit(KSFT_XFAIL);
 }
 
-static inline int ksft_exit_xpass(void)
+static inline __noreturn int ksft_exit_xpass(void)
 {
 	ksft_print_cnts();
 	exit(KSFT_XPASS);
 }
 
-static inline int ksft_exit_skip(const char *msg, ...)
+static inline __noreturn int ksft_exit_skip(const char *msg, ...)
 {
 	int saved_errno = errno;
 	va_list args;
@@ -316,6 +321,23 @@ static inline int ksft_exit_skip(const char *msg, ...)
 	if (ksft_test_num())
 		ksft_print_cnts();
 	exit(KSFT_SKIP);
+}
+
+static inline int ksft_min_kernel_version(unsigned int min_major,
+					  unsigned int min_minor)
+{
+#ifdef NOLIBC
+	ksft_print_msg("NOLIBC: Can't check kernel version: Function not implemented\n");
+	return 0;
+#else
+	unsigned int major, minor;
+	struct utsname info;
+
+	if (uname(&info) || sscanf(info.release, "%u.%u.", &major, &minor) != 2)
+		ksft_exit_fail_msg("Can't parse kernel version\n");
+
+	return major > min_major || (major == min_major && minor >= min_minor);
+#endif
 }
 
 #endif /* __KSELFTEST_H */
