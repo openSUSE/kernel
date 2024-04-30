@@ -102,15 +102,25 @@ static void __dump_stack(const char *log_lvl)
  */
 asmlinkage __visible void dump_stack_lvl(const char *log_lvl)
 {
+	bool in_panic = this_cpu_in_panic();
 	unsigned long flags;
 
 	/*
 	 * Permit this cpu to perform nested stack dumps while serialising
-	 * against other CPUs
+	 * against other CPUs, unless this CPU is in panic.
+	 *
+	 * When in panic, non-panic CPUs are not permitted to store new
+	 * printk messages so there is no need to synchronize the output.
+	 * This avoids potential deadlock in panic() if another CPU is
+	 * holding and unable to release the printk_cpu_sync.
 	 */
-	printk_cpu_lock_irqsave(flags);
+	if (!in_panic)
+		printk_cpu_lock_irqsave(flags);
+
 	__dump_stack(log_lvl);
-	printk_cpu_unlock_irqrestore(flags);
+
+	if (!in_panic)
+		printk_cpu_unlock_irqrestore(flags);
 }
 EXPORT_SYMBOL(dump_stack_lvl);
 
