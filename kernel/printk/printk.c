@@ -2637,11 +2637,12 @@ static int have_callable_console(void)
 }
 
 /*
- * Return true when this CPU should unlock console_sem without pushing all
- * messages to the console. This reduces the chance that the console is
- * locked when the panic CPU tries to use it.
+ * Return true if a panic is in progress on a remote CPU.
+ *
+ * On true, the local CPU should immediately release any printing resources
+ * that may be needed by the panic CPU.
  */
-static bool abandon_console_lock_in_panic(void)
+bool other_cpu_in_panic(void)
 {
 	if (!panic_in_progress())
 		return false;
@@ -2799,7 +2800,7 @@ skip:
 			return;
 
 		/* Allow panic_cpu to take over the consoles safely */
-		if (abandon_console_lock_in_panic())
+		if (other_cpu_in_panic())
 			break;
 
 		if (do_cond_resched)
@@ -2819,7 +2820,7 @@ skip:
 	 * flush, no worries.
 	 */
 	retry = prb_read_valid(prb, next_seq, NULL);
-	if (retry && !abandon_console_lock_in_panic() && console_trylock())
+	if (retry && !other_cpu_in_panic() && console_trylock())
 		goto again;
 }
 EXPORT_SYMBOL(console_unlock);
