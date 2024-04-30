@@ -44,3 +44,4 @@ static inline bool printk_percpu_data_ready(void) { return false; }
 #endif /* CONFIG_PRINTK */
 
 bool other_cpu_in_panic(void);
+bool this_cpu_in_panic(void);
