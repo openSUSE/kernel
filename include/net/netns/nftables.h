@@ -10,6 +10,7 @@ struct netns_nftables {
 	struct list_head	module_list;
 	struct mutex		commit_mutex;
 	unsigned int		base_seq;
+	unsigned int            gc_seq;
 	u8			gencursor;
 	u8			validate_state;
 };
