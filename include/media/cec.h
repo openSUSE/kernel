@@ -222,7 +222,9 @@ struct cec_adapter {
 	struct list_head wait_queue;
 	struct cec_data *transmitting;
 	bool transmit_in_progress;
+#ifndef __GENKSYMS__
 	bool transmit_in_progress_aborted;
+#endif
 
 	struct task_struct *kthread_config;
 	struct completion config_completion;
@@ -237,11 +239,13 @@ struct cec_adapter {
 
 	u16 phys_addr;
 	bool needs_hpd;
-	bool is_claiming_log_addrs;
 	bool is_configuring;
 	bool is_configured;
 	bool cec_pin_is_high;
 	bool adap_controls_phys_addr;
+#ifndef __GENKSYMS__
+	bool is_claiming_log_addrs:1;
+#endif
 	u8 last_initiator;
 	u32 monitor_all_cnt;
 	u32 monitor_pin_cnt;
