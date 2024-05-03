@@ -3396,7 +3396,8 @@ static int vfs_rename_dir(struct inode *old_dir, struct dentry *old_dentry,
 		dont_mount(new_dentry);
 	}
 out:
-	mutex_unlock(&source->i_mutex);
+	if (new_dir != old_dir)
+		mutex_unlock(&source->i_mutex);
 	if (target)
 		mutex_unlock(&target->i_mutex);
 	dput(new_dentry);
