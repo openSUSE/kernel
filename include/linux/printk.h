@@ -295,6 +295,8 @@ static inline void printk_trigger_flush(void)
 }
 #endif
 
+bool this_cpu_in_panic(void);
+
 #ifdef CONFIG_SMP
 extern int __printk_cpu_trylock(void);
 extern void __printk_wait_on_cpu_lock(void);
