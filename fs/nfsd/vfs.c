@@ -2150,7 +2150,10 @@ void nfsd_filp_close(struct file *fp)
 {
 	get_file(fp);
 	filp_close(fp, NULL);
-	__fput_sync(fp);
+	if (current->flags & PF_KTHREAD)
+		__fput_sync(fp);
+	else
+		fput(fp);
 }
 
 /*
