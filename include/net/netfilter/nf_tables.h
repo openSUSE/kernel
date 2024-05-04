@@ -404,7 +404,6 @@ void nft_unregister_set(struct nft_set_type *type);
 struct nft_set {
 	struct list_head		list;
 	struct list_head		bindings;
-	refcount_t                      refs;
 	struct nft_table		*table;
 	possible_net_t			net;
 	char				*name;
@@ -420,11 +419,18 @@ struct nft_set {
 	u32				gc_int;
 	u16				policy;
 	u16				udlen;
+#ifndef __GENKSYMS__
+	refcount_t                      refs;
+#endif
 	unsigned char			*udata;
 	/* runtime data below here */
 	const struct nft_set_ops	*ops ____cacheline_aligned;
+#ifndef __GENKSYMS__
 	u16                             flags:13,
 					dead:1,
+#else
+	u16				flags:14,
+#endif
 					genmask:2;
 	u8				klen;
 	u8				dlen;
