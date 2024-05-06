@@ -232,6 +232,49 @@ struct tls_prot_info {
 	u16 tail_size;
 };
 
+struct __orig_tls_context {
+	/* read-only cache line */
+	struct tls_prot_info prot_info;
+
+	u8 tx_conf:3;
+	u8 rx_conf:3;
+
+	int (*push_pending_record)(struct sock *sk, int flags);
+	void (*sk_write_space)(struct sock *sk);
+
+	void *priv_ctx_tx;
+	void *priv_ctx_rx;
+
+	struct net_device *netdev;
+
+	/* rw cache line */
+	struct cipher_context tx;
+	struct cipher_context rx;
+
+	struct scatterlist *partially_sent_record;
+	u16 partially_sent_offset;
+
+	bool in_tcp_sendpages;
+	bool pending_open_record_frags;
+
+	struct mutex tx_lock; /* protects partially_sent_* fields and
+			       * per-type TX fields
+			       */
+	unsigned long flags;
+
+	/* cache cold stuff */
+	struct proto *sk_proto;
+
+	void (*sk_destruct)(struct sock *sk);
+
+	union tls_crypto_context crypto_send;
+	union tls_crypto_context crypto_recv;
+
+	struct list_head list;
+	refcount_t refcount;
+	struct rcu_head rcu;
+};
+
 struct tls_context {
 	/* read-only cache line */
 	struct tls_prot_info prot_info;
@@ -264,7 +307,6 @@ struct tls_context {
 
 	/* cache cold stuff */
 	struct proto *sk_proto;
-	struct sock *sk;
 
 	void (*sk_destruct)(struct sock *sk);
 
@@ -273,8 +315,17 @@ struct tls_context {
 
 	struct list_head list;
 	refcount_t refcount;
+#ifdef __GENKSYMS__
 	struct rcu_head rcu;
+#else
+	union {
+		struct rcu_head rcu;
+		struct sock *sk;
+	};
+#endif
 };
+
+static_assert(sizeof(struct tls_context) == sizeof(struct __orig_tls_context));
 
 enum tls_offload_ctx_dir {
 	TLS_OFFLOAD_CTX_DIR_RX,
