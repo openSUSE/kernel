@@ -163,6 +163,11 @@ struct cec_adap_ops {
  * @wait_queue:		queue of transmits waiting for a reply
  * @transmitting:	CEC messages currently being transmitted
  * @transmit_in_progress: true if a transmit is in progress
+ * @transmit_in_progress_aborted: true if a transmit is in progress is to be
+ *			aborted. This happens if the logical address is
+ *			invalidated while the transmit is ongoing. In that
+ *			case the transmit will finish, but will not retransmit
+ *			and be marked as ABORTED.
  * @kthread_config:	kthread used to configure a CEC adapter
  * @config_completion:	used to signal completion of the config kthread
  * @kthread:		main CEC processing thread
@@ -217,6 +222,9 @@ struct cec_adapter {
 	struct list_head wait_queue;
 	struct cec_data *transmitting;
 	bool transmit_in_progress;
+#ifndef __GENKSYMS__
+	bool transmit_in_progress_aborted;
+#endif
 
 	struct task_struct *kthread_config;
 	struct completion config_completion;
@@ -235,6 +243,9 @@ struct cec_adapter {
 	bool is_configured;
 	bool cec_pin_is_high;
 	bool adap_controls_phys_addr;
+#ifndef __GENKSYMS__
+	bool is_claiming_log_addrs:1;
+#endif
 	u8 last_initiator;
 	u32 monitor_all_cnt;
 	u32 monitor_pin_cnt;

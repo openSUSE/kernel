@@ -1084,6 +1084,7 @@ static int udf_rename(struct user_namespace *mnt_userns, struct inode *old_dir,
 	struct fileIdentDesc *ofi = NULL, *nfi = NULL, *dir_fi = NULL;
 	struct fileIdentDesc ocfi, ncfi;
 	struct buffer_head *dir_bh = NULL;
+	bool is_dir = false;
 	int retval = -ENOENT;
 	struct kernel_lb_addr tloc;
 	struct udf_inode_info *old_iinfo = UDF_I(old_inode);
@@ -1118,13 +1119,16 @@ static int udf_rename(struct user_namespace *mnt_userns, struct inode *old_dir,
 		nfi = NULL;
 	}
 	if (S_ISDIR(old_inode->i_mode)) {
-		int offset = udf_ext0_offset(old_inode);
-
 		if (new_inode) {
 			retval = -ENOTEMPTY;
 			if (!empty_dir(new_inode))
 				goto end_rename;
 		}
+		is_dir = true;
+	}
+	if (is_dir && old_dir != new_dir) {
+		int offset = udf_ext0_offset(old_inode);
+
 		retval = -EIO;
 		if (old_iinfo->i_alloc_type == ICBTAG_FLAG_AD_IN_ICB) {
 			dir_fi = udf_get_fileident(
@@ -1182,7 +1186,7 @@ static int udf_rename(struct user_namespace *mnt_userns, struct inode *old_dir,
 	mark_inode_dirty(old_dir);
 	mark_inode_dirty(new_dir);
 
-	if (dir_fi) {
+	if (is_dir) {
 		dir_fi->icb.extLocation = cpu_to_lelb(UDF_I(new_dir)->i_location);
 		udf_update_tag((char *)dir_fi, udf_dir_entry_len(dir_fi));
 		if (old_iinfo->i_alloc_type == ICBTAG_FLAG_AD_IN_ICB)
