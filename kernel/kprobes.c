@@ -1288,10 +1288,9 @@ static inline void free_rp_inst(struct kretprobe *rp)
 		count++;
 	}
 
-	if (refcount_sub_and_test(count, &rp->rph->ref)) {
+	if (count > 0 && refcount_sub_and_test(count, &rp->rph->ref))
 		kfree(rp->rph);
-		rp->rph = NULL;
-	}
+	rp->rph = NULL;
 }
 
 /* Add the new probe to ap->list */

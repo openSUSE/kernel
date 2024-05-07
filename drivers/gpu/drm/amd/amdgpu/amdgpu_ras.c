@@ -970,8 +970,12 @@ int amdgpu_ras_query_error_status(struct amdgpu_device *adev,
 	struct amdgpu_ras_block_object *block_obj = NULL;
 	struct ras_manager *obj = amdgpu_ras_find_obj(adev, &info->head);
 	struct ras_err_data err_data = {0, 0, 0, NULL};
+	enum amdgpu_ras_block blk = info ? info->head.block : AMDGPU_RAS_BLOCK_COUNT;
 
 	if (!obj)
+		return -EINVAL;
+
+	if (blk == AMDGPU_RAS_BLOCK_COUNT)
 		return -EINVAL;
 
 	if (info->head.block == AMDGPU_RAS_BLOCK__UMC) {

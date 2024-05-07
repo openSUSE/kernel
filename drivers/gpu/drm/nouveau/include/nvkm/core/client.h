@@ -12,9 +12,11 @@ struct nvkm_client {
 
 	struct nvkm_client_notify *notify[32];
 	struct rb_root objroot;
+	spinlock_t obj_lock;
 
 	void *data;
 	int (*ntfy)(const void *, u32, const void *, u32);
+	int (*event)(u64 token, void *argv, u32 argc);
 
 	struct list_head umem;
 	spinlock_t lock;
@@ -23,6 +25,7 @@ struct nvkm_client {
 int  nvkm_client_new(const char *name, u64 device, const char *cfg,
 		     const char *dbg,
 		     int (*)(const void *, u32, const void *, u32),
+		     int (*)(u64, void *, u32),
 		     struct nvkm_client **);
 struct nvkm_client *nvkm_client_search(struct nvkm_client *, u64 handle);
 

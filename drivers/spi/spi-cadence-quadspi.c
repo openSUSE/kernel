@@ -1446,6 +1446,13 @@ static int cqspi_probe(struct platform_device *pdev)
 	master->mem_ops = &cqspi_mem_ops;
 	master->dev.of_node = pdev->dev.of_node;
 
+	/*
+	 * hack: Fix bsc#1222801 CVE-2024-26807
+	 * Upstream commit 32ce3bb57b6b402de2aec1012511e7ac4e7449dc
+	 * Reuse this unused member to keep SPI host reference
+	 */
+	pdev->mfd_cell = (struct mfd_cell *) master;
+
 	cqspi = spi_master_get_devdata(master);
 
 	cqspi->pdev = pdev;
@@ -1592,6 +1599,9 @@ static int cqspi_remove(struct platform_device *pdev)
 {
 	struct cqspi_st *cqspi = platform_get_drvdata(pdev);
 
+	/* hack: Fix bsc#1222801 CVE-2024-26807 */
+	cqspi->pdev->mfd_cell = NULL;
+
 	cqspi_controller_enable(cqspi, 0);
 
 	if (cqspi->rx_chan)
@@ -1609,9 +1619,11 @@ static int cqspi_remove(struct platform_device *pdev)
 static int cqspi_suspend(struct device *dev)
 {
 	struct cqspi_st *cqspi = dev_get_drvdata(dev);
-	struct spi_master *master = dev_get_drvdata(dev);
+	struct spi_master *master;
 	int ret;
 
+	/* hack: Fix bsc#1222801 CVE-2024-26807 */
+	master = (struct spi_master *) cqspi->pdev->mfd_cell;
 	ret = spi_master_suspend(master);
 	cqspi_controller_enable(cqspi, 0);
 
@@ -1623,7 +1635,10 @@ static int cqspi_suspend(struct device *dev)
 static int cqspi_resume(struct device *dev)
 {
 	struct cqspi_st *cqspi = dev_get_drvdata(dev);
-	struct spi_master *master = dev_get_drvdata(dev);
+	struct spi_master *master;
+
+	/* hack: Fix bsc#1222801 CVE-2024-26807 */
+	master = (struct spi_master *) cqspi->pdev->mfd_cell;
 
 	clk_prepare_enable(cqspi->clk);
 	cqspi_wait_idle(cqspi);

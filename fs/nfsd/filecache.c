@@ -198,9 +198,7 @@ nfsd_file_free(struct nfsd_file *nf)
 	if (nf->nf_mark)
 		nfsd_file_mark_put(nf->nf_mark);
 	if (nf->nf_file) {
-		get_file(nf->nf_file);
-		filp_close(nf->nf_file, NULL);
-		fput(nf->nf_file);
+		nfsd_filp_close(nf->nf_file);
 		flush = true;
 	}
 	call_rcu(&nf->nf_rcu, nfsd_file_slab_free);

@@ -281,22 +281,56 @@ static inline void interrupt_nmi_enter_prepare(struct pt_regs *regs, struct inte
 	}
 #endif
 
+	/* If data relocations are enabled, it's safe to use nmi_enter() */
+	if (mfmsr() & MSR_DR) {
+		nmi_enter();
+		return;
+	}
+
 	/*
-	 * Do not use nmi_enter() for pseries hash guest taking a real-mode
+	 * But do not use nmi_enter() for pseries hash guest taking a real-mode
 	 * NMI because not everything it touches is within the RMA limit.
 	 */
-	if (!IS_ENABLED(CONFIG_PPC_BOOK3S_64) ||
-			!firmware_has_feature(FW_FEATURE_LPAR) ||
-			radix_enabled() || (mfmsr() & MSR_DR))
-		nmi_enter();
+	if (IS_ENABLED(CONFIG_PPC_BOOK3S_64) &&
+	    firmware_has_feature(FW_FEATURE_LPAR) &&
+	    !radix_enabled())
+		return;
+
+	/*
+	 * Likewise, don't use it if we have some form of instrumentation (like
+	 * KASAN shadow) that is not safe to access in real mode (even on radix)
+	 */
+	if (IS_ENABLED(CONFIG_KASAN))
+		return;
+
+	/*
+	 * Likewise, do not use it in real mode if percpu first chunk is not
+	 * embedded. With CONFIG_NEED_PER_CPU_PAGE_FIRST_CHUNK enabled there
+	 * are chances where percpu allocation can come from vmalloc area.
+	 */
+	if (percpu_first_chunk_is_paged)
+		return;
+
+	/* Otherwise, it should be safe to call it */
+	nmi_enter();
 }
 
 static inline void interrupt_nmi_exit_prepare(struct pt_regs *regs, struct interrupt_nmi_state *state)
 {
-	if (!IS_ENABLED(CONFIG_PPC_BOOK3S_64) ||
-			!firmware_has_feature(FW_FEATURE_LPAR) ||
-			radix_enabled() || (mfmsr() & MSR_DR))
+	if (mfmsr() & MSR_DR) {
+		// nmi_exit if relocations are on
 		nmi_exit();
+	} else if (IS_ENABLED(CONFIG_PPC_BOOK3S_64) &&
+		   firmware_has_feature(FW_FEATURE_LPAR) &&
+		   !radix_enabled()) {
+		// no nmi_exit for a pseries hash guest taking a real mode exception
+	} else if (IS_ENABLED(CONFIG_KASAN)) {
+		// no nmi_exit for KASAN in real mode
+	} else if (percpu_first_chunk_is_paged) {
+		// no nmi_exit if percpu first chunk is not embedded
+	} else {
+		nmi_exit();
+	}
 
 	/*
 	 * nmi does not call nap_adjust_return because nmi should not create
@@ -364,7 +398,8 @@ static inline void interrupt_nmi_exit_prepare(struct pt_regs *regs, struct inter
  * Specific handlers may have additional restrictions.
  */
 #define DEFINE_INTERRUPT_HANDLER_RAW(func)				\
-static __always_inline long ____##func(struct pt_regs *regs);		\
+static __always_inline __no_sanitize_address __no_kcsan long		\
+____##func(struct pt_regs *regs);					\
 									\
 interrupt_handler long func(struct pt_regs *regs)			\
 {									\
@@ -376,7 +411,8 @@ interrupt_handler long func(struct pt_regs *regs)			\
 }									\
 NOKPROBE_SYMBOL(func);							\
 									\
-static __always_inline long ____##func(struct pt_regs *regs)
+static __always_inline __no_sanitize_address __no_kcsan long		\
+____##func(struct pt_regs *regs)
 
 /**
  * DECLARE_INTERRUPT_HANDLER - Declare synchronous interrupt handler function
@@ -501,7 +537,8 @@ static __always_inline void ____##func(struct pt_regs *regs)
  * body with a pair of curly brackets.
  */
 #define DEFINE_INTERRUPT_HANDLER_NMI(func)				\
-static __always_inline long ____##func(struct pt_regs *regs);		\
+static __always_inline __no_sanitize_address __no_kcsan long		\
+____##func(struct pt_regs *regs);					\
 									\
 interrupt_handler long func(struct pt_regs *regs)			\
 {									\
@@ -518,7 +555,8 @@ interrupt_handler long func(struct pt_regs *regs)			\
 }									\
 NOKPROBE_SYMBOL(func);							\
 									\
-static __always_inline long ____##func(struct pt_regs *regs)
+static __always_inline  __no_sanitize_address __no_kcsan long		\
+____##func(struct pt_regs *regs)
 
 
 /* Interrupt handlers */
