@@ -609,6 +609,9 @@ static void nft_rbtree_gc(struct work_struct *work)
 	net  = read_pnet(&set->net);
 	gc_seq  = READ_ONCE(net->nft.gc_seq);
 
+	if (nft_set_gc_is_pending(set))
+		goto done;
+
 	gc = nft_trans_gc_alloc(set, gc_seq, GFP_KERNEL);
 	if (!gc)
 		goto done;
