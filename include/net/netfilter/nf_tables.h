@@ -396,6 +396,7 @@ void nft_unregister_set(struct nft_set_type *type);
  *	@udata: user data
  * 	@ops: set ops
  * 	@flags: set flags
+ *	@dead: set will be freed, never cleared
  *	@genmask: generation mask
  * 	@klen: key length
  * 	@dlen: data length
