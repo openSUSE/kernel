@@ -6970,6 +6970,22 @@ static void nf_tables_commit_release(struct net *net)
 	schedule_work(&trans_destroy_work);
 }
 
+static unsigned int nft_gc_seq_begin(struct net *net)
+{
+	unsigned int gc_seq;
+
+	/* Bump gc counter, it becomes odd, this is the busy mark. */
+	gc_seq = READ_ONCE(net->nft.gc_seq);
+	WRITE_ONCE(net->nft.gc_seq, ++gc_seq);
+
+	return gc_seq;
+}
+
+static void nft_gc_seq_end(struct net *net, unsigned int gc_seq)
+{
+	WRITE_ONCE(net->nft.gc_seq, ++gc_seq);
+}
+
 static int nf_tables_commit(struct net *net, struct sk_buff *skb)
 {
 	struct nft_trans *trans, *next;
@@ -7024,9 +7040,7 @@ static int nf_tables_commit(struct net *net, struct sk_buff *skb)
  
 	WRITE_ONCE(net->nft.base_seq, base_seq);
 
-	/* Bump gc counter, it becomes odd, this is the busy mark. */
-	gc_seq = READ_ONCE(net->nft.gc_seq);
-	WRITE_ONCE(net->nft.gc_seq, ++gc_seq);
+	gc_seq = nft_gc_seq_begin(net);
 
 	/* step 3. Start new generation, rules_gen_X now in use. */
 	net->nft.gencursor = nft_gencursor_next(net);
@@ -7154,7 +7168,7 @@ static int nf_tables_commit(struct net *net, struct sk_buff *skb)
 
 	nf_tables_gen_notify(net, skb, NFT_MSG_NEWGEN);
 
-	WRITE_ONCE(net->nft.gc_seq, ++gc_seq);
+	nft_gc_seq_end(net, gc_seq);
 	nf_tables_commit_release(net);
 
 	return 0;
@@ -7938,10 +7952,18 @@ static int __net_init nf_tables_init_net(struct net *net)
 
 static void __net_exit nf_tables_exit_net(struct net *net)
 {
+	unsigned int gc_seq;
+
 	mutex_lock(&net->nft.commit_mutex);
+
+	gc_seq = nft_gc_seq_begin(net);
+
 	if (!list_empty(&net->nft.commit_list))
 		__nf_tables_abort(net, false);
 	__nft_release_tables(net);
+
+	nft_gc_seq_end(net, gc_seq);
+
 	mutex_unlock(&net->nft.commit_mutex);
 	WARN_ON_ONCE(!list_empty(&net->nft.tables));
 	WARN_ON_ONCE(!list_empty(&net->nft.module_list));
