@@ -441,7 +441,7 @@ The possible values in this file are:
    - System is protected by retpoline
  * - BHI: BHI_DIS_S
    - System is protected by BHI_DIS_S
- * - BHI: SW loop
+ * - BHI: SW loop; KVM SW loop
    - System is protected by software clearing sequence
  * - BHI: Vulnerable
    - System is vulnerable to BHI attacks
