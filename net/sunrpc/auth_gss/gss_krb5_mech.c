@@ -540,6 +540,7 @@ gss_import_v2_context(const void *p, const void *end, struct krb5_ctx *ctx,
 	}
 	if (ret)
 		kfree(ctx->mech_used.data);
+	return ret;
 
 out_err:
 	return PTR_ERR(p);
