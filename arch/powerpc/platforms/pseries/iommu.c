@@ -788,7 +788,7 @@ static void pci_dma_bus_setup_pSeriesLP(struct pci_bus *bus)
 	 * or both.
 	 * There is an exception to the above. In case the PE goes into frozen
 	 * state, firmware may not provide ibm,dma-window property at the time
-	 * of LPAR reboot.
+	 * of LPAR boot up.
 	 */
 
 	if (!pdn) {
