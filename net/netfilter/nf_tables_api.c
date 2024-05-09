@@ -7348,11 +7348,6 @@ static int __nf_tables_abort(struct net *net, bool autoload)
 		nf_tables_abort_release(trans);
 	}
 
-	if (autoload)
-		nf_tables_module_autoload(net);
-	else
-		nf_tables_module_autoload_cleanup(net);
-
 	return 0;
 }
 
@@ -7369,6 +7364,15 @@ static int nf_tables_abort(struct net *net, struct sk_buff *skb, bool autoload)
 	gc_seq = nft_gc_seq_begin(net);
 	ret = __nf_tables_abort(net, autoload);
 	nft_gc_seq_end(net, gc_seq);
+
+	/* module autoload needs to happen after GC sequence update because it
+	 * temporarily releases and grabs mutex again.
+	 */
+	if (autoload)
+		nf_tables_module_autoload(net);
+	else
+		nf_tables_module_autoload_cleanup(net);
+
 	mutex_unlock(&net->nft.commit_mutex);
 
 	return ret;
