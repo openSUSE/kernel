@@ -1464,7 +1464,11 @@ struct nft_trans_gc {
 	struct net              *net;
 	struct nft_set          *set;
 	u32                     seq;
+#ifndef __GENKSYMS__
 	u16                     count;
+#else
+	u8	                count;
+#endif
 	void                    *priv[NFT_TRANS_GC_BATCHCOUNT];
 	struct rcu_head         rcu;
 };
