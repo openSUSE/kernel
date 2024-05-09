@@ -64,6 +64,7 @@ struct tls_decrypt_ctx {
 	u8 iv[TLS_MAX_IV_SIZE];
 	u8 aad[TLS_MAX_AAD_SIZE];
 	u8 tail;
+	bool free_sgout;
 	struct scatterlist sg[];
 };
 
@@ -188,7 +189,6 @@ static void tls_decrypt_done(void *data, int err)
 	struct aead_request *aead_req = data;
 	struct crypto_aead *aead = crypto_aead_reqtfm(aead_req);
 	struct scatterlist *sgout = aead_req->dst;
-	struct scatterlist *sgin = aead_req->src;
 	struct tls_sw_context_rx *ctx;
 	struct tls_decrypt_ctx *dctx;
 	struct tls_context *tls_ctx;
@@ -225,7 +225,7 @@ static void tls_decrypt_done(void *data, int err)
 	}
 
 	/* Free the destination pages if skb was not decrypted inplace */
-	if (sgout != sgin) {
+	if (dctx->free_sgout) {
 		/* Skip the first S/G entry as it points to AAD */
 		for_each_sg(sg_next(sgout), sg, UINT_MAX, pages) {
 			if (!sg)
@@ -1091,7 +1091,11 @@ alloc_encrypted:
 			if (ret < 0)
 				goto send_end;
 			tls_ctx->pending_open_record_frags = true;
-			if (full_record || eor || sk_msg_full(msg_pl))
+
+			if (sk_msg_full(msg_pl))
+				full_record = true;
+
+			if (full_record || eor)
 				goto copied;
 			continue;
 		}
@@ -1588,6 +1592,7 @@ static int tls_decrypt_sg(struct sock *sk, struct iov_iter *out_iov,
 	} else if (out_sg) {
 		memcpy(sgout, out_sg, n_sgout * sizeof(*sgout));
 	}
+	dctx->free_sgout = !!pages;
 
 	/* Prepare and submit AEAD request */
 	err = tls_do_decryption(sk, sgin, sgout, dctx->iv,
@@ -1782,7 +1787,8 @@ static int process_rx_list(struct tls_sw_context_rx *ctx,
 			   u8 *control,
 			   size_t skip,
 			   size_t len,
-			   bool is_peek)
+			   bool is_peek,
+			   bool *more)
 {
 	struct sk_buff *skb = skb_peek(&ctx->rx_list);
 	struct tls_msg *tlm;
@@ -1795,7 +1801,7 @@ static int process_rx_list(struct tls_sw_context_rx *ctx,
 
 		err = tls_record_content_type(msg, tlm, control);
 		if (err <= 0)
-			goto out;
+			goto more;
 
 		if (skip < rxm->full_len)
 			break;
@@ -1813,12 +1819,12 @@ static int process_rx_list(struct tls_sw_context_rx *ctx,
 
 		err = tls_record_content_type(msg, tlm, control);
 		if (err <= 0)
-			goto out;
+			goto more;
 
 		err = skb_copy_datagram_msg(skb, rxm->offset + skip,
 					    msg, chunk);
 		if (err < 0)
-			goto out;
+			goto more;
 
 		len = len - chunk;
 		copied = copied + chunk;
@@ -1854,6 +1860,10 @@ static int process_rx_list(struct tls_sw_context_rx *ctx,
 
 out:
 	return copied ? : err;
+more:
+	if (more)
+		*more = true;
+	goto out;
 }
 
 static bool
@@ -1953,10 +1963,12 @@ int tls_sw_recvmsg(struct sock *sk,
 	struct strp_msg *rxm;
 	struct tls_msg *tlm;
 	ssize_t copied = 0;
+	ssize_t peeked = 0;
 	bool async = false;
 	int target, err;
 	bool is_kvec = iov_iter_is_kvec(&msg->msg_iter);
 	bool is_peek = flags & MSG_PEEK;
+	bool rx_more = false;
 	bool released = true;
 	bool bpf_strp_enabled;
 	bool zc_capable;
@@ -1976,12 +1988,12 @@ int tls_sw_recvmsg(struct sock *sk,
 		goto end;
 
 	/* Process pending decrypted records. It must be non-zero-copy */
-	err = process_rx_list(ctx, msg, &control, 0, len, is_peek);
+	err = process_rx_list(ctx, msg, &control, 0, len, is_peek, &rx_more);
 	if (err < 0)
 		goto end;
 
 	copied = err;
-	if (len <= copied)
+	if (len <= copied || (copied && control != TLS_RECORD_TYPE_DATA) || rx_more)
 		goto end;
 
 	target = sock_rcvlowat(sk, flags & MSG_WAITALL, len);
@@ -2074,6 +2086,8 @@ put_on_rx_list:
 				decrypted += chunk;
 				len -= chunk;
 				__skb_queue_tail(&ctx->rx_list, skb);
+				if (unlikely(control != TLS_RECORD_TYPE_DATA))
+					break;
 				continue;
 			}
 
@@ -2097,8 +2111,10 @@ put_on_rx_list:
 			if (err < 0)
 				goto put_on_rx_list_err;
 
-			if (is_peek)
+			if (is_peek) {
+				peeked += chunk;
 				goto put_on_rx_list;
+			}
 
 			if (partially_consumed) {
 				rxm->offset += chunk;
@@ -2137,12 +2153,11 @@ recv_end:
 
 		/* Drain records from the rx_list & copy if required */
 		if (is_peek || is_kvec)
-			err = process_rx_list(ctx, msg, &control, copied,
-					      decrypted, is_peek);
+			err = process_rx_list(ctx, msg, &control, copied + peeked,
+					      decrypted - peeked, is_peek, NULL);
 		else
 			err = process_rx_list(ctx, msg, &control, 0,
-					      async_copy_bytes, is_peek);
-		decrypted += max(err, 0);
+					      async_copy_bytes, is_peek, NULL);
 	}
 
 	copied += decrypted;

@@ -516,10 +516,11 @@ skip_mhi_reset:
 	dev_dbg(dev, "Waiting for all pending threads to complete\n");
 	wake_up_all(&mhi_cntrl->state_event);
 
-	/**
-	 * Some MHI controller drivers, ath11k as an example, would like to keep
-	 * MHI deivces for channels during suspend/hibernation to avoid the
-	 * probe defer issue. Add a check here to make it possible.
+	/*
+	 * Only destroy the 'struct device' for channels if indicated by the
+	 * 'destroy_device' flag. Because, during system suspend or hibernation
+	 * state, there is no need to destroy the 'struct device' as the endpoint
+	 * device would still be physically attached to the machine.
 	 */
 	if (destroy_device) {
 		dev_dbg(dev, "Reset all active channels and remove MHI devices\n");
