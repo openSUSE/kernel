@@ -3,6 +3,8 @@
 #include <linux/uaccess.h>
 #include <linux/kernel.h>
 
+#include <asm/vsyscall.h>
+
 #ifdef CONFIG_X86_64
 static __always_inline u64 canonical_address(u64 vaddr, u8 vaddr_bits)
 {
@@ -11,6 +13,14 @@ static __always_inline u64 canonical_address(u64 vaddr, u8 vaddr_bits)
 
 static __always_inline bool invalid_probe_range(u64 vaddr)
 {
+	/*
+	 * Reading from the vsyscall page may cause an unhandled fault in
+	 * certain cases.  Though it is at an address above TASK_SIZE_MAX, it is
+	 * usually considered as a user space address.
+	 */
+	if (is_vsyscall_vaddr(vaddr))
+		return false;
+
 	/*
 	 * Range covering the highest possible canonical userspace address
 	 * as well as non-canonical address range. For the canonical range
