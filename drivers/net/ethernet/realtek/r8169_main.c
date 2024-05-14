@@ -330,16 +330,22 @@ enum rtl8168_registers {
 };
 
 enum rtl8125_registers {
+	LEDSEL0			= 0x18,
 	INT_CFG0_8125		= 0x34,
 #define INT_CFG0_ENABLE_8125		BIT(0)
 #define INT_CFG0_CLKREQEN		BIT(3)
 	IntrMask_8125		= 0x38,
 	IntrStatus_8125		= 0x3c,
 	INT_CFG1_8125		= 0x7a,
+	LEDSEL2			= 0x84,
+	LEDSEL1			= 0x86,
 	TxPoll_8125		= 0x90,
+	LEDSEL3			= 0x96,
 	MAC0_BKP		= 0x19e0,
 	EEE_TXIDLE_TIMER_8125	= 0x6048,
 };
+
+#define LEDSEL_MASK_8125	0x23f
 
 #define RX_VLAN_INNER_8125	BIT(22)
 #define RX_VLAN_OUTER_8125	BIT(23)
@@ -613,6 +619,7 @@ struct rtl8169_private {
 	struct page *Rx_databuff[NUM_RX_DESC];	/* Rx data buffers */
 	struct ring_info tx_skb[NUM_TX_DESC];	/* Tx data buffers */
 	u16 cp_cmd;
+	u16 tx_lpi_timer;
 	u32 irq_mask;
 	int irq;
 	struct clk *clk;
@@ -636,7 +643,6 @@ struct rtl8169_private {
 	struct rtl8169_counters *counters;
 	struct rtl8169_tc_offsets tc_offset;
 	u32 saved_wolopts;
-	int eee_adv;
 
 	const char *fw_name;
 	struct rtl_fw *rtl_fw;
@@ -672,6 +678,7 @@ MODULE_FIRMWARE(FIRMWARE_8168FP_3);
 MODULE_FIRMWARE(FIRMWARE_8107E_2);
 MODULE_FIRMWARE(FIRMWARE_8125A_3);
 MODULE_FIRMWARE(FIRMWARE_8125B_2);
+MODULE_FIRMWARE(FIRMWARE_8126A_2);
 
 static inline struct device *tp_to_dev(struct rtl8169_private *tp)
 {
@@ -827,6 +834,51 @@ int rtl8168_get_led_mode(struct rtl8169_private *tp)
 		return ret;
 
 	ret = RTL_R16(tp, LED_CTRL);
+
+	pm_runtime_put_sync(dev);
+
+	return ret;
+}
+
+static int rtl8125_get_led_reg(int index)
+{
+	static const int led_regs[] = { LEDSEL0, LEDSEL1, LEDSEL2, LEDSEL3 };
+
+	return led_regs[index];
+}
+
+int rtl8125_set_led_mode(struct rtl8169_private *tp, int index, u16 mode)
+{
+	int reg = rtl8125_get_led_reg(index);
+	struct device *dev = tp_to_dev(tp);
+	int ret;
+	u16 val;
+
+	ret = pm_runtime_resume_and_get(dev);
+	if (ret < 0)
+		return ret;
+
+	mutex_lock(&tp->led_lock);
+	val = RTL_R16(tp, reg) & ~LEDSEL_MASK_8125;
+	RTL_W16(tp, reg, val | mode);
+	mutex_unlock(&tp->led_lock);
+
+	pm_runtime_put_sync(dev);
+
+	return 0;
+}
+
+int rtl8125_get_led_mode(struct rtl8169_private *tp, int index)
+{
+	int reg = rtl8125_get_led_reg(index);
+	struct device *dev = tp_to_dev(tp);
+	int ret;
+
+	ret = pm_runtime_resume_and_get(dev);
+	if (ret < 0)
+		return ret;
+
+	ret = RTL_R16(tp, reg);
 
 	pm_runtime_put_sync(dev);
 
@@ -2006,17 +2058,40 @@ static int rtl_set_coalesce(struct net_device *dev,
 	return 0;
 }
 
-static int rtl8169_get_eee(struct net_device *dev, struct ethtool_eee *data)
+static void rtl_set_eee_txidle_timer(struct rtl8169_private *tp)
 {
-	struct rtl8169_private *tp = netdev_priv(dev);
+	unsigned int timer_val = READ_ONCE(tp->dev->mtu) + ETH_HLEN + 0x20;
 
-	if (!rtl_supports_eee(tp))
-		return -EOPNOTSUPP;
-
-	return phy_ethtool_get_eee(tp->phydev, data);
+	switch (tp->mac_version) {
+	case RTL_GIGA_MAC_VER_46:
+	case RTL_GIGA_MAC_VER_48:
+		tp->tx_lpi_timer = timer_val;
+		r8168_mac_ocp_write(tp, 0xe048, timer_val);
+		break;
+	case RTL_GIGA_MAC_VER_61:
+	case RTL_GIGA_MAC_VER_63:
+	case RTL_GIGA_MAC_VER_65:
+		tp->tx_lpi_timer = timer_val;
+		RTL_W16(tp, EEE_TXIDLE_TIMER_8125, timer_val);
+		break;
+	default:
+		break;
+	}
 }
 
-static int rtl8169_set_eee(struct net_device *dev, struct ethtool_eee *data)
+static unsigned int r8169_get_tx_lpi_timer_us(struct rtl8169_private *tp)
+{
+	unsigned int speed = tp->phydev->speed;
+	unsigned int timer = tp->tx_lpi_timer;
+
+	if (!timer || speed == SPEED_UNKNOWN)
+		return 0;
+
+	/* tx_lpi_timer value is in bytes */
+	return DIV_ROUND_CLOSEST(timer * BITS_PER_BYTE, speed);
+}
+
+static int rtl8169_get_eee(struct net_device *dev, struct ethtool_keee *data)
 {
 	struct rtl8169_private *tp = netdev_priv(dev);
 	int ret;
@@ -2024,12 +2099,23 @@ static int rtl8169_set_eee(struct net_device *dev, struct ethtool_eee *data)
 	if (!rtl_supports_eee(tp))
 		return -EOPNOTSUPP;
 
-	ret = phy_ethtool_set_eee(tp->phydev, data);
+	ret = phy_ethtool_get_eee(tp->phydev, data);
+	if (ret)
+		return ret;
 
-	if (!ret)
-		tp->eee_adv = phy_read_mmd(dev->phydev, MDIO_MMD_AN,
-					   MDIO_AN_EEE_ADV);
-	return ret;
+	data->tx_lpi_timer = r8169_get_tx_lpi_timer_us(tp);
+
+	return 0;
+}
+
+static int rtl8169_set_eee(struct net_device *dev, struct ethtool_keee *data)
+{
+	struct rtl8169_private *tp = netdev_priv(dev);
+
+	if (!rtl_supports_eee(tp))
+		return -EOPNOTSUPP;
+
+	return phy_ethtool_set_eee(tp->phydev, data);
 }
 
 static void rtl8169_get_ringparam(struct net_device *dev,
@@ -2093,21 +2179,6 @@ static const struct ethtool_ops rtl8169_ethtool_ops = {
 	.get_pauseparam		= rtl8169_get_pauseparam,
 	.set_pauseparam		= rtl8169_set_pauseparam,
 };
-
-static void rtl_enable_eee(struct rtl8169_private *tp)
-{
-	struct phy_device *phydev = tp->phydev;
-	int adv;
-
-	/* respect EEE advertisement the user may have set */
-	if (tp->eee_adv >= 0)
-		adv = tp->eee_adv;
-	else
-		adv = phy_read_mmd(phydev, MDIO_MMD_PCS, MDIO_PCS_EEE_ABLE);
-
-	if (adv >= 0)
-		phy_write_mmd(phydev, MDIO_MMD_AN, MDIO_AN_EEE_ADV, adv);
-}
 
 static enum mac_version rtl8169_get_mac_version(u16 xid, bool gmii)
 {
@@ -2285,14 +2356,8 @@ static void rtl8125a_config_eee_mac(struct rtl8169_private *tp)
 	r8168_mac_ocp_modify(tp, 0xeb62, 0, BIT(2) | BIT(1));
 }
 
-static void rtl8125_set_eee_txidle_timer(struct rtl8169_private *tp)
-{
-	RTL_W16(tp, EEE_TXIDLE_TIMER_8125, tp->dev->mtu + ETH_HLEN + 0x20);
-}
-
 static void rtl8125b_config_eee_mac(struct rtl8169_private *tp)
 {
-	rtl8125_set_eee_txidle_timer(tp);
 	r8168_mac_ocp_modify(tp, 0xe040, 0, BIT(1) | BIT(0));
 }
 
@@ -2347,9 +2412,6 @@ static void rtl8169_init_phy(struct rtl8169_private *tp)
 
 	/* We may have called phy_speed_down before */
 	phy_speed_up(tp->phydev);
-
-	if (rtl_supports_eee(tp))
-		rtl_enable_eee(tp);
 
 	genphy_soft_reset(tp->phydev);
 }
@@ -3828,6 +3890,8 @@ static void rtl_hw_start(struct  rtl8169_private *tp)
 	rtl_hw_aspm_clkreq_enable(tp, false);
 	RTL_W16(tp, CPlusCmd, tp->cp_cmd);
 
+	rtl_set_eee_txidle_timer(tp);
+
 	if (tp->mac_version <= RTL_GIGA_MAC_VER_06)
 		rtl_hw_start_8169(tp);
 	else if (rtl_is_8125(tp))
@@ -3861,14 +3925,7 @@ static int rtl8169_change_mtu(struct net_device *dev, int new_mtu)
 	dev->mtu = new_mtu;
 	netdev_update_features(dev);
 	rtl_jumbo_config(tp);
-
-	switch (tp->mac_version) {
-	case RTL_GIGA_MAC_VER_61 ... RTL_GIGA_MAC_VER_65:
-		rtl8125_set_eee_txidle_timer(tp);
-		break;
-	default:
-		break;
-	}
+	rtl_set_eee_txidle_timer(tp);
 
 	return 0;
 }
@@ -5152,7 +5209,8 @@ static int r8169_mdio_register(struct rtl8169_private *tp)
 	}
 
 	tp->phydev->mac_managed_pm = true;
-
+	if (rtl_supports_eee(tp))
+		phy_support_eee(tp->phydev);
 	phy_support_asym_pause(tp->phydev);
 
 	/* PHY will be woken up in rtl_open() */
@@ -5287,18 +5345,12 @@ static int rtl_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 	tp->dev = dev;
 	tp->pci_dev = pdev;
 	tp->supports_gmii = ent->driver_data == RTL_CFG_NO_GBIT ? 0 : 1;
-	tp->eee_adv = -1;
 	tp->ocp_base = OCP_STD_PHY_BASE;
 
 	raw_spin_lock_init(&tp->cfg9346_usage_lock);
 	raw_spin_lock_init(&tp->config25_lock);
 	raw_spin_lock_init(&tp->mac_ocp_lock);
 	mutex_init(&tp->led_lock);
-
-	dev->tstats = devm_netdev_alloc_pcpu_stats(&pdev->dev,
-						   struct pcpu_sw_netstats);
-	if (!dev->tstats)
-		return -ENOMEM;
 
 	/* Get the *optional* external "ether_clk" used on some boards */
 	tp->clk = devm_clk_get_optional_enabled(&pdev->dev, "ether_clk");
@@ -5414,6 +5466,8 @@ static int rtl_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 	dev->hw_features |= NETIF_F_RXALL;
 	dev->hw_features |= NETIF_F_RXFCS;
 
+	dev->pcpu_stat_type = NETDEV_PCPU_STAT_TSTATS;
+
 	netdev_sw_irq_coalesce_default_on(dev);
 
 	/* configure chip for default features */
@@ -5450,10 +5504,12 @@ static int rtl_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 	if (rc)
 		return rc;
 
-	if (IS_ENABLED(CONFIG_R8169_LEDS) &&
-	    tp->mac_version > RTL_GIGA_MAC_VER_06 &&
-	    tp->mac_version < RTL_GIGA_MAC_VER_61)
-		tp->leds = rtl8168_init_leds(dev);
+	if (IS_ENABLED(CONFIG_R8169_LEDS)) {
+		if (rtl_is_8125(tp))
+			tp->leds = rtl8125_init_leds(dev);
+		else if (tp->mac_version > RTL_GIGA_MAC_VER_06)
+			tp->leds = rtl8168_init_leds(dev);
+	}
 
 	netdev_info(dev, "%s, %pM, XID %03x, IRQ %d\n",
 		    rtl_chip_infos[chipset].name, dev->dev_addr, xid, tp->irq);

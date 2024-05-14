@@ -164,7 +164,8 @@ flush:
 
 INDIRECT_CALLABLE_SCOPE int udp6_gro_complete(struct sk_buff *skb, int nhoff)
 {
-	const struct ipv6hdr *ipv6h = ipv6_hdr(skb);
+	const u16 offset = NAPI_GRO_CB(skb)->network_offsets[skb->encapsulation];
+	const struct ipv6hdr *ipv6h = (struct ipv6hdr *)(skb->data + offset);
 	struct udphdr *uh = (struct udphdr *)(skb->data + nhoff);
 
 	/* do fraglist only if there is no outer UDP encap (or we already processed it) */
@@ -186,20 +187,19 @@ INDIRECT_CALLABLE_SCOPE int udp6_gro_complete(struct sk_buff *skb, int nhoff)
 	return udp_gro_complete(skb, nhoff, udp6_lib_lookup_skb);
 }
 
-static const struct net_offload udpv6_offload = {
-	.callbacks = {
-		.gso_segment	=	udp6_ufo_fragment,
-		.gro_receive	=	udp6_gro_receive,
-		.gro_complete	=	udp6_gro_complete,
-	},
-};
-
-int udpv6_offload_init(void)
+int __init udpv6_offload_init(void)
 {
-	return inet6_add_offload(&udpv6_offload, IPPROTO_UDP);
+	net_hotdata.udpv6_offload = (struct net_offload) {
+		.callbacks = {
+			.gso_segment	=	udp6_ufo_fragment,
+			.gro_receive	=	udp6_gro_receive,
+			.gro_complete	=	udp6_gro_complete,
+		},
+	};
+	return inet6_add_offload(&net_hotdata.udpv6_offload, IPPROTO_UDP);
 }
 
 int udpv6_offload_exit(void)
 {
-	return inet6_del_offload(&udpv6_offload, IPPROTO_UDP);
+	return inet6_del_offload(&net_hotdata.udpv6_offload, IPPROTO_UDP);
 }

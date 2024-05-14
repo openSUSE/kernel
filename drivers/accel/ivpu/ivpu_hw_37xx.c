@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (C) 2020-2023 Intel Corporation
+ * Copyright (C) 2020-2024 Intel Corporation
  */
 
 #include "ivpu_drv.h"
@@ -13,7 +13,7 @@
 #include "ivpu_pm.h"
 
 #define TILE_FUSE_ENABLE_BOTH        0x0
-#define TILE_SKU_BOTH_MTL            0x3630
+#define TILE_SKU_BOTH                0x3630
 
 /* Work point configuration values */
 #define CONFIG_1_TILE                0x01
@@ -75,7 +75,6 @@ static void ivpu_hw_wa_init(struct ivpu_device *vdev)
 {
 	vdev->wa.punit_disabled = false;
 	vdev->wa.clear_runtime_mem = false;
-	vdev->wa.d3hot_after_power_off = true;
 
 	REGB_WR32(VPU_37XX_BUTTRESS_INTERRUPT_STAT, BUTTRESS_ALL_IRQ_MASK);
 	if (REGB_RD32(VPU_37XX_BUTTRESS_INTERRUPT_STAT) == BUTTRESS_ALL_IRQ_MASK) {
@@ -86,7 +85,6 @@ static void ivpu_hw_wa_init(struct ivpu_device *vdev)
 
 	IVPU_PRINT_WA(punit_disabled);
 	IVPU_PRINT_WA(clear_runtime_mem);
-	IVPU_PRINT_WA(d3hot_after_power_off);
 	IVPU_PRINT_WA(interrupt_clear_with_0);
 }
 
@@ -228,7 +226,7 @@ static int ivpu_pll_drive(struct ivpu_device *vdev, bool enable)
 
 		ret = ivpu_hw_37xx_wait_for_vpuip_bar(vdev);
 		if (ret) {
-			ivpu_err(vdev, "Timed out waiting for VPUIP bar\n");
+			ivpu_err(vdev, "Timed out waiting for NPU IP bar\n");
 			return ret;
 		}
 	}
@@ -589,7 +587,7 @@ static int ivpu_hw_37xx_info_init(struct ivpu_device *vdev)
 	struct ivpu_hw_info *hw = vdev->hw;
 
 	hw->tile_fuse = TILE_FUSE_ENABLE_BOTH;
-	hw->sku = TILE_SKU_BOTH_MTL;
+	hw->sku = TILE_SKU_BOTH;
 	hw->config = WP_CONFIG_2_TILE_4_3_RATIO;
 
 	ivpu_pll_init_frequency_ratios(vdev);
@@ -762,10 +760,10 @@ static int ivpu_hw_37xx_power_down(struct ivpu_device *vdev)
 	ivpu_hw_37xx_save_d0i3_entry_timestamp(vdev);
 
 	if (!ivpu_hw_37xx_is_idle(vdev))
-		ivpu_warn(vdev, "VPU not idle during power down\n");
+		ivpu_warn(vdev, "NPU not idle during power down\n");
 
 	if (ivpu_hw_37xx_reset(vdev)) {
-		ivpu_err(vdev, "Failed to reset VPU\n");
+		ivpu_err(vdev, "Failed to reset NPU\n");
 		ret = -EIO;
 	}
 

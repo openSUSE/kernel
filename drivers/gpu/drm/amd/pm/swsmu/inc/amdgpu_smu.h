@@ -424,6 +424,7 @@ enum smu_reset_mode {
 enum smu_baco_state {
 	SMU_BACO_STATE_ENTER = 0,
 	SMU_BACO_STATE_EXIT,
+	SMU_BACO_STATE_NONE,
 };
 
 struct smu_baco_context {
@@ -1342,6 +1343,11 @@ struct pptable_funcs {
 	int (*send_hbm_bad_pages_num)(struct smu_context *smu, uint32_t size);
 
 	/**
+	 * @send_rma_reason: message rma reason event to SMU.
+	 */
+	int (*send_rma_reason)(struct smu_context *smu);
+
+	/**
 	 * @get_ecc_table:  message SMU to get ECC INFO table.
 	 */
 	ssize_t (*get_ecc_info)(struct smu_context *smu, void *table);
@@ -1588,5 +1594,6 @@ int smu_stb_collect_info(struct smu_context *smu, void *buff, uint32_t size);
 void amdgpu_smu_stb_debug_fs_init(struct amdgpu_device *adev);
 int smu_send_hbm_bad_pages_num(struct smu_context *smu, uint32_t size);
 int smu_send_hbm_bad_channel_flag(struct smu_context *smu, uint32_t size);
+int smu_send_rma_reason(struct smu_context *smu);
 #endif
 #endif

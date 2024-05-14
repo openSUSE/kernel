@@ -991,25 +991,18 @@ __poll_t ring_buffer_poll_wait(struct trace_buffer *buffer, int cpu,
 	}
 
 	if (full) {
-		unsigned long flags;
-
 		poll_wait(filp, &rbwork->full_waiters, poll_table);
 
-		raw_spin_lock_irqsave(&cpu_buffer->reader_lock, flags);
-		if (!cpu_buffer->shortest_full ||
-		    cpu_buffer->shortest_full > full)
-			cpu_buffer->shortest_full = full;
-		raw_spin_unlock_irqrestore(&cpu_buffer->reader_lock, flags);
-		if (full_hit(buffer, cpu, full))
+		if (rb_watermark_hit(buffer, cpu, full))
 			return EPOLLIN | EPOLLRDNORM;
 		/*
 		 * Only allow full_waiters_pending update to be seen after
-		 * the shortest_full is set. If the writer sees the
-		 * full_waiters_pending flag set, it will compare the
-		 * amount in the ring buffer to shortest_full. If the amount
-		 * in the ring buffer is greater than the shortest_full
-		 * percent, it will call the irq_work handler to wake up
-		 * this list. The irq_handler will reset shortest_full
+		 * the shortest_full is set (in rb_watermark_hit). If the
+		 * writer sees the full_waiters_pending flag set, it will
+		 * compare the amount in the ring buffer to shortest_full.
+		 * If the amount in the ring buffer is greater than the
+		 * shortest_full percent, it will call the irq_work handler
+		 * to wake up this list. The irq_handler will reset shortest_full
 		 * back to zero. That's done under the reader_lock, but
 		 * the below smp_mb() makes sure that the update to
 		 * full_waiters_pending doesn't leak up into the above.
@@ -1067,7 +1060,7 @@ static inline u64 rb_time_stamp(struct trace_buffer *buffer)
 	u64 ts;
 
 	/* Skip retpolines :-( */
-	if (IS_ENABLED(CONFIG_RETPOLINE) && likely(buffer->clock == trace_clock_local))
+	if (IS_ENABLED(CONFIG_MITIGATION_RETPOLINE) && likely(buffer->clock == trace_clock_local))
 		ts = trace_clock_local();
 	else
 		ts = buffer->clock();
@@ -1530,7 +1523,8 @@ static int __rb_allocate_pages(struct ring_buffer_per_cpu *cpu_buffer,
 
 		list_add(&bpage->list, pages);
 
-		page = alloc_pages_node(cpu_to_node(cpu_buffer->cpu), mflags,
+		page = alloc_pages_node(cpu_to_node(cpu_buffer->cpu),
+					mflags | __GFP_ZERO,
 					cpu_buffer->buffer->subbuf_order);
 		if (!page)
 			goto free_pages;
@@ -1615,7 +1609,8 @@ rb_allocate_cpu_buffer(struct trace_buffer *buffer, long nr_pages, int cpu)
 
 	cpu_buffer->reader_page = bpage;
 
-	page = alloc_pages_node(cpu_to_node(cpu), GFP_KERNEL, cpu_buffer->buffer->subbuf_order);
+	page = alloc_pages_node(cpu_to_node(cpu), GFP_KERNEL | __GFP_ZERO,
+				cpu_buffer->buffer->subbuf_order);
 	if (!page)
 		goto fail_free_reader;
 	bpage->page = page_address(page);
@@ -5583,7 +5578,8 @@ ring_buffer_alloc_read_page(struct trace_buffer *buffer, int cpu)
 	if (bpage->data)
 		goto out;
 
-	page = alloc_pages_node(cpu_to_node(cpu), GFP_KERNEL | __GFP_NORETRY,
+	page = alloc_pages_node(cpu_to_node(cpu),
+				GFP_KERNEL | __GFP_NORETRY | __GFP_ZERO,
 				cpu_buffer->buffer->subbuf_order);
 	if (!page) {
 		kfree(bpage);
