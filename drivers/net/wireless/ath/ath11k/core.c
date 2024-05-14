@@ -955,7 +955,7 @@ int ath11k_core_resume_early(struct ath11k_base *ab)
 	if (!ab->hw_params.supports_suspend)
 		return -EOPNOTSUPP;
 
-	/* so far signle_pdev_only chips have supports_suspend as true
+	/* so far single_pdev_only chips have supports_suspend as true
 	 * and only the first pdev is valid.
 	 */
 	pdev = ath11k_core_get_single_pdev(ab);
@@ -982,7 +982,7 @@ int ath11k_core_resume(struct ath11k_base *ab)
 	if (!ab->hw_params.supports_suspend)
 		return -EOPNOTSUPP;
 
-	/* so far signle_pdev_only chips have supports_suspend as true
+	/* so far single_pdev_only chips have supports_suspend as true
 	 * and only the first pdev is valid.
 	 */
 	pdev = ath11k_core_get_single_pdev(ab);
