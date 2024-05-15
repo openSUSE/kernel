@@ -507,6 +507,7 @@ static struct Qdisc_ops dsmark_qdisc_ops __read_mostly = {
 	.dump		=	dsmark_dump,
 	.owner		=	THIS_MODULE,
 };
+MODULE_ALIAS_NET_SCH("dsmark");
 
 static int __init dsmark_module_init(void)
 {
