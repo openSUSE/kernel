@@ -4590,14 +4590,16 @@ int dwc3_gadget_suspend(struct dwc3 *dwc)
 {
 	int ret;
 
-	if (!dwc->gadget_driver)
-		return 0;
+	unsigned long flags;
 
 	ret = dwc3_gadget_soft_disconnect(dwc);
 	if (ret)
 		goto err;
 
-	dwc3_disconnect_gadget(dwc);
+	spin_lock_irqsave(&dwc->lock, flags);
+	if (dwc->gadget_driver)
+		dwc3_disconnect_gadget(dwc);
+	spin_unlock_irqrestore(&dwc->lock, flags);
 
 	return 0;
 

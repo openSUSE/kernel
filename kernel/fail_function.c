@@ -301,7 +301,7 @@ static ssize_t fei_write(struct file *file, const char __user *buffer,
 	if (!ret)
 		fei_debugfs_add_attr(attr);
 	if (ret < 0)
-		fei_attr_remove(attr);
+		fei_attr_free(attr);
 	else {
 		list_add_tail(&attr->list, &fei_attr_list);
 		ret = count;
