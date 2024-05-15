@@ -128,10 +128,6 @@ void ax25_dev_device_down(struct net_device *dev)
 
 		s = s->next;
 	}
-	spin_unlock_bh(&ax25_dev_lock);
-	dev->ax25_ptr = NULL;
-	ax25_dev_put(ax25_dev);
-	return;
 
 unlock_put:
 	spin_unlock_bh(&ax25_dev_lock);
