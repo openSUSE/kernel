@@ -22,7 +22,6 @@
 #include "hda_cs_dsp_ctl.h"
 #include "cs35l41_hda_property.h"
 
-#define CS35L41_FIRMWARE_ROOT "cirrus/"
 #define CS35L41_PART "cs35l41"
 
 #define HALO_STATE_DSP_CTL_NAME		"HALO_STATE"
@@ -37,6 +36,32 @@
 #define CS35L41_UUID			"50d90cdc-3de4-4f18-b528-c7fe3b71f40d"
 #define CS35L41_DSM_GET_MUTE		5
 #define CS35L41_NOTIFY_EVENT		0x91
+#define CS35L41_TUNING_SIG		0x109A4A35
+
+enum cs35l41_tuning_param_types {
+	TUNING_PARAM_GAIN,
+};
+
+struct cs35l41_tuning_param_hdr {
+	__le32 tuning_index;
+	__le32 type;
+	__le32 size;
+} __packed;
+
+struct cs35l41_tuning_param {
+	struct cs35l41_tuning_param_hdr hdr;
+	union {
+		__le32 gain;
+	};
+} __packed;
+
+struct cs35l41_tuning_params {
+	__le32 signature;
+	__le32 version;
+	__le32 size;
+	__le32 num_entries;
+	u8 data[];
+} __packed;
 
 static bool firmware_autostart = 1;
 module_param(firmware_autostart, bool, 0444);
@@ -75,7 +100,7 @@ static const struct reg_sequence cs35l41_hda_config_dsp[] = {
 	{ CS35L41_SP_HIZ_CTRL,		0x00000003 }, // Hi-Z unused/disabled
 	{ CS35L41_SP_TX_WL,		0x00000018 }, // 24 cycles/slot
 	{ CS35L41_SP_RX_WL,		0x00000018 }, // 24 cycles/slot
-	{ CS35L41_DAC_PCM1_SRC,		0x00000032 }, // DACPCM1_SRC = ERR_VOL
+	{ CS35L41_DAC_PCM1_SRC,		0x00000032 }, // DACPCM1_SRC = DSP1TX1
 	{ CS35L41_ASP_TX1_SRC,		0x00000018 }, // ASPTX1 SRC = VMON
 	{ CS35L41_ASP_TX2_SRC,		0x00000019 }, // ASPTX2 SRC = IMON
 	{ CS35L41_ASP_TX3_SRC,		0x00000028 }, // ASPTX3 SRC = VPMON
@@ -84,17 +109,12 @@ static const struct reg_sequence cs35l41_hda_config_dsp[] = {
 	{ CS35L41_DSP1_RX2_SRC,		0x00000008 }, // DSP1RX2 SRC = ASPRX1
 	{ CS35L41_DSP1_RX3_SRC,         0x00000018 }, // DSP1RX3 SRC = VMON
 	{ CS35L41_DSP1_RX4_SRC,         0x00000019 }, // DSP1RX4 SRC = IMON
-	{ CS35L41_DSP1_RX5_SRC,         0x00000029 }, // DSP1RX5 SRC = VBSTMON
+	{ CS35L41_DSP1_RX6_SRC,         0x00000029 }, // DSP1RX6 SRC = VBSTMON
 };
 
 static const struct reg_sequence cs35l41_hda_unmute[] = {
 	{ CS35L41_AMP_DIG_VOL_CTRL,	0x00008000 }, // AMP_HPF_PCM_EN = 1, AMP_VOL_PCM  0.0 dB
 	{ CS35L41_AMP_GAIN_CTRL,	0x00000084 }, // AMP_GAIN_PCM 4.5 dB
-};
-
-static const struct reg_sequence cs35l41_hda_unmute_dsp[] = {
-	{ CS35L41_AMP_DIG_VOL_CTRL,	0x00008000 }, // AMP_HPF_PCM_EN = 1, AMP_VOL_PCM  0.0 dB
-	{ CS35L41_AMP_GAIN_CTRL,	0x00000233 }, // AMP_GAIN_PCM = 17.5dB AMP_GAIN_PDM = 19.5dB
 };
 
 static const struct reg_sequence cs35l41_hda_mute[] = {
@@ -117,9 +137,30 @@ static const struct cs_dsp_client_ops client_ops = {
 	.control_remove = hda_cs_dsp_control_remove,
 };
 
+static int cs35l41_request_tuning_param_file(struct cs35l41_hda *cs35l41, char *tuning_filename,
+					     const struct firmware **firmware, char **filename,
+					     const char *ssid)
+{
+	int ret = 0;
+
+	/* Filename is the same as the tuning file with "cfg" suffix */
+	*filename = kasprintf(GFP_KERNEL, "%scfg", tuning_filename);
+	if (*filename == NULL)
+		return -ENOMEM;
+
+	ret = firmware_request_nowarn(firmware, *filename, cs35l41->dev);
+	if (ret != 0) {
+		dev_dbg(cs35l41->dev, "Failed to request '%s'\n", *filename);
+		kfree(*filename);
+		*filename = NULL;
+	}
+
+	return ret;
+}
+
 static int cs35l41_request_firmware_file(struct cs35l41_hda *cs35l41,
 					 const struct firmware **firmware, char **filename,
-					 const char *dir, const char *ssid, const char *amp_name,
+					 const char *ssid, const char *amp_name,
 					 int spkid, const char *filetype)
 {
 	const char * const dsp_name = cs35l41->cs_dsp.name;
@@ -127,23 +168,23 @@ static int cs35l41_request_firmware_file(struct cs35l41_hda *cs35l41,
 	int ret = 0;
 
 	if (spkid > -1 && ssid && amp_name)
-		*filename = kasprintf(GFP_KERNEL, "%s%s-%s-%s-%s-spkid%d-%s.%s", dir, CS35L41_PART,
+		*filename = kasprintf(GFP_KERNEL, "cirrus/%s-%s-%s-%s-spkid%d-%s.%s", CS35L41_PART,
 				      dsp_name, hda_cs_dsp_fw_ids[cs35l41->firmware_type],
 				      ssid, spkid, amp_name, filetype);
 	else if (spkid > -1 && ssid)
-		*filename = kasprintf(GFP_KERNEL, "%s%s-%s-%s-%s-spkid%d.%s", dir, CS35L41_PART,
+		*filename = kasprintf(GFP_KERNEL, "cirrus/%s-%s-%s-%s-spkid%d.%s", CS35L41_PART,
 				      dsp_name, hda_cs_dsp_fw_ids[cs35l41->firmware_type],
 				      ssid, spkid, filetype);
 	else if (ssid && amp_name)
-		*filename = kasprintf(GFP_KERNEL, "%s%s-%s-%s-%s-%s.%s", dir, CS35L41_PART,
+		*filename = kasprintf(GFP_KERNEL, "cirrus/%s-%s-%s-%s-%s.%s", CS35L41_PART,
 				      dsp_name, hda_cs_dsp_fw_ids[cs35l41->firmware_type],
 				      ssid, amp_name, filetype);
 	else if (ssid)
-		*filename = kasprintf(GFP_KERNEL, "%s%s-%s-%s-%s.%s", dir, CS35L41_PART,
+		*filename = kasprintf(GFP_KERNEL, "cirrus/%s-%s-%s-%s.%s", CS35L41_PART,
 				      dsp_name, hda_cs_dsp_fw_ids[cs35l41->firmware_type],
 				      ssid, filetype);
 	else
-		*filename = kasprintf(GFP_KERNEL, "%s%s-%s-%s.%s", dir, CS35L41_PART,
+		*filename = kasprintf(GFP_KERNEL, "cirrus/%s-%s-%s.%s", CS35L41_PART,
 				      dsp_name, hda_cs_dsp_fw_ids[cs35l41->firmware_type],
 				      filetype);
 
@@ -184,13 +225,11 @@ static int cs35l41_request_firmware_files_spkid(struct cs35l41_hda *cs35l41,
 
 	/* try cirrus/part-dspN-fwtype-sub<-spkidN><-ampname>.wmfw */
 	ret = cs35l41_request_firmware_file(cs35l41, wmfw_firmware, wmfw_filename,
-					    CS35L41_FIRMWARE_ROOT,
 					    cs35l41->acpi_subsystem_id, cs35l41->amp_name,
 					    cs35l41->speaker_id, "wmfw");
 	if (!ret) {
 		/* try cirrus/part-dspN-fwtype-sub<-spkidN><-ampname>.bin */
 		ret = cs35l41_request_firmware_file(cs35l41, coeff_firmware, coeff_filename,
-						    CS35L41_FIRMWARE_ROOT,
 						    cs35l41->acpi_subsystem_id, cs35l41->amp_name,
 						    cs35l41->speaker_id, "bin");
 		if (ret)
@@ -201,12 +240,11 @@ static int cs35l41_request_firmware_files_spkid(struct cs35l41_hda *cs35l41,
 
 	/* try cirrus/part-dspN-fwtype-sub<-ampname>.wmfw */
 	ret = cs35l41_request_firmware_file(cs35l41, wmfw_firmware, wmfw_filename,
-					    CS35L41_FIRMWARE_ROOT, cs35l41->acpi_subsystem_id,
+					    cs35l41->acpi_subsystem_id,
 					    cs35l41->amp_name, -1, "wmfw");
 	if (!ret) {
 		/* try cirrus/part-dspN-fwtype-sub<-spkidN><-ampname>.bin */
 		ret = cs35l41_request_firmware_file(cs35l41, coeff_firmware, coeff_filename,
-						    CS35L41_FIRMWARE_ROOT,
 						    cs35l41->acpi_subsystem_id, cs35l41->amp_name,
 						    cs35l41->speaker_id, "bin");
 		if (ret)
@@ -217,18 +255,17 @@ static int cs35l41_request_firmware_files_spkid(struct cs35l41_hda *cs35l41,
 
 	/* try cirrus/part-dspN-fwtype-sub<-spkidN>.wmfw */
 	ret = cs35l41_request_firmware_file(cs35l41, wmfw_firmware, wmfw_filename,
-					    CS35L41_FIRMWARE_ROOT, cs35l41->acpi_subsystem_id,
+					    cs35l41->acpi_subsystem_id,
 					    NULL, cs35l41->speaker_id, "wmfw");
 	if (!ret) {
 		/* try cirrus/part-dspN-fwtype-sub<-spkidN><-ampname>.bin */
 		ret = cs35l41_request_firmware_file(cs35l41, coeff_firmware, coeff_filename,
-						    CS35L41_FIRMWARE_ROOT,
 						    cs35l41->acpi_subsystem_id,
 						    cs35l41->amp_name, cs35l41->speaker_id, "bin");
 		if (ret)
 			/* try cirrus/part-dspN-fwtype-sub<-spkidN>.bin */
 			ret = cs35l41_request_firmware_file(cs35l41, coeff_firmware,
-							    coeff_filename, CS35L41_FIRMWARE_ROOT,
+							    coeff_filename,
 							    cs35l41->acpi_subsystem_id, NULL,
 							    cs35l41->speaker_id, "bin");
 		if (ret)
@@ -239,18 +276,17 @@ static int cs35l41_request_firmware_files_spkid(struct cs35l41_hda *cs35l41,
 
 	/* try cirrus/part-dspN-fwtype-sub.wmfw */
 	ret = cs35l41_request_firmware_file(cs35l41, wmfw_firmware, wmfw_filename,
-					    CS35L41_FIRMWARE_ROOT, cs35l41->acpi_subsystem_id,
+					    cs35l41->acpi_subsystem_id,
 					    NULL, -1, "wmfw");
 	if (!ret) {
 		/* try cirrus/part-dspN-fwtype-sub<-spkidN><-ampname>.bin */
 		ret = cs35l41_request_firmware_file(cs35l41, coeff_firmware, coeff_filename,
-						    CS35L41_FIRMWARE_ROOT,
 						    cs35l41->acpi_subsystem_id, cs35l41->amp_name,
 						    cs35l41->speaker_id, "bin");
 		if (ret)
 			/* try cirrus/part-dspN-fwtype-sub<-spkidN>.bin */
 			ret = cs35l41_request_firmware_file(cs35l41, coeff_firmware,
-							    coeff_filename, CS35L41_FIRMWARE_ROOT,
+							    coeff_filename,
 							    cs35l41->acpi_subsystem_id, NULL,
 							    cs35l41->speaker_id, "bin");
 		if (ret)
@@ -277,13 +313,13 @@ static int cs35l41_fallback_firmware_file(struct cs35l41_hda *cs35l41,
 
 	/* fallback try cirrus/part-dspN-fwtype.wmfw */
 	ret = cs35l41_request_firmware_file(cs35l41, wmfw_firmware, wmfw_filename,
-					    CS35L41_FIRMWARE_ROOT, NULL, NULL, -1, "wmfw");
+					    NULL, NULL, -1, "wmfw");
 	if (ret)
 		goto err;
 
 	/* fallback try cirrus/part-dspN-fwtype.bin */
 	ret = cs35l41_request_firmware_file(cs35l41, coeff_firmware, coeff_filename,
-					    CS35L41_FIRMWARE_ROOT, NULL, NULL, -1, "bin");
+					    NULL, NULL, -1, "bin");
 	if (ret) {
 		release_firmware(*wmfw_firmware);
 		kfree(*wmfw_filename);
@@ -312,12 +348,11 @@ static int cs35l41_request_firmware_files(struct cs35l41_hda *cs35l41,
 
 	/* try cirrus/part-dspN-fwtype-sub<-ampname>.wmfw */
 	ret = cs35l41_request_firmware_file(cs35l41, wmfw_firmware, wmfw_filename,
-					    CS35L41_FIRMWARE_ROOT, cs35l41->acpi_subsystem_id,
+					    cs35l41->acpi_subsystem_id,
 					    cs35l41->amp_name, -1, "wmfw");
 	if (!ret) {
 		/* try cirrus/part-dspN-fwtype-sub<-ampname>.bin */
 		ret = cs35l41_request_firmware_file(cs35l41, coeff_firmware, coeff_filename,
-						    CS35L41_FIRMWARE_ROOT,
 						    cs35l41->acpi_subsystem_id, cs35l41->amp_name,
 						    -1, "bin");
 		if (ret)
@@ -328,18 +363,16 @@ static int cs35l41_request_firmware_files(struct cs35l41_hda *cs35l41,
 
 	/* try cirrus/part-dspN-fwtype-sub.wmfw */
 	ret = cs35l41_request_firmware_file(cs35l41, wmfw_firmware, wmfw_filename,
-					    CS35L41_FIRMWARE_ROOT, cs35l41->acpi_subsystem_id,
+					    cs35l41->acpi_subsystem_id,
 					    NULL, -1, "wmfw");
 	if (!ret) {
 		/* try cirrus/part-dspN-fwtype-sub<-ampname>.bin */
 		ret = cs35l41_request_firmware_file(cs35l41, coeff_firmware, coeff_filename,
-						    CS35L41_FIRMWARE_ROOT,
 						    cs35l41->acpi_subsystem_id,
 						    cs35l41->amp_name, -1, "bin");
 		if (ret)
 			/* try cirrus/part-dspN-fwtype-sub.bin */
 			ret = cs35l41_request_firmware_file(cs35l41, coeff_firmware, coeff_filename,
-							    CS35L41_FIRMWARE_ROOT,
 							    cs35l41->acpi_subsystem_id, NULL, -1,
 							    "bin");
 		if (ret)
@@ -451,6 +484,94 @@ static int cs35l41_save_calibration(struct cs35l41_hda *cs35l41)
 }
 #endif
 
+static void cs35l41_set_default_tuning_params(struct cs35l41_hda *cs35l41)
+{
+	cs35l41->tuning_gain = DEFAULT_AMP_GAIN_PCM;
+}
+
+static int cs35l41_read_tuning_params(struct cs35l41_hda *cs35l41, const struct firmware *firmware)
+{
+	struct cs35l41_tuning_params *params;
+	unsigned int offset = 0;
+	unsigned int end;
+	int i;
+
+	params = (void *)&firmware->data[0];
+
+	if (le32_to_cpu(params->size) != firmware->size) {
+		dev_err(cs35l41->dev, "Wrong Size for Tuning Param file. Expected %d got %zu\n",
+			le32_to_cpu(params->size), firmware->size);
+		return -EINVAL;
+	}
+
+	if (le32_to_cpu(params->version) != 1) {
+		dev_err(cs35l41->dev, "Unsupported Tuning Param Version: %d\n",
+			le32_to_cpu(params->version));
+		return -EINVAL;
+	}
+
+	if (le32_to_cpu(params->signature) != CS35L41_TUNING_SIG) {
+		dev_err(cs35l41->dev,
+			"Mismatched Signature for Tuning Param file. Expected %#x got %#x\n",
+			CS35L41_TUNING_SIG, le32_to_cpu(params->signature));
+		return -EINVAL;
+	}
+
+	end = firmware->size - sizeof(struct cs35l41_tuning_params);
+
+	for (i = 0; i < le32_to_cpu(params->num_entries); i++) {
+		struct cs35l41_tuning_param *param;
+
+		if ((offset >= end) || ((offset + sizeof(struct cs35l41_tuning_param_hdr)) >= end))
+			return -EFAULT;
+
+		param = (void *)&params->data[offset];
+		offset += le32_to_cpu(param->hdr.size);
+
+		if (offset > end)
+			return -EFAULT;
+
+		switch (le32_to_cpu(param->hdr.type)) {
+		case TUNING_PARAM_GAIN:
+			cs35l41->tuning_gain = le32_to_cpu(param->gain);
+			dev_dbg(cs35l41->dev, "Applying Gain: %d\n", cs35l41->tuning_gain);
+			break;
+		default:
+			break;
+		}
+	}
+
+	return 0;
+}
+
+static int cs35l41_load_tuning_params(struct cs35l41_hda *cs35l41, char *tuning_filename)
+{
+	const struct firmware *tuning_param_file = NULL;
+	char *tuning_param_filename = NULL;
+	int ret;
+
+	ret = cs35l41_request_tuning_param_file(cs35l41, tuning_filename, &tuning_param_file,
+						&tuning_param_filename, cs35l41->acpi_subsystem_id);
+	if (ret) {
+		dev_dbg(cs35l41->dev, "Missing Tuning Param for file: %s: %d\n", tuning_filename,
+			ret);
+		return 0;
+	}
+
+	ret = cs35l41_read_tuning_params(cs35l41, tuning_param_file);
+	if (ret) {
+		dev_err(cs35l41->dev, "Error reading Tuning Params from file: %s: %d\n",
+			tuning_param_filename, ret);
+		/* Reset to default Tuning Parameters */
+		cs35l41_set_default_tuning_params(cs35l41);
+	}
+
+	release_firmware(tuning_param_file);
+	kfree(tuning_param_filename);
+
+	return ret;
+}
+
 static int cs35l41_init_dsp(struct cs35l41_hda *cs35l41)
 {
 	const struct firmware *coeff_firmware = NULL;
@@ -470,27 +591,35 @@ static int cs35l41_init_dsp(struct cs35l41_hda *cs35l41)
 		cs35l41->halo_initialized = true;
 	}
 
+	cs35l41_set_default_tuning_params(cs35l41);
+
 	ret = cs35l41_request_firmware_files(cs35l41, &wmfw_firmware, &wmfw_filename,
 					     &coeff_firmware, &coeff_filename);
 	if (ret < 0)
 		return ret;
 
 	dev_dbg(cs35l41->dev, "Loading WMFW Firmware: %s\n", wmfw_filename);
-	if (coeff_filename)
+	if (coeff_filename) {
 		dev_dbg(cs35l41->dev, "Loading Coefficient File: %s\n", coeff_filename);
-	else
+		ret = cs35l41_load_tuning_params(cs35l41, coeff_filename);
+		if (ret)
+			dev_warn(cs35l41->dev, "Unable to load Tuning Parameters: %d\n", ret);
+	} else {
 		dev_warn(cs35l41->dev, "No Coefficient File available.\n");
+	}
 
 	ret = cs_dsp_power_up(dsp, wmfw_firmware, wmfw_filename, coeff_firmware, coeff_filename,
 			      hda_cs_dsp_fw_ids[cs35l41->firmware_type]);
 	if (ret)
-		goto err_release;
+		goto err;
 
 	cs35l41_add_controls(cs35l41);
 
 	ret = cs35l41_save_calibration(cs35l41);
 
-err_release:
+err:
+	if (ret)
+		cs35l41_set_default_tuning_params(cs35l41);
 	release_firmware(wmfw_firmware);
 	release_firmware(coeff_firmware);
 	kfree(wmfw_filename);
@@ -503,6 +632,7 @@ static void cs35l41_shutdown_dsp(struct cs35l41_hda *cs35l41)
 {
 	struct cs_dsp *dsp = &cs35l41->cs_dsp;
 
+	cs35l41_set_default_tuning_params(cs35l41);
 	cs_dsp_stop(dsp);
 	cs_dsp_power_down(dsp);
 	dev_dbg(cs35l41->dev, "Unloaded Firmware\n");
@@ -553,6 +683,10 @@ static void cs35l41_hda_play_start(struct device *dev)
 	if (cs35l41->cs_dsp.running) {
 		regmap_multi_reg_write(reg, cs35l41_hda_config_dsp,
 				       ARRAY_SIZE(cs35l41_hda_config_dsp));
+		if (cs35l41->hw_cfg.bst_type == CS35L41_INT_BOOST)
+			regmap_write(reg, CS35L41_DSP1_RX5_SRC, CS35L41_INPUT_SRC_VPMON);
+		else
+			regmap_write(reg, CS35L41_DSP1_RX5_SRC, CS35L41_INPUT_SRC_VBSTMON);
 		regmap_update_bits(reg, CS35L41_PWR_CTRL2,
 				   CS35L41_VMON_EN_MASK | CS35L41_IMON_EN_MASK,
 				   1 << CS35L41_VMON_EN_SHIFT | 1 << CS35L41_IMON_EN_SHIFT);
@@ -570,6 +704,7 @@ static void cs35l41_mute(struct device *dev, bool mute)
 {
 	struct cs35l41_hda *cs35l41 = dev_get_drvdata(dev);
 	struct regmap *reg = cs35l41->regmap;
+	unsigned int amp_gain;
 
 	dev_dbg(dev, "Mute(%d:%d) Playback Started: %d\n", mute, cs35l41->mute_override,
 		cs35l41->playback_started);
@@ -581,8 +716,13 @@ static void cs35l41_mute(struct device *dev, bool mute)
 		} else {
 			dev_dbg(dev, "Unmuting\n");
 			if (cs35l41->cs_dsp.running) {
-				regmap_multi_reg_write(reg, cs35l41_hda_unmute_dsp,
-						ARRAY_SIZE(cs35l41_hda_unmute_dsp));
+				dev_dbg(dev, "Using Tuned Gain: %d\n", cs35l41->tuning_gain);
+				amp_gain = (cs35l41->tuning_gain << CS35L41_AMP_GAIN_PCM_SHIFT) |
+					(DEFAULT_AMP_GAIN_PDM << CS35L41_AMP_GAIN_PDM_SHIFT);
+
+				/* AMP_HPF_PCM_EN = 1, AMP_VOL_PCM  0.0 dB */
+				regmap_write(reg, CS35L41_AMP_DIG_VOL_CTRL, 0x00008000);
+				regmap_write(reg, CS35L41_AMP_GAIN_CTRL, amp_gain);
 			} else {
 				regmap_multi_reg_write(reg, cs35l41_hda_unmute,
 						ARRAY_SIZE(cs35l41_hda_unmute));
@@ -1056,6 +1196,9 @@ static int cs35l41_smart_amp(struct cs35l41_hda *cs35l41)
 		goto clean_dsp;
 	}
 
+	dev_info(cs35l41->dev, "Firmware Loaded - Type: %s, Gain: %d\n",
+		 hda_cs_dsp_fw_ids[cs35l41->firmware_type], cs35l41->tuning_gain);
+
 	return 0;
 
 clean_dsp:
@@ -1461,13 +1604,56 @@ static struct regmap_irq_chip cs35l41_regmap_irq_chip = {
 	.runtime_pm = true,
 };
 
+static void cs35l41_configure_interrupt(struct cs35l41_hda *cs35l41, int irq_pol)
+{
+	int irq;
+	int ret;
+	int i;
+
+	if (!cs35l41->irq) {
+		dev_warn(cs35l41->dev, "No Interrupt Found");
+		goto err;
+	}
+
+	ret = devm_regmap_add_irq_chip(cs35l41->dev, cs35l41->regmap, cs35l41->irq,
+					IRQF_ONESHOT | IRQF_SHARED | irq_pol,
+					0, &cs35l41_regmap_irq_chip, &cs35l41->irq_data);
+	if (ret) {
+		dev_dbg(cs35l41->dev, "Unable to add IRQ Chip: %d.", ret);
+		goto err;
+	}
+
+	for (i = 0; i < ARRAY_SIZE(cs35l41_irqs); i++) {
+		irq = regmap_irq_get_virq(cs35l41->irq_data, cs35l41_irqs[i].irq);
+		if (irq < 0) {
+			ret = irq;
+			dev_dbg(cs35l41->dev, "Unable to map IRQ %s: %d.", cs35l41_irqs[i].name,
+				ret);
+			goto err;
+		}
+
+		ret = devm_request_threaded_irq(cs35l41->dev, irq, NULL,
+						cs35l41_irqs[i].handler,
+						IRQF_ONESHOT | IRQF_SHARED | irq_pol,
+						cs35l41_irqs[i].name, cs35l41);
+		if (ret) {
+			dev_dbg(cs35l41->dev, "Unable to allocate IRQ %s:: %d.",
+				cs35l41_irqs[i].name, ret);
+			goto err;
+		}
+	}
+	return;
+err:
+	dev_warn(cs35l41->dev,
+		 "IRQ Config Failed. Amp errors may not be recoverable without reboot.");
+}
+
 static int cs35l41_hda_apply_properties(struct cs35l41_hda *cs35l41)
 {
 	struct cs35l41_hw_cfg *hw_cfg = &cs35l41->hw_cfg;
 	bool using_irq = false;
-	int irq, irq_pol;
+	int irq_pol;
 	int ret;
-	int i;
 
 	if (!cs35l41->hw_cfg.valid)
 		return -EINVAL;
@@ -1510,26 +1696,8 @@ static int cs35l41_hda_apply_properties(struct cs35l41_hda *cs35l41)
 
 	irq_pol = cs35l41_gpio_config(cs35l41->regmap, hw_cfg);
 
-	if (cs35l41->irq && using_irq) {
-		ret = devm_regmap_add_irq_chip(cs35l41->dev, cs35l41->regmap, cs35l41->irq,
-					       IRQF_ONESHOT | IRQF_SHARED | irq_pol,
-					       0, &cs35l41_regmap_irq_chip, &cs35l41->irq_data);
-		if (ret)
-			return ret;
-
-		for (i = 0; i < ARRAY_SIZE(cs35l41_irqs); i++) {
-			irq = regmap_irq_get_virq(cs35l41->irq_data, cs35l41_irqs[i].irq);
-			if (irq < 0)
-				return irq;
-
-			ret = devm_request_threaded_irq(cs35l41->dev, irq, NULL,
-							cs35l41_irqs[i].handler,
-							IRQF_ONESHOT | IRQF_SHARED | irq_pol,
-							cs35l41_irqs[i].name, cs35l41);
-			if (ret)
-				return ret;
-		}
-	}
+	if (using_irq)
+		cs35l41_configure_interrupt(cs35l41, irq_pol);
 
 	return cs35l41_hda_channel_map(cs35l41->dev, 0, NULL, 1, &hw_cfg->spk_pos);
 }
