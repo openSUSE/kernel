@@ -7,7 +7,7 @@ static const char *const initial_sid_to_string[] = {
 	NULL,
 	"file",
 	NULL,
-	"init",
+	NULL,
 	"any_socket",
 	"port",
 	"netif",
