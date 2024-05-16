@@ -288,8 +288,10 @@ struct idxd_driver_data {
 	int evl_cr_off;
 	int cr_status_off;
 	int cr_result_off;
-	bool user_submission_safe;
 	load_device_defaults_fn_t load_device_defaults;
+#ifndef __GENKSYMS__
+	bool user_submission_safe;
+#endif
 };
 
 struct idxd_evl {
@@ -376,8 +378,9 @@ struct idxd_device {
 
 	struct dentry *dbgfs_dir;
 	struct dentry *dbgfs_evl_file;
-
+#ifndef __GENKSYMS__
 	bool user_submission_safe;
+#endif
 };
 
 static inline unsigned int evl_ent_size(struct idxd_device *idxd)
