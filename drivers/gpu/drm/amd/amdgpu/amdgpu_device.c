@@ -4463,6 +4463,8 @@ static int amdgpu_device_ip_post_soft_reset(struct amdgpu_device *adev)
 {
 	int i, r = 0;
 
+	flush_delayed_work(&adev->gfx.gfx_off_delay_work);
+
 	for (i = 0; i < adev->num_ip_blocks; i++) {
 		if (!adev->ip_blocks[i].status.valid)
 			continue;
