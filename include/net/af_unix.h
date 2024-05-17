@@ -52,7 +52,7 @@ struct unix_sock {
 	struct sock		*peer;
 	struct sock		*other;
 	struct list_head	link;
-	atomic_long_t		inflight;
+	unsigned long		inflight;
 	spinlock_t		lock;
 	unsigned int		gc_candidate : 1;
 	unsigned int		gc_maybe_cycle : 1;
