@@ -130,10 +130,10 @@ void unix_inflight(struct file *fp)
 	if (s) {
 		struct unix_sock *u = unix_sk(s);
 		if (!u->inflight) {
-			BUG_ON(!list_empty(&u->link));
+			WARN_ON_ONCE(!list_empty(&u->link));
 			list_add_tail(&u->link, &gc_inflight_list);
 		} else {
-			BUG_ON(list_empty(&u->link));
+			WARN_ON_ONCE(list_empty(&u->link));
 		}
 		u->inflight++;
 		/* Paired with READ_ONCE() in wait_for_unix_gc() */
@@ -150,8 +150,8 @@ void unix_notinflight(struct file *fp)
 	spin_lock(&unix_gc_lock);
 	if (s) {
 		struct unix_sock *u = unix_sk(s);
-		BUG_ON(!u->inflight);
-		BUG_ON(list_empty(&u->link));
+		WARN_ON_ONCE(!u->inflight);
+		WARN_ON_ONCE(list_empty(&u->link));
 		u->inflight--;
 		if (!u->inflight)
 			list_del_init(&u->link);
@@ -231,7 +231,7 @@ static void scan_children(struct sock *x, void (*func)(struct unix_sock *),
 			 * An embryo cannot be in-flight, so it's safe
 			 * to use the list link.
 			 */
-			BUG_ON(!list_empty(&u->link));
+			WARN_ON_ONCE(!list_empty(&u->link));
 			list_add_tail(&u->link, &embryos);
 		}
 		spin_unlock(&x->sk_receive_queue.lock);
@@ -323,8 +323,8 @@ void unix_gc(void)
 
 		total_refs = file_count(u->sk.sk_socket->file);
 
-		BUG_ON(!u->inflight);
-		BUG_ON(total_refs < u->inflight);
+		WARN_ON_ONCE(!u->inflight);
+		WARN_ON_ONCE(total_refs < u->inflight);
 		if (total_refs == u->inflight) {
 			list_move_tail(&u->link, &gc_candidates);
 			u->gc_candidate = 1;
@@ -389,7 +389,7 @@ void unix_gc(void)
 	spin_lock(&unix_gc_lock);
 
 	/* All candidates should have been detached by now. */
-	BUG_ON(!list_empty(&gc_candidates));
+	WARN_ON_ONCE(!list_empty(&gc_candidates));
 
 	/* Paired with READ_ONCE() in wait_for_unix_gc(). */
 	ACCESS_ONCE(gc_in_progress) = false;
