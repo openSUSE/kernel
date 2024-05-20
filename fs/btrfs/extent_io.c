@@ -804,8 +804,8 @@ static void end_bio_extent_readpage(struct btrfs_bio *bbio)
  * 		the array will be skipped
  *
  * Return: 0        if all pages were able to be allocated;
- *         -ENOMEM  otherwise, and the caller is responsible for freeing all
- *                  non-null page pointers in the array.
+ *         -ENOMEM  otherwise, the partially allocated pages would be freed and
+ *                  the array slots zeroed
  */
 int btrfs_alloc_page_array(unsigned int nr_pages, struct page **page_array)
 {
@@ -824,8 +824,13 @@ int btrfs_alloc_page_array(unsigned int nr_pages, struct page **page_array)
 		 * though alloc_pages_bulk_array() falls back to alloc_page()
 		 * if  it could not bulk-allocate. So we must be out of memory.
 		 */
-		if (allocated == last)
+		if (allocated == last) {
+			for (int i = 0; i < allocated; i++) {
+				__free_page(page_array[i]);
+				page_array[i] = NULL;
+			}
 			return -ENOMEM;
+		}
 
 		memalloc_retry_wait(GFP_NOFS);
 	}
@@ -4572,8 +4577,14 @@ void read_extent_buffer(const struct extent_buffer *eb, void *dstv,
 	char *dst = (char *)dstv;
 	unsigned long i = get_eb_page_index(start);
 
-	if (check_eb_range(eb, start, len))
+	if (check_eb_range(eb, start, len)) {
+		/*
+		 * Invalid range hit, reset the memory, so callers won't get
+		 * some random garbage for their uninitialzed memory.
+		 */
+		memset(dstv, 0, len);
 		return;
+	}
 
 	offset = get_eb_offset_in_page(eb, start);
 

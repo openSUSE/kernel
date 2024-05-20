@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0-only
+/* SPDX-License-Identifier: GPL-2.0-only */
 #include <linux/export.h>
 #include <linux/bitops.h>
 #include <linux/elf.h>
@@ -577,7 +577,7 @@ static void bsp_init_amd(struct cpuinfo_x86 *c)
 
 	case 0x1a:
 		switch (c->x86_model) {
-		case 0x00 ... 0x0f:
+		case 0x00 ... 0x2f:
 			setup_force_cpu_cap(X86_FEATURE_ZEN5);
 			break;
 		default:
