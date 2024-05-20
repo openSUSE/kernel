@@ -128,6 +128,9 @@
  */
 #define EQ_DEPTH_COEFF				2
 
+#define HNS_ROCE_MAX_CQ_COUNT 0xFFFF
+#define HNS_ROCE_MAX_CQ_PERIOD 0xFFFF
+
 enum {
 	SERV_TYPE_RC,
 	SERV_TYPE_UC,
