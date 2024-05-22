@@ -7851,7 +7851,15 @@ static u64 vmx_get_perf_capabilities(void)
 
 	if (!cpu_feature_enabled(X86_FEATURE_ARCH_LBR)) {
 		x86_perf_get_lbr(&lbr);
-		if (lbr.nr)
+
+		/*
+		 * KVM requires LBR callstack support, as the overhead due to
+		 * context switching LBRs without said support is too high.
+		 * See intel_pmu_create_guest_lbr_event() for more info.
+		 */
+		if (!lbr.has_callstack)
+			memset(&lbr, 0, sizeof(lbr));
+		else if (lbr.nr)
 			perf_cap |= host_perf_cap & PMU_CAP_LBR_FMT;
 	}
 
