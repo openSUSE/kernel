@@ -4,37 +4,49 @@
 #include <linux/minmax.h>
 
 /*
- * Common helper for find_next_bit() function family
- * @FETCH: The expression that fetches and pre-processes each word of bitmap(s)
- * @MUNGE: The expression that post-processes a word containing found bit (may be empty)
- * @size: The bitmap size in bits
- * @start: The bitnumber to start searching at
+ * This is a common helper function for find_next_bit, find_next_zero_bit, and
+ * find_next_and_bit. The differences are:
+ *  - The "invert" argument, which is XORed with each fetched word before
+ *    searching it for one bits.
+ *  - The optional "addr2", which is anded with "addr1" if present.
  */
-#define FIND_NEXT_BIT(FETCH, MUNGE, size, start)				\
-({										\
-	unsigned long mask, idx, tmp, sz = (size), __start = (start);		\
-										\
-	if (unlikely(__start >= sz))						\
-		goto out;							\
-										\
-	mask = MUNGE(BITMAP_FIRST_WORD_MASK(__start));				\
-	idx = __start / BITS_PER_LONG;						\
-										\
-	for (tmp = (FETCH) & mask; !tmp; tmp = (FETCH)) {			\
-		if ((idx + 1) * BITS_PER_LONG >= sz)				\
-			goto out;						\
-		idx++;								\
-	}									\
-										\
-	sz = min(idx * BITS_PER_LONG + __ffs(MUNGE(tmp)), sz);			\
-out:										\
-	sz;									\
-})
-
-unsigned long _find_next_bit(const unsigned long *addr,
-                const unsigned long *addr2, unsigned long nbits,
-                unsigned long start, unsigned long invert, unsigned long le)
+unsigned long _find_next_bit(const unsigned long *addr1,
+		const unsigned long *addr2, unsigned long nbits,
+		unsigned long start, unsigned long invert, unsigned long le)
 {
-	return FIND_NEXT_BIT(addr[idx], /* nop */, nbits, start);
+	unsigned long tmp, mask;
+
+	if (unlikely(start >= nbits))
+		return nbits;
+
+	tmp = addr1[start / BITS_PER_LONG];
+	if (addr2)
+		tmp &= addr2[start / BITS_PER_LONG];
+	tmp ^= invert;
+
+	/* Handle 1st word. */
+	mask = BITMAP_FIRST_WORD_MASK(start);
+	if (le)
+		mask = swab(mask);
+
+	tmp &= mask;
+
+	start = round_down(start, BITS_PER_LONG);
+
+	while (!tmp) {
+		start += BITS_PER_LONG;
+		if (start >= nbits)
+			return nbits;
+
+		tmp = addr1[start / BITS_PER_LONG];
+		if (addr2)
+			tmp &= addr2[start / BITS_PER_LONG];
+		tmp ^= invert;
+	}
+
+	if (le)
+		tmp = swab(tmp);
+
+	return min(start + __ffs(tmp), nbits);
 }
 
