@@ -352,7 +352,17 @@ struct io_ring_ctx {
 	unsigned			rsrc_quiesce;
 
 	#if defined(CONFIG_UNIX)
+
+	#ifdef __GENKSYMS__
+		/*
+		 * Unused. preserved kabi. See upstream commit:
+		 * 6e5e6d274956 ("io_uring: drop any code related to SCM_RIGHTS")
+		 */
 		struct socket		*ring_sock;
+	#else
+		void			*kabi_pad2;
+	#endif
+
 	#endif
 	/* hashed buffered write serialization */
 	struct io_wq_hash		*hash_map;
