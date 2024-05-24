@@ -33,7 +33,7 @@ void autofs_catatonic_mode(struct autofs_sb_info *sbi)
 		kfree(wq->name.name - wq->offset);
 		wq->name.name = NULL;
 		wq->wait_ctr--;
-		wake_up_interruptible(&wq->queue);
+		wake_up(&wq->queue);
 		wq = nwq;
 	}
 	fput(sbi->pipe);	/* Close the pipe */
