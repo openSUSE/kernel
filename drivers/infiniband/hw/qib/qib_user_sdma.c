@@ -717,6 +717,83 @@ static void qib_user_sdma_free_pkt_list(struct device *dev,
 }
 
 /*
+ * Manual picks from compiler.h / overflow.h to provide check_add_overflow
+ * both the type-agnostic benefits of the macros while also being able to
+ * enforce that the return value is, in fact, checked.
+ */
+#define is_signed_type(type)       (((type)(-1)) < (type)1)
+#define __type_half_max(type) ((type)1 << (8*sizeof(type) - 1 - is_signed_type(type)))
+#define type_max(T) ((T)((__type_half_max(T) - 1) + __type_half_max(T)))
+#define type_min(T) ((T)((T)-type_max(T)-(T)1))
+
+static inline bool __must_check __must_check_overflow(bool overflow)
+{
+	return unlikely(overflow);
+}
+
+#define __unsigned_add_overflow(a, b, d) ({	\
+	typeof(a) __a = (a);			\
+	typeof(b) __b = (b);			\
+	typeof(d) __d = (d);			\
+	(void) (&__a == &__b);			\
+	(void) (&__a == __d);			\
+	*__d = __a + __b;			\
+	*__d < __a;				\
+})
+#define __unsigned_mul_overflow(a, b, d) ({		\
+	typeof(a) __a = (a);				\
+	typeof(b) __b = (b);				\
+	typeof(d) __d = (d);				\
+	(void) (&__a == &__b);				\
+	(void) (&__a == __d);				\
+	*__d = __a * __b;				\
+	__builtin_constant_p(__b) ?			\
+	  __b > 0 && __a > type_max(typeof(__a)) / __b : \
+	  __a > 0 && __b > type_max(typeof(__b)) / __a;	 \
+})
+
+#define check_add_overflow(a, b, d)	__must_check_overflow(	\
+		__unsigned_add_overflow(a, b, d))
+#define check_mul_overflow(a, b, d)	__must_check_overflow(	\
+		__unsigned_mul_overflow(a, b, d))
+
+#define __is_constexpr(x)							\
+	(sizeof(int) == sizeof(*(8 ? ((void *)((long)(x) * 0l)) : (int *)8)))
+
+#define flex_array_size(p, member, count)							\
+	__builtin_choose_expr(__is_constexpr(count),						\
+			(count) * sizeof(*(p)->member) + __must_be_array((p)->member),		\
+			size_mul(count, sizeof(*(p)->member) + __must_be_array((p)->member)))
+
+#define struct_size(p, member, count)							\
+	__builtin_choose_expr(__is_constexpr(count),					\
+			sizeof(*(p)) + flex_array_size(p, member, count),		\
+			size_add(sizeof(*(p)), flex_array_size(p, member, count)))
+
+static inline size_t __must_check size_mul(size_t factor1, size_t factor2)
+{
+	size_t bytes;
+
+	if (check_mul_overflow(factor1, factor2, &bytes))
+		return SIZE_MAX;
+
+	return bytes;
+}
+static inline size_t __must_check size_add(size_t addend1, size_t addend2)
+{
+	size_t bytes;
+
+	if (check_add_overflow(addend1, addend2, &bytes))
+		return SIZE_MAX;
+
+	return bytes;
+}
+
+/*
+ * End of manual picks
+ */
+
+/*
  * copy headers, coalesce etc -- pq->lock must be held
  *
  * we queue all the packets to list, returning the
@@ -828,10 +905,11 @@ static int qib_user_sdma_queue_pkts(const struct qib_devdata *dd,
 		}
 
 		if (frag_size) {
-			int pktsize, tidsmsize, n;
+			int tidsmsize, n;
+			size_t pktsize;
 
 			n = npages*((2*PAGE_SIZE/frag_size)+1);
-			pktsize = sizeof(*pkt) + sizeof(pkt->addr[0])*n;
+			pktsize = struct_size(pkt, addr, n);
 
 			/*
 			 * Determine if this is tid-sdma or just sdma.
