@@ -690,6 +690,9 @@ void rkisp1_capture_isr(struct rkisp1_device *rkisp1)
 	unsigned int i;
 	u32 status;
 
+	if (!rkisp1->irqs_enabled)
+		return;
+
 	status = rkisp1_read(rkisp1, RKISP1_CIF_MI_MIS);
 	rkisp1_write(rkisp1, status, RKISP1_CIF_MI_ICR);
 

@@ -309,6 +309,10 @@ static int __maybe_unused rkisp1_runtime_suspend(struct device *dev)
 {
 	struct rkisp1_device *rkisp1 = dev_get_drvdata(dev);
 
+	rkisp1->irqs_enabled = false;
+	/* Make sure the IRQ handler will see the above */
+	mb();
+
 	clk_bulk_disable_unprepare(rkisp1->clk_size, rkisp1->clks);
 	return pinctrl_pm_select_sleep_state(dev);
 }
@@ -324,6 +328,10 @@ static int __maybe_unused rkisp1_runtime_resume(struct device *dev)
 	ret = clk_bulk_prepare_enable(rkisp1->clk_size, rkisp1->clks);
 	if (ret)
 		return ret;
+
+	rkisp1->irqs_enabled = true;
+	/* Make sure the IRQ handler will see the above */
+	mb();
 
 	return 0;
 }
