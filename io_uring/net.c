@@ -1091,6 +1091,7 @@ int io_send_zc_prep(struct io_kiocb *req, const struct io_uring_sqe *sqe)
 		req->flags |= REQ_F_NOWAIT;
 
 	zc->done_io = 0;
+	req->flags |= REQ_F_POLL_NO_LAZY;
 
 #ifdef CONFIG_COMPAT
 	if (req->ctx->compat)
