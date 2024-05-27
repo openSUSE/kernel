@@ -26,7 +26,11 @@ struct io_buffer_list {
 	__u16 mask;
 
 	/* ring mapped provided buffers */
+#ifdef __GENKSYMS__
 	__u8 is_mapped;
+#else
+	__u8 is_buf_ring;
+#endif
 	/* ring mapped provided buffers, but mmap'ed by application */
 	__u8 is_mmap;
 	/* bl is visible from an RCU point of view for lookup */
