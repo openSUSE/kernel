@@ -164,7 +164,7 @@ __init void cc_random_init(void)
 	 * is the security level that the RNG is targeting.
 	 */
 	unsigned long rng_seed[32 / sizeof(long)];
-	size_t i, longs;
+	size_t i;
 
 	if (!cc_platform_has(CC_ATTR_GUEST_MEM_ENCRYPT))
 		return;
