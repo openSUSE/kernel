@@ -718,13 +718,6 @@ For user space mitigation:
 			unconditionally enable.
 		off
 			unconditionally disable.
-		auto
-			enable if hardware mitigation
-			control(BHI_DIS_S) is available, otherwise
-			enable alternate mitigation in KVM. Syscalls
-			are not mitigated if hardware mitigation is
-			not present.
-
 
 Mitigation selection guide
 --------------------------
