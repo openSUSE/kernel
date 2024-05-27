@@ -34,11 +34,11 @@ struct io_buffer_list {
 	/* ring mapped provided buffers, but mmap'ed by application */
 	__u8 is_mmap;
 
-	/* is_buf_ring is unsused.  preserved only for kABI purposes */
 #ifdef __GENKSYMS__
-	__u8 is_buf_ring;
+	__u8 is_ready;
 #else
-	__u8 padding[4];
+	/* kABI: Occupying a previous padding patch. */
+	atomic_t refs;
 #endif
 };
 
