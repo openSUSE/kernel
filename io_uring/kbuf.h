@@ -33,8 +33,13 @@ struct io_buffer_list {
 #endif
 	/* ring mapped provided buffers, but mmap'ed by application */
 	__u8 is_mmap;
-	/* bl is visible from an RCU point of view for lookup */
-	__u8 is_ready;
+
+	/* is_buf_ring is unsused.  preserved only for kABI purposes */
+#ifdef __GENKSYMS__
+	__u8 is_buf_ring;
+#else
+	__u8 padding[4];
+#endif
 };
 
 struct io_buffer {
