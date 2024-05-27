@@ -250,7 +250,16 @@ struct io_ring_ctx {
 
 		struct io_submit_state	submit_state;
 
-		struct io_buffer_list	*io_bl;
+		/*
+		 * The following is internal to io_uring so it is safe
+                 * to turn it into pad space.
+		 */
+		#ifdef __GENKSYMS__
+			struct io_buffer_list   *io_bl;
+		#else
+			void			*kabi_pad1;
+		#endif
+
 		struct xarray		io_bl_xa;
 
 		struct io_hash_table	cancel_table_locked;
