@@ -15,7 +15,7 @@
 
 enum cc_vendor cc_vendor __ro_after_init;
 bool cc_attr_cpu_hotplug_disabled __ro_after_init = true;
-static u64 cc_mask __ro_after_init;
+u64 cc_mask __ro_after_init;
 
 static bool intel_cc_platform_has(enum cc_attr attr)
 {
