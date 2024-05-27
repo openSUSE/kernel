@@ -202,6 +202,14 @@ static ssize_t of_device_get_modalias(struct device *dev, char *str, ssize_t len
 	ssize_t csize;
 	ssize_t tsize;
 
+	/*
+	 * Prevent a kernel oops in vsnprintf() -- it only allows passing a
+	 * NULL ptr when the length is also 0. Also filter out the negative
+	 * lengths...
+	 */
+	if ((len > 0 && !str) || len < 0)
+		return -EINVAL;
+
 	if ((!dev) || (!dev->of_node))
 		return -ENODEV;
 
