@@ -862,6 +862,7 @@ gart_bind_fail:
 		DRM_ERROR("failed to bind %u pages at 0x%08llX\n",
 			  ttm->num_pages, gtt->offset);
 
+	gtt->bound = true;
 	return r;
 }
 
