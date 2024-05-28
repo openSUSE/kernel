@@ -1258,8 +1258,9 @@ static void quirk_usb_early_handoff(struct pci_dev *pdev)
 		ret = rpi_firmware_init_vl805(pdev);
 		if (ret) {
 			/* Firmware might be outdated, or something failed */
-			dev_warn(&pdev->dev, "Failed to load VL805's firmware: %d\n", ret);
-			dev_warn(&pdev->dev, "Will continue to attempt to work, but bad things might happen. You should fix this...\n");
+			dev_warn(&pdev->dev,
+				 "Failed to load VL805's firmware: %d. Will continue to attempt to work, but bad things might happen. You should fix this...\n",
+				 ret);
 		}
 	}
 

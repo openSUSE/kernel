@@ -928,8 +928,10 @@ static int brcm_pcie_probe(struct platform_device *pdev)
 	int ret;
 
 	/*
-	 * We have to wait for the Raspberry Pi's firmware interface to be up
-	 * as some PCI fixups depend on it.
+	 * We have to wait for Raspberry Pi's firmware interface to be up as a
+	 * PCI fixup, rpi_firmware_init_vl805(), depends on it. This driver's
+	 * probe can race with the firmware interface's (see
+	 * drivers/firmware/raspberrypi.c) and potentially break the PCI fixup.
 	 */
 	fw_np = of_find_compatible_node(NULL, NULL,
 					"raspberrypi,bcm2835-firmware");
