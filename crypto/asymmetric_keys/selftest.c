@@ -213,7 +213,7 @@ static int __init fips_signature_selftest(void)
 		if (ret < 0)
 			panic("Certs selftest %d: pkcs7_verify() = %d\n", i, ret);
 
-		ret = pkcs7_validate_trust(pkcs7, keyring);
+		ret = pkcs7_validate_trust(pkcs7, keyring, VERIFYING_UNSPECIFIED_SIGNATURE);
 		if (ret < 0)
 			panic("Certs selftest %d: pkcs7_validate_trust() = %d\n", i, ret);
 
