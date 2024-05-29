@@ -2735,6 +2735,7 @@ static void bpf_link_free(struct bpf_link *link)
 		link->ops->release(link);
 		bpf_prog_put(link->prog);
 	}
+#ifndef __GENKSYMS__
 	if (link->ops->dealloc_deferred) {
 		/* schedule BPF link deallocation; if underlying BPF program
 		 * is sleepable, we need to first wait for RCU tasks trace
@@ -2745,6 +2746,7 @@ static void bpf_link_free(struct bpf_link *link)
 		else
 			call_rcu(&link->rcu, bpf_link_defer_dealloc_rcu_gp);
 	}
+#endif
 	if (link->ops->dealloc)
 		link->ops->dealloc(link);
 }
