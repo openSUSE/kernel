@@ -505,9 +505,6 @@ struct io_ring_ctx {
 
 	/* Keep this last, we don't need it for the fast path */
 	struct {
-		#if defined(CONFIG_UNIX)
-			struct socket		*ring_sock;
-		#endif
 		/* hashed buffered write serialization */
 		struct io_wq_hash		*hash_map;
 
@@ -1315,6 +1312,11 @@ static void io_req_tw_post_queue(struct io_kiocb *req, s32 res, u32 cflags);
 static struct kmem_cache *req_cachep;
 
 static const struct file_operations io_uring_fops;
+bool io_is_uring_fops(struct file *file)
+{
+	return file->f_op == &io_uring_fops;
+}
+EXPORT_SYMBOL(io_is_uring_fops);
 
 const char *io_uring_get_opcode(u8 opcode)
 {
@@ -1413,21 +1415,9 @@ static unsigned int io_file_get_flags(struct file *file);
 
 struct sock *io_uring_get_socket(struct file *file)
 {
-#if defined(CONFIG_UNIX)
-	if (file->f_op == &io_uring_fops) {
-		struct io_ring_ctx *ctx = file->private_data;
-
-		return ctx->ring_sock->sk;
-	}
-#endif
 	return NULL;
 }
 EXPORT_SYMBOL(io_uring_get_socket);
-
-static inline bool io_file_need_scm(struct file *filp)
-{
-	return false;
-}
 
 static void io_ring_submit_unlock(struct io_ring_ctx *ctx, unsigned issue_flags)
 {
@@ -3598,8 +3588,6 @@ static unsigned int io_file_get_flags(struct file *file)
 		res |= FFS_ISREG;
 	if (__io_file_supports_nowait(file, mode))
 		res |= FFS_NOWAIT;
-	if (io_file_need_scm(file))
-		res |= FFS_SCM;
 	return res;
 }
 
@@ -9422,15 +9410,6 @@ static void __io_sqe_files_unregister(struct io_ring_ctx *ctx)
 	}
 #endif
 
-#if defined(CONFIG_UNIX)
-	if (ctx->ring_sock) {
-		struct sock *sock = ctx->ring_sock->sk;
-		struct sk_buff *skb;
-
-		while ((skb = skb_dequeue(&sock->sk_receive_queue)) != NULL)
-			kfree_skb(skb);
-	}
-#endif
 	io_free_file_tables(&ctx->file_table);
 	ctx->file_table.alloc_hint = 0;
 	io_rsrc_data_free(ctx->file_data);
@@ -9583,134 +9562,9 @@ static struct io_sq_data *io_get_sq_data(struct io_uring_params *p,
 	return sqd;
 }
 
-/*
- * Ensure the UNIX gc is aware of our file set, so we are certain that
- * the io_uring can be safely unregistered on process exit, even if we have
- * loops in the file referencing. We account only files that can hold other
- * files because otherwise they can't form a loop and so are not interesting
- * for GC.
- */
-static int io_scm_file_account(struct io_ring_ctx *ctx, struct file *file)
-{
-#if defined(CONFIG_UNIX)
-	struct sock *sk = ctx->ring_sock->sk;
-	struct sk_buff_head *head = &sk->sk_receive_queue;
-	struct scm_fp_list *fpl;
-	struct sk_buff *skb;
-
-	if (likely(!io_file_need_scm(file)))
-		return 0;
-
-	/*
-	 * See if we can merge this file into an existing skb SCM_RIGHTS
-	 * file set. If there's no room, fall back to allocating a new skb
-	 * and filling it in.
-	 */
-	spin_lock_irq(&head->lock);
-	skb = skb_peek(head);
-	if (skb && UNIXCB(skb).fp->count < SCM_MAX_FD)
-		__skb_unlink(skb, head);
-	else
-		skb = NULL;
-	spin_unlock_irq(&head->lock);
-
-	if (!skb) {
-		fpl = kzalloc(sizeof(*fpl), GFP_KERNEL);
-		if (!fpl)
-			return -ENOMEM;
-
-		skb = alloc_skb(0, GFP_KERNEL);
-		if (!skb) {
-			kfree(fpl);
-			return -ENOMEM;
-		}
-
-		fpl->user = get_uid(current_user());
-		fpl->max = SCM_MAX_FD;
-		fpl->count = 0;
-
-		UNIXCB(skb).fp = fpl;
-		skb->sk = sk;
-		skb->scm_io_uring = 1;
-		skb->destructor = unix_destruct_scm;
-		refcount_add(skb->truesize, &sk->sk_wmem_alloc);
-	}
-
-	fpl = UNIXCB(skb).fp;
-	fpl->fp[fpl->count++] = get_file(file);
-	unix_inflight(fpl->user, file);
-	skb_queue_head(head, skb);
-	fput(file);
-#endif
-	return 0;
-}
-
 static void io_rsrc_file_put(struct io_ring_ctx *ctx, struct io_rsrc_put *prsrc)
 {
-	struct file *file = prsrc->file;
-#if defined(CONFIG_UNIX)
-	struct sock *sock = ctx->ring_sock->sk;
-	struct sk_buff_head list, *head = &sock->sk_receive_queue;
-	struct sk_buff *skb;
-	int i;
-
-	if (!io_file_need_scm(file)) {
-		fput(file);
-		return;
-	}
-
-	__skb_queue_head_init(&list);
-
-	/*
-	 * Find the skb that holds this file in its SCM_RIGHTS. When found,
-	 * remove this entry and rearrange the file array.
-	 */
-	skb = skb_dequeue(head);
-	while (skb) {
-		struct scm_fp_list *fp;
-
-		fp = UNIXCB(skb).fp;
-		for (i = 0; i < fp->count; i++) {
-			int left;
-
-			if (fp->fp[i] != file)
-				continue;
-
-			unix_notinflight(fp->user, fp->fp[i]);
-			left = fp->count - 1 - i;
-			if (left) {
-				memmove(&fp->fp[i], &fp->fp[i + 1],
-						left * sizeof(struct file *));
-			}
-			fp->count--;
-			if (!fp->count) {
-				kfree_skb(skb);
-				skb = NULL;
-			} else {
-				__skb_queue_tail(&list, skb);
-			}
-			fput(file);
-			file = NULL;
-			break;
-		}
-
-		if (!file)
-			break;
-
-		__skb_queue_tail(&list, skb);
-
-		skb = skb_dequeue(head);
-	}
-
-	if (skb_peek(&list)) {
-		spin_lock_irq(&head->lock);
-		while ((skb = __skb_dequeue(&list)) != NULL)
-			__skb_queue_tail(head, skb);
-		spin_unlock_irq(&head->lock);
-	}
-#else
-	fput(file);
-#endif
+	fput(prsrc->file);
 }
 
 static void __io_rsrc_put_work(struct io_rsrc_node *ref_node)
@@ -9810,21 +9664,13 @@ static int io_sqe_files_register(struct io_ring_ctx *ctx, void __user *arg,
 			goto fail;
 
 		/*
-		 * Don't allow io_uring instances to be registered. If UNIX
-		 * isn't enabled, then this causes a reference cycle and this
-		 * instance can never get freed. If UNIX is enabled we'll
-		 * handle it just fine, but there's still no point in allowing
-		 * a ring fd as it doesn't support regular read/write anyway.
+		 * Don't allow io_uring instances to be registered.
 		 */
 		if (file->f_op == &io_uring_fops) {
 			fput(file);
 			goto fail;
 		}
-		ret = io_scm_file_account(ctx, file);
-		if (ret) {
-			fput(file);
-			goto fail;
-		}
+
 		file_slot = io_fixed_file_slot(&ctx->file_table, i);
 		io_fixed_file_set(file_slot, file);
 		io_file_bitmap_set(&ctx->file_table, i);
@@ -9890,12 +9736,10 @@ static int io_install_fixed_file(struct io_kiocb *req, struct file *file,
 		needs_switch = true;
 	}
 
-	ret = io_scm_file_account(ctx, file);
-	if (!ret) {
-		*io_get_tag_slot(ctx->file_data, slot_index) = 0;
-		io_fixed_file_set(file_slot, file);
-		io_file_bitmap_set(&ctx->file_table, slot_index);
-	}
+	*io_get_tag_slot(ctx->file_data, slot_index) = 0;
+	io_fixed_file_set(file_slot, file);
+	io_file_bitmap_set(&ctx->file_table, slot_index);
+
 err:
 	if (needs_switch)
 		io_rsrc_node_switch(ctx, ctx->file_data);
@@ -9998,23 +9842,14 @@ static int __io_sqe_files_update(struct io_ring_ctx *ctx,
 				break;
 			}
 			/*
-			 * Don't allow io_uring instances to be registered. If
-			 * UNIX isn't enabled, then this causes a reference
-			 * cycle and this instance can never get freed. If UNIX
-			 * is enabled we'll handle it just fine, but there's
-			 * still no point in allowing a ring fd as it doesn't
-			 * support regular read/write anyway.
+			 * Don't allow io_uring instances to be registered.
 			 */
 			if (file->f_op == &io_uring_fops) {
 				fput(file);
 				err = -EBADF;
 				break;
 			}
-			err = io_scm_file_account(ctx, file);
-			if (err) {
-				fput(file);
-				break;
-			}
+
 			*io_get_tag_slot(data, i) = tag;
 			io_fixed_file_set(file_slot, file);
 			io_file_bitmap_set(&ctx->file_table, i);
@@ -10884,12 +10719,6 @@ static __cold void io_ring_ctx_free(struct io_ring_ctx *ctx)
 	WARN_ON_ONCE(!list_empty(&ctx->rsrc_ref_list));
 	WARN_ON_ONCE(!llist_empty(&ctx->rsrc_put_llist));
 
-#if defined(CONFIG_UNIX)
-	if (ctx->ring_sock) {
-		ctx->ring_sock->file = NULL; /* so that iput() is called */
-		sock_release(ctx->ring_sock);
-	}
-#endif
 	WARN_ON_ONCE(!list_empty(&ctx->ltimeout_list));
 
 	io_mem_free(ctx->rings);
@@ -12097,32 +11926,12 @@ static int io_uring_install_fd(struct io_ring_ctx *ctx, struct file *file)
 /*
  * Allocate an anonymous fd, this is what constitutes the application
  * visible backing of an io_uring instance. The application mmaps this
- * fd to gain access to the SQ/CQ ring details. If UNIX sockets are enabled,
- * we have to tie this fd to a socket for file garbage collection purposes.
+ * fd to gain access to the SQ/CQ ring details.
  */
 static struct file *io_uring_get_file(struct io_ring_ctx *ctx)
 {
-	struct file *file;
-#if defined(CONFIG_UNIX)
-	int ret;
-
-	ret = sock_create_kern(&init_net, PF_UNIX, SOCK_RAW, IPPROTO_IP,
-				&ctx->ring_sock);
-	if (ret)
-		return ERR_PTR(ret);
-#endif
-
-	file = anon_inode_getfile("[io_uring]", &io_uring_fops, ctx,
-					O_RDWR | O_CLOEXEC);
-#if defined(CONFIG_UNIX)
-	if (IS_ERR(file)) {
-		sock_release(ctx->ring_sock);
-		ctx->ring_sock = NULL;
-	} else {
-		ctx->ring_sock->file = file;
-	}
-#endif
-	return file;
+	return anon_inode_getfile("[io_uring]", &io_uring_fops, ctx,
+				  O_RDWR | O_CLOEXEC);
 }
 
 static __cold int io_uring_create(unsigned entries, struct io_uring_params *p,
