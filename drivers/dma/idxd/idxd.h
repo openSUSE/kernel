@@ -296,7 +296,11 @@ struct idxd_driver_data {
 
 struct idxd_evl {
 	/* Lock to protect event log access. */
+#ifdef __GENKSYMS__
 	spinlock_t lock;
+#else
+	spinlock_t lock_unused;
+#endif
 	void *log;
 	dma_addr_t dma;
 	/* Total size of event log = number of entries * entry size. */
@@ -306,6 +310,9 @@ struct idxd_evl {
 	u16 head;
 	unsigned long *bmap;
 	bool batch_fail[IDXD_MAX_BATCH_IDENT];
+#ifndef __GENKSYMS__
+	struct mutex lock;
+#endif
 };
 
 struct idxd_evl_fault {

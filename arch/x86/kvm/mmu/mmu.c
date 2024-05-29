@@ -4341,8 +4341,18 @@ static int __kvm_faultin_pfn(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault
 	if (slot && (slot->flags & KVM_MEMSLOT_INVALID))
 		return RET_PF_RETRY;
 
-	if (!kvm_is_visible_memslot(slot)) {
-		/* Don't expose private memslots to L2. */
+	if (slot && slot->id == APIC_ACCESS_PAGE_PRIVATE_MEMSLOT) {
+		/*
+		 * Don't map L1's APIC access page into L2, KVM doesn't support
+		 * using APICv/AVIC to accelerate L2 accesses to L1's APIC,
+		 * i.e. the access needs to be emulated.  Emulating access to
+		 * L1's APIC is also correct if L1 is accelerating L2's own
+		 * virtual APIC, but for some reason L1 also maps _L1's_ APIC
+		 * into L2.  Note, vcpu_is_mmio_gpa() always treats access to
+		 * the APIC as MMIO.  Allow an MMIO SPTE to be created, as KVM
+		 * uses different roots for L1 vs. L2, i.e. there is no danger
+		 * of breaking APICv/AVIC for L1.
+		 */
 		if (is_guest_mode(vcpu)) {
 			fault->slot = NULL;
 			fault->pfn = KVM_PFN_NOSLOT;
@@ -4355,14 +4365,8 @@ static int __kvm_faultin_pfn(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault
 		 * MMIO SPTE.  That way the cache doesn't need to be purged
 		 * when the AVIC is re-enabled.
 		 */
-		if (slot && slot->id == APIC_ACCESS_PAGE_PRIVATE_MEMSLOT &&
-		    !kvm_apicv_activated(vcpu->kvm))
+		if (!kvm_apicv_activated(vcpu->kvm))
 			return RET_PF_EMULATE;
-	}
-
-	if (fault->is_private != kvm_mem_is_private(vcpu->kvm, fault->gfn)) {
-		kvm_mmu_prepare_memory_fault_exit(vcpu, fault);
-		return -EFAULT;
 	}
 
 	if (fault->is_private)
@@ -4402,8 +4406,23 @@ static int kvm_faultin_pfn(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault,
 {
 	int ret;
 
+	/*
+	 * Note that the mmu_invalidate_seq also serves to detect a concurrent
+	 * change in attributes.  is_page_fault_stale() will detect an
+	 * invalidation relate to fault->fn and resume the guest without
+	 * installing a mapping in the page tables.
+	 */
 	fault->mmu_seq = vcpu->kvm->mmu_invalidate_seq;
 	smp_rmb();
+
+	/*
+	 * Now that we have a snapshot of mmu_invalidate_seq we can check for a
+	 * private vs. shared mismatch.
+	 */
+	if (fault->is_private != kvm_mem_is_private(vcpu->kvm, fault->gfn)) {
+		kvm_mmu_prepare_memory_fault_exit(vcpu, fault);
+		return -EFAULT;
+	}
 
 	ret = __kvm_faultin_pfn(vcpu, fault);
 	if (ret != RET_PF_CONTINUE)
@@ -4880,7 +4899,7 @@ static void reset_guest_rsvds_bits_mask(struct kvm_vcpu *vcpu,
 				context->cpu_role.base.level, is_efer_nx(context),
 				guest_can_use(vcpu, X86_FEATURE_GBPAGES),
 				is_cr4_pse(context),
-				guest_cpuid_is_amd_or_hygon(vcpu));
+				guest_cpuid_is_amd_compatible(vcpu));
 }
 
 static void __reset_rsvds_bits_mask_ept(struct rsvd_bits_validate *rsvd_check,
