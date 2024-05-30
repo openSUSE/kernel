@@ -1422,9 +1422,9 @@ static bool contains_pending_extent(struct btrfs_device *device, u64 *start,
 
 	lockdep_assert_held(&device->fs_info->chunk_mutex);
 
-	if (!find_first_extent_bit(&device->alloc_state, *start,
-				   &physical_start, &physical_end,
-				   CHUNK_ALLOCATED, NULL)) {
+	if (find_first_extent_bit(&device->alloc_state, *start,
+				  &physical_start, &physical_end,
+				  CHUNK_ALLOCATED, NULL)) {
 
 		if (in_range(physical_start, *start, len) ||
 		    in_range(*start, physical_start,
@@ -1436,18 +1436,18 @@ static bool contains_pending_extent(struct btrfs_device *device, u64 *start,
 	return false;
 }
 
-static u64 dev_extent_search_start(struct btrfs_device *device, u64 start)
+static u64 dev_extent_search_start(struct btrfs_device *device)
 {
 	switch (device->fs_devices->chunk_alloc_policy) {
 	case BTRFS_CHUNK_ALLOC_REGULAR:
-		return max_t(u64, start, BTRFS_DEVICE_RANGE_RESERVED);
+		return BTRFS_DEVICE_RANGE_RESERVED;
 	case BTRFS_CHUNK_ALLOC_ZONED:
 		/*
 		 * We don't care about the starting region like regular
 		 * allocator, because we anyway use/reserve the first two zones
 		 * for superblock logging.
 		 */
-		return ALIGN(start, device->zone_info->zone_size);
+		return 0;
 	default:
 		BUG();
 	}
@@ -1579,15 +1579,15 @@ static bool dev_extent_hole_check(struct btrfs_device *device, u64 *hole_start,
  * correct usable device space, as device extent freed in current transaction
  * is not reported as available.
  */
-static int find_free_dev_extent_start(struct btrfs_device *device,
-				u64 num_bytes, u64 search_start, u64 *start,
-				u64 *len)
+static int find_free_dev_extent(struct btrfs_device *device, u64 num_bytes,
+				u64 *start, u64 *len)
 {
 	struct btrfs_fs_info *fs_info = device->fs_info;
 	struct btrfs_root *root = fs_info->dev_root;
 	struct btrfs_key key;
 	struct btrfs_dev_extent *dev_extent;
 	struct btrfs_path *path;
+	u64 search_start;
 	u64 hole_size;
 	u64 max_hole_start;
 	u64 max_hole_size;
@@ -1597,7 +1597,7 @@ static int find_free_dev_extent_start(struct btrfs_device *device,
 	int slot;
 	struct extent_buffer *l;
 
-	search_start = dev_extent_search_start(device, search_start);
+	search_start = dev_extent_search_start(device);
 
 	WARN_ON(device->zone_info &&
 		!IS_ALIGNED(num_bytes, device->zone_info->zone_size));
@@ -1721,13 +1721,6 @@ out:
 	if (len)
 		*len = max_hole_size;
 	return ret;
-}
-
-int find_free_dev_extent(struct btrfs_device *device, u64 num_bytes,
-			 u64 *start, u64 *len)
-{
-	/* FIXME use last free of some kind */
-	return find_free_dev_extent_start(device, num_bytes, 0, start, len);
 }
 
 static int btrfs_free_dev_extent(struct btrfs_trans_handle *trans,

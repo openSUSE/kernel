@@ -60,15 +60,6 @@
 				 BTRFS_SUPER_FLAG_METADUMP |\
 				 BTRFS_SUPER_FLAG_METADUMP_V2)
 
-static void btrfs_destroy_ordered_extents(struct btrfs_root *root);
-static int btrfs_destroy_delayed_refs(struct btrfs_transaction *trans,
-				      struct btrfs_fs_info *fs_info);
-static void btrfs_destroy_delalloc_inodes(struct btrfs_root *root);
-static int btrfs_destroy_marked_extents(struct btrfs_fs_info *fs_info,
-					struct extent_io_tree *dirty_pages,
-					int mark);
-static int btrfs_destroy_pinned_extent(struct btrfs_fs_info *fs_info,
-				       struct extent_io_tree *pinned_extents);
 static int btrfs_cleanup_transaction(struct btrfs_fs_info *fs_info);
 static void btrfs_error_commit_super(struct btrfs_fs_info *fs_info);
 
@@ -3119,6 +3110,56 @@ static int btrfs_check_uuid_tree(struct btrfs_fs_info *fs_info)
 	return 0;
 }
 
+static int btrfs_cleanup_fs_roots(struct btrfs_fs_info *fs_info)
+{
+	u64 root_objectid = 0;
+	struct btrfs_root *gang[8];
+	int i = 0;
+	int err = 0;
+	unsigned int ret = 0;
+
+	while (1) {
+		spin_lock(&fs_info->fs_roots_radix_lock);
+		ret = radix_tree_gang_lookup(&fs_info->fs_roots_radix,
+					     (void **)gang, root_objectid,
+					     ARRAY_SIZE(gang));
+		if (!ret) {
+			spin_unlock(&fs_info->fs_roots_radix_lock);
+			break;
+		}
+		root_objectid = gang[ret - 1]->root_key.objectid + 1;
+
+		for (i = 0; i < ret; i++) {
+			/* Avoid to grab roots in dead_roots. */
+			if (btrfs_root_refs(&gang[i]->root_item) == 0) {
+				gang[i] = NULL;
+				continue;
+			}
+			/* Grab all the search result for later use. */
+			gang[i] = btrfs_grab_root(gang[i]);
+		}
+		spin_unlock(&fs_info->fs_roots_radix_lock);
+
+		for (i = 0; i < ret; i++) {
+			if (!gang[i])
+				continue;
+			root_objectid = gang[i]->root_key.objectid;
+			err = btrfs_orphan_cleanup(gang[i]);
+			if (err)
+				goto out;
+			btrfs_put_root(gang[i]);
+		}
+		root_objectid++;
+	}
+out:
+	/* Release the uncleaned roots due to error. */
+	for (; i < ret; i++) {
+		if (gang[i])
+			btrfs_put_root(gang[i]);
+	}
+	return err;
+}
+
 /*
  * Some options only have meaning at mount time and shouldn't persist across
  * remounts, or be displayed. Clear these at the end of mount and remount
@@ -3479,7 +3520,7 @@ int __cold open_ctree(struct super_block *sb, struct btrfs_fs_devices *fs_device
 
 	/* check FS state, whether FS is broken. */
 	if (btrfs_super_flags(disk_super) & BTRFS_SUPER_FLAG_ERROR)
-		set_bit(BTRFS_FS_STATE_ERROR, &fs_info->fs_state);
+		WRITE_ONCE(fs_info->fs_error, -EUCLEAN);
 
 	/*
 	 * In the long term, we'll store the compression type in the super
@@ -4400,56 +4441,6 @@ void btrfs_drop_and_free_fs_root(struct btrfs_fs_info *fs_info,
 		btrfs_put_root(root);
 }
 
-int btrfs_cleanup_fs_roots(struct btrfs_fs_info *fs_info)
-{
-	u64 root_objectid = 0;
-	struct btrfs_root *gang[8];
-	int i = 0;
-	int err = 0;
-	unsigned int ret = 0;
-
-	while (1) {
-		spin_lock(&fs_info->fs_roots_radix_lock);
-		ret = radix_tree_gang_lookup(&fs_info->fs_roots_radix,
-					     (void **)gang, root_objectid,
-					     ARRAY_SIZE(gang));
-		if (!ret) {
-			spin_unlock(&fs_info->fs_roots_radix_lock);
-			break;
-		}
-		root_objectid = gang[ret - 1]->root_key.objectid + 1;
-
-		for (i = 0; i < ret; i++) {
-			/* Avoid to grab roots in dead_roots */
-			if (btrfs_root_refs(&gang[i]->root_item) == 0) {
-				gang[i] = NULL;
-				continue;
-			}
-			/* grab all the search result for later use */
-			gang[i] = btrfs_grab_root(gang[i]);
-		}
-		spin_unlock(&fs_info->fs_roots_radix_lock);
-
-		for (i = 0; i < ret; i++) {
-			if (!gang[i])
-				continue;
-			root_objectid = gang[i]->root_key.objectid;
-			err = btrfs_orphan_cleanup(gang[i]);
-			if (err)
-				goto out;
-			btrfs_put_root(gang[i]);
-		}
-		root_objectid++;
-	}
-out:
-	/* release the uncleaned roots due to error */
-	for (; i < ret; i++) {
-		if (gang[i])
-			btrfs_put_root(gang[i]);
-	}
-	return err;
-}
-
 int btrfs_commit_super(struct btrfs_fs_info *fs_info)
 {
 	struct btrfs_root *root = fs_info->tree_root;
@@ -4492,7 +4483,7 @@ static void warn_about_uncommitted_trans(struct btrfs_fs_info *fs_info)
 		u64 found_end;
 
 		found = true;
-		while (!find_first_extent_bit(&trans->dirty_pages, cur,
+		while (find_first_extent_bit(&trans->dirty_pages, cur,
 			&found_start, &found_end, EXTENT_DIRTY, &cached)) {
 			dirty_bytes += found_end + 1 - found_start;
 			cur = found_end + 1;
@@ -4864,13 +4855,12 @@ static void btrfs_destroy_all_ordered_extents(struct btrfs_fs_info *fs_info)
 	btrfs_wait_ordered_roots(fs_info, U64_MAX, 0, (u64)-1);
 }
 
-static int btrfs_destroy_delayed_refs(struct btrfs_transaction *trans,
-				      struct btrfs_fs_info *fs_info)
+static void btrfs_destroy_delayed_refs(struct btrfs_transaction *trans,
+				       struct btrfs_fs_info *fs_info)
 {
 	struct rb_node *node;
 	struct btrfs_delayed_ref_root *delayed_refs;
 	struct btrfs_delayed_ref_node *ref;
-	int ret = 0;
 
 	delayed_refs = &trans->delayed_refs;
 
@@ -4878,7 +4868,7 @@ static int btrfs_destroy_delayed_refs(struct btrfs_transaction *trans,
 	if (atomic_read(&delayed_refs->num_entries) == 0) {
 		spin_unlock(&delayed_refs->lock);
 		btrfs_debug(fs_info, "delayed_refs has NO entry");
-		return ret;
+		return;
 	}
 
 	while ((node = rb_first_cached(&delayed_refs->href_root)) != NULL) {
@@ -4895,13 +4885,13 @@ static int btrfs_destroy_delayed_refs(struct btrfs_transaction *trans,
 		while ((n = rb_first_cached(&head->ref_tree)) != NULL) {
 			ref = rb_entry(n, struct btrfs_delayed_ref_node,
 				       ref_node);
-			ref->in_tree = 0;
 			rb_erase_cached(&ref->ref_node, &head->ref_tree);
 			RB_CLEAR_NODE(&ref->ref_node);
 			if (!list_empty(&ref->add_list))
 				list_del(&ref->add_list);
 			atomic_dec(&delayed_refs->num_entries);
 			btrfs_put_delayed_ref(ref);
+			btrfs_delayed_refs_rsv_release(fs_info, 1, 0);
 		}
 		if (head->must_insert_reserved)
 			pin_bytes = true;
@@ -4940,8 +4930,6 @@ static int btrfs_destroy_delayed_refs(struct btrfs_transaction *trans,
 	btrfs_qgroup_destroy_extent_records(trans);
 
 	spin_unlock(&delayed_refs->lock);
-
-	return ret;
 }
 
 static void btrfs_destroy_delalloc_inodes(struct btrfs_root *root)
@@ -5003,21 +4991,16 @@ static void btrfs_destroy_all_delalloc_inodes(struct btrfs_fs_info *fs_info)
 	spin_unlock(&fs_info->delalloc_root_lock);
 }
 
-static int btrfs_destroy_marked_extents(struct btrfs_fs_info *fs_info,
-					struct extent_io_tree *dirty_pages,
-					int mark)
+static void btrfs_destroy_marked_extents(struct btrfs_fs_info *fs_info,
+					 struct extent_io_tree *dirty_pages,
+					 int mark)
 {
-	int ret;
 	struct extent_buffer *eb;
 	u64 start = 0;
 	u64 end;
 
-	while (1) {
-		ret = find_first_extent_bit(dirty_pages, start, &start, &end,
-					    mark, NULL);
-		if (ret)
-			break;
-
+	while (find_first_extent_bit(dirty_pages, start, &start, &end,
+				     mark, NULL)) {
 		clear_extent_bits(dirty_pages, start, end, mark);
 		while (start <= end) {
 			eb = find_extent_buffer(fs_info, start);
@@ -5033,16 +5016,13 @@ static int btrfs_destroy_marked_extents(struct btrfs_fs_info *fs_info,
 			free_extent_buffer_stale(eb);
 		}
 	}
-
-	return ret;
 }
 
-static int btrfs_destroy_pinned_extent(struct btrfs_fs_info *fs_info,
-				       struct extent_io_tree *unpin)
+static void btrfs_destroy_pinned_extent(struct btrfs_fs_info *fs_info,
+					struct extent_io_tree *unpin)
 {
 	u64 start;
 	u64 end;
-	int ret;
 
 	while (1) {
 		struct extent_state *cached_state = NULL;
@@ -5054,9 +5034,8 @@ static int btrfs_destroy_pinned_extent(struct btrfs_fs_info *fs_info,
 		 * the same extent range.
 		 */
 		mutex_lock(&fs_info->unused_bg_unpin_mutex);
-		ret = find_first_extent_bit(unpin, 0, &start, &end,
-					    EXTENT_DIRTY, &cached_state);
-		if (ret) {
+		if (!find_first_extent_bit(unpin, 0, &start, &end,
+					   EXTENT_DIRTY, &cached_state)) {
 			mutex_unlock(&fs_info->unused_bg_unpin_mutex);
 			break;
 		}
@@ -5067,8 +5046,6 @@ static int btrfs_destroy_pinned_extent(struct btrfs_fs_info *fs_info,
 		mutex_unlock(&fs_info->unused_bg_unpin_mutex);
 		cond_resched();
 	}
-
-	return 0;
 }
 
 static void btrfs_cleanup_bg_io(struct btrfs_block_group *cache)
@@ -5116,7 +5093,7 @@ void btrfs_cleanup_dirty_bgs(struct btrfs_transaction *cur_trans,
 
 		spin_unlock(&cur_trans->dirty_bgs_lock);
 		btrfs_put_block_group(cache);
-		btrfs_delayed_refs_rsv_release(fs_info, 1);
+		btrfs_delayed_refs_rsv_release(fs_info, 1, 0);
 		spin_lock(&cur_trans->dirty_bgs_lock);
 	}
 	spin_unlock(&cur_trans->dirty_bgs_lock);
