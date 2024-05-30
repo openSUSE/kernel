@@ -126,7 +126,7 @@ struct va_format {
 #define no_printk(fmt, ...)				\
 ({							\
 	if (0)						\
-		printk(fmt, ##__VA_ARGS__);		\
+		_printk(fmt, ##__VA_ARGS__);		\
 	0;						\
 })
 
@@ -272,6 +272,8 @@ static inline void printk_trigger_flush(void)
 {
 }
 #endif
+
+bool this_cpu_in_panic(void);
 
 #ifdef CONFIG_SMP
 extern int __printk_cpu_sync_try_get(void);
