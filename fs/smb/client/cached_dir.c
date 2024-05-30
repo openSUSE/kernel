@@ -265,13 +265,22 @@ int open_cached_dir(unsigned int xid, struct cifs_tcon *tcon,
 	oparms.fid->mid = le64_to_cpu(o_rsp->hdr.MessageId);
 #endif /* CIFS_DEBUG2 */
 
-	if (o_rsp->OplockLevel != SMB2_OPLOCK_LEVEL_LEASE)
+	if (o_rsp->OplockLevel != SMB2_OPLOCK_LEVEL_LEASE) {
+		spin_unlock(&cfids->cfid_list_lock);
+		rc = -EINVAL;
 		goto oshr_free;
+	}
 
-	smb2_parse_contexts(server, o_rsp,
-			    &oparms.fid->epoch,
-			    oparms.fid->lease_key, &oplock,
-			    NULL, NULL);
+	rc = smb2_parse_contexts(server, rsp_iov,
+				 &oparms.fid->epoch,
+				 oparms.fid->lease_key,
+				 &oplock, NULL, NULL);
+	if (rc) {
+		spin_unlock(&cfids->cfid_list_lock);
+		goto oshr_free;
+	}
+
+	rc = -EINVAL;
 	if (!(oplock & SMB2_LEASE_READ_CACHING_HE))
 		goto oshr_free;
 	qi_rsp = (struct smb2_query_info_rsp *)rsp_iov[1].iov_base;
