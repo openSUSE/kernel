@@ -216,9 +216,9 @@ static inline int set_extent_new(struct extent_io_tree *tree, u64 start,
 	return set_extent_bit(tree, start, end, EXTENT_NEW, NULL, GFP_NOFS);
 }
 
-int find_first_extent_bit(struct extent_io_tree *tree, u64 start,
-			  u64 *start_ret, u64 *end_ret, u32 bits,
-			  struct extent_state **cached_state);
+bool find_first_extent_bit(struct extent_io_tree *tree, u64 start,
+			   u64 *start_ret, u64 *end_ret, u32 bits,
+			   struct extent_state **cached_state);
 void find_first_clear_extent_bit(struct extent_io_tree *tree, u64 start,
 				 u64 *start_ret, u64 *end_ret, u32 bits);
 int find_contiguous_extent_bit(struct extent_io_tree *tree, u64 start,

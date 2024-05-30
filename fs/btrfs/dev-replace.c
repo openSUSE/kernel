@@ -808,9 +808,9 @@ static int btrfs_set_target_alloc_state(struct btrfs_device *srcdev,
 
 	lockdep_assert_held(&srcdev->fs_info->chunk_mutex);
 
-	while (!find_first_extent_bit(&srcdev->alloc_state, start,
-				      &found_start, &found_end,
-				      CHUNK_ALLOCATED, &cached_state)) {
+	while (find_first_extent_bit(&srcdev->alloc_state, start,
+				     &found_start, &found_end,
+				     CHUNK_ALLOCATED, &cached_state)) {
 		ret = set_extent_bits(&tgtdev->alloc_state, found_start,
 				      found_end, CHUNK_ALLOCATED);
 		if (ret)
