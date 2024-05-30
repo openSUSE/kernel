@@ -2371,6 +2371,13 @@ static inline int prctl_set_mdwe(unsigned long bits, unsigned long arg3,
 	if (bits & ~(PR_MDWE_REFUSE_EXEC_GAIN))
 		return -EINVAL;
 
+	/*
+	 * EOPNOTSUPP might be more appropriate here in principle, but
+	 * existing userspace depends on EINVAL specifically.
+	 */
+	if (!arch_memory_deny_write_exec_supported())
+ 		return -EINVAL;
+
 	if (bits & PR_MDWE_REFUSE_EXEC_GAIN)
 		set_bit(MMF_HAS_MDWE, &current->mm->flags);
 	else if (test_bit(MMF_HAS_MDWE, &current->mm->flags))
