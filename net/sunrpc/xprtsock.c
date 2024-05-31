@@ -2410,6 +2410,7 @@ static void xs_tcp_setup_socket(struct work_struct *work)
 
 	if (atomic_read(&xprt->swapper))
 		current->flags |= PF_MEMALLOC;
+
 	if (xprt_connected(xprt))
 		goto out;
 	if (test_and_clear_bit(XPRT_SOCK_CONNECT_SENT,
