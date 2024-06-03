@@ -128,6 +128,7 @@ static int rsvp_classify(struct sk_buff *skb, const struct tcf_proto *tp,
 			 struct tcf_result *res)
 {
 	struct rsvp_head *head = rcu_dereference_bh(tp->root);
+	unsigned int xprt_offset;
 	struct rsvp_session *s;
 	struct rsvp_filter *f;
 	unsigned int h1, h2;
@@ -163,12 +164,15 @@ restart:
 	if (ip_is_fragment(nhptr))
 		return -1;
 #endif
+	xprt_offset = xprt - (u8 *)nhptr;
 
 	h1 = hash_dst(dst, protocol, tunnelid);
 	h2 = hash_src(src);
 
 	for (s = rcu_dereference_bh(head->ht[h1]); s;
 	     s = rcu_dereference_bh(s->next)) {
+		if (!pskb_network_may_pull(skb, xprt_offset + s->dpi.offset))
+			continue;
 		if (dst[RSVP_DST_LEN-1] == s->dst[RSVP_DST_LEN - 1] &&
 		    protocol == s->protocol &&
 		    !(s->dpi.mask &
@@ -182,6 +186,8 @@ restart:
 
 			for (f = rcu_dereference_bh(s->ht[h2]); f;
 			     f = rcu_dereference_bh(f->next)) {
+				if (!pskb_network_may_pull(skb, xprt_offset + f->spi.offset))
+					continue;
 				if (src[RSVP_DST_LEN-1] == f->src[RSVP_DST_LEN - 1] &&
 				    !(f->spi.mask & (*(u32 *)(xprt + f->spi.offset) ^ f->spi.key))
 #if RSVP_DST_LEN == 4
@@ -556,6 +562,10 @@ static int rsvp_change(struct net *net, struct sk_buff *in_skb,
 	}
 	if (tb[TCA_RSVP_PINFO]) {
 		pinfo = nla_data(tb[TCA_RSVP_PINFO]);
+		err = -EINVAL;
+		if (pinfo->spi.offset < 0 || pinfo->spi.offset > 65535 ||
+		    pinfo->dpi.offset < 0 || pinfo->dpi.offset > 65535)
+			goto errout;
 		f->spi = pinfo->spi;
 		f->tunnelhdr = pinfo->tunnelhdr;
 	}
