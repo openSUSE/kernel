@@ -1574,6 +1574,7 @@ EXPORT_SYMBOL_GPL(sock_map_unhash);
 
 void sock_map_destroy(struct sock *sk)
 {
+#ifndef __GENKSYMS__
 	void (*saved_destroy)(struct sock *sk);
 	struct sk_psock *psock;
 
@@ -1586,13 +1587,14 @@ void sock_map_destroy(struct sock *sk)
 		saved_destroy = psock->saved_destroy;
 		sock_map_remove_links(sk, psock);
 		rcu_read_unlock();
-		sk_psock_stop(psock);
+		sk_psock_stop_new(psock);
 		sk_psock_put(sk, psock);
 	}
 	if (WARN_ON_ONCE(saved_destroy == sock_map_destroy))
 		return;
 	if (saved_destroy)
 		saved_destroy(sk);
+#endif
 }
 EXPORT_SYMBOL_GPL(sock_map_destroy);
 
@@ -1612,7 +1614,7 @@ void sock_map_close(struct sock *sk, long timeout)
 		saved_close = psock->saved_close;
 		sock_map_remove_links(sk, psock);
 		rcu_read_unlock();
-		sk_psock_stop(psock);
+		sk_psock_stop_new(psock);
 		release_sock(sk);
 		cancel_work_sync(&psock->work);
 		sk_psock_put(sk, psock);

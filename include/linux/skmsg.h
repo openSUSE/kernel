@@ -95,7 +95,6 @@ struct sk_psock {
 	spinlock_t			link_lock;
 	refcount_t			refcnt;
 	void (*saved_unhash)(struct sock *sk);
-	void (*saved_destroy)(struct sock *sk);
 	void (*saved_close)(struct sock *sk, long timeout);
 	void (*saved_write_space)(struct sock *sk);
 	void (*saved_data_ready)(struct sock *sk);
@@ -106,6 +105,9 @@ struct sk_psock {
 	struct sk_psock_work_state	work_state;
 	struct work_struct		work;
 	struct rcu_work			rwork;
+#ifndef __GENKSYMS__
+	void (*saved_destroy)(struct sock *sk);
+#endif
 };
 
 int sk_msg_alloc(struct sock *sk, struct sk_msg *msg, int len,
@@ -375,7 +377,8 @@ static inline void sk_psock_report_error(struct sk_psock *psock, int err)
 }
 
 struct sk_psock *sk_psock_init(struct sock *sk, int node);
-void sk_psock_stop(struct sk_psock *psock);
+void sk_psock_stop_new(struct sk_psock *psock);
+void sk_psock_stop(struct sk_psock *psock, bool wait);
 
 #if IS_ENABLED(CONFIG_BPF_STREAM_PARSER)
 int sk_psock_init_strp(struct sock *sk, struct sk_psock *psock);
