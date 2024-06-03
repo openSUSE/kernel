@@ -6,6 +6,7 @@
 
 #include <uapi/linux/bpf.h>
 
+#include <linux/build_bug.h>
 #include <linux/workqueue.h>
 #include <linux/file.h>
 #include <linux/percpu.h>
@@ -1175,11 +1176,29 @@ struct bpf_link {
 	enum bpf_link_type type;
 	const struct bpf_link_ops *ops;
 	struct bpf_prog *prog;
-	struct work_struct work;
+#ifndef __GENKSYMS__
+	/* rcu is used before freeing, work can be used to schedule that
+	 * RCU-based freeing before that, so they never overlap
+	 */
+	union {
+		struct rcu_head rcu;
+#endif
+		struct work_struct work;
+#ifndef __GENKSYMS__
+	};
+#endif
 };
+
+#ifndef __GENKSYMS__
+/* Make sure the anonymous union above is not larger than before */
+static_assert(sizeof(struct rcu_head) <= sizeof(struct work_struct));
+#endif
 
 struct bpf_link_ops {
 	void (*release)(struct bpf_link *link);
+	/* deallocate link resources callback, called without RCU grace period
+	 * waiting
+	 */
 	void (*dealloc)(struct bpf_link *link);
 	int (*detach)(struct bpf_link *link);
 	int (*update_prog)(struct bpf_link *link, struct bpf_prog *new_prog,
@@ -1187,6 +1206,13 @@ struct bpf_link_ops {
 	void (*show_fdinfo)(const struct bpf_link *link, struct seq_file *seq);
 	int (*fill_link_info)(const struct bpf_link *link,
 			      struct bpf_link_info *info);
+#ifndef __GENKSYMS__
+	/* deallocate link resources callback, called after RCU grace period;
+	 * if underlying BPF program is sleepable we go through tasks trace
+	 * RCU GP and then "classic" RCU GP
+	 */
+	void (*dealloc_deferred)(struct bpf_link *link);
+#endif
 };
 
 struct bpf_tramp_link {
