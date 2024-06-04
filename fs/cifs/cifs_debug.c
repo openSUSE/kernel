@@ -55,7 +55,7 @@ void cifs_dump_mids(struct TCP_Server_Info *server)
 		return;
 
 	cifs_dbg(VFS, "Dump pending requests:\n");
-	spin_lock(&GlobalMid_Lock);
+	spin_lock(&server->mid_lock);
 	list_for_each_entry(mid_entry, &server->pending_mid_q, qhead) {
 		cifs_dbg(VFS, "State: %d Cmd: %d Pid: %d Cbdata: %p Mid %llu\n",
 			 mid_entry->mid_state,
@@ -78,7 +78,7 @@ void cifs_dump_mids(struct TCP_Server_Info *server)
 				mid_entry->resp_buf, 62);
 		}
 	}
-	spin_unlock(&GlobalMid_Lock);
+	spin_unlock(&server->mid_lock);
 #endif /* CONFIG_CIFS_DEBUG2 */
 }
 
@@ -378,6 +378,14 @@ skip_rdma:
 		seq_printf(m, "\nIn Send: %d In MaxReq Wait: %d",
 				atomic_read(&server->in_send),
 				atomic_read(&server->num_waiters));
+		if (IS_ENABLED(CONFIG_CIFS_DFS_UPCALL)) {
+			if (server->origin_fullpath)
+				seq_printf(m, "\nDFS origin full path: %s",
+					   server->origin_fullpath);
+			if (server->leaf_fullpath)
+				seq_printf(m, "\nDFS leaf full path:   %s",
+					   server->leaf_fullpath);
+		}
 
 		seq_printf(m, "\n\n\tSessions: ");
 		i = 0;
@@ -418,6 +426,11 @@ skip_rdma:
 			seq_printf(m, "\n\tUser: %d Cred User: %d",
 				   from_kuid(&init_user_ns, ses->linux_uid),
 				   from_kuid(&init_user_ns, ses->cred_uid));
+
+			if (ses->dfs_root_ses) {
+				seq_printf(m, "\n\tDFS root session id: 0x%llx",
+					   ses->dfs_root_ses->Suid);
+			}
 
 			spin_lock(&ses->chan_lock);
 			if (CIFS_CHAN_NEEDS_RECONNECT(ses, 0))
@@ -474,7 +487,7 @@ skip_rdma:
 			seq_printf(m, "\n\t\t[NONE]");
 
 		seq_puts(m, "\n\n\tMIDs: ");
-		spin_lock(&GlobalMid_Lock);
+		spin_lock(&server->mid_lock);
 		list_for_each(tmp3, &server->pending_mid_q) {
 			mid_entry = list_entry(tmp3, struct mid_q_entry,
 					qhead);
@@ -486,7 +499,7 @@ skip_rdma:
 					mid_entry->callback_data,
 					mid_entry->mid);
 		}
-		spin_unlock(&GlobalMid_Lock);
+		spin_unlock(&server->mid_lock);
 		seq_printf(m, "\n--\n");
 	}
 	if (c == 0)
