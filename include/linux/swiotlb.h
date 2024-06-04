@@ -104,7 +104,18 @@ struct io_tlb_mem {
 	struct io_tlb_slot {
 		phys_addr_t orig_addr;
 		size_t alloc_size;
+#ifdef __GENKSYMS__
 		unsigned int list;
+#else
+		/*
+		 * There is no public API to modify struct io_tlb_mem or
+		 * struct io_tlb_mem::io_tlb_slot. They are allocated and
+		 * dereferenced only inside swiotlb.c. The only instance of
+		 * struct io_tlb_mem is io_tlb_default_mem.
+		 */
+		unsigned short list;
+		unsigned short pad_slots;
+#endif
 	} *slots;
 #ifndef __GENKSYMS__
 	unsigned int nareas;
