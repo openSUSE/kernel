@@ -1184,6 +1184,7 @@ struct cifs_tcon {
 	/* BB add field for back pointer to sb struct(s)? */
 #ifdef CONFIG_CIFS_DFS_UPCALL
 	struct list_head ulist; /* cache update list */
+	struct list_head dfs_ses_list;
 #endif
 };
 
@@ -1692,8 +1693,8 @@ struct cifs_mount_ctx {
 	struct TCP_Server_Info *server;
 	struct cifs_ses *ses;
 	struct cifs_tcon *tcon;
-	uuid_t mount_id;
 	char *origin_fullpath, *leaf_fullpath;
+	struct list_head dfs_ses_list;
 };
 
 static inline void free_dfs_info_param(struct dfs_info3_param *param)
