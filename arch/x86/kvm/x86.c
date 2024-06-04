@@ -92,9 +92,7 @@
 #define MAX_IO_MSRS 256
 #define KVM_MAX_MCE_BANKS 32
 
-struct kvm_caps kvm_caps __read_mostly = {
-	.supported_mce_cap = MCG_CTL_P | MCG_SER_P,
-};
+struct kvm_caps kvm_caps __read_mostly;
 EXPORT_SYMBOL_GPL(kvm_caps);
 
 #define  ERR_PTR_USR(e)  ((void __user *)ERR_PTR(e))
@@ -2233,16 +2231,13 @@ static int do_set_msr(struct kvm_vcpu *vcpu, unsigned index, u64 *data)
 	/*
 	 * Disallow writes to immutable feature MSRs after KVM_RUN.  KVM does
 	 * not support modifying the guest vCPU model on the fly, e.g. changing
-	 * the nVMX capabilities while L2 is running is nonsensical.  Ignore
+	 * the nVMX capabilities while L2 is running is nonsensical.  Allow
 	 * writes of the same value, e.g. to allow userspace to blindly stuff
 	 * all MSRs when emulating RESET.
 	 */
-	if (kvm_vcpu_has_run(vcpu) && kvm_is_immutable_feature_msr(index)) {
-		if (do_get_msr(vcpu, index, &val) || *data != val)
-			return -EINVAL;
-
-		return 0;
-	}
+	if (kvm_vcpu_has_run(vcpu) && kvm_is_immutable_feature_msr(index) &&
+	    (do_get_msr(vcpu, index, &val) || *data != val))
+		return -EINVAL;
 
 	return kvm_set_msr_ignored_check(vcpu, index, *data, true);
 }
@@ -2860,7 +2855,11 @@ static inline u64 vgettsc(struct pvclock_clock *clock, u64 *tsc_timestamp,
 	return v * clock->mult;
 }
 
-static int do_monotonic_raw(s64 *t, u64 *tsc_timestamp)
+/*
+ * As with get_kvmclock_base_ns(), this counts from boot time, at the
+ * frequency of CLOCK_MONOTONIC_RAW (hence adding gtos->offs_boot).
+ */
+static int do_kvmclock_base(s64 *t, u64 *tsc_timestamp)
 {
 	struct pvclock_gtod_data *gtod = &pvclock_gtod_data;
 	unsigned long seq;
@@ -2873,6 +2872,29 @@ static int do_monotonic_raw(s64 *t, u64 *tsc_timestamp)
 		ns += vgettsc(&gtod->raw_clock, tsc_timestamp, &mode);
 		ns >>= gtod->raw_clock.shift;
 		ns += ktime_to_ns(ktime_add(gtod->raw_clock.offset, gtod->offs_boot));
+	} while (unlikely(read_seqcount_retry(&gtod->seq, seq)));
+	*t = ns;
+
+	return mode;
+}
+
+/*
+ * This calculates CLOCK_MONOTONIC at the time of the TSC snapshot, with
+ * no boot time offset.
+ */
+static int do_monotonic(s64 *t, u64 *tsc_timestamp)
+{
+	struct pvclock_gtod_data *gtod = &pvclock_gtod_data;
+	unsigned long seq;
+	int mode;
+	u64 ns;
+
+	do {
+		seq = read_seqcount_begin(&gtod->seq);
+		ns = gtod->clock.base_cycles;
+		ns += vgettsc(&gtod->clock, tsc_timestamp, &mode);
+		ns >>= gtod->clock.shift;
+		ns += ktime_to_ns(gtod->clock.offset);
 	} while (unlikely(read_seqcount_retry(&gtod->seq, seq)));
 	*t = ns;
 
@@ -2900,18 +2922,42 @@ static int do_realtime(struct timespec64 *ts, u64 *tsc_timestamp)
 	return mode;
 }
 
-/* returns true if host is using TSC based clocksource */
+/*
+ * Calculates the kvmclock_base_ns (CLOCK_MONOTONIC_RAW + boot time) and
+ * reports the TSC value from which it do so. Returns true if host is
+ * using TSC based clocksource.
+ */
 static bool kvm_get_time_and_clockread(s64 *kernel_ns, u64 *tsc_timestamp)
 {
 	/* checked again under seqlock below */
 	if (!gtod_is_based_on_tsc(pvclock_gtod_data.clock.vclock_mode))
 		return false;
 
-	return gtod_is_based_on_tsc(do_monotonic_raw(kernel_ns,
-						      tsc_timestamp));
+	return gtod_is_based_on_tsc(do_kvmclock_base(kernel_ns,
+						     tsc_timestamp));
 }
 
-/* returns true if host is using TSC based clocksource */
+/*
+ * Calculates CLOCK_MONOTONIC and reports the TSC value from which it did
+ * so. Returns true if host is using TSC based clocksource.
+ */
+bool kvm_get_monotonic_and_clockread(s64 *kernel_ns, u64 *tsc_timestamp)
+{
+	/* checked again under seqlock below */
+	if (!gtod_is_based_on_tsc(pvclock_gtod_data.clock.vclock_mode))
+		return false;
+
+	return gtod_is_based_on_tsc(do_monotonic(kernel_ns,
+						 tsc_timestamp));
+}
+
+/*
+ * Calculates CLOCK_REALTIME and reports the TSC value from which it did
+ * so. Returns true if host is using TSC based clocksource.
+ *
+ * DO NOT USE this for anything related to migration. You want CLOCK_TAI
+ * for that.
+ */
 static bool kvm_get_walltime_and_clockread(struct timespec64 *ts,
 					   u64 *tsc_timestamp)
 {
@@ -3422,7 +3468,7 @@ static bool is_mci_status_msr(u32 msr)
 static bool can_set_mci_status(struct kvm_vcpu *vcpu)
 {
 	/* McStatusWrEn enabled? */
-	if (guest_cpuid_is_amd_or_hygon(vcpu))
+	if (guest_cpuid_is_amd_compatible(vcpu))
 		return !!(vcpu->arch.msr_hwcr & BIT_ULL(18));
 
 	return false;
@@ -4583,7 +4629,7 @@ static bool kvm_is_vm_type_supported(unsigned long type)
 {
 	return type == KVM_X86_DEFAULT_VM ||
 	       (type == KVM_X86_SW_PROTECTED_VM &&
-		IS_ENABLED(CONFIG_KVM_SW_PROTECTED_VM) && tdp_enabled);
+		IS_ENABLED(CONFIG_KVM_SW_PROTECTED_VM) && tdp_mmu_enabled);
 }
 
 int kvm_vm_ioctl_check_extension(struct kvm *kvm, long ext)
@@ -5513,9 +5559,14 @@ static void kvm_vcpu_ioctl_x86_get_debugregs(struct kvm_vcpu *vcpu,
 					     struct kvm_debugregs *dbgregs)
 {
 	unsigned long val;
+	unsigned int i;
 
 	memset(dbgregs, 0, sizeof(*dbgregs));
-	memcpy(dbgregs->db, vcpu->arch.db, sizeof(vcpu->arch.db));
+
+	BUILD_BUG_ON(ARRAY_SIZE(vcpu->arch.db) != ARRAY_SIZE(dbgregs->db));
+	for (i = 0; i < ARRAY_SIZE(vcpu->arch.db); i++)
+		dbgregs->db[i] = vcpu->arch.db[i];
+
 	kvm_get_dr(vcpu, 6, &val);
 	dbgregs->dr6 = val;
 	dbgregs->dr7 = vcpu->arch.dr7;
@@ -5524,6 +5575,8 @@ static void kvm_vcpu_ioctl_x86_get_debugregs(struct kvm_vcpu *vcpu,
 static int kvm_vcpu_ioctl_x86_set_debugregs(struct kvm_vcpu *vcpu,
 					    struct kvm_debugregs *dbgregs)
 {
+	unsigned int i;
+
 	if (dbgregs->flags)
 		return -EINVAL;
 
@@ -5532,7 +5585,9 @@ static int kvm_vcpu_ioctl_x86_set_debugregs(struct kvm_vcpu *vcpu,
 	if (!kvm_dr7_valid(dbgregs->dr7))
 		return -EINVAL;
 
-	memcpy(vcpu->arch.db, dbgregs->db, sizeof(vcpu->arch.db));
+	for (i = 0; i < ARRAY_SIZE(vcpu->arch.db); i++)
+		vcpu->arch.db[i] = dbgregs->db[i];
+
 	kvm_update_dr0123(vcpu);
 	vcpu->arch.dr6 = dbgregs->dr6;
 	vcpu->arch.dr7 = dbgregs->dr7;
@@ -8010,6 +8065,16 @@ static int emulator_cmpxchg_emulated(struct x86_emulate_ctxt *ctxt,
 
 	if (r < 0)
 		return X86EMUL_UNHANDLEABLE;
+
+	/*
+	 * Mark the page dirty _before_ checking whether or not the CMPXCHG was
+	 * successful, as the old value is written back on failure.  Note, for
+	 * live migration, this is unnecessarily conservative as CMPXCHG writes
+	 * back the original value and the access is atomic, but KVM's ABI is
+	 * that all writes are dirty logged, regardless of the value written.
+	 */
+	kvm_vcpu_mark_page_dirty(vcpu, gpa_to_gfn(gpa));
+
 	if (r)
 		return X86EMUL_CMPXCHG_FAILED;
 
@@ -8398,9 +8463,7 @@ static int emulator_get_msr(struct x86_emulate_ctxt *ctxt,
 static int emulator_check_pmc(struct x86_emulate_ctxt *ctxt,
 			      u32 pmc)
 {
-	if (kvm_pmu_is_valid_rdpmc_ecx(emul_to_vcpu(ctxt), pmc))
-		return 0;
-	return -EINVAL;
+	return kvm_pmu_is_valid_rdpmc_ecx(emul_to_vcpu(ctxt), pmc);
 }
 
 static int emulator_read_pmc(struct x86_emulate_ctxt *ctxt,
@@ -9694,6 +9757,8 @@ static int __kvm_x86_vendor_init(struct kvm_x86_init_ops *ops)
 	if (r)
 		goto out_free_percpu;
 
+	kvm_caps.supported_mce_cap = MCG_CTL_P | MCG_SER_P;
+
 	if (boot_cpu_has(X86_FEATURE_XSAVE)) {
 		host_xcr0 = xgetbv(XCR_XFEATURE_ENABLED_MASK);
 		kvm_caps.supported_xcr0 = host_xcr0 & KVM_SUPPORTED_XCR0;
@@ -9950,15 +10015,12 @@ static void set_or_clear_apicv_inhibit(unsigned long *inhibits,
 
 static void kvm_apicv_init(struct kvm *kvm)
 {
-	unsigned long *inhibits = &kvm->arch.apicv_inhibit_reasons;
+	enum kvm_apicv_inhibit reason = enable_apicv ? APICV_INHIBIT_REASON_ABSENT :
+						       APICV_INHIBIT_REASON_DISABLE;
+
+	set_or_clear_apicv_inhibit(&kvm->arch.apicv_inhibit_reasons, reason, true);
 
 	init_rwsem(&kvm->arch.apicv_update_lock);
-
-	set_or_clear_apicv_inhibit(inhibits, APICV_INHIBIT_REASON_ABSENT, true);
-
-	if (!enable_apicv)
-		set_or_clear_apicv_inhibit(inhibits,
-					   APICV_INHIBIT_REASON_DISABLE, true);
 }
 
 static void kvm_sched_yield(struct kvm_vcpu *vcpu, unsigned long dest_id)

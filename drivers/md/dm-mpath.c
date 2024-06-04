@@ -33,6 +33,7 @@
 #include <scsi/sg.h>
 #include <linux/atomic.h>
 #include <linux/blk-mq.h>
+#include <uapi/linux/major.h>
 
 static struct workqueue_struct *dm_mpath_wq;
 
@@ -2303,12 +2304,27 @@ enum {
 	SG_IO_SWITCH_PATH,
 };
 
+static bool is_scsi_disk(const struct block_device *path_dev)
+{
+	int major = path_dev->bd_disk->major;
+
+	return major == SCSI_DISK0_MAJOR ||
+		(major >= SCSI_DISK1_MAJOR && major <= SCSI_DISK7_MAJOR) ||
+		(major >= SCSI_DISK8_MAJOR && major <= SCSI_DISK15_MAJOR);
+}
+
 static int path_sg_io(const struct block_device *path_dev, struct sg_io_hdr *hdr,
 		      bool open_for_write)
 {
 	struct scsi_device *sdev;
 	blk_status_t blkstat;
 	int rc;
+
+	if (!is_scsi_disk(path_dev)) {
+		dev_warn_ratelimited(&path_dev->bd_disk->part0->bd_device,
+				     "attempt to do SG_IO on non-SCSI device\n");
+		return -EINVAL;
+	}
 
 	sdev = path_dev->bd_disk->queue->queuedata;
 	rc = sg_io(sdev, hdr, open_for_write);

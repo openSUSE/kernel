@@ -661,6 +661,14 @@ error_free_page:
 	return -EINVAL;
 }
 
+u8 *btrfs_sb_fsid_ptr(struct btrfs_super_block *sb)
+{
+	bool has_metadata_uuid = (btrfs_super_incompat_flags(sb) &
+				  BTRFS_FEATURE_INCOMPAT_METADATA_UUID);
+
+	return has_metadata_uuid ? sb->metadata_uuid : sb->fsid;
+}
+
 /*
  * Handle scanned device having its CHANGING_FSID_V2 flag set and the fs_devices
  * being created with a disk that has already completed its fsid change. Such
@@ -1414,9 +1422,9 @@ static bool contains_pending_extent(struct btrfs_device *device, u64 *start,
 
 	lockdep_assert_held(&device->fs_info->chunk_mutex);
 
-	if (!find_first_extent_bit(&device->alloc_state, *start,
-				   &physical_start, &physical_end,
-				   CHUNK_ALLOCATED, NULL)) {
+	if (find_first_extent_bit(&device->alloc_state, *start,
+				  &physical_start, &physical_end,
+				  CHUNK_ALLOCATED, NULL)) {
 
 		if (in_range(physical_start, *start, len) ||
 		    in_range(*start, physical_start,
@@ -1428,18 +1436,18 @@ static bool contains_pending_extent(struct btrfs_device *device, u64 *start,
 	return false;
 }
 
-static u64 dev_extent_search_start(struct btrfs_device *device, u64 start)
+static u64 dev_extent_search_start(struct btrfs_device *device)
 {
 	switch (device->fs_devices->chunk_alloc_policy) {
 	case BTRFS_CHUNK_ALLOC_REGULAR:
-		return max_t(u64, start, BTRFS_DEVICE_RANGE_RESERVED);
+		return BTRFS_DEVICE_RANGE_RESERVED;
 	case BTRFS_CHUNK_ALLOC_ZONED:
 		/*
 		 * We don't care about the starting region like regular
 		 * allocator, because we anyway use/reserve the first two zones
 		 * for superblock logging.
 		 */
-		return ALIGN(start, device->zone_info->zone_size);
+		return 0;
 	default:
 		BUG();
 	}
@@ -1571,15 +1579,15 @@ static bool dev_extent_hole_check(struct btrfs_device *device, u64 *hole_start,
  * correct usable device space, as device extent freed in current transaction
  * is not reported as available.
  */
-static int find_free_dev_extent_start(struct btrfs_device *device,
-				u64 num_bytes, u64 search_start, u64 *start,
-				u64 *len)
+static int find_free_dev_extent(struct btrfs_device *device, u64 num_bytes,
+				u64 *start, u64 *len)
 {
 	struct btrfs_fs_info *fs_info = device->fs_info;
 	struct btrfs_root *root = fs_info->dev_root;
 	struct btrfs_key key;
 	struct btrfs_dev_extent *dev_extent;
 	struct btrfs_path *path;
+	u64 search_start;
 	u64 hole_size;
 	u64 max_hole_start;
 	u64 max_hole_size;
@@ -1589,7 +1597,7 @@ static int find_free_dev_extent_start(struct btrfs_device *device,
 	int slot;
 	struct extent_buffer *l;
 
-	search_start = dev_extent_search_start(device, search_start);
+	search_start = dev_extent_search_start(device);
 
 	WARN_ON(device->zone_info &&
 		!IS_ALIGNED(num_bytes, device->zone_info->zone_size));
@@ -1713,13 +1721,6 @@ out:
 	if (len)
 		*len = max_hole_size;
 	return ret;
-}
-
-int find_free_dev_extent(struct btrfs_device *device, u64 num_bytes,
-			 u64 *start, u64 *len)
-{
-	/* FIXME use last free of some kind */
-	return find_free_dev_extent_start(device, num_bytes, 0, start, len);
 }
 
 static int btrfs_free_dev_extent(struct btrfs_trans_handle *trans,
@@ -3043,15 +3044,16 @@ struct extent_map *btrfs_get_chunk_map(struct btrfs_fs_info *fs_info,
 	read_unlock(&em_tree->lock);
 
 	if (!em) {
-		btrfs_crit(fs_info, "unable to find logical %llu length %llu",
+		btrfs_crit(fs_info,
+			   "unable to find chunk map for logical %llu length %llu",
 			   logical, length);
 		return ERR_PTR(-EINVAL);
 	}
 
 	if (em->start > logical || em->start + em->len <= logical) {
 		btrfs_crit(fs_info,
-			   "found a bad mapping, wanted %llu-%llu, found %llu-%llu",
-			   logical, length, em->start, em->start + em->len);
+			   "found a bad chunk map, wanted %llu-%llu, found %llu-%llu",
+			   logical, logical + length, em->start, em->start + em->len);
 		free_extent_map(em);
 		return ERR_PTR(-EINVAL);
 	}

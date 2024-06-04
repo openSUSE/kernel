@@ -80,9 +80,10 @@ config KVM_SW_PROTECTED_VM
 	depends on KVM && X86_64
 	select KVM_GENERIC_PRIVATE_MEM
 	help
-	  Enable support for KVM software-protected VMs.  Currently "protected"
-	  means the VM can be backed with memory provided by
-	  KVM_CREATE_GUEST_MEMFD.
+	  Enable support for KVM software-protected VMs.  Currently, software-
+	  protected VMs are purely a development and testing vehicle for
+	  KVM_CREATE_GUEST_MEMFD.  Attempting to run a "real" VM workload as a
+	  software-protected VM will fail miserably.
 
 	  If unsure, say "N".
 
@@ -123,6 +124,7 @@ config KVM_AMD_SEV
 	bool "AMD Secure Encrypted Virtualization (SEV) support"
 	depends on KVM_AMD && X86_64
 	depends on CRYPTO_DEV_SP_PSP && !(KVM_AMD=y && CRYPTO_DEV_CCP_DD=m)
+	select ARCH_HAS_CC_PLATFORM
 	help
 	  Provides support for launching Encrypted VMs (SEV) and Encrypted VMs
 	  with Encrypted State (SEV-ES) on AMD processors.
