@@ -35,12 +35,21 @@
  * SOFTWARE.
  */
 
+#include <linux/bug.h>
 #include <linux/sched/signal.h>
 #include <linux/module.h>
 #include <crypto/aead.h>
 
 #include <net/strparser.h>
 #include <net/tls.h>
+
+noinline void tls_err_abort(struct sock *sk, int err)
+{
+	WARN_ON_ONCE(err >= 0);
+	/* sk->sk_err should contain a positive error code. */
+	sk->sk_err = -err;
+	sk->sk_error_report(sk);
+}
 
 static int __skb_nsg(struct sk_buff *skb, int offset, int len,
                      unsigned int recursion_level)
@@ -418,7 +427,7 @@ int tls_tx_records(struct sock *sk, int flags)
 
 tx_err:
 	if (rc < 0 && rc != -EAGAIN)
-		tls_err_abort(sk, EBADMSG);
+		tls_err_abort(sk, -EBADMSG);
 
 	return rc;
 }
@@ -759,7 +768,7 @@ static int tls_push_record(struct sock *sk, int flags,
 			       msg_pl->sg.size + prot->tail_size, i);
 	if (rc < 0) {
 		if (rc != -EINPROGRESS) {
-			tls_err_abort(sk, EBADMSG);
+			tls_err_abort(sk, -EBADMSG);
 			if (split) {
 				tls_ctx->pending_open_record_frags = true;
 				tls_merge_open_record(sk, rec, tmp, orig_end);
@@ -1813,7 +1822,7 @@ int tls_sw_recvmsg(struct sock *sk,
 		err = decrypt_skb_update(sk, skb, &msg->msg_iter,
 					 &chunk, &zc, async_capable);
 		if (err < 0 && err != -EINPROGRESS) {
-			tls_err_abort(sk, EBADMSG);
+			tls_err_abort(sk, -EBADMSG);
 			goto recv_end;
 		}
 
@@ -1980,7 +1989,7 @@ ssize_t tls_sw_splice_read(struct socket *sock,  loff_t *ppos,
 		}
 
 		if (err < 0) {
-			tls_err_abort(sk, EBADMSG);
+			tls_err_abort(sk, -EBADMSG);
 			goto splice_read_end;
 		}
 		ctx->decrypted = 1;
