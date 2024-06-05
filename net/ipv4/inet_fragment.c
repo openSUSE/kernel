@@ -24,6 +24,10 @@
 #include <net/ip.h>
 #include <net/ipv6.h>
 
+#ifndef __GENKSYMS__
+#include <net/tcp.h>
+#endif
+
 /* Use skb->cb to track consecutive/adjacent fragments coming at
  * the end of the queue. Nodes in the rb-tree queue will
  * contain "runs" of one or more adjacent fragments.
