@@ -3769,7 +3769,7 @@ static int parse_insn_trace(const struct option *opt __maybe_unused,
 			    int unset __maybe_unused)
 {
 	parse_output_fields(NULL, "+insn,-event,-period", 0);
-	itrace_parse_synth_opts(opt, "i0ns", 0);
+	itrace_parse_synth_opts(opt, "i0nse", 0);
 	symbol_conf.nanosecs = true;
 	return 0;
 }
