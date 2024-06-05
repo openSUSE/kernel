@@ -95,6 +95,7 @@ sesInfoFree(struct cifs_ses *buf_to_free)
 		return;
 	}
 
+	unload_nls(buf_to_free->local_nls);
 	atomic_dec(&sesInfoAllocCount);
 	kfree(buf_to_free->serverOS);
 	kfree(buf_to_free->serverDomain);
@@ -135,9 +136,7 @@ tconInfoAlloc(void)
 	spin_lock_init(&ret_buf->stat_lock);
 	atomic_set(&ret_buf->num_local_opens, 0);
 	atomic_set(&ret_buf->num_remote_opens, 0);
-#ifdef CONFIG_CIFS_DFS_UPCALL
-	INIT_LIST_HEAD(&ret_buf->dfs_ses_list);
-#endif
+	ret_buf->stats_from_time = ktime_get_real_seconds();
 
 	return ret_buf;
 }
@@ -153,9 +152,6 @@ tconInfoFree(struct cifs_tcon *tcon)
 	atomic_dec(&tconInfoAllocCount);
 	kfree(tcon->nativeFileSystem);
 	kfree_sensitive(tcon->password);
-#ifdef CONFIG_CIFS_DFS_UPCALL
-	dfs_put_root_smb_sessions(&tcon->dfs_ses_list);
-#endif
 	kfree(tcon->origin_fullpath);
 	kfree(tcon);
 }
@@ -484,6 +480,8 @@ is_valid_oplock_break(char *buffer, struct TCP_Server_Info *srv)
 	/* look up tcon based on tid & uid */
 	spin_lock(&cifs_tcp_ses_lock);
 	list_for_each_entry(ses, &pserver->smb_ses_list, smb_ses_list) {
+		if (cifs_ses_exiting(ses))
+			continue;
 		list_for_each_entry(tcon, &ses->tcon_list, tcon_list) {
 			if (tcon->tid != buf->Tid)
 				continue;
