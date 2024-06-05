@@ -645,7 +645,7 @@ static int swiotlb_do_find_slots(struct device *dev, int area_index,
 	 * allocations.
 	 */
 	if (alloc_size >= PAGE_SIZE)
-		stride = max(stride, PAGE_SHIFT - IO_TLB_SHIFT + 1);
+		stride = min_t(unsigned int, stride, PAGE_SHIFT - IO_TLB_SHIFT + 1);
 
 	spin_lock_irqsave(&area->lock, flags);
 	if (unlikely(nslots > mem->area_nslabs - area->used))
