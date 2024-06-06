@@ -799,6 +799,7 @@ static struct tc_action_ops act_tunnel_key_ops = {
 	.lookup		=	tunnel_key_search,
 	.size		=	sizeof(struct tcf_tunnel_key),
 };
+MODULE_ALIAS_NET_ACT("tunnel_key");
 
 static __net_init int tunnel_key_init_net(struct net *net)
 {

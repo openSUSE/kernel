@@ -341,6 +341,7 @@ static struct tc_action_ops act_skbedit_ops = {
 	.lookup		=	tcf_skbedit_search,
 	.size		=	sizeof(struct tcf_skbedit),
 };
+MODULE_ALIAS_NET_ACT("skbedit");
 
 static __net_init int skbedit_init_net(struct net *net)
 {

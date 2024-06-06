@@ -761,6 +761,7 @@ static struct tcf_proto_ops RSVP_OPS __read_mostly = {
 	.bind_class	=	rsvp_bind_class,
 	.owner		=	THIS_MODULE,
 };
+MODULE_ALIAS_NET_CLS(RSVP_ID);
 
 static int __init init_rsvp(void)
 {

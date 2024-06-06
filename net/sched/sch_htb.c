@@ -2180,6 +2180,7 @@ static struct Qdisc_ops htb_qdisc_ops __read_mostly = {
 	.dump		=	htb_dump,
 	.owner		=	THIS_MODULE,
 };
+MODULE_ALIAS_NET_SCH("htb");
 
 static int __init htb_module_init(void)
 {
