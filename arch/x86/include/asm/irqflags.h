@@ -144,13 +144,6 @@ static inline notrace unsigned long arch_local_irq_save(void)
 #define SWAPGS_UNSAFE_STACK	swapgs
 
 #define INTERRUPT_RETURN	jmp native_iret
-#define USERGS_SYSRET64				\
-	swapgs;					\
-	CLEAR_CPU_BUFFERS;			\
-	sysretq;
-#define USERGS_SYSRET32				\
-	swapgs;					\
-	sysretl
 
 #else
 #define INTERRUPT_RETURN		iret

@@ -137,6 +137,12 @@ struct smc_link {
 	atomic_t		conn_cnt; /* connections on this link */
 };
 
+/* Extra fields removed from struct smc_link to preserve kABI. */
+struct smc_link_kabi_fixup {
+	u64			wr_rx_id_compl; /* seq # of last completed WR */
+	wait_queue_head_t       wr_rx_empty_wait; /* wait for RQ empty */
+};
+
 /* For now we just allow one parallel link per link group. The SMC protocol
  * allows more (up to 8).
  */
@@ -286,6 +292,10 @@ struct smc_link_group {
 						/* link keep alive time */
 			u32			llc_termination_rsn;
 						/* rsn code for termination */
+#ifndef __GENKSYMS__
+			/* extra lnk fields */
+			struct smc_link_kabi_fixup lnk_kabi_fixup[SMC_LINKS_PER_LGR_MAX];
+#endif
 		};
 		struct { /* SMC-D */
 			u64			peer_gid;

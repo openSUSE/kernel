@@ -157,9 +157,11 @@ static void _cifs_mid_q_entry_release(struct kref *refcount)
 
 void cifs_mid_q_entry_release(struct mid_q_entry *midEntry)
 {
-	spin_lock(&GlobalMid_Lock);
+	struct TCP_Server_Info *server = midEntry->server;
+
+	spin_lock(&server->mid_lock);
 	kref_put(&midEntry->refcount, _cifs_mid_q_entry_release);
-	spin_unlock(&GlobalMid_Lock);
+	spin_unlock(&server->mid_lock);
 }
 
 void DeleteMidQEntry(struct mid_q_entry *midEntry)
@@ -170,12 +172,12 @@ void DeleteMidQEntry(struct mid_q_entry *midEntry)
 void
 cifs_delete_mid(struct mid_q_entry *mid)
 {
-	spin_lock(&GlobalMid_Lock);
+	spin_lock(&mid->server->mid_lock);
 	if (!(mid->mid_flags & MID_DELETED)) {
 		list_del_init(&mid->qhead);
 		mid->mid_flags |= MID_DELETED;
 	}
-	spin_unlock(&GlobalMid_Lock);
+	spin_unlock(&mid->server->mid_lock);
 
 	DeleteMidQEntry(mid);
 }
@@ -553,6 +555,16 @@ wait_for_free_credits(struct TCP_Server_Info *server, const int num_credits,
 	}
 
 	while (1) {
+		spin_unlock(&server->req_lock);
+
+		spin_lock(&server->srv_lock);
+		if (server->tcpStatus == CifsExiting) {
+			spin_unlock(&server->srv_lock);
+			return -ENOENT;
+		}
+		spin_unlock(&server->srv_lock);
+
+		spin_lock(&server->req_lock);
 		if (*credits < num_credits) {
 			scredits = *credits;
 			spin_unlock(&server->req_lock);
@@ -578,15 +590,6 @@ wait_for_free_credits(struct TCP_Server_Info *server, const int num_credits,
 				return -ERESTARTSYS;
 			spin_lock(&server->req_lock);
 		} else {
-			spin_unlock(&server->req_lock);
-
-			spin_lock(&cifs_tcp_ses_lock);
-			if (server->tcpStatus == CifsExiting) {
-				spin_unlock(&cifs_tcp_ses_lock);
-				return -ENOENT;
-			}
-			spin_unlock(&cifs_tcp_ses_lock);
-
 			/*
 			 * For normal commands, reserve the last MAX_COMPOUND
 			 * credits to compound requests.
@@ -600,7 +603,6 @@ wait_for_free_credits(struct TCP_Server_Info *server, const int num_credits,
 			 * for servers that are slow to hand out credits on
 			 * new sessions.
 			 */
-			spin_lock(&server->req_lock);
 			if (!optype && num_credits == 1 &&
 			    server->in_flight > 2 * MAX_COMPOUND &&
 			    *credits <= MAX_COMPOUND) {
@@ -728,11 +730,11 @@ cifs_wait_mtu_credits(struct TCP_Server_Info *server, unsigned int size,
 static int allocate_mid(struct cifs_ses *ses, struct smb_hdr *in_buf,
 			struct mid_q_entry **ppmidQ)
 {
-	spin_lock(&cifs_tcp_ses_lock);
+	spin_lock(&ses->ses_lock);
 	if (ses->ses_status == SES_NEW) {
 		if ((in_buf->Command != SMB_COM_SESSION_SETUP_ANDX) &&
 			(in_buf->Command != SMB_COM_NEGOTIATE)) {
-			spin_unlock(&cifs_tcp_ses_lock);
+			spin_unlock(&ses->ses_lock);
 			return -EAGAIN;
 		}
 		/* else ok - we are setting up session */
@@ -741,19 +743,19 @@ static int allocate_mid(struct cifs_ses *ses, struct smb_hdr *in_buf,
 	if (ses->ses_status == SES_EXITING) {
 		/* check if SMB session is bad because we are setting it up */
 		if (in_buf->Command != SMB_COM_LOGOFF_ANDX) {
-			spin_unlock(&cifs_tcp_ses_lock);
+			spin_unlock(&ses->ses_lock);
 			return -EAGAIN;
 		}
 		/* else ok - we are shutting down session */
 	}
-	spin_unlock(&cifs_tcp_ses_lock);
+	spin_unlock(&ses->ses_lock);
 
 	*ppmidQ = AllocMidQEntry(in_buf, ses->server);
 	if (*ppmidQ == NULL)
 		return -ENOMEM;
-	spin_lock(&GlobalMid_Lock);
+	spin_lock(&ses->server->mid_lock);
 	list_add_tail(&(*ppmidQ)->qhead, &ses->server->pending_mid_q);
-	spin_unlock(&GlobalMid_Lock);
+	spin_unlock(&ses->server->mid_lock);
 	return 0;
 }
 
@@ -853,9 +855,9 @@ cifs_call_async(struct TCP_Server_Info *server, struct smb_rqst *rqst,
 	mid->mid_state = MID_REQUEST_SUBMITTED;
 
 	/* put it on the pending_mid_q */
-	spin_lock(&GlobalMid_Lock);
+	spin_lock(&server->mid_lock);
 	list_add_tail(&mid->qhead, &server->pending_mid_q);
-	spin_unlock(&GlobalMid_Lock);
+	spin_unlock(&server->mid_lock);
 
 	/*
 	 * Need to store the time in mid before calling I/O. For call_async,
@@ -916,10 +918,10 @@ cifs_sync_mid_result(struct mid_q_entry *mid, struct TCP_Server_Info *server)
 	cifs_dbg(FYI, "%s: cmd=%d mid=%llu state=%d\n",
 		 __func__, le16_to_cpu(mid->command), mid->mid, mid->mid_state);
 
-	spin_lock(&GlobalMid_Lock);
+	spin_lock(&server->mid_lock);
 	switch (mid->mid_state) {
 	case MID_RESPONSE_READY:
-		spin_unlock(&GlobalMid_Lock);
+		spin_unlock(&server->mid_lock);
 		return rc;
 	case MID_RETRY_NEEDED:
 		rc = -EAGAIN;
@@ -939,7 +941,7 @@ cifs_sync_mid_result(struct mid_q_entry *mid, struct TCP_Server_Info *server)
 			 __func__, mid->mid, mid->mid_state);
 		rc = -EIO;
 	}
-	spin_unlock(&GlobalMid_Lock);
+	spin_unlock(&server->mid_lock);
 
 	DeleteMidQEntry(mid);
 	return rc;
@@ -1085,12 +1087,12 @@ compound_send_recv(const unsigned int xid, struct cifs_ses *ses,
 		return -EIO;
 	}
 
-	spin_lock(&cifs_tcp_ses_lock);
+	spin_lock(&server->srv_lock);
 	if (server->tcpStatus == CifsExiting) {
-		spin_unlock(&cifs_tcp_ses_lock);
+		spin_unlock(&server->srv_lock);
 		return -ENOENT;
 	}
-	spin_unlock(&cifs_tcp_ses_lock);
+	spin_unlock(&server->srv_lock);
 
 	/*
 	 * Wait for all the requests to become available.
@@ -1193,17 +1195,17 @@ compound_send_recv(const unsigned int xid, struct cifs_ses *ses,
 	/*
 	 * Compounding is never used during session establish.
 	 */
-	spin_lock(&cifs_tcp_ses_lock);
+	spin_lock(&ses->ses_lock);
 	if ((ses->ses_status == SES_NEW) || (optype & CIFS_NEG_OP) || (optype & CIFS_SESS_OP)) {
-		spin_unlock(&cifs_tcp_ses_lock);
+		spin_unlock(&ses->ses_lock);
 
 		cifs_server_lock(server);
 		smb311_update_preauth_hash(ses, server, rqst[0].rq_iov, rqst[0].rq_nvec);
 		cifs_server_unlock(server);
 
-		spin_lock(&cifs_tcp_ses_lock);
+		spin_lock(&ses->ses_lock);
 	}
-	spin_unlock(&cifs_tcp_ses_lock);
+	spin_unlock(&ses->ses_lock);
 
 	for (i = 0; i < num_rqst; i++) {
 		rc = wait_for_response(server, midQ[i]);
@@ -1215,7 +1217,7 @@ compound_send_recv(const unsigned int xid, struct cifs_ses *ses,
 			cifs_server_dbg(FYI, "Cancelling wait for mid %llu cmd: %d\n",
 				 midQ[i]->mid, le16_to_cpu(midQ[i]->command));
 			send_cancel(server, &rqst[i], midQ[i]);
-			spin_lock(&GlobalMid_Lock);
+			spin_lock(&server->mid_lock);
 			midQ[i]->mid_flags |= MID_WAIT_CANCELLED;
 			if (midQ[i]->mid_state == MID_REQUEST_SUBMITTED ||
 			    midQ[i]->mid_state == MID_RESPONSE_RECEIVED) {
@@ -1223,7 +1225,7 @@ compound_send_recv(const unsigned int xid, struct cifs_ses *ses,
 				cancelled_mid[i] = true;
 				credits[i].value = 0;
 			}
-			spin_unlock(&GlobalMid_Lock);
+			spin_unlock(&server->mid_lock);
 		}
 	}
 
@@ -1267,19 +1269,19 @@ compound_send_recv(const unsigned int xid, struct cifs_ses *ses,
 	/*
 	 * Compounding is never used during session establish.
 	 */
-	spin_lock(&cifs_tcp_ses_lock);
+	spin_lock(&ses->ses_lock);
 	if ((ses->ses_status == SES_NEW) || (optype & CIFS_NEG_OP) || (optype & CIFS_SESS_OP)) {
 		struct kvec iov = {
 			.iov_base = resp_iov[0].iov_base,
 			.iov_len = resp_iov[0].iov_len
 		};
-		spin_unlock(&cifs_tcp_ses_lock);
+		spin_unlock(&ses->ses_lock);
 		cifs_server_lock(server);
 		smb311_update_preauth_hash(ses, server, &iov, 1);
 		cifs_server_unlock(server);
-		spin_lock(&cifs_tcp_ses_lock);
+		spin_lock(&ses->ses_lock);
 	}
-	spin_unlock(&cifs_tcp_ses_lock);
+	spin_unlock(&ses->ses_lock);
 
 out:
 	/*
@@ -1368,12 +1370,12 @@ SendReceive(const unsigned int xid, struct cifs_ses *ses,
 		return -EIO;
 	}
 
-	spin_lock(&cifs_tcp_ses_lock);
+	spin_lock(&server->srv_lock);
 	if (server->tcpStatus == CifsExiting) {
-		spin_unlock(&cifs_tcp_ses_lock);
+		spin_unlock(&server->srv_lock);
 		return -ENOENT;
 	}
-	spin_unlock(&cifs_tcp_ses_lock);
+	spin_unlock(&server->srv_lock);
 
 	/* Ensure that we do not send more than 50 overlapping requests
 	   to the same server. We may make this configurable later or
@@ -1427,16 +1429,16 @@ SendReceive(const unsigned int xid, struct cifs_ses *ses,
 	rc = wait_for_response(server, midQ);
 	if (rc != 0) {
 		send_cancel(server, &rqst, midQ);
-		spin_lock(&GlobalMid_Lock);
+		spin_lock(&server->mid_lock);
 		if (midQ->mid_state == MID_REQUEST_SUBMITTED ||
 		    midQ->mid_state == MID_RESPONSE_RECEIVED) {
 			/* no longer considered to be "in-flight" */
 			midQ->callback = DeleteMidQEntry;
-			spin_unlock(&GlobalMid_Lock);
+			spin_unlock(&server->mid_lock);
 			add_credits(server, &credits, 0);
 			return rc;
 		}
-		spin_unlock(&GlobalMid_Lock);
+		spin_unlock(&server->mid_lock);
 	}
 
 	rc = cifs_sync_mid_result(midQ, server);
@@ -1514,12 +1516,12 @@ SendReceiveBlockingLock(const unsigned int xid, struct cifs_tcon *tcon,
 		return -EIO;
 	}
 
-	spin_lock(&cifs_tcp_ses_lock);
+	spin_lock(&server->srv_lock);
 	if (server->tcpStatus == CifsExiting) {
-		spin_unlock(&cifs_tcp_ses_lock);
+		spin_unlock(&server->srv_lock);
 		return -ENOENT;
 	}
-	spin_unlock(&cifs_tcp_ses_lock);
+	spin_unlock(&server->srv_lock);
 
 	/* Ensure that we do not send more than 50 overlapping requests
 	   to the same server. We may make this configurable later or
@@ -1578,13 +1580,13 @@ SendReceiveBlockingLock(const unsigned int xid, struct cifs_tcon *tcon,
 		 (server->tcpStatus != CifsNew)));
 
 	/* Were we interrupted by a signal ? */
-	spin_lock(&cifs_tcp_ses_lock);
+	spin_lock(&server->srv_lock);
 	if ((rc == -ERESTARTSYS) &&
 		(midQ->mid_state == MID_REQUEST_SUBMITTED ||
 		 midQ->mid_state == MID_RESPONSE_RECEIVED) &&
 		((server->tcpStatus == CifsGood) ||
 		 (server->tcpStatus == CifsNew))) {
-		spin_unlock(&cifs_tcp_ses_lock);
+		spin_unlock(&server->srv_lock);
 
 		if (in_buf->Command == SMB_COM_TRANSACTION2) {
 			/* POSIX lock. We send a NT_CANCEL SMB to cause the
@@ -1611,22 +1613,22 @@ SendReceiveBlockingLock(const unsigned int xid, struct cifs_tcon *tcon,
 		rc = wait_for_response(server, midQ);
 		if (rc) {
 			send_cancel(server, &rqst, midQ);
-			spin_lock(&GlobalMid_Lock);
+			spin_lock(&server->mid_lock);
 			if (midQ->mid_state == MID_REQUEST_SUBMITTED ||
 			    midQ->mid_state == MID_RESPONSE_RECEIVED) {
 				/* no longer considered to be "in-flight" */
 				midQ->callback = DeleteMidQEntry;
-				spin_unlock(&GlobalMid_Lock);
+				spin_unlock(&server->mid_lock);
 				return rc;
 			}
-			spin_unlock(&GlobalMid_Lock);
+			spin_unlock(&server->mid_lock);
 		}
 
 		/* We got the response - restart system call. */
 		rstart = 1;
-		spin_lock(&cifs_tcp_ses_lock);
+		spin_lock(&server->srv_lock);
 	}
-	spin_unlock(&cifs_tcp_ses_lock);
+	spin_unlock(&server->srv_lock);
 
 	rc = cifs_sync_mid_result(midQ, server);
 	if (rc != 0)

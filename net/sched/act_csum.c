@@ -710,6 +710,7 @@ static struct tc_action_ops act_csum_ops = {
 	.get_fill_size  = tcf_csum_get_fill_size,
 	.size		= sizeof(struct tcf_csum),
 };
+MODULE_ALIAS_NET_ACT("csum");
 
 static __net_init int csum_init_net(struct net *net)
 {

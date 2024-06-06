@@ -290,6 +290,7 @@ static struct tc_action_ops act_sample_ops = {
 	.get_psample_group = tcf_sample_get_group,
 	.size	  = sizeof(struct tcf_sample),
 };
+MODULE_ALIAS_NET_ACT("sample");
 
 static __net_init int sample_init_net(struct net *net)
 {
