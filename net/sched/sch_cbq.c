@@ -1801,6 +1801,7 @@ static struct Qdisc_ops cbq_qdisc_ops __read_mostly = {
 	.dump_stats	=	cbq_dump_stats,
 	.owner		=	THIS_MODULE,
 };
+MODULE_ALIAS_NET_SCH("cbq");
 
 static int __init cbq_module_init(void)
 {

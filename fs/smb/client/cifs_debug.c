@@ -135,6 +135,11 @@ cifs_dump_channel(struct seq_file *m, int i, struct cifs_chan *chan)
 {
 	struct TCP_Server_Info *server = chan->server;
 
+	if (!server) {
+		seq_printf(m, "\n\n\t\tChannel: %d DISABLED", i+1);
+		return;
+	}
+
 	seq_printf(m, "\n\n\t\tChannel: %d ConnectionId: 0x%llx"
 		   "\n\t\tNumber of credits: %d,%d,%d Dialect 0x%x"
 		   "\n\t\tTCP status: %d Instance: %d"
@@ -193,6 +198,8 @@ static int cifs_debug_files_proc_show(struct seq_file *m, void *v)
 	spin_lock(&cifs_tcp_ses_lock);
 	list_for_each_entry(server, &cifs_tcp_ses_list, tcp_ses_list) {
 		list_for_each_entry(ses, &server->smb_ses_list, smb_ses_list) {
+			if (cifs_ses_exiting(ses))
+				continue;
 			list_for_each_entry(tcon, &ses->tcon_list, tcon_list) {
 				spin_lock(&tcon->open_file_lock);
 				list_for_each_entry(cfile, &tcon->openFileList, tlist) {
@@ -229,6 +236,8 @@ static int cifs_debug_data_proc_show(struct seq_file *m, void *v)
 	struct cifs_ses *ses;
 	struct cifs_tcon *tcon;
 	struct cifs_server_iface *iface;
+	size_t iface_weight = 0, iface_min_speed = 0;
+	struct cifs_server_iface *last_iface = NULL;
 	int c, i, j;
 
 	seq_puts(m,
@@ -484,11 +493,25 @@ skip_rdma:
 					   "\tLast updated: %lu seconds ago",
 					   ses->iface_count,
 					   (jiffies - ses->iface_last_update) / HZ);
+
+			last_iface = list_last_entry(&ses->iface_list,
+						     struct cifs_server_iface,
+						     iface_head);
+			iface_min_speed = last_iface->speed;
+
 			j = 0;
 			list_for_each_entry(iface, &ses->iface_list,
 						 iface_head) {
 				seq_printf(m, "\n\t%d)", ++j);
 				cifs_dump_iface(m, iface);
+
+				iface_weight = iface->speed / iface_min_speed;
+				seq_printf(m, "\t\tWeight (cur,total): (%zu,%zu)"
+					   "\n\t\tAllocated channels: %u\n",
+					   iface->weight_fulfilled,
+					   iface_weight,
+					   iface->num_channels);
+
 				if (is_ses_using_iface(ses, iface))
 					seq_puts(m, "\t\t[CONNECTED]\n");
 			}
@@ -571,11 +594,14 @@ static ssize_t cifs_stats_proc_write(struct file *file,
 			}
 #endif /* CONFIG_CIFS_STATS2 */
 			list_for_each_entry(ses, &server->smb_ses_list, smb_ses_list) {
+				if (cifs_ses_exiting(ses))
+					continue;
 				list_for_each_entry(tcon, &ses->tcon_list, tcon_list) {
 					atomic_set(&tcon->num_smbs_sent, 0);
 					spin_lock(&tcon->stat_lock);
 					tcon->bytes_read = 0;
 					tcon->bytes_written = 0;
+					tcon->stats_from_time = ktime_get_real_seconds();
 					spin_unlock(&tcon->stat_lock);
 					if (server->ops->clear_stats)
 						server->ops->clear_stats(tcon);
@@ -649,13 +675,16 @@ static int cifs_stats_proc_show(struct seq_file *m, void *v)
 			}
 #endif /* STATS2 */
 		list_for_each_entry(ses, &server->smb_ses_list, smb_ses_list) {
+			if (cifs_ses_exiting(ses))
+				continue;
 			list_for_each_entry(tcon, &ses->tcon_list, tcon_list) {
 				i++;
 				seq_printf(m, "\n%d) %s", i, tcon->tree_name);
 				if (tcon->need_reconnect)
 					seq_puts(m, "\tDISCONNECTED ");
-				seq_printf(m, "\nSMBs: %d",
-					   atomic_read(&tcon->num_smbs_sent));
+				seq_printf(m, "\nSMBs: %d since %ptTs UTC",
+					   atomic_read(&tcon->num_smbs_sent),
+					   &tcon->stats_from_time);
 				if (server->ops->print_stats)
 					server->ops->print_stats(m, tcon);
 			}

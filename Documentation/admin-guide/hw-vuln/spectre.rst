@@ -441,7 +441,7 @@ The possible values in this file are:
    - System is protected by retpoline
  * - BHI: BHI_DIS_S
    - System is protected by BHI_DIS_S
- * - BHI: SW loop
+ * - BHI: SW loop; KVM SW loop
    - System is protected by software clearing sequence
  * - BHI: Vulnerable
    - System is vulnerable to BHI attacks
@@ -718,13 +718,6 @@ For user space mitigation:
 			unconditionally enable.
 		off
 			unconditionally disable.
-		auto
-			enable if hardware mitigation
-			control(BHI_DIS_S) is available, otherwise
-			enable alternate mitigation in KVM. Syscalls
-			are not mitigated if hardware mitigation is
-			not present.
-
 
 Mitigation selection guide
 --------------------------

@@ -251,9 +251,13 @@ static loff_t iomap_readpage_iter(struct iomap_iter *iter,
 	unsigned poff, plen;
 	sector_t sector;
 
-	if (iomap->type == IOMAP_INLINE)
-		return min(iomap_read_inline_data(iter->inode, page, iomap),
-						  length);
+	if (iomap->type == IOMAP_INLINE) {
+		loff_t ret = iomap_read_inline_data(iter->inode, page, iomap);
+
+		if (ret < 0)
+			return ret;
+		return 0;
+	}
 
 	/* zero post-eof blocks as the page may be mapped */
 	iop = iomap_page_create(iter->inode, page);
@@ -367,6 +371,8 @@ static loff_t iomap_readahead_iter(struct iomap_iter *iter,
 			ctx->cur_page_in_bio = false;
 		}
 		ret = iomap_readpage_iter(iter, ctx, done);
+		if (ret <= 0)
+			return ret;
 	}
 
 	return done;
@@ -1377,7 +1383,7 @@ iomap_writepage_map(struct iomap_writepage_ctx *wpc,
 	if (!count)
 		end_page_writeback(page);
 done:
-	mapping_set_error(page->mapping, error);
+	mapping_set_error(inode->i_mapping, error);
 	return error;
 }
 

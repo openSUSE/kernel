@@ -695,6 +695,7 @@ static struct Qdisc_ops atm_qdisc_ops __read_mostly = {
 	.dump		= atm_tc_dump,
 	.owner		= THIS_MODULE,
 };
+MODULE_ALIAS_NET_SCH("atm");
 
 static int __init atm_init(void)
 {

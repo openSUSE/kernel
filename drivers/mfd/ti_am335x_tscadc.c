@@ -141,7 +141,11 @@ static	int ti_tscadc_probe(struct platform_device *pdev)
 
 	node = of_get_child_by_name(pdev->dev.of_node, "tsc");
 	of_property_read_u32(node, "ti,wires", &tsc_wires);
-	of_property_read_u32(node, "ti,coordiante-readouts", &readouts);
+	err = of_property_read_u32(node, "ti,coordinate-readouts",
+				   &readouts);
+	if (err < 0)
+		of_property_read_u32(node, "ti,coordiante-readouts",
+				     &readouts);
 
 	node = of_get_child_by_name(pdev->dev.of_node, "adc");
 	of_property_for_each_u32(node, "ti,adc-channels", prop, cur, val) {
@@ -166,7 +170,6 @@ static	int ti_tscadc_probe(struct platform_device *pdev)
 		dev_err(&pdev->dev, "Too many step configurations requested\n");
 		return -EINVAL;
 	}
-
 	/* Allocate memory for device */
 	tscadc = devm_kzalloc(&pdev->dev, sizeof(*tscadc), GFP_KERNEL);
 	if (!tscadc)

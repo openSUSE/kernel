@@ -419,6 +419,7 @@ static struct tc_action_ops act_bpf_ops __read_mostly = {
 	.lookup		=	tcf_bpf_search,
 	.size		=	sizeof(struct tcf_bpf),
 };
+MODULE_ALIAS_NET_ACT("bpf");
 
 static __net_init int bpf_init_net(struct net *net)
 {

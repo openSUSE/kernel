@@ -13,6 +13,7 @@ enum cc_vendor {
 
 #ifdef CONFIG_ARCH_HAS_CC_PLATFORM
 extern enum cc_vendor cc_vendor;
+extern u64 cc_mask;
 
 static inline enum cc_vendor cc_get_vendor(void)
 {
@@ -27,6 +28,7 @@ static inline void cc_set_vendor(enum cc_vendor vendor)
 void cc_set_mask(u64 mask);
 u64 cc_mkenc(u64 val);
 u64 cc_mkdec(u64 val);
+void cc_random_init(void);
 extern bool cc_attr_cpu_hotplug_disabled;
 #else
 static inline enum cc_vendor cc_get_vendor(void)
@@ -35,6 +37,7 @@ static inline enum cc_vendor cc_get_vendor(void)
 }
 
 static inline void cc_set_vendor(enum cc_vendor vendor) { }
+static const u64 cc_mask = 0;
 
 static inline u64 cc_mkenc(u64 val)
 {
@@ -45,6 +48,7 @@ static inline u64 cc_mkdec(u64 val)
 {
 	return val;
 }
+static inline void cc_random_init(void) { }
 #endif
 
 #endif /* _ASM_X86_COCO_H */

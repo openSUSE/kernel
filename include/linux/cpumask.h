@@ -373,6 +373,16 @@ static inline int cpumask_test_and_clear_cpu(int cpu, struct cpumask *cpumask)
 }
 
 /**
+ * for_each_cpu_from - iterate over CPUs present in @mask, from @cpu to the end of @mask.
+ * @cpu: the (optionally unsigned) integer iterator
+ * @mask: the cpumask pointer
+ *
+ * After the loop, cpu is >= nr_cpu_ids.
+ */
+#define for_each_cpu_from(cpu, mask)				\
+	for_each_set_bit_from(cpu, cpumask_bits(mask), nr_cpumask_bits)
+
+/**
  * cpumask_setall - set all cpus (< nr_cpu_ids) in a cpumask
  * @dstp: the cpumask pointer
  */

@@ -378,16 +378,21 @@ static inline void nvme_end_req_zoned(struct request *req)
 			le64_to_cpu(nvme_req(req)->result.u64));
 }
 
-static inline void nvme_end_req(struct request *req)
+static inline void __nvme_end_req(struct request *req)
+{
+	nvme_end_req_zoned(req);
+	nvme_trace_bio_complete(req);
+	if (req->cmd_flags & REQ_NVME_MPATH)
+		nvme_mpath_end_request(req);
+}
+
+void nvme_end_req(struct request *req)
 {
 	blk_status_t status = nvme_error_status(nvme_req(req)->status);
 
 	if (unlikely(nvme_req(req)->status && !(req->rq_flags & RQF_QUIET)))
 		nvme_log_error(req);
-	nvme_end_req_zoned(req);
-	nvme_trace_bio_complete(req);
-	if (req->cmd_flags & REQ_NVME_MPATH)
-		nvme_mpath_end_request(req);
+	__nvme_end_req(req);
 	blk_mq_end_request(req, status);
 }
 
@@ -427,7 +432,7 @@ void nvme_complete_batch_req(struct request *req)
 {
 	trace_nvme_complete_rq(req);
 	nvme_cleanup_cmd(req);
-	nvme_end_req_zoned(req);
+	__nvme_end_req(req);
 }
 EXPORT_SYMBOL_GPL(nvme_complete_batch_req);
 
@@ -1145,7 +1150,7 @@ static u32 nvme_passthru_start(struct nvme_ctrl *ctrl, struct nvme_ns *ns,
 	return effects;
 }
 
-static void nvme_passthru_end(struct nvme_ctrl *ctrl, u32 effects,
+static void nvme_passthru_end(struct nvme_ctrl *ctrl, struct nvme_ns *ns, u32 effects,
 			      struct nvme_command *cmd, int status)
 {
 	if (effects & NVME_CMD_EFFECTS_CSE_MASK) {
@@ -1161,6 +1166,8 @@ static void nvme_passthru_end(struct nvme_ctrl *ctrl, u32 effects,
 		nvme_queue_scan(ctrl);
 		flush_work(&ctrl->scan_work);
 	}
+	if (ns)
+		return;
 
 	switch (cmd->common.opcode) {
 	case nvme_admin_set_features:
@@ -1194,7 +1201,7 @@ int nvme_execute_passthru_rq(struct request *rq)
 	effects = nvme_passthru_start(ctrl, ns, cmd->common.opcode);
 	ret = nvme_execute_rq(rq, false);
 	if (effects) /* nothing to be done for zero cmd effects */
-		nvme_passthru_end(ctrl, effects, cmd, ret);
+		nvme_passthru_end(ctrl, ns, effects, cmd, ret);
 
 	return ret;
 }

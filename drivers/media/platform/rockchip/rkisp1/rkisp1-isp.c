@@ -1166,6 +1166,9 @@ void rkisp1_isp_isr(struct rkisp1_device *rkisp1)
 {
 	u32 status, isp_err;
 
+	if (!rkisp1->irqs_enabled)
+		return;
+
 	status = rkisp1_read(rkisp1, RKISP1_CIF_ISP_MIS);
 	if (!status)
 		return;

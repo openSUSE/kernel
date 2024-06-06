@@ -780,8 +780,8 @@ static int idpf_cfg_netdev(struct idpf_vport *vport)
 	else
 		netdev->netdev_ops = &idpf_netdev_ops_singleq;
 
-	/* setup watchdog timeout value to be 5 second */
-	netdev->watchdog_timeo = 5 * HZ;
+	/* setup watchdog timeout value to be 30 seconds */
+	netdev->watchdog_timeo = 30 * HZ;
 
 	/* configure default MTU size */
 	netdev->min_mtu = ETH_MIN_MTU;

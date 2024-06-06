@@ -1615,13 +1615,9 @@ static int vio_hotplug(struct device *dev, struct kobj_uevent_env *env)
 	const char *cp;
 
 	dn = dev->of_node;
-	if (!dn)
-		return -ENODEV;
-	cp = of_get_property(dn, "compatible", NULL);
-	if (!cp)
-		return -ENODEV;
+	if (dn && (cp = of_get_property(dn, "compatible", NULL)))
+		add_uevent_var(env, "MODALIAS=vio:T%sS%s", vio_dev->type, cp);
 
-	add_uevent_var(env, "MODALIAS=vio:T%sS%s", vio_dev->type, cp);
 	return 0;
 }
 

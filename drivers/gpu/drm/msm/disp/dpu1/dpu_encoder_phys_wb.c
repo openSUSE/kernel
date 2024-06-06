@@ -736,7 +736,8 @@ struct dpu_encoder_phys *dpu_encoder_phys_wb_init(
 		phys_enc->irq[i] = -EINVAL;
 
 	atomic_set(&phys_enc->pending_kickoff_cnt, 0);
-	atomic_set(&phys_enc->vblank_refcount, 0);
+	mutex_init(&phys_enc->vblank_ctl_lock);
+	phys_enc->vblank_refcount = 0;
 	wb_enc->wb_done_timeout_cnt = 0;
 
 	init_waitqueue_head(&phys_enc->pending_kickoff_wq);
