@@ -713,7 +713,7 @@ blk_status_t nvme_fail_nonready_command(struct nvme_ctrl *ctrl,
 EXPORT_SYMBOL_GPL(nvme_fail_nonready_command);
 
 bool __nvme_check_ready(struct nvme_ctrl *ctrl, struct request *rq,
-		bool queue_live)
+		bool queue_live, enum nvme_ctrl_state state)
 {
 	struct nvme_request *req = nvme_req(rq);
 
@@ -734,7 +734,7 @@ bool __nvme_check_ready(struct nvme_ctrl *ctrl, struct request *rq,
 		 * command, which is require to set the queue live in the
 		 * appropinquate states.
 		 */
-		switch (nvme_ctrl_state(ctrl)) {
+		switch (state) {
 		case NVME_CTRL_CONNECTING:
 			if (blk_rq_is_passthrough(rq) && nvme_is_fabrics(req->cmd) &&
 			    (req->cmd->fabrics.fctype == nvme_fabrics_type_connect ||
@@ -3592,6 +3592,7 @@ static ssize_t nvme_sysfs_show_state(struct device *dev,
 				     char *buf)
 {
 	struct nvme_ctrl *ctrl = dev_get_drvdata(dev);
+	unsigned state = (unsigned)nvme_ctrl_state(ctrl);
 	static const char *const state_name[] = {
 		[NVME_CTRL_NEW]		= "new",
 		[NVME_CTRL_LIVE]	= "live",
@@ -3602,9 +3603,8 @@ static ssize_t nvme_sysfs_show_state(struct device *dev,
 		[NVME_CTRL_DEAD]	= "dead",
 	};
 
-	if ((unsigned)ctrl->state < ARRAY_SIZE(state_name) &&
-	    state_name[ctrl->state])
-		return sysfs_emit(buf, "%s\n", state_name[ctrl->state]);
+	if (state < ARRAY_SIZE(state_name) && state_name[state])
+		return sysfs_emit(buf, "%s\n", state_name[state]);
 
 	return sysfs_emit(buf, "unknown state\n");
 }
