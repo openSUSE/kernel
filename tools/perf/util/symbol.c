@@ -2185,6 +2185,10 @@ out_unlock:
 	return map;
 }
 
+/*
+ * Always takes ownership of vmlinux when vmlinux_allocated == true, even if
+ * it returns an error.
+ */
 int dso__load_vmlinux(struct dso *dso, struct map *map,
 		      const char *vmlinux, bool vmlinux_allocated)
 {
@@ -2203,8 +2207,11 @@ int dso__load_vmlinux(struct dso *dso, struct map *map,
 	else
 		symtab_type = DSO_BINARY_TYPE__VMLINUX;
 
-	if (symsrc__init(&ss, dso, symfs_vmlinux, symtab_type))
+	if (symsrc__init(&ss, dso, symfs_vmlinux, symtab_type)) {
+		if (vmlinux_allocated)
+			free((char *) vmlinux);
 		return -1;
+	}
 
 	/*
 	 * dso__load_sym() may copy 'dso' which will result in the copies having
@@ -2247,7 +2254,6 @@ int dso__load_vmlinux_path(struct dso *dso, struct map *map)
 		err = dso__load_vmlinux(dso, map, filename, true);
 		if (err > 0)
 			goto out;
-		free(filename);
 	}
 out:
 	return err;
@@ -2399,7 +2405,6 @@ static int dso__load_kernel_sym(struct dso *dso, struct map *map)
 		err = dso__load_vmlinux(dso, map, filename, true);
 		if (err > 0)
 			return err;
-		free(filename);
 	}
 
 	if (!symbol_conf.ignore_vmlinux && vmlinux_path != NULL) {

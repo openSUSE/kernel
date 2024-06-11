@@ -2048,6 +2048,12 @@ static int console_trylock_spinning(void)
 	 */
 	mutex_acquire(&console_lock_dep_map, 0, 1, _THIS_IP_);
 
+	/*
+	 * Update @console_may_schedule for trylock because the previous
+	 * owner may have been schedulable.
+	 */
+	console_may_schedule = 0;
+
 	return 1;
 }
 
@@ -2338,7 +2344,7 @@ static bool legacy_allow_panic_sync;
 /*
  * This acts as a one-way switch to allow legacy consoles to print from
  * the printk() caller context on a panic CPU.
- */
++ */
 void printk_legacy_allow_panic_sync(void)
 {
 	legacy_allow_panic_sync = true;
@@ -2387,7 +2393,7 @@ asmlinkage int vprintk_emit(int facility, int level,
 		if (is_panic_context)
 			do_trylock_unlock &= legacy_allow_panic_sync;
 
-		/*
+ 		/*
 		 * There are situations where nbcon atomic printing should
 		 * happen in the printk() caller context:
 		 *
@@ -2403,7 +2409,7 @@ asmlinkage int vprintk_emit(int facility, int level,
 		 * console_lock/console_unlock dance must be relied upon
 		 * instead because nbcon consoles cannot print simultaneously
 		 * with boot consoles.
-		 */
+ 		 */
 		if (is_panic_context ||
 		    !printk_threads_enabled ||
 		    (system_state > SYSTEM_RUNNING)) {
@@ -2447,7 +2453,7 @@ asmlinkage int vprintk_emit(int facility, int level,
 	}
 
 	if (do_trylock_unlock)
-		wake_up_klogd();
+ 		wake_up_klogd();
 	else
 		defer_console_output();
 
@@ -4127,16 +4133,17 @@ static bool __pr_flush(struct console *con, int timeout_ms, bool reset_on_progre
 
 		cookie = console_srcu_read_lock();
 		for_each_console_srcu(c) {
+
 			if (con && con != c)
 				continue;
-
-			flags = console_srcu_read_flags(c);
-
 			/*
 			 * If consoles are not usable, it cannot be expected
 			 * that they make forward progress, so only increment
 			 * @diff for usable consoles.
 			 */
+
+			flags = console_srcu_read_flags(c);
+
 			if (!console_is_usable(c, flags, true) &&
 			    !console_is_usable(c, flags, false)) {
 				continue;
