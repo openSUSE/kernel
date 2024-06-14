@@ -22,7 +22,7 @@ static void __dma_tx_complete(void *param)
 	dma_sync_single_for_cpu(dma->txchan->device->dev, dma->tx_addr,
 				UART_XMIT_SIZE, DMA_TO_DEVICE);
 
-	uart_port_lock_irqsave(&p->port, &flags);
+	spin_lock_irqsave(&p->port.lock, flags);
 
 	dma->tx_running = 0;
 
@@ -35,7 +35,7 @@ static void __dma_tx_complete(void *param)
 	if (ret || !dma->tx_running)
 		serial8250_set_THRI(p);
 
-	uart_port_unlock_irqrestore(&p->port, flags);
+	spin_unlock_irqrestore(&p->port.lock, flags);
 }
 
 static void __dma_rx_complete(struct uart_8250_port *p)
@@ -70,7 +70,7 @@ static void dma_rx_complete(void *param)
 	struct uart_8250_dma *dma = p->dma;
 	unsigned long flags;
 
-	uart_port_lock_irqsave(&p->port, &flags);
+	spin_lock_irqsave(&p->port.lock, flags);
 	if (dma->rx_running)
 		__dma_rx_complete(p);
 
@@ -80,7 +80,7 @@ static void dma_rx_complete(void *param)
 	 */
 	if (!dma->rx_running && (serial_lsr_in(p) & UART_LSR_DR))
 		p->dma->rx_dma(p);
-	uart_port_unlock_irqrestore(&p->port, flags);
+	spin_unlock_irqrestore(&p->port.lock, flags);
 }
 
 int serial8250_tx_dma(struct uart_8250_port *p)

@@ -225,14 +225,14 @@ static inline irqreturn_t serial_pxa_irq(int irq, void *dev_id)
 	iir = serial_in(up, UART_IIR);
 	if (iir & UART_IIR_NO_INT)
 		return IRQ_NONE;
-	uart_port_lock(&up->port);
+	spin_lock(&up->port.lock);
 	lsr = serial_in(up, UART_LSR);
 	if (lsr & UART_LSR_DR)
 		receive_chars(up, &lsr);
 	check_modem_status(up);
 	if (lsr & UART_LSR_THRE)
 		transmit_chars(up);
-	uart_port_unlock(&up->port);
+	spin_unlock(&up->port.lock);
 	return IRQ_HANDLED;
 }
 
@@ -242,9 +242,9 @@ static unsigned int serial_pxa_tx_empty(struct uart_port *port)
 	unsigned long flags;
 	unsigned int ret;
 
-	uart_port_lock_irqsave(&up->port, &flags);
+	spin_lock_irqsave(&up->port.lock, flags);
 	ret = serial_in(up, UART_LSR) & UART_LSR_TEMT ? TIOCSER_TEMT : 0;
-	uart_port_unlock_irqrestore(&up->port, flags);
+	spin_unlock_irqrestore(&up->port.lock, flags);
 
 	return ret;
 }
@@ -295,13 +295,13 @@ static void serial_pxa_break_ctl(struct uart_port *port, int break_state)
 	struct uart_pxa_port *up = (struct uart_pxa_port *)port;
 	unsigned long flags;
 
-	uart_port_lock_irqsave(&up->port, &flags);
+	spin_lock_irqsave(&up->port.lock, flags);
 	if (break_state == -1)
 		up->lcr |= UART_LCR_SBC;
 	else
 		up->lcr &= ~UART_LCR_SBC;
 	serial_out(up, UART_LCR, up->lcr);
-	uart_port_unlock_irqrestore(&up->port, flags);
+	spin_unlock_irqrestore(&up->port.lock, flags);
 }
 
 static int serial_pxa_startup(struct uart_port *port)
@@ -346,10 +346,10 @@ static int serial_pxa_startup(struct uart_port *port)
 	 */
 	serial_out(up, UART_LCR, UART_LCR_WLEN8);
 
-	uart_port_lock_irqsave(&up->port, &flags);
+	spin_lock_irqsave(&up->port.lock, flags);
 	up->port.mctrl |= TIOCM_OUT2;
 	serial_pxa_set_mctrl(&up->port, up->port.mctrl);
-	uart_port_unlock_irqrestore(&up->port, flags);
+	spin_unlock_irqrestore(&up->port.lock, flags);
 
 	/*
 	 * Finally, enable interrupts.  Note: Modem status interrupts
@@ -383,10 +383,10 @@ static void serial_pxa_shutdown(struct uart_port *port)
 	up->ier = 0;
 	serial_out(up, UART_IER, 0);
 
-	uart_port_lock_irqsave(&up->port, &flags);
+	spin_lock_irqsave(&up->port.lock, flags);
 	up->port.mctrl &= ~TIOCM_OUT2;
 	serial_pxa_set_mctrl(&up->port, up->port.mctrl);
-	uart_port_unlock_irqrestore(&up->port, flags);
+	spin_unlock_irqrestore(&up->port.lock, flags);
 
 	/*
 	 * Disable break condition and FIFOs
@@ -434,7 +434,7 @@ serial_pxa_set_termios(struct uart_port *port, struct ktermios *termios,
 	 * Ok, we're now changing the port state.  Do it with
 	 * interrupts disabled.
 	 */
-	uart_port_lock_irqsave(&up->port, &flags);
+	spin_lock_irqsave(&up->port.lock, flags);
 
 	/*
 	 * Ensure the port will be enabled.
@@ -504,7 +504,7 @@ serial_pxa_set_termios(struct uart_port *port, struct ktermios *termios,
 	up->lcr = cval;					/* Save LCR */
 	serial_pxa_set_mctrl(&up->port, up->port.mctrl);
 	serial_out(up, UART_FCR, fcr);
-	uart_port_unlock_irqrestore(&up->port, flags);
+	spin_unlock_irqrestore(&up->port.lock, flags);
 }
 
 static void
@@ -608,9 +608,9 @@ serial_pxa_console_write(struct console *co, const char *s, unsigned int count)
 	if (up->port.sysrq)
 		locked = 0;
 	else if (oops_in_progress)
-		locked = uart_port_trylock(&up->port);
+		locked = spin_trylock(&up->port.lock);
 	else
-		uart_port_lock(&up->port);
+		spin_lock(&up->port.lock);
 
 	/*
 	 *	First save the IER then disable the interrupts
@@ -628,7 +628,7 @@ serial_pxa_console_write(struct console *co, const char *s, unsigned int count)
 	serial_out(up, UART_IER, ier);
 
 	if (locked)
-		uart_port_unlock(&up->port);
+		spin_unlock(&up->port.lock);
 	local_irq_restore(flags);
 	clk_disable(up->clk);
 

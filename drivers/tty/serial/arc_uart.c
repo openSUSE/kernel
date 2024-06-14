@@ -279,9 +279,9 @@ static irqreturn_t arc_serial_isr(int irq, void *dev_id)
 	if (status & RXIENB) {
 
 		/* already in ISR, no need of xx_irqsave */
-		uart_port_lock(port);
+		spin_lock(&port->lock);
 		arc_serial_rx_chars(port, status);
-		uart_port_unlock(port);
+		spin_unlock(&port->lock);
 	}
 
 	if ((status & TXIENB) && (status & TXEMPTY)) {
@@ -291,12 +291,12 @@ static irqreturn_t arc_serial_isr(int irq, void *dev_id)
 		 */
 		UART_TX_IRQ_DISABLE(port);
 
-		uart_port_lock(port);
+		spin_lock(&port->lock);
 
 		if (!uart_tx_stopped(port))
 			arc_serial_tx_chars(port);
 
-		uart_port_unlock(port);
+		spin_unlock(&port->lock);
 	}
 
 	return IRQ_HANDLED;
@@ -366,7 +366,7 @@ arc_serial_set_termios(struct uart_port *port, struct ktermios *new,
 	uartl = hw_val & 0xFF;
 	uarth = (hw_val >> 8) & 0xFF;
 
-	uart_port_lock_irqsave(port, &flags);
+	spin_lock_irqsave(&port->lock, flags);
 
 	UART_ALL_IRQ_DISABLE(port);
 
@@ -391,7 +391,7 @@ arc_serial_set_termios(struct uart_port *port, struct ktermios *new,
 
 	uart_update_timeout(port, new->c_cflag, baud);
 
-	uart_port_unlock_irqrestore(port, flags);
+	spin_unlock_irqrestore(&port->lock, flags);
 }
 
 static const char *arc_serial_type(struct uart_port *port)
@@ -521,9 +521,9 @@ static void arc_serial_console_write(struct console *co, const char *s,
 	struct uart_port *port = &arc_uart_ports[co->index].port;
 	unsigned long flags;
 
-	uart_port_lock_irqsave(port, &flags);
+	spin_lock_irqsave(&port->lock, flags);
 	uart_console_write(port, s, count, arc_serial_console_putchar);
-	uart_port_unlock_irqrestore(port, flags);
+	spin_unlock_irqrestore(&port->lock, flags);
 }
 
 static struct console arc_console = {

@@ -4156,6 +4156,7 @@
 			bit 4: print ftrace buffer
 			bit 5: print all printk messages in buffer
 			bit 6: print all CPUs backtrace (if available in the arch)
+			bit 7: print only tasks in uninterruptible (blocked) state
 			*Be aware* that this option may print a _lot_ of lines,
 			so there are risks of losing older messages in the log.
 			Use this option carefully, maybe worth to setup a
@@ -6375,6 +6376,18 @@
 	threadirqs	[KNL]
 			Force threading of all interrupt handlers except those
 			marked explicitly IRQF_NO_THREAD.
+
+	threadprintk	[KNL]
+			Force threaded printing of all legacy consoles. Be
+			aware that with this option, the shutdown, reboot, and
+			panic messages may not be printed on the legacy
+			consoles. Also, earlycon/earlyprintk printing will be
+			delayed until a regular console or the kthread is
+			available.
+
+			Users can view /proc/consoles to see if their console
+			driver is legacy or not. Non-legacy (NBCON) console
+			drivers are already threaded and are shown with 'N'.
 
 	topology=	[S390]
 			Format: {off | on}

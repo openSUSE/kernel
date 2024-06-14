@@ -8,7 +8,6 @@
  */
 
 #include <linux/kvm_para.h>
-#include <linux/console.h>
 
 //////////////////////////////////////////////////////////////////////////////
 //
@@ -598,8 +597,6 @@ static void print_other_cpu_stall(unsigned long gp_seq, unsigned long gps)
 	if (rcu_stall_is_suppressed())
 		return;
 
-	nbcon_cpu_emergency_enter();
-
 	/*
 	 * OK, time to rat on our buddy...
 	 * See Documentation/RCU/stallwarn.rst for info on how to debug
@@ -654,8 +651,6 @@ static void print_other_cpu_stall(unsigned long gp_seq, unsigned long gps)
 	panic_on_rcu_stall();
 
 	rcu_force_quiescent_state();  /* Kick them all. */
-
-	nbcon_cpu_emergency_exit();
 }
 
 static void print_cpu_stall(unsigned long gps)

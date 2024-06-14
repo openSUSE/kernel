@@ -73,6 +73,7 @@ EXPORT_SYMBOL_GPL(panic_timeout);
 #define PANIC_PRINT_FTRACE_INFO		0x00000010
 #define PANIC_PRINT_ALL_PRINTK_MSG	0x00000020
 #define PANIC_PRINT_ALL_CPU_BT		0x00000040
+#define PANIC_PRINT_BLOCKED_TASKS	0x00000080
 unsigned long panic_print;
 
 ATOMIC_NOTIFIER_HEAD(panic_notifier_list);
@@ -226,6 +227,9 @@ static void panic_print_sys_info(bool console_flush)
 
 	if (panic_print & PANIC_PRINT_FTRACE_INFO)
 		ftrace_dump(DUMP_ALL);
+
+	if (panic_print & PANIC_PRINT_BLOCKED_TASKS)
+		show_state_filter(TASK_UNINTERRUPTIBLE);
 }
 
 void check_panic_on_warn(const char *origin)
@@ -360,13 +364,13 @@ void panic(const char *fmt, ...)
 
 	panic_other_cpus_shutdown(_crash_kexec_post_notifiers);
 
+	printk_legacy_allow_panic_sync();
+
 	/*
 	 * Run any panic handlers, including those that might need to
 	 * add information to the kmsg dump output.
 	 */
 	atomic_notifier_call_chain(&panic_notifier_list, 0, buf);
-
-	printk_legacy_allow_panic_sync();
 
 	panic_print_sys_info(false);
 
@@ -490,6 +494,10 @@ const struct taint_flag taint_flags[TAINT_FLAGS_COUNT] = {
 	[ TAINT_AUX ]			= { 'X', ' ', true },
 	[ TAINT_RANDSTRUCT ]		= { 'T', ' ', true },
 	[ TAINT_TEST ]			= { 'N', ' ', true },
+	[ TAINT_UNSAFE_HIBERNATE ]	= { 'H', ' ', false },
+#ifdef CONFIG_SUSE_KERNEL_SUPPORTED
+	[ TAINT_NO_SUPPORT ]		= { 'n', ' ', true },
+#endif
 };
 
 /**
@@ -513,6 +521,9 @@ const char *print_tainted(void)
 		s = buf + sprintf(buf, "Tainted: ");
 		for (i = 0; i < TAINT_FLAGS_COUNT; i++) {
 			const struct taint_flag *t = &taint_flags[i];
+
+			if (!t->c_true)
+				continue;
 			*s++ = test_bit(i, &tainted_mask) ?
 					t->c_true : t->c_false;
 		}
@@ -677,8 +688,13 @@ void __warn(const char *file, int line, void *caller, unsigned taint,
 		pr_warn("WARNING: CPU: %d PID: %d at %pS\n",
 			raw_smp_processor_id(), current->pid, caller);
 
+#pragma GCC diagnostic push
+#ifndef __clang__
+#pragma GCC diagnostic ignored "-Wsuggest-attribute=format"
+#endif
 	if (args)
 		vprintk(args->fmt, args->args);
+#pragma GCC diagnostic pop
 
 	print_modules();
 

@@ -50,16 +50,16 @@ static int serial_base_device_init(struct uart_port *port,
 				   void (*release)(struct device *dev),
 				   int id)
 {
-	if (!serial_base_initialized) {
-		dev_err(port->dev, "uart_add_one_port() called before arch_initcall()?\n");
-		return -EPROBE_DEFER;
-	}
-
 	device_initialize(dev);
 	dev->type = type;
 	dev->parent = parent_dev;
 	dev->bus = &serial_base_bus_type;
 	dev->release = release;
+
+	if (!serial_base_initialized) {
+		dev_dbg(port->dev, "uart_add_one_port() called before arch_initcall()?\n");
+		return -EPROBE_DEFER;
+	}
 
 	return dev_set_name(dev, "%s.%s.%d", type->name, dev_name(port->dev), id);
 }
@@ -98,7 +98,7 @@ struct serial_ctrl_device *serial_base_ctrl_add(struct uart_port *port,
 				      serial_base_ctrl_release,
 				      port->ctrl_id);
 	if (err)
-		goto err_free_ctrl_dev;
+		goto err_put_device;
 
 	err = device_add(&ctrl_dev->dev);
 	if (err)
@@ -108,8 +108,6 @@ struct serial_ctrl_device *serial_base_ctrl_add(struct uart_port *port,
 
 err_put_device:
 	put_device(&ctrl_dev->dev);
-err_free_ctrl_dev:
-	kfree(ctrl_dev);
 
 	return ERR_PTR(err);
 }
@@ -138,9 +136,9 @@ struct serial_port_device *serial_base_port_add(struct uart_port *port,
 	err = serial_base_device_init(port, &port_dev->dev,
 				      &ctrl_dev->dev, &serial_port_type,
 				      serial_base_port_release,
-				      port->line);
+				      port->port_id);
 	if (err)
-		goto err_free_port_dev;
+		goto err_put_device;
 
 	port_dev->port = port;
 
@@ -152,8 +150,6 @@ struct serial_port_device *serial_base_port_add(struct uart_port *port,
 
 err_put_device:
 	put_device(&port_dev->dev);
-err_free_port_dev:
-	kfree(port_dev);
 
 	return ERR_PTR(err);
 }

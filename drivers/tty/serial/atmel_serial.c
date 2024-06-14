@@ -861,7 +861,7 @@ static void atmel_complete_tx_dma(void *arg)
 	struct dma_chan *chan = atmel_port->chan_tx;
 	unsigned long flags;
 
-	uart_port_lock_irqsave(port, &flags);
+	spin_lock_irqsave(&port->lock, flags);
 
 	if (chan)
 		dmaengine_terminate_all(chan);
@@ -893,7 +893,7 @@ static void atmel_complete_tx_dma(void *arg)
 				  atmel_port->tx_done_mask);
 	}
 
-	uart_port_unlock_irqrestore(port, flags);
+	spin_unlock_irqrestore(&port->lock, flags);
 }
 
 static void atmel_release_tx_dma(struct uart_port *port)
@@ -1711,9 +1711,9 @@ static void atmel_tasklet_rx_func(struct tasklet_struct *t)
 	struct uart_port *port = &atmel_port->uart;
 
 	/* The interrupt handler does not take the lock */
-	uart_port_lock(port);
+	spin_lock(&port->lock);
 	atmel_port->schedule_rx(port);
-	uart_port_unlock(port);
+	spin_unlock(&port->lock);
 }
 
 static void atmel_tasklet_tx_func(struct tasklet_struct *t)
@@ -1723,9 +1723,9 @@ static void atmel_tasklet_tx_func(struct tasklet_struct *t)
 	struct uart_port *port = &atmel_port->uart;
 
 	/* The interrupt handler does not take the lock */
-	uart_port_lock(port);
+	spin_lock(&port->lock);
 	atmel_port->schedule_tx(port);
-	uart_port_unlock(port);
+	spin_unlock(&port->lock);
 }
 
 static void atmel_init_property(struct atmel_uart_port *atmel_port,
@@ -2175,7 +2175,7 @@ static void atmel_set_termios(struct uart_port *port,
 	} else
 		mode |= ATMEL_US_PAR_NONE;
 
-	uart_port_lock_irqsave(port, &flags);
+	spin_lock_irqsave(&port->lock, flags);
 
 	port->read_status_mask = ATMEL_US_OVRE;
 	if (termios->c_iflag & INPCK)
@@ -2377,22 +2377,22 @@ gclk_fail:
 	else
 		atmel_disable_ms(port);
 
-	uart_port_unlock_irqrestore(port, flags);
+	spin_unlock_irqrestore(&port->lock, flags);
 }
 
 static void atmel_set_ldisc(struct uart_port *port, struct ktermios *termios)
 {
 	if (termios->c_line == N_PPS) {
 		port->flags |= UPF_HARDPPS_CD;
-		uart_port_lock_irq(port);
+		spin_lock_irq(&port->lock);
 		atmel_enable_ms(port);
-		uart_port_unlock_irq(port);
+		spin_unlock_irq(&port->lock);
 	} else {
 		port->flags &= ~UPF_HARDPPS_CD;
 		if (!UART_ENABLE_MS(port, termios->c_cflag)) {
-			uart_port_lock_irq(port);
+			spin_lock_irq(&port->lock);
 			atmel_disable_ms(port);
-			uart_port_unlock_irq(port);
+			spin_unlock_irq(&port->lock);
 		}
 	}
 }
