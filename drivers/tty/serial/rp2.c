@@ -276,9 +276,9 @@ static unsigned int rp2_uart_tx_empty(struct uart_port *port)
 	 * But the TXEMPTY bit doesn't seem to work unless the TX IRQ is
 	 * enabled.
 	 */
-	uart_port_lock_irqsave(&up->port, &flags);
+	spin_lock_irqsave(&up->port.lock, flags);
 	tx_fifo_bytes = readw(up->base + RP2_TX_FIFO_COUNT);
-	uart_port_unlock_irqrestore(&up->port, flags);
+	spin_unlock_irqrestore(&up->port.lock, flags);
 
 	return tx_fifo_bytes ? 0 : TIOCSER_TEMT;
 }
@@ -323,10 +323,10 @@ static void rp2_uart_break_ctl(struct uart_port *port, int break_state)
 {
 	unsigned long flags;
 
-	uart_port_lock_irqsave(port, &flags);
+	spin_lock_irqsave(&port->lock, flags);
 	rp2_rmw(port_to_up(port), RP2_TXRX_CTL, RP2_TXRX_CTL_BREAK_m,
 		break_state ? RP2_TXRX_CTL_BREAK_m : 0);
-	uart_port_unlock_irqrestore(port, flags);
+	spin_unlock_irqrestore(&port->lock, flags);
 }
 
 static void rp2_uart_enable_ms(struct uart_port *port)
@@ -383,7 +383,7 @@ static void rp2_uart_set_termios(struct uart_port *port, struct ktermios *new,
 	if (tty_termios_baud_rate(new))
 		tty_termios_encode_baud_rate(new, baud, baud);
 
-	uart_port_lock_irqsave(port, &flags);
+	spin_lock_irqsave(&port->lock, flags);
 
 	/* ignore all characters if CREAD is not set */
 	port->ignore_status_mask = (new->c_cflag & CREAD) ? 0 : RP2_DUMMY_READ;
@@ -391,7 +391,7 @@ static void rp2_uart_set_termios(struct uart_port *port, struct ktermios *new,
 	__rp2_uart_set_termios(up, new->c_cflag, new->c_iflag, baud_div);
 	uart_update_timeout(port, new->c_cflag, baud);
 
-	uart_port_unlock_irqrestore(port, flags);
+	spin_unlock_irqrestore(&port->lock, flags);
 }
 
 static void rp2_rx_chars(struct rp2_uart_port *up)
@@ -440,7 +440,7 @@ static void rp2_ch_interrupt(struct rp2_uart_port *up)
 {
 	u32 status;
 
-	uart_port_lock(&up->port);
+	spin_lock(&up->port.lock);
 
 	/*
 	 * The IRQ status bits are clear-on-write.  Other status bits in
@@ -456,7 +456,7 @@ static void rp2_ch_interrupt(struct rp2_uart_port *up)
 	if (status & RP2_CHAN_STAT_MS_CHANGED_MASK)
 		wake_up_interruptible(&up->port.state->port.delta_msr_wait);
 
-	uart_port_unlock(&up->port);
+	spin_unlock(&up->port.lock);
 }
 
 static int rp2_asic_interrupt(struct rp2_card *card, unsigned int asic_id)
@@ -516,10 +516,10 @@ static void rp2_uart_shutdown(struct uart_port *port)
 
 	rp2_uart_break_ctl(port, 0);
 
-	uart_port_lock_irqsave(port, &flags);
+	spin_lock_irqsave(&port->lock, flags);
 	rp2_mask_ch_irq(up, up->idx, 0);
 	rp2_rmw(up, RP2_CHAN_STAT, 0, 0);
-	uart_port_unlock_irqrestore(port, flags);
+	spin_unlock_irqrestore(&port->lock, flags);
 }
 
 static const char *rp2_uart_type(struct uart_port *port)

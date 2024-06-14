@@ -99,15 +99,14 @@ extern int tty_ldisc_autoload;
 
 /* tty_audit.c */
 #ifdef CONFIG_AUDIT
-void tty_audit_add_data(const struct tty_struct *tty, const void *data,
-			size_t size);
-void tty_audit_tiocsti(const struct tty_struct *tty, u8 ch);
+void tty_audit_add_data(struct tty_struct *tty, const void *data, size_t size);
+void tty_audit_tiocsti(struct tty_struct *tty, char ch);
 #else
-static inline void tty_audit_add_data(const struct tty_struct *tty,
-				      const void *data, size_t size)
+static inline void tty_audit_add_data(struct tty_struct *tty, const void *data,
+				      size_t size)
 {
 }
-static inline void tty_audit_tiocsti(const struct tty_struct *tty, u8 ch)
+static inline void tty_audit_tiocsti(struct tty_struct *tty, char ch)
 {
 }
 #endif
@@ -115,6 +114,6 @@ static inline void tty_audit_tiocsti(const struct tty_struct *tty, u8 ch)
 ssize_t redirected_tty_write(struct kiocb *, struct iov_iter *);
 
 int tty_insert_flip_string_and_push_buffer(struct tty_port *port,
-					   const u8 *chars, size_t cnt);
+		const unsigned char *chars, size_t cnt);
 
 #endif

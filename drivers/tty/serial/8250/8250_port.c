@@ -557,11 +557,6 @@ static int serial8250_em485_init(struct uart_8250_port *p)
 	if (!p->em485)
 		return -ENOMEM;
 
-#ifndef CONFIG_SERIAL_8250_LEGACY_CONSOLE
-	if (uart_console(&p->port))
-		dev_warn(p->port.dev, "no atomic printing for rs485 consoles\n");
-#endif
-
 	hrtimer_init(&p->em485->stop_tx_timer, CLOCK_MONOTONIC,
 		     HRTIMER_MODE_REL);
 	hrtimer_init(&p->em485->start_tx_timer, CLOCK_MONOTONIC,
@@ -694,7 +689,7 @@ static void serial8250_set_sleep(struct uart_8250_port *p, int sleep)
 
 	if (p->capabilities & UART_CAP_SLEEP) {
 		/* Synchronize UART_IER access against the console. */
-		uart_port_lock_irq(&p->port);
+		spin_lock_irq(&p->port.lock);
 		if (p->capabilities & UART_CAP_EFR) {
 			lcr = serial_in(p, UART_LCR);
 			efr = serial_in(p, UART_EFR);
@@ -708,30 +703,21 @@ static void serial8250_set_sleep(struct uart_8250_port *p, int sleep)
 			serial_out(p, UART_EFR, efr);
 			serial_out(p, UART_LCR, lcr);
 		}
-		uart_port_unlock_irq(&p->port);
+		spin_unlock_irq(&p->port.lock);
 	}
 
 	serial8250_rpm_put(p);
 }
 
-/*
- * Only to be used by write_atomic() and the legacy write(), which do not
- * require port lock.
- */
-static void __serial8250_clear_IER(struct uart_8250_port *up)
-{
-	if (up->capabilities & UART_CAP_UUE)
-		serial_out(up, UART_IER, UART_IER_UUE);
-	else
-		serial_out(up, UART_IER, 0);
-}
-
-static inline void serial8250_clear_IER(struct uart_8250_port *up)
+static void serial8250_clear_IER(struct uart_8250_port *up)
 {
 	/* Port locked to synchronize UART_IER access against the console. */
 	lockdep_assert_held_once(&up->port.lock);
 
-	__serial8250_clear_IER(up);
+	if (up->capabilities & UART_CAP_UUE)
+		serial_out(up, UART_IER, UART_IER_UUE);
+	else
+		serial_out(up, UART_IER, 0);
 }
 
 #ifdef CONFIG_SERIAL_8250_RSA
@@ -763,9 +749,9 @@ static void enable_rsa(struct uart_8250_port *up)
 {
 	if (up->port.type == PORT_RSA) {
 		if (up->port.uartclk != SERIAL_RSA_BAUD_BASE * 16) {
-			uart_port_lock_irq(&up->port);
+			spin_lock_irq(&up->port.lock);
 			__enable_rsa(up);
-			uart_port_unlock_irq(&up->port);
+			spin_unlock_irq(&up->port.lock);
 		}
 		if (up->port.uartclk == SERIAL_RSA_BAUD_BASE * 16)
 			serial_out(up, UART_RSA_FRR, 0);
@@ -785,7 +771,7 @@ static void disable_rsa(struct uart_8250_port *up)
 
 	if (up->port.type == PORT_RSA &&
 	    up->port.uartclk == SERIAL_RSA_BAUD_BASE * 16) {
-		uart_port_lock_irq(&up->port);
+		spin_lock_irq(&up->port.lock);
 
 		mode = serial_in(up, UART_RSA_MSR);
 		result = !(mode & UART_RSA_MSR_FIFO);
@@ -798,7 +784,7 @@ static void disable_rsa(struct uart_8250_port *up)
 
 		if (result)
 			up->port.uartclk = SERIAL_RSA_BAUD_BASE_LO * 16;
-		uart_port_unlock_irq(&up->port);
+		spin_unlock_irq(&up->port.lock);
 	}
 }
 #endif /* CONFIG_SERIAL_8250_RSA */
@@ -1189,7 +1175,7 @@ static void autoconfig(struct uart_8250_port *up)
 	 *
 	 * Synchronize UART_IER access against the console.
 	 */
-	uart_port_lock_irqsave(port, &flags);
+	spin_lock_irqsave(&port->lock, flags);
 
 	up->capabilities = 0;
 	up->bugs = 0;
@@ -1228,7 +1214,7 @@ static void autoconfig(struct uart_8250_port *up)
 			/*
 			 * We failed; there's nothing here
 			 */
-			uart_port_unlock_irqrestore(port, flags);
+			spin_unlock_irqrestore(&port->lock, flags);
 			DEBUG_AUTOCONF("IER test failed (%02x, %02x) ",
 				       scratch2, scratch3);
 			goto out;
@@ -1252,7 +1238,7 @@ static void autoconfig(struct uart_8250_port *up)
 		status1 = serial_in(up, UART_MSR) & UART_MSR_STATUS_BITS;
 		serial8250_out_MCR(up, save_mcr);
 		if (status1 != (UART_MSR_DCD | UART_MSR_CTS)) {
-			uart_port_unlock_irqrestore(port, flags);
+			spin_unlock_irqrestore(&port->lock, flags);
 			DEBUG_AUTOCONF("LOOP test failed (%02x) ",
 				       status1);
 			goto out;
@@ -1321,7 +1307,7 @@ static void autoconfig(struct uart_8250_port *up)
 	serial8250_clear_IER(up);
 
 out_unlock:
-	uart_port_unlock_irqrestore(port, flags);
+	spin_unlock_irqrestore(&port->lock, flags);
 
 	/*
 	 * Check if the device is a Fintek F81216A
@@ -1358,9 +1344,9 @@ static void autoconfig_irq(struct uart_8250_port *up)
 	probe_irq_off(probe_irq_on());
 	save_mcr = serial8250_in_MCR(up);
 	/* Synchronize UART_IER access against the console. */
-	uart_port_lock_irq(port);
+	spin_lock_irq(&port->lock);
 	save_ier = serial_in(up, UART_IER);
-	uart_port_unlock_irq(port);
+	spin_unlock_irq(&port->lock);
 	serial8250_out_MCR(up, UART_MCR_OUT1 | UART_MCR_OUT2);
 
 	irqs = probe_irq_on();
@@ -1373,9 +1359,9 @@ static void autoconfig_irq(struct uart_8250_port *up)
 			UART_MCR_DTR | UART_MCR_RTS | UART_MCR_OUT2);
 	}
 	/* Synchronize UART_IER access against the console. */
-	uart_port_lock_irq(port);
+	spin_lock_irq(&port->lock);
 	serial_out(up, UART_IER, UART_IER_ALL_INTR);
-	uart_port_unlock_irq(port);
+	spin_unlock_irq(&port->lock);
 	serial_in(up, UART_LSR);
 	serial_in(up, UART_RX);
 	serial_in(up, UART_IIR);
@@ -1386,9 +1372,9 @@ static void autoconfig_irq(struct uart_8250_port *up)
 
 	serial8250_out_MCR(up, save_mcr);
 	/* Synchronize UART_IER access against the console. */
-	uart_port_lock_irq(port);
+	spin_lock_irq(&port->lock);
 	serial_out(up, UART_IER, save_ier);
-	uart_port_unlock_irq(port);
+	spin_unlock_irq(&port->lock);
 
 	if (port->flags & UPF_FOURPORT)
 		outb_p(save_ICP, ICP);
@@ -1453,13 +1439,13 @@ static enum hrtimer_restart serial8250_em485_handle_stop_tx(struct hrtimer *t)
 	unsigned long flags;
 
 	serial8250_rpm_get(p);
-	uart_port_lock_irqsave(&p->port, &flags);
+	spin_lock_irqsave(&p->port.lock, flags);
 	if (em485->active_timer == &em485->stop_tx_timer) {
 		p->rs485_stop_tx(p);
 		em485->active_timer = NULL;
 		em485->tx_stopped = true;
 	}
-	uart_port_unlock_irqrestore(&p->port, flags);
+	spin_unlock_irqrestore(&p->port.lock, flags);
 	serial8250_rpm_put(p);
 
 	return HRTIMER_NORESTART;
@@ -1641,12 +1627,12 @@ static enum hrtimer_restart serial8250_em485_handle_start_tx(struct hrtimer *t)
 	struct uart_8250_port *p = em485->port;
 	unsigned long flags;
 
-	uart_port_lock_irqsave(&p->port, &flags);
+	spin_lock_irqsave(&p->port.lock, flags);
 	if (em485->active_timer == &em485->start_tx_timer) {
 		__start_tx(&p->port);
 		em485->active_timer = NULL;
 	}
-	uart_port_unlock_irqrestore(&p->port, flags);
+	spin_unlock_irqrestore(&p->port.lock, flags);
 
 	return HRTIMER_NORESTART;
 }
@@ -1929,7 +1915,7 @@ int serial8250_handle_irq(struct uart_port *port, unsigned int iir)
 	if (iir & UART_IIR_NO_INT)
 		return 0;
 
-	uart_port_lock_irqsave(port, &flags);
+	spin_lock_irqsave(&port->lock, flags);
 
 	status = serial_lsr_in(up);
 
@@ -1999,9 +1985,9 @@ static int serial8250_tx_threshold_handle_irq(struct uart_port *port)
 	if ((iir & UART_IIR_ID) == UART_IIR_THRI) {
 		struct uart_8250_port *up = up_to_u8250p(port);
 
-		uart_port_lock_irqsave(port, &flags);
+		spin_lock_irqsave(&port->lock, flags);
 		serial8250_tx_chars(up);
-		uart_port_unlock_irqrestore(port, flags);
+		spin_unlock_irqrestore(&port->lock, flags);
 	}
 
 	iir = serial_port_in(port, UART_IIR);
@@ -2016,10 +2002,10 @@ static unsigned int serial8250_tx_empty(struct uart_port *port)
 
 	serial8250_rpm_get(up);
 
-	uart_port_lock_irqsave(port, &flags);
+	spin_lock_irqsave(&port->lock, flags);
 	if (!serial8250_tx_dma_running(up) && uart_lsr_tx_empty(serial_lsr_in(up)))
 		result = TIOCSER_TEMT;
-	uart_port_unlock_irqrestore(port, flags);
+	spin_unlock_irqrestore(&port->lock, flags);
 
 	serial8250_rpm_put(up);
 
@@ -2081,13 +2067,13 @@ static void serial8250_break_ctl(struct uart_port *port, int break_state)
 	unsigned long flags;
 
 	serial8250_rpm_get(up);
-	uart_port_lock_irqsave(port, &flags);
+	spin_lock_irqsave(&port->lock, flags);
 	if (break_state == -1)
 		up->lcr |= UART_LCR_SBC;
 	else
 		up->lcr &= ~UART_LCR_SBC;
 	serial_port_out(port, UART_LCR, up->lcr);
-	uart_port_unlock_irqrestore(port, flags);
+	spin_unlock_irqrestore(&port->lock, flags);
 	serial8250_rpm_put(up);
 }
 
@@ -2222,7 +2208,7 @@ int serial8250_do_startup(struct uart_port *port)
 		 *
 		 * Synchronize UART_IER access against the console.
 		 */
-		uart_port_lock_irqsave(port, &flags);
+		spin_lock_irqsave(&port->lock, flags);
 		up->acr = 0;
 		serial_port_out(port, UART_LCR, UART_LCR_CONF_MODE_B);
 		serial_port_out(port, UART_EFR, UART_EFR_ECB);
@@ -2232,7 +2218,7 @@ int serial8250_do_startup(struct uart_port *port)
 		serial_port_out(port, UART_LCR, UART_LCR_CONF_MODE_B);
 		serial_port_out(port, UART_EFR, UART_EFR_ECB);
 		serial_port_out(port, UART_LCR, 0);
-		uart_port_unlock_irqrestore(port, flags);
+		spin_unlock_irqrestore(&port->lock, flags);
 	}
 
 	if (port->type == PORT_DA830) {
@@ -2241,10 +2227,10 @@ int serial8250_do_startup(struct uart_port *port)
 		 *
 		 * Synchronize UART_IER access against the console.
 		 */
-		uart_port_lock_irqsave(port, &flags);
+		spin_lock_irqsave(&port->lock, flags);
 		serial_port_out(port, UART_IER, 0);
 		serial_port_out(port, UART_DA830_PWREMU_MGMT, 0);
-		uart_port_unlock_irqrestore(port, flags);
+		spin_unlock_irqrestore(&port->lock, flags);
 		mdelay(10);
 
 		/* Enable Tx, Rx and free run mode */
@@ -2358,7 +2344,7 @@ int serial8250_do_startup(struct uart_port *port)
 		 *
 		 * Synchronize UART_IER access against the console.
 		 */
-		uart_port_lock_irqsave(port, &flags);
+		spin_lock_irqsave(&port->lock, flags);
 
 		wait_for_xmitr(up, UART_LSR_THRE);
 		serial_port_out_sync(port, UART_IER, UART_IER_THRI);
@@ -2370,7 +2356,7 @@ int serial8250_do_startup(struct uart_port *port)
 		iir = serial_port_in(port, UART_IIR);
 		serial_port_out(port, UART_IER, 0);
 
-		uart_port_unlock_irqrestore(port, flags);
+		spin_unlock_irqrestore(&port->lock, flags);
 
 		if (port->irqflags & IRQF_SHARED)
 			enable_irq(port->irq);
@@ -2393,7 +2379,7 @@ int serial8250_do_startup(struct uart_port *port)
 	 */
 	serial_port_out(port, UART_LCR, UART_LCR_WLEN8);
 
-	uart_port_lock_irqsave(port, &flags);
+	spin_lock_irqsave(&port->lock, flags);
 	if (up->port.flags & UPF_FOURPORT) {
 		if (!up->port.irq)
 			up->port.mctrl |= TIOCM_OUT1;
@@ -2439,7 +2425,7 @@ int serial8250_do_startup(struct uart_port *port)
 	}
 
 dont_test_tx_en:
-	uart_port_unlock_irqrestore(port, flags);
+	spin_unlock_irqrestore(&port->lock, flags);
 
 	/*
 	 * Clear the interrupt registers again for luck, and clear the
@@ -2510,17 +2496,17 @@ void serial8250_do_shutdown(struct uart_port *port)
 	 *
 	 * Synchronize UART_IER access against the console.
 	 */
-	uart_port_lock_irqsave(port, &flags);
+	spin_lock_irqsave(&port->lock, flags);
 	up->ier = 0;
 	serial_port_out(port, UART_IER, 0);
-	uart_port_unlock_irqrestore(port, flags);
+	spin_unlock_irqrestore(&port->lock, flags);
 
 	synchronize_irq(port->irq);
 
 	if (up->dma)
 		serial8250_release_dma(up);
 
-	uart_port_lock_irqsave(port, &flags);
+	spin_lock_irqsave(&port->lock, flags);
 	if (port->flags & UPF_FOURPORT) {
 		/* reset interrupts on the AST Fourport board */
 		inb((port->iobase & 0xfe0) | 0x1f);
@@ -2529,7 +2515,7 @@ void serial8250_do_shutdown(struct uart_port *port)
 		port->mctrl &= ~TIOCM_OUT2;
 
 	serial8250_set_mctrl(port, port->mctrl);
-	uart_port_unlock_irqrestore(port, flags);
+	spin_unlock_irqrestore(&port->lock, flags);
 
 	/*
 	 * Disable break condition and FIFOs
@@ -2765,14 +2751,14 @@ void serial8250_update_uartclk(struct uart_port *port, unsigned int uartclk)
 	quot = serial8250_get_divisor(port, baud, &frac);
 
 	serial8250_rpm_get(up);
-	uart_port_lock_irqsave(port, &flags);
+	spin_lock_irqsave(&port->lock, flags);
 
 	uart_update_timeout(port, termios->c_cflag, baud);
 
 	serial8250_set_divisor(port, baud, quot, frac);
 	serial_port_out(port, UART_LCR, up->lcr);
 
-	uart_port_unlock_irqrestore(port, flags);
+	spin_unlock_irqrestore(&port->lock, flags);
 	serial8250_rpm_put(up);
 
 out_unlock:
@@ -2809,7 +2795,7 @@ serial8250_do_set_termios(struct uart_port *port, struct ktermios *termios,
 	 * Synchronize UART_IER access against the console.
 	 */
 	serial8250_rpm_get(up);
-	uart_port_lock_irqsave(port, &flags);
+	spin_lock_irqsave(&port->lock, flags);
 
 	up->lcr = cval;					/* Save computed LCR */
 
@@ -2912,7 +2898,7 @@ serial8250_do_set_termios(struct uart_port *port, struct ktermios *termios,
 		serial_port_out(port, UART_FCR, up->fcr);	/* set fcr */
 	}
 	serial8250_set_mctrl(port, port->mctrl);
-	uart_port_unlock_irqrestore(port, flags);
+	spin_unlock_irqrestore(&port->lock, flags);
 	serial8250_rpm_put(up);
 
 	/* Don't rewrite B0 */
@@ -2935,15 +2921,15 @@ void serial8250_do_set_ldisc(struct uart_port *port, struct ktermios *termios)
 {
 	if (termios->c_line == N_PPS) {
 		port->flags |= UPF_HARDPPS_CD;
-		uart_port_lock_irq(port);
+		spin_lock_irq(&port->lock);
 		serial8250_enable_ms(port);
-		uart_port_unlock_irq(port);
+		spin_unlock_irq(&port->lock);
 	} else {
 		port->flags &= ~UPF_HARDPPS_CD;
 		if (!UART_ENABLE_MS(port, termios->c_cflag)) {
-			uart_port_lock_irq(port);
+			spin_lock_irq(&port->lock);
 			serial8250_disable_ms(port);
-			uart_port_unlock_irq(port);
+			spin_unlock_irq(&port->lock);
 		}
 	}
 }
@@ -3295,8 +3281,8 @@ void serial8250_init_port(struct uart_8250_port *up)
 	struct uart_port *port = &up->port;
 
 	spin_lock_init(&port->lock);
-	port->ctrl_id = 0;
 	port->pm = NULL;
+	port->ctrl_id = 0;
 	port->ops = &serial8250_pops;
 	port->has_sysrq = IS_ENABLED(CONFIG_SERIAL_8250_CONSOLE);
 
@@ -3339,11 +3325,6 @@ static void serial8250_console_putchar(struct uart_port *port, unsigned char ch)
 
 	wait_for_xmitr(up, UART_LSR_THRE);
 	serial_port_out(port, UART_TX, ch);
-
-	if (ch == '\n')
-		up->console_newline_needed = false;
-	else
-		up->console_newline_needed = true;
 }
 
 /*
@@ -3372,7 +3353,6 @@ static void serial8250_console_restore(struct uart_8250_port *up)
 	serial8250_out_MCR(up, up->mcr | UART_MCR_DTR | UART_MCR_RTS);
 }
 
-#ifdef CONFIG_SERIAL_8250_LEGACY_CONSOLE
 /*
  * Print a string to the serial port using the device FIFO
  *
@@ -3423,15 +3403,15 @@ void serial8250_console_write(struct uart_8250_port *up, const char *s,
 	touch_nmi_watchdog();
 
 	if (oops_in_progress)
-		locked = uart_port_trylock_irqsave(port, &flags);
+		locked = spin_trylock_irqsave(&port->lock, flags);
 	else
-		uart_port_lock_irqsave(port, &flags);
+		spin_lock_irqsave(&port->lock, flags);
 
 	/*
 	 *	First save the IER then disable the interrupts
 	 */
 	ier = serial_port_in(port, UART_IER);
-	__serial8250_clear_IER(up);
+	serial8250_clear_IER(up);
 
 	/* check scratch reg to see if port powered off during system sleep */
 	if (up->canary && (up->canary != serial_port_in(port, UART_SCR))) {
@@ -3495,137 +3475,8 @@ void serial8250_console_write(struct uart_8250_port *up, const char *s,
 		serial8250_modem_status(up);
 
 	if (locked)
-		uart_port_unlock_irqrestore(port, flags);
+		spin_unlock_irqrestore(&port->lock, flags);
 }
-#else
-bool serial8250_console_write_thread(struct uart_8250_port *up,
-				     struct nbcon_write_context *wctxt)
-{
-	struct uart_8250_em485 *em485 = up->em485;
-	struct uart_port *port = &up->port;
-	bool done = false;
-	unsigned int ier;
-
-	touch_nmi_watchdog();
-
-	if (!nbcon_enter_unsafe(wctxt))
-		return false;
-
-	/* First save IER then disable the interrupts. */
-	ier = serial_port_in(port, UART_IER);
-	serial8250_clear_IER(up);
-
-	/* Check scratch reg if port powered off during system sleep. */
-	if (up->canary && (up->canary != serial_port_in(port, UART_SCR))) {
-		serial8250_console_restore(up);
-		up->canary = 0;
-	}
-
-	if (em485) {
-		if (em485->tx_stopped)
-			up->rs485_start_tx(up);
-		mdelay(port->rs485.delay_rts_before_send);
-	}
-
-	if (nbcon_exit_unsafe(wctxt)) {
-		int len = READ_ONCE(wctxt->len);
-		int i;
-
-		/*
-		 * Write out the message. Toggle unsafe for each byte in order
-		 * to give another (higher priority) context the opportunity
-		 * for a friendly takeover. If such a takeover occurs, this
-		 * context must reacquire ownership in order to perform final
-		 * actions (such as re-enabling the interrupts).
-		 *
-		 * IMPORTANT: wctxt->outbuf and wctxt->len are no longer valid
-		 *	      after a reacquire so writing the message must be
-		 *	      aborted.
-		 */
-		for (i = 0; i < len; i++) {
-			if (!nbcon_enter_unsafe(wctxt)) {
-				nbcon_reacquire(wctxt);
-				break;
-			}
-
-			uart_console_write(port, wctxt->outbuf + i, 1, serial8250_console_putchar);
-
-			if (!nbcon_exit_unsafe(wctxt)) {
-				nbcon_reacquire(wctxt);
-				break;
-			}
-		}
-		done = (i == len);
-	} else {
-		nbcon_reacquire(wctxt);
-	}
-
-	while (!nbcon_enter_unsafe(wctxt))
-		nbcon_reacquire(wctxt);
-
-	/* Finally, wait for transmitter to become empty and restore IER. */
-	wait_for_xmitr(up, UART_LSR_BOTH_EMPTY);
-	if (em485) {
-		mdelay(port->rs485.delay_rts_after_send);
-		if (em485->tx_stopped)
-			up->rs485_stop_tx(up);
-	}
-	serial_port_out(port, UART_IER, ier);
-
-	/*
-	 * The receive handling will happen properly because the receive ready
-	 * bit will still be set; it is not cleared on read.  However, modem
-	 * control will not, we must call it if we have saved something in the
-	 * saved flags while processing with interrupts off.
-	 */
-	if (up->msr_saved_flags)
-		serial8250_modem_status(up);
-
-	/* Success if no handover/takeover and message fully printed. */
-	return (nbcon_exit_unsafe(wctxt) && done);
-}
-
-bool serial8250_console_write_atomic(struct uart_8250_port *up,
-				     struct nbcon_write_context *wctxt)
-{
-	struct uart_port *port = &up->port;
-	unsigned int ier;
-
-	/* Atomic console not supported for rs485 mode. */
-	if (up->em485)
-		return false;
-
-	touch_nmi_watchdog();
-
-	if (!nbcon_enter_unsafe(wctxt))
-		return false;
-
-	/*
-	 * First save IER then disable the interrupts. The special variant to
-	 * clear IER is used because atomic printing may occur without holding
-	 * the port lock.
-	 */
-	ier = serial_port_in(port, UART_IER);
-	__serial8250_clear_IER(up);
-
-	/* Check scratch reg if port powered off during system sleep. */
-	if (up->canary && (up->canary != serial_port_in(port, UART_SCR))) {
-		serial8250_console_restore(up);
-		up->canary = 0;
-	}
-
-	if (up->console_newline_needed)
-		uart_console_write(port, "\n", 1, serial8250_console_putchar);
-	uart_console_write(port, wctxt->outbuf, wctxt->len, serial8250_console_putchar);
-
-	/* Finally, wait for transmitter to become empty and restore IER. */
-	wait_for_xmitr(up, UART_LSR_BOTH_EMPTY);
-	serial_port_out(port, UART_IER, ier);
-
-	/* Success if no handover/takeover. */
-	return nbcon_exit_unsafe(wctxt);
-}
-#endif /* CONFIG_SERIAL_8250_LEGACY_CONSOLE */
 
 static unsigned int probe_baud(struct uart_port *port)
 {
@@ -3644,7 +3495,6 @@ static unsigned int probe_baud(struct uart_port *port)
 
 int serial8250_console_setup(struct uart_port *port, char *options, bool probe)
 {
-	struct uart_8250_port *up = up_to_u8250p(port);
 	int baud = 9600;
 	int bits = 8;
 	int parity = 'n';
@@ -3653,8 +3503,6 @@ int serial8250_console_setup(struct uart_port *port, char *options, bool probe)
 
 	if (!port->iobase && !port->membase)
 		return -ENODEV;
-
-	up->console_newline_needed = false;
 
 	if (options)
 		uart_parse_options(options, &baud, &parity, &bits, &flow);

@@ -216,11 +216,11 @@ static irqreturn_t ulite_isr(int irq, void *dev_id)
 	unsigned long flags;
 
 	do {
-		uart_port_lock_irqsave(port, &flags);
+		spin_lock_irqsave(&port->lock, flags);
 		stat = uart_in32(ULITE_STATUS, port);
 		busy  = ulite_receive(port, stat);
 		busy |= ulite_transmit(port, stat);
-		uart_port_unlock_irqrestore(port, flags);
+		spin_unlock_irqrestore(&port->lock, flags);
 		n++;
 	} while (busy);
 
@@ -238,9 +238,9 @@ static unsigned int ulite_tx_empty(struct uart_port *port)
 	unsigned long flags;
 	unsigned int ret;
 
-	uart_port_lock_irqsave(port, &flags);
+	spin_lock_irqsave(&port->lock, flags);
 	ret = uart_in32(ULITE_STATUS, port);
-	uart_port_unlock_irqrestore(port, flags);
+	spin_unlock_irqrestore(&port->lock, flags);
 
 	return ret & ULITE_STATUS_TXEMPTY ? TIOCSER_TEMT : 0;
 }
@@ -323,7 +323,7 @@ static void ulite_set_termios(struct uart_port *port,
 	termios->c_cflag |= pdata->cflags & (PARENB | PARODD | CSIZE);
 	tty_termios_encode_baud_rate(termios, pdata->baud, pdata->baud);
 
-	uart_port_lock_irqsave(port, &flags);
+	spin_lock_irqsave(&port->lock, flags);
 
 	port->read_status_mask = ULITE_STATUS_RXVALID | ULITE_STATUS_OVERRUN
 		| ULITE_STATUS_TXFULL;
@@ -346,7 +346,7 @@ static void ulite_set_termios(struct uart_port *port,
 	/* update timeout */
 	uart_update_timeout(port, termios->c_cflag, pdata->baud);
 
-	uart_port_unlock_irqrestore(port, flags);
+	spin_unlock_irqrestore(&port->lock, flags);
 }
 
 static const char *ulite_type(struct uart_port *port)
@@ -495,9 +495,9 @@ static void ulite_console_write(struct console *co, const char *s,
 	int locked = 1;
 
 	if (oops_in_progress) {
-		locked = uart_port_trylock_irqsave(port, &flags);
+		locked = spin_trylock_irqsave(&port->lock, flags);
 	} else
-		uart_port_lock_irqsave(port, &flags);
+		spin_lock_irqsave(&port->lock, flags);
 
 	/* save and disable interrupt */
 	ier = uart_in32(ULITE_STATUS, port) & ULITE_STATUS_IE;
@@ -512,7 +512,7 @@ static void ulite_console_write(struct console *co, const char *s,
 		uart_out32(ULITE_CONTROL_IE, ULITE_CONTROL, port);
 
 	if (locked)
-		uart_port_unlock_irqrestore(port, flags);
+		spin_unlock_irqrestore(&port->lock, flags);
 }
 
 static int ulite_console_setup(struct console *co, char *options)

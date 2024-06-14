@@ -1096,14 +1096,14 @@ static void
 mpc52xx_uart_break_ctl(struct uart_port *port, int ctl)
 {
 	unsigned long flags;
-	uart_port_lock_irqsave(port, &flags);
+	spin_lock_irqsave(&port->lock, flags);
 
 	if (ctl == -1)
 		psc_ops->command(port, MPC52xx_PSC_START_BRK);
 	else
 		psc_ops->command(port, MPC52xx_PSC_STOP_BRK);
 
-	uart_port_unlock_irqrestore(port, flags);
+	spin_unlock_irqrestore(&port->lock, flags);
 }
 
 static int
@@ -1214,7 +1214,7 @@ mpc52xx_uart_set_termios(struct uart_port *port, struct ktermios *new,
 	}
 
 	/* Get the lock */
-	uart_port_lock_irqsave(port, &flags);
+	spin_lock_irqsave(&port->lock, flags);
 
 	/* Do our best to flush TX & RX, so we don't lose anything */
 	/* But we don't wait indefinitely ! */
@@ -1250,7 +1250,7 @@ mpc52xx_uart_set_termios(struct uart_port *port, struct ktermios *new,
 	psc_ops->command(port, MPC52xx_PSC_RX_ENABLE);
 
 	/* We're all set, release the lock */
-	uart_port_unlock_irqrestore(port, flags);
+	spin_unlock_irqrestore(&port->lock, flags);
 }
 
 static const char *
@@ -1477,11 +1477,11 @@ mpc52xx_uart_int(int irq, void *dev_id)
 	struct uart_port *port = dev_id;
 	irqreturn_t ret;
 
-	uart_port_lock(port);
+	spin_lock(&port->lock);
 
 	ret = psc_ops->handle_irq(port);
 
-	uart_port_unlock(port);
+	spin_unlock(&port->lock);
 
 	return ret;
 }

@@ -187,9 +187,9 @@ static unsigned int mvebu_uart_tx_empty(struct uart_port *port)
 	unsigned long flags;
 	unsigned int st;
 
-	uart_port_lock_irqsave(port, &flags);
+	spin_lock_irqsave(&port->lock, flags);
 	st = readl(port->membase + UART_STAT);
-	uart_port_unlock_irqrestore(port, flags);
+	spin_unlock_irqrestore(&port->lock, flags);
 
 	return (st & STAT_TX_EMP) ? TIOCSER_TEMT : 0;
 }
@@ -249,14 +249,14 @@ static void mvebu_uart_break_ctl(struct uart_port *port, int brk)
 	unsigned int ctl;
 	unsigned long flags;
 
-	uart_port_lock_irqsave(port, &flags);
+	spin_lock_irqsave(&port->lock, flags);
 	ctl = readl(port->membase + UART_CTRL(port));
 	if (brk == -1)
 		ctl |= CTRL_SND_BRK_SEQ;
 	else
 		ctl &= ~CTRL_SND_BRK_SEQ;
 	writel(ctl, port->membase + UART_CTRL(port));
-	uart_port_unlock_irqrestore(port, flags);
+	spin_unlock_irqrestore(&port->lock, flags);
 }
 
 static void mvebu_uart_rx_chars(struct uart_port *port, unsigned int status)
@@ -540,7 +540,7 @@ static void mvebu_uart_set_termios(struct uart_port *port,
 	unsigned long flags;
 	unsigned int baud, min_baud, max_baud;
 
-	uart_port_lock_irqsave(port, &flags);
+	spin_lock_irqsave(&port->lock, flags);
 
 	port->read_status_mask = STAT_RX_RDY(port) | STAT_OVR_ERR |
 		STAT_TX_RDY(port) | STAT_TX_FIFO_FUL;
@@ -589,7 +589,7 @@ static void mvebu_uart_set_termios(struct uart_port *port,
 		uart_update_timeout(port, termios->c_cflag, baud);
 	}
 
-	uart_port_unlock_irqrestore(port, flags);
+	spin_unlock_irqrestore(&port->lock, flags);
 }
 
 static const char *mvebu_uart_type(struct uart_port *port)
@@ -735,9 +735,9 @@ static void mvebu_uart_console_write(struct console *co, const char *s,
 	int locked = 1;
 
 	if (oops_in_progress)
-		locked = uart_port_trylock_irqsave(port, &flags);
+		locked = spin_trylock_irqsave(&port->lock, flags);
 	else
-		uart_port_lock_irqsave(port, &flags);
+		spin_lock_irqsave(&port->lock, flags);
 
 	ier = readl(port->membase + UART_CTRL(port)) & CTRL_BRK_INT;
 	intr = readl(port->membase + UART_INTR(port)) &
@@ -758,7 +758,7 @@ static void mvebu_uart_console_write(struct console *co, const char *s,
 	}
 
 	if (locked)
-		uart_port_unlock_irqrestore(port, flags);
+		spin_unlock_irqrestore(&port->lock, flags);
 }
 
 static int mvebu_uart_console_setup(struct console *co, char *options)

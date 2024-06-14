@@ -17,7 +17,7 @@ struct tty_audit_buf {
 	dev_t dev;		/* The TTY which the data is from */
 	bool icanon;
 	size_t valid;
-	u8 *data;		/* Allocated size N_TTY_BUF_SIZE */
+	unsigned char *data;	/* Allocated size N_TTY_BUF_SIZE */
 };
 
 static struct tty_audit_buf *tty_audit_buf_ref(void)
@@ -134,7 +134,7 @@ void tty_audit_fork(struct signal_struct *sig)
 /*
  *	tty_audit_tiocsti	-	Log TIOCSTI
  */
-void tty_audit_tiocsti(const struct tty_struct *tty, u8 ch)
+void tty_audit_tiocsti(struct tty_struct *tty, char ch)
 {
 	dev_t dev;
 
@@ -199,8 +199,7 @@ static struct tty_audit_buf *tty_audit_buf_get(void)
  *
  *	Audit @data of @size from @tty, if necessary.
  */
-void tty_audit_add_data(const struct tty_struct *tty, const void *data,
-			size_t size)
+void tty_audit_add_data(struct tty_struct *tty, const void *data, size_t size)
 {
 	struct tty_audit_buf *buf;
 	unsigned int audit_tty;

@@ -79,7 +79,7 @@ static inline void uart_port_deref(struct uart_port *uport)
 	({								\
 		struct uart_port *__uport = uart_port_ref(state);	\
 		if (__uport)						\
-			uart_port_lock_irqsave(__uport, &flags);	\
+			spin_lock_irqsave(&__uport->lock, flags);	\
 		__uport;						\
 	})
 
@@ -87,7 +87,7 @@ static inline void uart_port_deref(struct uart_port *uport)
 	({								\
 		struct uart_port *__uport = uport;			\
 		if (__uport) {						\
-			uart_port_unlock_irqrestore(__uport, flags);	\
+			spin_unlock_irqrestore(&__uport->lock, flags);	\
 			uart_port_deref(__uport);			\
 		}							\
 	})
@@ -133,8 +133,9 @@ static void uart_stop(struct tty_struct *tty)
 	uart_port_unlock(port, flags);
 }
 
-static void __uart_start(struct uart_state *state)
+static void __uart_start(struct tty_struct *tty)
 {
+	struct uart_state *state = tty->driver_data;
 	struct uart_port *port = state->uart_port;
 	struct serial_port_device *port_dev;
 	int err;
@@ -169,7 +170,7 @@ static void uart_start(struct tty_struct *tty)
 	unsigned long flags;
 
 	port = uart_port_lock(state, flags);
-	__uart_start(state);
+	__uart_start(tty);
 	uart_port_unlock(port, flags);
 }
 
@@ -179,12 +180,12 @@ uart_update_mctrl(struct uart_port *port, unsigned int set, unsigned int clear)
 	unsigned long flags;
 	unsigned int old;
 
-	uart_port_lock_irqsave(port, &flags);
+	spin_lock_irqsave(&port->lock, flags);
 	old = port->mctrl;
 	port->mctrl = (old & ~clear) | set;
 	if (old != port->mctrl && !(port->rs485.flags & SER_RS485_ENABLED))
 		port->ops->set_mctrl(port, port->mctrl);
-	uart_port_unlock_irqrestore(port, flags);
+	spin_unlock_irqrestore(&port->lock, flags);
 }
 
 #define uart_set_mctrl(port, set)	uart_update_mctrl(port, set, 0)
@@ -219,7 +220,7 @@ static void uart_change_line_settings(struct tty_struct *tty, struct uart_state 
 	/*
 	 * Set modem status enables based on termios cflag
 	 */
-	uart_port_lock_irq(uport);
+	spin_lock_irq(&uport->lock);
 	if (termios->c_cflag & CRTSCTS)
 		uport->status |= UPSTAT_CTS_ENABLE;
 	else
@@ -238,9 +239,9 @@ static void uart_change_line_settings(struct tty_struct *tty, struct uart_state 
 		if (!old_hw_stopped)
 			uport->ops->stop_tx(uport);
 		else
-			__uart_start(state);
+			__uart_start(tty);
 	}
-	uart_port_unlock_irq(uport);
+	spin_unlock_irq(&uport->lock);
 }
 
 /*
@@ -551,7 +552,7 @@ uart_get_divisor(struct uart_port *port, unsigned int baud)
 }
 EXPORT_SYMBOL(uart_get_divisor);
 
-static int uart_put_char(struct tty_struct *tty, u8 c)
+static int uart_put_char(struct tty_struct *tty, unsigned char c)
 {
 	struct uart_state *state = tty->driver_data;
 	struct uart_port *port;
@@ -580,7 +581,8 @@ static void uart_flush_chars(struct tty_struct *tty)
 	uart_start(tty);
 }
 
-static int uart_write(struct tty_struct *tty, const unsigned char *buf, int count)
+static int uart_write(struct tty_struct *tty,
+					const unsigned char *buf, int count)
 {
 	struct uart_state *state = tty->driver_data;
 	struct uart_port *port;
@@ -592,8 +594,10 @@ static int uart_write(struct tty_struct *tty, const unsigned char *buf, int coun
 	 * This means you called this function _after_ the port was
 	 * closed.  No cookie for you.
 	 */
-	if (WARN_ON(!state))
+	if (!state) {
+		WARN_ON(1);
 		return -EL3HLT;
+	}
 
 	port = uart_port_lock(state, flags);
 	circ = &state->xmit;
@@ -615,7 +619,7 @@ static int uart_write(struct tty_struct *tty, const unsigned char *buf, int coun
 		ret += c;
 	}
 
-	__uart_start(state);
+	__uart_start(tty);
 	uart_port_unlock(port, flags);
 	return ret;
 }
@@ -656,8 +660,10 @@ static void uart_flush_buffer(struct tty_struct *tty)
 	 * This means you called this function _after_ the port was
 	 * closed.  No cookie for you.
 	 */
-	if (WARN_ON(!state))
+	if (!state) {
+		WARN_ON(1);
 		return;
+	}
 
 	pr_debug("uart_flush_buffer(%d) called\n", tty->index);
 
@@ -702,11 +708,11 @@ static void uart_send_xchar(struct tty_struct *tty, char ch)
 	if (port->ops->send_xchar)
 		port->ops->send_xchar(port, ch);
 	else {
-		uart_port_lock_irqsave(port, &flags);
+		spin_lock_irqsave(&port->lock, flags);
 		port->x_char = ch;
 		if (ch)
 			port->ops->start_tx(port);
-		uart_port_unlock_irqrestore(port, flags);
+		spin_unlock_irqrestore(&port->lock, flags);
 	}
 	uart_port_deref(port);
 }
@@ -1084,10 +1090,10 @@ static int uart_tiocmget(struct tty_struct *tty)
 		goto out;
 
 	if (!tty_io_error(tty)) {
-		uart_port_lock_irq(uport);
+		spin_lock_irq(&uport->lock);
 		result = uport->mctrl;
 		result |= uport->ops->get_mctrl(uport);
-		uart_port_unlock_irq(uport);
+		spin_unlock_irq(&uport->lock);
 	}
 out:
 	mutex_unlock(&port->mutex);
@@ -1223,16 +1229,16 @@ static int uart_wait_modem_status(struct uart_state *state, unsigned long arg)
 	uport = uart_port_ref(state);
 	if (!uport)
 		return -EIO;
-	uart_port_lock_irq(uport);
+	spin_lock_irq(&uport->lock);
 	memcpy(&cprev, &uport->icount, sizeof(struct uart_icount));
 	uart_enable_ms(uport);
-	uart_port_unlock_irq(uport);
+	spin_unlock_irq(&uport->lock);
 
 	add_wait_queue(&port->delta_msr_wait, &wait);
 	for (;;) {
-		uart_port_lock_irq(uport);
+		spin_lock_irq(&uport->lock);
 		memcpy(&cnow, &uport->icount, sizeof(struct uart_icount));
-		uart_port_unlock_irq(uport);
+		spin_unlock_irq(&uport->lock);
 
 		set_current_state(TASK_INTERRUPTIBLE);
 
@@ -1277,9 +1283,9 @@ static int uart_get_icount(struct tty_struct *tty,
 	uport = uart_port_ref(state);
 	if (!uport)
 		return -EIO;
-	uart_port_lock_irq(uport);
+	spin_lock_irq(&uport->lock);
 	memcpy(&cnow, &uport->icount, sizeof(struct uart_icount));
-	uart_port_unlock_irq(uport);
+	spin_unlock_irq(&uport->lock);
 	uart_port_deref(uport);
 
 	icount->cts         = cnow.cts;
@@ -1432,9 +1438,9 @@ static int uart_rs485_config(struct uart_port *port)
 	uart_set_rs485_termination(port, rs485);
 	uart_set_rs485_rx_during_tx(port, rs485);
 
-	uart_port_lock_irqsave(port, &flags);
+	spin_lock_irqsave(&port->lock, flags);
 	ret = port->rs485_config(port, NULL, rs485);
-	uart_port_unlock_irqrestore(port, flags);
+	spin_unlock_irqrestore(&port->lock, flags);
 	if (ret) {
 		memset(rs485, 0, sizeof(*rs485));
 		/* unset GPIOs */
@@ -1451,9 +1457,9 @@ static int uart_get_rs485_config(struct uart_port *port,
 	unsigned long flags;
 	struct serial_rs485 aux;
 
-	uart_port_lock_irqsave(port, &flags);
+	spin_lock_irqsave(&port->lock, flags);
 	aux = port->rs485;
-	uart_port_unlock_irqrestore(port, flags);
+	spin_unlock_irqrestore(&port->lock, flags);
 
 	if (copy_to_user(rs485, &aux, sizeof(aux)))
 		return -EFAULT;
@@ -1481,7 +1487,7 @@ static int uart_set_rs485_config(struct tty_struct *tty, struct uart_port *port,
 	uart_set_rs485_termination(port, &rs485);
 	uart_set_rs485_rx_during_tx(port, &rs485);
 
-	uart_port_lock_irqsave(port, &flags);
+	spin_lock_irqsave(&port->lock, flags);
 	ret = port->rs485_config(port, &tty->termios, &rs485);
 	if (!ret) {
 		port->rs485 = rs485;
@@ -1490,7 +1496,7 @@ static int uart_set_rs485_config(struct tty_struct *tty, struct uart_port *port,
 		if (!(rs485.flags & SER_RS485_ENABLED))
 			port->ops->set_mctrl(port, port->mctrl);
 	}
-	uart_port_unlock_irqrestore(port, flags);
+	spin_unlock_irqrestore(&port->lock, flags);
 	if (ret) {
 		/* restore old GPIO settings */
 		gpiod_set_value_cansleep(port->rs485_term_gpio,
@@ -1515,9 +1521,9 @@ static int uart_get_iso7816_config(struct uart_port *port,
 	if (!port->iso7816_config)
 		return -ENOTTY;
 
-	uart_port_lock_irqsave(port, &flags);
+	spin_lock_irqsave(&port->lock, flags);
 	aux = port->iso7816;
-	uart_port_unlock_irqrestore(port, flags);
+	spin_unlock_irqrestore(&port->lock, flags);
 
 	if (copy_to_user(iso7816, &aux, sizeof(aux)))
 		return -EFAULT;
@@ -1546,9 +1552,9 @@ static int uart_set_iso7816_config(struct uart_port *port,
 		if (iso7816.reserved[i])
 			return -EINVAL;
 
-	uart_port_lock_irqsave(port, &flags);
+	spin_lock_irqsave(&port->lock, flags);
 	ret = port->iso7816_config(port, &iso7816);
-	uart_port_unlock_irqrestore(port, flags);
+	spin_unlock_irqrestore(&port->lock, flags);
 	if (ret)
 		return ret;
 
@@ -1765,9 +1771,9 @@ static void uart_tty_port_shutdown(struct tty_port *port)
 	if (WARN(!uport, "detached port still initialized!\n"))
 		return;
 
-	uart_port_lock_irq(uport);
+	spin_lock_irq(&uport->lock);
 	uport->ops->stop_rx(uport);
-	uart_port_unlock_irq(uport);
+	spin_unlock_irq(&uport->lock);
 
 	uart_port_shutdown(port);
 
@@ -1781,10 +1787,10 @@ static void uart_tty_port_shutdown(struct tty_port *port)
 	/*
 	 * Free the transmit buffer.
 	 */
-	uart_port_lock_irq(uport);
+	spin_lock_irq(&uport->lock);
 	buf = state->xmit.buf;
 	state->xmit.buf = NULL;
-	uart_port_unlock_irq(uport);
+	spin_unlock_irq(&uport->lock);
 
 	free_page((unsigned long)buf);
 
@@ -1927,10 +1933,10 @@ static bool uart_carrier_raised(struct tty_port *port)
 	 */
 	if (WARN_ON(!uport))
 		return true;
-	uart_port_lock_irq(uport);
+	spin_lock_irq(&uport->lock);
 	uart_enable_ms(uport);
 	mctrl = uport->ops->get_mctrl(uport);
-	uart_port_unlock_irq(uport);
+	spin_unlock_irq(&uport->lock);
 	uart_port_deref(uport);
 
 	return mctrl & TIOCM_CAR;
@@ -2047,9 +2053,9 @@ static void uart_line_info(struct seq_file *m, struct uart_driver *drv, int i)
 		pm_state = state->pm_state;
 		if (pm_state != UART_PM_STATE_ON)
 			uart_change_pm(state, UART_PM_STATE_ON);
-		uart_port_lock_irq(uport);
+		spin_lock_irq(&uport->lock);
 		status = uport->ops->get_mctrl(uport);
-		uart_port_unlock_irq(uport);
+		spin_unlock_irq(&uport->lock);
 		if (pm_state != UART_PM_STATE_ON)
 			uart_change_pm(state, pm_state);
 
@@ -2388,9 +2394,9 @@ int uart_suspend_port(struct uart_driver *drv, struct uart_port *uport)
 	 */
 	if (!console_suspend_enabled && uart_console(uport)) {
 		if (uport->ops->start_rx) {
-			uart_port_lock_irq(uport);
+			spin_lock_irq(&uport->lock);
 			uport->ops->stop_rx(uport);
-			uart_port_unlock_irq(uport);
+			spin_unlock_irq(&uport->lock);
 		}
 		goto unlock;
 	}
@@ -2405,7 +2411,7 @@ int uart_suspend_port(struct uart_driver *drv, struct uart_port *uport)
 		tty_port_set_suspended(port, true);
 		tty_port_set_initialized(port, false);
 
-		uart_port_lock_irq(uport);
+		spin_lock_irq(&uport->lock);
 		ops->stop_tx(uport);
 		if (!(uport->rs485.flags & SER_RS485_ENABLED))
 			ops->set_mctrl(uport, 0);
@@ -2413,7 +2419,7 @@ int uart_suspend_port(struct uart_driver *drv, struct uart_port *uport)
 		mctrl = uport->mctrl;
 		uport->mctrl = 0;
 		ops->stop_rx(uport);
-		uart_port_unlock_irq(uport);
+		spin_unlock_irq(&uport->lock);
 
 		/*
 		 * Wait for the transmitter to empty.
@@ -2485,9 +2491,9 @@ int uart_resume_port(struct uart_driver *drv, struct uart_port *uport)
 			uart_change_pm(state, UART_PM_STATE_ON);
 		uport->ops->set_termios(uport, &termios, NULL);
 		if (!console_suspend_enabled && uport->ops->start_rx) {
-			uart_port_lock_irq(uport);
+			spin_lock_irq(&uport->lock);
 			uport->ops->start_rx(uport);
-			uart_port_unlock_irq(uport);
+			spin_unlock_irq(&uport->lock);
 		}
 		if (console_suspend_enabled)
 			console_start(uport->cons);
@@ -2498,10 +2504,10 @@ int uart_resume_port(struct uart_driver *drv, struct uart_port *uport)
 		int ret;
 
 		uart_change_pm(state, UART_PM_STATE_ON);
-		uart_port_lock_irq(uport);
+		spin_lock_irq(&uport->lock);
 		if (!(uport->rs485.flags & SER_RS485_ENABLED))
 			ops->set_mctrl(uport, 0);
-		uart_port_unlock_irq(uport);
+		spin_unlock_irq(&uport->lock);
 		if (console_suspend_enabled || !uart_console(uport)) {
 			/* Protected by port mutex for now */
 			struct tty_struct *tty = port->tty;
@@ -2511,11 +2517,11 @@ int uart_resume_port(struct uart_driver *drv, struct uart_port *uport)
 				if (tty)
 					uart_change_line_settings(tty, state, NULL);
 				uart_rs485_config(uport);
-				uart_port_lock_irq(uport);
+				spin_lock_irq(&uport->lock);
 				if (!(uport->rs485.flags & SER_RS485_ENABLED))
 					ops->set_mctrl(uport, uport->mctrl);
 				ops->start_tx(uport);
-				uart_port_unlock_irq(uport);
+				spin_unlock_irq(&uport->lock);
 				tty_port_set_initialized(port, true);
 			} else {
 				/*
@@ -2627,11 +2633,11 @@ uart_configure_port(struct uart_driver *drv, struct uart_state *state,
 		 * keep the DTR setting that is set in uart_set_options()
 		 * We probably don't need a spinlock around this, but
 		 */
-		uart_port_lock_irqsave(port, &flags);
+		spin_lock_irqsave(&port->lock, flags);
 		port->mctrl &= TIOCM_DTR;
 		if (!(port->rs485.flags & SER_RS485_ENABLED))
 			port->ops->set_mctrl(port, port->mctrl);
-		uart_port_unlock_irqrestore(port, flags);
+		spin_unlock_irqrestore(&port->lock, flags);
 
 		uart_rs485_config(port);
 
@@ -3150,8 +3156,15 @@ static int serial_core_add_one_port(struct uart_driver *drv, struct uart_port *u
 	state->uart_port = uport;
 	uport->state = state;
 
+	/*
+	 * If this port is in use as a console then the spinlock is already
+	 * initialised.
+	 */
+	if (!uart_console_registered(uport))
+		uart_port_spin_lock_init(uport);
+
 	state->pm_state = UART_PM_STATE_UNDEFINED;
-	uport->cons = drv->cons;
+	uart_port_set_cons(uport, drv->cons);
 	uport->minor = drv->tty_driver->minor_start + uport->line;
 	uport->name = kasprintf(GFP_KERNEL, "%s%d", drv->dev_name,
 				drv->tty_driver->name_base + uport->line);
@@ -3159,13 +3172,6 @@ static int serial_core_add_one_port(struct uart_driver *drv, struct uart_port *u
 		ret = -ENOMEM;
 		goto out;
 	}
-
-	/*
-	 * If this port is in use as a console then the spinlock is already
-	 * initialised.
-	 */
-	if (!uart_console_registered(uport))
-		uart_port_spin_lock_init(uport);
 
 	if (uport->cons && uport->dev)
 		of_console_check(uport->dev->of_node, uport->cons->name, uport->line);
@@ -3546,7 +3552,7 @@ void uart_insert_char(struct uart_port *port, unsigned int status,
 EXPORT_SYMBOL_GPL(uart_insert_char);
 
 #ifdef CONFIG_MAGIC_SYSRQ_SERIAL
-static const char sysrq_toggle_seq[] = CONFIG_MAGIC_SYSRQ_SERIAL_SEQUENCE;
+static const u8 sysrq_toggle_seq[] = CONFIG_MAGIC_SYSRQ_SERIAL_SEQUENCE;
 
 static void uart_sysrq_on(struct work_struct *w)
 {
@@ -3569,7 +3575,7 @@ static DECLARE_WORK(sysrq_enable_work, uart_sysrq_on);
  * Returns: %false if @ch is out of enabling sequence and should be
  * handled some other way, %true if @ch was consumed.
  */
-bool uart_try_toggle_sysrq(struct uart_port *port, unsigned int ch)
+bool uart_try_toggle_sysrq(struct uart_port *port, u8 ch)
 {
 	int sysrq_toggle_seq_len = strlen(sysrq_toggle_seq);
 

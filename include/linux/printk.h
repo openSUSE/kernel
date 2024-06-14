@@ -9,7 +9,7 @@
 #include <linux/ratelimit_types.h>
 #include <linux/once_lite.h>
 
-struct uart_port;
+struct console;
 
 extern const char linux_banner[];
 extern const char linux_proc_banner[];
@@ -61,6 +61,9 @@ static inline const char *printk_skip_headers(const char *buffer)
  */
 #define CONSOLE_LOGLEVEL_DEFAULT CONFIG_CONSOLE_LOGLEVEL_DEFAULT
 #define CONSOLE_LOGLEVEL_QUIET	 CONFIG_CONSOLE_LOGLEVEL_QUIET
+
+int add_preferred_console_match(const char *match, const char *name,
+				const short idx);
 
 extern int console_printk[];
 
@@ -159,8 +162,6 @@ int _printk(const char *fmt, ...);
  */
 __printf(1, 2) __cold int _printk_deferred(const char *fmt, ...);
 
-extern void __printk_safe_enter(void);
-extern void __printk_safe_exit(void);
 extern void __printk_deferred_enter(void);
 extern void __printk_deferred_exit(void);
 
@@ -197,9 +198,10 @@ void show_regs_print_info(const char *log_lvl);
 extern asmlinkage void dump_stack_lvl(const char *log_lvl) __cold;
 extern asmlinkage void dump_stack(void) __cold;
 void printk_trigger_flush(void);
+void console_try_replay_all(void);
 void printk_legacy_allow_panic_sync(void);
-extern void nbcon_acquire(struct uart_port *up);
-extern void nbcon_release(struct uart_port *up);
+extern bool nbcon_device_try_acquire(struct console *con);
+extern void nbcon_device_release(struct console *con);
 void nbcon_atomic_flush_unsafe(void);
 #else
 static inline __printf(1, 0)
@@ -281,15 +283,20 @@ static inline void printk_trigger_flush(void)
 {
 }
 
+static inline void console_try_replay_all(void)
+{
+}
+
 static inline void printk_legacy_allow_panic_sync(void)
 {
 }
 
-static inline void nbcon_acquire(struct uart_port *up)
+static inline bool nbcon_device_try_acquire(struct console *con)
 {
+	return false;
 }
 
-static inline void nbcon_release(struct uart_port *up)
+static inline void nbcon_device_release(struct console *con)
 {
 }
 

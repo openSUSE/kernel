@@ -225,10 +225,10 @@ static bool pci1xxxx_port_suspend(int line)
 	if (port->suspended == 0 && port->dev) {
 		wakeup_mask = readb(up->port.membase + UART_WAKE_MASK_REG);
 
-		uart_port_lock_irqsave(port, &flags);
+		spin_lock_irqsave(&port->lock, flags);
 		port->mctrl &= ~TIOCM_OUT2;
 		port->ops->set_mctrl(port, port->mctrl);
-		uart_port_unlock_irqrestore(port, flags);
+		spin_unlock_irqrestore(&port->lock, flags);
 
 		ret = (wakeup_mask & UART_WAKE_SRCS) != UART_WAKE_SRCS;
 	}
@@ -251,10 +251,10 @@ static void pci1xxxx_port_resume(int line)
 	writeb(UART_WAKE_SRCS, port->membase + UART_WAKE_REG);
 
 	if (port->suspended == 0) {
-		uart_port_lock_irqsave(port, &flags);
+		spin_lock_irqsave(&port->lock, flags);
 		port->mctrl |= TIOCM_OUT2;
 		port->ops->set_mctrl(port, port->mctrl);
-		uart_port_unlock_irqrestore(port, flags);
+		spin_unlock_irqrestore(&port->lock, flags);
 	}
 	mutex_unlock(&tport->mutex);
 }

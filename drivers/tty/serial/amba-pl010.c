@@ -207,7 +207,7 @@ static irqreturn_t pl010_int(int irq, void *dev_id)
 	unsigned int status, pass_counter = AMBA_ISR_PASS_LIMIT;
 	int handled = 0;
 
-	uart_port_lock(port);
+	spin_lock(&port->lock);
 
 	status = readb(port->membase + UART010_IIR);
 	if (status) {
@@ -228,7 +228,7 @@ static irqreturn_t pl010_int(int irq, void *dev_id)
 		handled = 1;
 	}
 
-	uart_port_unlock(port);
+	spin_unlock(&port->lock);
 
 	return IRQ_RETVAL(handled);
 }
@@ -270,14 +270,14 @@ static void pl010_break_ctl(struct uart_port *port, int break_state)
 	unsigned long flags;
 	unsigned int lcr_h;
 
-	uart_port_lock_irqsave(port, &flags);
+	spin_lock_irqsave(&port->lock, flags);
 	lcr_h = readb(port->membase + UART010_LCRH);
 	if (break_state == -1)
 		lcr_h |= UART01x_LCRH_BRK;
 	else
 		lcr_h &= ~UART01x_LCRH_BRK;
 	writel(lcr_h, port->membase + UART010_LCRH);
-	uart_port_unlock_irqrestore(port, flags);
+	spin_unlock_irqrestore(&port->lock, flags);
 }
 
 static int pl010_startup(struct uart_port *port)
@@ -385,7 +385,7 @@ pl010_set_termios(struct uart_port *port, struct ktermios *termios,
 	if (port->fifosize > 1)
 		lcr_h |= UART01x_LCRH_FEN;
 
-	uart_port_lock_irqsave(port, &flags);
+	spin_lock_irqsave(&port->lock, flags);
 
 	/*
 	 * Update the per-port timeout.
@@ -438,22 +438,22 @@ pl010_set_termios(struct uart_port *port, struct ktermios *termios,
 	writel(lcr_h, port->membase + UART010_LCRH);
 	writel(old_cr, port->membase + UART010_CR);
 
-	uart_port_unlock_irqrestore(port, flags);
+	spin_unlock_irqrestore(&port->lock, flags);
 }
 
 static void pl010_set_ldisc(struct uart_port *port, struct ktermios *termios)
 {
 	if (termios->c_line == N_PPS) {
 		port->flags |= UPF_HARDPPS_CD;
-		uart_port_lock_irq(port);
+		spin_lock_irq(&port->lock);
 		pl010_enable_ms(port);
-		uart_port_unlock_irq(port);
+		spin_unlock_irq(&port->lock);
 	} else {
 		port->flags &= ~UPF_HARDPPS_CD;
 		if (!UART_ENABLE_MS(port, termios->c_cflag)) {
-			uart_port_lock_irq(port);
+			spin_lock_irq(&port->lock);
 			pl010_disable_ms(port);
-			uart_port_unlock_irq(port);
+			spin_unlock_irq(&port->lock);
 		}
 	}
 }

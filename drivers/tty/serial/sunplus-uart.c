@@ -184,7 +184,7 @@ static void sunplus_break_ctl(struct uart_port *port, int ctl)
 	unsigned long flags;
 	unsigned int lcr;
 
-	uart_port_lock_irqsave(port, &flags);
+	spin_lock_irqsave(&port->lock, flags);
 
 	lcr = readl(port->membase + SUP_UART_LCR);
 
@@ -195,7 +195,7 @@ static void sunplus_break_ctl(struct uart_port *port, int ctl)
 
 	writel(lcr, port->membase + SUP_UART_LCR);
 
-	uart_port_unlock_irqrestore(port, flags);
+	spin_unlock_irqrestore(&port->lock, flags);
 }
 
 static void transmit_chars(struct uart_port *port)
@@ -277,7 +277,7 @@ static irqreturn_t sunplus_uart_irq(int irq, void *args)
 	struct uart_port *port = args;
 	unsigned int isc;
 
-	uart_port_lock(port);
+	spin_lock(&port->lock);
 
 	isc = readl(port->membase + SUP_UART_ISC);
 
@@ -287,7 +287,7 @@ static irqreturn_t sunplus_uart_irq(int irq, void *args)
 	if (isc & SUP_UART_ISC_TX)
 		transmit_chars(port);
 
-	uart_port_unlock(port);
+	spin_unlock(&port->lock);
 
 	return IRQ_HANDLED;
 }
@@ -302,14 +302,14 @@ static int sunplus_startup(struct uart_port *port)
 	if (ret)
 		return ret;
 
-	uart_port_lock_irqsave(port, &flags);
+	spin_lock_irqsave(&port->lock, flags);
 	/* isc define Bit[7:4] int setting, Bit[3:0] int status
 	 * isc register will clean Bit[3:0] int status after read
 	 * only do a write to Bit[7:4] int setting
 	 */
 	isc |= SUP_UART_ISC_RXM;
 	writel(isc, port->membase + SUP_UART_ISC);
-	uart_port_unlock_irqrestore(port, flags);
+	spin_unlock_irqrestore(&port->lock, flags);
 
 	return 0;
 }
@@ -318,13 +318,13 @@ static void sunplus_shutdown(struct uart_port *port)
 {
 	unsigned long flags;
 
-	uart_port_lock_irqsave(port, &flags);
+	spin_lock_irqsave(&port->lock, flags);
 	/* isc define Bit[7:4] int setting, Bit[3:0] int status
 	 * isc register will clean Bit[3:0] int status after read
 	 * only do a write to Bit[7:4] int setting
 	 */
 	writel(0, port->membase + SUP_UART_ISC); /* disable all interrupt */
-	uart_port_unlock_irqrestore(port, flags);
+	spin_unlock_irqrestore(&port->lock, flags);
 
 	free_irq(port->irq, port);
 }
@@ -372,7 +372,7 @@ static void sunplus_set_termios(struct uart_port *port,
 			lcr |= UART_LCR_EPAR;
 	}
 
-	uart_port_lock_irqsave(port, &flags);
+	spin_lock_irqsave(&port->lock, flags);
 
 	uart_update_timeout(port, termios->c_cflag, baud);
 
@@ -407,7 +407,7 @@ static void sunplus_set_termios(struct uart_port *port,
 	writel(div_l, port->membase + SUP_UART_DIV_L);
 	writel(lcr, port->membase + SUP_UART_LCR);
 
-	uart_port_unlock_irqrestore(port, flags);
+	spin_unlock_irqrestore(&port->lock, flags);
 }
 
 static void sunplus_set_ldisc(struct uart_port *port, struct ktermios *termios)
@@ -517,15 +517,15 @@ static void sunplus_console_write(struct console *co,
 	if (sunplus_console_ports[co->index]->port.sysrq)
 		locked = 0;
 	else if (oops_in_progress)
-		locked = uart_port_trylock(&sunplus_console_ports[co->index]->port);
+		locked = spin_trylock(&sunplus_console_ports[co->index]->port.lock);
 	else
-		uart_port_lock(&sunplus_console_ports[co->index]->port);
+		spin_lock(&sunplus_console_ports[co->index]->port.lock);
 
 	uart_console_write(&sunplus_console_ports[co->index]->port, s, count,
 			   sunplus_uart_console_putchar);
 
 	if (locked)
-		uart_port_unlock(&sunplus_console_ports[co->index]->port);
+		spin_unlock(&sunplus_console_ports[co->index]->port.lock);
 
 	local_irq_restore(flags);
 }

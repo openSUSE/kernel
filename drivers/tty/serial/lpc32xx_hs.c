@@ -140,15 +140,15 @@ static void lpc32xx_hsuart_console_write(struct console *co, const char *s,
 	if (up->port.sysrq)
 		locked = 0;
 	else if (oops_in_progress)
-		locked = uart_port_trylock(&up->port);
+		locked = spin_trylock(&up->port.lock);
 	else
-		uart_port_lock(&up->port);
+		spin_lock(&up->port.lock);
 
 	uart_console_write(&up->port, s, count, lpc32xx_hsuart_console_putchar);
 	wait_for_xmit_empty(&up->port);
 
 	if (locked)
-		uart_port_unlock(&up->port);
+		spin_unlock(&up->port.lock);
 	local_irq_restore(flags);
 }
 
@@ -298,7 +298,7 @@ static irqreturn_t serial_lpc32xx_interrupt(int irq, void *dev_id)
 	struct tty_port *tport = &port->state->port;
 	u32 status;
 
-	uart_port_lock(port);
+	spin_lock(&port->lock);
 
 	/* Read UART status and clear latched interrupts */
 	status = readl(LPC32XX_HSUART_IIR(port->membase));
@@ -333,7 +333,7 @@ static irqreturn_t serial_lpc32xx_interrupt(int irq, void *dev_id)
 		__serial_lpc32xx_tx(port);
 	}
 
-	uart_port_unlock(port);
+	spin_unlock(&port->lock);
 
 	return IRQ_HANDLED;
 }
@@ -404,14 +404,14 @@ static void serial_lpc32xx_break_ctl(struct uart_port *port,
 	unsigned long flags;
 	u32 tmp;
 
-	uart_port_lock_irqsave(port, &flags);
+	spin_lock_irqsave(&port->lock, flags);
 	tmp = readl(LPC32XX_HSUART_CTRL(port->membase));
 	if (break_state != 0)
 		tmp |= LPC32XX_HSU_BREAK;
 	else
 		tmp &= ~LPC32XX_HSU_BREAK;
 	writel(tmp, LPC32XX_HSUART_CTRL(port->membase));
-	uart_port_unlock_irqrestore(port, flags);
+	spin_unlock_irqrestore(&port->lock, flags);
 }
 
 /* port->lock is not held.  */
@@ -421,7 +421,7 @@ static int serial_lpc32xx_startup(struct uart_port *port)
 	unsigned long flags;
 	u32 tmp;
 
-	uart_port_lock_irqsave(port, &flags);
+	spin_lock_irqsave(&port->lock, flags);
 
 	__serial_uart_flush(port);
 
@@ -441,7 +441,7 @@ static int serial_lpc32xx_startup(struct uart_port *port)
 
 	lpc32xx_loopback_set(port->mapbase, 0); /* get out of loopback mode */
 
-	uart_port_unlock_irqrestore(port, flags);
+	spin_unlock_irqrestore(&port->lock, flags);
 
 	retval = request_irq(port->irq, serial_lpc32xx_interrupt,
 			     0, MODNAME, port);
@@ -458,7 +458,7 @@ static void serial_lpc32xx_shutdown(struct uart_port *port)
 	u32 tmp;
 	unsigned long flags;
 
-	uart_port_lock_irqsave(port, &flags);
+	spin_lock_irqsave(&port->lock, flags);
 
 	tmp = LPC32XX_HSU_TX_TL8B | LPC32XX_HSU_RX_TL32B |
 		LPC32XX_HSU_OFFSET(20) | LPC32XX_HSU_TMO_INACT_4B;
@@ -466,7 +466,7 @@ static void serial_lpc32xx_shutdown(struct uart_port *port)
 
 	lpc32xx_loopback_set(port->mapbase, 1); /* go to loopback mode */
 
-	uart_port_unlock_irqrestore(port, flags);
+	spin_unlock_irqrestore(&port->lock, flags);
 
 	free_irq(port->irq, port);
 }
@@ -491,7 +491,7 @@ static void serial_lpc32xx_set_termios(struct uart_port *port,
 
 	quot = __serial_get_clock_div(port->uartclk, baud);
 
-	uart_port_lock_irqsave(port, &flags);
+	spin_lock_irqsave(&port->lock, flags);
 
 	/* Ignore characters? */
 	tmp = readl(LPC32XX_HSUART_CTRL(port->membase));
@@ -505,7 +505,7 @@ static void serial_lpc32xx_set_termios(struct uart_port *port,
 
 	uart_update_timeout(port, termios->c_cflag, baud);
 
-	uart_port_unlock_irqrestore(port, flags);
+	spin_unlock_irqrestore(&port->lock, flags);
 
 	/* Don't rewrite B0 */
 	if (tty_termios_baud_rate(termios))
