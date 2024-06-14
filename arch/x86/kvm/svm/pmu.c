@@ -77,10 +77,7 @@ static bool amd_is_valid_rdpmc_ecx(struct kvm_vcpu *vcpu, unsigned int idx)
 {
 	struct kvm_pmu *pmu = vcpu_to_pmu(vcpu);
 
-	if (idx >= pmu->nr_arch_gp_counters)
-		return -EINVAL;
-
-	return 0;
+	return idx < pmu->nr_arch_gp_counters;
 }
 
 /* idx is the ECX register of RDPMC instruction */
