@@ -130,7 +130,9 @@ struct sof_ipc_pcm_ops {
 	bool reset_hw_params_during_stop;
 	bool ipc_first_on_start;
 	bool platform_stop_during_hw_free;
+#ifndef __GENKSYMS__
 	bool d0i3_supported_in_s0ix;
+#endif
 };
 
 /**
