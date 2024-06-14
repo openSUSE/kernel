@@ -1752,6 +1752,7 @@ static int copy_func_state(struct bpf_func_state *dst,
 	int err;
 
 	memcpy(dst, src, offsetof(struct bpf_func_state, acquired_refs));
+	dst->callback_depth = src->callback_depth;
 	err = copy_reference_state(dst, src);
 	if (err)
 		return err;
