@@ -62,6 +62,13 @@ extern "C" {
 #define NOUVEAU_GETPARAM_VRAM_BAR_SIZE 18
 
 /*
+ * NOUVEAU_GETPARAM_VRAM_USED
+ *
+ * Get remaining VRAM size.
+ */
+#define NOUVEAU_GETPARAM_VRAM_USED 19
+
+/*
  * NOUVEAU_GETPARAM_HAS_VMA_TILEMODE
  *
  * Query whether tile mode and PTE kind are accepted with VM allocs or not.
