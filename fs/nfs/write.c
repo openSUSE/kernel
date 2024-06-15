@@ -2188,8 +2188,8 @@ int __init nfs_init_writepagecache(void)
 	 * Limit the default to 256M
 	 */
 	nfs_congestion_kb = (16*int_sqrt(totalram_pages())) << (PAGE_SHIFT-10);
-	if (nfs_congestion_kb > 256*1024)
-		nfs_congestion_kb = 256*1024;
+	if (nfs_congestion_kb > 2048*1024)
+		nfs_congestion_kb = 2048*1024;
 
 	return 0;
 
