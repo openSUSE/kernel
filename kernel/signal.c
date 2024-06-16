@@ -2327,18 +2327,21 @@ static int ptrace_stop(int exit_code, int why, unsigned long message,
 	 * then sleep for a delay of one HZ tick. In the meantime this task
 	 * gets scheduled, enters schedule() and will wait for the ptracer.
 	 *
-	 * This preemption point is not bad from correctness point of view but
-	 * extends the runtime by one HZ tick time due to the ptracer's sleep.
-	 * The preempt-disable section ensures that there will be no preemption
-	 * between unlock and schedule() and so improving the performance since
-	 * the ptracer has no reason to sleep.
+	 * This preemption point is not bad from a correctness point of
+	 * view but extends the runtime by one HZ tick time due to the
+	 * ptracer's sleep.  The preempt-disable section ensures that there
+	 * will be no preemption between unlock and schedule() and so
+	 * improving the performance since the ptracer will observe that
+	 * the tracee is scheduled out once it gets on the CPU.
 	 *
 	 * On PREEMPT_RT locking tasklist_lock does not disable preemption.
-	 * Therefore the task can be preempted (after
-	 * do_notify_parent_cldstop()) before unlocking tasklist_lock so there
-	 * is no benefit in doing this. The optimisation is harmful on
-	 * PEEMPT_RT because the spinlock_t (in cgroup_enter_frozen()) must not
-	 * be acquired with disabled preemption.
+	 * Therefore the task can be preempted after do_notify_parent_cldstop()
+	 * before unlocking tasklist_lock so there is no benefit in doing this.
+	 *
+	 * In fact disabling preemption is harmful on PREEMPT_RT because
+	 * the spinlock_t in cgroup_enter_frozen() must not be acquired
+	 * with preemption disabled due to the 'sleeping' spinlock
+	 * substitution of RT.
 	 */
 	if (!IS_ENABLED(CONFIG_PREEMPT_RT))
 		preempt_disable();
