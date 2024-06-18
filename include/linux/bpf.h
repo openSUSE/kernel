@@ -2190,6 +2190,9 @@ int sock_map_bpf_prog_query(const union bpf_attr *attr,
 			    union bpf_attr __user *uattr);
 
 void sock_map_unhash(struct sock *sk);
+#ifndef __GENKSYMS__
+void sock_map_destroy(struct sock *sk);
+#endif /* __GENKSYMS__ */
 void sock_map_close(struct sock *sk, long timeout);
 #else
 static inline int bpf_prog_offload_init(struct bpf_prog *prog,
