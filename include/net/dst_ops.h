@@ -24,7 +24,7 @@ struct dst_ops {
 	void			(*destroy)(struct dst_entry *);
 	void			(*ifdown)(struct dst_entry *,
 					  struct net_device *dev, int how);
-	void                    (*negative_advice)(struct sock *sk, struct dst_entry *);
+	struct dst_entry *      (*negative_advice)(struct dst_entry *);
 	void			(*link_failure)(struct sk_buff *);
 	void			(*update_pmtu)(struct dst_entry *dst, struct sock *sk,
 					       struct sk_buff *skb, u32 mtu,
@@ -41,6 +41,9 @@ struct dst_ops {
 	struct kmem_cache	*kmem_cachep;
 
 	struct percpu_counter	pcpuc_entries ____cacheline_aligned_in_smp;
+#ifndef __GENKSYMS__
+	void                    (*__negative_advice)(struct sock *sk, struct dst_entry *);
+#endif
 };
 
 static inline int dst_entries_get_fast(struct dst_ops *dst)
