@@ -206,6 +206,10 @@ cifs_mark_tcp_ses_conns_for_reconnect(struct TCP_Server_Info *server,
 		spin_unlock(&ses->chan_lock);
 
 		spin_lock(&ses->ses_lock);
+		if (ses->ses_status == SES_EXITING) {
+			spin_unlock(&ses->ses_lock);
+			continue;
+		}
 		ses->ses_status = SES_NEED_RECON;
 		spin_unlock(&ses->ses_lock);
 

@@ -392,6 +392,11 @@ skip_rdma:
 		list_for_each(tmp2, &server->smb_ses_list) {
 			ses = list_entry(tmp2, struct cifs_ses,
 					 smb_ses_list);
+			mutex_lock(&ses->session_mutex);
+			if (ses->ses_status == SES_EXITING) {
+				mutex_unlock(&ses->session_mutex);
+				continue;
+			}
 			i++;
 			if ((ses->serverDomain == NULL) ||
 				(ses->serverOS == NULL) ||
@@ -467,6 +472,7 @@ skip_rdma:
 				seq_printf(m, "\n\t%d) ", j);
 				cifs_debug_tcon(m, tcon);
 			}
+			mutex_unlock(&ses->session_mutex);
 
 			spin_lock(&ses->iface_lock);
 			if (ses->iface_count)

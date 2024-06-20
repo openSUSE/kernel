@@ -2558,6 +2558,8 @@ smb2_is_network_name_deleted(char *buf, struct TCP_Server_Info *server)
 	spin_lock(&cifs_tcp_ses_lock);
 	list_for_each(tmp, &server->smb_ses_list) {
 		ses = list_entry(tmp, struct cifs_ses, smb_ses_list);
+		if (ses->ses_status == SES_EXITING)
+			continue;
 		list_for_each(tmp1, &ses->tcon_list) {
 			tcon = list_entry(tmp1, struct cifs_tcon, tcon_list);
 			if (tcon->tid == le32_to_cpu(shdr->Id.SyncId.TreeId)) {
