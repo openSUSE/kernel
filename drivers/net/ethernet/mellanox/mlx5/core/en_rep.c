@@ -623,13 +623,9 @@ static void mlx5e_rep_update_flows(struct mlx5e_priv *priv,
 
 	ASSERT_RTNL();
 
-	/* wait for encap to be fully initialized */
-	wait_for_completion(&e->res_ready);
-
 	mutex_lock(&esw->offloads.encap_tbl_lock);
 	encap_connected = !!(e->flags & MLX5_ENCAP_ENTRY_VALID);
-	if (e->compl_result < 0 || (encap_connected == neigh_connected &&
-				    ether_addr_equal(e->h_dest, ha)))
+	if (encap_connected == neigh_connected && ether_addr_equal(e->h_dest, ha))
 		goto unlock;
 
 	mlx5e_take_all_encap_flows(e, &flow_list);
@@ -658,9 +654,8 @@ static void mlx5e_rep_neigh_update(struct work_struct *work)
 	struct mlx5e_neigh_hash_entry *nhe =
 		container_of(work, struct mlx5e_neigh_hash_entry, neigh_update_work);
 	struct neighbour *n = nhe->n;
-	struct mlx5e_encap_entry *e;
+	struct mlx5e_encap_entry *e = NULL;
 	unsigned char ha[ETH_ALEN];
-	struct mlx5e_priv *priv;
 	bool neigh_connected;
 	u8 nud_state, dead;
 
@@ -681,14 +676,12 @@ static void mlx5e_rep_neigh_update(struct work_struct *work)
 
 	trace_mlx5e_rep_neigh_update(nhe, ha, neigh_connected);
 
-	list_for_each_entry(e, &nhe->encap_list, encap_list) {
-		if (!mlx5e_encap_take(e))
-			continue;
+	/* mlx5e_get_next_init_encap() releases previous encap before returning
+	 * the next one.
+	 */
+	while ((e = mlx5e_get_next_init_encap(nhe, e)) != NULL)
+		mlx5e_rep_update_flows(netdev_priv(e->out_dev), e, neigh_connected, ha);
 
-		priv = netdev_priv(e->out_dev);
-		mlx5e_rep_update_flows(priv, e, neigh_connected, ha);
-		mlx5e_encap_put(priv, e);
-	}
 	mlx5e_rep_neigh_entry_release(nhe);
 	rtnl_unlock();
 	neigh_release(n);

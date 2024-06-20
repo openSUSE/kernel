@@ -84,6 +84,12 @@ void mlx5e_take_all_encap_flows(struct mlx5e_encap_entry *e, struct list_head *f
 void mlx5e_put_encap_flow_list(struct mlx5e_priv *priv, struct list_head *flow_list);
 
 struct mlx5e_neigh_hash_entry;
+struct mlx5e_encap_entry *
+mlx5e_get_next_init_encap(struct mlx5e_neigh_hash_entry *nhe,
+		         struct mlx5e_encap_entry *e);
+struct mlx5e_encap_entry *
+mlx5e_get_next_init_encap(struct mlx5e_neigh_hash_entry *nhe,
+			  struct mlx5e_encap_entry *e);
 void mlx5e_tc_update_neigh_used_value(struct mlx5e_neigh_hash_entry *nhe);
 
 int mlx5e_tc_num_filters(struct mlx5e_priv *priv, unsigned long flags);
