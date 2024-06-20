@@ -3891,8 +3891,8 @@ int xfrm_policy_register_afinfo(const struct xfrm_policy_afinfo *afinfo, int fam
 			dst_ops->default_advmss = xfrm_default_advmss;
 		if (likely(dst_ops->mtu == NULL))
 			dst_ops->mtu = xfrm_mtu;
-		if (likely(dst_ops->negative_advice == NULL))
-			dst_ops->negative_advice = xfrm_negative_advice;
+		if (likely(dst_ops->__negative_advice == NULL))
+			dst_ops->__negative_advice = xfrm_negative_advice;
 		if (likely(dst_ops->link_failure == NULL))
 			dst_ops->link_failure = xfrm_link_failure;
 		if (likely(dst_ops->neigh_lookup == NULL))
@@ -3924,6 +3924,7 @@ void xfrm_policy_unregister_afinfo(const struct xfrm_policy_afinfo *afinfo)
 	dst_ops->kmem_cachep = NULL;
 	dst_ops->check = NULL;
 	dst_ops->negative_advice = NULL;
+	dst_ops->__negative_advice = NULL;
 	dst_ops->link_failure = NULL;
 }
 EXPORT_SYMBOL(xfrm_policy_unregister_afinfo);

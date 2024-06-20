@@ -2016,8 +2016,8 @@ static inline void __dst_negative_advice(struct sock *sk)
 {
 	struct dst_entry *dst = __sk_dst_get(sk);
 
-	if (dst && dst->ops->negative_advice)
-		dst->ops->negative_advice(sk, dst);
+	if (dst && dst->ops->__negative_advice)
+		dst->ops->__negative_advice(sk, dst);
 }
 
 static inline void dst_negative_advice(struct sock *sk)
