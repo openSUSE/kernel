@@ -246,6 +246,7 @@ static void nbd_del_disk(struct nbd_device *nbd)
 
 	if (disk) {
 		del_gendisk(disk);
+		nbd->disk->private_data = NULL;
 		blk_cleanup_disk(disk);
 		blk_mq_free_tag_set(&nbd->tag_set);
 	}
