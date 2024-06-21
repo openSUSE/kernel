@@ -316,6 +316,25 @@ struct bpf_func_state {
 	 * stack[allocated_stack/8 - 1] represents [*(r10-allocated_stack)..*(r10-allocated_stack+7)]
 	 */
 	struct bpf_stack_state *stack;
+
+	/* syu: fields that after this has to be copied manully in
+	 * copy_func_state() to keep the code working while preserving kABI at
+	 * the same time.
+	 */
+
+#ifndef __GENKSYMS__
+	/* For callback calling functions that limit number of possible
+	 * callback executions (e.g. bpf_loop) keeps track of current
+	 * simulated iteration number.
+	 * Value in frame N refers to number of times callback with frame
+	 * N+1 was simulated, e.g. for the following call:
+	 *
+	 *   bpf_loop(..., fn, ...); | suppose current frame is N
+	 *                           | fn would be simulated in frame N+1
+	 *                           | number of simulations is tracked in frame N
+	 */
+	u32 callback_depth;
+#endif /* __GENKSYMS__ */
 };
 
 struct bpf_idx_pair {
@@ -382,6 +401,13 @@ struct bpf_verifier_state {
 	struct bpf_active_lock active_lock;
 	bool speculative;
 	bool active_rcu_lock;
+#ifndef __GENKSYMS__
+	/* If this state was ever pointed-to by other state's loop_entry field
+	 * this flag would be set to true. Used to avoid freeing such states
+	 * while they are still in use.
+	 */
+	bool used_as_loop_entry;
+#endif /* __GENKSYMS__ */
 
 	/* first and last insn idx of this verifier state */
 	u32 first_insn_idx;
@@ -393,7 +419,40 @@ struct bpf_verifier_state {
 	 */
 	struct bpf_idx_pair *jmp_history;
 	u32 jmp_history_cnt;
+#ifndef __GENKSYMS__
+	u32 dfs_depth;
+	u32 callback_unroll_depth;
+	/* If this state is a part of states loop this field points to some
+	 * parent of this state such that:
+	 * - it is also a member of the same states loop;
+	 * - DFS states traversal starting from initial state visits loop_entry
+	 *   state before this state.
+	 * Used to compute topmost loop entry for state loops.
+	 * State loops might appear because of open coded iterators logic.
+	 * See get_loop_entry() for more information.
+	 */
+	struct bpf_verifier_state *loop_entry;
+#endif /* __GENKSYMS__ */
 };
+
+struct bpf_verifier_state_old {
+	struct bpf_func_state *frame[MAX_CALL_FRAMES];
+	struct bpf_verifier_state *parent;
+	u32 branches;
+	u32 insn_idx;
+	u32 curframe;
+	struct bpf_active_lock active_lock;
+	bool speculative;
+	bool active_rcu_lock;
+	u32 first_insn_idx;
+	u32 last_insn_idx;
+	struct bpf_idx_pair *jmp_history;
+	u32 jmp_history_cnt;
+};
+
+/* Make sure "bool used_as_loop_entry" field does not affect memory layout */
+static_assert(offsetof(struct bpf_verifier_state, first_insn_idx) ==
+		offsetof(struct bpf_verifier_state_old, first_insn_idx));
 
 #define bpf_get_spilled_reg(slot, frame)				\
 	(((slot < frame->allocated_stack / BPF_REG_SIZE) &&		\
@@ -500,6 +559,12 @@ struct bpf_insn_aux_data {
 	 * this instruction, regardless of any heuristics
 	 */
 	bool force_checkpoint;
+#ifndef __GENKSYMS__
+	/* true if instruction is a call to a helper function that
+	 * accepts callback function as a parameter.
+	 */
+	bool calls_callback;
+#endif /* __GENKSYMS__ */
 };
 
 #define MAX_USED_MAPS 64 /* max number of maps accessed by one eBPF program */
