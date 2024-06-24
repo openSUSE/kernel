@@ -2987,13 +2987,6 @@ cleanup:
 			trb_comp_code != COMP_MISSED_SERVICE_ERROR &&
 			trb_comp_code != COMP_NO_PING_RESPONSE_ERROR;
 
-		/*
-		 * Do not update event ring dequeue pointer if we're in a loop
-		 * processing missed tds.
-		 */
-		if (!handling_skipped_tds)
-			inc_deq(xhci, xhci->event_ring);
-
 	/*
 	 * If ep->skip is set, it means there are missed tds on the
 	 * endpoint ring need to take care of.
@@ -3027,7 +3020,6 @@ static int xhci_handle_event(struct xhci_hcd *xhci)
 	union xhci_trb *event;
 	int update_ptrs = 1;
 	u32 trb_type;
-	int ret;
 
 	/* Event ring hasn't been allocated yet. */
 	if (!xhci->event_ring || !xhci->event_ring->dequeue) {
@@ -3060,9 +3052,7 @@ static int xhci_handle_event(struct xhci_hcd *xhci)
 		update_ptrs = 0;
 		break;
 	case TRB_TRANSFER:
-		ret = handle_tx_event(xhci, &event->trans_event);
-		if (ret >= 0)
-			update_ptrs = 0;
+		handle_tx_event(xhci, &event->trans_event);
 		break;
 	case TRB_DEV_NOTE:
 		handle_device_notification(xhci, event);
