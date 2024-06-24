@@ -462,6 +462,7 @@ DECLARE_EVENT_CLASS(xhci_log_ring,
 		__field(unsigned int, num_segs)
 		__field(unsigned int, stream_id)
 		__field(unsigned int, cycle_state)
+		__field(unsigned int, num_trbs_free)
 		__field(unsigned int, bounce_buf_len)
 	),
 	TP_fast_assign(
@@ -472,6 +473,7 @@ DECLARE_EVENT_CLASS(xhci_log_ring,
 		__entry->enq_seg = ring->enq_seg->dma;
 		__entry->deq_seg = ring->deq_seg->dma;
 		__entry->cycle_state = ring->cycle_state;
+		__entry->num_trbs_free = ring->num_trbs_free;
 		__entry->bounce_buf_len = ring->bounce_buf_len;
 		__entry->enq = xhci_trb_virt_to_dma(ring->enq_seg, ring->enqueue);
 		__entry->deq = xhci_trb_virt_to_dma(ring->deq_seg, ring->dequeue);
@@ -482,6 +484,7 @@ DECLARE_EVENT_CLASS(xhci_log_ring,
 			&__entry->deq, &__entry->deq_seg,
 			__entry->num_segs,
 			__entry->stream_id,
+			__entry->num_trbs_free,
 			__entry->bounce_buf_len,
 			__entry->cycle_state
 		)

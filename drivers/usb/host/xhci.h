@@ -1633,6 +1633,7 @@ struct xhci_ring {
 	unsigned int		stream_id;
 	unsigned int		num_segs;
 	unsigned int		num_trbs_free; /* used only by xhci DbC */
+	unsigned int		num_trbs_free_temp;
 	unsigned int		bounce_buf_len;
 	enum xhci_ring_type	type;
 	bool			last_td_was_short;
