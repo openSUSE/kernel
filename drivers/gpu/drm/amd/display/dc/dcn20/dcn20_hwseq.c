@@ -2139,6 +2139,9 @@ bool dcn20_wait_for_blank_complete(
 {
 	int counter;
 
+	if (!opp)
+		return false;
+
 	for (counter = 0; counter < 1000; counter++) {
 		if (opp->funcs->dpg_is_blanked(opp))
 			break;
