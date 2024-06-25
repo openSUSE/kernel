@@ -752,9 +752,26 @@ wait_for_response(struct TCP_Server_Info *server, struct mid_q_entry *midQ)
 {
 	int error;
 
-	error = wait_event_freezekillable_unsafe(server->response_q,
-						 midQ->mid_state != MID_REQUEST_SUBMITTED &&
-						 midQ->mid_state != MID_RESPONSE_RECEIVED);
+	if (midQ->optype & CIFS_NEG_OP) {
+		/*
+		 * Set a 10 seconds timeout when negotiating because if we get
+		 * disconnected while doing so, we'll be stuck here forever
+		 * since there's no one else to do a reconnect.
+		 */
+		error = wait_event_killable_timeout(server->response_q,
+						    midQ->mid_state != MID_REQUEST_SUBMITTED &&
+						    midQ->mid_state != MID_RESPONSE_RECEIVED,
+						    10 * HZ);
+
+		/* timeout elapsed with no response */
+		if (error == 0)
+			return -EAGAIN;
+	} else {
+		error = wait_event_freezekillable_unsafe(server->response_q,
+							 midQ->mid_state != MID_REQUEST_SUBMITTED &&
+							 midQ->mid_state != MID_RESPONSE_RECEIVED);
+	}
+
 	if (error < 0)
 		return -ERESTARTSYS;
 

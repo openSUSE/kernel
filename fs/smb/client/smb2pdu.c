@@ -205,6 +205,15 @@ smb2_reconnect(__le16 smb2_command, struct cifs_tcon *tcon,
 			spin_unlock(&server->srv_lock);
 			return -EAGAIN;
 		}
+	} else {
+		/*
+		 * There's a reconnect happening in another thread, return
+		 * immediately to avoid getting stuck uninterruptible.
+		 */
+		if (server->tcpStatus == CifsInNegotiate) {
+			spin_unlock(&server->srv_lock);
+			return -EAGAIN;
+		}
 	}
 	spin_unlock(&server->srv_lock);
 
