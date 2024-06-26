@@ -730,7 +730,7 @@ static void nvme_queue_auth_work(struct work_struct *work)
 					 NVME_AUTH_DHCHAP_MESSAGE_CHALLENGE);
 	if (ret) {
 		chap->status = ret;
-		chap->error = -ECONNREFUSED;
+		chap->error = -EKEYREJECTED;
 		return;
 	}
 
@@ -798,7 +798,7 @@ static void nvme_queue_auth_work(struct work_struct *work)
 					 NVME_AUTH_DHCHAP_MESSAGE_SUCCESS1);
 	if (ret) {
 		chap->status = ret;
-		chap->error = -ECONNREFUSED;
+		chap->error = -EKEYREJECTED;
 		return;
 	}
 
@@ -819,7 +819,7 @@ static void nvme_queue_auth_work(struct work_struct *work)
 	ret = nvme_auth_process_dhchap_success1(ctrl, chap);
 	if (ret) {
 		/* Controller authentication failed */
-		chap->error = -ECONNREFUSED;
+		chap->error = -EKEYREJECTED;
 		goto fail2;
 	}
 
