@@ -2450,7 +2450,7 @@ static void ceph_cap_unlink_work(struct work_struct *work)
 		container_of(work, struct ceph_mds_client, cap_unlink_work);
 
 	dout("begin\n");
-	spin_lock(&mdsc->cap_unlink_delay_lock);
+	spin_lock(&mdsc->cap_delay_lock);
 	while (!list_empty(&mdsc->cap_unlink_delay_list)) {
 		struct ceph_inode_info *ci;
 		struct inode *inode;
@@ -2462,15 +2462,15 @@ static void ceph_cap_unlink_work(struct work_struct *work)
 
 		inode = igrab(&ci->netfs.inode);
 		if (inode) {
-			spin_unlock(&mdsc->cap_unlink_delay_lock);
+			spin_unlock(&mdsc->cap_delay_lock);
 			dout("on %p %llx.%llx\n", inode,
 			      ceph_vinop(inode));
 			ceph_check_caps(ci, CHECK_CAPS_FLUSH);
 			iput(inode);
-			spin_lock(&mdsc->cap_unlink_delay_lock);
+			spin_lock(&mdsc->cap_delay_lock);
 		}
 	}
-	spin_unlock(&mdsc->cap_unlink_delay_lock);
+	spin_unlock(&mdsc->cap_delay_lock);
 	dout("done\n");
 }
 
@@ -5249,7 +5249,6 @@ int ceph_mdsc_init(struct ceph_fs_client *fsc)
 	INIT_LIST_HEAD(&mdsc->cap_wait_list);
 	spin_lock_init(&mdsc->cap_delay_lock);
 	INIT_LIST_HEAD(&mdsc->cap_unlink_delay_list);
-	spin_lock_init(&mdsc->cap_unlink_delay_lock);
 	INIT_LIST_HEAD(&mdsc->snap_flush_list);
 	spin_lock_init(&mdsc->snap_flush_lock);
 	mdsc->last_cap_flush_tid = 1;
