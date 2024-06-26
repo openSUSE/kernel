@@ -976,7 +976,9 @@ void test_sockopt(void)
 		return;
 
 	for (i = 0; i < ARRAY_SIZE(tests); i++) {
-		test__start_subtest(tests[i].descr);
+		if (!test__start_subtest(tests[i].descr))
+			continue;
+
 		ASSERT_OK(run_test(cgroup_fd, &tests[i]), tests[i].descr);
 	}
 
