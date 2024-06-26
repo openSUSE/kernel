@@ -873,9 +873,9 @@ static int load_prog(const struct bpf_insn *insns,
 	return fd;
 }
 
-static int run_test(int cgroup_fd, struct sockopt_test *test)
+static int run_test(int cgroup_fd, struct sockopt_test *test, bool use_link)
 {
-	int sock_fd, err, prog_fd;
+	int sock_fd, err, prog_fd, link_fd = -1;
 	void *optval = NULL;
 	int ret = 0;
 
@@ -888,7 +888,12 @@ static int run_test(int cgroup_fd, struct sockopt_test *test)
 		return -1;
 	}
 
-	err = bpf_prog_attach(prog_fd, cgroup_fd, test->attach_type, 0);
+	if (use_link) {
+		err = bpf_link_create(prog_fd, cgroup_fd, test->attach_type, NULL);
+		link_fd = err;
+	} else {
+		err = bpf_prog_attach(prog_fd, cgroup_fd, test->attach_type, 0);
+	}
 	if (err < 0) {
 		if (test->error == DENY_ATTACH)
 			goto close_prog_fd;
@@ -961,7 +966,12 @@ free_optval:
 close_sock_fd:
 	close(sock_fd);
 detach_prog:
-	bpf_prog_detach2(prog_fd, cgroup_fd, test->attach_type);
+	if (use_link) {
+		if (link_fd >= 0)
+			close(link_fd);
+	} else {
+		bpf_prog_detach2(prog_fd, cgroup_fd, test->attach_type);
+	}
 close_prog_fd:
 	close(prog_fd);
 	return ret;
@@ -979,7 +989,8 @@ void test_sockopt(void)
 		if (!test__start_subtest(tests[i].descr))
 			continue;
 
-		ASSERT_OK(run_test(cgroup_fd, &tests[i]), tests[i].descr);
+		ASSERT_OK(run_test(cgroup_fd, &tests[i], false), tests[i].descr);
+		ASSERT_OK(run_test(cgroup_fd, &tests[i], true), tests[i].descr);
 	}
 
 	close(cgroup_fd);
