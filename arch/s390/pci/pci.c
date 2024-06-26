@@ -265,6 +265,12 @@ static void __iomem *__ioremap(phys_addr_t addr, size_t size, pgprot_t prot)
 	return (void __iomem *) ((unsigned long) area->addr + offset);
 }
 
+/* combine single writes by using store-block insn */
+void __iowrite64_copy(void __iomem *to, const void *from, size_t count)
+{
+       zpci_memcpy_toio(to, from, count * 8);
+}
+
 void __iomem *ioremap_prot(phys_addr_t addr, size_t size, unsigned long prot)
 {
 	return __ioremap(addr, size, __pgprot(prot));

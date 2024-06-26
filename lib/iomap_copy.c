@@ -16,8 +16,9 @@
  * time.  Order of access is not guaranteed, nor is a memory barrier
  * performed afterwards.
  */
-#ifndef __iowrite32_copy
-void __iowrite32_copy(void __iomem *to, const void *from, size_t count)
+void __attribute__((weak)) __iowrite32_copy(void __iomem *to,
+					    const void *from,
+					    size_t count)
 {
 	u32 __iomem *dst = to;
 	const u32 *src = from;
@@ -27,7 +28,6 @@ void __iowrite32_copy(void __iomem *to, const void *from, size_t count)
 		__raw_writel(*src++, dst++);
 }
 EXPORT_SYMBOL_GPL(__iowrite32_copy);
-#endif
 
 /**
  * __ioread32_copy - copy data from MMIO space, in 32-bit units
@@ -60,8 +60,9 @@ EXPORT_SYMBOL_GPL(__ioread32_copy);
  * time.  Order of access is not guaranteed, nor is a memory barrier
  * performed afterwards.
  */
-#ifndef __iowrite64_copy
-void __iowrite64_copy(void __iomem *to, const void *from, size_t count)
+void __attribute__((weak)) __iowrite64_copy(void __iomem *to,
+					    const void *from,
+					    size_t count)
 {
 #ifdef CONFIG_64BIT
 	u64 __iomem *dst = to;
@@ -74,5 +75,5 @@ void __iowrite64_copy(void __iomem *to, const void *from, size_t count)
 	__iowrite32_copy(to, from, count * 2);
 #endif
 }
+
 EXPORT_SYMBOL_GPL(__iowrite64_copy);
-#endif

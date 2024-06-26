@@ -16,14 +16,21 @@
 struct device;
 struct resource;
 
-#ifndef __iowrite32_copy
-void __iowrite32_copy(void __iomem *to, const void *from, size_t count);
+__visible void __iowrite32_copy(void __iomem *to, const void *from, size_t count);
+void __ioread32_copy(void *to, const void __iomem *from, size_t count);
+void __iowrite64_copy(void __iomem *to, const void *from, size_t count);
+
+#ifndef __GENKSYMS__
+
+/* Fallback */
+#ifndef __iowrite32_copy_inlined
+#define __iowrite32_copy_inlined __iowrite32_copy
 #endif
 
-void __ioread32_copy(void *to, const void __iomem *from, size_t count);
+#ifndef __iowrite64_copy_inlined
+#define __iowrite64_copy_inlined __iowrite64_copy
+#endif
 
-#ifndef __iowrite64_copy
-void __iowrite64_copy(void __iomem *to, const void *from, size_t count);
 #endif
 
 #ifdef CONFIG_MMU
