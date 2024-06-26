@@ -270,7 +270,7 @@ INDIRECT_CALLABLE_SCOPE int fib6_rule_action(struct fib_rule *rule,
 	return __fib6_rule_action(rule, flp, flags, arg);
 }
 
-INDIRECT_CALLABLE_SCOPE bool fib6_rule_suppress(struct fib_rule *rule,
+INDIRECT_CALLABLE_SCOPE bool fib6_rule_suppress_new(struct fib_rule *rule,
 						int flags,
 						struct fib_lookup_arg *arg)
 {
@@ -301,6 +301,21 @@ INDIRECT_CALLABLE_SCOPE bool fib6_rule_suppress(struct fib_rule *rule,
 suppress_route:
 	ip6_rt_put_flags(rt, flags);
 	return true;
+}
+
+INDIRECT_CALLABLE_SCOPE bool fib6_rule_suppress(struct fib_rule *rule,
+						struct fib_lookup_arg *arg)
+{
+	/*
+	 * The new fib6_rule_suppress_new is expecting to have a flags argument,
+	 * which I don't have here. To have the same behavior I had before, I
+	 * need to use the FIB_LOOKUP_NOREF bit of arg->flags to set the
+	 * RT6_LOOKUP_F_DST_NOREF bit of flags, as that bit will be checked.
+	 * Setting flags in this way, the ip6_rt_put_flags checks will be the same
+	 * as was done here
+	 */
+	int flags = ( !(arg->flags & FIB_LOOKUP_NOREF) ? 0 : RT6_LOOKUP_F_DST_NOREF);
+	return fib6_rule_suppress_new(rule, flags, arg);
 }
 
 INDIRECT_CALLABLE_SCOPE int fib6_rule_match(struct fib_rule *rule,
@@ -466,6 +481,9 @@ static const struct fib_rules_ops __net_initconst fib6_rules_ops_template = {
 	.policy			= fib6_rule_policy,
 	.owner			= THIS_MODULE,
 	.fro_net		= &init_net,
+#ifndef __GENKSYMS__
+	.suppress_new		= fib6_rule_suppress_new,
+#endif
 };
 
 static int __net_init fib6_rules_net_init(struct net *net)

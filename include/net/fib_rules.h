@@ -69,8 +69,8 @@ struct fib_rules_ops {
 	int			(*action)(struct fib_rule *,
 					  struct flowi *, int,
 					  struct fib_lookup_arg *);
-	bool			(*suppress)(struct fib_rule *, int,
-					    struct fib_lookup_arg *);
+ 	bool			(*suppress)(struct fib_rule *,
+ 					    struct fib_lookup_arg *);
 	int			(*match)(struct fib_rule *,
 					 struct flowi *, int);
 	int			(*configure)(struct fib_rule *,
@@ -96,6 +96,10 @@ struct fib_rules_ops {
 	struct module		*owner;
 	struct net		*fro_net;
 	struct rcu_head		rcu;
+#ifndef __GENKSYMS__
+	bool			(*suppress_new)(struct fib_rule *, int,
+					    struct fib_lookup_arg *);
+#endif
 };
 
 struct fib_rule_notifier_info {
@@ -218,9 +222,13 @@ INDIRECT_CALLABLE_DECLARE(int fib4_rule_action(struct fib_rule *rule,
 			    struct fib_lookup_arg *arg));
 
 INDIRECT_CALLABLE_DECLARE(bool fib6_rule_suppress(struct fib_rule *rule,
-						int flags,
 						struct fib_lookup_arg *arg));
+INDIRECT_CALLABLE_DECLARE(bool fib6_rule_suppress_new(struct fib_rule *rule,
+						int flags,
+ 						struct fib_lookup_arg *arg));
 INDIRECT_CALLABLE_DECLARE(bool fib4_rule_suppress(struct fib_rule *rule,
-						int flags,
 						struct fib_lookup_arg *arg));
+INDIRECT_CALLABLE_DECLARE(bool fib4_rule_suppress_new(struct fib_rule *rule,
+						int flags,
+ 						struct fib_lookup_arg *arg));
 #endif

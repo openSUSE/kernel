@@ -319,11 +319,20 @@ jumped:
 					       fib6_rule_action,
 					       fib4_rule_action,
 					       rule, fl, flags, arg);
-
+#ifndef __GENKSYMS__
+		if (!err && ops->suppress_new && INDIRECT_CALL_MT(ops->suppress_new,
+							      fib6_rule_suppress_new,
+							      fib4_rule_suppress_new,
+							      rule,
+							      flags,
+							      arg))
+#else
 		if (!err && ops->suppress && INDIRECT_CALL_MT(ops->suppress,
 							      fib6_rule_suppress,
 							      fib4_rule_suppress,
-							      rule, flags, arg))
+							      rule,
+							      arg))
+#endif
 			continue;
 
 		if (err != -EAGAIN) {

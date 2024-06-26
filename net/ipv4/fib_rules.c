@@ -140,7 +140,7 @@ INDIRECT_CALLABLE_SCOPE int fib4_rule_action(struct fib_rule *rule,
 	return err;
 }
 
-INDIRECT_CALLABLE_SCOPE bool fib4_rule_suppress(struct fib_rule *rule,
+INDIRECT_CALLABLE_SCOPE bool fib4_rule_suppress_new(struct fib_rule *rule,
 						int flags,
 						struct fib_lookup_arg *arg)
 {
@@ -171,6 +171,12 @@ suppress_route:
 	if (!(arg->flags & FIB_LOOKUP_NOREF))
 		fib_info_put(result->fi);
 	return true;
+}
+
+INDIRECT_CALLABLE_SCOPE bool fib4_rule_suppress(struct fib_rule *rule,
+						struct fib_lookup_arg *arg)
+{
+	return fib4_rule_suppress_new(rule, 0, arg);
 }
 
 INDIRECT_CALLABLE_SCOPE int fib4_rule_match(struct fib_rule *rule,
@@ -388,6 +394,9 @@ static const struct fib_rules_ops __net_initconst fib4_rules_ops_template = {
 	.nlgroup	= RTNLGRP_IPV4_RULE,
 	.policy		= fib4_rule_policy,
 	.owner		= THIS_MODULE,
+#ifndef __GENKSYMS__
+	.suppress_new	= fib4_rule_suppress_new,
+#endif
 };
 
 static int fib_default_rules_init(struct fib_rules_ops *ops)
