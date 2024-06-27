@@ -10263,9 +10263,9 @@ struct mlx5_ifc_mcam_access_reg_bits {
 	u8         mrtc[0x1];
 	u8         regs_44_to_32[0xd];
 
-	u8         regs_31_to_10[0x16];
+	u8         regs_31_to_11[0x15];
 	u8         mtmp[0x1];
-	u8         regs_8_to_0[0x9];
+	u8         regs_9_to_0[0xa];
 };
 
 struct mlx5_ifc_mcam_access_reg_bits1 {
