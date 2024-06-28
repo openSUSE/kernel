@@ -4175,12 +4175,16 @@ u64 ieee80211_calculate_rx_timestamp(struct ieee80211_local *local,
 				     unsigned int mpdu_offset)
 {
 	u64 ts = status->mactime;
+	bool mactime_plcp_start;
 	struct rate_info ri;
 	u16 rate;
 	u8 n_ltf;
 
 	if (WARN_ON(!ieee80211_have_rx_timestamp(status)))
 		return 0;
+
+	mactime_plcp_start = (status->flag & RX_FLAG_MACTIME) ==
+				RX_FLAG_MACTIME_PLCP_START;
 
 	memset(&ri, 0, sizeof(ri));
 
@@ -4196,7 +4200,7 @@ u64 ieee80211_calculate_rx_timestamp(struct ieee80211_local *local,
 		if (status->enc_flags & RX_ENC_FLAG_SHORT_GI)
 			ri.flags |= RATE_INFO_FLAGS_SHORT_GI;
 		/* TODO/FIXME: is this right? handle other PPDUs */
-		if (status->flag & RX_FLAG_MACTIME_PLCP_START) {
+		if (mactime_plcp_start) {
 			mpdu_offset += 2;
 			ts += 36;
 		}
@@ -4213,7 +4217,7 @@ u64 ieee80211_calculate_rx_timestamp(struct ieee80211_local *local,
 		 * See P802.11ax_D6.0, section 27.3.4 for
 		 * VHT PPDU format.
 		 */
-		if (status->flag & RX_FLAG_MACTIME_PLCP_START) {
+		if (mactime_plcp_start) {
 			mpdu_offset += 2;
 			ts += 36;
 
@@ -4237,7 +4241,7 @@ u64 ieee80211_calculate_rx_timestamp(struct ieee80211_local *local,
 		 * See P802.11REVmd_D3.0, section 19.3.2 for
 		 * HT PPDU format.
 		 */
-		if (status->flag & RX_FLAG_MACTIME_PLCP_START) {
+		if (mactime_plcp_start) {
 			mpdu_offset += 2;
 			if (status->enc_flags & RX_ENC_FLAG_HT_GF)
 				ts += 24;
@@ -4265,7 +4269,7 @@ u64 ieee80211_calculate_rx_timestamp(struct ieee80211_local *local,
 		 * See P802.11REVmd_D3.0, section 21.3.2 for
 		 * VHT PPDU format.
 		 */
-		if (status->flag & RX_FLAG_MACTIME_PLCP_START) {
+		if (mactime_plcp_start) {
 			mpdu_offset += 2;
 			ts += 36;
 
@@ -4287,7 +4291,7 @@ u64 ieee80211_calculate_rx_timestamp(struct ieee80211_local *local,
 		sband = local->hw.wiphy->bands[status->band];
 		ri.legacy = sband->bitrates[status->rate_idx].bitrate;
 
-		if (status->flag & RX_FLAG_MACTIME_PLCP_START) {
+		if (mactime_plcp_start) {
 			if (status->band == NL80211_BAND_5GHZ) {
 				ts += 20;
 				mpdu_offset += 2;
@@ -4309,7 +4313,7 @@ u64 ieee80211_calculate_rx_timestamp(struct ieee80211_local *local,
 		return 0;
 
 	/* rewind from end of MPDU */
-	if (status->flag & RX_FLAG_MACTIME_END)
+	if ((status->flag & RX_FLAG_MACTIME) == RX_FLAG_MACTIME_END)
 		ts -= mpdu_len * 8 * 10 / rate;
 
 	ts += mpdu_offset * 8 * 10 / rate;
