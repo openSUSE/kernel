@@ -7050,6 +7050,7 @@ int ieee80211_mgd_auth(struct ieee80211_sub_if_data *sdata,
 	struct ieee80211_local *local = sdata->local;
 	struct ieee80211_if_managed *ifmgd = &sdata->u.mgd;
 	struct ieee80211_mgd_auth_data *auth_data;
+	struct ieee80211_link_data *link;
 	u16 auth_alg;
 	int err;
 	bool cont_auth;
@@ -7175,8 +7176,6 @@ int ieee80211_mgd_auth(struct ieee80211_sub_if_data *sdata,
 					    false);
 	}
 
-	sdata_info(sdata, "authenticate with %pM\n", auth_data->ap_addr);
-
 	/* needed for transmitting the auth frame(s) properly */
 	memcpy(sdata->vif.cfg.ap_addr, auth_data->ap_addr, ETH_ALEN);
 
@@ -7184,6 +7183,19 @@ int ieee80211_mgd_auth(struct ieee80211_sub_if_data *sdata,
 					req->ap_mld_addr, cont_auth, false);
 	if (err)
 		goto err_clear;
+
+	if (req->link_id > 0)
+		link = sdata_dereference(sdata->link[req->link_id], sdata);
+	else
+		link = sdata_dereference(sdata->link[0], sdata);
+
+	if (WARN_ON(!link)) {
+		err = -ENOLINK;
+		goto err_clear;
+	}
+
+	sdata_info(sdata, "authenticate with %pM (local address=%pM)\n",
+		   auth_data->ap_addr, link->conf->addr);
 
 	err = ieee80211_auth(sdata);
 	if (err) {
