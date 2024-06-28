@@ -1517,6 +1517,7 @@ int iwl_mvm_up(struct iwl_mvm *mvm)
 	/* FW loaded successfully */
 	mvm->pldr_sync = false;
 
+	iwl_fw_disable_dbg_asserts(&mvm->fwrt);
 	iwl_get_shared_mem_conf(&mvm->fwrt);
 
 	ret = iwl_mvm_sf_update(mvm, NULL, false);
