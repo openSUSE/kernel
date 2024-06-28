@@ -823,6 +823,7 @@ int wiphy_register(struct wiphy *wiphy)
 
 	/* sanity check supported bands/channels */
 	for (band = 0; band < NUM_NL80211_BANDS; band++) {
+		const struct ieee80211_sband_iftype_data *iftd;
 		u16 types = 0;
 		bool have_he = false;
 
@@ -879,13 +880,10 @@ int wiphy_register(struct wiphy *wiphy)
 				return -EINVAL;
 		}
 
-		for (i = 0; i < sband->n_iftype_data; i++) {
-			const struct ieee80211_sband_iftype_data *iftd;
+		for_each_sband_iftype_data(sband, i, iftd) {
 			bool has_ap, has_non_ap;
 			u32 ap_bits = BIT(NL80211_IFTYPE_AP) |
 				      BIT(NL80211_IFTYPE_P2P_GO);
-
-			iftd = &sband->iftype_data[i];
 
 			if (WARN_ON(!iftd->types_mask))
 				return -EINVAL;
