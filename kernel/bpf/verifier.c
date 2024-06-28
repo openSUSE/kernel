@@ -11934,7 +11934,8 @@ static bool regsafe(struct bpf_verifier_env *env, struct bpf_reg_state *rold,
 		 */
 		return memcmp(rold, rcur, offsetof(struct bpf_reg_state, id)) == 0 &&
 		       range_within(rold, rcur) &&
-		       tnum_in(rold->var_off, rcur->var_off);
+		       tnum_in(rold->var_off, rcur->var_off) &&
+		       check_ids(rold->id, rcur->id, idmap);
 	case PTR_TO_PACKET_META:
 	case PTR_TO_PACKET:
 		if (rcur->type != rold->type)
@@ -12128,7 +12129,14 @@ static bool states_equal(struct bpf_verifier_env *env,
 	if (old->speculative && !cur->speculative)
 		return false;
 
-	if (old->active_spin_lock != cur->active_spin_lock)
+	/* Old and cur active_spin_lock's have to be either both present
+	 * or both absent.
+	 */
+	if (!!old->active_spin_lock != !!cur->active_spin_lock)
+		return false;
+
+	if (old->active_spin_lock &&
+	    !check_ids(old->active_spin_lock, cur->active_spin_lock, env->idmap_scratch))
 		return false;
 
 	/* for states to be equal callsites have to be the same
