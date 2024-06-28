@@ -2988,6 +2988,8 @@ static void ieee80211_reconfig_disconnect(struct ieee80211_vif *vif, u8 flag)
 	sdata = vif_to_sdata(vif);
 	local = sdata->local;
 
+	lockdep_assert_wiphy(local->hw.wiphy);
+
 	if (WARN_ON(flag & IEEE80211_SDATA_DISCONNECT_RESUME &&
 		    !local->resuming))
 		return;
@@ -3001,10 +3003,8 @@ static void ieee80211_reconfig_disconnect(struct ieee80211_vif *vif, u8 flag)
 
 	sdata->flags |= flag;
 
-	mutex_lock(&local->key_mtx);
 	list_for_each_entry(key, &sdata->key_list, list)
 		key->flags |= KEY_FLAG_TAINTED;
-	mutex_unlock(&local->key_mtx);
 }
 
 void ieee80211_hw_restart_disconnect(struct ieee80211_vif *vif)
