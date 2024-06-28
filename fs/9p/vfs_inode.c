@@ -105,7 +105,7 @@ static int p9mode2unixmode(struct v9fs_session_info *v9ses,
 	int res;
 	int mode = stat->mode;
 
-	res = mode & S_IALLUGO;
+	res = mode & 0777; /* S_IRWXUGO */
 	*rdev = 0;
 
 	if ((mode & P9_DMDIR) == P9_DMDIR)
