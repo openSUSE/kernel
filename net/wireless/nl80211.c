@@ -3826,6 +3826,8 @@ static int nl80211_send_iface(struct sk_buff *msg, u32 portid, u32 seq, int flag
 	struct net_device *dev = wdev->netdev;
 	void *hdr;
 
+	lockdep_assert_wiphy(&rdev->wiphy);
+
 	WARN_ON(cmd != NL80211_CMD_NEW_INTERFACE &&
 		cmd != NL80211_CMD_DEL_INTERFACE &&
 		cmd != NL80211_CMD_SET_INTERFACE);
@@ -3993,6 +3995,7 @@ static int nl80211_dump_interface(struct sk_buff *skb, struct netlink_callback *
 
 		if_idx = 0;
 
+		wiphy_lock(&rdev->wiphy);
 		list_for_each_entry(wdev, &rdev->wiphy.wdev_list, list) {
 			if (if_idx < if_start) {
 				if_idx++;
@@ -4002,10 +4005,12 @@ static int nl80211_dump_interface(struct sk_buff *skb, struct netlink_callback *
 					       cb->nlh->nlmsg_seq, NLM_F_MULTI,
 					       rdev, wdev,
 					       NL80211_CMD_NEW_INTERFACE) < 0) {
+				wiphy_unlock(&rdev->wiphy);
 				goto out;
 			}
 			if_idx++;
 		}
+		wiphy_unlock(&rdev->wiphy);
 
 		if_start = 0;
 		wp_idx++;
