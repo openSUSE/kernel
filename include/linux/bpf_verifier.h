@@ -424,6 +424,10 @@ struct bpf_insn_aux_data {
 	bool prune_point;
 #ifndef __GENKSYMS__
 	bool jmp_point;
+	/* ensure we check state equivalence and save state checkpoint and
+	 * this instruction, regardless of any heuristics
+	 */
+	bool force_checkpoint;
 #endif
 };
 
