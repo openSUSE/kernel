@@ -1001,14 +1001,6 @@ static inline void drv_change_chanctx(struct ieee80211_local *local,
 	trace_drv_return_void(local);
 }
 
-static inline void drv_verify_link_exists(struct ieee80211_sub_if_data *sdata,
-					  struct ieee80211_bss_conf *link_conf)
-{
-	/* deflink always exists, so need to check only for other links */
-	if (sdata->deflink.conf != link_conf)
-		sdata_assert_lock(sdata);
-}
-
 int drv_assign_vif_chanctx(struct ieee80211_local *local,
 			   struct ieee80211_sub_if_data *sdata,
 			   struct ieee80211_bss_conf *link_conf,
@@ -1026,9 +1018,6 @@ static inline int drv_start_ap(struct ieee80211_local *local,
 			       struct ieee80211_bss_conf *link_conf)
 {
 	int ret = 0;
-
-	/* make sure link_conf is protected */
-	drv_verify_link_exists(sdata, link_conf);
 
 	might_sleep();
 	lockdep_assert_wiphy(local->hw.wiphy);
@@ -1049,9 +1038,6 @@ static inline void drv_stop_ap(struct ieee80211_local *local,
 {
 	might_sleep();
 	lockdep_assert_wiphy(local->hw.wiphy);
-
-	/* make sure link_conf is protected */
-	drv_verify_link_exists(sdata, link_conf);
 
 	if (!check_sdata_in_driver(sdata))
 		return;
