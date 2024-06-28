@@ -2988,6 +2988,8 @@ static int ieee80211_set_tx_power(struct wiphy *wiphy,
 	bool update_txp_type = false;
 	bool has_monitor = false;
 
+	lockdep_assert_wiphy(local->hw.wiphy);
+
 	if (wdev) {
 		sdata = IEEE80211_WDEV_TO_SUB_IF(wdev);
 
@@ -3035,7 +3037,6 @@ static int ieee80211_set_tx_power(struct wiphy *wiphy,
 		break;
 	}
 
-	mutex_lock(&local->iflist_mtx);
 	list_for_each_entry(sdata, &local->interfaces, list) {
 		if (sdata->vif.type == NL80211_IFTYPE_MONITOR) {
 			has_monitor = true;
@@ -3051,7 +3052,6 @@ static int ieee80211_set_tx_power(struct wiphy *wiphy,
 			continue;
 		ieee80211_recalc_txpower(sdata, update_txp_type);
 	}
-	mutex_unlock(&local->iflist_mtx);
 
 	if (has_monitor) {
 		sdata = wiphy_dereference(local->hw.wiphy,
@@ -4648,6 +4648,8 @@ static void
 ieee80211_color_change_bss_config_notify(struct ieee80211_sub_if_data *sdata,
 					 u8 color, int enable, u64 changed)
 {
+	lockdep_assert_wiphy(sdata->local->hw.wiphy);
+
 	sdata->vif.bss_conf.he_bss_color.color = color;
 	sdata->vif.bss_conf.he_bss_color.enabled = enable;
 	changed |= BSS_CHANGED_HE_BSS_COLOR;
@@ -4657,7 +4659,6 @@ ieee80211_color_change_bss_config_notify(struct ieee80211_sub_if_data *sdata,
 	if (!sdata->vif.bss_conf.nontransmitted && sdata->vif.mbssid_tx_vif) {
 		struct ieee80211_sub_if_data *child;
 
-		mutex_lock(&sdata->local->iflist_mtx);
 		list_for_each_entry(child, &sdata->local->interfaces, list) {
 			if (child != sdata && child->vif.mbssid_tx_vif == &sdata->vif) {
 				child->vif.bss_conf.he_bss_color.color = color;
@@ -4667,7 +4668,6 @@ ieee80211_color_change_bss_config_notify(struct ieee80211_sub_if_data *sdata,
 								  BSS_CHANGED_HE_BSS_COLOR);
 			}
 		}
-		mutex_unlock(&sdata->local->iflist_mtx);
 	}
 }
 
