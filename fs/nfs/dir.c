@@ -197,6 +197,23 @@ void nfs_readdir_clear_array(struct page *page)
 	kunmap_atomic(array);
 }
 
+static struct page *
+nfs_readdir_page_array_alloc(u64 last_cookie, gfp_t gfp_flags)
+{
+	struct page *page = alloc_page(gfp_flags);
+	if (page)
+		nfs_readdir_page_init_array(page, last_cookie);
+	return page;
+}
+
+static void nfs_readdir_page_array_free(struct page *page)
+{
+	if (page) {
+		nfs_readdir_clear_array(page);
+		put_page(page);
+	}
+}
+
 static void nfs_readdir_array_set_eof(struct nfs_cache_array *array)
 {
 	array->page_is_eof = 1;
@@ -660,12 +677,14 @@ out:
 static int nfs_readdir_page_filler(struct nfs_readdir_descriptor *desc,
 				   struct nfs_entry *entry,
 				   struct page **xdr_pages,
-				   struct page *fillme, unsigned int buflen)
+				   unsigned int buflen,
+				   struct page **arrays,
+				   size_t narrays)
 {
 	struct address_space *mapping = desc->file->f_mapping;
 	struct xdr_stream stream;
 	struct xdr_buf buf;
-	struct page *scratch, *new, *page = fillme;
+	struct page *scratch, *new, *page = *arrays;
 	int status;
 
 	scratch = alloc_page(GFP_KERNEL);
@@ -691,15 +710,25 @@ static int nfs_readdir_page_filler(struct nfs_readdir_descriptor *desc,
 		if (status != -ENOSPC)
 			continue;
 
-		if (page->mapping != mapping)
-			break;
-		new = nfs_readdir_page_get_next(mapping, page->index + 1,
-						entry->prev_cookie);
-		if (!new)
-			break;
-		if (page != fillme)
-			nfs_readdir_page_unlock_and_put(page);
-		page = new;
+		if (page->mapping != mapping) {
+			if (!--narrays)
+				break;
+			new = nfs_readdir_page_array_alloc(entry->prev_cookie,
+							   GFP_KERNEL);
+			if (!new)
+				break;
+			arrays++;
+			*arrays = page = new;
+		} else {
+			new = nfs_readdir_page_get_next(mapping,
+							page->index + 1,
+							entry->prev_cookie);
+			if (!new)
+				break;
+			if (page != *arrays)
+				nfs_readdir_page_unlock_and_put(page);
+			page = new;
+		}
 		status = nfs_readdir_add_to_array(entry, page);
 	} while (!status && !entry->eof);
 
@@ -716,7 +745,7 @@ static int nfs_readdir_page_filler(struct nfs_readdir_descriptor *desc,
 		break;
 	}
 
-	if (page != fillme)
+	if (page != *arrays)
 		nfs_readdir_page_unlock_and_put(page);
 
 	put_page(scratch);
@@ -756,9 +785,11 @@ out_freepages:
 }
 
 static
-int nfs_readdir_xdr_to_array(nfs_readdir_descriptor_t *desc, struct page *page, struct inode *inode)
+int nfs_readdir_xdr_to_array(nfs_readdir_descriptor_t *desc,
+			     struct page **arrays, size_t narrays,  struct inode *inode)
 {
 	struct page **pages;
+	struct page *page = *arrays;
 	struct nfs_entry entry;
 	struct nfs_cache_array *array;
 	size_t array_size;
@@ -800,7 +831,8 @@ int nfs_readdir_xdr_to_array(nfs_readdir_descriptor_t *desc, struct page *page, 
 			break;
 		}
 
-		status = nfs_readdir_page_filler(desc, &entry, pages, page, pglen);
+		status = nfs_readdir_page_filler(desc, &entry, pages, pglen,
+						 arrays, narrays);
 	} while (!status && !nfs_readdir_array_is_full(array));
 
 	nfs_readdir_free_pages(pages, array_size);
@@ -849,7 +881,7 @@ int find_and_lock_cache_page(nfs_readdir_descriptor_t *desc)
 	if (!desc->page)
 		return -ENOMEM;
 	if (nfs_readdir_page_needs_filling(desc->page)) {
-		res = nfs_readdir_xdr_to_array(desc, desc->page, inode);
+		res = nfs_readdir_xdr_to_array(desc, &desc->page, 1, inode);
 		if (res < 0)
 			goto error;
 	}
@@ -953,38 +985,40 @@ int nfs_do_filldir(nfs_readdir_descriptor_t *desc)
 static inline
 int uncached_readdir(nfs_readdir_descriptor_t *desc)
 {
-	struct page	*page = NULL;
-	int		status;
+	struct page	**arrays;
+	size_t		i, sz = 512;
+	int		status = -ENOMEM;
 	struct inode *inode = file_inode(desc->file);
 
-	dfprintk(DIRCACHE, "NFS: uncached_readdir() searching for cookie %Lu\n",
+	dfprintk(DIRCACHE, "NFS: uncached_readdir() searching for cookie %llu\n",
 			(unsigned long long)desc->dir_cookie);
 
-	page = alloc_page(GFP_HIGHUSER);
-	if (!page) {
-		status = -ENOMEM;
+	arrays = kcalloc(sz, sizeof(*arrays), GFP_KERNEL);
+	if (!arrays)
 		goto out;
-	}
+	arrays[0] = nfs_readdir_page_array_alloc(desc->dir_cookie, GFP_KERNEL);
+	if (!arrays[0])
+		goto out;
 
 	desc->page_index = 0;
 	desc->cache_entry_index = 0;
 	desc->last_cookie = desc->dir_cookie;
-	desc->page = page;
 	desc->duped = 0;
 
-	nfs_readdir_page_init_array(page, desc->dir_cookie);
-	status = nfs_readdir_xdr_to_array(desc, page, inode);
-	if (status < 0)
-		goto out_release;
+	status = nfs_readdir_xdr_to_array(desc, arrays, sz, inode);
 
-	status = nfs_do_filldir(desc);
+	for (i = 0; !desc->eof && i < sz && arrays[i]; i++) {
+		desc->page = arrays[i];
+		status = nfs_do_filldir(desc);
+	}
+	desc->page = NULL;
 
- out_release:
-	nfs_readdir_clear_array(desc->page);
-	nfs_readdir_page_put(desc);
- out:
-	dfprintk(DIRCACHE, "NFS: %s: returns %d\n",
-			__func__, status);
+
+	for (i = 0; i < sz && arrays[i]; i++)
+		nfs_readdir_page_array_free(arrays[i]);
+out:
+	kfree(arrays);
+	dfprintk(DIRCACHE, "NFS: %s: returns %d\n", __func__, status);
 	return status;
 }
 
