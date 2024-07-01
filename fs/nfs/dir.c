@@ -893,28 +893,11 @@ error:
 	return res;
 }
 
-static bool nfs_readdir_dont_search_cache(nfs_readdir_descriptor_t *desc)
-{
-	struct address_space *mapping = desc->file->f_mapping;
-	struct inode *dir = file_inode(desc->file);
-	unsigned int dtsize = NFS_SERVER(dir)->dtsize;
-	loff_t size = i_size_read(dir);
-
-	/*
-	 * Default to uncached readdir if the page cache is empty, and
-	 * we're looking for a non-zero cookie in a large directory.
-	 */
-	return desc->dir_cookie != 0 && mapping->nrpages == 0 && size > dtsize;
-}
-
 /* Search for desc->dir_cookie from the beginning of the page cache */
 static inline
 int readdir_search_pagecache(nfs_readdir_descriptor_t *desc)
 {
 	int res;
-
-	if (nfs_readdir_dont_search_cache(desc))
-		return -EBADCOOKIE;
 
 	if (desc->page_index == 0) {
 		desc->current_index = 0;
@@ -1149,10 +1132,10 @@ static loff_t nfs_llseek_dir(struct file *filp, loff_t offset, int whence)
 	}
 	if (offset != filp->f_pos) {
 		filp->f_pos = offset;
-		if (!nfs_readdir_use_cookie(filp)) {
+		dir_ctx->page_index = 0;
+		if (!nfs_readdir_use_cookie(filp))
 			dir_ctx->dir_cookie = 0;
-			dir_ctx->page_index = 0;
-		} else
+		else
 			dir_ctx->dir_cookie = offset;
 		dir_ctx->duped = 0;
 		dir_ctx->eof = false;
