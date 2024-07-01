@@ -2418,7 +2418,6 @@ void ceph_reclaim_caps_nr(struct ceph_mds_client *mdsc, int nr)
 
 void ceph_queue_cap_unlink_work(struct ceph_mds_client *mdsc)
 {
-	struct ceph_client *cl = mdsc->fsc->client;
 	if (mdsc->stopping)
 		return;
 
@@ -2433,7 +2432,6 @@ static void ceph_cap_unlink_work(struct work_struct *work)
 {
 	struct ceph_mds_client *mdsc =
 		container_of(work, struct ceph_mds_client, cap_unlink_work);
-	struct ceph_client *cl = mdsc->fsc->client;
 
 	dout("begin\n");
 	spin_lock(&mdsc->cap_delay_lock);
