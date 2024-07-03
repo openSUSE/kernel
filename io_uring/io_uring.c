@@ -1959,7 +1959,7 @@ fail:
 	if (req->flags & REQ_F_FORCE_ASYNC) {
 		bool opcode_poll = def->pollin || def->pollout;
 
-		if (opcode_poll && file_can_poll(req->file)) {
+		if (opcode_poll && req->file && file_can_poll(req->file)) {
 			needs_poll = true;
 			issue_flags |= IO_URING_F_NONBLOCK;
 		}
@@ -2590,19 +2590,6 @@ static int io_cqring_wait(struct io_ring_ctx *ctx, int min_events,
 	if (__io_cqring_events_user(ctx) >= min_events)
 		return 0;
 
-	if (sig) {
-#ifdef CONFIG_COMPAT
-		if (in_compat_syscall())
-			ret = set_compat_user_sigmask((const compat_sigset_t __user *)sig,
-						      sigsz);
-		else
-#endif
-			ret = set_user_sigmask(sig, sigsz);
-
-		if (ret)
-			return ret;
-	}
-
 	init_waitqueue_func_entry(&iowq.wq, io_wake_function);
 	iowq.wq.private = current;
 	INIT_LIST_HEAD(&iowq.wq.entry);
@@ -2617,6 +2604,19 @@ static int io_cqring_wait(struct io_ring_ctx *ctx, int min_events,
 		if (get_timespec64(&ts, uts))
 			return -EFAULT;
 		iowq.timeout = ktime_add_ns(timespec64_to_ktime(ts), ktime_get_ns());
+	}
+
+	if (sig) {
+#ifdef CONFIG_COMPAT
+		if (in_compat_syscall())
+			ret = set_compat_user_sigmask((const compat_sigset_t __user *)sig,
+						      sigsz);
+		else
+#endif
+			ret = set_user_sigmask(sig, sigsz);
+
+		if (ret)
+			return ret;
 	}
 
 	trace_io_uring_cqring_wait(ctx, min_events);

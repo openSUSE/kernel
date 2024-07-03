@@ -676,7 +676,7 @@ static bool io_rw_should_retry(struct io_kiocb *req)
 	 * just use poll if we can, and don't attempt if the fs doesn't
 	 * support callback based unlocks
 	 */
-	if (file_can_poll(req->file) || !(req->file->f_mode & FMODE_BUF_RASYNC))
+	if ((req->file && file_can_poll(req->file)) || !(req->file->f_mode & FMODE_BUF_RASYNC))
 		return false;
 
 	wait->wait.func = io_async_buf_func;
@@ -825,7 +825,7 @@ static int __io_read(struct io_kiocb *req, unsigned int issue_flags)
 		 * If we can poll, just do that. For a vectored read, we'll
 		 * need to copy state first.
 		 */
-		if (file_can_poll(req->file) && !io_issue_defs[req->opcode].vectored)
+		if (req->file && file_can_poll(req->file) && !io_issue_defs[req->opcode].vectored)
 			return -EAGAIN;
 		/* IOPOLL retry should happen for io-wq threads */
 		if (!force_nonblock && !(req->ctx->flags & IORING_SETUP_IOPOLL))
@@ -924,7 +924,7 @@ int io_read_mshot(struct io_kiocb *req, unsigned int issue_flags)
 	/*
 	 * Multishot MUST be used on a pollable file
 	 */
-	if (!file_can_poll(req->file))
+	if (!req->file || !file_can_poll(req->file))
 		return -EBADFD;
 	if (issue_flags & IO_URING_F_IOWQ)
 		return -EAGAIN;
