@@ -529,6 +529,9 @@ struct cgroup_root {
 
 	/* The name for this hierarchy - may be empty */
 	char name[MAX_CGROUP_ROOT_NAMELEN];
+#ifndef __GENKSYMS__
+	struct rcu_head rcu;
+#endif
 };
 
 /*
