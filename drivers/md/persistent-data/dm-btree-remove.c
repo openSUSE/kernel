@@ -452,11 +452,11 @@ static int rebalance_children(struct shadow_spine *s,
 
 		memcpy(n, dm_block_data(child),
 		       dm_bm_block_size(dm_tm_get_bm(info->tm)));
+
+		dm_tm_dec(info->tm, dm_block_location(child));
 		r = dm_tm_unlock(info->tm, child);
 		if (r)
 			return r;
-
-		dm_tm_dec(info->tm, dm_block_location(child));
 		return 0;
 	}
 
