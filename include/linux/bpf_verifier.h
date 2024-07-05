@@ -255,17 +255,6 @@ struct bpf_func_state {
 	u32 async_entry_cnt;
 	bool in_callback_fn;
 	bool in_async_callback_fn;
-	/* For callback calling functions that limit number of possible
-	 * callback executions (e.g. bpf_loop) keeps track of current
-	 * simulated iteration number.
-	 * Value in frame N refers to number of times callback with frame
-	 * N+1 was simulated, e.g. for the following call:
-	 *
-	 *   bpf_loop(..., fn, ...); | suppose current frame is N
-	 *                           | fn would be simulated in frame N+1
-	 *                           | number of simulations is tracked in frame N
-	 */
-	u32 callback_depth;
 
 	/* The following fields should be last. See copy_func_state() */
 	int acquired_refs;
@@ -282,6 +271,19 @@ struct bpf_func_state {
 	 * stack[allocated_stack/8 - 1] represents [*(r10-allocated_stack)..*(r10-allocated_stack+7)]
 	 */
 	struct bpf_stack_state *stack;
+#ifndef __GENKSYMS__
+	/* For callback calling functions that limit number of possible
+	 * callback executions (e.g. bpf_loop) keeps track of current
+	 * simulated iteration number.
+	 * Value in frame N refers to number of times callback with frame
+	 * N+1 was simulated, e.g. for the following call:
+	 *
+	 *   bpf_loop(..., fn, ...); | suppose current frame is N
+	 *                           | fn would be simulated in frame N+1
+	 *                           | number of simulations is tracked in frame N
+	 */
+	u32 callback_depth;
+#endif /* __GENKSYMS__ */
 };
 
 struct bpf_idx_pair {
@@ -347,11 +349,6 @@ struct bpf_verifier_state {
 	u32 curframe;
 	u32 active_spin_lock;
 	bool speculative;
-	/* If this state was ever pointed-to by other state's loop_entry field
-	 * this flag would be set to true. Used to avoid freeing such states
-	 * while they are still in use.
-	 */
-	bool used_as_loop_entry;
 
 	/* first and last insn idx of this verifier state */
 	u32 first_insn_idx;
@@ -365,7 +362,6 @@ struct bpf_verifier_state {
 	 * State loops might appear because of open coded iterators logic.
 	 * See get_loop_entry() for more information.
 	 */
-	struct bpf_verifier_state *loop_entry;
 	/* jmp history recorded from first to last.
 	 * backtracking is using it to go from last to first.
 	 * For most states jmp_history_cnt is [0-3].
@@ -373,8 +369,28 @@ struct bpf_verifier_state {
 	 */
 	struct bpf_idx_pair *jmp_history;
 	u32 jmp_history_cnt;
+};
+
+/* Used for kABI workaround. This must be position right before
+ * bpf_verifier_state in memory.
+ */
+struct bpf_verifier_state_extra {
+	/* If this state was ever pointed-to by other state's loop_entry field
+	 * this flag would be set to true. Used to avoid freeing such states
+	 * while they are still in use.
+	 */
+	bool used_as_loop_entry;
+	struct bpf_verifier_state *loop_entry;
 	u32 dfs_depth;
 	u32 callback_unroll_depth;
+};
+
+/* Used for kABI workaround. Make accessing bpf_verifier_state_extra from
+ * bpf_verifier_state pointer easier.
+ */
+struct bpf_verifier_state_wrapper {
+	struct bpf_verifier_state_extra extra;
+	struct bpf_verifier_state state;
 };
 
 #define bpf_get_spilled_reg(slot, frame)				\
@@ -597,7 +613,6 @@ struct bpf_verifier_env {
 		int *insn_stack;
 		int cur_stack;
 	} cfg;
-	struct backtrack_state bt;
 	u32 pass_cnt; /* number of times do_check() was called */
 	u32 subprog_cnt;
 	/* number of instructions analyzed by the verifier */
@@ -635,6 +650,7 @@ struct bpf_verifier_env {
 		struct bpf_idmap idmap_scratch;
 		struct bpf_idset idset_scratch;
 	};
+	struct backtrack_state bt;
 #else
 	char type_str_buf[TYPE_STR_BUF_LEN_OLD];
 #endif /* __GENKSYMS__ */
