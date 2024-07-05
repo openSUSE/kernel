@@ -1736,11 +1736,9 @@ static void ___mark_reg_known(struct bpf_reg_state *reg, u64 imm)
  */
 static void __mark_reg_known(struct bpf_reg_state *reg, u64 imm)
 {
-	/* Clear off and union(map_ptr, range) */
+	/* Clear id, off and union(map_ptr, range) */
 	memset(((u8 *)reg) + sizeof(reg->type), 0,
 	       offsetof(struct bpf_reg_state, var_off) - sizeof(reg->type));
-	reg->id = 0;
-	reg->ref_obj_id = 0;
 	___mark_reg_known(reg, imm);
 }
 
@@ -2083,13 +2081,11 @@ static void __mark_reg_unknown(const struct bpf_verifier_env *env,
 			       struct bpf_reg_state *reg)
 {
 	/*
-	 * Clear type, off, and union(map_ptr, range) and
+	 * Clear type, id, off, and union(map_ptr, range) and
 	 * padding between 'type' and union
 	 */
 	memset(reg, 0, offsetof(struct bpf_reg_state, var_off));
 	reg->type = SCALAR_VALUE;
-	reg->id = 0;
-	reg->ref_obj_id = 0;
 	reg->var_off = tnum_unknown;
 	reg->frameno = 0;
 	reg->precise = !env->bpf_capable;
@@ -12727,11 +12723,25 @@ next:
 	}
 }
 
+static bool suse_regcmp(const struct bpf_reg_state *rold,
+			const struct bpf_reg_state *rcur)
+{
+	/* Compare var_off and ranges with respect to kABI workaround for
+	 * bpf_reg_state.
+	 */
+	const size_t var_off_offset = offsetof(struct bpf_reg_state, var_off);
+	u8 * const rold_vals = ((u8*)rold) + var_off_offset;
+	u8 * const rcur_vals = ((u8*)rcur) + var_off_offset;
+
+	return memcmp(rold_vals, rcur_vals, offsetof(struct bpf_reg_state, parent) - var_off_offset) == 0;
+}
+
 static bool regs_exact(const struct bpf_reg_state *rold,
 		       const struct bpf_reg_state *rcur,
 		       struct bpf_idmap *idmap)
 {
 	return memcmp(rold, rcur, offsetof(struct bpf_reg_state, id)) == 0 && 
+	       suse_regcmp(rold, rcur) &&
 	       check_ids(rold->id, rcur->id, idmap) &&
 	       check_ids(rold->ref_obj_id, rcur->ref_obj_id, idmap);
 }
@@ -12783,6 +12793,7 @@ static bool regsafe(struct bpf_verifier_env *env, struct bpf_reg_state *rold,
 			 * logic and requires everything to be strict
 			 */
 			return memcmp(rold, rcur, offsetof(struct bpf_reg_state, id)) == 0 &&
+			       suse_regcmp(rold, rcur) &&
 			       check_scalar_ids(rold->id, rcur->id, idmap);
 		}
 		if (!rold->precise)
@@ -12819,7 +12830,7 @@ static bool regsafe(struct bpf_verifier_env *env, struct bpf_reg_state *rold,
 		/* If the new min/max/var_off satisfy the old ones and
 		 * everything else matches, we are OK.
 		 */
-		return memcmp(rold, rcur, offsetof(struct bpf_reg_state, var_off)) == 0 &&
+		return memcmp(rold, rcur, offsetof(struct bpf_reg_state, id)) == 0 &&
 		       range_within(rold, rcur) &&
 		       tnum_in(rold->var_off, rcur->var_off) &&
 		       check_ids(rold->id, rcur->id, idmap);
