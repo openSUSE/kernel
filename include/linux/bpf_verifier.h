@@ -288,6 +288,7 @@ struct bpf_idx_pair {
 };
 
 #define MAX_CALL_FRAMES 8
+#define BPF_ID_MAP_SIZE_OLD (MAX_BPF_REG + MAX_BPF_STACK / BPF_REG_SIZE)
 /* Maximum number of register states that can exist at once */
 #define BPF_ID_MAP_SIZE ((MAX_BPF_REG + MAX_BPF_STACK / BPF_REG_SIZE) * MAX_CALL_FRAMES)
 struct bpf_verifier_state {
@@ -584,10 +585,11 @@ struct bpf_verifier_env {
 	const struct bpf_line_info *prev_linfo;
 	struct bpf_verifier_log log;
 	struct bpf_subprog_info subprog_info[BPF_MAX_SUBPROGS + 1];
-	union {
-		struct bpf_idmap idmap_scratch;
-		struct bpf_idset idset_scratch;
-	};
+#ifndef __GENKSYMS__
+	struct bpf_id_pair __unused_idmap_scratch[BPF_ID_MAP_SIZE_OLD];
+#else
+	struct bpf_id_pair idmap_scratch[BPF_ID_MAP_SIZE_OLD];
+#endif /* __GENKSYMS__ */
 	struct {
 		int *insn_state;
 		int *insn_stack;
@@ -626,6 +628,12 @@ struct bpf_verifier_env {
 	 * e.g., in reg_type_str() to generate reg_type string
 	 */
 	char tmp_str_buf[TMP_STR_BUF_LEN];
+#ifndef __GENKSYMS__
+	union {
+		struct bpf_idmap idmap_scratch;
+		struct bpf_idset idset_scratch;
+	};
+#endif /* __GENKSYMS__ */
 };
 
 __printf(2, 0) void bpf_verifier_vlog(struct bpf_verifier_log *log,
