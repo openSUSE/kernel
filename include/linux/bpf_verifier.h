@@ -18,6 +18,8 @@
  * that converting umax_value to int cannot overflow.
  */
 #define BPF_MAX_VAR_SIZ	(1 << 29)
+/* size of the old type_str_buf in bpf_verifier for kABI workaround */
+#define TYPE_STR_BUF_LEN_OLD 64
 /* size of tmp_str_buf in bpf_verifier.
  * we need at least 306 bytes to fit full stack mask representation
  * (in the "-8,-16,...,-512" form)
@@ -624,15 +626,17 @@ struct bpf_verifier_env {
 	/* Same as scratched_regs but for stack slots */
 	u64 scratched_stack_slots;
 	u32 prev_log_len, prev_insn_print_len;
+#ifndef __GENKSYMS__
 	/* buffer used to generate temporary string representations,
 	 * e.g., in reg_type_str() to generate reg_type string
 	 */
 	char tmp_str_buf[TMP_STR_BUF_LEN];
-#ifndef __GENKSYMS__
 	union {
 		struct bpf_idmap idmap_scratch;
 		struct bpf_idset idset_scratch;
 	};
+#else
+	char type_str_buf[TYPE_STR_BUF_LEN_OLD];
 #endif /* __GENKSYMS__ */
 };
 
