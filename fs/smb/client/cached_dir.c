@@ -460,6 +460,9 @@ void invalidate_all_cached_dirs(struct cifs_tcon *tcon)
 	struct cached_fid *cfid, *q;
 	LIST_HEAD(entry);
 
+	if (cfids == NULL)
+		return;
+
 	spin_lock(&cfids->cfid_list_lock);
 	list_for_each_entry_safe(cfid, q, &cfids->entries, entry) {
 		list_move(&cfid->entry, &entry);
@@ -658,6 +661,9 @@ void free_cached_dirs(struct cached_fids *cfids)
 {
 	struct cached_fid *cfid, *q;
 	LIST_HEAD(entry);
+
+	if (cfids == NULL)
+		return;
 
 	if (cfids->laundromat) {
 		kthread_stop(cfids->laundromat);
