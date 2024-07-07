@@ -1558,6 +1558,7 @@ static int decrypt_skb_update(struct sock *sk, struct sk_buff *skb,
 				goto decrypt_next;
 		} else {
 			darg->zc = false;
+			darg->async = false;
 		}
 
 		pad = padding_length(ctx, prot, skb);
@@ -1573,6 +1574,7 @@ decrypt_next:
 		tls_advance_record_sn(sk, prot, &tls_ctx->rx);
 	} else {
 		darg->zc = false;
+		darg->async = false;
 	}
 
 	return err;
