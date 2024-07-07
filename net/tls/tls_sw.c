@@ -43,6 +43,11 @@
 #include <net/strparser.h>
 #include <net/tls.h>
 
+struct tls_decrypt_arg {
+	bool zc;
+	bool async;
+};
+
 noinline void tls_err_abort(struct sock *sk, int err)
 {
 	WARN_ON_ONCE(err >= 0);
@@ -1400,7 +1405,7 @@ out:
 static int decrypt_internal(struct sock *sk, struct sk_buff *skb,
 			    struct iov_iter *out_iov,
 			    struct scatterlist *out_sg,
-			    bool *zc, bool async)
+			    struct tls_decrypt_arg *darg)
 {
 	struct tls_context *tls_ctx = tls_get_ctx(sk);
 	struct tls_sw_context_rx *ctx = tls_sw_ctx_rx(tls_ctx);
@@ -1416,7 +1421,7 @@ static int decrypt_internal(struct sock *sk, struct sk_buff *skb,
 			     prot->tail_size;
 	int iv_offset = 0;
 
-	if (*zc && (out_iov || out_sg)) {
+	if (darg->zc && (out_iov || out_sg)) {
 		if (out_iov)
 			n_sgout = iov_iter_npages(out_iov, INT_MAX) + 1;
 		else
@@ -1425,7 +1430,7 @@ static int decrypt_internal(struct sock *sk, struct sk_buff *skb,
 				 rxm->full_len - prot->prepend_size);
 	} else {
 		n_sgout = 0;
-		*zc = false;
+		darg->zc = false;
 		n_sgin = skb_cow_data(skb, 0, &unused);
 	}
 
@@ -1515,12 +1520,12 @@ static int decrypt_internal(struct sock *sk, struct sk_buff *skb,
 fallback_to_reg_recv:
 		sgout = sgin;
 		pages = 0;
-		*zc = false;
+		darg->zc = false;
 	}
 
 	/* Prepare and submit AEAD request */
 	err = tls_do_decryption(sk, skb, sgin, sgout, iv,
-				data_len, aead_req, async);
+				data_len, aead_req, darg->async);
 	if (err == -EINPROGRESS)
 		return err;
 
@@ -1533,7 +1538,8 @@ fallback_to_reg_recv:
 }
 
 static int decrypt_skb_update(struct sock *sk, struct sk_buff *skb,
-			      struct iov_iter *dest, bool *zc, bool async)
+			      struct iov_iter *dest,
+			      struct tls_decrypt_arg *darg)
 {
 	struct tls_context *tls_ctx = tls_get_ctx(sk);
 	struct tls_sw_context_rx *ctx = tls_sw_ctx_rx(tls_ctx);
@@ -1550,7 +1556,7 @@ static int decrypt_skb_update(struct sock *sk, struct sk_buff *skb,
 
 		/* Still not decrypted after tls_device */
 		if (!ctx->decrypted) {
-			err = decrypt_internal(sk, skb, dest, NULL, zc, async);
+			err = decrypt_internal(sk, skb, dest, NULL, darg);
 			if (err < 0) {
 				if (err == -EINPROGRESS)
 					tls_advance_record_sn(sk, prot,
@@ -1561,7 +1567,7 @@ static int decrypt_skb_update(struct sock *sk, struct sk_buff *skb,
 				return err;
 			}
 		} else {
-			*zc = false;
+			darg->zc = false;
 		}
 
 		pad = padding_length(ctx, prot, skb);
@@ -1575,7 +1581,7 @@ static int decrypt_skb_update(struct sock *sk, struct sk_buff *skb,
 		ctx->decrypted = 1;
 		ctx->saved_data_ready(sk);
 	} else {
-		*zc = false;
+		darg->zc = false;
 	}
 
 	return err;
@@ -1584,9 +1590,9 @@ static int decrypt_skb_update(struct sock *sk, struct sk_buff *skb,
 int decrypt_skb(struct sock *sk, struct sk_buff *skb,
 		struct scatterlist *sgout)
 {
-	bool zc = true;
+	struct tls_decrypt_arg darg = { .zc = true, };
 
-	return decrypt_internal(sk, skb, NULL, sgout, &zc, false);
+	return decrypt_internal(sk, skb, NULL, sgout, &darg);
 }
 
 static bool tls_sw_advance_skb(struct sock *sk, struct sk_buff *skb,
@@ -1773,11 +1779,10 @@ int tls_sw_recvmsg(struct sock *sk,
 	timeo = sock_rcvtimeo(sk, flags & MSG_DONTWAIT);
 
 	while (len && (decrypted + copied < target || ctx->recv_pkt)) {
+		struct tls_decrypt_arg darg = {};
 		bool retain_skb = false;
 		int to_decrypt, chunk;
-		bool zc = false;
-		bool async_capable;
-		bool async = false;
+		bool async;
 
 		skb = tls_wait_data(sk, psock, flags, timeo, &err);
 		if (!skb) {
@@ -1807,16 +1812,15 @@ int tls_sw_recvmsg(struct sock *sk,
 		if (to_decrypt <= len && !is_kvec && !is_peek &&
 		    ctx->control == TLS_RECORD_TYPE_DATA &&
 		    prot->version != TLS_1_3_VERSION)
-			zc = true;
+			darg.zc = true;
 
 		/* Do not use async mode if record is non-data */
 		if (ctx->control == TLS_RECORD_TYPE_DATA)
-			async_capable = ctx->async_capable;
+			darg.async = ctx->async_capable;
 		else
-			async_capable = false;
+			darg.async = false;
 
-		err = decrypt_skb_update(sk, skb, &msg->msg_iter,
-					 &zc, async_capable);
+		err = decrypt_skb_update(sk, skb, &msg->msg_iter, &darg);
 		if (err < 0 && err != -EINPROGRESS) {
 			tls_err_abort(sk, -EBADMSG);
 			goto recv_end;
@@ -1864,7 +1868,7 @@ int tls_sw_recvmsg(struct sock *sk,
 		/* TLS 1.3 may have updated the length by more than overhead */
 		chunk = rxm->full_len;
 
-		if (!zc) {
+		if (!darg.zc) {
 			if (chunk > len) {
 				retain_skb = true;
 				chunk = len;
@@ -1965,7 +1969,6 @@ ssize_t tls_sw_splice_read(struct socket *sock,  loff_t *ppos,
 	int err = 0;
 	long timeo;
 	int chunk;
-	bool zc = false;
 
 	lock_sock(sk);
 
@@ -1976,7 +1979,9 @@ ssize_t tls_sw_splice_read(struct socket *sock,  loff_t *ppos,
 		goto splice_read_end;
 
 	if (!ctx->decrypted) {
-		err = decrypt_skb_update(sk, skb, NULL, &zc, false);
+		struct tls_decrypt_arg darg = {};
+
+		err = decrypt_skb_update(sk, skb, NULL, &darg);
 
 		/* splice does not support reading control messages */
 		if (ctx->control != TLS_RECORD_TYPE_DATA) {
