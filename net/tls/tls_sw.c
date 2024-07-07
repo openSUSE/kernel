@@ -272,9 +272,6 @@ static int tls_do_decryption(struct sock *sk,
 		ret = crypto_wait_req(ret, &ctx->async_wait);
 	}
 
-	if (async)
-		atomic_dec(&ctx->decrypt_pending);
-
 	return ret;
 }
 
