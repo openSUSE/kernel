@@ -834,7 +834,8 @@ int nfs_readdir_xdr_to_array(nfs_readdir_descriptor_t *desc,
 
 		status = nfs_readdir_page_filler(desc, &entry, pages, pglen,
 						 arrays, narrays);
-	} while (!status && !nfs_readdir_array_is_full(array));
+	} while (!status && !nfs_readdir_array_is_full(array) &&
+		page_mapping(page));
 
 	nfs_readdir_free_pages(pages, array_size);
 out_release_array:
