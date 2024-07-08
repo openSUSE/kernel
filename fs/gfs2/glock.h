@@ -138,6 +138,11 @@ struct lm_lockops {
 	const match_table_t *lm_tokens;
 };
 
+struct gfs2_glock_aspace {
+	struct gfs2_glock glock;
+	struct address_space mapping;
+};
+
 extern struct workqueue_struct *gfs2_delete_workqueue;
 static inline struct gfs2_holder *gfs2_glock_is_locked_by_me(struct gfs2_glock *gl)
 {
@@ -179,8 +184,11 @@ static inline int gfs2_glock_is_held_shrd(struct gfs2_glock *gl)
 
 static inline struct address_space *gfs2_glock2aspace(struct gfs2_glock *gl)
 {
-	if (gl->gl_ops->go_flags & GLOF_ASPACE)
-		return (struct address_space *)(gl + 1);
+	if (gl->gl_ops->go_flags & GLOF_ASPACE) {
+		struct gfs2_glock_aspace *gla =
+			container_of(gl, struct gfs2_glock_aspace, glock);
+		return &gla->mapping;
+	}
 	return NULL;
 }
 
@@ -261,6 +269,7 @@ extern void gfs2_glock_finish_truncate(struct gfs2_inode *ip);
 extern void gfs2_glock_thaw(struct gfs2_sbd *sdp);
 extern void gfs2_glock_add_to_lru(struct gfs2_glock *gl);
 extern void gfs2_glock_free(struct gfs2_glock *gl);
+extern void gfs2_glock_free_later(struct gfs2_glock *gl);
 
 extern int __init gfs2_glock_init(void);
 extern void gfs2_glock_exit(void);

@@ -127,9 +127,11 @@ static void gfs2_glock_dealloc(struct rcu_head *rcu)
 	struct gfs2_glock *gl = container_of(rcu, struct gfs2_glock, gl_rcu);
 
 	kfree(gl->gl_lksb.sb_lvbptr);
-	if (gl->gl_ops->go_flags & GLOF_ASPACE)
-		kmem_cache_free(gfs2_glock_aspace_cachep, gl);
-	else
+	if (gl->gl_ops->go_flags & GLOF_ASPACE) {
+		struct gfs2_glock_aspace *gla =
+			container_of(gl, struct gfs2_glock_aspace, glock);
+		kmem_cache_free(gfs2_glock_aspace_cachep, gla);
+	} else
 		kmem_cache_free(gfs2_glock_cachep, gl);
 }
 
@@ -160,17 +162,45 @@ static bool glock_blocked_by_withdraw(struct gfs2_glock *gl)
 	return true;
 }
 
-void gfs2_glock_free(struct gfs2_glock *gl)
+static void __gfs2_glock_free(struct gfs2_glock *gl)
 {
-	struct gfs2_sbd *sdp = gl->gl_name.ln_sbd;
-
-	gfs2_glock_assert_withdraw(gl, atomic_read(&gl->gl_revokes) == 0);
 	rhashtable_remove_fast(&gl_hash_table, &gl->gl_node, ht_parms);
 	smp_mb();
 	wake_up_glock(gl);
 	call_rcu(&gl->gl_rcu, gfs2_glock_dealloc);
+}
+
+void gfs2_glock_free(struct gfs2_glock *gl)
+{
+	struct gfs2_sbd *sdp = gl->gl_name.ln_sbd;
+
+	__gfs2_glock_free(gl);
 	if (atomic_dec_and_test(&sdp->sd_glock_disposal))
-		wake_up(&sdp->sd_glock_wait);
+		wake_up(&sdp->sd_kill_wait);
+}
+
+void gfs2_glock_free_later(struct gfs2_glock *gl)
+{
+	struct gfs2_sbd *sdp = gl->gl_name.ln_sbd;
+
+	spin_lock(&lru_lock);
+	list_add(&gl->gl_lru, &sdp->sd_dead_glocks);
+	spin_unlock(&lru_lock);
+	if (atomic_dec_and_test(&sdp->sd_glock_disposal))
+		wake_up(&sdp->sd_kill_wait);
+}
+
+static void gfs2_free_dead_glocks(struct gfs2_sbd *sdp)
+{
+	struct list_head *list = &sdp->sd_dead_glocks;
+
+	while(!list_empty(list)) {
+		struct gfs2_glock *gl;
+
+		gl = list_first_entry(list, struct gfs2_glock, gl_lru);
+		list_del_init(&gl->gl_lru);
+		__gfs2_glock_free(gl);
+	}
 }
 
 /**
@@ -1113,7 +1143,6 @@ int gfs2_glock_get(struct gfs2_sbd *sdp, u64 number,
 				    .ln_sbd = sdp };
 	struct gfs2_glock *gl, *tmp;
 	struct address_space *mapping;
-	struct kmem_cache *cachep;
 	int ret = 0;
 
 	gl = find_insert_glock(&name, NULL);
@@ -1124,20 +1153,24 @@ int gfs2_glock_get(struct gfs2_sbd *sdp, u64 number,
 	if (!create)
 		return -ENOENT;
 
-	if (glops->go_flags & GLOF_ASPACE)
-		cachep = gfs2_glock_aspace_cachep;
-	else
-		cachep = gfs2_glock_cachep;
-	gl = kmem_cache_alloc(cachep, GFP_NOFS);
-	if (!gl)
-		return -ENOMEM;
-
+	if (glops->go_flags & GLOF_ASPACE) {
+		struct gfs2_glock_aspace *gla =
+			kmem_cache_alloc(gfs2_glock_aspace_cachep, GFP_NOFS);
+		if (!gla)
+			return -ENOMEM;
+		gl = &gla->glock;
+	} else {
+		gl = kmem_cache_alloc(gfs2_glock_cachep, GFP_NOFS);
+		if (!gl)
+			return -ENOMEM;
+	}
 	memset(&gl->gl_lksb, 0, sizeof(struct dlm_lksb));
+	gl->gl_ops = glops;
 
 	if (glops->go_flags & GLOF_LVB) {
 		gl->gl_lksb.sb_lvbptr = kzalloc(GDLM_LVB_SIZE, GFP_NOFS);
 		if (!gl->gl_lksb.sb_lvbptr) {
-			kmem_cache_free(cachep, gl);
+			gfs2_glock_dealloc(&gl->gl_rcu);
 			return -ENOMEM;
 		}
 	}
@@ -1151,7 +1184,6 @@ int gfs2_glock_get(struct gfs2_sbd *sdp, u64 number,
 	gl->gl_state = LM_ST_UNLOCKED;
 	gl->gl_target = LM_ST_UNLOCKED;
 	gl->gl_demote_state = LM_ST_EXCLUSIVE;
-	gl->gl_ops = glops;
 	gl->gl_dstamp = 0;
 	preempt_disable();
 	/* We use the global stats to estimate the initial per-glock stats */
@@ -1188,10 +1220,9 @@ int gfs2_glock_get(struct gfs2_sbd *sdp, u64 number,
 	*glp = tmp;
 
 out_free:
-	kfree(gl->gl_lksb.sb_lvbptr);
-	kmem_cache_free(cachep, gl);
+	gfs2_glock_dealloc(&gl->gl_rcu);
 	if (atomic_dec_and_test(&sdp->sd_glock_disposal))
-		wake_up(&sdp->sd_glock_wait);
+		wake_up(&sdp->sd_kill_wait);
 
 out:
 	return ret;
@@ -2178,9 +2209,11 @@ void gfs2_gl_hash_clear(struct gfs2_sbd *sdp)
 	flush_workqueue(glock_workqueue);
 	glock_hash_walk(clear_glock, sdp);
 	flush_workqueue(glock_workqueue);
-	wait_event_timeout(sdp->sd_glock_wait,
+	wait_event_timeout(sdp->sd_kill_wait,
 			   atomic_read(&sdp->sd_glock_disposal) == 0,
 			   HZ * 600);
+	gfs2_lm_unmount(sdp);
+	gfs2_free_dead_glocks(sdp);
 	glock_hash_walk(dump_glock_func, sdp);
 }
 
