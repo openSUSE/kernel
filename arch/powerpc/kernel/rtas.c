@@ -25,6 +25,9 @@
 #include <linux/syscalls.h>
 #include <linux/types.h>
 #include <linux/uaccess.h>
+#ifdef __GENKSYMS__
+#include <linux/irqdomain.h>
+#endif
 
 #include <asm/delay.h>
 #include <asm/firmware.h>
