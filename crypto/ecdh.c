@@ -34,6 +34,8 @@ static int ecdh_set_secret(struct crypto_kpp *tfm, const void *buf,
 	    params.key_size > sizeof(u64) * ctx->ndigits)
 		return -EINVAL;
 
+	memset(ctx->private_key, 0, sizeof(ctx->private_key));
+
 	if (!params.key || !params.key_size)
 		return ecc_gen_privkey(ctx->curve_id, ctx->ndigits,
 				       ctx->private_key);
@@ -142,7 +144,7 @@ static int ecdh_compute_value(struct kpp_request *req)
 free_all:
 	kfree_sensitive(shared_secret);
 free_pubkey:
-	kfree(public_key);
+	kfree_sensitive(public_key);
 	return ret;
 }
 
