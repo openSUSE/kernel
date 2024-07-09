@@ -1943,7 +1943,7 @@ static int dcb_doit(struct sk_buff *skb, struct nlmsghdr *nlh,
 		return -EINVAL;
 
 	netdev = __dev_get_by_name(net, nla_data(tb[DCB_ATTR_IFNAME]));
-	if (!netdev)
+	if (!netdev || !netif_device_present(netdev))
 		return -ENODEV;
 
 	if (!netdev->dcbnl_ops)
