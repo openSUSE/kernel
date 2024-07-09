@@ -144,7 +144,7 @@ static int ecdh_compute_value(struct kpp_request *req)
 free_all:
 	kfree_sensitive(shared_secret);
 free_pubkey:
-	kfree(public_key);
+	kfree_sensitive(public_key);
 	return ret;
 }
 
