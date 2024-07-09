@@ -938,7 +938,6 @@ int msm_gpu_init(struct drm_device *drm, struct platform_device *pdev,
 	gpu->cx_collapse = devm_reset_control_get_optional_exclusive(&pdev->dev,
 			"cx_collapse");
 
-	gpu->pdev = pdev;
 	platform_set_drvdata(pdev, &gpu->adreno_smmu);
 
 	msm_devfreq_init(gpu);
