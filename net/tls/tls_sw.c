@@ -1925,8 +1925,6 @@ pick_next_record:
 
 recv_end:
 	if (async) {
-		int pending;
-
 		/* Wait for all previously submitted records to be decrypted */
 		err = tls_decrypt_async_wait(ctx);
 		if (err) {
