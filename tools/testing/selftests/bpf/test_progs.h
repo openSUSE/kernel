@@ -409,6 +409,7 @@ int trigger_module_test_write(int write_sz);
 struct test_loader {
 	char *log_buf;
 	size_t log_buf_sz;
+	size_t next_match_pos;
 
 	struct bpf_object *obj;
 };
