@@ -4,6 +4,7 @@
 
 #include "cap_helpers.h"
 #include "verifier_reg_equal.skel.h"
+#include "verifier_scalar_ids.skel.h"
 #include "verifier_subprog_precision.skel.h"
 
 #define MAX_ENTRIES 11
@@ -41,4 +42,5 @@ static void run_tests_aux(const char *skel_name,
 #define RUN(skel) run_tests_aux(#skel, skel##__elf_bytes, NULL)
 
 void test_verifier_reg_equal(void)            { RUN(verifier_reg_equal); }
+void test_verifier_scalar_ids(void)           { RUN(verifier_scalar_ids); }
 void test_verifier_subprog_precision(void)    { RUN(verifier_subprog_precision); }
