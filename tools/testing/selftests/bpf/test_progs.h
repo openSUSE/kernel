@@ -406,13 +406,22 @@ int trigger_module_test_write(int write_sz);
 
 #define BPF_TESTMOD_TEST_FILE "/sys/kernel/bpf_testmod"
 
+typedef int (*pre_execution_cb)(struct bpf_object *obj);
+
 struct test_loader {
 	char *log_buf;
 	size_t log_buf_sz;
 	size_t next_match_pos;
+	pre_execution_cb pre_execution_cb;
 
 	struct bpf_object *obj;
 };
+
+static inline void test_loader__set_pre_execution_cb(struct test_loader *tester,
+						     pre_execution_cb cb)
+{
+	tester->pre_execution_cb = cb;
+}
 
 typedef const void *(*skel_elf_bytes_fn)(size_t *sz);
 
