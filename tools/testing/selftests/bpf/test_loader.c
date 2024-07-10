@@ -586,7 +586,7 @@ void run_subtest(struct test_loader *tester,
 		/* For some reason test_verifier executes programs
 		 * with all capabilities restored. Do the same here.
 		 */
-		if (!restore_capabilities(&caps))
+		if (restore_capabilities(&caps))
 			goto tobj_cleanup;
 
 		do_prog_test_run(bpf_program__fd(tprog), &retval);
