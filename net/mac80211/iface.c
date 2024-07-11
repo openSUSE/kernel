@@ -1130,12 +1130,16 @@ int ieee80211_add_virtual_monitor(struct ieee80211_local *local)
 	if (local->monitor_sdata)
 		return 0;
 
-	sdata = kzalloc(sizeof(*sdata) + local->hw.vif_data_size, GFP_KERNEL);
+	// FIXME: extra size for kABI workaround
+	sdata = kzalloc(sizeof(*sdata) + local->hw.vif_data_size +
+			sizeof(struct ieee80211_ext_vif_data), GFP_KERNEL);
 	if (!sdata)
 		return -ENOMEM;
 
 	/* set up data */
 	sdata->vif.type = NL80211_IFTYPE_MONITOR;
+	// FIXME: extra field for kABI
+	sdata->vif.vif_ext_ofs = sizeof(*sdata) + local->hw.vif_data_size;
 	snprintf(sdata->name, IFNAMSIZ, "%s-monitor",
 		 wiphy_name(local->hw.wiphy));
 	sdata->wdev.iftype = NL80211_IFTYPE_MONITOR;
@@ -2063,19 +2067,24 @@ int ieee80211_if_add(struct ieee80211_local *local, const char *name,
 	if (type == NL80211_IFTYPE_P2P_DEVICE || type == NL80211_IFTYPE_NAN) {
 		struct wireless_dev *wdev;
 
-		sdata = kzalloc(sizeof(*sdata) + local->hw.vif_data_size,
+		// FIXME: extra size for kABI workaround
+		sdata = kzalloc(sizeof(*sdata) + local->hw.vif_data_size +
+				sizeof(struct ieee80211_ext_vif_data),
 				GFP_KERNEL);
 		if (!sdata)
 			return -ENOMEM;
 		wdev = &sdata->wdev;
 
+		// FIXME: extra field for kABI
+		sdata->vif.vif_ext_ofs = sizeof(*sdata) + local->hw.vif_data_size;
 		sdata->dev = NULL;
 		strscpy(sdata->name, name, IFNAMSIZ);
 		ieee80211_assign_perm_addr(local, wdev->address, type);
 		memcpy(sdata->vif.addr, wdev->address, ETH_ALEN);
 		ether_addr_copy(sdata->vif.bss_conf.addr, sdata->vif.addr);
 	} else {
-		int size = ALIGN(sizeof(*sdata) + local->hw.vif_data_size,
+		int size = ALIGN(sizeof(*sdata) + local->hw.vif_data_size +
+				 sizeof(struct ieee80211_ext_vif_data),
 				 sizeof(void *));
 		int txq_size = 0;
 
@@ -2124,6 +2133,8 @@ int ieee80211_if_add(struct ieee80211_local *local, const char *name,
 
 		/* don't use IEEE80211_DEV_TO_SUB_IF -- it checks too much */
 		sdata = netdev_priv(ndev);
+		// FIXME: extra field for kABI
+		sdata->vif.vif_ext_ofs = sizeof(*sdata) + local->hw.vif_data_size;
 		ndev->ieee80211_ptr = &sdata->wdev;
 		memcpy(sdata->vif.addr, ndev->dev_addr, ETH_ALEN);
 		ether_addr_copy(sdata->vif.bss_conf.addr, sdata->vif.addr);

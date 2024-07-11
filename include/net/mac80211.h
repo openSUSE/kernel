@@ -1950,13 +1950,17 @@ struct ieee80211_vif {
 	struct ieee80211_vif_cfg cfg;
 	struct ieee80211_bss_conf bss_conf;
 	struct ieee80211_bss_conf __rcu *link_conf[IEEE80211_MLD_MAX_NUM_LINKS];
-	u16 valid_links, active_links, dormant_links, suspended_links;
-	struct ieee80211_neg_ttlm neg_ttlm;
+	u16 valid_links, active_links, dormant_links;
+	// FIXME: neg_ttlm is moved out to ieee80211_ext_vif for kABI reason
 	u8 addr[ETH_ALEN] __aligned(2);
 	bool p2p;
 
 	u8 cab_queue;
 	u8 hw_queue[IEEE80211_NUM_ACS];
+#ifndef __GENKSYMS__
+	u16 suspended_links;
+	u16 vif_ext_ofs;	// offset of ieee80211_ext_vif
+#endif
 
 	struct ieee80211_txq *txq;
 
@@ -1976,6 +1980,14 @@ struct ieee80211_vif {
 	/* must be last */
 	u8 drv_priv[] __aligned(sizeof(void *));
 };
+
+// FIXME: an extended struct for kABI compatibility
+struct ieee80211_ext_vif_data {
+	struct ieee80211_neg_ttlm neg_ttlm;
+};
+
+#define ieee80211_vif_neg_ttlm(v) \
+	((struct ieee80211_ext_vif_data *)((char *)(v) + (v)->vif_ext_ofs))->neg_ttlm
 
 /**
  * ieee80211_vif_usable_links - Return the usable links for the vif
@@ -2420,8 +2432,10 @@ struct ieee80211_sta {
 	bool tdls_initiator;
 	bool mfp;
 	bool mlo;
-	bool spp_amsdu;
 	u8 max_amsdu_subframes;
+#ifndef __GENKSYMS__
+	bool spp_amsdu;
+#endif
 
 	struct ieee80211_sta_aggregates *cur;
 
@@ -5546,8 +5560,10 @@ static inline struct sk_buff *ieee80211_beacon_get(struct ieee80211_hw *hw,
  *
  * Return: new countdown value
  */
-u8 ieee80211_beacon_update_cntdwn(struct ieee80211_vif *vif,
+u8 _ieee80211_beacon_update_cntdwn(struct ieee80211_vif *vif,
 				  unsigned int link_id);
+// FIXME: rename for kABI compatibility
+#define ieee80211_beacon_update_cntdwn _ieee80211_beacon_update_cntdwn
 
 /**
  * ieee80211_beacon_set_cntdwn - request mac80211 to set beacon countdown
@@ -5941,9 +5957,11 @@ void ieee80211_remove_key(struct ieee80211_key_conf *keyconf);
  * the key that's being replaced.
  */
 struct ieee80211_key_conf *
-ieee80211_gtk_rekey_add(struct ieee80211_vif *vif,
+_ieee80211_gtk_rekey_add(struct ieee80211_vif *vif,
 			struct ieee80211_key_conf *keyconf,
 			int link_id);
+// FIXME: rename for kABI compatibility
+#define ieee80211_gtk_rekey_add _ieee80211_gtk_rekey_add
 
 /**
  * ieee80211_gtk_rekey_notify - notify userspace supplicant of rekeying

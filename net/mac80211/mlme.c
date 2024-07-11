@@ -5906,8 +5906,10 @@ static int ieee80211_ttlm_set_links(struct ieee80211_sub_if_data *sdata,
 	/* If there is an active negotiated TTLM, it should be discarded by
 	 * the new negotiated/advertised TTLM.
 	 */
-	if (sdata->vif.neg_ttlm.valid) {
-		memset(&sdata->vif.neg_ttlm, 0, sizeof(sdata->vif.neg_ttlm));
+	if (sdata->vif.vif_ext_ofs &&
+	    ieee80211_vif_neg_ttlm(&sdata->vif).valid) {
+		memset(&ieee80211_vif_neg_ttlm(&sdata->vif), 0,
+		       sizeof(ieee80211_vif_neg_ttlm(&sdata->vif)));
 		sdata->vif.suspended_links = 0;
 		changed = BSS_CHANGED_MLD_TTLM;
 	}
@@ -6488,7 +6490,7 @@ static void ieee80211_apply_neg_ttlm(struct ieee80211_sub_if_data *sdata,
 		map |= neg_ttlm.downlink[i] | neg_ttlm.uplink[i];
 
 	/* If there is an active TTLM, unset previously suspended links */
-	if (sdata->vif.neg_ttlm.valid)
+	if (sdata->vif.vif_ext_ofs && ieee80211_vif_neg_ttlm(&sdata->vif).valid)
 		sdata->vif.dormant_links &= ~sdata->vif.suspended_links;
 
 	/* exclude links that are already disabled by advertised TTLM */
@@ -6501,8 +6503,10 @@ static void ieee80211_apply_neg_ttlm(struct ieee80211_sub_if_data *sdata,
 				     new_dormant_links, new_suspended_links))
 		return;
 
-	sdata->vif.neg_ttlm = neg_ttlm;
-	sdata->vif.neg_ttlm.valid = true;
+	if (sdata->vif.vif_ext_ofs) {
+		ieee80211_vif_neg_ttlm(&sdata->vif) = neg_ttlm;
+		ieee80211_vif_neg_ttlm(&sdata->vif).valid = true;
+	}
 }
 
 static void
