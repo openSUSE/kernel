@@ -247,6 +247,24 @@ void kvm_recalculate_apic_map(struct kvm *kvm)
 		x2apic_id = kvm_x2apic_id(apic);
 
 		/*
+		 * For simplicity, KVM always allocates enough space for all
+		 * possible xAPIC IDs.  Yell, but don't kill the VM, as KVM can
+		 * continue on without the optimized map.
+		 */
+		if (WARN_ON_ONCE(xapic_id > new->max_apic_id))
+			return -EINVAL;
+
+		/*
+		 * Bail if a vCPU was added and/or enabled its APIC between
+		 * allocating the map and doing the actual calculations for the
+		 * map.  Note, KVM hardcodes the x2APIC ID to vcpu_id, i.e.
+		 * there's no TOCTOU bug if the compiler decides to reload
+		 * x2apic_id after this check.
+		 */
+		if (x2apic_id > new->max_apic_id)
+			return -E2BIG;
+
+		/*
 		 * Apply KVM's hotplug hack if userspace has enable 32-bit APIC
 		 * IDs.  Allow sending events to vCPUs by their x2APIC ID even
 		 * if the target vCPU is in legacy xAPIC mode, and silently
@@ -263,8 +281,7 @@ void kvm_recalculate_apic_map(struct kvm *kvm)
 		 */
 		if (kvm->arch.x2apic_format) {
 			/* See also kvm_apic_match_physical_addr(). */
-			if ((apic_x2apic_mode(apic) || x2apic_id > 0xff) &&
-			    x2apic_id <= new->max_apic_id)
+			if (apic_x2apic_mode(apic) || x2apic_id > 0xff)
 				new->phys_map[x2apic_id] = apic;
 
 			if (!apic_x2apic_mode(apic) && !new->phys_map[xapic_id])
