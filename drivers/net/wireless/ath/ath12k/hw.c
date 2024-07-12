@@ -906,6 +906,7 @@ static const struct ath12k_hw_params ath12k_hw_params[] = {
 
 		.hal_ops = &hal_qcn9274_ops,
 
+		.qmi_cnss_feature_bitmap = BIT(CNSS_QDSS_CFG_MISS_V01),
 	},
 	{
 		.name = "wcn7850 hw2.0",
@@ -961,6 +962,8 @@ static const struct ath12k_hw_params ath12k_hw_params[] = {
 		.wmi_init = ath12k_wmi_init_wcn7850,
 
 		.hal_ops = &hal_wcn7850_ops,
+
+		.qmi_cnss_feature_bitmap = BIT(CNSS_QDSS_CFG_MISS_V01),
 	},
 	{
 		.name = "qcn9274 hw2.0",
@@ -1014,6 +1017,8 @@ static const struct ath12k_hw_params ath12k_hw_params[] = {
 		.wmi_init = ath12k_wmi_init_qcn9274,
 
 		.hal_ops = &hal_qcn9274_ops,
+
+		.qmi_cnss_feature_bitmap = BIT(CNSS_QDSS_CFG_MISS_V01),
 	},
 };
 
