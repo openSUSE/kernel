@@ -1923,6 +1923,10 @@ struct rtl8xxxu_sta_info {
 	u8 macid;
 };
 
+struct rtl8xxxu_vif {
+	int port_num;
+};
+
 struct rtl8xxxu_rx_urb {
 	struct urb urb;
 	struct ieee80211_hw *hw;
