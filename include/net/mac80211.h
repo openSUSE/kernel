@@ -1155,12 +1155,21 @@ ieee80211_rate_get_vht_nss(const struct ieee80211_tx_rate *rate)
 struct ieee80211_tx_info {
 	/* common information */
 	u32 flags;
+
+#ifdef __GENKSYMS__
 	u32 band:3,
-	    status_data_idr:1,
-	    status_data:13,
+	    ack_frame_id:13,
 	    hw_queue:4,
 	    tx_time_est:10;
+	/* 2 free bits */
+#else
+	u32 band:3,
+	    status_data:13,
+	    hw_queue:4,
+	    tx_time_est:10,
+	    status_data_idr:1;
 	/* 1 free bit */
+#endif
 
 	union {
 		struct {
@@ -1175,8 +1184,10 @@ struct ieee80211_tx_info {
 					u8 short_preamble:1;
 					u8 skip_table:1;
 
+#ifndef __GENKSYMS__
 					/* for injection only (bitmap) */
 					u8 antennas:2;
+#endif
 
 					/* 14 bits free */
 				};
@@ -2752,7 +2763,9 @@ enum ieee80211_hw_flags {
 	IEEE80211_HW_SUPPORTS_CONC_MON_RX_DECAP,
 	IEEE80211_HW_DETECTS_COLOR_COLLISION,
 	IEEE80211_HW_MLO_MCAST_MULTI_LINK_TX,
+#ifndef __GENKSYMS__
 	IEEE80211_HW_DISALLOW_PUNCTURING,
+#endif
 
 	/* keep last, obviously */
 	NUM_IEEE80211_HW_FLAGS
@@ -3656,7 +3669,9 @@ struct ieee80211_prep_tx_info {
 	u16 duration;
 	u16 subtype;
 	u8 success:1;
+#ifndef __GENKSYMS__
 	int link_id;
+#endif
 };
 
 /**
@@ -4385,8 +4400,6 @@ struct ieee80211_ops {
 	int (*sta_remove)(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
 			  struct ieee80211_sta *sta);
 #ifdef CONFIG_MAC80211_DEBUGFS
-	void (*vif_add_debugfs)(struct ieee80211_hw *hw,
-				struct ieee80211_vif *vif);
 	void (*link_add_debugfs)(struct ieee80211_hw *hw,
 				 struct ieee80211_vif *vif,
 				 struct ieee80211_bss_conf *link_conf,
@@ -4534,9 +4547,14 @@ struct ieee80211_ops {
 				   struct ieee80211_vif *vif,
 				   struct ieee80211_prep_tx_info *info);
 
+#ifdef __GENKSYMS__
+	void	(*mgd_protect_tdls_discover)(struct ieee80211_hw *hw,
+					     struct ieee80211_vif *vif);
+#else
 	void	(*mgd_protect_tdls_discover)(struct ieee80211_hw *hw,
 					     struct ieee80211_vif *vif,
 					     unsigned int link_id);
+#endif
 
 	int (*add_chanctx)(struct ieee80211_hw *hw,
 			   struct ieee80211_chanctx_conf *ctx);
@@ -4573,9 +4591,14 @@ struct ieee80211_ops {
 				  struct ieee80211_vif *vif,
 				  struct ieee80211_channel_switch *ch_switch);
 
+#ifdef __GENKSYMS__
+	int (*post_channel_switch)(struct ieee80211_hw *hw,
+				   struct ieee80211_vif *vif);
+#else
 	int (*post_channel_switch)(struct ieee80211_hw *hw,
 				   struct ieee80211_vif *vif,
 				   struct ieee80211_bss_conf *link_conf);
+#endif
 	void (*abort_channel_switch)(struct ieee80211_hw *hw,
 				     struct ieee80211_vif *vif);
 	void (*channel_switch_rx_beacon)(struct ieee80211_hw *hw,
@@ -4657,9 +4680,6 @@ struct ieee80211_ops {
 				     struct ieee80211_sta *sta,
 				     struct net_device_path_ctx *ctx,
 				     struct net_device_path *path);
-	bool (*can_activate_links)(struct ieee80211_hw *hw,
-				   struct ieee80211_vif *vif,
-				   u16 active_links);
 	int (*change_vif_links)(struct ieee80211_hw *hw,
 				struct ieee80211_vif *vif,
 				u16 old_links, u16 new_links,
@@ -4676,6 +4696,15 @@ struct ieee80211_ops {
 			    struct net_device *dev,
 			    enum tc_setup_type type,
 			    void *type_data);
+#ifndef __GENKSYMS__
+	bool (*can_activate_links)(struct ieee80211_hw *hw,
+				   struct ieee80211_vif *vif,
+				   u16 active_links);
+#ifdef CONFIG_MAC80211_DEBUGFS
+	void (*vif_add_debugfs)(struct ieee80211_hw *hw,
+				struct ieee80211_vif *vif);
+#endif
+#endif
 };
 
 /**
@@ -6581,8 +6610,10 @@ void ieee80211_radar_detected(struct ieee80211_hw *hw);
  * Complete the channel switch post-process: set the new operational channel
  * and wake up the suspended queues.
  */
-void ieee80211_chswitch_done(struct ieee80211_vif *vif, bool success,
+void _ieee80211_chswitch_done(struct ieee80211_vif *vif, bool success,
 			     unsigned int link_id);
+// FIXME: rename for kABI workaround
+#define ieee80211_chswitch_done _ieee80211_chswitch_done
 
 /**
  * ieee80211_channel_switch_disconnect - disconnect due to channel switch error

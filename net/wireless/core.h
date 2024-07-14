@@ -293,8 +293,12 @@ struct cfg80211_cqm_config {
 	u32 rssi_hyst;
 	s32 last_rssi_event_value;
 	enum nl80211_cqm_rssi_threshold_event last_rssi_event_type;
-	bool use_range_api;
+#ifdef __GENKSYMS__
 	int n_rssi_thresholds;
+#else
+	u32 n_rssi_thresholds:31;
+	u32 use_range_api:1;
+#endif
 	s32 rssi_thresholds[];
 };
 

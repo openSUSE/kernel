@@ -1139,6 +1139,7 @@ int ieee80211_add_virtual_monitor(struct ieee80211_local *local)
 	snprintf(sdata->name, IFNAMSIZ, "%s-monitor",
 		 wiphy_name(local->hw.wiphy));
 	sdata->wdev.iftype = NL80211_IFTYPE_MONITOR;
+	mutex_init(&sdata->wdev.mtx); // FIXME: re-added for kABI compatibility
 	sdata->wdev.wiphy = local->hw.wiphy;
 
 	ieee80211_sdata_init(local, sdata);

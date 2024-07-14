@@ -8289,3 +8289,11 @@ void ieee80211_disable_rssi_reports(struct ieee80211_vif *vif)
 	_ieee80211_enable_rssi_reports(sdata, 0, 0);
 }
 EXPORT_SYMBOL(ieee80211_disable_rssi_reports);
+
+/* FIXME: old symbol for kABI compatibility */
+#undef ieee80211_chswitch_done
+void ieee80211_chswitch_done(struct ieee80211_vif *vif, bool success)
+{
+	_ieee80211_chswitch_done(vif, success, 0);
+}
+EXPORT_SYMBOL(ieee80211_chswitch_done);
