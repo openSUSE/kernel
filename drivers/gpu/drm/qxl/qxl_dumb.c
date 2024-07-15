@@ -69,7 +69,7 @@ int qxl_mode_dumb_create(struct drm_file *file_priv,
 		return r;
 	qobj = gem_to_qxl_bo(gobj);
 	qobj->is_dumb = true;
-	drm_gem_object_put(gobj);
+	drm_gem_object_put_unlocked(gobj);
 	args->pitch = pitch;
 	args->handle = handle;
 	return 0;
