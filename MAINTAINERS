@@ -846,12 +846,6 @@ ALPS PS/2 TOUCHPAD DRIVER
 R:	Pali Rohár <pali@kernel.org>
 F:	drivers/input/mouse/alps.*
 
-ALTERA I2C CONTROLLER DRIVER
-M:	Thor Thayer <thor.thayer@linux.intel.com>
-S:	Maintained
-F:	Documentation/devicetree/bindings/i2c/i2c-altera.txt
-F:	drivers/i2c/busses/i2c-altera.c
-
 ALTERA MAILBOX DRIVER
 M:	Mun Yew Tham <mun.yew.tham@intel.com>
 S:	Maintained
@@ -870,21 +864,6 @@ M:	Mun Yew Tham <mun.yew.tham@intel.com>
 L:	linux-gpio@vger.kernel.org
 S:	Maintained
 F:	drivers/gpio/gpio-altera.c
-
-ALTERA SYSTEM MANAGER DRIVER
-M:	Thor Thayer <thor.thayer@linux.intel.com>
-S:	Maintained
-F:	drivers/mfd/altera-sysmgr.c
-F:	include/linux/mfd/altera-sysmgr.h
-
-ALTERA SYSTEM RESOURCE DRIVER FOR ARRIA10 DEVKIT
-M:	Thor Thayer <thor.thayer@linux.intel.com>
-S:	Maintained
-F:	drivers/gpio/gpio-altera-a10sr.c
-F:	drivers/mfd/altera-a10sr.c
-F:	drivers/reset/reset-a10sr.c
-F:	include/dt-bindings/reset/altr,rst-mgr-a10sr.h
-F:	include/linux/mfd/altera-a10sr.h
 
 ALTERA TRIPLE SPEED ETHERNET DRIVER
 M:	Joyce Ooi <joyce.ooi@intel.com>
@@ -2892,7 +2871,7 @@ F:	drivers/edac/altera_edac.[ch]
 ARM/SPREADTRUM SoC SUPPORT
 M:	Orson Zhai <orsonzhai@gmail.com>
 M:	Baolin Wang <baolin.wang7@gmail.com>
-M:	Chunyan Zhang <zhang.lyra@gmail.com>
+R:	Chunyan Zhang <zhang.lyra@gmail.com>
 S:	Maintained
 F:	arch/arm64/boot/dts/sprd
 N:	sprd
@@ -8832,6 +8811,7 @@ F:	drivers/spi/spi-fsl-qspi.c
 
 FREESCALE QUICC ENGINE LIBRARY
 M:	Qiang Zhao <qiang.zhao@nxp.com>
+M:	Christophe Leroy <christophe.leroy@csgroup.eu>
 L:	linuxppc-dev@lists.ozlabs.org
 S:	Maintained
 F:	drivers/soc/fsl/qe/
@@ -8881,9 +8861,10 @@ S:	Maintained
 F:	drivers/tty/serial/ucc_uart.c
 
 FREESCALE SOC DRIVERS
+M:	Christophe Leroy <christophe.leroy@csgroup.eu>
 L:	linuxppc-dev@lists.ozlabs.org
 L:	linux-arm-kernel@lists.infradead.org (moderated for non-subscribers)
-S:	Orphan
+S:	Maintained
 F:	Documentation/devicetree/bindings/misc/fsl,dpaa2-console.yaml
 F:	Documentation/devicetree/bindings/soc/fsl/
 F:	drivers/soc/fsl/
@@ -14472,7 +14453,7 @@ MEMORY MAPPING
 M:	Andrew Morton <akpm@linux-foundation.org>
 R:	Liam R. Howlett <Liam.Howlett@oracle.com>
 R:	Vlastimil Babka <vbabka@suse.cz>
-R:	Lorenzo Stoakes <lstoakes@gmail.com>
+R:	Lorenzo Stoakes <lorenzo.stoakes@oracle.com>
 L:	linux-mm@kvack.org
 S:	Maintained
 W:	http://www.linux-mm.org
@@ -16445,7 +16426,7 @@ F:	arch/arm/boot/dts/ti/omap/am335x-nano.dts
 OMAP1 SUPPORT
 M:	Aaro Koskinen <aaro.koskinen@iki.fi>
 M:	Janusz Krzysztofik <jmkrzyszt@gmail.com>
-M:	Tony Lindgren <tony@atomide.com>
+R:	Tony Lindgren <tony@atomide.com>
 L:	linux-omap@vger.kernel.org
 S:	Maintained
 Q:	http://patchwork.kernel.org/project/linux-omap/list/
@@ -16457,10 +16438,13 @@ F:	include/linux/platform_data/ams-delta-fiq.h
 F:	include/linux/platform_data/i2c-omap.h
 
 OMAP2+ SUPPORT
+M:	Aaro Koskinen <aaro.koskinen@iki.fi>
+M:	Andreas Kemnade <andreas@kemnade.info>
+M:	Kevin Hilman <khilman@baylibre.com>
+M:	Roger Quadros <rogerq@kernel.org>
 M:	Tony Lindgren <tony@atomide.com>
 L:	linux-omap@vger.kernel.org
 S:	Maintained
-W:	http://www.muru.com/linux/omap/
 W:	http://linux.omap.com/
 Q:	http://patchwork.kernel.org/project/linux-omap/list/
 T:	git git://git.kernel.org/pub/scm/linux/kernel/git/tmlind/linux-omap.git
@@ -23859,8 +23843,8 @@ S:	Maintained
 F:	drivers/vhost/scsi.c
 
 VIRTIO I2C DRIVER
-M:	Conghui Chen <conghui.chen@intel.com>
 M:	Viresh Kumar <viresh.kumar@linaro.org>
+R:	"Chen, Jian Jun" <jian.jun.chen@intel.com>
 L:	linux-i2c@vger.kernel.org
 L:	virtualization@lists.linux.dev
 S:	Maintained
