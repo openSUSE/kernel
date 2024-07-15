@@ -56,6 +56,8 @@ static int nfs_readdir(struct file *, struct dir_context *);
 static int nfs_fsync_dir(struct file *, loff_t, loff_t, int);
 static loff_t nfs_llseek_dir(struct file *, loff_t, int);
 static void nfs_readdir_clear_array(struct folio *);
+static int nfs_do_create(struct inode *dir, struct dentry *dentry,
+			 umode_t mode, int open_flags);
 
 const struct file_operations nfs_dir_operations = {
 	.llseek		= nfs_llseek_dir,
@@ -1625,7 +1627,16 @@ nfs_lookup_revalidate_done(struct inode *dir, struct dentry *dentry,
 	switch (error) {
 	case 1:
 		break;
-	case 0:
+	case -ETIMEDOUT:
+		if (inode && (IS_ROOT(dentry) ||
+			      NFS_SERVER(inode)->flags & NFS_MOUNT_SOFTREVAL))
+			error = 1;
+		break;
+	case -ESTALE:
+	case -ENOENT:
+		error = 0;
+		fallthrough;
+	default:
 		/*
 		 * We can't d_drop the root of a disconnected tree:
 		 * its d_hash is on the s_anon list and d_drop() would hide
@@ -1680,18 +1691,8 @@ static int nfs_lookup_revalidate_dentry(struct inode *dir,
 
 	dir_verifier = nfs_save_change_attribute(dir);
 	ret = NFS_PROTO(dir)->lookup(dir, dentry, fhandle, fattr);
-	if (ret < 0) {
-		switch (ret) {
-		case -ESTALE:
-		case -ENOENT:
-			ret = 0;
-			break;
-		case -ETIMEDOUT:
-			if (NFS_SERVER(inode)->flags & NFS_MOUNT_SOFTREVAL)
-				ret = 1;
-		}
+	if (ret < 0)
 		goto out;
-	}
 
 	/* Request help from readdirplus */
 	nfs_lookup_advise_force_readdirplus(dir, flags);
@@ -1735,7 +1736,7 @@ nfs_do_lookup_revalidate(struct inode *dir, struct dentry *dentry,
 			 unsigned int flags)
 {
 	struct inode *inode;
-	int error;
+	int error = 0;
 
 	nfs_inc_stats(dir, NFSIOS_DENTRYREVALIDATE);
 	inode = d_inode(dentry);
@@ -1780,7 +1781,7 @@ out_valid:
 out_bad:
 	if (flags & LOOKUP_RCU)
 		return -ECHILD;
-	return nfs_lookup_revalidate_done(dir, dentry, inode, 0);
+	return nfs_lookup_revalidate_done(dir, dentry, inode, error);
 }
 
 static int
@@ -2267,6 +2268,44 @@ static int nfs4_lookup_revalidate(struct dentry *dentry, unsigned int flags)
 
 #endif /* CONFIG_NFSV4 */
 
+int nfs_atomic_open_v23(struct inode *dir, struct dentry *dentry,
+			struct file *file, unsigned int open_flags,
+			umode_t mode)
+{
+
+	/* Same as look+open from lookup_open(), but with different O_TRUNC
+	 * handling.
+	 */
+	int error = 0;
+
+	if (dentry->d_name.len > NFS_SERVER(dir)->namelen)
+		return -ENAMETOOLONG;
+
+	if (open_flags & O_CREAT) {
+		file->f_mode |= FMODE_CREATED;
+		error = nfs_do_create(dir, dentry, mode, open_flags);
+		if (error)
+			return error;
+		return finish_open(file, dentry, NULL);
+	} else if (d_in_lookup(dentry)) {
+		/* The only flags nfs_lookup considers are
+		 * LOOKUP_EXCL and LOOKUP_RENAME_TARGET, and
+		 * we want those to be zero so the lookup isn't skipped.
+		 */
+		struct dentry *res = nfs_lookup(dir, dentry, 0);
+
+		d_lookup_done(dentry);
+		if (unlikely(res)) {
+			if (IS_ERR(res))
+				return PTR_ERR(res);
+			return finish_no_open(file, res);
+		}
+	}
+	return finish_no_open(file, NULL);
+
+}
+EXPORT_SYMBOL_GPL(nfs_atomic_open_v23);
+
 struct dentry *
 nfs_add_or_obtain(struct dentry *dentry, struct nfs_fh *fhandle,
 				struct nfs_fattr *fattr)
@@ -2327,18 +2366,23 @@ EXPORT_SYMBOL_GPL(nfs_instantiate);
  * that the operation succeeded on the server, but an error in the
  * reply path made it appear to have failed.
  */
-int nfs_create(struct mnt_idmap *idmap, struct inode *dir,
-	       struct dentry *dentry, umode_t mode, bool excl)
+static int nfs_do_create(struct inode *dir, struct dentry *dentry,
+			 umode_t mode, int open_flags)
 {
 	struct iattr attr;
-	int open_flags = excl ? O_CREAT | O_EXCL : O_CREAT;
 	int error;
+
+	open_flags |= O_CREAT;
 
 	dfprintk(VFS, "NFS: create(%s/%lu), %pd\n",
 			dir->i_sb->s_id, dir->i_ino, dentry);
 
 	attr.ia_mode = mode;
 	attr.ia_valid = ATTR_MODE;
+	if (open_flags & O_TRUNC) {
+		attr.ia_size = 0;
+		attr.ia_valid |= ATTR_SIZE;
+	}
 
 	trace_nfs_create_enter(dir, dentry, open_flags);
 	error = NFS_PROTO(dir)->create(dir, dentry, &attr, open_flags);
@@ -2349,6 +2393,12 @@ int nfs_create(struct mnt_idmap *idmap, struct inode *dir,
 out_err:
 	d_drop(dentry);
 	return error;
+}
+
+int nfs_create(struct mnt_idmap *idmap, struct inode *dir,
+	       struct dentry *dentry, umode_t mode, bool excl)
+{
+	return nfs_do_create(dir, dentry, mode, excl ? O_EXCL : 0);
 }
 EXPORT_SYMBOL_GPL(nfs_create);
 
