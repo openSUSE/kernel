@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause
 /*
- * Copyright (C) 2020-2023 Intel Corporation
+ * Copyright (C) 2020-2024 Intel Corporation
  */
 #include <net/tso.h>
 #include <linux/tcp.h>
@@ -10,6 +10,7 @@
 #include "fw/api/commands.h"
 #include "fw/api/tx.h"
 #include "fw/api/datapath.h"
+#include "fw/api/debug.h"
 #include "queue/tx.h"
 #include "iwl-fh.h"
 #include "iwl-scd.h"
@@ -84,6 +85,50 @@ static u8 iwl_txq_gen2_get_num_tbs(struct iwl_trans *trans,
 	return le16_to_cpu(tfd->num_tbs) & 0x1f;
 }
 
+int iwl_txq_gen2_set_tb(struct iwl_trans *trans, struct iwl_tfh_tfd *tfd,
+			dma_addr_t addr, u16 len)
+{
+	int idx = iwl_txq_gen2_get_num_tbs(trans, tfd);
+	struct iwl_tfh_tb *tb;
+
+	/* Only WARN here so we know about the issue, but we mess up our
+	 * unmap path because not every place currently checks for errors
+	 * returned from this function - it can only return an error if
+	 * there's no more space, and so when we know there is enough we
+	 * don't always check ...
+	 */
+	WARN(iwl_txq_crosses_4g_boundary(addr, len),
+	     "possible DMA problem with iova:0x%llx, len:%d\n",
+	     (unsigned long long)addr, len);
+
+	if (WARN_ON(idx >= IWL_TFH_NUM_TBS))
+		return -EINVAL;
+	tb = &tfd->tbs[idx];
+
+	/* Each TFD can point to a maximum max_tbs Tx buffers */
+	if (le16_to_cpu(tfd->num_tbs) >= trans->txqs.tfd.max_tbs) {
+		IWL_ERR(trans, "Error can not send more than %d chunks\n",
+			trans->txqs.tfd.max_tbs);
+		return -EINVAL;
+	}
+
+	put_unaligned_le64(addr, &tb->addr);
+	tb->tb_len = cpu_to_le16(len);
+
+	tfd->num_tbs = cpu_to_le16(idx + 1);
+
+	return idx;
+}
+
+static void iwl_txq_set_tfd_invalid_gen2(struct iwl_trans *trans,
+					 struct iwl_tfh_tfd *tfd)
+{
+	tfd->num_tbs = 0;
+
+	iwl_txq_gen2_set_tb(trans, tfd, trans->invalid_tx_cmd.dma,
+			    trans->invalid_tx_cmd.size);
+}
+
 void iwl_txq_gen2_tfd_unmap(struct iwl_trans *trans, struct iwl_cmd_meta *meta,
 			    struct iwl_tfh_tfd *tfd)
 {
@@ -111,7 +156,7 @@ void iwl_txq_gen2_tfd_unmap(struct iwl_trans *trans, struct iwl_cmd_meta *meta,
 					 DMA_TO_DEVICE);
 	}
 
-	tfd->num_tbs = 0;
+	iwl_txq_set_tfd_invalid_gen2(trans, tfd);
 }
 
 void iwl_txq_gen2_free_tfd(struct iwl_trans *trans, struct iwl_txq *txq)
@@ -140,42 +185,6 @@ void iwl_txq_gen2_free_tfd(struct iwl_trans *trans, struct iwl_txq *txq)
 		iwl_op_mode_free_skb(trans->op_mode, skb);
 		txq->entries[idx].skb = NULL;
 	}
-}
-
-int iwl_txq_gen2_set_tb(struct iwl_trans *trans, struct iwl_tfh_tfd *tfd,
-			dma_addr_t addr, u16 len)
-{
-	int idx = iwl_txq_gen2_get_num_tbs(trans, tfd);
-	struct iwl_tfh_tb *tb;
-
-	/*
-	 * Only WARN here so we know about the issue, but we mess up our
-	 * unmap path because not every place currently checks for errors
-	 * returned from this function - it can only return an error if
-	 * there's no more space, and so when we know there is enough we
-	 * don't always check ...
-	 */
-	WARN(iwl_txq_crosses_4g_boundary(addr, len),
-	     "possible DMA problem with iova:0x%llx, len:%d\n",
-	     (unsigned long long)addr, len);
-
-	if (WARN_ON(idx >= IWL_TFH_NUM_TBS))
-		return -EINVAL;
-	tb = &tfd->tbs[idx];
-
-	/* Each TFD can point to a maximum max_tbs Tx buffers */
-	if (le16_to_cpu(tfd->num_tbs) >= trans->txqs.tfd.max_tbs) {
-		IWL_ERR(trans, "Error can not send more than %d chunks\n",
-			trans->txqs.tfd.max_tbs);
-		return -EINVAL;
-	}
-
-	put_unaligned_le64(addr, &tb->addr);
-	tb->tb_len = cpu_to_le16(len);
-
-	tfd->num_tbs = cpu_to_le16(idx + 1);
-
-	return idx;
 }
 
 static struct page *get_workaround_page(struct iwl_trans *trans,
@@ -262,9 +271,10 @@ static int iwl_txq_gen2_set_tb_with_wa(struct iwl_trans *trans,
 		meta = NULL;
 		goto unmap;
 	}
-	IWL_WARN(trans,
-		 "TB bug workaround: copied %d bytes from 0x%llx to 0x%llx\n",
-		 len, (unsigned long long)oldphys, (unsigned long long)phys);
+	IWL_DEBUG_TX(trans,
+		     "TB bug workaround: copied %d bytes from 0x%llx to 0x%llx\n",
+		     len, (unsigned long long)oldphys,
+		     (unsigned long long)phys);
 
 	ret = 0;
 unmap:
@@ -1026,11 +1036,21 @@ static void iwl_txq_stuck_timer(struct timer_list *t)
 	iwl_force_nmi(trans);
 }
 
+static void iwl_txq_set_tfd_invalid_gen1(struct iwl_trans *trans,
+					 struct iwl_tfd *tfd)
+{
+	tfd->num_tbs = 0;
+
+	iwl_pcie_gen1_tfd_set_tb(trans, tfd, 0, trans->invalid_tx_cmd.dma,
+				 trans->invalid_tx_cmd.size);
+}
+
 int iwl_txq_alloc(struct iwl_trans *trans, struct iwl_txq *txq, int slots_num,
 		  bool cmd_queue)
 {
-	size_t tfd_sz = trans->txqs.tfd.size *
-		trans->trans_cfg->base_params->max_tfd_queue_size;
+	size_t num_entries = trans->trans_cfg->gen2 ?
+		slots_num : trans->trans_cfg->base_params->max_tfd_queue_size;
+	size_t tfd_sz;
 	size_t tb0_buf_sz;
 	int i;
 
@@ -1040,8 +1060,7 @@ int iwl_txq_alloc(struct iwl_trans *trans, struct iwl_txq *txq, int slots_num,
 	if (WARN_ON(txq->entries || txq->tfds))
 		return -EINVAL;
 
-	if (trans->trans_cfg->gen2)
-		tfd_sz = trans->txqs.tfd.size * slots_num;
+	tfd_sz = trans->txqs.tfd.size * num_entries;
 
 	timer_setup(&txq->stuck_timer, iwl_txq_stuck_timer, 0);
 	txq->trans = trans;
@@ -1080,6 +1099,15 @@ int iwl_txq_alloc(struct iwl_trans *trans, struct iwl_txq *txq, int slots_num,
 						GFP_KERNEL);
 	if (!txq->first_tb_bufs)
 		goto err_free_tfds;
+
+	for (i = 0; i < num_entries; i++) {
+		void *tfd = iwl_txq_get_tfd(trans, txq, i);
+
+		if (trans->trans_cfg->gen2)
+			iwl_txq_set_tfd_invalid_gen2(trans, tfd);
+		else
+			iwl_txq_set_tfd_invalid_gen1(trans, tfd);
+	}
 
 	return 0;
 err_free_tfds:
@@ -1340,22 +1368,12 @@ error:
 }
 
 static inline dma_addr_t iwl_txq_gen1_tfd_tb_get_addr(struct iwl_trans *trans,
-						      void *_tfd, u8 idx)
+						      struct iwl_tfd *tfd, u8 idx)
 {
-	struct iwl_tfd *tfd;
-	struct iwl_tfd_tb *tb;
+	struct iwl_tfd_tb *tb = &tfd->tbs[idx];
 	dma_addr_t addr;
 	dma_addr_t hi_len;
 
-	if (trans->trans_cfg->gen2) {
-		struct iwl_tfh_tfd *tfh_tfd = _tfd;
-		struct iwl_tfh_tb *tfh_tb = &tfh_tfd->tbs[idx];
-
-		return (dma_addr_t)(le64_to_cpu(tfh_tb->addr));
-	}
-
-	tfd = _tfd;
-	tb = &tfd->tbs[idx];
 	addr = get_unaligned_le32(&tb->lo);
 
 	if (sizeof(dma_addr_t) <= sizeof(u32))
@@ -1376,7 +1394,7 @@ void iwl_txq_gen1_tfd_unmap(struct iwl_trans *trans,
 			    struct iwl_txq *txq, int index)
 {
 	int i, num_tbs;
-	void *tfd = iwl_txq_get_tfd(trans, txq, index);
+	struct iwl_tfd *tfd = iwl_txq_get_tfd(trans, txq, index);
 
 	/* Sanity check on number of chunks */
 	num_tbs = iwl_txq_gen1_tfd_get_num_tbs(trans, tfd);
@@ -1408,15 +1426,7 @@ void iwl_txq_gen1_tfd_unmap(struct iwl_trans *trans,
 
 	meta->tbs = 0;
 
-	if (trans->trans_cfg->gen2) {
-		struct iwl_tfh_tfd *tfd_fh = (void *)tfd;
-
-		tfd_fh->num_tbs = 0;
-	} else {
-		struct iwl_tfd *tfd_fh = (void *)tfd;
-
-		tfd_fh->num_tbs = 0;
-	}
+	iwl_txq_set_tfd_invalid_gen1(trans, tfd);
 }
 
 #define IWL_TX_CRC_SIZE 4
@@ -1520,7 +1530,12 @@ void iwl_txq_free_tfd(struct iwl_trans *trans, struct iwl_txq *txq)
 	/* We have only q->n_window txq->entries, but we use
 	 * TFD_QUEUE_SIZE_MAX tfds
 	 */
-	iwl_txq_gen1_tfd_unmap(trans, &txq->entries[idx].meta, txq, rd_ptr);
+	if (trans->trans_cfg->gen2)
+		iwl_txq_gen2_tfd_unmap(trans, &txq->entries[idx].meta,
+				       iwl_txq_get_tfd(trans, txq, rd_ptr));
+	else
+		iwl_txq_gen1_tfd_unmap(trans, &txq->entries[idx].meta,
+				       txq, rd_ptr);
 
 	/* free SKB */
 	skb = txq->entries[idx].skb;
@@ -1587,8 +1602,8 @@ void iwl_txq_reclaim(struct iwl_trans *trans, int txq_id, int ssn,
 	if (read_ptr == tfd_num)
 		goto out;
 
-	IWL_DEBUG_TX_REPLY(trans, "[Q %d] %d -> %d (%d)\n",
-			   txq_id, txq->read_ptr, tfd_num, ssn);
+	IWL_DEBUG_TX_REPLY(trans, "[Q %d] %d (%d) -> %d (%d)\n",
+			   txq_id, read_ptr, txq->read_ptr, tfd_num, ssn);
 
 	/*Since we free until index _not_ inclusive, the one before index is
 	 * the last we will free. This one must be used */
@@ -1616,7 +1631,8 @@ void iwl_txq_reclaim(struct iwl_trans *trans, int txq_id, int ssn,
 	     read_ptr = iwl_txq_get_cmd_index(txq, txq->read_ptr)) {
 		struct sk_buff *skb = txq->entries[read_ptr].skb;
 
-		if (WARN_ON_ONCE(!skb))
+		if (WARN_ONCE(!skb, "no SKB at %d (%d) on queue %d\n",
+			      read_ptr, txq->read_ptr, txq_id))
 			continue;
 
 		iwl_txq_free_tso_page(trans, skb);

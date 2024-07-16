@@ -213,6 +213,9 @@ struct ieee80211_reg_rule {
 	u32 flags;
 	u32 dfs_cac_ms;
 	bool has_wmm;
+#ifndef __GENKSYMS__
+	s8 psd;
+#endif
 };
 
 struct ieee80211_regdomain {
