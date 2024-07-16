@@ -2537,6 +2537,7 @@ static int dwc3_gadget_soft_disconnect(struct dwc3 *dwc)
 	 * Attempt to end pending SETUP status phase, and not wait for the
 	 * function to do so.
 	 */
+
 	if (dwc->delayed_status)
 		dwc3_ep0_send_delayed_status(dwc);
 
@@ -3773,7 +3774,7 @@ void dwc3_stop_active_transfer(struct dwc3_ep *dep, bool force,
 	 * timeout. Delay issuing the End Transfer command until the Setup TRB is
 	 * prepared.
 	 */
-	if (dwc->ep0state != EP0_SETUP_PHASE && !dwc->delayed_status) {
+	if (dwc->ep0state != EP0_SETUP_PHASE) {
 		dep->flags |= DWC3_EP_DELAY_STOP;
 		return;
 	}
