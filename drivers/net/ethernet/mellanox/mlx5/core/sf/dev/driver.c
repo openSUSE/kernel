@@ -64,7 +64,6 @@ static void mlx5_sf_dev_remove(struct auxiliary_device *adev)
 	struct devlink *devlink = priv_to_devlink(sf_dev->mdev);
 
 	mlx5_drain_health_wq(sf_dev->mdev);
-	devlink_unregister(devlink);
 	mlx5_uninit_one(sf_dev->mdev);
 	iounmap(sf_dev->mdev->iseg);
 	mlx5_mdev_uninit(sf_dev->mdev);
