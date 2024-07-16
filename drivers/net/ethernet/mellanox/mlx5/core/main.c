@@ -1212,6 +1212,7 @@ static int mlx5_function_teardown(struct mlx5_core_dev *dev, bool boot)
 
 	err = mlx5_cmd_teardown_hca(dev);
 	if (err) {
+		mlx5_stop_health_poll(dev, boot);
 		mlx5_core_err(dev, "tear_down_hca failed, skip cleanup\n");
 		return err;
 	}
