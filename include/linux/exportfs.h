@@ -223,6 +223,7 @@ struct export_operations {
 						*/
 #define EXPORT_OP_SYNC_LOCKS		(0x20) /* Filesystem can't do
 						  asychronous blocking locks */
+#define EXPORT_OP_FLUSH_ON_CLOSE	(0x40) /* fs flushes file data on close */
 	unsigned long	flags;
 };
 
