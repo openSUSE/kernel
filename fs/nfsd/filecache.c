@@ -379,10 +379,8 @@ nfsd_file_free(struct nfsd_file *nf)
 	nfsd_file_unhash(nf);
 	if (nf->nf_mark)
 		nfsd_file_mark_put(nf->nf_mark);
-	if (nf->nf_file) {
+	if (nf->nf_file)
 		nfsd_filp_close(nf->nf_file);
-	}
-
 	/*
 	 * If this item is still linked via nf_lru, that's a bug.
 	 * WARN and leak it to preserve system stability.
