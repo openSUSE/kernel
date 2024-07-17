@@ -1702,6 +1702,16 @@ static int __dwc3_stop_active_transfer(struct dwc3_ep *dep, bool force, bool int
 	cmd |= DWC3_DEPCMD_PARAM(dep->resource_index);
 	memset(&params, 0, sizeof(params));
 	ret = dwc3_send_gadget_ep_cmd(dep, cmd, &params);
+	/*
+	 * If the End Transfer command was timed out while the device is
+	 * not in SETUP phase, it's possible that an incoming Setup packet
+	 * may prevent the command's completion. Let's retry when the
+	 * ep0state returns to EP0_SETUP_PHASE.
+	 */
+	if (ret == -ETIMEDOUT && dep->dwc->ep0state != EP0_SETUP_PHASE) {
+		dep->flags |= DWC3_EP_DELAY_STOP;
+		return 0;
+	}
 	WARN_ON_ONCE(ret);
 	dep->resource_index = 0;
 
@@ -2537,6 +2547,7 @@ static int dwc3_gadget_soft_disconnect(struct dwc3 *dwc)
 	 * Attempt to end pending SETUP status phase, and not wait for the
 	 * function to do so.
 	 */
+
 	if (dwc->delayed_status)
 		dwc3_ep0_send_delayed_status(dwc);
 
@@ -2644,6 +2655,8 @@ static int dwc3_gadget_pullup(struct usb_gadget *g, int is_on)
 		pm_runtime_put(dwc->dev);
 		return 0;
 	}
+
+	synchronize_irq(dwc->irq_gadget);
 
 	if (!is_on)
 		ret = dwc3_gadget_soft_disconnect(dwc);
