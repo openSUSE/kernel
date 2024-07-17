@@ -315,10 +315,8 @@ static int seg6_input(struct sk_buff *skb)
 	int err;
 
 	err = seg6_do_srh(skb);
-	if (unlikely(err)) {
-		kfree_skb(skb);
-		return err;
-	}
+	if (unlikely(err))
+		goto drop;
 
 	slwt = seg6_lwt_lwtunnel(orig_dst->lwtstate);
 
@@ -343,9 +341,12 @@ static int seg6_input(struct sk_buff *skb)
 
 	err = skb_cow_head(skb, LL_RESERVED_SPACE(dst->dev));
 	if (unlikely(err))
-		return err;
+		goto drop;
 
 	return dst_input(skb);
+drop:
+	kfree_skb(skb);
+	return err;
 }
 
 static int seg6_output(struct net *net, struct sock *sk, struct sk_buff *skb)
