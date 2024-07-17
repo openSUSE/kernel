@@ -1798,7 +1798,13 @@ static int nfsd4_do_async_copy(void *data)
 		copy->nf_src->nf_file = nfs42_ssc_open(copy->ss_mnt, &copy->c_fh,
 					      &copy->stateid);
 		if (IS_ERR(copy->nf_src->nf_file)) {
-			copy->nfserr = nfserr_offload_denied;
+			switch (PTR_ERR(copy->nf_src->nf_file)) {
+			case -EBADF:
+				copy->nfserr = nfserr_wrong_type;
+				break;
+			default:
+				copy->nfserr = nfserr_offload_denied;
+			}
 			/* ss_mnt will be unmounted by the laundromat */
 			goto do_callback;
 		}
