@@ -1577,7 +1577,7 @@ static int start_kthread(unsigned int cpu)
  * This starts the kernel thread that will look for osnoise on many
  * cpus.
  */
-static int start_per_cpu_kthreads(struct trace_array *tr)
+static int start_per_cpu_kthreads(void)
 {
 	struct cpumask *current_mask = &save_cpumask;
 	int retval = 0;
@@ -1710,8 +1710,8 @@ out_unlock:
 	return count;
 }
 
-static void osnoise_tracer_start(struct trace_array *tr);
-static void osnoise_tracer_stop(struct trace_array *tr);
+static int osnoise_workload_start(void);
+static void osnoise_workload_stop(void);
 
 /*
  * osnoise_cpus_write - Write function for "cpus" entry
@@ -1733,7 +1733,6 @@ static ssize_t
 osnoise_cpus_write(struct file *filp, const char __user *ubuf, size_t count,
 		   loff_t *ppos)
 {
-	struct trace_array *tr = osnoise_trace;
 	cpumask_var_t osnoise_cpumask_new;
 	int running, err;
 	char buf[256];
@@ -1758,7 +1757,7 @@ osnoise_cpus_write(struct file *filp, const char __user *ubuf, size_t count,
 	mutex_lock(&trace_types_lock);
 	running = osnoise_busy;
 	if (running)
-		osnoise_tracer_stop(tr);
+		osnoise_workload_stop();
 
 	mutex_lock(&interface_lock);
 	/*
@@ -1772,7 +1771,7 @@ osnoise_cpus_write(struct file *filp, const char __user *ubuf, size_t count,
 	mutex_unlock(&interface_lock);
 
 	if (running)
-		osnoise_tracer_start(tr);
+		osnoise_workload_start();
 	mutex_unlock(&trace_types_lock);
 
 	free_cpumask_var(osnoise_cpumask_new);
@@ -1960,7 +1959,10 @@ out_unhook_irq:
 	return -EINVAL;
 }
 
-static int __osnoise_tracer_start(struct trace_array *tr)
+/*
+ * osnoise_workload_start - start the workload and hook to events
+ */
+static int osnoise_workload_start(void)
 {
 	int retval;
 
@@ -1975,7 +1977,7 @@ static int __osnoise_tracer_start(struct trace_array *tr)
 	barrier();
 	trace_osnoise_callback_enabled = true;
 
-	retval = start_per_cpu_kthreads(tr);
+	retval = start_per_cpu_kthreads();
 	if (retval) {
 		trace_osnoise_callback_enabled = false;
 		/*
@@ -1993,20 +1995,10 @@ static int __osnoise_tracer_start(struct trace_array *tr)
 	return 0;
 }
 
-static void osnoise_tracer_start(struct trace_array *tr)
-{
-	int retval;
-
-	if (osnoise_busy)
-		return;
-
-	retval = __osnoise_tracer_start(tr);
-	if (retval)
-		pr_err(BANNER "Error starting osnoise tracer\n");
-
-}
-
-static void osnoise_tracer_stop(struct trace_array *tr)
+/*
+ * osnoise_workload_stop - stop the workload and unhook the events
+ */
+static void osnoise_workload_stop(void)
 {
 	if (!osnoise_busy)
 		return;
@@ -2019,6 +2011,27 @@ static void osnoise_tracer_stop(struct trace_array *tr)
 	osnoise_unhook_events();
 
 	osnoise_busy = false;
+}
+
+static void osnoise_tracer_start(struct trace_array *tr)
+{
+	int retval;
+
+	if (osnoise_busy)
+		return;
+
+	retval = osnoise_workload_start();
+	if (retval)
+		pr_err(BANNER "Error starting osnoise tracer\n");
+
+}
+
+static void osnoise_tracer_stop(struct trace_array *tr)
+{
+	if (!osnoise_busy)
+		return;
+
+	osnoise_workload_stop();
 }
 
 static int osnoise_tracer_init(struct trace_array *tr)
@@ -2061,7 +2074,7 @@ static void timerlat_tracer_start(struct trace_array *tr)
 
 	osnoise_data.timerlat_tracer = 1;
 
-	retval = __osnoise_tracer_start(tr);
+	retval = osnoise_workload_start();
 	if (retval)
 		goto out_err;
 
