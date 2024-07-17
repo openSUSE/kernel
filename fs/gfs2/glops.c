@@ -82,6 +82,9 @@ static void __gfs2_ail_flush(struct gfs2_glock *gl, bool fsync,
 	GLOCK_BUG_ON(gl, !fsync && atomic_read(&gl->gl_ail_count));
 	spin_unlock(&sdp->sd_ail_lock);
 	gfs2_log_unlock(sdp);
+
+	if (gfs2_withdrawing(sdp))
+		gfs2_withdraw(sdp);
 }
 
 
@@ -437,8 +440,8 @@ static int gfs2_dinode_in(struct gfs2_inode *ip, const void *buf)
 		inode->i_atime = atime;
 	inode->i_mtime.tv_sec = be64_to_cpu(str->di_mtime);
 	inode->i_mtime.tv_nsec = be32_to_cpu(str->di_mtime_nsec);
-	inode->i_ctime.tv_sec = be64_to_cpu(str->di_ctime);
-	inode->i_ctime.tv_nsec = be32_to_cpu(str->di_ctime_nsec);
+	inode_set_ctime(inode, be64_to_cpu(str->di_ctime),
+			be32_to_cpu(str->di_ctime_nsec));
 
 	ip->i_goal = be64_to_cpu(str->di_goal_meta);
 	ip->i_generation = be64_to_cpu(str->di_generation);

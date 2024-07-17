@@ -106,7 +106,7 @@ static int __gfs2_unstuff_inode(struct gfs2_inode *ip, struct page *page)
 		   and write it out to disk */
 
 		unsigned int n = 1;
-		error = gfs2_alloc_blocks(ip, &block, &n, 0, NULL);
+		error = gfs2_alloc_blocks(ip, &block, &n, 0);
 		if (error)
 			goto out_brelse;
 		if (isdir) {
@@ -702,7 +702,7 @@ static int __gfs2_iomap_alloc(struct inode *inode, struct iomap *iomap,
 	i = mp->mp_aheight;
 	do {
 		n = blks - alloced;
-		ret = gfs2_alloc_blocks(ip, &bn, &n, 0, NULL);
+		ret = gfs2_alloc_blocks(ip, &bn, &n, 0);
 		if (ret)
 			goto out;
 		alloced += n;
@@ -1386,7 +1386,7 @@ static int trunc_start(struct inode *inode, u64 newsize)
 		ip->i_diskflags |= GFS2_DIF_TRUNC_IN_PROG;
 
 	i_size_write(inode, newsize);
-	ip->i_inode.i_mtime = ip->i_inode.i_ctime = current_time(&ip->i_inode);
+	ip->i_inode.i_mtime = inode_set_ctime_current(&ip->i_inode);
 	gfs2_dinode_out(ip, dibh->b_data);
 
 	if (journaled)
@@ -1583,8 +1583,7 @@ out_unlock:
 
 			/* Every transaction boundary, we rewrite the dinode
 			   to keep its di_blocks current in case of failure. */
-			ip->i_inode.i_mtime = ip->i_inode.i_ctime =
-				current_time(&ip->i_inode);
+			ip->i_inode.i_mtime = inode_set_ctime_current(&ip->i_inode);
 			gfs2_trans_add_meta(ip->i_gl, dibh);
 			gfs2_dinode_out(ip, dibh->b_data);
 			brelse(dibh);
@@ -1716,7 +1715,8 @@ static int punch_hole(struct gfs2_inode *ip, u64 offset, u64 length)
 	struct buffer_head *dibh, *bh;
 	struct gfs2_holder rd_gh;
 	unsigned int bsize_shift = sdp->sd_sb.sb_bsize_shift;
-	u64 lblock = (offset + (1 << bsize_shift) - 1) >> bsize_shift;
+	unsigned int bsize = 1 << bsize_shift;
+	u64 lblock = (offset + bsize - 1) >> bsize_shift;
 	__u16 start_list[GFS2_MAX_META_HEIGHT];
 	__u16 __end_list[GFS2_MAX_META_HEIGHT], *end_list = NULL;
 	unsigned int start_aligned, end_aligned;
@@ -1727,7 +1727,7 @@ static int punch_hole(struct gfs2_inode *ip, u64 offset, u64 length)
 	u64 prev_bnr = 0;
 	__be64 *start, *end;
 
-	if (offset >= maxsize) {
+	if (offset + bsize - 1 >= maxsize) {
 		/*
 		 * The starting point lies beyond the allocated meta-data;
 		 * there are no blocks do deallocate.
@@ -1950,7 +1950,7 @@ static int punch_hole(struct gfs2_inode *ip, u64 offset, u64 length)
 		gfs2_statfs_change(sdp, 0, +btotal, 0);
 		gfs2_quota_change(ip, -(s64)btotal, ip->i_inode.i_uid,
 				  ip->i_inode.i_gid);
-		ip->i_inode.i_mtime = ip->i_inode.i_ctime = current_time(&ip->i_inode);
+		ip->i_inode.i_mtime = inode_set_ctime_current(&ip->i_inode);
 		gfs2_trans_add_meta(ip->i_gl, dibh);
 		gfs2_dinode_out(ip, dibh->b_data);
 		up_write(&ip->i_rw_mutex);
@@ -1993,7 +1993,7 @@ static int trunc_end(struct gfs2_inode *ip)
 		gfs2_buffer_clear_tail(dibh, sizeof(struct gfs2_dinode));
 		gfs2_ordered_del_inode(ip);
 	}
-	ip->i_inode.i_mtime = ip->i_inode.i_ctime = current_time(&ip->i_inode);
+	ip->i_inode.i_mtime = inode_set_ctime_current(&ip->i_inode);
 	ip->i_diskflags &= ~GFS2_DIF_TRUNC_IN_PROG;
 
 	gfs2_trans_add_meta(ip->i_gl, dibh);
@@ -2094,7 +2094,7 @@ static int do_grow(struct inode *inode, u64 size)
 		goto do_end_trans;
 
 	truncate_setsize(inode, size);
-	ip->i_inode.i_mtime = ip->i_inode.i_ctime = current_time(&ip->i_inode);
+	ip->i_inode.i_mtime = inode_set_ctime_current(&ip->i_inode);
 	gfs2_trans_add_meta(ip->i_gl, dibh);
 	gfs2_dinode_out(ip, dibh->b_data);
 	brelse(dibh);
