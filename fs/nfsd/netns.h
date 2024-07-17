@@ -184,6 +184,10 @@ struct nfsd_net {
 
 	/* utsname taken from the process that starts the server */
 	char			nfsd_name[UNX_MAXNODENAME+1];
+
+#ifndef __GENKSYMS__
+	struct nfsd_fcache_disposal *fcache_disposal;
+#endif
 };
 
 /* Simple check to find out if a given net was properly initialized */
