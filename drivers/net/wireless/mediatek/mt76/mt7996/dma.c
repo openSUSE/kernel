@@ -170,13 +170,13 @@ void mt7996_dma_start(struct mt7996_dev *dev, bool reset)
 
 	irq_mask = MT_INT_RX_DONE_MCU | MT_INT_TX_DONE_MCU;
 
-	if (!dev->mphy.band_idx)
+	if (mt7996_band_valid(dev, MT_BAND0))
 		irq_mask |= MT_INT_BAND0_RX_DONE;
 
-	if (dev->dbdc_support)
+	if (mt7996_band_valid(dev, MT_BAND1))
 		irq_mask |= MT_INT_BAND1_RX_DONE;
 
-	if (dev->tbtc_support)
+	if (mt7996_band_valid(dev, MT_BAND2))
 		irq_mask |= MT_INT_BAND2_RX_DONE;
 
 done:
@@ -360,7 +360,7 @@ int mt7996_dma_init(struct mt7996_dev *dev)
 	if (ret)
 		return ret;
 
-	if (dev->tbtc_support || dev->mphy.band_idx == MT_BAND2) {
+	if (mt7996_band_valid(dev, MT_BAND2)) {
 		/* rx data queue for band2 */
 		ret = mt76_queue_alloc(dev, &dev->mt76.q_rx[MT_RXQ_BAND2],
 				       MT_RXQ_ID(MT_RXQ_BAND2),

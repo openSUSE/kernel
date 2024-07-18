@@ -529,7 +529,8 @@ int mt7996_txbf_init(struct mt7996_dev *dev)
 {
 	int ret;
 
-	if (dev->dbdc_support) {
+	if (mt7996_band_valid(dev, MT_BAND1) ||
+	    mt7996_band_valid(dev, MT_BAND2)) {
 		ret = mt7996_mcu_set_txbf(dev, BF_MOD_EN_CTRL);
 		if (ret)
 			return ret;
@@ -551,11 +552,7 @@ static int mt7996_register_phy(struct mt7996_dev *dev, struct mt7996_phy *phy,
 	u32 mac_ofs, hif1_ofs = 0;
 	int ret;
 
-	if (band != MT_BAND1 && band != MT_BAND2)
-		return 0;
-
-	if ((band == MT_BAND1 && !dev->dbdc_support) ||
-	    (band == MT_BAND2 && !dev->tbtc_support))
+	if (!mt7996_band_valid(dev, band) || band == MT_BAND0)
 		return 0;
 
 	if (phy)
@@ -667,9 +664,6 @@ static int mt7996_init_hardware(struct mt7996_dev *dev)
 	mt76_wr(dev, MT_INT_SOURCE_CSR, ~0);
 
 	INIT_WORK(&dev->init_work, mt7996_init_work);
-
-	dev->dbdc_support = true;
-	dev->tbtc_support = true;
 
 	ret = mt7996_dma_init(dev);
 	if (ret)
@@ -1099,8 +1093,6 @@ int mt7996_register_device(struct mt7996_dev *dev)
 	if (ret)
 		return ret;
 
-	ieee80211_queue_work(mt76_hw(dev), &dev->init_work);
-
 	ret = mt7996_register_phy(dev, mt7996_phy2(dev), MT_BAND1);
 	if (ret)
 		return ret;
@@ -1109,13 +1101,24 @@ int mt7996_register_device(struct mt7996_dev *dev)
 	if (ret)
 		return ret;
 
+	ieee80211_queue_work(mt76_hw(dev), &dev->init_work);
+
 	dev->recovery.hw_init_done = true;
 
 	ret = mt7996_init_debugfs(&dev->phy);
 	if (ret)
-		return ret;
+		goto error;
 
-	return mt7996_coredump_register(dev);
+	ret = mt7996_coredump_register(dev);
+	if (ret)
+		goto error;
+
+	return 0;
+
+error:
+	cancel_work_sync(&dev->init_work);
+
+	return ret;
 }
 
 void mt7996_unregister_device(struct mt7996_dev *dev)

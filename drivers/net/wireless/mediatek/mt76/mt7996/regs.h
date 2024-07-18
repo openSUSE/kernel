@@ -561,6 +561,9 @@ enum base_rev {
 #define MT_TOP_MISC				MT_TOP(0xf0)
 #define MT_TOP_MISC_FW_STATE			GENMASK(2, 0)
 
+#define MT_PAD_GPIO				0x700056f0
+#define MT_PAD_GPIO_ADIE_COMB			GENMASK(16, 15)
+
 #define MT_HW_REV				0x70010204
 #define MT_WF_SUBSYS_RST			0x70028600
 
