@@ -3087,6 +3087,14 @@ static void ieee80211_set_disassoc(struct ieee80211_sub_if_data *sdata,
 	memset(&sdata->u.mgd.ttlm_info, 0,
 	       sizeof(sdata->u.mgd.ttlm_info));
 	wiphy_delayed_work_cancel(sdata->local->hw.wiphy, &ifmgd->ttlm_work);
+
+	memset(&ieee80211_vif_neg_ttlm(&sdata->vif), 0,
+	       sizeof(ieee80211_vif_neg_ttlm(&sdata->vif)));
+
+	sdata->u.mgd.removed_links = 0;
+	wiphy_delayed_work_cancel(sdata->local->hw.wiphy,
+				  &sdata->u.mgd.ml_reconf_work);
+
 	ieee80211_vif_set_links(sdata, 0, 0);
 }
 
@@ -3852,7 +3860,6 @@ static void ieee80211_rx_mgmt_deauth(struct ieee80211_sub_if_data *sdata,
 		return;
 	}
 }
-
 
 static void ieee80211_rx_mgmt_disassoc(struct ieee80211_sub_if_data *sdata,
 				       struct ieee80211_mgmt *mgmt, size_t len)
@@ -8524,8 +8531,6 @@ void ieee80211_mgd_stop(struct ieee80211_sub_if_data *sdata)
 			  &ifmgd->csa_connection_drop_work);
 	wiphy_delayed_work_cancel(sdata->local->hw.wiphy,
 				  &ifmgd->tdls_peer_del_work);
-	wiphy_delayed_work_cancel(sdata->local->hw.wiphy,
-				  &ifmgd->ml_reconf_work);
 	wiphy_delayed_work_cancel(sdata->local->hw.wiphy, &ifmgd->ttlm_work);
 
 	if (ifmgd->assoc_data)

@@ -7083,6 +7083,8 @@ static void hci_le_big_info_adv_report_evt(struct hci_dev *hdev, void *data,
 	pa_sync->sync_handle = le16_to_cpu(ev->sync_handle);
 	set_bit(HCI_CONN_PA_SYNC, &pa_sync->flags);
 
+	pa_sync->iso_qos.bcast.encryption = ev->encryption;
+
 	/* Notify iso layer */
 	hci_connect_cfm(pa_sync, 0x00);
 
