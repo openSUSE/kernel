@@ -339,7 +339,7 @@ static void mt7996_rx_poll_complete(struct mt76_dev *mdev,
 static void mt7996_irq_tasklet(struct tasklet_struct *t)
 {
 	struct mt7996_dev *dev = from_tasklet(dev, t, mt76.irq_tasklet);
-	u32 i, intr, mask, intr1;
+	u32 i, intr, mask, intr1 = 0;
 
 	mt76_wr(dev, MT_INT_MASK_CSR, 0);
 	if (dev->hif2)
