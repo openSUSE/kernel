@@ -344,6 +344,8 @@ struct mt76_wcid {
 	struct idr pktid;
 
 	struct mt76_sta_stats stats;
+
+	struct list_head poll_list;
 };
 
 struct mt76_txq {
