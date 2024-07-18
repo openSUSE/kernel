@@ -43,7 +43,7 @@ static __le16 ieee80211_duration(struct ieee80211_tx_data *tx,
 				 struct sk_buff *skb, int group_addr,
 				 int next_frag_len)
 {
-	int rate, mrate, erp, dur, i, shift = 0;
+	int rate, mrate, erp, dur, i;
 	struct ieee80211_rate *txrate;
 	struct ieee80211_local *local = tx->local;
 	struct ieee80211_supported_band *sband;
@@ -58,10 +58,8 @@ static __le16 ieee80211_duration(struct ieee80211_tx_data *tx,
 
 	rcu_read_lock();
 	chanctx_conf = rcu_dereference(tx->sdata->vif.bss_conf.chanctx_conf);
-	if (chanctx_conf) {
-		shift = ieee80211_chandef_get_shift(&chanctx_conf->def);
+	if (chanctx_conf)
 		rate_flags = ieee80211_chandef_rate_flags(&chanctx_conf->def);
-	}
 	rcu_read_unlock();
 
 	/* uh huh? */
@@ -143,7 +141,7 @@ static __le16 ieee80211_duration(struct ieee80211_tx_data *tx,
 			continue;
 
 		if (tx->sdata->vif.bss_conf.basic_rates & BIT(i))
-			rate = DIV_ROUND_UP(r->bitrate, 1 << shift);
+			rate = r->bitrate;
 
 		switch (sband->band) {
 		case NL80211_BAND_2GHZ:
@@ -173,7 +171,7 @@ static __le16 ieee80211_duration(struct ieee80211_tx_data *tx,
 	if (rate == -1) {
 		/* No matching basic rate found; use highest suitable mandatory
 		 * PHY rate */
-		rate = DIV_ROUND_UP(mrate, 1 << shift);
+		rate = mrate;
 	}
 
 	/* Don't calculate ACKs for QoS Frames with NoAck Policy set */
@@ -185,8 +183,7 @@ static __le16 ieee80211_duration(struct ieee80211_tx_data *tx,
 		 * (10 bytes + 4-byte FCS = 112 bits) plus SIFS; rounded up
 		 * to closest integer */
 		dur = ieee80211_frame_duration(sband->band, 10, rate, erp,
-				tx->sdata->vif.bss_conf.use_short_preamble,
-				shift);
+				tx->sdata->vif.bss_conf.use_short_preamble);
 
 	if (next_frag_len) {
 		/* Frame is fragmented: duration increases with time needed to
@@ -195,8 +192,7 @@ static __le16 ieee80211_duration(struct ieee80211_tx_data *tx,
 		/* next fragment */
 		dur += ieee80211_frame_duration(sband->band, next_frag_len,
 				txrate->bitrate, erp,
-				tx->sdata->vif.bss_conf.use_short_preamble,
-				shift);
+				tx->sdata->vif.bss_conf.use_short_preamble);
 	}
 
 	return cpu_to_le16(dur);
@@ -266,8 +262,8 @@ ieee80211_tx_h_dynamic_ps(struct ieee80211_tx_data *tx)
 						IEEE80211_QUEUE_STOP_REASON_PS,
 						false);
 		ifmgd->flags &= ~IEEE80211_STA_NULLFUNC_ACKED;
-		ieee80211_queue_work(&local->hw,
-				     &local->dynamic_ps_disable_work);
+		wiphy_work_queue(local->hw.wiphy,
+				 &local->dynamic_ps_disable_work);
 	}
 
 	/* Don't restart the timer if we're not disassociated */
@@ -2172,6 +2168,11 @@ bool ieee80211_parse_tx_radiotap(struct sk_buff *skb,
 			rate_found = true;
 			break;
 
+		case IEEE80211_RADIOTAP_ANTENNA:
+			/* this can appear multiple times, keep a bitmap */
+			info->control.antennas |= BIT(*iterator.this_arg);
+			break;
+
 		case IEEE80211_RADIOTAP_DATA_RETRIES:
 			rate_retries = *iterator.this_arg;
 			break;
@@ -2266,8 +2267,17 @@ bool ieee80211_parse_tx_radiotap(struct sk_buff *skb,
 		}
 
 		if (rate_flags & IEEE80211_TX_RC_MCS) {
+			/* reset antennas if not enough */
+			if (IEEE80211_HT_MCS_CHAINS(rate) >
+					hweight8(info->control.antennas))
+				info->control.antennas = 0;
+
 			info->control.rates[0].idx = rate;
 		} else if (rate_flags & IEEE80211_TX_RC_VHT_MCS) {
+			/* reset antennas if not enough */
+			if (vht_nss > hweight8(info->control.antennas))
+				info->control.antennas = 0;
+
 			ieee80211_rate_set_vht(info->control.rates, vht_mcs,
 					       vht_nss);
 		} else if (sband) {
@@ -2388,8 +2398,6 @@ netdev_tx_t ieee80211_monitor_start_xmit(struct sk_buff *skb,
 
 	if (chanctx_conf)
 		chandef = &chanctx_conf->def;
-	else if (!local->use_chanctx)
-		chandef = &local->_oper_chandef;
 	else
 		goto fail_rcu;
 
@@ -2761,8 +2769,7 @@ static struct sk_buff *ieee80211_build_hdr(struct ieee80211_sub_if_data *sdata,
 
 		if (tdls_peer) {
 			/* For TDLS only one link can be valid with peer STA */
-			int tdls_link_id = sta->sta.valid_links ?
-					   __ffs(sta->sta.valid_links) : 0;
+			int tdls_link_id = ieee80211_tdls_sta_link_id(sta);
 			struct ieee80211_link_data *link;
 
 			/* DA SA BSSID */
@@ -2861,9 +2868,10 @@ static struct sk_buff *ieee80211_build_hdr(struct ieee80211_sub_if_data *sdata,
 		goto free;
 	}
 
-	if (unlikely(!multicast && ((skb->sk &&
-		     skb_shinfo(skb)->tx_flags & SKBTX_WIFI_STATUS) ||
-		     ctrl_flags & IEEE80211_TX_CTL_REQ_TX_STATUS)))
+	if (unlikely(!multicast &&
+		     ((skb->sk &&
+		       skb_shinfo(skb)->tx_flags & SKBTX_WIFI_STATUS) ||
+		      ctrl_flags & IEEE80211_TX_CTL_REQ_TX_STATUS)))
 		info_id = ieee80211_store_ack_skb(local, skb, &info_flags,
 						  cookie);
 
@@ -2947,7 +2955,10 @@ static struct sk_buff *ieee80211_build_hdr(struct ieee80211_sub_if_data *sdata,
 	memset(info, 0, sizeof(*info));
 
 	info->flags = info_flags;
-	info->ack_frame_id = info_id;
+	if (info_id) {
+		info->status_data = info_id;
+		info->status_data_idr = 1;
+	}
 	info->band = band;
 
 	if (likely(!cookie)) {
@@ -3084,8 +3095,7 @@ void ieee80211_check_fast_xmit(struct sta_info *sta)
 	case NL80211_IFTYPE_STATION:
 		if (test_sta_flag(sta, WLAN_STA_TDLS_PEER)) {
 			/* For TDLS only one link can be valid with peer STA */
-			int tdls_link_id = sta->sta.valid_links ?
-					   __ffs(sta->sta.valid_links) : 0;
+			int tdls_link_id = ieee80211_tdls_sta_link_id(sta);
 			struct ieee80211_link_data *link;
 
 			/* DA SA BSSID */
@@ -4006,14 +4016,13 @@ ieee80211_txq_set_active(struct txq_info *txqi)
 		return;
 
 	sta = container_of(txqi->txq.sta, struct sta_info, sta);
-	sta->airtime[txqi->txq.ac].last_active = (u32)jiffies;
+	sta->airtime[txqi->txq.ac].last_active = jiffies;
 }
 
 static bool
 ieee80211_txq_keep_active(struct txq_info *txqi)
 {
 	struct sta_info *sta;
-	u32 diff;
 
 	if (!txqi->txq.sta)
 		return false;
@@ -4022,9 +4031,7 @@ ieee80211_txq_keep_active(struct txq_info *txqi)
 	if (ieee80211_sta_deficit(sta, txqi->txq.ac) >= 0)
 		return false;
 
-	diff = (u32)jiffies - sta->airtime[txqi->txq.ac].last_active;
-
-	return diff <= AIRTIME_ACTIVE_DURATION;
+	return ieee80211_sta_keep_active(sta, txqi->txq.ac);
 }
 
 struct ieee80211_txq *ieee80211_next_txq(struct ieee80211_hw *hw, u8 ac)
@@ -4482,6 +4489,8 @@ static void ieee80211_mlo_multicast_tx(struct net_device *dev,
  * @dev: incoming interface
  *
  * On failure skb will be freed.
+ *
+ * Returns: the netdev TX status (but really only %NETDEV_TX_OK)
  */
 netdev_tx_t ieee80211_subif_start_xmit(struct sk_buff *skb,
 				       struct net_device *dev)
@@ -4646,9 +4655,12 @@ static void ieee80211_8023_xmit(struct ieee80211_sub_if_data *sdata,
 	}
 
 	if (unlikely(skb->sk &&
-		     skb_shinfo(skb)->tx_flags & SKBTX_WIFI_STATUS))
-		info->ack_frame_id = ieee80211_store_ack_skb(local, skb,
-							     &info->flags, NULL);
+		     skb_shinfo(skb)->tx_flags & SKBTX_WIFI_STATUS)) {
+		info->status_data = ieee80211_store_ack_skb(local, skb,
+							    &info->flags, NULL);
+		if (info->status_data)
+			info->status_data_idr = 1;
+	}
 
 	dev_sw_netstats_tx_add(dev, skbs, len);
 	sta->deflink.tx_stats.packets[queue] += skbs;
@@ -5021,16 +5033,24 @@ static u8 __ieee80211_beacon_update_cntdwn(struct beacon_data *beacon)
 	return beacon->cntdwn_current_counter;
 }
 
-u8 ieee80211_beacon_update_cntdwn(struct ieee80211_vif *vif)
+u8 ieee80211_beacon_update_cntdwn(struct ieee80211_vif *vif, unsigned int link_id)
 {
 	struct ieee80211_sub_if_data *sdata = vif_to_sdata(vif);
+	struct ieee80211_link_data *link;
 	struct beacon_data *beacon = NULL;
 	u8 count = 0;
 
+	if (WARN_ON(link_id >= IEEE80211_MLD_MAX_NUM_LINKS))
+		return 0;
+
 	rcu_read_lock();
 
+	link = rcu_dereference(sdata->link[link_id]);
+	if (!link)
+		goto unlock;
+
 	if (sdata->vif.type == NL80211_IFTYPE_AP)
-		beacon = rcu_dereference(sdata->deflink.u.ap.beacon);
+		beacon = rcu_dereference(link->u.ap.beacon);
 	else if (sdata->vif.type == NL80211_IFTYPE_ADHOC)
 		beacon = rcu_dereference(sdata->u.ibss.presp);
 	else if (ieee80211_vif_is_mesh(&sdata->vif))
@@ -5271,7 +5291,7 @@ ieee80211_beacon_get_ap(struct ieee80211_hw *hw,
 
 	if (beacon->cntdwn_counter_offsets[0]) {
 		if (!is_template)
-			ieee80211_beacon_update_cntdwn(vif);
+			ieee80211_beacon_update_cntdwn(vif, link->link_id);
 
 		ieee80211_set_beacon_cntdwn(sdata, beacon, link);
 	}
@@ -5557,7 +5577,6 @@ struct sk_buff *ieee80211_beacon_get_tim(struct ieee80211_hw *hw,
 						     IEEE80211_INCLUDE_ALL_MBSSID_ELEMS,
 						     NULL);
 	struct sk_buff *copy;
-	int shift;
 
 	if (!bcn)
 		return bcn;
@@ -5577,8 +5596,7 @@ struct sk_buff *ieee80211_beacon_get_tim(struct ieee80211_hw *hw,
 	if (!copy)
 		return bcn;
 
-	shift = ieee80211_vif_get_shift(vif);
-	ieee80211_tx_monitor(hw_to_local(hw), copy, 1, shift, false, NULL);
+	ieee80211_tx_monitor(hw_to_local(hw), copy, 1, false, NULL);
 
 	return bcn;
 }
@@ -5928,7 +5946,7 @@ int ieee80211_reserve_tid(struct ieee80211_sta *pubsta, u8 tid)
 	int ret;
 	u32 queues;
 
-	lockdep_assert_held(&local->sta_mtx);
+	lockdep_assert_wiphy(local->hw.wiphy);
 
 	/* only some cases are supported right now */
 	switch (sdata->vif.type) {
@@ -5989,7 +6007,7 @@ void ieee80211_unreserve_tid(struct ieee80211_sta *pubsta, u8 tid)
 	struct sta_info *sta = container_of(pubsta, struct sta_info, sta);
 	struct ieee80211_sub_if_data *sdata = sta->sdata;
 
-	lockdep_assert_held(&sdata->local->sta_mtx);
+	lockdep_assert_wiphy(sdata->local->hw.wiphy);
 
 	/* only some cases are supported right now */
 	switch (sdata->vif.type) {
@@ -6110,6 +6128,9 @@ int ieee80211_tx_control_port(struct wiphy *wiphy, struct net_device *dev,
 	u32 flags = 0;
 	int err;
 
+	/* mutex lock is only needed for incrementing the cookie counter */
+	lockdep_assert_wiphy(local->hw.wiphy);
+
 	/* Only accept CONTROL_PORT_PROTOCOL configured in CONNECT/ASSOCIATE
 	 * or Pre-Authentication
 	 */
@@ -6200,14 +6221,9 @@ int ieee80211_tx_control_port(struct wiphy *wiphy, struct net_device *dev,
 	rcu_read_unlock();
 
 start_xmit:
-	/* mutex lock is only needed for incrementing the cookie counter */
-	mutex_lock(&local->mtx);
-
 	local_bh_disable();
 	__ieee80211_subif_start_xmit(skb, skb->dev, flags, ctrl_flags, cookie);
 	local_bh_enable();
-
-	mutex_unlock(&local->mtx);
 
 	return 0;
 }
@@ -6241,3 +6257,11 @@ int ieee80211_probe_mesh_link(struct wiphy *wiphy, struct net_device *dev,
 
 	return 0;
 }
+
+/* FIXME: old symbol for kABI compatibility */
+#undef ieee80211_beacon_update_cntdwn
+u8 ieee80211_beacon_update_cntdwn(struct ieee80211_vif *vif)
+{
+	return _ieee80211_beacon_update_cntdwn(vif, 0);
+}
+EXPORT_SYMBOL(ieee80211_beacon_update_cntdwn);

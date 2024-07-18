@@ -700,6 +700,8 @@ int iwl_mvm_mld_add_sta(struct iwl_mvm *mvm, struct ieee80211_vif *vif,
 
 	/* at this stage sta link pointers are already allocated */
 	ret = iwl_mvm_mld_update_sta(mvm, vif, sta);
+	if (ret)
+		goto err;
 
 	for_each_sta_active_link(vif, sta, link_sta, link_id) {
 		struct ieee80211_bss_conf *link_conf =
@@ -879,6 +881,9 @@ void iwl_mvm_mld_sta_modify_disable_tx(struct iwl_mvm *mvm,
 
 	cmd.sta_id = cpu_to_le32(mvmsta->deflink.sta_id);
 	cmd.disable = cpu_to_le32(disable);
+
+	if (WARN_ON(iwl_mvm_has_no_host_disable_tx(mvm)))
+		return;
 
 	ret = iwl_mvm_send_cmd_pdu(mvm,
 				   WIDE_ID(MAC_CONF_GROUP, STA_DISABLE_TX_CMD),
@@ -1114,15 +1119,26 @@ int iwl_mvm_mld_update_sta_links(struct iwl_mvm *mvm,
 			link_sta_dereference_protected(sta, link_id);
 		mvm_vif_link = mvm_vif->link[link_id];
 
-		if (WARN_ON(!mvm_vif_link || !link_conf || !link_sta ||
-			    mvm_sta->link[link_id])) {
+		if (WARN_ON(!mvm_vif_link || !link_conf || !link_sta)) {
 			ret = -EINVAL;
 			goto err;
 		}
 
-		ret = iwl_mvm_mld_alloc_sta_link(mvm, vif, sta, link_id);
-		if (WARN_ON(ret))
-			goto err;
+		if (test_bit(IWL_MVM_STATUS_IN_HW_RESTART, &mvm->status)) {
+			if (WARN_ON(!mvm_sta->link[link_id])) {
+				ret = -EINVAL;
+				goto err;
+			}
+		} else {
+			if (WARN_ON(mvm_sta->link[link_id])) {
+				ret = -EINVAL;
+				goto err;
+			}
+			ret = iwl_mvm_mld_alloc_sta_link(mvm, vif, sta,
+							 link_id);
+			if (WARN_ON(ret))
+				goto err;
+		}
 
 		link_sta->agg.max_rc_amsdu_len = 1;
 		ieee80211_sta_recalc_aggregates(sta);

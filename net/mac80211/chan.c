@@ -18,7 +18,7 @@ static int ieee80211_chanctx_num_assigned(struct ieee80211_local *local,
 	struct ieee80211_link_data *link;
 	int num = 0;
 
-	lockdep_assert_held(&local->chanctx_mtx);
+	lockdep_assert_wiphy(local->hw.wiphy);
 
 	list_for_each_entry(link, &ctx->assigned_links, assigned_chanctx_list)
 		num++;
@@ -32,7 +32,7 @@ static int ieee80211_chanctx_num_reserved(struct ieee80211_local *local,
 	struct ieee80211_link_data *link;
 	int num = 0;
 
-	lockdep_assert_held(&local->chanctx_mtx);
+	lockdep_assert_wiphy(local->hw.wiphy);
 
 	list_for_each_entry(link, &ctx->reserved_links, reserved_chanctx_list)
 		num++;
@@ -52,7 +52,7 @@ static int ieee80211_num_chanctx(struct ieee80211_local *local)
 	struct ieee80211_chanctx *ctx;
 	int num = 0;
 
-	lockdep_assert_held(&local->chanctx_mtx);
+	lockdep_assert_wiphy(local->hw.wiphy);
 
 	list_for_each_entry(ctx, &local->chanctx_list, list)
 		num++;
@@ -62,7 +62,8 @@ static int ieee80211_num_chanctx(struct ieee80211_local *local)
 
 static bool ieee80211_can_create_new_chanctx(struct ieee80211_local *local)
 {
-	lockdep_assert_held(&local->chanctx_mtx);
+	lockdep_assert_wiphy(local->hw.wiphy);
+
 	return ieee80211_num_chanctx(local) < ieee80211_max_num_channels(local);
 }
 
@@ -73,7 +74,7 @@ ieee80211_link_get_chanctx(struct ieee80211_link_data *link)
 	struct ieee80211_chanctx_conf *conf;
 
 	conf = rcu_dereference_protected(link->conf->chanctx_conf,
-					 lockdep_is_held(&local->chanctx_mtx));
+					 lockdep_is_held(&local->hw.wiphy->mtx));
 	if (!conf)
 		return NULL;
 
@@ -87,7 +88,7 @@ ieee80211_chanctx_reserved_chandef(struct ieee80211_local *local,
 {
 	struct ieee80211_link_data *link;
 
-	lockdep_assert_held(&local->chanctx_mtx);
+	lockdep_assert_wiphy(local->hw.wiphy);
 
 	list_for_each_entry(link, &ctx->reserved_links,
 			    reserved_chanctx_list) {
@@ -110,7 +111,7 @@ ieee80211_chanctx_non_reserved_chandef(struct ieee80211_local *local,
 {
 	struct ieee80211_link_data *link;
 
-	lockdep_assert_held(&local->chanctx_mtx);
+	lockdep_assert_wiphy(local->hw.wiphy);
 
 	list_for_each_entry(link, &ctx->assigned_links,
 			    assigned_chanctx_list) {
@@ -136,7 +137,7 @@ ieee80211_chanctx_combined_chandef(struct ieee80211_local *local,
 				   struct ieee80211_chanctx *ctx,
 				   const struct cfg80211_chan_def *compat)
 {
-	lockdep_assert_held(&local->chanctx_mtx);
+	lockdep_assert_wiphy(local->hw.wiphy);
 
 	compat = ieee80211_chanctx_reserved_chandef(local, ctx, compat);
 	if (!compat)
@@ -154,7 +155,7 @@ ieee80211_chanctx_can_reserve_chandef(struct ieee80211_local *local,
 				      struct ieee80211_chanctx *ctx,
 				      const struct cfg80211_chan_def *def)
 {
-	lockdep_assert_held(&local->chanctx_mtx);
+	lockdep_assert_wiphy(local->hw.wiphy);
 
 	if (ieee80211_chanctx_combined_chandef(local, ctx, def))
 		return true;
@@ -173,7 +174,7 @@ ieee80211_find_reservation_chanctx(struct ieee80211_local *local,
 {
 	struct ieee80211_chanctx *ctx;
 
-	lockdep_assert_held(&local->chanctx_mtx);
+	lockdep_assert_wiphy(local->hw.wiphy);
 
 	if (mode == IEEE80211_CHANCTX_EXCLUSIVE)
 		return NULL;
@@ -361,7 +362,7 @@ _ieee80211_recalc_chanctx_min_def(struct ieee80211_local *local,
 	enum nl80211_chan_width max_bw;
 	struct cfg80211_chan_def min_def;
 
-	lockdep_assert_held(&local->chanctx_mtx);
+	lockdep_assert_wiphy(local->hw.wiphy);
 
 	/* don't optimize non-20MHz based and radar_enabled confs */
 	if (ctx->conf.def.width == NL80211_CHAN_WIDTH_5 ||
@@ -513,11 +514,6 @@ static void _ieee80211_change_chanctx(struct ieee80211_local *local,
 		  _ieee80211_recalc_chanctx_min_def(local, ctx, rsvd_for);
 	drv_change_chanctx(local, ctx, changed);
 
-	if (!local->use_chanctx) {
-		local->_oper_chandef = *chandef;
-		ieee80211_hw_config(local, 0);
-	}
-
 	/* check is BW wider */
 	ieee80211_chan_bw_change(local, old_ctx, false);
 }
@@ -537,7 +533,7 @@ ieee80211_find_chanctx(struct ieee80211_local *local,
 {
 	struct ieee80211_chanctx *ctx;
 
-	lockdep_assert_held(&local->chanctx_mtx);
+	lockdep_assert_wiphy(local->hw.wiphy);
 
 	if (mode == IEEE80211_CHANCTX_EXCLUSIVE)
 		return NULL;
@@ -572,7 +568,7 @@ bool ieee80211_is_radar_required(struct ieee80211_local *local)
 {
 	struct ieee80211_sub_if_data *sdata;
 
-	lockdep_assert_held(&local->mtx);
+	lockdep_assert_wiphy(local->hw.wiphy);
 
 	rcu_read_lock();
 	list_for_each_entry_rcu(sdata, &local->interfaces, list) {
@@ -602,8 +598,7 @@ ieee80211_chanctx_radar_required(struct ieee80211_local *local,
 	struct ieee80211_sub_if_data *sdata;
 	bool required = false;
 
-	lockdep_assert_held(&local->chanctx_mtx);
-	lockdep_assert_held(&local->mtx);
+	lockdep_assert_wiphy(local->hw.wiphy);
 
 	rcu_read_lock();
 	list_for_each_entry_rcu(sdata, &local->interfaces, list) {
@@ -641,7 +636,7 @@ ieee80211_alloc_chanctx(struct ieee80211_local *local,
 {
 	struct ieee80211_chanctx *ctx;
 
-	lockdep_assert_held(&local->chanctx_mtx);
+	lockdep_assert_wiphy(local->hw.wiphy);
 
 	ctx = kzalloc(sizeof(*ctx) + local->hw.chanctx_data_size, GFP_KERNEL);
 	if (!ctx)
@@ -665,26 +660,17 @@ static int ieee80211_add_chanctx(struct ieee80211_local *local,
 	u32 changed;
 	int err;
 
-	lockdep_assert_held(&local->mtx);
-	lockdep_assert_held(&local->chanctx_mtx);
-
-	if (!local->use_chanctx)
-		local->hw.conf.radar_enabled = ctx->conf.radar_enabled;
+	lockdep_assert_wiphy(local->hw.wiphy);
 
 	/* turn idle off *before* setting channel -- some drivers need that */
 	changed = ieee80211_idle_off(local);
 	if (changed)
 		ieee80211_hw_config(local, changed);
 
-	if (!local->use_chanctx) {
-		local->_oper_chandef = ctx->conf.def;
-		ieee80211_hw_config(local, IEEE80211_CONF_CHANGE_CHANNEL);
-	} else {
-		err = drv_add_chanctx(local, ctx);
-		if (err) {
-			ieee80211_recalc_idle(local);
-			return err;
-		}
+	err = drv_add_chanctx(local, ctx);
+	if (err) {
+		ieee80211_recalc_idle(local);
+		return err;
 	}
 
 	return 0;
@@ -698,8 +684,7 @@ ieee80211_new_chanctx(struct ieee80211_local *local,
 	struct ieee80211_chanctx *ctx;
 	int err;
 
-	lockdep_assert_held(&local->mtx);
-	lockdep_assert_held(&local->chanctx_mtx);
+	lockdep_assert_wiphy(local->hw.wiphy);
 
 	ctx = ieee80211_alloc_chanctx(local, chandef, mode);
 	if (!ctx)
@@ -718,34 +703,9 @@ ieee80211_new_chanctx(struct ieee80211_local *local,
 static void ieee80211_del_chanctx(struct ieee80211_local *local,
 				  struct ieee80211_chanctx *ctx)
 {
-	lockdep_assert_held(&local->chanctx_mtx);
+	lockdep_assert_wiphy(local->hw.wiphy);
 
-	if (!local->use_chanctx) {
-		struct cfg80211_chan_def *chandef = &local->_oper_chandef;
-		/* S1G doesn't have 20MHz, so get the correct width for the
-		 * current channel.
-		 */
-		if (chandef->chan->band == NL80211_BAND_S1GHZ)
-			chandef->width =
-				ieee80211_s1g_channel_width(chandef->chan);
-		else
-			chandef->width = NL80211_CHAN_WIDTH_20_NOHT;
-		chandef->center_freq1 = chandef->chan->center_freq;
-		chandef->freq1_offset = chandef->chan->freq_offset;
-		chandef->center_freq2 = 0;
-
-		/* NOTE: Disabling radar is only valid here for
-		 * single channel context. To be sure, check it ...
-		 */
-		WARN_ON(local->hw.conf.radar_enabled &&
-			!list_empty(&local->chanctx_list));
-
-		local->hw.conf.radar_enabled = false;
-
-		ieee80211_hw_config(local, IEEE80211_CONF_CHANGE_CHANNEL);
-	} else {
-		drv_remove_chanctx(local, ctx);
-	}
+	drv_remove_chanctx(local, ctx);
 
 	ieee80211_recalc_idle(local);
 }
@@ -753,7 +713,7 @@ static void ieee80211_del_chanctx(struct ieee80211_local *local,
 static void ieee80211_free_chanctx(struct ieee80211_local *local,
 				   struct ieee80211_chanctx *ctx)
 {
-	lockdep_assert_held(&local->chanctx_mtx);
+	lockdep_assert_wiphy(local->hw.wiphy);
 
 	WARN_ON_ONCE(ieee80211_chanctx_refcount(local, ctx) != 0);
 
@@ -768,9 +728,10 @@ void ieee80211_recalc_chanctx_chantype(struct ieee80211_local *local,
 	struct ieee80211_chanctx_conf *conf = &ctx->conf;
 	struct ieee80211_sub_if_data *sdata;
 	const struct cfg80211_chan_def *compat = NULL;
+	struct ieee80211_link_data *link;
 	struct sta_info *sta;
 
-	lockdep_assert_held(&local->chanctx_mtx);
+	lockdep_assert_wiphy(local->hw.wiphy);
 
 	rcu_read_lock();
 	list_for_each_entry_rcu(sdata, &local->interfaces, list) {
@@ -809,10 +770,21 @@ void ieee80211_recalc_chanctx_chantype(struct ieee80211_local *local,
 
 	/* TDLS peers can sometimes affect the chandef width */
 	list_for_each_entry_rcu(sta, &local->sta_list, list) {
+		struct ieee80211_sub_if_data *sdata = sta->sdata;
+		int tdls_link_id;
+
 		if (!sta->uploaded ||
 		    !test_sta_flag(sta, WLAN_STA_TDLS_WIDER_BW) ||
 		    !test_sta_flag(sta, WLAN_STA_AUTHORIZED) ||
 		    !sta->tdls_chandef.chan)
+			continue;
+
+		tdls_link_id = ieee80211_tdls_sta_link_id(sta);
+		link = sdata_dereference(sdata->link[tdls_link_id], sdata);
+		if (!link)
+			continue;
+
+		if (rcu_access_pointer(link->conf->chanctx_conf) != conf)
 			continue;
 
 		compat = cfg80211_chandef_compatible(&sta->tdls_chandef,
@@ -833,9 +805,7 @@ static void ieee80211_recalc_radar_chanctx(struct ieee80211_local *local,
 {
 	bool radar_enabled;
 
-	lockdep_assert_held(&local->chanctx_mtx);
-	/* for ieee80211_is_radar_required */
-	lockdep_assert_held(&local->mtx);
+	lockdep_assert_wiphy(local->hw.wiphy);
 
 	radar_enabled = ieee80211_chanctx_radar_required(local, chanctx);
 
@@ -843,11 +813,6 @@ static void ieee80211_recalc_radar_chanctx(struct ieee80211_local *local,
 		return;
 
 	chanctx->conf.radar_enabled = radar_enabled;
-
-	if (!local->use_chanctx) {
-		local->hw.conf.radar_enabled = chanctx->conf.radar_enabled;
-		ieee80211_hw_config(local, IEEE80211_CONF_CHANGE_CHANNEL);
-	}
 
 	drv_change_chanctx(local, chanctx, IEEE80211_CHANCTX_CHANGE_RADAR);
 }
@@ -862,10 +827,10 @@ static int ieee80211_assign_link_chanctx(struct ieee80211_link_data *link,
 	int ret = 0;
 
 	if (WARN_ON(sdata->vif.type == NL80211_IFTYPE_NAN))
-		return -ENOTSUPP;
+		return -EOPNOTSUPP;
 
 	conf = rcu_dereference_protected(link->conf->chanctx_conf,
-					 lockdep_is_held(&local->chanctx_mtx));
+					 lockdep_is_held(&local->hw.wiphy->mtx));
 
 	if (conf) {
 		curr_ctx = container_of(conf, struct ieee80211_chanctx, conf);
@@ -920,7 +885,7 @@ void ieee80211_recalc_smps_chanctx(struct ieee80211_local *local,
 	struct ieee80211_sub_if_data *sdata;
 	u8 rx_chains_static, rx_chains_dynamic;
 
-	lockdep_assert_held(&local->chanctx_mtx);
+	lockdep_assert_wiphy(local->hw.wiphy);
 
 	rx_chains_static = 1;
 	rx_chains_dynamic = 1;
@@ -990,16 +955,6 @@ void ieee80211_recalc_smps_chanctx(struct ieee80211_local *local,
 
 	rcu_read_unlock();
 
-	if (!local->use_chanctx) {
-		if (rx_chains_static > 1)
-			local->smps_mode = IEEE80211_SMPS_OFF;
-		else if (rx_chains_dynamic > 1)
-			local->smps_mode = IEEE80211_SMPS_DYNAMIC;
-		else
-			local->smps_mode = IEEE80211_SMPS_STATIC;
-		ieee80211_hw_config(local, 0);
-	}
-
 	if (rx_chains_static == chanctx->conf.rx_chains_static &&
 	    rx_chains_dynamic == chanctx->conf.rx_chains_dynamic)
 		return;
@@ -1023,7 +978,7 @@ __ieee80211_link_copy_chanctx_to_vlans(struct ieee80211_link_data *link,
 	if (WARN_ON(sdata->vif.type != NL80211_IFTYPE_AP))
 		return;
 
-	lockdep_assert_held(&local->mtx);
+	lockdep_assert_wiphy(local->hw.wiphy);
 
 	/* Check that conf exists, even when clearing this function
 	 * must be called with the AP's channel context still there
@@ -1032,7 +987,7 @@ __ieee80211_link_copy_chanctx_to_vlans(struct ieee80211_link_data *link,
 	 * to a channel context that has already been freed.
 	 */
 	conf = rcu_dereference_protected(link_conf->chanctx_conf,
-					 lockdep_is_held(&local->chanctx_mtx));
+					 lockdep_is_held(&local->hw.wiphy->mtx));
 	WARN_ON(!conf);
 
 	if (clear)
@@ -1056,11 +1011,9 @@ void ieee80211_link_copy_chanctx_to_vlans(struct ieee80211_link_data *link,
 {
 	struct ieee80211_local *local = link->sdata->local;
 
-	mutex_lock(&local->chanctx_mtx);
+	lockdep_assert_wiphy(local->hw.wiphy);
 
 	__ieee80211_link_copy_chanctx_to_vlans(link, clear);
-
-	mutex_unlock(&local->chanctx_mtx);
 }
 
 int ieee80211_link_unreserve_chanctx(struct ieee80211_link_data *link)
@@ -1068,7 +1021,7 @@ int ieee80211_link_unreserve_chanctx(struct ieee80211_link_data *link)
 	struct ieee80211_sub_if_data *sdata = link->sdata;
 	struct ieee80211_chanctx *ctx = link->reserved_chanctx;
 
-	lockdep_assert_held(&sdata->local->chanctx_mtx);
+	lockdep_assert_wiphy(sdata->local->hw.wiphy);
 
 	if (WARN_ON(!ctx))
 		return -EINVAL;
@@ -1108,11 +1061,11 @@ int ieee80211_link_reserve_chanctx(struct ieee80211_link_data *link,
 	struct ieee80211_local *local = sdata->local;
 	struct ieee80211_chanctx *new_ctx, *curr_ctx, *ctx;
 
-	lockdep_assert_held(&local->chanctx_mtx);
+	lockdep_assert_wiphy(local->hw.wiphy);
 
 	curr_ctx = ieee80211_link_get_chanctx(link);
-	if (curr_ctx && local->use_chanctx && !local->ops->switch_vif_chanctx)
-		return -ENOTSUPP;
+	if (curr_ctx && !local->ops->switch_vif_chanctx)
+		return -EOPNOTSUPP;
 
 	new_ctx = ieee80211_find_reservation_chanctx(local, chandef, mode);
 	if (!new_ctx) {
@@ -1206,8 +1159,8 @@ ieee80211_link_chanctx_reservation_complete(struct ieee80211_link_data *link)
 	case NL80211_IFTYPE_AP:
 	case NL80211_IFTYPE_MESH_POINT:
 	case NL80211_IFTYPE_OCB:
-		ieee80211_queue_work(&sdata->local->hw,
-				     &link->csa_finalize_work);
+		wiphy_work_queue(sdata->local->hw.wiphy,
+				 &link->csa_finalize_work);
 		break;
 	case NL80211_IFTYPE_STATION:
 		wiphy_delayed_work_queue(sdata->local->hw.wiphy,
@@ -1265,8 +1218,7 @@ ieee80211_link_use_reserved_reassign(struct ieee80211_link_data *link)
 	u64 changed = 0;
 	int err;
 
-	lockdep_assert_held(&local->mtx);
-	lockdep_assert_held(&local->chanctx_mtx);
+	lockdep_assert_wiphy(local->hw.wiphy);
 
 	new_ctx = link->reserved_chanctx;
 	old_ctx = ieee80211_link_get_chanctx(link);
@@ -1390,7 +1342,7 @@ ieee80211_link_has_in_place_reservation(struct ieee80211_link_data *link)
 	struct ieee80211_sub_if_data *sdata = link->sdata;
 	struct ieee80211_chanctx *old_ctx, *new_ctx;
 
-	lockdep_assert_held(&sdata->local->chanctx_mtx);
+	lockdep_assert_wiphy(sdata->local->hw.wiphy);
 
 	new_ctx = link->reserved_chanctx;
 	old_ctx = ieee80211_link_get_chanctx(link);
@@ -1410,25 +1362,6 @@ ieee80211_link_has_in_place_reservation(struct ieee80211_link_data *link)
 	return true;
 }
 
-static int ieee80211_chsw_switch_hwconf(struct ieee80211_local *local,
-					struct ieee80211_chanctx *new_ctx)
-{
-	const struct cfg80211_chan_def *chandef;
-
-	lockdep_assert_held(&local->mtx);
-	lockdep_assert_held(&local->chanctx_mtx);
-
-	chandef = ieee80211_chanctx_reserved_chandef(local, new_ctx, NULL);
-	if (WARN_ON(!chandef))
-		return -EINVAL;
-
-	local->hw.conf.radar_enabled = new_ctx->conf.radar_enabled;
-	local->_oper_chandef = *chandef;
-	ieee80211_hw_config(local, 0);
-
-	return 0;
-}
-
 static int ieee80211_chsw_switch_vifs(struct ieee80211_local *local,
 				      int n_vifs)
 {
@@ -1437,8 +1370,7 @@ static int ieee80211_chsw_switch_vifs(struct ieee80211_local *local,
 	struct ieee80211_chanctx *ctx, *old_ctx;
 	int i, err;
 
-	lockdep_assert_held(&local->mtx);
-	lockdep_assert_held(&local->chanctx_mtx);
+	lockdep_assert_wiphy(local->hw.wiphy);
 
 	vif_chsw = kcalloc(n_vifs, sizeof(vif_chsw[0]), GFP_KERNEL);
 	if (!vif_chsw)
@@ -1482,8 +1414,7 @@ static int ieee80211_chsw_switch_ctxs(struct ieee80211_local *local)
 	struct ieee80211_chanctx *ctx;
 	int err;
 
-	lockdep_assert_held(&local->mtx);
-	lockdep_assert_held(&local->chanctx_mtx);
+	lockdep_assert_wiphy(local->hw.wiphy);
 
 	list_for_each_entry(ctx, &local->chanctx_list, list) {
 		if (ctx->replace_state != IEEE80211_CHANCTX_REPLACES_OTHER)
@@ -1519,12 +1450,10 @@ err:
 static int ieee80211_vif_use_reserved_switch(struct ieee80211_local *local)
 {
 	struct ieee80211_chanctx *ctx, *ctx_tmp, *old_ctx;
-	struct ieee80211_chanctx *new_ctx = NULL;
 	int err, n_assigned, n_reserved, n_ready;
 	int n_ctx = 0, n_vifs_switch = 0, n_vifs_assign = 0, n_vifs_ctxless = 0;
 
-	lockdep_assert_held(&local->mtx);
-	lockdep_assert_held(&local->chanctx_mtx);
+	lockdep_assert_wiphy(local->hw.wiphy);
 
 	/*
 	 * If there are 2 independent pairs of channel contexts performing
@@ -1552,9 +1481,6 @@ static int ieee80211_vif_use_reserved_switch(struct ieee80211_local *local)
 			err = -EINVAL;
 			goto err;
 		}
-
-		if (!local->use_chanctx)
-			new_ctx = ctx;
 
 		n_ctx++;
 
@@ -1609,9 +1535,7 @@ static int ieee80211_vif_use_reserved_switch(struct ieee80211_local *local)
 	if (WARN_ON(n_ctx == 0) ||
 	    WARN_ON(n_vifs_switch == 0 &&
 		    n_vifs_assign == 0 &&
-		    n_vifs_ctxless == 0) ||
-	    WARN_ON(n_ctx > 1 && !local->use_chanctx) ||
-	    WARN_ON(!new_ctx && !local->use_chanctx)) {
+		    n_vifs_ctxless == 0)) {
 		err = -EINVAL;
 		goto err;
 	}
@@ -1621,20 +1545,14 @@ static int ieee80211_vif_use_reserved_switch(struct ieee80211_local *local)
 	 * reservations and driver capabilities.
 	 */
 
-	if (local->use_chanctx) {
-		if (n_vifs_switch > 0) {
-			err = ieee80211_chsw_switch_vifs(local, n_vifs_switch);
-			if (err)
-				goto err;
-		}
+	if (n_vifs_switch > 0) {
+		err = ieee80211_chsw_switch_vifs(local, n_vifs_switch);
+		if (err)
+			goto err;
+	}
 
-		if (n_vifs_assign > 0 || n_vifs_ctxless > 0) {
-			err = ieee80211_chsw_switch_ctxs(local);
-			if (err)
-				goto err;
-		}
-	} else {
-		err = ieee80211_chsw_switch_hwconf(local, new_ctx);
+	if (n_vifs_assign > 0 || n_vifs_ctxless > 0) {
+		err = ieee80211_chsw_switch_ctxs(local);
 		if (err)
 			goto err;
 	}
@@ -1783,10 +1701,10 @@ static void __ieee80211_link_release_channel(struct ieee80211_link_data *link)
 	struct ieee80211_chanctx *ctx;
 	bool use_reserved_switch = false;
 
-	lockdep_assert_held(&local->chanctx_mtx);
+	lockdep_assert_wiphy(local->hw.wiphy);
 
 	conf = rcu_dereference_protected(link_conf->chanctx_conf,
-					 lockdep_is_held(&local->chanctx_mtx));
+					 lockdep_is_held(&local->hw.wiphy->mtx));
 	if (!conf)
 		return;
 
@@ -1821,15 +1739,13 @@ int ieee80211_link_use_channel(struct ieee80211_link_data *link,
 	u8 radar_detect_width = 0;
 	int ret;
 
-	lockdep_assert_held(&local->mtx);
+	lockdep_assert_wiphy(local->hw.wiphy);
 
 	if (sdata->vif.active_links &&
 	    !(sdata->vif.active_links & BIT(link->link_id))) {
 		ieee80211_link_update_chandef(link, chandef);
 		return 0;
 	}
-
-	mutex_lock(&local->chanctx_mtx);
 
 	ret = cfg80211_chandef_dfs_required(local->hw.wiphy,
 					    chandef,
@@ -1872,7 +1788,6 @@ int ieee80211_link_use_channel(struct ieee80211_link_data *link,
 	if (ret)
 		link->radar_required = false;
 
-	mutex_unlock(&local->chanctx_mtx);
 	return ret;
 }
 
@@ -1884,8 +1799,7 @@ int ieee80211_link_use_reserved_context(struct ieee80211_link_data *link)
 	struct ieee80211_chanctx *old_ctx;
 	int err;
 
-	lockdep_assert_held(&local->mtx);
-	lockdep_assert_held(&local->chanctx_mtx);
+	lockdep_assert_wiphy(local->hw.wiphy);
 
 	new_ctx = link->reserved_chanctx;
 	old_ctx = ieee80211_link_get_chanctx(link);
@@ -1948,51 +1862,40 @@ int ieee80211_link_change_bandwidth(struct ieee80211_link_data *link,
 	struct ieee80211_chanctx_conf *conf;
 	struct ieee80211_chanctx *ctx;
 	const struct cfg80211_chan_def *compat;
-	int ret;
+
+	lockdep_assert_wiphy(local->hw.wiphy);
 
 	if (!cfg80211_chandef_usable(sdata->local->hw.wiphy, chandef,
 				     IEEE80211_CHAN_DISABLED))
 		return -EINVAL;
 
-	mutex_lock(&local->chanctx_mtx);
-	if (cfg80211_chandef_identical(chandef, &link_conf->chandef)) {
-		ret = 0;
-		goto out;
-	}
+	if (cfg80211_chandef_identical(chandef, &link_conf->chandef))
+		return 0;
 
 	if (chandef->width == NL80211_CHAN_WIDTH_20_NOHT ||
-	    link_conf->chandef.width == NL80211_CHAN_WIDTH_20_NOHT) {
-		ret = -EINVAL;
-		goto out;
-	}
+	    link_conf->chandef.width == NL80211_CHAN_WIDTH_20_NOHT)
+		return -EINVAL;
 
 	conf = rcu_dereference_protected(link_conf->chanctx_conf,
-					 lockdep_is_held(&local->chanctx_mtx));
-	if (!conf) {
-		ret = -EINVAL;
-		goto out;
-	}
+					 lockdep_is_held(&local->hw.wiphy->mtx));
+	if (!conf)
+		return -EINVAL;
 
 	ctx = container_of(conf, struct ieee80211_chanctx, conf);
 
 	compat = cfg80211_chandef_compatible(&conf->def, chandef);
-	if (!compat) {
-		ret = -EINVAL;
-		goto out;
-	}
+	if (!compat)
+		return -EINVAL;
 
 	switch (ctx->replace_state) {
 	case IEEE80211_CHANCTX_REPLACE_NONE:
-		if (!ieee80211_chanctx_reserved_chandef(local, ctx, compat)) {
-			ret = -EBUSY;
-			goto out;
-		}
+		if (!ieee80211_chanctx_reserved_chandef(local, ctx, compat))
+			return -EBUSY;
 		break;
 	case IEEE80211_CHANCTX_WILL_BE_REPLACED:
 		/* TODO: Perhaps the bandwidth change could be treated as a
 		 * reservation itself? */
-		ret = -EBUSY;
-		goto out;
+		return -EBUSY;
 	case IEEE80211_CHANCTX_REPLACES_OTHER:
 		/* channel context that is going to replace another channel
 		 * context doesn't really exist and shouldn't be assigned
@@ -2006,22 +1909,17 @@ int ieee80211_link_change_bandwidth(struct ieee80211_link_data *link,
 	ieee80211_recalc_chanctx_chantype(local, ctx);
 
 	*changed |= BSS_CHANGED_BANDWIDTH;
-	ret = 0;
- out:
-	mutex_unlock(&local->chanctx_mtx);
-	return ret;
+	return 0;
 }
 
 void ieee80211_link_release_channel(struct ieee80211_link_data *link)
 {
 	struct ieee80211_sub_if_data *sdata = link->sdata;
 
-	mutex_lock(&sdata->local->chanctx_mtx);
-	if (rcu_access_pointer(link->conf->chanctx_conf)) {
-		lockdep_assert_held(&sdata->local->mtx);
+	lockdep_assert_wiphy(sdata->local->hw.wiphy);
+
+	if (rcu_access_pointer(link->conf->chanctx_conf))
 		__ieee80211_link_release_channel(link);
-	}
-	mutex_unlock(&sdata->local->chanctx_mtx);
 }
 
 void ieee80211_link_vlan_copy_chanctx(struct ieee80211_link_data *link)
@@ -2034,20 +1932,19 @@ void ieee80211_link_vlan_copy_chanctx(struct ieee80211_link_data *link)
 	struct ieee80211_sub_if_data *ap;
 	struct ieee80211_chanctx_conf *conf;
 
+	lockdep_assert_wiphy(local->hw.wiphy);
+
 	if (WARN_ON(sdata->vif.type != NL80211_IFTYPE_AP_VLAN || !sdata->bss))
 		return;
 
 	ap = container_of(sdata->bss, struct ieee80211_sub_if_data, u.ap);
 
-	mutex_lock(&local->chanctx_mtx);
-
 	rcu_read_lock();
 	ap_conf = rcu_dereference(ap->vif.link_conf[link_id]);
 	conf = rcu_dereference_protected(ap_conf->chanctx_conf,
-					 lockdep_is_held(&local->chanctx_mtx));
+					 lockdep_is_held(&local->hw.wiphy->mtx));
 	rcu_assign_pointer(link_conf->chanctx_conf, conf);
 	rcu_read_unlock();
-	mutex_unlock(&local->chanctx_mtx);
 }
 
 void ieee80211_iter_chan_contexts_atomic(

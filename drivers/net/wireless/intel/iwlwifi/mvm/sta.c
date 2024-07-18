@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause
 /*
- * Copyright (C) 2012-2015, 2018-2023 Intel Corporation
+ * Copyright (C) 2012-2015, 2018-2024 Intel Corporation
  * Copyright (C) 2013-2015 Intel Mobile Communications GmbH
  * Copyright (C) 2016-2017 Intel Deutschland GmbH
  */
@@ -827,7 +827,7 @@ static int iwl_mvm_get_queue_size(struct ieee80211_sta *sta)
 		if (!link)
 			continue;
 
-		/* support for 1k ba size */
+		/* support for 512 ba size */
 		if (link->eht_cap.has_eht &&
 		    max_size < IWL_DEFAULT_QUEUE_SIZE_EHT)
 			max_size = IWL_DEFAULT_QUEUE_SIZE_EHT;
@@ -865,11 +865,11 @@ int iwl_mvm_tvqm_enable_txq(struct iwl_mvm *mvm,
 
 	if (sta) {
 		struct iwl_mvm_sta *mvmsta = iwl_mvm_sta_from_mac80211(sta);
+		struct ieee80211_link_sta *link_sta;
 		unsigned int link_id;
 
-		for (link_id = 0;
-		     link_id < ARRAY_SIZE(mvmsta->link);
-		     link_id++) {
+		rcu_read_lock();
+		for_each_sta_active_link(mvmsta->vif, sta, link_sta, link_id) {
 			struct iwl_mvm_link_sta *link =
 				rcu_dereference_protected(mvmsta->link[link_id],
 							  lockdep_is_held(&mvm->mutex));
@@ -879,6 +879,7 @@ int iwl_mvm_tvqm_enable_txq(struct iwl_mvm *mvm,
 
 			sta_mask |= BIT(link->sta_id);
 		}
+		rcu_read_unlock();
 	} else {
 		sta_mask |= BIT(sta_id);
 	}
@@ -2577,7 +2578,7 @@ int iwl_mvm_add_mcast_sta(struct iwl_mvm *mvm, struct ieee80211_vif *vif)
 
 	if (WARN_ON(vif->type != NL80211_IFTYPE_AP &&
 		    vif->type != NL80211_IFTYPE_ADHOC))
-		return -ENOTSUPP;
+		return -EOPNOTSUPP;
 
 	/*
 	 * In IBSS, ieee80211_check_queues() sets the cab_queue to be
@@ -2746,18 +2747,9 @@ static void iwl_mvm_free_reorder(struct iwl_mvm *mvm,
 		WARN_ON(1);
 
 		for (j = 0; j < reorder_buf->buf_size; j++)
-			__skb_queue_purge(&entries[j].e.frames);
-		/*
-		 * Prevent timer re-arm. This prevents a very far fetched case
-		 * where we timed out on the notification. There may be prior
-		 * RX frames pending in the RX queue before the notification
-		 * that might get processed between now and the actual deletion
-		 * and we would re-arm the timer although we are deleting the
-		 * reorder buffer.
-		 */
-		reorder_buf->removed = true;
+			__skb_queue_purge(&entries[j].frames);
+
 		spin_unlock_bh(&reorder_buf->lock);
-		del_timer_sync(&reorder_buf->reorder_timer);
 	}
 }
 
@@ -2777,15 +2769,12 @@ static void iwl_mvm_init_reorder_buffer(struct iwl_mvm *mvm,
 		reorder_buf->num_stored = 0;
 		reorder_buf->head_sn = ssn;
 		reorder_buf->buf_size = buf_size;
-		/* rx reorder timer */
-		timer_setup(&reorder_buf->reorder_timer,
-			    iwl_mvm_reorder_timer_expired, 0);
 		spin_lock_init(&reorder_buf->lock);
 		reorder_buf->mvm = mvm;
 		reorder_buf->queue = i;
 		reorder_buf->valid = false;
 		for (j = 0; j < reorder_buf->buf_size; j++)
-			__skb_queue_head_init(&entries[j].e.frames);
+			__skb_queue_head_init(&entries[j].frames);
 	}
 }
 
@@ -3028,16 +3017,6 @@ int iwl_mvm_sta_rx_agg(struct iwl_mvm *mvm, struct ieee80211_sta *sta,
 		RCU_INIT_POINTER(mvm->baid_map[baid], NULL);
 		kfree_rcu(baid_data, rcu_head);
 		IWL_DEBUG_HT(mvm, "BAID %d is free\n", baid);
-
-		/*
-		 * After we've deleted it, do another queue sync
-		 * so if an IWL_MVM_RXQ_NSSN_SYNC was concurrently
-		 * running it won't find a new session in the old
-		 * BAID. It can find the NULL pointer for the BAID,
-		 * but we must not have it find a different session.
-		 */
-		iwl_mvm_sync_rx_queues_internal(mvm, IWL_MVM_RXQ_EMPTY,
-						true, NULL, 0);
 	}
 	return 0;
 
@@ -3273,7 +3252,7 @@ int iwl_mvm_sta_tx_agg_oper(struct iwl_mvm *mvm, struct ieee80211_vif *vif,
 		 * should be updated as well.
 		 */
 		if (buf_size < IWL_FRAME_LIMIT)
-			return -ENOTSUPP;
+			return -EOPNOTSUPP;
 
 		ret = iwl_mvm_sta_tx_agg(mvm, sta, tid, queue, true);
 		if (ret)
@@ -3597,6 +3576,9 @@ static int iwl_mvm_send_sta_key(struct iwl_mvm *mvm,
 		 STA_KEY_FLG_KEYID_MSK;
 	key_flags = cpu_to_le16(keyidx);
 	key_flags |= cpu_to_le16(STA_KEY_FLG_WEP_KEY_MAP);
+
+	if (key->flags & IEEE80211_KEY_FLAG_SPP_AMSDU)
+		key_flags |= cpu_to_le16(STA_KEY_FLG_AMSDU_SPP);
 
 	switch (key->cipher) {
 	case WLAN_CIPHER_SUITE_TKIP:
@@ -4150,10 +4132,8 @@ void iwl_mvm_sta_modify_sleep_tx_count(struct iwl_mvm *mvm,
 	}
 
 	/* block the Tx queues until the FW updated the sleep Tx count */
-	iwl_trans_block_txq_ptrs(mvm->trans, true);
-
 	ret = iwl_mvm_send_cmd_pdu(mvm, ADD_STA,
-				   CMD_ASYNC | CMD_WANT_ASYNC_CALLBACK,
+				   CMD_ASYNC | CMD_BLOCK_TXQS,
 				   iwl_mvm_add_sta_cmd_size(mvm), &cmd);
 	if (ret)
 		IWL_ERR(mvm, "Failed to send ADD_STA command (%d)\n", ret);
@@ -4191,7 +4171,8 @@ void iwl_mvm_sta_modify_disable_tx(struct iwl_mvm *mvm,
 	int ret;
 
 	if (mvm->mld_api_is_used) {
-		iwl_mvm_mld_sta_modify_disable_tx(mvm, mvmsta, disable);
+		if (!iwl_mvm_has_no_host_disable_tx(mvm))
+			iwl_mvm_mld_sta_modify_disable_tx(mvm, mvmsta, disable);
 		return;
 	}
 
@@ -4208,7 +4189,8 @@ void iwl_mvm_sta_modify_disable_tx_ap(struct iwl_mvm *mvm,
 	struct iwl_mvm_sta *mvm_sta = iwl_mvm_sta_from_mac80211(sta);
 
 	if (mvm->mld_api_is_used) {
-		iwl_mvm_mld_sta_modify_disable_tx_ap(mvm, sta, disable);
+		if (!iwl_mvm_has_no_host_disable_tx(mvm))
+			iwl_mvm_mld_sta_modify_disable_tx_ap(mvm, sta, disable);
 		return;
 	}
 
@@ -4263,7 +4245,9 @@ void iwl_mvm_modify_all_sta_disable_tx(struct iwl_mvm *mvm,
 	int i;
 
 	if (mvm->mld_api_is_used) {
-		iwl_mvm_mld_modify_all_sta_disable_tx(mvm, mvmvif, disable);
+		if (!iwl_mvm_has_no_host_disable_tx(mvm))
+			iwl_mvm_mld_modify_all_sta_disable_tx(mvm, mvmvif,
+							      disable);
 		return;
 	}
 
@@ -4335,12 +4319,12 @@ u16 iwl_mvm_tid_queued(struct iwl_mvm *mvm, struct iwl_mvm_tid_data *tid_data)
 
 int iwl_mvm_add_pasn_sta(struct iwl_mvm *mvm, struct ieee80211_vif *vif,
 			 struct iwl_mvm_int_sta *sta, u8 *addr, u32 cipher,
-			 u8 *key, u32 key_len)
+			 u8 *key, u32 key_len,
+			 struct ieee80211_key_conf *keyconf)
 {
 	int ret;
 	u16 queue;
 	struct iwl_mvm_vif *mvmvif = iwl_mvm_vif_from_mac80211(vif);
-	struct ieee80211_key_conf *keyconf;
 	unsigned int wdg_timeout =
 		iwl_mvm_get_wd_timeout(mvm, vif, false, false);
 	bool mld = iwl_mvm_has_mld_api(mvm->fw);
@@ -4365,12 +4349,6 @@ int iwl_mvm_add_pasn_sta(struct iwl_mvm *mvm, struct ieee80211_vif *vif,
 	if (ret)
 		goto out;
 
-	keyconf = kzalloc(sizeof(*keyconf) + key_len, GFP_KERNEL);
-	if (!keyconf) {
-		ret = -ENOBUFS;
-		goto out;
-	}
-
 	keyconf->cipher = cipher;
 	memcpy(keyconf->key, key, key_len);
 	keyconf->keylen = key_len;
@@ -4391,10 +4369,9 @@ int iwl_mvm_add_pasn_sta(struct iwl_mvm *mvm, struct ieee80211_vif *vif,
 					   0, NULL, 0, 0, true);
 	}
 
-	kfree(keyconf);
-	return 0;
 out:
-	iwl_mvm_dealloc_int_sta(mvm, sta);
+	if (ret)
+		iwl_mvm_dealloc_int_sta(mvm, sta);
 	return ret;
 }
 

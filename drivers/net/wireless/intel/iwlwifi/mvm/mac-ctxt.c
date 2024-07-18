@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause
 /*
- * Copyright (C) 2012-2014, 2018-2023 Intel Corporation
+ * Copyright (C) 2012-2014, 2018-2024 Intel Corporation
  * Copyright (C) 2013-2014 Intel Mobile Communications GmbH
  * Copyright (C) 2015-2017 Intel Deutschland GmbH
  */
@@ -29,6 +29,17 @@ const u8 iwl_mvm_ac_to_gen2_tx_fifo[] = {
 	IWL_GEN2_TRIG_TX_FIFO_VI,
 	IWL_GEN2_TRIG_TX_FIFO_BE,
 	IWL_GEN2_TRIG_TX_FIFO_BK,
+};
+
+const u8 iwl_mvm_ac_to_bz_tx_fifo[] = {
+	IWL_BZ_EDCA_TX_FIFO_VO,
+	IWL_BZ_EDCA_TX_FIFO_VI,
+	IWL_BZ_EDCA_TX_FIFO_BE,
+	IWL_BZ_EDCA_TX_FIFO_BK,
+	IWL_BZ_TRIG_TX_FIFO_VO,
+	IWL_BZ_TRIG_TX_FIFO_VI,
+	IWL_BZ_TRIG_TX_FIFO_BE,
+	IWL_BZ_TRIG_TX_FIFO_BK,
 };
 
 struct iwl_mvm_mac_iface_iterator_data {
@@ -1083,6 +1094,19 @@ static int iwl_mvm_mac_ctxt_send_beacon_v7(struct iwl_mvm *mvm,
 						sizeof(beacon_cmd));
 }
 
+bool iwl_mvm_enable_fils(struct iwl_mvm *mvm,
+			 struct ieee80211_chanctx_conf *ctx)
+{
+	if (IWL_MVM_DISABLE_AP_FILS)
+		return false;
+
+	if (cfg80211_channel_is_psc(ctx->def.chan))
+		return true;
+
+	return (ctx->def.chan->band == NL80211_BAND_6GHZ &&
+		ctx->def.width >= NL80211_CHAN_WIDTH_80);
+}
+
 static int iwl_mvm_mac_ctxt_send_beacon_v9(struct iwl_mvm *mvm,
 					   struct ieee80211_vif *vif,
 					   struct sk_buff *beacon,
@@ -1102,8 +1126,7 @@ static int iwl_mvm_mac_ctxt_send_beacon_v9(struct iwl_mvm *mvm,
 	ctx = rcu_dereference(link_conf->chanctx_conf);
 	channel = ieee80211_frequency_to_channel(ctx->def.chan->center_freq);
 	WARN_ON(channel == 0);
-	if (cfg80211_channel_is_psc(ctx->def.chan) &&
-	    !IWL_MVM_DISABLE_AP_FILS) {
+	if (iwl_mvm_enable_fils(mvm, ctx)) {
 		flags |= iwl_fw_lookup_cmd_ver(mvm->fw, BEACON_TEMPLATE_CMD,
 					       0) > 10 ?
 			IWL_MAC_BEACON_FILS :
@@ -1455,7 +1478,7 @@ static void iwl_mvm_csa_count_down(struct iwl_mvm *mvm,
 	mvmvif->csa_countdown = true;
 
 	if (!ieee80211_beacon_cntdwn_is_complete(csa_vif)) {
-		int c = ieee80211_beacon_update_cntdwn(csa_vif);
+		int c = ieee80211_beacon_update_cntdwn(csa_vif, 0);
 
 		iwl_mvm_mac_ctxt_beacon_changed(mvm, csa_vif,
 						&csa_vif->bss_conf);
@@ -1614,10 +1637,22 @@ void iwl_mvm_rx_missed_beacons_notif(struct iwl_mvm *mvm,
 	 * TODO: the threshold should be adjusted based on latency conditions,
 	 * and/or in case of a CS flow on one of the other AP vifs.
 	 */
-	if (rx_missed_bcon > IWL_MVM_MISSED_BEACONS_THRESHOLD_LONG)
-		iwl_mvm_connection_loss(mvm, vif, "missed beacons");
-	else if (rx_missed_bcon_since_rx > IWL_MVM_MISSED_BEACONS_THRESHOLD)
-		ieee80211_beacon_loss(vif);
+	if (rx_missed_bcon >= IWL_MVM_MISSED_BEACONS_THRESHOLD_LONG) {
+		if (rx_missed_bcon_since_rx >= IWL_MVM_MISSED_BEACONS_SINCE_RX_THOLD) {
+			iwl_mvm_connection_loss(mvm, vif, "missed beacons");
+		} else {
+			IWL_WARN(mvm,
+				 "missed beacons exceeds threshold, but receiving data. Stay connected, Expect bugs.\n");
+			IWL_WARN(mvm,
+				 "missed_beacons:%d, missed_beacons_since_rx:%d\n",
+				 rx_missed_bcon, rx_missed_bcon_since_rx);
+		}
+	} else if (rx_missed_bcon_since_rx > IWL_MVM_MISSED_BEACONS_THRESHOLD) {
+		if (!iwl_mvm_has_new_tx_api(mvm))
+			ieee80211_beacon_loss(vif);
+		else
+			ieee80211_cqm_beacon_loss_notify(vif, GFP_ATOMIC);
+	}
 
 	iwl_dbg_tlv_time_point(&mvm->fwrt,
 			       IWL_FW_INI_TIME_POINT_MISSED_BEACONS, &tp_data);
@@ -1761,6 +1796,7 @@ void iwl_mvm_channel_switch_start_notif(struct iwl_mvm *mvm,
 	u32 id_n_color, csa_id;
 	/* save mac_id or link_id to use later to cancel csa if needed */
 	u32 id;
+	u32 mac_link_id = 0;
 	u8 notif_ver = iwl_fw_lookup_notif_ver(mvm->fw, MAC_CONF_GROUP,
 					       CHANNEL_SWITCH_START_NOTIF, 0);
 	bool csa_active;
@@ -1790,6 +1826,7 @@ void iwl_mvm_channel_switch_start_notif(struct iwl_mvm *mvm,
 			goto out_unlock;
 
 		id = link_id;
+		mac_link_id = bss_conf->link_id;
 		vif = bss_conf->vif;
 		csa_active = bss_conf->csa_active;
 	}
@@ -1839,7 +1876,7 @@ void iwl_mvm_channel_switch_start_notif(struct iwl_mvm *mvm,
 
 		iwl_mvm_csa_client_absent(mvm, vif);
 		cancel_delayed_work(&mvmvif->csa_work);
-		ieee80211_chswitch_done(vif, true);
+		ieee80211_chswitch_done(vif, true, mac_link_id);
 		break;
 	default:
 		/* should never happen */
