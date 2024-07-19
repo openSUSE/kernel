@@ -1175,6 +1175,11 @@ static int pci_dev_wait(struct pci_dev *dev, char *reset_type, int timeout)
 	 */
 	pci_read_config_dword(dev, PCI_COMMAND, &id);
 	while (PCI_POSSIBLE_ERROR(id)) {
+		if (pci_dev_is_disconnected(dev)) {
+			pci_dbg(dev, "disconnected; not waiting\n");
+			return -ENOTTY;
+		}
+
 		if (delay > timeout) {
 			pci_warn(dev, "not ready %dms after %s; giving up\n",
 				 delay - 1, reset_type);

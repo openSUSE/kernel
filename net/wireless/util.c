@@ -43,8 +43,7 @@ ieee80211_get_response_rate(struct ieee80211_supported_band *sband,
 }
 EXPORT_SYMBOL(ieee80211_get_response_rate);
 
-u32 ieee80211_mandatory_rates(struct ieee80211_supported_band *sband,
-			      enum nl80211_bss_scan_width scan_width)
+u32 ieee80211_mandatory_rates(struct ieee80211_supported_band *sband)
 {
 	struct ieee80211_rate *bitrates;
 	u32 mandatory_rates = 0;
@@ -54,15 +53,10 @@ u32 ieee80211_mandatory_rates(struct ieee80211_supported_band *sband,
 	if (WARN_ON(!sband))
 		return 1;
 
-	if (sband->band == NL80211_BAND_2GHZ) {
-		if (scan_width == NL80211_BSS_CHAN_WIDTH_5 ||
-		    scan_width == NL80211_BSS_CHAN_WIDTH_10)
-			mandatory_flag = IEEE80211_RATE_MANDATORY_G;
-		else
-			mandatory_flag = IEEE80211_RATE_MANDATORY_B;
-	} else {
+	if (sband->band == NL80211_BAND_2GHZ)
+		mandatory_flag = IEEE80211_RATE_MANDATORY_B;
+	else
 		mandatory_flag = IEEE80211_RATE_MANDATORY_A;
-	}
 
 	bitrates = sband->bitrates;
 	for (i = 0; i < sband->n_bitrates; i++)
@@ -992,7 +986,63 @@ unsigned int cfg80211_classify8021d(struct sk_buff *skb,
 		}
 	}
 
+	/* The default mapping as defined Section 2.3 in RFC8325: The three
+	 * Most Significant Bits (MSBs) of the DSCP are used as the
+	 * corresponding L2 markings.
+	 */
 	ret = dscp >> 5;
+
+	/* Handle specific DSCP values for which the default mapping (as
+	 * described above) doesn't adhere to the intended usage of the DSCP
+	 * value. See section 4 in RFC8325. Specifically, for the following
+	 * Diffserv Service Classes no update is needed:
+	 * - Standard: DF
+	 * - Low Priority Data: CS1
+	 * - Multimedia Streaming: AF31, AF32, AF33
+	 * - Multimedia Conferencing: AF41, AF42, AF43
+	 * - Network Control Traffic: CS7
+	 * - Real-Time Interactive: CS4
+	 */
+	switch (dscp >> 2) {
+	case 10:
+	case 12:
+	case 14:
+		/* High throughput data: AF11, AF12, AF13 */
+		ret = 0;
+		break;
+	case 16:
+		/* Operations, Administration, and Maintenance and Provisioning:
+		 * CS2
+		 */
+		ret = 0;
+		break;
+	case 18:
+	case 20:
+	case 22:
+		/* Low latency data: AF21, AF22, AF23 */
+		ret = 3;
+		break;
+	case 24:
+		/* Broadcasting video: CS3 */
+		ret = 4;
+		break;
+	case 40:
+		/* Signaling: CS5 */
+		ret = 5;
+		break;
+	case 44:
+		/* Voice Admit: VA */
+		ret = 6;
+		break;
+	case 46:
+		/* Telephony traffic: EF */
+		ret = 6;
+		break;
+	case 48:
+		/* Network Control Traffic: CS6 */
+		ret = 7;
+		break;
+	}
 out:
 	return array_index_nospec(ret, IEEE80211_NUM_TIDS);
 }
@@ -1050,7 +1100,6 @@ void cfg80211_process_wdev_events(struct wireless_dev *wdev)
 		list_del(&ev->list);
 		spin_unlock_irqrestore(&wdev->event_lock, flags);
 
-		wdev_lock(wdev);
 		switch (ev->type) {
 		case EVENT_CONNECT_RESULT:
 			__cfg80211_connect_result(
@@ -1072,15 +1121,14 @@ void cfg80211_process_wdev_events(struct wireless_dev *wdev)
 					       ev->ij.channel);
 			break;
 		case EVENT_STOPPED:
-			__cfg80211_leave(wiphy_to_rdev(wdev->wiphy), wdev);
+			cfg80211_leave(wiphy_to_rdev(wdev->wiphy), wdev);
 			break;
 		case EVENT_PORT_AUTHORIZED:
-			__cfg80211_port_authorized(wdev, ev->pa.bssid,
+			__cfg80211_port_authorized(wdev, ev->pa.peer_addr,
 						   ev->pa.td_bitmap,
 						   ev->pa.td_bitmap_len);
 			break;
 		}
-		wdev_unlock(wdev);
 
 		kfree(ev);
 
@@ -1130,9 +1178,7 @@ int cfg80211_change_iface(struct cfg80211_registered_device *rdev,
 			return -EBUSY;
 
 		dev->ieee80211_ptr->use_4addr = false;
-		wdev_lock(dev->ieee80211_ptr);
 		rdev_set_qos_map(rdev, dev, NULL);
-		wdev_unlock(dev->ieee80211_ptr);
 
 		switch (otype) {
 		case NL80211_IFTYPE_AP:
@@ -1144,10 +1190,8 @@ int cfg80211_change_iface(struct cfg80211_registered_device *rdev,
 			break;
 		case NL80211_IFTYPE_STATION:
 		case NL80211_IFTYPE_P2P_CLIENT:
-			wdev_lock(dev->ieee80211_ptr);
 			cfg80211_disconnect(rdev, dev,
 					    WLAN_REASON_DEAUTH_LEAVING, true);
-			wdev_unlock(dev->ieee80211_ptr);
 			break;
 		case NL80211_IFTYPE_MESH_POINT:
 			/* mesh should be handled? */
@@ -1460,7 +1504,7 @@ static u32 cfg80211_calculate_bitrate_he(struct rate_info *rate)
 		  5120, /*  0.833333... */
 	};
 	u32 rates_160M[3] = { 960777777, 907400000, 816666666 };
-	u32 rates_969[3] =  { 480388888, 453700000, 408333333 };
+	u32 rates_996[3] =  { 480388888, 453700000, 408333333 };
 	u32 rates_484[3] =  { 229411111, 216666666, 195000000 };
 	u32 rates_242[3] =  { 114711111, 108333333,  97500000 };
 	u32 rates_106[3] =  {  40000000,  37777777,  34000000 };
@@ -1480,12 +1524,14 @@ static u32 cfg80211_calculate_bitrate_he(struct rate_info *rate)
 	if (WARN_ON_ONCE(rate->nss < 1 || rate->nss > 8))
 		return 0;
 
-	if (rate->bw == RATE_INFO_BW_160)
+	if (rate->bw == RATE_INFO_BW_160 ||
+	    (rate->bw == RATE_INFO_BW_HE_RU &&
+	     rate->he_ru_alloc == NL80211_RATE_INFO_HE_RU_ALLOC_2x996))
 		result = rates_160M[rate->he_gi];
 	else if (rate->bw == RATE_INFO_BW_80 ||
 		 (rate->bw == RATE_INFO_BW_HE_RU &&
 		  rate->he_ru_alloc == NL80211_RATE_INFO_HE_RU_ALLOC_996))
-		result = rates_969[rate->he_gi];
+		result = rates_996[rate->he_gi];
 	else if (rate->bw == RATE_INFO_BW_40 ||
 		 (rate->bw == RATE_INFO_BW_HE_RU &&
 		  rate->he_ru_alloc == NL80211_RATE_INFO_HE_RU_ALLOC_484))
@@ -1988,6 +2034,7 @@ bool ieee80211_operating_class_to_band(u8 operating_class,
 		*band = NL80211_BAND_5GHZ;
 		return true;
 	case 131 ... 135:
+	case 137:
 		*band = NL80211_BAND_6GHZ;
 		return true;
 	case 81:
@@ -2658,12 +2705,12 @@ void cfg80211_remove_link(struct wireless_dev *wdev, unsigned int link_id)
 {
 	struct cfg80211_registered_device *rdev = wiphy_to_rdev(wdev->wiphy);
 
-	ASSERT_WDEV_LOCK(wdev);
+	lockdep_assert_wiphy(wdev->wiphy);
 
 	switch (wdev->iftype) {
 	case NL80211_IFTYPE_AP:
 	case NL80211_IFTYPE_P2P_GO:
-		__cfg80211_stop_ap(rdev, wdev->netdev, link_id, true);
+		cfg80211_stop_ap(rdev, wdev->netdev, link_id, true);
 		break;
 	default:
 		/* per-link not relevant */
@@ -2688,12 +2735,10 @@ void cfg80211_remove_links(struct wireless_dev *wdev)
 	if (wdev->iftype != NL80211_IFTYPE_AP)
 		return;
 
-	wdev_lock(wdev);
 	if (wdev->valid_links) {
 		for_each_valid_link(wdev, link_id)
 			cfg80211_remove_link(wdev, link_id);
 	}
-	wdev_unlock(wdev);
 }
 
 int cfg80211_remove_virtual_intf(struct cfg80211_registered_device *rdev,
@@ -2717,3 +2762,12 @@ cfg80211_get_iftype_ext_capa(struct wiphy *wiphy, enum nl80211_iftype type)
 	return NULL;
 }
 EXPORT_SYMBOL(cfg80211_get_iftype_ext_capa);
+
+/* FIXME: old symbol for kABI compatibility */
+#undef ieee80211_mandatory_rates
+u32 ieee80211_mandatory_rates(struct ieee80211_supported_band *sband,
+			      enum nl80211_bss_scan_width scan_width)
+{
+	return _ieee80211_mandatory_rates(sband);
+}
+EXPORT_SYMBOL(ieee80211_mandatory_rates);

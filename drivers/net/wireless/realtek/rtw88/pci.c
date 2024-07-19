@@ -738,8 +738,9 @@ static void __rtw_pci_flush_queues(struct rtw_dev *rtwdev, u32 pci_queues,
 	u8 q;
 
 	for (q = 0; q < RTK_MAX_TX_QUEUE_NUM; q++) {
-		/* It may be not necessary to flush BCN and H2C tx queues. */
-		if (q == RTW_TX_QUEUE_BCN || q == RTW_TX_QUEUE_H2C)
+		/* Unnecessary to flush BCN, H2C and HI tx queues. */
+		if (q == RTW_TX_QUEUE_BCN || q == RTW_TX_QUEUE_H2C ||
+		    q == RTW_TX_QUEUE_HI0)
 			continue;
 
 		if (pci_queues & BIT(q))
@@ -1449,6 +1450,7 @@ static void rtw_pci_phy_cfg(struct rtw_dev *rtwdev)
 {
 	struct rtw_pci *rtwpci = (struct rtw_pci *)rtwdev->priv;
 	const struct rtw_chip_info *chip = rtwdev->chip;
+	struct rtw_efuse *efuse = &rtwdev->efuse;
 	struct pci_dev *pdev = rtwpci->pdev;
 	const struct rtw_intf_phy_para *para;
 	u16 cut;
@@ -1497,6 +1499,9 @@ static void rtw_pci_phy_cfg(struct rtw_dev *rtwdev)
 			rtw_err(rtwdev, "failed to set PCI cap, ret = %d\n",
 				ret);
 	}
+
+	if (chip->id == RTW_CHIP_TYPE_8822C && efuse->rfe_option == 5)
+		rtw_write32_mask(rtwdev, REG_ANAPARSW_MAC_0, BIT_CF_L_V2, 0x1);
 }
 
 static int __maybe_unused rtw_pci_suspend(struct device *dev)

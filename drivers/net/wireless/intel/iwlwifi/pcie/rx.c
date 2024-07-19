@@ -1351,8 +1351,7 @@ static void iwl_pcie_rx_handle_rb(struct iwl_trans *trans,
 		if (len < sizeof(*pkt) || offset > max_len)
 			break;
 
-		trace_iwlwifi_dev_rx(trans->dev, trans, pkt, len);
-		trace_iwlwifi_dev_rx_data(trans->dev, trans, pkt, len);
+		maybe_trace_iwlwifi_dev_rx(trans, pkt, len);
 
 		/* Reclaim a command buffer only if this packet is a response
 		 *   to a (driver-originated) command.
@@ -1373,7 +1372,7 @@ static void iwl_pcie_rx_handle_rb(struct iwl_trans *trans,
 			}
 		}
 
-		if (rxq->id == trans_pcie->def_rx_queue)
+		if (rxq->id == IWL_DEFAULT_RX_QUEUE)
 			iwl_op_mode_rx(trans->op_mode, &rxq->napi,
 				       &rxcb);
 		else
@@ -2290,6 +2289,12 @@ irqreturn_t iwl_pcie_irq_msix_handler(int irq, void *dev_id)
 		sw_err = inta_hw & MSIX_HW_INT_CAUSES_REG_SW_ERR_BZ;
 	else
 		sw_err = inta_hw & MSIX_HW_INT_CAUSES_REG_SW_ERR;
+
+	if (inta_hw & MSIX_HW_INT_CAUSES_REG_TOP_FATAL_ERR) {
+		IWL_ERR(trans, "TOP Fatal error detected, inta_hw=0x%x.\n",
+			inta_hw);
+		/* TODO: PLDR flow required here for >= Bz */
+	}
 
 	/* Error detected by uCode */
 	if ((inta_fh & MSIX_FH_INT_CAUSES_FH_ERR) || sw_err) {

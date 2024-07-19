@@ -452,6 +452,7 @@ int pdsc_setup(struct pdsc *pdsc, bool init)
 	if (init)
 		pdsc_debugfs_add_viftype(pdsc);
 
+	refcount_set(&pdsc->adminq_refcnt, 1);
 	clear_bit(PDSC_S_FW_DEAD, &pdsc->state);
 	return 0;
 
@@ -500,6 +501,24 @@ int pdsc_start(struct pdsc *pdsc)
 	return 0;
 }
 
+static void pdsc_adminq_wait_and_dec_once_unused(struct pdsc *pdsc)
+{
+	/* The driver initializes the adminq_refcnt to 1 when the adminq is
+	 * allocated and ready for use. Other users/requesters will increment
+	 * the refcnt while in use. If the refcnt is down to 1 then the adminq
+	 * is not in use and the refcnt can be cleared and adminq freed. Before
+	 * calling this function the driver will set PDSC_S_FW_DEAD, which
+	 * prevent subsequent attempts to use the adminq and increment the
+	 * refcnt to fail. This guarantees that this function will eventually
+	 * exit.
+	 */
+	while (!refcount_dec_if_one(&pdsc->adminq_refcnt)) {
+		dev_dbg_ratelimited(pdsc->dev, "%s: adminq in use\n",
+				    __func__);
+		cpu_relax();
+	}
+}
+
 void pdsc_stop(struct pdsc *pdsc)
 {
 	int i;
@@ -525,6 +544,8 @@ static void pdsc_fw_down(struct pdsc *pdsc)
 		dev_err(pdsc->dev, "%s: already happening\n", __func__);
 		return;
 	}
+
+	pdsc_adminq_wait_and_dec_once_unused(pdsc);
 
 	/* Notify clients of fw_down */
 	if (pdsc->fw_reporter)

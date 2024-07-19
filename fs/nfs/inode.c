@@ -2486,7 +2486,10 @@ static int __init init_nfs_fs(void)
 	if (err)
 		goto out1;
 
-	rpc_proc_register(&init_net, &nfs_rpcstat);
+	if (!rpc_proc_register(&init_net, &nfs_rpcstat)) {
+		err = -ENOMEM;
+		goto out1a;
+	}
 
 	err = register_nfs_fs();
 	if (err)
@@ -2495,6 +2498,7 @@ static int __init init_nfs_fs(void)
 	return 0;
 out0:
 	rpc_proc_unregister(&init_net, "nfs");
+out1a:
 	nfs_destroy_directcache();
 out1:
 	nfs_destroy_writepagecache();

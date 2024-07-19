@@ -10,6 +10,7 @@
 #include <crypto/ecdh.h>
 #include <linux/asn1_decoder.h>
 #include <linux/scatterlist.h>
+#include <linux/fips.h>
 
 #include "ecdsasignature.asn1.h"
 
@@ -198,6 +199,10 @@ static int ecdsa_ecc_ctx_init(struct ecc_ctx *ctx, unsigned int curve_id)
 
 static void ecdsa_ecc_ctx_deinit(struct ecc_ctx *ctx)
 {
+	if (fips_enabled) {
+		memzero_explicit(ctx->x, sizeof(ctx->x));
+		memzero_explicit(ctx->y, sizeof(ctx->y));
+	}
 	ctx->pub_key_set = false;
 }
 

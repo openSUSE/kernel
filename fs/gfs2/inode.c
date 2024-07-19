@@ -265,21 +265,28 @@ fail_iput:
 }
 
 
-struct inode *gfs2_lookup_simple(struct inode *dip, const char *name)
+/**
+ * gfs2_lookup_meta - Look up an inode in a metadata directory
+ * @dip: The directory
+ * @name: The name of the inode
+ */
+struct inode *gfs2_lookup_meta(struct inode *dip, const char *name)
 {
 	struct qstr qstr;
 	struct inode *inode;
+
 	gfs2_str2qstr(&qstr, name);
 	inode = gfs2_lookupi(dip, &qstr, 1);
-	/* gfs2_lookupi has inconsistent callers: vfs
-	 * related routines expect NULL for no entry found,
-	 * gfs2_lookup_simple callers expect ENOENT
-	 * and do not check for NULL.
+	if (IS_ERR_OR_NULL(inode))
+		return inode ? inode : ERR_PTR(-ENOENT);
+
+	/*
+	 * Must not call back into the filesystem when allocating
+	 * pages in the metadata inode's address space.
 	 */
-	if (inode == NULL)
-		return ERR_PTR(-ENOENT);
-	else
-		return inode;
+	mapping_set_gfp_mask(inode->i_mapping, GFP_NOFS);
+
+	return inode;
 }
 
 
@@ -411,7 +418,7 @@ static int alloc_dinode(struct gfs2_inode *ip, u32 flags, unsigned *dblocks)
 	if (error)
 		goto out_ipreserv;
 
-	error = gfs2_alloc_blocks(ip, &ip->i_no_addr, dblocks, 1, &ip->i_generation);
+	error = gfs2_alloc_blocks(ip, &ip->i_no_addr, dblocks, 1);
 	if (error)
 		goto out_trans_end;
 
@@ -690,7 +697,7 @@ static int gfs2_create_inode(struct inode *dir, struct dentry *dentry,
 	set_nlink(inode, S_ISDIR(mode) ? 2 : 1);
 	inode->i_rdev = dev;
 	inode->i_size = size;
-	inode->i_atime = inode->i_mtime = inode->i_ctime = current_time(inode);
+	inode->i_atime = inode->i_mtime = inode_set_ctime_current(inode);
 	munge_mode_uid_gid(dip, inode);
 	check_and_update_goal(dip);
 	ip->i_goal = dip->i_goal;
@@ -1029,7 +1036,7 @@ static int gfs2_link(struct dentry *old_dentry, struct inode *dir,
 
 	gfs2_trans_add_meta(ip->i_gl, dibh);
 	inc_nlink(&ip->i_inode);
-	ip->i_inode.i_ctime = current_time(&ip->i_inode);
+	inode_set_ctime_current(&ip->i_inode);
 	ihold(inode);
 	d_instantiate(dentry, inode);
 	mark_inode_dirty(inode);
@@ -1114,7 +1121,7 @@ static int gfs2_unlink_inode(struct gfs2_inode *dip,
 		return error;
 
 	ip->i_entries = 0;
-	inode->i_ctime = current_time(inode);
+	inode_set_ctime_current(inode);
 	if (S_ISDIR(inode->i_mode))
 		clear_nlink(inode);
 	else
@@ -1371,7 +1378,7 @@ static int update_moved_ino(struct gfs2_inode *ip, struct gfs2_inode *ndip,
 	if (dir_rename)
 		return gfs2_dir_mvino(ip, &gfs2_qdotdot, ndip, DT_DIR);
 
-	ip->i_inode.i_ctime = current_time(&ip->i_inode);
+	inode_set_ctime_current(&ip->i_inode);
 	mark_inode_dirty_sync(&ip->i_inode);
 	return 0;
 }
