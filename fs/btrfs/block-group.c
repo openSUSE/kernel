@@ -2159,7 +2159,7 @@ static int exclude_super_stripes(struct btrfs_block_group *cache)
 		cache->bytes_super += stripe_len;
 		ret = set_extent_bit(&fs_info->excluded_extents, cache->start,
 				     cache->start + stripe_len - 1,
-				     EXTENT_UPTODATE, NULL, GFP_NOFS);
+				     EXTENT_UPTODATE, NULL);
 		if (ret)
 			return ret;
 	}
@@ -2186,8 +2186,8 @@ static int exclude_super_stripes(struct btrfs_block_group *cache)
 
 			cache->bytes_super += len;
 			ret = set_extent_bit(&fs_info->excluded_extents, logical[nr],
-					     logical[nr] + len - 1, EXTENT_UPTODATE,
-					     NULL, GFP_NOFS);
+					     logical[nr] + len - 1,
+					     EXTENT_UPTODATE, NULL);
 			if (ret) {
 				kfree(logical);
 				return ret;
@@ -3687,7 +3687,7 @@ int btrfs_update_block_group(struct btrfs_trans_handle *trans,
 
 			set_extent_bit(&trans->transaction->pinned_extents,
 				       bytenr, bytenr + num_bytes - 1,
-				       EXTENT_DIRTY, NULL, GFP_NOFS);
+				       EXTENT_DIRTY, NULL);
 		}
 
 		spin_lock(&trans->transaction->dirty_bgs_lock);
