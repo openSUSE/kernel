@@ -61,20 +61,6 @@ struct btrfs_bio *btrfs_bio_alloc(unsigned int nr_vecs, blk_opf_t opf,
 	return bbio;
 }
 
-static blk_status_t btrfs_bio_extract_ordered_extent(struct btrfs_bio *bbio)
-{
-	struct btrfs_ordered_extent *ordered;
-	int ret;
-
-	ordered = btrfs_lookup_ordered_extent(bbio->inode, bbio->file_offset);
-	if (WARN_ON_ONCE(!ordered))
-		return BLK_STS_IOERR;
-	ret = btrfs_extract_ordered_extent(bbio, ordered);
-	btrfs_put_ordered_extent(ordered);
-
-	return errno_to_blk_status(ret);
-}
-
 static struct btrfs_bio *btrfs_split_bio(struct btrfs_fs_info *fs_info,
 					 struct btrfs_bio *orig_bbio,
 					 u64 map_length, bool use_append)
@@ -347,7 +333,7 @@ static void btrfs_simple_end_io(struct bio *bio)
 		INIT_WORK(&bbio->end_io_work, btrfs_end_bio_work);
 		queue_work(btrfs_end_io_wq(fs_info, bio), &bbio->end_io_work);
 	} else {
-		if (bio_op(bio) == REQ_OP_ZONE_APPEND)
+		if (bio_op(bio) == REQ_OP_ZONE_APPEND && !bio->bi_status)
 			btrfs_record_physical_zoned(bbio);
 		btrfs_orig_bbio_end_io(bbio);
 	}
@@ -478,6 +464,8 @@ static void __btrfs_submit_bio(struct bio *bio, struct btrfs_io_context *bioc,
 		/* Single mirror read/write fast path. */
 		btrfs_bio(bio)->mirror_num = mirror_num;
 		bio->bi_iter.bi_sector = smap->physical >> SECTOR_SHIFT;
+		if (bio_op(bio) != REQ_OP_READ)
+			btrfs_bio(bio)->orig_physical = smap->physical;
 		bio->bi_private = smap->dev;
 		bio->bi_end_io = btrfs_simple_end_io;
 		btrfs_submit_dev_bio(smap->dev, bio);
@@ -634,7 +622,7 @@ static bool btrfs_submit_chunk(struct btrfs_bio *bbio, int mirror_num)
 	struct btrfs_fs_info *fs_info = bbio->fs_info;
 	struct btrfs_bio *orig_bbio = bbio;
 	struct bio *bio = &bbio->bio;
-	u64 logical = bio->bi_iter.bi_sector << 9;
+	u64 logical = bio->bi_iter.bi_sector << SECTOR_SHIFT;
 	u64 length = bio->bi_iter.bi_size;
 	u64 map_length = length;
 	bool use_append = btrfs_use_zone_append(bbio);
@@ -644,8 +632,8 @@ static bool btrfs_submit_chunk(struct btrfs_bio *bbio, int mirror_num)
 	int error;
 
 	btrfs_bio_counter_inc_blocked(fs_info);
-	error = __btrfs_map_block(fs_info, btrfs_op(bio), logical, &map_length,
-				  &bioc, &smap, &mirror_num, 1);
+	error = btrfs_map_block(fs_info, btrfs_op(bio), logical, &map_length,
+				&bioc, &smap, &mirror_num);
 	if (error) {
 		ret = errno_to_blk_status(error);
 		goto fail;
@@ -675,9 +663,6 @@ static bool btrfs_submit_chunk(struct btrfs_bio *bbio, int mirror_num)
 		if (use_append) {
 			bio->bi_opf &= ~REQ_OP_WRITE;
 			bio->bi_opf |= REQ_OP_ZONE_APPEND;
-			ret = btrfs_bio_extract_ordered_extent(bbio);
-			if (ret)
-				goto fail_put_bio;
 		}
 
 		/*
@@ -692,6 +677,12 @@ static bool btrfs_submit_chunk(struct btrfs_bio *bbio, int mirror_num)
 				goto done;
 
 			ret = btrfs_bio_csum(bbio);
+			if (ret)
+				goto fail_put_bio;
+		} else if (use_append ||
+			   (btrfs_is_zoned(fs_info) && inode &&
+			    inode->flags & BTRFS_INODE_NODATASUM)) {
+			ret = btrfs_alloc_dummy_sum(bbio);
 			if (ret)
 				goto fail_put_bio;
 		}

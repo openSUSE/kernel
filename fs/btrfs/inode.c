@@ -2507,104 +2507,13 @@ void btrfs_clear_delalloc_extent(struct btrfs_inode *inode,
 	}
 }
 
-/*
- * Split off the first pre bytes from the extent_map at [start, start + len]
- *
- * This function is intended to be used only for extract_ordered_extent().
- */
-static int split_extent_map(struct btrfs_inode *inode, u64 start, u64 len, u64 pre)
-{
-	struct extent_map_tree *em_tree = &inode->extent_tree;
-	struct extent_map *em;
-	struct extent_map *split_pre = NULL;
-	struct extent_map *split_mid = NULL;
-	int ret = 0;
-	unsigned long flags;
-
-	ASSERT(pre != 0);
-	ASSERT(pre < len);
-
-	split_pre = alloc_extent_map();
-	if (!split_pre)
-		return -ENOMEM;
-	split_mid = alloc_extent_map();
-	if (!split_mid) {
-		ret = -ENOMEM;
-		goto out_free_pre;
-	}
-
-	lock_extent(&inode->io_tree, start, start + len - 1, NULL);
-	write_lock(&em_tree->lock);
-	em = lookup_extent_mapping(em_tree, start, len);
-	if (!em) {
-		ret = -EIO;
-		goto out_unlock;
-	}
-
-	ASSERT(em->len == len);
-	ASSERT(!test_bit(EXTENT_FLAG_COMPRESSED, &em->flags));
-	ASSERT(em->block_start < EXTENT_MAP_LAST_BYTE);
-	ASSERT(test_bit(EXTENT_FLAG_PINNED, &em->flags));
-	ASSERT(!test_bit(EXTENT_FLAG_LOGGING, &em->flags));
-	ASSERT(!list_empty(&em->list));
-
-	flags = em->flags;
-	clear_bit(EXTENT_FLAG_PINNED, &em->flags);
-
-	/* First, replace the em with a new extent_map starting from * em->start */
-	split_pre->start = em->start;
-	split_pre->len = pre;
-	split_pre->orig_start = split_pre->start;
-	split_pre->block_start = em->block_start;
-	split_pre->block_len = split_pre->len;
-	split_pre->orig_block_len = split_pre->block_len;
-	split_pre->ram_bytes = split_pre->len;
-	split_pre->flags = flags;
-	split_pre->compress_type = em->compress_type;
-	split_pre->generation = em->generation;
-
-	replace_extent_mapping(em_tree, em, split_pre, 1);
-
-	/*
-	 * Now we only have an extent_map at:
-	 *     [em->start, em->start + pre]
-	 */
-
-	/* Insert the middle extent_map. */
-	split_mid->start = em->start + pre;
-	split_mid->len = em->len - pre;
-	split_mid->orig_start = split_mid->start;
-	split_mid->block_start = em->block_start + pre;
-	split_mid->block_len = split_mid->len;
-	split_mid->orig_block_len = split_mid->block_len;
-	split_mid->ram_bytes = split_mid->len;
-	split_mid->flags = flags;
-	split_mid->compress_type = em->compress_type;
-	split_mid->generation = em->generation;
-	add_extent_mapping(em_tree, split_mid, 1);
-
-	/* Once for us */
-	free_extent_map(em);
-	/* Once for the tree */
-	free_extent_map(em);
-
-out_unlock:
-	write_unlock(&em_tree->lock);
-	unlock_extent(&inode->io_tree, start, start + len - 1, NULL);
-	free_extent_map(split_mid);
-out_free_pre:
-	free_extent_map(split_pre);
-	return ret;
-}
-
-int btrfs_extract_ordered_extent(struct btrfs_bio *bbio,
-				 struct btrfs_ordered_extent *ordered)
+static int btrfs_extract_ordered_extent(struct btrfs_bio *bbio,
+					struct btrfs_ordered_extent *ordered)
 {
 	u64 start = (u64)bbio->bio.bi_iter.bi_sector << SECTOR_SHIFT;
 	u64 len = bbio->bio.bi_iter.bi_size;
-	struct btrfs_inode *inode = bbio->inode;
-	u64 ordered_len = ordered->num_bytes;
-	int ret = 0;
+	struct btrfs_ordered_extent *new;
+	int ret;
 
 	/* Must always be called for the beginning of an ordered extent. */
 	if (WARN_ON_ONCE(start != ordered->disk_bytenr))
@@ -2614,18 +2523,24 @@ int btrfs_extract_ordered_extent(struct btrfs_bio *bbio,
 	if (ordered->disk_num_bytes == len)
 		return 0;
 
-	ret = btrfs_split_ordered_extent(ordered, len);
-	if (ret)
-		return ret;
-
 	/*
 	 * Don't split the extent_map for NOCOW extents, as we're writing into
 	 * a pre-existing one.
 	 */
-	if (test_bit(BTRFS_ORDERED_NOCOW, &ordered->flags))
-		return 0;
+	if (!test_bit(BTRFS_ORDERED_NOCOW, &ordered->flags)) {
+		ret = split_extent_map(bbio->inode, bbio->file_offset,
+				       ordered->num_bytes, len,
+				       ordered->disk_bytenr);
+		if (ret)
+			return ret;
+	}
 
-	return split_extent_map(inode, bbio->file_offset, ordered_len, len);
+	new = btrfs_split_ordered_extent(ordered, len);
+	if (IS_ERR(new))
+		return PTR_ERR(new);
+	btrfs_put_ordered_extent(new);
+
+	return 0;
 }
 
 /*
@@ -2643,7 +2558,7 @@ static int add_pending_csums(struct btrfs_trans_handle *trans,
 		trans->adding_csums = true;
 		if (!csum_root)
 			csum_root = btrfs_csum_root(trans->fs_info,
-						    sum->bytenr);
+						    sum->logical);
 		ret = btrfs_csum_file_blocks(trans, csum_root, sum);
 		trans->adding_csums = false;
 		if (ret)
@@ -2681,8 +2596,7 @@ static int btrfs_find_new_delalloc_bytes(struct btrfs_inode *inode,
 
 		ret = set_extent_bit(&inode->io_tree, search_start,
 				     search_start + em_len - 1,
-				     EXTENT_DELALLOC_NEW, cached_state,
-				     GFP_NOFS);
+				     EXTENT_DELALLOC_NEW, cached_state);
 next:
 		search_start = extent_map_end(em);
 		free_extent_map(em);
@@ -2715,8 +2629,8 @@ int btrfs_set_extent_delalloc(struct btrfs_inode *inode, u64 start, u64 end,
 			return ret;
 	}
 
-	return set_extent_delalloc(&inode->io_tree, start, end, extra_bits,
-				   cached_state);
+	return set_extent_bit(&inode->io_tree, start, end,
+			      EXTENT_DELALLOC | extra_bits, cached_state);
 }
 
 /* see btrfs_writepage_start_hook for details on why this is required */
@@ -3060,7 +2974,7 @@ static int insert_ordered_extent_file_extent(struct btrfs_trans_handle *trans,
  * an ordered extent if the range of bytes in the file it covers are
  * fully written.
  */
-int btrfs_finish_ordered_io(struct btrfs_ordered_extent *ordered_extent)
+int btrfs_finish_one_ordered(struct btrfs_ordered_extent *ordered_extent)
 {
 	struct btrfs_inode *inode = BTRFS_I(ordered_extent->inode);
 	struct btrfs_root *root = inode->root;
@@ -3095,15 +3009,9 @@ int btrfs_finish_ordered_io(struct btrfs_ordered_extent *ordered_extent)
 		goto out;
 	}
 
-	/* A valid ->physical implies a write on a sequential zone. */
-	if (ordered_extent->physical != (u64)-1) {
-		btrfs_rewrite_logical_zoned(ordered_extent);
+	if (btrfs_is_zoned(fs_info))
 		btrfs_zone_finish_endio(fs_info, ordered_extent->disk_bytenr,
 					ordered_extent->disk_num_bytes);
-	} else if (btrfs_is_data_reloc_root(inode->root)) {
-		btrfs_zone_finish_endio(fs_info, ordered_extent->disk_bytenr,
-					ordered_extent->disk_num_bytes);
-	}
 
 	if (test_bit(BTRFS_ORDERED_TRUNCATED, &ordered_extent->flags)) {
 		truncated = true;
@@ -3291,6 +3199,14 @@ out:
 	btrfs_put_ordered_extent(ordered_extent);
 
 	return ret;
+}
+
+int btrfs_finish_ordered_io(struct btrfs_ordered_extent *ordered)
+{
+	if (btrfs_is_zoned(btrfs_sb(ordered->inode->i_sb)) &&
+	    !test_bit(BTRFS_ORDERED_IOERR, &ordered->flags))
+		btrfs_finish_ordered_zoned(ordered);
+	return btrfs_finish_one_ordered(ordered);
 }
 
 void btrfs_writepage_endio_finish_ordered(struct btrfs_inode *inode,
@@ -4835,7 +4751,7 @@ again:
 
 	if (only_release_metadata)
 		set_extent_bit(&inode->io_tree, block_start, block_end,
-			       EXTENT_NORESERVE, NULL, GFP_NOFS);
+			       EXTENT_NORESERVE, NULL);
 
 out_unlock:
 	if (ret) {
@@ -7051,8 +6967,15 @@ static struct extent_map *btrfs_new_extent_direct(struct btrfs_inode *inode,
 	int ret;
 
 	alloc_hint = get_extent_allocation_hint(inode, start, len);
+again:
 	ret = btrfs_reserve_extent(root, len, len, fs_info->sectorsize,
 				   0, alloc_hint, &ins, 1, 1);
+	if (ret == -EAGAIN) {
+		ASSERT(btrfs_is_zoned(fs_info));
+		wait_on_bit_io(&inode->root->fs_info->flags, BTRFS_FS_NEED_ZONE_FINISH,
+			       TASK_UNINTERRUPTIBLE);
+		goto again;
+	}
 	if (ret)
 		return ERR_PTR(ret);
 
@@ -10646,6 +10569,7 @@ static int btrfs_swap_activate(struct swap_info_struct *sis, struct file *file,
 	struct extent_io_tree *io_tree = &BTRFS_I(inode)->io_tree;
 	struct extent_state *cached_state = NULL;
 	struct extent_map *em = NULL;
+	struct btrfs_chunk_map *map = NULL;
 	struct btrfs_device *device = NULL;
 	struct btrfs_swap_info bsi = {
 		.lowest_ppage = (sector_t)-1ULL,
@@ -10785,13 +10709,13 @@ static int btrfs_swap_activate(struct swap_info_struct *sis, struct file *file,
 			goto out;
 		}
 
-		em = btrfs_get_chunk_map(fs_info, logical_block_start, len);
-		if (IS_ERR(em)) {
-			ret = PTR_ERR(em);
+		map = btrfs_get_chunk_map(fs_info, logical_block_start, len);
+		if (IS_ERR(map)) {
+			ret = PTR_ERR(map);
 			goto out;
 		}
 
-		if (em->map_lookup->type & BTRFS_BLOCK_GROUP_PROFILE_MASK) {
+		if (map->type & BTRFS_BLOCK_GROUP_PROFILE_MASK) {
 			btrfs_warn(fs_info,
 				   "swapfile must have single data profile");
 			ret = -EINVAL;
@@ -10799,23 +10723,23 @@ static int btrfs_swap_activate(struct swap_info_struct *sis, struct file *file,
 		}
 
 		if (device == NULL) {
-			device = em->map_lookup->stripes[0].dev;
+			device = map->stripes[0].dev;
 			ret = btrfs_add_swapfile_pin(inode, device, false);
 			if (ret == 1)
 				ret = 0;
 			else if (ret)
 				goto out;
-		} else if (device != em->map_lookup->stripes[0].dev) {
+		} else if (device != map->stripes[0].dev) {
 			btrfs_warn(fs_info, "swapfile must be on one device");
 			ret = -EINVAL;
 			goto out;
 		}
 
-		physical_block_start = (em->map_lookup->stripes[0].physical +
-					(logical_block_start - em->start));
-		len = min(len, em->len - (logical_block_start - em->start));
-		free_extent_map(em);
-		em = NULL;
+		physical_block_start = (map->stripes[0].physical +
+					(logical_block_start - map->start));
+		len = min(len, map->chunk_len - (logical_block_start - map->start));
+		btrfs_free_chunk_map(map);
+		map = NULL;
 
 		bg = btrfs_lookup_block_group(fs_info, logical_block_start);
 		if (!bg) {
@@ -10868,6 +10792,8 @@ static int btrfs_swap_activate(struct swap_info_struct *sis, struct file *file,
 out:
 	if (!IS_ERR_OR_NULL(em))
 		free_extent_map(em);
+	if (!IS_ERR_OR_NULL(map))
+		btrfs_free_chunk_map(map);
 
 	unlock_extent(io_tree, 0, isize - 1, &cached_state);
 
