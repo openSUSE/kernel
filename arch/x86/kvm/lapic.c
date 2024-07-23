@@ -206,6 +206,8 @@ void kvm_recalculate_apic_map(struct kvm *kvm)
 		return;
 
 	mutex_lock(&kvm->arch.apic_map_lock);
+
+retry:
 	/*
 	 * Read kvm->arch.apic_map_dirty before kvm->arch.apic_map
 	 * (if clean) or the APIC registers (if dirty).
@@ -251,8 +253,11 @@ void kvm_recalculate_apic_map(struct kvm *kvm)
 		 * possible xAPIC IDs.  Yell, but don't kill the VM, as KVM can
 		 * continue on without the optimized map.
 		 */
-		if (WARN_ON_ONCE(xapic_id > new->max_apic_id))
-			return -EINVAL;
+		if (WARN_ON_ONCE(xapic_id > new->max_apic_id)) {
+			kvfree(new);
+			new = NULL;
+			goto out;
+		}
 
 		/*
 		 * Bail if a vCPU was added and/or enabled its APIC between
@@ -261,8 +266,11 @@ void kvm_recalculate_apic_map(struct kvm *kvm)
 		 * there's no TOCTOU bug if the compiler decides to reload
 		 * x2apic_id after this check.
 		 */
-		if (x2apic_id > new->max_apic_id)
-			return -E2BIG;
+		if (x2apic_id > new->max_apic_id) {
+			kvfree(new);
+			cond_resched();
+			goto retry;
+		}
 
 		/*
 		 * Apply KVM's hotplug hack if userspace has enable 32-bit APIC
