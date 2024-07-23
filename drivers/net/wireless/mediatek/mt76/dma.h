@@ -19,6 +19,8 @@
 #define MT_DMA_CTL_TO_HOST_A		BIT(12)
 #define MT_DMA_CTL_DROP			BIT(14)
 #define MT_DMA_CTL_TOKEN		GENMASK(31, 16)
+#define MT_DMA_CTL_SDP1_H		GENMASK(19, 16)
+#define MT_DMA_CTL_SDP0_H		GENMASK(3, 0)
 #define MT_DMA_CTL_WO_DROP		BIT(8)
 
 #define MT_DMA_PPE_CPU_REASON		GENMASK(15, 11)
@@ -58,5 +60,14 @@ int mt76_dma_rx_poll(struct napi_struct *napi, int budget);
 void mt76_dma_attach(struct mt76_dev *dev);
 void mt76_dma_cleanup(struct mt76_dev *dev);
 int mt76_dma_wed_setup(struct mt76_dev *dev, struct mt76_queue *q, bool reset);
+void mt76_dma_wed_reset(struct mt76_dev *dev);
+
+static inline void
+mt76_dma_reset_tx_queue(struct mt76_dev *dev, struct mt76_queue *q)
+{
+	dev->queue_ops->reset_q(dev, q);
+	if (mtk_wed_device_active(&dev->mmio.wed))
+		mt76_dma_wed_setup(dev, q, true);
+}
 
 #endif
