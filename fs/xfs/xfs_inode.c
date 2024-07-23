@@ -1384,6 +1384,7 @@ xfs_itruncate_extents_flags(
 		error = xfs_defer_finish(&tp);
 		if (error)
 			goto out;
+		cond_resched();
 	}
 
 	if (whichfork == XFS_DATA_FORK) {

@@ -1413,6 +1413,7 @@ xfs_reflink_remap_blocks(
 		destoff += imap.br_blockcount;
 		len -= imap.br_blockcount;
 		remapped_len += imap.br_blockcount;
+		cond_resched();
 	}
 
 	if (error)
