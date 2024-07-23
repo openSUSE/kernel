@@ -430,7 +430,7 @@ static void nvme_loop_shutdown_ctrl(struct nvme_loop_ctrl *ctrl)
 	}
 
 	nvme_stop_admin_queue(&ctrl->ctrl);
-	if (ctrl->ctrl.state == NVME_CTRL_LIVE)
+	if (nvme_ctrl_state(&ctrl->ctrl) == NVME_CTRL_LIVE)
 		nvme_shutdown_ctrl(&ctrl->ctrl);
 
 	nvme_cancel_admin_tagset(&ctrl->ctrl);
@@ -464,8 +464,10 @@ static void nvme_loop_reset_ctrl_work(struct work_struct *work)
 	nvme_loop_shutdown_ctrl(ctrl);
 
 	if (!nvme_change_ctrl_state(&ctrl->ctrl, NVME_CTRL_CONNECTING)) {
-		if (ctrl->ctrl.state != NVME_CTRL_DELETING &&
-		    ctrl->ctrl.state != NVME_CTRL_DELETING_NOIO)
+		enum nvme_ctrl_state state = nvme_ctrl_state(&ctrl->ctrl);
+
+		if (state != NVME_CTRL_DELETING &&
+		    state != NVME_CTRL_DELETING_NOIO)
 			/* state change failure for non-deleted ctrl? */
 			WARN_ON_ONCE(1);
 		return;
