@@ -248,8 +248,9 @@ static bool validate_dsc_caps_on_connector(struct amdgpu_dm_connector *aconnecto
 	    needs_dsc_aux_workaround(aconnector->dc_link))
 		aconnector->dsc_aux = &aconnector->mst_root->dm_dp_aux.aux;
 
+	aconnector->is_synaptics_cascaded = is_synaptics_cascaded_panamera(aconnector->dc_link, port);
 	/* synaptics cascaded MST hub case */
-	if (!aconnector->dsc_aux && is_synaptics_cascaded_panamera(aconnector->dc_link, port))
+	if (!aconnector->dsc_aux && aconnector->is_synaptics_cascaded)
 		aconnector->dsc_aux = port->mgr->aux;
 
 	if (!aconnector->dsc_aux)
@@ -794,25 +795,17 @@ struct dsc_mst_fairness_params {
 	struct amdgpu_dm_connector *aconnector;
 };
 
-static uint16_t get_fec_overhead_multiplier(struct dc_link *dc_link)
-{
-	u8 link_coding_cap;
-	uint16_t fec_overhead_multiplier_x1000 = PBN_FEC_OVERHEAD_MULTIPLIER_8B_10B;
-
-	link_coding_cap = dc_link_dp_mst_decide_link_encoding_format(dc_link);
-	if (link_coding_cap == DP_128b_132b_ENCODING)
-		fec_overhead_multiplier_x1000 = PBN_FEC_OVERHEAD_MULTIPLIER_128B_132B;
-
-	return fec_overhead_multiplier_x1000;
-}
-
-static int kbps_to_peak_pbn(int kbps, uint16_t fec_overhead_multiplier_x1000)
+static int kbps_to_peak_pbn(int kbps, struct amdgpu_dm_connector *aconnector)
 {
 	u64 peak_kbps = kbps;
 
 	peak_kbps *= 1006;
-	peak_kbps *= fec_overhead_multiplier_x1000;
-	peak_kbps = div_u64(peak_kbps, 1000 * 1000);
+	peak_kbps = div_u64(peak_kbps, 1000);
+	if (aconnector->is_synaptics_cascaded) {
+		printk("Synaptics Cascaded Overhead Adjustment.\n");
+		peak_kbps *= PBN_FEC_OVERHEAD_MULTIPLIER_8B_10B;
+		peak_kbps = div_u64(peak_kbps, 1000);
+	}
 	return (int) DIV64_U64_ROUND_UP(peak_kbps * 64, (54 * 8 * 1000));
 }
 
@@ -913,12 +906,11 @@ static int increase_dsc_bpp(struct drm_atomic_state *state,
 	int link_timeslots_used;
 	int fair_pbn_alloc;
 	int ret = 0;
-	uint16_t fec_overhead_multiplier_x1000 = get_fec_overhead_multiplier(dc_link);
 
 	for (i = 0; i < count; i++) {
 		if (vars[i + k].dsc_enabled) {
 			initial_slack[i] =
-			kbps_to_peak_pbn(params[i].bw_range.max_kbps, fec_overhead_multiplier_x1000) - vars[i + k].pbn;
+			kbps_to_peak_pbn(params[i].bw_range.max_kbps, params[i].aconnector) - vars[i + k].pbn;
 			bpp_increased[i] = false;
 			remaining_to_increase += 1;
 		} else {
@@ -1014,7 +1006,6 @@ static int try_disable_dsc(struct drm_atomic_state *state,
 	int next_index;
 	int remaining_to_try = 0;
 	int ret;
-	uint16_t fec_overhead_multiplier_x1000 = get_fec_overhead_multiplier(dc_link);
 
 	for (i = 0; i < count; i++) {
 		if (vars[i + k].dsc_enabled
@@ -1044,7 +1035,7 @@ static int try_disable_dsc(struct drm_atomic_state *state,
 		if (next_index == -1)
 			break;
 
-		vars[next_index].pbn = kbps_to_peak_pbn(params[next_index].bw_range.stream_kbps, fec_overhead_multiplier_x1000);
+		vars[next_index].pbn = kbps_to_peak_pbn(params[next_index].bw_range.stream_kbps, params[i].aconnector);
 		ret = drm_dp_atomic_find_time_slots(state,
 						    params[next_index].port->mgr,
 						    params[next_index].port,
@@ -1057,7 +1048,8 @@ static int try_disable_dsc(struct drm_atomic_state *state,
 			vars[next_index].dsc_enabled = false;
 			vars[next_index].bpp_x16 = 0;
 		} else {
-			vars[next_index].pbn = kbps_to_peak_pbn(params[next_index].bw_range.max_kbps, fec_overhead_multiplier_x1000);
+			vars[next_index].pbn = kbps_to_peak_pbn(
+				params[next_index].bw_range.max_kbps, params[i].aconnector);
 			ret = drm_dp_atomic_find_time_slots(state,
 							    params[next_index].port->mgr,
 							    params[next_index].port,
@@ -1086,7 +1078,6 @@ static int compute_mst_dsc_configs_for_link(struct drm_atomic_state *state,
 	int count = 0;
 	int i, k, ret;
 	bool debugfs_overwrite = false;
-	uint16_t fec_overhead_multiplier_x1000 = get_fec_overhead_multiplier(dc_link);
 
 	memset(params, 0, sizeof(params));
 
@@ -1150,8 +1141,7 @@ static int compute_mst_dsc_configs_for_link(struct drm_atomic_state *state,
 
 	/* Try no compression */
 	for (i = 0; i < count; i++) {
-		vars[i + k].aconnector = params[i].aconnector;
-		vars[i + k].pbn = kbps_to_peak_pbn(params[i].bw_range.stream_kbps, fec_overhead_multiplier_x1000);
+		vars[i + k].pbn = kbps_to_peak_pbn(params[i].bw_range.stream_kbps, params[i].aconnector);
 		vars[i + k].dsc_enabled = false;
 		vars[i + k].bpp_x16 = 0;
 		ret = drm_dp_atomic_find_time_slots(state, params[i].port->mgr, params[i].port,
@@ -1170,7 +1160,7 @@ static int compute_mst_dsc_configs_for_link(struct drm_atomic_state *state,
 	/* Try max compression */
 	for (i = 0; i < count; i++) {
 		if (params[i].compression_possible && params[i].clock_force_enable != DSC_CLK_FORCE_DISABLE) {
-			vars[i + k].pbn = kbps_to_peak_pbn(params[i].bw_range.min_kbps, fec_overhead_multiplier_x1000);
+			vars[i + k].pbn = kbps_to_peak_pbn(params[i].bw_range.min_kbps, params[i].aconnector);
 			vars[i + k].dsc_enabled = true;
 			vars[i + k].bpp_x16 = params[i].bw_range.min_target_bpp_x16;
 			ret = drm_dp_atomic_find_time_slots(state, params[i].port->mgr,
@@ -1178,7 +1168,7 @@ static int compute_mst_dsc_configs_for_link(struct drm_atomic_state *state,
 			if (ret < 0)
 				return ret;
 		} else {
-			vars[i + k].pbn = kbps_to_peak_pbn(params[i].bw_range.stream_kbps, fec_overhead_multiplier_x1000);
+			vars[i + k].pbn = kbps_to_peak_pbn(params[i].bw_range.stream_kbps, params[i].aconnector);
 			vars[i + k].dsc_enabled = false;
 			vars[i + k].bpp_x16 = 0;
 			ret = drm_dp_atomic_find_time_slots(state, params[i].port->mgr,
@@ -1669,13 +1659,11 @@ enum dc_status dm_dp_mst_is_port_support_mode(
 		 */
 		int pbn_div, slot_num, max_slot_num;
 		enum dc_link_encoding_format link_encoding;
-		uint16_t fec_overhead_multiplier_x1000 =
-			get_fec_overhead_multiplier(stream->link);
 		uint32_t stream_kbps =
 			dc_bandwidth_in_kbps_from_timing(&stream->timing,
 				dc_link_get_highest_encoding_format(stream->link));
 
-		pbn = kbps_to_peak_pbn(stream_kbps, fec_overhead_multiplier_x1000);
+		pbn = kbps_to_peak_pbn(stream_kbps, aconnector);
 		pbn_div = dm_mst_get_pbn_divider(stream->link);
 		slot_num = DIV_ROUND_UP(pbn, pbn_div);
 
