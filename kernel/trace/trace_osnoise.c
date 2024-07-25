@@ -1629,6 +1629,8 @@ static int timerlat_main(void *data)
 
 		trace_timerlat_sample(&s);
 
+		notify_new_max_latency(diff);
+
 #ifdef CONFIG_STACKTRACE
 		if (osnoise_data.print_stack)
 			if (osnoise_data.print_stack <= time_to_us(diff))
