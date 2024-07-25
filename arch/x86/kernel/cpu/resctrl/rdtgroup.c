@@ -1558,17 +1558,10 @@ static void mon_event_config_write(void *info)
 	wrmsr(MSR_IA32_EVT_CFG_BASE + index, mon_info->mon_config, 0);
 }
 
-static int mbm_config_write_domain(struct rdt_resource *r,
-				   struct rdt_domain *d, u32 evtid, u32 val)
+static void mbm_config_write_domain(struct rdt_resource *r,
+				    struct rdt_domain *d, u32 evtid, u32 val)
 {
 	struct mon_config_info mon_info = {0};
-	int ret = 0;
-
-	/* mon_config cannot be more than the supported set of events */
-	if (val > MAX_EVT_CONFIG_BITS) {
-		rdt_last_cmd_puts("Invalid event configuration\n");
-		return -EINVAL;
-	}
 
 	/*
 	 * Read the current config value first. If both are the same then
@@ -1577,7 +1570,7 @@ static int mbm_config_write_domain(struct rdt_resource *r,
 	mon_info.evtid = evtid;
 	mondata_config_read(d, &mon_info);
 	if (mon_info.mon_config == val)
-		goto out;
+		return;
 
 	mon_info.mon_config = val;
 
@@ -1600,17 +1593,14 @@ static int mbm_config_write_domain(struct rdt_resource *r,
 	 * mbm_local and mbm_total counts for all the RMIDs.
 	 */
 	resctrl_arch_reset_rmid_all(r, d);
-
-out:
-	return ret;
 }
 
 static int mon_config_write(struct rdt_resource *r, char *tok, u32 evtid)
 {
+	struct rdt_hw_resource *hw_res = resctrl_to_arch_res(r);
 	char *dom_str = NULL, *id_str;
 	unsigned long dom_id, val;
 	struct rdt_domain *d;
-	int ret = 0;
 
 next:
 	if (!tok || tok[0] == '\0')
@@ -1630,11 +1620,16 @@ next:
 		return -EINVAL;
 	}
 
+	/* Value from user cannot be more than the supported set of events */
+	if ((val & hw_res->mbm_cfg_mask) != val) {
+		rdt_last_cmd_printf("Invalid event configuration: max valid mask is 0x%02x\n",
+				    hw_res->mbm_cfg_mask);
+		return -EINVAL;
+	}
+
 	list_for_each_entry(d, &r->domains, list) {
 		if (d->id == dom_id) {
-			ret = mbm_config_write_domain(r, d, evtid, val);
-			if (ret)
-				return -EINVAL;
+			mbm_config_write_domain(r, d, evtid, val);
 			goto next;
 		}
 	}
