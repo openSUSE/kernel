@@ -204,6 +204,7 @@ enum mapping_flags {
 	AS_NO_WRITEBACK_TAGS = 5,
 	AS_LARGE_FOLIO_SUPPORT = 6,
 	AS_UNMOVABLE	= 8,	/* The mapping cannot be moved, ever */
+	AS_INACCESSIBLE = 9,	/* Do not attempt direct R/W access to the mapping */
 };
 
 /**
