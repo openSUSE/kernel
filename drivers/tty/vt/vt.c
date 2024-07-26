@@ -3548,7 +3548,7 @@ static int __init con_init(void)
 }
 console_initcall(con_init);
 
-static const struct tty_operations con_ops = {
+const struct tty_operations con_ops = {
 	.install = con_install,
 	.open = con_open,
 	.close = con_close,
