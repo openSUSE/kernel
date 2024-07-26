@@ -237,6 +237,26 @@ struct kvm_xen_exit {
 	} u;
 };
 
+struct kvm_user_vmgexit {
+#define KVM_USER_VMGEXIT_REQ_CERTS		1
+	__u32 type; /* KVM_USER_VMGEXIT_* type */
+	union {
+		struct {
+			__u64 data_gpa;
+			__u64 data_npages;
+#define KVM_USER_VMGEXIT_REQ_CERTS_ERROR_INVALID_LEN   1
+#define KVM_USER_VMGEXIT_REQ_CERTS_ERROR_BUSY          2
+#define KVM_USER_VMGEXIT_REQ_CERTS_ERROR_GENERIC       (1 << 31)
+			__u32 ret;
+#define KVM_USER_VMGEXIT_REQ_CERTS_FLAGS_NOTIFY_DONE	BIT(0)
+			__u8 flags;
+#define KVM_USER_VMGEXIT_REQ_CERTS_STATUS_PENDING	0
+#define KVM_USER_VMGEXIT_REQ_CERTS_STATUS_DONE		1
+			__u8 status;
+		} req_certs;
+	};
+};
+
 #define KVM_S390_GET_SKEYS_NONE   1
 #define KVM_S390_SKEYS_MAX        1048576
 
@@ -279,6 +299,7 @@ struct kvm_xen_exit {
 #define KVM_EXIT_RISCV_CSR        36
 #define KVM_EXIT_NOTIFY           37
 #define KVM_EXIT_MEMORY_FAULT     39
+#define KVM_EXIT_VMGEXIT          40
 
 /* For KVM_EXIT_INTERNAL_ERROR */
 /* Emulate instruction failed. */
@@ -532,6 +553,8 @@ struct kvm_run {
 			__u64 gpa;
 			__u64 size;
 		} memory_fault;
+		/* KVM_EXIT_VMGEXIT */
+		struct kvm_user_vmgexit vmgexit;
 		/* Fix the size of the union. */
 		char padding[256];
 	};

@@ -6931,6 +6931,93 @@ Please note that the kernel is allowed to use the kvm_run structure as the
 primary storage for certain register types. Therefore, the kernel may use the
 values in kvm_run even if the corresponding bit in kvm_dirty_regs is not set.
 
+::
+
+		/* KVM_EXIT_VMGEXIT */
+		struct kvm_user_vmgexit {
+  #define KVM_USER_VMGEXIT_REQ_CERTS		1
+			__u32 type; /* KVM_USER_VMGEXIT_* type */
+			union {
+				struct {
+					__u64 data_gpa;
+					__u64 data_npages;
+  #define KVM_USER_VMGEXIT_REQ_CERTS_ERROR_INVALID_LEN   1
+  #define KVM_USER_VMGEXIT_REQ_CERTS_ERROR_BUSY          2
+  #define KVM_USER_VMGEXIT_REQ_CERTS_ERROR_GENERIC       (1 << 31)
+					__u32 ret;
+  #define KVM_USER_VMGEXIT_REQ_CERTS_FLAGS_NOTIFY_DONE	BIT(0)
+					__u8 flags;
+  #define KVM_USER_VMGEXIT_REQ_CERTS_STATUS_PENDING	0
+  #define KVM_USER_VMGEXIT_REQ_CERTS_STATUS_DONE		1
+					__u8 status;
+				} req_certs;
+			};
+		};
+
+
+If exit reason is KVM_EXIT_VMGEXIT then it indicates that an SEV-SNP guest
+has issued a VMGEXIT instruction (as documented by the AMD Architecture
+Programmer's Manual (APM)) to the hypervisor that needs to be serviced by
+userspace. These are generally handled by the host kernel, but in some
+cases some aspects of handling a VMGEXIT are done in userspace.
+
+A kvm_user_vmgexit structure is defined to encapsulate the data to be
+sent to or returned by userspace. The type field defines the specific type
+of exit that needs to be serviced, and that type is used as a discriminator
+to determine which union type should be used for input/output.
+
+KVM_USER_VMGEXIT_REQ_CERTS
+--------------------------
+
+When an SEV-SNP issues a guest request for an attestation report, it has the
+option of issuing it in the form an *extended* guest request when a
+certificate blob is returned alongside the attestation report so the guest
+can validate the endorsement key used by SNP firmware to sign the report.
+These certificates are managed by userspace and are requested via
+KVM_EXIT_VMGEXITs using the KVM_USER_VMGEXIT_REQ_CERTS type.
+
+For the KVM_USER_VMGEXIT_REQ_CERTS type, the req_certs union type
+is used. The kernel will supply in 'data_gpa' the value the guest supplies
+via the RAX field of the GHCB when issuing extended guest requests.
+'data_npages' will similarly contain the value the guest supplies in RBX
+denoting the number of shared pages available to write the certificate
+data into.
+
+  - If the supplied number of pages is sufficient, userspace should write
+    the certificate data blob (in the format defined by the GHCB spec) in
+    the address indicated by 'data_gpa' and set 'ret' to 0.
+
+  - If the number of pages supplied is not sufficient, userspace must write
+    the required number of pages in 'data_npages' and then set 'ret' to 1.
+
+  - If userspace is temporarily unable to handle the request, 'ret' should
+    be set to 2 to inform the guest to retry later.
+
+  - If some other error occurred, userspace should set 'ret' to a non-zero
+    value that is distinct from the specific return values mentioned above.
+
+Generally some care needs be taken to keep the returned certificate data in
+sync with the actual endorsement key in use by firmware at the time the
+attestation request is sent to SNP firmware. The recommended scheme to do
+this is for the VMM to obtain a shared or exclusive lock on the path the
+certificate blob file resides at before reading it and returning it to KVM,
+and that it continues to hold the lock until the attestation request is
+actually sent to firmware. To facilitate this, the VMM can set the
+KVM_USER_VMGEXIT_REQ_CERTS_FLAGS_NOTIFY_DONE flag before returning the
+certificate blob, in which case another KVM_EXIT_VMGEXIT of type
+KVM_USER_VMGEXIT_REQ_CERTS will be sent to userspace with
+KVM_USER_VMGEXIT_REQ_CERTS_STATUS_DONE being set in the status field to
+indicate the request is fully-completed and that any associated locks can be
+released.
+
+Tools/libraries that perform updates to SNP firmware TCB values or endorsement
+keys (e.g. firmware interfaces such as SNP_COMMIT, SNP_SET_CONFIG, or
+SNP_VLEK_LOAD, see Documentation/virt/coco/sev-guest.rst for more details) in
+such a way that the certificate blob needs to be updated, should similarly
+take an exclusive lock on the certificate blob for the duration of any updates
+to firmware or the certificate blob contents to ensure that VMMs using the
+above scheme will not return certificate blob data that is out of sync with
+firmware.
 
 6. Capabilities that can be enabled on vCPUs
 ============================================

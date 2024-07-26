@@ -3319,6 +3319,11 @@ static int sev_es_validate_vmgexit(struct vcpu_svm *svm)
 		if (!sev_snp_guest(vcpu->kvm))
 			goto vmgexit_err;
 		break;
+	case SVM_VMGEXIT_EXT_GUEST_REQUEST:
+		if (!sev_snp_guest(vcpu->kvm) || !kvm_ghcb_rax_is_valid(svm) ||
+		    !kvm_ghcb_rbx_is_valid(svm))
+			goto vmgexit_err;
+		break;
 	default:
 		reason = GHCB_ERR_INVALID_EVENT;
 		goto vmgexit_err;
@@ -4018,6 +4023,84 @@ static void snp_handle_guest_req(struct vcpu_svm *svm, gpa_t req_gpa, gpa_t resp
 	ghcb_set_sw_exit_info_2(svm->sev_es.ghcb, SNP_GUEST_ERR(vmm_ret, fw_err));
 }
 
+static int snp_complete_ext_guest_req(struct kvm_vcpu *vcpu)
+{
+	struct vcpu_svm *svm = to_svm(vcpu);
+	struct vmcb_control_area *control;
+	struct kvm *kvm = vcpu->kvm;
+	sev_ret_code fw_err = 0;
+	int vmm_ret;
+
+	vmm_ret = vcpu->run->vmgexit.req_certs.ret;
+	if (vmm_ret) {
+		if (vmm_ret == SNP_GUEST_VMM_ERR_INVALID_LEN)
+			vcpu->arch.regs[VCPU_REGS_RBX] =
+				vcpu->run->vmgexit.req_certs.data_npages;
+		goto out;
+	}
+
+	/*
+	 * The request was completed on the previous completion callback and
+	 * this completion is only for the STATUS_DONE userspace notification.
+	 */
+	if (vcpu->run->vmgexit.req_certs.status == KVM_USER_VMGEXIT_REQ_CERTS_STATUS_DONE)
+		goto out_resume;
+
+	control = &svm->vmcb->control;
+
+	if (__snp_handle_guest_req(kvm, control->exit_info_1,
+				   control->exit_info_2, &fw_err))
+		vmm_ret = SNP_GUEST_VMM_ERR_GENERIC;
+
+out:
+	ghcb_set_sw_exit_info_2(svm->sev_es.ghcb, SNP_GUEST_ERR(vmm_ret, fw_err));
+
+	if (vcpu->run->vmgexit.req_certs.flags & KVM_USER_VMGEXIT_REQ_CERTS_FLAGS_NOTIFY_DONE) {
+		vcpu->run->vmgexit.req_certs.status = KVM_USER_VMGEXIT_REQ_CERTS_STATUS_DONE;
+		vcpu->run->vmgexit.req_certs.flags = 0;
+		return 0; /* notify userspace of completion */
+	}
+
+out_resume:
+	return 1; /* resume guest */
+}
+
+static int snp_begin_ext_guest_req(struct kvm_vcpu *vcpu)
+{
+	int vmm_ret = SNP_GUEST_VMM_ERR_GENERIC;
+	struct vcpu_svm *svm = to_svm(vcpu);
+	unsigned long data_npages;
+	sev_ret_code fw_err;
+	gpa_t data_gpa;
+
+	if (!sev_snp_guest(vcpu->kvm))
+		goto abort_request;
+
+	data_gpa = vcpu->arch.regs[VCPU_REGS_RAX];
+	data_npages = vcpu->arch.regs[VCPU_REGS_RBX];
+
+	if (!IS_ALIGNED(data_gpa, PAGE_SIZE))
+		goto abort_request;
+
+	/*
+	 * Grab the certificates from userspace so that can be bundled with
+	 * attestation/guest requests.
+	 */
+	vcpu->run->exit_reason = KVM_EXIT_VMGEXIT;
+	vcpu->run->vmgexit.type = KVM_USER_VMGEXIT_REQ_CERTS;
+	vcpu->run->vmgexit.req_certs.data_gpa = data_gpa;
+	vcpu->run->vmgexit.req_certs.data_npages = data_npages;
+	vcpu->run->vmgexit.req_certs.flags = 0;
+	vcpu->run->vmgexit.req_certs.status = KVM_USER_VMGEXIT_REQ_CERTS_STATUS_PENDING;
+	vcpu->arch.complete_userspace_io = snp_complete_ext_guest_req;
+
+	return 0; /* forward request to userspace */
+
+abort_request:
+	ghcb_set_sw_exit_info_2(svm->sev_es.ghcb, SNP_GUEST_ERR(vmm_ret, fw_err));
+	return 1; /* resume guest */
+}
+
 static int sev_handle_vmgexit_msr_protocol(struct vcpu_svm *svm)
 {
 	struct vmcb_control_area *control = &svm->vmcb->control;
@@ -4295,6 +4378,9 @@ int sev_handle_vmgexit(struct kvm_vcpu *vcpu)
 	case SVM_VMGEXIT_GUEST_REQUEST:
 		snp_handle_guest_req(svm, control->exit_info_1, control->exit_info_2);
 		ret = 1;
+		break;
+	case SVM_VMGEXIT_EXT_GUEST_REQUEST:
+		ret = snp_begin_ext_guest_req(vcpu);
 		break;
 	case SVM_VMGEXIT_UNSUPPORTED_EVENT:
 		vcpu_unimpl(vcpu,
