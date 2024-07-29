@@ -518,7 +518,9 @@ static void tty_ldisc_restore(struct tty_struct *tty, struct tty_ldisc *old)
  */
 int tty_set_ldisc(struct tty_struct *tty, int disc)
 {
+#ifdef CONFIG_VT
 	extern const struct tty_operations con_ops;
+#endif
 	int retval;
 	struct tty_ldisc *old_ldisc, *new_ldisc;
 
@@ -546,10 +548,12 @@ int tty_set_ldisc(struct tty_struct *tty, int disc)
 		goto out;
 	}
 
+#ifdef CONFIG_VT
 	if (tty->ops == &con_ops && disc != N_TTY) {
 		retval = -EINVAL;
 		goto out;
 	}
+#endif
 
 	old_ldisc = tty->ldisc;
 
