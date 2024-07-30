@@ -299,9 +299,9 @@ out:
 static int
 mtk_wed_tx_buffer_alloc(struct mtk_wed_device *dev)
 {
+	struct mtk_wed_buf *page_list;
 	struct mtk_wdma_desc *desc;
 	dma_addr_t desc_phys;
-	void **page_list;
 	int token = dev->wlan.token_start;
 	int ring_size;
 	int n_pages;
@@ -342,7 +342,8 @@ mtk_wed_tx_buffer_alloc(struct mtk_wed_device *dev)
 			return -ENOMEM;
 		}
 
-		page_list[page_idx++] = page;
+		page_list[page_idx].p = page;
+		page_list[page_idx++].phy_addr = page_phys;
 		dma_sync_single_for_cpu(dev->hw->dev, page_phys, PAGE_SIZE,
 					DMA_BIDIRECTIONAL);
 
@@ -386,8 +387,8 @@ mtk_wed_tx_buffer_alloc(struct mtk_wed_device *dev)
 static void
 mtk_wed_free_tx_buffer(struct mtk_wed_device *dev)
 {
+	struct mtk_wed_buf *page_list = dev->tx_buf_ring.pages;
 	struct mtk_wdma_desc *desc = dev->tx_buf_ring.desc;
-	void **page_list = dev->tx_buf_ring.pages;
 	int page_idx;
 	int i;
 
@@ -399,13 +400,12 @@ mtk_wed_free_tx_buffer(struct mtk_wed_device *dev)
 
 	for (i = 0, page_idx = 0; i < dev->tx_buf_ring.size;
 	     i += MTK_WED_BUF_PER_PAGE) {
-		void *page = page_list[page_idx++];
-		dma_addr_t buf_addr;
+		dma_addr_t buf_addr = page_list[page_idx].phy_addr;
+		void *page = page_list[page_idx++].p;
 
 		if (!page)
 			break;
 
-		buf_addr = le32_to_cpu(desc[i].buf0);
 		dma_unmap_page(dev->hw->dev, buf_addr, PAGE_SIZE,
 			       DMA_BIDIRECTIONAL);
 		__free_page(page);
@@ -421,7 +421,7 @@ free_pagelist:
 static int
 mtk_wed_rx_buffer_alloc(struct mtk_wed_device *dev)
 {
-	struct mtk_rxbm_desc *desc;
+	struct mtk_wed_bm_desc *desc;
 	dma_addr_t desc_phys;
 
 	dev->rx_buf_ring.size = dev->wlan.rx_nbuf;
@@ -441,7 +441,7 @@ mtk_wed_rx_buffer_alloc(struct mtk_wed_device *dev)
 static void
 mtk_wed_free_rx_buffer(struct mtk_wed_device *dev)
 {
-	struct mtk_rxbm_desc *desc = dev->rx_buf_ring.desc;
+	struct mtk_wed_bm_desc *desc = dev->rx_buf_ring.desc;
 
 	if (!desc)
 		return;

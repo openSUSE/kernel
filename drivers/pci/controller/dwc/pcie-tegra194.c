@@ -2018,6 +2018,7 @@ static const struct pci_epc_features tegra_pcie_epc_features = {
 	.reserved_bar = 1 << BAR_2 | 1 << BAR_3 | 1 << BAR_4 | 1 << BAR_5,
 	.bar_fixed_64bit = 1 << BAR_0,
 	.bar_fixed_size[0] = SZ_1M,
+	.align = SZ_64K,
 };
 
 static const struct pci_epc_features*

@@ -389,11 +389,7 @@ int btrfs_can_overcommit(struct btrfs_fs_info *fs_info,
 		return 0;
 
 	used = btrfs_space_info_used(space_info, true);
-	if (test_bit(BTRFS_FS_ACTIVE_ZONE_TRACKING, &fs_info->flags) &&
-	    (space_info->flags & BTRFS_BLOCK_GROUP_METADATA))
-		avail = 0;
-	else
-		avail = calc_available_free_space(fs_info, space_info, flush);
+	avail = calc_available_free_space(fs_info, space_info, flush);
 
 	if (used + bytes < space_info->total_bytes + avail)
 		return 1;
@@ -748,18 +744,6 @@ static void flush_space(struct btrfs_fs_info *fs_info,
 		break;
 	case ALLOC_CHUNK:
 	case ALLOC_CHUNK_FORCE:
-		/*
-		 * For metadata space on zoned filesystem, reaching here means we
-		 * don't have enough space left in active_total_bytes. Try to
-		 * activate a block group first, because we may have inactive
-		 * block group already allocated.
-		 */
-		ret = btrfs_zoned_activate_one_bg(fs_info, space_info, false);
-		if (ret < 0)
-			break;
-		else if (ret == 1)
-			break;
-
 		trans = btrfs_join_transaction(root);
 		if (IS_ERR(trans)) {
 			ret = PTR_ERR(trans);
@@ -770,22 +754,6 @@ static void flush_space(struct btrfs_fs_info *fs_info,
 				(state == ALLOC_CHUNK) ? CHUNK_ALLOC_NO_FORCE :
 					CHUNK_ALLOC_FORCE);
 		btrfs_end_transaction(trans);
-
-		/*
-		 * For metadata space on zoned filesystem, allocating a new chunk
-		 * is not enough. We still need to activate the block * group.
-		 * Active the newly allocated block group by (maybe) finishing
-		 * a block group.
-		 */
-		if (ret == 1) {
-			ret = btrfs_zoned_activate_one_bg(fs_info, space_info, true);
-			/*
-			 * Revert to the original ret regardless we could finish
-			 * one block group or not.
-			 */
-			if (ret >= 0)
-				ret = 1;
-		}
 
 		if (ret > 0 || ret == -ENOSPC)
 			ret = 0;

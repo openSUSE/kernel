@@ -645,16 +645,23 @@ int x509_process_extension(void *context, size_t hdrlen,
 		i += 2;
 
 		while (i < vlen) {
-			/* A 10 bytes EKU OID Octet blob =
-			 * ASN1_OID + size byte + 8 bytes OID */
-			if (v[i] != ASN1_OID || v[i + 1] != 8 || (i + 10) > vlen)
+			int oid_size = v[i + 1];
+
+			/* e.g. A 10 bytes EKU OID Octet blob =
+			 * 1 byte ASN1_OID + 1 byte size + 8 bytes OID */
+			if (v[i] != ASN1_OID || (i + 2 + oid_size) > vlen)
 				return -EBADMSG;
 
-			oid = look_up_OID(v + i + 2, v[i + 1]);
+			/* (v + i + 2) is the start address of oid data */
+			oid = look_up_OID(v + i + 2, oid_size);
 			if (oid == OID_codeSigning) {
 				ctx->cert->pub->eku |= EKU_codeSigning;
+			} else if (oid == OID__NR) {
+				char buffer[50];
+				sprint_oid(v + i + 2, oid_size, buffer, sizeof(buffer));
+				pr_debug("Unknown extKeyUsage: %s\n", buffer);
 			}
-			i += 10;
+			i += (2 + oid_size);
 		}
 		pr_debug("extKeyUsage: %d\n", ctx->cert->pub->eku);
 		return 0;

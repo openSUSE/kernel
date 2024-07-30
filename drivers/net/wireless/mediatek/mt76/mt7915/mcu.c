@@ -13,6 +13,9 @@
 	case 0x7915:						\
 		_fw = MT7915_##name;				\
 		break;						\
+	case 0x7981:						\
+		_fw = MT7981_##name;				\
+		break;						\
 	case 0x7986:						\
 		_fw = MT7986_##name##__VA_ARGS__;		\
 		break;						\
@@ -222,8 +225,10 @@ int mt7915_mcu_wa_cmd(struct mt7915_dev *dev, int cmd, u32 a1, u32 a2, u32 a3)
 static void
 mt7915_mcu_csa_finish(void *priv, u8 *mac, struct ieee80211_vif *vif)
 {
-	if (vif->bss_conf.csa_active)
-		ieee80211_csa_finish(vif);
+	if (!vif->bss_conf.csa_active || vif->type == NL80211_IFTYPE_STATION)
+		return;
+
+	ieee80211_csa_finish(vif);
 }
 
 static void
@@ -264,7 +269,7 @@ mt7915_mcu_rx_thermal_notify(struct mt7915_dev *dev, struct sk_buff *skb)
 	    dev->mt76.phys[MT_BAND1])
 		mphy = dev->mt76.phys[MT_BAND1];
 
-	phy = (struct mt7915_phy *)mphy->priv;
+	phy = mphy->priv;
 	phy->throttle_state = t->ctrl.duty.duty_cycle;
 }
 
@@ -323,7 +328,7 @@ mt7915_mcu_rx_log_message(struct mt7915_dev *dev, struct sk_buff *skb)
 static void
 mt7915_mcu_cca_finish(void *priv, u8 *mac, struct ieee80211_vif *vif)
 {
-	if (!vif->bss_conf.color_change_active)
+	if (!vif->bss_conf.color_change_active || vif->type == NL80211_IFTYPE_STATION)
 		return;
 
 	ieee80211_color_change_finish(vif);
@@ -903,6 +908,8 @@ mt7915_mcu_sta_muru_tlv(struct mt7915_dev *dev, struct sk_buff *skb,
 		HE_MAC(CAP2_MU_CASCADING, elem->mac_cap_info[2]);
 	muru->ofdma_ul.uo_ra =
 		HE_MAC(CAP3_OFDMA_RA, elem->mac_cap_info[3]);
+	muru->ofdma_ul.rx_ctrl_frame_to_mbss =
+		HE_MAC(CAP3_RX_CTRL_FRAME_TO_MULTIBSS, elem->mac_cap_info[3]);
 }
 
 static void
@@ -2134,12 +2141,11 @@ int mt7915_mcu_muru_debug_set(struct mt7915_dev *dev, bool enabled)
 				sizeof(data), false);
 }
 
-int mt7915_mcu_muru_debug_get(struct mt7915_phy *phy, void *ms)
+int mt7915_mcu_muru_debug_get(struct mt7915_phy *phy)
 {
 	struct mt7915_dev *dev = phy->dev;
 	struct sk_buff *skb;
-	struct mt7915_mcu_muru_stats *mu_stats =
-				(struct mt7915_mcu_muru_stats *)ms;
+	struct mt7915_mcu_muru_stats *mu_stats;
 	int ret;
 
 	struct {
@@ -2155,7 +2161,43 @@ int mt7915_mcu_muru_debug_get(struct mt7915_phy *phy, void *ms)
 	if (ret)
 		return ret;
 
-	memcpy(mu_stats, skb->data, sizeof(struct mt7915_mcu_muru_stats));
+	mu_stats = (struct mt7915_mcu_muru_stats *)(skb->data);
+
+	/* accumulate stats, these are clear-on-read */
+#define __dl_u32(s)	 phy->mib.dl_##s += le32_to_cpu(mu_stats->dl.s)
+#define __ul_u32(s)	 phy->mib.ul_##s += le32_to_cpu(mu_stats->ul.s)
+	__dl_u32(cck_cnt);
+	__dl_u32(ofdm_cnt);
+	__dl_u32(htmix_cnt);
+	__dl_u32(htgf_cnt);
+	__dl_u32(vht_su_cnt);
+	__dl_u32(vht_2mu_cnt);
+	__dl_u32(vht_3mu_cnt);
+	__dl_u32(vht_4mu_cnt);
+	__dl_u32(he_su_cnt);
+	__dl_u32(he_2ru_cnt);
+	__dl_u32(he_2mu_cnt);
+	__dl_u32(he_3ru_cnt);
+	__dl_u32(he_3mu_cnt);
+	__dl_u32(he_4ru_cnt);
+	__dl_u32(he_4mu_cnt);
+	__dl_u32(he_5to8ru_cnt);
+	__dl_u32(he_9to16ru_cnt);
+	__dl_u32(he_gtr16ru_cnt);
+
+	__ul_u32(hetrig_su_cnt);
+	__ul_u32(hetrig_2ru_cnt);
+	__ul_u32(hetrig_3ru_cnt);
+	__ul_u32(hetrig_4ru_cnt);
+	__ul_u32(hetrig_5to8ru_cnt);
+	__ul_u32(hetrig_9to16ru_cnt);
+	__ul_u32(hetrig_gtr16ru_cnt);
+	__ul_u32(hetrig_2mu_cnt);
+	__ul_u32(hetrig_3mu_cnt);
+	__ul_u32(hetrig_4mu_cnt);
+#undef __dl_u32
+#undef __ul_u32
+
 	dev_kfree_skb(skb);
 
 	return 0;
