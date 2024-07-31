@@ -339,7 +339,8 @@ static int irq_process_work_list(struct idxd_irq_entry *irq_entry,
 
 	spin_unlock_irqrestore(&irq_entry->list_lock, flags);
 
-	list_for_each_entry(desc, &flist, list) {
+	list_for_each_entry_safe(desc, n, &flist, list) {
+		list_del(&desc->list);
 		if ((desc->completion->status & DSA_COMP_STATUS_MASK) != DSA_COMP_SUCCESS)
 			match_fault(desc, data);
 		complete_desc(desc, reason);
