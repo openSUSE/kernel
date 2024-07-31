@@ -401,11 +401,11 @@ static int ext2_rename (struct user_namespace * mnt_userns,
 	ext2_delete_entry(old_de, old_page, old_page_addr);
 
 	if (old_is_dir) {
-		if (old_dir != new_dir)
+		if (old_dir != new_dir) {
 			ext2_set_link(old_inode, dir_de, dir_page,
 				      dir_page_addr, new_dir, 0);
-
-		ext2_put_page(dir_page, dir_page_addr);
+			ext2_put_page(dir_page, dir_page_addr);
+		}
 		inode_dec_link_count(old_dir);
 	}
 
