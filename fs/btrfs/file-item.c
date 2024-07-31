@@ -94,8 +94,8 @@ int btrfs_inode_set_file_extent_range(struct btrfs_inode *inode, u64 start,
 
 	if (btrfs_fs_incompat(inode->root->fs_info, NO_HOLES))
 		return 0;
-	return set_extent_bits(&inode->file_extent_tree, start, start + len - 1,
-			       EXTENT_DIRTY);
+	return set_extent_bit(&inode->file_extent_tree, start, start + len - 1,
+			      EXTENT_DIRTY, NULL);
 }
 
 /*
@@ -438,9 +438,9 @@ blk_status_t btrfs_lookup_bio_sums(struct btrfs_bio *bbio)
 			    BTRFS_DATA_RELOC_TREE_OBJECTID) {
 				u64 file_offset = bbio->file_offset + bio_offset;
 
-				set_extent_bits(&inode->io_tree, file_offset,
-						file_offset + sectorsize - 1,
-						EXTENT_NODATASUM);
+				set_extent_bit(&inode->io_tree, file_offset,
+					       file_offset + sectorsize - 1,
+					       EXTENT_NODATASUM, NULL);
 			} else {
 				btrfs_warn_rl(fs_info,
 			"csum hole found for disk bytenr range [%llu, %llu)",
@@ -560,8 +560,8 @@ int btrfs_lookup_csums_list(struct btrfs_root *root, u64 start, u64 end,
 				goto fail;
 			}
 
-			sums->bytenr = start;
-			sums->len = (int)size;
+			sums->logical = start;
+			sums->len = size;
 
 			offset = bytes_to_csum_size(fs_info, start - key.offset);
 
@@ -749,7 +749,7 @@ blk_status_t btrfs_csum_one_bio(struct btrfs_bio *bbio)
 	sums->len = bio->bi_iter.bi_size;
 	INIT_LIST_HEAD(&sums->list);
 
-	sums->bytenr = bio->bi_iter.bi_sector << 9;
+	sums->logical = bio->bi_iter.bi_sector << SECTOR_SHIFT;
 	index = 0;
 
 	shash->tfm = fs_info->csum_shash;
@@ -799,7 +799,7 @@ blk_status_t btrfs_csum_one_bio(struct btrfs_bio *bbio)
 				ordered = btrfs_lookup_ordered_extent(inode,
 								offset);
 				ASSERT(ordered); /* Logic error */
-				sums->bytenr = (bio->bi_iter.bi_sector << 9)
+				sums->logical = (bio->bi_iter.bi_sector << SECTOR_SHIFT)
 					+ total_bytes;
 				index = 0;
 			}
@@ -818,7 +818,37 @@ blk_status_t btrfs_csum_one_bio(struct btrfs_bio *bbio)
 
 	}
 	this_sum_bytes = 0;
+
+	/*
+	 * The ->sums assignment is for zoned writes, where a bio never spans
+	 * ordered extents and is only done unconditionally because that's cheaper
+	 * than a branch.
+	 */
+	bbio->sums = sums;
 	btrfs_add_ordered_sum(ordered, sums);
+	btrfs_put_ordered_extent(ordered);
+	return 0;
+}
+
+/*
+ * Nodatasum I/O on zoned file systems still requires an btrfs_ordered_sum to
+ * record the updated logical address on Zone Append completion.
+ * Allocate just the structure with an empty sums array here for that case.
+ */
+blk_status_t btrfs_alloc_dummy_sum(struct btrfs_bio *bbio)
+{
+	struct btrfs_ordered_extent *ordered =
+		btrfs_lookup_ordered_extent(bbio->inode, bbio->file_offset);
+
+	if (WARN_ON_ONCE(!ordered))
+		return BLK_STS_IOERR;
+
+	bbio->sums = kmalloc(sizeof(*bbio->sums), GFP_NOFS);
+	if (!bbio->sums)
+		return BLK_STS_RESOURCE;
+	bbio->sums->len = bbio->bio.bi_iter.bi_size;
+	bbio->sums->logical = bbio->bio.bi_iter.bi_sector << SECTOR_SHIFT;
+	btrfs_add_ordered_sum(ordered, bbio->sums);
 	btrfs_put_ordered_extent(ordered);
 	return 0;
 }
@@ -1086,7 +1116,7 @@ int btrfs_csum_file_blocks(struct btrfs_trans_handle *trans,
 again:
 	next_offset = (u64)-1;
 	found_next = 0;
-	bytenr = sums->bytenr + total_bytes;
+	bytenr = sums->logical + total_bytes;
 	file_key.objectid = BTRFS_EXTENT_CSUM_OBJECTID;
 	file_key.offset = bytenr;
 	file_key.type = BTRFS_EXTENT_CSUM_KEY;

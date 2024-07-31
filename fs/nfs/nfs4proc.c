@@ -10538,9 +10538,16 @@ static const struct nfs4_minor_version_ops nfs_v4_0_minor_ops = {
 };
 
 #if defined(CONFIG_NFS_V4_1)
+static bool serialize_opens = false;
+module_param(serialize_opens, bool, 0644);
+MODULE_PARM_DESC(serialize_opens,
+		 "Serialize all open/close to each file - avoids some server bugs");
+
 static struct nfs_seqid *
 nfs_alloc_no_seqid(struct nfs_seqid_counter *arg1, gfp_t arg2)
 {
+	if (serialize_opens)
+		return nfs_alloc_seqid(arg1, arg2);
 	return NULL;
 }
 

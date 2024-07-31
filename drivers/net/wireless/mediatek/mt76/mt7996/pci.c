@@ -111,7 +111,11 @@ static int mt7996_pci_probe(struct pci_dev *pdev,
 
 	pci_set_master(pdev);
 
-	ret = dma_set_mask(&pdev->dev, DMA_BIT_MASK(32));
+	ret = dma_set_mask(&pdev->dev, DMA_BIT_MASK(36));
+	if (ret)
+		return ret;
+
+	ret = dma_set_coherent_mask(&pdev->dev, DMA_BIT_MASK(32));
 	if (ret)
 		return ret;
 
@@ -223,4 +227,9 @@ MODULE_DEVICE_TABLE(pci, mt7996_pci_device_table);
 MODULE_DEVICE_TABLE(pci, mt7996_hif_device_table);
 MODULE_FIRMWARE(MT7996_FIRMWARE_WA);
 MODULE_FIRMWARE(MT7996_FIRMWARE_WM);
+MODULE_FIRMWARE(MT7996_FIRMWARE_DSP);
 MODULE_FIRMWARE(MT7996_ROM_PATCH);
+MODULE_FIRMWARE(MT7992_FIRMWARE_WA);
+MODULE_FIRMWARE(MT7992_FIRMWARE_WM);
+MODULE_FIRMWARE(MT7992_FIRMWARE_DSP);
+MODULE_FIRMWARE(MT7992_ROM_PATCH);

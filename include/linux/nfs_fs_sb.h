@@ -261,6 +261,9 @@ struct nfs_server {
 	/* User namespace info */
 	const struct cred	*cred;
 	bool			has_sec_mnt_opts;
+#ifndef __GENKSYMS__
+	wait_queue_head_t	write_congestion_wait;	/* wait until write congestion eases */
+#endif
 };
 
 /* Server capabilities */

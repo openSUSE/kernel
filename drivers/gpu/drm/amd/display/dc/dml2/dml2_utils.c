@@ -289,7 +289,7 @@ void dml2_calculate_rq_and_dlg_params(const struct dc *dc, struct dc_state *cont
 	context->bw_ctx.bw.dcn.clk.dcfclk_deep_sleep_khz = (unsigned int)in_ctx->v20.dml_core_ctx.mp.DCFCLKDeepSleep * 1000;
 	context->bw_ctx.bw.dcn.clk.dppclk_khz = 0;
 
-	if (in_ctx->v20.dml_core_ctx.ms.support.FCLKChangeSupport[in_ctx->v20.scratch.mode_support_params.out_lowest_state_idx] == dml_fclock_change_unsupported)
+	if (in_ctx->v20.dml_core_ctx.ms.support.FCLKChangeSupport[0] == dml_fclock_change_unsupported)
 		context->bw_ctx.bw.dcn.clk.fclk_p_state_change_support = false;
 	else
 		context->bw_ctx.bw.dcn.clk.fclk_p_state_change_support = true;
@@ -322,6 +322,8 @@ void dml2_calculate_rq_and_dlg_params(const struct dc *dc, struct dc_state *cont
 			dml_pipe_idx = dml2_helper_find_dml_pipe_idx_by_stream_id(in_ctx, context->res_ctx.pipe_ctx[dc_pipe_ctx_index].stream->stream_id);
 		}
 
+		if (dml_pipe_idx == 0xFFFFFFFF)
+			continue;
 		ASSERT(in_ctx->v20.scratch.dml_to_dc_pipe_mapping.dml_pipe_idx_to_stream_id_valid[dml_pipe_idx]);
 		ASSERT(in_ctx->v20.scratch.dml_to_dc_pipe_mapping.dml_pipe_idx_to_stream_id[dml_pipe_idx] == context->res_ctx.pipe_ctx[dc_pipe_ctx_index].stream->stream_id);
 
@@ -462,6 +464,9 @@ bool dml2_verify_det_buffer_configuration(struct dml2_context *in_ctx, struct dc
 			dml_pipe_idx = find_dml_pipe_idx_by_plane_id(in_ctx, plane_id);
 		else
 			dml_pipe_idx = dml2_helper_find_dml_pipe_idx_by_stream_id(in_ctx, display_state->res_ctx.pipe_ctx[i].stream->stream_id);
+
+		if (dml_pipe_idx == 0xFFFFFFFF)
+			continue;
 		total_det_allocated += dml_get_det_buffer_size_kbytes(&in_ctx->v20.dml_core_ctx, dml_pipe_idx);
 		if (total_det_allocated > max_det_size) {
 			need_recalculation = true;
