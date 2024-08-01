@@ -18,8 +18,13 @@
  * that converting umax_value to int cannot overflow.
  */
 #define BPF_MAX_VAR_SIZ	(1 << 29)
-/* size of type_str_buf in bpf_verifier. */
-#define TYPE_STR_BUF_LEN 64
+/* size of the old type_str_buf in bpf_verifier for kABI workaround */
+#define TYPE_STR_BUF_LEN_OLD 64
+/* size of tmp_str_buf in bpf_verifier.
+ * we need at least 306 bytes to fit full stack mask representation
+ * (in the "-8,-16,...,-512" form)
+ */
+#define TMP_STR_BUF_LEN 320
 
 /* Liveness marks, used for registers and spilled-regs (in stack slots).
  * Read marks propagate upwards until they find a write mark; they record that
@@ -202,6 +207,11 @@ enum bpf_stack_slot_type {
 };
 
 #define BPF_REG_SIZE 8	/* size of eBPF register in bytes */
+
+#define BPF_REGMASK_ARGS ((1 << BPF_REG_1) | (1 << BPF_REG_2) | \
+			  (1 << BPF_REG_3) | (1 << BPF_REG_4) | \
+			  (1 << BPF_REG_5))
+
 #define BPF_DYNPTR_SIZE		sizeof(struct bpf_dynptr_kern)
 #define BPF_DYNPTR_NR_SLOTS		(BPF_DYNPTR_SIZE / BPF_REG_SIZE)
 
@@ -261,6 +271,19 @@ struct bpf_func_state {
 	 * stack[allocated_stack/8 - 1] represents [*(r10-allocated_stack)..*(r10-allocated_stack+7)]
 	 */
 	struct bpf_stack_state *stack;
+#ifndef __GENKSYMS__
+	/* For callback calling functions that limit number of possible
+	 * callback executions (e.g. bpf_loop) keeps track of current
+	 * simulated iteration number.
+	 * Value in frame N refers to number of times callback with frame
+	 * N+1 was simulated, e.g. for the following call:
+	 *
+	 *   bpf_loop(..., fn, ...); | suppose current frame is N
+	 *                           | fn would be simulated in frame N+1
+	 *                           | number of simulations is tracked in frame N
+	 */
+	u32 callback_depth;
+#endif /* __GENKSYMS__ */
 };
 
 struct bpf_idx_pair {
@@ -268,14 +291,10 @@ struct bpf_idx_pair {
 	u32 idx;
 };
 
-struct bpf_id_pair {
-	u32 old;
-	u32 cur;
-};
-
-/* Maximum number of register states that can exist at once */
-#define BPF_ID_MAP_SIZE (MAX_BPF_REG + MAX_BPF_STACK / BPF_REG_SIZE)
 #define MAX_CALL_FRAMES 8
+#define BPF_ID_MAP_SIZE_OLD (MAX_BPF_REG + MAX_BPF_STACK / BPF_REG_SIZE)
+/* Maximum number of register states that can exist at once */
+#define BPF_ID_MAP_SIZE ((MAX_BPF_REG + MAX_BPF_STACK / BPF_REG_SIZE) * MAX_CALL_FRAMES)
 struct bpf_verifier_state {
 	/* call stack tracking */
 	struct bpf_func_state *frame[MAX_CALL_FRAMES];
@@ -334,6 +353,15 @@ struct bpf_verifier_state {
 	/* first and last insn idx of this verifier state */
 	u32 first_insn_idx;
 	u32 last_insn_idx;
+	/* If this state is a part of states loop this field points to some
+	 * parent of this state such that:
+	 * - it is also a member of the same states loop;
+	 * - DFS states traversal starting from initial state visits loop_entry
+	 *   state before this state.
+	 * Used to compute topmost loop entry for state loops.
+	 * State loops might appear because of open coded iterators logic.
+	 * See get_loop_entry() for more information.
+	 */
 	/* jmp history recorded from first to last.
 	 * backtracking is using it to go from last to first.
 	 * For most states jmp_history_cnt is [0-3].
@@ -341,6 +369,28 @@ struct bpf_verifier_state {
 	 */
 	struct bpf_idx_pair *jmp_history;
 	u32 jmp_history_cnt;
+};
+
+/* Used for kABI workaround. This must be position right before
+ * bpf_verifier_state in memory.
+ */
+struct bpf_verifier_state_extra {
+	/* If this state was ever pointed-to by other state's loop_entry field
+	 * this flag would be set to true. Used to avoid freeing such states
+	 * while they are still in use.
+	 */
+	bool used_as_loop_entry;
+	struct bpf_verifier_state *loop_entry;
+	u32 dfs_depth;
+	u32 callback_unroll_depth;
+};
+
+/* Used for kABI workaround. Make accessing bpf_verifier_state_extra from
+ * bpf_verifier_state pointer easier.
+ */
+struct bpf_verifier_state_wrapper {
+	struct bpf_verifier_state_extra extra;
+	struct bpf_verifier_state state;
 };
 
 #define bpf_get_spilled_reg(slot, frame)				\
@@ -424,6 +474,14 @@ struct bpf_insn_aux_data {
 	bool prune_point;
 #ifndef __GENKSYMS__
 	bool jmp_point;
+	/* ensure we check state equivalence and save state checkpoint and
+	 * this instruction, regardless of any heuristics
+	 */
+	bool force_checkpoint;
+	/* true if instruction is a call to a helper function that
+	 * accepts callback function as a parameter.
+	 */
+	bool calls_callback;
 #endif
 };
 
@@ -481,6 +539,30 @@ struct bpf_subprog_info {
 	bool is_async_cb;
 };
 
+struct bpf_verifier_env;
+
+struct backtrack_state {
+	struct bpf_verifier_env *env;
+	u32 frame;
+	u32 reg_masks[MAX_CALL_FRAMES];
+	u64 stack_masks[MAX_CALL_FRAMES];
+};
+
+struct bpf_id_pair {
+	u32 old;
+	u32 cur;
+};
+
+struct bpf_idmap {
+	u32 tmp_id_gen;
+	struct bpf_id_pair map[BPF_ID_MAP_SIZE];
+};
+
+struct bpf_idset {
+	u32 count;
+	u32 ids[BPF_ID_MAP_SIZE];
+};
+
 /* single container for all structs
  * one verifier_env per bpf_check() call
  */
@@ -521,7 +603,11 @@ struct bpf_verifier_env {
 	const struct bpf_line_info *prev_linfo;
 	struct bpf_verifier_log log;
 	struct bpf_subprog_info subprog_info[BPF_MAX_SUBPROGS + 1];
-	struct bpf_id_pair idmap_scratch[BPF_ID_MAP_SIZE];
+#ifndef __GENKSYMS__
+	struct bpf_id_pair __unused_idmap_scratch[BPF_ID_MAP_SIZE_OLD];
+#else
+	struct bpf_id_pair idmap_scratch[BPF_ID_MAP_SIZE_OLD];
+#endif /* __GENKSYMS__ */
 	struct {
 		int *insn_state;
 		int *insn_stack;
@@ -555,8 +641,19 @@ struct bpf_verifier_env {
 	/* Same as scratched_regs but for stack slots */
 	u64 scratched_stack_slots;
 	u32 prev_log_len, prev_insn_print_len;
-	/* buffer used in reg_type_str() to generate reg_type string */
-	char type_str_buf[TYPE_STR_BUF_LEN];
+#ifndef __GENKSYMS__
+	/* buffer used to generate temporary string representations,
+	 * e.g., in reg_type_str() to generate reg_type string
+	 */
+	char tmp_str_buf[TMP_STR_BUF_LEN];
+	union {
+		struct bpf_idmap idmap_scratch;
+		struct bpf_idset idset_scratch;
+	};
+	struct backtrack_state bt;
+#else
+	char type_str_buf[TYPE_STR_BUF_LEN_OLD];
+#endif /* __GENKSYMS__ */
 };
 
 __printf(2, 0) void bpf_verifier_vlog(struct bpf_verifier_log *log,

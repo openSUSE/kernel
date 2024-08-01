@@ -237,12 +237,6 @@ resource_size_t pcibios_align_resource(void *data, const struct resource *res,
 	return 0;
 }
 
-/* combine single writes by using store-block insn */
-void __iowrite64_copy(void __iomem *to, const void *from, size_t count)
-{
-	zpci_memcpy_toio(to, from, count * 8);
-}
-
 static void __iomem *__ioremap(phys_addr_t addr, size_t size, pgprot_t prot)
 {
 	unsigned long offset, vaddr;
@@ -269,6 +263,12 @@ static void __iomem *__ioremap(phys_addr_t addr, size_t size, pgprot_t prot)
 		return NULL;
 	}
 	return (void __iomem *) ((unsigned long) area->addr + offset);
+}
+
+/* combine single writes by using store-block insn */
+void __iowrite64_copy(void __iomem *to, const void *from, size_t count)
+{
+       zpci_memcpy_toio(to, from, count * 8);
 }
 
 void __iomem *ioremap_prot(phys_addr_t addr, size_t size, unsigned long prot)
