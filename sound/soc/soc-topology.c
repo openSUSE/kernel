@@ -1273,15 +1273,33 @@ static int soc_tplg_dapm_graph_elems_load(struct soc_tplg *tplg,
 			break;
 		}
 
-		routes[i]->source = elem->source;
-		routes[i]->sink = elem->sink;
+		routes[i]->source = devm_kmemdup(tplg->dev, elem->source,
+						 min_t(size_t, strlen(elem->source),
+						       SNDRV_CTL_ELEM_ID_NAME_MAXLEN),
+						 GFP_KERNEL);
+		routes[i]->sink = devm_kmemdup(tplg->dev, elem->sink,
+					       min_t(size_t, strlen(elem->sink),
+						     SNDRV_CTL_ELEM_ID_NAME_MAXLEN),
+					       GFP_KERNEL);
+		if (!routes[i]->source || !routes[i]->sink) {
+			ret = -ENOMEM;
+			break;
+		}
 
 		/* set to NULL atm for tplg users */
 		routes[i]->connected = NULL;
-		if (strnlen(elem->control, SNDRV_CTL_ELEM_ID_NAME_MAXLEN) == 0)
+		if (strnlen(elem->control, SNDRV_CTL_ELEM_ID_NAME_MAXLEN) == 0) {
 			routes[i]->control = NULL;
-		else
-			routes[i]->control = elem->control;
+		} else {
+			routes[i]->control = devm_kmemdup(tplg->dev, elem->control,
+							  min_t(size_t, strlen(elem->control),
+								SNDRV_CTL_ELEM_ID_NAME_MAXLEN),
+							  GFP_KERNEL);
+			if (!routes[i]->control) {
+				ret = -ENOMEM;
+				break;
+			}
+		}
 
 		/* add route dobj to dobj_list */
 		routes[i]->dobj.type = SND_SOC_DOBJ_GRAPH;
