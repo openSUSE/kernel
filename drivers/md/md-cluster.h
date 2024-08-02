@@ -33,7 +33,4 @@ struct md_cluster_operations {
 	void (*update_size)(struct mddev *mddev, sector_t old_dev_sectors);
 };
 
-extern int md_cluster_ops_resync_status_get(struct mddev *mddev);
-extern int md_cluster_ops_resync_start_notify(struct mddev *mddev);
-
 #endif /* _MD_CLUSTER_H */

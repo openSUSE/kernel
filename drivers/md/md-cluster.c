@@ -15,7 +15,6 @@
 
 #define LVB_SIZE	64
 #define NEW_DEV_TIMEOUT 5000
-#define WAIT_DLM_LOCK_TIMEOUT (30 * HZ)
 
 struct dlm_lock_resource {
 	dlm_lockspace_t *ls;
@@ -57,7 +56,6 @@ struct resync_info {
 #define		MD_CLUSTER_ALREADY_IN_CLUSTER		6
 #define		MD_CLUSTER_PENDING_RECV_EVENT		7
 #define 	MD_CLUSTER_HOLDING_MUTEX_FOR_RECVD		8
-#define		MD_CLUSTER_WAITING_FOR_SYNC		9
 
 struct md_cluster_info {
 	struct mddev *mddev; /* the md device which md_cluster_info belongs to */
@@ -93,7 +91,6 @@ struct md_cluster_info {
 	sector_t sync_hi;
 };
 
-/* For compatibility, add the new msg_type at the end. */
 enum msg_type {
 	METADATA_UPDATED = 0,
 	RESYNCING,
@@ -103,7 +100,6 @@ enum msg_type {
 	BITMAP_NEEDS_SYNC,
 	CHANGE_CAPACITY,
 	BITMAP_RESIZE,
-	RESYNCING_START,
 };
 
 struct cluster_msg {
@@ -134,13 +130,8 @@ static int dlm_lock_sync(struct dlm_lock_resource *res, int mode)
 			0, sync_ast, res, res->bast);
 	if (ret)
 		return ret;
-	ret = wait_event_timeout(res->sync_locking, res->sync_locking_done,
-				WAIT_DLM_LOCK_TIMEOUT);
+	wait_event(res->sync_locking, res->sync_locking_done);
 	res->sync_locking_done = false;
-	if (!ret) {
-		pr_err("locking DLM '%s' timeout!\n", res->name);
-		return -EBUSY;
-	}
 	if (res->lksb.sb_status == 0)
 		res->mode = mode;
 	return res->lksb.sb_status;
@@ -464,7 +455,6 @@ static void process_suspend_info(struct mddev *mddev,
 		clear_bit(MD_RESYNCING_REMOTE, &mddev->recovery);
 		remove_suspend_info(mddev, slot);
 		set_bit(MD_RECOVERY_NEEDED, &mddev->recovery);
-		clear_bit(MD_CLUSTER_WAITING_FOR_SYNC, &cinfo->state);
 		md_wakeup_thread(mddev->thread);
 		return;
 	}
@@ -535,7 +525,6 @@ static int process_add_new_disk(struct mddev *mddev, struct cluster_msg *cmsg)
 		res = -1;
 	}
 	clear_bit(MD_CLUSTER_WAITING_FOR_NEWDISK, &cinfo->state);
-	set_bit(MD_CLUSTER_WAITING_FOR_SYNC, &cinfo->state);
 	return res;
 }
 
@@ -603,9 +592,6 @@ static int process_recvd_msg(struct mddev *mddev, struct cluster_msg *msg)
 		break;
 	case CHANGE_CAPACITY:
 		set_capacity_and_notify(mddev->gendisk, mddev->array_sectors);
-		break;
-	case RESYNCING_START:
-		clear_bit(MD_CLUSTER_WAITING_FOR_SYNC, &mddev->cluster_info->state);
 		break;
 	case RESYNCING:
 		set_bit(MD_RESYNCING_REMOTE, &mddev->recovery);
@@ -757,7 +743,7 @@ static void unlock_comm(struct md_cluster_info *cinfo)
  */
 static int __sendmsg(struct md_cluster_info *cinfo, struct cluster_msg *cmsg)
 {
-	int error, unlock_error;
+	int error;
 	int slot = cinfo->slot_number - 1;
 
 	cmsg->slot = cpu_to_le32(slot);
@@ -765,7 +751,7 @@ static int __sendmsg(struct md_cluster_info *cinfo, struct cluster_msg *cmsg)
 	error = dlm_lock_sync(cinfo->message_lockres, DLM_LOCK_EX);
 	if (error) {
 		pr_err("md-cluster: failed to get EX on MESSAGE (%d)\n", error);
-		return error;
+		goto failed_message;
 	}
 
 	memcpy(cinfo->message_lockres->lksb.sb_lvbptr, (void *)cmsg,
@@ -795,10 +781,14 @@ static int __sendmsg(struct md_cluster_info *cinfo, struct cluster_msg *cmsg)
 	}
 
 failed_ack:
-	while ((unlock_error = dlm_unlock_sync(cinfo->message_lockres)))
+	error = dlm_unlock_sync(cinfo->message_lockres);
+	if (unlikely(error != 0)) {
 		pr_err("md-cluster: failed convert to NL on MESSAGE(%d)\n",
-			unlock_error);
-
+			error);
+		/* in case the message can't be released due to some reason */
+		goto failed_ack;
+	}
+failed_message:
 	return error;
 }
 
@@ -1352,25 +1342,6 @@ static void resync_info_get(struct mddev *mddev, sector_t *lo, sector_t *hi)
 	*hi = cinfo->suspend_hi;
 	spin_unlock_irq(&cinfo->suspend_lock);
 }
-
-int md_cluster_ops_resync_status_get(struct mddev *mddev)
-{
-	struct md_cluster_info *cinfo = mddev->cluster_info;
-
-	return test_bit(MD_CLUSTER_WAITING_FOR_SYNC, &cinfo->state);
-}
-EXPORT_SYMBOL(md_cluster_ops_resync_status_get);
-
-int md_cluster_ops_resync_start_notify(struct mddev *mddev)
-{
-	struct md_cluster_info *cinfo = mddev->cluster_info;
-	struct cluster_msg cmsg = {0};
-
-	cmsg.type = cpu_to_le32(RESYNCING_START);
-
-	return sendmsg(cinfo, &cmsg, 0);
-}
-EXPORT_SYMBOL(md_cluster_ops_resync_start_notify);
 
 static int resync_info_update(struct mddev *mddev, sector_t lo, sector_t hi)
 {
