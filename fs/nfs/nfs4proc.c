@@ -5434,7 +5434,7 @@ static bool nfs4_read_plus_not_supported(struct rpc_task *task,
 	struct rpc_message *msg = &task->tk_msg;
 
 	if (msg->rpc_proc == &nfs4_procedures[NFSPROC4_CLNT_READ_PLUS] &&
-	    server->caps & NFS_CAP_READ_PLUS && task->tk_status == -ENOTSUPP) {
+	    task->tk_status == -ENOTSUPP) {
 		server->caps &= ~NFS_CAP_READ_PLUS;
 		msg->rpc_proc = &nfs4_procedures[NFSPROC4_CLNT_READ];
 		rpc_restart_call_prepare(task);
@@ -10450,9 +10450,16 @@ static const struct nfs4_minor_version_ops nfs_v4_0_minor_ops = {
 };
 
 #if defined(CONFIG_NFS_V4_1)
+static bool serialize_opens = false;
+module_param(serialize_opens, bool, 0644);
+MODULE_PARM_DESC(serialize_opens,
+		 "Serialize all open/close to each file - avoids some server bugs");
+
 static struct nfs_seqid *
 nfs_alloc_no_seqid(struct nfs_seqid_counter *arg1, gfp_t arg2)
 {
+	if (serialize_opens)
+		return nfs_alloc_seqid(arg1, arg2);
 	return NULL;
 }
 

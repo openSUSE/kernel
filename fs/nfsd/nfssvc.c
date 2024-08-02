@@ -364,7 +364,7 @@ void nfsd_copy_boot_verifier(__be32 verf[2], struct nfsd_net *nn)
 
 static void nfsd_reset_boot_verifier_locked(struct nfsd_net *nn)
 {
-	ktime_get_real_ts64(&nn->nfssvc_boot);
+	ktime_get_raw_ts64(&nn->nfssvc_boot);
 }
 
 void nfsd_reset_boot_verifier(struct nfsd_net *nn)
@@ -962,12 +962,13 @@ nfsd(void *vrqstp)
 		 * recvfrom routine.
 		 */
 		while ((err = svc_recv(rqstp, 60*60*HZ)) == -EAGAIN)
-			;
+			nfsd_file_net_dispose(nn);
 		if (err == -EINTR)
 			break;
 		validate_process_creds();
 		svc_process(rqstp);
 		validate_process_creds();
+		nfsd_file_net_dispose(nn);
 	}
 
 	/* Clear signals before calling svc_exit_thread() */
