@@ -1192,53 +1192,44 @@ static int cvt_sysex_to_ump(struct snd_seq_client *dest,
 {
 	struct snd_seq_ump_event ev_cvt;
 	unsigned char status;
-	u8 buf[8], *xbuf;
+	u8 buf[6], *xbuf;
 	int offset = 0;
 	int len, err;
-	bool finished = false;
 
 	if (!snd_seq_ev_is_variable(event))
 		return 0;
 
 	setup_ump_event(&ev_cvt, event);
-	while (!finished) {
+	for (;;) {
 		len = snd_seq_expand_var_event_at(event, sizeof(buf), buf, offset);
 		if (len <= 0)
 			break;
-		if (WARN_ON(len > sizeof(buf)))
+		if (WARN_ON(len > 6))
 			break;
-
+		offset += len;
 		xbuf = buf;
-		status = UMP_SYSEX_STATUS_CONTINUE;
-		/* truncate the sysex start-marker */
 		if (*xbuf == UMP_MIDI1_MSG_SYSEX_START) {
 			status = UMP_SYSEX_STATUS_START;
-			len--;
-			offset++;
 			xbuf++;
-		}
-
-		/* if the last of this packet or the 1st byte of the next packet
-		 * is the end-marker, finish the transfer with this packet
-		 */
-		if (len > 0 && len < 8 &&
-		    xbuf[len - 1] == UMP_MIDI1_MSG_SYSEX_END) {
-			if (status == UMP_SYSEX_STATUS_START)
-				status = UMP_SYSEX_STATUS_SINGLE;
-			else
-				status = UMP_SYSEX_STATUS_END;
 			len--;
-			finished = true;
+			if (len > 0 && xbuf[len - 1] == UMP_MIDI1_MSG_SYSEX_END) {
+				status = UMP_SYSEX_STATUS_SINGLE;
+				len--;
+			}
+		} else {
+			if (xbuf[len - 1] == UMP_MIDI1_MSG_SYSEX_END) {
+				status = UMP_SYSEX_STATUS_END;
+				len--;
+			} else {
+				status = UMP_SYSEX_STATUS_CONTINUE;
+			}
 		}
-
-		len = min(len, 6);
 		fill_sysex7_ump(dest_port, ev_cvt.ump, status, xbuf, len);
 		err = __snd_seq_deliver_single_event(dest, dest_port,
 						     (struct snd_seq_event *)&ev_cvt,
 						     atomic, hop);
 		if (err < 0)
 			return err;
-		offset += len;
 	}
 	return 0;
 }

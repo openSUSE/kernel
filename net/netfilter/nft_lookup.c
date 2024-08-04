@@ -136,8 +136,7 @@ static int nft_lookup_init(const struct nft_ctx *ctx,
 			return -EINVAL;
 
 		err = nft_parse_register_store(ctx, tb[NFTA_LOOKUP_DREG],
-					       &priv->dreg, NULL,
-					       nft_set_datatype(set),
+					       &priv->dreg, NULL, set->dtype,
 					       set->dlen);
 		if (err < 0)
 			return err;
