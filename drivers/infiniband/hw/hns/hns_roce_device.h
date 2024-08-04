@@ -114,6 +114,8 @@
 #define PAGES_SHIFT_24				24
 #define PAGES_SHIFT_32				32
 
+#define ATOMIC_WR_LEN				8
+
 #define HNS_ROCE_IDX_QUE_ENTRY_SZ		4
 #define SRQ_DB_REG				0x230
 
