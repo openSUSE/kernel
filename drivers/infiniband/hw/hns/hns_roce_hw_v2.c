@@ -1268,12 +1268,38 @@ static int hns_roce_cmd_err_convert_errno(u16 desc_ret)
 	return -EIO;
 }
 
+static u32 hns_roce_cmdq_tx_timeout(u16 opcode, u32 tx_timeout)
+{
+	static const struct hns_roce_cmdq_tx_timeout_map cmdq_tx_timeout[] = {
+		{HNS_ROCE_OPC_POST_MB, HNS_ROCE_OPC_POST_MB_TIMEOUT},
+	};
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(cmdq_tx_timeout); i++)
+		if (cmdq_tx_timeout[i].opcode == opcode)
+			return cmdq_tx_timeout[i].tx_timeout;
+
+	return tx_timeout;
+}
+
+static void hns_roce_wait_csq_done(struct hns_roce_dev *hr_dev, u16 opcode)
+{
+	struct hns_roce_v2_priv *priv = hr_dev->priv;
+	u32 tx_timeout = hns_roce_cmdq_tx_timeout(opcode, priv->cmq.tx_timeout);
+	u32 timeout = 0;
+
+	do {
+		if (hns_roce_cmq_csq_done(hr_dev))
+			break;
+		udelay(1);
+	} while (++timeout < tx_timeout);
+}
+
 static int __hns_roce_cmq_send(struct hns_roce_dev *hr_dev,
 			       struct hns_roce_cmq_desc *desc, int num)
 {
 	struct hns_roce_v2_priv *priv = hr_dev->priv;
 	struct hns_roce_v2_cmq_ring *csq = &priv->cmq.csq;
-	u32 timeout = 0;
 	u16 desc_ret;
 	u32 tail;
 	int ret;
@@ -1292,12 +1318,7 @@ static int __hns_roce_cmq_send(struct hns_roce_dev *hr_dev,
 	/* Write to hardware */
 	roce_write(hr_dev, ROCEE_TX_CMQ_PI_REG, csq->head);
 
-	do {
-		if (hns_roce_cmq_csq_done(hr_dev))
-			break;
-		udelay(1);
-	} while (++timeout < priv->cmq.tx_timeout);
-
+	hns_roce_wait_csq_done(hr_dev, le16_to_cpu(desc->opcode));
 	if (hns_roce_cmq_csq_done(hr_dev)) {
 		for (ret = 0, i = 0; i < num; i++) {
 			/* check the result of hardware write back */
