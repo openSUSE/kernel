@@ -377,4 +377,53 @@ static __always_inline size_t str_has_prefix(const char *str, const char *prefix
 	return strncmp(str, prefix, len) == 0 ? len : 0;
 }
 
+/**
+ * memtostr - Copy a possibly non-NUL-term string to a NUL-term string
+ * @dest: Pointer to destination NUL-terminates string
+ * @src: Pointer to character array (likely marked as __nonstring)
+ *
+ * This is a replacement for strncpy() uses where the source is not
+ * a NUL-terminated string.
+ *
+ * Note that sizes of @dest and @src must be known at compile-time.
+ */
+#define memtostr(dest, src)	do {					\
+	const size_t _dest_len = __builtin_object_size(dest, 1);	\
+	const size_t _src_len = __builtin_object_size(src, 1);		\
+	const size_t _src_chars = strnlen(src, _src_len);		\
+	const size_t _copy_len = min(_dest_len - 1, _src_chars);	\
+									\
+	BUILD_BUG_ON(!__builtin_constant_p(_dest_len) ||		\
+		     !__builtin_constant_p(_src_len) ||			\
+		     _dest_len == 0 || _dest_len == (size_t)-1 ||	\
+		     _src_len == 0 || _src_len == (size_t)-1);		\
+	memcpy(dest, src, _copy_len);					\
+	dest[_copy_len] = '\0';						\
+} while (0)
+
+/**
+ * memtostr_pad - Copy a possibly non-NUL-term string to a NUL-term string
+ *                with NUL padding in the destination
+ * @dest: Pointer to destination NUL-terminates string
+ * @src: Pointer to character array (likely marked as __nonstring)
+ *
+ * This is a replacement for strncpy() uses where the source is not
+ * a NUL-terminated string.
+ *
+ * Note that sizes of @dest and @src must be known at compile-time.
+ */
+#define memtostr_pad(dest, src)		do {				\
+	const size_t _dest_len = __builtin_object_size(dest, 1);	\
+	const size_t _src_len = __builtin_object_size(src, 1);		\
+	const size_t _src_chars = strnlen(src, _src_len);		\
+	const size_t _copy_len = min(_dest_len - 1, _src_chars);	\
+									\
+	BUILD_BUG_ON(!__builtin_constant_p(_dest_len) ||		\
+		     !__builtin_constant_p(_src_len) ||			\
+		     _dest_len == 0 || _dest_len == (size_t)-1 ||	\
+		     _src_len == 0 || _src_len == (size_t)-1);		\
+	memcpy(dest, src, _copy_len);					\
+	memset(&dest[_copy_len], 0, _dest_len - _copy_len);		\
+} while (0)
+
 #endif /* _LINUX_STRING_H_ */
