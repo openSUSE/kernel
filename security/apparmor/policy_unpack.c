@@ -738,34 +738,42 @@ static int unpack_pdb(struct aa_ext *e, struct aa_policydb *policy,
 			*info = "missing required dfa";
 			goto fail;
 		}
-		goto out;
+	} else {
+		/*
+		 * only unpack the following if a dfa is present
+		 *
+		 * sadly start was given different names for file and policydb
+		 * but since it is optional we can try both
+		 */
+		if (!aa_unpack_u32(e, &policy->start[0], "start"))
+			/* default start state */
+			policy->start[0] = DFA_START;
+		if (!aa_unpack_u32(e, &policy->start[AA_CLASS_FILE], "dfa_start")) {
+			/* default start state for xmatch and file dfa */
+			policy->start[AA_CLASS_FILE] = DFA_START;
+		}	/* setup class index */
+		for (i = AA_CLASS_FILE + 1; i <= AA_CLASS_LAST; i++) {
+			policy->start[i] = aa_dfa_next(policy->dfa, policy->start[0],
+						       i);
+		}
 	}
 
 	/*
-	 * only unpack the following if a dfa is present
-	 *
-	 * sadly start was given different names for file and policydb
-	 * but since it is optional we can try both
+	 * Unfortunately due to a bug in earlier userspaces, a
+	 * transition table may be present even when the dfa is
+	 * not. For compatibility reasons unpack and discard.
 	 */
-	if (!aa_unpack_u32(e, &policy->start[0], "start"))
-		/* default start state */
-		policy->start[0] = DFA_START;
-	if (!aa_unpack_u32(e, &policy->start[AA_CLASS_FILE], "dfa_start")) {
-		/* default start state for xmatch and file dfa */
-		policy->start[AA_CLASS_FILE] = DFA_START;
-	}	/* setup class index */
-	for (i = AA_CLASS_FILE + 1; i <= AA_CLASS_LAST; i++) {
-		policy->start[i] = aa_dfa_next(policy->dfa, policy->start[0],
-					       i);
-	}
 	if (!unpack_trans_table(e, &policy->trans) && required_trans) {
 		*info = "failed to unpack profile transition table";
 		goto fail;
 	}
 
+	if (!policy->dfa && policy->trans.table)
+		aa_free_str_table(&policy->trans);
+
 	/* TODO: move compat mapping here, requires dfa merging first */
 	/* TODO: move verify here, it has to be done after compat mappings */
-out:
+
 	return 0;
 
 fail:
