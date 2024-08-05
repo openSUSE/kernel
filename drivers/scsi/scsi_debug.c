@@ -808,7 +808,8 @@ static int resp_inquiry(struct scsi_cmnd * scp, int target,
 	unsigned char pq_pdt;
 	unsigned char * arr;
 	unsigned char *cmd = (unsigned char *)scp->cmnd;
-	int alloc_len, n, ret;
+	u32 alloc_len, n;
+	int ret;
 
 	alloc_len = (cmd[3] << 8) + cmd[4];
 	arr = kzalloc(SDEBUG_MAX_INQ_ARR_SZ, GFP_ATOMIC);
@@ -827,7 +828,8 @@ static int resp_inquiry(struct scsi_cmnd * scp, int target,
 		kfree(arr);
 		return check_condition_result;
 	} else if (0x1 & cmd[1]) {  /* EVPD bit set */
-		int lu_id_num, port_group_id, target_dev_id, len;
+		int lu_id_num, port_group_id, target_dev_id;
+		u32 len;
 		char lu_id_str[6];
 		int host_no = devip->sdbg_host->shost->host_no;
 		
@@ -913,9 +915,9 @@ static int resp_inquiry(struct scsi_cmnd * scp, int target,
 			kfree(arr);
 			return check_condition_result;
 		}
-		len = min(((arr[2] << 8) + arr[3]) + 4, alloc_len);
+		len = min_t(u32, ((arr[2] << 8) + arr[3]) + 4, alloc_len);
 		ret = fill_from_dev_buffer(scp, arr,
-			    min(len, SDEBUG_MAX_INQ_ARR_SZ));
+			    min_t(u32, len, SDEBUG_MAX_INQ_ARR_SZ));
 		kfree(arr);
 		return ret;
 	}
@@ -944,7 +946,7 @@ static int resp_inquiry(struct scsi_cmnd * scp, int target,
 	}
 	arr[n++] = 0xc; arr[n++] = 0xf;  /* SAS-1.1 rev 10 */
 	ret = fill_from_dev_buffer(scp, arr,
-			    min(alloc_len, SDEBUG_LONG_INQ_SZ));
+			    min_t(u32, alloc_len, SDEBUG_LONG_INQ_SZ));
 	kfree(arr);
 	return ret;
 }
@@ -956,7 +958,7 @@ static int resp_requests(struct scsi_cmnd * scp,
 	unsigned char *cmd = (unsigned char *)scp->cmnd;
 	unsigned char arr[SDEBUG_SENSE_LEN];
 	int want_dsense;
-	int len = 18;
+	u32 len = 18;
 
 	memset(arr, 0, sizeof(arr));
 	if (devip->reset == 1)
@@ -1102,8 +1104,9 @@ static int resp_report_tgtpgs(struct scsi_cmnd * scp,
 	unsigned char *cmd = (unsigned char *)scp->cmnd;
 	unsigned char * arr;
 	int host_no = devip->sdbg_host->shost->host_no;
-	int n, ret, alen, rlen;
 	int port_group_a, port_group_b, port_a, port_b;
+	u32 alen, n, rlen;
+	int ret;
 
 	alen = ((cmd[6] << 24) + (cmd[7] << 16) + (cmd[8] << 8)
 		+ cmd[9]);
@@ -1170,9 +1173,9 @@ static int resp_report_tgtpgs(struct scsi_cmnd * scp,
 	 * - The constructed command length
 	 * - The maximum array size
 	 */
-	rlen = min(alen,n);
+	rlen = min(alen, n);
 	ret = fill_from_dev_buffer(scp, arr,
-				   min(rlen, SDEBUG_MAX_TGTPGS_ARR_SZ));
+			   min_t(u32, rlen, SDEBUG_MAX_TGTPGS_ARR_SZ));
 	kfree(arr);
 	return ret;
 }
@@ -1336,7 +1339,8 @@ static int resp_mode_sense(struct scsi_cmnd * scp, int target,
 	unsigned char dbd, llbaa;
 	int pcontrol, pcode, subpcode, bd_len;
 	unsigned char dev_spec;
-	int k, alloc_len, msense_6, offset, len, errsts, target_dev_id;
+	u32 alloc_len, offset, len;
+	int k, msense_6, errsts, target_dev_id;
 	unsigned char * ap;
 	unsigned char arr[SDEBUG_MAX_MSENSE_SZ];
 	unsigned char *cmd = (unsigned char *)scp->cmnd;
@@ -1490,7 +1494,7 @@ static int resp_mode_sense(struct scsi_cmnd * scp, int target,
 		arr[0] = ((offset - 2) >> 8) & 0xff;
 		arr[1] = (offset - 2) & 0xff;
 	}
-	return fill_from_dev_buffer(scp, arr, min(alloc_len, offset));
+	return fill_from_dev_buffer(scp, arr, min_t(u32, alloc_len, offset));
 }
 
 #define SDEBUG_MAX_MSELECT_SZ 512
@@ -1596,7 +1600,8 @@ static int resp_ie_l_pg(unsigned char * arr)
 static int resp_log_sense(struct scsi_cmnd * scp,
                           struct sdebug_dev_info * devip)
 {
-	int ppc, sp, pcontrol, pcode, subpcode, alloc_len, errsts, len, n;
+	int ppc, sp, pcontrol, pcode, subpcode, errsts;
+	u32 alloc_len, len, n;
 	unsigned char arr[SDEBUG_MAX_LSENSE_SZ];
 	unsigned char *cmd = (unsigned char *)scp->cmnd;
 
@@ -1673,9 +1678,9 @@ static int resp_log_sense(struct scsi_cmnd * scp,
 				INVALID_FIELD_IN_CDB, 0);
 		return check_condition_result;
 	}
-	len = min(((arr[2] << 8) + arr[3]) + 4, alloc_len);
+	len = min_t(u32, ((arr[2] << 8) + arr[3]) + 4, alloc_len);
 	return fill_from_dev_buffer(scp, arr,
-		    min(len, SDEBUG_MAX_INQ_ARR_SZ));
+		    min_t(u32, len, SDEBUG_MAX_INQ_ARR_SZ));
 }
 
 static int check_device_access_params(struct sdebug_dev_info *devi,
@@ -2246,7 +2251,7 @@ static int resp_get_lba_status(struct scsi_cmnd * scmd,
 static int resp_report_luns(struct scsi_cmnd * scp,
 			    struct sdebug_dev_info * devip)
 {
-	unsigned int alloc_len;
+	u32 alloc_len;
 	int lun_cnt, i, upper, num, n, wlun, lun;
 	unsigned char *cmd = (unsigned char *)scp->cmnd;
 	int select_report = (int)cmd[2];
@@ -2295,7 +2300,7 @@ static int resp_report_luns(struct scsi_cmnd * scp,
 	}
 	alloc_len = (unsigned char *)(one_lun + i) - arr;
 	return fill_from_dev_buffer(scp, arr,
-				    min((int)alloc_len, SDEBUG_RLUN_ARR_SZ));
+				    min_t(u32, alloc_len, SDEBUG_RLUN_ARR_SZ));
 }
 
 static int resp_xdwriteread(struct scsi_cmnd *scp, unsigned long long lba,
