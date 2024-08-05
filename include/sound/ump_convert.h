@@ -8,7 +8,13 @@
 struct ump_cvt_to_ump_bank {
 	bool rpn_set;
 	bool nrpn_set;
+#ifdef __GENKSYMS__
 	bool bank_set;
+#else
+	bool bank_set:1;
+	bool cc_data_msb_set:1;
+       	bool cc_data_lsb_set:1;
+#endif
 	unsigned char cc_rpn_msb, cc_rpn_lsb;
 	unsigned char cc_nrpn_msb, cc_nrpn_lsb;
 	unsigned char cc_data_msb, cc_data_lsb;
