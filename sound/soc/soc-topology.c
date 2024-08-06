@@ -1273,14 +1273,8 @@ static int soc_tplg_dapm_graph_elems_load(struct soc_tplg *tplg,
 			break;
 		}
 
-		routes[i]->source = devm_kmemdup(tplg->dev, elem->source,
-						 min_t(size_t, strlen(elem->source),
-						       SNDRV_CTL_ELEM_ID_NAME_MAXLEN),
-						 GFP_KERNEL);
-		routes[i]->sink = devm_kmemdup(tplg->dev, elem->sink,
-					       min_t(size_t, strlen(elem->sink),
-						     SNDRV_CTL_ELEM_ID_NAME_MAXLEN),
-					       GFP_KERNEL);
+		routes[i]->source = devm_kstrdup(tplg->dev, elem->source, GFP_KERNEL);
+		routes[i]->sink = devm_kstrdup(tplg->dev, elem->sink, GFP_KERNEL);
 		if (!routes[i]->source || !routes[i]->sink) {
 			ret = -ENOMEM;
 			break;
@@ -1291,10 +1285,7 @@ static int soc_tplg_dapm_graph_elems_load(struct soc_tplg *tplg,
 		if (strnlen(elem->control, SNDRV_CTL_ELEM_ID_NAME_MAXLEN) == 0) {
 			routes[i]->control = NULL;
 		} else {
-			routes[i]->control = devm_kmemdup(tplg->dev, elem->control,
-							  min_t(size_t, strlen(elem->control),
-								SNDRV_CTL_ELEM_ID_NAME_MAXLEN),
-							  GFP_KERNEL);
+			routes[i]->control = devm_kstrdup(tplg->dev, elem->control, GFP_KERNEL);
 			if (!routes[i]->control) {
 				ret = -ENOMEM;
 				break;
