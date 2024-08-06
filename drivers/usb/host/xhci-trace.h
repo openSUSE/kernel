@@ -478,7 +478,7 @@ DECLARE_EVENT_CLASS(xhci_log_ring,
 		__entry->enq = xhci_trb_virt_to_dma(ring->enq_seg, ring->enqueue);
 		__entry->deq = xhci_trb_virt_to_dma(ring->deq_seg, ring->dequeue);
 	),
-	TP_printk("%s %p: enq %pad(%pad) deq %pad(%pad) segs %d stream %d bounce %d cycle %d",
+	TP_printk("%s %p: enq %pad(%pad) deq %pad(%pad) segs %d stream %d free_trbs %d bounce %d cycle %d",
 			xhci_ring_type_string(__entry->type), __entry->ring,
 			&__entry->enq, &__entry->enq_seg,
 			&__entry->deq, &__entry->deq_seg,
