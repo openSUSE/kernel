@@ -38,6 +38,7 @@ ax25_dev *ax25_addr_ax25dev(ax25_address *addr)
 		if (ax25cmp(addr, (ax25_address *)ax25_dev->dev->dev_addr) == 0) {
 			res = ax25_dev;
 			ax25_dev_hold(ax25_dev);
+			break;
 		}
 	spin_unlock_bh(&ax25_dev_lock);
 
@@ -87,7 +88,6 @@ void ax25_dev_device_up(struct net_device *dev)
 	ax25_dev->next = ax25_dev_list;
 	ax25_dev_list  = ax25_dev;
 	spin_unlock_bh(&ax25_dev_lock);
-	ax25_dev_hold(ax25_dev);
 
 	ax25_register_dev_sysctl(ax25_dev);
 }
@@ -116,29 +116,22 @@ void ax25_dev_device_down(struct net_device *dev)
 
 	if ((s = ax25_dev_list) == ax25_dev) {
 		ax25_dev_list = s->next;
-		spin_unlock_bh(&ax25_dev_lock);
-		ax25_dev_put(ax25_dev);
-		dev->ax25_ptr = NULL;
-		dev_put(dev);
-		ax25_dev_put(ax25_dev);
-		return;
+		goto unlock_put;
 	}
 
 	while (s != NULL && s->next != NULL) {
 		if (s->next == ax25_dev) {
 			s->next = ax25_dev->next;
-			spin_unlock_bh(&ax25_dev_lock);
-			ax25_dev_put(ax25_dev);
-			dev->ax25_ptr = NULL;
-			dev_put(dev);
-			ax25_dev_put(ax25_dev);
-			return;
+			goto unlock_put;
 		}
 
 		s = s->next;
 	}
-	spin_unlock_bh(&ax25_dev_lock);
+
+unlock_put:
 	dev->ax25_ptr = NULL;
+	spin_unlock_bh(&ax25_dev_lock);
+	dev_put(dev);
 	ax25_dev_put(ax25_dev);
 }
 
