@@ -2791,8 +2791,10 @@ struct page *alloc_huge_page(struct vm_area_struct *vma,
 	 */
 	deferred_reserve = map_chg || avoid_reserve;
 	if (deferred_reserve) {
+		spin_lock_irq(&hugetlb_lock);
 		ret = hugetlb_cgroup_charge_cgroup_rsvd(
 			idx, pages_per_huge_page(h), &h_cg);
+		spin_unlock_irq(&hugetlb_lock);
 		if (ret)
 			goto out_subpool_put;
 	}
