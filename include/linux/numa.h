@@ -44,12 +44,9 @@ static inline int phys_to_target_node(u64 start)
 	return 0;
 }
 #endif
-#ifndef numa_fill_memblks
-static inline int __init numa_fill_memblks(u64 start, u64 end)
-{
-	return NUMA_NO_MEMBLK;
-}
-#endif
+
+int numa_fill_memblks(u64 start, u64 end);
+
 #else /* !CONFIG_NUMA */
 static inline int numa_nearest_node(int node, unsigned int state)
 {
