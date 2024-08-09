@@ -154,7 +154,7 @@ void vmbus_free_ring(struct vmbus_channel *channel)
 
 	if (channel->ringbuffer_page) {
 		/* In a CoCo VM leak the memory if it didn't get re-encrypted */
-		if (!SUSE_vmbus_gpadl_get_decrypted(&channel->ringbuffer_gpadlhandle))
+		if (!channel->ringbuffer_gpadlhandle.decrypted)
 			__free_pages(channel->ringbuffer_page,
 			     get_order(channel->ringbuffer_pagecount
 				       << PAGE_SHIFT));
