@@ -76,6 +76,7 @@ static struct ctl_table printk_sysctls[] = {
 		.extra1		= SYSCTL_ZERO,
 		.extra2		= SYSCTL_TWO,
 	},
+	{}
 };
 
 void __init printk_sysctl_init(void)
