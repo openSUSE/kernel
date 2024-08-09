@@ -331,6 +331,8 @@ static irqreturn_t ks8851_irq(int irq, void *_ks)
 	unsigned long flags;
 	unsigned int status;
 
+	local_bh_disable();
+
 	ks8851_lock(ks, &flags);
 
 	status = ks8851_rdreg16(ks, KS_ISR);
@@ -406,6 +408,8 @@ static irqreturn_t ks8851_irq(int irq, void *_ks)
 
 	if (status & IRQ_LCI)
 		mii_check_link(&ks->mii);
+
+	local_bh_enable();
 
 	return IRQ_HANDLED;
 }
