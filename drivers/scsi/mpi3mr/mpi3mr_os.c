@@ -3508,7 +3508,8 @@ static void mpi3mr_map_queues(struct Scsi_Host *shost)
 		 */
 		map->queue_offset = qoff;
 		if (i != HCTX_TYPE_POLL)
-			blk_mq_pci_map_queues(map, mrioc->pdev, offset);
+			blk_mq_dev_map_queues(map, mrioc->pdev, offset,
+					      blk_mq_pci_get_queue_affinity);
 		else
 			blk_mq_map_queues(map);
 
