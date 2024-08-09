@@ -1210,8 +1210,7 @@ static int acpi_processor_setup_lpi_states(struct acpi_processor *pr)
 		strlcpy(state->desc, lpi->desc, CPUIDLE_DESC_LEN);
 		state->exit_latency = lpi->wake_latency;
 		state->target_residency = lpi->min_residency;
-		if (lpi->arch_flags)
-			state->flags |= CPUIDLE_FLAG_TIMER_STOP;
+		state->flags |= arch_get_idle_state_flags(lpi->arch_flags);
 		state->enter = acpi_idle_lpi_enter;
 		drv->safe_state_index = i;
 	}
