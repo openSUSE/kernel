@@ -882,7 +882,12 @@ void blk_mq_freeze_queue_wait(struct request_queue *q);
 int blk_mq_freeze_queue_wait_timeout(struct request_queue *q,
 				     unsigned long timeout);
 
+typedef const struct cpumask *(get_queue_affinty_fn)(void *dev_data,
+					      int dev_off, int queue_idx);
 void blk_mq_map_queues(struct blk_mq_queue_map *qmap);
+void blk_mq_dev_map_queues(struct blk_mq_queue_map *qmap,
+			   void *dev_data, int dev_off,
+			   get_queue_affinty_fn *get_queue_affinity);
 void blk_mq_update_nr_hw_queues(struct blk_mq_tag_set *set, int nr_hw_queues);
 
 void blk_mq_quiesce_queue_nowait(struct request_queue *q);
