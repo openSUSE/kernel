@@ -26,9 +26,7 @@
 #include <linux/pgtable.h>
 #include <linux/swap.h>
 #include <linux/cma.h>
-#ifndef __GENKSYMS__
 #include <linux/crash_dump.h>
-#endif
 #include "internal.h"
 #include "slab.h"
 #include "shuffle.h"

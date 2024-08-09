@@ -1604,6 +1604,8 @@ static struct md_cluster_operations cluster_ops = {
 	.resync_start = resync_start,
 	.resync_finish = resync_finish,
 	.resync_info_update = resync_info_update,
+	.resync_start_notify = resync_start_notify,
+	.resync_status_get = resync_status_get,
 	.resync_info_get = resync_info_get,
 	.metadata_update_start = metadata_update_start,
 	.metadata_update_finish = metadata_update_finish,
@@ -1619,10 +1621,6 @@ static struct md_cluster_operations cluster_ops = {
 	.lock_all_bitmaps = lock_all_bitmaps,
 	.unlock_all_bitmaps = unlock_all_bitmaps,
 	.update_size = update_size,
-#ifndef __GENKSYMS__
-	.resync_start_notify = resync_start_notify,
-	.resync_status_get = resync_status_get,
-#endif
 };
 
 static int __init cluster_init(void)

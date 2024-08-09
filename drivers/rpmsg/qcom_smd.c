@@ -469,7 +469,7 @@ static void smd_copy_to_fifo(void __iomem *dst,
 			     bool word_aligned)
 {
 	if (word_aligned) {
-		__iowrite32_copy_inlined(dst, src, count / sizeof(u32));
+		__iowrite32_copy(dst, src, count / sizeof(u32));
 	} else {
 		memcpy_toio(dst, src, count);
 	}

@@ -47,14 +47,11 @@ struct fpga_region {
 	struct fpga_manager *mgr;
 	struct fpga_image_info *info;
 	struct fpga_compat_id *compat_id;
+	struct module *ops_owner;
 	void *priv;
 	int (*get_bridges)(struct fpga_region *region);
 
-#ifdef __GENKSYMS__
 	void *suse_kabi_padding;
-#else
-	struct module *ops_owner;
-#endif
 };
 
 #define to_fpga_region(d) container_of(d, struct fpga_region, dev)

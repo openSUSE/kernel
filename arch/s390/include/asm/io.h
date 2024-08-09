@@ -71,19 +71,19 @@ static inline void ioport_unmap(void __iomem *p)
 #define __raw_writeq	zpci_write_u64
 
 /* combine single writes by using store-block insn */
-static inline void __iowrite32_copy_inlined(void __iomem *to, const void *from,
+static inline void __iowrite32_copy(void __iomem *to, const void *from,
 				    size_t count)
 {
 	zpci_memcpy_toio(to, from, count * 4);
 }
-#define __iowrite32_copy_inlined __iowrite32_copy_inlined
+#define __iowrite32_copy __iowrite32_copy
 
-static inline void __iowrite64_copy_inlined(void __iomem *to, const void *from,
+static inline void __iowrite64_copy(void __iomem *to, const void *from,
 				    size_t count)
 {
 	zpci_memcpy_toio(to, from, count * 8);
 }
-#define __iowrite64_copy_inlined __iowrite64_copy_inlined
+#define __iowrite64_copy __iowrite64_copy
 
 #endif /* CONFIG_PCI */
 

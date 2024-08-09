@@ -1148,8 +1148,6 @@ struct ieee80211_sub_if_data {
 	} debugfs;
 #endif
 
-	struct ieee80211_ext_vif_data _ext_data; // FIXME: extended data for kABI
-
 	/* must be last, dynamically sized area in this! */
 	struct ieee80211_vif vif;
 };

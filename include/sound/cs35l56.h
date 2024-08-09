@@ -262,9 +262,7 @@ struct cs35l56_base {
 	bool fw_patched;
 	bool secured;
 	bool can_hibernate;
-#ifndef __GENKSYMS__
 	bool fw_owns_asp1;
-#endif
 	struct gpio_desc *reset_gpio;
 };
 

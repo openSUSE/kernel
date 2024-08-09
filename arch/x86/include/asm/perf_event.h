@@ -542,15 +542,11 @@ struct perf_guest_switch_msr {
 };
 
 struct x86_pmu_lbr {
-#ifdef __GENKSYMS__
 	unsigned int	nr;
-#else
-	unsigned int	nr:31;
-	unsigned int	has_callstack:1;
-#endif
 	unsigned int	from;
 	unsigned int	to;
 	unsigned int	info;
+	bool		has_callstack;
 };
 
 extern void perf_get_x86_pmu_capability(struct x86_pmu_capability *cap);

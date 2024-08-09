@@ -2840,9 +2840,7 @@ static int bpf_obj_get(const union bpf_attr *attr)
 void bpf_link_init(struct bpf_link *link, enum bpf_link_type type,
 		   const struct bpf_link_ops *ops, struct bpf_prog *prog)
 {
-#ifndef __GENKSYMS__
 	WARN_ON(ops->dealloc && ops->dealloc_deferred);
-#endif
 	atomic64_set(&link->refcnt, 1);
 	link->type = type;
 	link->id = 0;
@@ -2886,10 +2884,8 @@ static void bpf_link_defer_dealloc_rcu_gp(struct rcu_head *rcu)
 {
 	struct bpf_link *link = container_of(rcu, struct bpf_link, rcu);
 
-#ifndef __GENKSYMS__
 	/* free bpf_link and its containing memory */
 	link->ops->dealloc_deferred(link);
-#endif
 }
 
 static void bpf_link_defer_dealloc_mult_rcu_gp(struct rcu_head *rcu)
@@ -2913,7 +2909,6 @@ static void bpf_link_free(struct bpf_link *link)
 		ops->release(link);
 		bpf_prog_put(link->prog);
 	}
-#ifndef __GENKSYMS__
 	if (ops->dealloc_deferred) {
 		/* schedule BPF link deallocation; if underlying BPF program
 		 * is sleepable, we need to first wait for RCU tasks trace
@@ -2924,9 +2919,6 @@ static void bpf_link_free(struct bpf_link *link)
 		else
 			call_rcu(&link->rcu, bpf_link_defer_dealloc_rcu_gp);
 	} else if (ops->dealloc)
-#else
-	if (ops->dealloc)
-#endif
 		ops->dealloc(link);
 }
 
@@ -3437,9 +3429,7 @@ static int bpf_raw_tp_link_fill_link_info(const struct bpf_link *link,
 
 static const struct bpf_link_ops bpf_raw_tp_link_lops = {
 	.release = bpf_raw_tp_link_release,
-#ifndef __GENKSYMS__
 	.dealloc_deferred = bpf_raw_tp_link_dealloc,
-#endif
 	.show_fdinfo = bpf_raw_tp_link_show_fdinfo,
 	.fill_link_info = bpf_raw_tp_link_fill_link_info,
 };

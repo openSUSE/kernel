@@ -9,9 +9,7 @@
 
 #define pr_fmt(fmt)	"OF: " fmt
 
-#ifndef __GENKSYMS__
 #include <linux/device.h>
-#endif
 #include <linux/of.h>
 #include <linux/spinlock.h>
 #include <linux/slab.h>

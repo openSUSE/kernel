@@ -217,7 +217,7 @@ static void memcpy16_fromio(void *trg, const void __iomem  *src, size_t size)
 static inline void memcpy32_toio(void __iomem *trg, const void *src, int size)
 {
 	/* __iowrite32_copy use 32bit size values so divide by 4 */
-	__iowrite32_copy_inlined(trg, src, size / 4);
+	__iowrite32_copy(trg, src, size / 4);
 }
 
 static void memcpy16_toio(void __iomem *trg, const void *src, int size)

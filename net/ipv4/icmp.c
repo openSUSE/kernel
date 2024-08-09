@@ -92,9 +92,7 @@
 #include <net/inet_common.h>
 #include <net/ip_fib.h>
 #include <net/l3mdev.h>
-#ifndef __GENKSYMS__
 #include <net/addrconf.h>
-#endif
 /*
  *	Build xmit assembly blocks
  */

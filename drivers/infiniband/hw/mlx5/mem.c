@@ -148,7 +148,7 @@ static int post_send_nop(struct mlx5_ib_dev *dev, struct ib_qp *ibqp, u64 wr_id,
 	 * we hit doorbell
 	 */
 	wmb();
-	__iowrite64_copy_inlined(bf->bfreg->map + bf->offset, mmio_wqe,
+	__iowrite64_copy(bf->bfreg->map + bf->offset, mmio_wqe,
 			 sizeof(mmio_wqe) / 8);
 
 	bf->offset ^= bf->buf_size;

@@ -251,14 +251,12 @@ struct cec_adapter {
 	u16 phys_addr;
 	bool needs_hpd;
 	bool is_enabled;
+	bool is_claiming_log_addrs;
 	bool is_configuring;
 	bool must_reconfigure;
 	bool is_configured;
 	bool cec_pin_is_high;
 	bool adap_controls_phys_addr;
-#ifndef __GENKSYMS__
-	bool is_claiming_log_addrs:1;
-#endif
 	u8 last_initiator;
 	u32 monitor_all_cnt;
 	u32 monitor_pin_cnt;

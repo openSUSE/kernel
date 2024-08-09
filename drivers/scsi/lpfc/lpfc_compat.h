@@ -85,7 +85,7 @@ static inline void
 lpfc_memcpy_to_slim( void __iomem *dest, void *src, unsigned int bytes)
 {
 	/* convert bytes in argument list to word count for copy function */
-	__iowrite32_copy_inlined(dest, src, bytes / sizeof(uint32_t));
+	__iowrite32_copy(dest, src, bytes / sizeof(uint32_t));
 }
 
 static inline void

@@ -245,15 +245,6 @@ err_free:
 }
 EXPORT_SYMBOL_GPL(__fpga_region_register_full);
 
-/* FIXME: provided only for kABI compatibility */
-#undef fpga_region_register_full
-struct fpga_region *
-fpga_region_register_full(struct device *parent, const struct fpga_region_info *info)
-{
-	return __fpga_region_register_full(parent, info, parent->driver->owner);
-}
-EXPORT_SYMBOL_GPL(fpga_region_register_full);
-
 /**
  * __fpga_region_register - create and register an FPGA Region device
  * @parent: device parent
@@ -279,17 +270,6 @@ __fpga_region_register(struct device *parent, struct fpga_manager *mgr,
 	return __fpga_region_register_full(parent, &info, owner);
 }
 EXPORT_SYMBOL_GPL(__fpga_region_register);
-
-/* FIXME: provided only for kABI compatibility */
-#undef fpga_region_register
-struct fpga_region *
-fpga_region_register(struct device *parent, struct fpga_manager *mgr,
-		     int (*get_bridges)(struct fpga_region *))
-{
-	return __fpga_region_register(parent, mgr, get_bridges,
-				      parent->driver->owner);
-}
-EXPORT_SYMBOL_GPL(fpga_region_register);
 
 /**
  * fpga_region_unregister - unregister an FPGA region

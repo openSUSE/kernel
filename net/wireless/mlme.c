@@ -21,7 +21,7 @@
 #include "rdev-ops.h"
 
 
-void _cfg80211_rx_assoc_resp(struct net_device *dev,
+void cfg80211_rx_assoc_resp(struct net_device *dev,
 			    const struct cfg80211_rx_assoc_resp_data *data)
 {
 	struct wireless_dev *wdev = dev->ieee80211_ptr;
@@ -95,7 +95,7 @@ void _cfg80211_rx_assoc_resp(struct net_device *dev,
 	/* update current_bss etc., consumes the bss reference */
 	__cfg80211_connect_result(dev, &cr, cr.status == WLAN_STATUS_SUCCESS);
 }
-EXPORT_SYMBOL(_cfg80211_rx_assoc_resp);
+EXPORT_SYMBOL(cfg80211_rx_assoc_resp);
 
 static void cfg80211_process_auth(struct wireless_dev *wdev,
 				  const u8 *buf, size_t len)
@@ -1183,12 +1183,3 @@ void cfg80211_stop_background_radar_detection(struct wireless_dev *wdev)
 					&rdev->background_radar_chandef,
 					NL80211_RADAR_CAC_ABORTED);
 }
-
-/* FIXME: kABI compatibility */
-#undef cfg80211_rx_assoc_resp
-void cfg80211_rx_assoc_resp(struct net_device *dev,
-			    struct cfg80211_rx_assoc_resp *data)
-{
-	_cfg80211_rx_assoc_resp(dev, data);
-}
-EXPORT_SYMBOL(cfg80211_rx_assoc_resp);

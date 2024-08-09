@@ -1113,13 +1113,6 @@ void ieee80211_tx_status_skb(struct ieee80211_hw *hw, struct sk_buff *skb)
 }
 EXPORT_SYMBOL(ieee80211_tx_status_skb);
 
-// FIXME: for kABI compatibility
-void ieee80211_tx_status(struct ieee80211_hw *hw, struct sk_buff *skb)
-{
-	ieee80211_tx_status_skb(hw, skb);
-}
-EXPORT_SYMBOL(ieee80211_tx_status);
-
 void ieee80211_tx_status_ext(struct ieee80211_hw *hw,
 			     struct ieee80211_tx_status *status)
 {

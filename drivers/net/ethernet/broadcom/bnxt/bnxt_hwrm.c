@@ -528,7 +528,7 @@ static int __hwrm_send(struct bnxt *bp, struct bnxt_hwrm_ctx *ctx)
 	wmb();
 
 	/* Write request msg to hwrm channel */
-	__iowrite32_copy_inlined(bp->bar0 + bar_offset, data, msg_len / 4);
+	__iowrite32_copy(bp->bar0 + bar_offset, data, msg_len / 4);
 
 	for (i = msg_len; i < max_req_len; i += 4)
 		writel(0, bp->bar0 + bar_offset + i);

@@ -194,7 +194,7 @@ __const_memcpy_toio_aligned32(volatile u32 __iomem *to, const u32 *from,
 void __iowrite32_copy_full(void __iomem *to, const void *from, size_t count);
 
 static __always_inline void
-__iowrite32_copy_inlined(void __iomem *to, const void *from, size_t count)
+__iowrite32_copy(void __iomem *to, const void *from, size_t count)
 {
 	if (__builtin_constant_p(count) &&
 	    (count == 8 || count == 4 || count == 2 || count == 1)) {
@@ -204,7 +204,7 @@ __iowrite32_copy_inlined(void __iomem *to, const void *from, size_t count)
 		__iowrite32_copy_full(to, from, count);
 	}
 }
-#define __iowrite32_copy_inlined __iowrite32_copy_inlined
+#define __iowrite32_copy __iowrite32_copy
 
 static __always_inline void
 __const_memcpy_toio_aligned64(volatile u64 __iomem *to, const u64 *from,
@@ -251,7 +251,7 @@ __const_memcpy_toio_aligned64(volatile u64 __iomem *to, const u64 *from,
 void __iowrite64_copy_full(void __iomem *to, const void *from, size_t count);
 
 static __always_inline void
-__iowrite64_copy_inlined(void __iomem *to, const void *from, size_t count)
+__iowrite64_copy(void __iomem *to, const void *from, size_t count)
 {
 	if (__builtin_constant_p(count) &&
 	    (count == 8 || count == 4 || count == 2 || count == 1)) {
@@ -261,7 +261,7 @@ __iowrite64_copy_inlined(void __iomem *to, const void *from, size_t count)
 		__iowrite64_copy_full(to, from, count);
 	}
 }
-#define __iowrite64_copy_inlined __iowrite64_copy_inlined
+#define __iowrite64_copy __iowrite64_copy
 
 /*
  * I/O memory mapping functions.

@@ -81,9 +81,7 @@
 #include <net/xdp.h>
 #include <net/mptcp.h>
 #include <net/netfilter/nf_conntrack_bpf.h>
-#ifndef __GENKSYMS__
 #include <net/xdp_sock_drv.h>
-#endif
 
 #include "dev.h"
 
@@ -4070,7 +4068,6 @@ static int bpf_xdp_frags_increase_tail(struct xdp_buff *xdp, int offset)
 	return 0;
 }
 
-#ifndef __GENKSYMS__
 static void bpf_xdp_shrink_data_zc(struct xdp_buff *xdp, int shrink,
 				   struct xdp_mem_info *mem_info, bool release)
 {
@@ -4104,13 +4101,6 @@ static bool bpf_xdp_shrink_data(struct xdp_buff *xdp, skb_frag_t *frag,
 out:
 	return release;
 }
-#else
-static bool bpf_xdp_shrink_data(struct xdp_buff *xdp, skb_frag_t *frag,
-				int shrink)
-{
-	return false;
-}
-#endif
 
 static int bpf_xdp_frags_shrink_tail(struct xdp_buff *xdp, int offset)
 {

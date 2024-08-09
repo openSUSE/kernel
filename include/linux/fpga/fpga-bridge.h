@@ -57,15 +57,12 @@ struct fpga_bridge {
 	struct device dev;
 	struct mutex mutex; /* for exclusive reference to bridge */
 	const struct fpga_bridge_ops *br_ops;
+	struct module *br_ops_owner;
 	struct fpga_image_info *info;
 	struct list_head node;
 	void *priv;
 
-#ifdef __GENKSYMS__
 	void *suse_kabi_padding;
-#else
-	struct module *br_ops_owner;
-#endif
 };
 
 #define to_fpga_bridge(d) container_of(d, struct fpga_bridge, dev)

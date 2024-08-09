@@ -122,7 +122,7 @@ static void qcom_slim_queue_tx(struct qcom_slim_ctrl *ctrl, void *buf,
 {
 	int count = (len + 3) >> 2;
 
-	__iowrite32_copy_inlined(ctrl->base + tx_reg, buf, count);
+	__iowrite32_copy(ctrl->base + tx_reg, buf, count);
 
 	/* Ensure Oder of subsequent writes */
 	mb();

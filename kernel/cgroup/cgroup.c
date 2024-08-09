@@ -1350,15 +1350,9 @@ static void cgroup_exit_root_id(struct cgroup_root *root)
 	idr_remove(&cgroup_hierarchy_idr, root->hierarchy_id);
 }
 
-static void cgroup_root_free_rcu(struct rcu_head *rcu)
-{
-	struct cgroup_root *root = container_of(rcu, struct cgroup_root, rcu);
-	kfree(root);
-}
-
 void cgroup_free_root(struct cgroup_root *root)
 {
-	call_rcu(&root->rcu, cgroup_root_free_rcu);
+	kfree_rcu(root, rcu);
 }
 
 static void cgroup_destroy_root(struct cgroup_root *root)

@@ -840,9 +840,6 @@ struct kvm_vcpu_arch {
 	u8 event_exit_inst_len;
 
 	bool exception_from_userspace;
-#ifndef __GENKSYMS__
-	bool is_amd_compatible;
-#endif
 
 	/* Exceptions to be injected to the guest. */
 	struct kvm_queued_exception exception;
@@ -860,6 +857,7 @@ struct kvm_vcpu_arch {
 	int cpuid_nent;
 	struct kvm_cpuid_entry2 *cpuid_entries;
 	struct kvm_hypervisor_cpuid kvm_cpuid;
+	bool is_amd_compatible;
 
 	/*
 	 * FIXME: Drop this macro and use KVM_NR_GOVERNED_FEATURES directly

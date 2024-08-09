@@ -1371,7 +1371,6 @@ struct ieee80211_mgmt {
 					u8 max_tod_error;
 					u8 max_toa_error;
 				} __packed wnm_timing_msr;
-#ifndef __GENKSYMS__
 				struct {
 					u8 action_code;
 					u8 dialog_token;
@@ -1386,7 +1385,6 @@ struct ieee80211_mgmt {
 				struct {
 					u8 action_code;
 				} __packed ttlm_tear_down;
-#endif
 			} u;
 		} __packed action;
 		DECLARE_FLEX_ARRAY(u8, body); /* Generic frame body */

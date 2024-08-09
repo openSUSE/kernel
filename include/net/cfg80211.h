@@ -198,9 +198,7 @@ struct ieee80211_channel {
 	enum nl80211_dfs_state dfs_state;
 	unsigned long dfs_state_entered;
 	unsigned int dfs_cac_ms;
-#ifndef __GENKSYMS__
 	s8 psd;
-#endif
 };
 
 /**
@@ -1393,13 +1391,9 @@ struct cfg80211_acl_data {
  *	frame headers.
  */
 struct cfg80211_fils_discovery {
+	bool update;
 	u32 min_interval;
-#ifdef __GENKSYMS__
 	u32 max_interval;
-#else
-	u32 max_interval:31;
-	u32 update:1;
-#endif
 	size_t tmpl_len;
 	const u8 *tmpl;
 };
@@ -1416,12 +1410,8 @@ struct cfg80211_fils_discovery {
  * @tmpl: Template data for probe response
  */
 struct cfg80211_unsol_bcast_probe_resp {
-#ifdef __GENKSYMS__
+	bool update;
 	u32 interval;
-#else
-	u32 interval:31;
-	u32 update:1;
-#endif
 	size_t tmpl_len;
 	const u8 *tmpl;
 };
@@ -2657,7 +2647,6 @@ struct cfg80211_scan_request {
 	struct cfg80211_ssid *ssids;
 	int n_ssids;
 	u32 n_channels;
-	enum nl80211_bss_scan_width scan_width; // FIXME: kABI placeholder
 	const u8 *ie;
 	size_t ie_len;
 	u16 duration;
@@ -2679,11 +2668,9 @@ struct cfg80211_scan_request {
 	bool notified;
 	bool no_cck;
 	bool scan_6ghz;
-#ifndef __GENKSYMS__
-	s8 tsf_report_link_id;
-#endif
 	u32 n_6ghz_params;
 	struct cfg80211_scan_6ghz_params *scan_6ghz_params;
+	s8 tsf_report_link_id;
 
 	/* keep last */
 	struct ieee80211_channel *channels[];
@@ -2802,7 +2789,6 @@ struct cfg80211_sched_scan_request {
 	struct cfg80211_ssid *ssids;
 	int n_ssids;
 	u32 n_channels;
-	enum nl80211_bss_scan_width scan_width; // FIXME: kABI placeholder
 	const u8 *ie;
 	size_t ie_len;
 	u32 flags;
@@ -2876,7 +2862,6 @@ enum cfg80211_signal_type {
  */
 struct cfg80211_inform_bss {
 	struct ieee80211_channel *chan;
-	enum nl80211_bss_scan_width scan_width; // FIXME: kABI placeholder
 	s32 signal;
 	u64 boottime_ns;
 	u64 parent_tsf;
@@ -2884,10 +2869,8 @@ struct cfg80211_inform_bss {
 	u8 chains;
 	s8 chain_signal[IEEE80211_MAX_CHAINS];
 
-#ifndef __GENKSYMS__
 	u8 restrict_use:1, use_for:7;
 	u8 cannot_use_reasons;
-#endif
 
 	void *drv_data;
 };
@@ -2951,7 +2934,6 @@ struct cfg80211_bss_ies {
  */
 struct cfg80211_bss {
 	struct ieee80211_channel *channel;
-	enum nl80211_bss_scan_width scan_width; // FIXME: kABI placeholder
 
 	const struct cfg80211_bss_ies __rcu *ies;
 	const struct cfg80211_bss_ies __rcu *beacon_ies;
@@ -2970,14 +2952,13 @@ struct cfg80211_bss {
 	u8 chains;
 	s8 chain_signal[IEEE80211_MAX_CHAINS];
 
+	u8 proberesp_ecsa_stuck:1;
+
 	u8 bssid_index;
 	u8 max_bssid_indicator;
 
-#ifndef __GENKSYMS__
-	u8 proberesp_ecsa_stuck:1;
 	u8 use_for;
 	u8 cannot_use_reasons;
-#endif
 
 	u8 priv[] __aligned(sizeof(void *));
 };
@@ -3064,9 +3045,7 @@ struct cfg80211_assoc_link {
 	const u8 *elems;
 	size_t elems_len;
 	bool disabled;
-#ifndef __GENKSYMS__
 	int error;
-#endif
 };
 
 /**
@@ -3626,10 +3605,8 @@ struct cfg80211_wowlan_wakeup {
 	bool disconnect, magic_pkt, gtk_rekey_failure,
 	     eap_identity_req, four_way_handshake,
 	     rfkill_release, packet_80211,
-	     tcp_match, tcp_connlost, tcp_nomoretokens;
-#ifndef __GENKSYMS__
-	bool unprot_deauth_disassoc;
-#endif
+	     tcp_match, tcp_connlost, tcp_nomoretokens,
+	     unprot_deauth_disassoc;
 	s32 pattern_idx;
 	u32 packet_present_len, packet_len;
 	const void *packet;
@@ -4627,13 +4604,8 @@ struct cfg80211_ops {
 
 	int	(*start_ap)(struct wiphy *wiphy, struct net_device *dev,
 			    struct cfg80211_ap_settings *settings);
-#ifdef __GENKSYMS__
-	int	(*change_beacon)(struct wiphy *wiphy, struct net_device *dev,
-				 struct cfg80211_beacon_data *info);
-#else
 	int	(*change_beacon)(struct wiphy *wiphy, struct net_device *dev,
 				 struct cfg80211_ap_update *info);
-#endif
 	int	(*stop_ap)(struct wiphy *wiphy, struct net_device *dev,
 			   unsigned int link_id);
 
@@ -4943,10 +4915,8 @@ struct cfg80211_ops {
 				    struct link_station_del_parameters *params);
 	int	(*set_hw_timestamp)(struct wiphy *wiphy, struct net_device *dev,
 				    struct cfg80211_set_hw_timestamp *hwts);
-#ifndef __GENKSYMS__
 	int	(*set_ttlm)(struct wiphy *wiphy, struct net_device *dev,
 			    struct cfg80211_ttlm_params *params);
-#endif
 };
 
 /*
@@ -6175,8 +6145,6 @@ struct wireless_dev {
 	struct list_head mgmt_registrations;
 	u8 mgmt_registrations_need_update:1;
 
-	struct mutex mtx; // FIXME: kABI placeholder
-
 	bool use_4addr, is_running, registered, registering;
 
 	u8 address[ETH_ALEN] __aligned(sizeof(u16));
@@ -6471,9 +6439,7 @@ ieee80211_get_response_rate(struct ieee80211_supported_band *sband,
  * This function returns a bitmap of the mandatory rates for the given
  * band, bits are set according to the rate position in the bitrates array.
  */
-u32 _ieee80211_mandatory_rates(struct ieee80211_supported_band *sband);
-// FIXME: rename for kABI workaround
-#define ieee80211_mandatory_rates _ieee80211_mandatory_rates
+u32 ieee80211_mandatory_rates(struct ieee80211_supported_band *sband);
 
 /*
  * Radiotap parsing functions -- for controlled injection support
@@ -7309,12 +7275,16 @@ struct cfg80211_bss *__cfg80211_get_bss(struct wiphy *wiphy,
  *
  * This version implies regular usage, %NL80211_BSS_USE_FOR_NORMAL.
  */
-struct cfg80211_bss *cfg80211_get_bss(struct wiphy *wiphy,
-				      struct ieee80211_channel *channel,
-				      const u8 *bssid,
-				      const u8 *ssid, size_t ssid_len,
-				      enum ieee80211_bss_type bss_type,
-				      enum ieee80211_privacy privacy);
+static inline struct cfg80211_bss *
+cfg80211_get_bss(struct wiphy *wiphy, struct ieee80211_channel *channel,
+		 const u8 *bssid, const u8 *ssid, size_t ssid_len,
+		 enum ieee80211_bss_type bss_type,
+		 enum ieee80211_privacy privacy)
+{
+	return __cfg80211_get_bss(wiphy, channel, bssid, ssid, ssid_len,
+				  bss_type, privacy,
+				  NL80211_BSS_USE_FOR_NORMAL);
+}
 
 static inline struct cfg80211_bss *
 cfg80211_get_ibss(struct wiphy *wiphy,
@@ -7423,7 +7393,7 @@ void cfg80211_auth_timeout(struct net_device *dev, const u8 *addr);
  * @links.status: Set this (along with a BSS pointer) for links that
  *	were rejected by the AP.
  */
-struct cfg80211_rx_assoc_resp {
+struct cfg80211_rx_assoc_resp_data {
 	const u8 *buf;
 	size_t len;
 	const u8 *req_ies;
@@ -7437,9 +7407,6 @@ struct cfg80211_rx_assoc_resp {
 	} links[IEEE80211_MLD_MAX_NUM_LINKS];
 };
 
-// FIXME: rename for kABI workaround
-#define cfg80211_rx_assoc_resp_data cfg80211_rx_assoc_resp
-
 /**
  * cfg80211_rx_assoc_resp - notification of processed association response
  * @dev: network device
@@ -7450,10 +7417,8 @@ struct cfg80211_rx_assoc_resp {
  *
  * This function may sleep. The caller must hold the corresponding wdev's mutex.
  */
-void _cfg80211_rx_assoc_resp(struct net_device *dev,
-			     const struct cfg80211_rx_assoc_resp_data *data);
-// FIXME: rename for kABI workaround
-#define cfg80211_rx_assoc_resp(dev, data) _cfg80211_rx_assoc_resp(dev, data)
+void cfg80211_rx_assoc_resp(struct net_device *dev,
+			    const struct cfg80211_rx_assoc_resp_data *data);
 
 /**
  * struct cfg80211_assoc_failure - association failure data
@@ -9485,35 +9450,6 @@ ssize_t wiphy_locked_debugfs_write(struct wiphy *wiphy, struct file *file,
 						      size_t count,
 						      void *data),
 				   void *data);
-#else
-static inline ssize_t
-wiphy_locked_debugfs_read(struct wiphy *wiphy, struct file *file,
-			  char *buf, size_t bufsize,
-			  char __user *userbuf, size_t count,
-			  loff_t *ppos,
-			  ssize_t (*handler)(struct wiphy *wiphy,
-					     struct file *file,
-					     char *buf,
-					     size_t bufsize,
-					     void *data),
-			  void *data)
-{
-	return -ENOENT;
-}
-
-static inline ssize_t
-wiphy_locked_debugfs_write(struct wiphy *wiphy, struct file *file,
-			   char *buf, size_t bufsize,
-			   const char __user *userbuf, size_t count,
-			   ssize_t (*handler)(struct wiphy *wiphy,
-					      struct file *file,
-					      char *buf,
-					      size_t count,
-					      void *data),
-			   void *data)
-{
-	return -ENOENT;
-}
 #endif
 
 #endif /* __NET_CFG80211_H */
