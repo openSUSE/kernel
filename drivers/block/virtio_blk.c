@@ -751,7 +751,8 @@ static void virtblk_map_queues(struct blk_mq_tag_set *set)
 		if (i == HCTX_TYPE_POLL)
 			blk_mq_map_queues(&set->map[i]);
 		else
-			blk_mq_virtio_map_queues(&set->map[i], vblk->vdev, 0);
+			blk_mq_dev_map_queues(&set->map[i], vblk->vdev, 0,
+					      blk_mq_virtio_get_queue_affinity);
 	}
 }
 

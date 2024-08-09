@@ -716,7 +716,8 @@ static void virtscsi_map_queues(struct Scsi_Host *shost)
 	struct virtio_scsi *vscsi = shost_priv(shost);
 	struct blk_mq_queue_map *qmap = &shost->tag_set.map[HCTX_TYPE_DEFAULT];
 
-	blk_mq_virtio_map_queues(qmap, vscsi->vdev, 2);
+	blk_mq_dev_map_queues(qmap, vscsi->vdev, 2,
+			      blk_mq_virtio_get_queue_affinity);
 }
 
 static void virtscsi_commit_rqs(struct Scsi_Host *shost, u16 hwq)
