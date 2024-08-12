@@ -6,6 +6,7 @@
 #include "verifier_iterating_callbacks.skel.h"
 #include "verifier_reg_equal.skel.h"
 #include "verifier_scalar_ids.skel.h"
+#include "verifier_sockmap_mutate.skel.h"
 #include "verifier_subprog_precision.skel.h"
 
 #define MAX_ENTRIES 11
@@ -45,4 +46,5 @@ static void run_tests_aux(const char *skel_name,
 void test_verifier_iterating_callbacks(void)  { RUN(verifier_iterating_callbacks); }
 void test_verifier_reg_equal(void)            { RUN(verifier_reg_equal); }
 void test_verifier_scalar_ids(void)           { RUN(verifier_scalar_ids); }
+void test_verifier_sockmap_mutate(void)       { RUN(verifier_sockmap_mutate); }
 void test_verifier_subprog_precision(void)    { RUN(verifier_subprog_precision); }
