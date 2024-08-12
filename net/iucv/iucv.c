@@ -92,7 +92,7 @@ struct device *iucv_alloc_device(const struct attribute_group **attrs,
 	if (!dev)
 		goto out_error;
 	va_start(vargs, fmt);
-	rc = dev_set_name(dev, fmt, vargs);
+	rc = kobject_set_name_vargs(&dev->kobj, fmt, vargs);
 	va_end(vargs);
 	if (rc)
 		goto out_error;
