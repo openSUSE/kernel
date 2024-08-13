@@ -985,6 +985,7 @@ static int submit_one_async_extent(struct btrfs_inode *inode,
 	struct extent_io_tree *io_tree = &inode->io_tree;
 	struct btrfs_root *root = inode->root;
 	struct btrfs_fs_info *fs_info = root->fs_info;
+	struct btrfs_ordered_extent *ordered;
 	struct btrfs_key ins;
 	struct page *locked_page = NULL;
 	struct extent_map *em;
@@ -1046,7 +1047,7 @@ static int submit_one_async_extent(struct btrfs_inode *inode,
 	}
 	free_extent_map(em);
 
-	ret = btrfs_add_ordered_extent(inode, start,		/* file_offset */
+	ordered = btrfs_alloc_ordered_extent(inode, start,	/* file_offset */
 				       async_extent->ram_size,	/* num_bytes */
 				       async_extent->ram_size,	/* ram_bytes */
 				       ins.objectid,		/* disk_bytenr */
@@ -1054,8 +1055,9 @@ static int submit_one_async_extent(struct btrfs_inode *inode,
 				       0,			/* offset */
 				       1 << BTRFS_ORDERED_COMPRESSED,
 				       async_extent->compress_type);
-	if (ret) {
+	if (IS_ERR(ordered)) {
 		btrfs_drop_extent_map_range(inode, start, end, false);
+		ret = PTR_ERR(ordered);
 		goto out_free_reserve;
 	}
 	btrfs_dec_block_group_reservations(fs_info, ins.objectid);
@@ -1064,11 +1066,7 @@ static int submit_one_async_extent(struct btrfs_inode *inode,
 	extent_clear_unlock_delalloc(inode, start, end,
 			NULL, EXTENT_LOCKED | EXTENT_DELALLOC,
 			PAGE_UNLOCK | PAGE_START_WRITEBACK);
-
-	btrfs_submit_compressed_write(inode, start,	/* file_offset */
-			    async_extent->ram_size,	/* num_bytes */
-			    ins.objectid,		/* disk_bytenr */
-			    ins.offset,			/* compressed_len */
+	btrfs_submit_compressed_write(ordered,
 			    async_extent->pages,	/* compressed_pages */
 			    async_extent->nr_pages,
 			    async_chunk->write_flags, true);
@@ -10191,6 +10189,7 @@ ssize_t btrfs_do_encoded_write(struct kiocb *iocb, struct iov_iter *from,
 	struct extent_io_tree *io_tree = &inode->io_tree;
 	struct extent_changeset *data_reserved = NULL;
 	struct extent_state *cached_state = NULL;
+	struct btrfs_ordered_extent *ordered;
 	int compression;
 	size_t orig_count;
 	u64 start, end;
@@ -10374,14 +10373,15 @@ ssize_t btrfs_do_encoded_write(struct kiocb *iocb, struct iov_iter *from,
 	}
 	free_extent_map(em);
 
-	ret = btrfs_add_ordered_extent(inode, start, num_bytes, ram_bytes,
+	ordered = btrfs_alloc_ordered_extent(inode, start, num_bytes, ram_bytes,
 				       ins.objectid, ins.offset,
 				       encoded->unencoded_offset,
 				       (1 << BTRFS_ORDERED_ENCODED) |
 				       (1 << BTRFS_ORDERED_COMPRESSED),
 				       compression);
-	if (ret) {
+	if (IS_ERR(ordered)) {
 		btrfs_drop_extent_map_range(inode, start, end, false);
+		ret = PTR_ERR(ordered);
 		goto out_free_reserved;
 	}
 	btrfs_dec_block_group_reservations(fs_info, ins.objectid);
@@ -10393,8 +10393,7 @@ ssize_t btrfs_do_encoded_write(struct kiocb *iocb, struct iov_iter *from,
 
 	btrfs_delalloc_release_extents(inode, num_bytes);
 
-	btrfs_submit_compressed_write(inode, start, num_bytes, ins.objectid,
-					  ins.offset, pages, nr_pages, 0, false);
+	btrfs_submit_compressed_write(ordered, pages, nr_pages, 0, false);
 	ret = orig_count;
 	goto out;
 
