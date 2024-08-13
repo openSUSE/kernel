@@ -1609,7 +1609,7 @@ buffered:
 	 * able to read what was just written.
 	 */
 	endbyte = pos + written_buffered - 1;
-	ret = btrfs_fdatawrite_range(inode, pos, endbyte);
+	ret = btrfs_fdatawrite_range(BTRFS_I(inode), pos, endbyte);
 	if (ret)
 		goto out;
 	ret = filemap_fdatawait_range(inode->i_mapping, pos, endbyte);
@@ -1729,7 +1729,7 @@ int btrfs_release_file(struct inode *inode, struct file *filp)
 	return 0;
 }
 
-static int start_ordered_ops(struct inode *inode, loff_t start, loff_t end)
+static int start_ordered_ops(struct btrfs_inode *inode, loff_t start, loff_t end)
 {
 	int ret;
 	struct blk_plug plug;
@@ -1741,9 +1741,9 @@ static int start_ordered_ops(struct inode *inode, loff_t start, loff_t end)
 	 * several segments of stripe length (currently 64K).
 	 */
 	blk_start_plug(&plug);
-	atomic_inc(&BTRFS_I(inode)->sync_writers);
+	atomic_inc(&inode->sync_writers);
 	ret = btrfs_fdatawrite_range(inode, start, end);
-	atomic_dec(&BTRFS_I(inode)->sync_writers);
+	atomic_dec(&inode->sync_writers);
 	blk_finish_plug(&plug);
 
 	return ret;
@@ -1818,7 +1818,7 @@ int btrfs_sync_file(struct file *file, loff_t start, loff_t end, int datasync)
 	 * multi-task, and make the performance up.  See
 	 * btrfs_wait_ordered_range for an explanation of the ASYNC check.
 	 */
-	ret = start_ordered_ops(inode, start, end);
+	ret = start_ordered_ops(BTRFS_I(inode), start, end);
 	if (ret)
 		goto out;
 
@@ -1844,7 +1844,7 @@ int btrfs_sync_file(struct file *file, loff_t start, loff_t end, int datasync)
 	 * So trigger writeback for any eventual new dirty pages and then we
 	 * wait for all ordered extents to complete below.
 	 */
-	ret = start_ordered_ops(inode, start, end);
+	ret = start_ordered_ops(BTRFS_I(inode), start, end);
 	if (ret) {
 		btrfs_inode_unlock(BTRFS_I(inode), BTRFS_ILOCK_MMAP);
 		goto out;
@@ -3877,8 +3877,9 @@ const struct file_operations btrfs_file_operations = {
 	.remap_file_range = btrfs_remap_file_range,
 };
 
-int btrfs_fdatawrite_range(struct inode *inode, loff_t start, loff_t end)
+int btrfs_fdatawrite_range(struct btrfs_inode *inode, loff_t start, loff_t end)
 {
+	struct address_space *mapping = inode->vfs_inode.i_mapping;
 	int ret;
 
 	/*
@@ -3895,10 +3896,9 @@ int btrfs_fdatawrite_range(struct inode *inode, loff_t start, loff_t end)
 	 * know better and pull this out at some point in the future, it is
 	 * right and you are wrong.
 	 */
-	ret = filemap_fdatawrite_range(inode->i_mapping, start, end);
-	if (!ret && test_bit(BTRFS_INODE_HAS_ASYNC_EXTENT,
-			     &BTRFS_I(inode)->runtime_flags))
-		ret = filemap_fdatawrite_range(inode->i_mapping, start, end);
+	ret = filemap_fdatawrite_range(mapping, start, end);
+	if (!ret && test_bit(BTRFS_INODE_HAS_ASYNC_EXTENT, &inode->runtime_flags))
+		ret = filemap_fdatawrite_range(mapping, start, end);
 
 	return ret;
 }
