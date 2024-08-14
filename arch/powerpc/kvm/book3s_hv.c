@@ -2482,7 +2482,7 @@ static int kvmppc_set_one_reg_hv(struct kvm_vcpu *vcpu, u64 id,
 		vcpu->arch.mmcrs = set_reg_val(id, *val);
 		break;
 	case KVM_REG_PPC_MMCR3:
-		*val = get_reg_val(id, vcpu->arch.mmcr[3]);
+		vcpu->arch.mmcr[3] = set_reg_val(id, *val);
 		break;
 	case KVM_REG_PPC_PMC1 ... KVM_REG_PPC_PMC8:
 		i = id - KVM_REG_PPC_PMC1;
@@ -4656,13 +4656,19 @@ int kvmhv_run_single_vcpu(struct kvm_vcpu *vcpu, u64 time_limit,
 
 	if (!nested) {
 		kvmppc_core_prepare_to_enter(vcpu);
-		if (vcpu->arch.shregs.msr & MSR_EE) {
-			if (xive_interrupt_pending(vcpu))
+		if (test_bit(BOOK3S_IRQPRIO_EXTERNAL,
+			     &vcpu->arch.pending_exceptions) ||
+		    xive_interrupt_pending(vcpu)) {
+			/*
+			 * For nested HV, don't synthesize but always pass MER,
+			 * the L0 will be able to optimise that more
+			 * effectively than manipulating registers directly.
+			 */
+			if (!kvmhv_on_pseries() && (vcpu->arch.shregs.msr & MSR_EE))
 				kvmppc_inject_interrupt_hv(vcpu,
-						BOOK3S_INTERRUPT_EXTERNAL, 0);
-		} else if (test_bit(BOOK3S_IRQPRIO_EXTERNAL,
-			     &vcpu->arch.pending_exceptions)) {
-			lpcr |= LPCR_MER;
+							   BOOK3S_INTERRUPT_EXTERNAL, 0);
+			else
+				lpcr |= LPCR_MER;
 		}
 	} else if (vcpu->arch.pending_exceptions ||
 		   vcpu->arch.doorbell_request ||
