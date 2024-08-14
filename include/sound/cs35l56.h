@@ -268,6 +268,11 @@ struct cs35l56_base {
 	struct gpio_desc *reset_gpio;
 };
 
+static inline bool cs35l56_is_otp_register(unsigned int reg)
+{
+	return (reg >> 16) == 3;
+}
+
 extern struct regmap_config cs35l56_regmap_i2c;
 extern struct regmap_config cs35l56_regmap_spi;
 extern struct regmap_config cs35l56_regmap_sdw;

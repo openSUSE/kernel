@@ -281,29 +281,6 @@ struct btrfs_ordered_extent *btrfs_alloc_ordered_extent(
 }
 
 /*
- * Add a new btrfs_ordered_extent for the range, but drop the reference instead
- * of returning it to the caller.
- */
-int btrfs_add_ordered_extent(struct btrfs_inode *inode, u64 file_offset,
-			     u64 num_bytes, u64 ram_bytes, u64 disk_bytenr,
-			     u64 disk_num_bytes, u64 offset, unsigned long flags,
-			     int compress_type)
-{
-	struct btrfs_ordered_extent *ordered;
-
-	ordered = btrfs_alloc_ordered_extent(inode, file_offset, num_bytes,
-					     ram_bytes, disk_bytenr,
-					     disk_num_bytes, offset, flags,
-					     compress_type);
-
-	if (IS_ERR(ordered))
-		return PTR_ERR(ordered);
-	btrfs_put_ordered_extent(ordered);
-
-	return 0;
-}
-
-/*
  * Add a struct btrfs_ordered_sum into the list of checksums to be inserted
  * when an ordered extent is finished.  If the list covers more than one
  * ordered extent, it is split across multiples.
@@ -327,6 +304,120 @@ static void finish_ordered_fn(struct btrfs_work *work)
 	btrfs_finish_ordered_io(ordered_extent);
 }
 
+static bool can_finish_ordered_extent(struct btrfs_ordered_extent *ordered,
+				      struct page *page, u64 file_offset,
+				      u64 len, bool uptodate)
+{
+	struct btrfs_inode *inode = BTRFS_I(ordered->inode);
+	struct btrfs_fs_info *fs_info = inode->root->fs_info;
+
+	lockdep_assert_held(&inode->ordered_tree.lock);
+
+	if (page) {
+		ASSERT(page->mapping);
+		ASSERT(page_offset(page) <= file_offset);
+		ASSERT(file_offset + len <= page_offset(page) + PAGE_SIZE);
+
+		/*
+		 * Ordered (Private2) bit indicates whether we still have
+		 * pending io unfinished for the ordered extent.
+		 *
+		 * If there's no such bit, we need to skip to next range.
+		 */
+		if (!btrfs_page_test_ordered(fs_info, page, file_offset, len))
+			return false;
+		btrfs_page_clear_ordered(fs_info, page, file_offset, len);
+	}
+
+	/* Now we're fine to update the accounting. */
+	if (WARN_ON_ONCE(len > ordered->bytes_left)) {
+		btrfs_crit(fs_info,
+"bad ordered extent accounting, root=%llu ino=%llu OE offset=%llu OE len=%llu to_dec=%llu left=%llu",
+			   inode->root->root_key.objectid, btrfs_ino(inode),
+			   ordered->file_offset, ordered->num_bytes,
+			   len, ordered->bytes_left);
+		ordered->bytes_left = 0;
+	} else {
+		ordered->bytes_left -= len;
+	}
+
+	if (!uptodate)
+		set_bit(BTRFS_ORDERED_IOERR, &ordered->flags);
+
+	if (ordered->bytes_left)
+		return false;
+
+	/*
+	 * All the IO of the ordered extent is finished, we need to queue
+	 * the finish_func to be executed.
+	 */
+	set_bit(BTRFS_ORDERED_IO_DONE, &ordered->flags);
+	cond_wake_up(&ordered->wait);
+	refcount_inc(&ordered->refs);
+	trace_btrfs_ordered_extent_mark_finished(inode, ordered);
+	return true;
+}
+
+static void btrfs_queue_ordered_fn(struct btrfs_ordered_extent *ordered)
+{
+	struct btrfs_inode *inode = BTRFS_I(ordered->inode);
+	struct btrfs_fs_info *fs_info = inode->root->fs_info;
+	struct btrfs_workqueue *wq = btrfs_is_free_space_inode(inode) ?
+		fs_info->endio_freespace_worker : fs_info->endio_write_workers;
+
+	btrfs_init_work(&ordered->work, finish_ordered_fn, NULL, NULL);
+	btrfs_queue_work(wq, &ordered->work);
+}
+
+void btrfs_finish_ordered_extent(struct btrfs_ordered_extent *ordered,
+				 struct page *page, u64 file_offset, u64 len,
+				 bool uptodate)
+{
+	struct btrfs_inode *inode = BTRFS_I(ordered->inode);
+	unsigned long flags;
+	bool ret;
+
+	trace_btrfs_finish_ordered_extent(inode, file_offset, len, uptodate);
+
+	spin_lock_irqsave(&inode->ordered_tree.lock, flags);
+	ret = can_finish_ordered_extent(ordered, page, file_offset, len, uptodate);
+	spin_unlock_irqrestore(&inode->ordered_tree.lock, flags);
+
+	/*
+	 * If this is a COW write it means we created new extent maps for the
+	 * range and they point to unwritten locations if we got an error either
+	 * before submitting a bio or during IO.
+	 *
+	 * We have marked the ordered extent with BTRFS_ORDERED_IOERR, and we
+	 * are queuing its completion below. During completion, at
+	 * btrfs_finish_one_ordered(), we will drop the extent maps for the
+	 * unwritten extents.
+	 *
+	 * However because completion runs in a work queue we can end up having
+	 * a fast fsync running before that. In the case of direct IO, once we
+	 * unlock the inode the fsync might start, and we queue the completion
+	 * before unlocking the inode. In the case of buffered IO when writeback
+	 * finishes (end_bbio_data_write()) we queue the completion, so if the
+	 * writeback was triggered by a fast fsync, the fsync might start
+	 * logging before ordered extent completion runs in the work queue.
+	 *
+	 * The fast fsync will log file extent items based on the extent maps it
+	 * finds, so if by the time it collects extent maps the ordered extent
+	 * completion didn't happen yet, it will log file extent items that
+	 * point to unwritten extents, resulting in a corruption if a crash
+	 * happens and the log tree is replayed. Note that a fast fsync does not
+	 * wait for completion of ordered extents in order to reduce latency.
+	 *
+	 * Set a flag in the inode so that the next fast fsync will wait for
+	 * ordered extents to complete before starting to log.
+	 */
+	if (!uptodate && !test_bit(BTRFS_ORDERED_NOCOW, &ordered->flags))
+		set_bit(BTRFS_INODE_COW_WRITE_ERROR, &inode->runtime_flags);
+
+	if (ret)
+		btrfs_queue_ordered_fn(ordered);
+}
+
 /*
  * Mark all ordered extents io inside the specified range finished.
  *
@@ -345,21 +436,10 @@ void btrfs_mark_ordered_io_finished(struct btrfs_inode *inode,
 				    u64 num_bytes, bool uptodate)
 {
 	struct btrfs_ordered_inode_tree *tree = &inode->ordered_tree;
-	struct btrfs_fs_info *fs_info = inode->root->fs_info;
-	struct btrfs_workqueue *wq;
 	struct rb_node *node;
 	struct btrfs_ordered_extent *entry = NULL;
 	unsigned long flags;
 	u64 cur = file_offset;
-
-	if (btrfs_is_free_space_inode(inode))
-		wq = fs_info->endio_freespace_worker;
-	else
-		wq = fs_info->endio_write_workers;
-
-	if (page)
-		ASSERT(page->mapping && page_offset(page) <= file_offset &&
-		       file_offset + num_bytes <= page_offset(page) + PAGE_SIZE);
 
 	spin_lock_irqsave(&tree->lock, flags);
 	while (cur < file_offset + num_bytes) {
@@ -413,50 +493,9 @@ void btrfs_mark_ordered_io_finished(struct btrfs_inode *inode,
 		ASSERT(end + 1 - cur < U32_MAX);
 		len = end + 1 - cur;
 
-		if (page) {
-			/*
-			 * Ordered (Private2) bit indicates whether we still
-			 * have pending io unfinished for the ordered extent.
-			 *
-			 * If there's no such bit, we need to skip to next range.
-			 */
-			if (!btrfs_page_test_ordered(fs_info, page, cur, len)) {
-				cur += len;
-				continue;
-			}
-			btrfs_page_clear_ordered(fs_info, page, cur, len);
-		}
-
-		/* Now we're fine to update the accounting */
-		if (unlikely(len > entry->bytes_left)) {
-			WARN_ON(1);
-			btrfs_crit(fs_info,
-"bad ordered extent accounting, root=%llu ino=%llu OE offset=%llu OE len=%llu to_dec=%u left=%llu",
-				   inode->root->root_key.objectid,
-				   btrfs_ino(inode),
-				   entry->file_offset,
-				   entry->num_bytes,
-				   len, entry->bytes_left);
-			entry->bytes_left = 0;
-		} else {
-			entry->bytes_left -= len;
-		}
-
-		if (!uptodate)
-			set_bit(BTRFS_ORDERED_IOERR, &entry->flags);
-
-		/*
-		 * All the IO of the ordered extent is finished, we need to queue
-		 * the finish_func to be executed.
-		 */
-		if (entry->bytes_left == 0) {
-			set_bit(BTRFS_ORDERED_IO_DONE, &entry->flags);
-			cond_wake_up(&entry->wait);
-			refcount_inc(&entry->refs);
-			trace_btrfs_ordered_extent_mark_finished(inode, entry);
+		if (can_finish_ordered_extent(entry, page, cur, len, uptodate)) {
 			spin_unlock_irqrestore(&tree->lock, flags);
-			btrfs_init_work(&entry->work, finish_ordered_fn, NULL, NULL);
-			btrfs_queue_work(wq, &entry->work);
+			btrfs_queue_ordered_fn(entry);
 			spin_lock_irqsave(&tree->lock, flags);
 		}
 		cur += len;
@@ -580,7 +619,7 @@ void btrfs_remove_ordered_extent(struct btrfs_inode *btrfs_inode,
 	freespace_inode = btrfs_is_free_space_inode(btrfs_inode);
 
 	btrfs_lockdep_acquire(fs_info, btrfs_trans_pending_ordered);
-	/* This is paired with btrfs_add_ordered_extent. */
+	/* This is paired with btrfs_alloc_ordered_extent. */
 	spin_lock(&btrfs_inode->lock);
 	btrfs_mod_outstanding_extents(btrfs_inode, -1);
 	spin_unlock(&btrfs_inode->lock);
@@ -798,7 +837,7 @@ void btrfs_start_ordered_extent(struct btrfs_ordered_extent *entry)
 /*
  * Used to wait on ordered extents across a large range of bytes.
  */
-int btrfs_wait_ordered_range(struct inode *inode, u64 start, u64 len)
+int btrfs_wait_ordered_range(struct btrfs_inode *inode, u64 start, u64 len)
 {
 	int ret = 0;
 	int ret_wb = 0;
@@ -828,11 +867,11 @@ int btrfs_wait_ordered_range(struct inode *inode, u64 start, u64 len)
 	 * before the ordered extents complete - to avoid failures (-EEXIST)
 	 * when adding the new ordered extents to the ordered tree.
 	 */
-	ret_wb = filemap_fdatawait_range(inode->i_mapping, start, orig_end);
+	ret_wb = filemap_fdatawait_range(inode->vfs_inode.i_mapping, start, orig_end);
 
 	end = orig_end;
 	while (1) {
-		ordered = btrfs_lookup_first_ordered_extent(BTRFS_I(inode), end);
+		ordered = btrfs_lookup_first_ordered_extent(inode, end);
 		if (!ordered)
 			break;
 		if (ordered->file_offset > orig_end) {

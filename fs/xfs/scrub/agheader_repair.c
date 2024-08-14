@@ -699,7 +699,7 @@ xrep_agfl_init_header(
 	 * step.
 	 */
 	xbitmap_init(&af.used_extents);
-	af.agfl_bno = xfs_buf_to_agfl_bno(agfl_bp),
+	af.agfl_bno = xfs_buf_to_agfl_bno(agfl_bp);
 	xbitmap_walk(agfl_extents, xrep_agfl_fill, &af);
 	error = xbitmap_disunion(agfl_extents, &af.used_extents);
 	if (error)
