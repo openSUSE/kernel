@@ -97,7 +97,7 @@ void scp_memcpy_aligned(void __iomem *dst, const void *src, unsigned int len)
 		writel_relaxed(val, ptr);
 	}
 
-	__iowrite32_copy_inlined(dst + i, src + i, (len - i) / 4);
+	__iowrite32_copy(dst + i, src + i, (len - i) / 4);
 	remain = (len - i) % 4;
 
 	if (remain > 0) {

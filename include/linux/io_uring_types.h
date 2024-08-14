@@ -250,16 +250,6 @@ struct io_ring_ctx {
 
 		struct io_submit_state	submit_state;
 
-		/*
-		 * The following is internal to io_uring so it is safe
-                 * to turn it into pad space.
-		 */
-		#ifdef __GENKSYMS__
-			struct io_buffer_list   *io_bl;
-		#else
-			void			*kabi_pad1;
-		#endif
-
 		struct xarray		io_bl_xa;
 
 		struct io_hash_table	cancel_table_locked;
@@ -360,19 +350,6 @@ struct io_ring_ctx {
 	struct wait_queue_head		rsrc_quiesce_wq;
 	unsigned			rsrc_quiesce;
 
-	#if defined(CONFIG_UNIX)
-
-	#ifdef __GENKSYMS__
-		/*
-		 * Unused. preserved kabi. See upstream commit:
-		 * 6e5e6d274956 ("io_uring: drop any code related to SCM_RIGHTS")
-		 */
-		struct socket		*ring_sock;
-	#else
-		void			*kabi_pad2;
-	#endif
-
-	#endif
 	/* hashed buffered write serialization */
 	struct io_wq_hash		*hash_map;
 

@@ -31,18 +31,9 @@ enum io_uring_cmd_flags {
 
 struct io_uring_cmd {
 	struct file	*file;
- 	const struct io_uring_sqe *sqe;
-#ifdef __GENKSYMS__
-	union {
-		/* callback to defer completions to task context */
-		void (*task_work_cb)(struct io_uring_cmd *cmd, unsigned);
-		/* used for polled completion */
-		void *cookie;
-	};
-#else
+	const struct io_uring_sqe *sqe;
 	/* callback to defer completions to task context */
 	void (*task_work_cb)(struct io_uring_cmd *cmd, unsigned);
-#endif
 	u32		cmd_op;
 	u32		flags;
 	u8		pdu[32]; /* available inline for free use */

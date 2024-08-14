@@ -176,7 +176,6 @@ enum acpi_ec_event_state {
 
 struct acpi_ec {
 	acpi_handle handle;
-	acpi_handle address_space_handler_holder; /* FIXME: placeholder for kABI compatibility */
 	int gpe;
 	int irq;
 	unsigned long command_addr;

@@ -12,15 +12,10 @@ BUILD_BUG_ON(1)
  * a NULL definition, for example if "static_call_cond()" will be used
  * at the call sites.
  */
-KVM_X86_PMU_OP_OPTIONAL(hw_event_available)
 KVM_X86_PMU_OP(pmc_idx_to_pmc)
 KVM_X86_PMU_OP(rdpmc_ecx_to_pmc)
 KVM_X86_PMU_OP(msr_idx_to_pmc)
-#ifdef __GENKSYMS__
-KVM_X86_PMU_OP(is_valid_rdpmc_ecx)
-#else
 KVM_X86_PMU_OP_OPTIONAL(check_rdpmc_early)
-#endif
 KVM_X86_PMU_OP(is_valid_msr)
 KVM_X86_PMU_OP(get_msr)
 KVM_X86_PMU_OP(set_msr)

@@ -243,7 +243,7 @@ static void hisi_sfc_v3xx_write_databuf(struct hisi_sfc_v3xx_host *host,
 	if (IS_ALIGNED((uintptr_t)from, 4)) {
 		int words = len / 4;
 
-		__iowrite32_copy_inlined(to, from, words);
+		__iowrite32_copy(to, from, words);
 
 		len -= words * 4;
 		if (len) {

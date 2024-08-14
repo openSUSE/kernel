@@ -2737,7 +2737,7 @@ pnfs_generic_pg_init_read(struct nfs_pageio_descriptor *pgio, struct nfs_page *r
 		if (pgio->pg_dreq == NULL)
 			rd_size = i_size_read(pgio->pg_inode) - req_offset(req);
 		else
-			rd_size = nfs_dreq_bytes_left_offset(pgio->pg_dreq,
+			rd_size = nfs_dreq_bytes_left(pgio->pg_dreq,
 						      req_offset(req));
 
 		pgio->pg_lseg =

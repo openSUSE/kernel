@@ -296,7 +296,7 @@ static int spm_dev_probe(struct platform_device *pdev)
 
 	/* Write the SPM sequences first.. */
 	addr = drv->reg_base + drv->reg_data->reg_offset[SPM_REG_SEQ_ENTRY];
-	__iowrite32_copy_inlined(addr, drv->reg_data->seq,
+	__iowrite32_copy(addr, drv->reg_data->seq,
 			ARRAY_SIZE(drv->reg_data->seq) / 4);
 
 	/*

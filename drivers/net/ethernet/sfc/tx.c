@@ -139,7 +139,7 @@ static void efx_memcpy_toio_aligned(struct efx_nic *efx, u8 __iomem **piobuf,
 {
 	int block_len = len & ~(sizeof(copy_buf->buf) - 1);
 
-	__iowrite64_copy_inlined(*piobuf, data, block_len >> 3);
+	__iowrite64_copy(*piobuf, data, block_len >> 3);
 	*piobuf += block_len;
 	len -= block_len;
 
@@ -171,7 +171,7 @@ static void efx_memcpy_toio_aligned_cb(struct efx_nic *efx, u8 __iomem **piobuf,
 		if (copy_buf->used < sizeof(copy_buf->buf))
 			return;
 
-		__iowrite64_copy_inlined(*piobuf, copy_buf->buf,
+		__iowrite64_copy(*piobuf, copy_buf->buf,
 				 sizeof(copy_buf->buf) >> 3);
 		*piobuf += sizeof(copy_buf->buf);
 		data += copy_to_buf;
@@ -187,7 +187,7 @@ static void efx_flush_copy_buffer(struct efx_nic *efx, u8 __iomem *piobuf,
 {
 	/* if there's anything in it, write the whole buffer, including junk */
 	if (copy_buf->used)
-		__iowrite64_copy_inlined(piobuf, copy_buf->buf,
+		__iowrite64_copy(piobuf, copy_buf->buf,
 				 sizeof(copy_buf->buf) >> 3);
 }
 
@@ -247,7 +247,7 @@ static int efx_enqueue_skb_pio(struct efx_tx_queue *tx_queue,
 		 */
 		BUILD_BUG_ON(L1_CACHE_BYTES >
 			     SKB_DATA_ALIGN(sizeof(struct skb_shared_info)));
-		__iowrite64_copy_inlined(tx_queue->piobuf, skb->data,
+		__iowrite64_copy(tx_queue->piobuf, skb->data,
 				 ALIGN(skb->len, L1_CACHE_BYTES) >> 3);
 	}
 

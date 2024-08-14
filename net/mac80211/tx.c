@@ -6258,11 +6258,3 @@ int ieee80211_probe_mesh_link(struct wiphy *wiphy, struct net_device *dev,
 
 	return 0;
 }
-
-/* FIXME: old symbol for kABI compatibility */
-#undef ieee80211_beacon_update_cntdwn
-u8 ieee80211_beacon_update_cntdwn(struct ieee80211_vif *vif)
-{
-	return _ieee80211_beacon_update_cntdwn(vif, 0);
-}
-EXPORT_SYMBOL(ieee80211_beacon_update_cntdwn);

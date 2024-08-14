@@ -85,9 +85,7 @@ struct rpc_clnt {
 	};
 	const struct cred	*cl_cred;
 	unsigned int		cl_max_connect; /* max number of transports not to the same IP */
-#ifndef __GENKSYMS__
 	struct super_block *pipefs_sb;
-#endif
 };
 
 /*

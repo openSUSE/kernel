@@ -2762,12 +2762,3 @@ cfg80211_get_iftype_ext_capa(struct wiphy *wiphy, enum nl80211_iftype type)
 	return NULL;
 }
 EXPORT_SYMBOL(cfg80211_get_iftype_ext_capa);
-
-/* FIXME: old symbol for kABI compatibility */
-#undef ieee80211_mandatory_rates
-u32 ieee80211_mandatory_rates(struct ieee80211_supported_band *sband,
-			      enum nl80211_bss_scan_width scan_width)
-{
-	return _ieee80211_mandatory_rates(sband);
-}
-EXPORT_SYMBOL(ieee80211_mandatory_rates);

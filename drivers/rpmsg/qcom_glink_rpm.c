@@ -143,12 +143,12 @@ static unsigned int glink_rpm_tx_write_one(struct glink_rpm_pipe *pipe,
 
 	len = min_t(size_t, count, pipe->native.length - head);
 	if (len) {
-		__iowrite32_copy_inlined(pipe->fifo + head, data,
+		__iowrite32_copy(pipe->fifo + head, data,
 				 len / sizeof(u32));
 	}
 
 	if (len != count) {
-		__iowrite32_copy_inlined(pipe->fifo, data + len,
+		__iowrite32_copy(pipe->fifo, data + len,
 				 (count - len) / sizeof(u32));
 	}
 

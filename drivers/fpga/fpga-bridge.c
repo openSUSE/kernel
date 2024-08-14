@@ -392,17 +392,6 @@ error_kfree:
 }
 EXPORT_SYMBOL_GPL(__fpga_bridge_register);
 
-/* FIXME: provided only for kABI compatibility */
-#undef fpga_bridge_register
-struct fpga_bridge *
-fpga_bridge_register(struct device *parent, const char *name,
-		     const struct fpga_bridge_ops *br_ops, void *priv)
-{
-	return __fpga_bridge_register(parent, name, br_ops, priv,
-				      parent->driver->owner);
-}
-EXPORT_SYMBOL_GPL(fpga_bridge_register);
-
 /**
  * fpga_bridge_unregister - unregister an FPGA bridge
  *

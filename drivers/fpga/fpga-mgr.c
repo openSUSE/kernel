@@ -854,15 +854,6 @@ error_kfree:
 }
 EXPORT_SYMBOL_GPL(__fpga_mgr_register_full);
 
-/* FIXME: provided only for kABI compatibility */
-#undef fpga_mgr_register_full
-struct fpga_manager *
-fpga_mgr_register_full(struct device *parent, const struct fpga_manager_info *info)
-{
-	return __fpga_mgr_register_full(parent, info, parent->driver->owner);
-}
-EXPORT_SYMBOL_GPL(fpga_mgr_register_full);
-
 /**
  * __fpga_mgr_register - create and register an FPGA Manager device
  * @parent:	fpga manager device from pdev
@@ -892,17 +883,6 @@ __fpga_mgr_register(struct device *parent, const char *name,
 	return __fpga_mgr_register_full(parent, &info, owner);
 }
 EXPORT_SYMBOL_GPL(__fpga_mgr_register);
-
-/* FIXME: provided only for kABI compatibility */
-#undef fpga_mgr_register
-struct fpga_manager *
-fpga_mgr_register(struct device *parent, const char *name,
-		  const struct fpga_manager_ops *mops, void *priv)
-{
-	return __fpga_mgr_register(parent, name, mops, priv,
-				   parent->driver->owner);
-}
-EXPORT_SYMBOL_GPL(fpga_mgr_register);
 
 /**
  * fpga_mgr_unregister - unregister an FPGA manager
@@ -966,15 +946,6 @@ __devm_fpga_mgr_register_full(struct device *parent, const struct fpga_manager_i
 }
 EXPORT_SYMBOL_GPL(__devm_fpga_mgr_register_full);
 
-/* FIXME: provided only for kABI compatibility */
-#undef devm_fpga_mgr_register_full
-struct fpga_manager *
-devm_fpga_mgr_register_full(struct device *parent, const struct fpga_manager_info *info)
-{
-	return __devm_fpga_mgr_register_full(parent, info, parent->driver->owner);
-}
-EXPORT_SYMBOL_GPL(devm_fpga_mgr_register_full);
-
 /**
  * __devm_fpga_mgr_register - resource managed variant of fpga_mgr_register()
  * @parent:	fpga manager device from pdev
@@ -1003,17 +974,6 @@ __devm_fpga_mgr_register(struct device *parent, const char *name,
 	return __devm_fpga_mgr_register_full(parent, &info, owner);
 }
 EXPORT_SYMBOL_GPL(__devm_fpga_mgr_register);
-
-/* FIXME: provided only for kABI compatibility */
-#undef devm_fpga_mgr_register
-struct fpga_manager *
-devm_fpga_mgr_register(struct device *parent, const char *name,
-		       const struct fpga_manager_ops *mops, void *priv)
-{
-	return __devm_fpga_mgr_register(parent, name, mops, priv,
-					parent->driver->owner);
-}
-EXPORT_SYMBOL_GPL(devm_fpga_mgr_register);
 
 static void fpga_mgr_dev_release(struct device *dev)
 {

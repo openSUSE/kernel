@@ -75,7 +75,7 @@ static int ena_com_write_bounce_buffer_to_dev(struct ena_com_io_sq *io_sq,
 	wmb();
 
 	/* The line is completed. Copy it to dev */
-	__iowrite64_copy_inlined(io_sq->desc_addr.pbuf_dev_addr + dst_offset,
+	__iowrite64_copy(io_sq->desc_addr.pbuf_dev_addr + dst_offset,
 			 bounce_buffer, (llq_info->desc_list_entry_size) / 8);
 
 	io_sq->tail++;

@@ -43,7 +43,7 @@ static inline void rt2x00mmio_register_multiwrite(struct rt2x00_dev *rt2x00dev,
 						  const void *value,
 						  const u32 length)
 {
-	__iowrite32_copy_inlined(rt2x00dev->csr.base + offset, value, length >> 2);
+	__iowrite32_copy(rt2x00dev->csr.base + offset, value, length >> 2);
 }
 
 /**

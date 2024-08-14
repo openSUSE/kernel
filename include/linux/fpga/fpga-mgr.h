@@ -215,13 +215,10 @@ struct fpga_manager {
 	enum fpga_mgr_states state;
 	struct fpga_compat_id *compat_id;
 	const struct fpga_manager_ops *mops;
+	struct module *mops_owner;
 	void *priv;
 
-#ifdef __GENKSYMS__
 	void *suse_kabi_padding;
-#else
-	struct module *mops_owner;
-#endif
 };
 
 #define to_fpga_manager(d) container_of(d, struct fpga_manager, dev)

@@ -231,7 +231,7 @@ int qmp_send(struct qmp *qmp, const void *data, size_t len)
 	mutex_lock(&qmp->tx_lock);
 
 	/* The message RAM only implements 32-bit accesses */
-	__iowrite32_copy_inlined(qmp->msgram + qmp->offset + sizeof(u32),
+	__iowrite32_copy(qmp->msgram + qmp->offset + sizeof(u32),
 			 data, len / sizeof(u32));
 	writel(len, qmp->msgram + qmp->offset);
 

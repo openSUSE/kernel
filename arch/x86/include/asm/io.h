@@ -220,7 +220,7 @@ void memset_io(volatile void __iomem *, int, size_t);
  * x86_64") says that circa 2006 rep movsl is noticeably faster than a copy
  * loop.
  */
-static inline void __iowrite32_copy_inlined(void __iomem *to, const void *from,
+static inline void __iowrite32_copy(void __iomem *to, const void *from,
 				    size_t count)
 {
 	asm volatile("rep ; movsl"
@@ -228,7 +228,7 @@ static inline void __iowrite32_copy_inlined(void __iomem *to, const void *from,
 		     : "0"(count), "1"(to), "2"(from)
 		     : "memory");
 }
-#define __iowrite32_copy_inlined __iowrite32_copy_inlined
+#define __iowrite32_copy __iowrite32_copy
 #endif
 
 /*

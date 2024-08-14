@@ -155,9 +155,9 @@ static void free_netvsc_device(struct rcu_head *head)
 
 	kfree(nvdev->extension);
 
-	if (!SUSE_vmbus_gpadl_get_decrypted(&nvdev->recv_buf_gpadl_handle))
+	if (!nvdev->recv_buf_gpadl_handle.decrypted)
 		vfree(nvdev->recv_buf);
-	if (!SUSE_vmbus_gpadl_get_decrypted(&nvdev->send_buf_gpadl_handle))
+	if (!nvdev->send_buf_gpadl_handle.decrypted)
 		vfree(nvdev->send_buf);
 	bitmap_free(nvdev->send_section_map);
 

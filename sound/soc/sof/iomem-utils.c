@@ -92,7 +92,7 @@ int sof_block_write(struct snd_sof_dev *sdev, enum snd_sof_fw_blk_type blk_type,
 	n = size % 4;
 
 	/* __iowrite32_copy use 32bit size values so divide by 4 */
-	__iowrite32_copy_inlined(dest, src, m);
+	__iowrite32_copy(dest, src, m);
 
 	if (n) {
 		affected_mask = (1 << (8 * n)) - 1;

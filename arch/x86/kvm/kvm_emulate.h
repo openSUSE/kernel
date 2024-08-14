@@ -208,11 +208,7 @@ struct x86_emulate_ops {
 	int (*set_msr_with_filter)(struct x86_emulate_ctxt *ctxt, u32 msr_index, u64 data);
 	int (*get_msr_with_filter)(struct x86_emulate_ctxt *ctxt, u32 msr_index, u64 *pdata);
 	int (*get_msr)(struct x86_emulate_ctxt *ctxt, u32 msr_index, u64 *pdata);
-#ifdef __GENKSYMS__
-	int (*check_pmc)(struct x86_emulate_ctxt *ctxt, u32 pmc);
-#else
 	int (*check_rdpmc_early)(struct x86_emulate_ctxt *ctxt, u32 pmc);
-#endif
 	int (*read_pmc)(struct x86_emulate_ctxt *ctxt, u32 pmc, u64 *pdata);
 	void (*halt)(struct x86_emulate_ctxt *ctxt);
 	void (*wbinvd)(struct x86_emulate_ctxt *ctxt);

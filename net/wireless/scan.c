@@ -1602,19 +1602,6 @@ struct cfg80211_bss *__cfg80211_get_bss(struct wiphy *wiphy,
 }
 EXPORT_SYMBOL(__cfg80211_get_bss);
 
-// FIXME: exported here for kABI compatibility
-struct cfg80211_bss *
-cfg80211_get_bss(struct wiphy *wiphy, struct ieee80211_channel *channel,
-		 const u8 *bssid, const u8 *ssid, size_t ssid_len,
-		 enum ieee80211_bss_type bss_type,
-		 enum ieee80211_privacy privacy)
-{
-	return __cfg80211_get_bss(wiphy, channel, bssid, ssid, ssid_len,
-				  bss_type, privacy,
-				  NL80211_BSS_USE_FOR_NORMAL);
-}
-EXPORT_SYMBOL(cfg80211_get_bss);
-
 static void rb_insert_bss(struct cfg80211_registered_device *rdev,
 			  struct cfg80211_internal_bss *bss)
 {

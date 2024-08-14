@@ -3088,8 +3088,7 @@ static void ieee80211_set_disassoc(struct ieee80211_sub_if_data *sdata,
 	       sizeof(sdata->u.mgd.ttlm_info));
 	wiphy_delayed_work_cancel(sdata->local->hw.wiphy, &ifmgd->ttlm_work);
 
-	memset(&ieee80211_vif_neg_ttlm(&sdata->vif), 0,
-	       sizeof(ieee80211_vif_neg_ttlm(&sdata->vif)));
+	memset(&sdata->vif.neg_ttlm, 0, sizeof(sdata->vif.neg_ttlm));
 
 	sdata->u.mgd.removed_links = 0;
 	wiphy_delayed_work_cancel(sdata->local->hw.wiphy,
@@ -5912,10 +5911,8 @@ static int ieee80211_ttlm_set_links(struct ieee80211_sub_if_data *sdata,
 	/* If there is an active negotiated TTLM, it should be discarded by
 	 * the new negotiated/advertised TTLM.
 	 */
-	if (sdata->vif.vif_ext_ofs &&
-	    ieee80211_vif_neg_ttlm(&sdata->vif).valid) {
-		memset(&ieee80211_vif_neg_ttlm(&sdata->vif), 0,
-		       sizeof(ieee80211_vif_neg_ttlm(&sdata->vif)));
+	if (sdata->vif.neg_ttlm.valid) {
+		memset(&sdata->vif.neg_ttlm, 0, sizeof(sdata->vif.neg_ttlm));
 		sdata->vif.suspended_links = 0;
 		changed = BSS_CHANGED_MLD_TTLM;
 	}
@@ -6504,7 +6501,7 @@ static void ieee80211_apply_neg_ttlm(struct ieee80211_sub_if_data *sdata,
 		map |= neg_ttlm.downlink[i] | neg_ttlm.uplink[i];
 
 	/* If there is an active TTLM, unset previously suspended links */
-	if (sdata->vif.vif_ext_ofs && ieee80211_vif_neg_ttlm(&sdata->vif).valid)
+	if (sdata->vif.neg_ttlm.valid)
 		sdata->vif.dormant_links &= ~sdata->vif.suspended_links;
 
 	/* exclude links that are already disabled by advertised TTLM */
@@ -6517,10 +6514,8 @@ static void ieee80211_apply_neg_ttlm(struct ieee80211_sub_if_data *sdata,
 				     new_dormant_links, new_suspended_links))
 		return;
 
-	if (sdata->vif.vif_ext_ofs) {
-		ieee80211_vif_neg_ttlm(&sdata->vif) = neg_ttlm;
-		ieee80211_vif_neg_ttlm(&sdata->vif).valid = true;
-	}
+	sdata->vif.neg_ttlm = neg_ttlm;
+	sdata->vif.neg_ttlm.valid = true;
 }
 
 static void
@@ -8612,11 +8607,3 @@ void ieee80211_disable_rssi_reports(struct ieee80211_vif *vif)
 	_ieee80211_enable_rssi_reports(sdata, 0, 0);
 }
 EXPORT_SYMBOL(ieee80211_disable_rssi_reports);
-
-/* FIXME: old symbol for kABI compatibility */
-#undef ieee80211_chswitch_done
-void ieee80211_chswitch_done(struct ieee80211_vif *vif, bool success)
-{
-	_ieee80211_chswitch_done(vif, success, 0);
-}
-EXPORT_SYMBOL(ieee80211_chswitch_done);
