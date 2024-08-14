@@ -547,8 +547,6 @@ static void end_bio_extent_writepage(struct btrfs_bio *bbio)
 	struct bio *bio = &bbio->bio;
 	int error = blk_status_to_errno(bio->bi_status);
 	struct bio_vec *bvec;
-	u64 start;
-	u64 end;
 	struct bvec_iter_all iter_all;
 
 	ASSERT(!bio_flagged(bio, BIO_CLONED));
@@ -557,6 +555,8 @@ static void end_bio_extent_writepage(struct btrfs_bio *bbio)
 		struct inode *inode = page->mapping->host;
 		struct btrfs_fs_info *fs_info = btrfs_sb(inode->i_sb);
 		const u32 sectorsize = fs_info->sectorsize;
+		u64 start = page_offset(page) + bvec->bv_offset;
+		u32 len = bvec->bv_len;
 
 		/* Our read/write should always be sector aligned. */
 		if (!IS_ALIGNED(bvec->bv_offset, sectorsize))
@@ -568,12 +568,12 @@ static void end_bio_extent_writepage(struct btrfs_bio *bbio)
 		"incomplete page write with offset %u and length %u",
 				   bvec->bv_offset, bvec->bv_len);
 
-		start = page_offset(page) + bvec->bv_offset;
-		end = start + bvec->bv_len - 1;
-
-		end_extent_writepage(page, error, start, end);
-
-		btrfs_page_clear_writeback(fs_info, page, start, bvec->bv_len);
+		btrfs_finish_ordered_extent(bbio->ordered, page, start, len, !error);
+		if (error) {
+			btrfs_page_clear_uptodate(fs_info, page, start, len);
+			mapping_set_error(page->mapping, error);
+		}
+		btrfs_page_clear_writeback(fs_info, page, start, len);
 	}
 
 	bio_put(bio);
@@ -884,13 +884,8 @@ static void alloc_new_bio(struct btrfs_inode *inode,
 	bio_ctrl->bbio = bbio;
 	bio_ctrl->len_to_oe_boundary = U32_MAX;
 
-	/*
-	 * Limit the extent to the ordered boundary for Zone Append.
-	 * Compressed bios aren't submitted directly, so it doesn't apply to
-	 * them.
-	 */
-	if (bio_ctrl->compress_type == BTRFS_COMPRESS_NONE &&
-	    btrfs_use_zone_append(bbio)) {
+	/* Limit data write bios to the ordered boundary. */
+	if (bio_ctrl->wbc) {
 		struct btrfs_ordered_extent *ordered;
 
 		ordered = btrfs_lookup_ordered_extent(inode, file_offset);
@@ -898,11 +893,9 @@ static void alloc_new_bio(struct btrfs_inode *inode,
 			bio_ctrl->len_to_oe_boundary = min_t(u32, U32_MAX,
 					ordered->file_offset +
 					ordered->disk_num_bytes - file_offset);
-			btrfs_put_ordered_extent(ordered);
+			bbio->ordered = ordered;
 		}
-	}
 
-	if (bio_ctrl->wbc) {
 		/*
 		 * Pick the last added device to support cgroup writeback.  For
 		 * multi-device file systems this means blk-cgroup policies have
