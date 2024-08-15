@@ -1937,6 +1937,14 @@ static void cpu_amu_enable(struct arm64_cpu_capabilities const *cap)
 		if (!this_cpu_has_cap(ARM64_WORKAROUND_2457168))
 			update_freq_counters_refs();
 	}
+
+	if (cpus_have_cap(ARM64_WORKAROUND_SPECULATIVE_SSBS)) {
+		struct arm64_ftr_reg *regp;
+
+		regp = get_arm64_ftr_reg(SYS_ID_AA64PFR1_EL1);
+		if (regp)
+			regp->user_mask &= ~ID_AA64PFR1_EL1_SSBS_MASK;
+	}
 }
 
 static bool has_amu(const struct arm64_cpu_capabilities *cap,
