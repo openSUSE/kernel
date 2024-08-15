@@ -5624,6 +5624,21 @@ btf_get_prog_ctx_type(struct bpf_verifier_log *log, const struct btf *btf,
 		return NULL;
 	}
 	t = btf_type_by_id(btf, t->type);
+
+	/* KPROBE programs allow bpf_user_pt_regs_t typedef, which we need to
+	 * check before we skip all the typedef below.
+	 */
+	if (prog_type == BPF_PROG_TYPE_KPROBE) {
+		while (btf_type_is_modifier(t) && !btf_type_is_typedef(t))
+			t = btf_type_by_id(btf, t->type);
+
+		if (btf_type_is_typedef(t)) {
+			tname = btf_name_by_offset(btf, t->name_off);
+			if (tname && strcmp(tname, "bpf_user_pt_regs_t") == 0)
+				return true;
+		}
+	}
+
 	while (btf_type_is_modifier(t))
 		t = btf_type_by_id(btf, t->type);
 	if (!btf_type_is_struct(t)) {
@@ -5655,6 +5670,9 @@ again:
 		bpf_log(log, "Please fix kernel include/linux/bpf_types.h\n");
 		return NULL;
 	}
+	/* program types without named context types work only with arg:ctx tag */
+	if (ctx_tname[0] == '\0')
+		return false;
 	/* only compare that prog's ctx type name is the same as
 	 * kernel expects. No need to compare field by field.
 	 * It's ok for bpf prog to do:
