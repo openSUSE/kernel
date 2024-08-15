@@ -721,20 +721,17 @@ fail:
  */
 blk_status_t btrfs_csum_one_bio(struct btrfs_bio *bbio)
 {
+	struct btrfs_ordered_extent *ordered = bbio->ordered;
 	struct btrfs_inode *inode = bbio->inode;
 	struct btrfs_fs_info *fs_info = inode->root->fs_info;
 	SHASH_DESC_ON_STACK(shash, fs_info->csum_shash);
 	struct bio *bio = &bbio->bio;
-	u64 offset = bbio->file_offset;
 	struct btrfs_ordered_sum *sums;
-	struct btrfs_ordered_extent *ordered = NULL;
 	char *data;
 	struct bvec_iter iter;
 	struct bio_vec bvec;
 	int index;
 	unsigned int blockcount;
-	unsigned long total_bytes = 0;
-	unsigned long this_sum_bytes = 0;
 	int i;
 	unsigned nofs_flag;
 
@@ -755,55 +752,11 @@ blk_status_t btrfs_csum_one_bio(struct btrfs_bio *bbio)
 	shash->tfm = fs_info->csum_shash;
 
 	bio_for_each_segment(bvec, bio, iter) {
-		if (!ordered) {
-			ordered = btrfs_lookup_ordered_extent(inode, offset);
-			/*
-			 * The bio range is not covered by any ordered extent,
-			 * must be a code logic error.
-			 */
-			if (unlikely(!ordered)) {
-				WARN(1, KERN_WARNING
-			"no ordered extent for root %llu ino %llu offset %llu\n",
-				     inode->root->root_key.objectid,
-				     btrfs_ino(inode), offset);
-				kvfree(sums);
-				return BLK_STS_IOERR;
-			}
-		}
-
 		blockcount = BTRFS_BYTES_TO_BLKS(fs_info,
 						 bvec.bv_len + fs_info->sectorsize
 						 - 1);
 
 		for (i = 0; i < blockcount; i++) {
-			if (!(bio->bi_opf & REQ_BTRFS_ONE_ORDERED) &&
-			    !in_range(offset, ordered->file_offset,
-				      ordered->num_bytes)) {
-				unsigned long bytes_left;
-
-				sums->len = this_sum_bytes;
-				this_sum_bytes = 0;
-				btrfs_add_ordered_sum(ordered, sums);
-				btrfs_put_ordered_extent(ordered);
-
-				bytes_left = bio->bi_iter.bi_size - total_bytes;
-
-				nofs_flag = memalloc_nofs_save();
-				sums = kvzalloc(btrfs_ordered_sum_size(fs_info,
-						      bytes_left), GFP_KERNEL);
-				memalloc_nofs_restore(nofs_flag);
-				if (!sums)
-					return BLK_STS_RESOURCE;
-
-				sums->len = bytes_left;
-				ordered = btrfs_lookup_ordered_extent(inode,
-								offset);
-				ASSERT(ordered); /* Logic error */
-				sums->logical = (bio->bi_iter.bi_sector << SECTOR_SHIFT)
-					+ total_bytes;
-				index = 0;
-			}
-
 			data = bvec_kmap_local(&bvec);
 			crypto_shash_digest(shash,
 					    data + (i * fs_info->sectorsize),
@@ -811,22 +764,12 @@ blk_status_t btrfs_csum_one_bio(struct btrfs_bio *bbio)
 					    sums->sums + index);
 			kunmap_local(data);
 			index += fs_info->csum_size;
-			offset += fs_info->sectorsize;
-			this_sum_bytes += fs_info->sectorsize;
-			total_bytes += fs_info->sectorsize;
 		}
 
 	}
-	this_sum_bytes = 0;
 
-	/*
-	 * The ->sums assignment is for zoned writes, where a bio never spans
-	 * ordered extents and is only done unconditionally because that's cheaper
-	 * than a branch.
-	 */
 	bbio->sums = sums;
 	btrfs_add_ordered_sum(ordered, sums);
-	btrfs_put_ordered_extent(ordered);
 	return 0;
 }
 
@@ -837,19 +780,12 @@ blk_status_t btrfs_csum_one_bio(struct btrfs_bio *bbio)
  */
 blk_status_t btrfs_alloc_dummy_sum(struct btrfs_bio *bbio)
 {
-	struct btrfs_ordered_extent *ordered =
-		btrfs_lookup_ordered_extent(bbio->inode, bbio->file_offset);
-
-	if (WARN_ON_ONCE(!ordered))
-		return BLK_STS_IOERR;
-
 	bbio->sums = kmalloc(sizeof(*bbio->sums), GFP_NOFS);
 	if (!bbio->sums)
 		return BLK_STS_RESOURCE;
 	bbio->sums->len = bbio->bio.bi_iter.bi_size;
 	bbio->sums->logical = bbio->bio.bi_iter.bi_sector << SECTOR_SHIFT;
-	btrfs_add_ordered_sum(ordered, bbio->sums);
-	btrfs_put_ordered_extent(ordered);
+	btrfs_add_ordered_sum(bbio->ordered, bbio->sums);
 	return 0;
 }
 

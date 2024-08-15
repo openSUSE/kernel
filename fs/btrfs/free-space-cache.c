@@ -1278,7 +1278,7 @@ static int flush_dirty_cache(struct inode *inode)
 {
 	int ret;
 
-	ret = btrfs_wait_ordered_range(inode, 0, (u64)-1);
+	ret = btrfs_wait_ordered_range(BTRFS_I(inode), 0, (u64)-1);
 	if (ret)
 		clear_extent_bit(&BTRFS_I(inode)->io_tree, 0, inode->i_size - 1,
 				 EXTENT_DELALLOC, NULL);
@@ -1494,7 +1494,7 @@ static int __btrfs_write_out_cache(struct btrfs_root *root, struct inode *inode,
 	io_ctl->entries = entries;
 	io_ctl->bitmaps = bitmaps;
 
-	ret = btrfs_fdatawrite_range(inode, 0, (u64)-1);
+	ret = btrfs_fdatawrite_range(BTRFS_I(inode), 0, (u64)-1);
 	if (ret)
 		goto out;
 
