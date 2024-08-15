@@ -1704,6 +1704,11 @@ static int check_leaf(struct extent_buffer *leaf, bool check_item_data)
 		return -EUCLEAN;
 	}
 
+	if (unlikely(!btrfs_header_flag(leaf, BTRFS_HEADER_FLAG_WRITTEN))) {
+		generic_err(leaf, 0, "invalid flag for leaf, WRITTEN not set");
+		return -EUCLEAN;
+	}
+
 	/*
 	 * Extent buffers from a relocation tree have a owner field that
 	 * corresponds to the subvolume tree they are based on. So just from an
@@ -1821,15 +1826,10 @@ static int check_leaf(struct extent_buffer *leaf, bool check_item_data)
 			return -EUCLEAN;
 		}
 
-		if (check_item_data) {
-			/*
-			 * Check if the item size and content meet other
-			 * criteria
-			 */
-			ret = check_leaf_item(leaf, &key, slot, &prev_key);
-			if (unlikely(ret < 0))
-				return ret;
-		}
+		/* Check if the item size and content meet other criteria */
+		ret = check_leaf_item(leaf, &key, slot, &prev_key);
+		if (unlikely(ret < 0))
+			return ret;
 
 		prev_key.objectid = key.objectid;
 		prev_key.type = key.type;
@@ -1859,6 +1859,11 @@ int btrfs_check_node(struct extent_buffer *node)
 	int level = btrfs_header_level(node);
 	u64 bytenr;
 	int ret = 0;
+
+	if (unlikely(!btrfs_header_flag(node, BTRFS_HEADER_FLAG_WRITTEN))) {
+		generic_err(node, 0, "invalid flag for node, WRITTEN not set");
+		return -EUCLEAN;
+	}
 
 	if (unlikely(level <= 0 || level >= BTRFS_MAX_LEVEL)) {
 		generic_err(node, 0,
