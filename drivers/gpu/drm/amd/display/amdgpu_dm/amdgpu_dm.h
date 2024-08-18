@@ -698,7 +698,6 @@ struct amdgpu_dm_connector {
 	struct amdgpu_dm_connector *mst_root;
 	struct drm_dp_aux *dsc_aux;
 	struct mutex handle_mst_msg_ready;
-	bool is_synaptics_cascaded;
 
 	/* TODO see if we can merge with ddc_bus or make a dm_connector */
 	struct amdgpu_i2c_adapter *i2c;
