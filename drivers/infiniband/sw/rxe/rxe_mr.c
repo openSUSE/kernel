@@ -299,6 +299,9 @@ int rxe_mr_copy(struct rxe_mr *mr, u64 iova, void *addr, int length,
 	if (length == 0)
 		return 0;
 
+	if (WARN_ON(!mr))
+		return -EINVAL;
+
 	if (mr->type == IB_MR_TYPE_DMA) {
 		u8 *src, *dest;
 
