@@ -3486,11 +3486,11 @@ static struct tcf_proto_ops cls_fl_ops __read_mostly = {
 	.bind_class	= fl_bind_class,
 	.tmplt_create	= fl_tmplt_create,
 	.tmplt_destroy	= fl_tmplt_destroy,
-	.tmplt_reoffload = fl_tmplt_reoffload,
 	.tmplt_dump	= fl_tmplt_dump,
 	.get_exts	= fl_get_exts,
 	.owner		= THIS_MODULE,
-	.flags		= TCF_PROTO_OPS_DOIT_UNLOCKED,
+	.flags		= TCF_PROTO_OPS_DOIT_UNLOCKED | TCF_PROTO_OPS_HAS_TMPLT_REOFFLOAD,
+	.tmplt_reoffload = fl_tmplt_reoffload,
 };
 MODULE_ALIAS_NET_CLS("flower");
 
