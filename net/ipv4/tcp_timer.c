@@ -438,13 +438,17 @@ static bool tcp_rtx_probe0_timed_out(const struct sock *sk,
 {
 	const struct tcp_sock *tp = tcp_sk(sk);
 	const int timeout = TCP_RTO_MAX * 2;
-	u32 rcv_delta, rtx_delta;
+	s32 rcv_delta, rtx_delta;
 
+	/* Note: timer interrupt might have been delayed by at least one jiffy,
+	 * and tp->rcv_tstamp might very well have been written recently.
+	 * rcv_delta can thus be negative.
+	 */
 	rcv_delta = inet_csk(sk)->icsk_timeout - tp->rcv_tstamp;
 	if (rcv_delta <= timeout)
 		return false;
 
-	rtx_delta = (u32)msecs_to_jiffies(tcp_time_stamp(tp) -
+	rtx_delta = (s32)msecs_to_jiffies(tcp_time_stamp(tp) -
 			(tp->retrans_stamp ?: tcp_skb_timestamp(skb)));
 
 	return rtx_delta > timeout;
