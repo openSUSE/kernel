@@ -2558,6 +2558,14 @@ static void cap_set_elf_hwcap(const struct arm64_cpu_capabilities *cap)
 		WARN_ON(1);
 		break;
 	}
+
+	if (cpus_have_cap(ARM64_WORKAROUND_SPECULATIVE_SSBS)) {
+		struct arm64_ftr_reg *regp;
+
+		regp = get_arm64_ftr_reg(SYS_ID_AA64PFR1_EL1);
+		if (regp)
+			regp->user_mask &= ~ID_AA64PFR1_EL1_SSBS_MASK;
+	}
 }
 
 /* Check if we have a particular HWCAP enabled */
