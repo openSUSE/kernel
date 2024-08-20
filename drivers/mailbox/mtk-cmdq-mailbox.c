@@ -583,16 +583,16 @@ static int cmdq_probe(struct platform_device *pdev)
 		cmdq->mbox.chans[i].con_priv = (void *)&cmdq->thread[i];
 	}
 
+	platform_set_drvdata(pdev, cmdq);
+	WARN_ON(clk_prepare(cmdq->clock) < 0);
+
+	cmdq_init(cmdq);
+
 	err = devm_mbox_controller_register(dev, &cmdq->mbox);
 	if (err < 0) {
 		dev_err(dev, "failed to register mailbox: %d\n", err);
 		return err;
 	}
-
-	platform_set_drvdata(pdev, cmdq);
-	WARN_ON(clk_prepare(cmdq->clock) < 0);
-
-	cmdq_init(cmdq);
 
 	return 0;
 }
