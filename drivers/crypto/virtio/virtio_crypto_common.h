@@ -37,9 +37,6 @@ struct virtio_crypto {
 	struct virtqueue *ctrl_vq;
 	struct data_queue *data_vq;
 
-	/* Work struct for config space updates */
-	struct work_struct config_work;
-
 	/* To protect the vq operations for the controlq */
 	spinlock_t ctrl_lock;
 
@@ -79,6 +76,11 @@ struct virtio_crypto {
 
 	/* Does the affinity hint is set for virtqueues? */
 	bool affinity_hint_set;
+
+#ifndef __GENKSYMS__
+	/* Work struct for config space updates */
+	struct work_struct config_work;
+#endif
 };
 
 struct virtio_crypto_sym_session_info {
