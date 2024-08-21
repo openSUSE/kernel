@@ -2626,6 +2626,8 @@ static void xs_tcp_tls_setup_socket(struct work_struct *work)
 		.xprtsec	= {
 			.policy		= RPC_XPRTSEC_NONE,
 		},
+		.stats		= upper_clnt->cl_stats,
+		.flags		= RPC_CLNT_CREATE_STATS,
 	};
 	unsigned int pflags = current->flags;
 	struct rpc_clnt *lower_clnt;
