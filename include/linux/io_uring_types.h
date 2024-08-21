@@ -340,7 +340,11 @@ struct io_ring_ctx {
 	struct io_restriction		restrictions;
 
 	/* slow path rsrc auxilary data, used by update/register */
+#ifdef __GENKSYMS__
 	struct io_mapped_ubuf		*dummy_ubuf;
+#else
+	void				*unused1;
+#endif
 	struct io_rsrc_data		*file_data;
 	struct io_rsrc_data		*buf_data;
 
