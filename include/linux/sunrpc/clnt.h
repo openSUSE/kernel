@@ -138,6 +138,10 @@ struct rpc_create_args {
 	char			*client_name;
 	struct svc_xprt		*bc_xprt;	/* NFSv4.1 backchannel */
 	const struct cred	*cred;
+#ifndef __GENKSYMS__
+	/* Only present if RPC_CLNT_CREATE_STATS set */
+	struct rpc_stat		*stats;
+#endif
 };
 
 struct rpc_add_xprt_test {
@@ -160,6 +164,8 @@ struct rpc_add_xprt_test {
 #define RPC_CLNT_CREATE_SOFTERR		(1UL << 10)
 #define RPC_CLNT_CREATE_REUSEPORT	(1UL << 11)
 #define RPC_CLNT_CREATE_CONNECTED	(1UL << 12)
+
+#define RPC_CLNT_CREATE_STATS		(1UL << 20)
 
 struct rpc_clnt *rpc_create(struct rpc_create_args *args);
 struct rpc_clnt	*rpc_bind_new_program(struct rpc_clnt *,
