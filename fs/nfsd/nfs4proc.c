@@ -64,36 +64,6 @@ MODULE_PARM_DESC(nfsd4_ssc_umount_timeout,
 		"idle msecs before unmount export from source server");
 #endif
 
-#ifdef CONFIG_NFSD_V4_SECURITY_LABEL
-#include <linux/security.h>
-
-static inline void
-nfsd4_security_inode_setsecctx(struct svc_fh *resfh, struct xdr_netobj *label, u32 *bmval)
-{
-	struct inode *inode = d_inode(resfh->fh_dentry);
-	int status;
-
-	inode_lock(inode);
-	status = security_inode_setsecctx(resfh->fh_dentry,
-		label->data, label->len);
-	inode_unlock(inode);
-
-	if (status)
-		/*
-		 * XXX: We should really fail the whole open, but we may
-		 * already have created a new file, so it may be too
-		 * late.  For now this seems the least of evils:
-		 */
-		bmval[2] &= ~FATTR4_WORD2_SECURITY_LABEL;
-
-	return;
-}
-#else
-static inline void
-nfsd4_security_inode_setsecctx(struct svc_fh *resfh, struct xdr_netobj *label, u32 *bmval)
-{ }
-#endif
-
 #define NFSDDBG_FACILITY		NFSDDBG_PROC
 
 static u32 nfsd_attrmask[] = {
@@ -156,26 +126,6 @@ is_create_with_attrs(struct nfsd4_open *open)
 		&& (open->op_createmode == NFS4_CREATE_UNCHECKED
 		    || open->op_createmode == NFS4_CREATE_GUARDED
 		    || open->op_createmode == NFS4_CREATE_EXCLUSIVE4_1);
-}
-
-/*
- * if error occurs when setting the acl, just clear the acl bit
- * in the returned attr bitmap.
- */
-static void
-do_set_nfs4_acl(struct svc_rqst *rqstp, struct svc_fh *fhp,
-		struct nfs4_acl *acl, u32 *bmval)
-{
-	__be32 status;
-
-	status = nfsd4_set_nfs4_acl(rqstp, fhp, acl);
-	if (status)
-		/*
-		 * We should probably fail the whole open at this point,
-		 * but we've already created the file, so it's too late;
-		 * So this seems the least of evils:
-		 */
-		bmval[0] &= ~FATTR4_WORD0_ACL;
 }
 
 static inline void
@@ -286,6 +236,10 @@ nfsd4_create_file(struct svc_rqst *rqstp, struct svc_fh *fhp,
 		  struct svc_fh *resfhp, struct nfsd4_open *open)
 {
 	struct iattr *iap = &open->op_iattr;
+	struct nfsd_attrs attrs = {
+		.na_iattr	= iap,
+		.na_seclabel	= &open->op_label,
+	};
 	struct dentry *parent, *child;
 	__u32 v_mtime, v_atime;
 	struct inode *inode;
@@ -306,6 +260,9 @@ nfsd4_create_file(struct svc_rqst *rqstp, struct svc_fh *fhp,
 	host_err = fh_want_write(fhp);
 	if (host_err)
 		return nfserrno(host_err);
+
+	if (is_create_with_attrs(open))
+		nfsd4_acl_to_attr(NF4REG, open->op_acl, &attrs);
 
 	fh_lock_nested(fhp, I_MUTEX_PARENT);
 
@@ -404,10 +361,15 @@ nfsd4_create_file(struct svc_rqst *rqstp, struct svc_fh *fhp,
 	}
 
 set_attr:
-	status = nfsd_create_setattr(rqstp, fhp, resfhp, iap);
+	status = nfsd_create_setattr(rqstp, fhp, resfhp, &attrs);
 
+	if (attrs.na_labelerr)
+		open->op_bmval[2] &= ~FATTR4_WORD2_SECURITY_LABEL;
+	if (attrs.na_aclerr)
+		open->op_bmval[0] &= ~FATTR4_WORD0_ACL;
 out:
 	fh_unlock(fhp);
+	nfsd_attrs_free(&attrs);
 	if (child && !IS_ERR(child))
 		dput(child);
 	fh_drop_write(fhp);
@@ -447,9 +409,6 @@ do_open_lookup(struct svc_rqst *rqstp, struct nfsd4_compound_state *cstate, stru
 		status = nfsd4_create_file(rqstp, current_fh, *resfh, open);
 		current->fs->umask = 0;
 
-		if (!status && open->op_label.len)
-			nfsd4_security_inode_setsecctx(*resfh, &open->op_label, open->op_bmval);
-
 		/*
 		 * Following rfc 3530 14.2.16, and rfc 5661 18.16.4
 		 * use the returned bitmask to indicate which attributes
@@ -472,9 +431,6 @@ do_open_lookup(struct svc_rqst *rqstp, struct nfsd4_compound_state *cstate, stru
 	status = nfsd_check_obj_isreg(*resfh);
 	if (status)
 		goto out;
-
-	if (is_create_with_attrs(open) && open->op_acl != NULL)
-		do_set_nfs4_acl(rqstp, *resfh, open->op_acl, open->op_bmval);
 
 	nfsd4_set_open_owner_reply_cache(cstate, open, *resfh);
 	accmode = NFSD_MAY_NOP;
@@ -804,6 +760,10 @@ nfsd4_create(struct svc_rqst *rqstp, struct nfsd4_compound_state *cstate,
 	     union nfsd4_op_u *u)
 {
 	struct nfsd4_create *create = &u->create;
+	struct nfsd_attrs attrs = {
+		.na_iattr	= &create->cr_iattr,
+		.na_seclabel	= &create->cr_label,
+	};
 	struct svc_fh resfh;
 	__be32 status;
 	dev_t rdev;
@@ -819,12 +779,13 @@ nfsd4_create(struct svc_rqst *rqstp, struct nfsd4_compound_state *cstate,
 	if (status)
 		return status;
 
+	status = nfsd4_acl_to_attr(create->cr_type, create->cr_acl, &attrs);
 	current->fs->umask = create->cr_umask;
 	switch (create->cr_type) {
 	case NF4LNK:
 		status = nfsd_symlink(rqstp, &cstate->current_fh,
 				      create->cr_name, create->cr_namelen,
-				      create->cr_data, &resfh);
+				      create->cr_data, &attrs, &resfh);
 		break;
 
 	case NF4BLK:
@@ -835,7 +796,7 @@ nfsd4_create(struct svc_rqst *rqstp, struct nfsd4_compound_state *cstate,
 			goto out_umask;
 		status = nfsd_create(rqstp, &cstate->current_fh,
 				     create->cr_name, create->cr_namelen,
-				     &create->cr_iattr, S_IFBLK, rdev, &resfh);
+				     &attrs, S_IFBLK, rdev, &resfh);
 		break;
 
 	case NF4CHR:
@@ -846,26 +807,26 @@ nfsd4_create(struct svc_rqst *rqstp, struct nfsd4_compound_state *cstate,
 			goto out_umask;
 		status = nfsd_create(rqstp, &cstate->current_fh,
 				     create->cr_name, create->cr_namelen,
-				     &create->cr_iattr,S_IFCHR, rdev, &resfh);
+				     &attrs,S_IFCHR, rdev, &resfh);
 		break;
 
 	case NF4SOCK:
 		status = nfsd_create(rqstp, &cstate->current_fh,
 				     create->cr_name, create->cr_namelen,
-				     &create->cr_iattr, S_IFSOCK, 0, &resfh);
+				     &attrs, S_IFSOCK, 0, &resfh);
 		break;
 
 	case NF4FIFO:
 		status = nfsd_create(rqstp, &cstate->current_fh,
 				     create->cr_name, create->cr_namelen,
-				     &create->cr_iattr, S_IFIFO, 0, &resfh);
+				     &attrs, S_IFIFO, 0, &resfh);
 		break;
 
 	case NF4DIR:
 		create->cr_iattr.ia_valid &= ~ATTR_SIZE;
 		status = nfsd_create(rqstp, &cstate->current_fh,
 				     create->cr_name, create->cr_namelen,
-				     &create->cr_iattr, S_IFDIR, 0, &resfh);
+				     &attrs, S_IFDIR, 0, &resfh);
 		break;
 
 	default:
@@ -875,12 +836,10 @@ nfsd4_create(struct svc_rqst *rqstp, struct nfsd4_compound_state *cstate,
 	if (status)
 		goto out;
 
-	if (create->cr_label.len)
-		nfsd4_security_inode_setsecctx(&resfh, &create->cr_label, create->cr_bmval);
-
-	if (create->cr_acl != NULL)
-		do_set_nfs4_acl(rqstp, &resfh, create->cr_acl,
-				create->cr_bmval);
+	if (attrs.na_labelerr)
+		create->cr_bmval[2] &= ~FATTR4_WORD2_SECURITY_LABEL;
+	if (attrs.na_aclerr)
+		create->cr_bmval[0] &= ~FATTR4_WORD0_ACL;
 
 	fh_unlock(&cstate->current_fh);
 	set_change_info(&create->cr_cinfo, &cstate->current_fh);
@@ -889,6 +848,7 @@ out:
 	fh_put(&resfh);
 out_umask:
 	current->fs->umask = 0;
+	nfsd_attrs_free(&attrs);
 	return status;
 }
 
@@ -1159,6 +1119,11 @@ nfsd4_setattr(struct svc_rqst *rqstp, struct nfsd4_compound_state *cstate,
 	      union nfsd4_op_u *u)
 {
 	struct nfsd4_setattr *setattr = &u->setattr;
+	struct nfsd_attrs attrs = {
+		.na_iattr	= &setattr->sa_iattr,
+		.na_seclabel	= &setattr->sa_label,
+	};
+	struct inode *inode;
 	__be32 status = nfs_ok;
 	int err;
 
@@ -1181,19 +1146,20 @@ nfsd4_setattr(struct svc_rqst *rqstp, struct nfsd4_compound_state *cstate,
 	if (status)
 		goto out;
 
-	if (setattr->sa_acl != NULL)
-		status = nfsd4_set_nfs4_acl(rqstp, &cstate->current_fh,
-					    setattr->sa_acl);
+	inode = cstate->current_fh.fh_dentry->d_inode;
+	status = nfsd4_acl_to_attr(S_ISDIR(inode->i_mode) ? NF4DIR : NF4REG,
+				   setattr->sa_acl, &attrs);
+
 	if (status)
 		goto out;
-	if (setattr->sa_label.len)
-		status = nfsd4_set_nfs4_label(rqstp, &cstate->current_fh,
-				&setattr->sa_label);
-	if (status)
-		goto out;
-	status = nfsd_setattr(rqstp, &cstate->current_fh, &setattr->sa_iattr,
+	status = nfsd_setattr(rqstp, &cstate->current_fh, &attrs,
 				0, (time64_t)0);
+	if (!status)
+		status = nfserrno(attrs.na_labelerr);
+	if (!status)
+		status = nfserrno(attrs.na_aclerr);
 out:
+	nfsd_attrs_free(&attrs);
 	fh_drop_write(&cstate->current_fh);
 	return status;
 }
@@ -1410,7 +1376,7 @@ try_again:
 		return 0;
 	}
 	if (work) {
-		strncpy(work->nsui_ipaddr, ipaddr, sizeof(work->nsui_ipaddr));
+		strscpy(work->nsui_ipaddr, ipaddr, sizeof(work->nsui_ipaddr) - 1);
 		refcount_set(&work->nsui_refcnt, 2);
 		work->nsui_busy = true;
 		list_add_tail(&work->nsui_list, &nn->nfsd_ssc_mount_list);

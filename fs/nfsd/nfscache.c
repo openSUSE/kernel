@@ -243,8 +243,8 @@ nfsd_cache_bucket_find(__be32 xid, struct nfsd_net *nn)
 	return &nn->drc_hashtbl[hash];
 }
 
-static long
-prune_bucket(struct nfsd_drc_bucket *b, struct nfsd_net *nn)
+static long prune_bucket(struct nfsd_drc_bucket *b, struct nfsd_net *nn,
+			 unsigned int max)
 {
 	struct svc_cacherep *rp, *tmp;
 	long freed = 0;
@@ -261,8 +261,15 @@ prune_bucket(struct nfsd_drc_bucket *b, struct nfsd_net *nn)
 			break;
 		nfsd_reply_cache_free_locked(b, rp, nn);
 		freed++;
+		if (max && freed >= max)
+			break;
 	}
 	return freed;
+}
+
+static long nfsd_prune_bucket(struct nfsd_drc_bucket *b, struct nfsd_net *nn)
+{
+	return prune_bucket(b, nn, 3);
 }
 
 /*
@@ -281,7 +288,7 @@ prune_cache_entries(struct nfsd_net *nn)
 		if (list_empty(&b->lru_head))
 			continue;
 		spin_lock(&b->cache_lock);
-		freed += prune_bucket(b, nn);
+		freed += prune_bucket(b, nn, 0);
 		spin_unlock(&b->cache_lock);
 	}
 	return freed;
@@ -453,8 +460,7 @@ int nfsd_cache_lookup(struct svc_rqst *rqstp)
 	atomic_inc(&nn->num_drc_entries);
 	nfsd_stats_drc_mem_usage_add(nn, sizeof(*rp));
 
-	/* go ahead and prune the cache */
-	prune_bucket(b, nn);
+	nfsd_prune_bucket(b, nn);
 
 out_unlock:
 	spin_unlock(&b->cache_lock);
