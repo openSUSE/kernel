@@ -2069,9 +2069,15 @@ static struct edid *mtk_dp_get_edid(struct drm_bridge *bridge,
 
 	if (new_edid) {
 		struct cea_sad *sads;
+		int ret;
 
-		audio_caps->sad_count = drm_edid_to_sad(new_edid, &sads);
-		kfree(sads);
+		ret = drm_edid_to_sad(new_edid, &sads);
+		/* Ignore any errors */
+		if (ret < 0)
+			ret = 0;
+		if (ret)
+			kfree(sads);
+		audio_caps->sad_count = ret;
 
 		audio_caps->detect_monitor = drm_detect_monitor_audio(new_edid);
 	}

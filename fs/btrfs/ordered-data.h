@@ -167,6 +167,9 @@ int btrfs_finish_ordered_io(struct btrfs_ordered_extent *ordered_extent);
 void btrfs_put_ordered_extent(struct btrfs_ordered_extent *entry);
 void btrfs_remove_ordered_extent(struct btrfs_inode *btrfs_inode,
 				struct btrfs_ordered_extent *entry);
+void btrfs_finish_ordered_extent(struct btrfs_ordered_extent *ordered,
+				 struct page *page, u64 file_offset, u64 len,
+				 bool uptodate);
 void btrfs_mark_ordered_io_finished(struct btrfs_inode *inode,
 				struct page *page, u64 file_offset,
 				u64 num_bytes, bool uptodate);
@@ -178,16 +181,12 @@ struct btrfs_ordered_extent *btrfs_alloc_ordered_extent(
 			u64 num_bytes, u64 ram_bytes, u64 disk_bytenr,
 			u64 disk_num_bytes, u64 offset, unsigned long flags,
 			int compress_type);
-int btrfs_add_ordered_extent(struct btrfs_inode *inode, u64 file_offset,
-			     u64 num_bytes, u64 ram_bytes, u64 disk_bytenr,
-			     u64 disk_num_bytes, u64 offset, unsigned long flags,
-			     int compress_type);
 void btrfs_add_ordered_sum(struct btrfs_ordered_extent *entry,
 			   struct btrfs_ordered_sum *sum);
 struct btrfs_ordered_extent *btrfs_lookup_ordered_extent(struct btrfs_inode *inode,
 							 u64 file_offset);
 void btrfs_start_ordered_extent(struct btrfs_ordered_extent *entry);
-int btrfs_wait_ordered_range(struct inode *inode, u64 start, u64 len);
+int btrfs_wait_ordered_range(struct btrfs_inode *inode, u64 start, u64 len);
 struct btrfs_ordered_extent *
 btrfs_lookup_first_ordered_extent(struct btrfs_inode *inode, u64 file_offset);
 struct btrfs_ordered_extent *btrfs_lookup_first_ordered_range(

@@ -4137,7 +4137,7 @@ int btrfs_relocate_block_group(struct btrfs_fs_info *fs_info, u64 group_start)
 		 * out of the loop if we hit an error.
 		 */
 		if (rc->stage == MOVE_DATA_EXTENTS && rc->found_file_extent) {
-			ret = btrfs_wait_ordered_range(rc->data_inode, 0,
+			ret = btrfs_wait_ordered_range(BTRFS_I(rc->data_inode), 0,
 						       (u64)-1);
 			if (ret)
 				err = ret;
@@ -4379,29 +4379,25 @@ out:
  * cloning checksum properly handles the nodatasum extents.
  * it also saves CPU time to re-calculate the checksum.
  */
-int btrfs_reloc_clone_csums(struct btrfs_inode *inode, u64 file_pos, u64 len)
+int btrfs_reloc_clone_csums(struct btrfs_ordered_extent *ordered)
 {
+	struct btrfs_inode *inode = BTRFS_I(ordered->inode);
 	struct btrfs_fs_info *fs_info = inode->root->fs_info;
-	struct btrfs_root *csum_root;
-	struct btrfs_ordered_sum *sums;
-	struct btrfs_ordered_extent *ordered;
-	int ret;
-	u64 disk_bytenr;
-	u64 new_bytenr;
+	u64 disk_bytenr = ordered->file_offset + inode->index_cnt;
+	struct btrfs_root *csum_root = btrfs_csum_root(fs_info, disk_bytenr);
 	LIST_HEAD(list);
+	int ret;
 
-	ordered = btrfs_lookup_ordered_extent(inode, file_pos);
-	BUG_ON(ordered->file_offset != file_pos || ordered->num_bytes != len);
-
-	disk_bytenr = file_pos + inode->index_cnt;
-	csum_root = btrfs_csum_root(fs_info, disk_bytenr);
 	ret = btrfs_lookup_csums_list(csum_root, disk_bytenr,
-				      disk_bytenr + len - 1, &list, 0, false);
+				      disk_bytenr + ordered->num_bytes - 1,
+				      &list, 0, false);
 	if (ret)
-		goto out;
+		return ret;
 
 	while (!list_empty(&list)) {
-		sums = list_entry(list.next, struct btrfs_ordered_sum, list);
+		struct btrfs_ordered_sum *sums =
+			list_entry(list.next, struct btrfs_ordered_sum, list);
+
 		list_del_init(&sums->list);
 
 		/*
@@ -4416,14 +4412,11 @@ int btrfs_reloc_clone_csums(struct btrfs_inode *inode, u64 file_pos, u64 len)
 		 * disk_len vs real len like with real inodes since it's all
 		 * disk length.
 		 */
-		new_bytenr = ordered->disk_bytenr + sums->logical - disk_bytenr;
-		sums->logical = new_bytenr;
-
+		sums->logical = ordered->disk_bytenr + sums->logical - disk_bytenr;
 		btrfs_add_ordered_sum(ordered, sums);
 	}
-out:
-	btrfs_put_ordered_extent(ordered);
-	return ret;
+
+	return 0;
 }
 
 int btrfs_reloc_cow_block(struct btrfs_trans_handle *trans,
