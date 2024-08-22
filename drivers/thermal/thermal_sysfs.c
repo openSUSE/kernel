@@ -188,7 +188,7 @@ trip_point_hyst_store(struct device *dev, struct device_attribute *attr,
 unlock:
 	mutex_unlock(&tz->lock);
 
-	return ret ? ret : count;
+	return count;
 }
 
 static ssize_t
