@@ -1739,7 +1739,6 @@ static int chv_pinctrl_remove(struct platform_device *pdev)
 	return 0;
 }
 
-#ifdef CONFIG_PM_SLEEP
 static int chv_pinctrl_suspend_noirq(struct device *dev)
 {
 	struct intel_pinctrl *pctrl = dev_get_drvdata(dev);
@@ -1823,12 +1822,9 @@ static int chv_pinctrl_resume_noirq(struct device *dev)
 
 	return 0;
 }
-#endif
 
-static const struct dev_pm_ops chv_pinctrl_pm_ops = {
-	SET_NOIRQ_SYSTEM_SLEEP_PM_OPS(chv_pinctrl_suspend_noirq,
-				      chv_pinctrl_resume_noirq)
-};
+static DEFINE_NOIRQ_DEV_PM_OPS(chv_pinctrl_pm_ops,
+			       chv_pinctrl_suspend_noirq, chv_pinctrl_resume_noirq);
 
 static const struct acpi_device_id chv_pinctrl_acpi_match[] = {
 	{ "INT33FF", (kernel_ulong_t)chv_soc_data },
@@ -1841,7 +1837,7 @@ static struct platform_driver chv_pinctrl_driver = {
 	.remove = chv_pinctrl_remove,
 	.driver = {
 		.name = "cherryview-pinctrl",
-		.pm = &chv_pinctrl_pm_ops,
+		.pm = pm_sleep_ptr(&chv_pinctrl_pm_ops),
 		.acpi_match_table = chv_pinctrl_acpi_match,
 	},
 };
