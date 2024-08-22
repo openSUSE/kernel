@@ -403,11 +403,6 @@ void __thermal_zone_device_update(struct thermal_zone_device *tz,
 	if (tz->suspended)
 		return;
 
-	if (WARN_ONCE(!tz->ops->get_temp,
-		      "'%s' must not be called without 'get_temp' ops set\n",
-		      __func__))
-		return;
-
 	if (!thermal_zone_device_is_enabled(tz))
 		return;
 
@@ -1273,7 +1268,7 @@ thermal_zone_device_register_with_trips(const char *type, struct thermal_trip *t
 		return ERR_PTR(-EINVAL);
 	}
 
-	if (!ops) {
+	if (!ops || !ops->get_temp) {
 		pr_err("Thermal zone device ops not defined\n");
 		return ERR_PTR(-EINVAL);
 	}
