@@ -10,8 +10,10 @@
 #include <linux/netfilter/nf_conntrack_tuple_common.h>
 #include <net/flow_offload.h>
 #include <net/dst.h>
+#ifndef __GENKSYMS__
 #include <linux/if_pppox.h>
 #include <linux/ppp_defs.h>
+#endif /* __GENKSYMS__ */
 
 struct nf_flowtable;
 struct nf_flow_rule;
