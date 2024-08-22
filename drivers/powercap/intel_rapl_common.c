@@ -821,7 +821,7 @@ static int rapl_read_data_raw(struct rapl_domain *rd,
 		return -EINVAL;
 
 	ra.reg = rd->regs[rpi->id];
-	if (!ra.reg)
+	if (!ra.reg.val)
 		return -EINVAL;
 
 	/* non-hardware data are collected by the polling thread */
@@ -833,7 +833,7 @@ static int rapl_read_data_raw(struct rapl_domain *rd,
 	ra.mask = rpi->mask;
 
 	if (rd->rp->priv->read_raw(get_rid(rd->rp), &ra)) {
-		pr_debug("failed to read reg 0x%llx for %s:%s\n", ra.reg, rd->rp->name, rd->name);
+		pr_debug("failed to read reg 0x%llx for %s:%s\n", ra.reg.val, rd->rp->name, rd->name);
 		return -EIO;
 	}
 
@@ -923,7 +923,7 @@ static int rapl_check_unit_core(struct rapl_domain *rd)
 	ra.mask = ~0;
 	if (rd->rp->priv->read_raw(get_rid(rd->rp), &ra)) {
 		pr_err("Failed to read power unit REG 0x%llx on %s:%s, exit.\n",
-			ra.reg, rd->rp->name, rd->name);
+			ra.reg.val, rd->rp->name, rd->name);
 		return -ENODEV;
 	}
 
@@ -951,7 +951,7 @@ static int rapl_check_unit_atom(struct rapl_domain *rd)
 	ra.mask = ~0;
 	if (rd->rp->priv->read_raw(get_rid(rd->rp), &ra)) {
 		pr_err("Failed to read power unit REG 0x%llx on %s:%s, exit.\n",
-			ra.reg, rd->rp->name, rd->name);
+			ra.reg.val, rd->rp->name, rd->name);
 		return -ENODEV;
 	}
 
@@ -1138,7 +1138,7 @@ static int rapl_check_unit_tpmi(struct rapl_domain *rd)
 	ra.mask = ~0;
 	if (rd->rp->priv->read_raw(get_rid(rd->rp), &ra)) {
 		pr_err("Failed to read power unit REG 0x%llx on %s:%s, exit.\n",
-			ra.reg, rd->rp->name, rd->name);
+			ra.reg.val, rd->rp->name, rd->name);
 		return -ENODEV;
 	}
 
@@ -1414,8 +1414,8 @@ static int rapl_get_domain_unit(struct rapl_domain *rd)
 	struct rapl_defaults *defaults = get_defaults(rd->rp);
 	int ret;
 
-	if (!rd->regs[RAPL_DOMAIN_REG_UNIT]) {
-		if (!rd->rp->priv->reg_unit) {
+	if (!rd->regs[RAPL_DOMAIN_REG_UNIT].val) {
+		if (!rd->rp->priv->reg_unit.val) {
 			pr_err("No valid Unit register found\n");
 			return -ENODEV;
 		}
