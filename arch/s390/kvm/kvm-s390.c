@@ -5582,6 +5582,9 @@ int kvm_arch_prepare_memory_region(struct kvm *kvm,
 	   ok to be fragmented into various different vmas. It is okay to mmap()
 	   and munmap() stuff in this slot after doing this call at any time */
 
+	if (kvm_is_ucontrol(kvm))
+		return -EINVAL;
+
 	if (mem->userspace_addr & 0xffffful)
 		return -EINVAL;
 
