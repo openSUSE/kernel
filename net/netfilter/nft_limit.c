@@ -54,16 +54,18 @@ static inline bool nft_limit_eval(struct nft_limit *limit, u64 cost)
 static int nft_limit_init(struct nft_limit *limit,
 			  const struct nlattr * const tb[], bool pkts)
 {
-	u64 unit, tokens;
+	u64 unit, tokens, rate_with_burst;
 
 	if (tb[NFTA_LIMIT_RATE] == NULL ||
 	    tb[NFTA_LIMIT_UNIT] == NULL)
 		return -EINVAL;
 
 	limit->rate = be64_to_cpu(nla_get_be64(tb[NFTA_LIMIT_RATE]));
+	if (limit->rate == 0)
+		return -EINVAL;
+
 	unit = be64_to_cpu(nla_get_be64(tb[NFTA_LIMIT_UNIT]));
-	limit->nsecs = unit * NSEC_PER_SEC;
-	if (limit->rate == 0 || limit->nsecs < unit)
+	if (check_mul_overflow(unit, (u64)NSEC_PER_SEC, &limit->nsecs))
 		return -EOVERFLOW;
 
 	if (tb[NFTA_LIMIT_BURST])
@@ -72,18 +74,25 @@ static int nft_limit_init(struct nft_limit *limit,
 	if (pkts && limit->burst == 0)
 		limit->burst = NFT_LIMIT_PKT_BURST_DEFAULT;
 
-	if (limit->rate + limit->burst < limit->rate)
+	if (check_add_overflow((u64)limit->rate, (u64)limit->burst, &rate_with_burst))
 		return -EOVERFLOW;
 
 	if (pkts) {
-		tokens = div64_u64(limit->nsecs, limit->rate) * limit->burst;
+		u64 tmp = div64_u64(limit->nsecs, limit->rate);
+
+		if (check_mul_overflow(tmp, (u64)limit->burst, &tokens))
+			return -EOVERFLOW;
 	} else {
+		u64 tmp;
+
 		/* The token bucket size limits the number of tokens can be
 		 * accumulated. tokens_max specifies the bucket size.
 		 * tokens_max = unit * (rate + burst) / rate.
 		 */
-		tokens = div64_u64(limit->nsecs * (limit->rate + limit->burst),
-				 limit->rate);
+		if (check_mul_overflow(limit->nsecs, rate_with_burst, &tmp))
+			return -EOVERFLOW;
+
+		tokens = div64_u64(tmp, limit->rate);
 	}
 
 	limit->tokens = tokens;
