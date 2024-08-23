@@ -158,8 +158,8 @@ static void nft_flow_dst_release(struct flow_offload *flow,
 		dst_release(flow->tuplehash[dir].tuple.dst_cache);
 }
 
-int flow_offload_route_init(struct flow_offload *flow,
-			    struct nf_flow_route *route)
+int flow_offload_route_init_1224415(struct flow_offload *flow,
+				    struct nf_flow_route *route)
 {
 	int err;
 
@@ -179,6 +179,15 @@ err_route_reply:
 	nft_flow_dst_release(flow, FLOW_OFFLOAD_DIR_ORIGINAL);
 
 	return err;
+}
+EXPORT_SYMBOL_GPL(flow_offload_route_init_1224415);
+
+int flow_offload_route_init(struct flow_offload *flow,
+			    const struct nf_flow_route *route)
+{
+	struct nf_flow_route *__route = (struct nf_flow_route *)route;
+
+	return flow_offload_route_init_1224415(flow, __route);
 }
 EXPORT_SYMBOL_GPL(flow_offload_route_init);
 
