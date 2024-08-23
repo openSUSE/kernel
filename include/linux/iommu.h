@@ -415,6 +415,9 @@ struct iommu_ops {
 	struct iommu_domain *identity_domain;
 	struct iommu_domain *blocked_domain;
 	struct iommu_domain *default_domain;
+#ifndef __GENKSYMS__
+	struct iommu_domain *release_domain;
+#endif
 };
 
 /**
