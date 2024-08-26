@@ -996,6 +996,7 @@ int mtl_core_init(struct pmc_dev *pmcdev)
 	struct pmc *pmc = pmcdev->pmcs[PMC_IDX_SOC];
 	int ret;
 	int func = 2;
+	bool ssram_init = true;
 
 	mtl_d3_fixup();
 
@@ -1009,6 +1010,7 @@ int mtl_core_init(struct pmc_dev *pmcdev)
 	 */
 	ret = pmc_core_ssram_init(pmcdev, func);
 	if (ret) {
+		ssram_init = false;
 		dev_warn(&pmcdev->pdev->dev,
 			 "ssram init failed, %d, using legacy init\n", ret);
 		pmc->map = &mtl_socm_reg_map;
@@ -1020,5 +1022,8 @@ int mtl_core_init(struct pmc_dev *pmcdev)
 	pmc_core_get_low_power_modes(pmcdev);
 	pmc_core_punit_pmt_init(pmcdev, MTL_PMT_DMU_GUID);
 
-	return pmc_core_ssram_get_lpm_reqs(pmcdev);
+	if (ssram_init)
+		return pmc_core_ssram_get_lpm_reqs(pmcdev);
+
+	return 0;
 }
