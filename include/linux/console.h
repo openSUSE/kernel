@@ -250,6 +250,7 @@ struct printk_buffers;
  *				might cause a system freeze when the console
  *				is used later.
  * @pbufs:			Pointer to the text buffer for this context
+ * @seq:			The sequence number to print for this context
  */
 struct nbcon_context {
 	/* members set by caller */
@@ -260,6 +261,7 @@ struct nbcon_context {
 
 	/* members set by acquire */
 	struct printk_buffers	*pbufs;
+	u64			seq;
 };
 
 /**
@@ -283,6 +285,7 @@ struct nbcon_context {
  * @node:		hlist node for the console list
  *
  * @nbcon_state:	State for nbcon consoles
+ * @nbcon_seq:		Sequence number of the next record for nbcon to print
  * @pbufs:		Pointer to nbcon private buffer
  */
 struct console {
@@ -306,6 +309,7 @@ struct console {
 
 	/* nbcon console specific members */
 	atomic_t		__private nbcon_state;
+	atomic_long_t		__private nbcon_seq;
 	struct printk_buffers	*pbufs;
 };
 
