@@ -494,7 +494,6 @@ static void serial_omap_rlsi(struct uart_omap_port *up, unsigned int lsr)
 static void serial_omap_rdi(struct uart_omap_port *up, unsigned int lsr)
 {
 	unsigned char ch = 0;
-	unsigned int flag;
 
 	if (!(lsr & UART_LSR_DR))
 		return;
@@ -507,13 +506,12 @@ static void serial_omap_rdi(struct uart_omap_port *up, unsigned int lsr)
 		return;
 	}
 
-	flag = TTY_NORMAL;
 	up->port.icount.rx++;
 
 	if (uart_handle_sysrq_char(&up->port, ch))
 		return;
 
-	uart_insert_char(&up->port, lsr, UART_LSR_OE, ch, flag);
+	uart_insert_char(&up->port, lsr, UART_LSR_OE, ch, TTY_NORMAL);
 }
 
 /**
