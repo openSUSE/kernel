@@ -732,8 +732,8 @@ static int meson_uart_probe(struct platform_device *pdev)
 	has_rtscts = of_property_read_bool(pdev->dev.of_node, "uart-has-rtscts");
 
 	if (meson_ports[pdev->id]) {
-		dev_err(&pdev->dev, "port %d already allocated\n", pdev->id);
-		return -EBUSY;
+		return dev_err_probe(&pdev->dev, -EBUSY,
+				     "port %d already allocated\n", pdev->id);
 	}
 
 	port = devm_kzalloc(&pdev->dev, sizeof(struct uart_port), GFP_KERNEL);
