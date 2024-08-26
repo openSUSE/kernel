@@ -987,7 +987,7 @@ static int mtl_resume(struct pmc_dev *pmcdev)
 int mtl_core_init(struct pmc_dev *pmcdev)
 {
 	struct pmc *pmc = pmcdev->pmcs[PMC_IDX_SOC];
-	int ret = 0;
+	int ret;
 
 	mtl_d3_fixup();
 
@@ -1004,6 +1004,8 @@ int mtl_core_init(struct pmc_dev *pmcdev)
 		if (ret)
 			return ret;
 	}
+
+	pmc_core_get_low_power_modes(pmcdev);
 
 	return 0;
 }
