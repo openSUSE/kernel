@@ -7,6 +7,7 @@ obj-$(CONFIG_PINCTRL_LYNXPOINT)		+= pinctrl-lynxpoint.o
 obj-$(CONFIG_PINCTRL_MERRIFIELD)	+= pinctrl-merrifield.o
 obj-$(CONFIG_PINCTRL_MOOREFIELD)	+= pinctrl-moorefield.o
 obj-$(CONFIG_PINCTRL_INTEL)		+= pinctrl-intel.o
+obj-$(CONFIG_PINCTRL_INTEL_PLATFORM)	+= pinctrl-intel-platform.o
 obj-$(CONFIG_PINCTRL_ALDERLAKE)		+= pinctrl-alderlake.o
 obj-$(CONFIG_PINCTRL_BROXTON)		+= pinctrl-broxton.o
 obj-$(CONFIG_PINCTRL_CANNONLAKE)	+= pinctrl-cannonlake.o
