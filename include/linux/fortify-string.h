@@ -301,32 +301,8 @@ __FORTIFY_INLINE size_t strlcpy(char * const POS p, const char * const POS q, si
 }
 
 /* Defined after fortified strnlen() to reuse it. */
-extern ssize_t __real_strscpy(char *, const char *, size_t) __RENAME(strscpy);
-/**
- * strscpy - Copy a C-string into a sized buffer
- *
- * @p: Where to copy the string to
- * @q: Where to copy the string from
- * @size: Size of destination buffer
- *
- * Copy the source string @p, or as much of it as fits, into the destination
- * @q buffer. The behavior is undefined if the string buffers overlap. The
- * destination @p buffer is always NUL terminated, unless it's zero-sized.
- *
- * Preferred to strlcpy() since the API doesn't require reading memory
- * from the source @q string beyond the specified @size bytes, and since
- * the return value is easier to error-check than strlcpy()'s.
- * In addition, the implementation is robust to the string changing out
- * from underneath it, unlike the current strlcpy() implementation.
- *
- * Preferred to strncpy() since it always returns a valid string, and
- * doesn't unnecessarily force the tail of the destination buffer to be
- * zero padded. If padding is desired please use strscpy_pad().
- *
- * Returns the number of characters copied in @p (not including the
- * trailing %NUL) or -E2BIG if @size is 0 or the copy of @q was truncated.
- */
-__FORTIFY_INLINE ssize_t strscpy(char * const POS p, const char * const POS q, size_t size)
+extern ssize_t __real_strscpy(char *, const char *, size_t) __RENAME(sized_strscpy);
+__FORTIFY_INLINE ssize_t sized_strscpy(char * const POS p, const char * const POS q, size_t size)
 {
 	size_t len;
 	/* Use string size rather than possible enclosing struct size. */
