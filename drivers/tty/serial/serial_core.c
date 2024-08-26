@@ -3227,7 +3227,7 @@ static void serial_core_remove_one_port(struct uart_driver *drv,
 
 	if (!uart_port) {
 		mutex_unlock(&port->mutex);
-		goto out;
+		return;
 	}
 	mutex_unlock(&port->mutex);
 
@@ -3267,8 +3267,6 @@ static void serial_core_remove_one_port(struct uart_driver *drv,
 	wait_event(state->remove_wait, !atomic_read(&state->refcount));
 	state->uart_port = NULL;
 	mutex_unlock(&port->mutex);
-out:
-	mutex_unlock(&port_mutex);
 }
 
 /**
