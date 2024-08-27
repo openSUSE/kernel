@@ -1031,9 +1031,8 @@ void md_bitmap_unplug(struct bitmap *bitmap)
 		if (dirty || need_write) {
 			if (!writing) {
 				md_bitmap_wait_writes(bitmap);
-				if (bitmap->mddev->queue)
-					blk_add_trace_msg(bitmap->mddev->queue,
-							  "md bitmap_unplug");
+				mddev_add_trace_msg(bitmap->mddev,
+					"md bitmap_unplug");
 			}
 			clear_page_attr(bitmap, i, BITMAP_PAGE_PENDING);
 			write_page(bitmap, bitmap->storage.filemap[i], 0);
@@ -1304,9 +1303,7 @@ void md_bitmap_daemon_work(struct mddev *mddev)
 	}
 	bitmap->allclean = 1;
 
-	if (bitmap->mddev->queue)
-		blk_add_trace_msg(bitmap->mddev->queue,
-				  "md bitmap_daemon_work");
+	mddev_add_trace_msg(bitmap->mddev, "md bitmap_daemon_work");
 
 	/* Any file-page which is PENDING now needs to be written.
 	 * So set NEEDWRITE now, then after we make any last-minute changes

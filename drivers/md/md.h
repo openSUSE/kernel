@@ -918,4 +918,10 @@ int do_md_run(struct mddev *mddev);
 
 extern const struct block_device_operations md_fops;
 
+#define mddev_add_trace_msg(mddev, fmt, args...)			\
+do {									\
+	if ((mddev)->gendisk)						\
+		blk_add_trace_msg((mddev)->queue, fmt, ##args);		\
+} while (0)
+
 #endif /* _MD_MD_H */
