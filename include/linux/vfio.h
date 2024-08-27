@@ -349,8 +349,10 @@ struct virqfd {
 	wait_queue_entry_t		wait;
 	poll_table		pt;
 	struct work_struct	shutdown;
-	struct work_struct	flush_inject;
 	struct virqfd		**pvirqfd;
+#ifndef __GENKSYMS__
+	struct work_struct	flush_inject;
+#endif
 };
 
 int vfio_virqfd_enable(void *opaque, int (*handler)(void *, void *),
