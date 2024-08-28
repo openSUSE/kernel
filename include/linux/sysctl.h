@@ -200,11 +200,6 @@ struct ctl_table_root {
 	int (*permissions)(struct ctl_table_header *head, struct ctl_table *table);
 };
 
-/* struct ctl_path describes where in the hierarchy a table is added */
-struct ctl_path {
-	const char *procname;
-};
-
 #ifdef CONFIG_SYSCTL
 
 #define DECLARE_SYSCTL_BASE(_name, _table)				\
