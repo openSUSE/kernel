@@ -295,7 +295,7 @@ struct cfg80211_cqm_config {
 	enum nl80211_cqm_rssi_threshold_event last_rssi_event_type;
 	bool use_range_api;
 	int n_rssi_thresholds;
-	s32 rssi_thresholds[];
+	s32 rssi_thresholds[] __counted_by(n_rssi_thresholds);
 };
 
 void cfg80211_cqm_rssi_notify_work(struct wiphy *wiphy,
