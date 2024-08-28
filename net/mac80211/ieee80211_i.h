@@ -1562,6 +1562,8 @@ struct ieee80211_local {
 	/* extended capabilities provided by mac80211 */
 	u8 ext_capa[8];
 
+	bool wbrf_supported;
+
 	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
@@ -2607,5 +2609,9 @@ ieee80211_eht_cap_ie_to_sta_eht_cap(struct ieee80211_sub_if_data *sdata,
 				    struct link_sta_info *link_sta);
 void ieee80211_process_neg_ttlm_req(struct ieee80211_sub_if_data *sdata,
 				    struct ieee80211_mgmt *mgmt, size_t len);
+
+void ieee80211_check_wbrf_support(struct ieee80211_local *local);
+void ieee80211_add_wbrf(struct ieee80211_local *local, struct cfg80211_chan_def *chandef);
+void ieee80211_remove_wbrf(struct ieee80211_local *local, struct cfg80211_chan_def *chandef);
 
 #endif /* IEEE80211_I_H */
