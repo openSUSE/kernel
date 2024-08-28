@@ -28,6 +28,7 @@
 
 struct uart_port;
 struct serial_struct;
+struct serial_port_device;
 struct device;
 struct gpio_desc;
 
@@ -458,15 +459,18 @@ struct uart_port {
 						struct serial_rs485 *rs485);
 	int			(*iso7816_config)(struct uart_port *,
 						  struct serial_iso7816 *iso7816);
+	unsigned int		ctrl_id;		/* optional serial core controller id */
+	unsigned int		port_id;		/* optional serial core port id */
 	unsigned int		irq;			/* irq number */
 	unsigned long		irqflags;		/* irq flags  */
 	unsigned int		uartclk;		/* base uart clock */
 	unsigned int		fifosize;		/* tx fifo size */
 	unsigned char		x_char;			/* xon/xoff char */
 	unsigned char		regshift;		/* reg offset shift */
-	unsigned char		iotype;			/* io access style */
-	unsigned char		quirks;			/* internal quirks */
 
+	unsigned char		iotype;			/* io access style */
+
+#define UPIO_UNKNOWN		((unsigned char)~0U)	/* UCHAR_MAX */
 #define UPIO_PORT		(SERIAL_IO_PORT)	/* 8b I/O port access */
 #define UPIO_HUB6		(SERIAL_IO_HUB6)	/* Hub6 ISA card */
 #define UPIO_MEM		(SERIAL_IO_MEM)		/* driver-specific */
@@ -476,7 +480,9 @@ struct uart_port {
 #define UPIO_MEM32BE		(SERIAL_IO_MEM32BE)	/* 32b big endian */
 #define UPIO_MEM16		(SERIAL_IO_MEM16)	/* 16b little endian */
 
-	/* quirks must be updated while holding port mutex */
+	unsigned char		quirks;			/* internal quirks */
+
+	/* internal quirks must be updated while holding port mutex */
 #define UPQ_NO_TXEN_TEST	BIT(0)
 
 	unsigned int		read_status_mask;	/* driver specific */
@@ -563,10 +569,11 @@ struct uart_port {
 	unsigned int		minor;
 	resource_size_t		mapbase;		/* for ioremap */
 	resource_size_t		mapsize;
-	struct device		*dev;			/* parent device */
+	struct device		*dev;			/* serial port physical parent device */
+	struct serial_port_device *port_dev;		/* serial core port device */
 
 	unsigned long		sysrq;			/* sysrq timeout */
-	unsigned int		sysrq_ch;		/* char for sysrq */
+	u8			sysrq_ch;		/* char for sysrq */
 	unsigned char		has_sysrq;
 	unsigned char		sysrq_seq;		/* index in sysrq_toggle_seq */
 
@@ -888,9 +895,9 @@ static inline unsigned long uart_fifo_timeout(struct uart_port *port)
 }
 
 /* Base timer interval for polling */
-static inline int uart_poll_timeout(struct uart_port *port)
+static inline unsigned long uart_poll_timeout(struct uart_port *port)
 {
-	int timeout = uart_fifo_timeout(port);
+	unsigned long timeout = uart_fifo_timeout(port);
 
 	return timeout > 6 ? (timeout / 2 - 2) : 1;
 }
@@ -972,7 +979,9 @@ void uart_console_write(struct uart_port *port, const char *s,
 int uart_register_driver(struct uart_driver *uart);
 void uart_unregister_driver(struct uart_driver *uart);
 int uart_add_one_port(struct uart_driver *reg, struct uart_port *port);
-int uart_remove_one_port(struct uart_driver *reg, struct uart_port *port);
+void uart_remove_one_port(struct uart_driver *reg, struct uart_port *port);
+int uart_read_port_properties(struct uart_port *port);
+int uart_read_and_validate_port_properties(struct uart_port *port);
 bool uart_match_port(const struct uart_port *port1,
 		const struct uart_port *port2);
 
@@ -1019,16 +1028,16 @@ void uart_handle_dcd_change(struct uart_port *uport, bool active);
 void uart_handle_cts_change(struct uart_port *uport, bool active);
 
 void uart_insert_char(struct uart_port *port, unsigned int status,
-		      unsigned int overrun, unsigned int ch, unsigned int flag);
+		      unsigned int overrun, u8 ch, u8 flag);
 
 void uart_xchar_out(struct uart_port *uport, int offset);
 
 #ifdef CONFIG_MAGIC_SYSRQ_SERIAL
 #define SYSRQ_TIMEOUT	(HZ * 5)
 
-bool uart_try_toggle_sysrq(struct uart_port *port, unsigned int ch);
+bool uart_try_toggle_sysrq(struct uart_port *port, u8 ch);
 
-static inline int uart_handle_sysrq_char(struct uart_port *port, unsigned int ch)
+static inline int uart_handle_sysrq_char(struct uart_port *port, u8 ch)
 {
 	if (!port->sysrq)
 		return 0;
@@ -1047,7 +1056,7 @@ static inline int uart_handle_sysrq_char(struct uart_port *port, unsigned int ch
 	return 0;
 }
 
-static inline int uart_prepare_sysrq_char(struct uart_port *port, unsigned int ch)
+static inline int uart_prepare_sysrq_char(struct uart_port *port, u8 ch)
 {
 	if (!port->sysrq)
 		return 0;
@@ -1068,17 +1077,17 @@ static inline int uart_prepare_sysrq_char(struct uart_port *port, unsigned int c
 
 static inline void uart_unlock_and_check_sysrq(struct uart_port *port)
 {
-	int sysrq_ch;
+	u8 sysrq_ch;
 
 	if (!port->has_sysrq) {
-		spin_unlock(&port->lock);
+		uart_port_unlock(port);
 		return;
 	}
 
 	sysrq_ch = port->sysrq_ch;
 	port->sysrq_ch = 0;
 
-	spin_unlock(&port->lock);
+	uart_port_unlock(port);
 
 	if (sysrq_ch)
 		handle_sysrq(sysrq_ch);
@@ -1087,38 +1096,38 @@ static inline void uart_unlock_and_check_sysrq(struct uart_port *port)
 static inline void uart_unlock_and_check_sysrq_irqrestore(struct uart_port *port,
 		unsigned long flags)
 {
-	int sysrq_ch;
+	u8 sysrq_ch;
 
 	if (!port->has_sysrq) {
-		spin_unlock_irqrestore(&port->lock, flags);
+		uart_port_unlock_irqrestore(port, flags);
 		return;
 	}
 
 	sysrq_ch = port->sysrq_ch;
 	port->sysrq_ch = 0;
 
-	spin_unlock_irqrestore(&port->lock, flags);
+	uart_port_unlock_irqrestore(port, flags);
 
 	if (sysrq_ch)
 		handle_sysrq(sysrq_ch);
 }
 #else	/* CONFIG_MAGIC_SYSRQ_SERIAL */
-static inline int uart_handle_sysrq_char(struct uart_port *port, unsigned int ch)
+static inline int uart_handle_sysrq_char(struct uart_port *port, u8 ch)
 {
 	return 0;
 }
-static inline int uart_prepare_sysrq_char(struct uart_port *port, unsigned int ch)
+static inline int uart_prepare_sysrq_char(struct uart_port *port, u8 ch)
 {
 	return 0;
 }
 static inline void uart_unlock_and_check_sysrq(struct uart_port *port)
 {
-	spin_unlock(&port->lock);
+	uart_port_unlock(port);
 }
 static inline void uart_unlock_and_check_sysrq_irqrestore(struct uart_port *port,
 		unsigned long flags)
 {
-	spin_unlock_irqrestore(&port->lock, flags);
+	uart_port_unlock_irqrestore(port, flags);
 }
 #endif	/* CONFIG_MAGIC_SYSRQ_SERIAL */
 

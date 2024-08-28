@@ -564,8 +564,9 @@ static void sc16is7xx_handle_rx(struct uart_port *port, unsigned int rxlen,
 				unsigned int iir)
 {
 	struct sc16is7xx_port *s = dev_get_drvdata(port->dev);
-	unsigned int lsr = 0, ch, flag, bytes_read, i;
+	unsigned int lsr = 0, bytes_read, i;
 	bool read_lsr = (iir == SC16IS7XX_IIR_RLSE_SRC) ? true : false;
+	u8 ch, flag;
 
 	if (unlikely(rxlen >= sizeof(s->buf))) {
 		dev_warn_ratelimited(port->dev,
@@ -1841,7 +1842,7 @@ static struct i2c_driver sc16is7xx_i2c_uart_driver = {
 		.name		= SC16IS7XX_NAME,
 		.of_match_table	= sc16is7xx_dt_ids,
 	},
-	.probe_new	= sc16is7xx_i2c_probe,
+	.probe		= sc16is7xx_i2c_probe,
 	.remove		= sc16is7xx_i2c_remove,
 	.id_table	= sc16is7xx_i2c_id_table,
 };

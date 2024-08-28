@@ -24,6 +24,7 @@
 #include <linux/dmaengine.h>
 #include <linux/dma-mapping.h>
 #include <linux/slab.h>
+#include <linux/math.h>
 #include <linux/module.h>
 #include <linux/ioport.h>
 #include <linux/io.h>
@@ -755,9 +756,10 @@ finish:
 static void s3c24xx_serial_rx_drain_fifo(struct s3c24xx_uart_port *ourport)
 {
 	struct uart_port *port = &ourport->port;
-	unsigned int ufcon, ch, flag, ufstat, uerstat;
+	unsigned int ufcon, ufstat, uerstat;
 	unsigned int fifocnt = 0;
 	int max_count = port->fifosize;
+	u8 ch, flag;
 
 	while (max_count-- > 0) {
 		/*
@@ -1416,9 +1418,7 @@ static unsigned int s3c24xx_serial_getclk(struct s3c24xx_uart_port *ourport,
 		}
 		quot--;
 
-		calc_deviation = req_baud - baud;
-		if (calc_deviation < 0)
-			calc_deviation = -calc_deviation;
+		calc_deviation = abs(req_baud - baud);
 
 		if (calc_deviation < deviation) {
 			/*
@@ -2168,9 +2168,8 @@ static int s3c24xx_serial_resume_noirq(struct device *dev)
 }
 
 static const struct dev_pm_ops s3c24xx_serial_pm_ops = {
-	.suspend = s3c24xx_serial_suspend,
-	.resume = s3c24xx_serial_resume,
-	.resume_noirq = s3c24xx_serial_resume_noirq,
+	SET_SYSTEM_SLEEP_PM_OPS(s3c24xx_serial_suspend, s3c24xx_serial_resume)
+	SET_NOIRQ_SYSTEM_SLEEP_PM_OPS(NULL, s3c24xx_serial_resume_noirq)
 };
 #define SERIAL_SAMSUNG_PM_OPS	(&s3c24xx_serial_pm_ops)
 

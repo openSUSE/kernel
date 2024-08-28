@@ -11,7 +11,6 @@
 #include <linux/irq.h>
 #include <linux/module.h>
 #include <linux/of.h>
-#include <linux/of_device.h>
 #include <linux/pm_opp.h>
 #include <linux/platform_device.h>
 #include <linux/pm_runtime.h>
@@ -1053,6 +1052,11 @@ static int setup_fifos(struct qcom_geni_serial_port *port)
 		(port->tx_fifo_depth * port->tx_fifo_width) / BITS_PER_BYTE;
 
 	if (port->rx_buf && (old_rx_fifo_depth != port->rx_fifo_depth) && port->rx_fifo_depth) {
+		/*
+		 * Use krealloc rather than krealloc_array because rx_buf is
+		 * accessed as 1 byte entries as well as 4 byte entries so it's
+		 * not necessarily an array.
+		 */
 		port->rx_buf = devm_krealloc(uport->dev, port->rx_buf,
 					     port->rx_fifo_depth * sizeof(u32),
 					     GFP_KERNEL);
@@ -1240,7 +1244,7 @@ static void qcom_geni_serial_set_termios(struct uart_port *uport,
 		goto out_restart_rx;
 	}
 
-	dev_dbg(port->se.dev, "desired_rate-%u, clk_rate-%lu, clk_div-%u\n",
+	dev_dbg(port->se.dev, "desired_rate = %u, clk_rate = %lu, clk_div = %u\n",
 			baud * sampling_rate, clk_rate, clk_div);
 
 	uport->uartclk = clk_rate;
@@ -1749,7 +1753,7 @@ static int qcom_geni_serial_sys_hib_resume(struct device *dev)
 	private_data = uport->private_data;
 
 	if (uart_console(uport)) {
-		geni_icc_set_tag(&port->se, 0x7);
+		geni_icc_set_tag(&port->se, QCOM_ICC_TAG_ALWAYS);
 		geni_icc_set_bw(&port->se);
 		ret = uart_resume_port(private_data->drv, uport);
 		/*
