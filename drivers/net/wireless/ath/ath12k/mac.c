@@ -2954,9 +2954,6 @@ static void ath12k_mac_bss_info_changed(struct ath12k *ar,
 
 	ath12k_mac_fils_discovery(arvif, info);
 
-	if (changed & BSS_CHANGED_EHT_PUNCTURING)
-		arvif->punct_bitmap = info->eht_puncturing;
-
 	if (changed & BSS_CHANGED_PS &&
 	    ar->ab->hw_params->supports_sta_ps) {
 		arvif->ps = vif_cfg->ps;
@@ -6568,6 +6565,8 @@ ath12k_mac_update_vif_chan(struct ath12k *ar,
 		if (WARN_ON(!arvif->is_started))
 			continue;
 
+		arvif->punct_bitmap = vifs[i].new_ctx->def.punctured;
+
 		/* Firmware expect vdev_restart only if vdev is up.
 		 * If vdev is down then it expect vdev_stop->vdev_start.
 		 */
@@ -6668,7 +6667,8 @@ static void ath12k_mac_op_change_chanctx(struct ieee80211_hw *hw,
 		goto unlock;
 
 	if (changed & IEEE80211_CHANCTX_CHANGE_WIDTH ||
-	    changed & IEEE80211_CHANCTX_CHANGE_RADAR)
+	    changed & IEEE80211_CHANCTX_CHANGE_RADAR ||
+	    changed & IEEE80211_CHANCTX_CHANGE_PUNCTURING)
 		ath12k_mac_update_active_vif_chan(ar, ctx);
 
 	/* TODO: Recalc radar detection */
@@ -6731,7 +6731,7 @@ ath12k_mac_op_assign_vif_chanctx(struct ieee80211_hw *hw,
 		   "mac chanctx assign ptr %pK vdev_id %i\n",
 		   ctx, arvif->vdev_id);
 
-	arvif->punct_bitmap = link_conf->eht_puncturing;
+	arvif->punct_bitmap = ctx->def.punctured;
 
 	/* for some targets bss peer must be created before vdev_start */
 	if (ab->hw_params->vdev_start_delay &&
