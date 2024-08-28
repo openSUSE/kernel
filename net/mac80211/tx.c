@@ -2399,6 +2399,14 @@ netdev_tx_t ieee80211_monitor_start_xmit(struct sk_buff *skb,
 		goto fail_rcu;
 
 	/*
+	 * If driver/HW supports IEEE80211_CHAN_CAN_MONITOR we still
+	 * shouldn't transmit on disabled channels.
+	 */
+	if (!cfg80211_chandef_usable(local->hw.wiphy, chandef,
+				     IEEE80211_CHAN_DISABLED))
+		goto fail_rcu;
+
+	/*
 	 * Frame injection is not allowed if beaconing is not allowed
 	 * or if we need radar detection. Beaconing is usually not allowed when
 	 * the mode or operation (Adhoc, AP, Mesh) does not support DFS.
