@@ -2009,7 +2009,7 @@ int ieee80211_reconfig(struct ieee80211_local *local)
 		case NL80211_IFTYPE_AP:
 			changed |= BSS_CHANGED_P2P_PS;
 
-			if (sdata->vif.valid_links)
+			if (ieee80211_vif_is_mld(&sdata->vif))
 				ieee80211_vif_cfg_change_notify(sdata,
 								BSS_CHANGED_SSID);
 			else
@@ -2023,7 +2023,7 @@ int ieee80211_reconfig(struct ieee80211_local *local)
 			if (sdata->vif.type == NL80211_IFTYPE_AP) {
 				changed |= BSS_CHANGED_AP_PROBE_RESP;
 
-				if (sdata->vif.valid_links) {
+				if (ieee80211_vif_is_mld(&sdata->vif)) {
 					ieee80211_reconfig_ap_links(local,
 								    sdata,
 								    changed);
