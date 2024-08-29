@@ -377,6 +377,7 @@ enum iwl_mvm_esr_disable_reason {
  * @csa_countdown: indicates that CSA countdown may be started
  * @csa_failed: CSA failed to schedule time event, report an error later
  * @csa_bcn_pending: indicates that we are waiting for a beacon on a new channel
+ * @csa_blocks_tx: CSA is blocking TX
  * @features: hw features active for this vif
  * @ap_beacon_time: AP beacon time for synchronisation (on older FW)
  * @bf_enabled: indicates if beacon filtering is enabled
@@ -453,6 +454,7 @@ struct iwl_mvm_vif {
 	bool csa_countdown;
 	bool csa_failed;
 	bool csa_bcn_pending;
+	bool csa_blocks_tx;
 	u16 csa_target_freq;
 	u16 csa_count;
 	u16 csa_misbehave;
