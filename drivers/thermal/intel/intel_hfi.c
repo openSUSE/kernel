@@ -165,8 +165,8 @@ static struct hfi_features hfi_features;
 static DEFINE_MUTEX(hfi_instance_lock);
 
 static struct workqueue_struct *hfi_updates_wq;
-#define HFI_UPDATE_INTERVAL		HZ
-#define HFI_MAX_THERM_NOTIFY_COUNT	16
+#define HFI_UPDATE_DELAY_MS		100
+#define HFI_THERMNL_CAPS_PER_EVENT	64
 
 static void get_hfi_caps(struct hfi_instance *hfi_instance,
 			 struct thermal_genl_cpu_caps *cpu_caps)
@@ -217,14 +217,14 @@ static void update_capabilities(struct hfi_instance *hfi_instance)
 
 	get_hfi_caps(hfi_instance, cpu_caps);
 
-	if (cpu_count < HFI_MAX_THERM_NOTIFY_COUNT)
+	if (cpu_count < HFI_THERMNL_CAPS_PER_EVENT)
 		goto last_cmd;
 
-	/* Process complete chunks of HFI_MAX_THERM_NOTIFY_COUNT capabilities. */
+	/* Process complete chunks of HFI_THERMNL_CAPS_PER_EVENT capabilities. */
 	for (i = 0;
-	     (i + HFI_MAX_THERM_NOTIFY_COUNT) <= cpu_count;
-	     i += HFI_MAX_THERM_NOTIFY_COUNT)
-		thermal_genl_cpu_capability_event(HFI_MAX_THERM_NOTIFY_COUNT,
+	     (i + HFI_THERMNL_CAPS_PER_EVENT) <= cpu_count;
+	     i += HFI_THERMNL_CAPS_PER_EVENT)
+		thermal_genl_cpu_capability_event(HFI_THERMNL_CAPS_PER_EVENT,
 						  &cpu_caps[i]);
 
 	cpu_count = cpu_count - i;
@@ -321,7 +321,7 @@ void intel_hfi_process_event(__u64 pkg_therm_status_msr_val)
 	raw_spin_unlock(&hfi_instance->event_lock);
 
 	queue_delayed_work(hfi_updates_wq, &hfi_instance->update_work,
-			   HFI_UPDATE_INTERVAL);
+			   msecs_to_jiffies(HFI_UPDATE_DELAY_MS));
 }
 
 static void init_hfi_cpu_index(struct hfi_cpu_info *info)
@@ -439,13 +439,12 @@ void intel_hfi_online(unsigned int cpu)
 	/*
 	 * Now check if the HFI instance of the package/die of @cpu has been
 	 * initialized (by checking its header). In such case, all we have to
-	 * do is to add @cpu to this instance's cpumask.
+	 * do is to add @cpu to this instance's cpumask and enable the instance
+	 * if needed.
 	 */
 	mutex_lock(&hfi_instance_lock);
-	if (hfi_instance->hdr) {
-		cpumask_set_cpu(cpu, hfi_instance->cpus);
-		goto unlock;
-	}
+	if (hfi_instance->hdr)
+		goto enable;
 
 	/*
 	 * Hardware is programmed with the physical address of the first page
@@ -475,10 +474,14 @@ void intel_hfi_online(unsigned int cpu)
 	raw_spin_lock_init(&hfi_instance->table_lock);
 	raw_spin_lock_init(&hfi_instance->event_lock);
 
+enable:
 	cpumask_set_cpu(cpu, hfi_instance->cpus);
 
-	hfi_set_hw_table(hfi_instance);
-	hfi_enable();
+	/* Enable this HFI instance if this is its first online CPU. */
+	if (cpumask_weight(hfi_instance->cpus) == 1) {
+		hfi_set_hw_table(hfi_instance);
+		hfi_enable();
+	}
 
 unlock:
 	mutex_unlock(&hfi_instance_lock);

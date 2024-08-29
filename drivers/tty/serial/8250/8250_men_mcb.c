@@ -40,13 +40,13 @@
 #define MEN_UART3_OFFSET	(MEN_UART2_OFFSET + MEN_UART_MEM_SIZE)
 #define MEN_UART4_OFFSET	(MEN_UART3_OFFSET + MEN_UART_MEM_SIZE)
 
-#define MEN_READ_REGISTER(addr)	readb((void *)addr)
+#define MEN_READ_REGISTER(addr)	readb(addr)
 
 #define MAX_PORTS	4
 
 struct serial_8250_men_mcb_data {
 	int num_ports;
-	unsigned int line[MAX_PORTS];
+	int line[MAX_PORTS];
 	unsigned int offset[MAX_PORTS];
 };
 

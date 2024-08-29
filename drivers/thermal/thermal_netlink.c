@@ -13,9 +13,14 @@
 
 #include "thermal_core.h"
 
+enum thermal_genl_multicast_groups {
+	THERMAL_GENL_SAMPLING_GROUP = 0,
+	THERMAL_GENL_EVENT_GROUP = 1,
+};
+
 static const struct genl_multicast_group thermal_genl_mcgrps[] = {
-	{ .name = THERMAL_GENL_SAMPLING_GROUP_NAME, },
-	{ .name = THERMAL_GENL_EVENT_GROUP_NAME,  },
+	[THERMAL_GENL_SAMPLING_GROUP] = { .name = THERMAL_GENL_SAMPLING_GROUP_NAME, },
+	[THERMAL_GENL_EVENT_GROUP]  = { .name = THERMAL_GENL_EVENT_GROUP_NAME,  },
 };
 
 static const struct nla_policy thermal_genl_policy[THERMAL_GENL_ATTR_MAX + 1] = {
@@ -71,12 +76,20 @@ typedef int (*cb_t)(struct param *);
 
 static struct genl_family thermal_gnl_family;
 
+static int thermal_group_has_listeners(enum thermal_genl_multicast_groups group)
+{
+	return genl_has_listeners(&thermal_gnl_family, &init_net, group);
+}
+
 /************************** Sampling encoding *******************************/
 
 int thermal_genl_sampling_temp(int id, int temp)
 {
 	struct sk_buff *skb;
 	void *hdr;
+
+	if (!thermal_group_has_listeners(THERMAL_GENL_SAMPLING_GROUP))
+		return 0;
 
 	skb = genlmsg_new(NLMSG_GOODSIZE, GFP_KERNEL);
 	if (!skb)
@@ -95,7 +108,7 @@ int thermal_genl_sampling_temp(int id, int temp)
 
 	genlmsg_end(skb, hdr);
 
-	genlmsg_multicast(&thermal_gnl_family, skb, 0, 0, GFP_KERNEL);
+	genlmsg_multicast(&thermal_gnl_family, skb, 0, THERMAL_GENL_SAMPLING_GROUP, GFP_KERNEL);
 
 	return 0;
 out_cancel:
@@ -275,6 +288,9 @@ static int thermal_genl_send_event(enum thermal_genl_event event,
 	int ret = -EMSGSIZE;
 	void *hdr;
 
+	if (!thermal_group_has_listeners(THERMAL_GENL_EVENT_GROUP))
+		return 0;
+
 	msg = genlmsg_new(NLMSG_GOODSIZE, GFP_KERNEL);
 	if (!msg)
 		return -ENOMEM;
@@ -290,7 +306,7 @@ static int thermal_genl_send_event(enum thermal_genl_event event,
 
 	genlmsg_end(msg, hdr);
 
-	genlmsg_multicast(&thermal_gnl_family, msg, 0, 1, GFP_KERNEL);
+	genlmsg_multicast(&thermal_gnl_family, msg, 0, THERMAL_GENL_EVENT_GROUP, GFP_KERNEL);
 
 	return 0;
 

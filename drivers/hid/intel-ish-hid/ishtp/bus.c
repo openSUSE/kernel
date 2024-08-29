@@ -378,7 +378,7 @@ static const struct dev_pm_ops ishtp_cl_bus_dev_pm_ops = {
 	.restore = ishtp_cl_device_resume,
 };
 
-static struct bus_type ishtp_cl_bus_type = {
+static const struct bus_type ishtp_cl_bus_type = {
 	.name		= "ishtp",
 	.dev_groups	= ishtp_cl_dev_groups,
 	.probe		= ishtp_cl_device_probe,
@@ -722,6 +722,8 @@ void ishtp_bus_remove_all_clients(struct ishtp_device *ishtp_dev,
 	spin_lock_irqsave(&ishtp_dev->cl_list_lock, flags);
 	list_for_each_entry(cl, &ishtp_dev->cl_list, link) {
 		cl->state = ISHTP_CL_DISCONNECTED;
+		if (warm_reset && cl->device->reference_count)
+			continue;
 
 		/*
 		 * Wake any pending process. The waiter would check dev->state
@@ -842,6 +844,7 @@ EXPORT_SYMBOL(ishtp_device);
 
 /**
  * ishtp_wait_resume() - Wait for IPC resume
+ * @dev: ishtp device
  *
  * Wait for IPC resume
  *
@@ -929,4 +932,5 @@ static void __exit ishtp_bus_unregister(void)
 module_init(ishtp_bus_register);
 module_exit(ishtp_bus_unregister);
 
+MODULE_DESCRIPTION("ISHTP bus driver");
 MODULE_LICENSE("GPL");

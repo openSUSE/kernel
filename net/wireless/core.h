@@ -3,7 +3,7 @@
  * Wireless configuration interface internals.
  *
  * Copyright 2006-2010	Johannes Berg <johannes@sipsolutions.net>
- * Copyright (C) 2018-2022 Intel Corporation
+ * Copyright (C) 2018-2024 Intel Corporation
  */
 #ifndef __NET_WIRELESS_CORE_H
 #define __NET_WIRELESS_CORE_H
@@ -295,7 +295,7 @@ struct cfg80211_cqm_config {
 	enum nl80211_cqm_rssi_threshold_event last_rssi_event_type;
 	bool use_range_api;
 	int n_rssi_thresholds;
-	s32 rssi_thresholds[];
+	s32 rssi_thresholds[] __counted_by(n_rssi_thresholds);
 };
 
 void cfg80211_cqm_rssi_notify_work(struct wiphy *wiphy,
@@ -362,7 +362,8 @@ int cfg80211_mlme_auth(struct cfg80211_registered_device *rdev,
 		       struct cfg80211_auth_request *req);
 int cfg80211_mlme_assoc(struct cfg80211_registered_device *rdev,
 			struct net_device *dev,
-			struct cfg80211_assoc_request *req);
+			struct cfg80211_assoc_request *req,
+			struct netlink_ext_ack *extack);
 int cfg80211_mlme_deauth(struct cfg80211_registered_device *rdev,
 			 struct net_device *dev, const u8 *bssid,
 			 const u8 *ie, int ie_len, u16 reason,
@@ -491,6 +492,9 @@ bool cfg80211_is_sub_chan(struct cfg80211_chan_def *chandef,
 bool cfg80211_wdev_on_sub_chan(struct wireless_dev *wdev,
 			       struct ieee80211_channel *chan,
 			       bool primary_only);
+bool _cfg80211_chandef_usable(struct wiphy *wiphy,
+			      const struct cfg80211_chan_def *chandef,
+			      u32 prohibited_flags, bool monitor);
 
 static inline unsigned int elapsed_jiffies_msecs(unsigned long start)
 {

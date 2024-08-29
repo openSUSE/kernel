@@ -1508,7 +1508,8 @@ out_unlock:
 }
 
 void iwl_mvm_abort_channel_switch(struct ieee80211_hw *hw,
-				  struct ieee80211_vif *vif)
+				  struct ieee80211_vif *vif,
+				  struct ieee80211_bss_conf *link_conf)
 {
 	struct iwl_mvm *mvm = IWL_MAC80211_GET_MVM(hw);
 	struct iwl_mvm_vif *mvmvif = iwl_mvm_vif_from_mac80211(vif);
@@ -1709,7 +1710,7 @@ static int iwl_mvm_mac_add_interface(struct ieee80211_hw *hw,
 	if (vif->type == NL80211_IFTYPE_MONITOR) {
 		mvm->monitor_on = true;
 		mvm->monitor_p80 =
-			iwl_mvm_chandef_get_primary_80(&vif->bss_conf.chandef);
+			iwl_mvm_chandef_get_primary_80(&vif->bss_conf.chanreq.oper);
 	}
 
 	if (!test_bit(IWL_MVM_STATUS_IN_HW_RESTART, &mvm->status))
@@ -3489,16 +3490,16 @@ iwl_mvm_check_he_obss_narrow_bw_ru(struct ieee80211_hw *hw,
 		.tolerated = true,
 	};
 
-	if (WARN_ON_ONCE(!link_conf->chandef.chan ||
+	if (WARN_ON_ONCE(!link_conf->chanreq.oper.chan ||
 			 !mvmvif->link[link_id]))
 		return;
 
-	if (!(link_conf->chandef.chan->flags & IEEE80211_CHAN_RADAR)) {
+	if (!(link_conf->chanreq.oper.chan->flags & IEEE80211_CHAN_RADAR)) {
 		mvmvif->link[link_id]->he_ru_2mhz_block = false;
 		return;
 	}
 
-	cfg80211_bss_iter(hw->wiphy, &link_conf->chandef,
+	cfg80211_bss_iter(hw->wiphy, &link_conf->chanreq.oper,
 			  iwl_mvm_check_he_obss_narrow_bw_ru_iter,
 			  &iter_data);
 
@@ -3558,10 +3559,10 @@ static void iwl_mvm_mei_host_associated(struct iwl_mvm *mvm,
 		return;
 
 	/* FIXME: MEI needs to be updated for MLO */
-	if (!vif->bss_conf.chandef.chan)
+	if (!vif->bss_conf.chanreq.oper.chan)
 		return;
 
-	conn_info.channel = vif->bss_conf.chandef.chan->hw_value;
+	conn_info.channel = vif->bss_conf.chanreq.oper.chan->hw_value;
 
 	switch (mvm_sta->pairwise_cipher) {
 	case WLAN_CIPHER_SUITE_TKIP:
@@ -3854,7 +3855,7 @@ static void iwl_mvm_bt_coex_update_vif_esr(struct iwl_mvm *mvm,
 		if (WARN_ON_ONCE(!link_conf))
 			return;
 
-		if (link_conf->chandef.chan->band == NL80211_BAND_2GHZ)
+		if (link_conf->chanreq.oper.chan->band == NL80211_BAND_2GHZ)
 			iwl_mvm_bt_coex_update_link_esr(mvm, vif, link_id);
 	}
 }
@@ -5629,8 +5630,16 @@ void iwl_mvm_channel_switch_rx_beacon(struct ieee80211_hw *hw,
 
 	if (chsw->count >= mvmvif->csa_count && chsw->block_tx) {
 		if (mvmvif->csa_misbehave) {
+			struct ieee80211_bss_conf *link_conf;
+
 			/* Second time, give up on this AP*/
-			iwl_mvm_abort_channel_switch(hw, vif);
+
+			link_conf = wiphy_dereference(hw->wiphy,
+						      vif->link_conf[chsw->link_id]);
+			if (WARN_ON(!link_conf))
+				return;
+
+			iwl_mvm_abort_channel_switch(hw, vif, link_conf);
 			ieee80211_chswitch_done(vif, false, 0);
 			mvmvif->csa_misbehave = false;
 			return;

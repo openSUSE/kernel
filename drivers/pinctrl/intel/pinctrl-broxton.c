@@ -9,6 +9,7 @@
 #include <linux/mod_devicetable.h>
 #include <linux/module.h>
 #include <linux/platform_device.h>
+#include <linux/pm.h>
 
 #include <linux/pinctrl/pinctrl.h>
 
@@ -999,14 +1000,12 @@ static const struct platform_device_id bxt_pinctrl_platform_ids[] = {
 	{ }
 };
 
-static INTEL_PINCTRL_PM_OPS(bxt_pinctrl_pm_ops);
-
 static struct platform_driver bxt_pinctrl_driver = {
 	.probe = intel_pinctrl_probe_by_uid,
 	.driver = {
 		.name = "broxton-pinctrl",
 		.acpi_match_table = bxt_pinctrl_acpi_match,
-		.pm = &bxt_pinctrl_pm_ops,
+		.pm = pm_sleep_ptr(&intel_pinctrl_pm_ops),
 	},
 	.id_table = bxt_pinctrl_platform_ids,
 };
@@ -1028,3 +1027,4 @@ MODULE_DESCRIPTION("Intel Broxton SoC pinctrl/GPIO driver");
 MODULE_LICENSE("GPL v2");
 MODULE_ALIAS("platform:apollolake-pinctrl");
 MODULE_ALIAS("platform:broxton-pinctrl");
+MODULE_IMPORT_NS(PINCTRL_INTEL);

@@ -13,12 +13,11 @@ int for_each_thermal_trip(struct thermal_zone_device *tz,
 			  int (*cb)(struct thermal_trip *, void *),
 			  void *data)
 {
-	int i, ret;
+	struct thermal_trip *trip;
+	int ret;
 
-	lockdep_assert_held(&tz->lock);
-
-	for (i = 0; i < tz->num_trips; i++) {
-		ret = cb(&tz->trips[i], data);
+	for_each_trip(tz, trip) {
+		ret = cb(trip, data);
 		if (ret)
 			return ret;
 	}
@@ -26,6 +25,20 @@ int for_each_thermal_trip(struct thermal_zone_device *tz,
 	return 0;
 }
 EXPORT_SYMBOL_GPL(for_each_thermal_trip);
+
+int thermal_zone_for_each_trip(struct thermal_zone_device *tz,
+			       int (*cb)(struct thermal_trip *, void *),
+			       void *data)
+{
+	int ret;
+
+	mutex_lock(&tz->lock);
+	ret = for_each_thermal_trip(tz, cb, data);
+	mutex_unlock(&tz->lock);
+
+	return ret;
+}
+EXPORT_SYMBOL_GPL(thermal_zone_for_each_trip);
 
 int thermal_zone_get_num_trips(struct thermal_zone_device *tz)
 {
@@ -98,29 +111,11 @@ void __thermal_zone_set_trips(struct thermal_zone_device *tz)
 int __thermal_zone_get_trip(struct thermal_zone_device *tz, int trip_id,
 			    struct thermal_trip *trip)
 {
-	int ret;
-
-	if (!tz || trip_id < 0 || trip_id >= tz->num_trips || !trip)
+	if (!tz || !tz->trips || trip_id < 0 || trip_id >= tz->num_trips || !trip)
 		return -EINVAL;
 
-	if (tz->trips) {
-		*trip = tz->trips[trip_id];
-		return 0;
-	}
-
-	if (tz->ops->get_trip_hyst) {
-		ret = tz->ops->get_trip_hyst(tz, trip_id, &trip->hysteresis);
-		if (ret)
-			return ret;
-	} else {
-		trip->hysteresis = 0;
-	}
-
-	ret = tz->ops->get_trip_temp(tz, trip_id, &trip->temperature);
-	if (ret)
-		return ret;
-
-	return tz->ops->get_trip_type(tz, trip_id, &trip->type);
+	*trip = tz->trips[trip_id];
+	return 0;
 }
 EXPORT_SYMBOL_GPL(__thermal_zone_get_trip);
 
@@ -137,54 +132,21 @@ int thermal_zone_get_trip(struct thermal_zone_device *tz, int trip_id,
 }
 EXPORT_SYMBOL_GPL(thermal_zone_get_trip);
 
-int thermal_zone_set_trip(struct thermal_zone_device *tz, int trip_id,
-			  const struct thermal_trip *trip)
-{
-	struct thermal_trip t;
-	int ret;
-
-	if (!tz->ops->set_trip_temp && !tz->ops->set_trip_hyst && !tz->trips)
-		return -EINVAL;
-
-	ret = __thermal_zone_get_trip(tz, trip_id, &t);
-	if (ret)
-		return ret;
-
-	if (t.type != trip->type)
-		return -EINVAL;
-
-	if (t.temperature != trip->temperature && tz->ops->set_trip_temp) {
-		ret = tz->ops->set_trip_temp(tz, trip_id, trip->temperature);
-		if (ret)
-			return ret;
-	}
-
-	if (t.hysteresis != trip->hysteresis && tz->ops->set_trip_hyst) {
-		ret = tz->ops->set_trip_hyst(tz, trip_id, trip->hysteresis);
-		if (ret)
-			return ret;
-	}
-
-	if (tz->trips && (t.temperature != trip->temperature || t.hysteresis != trip->hysteresis))
-		tz->trips[trip_id] = *trip;
-
-	thermal_notify_tz_trip_change(tz->id, trip_id, trip->type,
-				      trip->temperature, trip->hysteresis);
-
-	__thermal_zone_device_update(tz, THERMAL_TRIP_CHANGED);
-
-	return 0;
-}
-
-int thermal_zone_trip_id(struct thermal_zone_device *tz,
+int thermal_zone_trip_id(const struct thermal_zone_device *tz,
 			 const struct thermal_trip *trip)
 {
-	int i;
+	/*
+	 * Assume the trip to be located within the bounds of the thermal
+	 * zone's trips[] table.
+	 */
+	return trip - tz->trips;
+}
 
-	for (i = 0; i < tz->num_trips; i++) {
-		if (&tz->trips[i] == trip)
-			return i;
-	}
-
-	return -ENODATA;
+void thermal_zone_trip_updated(struct thermal_zone_device *tz,
+			       const struct thermal_trip *trip)
+{
+	thermal_notify_tz_trip_change(tz->id, thermal_zone_trip_id(tz, trip),
+				      trip->type, trip->temperature,
+				      trip->hysteresis);
+	__thermal_zone_device_update(tz, THERMAL_TRIP_CHANGED);
 }

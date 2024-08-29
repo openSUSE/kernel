@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause
 /*
- * Copyright (C) 2022-2023 Intel Corporation
+ * Copyright (C) 2022-2024 Intel Corporation
  */
 #include "mvm.h"
 
@@ -633,8 +633,8 @@ iwl_mvm_set_link_selection_data(struct ieee80211_vif *vif,
 			continue;
 
 		data[n_data].link_id = link_id;
-		data[n_data].band = link_conf->chandef.chan->band;
-		data[n_data].width = link_conf->chandef.width;
+		data[n_data].band = link_conf->chanreq.oper.chan->band;
+		data[n_data].width = link_conf->chanreq.oper.width;
 		data[n_data].active = vif->active_links & BIT(link_id);
 		n_data++;
 	}
@@ -767,8 +767,8 @@ iwl_mvm_mld_link_info_changed_station(struct iwl_mvm *mvm,
 		link_changes |= LINK_CONTEXT_MODIFY_HE_PARAMS;
 	}
 
-	/* Update EHT Puncturing info */
-	if (changes & BSS_CHANGED_EHT_PUNCTURING && vif->cfg.assoc)
+	/* if associated, maybe puncturing changed - we'll check later */
+	if (vif->cfg.assoc)
 		link_changes |= LINK_CONTEXT_MODIFY_EHT_PARAMS;
 
 	if (link_changes) {
@@ -1256,8 +1256,8 @@ int iwl_mvm_mld_get_primary_link(struct iwl_mvm *mvm,
 			continue;
 
 		data[n_data].link_id = link_id;
-		data[n_data].band = link_conf->chandef.chan->band;
-		data[n_data].width = link_conf->chandef.width;
+		data[n_data].band = link_conf->chanreq.oper.chan->band;
+		data[n_data].width = link_conf->chanreq.oper.width;
 		data[n_data].active = true;
 		n_data++;
 	}
@@ -1336,6 +1336,7 @@ static bool iwl_mvm_can_enter_esr(struct iwl_mvm *mvm,
 
 	if (n_data != 2)
 		return false;
+
 
 	return iwl_mvm_mld_valid_link_pair(vif, &data[0], &data[1]);
 }

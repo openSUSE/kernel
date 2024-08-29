@@ -257,7 +257,6 @@ static bool ieee80211_scan_accept_presp(struct ieee80211_sub_if_data *sdata,
 void ieee80211_scan_rx(struct ieee80211_local *local, struct sk_buff *skb)
 {
 	struct ieee80211_rx_status *rx_status = IEEE80211_SKB_RXCB(skb);
-	struct ieee80211_sub_if_data *sdata1, *sdata2;
 	struct ieee80211_mgmt *mgmt = (void *)skb->data;
 	struct ieee80211_bss *bss;
 	struct ieee80211_channel *channel;
@@ -281,12 +280,6 @@ void ieee80211_scan_rx(struct ieee80211_local *local, struct sk_buff *skb)
 	if (skb->len < min_hdr_len)
 		return;
 
-	sdata1 = rcu_dereference(local->scan_sdata);
-	sdata2 = rcu_dereference(local->sched_scan_sdata);
-
-	if (likely(!sdata1 && !sdata2))
-		return;
-
 	if (test_and_clear_bit(SCAN_BEACON_WAIT, &local->scanning)) {
 		/*
 		 * we were passive scanning because of radar/no-IR, but
@@ -304,9 +297,16 @@ void ieee80211_scan_rx(struct ieee80211_local *local, struct sk_buff *skb)
 		return;
 
 	if (ieee80211_is_probe_resp(mgmt->frame_control)) {
+		struct ieee80211_sub_if_data *sdata1, *sdata2;
 		struct cfg80211_scan_request *scan_req;
 		struct cfg80211_sched_scan_request *sched_scan_req;
 		u32 scan_req_flags = 0, sched_scan_req_flags = 0;
+
+		sdata1 = rcu_dereference(local->scan_sdata);
+		sdata2 = rcu_dereference(local->sched_scan_sdata);
+
+		if (likely(!sdata1 && !sdata2))
+			return;
 
 		scan_req = rcu_dereference(local->scan_req);
 		sched_scan_req = rcu_dereference(local->sched_scan_req);
@@ -327,7 +327,15 @@ void ieee80211_scan_rx(struct ieee80211_local *local, struct sk_buff *skb)
 						 sched_scan_req_flags,
 						 mgmt->da))
 			return;
+	} else {
+		/* Beacons are expected only with broadcast address */
+		if (!is_broadcast_ether_addr(mgmt->da))
+			return;
 	}
+
+	/* Do not update the BSS table in case of only monitor interfaces */
+	if (local->open_count == local->monitors)
+		return;
 
 	bss = ieee80211_bss_info_update(local, rx_status,
 					mgmt, skb->len,
@@ -401,6 +409,8 @@ static bool ieee80211_prep_hw_scan(struct ieee80211_sub_if_data *sdata)
 					 req->ie, req->ie_len,
 					 bands_used, req->rates, &chandef,
 					 flags);
+	if (ielen < 0)
+		return false;
 	local->hw_scan_req->req.ie_len = ielen;
 	local->hw_scan_req->req.no_cck = req->no_cck;
 	ether_addr_copy(local->hw_scan_req->req.mac_addr, req->mac_addr);
@@ -679,7 +689,10 @@ static void ieee80211_scan_state_send_probe(struct ieee80211_local *local,
 	 * After sending probe requests, wait for probe responses
 	 * on the channel.
 	 */
-	*next_delay = IEEE80211_CHANNEL_TIME;
+	*next_delay = msecs_to_jiffies(scan_req->duration) >
+		      IEEE80211_PROBE_DELAY + IEEE80211_CHANNEL_TIME ?
+		      msecs_to_jiffies(scan_req->duration) - IEEE80211_PROBE_DELAY :
+		      IEEE80211_CHANNEL_TIME;
 	local->next_scan_state = SCAN_DECISION;
 }
 
@@ -1000,7 +1013,10 @@ set_channel:
 	 */
 	if ((chan->flags & (IEEE80211_CHAN_NO_IR | IEEE80211_CHAN_RADAR)) ||
 	    !scan_req->n_ssids) {
-		*next_delay = IEEE80211_PASSIVE_CHANNEL_TIME;
+		*next_delay = msecs_to_jiffies(scan_req->duration) >
+			      IEEE80211_PASSIVE_CHANNEL_TIME ?
+			      msecs_to_jiffies(scan_req->duration) :
+			      IEEE80211_PASSIVE_CHANNEL_TIME;
 		local->next_scan_state = SCAN_DECISION;
 		if (scan_req->n_ssids)
 			set_bit(SCAN_BEACON_WAIT, &local->scanning);
@@ -1316,10 +1332,12 @@ int __ieee80211_request_sched_scan_start(struct ieee80211_sub_if_data *sdata,
 
 	ieee80211_prepare_scan_chandef(&chandef);
 
-	ieee80211_build_preq_ies(sdata, ie, num_bands * iebufsz,
-				 &sched_scan_ies, req->ie,
-				 req->ie_len, bands_used, rate_masks, &chandef,
-				 flags);
+	ret = ieee80211_build_preq_ies(sdata, ie, num_bands * iebufsz,
+				       &sched_scan_ies, req->ie,
+				       req->ie_len, bands_used, rate_masks,
+				       &chandef, flags);
+	if (ret < 0)
+		goto error;
 
 	ret = drv_sched_scan_start(local, sdata, req, &sched_scan_ies);
 	if (ret == 0) {
@@ -1327,8 +1345,8 @@ int __ieee80211_request_sched_scan_start(struct ieee80211_sub_if_data *sdata,
 		rcu_assign_pointer(local->sched_scan_req, req);
 	}
 
+error:
 	kfree(ie);
-
 out:
 	if (ret) {
 		/* Clean in case of failure after HW restart or upon resume. */

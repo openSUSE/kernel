@@ -13,9 +13,10 @@
 #include <linux/interrupt.h>
 #include <linux/io.h>
 #include <linux/kernel.h>
+#include <linux/module.h>
 #include <linux/types.h>
 #include <linux/platform_device.h>
-#include <linux/pm_runtime.h>
+#include <linux/pm.h>
 #include <linux/property.h>
 #include <linux/seq_file.h>
 
@@ -553,25 +554,10 @@ static const struct intel_pinctrl_soc_data *byt_soc_data[] = {
 
 static DEFINE_RAW_SPINLOCK(byt_lock);
 
-static struct intel_community *byt_get_community(struct intel_pinctrl *vg,
-						 unsigned int pin)
-{
-	struct intel_community *comm;
-	int i;
-
-	for (i = 0; i < vg->ncommunities; i++) {
-		comm = vg->communities + i;
-		if (pin < comm->pin_base + comm->npins && pin >= comm->pin_base)
-			return comm;
-	}
-
-	return NULL;
-}
-
 static void __iomem *byt_gpio_reg(struct intel_pinctrl *vg, unsigned int offset,
 				  int reg)
 {
-	struct intel_community *comm = byt_get_community(vg, offset);
+	struct intel_community *comm = intel_get_community(vg, offset);
 	u32 reg_offset;
 
 	if (!comm)
@@ -593,67 +579,11 @@ static void __iomem *byt_gpio_reg(struct intel_pinctrl *vg, unsigned int offset,
 	return comm->pad_regs + reg_offset + reg;
 }
 
-static int byt_get_groups_count(struct pinctrl_dev *pctldev)
-{
-	struct intel_pinctrl *vg = pinctrl_dev_get_drvdata(pctldev);
-
-	return vg->soc->ngroups;
-}
-
-static const char *byt_get_group_name(struct pinctrl_dev *pctldev,
-				      unsigned int selector)
-{
-	struct intel_pinctrl *vg = pinctrl_dev_get_drvdata(pctldev);
-
-	return vg->soc->groups[selector].grp.name;
-}
-
-static int byt_get_group_pins(struct pinctrl_dev *pctldev,
-			      unsigned int selector,
-			      const unsigned int **pins,
-			      unsigned int *num_pins)
-{
-	struct intel_pinctrl *vg = pinctrl_dev_get_drvdata(pctldev);
-
-	*pins		= vg->soc->groups[selector].grp.pins;
-	*num_pins	= vg->soc->groups[selector].grp.npins;
-
-	return 0;
-}
-
 static const struct pinctrl_ops byt_pinctrl_ops = {
-	.get_groups_count	= byt_get_groups_count,
-	.get_group_name		= byt_get_group_name,
-	.get_group_pins		= byt_get_group_pins,
+	.get_groups_count	= intel_get_groups_count,
+	.get_group_name		= intel_get_group_name,
+	.get_group_pins		= intel_get_group_pins,
 };
-
-static int byt_get_functions_count(struct pinctrl_dev *pctldev)
-{
-	struct intel_pinctrl *vg = pinctrl_dev_get_drvdata(pctldev);
-
-	return vg->soc->nfunctions;
-}
-
-static const char *byt_get_function_name(struct pinctrl_dev *pctldev,
-					 unsigned int selector)
-{
-	struct intel_pinctrl *vg = pinctrl_dev_get_drvdata(pctldev);
-
-	return vg->soc->functions[selector].func.name;
-}
-
-static int byt_get_function_groups(struct pinctrl_dev *pctldev,
-				   unsigned int selector,
-				   const char * const **groups,
-				   unsigned int *ngroups)
-{
-	struct intel_pinctrl *vg = pinctrl_dev_get_drvdata(pctldev);
-
-	*groups		= vg->soc->functions[selector].func.groups;
-	*ngroups	= vg->soc->functions[selector].func.ngroups;
-
-	return 0;
-}
 
 static void byt_set_group_simple_mux(struct intel_pinctrl *vg,
 				     const struct intel_pingroup group,
@@ -798,8 +728,6 @@ static int byt_gpio_request_enable(struct pinctrl_dev *pctl_dev,
 
 	raw_spin_unlock_irqrestore(&byt_lock, flags);
 
-	pm_runtime_get(vg->dev);
-
 	return 0;
 }
 
@@ -810,7 +738,6 @@ static void byt_gpio_disable_free(struct pinctrl_dev *pctl_dev,
 	struct intel_pinctrl *vg = pinctrl_dev_get_drvdata(pctl_dev);
 
 	byt_gpio_clear_triggering(vg, offset);
-	pm_runtime_put(vg->dev);
 }
 
 static void byt_gpio_direct_irq_check(struct intel_pinctrl *vg,
@@ -855,9 +782,9 @@ static int byt_gpio_set_direction(struct pinctrl_dev *pctl_dev,
 }
 
 static const struct pinmux_ops byt_pinmux_ops = {
-	.get_functions_count	= byt_get_functions_count,
-	.get_function_name	= byt_get_function_name,
-	.get_function_groups	= byt_get_function_groups,
+	.get_functions_count	= intel_get_functions_count,
+	.get_function_name	= intel_get_function_name,
+	.get_function_groups	= intel_get_function_groups,
 	.set_mux		= byt_set_mux,
 	.gpio_request_enable	= byt_gpio_request_enable,
 	.gpio_disable_free	= byt_gpio_disable_free,
@@ -1276,7 +1203,7 @@ static void byt_gpio_dbg_show(struct seq_file *s, struct gpio_chip *chip)
 		val = readl(reg);
 		raw_spin_unlock_irqrestore(&byt_lock, flags);
 
-		comm = byt_get_community(vg, pin);
+		comm = intel_get_community(vg, pin);
 		if (!comm) {
 			seq_printf(s,
 				   "Could not get community for pin %i\n", pin);
@@ -1745,12 +1672,10 @@ static int byt_pinctrl_probe(struct platform_device *pdev)
 		return ret;
 
 	platform_set_drvdata(pdev, vg);
-	pm_runtime_enable(dev);
 
 	return 0;
 }
 
-#ifdef CONFIG_PM_SLEEP
 static int byt_gpio_suspend(struct device *dev)
 {
 	struct intel_pinctrl *vg = dev_get_drvdata(dev);
@@ -1831,31 +1756,16 @@ static int byt_gpio_resume(struct device *dev)
 	raw_spin_unlock_irqrestore(&byt_lock, flags);
 	return 0;
 }
-#endif
-
-#ifdef CONFIG_PM
-static int byt_gpio_runtime_suspend(struct device *dev)
-{
-	return 0;
-}
-
-static int byt_gpio_runtime_resume(struct device *dev)
-{
-	return 0;
-}
-#endif
 
 static const struct dev_pm_ops byt_gpio_pm_ops = {
-	SET_LATE_SYSTEM_SLEEP_PM_OPS(byt_gpio_suspend, byt_gpio_resume)
-	SET_RUNTIME_PM_OPS(byt_gpio_runtime_suspend, byt_gpio_runtime_resume,
-			   NULL)
+	LATE_SYSTEM_SLEEP_PM_OPS(byt_gpio_suspend, byt_gpio_resume)
 };
 
 static struct platform_driver byt_gpio_driver = {
 	.probe          = byt_pinctrl_probe,
 	.driver         = {
 		.name			= "byt_gpio",
-		.pm			= &byt_gpio_pm_ops,
+		.pm			= pm_sleep_ptr(&byt_gpio_pm_ops),
 		.acpi_match_table	= byt_gpio_acpi_match,
 		.suppress_bind_attrs	= true,
 	},
@@ -1866,3 +1776,5 @@ static int __init byt_gpio_init(void)
 	return platform_driver_register(&byt_gpio_driver);
 }
 subsys_initcall(byt_gpio_init);
+
+MODULE_IMPORT_NS(PINCTRL_INTEL);
