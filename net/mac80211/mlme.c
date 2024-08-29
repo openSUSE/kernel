@@ -3287,10 +3287,9 @@ static void ieee80211_set_disassoc(struct ieee80211_sub_if_data *sdata,
 	       sizeof(sdata->u.mgd.ttlm_info));
 	wiphy_delayed_work_cancel(sdata->local->hw.wiphy, &ifmgd->ttlm_work);
 
+	memset(&sdata->vif.neg_ttlm, 0, sizeof(sdata->vif.neg_ttlm));
 	wiphy_delayed_work_cancel(sdata->local->hw.wiphy,
 				  &ifmgd->neg_ttlm_timeout_work);
-
-	memset(&sdata->vif.neg_ttlm, 0, sizeof(sdata->vif.neg_ttlm));
 
 	sdata->u.mgd.removed_links = 0;
 	wiphy_delayed_work_cancel(sdata->local->hw.wiphy,
