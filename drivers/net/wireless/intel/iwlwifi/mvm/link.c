@@ -515,6 +515,7 @@ unsigned int iwl_mvm_get_link_grade(struct ieee80211_bss_conf *link_conf)
 	return grade;
 }
 
+static
 u8 iwl_mvm_set_link_selection_data(struct ieee80211_vif *vif,
 				   struct iwl_mvm_link_sel_data *data,
 				   unsigned long usable_links,
