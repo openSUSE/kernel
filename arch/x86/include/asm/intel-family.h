@@ -132,6 +132,7 @@
 
 #define INTEL_FAM6_ARROWLAKE_H		0xC5
 #define INTEL_FAM6_ARROWLAKE		0xC6
+#define INTEL_FAM6_ARROWLAKE_U		0xB5
 
 /* "Small Core" Processors (Atom/E-Core) */
 
