@@ -825,6 +825,7 @@ static int rockchip_i2s_tdm_set_bclk_ratio(struct snd_soc_dai *dai,
 }
 
 static const struct snd_soc_dai_ops rockchip_i2s_tdm_dai_ops = {
+	.probe = rockchip_i2s_tdm_dai_probe,
 	.hw_params = rockchip_i2s_tdm_hw_params,
 	.set_bclk_ratio	= rockchip_i2s_tdm_set_bclk_ratio,
 	.set_fmt = rockchip_i2s_tdm_set_fmt,
@@ -1034,7 +1035,6 @@ static const struct of_device_id rockchip_i2s_tdm_match[] = {
 };
 
 static const struct snd_soc_dai_driver i2s_tdm_dai = {
-	.probe = rockchip_i2s_tdm_dai_probe,
 	.ops = &rockchip_i2s_tdm_dai_ops,
 };
 
