@@ -4131,12 +4131,12 @@ static inline int l2cap_command_rej(struct l2cap_conn *conn,
 }
 
 static struct l2cap_chan *l2cap_connect(struct l2cap_conn *conn,
-					struct l2cap_cmd_hdr *cmd,
-					u8 *data, u8 rsp_code, u8 amp_id)
+                                       struct l2cap_cmd_hdr *cmd,
+                                       u8 *data, u8 rsp_code, u8 amp_id)
 {
 	struct l2cap_conn_req *req = (struct l2cap_conn_req *) data;
 	struct l2cap_conn_rsp rsp;
-	struct l2cap_chan *chan = NULL, *pchan;
+	struct l2cap_chan *chan = NULL, *pchan = NULL;
 	int result, status = L2CAP_CS_NO_INFO;
 
 	u16 dcid = 0, scid = __le16_to_cpu(req->scid);
@@ -4149,7 +4149,7 @@ static struct l2cap_chan *l2cap_connect(struct l2cap_conn *conn,
 					 &conn->hcon->dst, ACL_LINK);
 	if (!pchan) {
 		result = L2CAP_CR_BAD_PSM;
-		goto sendresp;
+		goto response;
 	}
 
 	mutex_lock(&conn->chan_lock);
@@ -4237,16 +4237,14 @@ static struct l2cap_chan *l2cap_connect(struct l2cap_conn *conn,
 	}
 
 response:
-	l2cap_chan_unlock(pchan);
-	mutex_unlock(&conn->chan_lock);
-	l2cap_chan_put(pchan);
-
-sendresp:
 	rsp.scid   = cpu_to_le16(scid);
 	rsp.dcid   = cpu_to_le16(dcid);
 	rsp.result = cpu_to_le16(result);
 	rsp.status = cpu_to_le16(status);
 	l2cap_send_cmd(conn, cmd->ident, rsp_code, sizeof(rsp), &rsp);
+
+	if (!pchan)
+		return NULL;
 
 	if (result == L2CAP_CR_PEND && status == L2CAP_CS_NO_INFO) {
 		struct l2cap_info_req info;
@@ -4270,6 +4268,9 @@ sendresp:
 		chan->num_conf_req++;
 	}
 
+	l2cap_chan_unlock(pchan);
+	mutex_unlock(&conn->chan_lock);
+	l2cap_chan_put(pchan);
 	return chan;
 }
 
@@ -4886,24 +4887,33 @@ static int l2cap_create_channel_req(struct l2cap_conn *conn,
 	chan = l2cap_connect(conn, cmd, data, L2CAP_CREATE_CHAN_RSP,
 			     req->amp_id);
 	if (chan) {
-		struct amp_mgr *mgr = conn->hcon->amp_mgr;
+		struct amp_mgr *mgr;
 		struct hci_conn *hs_hcon;
 
-		hs_hcon = hci_conn_hash_lookup_ba(hdev, AMP_LINK,
-						  &conn->hcon->dst);
-		if (!hs_hcon) {
-			hci_dev_put(hdev);
-			cmd_reject_invalid_cid(conn, cmd->ident, chan->scid,
-					       chan->dcid);
-			return 0;
+		l2cap_chan_hold(chan);
+		l2cap_chan_lock(chan);
+		if (chan->conn) {
+			mgr = conn->hcon->amp_mgr;
+			hs_hcon = hci_conn_hash_lookup_ba(hdev, AMP_LINK,
+							  &conn->hcon->dst);
+			if (!hs_hcon) {
+				hci_dev_put(hdev);
+				cmd_reject_invalid_cid(conn, cmd->ident, chan->scid,
+						       chan->dcid);
+				l2cap_chan_unlock(chan);
+				l2cap_chan_put(chan);
+				return 0;
+			}
+
+			BT_DBG("mgr %p bredr_chan %p hs_hcon %p", mgr, chan, hs_hcon);
+
+			mgr->bredr_chan = chan;
+			chan->hs_hcon = hs_hcon;
+			chan->fcs = L2CAP_FCS_NONE;
+			conn->mtu = hdev->block_mtu;
 		}
-
-		BT_DBG("mgr %p bredr_chan %p hs_hcon %p", mgr, chan, hs_hcon);
-
-		mgr->bredr_chan = chan;
-		chan->hs_hcon = hs_hcon;
-		chan->fcs = L2CAP_FCS_NONE;
-		conn->mtu = hdev->block_mtu;
+		l2cap_chan_unlock(chan);
+		l2cap_chan_put(chan);
 	}
 
 	hci_dev_put(hdev);
