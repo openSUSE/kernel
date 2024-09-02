@@ -106,7 +106,11 @@ struct Qdisc {
 	struct net_rate_estimator __rcu *rate_est;
 	struct gnet_stats_basic_sync __percpu *cpu_bstats;
 	struct gnet_stats_queue	__percpu *cpu_qstats;
+#ifndef __GENKSYMS__
+	int                     owner;
+#else
 	int			pad;
+#endif
 	refcount_t		refcnt;
 
 	/*
@@ -389,14 +393,25 @@ struct tcf_proto_ops {
 
 	struct module		*owner;
 	int			flags;
+#ifndef __GENKSYMS__
+	void			(*tmplt_reoffload)(struct tcf_chain *chain,
+						   bool add,
+						   flow_setup_cb_t *cb,
+						   void *cb_priv);
+#endif /* __GENKSYMS__ */
 };
 
 /* Classifiers setting TCF_PROTO_OPS_DOIT_UNLOCKED in tcf_proto_ops->flags
  * are expected to implement tcf_proto_ops->delete_empty(), otherwise race
  * conditions can occur when filters are inserted/deleted simultaneously.
+ * Classifiers setting TCF_PROTO_OPS_HAS_TMPLT_REOFFLOAD are of the new
+ * version of `struct tcf_proto_ops` with `tmplt_reoffload()` available.
  */
 enum tcf_proto_ops_flags {
 	TCF_PROTO_OPS_DOIT_UNLOCKED = 1,
+#ifndef __GENKSYMS__
+	TCF_PROTO_OPS_HAS_TMPLT_REOFFLOAD = 0x2080,
+#endif /* __GENKSYMS__ */
 };
 
 struct tcf_proto {

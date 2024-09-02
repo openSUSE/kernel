@@ -4107,12 +4107,14 @@ static void dmar_remove_one_dev_info(struct device *dev)
 		intel_pasid_free_table(info->dev);
 	}
 
-	spin_lock_irqsave(&domain->lock, flags);
-	list_del(&info->link);
-	spin_unlock_irqrestore(&domain->lock, flags);
+	if (domain) {
+		spin_lock_irqsave(&domain->lock, flags);
+		list_del(&info->link);
+		spin_unlock_irqrestore(&domain->lock, flags);
 
-	domain_detach_iommu(domain, iommu);
-	info->domain = NULL;
+		domain_detach_iommu(domain, iommu);
+		info->domain = NULL;
+	}
 }
 
 static int md_domain_init(struct dmar_domain *domain, int guest_width)

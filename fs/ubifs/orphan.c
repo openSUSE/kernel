@@ -135,6 +135,7 @@ static void orphan_delete(struct ubifs_info *c, struct ubifs_orphan *orph)
 
 	if (orph->cmt) {
 		orph->del = 1;
+		rb_erase(&orph->rb, &c->orph_tree);
 		orph->dnext = c->orph_dnext;
 		c->orph_dnext = orph;
 		dbg_gen("delete later ino %lu", (unsigned long)orph->inum);
@@ -518,7 +519,6 @@ static void erase_deleted(struct ubifs_info *c)
 		dnext = orphan->dnext;
 		ubifs_assert(c, !orphan->new);
 		ubifs_assert(c, orphan->del);
-		rb_erase(&orphan->rb, &c->orph_tree);
 		list_del(&orphan->list);
 		c->tot_orphans -= 1;
 		dbg_gen("deleting orphan ino %lu", (unsigned long)orphan->inum);
@@ -691,12 +691,12 @@ static int do_kill_orphans(struct ubifs_info *c, struct ubifs_scan_leb *sleb,
 
 		n = (le32_to_cpu(orph->ch.len) - UBIFS_ORPH_NODE_SZ) >> 3;
 		for (i = 0; i < n; i++) {
-			union ubifs_key key1, key2;
+			union ubifs_key key;
 
 			inum = le64_to_cpu(orph->inos[i]);
 
-			ino_key_init(c, &key1, inum);
-			err = ubifs_tnc_lookup(c, &key1, ino);
+			ino_key_init(c, &key, inum);
+			err = ubifs_tnc_lookup(c, &key, ino);
 			if (err && err != -ENOENT)
 				goto out_free;
 
@@ -708,10 +708,7 @@ static int do_kill_orphans(struct ubifs_info *c, struct ubifs_scan_leb *sleb,
 				dbg_rcvry("deleting orphaned inode %lu",
 					  (unsigned long)inum);
 
-				lowest_ino_key(c, &key1, inum);
-				highest_ino_key(c, &key2, inum);
-
-				err = ubifs_tnc_remove_range(c, &key1, &key2);
+				err = ubifs_tnc_remove_ino(c, inum);
 				if (err)
 					goto out_ro;
 			}
@@ -925,8 +922,12 @@ static int dbg_orphan_check(struct ubifs_info *c, struct ubifs_zbranch *zbr,
 
 	inum = key_inum(c, &zbr->key);
 	if (inum != ci->last_ino) {
-		/* Lowest node type is the inode node, so it comes first */
-		if (key_type(c, &zbr->key) != UBIFS_INO_KEY)
+		/*
+		 * Lowest node type is the inode node or xattr entry(when
+		 * selinux/encryption is enabled), so it comes first
+		 */
+		if (key_type(c, &zbr->key) != UBIFS_INO_KEY &&
+		    key_type(c, &zbr->key) != UBIFS_XENT_KEY)
 			ubifs_err(c, "found orphan node ino %lu, type %d",
 				  (unsigned long)inum, key_type(c, &zbr->key));
 		ci->last_ino = inum;

@@ -270,6 +270,19 @@
 	.retval = 1,
 },
 {
+	"calls: invalid kfunc call: must provide (attach_prog_fd, btf_id) pair when freplace",
+	.insns = {
+	BPF_RAW_INSN(BPF_JMP | BPF_CALL, 0, BPF_PSEUDO_KFUNC_CALL, 0, 0),
+	BPF_EXIT_INSN(),
+	},
+	.prog_type = BPF_PROG_TYPE_EXT,
+	.result = REJECT,
+	.errstr = "Tracing programs must provide btf_id",
+	.fixup_kfunc_btf_id = {
+		{ "bpf_dynptr_from_skb", 0 },
+	},
+},
+{
 	"calls: multiple ret types in subprog 1",
 	.insns = {
 	BPF_MOV64_REG(BPF_REG_6, BPF_REG_1),

@@ -10,6 +10,10 @@
 #include <linux/netfilter/nf_conntrack_tuple_common.h>
 #include <net/flow_offload.h>
 #include <net/dst.h>
+#ifndef __GENKSYMS__
+#include <linux/if_pppox.h>
+#include <linux/ppp_defs.h>
+#endif /* __GENKSYMS__ */
 
 struct nf_flowtable;
 struct nf_flow_rule;
@@ -257,6 +261,8 @@ nf_flow_table_offload_del_cb(struct nf_flowtable *flow_table,
 
 int flow_offload_route_init(struct flow_offload *flow,
 			    const struct nf_flow_route *route);
+int flow_offload_route_init_1224415(struct flow_offload *flow, struct
+				    nf_flow_route *route);
 
 int flow_offload_add(struct nf_flowtable *flow_table, struct flow_offload *flow);
 void flow_offload_refresh(struct nf_flowtable *flow_table,
@@ -312,5 +318,31 @@ int nf_flow_rule_route_ipv6(struct net *net, const struct flow_offload *flow,
 
 int nf_flow_table_offload_init(void);
 void nf_flow_table_offload_exit(void);
+
+static inline __be16 __nf_flow_pppoe_proto(const struct sk_buff *skb)
+{
+	__be16 proto;
+
+	proto = *((__be16 *)(skb_mac_header(skb) + ETH_HLEN +
+			     sizeof(struct pppoe_hdr)));
+	switch (proto) {
+	case htons(PPP_IP):
+		return htons(ETH_P_IP);
+	case htons(PPP_IPV6):
+		return htons(ETH_P_IPV6);
+	}
+
+	return 0;
+}
+
+static inline bool nf_flow_pppoe_proto(struct sk_buff *skb, __be16 *inner_proto)
+{
+	if (!pskb_may_pull(skb, PPPOE_SES_HLEN))
+		return false;
+
+	*inner_proto = __nf_flow_pppoe_proto(skb);
+
+	return true;
+}
 
 #endif /* _NF_FLOW_TABLE_H */

@@ -320,7 +320,7 @@ static void nft_flow_offload_eval(const struct nft_expr *expr,
 	if (!flow)
 		goto err_flow_alloc;
 
-	if (flow_offload_route_init(flow, &route) < 0)
+	if (flow_offload_route_init_1224415(flow, &route) < 0)
 		goto err_flow_add;
 
 	if (tcph) {

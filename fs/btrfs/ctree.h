@@ -593,6 +593,12 @@ enum {
 	/* Indicate whether there are any tree modification log users */
 	BTRFS_FS_TREE_MOD_LOG_USERS,
 
+	/*
+	 * Indicate if we have some features changed, this is mostly for
+	 * cleaner thread to update the sysfs interface.
+	 */
+	BTRFS_FS_FEATURE_CHANGED,
+
 #if BITS_PER_LONG == 32
 	/* Indicate if we have error/warn message printed on 32bit systems */
 	BTRFS_FS_32BIT_ERROR,
@@ -3638,6 +3644,7 @@ static inline void __btrfs_set_fs_incompat(struct btrfs_fs_info *fs_info,
 				name, flag);
 		}
 		spin_unlock(&fs_info->super_lock);
+		set_bit(BTRFS_FS_FEATURE_CHANGED, &fs_info->flags);
 	}
 }
 
@@ -3664,6 +3671,7 @@ static inline void __btrfs_clear_fs_incompat(struct btrfs_fs_info *fs_info,
 				name, flag);
 		}
 		spin_unlock(&fs_info->super_lock);
+		set_bit(BTRFS_FS_FEATURE_CHANGED, &fs_info->flags);
 	}
 }
 
@@ -3700,6 +3708,7 @@ static inline void __btrfs_set_fs_compat_ro(struct btrfs_fs_info *fs_info,
 				name, flag);
 		}
 		spin_unlock(&fs_info->super_lock);
+		set_bit(BTRFS_FS_FEATURE_CHANGED, &fs_info->flags);
 	}
 }
 
@@ -3726,6 +3735,7 @@ static inline void __btrfs_clear_fs_compat_ro(struct btrfs_fs_info *fs_info,
 				name, flag);
 		}
 		spin_unlock(&fs_info->super_lock);
+		set_bit(BTRFS_FS_FEATURE_CHANGED, &fs_info->flags);
 	}
 }
 
