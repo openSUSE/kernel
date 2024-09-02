@@ -325,6 +325,7 @@ void dc_state_destruct(struct dc_state *state)
 	state->phantom_plane_count = 0;
 
 	state->stream_mask = 0;
+	memset(&state->res_ctx, 0, sizeof(state->res_ctx));
 	memset(&state->pp_display_cfg, 0, sizeof(state->pp_display_cfg));
 	memset(&state->dcn_bw_vars, 0, sizeof(state->dcn_bw_vars));
 	state->clk_mgr = NULL;
