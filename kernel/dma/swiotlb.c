@@ -530,11 +530,21 @@ static void swiotlb_bounce(struct device *dev, phys_addr_t tlb_addr, size_t size
 	size_t alloc_size = mem->slots[index].alloc_size;
 	unsigned long pfn = PFN_DOWN(orig_addr);
 	unsigned char *vaddr = mem->vaddr + tlb_addr - mem->start;
-	unsigned int tlb_offset;
+	int tlb_offset;
 
 	if (orig_addr == INVALID_PHYS_ADDR)
 		return;
 
+	/*
+	 * It's valid for tlb_offset to be negative. This can happen when the
+	 * "offset" returned by swiotlb_align_offset() is non-zero, and the
+	 * tlb_addr is pointing within the first "offset" bytes of the second
+	 * or subsequent slots of the allocated swiotlb area. While it's not
+	 * valid for tlb_addr to be pointing within the first "offset" bytes
+	 * of the first slot, there's no way to check for such an error since
+	 * this function can't distinguish the first slot from the second and
+	 * subsequent slots.
+	 */
 	tlb_offset = (tlb_addr & (IO_TLB_SIZE - 1)) -
 		     swiotlb_align_offset(dev, 0, orig_addr);
 
