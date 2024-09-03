@@ -1380,8 +1380,6 @@ skip_disable_dsp:
 
 	if (!sdev->dspless_mode_selected)
 		iounmap(sdev->bar[HDA_DSP_BAR]);
-
-	return 0;
 }
 
 void hda_dsp_remove_late(struct snd_sof_dev *sdev)
