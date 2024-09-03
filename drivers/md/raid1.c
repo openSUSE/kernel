@@ -46,9 +46,7 @@
 static void allow_barrier(struct r1conf *conf, sector_t sector_nr);
 static void lower_barrier(struct r1conf *conf, sector_t sector_nr);
 
-#define raid1_log(md, fmt, args...)				\
-	do { if ((md)->queue) blk_add_trace_msg((md)->queue, "raid1 " fmt, ##args); } while (0)
-
+#define RAID_1_10_NAME "raid1"
 #include "raid1-10.c"
 
 #define START(node) ((node)->start)
@@ -682,6 +680,7 @@ static int choose_slow_rdev(struct r1conf *conf, struct r1bio *r1_bio,
 		len = r1_bio->sectors;
 		read_len = raid1_check_read_range(rdev, this_sector, &len);
 		if (read_len == r1_bio->sectors) {
+			*max_sectors = read_len;
 			update_read_sectors(conf, disk, this_sector, read_len);
 			return disk;
 		}
@@ -1195,7 +1194,7 @@ static void freeze_array(struct r1conf *conf, int extra)
 	 */
 	spin_lock_irq(&conf->resync_lock);
 	conf->array_frozen = 1;
-	raid1_log(conf->mddev, "wait freeze");
+	mddev_add_trace_msg(conf->mddev, "raid1 wait freeze");
 	wait_event_lock_irq_cmd(
 		conf->wait_barrier,
 		get_unqueued_pending(conf) == extra,
@@ -1384,7 +1383,7 @@ static void raid1_read_request(struct mddev *mddev, struct bio *bio,
 		 * Reading from a write-mostly device must take care not to
 		 * over-take any writes that are 'behind'
 		 */
-		raid1_log(mddev, "wait behind writes");
+		mddev_add_trace_msg(mddev, "raid1 wait behind writes");
 		wait_event(bitmap->behind_wait,
 			   atomic_read(&bitmap->behind_writes) == 0);
 	}
@@ -1571,7 +1570,8 @@ static void raid1_write_request(struct mddev *mddev, struct bio *bio,
 			bio_wouldblock_error(bio);
 			return;
 		}
-		raid1_log(mddev, "wait rdev %d blocked", blocked_rdev->raid_disk);
+		mddev_add_trace_msg(mddev, "raid1 wait rdev %d blocked",
+				blocked_rdev->raid_disk);
 		md_wait_for_blocked_rdev(blocked_rdev, mddev);
 		wait_barrier(conf, bio->bi_iter.bi_sector, false);
 		goto retry_write;
@@ -1695,8 +1695,7 @@ static bool raid1_make_request(struct mddev *mddev, struct bio *bio)
 	if (bio_data_dir(bio) == READ)
 		raid1_read_request(mddev, bio, sectors, NULL);
 	else {
-		if (!md_write_start(mddev,bio))
-			return false;
+		md_write_start(mddev,bio);
 		raid1_write_request(mddev, bio, sectors);
 	}
 	return true;
@@ -2383,16 +2382,24 @@ static void sync_request_write(struct mddev *mddev, struct r1bio *r1_bio)
  *	3.	Performs writes following reads for array synchronising.
  */
 
-static void fix_read_error(struct r1conf *conf, int read_disk,
-			   sector_t sect, int sectors)
+static void fix_read_error(struct r1conf *conf, struct r1bio *r1_bio)
 {
+	sector_t sect = r1_bio->sector;
+	int sectors = r1_bio->sectors;
+	int read_disk = r1_bio->read_disk;
 	struct mddev *mddev = conf->mddev;
+	struct md_rdev *rdev = conf->mirrors[read_disk].rdev;
+
+	if (exceed_read_errors(mddev, rdev)) {
+		r1_bio->bios[r1_bio->read_disk] = IO_BLOCKED;
+		return;
+	}
+
 	while(sectors) {
 		int s = sectors;
 		int d = read_disk;
 		int success = 0;
 		int start;
-		struct md_rdev *rdev;
 
 		if (s > (PAGE_SIZE>>9))
 			s = PAGE_SIZE >> 9;
@@ -2629,8 +2636,7 @@ static void handle_read_error(struct r1conf *conf, struct r1bio *r1_bio)
 	if (mddev->ro == 0
 	    && !test_bit(FailFast, &rdev->flags)) {
 		freeze_array(conf, 1);
-		fix_read_error(conf, r1_bio->read_disk,
-			       r1_bio->sector, r1_bio->sectors);
+		fix_read_error(conf, r1_bio);
 		unfreeze_array(conf);
 	} else if (mddev->ro == 0 && test_bit(FailFast, &rdev->flags)) {
 		md_error(mddev, rdev);

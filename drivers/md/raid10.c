@@ -19,6 +19,8 @@
 #include <linux/raid/md_p.h>
 #include <trace/events/block.h>
 #include "md.h"
+
+#define RAID_1_10_NAME "raid10"
 #include "raid10.h"
 #include "raid0.h"
 #include "md-bitmap.h"
@@ -73,9 +75,6 @@ static sector_t reshape_request(struct mddev *mddev, sector_t sector_nr,
 static void reshape_request_write(struct mddev *mddev, struct r10bio *r10_bio);
 static void end_reshape_write(struct bio *bio);
 static void end_reshape(struct r10conf *conf);
-
-#define raid10_log(md, fmt, args...)				\
-	do { if ((md)->queue) blk_add_trace_msg((md)->queue, "raid10 " fmt, ##args); } while (0)
 
 #include "raid1-10.c"
 
@@ -1021,7 +1020,7 @@ static bool wait_barrier(struct r10conf *conf, bool nowait)
 			ret = false;
 		} else {
 			conf->nr_waiting++;
-			raid10_log(conf->mddev, "wait barrier");
+			mddev_add_trace_msg(conf->mddev, "raid10 wait barrier");
 			wait_event_barrier(conf, stop_waiting_barrier(conf));
 			conf->nr_waiting--;
 		}
@@ -1140,7 +1139,7 @@ static bool regular_request_wait(struct mddev *mddev, struct r10conf *conf,
 			bio_wouldblock_error(bio);
 			return false;
 		}
-		raid10_log(conf->mddev, "wait reshape");
+		mddev_add_trace_msg(conf->mddev, "raid10 wait reshape");
 		wait_event(conf->wait_barrier,
 			   conf->reshape_progress <= bio->bi_iter.bi_sector ||
 			   conf->reshape_progress >= bio->bi_iter.bi_sector +
@@ -1344,8 +1343,9 @@ retry_wait:
 	if (unlikely(blocked_rdev)) {
 		/* Have to wait for this device to get unblocked, then retry */
 		allow_barrier(conf);
-		raid10_log(conf->mddev, "%s wait rdev %d blocked",
-				__func__, blocked_rdev->raid_disk);
+		mddev_add_trace_msg(conf->mddev,
+			"raid10 %s wait rdev %d blocked",
+			__func__, blocked_rdev->raid_disk);
 		md_wait_for_blocked_rdev(blocked_rdev, mddev);
 		wait_barrier(conf, false);
 		goto retry_wait;
@@ -1400,7 +1400,8 @@ static void raid10_write_request(struct mddev *mddev, struct bio *bio,
 			bio_wouldblock_error(bio);
 			return;
 		}
-		raid10_log(conf->mddev, "wait reshape metadata");
+		mddev_add_trace_msg(conf->mddev,
+			"raid10 wait reshape metadata");
 		wait_event(mddev->sb_wait,
 			   !test_bit(MD_SB_CHANGE_PENDING, &mddev->sb_flags));
 
@@ -1845,8 +1846,7 @@ static bool raid10_make_request(struct mddev *mddev, struct bio *bio)
 	    && md_flush_request(mddev, bio))
 		return true;
 
-	if (!md_write_start(mddev, bio))
-		return false;
+	md_write_start(mddev, bio);
 
 	if (unlikely(bio_op(bio) == REQ_OP_DISCARD))
 		if (!raid10_handle_discard(mddev, bio))
@@ -2578,42 +2578,6 @@ static void recovery_request_write(struct mddev *mddev, struct r10bio *r10_bio)
 	}
 }
 
-/*
- * Used by fix_read_error() to decay the per rdev read_errors.
- * We halve the read error count for every hour that has elapsed
- * since the last recorded read error.
- *
- */
-static void check_decay_read_errors(struct mddev *mddev, struct md_rdev *rdev)
-{
-	long cur_time_mon;
-	unsigned long hours_since_last;
-	unsigned int read_errors = atomic_read(&rdev->read_errors);
-
-	cur_time_mon = ktime_get_seconds();
-
-	if (rdev->last_read_error == 0) {
-		/* first time we've seen a read error */
-		rdev->last_read_error = cur_time_mon;
-		return;
-	}
-
-	hours_since_last = (long)(cur_time_mon -
-			    rdev->last_read_error) / 3600;
-
-	rdev->last_read_error = cur_time_mon;
-
-	/*
-	 * if hours_since_last is > the number of bits in read_errors
-	 * just set read errors to 0. We do this to avoid
-	 * overflowing the shift of read_errors by hours_since_last.
-	 */
-	if (hours_since_last >= 8 * sizeof(read_errors))
-		atomic_set(&rdev->read_errors, 0);
-	else
-		atomic_set(&rdev->read_errors, read_errors >> hours_since_last);
-}
-
 static int r10_sync_page_io(struct md_rdev *rdev, sector_t sector,
 			    int sectors, struct page *page, enum req_op op)
 {
@@ -2648,7 +2612,6 @@ static void fix_read_error(struct r10conf *conf, struct mddev *mddev, struct r10
 	int sect = 0; /* Offset from r10_bio->sector */
 	int sectors = r10_bio->sectors, slot = r10_bio->read_slot;
 	struct md_rdev *rdev;
-	int max_read_errors = atomic_read(&mddev->max_corr_read_errors);
 	int d = r10_bio->devs[slot].devnum;
 	int read_error = r10_bio->devs[r10_bio->read_slot].error;
 
@@ -2662,15 +2625,7 @@ static void fix_read_error(struct r10conf *conf, struct mddev *mddev, struct r10
 		   more fix_read_error() attempts */
 		return;
 
-	check_decay_read_errors(mddev, rdev);
-	atomic_inc(&rdev->read_errors);
-	if (atomic_read(&rdev->read_errors) > max_read_errors) {
-		pr_notice("md/raid10:%s: %pg: Raid device exceeded read_error threshold [cur %d:max %d]\n",
-			  mdname(mddev), rdev->bdev,
-			  atomic_read(&rdev->read_errors), max_read_errors);
-		pr_notice("md/raid10:%s: %pg: Failing raid device\n",
-			  mdname(mddev), rdev->bdev);
-		md_error(mddev, rdev);
+	if (exceed_read_errors(mddev, rdev)) {
 		if (test_bit(Faulty, &rdev->flags) &&
 		    read_error == BLK_STS_TIMEOUT)
 			set_bit(Timeout, &rdev->flags);

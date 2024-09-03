@@ -626,7 +626,8 @@ extern void mddev_unlock(struct mddev *mddev);
 
 static inline void md_sync_acct(struct block_device *bdev, unsigned long nr_sectors)
 {
-	atomic_add(nr_sectors, &bdev->bd_disk->sync_io);
+	if (blk_queue_io_stat(bdev->bd_disk->queue))
+		atomic_add(nr_sectors, &bdev->bd_disk->sync_io);
 }
 
 static inline void md_sync_acct_bio(struct bio *bio, unsigned long nr_sectors)
@@ -917,5 +918,11 @@ int md_add_new_disk(struct mddev *mddev, struct mdu_disk_info_s *info);
 int do_md_run(struct mddev *mddev);
 
 extern const struct block_device_operations md_fops;
+
+#define mddev_add_trace_msg(mddev, fmt, args...)			\
+do {									\
+	if ((mddev)->gendisk)						\
+		blk_add_trace_msg((mddev)->queue, fmt, ##args);		\
+} while (0)
 
 #endif /* _MD_MD_H */

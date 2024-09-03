@@ -408,10 +408,12 @@ static int erofs_read_superblock(struct super_block *sb)
 	}
 
 	/* parse on-disk compression configurations */
-	if (erofs_sb_has_compr_cfgs(sbi))
+	if (erofs_sb_has_compr_cfgs(sbi)) {
 		ret = erofs_load_compr_cfgs(sb, dsb);
-	else
+	} else {
+		sbi->available_compr_algs = 1 << Z_EROFS_COMPRESSION_LZ4;
 		ret = z_erofs_load_lz4_config(sb, dsb, NULL, 0);
+	}
 	if (ret < 0)
 		goto out;
 
