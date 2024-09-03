@@ -3095,7 +3095,7 @@ struct snd_pcm_mmap_status32 {
 	snd_pcm_state_t suspended_state;
 	s32 audio_tstamp_sec;
 	s32 audio_tstamp_nsec;
-} __attribute__((packed));
+} __packed;
 
 struct snd_pcm_mmap_control32 {
 	u32 appl_ptr;
@@ -3112,7 +3112,7 @@ struct snd_pcm_sync_ptr32 {
 		struct snd_pcm_mmap_control32 control;
 		unsigned char reserved[64];
 	} c;
-} __attribute__((packed));
+} __packed;
 
 /* recalcuate the boundary within 32bit */
 static snd_pcm_uframes_t recalculate_boundary(struct snd_pcm_runtime *runtime)
