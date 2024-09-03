@@ -364,15 +364,6 @@ struct rdt_domain *get_domain_from_cpu(int cpu, struct rdt_resource *r)
 {
 	struct rdt_domain *d;
 
-	/*
-	 * Walking r->domains, ensure it can't race with cpuhp.
-	 * Because this is called via IPI by rdt_ctrl_update(), assertions
-	 * about locks this thread holds will lead to false positives. Check
-	 * someone is holding the CPUs lock.
-	 */
-	if (IS_ENABLED(CONFIG_HOTPLUG_CPU) && IS_ENABLED(CONFIG_LOCKDEP))
-		WARN_ON_ONCE(!lockdep_is_cpus_held());
-
 	lockdep_assert_cpus_held();
 
 	list_for_each_entry(d, &r->domains, list) {
