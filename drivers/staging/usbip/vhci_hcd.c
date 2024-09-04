@@ -579,7 +579,9 @@ static int vhci_urb_enqueue(struct usb_hcd *hcd, struct urb *urb,
 	 *
 	 */
 	if (usb_pipedevice(urb->pipe) == 0) {
+		struct usb_device *old;
 		__u8 type = usb_pipetype(urb->pipe);
+		struct usb_device *udev = vdev->udev;
 		struct usb_ctrlrequest *ctrlreq =
 			(struct usb_ctrlrequest *) urb->setup_packet;
 
@@ -595,9 +597,9 @@ static int vhci_urb_enqueue(struct usb_hcd *hcd, struct urb *urb,
 			dev_info(dev, "SetAddress Request (%d) to port %d\n",
 				 ctrlreq->wValue, vdev->rhport);
 
-			if (vdev->udev)
-				usb_put_dev(vdev->udev);
 			vdev->udev = usb_get_dev(urb->dev);
+			if (udev)
+				usb_put_dev(udev);
 
 			spin_lock(&vdev->ud.lock);
 			vdev->ud.status = VDEV_ST_USED;
@@ -617,9 +619,9 @@ static int vhci_urb_enqueue(struct usb_hcd *hcd, struct urb *urb,
 						  "Get_Descriptor to device 0 "
 						  "(get max pipe size)\n");
 
-			if (vdev->udev)
-				usb_put_dev(vdev->udev);
 			vdev->udev = usb_get_dev(urb->dev);
+			if (udev)
+				usb_put_dev(udev);
 			goto out;
 
 		default:
@@ -895,15 +897,16 @@ static void vhci_shutdown_connection(struct usbip_device *ud)
 static void vhci_device_reset(struct usbip_device *ud)
 {
 	struct vhci_device *vdev = container_of(ud, struct vhci_device, ud);
+	struct usb_device *udev = vdev->udev;
 
 	spin_lock(&ud->lock);
 
 	vdev->speed  = 0;
 	vdev->devid  = 0;
 
-	if (vdev->udev)
-		usb_put_dev(vdev->udev);
 	vdev->udev = NULL;
+	if (udev)
+		usb_put_dev(udev);
 
 	ud->tcp_socket = NULL;
 	ud->status = VDEV_ST_NULL;
