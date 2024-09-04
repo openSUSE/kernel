@@ -191,6 +191,9 @@ static int tasdevice_get_profile_id(struct snd_kcontrol *kcontrol,
 
 	ucontrol->value.integer.value[0] = tas_priv->rcabin.profile_cfg_id;
 
+	dev_dbg(tas_priv->dev, "%s: kcontrol %s: %d\n",
+		__func__, kcontrol->id.name, tas_priv->rcabin.profile_cfg_id);
+
 	mutex_unlock(&tas_priv->codec_lock);
 
 	return 0;
@@ -207,6 +210,10 @@ static int tasdevice_set_profile_id(struct snd_kcontrol *kcontrol,
 	val = clamp(nr_profile, 0, max);
 
 	mutex_lock(&tas_priv->codec_lock);
+
+	dev_dbg(tas_priv->dev, "%s: kcontrol %s: %d -> %d\n",
+		__func__, kcontrol->id.name,
+		tas_priv->rcabin.profile_cfg_id, val);
 
 	if (tas_priv->rcabin.profile_cfg_id != val) {
 		tas_priv->rcabin.profile_cfg_id = val;
@@ -255,6 +262,9 @@ static int tasdevice_program_get(struct snd_kcontrol *kcontrol,
 
 	ucontrol->value.integer.value[0] = tas_priv->cur_prog;
 
+	dev_dbg(tas_priv->dev, "%s: kcontrol %s: %d\n",
+		__func__, kcontrol->id.name, tas_priv->cur_prog);
+
 	mutex_unlock(&tas_priv->codec_lock);
 
 	return 0;
@@ -272,6 +282,9 @@ static int tasdevice_program_put(struct snd_kcontrol *kcontrol,
 	val = clamp(nr_program, 0, max);
 
 	mutex_lock(&tas_priv->codec_lock);
+
+	dev_dbg(tas_priv->dev, "%s: kcontrol %s: %d -> %d\n",
+		__func__, kcontrol->id.name, tas_priv->cur_prog, val);
 
 	if (tas_priv->cur_prog != val) {
 		tas_priv->cur_prog = val;
@@ -292,6 +305,9 @@ static int tasdevice_config_get(struct snd_kcontrol *kcontrol,
 
 	ucontrol->value.integer.value[0] = tas_priv->cur_conf;
 
+	dev_dbg(tas_priv->dev, "%s: kcontrol %s: %d\n",
+		__func__, kcontrol->id.name, tas_priv->cur_conf);
+
 	mutex_unlock(&tas_priv->codec_lock);
 
 	return 0;
@@ -309,6 +325,9 @@ static int tasdevice_config_put(struct snd_kcontrol *kcontrol,
 	val = clamp(nr_config, 0, max);
 
 	mutex_lock(&tas_priv->codec_lock);
+
+	dev_dbg(tas_priv->dev, "%s: kcontrol %s: %d -> %d\n",
+		__func__, kcontrol->id.name, tas_priv->cur_conf, val);
 
 	if (tas_priv->cur_conf != val) {
 		tas_priv->cur_conf = val;
@@ -332,6 +351,9 @@ static int tas2781_amp_getvol(struct snd_kcontrol *kcontrol,
 
 	ret = tasdevice_amp_getvol(tas_priv, ucontrol, mc);
 
+	dev_dbg(tas_priv->dev, "%s: kcontrol %s: %ld\n",
+		__func__, kcontrol->id.name, ucontrol->value.integer.value[0]);
+
 	mutex_unlock(&tas_priv->codec_lock);
 
 	return ret;
@@ -346,6 +368,9 @@ static int tas2781_amp_putvol(struct snd_kcontrol *kcontrol,
 	int ret;
 
 	mutex_lock(&tas_priv->codec_lock);
+
+	dev_dbg(tas_priv->dev, "%s: kcontrol %s: -> %ld\n",
+		__func__, kcontrol->id.name, ucontrol->value.integer.value[0]);
 
 	/* The check of the given value is in tasdevice_amp_putvol. */
 	ret = tasdevice_amp_putvol(tas_priv, ucontrol, mc);
@@ -363,8 +388,8 @@ static int tas2781_force_fwload_get(struct snd_kcontrol *kcontrol,
 	mutex_lock(&tas_priv->codec_lock);
 
 	ucontrol->value.integer.value[0] = (int)tas_priv->force_fwload_status;
-	dev_dbg(tas_priv->dev, "%s : Force FWload %s\n", __func__,
-			tas_priv->force_fwload_status ? "ON" : "OFF");
+	dev_dbg(tas_priv->dev, "%s: kcontrol %s: %d\n",
+		__func__, kcontrol->id.name, tas_priv->force_fwload_status);
 
 	mutex_unlock(&tas_priv->codec_lock);
 
@@ -379,14 +404,16 @@ static int tas2781_force_fwload_put(struct snd_kcontrol *kcontrol,
 
 	mutex_lock(&tas_priv->codec_lock);
 
+	dev_dbg(tas_priv->dev, "%s: kcontrol %s: %d -> %d\n",
+		__func__, kcontrol->id.name,
+		tas_priv->force_fwload_status, val);
+
 	if (tas_priv->force_fwload_status == val)
 		change = false;
 	else {
 		change = true;
 		tas_priv->force_fwload_status = val;
 	}
-	dev_dbg(tas_priv->dev, "%s : Force FWload %s\n", __func__,
-		tas_priv->force_fwload_status ? "ON" : "OFF");
 
 	mutex_unlock(&tas_priv->codec_lock);
 
