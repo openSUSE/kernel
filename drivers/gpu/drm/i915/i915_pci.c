@@ -645,10 +645,6 @@ static const struct intel_device_info jsl_info = {
 	.has_pxp = 1, \
 	.max_pat_index = 3
 
-static const struct intel_display_device_info tgl_display = {
-	XE_D_DISPLAY,
-};
-
 static const struct intel_device_info tgl_info = {
 	GEN12_FEATURES,
 	PLATFORM(INTEL_TIGERLAKE),
