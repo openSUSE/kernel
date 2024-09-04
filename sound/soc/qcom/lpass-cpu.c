@@ -1298,4 +1298,4 @@ void asoc_qcom_lpass_cpu_platform_shutdown(struct platform_device *pdev)
 EXPORT_SYMBOL_GPL(asoc_qcom_lpass_cpu_platform_shutdown);
 
 MODULE_DESCRIPTION("QTi LPASS CPU Driver");
-MODULE_LICENSE("GPL v2");
+MODULE_LICENSE("GPL");
