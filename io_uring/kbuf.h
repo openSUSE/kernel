@@ -31,6 +31,7 @@ struct io_buffer_list {
 #else
 	__u8 is_buf_ring;
 #endif
+
 	/* ring mapped provided buffers, but mmap'ed by application */
 	__u8 is_mmap;
 
