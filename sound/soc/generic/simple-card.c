@@ -478,7 +478,7 @@ static int simple_for_each_link(struct simple_util_priv *priv,
 	return ret;
 }
 
-static int simple_parse_of(struct asoc_simple_priv *priv, struct link_info *li)
+static int simple_parse_of(struct simple_util_priv *priv, struct link_info *li)
 {
 	struct snd_soc_card *card = simple_priv_to_card(priv);
 	int ret;
