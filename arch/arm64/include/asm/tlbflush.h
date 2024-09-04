@@ -93,19 +93,22 @@ static inline unsigned long get_trans_granule(void)
  * When ARMv8.4-TTL exists, TLBI operations take an additional hint for
  * the level at which the invalidation must take place. If the level is
  * wrong, no invalidation may take place. In the case where the level
- * cannot be easily determined, a 0 value for the level parameter will
- * perform a non-hinted invalidation.
+ * cannot be easily determined, the value TLBI_TTL_UNKNOWN will perform
+ * a non-hinted invalidation. Any provided level outside the hint range
+ * will also cause fall-back to non-hinted invalidation.
  *
  * For Stage-2 invalidation, use the level values provided to that effect
  * in asm/stage2_pgtable.h.
  */
 #define TLBI_TTL_MASK		GENMASK_ULL(47, 44)
 
+#define TLBI_TTL_UNKNOWN	INT_MAX
+
 #define __tlbi_level(op, addr, level) do {				\
 	u64 arg = addr;							\
 									\
 	if (cpus_have_const_cap(ARM64_HAS_ARMv8_4_TTL) &&		\
-	    level) {							\
+	    level >= 0 && level <= 3) {							\
 		u64 ttl = level & 3;					\
 		ttl |= get_trans_granule() << 2;			\
 		arg &= ~TLBI_TTL_MASK;					\
@@ -121,28 +124,34 @@ static inline unsigned long get_trans_granule(void)
 } while (0)
 
 /*
- * This macro creates a properly formatted VA operand for the TLB RANGE.
- * The value bit assignments are:
+ * This macro creates a properly formatted VA operand for the TLB RANGE. The
+ * value bit assignments are:
  *
  * +----------+------+-------+-------+-------+----------------------+
  * |   ASID   |  TG  | SCALE |  NUM  |  TTL  |        BADDR         |
  * +-----------------+-------+-------+-------+----------------------+
  * |63      48|47  46|45   44|43   39|38   37|36                   0|
  *
- * The address range is determined by below formula:
- * [BADDR, BADDR + (NUM + 1) * 2^(5*SCALE + 1) * PAGESIZE)
+ * The address range is determined by below formula: [BADDR, BADDR + (NUM + 1) *
+ * 2^(5*SCALE + 1) * PAGESIZE)
+ *
+ * Note that the first argument, baddr, is pre-shifted; If LPA2 is in use, BADDR
+ * holds addr[52:16]. Else BADDR holds page number. See for example ARM DDI
+ * 0487J.a section C5.5.60 "TLBI VAE1IS, TLBI VAE1ISNXS, TLB Invalidate by VA,
+ * EL1, Inner Shareable".
  *
  */
-#define __TLBI_VADDR_RANGE(addr, asid, scale, num, ttl)		\
-	({							\
-		unsigned long __ta = (addr) >> PAGE_SHIFT;	\
-		__ta &= GENMASK_ULL(36, 0);			\
-		__ta |= (unsigned long)(ttl) << 37;		\
-		__ta |= (unsigned long)(num) << 39;		\
-		__ta |= (unsigned long)(scale) << 44;		\
-		__ta |= get_trans_granule() << 46;		\
-		__ta |= (unsigned long)(asid) << 48;		\
-		__ta;						\
+#define __TLBI_VADDR_RANGE(baddr, asid, scale, num, ttl)			\
+	({									\
+		unsigned long __ta = (baddr);					\
+		unsigned long __ttl = (ttl >= 1 && ttl <= 3) ? ttl : 0;		\
+		__ta &= GENMASK_ULL(36, 0);					\
+		__ta |= __ttl << 37;						\
+		__ta |= (unsigned long)(num) << 39;				\
+		__ta |= (unsigned long)(scale) << 44;				\
+		__ta |= get_trans_granule() << 46;				\
+		__ta |= (unsigned long)(asid) << 48;				\
+		__ta;								\
 	})
 
 /* These macros are used by the TLBI RANGE feature. */
@@ -215,12 +224,16 @@ static inline unsigned long get_trans_granule(void)
  *		CPUs, ensuring that any walk-cache entries associated with the
  *		translation are also invalidated.
  *
- *	__flush_tlb_range(vma, start, end, stride, last_level)
+ *	__flush_tlb_range(vma, start, end, stride, last_level, tlb_level)
  *		Invalidate the virtual-address range '[start, end)' on all
  *		CPUs for the user address space corresponding to 'vma->mm'.
  *		The invalidation operations are issued at a granularity
  *		determined by 'stride' and only affect any walk-cache entries
- *		if 'last_level' is equal to false.
+ *		if 'last_level' is equal to false. tlb_level is the level at
+ *		which the invalidation must take place. If the level is wrong,
+ *		no invalidation may take place. In the case where the level
+ *		cannot be easily determined, the value TLBI_TTL_UNKNOWN will
+ *		perform a non-hinted invalidation.
  *
  *
  *	Finally, take a look at asm/tlb.h to see how tlb_flush() is implemented
@@ -285,6 +298,7 @@ static inline void __flush_tlb_range(struct vm_area_struct *vma,
 {
 	int num = 0;
 	int scale = 3;
+	int shift = PAGE_SHIFT;
 	unsigned long asid, addr, pages;
 
 	start = round_down(start, stride);
@@ -343,7 +357,7 @@ static inline void __flush_tlb_range(struct vm_area_struct *vma,
 
 		num = __TLBI_RANGE_NUM(pages, scale);
 		if (num >= 0) {
-			addr = __TLBI_VADDR_RANGE(start, asid, scale,
+			addr = __TLBI_VADDR_RANGE(start >> shift, asid, scale,
 						  num, tlb_level);
 			if (last_level) {
 				__tlbi(rvale1is, addr);
@@ -366,9 +380,10 @@ static inline void flush_tlb_range(struct vm_area_struct *vma,
 	/*
 	 * We cannot use leaf-only invalidation here, since we may be invalidating
 	 * table entries as part of collapsing hugepages or moving page tables.
-	 * Set the tlb_level to 0 because we can not get enough information here.
+	 * Set the tlb_level to TLBI_TTL_UNKNOWN because we can not get enough
+	 * information here.
 	 */
-	__flush_tlb_range(vma, start, end, PAGE_SIZE, false, 0);
+	__flush_tlb_range(vma, start, end, PAGE_SIZE, false, TLBI_TTL_UNKNOWN);
 }
 
 static inline void flush_tlb_kernel_range(unsigned long start, unsigned long end)
