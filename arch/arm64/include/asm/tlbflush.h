@@ -322,11 +322,11 @@ static inline void __flush_tlb_range(struct vm_area_struct *vma,
 	 * When not uses TLB range ops, we can handle up to
 	 * (MAX_TLBI_OPS - 1) pages;
 	 * When uses TLB range ops, we can handle up to
-	 * (MAX_TLBI_RANGE_PAGES - 1) pages.
+	 * MAX_TLBI_RANGE_PAGES pages.
 	 */
 	if ((!system_supports_tlb_range() &&
 	     (end - start) >= (MAX_TLBI_OPS * stride)) ||
-	    pages >= MAX_TLBI_RANGE_PAGES) {
+	    pages > MAX_TLBI_RANGE_PAGES) {
 		flush_tlb_mm(vma->vm_mm);
 		return;
 	}
