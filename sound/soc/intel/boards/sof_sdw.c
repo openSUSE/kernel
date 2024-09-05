@@ -1475,10 +1475,8 @@ static const char * const type_strings[] = {"SimpleJack", "SmartAmp", "SmartMic"
 static int create_sdw_dailink(struct snd_soc_card *card, int *link_index,
 			      struct snd_soc_dai_link *dai_links, int sdw_be_num,
 			      const struct snd_soc_acpi_link_adr *adr_link,
-			      struct snd_soc_codec_conf *codec_conf,
-			      int codec_count, int *be_id,
-			      int *codec_conf_index,
-			      bool *ignore_pch_dmic,
+			      struct snd_soc_codec_conf **codec_conf,
+			      int *be_id, bool *ignore_pch_dmic,
 			      bool append_dai_type,
 			      int adr_index,
 			      int dai_index)
@@ -1527,7 +1525,7 @@ static int create_sdw_dailink(struct snd_soc_card *card, int *link_index,
 				continue;
 
 			/* sanity check */
-			if (*codec_conf_index >= codec_count) {
+			if (*codec_conf >= card->codec_conf + card->num_configs) {
 				dev_err(dev, "codec_conf array overflowed\n");
 				return -EINVAL;
 			}
@@ -1538,12 +1536,11 @@ static int create_sdw_dailink(struct snd_soc_card *card, int *link_index,
 			if (ret)
 				return ret;
 
-			codec_conf[*codec_conf_index].dlc = codecs[codec_dlc_index];
-			codec_conf[*codec_conf_index].name_prefix =
-					adr_link_next->adr_d[j].name_prefix;
+			(*codec_conf)->dlc = codecs[codec_dlc_index];
+			(*codec_conf)->name_prefix = adr_link_next->adr_d[j].name_prefix;
 
 			codec_dlc_index++;
-			(*codec_conf_index)++;
+			(*codec_conf)++;
 		}
 		j = 0;
 
@@ -1664,7 +1661,6 @@ static int sof_card_dai_links_create(struct snd_soc_card *card)
 	bool append_dai_type = false;
 	bool ignore_pch_dmic = false;
 	int codec_conf_num = 0;
-	int codec_conf_index = 0;
 	bool group_generated[SDW_MAX_GROUPS] = { };
 	struct snd_soc_dai_link *dai_links;
 	int num_links, link_index = 0;
@@ -1724,6 +1720,9 @@ static int sof_card_dai_links_create(struct snd_soc_card *card)
 	if (!codec_conf)
 		return -ENOMEM;
 
+	card->codec_conf = codec_conf;
+	card->num_configs = codec_conf_num;
+
 	/* SDW */
 	if (!sdw_be_num)
 		goto SSP;
@@ -1782,9 +1781,9 @@ out:
 
 				ret = create_sdw_dailink(card, &link_index, dai_links,
 							 sdw_be_num, adr_link,
-							 codec_conf, codec_conf_num,
-							 &current_be_id, &codec_conf_index,
-							 &ignore_pch_dmic, append_dai_type, i, j);
+							 &codec_conf, &current_be_id,
+							 &ignore_pch_dmic,
+							 append_dai_type, i, j);
 				if (ret < 0) {
 					dev_err(dev, "failed to create dai link %d\n", link_index);
 					return ret;
@@ -1903,9 +1902,6 @@ HDMI:
 
 	card->dai_link = dai_links;
 	card->num_links = num_links;
-
-	card->codec_conf = codec_conf;
-	card->num_configs = codec_conf_num;
 
 	return 0;
 }
