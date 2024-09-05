@@ -1073,7 +1073,7 @@ static struct sof_sdw_codec_info codec_info_list[] = {
 	},
 };
 
-static inline int find_codec_info_part(const u64 adr)
+static struct sof_sdw_codec_info *find_codec_info_part(const u64 adr)
 {
 	unsigned int part_id, sdw_version;
 	int i;
@@ -1088,9 +1088,9 @@ static inline int find_codec_info_part(const u64 adr)
 		if (part_id == codec_info_list[i].part_id &&
 		    (!codec_info_list[i].version_id ||
 		     sdw_version == codec_info_list[i].version_id))
-			return i;
+			return &codec_info_list[i];
 
-	return -EINVAL;
+	return NULL;
 
 }
 
@@ -1134,7 +1134,6 @@ static int get_dailink_info(struct device *dev,
 	for (; adr_link->num_adr; adr_link++) {
 		const struct snd_soc_acpi_endpoint *endpoint;
 		struct sof_sdw_codec_info *codec_info;
-		int codec_index;
 		int stream;
 		u64 adr;
 
@@ -1144,11 +1143,9 @@ static int get_dailink_info(struct device *dev,
 
 		for (i = 0; i < adr_link->num_adr; i++) {
 			adr = adr_link->adr_d[i].adr;
-			codec_index = find_codec_info_part(adr);
-			if (codec_index < 0)
-				return codec_index;
-
-			codec_info = &codec_info_list[codec_index];
+			codec_info = find_codec_info_part(adr);
+			if (!codec_info)
+				return -EINVAL;
 
 			*codecs_num += codec_info->dai_num;
 
@@ -1275,11 +1272,11 @@ static int fill_sdw_codec_dlc(struct device *dev,
 {
 	unsigned int sdw_version, unique_id, mfg_id, link_id, part_id, class_id;
 	u64 adr = adr_link->adr_d[adr_index].adr;
-	int codec_index;
+	struct sof_sdw_codec_info *codec_info;
 
-	codec_index = find_codec_info_part(adr);
-	if (codec_index < 0)
-		return codec_index;
+	codec_info = find_codec_info_part(adr);
+	if (!codec_info)
+		return -EINVAL;
 
 	sdw_version = SDW_VERSION(adr);
 	link_id = SDW_DISCO_LINK_ID(adr);
@@ -1288,10 +1285,8 @@ static int fill_sdw_codec_dlc(struct device *dev,
 	part_id = SDW_PART_ID(adr);
 	class_id = SDW_CLASS_ID(adr);
 
-	if (codec_info_list[codec_index].codec_name)
-		codec->name = devm_kstrdup(dev,
-					   codec_info_list[codec_index].codec_name,
-					   GFP_KERNEL);
+	if (codec_info->codec_name)
+		codec->name = devm_kstrdup(dev, codec_info->codec_name, GFP_KERNEL);
 	else if (is_unique_device(adr_link, sdw_version, mfg_id, part_id,
 				  class_id, adr_index))
 		codec->name = devm_kasprintf(dev, GFP_KERNEL,
@@ -1305,7 +1300,7 @@ static int fill_sdw_codec_dlc(struct device *dev,
 	if (!codec->name)
 		return -ENOMEM;
 
-	codec->dai_name = codec_info_list[codec_index].dais[dai_index].dai_name;
+	codec->dai_name = codec_info->dais[dai_index].dai_name;
 
 	return 0;
 }
@@ -1327,22 +1322,22 @@ static int set_codec_init_func(struct snd_soc_card *card,
 		 * we should end immediately if it is not aggregated (group_id=0)
 		 */
 		for ( ; i < adr_link->num_adr; i++) {
-			int codec_index;
+			struct sof_sdw_codec_info *codec_info;
 
-			codec_index = find_codec_info_part(adr_link->adr_d[i].adr);
-			if (codec_index < 0)
-				return codec_index;
+			codec_info = find_codec_info_part(adr_link->adr_d[i].adr);
+			if (!codec_info)
+				return -EINVAL;
 
 			/* The group_id is > 0 iff the codec is aggregated */
 			if (adr_link->adr_d[i].endpoints->group_id != group_id)
 				continue;
 
-			if (codec_info_list[codec_index].dais[dai_index].init)
-				codec_info_list[codec_index].dais[dai_index].init(card,
-						adr_link,
-						dai_links,
-						&codec_info_list[codec_index],
-						playback);
+			if (codec_info->dais[dai_index].init)
+				codec_info->dais[dai_index].init(card,
+								 adr_link,
+								 dai_links,
+								 codec_info,
+								 playback);
 			if (!group_id)
 				return 0;
 		}
@@ -1499,7 +1494,6 @@ static int create_sdw_dailink(struct snd_soc_card *card, int *link_index,
 	int cpu_dai_num;
 	unsigned int group_id;
 	int codec_dlc_index = 0;
-	int codec_index;
 	int codec_num;
 	int stream;
 	int i = 0;
@@ -1559,10 +1553,9 @@ static int create_sdw_dailink(struct snd_soc_card *card, int *link_index,
 	}
 
 	/* find codec info to create BE DAI */
-	codec_index = find_codec_info_part(adr_link->adr_d[adr_index].adr);
-	if (codec_index < 0)
-		return codec_index;
-	codec_info = &codec_info_list[codec_index];
+	codec_info = find_codec_info_part(adr_link->adr_d[adr_index].adr);
+	if (!codec_info)
+		return -EINVAL;
 
 	if (codec_info->ignore_pch_dmic)
 		*ignore_pch_dmic = true;
@@ -1649,7 +1642,7 @@ static int create_sdw_dailink(struct snd_soc_card *card, int *link_index,
 		ret = set_codec_init_func(card, adr_link, dai_links + (*link_index)++,
 					  playback, group_id, adr_index, dai_index);
 		if (ret < 0) {
-			dev_err(dev, "failed to init codec %d\n", codec_index);
+			dev_err(dev, "failed to init codec 0x%x\n", codec_info->part_id);
 			return ret;
 		}
 	}
@@ -1667,6 +1660,7 @@ static int sof_card_dai_links_create(struct snd_soc_card *card)
 	const struct snd_soc_acpi_link_adr *adr_link = mach_params->links;
 	bool aggregation = !(sof_sdw_quirk & SOF_SDW_NO_AGGREGATION);
 	struct snd_soc_codec_conf *codec_conf;
+	struct sof_sdw_codec_info *codec_info;
 	bool append_dai_type = false;
 	bool ignore_pch_dmic = false;
 	int codec_conf_num = 0;
@@ -1678,7 +1672,6 @@ static int sof_card_dai_links_create(struct snd_soc_card *card)
 	char *name, *cpu_dai_name;
 	char *codec_name, *codec_dai_name;
 	int i, j, be_id = 0;
-	int codec_index;
 	int hdmi_num;
 	int ret;
 
@@ -1747,10 +1740,10 @@ static int sof_card_dai_links_create(struct snd_soc_card *card)
 		 */
 		for (i = 0; i < adr_link->num_adr; i++) {
 			/* find codec info to get dai_num */
-			codec_index = find_codec_info_part(adr_link->adr_d[i].adr);
-			if (codec_index < 0)
-				return codec_index;
-			if (codec_info_list[codec_index].dai_num > 1) {
+			codec_info = find_codec_info_part(adr_link->adr_d[i].adr);
+			if (!codec_info)
+				return -EINVAL;
+			if (codec_info->dai_num > 1) {
 				append_dai_type = true;
 				goto out;
 			}
@@ -1780,11 +1773,11 @@ out:
 				continue;
 
 			/* find codec info to get dai_num */
-			codec_index = find_codec_info_part(adr_link->adr_d[i].adr);
-			if (codec_index < 0)
-				return codec_index;
+			codec_info = find_codec_info_part(adr_link->adr_d[i].adr);
+			if (!codec_info)
+				return -EINVAL;
 
-			for (j = 0; j < codec_info_list[codec_index].dai_num ; j++) {
+			for (j = 0; j < codec_info->dai_num ; j++) {
 				int current_be_id;
 
 				ret = create_sdw_dailink(card, &link_index, dai_links,
