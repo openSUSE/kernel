@@ -1982,7 +1982,7 @@ static int mc_probe(struct platform_device *pdev)
 		amp_num += codec_info_list[i].amp_num;
 
 	card->components = devm_kasprintf(card->dev, GFP_KERNEL,
-					  "cfg-amp:%d", amp_num);
+					  " cfg-amp:%d", amp_num);
 	if (!card->components)
 		return -ENOMEM;
 
