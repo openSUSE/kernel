@@ -260,13 +260,11 @@ static void cx_update_headset_mic_vref(struct hda_codec *codec, struct hda_jack_
 		cx_process_headset_plugin(codec);
 }
 
-#ifdef CONFIG_PM
 static int cx_auto_suspend(struct hda_codec *codec)
 {
 	cx_auto_shutdown(codec);
 	return 0;
 }
-#endif
 
 static const struct hda_codec_ops cx_auto_patch_ops = {
 	.build_controls = snd_hda_gen_build_controls,
@@ -274,10 +272,8 @@ static const struct hda_codec_ops cx_auto_patch_ops = {
 	.init = cx_auto_init,
 	.free = cx_auto_free,
 	.unsol_event = snd_hda_jack_unsol_event,
-#ifdef CONFIG_PM
 	.suspend = cx_auto_suspend,
 	.check_power_status = snd_hda_gen_check_power_status,
-#endif
 };
 
 /*
