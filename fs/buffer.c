@@ -2069,6 +2069,8 @@ static int __block_commit_write(struct inode *inode, struct page *page,
 	unsigned blocksize;
 	struct buffer_head *bh, *head;
 
+	if (!page_has_buffers(page))
+		return 0;
 	bh = head = page_buffers(page);
 	blocksize = bh->b_size;
 
