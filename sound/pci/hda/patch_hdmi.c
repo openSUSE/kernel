@@ -2515,7 +2515,6 @@ static void generic_hdmi_free(struct hda_codec *codec)
 	generic_spec_free(codec);
 }
 
-#ifdef CONFIG_PM
 static int generic_hdmi_suspend(struct hda_codec *codec)
 {
 	struct hdmi_spec *spec = codec->spec;
@@ -2542,7 +2541,6 @@ static int generic_hdmi_resume(struct hda_codec *codec)
 	}
 	return 0;
 }
-#endif
 
 static const struct hda_codec_ops generic_hdmi_patch_ops = {
 	.init			= generic_hdmi_init,
@@ -2550,10 +2548,8 @@ static const struct hda_codec_ops generic_hdmi_patch_ops = {
 	.build_pcms		= generic_hdmi_build_pcms,
 	.build_controls		= generic_hdmi_build_controls,
 	.unsol_event		= hdmi_unsol_event,
-#ifdef CONFIG_PM
 	.suspend		= generic_hdmi_suspend,
 	.resume			= generic_hdmi_resume,
-#endif
 };
 
 static const struct hdmi_ops generic_standard_hdmi_ops = {
@@ -2954,7 +2950,6 @@ static void i915_pin_cvt_fixup(struct hda_codec *codec,
 	}
 }
 
-#ifdef CONFIG_PM
 static int i915_adlp_hdmi_suspend(struct hda_codec *codec)
 {
 	struct hdmi_spec *spec = codec->spec;
@@ -3034,7 +3029,6 @@ static int i915_adlp_hdmi_resume(struct hda_codec *codec)
 
 	return res;
 }
-#endif
 
 /* precondition and allocation for Intel codecs */
 static int alloc_intel_hdmi(struct hda_codec *codec)
@@ -3169,10 +3163,8 @@ static int patch_i915_adlp_hdmi(struct hda_codec *codec)
 		if (spec->silent_stream_type) {
 			spec->silent_stream_type = SILENT_STREAM_KAE;
 
-#ifdef CONFIG_PM
 			codec->patch_ops.resume = i915_adlp_hdmi_resume;
 			codec->patch_ops.suspend = i915_adlp_hdmi_suspend;
-#endif
 		}
 	}
 
