@@ -1878,9 +1878,6 @@ static int sof_sdw_card_late_probe(struct snd_soc_card *card)
 	return ret;
 }
 
-/* SoC card */
-static const char sdw_card_long_name[] = "Intel Soundwire SOF";
-
 /* helper to get the link that the codec DAI is used */
 static struct snd_soc_dai_link *mc_find_codec_dai_used(struct snd_soc_card *card,
 						       const char *dai_name)
@@ -1997,8 +1994,6 @@ static int mc_probe(struct platform_device *pdev)
 		if (!card->components)
 			return -ENOMEM;
 	}
-
-	card->long_name = sdw_card_long_name;
 
 	/* Register the card */
 	ret = devm_snd_soc_register_card(card->dev, card);
