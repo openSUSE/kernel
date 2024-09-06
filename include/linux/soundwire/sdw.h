@@ -904,6 +904,7 @@ struct sdw_master_ops {
  * meaningful if multi_link is set. If set to 1, hardware-based
  * synchronization will be used even if a stream only uses a single
  * SoundWire segment.
+ * @stream_refcount: number of streams currently using this bus
  */
 struct sdw_bus {
 	struct device *dev;
@@ -934,6 +935,7 @@ struct sdw_bus {
 	u32 bank_switch_timeout;
 	bool multi_link;
 	int hw_sync_min_links;
+	int stream_refcount;
 	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
