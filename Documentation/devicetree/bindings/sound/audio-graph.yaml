@@ -9,6 +9,9 @@ title: Audio Graph
 maintainers:
   - Kuninori Morimoto <kuninori.morimoto.gx@renesas.com>
 
+allOf:
+  - $ref: /schemas/sound/dai-params.yaml#
+
 properties:
   dais:
     $ref: /schemas/types.yaml#/definitions/phandle-array
@@ -26,12 +29,6 @@ properties:
   widgets:
     description: User specified audio sound widgets.
     $ref: /schemas/types.yaml#/definitions/non-unique-string-array
-  convert-rate:
-    $ref: /schemas/sound/dai-params.yaml#/$defs/dai-sample-rate
-  convert-channels:
-    $ref: /schemas/sound/dai-params.yaml#/$defs/dai-channels
-  convert-sample-format:
-    $ref: /schemas/sound/dai-params.yaml#/$defs/dai-sample-format
 
   pa-gpios:
     maxItems: 1
