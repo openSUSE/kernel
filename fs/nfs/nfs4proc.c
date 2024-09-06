@@ -6760,6 +6760,7 @@ static int _nfs4_proc_getlk(struct nfs4_state *state, int cmd, struct file_lock 
 		goto out;
 	lsp = request->fl_u.nfs4_fl.owner;
 	arg.lock_owner.id = lsp->ls_seqid.owner_id;
+	arg.lock_owner.create_time = ktime_to_ns(lsp->ls_seqid.create_time);
 	arg.lock_owner.s_dev = server->s_dev;
 	status = nfs4_call_sync(server->client, server, &msg, &arg.seq_args, &res.seq_res, 1);
 	switch (status) {
@@ -7085,6 +7086,7 @@ static struct nfs4_lockdata *nfs4_alloc_lockdata(struct file_lock *fl,
 		goto out_free_seqid;
 	p->arg.lock_owner.clientid = server->nfs_client->cl_clientid;
 	p->arg.lock_owner.id = lsp->ls_seqid.owner_id;
+	p->arg.lock_owner.create_time = ktime_to_ns(lsp->ls_seqid.create_time);
 	p->arg.lock_owner.s_dev = server->s_dev;
 	p->res.lock_seqid = p->arg.lock_seqid;
 	p->lsp = lsp;
@@ -7478,7 +7480,9 @@ nfs4_retry_setlk(struct nfs4_state *state, int cmd, struct file_lock *request)
 		.inode = state->inode,
 		.owner = { .clientid = clp->cl_clientid,
 			   .id = lsp->ls_seqid.owner_id,
-			   .s_dev = server->s_dev },
+			  .s_dev = server->s_dev,
+			  .create_time = ktime_to_ns(lsp->ls_seqid.create_time),
+		},
 	};
 	int status;
 
@@ -7694,6 +7698,7 @@ nfs4_release_lockowner(struct nfs_server *server, struct nfs4_lock_state *lsp)
 	data->server = server;
 	data->args.lock_owner.clientid = server->nfs_client->cl_clientid;
 	data->args.lock_owner.id = lsp->ls_seqid.owner_id;
+	data->args.lock_owner.create_time = ktime_to_ns(lsp->ls_seqid.create_time);
 	data->args.lock_owner.s_dev = server->s_dev;
 
 	msg.rpc_argp = &data->args;

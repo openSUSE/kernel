@@ -551,6 +551,7 @@ struct nfs_lowner {
 	__u64			clientid;
 	__u64			id;
 	dev_t			s_dev;
+	__u64			create_time;
 };
 
 struct nfs_lock_args {
