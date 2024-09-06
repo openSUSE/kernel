@@ -38,6 +38,7 @@ static inline int _soc_pcm_ret(struct snd_soc_pcm_runtime *rtd,
 	switch (ret) {
 	case -EPROBE_DEFER:
 	case -ENOTSUPP:
+	case -EINVAL:
 		break;
 	default:
 		dev_err(rtd->dev,
