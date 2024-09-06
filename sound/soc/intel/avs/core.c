@@ -210,13 +210,13 @@ static void avs_hda_probe_work(struct work_struct *work)
 
 	snd_hdac_ext_bus_ppcap_enable(bus, true);
 	snd_hdac_ext_bus_ppcap_int_enable(bus, true);
+	avs_debugfs_init(adev);
 
 	ret = avs_dsp_first_boot_firmware(adev);
 	if (ret < 0)
 		return;
 
 	acpi_nhlt_get_gbl_table();
-	avs_debugfs_init(adev);
 
 	avs_register_all_boards(adev);
 
@@ -542,8 +542,8 @@ static void avs_pci_remove(struct pci_dev *pci)
 
 	avs_unregister_all_boards(adev);
 
-	avs_debugfs_exit(adev);
 	acpi_nhlt_put_gbl_table();
+	avs_debugfs_exit(adev);
 
 	if (avs_platattr_test(adev, CLDMA))
 		hda_cldma_free(&code_loader);
