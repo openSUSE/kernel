@@ -319,11 +319,11 @@ ivpu_mmu_context_init(struct ivpu_device *vdev, struct ivpu_mmu_context *ctx, u3
 		return ret;
 
 	if (!context_id) {
-		start = vdev->hw->ranges.global.start;
-		end = vdev->hw->ranges.shave.end;
+		start = vdev->hw->ranges.global_low.start;
+		end = vdev->hw->ranges.global_high.end;
 	} else {
-		start = vdev->hw->ranges.user.start;
-		end = vdev->hw->ranges.dma.end;
+		start = vdev->hw->ranges.user_low.start;
+		end = vdev->hw->ranges.user_high.end;
 	}
 
 	drm_mm_init(&ctx->mm, start, end - start);
