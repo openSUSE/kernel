@@ -22,7 +22,7 @@
 #define P2SB_DEVFN_DEFAULT	PCI_DEVFN(31, 1)
 
 static const struct x86_cpu_id p2sb_cpu_ids[] = {
-	X86_MATCH_INTEL_FAM6_MODEL(ATOM_GOLDMONT,	PCI_DEVFN(13, 0)),
+	X86_MATCH_VFM(INTEL_ATOM_GOLDMONT,	PCI_DEVFN(13, 0)),
 	{}
 };
 
