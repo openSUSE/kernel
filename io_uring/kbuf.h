@@ -31,13 +31,18 @@ struct io_buffer_list {
 #else
 	__u8 is_buf_ring;
 #endif
+
 	/* ring mapped provided buffers, but mmap'ed by application */
 	__u8 is_mmap;
 
+	/*
+	 * kABI: ->is_ready is unsused, but preserved for kABI purposes.
+	 * ->refs uses that space plus the 3-byte of the rest of the
+	 * word.
+	 */
 #ifdef __GENKSYMS__
 	__u8 is_ready;
 #else
-	/* kABI: Occupying a previous padding patch. */
 	atomic_t refs;
 #endif
 };
