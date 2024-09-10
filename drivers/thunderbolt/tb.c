@@ -2276,11 +2276,11 @@ static int tb_alloc_dp_bandwidth(struct tb_tunnel *tunnel, int *requested_up,
 	 */
 	ret = tb_tunnel_maximum_bandwidth(tunnel, &max_up, &max_down);
 	if (ret)
-		return ret;
+		goto fail;
 
 	ret = usb4_dp_port_granularity(in);
 	if (ret < 0)
-		return ret;
+		goto fail;
 	granularity = ret;
 
 	max_up_rounded = roundup(max_up, granularity);
@@ -2310,7 +2310,8 @@ static int tb_alloc_dp_bandwidth(struct tb_tunnel *tunnel, int *requested_up,
 			      "bandwidth request too high (%d/%d Mb/s > %d/%d Mb/s)\n",
 			      requested_up_corrected, requested_down_corrected,
 			      max_up_rounded, max_down_rounded);
-		return -ENOBUFS;
+		ret = -ENOBUFS;
+		goto fail;
 	}
 
 	if ((*requested_up >= 0 && requested_up_corrected <= allocated_up) ||
@@ -2338,7 +2339,7 @@ static int tb_alloc_dp_bandwidth(struct tb_tunnel *tunnel, int *requested_up,
 	 */
 	ret = tb_release_unused_usb3_bandwidth(tb, in, out);
 	if (ret)
-		return ret;
+		goto fail;
 
 	/*
 	 * Then go over all tunnels that cross the same USB4 ports (they
@@ -2363,7 +2364,7 @@ static int tb_alloc_dp_bandwidth(struct tb_tunnel *tunnel, int *requested_up,
 					*requested_down);
 		if (ret) {
 			tb_configure_sym(tb, in, out, 0, 0, true);
-			return ret;
+			goto fail;
 		}
 
 		ret = tb_tunnel_alloc_bandwidth(tunnel, requested_up,
@@ -2378,6 +2379,18 @@ static int tb_alloc_dp_bandwidth(struct tb_tunnel *tunnel, int *requested_up,
 
 reclaim:
 	tb_reclaim_usb3_bandwidth(tb, in, out);
+fail:
+	if (ret && ret != -ENODEV) {
+		/*
+		 * Write back the same allocated (so no change), this
+		 * makes the DPTX request fail on graphics side.
+		 */
+		tb_tunnel_dbg(tunnel,
+			      "failing the request by rewriting allocated %d/%d Mb/s\n",
+			      allocated_up, allocated_down);
+		tb_tunnel_alloc_bandwidth(tunnel, &allocated_up, &allocated_down);
+	}
+
 	return ret;
 }
 
