@@ -990,8 +990,10 @@ struct annotated_source *symbol__hists(struct symbol *sym, int nr_hists)
 
 	if (notes->src->histograms == NULL) {
 alloc_histograms:
-		annotated_source__alloc_histograms(notes->src, symbol__size(sym),
-						   nr_hists);
+		if (annotated_source__alloc_histograms(notes->src, symbol__size(sym),
+						   nr_hists) == -1) {
+			return NULL;
+		}
 	}
 
 	return notes->src;
