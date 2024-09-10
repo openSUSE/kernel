@@ -8,7 +8,9 @@
 #ifndef __CROS_EC_LPC_MEC_H
 #define __CROS_EC_LPC_MEC_H
 
+#ifndef __GENKSYMS__
 #include <linux/acpi.h>
+#endif
 
 enum cros_ec_lpc_mec_emi_access_mode {
 	/* 8-bit access */
