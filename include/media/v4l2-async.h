@@ -22,35 +22,49 @@ struct v4l2_async_notifier;
  * enum v4l2_async_match_type - type of asynchronous subdevice logic to be used
  *	in order to identify a match
  *
- * @V4L2_ASYNC_MATCH_I2C: Match will check for I2C adapter ID and address
- * @V4L2_ASYNC_MATCH_FWNODE: Match will use firmware node
+ * @V4L2_ASYNC_MATCH_TYPE_I2C: Match will check for I2C adapter ID and address
+ * @V4L2_ASYNC_MATCH_TYPE_FWNODE: Match will use firmware node
  *
  * This enum is used by the asynchronous sub-device logic to define the
  * algorithm that will be used to match an asynchronous device.
  */
 enum v4l2_async_match_type {
-	V4L2_ASYNC_MATCH_I2C,
-	V4L2_ASYNC_MATCH_FWNODE,
+	V4L2_ASYNC_MATCH_TYPE_I2C,
+	V4L2_ASYNC_MATCH_TYPE_FWNODE,
+};
+
+/**
+ * struct v4l2_async_match_desc - async sub-device match information
+ *
+ * @type:	type of match that will be used
+ * @fwnode:	pointer to &struct fwnode_handle to be matched.
+ *		Used if @match_type is %V4L2_ASYNC_MATCH_TYPE_FWNODE.
+ * @i2c:	embedded struct with I2C parameters to be matched.
+ *		Both @match.i2c.adapter_id and @match.i2c.address
+ *		should be matched.
+ *		Used if @match_type is %V4L2_ASYNC_MATCH_TYPE_I2C.
+ * @i2c.adapter_id:
+ *		I2C adapter ID to be matched.
+ *		Used if @match_type is %V4L2_ASYNC_MATCH_TYPE_I2C.
+ * @i2c.address:
+ *		I2C address to be matched.
+ *		Used if @match_type is %V4L2_ASYNC_MATCH_TYPE_I2C.
+ */
+struct v4l2_async_match_desc {
+	enum v4l2_async_match_type type;
+	union {
+		struct fwnode_handle *fwnode;
+		struct {
+			int adapter_id;
+			unsigned short address;
+		} i2c;
+	};
 };
 
 /**
  * struct v4l2_async_subdev - sub-device descriptor, as known to a bridge
  *
- * @match_type:	type of match that will be used
- * @match:	union of per-bus type matching data sets
- * @match.fwnode:
- *		pointer to &struct fwnode_handle to be matched.
- *		Used if @match_type is %V4L2_ASYNC_MATCH_FWNODE.
- * @match.i2c:	embedded struct with I2C parameters to be matched.
- *		Both @match.i2c.adapter_id and @match.i2c.address
- *		should be matched.
- *		Used if @match_type is %V4L2_ASYNC_MATCH_I2C.
- * @match.i2c.adapter_id:
- *		I2C adapter ID to be matched.
- *		Used if @match_type is %V4L2_ASYNC_MATCH_I2C.
- * @match.i2c.address:
- *		I2C address to be matched.
- *		Used if @match_type is %V4L2_ASYNC_MATCH_I2C.
+ * @match:	struct of match type and per-bus type matching data sets
  * @asd_list:	used to add struct v4l2_async_subdev objects to the
  *		master notifier @asd_list
  * @list:	used to link struct v4l2_async_subdev objects, waiting to be
@@ -61,16 +75,7 @@ enum v4l2_async_match_type {
  * v4l2_async_subdev as its first member.
  */
 struct v4l2_async_subdev {
-	enum v4l2_async_match_type match_type;
-	union {
-		struct fwnode_handle *fwnode;
-		struct {
-			int adapter_id;
-			unsigned short address;
-		} i2c;
-	} match;
-
-	/* v4l2-async core private: not to be used by drivers */
+	struct v4l2_async_match_desc match;
 	struct list_head list;
 	struct list_head asd_list;
 };
@@ -131,32 +136,10 @@ void v4l2_async_debug_init(struct dentry *debugfs_dir);
  *
  * This function initializes the notifier @asd_list. It must be called
  * before adding a subdevice to a notifier, using one of:
- * v4l2_async_nf_add_fwnode_remote(),
- * v4l2_async_nf_add_fwnode(),
- * v4l2_async_nf_add_i2c(),
- * __v4l2_async_nf_add_subdev() or
- * v4l2_async_nf_parse_fwnode_endpoints().
+ * v4l2_async_nf_add_fwnode_remote(), v4l2_async_nf_add_fwnode() or
+ * v4l2_async_nf_add_i2c().
  */
 void v4l2_async_nf_init(struct v4l2_async_notifier *notifier);
-
-/**
- * __v4l2_async_nf_add_subdev - Add an async subdev to the
- *				notifier's master asd list.
- *
- * @notifier: pointer to &struct v4l2_async_notifier
- * @asd: pointer to &struct v4l2_async_subdev
- *
- * \warning: Drivers should avoid using this function and instead use one of:
- * v4l2_async_nf_add_fwnode(),
- * v4l2_async_nf_add_fwnode_remote() or
- * v4l2_async_nf_add_i2c().
- *
- * Call this function before registering a notifier to link the provided @asd to
- * the notifiers master @asd_list. The @asd must be allocated with k*alloc() as
- * it will be freed by the framework when the notifier is destroyed.
- */
-int __v4l2_async_nf_add_subdev(struct v4l2_async_notifier *notifier,
-			       struct v4l2_async_subdev *asd);
 
 struct v4l2_async_subdev *
 __v4l2_async_nf_add_fwnode(struct v4l2_async_notifier *notifier,
@@ -263,12 +246,8 @@ void v4l2_async_nf_unregister(struct v4l2_async_notifier *notifier);
  * Release memory resources related to a notifier, including the async
  * sub-devices allocated for the purposes of the notifier but not the notifier
  * itself. The user is responsible for calling this function to clean up the
- * notifier after calling
- * v4l2_async_nf_add_fwnode_remote(),
- * v4l2_async_nf_add_fwnode(),
- * v4l2_async_nf_add_i2c(),
- * __v4l2_async_nf_add_subdev() or
- * v4l2_async_nf_parse_fwnode_endpoints().
+ * notifier after calling v4l2_async_nf_add_fwnode_remote(),
+ * v4l2_async_nf_add_fwnode() or v4l2_async_nf_add_i2c().
  *
  * There is no harm from calling v4l2_async_nf_cleanup() in other
  * cases as long as its memory has been zeroed after it has been
