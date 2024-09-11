@@ -470,6 +470,7 @@ struct bt_skb_cb {
 		struct l2cap_ctrl l2cap;
 		struct hci_ctrl hci;
 		struct mgmt_ctrl mgmt;
+		struct scm_creds creds;
 	};
 };
 #define bt_cb(skb) ((struct bt_skb_cb *)((skb)->cb))
