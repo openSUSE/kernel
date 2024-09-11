@@ -602,6 +602,7 @@ static int br_mdb_queue_one(struct list_head *mdb_list,
 
 	br_switchdev_mdb_populate(&mdb, mp);
 
+#ifdef CONFIG_NET_SWITCHDEV
 	if (action == SWITCHDEV_PORT_OBJ_ADD &&
 	    switchdev_port_obj_act_is_deferred(dev, action, &mdb.obj)) {
 		/* This event is already in the deferred queue of
@@ -614,6 +615,7 @@ static int br_mdb_queue_one(struct list_head *mdb_list,
 		 */
 		return 0;
 	}
+#endif
 
 	pmdb = kmemdup(&mdb, sizeof(mdb), GFP_ATOMIC);
 	if (!pmdb)
