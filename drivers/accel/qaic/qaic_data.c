@@ -1287,7 +1287,6 @@ static void update_profiling_data(struct drm_file *file_priv,
 static int __qaic_execute_bo_ioctl(struct drm_device *dev, void *data, struct drm_file *file_priv,
 				   bool is_partial)
 {
-	struct qaic_partial_execute_entry *pexec;
 	struct qaic_execute *args = data;
 	struct qaic_execute_entry *exec;
 	struct dma_bridge_chan *dbc;
@@ -1307,7 +1306,7 @@ static int __qaic_execute_bo_ioctl(struct drm_device *dev, void *data, struct dr
 
 	received_ts = ktime_get_ns();
 
-	size = is_partial ? sizeof(*pexec) : sizeof(*exec);
+	size = is_partial ? sizeof(struct qaic_partial_execute_entry) : sizeof(*exec);
 	n = (unsigned long)size * args->hdr.count;
 	if (args->hdr.count == 0 || n / args->hdr.count != size)
 		return -EINVAL;
@@ -1315,7 +1314,6 @@ static int __qaic_execute_bo_ioctl(struct drm_device *dev, void *data, struct dr
 	user_data = u64_to_user_ptr(args->data);
 
 	exec = kcalloc(args->hdr.count, size, GFP_KERNEL);
-	pexec = (struct qaic_partial_execute_entry *)exec;
 	if (!exec)
 		return -ENOMEM;
 

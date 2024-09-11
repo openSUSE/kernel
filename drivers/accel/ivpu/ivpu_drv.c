@@ -14,6 +14,7 @@
 #include <drm/drm_prime.h>
 
 #include "vpu_boot_api.h"
+#include "ivpu_debugfs.h"
 #include "ivpu_drv.h"
 #include "ivpu_fw.h"
 #include "ivpu_gem.h"
@@ -49,6 +50,10 @@ MODULE_PARM_DESC(pll_min_ratio, "Minimum PLL ratio used to set VPU frequency");
 u8 ivpu_pll_max_ratio = U8_MAX;
 module_param_named(pll_max_ratio, ivpu_pll_max_ratio, byte, 0644);
 MODULE_PARM_DESC(pll_max_ratio, "Maximum PLL ratio used to set VPU frequency");
+
+bool ivpu_disable_mmu_cont_pages;
+module_param_named(disable_mmu_cont_pages, ivpu_disable_mmu_cont_pages, bool, 0644);
+MODULE_PARM_DESC(disable_mmu_cont_pages, "Disable MMU contiguous pages optimization");
 
 struct ivpu_file_priv *ivpu_file_priv_get(struct ivpu_file_priv *file_priv)
 {
@@ -362,14 +367,19 @@ int ivpu_boot(struct ivpu_device *vdev)
 	return 0;
 }
 
-int ivpu_shutdown(struct ivpu_device *vdev)
+void ivpu_prepare_for_reset(struct ivpu_device *vdev)
 {
-	int ret;
-
 	ivpu_hw_irq_disable(vdev);
 	disable_irq(vdev->irq);
 	ivpu_ipc_disable(vdev);
 	ivpu_mmu_disable(vdev);
+}
+
+int ivpu_shutdown(struct ivpu_device *vdev)
+{
+	int ret;
+
+	ivpu_prepare_for_reset(vdev);
 
 	ret = ivpu_hw_power_down(vdev);
 	if (ret)
@@ -389,6 +399,10 @@ static const struct drm_driver driver = {
 	.open = ivpu_open,
 	.postclose = ivpu_postclose,
 	.gem_prime_import = ivpu_gem_prime_import,
+
+#if defined(CONFIG_DEBUG_FS)
+	.debugfs_init = ivpu_debugfs_init,
+#endif
 
 	.ioctls = ivpu_drm_ioctls,
 	.num_ioctls = ARRAY_SIZE(ivpu_drm_ioctls),
@@ -443,7 +457,7 @@ static int ivpu_pci_init(struct ivpu_device *vdev)
 		return PTR_ERR(vdev->regb);
 	}
 
-	ret = dma_set_mask_and_coherent(vdev->drm.dev, DMA_BIT_MASK(38));
+	ret = dma_set_mask_and_coherent(vdev->drm.dev, DMA_BIT_MASK(vdev->hw->dma_bits));
 	if (ret) {
 		ivpu_err(vdev, "Failed to set DMA mask: %d\n", ret);
 		return ret;
@@ -453,8 +467,8 @@ static int ivpu_pci_init(struct ivpu_device *vdev)
 	/* Clear any pending errors */
 	pcie_capability_clear_word(pdev, PCI_EXP_DEVSTA, 0x3f);
 
-	/* VPU MTL does not require PCI spec 10m D3hot delay */
-	if (ivpu_is_mtl(vdev))
+	/* VPU 37XX does not require 10m D3hot delay */
+	if (ivpu_hw_gen(vdev) == IVPU_HW_37XX)
 		pdev->d3hot_delay = 0;
 
 	ret = pcim_enable_device(pdev);
@@ -492,7 +506,14 @@ static int ivpu_dev_init(struct ivpu_device *vdev)
 	if (!vdev->pm)
 		return -ENOMEM;
 
-	vdev->hw->ops = &ivpu_hw_mtl_ops;
+	if (ivpu_hw_gen(vdev) >= IVPU_HW_40XX) {
+		vdev->hw->ops = &ivpu_hw_40xx_ops;
+		vdev->hw->dma_bits = 48;
+	} else {
+		vdev->hw->ops = &ivpu_hw_37xx_ops;
+		vdev->hw->dma_bits = 38;
+	}
+
 	vdev->platform = IVPU_PLATFORM_INVALID;
 	vdev->context_xa_limit.min = IVPU_USER_CONTEXT_MIN_SSID;
 	vdev->context_xa_limit.max = IVPU_USER_CONTEXT_MAX_SSID;
@@ -618,6 +639,8 @@ static void ivpu_dev_fini(struct ivpu_device *vdev)
 
 static struct pci_device_id ivpu_pci_ids[] = {
 	{ PCI_DEVICE(PCI_VENDOR_ID_INTEL, PCI_DEVICE_ID_MTL) },
+	{ PCI_DEVICE(PCI_VENDOR_ID_INTEL, PCI_DEVICE_ID_ARL) },
+	{ PCI_DEVICE(PCI_VENDOR_ID_INTEL, PCI_DEVICE_ID_LNL) },
 	{ }
 };
 MODULE_DEVICE_TABLE(pci, ivpu_pci_ids);

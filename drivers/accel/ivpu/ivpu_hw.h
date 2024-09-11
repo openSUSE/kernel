@@ -13,6 +13,7 @@ struct ivpu_hw_ops {
 	int (*power_up)(struct ivpu_device *vdev);
 	int (*boot_fw)(struct ivpu_device *vdev);
 	int (*power_down)(struct ivpu_device *vdev);
+	int (*reset)(struct ivpu_device *vdev);
 	bool (*is_idle)(struct ivpu_device *vdev);
 	void (*wdt_disable)(struct ivpu_device *vdev);
 	void (*diagnose_failure)(struct ivpu_device *vdev);
@@ -56,9 +57,11 @@ struct ivpu_hw_info {
 	u32 tile_fuse;
 	u32 sku;
 	u16 config;
+	int dma_bits;
 };
 
-extern const struct ivpu_hw_ops ivpu_hw_mtl_ops;
+extern const struct ivpu_hw_ops ivpu_hw_37xx_ops;
+extern const struct ivpu_hw_ops ivpu_hw_40xx_ops;
 
 static inline int ivpu_hw_info_init(struct ivpu_device *vdev)
 {
@@ -87,6 +90,13 @@ static inline int ivpu_hw_power_down(struct ivpu_device *vdev)
 	ivpu_dbg(vdev, PM, "HW power down\n");
 
 	return vdev->hw->ops->power_down(vdev);
+};
+
+static inline int ivpu_hw_reset(struct ivpu_device *vdev)
+{
+	ivpu_dbg(vdev, PM, "HW reset\n");
+
+	return vdev->hw->ops->reset(vdev);
 };
 
 static inline void ivpu_hw_wdt_disable(struct ivpu_device *vdev)
