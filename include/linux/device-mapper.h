@@ -306,6 +306,12 @@ void dm_unprepare_ioctl(struct mapped_device *md, int srcu_idx);
 #define dm_target_supports_mixed_zoned_model(type) (false)
 #endif
 
+/*
+ * A target that defines the sg_io method (in practice, multipath only)
+ */
+#define DM_TARGET_SG_IO_SUPPORT		0x00001000
+#define dm_target_supports_sg_io(type) ((type)->features & DM_TARGET_SG_IO_SUPPORT)
+
 struct dm_target {
 	struct dm_table *table;
 	struct target_type *type;

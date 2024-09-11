@@ -477,13 +477,8 @@ static int dm_blk_ioctl(struct block_device *bdev, fmode_t mode,
 	if (cmd == SG_IO && dm_get_md_type(md) == DM_TYPE_REQUEST_BASED) {
 		struct target_type *tgt_type = dm_get_immutable_target_type(md);
 
-		if (tgt_type) {
-			dm_sg_io_ioctl_fn sg_io_ioctl;
-
-			sg_io_ioctl = tgt_type->sg_io;
-			if (sg_io_ioctl)
-				return sg_io_ioctl(bdev, mode, (void __user *)arg);
-		}
+		if (tgt_type && dm_target_supports_sg_io(tgt_type))
+			return tgt_type->sg_io(bdev, mode, (void __user *)arg);
 	}
 
 	r = dm_prepare_ioctl(md, &srcu_idx, &bdev);
