@@ -2424,7 +2424,7 @@ static struct target_type multipath_target = {
 	.name = "multipath",
 	.version = {1, 14, 0},
 	.features = DM_TARGET_SINGLETON | DM_TARGET_IMMUTABLE |
-		    DM_TARGET_PASSES_INTEGRITY,
+		    DM_TARGET_PASSES_INTEGRITY | DM_TARGET_SG_IO_SUPPORT,
 	.module = THIS_MODULE,
 	.ctr = multipath_ctr,
 	.dtr = multipath_dtr,
