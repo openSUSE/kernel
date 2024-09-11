@@ -170,9 +170,11 @@ static void hci_conn_cleanup(struct hci_conn *conn)
 			hdev->notify(hdev, HCI_NOTIFY_CONN_DEL);
 	}
 
+	debugfs_remove_recursive(conn->debugfs);
+
 	hci_conn_del_sysfs(conn);
 
-	debugfs_remove_recursive(conn->debugfs);
+	hci_dev_put(hdev);
 }
 
 int hci_disconnect(struct hci_conn *conn, __u8 reason)
