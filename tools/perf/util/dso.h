@@ -409,4 +409,8 @@ int dso__strerror_load(struct dso *dso, char *buf, size_t buflen);
 
 void reset_fd_limit(void);
 
+/* Check if dso name is of format "/tmp/perf-%d.map" */
+bool perf_pid_map_tid(const char *dso_name, int *tid);
+bool is_perf_pid_map_name(const char *dso_name);
+
 #endif /* __PERF_DSO */
