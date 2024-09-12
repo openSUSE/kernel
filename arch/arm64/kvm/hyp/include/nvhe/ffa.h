@@ -11,6 +11,6 @@
 #define FFA_MIN_FUNC_NUM 0x60
 #define FFA_MAX_FUNC_NUM 0x7F
 
-bool kvm_host_ffa_handler(struct kvm_cpu_context *host_ctxt);
+bool kvm_host_ffa_handler(struct kvm_cpu_context *host_ctxt, u32 func_id);
 
 #endif /* __KVM_HYP_FFA_H */

@@ -89,9 +89,8 @@ static bool ffa_call_supported(u64 func_id)
 	return true;
 }
 
-bool kvm_host_ffa_handler(struct kvm_cpu_context *host_ctxt)
+bool kvm_host_ffa_handler(struct kvm_cpu_context *host_ctxt, u32 func_id)
 {
-	DECLARE_REG(u64, func_id, host_ctxt, 0);
 	struct arm_smccc_res res;
 
 	/*
