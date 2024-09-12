@@ -417,7 +417,9 @@ static enum alarmtimer_restart alarm_handle_timer(struct alarm *alarm,
 
 	/* Re-add periodic timers */
 	if (alarm->period.tv64) {
-		ptr->it_overrun += alarm_forward(alarm, now, alarm->period);
+		u64 overrun = alarm_forward(alarm, now, alarm->period);
+		ptr->it_overrun += overrun;
+		ptr->__it_overrun += overrun;
 		result = ALARMTIMER_RESTART;
 	}
 	spin_unlock_irqrestore(&ptr->it_lock, flags);
