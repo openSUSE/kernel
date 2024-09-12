@@ -31,7 +31,11 @@ enum alarmtimer_restart {
 struct alarm {
 	struct timerqueue_node	node;
 	ktime_t			period;
+#ifdef __GENKSYMS__
+	void			(*function)(struct alarm *);
+#else
 	enum alarmtimer_restart	(*function)(struct alarm *, ktime_t now);
+#endif
 	enum alarmtimer_type	type;
 	bool			enabled;
 	void			*data;
