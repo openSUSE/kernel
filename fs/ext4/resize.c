@@ -83,6 +83,7 @@ int ext4_resize_begin(struct super_block *sb)
 			     "so online resizing is not allowed");
 		return -EPERM;
 	}
+
 	if (ext4_has_feature_sparse_super2(sb)) {
 		ext4_msg(sb, KERN_ERR, "Online resizing not supported with sparse_super2");
 		return -EOPNOTSUPP;
