@@ -1630,9 +1630,9 @@ static inline int pfn_valid(unsigned long pfn)
 	if (pfn_to_section_nr(pfn) >= NR_MEM_SECTIONS)
 		return 0;
 	ms = __nr_to_section(pfn_to_section_nr(pfn));
-	rcu_read_lock_sched();
+	rcu_read_lock();
 	if (!valid_section(ms)) {
-		rcu_read_unlock_sched();
+		rcu_read_unlock();
 		return 0;
 	}
 	/*
@@ -1640,7 +1640,7 @@ static inline int pfn_valid(unsigned long pfn)
 	 * the entire section-sized span.
 	 */
 	ret = early_section(ms) || pfn_section_valid(ms, pfn);
-	rcu_read_unlock_sched();
+	rcu_read_unlock();
 
 	return ret;
 }
