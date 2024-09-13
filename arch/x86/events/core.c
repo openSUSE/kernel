@@ -1521,19 +1521,22 @@ static void x86_pmu_start(struct perf_event *event, int flags)
 void perf_event_print_debug(void)
 {
 	u64 ctrl, status, overflow, pmc_ctrl, pmc_count, prev_left, fixed;
+	int num_counters, num_counters_fixed;
+	struct event_constraint *pebs_constraints;
+	struct cpu_hw_events *cpuc;
 	u64 pebs, debugctl;
-	int cpu = smp_processor_id();
-	struct cpu_hw_events *cpuc = &per_cpu(cpu_hw_events, cpu);
-	int num_counters = hybrid(cpuc->pmu, num_counters);
-	int num_counters_fixed = hybrid(cpuc->pmu, num_counters_fixed);
-	struct event_constraint *pebs_constraints = hybrid(cpuc->pmu, pebs_constraints);
-	unsigned long flags;
-	int idx;
+	int cpu, idx;
+
+	guard(irqsave)();
+
+	cpu = smp_processor_id();
+	cpuc = &per_cpu(cpu_hw_events, cpu);
+	num_counters = hybrid(cpuc->pmu, num_counters);
+	num_counters_fixed = hybrid(cpuc->pmu, num_counters_fixed);
+	pebs_constraints = hybrid(cpuc->pmu, pebs_constraints);
 
 	if (!num_counters)
 		return;
-
-	local_irq_save(flags);
 
 	if (x86_pmu.version >= 2) {
 		rdmsrl(MSR_CORE_PERF_GLOBAL_CTRL, ctrl);
@@ -1578,7 +1581,6 @@ void perf_event_print_debug(void)
 		pr_info("CPU#%d: fixed-PMC%d count: %016llx\n",
 			cpu, idx, pmc_count);
 	}
-	local_irq_restore(flags);
 }
 
 void x86_pmu_stop(struct perf_event *event, int flags)
