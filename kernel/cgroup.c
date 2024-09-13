@@ -3541,9 +3541,12 @@ static int cgroup_write_event_control(struct cgroup *cgrp, struct cftype *cft,
 	int ret;
 
 	efd = simple_strtoul(buffer, &endp, 10);
-	if (*endp != ' ')
+	if (*endp == '\0')
+		buf = endp;
+	else if (*endp == ' ')
+		buf = endp + 1;
+	else
 		return -EINVAL;
-	buffer = endp + 1;
 
 	cfd = simple_strtoul(buffer, &endp, 10);
 	if ((*endp != ' ') && (*endp != '\0'))
