@@ -510,10 +510,9 @@ static void __init sparse_init_nid(int nid, unsigned long pnum_begin,
 	struct mem_section_usage *usage;
 	unsigned long pnum;
 	struct page *map;
-	int size_rcu = sizeof(struct rcu_head);
 
 	usage = sparse_early_usemaps_alloc_pgdat_section(NODE_DATA(nid),
-			(mem_section_usage_size() + size_rcu) * map_count);
+			mem_section_usage_size() * map_count);
 	if (!usage) {
 		pr_err("%s: node[%d] usemap allocation failed", __func__, nid);
 		goto failed;
@@ -537,7 +536,7 @@ static void __init sparse_init_nid(int nid, unsigned long pnum_begin,
 		check_usemap_section_nr(nid, usage);
 		sparse_init_one_section(__nr_to_section(pnum), pnum, map, usage,
 				SECTION_IS_EARLY);
-		usage = (void *) usage + (mem_section_usage_size() + size_rcu);
+		usage = (void *) usage + mem_section_usage_size();
 	}
 	sparse_buffer_fini();
 	return;
@@ -762,16 +761,6 @@ static int fill_subsection_map(unsigned long pfn, unsigned long nr_pages)
 }
 #endif /* CONFIG_SPARSEMEM_VMEMMAP */
 
-static void free_usage(struct rcu_head *head)
-{
-	struct mem_section_usage *usage;
-
-	usage = (struct mem_section_usage *)((unsigned long)head
-		- offsetof(struct mem_section_usage, pageblock_flags));
-
-	kfree(usage);
-	WRITE_ONCE(usage, NULL);
-}
 /*
  * To deactivate a memory region, there are 3 cases to handle across
  * two configurations (SPARSEMEM_VMEMMAP={y,n}):
@@ -804,13 +793,6 @@ static void section_deactivate(unsigned long pfn, unsigned long nr_pages,
 		unsigned long section_nr = pfn_to_section_nr(pfn);
 
 		/*
-		 * Mark the section invalid so that valid_section()
-		 * return false. This prevents code from dereferencing
-		 * ms->usage array.
-		 */
-		ms->section_mem_map &= ~SECTION_HAS_MEM_MAP;
-
-		/*
 		 * When removing an early section, the usage map is kept (as the
 		 * usage maps of other sections fall into the same page). It
 		 * will be re-used when re-adding the section - which is then no
@@ -818,11 +800,16 @@ static void section_deactivate(unsigned long pfn, unsigned long nr_pages,
 		 * was allocated during boot.
 		 */
 		if (!PageReserved(virt_to_page(ms->usage))) {
-			struct rcu_head *head = (struct rcu_head *)ms->usage->pageblock_flags;
-
-			call_rcu(head, free_usage);
+			kfree(ms->usage);
+			ms->usage = NULL;
 		}
 		memmap = sparse_decode_mem_map(ms->section_mem_map, section_nr);
+		/*
+		 * Mark the section invalid so that valid_section()
+		 * return false. This prevents code from dereferencing
+		 * ms->usage array.
+		 */
+		ms->section_mem_map &= ~SECTION_HAS_MEM_MAP;
 	}
 
 	/*
@@ -848,8 +835,7 @@ static struct page * __meminit section_activate(int nid, unsigned long pfn,
 	int rc;
 
 	if (!ms->usage) {
-		usage = kzalloc(mem_section_usage_size() +
-			sizeof(struct rcu_head), GFP_KERNEL);
+		usage = kzalloc(mem_section_usage_size(), GFP_KERNEL);
 		if (!usage)
 			return ERR_PTR(-ENOMEM);
 		ms->usage = usage;
