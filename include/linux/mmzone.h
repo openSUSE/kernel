@@ -1831,8 +1831,7 @@ extern struct mem_section mem_section[NR_SECTION_ROOTS][SECTIONS_PER_ROOT];
 
 static inline unsigned long *section_to_usemap(struct mem_section *ms)
 {
-	return (unsigned long *)((unsigned long)ms->usage->pageblock_flags +
-	       sizeof(struct rcu_head));
+	return ms->usage->pageblock_flags;
 }
 
 static inline struct mem_section *__nr_to_section(unsigned long nr)
@@ -1965,9 +1964,8 @@ static inline int subsection_map_index(unsigned long pfn)
 static inline int pfn_section_valid(struct mem_section *ms, unsigned long pfn)
 {
 	int idx = subsection_map_index(pfn);
-	struct mem_section_usage *usage = READ_ONCE(ms->usage);
 
-	return usage ? test_bit(idx, usage->subsection_map) : 0;
+	return test_bit(idx, ms->usage->subsection_map);
 }
 #else
 static inline int pfn_section_valid(struct mem_section *ms, unsigned long pfn)
@@ -1991,7 +1989,6 @@ static inline int pfn_section_valid(struct mem_section *ms, unsigned long pfn)
 static inline int pfn_valid(unsigned long pfn)
 {
 	struct mem_section *ms;
-	int ret;
 
 	/*
 	 * Ensure the upper PAGE_SHIFT bits are clear in the
@@ -2005,19 +2002,13 @@ static inline int pfn_valid(unsigned long pfn)
 	if (pfn_to_section_nr(pfn) >= NR_MEM_SECTIONS)
 		return 0;
 	ms = __pfn_to_section(pfn);
-	rcu_read_lock_sched();
-	if (!valid_section(ms)) {
-		rcu_read_unlock_sched();
+	if (!valid_section(ms))
 		return 0;
-	}
 	/*
 	 * Traditionally early sections always returned pfn_valid() for
 	 * the entire section-sized span.
 	 */
-	ret = early_section(ms) || pfn_section_valid(ms, pfn);
-	rcu_read_unlock_sched();
-
-	return ret;
+	return early_section(ms) || pfn_section_valid(ms, pfn);
 }
 #endif
 
