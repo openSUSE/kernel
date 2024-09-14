@@ -112,6 +112,22 @@ void pmic_glink_client_register(struct pmic_glink_client *client)
 }
 EXPORT_SYMBOL_GPL(pmic_glink_client_register);
 
+/* FIXME: provided only for kABI compatibility */
+struct pmic_glink_client *devm_pmic_glink_register_client(struct device *dev,
+							  unsigned int id,
+							  void (*cb)(const void *, size_t, void *),
+							  void (*pdr)(void *, int),
+							  void *priv)
+{
+	struct pmic_glink_client *c;
+
+	c = devm_pmic_glink_client_alloc(dev, id, cb, pdr, priv);
+	if (!IS_ERR(c))
+		pmic_glink_client_register(c);
+	return c;
+}
+EXPORT_SYMBOL_GPL(devm_pmic_glink_register_client);
+
 int pmic_glink_send(struct pmic_glink_client *client, void *data, size_t len)
 {
 	struct pmic_glink *pg = client->pg;
