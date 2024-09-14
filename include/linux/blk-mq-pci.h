@@ -7,5 +7,7 @@ struct pci_dev;
 
 void blk_mq_pci_map_queues(struct blk_mq_queue_map *qmap, struct pci_dev *pdev,
 			   int offset);
+const struct cpumask *blk_mq_pci_get_queue_affinity(void *dev_data, int offset,
+						    int queue);
 
 #endif /* _LINUX_BLK_MQ_PCI_H */

@@ -8056,7 +8056,8 @@ static void qla2xxx_map_queues(struct Scsi_Host *shost)
 	if (USER_CTRL_IRQ(vha->hw) || !vha->hw->mqiobase)
 		blk_mq_map_queues(qmap);
 	else
-		blk_mq_pci_map_queues(qmap, vha->hw->pdev, vha->irq_offset);
+		blk_mq_dev_map_queues(qmap, vha->hw->pdev, vha->irq_offset,
+				      blk_mq_pci_get_queue_affinity);
 }
 
 struct scsi_host_template qla2xxx_driver_template = {

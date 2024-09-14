@@ -68,6 +68,8 @@ static int ip6_finish_output2(struct net *net, struct sock *sk, struct sk_buff *
 
 	/* Be paranoid, rather than too clever. */
 	if (unlikely(delta > 0) && dev->header_ops) {
+		/* Make sure idev stays alive */
+		rcu_read_lock();
 		/* pskb_expand_head() might crash, if skb is shared */
 		if (skb_shared(skb)) {
 			struct sk_buff *nskb = skb_clone(skb, GFP_ATOMIC);
@@ -88,8 +90,10 @@ static int ip6_finish_output2(struct net *net, struct sock *sk, struct sk_buff *
 		}
 		if (!skb) {
 			IP6_INC_STATS(net, ip6_dst_idev(dst), IPSTATS_MIB_OUTDISCARDS);
+			rcu_read_unlock();
 			return -ENOMEM;
 		}
+		rcu_read_unlock();
 	}
 
 	if (ipv6_addr_is_multicast(&ipv6_hdr(skb)->daddr)) {
@@ -1937,6 +1941,7 @@ int ip6_send_skb(struct sk_buff *skb)
 	struct rt6_info *rt = (struct rt6_info *)skb_dst(skb);
 	int err;
 
+	rcu_read_lock();
 	err = ip6_local_out(net, skb->sk, skb);
 	if (err) {
 		if (err > 0)
@@ -1946,6 +1951,7 @@ int ip6_send_skb(struct sk_buff *skb)
 				      IPSTATS_MIB_OUTDISCARDS);
 	}
 
+	rcu_read_unlock();
 	return err;
 }
 
