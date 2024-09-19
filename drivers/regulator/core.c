@@ -2694,10 +2694,8 @@ static void _regulator_delay_helper(unsigned int delay)
 }
 
 /**
- * _regulator_check_status_enabled
- *
- * A helper function to check if the regulator status can be interpreted
- * as 'regulator is enabled'.
+ * _regulator_check_status_enabled - check if regulator status can be
+ *				     interpreted as "regulator is enabled"
  * @rdev: the regulator device to check
  *
  * Return:
@@ -3417,7 +3415,9 @@ EXPORT_SYMBOL_GPL(regulator_get_linear_step);
  * @min_uV: Minimum required voltage in uV.
  * @max_uV: Maximum required voltage in uV.
  *
- * Returns a boolean.
+ * Return: 1 if the voltage range is supported, 0 if not, or a negative error
+ *	   number if @regulator's voltage can't be changed and voltage readback
+ *	   failed.
  */
 int regulator_is_supported_voltage(struct regulator *regulator,
 				   int min_uV, int max_uV)
