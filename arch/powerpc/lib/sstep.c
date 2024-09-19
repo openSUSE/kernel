@@ -1806,6 +1806,7 @@ int analyse_instr(struct instruction_op *op, const struct pt_regs *regs,
 				op->xerval |= XER_CA;
 			else
 				op->xerval &= ~XER_CA;
+			set_ca32(op, op->xerval & XER_CA);
 			goto logical_done;
 
 		case 824:	/* srawi */
@@ -1818,6 +1819,7 @@ int analyse_instr(struct instruction_op *op, const struct pt_regs *regs,
 				op->xerval |= XER_CA;
 			else
 				op->xerval &= ~XER_CA;
+			set_ca32(op, op->xerval & XER_CA);
 			goto logical_done;
 
 #ifdef __powerpc64__
@@ -1847,6 +1849,7 @@ int analyse_instr(struct instruction_op *op, const struct pt_regs *regs,
 				op->xerval |= XER_CA;
 			else
 				op->xerval &= ~XER_CA;
+			set_ca32(op, op->xerval & XER_CA);
 			goto logical_done;
 
 		case 826:	/* sradi with sh_5 = 0 */
@@ -1860,6 +1863,7 @@ int analyse_instr(struct instruction_op *op, const struct pt_regs *regs,
 				op->xerval |= XER_CA;
 			else
 				op->xerval &= ~XER_CA;
+			set_ca32(op, op->xerval & XER_CA);
 			goto logical_done;
 #endif /* __powerpc64__ */
 
