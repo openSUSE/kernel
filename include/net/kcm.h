@@ -70,7 +70,6 @@ struct kcm_sock {
 	struct work_struct tx_work;
 	struct list_head wait_psock_list;
 	struct sk_buff *seq_skb;
-	struct mutex tx_mutex;
 	u32 tx_stopped : 1;
 
 	/* Don't use bit fields here, these are set under different locks */
@@ -82,6 +81,9 @@ struct kcm_sock {
 	struct list_head wait_rx_list; /* KCMs waiting for receiving */
 	bool rx_wait;
 	u32 rx_disabled : 1;
+#ifndef __GENKSYMS__
+	struct mutex tx_mutex;
+#endif
 };
 
 struct bpf_prog;
