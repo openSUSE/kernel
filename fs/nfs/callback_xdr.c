@@ -499,7 +499,7 @@ static __be32 decode_lockowner(struct xdr_stream *xdr, struct cb_notify_lock_arg
 	if (len == 28) {
 		p += 2;	/* skip "lock id:" */
 		args->cbnl_owner.s_dev = be32_to_cpu(*p++);
-		xdr_decode_hyper(p, &args->cbnl_owner.id);
+		p = xdr_decode_hyper(p, &args->cbnl_owner.id);
 		xdr_decode_hyper(p, &args->cbnl_owner.create_time);
 		args->cbnl_valid = true;
 	} else {
