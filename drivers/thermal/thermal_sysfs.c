@@ -88,18 +88,7 @@ trip_point_type_show(struct device *dev, struct device_attribute *attr,
 	if (sscanf(attr->attr.name, "trip_point_%d_type", &trip_id) != 1)
 		return -EINVAL;
 
-	switch (tz->trips[trip_id].trip.type) {
-	case THERMAL_TRIP_CRITICAL:
-		return sprintf(buf, "critical\n");
-	case THERMAL_TRIP_HOT:
-		return sprintf(buf, "hot\n");
-	case THERMAL_TRIP_PASSIVE:
-		return sprintf(buf, "passive\n");
-	case THERMAL_TRIP_ACTIVE:
-		return sprintf(buf, "active\n");
-	default:
-		return sprintf(buf, "unknown\n");
-	}
+	return sprintf(buf, "%s\n", thermal_trip_type_name(tz->trips[trip_id].trip.type));
 }
 
 static ssize_t
@@ -124,7 +113,7 @@ trip_point_temp_store(struct device *dev, struct device_attribute *attr,
 
 	if (temp != trip->temperature) {
 		if (tz->ops.set_trip_temp) {
-			ret = tz->ops.set_trip_temp(tz, trip_id, temp);
+			ret = tz->ops.set_trip_temp(tz, trip, temp);
 			if (ret)
 				goto unlock;
 		}
