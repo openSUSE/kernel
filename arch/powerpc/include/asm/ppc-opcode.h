@@ -419,6 +419,11 @@
 #define __PPC_EH(eh)	0
 #endif
 
+#define PPC_RAW_DIVDE(t, a, b)		(0x7c000352 | ___PPC_RT(t) | ___PPC_RA(a) | ___PPC_RB(b))
+#define PPC_RAW_DIVDE_DOT(t, a, b)	(0x7c000352 | ___PPC_RT(t) | ___PPC_RA(a) | ___PPC_RB(b) | 0x1)
+#define PPC_RAW_DIVDEU(t, a, b)		(0x7c000312 | ___PPC_RT(t) | ___PPC_RA(a) | ___PPC_RB(b))
+#define PPC_RAW_DIVDEU_DOT(t, a, b)	(0x7c000312 | ___PPC_RT(t) | ___PPC_RA(a) | ___PPC_RB(b) | 0x1)
+
 /* Deal with instructions that older assemblers aren't aware of */
 #define	PPC_BCCTR_FLUSH		stringify_in_c(.long PPC_INST_BCCTR_FLUSH)
 #define	PPC_CP_ABORT		stringify_in_c(.long PPC_INST_CP_ABORT)
@@ -521,6 +526,9 @@
 				       ___PPC_RA(a) | ___PPC_RB(b) | (4 << 21))
 #define	PPC_DCBSTPS(a, b)	stringify_in_c(.long PPC_INST_DCBF |	\
 				       ___PPC_RA(a) | ___PPC_RB(b) | (6 << 21))
+
+#define	PPC_DIVDE(t, a, b)	stringify_in_c(.long PPC_RAW_DIVDE(t, a, b))
+#define	PPC_DIVDEU(t, a, b)	stringify_in_c(.long PPC_RAW_DIVDEU(t, a, b))
 
 #define	PPC_PHWSYNC		stringify_in_c(.long PPC_INST_PHWSYNC)
 #define	PPC_PLWSYNC		stringify_in_c(.long PPC_INST_PLWSYNC)
