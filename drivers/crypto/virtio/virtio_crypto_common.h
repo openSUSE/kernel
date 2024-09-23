@@ -28,7 +28,9 @@ struct data_queue {
 	char name[32];
 
 	struct crypto_engine *engine;
+#ifndef __GENKSYMS__
 	struct tasklet_struct done_task;
+#endif
 };
 
 struct virtio_crypto {
