@@ -1363,6 +1363,8 @@ static int camss_probe(struct platform_device *pdev)
 
 	v4l2_async_notifier_init(&camss->notifier);
 
+	pm_runtime_enable(dev);
+
 	num_subdevs = camss_of_parse_ports(camss);
 	if (num_subdevs < 0) {
 		ret = num_subdevs;
@@ -1427,8 +1429,6 @@ static int camss_probe(struct platform_device *pdev)
 		}
 	}
 
-	pm_runtime_enable(dev);
-
 	return 0;
 
 err_register_subdevs:
@@ -1436,6 +1436,7 @@ err_register_subdevs:
 err_register_entities:
 	v4l2_device_unregister(&camss->v4l2_dev);
 err_cleanup:
+	pm_runtime_disable(dev);
 	v4l2_async_notifier_cleanup(&camss->notifier);
 err_free:
 	kfree(camss);
