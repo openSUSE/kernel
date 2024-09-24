@@ -3541,17 +3541,17 @@ static int cgroup_write_event_control(struct cgroup *cgrp, struct cftype *cft,
 	int ret;
 
 	efd = simple_strtoul(buffer, &endp, 10);
-	if (*endp == '\0')
-		buf = endp;
-	else if (*endp == ' ')
-		buf = endp + 1;
-	else
-		return -EINVAL;
-
-	cfd = simple_strtoul(buffer, &endp, 10);
-	if ((*endp != ' ') && (*endp != '\0'))
+	if (*endp != ' ')
 		return -EINVAL;
 	buffer = endp + 1;
+
+	cfd = simple_strtoul(buffer, &endp, 10);
+	if (*endp == '\0')
+		buffer = endp;
+	else if (*endp == ' ')
+		buffer = endp + 1;
+	else
+		return -EINVAL;
 
 	event = kzalloc(sizeof(*event), GFP_KERNEL);
 	if (!event)
