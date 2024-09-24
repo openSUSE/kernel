@@ -174,6 +174,7 @@ static enum hrtimer_restart alarmtimer_fired(struct hrtimer *timer)
 	unsigned long flags;
 	ktime_t now;
 	int ret = HRTIMER_NORESTART;
+	int restart = ALARMTIMER_NORESTART;
 
 	spin_lock_irqsave(&base->lock, flags);
 	now = base->gettime();
@@ -188,16 +189,16 @@ static enum hrtimer_restart alarmtimer_fired(struct hrtimer *timer)
 
 		timerqueue_del(&base->timerqueue, &alarm->node);
 		alarm->enabled = 0;
-		/* Re-add periodic timers */
-		if (alarm->period.tv64) {
-			alarm->node.expires = ktime_add(expired, alarm->period);
+
+		spin_unlock_irqrestore(&base->lock, flags);
+		if (alarm->function)
+			restart = alarm->function(alarm, now);
+		spin_lock_irqsave(&base->lock, flags);
+
+		if (restart != ALARMTIMER_NORESTART) {
 			timerqueue_add(&base->timerqueue, &alarm->node);
 			alarm->enabled = 1;
 		}
-		spin_unlock_irqrestore(&base->lock, flags);
-		if (alarm->function)
-			alarm->function(alarm);
-		spin_lock_irqsave(&base->lock, flags);
 	}
 
 	if (next) {
@@ -299,7 +300,7 @@ static void alarmtimer_freezerset(ktime_t absexp, enum alarmtimer_type type)
  * @function: callback that is run when the alarm fires
  */
 void alarm_init(struct alarm *alarm, enum alarmtimer_type type,
-		void (*function)(struct alarm *))
+		enum alarmtimer_restart (*function)(struct alarm *, ktime_t))
 {
 	timerqueue_init(&alarm->node);
 	alarm->period = ktime_set(0, 0);
@@ -346,6 +347,41 @@ void alarm_cancel(struct alarm *alarm)
 }
 
 
+
+u64 alarm_forward(struct alarm *alarm, ktime_t now, ktime_t interval)
+{
+	u64 overrun = 1;
+	ktime_t delta;
+
+	delta = ktime_sub(now, alarm->node.expires);
+
+	if (delta.tv64 < 0)
+		return 0;
+
+	if (unlikely(delta.tv64 >= interval.tv64)) {
+		s64 incr = ktime_to_ns(interval);
+
+		overrun = ktime_divns(delta, incr);
+
+		alarm->node.expires = ktime_add_ns(alarm->node.expires,
+							incr*overrun);
+
+		if (alarm->node.expires.tv64 > now.tv64)
+			return overrun;
+		/*
+		 * This (and the ktime_add() below) is the
+		 * correction for exact:
+		 */
+		overrun++;
+	}
+
+	alarm->node.expires = ktime_add(alarm->node.expires, interval);
+	return overrun;
+}
+
+
+
+
 /**
  * clock2alarm - helper that converts from clockid to alarmtypes
  * @clockid: clockid.
@@ -365,14 +401,30 @@ static enum alarmtimer_type clock2alarm(clockid_t clockid)
  *
  * Posix timer callback for expired alarm timers.
  */
-static void alarm_handle_timer(struct alarm *alarm)
+static enum alarmtimer_restart alarm_handle_timer(struct alarm *alarm,
+							ktime_t now)
 {
+	unsigned long flags;
 	struct k_itimer *ptr = container_of(alarm, struct k_itimer,
 						it.alarmtimer);
+	enum alarmtimer_restart result = ALARMTIMER_NORESTART;
+
+	spin_lock_irqsave(&ptr->it_lock, flags);
 	if (posix_timer_event(ptr, 0) != 0) {
 		ptr->it_overrun++;
 		ptr->__it_overrun++;
 	}
+
+	/* Re-add periodic timers */
+	if (alarm->period.tv64) {
+		u64 overrun = alarm_forward(alarm, now, alarm->period);
+		ptr->it_overrun += overrun;
+		ptr->__it_overrun += overrun;
+		result = ALARMTIMER_RESTART;
+	}
+	spin_unlock_irqrestore(&ptr->it_lock, flags);
+
+	return result;
 }
 
 /**
@@ -483,15 +535,6 @@ static int alarm_timer_set(struct k_itimer *timr, int flags,
 	if (!rtcdev)
 		return -ENOTSUPP;
 
-	/*
-	 * XXX HACK! Currently we can DOS a system if the interval
-	 * period on alarmtimers is too small. Cap the interval here
-	 * to 100us and solve this properly in a future patch! -jstultz
-	 */
-	if ((new_setting->it_interval.tv_sec == 0) &&
-			(new_setting->it_interval.tv_nsec < 100000))
-		new_setting->it_interval.tv_nsec = 100000;
-
 	if (old_setting)
 		alarm_timer_get(timr, old_setting);
 
@@ -511,13 +554,15 @@ static int alarm_timer_set(struct k_itimer *timr, int flags,
  *
  * Wakes up the task that set the alarmtimer
  */
-static void alarmtimer_nsleep_wakeup(struct alarm *alarm)
+static enum alarmtimer_restart alarmtimer_nsleep_wakeup(struct alarm *alarm,
+								ktime_t now)
 {
 	struct task_struct *task = (struct task_struct *)alarm->data;
 
 	alarm->data = NULL;
 	if (task)
 		wake_up_process(task);
+	return ALARMTIMER_NORESTART;
 }
 
 /**
