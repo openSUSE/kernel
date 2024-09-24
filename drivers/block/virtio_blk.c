@@ -548,7 +548,7 @@ static int init_vq(struct virtio_blk *vblk)
 	}
 
 	num_vqs = blk_mq_num_possible_queues(
-			min_not_zero(num_request_queues, num_vqs));
+		min_not_zero(num_request_queues, (unsigned int)num_vqs));
 
 	num_poll_vqs = min_t(unsigned int, poll_queues, num_vqs - 1);
 
