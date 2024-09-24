@@ -106,10 +106,7 @@ int btrfs_lookup_extent_info(struct btrfs_trans_handle *trans,
 	struct btrfs_delayed_ref_head *head;
 	struct btrfs_delayed_ref_root *delayed_refs;
 	struct btrfs_path *path;
-	struct btrfs_extent_item *ei;
-	struct extent_buffer *leaf;
 	struct btrfs_key key;
-	u32 item_size;
 	u64 num_refs;
 	u64 extent_flags;
 	int ret;
@@ -127,11 +124,6 @@ int btrfs_lookup_extent_info(struct btrfs_trans_handle *trans,
 	if (!path)
 		return -ENOMEM;
 
-	if (!trans) {
-		path->skip_locking = 1;
-		path->search_commit_root = 1;
-	}
-
 search_again:
 	key.objectid = bytenr;
 	key.offset = offset;
@@ -145,7 +137,7 @@ search_again:
 	if (ret < 0)
 		goto out_free;
 
-	if (ret > 0 && metadata && key.type == BTRFS_METADATA_ITEM_KEY) {
+	if (ret > 0 && key.type == BTRFS_METADATA_ITEM_KEY) {
 		if (path->slots[0]) {
 			path->slots[0]--;
 			btrfs_item_key_to_cpu(path->nodes[0], &key,
@@ -158,33 +150,32 @@ search_again:
 	}
 
 	if (ret == 0) {
-		leaf = path->nodes[0];
-		item_size = btrfs_item_size(leaf, path->slots[0]);
-		if (item_size >= sizeof(*ei)) {
-			ei = btrfs_item_ptr(leaf, path->slots[0],
-					    struct btrfs_extent_item);
-			num_refs = btrfs_extent_refs(leaf, ei);
-			extent_flags = btrfs_extent_flags(leaf, ei);
-		} else {
+		struct extent_buffer *leaf = path->nodes[0];
+		struct btrfs_extent_item *ei;
+		const u32 item_size = btrfs_item_size(leaf, path->slots[0]);
+
+		if (unlikely(item_size < sizeof(*ei))) {
 			ret = -EINVAL;
 			btrfs_print_v0_err(fs_info);
-			if (trans)
-				btrfs_abort_transaction(trans, ret);
-			else
-				btrfs_handle_fs_error(fs_info, ret, NULL);
-
 			goto out_free;
 		}
 
-		BUG_ON(num_refs == 0);
+		ei = btrfs_item_ptr(leaf, path->slots[0], struct btrfs_extent_item);
+		num_refs = btrfs_extent_refs(leaf, ei);
+		if (unlikely(num_refs == 0)) {
+			ret = -EUCLEAN;
+			btrfs_err(fs_info,
+		  "unexpected zero reference count for extent item (%llu %u %llu)",
+				  key.objectid, key.type, key.offset);
+			btrfs_abort_transaction(trans, ret);
+			goto out_free;
+		}
+		extent_flags = btrfs_extent_flags(leaf, ei);
 	} else {
 		num_refs = 0;
 		extent_flags = 0;
 		ret = 0;
 	}
-
-	if (!trans)
-		goto out;
 
 	delayed_refs = &trans->transaction->delayed_refs;
 	spin_lock(&delayed_refs->lock);
@@ -206,17 +197,26 @@ search_again:
 			goto search_again;
 		}
 		spin_lock(&head->lock);
-		if (head->extent_op && head->extent_op->update_flags)
+		if (head->extent_op && head->extent_op->update_flags) {
 			extent_flags |= head->extent_op->flags_to_set;
-		else
-			BUG_ON(num_refs == 0);
+		} else if (unlikely(num_refs == 0)) {
+			spin_unlock(&head->lock);
+			mutex_unlock(&head->mutex);
+			spin_unlock(&delayed_refs->lock);
+			ret = -EUCLEAN;
+			btrfs_err(fs_info,
+			  "unexpected zero reference count for extent %llu (%s)",
+				  bytenr, metadata ? "metadata" : "data");
+			btrfs_abort_transaction(trans, ret);
+			goto out_free;
+		}
 
 		num_refs += head->ref_mod;
 		spin_unlock(&head->lock);
 		mutex_unlock(&head->mutex);
 	}
 	spin_unlock(&delayed_refs->lock);
-out:
+
 	WARN_ON(num_refs == 0);
 	if (refs)
 		*refs = num_refs;
@@ -2187,10 +2187,10 @@ again:
 }
 
 int btrfs_set_disk_extent_flags(struct btrfs_trans_handle *trans,
-				struct extent_buffer *eb, u64 flags,
-				int level)
+				struct extent_buffer *eb, u64 flags)
 {
 	struct btrfs_delayed_extent_op *extent_op;
+	int level = btrfs_header_level(eb);
 	int ret;
 
 	extent_op = btrfs_alloc_delayed_extent_op();
@@ -5148,8 +5148,7 @@ static noinline int walk_down_proc(struct btrfs_trans_handle *trans,
 		BUG_ON(ret); /* -ENOMEM */
 		ret = btrfs_dec_ref(trans, root, eb, 0);
 		BUG_ON(ret); /* -ENOMEM */
-		ret = btrfs_set_disk_extent_flags(trans, eb, flag,
-						  btrfs_header_level(eb));
+		ret = btrfs_set_disk_extent_flags(trans, eb, flag);
 		BUG_ON(ret); /* -ENOMEM */
 		wc->flags[level] |= flag;
 	}
