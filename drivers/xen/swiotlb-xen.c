@@ -157,7 +157,7 @@ xen_swiotlb_alloc_coherent(struct device *hwdev, size_t size,
 	flags &= ~(__GFP_DMA | __GFP_HIGHMEM);
 
 	/* Convert the size to actually allocated. */
-	size = 1UL << (order + XEN_PAGE_SHIFT);
+	size = ALIGN(size, XEN_PAGE_SIZE);
 
 	/* On ARM this function returns an ioremap'ped virtual address for
 	 * which virt_to_phys doesn't return the corresponding physical
@@ -211,7 +211,7 @@ xen_swiotlb_free_coherent(struct device *hwdev, size_t size, void *vaddr,
 	phys = xen_dma_to_phys(hwdev, dev_addr);
 
 	/* Convert the size to actually allocated. */
-	size = 1UL << (order + XEN_PAGE_SHIFT);
+	size = ALIGN(size, XEN_PAGE_SIZE);
 
 	if (is_vmalloc_addr(vaddr))
 		page = vmalloc_to_page(vaddr);
