@@ -7,6 +7,7 @@ unsigned long kaslr_get_random_long(const char *purpose);
 extern unsigned long page_offset_base;
 extern unsigned long vmalloc_base;
 extern unsigned long vmemmap_base;
+extern unsigned long physmem_end;
 
 void kernel_randomize_memory(void);
 #else
