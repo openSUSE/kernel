@@ -71,7 +71,7 @@ void nf_queue_entry_release_refs(struct nf_queue_entry *entry)
 EXPORT_SYMBOL_GPL(nf_queue_entry_release_refs);
 
 /* Bump dev refs so they don't vanish while packet is out */
-bool nf_queue_entry_get_refs(struct nf_queue_entry *entry)
+bool __nf_queue_entry_get_refs(struct nf_queue_entry *entry)
 {
 	struct nf_hook_state *state = &entry->state;
 
@@ -95,6 +95,31 @@ bool nf_queue_entry_get_refs(struct nf_queue_entry *entry)
 	}
 #endif
 	return true;
+}
+EXPORT_SYMBOL_GPL(__nf_queue_entry_get_refs);
+
+void nf_queue_entry_get_refs(struct nf_queue_entry *entry)
+{
+	struct nf_hook_state *state = &entry->state;
+
+	if (state->in)
+		dev_hold(state->in);
+	if (state->out)
+		dev_hold(state->out);
+	if (state->sk)
+		sock_hold(state->sk);
+#if IS_ENABLED(CONFIG_BRIDGE_NETFILTER)
+	if (entry->skb->nf_bridge) {
+		struct net_device *physdev;
+
+		physdev = nf_bridge_get_physindev(entry->skb);
+		if (physdev)
+			dev_hold(physdev);
+		physdev = nf_bridge_get_physoutdev(entry->skb);
+		if (physdev)
+			dev_hold(physdev);
+	}
+#endif
 }
 EXPORT_SYMBOL_GPL(nf_queue_entry_get_refs);
 
@@ -150,7 +175,7 @@ static int __nf_queue(struct sk_buff *skb, const struct nf_hook_state *state,
 		.size	= sizeof(*entry) + afinfo->route_key_size,
 	};
 
-	if (!nf_queue_entry_get_refs(entry)) {
+	if (!__nf_queue_entry_get_refs(entry)) {
 		status = -ENOTCONN;
 		goto err;
 	}
