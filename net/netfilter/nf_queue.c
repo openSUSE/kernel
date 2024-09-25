@@ -99,7 +99,7 @@ static void nf_queue_entry_get_br_nf_refs(struct sk_buff *skb)
 }
 
 /* Bump dev refs so they don't vanish while packet is out */
-bool nf_queue_entry_get_refs(struct nf_queue_entry *entry)
+bool __nf_queue_entry_get_refs(struct nf_queue_entry *entry)
 {
 	struct nf_hook_state *state = &entry->state;
 
@@ -113,6 +113,22 @@ bool nf_queue_entry_get_refs(struct nf_queue_entry *entry)
 
 	nf_queue_entry_get_br_nf_refs(entry->skb);
 	return true;
+}
+EXPORT_SYMBOL_GPL(__nf_queue_entry_get_refs);
+
+/* Bump dev refs so they don't vanish while packet is out */
+void nf_queue_entry_get_refs(struct nf_queue_entry *entry)
+{
+	struct nf_hook_state *state = &entry->state;
+
+	if (state->in)
+		dev_hold(state->in);
+	if (state->out)
+		dev_hold(state->out);
+	if (state->sk)
+		sock_hold(state->sk);
+
+	nf_queue_entry_get_br_nf_refs(entry->skb);
 }
 EXPORT_SYMBOL_GPL(nf_queue_entry_get_refs);
 
@@ -203,7 +219,7 @@ static int __nf_queue(struct sk_buff *skb, const struct nf_hook_state *state,
 		.size	= sizeof(*entry) + route_key_size,
 	};
 
-	if (!nf_queue_entry_get_refs(entry)) {
+	if (!__nf_queue_entry_get_refs(entry)) {
 		kfree(entry);
 		return -ENOTCONN;
 	}
