@@ -236,9 +236,7 @@ static long linehandle_set_config(struct linehandle_state *lh,
 				return ret;
 		}
 
-		blocking_notifier_call_chain(&desc->gdev->line_state_notifier,
-					     GPIO_V2_LINE_CHANGED_CONFIG,
-					     desc);
+		gpiod_line_state_notify(desc, GPIO_V2_LINE_CHANGED_CONFIG);
 	}
 	return 0;
 }
@@ -420,8 +418,7 @@ static int linehandle_create(struct gpio_device *gdev, void __user *ip)
 				goto out_free_lh;
 		}
 
-		blocking_notifier_call_chain(&desc->gdev->line_state_notifier,
-					     GPIO_V2_LINE_CHANGED_REQUESTED, desc);
+		gpiod_line_state_notify(desc, GPIO_V2_LINE_CHANGED_REQUESTED);
 
 		dev_dbg(&gdev->dev, "registered chardev handle for line %d\n",
 			offset);
@@ -1580,9 +1577,7 @@ static long linereq_set_config_unlocked(struct linereq *lr,
 
 		WRITE_ONCE(line->edflags, edflags);
 
-		blocking_notifier_call_chain(&desc->gdev->line_state_notifier,
-					     GPIO_V2_LINE_CHANGED_CONFIG,
-					     desc);
+		gpiod_line_state_notify(desc, GPIO_V2_LINE_CHANGED_CONFIG);
 	}
 	return 0;
 }
@@ -1898,8 +1893,7 @@ static int linereq_create(struct gpio_device *gdev, void __user *ip)
 
 		lr->lines[i].edflags = edflags;
 
-		blocking_notifier_call_chain(&desc->gdev->line_state_notifier,
-					     GPIO_V2_LINE_CHANGED_REQUESTED, desc);
+		gpiod_line_state_notify(desc, GPIO_V2_LINE_CHANGED_REQUESTED);
 
 		dev_dbg(&gdev->dev, "registered chardev handle for line %d\n",
 			offset);
@@ -2296,8 +2290,7 @@ static int lineevent_create(struct gpio_device *gdev, void __user *ip)
 	if (ret)
 		goto out_free_le;
 
-	blocking_notifier_call_chain(&desc->gdev->line_state_notifier,
-				     GPIO_V2_LINE_CHANGED_REQUESTED, desc);
+	gpiod_line_state_notify(desc, GPIO_V2_LINE_CHANGED_REQUESTED);
 
 	irq = gpiod_to_irq(desc);
 	if (irq <= 0) {
