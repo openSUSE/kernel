@@ -713,7 +713,7 @@ nf_queue_entry_dup(struct nf_queue_entry *e)
 	if (!entry)
 		return NULL;
 
-	if (nf_queue_entry_get_refs(entry))
+	if (__nf_queue_entry_get_refs(entry))
 		return entry;
 
 	kfree(entry);
