@@ -550,7 +550,7 @@ static int nest_imc_event_init(struct perf_event *event)
 			break;
 		}
 		pcni++;
-	} while (pcni->vbase != 0);
+	} while (pcni->vbase);
 
 	if (!flag)
 		return -ENODEV;
