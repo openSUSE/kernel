@@ -2326,6 +2326,12 @@ static int init_conns(struct rtrs_clt_sess *sess)
 		if (err)
 			goto destroy;
 	}
+
+	/*
+	 * Set the cid to con_num - 1, since if we fail later, we want to stay in bounds.
+	 */
+	cid = sess->s.con_num - 1;
+
 	err = alloc_sess_reqs(sess);
 	if (err)
 		goto destroy;
