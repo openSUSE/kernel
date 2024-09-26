@@ -356,6 +356,12 @@ static const struct attribute_group tsc200x_attr_group = {
 	.attrs		= tsc200x_attrs,
 };
 
+const struct attribute_group *tsc200x_groups[] = {
+	&tsc200x_attr_group,
+	NULL
+};
+EXPORT_SYMBOL_GPL(tsc200x_groups);
+
 static void tsc200x_esd_work(struct work_struct *work)
 {
 	struct tsc200x *ts = container_of(work, struct tsc200x, esd_work.work);
@@ -482,20 +488,6 @@ int tsc200x_probe(struct device *dev, int irq, const struct input_id *tsc_id,
 					 &esd_timeout);
 	ts->esd_timeout = error ? 0 : esd_timeout;
 
-	ts->reset_gpio = devm_gpiod_get_optional(dev, "reset", GPIOD_OUT_HIGH);
-	if (IS_ERR(ts->reset_gpio)) {
-		error = PTR_ERR(ts->reset_gpio);
-		dev_err(dev, "error acquiring reset gpio: %d\n", error);
-		return error;
-	}
-
-	ts->vio = devm_regulator_get(dev, "vio");
-	if (IS_ERR(ts->vio)) {
-		error = PTR_ERR(ts->vio);
-		dev_err(dev, "error acquiring vio regulator: %d", error);
-		return error;
-	}
-
 	mutex_init(&ts->mutex);
 
 	spin_lock_init(&ts->lock);
@@ -536,13 +528,26 @@ int tsc200x_probe(struct device *dev, int irq, const struct input_id *tsc_id,
 
 	touchscreen_parse_properties(input_dev, false, &ts->prop);
 
+	ts->reset_gpio = devm_gpiod_get_optional(dev, "reset", GPIOD_OUT_HIGH);
+	error = PTR_ERR_OR_ZERO(ts->reset_gpio);
+	if (error) {
+		dev_err(dev, "error acquiring reset gpio: %d\n", error);
+		return error;
+	}
+
+	error = devm_regulator_get_enable(dev, "vio");
+	if (error) {
+		dev_err(dev, "error acquiring vio regulator: %d\n", error);
+		return error;
+	}
+
+	tsc200x_reset(ts);
+
 	/* Ensure the touchscreen is off */
 	tsc200x_stop_scan(ts);
 
-	error = devm_request_threaded_irq(dev, irq, NULL,
-					  tsc200x_irq_thread,
-					  IRQF_TRIGGER_RISING | IRQF_ONESHOT,
-					  "tsc200x", ts);
+	error = devm_request_threaded_irq(dev, irq, NULL, tsc200x_irq_thread,
+					  IRQF_ONESHOT, "tsc200x", ts);
 	if (error) {
 		dev_err(dev, "Failed to request irq, err: %d\n", error);
 		return error;
@@ -553,25 +558,17 @@ int tsc200x_probe(struct device *dev, int irq, const struct input_id *tsc_id,
 		return error;
 
 	dev_set_drvdata(dev, ts);
-	error = sysfs_create_group(&dev->kobj, &tsc200x_attr_group);
-	if (error) {
-		dev_err(dev,
-			"Failed to create sysfs attributes, err: %d\n", error);
-		goto disable_regulator;
-	}
 
 	error = input_register_device(ts->idev);
 	if (error) {
 		dev_err(dev,
 			"Failed to register input device, err: %d\n", error);
-		goto err_remove_sysfs;
+		goto disable_regulator;
 	}
 
 	irq_set_irq_wake(irq, 1);
 	return 0;
 
-err_remove_sysfs:
-	sysfs_remove_group(&dev->kobj, &tsc200x_attr_group);
 disable_regulator:
 	regulator_disable(ts->vio);
 	return error;
@@ -581,8 +578,6 @@ EXPORT_SYMBOL_GPL(tsc200x_probe);
 void tsc200x_remove(struct device *dev)
 {
 	struct tsc200x *ts = dev_get_drvdata(dev);
-
-	sysfs_remove_group(&dev->kobj, &tsc200x_attr_group);
 
 	regulator_disable(ts->vio);
 }
