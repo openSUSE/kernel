@@ -519,8 +519,9 @@ static ssize_t unexport_store(const struct class *class,
 	 * they may be undone on its behalf too.
 	 */
 	if (test_and_clear_bit(FLAG_SYSFS, &desc->flags)) {
-		status = 0;
+		gpiod_unexport(desc);
 		gpiod_free(desc);
+		status = 0;
 	}
 done:
 	if (status)
@@ -785,8 +786,10 @@ void gpiochip_sysfs_unregister(struct gpio_device *gdev)
 	}
 
 	/* unregister gpiod class devices owned by sysfs */
-	for_each_gpio_desc_with_flag(chip, desc, FLAG_SYSFS)
+	for_each_gpio_desc_with_flag(chip, desc, FLAG_SYSFS) {
+		gpiod_unexport(desc);
 		gpiod_free(desc);
+	}
 }
 
 static int __init gpiolib_sysfs_init(void)
