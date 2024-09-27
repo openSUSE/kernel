@@ -112,6 +112,7 @@ struct lpi2c_imx_struct {
 	__u8			*rx_buf;
 	__u8			*tx_buf;
 	struct completion	complete;
+	unsigned long		rate_per;
 	unsigned int		msglen;
 	unsigned int		delivered;
 	unsigned int		block_data;
@@ -222,7 +223,7 @@ static int lpi2c_imx_config(struct lpi2c_imx_struct *lpi2c_imx)
 
 	lpi2c_imx_set_mode(lpi2c_imx);
 
-	clk_rate = clk_get_rate(lpi2c_imx->clk);
+	clk_rate = lpi2c_imx->rate_per;
 	if (lpi2c_imx->mode == HS || lpi2c_imx->mode == ULTRA_FAST)
 		filt = 0;
 	else
@@ -604,6 +605,17 @@ static int lpi2c_imx_probe(struct platform_device *pdev)
 	if (ret) {
 		dev_err(&pdev->dev, "clk enable failed %d\n", ret);
 		return ret;
+	}
+
+	/*
+	 * Ideally we would lock the clock rate, unfortunately the API
+	 * to do this isn't available yet
+	 */
+	lpi2c_imx->rate_per = clk_get_rate(lpi2c_imx->clk);
+	if (!lpi2c_imx->rate_per) {
+		dev_err(&pdev->dev, "can't get I2C peripheral clock rate\n");
+		ret = -EINVAL;
+		goto clk_unprepare;
 	}
 
 	temp = readl(lpi2c_imx->base + LPI2C_PARAM);
