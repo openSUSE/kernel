@@ -474,12 +474,26 @@ struct request *nvme_alloc_request_qid(struct request_queue *q,
 void nvme_cleanup_cmd(struct request *req);
 blk_status_t nvme_setup_cmd(struct nvme_ns *ns, struct request *req,
 		struct nvme_command *cmd);
+
+/*
+ * Flags for __nvme_submit_sync_cmd()
+ */
+typedef __u32 __bitwise nvme_submit_flags_t;
+
+enum {
+	/* Insert request at the head of the queue */
+	NVME_SUBMIT_AT_HEAD  = (__force nvme_submit_flags_t)(1 << 0),
+	/* Set BLK_MQ_REQ_NOWAIT when allocating request */
+	NVME_SUBMIT_NOWAIT = (__force nvme_submit_flags_t)(1 << 1),
+	/* Set BLK_MQ_REQ_RESERVED when allocating request */
+	NVME_SUBMIT_RESERVED = (__force nvme_submit_flags_t)(1 << 2),
+};
+
 int nvme_submit_sync_cmd(struct request_queue *q, struct nvme_command *cmd,
 		void *buf, unsigned bufflen);
 int __nvme_submit_sync_cmd(struct request_queue *q, struct nvme_command *cmd,
 		union nvme_result *result, void *buffer, unsigned bufflen,
-		int qid, int at_head,
-		blk_mq_req_flags_t flags);
+		int qid, nvme_submit_flags_t flags);
 int nvme_set_queue_count(struct nvme_ctrl *ctrl, int *count);
 void nvme_stop_keep_alive(struct nvme_ctrl *ctrl);
 int nvme_reset_ctrl(struct nvme_ctrl *ctrl);
