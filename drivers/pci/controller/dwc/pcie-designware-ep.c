@@ -635,6 +635,7 @@ void dw_pcie_ep_exit(struct dw_pcie_ep *ep)
 	if (ep->ops->deinit)
 		ep->ops->deinit(ep);
 }
+EXPORT_SYMBOL_GPL(dw_pcie_ep_exit);
 
 static unsigned int dw_pcie_ep_find_ext_capability(struct dw_pcie *pci, int cap)
 {
