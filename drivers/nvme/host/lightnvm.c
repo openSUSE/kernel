@@ -25,7 +25,6 @@
 #include <linux/nvme.h>
 #include <linux/lightnvm.h>
 #include <uapi/linux/lightnvm.h>
-
 int nvme_nvm_ioctl(struct nvme_ns *ns, unsigned int cmd, unsigned long arg)
 {
 	return -ENOTTY;
