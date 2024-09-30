@@ -125,7 +125,6 @@ static void nvme_queue_scan(struct nvme_ctrl *ctrl)
 		queue_work(nvme_wq, &ctrl->scan_work);
 }
 
-#ifndef __GENKSYMS__
 static void nvme_failfast_work(struct work_struct *work)
 {
 	struct nvme_ctrl *ctrl = container_of(to_delayed_work(work),
@@ -156,7 +155,7 @@ static inline void nvme_stop_failfast_work(struct nvme_ctrl *ctrl)
 	cancel_delayed_work_sync(&ctrl->failfast_work);
 	clear_bit(NVME_CTRL_FAILFAST_EXPIRED, &ctrl->flags);
 }
-#endif
+
 
 int nvme_reset_ctrl(struct nvme_ctrl *ctrl)
 {
@@ -448,18 +447,13 @@ bool nvme_change_ctrl_state(struct nvme_ctrl *ctrl,
 		return false;
 
 	if (ctrl->state == NVME_CTRL_LIVE) {
-#ifndef __GENKSYMS__
 		if (old_state == NVME_CTRL_CONNECTING)
 			nvme_stop_failfast_work(ctrl);
-#endif
 		nvme_kick_requeue_lists(ctrl);
-	}
-#ifndef __GENKSYMS__
-	else if (ctrl->state == NVME_CTRL_CONNECTING &&
+	} else if (ctrl->state == NVME_CTRL_CONNECTING &&
 		old_state == NVME_CTRL_RESETTING) {
 		nvme_start_failfast_work(ctrl);
 	}
-#endif
 	return changed;
 }
 EXPORT_SYMBOL_GPL(nvme_change_ctrl_state);
@@ -3738,9 +3732,7 @@ void nvme_stop_ctrl(struct nvme_ctrl *ctrl)
 {
 	nvme_mpath_stop(ctrl);
 	nvme_stop_keep_alive(ctrl);
-#ifndef __GENKSYMS__
 	nvme_stop_failfast_work(ctrl);
-#endif
 	flush_work(&ctrl->async_event_work);
 	cancel_work_sync(&ctrl->fw_act_work);
 	if (ctrl->ops->stop_ctrl)
@@ -3821,9 +3813,7 @@ int nvme_init_ctrl(struct nvme_ctrl *ctrl, struct device *dev,
 	int ret;
 
 	ctrl->state = NVME_CTRL_NEW;
-#ifndef __GENKSYMS__
 	clear_bit(NVME_CTRL_FAILFAST_EXPIRED, &ctrl->flags);
-#endif
 	spin_lock_init(&ctrl->lock);
 	mutex_init(&ctrl->scan_lock);
 	INIT_LIST_HEAD(&ctrl->namespaces);
@@ -3837,9 +3827,7 @@ int nvme_init_ctrl(struct nvme_ctrl *ctrl, struct device *dev,
 	INIT_WORK(&ctrl->delete_work, nvme_delete_ctrl_work);
 
 	INIT_DELAYED_WORK(&ctrl->ka_work, nvme_keep_alive_work);
-#ifndef __GENKSYMS__
 	INIT_DELAYED_WORK(&ctrl->failfast_work, nvme_failfast_work);
-#endif
 	memset(&ctrl->ka_cmd, 0, sizeof(ctrl->ka_cmd));
 	ctrl->ka_cmd.common.opcode = nvme_admin_keep_alive;
 

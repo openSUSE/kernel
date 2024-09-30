@@ -165,6 +165,7 @@ struct nvme_ctrl {
 	const struct nvme_ctrl_ops *ops;
 	struct request_queue *admin_q;
 	struct request_queue *connect_q;
+	struct request_queue *fabrics_q;
 	struct device *dev;
 	int instance;
 	int numa_node;
@@ -219,6 +220,7 @@ struct nvme_ctrl {
 	struct work_struct scan_work;
 	struct work_struct async_event_work;
 	struct delayed_work ka_work;
+	struct delayed_work failfast_work;
 	struct nvme_command ka_cmd;
 	struct work_struct fw_act_work;
 	unsigned long events;
@@ -253,13 +255,9 @@ struct nvme_ctrl {
 	u16 icdoff;
 	u16 maxcmd;
 	int nr_reconnects;
-	struct nvmf_ctrl_options *opts;
-#ifndef __GENKSYMS__
-	struct request_queue *fabrics_q;
-	struct delayed_work failfast_work;
 	unsigned long flags;
 #define NVME_CTRL_FAILFAST_EXPIRED	0
-#endif
+	struct nvmf_ctrl_options *opts;
 };
 
 enum nvme_iopolicy {
