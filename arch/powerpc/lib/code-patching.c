@@ -36,7 +36,7 @@ static int __patch_instruction(u32 *exec_addr, struct ppc_inst instr, u32 *patch
 	return 0;
 
 failed:
-	return -EFAULT;
+	return -EPERM;
 }
 
 int raw_patch_instruction(u32 *addr, struct ppc_inst instr)
