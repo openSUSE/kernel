@@ -42,6 +42,7 @@ static int __patch_instruction(u32 *exec_addr, struct ppc_inst instr, u32 *patch
 	return 0;
 
 failed:
+	mb();  /* sync */
 	return -EPERM;
 }
 
@@ -312,10 +313,6 @@ static int __do_patch_instruction_mm(u32 *addr, struct ppc_inst instr)
 	orig_mm = start_using_temp_mm(patching_mm);
 
 	err = __patch_instruction(addr, instr, patch_addr);
-
-	/* hwsync performed by __patch_instruction (sync) if successful */
-	if (err)
-		mb();  /* sync */
 
 	/* context synchronisation performed by __patch_instruction (isync or exception) */
 	stop_using_temp_mm(patching_mm, orig_mm);
