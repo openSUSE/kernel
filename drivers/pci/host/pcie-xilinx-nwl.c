@@ -800,6 +800,7 @@ static int nwl_pcie_probe(struct platform_device *pdev)
 		return -ENODEV;
 
 	pcie = pci_host_bridge_priv(bridge);
+	platform_set_drvdata(pdev, pcie);
 
 	pcie->dev = dev;
 	pcie->ecam_value = NWL_ECAM_VALUE_DEFAULT;
@@ -823,14 +824,14 @@ static int nwl_pcie_probe(struct platform_device *pdev)
 	err = nwl_pcie_bridge_init(pcie);
 	if (err) {
 		dev_err(dev, "HW Initialization failed\n");
-		return err;
+		goto err_clk;
 	}
 
 	err = devm_of_pci_get_host_bridge_resources(dev, 0, 0xff, &res,
 						    &iobase);
 	if (err) {
 		dev_err(dev, "Getting bridge resources failed\n");
-		return err;
+		goto err_clk;
 	}
 
 	err = devm_request_pci_bus_resources(dev, &res);
@@ -873,7 +874,18 @@ static int nwl_pcie_probe(struct platform_device *pdev)
 
 error:
 	pci_free_resource_list(&res);
+err_clk:
+	clk_disable_unprepare(pcie->clk);
 	return err;
+}
+
+static int nwl_pcie_remove(struct platform_device *pdev)
+{
+	struct nwl_pcie *pcie = platform_get_drvdata(pdev);
+
+	clk_disable_unprepare(pcie->clk);
+
+	return 0;
 }
 
 static struct platform_driver nwl_pcie_driver = {
@@ -883,5 +895,6 @@ static struct platform_driver nwl_pcie_driver = {
 		.of_match_table = nwl_pcie_of_match,
 	},
 	.probe = nwl_pcie_probe,
+	.remove = nwl_pcie_remove,
 };
 builtin_platform_driver(nwl_pcie_driver);
