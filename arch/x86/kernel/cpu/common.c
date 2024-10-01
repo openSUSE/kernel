@@ -2332,7 +2332,7 @@ static inline void tss_setup_io_bitmap(struct tss_struct *tss)
  * Setup everything needed to handle exceptions from the IDT, including the IST
  * exceptions which use paranoid_entry().
  */
-void cpu_init_exception_handling(void)
+void cpu_init_exception_handling(bool boot_cpu)
 {
 	struct tss_struct *tss = this_cpu_ptr(&cpu_tss_rw);
 	int cpu = raw_smp_processor_id();
@@ -2352,11 +2352,22 @@ void cpu_init_exception_handling(void)
 	setup_ghcb();
 
 	if (cpu_feature_enabled(X86_FEATURE_FRED)) {
-		cpu_init_fred_exceptions();
+		/* The boot CPU has enabled FRED during early boot */
+		if (!boot_cpu)
+			cpu_init_fred_exceptions();
+
 		cpu_init_fred_rsps();
 	} else {
 		load_current_idt();
 	}
+}
+
+void __init cpu_init_replace_early_idt(void)
+{
+	if (cpu_feature_enabled(X86_FEATURE_FRED))
+		cpu_init_fred_exceptions();
+	else
+		idt_setup_early_pf();
 }
 
 /*
@@ -2429,7 +2440,7 @@ void cpu_init_secondary(void)
 	 * Relies on the BP having set-up the IDT tables, which are loaded
 	 * on this CPU in cpu_init_exception_handling().
 	 */
-	cpu_init_exception_handling();
+	cpu_init_exception_handling(false);
 	cpu_init();
 	fpu__init_cpu();
 }
