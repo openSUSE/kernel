@@ -46,6 +46,26 @@ static bool qdf2400_erratum_44_present(struct acpi_table_header *h)
 	return false;
 }
 
+/*
+ * APM X-Gene v1 and v2 UART hardware is an 16550 like device but has its
+ * register aligned to 32-bit. In addition, the BIOS also encoded the
+ * access width to be 8 bits. This function detects this errata condition.
+ */
+static bool xgene_8250_erratum_present(struct acpi_table_spcr *tb)
+{
+	if (tb->interface_type != ACPI_DBG2_16550_COMPATIBLE)
+		return false;
+
+	if (memcmp(tb->header.oem_id, "APMC0D", ACPI_OEM_ID_SIZE))
+		return false;
+
+	if (!memcmp(tb->header.oem_table_id, "XGENESPC",
+	    ACPI_OEM_TABLE_ID_SIZE) && tb->header.oem_revision == 0)
+		return true;
+
+	return false;
+}
+
 /**
  * parse_spcr() - parse ACPI SPCR table and add preferred console
  *
@@ -121,6 +141,13 @@ int __init parse_spcr(bool earlycon)
 	}
 
 	switch (table->baud_rate) {
+	case 0:
+		/*
+		 * SPCR 1.04 defines 0 as a preconfigured state of UART.
+		 * Assume firmware or bootloader configures console correctly.
+		 */
+		baud_rate = 0;
+		break;
 	case 3:
 		baud_rate = 9600;
 		break;
@@ -162,8 +189,23 @@ int __init parse_spcr(bool earlycon)
 			uart = "qdf2400_e44";
 	}
 
-	snprintf(opts, sizeof(opts), "%s,%s,0x%llx,%d", uart, iotype,
-		 table->serial_port.address, baud_rate);
+	if (xgene_8250_erratum_present(table)) {
+		iotype = "mmio32";
+
+		/* for xgene v1 and v2 we don't know the clock rate of the
+		 * UART so don't attempt to change to the baud rate state
+		 * in the table because driver cannot calculate the dividers
+		 */
+		baud_rate = 0;
+	}
+
+	if (!baud_rate) {
+		snprintf(opts, sizeof(opts), "%s,%s,0x%llx", uart, iotype,
+			 table->serial_port.address);
+	} else {
+		snprintf(opts, sizeof(opts), "%s,%s,0x%llx,%d", uart, iotype,
+			 table->serial_port.address, baud_rate);
+	}
 
 	pr_info("console: %s\n", opts);
 

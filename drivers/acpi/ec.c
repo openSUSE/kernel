@@ -107,13 +107,12 @@ enum {
 	EC_FLAGS_QUERY_ENABLED,		/* Query is enabled */
 	EC_FLAGS_QUERY_PENDING,		/* Query is pending */
 	EC_FLAGS_QUERY_GUARDING,	/* Guard for SCI_EVT check */
-	EC_FLAGS_GPE_HANDLER_INSTALLED,	/* GPE handler installed */
+	EC_FLAGS_EVENT_HANDLER_INSTALLED,	/* Event handler installed */
 	EC_FLAGS_EC_HANDLER_INSTALLED,	/* OpReg handler installed */
-	EC_FLAGS_EVT_HANDLER_INSTALLED, /* _Qxx handlers installed */
+	EC_FLAGS_QUERY_METHODS_INSTALLED, /* _Qxx handlers installed */
 	EC_FLAGS_STARTED,		/* Driver is started */
 	EC_FLAGS_STOPPED,		/* Driver is stopped */
-	EC_FLAGS_COMMAND_STORM,		/* GPE storms occurred to the
-					 * current command processing */
+	EC_FLAGS_EVENTS_MASKED,		/* Events masked */
 };
 
 #define ACPI_EC_COMMAND_POLL		0x01 /* Available for command byte */
@@ -194,6 +193,7 @@ static struct workqueue_struct *ec_query_wq;
 
 static int EC_FLAGS_QUERY_HANDSHAKE; /* Needs QR_EC issued when SCI_EVT set */
 static int EC_FLAGS_CORRECT_ECDT; /* Needs ECDT port address correction */
+static int EC_FLAGS_CLEAR_ON_RESUME; /* Needs acpi_ec_clear() on boot/resume */
 
 /* --------------------------------------------------------------------------
  *                           Logging/Debugging
@@ -406,7 +406,7 @@ static inline void acpi_ec_clear_gpe(struct acpi_ec *ec)
 static void acpi_ec_submit_request(struct acpi_ec *ec)
 {
 	ec->reference_count++;
-	if (test_bit(EC_FLAGS_GPE_HANDLER_INSTALLED, &ec->flags) &&
+	if (test_bit(EC_FLAGS_EVENT_HANDLER_INSTALLED, &ec->flags) &&
 	    ec->reference_count == 1)
 		acpi_ec_enable_gpe(ec, true);
 }
@@ -416,7 +416,7 @@ static void acpi_ec_complete_request(struct acpi_ec *ec)
 	bool flushed = false;
 
 	ec->reference_count--;
-	if (test_bit(EC_FLAGS_GPE_HANDLER_INSTALLED, &ec->flags) &&
+	if (test_bit(EC_FLAGS_EVENT_HANDLER_INSTALLED, &ec->flags) &&
 	    ec->reference_count == 0)
 		acpi_ec_disable_gpe(ec, true);
 	flushed = acpi_ec_flushed(ec);
@@ -424,19 +424,19 @@ static void acpi_ec_complete_request(struct acpi_ec *ec)
 		wake_up(&ec->wait);
 }
 
-static void acpi_ec_set_storm(struct acpi_ec *ec, u8 flag)
+static void acpi_ec_mask_events(struct acpi_ec *ec)
 {
-	if (!test_bit(flag, &ec->flags)) {
+	if (!test_bit(EC_FLAGS_EVENTS_MASKED, &ec->flags)) {
 		acpi_ec_disable_gpe(ec, false);
 		ec_dbg_drv("Polling enabled");
-		set_bit(flag, &ec->flags);
+		set_bit(EC_FLAGS_EVENTS_MASKED, &ec->flags);
 	}
 }
 
-static void acpi_ec_clear_storm(struct acpi_ec *ec, u8 flag)
+static void acpi_ec_unmask_events(struct acpi_ec *ec)
 {
-	if (test_bit(flag, &ec->flags)) {
-		clear_bit(flag, &ec->flags);
+	if (test_bit(EC_FLAGS_EVENTS_MASKED, &ec->flags)) {
+		clear_bit(EC_FLAGS_EVENTS_MASKED, &ec->flags);
 		acpi_ec_enable_gpe(ec, false);
 		ec_dbg_drv("Polling disabled");
 	}
@@ -463,8 +463,10 @@ static bool acpi_ec_submit_flushable_request(struct acpi_ec *ec)
 
 static void acpi_ec_submit_query(struct acpi_ec *ec)
 {
-	if (acpi_ec_event_enabled(ec) &&
-	    !test_and_set_bit(EC_FLAGS_QUERY_PENDING, &ec->flags)) {
+	acpi_ec_mask_events(ec);
+	if (!acpi_ec_event_enabled(ec))
+		return;
+	if (!test_and_set_bit(EC_FLAGS_QUERY_PENDING, &ec->flags)) {
 		ec_dbg_evt("Command(%s) submitted/blocked",
 			   acpi_ec_cmd_string(ACPI_EC_COMMAND_QUERY));
 		ec->nr_pending_queries++;
@@ -474,11 +476,10 @@ static void acpi_ec_submit_query(struct acpi_ec *ec)
 
 static void acpi_ec_complete_query(struct acpi_ec *ec)
 {
-	if (test_bit(EC_FLAGS_QUERY_PENDING, &ec->flags)) {
-		clear_bit(EC_FLAGS_QUERY_PENDING, &ec->flags);
+	if (test_and_clear_bit(EC_FLAGS_QUERY_PENDING, &ec->flags))
 		ec_dbg_evt("Command(%s) unblocked",
 			   acpi_ec_cmd_string(ACPI_EC_COMMAND_QUERY));
-	}
+	acpi_ec_unmask_events(ec);
 }
 
 static inline void __acpi_ec_enable_event(struct acpi_ec *ec)
@@ -498,6 +499,26 @@ static inline void __acpi_ec_disable_event(struct acpi_ec *ec)
 		ec_log_drv("event blocked");
 }
 
+/*
+ * Process _Q events that might have accumulated in the EC.
+ * Run with locked ec mutex.
+ */
+static void acpi_ec_clear(struct acpi_ec *ec)
+{
+	int i, status;
+	u8 value = 0;
+
+	for (i = 0; i < ACPI_EC_CLEAR_MAX; i++) {
+		status = acpi_ec_query(ec, &value);
+		if (status || !value)
+			break;
+	}
+	if (unlikely(i == ACPI_EC_CLEAR_MAX))
+		pr_warn("Warning: Maximum of %d stale EC events cleared\n", i);
+	else
+		pr_info("%d stale EC events cleared\n", i);
+}
+
 static void acpi_ec_enable_event(struct acpi_ec *ec)
 {
 	unsigned long flags;
@@ -506,6 +527,10 @@ static void acpi_ec_enable_event(struct acpi_ec *ec)
 	if (acpi_ec_started(ec))
 		__acpi_ec_enable_event(ec);
 	spin_unlock_irqrestore(&ec->lock, flags);
+
+	/* Drain additional events if hardware requires that */
+	if (EC_FLAGS_CLEAR_ON_RESUME)
+		acpi_ec_clear(ec);
 }
 
 #ifdef CONFIG_PM_SLEEP
@@ -701,7 +726,7 @@ err:
 				++t->irq_count;
 			/* Allow triggering on 0 threshold */
 			if (t->irq_count == ec_storm_threshold)
-				acpi_ec_set_storm(ec, EC_FLAGS_COMMAND_STORM);
+				acpi_ec_mask_events(ec);
 		}
 	}
 out:
@@ -799,7 +824,7 @@ static int acpi_ec_transaction_unlocked(struct acpi_ec *ec,
 
 	spin_lock_irqsave(&ec->lock, tmp);
 	if (t->irq_count == ec_storm_threshold)
-		acpi_ec_clear_storm(ec, EC_FLAGS_COMMAND_STORM);
+		acpi_ec_unmask_events(ec);
 	ec_dbg_req("Command(%s) stopped", acpi_ec_cmd_string(t->command));
 	ec->curr = NULL;
 	/* Disable GPE for command processing (IBF=0/OBF=1) */
@@ -1434,20 +1459,20 @@ static int ec_install_handlers(struct acpi_ec *ec, bool handle_events)
 	if (!handle_events)
 		return 0;
 
-	if (!test_bit(EC_FLAGS_EVT_HANDLER_INSTALLED, &ec->flags)) {
+	if (!test_bit(EC_FLAGS_QUERY_METHODS_INSTALLED, &ec->flags)) {
 		/* Find and register all query methods */
 		acpi_walk_namespace(ACPI_TYPE_METHOD, ec->handle, 1,
 				    acpi_ec_register_query_methods,
 				    NULL, ec, NULL);
-		set_bit(EC_FLAGS_EVT_HANDLER_INSTALLED, &ec->flags);
+		set_bit(EC_FLAGS_QUERY_METHODS_INSTALLED, &ec->flags);
 	}
-	if (!test_bit(EC_FLAGS_GPE_HANDLER_INSTALLED, &ec->flags)) {
+	if (!test_bit(EC_FLAGS_EVENT_HANDLER_INSTALLED, &ec->flags)) {
 		status = acpi_install_gpe_raw_handler(NULL, ec->gpe,
 					  ACPI_GPE_EDGE_TRIGGERED,
 					  &acpi_ec_gpe_handler, ec);
 		/* This is not fatal as we can poll EC events */
 		if (ACPI_SUCCESS(status)) {
-			set_bit(EC_FLAGS_GPE_HANDLER_INSTALLED, &ec->flags);
+			set_bit(EC_FLAGS_EVENT_HANDLER_INSTALLED, &ec->flags);
 			acpi_ec_leave_noirq(ec);
 			if (test_bit(EC_FLAGS_STARTED, &ec->flags) &&
 			    ec->reference_count >= 1)
@@ -1482,15 +1507,15 @@ static void ec_remove_handlers(struct acpi_ec *ec)
 	 */
 	acpi_ec_stop(ec, false);
 
-	if (test_bit(EC_FLAGS_GPE_HANDLER_INSTALLED, &ec->flags)) {
+	if (test_bit(EC_FLAGS_EVENT_HANDLER_INSTALLED, &ec->flags)) {
 		if (ACPI_FAILURE(acpi_remove_gpe_handler(NULL, ec->gpe,
 					&acpi_ec_gpe_handler)))
 			pr_err("failed to remove gpe handler\n");
-		clear_bit(EC_FLAGS_GPE_HANDLER_INSTALLED, &ec->flags);
+		clear_bit(EC_FLAGS_EVENT_HANDLER_INSTALLED, &ec->flags);
 	}
-	if (test_bit(EC_FLAGS_EVT_HANDLER_INSTALLED, &ec->flags)) {
+	if (test_bit(EC_FLAGS_QUERY_METHODS_INSTALLED, &ec->flags)) {
 		acpi_ec_remove_query_handlers(ec, true, 0);
-		clear_bit(EC_FLAGS_EVT_HANDLER_INSTALLED, &ec->flags);
+		clear_bit(EC_FLAGS_QUERY_METHODS_INSTALLED, &ec->flags);
 	}
 }
 
@@ -1503,14 +1528,17 @@ static int acpi_ec_setup(struct acpi_ec *ec, bool handle_events)
 		return ret;
 
 	/* First EC capable of handling transactions */
-	if (!first_ec) {
+	if (!first_ec)
 		first_ec = ec;
-		acpi_handle_info(first_ec->handle, "Used as first EC\n");
+
+	pr_info("EC_CMD/EC_SC=0x%lx, EC_DATA=0x%lx\n", ec->command_addr,
+		ec->data_addr);
+
+	if (test_bit(EC_FLAGS_EVENT_HANDLER_INSTALLED, &ec->flags)) {
+		if (ec->gpe >= 0)
+			pr_info("GPE=0x%x\n", ec->gpe);
 	}
 
-	acpi_handle_info(ec->handle,
-			 "GPE=0x%x, EC_CMD/EC_SC=0x%lx, EC_DATA=0x%lx\n",
-			 ec->gpe, ec->command_addr, ec->data_addr);
 	return ret;
 }
 
@@ -1782,6 +1810,31 @@ static int ec_flag_query_handshake(const struct dmi_system_id *id)
 #endif
 
 /*
+ * On some hardware it is necessary to clear events accumulated by the EC during
+ * sleep. These ECs stop reporting GPEs until they are manually polled, if too
+ * many events are accumulated. (e.g. Samsung Series 5/9 notebooks)
+ *
+ * https://bugzilla.kernel.org/show_bug.cgi?id=44161
+ *
+ * Ideally, the EC should also be instructed NOT to accumulate events during
+ * sleep (which Windows seems to do somehow), but the interface to control this
+ * behaviour is not known at this time.
+ *
+ * Models known to be affected are Samsung 530Uxx/535Uxx/540Uxx/550Pxx/900Xxx,
+ * however it is very likely that other Samsung models are affected.
+ *
+ * On systems which don't accumulate _Q events during sleep, this extra check
+ * should be harmless.
+ */
+static int ec_clear_on_resume(const struct dmi_system_id *id)
+{
+	pr_debug("Detected system needing EC poll on resume.\n");
+	EC_FLAGS_CLEAR_ON_RESUME = 1;
+	ec_event_clearing = ACPI_EC_EVT_TIMING_STATUS;
+	return 0;
+}
+
+/*
  * Some ECDTs contain wrong register addresses.
  * MSI MS-171F
  * https://bugzilla.kernel.org/show_bug.cgi?id=12461
@@ -1798,6 +1851,9 @@ static struct dmi_system_id ec_dmi_table[] __initdata = {
 	ec_correct_ecdt, "MSI MS-171F", {
 	DMI_MATCH(DMI_SYS_VENDOR, "Micro-Star"),
 	DMI_MATCH(DMI_PRODUCT_NAME, "MS-171F"),}, NULL},
+	{
+	ec_clear_on_resume, "Samsung hardware", {
+	DMI_MATCH(DMI_SYS_VENDOR, "SAMSUNG ELECTRONICS CO., LTD.")}, NULL},
 	{},
 };
 

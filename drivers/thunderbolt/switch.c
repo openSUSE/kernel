@@ -1456,8 +1456,10 @@ void tb_switch_remove(struct tb_switch *sw)
 		if (sw->ports[i].remote)
 			tb_switch_remove(sw->ports[i].remote->sw);
 		sw->ports[i].remote = NULL;
-		if (sw->ports[i].xdomain)
+		if (sw->ports[i].xdomain) {
+			sw->ports[i].xdomain->is_unplugged = true;
 			tb_xdomain_remove(sw->ports[i].xdomain);
+		}
 		sw->ports[i].xdomain = NULL;
 	}
 

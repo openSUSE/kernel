@@ -992,6 +992,7 @@ int skb_to_sgvec(struct sk_buff *skb, struct scatterlist *sg, int offset,
 		 int len);
 int skb_cow_data(struct sk_buff *skb, int tailbits, struct sk_buff **trailer);
 int skb_pad(struct sk_buff *skb, int pad);
+int __skb_pad(struct sk_buff *skb, int pad, bool free_on_error);
 #define dev_kfree_skb(a)	consume_skb(a)
 
 int skb_append_datato_frags(struct sock *sk, struct sk_buff *skb,
@@ -2875,6 +2876,31 @@ static inline int skb_padto(struct sk_buff *skb, unsigned int len)
  *	skb_put_padto - increase size and pad an skbuff up to a minimal size
  *	@skb: buffer to pad
  *	@len: minimal length
+ *	@free_on_error: free buffer on error
+ *
+ *	Pads up a buffer to ensure the trailing bytes exist and are
+ *	blanked. If the buffer already contains sufficient data it
+ *	is untouched. Otherwise it is extended. Returns zero on
+ *	success. The skb is freed on error if @free_on_error is true.
+ */
+static inline int __skb_put_padto(struct sk_buff *skb, unsigned int len,
+				  bool free_on_error)
+{
+	unsigned int size = skb->len;
+
+	if (unlikely(size < len)) {
+		len -= size;
+		if (__skb_pad(skb, len, free_on_error))
+			return -ENOMEM;
+		__skb_put(skb, len);
+	}
+	return 0;
+}
+
+/**
+ *	skb_put_padto - increase size and pad an skbuff up to a minimal size
+ *	@skb: buffer to pad
+ *	@len: minimal length
  *
  *	Pads up a buffer to ensure the trailing bytes exist and are
  *	blanked. If the buffer already contains sufficient data it
@@ -2883,15 +2909,7 @@ static inline int skb_padto(struct sk_buff *skb, unsigned int len)
  */
 static inline int skb_put_padto(struct sk_buff *skb, unsigned int len)
 {
-	unsigned int size = skb->len;
-
-	if (unlikely(size < len)) {
-		len -= size;
-		if (skb_pad(skb, len))
-			return -ENOMEM;
-		__skb_put(skb, len);
-	}
-	return 0;
+	return __skb_put_padto(skb, len, true);
 }
 
 static inline int skb_add_data(struct sk_buff *skb,

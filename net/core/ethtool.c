@@ -598,6 +598,9 @@ int __ethtool_get_link_ksettings(struct net_device *dev,
 	if (!dev->ethtool_ops->get_settings)
 		return -EOPNOTSUPP;
 
+	if (!netif_device_present(dev))
+		return -ENODEV;
+
 	memset(&cmd, 0, sizeof(cmd));
 	cmd.cmd = ETHTOOL_GSET;
 	err = dev->ethtool_ops->get_settings(dev, &cmd);
