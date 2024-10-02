@@ -2912,6 +2912,9 @@ void resource_build_bit_depth_reduction_params(struct dc_stream_state *stream,
 
 enum dc_status dc_validate_stream(struct dc *dc, struct dc_stream_state *stream)
 {
+	if (dc == NULL || stream == NULL)
+		return DC_ERROR_UNEXPECTED;
+
 	struct dc  *core_dc = dc;
 	struct dc_link *link = stream->sink->link;
 	struct timing_generator *tg = core_dc->res_pool->timing_generators[0];
