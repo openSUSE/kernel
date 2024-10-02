@@ -1840,7 +1840,7 @@ release_clocks:
 	return err;
 }
 
-static int tegra_i2c_remove(struct platform_device *pdev)
+static void tegra_i2c_remove(struct platform_device *pdev)
 {
 	struct tegra_i2c_dev *i2c_dev = platform_get_drvdata(pdev);
 
@@ -1849,8 +1849,6 @@ static int tegra_i2c_remove(struct platform_device *pdev)
 
 	tegra_i2c_release_dma(i2c_dev);
 	tegra_i2c_release_clocks(i2c_dev);
-
-	return 0;
 }
 
 static int __maybe_unused tegra_i2c_runtime_resume(struct device *dev)
@@ -1959,7 +1957,7 @@ MODULE_DEVICE_TABLE(acpi, tegra_i2c_acpi_match);
 
 static struct platform_driver tegra_i2c_driver = {
 	.probe = tegra_i2c_probe,
-	.remove = tegra_i2c_remove,
+	.remove_new = tegra_i2c_remove,
 	.driver = {
 		.name = "tegra-i2c",
 		.of_match_table = tegra_i2c_of_match,

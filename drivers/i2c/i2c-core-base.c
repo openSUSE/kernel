@@ -16,6 +16,7 @@
 #include <linux/acpi.h>
 #include <linux/clk/clk-conf.h>
 #include <linux/completion.h>
+#include <linux/debugfs.h>
 #include <linux/delay.h>
 #include <linux/err.h>
 #include <linux/errno.h>
@@ -66,6 +67,8 @@ static int i2c_detect(struct i2c_adapter *adapter, struct i2c_driver *driver);
 
 static DEFINE_STATIC_KEY_FALSE(i2c_trace_msg_key);
 static bool is_registered;
+
+static struct dentry *i2c_debugfs_root;
 
 int i2c_transfer_trace_reg(void)
 {
@@ -698,7 +701,7 @@ const struct bus_type i2c_bus_type = {
 };
 EXPORT_SYMBOL_GPL(i2c_bus_type);
 
-struct device_type i2c_client_type = {
+const struct device_type i2c_client_type = {
 	.groups		= i2c_dev_groups,
 	.uevent		= i2c_device_uevent,
 	.release	= i2c_client_dev_release,
@@ -1063,9 +1066,9 @@ EXPORT_SYMBOL(i2c_find_device_by_fwnode);
 
 
 static const struct i2c_device_id dummy_id[] = {
-	{ "dummy", 0 },
-	{ "smbus_host_notify", 0 },
-	{ },
+	{ "dummy"},
+	{ "smbus_host_notify"},
+	{ }
 };
 
 static int dummy_probe(struct i2c_client *client)
@@ -1195,9 +1198,11 @@ static void i2c_adapter_dev_release(struct device *dev)
 unsigned int i2c_adapter_depth(struct i2c_adapter *adapter)
 {
 	unsigned int depth = 0;
+	struct device *parent;
 
-	while ((adapter = i2c_parent_is_i2c_adapter(adapter)))
-		depth++;
+	for (parent = adapter->dev.parent; parent; parent = parent->parent)
+		if (parent->type == &i2c_adapter_type)
+			depth++;
 
 	WARN_ONCE(depth >= MAX_LOCKDEP_SUBCLASSES,
 		  "adapter depth exceeds lockdep subclass limit\n");
@@ -1339,7 +1344,7 @@ static struct attribute *i2c_adapter_attrs[] = {
 };
 ATTRIBUTE_GROUPS(i2c_adapter);
 
-struct device_type i2c_adapter_type = {
+const struct device_type i2c_adapter_type = {
 	.groups		= i2c_adapter_groups,
 	.release	= i2c_adapter_dev_release,
 };
@@ -1523,6 +1528,8 @@ static int i2c_register_adapter(struct i2c_adapter *adap)
 		goto out_list;
 	}
 
+	adap->debugfs = debugfs_create_dir(dev_name(&adap->dev), i2c_debugfs_root);
+
 	res = i2c_setup_smbus_alert(adap);
 	if (res)
 		goto out_reg;
@@ -1562,6 +1569,7 @@ static int i2c_register_adapter(struct i2c_adapter *adap)
 	return 0;
 
 out_reg:
+	debugfs_remove_recursive(adap->debugfs);
 	init_completion(&adap->dev_released);
 	device_unregister(&adap->dev);
 	wait_for_completion(&adap->dev_released);
@@ -1762,6 +1770,8 @@ void i2c_del_adapter(struct i2c_adapter *adap)
 	pm_runtime_disable(&adap->dev);
 
 	i2c_host_notify_irq_teardown(adap);
+
+	debugfs_remove_recursive(adap->debugfs);
 
 	/* wait until all references to the device are gone
 	 *
@@ -2060,6 +2070,8 @@ static int __init i2c_init(void)
 
 	is_registered = true;
 
+	i2c_debugfs_root = debugfs_create_dir("i2c", NULL);
+
 #ifdef CONFIG_I2C_COMPAT
 	i2c_adapter_compat_class = class_compat_register("i2c-adapter");
 	if (!i2c_adapter_compat_class) {
@@ -2098,6 +2110,7 @@ static void __exit i2c_exit(void)
 #ifdef CONFIG_I2C_COMPAT
 	class_compat_unregister(i2c_adapter_compat_class);
 #endif
+	debugfs_remove_recursive(i2c_debugfs_root);
 	bus_unregister(&i2c_bus_type);
 	tracepoint_synchronize_unregister();
 }

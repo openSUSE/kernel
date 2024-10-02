@@ -906,6 +906,7 @@ static int chv_config_get(struct pinctrl_dev *pctldev, unsigned int pin,
 			return -EINVAL;
 
 		break;
+	}
 
 	case PIN_CONFIG_DRIVE_PUSH_PULL:
 		if (ctrl1 & CHV_PADCTRL1_ODEN)
@@ -916,7 +917,6 @@ static int chv_config_get(struct pinctrl_dev *pctldev, unsigned int pin,
 		if (!(ctrl1 & CHV_PADCTRL1_ODEN))
 			return -EINVAL;
 		break;
-	}
 
 	default:
 		return -ENOTSUPP;
@@ -1172,14 +1172,14 @@ static int chv_gpio_get_direction(struct gpio_chip *chip, unsigned int offset)
 
 static int chv_gpio_direction_input(struct gpio_chip *chip, unsigned int offset)
 {
-	return pinctrl_gpio_direction_input(chip->base + offset);
+	return pinctrl_gpio_direction_input_new(chip, offset);
 }
 
 static int chv_gpio_direction_output(struct gpio_chip *chip, unsigned int offset,
 				     int value)
 {
 	chv_gpio_set(chip, offset, value);
-	return pinctrl_gpio_direction_output(chip->base + offset);
+	return pinctrl_gpio_direction_output_new(chip, offset);
 }
 
 static const struct gpio_chip chv_gpio_chip = {

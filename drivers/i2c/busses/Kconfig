@@ -164,6 +164,14 @@ config I2C_I801
 	  This driver can also be built as a module.  If so, the module
 	  will be called i2c-i801.
 
+config I2C_I801_MUX
+	def_bool I2C_I801
+	depends on DMI && I2C_MUX_GPIO
+	depends on !(I2C_I801=y && I2C_MUX=m)
+	help
+	  Optional support for multiplexed SMBUS on certain systems with
+	  more than 8 memory slots.
+
 config I2C_ISCH
 	tristate "Intel SCH SMBus 1.0"
 	depends on PCI
@@ -336,6 +344,16 @@ config I2C_VIAPRO
 	  will be called i2c-viapro.
 
 if ACPI
+
+config I2C_ZHAOXIN
+	tristate "Zhaoxin I2C Interface"
+	depends on PCI || COMPILE_TEST
+	help
+	  If you say yes to this option, support will be included for the
+	  ZHAOXIN I2C interface
+
+	  This driver can also be built as a module. If so, the module
+	  will be called i2c-zhaoxin.
 
 comment "ACPI drivers"
 
@@ -1265,6 +1283,17 @@ config I2C_DLN2
 
 	 This driver can also be built as a module.  If so, the module
 	 will be called i2c-dln2.
+
+config I2C_LJCA
+	tristate "I2C functionality of Intel La Jolla Cove Adapter"
+	depends on USB_LJCA
+	default USB_LJCA
+	help
+	  If you say yes to this option, I2C functionality support of Intel
+	  La Jolla Cove Adapter (LJCA) will be included.
+
+	  This driver can also be built as a module.  If so, the module
+	  will be called i2c-ljca.
 
 config I2C_CP2615
 	tristate "Silicon Labs CP2615 USB sound card and I2C adapter"
