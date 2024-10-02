@@ -431,6 +431,7 @@ static void
 ice_prepare_for_reset(struct ice_pf *pf)
 {
 	struct ice_hw *hw = &pf->hw;
+	struct ice_vsi *vsi;
 
 	/* already prepared for reset */
 	if (test_bit(__ICE_PREPARED_FOR_RESET, pf->state))
@@ -439,6 +440,10 @@ ice_prepare_for_reset(struct ice_pf *pf)
 	/* Notify VFs of impending reset */
 	if (ice_check_sq_alive(hw, &hw->mailboxq))
 		ice_vc_notify_reset(pf);
+
+	vsi = ice_find_vsi_by_type(pf, ICE_VSI_PF);
+	if (vsi && vsi->netdev)
+		netif_device_detach(vsi->netdev);
 
 	/* disable the VSIs and their queues that are not already DOWN */
 	ice_pf_dis_all_vsi(pf, false);
@@ -3735,6 +3740,7 @@ static int ice_vsi_replay_all(struct ice_pf *pf)
  */
 static void ice_rebuild(struct ice_pf *pf)
 {
+	struct ice_vsi *vsi = ice_find_vsi_by_type(pf, ICE_VSI_PF);
 	struct device *dev = &pf->pdev->dev;
 	struct ice_hw *hw = &pf->hw;
 	enum ice_status ret;
@@ -3812,6 +3818,9 @@ static void ice_rebuild(struct ice_pf *pf)
 		 */
 		goto err_vsi_rebuild;
 	}
+
+	if (vsi && vsi->netdev)
+		netif_device_attach(vsi->netdev);
 
 	ice_for_each_vsi(pf, i) {
 		bool link_up;
