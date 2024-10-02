@@ -191,9 +191,11 @@ struct nvmet_ctrl {
 	char			subsysnqn[NVMF_NQN_FIELD_LEN];
 	char			hostnqn[NVMF_NQN_FIELD_LEN];
 
+#ifndef __GENKSYMS__
 	spinlock_t		error_lock;
 	u64			err_counter;
 	struct nvme_error_slot	slots[NVMET_ERROR_LOG_SLOTS];
+#endif
 };
 
 struct nvmet_subsys {
@@ -307,8 +309,10 @@ struct nvmet_req {
 	void (*execute)(struct nvmet_req *req);
 	const struct nvmet_fabrics_ops *ops;
 
+#ifndef __GENKSYMS__
 	u16			error_loc;
 	u64			error_slba;
+#endif
 };
 
 extern struct workqueue_struct *buffered_io_wq;
