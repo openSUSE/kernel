@@ -1355,7 +1355,8 @@ static int device_kill_open_processes(struct hl_device *hdev, u32 timeout, bool 
 			 * we don't need to kill it.
 			 */
 			dev_dbg(hdev->dev,
-				"Can't get task struct for user process, assuming process was killed from outside the driver\n");
+				"Can't get task struct for user process %d, assuming process was killed from outside the driver\n",
+				pid_nr(hpriv->taskpid));
 		}
 	}
 
@@ -2441,14 +2442,14 @@ void hl_device_fini(struct hl_device *hdev)
 	hdev->process_kill_trial_cnt = 0;
 	rc = device_kill_open_processes(hdev, HL_WAIT_PROCESS_KILL_ON_DEVICE_FINI, false);
 	if (rc) {
-		dev_crit(hdev->dev, "Failed to kill all open processes\n");
+		dev_crit(hdev->dev, "Failed to kill all open processes (%d)\n", rc);
 		device_disable_open_processes(hdev, false);
 	}
 
 	hdev->process_kill_trial_cnt = 0;
 	rc = device_kill_open_processes(hdev, 0, true);
 	if (rc) {
-		dev_crit(hdev->dev, "Failed to kill all control device open processes\n");
+		dev_crit(hdev->dev, "Failed to kill all control device open processes (%d)\n", rc);
 		device_disable_open_processes(hdev, true);
 	}
 
