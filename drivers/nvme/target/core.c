@@ -667,13 +667,12 @@ bool nvmet_req_init(struct nvmet_req *req, struct nvmet_cq *cq,
 	req->sg = NULL;
 	req->sg_cnt = 0;
 	req->transfer_len = 0;
+	req->rsp->result.u64 = 0;
 	req->rsp->status = 0;
 	req->rsp->sq_head = 0;
 	req->ns = NULL;
-#ifndef __GENKSYMS__
 	req->error_loc = -1;
 	req->error_slba = 0;
-#endif
 
 	/* no support for fused commands yet */
 	if (unlikely(flags & (NVME_CMD_FUSE_FIRST | NVME_CMD_FUSE_SECOND))) {
@@ -1002,10 +1001,8 @@ u16 nvmet_alloc_ctrl(const char *subsysnqn, const char *hostnqn,
 	/* keep-alive timeout in seconds */
 	ctrl->kato = DIV_ROUND_UP(kato, 1000);
 
-#ifndef __GENKSYMS__
 	ctrl->err_counter = 0;
 	spin_lock_init(&ctrl->error_lock);
-#endif
 
 	nvmet_start_keep_alive_timer(ctrl);
 

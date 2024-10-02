@@ -1656,9 +1656,7 @@ static void nvme_tcp_destroy_admin_queue(struct nvme_ctrl *ctrl, bool remove)
 	if (remove) {
 		free_opal_dev(ctrl->opal_dev);
 		blk_cleanup_queue(ctrl->admin_q);
-#ifndef __GENKSYMS__
 		blk_cleanup_queue(ctrl->fabrics_q);
-#endif
 		blk_mq_free_tag_set(ctrl->admin_tagset);
 	}
 	nvme_tcp_free_admin_queue(ctrl);
@@ -1679,13 +1677,11 @@ static int nvme_tcp_configure_admin_queue(struct nvme_ctrl *ctrl, bool new)
 			goto out_free_queue;
 		}
 
-#ifndef __GENKSYMS__
 		ctrl->fabrics_q = blk_mq_init_queue(ctrl->admin_tagset);
 		if (IS_ERR(ctrl->fabrics_q)) {
 			error = PTR_ERR(ctrl->fabrics_q);
 			goto out_free_tagset;
 		}
-#endif
 
 		ctrl->admin_q = blk_mq_init_queue(ctrl->admin_tagset);
 		if (IS_ERR(ctrl->admin_q)) {
@@ -1725,10 +1721,8 @@ out_cleanup_queue:
 	if (new)
 		blk_cleanup_queue(ctrl->admin_q);
 out_cleanup_fabrics_q:
-#ifndef __GENKSYMS__
 	if (new)
 		blk_cleanup_queue(ctrl->fabrics_q);
-#endif
 out_free_tagset:
 	if (new)
 		blk_mq_free_tag_set(ctrl->admin_tagset);
