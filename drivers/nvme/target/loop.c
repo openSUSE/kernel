@@ -278,9 +278,7 @@ static void nvme_loop_destroy_admin_queue(struct nvme_loop_ctrl *ctrl)
 	clear_bit(NVME_LOOP_Q_LIVE, &ctrl->queues[0].flags);
 	nvmet_sq_destroy(&ctrl->queues[0].nvme_sq);
 	blk_cleanup_queue(ctrl->ctrl.admin_q);
-#ifndef __GENKSYMS__
 	blk_cleanup_queue(ctrl->ctrl.fabrics_q);
-#endif
 	blk_mq_free_tag_set(&ctrl->admin_tag_set);
 }
 
@@ -385,13 +383,11 @@ static int nvme_loop_configure_admin_queue(struct nvme_loop_ctrl *ctrl)
 		goto out_free_sq;
 	ctrl->ctrl.admin_tagset = &ctrl->admin_tag_set;
 
-#ifndef __GENKSYMS__
 	ctrl->ctrl.fabrics_q = blk_mq_init_queue(&ctrl->admin_tag_set);
 	if (IS_ERR(ctrl->ctrl.fabrics_q)) {
 		error = PTR_ERR(ctrl->ctrl.fabrics_q);
 		goto out_free_tagset;
 	}
-#endif
 
 	ctrl->ctrl.admin_q = blk_mq_init_queue(&ctrl->admin_tag_set);
 	if (IS_ERR(ctrl->ctrl.admin_q)) {
@@ -433,9 +429,7 @@ static int nvme_loop_configure_admin_queue(struct nvme_loop_ctrl *ctrl)
 out_cleanup_queue:
 	blk_cleanup_queue(ctrl->ctrl.admin_q);
 out_cleanup_fabrics_q:
-#ifndef __GENKSYMS__
 	blk_cleanup_queue(ctrl->ctrl.fabrics_q);
-#endif
 out_free_tagset:
 	blk_mq_free_tag_set(&ctrl->admin_tag_set);
 out_free_sq:
