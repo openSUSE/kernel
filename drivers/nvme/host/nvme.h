@@ -165,7 +165,6 @@ struct nvme_ctrl {
 	const struct nvme_ctrl_ops *ops;
 	struct request_queue *admin_q;
 	struct request_queue *connect_q;
-	struct request_queue *fabrics_q;
 	struct device *dev;
 	int instance;
 	int numa_node;
@@ -220,7 +219,6 @@ struct nvme_ctrl {
 	struct work_struct scan_work;
 	struct work_struct async_event_work;
 	struct delayed_work ka_work;
-	struct delayed_work failfast_work;
 	struct nvme_command ka_cmd;
 	struct work_struct fw_act_work;
 	unsigned long events;
@@ -255,9 +253,13 @@ struct nvme_ctrl {
 	u16 icdoff;
 	u16 maxcmd;
 	int nr_reconnects;
+	struct nvmf_ctrl_options *opts;
+#ifndef __GENKSYMS__
+	struct request_queue *fabrics_q;
+	struct delayed_work failfast_work;
 	unsigned long flags;
 #define NVME_CTRL_FAILFAST_EXPIRED	0
-	struct nvmf_ctrl_options *opts;
+#endif
 };
 
 enum nvme_iopolicy {
@@ -468,32 +470,16 @@ void nvme_start_freeze(struct nvme_ctrl *ctrl);
 
 #define NVME_QID_ANY -1
 struct request *nvme_alloc_request(struct request_queue *q,
-		struct nvme_command *cmd, blk_mq_req_flags_t flags);
-struct request *nvme_alloc_request_qid(struct request_queue *q,
 		struct nvme_command *cmd, blk_mq_req_flags_t flags, int qid);
 void nvme_cleanup_cmd(struct request *req);
 blk_status_t nvme_setup_cmd(struct nvme_ns *ns, struct request *req,
 		struct nvme_command *cmd);
-
-/*
- * Flags for __nvme_submit_sync_cmd()
- */
-typedef __u32 __bitwise nvme_submit_flags_t;
-
-enum {
-	/* Insert request at the head of the queue */
-	NVME_SUBMIT_AT_HEAD  = (__force nvme_submit_flags_t)(1 << 0),
-	/* Set BLK_MQ_REQ_NOWAIT when allocating request */
-	NVME_SUBMIT_NOWAIT = (__force nvme_submit_flags_t)(1 << 1),
-	/* Set BLK_MQ_REQ_RESERVED when allocating request */
-	NVME_SUBMIT_RESERVED = (__force nvme_submit_flags_t)(1 << 2),
-};
-
 int nvme_submit_sync_cmd(struct request_queue *q, struct nvme_command *cmd,
 		void *buf, unsigned bufflen);
 int __nvme_submit_sync_cmd(struct request_queue *q, struct nvme_command *cmd,
 		union nvme_result *result, void *buffer, unsigned bufflen,
-		int qid, nvme_submit_flags_t flags);
+		unsigned timeout, int qid, int at_head,
+		blk_mq_req_flags_t flags);
 int nvme_set_queue_count(struct nvme_ctrl *ctrl, int *count);
 void nvme_stop_keep_alive(struct nvme_ctrl *ctrl);
 int nvme_reset_ctrl(struct nvme_ctrl *ctrl);
