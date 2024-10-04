@@ -28,6 +28,7 @@ struct virtio_pci_modern_device {
 	/* So we can sanity-check accesses. */
 	size_t notify_len;
 	size_t device_len;
+	size_t common_len;
 
 	/* Capability for when we need to map notifications per-vq. */
 	int notify_map_cap;
