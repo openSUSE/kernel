@@ -731,7 +731,9 @@ static void nvme_rdma_destroy_admin_queue(struct nvme_rdma_ctrl *ctrl,
 {
 	if (remove) {
 		blk_cleanup_queue(ctrl->ctrl.admin_q);
+#ifndef __GENKSYMS__
 		blk_cleanup_queue(ctrl->ctrl.fabrics_q);
+#endif
 		blk_mq_free_tag_set(ctrl->ctrl.admin_tagset);
 	}
 	if (ctrl->async_event_sqe.data) {
@@ -773,11 +775,13 @@ static int nvme_rdma_configure_admin_queue(struct nvme_rdma_ctrl *ctrl,
 			goto out_free_async_qe;
 		}
 
+#ifndef __GENKSYMS__
 		ctrl->ctrl.fabrics_q = blk_mq_init_queue(&ctrl->admin_tag_set);
 		if (IS_ERR(ctrl->ctrl.fabrics_q)) {
 			error = PTR_ERR(ctrl->ctrl.fabrics_q);
 			goto out_free_tagset;
 		}
+#endif
 
 		ctrl->ctrl.admin_q = blk_mq_init_queue(&ctrl->admin_tag_set);
 		if (IS_ERR(ctrl->ctrl.admin_q)) {
@@ -826,8 +830,10 @@ out_cleanup_queue:
 	if (new)
 		blk_cleanup_queue(ctrl->ctrl.admin_q);
 out_cleanup_fabrics_q:
+#ifndef __GENKSYMS__
 	if (new)
 		blk_cleanup_queue(ctrl->ctrl.fabrics_q);
+#endif
 out_free_tagset:
 	if (new)
 		blk_mq_free_tag_set(ctrl->ctrl.admin_tagset);

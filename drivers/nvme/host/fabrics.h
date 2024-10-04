@@ -63,7 +63,9 @@ enum {
 	NVMF_OPT_DISABLE_SQFLOW = 1 << 14,
 	NVMF_OPT_HDR_DIGEST	= 1 << 15,
 	NVMF_OPT_DATA_DIGEST	= 1 << 16,
+#ifndef __GENKSYMS__
 	NVMF_OPT_FAIL_FAST_TMO  = 1 << 20,
+#endif
 };
 
 /**
@@ -111,7 +113,9 @@ struct nvmf_ctrl_options {
 	bool			disable_sqflow;
 	bool			hdr_digest;
 	bool			data_digest;
+#ifndef __GENKSYMS__
 	int			fast_io_fail_tmo;
+#endif
 };
 
 /*
