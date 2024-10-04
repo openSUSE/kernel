@@ -5666,7 +5666,7 @@ static void mem_cgroup_css_rstat_flush(struct cgroup_subsys_state *css, int cpu)
 
 		lstatc = per_cpu_ptr(pn->lruvec_stats_percpu, cpu);
 
-		for (i = 0; i < NR_VM_NODE_STAT_ITEMS_USED; i++) {
+		for (i = 0; i < NR_VM_NODE_STAT_ITEMS; i++) {
 			delta = pn->lruvec_stats.state_pending[i];
 			if (delta)
 				pn->lruvec_stats.state_pending[i] = 0;

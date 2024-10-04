@@ -169,7 +169,7 @@ EXPORT_SYMBOL(vm_node_stat);
 #ifdef CONFIG_NUMA
 static void fold_vm_zone_numa_events(struct zone *zone)
 {
-	unsigned long zone_numa_events[NR_VM_NUMA_EVENT_ITEMS_USED] = { 0, };
+	unsigned long zone_numa_events[NR_VM_NUMA_EVENT_ITEMS] = { 0, };
 	int cpu;
 	enum numa_stat_item item;
 
@@ -177,11 +177,11 @@ static void fold_vm_zone_numa_events(struct zone *zone)
 		struct per_cpu_zonestat *pzstats;
 
 		pzstats = per_cpu_ptr(zone->per_cpu_zonestats, cpu);
-		for (item = 0; item < NR_VM_NUMA_EVENT_ITEMS_USED; item++)
+		for (item = 0; item < NR_VM_NUMA_EVENT_ITEMS; item++)
 			zone_numa_events[item] += xchg(&pzstats->vm_numa_event[item], 0);
 	}
 
-	for (item = 0; item < NR_VM_NUMA_EVENT_ITEMS_USED; item++)
+	for (item = 0; item < NR_VM_NUMA_EVENT_ITEMS; item++)
 		zone_numa_event_add(zone_numa_events[item], zone, item);
 }
 
@@ -774,13 +774,13 @@ static int fold_diff(int *zone_diff, int *node_diff)
 	int i;
 	int changes = 0;
 
-	for (i = 0; i < NR_VM_ZONE_STAT_ITEMS_USED; i++)
+	for (i = 0; i < NR_VM_ZONE_STAT_ITEMS; i++)
 		if (zone_diff[i]) {
 			atomic_long_add(zone_diff[i], &vm_zone_stat[i]);
 			changes++;
 	}
 
-	for (i = 0; i < NR_VM_NODE_STAT_ITEMS_USED; i++)
+	for (i = 0; i < NR_VM_NODE_STAT_ITEMS; i++)
 		if (node_diff[i]) {
 			atomic_long_add(node_diff[i], &vm_node_stat[i]);
 			changes++;
@@ -809,8 +809,8 @@ static int refresh_cpu_vm_stats(bool do_pagesets)
 	struct pglist_data *pgdat;
 	struct zone *zone;
 	int i;
-	int global_zone_diff[NR_VM_ZONE_STAT_ITEMS_USED] = { 0, };
-	int global_node_diff[NR_VM_NODE_STAT_ITEMS_USED] = { 0, };
+	int global_zone_diff[NR_VM_ZONE_STAT_ITEMS] = { 0, };
+	int global_node_diff[NR_VM_NODE_STAT_ITEMS] = { 0, };
 	int changes = 0;
 
 	for_each_populated_zone(zone) {
@@ -819,7 +819,7 @@ static int refresh_cpu_vm_stats(bool do_pagesets)
 		struct per_cpu_pages __percpu *pcp = zone->per_cpu_pageset;
 #endif
 
-		for (i = 0; i < NR_VM_ZONE_STAT_ITEMS_USED; i++) {
+		for (i = 0; i < NR_VM_ZONE_STAT_ITEMS; i++) {
 			int v;
 
 			v = this_cpu_xchg(pzstats->vm_stat_diff[i], 0);
@@ -870,7 +870,7 @@ static int refresh_cpu_vm_stats(bool do_pagesets)
 	for_each_online_pgdat(pgdat) {
 		struct per_cpu_nodestat __percpu *p = pgdat->per_cpu_nodestats;
 
-		for (i = 0; i < NR_VM_NODE_STAT_ITEMS_USED; i++) {
+		for (i = 0; i < NR_VM_NODE_STAT_ITEMS; i++) {
 			int v;
 
 			v = this_cpu_xchg(p->vm_node_stat_diff[i], 0);
@@ -895,15 +895,15 @@ void cpu_vm_stats_fold(int cpu)
 	struct pglist_data *pgdat;
 	struct zone *zone;
 	int i;
-	int global_zone_diff[NR_VM_ZONE_STAT_ITEMS_USED] = { 0, };
-	int global_node_diff[NR_VM_NODE_STAT_ITEMS_USED] = { 0, };
+	int global_zone_diff[NR_VM_ZONE_STAT_ITEMS] = { 0, };
+	int global_node_diff[NR_VM_NODE_STAT_ITEMS] = { 0, };
 
 	for_each_populated_zone(zone) {
 		struct per_cpu_zonestat *pzstats;
 
 		pzstats = per_cpu_ptr(zone->per_cpu_zonestats, cpu);
 
-		for (i = 0; i < NR_VM_ZONE_STAT_ITEMS_USED; i++) {
+		for (i = 0; i < NR_VM_ZONE_STAT_ITEMS; i++) {
 			if (pzstats->vm_stat_diff[i]) {
 				int v;
 
@@ -914,7 +914,7 @@ void cpu_vm_stats_fold(int cpu)
 			}
 		}
 #ifdef CONFIG_NUMA
-		for (i = 0; i < NR_VM_NUMA_EVENT_ITEMS_USED; i++) {
+		for (i = 0; i < NR_VM_NUMA_EVENT_ITEMS; i++) {
 			if (pzstats->vm_numa_event[i]) {
 				unsigned long v;
 
@@ -931,7 +931,7 @@ void cpu_vm_stats_fold(int cpu)
 
 		p = per_cpu_ptr(pgdat->per_cpu_nodestats, cpu);
 
-		for (i = 0; i < NR_VM_NODE_STAT_ITEMS_USED; i++)
+		for (i = 0; i < NR_VM_NODE_STAT_ITEMS; i++)
 			if (p->vm_node_stat_diff[i]) {
 				int v;
 
@@ -954,7 +954,7 @@ void drain_zonestat(struct zone *zone, struct per_cpu_zonestat *pzstats)
 	unsigned long v;
 	int i;
 
-	for (i = 0; i < NR_VM_ZONE_STAT_ITEMS_USED; i++) {
+	for (i = 0; i < NR_VM_ZONE_STAT_ITEMS; i++) {
 		if (pzstats->vm_stat_diff[i]) {
 			v = pzstats->vm_stat_diff[i];
 			pzstats->vm_stat_diff[i] = 0;
@@ -963,7 +963,7 @@ void drain_zonestat(struct zone *zone, struct per_cpu_zonestat *pzstats)
 	}
 
 #ifdef CONFIG_NUMA
-	for (i = 0; i < NR_VM_NUMA_EVENT_ITEMS_USED; i++) {
+	for (i = 0; i < NR_VM_NUMA_EVENT_ITEMS; i++) {
 		if (pzstats->vm_numa_event[i]) {
 			v = pzstats->vm_numa_event[i];
 			pzstats->vm_numa_event[i] = 0;
@@ -1166,8 +1166,6 @@ int fragmentation_index(struct zone *zone, unsigned int order)
 					TEXT_FOR_HIGHMEM(xx) xx "_movable", \
 					TEXT_FOR_DEVICE(xx)
 
-static const char vmstat_text_unused[] = "unused_counter";
-
 const char * const vmstat_text[] = {
 	/* enum zone_stat_item counters */
 	"nr_free_pages",
@@ -1186,8 +1184,6 @@ const char * const vmstat_text[] = {
 #ifdef CONFIG_UNACCEPTED_MEMORY
 	"nr_unaccepted",
 #endif
-	vmstat_text_unused, /*SUSE_KABI_ZONE_STAT_PADDING1*/
-	vmstat_text_unused, /*SUSE_KABI_ZONE_STAT_PADDING2*/
 
 	/* enum numa_stat_item counters */
 #ifdef CONFIG_NUMA
@@ -1197,8 +1193,6 @@ const char * const vmstat_text[] = {
 	"numa_interleave",
 	"numa_local",
 	"numa_other",
-	vmstat_text_unused, /*SUSE_KABI_NUMA_STAT_PADDING1*/
-	vmstat_text_unused, /*SUSE_KABI_NUMA_STAT_PADDING2*/
 #endif
 
 	/* enum node_stat_item counters */
@@ -1252,11 +1246,6 @@ const char * const vmstat_text[] = {
 	"pgpromote_success",
 	"pgpromote_candidate",
 #endif
-	vmstat_text_unused, /*SUSE_KABI_NODE_STAT_PADDING1*/
-	vmstat_text_unused, /*SUSE_KABI_NODE_STAT_PADDING2*/
-	vmstat_text_unused, /*SUSE_KABI_NODE_STAT_PADDING3*/
-	vmstat_text_unused, /*SUSE_KABI_NODE_STAT_PADDING4*/
-	vmstat_text_unused, /*SUSE_KABI_NODE_STAT_PADDING5*/
 
 	/* enum writeback_stat_item counters */
 	"nr_dirty_threshold",
@@ -1688,7 +1677,7 @@ static void zoneinfo_show_print(struct seq_file *m, pg_data_t *pgdat,
 	seq_printf(m, "Node %d, zone %8s", pgdat->node_id, zone->name);
 	if (is_zone_first_populated(pgdat, zone)) {
 		seq_printf(m, "\n  per-node stats");
-		for (i = 0; i < NR_VM_NODE_STAT_ITEMS_USED; i++) {
+		for (i = 0; i < NR_VM_NODE_STAT_ITEMS; i++) {
 			unsigned long pages = node_page_state_pages(pgdat, i);
 
 			if (vmstat_item_print_in_thp(i))
@@ -1730,12 +1719,12 @@ static void zoneinfo_show_print(struct seq_file *m, pg_data_t *pgdat,
 		return;
 	}
 
-	for (i = 0; i < NR_VM_ZONE_STAT_ITEMS_USED; i++)
+	for (i = 0; i < NR_VM_ZONE_STAT_ITEMS; i++)
 		seq_printf(m, "\n      %-12s %lu", zone_stat_name(i),
 			   zone_page_state(zone, i));
 
 #ifdef CONFIG_NUMA
-	for (i = 0; i < NR_VM_NUMA_EVENT_ITEMS_USED; i++)
+	for (i = 0; i < NR_VM_NUMA_EVENT_ITEMS; i++)
 		seq_printf(m, "\n      %-12s %lu", numa_stat_name(i),
 			   zone_numa_event_state(zone, i));
 #endif
@@ -1811,17 +1800,17 @@ static void *vmstat_start(struct seq_file *m, loff_t *pos)
 	m->private = v;
 	if (!v)
 		return ERR_PTR(-ENOMEM);
-	for (i = 0; i < NR_VM_ZONE_STAT_ITEMS_USED; i++)
+	for (i = 0; i < NR_VM_ZONE_STAT_ITEMS; i++)
 		v[i] = global_zone_page_state(i);
 	v += NR_VM_ZONE_STAT_ITEMS;
 
 #ifdef CONFIG_NUMA
-	for (i = 0; i < NR_VM_NUMA_EVENT_ITEMS_USED; i++)
+	for (i = 0; i < NR_VM_NUMA_EVENT_ITEMS; i++)
 		v[i] = global_numa_event_state(i);
 	v += NR_VM_NUMA_EVENT_ITEMS;
 #endif
 
-	for (i = 0; i < NR_VM_NODE_STAT_ITEMS_USED; i++) {
+	for (i = 0; i < NR_VM_NODE_STAT_ITEMS; i++) {
 		v[i] = global_node_page_state_pages(i);
 		if (vmstat_item_print_in_thp(i))
 			v[i] /= HPAGE_PMD_NR;
@@ -1852,9 +1841,6 @@ static int vmstat_show(struct seq_file *m, void *arg)
 {
 	unsigned long *l = arg;
 	unsigned long off = l - (unsigned long *)m->private;
-
-	if (vmstat_text[off] == vmstat_text_unused)
-		return 0;
 
 	seq_puts(m, vmstat_text[off]);
 	seq_put_decimal_ull(m, " ", *l);
@@ -1916,7 +1902,7 @@ int vmstat_refresh(struct ctl_table *table, int write,
 	err = schedule_on_each_cpu(refresh_vm_stats);
 	if (err)
 		return err;
-	for (i = 0; i < NR_VM_ZONE_STAT_ITEMS_USED; i++) {
+	for (i = 0; i < NR_VM_ZONE_STAT_ITEMS; i++) {
 		/*
 		 * Skip checking stats known to go negative occasionally.
 		 */
@@ -1931,7 +1917,7 @@ int vmstat_refresh(struct ctl_table *table, int write,
 				__func__, zone_stat_name(i), val);
 		}
 	}
-	for (i = 0; i < NR_VM_NODE_STAT_ITEMS_USED; i++) {
+	for (i = 0; i < NR_VM_NODE_STAT_ITEMS; i++) {
 		/*
 		 * Skip checking stats known to go negative occasionally.
 		 */
