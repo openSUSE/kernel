@@ -6137,6 +6137,13 @@ void __init workqueue_init_early(void)
 
 	pwq_cache = KMEM_CACHE(pool_workqueue, SLAB_PANIC);
 
+	/*
+	 * If nohz_full is enabled, set power efficient workqueue as unbound.
+	 * This allows workqueue items to be moved to HK CPUs.
+	 */
+	if (housekeeping_enabled(HK_FLAG_TICK))
+		wq_power_efficient = true;
+
 	/* initialize CPU pools */
 	for_each_possible_cpu(cpu) {
 		struct worker_pool *pool;
