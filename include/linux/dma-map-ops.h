@@ -10,6 +10,7 @@
 #include <linux/pgtable.h>
 
 struct cma;
+struct iommu_ops;
 
 /*
  * Values for struct dma_map_ops.flags:
