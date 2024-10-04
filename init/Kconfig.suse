@@ -19,8 +19,8 @@ config SUSE_PRODUCT_OPENSUSE_LEAP
 config SUSE_PRODUCT_OPENSUSE_TUMBLEWEED
 	bool "openSUSE Tumbleweed"
 
-config SUSE_PRODUCT_ALP
-	bool "SUSE Adaptable Linux Platform"
+config SUSE_PRODUCT_SLFO
+	bool "SUSE Linux Framework One"
 endchoice
 
 config SUSE_PRODUCT_CODE
@@ -29,7 +29,7 @@ config SUSE_PRODUCT_CODE
 	default 1 if SUSE_PRODUCT_SLE
 	default 2 if SUSE_PRODUCT_OPENSUSE_LEAP
 	default 3 if SUSE_PRODUCT_OPENSUSE_TUMBLEWEED
-	default 4 if SUSE_PRODUCT_ALP
+	default 4 if SUSE_PRODUCT_SLFO
 
 if SUSE_PRODUCT_SLE
 config SUSE_VERSION
@@ -69,7 +69,7 @@ config SUSE_PATCHLEVEL
 	default 0
 endif
 
-if SUSE_PRODUCT_ALP
+if SUSE_PRODUCT_SLFO
 config SUSE_VERSION
 	int "Release Major Version"
 	range 0 255
