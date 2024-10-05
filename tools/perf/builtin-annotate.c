@@ -93,6 +93,7 @@ static void process_basic_block(struct addr_map_symbol *start,
 	struct annotation *notes = sym ? symbol__annotation(sym) : NULL;
 	struct block_range_iter iter;
 	struct block_range *entry;
+	struct annotated_branch *branch;
 
 	/*
 	 * Sanity; NULL isn't executable and the CPU cannot execute backwards
@@ -103,6 +104,8 @@ static void process_basic_block(struct addr_map_symbol *start,
 	iter = block_range__create(start->addr, end->addr);
 	if (!block_range_iter__valid(&iter))
 		return;
+
+	branch = annotation__get_branch(notes);
 
 	/*
 	 * First block in range is a branch target.
@@ -117,8 +120,8 @@ static void process_basic_block(struct addr_map_symbol *start,
 		entry->coverage++;
 		entry->sym = sym;
 
-		if (notes)
-			notes->max_coverage = max(notes->max_coverage, entry->coverage);
+		if (branch)
+			branch->max_coverage = max(branch->max_coverage, entry->coverage);
 
 	} while (block_range_iter__next(&iter));
 

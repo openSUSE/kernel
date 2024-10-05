@@ -949,7 +949,7 @@ static int __symbol__inc_addr_samples(struct map_symbol *ms,
 	return 0;
 }
 
-static struct annotated_branch *annotation__get_branch(struct annotation *notes)
+struct annotated_branch *annotation__get_branch(struct annotation *notes)
 {
 	if (notes == NULL)
 		return NULL;
