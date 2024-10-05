@@ -185,7 +185,7 @@
 
 /*
  * Auxiliary flags: Linux defined - For features scattered in various
- * CPUID levels like 0x6, 0xA etc, word 7.
+ * CPUID levels like 0x80000022, etc and Linux defined features.
  *
  * Reuse free bits when adding new feature flags!
  */
