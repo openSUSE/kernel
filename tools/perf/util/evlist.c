@@ -298,7 +298,8 @@ struct evsel *evlist__add_aux_dummy(struct evlist *evlist, bool system_wide)
 #ifdef HAVE_LIBTRACEEVENT
 struct evsel *evlist__add_sched_switch(struct evlist *evlist, bool system_wide)
 {
-	struct evsel *evsel = evsel__newtp_idx("sched", "sched_switch", 0);
+	struct evsel *evsel = evsel__newtp_idx("sched", "sched_switch", 0,
+					       /*format=*/true);
 
 	if (IS_ERR(evsel))
 		return evsel;
@@ -1063,7 +1064,7 @@ int evlist__create_maps(struct evlist *evlist, struct target *target)
 		return -1;
 
 	if (target__uses_dummy_map(target))
-		cpus = perf_cpu_map__dummy_new();
+		cpus = perf_cpu_map__new_any_cpu();
 	else
 		cpus = perf_cpu_map__new(target->cpu_list);
 
@@ -1359,7 +1360,7 @@ static int evlist__create_syswide_maps(struct evlist *evlist)
 	 * error, and we may not want to do that fallback to a
 	 * default cpu identity map :-\
 	 */
-	cpus = perf_cpu_map__new(NULL);
+	cpus = perf_cpu_map__new_online_cpus();
 	if (!cpus)
 		goto out;
 
@@ -2528,9 +2529,8 @@ void evlist__warn_user_requested_cpus(struct evlist *evlist, const char *cpu_lis
 
 void evlist__uniquify_name(struct evlist *evlist)
 {
+	char *new_name, empty_attributes[2] = ":", *attributes;
 	struct evsel *pos;
-	char *new_name;
-	int ret;
 
 	if (perf_pmus__num_core_pmus() == 1)
 		return;
@@ -2542,11 +2542,17 @@ void evlist__uniquify_name(struct evlist *evlist)
 		if (strchr(pos->name, '/'))
 			continue;
 
-		ret = asprintf(&new_name, "%s/%s/",
-			       pos->pmu_name, pos->name);
-		if (ret) {
+		attributes = strchr(pos->name, ':');
+		if (attributes)
+			*attributes = '\0';
+		else
+			attributes = empty_attributes;
+
+		if (asprintf(&new_name, "%s/%s/%s", pos->pmu_name, pos->name, attributes + 1)) {
 			free(pos->name);
 			pos->name = new_name;
+		} else {
+			*attributes = ':';
 		}
 	}
 }
