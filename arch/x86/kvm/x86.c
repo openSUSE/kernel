@@ -5168,12 +5168,15 @@ long kvm_arch_vcpu_ioctl(struct file *filp,
 	}
 	case KVM_SET_VCPU_EVENTS: {
 		struct kvm_vcpu_events events;
+		int idx;
 
 		r = -EFAULT;
 		if (copy_from_user(&events, argp, sizeof(struct kvm_vcpu_events)))
 			break;
 
+		idx = srcu_read_lock(&vcpu->kvm->srcu);
 		r = kvm_vcpu_ioctl_x86_set_vcpu_events(vcpu, &events);
+		srcu_read_unlock(&vcpu->kvm->srcu, idx);
 		break;
 	}
 	case KVM_GET_DEBUGREGS: {

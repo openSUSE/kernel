@@ -45,3 +45,21 @@ fallback:
 	blk_mq_clear_mq_map(qmap);
 }
 EXPORT_SYMBOL_GPL(blk_mq_pci_map_queues);
+
+/**
+ * blk_mq_pci_get_queue_affinity - get affinity mask queue mapping for PCI device
+ * @dev_data:	Pointer to struct pci_dev.
+ * @offset:	Offset to use for the pci irq vector
+ * @queue:	Queue index
+ *
+ * This function returns for a queue the affinity mask for a PCI device.
+ * It is usually used as callback for blk_mq_dev_map_queues().
+ */
+const struct cpumask *blk_mq_pci_get_queue_affinity(void *dev_data, int offset,
+						    int queue)
+{
+	struct pci_dev *pdev = dev_data;
+
+	return pci_irq_get_affinity(pdev, offset + queue);
+}
+EXPORT_SYMBOL_GPL(blk_mq_pci_get_queue_affinity);

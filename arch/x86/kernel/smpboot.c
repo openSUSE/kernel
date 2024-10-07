@@ -57,6 +57,7 @@
 #include <linux/pgtable.h>
 #include <linux/overflow.h>
 #include <linux/syscore_ops.h>
+#include <linux/acpi.h>
 
 #include <asm/acpi.h>
 #include <asm/desc.h>
