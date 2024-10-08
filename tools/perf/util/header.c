@@ -2147,6 +2147,14 @@ static void print_pmu_caps(struct feat_fd *ff, FILE *fp)
 		__print_pmu_caps(fp, pmu_caps->nr_caps, pmu_caps->caps,
 				 pmu_caps->pmu_name);
 	}
+
+	if (strcmp(perf_env__arch(&ff->ph->env), "x86") == 0 &&
+	    perf_env__has_pmu_mapping(&ff->ph->env, "ibs_op")) {
+		char *max_precise = perf_env__find_pmu_cap(&ff->ph->env, "cpu", "max_precise");
+
+		if (max_precise != NULL && atoi(max_precise) == 0)
+			fprintf(fp, "# AMD systems uses ibs_op// PMU for some precise events, e.g.: cycles:p, see the 'perf list' man page for further details.\n");
+	}
 }
 
 static void print_pmu_mappings(struct feat_fd *ff, FILE *fp)
@@ -2300,7 +2308,7 @@ static int __event_process_build_id(struct perf_record_header_build_id *bev,
 
 		build_id__init(&bid, bev->data, size);
 		dso__set_build_id(dso, &bid);
-		dso->header_build_id = 1;
+		dso__set_header_build_id(dso, true);
 
 		if (dso_space != DSO_SPACE__USER) {
 			struct kmod_path m = { .name = NULL, };
@@ -2308,13 +2316,13 @@ static int __event_process_build_id(struct perf_record_header_build_id *bev,
 			if (!kmod_path__parse_name(&m, filename) && m.kmod)
 				dso__set_module_info(dso, &m, machine);
 
-			dso->kernel = dso_space;
+			dso__set_kernel(dso, dso_space);
 			free(m.name);
 		}
 
-		build_id__sprintf(&dso->bid, sbuild_id);
+		build_id__sprintf(dso__bid(dso), sbuild_id);
 		pr_debug("build id event received for %s: %s [%zu]\n",
-			 dso->long_name, sbuild_id, size);
+			 dso__long_name(dso), sbuild_id, size);
 		dso__put(dso);
 	}
 
