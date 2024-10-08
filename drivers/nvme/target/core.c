@@ -667,6 +667,7 @@ bool nvmet_req_init(struct nvmet_req *req, struct nvmet_cq *cq,
 	req->sg = NULL;
 	req->sg_cnt = 0;
 	req->transfer_len = 0;
+	req->rsp->result.u64 = 0;
 	req->rsp->status = 0;
 	req->rsp->sq_head = 0;
 	req->ns = NULL;
