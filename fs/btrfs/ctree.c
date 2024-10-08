@@ -266,7 +266,6 @@ static noinline int update_ref_for_cow(struct btrfs_trans_handle *trans,
 	u64 refs;
 	u64 owner;
 	u64 flags;
-	u64 new_flags = 0;
 	int ret;
 
 	/*
@@ -307,8 +306,16 @@ static noinline int update_ref_for_cow(struct btrfs_trans_handle *trans,
 	}
 
 	owner = btrfs_header_owner(buf);
-	BUG_ON(owner == BTRFS_TREE_RELOC_OBJECTID &&
-	       !(flags & BTRFS_BLOCK_FLAG_FULL_BACKREF));
+	if (unlikely(owner == BTRFS_TREE_RELOC_OBJECTID &&
+		     !(flags & BTRFS_BLOCK_FLAG_FULL_BACKREF))) {
+		btrfs_crit(fs_info,
+"found tree block at bytenr %llu level %d root %llu refs %llu flags %llx without full backref flag set",
+			   buf->start, btrfs_header_level(buf),
+			   btrfs_root_id(root), refs, flags);
+		ret = -EUCLEAN;
+		btrfs_abort_transaction(trans, ret);
+		return ret;
+	}
 
 	if (refs > 1) {
 		if ((owner == root->root_key.objectid ||
@@ -327,7 +334,10 @@ static noinline int update_ref_for_cow(struct btrfs_trans_handle *trans,
 				if (ret)
 					return ret;
 			}
-			new_flags |= BTRFS_BLOCK_FLAG_FULL_BACKREF;
+			ret = btrfs_set_disk_extent_flags(trans, buf,
+						  BTRFS_BLOCK_FLAG_FULL_BACKREF);
+			if (ret)
+				return ret;
 		} else {
 
 			if (root->root_key.objectid ==
@@ -335,14 +345,6 @@ static noinline int update_ref_for_cow(struct btrfs_trans_handle *trans,
 				ret = btrfs_inc_ref(trans, root, cow, 1);
 			else
 				ret = btrfs_inc_ref(trans, root, cow, 0);
-			if (ret)
-				return ret;
-		}
-		if (new_flags != 0) {
-			int level = btrfs_header_level(buf);
-
-			ret = btrfs_set_disk_extent_flags(trans, buf,
-							  new_flags, level, 0);
 			if (ret)
 				return ret;
 		}

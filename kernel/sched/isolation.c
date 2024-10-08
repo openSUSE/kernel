@@ -30,7 +30,17 @@ int housekeeping_any_cpu(enum hk_flags flags)
 			if (cpu < nr_cpu_ids)
 				return cpu;
 
-			return cpumask_any_and(housekeeping_mask, cpu_online_mask);
+			cpu = cpumask_any_and(housekeeping_mask, cpu_online_mask);
+			if (likely(cpu < nr_cpu_ids))
+				return cpu;
+			/*
+			 * Unless we have another problem this can only happen
+			 * at boot time before start_secondary() brings the 1st
+			 * housekeeping CPU up.
+			 */
+			WARN_ON_ONCE(system_state == SYSTEM_RUNNING ||
+				     flags != HK_FLAG_TIMER);
+
 		}
 	}
 	return smp_processor_id();

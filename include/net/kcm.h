@@ -81,6 +81,9 @@ struct kcm_sock {
 	struct list_head wait_rx_list; /* KCMs waiting for receiving */
 	bool rx_wait;
 	u32 rx_disabled : 1;
+#ifndef __GENKSYMS__
+	struct mutex tx_mutex;
+#endif
 };
 
 struct bpf_prog;

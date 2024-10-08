@@ -99,6 +99,13 @@ static inline void local_flush_all_mm(struct mm_struct *mm)
 	return hash__local_flush_all_mm(mm);
 }
 
+static inline void local_flush_tlb_page_psize(struct mm_struct *mm,
+					      unsigned long vmaddr, int psize)
+{
+	if (radix_enabled())
+		radix__local_flush_tlb_page_psize(mm, vmaddr, psize);
+}
+
 static inline void tlb_flush(struct mmu_gather *tlb)
 {
 	if (radix_enabled())

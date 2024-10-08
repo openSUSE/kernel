@@ -114,10 +114,6 @@ int nf_conntrack_udp_packet(struct nf_conn *ct,
 
 		nf_ct_refresh_acct(ct, ctinfo, skb, extra);
 
-		/* never set ASSURED for IPS_NAT_CLASH, they time out soon */
-		if (unlikely((ct->status & IPS_NAT_CLASH)))
-			return NF_ACCEPT;
-
 		/* Also, more likely to be important, and not a probe */
 		if (stream && !test_and_set_bit(IPS_ASSURED_BIT, &ct->status))
 			nf_conntrack_event_cache(IPCT_ASSURED, ct);

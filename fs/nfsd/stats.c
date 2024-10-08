@@ -84,7 +84,7 @@ static const struct proc_ops nfsd_proc_ops = {
 	.proc_release	= single_release,
 };
 
-int nfsd_percpu_counters_init(struct percpu_counter counters[], int num)
+int nfsd_percpu_counters_init(struct percpu_counter *counters, int num)
 {
 	int i, err = 0;
 

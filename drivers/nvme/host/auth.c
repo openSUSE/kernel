@@ -80,8 +80,7 @@ static int nvme_auth_submit(struct nvme_ctrl *ctrl, int qid,
 
 retry:
 	ret = __nvme_submit_sync_cmd(q, &cmd, NULL, data, data_len,
-				     qid == 0 ? NVME_QID_ANY : qid,
-				     0, flags);
+				     qid == 0 ? NVME_QID_ANY : qid, flags);
 	if (ret > 0) {
 		if (!(ret & NVME_SC_DNR) && --retries)
 			goto retry;
