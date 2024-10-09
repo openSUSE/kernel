@@ -68,7 +68,6 @@ struct hx8394 {
 	struct gpio_desc *reset_gpio;
 	struct regulator *vcc;
 	struct regulator *iovcc;
-	bool prepared;
 
 	const struct hx8394_panel_desc *desc;
 };
@@ -261,15 +260,10 @@ static int hx8394_unprepare(struct drm_panel *panel)
 {
 	struct hx8394 *ctx = panel_to_hx8394(panel);
 
-	if (!ctx->prepared)
-		return 0;
-
 	gpiod_set_value_cansleep(ctx->reset_gpio, 1);
 
 	regulator_disable(ctx->iovcc);
 	regulator_disable(ctx->vcc);
-
-	ctx->prepared = false;
 
 	return 0;
 }
@@ -278,9 +272,6 @@ static int hx8394_prepare(struct drm_panel *panel)
 {
 	struct hx8394 *ctx = panel_to_hx8394(panel);
 	int ret;
-
-	if (ctx->prepared)
-		return 0;
 
 	gpiod_set_value_cansleep(ctx->reset_gpio, 1);
 
@@ -299,8 +290,6 @@ static int hx8394_prepare(struct drm_panel *panel)
 	gpiod_set_value_cansleep(ctx->reset_gpio, 0);
 
 	msleep(180);
-
-	ctx->prepared = true;
 
 	return 0;
 
