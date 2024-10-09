@@ -2670,6 +2670,12 @@ static int amdgpu_device_ip_init(struct amdgpu_device *adev)
 					goto init_failed;
 				}
 			}
+
+			r = amdgpu_seq64_init(adev);
+			if (r) {
+				DRM_ERROR("allocate seq64 failed %d\n", r);
+				goto init_failed;
+			}
 		}
 	}
 
@@ -3132,6 +3138,7 @@ static int amdgpu_device_ip_fini(struct amdgpu_device *adev)
 			amdgpu_device_wb_fini(adev);
 			amdgpu_device_mem_scratch_fini(adev);
 			amdgpu_ib_pool_fini(adev);
+			amdgpu_seq64_fini(adev);
 		}
 
 		r = adev->ip_blocks[i].version->funcs->sw_fini((void *)adev);
