@@ -363,7 +363,9 @@ struct kvm_vcpu_arch {
 	/* Don't run the guest (internal implementation need) */
 	bool pause;
 
+#ifndef __GENKSYMS__
 	bool	guest_debug_preserved_pstate_ss;
+#endif
 
 	/* Cache some mmu pages needed inside spinlock regions */
 	struct kvm_mmu_memory_cache mmu_page_cache;
