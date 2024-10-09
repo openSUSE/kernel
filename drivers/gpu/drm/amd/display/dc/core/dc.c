@@ -1522,7 +1522,7 @@ static void program_timing_sync(
 
 		}
 
-		/* remove any other pipes that are already been synced */
+		/* remove any other unblanked pipes as they have already been synced */
 		if (dc->config.use_pipe_ctx_sync_logic) {
 			/* check pipe's syncd to decide which pipe to be removed */
 			for (j = 1; j < group_size; j++) {
@@ -1535,6 +1535,7 @@ static void program_timing_sync(
 					pipe_set[j]->pipe_idx_syncd = pipe_set[0]->pipe_idx_syncd;
 			}
 		} else {
+			/* remove any other pipes by checking valid plane */
 			for (j = j + 1; j < group_size; j++) {
 				bool is_blanked;
 
