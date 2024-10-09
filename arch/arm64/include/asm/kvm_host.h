@@ -125,6 +125,16 @@ struct kvm_arch {
 	bool return_nisv_io_abort_to_user;
 
 	/*
+	 * The following two flags are used to indicate the guest's EL1
+	 * register width configuration. The value of el1_32bit
+	 * is valid only when reg_width_configured is set.
+	 * Otherwise, the guest's EL1 register width has not yet been
+	 * determined yet.
+	 */
+	bool el1_32bit;
+	bool reg_width_configured;
+
+	/*
 	 * VM-wide PMU filter, implemented as a bitmap and big enough for
 	 * up to 2^10 events (ARMv8.0) or 2^16 events (ARMv8.1+).
 	 */

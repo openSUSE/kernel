@@ -166,27 +166,51 @@ static int kvm_vcpu_enable_ptrauth(struct kvm_vcpu *vcpu)
 	return 0;
 }
 
-static bool vcpu_allowed_register_width(struct kvm_vcpu *vcpu)
+/**
+ * kvm_set_vm_width() - set the register width for the guest
+ * @vcpu: Pointer to the vcpu being configured
+ *
+ * Set both el1_32bit and reg_width_configured
+ * based on the vcpu's requested register width, the HW
+ * capabilities and other options (such as MTE).
+ * When reg_width_configured is already set, the vcpu settings must be
+ * consistent with the value of el1_32bit.
+ *
+ * Return: 0 on success, negative error code on failure.
+ */
+static int kvm_set_vm_width(struct kvm_vcpu *vcpu)
 {
-	struct kvm_vcpu *tmp;
+	struct kvm *kvm = vcpu->kvm;
 	bool is32bit;
-	int i;
 
 	is32bit = vcpu_has_feature(vcpu, KVM_ARM_VCPU_EL1_32BIT);
-	if (!cpus_have_const_cap(ARM64_HAS_32BIT_EL1) && is32bit)
-		return false;
 
-	/* MTE is incompatible with AArch32 */
-	if (kvm_has_mte(vcpu->kvm) && is32bit)
-		return false;
+	lockdep_assert_held(&kvm->lock);
 
-	/* Check that the vcpus are either all 32bit or all 64bit */
-	kvm_for_each_vcpu(i, tmp, vcpu->kvm) {
-		if (vcpu_has_feature(tmp, KVM_ARM_VCPU_EL1_32BIT) != is32bit)
-			return false;
+	if (kvm->arch.reg_width_configured) {
+		/*
+		 * The guest's register width is already configured.
+		 * Make sure that the vcpu is consistent with it.
+		 */
+		if (is32bit == kvm->arch.el1_32bit)
+			return 0;
+
+		return -EINVAL;
 	}
 
-	return true;
+	if (!cpus_have_const_cap(ARM64_HAS_32BIT_EL1) && is32bit)
+		return -EINVAL;
+
+	/* MTE is incompatible with AArch32 */
+	if (kvm_has_mte(kvm) && is32bit)
+		return -EINVAL;
+
+	if (is32bit)
+		kvm->arch.el1_32bit = true;
+
+	kvm->arch.reg_width_configured = true;
+
+	return 0;
 }
 
 /**
@@ -216,9 +240,15 @@ int kvm_reset_vcpu(struct kvm_vcpu *vcpu)
 	u32 pstate;
 
 	mutex_lock(&vcpu->kvm->lock);
-	reset_state = vcpu->arch.reset_state;
-	WRITE_ONCE(vcpu->arch.reset_state.reset, false);
+	ret = kvm_set_vm_width(vcpu);
+	if (!ret) {
+		reset_state = vcpu->arch.reset_state;
+		WRITE_ONCE(vcpu->arch.reset_state.reset, false);
+	}
 	mutex_unlock(&vcpu->kvm->lock);
+
+	if (ret)
+		return ret;
 
 	/* Reset PMU outside of the non-preemptible section */
 	kvm_pmu_vcpu_reset(vcpu);
@@ -246,14 +276,9 @@ int kvm_reset_vcpu(struct kvm_vcpu *vcpu)
 		}
 	}
 
-	if (!vcpu_allowed_register_width(vcpu)) {
-		ret = -EINVAL;
-		goto out;
-	}
-
 	switch (vcpu->arch.target) {
 	default:
-		if (test_bit(KVM_ARM_VCPU_EL1_32BIT, vcpu->arch.features)) {
+		if (vcpu_el1_is_32bit(vcpu)) {
 			pstate = VCPU_RESET_PSTATE_SVC;
 		} else {
 			pstate = VCPU_RESET_PSTATE_EL1;
