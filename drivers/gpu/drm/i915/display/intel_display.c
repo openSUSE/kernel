@@ -6783,8 +6783,8 @@ static void intel_enable_crtc(struct intel_atomic_state *state,
 	intel_crtc_enable_pipe_crc(crtc);
 }
 
-static void intel_update_crtc(struct intel_atomic_state *state,
-			      struct intel_crtc *crtc)
+static void intel_pre_update_crtc(struct intel_atomic_state *state,
+				  struct intel_crtc *crtc)
 {
 	struct drm_i915_private *i915 = to_i915(state->base.dev);
 	const struct intel_crtc_state *old_crtc_state =
@@ -6826,6 +6826,15 @@ static void intel_update_crtc(struct intel_atomic_state *state,
 		intel_color_commit_noarm(new_crtc_state);
 
 	intel_crtc_planes_update_noarm(state, crtc);
+}
+
+static void intel_update_crtc(struct intel_atomic_state *state,
+			      struct intel_crtc *crtc)
+{
+	const struct intel_crtc_state *old_crtc_state =
+		intel_atomic_get_old_crtc_state(state, crtc);
+	struct intel_crtc_state *new_crtc_state =
+		intel_atomic_get_new_crtc_state(state, crtc);
 
 	/* Perform vblank evasion around commit operation */
 	intel_pipe_update_start(state, crtc);
@@ -6950,6 +6959,7 @@ static void intel_commit_modeset_enables(struct intel_atomic_state *state)
 			continue;
 
 		intel_enable_crtc(state, crtc);
+		intel_pre_update_crtc(state, crtc);
 		intel_update_crtc(state, crtc);
 	}
 }
@@ -7002,6 +7012,7 @@ static void skl_commit_modeset_enables(struct intel_atomic_state *state)
 			entries[pipe] = new_crtc_state->wm.skl.ddb;
 			update_pipes &= ~BIT(pipe);
 
+			intel_pre_update_crtc(state, crtc);
 			intel_update_crtc(state, crtc);
 
 			/*
@@ -7069,6 +7080,7 @@ static void skl_commit_modeset_enables(struct intel_atomic_state *state)
 		entries[pipe] = new_crtc_state->wm.skl.ddb;
 		update_pipes &= ~BIT(pipe);
 
+		intel_pre_update_crtc(state, crtc);
 		intel_update_crtc(state, crtc);
 	}
 
