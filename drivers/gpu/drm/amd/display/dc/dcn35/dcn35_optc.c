@@ -138,9 +138,6 @@ static bool optc35_disable_crtc(struct timing_generator *optc)
 {
 	struct optc *optc1 = DCN10TG_FROM_TG(optc);
 
-	REG_UPDATE(OPTC_MEMORY_CONFIG,
-			OPTC_MEM_SEL, 0);
-
 	/* disable otg request until end of the first line
 	 * in the vertical blank region
 	 */
