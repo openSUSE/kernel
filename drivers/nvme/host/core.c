@@ -746,6 +746,7 @@ void nvme_cleanup_cmd(struct request *req)
 	if (req->rq_flags & RQF_SPECIAL_PAYLOAD) {
 		kfree(page_address(req->special_vec.bv_page) +
 		      req->special_vec.bv_offset);
+		req->rq_flags &= ~RQF_SPECIAL_PAYLOAD;
 	}
 }
 EXPORT_SYMBOL_GPL(nvme_cleanup_cmd);
