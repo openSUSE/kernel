@@ -1403,10 +1403,7 @@ static void intel_psr_enable_source(struct intel_dp *intel_dp,
 	mask = EDP_PSR_DEBUG_MASK_MEMUP |
 	       EDP_PSR_DEBUG_MASK_HPD;
 
-	if (DISPLAY_VER(dev_priv) < 20)
-		mask |= EDP_PSR_DEBUG_MASK_MAX_SLEEP;
-
- 	/*
+	/*
 	 * For some unknown reason on HSW non-ULT (or at least on
 	 * Dell Latitude E6540) external displays start to flicker
 	 * when PSR is enabled on the eDP. SR/PC6 residency is much
@@ -1416,6 +1413,9 @@ static void intel_psr_enable_source(struct intel_dp *intel_dp,
 	 */
 	if (DISPLAY_VER(dev_priv) >= 8 || IS_HASWELL_ULT(dev_priv))
 		mask |= EDP_PSR_DEBUG_MASK_LPSP;
+
+	if (DISPLAY_VER(dev_priv) < 20)
+		mask |= EDP_PSR_DEBUG_MASK_MAX_SLEEP;
 
 	/*
 	 * No separate pipe reg write mask on hsw/bdw, so have to unmask all
