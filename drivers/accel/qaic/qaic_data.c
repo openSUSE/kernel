@@ -690,7 +690,7 @@ int qaic_create_bo_ioctl(struct drm_device *dev, void *data, struct drm_file *fi
 
 	qdev = usr->qddev->qdev;
 	qdev_rcu_id = srcu_read_lock(&qdev->dev_lock);
-	if (qdev->in_reset) {
+	if (qdev->dev_state != QAIC_ONLINE) {
 		ret = -ENODEV;
 		goto unlock_dev_srcu;
 	}
@@ -749,7 +749,7 @@ int qaic_mmap_bo_ioctl(struct drm_device *dev, void *data, struct drm_file *file
 
 	qdev = usr->qddev->qdev;
 	qdev_rcu_id = srcu_read_lock(&qdev->dev_lock);
-	if (qdev->in_reset) {
+	if (qdev->dev_state != QAIC_ONLINE) {
 		ret = -ENODEV;
 		goto unlock_dev_srcu;
 	}
@@ -968,7 +968,7 @@ int qaic_attach_slice_bo_ioctl(struct drm_device *dev, void *data, struct drm_fi
 
 	qdev = usr->qddev->qdev;
 	qdev_rcu_id = srcu_read_lock(&qdev->dev_lock);
-	if (qdev->in_reset) {
+	if (qdev->dev_state != QAIC_ONLINE) {
 		ret = -ENODEV;
 		goto unlock_dev_srcu;
 	}
@@ -1339,7 +1339,7 @@ static int __qaic_execute_bo_ioctl(struct drm_device *dev, void *data, struct dr
 
 	qdev = usr->qddev->qdev;
 	qdev_rcu_id = srcu_read_lock(&qdev->dev_lock);
-	if (qdev->in_reset) {
+	if (qdev->dev_state != QAIC_ONLINE) {
 		ret = -ENODEV;
 		goto unlock_dev_srcu;
 	}
@@ -1495,7 +1495,7 @@ void irq_polling_work(struct work_struct *work)
 	rcu_id = srcu_read_lock(&dbc->ch_lock);
 
 	while (1) {
-		if (dbc->qdev->in_reset) {
+		if (dbc->qdev->dev_state != QAIC_ONLINE) {
 			srcu_read_unlock(&dbc->ch_lock, rcu_id);
 			return;
 		}
@@ -1685,7 +1685,7 @@ int qaic_wait_bo_ioctl(struct drm_device *dev, void *data, struct drm_file *file
 
 	qdev = usr->qddev->qdev;
 	qdev_rcu_id = srcu_read_lock(&qdev->dev_lock);
-	if (qdev->in_reset) {
+	if (qdev->dev_state != QAIC_ONLINE) {
 		ret = -ENODEV;
 		goto unlock_dev_srcu;
 	}
@@ -1754,7 +1754,7 @@ int qaic_perf_stats_bo_ioctl(struct drm_device *dev, void *data, struct drm_file
 
 	qdev = usr->qddev->qdev;
 	qdev_rcu_id = srcu_read_lock(&qdev->dev_lock);
-	if (qdev->in_reset) {
+	if (qdev->dev_state != QAIC_ONLINE) {
 		ret = -ENODEV;
 		goto unlock_dev_srcu;
 	}
@@ -1845,7 +1845,7 @@ int qaic_detach_slice_bo_ioctl(struct drm_device *dev, void *data, struct drm_fi
 
 	qdev = usr->qddev->qdev;
 	qdev_rcu_id = srcu_read_lock(&qdev->dev_lock);
-	if (qdev->in_reset) {
+	if (qdev->dev_state != QAIC_ONLINE) {
 		ret = -ENODEV;
 		goto unlock_dev_srcu;
 	}
