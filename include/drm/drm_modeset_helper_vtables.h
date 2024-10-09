@@ -1155,6 +1155,11 @@ struct drm_connector_helper_funcs {
 	 * This operation is optional.
 	 *
 	 * This callback is used by the drm_kms_helper_poll_enable() helpers.
+	 *
+	 * This operation does not need to perform any hpd state tracking as
+	 * the DRM core handles that maintenance and ensures the calls to enable
+	 * and disable hpd are balanced.
+	 *
 	 */
 	void (*enable_hpd)(struct drm_connector *connector);
 
@@ -1166,6 +1171,11 @@ struct drm_connector_helper_funcs {
 	 * This operation is optional.
 	 *
 	 * This callback is used by the drm_kms_helper_poll_disable() helpers.
+	 *
+	 * This operation does not need to perform any hpd state tracking as
+	 * the DRM core handles that maintenance and ensures the calls to enable
+	 * and disable hpd are balanced.
+	 *
 	 */
 	void (*disable_hpd)(struct drm_connector *connector);
 };
