@@ -252,7 +252,12 @@ struct drm_plane_state {
 	/** @state: backpointer to global drm_atomic_state */
 	struct drm_atomic_state *state;
 
-	void *suse_kabi_padding;
+	/**
+	 * @color_mgmt_changed: Color management properties have changed. Used
+	 * by the atomic helpers and drivers to steer the atomic commit control
+	 * flow.
+	 */
+	bool color_mgmt_changed : 1;
 };
 
 static inline struct drm_rect
@@ -774,8 +779,6 @@ struct drm_plane {
 	 * @hotspot_y_property: property to set mouse hotspot y offset.
 	 */
 	struct drm_property *hotspot_y_property;
-
-	void *suse_kabi_padding;
 };
 
 #define obj_to_plane(x) container_of(x, struct drm_plane, base)
