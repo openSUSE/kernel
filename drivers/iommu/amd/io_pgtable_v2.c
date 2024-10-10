@@ -380,7 +380,7 @@ static struct io_pgtable *v2_alloc_pgtable(struct io_pgtable_cfg *cfg, void *coo
 	int ret;
 	int ias = IOMMU_IN_ADDR_BIT_SIZE;
 
-	pgtable->pgd = alloc_pgtable_page(pdom->nid, GFP_ATOMIC);
+	pgtable->pgd = alloc_pgtable_page(pdom->nid, GFP_KERNEL);
 	if (!pgtable->pgd)
 		return NULL;
 
