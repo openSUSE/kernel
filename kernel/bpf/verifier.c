@@ -1043,7 +1043,9 @@ static int check_stack_write(struct bpf_verifier_env *env,
 		bool sanitize = value_regno >= 0 && is_spillable_regtype(state->regs[value_regno].type);
 
 		for (i = 0; i < size; i++) {
-			if (state->stack[spi].slot_type[i] == STACK_INVALID) {
+			u8 type = state->stack[spi].slot_type[i];
+
+			if (type != STACK_MISC && type != STACK_ZERO) {
 				sanitize = true;
 				break;
 			}
