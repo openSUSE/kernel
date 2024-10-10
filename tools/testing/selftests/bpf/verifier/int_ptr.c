@@ -1,5 +1,5 @@
 {
-	"ARG_PTR_TO_LONG uninitialized",
+	"arg pointer to long uninitialized",
 	.insns = {
 		/* bpf_strtoul arg1 (buf) */
 		BPF_MOV64_REG(BPF_REG_7, BPF_REG_10),
@@ -29,7 +29,7 @@
 	.prog_type = BPF_PROG_TYPE_SOCKET_FILTER,
 },
 {
-	"ARG_PTR_TO_LONG half-uninitialized",
+	"arg pointer to long half-uninitialized",
 	.insns = {
 		/* bpf_strtoul arg1 (buf) */
 		BPF_MOV64_REG(BPF_REG_7, BPF_REG_10),
