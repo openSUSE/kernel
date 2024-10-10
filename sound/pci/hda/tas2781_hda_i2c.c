@@ -855,8 +855,10 @@ static int tas2781_runtime_suspend(struct device *dev)
 	/* The driver powers up the amplifiers at module load time.
 	 * Stop the playback if it's unused.
 	 */
-	if (tas_hda->priv->playback_started)
+	if (tas_hda->priv->playback_started) {
 		tasdevice_tuning_switch(tas_hda->priv, 1);
+		tas_hda->priv->playback_started = false;
+	}
 
 	mutex_unlock(&tas_hda->priv->codec_lock);
 
@@ -877,9 +879,6 @@ static int tas2781_runtime_resume(struct device *dev)
 	 * calibrated data inside algo.
 	 */
 	tasdevice_apply_calibration(tas_hda->priv);
-
-	if (tas_hda->priv->playback_started)
-		tasdevice_tuning_switch(tas_hda->priv, 0);
 
 	mutex_unlock(&tas_hda->priv->codec_lock);
 

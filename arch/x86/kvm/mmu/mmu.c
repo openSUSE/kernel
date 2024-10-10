@@ -2955,10 +2955,8 @@ static int mmu_set_spte(struct kvm_vcpu *vcpu, struct kvm_memory_slot *slot,
 		trace_kvm_mmu_set_spte(level, gfn, sptep);
 	}
 
-	if (wrprot) {
-		if (write_fault)
-			ret = RET_PF_EMULATE;
-	}
+	if (wrprot && write_fault)
+		ret = RET_PF_WRITE_PROTECTED;
 
 	if (flush)
 		kvm_flush_remote_tlbs_gfn(vcpu->kvm, gfn, level);
@@ -4474,7 +4472,7 @@ static int direct_page_fault(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault
 		return RET_PF_RETRY;
 
 	if (page_fault_handle_page_track(vcpu, fault))
-		return RET_PF_EMULATE;
+		return RET_PF_WRITE_PROTECTED;
 
 	r = fast_page_fault(vcpu, fault);
 	if (r != RET_PF_INVALID)
@@ -4554,7 +4552,7 @@ static int kvm_tdp_mmu_page_fault(struct kvm_vcpu *vcpu,
 	int r;
 
 	if (page_fault_handle_page_track(vcpu, fault))
-		return RET_PF_EMULATE;
+		return RET_PF_WRITE_PROTECTED;
 
 	r = fast_page_fault(vcpu, fault);
 	if (r != RET_PF_INVALID)
@@ -5804,6 +5802,61 @@ void kvm_mmu_track_write(struct kvm_vcpu *vcpu, gpa_t gpa, const u8 *new,
 	write_unlock(&vcpu->kvm->mmu_lock);
 }
 
+static int kvm_mmu_write_protect_fault(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa,
+				       u64 error_code, int *emulation_type)
+{
+	bool direct = vcpu->arch.mmu->root_role.direct;
+
+	/*
+	 * Before emulating the instruction, check to see if the access was due
+	 * to a read-only violation while the CPU was walking non-nested NPT
+	 * page tables, i.e. for a direct MMU, for _guest_ page tables in L1.
+	 * If L1 is sharing (a subset of) its page tables with L2, e.g. by
+	 * having nCR3 share lower level page tables with hCR3, then when KVM
+	 * (L0) write-protects the nested NPTs, i.e. npt12 entries, KVM is also
+	 * unknowingly write-protecting L1's guest page tables, which KVM isn't
+	 * shadowing.
+	 *
+	 * Because the CPU (by default) walks NPT page tables using a write
+	 * access (to ensure the CPU can do A/D updates), page walks in L1 can
+	 * trigger write faults for the above case even when L1 isn't modifying
+	 * PTEs.  As a result, KVM will unnecessarily emulate (or at least, try
+	 * to emulate) an excessive number of L1 instructions; because L1's MMU
+	 * isn't shadowed by KVM, there is no need to write-protect L1's gPTEs
+	 * and thus no need to emulate in order to guarantee forward progress.
+	 *
+	 * Try to unprotect the gfn, i.e. zap any shadow pages, so that L1 can
+	 * proceed without triggering emulation.  If one or more shadow pages
+	 * was zapped, skip emulation and resume L1 to let it natively execute
+	 * the instruction.  If no shadow pages were zapped, then the write-
+	 * fault is due to something else entirely, i.e. KVM needs to emulate,
+	 * as resuming the guest will put it into an infinite loop.
+	 *
+	 * Note, this code also applies to Intel CPUs, even though it is *very*
+	 * unlikely that an L1 will share its page tables (IA32/PAE/paging64
+	 * format) with L2's page tables (EPT format).
+	 */
+	if (direct && (error_code & PFERR_NESTED_GUEST_PAGE) == PFERR_NESTED_GUEST_PAGE &&
+	    kvm_mmu_unprotect_page(vcpu->kvm, gpa_to_gfn(cr2_or_gpa)))
+		return RET_PF_RETRY;
+
+	/*
+	 * The gfn is write-protected, but if emulation fails we can still
+	 * optimistically try to just unprotect the page and let the processor
+	 * re-execute the instruction that caused the page fault.  Do not allow
+	 * retrying MMIO emulation, as it's not only pointless but could also
+	 * cause us to enter an infinite loop because the processor will keep
+	 * faulting on the non-existent MMIO address.  Retrying an instruction
+	 * from a nested guest is also pointless and dangerous as we are only
+	 * explicitly shadowing L1's page tables, i.e. unprotecting something
+	 * for L1 isn't going to magically fix whatever issue cause L2 to fail.
+	 */
+	if (!mmio_info_in_cache(vcpu, cr2_or_gpa, direct) && !is_guest_mode(vcpu))
+		*emulation_type |= EMULTYPE_ALLOW_RETRY_PF;
+
+	return RET_PF_EMULATE;
+}
+
 int noinline kvm_mmu_page_fault(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa, u64 error_code,
 		       void *insn, int insn_len)
 {
@@ -5841,35 +5894,13 @@ int noinline kvm_mmu_page_fault(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa, u64 err
 
 	if (r < 0)
 		return r;
+	if (r == RET_PF_WRITE_PROTECTED)
+		r = kvm_mmu_write_protect_fault(vcpu, cr2_or_gpa, error_code,
+						&emulation_type);
+
 	if (r != RET_PF_EMULATE)
 		return 1;
 
-	/*
-	 * Before emulating the instruction, check if the error code
-	 * was due to a RO violation while translating the guest page.
-	 * This can occur when using nested virtualization with nested
-	 * paging in both guests. If true, we simply unprotect the page
-	 * and resume the guest.
-	 */
-	if (vcpu->arch.mmu->root_role.direct &&
-	    (error_code & PFERR_NESTED_GUEST_PAGE) == PFERR_NESTED_GUEST_PAGE) {
-		kvm_mmu_unprotect_page(vcpu->kvm, gpa_to_gfn(cr2_or_gpa));
-		return 1;
-	}
-
-	/*
-	 * vcpu->arch.mmu.page_fault returned RET_PF_EMULATE, but we can still
-	 * optimistically try to just unprotect the page and let the processor
-	 * re-execute the instruction that caused the page fault.  Do not allow
-	 * retrying MMIO emulation, as it's not only pointless but could also
-	 * cause us to enter an infinite loop because the processor will keep
-	 * faulting on the non-existent MMIO address.  Retrying an instruction
-	 * from a nested guest is also pointless and dangerous as we are only
-	 * explicitly shadowing L1's page tables, i.e. unprotecting something
-	 * for L1 isn't going to magically fix whatever issue cause L2 to fail.
-	 */
-	if (!mmio_info_in_cache(vcpu, cr2_or_gpa, direct) && !is_guest_mode(vcpu))
-		emulation_type |= EMULTYPE_ALLOW_RETRY_PF;
 emulate:
 	return x86_emulate_instruction(vcpu, cr2_or_gpa, emulation_type, insn,
 				       insn_len);
