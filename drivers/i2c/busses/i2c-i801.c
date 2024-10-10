@@ -1236,8 +1236,10 @@ static const struct {
 	 * Additional individual entries were added after verification.
 	 */
 	{ "Latitude 5480",      0x29 },
+	{ "Precision 3540",     0x29 },
 	{ "Vostro V131",        0x1d },
 	{ "Vostro 5568",        0x29 },
+	{ "XPS 15 7590",        0x29 },
 };
 
 static void register_dell_lis3lv02d_i2c_device(struct i801_priv *priv)
@@ -1634,6 +1636,12 @@ static void i801_setup_hstcfg(struct i801_priv *priv)
 	pci_write_config_byte(priv->pci_dev, SMBHSTCFG, hstcfg);
 }
 
+static void i801_restore_regs(struct i801_priv *priv)
+{
+	outb_p(priv->original_hstcnt, SMBHSTCNT(priv));
+	pci_write_config_byte(priv->pci_dev, SMBHSTCFG, priv->original_hstcfg);
+}
+
 static int i801_probe(struct pci_dev *dev, const struct pci_device_id *id)
 {
 	int err, i;
@@ -1760,6 +1768,7 @@ static int i801_probe(struct pci_dev *dev, const struct pci_device_id *id)
 	if (err) {
 		platform_device_unregister(priv->tco_pdev);
 		i801_acpi_remove(priv);
+		i801_restore_regs(priv);
 		return err;
 	}
 
@@ -1784,18 +1793,18 @@ static void i801_remove(struct pci_dev *dev)
 {
 	struct i801_priv *priv = pci_get_drvdata(dev);
 
-	outb_p(priv->original_hstcnt, SMBHSTCNT(priv));
 	i801_disable_host_notify(priv);
 	i801_del_mux(priv);
 	i2c_del_adapter(&priv->adapter);
 	i801_acpi_remove(priv);
-	pci_write_config_byte(dev, SMBHSTCFG, priv->original_hstcfg);
 
 	platform_device_unregister(priv->tco_pdev);
 
 	/* if acpi_reserved is set then usage_count is incremented already */
 	if (!priv->acpi_reserved)
 		pm_runtime_get_noresume(&dev->dev);
+
+	i801_restore_regs(priv);
 
 	/*
 	 * do not call pci_disable_device(dev) since it can cause hard hangs on
@@ -1807,10 +1816,9 @@ static void i801_shutdown(struct pci_dev *dev)
 {
 	struct i801_priv *priv = pci_get_drvdata(dev);
 
-	/* Restore config registers to avoid hard hang on some systems */
-	outb_p(priv->original_hstcnt, SMBHSTCNT(priv));
 	i801_disable_host_notify(priv);
-	pci_write_config_byte(dev, SMBHSTCFG, priv->original_hstcfg);
+	/* Restore config registers to avoid hard hang on some systems */
+	i801_restore_regs(priv);
 }
 
 #ifdef CONFIG_PM_SLEEP
@@ -1818,8 +1826,7 @@ static int i801_suspend(struct device *dev)
 {
 	struct i801_priv *priv = dev_get_drvdata(dev);
 
-	outb_p(priv->original_hstcnt, SMBHSTCNT(priv));
-	pci_write_config_byte(priv->pci_dev, SMBHSTCFG, priv->original_hstcfg);
+	i801_restore_regs(priv);
 	return 0;
 }
 
