@@ -5945,6 +5945,15 @@ int sched_cpu_deactivate(unsigned int cpu)
 
 	ret = cpuset_cpu_inactive(cpu);
 	if (ret) {
+		/*
+		 * Same as above. Upstream uses a helper introduced by
+		 * 31b164e2e4af ("sched/smt: Introduce sched_smt_present_inc/dec() helper")
+		 * to reduce duplication. However it has a number of minor
+		 * dependencies so copy exactly to allow a single patch to
+		 * be used on similarly-aged sources.
+		 */
+		if (cpumask_weight(cpu_smt_mask(cpu)) == 2)
+			static_branch_inc_cpuslocked(&sched_smt_present);
 		set_cpu_active(cpu, true);
 		return ret;
 	}
