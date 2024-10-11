@@ -475,6 +475,7 @@ enum bpf_type_flag {
 	/* DYNPTR points to a ringbuf record. */
 	DYNPTR_TYPE_RINGBUF	= BIT(9 + BPF_BASE_TYPE_BITS),
 
+#ifndef __GENKSYMS__
 	/* Size is known at compile time. */
 	MEM_FIXED_SIZE		= BIT(10 + BPF_BASE_TYPE_BITS),
 
@@ -482,10 +483,16 @@ enum bpf_type_flag {
 	 * MEM_FIXED_SIZE.
 	 */
 	MEM_ALIGNED		= BIT(17 + BPF_BASE_TYPE_BITS),
+#endif
 
 	__BPF_TYPE_FLAG_MAX,
 	__BPF_TYPE_LAST_FLAG	= __BPF_TYPE_FLAG_MAX - 1,
 };
+enum bpf_type_flag_orig {
+	__BPF_TYPE_LAST_FLAG_ORIG	= BIT(9 + BPF_BASE_TYPE_BITS),
+	
+};
+static_assert(sizeof(enum bpf_type_flag) == sizeof(enum bpf_type_flag_orig));
 
 #define DYNPTR_TYPE_FLAG_MASK	(DYNPTR_TYPE_LOCAL | DYNPTR_TYPE_RINGBUF)
 
@@ -518,6 +525,14 @@ enum bpf_arg_type {
 	ARG_ANYTHING,		/* any (initialized) argument is ok */
 	ARG_PTR_TO_SPIN_LOCK,	/* pointer to bpf_spin_lock */
 	ARG_PTR_TO_SOCK_COMMON,	/* pointer to sock_common */
+#ifndef __GENKSYMS__
+	/* Placeholder to preserve kABI */
+	__UNUSED_ARG_PTR_TO_INT,
+	__UNUSED_ARG_PTR_TO_LONG,
+#else
+	ARG_PTR_TO_INT,		/* pointer to int */
+	ARG_PTR_TO_LONG,	/* pointer to long */
+#endif /* __GENKSYMS__ */
 	ARG_PTR_TO_SOCKET,	/* pointer to bpf_sock (fullsock) */
 	ARG_PTR_TO_BTF_ID,	/* pointer to in-kernel struct */
 	ARG_PTR_TO_ALLOC_MEM,	/* pointer to dynamically allocated memory */
@@ -544,8 +559,10 @@ enum bpf_arg_type {
 	 * all bytes or clear them in error case.
 	 */
 	ARG_PTR_TO_UNINIT_MEM		= MEM_UNINIT | ARG_PTR_TO_MEM,
+#ifndef __GENKSYMS__
 	/* Pointer to valid memory of size known at compile time. */
 	ARG_PTR_TO_FIXED_SIZE_MEM	= MEM_FIXED_SIZE | ARG_PTR_TO_MEM,
+#endif
 
 	/* This must be the last entry. Its purpose is to ensure the enum is
 	 * wide enough to hold the higher bits reserved for bpf_type_flag.
