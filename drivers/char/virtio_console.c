@@ -652,7 +652,7 @@ done:
  * Give out the data that's requested from the buffer that we have
  * queued up.
  */
-static ssize_t fill_readbuf(struct port *port, char __user *out_buf,
+static ssize_t fill_readbuf(struct port *port, u8 __user *out_buf,
 			    size_t out_count, bool to_user)
 {
 	struct port_buffer *buf;
@@ -671,7 +671,7 @@ static ssize_t fill_readbuf(struct port *port, char __user *out_buf,
 		if (ret)
 			return -EFAULT;
 	} else {
-		memcpy((__force char *)out_buf, buf->buf + buf->offset,
+		memcpy((__force u8 *)out_buf, buf->buf + buf->offset,
 		       out_count);
 	}
 
@@ -1106,7 +1106,7 @@ static const struct file_operations port_fops = {
  * it to finish: inefficient in theory, but in practice
  * implementations will do it immediately.
  */
-static int put_chars(u32 vtermno, const char *buf, int count)
+static ssize_t put_chars(u32 vtermno, const u8 *buf, size_t count)
 {
 	struct port *port;
 	struct scatterlist sg[1];
@@ -1137,7 +1137,7 @@ static int put_chars(u32 vtermno, const char *buf, int count)
  * We call out to fill_readbuf that gets us the required data from the
  * buffers that are queued up.
  */
-static int get_chars(u32 vtermno, char *buf, int count)
+static ssize_t get_chars(u32 vtermno, u8 *buf, size_t count)
 {
 	struct port *port;
 
@@ -1152,7 +1152,7 @@ static int get_chars(u32 vtermno, char *buf, int count)
 	/* If we don't have an input queue yet, we can't get input. */
 	BUG_ON(!port->in_vq);
 
-	return fill_readbuf(port, (__force char __user *)buf, count, false);
+	return fill_readbuf(port, (__force u8 __user *)buf, count, false);
 }
 
 static void resize_console(struct port *port)
