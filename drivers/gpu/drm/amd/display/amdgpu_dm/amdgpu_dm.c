@@ -4506,25 +4506,6 @@ static int amdgpu_dm_initialize_drm_device(struct amdgpu_device *adev)
 			      amdgpu_ip_version(adev, DCE_HWIP, 0));
 	}
 
-	/* Determine whether to enable PSR support by default. */
-	if (!(amdgpu_dc_debug_mask & DC_DISABLE_PSR)) {
-		switch (amdgpu_ip_version(adev, DCE_HWIP, 0)) {
-		case IP_VERSION(3, 1, 2):
-		case IP_VERSION(3, 1, 3):
-		case IP_VERSION(3, 1, 4):
-		case IP_VERSION(3, 1, 5):
-		case IP_VERSION(3, 1, 6):
-		case IP_VERSION(3, 2, 0):
-		case IP_VERSION(3, 2, 1):
-		case IP_VERSION(3, 5, 0):
-			psr_feature_enabled = true;
-			break;
-		default:
-			psr_feature_enabled = amdgpu_dc_feature_mask & DC_PSR_MASK;
-			break;
-		}
-	}
-
 	/* loops over all connectors on the board */
 	for (i = 0; i < link_cnt; i++) {
 		struct dc_link *link = NULL;
@@ -6560,7 +6541,7 @@ static void amdgpu_dm_connector_funcs_force(struct drm_connector *connector)
 	struct edid *edid;
 	struct i2c_adapter *ddc;
 
-	if (dc_link && dc_link->aux_mode)
+	if (dc_link->aux_mode)
 		ddc = &aconnector->dm_dp_aux.aux.ddc;
 	else
 		ddc = &aconnector->i2c->base;
@@ -6620,7 +6601,7 @@ static void create_eml_sink(struct amdgpu_dm_connector *aconnector)
 	struct edid *edid;
 	struct i2c_adapter *ddc;
 
-	if (dc_link->aux_mode)
+	if (dc_link && dc_link->aux_mode)
 		ddc = &aconnector->dm_dp_aux.aux.ddc;
 	else
 		ddc = &aconnector->i2c->base;
