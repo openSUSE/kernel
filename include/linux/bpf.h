@@ -900,7 +900,6 @@ static_assert(__BPF_REG_TYPE_MAX <= BPF_BASE_TYPE_LIMIT);
  */
 struct bpf_insn_access_aux {
 	enum bpf_reg_type reg_type;
-	bool is_ldsx;
 	union {
 		int ctx_field_size;
 		struct {
@@ -909,6 +908,9 @@ struct bpf_insn_access_aux {
 		};
 	};
 	struct bpf_verifier_log *log; /* for verbose logs */
+#ifndef __GENKSYMS__
+	bool is_ldsx;
+#endif
 };
 
 static inline void
