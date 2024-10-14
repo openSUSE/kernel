@@ -100,8 +100,6 @@ struct acpi_thermal_active {
 struct acpi_thermal_trips {
 	struct acpi_thermal_passive passive;
 	struct acpi_thermal_active active[ACPI_THERMAL_MAX_ACTIVE];
-	bool critical_valid;
-	bool hot_valid;
 };
 
 struct acpi_thermal {
@@ -361,13 +359,13 @@ static long acpi_thermal_get_critical_trip(struct acpi_thermal *tz)
 	}
 	if (crt == -1) {
 		acpi_handle_debug(tz->device->handle, "Critical threshold disabled\n");
-		goto fail;
+		return THERMAL_TEMP_INVALID;
 	}
 
 	status = acpi_evaluate_integer(tz->device->handle, "_CRT", NULL, &tmp);
 	if (ACPI_FAILURE(status)) {
 		acpi_handle_debug(tz->device->handle, "No critical threshold\n");
-		goto fail;
+		return THERMAL_TEMP_INVALID;
 	}
 	if (tmp <= 2732) {
 		/*
@@ -375,17 +373,12 @@ static long acpi_thermal_get_critical_trip(struct acpi_thermal *tz)
 		 * so discard them as invalid.
 		 */
 		pr_info(FW_BUG "Invalid critical threshold (%llu)\n", tmp);
-		goto fail;
+		return THERMAL_TEMP_INVALID;
 	}
 
 set:
-	tz->trips.critical_valid = true;
 	acpi_handle_debug(tz->device->handle, "Critical threshold [%llu]\n", tmp);
 	return tmp;
-
-fail:
-	tz->trips.critical_valid = false;
-	return THERMAL_TEMP_INVALID;
 }
 
 static long acpi_thermal_get_hot_trip(struct acpi_thermal *tz)
@@ -395,12 +388,10 @@ static long acpi_thermal_get_hot_trip(struct acpi_thermal *tz)
 
 	status = acpi_evaluate_integer(tz->device->handle, "_HOT", NULL, &tmp);
 	if (ACPI_FAILURE(status)) {
-		tz->trips.hot_valid = false;
 		acpi_handle_debug(tz->device->handle, "No hot threshold\n");
 		return THERMAL_TEMP_INVALID;
 	}
 
-	tz->trips.hot_valid = true;
 	acpi_handle_debug(tz->device->handle, "Hot threshold [%llu]\n", tmp);
 	return tmp;
 }
@@ -804,7 +795,7 @@ static void acpi_thermal_aml_dependency_fix(struct acpi_thermal *tz)
  */
 static void acpi_thermal_guess_offset(struct acpi_thermal *tz, long crit_temp)
 {
-	if (tz->trips.critical_valid && crit_temp % 5 == 1)
+	if (crit_temp != THERMAL_TEMP_INVALID && crit_temp % 5 == 1)
 		tz->kelvin_offset = 273100;
 	else
 		tz->kelvin_offset = 273200;
@@ -865,11 +856,11 @@ static int acpi_thermal_add(struct acpi_device *device)
 	trip_count = acpi_thermal_get_trip_points(tz);
 
 	crit_temp = acpi_thermal_get_critical_trip(tz);
-	if (tz->trips.critical_valid)
+	if (crit_temp != THERMAL_TEMP_INVALID)
 		trip_count++;
 
 	hot_temp = acpi_thermal_get_hot_trip(tz);
-	if (tz->trips.hot_valid)
+	if (hot_temp != THERMAL_TEMP_INVALID)
 		trip_count++;
 
 	if (!trip_count) {
@@ -903,13 +894,13 @@ static int acpi_thermal_add(struct acpi_device *device)
 
 	tz->trip_table = trip;
 
-	if (tz->trips.critical_valid) {
+	if (crit_temp != THERMAL_TEMP_INVALID) {
 		trip->type = THERMAL_TRIP_CRITICAL;
 		trip->temperature = acpi_thermal_temp(tz, crit_temp);
 		trip++;
 	}
 
-	if (tz->trips.hot_valid) {
+	if (hot_temp != THERMAL_TEMP_INVALID) {
 		trip->type = THERMAL_TRIP_HOT;
 		trip->temperature = acpi_thermal_temp(tz, hot_temp);
 		trip++;
