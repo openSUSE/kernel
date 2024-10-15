@@ -131,8 +131,10 @@ struct kvm_arch {
 	 * Otherwise, the guest's EL1 register width has not yet been
 	 * determined yet.
 	 */
+#ifndef __GENKSYMS__
 	bool el1_32bit;
 	bool reg_width_configured;
+#endif
 
 	/*
 	 * VM-wide PMU filter, implemented as a bitmap and big enough for
