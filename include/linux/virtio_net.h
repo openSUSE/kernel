@@ -3,8 +3,10 @@
 #define _LINUX_VIRTIO_NET_H
 
 #include <linux/if_vlan.h>
+#ifndef __GENKSYMS__
 #include <linux/ip.h>
 #include <linux/ipv6.h>
+#endif
 #include <uapi/linux/tcp.h>
 #include <uapi/linux/udp.h>
 #include <uapi/linux/virtio_net.h>
