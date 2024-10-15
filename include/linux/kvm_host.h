@@ -29,8 +29,10 @@
 #include <linux/refcount.h>
 #include <linux/nospec.h>
 #include <linux/notifier.h>
+#ifndef __GENKSYMS__
 #include <linux/ftrace.h>
 #include <linux/instrumentation.h>
+#endif
 #include <asm/signal.h>
 
 #include <linux/kvm.h>
