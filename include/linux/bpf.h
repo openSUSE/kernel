@@ -608,6 +608,7 @@ struct bpf_func_proto {
 			u32 *arg5_btf_id;
 		};
 		u32 *arg_btf_id[5];
+#ifndef __GENKSYMS__
 		struct {
 			size_t arg1_size;
 			size_t arg2_size;
@@ -616,10 +617,13 @@ struct bpf_func_proto {
 			size_t arg5_size;
 		};
 		size_t arg_size[5];
+#endif
 	};
 	int *ret_btf_id; /* return value btf_id */
 	bool (*allowed)(const struct bpf_prog *prog);
 };
+/* Make sure the unamed union do not expand and breaks kABI */
+static_assert(sizeof_field(struct bpf_func_proto, arg_size) <= sizeof_field(struct bpf_func_proto, arg_btf_id));
 
 /* bpf_context is intentionally undefined structure. Pointer to bpf_context is
  * the first argument to eBPF programs.
