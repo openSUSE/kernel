@@ -345,9 +345,6 @@ int hv_synic_init(unsigned int cpu)
 	return 0;
 }
 
-/*
- * hv_synic_cleanup - Cleanup routine for hv_synic_init().
- */
 void hv_synic_disable_regs(unsigned int cpu)
 {
 	struct hv_per_cpu_context *hv_cpu
@@ -441,6 +438,9 @@ retry:
 	return pending;
 }
 
+/*
+ * hv_synic_cleanup - Cleanup routine for hv_synic_init().
+ */
 int hv_synic_cleanup(unsigned int cpu)
 {
 	struct vmbus_channel *channel, *sc;

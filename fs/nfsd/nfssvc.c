@@ -985,12 +985,13 @@ nfsd(void *vrqstp)
 		 * recvfrom routine.
 		 */
 		while ((err = svc_recv(rqstp, 60*60*HZ)) == -EAGAIN)
-			;
+			nfsd_file_net_dispose(nn);
 		if (err == -EINTR)
 			break;
 		validate_process_creds();
 		svc_process(rqstp);
 		validate_process_creds();
+		nfsd_file_net_dispose(nn);
 	}
 
 	/* Clear signals before calling svc_exit_thread() */

@@ -349,12 +349,16 @@ struct io_ring_ctx {
 	struct wait_queue_head		poll_wq;
 	struct io_restriction		restrictions;
 
-	/* slow path rsrc auxilary data, used by update/register */
+	/*
+	 * ->dummy_ubuf is no longer necessary.  Preserve it for kABI
+	 * purposes, but annotate the unused field for future use.
+	 */
 #ifdef __GENKSYMS__
 	struct io_mapped_ubuf		*dummy_ubuf;
 #else
 	void				*unused1;
 #endif
+	/* slow path rsrc auxilary data, used by update/register */
 	struct io_rsrc_data		*file_data;
 	struct io_rsrc_data		*buf_data;
 
