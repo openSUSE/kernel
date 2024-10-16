@@ -980,7 +980,6 @@ struct dc_debug_options {
 	unsigned int ips2_eval_delay_us;
 	unsigned int ips2_entry_delay_us;
 	bool disable_timeout;
-	bool disable_dmub_reallow_idle;
 };
 
 struct gpu_info_soc_bounding_box_v1_0;
