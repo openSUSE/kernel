@@ -677,9 +677,21 @@ enum bpf_type_flag {
 	/* DYNPTR points to xdp_buff */
 	DYNPTR_TYPE_XDP		= BIT(16 + BPF_BASE_TYPE_BITS),
 
+#ifndef __GENKSYMS__
+	/* Memory must be aligned on some architectures, used in combination with
+	 * MEM_FIXED_SIZE.
+	 */
+	MEM_ALIGNED		= BIT(17 + BPF_BASE_TYPE_BITS),
+#endif
+
 	__BPF_TYPE_FLAG_MAX,
 	__BPF_TYPE_LAST_FLAG	= __BPF_TYPE_FLAG_MAX - 1,
 };
+enum bpf_type_flag_orig {
+	__ORIG_BPF_TYPE_LAST_FLAG		= BIT(16 + BPF_BASE_TYPE_BITS),
+	
+};
+static_assert(sizeof(enum bpf_type_flag) == sizeof(enum bpf_type_flag_orig));
 
 #define DYNPTR_TYPE_FLAG_MASK	(DYNPTR_TYPE_LOCAL | DYNPTR_TYPE_RINGBUF | DYNPTR_TYPE_SKB \
 				 | DYNPTR_TYPE_XDP)
@@ -713,8 +725,14 @@ enum bpf_arg_type {
 	ARG_ANYTHING,		/* any (initialized) argument is ok */
 	ARG_PTR_TO_SPIN_LOCK,	/* pointer to bpf_spin_lock */
 	ARG_PTR_TO_SOCK_COMMON,	/* pointer to sock_common */
+#ifndef __GENKSYMS__
+	/* Placeholder to preserve kABI */
+	__UNUSED_ARG_PTR_TO_INT,
+	__UNUSED_ARG_PTR_TO_LONG,
+#else
 	ARG_PTR_TO_INT,		/* pointer to int */
 	ARG_PTR_TO_LONG,	/* pointer to long */
+#endif /* __GENKSYMS__ */
 	ARG_PTR_TO_SOCKET,	/* pointer to bpf_sock (fullsock) */
 	ARG_PTR_TO_BTF_ID,	/* pointer to in-kernel struct */
 	ARG_PTR_TO_RINGBUF_MEM,	/* pointer to dynamically reserved ringbuf memory */
@@ -908,6 +926,9 @@ struct bpf_insn_access_aux {
 		};
 	};
 	struct bpf_verifier_log *log; /* for verbose logs */
+#ifndef __GENKSYMS__
+	bool is_ldsx;
+#endif
 };
 
 static inline void
