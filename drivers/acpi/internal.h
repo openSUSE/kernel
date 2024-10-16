@@ -94,6 +94,11 @@ static inline int acpi_arch_thermal_cpufreq_pctg(void)
 }
 #endif
 
+int acpi_active_trip_temp(struct acpi_device *adev, int id, int *ret_temp);
+int acpi_passive_trip_temp(struct acpi_device *adev, int *ret_temp);
+int acpi_hot_trip_temp(struct acpi_device *adev, int *ret_temp);
+int acpi_critical_trip_temp(struct acpi_device *adev, int *ret_temp);
+
 /* --------------------------------------------------------------------------
                      Device Node Initialization / Removal
    -------------------------------------------------------------------------- */
