@@ -42,7 +42,6 @@
 #define SUBVP_ACTIVE_MARGIN_LIST_LEN 2
 #define DCN3_2_MAX_SUBVP_PIXEL_RATE_MHZ 1800
 #define DCN3_2_VMIN_DISPCLK_HZ 717000000
-#define MIN_SUBVP_DCFCLK_KHZ 400000
 
 #define TO_DCN32_RES_POOL(pool)\
 	container_of(pool, struct dcn32_resource_pool, base)
@@ -132,9 +131,6 @@ void dcn32_merge_pipes_for_subvp(struct dc *dc,
 bool dcn32_all_pipes_have_stream_and_plane(struct dc *dc,
 		struct dc_state *context);
 
-bool dcn32_subvp_in_use(struct dc *dc,
-		struct dc_state *context);
-
 bool dcn32_mpo_in_use(struct dc_state *context);
 
 bool dcn32_any_surfaces_rotated(struct dc *dc, struct dc_state *context);
@@ -181,8 +177,6 @@ bool dcn32_subvp_drr_admissable(struct dc *dc, struct dc_state *context);
 bool dcn32_subvp_vblank_admissable(struct dc *dc, struct dc_state *context, int vlevel);
 
 void dcn32_update_dml_pipes_odm_policy_based_on_context(struct dc *dc, struct dc_state *context, display_e2e_pipe_params_st *pipes);
-
-void dcn32_override_min_req_dcfclk(struct dc *dc, struct dc_state *context);
 
 /* definitions for run time init of reg offsets */
 
