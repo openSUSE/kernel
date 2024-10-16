@@ -960,17 +960,20 @@ int io_read_mshot(struct io_kiocb *req, unsigned int issue_flags)
 		if (issue_flags & IO_URING_F_MULTISHOT)
 			return IOU_ISSUE_SKIP_COMPLETE;
 		return -EAGAIN;
-	}
 
-	/*
-	 * Any successful return value will keep the multishot read armed.
-	 */
-	if (ret > 0 && req->flags & REQ_F_APOLL_MULTISHOT) {
+	} else if (ret <= 0) {
+		io_kbuf_recycle(req, issue_flags);
+		if (ret < 0)
+			req_set_fail(req);
+	} else {
 		/*
 		 * Put our buffer and post a CQE. If we fail to post a CQE, then
 		 * jump to the termination path. This request is then done.
 		 */
 		cflags = io_put_kbuf(req, issue_flags);
+		if (!(req->flags & REQ_F_APOLL_MULTISHOT))
+			goto done;
+
 		rw->len = 0; /* similarly to above, reset len to 0 */
 
 		if (io_fill_cqe_req_aux(req,
@@ -993,6 +996,7 @@ int io_read_mshot(struct io_kiocb *req, unsigned int issue_flags)
 	 * Either an error, or we've hit overflow posting the CQE. For any
 	 * multishot request, hitting overflow will terminate it.
 	 */
+done:
 	io_req_set_res(req, ret, cflags);
 	if (issue_flags & IO_URING_F_MULTISHOT)
 		return IOU_STOP_MULTISHOT;
