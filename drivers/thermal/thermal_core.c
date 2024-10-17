@@ -940,6 +940,8 @@ __thermal_cooling_device_register(struct device_node *np,
 
 	mutex_unlock(&thermal_list_lock);
 
+	thermal_debug_cdev_add(cdev);
+
 	return cdev;
 
 out_cooling_dev:
@@ -1145,6 +1147,8 @@ void thermal_cooling_device_unregister(struct thermal_cooling_device *cdev)
 
 	if (!cdev)
 		return;
+
+	thermal_debug_cdev_remove(cdev);
 
 	mutex_lock(&thermal_list_lock);
 
@@ -1589,6 +1593,8 @@ static struct notifier_block thermal_pm_nb = {
 static int __init thermal_init(void)
 {
 	int result;
+
+	thermal_debug_init();
 
 	result = thermal_netlink_init();
 	if (result)
