@@ -1440,6 +1440,8 @@ void amdgpu_driver_postclose_kms(struct drm_device *dev,
 		fpriv->csa_va = NULL;
 	}
 
+	amdgpu_seq64_unmap(adev, fpriv);
+
 	pasid = fpriv->vm.pasid;
 	pd = amdgpu_bo_ref(fpriv->vm.root.bo);
 	if (!WARN_ON(amdgpu_bo_reserve(pd, true))) {

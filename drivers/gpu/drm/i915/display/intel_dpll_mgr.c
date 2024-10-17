@@ -219,6 +219,26 @@ intel_tc_pll_enable_reg(struct drm_i915_private *i915,
 	return MG_PLL_ENABLE(tc_port);
 }
 
+static void _intel_enable_shared_dpll(struct drm_i915_private *i915,
+				      struct intel_shared_dpll *pll)
+{
+	if (pll->info->power_domain)
+		pll->wakeref = intel_display_power_get(i915, pll->info->power_domain);
+
+	pll->info->funcs->enable(i915, pll);
+	pll->on = true;
+}
+
+static void _intel_disable_shared_dpll(struct drm_i915_private *i915,
+				       struct intel_shared_dpll *pll)
+{
+	pll->info->funcs->disable(i915, pll);
+	pll->on = false;
+
+	if (pll->info->power_domain)
+		intel_display_power_put(i915, pll->info->power_domain, pll->wakeref);
+}
+
 /**
  * intel_enable_shared_dpll - enable a CRTC's shared DPLL
  * @crtc_state: CRTC, and its state, which has a shared DPLL
@@ -258,8 +278,8 @@ void intel_enable_shared_dpll(const struct intel_crtc_state *crtc_state)
 	drm_WARN_ON(&i915->drm, pll->on);
 
 	drm_dbg_kms(&i915->drm, "enabling %s\n", pll->info->name);
-	pll->info->funcs->enable(i915, pll);
-	pll->on = true;
+
+	_intel_enable_shared_dpll(i915, pll);
 
 out:
 	mutex_unlock(&i915->display.dpll.lock);
@@ -304,8 +324,8 @@ void intel_disable_shared_dpll(const struct intel_crtc_state *crtc_state)
 		goto out;
 
 	drm_dbg_kms(&i915->drm, "disabling %s\n", pll->info->name);
-	pll->info->funcs->disable(i915, pll);
-	pll->on = false;
+
+	_intel_disable_shared_dpll(i915, pll);
 
 out:
 	mutex_unlock(&i915->display.dpll.lock);
@@ -3844,18 +3864,6 @@ static void combo_pll_enable(struct drm_i915_private *i915,
 {
 	i915_reg_t enable_reg = intel_combo_pll_enable_reg(i915, pll);
 
-	if ((IS_JASPERLAKE(i915) || IS_ELKHARTLAKE(i915)) &&
-	    pll->info->id == DPLL_ID_EHL_DPLL4) {
-
-		/*
-		 * We need to disable DC states when this DPLL is enabled.
-		 * This can be done by taking a reference on DPLL4 power
-		 * domain.
-		 */
-		pll->wakeref = intel_display_power_get(i915,
-						       POWER_DOMAIN_DC_OFF);
-	}
-
 	icl_pll_power_enable(i915, pll, enable_reg);
 
 	icl_dpll_write(i915, pll);
@@ -3951,11 +3959,6 @@ static void combo_pll_disable(struct drm_i915_private *i915,
 	i915_reg_t enable_reg = intel_combo_pll_enable_reg(i915, pll);
 
 	icl_pll_disable(i915, pll, enable_reg);
-
-	if ((IS_JASPERLAKE(i915) || IS_ELKHARTLAKE(i915)) &&
-	    pll->info->id == DPLL_ID_EHL_DPLL4)
-		intel_display_power_put(i915, POWER_DOMAIN_DC_OFF,
-					pll->wakeref);
 }
 
 static void tbt_pll_disable(struct drm_i915_private *i915,
@@ -4048,7 +4051,8 @@ static const struct intel_dpll_mgr icl_pll_mgr = {
 static const struct dpll_info ehl_plls[] = {
 	{ .name = "DPLL 0", .funcs = &combo_pll_funcs, .id = DPLL_ID_ICL_DPLL0, },
 	{ .name = "DPLL 1", .funcs = &combo_pll_funcs, .id = DPLL_ID_ICL_DPLL1, },
-	{ .name = "DPLL 4", .funcs = &combo_pll_funcs, .id = DPLL_ID_EHL_DPLL4, },
+	{ .name = "DPLL 4", .funcs = &combo_pll_funcs, .id = DPLL_ID_EHL_DPLL4,
+	  .power_domain = POWER_DOMAIN_DC_OFF, },
 	{}
 };
 
@@ -4378,12 +4382,8 @@ static void readout_dpll_hw_state(struct drm_i915_private *i915,
 
 	pll->on = intel_dpll_get_hw_state(i915, pll, &pll->state.hw_state);
 
-	if ((IS_JASPERLAKE(i915) || IS_ELKHARTLAKE(i915)) &&
-	    pll->on &&
-	    pll->info->id == DPLL_ID_EHL_DPLL4) {
-		pll->wakeref = intel_display_power_get(i915,
-						       POWER_DOMAIN_DC_OFF);
-	}
+	if (pll->on && pll->info->power_domain)
+		pll->wakeref = intel_display_power_get(i915, pll->info->power_domain);
 
 	pll->state.pipe_mask = 0;
 	for_each_intel_crtc(&i915->drm, crtc) {
@@ -4430,8 +4430,7 @@ static void sanitize_dpll_state(struct drm_i915_private *i915,
 		    "%s enabled but not in use, disabling\n",
 		    pll->info->name);
 
-	pll->info->funcs->disable(i915, pll);
-	pll->on = false;
+	_intel_disable_shared_dpll(i915, pll);
 }
 
 void intel_dpll_sanitize_state(struct drm_i915_private *i915)
