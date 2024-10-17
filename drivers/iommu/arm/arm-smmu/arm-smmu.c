@@ -875,15 +875,6 @@ static struct iommu_domain *arm_smmu_domain_alloc_paging(struct device *dev)
 	mutex_init(&smmu_domain->init_mutex);
 	spin_lock_init(&smmu_domain->cb_lock);
 
-	if (dev) {
-		struct arm_smmu_master_cfg *cfg = dev_iommu_priv_get(dev);
-
-		if (arm_smmu_init_domain_context(smmu_domain, cfg->smmu, dev)) {
-			kfree(smmu_domain);
-			return NULL;
-		}
-	}
-
 	return &smmu_domain->domain;
 }
 
