@@ -1869,6 +1869,7 @@ int iwl_mvm_tvqm_enable_txq(struct iwl_mvm *mvm, int mac80211_queue,
 int iwl_mvm_disable_txq(struct iwl_mvm *mvm, int queue, int mac80211_queue,
 			u8 tid, u8 flags);
 int iwl_mvm_find_free_queue(struct iwl_mvm *mvm, u8 sta_id, u8 minq, u8 maxq);
+void iwl_mvm_pause_tcm(struct iwl_mvm *mvm, bool with_cancel);
 
 /* Return a bitmask with all the hw supported queues, except for the
  * command queue, which can't be flushed.
@@ -1884,6 +1885,7 @@ static inline void iwl_mvm_stop_device(struct iwl_mvm *mvm)
 	iwl_fw_cancel_timestamp(&mvm->fwrt);
 	iwl_free_fw_paging(&mvm->fwrt);
 	clear_bit(IWL_MVM_STATUS_FIRMWARE_RUNNING, &mvm->status);
+	iwl_mvm_pause_tcm(mvm, false);
 	iwl_fw_dump_conf_clear(&mvm->fwrt);
 	iwl_trans_stop_device(mvm->trans);
 }
@@ -1973,7 +1975,7 @@ void iwl_mvm_inactivity_check(struct iwl_mvm *mvm);
 #define MVM_LL_PERIOD (10 * HZ)
 void iwl_mvm_tcm_work(struct work_struct *work);
 void iwl_mvm_recalc_tcm(struct iwl_mvm *mvm);
-void iwl_mvm_pause_tcm(struct iwl_mvm *mvm, bool with_cancel);
+//void iwl_mvm_pause_tcm(struct iwl_mvm *mvm, bool with_cancel);
 void iwl_mvm_resume_tcm(struct iwl_mvm *mvm);
 void iwl_mvm_tcm_add_vif(struct iwl_mvm *mvm, struct ieee80211_vif *vif);
 void iwl_mvm_tcm_rm_vif(struct iwl_mvm *mvm, struct ieee80211_vif *vif);
