@@ -622,7 +622,8 @@ int amdgpu_bo_create(struct amdgpu_device *adev,
 		return r;
 
 	if (!amdgpu_gmc_vram_full_visible(&adev->gmc) &&
-	    amdgpu_res_cpu_visible(adev, bo->tbo.resource))
+	    bo->tbo.resource->mem_type == TTM_PL_VRAM &&
+	    amdgpu_bo_in_cpu_visible_vram(bo))
 		amdgpu_cs_report_moved_bytes(adev, ctx.bytes_moved,
 					     ctx.bytes_moved);
 	else
@@ -1280,20 +1281,18 @@ void amdgpu_bo_move_notify(struct ttm_buffer_object *bo,
 void amdgpu_bo_get_memory(struct amdgpu_bo *bo,
 			  struct amdgpu_mem_stats *stats)
 {
-	struct amdgpu_device *adev = amdgpu_ttm_adev(bo->tbo.bdev);
-	struct ttm_resource *res = bo->tbo.resource;
 	uint64_t size = amdgpu_bo_size(bo);
 	unsigned int domain;
 
 	/* Abort if the BO doesn't currently have a backing store */
-	if (!res)
+	if (!bo->tbo.resource)
 		return;
 
-	domain = amdgpu_mem_type_to_domain(res->mem_type);
+	domain = amdgpu_mem_type_to_domain(bo->tbo.resource->mem_type);
 	switch (domain) {
 	case AMDGPU_GEM_DOMAIN_VRAM:
 		stats->vram += size;
-		if (amdgpu_res_cpu_visible(adev, bo->tbo.resource))
+		if (amdgpu_bo_in_cpu_visible_vram(bo))
 			stats->visible_vram += size;
 		break;
 	case AMDGPU_GEM_DOMAIN_GTT:
@@ -1388,7 +1387,10 @@ vm_fault_t amdgpu_bo_fault_reserve_notify(struct ttm_buffer_object *bo)
 	/* Remember that this BO was accessed by the CPU */
 	abo->flags |= AMDGPU_GEM_CREATE_CPU_ACCESS_REQUIRED;
 
-	if (amdgpu_res_cpu_visible(adev, bo->resource))
+	if (bo->resource->mem_type != TTM_PL_VRAM)
+		return 0;
+
+	if (amdgpu_bo_in_cpu_visible_vram(abo))
 		return 0;
 
 	/* Can't move a pinned BO to visible VRAM */
@@ -1412,7 +1414,7 @@ vm_fault_t amdgpu_bo_fault_reserve_notify(struct ttm_buffer_object *bo)
 
 	/* this should never happen */
 	if (bo->resource->mem_type == TTM_PL_VRAM &&
-	    !amdgpu_res_cpu_visible(adev, bo->resource))
+	    !amdgpu_bo_in_cpu_visible_vram(abo))
 		return VM_FAULT_SIGBUS;
 
 	ttm_bo_move_to_lru_tail_unlocked(bo);
@@ -1576,7 +1578,6 @@ uint32_t amdgpu_bo_get_preferred_domain(struct amdgpu_device *adev,
  */
 u64 amdgpu_bo_print_info(int id, struct amdgpu_bo *bo, struct seq_file *m)
 {
-	struct amdgpu_device *adev = amdgpu_ttm_adev(bo->tbo.bdev);
 	struct dma_buf_attachment *attachment;
 	struct dma_buf *dma_buf;
 	const char *placement;
@@ -1585,11 +1586,10 @@ u64 amdgpu_bo_print_info(int id, struct amdgpu_bo *bo, struct seq_file *m)
 
 	if (dma_resv_trylock(bo->tbo.base.resv)) {
 		unsigned int domain;
-
 		domain = amdgpu_mem_type_to_domain(bo->tbo.resource->mem_type);
 		switch (domain) {
 		case AMDGPU_GEM_DOMAIN_VRAM:
-			if (amdgpu_res_cpu_visible(adev, bo->tbo.resource))
+			if (amdgpu_bo_in_cpu_visible_vram(bo))
 				placement = "VRAM VISIBLE";
 			else
 				placement = "VRAM";
