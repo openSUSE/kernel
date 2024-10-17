@@ -772,7 +772,7 @@ legacy_cleanup:
 	return ret;
 }
 
-static int imx_thermal_remove(struct platform_device *pdev)
+static void imx_thermal_remove(struct platform_device *pdev)
 {
 	struct imx_thermal_data *data = platform_get_drvdata(pdev);
 
@@ -781,8 +781,6 @@ static int imx_thermal_remove(struct platform_device *pdev)
 
 	thermal_zone_device_unregister(data->tz);
 	imx_thermal_unregister_legacy_cooling(data);
-
-	return 0;
 }
 
 static int __maybe_unused imx_thermal_suspend(struct device *dev)
@@ -881,7 +879,7 @@ static struct platform_driver imx_thermal = {
 		.of_match_table = of_imx_thermal_match,
 	},
 	.probe		= imx_thermal_probe,
-	.remove		= imx_thermal_remove,
+	.remove_new	= imx_thermal_remove,
 };
 module_platform_driver(imx_thermal);
 
