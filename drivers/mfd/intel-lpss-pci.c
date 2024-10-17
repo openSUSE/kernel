@@ -37,14 +37,18 @@ static int intel_lpss_pci_probe(struct pci_dev *pdev,
 	if (ret)
 		return ret;
 
+	ret = pci_alloc_irq_vectors(pdev, 1, 1, PCI_IRQ_LEGACY);
+	if (ret)
+		return ret;
+
 	info = devm_kmemdup(&pdev->dev, (void *)id->driver_data, sizeof(*info),
 			    GFP_KERNEL);
 	if (!info)
 		return -ENOMEM;
 
 	/* No need to check mem and irq here as intel_lpss_probe() does it for us */
-	info->mem = &pdev->resource[0];
-	info->irq = pdev->irq;
+	info->mem = pci_resource_n(pdev, 0);
+	info->irq = pci_irq_vector(pdev, 0);
 
 	if (pci_match_id(ignore_resource_conflicts_ids, pdev))
 		info->ignore_resource_conflicts = true;
