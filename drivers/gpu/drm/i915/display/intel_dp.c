@@ -6058,7 +6058,7 @@ static void intel_dp_oob_hotplug_event(struct drm_connector *connector,
 	spin_unlock_irq(&i915->irq_lock);
 
 	if (need_work)
-		queue_delayed_work(i915->unordered_wq, &i915->display.hotplug.hotplug_work, 0);
+		intel_hpd_schedule_detection(i915);
 }
 
 static const struct drm_connector_funcs intel_dp_connector_funcs = {
