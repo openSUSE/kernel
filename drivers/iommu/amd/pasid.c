@@ -141,19 +141,15 @@ out_unlock:
 	return ret;
 }
 
-void amd_iommu_remove_dev_pasid(struct device *dev, ioasid_t pasid)
+void amd_iommu_remove_dev_pasid(struct device *dev, ioasid_t pasid,
+				struct iommu_domain *domain)
 {
 	struct protection_domain *sva_pdom;
-	struct iommu_domain *domain;
 	unsigned long flags;
 
 	if (!is_pasid_valid(dev_iommu_priv_get(dev), pasid))
 		return;
 
-	/* Get protection domain */
-	domain = iommu_get_domain_for_dev_pasid(dev, pasid, IOMMU_DOMAIN_SVA);
-	if (!domain)
-		return;
 	sva_pdom = to_pdomain(domain);
 
 	spin_lock_irqsave(&sva_pdom->lock, flags);
