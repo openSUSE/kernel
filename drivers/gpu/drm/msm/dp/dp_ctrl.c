@@ -2050,6 +2050,8 @@ void dp_ctrl_off_link_stream(struct dp_ctrl *dp_ctrl)
 	ctrl = container_of(dp_ctrl, struct dp_ctrl_private, dp_ctrl);
 	phy = ctrl->phy;
 
+	dp_catalog_panel_disable_vsc_sdp(ctrl->catalog);
+
 	/* set dongle to D3 (power off) mode */
 	dp_link_psm_config(ctrl->link, &ctrl->panel->link_info, true);
 
@@ -2101,6 +2103,8 @@ void dp_ctrl_off(struct dp_ctrl *dp_ctrl)
 
 	ctrl = container_of(dp_ctrl, struct dp_ctrl_private, dp_ctrl);
 	phy = ctrl->phy;
+
+	dp_catalog_panel_disable_vsc_sdp(ctrl->catalog);
 
 	dp_catalog_ctrl_mainlink_ctrl(ctrl->catalog, false);
 
