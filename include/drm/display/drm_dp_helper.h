@@ -813,7 +813,6 @@ int drm_dp_bw_overhead(int lane_count, int hactive,
 int drm_dp_bw_channel_coding_efficiency(bool is_uhbr);
 int drm_dp_max_dprx_data_rate(int max_link_rate, int max_lanes);
 
-ssize_t drm_dp_vsc_sdp_pack(const struct drm_dp_vsc_sdp *vsc,
-			    struct dp_sdp *sdp, size_t size);
+ssize_t drm_dp_vsc_sdp_pack(const struct drm_dp_vsc_sdp *vsc, struct dp_sdp *sdp);
 
 #endif /* _DRM_DP_HELPER_H_ */
