@@ -4362,11 +4362,8 @@ static void intel_iommu_remove_dev_pasid(struct device *dev, ioasid_t pasid,
 	 * notification. Before consolidating that code into iommu core, let
 	 * the intel sva code handle it.
 	 */
-	if (domain->type == IOMMU_DOMAIN_SVA) {
-		intel_svm_remove_dev_pasid(dev, pasid);
-		cache_tag_unassign_domain(dmar_domain, dev, pasid);
-		goto out_tear_down;
-	}
+	if (domain->type == IOMMU_DOMAIN_SVA)
+		intel_svm_remove_dev_pasid(domain);
 
 	spin_lock_irqsave(&dmar_domain->lock, flags);
 	list_for_each_entry(curr, &dmar_domain->dev_pasids, link_domain) {
@@ -4383,7 +4380,6 @@ static void intel_iommu_remove_dev_pasid(struct device *dev, ioasid_t pasid,
 	domain_detach_iommu(dmar_domain, iommu);
 	intel_iommu_debugfs_remove_dev_pasid(dev_pasid);
 	kfree(dev_pasid);
-out_tear_down:
 	intel_pasid_tear_down_entry(iommu, dev, pasid, false);
 	intel_drain_pasid_prq(dev, pasid);
 }

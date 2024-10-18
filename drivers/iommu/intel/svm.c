@@ -44,23 +44,6 @@ static void *pasid_private_find(ioasid_t pasid)
 	return xa_load(&pasid_private_array, pasid);
 }
 
-static struct intel_svm_dev *
-svm_lookup_device_by_dev(struct intel_svm *svm, struct device *dev)
-{
-	struct intel_svm_dev *sdev = NULL, *t;
-
-	rcu_read_lock();
-	list_for_each_entry_rcu(t, &svm->devs, list) {
-		if (t->dev == dev) {
-			sdev = t;
-			break;
-		}
-	}
-	rcu_read_unlock();
-
-	return sdev;
-}
-
 int intel_svm_enable_prq(struct intel_iommu *iommu)
 {
 	struct iopf_queue *iopfq;
@@ -191,7 +174,10 @@ static void intel_arch_invalidate_secondary_tlbs(struct mmu_notifier *mn,
 static void intel_mm_release(struct mmu_notifier *mn, struct mm_struct *mm)
 {
 	struct intel_svm *svm = container_of(mn, struct intel_svm, notifier);
-	struct intel_svm_dev *sdev;
+	struct dmar_domain *domain = svm->domain;
+	struct dev_pasid_info *dev_pasid;
+	struct device_domain_info *info;
+	unsigned long flags;
 
 	/* This might end up being called from exit_mmap(), *before* the page
 	 * tables are cleared. And __mmu_notifier_release() will delete us from
@@ -205,11 +191,13 @@ static void intel_mm_release(struct mmu_notifier *mn, struct mm_struct *mm)
 	 * page) so that we end up taking a fault that the hardware really
 	 * *has* to handle gracefully without affecting other processes.
 	 */
-	rcu_read_lock();
-	list_for_each_entry_rcu(sdev, &svm->devs, list)
-		intel_pasid_tear_down_entry(sdev->iommu, sdev->dev,
-					    svm->pasid, true);
-	rcu_read_unlock();
+	spin_lock_irqsave(&domain->lock, flags);
+	list_for_each_entry(dev_pasid, &domain->dev_pasids, link_domain) {
+		info = dev_iommu_priv_get(dev_pasid->dev);
+		intel_pasid_tear_down_entry(info->iommu, dev_pasid->dev,
+					    dev_pasid->pasid, true);
+	}
+	spin_unlock_irqrestore(&domain->lock, flags);
 
 }
 
@@ -218,47 +206,17 @@ static const struct mmu_notifier_ops intel_mmuops = {
 	.arch_invalidate_secondary_tlbs = intel_arch_invalidate_secondary_tlbs,
 };
 
-static int pasid_to_svm_sdev(struct device *dev, unsigned int pasid,
-			     struct intel_svm **rsvm,
-			     struct intel_svm_dev **rsdev)
-{
-	struct intel_svm_dev *sdev = NULL;
-	struct intel_svm *svm;
-
-	if (pasid == IOMMU_PASID_INVALID || pasid >= PASID_MAX)
-		return -EINVAL;
-
-	svm = pasid_private_find(pasid);
-	if (IS_ERR(svm))
-		return PTR_ERR(svm);
-
-	if (!svm)
-		goto out;
-
-	/*
-	 * If we found svm for the PASID, there must be at least one device
-	 * bond.
-	 */
-	if (WARN_ON(list_empty(&svm->devs)))
-		return -EINVAL;
-	sdev = svm_lookup_device_by_dev(svm, dev);
-
-out:
-	*rsvm = svm;
-	*rsdev = sdev;
-
-	return 0;
-}
-
 static int intel_svm_set_dev_pasid(struct iommu_domain *domain,
 				   struct device *dev, ioasid_t pasid)
 {
 	struct device_domain_info *info = dev_iommu_priv_get(dev);
+	struct dmar_domain *dmar_domain = to_dmar_domain(domain);
 	struct intel_iommu *iommu = info->iommu;
 	struct mm_struct *mm = domain->mm;
-	struct intel_svm_dev *sdev;
+	struct dev_pasid_info *dev_pasid;
 	struct intel_svm *svm;
 	unsigned long sflags;
+	unsigned long flags;
 	int ret = 0;
 
 	svm = pasid_private_find(pasid);
@@ -269,7 +227,6 @@ static int intel_svm_set_dev_pasid(struct iommu_domain *domain,
 
 		svm->pasid = pasid;
 		svm->mm = mm;
-		INIT_LIST_HEAD_RCU(&svm->devs);
 
 		svm->notifier.ops = &intel_mmuops;
 		svm->domain = to_dmar_domain(domain);
@@ -287,25 +244,17 @@ static int intel_svm_set_dev_pasid(struct iommu_domain *domain,
 		}
 	}
 
-	sdev = kzalloc(sizeof(*sdev), GFP_KERNEL);
-	if (!sdev) {
-		ret = -ENOMEM;
+	dmar_domain->svm = svm;
+	dev_pasid = kzalloc(sizeof(*dev_pasid), GFP_KERNEL);
+	if (!dev_pasid)
 		goto free_svm;
-	}
 
-	sdev->dev = dev;
-	sdev->iommu = iommu;
-	sdev->did = FLPT_DEFAULT_DID;
-	sdev->sid = PCI_DEVID(info->bus, info->devfn);
-	if (info->ats_enabled) {
-		sdev->qdep = info->ats_qdep;
-		if (sdev->qdep >= QI_DEV_EIOTLB_MAX_INVS)
-			sdev->qdep = 0;
-	}
+	dev_pasid->dev = dev;
+	dev_pasid->pasid = pasid;
 
 	ret = cache_tag_assign_domain(to_dmar_domain(domain), dev, pasid);
 	if (ret)
-		goto free_sdev;
+		goto free_dev_pasid;
 
 	/* Setup the pasid table: */
 	sflags = cpu_feature_enabled(X86_FEATURE_LA57) ? PASID_FLAG_FL5LP : 0;
@@ -314,16 +263,18 @@ static int intel_svm_set_dev_pasid(struct iommu_domain *domain,
 	if (ret)
 		goto unassign_tag;
 
-	list_add_rcu(&sdev->list, &svm->devs);
+	spin_lock_irqsave(&dmar_domain->lock, flags);
+	list_add(&dev_pasid->link_domain, &dmar_domain->dev_pasids);
+	spin_unlock_irqrestore(&dmar_domain->lock, flags);
 
 	return 0;
 
 unassign_tag:
 	cache_tag_unassign_domain(to_dmar_domain(domain), dev, pasid);
-free_sdev:
-	kfree(sdev);
+free_dev_pasid:
+	kfree(dev_pasid);
 free_svm:
-	if (list_empty(&svm->devs)) {
+	if (list_empty(&dmar_domain->dev_pasids)) {
 		mmu_notifier_unregister(&svm->notifier, mm);
 		pasid_private_remove(pasid);
 		kfree(svm);
@@ -332,26 +283,17 @@ free_svm:
 	return ret;
 }
 
-void intel_svm_remove_dev_pasid(struct device *dev, u32 pasid)
+void intel_svm_remove_dev_pasid(struct iommu_domain *domain)
 {
-	struct intel_svm_dev *sdev;
-	struct intel_svm *svm;
-	struct mm_struct *mm;
+	struct dmar_domain *dmar_domain = to_dmar_domain(domain);
+	struct intel_svm *svm = dmar_domain->svm;
+	struct mm_struct *mm = domain->mm;
 
-	if (pasid_to_svm_sdev(dev, pasid, &svm, &sdev))
-		return;
-	mm = svm->mm;
-
-	if (sdev) {
-		list_del_rcu(&sdev->list);
-		kfree_rcu(sdev, rcu);
-
-		if (list_empty(&svm->devs)) {
-			if (svm->notifier.ops)
-				mmu_notifier_unregister(&svm->notifier, mm);
-			pasid_private_remove(svm->pasid);
-			kfree(svm);
-		}
+	if (list_empty(&dmar_domain->dev_pasids)) {
+		if (svm->notifier.ops)
+			mmu_notifier_unregister(&svm->notifier, mm);
+		pasid_private_remove(svm->pasid);
+		kfree(svm);
 	}
 }
 
@@ -685,8 +627,10 @@ struct iommu_domain *intel_svm_domain_alloc(void)
 		return NULL;
 	domain->domain.ops = &intel_svm_domain_ops;
 	domain->use_first_level = true;
+	INIT_LIST_HEAD(&domain->dev_pasids);
 	INIT_LIST_HEAD(&domain->cache_tags);
 	spin_lock_init(&domain->cache_lock);
+	spin_lock_init(&domain->lock);
 
 	return &domain->domain;
 }
