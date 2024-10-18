@@ -664,6 +664,12 @@ void platform_msi_device_domain_free(struct irq_domain *domain, unsigned int vir
 void *platform_msi_get_host_data(struct irq_domain *domain);
 
 bool msi_device_has_isolated_msi(struct device *dev);
+
+static inline int msi_domain_alloc_irqs(struct device *dev, unsigned int domid, int nirqs)
+{
+	return msi_domain_alloc_irqs_range(dev, domid, 0, nirqs - 1);
+}
+
 #else /* CONFIG_GENERIC_MSI_IRQ */
 static inline bool msi_device_has_isolated_msi(struct device *dev)
 {
