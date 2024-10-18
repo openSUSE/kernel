@@ -32,6 +32,7 @@ struct xe_vm;
 #define XE_VMA_PTE_1G		(DRM_GPUVA_USERBITS << 7)
 #define XE_VMA_PTE_64K		(DRM_GPUVA_USERBITS << 8)
 #define XE_VMA_PTE_COMPACT	(DRM_GPUVA_USERBITS << 9)
+#define XE_VMA_DUMPABLE		(DRM_GPUVA_USERBITS << 10)
 
 /** struct xe_userptr - User pointer */
 struct xe_userptr {
@@ -297,6 +298,8 @@ struct xe_vma_op_map {
 	struct xe_vma *vma;
 	/** @is_null: is NULL binding */
 	bool is_null;
+	/** @dumpable: whether BO is dumped on GPU hang */
+	bool dumpable;
 	/** @pat_index: The pat index to use for this operation. */
 	u16 pat_index;
 };
