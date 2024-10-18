@@ -1409,6 +1409,8 @@ struct intel_crtc_state {
 
 	u32 psr2_man_track_ctl;
 
+	struct drm_rect psr2_su_area;
+
 	/* Variable Refresh Rate state */
 	struct {
 		bool enable, in_range;
