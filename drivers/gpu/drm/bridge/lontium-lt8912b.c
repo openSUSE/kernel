@@ -424,16 +424,16 @@ static const struct drm_connector_funcs lt8912_connector_funcs = {
 
 static int lt8912_connector_get_modes(struct drm_connector *connector)
 {
-	struct edid *edid;
+	const struct drm_edid *drm_edid;
 	int ret = -1;
 	int num = 0;
 	struct lt8912 *lt = connector_to_lt8912(connector);
 	u32 bus_format = MEDIA_BUS_FMT_RGB888_1X24;
 
-	edid = drm_bridge_get_edid(lt->hdmi_port, connector);
-	if (edid) {
-		drm_connector_update_edid_property(connector, edid);
-		num = drm_add_edid_modes(connector, edid);
+	drm_edid = drm_bridge_edid_read(lt->hdmi_port, connector);
+	if (drm_edid) {
+		drm_edid_connector_update(connector, drm_edid);
+		num = drm_edid_connector_add_modes(connector);
 	} else {
 		return ret;
 	}
@@ -443,7 +443,7 @@ static int lt8912_connector_get_modes(struct drm_connector *connector)
 	if (ret)
 		num = ret;
 
-	kfree(edid);
+	drm_edid_free(drm_edid);
 	return num;
 }
 
