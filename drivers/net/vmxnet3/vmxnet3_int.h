@@ -190,6 +190,11 @@ struct vmxnet3_tx_data_ring {
 	dma_addr_t          basePA;
 };
 
+struct vmxnet3_tx_ts_ring {
+	struct Vmxnet3_TxTSDesc *base;
+	dma_addr_t          basePA;
+};
+
 enum vmxnet3_buf_map_type {
 	VMXNET3_MAP_INVALID = 0,
 	VMXNET3_MAP_NONE,
@@ -238,6 +243,7 @@ struct vmxnet3_tx_ctx {
 	u32 copy_size;       /* # of bytes copied into the data ring */
 	union Vmxnet3_GenericDesc *sop_txd;
 	union Vmxnet3_GenericDesc *eop_txd;
+	struct Vmxnet3_TxTSDesc *ts_txd;
 };
 
 struct vmxnet3_tx_queue {
@@ -247,6 +253,7 @@ struct vmxnet3_tx_queue {
 	struct vmxnet3_cmd_ring         tx_ring;
 	struct vmxnet3_tx_buf_info      *buf_info;
 	struct vmxnet3_tx_data_ring     data_ring;
+	struct vmxnet3_tx_ts_ring       ts_ring;
 	struct vmxnet3_comp_ring        comp_ring;
 	struct Vmxnet3_TxQueueCtrl      *shared;
 	struct vmxnet3_tq_driver_stats  stats;
@@ -255,6 +262,8 @@ struct vmxnet3_tx_queue {
 						    * stopped */
 	int				qid;
 	u16				txdata_desc_size;
+	u16                             tx_ts_desc_size;
+	u16                             tsPktCount;
 } __attribute__((__aligned__(SMP_CACHE_BYTES)));
 
 enum vmxnet3_rx_buf_type {
@@ -295,6 +304,11 @@ struct vmxnet3_rx_data_ring {
 	u16 desc_size;
 };
 
+struct vmxnet3_rx_ts_ring {
+	struct Vmxnet3_RxTSDesc *base;
+	dma_addr_t basePA;
+};
+
 struct vmxnet3_rx_queue {
 	char			name[IFNAMSIZ + 8]; /* To identify interrupt */
 	struct vmxnet3_adapter	  *adapter;
@@ -302,6 +316,7 @@ struct vmxnet3_rx_queue {
 	struct vmxnet3_cmd_ring   rx_ring[2];
 	struct vmxnet3_rx_data_ring data_ring;
 	struct vmxnet3_comp_ring  comp_ring;
+	struct vmxnet3_rx_ts_ring ts_ring;
 	struct vmxnet3_rx_ctx     rx_ctx;
 	u32 qid;            /* rqID in RCD for buffer from 1st ring */
 	u32 qid2;           /* rqID in RCD for buffer from 2nd ring */
@@ -309,6 +324,7 @@ struct vmxnet3_rx_queue {
 	struct vmxnet3_rx_buf_info     *buf_info[2];
 	struct Vmxnet3_RxQueueCtrl            *shared;
 	struct vmxnet3_rq_driver_stats  stats;
+	u16                             rx_ts_desc_size;
 } __attribute__((__aligned__(SMP_CACHE_BYTES)));
 
 #define VMXNET3_DEVICE_MAX_TX_QUEUES 32
@@ -417,6 +433,10 @@ struct vmxnet3_adapter {
 	u16    tx_prod_offset;
 	u16    rx_prod_offset;
 	u16    rx_prod2_offset;
+	struct Vmxnet3_LatencyConf *latencyConf;
+	/* Size of buffer in the ts ring */
+	u16     tx_ts_desc_size;
+	u16     rx_ts_desc_size;
 };
 
 #define VMXNET3_WRITE_BAR0_REG(adapter, reg, val)  \
