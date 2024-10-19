@@ -3,6 +3,7 @@
 #include <test_progs.h>
 
 #include "cap_helpers.h"
+#include "verifier_const.skel.h"
 #include "verifier_iterating_callbacks.skel.h"
 #include "verifier_reg_equal.skel.h"
 #include "verifier_scalar_ids.skel.h"
@@ -43,6 +44,7 @@ static void run_tests_aux(const char *skel_name,
 
 #define RUN(skel) run_tests_aux(#skel, skel##__elf_bytes, NULL)
 
+void test_verifier_const(void)                { RUN(verifier_const); }
 void test_verifier_iterating_callbacks(void)  { RUN(verifier_iterating_callbacks); }
 void test_verifier_reg_equal(void)            { RUN(verifier_reg_equal); }
 void test_verifier_scalar_ids(void)           { RUN(verifier_scalar_ids); }
