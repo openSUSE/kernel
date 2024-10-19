@@ -49,6 +49,6 @@ void __stack_chk_init(void)
 	if (__stack_chk_guard != (uintptr_t) &__stack_chk_guard)
 		__stack_chk_guard ^= (uintptr_t) &__stack_chk_guard;
 }
-#endif // defined(NOLIBC_STACKPROTECTOR)
+#endif /* defined(NOLIBC_STACKPROTECTOR) */
 
-#endif // _NOLIBC_STACKPROTECTOR_H
+#endif /* _NOLIBC_STACKPROTECTOR_H */

@@ -55,8 +55,8 @@
 #include "audio.h"
 #include "reg_helper.h"
 #include "panel_cntl.h"
+#include "dc_state_priv.h"
 #include "dpcd_defs.h"
-#include "dsc.h"
 /* include DCE11 register header files */
 #include "dce/dce_11_0_d.h"
 #include "dce/dce_11_0_sh_mask.h"
@@ -1183,9 +1183,9 @@ void dce110_disable_stream(struct pipe_ctx *pipe_ctx)
 		dto_params.timing = &pipe_ctx->stream->timing;
 		dp_hpo_inst = pipe_ctx->stream_res.hpo_dp_stream_enc->inst;
 		if (dccg) {
-			dccg->funcs->set_dtbclk_dto(dccg, &dto_params);
 			dccg->funcs->disable_symclk32_se(dccg, dp_hpo_inst);
 			dccg->funcs->set_dpstreamclk(dccg, REFCLK, tg->inst, dp_hpo_inst);
+			dccg->funcs->set_dtbclk_dto(dccg, &dto_params);
 		}
 	} else if (dccg && dccg->funcs->disable_symclk_se) {
 		dccg->funcs->disable_symclk_se(dccg, stream_enc->stream_enc_inst,
@@ -1476,7 +1476,7 @@ static enum dc_status dce110_enable_stream_timing(
 	return DC_OK;
 }
 
-static enum dc_status apply_single_controller_ctx_to_hw(
+enum dc_status dce110_apply_single_controller_ctx_to_hw(
 		struct pipe_ctx *pipe_ctx,
 		struct dc_state *context,
 		struct dc *dc)
@@ -1597,7 +1597,7 @@ static enum dc_status apply_single_controller_ctx_to_hw(
 	 * is constructed with the same sink). Make sure not to override
 	 * and link programming on the main.
 	 */
-	if (pipe_ctx->stream->mall_stream_config.type != SUBVP_PHANTOM) {
+	if (dc_state_get_pipe_subvp_type(context, pipe_ctx) != SUBVP_PHANTOM) {
 		pipe_ctx->stream->link->psr_settings.psr_feature_enabled = false;
 		pipe_ctx->stream->link->replay_settings.replay_feature_enabled = false;
 	}
@@ -1685,7 +1685,7 @@ static void disable_vga_and_power_gate_all_controllers(
 				true);
 
 		dc->current_state->res_ctx.pipe_ctx[i].pipe_idx = i;
-		dc->hwss.disable_plane(dc,
+		dc->hwss.disable_plane(dc, dc->current_state,
 			&dc->current_state->res_ctx.pipe_ctx[i]);
 	}
 }
@@ -1722,48 +1722,6 @@ static void get_edp_links_with_sink(
 			edp_links_with_sink[*edp_with_sink_num] = dc->links[i];
 			if (++(*edp_with_sink_num) == MAX_NUM_EDP)
 				return;
-		}
-	}
-}
-
-static void clean_up_dsc_blocks(struct dc *dc)
-{
-	struct display_stream_compressor *dsc = NULL;
-	struct timing_generator *tg = NULL;
-	struct stream_encoder *se = NULL;
-	struct dccg *dccg = dc->res_pool->dccg;
-	struct pg_cntl *pg_cntl = dc->res_pool->pg_cntl;
-	int i;
-
-	if (dc->ctx->dce_version != DCN_VERSION_3_5 &&
-		dc->ctx->dce_version != DCN_VERSION_3_51)
-		return;
-
-	for (i = 0; i < dc->res_pool->res_cap->num_dsc; i++) {
-		struct dcn_dsc_state s  = {0};
-
-		dsc = dc->res_pool->dscs[i];
-		dsc->funcs->dsc_read_state(dsc, &s);
-		if (s.dsc_fw_en) {
-			/* disable DSC in OPTC */
-			if (i < dc->res_pool->timing_generator_count) {
-				tg = dc->res_pool->timing_generators[i];
-				tg->funcs->set_dsc_config(tg, OPTC_DSC_DISABLED, 0, 0);
-			}
-			/* disable DSC in stream encoder */
-			if (i < dc->res_pool->stream_enc_count) {
-				se = dc->res_pool->stream_enc[i];
-				se->funcs->dp_set_dsc_config(se, OPTC_DSC_DISABLED, 0, 0);
-				se->funcs->dp_set_dsc_pps_info_packet(se, false, NULL, true);
-			}
-			/* disable DSC block */
-			if (dccg->funcs->set_ref_dscclk)
-				dccg->funcs->set_ref_dscclk(dccg, dsc->inst);
-			dsc->funcs->dsc_disable(dsc);
-
-			/* power down DSC */
-			if (pg_cntl != NULL)
-				pg_cntl->funcs->dsc_pg_control(pg_cntl, dsc->inst, false);
 		}
 	}
 }
@@ -1852,13 +1810,6 @@ void dce110_enable_accelerated_mode(struct dc *dc, struct dc_state *context)
 		clk_mgr_exit_optimized_pwr_state(dc, dc->clk_mgr);
 
 		power_down_all_hw_blocks(dc);
-
-		/* DSC could be enabled on eDP during VBIOS post.
-		 * To clean up dsc blocks if eDP is in link but not active.
-		 */
-		if (edp_link_with_sink && (edp_stream_num == 0))
-			clean_up_dsc_blocks(dc);
-
 		disable_vga_and_power_gate_all_controllers(dc);
 		if (edp_link_with_sink && !keep_edp_vdd_on)
 			dc->hwss.edp_power_control(edp_link_with_sink, false);
@@ -2191,7 +2142,7 @@ static void dce110_reset_hw_ctx_wrap(
 										old_clk))
 				old_clk->funcs->cs_power_down(old_clk);
 
-			dc->hwss.disable_plane(dc, pipe_ctx_old);
+			dc->hwss.disable_plane(dc, dc->current_state, pipe_ctx_old);
 
 			pipe_ctx_old->stream = NULL;
 		}
@@ -2358,7 +2309,7 @@ enum dc_status dce110_apply_ctx_to_hw(
 		if (pipe_ctx->top_pipe || pipe_ctx->prev_odm_pipe)
 			continue;
 
-		status = apply_single_controller_ctx_to_hw(
+		status = dce110_apply_single_controller_ctx_to_hw(
 				pipe_ctx,
 				context,
 				dc);
@@ -2555,6 +2506,7 @@ static bool wait_for_reset_trigger_to_occur(
 /* Enable timing synchronization for a group of Timing Generators. */
 static void dce110_enable_timing_synchronization(
 		struct dc *dc,
+		struct dc_state *state,
 		int group_index,
 		int group_size,
 		struct pipe_ctx *grouped_pipes[])
@@ -2648,6 +2600,7 @@ static void init_hw(struct dc *dc)
 	struct dmcu *dmcu;
 	struct dce_hwseq *hws = dc->hwseq;
 	uint32_t backlight = MAX_BACKLIGHT_LEVEL;
+	uint32_t user_level = MAX_BACKLIGHT_LEVEL;
 
 	bp = dc->ctx->dc_bios;
 	for (i = 0; i < dc->res_pool->pipe_count; i++) {
@@ -2697,13 +2650,15 @@ static void init_hw(struct dc *dc)
 	for (i = 0; i < dc->link_count; i++) {
 		struct dc_link *link = dc->links[i];
 
-		if (link->panel_cntl)
+		if (link->panel_cntl) {
 			backlight = link->panel_cntl->funcs->hw_init(link->panel_cntl);
+			user_level = link->panel_cntl->stored_backlight_registers.USER_LEVEL;
+		}
 	}
 
 	abm = dc->res_pool->abm;
 	if (abm != NULL)
-		abm->funcs->abm_init(abm, backlight);
+		abm->funcs->abm_init(abm, backlight, user_level);
 
 	dmcu = dc->res_pool->dmcu;
 	if (dmcu != NULL && abm != NULL)
@@ -2900,7 +2855,7 @@ static void dce110_post_unlock_program_front_end(
 {
 }
 
-static void dce110_power_down_fe(struct dc *dc, struct pipe_ctx *pipe_ctx)
+static void dce110_power_down_fe(struct dc *dc, struct dc_state *state, struct pipe_ctx *pipe_ctx)
 {
 	struct dce_hwseq *hws = dc->hwseq;
 	int fe_idx = pipe_ctx->plane_res.mi ?
@@ -3173,7 +3128,8 @@ void dce110_disable_link_output(struct dc_link *link,
 	struct dmcu *dmcu = dc->res_pool->dmcu;
 
 	if (signal == SIGNAL_TYPE_EDP &&
-			link->dc->hwss.edp_backlight_control)
+			link->dc->hwss.edp_backlight_control &&
+			!link->skip_implict_edp_power_control)
 		link->dc->hwss.edp_backlight_control(link, false);
 	else if (dmcu != NULL && dmcu->funcs->lock_phy)
 		dmcu->funcs->lock_phy(dmcu);

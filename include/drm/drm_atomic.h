@@ -426,8 +426,6 @@ struct drm_atomic_state {
 	 * commit without blocking.
 	 */
 	struct work_struct commit_work;
-
-	void *suse_kabi_padding;
 };
 
 void __drm_crtc_commit_free(struct kref *kref);
