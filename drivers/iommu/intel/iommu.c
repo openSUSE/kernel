@@ -1957,12 +1957,6 @@ static int dmar_domain_attach_device(struct dmar_domain *domain,
 	if (ret)
 		return ret;
 
-	ret = cache_tag_assign_domain(domain, dev, IOMMU_NO_PASID);
-	if (ret) {
-		domain_detach_iommu(domain, iommu);
-		return ret;
-	}
-
 	info->domain = domain;
 	spin_lock_irqsave(&domain->lock, flags);
 	list_add(&info->link, &domain->devices);
@@ -1978,14 +1972,20 @@ static int dmar_domain_attach_device(struct dmar_domain *domain,
 	else
 		ret = intel_pasid_setup_second_level(iommu, domain, dev, IOMMU_NO_PASID);
 
-	if (ret) {
-		device_block_translation(dev);
-		return ret;
-	}
+	if (ret)
+		goto out_block_translation;
 
 	iommu_enable_pci_caps(info);
 
+	ret = cache_tag_assign_domain(domain, dev, IOMMU_NO_PASID);
+	if (ret)
+		goto out_block_translation;
+
 	return 0;
+
+out_block_translation:
+	device_block_translation(dev);
+	return ret;
 }
 
 /**
