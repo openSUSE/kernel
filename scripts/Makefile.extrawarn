@@ -46,6 +46,8 @@ else
 # Some diagnostics enabled by default are noisy.
 # Suppress them by using -Wno... except for W=1.
 
+KBUILD_CFLAGS += -Wno-override-init # alias for -Wno-initializer-overrides in clang
+
 ifdef CONFIG_CC_IS_CLANG
 KBUILD_CFLAGS += -Wno-initializer-overrides
 # Clang before clang-16 would warn on default argument promotions.
