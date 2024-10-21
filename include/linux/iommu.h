@@ -321,6 +321,9 @@ enum iommu_dev_features {
 #define IOMMU_PASID_INVALID	(-1U)
 typedef unsigned int ioasid_t;
 
+/* Read but do not clear any dirty bits */
+#define IOMMU_DIRTY_NO_CLEAR (1 << 0)
+
 #ifdef CONFIG_IOMMU_API
 
 /**
@@ -356,9 +359,6 @@ struct iommu_dirty_bitmap {
 	struct iova_bitmap *bitmap;
 	struct iommu_iotlb_gather *gather;
 };
-
-/* Read but do not clear any dirty bits */
-#define IOMMU_DIRTY_NO_CLEAR (1 << 0)
 
 /**
  * struct iommu_dirty_ops - domain specific dirty tracking operations
