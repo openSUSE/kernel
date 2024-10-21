@@ -757,6 +757,9 @@ static void power_allocator_manage(struct thermal_zone_device *tz)
 
 	tz->passive = 1;
 
+	if (!params->trip_max)
+		return;
+
 	allocate_power(tz, params->trip_max->temperature);
 }
 
