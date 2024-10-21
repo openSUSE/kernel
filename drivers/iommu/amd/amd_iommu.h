@@ -121,7 +121,8 @@ static inline bool check_feature2(u64 mask)
 static inline bool amd_iommu_gt_ppr_supported(void)
 {
 	return (check_feature(FEATURE_GT) &&
-		check_feature(FEATURE_PPR));
+		check_feature(FEATURE_PPR) &&
+		check_feature(FEATURE_EPHSUP));
 }
 
 static inline u64 iommu_virt_to_phys(void *vaddr)
