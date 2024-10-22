@@ -236,7 +236,6 @@ struct nfs_server {
 	struct list_head	layouts;
 	struct list_head	delegations;
 	struct list_head	ss_copies;
-	struct list_head	ss_src_copies;
 
 	unsigned long		mig_gen;
 	unsigned long		mig_status;
@@ -263,6 +262,7 @@ struct nfs_server {
 	const struct cred	*cred;
 	bool			has_sec_mnt_opts;
 #ifndef __GENKSYMS__
+	struct list_head	ss_src_copies;
 	wait_queue_head_t	write_congestion_wait;	/* wait until write congestion eases */
 #endif
 };
