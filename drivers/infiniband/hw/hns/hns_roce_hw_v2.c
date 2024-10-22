@@ -5696,12 +5696,12 @@ static struct hns_roce_aeqe *next_aeqe_sw_v2(struct hns_roce_eq *eq)
 		!!(eq->cons_index & eq->entries)) ? aeqe : NULL;
 }
 
-static int hns_roce_v2_aeq_int(struct hns_roce_dev *hr_dev,
-			       struct hns_roce_eq *eq)
+static irqreturn_t hns_roce_v2_aeq_int(struct hns_roce_dev *hr_dev,
+				       struct hns_roce_eq *eq)
 {
 	struct device *dev = hr_dev->dev;
 	struct hns_roce_aeqe *aeqe = next_aeqe_sw_v2(eq);
-	int aeqe_found = 0;
+	irqreturn_t aeqe_found = IRQ_NONE;
 	int event_type;
 	u32 queue_num;
 	int sub_type;
@@ -5761,7 +5761,7 @@ static int hns_roce_v2_aeq_int(struct hns_roce_dev *hr_dev,
 		eq->event_type = event_type;
 		eq->sub_type = sub_type;
 		++eq->cons_index;
-		aeqe_found = 1;
+		aeqe_found = IRQ_HANDLED;
 
 		hns_roce_v2_init_irq_work(hr_dev, eq, queue_num);
 
@@ -5769,7 +5769,8 @@ static int hns_roce_v2_aeq_int(struct hns_roce_dev *hr_dev,
 	}
 
 	update_eq_db(eq);
-	return aeqe_found;
+
+	return IRQ_RETVAL(aeqe_found);
 }
 
 static struct hns_roce_ceqe *next_ceqe_sw_v2(struct hns_roce_eq *eq)
@@ -5795,7 +5796,7 @@ static irqreturn_t hns_roce_v2_msix_interrupt_eq(int irq, void *eq_ptr)
 {
 	struct hns_roce_eq *eq = eq_ptr;
 	struct hns_roce_dev *hr_dev = eq->hr_dev;
-	int int_work;
+	irqreturn_t int_work;
 
 	if (eq->type_flag == HNS_ROCE_CEQ)
 		/* Completion event interrupt */
@@ -5807,55 +5808,54 @@ static irqreturn_t hns_roce_v2_msix_interrupt_eq(int irq, void *eq_ptr)
 	return IRQ_RETVAL(int_work);
 }
 
-static irqreturn_t hns_roce_v2_msix_interrupt_abn(int irq, void *dev_id)
+static irqreturn_t abnormal_interrupt_basic(struct hns_roce_dev *hr_dev,
+					    u32 int_st)
 {
-	struct hns_roce_dev *hr_dev = dev_id;
-	struct device *dev = hr_dev->dev;
-	int int_work = 0;
-	u32 int_st;
+	struct pci_dev *pdev = hr_dev->pci_dev;
+	struct hnae3_ae_dev *ae_dev = pci_get_drvdata(pdev);
+	const struct hnae3_ae_ops *ops = ae_dev->ops;
 	enum hnae3_reset_type reset_type;
+	irqreturn_t int_work = IRQ_NONE;
 	u32 int_en;
 
-	/* Abnormal interrupt */
-	int_st = roce_read(hr_dev, ROCEE_VF_ABN_INT_ST_REG);
 	int_en = roce_read(hr_dev, ROCEE_VF_ABN_INT_EN_REG);
 
 	if (int_st & BIT(HNS_ROCE_V2_VF_INT_ST_AEQ_OVERFLOW_S)) {
-		struct pci_dev *pdev = hr_dev->pci_dev;
-		struct hnae3_ae_dev *ae_dev = pci_get_drvdata(pdev);
-		const struct hnae3_ae_ops *ops = ae_dev->ops;
-
-		dev_err(dev, "AEQ overflow!\n");
+		dev_err(hr_dev->dev, "AEQ overflow!\n");
 
 		roce_write(hr_dev, ROCEE_VF_ABN_INT_ST_REG,
 			   1 << HNS_ROCE_V2_VF_INT_ST_AEQ_OVERFLOW_S);
 
-		reset_type = hr_dev->is_vf ?
-			     HNAE3_VF_FUNC_RESET : HNAE3_FUNC_RESET;
-
 		/* Set reset level for reset_event() */
 		if (ops->set_default_reset_request)
-			ops->set_default_reset_request(ae_dev, reset_type);
+			ops->set_default_reset_request(ae_dev,
+						       HNAE3_FUNC_RESET);
 		if (ops->reset_event)
 			ops->reset_event(pdev, NULL);
 
 		int_en |= 1 << HNS_ROCE_V2_VF_ABN_INT_EN_S;
 		roce_write(hr_dev, ROCEE_VF_ABN_INT_EN_REG, int_en);
 
-		int_work = 1;
-	} else if (int_st & BIT(HNS_ROCE_V2_VF_INT_ST_RAS_INT_S)) {
-		dev_err(dev, "RAS interrupt!\n");
-
-		int_st |= 1 << HNS_ROCE_V2_VF_INT_ST_RAS_INT_S;
-		roce_write(hr_dev, ROCEE_VF_ABN_INT_ST_REG, int_st);
-
-		int_en |= 1 << HNS_ROCE_V2_VF_ABN_INT_EN_S;
-		roce_write(hr_dev, ROCEE_VF_ABN_INT_EN_REG, int_en);
-
-		int_work = 1;
+		int_work = IRQ_HANDLED;
 	} else {
-		dev_err(dev, "There is no abnormal irq found!\n");
+		dev_err(hr_dev->dev, "there is no basic abn irq found.\n");
 	}
+
+	return IRQ_RETVAL(int_work);
+}
+
+static irqreturn_t hns_roce_v2_msix_interrupt_abn(int irq, void *dev_id)
+{
+	struct hns_roce_dev *hr_dev = dev_id;
+	irqreturn_t int_work = IRQ_NONE;
+	u32 int_st;
+
+	int_st = roce_read(hr_dev, ROCEE_VF_ABN_INT_ST_REG);
+
+	if (int_st)
+		int_work = abnormal_interrupt_basic(hr_dev, int_st);
+	else
+		dev_err(hr_dev->dev, "there is no abnormal irq found.\n");
 
 	return IRQ_RETVAL(int_work);
 }
