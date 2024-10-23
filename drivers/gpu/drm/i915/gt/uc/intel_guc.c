@@ -315,11 +315,12 @@ static u32 guc_ctl_wa_flags(struct intel_guc *guc)
 	if (IS_DG2_G11(gt->i915))
 		flags |= GUC_WA_CONTEXT_ISOLATION;
 
-	/* Wa_14018913170 */
-	if (GUC_FIRMWARE_VER(guc) >= MAKE_GUC_VER(70, 7, 0)) {
-		if (IS_DG2(gt->i915) || IS_METEORLAKE(gt->i915))
-			flags |= GUC_WA_ENABLE_TSC_CHECK_ON_RC6;
-	}
+	/*
+	 * Wa_14018913170: Applicable to all platforms supported by i915 so
+	 * don't bother testing for all X/Y/Z platforms explicitly.
+	 */
+	if (GUC_FIRMWARE_VER(guc) >= MAKE_GUC_VER(70, 7, 0))
+		flags |= GUC_WA_ENABLE_TSC_CHECK_ON_RC6;
 
 	return flags;
 }
