@@ -289,7 +289,6 @@ struct bpf_map {
 	 * same prog type, JITed flag and xdp_has_frags flag.
 	 */
 	struct {
-		const struct btf_type *attach_func_proto;
 		spinlock_t lock;
 		enum bpf_prog_type type;
 		bool jited;
@@ -301,7 +300,12 @@ struct bpf_map {
 	bool free_after_rcu_gp;
 	atomic64_t sleepable_refcnt;
 	s64 __percpu *elem_count;
+#ifndef __GENKSYMS__
+	/* Synchornized with struct owner.lock */
+	const struct btf_type *owner_attach_func_proto;
+#else
 	void *suse_kabi_padding;
+#endif
 };
 
 static inline const char *btf_field_type_name(enum btf_field_type type)
