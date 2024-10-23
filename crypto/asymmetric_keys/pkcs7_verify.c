@@ -16,6 +16,41 @@
 #include <crypto/public_key.h>
 #include "pkcs7_parser.h"
 
+#ifdef CONFIG_CHECK_CODESIGN_EKU
+static bool check_codesign_eku(struct public_key *public_key,
+			     enum key_being_used_for usage)
+{
+	switch (usage) {
+	case VERIFYING_MODULE_SIGNATURE:
+	case VERIFYING_KEXEC_PE_SIGNATURE:
+		return !!(public_key->eku & EKU_codeSigning);
+	default:
+		break;
+	}
+	return true;
+}
+
+bool check_codesign_eku_by_key(struct key *key,
+			       enum key_being_used_for usage)
+{
+	struct public_key *public_key = key->payload.data[asym_crypto];
+
+	return check_codesign_eku(public_key, usage);
+}
+#else
+static bool check_codesign_eku(struct public_key *public_key,
+			     enum key_being_used_for usage)
+{
+	return true;
+}
+
+bool check_codesign_eku_by_key(struct key *key,
+			       enum key_being_used_for usage)
+{
+	return true;
+}
+#endif
+
 /*
  * Digest the relevant parts of the PKCS#7 data
  */
@@ -446,6 +481,11 @@ int pkcs7_verify(struct pkcs7_message *pkcs7,
 		if (sinfo->blacklisted) {
 			if (actual_ret == -ENOPKG)
 				actual_ret = -EKEYREJECTED;
+			continue;
+		}
+		if (sinfo->signer &&
+		    !check_codesign_eku(sinfo->signer->pub, usage)) {
+			actual_ret = -EKEYREJECTED;
 			continue;
 		}
 		if (ret < 0) {
