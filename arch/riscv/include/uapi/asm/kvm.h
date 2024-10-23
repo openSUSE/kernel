@@ -15,8 +15,6 @@
 #include <asm/bitsperlong.h>
 #include <asm/ptrace.h>
 
-#define __KVM_HAVE_READONLY_MEM
-
 #define KVM_COALESCED_MMIO_PAGE_OFFSET 1
 
 #define KVM_INTERRUPT_SET	-1U
