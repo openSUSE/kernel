@@ -36,6 +36,7 @@
 #include "resource.h"
 #include "dc_state.h"
 #include "dc_state_priv.h"
+#include "dc_plane_priv.h"
 
 #include "gpio_service_interface.h"
 #include "clk_mgr.h"
@@ -3565,6 +3566,7 @@ static void commit_planes_for_stream_fast(struct dc *dc,
 	int i, j;
 	struct pipe_ctx *top_pipe_to_program = NULL;
 	struct dc_stream_status *stream_status = NULL;
+
 	dc_exit_ips_for_hw_access(dc);
 
 	dc_z10_restore(dc);
@@ -3622,7 +3624,8 @@ static void commit_planes_for_stream_fast(struct dc *dc,
 			context->block_sequence,
 			&(context->block_sequence_steps),
 			top_pipe_to_program,
-			stream_status);
+			stream_status,
+			context);
 	hwss_execute_sequence(dc,
 			context->block_sequence,
 			context->block_sequence_steps);
