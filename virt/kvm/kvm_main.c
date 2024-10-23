@@ -3639,7 +3639,7 @@ static int kvm_vm_ioctl_create_vcpu(struct kvm *kvm, unsigned long id)
 	BUG_ON(kvm->vcpus[vcpu->vcpu_idx]);
 
 	/* Fill the stats id string for the vcpu */
-	snprintf(vcpu->stats_id, sizeof(vcpu->stats_id), "kvm-%d/vcpu-%d",
+	snprintf(vcpu->stats_id, sizeof(vcpu->stats_id), "kvm-%d/vcpu-%ld",
 		 task_pid_nr(current), id);
 
 	/* Now it's all set up, let userspace reach it */
