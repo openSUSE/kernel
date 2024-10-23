@@ -11,6 +11,8 @@
 #include <linux/pci.h>
 #include <linux/vgaarb.h>
 
+#include <asm/video.h>
+
 pgprot_t pgprot_framebuffer(pgprot_t prot,
 			    unsigned long vm_start, unsigned long vm_end,
 			    unsigned long offset)
