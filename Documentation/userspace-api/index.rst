@@ -26,7 +26,6 @@ place where this information is gathered.
    ebpf/index
    ELF
    ioctl/index
-   iommu
    iommufd
    media/index
    netlink/index
