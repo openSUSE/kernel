@@ -403,7 +403,6 @@ void ttm_bo_put(struct ttm_buffer_object *bo)
 EXPORT_SYMBOL(ttm_bo_put);
 
 static int ttm_bo_bounce_temp_buffer(struct ttm_buffer_object *bo,
-				     struct ttm_resource **mem,
 				     struct ttm_operation_ctx *ctx,
 				     struct ttm_place *hop)
 {
@@ -470,7 +469,7 @@ static int ttm_bo_evict(struct ttm_buffer_object *bo,
 		if (ret != -EMULTIHOP)
 			break;
 
-		ret = ttm_bo_bounce_temp_buffer(bo, &evict_mem, ctx, &hop);
+		ret = ttm_bo_bounce_temp_buffer(bo, ctx, &hop);
 	} while (!ret);
 
 	if (ret) {
@@ -699,7 +698,6 @@ EXPORT_SYMBOL(ttm_bo_unpin);
  */
 static int ttm_bo_add_move_fence(struct ttm_buffer_object *bo,
 				 struct ttm_resource_manager *man,
-				 struct ttm_resource *mem,
 				 bool no_wait_gpu)
 {
 	struct dma_fence *fence;
@@ -788,7 +786,7 @@ static int ttm_bo_alloc_resource(struct ttm_buffer_object *bo,
 		if (ret)
 			continue;
 
-		ret = ttm_bo_add_move_fence(bo, man, *res, ctx->no_wait_gpu);
+		ret = ttm_bo_add_move_fence(bo, man, ctx->no_wait_gpu);
 		if (unlikely(ret)) {
 			ttm_resource_free(bo, res);
 			if (ret == -EBUSY)
@@ -895,7 +893,7 @@ int ttm_bo_validate(struct ttm_buffer_object *bo,
 bounce:
 		ret = ttm_bo_handle_move_mem(bo, res, false, ctx, &hop);
 		if (ret == -EMULTIHOP) {
-			ret = ttm_bo_bounce_temp_buffer(bo, &res, ctx, &hop);
+			ret = ttm_bo_bounce_temp_buffer(bo, ctx, &hop);
 			/* try and move to final place now. */
 			if (!ret)
 				goto bounce;
