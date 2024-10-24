@@ -701,12 +701,6 @@ static int ceu_start_streaming(struct vb2_queue *vq, unsigned int count)
 	/* Grab the first available buffer and trigger the first capture. */
 	buf = list_first_entry(&ceudev->capture, struct ceu_buffer,
 			       queue);
-	if (!buf) {
-		spin_unlock_irqrestore(&ceudev->lock, irqflags);
-		dev_dbg(ceudev->dev,
-			"No buffer available for capture.\n");
-		goto error_stop_sensor;
-	}
 
 	list_del(&buf->queue);
 	ceudev->active = &buf->vb;
@@ -720,9 +714,6 @@ static int ceu_start_streaming(struct vb2_queue *vq, unsigned int count)
 	spin_unlock_irqrestore(&ceudev->lock, irqflags);
 
 	return 0;
-
-error_stop_sensor:
-	v4l2_subdev_call(v4l2_sd, video, s_stream, 0);
 
 error_return_bufs:
 	spin_lock_irqsave(&ceudev->lock, irqflags);
