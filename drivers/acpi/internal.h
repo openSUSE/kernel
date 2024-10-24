@@ -94,6 +94,11 @@ static inline int acpi_arch_thermal_cpufreq_pctg(void)
 }
 #endif
 
+int acpi_active_trip_temp(struct acpi_device *adev, int id, int *ret_temp);
+int acpi_passive_trip_temp(struct acpi_device *adev, int *ret_temp);
+int acpi_hot_trip_temp(struct acpi_device *adev, int *ret_temp);
+int acpi_critical_trip_temp(struct acpi_device *adev, int *ret_temp);
+
 /* --------------------------------------------------------------------------
                      Device Node Initialization / Removal
    -------------------------------------------------------------------------- */
@@ -157,8 +162,11 @@ int acpi_wakeup_device_init(void);
 #ifdef CONFIG_ARCH_MIGHT_HAVE_ACPI_PDC
 void acpi_early_processor_control_setup(void);
 void acpi_early_processor_set_pdc(void);
-
+#ifdef CONFIG_X86
 void acpi_proc_quirk_mwait_check(void);
+#else
+static inline void acpi_proc_quirk_mwait_check(void) {}
+#endif
 bool processor_physically_present(acpi_handle handle);
 #else
 static inline void acpi_early_processor_control_setup(void) {}
@@ -283,6 +291,20 @@ static inline void acpi_watchdog_init(void) {}
 void acpi_init_lpit(void);
 #else
 static inline void acpi_init_lpit(void) { }
+#endif
+
+/*--------------------------------------------------------------------------
+		ACPI _CRS CSI-2 and MIPI DisCo for Imaging
+  -------------------------------------------------------------------------- */
+
+void acpi_mipi_check_crs_csi2(acpi_handle handle);
+void acpi_mipi_scan_crs_csi2(void);
+void acpi_mipi_init_crs_csi2_swnodes(void);
+void acpi_mipi_crs_csi2_cleanup(void);
+#ifdef CONFIG_X86
+bool acpi_graph_ignore_port(acpi_handle handle);
+#else
+static inline bool acpi_graph_ignore_port(acpi_handle handle) { return false; }
 #endif
 
 #endif /* _ACPI_INTERNAL_H_ */

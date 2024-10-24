@@ -120,16 +120,10 @@ enum numa_stat_item {
 	NUMA_INTERLEAVE_HIT,	/* interleaver preferred this zone */
 	NUMA_LOCAL,		/* allocation from local node */
 	NUMA_OTHER,		/* allocation from other node */
-	SUSE_KABI_NUMA_STAT_PADDING1,
-#ifndef __GENKSYMS__
-	NR_VM_NUMA_EVENT_ITEMS_USED = SUSE_KABI_NUMA_STAT_PADDING1,
-#endif
-	SUSE_KABI_NUMA_STAT_PADDING2,
 	NR_VM_NUMA_EVENT_ITEMS
 };
 #else
 #define NR_VM_NUMA_EVENT_ITEMS 0
-#define NR_VM_NUMA_EVENT_ITEMS_USED 0
 #endif
 
 enum zone_stat_item {
@@ -152,11 +146,6 @@ enum zone_stat_item {
 #ifdef CONFIG_UNACCEPTED_MEMORY
 	NR_UNACCEPTED,
 #endif
-	SUSE_KABI_ZONE_STAT_PADDING1,
-#ifndef __GENKSYMS__
-	NR_VM_ZONE_STAT_ITEMS_USED = SUSE_KABI_ZONE_STAT_PADDING1,
-#endif
-	SUSE_KABI_ZONE_STAT_PADDING2,
 	NR_VM_ZONE_STAT_ITEMS };
 
 enum node_stat_item {
@@ -207,7 +196,10 @@ enum node_stat_item {
 	NR_KERNEL_SCS_KB,	/* measured in KiB */
 #endif
 	NR_PAGETABLE,		/* used for pagetables */
-	NR_SECONDARY_PAGETABLE, /* secondary pagetables, e.g. KVM pagetables */
+	NR_SECONDARY_PAGETABLE, /* secondary pagetables, KVM & IOMMU */
+#ifdef CONFIG_IOMMU_SUPPORT
+	NR_IOMMU_PAGES,		/* # of pages allocated by IOMMU */
+#endif
 #ifdef CONFIG_SWAP
 	NR_SWAPCACHE,
 #endif
@@ -215,14 +207,6 @@ enum node_stat_item {
 	PGPROMOTE_SUCCESS,	/* promote successfully */
 	PGPROMOTE_CANDIDATE,	/* candidate pages to promote */
 #endif
-	SUSE_KABI_NODE_STAT_PADDING1,
-#ifndef __GENKSYMS__
-	NR_VM_NODE_STAT_ITEMS_USED = SUSE_KABI_NODE_STAT_PADDING1,
-#endif
-	SUSE_KABI_NODE_STAT_PADDING2,
-	SUSE_KABI_NODE_STAT_PADDING3,
-	SUSE_KABI_NODE_STAT_PADDING4,
-	SUSE_KABI_NODE_STAT_PADDING5,
 	NR_VM_NODE_STAT_ITEMS
 };
 

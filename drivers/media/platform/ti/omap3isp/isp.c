@@ -2022,35 +2022,34 @@ enum isp_of_phy {
 	ISP_OF_PHY_CSIPHY2,
 };
 
+static int isp_subdev_notifier_bound(struct v4l2_async_notifier *async,
+				     struct v4l2_subdev *sd,
+				     struct v4l2_async_connection *asc)
+{
+	struct isp_device *isp = container_of(async, struct isp_device,
+					      notifier);
+	struct isp_bus_cfg *bus_cfg =
+		&container_of(asc, struct isp_async_subdev, asd)->bus;
+	int ret;
+
+	mutex_lock(&isp->media_dev.graph_mutex);
+	ret = isp_link_entity(isp, &sd->entity, bus_cfg->interface);
+	mutex_unlock(&isp->media_dev.graph_mutex);
+
+	return ret;
+}
+
 static int isp_subdev_notifier_complete(struct v4l2_async_notifier *async)
 {
 	struct isp_device *isp = container_of(async, struct isp_device,
 					      notifier);
-	struct v4l2_device *v4l2_dev = &isp->v4l2_dev;
-	struct v4l2_subdev *sd;
 	int ret;
 
 	mutex_lock(&isp->media_dev.graph_mutex);
-
 	ret = media_entity_enum_init(&isp->crashed, &isp->media_dev);
-	if (ret) {
-		mutex_unlock(&isp->media_dev.graph_mutex);
-		return ret;
-	}
-
-	list_for_each_entry(sd, &v4l2_dev->subdevs, list) {
-		if (sd->notifier != &isp->notifier)
-			continue;
-
-		ret = isp_link_entity(isp, &sd->entity,
-				      v4l2_subdev_to_bus_cfg(sd)->interface);
-		if (ret < 0) {
-			mutex_unlock(&isp->media_dev.graph_mutex);
-			return ret;
-		}
-	}
-
 	mutex_unlock(&isp->media_dev.graph_mutex);
+	if (ret)
+		return ret;
 
 	ret = v4l2_device_register_subdev_nodes(&isp->v4l2_dev);
 	if (ret < 0)
@@ -2240,6 +2239,7 @@ static int isp_parse_of_endpoints(struct isp_device *isp)
 }
 
 static const struct v4l2_async_notifier_operations isp_subdev_notifier_ops = {
+	.bound = isp_subdev_notifier_bound,
 	.complete = isp_subdev_notifier_complete,
 };
 
@@ -2329,9 +2329,8 @@ static int isp_probe(struct platform_device *pdev)
 	for (i = 0; i < 2; i++) {
 		unsigned int map_idx = i ? OMAP3_ISP_IOMEM_CSI2A_REGS1 : 0;
 
-		mem = platform_get_resource(pdev, IORESOURCE_MEM, i);
 		isp->mmio_base[map_idx] =
-			devm_ioremap_resource(isp->dev, mem);
+			devm_platform_get_and_ioremap_resource(pdev, i, &mem);
 		if (IS_ERR(isp->mmio_base[map_idx])) {
 			ret = PTR_ERR(isp->mmio_base[map_idx]);
 			goto error;
