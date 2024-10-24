@@ -431,6 +431,7 @@ config VIDEO_OV2680
 	depends on VIDEO_DEV && I2C
 	select MEDIA_CONTROLLER
 	select V4L2_FWNODE
+	select V4L2_CCI_I2C
 	help
 	  This is a Video4Linux2 sensor driver for the OmniVision
 	  OV2680 camera.
