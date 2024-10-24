@@ -321,7 +321,6 @@ struct bpf_func_state {
 	 * copy_func_state() to keep the code working while preserving kABI at
 	 * the same time.
 	 */
-
 #ifndef __GENKSYMS__
 	/* For callback calling functions that limit number of possible
 	 * callback executions (e.g. bpf_loop) keeps track of current
