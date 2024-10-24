@@ -788,7 +788,7 @@ static efi_status_t efi_decompress_kernel(unsigned long *kernel_entry)
 			seed[0] = 0;
 		}
 
-		boot_params_pointer->hdr.loadflags |= KASLR_FLAG;
+		boot_params_ptr->hdr.loadflags |= KASLR_FLAG;
 	}
 
 	status = efi_random_alloc(alloc_size, CONFIG_PHYSICAL_ALIGN, &addr,
@@ -834,7 +834,7 @@ void __noreturn efi_stub_entry(efi_handle_t handle,
 	unsigned long kernel_entry;
 	efi_status_t status;
 
-	boot_params_pointer = boot_params;
+	boot_params_ptr = boot_params;
 
 	efi_system_table = sys_table_arg;
 	/* Check if we were booted by the EFI firmware */
