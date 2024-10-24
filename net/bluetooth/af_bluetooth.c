@@ -778,12 +778,12 @@ static int __init bt_init(void)
 
 	err = bt_sysfs_init();
 	if (err < 0)
-		return err;
+		goto cleanup_led;
 
 	err = sock_register(&bt_sock_family_ops);
 	if (err < 0) {
 		bt_sysfs_cleanup();
-		return err;
+		goto cleanup_led;
 	}
 
 	BT_INFO("HCI device and connection manager initialized");
@@ -817,6 +817,8 @@ sock_err:
 error:
 	sock_unregister(PF_BLUETOOTH);
 	bt_sysfs_cleanup();
+cleanup_led:
+	bt_leds_cleanup();
 
 	return err;
 }
