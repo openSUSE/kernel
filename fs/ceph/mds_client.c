@@ -5187,6 +5187,8 @@ static void delayed_work(struct work_struct *work)
 		}
 		mutex_unlock(&mdsc->mutex);
 
+		ceph_flush_cap_releases(mdsc, s);
+
 		mutex_lock(&s->s_mutex);
 		if (renew_caps)
 			send_renew_caps(mdsc, s);

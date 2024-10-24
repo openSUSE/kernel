@@ -318,12 +318,17 @@
 					  allowed anymore to lift isolation
 					  requirements as needed. This option
 					  does not override iommu=pt
-			force_enable - Force enable the IOMMU on platforms known
-				       to be buggy with IOMMU enabled. Use this
-				       option with care.
-			pgtbl_v1     - Use v1 page table for DMA-API (Default).
-			pgtbl_v2     - Use v2 page table for DMA-API.
-			irtcachedis  - Disable Interrupt Remapping Table (IRT) caching.
+			force_enable    - Force enable the IOMMU on platforms known
+				          to be buggy with IOMMU enabled. Use this
+				          option with care.
+			pgtbl_v1        - Use v1 page table for DMA-API (Default).
+			pgtbl_v2        - Use v2 page table for DMA-API.
+			irtcachedis     - Disable Interrupt Remapping Table (IRT) caching.
+			nohugepages     - Limit page-sizes used for v1 page-tables
+				          to 4 KiB.
+			v2_pgsizes_only - Limit page-sizes used for v1 page-tables
+				          to 4KiB/2Mib/1GiB.
+
 
 	amd_iommu_dump=	[HW,X86-64]
 			Enable AMD IOMMU driver option to dump the ACPI table
@@ -553,7 +558,7 @@
 			others).
 
 	ccw_timeout_log	[S390]
-			See Documentation/s390/common_io.rst for details.
+			See Documentation/arch/s390/common_io.rst for details.
 
 	cgroup_disable=	[KNL] Disable a particular controller or optional feature
 			Format: {name of the controller(s) or feature(s) to disable}
@@ -598,7 +603,7 @@
 			Setting checkreqprot to 1 is deprecated.
 
 	cio_ignore=	[S390]
-			See Documentation/s390/common_io.rst for details.
+			See Documentation/arch/s390/common_io.rst for details.
 
 	clearcpuid=X[,X...] [X86]
 			Disable CPUID feature X for the kernel. See
@@ -1187,16 +1192,10 @@
 			panels may send no or incorrect EDID data sets.
 			This parameter allows to specify an EDID data sets
 			in the /lib/firmware directory that are used instead.
-			Generic built-in EDID data sets are used, if one of
-			edid/1024x768.bin, edid/1280x1024.bin,
-			edid/1680x1050.bin, or edid/1920x1080.bin is given
-			and no file with the same name exists. Details and
-			instructions how to build your own EDID data are
-			available in Documentation/admin-guide/edid.rst. An EDID
-			data set will only be used for a particular connector,
-			if its name and a colon are prepended to the EDID
-			name. Each connector may use a unique EDID data
-			set by separating the files with a comma.  An EDID
+			An EDID data set will only be used for a particular
+			connector, if its name and a colon are prepended to
+			the EDID name. Each connector may use a unique EDID
+			data set by separating the files with a comma. An EDID
 			data set with no connector name will be used for
 			any connectors not explicitly specified.
 
@@ -4555,38 +4554,6 @@
 				bridges without forcing it upstream. Note:
 				this removes isolation between devices and
 				may put more devices in an IOMMU group.
-		config_acs=
-				Format:
-				<ACS flags>@<pci_dev>[; ...]
-				Specify one or more PCI devices (in the format
-				specified above) optionally prepended with flags
-				and separated by semicolons. The respective
-				capabilities will be enabled, disabled or
-				unchanged based on what is specified in
-				flags.
-
-				ACS Flags is defined as follows:
-				  bit-0 : ACS Source Validation
-				  bit-1 : ACS Translation Blocking
-				  bit-2 : ACS P2P Request Redirect
-				  bit-3 : ACS P2P Completion Redirect
-				  bit-4 : ACS Upstream Forwarding
-				  bit-5 : ACS P2P Egress Control
-				  bit-6 : ACS Direct Translated P2P
-				Each bit can be marked as:
-				  '0' – force disabled
-				  '1' – force enabled
-				  'x' – unchanged
-				For example,
-				  pci=config_acs=10x
-				would configure all devices that support
-				ACS to enable P2P Request Redirect, disable
-				Translation Blocking, and leave Source
-				Validation unchanged from whatever power-up
-				or firmware set it to.
-
-				Note: this may remove isolation between devices
-				and may put more devices in an IOMMU group.
 		force_floating	[S390] Force usage of floating interrupts.
 		nomio		[S390] Do not use MIO instructions.
 		norid		[S390] ignore the RID field and force use of
@@ -6890,6 +6857,9 @@
 					pause after every control message);
 				o = USB_QUIRK_HUB_SLOW_RESET (Hub needs extra
 					delay after resetting its port);
+				p = USB_QUIRK_SHORT_SET_ADDRESS_REQ_TIMEOUT
+					(Reduce timeout of the SET_ADDRESS
+					request from 5000 ms to 500 ms);
 			Example: quirks=0781:5580:bk,0a5c:5834:gij
 
 	usbhid.mousepoll=
@@ -7049,10 +7019,13 @@
 			  -	Disable all of the above options
 
 	vmalloc=nn[KMG]	[KNL,BOOT] Forces the vmalloc area to have an exact
-			size of <nn>. This can be used to increase the
-			minimum size (128MB on x86). It can also be used to
-			decrease the size and leave more room for directly
-			mapped kernel RAM.
+			size of <nn>. This can be used to increase 
+			the minimum size (128MB on x86, arm32 platforms).
+			It can also be used to decrease the size and leave more room
+			for directly mapped kernel RAM. Note that this parameter does
+			not exist on many other platforms (including arm64, alpha,
+			loongarch, arc, csky, hexagon, microblaze, mips, nios2, openrisc,
+			parisc, m64k, powerpc, riscv, sh, um, xtensa, s390, sparc).
 
 	vmcp_cma=nn[MG]	[KNL,S390]
 			Sets the memory size reserved for contiguous memory

@@ -11,23 +11,17 @@
 #include <sound/soc-acpi.h>
 #include <sound/soc-dapm.h>
 #include "sof_sdw_common.h"
-#include "sof_maxim_common.h"
 
 static int maxim_part_id;
 #define SOF_SDW_PART_ID_MAX98363 0x8363
 #define SOF_SDW_PART_ID_MAX98373 0x8373
 
-static const struct snd_soc_dapm_widget maxim_widgets[] = {
-	SND_SOC_DAPM_SPK("Left Spk", NULL),
-	SND_SOC_DAPM_SPK("Right Spk", NULL),
+static const struct snd_soc_dapm_route max_98373_dapm_routes[] = {
+	{ "Left Spk", NULL, "Left BE_OUT" },
+	{ "Right Spk", NULL, "Right BE_OUT" },
 };
 
-static const struct snd_kcontrol_new maxim_controls[] = {
-	SOC_DAPM_PIN_SWITCH("Left Spk"),
-	SOC_DAPM_PIN_SWITCH("Right Spk"),
-};
-
-static int spk_init(struct snd_soc_pcm_runtime *rtd)
+int maxim_spk_rtd_init(struct snd_soc_pcm_runtime *rtd, struct snd_soc_dai *dai)
 {
 	struct snd_soc_card *card = rtd->card;
 	int ret;
@@ -41,20 +35,6 @@ static int spk_init(struct snd_soc_pcm_runtime *rtd)
 	dev_dbg(card->dev, "soundwire maxim card components assigned : %s\n",
 		card->components);
 
-	ret = snd_soc_add_card_controls(card, maxim_controls,
-					ARRAY_SIZE(maxim_controls));
-	if (ret) {
-		dev_err(card->dev, "mx%04x ctrls addition failed: %d\n", maxim_part_id, ret);
-		return ret;
-	}
-
-	ret = snd_soc_dapm_new_controls(&card->dapm, maxim_widgets,
-					ARRAY_SIZE(maxim_widgets));
-	if (ret) {
-		dev_err(card->dev, "mx%04x widgets addition failed: %d\n", maxim_part_id, ret);
-		return ret;
-	}
-
 	ret = snd_soc_dapm_add_routes(&card->dapm, max_98373_dapm_routes, 2);
 	if (ret)
 		dev_err(rtd->dev, "failed to add first SPK map: %d\n", ret);
@@ -64,7 +44,7 @@ static int spk_init(struct snd_soc_pcm_runtime *rtd)
 
 static int mx8373_enable_spk_pin(struct snd_pcm_substream *substream, bool enable)
 {
-	struct snd_soc_pcm_runtime *rtd = asoc_substream_to_rtd(substream);
+	struct snd_soc_pcm_runtime *rtd = snd_soc_substream_to_rtd(substream);
 	struct snd_soc_dai *codec_dai;
 	struct snd_soc_dai *cpu_dai;
 	int ret;
@@ -74,7 +54,7 @@ static int mx8373_enable_spk_pin(struct snd_pcm_substream *substream, bool enabl
 	if (substream->stream == SNDRV_PCM_STREAM_CAPTURE)
 		return 0;
 
-	cpu_dai = asoc_rtd_to_cpu(rtd, 0);
+	cpu_dai = snd_soc_rtd_to_cpu(rtd, 0);
 	for_each_rtd_codec_dais(rtd, j, codec_dai) {
 		struct snd_soc_dapm_context *dapm =
 				snd_soc_component_get_dapm(cpu_dai->component);
@@ -139,14 +119,11 @@ static int mx8373_sdw_late_probe(struct snd_soc_card *card)
 }
 
 int sof_sdw_maxim_init(struct snd_soc_card *card,
-		       const struct snd_soc_acpi_link_adr *link,
 		       struct snd_soc_dai_link *dai_links,
 		       struct sof_sdw_codec_info *info,
 		       bool playback)
 {
 	info->amp_num++;
-	if (info->amp_num == 2)
-		dai_links->init = spk_init;
 
 	maxim_part_id = info->part_id;
 	switch (maxim_part_id) {

@@ -98,6 +98,7 @@ mmhub_v3_3_print_l2_protection_fault_status(struct amdgpu_device *adev,
 
 	switch (amdgpu_ip_version(adev, MMHUB_HWIP, 0)) {
 	case IP_VERSION(3, 3, 0):
+	case IP_VERSION(3, 3, 1):
 		mmhub_cid = cid < ARRAY_SIZE(mmhub_client_ids_v3_3) ?
 			    mmhub_client_ids_v3_3[cid][rw] :
 			    cid == 0x140 ? "UMSCH" : NULL;
@@ -559,7 +560,7 @@ static int mmhub_v3_3_set_clockgating(struct amdgpu_device *adev,
 
 static void mmhub_v3_3_get_clockgating(struct amdgpu_device *adev, u64 *flags)
 {
-	int data;
+	u32 data;
 
 	if (amdgpu_sriov_vf(adev))
 		*flags = 0;

@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0-only
  *
- * Copyright (C) 2013-15, Intel Corporation. All rights reserved.
+ * Copyright (C) 2013-15, Intel Corporation
  */
 
 #ifndef __LINUX_SND_SOC_ACPI_H
@@ -151,6 +151,18 @@ struct snd_soc_acpi_link_adr {
  */
 #define SND_SOC_ACPI_TPLG_INTEL_DMIC_NUMBER BIT(2)
 
+/*
+ * when set the speaker amplifier name suffix (i.e. "-max98360a") will be
+ * appended to topology file name
+ */
+#define SND_SOC_ACPI_TPLG_INTEL_AMP_NAME BIT(3)
+
+/*
+ * when set the headphone codec name suffix (i.e. "-rt5682") will be appended to
+ * topology file name
+ */
+#define SND_SOC_ACPI_TPLG_INTEL_CODEC_NAME BIT(4)
+
 /**
  * snd_soc_acpi_mach: ACPI-based machine descriptor. Most of the fields are
  * related to the hardware, except for the firmware and topology file names.
@@ -158,6 +170,7 @@ struct snd_soc_acpi_link_adr {
  * all firmware/topology related fields.
  *
  * @id: ACPI ID (usually the codec's) used to find a matching machine driver.
+ * @uid: ACPI Unique ID, can be used to disambiguate matches.
  * @comp_ids: list of compatible audio codecs using the same machine driver,
  * firmware and topology
  * @link_mask: describes required board layout, e.g. for SoundWire.

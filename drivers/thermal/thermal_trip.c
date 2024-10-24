@@ -63,30 +63,26 @@ EXPORT_SYMBOL_GPL(thermal_zone_get_num_trips);
  */
 void __thermal_zone_set_trips(struct thermal_zone_device *tz)
 {
-	struct thermal_trip trip;
+	const struct thermal_trip *trip;
 	int low = -INT_MAX, high = INT_MAX;
-	int i, ret;
+	int ret;
 
 	lockdep_assert_held(&tz->lock);
 
 	if (!tz->ops->set_trips)
 		return;
 
-	for (i = 0; i < tz->num_trips; i++) {
+	for_each_trip(tz, trip) {
 		int trip_low;
 
-		ret = __thermal_zone_get_trip(tz, i , &trip);
-		if (ret)
-			return;
-
-		trip_low = trip.temperature - trip.hysteresis;
+		trip_low = trip->temperature - trip->hysteresis;
 
 		if (trip_low < tz->temperature && trip_low > low)
 			low = trip_low;
 
-		if (trip.temperature > tz->temperature &&
-		    trip.temperature < high)
-			high = trip.temperature;
+		if (trip->temperature > tz->temperature &&
+		    trip->temperature < high)
+			high = trip->temperature;
 	}
 
 	/* No need to change trip points */
@@ -111,7 +107,7 @@ void __thermal_zone_set_trips(struct thermal_zone_device *tz)
 int __thermal_zone_get_trip(struct thermal_zone_device *tz, int trip_id,
 			    struct thermal_trip *trip)
 {
-	if (!tz || !tz->trips || trip_id < 0 || trip_id >= tz->num_trips || !trip)
+	if (!tz || trip_id < 0 || trip_id >= tz->num_trips || !trip)
 		return -EINVAL;
 
 	*trip = tz->trips[trip_id];
@@ -141,12 +137,20 @@ int thermal_zone_trip_id(const struct thermal_zone_device *tz,
 	 */
 	return trip - tz->trips;
 }
-
 void thermal_zone_trip_updated(struct thermal_zone_device *tz,
 			       const struct thermal_trip *trip)
 {
-	thermal_notify_tz_trip_change(tz->id, thermal_zone_trip_id(tz, trip),
-				      trip->type, trip->temperature,
-				      trip->hysteresis);
+	thermal_notify_tz_trip_change(tz, trip);
 	__thermal_zone_device_update(tz, THERMAL_TRIP_CHANGED);
 }
+
+void thermal_zone_set_trip_temp(struct thermal_zone_device *tz,
+				struct thermal_trip *trip, int temp)
+{
+	if (trip->temperature == temp)
+		return;
+
+	trip->temperature = temp;
+	thermal_notify_tz_trip_change(tz, trip);
+}
+EXPORT_SYMBOL_GPL(thermal_zone_set_trip_temp);

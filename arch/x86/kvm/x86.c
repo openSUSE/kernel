@@ -2186,31 +2186,34 @@ fastpath_t handle_fastpath_set_msr_irqoff(struct kvm_vcpu *vcpu)
 {
 	u32 msr = kvm_rcx_read(vcpu);
 	u64 data;
-	fastpath_t ret = EXIT_FASTPATH_NONE;
+	fastpath_t ret;
+	bool handled;
 
 	kvm_vcpu_srcu_read_lock(vcpu);
 
 	switch (msr) {
 	case APIC_BASE_MSR + (APIC_ICR >> 4):
 		data = kvm_read_edx_eax(vcpu);
-		if (!handle_fastpath_set_x2apic_icr_irqoff(vcpu, data)) {
-			kvm_skip_emulated_instruction(vcpu);
-			ret = EXIT_FASTPATH_EXIT_HANDLED;
-		}
+		handled = !handle_fastpath_set_x2apic_icr_irqoff(vcpu, data);
 		break;
 	case MSR_IA32_TSC_DEADLINE:
 		data = kvm_read_edx_eax(vcpu);
-		if (!handle_fastpath_set_tscdeadline(vcpu, data)) {
-			kvm_skip_emulated_instruction(vcpu);
-			ret = EXIT_FASTPATH_REENTER_GUEST;
-		}
+		handled = !handle_fastpath_set_tscdeadline(vcpu, data);
 		break;
 	default:
+		handled = false;
 		break;
 	}
 
-	if (ret != EXIT_FASTPATH_NONE)
+	if (handled) {
+		if (!kvm_skip_emulated_instruction(vcpu))
+			ret = EXIT_FASTPATH_EXIT_USERSPACE;
+		else
+			ret = EXIT_FASTPATH_REENTER_GUEST;
 		trace_kvm_msr_write(msr, data);
+	} else {
+		ret = EXIT_FASTPATH_NONE;
+	}
 
 	kvm_vcpu_srcu_read_unlock(vcpu);
 
@@ -4680,7 +4683,6 @@ int kvm_vm_ioctl_check_extension(struct kvm *kvm, long ext)
 	case KVM_CAP_ASYNC_PF_INT:
 	case KVM_CAP_GET_TSC_KHZ:
 	case KVM_CAP_KVMCLOCK_CTRL:
-	case KVM_CAP_READONLY_MEM:
 	case KVM_CAP_IOAPIC_POLARITY_IGNORED:
 	case KVM_CAP_TSC_DEADLINE_TIMER:
 	case KVM_CAP_DISABLE_QUIRKS:
@@ -4830,6 +4832,9 @@ int kvm_vm_ioctl_check_extension(struct kvm *kvm, long ext)
 		break;
 	case KVM_CAP_VM_TYPES:
 		r = kvm_caps.supported_vm_types;
+		break;
+	case KVM_CAP_READONLY_MEM:
+		r = kvm ? kvm_arch_has_readonly_mem(kvm) : 1;
 		break;
 	default:
 		break;
@@ -6051,7 +6056,9 @@ long kvm_arch_vcpu_ioctl(struct file *filp,
 		if (copy_from_user(&events, argp, sizeof(struct kvm_vcpu_events)))
 			break;
 
+		kvm_vcpu_srcu_read_lock(vcpu);
 		r = kvm_vcpu_ioctl_x86_set_vcpu_events(vcpu, &events);
+		kvm_vcpu_srcu_read_unlock(vcpu);
 		break;
 	}
 	case KVM_GET_DEBUGREGS: {
@@ -11169,6 +11176,9 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 
 	if (vcpu->arch.apic_attention)
 		kvm_lapic_sync_from_vapic(vcpu);
+
+	if (unlikely(exit_fastpath == EXIT_FASTPATH_EXIT_USERSPACE))
+		return 0;
 
 	r = static_call(kvm_x86_handle_exit)(vcpu, exit_fastpath);
 	return r;

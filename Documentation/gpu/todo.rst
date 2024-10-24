@@ -69,7 +69,7 @@ Clean up the clipped coordination confusion around planes
 ---------------------------------------------------------
 
 We have a helper to get this right with drm_plane_helper_check_update(), but
-it's not consistently used. This should be fixed, preferrably in the atomic
+it's not consistently used. This should be fixed, preferably in the atomic
 helpers (and drivers then moved over to clipped coordinates). Probably the
 helper should also be moved from drm_plane_helper.c to the atomic helpers, to
 avoid confusion - the other helpers in that file are all deprecated legacy
@@ -117,6 +117,29 @@ the new atomic_async_check/commit functionality in the helpers in drivers that
 still look at that flag.
 
 Contact: Daniel Vetter, respective driver maintainers
+
+Level: Advanced
+
+Rename drm_atomic_state
+-----------------------
+
+The KMS framework uses two slightly different definitions for the ``state``
+concept. For a given object (plane, CRTC, encoder, etc., so
+``drm_$OBJECT_state``), the state is the entire state of that object. However,
+at the device level, ``drm_atomic_state`` refers to a state update for a
+limited number of objects.
+
+The state isn't the entire device state, but only the full state of some
+objects in that device. This is confusing to newcomers, and
+``drm_atomic_state`` should be renamed to something clearer like
+``drm_atomic_commit``.
+
+In addition to renaming the structure itself, it would also imply renaming some
+related functions (``drm_atomic_state_alloc``, ``drm_atomic_state_get``,
+``drm_atomic_state_put``, ``drm_atomic_state_init``,
+``__drm_atomic_state_free``, etc.).
+
+Contact: Maxime Ripard <mripard@kernel.org>
 
 Level: Advanced
 
@@ -185,13 +208,13 @@ reversed.
 
 To solve this we need one standard per-object locking mechanism, which is
 dma_resv_lock(). This lock needs to be called as the outermost lock, with all
-other driver specific per-object locks removed. The problem is tha rolling out
+other driver specific per-object locks removed. The problem is that rolling out
 the actual change to the locking contract is a flag day, due to struct dma_buf
 buffer sharing.
 
 Level: Expert
 
-Convert logging to drm_* functions with drm_device paramater
+Convert logging to drm_* functions with drm_device parameter
 ------------------------------------------------------------
 
 For drivers which could have multiple instances, it is necessary to
@@ -248,7 +271,7 @@ Level: Advanced
 Benchmark and optimize blitting and format-conversion function
 --------------------------------------------------------------
 
-Drawing to dispay memory quickly is crucial for many applications'
+Drawing to display memory quickly is crucial for many applications'
 performance.
 
 On at least x86-64, sys_imageblit() is significantly slower than
@@ -620,6 +643,23 @@ Contact: Javier Martinez Canillas <javierm@redhat.com>
 
 Level: Intermediate
 
+Clean up and document former selftests suites
+---------------------------------------------
+
+Some KUnit test suites (drm_buddy, drm_cmdline_parser, drm_damage_helper,
+drm_format, drm_framebuffer, drm_dp_mst_helper, drm_mm, drm_plane_helper and
+drm_rect) are former selftests suites that have been converted over when KUnit
+was first introduced.
+
+These suites were fairly undocumented, and with different goals than what unit
+tests can be. Trying to identify what each test in these suites actually test
+for, whether that makes sense for a unit test, and either remove it if it
+doesn't or document it if it does would be of great help.
+
+Contact: Maxime Ripard <mripard@kernel.org>
+
+Level: Intermediate
+
 Enable trinity for DRM
 ----------------------
 
@@ -761,6 +801,29 @@ userspace changes to add support for brightness control on devices with
 multiple panels really should build on top of this new KMS property.
 
 Contact: Hans de Goede
+
+Level: Advanced
+
+Buffer age or other damage accumulation algorithm for buffer damage
+===================================================================
+
+Drivers that do per-buffer uploads, need a buffer damage handling (rather than
+frame damage like drivers that do per-plane or per-CRTC uploads), but there is
+no support to get the buffer age or any other damage accumulation algorithm.
+
+For this reason, the damage helpers just fallback to a full plane update if the
+framebuffer attached to a plane has changed since the last page-flip. Drivers
+set &drm_plane_state.ignore_damage_clips to true as indication to
+drm_atomic_helper_damage_iter_init() and drm_atomic_helper_damage_iter_next()
+helpers that the damage clips should be ignored.
+
+This should be improved to get damage tracking properly working on drivers that
+do per-buffer uploads.
+
+More information about damage tracking and references to learning materials can
+be found in :ref:`damage_tracking_properties`.
+
+Contact: Javier Martinez Canillas <javierm@redhat.com>
 
 Level: Advanced
 

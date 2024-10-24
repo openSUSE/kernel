@@ -27,6 +27,16 @@
 #include "umc/umc_6_7_0_offset.h"
 #include "umc/umc_6_7_0_sh_mask.h"
 
+static bool amdgpu_mca_is_deferred_error(struct amdgpu_device *adev,
+					uint64_t mc_status)
+{
+	if (adev->umc.ras->check_ecc_err_status)
+		return adev->umc.ras->check_ecc_err_status(adev,
+				AMDGPU_MCA_ERROR_TYPE_DE, &mc_status);
+
+	return false;
+}
+
 void amdgpu_mca_query_correctable_error_count(struct amdgpu_device *adev,
 					      uint64_t mc_status_addr,
 					      unsigned long *error_count)
@@ -202,22 +212,23 @@ int amdgpu_mca_smu_set_debug_mode(struct amdgpu_device *adev, bool enable)
 
 static void amdgpu_mca_smu_mca_bank_dump(struct amdgpu_device *adev, int idx, struct mca_bank_entry *entry)
 {
-	dev_info(adev->dev, "[Hardware error] Accelerator Check Architecture events logged\n");
-	dev_info(adev->dev, "[Hardware error] aca entry[%02d].STATUS=0x%016llx\n",
+	dev_info(adev->dev, HW_ERR "Accelerator Check Architecture events logged\n");
+	dev_info(adev->dev, HW_ERR "aca entry[%02d].STATUS=0x%016llx\n",
 		 idx, entry->regs[MCA_REG_IDX_STATUS]);
-	dev_info(adev->dev, "[Hardware error] aca entry[%02d].ADDR=0x%016llx\n",
+	dev_info(adev->dev, HW_ERR "aca entry[%02d].ADDR=0x%016llx\n",
 		 idx, entry->regs[MCA_REG_IDX_ADDR]);
-	dev_info(adev->dev, "[Hardware error] aca entry[%02d].MISC0=0x%016llx\n",
+	dev_info(adev->dev, HW_ERR "aca entry[%02d].MISC0=0x%016llx\n",
 		 idx, entry->regs[MCA_REG_IDX_MISC0]);
-	dev_info(adev->dev, "[Hardware error] aca entry[%02d].IPID=0x%016llx\n",
+	dev_info(adev->dev, HW_ERR "aca entry[%02d].IPID=0x%016llx\n",
 		 idx, entry->regs[MCA_REG_IDX_IPID]);
-	dev_info(adev->dev, "[Hardware error] aca entry[%02d].SYND=0x%016llx\n",
+	dev_info(adev->dev, HW_ERR "aca entry[%02d].SYND=0x%016llx\n",
 		 idx, entry->regs[MCA_REG_IDX_SYND]);
 }
 
 int amdgpu_mca_smu_log_ras_error(struct amdgpu_device *adev, enum amdgpu_ras_block blk, enum amdgpu_mca_error_type type, struct ras_err_data *err_data)
 {
 	struct amdgpu_smuio_mcm_config_info mcm_info;
+	struct ras_err_addr err_addr = {0};
 	struct mca_bank_set mca_set;
 	struct mca_bank_node *node;
 	struct mca_bank_entry *entry;
@@ -246,10 +257,23 @@ int amdgpu_mca_smu_log_ras_error(struct amdgpu_device *adev, enum amdgpu_ras_blo
 		mcm_info.socket_id = entry->info.socket_id;
 		mcm_info.die_id = entry->info.aid;
 
+		if (blk == AMDGPU_RAS_BLOCK__UMC) {
+			err_addr.err_status = entry->regs[MCA_REG_IDX_STATUS];
+			err_addr.err_ipid = entry->regs[MCA_REG_IDX_IPID];
+			err_addr.err_addr = entry->regs[MCA_REG_IDX_ADDR];
+		}
+
 		if (type == AMDGPU_MCA_ERROR_TYPE_UE)
-			amdgpu_ras_error_statistic_ue_count(err_data, &mcm_info, (uint64_t)count);
-		else
-			amdgpu_ras_error_statistic_ce_count(err_data, &mcm_info, (uint64_t)count);
+			amdgpu_ras_error_statistic_ue_count(err_data,
+				&mcm_info, &err_addr, (uint64_t)count);
+		else {
+			if (amdgpu_mca_is_deferred_error(adev, entry->regs[MCA_REG_IDX_STATUS]))
+				amdgpu_ras_error_statistic_de_count(err_data,
+					&mcm_info, &err_addr, (uint64_t)count);
+			else
+				amdgpu_ras_error_statistic_ce_count(err_data,
+					&mcm_info, &err_addr, (uint64_t)count);
+		}
 	}
 
 out_mca_release:
@@ -377,7 +401,7 @@ static int amdgpu_mca_smu_debug_mode_set(void *data, u64 val)
 	struct amdgpu_device *adev = (struct amdgpu_device *)data;
 	int ret;
 
-	ret = amdgpu_mca_smu_set_debug_mode(adev, val ? true : false);
+	ret = amdgpu_ras_set_mca_debug_mode(adev, val ? true : false);
 	if (ret)
 		return ret;
 
@@ -485,7 +509,7 @@ DEFINE_DEBUGFS_ATTRIBUTE(mca_debug_mode_fops, NULL, amdgpu_mca_smu_debug_mode_se
 void amdgpu_mca_smu_debugfs_init(struct amdgpu_device *adev, struct dentry *root)
 {
 #if defined(CONFIG_DEBUG_FS)
-	if (!root || adev->ip_versions[MP1_HWIP][0] != IP_VERSION(13, 0, 6))
+	if (!root || amdgpu_ip_version(adev, MP1_HWIP, 0) != IP_VERSION(13, 0, 6))
 		return;
 
 	debugfs_create_file("mca_debug_mode", 0200, root, adev, &mca_debug_mode_fops);

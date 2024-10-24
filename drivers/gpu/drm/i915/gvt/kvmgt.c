@@ -574,7 +574,7 @@ int intel_gvt_set_opregion(struct intel_vgpu *vgpu)
 	ret = intel_vgpu_register_reg(vgpu,
 			PCI_VENDOR_ID_INTEL | VFIO_REGION_TYPE_PCI_VENDOR_TYPE,
 			VFIO_REGION_SUBTYPE_INTEL_IGD_OPREGION,
-			&intel_vgpu_regops_opregion, OPREGION_SIZE,
+			&intel_vgpu_regops_opregion, INTEL_GVT_OPREGION_SIZE,
 			VFIO_REGION_INFO_FLAG_READ, base);
 
 	return ret;
@@ -1586,7 +1586,7 @@ static void kvmgt_page_track_write(gpa_t gpa, const u8 *val, int len,
 
 	mutex_lock(&info->vgpu_lock);
 
-	if (kvmgt_gfn_is_write_protected(info, gpa_to_gfn(gpa)))
+	if (kvmgt_gfn_is_write_protected(info, gpa >> PAGE_SHIFT))
 		intel_vgpu_page_track_handler(info, gpa,
 						     (void *)val, len);
 

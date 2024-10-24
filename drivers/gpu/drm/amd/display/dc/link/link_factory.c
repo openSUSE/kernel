@@ -213,8 +213,10 @@ static void construct_link_service_edp_panel_control(struct link_service *link_s
 	link_srv->edp_get_replay_state = edp_get_replay_state;
 	link_srv->edp_set_replay_allow_active = edp_set_replay_allow_active;
 	link_srv->edp_setup_replay = edp_setup_replay;
+	link_srv->edp_send_replay_cmd = edp_send_replay_cmd;
 	link_srv->edp_set_coasting_vtotal = edp_set_coasting_vtotal;
 	link_srv->edp_replay_residency = edp_replay_residency;
+	link_srv->edp_set_replay_power_opt_and_coasting_vtotal = edp_set_replay_power_opt_and_coasting_vtotal;
 
 	link_srv->edp_wait_for_t12 = edp_wait_for_t12;
 	link_srv->edp_is_ilr_optimization_required =
@@ -609,13 +611,13 @@ static bool construct_phy(struct dc_link *link,
 	link->link_enc =
 		link->dc->res_pool->funcs->link_enc_create(dc_ctx, &enc_init_data);
 
-	DC_LOG_DC("BIOS object table - DP_IS_USB_C: %d", link->link_enc->features.flags.bits.DP_IS_USB_C);
-	DC_LOG_DC("BIOS object table - IS_DP2_CAPABLE: %d", link->link_enc->features.flags.bits.IS_DP2_CAPABLE);
-
 	if (!link->link_enc) {
 		DC_ERROR("Failed to create link encoder!\n");
 		goto link_enc_create_fail;
 	}
+
+	DC_LOG_DC("BIOS object table - DP_IS_USB_C: %d", link->link_enc->features.flags.bits.DP_IS_USB_C);
+	DC_LOG_DC("BIOS object table - IS_DP2_CAPABLE: %d", link->link_enc->features.flags.bits.IS_DP2_CAPABLE);
 
 	/* Update link encoder tracking variables. These are used for the dynamic
 	 * assignment of link encoders to streams.

@@ -51,7 +51,7 @@
 #include "dcn20/dcn20_hwseq.h"
 #include "dcn30/dcn30_resource.h"
 #include "link.h"
-
+#include "dc_state_priv.h"
 
 
 
@@ -68,6 +68,155 @@
 #undef FN
 #define FN(reg_name, field_name) \
 	hws->shifts->field_name, hws->masks->field_name
+
+void dcn30_log_color_state(struct dc *dc,
+			   struct dc_log_buffer_ctx *log_ctx)
+{
+	struct dc_context *dc_ctx = dc->ctx;
+	struct resource_pool *pool = dc->res_pool;
+	int i;
+
+	DTN_INFO("DPP:  DGAM ROM  DGAM ROM type  DGAM LUT  SHAPER mode"
+		 "  3DLUT mode  3DLUT bit depth  3DLUT size  RGAM mode"
+		 "  GAMUT adjust  "
+		 "C11        C12        C13        C14        "
+		 "C21        C22        C23        C24        "
+		 "C31        C32        C33        C34        \n");
+
+	for (i = 0; i < pool->pipe_count; i++) {
+		struct dpp *dpp = pool->dpps[i];
+		struct dcn_dpp_state s = {0};
+
+		dpp->funcs->dpp_read_state(dpp, &s);
+		dpp->funcs->dpp_get_gamut_remap(dpp, &s.gamut_remap);
+
+		if (!s.is_enabled)
+			continue;
+
+		DTN_INFO("[%2d]:  %7x  %13s  %8s  %11s  %10s  %15s  %10s  %9s"
+			 "  %12s  "
+			 "%010lld %010lld %010lld %010lld "
+			 "%010lld %010lld %010lld %010lld "
+			 "%010lld %010lld %010lld %010lld",
+			dpp->inst,
+			s.pre_dgam_mode,
+			(s.pre_dgam_select == 0) ? "sRGB" :
+			 ((s.pre_dgam_select == 1) ? "Gamma 2.2" :
+			 ((s.pre_dgam_select == 2) ? "Gamma 2.4" :
+			 ((s.pre_dgam_select == 3) ? "Gamma 2.6" :
+			 ((s.pre_dgam_select == 4) ? "BT.709" :
+			 ((s.pre_dgam_select == 5) ? "PQ" :
+			 ((s.pre_dgam_select == 6) ? "HLG" :
+						     "Unknown")))))),
+			(s.gamcor_mode == 0) ? "Bypass" :
+			 ((s.gamcor_mode == 1) ? "RAM A" :
+						 "RAM B"),
+			(s.shaper_lut_mode == 1) ? "RAM A" :
+			 ((s.shaper_lut_mode == 2) ? "RAM B" :
+						     "Bypass"),
+			(s.lut3d_mode == 1) ? "RAM A" :
+			 ((s.lut3d_mode == 2) ? "RAM B" :
+						"Bypass"),
+			(s.lut3d_bit_depth <= 0) ? "12-bit" : "10-bit",
+			(s.lut3d_size == 0) ? "17x17x17" : "9x9x9",
+			(s.rgam_lut_mode == 0) ? "Bypass" :
+			 ((s.rgam_lut_mode == 1) ? "RAM A" :
+						   "RAM B"),
+			(s.gamut_remap.gamut_adjust_type == 0) ? "Bypass" :
+				((s.gamut_remap.gamut_adjust_type == 1) ? "HW" :
+									  "SW"),
+			s.gamut_remap.temperature_matrix[0].value,
+			s.gamut_remap.temperature_matrix[1].value,
+			s.gamut_remap.temperature_matrix[2].value,
+			s.gamut_remap.temperature_matrix[3].value,
+			s.gamut_remap.temperature_matrix[4].value,
+			s.gamut_remap.temperature_matrix[5].value,
+			s.gamut_remap.temperature_matrix[6].value,
+			s.gamut_remap.temperature_matrix[7].value,
+			s.gamut_remap.temperature_matrix[8].value,
+			s.gamut_remap.temperature_matrix[9].value,
+			s.gamut_remap.temperature_matrix[10].value,
+			s.gamut_remap.temperature_matrix[11].value);
+		DTN_INFO("\n");
+	}
+	DTN_INFO("\n");
+	DTN_INFO("DPP Color Caps: input_lut_shared:%d  icsc:%d"
+		 "  dgam_ram:%d  dgam_rom: srgb:%d,bt2020:%d,gamma2_2:%d,pq:%d,hlg:%d"
+		 "  post_csc:%d  gamcor:%d  dgam_rom_for_yuv:%d  3d_lut:%d"
+		 "  blnd_lut:%d  oscs:%d\n\n",
+		 dc->caps.color.dpp.input_lut_shared,
+		 dc->caps.color.dpp.icsc,
+		 dc->caps.color.dpp.dgam_ram,
+		 dc->caps.color.dpp.dgam_rom_caps.srgb,
+		 dc->caps.color.dpp.dgam_rom_caps.bt2020,
+		 dc->caps.color.dpp.dgam_rom_caps.gamma2_2,
+		 dc->caps.color.dpp.dgam_rom_caps.pq,
+		 dc->caps.color.dpp.dgam_rom_caps.hlg,
+		 dc->caps.color.dpp.post_csc,
+		 dc->caps.color.dpp.gamma_corr,
+		 dc->caps.color.dpp.dgam_rom_for_yuv,
+		 dc->caps.color.dpp.hw_3d_lut,
+		 dc->caps.color.dpp.ogam_ram,
+		 dc->caps.color.dpp.ocsc);
+
+	DTN_INFO("MPCC:  OPP  DPP  MPCCBOT  MODE  ALPHA_MODE  PREMULT  OVERLAP_ONLY  IDLE"
+		 "  SHAPER mode  3DLUT mode  3DLUT bit-depth  3DLUT size  OGAM mode  OGAM LUT"
+		 "  GAMUT adjust  "
+		 "C11        C12        C13        C14        "
+		 "C21        C22        C23        C24        "
+		 "C31        C32        C33        C34        \n");
+
+	for (i = 0; i < pool->pipe_count; i++) {
+		struct mpcc_state s = {0};
+
+		pool->mpc->funcs->read_mpcc_state(pool->mpc, i, &s);
+		mpc3_get_gamut_remap(pool->mpc, i,  &s.gamut_remap);
+
+		if (s.opp_id != 0xf)
+			DTN_INFO("[%2d]:  %2xh  %2xh  %6xh  %4d  %10d  %7d  %12d  %4d  %11s %11s %16s %11s %10s %9s"
+				 "  %-12s  "
+				 "%010lld %010lld %010lld %010lld "
+				 "%010lld %010lld %010lld %010lld "
+				 "%010lld %010lld %010lld %010lld\n",
+				i, s.opp_id, s.dpp_id, s.bot_mpcc_id,
+				s.mode, s.alpha_mode, s.pre_multiplied_alpha, s.overlap_only,
+				s.idle,
+				(s.shaper_lut_mode == 1) ? "RAM A" :
+				 ((s.shaper_lut_mode == 2) ? "RAM B" :
+							     "Bypass"),
+				(s.lut3d_mode == 1) ? "RAM A" :
+				 ((s.lut3d_mode == 2) ? "RAM B" :
+							"Bypass"),
+				(s.lut3d_bit_depth <= 0) ? "12-bit" : "10-bit",
+				(s.lut3d_size == 0) ? "17x17x17" : "9x9x9",
+				(s.rgam_mode == 0) ? "Bypass" :
+				 ((s.rgam_mode == 2) ? "RAM" :
+						       "Unknown"),
+				(s.rgam_mode == 1) ? "B" : "A",
+				(s.gamut_remap.gamut_adjust_type == 0) ? "Bypass" :
+					((s.gamut_remap.gamut_adjust_type == 1) ? "HW" :
+										  "SW"),
+				s.gamut_remap.temperature_matrix[0].value,
+				s.gamut_remap.temperature_matrix[1].value,
+				s.gamut_remap.temperature_matrix[2].value,
+				s.gamut_remap.temperature_matrix[3].value,
+				s.gamut_remap.temperature_matrix[4].value,
+				s.gamut_remap.temperature_matrix[5].value,
+				s.gamut_remap.temperature_matrix[6].value,
+				s.gamut_remap.temperature_matrix[7].value,
+				s.gamut_remap.temperature_matrix[8].value,
+				s.gamut_remap.temperature_matrix[9].value,
+				s.gamut_remap.temperature_matrix[10].value,
+				s.gamut_remap.temperature_matrix[11].value);
+
+	}
+	DTN_INFO("\n");
+	DTN_INFO("MPC Color Caps: gamut_remap:%d, 3dlut:%d, ogam_ram:%d, ocsc:%d\n\n",
+		 dc->caps.color.mpc.gamut_remap,
+		 dc->caps.color.mpc.num_3dluts,
+		 dc->caps.color.mpc.ogam_ram,
+		 dc->caps.color.mpc.ocsc);
+}
 
 bool dcn30_set_blend_lut(
 	struct pipe_ctx *pipe_ctx, const struct dc_plane_state *plane_state)
@@ -251,7 +400,11 @@ bool dcn30_set_output_transfer_func(struct dc *dc,
 		}
 	}
 
-	mpc->funcs->set_output_gamma(mpc, mpcc_id, params);
+	if (mpc->funcs->set_output_gamma)
+		mpc->funcs->set_output_gamma(mpc, mpcc_id, params);
+	else
+		DC_LOG_ERROR("%s: set_output_gamma function pointer is NULL.\n", __func__);
+
 	return ret;
 }
 
@@ -367,6 +520,10 @@ void dcn30_enable_writeback(
 	DC_LOG_DWB("%s dwb_pipe_inst = %d, mpcc_inst = %d",\
 		__func__, wb_info->dwb_pipe_inst,\
 		wb_info->mpcc_inst);
+
+	/* Warmup interface */
+	dcn30_mmhubbub_warmup(dc, 1, wb_info);
+
 	/* Update writeback pipe */
 	dcn30_set_writeback(dc, wb_info, context);
 
@@ -472,6 +629,7 @@ void dcn30_init_hw(struct dc *dc)
 	int i;
 	int edp_num;
 	uint32_t backlight = MAX_BACKLIGHT_LEVEL;
+	uint32_t user_level = MAX_BACKLIGHT_LEVEL;
 
 	if (dc->clk_mgr && dc->clk_mgr->funcs->init_clocks)
 		dc->clk_mgr->funcs->init_clocks(dc->clk_mgr);
@@ -608,13 +766,15 @@ void dcn30_init_hw(struct dc *dc)
 	for (i = 0; i < dc->link_count; i++) {
 		struct dc_link *link = dc->links[i];
 
-		if (link->panel_cntl)
+		if (link->panel_cntl) {
 			backlight = link->panel_cntl->funcs->hw_init(link->panel_cntl);
+			user_level = link->panel_cntl->stored_backlight_registers.USER_LEVEL;
+		}
 	}
 
 	for (i = 0; i < dc->res_pool->pipe_count; i++) {
 		if (abms[i] != NULL)
-			abms[i]->funcs->abm_init(abms[i], backlight);
+			abms[i]->funcs->abm_init(abms[i], backlight, user_level);
 	}
 
 	/* power AFMT HDMI memory TODO: may move to dis/en output save power*/
@@ -767,6 +927,9 @@ bool dcn30_apply_idle_power_optimizations(struct dc *dc, bool enable)
 
 			stream = dc->current_state->streams[0];
 			plane = (stream ? dc->current_state->stream_status[0].plane_states[0] : NULL);
+
+			if (!stream || !plane)
+				return false;
 
 			if (stream && plane) {
 				cursor_cache_enable = stream->cursor_position.enable &&
@@ -972,7 +1135,7 @@ void dcn30_hardware_release(struct dc *dc)
 		if (!pipe->stream)
 			continue;
 
-		if (pipe->stream->mall_stream_config.type == SUBVP_MAIN) {
+		if (dc_state_get_pipe_subvp_type(dc->current_state, pipe) == SUBVP_MAIN) {
 			subvp_in_use = true;
 			break;
 		}
@@ -1017,22 +1180,4 @@ void dcn30_prepare_bandwidth(struct dc *dc,
 
 	if (!dc->clk_mgr->clks.fw_based_mclk_switching)
 		dc_dmub_srv_p_state_delegate(dc, false, context);
-}
-
-void dcn30_set_static_screen_control(struct pipe_ctx **pipe_ctx,
-		int num_pipes, const struct dc_static_screen_params *params)
-{
-	unsigned int i;
-	unsigned int triggers = 0;
-
-	if (params->triggers.surface_update)
-		triggers |= 0x100;
-	if (params->triggers.cursor_update)
-		triggers |= 0x8;
-	if (params->triggers.force_trigger)
-		triggers |= 0x1;
-
-	for (i = 0; i < num_pipes; i++)
-		pipe_ctx[i]->stream_res.tg->funcs->set_static_screen_control(pipe_ctx[i]->stream_res.tg,
-					triggers, params->num_frames);
 }

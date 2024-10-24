@@ -19,15 +19,13 @@
 #include <linux/regulator/consumer.h>
 #include <linux/regulator/machine.h>
 #include <linux/pm_runtime.h>
-#include <linux/of_device.h>
-#include <linux/of_gpio.h>
+#include <linux/of.h>
 #include <linux/of_irq.h>
 #include <sound/core.h>
 #include <sound/pcm.h>
 #include <sound/pcm_params.h>
 #include <sound/soc.h>
 #include <sound/soc-dapm.h>
-#include <linux/gpio.h>
 #include <linux/gpio/consumer.h>
 #include <sound/initval.h>
 #include <sound/tlv.h>
@@ -789,7 +787,7 @@ static const struct snd_soc_component_driver soc_component_dev_cs35l34 = {
 	.endianness		= 1,
 };
 
-static struct regmap_config cs35l34_regmap = {
+static const struct regmap_config cs35l34_regmap = {
 	.reg_bits = 8,
 	.val_bits = 8,
 
@@ -1061,7 +1059,7 @@ static int cs35l34_i2c_probe(struct i2c_client *i2c_client)
 		dev_err(&i2c_client->dev, "Failed to request IRQ: %d\n", ret);
 
 	cs35l34->reset_gpio = devm_gpiod_get_optional(&i2c_client->dev,
-				"reset-gpios", GPIOD_OUT_LOW);
+				"reset", GPIOD_OUT_LOW);
 	if (IS_ERR(cs35l34->reset_gpio)) {
 		ret = PTR_ERR(cs35l34->reset_gpio);
 		goto err_regulator;
@@ -1200,7 +1198,7 @@ static const struct of_device_id cs35l34_of_match[] = {
 MODULE_DEVICE_TABLE(of, cs35l34_of_match);
 
 static const struct i2c_device_id cs35l34_id[] = {
-	{"cs35l34", 0},
+	{"cs35l34"},
 	{}
 };
 MODULE_DEVICE_TABLE(i2c, cs35l34_id);

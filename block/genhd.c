@@ -583,7 +583,7 @@ static void blk_report_disk_dead(struct gendisk *disk)
  * Mark as disk as dead (e.g. surprise removed) and don't accept any new I/O
  * to this disk.
  */
-void blk_mark_disk_dead(struct gendisk *disk)
+static void __blk_mark_disk_dead(struct gendisk *disk)
 {
 	/*
 	 * Fail any new I/O.
@@ -603,7 +603,11 @@ void blk_mark_disk_dead(struct gendisk *disk)
 	 * Prevent new I/O from crossing bio_queue_enter().
 	 */
 	blk_queue_start_drain(disk->queue);
+}
 
+void blk_mark_disk_dead(struct gendisk *disk)
+{
+	__blk_mark_disk_dead(disk);
 	blk_report_disk_dead(disk);
 }
 EXPORT_SYMBOL_GPL(blk_mark_disk_dead);
@@ -652,12 +656,17 @@ void del_gendisk(struct gendisk *disk)
 	}
 	mutex_unlock(&disk->open_mutex);
 
-	blk_mark_disk_dead(disk);
-
+	/*
+	 * Tell the file system to write back all dirty data and shut down if
+	 * it hasn't been notified earlier.
+	 */
+	if (!test_bit(GD_DEAD, &disk->state))
+		blk_report_disk_dead(disk);
 	/*
 	 * Drop all partitions now that the disk is marked dead.
 	 */
 	mutex_lock(&disk->open_mutex);
+	__blk_mark_disk_dead(disk);
 	xa_for_each_start(&disk->part_tbl, idx, part, 1)
 		drop_partition(part);
 	mutex_unlock(&disk->open_mutex);

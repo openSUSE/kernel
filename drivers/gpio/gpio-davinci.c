@@ -16,10 +16,10 @@
 #include <linux/irqdomain.h>
 #include <linux/module.h>
 #include <linux/of.h>
-#include <linux/of_device.h>
 #include <linux/pinctrl/consumer.h>
 #include <linux/platform_device.h>
 #include <linux/platform_data/gpio-davinci.h>
+#include <linux/property.h>
 #include <linux/irqchip/chained_irq.h>
 #include <linux/spinlock.h>
 #include <linux/pm_runtime.h>
@@ -289,7 +289,7 @@ static int davinci_gpio_probe(struct platform_device *pdev)
  * serve as EDMA event triggers.
  */
 
-static void gpio_irq_disable(struct irq_data *d)
+static void gpio_irq_mask(struct irq_data *d)
 {
 	struct davinci_gpio_regs __iomem *g = irq2regs(d);
 	uintptr_t mask = (uintptr_t)irq_data_get_irq_handler_data(d);
@@ -298,7 +298,7 @@ static void gpio_irq_disable(struct irq_data *d)
 	writel_relaxed(mask, &g->clr_rising);
 }
 
-static void gpio_irq_enable(struct irq_data *d)
+static void gpio_irq_unmask(struct irq_data *d)
 {
 	struct davinci_gpio_regs __iomem *g = irq2regs(d);
 	uintptr_t mask = (uintptr_t)irq_data_get_irq_handler_data(d);
@@ -324,8 +324,8 @@ static int gpio_irq_type(struct irq_data *d, unsigned trigger)
 
 static struct irq_chip gpio_irqchip = {
 	.name		= "GPIO",
-	.irq_enable	= gpio_irq_enable,
-	.irq_disable	= gpio_irq_disable,
+	.irq_unmask	= gpio_irq_unmask,
+	.irq_mask	= gpio_irq_mask,
 	.irq_set_type	= gpio_irq_type,
 	.flags		= IRQCHIP_SET_TYPE_MASKED | IRQCHIP_SKIP_SET_WAKE,
 };
@@ -491,7 +491,6 @@ static int davinci_gpio_irq_setup(struct platform_device *pdev)
 	struct davinci_gpio_platform_data *pdata = dev->platform_data;
 	struct davinci_gpio_regs __iomem *g;
 	struct irq_domain	*irq_domain = NULL;
-	const struct of_device_id *match;
 	struct irq_chip *irq_chip;
 	struct davinci_gpio_irq_data *irqdata;
 	gpio_get_irq_chip_cb_t gpio_get_irq_chip;
@@ -500,10 +499,8 @@ static int davinci_gpio_irq_setup(struct platform_device *pdev)
 	 * Use davinci_gpio_get_irq_chip by default to handle non DT cases
 	 */
 	gpio_get_irq_chip = davinci_gpio_get_irq_chip;
-	match = of_match_device(of_match_ptr(davinci_gpio_ids),
-				dev);
-	if (match)
-		gpio_get_irq_chip = (gpio_get_irq_chip_cb_t)match->data;
+	if (dev->of_node)
+		gpio_get_irq_chip = (gpio_get_irq_chip_cb_t)device_get_match_data(dev);
 
 	ngpio = pdata->ngpio;
 

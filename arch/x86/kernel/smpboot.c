@@ -58,6 +58,7 @@
 #include <linux/pgtable.h>
 #include <linux/overflow.h>
 #include <linux/stackprotector.h>
+#include <linux/acpi.h>
 
 #include <asm/acpi.h>
 #include <asm/cacheinfo.h>

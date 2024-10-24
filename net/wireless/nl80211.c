@@ -5965,6 +5965,9 @@ static int nl80211_start_ap(struct sk_buff *skb, struct genl_info *info)
 	if (!rdev->ops->start_ap)
 		return -EOPNOTSUPP;
 
+	if (wdev->cac_started)
+		return -EBUSY;
+
 	if (wdev->links[link_id].ap.beacon_interval)
 		return -EALREADY;
 
@@ -8144,7 +8147,8 @@ static int nl80211_req_set_reg(struct sk_buff *skb, struct genl_info *info)
 			is_indoor = true;
 		}
 
-		return regulatory_hint_indoor(is_indoor, owner_nlportid);
+		regulatory_hint_indoor(is_indoor, owner_nlportid);
+		return 0;
 	default:
 		return -EINVAL;
 	}
@@ -9654,7 +9658,8 @@ nl80211_parse_sched_scan(struct wiphy *wiphy, struct wireless_dev *wdev,
 		return ERR_PTR(-ENOMEM);
 
 	if (n_ssids)
-		request->ssids = (void *)&request->channels[n_channels];
+		request->ssids = (void *)request +
+			struct_size(request, channels, n_channels);
 	request->n_ssids = n_ssids;
 	if (ie_len) {
 		if (n_ssids)
@@ -9956,6 +9961,17 @@ static int nl80211_start_radar_detection(struct sk_buff *skb,
 
 	flush_delayed_work(&rdev->dfs_update_channels_wk);
 
+	switch (wdev->iftype) {
+	case NL80211_IFTYPE_AP:
+	case NL80211_IFTYPE_P2P_GO:
+	case NL80211_IFTYPE_MESH_POINT:
+	case NL80211_IFTYPE_ADHOC:
+		break;
+	default:
+		/* caution - see cfg80211_beaconing_iface_active() below */
+		return -EINVAL;
+	}
+
 	wiphy_lock(wiphy);
 
 	dfs_region = reg_get_dfs_region(wiphy);
@@ -9986,12 +10002,7 @@ static int nl80211_start_radar_detection(struct sk_buff *skb,
 		goto unlock;
 	}
 
-	if (netif_carrier_ok(dev)) {
-		err = -EBUSY;
-		goto unlock;
-	}
-
-	if (wdev->cac_started) {
+	if (cfg80211_beaconing_iface_active(wdev) || wdev->cac_started) {
 		err = -EBUSY;
 		goto unlock;
 	}
@@ -10013,7 +10024,20 @@ static int nl80211_start_radar_detection(struct sk_buff *skb,
 
 	err = rdev_start_radar_detection(rdev, dev, &chandef, cac_time_ms);
 	if (!err) {
-		wdev->links[0].ap.chandef = chandef;
+		switch (wdev->iftype) {
+		case NL80211_IFTYPE_AP:
+		case NL80211_IFTYPE_P2P_GO:
+			wdev->links[0].ap.chandef = chandef;
+			break;
+		case NL80211_IFTYPE_ADHOC:
+			wdev->u.ibss.chandef = chandef;
+			break;
+		case NL80211_IFTYPE_MESH_POINT:
+			wdev->u.mesh.chandef = chandef;
+			break;
+		default:
+			break;
+		}
 		wdev->cac_started = true;
 		wdev->cac_start_time = jiffies;
 		wdev->cac_time_ms = cac_time_ms;
@@ -16059,6 +16083,7 @@ static int nl80211_color_change(struct sk_buff *skb, struct genl_info *info)
 		params.counter_offset_presp = offset;
 	}
 
+	params.link_id = nl80211_link_id(info->attrs);
 	err = rdev_color_change(rdev, dev, &params);
 
 out:
@@ -17461,7 +17486,8 @@ static const struct genl_small_ops nl80211_small_ops[] = {
 		.validate = GENL_DONT_VALIDATE_STRICT | GENL_DONT_VALIDATE_DUMP,
 		.doit = nl80211_color_change,
 		.flags = GENL_UNS_ADMIN_PERM,
-		.internal_flags = IFLAGS(NL80211_FLAG_NEED_NETDEV_UP),
+		.internal_flags = IFLAGS(NL80211_FLAG_NEED_NETDEV_UP |
+					 NL80211_FLAG_MLO_VALID_LINK_ID),
 	},
 	{
 		.cmd = NL80211_CMD_SET_FILS_AAD,
@@ -19483,7 +19509,7 @@ EXPORT_SYMBOL(cfg80211_ch_switch_started_notify);
 
 int cfg80211_bss_color_notify(struct net_device *dev,
 			      enum nl80211_commands cmd, u8 count,
-			      u64 color_bitmap)
+			      u64 color_bitmap, u8 link_id)
 {
 	struct wireless_dev *wdev = dev->ieee80211_ptr;
 	struct wiphy *wiphy = wdev->wiphy;
@@ -19504,6 +19530,10 @@ int cfg80211_bss_color_notify(struct net_device *dev,
 		goto nla_put_failure;
 
 	if (nla_put_u32(msg, NL80211_ATTR_IFINDEX, dev->ifindex))
+		goto nla_put_failure;
+
+	if (wdev->valid_links &&
+	    nla_put_u8(msg, NL80211_ATTR_MLO_LINK_ID, link_id))
 		goto nla_put_failure;
 
 	if (cmd == NL80211_CMD_COLOR_CHANGE_STARTED &&

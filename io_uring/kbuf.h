@@ -25,21 +25,13 @@ struct io_buffer_list {
 	__u16 head;
 	__u16 mask;
 
+	atomic_t refs;
+
 	/* ring mapped provided buffers */
-#ifdef __GENKSYMS__
-	__u8 is_mapped;
-#else
 	__u8 is_buf_ring;
-#endif
+
 	/* ring mapped provided buffers, but mmap'ed by application */
 	__u8 is_mmap;
-
-#ifdef __GENKSYMS__
-	__u8 is_ready;
-#else
-	/* kABI: Occupying a previous padding patch. */
-	atomic_t refs;
-#endif
 };
 
 struct io_buffer {

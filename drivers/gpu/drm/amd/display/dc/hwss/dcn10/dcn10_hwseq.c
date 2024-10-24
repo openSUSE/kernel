@@ -56,6 +56,7 @@
 #include "dc_trace.h"
 #include "dce/dmub_outbox.h"
 #include "link.h"
+#include "dc_state_priv.h"
 
 #define DC_LOGGER \
 	dc_logger
@@ -115,7 +116,7 @@ void dcn10_lock_all_pipes(struct dc *dc,
 		    !pipe_ctx->stream ||
 		    (!pipe_ctx->plane_state && !old_pipe_ctx->plane_state) ||
 		    !tg->funcs->is_tg_enabled(tg) ||
-			pipe_ctx->stream->mall_stream_config.type == SUBVP_PHANTOM)
+			dc_state_get_pipe_subvp_type(context, pipe_ctx) == SUBVP_PHANTOM)
 			continue;
 
 		if (lock)
@@ -282,33 +283,33 @@ static void dcn10_log_hubp_states(struct dc *dc, void *log_ctx)
 	DTN_INFO("\n");
 }
 
-void dcn10_log_hw_state(struct dc *dc,
-	struct dc_log_buffer_ctx *log_ctx)
+static void dcn10_log_color_state(struct dc *dc,
+				  struct dc_log_buffer_ctx *log_ctx)
 {
 	struct dc_context *dc_ctx = dc->ctx;
 	struct resource_pool *pool = dc->res_pool;
 	int i;
 
-	DTN_INFO_BEGIN();
-
-	dcn10_log_hubbub_state(dc, log_ctx);
-
-	dcn10_log_hubp_states(dc, log_ctx);
-
-	DTN_INFO("DPP:    IGAM format  IGAM mode    DGAM mode    RGAM mode"
-			"  GAMUT mode  C11 C12   C13 C14   C21 C22   C23 C24   "
-			"C31 C32   C33 C34\n");
+	DTN_INFO("DPP:    IGAM format    IGAM mode    DGAM mode    RGAM mode"
+		 "  GAMUT adjust  "
+		 "C11        C12        C13        C14        "
+		 "C21        C22        C23        C24        "
+		 "C31        C32        C33        C34        \n");
 	for (i = 0; i < pool->pipe_count; i++) {
 		struct dpp *dpp = pool->dpps[i];
 		struct dcn_dpp_state s = {0};
 
 		dpp->funcs->dpp_read_state(dpp, &s);
+		dpp->funcs->dpp_get_gamut_remap(dpp, &s.gamut_remap);
 
 		if (!s.is_enabled)
 			continue;
 
-		DTN_INFO("[%2d]:  %11xh  %-11s  %-11s  %-11s"
-				"%8x    %08xh %08xh %08xh %08xh %08xh %08xh",
+		DTN_INFO("[%2d]:  %11xh  %11s    %9s    %9s"
+			 "  %12s  "
+			 "%010lld %010lld %010lld %010lld "
+			 "%010lld %010lld %010lld %010lld "
+			 "%010lld %010lld %010lld %010lld",
 				dpp->inst,
 				s.igam_input_format,
 				(s.igam_lut_mode == 0) ? "BypassFixed" :
@@ -328,16 +329,42 @@ void dcn10_log_hw_state(struct dc *dc,
 					((s.rgam_lut_mode == 3) ? "RAM" :
 					((s.rgam_lut_mode == 4) ? "RAM" :
 								 "Unknown")))),
-				s.gamut_remap_mode,
-				s.gamut_remap_c11_c12,
-				s.gamut_remap_c13_c14,
-				s.gamut_remap_c21_c22,
-				s.gamut_remap_c23_c24,
-				s.gamut_remap_c31_c32,
-				s.gamut_remap_c33_c34);
+				(s.gamut_remap.gamut_adjust_type == 0) ? "Bypass" :
+					((s.gamut_remap.gamut_adjust_type == 1) ? "HW" :
+										  "SW"),
+				s.gamut_remap.temperature_matrix[0].value,
+				s.gamut_remap.temperature_matrix[1].value,
+				s.gamut_remap.temperature_matrix[2].value,
+				s.gamut_remap.temperature_matrix[3].value,
+				s.gamut_remap.temperature_matrix[4].value,
+				s.gamut_remap.temperature_matrix[5].value,
+				s.gamut_remap.temperature_matrix[6].value,
+				s.gamut_remap.temperature_matrix[7].value,
+				s.gamut_remap.temperature_matrix[8].value,
+				s.gamut_remap.temperature_matrix[9].value,
+				s.gamut_remap.temperature_matrix[10].value,
+				s.gamut_remap.temperature_matrix[11].value);
 		DTN_INFO("\n");
 	}
 	DTN_INFO("\n");
+	DTN_INFO("DPP Color Caps: input_lut_shared:%d  icsc:%d"
+		 "  dgam_ram:%d  dgam_rom: srgb:%d,bt2020:%d,gamma2_2:%d,pq:%d,hlg:%d"
+		 "  post_csc:%d  gamcor:%d  dgam_rom_for_yuv:%d  3d_lut:%d"
+		 "  blnd_lut:%d  oscs:%d\n\n",
+		 dc->caps.color.dpp.input_lut_shared,
+		 dc->caps.color.dpp.icsc,
+		 dc->caps.color.dpp.dgam_ram,
+		 dc->caps.color.dpp.dgam_rom_caps.srgb,
+		 dc->caps.color.dpp.dgam_rom_caps.bt2020,
+		 dc->caps.color.dpp.dgam_rom_caps.gamma2_2,
+		 dc->caps.color.dpp.dgam_rom_caps.pq,
+		 dc->caps.color.dpp.dgam_rom_caps.hlg,
+		 dc->caps.color.dpp.post_csc,
+		 dc->caps.color.dpp.gamma_corr,
+		 dc->caps.color.dpp.dgam_rom_for_yuv,
+		 dc->caps.color.dpp.hw_3d_lut,
+		 dc->caps.color.dpp.ogam_ram,
+		 dc->caps.color.dpp.ocsc);
 
 	DTN_INFO("MPCC:  OPP  DPP  MPCCBOT  MODE  ALPHA_MODE  PREMULT  OVERLAP_ONLY  IDLE\n");
 	for (i = 0; i < pool->pipe_count; i++) {
@@ -351,6 +378,30 @@ void dcn10_log_hw_state(struct dc *dc,
 				s.idle);
 	}
 	DTN_INFO("\n");
+	DTN_INFO("MPC Color Caps: gamut_remap:%d, 3dlut:%d, ogam_ram:%d, ocsc:%d\n\n",
+		 dc->caps.color.mpc.gamut_remap,
+		 dc->caps.color.mpc.num_3dluts,
+		 dc->caps.color.mpc.ogam_ram,
+		 dc->caps.color.mpc.ocsc);
+}
+
+void dcn10_log_hw_state(struct dc *dc,
+			struct dc_log_buffer_ctx *log_ctx)
+{
+	struct dc_context *dc_ctx = dc->ctx;
+	struct resource_pool *pool = dc->res_pool;
+	int i;
+
+	DTN_INFO_BEGIN();
+
+	dcn10_log_hubbub_state(dc, log_ctx);
+
+	dcn10_log_hubp_states(dc, log_ctx);
+
+	if (dc->hwss.log_color_state)
+		dc->hwss.log_color_state(dc, log_ctx);
+	else
+		dcn10_log_color_state(dc, log_ctx);
 
 	DTN_INFO("OTG:  v_bs  v_be  v_ss  v_se  vpol  vmax  vmin  vmax_sel  vmin_sel  h_bs  h_be  h_ss  h_se  hpol  htot  vtot  underflow blank_en\n");
 
@@ -1181,7 +1232,9 @@ void dcn10_verify_allow_pstate_change_high(struct dc *dc)
 }
 
 /* trigger HW to start disconnect plane from stream on the next vsync */
-void dcn10_plane_atomic_disconnect(struct dc *dc, struct pipe_ctx *pipe_ctx)
+void dcn10_plane_atomic_disconnect(struct dc *dc,
+		struct dc_state *state,
+		struct pipe_ctx *pipe_ctx)
 {
 	struct dce_hwseq *hws = dc->hwseq;
 	struct hubp *hubp = pipe_ctx->plane_res.hubp;
@@ -1201,7 +1254,7 @@ void dcn10_plane_atomic_disconnect(struct dc *dc, struct pipe_ctx *pipe_ctx)
 	mpc->funcs->remove_mpcc(mpc, mpc_tree_params, mpcc_to_remove);
 	// Phantom pipes have OTG disabled by default, so MPCC_STATUS will never assert idle,
 	// so don't wait for MPCC_IDLE in the programming sequence
-	if (opp != NULL && !pipe_ctx->plane_state->is_phantom)
+	if (opp != NULL && dc_state_get_pipe_subvp_type(state, pipe_ctx) != SUBVP_PHANTOM)
 		opp->mpcc_disconnect_pending[pipe_ctx->plane_res.mpcc_inst] = true;
 
 	dc->optimized_required = true;
@@ -1291,7 +1344,7 @@ void dcn10_plane_atomic_disable(struct dc *dc, struct pipe_ctx *pipe_ctx)
 	pipe_ctx->plane_state = NULL;
 }
 
-void dcn10_disable_plane(struct dc *dc, struct pipe_ctx *pipe_ctx)
+void dcn10_disable_plane(struct dc *dc, struct dc_state *state, struct pipe_ctx *pipe_ctx)
 {
 	struct dce_hwseq *hws = dc->hwseq;
 	DC_LOGGER_INIT(dc->ctx->logger);
@@ -1417,12 +1470,12 @@ void dcn10_init_pipes(struct dc *dc, struct dc_state *context)
 		dc->res_pool->opps[i]->mpcc_disconnect_pending[pipe_ctx->plane_res.mpcc_inst] = true;
 		pipe_ctx->stream_res.opp = dc->res_pool->opps[i];
 
-		hws->funcs.plane_atomic_disconnect(dc, pipe_ctx);
+		hws->funcs.plane_atomic_disconnect(dc, context, pipe_ctx);
 
 		if (tg->funcs->is_tg_enabled(tg))
 			tg->funcs->unlock(tg);
 
-		dc->hwss.disable_plane(dc, pipe_ctx);
+		dc->hwss.disable_plane(dc, context, pipe_ctx);
 
 		pipe_ctx->stream_res.tg = NULL;
 		pipe_ctx->plane_res.hubp = NULL;
@@ -1487,6 +1540,7 @@ void dcn10_init_hw(struct dc *dc)
 	struct dc_bios *dcb = dc->ctx->dc_bios;
 	struct resource_pool *res_pool = dc->res_pool;
 	uint32_t backlight = MAX_BACKLIGHT_LEVEL;
+	uint32_t user_level = MAX_BACKLIGHT_LEVEL;
 	bool   is_optimized_init_done = false;
 
 	if (dc->clk_mgr && dc->clk_mgr->funcs->init_clocks)
@@ -1584,12 +1638,14 @@ void dcn10_init_hw(struct dc *dc)
 		for (i = 0; i < dc->link_count; i++) {
 			struct dc_link *link = dc->links[i];
 
-			if (link->panel_cntl)
+			if (link->panel_cntl) {
 				backlight = link->panel_cntl->funcs->hw_init(link->panel_cntl);
+				user_level = link->panel_cntl->stored_backlight_registers.USER_LEVEL;
+			}
 		}
 
 		if (abm != NULL)
-			abm->funcs->abm_init(abm, backlight);
+			abm->funcs->abm_init(abm, backlight, user_level);
 
 		if (dmcu != NULL && !dmcu->auto_load_dmcu)
 			dmcu->funcs->dmcu_init(dmcu);
@@ -2266,6 +2322,7 @@ void dcn10_enable_vblanks_synchronization(
 
 void dcn10_enable_timing_synchronization(
 	struct dc *dc,
+	struct dc_state *state,
 	int group_index,
 	int group_size,
 	struct pipe_ctx *grouped_pipes[])
@@ -2280,7 +2337,7 @@ void dcn10_enable_timing_synchronization(
 	DC_SYNC_INFO("Setting up OTG reset trigger\n");
 
 	for (i = 1; i < group_size; i++) {
-		if (grouped_pipes[i]->stream && grouped_pipes[i]->stream->mall_stream_config.type == SUBVP_PHANTOM)
+		if (grouped_pipes[i]->stream && dc_state_get_pipe_subvp_type(state, grouped_pipes[i]) == SUBVP_PHANTOM)
 			continue;
 
 		opp = grouped_pipes[i]->stream_res.opp;
@@ -2300,14 +2357,14 @@ void dcn10_enable_timing_synchronization(
 		if (grouped_pipes[i]->stream == NULL)
 			continue;
 
-		if (grouped_pipes[i]->stream && grouped_pipes[i]->stream->mall_stream_config.type == SUBVP_PHANTOM)
+		if (grouped_pipes[i]->stream && dc_state_get_pipe_subvp_type(state, grouped_pipes[i]) == SUBVP_PHANTOM)
 			continue;
 
 		grouped_pipes[i]->stream->vblank_synchronized = false;
 	}
 
 	for (i = 1; i < group_size; i++) {
-		if (grouped_pipes[i]->stream && grouped_pipes[i]->stream->mall_stream_config.type == SUBVP_PHANTOM)
+		if (grouped_pipes[i]->stream && dc_state_get_pipe_subvp_type(state, grouped_pipes[i]) == SUBVP_PHANTOM)
 			continue;
 
 		grouped_pipes[i]->stream_res.tg->funcs->enable_reset_trigger(
@@ -2321,11 +2378,11 @@ void dcn10_enable_timing_synchronization(
 	 * synchronized. Look at last pipe programmed to reset.
 	 */
 
-	if (grouped_pipes[1]->stream && grouped_pipes[1]->stream->mall_stream_config.type != SUBVP_PHANTOM)
+	if (grouped_pipes[1]->stream && dc_state_get_pipe_subvp_type(state, grouped_pipes[1]) != SUBVP_PHANTOM)
 		wait_for_reset_trigger_to_occur(dc_ctx, grouped_pipes[1]->stream_res.tg);
 
 	for (i = 1; i < group_size; i++) {
-		if (grouped_pipes[i]->stream && grouped_pipes[i]->stream->mall_stream_config.type == SUBVP_PHANTOM)
+		if (grouped_pipes[i]->stream && dc_state_get_pipe_subvp_type(state, grouped_pipes[i]) == SUBVP_PHANTOM)
 			continue;
 
 		grouped_pipes[i]->stream_res.tg->funcs->disable_reset_trigger(
@@ -2333,7 +2390,7 @@ void dcn10_enable_timing_synchronization(
 	}
 
 	for (i = 1; i < group_size; i++) {
-		if (grouped_pipes[i]->stream && grouped_pipes[i]->stream->mall_stream_config.type == SUBVP_PHANTOM)
+		if (dc_state_get_pipe_subvp_type(state, grouped_pipes[i]) == SUBVP_PHANTOM)
 			continue;
 
 		opp = grouped_pipes[i]->stream_res.opp;
@@ -3025,7 +3082,7 @@ void dcn10_post_unlock_program_front_end(
 
 	for (i = 0; i < dc->res_pool->pipe_count; i++)
 		if (context->res_ctx.pipe_ctx[i].update_flags.bits.disable)
-			dc->hwss.disable_plane(dc, &dc->current_state->res_ctx.pipe_ctx[i]);
+			dc->hwss.disable_plane(dc, dc->current_state, &dc->current_state->res_ctx.pipe_ctx[i]);
 
 	for (i = 0; i < dc->res_pool->pipe_count; i++)
 		if (context->res_ctx.pipe_ctx[i].update_flags.bits.disable) {
@@ -3149,15 +3206,19 @@ void dcn10_set_drr(struct pipe_ctx **pipe_ctx,
 	 * as well.
 	 */
 	for (i = 0; i < num_pipes; i++) {
-		if ((pipe_ctx[i]->stream_res.tg != NULL) && pipe_ctx[i]->stream_res.tg->funcs) {
-			if (pipe_ctx[i]->stream_res.tg->funcs->set_drr)
-				pipe_ctx[i]->stream_res.tg->funcs->set_drr(
-					pipe_ctx[i]->stream_res.tg, &params);
+		/* dc_state_destruct() might null the stream resources, so fetch tg
+		 * here first to avoid a race condition. The lifetime of the pointee
+		 * itself (the timing_generator object) is not a problem here.
+		 */
+		struct timing_generator *tg = pipe_ctx[i]->stream_res.tg;
+
+		if ((tg != NULL) && tg->funcs) {
+			if (tg->funcs->set_drr)
+				tg->funcs->set_drr(tg, &params);
 			if (adjust.v_total_max != 0 && adjust.v_total_min != 0)
-				if (pipe_ctx[i]->stream_res.tg->funcs->set_static_screen_control)
-					pipe_ctx[i]->stream_res.tg->funcs->set_static_screen_control(
-						pipe_ctx[i]->stream_res.tg,
-						event_triggers, num_frames);
+				if (tg->funcs->set_static_screen_control)
+					tg->funcs->set_static_screen_control(
+						tg, event_triggers, num_frames);
 		}
 	}
 }

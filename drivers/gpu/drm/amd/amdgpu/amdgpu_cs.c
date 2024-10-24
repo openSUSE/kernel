@@ -66,7 +66,7 @@ static int amdgpu_cs_parser_init(struct amdgpu_cs_parser *p,
 
 	amdgpu_sync_create(&p->sync);
 	drm_exec_init(&p->exec, DRM_EXEC_INTERRUPTIBLE_WAIT |
-		      DRM_EXEC_IGNORE_DUPLICATES);
+		      DRM_EXEC_IGNORE_DUPLICATES, 0);
 	return 0;
 }
 
@@ -870,9 +870,9 @@ static int amdgpu_cs_parser_bos(struct amdgpu_cs_parser *p,
 		struct amdgpu_bo *bo = e->bo;
 		int i;
 
-		e->user_pages = kvmalloc_array(bo->tbo.ttm->num_pages,
-					sizeof(struct page *),
-					GFP_KERNEL | __GFP_ZERO);
+		e->user_pages = kvcalloc(bo->tbo.ttm->num_pages,
+					 sizeof(struct page *),
+					 GFP_KERNEL);
 		if (!e->user_pages) {
 			DRM_ERROR("kvmalloc_array failure\n");
 			r = -ENOMEM;
@@ -952,10 +952,10 @@ static int amdgpu_cs_parser_bos(struct amdgpu_cs_parser *p,
 	p->bytes_moved = 0;
 	p->bytes_moved_vis = 0;
 
-	r = amdgpu_vm_validate_pt_bos(p->adev, &fpriv->vm,
-				      amdgpu_cs_bo_validate, p);
+	r = amdgpu_vm_validate(p->adev, &fpriv->vm, NULL,
+			       amdgpu_cs_bo_validate, p);
 	if (r) {
-		DRM_ERROR("amdgpu_vm_validate_pt_bos() failed.\n");
+		DRM_ERROR("amdgpu_vm_validate() failed.\n");
 		goto out_free_user_pages;
 	}
 
@@ -1092,6 +1092,21 @@ static int amdgpu_cs_vm_handling(struct amdgpu_cs_parser *p)
 	struct amdgpu_bo_va *bo_va;
 	unsigned int i;
 	int r;
+
+	/*
+	 * We can't use gang submit on with reserved VMIDs when the VM changes
+	 * can't be invalidated by more than one engine at the same time.
+	 */
+	if (p->gang_size > 1 && !p->adev->vm_manager.concurrent_flush) {
+		for (i = 0; i < p->gang_size; ++i) {
+			struct drm_sched_entity *entity = p->entities[i];
+			struct drm_gpu_scheduler *sched = entity->rq->sched;
+			struct amdgpu_ring *ring = to_amdgpu_ring(sched);
+
+			if (amdgpu_vmid_uses_reserved(vm, ring->vm_hub))
+				return -EINVAL;
+		}
+	}
 
 	r = amdgpu_vm_clear_freed(adev, vm, NULL);
 	if (r)
@@ -1763,7 +1778,7 @@ int amdgpu_cs_find_mapping(struct amdgpu_cs_parser *parser,
 	struct ttm_operation_ctx ctx = { false, false };
 	struct amdgpu_vm *vm = &fpriv->vm;
 	struct amdgpu_bo_va_mapping *mapping;
-	int r;
+	int i, r;
 
 	addr /= AMDGPU_GPU_PAGE_SIZE;
 
@@ -1778,13 +1793,13 @@ int amdgpu_cs_find_mapping(struct amdgpu_cs_parser *parser,
 	if (dma_resv_locking_ctx((*bo)->tbo.base.resv) != &parser->exec.ticket)
 		return -EINVAL;
 
-	if (!((*bo)->flags & AMDGPU_GEM_CREATE_VRAM_CONTIGUOUS)) {
-		(*bo)->flags |= AMDGPU_GEM_CREATE_VRAM_CONTIGUOUS;
-		amdgpu_bo_placement_from_domain(*bo, (*bo)->allowed_domains);
-		r = ttm_bo_validate(&(*bo)->tbo, &(*bo)->placement, &ctx);
-		if (r)
-			return r;
-	}
+	(*bo)->flags |= AMDGPU_GEM_CREATE_VRAM_CONTIGUOUS;
+	amdgpu_bo_placement_from_domain(*bo, (*bo)->allowed_domains);
+	for (i = 0; i < (*bo)->placement.num_placement; i++)
+		(*bo)->placements[i].flags |= TTM_PL_FLAG_CONTIGUOUS;
+	r = ttm_bo_validate(&(*bo)->tbo, &(*bo)->placement, &ctx);
+	if (r)
+		return r;
 
 	return amdgpu_ttm_alloc_gart(&(*bo)->tbo);
 }

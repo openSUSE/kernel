@@ -47,6 +47,11 @@ void iwl_mvm_te_clear_data(struct iwl_mvm *mvm,
 
 static void iwl_mvm_cleanup_roc(struct iwl_mvm *mvm)
 {
+	struct ieee80211_vif *bss_vif = iwl_mvm_get_bss_vif(mvm);
+	struct ieee80211_vif *vif = mvm->p2p_device_vif;
+
+	lockdep_assert_held(&mvm->mutex);
+
 	/*
 	 * Clear the ROC_RUNNING status bit.
 	 * This will cause the TX path to drop offchannel transmissions.
@@ -70,9 +75,7 @@ static void iwl_mvm_cleanup_roc(struct iwl_mvm *mvm)
 		 * not really racy.
 		 */
 
-		if (!WARN_ON(!mvm->p2p_device_vif)) {
-			struct ieee80211_vif *vif = mvm->p2p_device_vif;
-
+		if (!WARN_ON(!vif)) {
 			mvmvif = iwl_mvm_vif_from_mac80211(vif);
 			iwl_mvm_flush_sta(mvm, mvmvif->deflink.bcast_sta.sta_id,
 					  mvmvif->deflink.bcast_sta.tfd_queue_msk);
@@ -104,17 +107,20 @@ static void iwl_mvm_cleanup_roc(struct iwl_mvm *mvm)
 		iwl_mvm_flush_sta(mvm, mvm->aux_sta.sta_id,
 				  mvm->aux_sta.tfd_queue_msk);
 
-		if (mvm->mld_api_is_used) {
-			iwl_mvm_mld_rm_aux_sta(mvm);
-			return;
-		}
-
 		/* In newer version of this command an aux station is added only
 		 * in cases of dedicated tx queue and need to be removed in end
-		 * of use */
-		if (iwl_mvm_has_new_station_api(mvm->fw))
+		 * of use. For the even newer mld api, use the appropriate
+		 * function.
+		 */
+		if (mvm->mld_api_is_used)
+			iwl_mvm_mld_rm_aux_sta(mvm);
+		else if (iwl_mvm_has_new_station_api(mvm->fw))
 			iwl_mvm_rm_aux_sta(mvm);
 	}
+
+	if (!IS_ERR_OR_NULL(bss_vif))
+		iwl_mvm_unblock_esr(mvm, bss_vif, IWL_MVM_ESR_BLOCKED_ROC);
+	mutex_unlock(&mvm->mutex);
 }
 
 void iwl_mvm_roc_done_wk(struct work_struct *wk)
@@ -122,8 +128,8 @@ void iwl_mvm_roc_done_wk(struct work_struct *wk)
 	struct iwl_mvm *mvm = container_of(wk, struct iwl_mvm, roc_done_wk);
 
 	mutex_lock(&mvm->mutex);
+	/* Mutex is released inside */
 	iwl_mvm_cleanup_roc(mvm);
-	mutex_unlock(&mvm->mutex);
 }
 
 static void iwl_mvm_roc_finished(struct iwl_mvm *mvm)
@@ -1220,6 +1226,8 @@ void iwl_mvm_stop_roc(struct iwl_mvm *mvm, struct ieee80211_vif *vif)
 	struct iwl_mvm_vif *mvmvif;
 	struct iwl_mvm_time_event_data *te_data;
 
+	mutex_lock(&mvm->mutex);
+
 	if (fw_has_capa(&mvm->fw->ucode_capa,
 			IWL_UCODE_TLV_CAPA_SESSION_PROT_CMD)) {
 		mvmvif = iwl_mvm_vif_from_mac80211(vif);
@@ -1229,6 +1237,7 @@ void iwl_mvm_stop_roc(struct iwl_mvm *mvm, struct ieee80211_vif *vif)
 			if (te_data->id >= SESSION_PROTECT_CONF_MAX_ID) {
 				IWL_DEBUG_TE(mvm,
 					     "No remain on channel event\n");
+				mutex_unlock(&mvm->mutex);
 				return;
 			}
 
@@ -1244,6 +1253,7 @@ void iwl_mvm_stop_roc(struct iwl_mvm *mvm, struct ieee80211_vif *vif)
 	te_data = iwl_mvm_get_roc_te(mvm);
 	if (!te_data) {
 		IWL_WARN(mvm, "No remain on channel event\n");
+		mutex_unlock(&mvm->mutex);
 		return;
 	}
 
@@ -1263,6 +1273,8 @@ cleanup_roc:
 	set_bit(vif->type == NL80211_IFTYPE_P2P_DEVICE ?
 		IWL_MVM_STATUS_ROC_RUNNING : IWL_MVM_STATUS_ROC_AUX_RUNNING,
 		&mvm->status);
+
+	/* Mutex is released inside this function */
 	iwl_mvm_cleanup_roc(mvm);
 }
 

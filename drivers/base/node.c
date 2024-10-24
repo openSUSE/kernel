@@ -75,14 +75,14 @@ static BIN_ATTR_RO(cpulist, CPULIST_FILE_MAX_BYTES);
  * @dev:	Device for this memory access class
  * @list_node:	List element in the node's access list
  * @access:	The access class rank
- * @hmem_attrs: Heterogeneous memory performance attributes
+ * @coord:	Heterogeneous memory performance coordinates
  */
 struct node_access_nodes {
 	struct device		dev;
 	struct list_head	list_node;
 	unsigned int		access;
 #ifdef CONFIG_HMEM_REPORTING
-	struct node_hmem_attrs	hmem_attrs;
+	struct access_coordinate	coord;
 #endif
 };
 #define to_access_nodes(dev) container_of(dev, struct node_access_nodes, dev)
@@ -162,15 +162,15 @@ free:
 }
 
 #ifdef CONFIG_HMEM_REPORTING
-#define ACCESS_ATTR(name)						\
-static ssize_t name##_show(struct device *dev,				\
+#define ACCESS_ATTR(property)						\
+static ssize_t property##_show(struct device *dev,			\
 			   struct device_attribute *attr,		\
 			   char *buf)					\
 {									\
 	return sysfs_emit(buf, "%u\n",					\
-			  to_access_nodes(dev)->hmem_attrs.name);	\
+			  to_access_nodes(dev)->coord.property);	\
 }									\
-static DEVICE_ATTR_RO(name)
+static DEVICE_ATTR_RO(property)
 
 ACCESS_ATTR(read_bandwidth);
 ACCESS_ATTR(read_latency);
@@ -188,10 +188,10 @@ static struct attribute *access_attrs[] = {
 /**
  * node_set_perf_attrs - Set the performance values for given access class
  * @nid: Node identifier to be set
- * @hmem_attrs: Heterogeneous memory performance attributes
+ * @coord: Heterogeneous memory performance coordinates
  * @access: The access class the for the given attributes
  */
-void node_set_perf_attrs(unsigned int nid, struct node_hmem_attrs *hmem_attrs,
+void node_set_perf_attrs(unsigned int nid, struct access_coordinate *coord,
 			 unsigned int access)
 {
 	struct node_access_nodes *c;
@@ -206,7 +206,7 @@ void node_set_perf_attrs(unsigned int nid, struct node_hmem_attrs *hmem_attrs,
 	if (!c)
 		return;
 
-	c->hmem_attrs = *hmem_attrs;
+	c->coord = *coord;
 	for (i = 0; access_attrs[i] != NULL; i++) {
 		if (sysfs_add_file_to_group(&c->dev.kobj, access_attrs[i],
 					    "initiators")) {
@@ -521,20 +521,20 @@ static ssize_t node_read_vmstat(struct device *dev,
 	int i;
 	int len = 0;
 
-	for (i = 0; i < NR_VM_ZONE_STAT_ITEMS_USED; i++)
+	for (i = 0; i < NR_VM_ZONE_STAT_ITEMS; i++)
 		len += sysfs_emit_at(buf, len, "%s %lu\n",
 				     zone_stat_name(i),
 				     sum_zone_node_page_state(nid, i));
 
 #ifdef CONFIG_NUMA
 	fold_vm_numa_events();
-	for (i = 0; i < NR_VM_NUMA_EVENT_ITEMS_USED; i++)
+	for (i = 0; i < NR_VM_NUMA_EVENT_ITEMS; i++)
 		len += sysfs_emit_at(buf, len, "%s %lu\n",
 				     numa_stat_name(i),
 				     sum_zone_numa_event_state(nid, i));
 
 #endif
-	for (i = 0; i < NR_VM_NODE_STAT_ITEMS_USED; i++) {
+	for (i = 0; i < NR_VM_NODE_STAT_ITEMS; i++) {
 		unsigned long pages = node_page_state_pages(pgdat, i);
 
 		if (vmstat_item_print_in_thp(i))

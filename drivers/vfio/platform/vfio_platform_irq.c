@@ -353,6 +353,8 @@ void vfio_platform_irq_cleanup(struct vfio_platform_device *vdev)
 	int i;
 
 	for (i = 0; i < vdev->num_irqs; i++) {
+		vfio_virqfd_disable(&vdev->irqs[i].mask);
+		vfio_virqfd_disable(&vdev->irqs[i].unmask);
 		if (!IS_ERR(vdev->irqs[i].name)) {
 			free_irq(vdev->irqs[i].hwirq, &vdev->irqs[i]);
 			if (vdev->irqs[i].trigger)

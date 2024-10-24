@@ -13,6 +13,7 @@
 #include <asm/kvm_hyp.h>
 #include <asm/kvm_mmu.h>
 
+#include <nvhe/ffa.h>
 #include <nvhe/mem_protect.h>
 #include <nvhe/mm.h>
 #include <nvhe/pkvm.h>
@@ -356,6 +357,7 @@ static void handle_host_hcall(struct kvm_cpu_context *host_ctxt)
 	if (static_branch_unlikely(&kvm_protected_mode_initialized))
 		hcall_min = __KVM_HOST_SMCCC_FUNC___pkvm_prot_finalize;
 
+	id &= ~ARM_SMCCC_CALL_HINTS;
 	id -= KVM_HOST_SMCCC_ID(0);
 
 	if (unlikely(id < hcall_min || id >= ARRAY_SIZE(host_hcall)))
@@ -380,9 +382,14 @@ static void default_host_smc_handler(struct kvm_cpu_context *host_ctxt)
 
 static void handle_host_smc(struct kvm_cpu_context *host_ctxt)
 {
+	DECLARE_REG(u64, func_id, host_ctxt, 0);
 	bool handled;
 
-	handled = kvm_host_psci_handler(host_ctxt);
+	func_id &= ~ARM_SMCCC_CALL_HINTS;
+
+	handled = kvm_host_psci_handler(host_ctxt, func_id);
+	if (!handled)
+		handled = kvm_host_ffa_handler(host_ctxt, func_id);
 	if (!handled)
 		default_host_smc_handler(host_ctxt);
 

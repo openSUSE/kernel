@@ -7,6 +7,7 @@
 #include <linux/soundwire/sdw.h>
 #include <linux/soundwire/sdw_type.h>
 #include "bus.h"
+#include "irq.h"
 #include "sysfs_local.h"
 
 /**
@@ -71,7 +72,7 @@ int sdw_slave_uevent(const struct device *dev, struct kobj_uevent_env *env)
 	return 0;
 }
 
-struct bus_type sdw_bus_type = {
+const struct bus_type sdw_bus_type = {
 	.name = "soundwire",
 	.match = sdw_bus_match,
 };
@@ -122,8 +123,11 @@ static int sdw_drv_probe(struct device *dev)
 	if (drv->ops && drv->ops->read_prop)
 		drv->ops->read_prop(slave);
 
-	/* init the sysfs as we have properties now */
-	ret = sdw_slave_sysfs_init(slave);
+	if (slave->prop.use_domain_irq)
+		sdw_irq_create_mapping(slave);
+
+	/* init the dynamic sysfs attributes we need */
+	ret = sdw_slave_sysfs_dpn_init(slave);
 	if (ret < 0)
 		dev_warn(dev, "Slave sysfs init failed:%d\n", ret);
 
@@ -166,7 +170,12 @@ static int sdw_drv_remove(struct device *dev)
 	int ret = 0;
 
 	mutex_lock(&slave->sdw_dev_lock);
+
 	slave->probed = false;
+
+	if (slave->prop.use_domain_irq)
+		sdw_irq_dispose_mapping(slave);
+
 	mutex_unlock(&slave->sdw_dev_lock);
 
 	if (drv->remove)
@@ -212,6 +221,7 @@ int __sdw_register_driver(struct sdw_driver *drv, struct module *owner)
 	drv->driver.probe = sdw_drv_probe;
 	drv->driver.remove = sdw_drv_remove;
 	drv->driver.shutdown = sdw_drv_shutdown;
+	drv->driver.dev_groups = sdw_attr_groups;
 
 	return driver_register(&drv->driver);
 }

@@ -83,7 +83,7 @@ def c_len(s: str) -> int:
   """Return the length of s a C string
 
   This doesn't handle all escape characters properly. It first assumes
-  all \ are for escaping, it then adjusts as it will have over counted
+  all \\ are for escaping, it then adjusts as it will have over counted
   \\. The code uses \000 rather than \0 as a terminator as an adjacent
   number would be folded into a string of \0 (ie. "\0" + "5" doesn't
   equal a terminator followed by the number 5 but the escape of
@@ -284,6 +284,7 @@ class JsonEvent:
           'hisi_sccl,hha': 'hisi_sccl,hha',
           'hisi_sccl,l3c': 'hisi_sccl,l3c',
           'imx8_ddr': 'imx8_ddr',
+          'imx9_ddr': 'imx9_ddr',
           'L3PMC': 'amd_l3',
           'DFPMC': 'amd_df',
           'UMCPMC': 'amd_umc',

@@ -27,6 +27,7 @@
 
 #include <linux/types.h>
 
+#include "intel_display_power.h"
 #include "intel_wakeref.h"
 
 #define for_each_shared_dpll(__i915, __pll, __i) \
@@ -270,19 +271,26 @@ struct dpll_info {
 	 */
 	enum intel_dpll_id id;
 
-#define INTEL_DPLL_ALWAYS_ON	(1 << 0)
-#define INTEL_DPLL_IS_ALT_PORT_DPLL	(1 << 1)
 	/**
-	 * @flags:
-	 *
-	 * INTEL_DPLL_ALWAYS_ON
-	 *     Inform the state checker that the DPLL is kept enabled even if
-	 *     not in use by any CRTC.
-	 * INTEL_DPLL_IS_ALT_PORT_DPLL
-	 *     Inform the state checker that the DPLL can be used as a fallback
-	 *     (for TC->TBT fallback).
+	 * @power_domain: extra power domain required by the DPLL
 	 */
-	u32 flags;
+	enum intel_display_power_domain power_domain;
+
+	/**
+	 * @always_on:
+	 *
+	 * Inform the state checker that the DPLL is kept enabled even if
+	 * not in use by any CRTC.
+	 */
+	bool always_on;
+
+	/**
+	 * @is_alt_port_dpll:
+	 *
+	 * Inform the state checker that the DPLL can be used as a fallback
+	 * (for TC->TBT fallback).
+	 */
+	bool is_alt_port_dpll;
 };
 
 /**
@@ -370,6 +378,9 @@ void intel_dpll_sanitize_state(struct drm_i915_private *i915);
 
 void intel_dpll_dump_hw_state(struct drm_i915_private *i915,
 			      const struct intel_dpll_hw_state *hw_state);
+bool intel_dpll_compare_hw_state(struct drm_i915_private *i915,
+				 const struct intel_dpll_hw_state *a,
+				 const struct intel_dpll_hw_state *b);
 enum intel_dpll_id icl_tc_port_to_pll_id(enum tc_port tc_port);
 bool intel_dpll_is_combophy(enum intel_dpll_id id);
 

@@ -42,6 +42,7 @@
 #include "intel_ddi.h"
 #include "intel_ddi_buf_trans.h"
 #include "intel_de.h"
+#include "intel_display_driver.h"
 #include "intel_display_types.h"
 #include "intel_fdi.h"
 #include "intel_fdi_regs.h"
@@ -846,7 +847,10 @@ intel_crt_detect(struct drm_connector *connector,
 	if (!intel_display_device_enabled(dev_priv))
 		return connector_status_disconnected;
 
-	if (dev_priv->params.load_detect_test) {
+	if (!intel_display_driver_check_access(dev_priv))
+		return connector->status;
+
+	if (dev_priv->display.params.load_detect_test) {
 		wakeref = intel_display_power_get(dev_priv,
 						  intel_encoder->power_domain);
 		goto load_detect;
@@ -906,7 +910,7 @@ load_detect:
 		else if (DISPLAY_VER(dev_priv) < 4)
 			status = intel_crt_load_detect(crt,
 				to_intel_crtc(connector->state->crtc)->pipe);
-		else if (dev_priv->params.load_detect_test)
+		else if (dev_priv->display.params.load_detect_test)
 			status = connector_status_disconnected;
 		else
 			status = connector_status_unknown;
@@ -928,6 +932,9 @@ static int intel_crt_get_modes(struct drm_connector *connector)
 	intel_wakeref_t wakeref;
 	struct i2c_adapter *ddc;
 	int ret;
+
+	if (!intel_display_driver_check_access(dev_priv))
+		return drm_edid_connector_add_modes(connector);
 
 	wakeref = intel_display_power_get(dev_priv,
 					  intel_encoder->power_domain);
@@ -1069,6 +1076,7 @@ void intel_crt_init(struct drm_i915_private *dev_priv)
 	} else {
 		intel_connector->polled = DRM_CONNECTOR_POLL_CONNECT;
 	}
+	intel_connector->base.polled = intel_connector->polled;
 
 	if (HAS_DDI(dev_priv)) {
 		assert_port_valid(dev_priv, PORT_E);

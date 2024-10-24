@@ -22,12 +22,12 @@
 */
 
 #include <linux/debugfs.h>
+#include <linux/kstrtox.h>
 
 #include <net/bluetooth/bluetooth.h>
 #include <net/bluetooth/hci_core.h>
 
 #include "smp.h"
-#include "hci_request.h"
 #include "hci_debugfs.h"
 
 #define DEFINE_QUIRK_ATTRIBUTE(__name, __quirk)				      \
@@ -1172,7 +1172,7 @@ static ssize_t force_no_mitm_write(struct file *file,
 		return -EFAULT;
 
 	buf[buf_size] = '\0';
-	if (strtobool(buf, &enable))
+	if (kstrtobool(buf, &enable))
 		return -EINVAL;
 
 	if (enable == hci_dev_test_flag(hdev, HCI_FORCE_NO_MITM))

@@ -712,6 +712,7 @@ static int smu_set_funcs(struct amdgpu_device *adev)
 		smu_v13_0_7_set_ppt_funcs(smu);
 		break;
 	case IP_VERSION(14, 0, 0):
+	case IP_VERSION(14, 0, 1):
 		smu_v14_0_0_set_ppt_funcs(smu);
 		break;
 	default:
@@ -734,7 +735,7 @@ static int smu_early_init(void *handle)
 	smu->adev = adev;
 	smu->pm_enabled = !!amdgpu_dpm;
 	smu->is_apu = false;
-	smu->smu_baco.state = SMU_BACO_STATE_EXIT;
+	smu->smu_baco.state = SMU_BACO_STATE_NONE;
 	smu->smu_baco.platform_support = false;
 	smu->user_dpm_profile.fan_mode = -1;
 
@@ -751,6 +752,7 @@ static int smu_early_init(void *handle)
 
 static int smu_set_default_dpm_table(struct smu_context *smu)
 {
+	struct amdgpu_device *adev = smu->adev;
 	struct smu_power_context *smu_power = &smu->smu_power;
 	struct smu_power_gate *power_gate = &smu_power->power_gate;
 	int vcn_gate, jpeg_gate;
@@ -759,25 +761,34 @@ static int smu_set_default_dpm_table(struct smu_context *smu)
 	if (!smu->ppt_funcs->set_default_dpm_table)
 		return 0;
 
-	vcn_gate = atomic_read(&power_gate->vcn_gated);
-	jpeg_gate = atomic_read(&power_gate->jpeg_gated);
+	if (adev->pg_flags & AMD_PG_SUPPORT_VCN)
+		vcn_gate = atomic_read(&power_gate->vcn_gated);
+	if (adev->pg_flags & AMD_PG_SUPPORT_JPEG)
+		jpeg_gate = atomic_read(&power_gate->jpeg_gated);
 
-	ret = smu_dpm_set_vcn_enable(smu, true);
-	if (ret)
-		return ret;
+	if (adev->pg_flags & AMD_PG_SUPPORT_VCN) {
+		ret = smu_dpm_set_vcn_enable(smu, true);
+		if (ret)
+			return ret;
+	}
 
-	ret = smu_dpm_set_jpeg_enable(smu, true);
-	if (ret)
-		goto err_out;
+	if (adev->pg_flags & AMD_PG_SUPPORT_JPEG) {
+		ret = smu_dpm_set_jpeg_enable(smu, true);
+		if (ret)
+			goto err_out;
+	}
 
 	ret = smu->ppt_funcs->set_default_dpm_table(smu);
 	if (ret)
 		dev_err(smu->adev->dev,
 			"Failed to setup default dpm clock tables!\n");
 
-	smu_dpm_set_jpeg_enable(smu, !jpeg_gate);
+	if (adev->pg_flags & AMD_PG_SUPPORT_JPEG)
+		smu_dpm_set_jpeg_enable(smu, !jpeg_gate);
 err_out:
-	smu_dpm_set_vcn_enable(smu, !vcn_gate);
+	if (adev->pg_flags & AMD_PG_SUPPORT_VCN)
+		smu_dpm_set_vcn_enable(smu, !vcn_gate);
+
 	return ret;
 }
 
@@ -1315,6 +1326,187 @@ static int smu_get_thermal_temperature_range(struct smu_context *smu)
 	return ret;
 }
 
+/**
+ * smu_wbrf_handle_exclusion_ranges - consume the wbrf exclusion ranges
+ *
+ * @smu: smu_context pointer
+ *
+ * Retrieve the wbrf exclusion ranges and send them to PMFW for proper handling.
+ * Returns 0 on success, error on failure.
+ */
+static int smu_wbrf_handle_exclusion_ranges(struct smu_context *smu)
+{
+	struct wbrf_ranges_in_out wbrf_exclusion = {0};
+	struct freq_band_range *wifi_bands = wbrf_exclusion.band_list;
+	struct amdgpu_device *adev = smu->adev;
+	uint32_t num_of_wbrf_ranges = MAX_NUM_OF_WBRF_RANGES;
+	uint64_t start, end;
+	int ret, i, j;
+
+	ret = amd_wbrf_retrieve_freq_band(adev->dev, &wbrf_exclusion);
+	if (ret) {
+		dev_err(adev->dev, "Failed to retrieve exclusion ranges!\n");
+		return ret;
+	}
+
+	/*
+	 * The exclusion ranges array we got might be filled with holes and duplicate
+	 * entries. For example:
+	 * {(2400, 2500), (0, 0), (6882, 6962), (2400, 2500), (0, 0), (6117, 6189), (0, 0)...}
+	 * We need to do some sortups to eliminate those holes and duplicate entries.
+	 * Expected output: {(2400, 2500), (6117, 6189), (6882, 6962), (0, 0)...}
+	 */
+	for (i = 0; i < num_of_wbrf_ranges; i++) {
+		start = wifi_bands[i].start;
+		end = wifi_bands[i].end;
+
+		/* get the last valid entry to fill the intermediate hole */
+		if (!start && !end) {
+			for (j = num_of_wbrf_ranges - 1; j > i; j--)
+				if (wifi_bands[j].start && wifi_bands[j].end)
+					break;
+
+			/* no valid entry left */
+			if (j <= i)
+				break;
+
+			start = wifi_bands[i].start = wifi_bands[j].start;
+			end = wifi_bands[i].end = wifi_bands[j].end;
+			wifi_bands[j].start = 0;
+			wifi_bands[j].end = 0;
+			num_of_wbrf_ranges = j;
+		}
+
+		/* eliminate duplicate entries */
+		for (j = i + 1; j < num_of_wbrf_ranges; j++) {
+			if ((wifi_bands[j].start == start) && (wifi_bands[j].end == end)) {
+				wifi_bands[j].start = 0;
+				wifi_bands[j].end = 0;
+			}
+		}
+	}
+
+	/* Send the sorted wifi_bands to PMFW */
+	ret = smu_set_wbrf_exclusion_ranges(smu, wifi_bands);
+	/* Try to set the wifi_bands again */
+	if (unlikely(ret == -EBUSY)) {
+		mdelay(5);
+		ret = smu_set_wbrf_exclusion_ranges(smu, wifi_bands);
+	}
+
+	return ret;
+}
+
+/**
+ * smu_wbrf_event_handler - handle notify events
+ *
+ * @nb: notifier block
+ * @action: event type
+ * @_arg: event data
+ *
+ * Calls relevant amdgpu function in response to wbrf event
+ * notification from kernel.
+ */
+static int smu_wbrf_event_handler(struct notifier_block *nb,
+				  unsigned long action, void *_arg)
+{
+	struct smu_context *smu = container_of(nb, struct smu_context, wbrf_notifier);
+
+	switch (action) {
+	case WBRF_CHANGED:
+		schedule_delayed_work(&smu->wbrf_delayed_work,
+				      msecs_to_jiffies(SMU_WBRF_EVENT_HANDLING_PACE));
+		break;
+	default:
+		return NOTIFY_DONE;
+	}
+
+	return NOTIFY_OK;
+}
+
+/**
+ * smu_wbrf_delayed_work_handler - callback on delayed work timer expired
+ *
+ * @work: struct work_struct pointer
+ *
+ * Flood is over and driver will consume the latest exclusion ranges.
+ */
+static void smu_wbrf_delayed_work_handler(struct work_struct *work)
+{
+	struct smu_context *smu = container_of(work, struct smu_context, wbrf_delayed_work.work);
+
+	smu_wbrf_handle_exclusion_ranges(smu);
+}
+
+/**
+ * smu_wbrf_support_check - check wbrf support
+ *
+ * @smu: smu_context pointer
+ *
+ * Verifies the ACPI interface whether wbrf is supported.
+ */
+static void smu_wbrf_support_check(struct smu_context *smu)
+{
+	struct amdgpu_device *adev = smu->adev;
+
+	smu->wbrf_supported = smu_is_asic_wbrf_supported(smu) && amdgpu_wbrf &&
+							acpi_amd_wbrf_supported_consumer(adev->dev);
+
+	if (smu->wbrf_supported)
+		dev_info(adev->dev, "RF interference mitigation is supported\n");
+}
+
+/**
+ * smu_wbrf_init - init driver wbrf support
+ *
+ * @smu: smu_context pointer
+ *
+ * Verifies the AMD ACPI interfaces and registers with the wbrf
+ * notifier chain if wbrf feature is supported.
+ * Returns 0 on success, error on failure.
+ */
+static int smu_wbrf_init(struct smu_context *smu)
+{
+	int ret;
+
+	if (!smu->wbrf_supported)
+		return 0;
+
+	INIT_DELAYED_WORK(&smu->wbrf_delayed_work, smu_wbrf_delayed_work_handler);
+
+	smu->wbrf_notifier.notifier_call = smu_wbrf_event_handler;
+	ret = amd_wbrf_register_notifier(&smu->wbrf_notifier);
+	if (ret)
+		return ret;
+
+	/*
+	 * Some wifiband exclusion ranges may be already there
+	 * before our driver loaded. To make sure our driver
+	 * is awared of those exclusion ranges.
+	 */
+	schedule_delayed_work(&smu->wbrf_delayed_work,
+			      msecs_to_jiffies(SMU_WBRF_EVENT_HANDLING_PACE));
+
+	return 0;
+}
+
+/**
+ * smu_wbrf_fini - tear down driver wbrf support
+ *
+ * @smu: smu_context pointer
+ *
+ * Unregisters with the wbrf notifier chain.
+ */
+static void smu_wbrf_fini(struct smu_context *smu)
+{
+	if (!smu->wbrf_supported)
+		return;
+
+	amd_wbrf_unregister_notifier(&smu->wbrf_notifier);
+
+	cancel_delayed_work_sync(&smu->wbrf_delayed_work);
+}
+
 static int smu_smc_hw_setup(struct smu_context *smu)
 {
 	struct smu_feature *feature = &smu->smu_feature;
@@ -1406,6 +1598,15 @@ static int smu_smc_hw_setup(struct smu_context *smu)
 	ret = smu_run_btc(smu);
 	if (ret)
 		return ret;
+
+	/* Enable UclkShadow on wbrf supported */
+	if (smu->wbrf_supported) {
+		ret = smu_enable_uclk_shadow(smu, true);
+		if (ret) {
+			dev_err(adev->dev, "Failed to enable UclkShadow feature to support wbrf!\n");
+			return ret;
+		}
+	}
 
 	/*
 	 * With SCPM enabled, these actions(and relevant messages) are
@@ -1505,6 +1706,15 @@ static int smu_smc_hw_setup(struct smu_context *smu)
 	 */
 	ret = smu_set_min_dcef_deep_sleep(smu,
 					  smu->smu_table.boot_values.dcefclk / 100);
+	if (ret) {
+		dev_err(adev->dev, "Error setting min deepsleep dcefclk\n");
+		return ret;
+	}
+
+	/* Init wbrf support. Properly setup the notifier */
+	ret = smu_wbrf_init(smu);
+	if (ret)
+		dev_err(adev->dev, "Error during wbrf init call\n");
 
 	return ret;
 }
@@ -1559,6 +1769,13 @@ static int smu_hw_init(void *handle)
 		dev_err(adev->dev, "SMC engine is not correctly up!\n");
 		return ret;
 	}
+
+	/*
+	 * Check whether wbrf is supported. This needs to be done
+	 * before SMU setup starts since part of SMU configuration
+	 * relies on this.
+	 */
+	smu_wbrf_support_check(smu);
 
 	if (smu->is_apu) {
 		ret = smu_set_gfx_imu_enable(smu);
@@ -1679,6 +1896,7 @@ static int smu_disable_dpms(struct smu_context *smu)
 		case IP_VERSION(13, 0, 4):
 		case IP_VERSION(13, 0, 11):
 		case IP_VERSION(14, 0, 0):
+		case IP_VERSION(14, 0, 1):
 			return 0;
 		default:
 			break;
@@ -1726,6 +1944,8 @@ static int smu_smc_hw_cleanup(struct smu_context *smu)
 	struct amdgpu_device *adev = smu->adev;
 	int ret = 0;
 
+	smu_wbrf_fini(smu);
+
 	cancel_work_sync(&smu->throttling_logging_work);
 	cancel_work_sync(&smu->interrupt_work);
 
@@ -1746,10 +1966,25 @@ static int smu_smc_hw_cleanup(struct smu_context *smu)
 	return 0;
 }
 
+static int smu_reset_mp1_state(struct smu_context *smu)
+{
+	struct amdgpu_device *adev = smu->adev;
+	int ret = 0;
+
+	if ((!adev->in_runpm) && (!adev->in_suspend) &&
+		(!amdgpu_in_reset(adev)) && amdgpu_ip_version(adev, MP1_HWIP, 0) ==
+									IP_VERSION(13, 0, 10) &&
+		!amdgpu_device_has_display_hardware(adev))
+		ret = smu_set_mp1_state(smu, PP_MP1_STATE_UNLOAD);
+
+	return ret;
+}
+
 static int smu_hw_fini(void *handle)
 {
 	struct amdgpu_device *adev = (struct amdgpu_device *)handle;
 	struct smu_context *smu = adev->powerplay.pp_handle;
+	int ret;
 
 	if (amdgpu_sriov_vf(adev) && !amdgpu_sriov_is_pp_one_vf(adev))
 		return 0;
@@ -1767,7 +2002,15 @@ static int smu_hw_fini(void *handle)
 
 	adev->pm.dpm_enabled = false;
 
-	return smu_smc_hw_cleanup(smu);
+	ret = smu_smc_hw_cleanup(smu);
+	if (ret)
+		return ret;
+
+	ret = smu_reset_mp1_state(smu);
+	if (ret)
+		return ret;
+
+	return 0;
 }
 
 static void smu_late_fini(void *handle)
@@ -1953,8 +2196,9 @@ static int smu_bump_power_profile_mode(struct smu_context *smu,
 }
 
 static int smu_adjust_power_state_dynamic(struct smu_context *smu,
-				   enum amd_dpm_forced_level level,
-				   bool skip_display_settings)
+					  enum amd_dpm_forced_level level,
+					  bool skip_display_settings,
+					  bool force_update)
 {
 	int ret = 0;
 	int index = 0;
@@ -1983,7 +2227,7 @@ static int smu_adjust_power_state_dynamic(struct smu_context *smu,
 		}
 	}
 
-	if (smu_dpm_ctx->dpm_level != level) {
+	if (force_update || smu_dpm_ctx->dpm_level != level) {
 		ret = smu_asic_set_performance_level(smu, level);
 		if (ret) {
 			dev_err(smu->adev->dev, "Failed to set performance level!");
@@ -2000,7 +2244,7 @@ static int smu_adjust_power_state_dynamic(struct smu_context *smu,
 		index = index > 0 && index <= WORKLOAD_POLICY_MAX ? index - 1 : 0;
 		workload[0] = smu->workload_setting[index];
 
-		if (smu->power_profile_mode != workload[0])
+		if (force_update || smu->power_profile_mode != workload[0])
 			smu_bump_power_profile_mode(smu, workload, 0);
 	}
 
@@ -2021,11 +2265,13 @@ static int smu_handle_task(struct smu_context *smu,
 		ret = smu_pre_display_config_changed(smu);
 		if (ret)
 			return ret;
-		ret = smu_adjust_power_state_dynamic(smu, level, false);
+		ret = smu_adjust_power_state_dynamic(smu, level, false, false);
 		break;
 	case AMD_PP_TASK_COMPLETE_INIT:
+		ret = smu_adjust_power_state_dynamic(smu, level, true, true);
+		break;
 	case AMD_PP_TASK_READJUST_POWER_STATE:
-		ret = smu_adjust_power_state_dynamic(smu, level, true);
+		ret = smu_adjust_power_state_dynamic(smu, level, true, false);
 		break;
 	default:
 		break;
@@ -2980,19 +3226,17 @@ static int smu_set_xgmi_pstate(void *handle,
 	return ret;
 }
 
-static int smu_get_baco_capability(void *handle, bool *cap)
+static bool smu_get_baco_capability(void *handle)
 {
 	struct smu_context *smu = handle;
 
-	*cap = false;
-
 	if (!smu->pm_enabled)
-		return 0;
+		return false;
 
-	if (smu->ppt_funcs && smu->ppt_funcs->baco_is_support)
-		*cap = smu->ppt_funcs->baco_is_support(smu);
+	if (!smu->ppt_funcs || !smu->ppt_funcs->baco_is_support)
+		return false;
 
-	return 0;
+	return smu->ppt_funcs->baco_is_support(smu);
 }
 
 static int smu_baco_set_state(void *handle, int state)
@@ -3166,6 +3410,20 @@ static ssize_t smu_sys_get_gpu_metrics(void *handle, void **table)
 	return smu->ppt_funcs->get_gpu_metrics(smu, table);
 }
 
+static ssize_t smu_sys_get_pm_metrics(void *handle, void *pm_metrics,
+				      size_t size)
+{
+	struct smu_context *smu = handle;
+
+	if (!smu->pm_enabled || !smu->adev->pm.dpm_enabled)
+		return -EOPNOTSUPP;
+
+	if (!smu->ppt_funcs->get_pm_metrics)
+		return -EOPNOTSUPP;
+
+	return smu->ppt_funcs->get_pm_metrics(smu, pm_metrics, size);
+}
+
 static int smu_enable_mgpu_fan_boost(void *handle)
 {
 	struct smu_context *smu = handle;
@@ -3307,6 +3565,7 @@ static const struct amd_pm_funcs swsmu_pm_funcs = {
 	.set_df_cstate                    = smu_set_df_cstate,
 	.set_xgmi_pstate                  = smu_set_xgmi_pstate,
 	.get_gpu_metrics                  = smu_sys_get_gpu_metrics,
+	.get_pm_metrics                   = smu_sys_get_pm_metrics,
 	.set_watermarks_for_clock_ranges     = smu_set_watermarks_for_clock_ranges,
 	.display_disable_memory_clock_switch = smu_display_disable_memory_clock_switch,
 	.get_max_sustainable_clocks_by_dc    = smu_get_max_sustainable_clocks_by_dc,
@@ -3445,6 +3704,16 @@ int smu_send_hbm_bad_channel_flag(struct smu_context *smu, uint32_t size)
 
 	if (smu->ppt_funcs && smu->ppt_funcs->send_hbm_bad_channel_flag)
 		ret = smu->ppt_funcs->send_hbm_bad_channel_flag(smu, size);
+
+	return ret;
+}
+
+int smu_send_rma_reason(struct smu_context *smu)
+{
+	int ret = 0;
+
+	if (smu->ppt_funcs && smu->ppt_funcs->send_rma_reason)
+		ret = smu->ppt_funcs->send_rma_reason(smu);
 
 	return ret;
 }

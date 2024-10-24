@@ -28,6 +28,7 @@
 #include "kfd_priv.h"
 #include "kfd_kernel_queue.h"
 #include "amdgpu_amdkfd.h"
+#include "amdgpu_reset.h"
 
 static inline struct process_queue_node *get_queue_by_qid(
 			struct process_queue_manager *pqm, unsigned int qid)
@@ -87,14 +88,19 @@ void kfd_process_dequeue_from_device(struct kfd_process_device *pdd)
 		return;
 
 	dev->dqm->ops.process_termination(dev->dqm, &pdd->qpd);
-	if (dev->kfd->shared_resources.enable_mes)
-		amdgpu_mes_flush_shader_debugger(dev->adev, pdd->proc_ctx_gpu_addr);
+	if (dev->kfd->shared_resources.enable_mes &&
+	    down_read_trylock(&dev->adev->reset_domain->sem)) {
+		amdgpu_mes_flush_shader_debugger(dev->adev,
+						 pdd->proc_ctx_gpu_addr);
+		up_read(&dev->adev->reset_domain->sem);
+	}
 	pdd->already_dequeued = true;
 }
 
 int pqm_set_gws(struct process_queue_manager *pqm, unsigned int qid,
 			void *gws)
 {
+	struct mqd_update_info minfo = {0};
 	struct kfd_node *dev = NULL;
 	struct process_queue_node *pqn;
 	struct kfd_process_device *pdd;
@@ -146,9 +152,10 @@ int pqm_set_gws(struct process_queue_manager *pqm, unsigned int qid,
 	}
 
 	pdd->qpd.num_gws = gws ? dev->adev->gds.gws_size : 0;
+	minfo.update_flag = gws ? UPDATE_FLAG_IS_GWS : 0;
 
 	return pqn->q->device->dqm->ops.update_queue(pqn->q->device->dqm,
-							pqn->q, NULL);
+							pqn->q, &minfo);
 }
 
 void kfd_process_dequeue_from_all_devices(struct kfd_process *p)

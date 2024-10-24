@@ -13,6 +13,8 @@
 #include <sound/intel-nhlt.h>
 #include <sound/soc-acpi.h>
 
+#include <acpi/nhlt.h>
+
 static int dsp_driver;
 
 module_param(dsp_driver, int, 0444);
@@ -541,6 +543,15 @@ static const struct config_entry config_table[] = {
 		.device = PCI_DEVICE_ID_INTEL_HDA_LNL_P,
 	},
 #endif
+
+	/* Panther Lake */
+#if IS_ENABLED(CONFIG_SND_SOC_SOF_PANTHERLAKE)
+	{
+		.flags = FLAG_SOF | FLAG_SOF_ONLY_IF_DMIC_OR_SOUNDWIRE,
+		.device = PCI_DEVICE_ID_INTEL_HDA_PTL,
+	},
+#endif
+
 };
 
 static const struct config_entry *snd_intel_dsp_find_config
@@ -593,15 +604,15 @@ static const struct config_entry *snd_intel_dsp_find_config
 
 static int snd_intel_dsp_check_dmic(struct pci_dev *pci)
 {
-	struct nhlt_acpi_table *nhlt;
 	int ret = 0;
 
-	nhlt = intel_nhlt_init(&pci->dev);
-	if (nhlt) {
-		if (intel_nhlt_has_endpoint_type(nhlt, NHLT_LINK_DMIC))
-			ret = 1;
-		intel_nhlt_free(nhlt);
-	}
+	acpi_nhlt_get_gbl_table();
+
+	if (acpi_nhlt_find_endpoint(ACPI_NHLT_LINKTYPE_PDM, -1, -1, -1))
+		ret = 1;
+
+	acpi_nhlt_put_gbl_table();
+
 	return ret;
 }
 

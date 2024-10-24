@@ -638,7 +638,7 @@ int iwl_uefi_get_mcc(struct iwl_fw_runtime *fwrt, char *mcc)
 		goto out;
 	}
 
-	if (data->mcc != UEFI_MCC_CHINA) {
+	if (data->mcc != BIOS_MCC_CHINA) {
 		ret = -EINVAL;
 		IWL_DEBUG_RADIO(fwrt, "UEFI WRDD is supported only for CN\n");
 		goto out;
@@ -669,6 +669,29 @@ int iwl_uefi_get_eckv(struct iwl_fw_runtime *fwrt, u32 *extl_clk)
 		goto out;
 	}
 	*extl_clk = data->ext_clock_valid;
+out:
+	kfree(data);
+	return ret;
+}
+
+int iwl_uefi_get_wbem(struct iwl_fw_runtime *fwrt, u32 *value)
+{
+	struct uefi_cnv_wlan_wbem_data *data;
+	int ret = 0;
+
+	data = iwl_uefi_get_verified_variable(fwrt->trans, IWL_UEFI_WBEM_NAME,
+					      "WBEM", sizeof(*data), NULL);
+	if (IS_ERR(data))
+		return -EINVAL;
+
+	if (data->revision != IWL_UEFI_WBEM_REVISION) {
+		ret = -EINVAL;
+		IWL_DEBUG_RADIO(fwrt, "Unsupported UEFI WBEM revision:%d\n",
+				data->revision);
+		goto out;
+	}
+	*value = data->wbem_320mhz_per_mcc & IWL_UEFI_WBEM_REV0_MASK;
+	IWL_DEBUG_RADIO(fwrt, "Loaded WBEM config from UEFI\n");
 out:
 	kfree(data);
 	return ret;

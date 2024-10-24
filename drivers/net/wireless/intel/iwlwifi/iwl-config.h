@@ -420,6 +420,7 @@ struct iwl_cfg {
 #define IWL_CFG_MAC_TYPE_SC		0x48
 #define IWL_CFG_MAC_TYPE_SC2		0x49
 #define IWL_CFG_MAC_TYPE_SC2F		0x4A
+#define IWL_CFG_MAC_TYPE_BZ_W		0x4B
 
 #define IWL_CFG_RF_TYPE_TH		0x105
 #define IWL_CFG_RF_TYPE_TH1		0x108
@@ -428,8 +429,6 @@ struct iwl_cfg {
 #define IWL_CFG_RF_TYPE_HR2		0x10A
 #define IWL_CFG_RF_TYPE_HR1		0x10C
 #define IWL_CFG_RF_TYPE_GF		0x10D
-#define IWL_CFG_RF_TYPE_MR		0x110
-#define IWL_CFG_RF_TYPE_MS		0x111
 #define IWL_CFG_RF_TYPE_FM		0x112
 #define IWL_CFG_RF_TYPE_WH		0x113
 
@@ -492,6 +491,7 @@ extern const struct iwl_cfg_trans_params iwl_so_long_latency_trans_cfg;
 extern const struct iwl_cfg_trans_params iwl_so_long_latency_imr_trans_cfg;
 extern const struct iwl_cfg_trans_params iwl_ma_trans_cfg;
 extern const struct iwl_cfg_trans_params iwl_bz_trans_cfg;
+extern const struct iwl_cfg_trans_params iwl_gl_trans_cfg;
 extern const struct iwl_cfg_trans_params iwl_sc_trans_cfg;
 extern const char iwl9162_name[];
 extern const char iwl9260_name[];
@@ -531,6 +531,8 @@ extern const char iwl_ax221_name[];
 extern const char iwl_ax231_name[];
 extern const char iwl_ax411_name[];
 extern const char iwl_bz_name[];
+extern const char iwl_fm_name[];
+extern const char iwl_gl_name[];
 extern const char iwl_mtp_name[];
 extern const char iwl_sc_name[];
 extern const char iwl_sc2_name[];

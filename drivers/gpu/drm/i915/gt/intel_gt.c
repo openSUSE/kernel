@@ -451,7 +451,7 @@ void intel_gt_flush_ggtt_writes(struct intel_gt *gt)
 
 		spin_lock_irqsave(&uncore->lock, flags);
 		intel_uncore_posting_read_fw(uncore,
-					     RING_HEAD(RENDER_RING_BASE));
+					     RING_TAIL(RENDER_RING_BASE));
 		spin_unlock_irqrestore(&uncore->lock, flags);
 	}
 }
@@ -1022,6 +1022,12 @@ enum i915_map_type intel_gt_coherent_map_type(struct intel_gt *gt,
 		return I915_MAP_WB;
 	else
 		return I915_MAP_WC;
+}
+
+bool intel_gt_needs_wa_16018031267(struct intel_gt *gt)
+{
+	/* Wa_16018031267, Wa_16018063123 */
+	return IS_GFX_GT_IP_RANGE(gt, IP_VER(12, 55), IP_VER(12, 71));
 }
 
 bool intel_gt_needs_wa_22016122933(struct intel_gt *gt)

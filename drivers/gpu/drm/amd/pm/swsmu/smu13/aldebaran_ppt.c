@@ -1530,7 +1530,6 @@ static int aldebaran_i2c_control_init(struct smu_context *smu)
 	smu_i2c->port = 0;
 	mutex_init(&smu_i2c->mutex);
 	control->owner = THIS_MODULE;
-	control->class = I2C_CLASS_SPD;
 	control->dev.parent = &adev->pdev->dev;
 	control->algo = &aldebaran_i2c_algo;
 	snprintf(control->name, sizeof(control->name), "AMDGPU SMU 0");
@@ -1747,10 +1746,12 @@ static ssize_t aldebaran_get_gpu_metrics(struct smu_context *smu,
 
 	gpu_metrics->current_fan_speed = 0;
 
-	gpu_metrics->pcie_link_width =
-		smu_v13_0_get_current_pcie_link_width(smu);
-	gpu_metrics->pcie_link_speed =
-		aldebaran_get_current_pcie_link_speed(smu);
+	if (!amdgpu_sriov_vf(smu->adev)) {
+		gpu_metrics->pcie_link_width =
+			smu_v13_0_get_current_pcie_link_width(smu);
+		gpu_metrics->pcie_link_speed =
+			aldebaran_get_current_pcie_link_speed(smu);
+	}
 
 	gpu_metrics->system_clock_counter = ktime_get_boottime_ns();
 
@@ -1881,7 +1882,8 @@ static int aldebaran_mode2_reset(struct smu_context *smu)
 
 	index = smu_cmn_to_asic_specific_index(smu, CMN2ASIC_MAPPING_MSG,
 						SMU_MSG_GfxDeviceDriverReset);
-
+	if (index < 0 )
+		return -EINVAL;
 	mutex_lock(&smu->message_lock);
 	if (smu->smc_fw_version >= 0x00441400) {
 		ret = smu_cmn_send_msg_without_waiting(smu, (uint16_t)index, SMU_RESET_MODE_2);

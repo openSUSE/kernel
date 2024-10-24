@@ -78,6 +78,7 @@ Code  Seq#    Include File                                           Comments
 0x03  all    linux/hdreg.h
 0x04  D2-DC  linux/umsdos_fs.h                                       Dead since 2.6.11, but don't reuse these.
 0x06  all    linux/lp.h
+0x07  9F-D0  linux/vmw_vmci_defs.h, uapi/linux/vm_sockets.h
 0x09  all    linux/raid/md_u.h
 0x10  00-0F  drivers/char/s390/vmcp.h
 0x10  10-1F  arch/s390/include/uapi/sclp_ctl.h
@@ -128,7 +129,6 @@ Code  Seq#    Include File                                           Comments
 'F'   all    linux/fb.h                                              conflict!
 'F'   01-02  drivers/scsi/pmcraid.h                                  conflict!
 'F'   20     drivers/video/fsl-diu-fb.h                              conflict!
-'F'   20     drivers/video/intelfb/intelfb.h                         conflict!
 'F'   20     linux/ivtvfb.h                                          conflict!
 'F'   20     linux/matroxfb.h                                        conflict!
 'F'   20     drivers/video/aty/atyfb_base.c                          conflict!

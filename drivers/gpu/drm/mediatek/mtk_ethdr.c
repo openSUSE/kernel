@@ -361,10 +361,9 @@ static int mtk_ethdr_probe(struct platform_device *pdev)
 	return ret;
 }
 
-static int mtk_ethdr_remove(struct platform_device *pdev)
+static void mtk_ethdr_remove(struct platform_device *pdev)
 {
 	component_del(&pdev->dev, &mtk_ethdr_component_ops);
-	return 0;
 }
 
 static const struct of_device_id mtk_ethdr_driver_dt_match[] = {
@@ -376,7 +375,7 @@ MODULE_DEVICE_TABLE(of, mtk_ethdr_driver_dt_match);
 
 struct platform_driver mtk_ethdr_driver = {
 	.probe		= mtk_ethdr_probe,
-	.remove		= mtk_ethdr_remove,
+	.remove_new	= mtk_ethdr_remove,
 	.driver		= {
 		.name	= "mediatek-disp-ethdr",
 		.owner	= THIS_MODULE,

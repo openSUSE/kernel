@@ -63,8 +63,10 @@ static const struct file_operations kfd_fops = {
 };
 
 static int kfd_char_dev_major = -1;
-static struct class *kfd_class;
 struct device *kfd_device;
+static const struct class kfd_class = {
+	.name = kfd_dev_name,
+};
 
 static inline struct kfd_process_device *kfd_lock_pdd_by_id(struct kfd_process *p, __u32 gpu_id)
 {
@@ -94,14 +96,13 @@ int kfd_chardev_init(void)
 	if (err < 0)
 		goto err_register_chrdev;
 
-	kfd_class = class_create(kfd_dev_name);
-	err = PTR_ERR(kfd_class);
-	if (IS_ERR(kfd_class))
+	err = class_register(&kfd_class);
+	if (err)
 		goto err_class_create;
 
-	kfd_device = device_create(kfd_class, NULL,
-					MKDEV(kfd_char_dev_major, 0),
-					NULL, kfd_dev_name);
+	kfd_device = device_create(&kfd_class, NULL,
+				   MKDEV(kfd_char_dev_major, 0),
+				   NULL, kfd_dev_name);
 	err = PTR_ERR(kfd_device);
 	if (IS_ERR(kfd_device))
 		goto err_device_create;
@@ -109,7 +110,7 @@ int kfd_chardev_init(void)
 	return 0;
 
 err_device_create:
-	class_destroy(kfd_class);
+	class_unregister(&kfd_class);
 err_class_create:
 	unregister_chrdev(kfd_char_dev_major, kfd_dev_name);
 err_register_chrdev:
@@ -118,8 +119,8 @@ err_register_chrdev:
 
 void kfd_chardev_exit(void)
 {
-	device_destroy(kfd_class, MKDEV(kfd_char_dev_major, 0));
-	class_destroy(kfd_class);
+	device_destroy(&kfd_class, MKDEV(kfd_char_dev_major, 0));
+	class_unregister(&kfd_class);
 	unregister_chrdev(kfd_char_dev_major, kfd_dev_name);
 	kfd_device = NULL;
 }
@@ -371,7 +372,7 @@ static int kfd_ioctl_create_queue(struct file *filep, struct kfd_process *p,
 			goto err_wptr_map_gart;
 		}
 
-		err = amdgpu_amdkfd_map_gtt_bo_to_gart(dev->adev, wptr_bo);
+		err = amdgpu_amdkfd_map_gtt_bo_to_gart(wptr_bo);
 		if (err) {
 			pr_err("Failed to map wptr bo to GART\n");
 			goto err_wptr_map_gart;
@@ -1566,15 +1567,10 @@ static int kfd_ioctl_import_dmabuf(struct file *filep,
 {
 	struct kfd_ioctl_import_dmabuf_args *args = data;
 	struct kfd_process_device *pdd;
-	struct dma_buf *dmabuf;
 	int idr_handle;
 	uint64_t size;
 	void *mem;
 	int r;
-
-	dmabuf = dma_buf_get(args->dmabuf_fd);
-	if (IS_ERR(dmabuf))
-		return PTR_ERR(dmabuf);
 
 	mutex_lock(&p->mutex);
 	pdd = kfd_process_device_data_by_id(p, args->gpu_id);
@@ -1589,10 +1585,10 @@ static int kfd_ioctl_import_dmabuf(struct file *filep,
 		goto err_unlock;
 	}
 
-	r = amdgpu_amdkfd_gpuvm_import_dmabuf(pdd->dev->adev, dmabuf,
-					      args->va_addr, pdd->drm_priv,
-					      (struct kgd_mem **)&mem, &size,
-					      NULL);
+	r = amdgpu_amdkfd_gpuvm_import_dmabuf_fd(pdd->dev->adev, args->dmabuf_fd,
+						 args->va_addr, pdd->drm_priv,
+						 (struct kgd_mem **)&mem, &size,
+						 NULL);
 	if (r)
 		goto err_unlock;
 
@@ -1603,7 +1599,6 @@ static int kfd_ioctl_import_dmabuf(struct file *filep,
 	}
 
 	mutex_unlock(&p->mutex);
-	dma_buf_put(dmabuf);
 
 	args->handle = MAKE_HANDLE(args->gpu_id, idr_handle);
 
@@ -1614,7 +1609,6 @@ err_free:
 					       pdd->drm_priv, NULL);
 err_unlock:
 	mutex_unlock(&p->mutex);
-	dma_buf_put(dmabuf);
 	return r;
 }
 
@@ -1857,8 +1851,8 @@ static uint32_t get_process_num_bos(struct kfd_process *p)
 	return num_of_bos;
 }
 
-static int criu_get_prime_handle(struct kgd_mem *mem, int flags,
-				      u32 *shared_fd)
+static int criu_get_prime_handle(struct kgd_mem *mem,
+				 int flags, u32 *shared_fd)
 {
 	struct dma_buf *dmabuf;
 	int ret;
@@ -2942,6 +2936,7 @@ static int kfd_ioctl_set_debug_trap(struct file *filep, struct kfd_process *p, v
 	if (IS_ERR_OR_NULL(target)) {
 		pr_debug("Cannot find process PID %i to debug\n", args->pid);
 		r = target ? PTR_ERR(target) : -ESRCH;
+		target = NULL;
 		goto out;
 	}
 

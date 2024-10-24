@@ -121,7 +121,7 @@ static int __i915_vma_active(struct i915_active *ref)
 		 * there is no other good place for that.  Hence,
 		 * use untracked variants of intel_gt_pm_get/put().
 		 */
-		intel_gt_pm_get(vma->vm->gt);
+		intel_gt_pm_get_untracked(vma->vm->gt);
 	}
 
 	return 0;
@@ -136,7 +136,7 @@ static void __i915_vma_retire(struct i915_active *ref)
 		 * Since we can be called from atomic contexts,
 		 * use an async variant of intel_gt_pm_put().
 		 */
-		intel_gt_pm_put_async(vma->vm->gt);
+		intel_gt_pm_put_async_untracked(vma->vm->gt);
 	}
 
 	i915_vma_put(vma);

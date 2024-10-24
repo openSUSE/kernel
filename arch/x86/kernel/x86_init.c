@@ -7,6 +7,7 @@
 #include <linux/ioport.h>
 #include <linux/export.h>
 #include <linux/pci.h>
+#include <linux/acpi.h>
 
 #include <asm/acpi.h>
 #include <asm/bios_ebda.h>

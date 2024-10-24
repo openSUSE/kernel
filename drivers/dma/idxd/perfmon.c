@@ -245,12 +245,11 @@ static void perfmon_pmu_event_update(struct perf_event *event)
 	int shift = 64 - idxd->idxd_pmu->counter_width;
 	struct hw_perf_event *hwc = &event->hw;
 
+	prev_raw_count = local64_read(&hwc->prev_count);
 	do {
-		prev_raw_count = local64_read(&hwc->prev_count);
 		new_raw_count = perfmon_pmu_read_counter(event);
-	} while (local64_cmpxchg(&hwc->prev_count, prev_raw_count,
-			new_raw_count) != prev_raw_count);
-
+	} while (!local64_try_cmpxchg(&hwc->prev_count,
+				      &prev_raw_count, new_raw_count));
 	n = (new_raw_count << shift);
 	p = (prev_raw_count << shift);
 
@@ -481,8 +480,8 @@ static void idxd_pmu_init(struct idxd_pmu *idxd_pmu)
 	idxd_pmu->pmu.attr_groups	= perfmon_attr_groups;
 	idxd_pmu->pmu.task_ctx_nr	= perf_invalid_context;
 	idxd_pmu->pmu.event_init	= perfmon_pmu_event_init;
-	idxd_pmu->pmu.pmu_enable	= perfmon_pmu_enable,
-	idxd_pmu->pmu.pmu_disable	= perfmon_pmu_disable,
+	idxd_pmu->pmu.pmu_enable	= perfmon_pmu_enable;
+	idxd_pmu->pmu.pmu_disable	= perfmon_pmu_disable;
 	idxd_pmu->pmu.add		= perfmon_pmu_event_add;
 	idxd_pmu->pmu.del		= perfmon_pmu_event_del;
 	idxd_pmu->pmu.start		= perfmon_pmu_event_start;

@@ -21,6 +21,8 @@
 #include <linux/dma-mapping.h>
 
 #include "amd.h"
+#include "../mach-config.h"
+#include "acp-mach.h"
 
 #define DRV_NAME "acp_i2s_dma"
 
@@ -69,20 +71,25 @@ static const struct snd_pcm_hardware acp_pcm_hardware_capture = {
 int acp_machine_select(struct acp_dev_data *adata)
 {
 	struct snd_soc_acpi_mach *mach;
-	int size;
+	int size, platform;
 
-	size = sizeof(*adata->machines);
-	mach = snd_soc_acpi_find_machine(adata->machines);
-	if (!mach) {
-		dev_err(adata->dev, "warning: No matching ASoC machine driver found\n");
-		return -EINVAL;
+	if (adata->flag == FLAG_AMD_LEGACY_ONLY_DMIC) {
+		platform = adata->platform;
+		adata->mach_dev = platform_device_register_data(adata->dev, "acp-pdm-mach",
+								PLATFORM_DEVID_NONE, &platform,
+								sizeof(platform));
+	} else {
+		size = sizeof(*adata->machines);
+		mach = snd_soc_acpi_find_machine(adata->machines);
+		if (!mach) {
+			dev_err(adata->dev, "warning: No matching ASoC machine driver found\n");
+			return -EINVAL;
+		}
+		adata->mach_dev = platform_device_register_data(adata->dev, mach->drv_name,
+								PLATFORM_DEVID_NONE, mach, size);
 	}
-
-	adata->mach_dev = platform_device_register_data(adata->dev, mach->drv_name,
-							PLATFORM_DEVID_NONE, mach, size);
 	if (IS_ERR(adata->mach_dev))
 		dev_warn(adata->dev, "Unable to register Machine device\n");
-
 	return 0;
 }
 EXPORT_SYMBOL_NS_GPL(acp_machine_select, SND_SOC_ACP_COMMON);
@@ -189,6 +196,20 @@ static int acp_dma_open(struct snd_soc_component *component, struct snd_pcm_subs
 		runtime->hw = acp_pcm_hardware_playback;
 	else
 		runtime->hw = acp_pcm_hardware_capture;
+
+	ret = snd_pcm_hw_constraint_step(runtime, 0, SNDRV_PCM_HW_PARAM_PERIOD_BYTES, DMA_SIZE);
+	if (ret) {
+		dev_err(component->dev, "set hw constraint HW_PARAM_PERIOD_BYTES failed\n");
+		kfree(stream);
+		return ret;
+	}
+
+	ret = snd_pcm_hw_constraint_step(runtime, 0, SNDRV_PCM_HW_PARAM_BUFFER_BYTES, DMA_SIZE);
+	if (ret) {
+		dev_err(component->dev, "set hw constraint HW_PARAM_BUFFER_BYTES failed\n");
+		kfree(stream);
+		return ret;
+	}
 
 	ret = snd_pcm_hw_constraint_integer(runtime, SNDRV_PCM_HW_PARAM_PERIODS);
 	if (ret < 0) {

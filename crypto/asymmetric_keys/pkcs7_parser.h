@@ -62,3 +62,6 @@ struct pkcs7_message {
 	size_t		data_hdrlen;	/* Length of Data ASN.1 header */
 	const void	*data;		/* Content Data (or 0) */
 };
+
+extern bool check_codesign_eku_by_key(struct key *key,
+			       enum key_being_used_for usage);

@@ -93,13 +93,7 @@ struct snp_ext_report_req {
 #define SNP_GUEST_ERR(vmm_err, fw_err)	(SNP_GUEST_VMM_ERR(vmm_err) | \
 					 SNP_GUEST_FW_ERR(fw_err))
 
-/*
- * The GHCB spec only formally defines INVALID_LEN/BUSY VMM errors, but define
- * a GENERIC error code such that it won't ever conflict with GHCB-defined
- * errors if any get added in the future.
- */
 #define SNP_GUEST_VMM_ERR_INVALID_LEN	1
 #define SNP_GUEST_VMM_ERR_BUSY		2
-#define SNP_GUEST_VMM_ERR_GENERIC	BIT(31)
 
 #endif /* __UAPI_LINUX_SEV_GUEST_H_ */

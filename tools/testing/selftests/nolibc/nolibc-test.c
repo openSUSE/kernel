@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0
+/* SPDX-License-Identifier: GPL-2.0 */
 
 #define _GNU_SOURCE
 
@@ -43,8 +43,8 @@ char **environ;
 
 /* definition of a series of tests */
 struct test {
-	const char *name;              // test name
-	int (*func)(int min, int max); // handler
+	const char *name;              /* test name */
+	int (*func)(int min, int max); /* handler */
 };
 
 #ifndef _NOLIBC_STDLIB_H
@@ -491,7 +491,7 @@ int run_syscall(int min, int max)
 	euid0 = geteuid() == 0;
 
 	for (test = min; test >= 0 && test <= max; test++) {
-		int llen = 0; // line length
+		int llen = 0; /* line length */
 
 		/* avoid leaving empty lines below, this will insert holes into
 		 * test numbers.
@@ -580,7 +580,7 @@ int run_stdlib(int min, int max)
 	void *p1, *p2;
 
 	for (test = min; test >= 0 && test <= max; test++) {
-		int llen = 0; // line length
+		int llen = 0; /* line length */
 
 		/* avoid leaving empty lines below, this will insert holes into
 		 * test numbers.

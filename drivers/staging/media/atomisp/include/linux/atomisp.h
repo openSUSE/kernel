@@ -20,7 +20,6 @@
 #define _ATOM_ISP_H
 
 #include <linux/types.h>
-#include <linux/version.h>
 
 /* struct media_device_info.hw_revision */
 #define ATOMISP_HW_REVISION_MASK	0x0000ff00
@@ -38,7 +37,6 @@
 #define CI_MODE_PREVIEW		0x8000
 #define CI_MODE_VIDEO		0x4000
 #define CI_MODE_STILL_CAPTURE	0x2000
-#define CI_MODE_CONTINUOUS	0x1000
 #define CI_MODE_NONE		0x0000
 
 #define OUTPUT_MODE_FILE 0x0100
@@ -1059,9 +1057,9 @@ struct atomisp_sensor_ae_bracketing_lut {
 #define V4L2_CID_RUN_MODE			(V4L2_CID_CAMERA_LASTP1 + 20)
 #define ATOMISP_RUN_MODE_VIDEO			1
 #define ATOMISP_RUN_MODE_STILL_CAPTURE		2
-#define ATOMISP_RUN_MODE_CONTINUOUS_CAPTURE	3
-#define ATOMISP_RUN_MODE_PREVIEW		4
-#define ATOMISP_RUN_MODE_SDV			5
+#define ATOMISP_RUN_MODE_PREVIEW		3
+#define ATOMISP_RUN_MODE_MIN			1
+#define ATOMISP_RUN_MODE_MAX			3
 
 #define V4L2_CID_ENABLE_VFPP			(V4L2_CID_CAMERA_LASTP1 + 21)
 #define V4L2_CID_ATOMISP_CONTINUOUS_MODE	(V4L2_CID_CAMERA_LASTP1 + 22)

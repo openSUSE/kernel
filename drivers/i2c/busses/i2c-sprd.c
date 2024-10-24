@@ -571,7 +571,7 @@ err_rpm_put:
 	return ret;
 }
 
-static int sprd_i2c_remove(struct platform_device *pdev)
+static void sprd_i2c_remove(struct platform_device *pdev)
 {
 	struct sprd_i2c *i2c_dev = platform_get_drvdata(pdev);
 	int ret;
@@ -587,8 +587,6 @@ static int sprd_i2c_remove(struct platform_device *pdev)
 
 	pm_runtime_put_noidle(i2c_dev->dev);
 	pm_runtime_disable(i2c_dev->dev);
-
-	return 0;
 }
 
 static int __maybe_unused sprd_i2c_suspend_noirq(struct device *dev)
@@ -646,7 +644,7 @@ MODULE_DEVICE_TABLE(of, sprd_i2c_of_match);
 
 static struct platform_driver sprd_i2c_driver = {
 	.probe = sprd_i2c_probe,
-	.remove = sprd_i2c_remove,
+	.remove_new = sprd_i2c_remove,
 	.driver = {
 		   .name = "sprd-i2c",
 		   .of_match_table = sprd_i2c_of_match,

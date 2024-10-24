@@ -618,10 +618,7 @@ static int atomisp_enum_input(struct file *file, void *fh,
 static unsigned int
 atomisp_subdev_streaming_count(struct atomisp_sub_device *asd)
 {
-	return vb2_start_streaming_called(&asd->video_out_preview.vb_queue) +
-	       vb2_start_streaming_called(&asd->video_out_capture.vb_queue) +
-	       vb2_start_streaming_called(&asd->video_out_video_capture.vb_queue) +
-	       vb2_start_streaming_called(&asd->video_out_vf.vb_queue);
+	return vb2_start_streaming_called(&asd->video_out_preview.vb_queue);
 }
 
 unsigned int atomisp_streaming_count(struct atomisp_device *isp)
@@ -896,7 +893,7 @@ static int atomisp_try_fmt_cap(struct file *file, void *fh,
 	f->fmt.pix.width += pad_w;
 	f->fmt.pix.height += pad_h;
 
-	ret = atomisp_try_fmt(vdev, &f->fmt.pix, NULL);
+	ret = atomisp_try_fmt(vdev, &f->fmt.pix);
 	if (ret)
 		return ret;
 
@@ -1901,9 +1898,6 @@ static int atomisp_s_parm(struct file *file, void *fh,
 		break;
 	case CI_MODE_STILL_CAPTURE:
 		mode = ATOMISP_RUN_MODE_STILL_CAPTURE;
-		break;
-	case CI_MODE_CONTINUOUS:
-		mode = ATOMISP_RUN_MODE_CONTINUOUS_CAPTURE;
 		break;
 	case CI_MODE_PREVIEW:
 		mode = ATOMISP_RUN_MODE_PREVIEW;

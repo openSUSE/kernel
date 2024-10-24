@@ -99,8 +99,7 @@ static int sch_transaction(void)
 	if (retries > MAX_RETRIES) {
 		dev_err(&sch_adapter.dev, "SMBus Timeout!\n");
 		result = -ETIMEDOUT;
-	}
-	if (temp & 0x04) {
+	} else if (temp & 0x04) {
 		result = -EIO;
 		dev_dbg(&sch_adapter.dev, "Bus collision! SMBus may be "
 			"locked until next hard reset. (sorry!)\n");
@@ -286,14 +285,12 @@ static int smbus_sch_probe(struct platform_device *dev)
 	return retval;
 }
 
-static int smbus_sch_remove(struct platform_device *pdev)
+static void smbus_sch_remove(struct platform_device *pdev)
 {
 	if (sch_smba) {
 		i2c_del_adapter(&sch_adapter);
 		sch_smba = 0;
 	}
-
-	return 0;
 }
 
 static struct platform_driver smbus_sch_driver = {
@@ -301,7 +298,7 @@ static struct platform_driver smbus_sch_driver = {
 		.name = "isch_smbus",
 	},
 	.probe		= smbus_sch_probe,
-	.remove		= smbus_sch_remove,
+	.remove_new	= smbus_sch_remove,
 };
 
 module_platform_driver(smbus_sch_driver);

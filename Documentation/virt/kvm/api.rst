@@ -597,7 +597,7 @@ This is an asynchronous vcpu ioctl and can be invoked from any thread.
 RISC-V:
 ^^^^^^^
 
-Queues an external interrupt to be injected into the virutal CPU. This ioctl
+Queues an external interrupt to be injected into the virtual CPU. This ioctl
 is overloaded with 2 different irq values:
 
 a) KVM_INTERRUPT_SET
@@ -2416,8 +2416,11 @@ registers, find a list below:
   PPC     KVM_REG_PPC_PSSCR               64
   PPC     KVM_REG_PPC_DEC_EXPIRY          64
   PPC     KVM_REG_PPC_PTCR                64
+  PPC     KVM_REG_PPC_HASHKEYR            64
+  PPC     KVM_REG_PPC_HASHPKEYR           64
   PPC     KVM_REG_PPC_DAWR1               64
   PPC     KVM_REG_PPC_DAWRX1              64
+  PPC     KVM_REG_PPC_DEXCR               64
   PPC     KVM_REG_PPC_TM_GPR0             64
   ...
   PPC     KVM_REG_PPC_TM_GPR31            64
@@ -2747,7 +2750,7 @@ The isa config register can be read anytime but can only be written before
 a Guest VCPU runs. It will have ISA feature bits matching underlying host
 set by default.
 
-RISC-V core registers represent the general excution state of a Guest VCPU
+RISC-V core registers represent the general execution state of a Guest VCPU
 and it has the following id bit patterns::
 
   0x8020 0000 02 <index into the kvm_riscv_core struct:24> (32bit Host)
@@ -5257,7 +5260,7 @@ KVM_PV_DISABLE
   Deregister the VM from the Ultravisor and reclaim the memory that had
   been donated to the Ultravisor, making it usable by the kernel again.
   All registered VCPUs are converted back to non-protected ones. If a
-  previous protected VM had been prepared for asynchonous teardown with
+  previous protected VM had been prepared for asynchronous teardown with
   KVM_PV_ASYNC_CLEANUP_PREPARE and not subsequently torn down with
   KVM_PV_ASYNC_CLEANUP_PERFORM, it will be torn down in this call
   together with the current protected VM.
@@ -5717,7 +5720,7 @@ flags values for ``kvm_sregs2``:
 
 ``KVM_SREGS2_FLAGS_PDPTRS_VALID``
 
-  Indicates thats the struct contain valid PDPTR values.
+  Indicates that the struct contains valid PDPTR values.
 
 
 4.132 KVM_SET_SREGS2
@@ -6418,7 +6421,7 @@ to the byte array.
 
 It is strongly recommended that userspace use ``KVM_EXIT_IO`` (x86) or
 ``KVM_EXIT_MMIO`` (all except s390) to implement functionality that
-requires a guest to interact with host userpace.
+requires a guest to interact with host userspace.
 
 .. note:: KVM_EXIT_IO is significantly faster than KVM_EXIT_MMIO.
 
@@ -6491,7 +6494,7 @@ s390 specific.
 		} s390_ucontrol;
 
 s390 specific. A page fault has occurred for a user controlled virtual
-machine (KVM_VM_S390_UNCONTROL) on it's host page table that cannot be
+machine (KVM_VM_S390_UNCONTROL) on its host page table that cannot be
 resolved by the kernel.
 The program code and the translation exception code that were placed
 in the cpu's lowcore are presented here as defined by the z Architecture
@@ -6931,93 +6934,6 @@ Please note that the kernel is allowed to use the kvm_run structure as the
 primary storage for certain register types. Therefore, the kernel may use the
 values in kvm_run even if the corresponding bit in kvm_dirty_regs is not set.
 
-::
-
-		/* KVM_EXIT_VMGEXIT */
-		struct kvm_user_vmgexit {
-  #define KVM_USER_VMGEXIT_REQ_CERTS		1
-			__u32 type; /* KVM_USER_VMGEXIT_* type */
-			union {
-				struct {
-					__u64 data_gpa;
-					__u64 data_npages;
-  #define KVM_USER_VMGEXIT_REQ_CERTS_ERROR_INVALID_LEN   1
-  #define KVM_USER_VMGEXIT_REQ_CERTS_ERROR_BUSY          2
-  #define KVM_USER_VMGEXIT_REQ_CERTS_ERROR_GENERIC       (1 << 31)
-					__u32 ret;
-  #define KVM_USER_VMGEXIT_REQ_CERTS_FLAGS_NOTIFY_DONE	BIT(0)
-					__u8 flags;
-  #define KVM_USER_VMGEXIT_REQ_CERTS_STATUS_PENDING	0
-  #define KVM_USER_VMGEXIT_REQ_CERTS_STATUS_DONE		1
-					__u8 status;
-				} req_certs;
-			};
-		};
-
-
-If exit reason is KVM_EXIT_VMGEXIT then it indicates that an SEV-SNP guest
-has issued a VMGEXIT instruction (as documented by the AMD Architecture
-Programmer's Manual (APM)) to the hypervisor that needs to be serviced by
-userspace. These are generally handled by the host kernel, but in some
-cases some aspects of handling a VMGEXIT are done in userspace.
-
-A kvm_user_vmgexit structure is defined to encapsulate the data to be
-sent to or returned by userspace. The type field defines the specific type
-of exit that needs to be serviced, and that type is used as a discriminator
-to determine which union type should be used for input/output.
-
-KVM_USER_VMGEXIT_REQ_CERTS
---------------------------
-
-When an SEV-SNP issues a guest request for an attestation report, it has the
-option of issuing it in the form an *extended* guest request when a
-certificate blob is returned alongside the attestation report so the guest
-can validate the endorsement key used by SNP firmware to sign the report.
-These certificates are managed by userspace and are requested via
-KVM_EXIT_VMGEXITs using the KVM_USER_VMGEXIT_REQ_CERTS type.
-
-For the KVM_USER_VMGEXIT_REQ_CERTS type, the req_certs union type
-is used. The kernel will supply in 'data_gpa' the value the guest supplies
-via the RAX field of the GHCB when issuing extended guest requests.
-'data_npages' will similarly contain the value the guest supplies in RBX
-denoting the number of shared pages available to write the certificate
-data into.
-
-  - If the supplied number of pages is sufficient, userspace should write
-    the certificate data blob (in the format defined by the GHCB spec) in
-    the address indicated by 'data_gpa' and set 'ret' to 0.
-
-  - If the number of pages supplied is not sufficient, userspace must write
-    the required number of pages in 'data_npages' and then set 'ret' to 1.
-
-  - If userspace is temporarily unable to handle the request, 'ret' should
-    be set to 2 to inform the guest to retry later.
-
-  - If some other error occurred, userspace should set 'ret' to a non-zero
-    value that is distinct from the specific return values mentioned above.
-
-Generally some care needs be taken to keep the returned certificate data in
-sync with the actual endorsement key in use by firmware at the time the
-attestation request is sent to SNP firmware. The recommended scheme to do
-this is for the VMM to obtain a shared or exclusive lock on the path the
-certificate blob file resides at before reading it and returning it to KVM,
-and that it continues to hold the lock until the attestation request is
-actually sent to firmware. To facilitate this, the VMM can set the
-KVM_USER_VMGEXIT_REQ_CERTS_FLAGS_NOTIFY_DONE flag before returning the
-certificate blob, in which case another KVM_EXIT_VMGEXIT of type
-KVM_USER_VMGEXIT_REQ_CERTS will be sent to userspace with
-KVM_USER_VMGEXIT_REQ_CERTS_STATUS_DONE being set in the status field to
-indicate the request is fully-completed and that any associated locks can be
-released.
-
-Tools/libraries that perform updates to SNP firmware TCB values or endorsement
-keys (e.g. firmware interfaces such as SNP_COMMIT, SNP_SET_CONFIG, or
-SNP_VLEK_LOAD, see Documentation/virt/coco/sev-guest.rst for more details) in
-such a way that the certificate blob needs to be updated, should similarly
-take an exclusive lock on the certificate blob for the duration of any updates
-to firmware or the certificate blob contents to ensure that VMMs using the
-above scheme will not return certificate blob data that is out of sync with
-firmware.
 
 6. Capabilities that can be enabled on vCPUs
 ============================================
@@ -7776,7 +7692,7 @@ APIC/MSRs/etc).
           attribute is not supported by KVM.
 
 KVM_CAP_SGX_ATTRIBUTE enables a userspace VMM to grant a VM access to one or
-more priveleged enclave attributes.  args[0] must hold a file handle to a valid
+more privileged enclave attributes.  args[0] must hold a file handle to a valid
 SGX attribute file corresponding to an attribute that is supported/restricted
 by KVM (currently only PROVISIONKEY).
 
@@ -8215,7 +8131,7 @@ writing to the respective MSRs.
 
 This capability indicates that userspace can load HV_X64_MSR_VP_INDEX msr.  Its
 value is used to denote the target vcpu for a SynIC interrupt.  For
-compatibilty, KVM initializes this msr to KVM's internal vcpu index.  When this
+compatibility, KVM initializes this msr to KVM's internal vcpu index.  When this
 capability is absent, userspace can still query this msr's value.
 
 8.13 KVM_CAP_S390_AIS_MIGRATION
@@ -8405,10 +8321,10 @@ regardless of what has actually been exposed through the CPUID leaf.
 :Parameters: args[0] - size of the dirty log ring
 
 KVM is capable of tracking dirty memory using ring buffers that are
-mmaped into userspace; there is one dirty ring per vcpu.
+mmapped into userspace; there is one dirty ring per vcpu.
 
 The dirty ring is available to userspace as an array of
-``struct kvm_dirty_gfn``.  Each dirty entry it's defined as::
+``struct kvm_dirty_gfn``.  Each dirty entry is defined as::
 
   struct kvm_dirty_gfn {
           __u32 flags;
@@ -8447,7 +8363,7 @@ state machine for the entry is as follows::
       |                                          |
       +------------------------------------------+
 
-To harvest the dirty pages, userspace accesses the mmaped ring buffer
+To harvest the dirty pages, userspace accesses the mmapped ring buffer
 to read the dirty GFNs.  If the flags has the DIRTY bit set (at this stage
 the RESET bit must be cleared), then it means this GFN is a dirty GFN.
 The userspace should harvest this GFN and mark the flags from state
@@ -8574,7 +8490,7 @@ the KVM_XEN_ATTR_TYPE_RUNSTATE_UPDATE_FLAG attribute in the KVM_XEN_SET_ATTR
 and KVM_XEN_GET_ATTR ioctls. This controls whether KVM will set the
 XEN_RUNSTATE_UPDATE flag in guest memory mapped vcpu_runstate_info during
 updates of the runstate information. Note that versions of KVM which support
-the RUNSTATE feature above, but not thie RUNSTATE_UPDATE_FLAG feature, will
+the RUNSTATE feature above, but not the RUNSTATE_UPDATE_FLAG feature, will
 always set the XEN_RUNSTATE_UPDATE flag when updating the guest structure,
 which is perhaps counterintuitive. When this flag is advertised, KVM will
 behave more correctly, not using the XEN_RUNSTATE_UPDATE flag until/unless
@@ -8628,7 +8544,7 @@ Architectures: x86
 
 When enabled, KVM will disable emulated Hyper-V features provided to the
 guest according to the bits Hyper-V CPUID feature leaves. Otherwise, all
-currently implmented Hyper-V features are provided unconditionally when
+currently implemented Hyper-V features are provided unconditionally when
 Hyper-V identification is set in the HYPERV_CPUID_INTERFACE (0x40000001)
 leaf.
 

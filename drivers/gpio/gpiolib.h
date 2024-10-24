@@ -38,8 +38,10 @@
  * or name of the IP component in a System on Chip.
  * @data: per-instance data assigned by the driver
  * @list: links gpio_device:s together for traversal
- * @notifier: used to notify subscribers about lines being requested, released
- *            or reconfigured
+ * @line_state_notifier: used to notify subscribers about lines being
+ *                       requested, released or reconfigured
+ * @device_notifier: used to notify character device wait queues about the GPIO
+ *                   device being unregistered
  * @sem: protects the structure from a NULL-pointer dereference of @chip by
  *       user-space operations when the device gets unregistered during
  *       a hot-unplug event
@@ -63,7 +65,8 @@ struct gpio_device {
 	const char		*label;
 	void			*data;
 	struct list_head        list;
-	struct blocking_notifier_head notifier;
+	struct blocking_notifier_head line_state_notifier;
+	struct blocking_notifier_head device_notifier;
 	struct rw_semaphore	sem;
 
 #ifdef CONFIG_PINCTRL
@@ -108,8 +111,6 @@ struct gpio_array {
 	unsigned long		invert_mask[];
 };
 
-struct gpio_desc *gpiochip_get_desc(struct gpio_chip *gc, unsigned int hwnum);
-
 #define for_each_gpio_desc(gc, desc)					\
 	for (unsigned int __i = 0;					\
 	     __i < gc->ngpio && (desc = gpiochip_get_desc(gc, __i));	\
@@ -130,9 +131,12 @@ int gpiod_set_array_value_complex(bool raw, bool can_sleep,
 				  struct gpio_array *array_info,
 				  unsigned long *value_bitmap);
 
+int gpiod_set_transitory(struct gpio_desc *desc, bool transitory);
+
 extern spinlock_t gpio_lock;
 extern struct list_head gpio_devices;
 
+void gpiod_line_state_notify(struct gpio_desc *desc, unsigned long action);
 
 /**
  * struct gpio_desc - Opaque descriptor for a GPIO

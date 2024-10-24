@@ -7,10 +7,12 @@
 #define MTK_DRM_DDP_COMP_H
 
 #include <linux/io.h>
-#include <drm/drm_modes.h>
+#include <linux/pm_runtime.h>
 #include <linux/soc/mediatek/mtk-cmdq.h>
 #include <linux/soc/mediatek/mtk-mmsys.h>
 #include <linux/soc/mediatek/mtk-mutex.h>
+
+#include <drm/drm_modes.h>
 
 struct device;
 struct device_node;
@@ -47,6 +49,8 @@ enum mtk_ddp_comp_type {
 struct mtk_ddp_comp;
 struct cmdq_pkt;
 struct mtk_ddp_comp_funcs {
+	int (*power_on)(struct device *dev);
+	void (*power_off)(struct device *dev);
 	int (*clk_enable)(struct device *dev);
 	void (*clk_disable)(struct device *dev);
 	void (*config)(struct device *dev, unsigned int w,
@@ -83,6 +87,7 @@ struct mtk_ddp_comp_funcs {
 	void (*add)(struct device *dev, struct mtk_mutex *mutex);
 	void (*remove)(struct device *dev, struct mtk_mutex *mutex);
 	unsigned int (*encoder_index)(struct device *dev);
+	enum drm_mode_status (*mode_valid)(struct device *dev, const struct drm_display_mode *mode);
 };
 
 struct mtk_ddp_comp {
@@ -92,6 +97,23 @@ struct mtk_ddp_comp {
 	int encoder_index;
 	const struct mtk_ddp_comp_funcs *funcs;
 };
+
+static inline int mtk_ddp_comp_power_on(struct mtk_ddp_comp *comp)
+{
+	if (comp->funcs && comp->funcs->power_on)
+		return comp->funcs->power_on(comp->dev);
+	else
+		return pm_runtime_resume_and_get(comp->dev);
+	return 0;
+}
+
+static inline void mtk_ddp_comp_power_off(struct mtk_ddp_comp *comp)
+{
+	if (comp->funcs && comp->funcs->power_off)
+		comp->funcs->power_off(comp->dev);
+	else
+		pm_runtime_put(comp->dev);
+}
 
 static inline int mtk_ddp_comp_clk_enable(struct mtk_ddp_comp *comp)
 {
@@ -105,6 +127,15 @@ static inline void mtk_ddp_comp_clk_disable(struct mtk_ddp_comp *comp)
 {
 	if (comp->funcs && comp->funcs->clk_disable)
 		comp->funcs->clk_disable(comp->dev);
+}
+
+static inline
+enum drm_mode_status mtk_ddp_comp_mode_valid(struct mtk_ddp_comp *comp,
+					     const struct drm_display_mode *mode)
+{
+	if (comp && comp->funcs && comp->funcs->mode_valid)
+		return comp->funcs->mode_valid(comp->dev, mode);
+	return MODE_OK;
 }
 
 static inline void mtk_ddp_comp_config(struct mtk_ddp_comp *comp,
@@ -161,11 +192,7 @@ unsigned int mtk_ddp_comp_supported_rotations(struct mtk_ddp_comp *comp)
 	if (comp->funcs && comp->funcs->supported_rotations)
 		return comp->funcs->supported_rotations(comp->dev);
 
-	/*
-	 * In order to pass IGT tests, DRM_MODE_ROTATE_0 is required when
-	 * rotation is not supported.
-	 */
-	return DRM_MODE_ROTATE_0;
+	return 0;
 }
 
 static inline unsigned int mtk_ddp_comp_layer_nr(struct mtk_ddp_comp *comp)

@@ -221,10 +221,7 @@ struct target_type {
 
 	/* For internal device-mapper use. */
 	struct list_head list;
-
-#ifndef __GENKSYMS__
 	dm_sg_io_ioctl_fn sg_io;
-#endif
 };
 
 /* for the sg_io handler */

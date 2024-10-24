@@ -3192,7 +3192,7 @@ u32 i915_perf_oa_timestamp_frequency(struct drm_i915_private *i915)
 	struct intel_gt *gt = to_gt(i915);
 
 	/* Wa_18013179988 */
-	if (IS_DG2(i915) || IS_GFX_GT_IP_RANGE(gt, IP_VER(12, 70), IP_VER(12, 71))) {
+	if (IS_DG2(i915) || IS_GFX_GT_IP_RANGE(gt, IP_VER(12, 70), IP_VER(12, 74))) {
 		intel_wakeref_t wakeref;
 		u32 reg, shift;
 
@@ -4823,7 +4823,6 @@ static struct ctl_table oa_table[] = {
 	 .extra1 = SYSCTL_ZERO,
 	 .extra2 = &oa_sample_rate_hard_limit,
 	 },
-	{}
 };
 
 static u32 num_perf_groups_per_gt(struct intel_gt *gt)

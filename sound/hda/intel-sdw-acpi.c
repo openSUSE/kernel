@@ -23,6 +23,10 @@ static int ctrl_link_mask;
 module_param_named(sdw_link_mask, ctrl_link_mask, int, 0444);
 MODULE_PARM_DESC(sdw_link_mask, "Intel link mask (one bit per link)");
 
+static ulong ctrl_addr = 0x40000000;
+module_param_named(sdw_ctrl_addr, ctrl_addr, ulong, 0444);
+MODULE_PARM_DESC(sdw_ctrl_addr, "Intel SoundWire Controller _ADR");
+
 static bool is_link_enabled(struct fwnode_handle *fw_node, u8 idx)
 {
 	struct fwnode_handle *link;
@@ -53,16 +57,18 @@ static int
 sdw_intel_scan_controller(struct sdw_intel_acpi_info *info)
 {
 	struct acpi_device *adev = acpi_fetch_acpi_dev(info->handle);
-	u8 count, i;
+	struct fwnode_handle *fwnode;
+	unsigned int i;
+	u32 count;
 	int ret;
 
 	if (!adev)
 		return -EINVAL;
 
+	fwnode = acpi_fwnode_handle(adev);
+
 	/* Found controller, find links supported */
-	count = 0;
-	ret = fwnode_property_read_u8_array(acpi_fwnode_handle(adev),
-					    "mipi-sdw-master-count", &count, 1);
+	ret = fwnode_property_read_u32(fwnode, "mipi-sdw-master-count", &count);
 
 	/*
 	 * In theory we could check the number of links supported in
@@ -79,7 +85,7 @@ sdw_intel_scan_controller(struct sdw_intel_acpi_info *info)
 	if (ret) {
 		dev_err(&adev->dev,
 			"Failed to read mipi-sdw-master-count: %d\n", ret);
-		return -EINVAL;
+		return ret;
 	}
 
 	/* Check count is within bounds */
@@ -105,7 +111,7 @@ sdw_intel_scan_controller(struct sdw_intel_acpi_info *info)
 			continue;
 		}
 
-		if (!is_link_enabled(acpi_fwnode_handle(adev), i)) {
+		if (!is_link_enabled(fwnode, i)) {
 			dev_dbg(&adev->dev,
 				"Link %d not selected in firmware\n", i);
 			continue;
@@ -141,6 +147,9 @@ static acpi_status sdw_intel_acpi_cb(acpi_handle handle, u32 level,
 	 * SoundWire link so filter accordingly
 	 */
 	if (FIELD_GET(GENMASK(31, 28), adr) != SDW_LINK_TYPE)
+		return AE_OK; /* keep going */
+
+	if (adr != ctrl_addr)
 		return AE_OK; /* keep going */
 
 	/* found the correct SoundWire controller */

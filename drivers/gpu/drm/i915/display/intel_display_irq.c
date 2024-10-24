@@ -266,12 +266,12 @@ void i915_disable_pipestat(struct drm_i915_private *dev_priv,
 	intel_uncore_posting_read(&dev_priv->uncore, reg);
 }
 
-static bool i915_has_asle(struct drm_i915_private *dev_priv)
+static bool i915_has_asle(struct drm_i915_private *i915)
 {
-	if (!dev_priv->display.opregion.asle)
+	if (!IS_PINEVIEW(i915) && !IS_MOBILE(i915))
 		return false;
 
-	return IS_PINEVIEW(dev_priv) || IS_MOBILE(dev_priv);
+	return intel_opregion_asle_present(i915);
 }
 
 /**
@@ -340,18 +340,15 @@ static void flip_done_handler(struct drm_i915_private *i915,
 			      enum pipe pipe)
 {
 	struct intel_crtc *crtc = intel_crtc_for_pipe(i915, pipe);
-	struct drm_crtc_state *crtc_state = crtc->base.state;
-	struct drm_pending_vblank_event *e = crtc_state->event;
-	struct drm_device *dev = &i915->drm;
-	unsigned long irqflags;
 
-	spin_lock_irqsave(&dev->event_lock, irqflags);
+	spin_lock(&i915->drm.event_lock);
 
-	crtc_state->event = NULL;
+	if (crtc->flip_done_event) {
+		drm_crtc_send_vblank_event(&crtc->base, crtc->flip_done_event);
+		crtc->flip_done_event = NULL;
+	}
 
-	drm_crtc_send_vblank_event(&crtc->base, e);
-
-	spin_unlock_irqrestore(&dev->event_lock, irqflags);
+	spin_unlock(&i915->drm.event_lock);
 }
 
 static void hsw_pipe_crc_irq_handler(struct drm_i915_private *dev_priv,
@@ -896,7 +893,7 @@ gen8_de_misc_irq_handler(struct drm_i915_private *dev_priv, u32 iir)
 	}
 
 	if (!found)
-		drm_err(&dev_priv->drm, "Unexpected DE Misc interrupt\n");
+		drm_err(&dev_priv->drm, "Unexpected DE Misc interrupt: 0x%08x\n", iir);
 }
 
 static void gen11_dsi_te_interrupt_handler(struct drm_i915_private *dev_priv,
@@ -989,7 +986,7 @@ static void gen8_read_and_ack_pch_irqs(struct drm_i915_private *i915, u32 *pch_i
 	 * their flags both in the PICA and SDE IIR.
 	 */
 	if (*pch_iir & SDE_PICAINTERRUPT) {
-		drm_WARN_ON(&i915->drm, INTEL_PCH_TYPE(i915) < PCH_MTP);
+		drm_WARN_ON(&i915->drm, INTEL_PCH_TYPE(i915) < PCH_MTL);
 
 		pica_ier = intel_de_rmw(i915, PICAINTERRUPT_IER, ~0, 0);
 		*pica_iir = intel_de_read(i915, PICAINTERRUPT_IIR);
@@ -1590,7 +1587,7 @@ void ilk_de_irq_postinstall(struct drm_i915_private *i915)
 	struct intel_uncore *uncore = &i915->uncore;
 	u32 display_mask, extra_mask;
 
-	if (GRAPHICS_VER(i915) >= 7) {
+	if (DISPLAY_VER(i915) >= 7) {
 		display_mask = (DE_MASTER_IRQ_CONTROL | DE_GSE_IVB |
 				DE_PCH_EVENT_IVB | DE_AUX_CHANNEL_A_IVB);
 		extra_mask = (DE_PIPEC_VBLANK_IVB | DE_PIPEB_VBLANK_IVB |
@@ -1653,7 +1650,7 @@ void gen8_de_irq_postinstall(struct drm_i915_private *dev_priv)
 	else if (HAS_PCH_SPLIT(dev_priv))
 		ibx_irq_postinstall(dev_priv);
 
-	if (DISPLAY_VER(dev_priv) <= 10)
+	if (DISPLAY_VER(dev_priv) < 11)
 		de_misc_masked |= GEN8_DE_MISC_GSE;
 
 	if (IS_GEMINILAKE(dev_priv) || IS_BROXTON(dev_priv))

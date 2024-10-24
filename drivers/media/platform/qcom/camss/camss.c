@@ -1038,8 +1038,11 @@ static int camss_of_parse_endpoint_node(struct device *dev,
 	struct v4l2_mbus_config_mipi_csi2 *mipi_csi2;
 	struct v4l2_fwnode_endpoint vep = { { 0 } };
 	unsigned int i;
+	int ret;
 
-	v4l2_fwnode_endpoint_parse(of_fwnode_handle(node), &vep);
+	ret = v4l2_fwnode_endpoint_parse(of_fwnode_handle(node), &vep);
+	if (ret)
+		return ret;
 
 	csd->interface.csiphy_id = vep.base.port;
 
@@ -1383,7 +1386,7 @@ static void camss_unregister_entities(struct camss *camss)
 
 static int camss_subdev_notifier_bound(struct v4l2_async_notifier *async,
 				       struct v4l2_subdev *subdev,
-				       struct v4l2_async_subdev *asd)
+				       struct v4l2_async_connection *asd)
 {
 	struct camss *camss = container_of(async, struct camss, notifier);
 	struct camss_async_subdev *csd =

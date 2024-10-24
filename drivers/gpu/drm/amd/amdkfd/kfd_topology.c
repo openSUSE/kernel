@@ -958,8 +958,7 @@ static void kfd_update_system_properties(void)
 	dev = list_last_entry(&topology_device_list,
 			struct kfd_topology_device, list);
 	if (dev) {
-		sys_props.platform_id =
-			(*((uint64_t *)dev->oem_id)) & CRAT_OEMID_64BIT_MASK;
+		sys_props.platform_id = dev->oem_id64;
 		sys_props.platform_oem = *((uint64_t *)dev->oem_table_id);
 		sys_props.platform_rev = dev->oem_revision;
 	}
@@ -1564,6 +1563,7 @@ static int fill_in_l1_pcache(struct kfd_cache_properties **props_ext,
 		pcache->processor_id_low = cu_processor_id + (first_active_cu - 1);
 		pcache->cache_level = pcache_info[cache_type].cache_level;
 		pcache->cache_size = pcache_info[cache_type].cache_size;
+		pcache->cacheline_size = pcache_info[cache_type].cache_line_size;
 
 		if (pcache_info[cache_type].flags & CRAT_CACHE_FLAGS_DATA_CACHE)
 			pcache->cache_type |= HSA_CACHE_TYPE_DATA;
@@ -1632,6 +1632,7 @@ static int fill_in_l2_l3_pcache(struct kfd_cache_properties **props_ext,
 		pcache->processor_id_low = cu_processor_id
 					+ (first_active_cu - 1);
 		pcache->cache_level = pcache_info[cache_type].cache_level;
+		pcache->cacheline_size = pcache_info[cache_type].cache_line_size;
 
 		if (KFD_GC_VERSION(knode) == IP_VERSION(9, 4, 3))
 			mode = adev->gmc.gmc_funcs->query_mem_partition_mode(adev);
@@ -1703,6 +1704,7 @@ static void kfd_fill_cache_non_crat_info(struct kfd_topology_device *dev, struct
 
 	gpu_processor_id = dev->node_props.simd_id_base;
 
+	memset(cache_info, 0, sizeof(cache_info));
 	pcache_info = cache_info;
 	num_of_cache_types = kfd_get_gpu_cache_info(kdev, &pcache_info);
 	if (!num_of_cache_types) {

@@ -6,6 +6,8 @@
 
 #include <linux/bug.h>
 #include <linux/lockdep_types.h>
+#include <linux/irq.h>
+#include <linux/irqdomain.h>
 #include <linux/mod_devicetable.h>
 #include <linux/bitfield.h>
 
@@ -233,6 +235,7 @@ enum sdw_clk_stop_mode {
  * @BRA_flow_controlled: Slave implementation results in an OK_NotReady
  * response
  * @simple_ch_prep_sm: If channel prepare sequence is required
+ * @ch_prep_timeout: Port-specific timeout value, in milliseconds
  * @imp_def_interrupts: If set, each bit corresponds to support for
  * implementation-defined interrupts
  *
@@ -247,6 +250,7 @@ struct sdw_dp0_prop {
 	u32 *words;
 	bool BRA_flow_controlled;
 	bool simple_ch_prep_sm;
+	u32 ch_prep_timeout;
 	bool imp_def_interrupts;
 };
 
@@ -370,6 +374,7 @@ struct sdw_dpn_prop {
  * @clock_reg_supported: the Peripheral implements the clock base and scale
  * registers introduced with the SoundWire 1.2 specification. SDCA devices
  * do not need to set this boolean property as the registers are required.
+ * @use_domain_irq: call actual IRQ handler on slave, as well as callback
  */
 struct sdw_slave_prop {
 	u32 mipi_revision;
@@ -394,6 +399,7 @@ struct sdw_slave_prop {
 	u8 scp_int1_mask;
 	u32 quirks;
 	bool clock_reg_supported;
+	bool use_domain_irq;
 };
 
 #define SDW_SLAVE_QUIRKS_INVALID_INITIAL_PARITY	BIT(0)
@@ -539,21 +545,6 @@ enum sdw_reg_bank {
 };
 
 /**
- * struct sdw_bus_conf: Bus configuration
- *
- * @clk_freq: Clock frequency, in Hz
- * @num_rows: Number of rows in frame
- * @num_cols: Number of columns in frame
- * @bank: Next register bank
- */
-struct sdw_bus_conf {
-	unsigned int clk_freq;
-	unsigned int num_rows;
-	unsigned int num_cols;
-	unsigned int bank;
-};
-
-/**
  * struct sdw_prepare_ch: Prepare/De-prepare Data Port channel
  *
  * @num: Port number
@@ -646,6 +637,7 @@ struct sdw_slave_ops {
  * struct sdw_slave - SoundWire Slave
  * @id: MIPI device ID
  * @dev: Linux device
+ * @irq: IRQ number
  * @status: Status reported by the Slave
  * @bus: Bus handle
  * @prop: Slave properties
@@ -675,6 +667,7 @@ struct sdw_slave_ops {
 struct sdw_slave {
 	struct sdw_slave_id id;
 	struct device dev;
+	int irq;
 	enum sdw_slave_status status;
 	struct sdw_bus *bus;
 	struct sdw_slave_prop prop;
@@ -853,6 +846,8 @@ struct sdw_defer {
  * @post_bank_switch: Callback for post bank switch
  * @read_ping_status: Read status from PING frames, reported with two bits per Device.
  * Bits 31:24 are reserved.
+ * @get_device_num: Callback for vendor-specific device_number allocation
+ * @put_device_num: Callback for vendor-specific device_number release
  * @new_peripheral_assigned: Callback to handle enumeration of new peripheral.
  */
 struct sdw_master_ops {
@@ -868,7 +863,11 @@ struct sdw_master_ops {
 	int (*pre_bank_switch)(struct sdw_bus *bus);
 	int (*post_bank_switch)(struct sdw_bus *bus);
 	u32 (*read_ping_status)(struct sdw_bus *bus);
-	void (*new_peripheral_assigned)(struct sdw_bus *bus, int dev_num);
+	int (*get_device_num)(struct sdw_bus *bus, struct sdw_slave *slave);
+	void (*put_device_num)(struct sdw_bus *bus, struct sdw_slave *slave);
+	void (*new_peripheral_assigned)(struct sdw_bus *bus,
+					struct sdw_slave *slave,
+					int dev_num);
 };
 
 /**
@@ -888,10 +887,12 @@ struct sdw_master_ops {
  * @port_ops: Master port callback ops
  * @params: Current bus parameters
  * @prop: Master properties
+ * @vendor_specific_prop: pointer to non-standard properties
  * @m_rt_list: List of Master instance of all stream(s) running on Bus. This
  * is used to compute and program bus bandwidth, clock, frame shape,
  * transport and port parameters
  * @debugfs: Bus debugfs
+ * @domain: IRQ domain
  * @defer_msg: Defer message
  * @clk_stop_timeout: Clock stop timeout computed
  * @bank_switch_timeout: Bank switch timeout computed
@@ -903,9 +904,7 @@ struct sdw_master_ops {
  * meaningful if multi_link is set. If set to 1, hardware-based
  * synchronization will be used even if a stream only uses a single
  * SoundWire segment.
- * @dev_num_ida_min: if set, defines the minimum values for the IDA
- * used to allocate system-unique device numbers. This value needs to be
- * identical across all SoundWire bus in the system.
+ * @stream_refcount: number of streams currently using this bus
  */
 struct sdw_bus {
 	struct device *dev;
@@ -924,16 +923,19 @@ struct sdw_bus {
 	const struct sdw_master_port_ops *port_ops;
 	struct sdw_bus_params params;
 	struct sdw_master_prop prop;
+	void *vendor_specific_prop;
 	struct list_head m_rt_list;
 #ifdef CONFIG_DEBUG_FS
 	struct dentry *debugfs;
 #endif
+	struct irq_chip irq_chip;
+	struct irq_domain *domain;
 	struct sdw_defer defer_msg;
 	unsigned int clk_stop_timeout;
 	u32 bank_switch_timeout;
 	bool multi_link;
 	int hw_sync_min_links;
-	int dev_num_ida_min;
+	int stream_refcount;
 	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
@@ -1034,7 +1036,7 @@ int sdw_compute_params(struct sdw_bus *bus);
 
 int sdw_stream_add_master(struct sdw_bus *bus,
 		struct sdw_stream_config *stream_config,
-		struct sdw_port_config *port_config,
+		const struct sdw_port_config *port_config,
 		unsigned int num_ports,
 		struct sdw_stream_runtime *stream);
 int sdw_stream_remove_master(struct sdw_bus *bus,
@@ -1056,7 +1058,7 @@ void sdw_extract_slave_id(struct sdw_bus *bus, u64 addr, struct sdw_slave_id *id
 
 int sdw_stream_add_slave(struct sdw_slave *slave,
 			 struct sdw_stream_config *stream_config,
-			 struct sdw_port_config *port_config,
+			 const struct sdw_port_config *port_config,
 			 unsigned int num_ports,
 			 struct sdw_stream_runtime *stream);
 int sdw_stream_remove_slave(struct sdw_slave *slave,
@@ -1078,7 +1080,7 @@ int sdw_update_no_pm(struct sdw_slave *slave, u32 addr, u8 mask, u8 val);
 
 static inline int sdw_stream_add_slave(struct sdw_slave *slave,
 				       struct sdw_stream_config *stream_config,
-				       struct sdw_port_config *port_config,
+				       const struct sdw_port_config *port_config,
 				       unsigned int num_ports,
 				       struct sdw_stream_runtime *stream)
 {

@@ -17,19 +17,17 @@
 #include <linux/platform_device.h>
 #include <linux/regulator/consumer.h>
 #include <linux/gpio/consumer.h>
-#include <linux/of_device.h>
-#include <linux/of_gpio.h>
+#include <linux/irq.h>
+#include <linux/of.h>
 #include <linux/regmap.h>
 #include <sound/core.h>
 #include <sound/pcm.h>
 #include <sound/pcm_params.h>
 #include <sound/soc.h>
 #include <sound/soc-dapm.h>
-#include <linux/gpio.h>
 #include <sound/initval.h>
 #include <sound/tlv.h>
 #include <sound/cs35l36.h>
-#include <linux/of_irq.h>
 #include <linux/completion.h>
 
 #include "cs35l36.h"
@@ -1302,7 +1300,7 @@ static const struct snd_soc_component_driver soc_component_dev_cs35l36 = {
 	.endianness		= 1,
 };
 
-static struct regmap_config cs35l36_regmap = {
+static const struct regmap_config cs35l36_regmap = {
 	.reg_bits = 32,
 	.val_bits = 32,
 	.reg_stride = 4,
@@ -1312,7 +1310,7 @@ static struct regmap_config cs35l36_regmap = {
 	.precious_reg = cs35l36_precious_reg,
 	.volatile_reg = cs35l36_volatile_reg,
 	.readable_reg = cs35l36_readable_reg,
-	.cache_type = REGCACHE_RBTREE,
+	.cache_type = REGCACHE_MAPLE,
 };
 
 static irqreturn_t cs35l36_irq(int irq, void *data)
@@ -1932,7 +1930,7 @@ static const struct of_device_id cs35l36_of_match[] = {
 MODULE_DEVICE_TABLE(of, cs35l36_of_match);
 
 static const struct i2c_device_id cs35l36_id[] = {
-	{"cs35l36", 0},
+	{"cs35l36"},
 	{}
 };
 

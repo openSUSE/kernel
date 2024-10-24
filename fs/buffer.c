@@ -2192,6 +2192,8 @@ static int __block_commit_write(struct inode *inode, struct folio *folio,
 	struct buffer_head *bh, *head;
 
 	bh = head = folio_buffers(folio);
+	if (!bh)
+		return 0;
 	blocksize = bh->b_size;
 
 	block_start = 0;

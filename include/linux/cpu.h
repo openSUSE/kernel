@@ -2,14 +2,14 @@
 /*
  * include/linux/cpu.h - generic cpu definition
  *
- * This is mainly for topological representation. We define the 
- * basic 'struct cpu' here, which can be embedded in per-arch 
+ * This is mainly for topological representation. We define the
+ * basic 'struct cpu' here, which can be embedded in per-arch
  * definitions of processors.
  *
  * Basic handling of the devices is done in drivers/base/cpu.c
  *
  * CPUs are exported via sysfs in the devices/system/cpu
- * directory. 
+ * directory.
  */
 #ifndef _LINUX_CPU_H_
 #define _LINUX_CPU_H_
@@ -18,6 +18,7 @@
 #include <linux/compiler.h>
 #include <linux/cpumask.h>
 #include <linux/cpuhotplug.h>
+#include <linux/cpuhplock.h>
 #include <linux/cpu_smt.h>
 
 struct device;
@@ -126,36 +127,6 @@ static inline int add_cpu(unsigned int cpu) { return 0;}
 
 #endif /* CONFIG_SMP */
 extern struct bus_type cpu_subsys;
-
-extern int lockdep_is_cpus_held(void);
-
-#ifdef CONFIG_HOTPLUG_CPU
-extern void cpus_write_lock(void);
-extern void cpus_write_unlock(void);
-extern void cpus_read_lock(void);
-extern void cpus_read_unlock(void);
-extern int  cpus_read_trylock(void);
-extern void lockdep_assert_cpus_held(void);
-extern void cpu_hotplug_disable(void);
-extern void cpu_hotplug_enable(void);
-void clear_tasks_mm_cpumask(int cpu);
-int remove_cpu(unsigned int cpu);
-int cpu_device_down(struct device *dev);
-extern void smp_shutdown_nonboot_cpus(unsigned int primary_cpu);
-
-#else /* CONFIG_HOTPLUG_CPU */
-
-static inline void cpus_write_lock(void) { }
-static inline void cpus_write_unlock(void) { }
-static inline void cpus_read_lock(void) { }
-static inline void cpus_read_unlock(void) { }
-static inline int  cpus_read_trylock(void) { return true; }
-static inline void lockdep_assert_cpus_held(void) { }
-static inline void cpu_hotplug_disable(void) { }
-static inline void cpu_hotplug_enable(void) { }
-static inline int remove_cpu(unsigned int cpu) { return -EPERM; }
-static inline void smp_shutdown_nonboot_cpus(unsigned int primary_cpu) { }
-#endif	/* !CONFIG_HOTPLUG_CPU */
 
 #ifdef CONFIG_PM_SLEEP_SMP
 extern int freeze_secondary_cpus(int primary);
