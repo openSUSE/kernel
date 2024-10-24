@@ -105,6 +105,10 @@ typedef struct { pteval_t pte; } pte_t;
 # define VMEMMAP_START		__VMEMMAP_BASE
 #endif /* CONFIG_RANDOMIZE_MEMORY */
 
+#ifdef CONFIG_RANDOMIZE_MEMORY
+# define PHYSMEM_END		physmem_end
+#endif
+
 #define VMALLOC_END		(VMALLOC_START + _AC((VMALLOC_SIZE_TB << 40) - 1, UL))
 
 #define MODULES_VADDR		(__START_KERNEL_map + KERNEL_IMAGE_SIZE)
