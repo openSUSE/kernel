@@ -1364,13 +1364,6 @@ static int mipi_csis_subdev_init(struct mipi_csis_device *csis)
 
 	sd->dev = csis->dev;
 
-	sd->fwnode = fwnode_graph_get_endpoint_by_id(dev_fwnode(csis->dev),
-						     1, 0, 0);
-	if (!sd->fwnode) {
-		dev_err(csis->dev, "Unable to retrieve endpoint for port@1\n");
-		return -ENOENT;
-	}
-
 	csis->pads[CSIS_PAD_SINK].flags = MEDIA_PAD_FL_SINK
 					 | MEDIA_PAD_FL_MUST_CONNECT;
 	csis->pads[CSIS_PAD_SOURCE].flags = MEDIA_PAD_FL_SOURCE
@@ -1497,7 +1490,6 @@ err_cleanup:
 	v4l2_async_unregister_subdev(&csis->sd);
 err_disable_clock:
 	mipi_csis_clk_disable(csis);
-	fwnode_handle_put(csis->sd.fwnode);
 
 	return ret;
 }
@@ -1519,7 +1511,6 @@ static void mipi_csis_remove(struct platform_device *pdev)
 	mipi_csis_clk_disable(csis);
 	v4l2_subdev_cleanup(&csis->sd);
 	media_entity_cleanup(&csis->sd.entity);
-	fwnode_handle_put(csis->sd.fwnode);
 	pm_runtime_set_suspended(&pdev->dev);
 }
 
