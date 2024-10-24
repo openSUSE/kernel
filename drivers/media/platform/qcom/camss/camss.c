@@ -1649,7 +1649,7 @@ static int camss_probe(struct platform_device *pdev)
 		return ret;
 	}
 
-	v4l2_async_nf_init(&camss->notifier);
+	v4l2_async_nf_init(&camss->notifier, &camss->v4l2_dev);
 
 	num_subdevs = camss_of_parse_ports(camss);
 	if (num_subdevs < 0) {
@@ -1664,8 +1664,7 @@ static int camss_probe(struct platform_device *pdev)
 	if (num_subdevs) {
 		camss->notifier.ops = &camss_subdev_notifier_ops;
 
-		ret = v4l2_async_nf_register(&camss->v4l2_dev,
-					     &camss->notifier);
+		ret = v4l2_async_nf_register(&camss->notifier);
 		if (ret) {
 			dev_err(dev,
 				"Failed to register async subdev nodes: %d\n",

@@ -2298,7 +2298,7 @@ static int pxa_camera_probe(struct platform_device *pdev)
 	pcdev->irq = irq;
 	pcdev->base = base;
 
-	v4l2_async_nf_init(&pcdev->notifier);
+	v4l2_async_nf_init(&pcdev->notifier, &pcdev->v4l2_dev);
 	pcdev->res = res;
 	pcdev->pdata = pdev->dev.platform_data;
 	if (pcdev->pdata) {
@@ -2401,7 +2401,7 @@ static int pxa_camera_probe(struct platform_device *pdev)
 	}
 
 	pcdev->notifier.ops = &pxa_camera_sensor_ops;
-	err = v4l2_async_nf_register(&pcdev->v4l2_dev, &pcdev->notifier);
+	err = v4l2_async_nf_register(&pcdev->notifier);
 	if (err)
 		goto exit_v4l2_device_unregister;
 
