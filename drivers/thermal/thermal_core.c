@@ -1472,12 +1472,10 @@ void thermal_zone_device_unregister(struct thermal_zone_device *tz)
 	mutex_lock(&tz->lock);
 	device_del(&tz->device);
 	mutex_unlock(&tz->lock);
-
-	kfree(tz->tzp);
-
 	put_device(&tz->device);
 
 	thermal_notify_tz_delete(tz_id);
+	kfree(tz->tzp);
 }
 EXPORT_SYMBOL_GPL(thermal_zone_device_unregister);
 
