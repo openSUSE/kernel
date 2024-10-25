@@ -2309,6 +2309,7 @@ int remap_pfn_range(struct vm_area_struct *vma, unsigned long addr,
 {
 	pgd_t *pgd;
 	unsigned long next;
+	unsigned long start = addr;
 	unsigned long end = addr + PAGE_ALIGN(size);
 	struct mm_struct *mm = vma->vm_mm;
 	int err;
@@ -2362,8 +2363,15 @@ int remap_pfn_range(struct vm_area_struct *vma, unsigned long addr,
 			break;
 	} while (pgd++, addr = next, addr != end);
 
-	if (err)
+	if (err) {
+		/*
+		 * A partial pfn range mapping is dangerous: it does not
+		 * maintain page reference counts, and callers may free
+		 * pages due to the error. So zap it early.
+		 */
+		zap_vma_ptes(vma, start, size);
 		untrack_pfn_vma(vma, pfn, PAGE_ALIGN(size));
+	}
 
 	return err;
 }
