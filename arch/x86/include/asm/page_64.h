@@ -14,6 +14,7 @@ extern unsigned long phys_base;
 extern unsigned long page_offset_base;
 extern unsigned long vmalloc_base;
 extern unsigned long vmemmap_base;
+extern unsigned long physmem_end;
 
 static inline unsigned long __phys_addr_nodebug(unsigned long x)
 {
