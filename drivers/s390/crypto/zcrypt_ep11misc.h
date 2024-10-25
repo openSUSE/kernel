@@ -54,7 +54,7 @@ static inline bool is_ep11_keyblob(const u8 *key)
  * For valid ep11 keyblobs, returns a reference to the wrappingkey verification
  * pattern. Otherwise NULL.
  */
-const u8 *ep11_kb_wkvp(const u8 *kblob, size_t kbloblen);
+const u8 *ep11_kb_wkvp(const u8 *kblob, u32 kbloblen);
 
 /*
  * Simple check if the key blob is a valid EP11 AES key blob with header.
@@ -63,7 +63,7 @@ const u8 *ep11_kb_wkvp(const u8 *kblob, size_t kbloblen);
  * Returns 0 on success or errno value on failure.
  */
 int ep11_check_aes_key_with_hdr(debug_info_t *dbg, int dbflvl,
-				const u8 *key, size_t keylen, int checkcpacfexp);
+				const u8 *key, u32 keylen, int checkcpacfexp);
 
 /*
  * Simple check if the key blob is a valid EP11 ECC key blob with header.
@@ -72,7 +72,7 @@ int ep11_check_aes_key_with_hdr(debug_info_t *dbg, int dbflvl,
  * Returns 0 on success or errno value on failure.
  */
 int ep11_check_ecc_key_with_hdr(debug_info_t *dbg, int dbflvl,
-				const u8 *key, size_t keylen, int checkcpacfexp);
+				const u8 *key, u32 keylen, int checkcpacfexp);
 
 /*
  * Simple check if the key blob is a valid EP11 AES key blob with
@@ -82,7 +82,7 @@ int ep11_check_ecc_key_with_hdr(debug_info_t *dbg, int dbflvl,
  * Returns 0 on success or errno value on failure.
  */
 int ep11_check_aes_key(debug_info_t *dbg, int dbflvl,
-		       const u8 *key, size_t keylen, int checkcpacfexp);
+		       const u8 *key, u32 keylen, int checkcpacfexp);
 
 /* EP11 card info struct */
 struct ep11_card_info {
@@ -115,13 +115,13 @@ int ep11_get_domain_info(u16 card, u16 domain, struct ep11_domain_info *info);
  * Generate (random) EP11 AES secure key.
  */
 int ep11_genaeskey(u16 card, u16 domain, u32 keybitsize, u32 keygenflags,
-		   u8 *keybuf, size_t *keybufsize, u32 keybufver);
+		   u8 *keybuf, u32 *keybufsize, u32 keybufver);
 
 /*
  * Generate EP11 AES secure key with given clear key value.
  */
 int ep11_clr2keyblob(u16 cardnr, u16 domain, u32 keybitsize, u32 keygenflags,
-		     const u8 *clrkey, u8 *keybuf, size_t *keybufsize,
+		     const u8 *clrkey, u8 *keybuf, u32 *keybufsize,
 		     u32 keytype);
 
 /*
@@ -133,14 +133,14 @@ int ep11_clr2keyblob(u16 cardnr, u16 domain, u32 keybitsize, u32 keygenflags,
  * - if minapi > 0 only apqns with API_ord_nr >= minapi
  * - if wkvp != NULL only apqns where the wkvp (EP11_WKVPLEN bytes) matches
  *   to the first EP11_WKVPLEN bytes of the wkvp of the current wrapping
- *   key for this domain. When a wkvp is given there will aways be a re-fetch
+ *   key for this domain. When a wkvp is given there will always be a re-fetch
  *   of the domain info for the potential apqn - so this triggers an request
  *   reply to each apqn eligible.
  * The array of apqn entries is allocated with kmalloc and returned in *apqns;
  * the number of apqns stored into the list is returned in *nr_apqns. One apqn
  * entry is simple a 32 bit value with 16 bit cardnr and 16 bit domain nr and
  * may be casted to struct pkey_apqn. The return value is either 0 for success
- * or a negative errno value. If no apqn meeting the criterias is found,
+ * or a negative errno value. If no apqn meeting the criteria is found,
  * -ENODEV is returned.
  */
 int ep11_findcard2(u32 **apqns, u32 *nr_apqns, u16 cardnr, u16 domain,
@@ -149,7 +149,7 @@ int ep11_findcard2(u32 **apqns, u32 *nr_apqns, u16 cardnr, u16 domain,
 /*
  * Derive proteced key from EP11 key blob (AES and ECC keys).
  */
-int ep11_kblob2protkey(u16 card, u16 dom, const u8 *key, size_t keylen,
+int ep11_kblob2protkey(u16 card, u16 dom, const u8 *key, u32 keylen,
 		       u8 *protkey, u32 *protkeylen, u32 *protkeytype);
 
 void zcrypt_ep11misc_exit(void);

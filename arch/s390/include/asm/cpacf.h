@@ -53,6 +53,8 @@
 #define CPACF_KM_XTS_256	0x34
 #define CPACF_KM_PXTS_128	0x3a
 #define CPACF_KM_PXTS_256	0x3c
+#define CPACF_KM_XTS_128_FULL	0x52
+#define CPACF_KM_XTS_256_FULL	0x54
 
 /*
  * Function codes for the KMC (CIPHER MESSAGE WITH CHAINING)
@@ -120,23 +122,31 @@
 #define CPACF_KMAC_DEA		0x01
 #define CPACF_KMAC_TDEA_128	0x02
 #define CPACF_KMAC_TDEA_192	0x03
+#define CPACF_KMAC_HMAC_SHA_224	0x70
+#define CPACF_KMAC_HMAC_SHA_256	0x71
+#define CPACF_KMAC_HMAC_SHA_384	0x72
+#define CPACF_KMAC_HMAC_SHA_512	0x73
 
 /*
  * Function codes for the PCKMO (PERFORM CRYPTOGRAPHIC KEY MANAGEMENT)
  * instruction
  */
-#define CPACF_PCKMO_QUERY		0x00
-#define CPACF_PCKMO_ENC_DES_KEY		0x01
-#define CPACF_PCKMO_ENC_TDES_128_KEY	0x02
-#define CPACF_PCKMO_ENC_TDES_192_KEY	0x03
-#define CPACF_PCKMO_ENC_AES_128_KEY	0x12
-#define CPACF_PCKMO_ENC_AES_192_KEY	0x13
-#define CPACF_PCKMO_ENC_AES_256_KEY	0x14
-#define CPACF_PCKMO_ENC_ECC_P256_KEY	0x20
-#define CPACF_PCKMO_ENC_ECC_P384_KEY	0x21
-#define CPACF_PCKMO_ENC_ECC_P521_KEY	0x22
-#define CPACF_PCKMO_ENC_ECC_ED25519_KEY	0x28
-#define CPACF_PCKMO_ENC_ECC_ED448_KEY	0x29
+#define CPACF_PCKMO_QUERY		       0x00
+#define CPACF_PCKMO_ENC_DES_KEY		       0x01
+#define CPACF_PCKMO_ENC_TDES_128_KEY	       0x02
+#define CPACF_PCKMO_ENC_TDES_192_KEY	       0x03
+#define CPACF_PCKMO_ENC_AES_128_KEY	       0x12
+#define CPACF_PCKMO_ENC_AES_192_KEY	       0x13
+#define CPACF_PCKMO_ENC_AES_256_KEY	       0x14
+#define CPACF_PCKMO_ENC_AES_XTS_128_DOUBLE_KEY 0x15
+#define CPACF_PCKMO_ENC_AES_XTS_256_DOUBLE_KEY 0x16
+#define CPACF_PCKMO_ENC_ECC_P256_KEY	       0x20
+#define CPACF_PCKMO_ENC_ECC_P384_KEY	       0x21
+#define CPACF_PCKMO_ENC_ECC_P521_KEY	       0x22
+#define CPACF_PCKMO_ENC_ECC_ED25519_KEY	       0x28
+#define CPACF_PCKMO_ENC_ECC_ED448_KEY	       0x29
+#define CPACF_PCKMO_ENC_HMAC_512_KEY	       0x76
+#define CPACF_PCKMO_ENC_HMAC_1024_KEY	       0x7a
 
 /*
  * Function codes for the PRNO (PERFORM RANDOM NUMBER OPERATION)
@@ -163,6 +173,14 @@
 #define CPACF_KMA_LPC	0x100	/* Last-Plaintext/Ciphertext */
 #define CPACF_KMA_LAAD	0x200	/* Last-AAD */
 #define CPACF_KMA_HS	0x400	/* Hash-subkey Supplied */
+
+/*
+ * Flags for the KIMD/KLMD (COMPUTE INTERMEDIATE/LAST MESSAGE DIGEST)
+ * instructions
+ */
+#define CPACF_KIMD_NIP		0x8000
+#define CPACF_KLMD_DUFOP	0x4000
+#define CPACF_KLMD_NIP		0x8000
 
 typedef struct { unsigned char bytes[16]; } cpacf_mask_t;
 
@@ -390,7 +408,7 @@ static inline void cpacf_kimd(unsigned long func, void *param,
 	asm volatile(
 		"	lgr	0,%[fc]\n"
 		"	lgr	1,%[pba]\n"
-		"0:	.insn	rre,%[opc] << 16,0,%[src]\n"
+		"0:	.insn	rrf,%[opc] << 16,0,%[src],8,0\n"
 		"	brc	1,0b\n" /* handle partial completion */
 		: [src] "+&d" (s.pair)
 		: [fc] "d" (func), [pba] "d" ((unsigned long)(param)),
@@ -415,7 +433,7 @@ static inline void cpacf_klmd(unsigned long func, void *param,
 	asm volatile(
 		"	lgr	0,%[fc]\n"
 		"	lgr	1,%[pba]\n"
-		"0:	.insn	rre,%[opc] << 16,0,%[src]\n"
+		"0:	.insn	rrf,%[opc] << 16,0,%[src],8,0\n"
 		"	brc	1,0b\n" /* handle partial completion */
 		: [src] "+&d" (s.pair)
 		: [fc] "d" (func), [pba] "d" ((unsigned long)param),
@@ -424,9 +442,40 @@ static inline void cpacf_klmd(unsigned long func, void *param,
 }
 
 /**
+ * _cpacf_kmac() - executes the KMAC (COMPUTE MESSAGE AUTHENTICATION CODE)
+ * instruction and updates flags in gr0
+ * @gr0: pointer to gr0 (fc and flags) passed to KMAC; see CPACF_KMAC_xxx defines
+ * @param: address of parameter block; see POP for details on each func
+ * @src: address of source memory area
+ * @src_len: length of src operand in bytes
+ *
+ * Returns 0 for the query func, number of processed bytes for digest funcs
+ */
+static inline int _cpacf_kmac(unsigned long *gr0, void *param,
+			      const u8 *src, long src_len)
+{
+	union register_pair s;
+
+	s.even = (unsigned long)src;
+	s.odd  = (unsigned long)src_len;
+	asm volatile(
+		"	lgr	0,%[r0]\n"
+		"	lgr	1,%[pba]\n"
+		"0:	.insn	rre,%[opc] << 16,0,%[src]\n"
+		"	brc	1,0b\n" /* handle partial completion */
+		"	lgr	%[r0],0\n"
+		: [r0] "+d" (*gr0), [src] "+&d" (s.pair)
+		: [pba] "d" ((unsigned long)param),
+		  [opc] "i" (CPACF_KMAC)
+		: "cc", "memory", "0", "1");
+
+	return src_len - s.odd;
+}
+
+/**
  * cpacf_kmac() - executes the KMAC (COMPUTE MESSAGE AUTHENTICATION CODE)
- *		  instruction
- * @func: the function code passed to KM; see CPACF_KMAC_xxx defines
+ * instruction
+ * @func: function code passed to KMAC; see CPACF_KMAC_xxx defines
  * @param: address of parameter block; see POP for details on each func
  * @src: address of source memory area
  * @src_len: length of src operand in bytes
@@ -436,21 +485,7 @@ static inline void cpacf_klmd(unsigned long func, void *param,
 static inline int cpacf_kmac(unsigned long func, void *param,
 			     const u8 *src, long src_len)
 {
-	union register_pair s;
-
-	s.even = (unsigned long)src;
-	s.odd  = (unsigned long)src_len;
-	asm volatile(
-		"	lgr	0,%[fc]\n"
-		"	lgr	1,%[pba]\n"
-		"0:	.insn	rre,%[opc] << 16,0,%[src]\n"
-		"	brc	1,0b\n" /* handle partial completion */
-		: [src] "+&d" (s.pair)
-		: [fc] "d" (func), [pba] "d" ((unsigned long)param),
-		  [opc] "i" (CPACF_KMAC)
-		: "cc", "memory", "0", "1");
-
-	return src_len - s.odd;
+	return _cpacf_kmac(&func, param, src, src_len);
 }
 
 /**
