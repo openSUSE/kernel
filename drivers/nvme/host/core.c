@@ -4063,7 +4063,7 @@ static void nvme_ns_remove(struct nvme_ns *ns)
 	mutex_unlock(&ns->ctrl->subsys->lock);
 
 	/* guarantee not available in head->list */
-	synchronize_rcu();
+	synchronize_srcu(&ns->head->srcu);
 
 	if (ns->disk->flags & GENHD_FL_UP) {
 		del_gendisk(ns->disk);
