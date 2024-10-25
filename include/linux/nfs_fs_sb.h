@@ -257,6 +257,9 @@ struct nfs_server {
 	/* User namespace info */
 	const struct cred	*cred;
 	bool			has_sec_mnt_opts;
+#ifndef __GENKSYMS__
+	struct list_head	ss_src_copies;
+#endif
 };
 
 /* Server capabilities */
