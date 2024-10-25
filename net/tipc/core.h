@@ -94,6 +94,11 @@ struct tipc_net {
 	struct tipc_monitor *monitors[MAX_BEARERS];
 	int mon_threshold;
 
+#ifndef __GENKSYMS__
+	/* The numbers of work queues in schedule */
+	atomic_t wq_count;
+#endif
+
 	/* Bearer list */
 	struct tipc_bearer __rcu *bearer_list[MAX_BEARERS + 1];
 
