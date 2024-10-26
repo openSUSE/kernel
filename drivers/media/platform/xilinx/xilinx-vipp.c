@@ -55,11 +55,18 @@ xvip_graph_find_entity(struct xvip_composite_device *xdev,
 {
 	struct xvip_graph_entity *entity;
 	struct v4l2_async_connection *asd;
+	struct list_head *lists[] = {
+		&xdev->notifier.done_list,
+		&xdev->notifier.waiting_list
+	};
+	unsigned int i;
 
-	list_for_each_entry(asd, &xdev->notifier.asc_list, asc_entry) {
-		entity = to_xvip_entity(asd);
-		if (entity->asd.match.fwnode == fwnode)
-			return entity;
+	for (i = 0; i < ARRAY_SIZE(lists); i++) {
+		list_for_each_entry(asd, lists[i], asc_entry) {
+			entity = to_xvip_entity(asd);
+			if (entity->asd.match.fwnode == fwnode)
+				return entity;
+		}
 	}
 
 	return NULL;
@@ -291,7 +298,7 @@ static int xvip_graph_notify_complete(struct v4l2_async_notifier *notifier)
 	dev_dbg(xdev->dev, "notify complete, all subdevs registered\n");
 
 	/* Create links for every entity. */
-	list_for_each_entry(asd, &xdev->notifier.asc_list, asc_entry) {
+	list_for_each_entry(asd, &xdev->notifier.done_list, asc_entry) {
 		entity = to_xvip_entity(asd);
 		ret = xvip_graph_build_one(xdev, entity);
 		if (ret < 0)
@@ -393,7 +400,7 @@ static int xvip_graph_parse(struct xvip_composite_device *xdev)
 	if (ret < 0)
 		return 0;
 
-	list_for_each_entry(asd, &xdev->notifier.asc_list, asc_entry) {
+	list_for_each_entry(asd, &xdev->notifier.waiting_list, asc_entry) {
 		entity = to_xvip_entity(asd);
 		ret = xvip_graph_parse_one(xdev, entity->asd.match.fwnode);
 		if (ret < 0) {
@@ -494,6 +501,8 @@ static int xvip_graph_init(struct xvip_composite_device *xdev)
 		goto done;
 	}
 
+	v4l2_async_nf_init(&xdev->notifier);
+
 	/* Parse the graph to extract a list of subdevice DT nodes. */
 	ret = xvip_graph_parse(xdev);
 	if (ret < 0) {
@@ -501,7 +510,7 @@ static int xvip_graph_init(struct xvip_composite_device *xdev)
 		goto done;
 	}
 
-	if (list_empty(&xdev->notifier.asc_list)) {
+	if (list_empty(&xdev->notifier.waiting_list)) {
 		dev_err(xdev->dev, "no subdev found in graph\n");
 		ret = -ENOENT;
 		goto done;
@@ -574,7 +583,6 @@ static int xvip_composite_probe(struct platform_device *pdev)
 
 	xdev->dev = &pdev->dev;
 	INIT_LIST_HEAD(&xdev->dmas);
-	v4l2_async_nf_init(&xdev->notifier);
 
 	ret = xvip_composite_v4l2_init(xdev);
 	if (ret < 0)
