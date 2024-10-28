@@ -94,6 +94,7 @@ struct btrfs_inode {
 	 * the log or not (last_trans, last_sub_trans, last_log_commit,
 	 * logged_trans), to access/update new_delalloc_bytes and to update the
 	 * VFS' inode number of bytes used.
+	 * Also protects setting struct file::private_data.
 	 */
 	spinlock_t lock;
 
