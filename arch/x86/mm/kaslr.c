@@ -63,12 +63,15 @@ static __initdata struct kaslr_memory_region {
 	{
 		.base	= &page_offset_base,
 		.end	= &physmem_end,
+		.size_tb = 64/* Maximum */,
 	},
 	{
 		.base	= &vmalloc_base,
+		.size_tb = VMALLOC_SIZE_TB,
 	},
 	{
 		.base	= &vmemmap_base,
+		.size_tb = 1,
 	},
 };
 
