@@ -553,6 +553,12 @@ void blk_queue_alignment_offset(struct request_queue *q, unsigned int offset)
 }
 EXPORT_SYMBOL(blk_queue_alignment_offset);
 
+void disk_update_readahead(struct gendisk *disk)
+{
+	blk_apply_bdi_limits(disk->bdi, &disk->queue->limits);
+}
+EXPORT_SYMBOL_GPL(disk_update_readahead);
+
 /**
  * blk_limits_io_min - set minimum request size for a device
  * @limits: the queue limits
