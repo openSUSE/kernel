@@ -1434,7 +1434,7 @@ free_edac_mc:
  *
  * Return: Unconditionally 0
  */
-static int mc_remove(struct platform_device *pdev)
+static void mc_remove(struct platform_device *pdev)
 {
 	struct mem_ctl_info *mci = platform_get_drvdata(pdev);
 	struct synps_edac_priv *priv = mci->pvt_info;
@@ -1449,8 +1449,6 @@ static int mc_remove(struct platform_device *pdev)
 
 	edac_mc_del_mc(&pdev->dev);
 	edac_mc_free(mci);
-
-	return 0;
 }
 
 static struct platform_driver synps_edac_mc_driver = {
@@ -1459,7 +1457,7 @@ static struct platform_driver synps_edac_mc_driver = {
 		   .of_match_table = synps_edac_match,
 		   },
 	.probe = mc_probe,
-	.remove = mc_remove,
+	.remove_new = mc_remove,
 };
 
 module_platform_driver(synps_edac_mc_driver);
