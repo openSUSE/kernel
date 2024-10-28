@@ -96,11 +96,16 @@ EXPORT_SYMBOL(dotdot_name);
  *
  * This hash-function tries to avoid losing too many bits of hash
  * information, yet avoid using a prime hash-size or similar.
+ *
+ * Marking the variables "used" ensures that the compiler doesn't
+ * optimize them away completely on architectures with runtime
+ * constant infrastructure, this allows debuggers to see their
+ * values. But updating these values has no effect on those arches.
  */
 
-static unsigned int d_hash_shift __read_mostly;
+static unsigned int d_hash_shift __ro_after_init __used;
 
-static struct hlist_bl_head *dentry_hashtable __read_mostly;
+static struct hlist_bl_head *dentry_hashtable __ro_after_init __used;
 
 static inline struct hlist_bl_head *d_hash(unsigned long hashlen)
 {
@@ -298,7 +303,7 @@ static void __d_free(struct rcu_head *head)
 {
 	struct dentry *dentry = container_of(head, struct dentry, d_u.d_rcu);
 
-	kmem_cache_free(dentry_cache, dentry); 
+	kmem_cache_free(dentry_cache, dentry);
 }
 
 static void __d_free_external(struct rcu_head *head)
@@ -869,7 +874,7 @@ locked:
 }
 
 
-/* 
+/*
  * This is dput
  *
  * This is complicated by the fact that we do not want to put
@@ -888,7 +893,7 @@ locked:
 
 /*
  * dput - release a dentry
- * @dentry: dentry to release 
+ * @dentry: dentry to release
  *
  * Release a dentry. This will drop the usage count and if appropriate
  * call the dentry unlink method as well as removing it from the queues and
@@ -1763,7 +1768,7 @@ EXPORT_SYMBOL(d_invalidate);
  * available. On a success the dentry is returned. The name passed in is
  * copied and the copy passed in may be reused after this call.
  */
- 
+
 static struct dentry *__d_alloc(struct super_block *sb, const struct qstr *name)
 {
 	struct dentry *dentry;
@@ -1791,14 +1796,14 @@ static struct dentry *__d_alloc(struct super_block *sb, const struct qstr *name)
 						  GFP_KERNEL_ACCOUNT |
 						  __GFP_RECLAIMABLE);
 		if (!p) {
-			kmem_cache_free(dentry_cache, dentry); 
+			kmem_cache_free(dentry_cache, dentry);
 			return NULL;
 		}
 		atomic_set(&p->u.count, 1);
 		dname = p->name;
 	} else  {
 		dname = dentry->d_iname;
-	}	
+	}
 
 	dentry->d_name.len = name->len;
 	dentry->d_name.hash = name->hash;
@@ -2030,7 +2035,7 @@ static void __d_instantiate(struct dentry *dentry, struct inode *inode)
  * (or otherwise set) by the caller to indicate that it is now
  * in use by the dcache.
  */
- 
+
 void d_instantiate(struct dentry *entry, struct inode * inode)
 {
 	BUG_ON(!hlist_unhashed(&entry->d_u.d_alias));
@@ -2240,7 +2245,7 @@ struct dentry *d_add_ci(struct dentry *dentry, struct inode *inode,
 		if (!found) {
 			iput(inode);
 			return ERR_PTR(-ENOMEM);
-		} 
+		}
 	}
 	res = d_splice_alias(inode, found);
 	if (res) {
@@ -2483,7 +2488,7 @@ struct dentry *__d_lookup(const struct dentry *parent, const struct qstr *name)
 	 * See Documentation/filesystems/path-lookup.txt for more details.
 	 */
 	rcu_read_lock();
-	
+
 	hlist_bl_for_each_entry_rcu(dentry, node, b, d_hash) {
 
 		if (dentry->d_name.hash != hash)
@@ -2546,7 +2551,7 @@ EXPORT_SYMBOL(d_hash_and_lookup);
  * it from the hash queues and waiting for
  * it to be deleted later when it has no users
  */
- 
+
 /**
  * d_delete - delete a dentry
  * @dentry: The dentry to delete
@@ -2554,7 +2559,7 @@ EXPORT_SYMBOL(d_hash_and_lookup);
  * Turn the dentry into a negative dentry if possible, otherwise
  * remove it from the hash queues so it can be deleted later
  */
- 
+
 void d_delete(struct dentry * dentry)
 {
 	struct inode *inode = dentry->d_inode;
@@ -2590,7 +2595,7 @@ static void __d_rehash(struct dentry *entry)
  *
  * Adds a dentry to the hash according to its name.
  */
- 
+
 void d_rehash(struct dentry * entry)
 {
 	spin_lock(&entry->d_lock);
@@ -3203,7 +3208,7 @@ EXPORT_SYMBOL(d_splice_alias);
  * Returns false otherwise.
  * Caller must ensure that "new_dentry" is pinned before calling is_subdir()
  */
-  
+
 bool is_subdir(struct dentry *new_dentry, struct dentry *old_dentry)
 {
 	bool result;
