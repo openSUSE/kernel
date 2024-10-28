@@ -175,16 +175,6 @@ static int blk_validate_limits(struct queue_limits *lim)
 		return -EINVAL;
 
 	/*
-	 * The maximum segment size has an odd historic 64k default that
-	 * drivers probably should override.  Just like the I/O size we
-	 * require drivers to at least handle a full page per segment.
-	 */
-	if (!lim->max_segment_size)
-		lim->max_segment_size = BLK_MAX_SEGMENT_SIZE;
-	if (WARN_ON_ONCE(lim->max_segment_size < PAGE_SIZE))
-		return -EINVAL;
-
-	/*
 	 * Devices that require a virtual boundary do not support scatter/gather
 	 * I/O natively, but instead require a descriptor list entry for each
 	 * page (which might not be identical to the Linux PAGE_SIZE).  Because
@@ -195,6 +185,16 @@ static int blk_validate_limits(struct queue_limits *lim)
 				 lim->max_segment_size != UINT_MAX))
 			return -EINVAL;
 		lim->max_segment_size = UINT_MAX;
+	} else {
+		/*
+		 * The maximum segment size has an odd historic 64k default that
+		 * drivers probably should override.  Just like the I/O size we
+		 * require drivers to at least handle a full page per segment.
+		 */
+		if (!lim->max_segment_size)
+			lim->max_segment_size = BLK_MAX_SEGMENT_SIZE;
+		if (WARN_ON_ONCE(lim->max_segment_size < PAGE_SIZE))
+			return -EINVAL;
 	}
 
 	/*
