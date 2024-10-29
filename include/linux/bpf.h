@@ -264,6 +264,7 @@ struct bpf_map {
 	bool frozen; /* write-once; write-protected by freeze_mutex */
 #ifndef __GENKSYMS__
 	bool free_after_mult_rcu_gp;
+	const struct btf_type *owner_attach_func_proto;
 #else
 	void *suse_kabi_padding;
 #endif
