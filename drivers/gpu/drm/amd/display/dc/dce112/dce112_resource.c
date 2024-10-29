@@ -936,6 +936,9 @@ static void bw_calcs_data_update_from_pplib(struct dc *dc)
 	struct dm_pp_wm_sets_with_clock_ranges clk_ranges = {0};
 	struct dm_pp_clock_levels clks = {0};
 
+	if (!dc->bw_vbios)
+		return;
+
 	/*do system clock  TODO PPLIB: after PPLIB implement,
 	 * then remove old way
 	 */
