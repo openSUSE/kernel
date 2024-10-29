@@ -55,7 +55,6 @@
 #include "dce110/dce110_resource.h"
 #include "dce/dce_aux.h"
 #include "dce/dce_i2c.h"
-#include "dcn201/dcn201_hubbub.h"
 #include "dcn10/dcn10_resource.h"
 
 #include "cyan_skillfish_ip_offset.h"
@@ -182,6 +181,7 @@ static struct _vcs_dpi_soc_bounding_box_st dcn201_soc = {
 				.socclk_mhz = 1254.0,
 				.dram_speed_mts = 14000.0,
 			},
+			/* state4 is not an actual state, just defines unsupported for dml*/
 			{
 				.state = 4,
 				.dscclk_mhz = 400.0,
@@ -566,6 +566,8 @@ static const struct resource_caps res_cap_dnc201 = {
 		.num_audio = 2,
 		.num_stream_encoder = 2,
 		.num_pll = 2,
+		.num_dwb = 0,
+		.num_dsc = 0,
 		.num_ddc = 2,
 };
 
@@ -612,7 +614,7 @@ static const struct dc_debug_options debug_defaults_drv = {
 		.scl_reset_length10 = true,
 		.sanity_checks = false,
 		.underflow_assert_delay_us = 0xFFFFFFFF,
-		.enable_tri_buf = false,
+		.enable_tri_buf = true,
 		.enable_legacy_fast_update = true,
 		.using_dml2 = false,
 };
@@ -1003,8 +1005,10 @@ static struct pipe_ctx *dcn201_acquire_free_pipe_for_layer(
 	struct pipe_ctx *head_pipe = resource_get_otg_master_for_stream(res_ctx, opp_head_pipe->stream);
 	struct pipe_ctx *idle_pipe = resource_find_free_secondary_pipe_legacy(res_ctx, pool, head_pipe);
 
-	if (!head_pipe)
+	if (!head_pipe) {
 		ASSERT(0);
+		return NULL;
+	}
 
 	if (!idle_pipe)
 		return NULL;
