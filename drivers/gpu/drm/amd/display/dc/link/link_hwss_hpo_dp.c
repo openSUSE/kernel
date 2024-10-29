@@ -171,6 +171,11 @@ static void enable_hpo_dp_fpga_link_output(struct dc_link *link,
 			link_settings->link_rate == LINK_RATE_UHBR13_5 ? 412875 :
 			link_settings->link_rate == LINK_RATE_UHBR20 ? 625000 : 0;
 
+	if (!link_res->hpo_dp_link_enc) {
+		DC_LOG_ERROR("%s: invalid hpo_dp_link_enc\n", __func__);
+		return;
+	}
+
 	dm_set_phyd32clk(dc->ctx, phyd32clk_freq_khz);
 	dc->res_pool->dccg->funcs->set_physymclk(
 			dc->res_pool->dccg,
