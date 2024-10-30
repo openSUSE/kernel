@@ -2292,7 +2292,7 @@ rollback:
 	put_page(hpage);
 out:
 	VM_BUG_ON(!list_empty(&pagelist));
-	trace_mm_khugepaged_collapse_file(mm, hpage, index, is_shmem, addr, file, nr, result);
+	trace_mm_khugepaged_collapse_file(mm, hpage, index, addr, is_shmem, file, HPAGE_PMD_NR, result);
 	return result;
 }
 
