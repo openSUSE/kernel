@@ -2038,7 +2038,7 @@ static int loop_add(int i)
 	}
 	lo->lo_queue = lo->lo_disk->queue;
 
-	blk_queue_max_hw_sectors(lo->lo_queue, BLK_DEF_MAX_SECTORS);
+	blk_queue_max_hw_sectors(lo->lo_queue, BLK_DEF_MAX_SECTORS_CAP);
 
 	/*
 	 * By default, we do buffer IO, so it doesn't make sense to enable
