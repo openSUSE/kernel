@@ -4800,6 +4800,7 @@ static int __init platform_optin_force_iommu(void)
 
 	for_each_pci_dev(pdev) {
 		if (pdev->untrusted) {
+			pci_dev_put(pdev);
 			has_untrusted_dev = true;
 			break;
 		}
