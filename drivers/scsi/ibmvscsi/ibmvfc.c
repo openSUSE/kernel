@@ -37,7 +37,7 @@ static unsigned int default_timeout = IBMVFC_DEFAULT_TIMEOUT;
 static u64 max_lun = IBMVFC_MAX_LUN;
 static unsigned int max_targets = IBMVFC_MAX_TARGETS;
 static unsigned int max_requests = IBMVFC_MAX_REQUESTS_DEFAULT;
-static unsigned int max_sectors = IBMVFC_MAX_SECTORS;
+static u16 max_sectors = IBMVFC_MAX_SECTORS;
 static unsigned int disc_threads = IBMVFC_MAX_DISC_THREADS;
 static unsigned int ibmvfc_debug = IBMVFC_DEBUG;
 static unsigned int log_level = IBMVFC_DEFAULT_LOG_LEVEL;
@@ -83,7 +83,7 @@ MODULE_PARM_DESC(default_timeout,
 module_param_named(max_requests, max_requests, uint, S_IRUGO);
 MODULE_PARM_DESC(max_requests, "Maximum requests for this adapter. "
 		 "[Default=" __stringify(IBMVFC_MAX_REQUESTS_DEFAULT) "]");
-module_param_named(max_sectors, max_sectors, uint, S_IRUGO);
+module_param_named(max_sectors, max_sectors, ushort, S_IRUGO);
 MODULE_PARM_DESC(max_sectors, "Maximum sectors for this adapter. "
 		 "[Default=" __stringify(IBMVFC_MAX_SECTORS) "]");
 module_param_named(max_lun, max_lun, ullong, S_IRUGO);
@@ -1479,7 +1479,7 @@ static void ibmvfc_set_login_info(struct ibmvfc_host *vhost)
 	memset(login_info, 0, sizeof(*login_info));
 
 	login_info->ostype = cpu_to_be32(IBMVFC_OS_LINUX);
-	login_info->max_dma_len = cpu_to_be64(IBMVFC_MAX_SECTORS << 9);
+	login_info->max_dma_len = cpu_to_be64(max_sectors << 9);
 	login_info->max_payload = cpu_to_be32(sizeof(struct ibmvfc_fcp_cmd_iu));
 	login_info->max_response = cpu_to_be32(sizeof(struct ibmvfc_fcp_rsp));
 	login_info->partition_num = cpu_to_be32(vhost->partition_number);
@@ -6120,7 +6120,7 @@ static int ibmvfc_probe(struct vio_dev *vdev, const struct vio_device_id *id)
 	shost->can_queue = max_requests;
 	shost->max_lun = max_lun;
 	shost->max_id = max_targets;
-	shost->max_sectors = IBMVFC_MAX_SECTORS;
+	shost->max_sectors = max_sectors;
 	shost->max_cmd_len = IBMVFC_MAX_CDB_LEN;
 	shost->unique_id = shost->host_no;
 	shost->nr_hw_queues = mq_enabled ? min(max_scsi_queues, nr_scsi_hw_queues) : 1;
@@ -6345,6 +6345,7 @@ static struct fc_function_template ibmvfc_transport_functions = {
  **/
 static int __init ibmvfc_module_init(void)
 {
+	int min_max_sectors = PAGE_SIZE >> 9;
 	int rc;
 
 	if (!firmware_has_feature(FW_FEATURE_VIO))
@@ -6352,6 +6353,16 @@ static int __init ibmvfc_module_init(void)
 
 	printk(KERN_INFO IBMVFC_NAME": IBM Virtual Fibre Channel Driver version: %s %s\n",
 	       IBMVFC_DRIVER_VERSION, IBMVFC_DRIVER_DATE);
+
+	/*
+	 * Range check the max_sectors module parameter. The upper bounds is
+	 * implicity checked since the parameter is a ushort.
+	 */
+	if (max_sectors < min_max_sectors) {
+		printk(KERN_ERR IBMVFC_NAME ": max_sectors must be at least %d.\n",
+			min_max_sectors);
+		max_sectors = min_max_sectors;
+	}
 
 	ibmvfc_transport_template = fc_attach_transport(&ibmvfc_transport_functions);
 	if (!ibmvfc_transport_template)
