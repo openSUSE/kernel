@@ -193,7 +193,12 @@ static bool is_pin_busy(
 {
 	const uint32_t bits_per_uint = sizeof(uint32_t) << 3;
 
-	const uint32_t *slot = service->busyness[id] + (en / bits_per_uint);
+	const uint32_t *slot;
+
+	if (id == GPIO_ID_UNKNOWN)
+		return false;
+
+	slot = service->busyness[id] + (en / bits_per_uint);
 
 	return 0 != (*slot & (1 << (en % bits_per_uint)));
 }
@@ -205,6 +210,9 @@ static void set_pin_busy(
 {
 	const uint32_t bits_per_uint = sizeof(uint32_t) << 3;
 
+	if (id == GPIO_ID_UNKNOWN)
+		return;
+
 	service->busyness[id][en / bits_per_uint] |=
 		(1 << (en % bits_per_uint));
 }
@@ -215,6 +223,9 @@ static void set_pin_free(
 	uint32_t en)
 {
 	const uint32_t bits_per_uint = sizeof(uint32_t) << 3;
+
+	if (id == GPIO_ID_UNKNOWN)
+		return;
 
 	service->busyness[id][en / bits_per_uint] &=
 		~(1 << (en % bits_per_uint));
