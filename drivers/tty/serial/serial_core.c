@@ -279,11 +279,13 @@ static void uart_shutdown(struct tty_struct *tty, struct uart_state *state)
 		/*
 		 * Turn off DTR and RTS early.
 		 */
-		if (uport && uart_console(uport) && tty)
-			uport->cons->cflag = tty->termios.c_cflag;
+		if (uport) {
+			if (uart_console(uport) && tty)
+				uport->cons->cflag = tty->termios.c_cflag;
 
-		if (!tty || C_HUPCL(tty))
-			uart_clear_mctrl(uport, TIOCM_DTR | TIOCM_RTS);
+			if (!tty || C_HUPCL(tty))
+				uart_clear_mctrl(uport, TIOCM_DTR | TIOCM_RTS);
+		}
 
 		uart_port_shutdown(port);
 	}
