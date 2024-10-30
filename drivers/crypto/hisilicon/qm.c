@@ -4601,6 +4601,28 @@ static void qm_reset_bit_clear(struct hisi_qm *qm)
 	clear_bit(QM_RESETTING, &qm->misc_ctl);
 }
 
+static void qm_dev_ecc_mbit_handle(struct hisi_qm *qm)
+{
+	u32 nfe_enb = 0;
+
+	/* Kunpeng930 hardware automatically close master ooo when NFE occurs */
+	if (qm->ver >= QM_HW_V3)
+		return;
+
+	if (!qm->err_status.is_dev_ecc_mbit &&
+	    qm->err_status.is_qm_ecc_mbit &&
+	    qm->err_ini->close_axi_master_ooo) {
+		qm->err_ini->close_axi_master_ooo(qm);
+	} else if (qm->err_status.is_dev_ecc_mbit &&
+		   !qm->err_status.is_qm_ecc_mbit &&
+		   !qm->err_ini->close_axi_master_ooo) {
+		nfe_enb = readl(qm->io_base + QM_RAS_NFE_ENABLE);
+		writel(nfe_enb & QM_RAS_NFE_MBIT_DISABLE,
+		       qm->io_base + QM_RAS_NFE_ENABLE);
+		writel(QM_ECC_MBIT, qm->io_base + QM_ABNORMAL_INT_SET);
+	}
+}
+
 static int qm_controller_reset_prepare(struct hisi_qm *qm)
 {
 	struct pci_dev *pdev = qm->pdev;
@@ -4611,6 +4633,8 @@ static int qm_controller_reset_prepare(struct hisi_qm *qm)
 		pci_err(pdev, "Controller reset not ready!\n");
 		return ret;
 	}
+
+	qm_dev_ecc_mbit_handle(qm);
 
 	/* PF obtains the information of VF by querying the register. */
 	qm_cmd_uninit(qm);
@@ -4634,31 +4658,6 @@ static int qm_controller_reset_prepare(struct hisi_qm *qm)
 	clear_bit(QM_RST_SCHED, &qm->misc_ctl);
 
 	return 0;
-}
-
-static void qm_dev_ecc_mbit_handle(struct hisi_qm *qm)
-{
-	u32 nfe_enb = 0;
-
-	/* Kunpeng930 hardware automatically close master ooo when NFE occurs */
-	if (qm->ver >= QM_HW_V3)
-		return;
-
-	if (!qm->err_status.is_dev_ecc_mbit &&
-	    qm->err_status.is_qm_ecc_mbit &&
-	    qm->err_ini->close_axi_master_ooo) {
-
-		qm->err_ini->close_axi_master_ooo(qm);
-
-	} else if (qm->err_status.is_dev_ecc_mbit &&
-		   !qm->err_status.is_qm_ecc_mbit &&
-		   !qm->err_ini->close_axi_master_ooo) {
-
-		nfe_enb = readl(qm->io_base + QM_RAS_NFE_ENABLE);
-		writel(nfe_enb & QM_RAS_NFE_MBIT_DISABLE,
-		       qm->io_base + QM_RAS_NFE_ENABLE);
-		writel(QM_ECC_MBIT, qm->io_base + QM_ABNORMAL_INT_SET);
-	}
 }
 
 static int qm_soft_reset(struct hisi_qm *qm)
@@ -4685,8 +4684,6 @@ static int qm_soft_reset(struct hisi_qm *qm)
 		pci_err(pdev, "Fails to disable PEH MSI bit.\n");
 		return ret;
 	}
-
-	qm_dev_ecc_mbit_handle(qm);
 
 	/* OOO register set and check */
 	writel(ACC_MASTER_GLOBAL_CTRL_SHUTDOWN,
@@ -4954,8 +4951,6 @@ pci_ers_result_t hisi_qm_dev_slot_reset(struct pci_dev *pdev)
 	if (pdev->is_virtfn)
 		return PCI_ERS_RESULT_RECOVERED;
 
-	pci_aer_clear_nonfatal_status(pdev);
-
 	/* reset pcie device controller */
 	ret = qm_controller_reset(qm);
 	if (ret) {
@@ -5201,6 +5196,7 @@ static void qm_pf_reset_vf_done(struct hisi_qm *qm)
 		cmd = QM_VF_START_FAIL;
 	}
 
+	qm_cmd_init(qm);
 	ret = qm->ops->ping_pf(qm, cmd);
 	if (ret)
 		dev_warn(&pdev->dev, "PF responds timeout in reset done!\n");
@@ -5262,7 +5258,6 @@ static void qm_pf_reset_vf_process(struct hisi_qm *qm,
 		goto err_get_status;
 
 	qm_pf_reset_vf_done(qm);
-	qm_cmd_init(qm);
 
 	dev_info(dev, "device reset done.\n");
 
