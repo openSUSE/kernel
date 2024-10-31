@@ -1520,7 +1520,7 @@ void xe_guc_submit_reset_wait(struct xe_guc *guc)
 	wait_event(guc->ct.wq, !guc_read_stopped(guc));
 }
 
-int xe_guc_submit_stop(struct xe_guc *guc)
+void xe_guc_submit_stop(struct xe_guc *guc)
 {
 	struct xe_exec_queue *q;
 	unsigned long index;
@@ -1540,7 +1540,6 @@ int xe_guc_submit_stop(struct xe_guc *guc)
 	 * creation which is protected by guc->submission_state.lock.
 	 */
 
-	return 0;
 }
 
 static void guc_exec_queue_start(struct xe_exec_queue *q)
