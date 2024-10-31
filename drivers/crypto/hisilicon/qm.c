@@ -947,6 +947,11 @@ static irqreturn_t qm_mb_cmd_irq(int irq, void *data)
 	if (!val)
 		return IRQ_NONE;
 
+	if (test_bit(QM_DRIVER_REMOVING, &qm->misc_ctl)) {
+		dev_warn(&qm->pdev->dev, "Driver is down, message cannot be processed!\n");
+		return IRQ_HANDLED;
+	}
+
 	schedule_work(&qm->cmd_process);
 
 	return IRQ_HANDLED;
@@ -2727,6 +2732,9 @@ void hisi_qm_wait_task_finish(struct hisi_qm *qm, struct hisi_qm_list *qm_list)
 	       test_bit(QM_RESETTING, &qm->misc_ctl))
 		msleep(WAIT_PERIOD);
 
+	if (test_bit(QM_SUPPORT_MB_COMMAND, &qm->caps))
+		flush_work(&qm->cmd_process);
+
 	udelay(REMOVE_WAIT_DELAY);
 }
 EXPORT_SYMBOL_GPL(hisi_qm_wait_task_finish);
@@ -4107,6 +4115,28 @@ static int qm_try_stop_vfs(struct hisi_qm *qm, u64 cmd,
 	return ret;
 }
 
+static void qm_dev_ecc_mbit_handle(struct hisi_qm *qm)
+{
+	u32 nfe_enb = 0;
+
+	/* Kunpeng930 hardware automatically close master ooo when NFE occurs */
+	if (qm->ver >= QM_HW_V3)
+		return;
+
+	if (!qm->err_status.is_dev_ecc_mbit &&
+	    qm->err_status.is_qm_ecc_mbit &&
+	    qm->err_ini->close_axi_master_ooo) {
+		qm->err_ini->close_axi_master_ooo(qm);
+	} else if (qm->err_status.is_dev_ecc_mbit &&
+		   !qm->err_status.is_qm_ecc_mbit &&
+		   !qm->err_ini->close_axi_master_ooo) {
+		nfe_enb = readl(qm->io_base + QM_RAS_NFE_ENABLE);
+		writel(nfe_enb & QM_RAS_NFE_MBIT_DISABLE,
+		       qm->io_base + QM_RAS_NFE_ENABLE);
+		writel(QM_ECC_MBIT, qm->io_base + QM_ABNORMAL_INT_SET);
+	}
+}
+
 static int qm_controller_reset_prepare(struct hisi_qm *qm)
 {
 	struct pci_dev *pdev = qm->pdev;
@@ -4117,6 +4147,8 @@ static int qm_controller_reset_prepare(struct hisi_qm *qm)
 		pci_err(pdev, "Controller reset not ready!\n");
 		return ret;
 	}
+
+	qm_dev_ecc_mbit_handle(qm);
 
 	/* PF obtains the information of VF by querying the register. */
 	qm_cmd_uninit(qm);
@@ -4148,28 +4180,6 @@ static int qm_controller_reset_prepare(struct hisi_qm *qm)
 	return 0;
 }
 
-static void qm_dev_ecc_mbit_handle(struct hisi_qm *qm)
-{
-	u32 nfe_enb = 0;
-
-	/* Kunpeng930 hardware automatically close master ooo when NFE occurs */
-	if (qm->ver >= QM_HW_V3)
-		return;
-
-	if (!qm->err_status.is_dev_ecc_mbit &&
-	    qm->err_status.is_qm_ecc_mbit &&
-	    qm->err_ini->close_axi_master_ooo) {
-		qm->err_ini->close_axi_master_ooo(qm);
-	} else if (qm->err_status.is_dev_ecc_mbit &&
-		   !qm->err_status.is_qm_ecc_mbit &&
-		   !qm->err_ini->close_axi_master_ooo) {
-		nfe_enb = readl(qm->io_base + QM_RAS_NFE_ENABLE);
-		writel(nfe_enb & QM_RAS_NFE_MBIT_DISABLE,
-		       qm->io_base + QM_RAS_NFE_ENABLE);
-		writel(QM_ECC_MBIT, qm->io_base + QM_ABNORMAL_INT_SET);
-	}
-}
-
 static int qm_soft_reset(struct hisi_qm *qm)
 {
 	struct pci_dev *pdev = qm->pdev;
@@ -4194,8 +4204,6 @@ static int qm_soft_reset(struct hisi_qm *qm)
 		pci_err(pdev, "Fails to disable PEH MSI bit.\n");
 		return ret;
 	}
-
-	qm_dev_ecc_mbit_handle(qm);
 
 	/* OOO register set and check */
 	writel(ACC_MASTER_GLOBAL_CTRL_SHUTDOWN,
