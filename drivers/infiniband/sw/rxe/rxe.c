@@ -162,8 +162,6 @@ void rxe_set_mtu(struct rxe_dev *rxe, unsigned int ndev_mtu)
 
 	port->attr.active_mtu = mtu;
 	port->mtu_cap = ib_mtu_enum_to_int(mtu);
-
-	rxe_info_dev(rxe, "Set mtu to %d\n", port->mtu_cap);
 }
 
 /* called by ifc layer to create new rxe device.
