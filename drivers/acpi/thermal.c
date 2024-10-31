@@ -670,7 +670,7 @@ static int acpi_thermal_register_thermal_zone(struct acpi_thermal *tz,
 
 	if (trip_count)
 		tz->thermal_zone = thermal_zone_device_register_with_trips(
-					"acpitz", trip_table, trip_count, 0, tz,
+					"acpitz", trip_table, trip_count, tz,
 					&acpi_thermal_zone_ops, NULL, passive_delay,
 					tz->polling_frequency * 100);
 	else
