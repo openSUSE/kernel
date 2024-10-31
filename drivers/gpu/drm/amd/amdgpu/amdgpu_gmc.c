@@ -1153,8 +1153,6 @@ static ssize_t current_memory_partition_show(
 	default:
 		return sysfs_emit(buf, "UNKNOWN\n");
 	}
-
-	return sysfs_emit(buf, "UNKNOWN\n");
 }
 
 static DEVICE_ATTR_RO(current_memory_partition);
