@@ -185,6 +185,7 @@ enum {
 
 #define HNS_ROCE_CMD_SUCCESS			1
 
+#define HNS_ROCE_MAX_HOP_NUM			3
 /* The minimum page size is 4K for hardware */
 #define HNS_HW_PAGE_SHIFT			12
 #define HNS_HW_PAGE_SIZE			(1 << HNS_HW_PAGE_SHIFT)
@@ -278,6 +279,11 @@ struct hns_roce_hem_list {
 	dma_addr_t root_ba; /* pointer to the root ba table */
 };
 
+enum mtr_type {
+	MTR_DEFAULT = 0,
+	MTR_PBL,
+};
+
 struct hns_roce_buf_attr {
 	struct {
 		size_t	size;  /* region size */
@@ -286,7 +292,10 @@ struct hns_roce_buf_attr {
 	unsigned int region_count; /* valid region count */
 	unsigned int page_shift;  /* buffer page shift */
 	unsigned int user_access; /* umem access flag */
+	u64 iova;
+	enum mtr_type type;
 	bool mtt_only; /* only alloc buffer-required MTT memory */
+	bool adaptive; /* adaptive for page_shift and hopnum */
 };
 
 struct hns_roce_hem_cfg {
