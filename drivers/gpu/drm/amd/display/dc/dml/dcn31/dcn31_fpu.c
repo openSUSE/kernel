@@ -647,9 +647,9 @@ void dcn31_update_bw_bounding_box(struct dc *dc, struct clk_bw_params *bw_params
 			dcn3_1_soc.clock_limits[closest_clk_lvl].phyclk_d18_mhz;
 		s[i].phyclk_mhz = dcn3_1_soc.clock_limits[closest_clk_lvl].phyclk_mhz;
 	}
-	if (clk_table->num_entries) {
+
+	if (clk_table->num_entries)
 		dcn3_1_soc.num_states = clk_table->num_entries;
-	}
 
 	memcpy(dcn3_1_soc.clock_limits, s, sizeof(dcn3_1_soc.clock_limits));
 
@@ -799,9 +799,9 @@ void dcn316_update_bw_bounding_box(struct dc *dc, struct clk_bw_params *bw_param
 			dcn3_16_soc.clock_limits[closest_clk_lvl].phyclk_d18_mhz;
 		s[i].phyclk_mhz = dcn3_16_soc.clock_limits[closest_clk_lvl].phyclk_mhz;
 	}
-	if (clk_table->num_entries) {
+
+	if (clk_table->num_entries)
 		dcn3_16_soc.num_states = clk_table->num_entries;
-	}
 
 	memcpy(dcn3_16_soc.clock_limits, s, sizeof(dcn3_16_soc.clock_limits));
 
