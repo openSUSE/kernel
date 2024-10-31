@@ -635,16 +635,16 @@ int xe_device_probe(struct xe_device *xe)
 
 	err = xe_device_set_has_flat_ccs(xe);
 	if (err)
-		goto err_irq_shutdown;
+		goto err;
 
 	err = xe_vram_probe(xe);
 	if (err)
-		goto err_irq_shutdown;
+		goto err;
 
 	for_each_tile(tile, xe, id) {
 		err = xe_tile_init_noalloc(tile);
 		if (err)
-			goto err_irq_shutdown;
+			goto err;
 	}
 
 	/* Allocate and map stolen after potential VRAM resize */
@@ -658,7 +658,7 @@ int xe_device_probe(struct xe_device *xe)
 	 */
 	err = xe_display_init_noaccel(xe);
 	if (err)
-		goto err_irq_shutdown;
+		goto err;
 
 	for_each_gt(gt, xe, id) {
 		last_gt = id;
@@ -709,8 +709,6 @@ err_fini_gt:
 			break;
 	}
 
-err_irq_shutdown:
-	xe_irq_shutdown(xe);
 err:
 	xe_display_fini(xe);
 	return err;
@@ -741,8 +739,6 @@ void xe_device_remove(struct xe_device *xe)
 
 	for_each_gt(gt, xe, id)
 		xe_gt_remove(gt);
-
-	xe_irq_shutdown(xe);
 }
 
 void xe_device_shutdown(struct xe_device *xe)
