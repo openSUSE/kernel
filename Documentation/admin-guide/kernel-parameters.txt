@@ -4899,6 +4899,13 @@
 			Set maximum number of finished RCU callbacks to
 			process in one batch.
 
+	rcutree.do_rcu_barrier=	[KNL]
+			Request a call to rcu_barrier().  This is
+			throttled so that userspace tests can safely
+			hammer on the sysfs variable if they so choose.
+			If triggered before the RCU grace-period machinery
+			is fully active, this will error out with EAGAIN.
+
 	rcutree.dump_tree=	[KNL]
 			Dump the structure of the rcu_node combining tree
 			out at early boot.  This is used for diagnostic
@@ -5066,6 +5073,20 @@
 			Commandeer a sysrq key to dump out Tree RCU's
 			rcu_node tree with an eye towards determining
 			why a new grace period has not yet started.
+
+	rcutree.rcu_normal_wake_from_gp= [KNL]
+			Reduces a latency of synchronize_rcu() call. This approach
+			maintains its own track of synchronize_rcu() callers, so it
+			does not interact with regular callbacks because it does not
+			use a call_rcu[_hurry]() path. Please note, this is for a
+			normal grace period.
+
+			How to enable it:
+
+			echo 1 > /sys/module/rcutree/parameters/rcu_normal_wake_from_gp
+			or pass a boot parameter "rcutree.rcu_normal_wake_from_gp=1"
+
+			Default is 0.
 
 	rcuscale.gp_async= [KNL]
 			Measure performance of asynchronous
@@ -5318,6 +5339,12 @@
 	rcupdate.rcu_cpu_stall_ftrace_dump= [KNL]
 			Dump ftrace buffer after reporting RCU CPU
 			stall warning.
+
+	rcupdate.rcu_cpu_stall_notifiers= [KNL]
+			Provide RCU CPU stall notifiers, but see the
+			warnings in the RCU_CPU_STALL_NOTIFIER Kconfig
+			option's help text.  TL;DR:  You almost certainly
+			do not want rcupdate.rcu_cpu_stall_notifiers.
 
 	rcupdate.rcu_cpu_stall_suppress= [KNL]
 			Suppress RCU CPU stall warning messages.
@@ -6432,18 +6459,6 @@
 	threadirqs	[KNL]
 			Force threading of all interrupt handlers except those
 			marked explicitly IRQF_NO_THREAD.
-
-	threadprintk	[KNL]
-			Force threaded printing of all legacy consoles. Be
-			aware that with this option, the shutdown, reboot, and
-			panic messages may not be printed on the legacy
-			consoles. Also, earlycon/earlyprintk printing will be
-			delayed until a regular console or the kthread is
-			available.
-
-			Users can view /proc/consoles to see if their console
-			driver is legacy or not. Non-legacy (NBCON) console
-			drivers are already threaded and are shown with 'N'.
 
 	topology=	[S390]
 			Format: {off | on}

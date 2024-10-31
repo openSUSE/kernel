@@ -283,7 +283,6 @@ static inline void dump_stack(void)
 static inline void printk_trigger_flush(void)
 {
 }
-
 static inline void console_try_replay_all(void)
 {
 }

@@ -414,20 +414,18 @@ static int stop_tx_dma(struct uart_8250_port *p)
 static int brcmuart_tx_dma(struct uart_8250_port *p)
 {
 	struct brcmuart_priv *priv = p->port.private_data;
-	struct circ_buf *xmit = &p->port.state->xmit;
+	struct tty_port *tport = &p->port.state->port;
 	u32 tx_size;
 
 	if (uart_tx_stopped(&p->port) || priv->tx_running ||
-		uart_circ_empty(xmit)) {
+		kfifo_is_empty(&tport->xmit_fifo)) {
 		return 0;
 	}
-	tx_size = CIRC_CNT_TO_END(xmit->head, xmit->tail, UART_XMIT_SIZE);
 
 	priv->dma.tx_err = 0;
-	memcpy(priv->tx_buf, &xmit->buf[xmit->tail], tx_size);
-	uart_xmit_advance(&p->port, tx_size);
+	tx_size = uart_fifo_out(&p->port, priv->tx_buf, UART_XMIT_SIZE);
 
-	if (uart_circ_chars_pending(xmit) < WAKEUP_CHARS)
+	if (kfifo_len(&tport->xmit_fifo) < WAKEUP_CHARS)
 		uart_write_wakeup(&p->port);
 
 	udma_writel(priv, REGS_DMA_TX, UDMA_TX_TRANSFER_LEN, tx_size);
@@ -541,7 +539,7 @@ static void brcmuart_tx_isr(struct uart_port *up, u32 isr)
 	struct brcmuart_priv *priv = up->private_data;
 	struct device *dev = up->dev;
 	struct uart_8250_port *port_8250 = up_to_u8250p(up);
-	struct circ_buf	*xmit = &port_8250->port.state->xmit;
+	struct tty_port *tport = &port_8250->port.state->port;
 
 	if (isr & UDMA_INTR_TX_ABORT) {
 		if (priv->tx_running)
@@ -549,7 +547,7 @@ static void brcmuart_tx_isr(struct uart_port *up, u32 isr)
 		return;
 	}
 	priv->tx_running = false;
-	if (!uart_circ_empty(xmit) && !uart_tx_stopped(up))
+	if (!kfifo_is_empty(&tport->xmit_fifo) && !uart_tx_stopped(up))
 		brcmuart_tx_dma(port_8250);
 }
 
@@ -1003,10 +1001,9 @@ static int brcmuart_probe(struct platform_device *pdev)
 	}
 
 	/* We should have just the uart base registers or all the registers */
-	if (x != 1 && x != REGS_MAX) {
-		dev_warn(dev, "%s registers not specified\n", reg_names[x]);
-		return -EINVAL;
-	}
+	if (x != 1 && x != REGS_MAX)
+		return dev_err_probe(dev, -EINVAL, "%s registers not specified\n",
+				     reg_names[x]);
 
 	/* if the DMA registers were specified, try to enable DMA */
 	if (x > REGS_DMA_RX) {
@@ -1035,27 +1032,23 @@ static int brcmuart_probe(struct platform_device *pdev)
 	of_property_read_u32(np, "clock-frequency", &clk_rate);
 
 	/* See if a Baud clock has been specified */
-	baud_mux_clk = devm_clk_get(dev, "sw_baud");
-	if (IS_ERR(baud_mux_clk)) {
-		if (PTR_ERR(baud_mux_clk) == -EPROBE_DEFER) {
-			ret = -EPROBE_DEFER;
-			goto release_dma;
-		}
-		dev_dbg(dev, "BAUD MUX clock not specified\n");
-	} else {
+	baud_mux_clk = devm_clk_get_optional_enabled(dev, "sw_baud");
+	ret = PTR_ERR_OR_ZERO(baud_mux_clk);
+	if (ret)
+		goto release_dma;
+	if (baud_mux_clk) {
 		dev_dbg(dev, "BAUD MUX clock found\n");
-		ret = clk_prepare_enable(baud_mux_clk);
-		if (ret)
-			goto release_dma;
+
 		priv->baud_mux_clk = baud_mux_clk;
 		init_real_clk_rates(dev, priv);
 		clk_rate = priv->default_mux_rate;
+	} else {
+		dev_dbg(dev, "BAUD MUX clock not specified\n");
 	}
 
 	if (clk_rate == 0) {
-		dev_err(dev, "clock-frequency or clk not defined\n");
-		ret = -EINVAL;
-		goto err_clk_disable;
+		ret = dev_err_probe(dev, -EINVAL, "clock-frequency or clk not defined\n");
+		goto release_dma;
 	}
 
 	dev_dbg(dev, "DMA is %senabled\n", priv->dma_enabled ? "" : "not ");
@@ -1112,7 +1105,7 @@ static int brcmuart_probe(struct platform_device *pdev)
 
 	ret = serial8250_register_8250_port(&up);
 	if (ret < 0) {
-		dev_err(dev, "unable to register 8250 port\n");
+		dev_err_probe(dev, ret, "unable to register 8250 port\n");
 		goto err;
 	}
 	priv->line = ret;
@@ -1121,14 +1114,13 @@ static int brcmuart_probe(struct platform_device *pdev)
 	if (priv->dma_enabled) {
 		dma_irq = platform_get_irq_byname(pdev,  "dma");
 		if (dma_irq < 0) {
-			ret = dma_irq;
-			dev_err(dev, "no IRQ resource info\n");
+			ret = dev_err_probe(dev, dma_irq, "no IRQ resource info\n");
 			goto err1;
 		}
 		ret = devm_request_irq(dev, dma_irq, brcmuart_isr,
 				IRQF_SHARED, "uart DMA irq", &new_port->port);
 		if (ret) {
-			dev_err(dev, "unable to register IRQ handler\n");
+			dev_err_probe(dev, ret, "unable to register IRQ handler\n");
 			goto err1;
 		}
 	}
@@ -1140,15 +1132,13 @@ err1:
 	serial8250_unregister_port(priv->line);
 err:
 	brcmuart_free_bufs(dev, priv);
-err_clk_disable:
-	clk_disable_unprepare(baud_mux_clk);
 release_dma:
 	if (priv->dma_enabled)
 		brcmuart_arbitration(priv, 0);
 	return ret;
 }
 
-static int brcmuart_remove(struct platform_device *pdev)
+static void brcmuart_remove(struct platform_device *pdev)
 {
 	struct brcmuart_priv *priv = platform_get_drvdata(pdev);
 
@@ -1156,10 +1146,8 @@ static int brcmuart_remove(struct platform_device *pdev)
 	hrtimer_cancel(&priv->hrt);
 	serial8250_unregister_port(priv->line);
 	brcmuart_free_bufs(&pdev->dev, priv);
-	clk_disable_unprepare(priv->baud_mux_clk);
 	if (priv->dma_enabled)
 		brcmuart_arbitration(priv, 0);
-	return 0;
 }
 
 static int __maybe_unused brcmuart_suspend(struct device *dev)
@@ -1235,7 +1223,7 @@ static struct platform_driver brcmuart_platform_driver = {
 		.of_match_table = brcmuart_dt_ids,
 	},
 	.probe		= brcmuart_probe,
-	.remove		= brcmuart_remove,
+	.remove_new	= brcmuart_remove,
 };
 
 static int __init brcmuart_init(void)

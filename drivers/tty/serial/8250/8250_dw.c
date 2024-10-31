@@ -498,11 +498,6 @@ static void dw8250_quirks(struct uart_port *p, struct dw8250_data *data)
 	}
 }
 
-static void dw8250_clk_disable_unprepare(void *data)
-{
-	clk_disable_unprepare(data);
-}
-
 static void dw8250_reset_control_assert(void *data)
 {
 	reset_control_assert(data);
@@ -523,7 +518,10 @@ static int dw8250_probe(struct platform_device *pdev)
 	if (!regs)
 		return dev_err_probe(dev, -EINVAL, "no registers defined\n");
 
-	irq = platform_get_irq(pdev, 0);
+	irq = platform_get_irq_optional(pdev, 0);
+	/* no interrupt -> fall back to polling */
+	if (irq == -ENXIO)
+		irq = 0;
 	if (irq < 0)
 		return irq;
 
@@ -595,22 +593,14 @@ static int dw8250_probe(struct platform_device *pdev)
 	device_property_read_u32(dev, "clock-frequency", &p->uartclk);
 
 	/* If there is separate baudclk, get the rate from it. */
-	data->clk = devm_clk_get_optional(dev, "baudclk");
+	data->clk = devm_clk_get_optional_enabled(dev, "baudclk");
 	if (data->clk == NULL)
-		data->clk = devm_clk_get_optional(dev, NULL);
+		data->clk = devm_clk_get_optional_enabled(dev, NULL);
 	if (IS_ERR(data->clk))
 		return PTR_ERR(data->clk);
 
 	INIT_WORK(&data->clk_work, dw8250_clk_work_cb);
 	data->clk_notifier.notifier_call = dw8250_clk_notifier_cb;
-
-	err = clk_prepare_enable(data->clk);
-	if (err)
-		return dev_err_probe(dev, err, "could not enable optional baudclk\n");
-
-	err = devm_add_action_or_reset(dev, dw8250_clk_disable_unprepare, data->clk);
-	if (err)
-		return err;
 
 	if (data->clk)
 		p->uartclk = clk_get_rate(data->clk);
@@ -619,17 +609,9 @@ static int dw8250_probe(struct platform_device *pdev)
 	if (!p->uartclk)
 		return dev_err_probe(dev, -EINVAL, "clock rate not defined\n");
 
-	data->pclk = devm_clk_get_optional(dev, "apb_pclk");
+	data->pclk = devm_clk_get_optional_enabled(dev, "apb_pclk");
 	if (IS_ERR(data->pclk))
 		return PTR_ERR(data->pclk);
-
-	err = clk_prepare_enable(data->pclk);
-	if (err)
-		return dev_err_probe(dev, err, "could not enable apb_pclk\n");
-
-	err = devm_add_action_or_reset(dev, dw8250_clk_disable_unprepare, data->pclk);
-	if (err)
-		return err;
 
 	data->rst = devm_reset_control_get_optional_exclusive(dev, NULL);
 	if (IS_ERR(data->rst))
@@ -681,7 +663,7 @@ static int dw8250_probe(struct platform_device *pdev)
 	return 0;
 }
 
-static int dw8250_remove(struct platform_device *pdev)
+static void dw8250_remove(struct platform_device *pdev)
 {
 	struct dw8250_data *data = platform_get_drvdata(pdev);
 	struct device *dev = &pdev->dev;
@@ -698,8 +680,6 @@ static int dw8250_remove(struct platform_device *pdev)
 
 	pm_runtime_disable(dev);
 	pm_runtime_put_noidle(dev);
-
-	return 0;
 }
 
 static int dw8250_suspend(struct device *dev)
@@ -808,7 +788,7 @@ static struct platform_driver dw8250_platform_driver = {
 		.acpi_match_table = dw8250_acpi_match,
 	},
 	.probe			= dw8250_probe,
-	.remove			= dw8250_remove,
+	.remove_new		= dw8250_remove,
 };
 
 module_platform_driver(dw8250_platform_driver);
