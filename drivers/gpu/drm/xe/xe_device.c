@@ -671,6 +671,8 @@ int xe_device_probe(struct xe_device *xe)
 
 	xe_display_register(xe);
 
+	xe_oa_register(xe);
+
 	xe_debugfs_register(xe);
 
 	xe_hwmon_register(xe);
@@ -710,6 +712,8 @@ void xe_device_remove(struct xe_device *xe)
 {
 	struct xe_gt *gt;
 	u8 id;
+
+	xe_oa_unregister(xe);
 
 	xe_device_remove_display(xe);
 
