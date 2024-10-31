@@ -3324,11 +3324,7 @@ struct softnet_data {
 	int			defer_count;
 	int			defer_ipi_scheduled;
 	struct sk_buff		*defer_list;
-#ifndef CONFIG_PREEMPT_RT
 	call_single_data_t	defer_csd;
-#else
-	struct work_struct	defer_work;
-#endif
 };
 
 static inline void input_queue_head_incr(struct softnet_data *sd)
@@ -3370,6 +3366,7 @@ static inline void dev_xmit_recursion_dec(void)
 	__this_cpu_dec(softnet_data.xmit.recursion);
 }
 
+void kick_defer_list_purge(struct softnet_data *sd, unsigned int cpu);
 void __netif_schedule(struct Qdisc *q);
 void netif_schedule_queue(struct netdev_queue *txq);
 
