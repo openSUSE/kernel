@@ -260,8 +260,8 @@ static int acpi_device_setup_files(struct acpi_device *dev)
 	 */
 	status = acpi_get_handle(dev->handle, "_STR", &temp);
 	if (ACPI_SUCCESS(status)) {
-		status = acpi_evaluate_object(dev->handle, "_STR",
-					NULL, &buffer);
+		status = acpi_evaluate_object_typed(dev->handle, "_STR",
+						    NULL, &buffer, ACPI_TYPE_BUFFER);
 		if (ACPI_FAILURE(status))
 			buffer.pointer = NULL;
 		dev->pnp.str_obj = buffer.pointer;
