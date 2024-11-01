@@ -64,14 +64,22 @@ enum thermal_notify_event {
  * @threshold: trip crossing notification threshold miliCelsius
  * @type: trip point type
  * @priv: pointer to driver data associated with this trip
+ * @flags: flags representing binary properties of the trip
  */
 struct thermal_trip {
 	int temperature;
 	int hysteresis;
 	int threshold;
 	enum thermal_trip_type type;
+	u8 flags;
 	void *priv;
 };
+
+#define THERMAL_TRIP_FLAG_RW_TEMP	BIT(0)
+#define THERMAL_TRIP_FLAG_RW_HYST	BIT(1)
+
+#define THERMAL_TRIP_FLAG_RW	(THERMAL_TRIP_FLAG_RW_TEMP | \
+				 THERMAL_TRIP_FLAG_RW_HYST)
 
 struct thermal_zone_device_ops {
 	int (*bind) (struct thermal_zone_device *,
@@ -83,7 +91,6 @@ struct thermal_zone_device_ops {
 	int (*change_mode) (struct thermal_zone_device *,
 		enum thermal_device_mode);
 	int (*set_trip_temp) (struct thermal_zone_device *, int, int);
-	int (*set_trip_hyst) (struct thermal_zone_device *, int, int);
 	int (*get_crit_temp) (struct thermal_zone_device *, int *);
 	int (*set_emul_temp) (struct thermal_zone_device *, int);
 	int (*get_trend) (struct thermal_zone_device *,
@@ -182,7 +189,7 @@ struct thermal_zone_device {
 	int prev_low_trip;
 	int prev_high_trip;
 	atomic_t need_update;
-	struct thermal_zone_device_ops *ops;
+	struct thermal_zone_device_ops ops;
 	struct thermal_zone_params *tzp;
 	struct thermal_governor *governor;
 	void *governor_data;
@@ -214,7 +221,7 @@ struct thermal_zone_device {
  * @governor_list:	node in thermal_governor_list (in thermal_core.c)
  */
 struct thermal_governor {
-	char name[THERMAL_NAME_LENGTH];
+	const char *name;
 	int (*bind_to_tz)(struct thermal_zone_device *tz);
 	void (*unbind_from_tz)(struct thermal_zone_device *tz);
 	int (*throttle)(struct thermal_zone_device *tz,
@@ -226,7 +233,7 @@ struct thermal_governor {
 
 /* Structure to define Thermal Zone parameters */
 struct thermal_zone_params {
-	char governor_name[THERMAL_NAME_LENGTH];
+	const char *governor_name;
 
 	/*
 	 * a boolean to indicate if the thermal to hwmon sysfs interface
@@ -316,16 +323,15 @@ int thermal_zone_get_crit_temp(struct thermal_zone_device *tz, int *temp);
 struct thermal_zone_device *thermal_zone_device_register_with_trips(
 					const char *type,
 					const struct thermal_trip *trips,
-					int num_trips, int mask,
-					void *devdata,
-					struct thermal_zone_device_ops *ops,
+					int num_trips, void *devdata,
+					const struct thermal_zone_device_ops *ops,
 					const struct thermal_zone_params *tzp,
 					int passive_delay, int polling_delay);
 
 struct thermal_zone_device *thermal_tripless_zone_device_register(
 					const char *type,
 					void *devdata,
-					struct thermal_zone_device_ops *ops,
+					const struct thermal_zone_device_ops *ops,
 					const struct thermal_zone_params *tzp);
 
 void thermal_zone_device_unregister(struct thermal_zone_device *tz);
@@ -376,9 +382,8 @@ void thermal_zone_device_critical(struct thermal_zone_device *tz);
 static inline struct thermal_zone_device *thermal_zone_device_register_with_trips(
 					const char *type,
 					const struct thermal_trip *trips,
-					int num_trips, int mask,
-					void *devdata,
-					struct thermal_zone_device_ops *ops,
+					int num_trips, void *devdata,
+					const struct thermal_zone_device_ops *ops,
 					const struct thermal_zone_params *tzp,
 					int passive_delay, int polling_delay)
 { return ERR_PTR(-ENODEV); }
