@@ -32,6 +32,9 @@ int efa_com_create_qp(struct efa_com_dev *edev,
 			params->rq_depth;
 	create_qp_cmd.uar = params->uarn;
 
+	if (params->unsolicited_write_recv)
+		EFA_SET(&create_qp_cmd.flags, EFA_ADMIN_CREATE_QP_CMD_UNSOLICITED_WRITE_RECV, 1);
+
 	err = efa_com_cmd_exec(aq,
 			       (struct efa_admin_aq_entry *)&create_qp_cmd,
 			       sizeof(create_qp_cmd),
@@ -462,6 +465,7 @@ int efa_com_get_device_attr(struct efa_com_dev *edev,
 	result->db_bar = resp.u.device_attr.db_bar;
 	result->max_rdma_size = resp.u.device_attr.max_rdma_size;
 	result->device_caps = resp.u.device_attr.device_caps;
+	result->guid = resp.u.device_attr.guid;
 
 	if (result->admin_api_version < 1) {
 		ibdev_err_ratelimited(
