@@ -25,7 +25,7 @@
 #include <linux/suspend.h>
 #include <linux/delay.h>
 
-#include "internal.h"
+#include "../internal.h"
 
 #ifdef CONFIG_X86_INTEL_LPSS
 
@@ -338,8 +338,8 @@ static const struct lpss_device_desc bsw_spi_dev_desc = {
 };
 
 static const struct x86_cpu_id lpss_cpu_ids[] = {
-	X86_MATCH_VFM(INTEL_ATOM_SILVERMONT,	NULL),
-	X86_MATCH_VFM(INTEL_ATOM_AIRMONT,	NULL),
+	X86_MATCH_VFM(INTEL_ATOM_SILVERMONT,    NULL),
+	X86_MATCH_VFM(INTEL_ATOM_AIRMONT,       NULL),
 	{}
 };
 
