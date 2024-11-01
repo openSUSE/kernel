@@ -1580,12 +1580,13 @@ int acpi_dma_get_range(struct device *dev, const struct bus_dma_region **map)
 int acpi_iommu_fwspec_init(struct device *dev, u32 id,
 			   struct fwnode_handle *fwnode)
 {
-	int ret = iommu_fwspec_init(dev, fwnode);
+	int ret;
 
-	if (!ret)
-		ret = iommu_fwspec_add_ids(dev, &id, 1);
+	ret = iommu_fwspec_init(dev, fwnode);
+	if (ret)
+		return ret;
 
-	return ret;
+	return iommu_fwspec_add_ids(dev, &id, 1);
 }
 
 static int acpi_iommu_configure_id(struct device *dev, const u32 *id_in)
