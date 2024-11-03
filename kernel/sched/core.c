@@ -9039,21 +9039,6 @@ static inline void preempt_dynamic_init(void) { }
 
 #endif /* #ifdef CONFIG_PREEMPT_DYNAMIC */
 
-/*
- * task_is_pi_boosted - Check if task has been PI boosted.
- * @p:	Task to check.
- *
- * Return true if task is subject to priority inheritance.
- */
-bool task_is_pi_boosted(const struct task_struct *p)
-{
-	int prio = p->prio;
-
-	if (!rt_prio(prio))
-		return false;
-	return prio != p->normal_prio;
-}
-
 /**
  * yield - yield the current processor to other threads.
  *
@@ -9156,6 +9141,21 @@ out_irq:
 	return yielded;
 }
 EXPORT_SYMBOL_GPL(yield_to);
+
+/*
+ * task_is_pi_boosted - Check if task has been PI boosted.
+ * @p:	Task to check.
+ *
+ * Return true if task is subject to priority inheritance.
+ */
+bool task_is_pi_boosted(const struct task_struct *p)
+{
+	int prio = p->prio;
+
+	if (!rt_prio(prio))
+		return false;
+	return prio != p->normal_prio;
+}
 
 int io_schedule_prepare(void)
 {
