@@ -612,7 +612,7 @@ int register_ftrace_graph(struct fgraph_ops *gops)
 	static bool fgraph_initialized;
 	int ret = 0;
 
-	mutex_lock(&ftrace_lock);
+	guard(mutex)(&ftrace_lock);
 
 	if (!fgraph_initialized) {
 		ret = cpuhp_setup_state(CPUHP_AP_ONLINE_DYN, "fgraph_idle_init",
@@ -626,10 +626,8 @@ int register_ftrace_graph(struct fgraph_ops *gops)
 	}
 
 	/* we currently allow only one tracer registered at a time */
-	if (ftrace_graph_active) {
-		ret = -EBUSY;
-		goto out;
-	}
+	if (ftrace_graph_active)
+		return -EBUSY;
 
 	register_pm_notifier(&ftrace_suspend_notifier);
 
@@ -637,7 +635,7 @@ int register_ftrace_graph(struct fgraph_ops *gops)
 	ret = start_graph_tracing();
 	if (ret) {
 		ftrace_graph_active--;
-		goto out;
+		return ret;
 	}
 
 	ftrace_graph_return = gops->retfunc;
@@ -653,8 +651,6 @@ int register_ftrace_graph(struct fgraph_ops *gops)
 	update_function_graph_func();
 
 	ret = ftrace_startup(&graph_ops, FTRACE_START_FUNC_RET);
-out:
-	mutex_unlock(&ftrace_lock);
 	return ret;
 }
 
