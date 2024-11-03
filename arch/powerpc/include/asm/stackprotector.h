@@ -19,13 +19,8 @@
  */
 static __always_inline void boot_init_stack_canary(void)
 {
-	unsigned long canary;
+	unsigned long canary = get_random_canary();
 
-#ifndef CONFIG_PREEMPT_RT
-	canary = get_random_canary();
-#else
-	canary = ((unsigned long)&canary) & CANARY_MASK;
-#endif
 	current->stack_canary = canary;
 #ifdef CONFIG_PPC64
 	get_paca()->canary = canary;
