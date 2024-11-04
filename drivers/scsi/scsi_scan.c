@@ -1139,7 +1139,6 @@ static int scsi_probe_and_add_lun(struct scsi_target *starget,
 	blist_flags_t bflags;
 	int res = SCSI_SCAN_NO_RESPONSE, result_len = 256;
 	struct Scsi_Host *shost = dev_to_shost(starget->dev.parent);
-	struct request_queue *q;
 
 	/*
 	 * The rescan flag is used as an optimization, the first scan of a
@@ -1160,10 +1159,6 @@ static int scsi_probe_and_add_lun(struct scsi_target *starget,
 				*bflagsp = scsi_get_device_flags(sdev,
 								 sdev->vendor,
 								 sdev->model);
-			q = sdev->request_queue;
-			if (queue_max_hw_sectors(q) > shost->max_sectors)
-				blk_queue_max_hw_sectors(q, shost->max_sectors);
-
 			return SCSI_SCAN_LUN_PRESENT;
 		}
 		scsi_device_put(sdev);
