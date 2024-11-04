@@ -890,6 +890,7 @@ nfserrno (int errno)
 		{ nfserr_stale, -EOPENSTALE },
 		{ nfserr_io, -EUCLEAN },
 		{ nfserr_perm, -ENOKEY },
+		{ nfserr_io, -EBADMSG },
 	};
 	int	i;
 
