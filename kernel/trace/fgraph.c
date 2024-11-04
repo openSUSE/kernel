@@ -562,7 +562,7 @@ void ftrace_graph_exit_task(struct task_struct *t)
 static int start_graph_tracing(void)
 {
 	struct ftrace_ret_stack **ret_stack_list;
-	int ret, cpu;
+	int ret;
 
 	ret_stack_list = kmalloc_array(FTRACE_RETSTACK_ALLOC_SIZE,
 				       sizeof(struct ftrace_ret_stack *),
@@ -570,12 +570,6 @@ static int start_graph_tracing(void)
 
 	if (!ret_stack_list)
 		return -ENOMEM;
-
-	/* The cpu_boot init_task->ret_stack will never be freed */
-	for_each_online_cpu(cpu) {
-		if (!idle_task(cpu)->ret_stack)
-			ftrace_graph_init_idle_task(idle_task(cpu), cpu);
-	}
 
 	do {
 		ret = alloc_retstack_tasklist(ret_stack_list);
@@ -592,11 +586,31 @@ static int start_graph_tracing(void)
 	return ret;
 }
 
+/* The cpu_boot init_task->ret_stack will never be freed */
+static int fgraph_cpu_init(unsigned int cpu)
+{
+	if (!idle_task(cpu)->ret_stack)
+		ftrace_graph_init_idle_task(idle_task(cpu), cpu);
+	return 0;
+}
+
 int register_ftrace_graph(struct fgraph_ops *gops)
 {
+	static bool fgraph_initialized;
 	int ret = 0;
 
 	mutex_lock(&ftrace_lock);
+
+	if (!fgraph_initialized) {
+		ret = cpuhp_setup_state(CPUHP_AP_ONLINE_DYN, "fgraph_idle_init",
+					fgraph_cpu_init, NULL);
+		if (ret < 0) {
+			pr_warn("fgraph: Error to init cpu hotplug support\n");
+			return ret;
+		}
+		fgraph_initialized = true;
+		ret = 0;
+	}
 
 	/* we currently allow only one tracer registered at a time */
 	if (ftrace_graph_active) {
