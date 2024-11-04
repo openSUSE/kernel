@@ -1270,6 +1270,13 @@ nfsd4_copy(struct svc_rqst *rqstp, struct nfsd4_compound_state *cstate,
 	if (status)
 		goto out;
 
+	/*
+	 * Currently, async COPY is not reliable. Force all COPY
+	 * requests to be synchronous to avoid client application
+	 * hangs waiting for COPY completion.
+	 */
+	copy->cp_synchronous = true;
+
 	copy->cp_clp = cstate->clp;
 	memcpy(&copy->fh, &cstate->current_fh.fh_handle,
 		sizeof(struct knfsd_fh));
