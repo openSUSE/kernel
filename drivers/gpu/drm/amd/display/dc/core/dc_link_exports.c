@@ -37,7 +37,7 @@
 #include "dce/dce_i2c.h"
 struct dc_link *dc_get_link_at_index(struct dc *dc, uint32_t link_index)
 {
-	if (link_index >= (MAX_PIPES * 2))
+	if (link_index >= MAX_LINKS)
 		return NULL;
 
 	return dc->links[link_index];

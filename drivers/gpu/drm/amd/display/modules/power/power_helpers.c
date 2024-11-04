@@ -841,6 +841,8 @@ bool is_psr_su_specific_panel(struct dc_link *link)
 				isPSRSUSupported = false;
 			else if (dpcd_caps->sink_dev_id_str[1] == 0x08 && dpcd_caps->sink_dev_id_str[0] == 0x03)
 				isPSRSUSupported = false;
+			else if (dpcd_caps->sink_dev_id_str[1] == 0x08 && dpcd_caps->sink_dev_id_str[0] == 0x01)
+				isPSRSUSupported = false;
 			else if (dpcd_caps->psr_info.force_psrsu_cap == 0x1)
 				isPSRSUSupported = true;
 		}
@@ -973,6 +975,20 @@ bool psr_su_set_dsc_slice_height(struct dc *dc, struct dc_link *link,
 	return true;
 }
 
+void set_replay_defer_update_coasting_vtotal(struct dc_link *link,
+	enum replay_coasting_vtotal_type type,
+	uint32_t vtotal)
+{
+	link->replay_settings.defer_update_coasting_vtotal_table[type] = vtotal;
+}
+
+void update_replay_coasting_vtotal_from_defer(struct dc_link *link,
+	enum replay_coasting_vtotal_type type)
+{
+	link->replay_settings.coasting_vtotal_table[type] =
+		link->replay_settings.defer_update_coasting_vtotal_table[type];
+}
+
 void set_replay_coasting_vtotal(struct dc_link *link,
 	enum replay_coasting_vtotal_type type,
 	uint32_t vtotal)
@@ -994,16 +1010,12 @@ void calculate_replay_link_off_frame_count(struct dc_link *link,
 	max_deviation_line = link->dpcd_caps.pr_info.max_deviation_line;
 	pixel_deviation_per_line = link->dpcd_caps.pr_info.pixel_deviation_per_line;
 
-	if (htotal != 0 && vtotal != 0)
+	if (htotal != 0 && vtotal != 0 && pixel_deviation_per_line != 0)
 		max_link_off_frame_count = htotal * max_deviation_line / (pixel_deviation_per_line * vtotal);
 	else
 		ASSERT(0);
 
-	link->replay_settings.link_off_frame_count_level =
-		max_link_off_frame_count >= PR_LINK_OFF_FRAME_COUNT_BEST ? PR_LINK_OFF_FRAME_COUNT_BEST :
-		max_link_off_frame_count >= PR_LINK_OFF_FRAME_COUNT_GOOD ? PR_LINK_OFF_FRAME_COUNT_GOOD :
-		PR_LINK_OFF_FRAME_COUNT_FAIL;
-
+	link->replay_settings.link_off_frame_count = max_link_off_frame_count;
 }
 
 bool fill_custom_backlight_caps(unsigned int config_no, struct dm_acpi_atif_backlight_caps *caps)

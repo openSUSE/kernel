@@ -406,4 +406,5 @@ static int __init sticonsole_init(void)
 }
 
 module_init(sticonsole_init);
+MODULE_DESCRIPTION("HP STI console driver");
 MODULE_LICENSE("GPL");
