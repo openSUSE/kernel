@@ -294,7 +294,7 @@ struct kfd2kgd_calls {
 					void **mem_obj, uint64_t *gpu_addr,
 					void **cpu_ptr, bool mqd_gfx9);
 
-	void (*free_gtt_mem)(struct kgd_dev *kgd, void *mem_obj);
+	void (*free_gtt_mem)(struct kgd_dev *kgd, void **mem_obj);
 
 	void (*get_local_mem_info)(struct kgd_dev *kgd,
 			struct kfd_local_mem_info *mem_info);

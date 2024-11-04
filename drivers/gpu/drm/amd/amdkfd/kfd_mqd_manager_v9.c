@@ -253,7 +253,7 @@ static void uninit_mqd(struct mqd_manager *mm, void *mqd,
 	struct kfd_dev *kfd = mm->dev;
 
 	if (mqd_mem_obj->gtt_mem) {
-		kfd->kfd2kgd->free_gtt_mem(kfd->kgd, mqd_mem_obj->gtt_mem);
+		kfd->kfd2kgd->free_gtt_mem(kfd->kgd, &mqd_mem_obj->gtt_mem);
 		kfree(mqd_mem_obj);
 	} else {
 		kfd_gtt_sa_free(mm->dev, mqd_mem_obj);
