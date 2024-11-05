@@ -111,6 +111,7 @@ struct lvts_data {
 	int num_lvts_ctrl;
 	int temp_factor;
 	int temp_offset;
+	int gt_calib_bit_offset;
 };
 
 struct lvts_sensor {
@@ -738,15 +739,16 @@ static int lvts_calibration_read(struct device *dev, struct lvts_domain *lvts_td
 	return 0;
 }
 
-static int lvts_golden_temp_init(struct device *dev, u8 *calib, int temp_offset)
+static int lvts_golden_temp_init(struct device *dev, u8 *calib,
+				 const struct lvts_data *lvts_data)
 {
 	u32 gt;
 
 	/*
-	 * The golden temp information is contained in the 4th byte (index = 3)
-	 * of efuse data.
+	 * The golden temp information is contained in the first 32-bit
+	 * word  of efuse data at a specific bit offset.
 	 */
-	gt = calib[3];
+	gt = (((u32 *)calib)[0] >> lvts_data->gt_calib_bit_offset) & 0xff;
 
 	/* A zero value for gt means that device has invalid efuse data */
 	if (!gt)
@@ -755,7 +757,7 @@ static int lvts_golden_temp_init(struct device *dev, u8 *calib, int temp_offset)
 	if (gt < LVTS_GOLDEN_TEMP_MAX)
 		golden_temp = gt;
 
-	golden_temp_offset = golden_temp * 500 + temp_offset;
+	golden_temp_offset = golden_temp * 500 + lvts_data->temp_offset;
 
 	return 0;
 }
@@ -774,7 +776,7 @@ static int lvts_ctrl_init(struct device *dev, struct lvts_domain *lvts_td,
 	if (ret)
 		return ret;
 
-	ret = lvts_golden_temp_init(dev, lvts_td->calib, lvts_data->temp_offset);
+	ret = lvts_golden_temp_init(dev, lvts_td->calib, lvts_data);
 	if (ret)
 		return ret;
 
@@ -1597,6 +1599,7 @@ static const struct lvts_data mt7988_lvts_ap_data = {
 	.num_lvts_ctrl	= ARRAY_SIZE(mt7988_lvts_ap_data_ctrl),
 	.temp_factor	= LVTS_COEFF_A_MT7988,
 	.temp_offset	= LVTS_COEFF_B_MT7988,
+	.gt_calib_bit_offset = 24,
 };
 
 static const struct lvts_data mt8186_lvts_data = {
@@ -1604,6 +1607,7 @@ static const struct lvts_data mt8186_lvts_data = {
 	.num_lvts_ctrl	= ARRAY_SIZE(mt8186_lvts_data_ctrl),
 	.temp_factor	= LVTS_COEFF_A_MT7988,
 	.temp_offset	= LVTS_COEFF_B_MT7988,
+	.gt_calib_bit_offset = 24,
 };
 
 static const struct lvts_data mt8192_lvts_mcu_data = {
@@ -1611,6 +1615,7 @@ static const struct lvts_data mt8192_lvts_mcu_data = {
 	.num_lvts_ctrl	= ARRAY_SIZE(mt8192_lvts_mcu_data_ctrl),
 	.temp_factor	= LVTS_COEFF_A_MT8195,
 	.temp_offset	= LVTS_COEFF_B_MT8195,
+	.gt_calib_bit_offset = 24,
 };
 
 static const struct lvts_data mt8192_lvts_ap_data = {
@@ -1618,6 +1623,7 @@ static const struct lvts_data mt8192_lvts_ap_data = {
 	.num_lvts_ctrl	= ARRAY_SIZE(mt8192_lvts_ap_data_ctrl),
 	.temp_factor	= LVTS_COEFF_A_MT8195,
 	.temp_offset	= LVTS_COEFF_B_MT8195,
+	.gt_calib_bit_offset = 24,
 };
 
 static const struct lvts_data mt8195_lvts_mcu_data = {
@@ -1625,6 +1631,7 @@ static const struct lvts_data mt8195_lvts_mcu_data = {
 	.num_lvts_ctrl	= ARRAY_SIZE(mt8195_lvts_mcu_data_ctrl),
 	.temp_factor	= LVTS_COEFF_A_MT8195,
 	.temp_offset	= LVTS_COEFF_B_MT8195,
+	.gt_calib_bit_offset = 24,
 };
 
 static const struct lvts_data mt8195_lvts_ap_data = {
@@ -1632,6 +1639,7 @@ static const struct lvts_data mt8195_lvts_ap_data = {
 	.num_lvts_ctrl	= ARRAY_SIZE(mt8195_lvts_ap_data_ctrl),
 	.temp_factor	= LVTS_COEFF_A_MT8195,
 	.temp_offset	= LVTS_COEFF_B_MT8195,
+	.gt_calib_bit_offset = 24,
 };
 
 static const struct of_device_id lvts_of_match[] = {
