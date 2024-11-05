@@ -303,7 +303,14 @@ struct bpf_func_state {
 	 */
 	u32 async_entry_cnt;
 	bool in_callback_fn;
+#ifndef __GENKSYMS__
+	union {
 	struct bpf_retval_range callback_ret_range;
+	struct tnum __unused_callback_ret_range;
+	};
+#else
+	struct tnum callback_ret_range;
+#endif
 	bool in_async_callback_fn;
 
 	/* The following fields should be last. See copy_func_state() */
