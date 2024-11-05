@@ -116,7 +116,7 @@ int ethnl_set_channels(struct sk_buff *skb, struct genl_info *info)
 	struct ethtool_channels channels = {};
 	struct ethnl_req_info req_info = {};
 	struct nlattr **tb = info->attrs;
-	u32 err_attr, max_rx_in_use = 0;
+	u32 err_attr, max_rxfh_in_use;
 	const struct ethtool_ops *ops;
 	struct net_device *dev;
 	int ret;
@@ -191,9 +191,8 @@ int ethnl_set_channels(struct sk_buff *skb, struct genl_info *info)
 	/* ensure the new Rx count fits within the configured Rx flow
 	 * indirection table settings
 	 */
-	if (netif_is_rxfh_configured(dev) &&
-	    !ethtool_get_max_rxfh_channel(dev, &max_rx_in_use) &&
-	    (channels.combined_count + channels.rx_count) <= max_rx_in_use) {
+	max_rxfh_in_use = ethtool_get_max_rxfh_channel(dev);
+	if (channels.combined_count + channels.rx_count <= max_rxfh_in_use) {
 		ret = -EINVAL;
 		GENL_SET_ERR_MSG(info, "requested channel counts are too low for existing indirection table settings");
 		goto out_ops;
