@@ -4149,6 +4149,12 @@ int blk_mq_init_allocated_queue(struct blk_mq_tag_set *set,
 	if (!q->poll_cb)
 		goto err_exit;
 
+	/*
+	 * ->tag_set has to be setup before initialize hctx, which cpuphp
+	 * handler needs it for checking queue mapping
+	 */
+	q->tag_set = set;
+
 	if (blk_mq_alloc_ctxs(q))
 		goto err_poll;
 
@@ -4166,8 +4172,6 @@ int blk_mq_init_allocated_queue(struct blk_mq_tag_set *set,
 
 	INIT_WORK(&q->timeout_work, blk_mq_timeout_work);
 	blk_queue_rq_timeout(q, set->timeout ? set->timeout : 30 * HZ);
-
-	q->tag_set = set;
 
 	q->queue_flags |= QUEUE_FLAG_MQ_DEFAULT;
 	blk_mq_update_poll_flag(q);
