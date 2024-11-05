@@ -4635,7 +4635,7 @@ out:
 	return rc;
 }
 
-static int con_font_set(struct vc_data *vc, struct console_font_op *op)
+static int con_font_set(struct vc_data *vc, const struct console_font_op *op)
 {
 	struct console_font font;
 	int rc = -EINVAL;
