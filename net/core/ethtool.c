@@ -1147,35 +1147,39 @@ void netdev_rss_key_fill(void *buffer, size_t len)
 }
 EXPORT_SYMBOL(netdev_rss_key_fill);
 
-static int ethtool_get_max_rxfh_channel(struct net_device *dev, u32 *max)
+static u32 ethtool_get_max_rxfh_channel(struct net_device *dev)
 {
-	u32 dev_size, current_max = 0;
+	u32 dev_size, current_max;
 	u32 *indir;
 	int ret;
 
+	if (!netif_is_rxfh_configured(dev))
+		return 0;
+
 	if (!dev->ethtool_ops->get_rxfh_indir_size ||
 	    !dev->ethtool_ops->get_rxfh)
-		return -EOPNOTSUPP;
+		return 0;
 	dev_size = dev->ethtool_ops->get_rxfh_indir_size(dev);
 	if (dev_size == 0)
-		return -EOPNOTSUPP;
+		return 0;
 
 	indir = kcalloc(dev_size, sizeof(indir[0]), GFP_USER);
 	if (!indir)
-		return -ENOMEM;
+		return U32_MAX;
 
 	ret = dev->ethtool_ops->get_rxfh(dev, indir, NULL, NULL);
-	if (ret)
-		goto out;
+	if (ret) {
+		current_max = U32_MAX;
+		goto out_free;
+	}
 
+	current_max = 0;
 	while (dev_size--)
 		current_max = max(current_max, indir[dev_size]);
 
-	*max = current_max;
-
-out:
+out_free:
 	kfree(indir);
-	return ret;
+	return current_max;
 }
 
 static noinline_for_stack int ethtool_get_rxfh_indir(struct net_device *dev,
@@ -1833,7 +1837,7 @@ static noinline_for_stack int ethtool_set_channels(struct net_device *dev,
 {
 	struct ethtool_channels channels, curr = { .cmd = ETHTOOL_GCHANNELS };
 	u16 from_channel, to_channel;
-	u32 max_rx_in_use = 0;
+	u32 max_rxfh_in_use;
 	unsigned int i;
 
 	if (!dev->ethtool_ops->set_channels || !dev->ethtool_ops->get_channels)
@@ -1853,9 +1857,8 @@ static noinline_for_stack int ethtool_set_channels(struct net_device *dev,
 
 	/* ensure the new Rx count fits within the configured Rx flow
 	 * indirection table settings */
-	if (netif_is_rxfh_configured(dev) &&
-	    !ethtool_get_max_rxfh_channel(dev, &max_rx_in_use) &&
-	    (channels.combined_count + channels.rx_count) <= max_rx_in_use)
+	max_rxfh_in_use = ethtool_get_max_rxfh_channel(dev);
+	if (channels.combined_count + channels.rx_count <= max_rxfh_in_use)
 	    return -EINVAL;
 
 	/* Disabling channels, query zero-copy AF_XDP sockets */
