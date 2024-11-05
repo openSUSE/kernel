@@ -2244,7 +2244,7 @@ static int fbcon_blank(struct vc_data *vc, int blank, int mode_switch)
 	return 0;
 }
 
-static int fbcon_debug_enter(struct vc_data *vc)
+static void fbcon_debug_enter(struct vc_data *vc)
 {
 	struct fb_info *info = fbcon_info_from_console(vc->vc_num);
 	struct fbcon_ops *ops = info->fbcon_par;
@@ -2254,10 +2254,9 @@ static int fbcon_debug_enter(struct vc_data *vc)
 	if (info->fbops->fb_debug_enter)
 		info->fbops->fb_debug_enter(info);
 	fbcon_set_palette(vc, color_table);
-	return 0;
 }
 
-static int fbcon_debug_leave(struct vc_data *vc)
+static void fbcon_debug_leave(struct vc_data *vc)
 {
 	struct fb_info *info = fbcon_info_from_console(vc->vc_num);
 	struct fbcon_ops *ops = info->fbcon_par;
@@ -2265,7 +2264,6 @@ static int fbcon_debug_leave(struct vc_data *vc)
 	ops->graphics = ops->save_graphics;
 	if (info->fbops->fb_debug_leave)
 		info->fbops->fb_debug_leave(info);
-	return 0;
 }
 
 static int fbcon_get_font(struct vc_data *vc, struct console_font *font, unsigned int vpitch)
