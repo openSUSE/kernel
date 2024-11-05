@@ -4434,16 +4434,8 @@ static const struct mv88e6xxx_ops mv88e6141_ops = {
 	.vtu_loadpurge = mv88e6352_g1_vtu_loadpurge,
 	.stu_getnext = mv88e6352_g1_stu_getnext,
 	.stu_loadpurge = mv88e6352_g1_stu_loadpurge,
-	.serdes_power = mv88e6390_serdes_power,
 	.serdes_get_lane = mv88e6341_serdes_get_lane,
-	/* Check status register pause & lpa register */
-	.serdes_pcs_get_state = mv88e6390_serdes_pcs_get_state,
-	.serdes_pcs_config = mv88e6390_serdes_pcs_config,
-	.serdes_pcs_an_restart = mv88e6390_serdes_pcs_an_restart,
-	.serdes_pcs_link_up = mv88e6390_serdes_pcs_link_up,
 	.serdes_irq_mapping = mv88e6390_serdes_irq_mapping,
-	.serdes_irq_enable = mv88e6390_serdes_irq_enable,
-	.serdes_irq_status = mv88e6390_serdes_irq_status,
 	.gpio_ops = &mv88e6352_gpio_ops,
 	.serdes_get_sset_count = mv88e6390_serdes_get_sset_count,
 	.serdes_get_strings = mv88e6390_serdes_get_strings,
@@ -4451,6 +4443,7 @@ static const struct mv88e6xxx_ops mv88e6141_ops = {
 	.serdes_get_regs_len = mv88e6390_serdes_get_regs_len,
 	.serdes_get_regs = mv88e6390_serdes_get_regs,
 	.phylink_get_caps = mv88e6341_phylink_get_caps,
+	.pcs_ops = &mv88e6390_pcs_ops,
 };
 
 static const struct mv88e6xxx_ops mv88e6161_ops = {
@@ -4825,22 +4818,15 @@ static const struct mv88e6xxx_ops mv88e6190_ops = {
 	.vtu_loadpurge = mv88e6390_g1_vtu_loadpurge,
 	.stu_getnext = mv88e6390_g1_stu_getnext,
 	.stu_loadpurge = mv88e6390_g1_stu_loadpurge,
-	.serdes_power = mv88e6390_serdes_power,
 	.serdes_get_lane = mv88e6390_serdes_get_lane,
-	/* Check status register pause & lpa register */
-	.serdes_pcs_get_state = mv88e6390_serdes_pcs_get_state,
-	.serdes_pcs_config = mv88e6390_serdes_pcs_config,
-	.serdes_pcs_an_restart = mv88e6390_serdes_pcs_an_restart,
-	.serdes_pcs_link_up = mv88e6390_serdes_pcs_link_up,
 	.serdes_irq_mapping = mv88e6390_serdes_irq_mapping,
-	.serdes_irq_enable = mv88e6390_serdes_irq_enable,
-	.serdes_irq_status = mv88e6390_serdes_irq_status,
 	.serdes_get_strings = mv88e6390_serdes_get_strings,
 	.serdes_get_stats = mv88e6390_serdes_get_stats,
 	.serdes_get_regs_len = mv88e6390_serdes_get_regs_len,
 	.serdes_get_regs = mv88e6390_serdes_get_regs,
 	.gpio_ops = &mv88e6352_gpio_ops,
 	.phylink_get_caps = mv88e6390_phylink_get_caps,
+	.pcs_ops = &mv88e6390_pcs_ops,
 };
 
 static const struct mv88e6xxx_ops mv88e6190x_ops = {
@@ -4890,22 +4876,15 @@ static const struct mv88e6xxx_ops mv88e6190x_ops = {
 	.vtu_loadpurge = mv88e6390_g1_vtu_loadpurge,
 	.stu_getnext = mv88e6390_g1_stu_getnext,
 	.stu_loadpurge = mv88e6390_g1_stu_loadpurge,
-	.serdes_power = mv88e6390_serdes_power,
 	.serdes_get_lane = mv88e6390x_serdes_get_lane,
-	/* Check status register pause & lpa register */
-	.serdes_pcs_get_state = mv88e6390_serdes_pcs_get_state,
-	.serdes_pcs_config = mv88e6390_serdes_pcs_config,
-	.serdes_pcs_an_restart = mv88e6390_serdes_pcs_an_restart,
-	.serdes_pcs_link_up = mv88e6390_serdes_pcs_link_up,
 	.serdes_irq_mapping = mv88e6390_serdes_irq_mapping,
-	.serdes_irq_enable = mv88e6390_serdes_irq_enable,
-	.serdes_irq_status = mv88e6390_serdes_irq_status,
 	.serdes_get_strings = mv88e6390_serdes_get_strings,
 	.serdes_get_stats = mv88e6390_serdes_get_stats,
 	.serdes_get_regs_len = mv88e6390_serdes_get_regs_len,
 	.serdes_get_regs = mv88e6390_serdes_get_regs,
 	.gpio_ops = &mv88e6352_gpio_ops,
 	.phylink_get_caps = mv88e6390x_phylink_get_caps,
+	.pcs_ops = &mv88e6390_pcs_ops,
 };
 
 static const struct mv88e6xxx_ops mv88e6191_ops = {
@@ -4953,16 +4932,8 @@ static const struct mv88e6xxx_ops mv88e6191_ops = {
 	.vtu_loadpurge = mv88e6390_g1_vtu_loadpurge,
 	.stu_getnext = mv88e6390_g1_stu_getnext,
 	.stu_loadpurge = mv88e6390_g1_stu_loadpurge,
-	.serdes_power = mv88e6390_serdes_power,
 	.serdes_get_lane = mv88e6390_serdes_get_lane,
-	/* Check status register pause & lpa register */
-	.serdes_pcs_get_state = mv88e6390_serdes_pcs_get_state,
-	.serdes_pcs_config = mv88e6390_serdes_pcs_config,
-	.serdes_pcs_an_restart = mv88e6390_serdes_pcs_an_restart,
-	.serdes_pcs_link_up = mv88e6390_serdes_pcs_link_up,
 	.serdes_irq_mapping = mv88e6390_serdes_irq_mapping,
-	.serdes_irq_enable = mv88e6390_serdes_irq_enable,
-	.serdes_irq_status = mv88e6390_serdes_irq_status,
 	.serdes_get_strings = mv88e6390_serdes_get_strings,
 	.serdes_get_stats = mv88e6390_serdes_get_stats,
 	.serdes_get_regs_len = mv88e6390_serdes_get_regs_len,
@@ -4970,6 +4941,7 @@ static const struct mv88e6xxx_ops mv88e6191_ops = {
 	.avb_ops = &mv88e6390_avb_ops,
 	.ptp_ops = &mv88e6352_ptp_ops,
 	.phylink_get_caps = mv88e6390_phylink_get_caps,
+	.pcs_ops = &mv88e6390_pcs_ops,
 };
 
 static const struct mv88e6xxx_ops mv88e6240_ops = {
@@ -5119,16 +5091,8 @@ static const struct mv88e6xxx_ops mv88e6290_ops = {
 	.vtu_loadpurge = mv88e6390_g1_vtu_loadpurge,
 	.stu_getnext = mv88e6390_g1_stu_getnext,
 	.stu_loadpurge = mv88e6390_g1_stu_loadpurge,
-	.serdes_power = mv88e6390_serdes_power,
 	.serdes_get_lane = mv88e6390_serdes_get_lane,
-	/* Check status register pause & lpa register */
-	.serdes_pcs_get_state = mv88e6390_serdes_pcs_get_state,
-	.serdes_pcs_config = mv88e6390_serdes_pcs_config,
-	.serdes_pcs_an_restart = mv88e6390_serdes_pcs_an_restart,
-	.serdes_pcs_link_up = mv88e6390_serdes_pcs_link_up,
 	.serdes_irq_mapping = mv88e6390_serdes_irq_mapping,
-	.serdes_irq_enable = mv88e6390_serdes_irq_enable,
-	.serdes_irq_status = mv88e6390_serdes_irq_status,
 	.serdes_get_strings = mv88e6390_serdes_get_strings,
 	.serdes_get_stats = mv88e6390_serdes_get_stats,
 	.serdes_get_regs_len = mv88e6390_serdes_get_regs_len,
@@ -5137,6 +5101,7 @@ static const struct mv88e6xxx_ops mv88e6290_ops = {
 	.avb_ops = &mv88e6390_avb_ops,
 	.ptp_ops = &mv88e6390_ptp_ops,
 	.phylink_get_caps = mv88e6390_phylink_get_caps,
+	.pcs_ops = &mv88e6390_pcs_ops,
 };
 
 static const struct mv88e6xxx_ops mv88e6320_ops = {
@@ -5281,16 +5246,8 @@ static const struct mv88e6xxx_ops mv88e6341_ops = {
 	.vtu_loadpurge = mv88e6352_g1_vtu_loadpurge,
 	.stu_getnext = mv88e6352_g1_stu_getnext,
 	.stu_loadpurge = mv88e6352_g1_stu_loadpurge,
-	.serdes_power = mv88e6390_serdes_power,
 	.serdes_get_lane = mv88e6341_serdes_get_lane,
-	/* Check status register pause & lpa register */
-	.serdes_pcs_get_state = mv88e6390_serdes_pcs_get_state,
-	.serdes_pcs_config = mv88e6390_serdes_pcs_config,
-	.serdes_pcs_an_restart = mv88e6390_serdes_pcs_an_restart,
-	.serdes_pcs_link_up = mv88e6390_serdes_pcs_link_up,
 	.serdes_irq_mapping = mv88e6390_serdes_irq_mapping,
-	.serdes_irq_enable = mv88e6390_serdes_irq_enable,
-	.serdes_irq_status = mv88e6390_serdes_irq_status,
 	.gpio_ops = &mv88e6352_gpio_ops,
 	.avb_ops = &mv88e6390_avb_ops,
 	.ptp_ops = &mv88e6352_ptp_ops,
@@ -5300,6 +5257,7 @@ static const struct mv88e6xxx_ops mv88e6341_ops = {
 	.serdes_get_regs_len = mv88e6390_serdes_get_regs_len,
 	.serdes_get_regs = mv88e6390_serdes_get_regs,
 	.phylink_get_caps = mv88e6341_phylink_get_caps,
+	.pcs_ops = &mv88e6390_pcs_ops,
 };
 
 static const struct mv88e6xxx_ops mv88e6350_ops = {
@@ -5505,16 +5463,8 @@ static const struct mv88e6xxx_ops mv88e6390_ops = {
 	.vtu_loadpurge = mv88e6390_g1_vtu_loadpurge,
 	.stu_getnext = mv88e6390_g1_stu_getnext,
 	.stu_loadpurge = mv88e6390_g1_stu_loadpurge,
-	.serdes_power = mv88e6390_serdes_power,
 	.serdes_get_lane = mv88e6390_serdes_get_lane,
-	/* Check status register pause & lpa register */
-	.serdes_pcs_get_state = mv88e6390_serdes_pcs_get_state,
-	.serdes_pcs_config = mv88e6390_serdes_pcs_config,
-	.serdes_pcs_an_restart = mv88e6390_serdes_pcs_an_restart,
-	.serdes_pcs_link_up = mv88e6390_serdes_pcs_link_up,
 	.serdes_irq_mapping = mv88e6390_serdes_irq_mapping,
-	.serdes_irq_enable = mv88e6390_serdes_irq_enable,
-	.serdes_irq_status = mv88e6390_serdes_irq_status,
 	.gpio_ops = &mv88e6352_gpio_ops,
 	.avb_ops = &mv88e6390_avb_ops,
 	.ptp_ops = &mv88e6390_ptp_ops,
@@ -5524,6 +5474,7 @@ static const struct mv88e6xxx_ops mv88e6390_ops = {
 	.serdes_get_regs_len = mv88e6390_serdes_get_regs_len,
 	.serdes_get_regs = mv88e6390_serdes_get_regs,
 	.phylink_get_caps = mv88e6390_phylink_get_caps,
+	.pcs_ops = &mv88e6390_pcs_ops,
 };
 
 static const struct mv88e6xxx_ops mv88e6390x_ops = {
@@ -5574,15 +5525,8 @@ static const struct mv88e6xxx_ops mv88e6390x_ops = {
 	.vtu_loadpurge = mv88e6390_g1_vtu_loadpurge,
 	.stu_getnext = mv88e6390_g1_stu_getnext,
 	.stu_loadpurge = mv88e6390_g1_stu_loadpurge,
-	.serdes_power = mv88e6390_serdes_power,
 	.serdes_get_lane = mv88e6390x_serdes_get_lane,
-	.serdes_pcs_get_state = mv88e6390_serdes_pcs_get_state,
-	.serdes_pcs_config = mv88e6390_serdes_pcs_config,
-	.serdes_pcs_an_restart = mv88e6390_serdes_pcs_an_restart,
-	.serdes_pcs_link_up = mv88e6390_serdes_pcs_link_up,
 	.serdes_irq_mapping = mv88e6390_serdes_irq_mapping,
-	.serdes_irq_enable = mv88e6390_serdes_irq_enable,
-	.serdes_irq_status = mv88e6390_serdes_irq_status,
 	.serdes_get_sset_count = mv88e6390_serdes_get_sset_count,
 	.serdes_get_strings = mv88e6390_serdes_get_strings,
 	.serdes_get_stats = mv88e6390_serdes_get_stats,
@@ -5592,11 +5536,11 @@ static const struct mv88e6xxx_ops mv88e6390x_ops = {
 	.avb_ops = &mv88e6390_avb_ops,
 	.ptp_ops = &mv88e6390_ptp_ops,
 	.phylink_get_caps = mv88e6390x_phylink_get_caps,
+	.pcs_ops = &mv88e6390_pcs_ops,
 };
 
 static const struct mv88e6xxx_ops mv88e6393x_ops = {
 	/* MV88E6XXX_FAMILY_6393 */
-	.setup_errata = mv88e6393x_serdes_setup_errata,
 	.irl_init_all = mv88e6390_g2_irl_init_all,
 	.get_eeprom = mv88e6xxx_g2_get_eeprom8,
 	.set_eeprom = mv88e6xxx_g2_set_eeprom8,
@@ -5646,20 +5590,14 @@ static const struct mv88e6xxx_ops mv88e6393x_ops = {
 	.vtu_loadpurge = mv88e6390_g1_vtu_loadpurge,
 	.stu_getnext = mv88e6390_g1_stu_getnext,
 	.stu_loadpurge = mv88e6390_g1_stu_loadpurge,
-	.serdes_power = mv88e6393x_serdes_power,
 	.serdes_get_lane = mv88e6393x_serdes_get_lane,
-	.serdes_pcs_get_state = mv88e6393x_serdes_pcs_get_state,
-	.serdes_pcs_config = mv88e6390_serdes_pcs_config,
-	.serdes_pcs_an_restart = mv88e6390_serdes_pcs_an_restart,
-	.serdes_pcs_link_up = mv88e6390_serdes_pcs_link_up,
 	.serdes_irq_mapping = mv88e6390_serdes_irq_mapping,
-	.serdes_irq_enable = mv88e6393x_serdes_irq_enable,
-	.serdes_irq_status = mv88e6393x_serdes_irq_status,
 	/* TODO: serdes stats */
 	.gpio_ops = &mv88e6352_gpio_ops,
 	.avb_ops = &mv88e6390_avb_ops,
 	.ptp_ops = &mv88e6352_ptp_ops,
 	.phylink_get_caps = mv88e6393x_phylink_get_caps,
+	.pcs_ops = &mv88e6393x_pcs_ops,
 };
 
 static const struct mv88e6xxx_info mv88e6xxx_table[] = {
