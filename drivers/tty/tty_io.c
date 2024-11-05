@@ -3303,7 +3303,7 @@ void tty_unregister_device(struct tty_driver *driver, unsigned index)
 EXPORT_SYMBOL(tty_unregister_device);
 
 /**
- * __tty_alloc_driver -- allocate tty driver
+ * __tty_alloc_driver - allocate tty driver
  * @lines: count of lines this driver can handle at most
  * @owner: module which is responsible for this driver
  * @flags: some of %TTY_DRIVER_ flags, will be set in driver->flags
@@ -3396,7 +3396,7 @@ static void destruct_tty_driver(struct kref *kref)
 }
 
 /**
- * tty_driver_kref_put -- drop a reference to a tty driver
+ * tty_driver_kref_put - drop a reference to a tty driver
  * @driver: driver of which to drop the reference
  *
  * The final put will destroy and free up the driver.
@@ -3408,7 +3408,7 @@ void tty_driver_kref_put(struct tty_driver *driver)
 EXPORT_SYMBOL(tty_driver_kref_put);
 
 /**
- * tty_register_driver -- register a tty driver
+ * tty_register_driver - register a tty driver
  * @driver: driver to register
  *
  * Called by a tty driver to register itself.
@@ -3473,7 +3473,7 @@ err:
 EXPORT_SYMBOL(tty_register_driver);
 
 /**
- * tty_unregister_driver -- unregister a tty driver
+ * tty_unregister_driver - unregister a tty driver
  * @driver: driver to unregister
  *
  * Called by a tty driver to unregister itself.
