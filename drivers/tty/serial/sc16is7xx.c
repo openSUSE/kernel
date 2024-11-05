@@ -1557,6 +1557,10 @@ static int sc16is7xx_probe(struct device *dev,
 		s->p[i].old_mctrl	= 0;
 		s->p[i].regmap		= regmaps[i];
 
+		ret = uart_get_rs485_mode(&s->p[i].port);
+		if (ret)
+			goto out_ports;
+
 		mutex_init(&s->p[i].efr_lock);
 
 		/* Disable all interrupts */
