@@ -675,7 +675,7 @@ kfd_interrupt_error:
 kfd_doorbell_error:
 	kfd_gtt_sa_fini(kfd);
 kfd_gtt_sa_init_error:
-	amdgpu_amdkfd_free_gtt_mem(kfd->kgd, kfd->gtt_mem);
+	amdgpu_amdkfd_free_gtt_mem(kfd->kgd, &kfd->gtt_mem);
 alloc_gtt_mem_failure:
 	if (hws_gws_support)
 		amdgpu_amdkfd_free_gws(kfd->kgd, kfd->gws);
@@ -695,7 +695,7 @@ void kgd2kfd_device_exit(struct kfd_dev *kfd)
 		kfd_topology_remove_device(kfd);
 		kfd_doorbell_fini(kfd);
 		kfd_gtt_sa_fini(kfd);
-		amdgpu_amdkfd_free_gtt_mem(kfd->kgd, kfd->gtt_mem);
+		amdgpu_amdkfd_free_gtt_mem(kfd->kgd, &kfd->gtt_mem);
 		if (hws_gws_support)
 			amdgpu_amdkfd_free_gws(kfd->kgd, kfd->gws);
 	}

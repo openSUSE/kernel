@@ -154,7 +154,7 @@ void amdgpu_amdkfd_gpu_reset(struct kgd_dev *kgd);
 int amdgpu_amdkfd_alloc_gtt_mem(struct kgd_dev *kgd, size_t size,
 				void **mem_obj, uint64_t *gpu_addr,
 				void **cpu_ptr, bool mqd_gfx9);
-void amdgpu_amdkfd_free_gtt_mem(struct kgd_dev *kgd, void *mem_obj);
+void amdgpu_amdkfd_free_gtt_mem(struct kgd_dev *kgd, void **mem_obj);
 int amdgpu_amdkfd_alloc_gws(struct kgd_dev *kgd, size_t size, void **mem_obj);
 void amdgpu_amdkfd_free_gws(struct kgd_dev *kgd, void *mem_obj);
 int amdgpu_amdkfd_add_gws_to_process(void *info, void *gws, struct kgd_mem **mem);
