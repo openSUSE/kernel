@@ -162,8 +162,8 @@ int udp_tunnel6_xmit_skb(struct dst_entry *dst, struct sock *sk,
 void udp_tunnel_sock_release(struct socket *sock);
 
 struct metadata_dst *udp_tun_rx_dst(struct sk_buff *skb, unsigned short family,
-				    __be16 flags, __be64 tunnel_id,
-				    int md_size);
+				    const unsigned long *flags,
+				    __be64 tunnel_id, int md_size);
 
 #ifdef CONFIG_INET
 static inline int udp_tunnel_handle_offloads(struct sk_buff *skb, bool udp_csum)
