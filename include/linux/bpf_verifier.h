@@ -275,6 +275,11 @@ struct bpf_reference_state {
 	int callback_ref;
 };
 
+struct bpf_retval_range {
+	s32 minval;
+	s32 maxval;
+};
+
 /* state of the program:
  * type of all registers and stack info
  */
@@ -298,7 +303,14 @@ struct bpf_func_state {
 	 */
 	u32 async_entry_cnt;
 	bool in_callback_fn;
+#ifndef __GENKSYMS__
+	union {
+	struct bpf_retval_range callback_ret_range;
+	struct tnum __unused_callback_ret_range;
+	};
+#else
 	struct tnum callback_ret_range;
+#endif
 	bool in_async_callback_fn;
 
 	/* The following fields should be last. See copy_func_state() */
@@ -321,7 +333,6 @@ struct bpf_func_state {
 	 * copy_func_state() to keep the code working while preserving kABI at
 	 * the same time.
 	 */
-
 #ifndef __GENKSYMS__
 	/* For callback calling functions that limit number of possible
 	 * callback executions (e.g. bpf_loop) keeps track of current
