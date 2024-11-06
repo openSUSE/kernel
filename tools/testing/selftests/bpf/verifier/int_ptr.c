@@ -1,5 +1,5 @@
 {
-	"ARG_PTR_TO_LONG uninitialized",
+	"arg pointer to long uninitialized",
 	.insns = {
 		/* bpf_strtoul arg1 (buf) */
 		BPF_MOV64_REG(BPF_REG_7, BPF_REG_10),
@@ -27,11 +27,9 @@
 	},
 	.result = ACCEPT,
 	.prog_type = BPF_PROG_TYPE_SOCKET_FILTER,
-	.result_unpriv = REJECT,
-	.errstr_unpriv = "invalid indirect read from stack R4 off -16+0 size 8",
 },
 {
-	"ARG_PTR_TO_LONG half-uninitialized",
+	"arg pointer to long half-uninitialized",
 	.insns = {
 		/* bpf_strtoul arg1 (buf) */
 		BPF_MOV64_REG(BPF_REG_7, BPF_REG_10),
@@ -58,9 +56,8 @@
 		BPF_MOV64_IMM(BPF_REG_0, 1),
 		BPF_EXIT_INSN(),
 	},
-	.result = REJECT,
-	.prog_type = BPF_PROG_TYPE_CGROUP_SYSCTL,
-	.errstr = "invalid indirect read from stack R4 off -16+4 size 8",
+	.result = ACCEPT,
+	.prog_type = BPF_PROG_TYPE_SOCKET_FILTER,
 },
 {
 	"ARG_PTR_TO_LONG misaligned",

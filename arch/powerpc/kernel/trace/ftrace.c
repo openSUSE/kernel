@@ -79,10 +79,7 @@ ftrace_modify_code(unsigned long ip, struct ppc_inst old, struct ppc_inst new)
 	}
 
 	/* replace the text with the new text */
-	if (patch_instruction((u32 *)ip, new))
-		return -EPERM;
-
-	return 0;
+	return patch_instruction((u32 *)ip, new);
 }
 
 /*

@@ -1694,10 +1694,18 @@ static void __queue_delayed_work(int cpu, struct workqueue_struct *wq,
 	dwork->cpu = cpu;
 	timer->expires = jiffies + delay;
 
-	if (unlikely(cpu != WORK_CPU_UNBOUND))
+	if (housekeeping_enabled(HK_FLAG_TIMER)) {
+		/* If the current cpu is a housekeeping cpu, use it. */
+		cpu = smp_processor_id();
+		if (!housekeeping_test_cpu(cpu, HK_FLAG_TIMER))
+			cpu = housekeeping_any_cpu(HK_FLAG_TIMER);
 		add_timer_on(timer, cpu);
-	else
-		add_timer(timer);
+	} else {
+		if (likely(cpu == WORK_CPU_UNBOUND))
+			add_timer(timer);
+		else
+			add_timer_on(timer, cpu);
+	}
 }
 
 /**
@@ -6128,6 +6136,13 @@ void __init workqueue_init_early(void)
 	cpumask_copy(wq_unbound_cpumask, housekeeping_cpumask(hk_flags));
 
 	pwq_cache = KMEM_CACHE(pool_workqueue, SLAB_PANIC);
+
+	/*
+	 * If nohz_full is enabled, set power efficient workqueue as unbound.
+	 * This allows workqueue items to be moved to HK CPUs.
+	 */
+	if (housekeeping_enabled(HK_FLAG_TICK))
+		wq_power_efficient = true;
 
 	/* initialize CPU pools */
 	for_each_possible_cpu(cpu) {

@@ -173,8 +173,6 @@ void pqm_uninit(struct process_queue_manager *pqm)
 		kfree(pqn);
 	}
 
-	bitmap_free(pqm->queue_slot_bitmap);
-	pqm->queue_slot_bitmap = NULL;
 }
 
 static int init_user_queue(struct process_queue_manager *pqm,
@@ -441,9 +439,9 @@ int pqm_destroy_queue(struct process_queue_manager *pqm, unsigned int qid)
 
 		if (dev->shared_resources.enable_mes) {
 			amdgpu_amdkfd_free_gtt_mem(dev->adev,
-						   pqn->q->gang_ctx_bo);
+						   &pqn->q->gang_ctx_bo);
 			if (pqn->q->wptr_bo)
-				amdgpu_amdkfd_free_gtt_mem(dev->adev, pqn->q->wptr_bo);
+				amdgpu_amdkfd_free_gtt_mem(dev->adev, (void **)&pqn->q->wptr_bo);
 
 		}
 		uninit_queue(pqn->q);
@@ -890,6 +888,7 @@ exit:
 		pr_debug("Queue id %d was restored successfully\n", queue_id);
 
 	kfree(q_data);
+	kfree(q_extra_data);
 
 	return ret;
 }

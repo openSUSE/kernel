@@ -264,6 +264,7 @@ struct bpf_map {
 	bool frozen; /* write-once; write-protected by freeze_mutex */
 #ifndef __GENKSYMS__
 	bool free_after_mult_rcu_gp;
+	const struct btf_type *owner_attach_func_proto;
 #else
 	void *suse_kabi_padding;
 #endif
@@ -475,9 +476,24 @@ enum bpf_type_flag {
 	/* DYNPTR points to a ringbuf record. */
 	DYNPTR_TYPE_RINGBUF	= BIT(9 + BPF_BASE_TYPE_BITS),
 
+#ifndef __GENKSYMS__
+	/* Size is known at compile time. */
+	MEM_FIXED_SIZE		= BIT(10 + BPF_BASE_TYPE_BITS),
+
+	/* Memory must be aligned on some architectures, used in combination with
+	 * MEM_FIXED_SIZE.
+	 */
+	MEM_ALIGNED		= BIT(17 + BPF_BASE_TYPE_BITS),
+#endif
+
 	__BPF_TYPE_FLAG_MAX,
 	__BPF_TYPE_LAST_FLAG	= __BPF_TYPE_FLAG_MAX - 1,
 };
+enum bpf_type_flag_orig {
+	__BPF_TYPE_LAST_FLAG_ORIG	= BIT(9 + BPF_BASE_TYPE_BITS),
+	
+};
+static_assert(sizeof(enum bpf_type_flag) == sizeof(enum bpf_type_flag_orig));
 
 #define DYNPTR_TYPE_FLAG_MASK	(DYNPTR_TYPE_LOCAL | DYNPTR_TYPE_RINGBUF)
 
@@ -510,8 +526,14 @@ enum bpf_arg_type {
 	ARG_ANYTHING,		/* any (initialized) argument is ok */
 	ARG_PTR_TO_SPIN_LOCK,	/* pointer to bpf_spin_lock */
 	ARG_PTR_TO_SOCK_COMMON,	/* pointer to sock_common */
+#ifndef __GENKSYMS__
+	/* Placeholder to preserve kABI */
+	__UNUSED_ARG_PTR_TO_INT,
+	__UNUSED_ARG_PTR_TO_LONG,
+#else
 	ARG_PTR_TO_INT,		/* pointer to int */
 	ARG_PTR_TO_LONG,	/* pointer to long */
+#endif /* __GENKSYMS__ */
 	ARG_PTR_TO_SOCKET,	/* pointer to bpf_sock (fullsock) */
 	ARG_PTR_TO_BTF_ID,	/* pointer to in-kernel struct */
 	ARG_PTR_TO_ALLOC_MEM,	/* pointer to dynamically allocated memory */
@@ -538,6 +560,10 @@ enum bpf_arg_type {
 	 * all bytes or clear them in error case.
 	 */
 	ARG_PTR_TO_UNINIT_MEM		= MEM_UNINIT | ARG_PTR_TO_MEM,
+#ifndef __GENKSYMS__
+	/* Pointer to valid memory of size known at compile time. */
+	ARG_PTR_TO_FIXED_SIZE_MEM	= MEM_FIXED_SIZE | ARG_PTR_TO_MEM,
+#endif
 
 	/* This must be the last entry. Its purpose is to ensure the enum is
 	 * wide enough to hold the higher bits reserved for bpf_type_flag.
@@ -603,10 +629,22 @@ struct bpf_func_proto {
 			u32 *arg5_btf_id;
 		};
 		u32 *arg_btf_id[5];
+#ifndef __GENKSYMS__
+		struct {
+			size_t arg1_size;
+			size_t arg2_size;
+			size_t arg3_size;
+			size_t arg4_size;
+			size_t arg5_size;
+		};
+		size_t arg_size[5];
+#endif
 	};
 	int *ret_btf_id; /* return value btf_id */
 	bool (*allowed)(const struct bpf_prog *prog);
 };
+/* Make sure the unamed union do not expand and breaks kABI */
+static_assert(sizeof_field(struct bpf_func_proto, arg_size) <= sizeof_field(struct bpf_func_proto, arg_btf_id));
 
 /* bpf_context is intentionally undefined structure. Pointer to bpf_context is
  * the first argument to eBPF programs.

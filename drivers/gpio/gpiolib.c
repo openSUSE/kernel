@@ -21,6 +21,7 @@
 #include <linux/fs.h>
 #include <linux/compat.h>
 #include <linux/file.h>
+#include <linux/nospec.h>
 #include <uapi/linux/gpio.h>
 
 #include "gpiolib.h"
@@ -146,7 +147,7 @@ struct gpio_desc *gpiochip_get_desc(struct gpio_chip *gc,
 	if (hwnum >= gdev->ngpio)
 		return ERR_PTR(-EINVAL);
 
-	return &gdev->descs[hwnum];
+	return &gdev->descs[array_index_nospec(hwnum, gdev->ngpio)];
 }
 EXPORT_SYMBOL_GPL(gpiochip_get_desc);
 

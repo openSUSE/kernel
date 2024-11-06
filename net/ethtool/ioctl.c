@@ -1809,7 +1809,7 @@ static noinline_for_stack int ethtool_set_channels(struct net_device *dev,
 {
 	struct ethtool_channels channels, curr = { .cmd = ETHTOOL_GCHANNELS };
 	u16 from_channel, to_channel;
-	u32 max_rx_in_use = 0;
+	u32 max_rxfh_in_use;
 	unsigned int i;
 	int ret;
 
@@ -1841,9 +1841,8 @@ static noinline_for_stack int ethtool_set_channels(struct net_device *dev,
 
 	/* ensure the new Rx count fits within the configured Rx flow
 	 * indirection table settings */
-	if (netif_is_rxfh_configured(dev) &&
-	    !ethtool_get_max_rxfh_channel(dev, &max_rx_in_use) &&
-	    (channels.combined_count + channels.rx_count) <= max_rx_in_use)
+	max_rxfh_in_use = ethtool_get_max_rxfh_channel(dev);
+	if (channels.combined_count + channels.rx_count <= max_rxfh_in_use)
 	    return -EINVAL;
 
 	/* Disabling channels, query zero-copy AF_XDP sockets */

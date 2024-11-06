@@ -672,6 +672,8 @@ static void pca953x_irq_bus_sync_unlock(struct irq_data *d)
 	int level;
 
 	if (chip->driver_data & PCA_PCAL) {
+		mutex_lock(&chip->i2c_lock);
+
 		/* Enable latch on interrupt-enabled inputs */
 		pca953x_write_regs(chip, PCAL953X_IN_LATCH, chip->irq_mask);
 
@@ -679,6 +681,8 @@ static void pca953x_irq_bus_sync_unlock(struct irq_data *d)
 
 		/* Unmask enabled interrupts */
 		pca953x_write_regs(chip, PCAL953X_INT_MASK, irq_mask);
+
+		mutex_unlock(&chip->i2c_lock);
 	}
 
 	/* Switch direction to input if needed */

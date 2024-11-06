@@ -29,6 +29,8 @@
 #include "dc_link_dp.h"
 #include "clk_mgr.h"
 
+#define DC_LOGGER link->ctx->logger
+
 static enum phyd32clk_clock_source get_phyd32clk_src(struct dc_link *link)
 {
 	switch (link->link_enc->transmitter) {
@@ -169,6 +171,11 @@ static void enable_hpo_dp_fpga_link_output(struct dc_link *link,
 			link_settings->link_rate == LINK_RATE_UHBR13_5 ? 412875 :
 			link_settings->link_rate == LINK_RATE_UHBR20 ? 625000 : 0;
 
+	if (!link_res->hpo_dp_link_enc) {
+		DC_LOG_ERROR("%s: invalid hpo_dp_link_enc\n", __func__);
+		return;
+	}
+
 	dm_set_phyd32clk(dc->ctx, phyd32clk_freq_khz);
 	dc->res_pool->dccg->funcs->set_physymclk(
 			dc->res_pool->dccg,
@@ -225,6 +232,11 @@ static void disable_hpo_dp_link_output(struct dc_link *link,
 		const struct link_resource *link_res,
 		enum signal_type signal)
 {
+	if (!link_res->hpo_dp_link_enc) {
+		DC_LOG_ERROR("%s: invalid hpo_dp_link_enc\n", __func__);
+		return;
+	}
+
 	if (IS_FPGA_MAXIMUS_DC(link->dc->ctx->dce_environment)) {
 		disable_hpo_dp_fpga_link_output(link, link_res, signal);
 	} else {

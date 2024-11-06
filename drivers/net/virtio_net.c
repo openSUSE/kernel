@@ -853,6 +853,10 @@ static struct sk_buff *receive_small(struct net_device *dev,
 		if (unlikely(hdr->hdr.gso_type))
 			goto err_xdp;
 
+		/* Partially checksummed packets must be dropped. */
+		if (unlikely(hdr->hdr.flags & VIRTIO_NET_HDR_F_NEEDS_CSUM))
+			goto err_xdp;
+
 		if (unlikely(xdp_headroom < virtnet_get_headroom(vi))) {
 			int offset = buf - page_address(page) + header_offset;
 			unsigned int tlen = len + vi->hdr_len;
@@ -1018,6 +1022,10 @@ static struct sk_buff *receive_mergeable(struct net_device *dev,
 		 * the receive path after XDP is loaded.
 		 */
 		if (unlikely(hdr->hdr.gso_type))
+			goto err_xdp;
+
+		/* Partially checksummed packets must be dropped. */
+		if (unlikely(hdr->hdr.flags & VIRTIO_NET_HDR_F_NEEDS_CSUM))
 			goto err_xdp;
 
 		/* Buffers with headroom use PAGE_SIZE as alloc size,
@@ -1247,6 +1255,7 @@ static void receive_buf(struct virtnet_info *vi, struct receive_queue *rq,
 	struct net_device *dev = vi->dev;
 	struct sk_buff *skb;
 	struct virtio_net_hdr_mrg_rxbuf *hdr;
+	u8 flags;
 
 	if (unlikely(len < vi->hdr_len + ETH_HLEN)) {
 		pr_debug("%s: short packet %i\n", dev->name, len);
@@ -1261,6 +1270,15 @@ static void receive_buf(struct virtnet_info *vi, struct receive_queue *rq,
 		return;
 	}
 
+	/* 1. Save the flags early, as the XDP program might overwrite them.
+	 * These flags ensure packets marked as VIRTIO_NET_HDR_F_DATA_VALID
+	 * stay valid after XDP processing.
+	 * 2. XDP doesn't work with partially checksummed packets (refer to
+	 * virtnet_xdp_set()), so packets marked as
+	 * VIRTIO_NET_HDR_F_NEEDS_CSUM get dropped during XDP processing.
+	 */
+	flags = ((struct virtio_net_hdr_mrg_rxbuf *)buf)->hdr.flags;
+
 	if (vi->mergeable_rx_bufs)
 		skb = receive_mergeable(dev, vi, rq, buf, ctx, len, xdp_xmit,
 					stats);
@@ -1274,7 +1292,7 @@ static void receive_buf(struct virtnet_info *vi, struct receive_queue *rq,
 
 	hdr = skb_vnet_hdr(skb);
 
-	if (hdr->hdr.flags & VIRTIO_NET_HDR_F_DATA_VALID)
+	if (flags & VIRTIO_NET_HDR_F_DATA_VALID)
 		skb->ip_summed = CHECKSUM_UNNECESSARY;
 
 	if (virtio_net_hdr_to_skb(skb, &hdr->hdr,
@@ -3388,6 +3406,11 @@ static int virtnet_probe(struct virtio_device *vdev)
 
 	_virtnet_set_queues(vi, vi->curr_queue_pairs);
 
+	for (i = 0; i < ARRAY_SIZE(guest_offloads); i++)
+		if (virtio_has_feature(vi->vdev, guest_offloads[i]))
+			set_bit(guest_offloads[i], &vi->guest_offloads);
+	vi->guest_offloads_capable = vi->guest_offloads;
+
 	rtnl_unlock();
 
 	err = virtnet_cpu_notif_add(vi);
@@ -3406,11 +3429,6 @@ static int virtnet_probe(struct virtio_device *vdev)
 		virtnet_update_settings(vi);
 		netif_carrier_on(dev);
 	}
-
-	for (i = 0; i < ARRAY_SIZE(guest_offloads); i++)
-		if (virtio_has_feature(vi->vdev, guest_offloads[i]))
-			set_bit(guest_offloads[i], &vi->guest_offloads);
-	vi->guest_offloads_capable = vi->guest_offloads;
 
 	pr_debug("virtnet: registered device %s with %d RX and TX vq's\n",
 		 dev->name, max_queue_pairs);

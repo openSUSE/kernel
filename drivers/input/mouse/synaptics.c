@@ -188,6 +188,7 @@ static const char * const smbus_pnp_ids[] = {
 	"LEN2055", /* E580 */
 	"LEN2064", /* T14 Gen 1 AMD / P14s Gen 1 AMD */
 	"LEN2068", /* T14 Gen 1 */
+	"SYN3015", /* HP EliteBook 840 G2 */
 	"SYN3052", /* HP EliteBook 840 G4 */
 	"SYN3221", /* HP 15-ay000 */
 	"SYN323d", /* HP Spectre X360 13-w013dx */
