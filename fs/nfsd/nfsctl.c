@@ -1628,6 +1628,7 @@ static void __exit exit_nfsd(void)
 }
 
 MODULE_AUTHOR("Olaf Kirch <okir@monad.swb.de>");
+MODULE_DESCRIPTION("In-kernel NFS server");
 MODULE_LICENSE("GPL");
 module_init(init_nfsd)
 module_exit(exit_nfsd)
