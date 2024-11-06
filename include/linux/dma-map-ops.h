@@ -17,8 +17,11 @@ struct iommu_ops;
  *
  * DMA_F_PCI_P2PDMA_SUPPORTED: Indicates the dma_map_ops implementation can
  * handle PCI P2PDMA pages in the map_sg/unmap_sg operation.
+ * DMA_F_CAN_SKIP_SYNC: DMA sync operations can be skipped if the device is
+ * coherent and it's not an SWIOTLB buffer.
  */
 #define DMA_F_PCI_P2PDMA_SUPPORTED     (1 << 0)
+#define DMA_F_CAN_SKIP_SYNC            (1 << 1)
 
 struct dma_map_ops {
 	unsigned int flags;
@@ -220,6 +223,15 @@ static inline int dma_mmap_from_global_coherent(struct vm_area_struct *vma,
 	return 0;
 }
 #endif /* CONFIG_DMA_GLOBAL_POOL */
+
+static inline void dma_reset_need_sync(struct device *dev)
+{
+#ifdef CONFIG_DMA_NEED_SYNC
+	/* Reset it only once so that the function can be called on hotpath */
+	if (unlikely(!dev->dma_need_sync))
+		dev->dma_need_sync = true;
+#endif
+}
 
 /*
  * This is the actual return value from the ->alloc_noncontiguous method.
