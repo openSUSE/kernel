@@ -30,6 +30,7 @@
 #include <linux/phy_led_triggers.h>
 #include <linux/pse-pd/pse.h>
 #include <linux/property.h>
+#include <linux/rtnetlink.h>
 #include <linux/sfp.h>
 #include <linux/skbuff.h>
 #include <linux/slab.h>
@@ -146,6 +147,14 @@ static const int phy_eee_cap1_features_array[] = {
 __ETHTOOL_DECLARE_LINK_MODE_MASK(phy_eee_cap1_features) __ro_after_init;
 EXPORT_SYMBOL_GPL(phy_eee_cap1_features);
 
+static const int phy_eee_cap2_features_array[] = {
+	ETHTOOL_LINK_MODE_2500baseT_Full_BIT,
+	ETHTOOL_LINK_MODE_5000baseT_Full_BIT,
+};
+
+__ETHTOOL_DECLARE_LINK_MODE_MASK(phy_eee_cap2_features) __ro_after_init;
+EXPORT_SYMBOL_GPL(phy_eee_cap2_features);
+
 static void features_init(void)
 {
 	/* 10/100 half/full*/
@@ -230,6 +239,9 @@ static void features_init(void)
 	linkmode_set_bit_array(phy_eee_cap1_features_array,
 			       ARRAY_SIZE(phy_eee_cap1_features_array),
 			       phy_eee_cap1_features);
+	linkmode_set_bit_array(phy_eee_cap2_features_array,
+			       ARRAY_SIZE(phy_eee_cap2_features_array),
+			       phy_eee_cap2_features);
 
 }
 
@@ -654,6 +666,7 @@ struct phy_device *phy_device_create(struct mii_bus *bus, int addr, u32 phy_id,
 	mdiodev->flags = MDIO_DEVICE_FLAG_PHY;
 	mdiodev->device_free = phy_mdio_device_free;
 	mdiodev->device_remove = phy_mdio_device_remove;
+	mdiodev->reset_state = -1;
 
 	dev->speed = SPEED_UNKNOWN;
 	dev->duplex = DUPLEX_UNKNOWN;
@@ -3451,7 +3464,9 @@ static int __init phy_init(void)
 {
 	int rc;
 
+	rtnl_lock();
 	ethtool_set_ethtool_phy_ops(&phy_ethtool_phy_ops);
+	rtnl_unlock();
 
 	rc = mdio_bus_init();
 	if (rc)
@@ -3474,7 +3489,9 @@ err_c45:
 err_mdio_bus:
 	mdio_bus_exit();
 err_ethtool_phy_ops:
+	rtnl_lock();
 	ethtool_set_ethtool_phy_ops(NULL);
+	rtnl_unlock();
 
 	return rc;
 }
@@ -3484,7 +3501,9 @@ static void __exit phy_exit(void)
 	phy_driver_unregister(&genphy_c45_driver);
 	phy_driver_unregister(&genphy_driver);
 	mdio_bus_exit();
+	rtnl_lock();
 	ethtool_set_ethtool_phy_ops(NULL);
+	rtnl_unlock();
 }
 
 subsys_initcall(phy_init);

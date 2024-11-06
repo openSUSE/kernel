@@ -168,7 +168,7 @@ struct igc_ring {
 struct igc_adapter {
 	struct net_device *netdev;
 
-	struct ethtool_eee eee;
+	struct ethtool_keee eee;
 	u16 eee_advert;
 
 	unsigned long state;
@@ -567,7 +567,6 @@ struct igc_q_vector {
 
 	struct rcu_head rcu;    /* to avoid race with update stats on free */
 	char name[IFNAMSIZ + 9];
-	struct net_device poll_dev;
 
 	/* for dynamic allocation of rings associated with this q_vector */
 	struct igc_ring ring[] ____cacheline_internodealigned_in_smp;
@@ -585,7 +584,7 @@ enum igc_filter_match_flags {
 struct igc_nfc_filter {
 	u8 match_flags;
 	u16 etype;
-	__be16 vlan_etype;
+	u16 vlan_etype;
 	u16 vlan_tci;
 	u16 vlan_tci_mask;
 	u8 src_addr[ETH_ALEN];
