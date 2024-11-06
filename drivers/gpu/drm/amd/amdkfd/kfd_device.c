@@ -533,7 +533,7 @@ kfd_topology_add_device_error:
 kfd_doorbell_error:
 	kfd_gtt_sa_fini(kfd);
 kfd_gtt_sa_init_error:
-	kfd->kfd2kgd->free_gtt_mem(kfd->kgd, kfd->gtt_mem);
+	kfd->kfd2kgd->free_gtt_mem(kfd->kgd, &kfd->gtt_mem);
 	dev_err(kfd_device,
 		"device %x:%x NOT added due to errors\n",
 		kfd->pdev->vendor, kfd->pdev->device);
@@ -550,7 +550,7 @@ void kgd2kfd_device_exit(struct kfd_dev *kfd)
 		kfd_topology_remove_device(kfd);
 		kfd_doorbell_fini(kfd);
 		kfd_gtt_sa_fini(kfd);
-		kfd->kfd2kgd->free_gtt_mem(kfd->kgd, kfd->gtt_mem);
+		kfd->kfd2kgd->free_gtt_mem(kfd->kgd, &kfd->gtt_mem);
 	}
 
 	kfree(kfd);
