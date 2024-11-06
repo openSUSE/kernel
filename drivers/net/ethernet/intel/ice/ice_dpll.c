@@ -1599,7 +1599,7 @@ static void ice_dpll_deinit_rclk_pin(struct ice_pf *pf)
 	}
 	if (WARN_ON_ONCE(!vsi || !vsi->netdev))
 		return;
-	netdev_dpll_pin_clear(vsi->netdev);
+	dpll_netdev_pin_clear(vsi->netdev);
 	dpll_pin_put(rclk->pin);
 }
 
@@ -1643,7 +1643,7 @@ ice_dpll_init_rclk_pins(struct ice_pf *pf, struct ice_dpll_pin *pin,
 		if (ret)
 			goto unregister_pins;
 	}
-	netdev_dpll_pin_set(vsi->netdev, pf->dplls.rclk.pin);
+	dpll_netdev_pin_set(vsi->netdev, pf->dplls.rclk.pin);
 
 	return 0;
 
