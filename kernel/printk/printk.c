@@ -3630,7 +3630,7 @@ void register_console(struct console *newcon)
 	console_init_seq(newcon, bootcon_registered);
 
 	if (newcon->flags & CON_NBCON)
-		nbcon_init(newcon);
+		nbcon_seq_force(newcon, newcon->seq);
 
 	/*
 	 * Put this console in the list - keep the
