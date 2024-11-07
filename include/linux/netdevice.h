@@ -2062,8 +2062,6 @@ enum netdev_stat_type {
  *
  *	@threaded:	napi threaded mode is enabled
  *
- *	@module_fw_flash_in_progress:	Module firmware flashing is in progress.
- *
  *	@net_notifier_list:	List of per-net netdev notifier block
  *				that follow this device when it is moved
  *				to another network namespace.
@@ -2450,7 +2448,6 @@ struct net_device {
 	struct lock_class_key	*qdisc_tx_busylock;
 	bool			proto_down;
 	unsigned		threaded:1;
-	unsigned		module_fw_flash_in_progress:1;
 	struct list_head	net_notifier_list;
 
 #if IS_ENABLED(CONFIG_MACSEC)
