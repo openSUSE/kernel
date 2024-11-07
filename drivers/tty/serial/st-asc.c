@@ -319,7 +319,7 @@ static irqreturn_t asc_interrupt(int irq, void *ptr)
 	struct uart_port *port = ptr;
 	u32 status;
 
-	spin_lock(&port->lock);
+	uart_port_lock(port);
 
 	status = asc_in(port, ASC_STA);
 
@@ -334,7 +334,7 @@ static irqreturn_t asc_interrupt(int irq, void *ptr)
 		asc_transmit_chars(port);
 	}
 
-	spin_unlock(&port->lock);
+	uart_port_unlock(port);
 
 	return IRQ_HANDLED;
 }
@@ -387,9 +387,9 @@ static unsigned int asc_get_mctrl(struct uart_port *port)
 /* There are probably characters waiting to be transmitted. */
 static void asc_start_tx(struct uart_port *port)
 {
-	struct circ_buf *xmit = &port->state->xmit;
+	struct tty_port *tport = &port->state->port;
 
-	if (!uart_circ_empty(xmit))
+	if (!kfifo_is_empty(&tport->xmit_fifo))
 		asc_enable_tx_interrupts(port);
 }
 
@@ -452,10 +452,10 @@ static void asc_pm(struct uart_port *port, unsigned int state,
 		 * we can come to turning it off. Note this is not called with
 		 * the port spinlock held.
 		 */
-		spin_lock_irqsave(&port->lock, flags);
+		uart_port_lock_irqsave(port, &flags);
 		ctl = asc_in(port, ASC_CTL) & ~ASC_CTL_RUN;
 		asc_out(port, ASC_CTL, ctl);
-		spin_unlock_irqrestore(&port->lock, flags);
+		uart_port_unlock_irqrestore(port, flags);
 		clk_disable_unprepare(ascport->clk);
 		break;
 	}
@@ -480,7 +480,7 @@ static void asc_set_termios(struct uart_port *port, struct ktermios *termios,
 	baud = uart_get_baud_rate(port, termios, old, 0, port->uartclk/16);
 	cflag = termios->c_cflag;
 
-	spin_lock_irqsave(&port->lock, flags);
+	uart_port_lock_irqsave(port, &flags);
 
 	/* read control register */
 	ctrl_val = asc_in(port, ASC_CTL);
@@ -594,7 +594,7 @@ static void asc_set_termios(struct uart_port *port, struct ktermios *termios,
 	/* write final value and enable port */
 	asc_out(port, ASC_CTL, (ctrl_val | ASC_CTL_RUN));
 
-	spin_unlock_irqrestore(&port->lock, flags);
+	uart_port_unlock_irqrestore(port, flags);
 }
 
 static const char *asc_type(struct uart_port *port)
@@ -847,9 +847,9 @@ static void asc_console_write(struct console *co, const char *s, unsigned count)
 	if (port->sysrq)
 		locked = 0; /* asc_interrupt has already claimed the lock */
 	else if (oops_in_progress)
-		locked = spin_trylock_irqsave(&port->lock, flags);
+		locked = uart_port_trylock_irqsave(port, &flags);
 	else
-		spin_lock_irqsave(&port->lock, flags);
+		uart_port_lock_irqsave(port, &flags);
 
 	/*
 	 * Disable interrupts so we don't get the IRQ line bouncing
@@ -867,7 +867,7 @@ static void asc_console_write(struct console *co, const char *s, unsigned count)
 	asc_out(port, ASC_INTEN, intenable);
 
 	if (locked)
-		spin_unlock_irqrestore(&port->lock, flags);
+		uart_port_unlock_irqrestore(port, flags);
 }
 
 static int asc_console_setup(struct console *co, char *options)

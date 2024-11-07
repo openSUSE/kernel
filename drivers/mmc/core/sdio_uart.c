@@ -760,8 +760,8 @@ static void sdio_uart_hangup(struct tty_struct *tty)
 	tty_port_hangup(&port->port);
 }
 
-static int sdio_uart_write(struct tty_struct *tty, const unsigned char *buf,
-			   int count)
+static ssize_t sdio_uart_write(struct tty_struct *tty, const u8 *buf,
+			      size_t count)
 {
 	struct sdio_uart_port *port = tty->driver_data;
 	int ret;
@@ -795,7 +795,7 @@ static unsigned int sdio_uart_chars_in_buffer(struct tty_struct *tty)
 	return kfifo_len(&port->xmit_fifo);
 }
 
-static void sdio_uart_send_xchar(struct tty_struct *tty, char ch)
+static void sdio_uart_send_xchar(struct tty_struct *tty, u8 ch)
 {
 	struct sdio_uart_port *port = tty->driver_data;
 

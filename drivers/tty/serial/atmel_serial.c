@@ -857,11 +857,11 @@ static void atmel_complete_tx_dma(void *arg)
 {
 	struct atmel_uart_port *atmel_port = arg;
 	struct uart_port *port = &atmel_port->uart;
-	struct circ_buf *xmit = &port->state->xmit;
+	struct tty_port *tport = &port->state->port;
 	struct dma_chan *chan = atmel_port->chan_tx;
 	unsigned long flags;
 
-	spin_lock_irqsave(&port->lock, flags);
+	uart_port_lock_irqsave(port, &flags);
 
 	if (chan)
 		dmaengine_terminate_all(chan);
@@ -873,15 +873,15 @@ static void atmel_complete_tx_dma(void *arg)
 	atmel_port->desc_tx = NULL;
 	spin_unlock(&atmel_port->lock_tx);
 
-	if (uart_circ_chars_pending(xmit) < WAKEUP_CHARS)
+	if (kfifo_len(&tport->xmit_fifo) < WAKEUP_CHARS)
 		uart_write_wakeup(port);
 
 	/*
-	 * xmit is a circular buffer so, if we have just send data from
-	 * xmit->tail to the end of xmit->buf, now we have to transmit the
-	 * remaining data from the beginning of xmit->buf to xmit->head.
+	 * xmit is a circular buffer so, if we have just send data from the
+	 * tail to the end, now we have to transmit the remaining data from the
+	 * beginning to the head.
 	 */
-	if (!uart_circ_empty(xmit))
+	if (!kfifo_is_empty(&tport->xmit_fifo))
 		atmel_tasklet_schedule(atmel_port, &atmel_port->tasklet_tx);
 	else if (atmel_uart_is_half_duplex(port)) {
 		/*
@@ -893,7 +893,7 @@ static void atmel_complete_tx_dma(void *arg)
 				  atmel_port->tx_done_mask);
 	}
 
-	spin_unlock_irqrestore(&port->lock, flags);
+	uart_port_unlock_irqrestore(port, flags);
 }
 
 static void atmel_release_tx_dma(struct uart_port *port)
@@ -919,18 +919,18 @@ static void atmel_release_tx_dma(struct uart_port *port)
 static void atmel_tx_dma(struct uart_port *port)
 {
 	struct atmel_uart_port *atmel_port = to_atmel_uart_port(port);
-	struct circ_buf *xmit = &port->state->xmit;
+	struct tty_port *tport = &port->state->port;
 	struct dma_chan *chan = atmel_port->chan_tx;
 	struct dma_async_tx_descriptor *desc;
 	struct scatterlist sgl[2], *sg, *sg_tx = &atmel_port->sg_tx;
-	unsigned int tx_len, part1_len, part2_len, sg_len;
+	unsigned int tx_len, tail, part1_len, part2_len, sg_len;
 	dma_addr_t phys_addr;
 
 	/* Make sure we have an idle channel */
 	if (atmel_port->desc_tx != NULL)
 		return;
 
-	if (!uart_circ_empty(xmit) && !uart_tx_stopped(port)) {
+	if (!kfifo_is_empty(&tport->xmit_fifo) && !uart_tx_stopped(port)) {
 		/*
 		 * DMA is idle now.
 		 * Port xmit buffer is already mapped,
@@ -940,9 +940,8 @@ static void atmel_tx_dma(struct uart_port *port)
 		 * Take the port lock to get a
 		 * consistent xmit buffer state.
 		 */
-		tx_len = CIRC_CNT_TO_END(xmit->head,
-					 xmit->tail,
-					 UART_XMIT_SIZE);
+		tx_len = kfifo_out_linear(&tport->xmit_fifo, &tail,
+				UART_XMIT_SIZE);
 
 		if (atmel_port->fifo_size) {
 			/* multi data mode */
@@ -956,7 +955,7 @@ static void atmel_tx_dma(struct uart_port *port)
 
 		sg_init_table(sgl, 2);
 		sg_len = 0;
-		phys_addr = sg_dma_address(sg_tx) + xmit->tail;
+		phys_addr = sg_dma_address(sg_tx) + tail;
 		if (part1_len) {
 			sg = &sgl[sg_len++];
 			sg_dma_address(sg) = phys_addr;
@@ -973,7 +972,7 @@ static void atmel_tx_dma(struct uart_port *port)
 
 		/*
 		 * save tx_len so atmel_complete_tx_dma() will increase
-		 * xmit->tail correctly
+		 * tail correctly
 		 */
 		atmel_port->tx_len = tx_len;
 
@@ -1003,13 +1002,14 @@ static void atmel_tx_dma(struct uart_port *port)
 		dma_async_issue_pending(chan);
 	}
 
-	if (uart_circ_chars_pending(xmit) < WAKEUP_CHARS)
+	if (kfifo_len(&tport->xmit_fifo) < WAKEUP_CHARS)
 		uart_write_wakeup(port);
 }
 
 static int atmel_prepare_tx_dma(struct uart_port *port)
 {
 	struct atmel_uart_port *atmel_port = to_atmel_uart_port(port);
+	struct tty_port *tport = &port->state->port;
 	struct device *mfd_dev = port->dev->parent;
 	dma_cap_mask_t		mask;
 	struct dma_slave_config config;
@@ -1027,11 +1027,11 @@ static int atmel_prepare_tx_dma(struct uart_port *port)
 	spin_lock_init(&atmel_port->lock_tx);
 	sg_init_table(&atmel_port->sg_tx, 1);
 	/* UART circular tx buffer is an aligned page. */
-	BUG_ON(!PAGE_ALIGNED(port->state->xmit.buf));
+	BUG_ON(!PAGE_ALIGNED(tport->xmit_buf));
 	sg_set_page(&atmel_port->sg_tx,
-			virt_to_page(port->state->xmit.buf),
+			virt_to_page(tport->xmit_buf),
 			UART_XMIT_SIZE,
-			offset_in_page(port->state->xmit.buf));
+			offset_in_page(tport->xmit_buf));
 	nent = dma_map_sg(port->dev,
 				&atmel_port->sg_tx,
 				1,
@@ -1043,7 +1043,7 @@ static int atmel_prepare_tx_dma(struct uart_port *port)
 	} else {
 		dev_dbg(port->dev, "%s: mapped %d@%p to %pad\n", __func__,
 			sg_dma_len(&atmel_port->sg_tx),
-			port->state->xmit.buf,
+			tport->xmit_buf,
 			&sg_dma_address(&atmel_port->sg_tx));
 	}
 
@@ -1451,9 +1451,8 @@ static void atmel_release_tx_pdc(struct uart_port *port)
 static void atmel_tx_pdc(struct uart_port *port)
 {
 	struct atmel_uart_port *atmel_port = to_atmel_uart_port(port);
-	struct circ_buf *xmit = &port->state->xmit;
+	struct tty_port *tport = &port->state->port;
 	struct atmel_dma_buffer *pdc = &atmel_port->pdc_tx;
-	int count;
 
 	/* nothing left to transmit? */
 	if (atmel_uart_readl(port, ATMEL_PDC_TCR))
@@ -1466,17 +1465,19 @@ static void atmel_tx_pdc(struct uart_port *port)
 	/* disable PDC transmit */
 	atmel_uart_writel(port, ATMEL_PDC_PTCR, ATMEL_PDC_TXTDIS);
 
-	if (!uart_circ_empty(xmit) && !uart_tx_stopped(port)) {
+	if (!kfifo_is_empty(&tport->xmit_fifo) && !uart_tx_stopped(port)) {
+		unsigned int count, tail;
+
 		dma_sync_single_for_device(port->dev,
 					   pdc->dma_addr,
 					   pdc->dma_size,
 					   DMA_TO_DEVICE);
 
-		count = CIRC_CNT_TO_END(xmit->head, xmit->tail, UART_XMIT_SIZE);
+		count = kfifo_out_linear(&tport->xmit_fifo, &tail,
+				UART_XMIT_SIZE);
 		pdc->ofs = count;
 
-		atmel_uart_writel(port, ATMEL_PDC_TPR,
-				  pdc->dma_addr + xmit->tail);
+		atmel_uart_writel(port, ATMEL_PDC_TPR, pdc->dma_addr + tail);
 		atmel_uart_writel(port, ATMEL_PDC_TCR, count);
 		/* re-enable PDC transmit */
 		atmel_uart_writel(port, ATMEL_PDC_PTCR, ATMEL_PDC_TXTEN);
@@ -1490,7 +1491,7 @@ static void atmel_tx_pdc(struct uart_port *port)
 		}
 	}
 
-	if (uart_circ_chars_pending(xmit) < WAKEUP_CHARS)
+	if (kfifo_len(&tport->xmit_fifo) < WAKEUP_CHARS)
 		uart_write_wakeup(port);
 }
 
@@ -1498,9 +1499,9 @@ static int atmel_prepare_tx_pdc(struct uart_port *port)
 {
 	struct atmel_uart_port *atmel_port = to_atmel_uart_port(port);
 	struct atmel_dma_buffer *pdc = &atmel_port->pdc_tx;
-	struct circ_buf *xmit = &port->state->xmit;
+	struct tty_port *tport = &port->state->port;
 
-	pdc->buf = xmit->buf;
+	pdc->buf = tport->xmit_buf;
 	pdc->dma_addr = dma_map_single(port->dev,
 					pdc->buf,
 					UART_XMIT_SIZE,
@@ -1711,9 +1712,9 @@ static void atmel_tasklet_rx_func(struct tasklet_struct *t)
 	struct uart_port *port = &atmel_port->uart;
 
 	/* The interrupt handler does not take the lock */
-	spin_lock(&port->lock);
+	uart_port_lock(port);
 	atmel_port->schedule_rx(port);
-	spin_unlock(&port->lock);
+	uart_port_unlock(port);
 }
 
 static void atmel_tasklet_tx_func(struct tasklet_struct *t)
@@ -1723,9 +1724,9 @@ static void atmel_tasklet_tx_func(struct tasklet_struct *t)
 	struct uart_port *port = &atmel_port->uart;
 
 	/* The interrupt handler does not take the lock */
-	spin_lock(&port->lock);
+	uart_port_lock(port);
 	atmel_port->schedule_tx(port);
-	spin_unlock(&port->lock);
+	uart_port_unlock(port);
 }
 
 static void atmel_init_property(struct atmel_uart_port *atmel_port,
@@ -2175,7 +2176,7 @@ static void atmel_set_termios(struct uart_port *port,
 	} else
 		mode |= ATMEL_US_PAR_NONE;
 
-	spin_lock_irqsave(&port->lock, flags);
+	uart_port_lock_irqsave(port, &flags);
 
 	port->read_status_mask = ATMEL_US_OVRE;
 	if (termios->c_iflag & INPCK)
@@ -2377,22 +2378,22 @@ gclk_fail:
 	else
 		atmel_disable_ms(port);
 
-	spin_unlock_irqrestore(&port->lock, flags);
+	uart_port_unlock_irqrestore(port, flags);
 }
 
 static void atmel_set_ldisc(struct uart_port *port, struct ktermios *termios)
 {
 	if (termios->c_line == N_PPS) {
 		port->flags |= UPF_HARDPPS_CD;
-		spin_lock_irq(&port->lock);
+		uart_port_lock_irq(port);
 		atmel_enable_ms(port);
-		spin_unlock_irq(&port->lock);
+		uart_port_unlock_irq(port);
 	} else {
 		port->flags &= ~UPF_HARDPPS_CD;
 		if (!UART_ENABLE_MS(port, termios->c_cflag)) {
-			spin_lock_irq(&port->lock);
+			uart_port_lock_irq(port);
 			atmel_disable_ms(port);
-			spin_unlock_irq(&port->lock);
+			uart_port_unlock_irq(port);
 		}
 	}
 }

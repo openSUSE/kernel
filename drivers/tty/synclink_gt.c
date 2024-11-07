@@ -432,7 +432,7 @@ static void tx_set_idle(struct slgt_info *info);
 static unsigned int tbuf_bytes(struct slgt_info *info);
 static void reset_tbufs(struct slgt_info *info);
 static void tdma_reset(struct slgt_info *info);
-static bool tx_load(struct slgt_info *info, const char *buf, unsigned int count);
+static bool tx_load(struct slgt_info *info, const u8 *buf, unsigned int count);
 
 static void get_gtsignals(struct slgt_info *info);
 static void set_gtsignals(struct slgt_info *info);
@@ -746,8 +746,7 @@ static void update_tx_timer(struct slgt_info *info)
 	}
 }
 
-static int write(struct tty_struct *tty,
-		 const unsigned char *buf, int count)
+static ssize_t write(struct tty_struct *tty, const u8 *buf, size_t count)
 {
 	int ret = 0;
 	struct slgt_info *info = tty->driver_data;
@@ -756,7 +755,7 @@ static int write(struct tty_struct *tty,
 	if (sanity_check(info, tty->name, "write"))
 		return -EIO;
 
-	DBGINFO(("%s write count=%d\n", info->device_name, count));
+	DBGINFO(("%s write count=%zu\n", info->device_name, count));
 
 	if (!info->tx_buf || (count > info->max_frame_size))
 		return -EIO;
@@ -782,7 +781,7 @@ cleanup:
 	return ret;
 }
 
-static int put_char(struct tty_struct *tty, unsigned char ch)
+static int put_char(struct tty_struct *tty, u8 ch)
 {
 	struct slgt_info *info = tty->driver_data;
 	unsigned long flags;
@@ -790,7 +789,7 @@ static int put_char(struct tty_struct *tty, unsigned char ch)
 
 	if (sanity_check(info, tty->name, "put_char"))
 		return 0;
-	DBGINFO(("%s put_char(%d)\n", info->device_name, ch));
+	DBGINFO(("%s put_char(%u)\n", info->device_name, ch));
 	if (!info->tx_buf)
 		return 0;
 	spin_lock_irqsave(&info->lock,flags);
@@ -4777,7 +4776,7 @@ static unsigned int tbuf_bytes(struct slgt_info *info)
  * load data into transmit DMA buffer ring and start transmitter if needed
  * return true if data accepted, otherwise false (buffers full)
  */
-static bool tx_load(struct slgt_info *info, const char *buf, unsigned int size)
+static bool tx_load(struct slgt_info *info, const u8 *buf, unsigned int size)
 {
 	unsigned short count;
 	unsigned int i;
