@@ -611,7 +611,7 @@ int __ieee80211_amsdu_to_8023s(struct sk_buff *skb, struct sk_buff_head *list,
 	u16 ethertype;
 	u8 *payload;
 	const struct ethhdr *eth;
-	int remaining, err;
+	int err;
 	u8 dst[ETH_ALEN], src[ETH_ALEN];
 
 	if (has_80211_header) {
@@ -629,13 +629,17 @@ int __ieee80211_amsdu_to_8023s(struct sk_buff *skb, struct sk_buff_head *list,
 
 	while (skb != frame) {
 		u8 padding;
-		__be16 len = eth->h_proto;
-		unsigned int subframe_len = sizeof(struct ethhdr) + ntohs(len);
+		__be16 len;
+		unsigned int subframe_len;
+		int remaining = skb->len;
 
-		remaining = skb->len;
+		if (sizeof(struct ethhdr) > remaining)
+			goto purge;
+
 		memcpy(dst, eth->h_dest, ETH_ALEN);
 		memcpy(src, eth->h_source, ETH_ALEN);
-
+		len = eth->h_proto;
+		subframe_len = sizeof(struct ethhdr) + ntohs(len);
 		padding = (4 - subframe_len) & 0x3;
 		/* the last MSDU has no padding */
 		if (subframe_len > remaining)
