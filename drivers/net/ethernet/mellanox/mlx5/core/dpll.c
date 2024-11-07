@@ -118,10 +118,11 @@ mlx5_dpll_pin_ffo_get(struct mlx5_dpll_synce_status *synce_status,
 	return 0;
 }
 
-static int mlx5_dpll_device_lock_status_get(const struct dpll_device *dpll,
-					    void *priv,
-					    enum dpll_lock_status *status,
-					    struct netlink_ext_ack *extack)
+static int
+mlx5_dpll_device_lock_status_get(const struct dpll_device *dpll, void *priv,
+				 enum dpll_lock_status *status,
+				 enum dpll_lock_status_error *status_error,
+				 struct netlink_ext_ack *extack)
 {
 	struct mlx5_dpll_synce_status synce_status;
 	struct mlx5_dpll *mdpll = priv;
@@ -261,7 +262,7 @@ static void mlx5_dpll_netdev_dpll_pin_set(struct mlx5_dpll *mdpll,
 {
 	if (mdpll->tracking_netdev)
 		return;
-	netdev_dpll_pin_set(netdev, mdpll->dpll_pin);
+	dpll_netdev_pin_set(netdev, mdpll->dpll_pin);
 	mdpll->tracking_netdev = netdev;
 }
 
@@ -269,7 +270,7 @@ static void mlx5_dpll_netdev_dpll_pin_clear(struct mlx5_dpll *mdpll)
 {
 	if (!mdpll->tracking_netdev)
 		return;
-	netdev_dpll_pin_clear(mdpll->tracking_netdev);
+	dpll_netdev_pin_clear(mdpll->tracking_netdev);
 	mdpll->tracking_netdev = NULL;
 }
 
