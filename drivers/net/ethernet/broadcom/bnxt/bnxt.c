@@ -512,8 +512,11 @@ static netdev_tx_t bnxt_start_xmit(struct sk_buff *skb, struct net_device *dev)
 	if (unlikely(skb_shinfo(skb)->tx_flags & SKBTX_HW_TSTAMP)) {
 		struct bnxt_ptp_cfg *ptp = bp->ptp_cfg;
 
-		if (ptp && ptp->tx_tstamp_en && !skb_is_gso(skb) &&
-		    atomic_dec_if_positive(&ptp->tx_avail) >= 0) {
+		if (ptp && ptp->tx_tstamp_en && !skb_is_gso(skb)) {
+			if (!atomic_dec_if_positive(&ptp->tx_avail)) {
+				atomic64_inc(&ptp->stats.ts_err);
+				goto tx_no_ts;
+			}
 			if (!bnxt_ptp_parse(skb, &ptp->tx_seqid,
 					    &ptp->tx_hdr_off)) {
 				if (vlan_tag_flags)
@@ -526,6 +529,7 @@ static netdev_tx_t bnxt_start_xmit(struct sk_buff *skb, struct net_device *dev)
 		}
 	}
 
+tx_no_ts:
 	if (unlikely(skb->no_fcs))
 		lflags |= cpu_to_le32(TX_BD_FLAGS_NO_CRC);
 
@@ -753,8 +757,10 @@ tx_dma_error:
 tx_free:
 	dev_kfree_skb_any(skb);
 tx_kick_pending:
-	if (BNXT_TX_PTP_IS_SET(lflags))
+	if (BNXT_TX_PTP_IS_SET(lflags)) {
+		atomic64_inc(&bp->ptp_cfg->stats.ts_err);
 		atomic_inc(&bp->ptp_cfg->tx_avail);
+	}
 	if (txr->kick_pending)
 		bnxt_txr_db_kick(bp, txr, txr->tx_prod);
 	txr->tx_buf_ring[txr->tx_prod].skb = NULL;
@@ -811,10 +817,12 @@ static void __bnxt_tx_int(struct bnxt *bp, struct bnxt_tx_ring_info *txr,
 		if (unlikely(skb_shinfo(skb)->tx_flags & SKBTX_IN_PROGRESS)) {
 			if (BNXT_CHIP_P5(bp)) {
 				/* PTP worker takes ownership of the skb */
-				if (!bnxt_get_tx_ts_p5(bp, skb))
+				if (!bnxt_get_tx_ts_p5(bp, skb)) {
 					skb = NULL;
-				else
+				} else {
+					atomic64_inc(&bp->ptp_cfg->stats.ts_err);
 					atomic_inc(&bp->ptp_cfg->tx_avail);
+				}
 			}
 		}
 
