@@ -960,7 +960,7 @@ int ionic_tx_napi(struct napi_struct *napi, int budget)
 				   work_done, flags);
 	}
 
-	if (!work_done)
+	if (!work_done && cq->bound_q->lif->doorbell_wa)
 		ionic_txq_poke_doorbell(&qcq->q);
 
 	return work_done;
@@ -1003,7 +1003,7 @@ int ionic_rx_napi(struct napi_struct *napi, int budget)
 				   work_done, flags);
 	}
 
-	if (!work_done)
+	if (!work_done && cq->bound_q->lif->doorbell_wa)
 		ionic_rxq_poke_doorbell(&qcq->q);
 
 	return work_done;
@@ -1048,10 +1048,12 @@ int ionic_txrx_napi(struct napi_struct *napi, int budget)
 				   tx_work_done + rx_work_done, flags);
 	}
 
-	if (!rx_work_done)
-		ionic_rxq_poke_doorbell(&rxqcq->q);
-	if (!tx_work_done)
-		ionic_txq_poke_doorbell(&txqcq->q);
+	if (lif->doorbell_wa) {
+		if (!rx_work_done)
+			ionic_rxq_poke_doorbell(&rxqcq->q);
+		if (!tx_work_done)
+			ionic_txq_poke_doorbell(&txqcq->q);
+	}
 
 	return rx_work_done;
 }
