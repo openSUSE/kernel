@@ -257,7 +257,7 @@ static void notrace start_secondary(void *unused)
 	__flush_tlb_all();
 #endif
 	cpu_init_secondary();
-	rcu_cpu_starting(raw_smp_processor_id());
+	rcutree_report_cpu_starting(raw_smp_processor_id());
 	x86_cpuinit.early_percpu_clock_init();
 	smp_callin();
 

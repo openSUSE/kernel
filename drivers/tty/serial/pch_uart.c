@@ -237,9 +237,6 @@ struct eg20t_port {
 
 #define IRQ_NAME_SIZE 17
 	char				irq_name[IRQ_NAME_SIZE];
-
-	/* protect the eg20t_port private structure and io access to membase */
-	spinlock_t lock;
 };
 
 /**
@@ -567,7 +564,7 @@ static int pch_uart_hal_read(struct eg20t_port *priv, unsigned char *buf,
 			if (uart_handle_break(port))
 				continue;
 		}
-		if (uart_handle_sysrq_char(port, rbr))
+		if (uart_prepare_sysrq_char(port, rbr))
 			continue;
 
 		buf[i++] = rbr;
@@ -811,7 +808,7 @@ static int dma_handle_rx(struct eg20t_port *priv)
 static unsigned int handle_tx(struct eg20t_port *priv)
 {
 	struct uart_port *port = &priv->port;
-	struct circ_buf *xmit = &port->state->xmit;
+	unsigned char ch;
 	int fifo_size;
 	int tx_empty;
 
@@ -833,9 +830,9 @@ static unsigned int handle_tx(struct eg20t_port *priv)
 		fifo_size--;
 	}
 
-	while (!uart_tx_stopped(port) && !uart_circ_empty(xmit) && fifo_size) {
-		iowrite8(xmit->buf[xmit->tail], priv->membase + PCH_UART_THR);
-		uart_xmit_advance(port, 1);
+	while (!uart_tx_stopped(port) && fifo_size &&
+			uart_fifo_get(port, &ch)) {
+		iowrite8(ch, priv->membase + PCH_UART_THR);
 		fifo_size--;
 		tx_empty = 0;
 	}
@@ -853,14 +850,14 @@ static unsigned int handle_tx(struct eg20t_port *priv)
 static unsigned int dma_handle_tx(struct eg20t_port *priv)
 {
 	struct uart_port *port = &priv->port;
-	struct circ_buf *xmit = &port->state->xmit;
+	struct tty_port *tport = &port->state->port;
 	struct scatterlist *sg;
 	int nent;
 	int fifo_size;
 	struct dma_async_tx_descriptor *desc;
+	unsigned int bytes, tail;
 	int num;
 	int i;
-	int bytes;
 	int size;
 	int rem;
 
@@ -889,7 +886,7 @@ static unsigned int dma_handle_tx(struct eg20t_port *priv)
 		fifo_size--;
 	}
 
-	bytes = CIRC_CNT_TO_END(xmit->head, xmit->tail, UART_XMIT_SIZE);
+	bytes = kfifo_out_linear(&tport->xmit_fifo, &tail, UART_XMIT_SIZE);
 	if (!bytes) {
 		dev_dbg(priv->port.dev, "%s 0 bytes return\n", __func__);
 		pch_uart_hal_disable_interrupt(priv, PCH_UART_HAL_TX_INT);
@@ -923,10 +920,10 @@ static unsigned int dma_handle_tx(struct eg20t_port *priv)
 
 	for (i = 0; i < num; i++, sg++) {
 		if (i == (num - 1))
-			sg_set_page(sg, virt_to_page(xmit->buf),
+			sg_set_page(sg, virt_to_page(tport->xmit_buf),
 				    rem, fifo_size * i);
 		else
-			sg_set_page(sg, virt_to_page(xmit->buf),
+			sg_set_page(sg, virt_to_page(tport->xmit_buf),
 				    size, fifo_size * i);
 	}
 
@@ -940,8 +937,7 @@ static unsigned int dma_handle_tx(struct eg20t_port *priv)
 	priv->nent = nent;
 
 	for (i = 0; i < nent; i++, sg++) {
-		sg->offset = (xmit->tail & (UART_XMIT_SIZE - 1)) +
-			      fifo_size * i;
+		sg->offset = tail + fifo_size * i;
 		sg_dma_address(sg) = (sg_dma_address(sg) &
 				    ~(UART_XMIT_SIZE - 1)) + sg->offset;
 		if (i == (nent - 1))
@@ -1013,7 +1009,7 @@ static irqreturn_t pch_uart_interrupt(int irq, void *dev_id)
 	int next = 1;
 	u8 msr;
 
-	spin_lock(&priv->lock);
+	uart_port_lock(&priv->port);
 	handled = 0;
 	while (next) {
 		iid = pch_uart_hal_get_iid(priv);
@@ -1073,7 +1069,7 @@ static irqreturn_t pch_uart_interrupt(int irq, void *dev_id)
 		handled |= (unsigned int)ret;
 	}
 
-	spin_unlock(&priv->lock);
+	uart_unlock_and_check_sysrq(&priv->port);
 	return IRQ_RETVAL(handled);
 }
 
@@ -1184,9 +1180,9 @@ static void pch_uart_break_ctl(struct uart_port *port, int ctl)
 	unsigned long flags;
 
 	priv = container_of(port, struct eg20t_port, port);
-	spin_lock_irqsave(&priv->lock, flags);
+	uart_port_lock_irqsave(&priv->port, &flags);
 	pch_uart_hal_set_break(priv, ctl);
-	spin_unlock_irqrestore(&priv->lock, flags);
+	uart_port_unlock_irqrestore(&priv->port, flags);
 }
 
 /* Grab any interrupt resources and initialise any low level driver state. */
@@ -1336,8 +1332,7 @@ static void pch_uart_set_termios(struct uart_port *port,
 
 	baud = uart_get_baud_rate(port, termios, old, 0, port->uartclk / 16);
 
-	spin_lock_irqsave(&priv->lock, flags);
-	spin_lock(&port->lock);
+	uart_port_lock_irqsave(port, &flags);
 
 	uart_update_timeout(port, termios->c_cflag, baud);
 	rtn = pch_uart_hal_set_line(priv, baud, parity, bits, stb);
@@ -1350,8 +1345,7 @@ static void pch_uart_set_termios(struct uart_port *port,
 		tty_termios_encode_baud_rate(termios, baud, baud);
 
 out:
-	spin_unlock(&port->lock);
-	spin_unlock_irqrestore(&priv->lock, flags);
+	uart_port_unlock_irqrestore(port, flags);
 }
 
 static const char *pch_uart_type(struct uart_port *port)
@@ -1555,27 +1549,17 @@ pch_console_write(struct console *co, const char *s, unsigned int count)
 {
 	struct eg20t_port *priv;
 	unsigned long flags;
-	int priv_locked = 1;
-	int port_locked = 1;
+	int locked = 1;
 	u8 ier;
 
 	priv = pch_uart_ports[co->index];
 
 	touch_nmi_watchdog();
 
-	local_irq_save(flags);
-	if (priv->port.sysrq) {
-		/* call to uart_handle_sysrq_char already took the priv lock */
-		priv_locked = 0;
-		/* serial8250_handle_port() already took the port lock */
-		port_locked = 0;
-	} else if (oops_in_progress) {
-		priv_locked = spin_trylock(&priv->lock);
-		port_locked = spin_trylock(&priv->port.lock);
-	} else {
-		spin_lock(&priv->lock);
-		spin_lock(&priv->port.lock);
-	}
+	if (oops_in_progress)
+		locked = uart_port_trylock_irqsave(&priv->port, &flags);
+	else
+		uart_port_lock_irqsave(&priv->port, &flags);
 
 	/*
 	 *	First save the IER then disable the interrupts
@@ -1593,11 +1577,8 @@ pch_console_write(struct console *co, const char *s, unsigned int count)
 	wait_for_xmitr(priv, UART_LSR_BOTH_EMPTY);
 	iowrite8(ier, priv->membase + UART_IER);
 
-	if (port_locked)
-		spin_unlock(&priv->port.lock);
-	if (priv_locked)
-		spin_unlock(&priv->lock);
-	local_irq_restore(flags);
+	if (locked)
+		uart_port_unlock_irqrestore(&priv->port, flags);
 }
 
 static int __init pch_console_setup(struct console *co, char *options)
@@ -1693,8 +1674,6 @@ static struct eg20t_port *pch_uart_init_port(struct pci_dev *pdev,
 
 	pci_enable_msi(pdev);
 	pci_set_master(pdev);
-
-	spin_lock_init(&priv->lock);
 
 	iobase = pci_resource_start(pdev, 0);
 	mapbase = pci_resource_start(pdev, 1);

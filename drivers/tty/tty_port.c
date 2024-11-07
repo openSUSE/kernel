@@ -81,7 +81,7 @@ const struct tty_port_client_operations tty_port_default_client_ops = {
 EXPORT_SYMBOL_GPL(tty_port_default_client_ops);
 
 /**
- * tty_port_init -- initialize tty_port
+ * tty_port_init - initialize tty_port
  * @port: tty_port to initialize
  *
  * Initializes the state of struct tty_port. When a port was initialized using
@@ -173,7 +173,8 @@ EXPORT_SYMBOL_GPL(tty_port_register_device_attr);
  * @port: tty_port of the device
  * @driver: tty_driver for this device
  * @index: index of the tty
- * @device: parent if exists, otherwise NULL
+ * @host: serial port hardware device
+ * @parent: parent if exists, otherwise NULL
  * @drvdata: driver data for the device
  * @attr_grp: attribute group for the device
  *
@@ -182,20 +183,20 @@ EXPORT_SYMBOL_GPL(tty_port_register_device_attr);
  */
 struct device *tty_port_register_device_attr_serdev(struct tty_port *port,
 		struct tty_driver *driver, unsigned index,
-		struct device *device, void *drvdata,
+		struct device *host, struct device *parent, void *drvdata,
 		const struct attribute_group **attr_grp)
 {
 	struct device *dev;
 
 	tty_port_link_device(port, driver, index);
 
-	dev = serdev_tty_port_register(port, device, driver, index);
+	dev = serdev_tty_port_register(port, host, parent, driver, index);
 	if (PTR_ERR(dev) != -ENODEV) {
 		/* Skip creating cdev if we registered a serdev device */
 		return dev;
 	}
 
-	return tty_register_device_attr(driver, index, device, drvdata,
+	return tty_register_device_attr(driver, index, parent, drvdata,
 			attr_grp);
 }
 EXPORT_SYMBOL_GPL(tty_port_register_device_attr_serdev);
@@ -205,17 +206,18 @@ EXPORT_SYMBOL_GPL(tty_port_register_device_attr_serdev);
  * @port: tty_port of the device
  * @driver: tty_driver for this device
  * @index: index of the tty
- * @device: parent if exists, otherwise NULL
+ * @host: serial port hardware controller device
+ * @parent: parent if exists, otherwise NULL
  *
  * Register a serdev or tty device depending on if the parent device has any
  * defined serdev clients or not.
  */
 struct device *tty_port_register_device_serdev(struct tty_port *port,
 		struct tty_driver *driver, unsigned index,
-		struct device *device)
+		struct device *host, struct device *parent)
 {
 	return tty_port_register_device_attr_serdev(port, driver, index,
-			device, NULL, NULL);
+			host, parent, NULL, NULL);
 }
 EXPORT_SYMBOL_GPL(tty_port_register_device_serdev);
 
@@ -269,7 +271,7 @@ void tty_port_free_xmit_buf(struct tty_port *port)
 EXPORT_SYMBOL(tty_port_free_xmit_buf);
 
 /**
- * tty_port_destroy -- destroy inited port
+ * tty_port_destroy - destroy inited port
  * @port: tty port to be destroyed
  *
  * When a port was initialized using tty_port_init(), one has to destroy the
@@ -299,7 +301,7 @@ static void tty_port_destructor(struct kref *kref)
 }
 
 /**
- * tty_port_put -- drop a reference to tty_port
+ * tty_port_put - drop a reference to tty_port
  * @port: port to drop a reference of (can be NULL)
  *
  * The final put will destroy and free up the @port using

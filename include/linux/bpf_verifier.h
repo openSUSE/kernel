@@ -275,6 +275,11 @@ struct bpf_reference_state {
 	int callback_ref;
 };
 
+struct bpf_retval_range {
+	s32 minval;
+	s32 maxval;
+};
+
 /* state of the program:
  * type of all registers and stack info
  */
@@ -297,8 +302,8 @@ struct bpf_func_state {
 	 * void foo(void) { bpf_timer_set_callback(,foo); }
 	 */
 	u32 async_entry_cnt;
+	struct bpf_retval_range callback_ret_range;
 	bool in_callback_fn;
-	struct tnum callback_ret_range;
 	bool in_async_callback_fn;
 	/* For callback calling functions that limit number of possible
 	 * callback executions (e.g. bpf_loop) keeps track of current
@@ -315,10 +320,6 @@ struct bpf_func_state {
 	/* The following fields should be last. See copy_func_state() */
 	int acquired_refs;
 	struct bpf_reference_state *refs;
-	/* Size of the current stack, in bytes. The stack state is tracked below, in
-	 * `stack`. allocated_stack is always a multiple of BPF_REG_SIZE.
-	 */
-	int allocated_stack;
 	/* The state of the stack. Each element of the array describes BPF_REG_SIZE
 	 * (i.e. 8) bytes worth of stack memory.
 	 * stack[0] represents bytes [*(r10-8)..*(r10-1)]
@@ -327,6 +328,10 @@ struct bpf_func_state {
 	 * stack[allocated_stack/8 - 1] represents [*(r10-allocated_stack)..*(r10-allocated_stack+7)]
 	 */
 	struct bpf_stack_state *stack;
+	/* Size of the current stack, in bytes. The stack state is tracked below, in
+	 * `stack`. allocated_stack is always a multiple of BPF_REG_SIZE.
+	 */
+	int allocated_stack;
 };
 
 struct bpf_idx_pair {

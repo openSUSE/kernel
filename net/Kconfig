@@ -329,7 +329,7 @@ config CGROUP_NET_CLASSID
 
 config NET_RX_BUSY_POLL
 	bool
-	default y if !PREEMPT_RT
+	default y if !PREEMPT_RT || (PREEMPT_RT && !NETCONSOLE)
 
 config BQL
 	bool
@@ -507,5 +507,14 @@ config NETDEV_ADDR_LIST_TEST
 	tristate "Unit tests for device address list"
 	default KUNIT_ALL_TESTS
 	depends on KUNIT
+
+config NET_TEST
+	tristate "KUnit tests for networking" if !KUNIT_ALL_TESTS
+	depends on KUNIT
+	default KUNIT_ALL_TESTS
+	help
+	  KUnit tests covering core networking infra, such as sk_buff.
+
+	  If unsure, say N.
 
 endif   # if NET
