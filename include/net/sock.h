@@ -1945,6 +1945,10 @@ static inline void dst_negative_advice(struct sock *sk)
 
 	sk_rethink_txhash(sk);
 
+	if (dst && dst->ops->__negative_advice) {
+		dst->ops->__negative_advice(sk, dst);
+		return;
+	}
 	if (dst && dst->ops->negative_advice) {
 		ndst = dst->ops->negative_advice(dst);
 
