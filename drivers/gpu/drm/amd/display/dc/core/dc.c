@@ -1707,7 +1707,7 @@ bool dc_validate_boot_timing(const struct dc *dc,
 		if (crtc_timing->pix_clk_100hz != pix_clk_100hz)
 			return false;
 
-		if (!se->funcs->dp_get_pixel_format)
+		if (!se || !se->funcs->dp_get_pixel_format)
 			return false;
 
 		if (!se->funcs->dp_get_pixel_format(
@@ -2250,7 +2250,10 @@ struct dc_state *dc_create_state(struct dc *dc)
 
 #ifdef CONFIG_DRM_AMD_DC_FP
 	if (dc->debug.using_dml2) {
-		dml2_create(dc, &dc->dml2_options, &context->bw_ctx.dml2);
+		if (!dml2_create(dc, &dc->dml2_options, &context->bw_ctx.dml2)) {
+			dc_release_state(context);
+			return NULL;
+		}
 	}
 #endif
 	kref_init(&context->refcount);
@@ -4924,7 +4927,8 @@ void dc_allow_idle_optimizations(struct dc *dc, bool allow)
 	if (allow == dc->idle_optimizations_allowed)
 		return;
 
-	if (dc->hwss.apply_idle_power_optimizations && dc->hwss.apply_idle_power_optimizations(dc, allow))
+	if (dc->hwss.apply_idle_power_optimizations && dc->clk_mgr != NULL &&
+	    dc->hwss.apply_idle_power_optimizations(dc, allow))
 		dc->idle_optimizations_allowed = allow;
 }
 

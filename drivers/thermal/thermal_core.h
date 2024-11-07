@@ -54,6 +54,9 @@ int for_each_thermal_governor(int (*cb)(struct thermal_governor *, void *),
 
 struct thermal_zone_device *thermal_zone_get_by_id(int id);
 
+DEFINE_CLASS(thermal_zone_get_by_id, struct thermal_zone_device *,
+	     if (_T) put_device(&_T->device), thermal_zone_get_by_id(id), int id)
+
 struct thermal_attr {
 	struct device_attribute attr;
 	char name[THERMAL_NAME_LENGTH];

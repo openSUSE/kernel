@@ -331,7 +331,7 @@ static int rcar_i2c_clock_calculate(struct rcar_i2c_priv *priv)
 	return -EIO;
 
 scgd_find:
-	dev_dbg(dev, "clk %d/%d(%lu), round %u, CDF:0x%x, SCGD: 0x%x\n",
+	dev_dbg(dev, "clk %u/%u(%lu), round %u, CDF: %u, SCGD: %u\n",
 		scl, t.bus_freq_hz, rate, round, cdf, scgd);
 
 	/* keep icccr value */

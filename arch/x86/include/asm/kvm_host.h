@@ -211,6 +211,7 @@ enum exit_fastpath_completion {
 	EXIT_FASTPATH_NONE,
 	EXIT_FASTPATH_REENTER_GUEST,
 	EXIT_FASTPATH_EXIT_HANDLED,
+	EXIT_FASTPATH_EXIT_USERSPACE,
 };
 typedef enum exit_fastpath_completion fastpath_t;
 
@@ -1810,6 +1811,9 @@ struct kvm_x86_ops {
 	gva_t (*get_untagged_addr)(struct kvm_vcpu *vcpu, gva_t gva, unsigned int flags);
 
 	void *(*alloc_apic_backing_page)(struct kvm_vcpu *vcpu);
+#ifndef __GENKSYMS__
+	const bool x2apic_icr_is_split;
+#endif
 };
 
 struct kvm_x86_nested_ops {

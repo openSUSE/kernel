@@ -47,6 +47,7 @@
 #include <linux/prefetch.h>
 #include <linux/if_ether.h>
 #include <rdma/ib_mad.h>
+#include <rdma/ib_addr.h>
 
 #include "roce_hsi.h"
 
@@ -54,6 +55,7 @@
 #include "qplib_rcfw.h"
 #include "qplib_sp.h"
 #include "qplib_fp.h"
+#include "ib_verbs.h"
 
 static void __clean_cq(struct bnxt_qplib_cq *cq, u64 qp);
 
@@ -323,6 +325,7 @@ static void bnxt_qplib_service_nq(struct tasklet_struct *t)
 		case NQ_BASE_TYPE_CQ_NOTIFICATION:
 		{
 			struct nq_cn *nqcne = (struct nq_cn *)nqe;
+			struct bnxt_re_cq *cq_p;
 
 			q_handle = le32_to_cpu(nqcne->cq_handle_low);
 			q_handle |= (u64)le32_to_cpu(nqcne->cq_handle_high)
@@ -333,6 +336,10 @@ static void bnxt_qplib_service_nq(struct tasklet_struct *t)
 			cq->toggle = (le16_to_cpu(nqe->info10_type) &
 					NQ_CN_TOGGLE_MASK) >> NQ_CN_TOGGLE_SFT;
 			cq->dbinfo.toggle = cq->toggle;
+			cq_p = container_of(cq, struct bnxt_re_cq, qplib_cq);
+			if (cq_p->uctx_cq_page)
+				*((u32 *)cq_p->uctx_cq_page) = cq->toggle;
+
 			bnxt_qplib_armen_db(&cq->dbinfo,
 					    DBC_DBC_TYPE_CQ_ARMENA);
 			spin_lock_bh(&cq->compl_lock);
@@ -1516,9 +1523,11 @@ int bnxt_qplib_destroy_qp(struct bnxt_qplib_res *res,
 	u32 tbl_indx;
 	int rc;
 
+	spin_lock_bh(&rcfw->tbl_lock);
 	tbl_indx = map_qp_id_to_tbl_indx(qp->id, rcfw);
 	rcfw->qp_tbl[tbl_indx].qp_id = BNXT_QPLIB_QP_ID_INVALID;
 	rcfw->qp_tbl[tbl_indx].qp_handle = NULL;
+	spin_unlock_bh(&rcfw->tbl_lock);
 
 	bnxt_qplib_rcfw_cmd_prep((struct cmdq_base *)&req,
 				 CMDQ_BASE_OPCODE_DESTROY_QP,
@@ -1529,8 +1538,10 @@ int bnxt_qplib_destroy_qp(struct bnxt_qplib_res *res,
 				sizeof(resp), 0);
 	rc = bnxt_qplib_rcfw_send_message(rcfw, &msg);
 	if (rc) {
+		spin_lock_bh(&rcfw->tbl_lock);
 		rcfw->qp_tbl[tbl_indx].qp_id = qp->id;
 		rcfw->qp_tbl[tbl_indx].qp_handle = qp;
+		spin_unlock_bh(&rcfw->tbl_lock);
 		return rc;
 	}
 

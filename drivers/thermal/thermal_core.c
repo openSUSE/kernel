@@ -579,6 +579,7 @@ struct thermal_zone_device *thermal_zone_get_by_id(int id)
 	mutex_lock(&thermal_list_lock);
 	list_for_each_entry(tz, &thermal_tz_list, node) {
 		if (tz->id == id) {
+			get_device(&tz->device);
 			match = tz;
 			break;
 		}
@@ -1471,12 +1472,10 @@ void thermal_zone_device_unregister(struct thermal_zone_device *tz)
 	mutex_lock(&tz->lock);
 	device_del(&tz->device);
 	mutex_unlock(&tz->lock);
-
-	kfree(tz->tzp);
-
 	put_device(&tz->device);
 
 	thermal_notify_tz_delete(tz_id);
+	kfree(tz->tzp);
 }
 EXPORT_SYMBOL_GPL(thermal_zone_device_unregister);
 
