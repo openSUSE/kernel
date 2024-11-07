@@ -1810,7 +1810,7 @@ static inline struct sk_buff *bnxt_tpa_end(struct bnxt *bp,
 		skb = bnxt_copy_skb(bnapi, data_ptr, len, mapping);
 		if (!skb) {
 			bnxt_abort_tpa(cpr, idx, agg_bufs);
-			cpr->bnapi->cp_ring.sw_stats.rx.rx_oom_discards += 1;
+			cpr->sw_stats->rx.rx_oom_discards += 1;
 			return NULL;
 		}
 	} else {
@@ -1820,7 +1820,7 @@ static inline struct sk_buff *bnxt_tpa_end(struct bnxt *bp,
 		new_data = __bnxt_alloc_rx_frag(bp, &new_mapping, GFP_ATOMIC);
 		if (!new_data) {
 			bnxt_abort_tpa(cpr, idx, agg_bufs);
-			cpr->bnapi->cp_ring.sw_stats.rx.rx_oom_discards += 1;
+			cpr->sw_stats->rx.rx_oom_discards += 1;
 			return NULL;
 		}
 
@@ -1836,7 +1836,7 @@ static inline struct sk_buff *bnxt_tpa_end(struct bnxt *bp,
 		if (!skb) {
 			skb_free_frag(data);
 			bnxt_abort_tpa(cpr, idx, agg_bufs);
-			cpr->bnapi->cp_ring.sw_stats.rx.rx_oom_discards += 1;
+			cpr->sw_stats->rx.rx_oom_discards += 1;
 			return NULL;
 		}
 		skb_reserve(skb, bp->rx_offset);
@@ -1847,7 +1847,7 @@ static inline struct sk_buff *bnxt_tpa_end(struct bnxt *bp,
 		skb = bnxt_rx_agg_pages_skb(bp, cpr, skb, idx, agg_bufs, true);
 		if (!skb) {
 			/* Page reuse already handled by bnxt_rx_pages(). */
-			cpr->bnapi->cp_ring.sw_stats.rx.rx_oom_discards += 1;
+			cpr->sw_stats->rx.rx_oom_discards += 1;
 			return NULL;
 		}
 	}
@@ -2105,7 +2105,7 @@ static int bnxt_rx_pkt(struct bnxt *bp, struct bnxt_cp_ring_info *cpr,
 
 		rc = -EIO;
 		if (rx_err & RX_CMPL_ERRORS_BUFFER_ERROR_MASK) {
-			bnapi->cp_ring.sw_stats.rx.rx_buf_errors++;
+			bnapi->cp_ring.sw_stats->rx.rx_buf_errors++;
 			if (!(bp->flags & BNXT_FLAG_CHIP_P5_PLUS) &&
 			    !(bp->fw_cap & BNXT_FW_CAP_RING_MONITOR)) {
 				netdev_warn_once(bp->dev, "RX buffer error %x\n",
@@ -2221,7 +2221,7 @@ static int bnxt_rx_pkt(struct bnxt *bp, struct bnxt_cp_ring_info *cpr,
 	} else {
 		if (rxcmp1->rx_cmp_cfa_code_errors_v2 & RX_CMP_L4_CS_ERR_BITS) {
 			if (dev->features & NETIF_F_RXCSUM)
-				bnapi->cp_ring.sw_stats.rx.rx_l4_csum_errors++;
+				bnapi->cp_ring.sw_stats->rx.rx_l4_csum_errors++;
 		}
 	}
 
@@ -2258,7 +2258,7 @@ next_rx_no_prod_no_len:
 	return rc;
 
 oom_next_rx:
-	cpr->bnapi->cp_ring.sw_stats.rx.rx_oom_discards += 1;
+	cpr->sw_stats->rx.rx_oom_discards += 1;
 	rc = -ENOMEM;
 	goto next_rx;
 }
@@ -2307,7 +2307,7 @@ static int bnxt_force_rx_discard(struct bnxt *bp,
 	}
 	rc = bnxt_rx_pkt(bp, cpr, raw_cons, event);
 	if (rc && rc != -EBUSY)
-		cpr->bnapi->cp_ring.sw_stats.rx.rx_netpoll_discards += 1;
+		cpr->sw_stats->rx.rx_netpoll_discards += 1;
 	return rc;
 }
 
@@ -3950,6 +3950,7 @@ static int bnxt_alloc_cp_rings(struct bnxt *bp)
 			if (rc)
 				return rc;
 			cpr2->bnapi = bnapi;
+			cpr2->sw_stats = cpr->sw_stats;
 			cpr2->cp_idx = k;
 			if (!k && rx) {
 				bp->rx_ring[i].rx_cpr = cpr2;
@@ -4791,6 +4792,9 @@ static void bnxt_free_ring_stats(struct bnxt *bp)
 		struct bnxt_cp_ring_info *cpr = &bnapi->cp_ring;
 
 		bnxt_free_stats_mem(bp, &cpr->stats);
+
+		kfree(cpr->sw_stats);
+		cpr->sw_stats = NULL;
 	}
 }
 
@@ -4804,6 +4808,10 @@ static int bnxt_alloc_stats(struct bnxt *bp)
 	for (i = 0; i < bp->cp_nr_rings; i++) {
 		struct bnxt_napi *bnapi = bp->bnapi[i];
 		struct bnxt_cp_ring_info *cpr = &bnapi->cp_ring;
+
+		cpr->sw_stats = kzalloc(sizeof(*cpr->sw_stats), GFP_KERNEL);
+		if (!cpr->sw_stats)
+			return -ENOMEM;
 
 		cpr->stats.len = size;
 		rc = bnxt_alloc_stats_mem(bp, &cpr->stats, !i);
@@ -10810,9 +10818,9 @@ static void bnxt_disable_napi(struct bnxt *bp)
 
 		cpr = &bnapi->cp_ring;
 		if (bnapi->tx_fault)
-			cpr->sw_stats.tx.tx_resets++;
+			cpr->sw_stats->tx.tx_resets++;
 		if (bnapi->in_reset)
-			cpr->sw_stats.rx.rx_resets++;
+			cpr->sw_stats->rx.rx_resets++;
 		napi_disable(&bnapi->napi);
 		if (bnapi->rx_ring)
 			cancel_work_sync(&cpr->dim.work);
@@ -12337,8 +12345,8 @@ static void bnxt_get_ring_stats(struct bnxt *bp,
 		stats->tx_dropped += BNXT_GET_RING_STATS64(sw, tx_error_pkts);
 
 		stats->rx_dropped +=
-			cpr->sw_stats.rx.rx_netpoll_discards +
-			cpr->sw_stats.rx.rx_oom_discards;
+			cpr->sw_stats->rx.rx_netpoll_discards +
+			cpr->sw_stats->rx.rx_oom_discards;
 	}
 }
 
@@ -12405,7 +12413,7 @@ static void bnxt_get_one_ring_err_stats(struct bnxt *bp,
 					struct bnxt_total_ring_err_stats *stats,
 					struct bnxt_cp_ring_info *cpr)
 {
-	struct bnxt_sw_stats *sw_stats = &cpr->sw_stats;
+	struct bnxt_sw_stats *sw_stats = cpr->sw_stats;
 	u64 *hw_stats = cpr->stats.sw_stats;
 
 	stats->rx_total_l4_csum_errors += sw_stats->rx.rx_l4_csum_errors;
@@ -13252,7 +13260,7 @@ static void bnxt_rx_ring_reset(struct bnxt *bp)
 		rxr->bnapi->in_reset = false;
 		bnxt_alloc_one_rx_ring(bp, i);
 		cpr = &rxr->bnapi->cp_ring;
-		cpr->sw_stats.rx.rx_resets++;
+		cpr->sw_stats->rx.rx_resets++;
 		if (bp->flags & BNXT_FLAG_AGG_RINGS)
 			bnxt_db_write(bp, &rxr->rx_agg_db, rxr->rx_agg_prod);
 		bnxt_db_write(bp, &rxr->rx_db, rxr->rx_prod);
@@ -13464,7 +13472,7 @@ static void bnxt_chk_missed_irq(struct bnxt *bp)
 			bnxt_dbg_hwrm_ring_info_get(bp,
 				DBG_RING_INFO_GET_REQ_RING_TYPE_L2_CMPL,
 				fw_ring_id, &val[0], &val[1]);
-			cpr->sw_stats.cmn.missed_irqs++;
+			cpr->sw_stats->cmn.missed_irqs++;
 		}
 	}
 }
@@ -14772,7 +14780,7 @@ static void bnxt_get_queue_stats_rx(struct net_device *dev, int i,
 	stats->bytes += BNXT_GET_RING_STATS64(sw, rx_mcast_bytes);
 	stats->bytes += BNXT_GET_RING_STATS64(sw, rx_bcast_bytes);
 
-	stats->alloc_fail = cpr->sw_stats.rx.rx_oom_discards;
+	stats->alloc_fail = cpr->sw_stats->rx.rx_oom_discards;
 }
 
 static void bnxt_get_queue_stats_tx(struct net_device *dev, int i,
