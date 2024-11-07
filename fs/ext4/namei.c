@@ -1405,7 +1405,7 @@ static struct buffer_head * ext4_find_entry (struct inode *dir,
 					     &has_inline_data);
 		if (inlined)
 			*inlined = has_inline_data;
-		if (has_inline_data)
+		if (has_inline_data || IS_ERR(ret))
 			goto cleanup_and_exit;
 	}
 
