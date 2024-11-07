@@ -3497,12 +3497,6 @@ skb_page_unref(struct page *page, bool recycle)
 	put_page(page);
 }
 
-static inline void
-napi_frag_unref(skb_frag_t *frag, bool recycle)
-{
-	skb_page_unref(skb_frag_page(frag), recycle);
-}
-
 /**
  * __skb_frag_unref - release a reference on a paged fragment.
  * @frag: the paged fragment
@@ -3513,7 +3507,7 @@ napi_frag_unref(skb_frag_t *frag, bool recycle)
  */
 static inline void __skb_frag_unref(skb_frag_t *frag, bool recycle)
 {
-	napi_frag_unref(frag, recycle);
+	skb_page_unref(skb_frag_page(frag), recycle);
 }
 
 /**
