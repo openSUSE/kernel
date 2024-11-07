@@ -274,8 +274,6 @@ struct bpf_map {
 #endif
 };
 
-static_assert(sizeof(struct work_struct) >= sizeof(struct rcu_head));
-
 struct __orig_bpf_map {
 	/* The first two cachelines with read-mostly members of which some
 	 * are also accessed in fast-path (e.g. ops, max_entries).
