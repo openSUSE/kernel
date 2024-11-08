@@ -767,6 +767,12 @@ struct mlx5_hca_cap {
 	u32 max[MLX5_UN_SZ_DW(hca_cap_union)];
 };
 
+enum mlx5_wc_state {
+	MLX5_WC_STATE_UNINITIALIZED,
+	MLX5_WC_STATE_UNSUPPORTED,
+	MLX5_WC_STATE_SUPPORTED,
+};
+
 struct mlx5_core_dev {
 	struct device *device;
 	enum mlx5_coredev_type coredev_type;
@@ -825,6 +831,9 @@ struct mlx5_core_dev {
 #endif
 	u64 num_ipsec_offloads;
 	struct mlx5_sd          *sd;
+	enum mlx5_wc_state wc_state;
+	/* sync write combining state */
+	struct mutex wc_state_lock;
 };
 
 struct mlx5_db {
@@ -1376,4 +1385,6 @@ static inline bool mlx5_is_macsec_roce_supported(struct mlx5_core_dev *mdev)
 enum {
 	MLX5_OCTWORD = 16,
 };
+
+bool mlx5_wc_support_get(struct mlx5_core_dev *mdev);
 #endif /* MLX5_DRIVER_H */
