@@ -152,13 +152,17 @@ static void __dump_page(struct page *page)
 			pr_warn("aops:%ps ino:%lx with invalid dentry %px\n",
 					a_ops, ino, dentry_ptr);
 		} else {
+			char fname[64] = {};
+
+			if (strncpy_from_kernel_nofault(fname,
+					dentry.d_name.name, 63) < 0)
+				strscpy(fname, "<invalid>", sizeof(fname));
 			/*
-			 * if dentry is corrupted, the %pd handler may still
-			 * crash, but it's unlikely that we reach here with a
-			 * corrupted struct page
+			 * Even if strncpy_from_kernel_nofault() succeeded,
+			 * the fname could be unreliable
 			 */
-			pr_warn("aops:%ps ino:%lx dentry name:\"%pd\"\n",
-					a_ops, ino, &dentry);
+			pr_warn("aops:%ps ino:%lx dentry name(?):\"%s\"\n",
+					a_ops, ino, fname);
 		}
 	}
 out_mapping:
