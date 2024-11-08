@@ -626,7 +626,7 @@ acpi_thermal_unbind_cooling_device(struct thermal_zone_device *thermal,
 	return acpi_thermal_bind_unbind_cdev(thermal, cdev, false);
 }
 
-static struct thermal_zone_device_ops acpi_thermal_zone_ops = {
+static const struct thermal_zone_device_ops acpi_thermal_zone_ops = {
 	.bind = acpi_thermal_bind_cooling_device,
 	.unbind	= acpi_thermal_unbind_cooling_device,
 	.get_temp = thermal_get_temp,
@@ -670,7 +670,7 @@ static int acpi_thermal_register_thermal_zone(struct acpi_thermal *tz,
 
 	if (trip_count)
 		tz->thermal_zone = thermal_zone_device_register_with_trips(
-					"acpitz", trip_table, trip_count, 0, tz,
+					"acpitz", trip_table, trip_count, tz,
 					&acpi_thermal_zone_ops, NULL, passive_delay,
 					tz->polling_frequency * 100);
 	else

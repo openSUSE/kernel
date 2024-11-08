@@ -421,7 +421,6 @@ static const struct virtio_device_id id_table[] = {
 
 static struct virtio_driver virtsnd_driver = {
 	.driver.name = KBUILD_MODNAME,
-	.driver.owner = THIS_MODULE,
 	.id_table = id_table,
 	.validate = virtsnd_validate,
 	.probe = virtsnd_probe,

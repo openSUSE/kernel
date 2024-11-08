@@ -62,7 +62,7 @@
 #include "dev.h"
 
 #define RTNL_MAX_TYPE		50
-#define RTNL_SLAVE_MAX_TYPE	43
+#define RTNL_SLAVE_MAX_TYPE	44
 
 struct rtnl_link {
 	rtnl_doit_func		doit;
@@ -1060,7 +1060,7 @@ static size_t rtnl_dpll_pin_size(const struct net_device *dev)
 {
 	size_t size = nla_total_size(0); /* nest IFLA_DPLL_PIN */
 
-	size += dpll_msg_pin_handle_size(netdev_dpll_pin(dev));
+	size += dpll_netdev_pin_handle_size(dev);
 
 	return size;
 }
@@ -1796,7 +1796,7 @@ static int rtnl_fill_dpll_pin(struct sk_buff *skb,
 	if (!dpll_pin_nest)
 		return -EMSGSIZE;
 
-	ret = dpll_msg_add_pin_handle(skb, netdev_dpll_pin(dev));
+	ret = dpll_netdev_add_pin_handle(skb, dev);
 	if (ret < 0)
 		goto nest_cancel;
 
@@ -5279,15 +5279,14 @@ static int rtnl_bridge_dellink(struct sk_buff *skb, struct nlmsghdr *nlh,
 
 	br_spec = nlmsg_find_attr(nlh, sizeof(struct ifinfomsg), IFLA_AF_SPEC);
 	if (br_spec) {
-		nla_for_each_nested(attr, br_spec, rem) {
-			if (nla_type(attr) == IFLA_BRIDGE_FLAGS) {
-				if (nla_len(attr) < sizeof(flags))
-					return -EINVAL;
+		nla_for_each_nested_type(attr, IFLA_BRIDGE_FLAGS, br_spec,
+					 rem) {
+			if (nla_len(attr) < sizeof(flags))
+				return -EINVAL;
 
-				have_flags = true;
-				flags = nla_get_u16(attr);
-				break;
-			}
+			have_flags = true;
+			flags = nla_get_u16(attr);
+			break;
 		}
 	}
 

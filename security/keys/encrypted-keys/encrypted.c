@@ -27,10 +27,10 @@
 #include <linux/scatterlist.h>
 #include <linux/ctype.h>
 #include <crypto/aes.h>
-#include <crypto/algapi.h>
 #include <crypto/hash.h>
 #include <crypto/sha2.h>
 #include <crypto/skcipher.h>
+#include <crypto/utils.h>
 
 #include "encrypted.h"
 #include "ecryptfs_format.h"
@@ -237,10 +237,6 @@ static int datablob_parse(char *datablob, const char **format,
 			break;
 		}
 		*decrypted_data = strsep(&datablob, " \t");
-		if (!*decrypted_data) {
-			pr_info("encrypted_key: decrypted_data is missing\n");
-			break;
-		}
 		ret = 0;
 		break;
 	case Opt_load:

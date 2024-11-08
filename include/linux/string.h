@@ -94,6 +94,12 @@ ssize_t sized_strscpy(char *, const char *, size_t);
  * The size argument @... is only required when @dst is not an array, or
  * when the copy needs to be smaller than sizeof(@dst).
  *
+ * Preferred to strlcpy() since the API doesn't require reading memory
+ * from the source @src string beyond the specified @size bytes, and since
+ * the return value is easier to error-check than strlcpy()'s.
+ * In addition, the implementation is robust to the string changing out
+ * from underneath it, unlike the current strlcpy() implementation.
+ *
  * Preferred to strncpy() since it always returns a valid string, and
  * doesn't unnecessarily force the tail of the destination buffer to be
  * zero padded. If padding is desired please use strscpy_pad().

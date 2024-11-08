@@ -191,6 +191,7 @@
 #define INTEL_FAM6_LUNARLAKE_M		0xBD
 #define INTEL_LUNARLAKE_M		IFM(6, 0xBD)
 
+
 #define INTEL_FAM6_ARROWLAKE_H		0xC5
 #define INTEL_ARROWLAKE_H		IFM(6, 0xC5)
 #define INTEL_FAM6_ARROWLAKE		0xC6
@@ -255,6 +256,9 @@
 
 #define INTEL_FAM6_GRANDRIDGE		0xB6
 #define INTEL_GRANDRIDGE		IFM(6, 0xB6)
+
+#define INTEL_FAM6_ATOM_DARKMONT_X	0xDD /* Clearwater Forest */
+#define INTEL_ATOM_DARKMONT_X		IFM(6, 0xDD) /* Clearwater Forest */
 
 /* Xeon Phi */
 

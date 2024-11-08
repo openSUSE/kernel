@@ -497,6 +497,7 @@ config FAILOVER
 
 config ETHTOOL_NETLINK
 	bool "Netlink interface for ethtool"
+	select DIMLIB
 	default y
 	help
 	  An alternative userspace interface for ethtool based on generic
@@ -507,5 +508,14 @@ config NETDEV_ADDR_LIST_TEST
 	tristate "Unit tests for device address list"
 	default KUNIT_ALL_TESTS
 	depends on KUNIT
+
+config NET_TEST
+	tristate "KUnit tests for networking" if !KUNIT_ALL_TESTS
+	depends on KUNIT
+	default KUNIT_ALL_TESTS
+	help
+	  KUnit tests covering core networking infra, such as sk_buff.
+
+	  If unsure, say N.
 
 endif   # if NET

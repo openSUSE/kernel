@@ -228,7 +228,7 @@ static int tsnep_phy_loopback(struct tsnep_adapter *adapter, bool enable)
 static int tsnep_phy_open(struct tsnep_adapter *adapter)
 {
 	struct phy_device *phydev;
-	struct ethtool_eee ethtool_eee;
+	struct ethtool_keee ethtool_keee;
 	int retval;
 
 	retval = phy_connect_direct(adapter->netdev, adapter->phydev,
@@ -247,8 +247,8 @@ static int tsnep_phy_open(struct tsnep_adapter *adapter)
 	phy_remove_link_mode(phydev, ETHTOOL_LINK_MODE_1000baseT_Half_BIT);
 
 	/* disable EEE autoneg, EEE not supported by TSNEP */
-	memset(&ethtool_eee, 0, sizeof(ethtool_eee));
-	phy_ethtool_set_eee(adapter->phydev, &ethtool_eee);
+	memset(&ethtool_keee, 0, sizeof(ethtool_keee));
+	phy_ethtool_set_eee(adapter->phydev, &ethtool_keee);
 
 	adapter->phydev->irq = PHY_MAC_INTERRUPT;
 	phy_start(adapter->phydev);
@@ -1526,7 +1526,7 @@ static int tsnep_rx_poll_zc(struct tsnep_rx *rx, struct napi_struct *napi,
 		length = __le32_to_cpu(entry->desc_wb->properties) &
 			 TSNEP_DESC_LENGTH_MASK;
 		xsk_buff_set_size(entry->xdp, length - ETH_FCS_LEN);
-		xsk_buff_dma_sync_for_cpu(entry->xdp, rx->xsk_pool);
+		xsk_buff_dma_sync_for_cpu(entry->xdp);
 
 		/* RX metadata with timestamps is in front of actual data,
 		 * subtract metadata size to get length of actual data and

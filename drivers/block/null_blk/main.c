@@ -2200,7 +2200,7 @@ static int null_add_dev(struct nullb_device *dev)
 	blk_queue_physical_block_size(nullb->q, dev->blocksize);
 	if (!dev->max_sectors)
 		dev->max_sectors = queue_max_hw_sectors(nullb->q);
-	dev->max_sectors = min(dev->max_sectors, BLK_DEF_MAX_SECTORS);
+	dev->max_sectors = min(dev->max_sectors, BLK_DEF_MAX_SECTORS_CAP);
 	blk_queue_max_hw_sectors(nullb->q, dev->max_sectors);
 
 	if (dev->virt_boundary)
@@ -2301,10 +2301,10 @@ static int __init null_init(void)
 		g_bs = PAGE_SIZE;
 	}
 
-	if (g_max_sectors > BLK_DEF_MAX_SECTORS) {
+	if (g_max_sectors > BLK_DEF_MAX_SECTORS_CAP) {
 		pr_warn("invalid max sectors\n");
-		pr_warn("defaults max sectors to %u\n", BLK_DEF_MAX_SECTORS);
-		g_max_sectors = BLK_DEF_MAX_SECTORS;
+		pr_warn("defaults max sectors to %u\n", BLK_DEF_MAX_SECTORS_CAP);
+		g_max_sectors = BLK_DEF_MAX_SECTORS_CAP;
 	}
 
 	if (g_home_node != NUMA_NO_NODE && g_home_node >= nr_online_nodes) {

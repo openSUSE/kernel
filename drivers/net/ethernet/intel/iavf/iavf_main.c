@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0
 /* Copyright(c) 2013 - 2018 Intel Corporation. */
 
+#include <linux/net/intel/libie/rx.h>
+
 #include "iavf.h"
 #include "iavf_prototype.h"
 /* All iavf tracepoints are defined by the include below, which must
@@ -43,8 +45,9 @@ static const struct pci_device_id iavf_pci_tbl[] = {
 MODULE_DEVICE_TABLE(pci, iavf_pci_tbl);
 
 MODULE_ALIAS("i40evf");
-MODULE_AUTHOR("Intel Corporation, <linux.nics@intel.com>");
 MODULE_DESCRIPTION("Intel(R) Ethernet Adaptive Virtual Function Network Driver");
+MODULE_IMPORT_NS(LIBETH);
+MODULE_IMPORT_NS(LIBIE);
 MODULE_LICENSE("GPL v2");
 
 static const struct net_device_ops iavf_netdev_ops;
@@ -714,40 +717,10 @@ static void iavf_configure_tx(struct iavf_adapter *adapter)
  **/
 static void iavf_configure_rx(struct iavf_adapter *adapter)
 {
-	unsigned int rx_buf_len = IAVF_RXBUFFER_2048;
 	struct iavf_hw *hw = &adapter->hw;
-	int i;
 
-	/* Legacy Rx will always default to a 2048 buffer size. */
-#if (PAGE_SIZE < 8192)
-	if (!(adapter->flags & IAVF_FLAG_LEGACY_RX)) {
-		struct net_device *netdev = adapter->netdev;
-
-		/* For jumbo frames on systems with 4K pages we have to use
-		 * an order 1 page, so we might as well increase the size
-		 * of our Rx buffer to make better use of the available space
-		 */
-		rx_buf_len = IAVF_RXBUFFER_3072;
-
-		/* We use a 1536 buffer size for configurations with
-		 * standard Ethernet mtu.  On x86 this gives us enough room
-		 * for shared info and 192 bytes of padding.
-		 */
-		if (!IAVF_2K_TOO_SMALL_WITH_PADDING &&
-		    (netdev->mtu <= ETH_DATA_LEN))
-			rx_buf_len = IAVF_RXBUFFER_1536 - NET_IP_ALIGN;
-	}
-#endif
-
-	for (i = 0; i < adapter->num_active_queues; i++) {
+	for (u32 i = 0; i < adapter->num_active_queues; i++)
 		adapter->rx_rings[i].tail = hw->hw_addr + IAVF_QRX_TAIL1(i);
-		adapter->rx_rings[i].rx_buf_len = rx_buf_len;
-
-		if (adapter->flags & IAVF_FLAG_LEGACY_RX)
-			clear_ring_build_skb_enabled(&adapter->rx_rings[i]);
-		else
-			set_ring_build_skb_enabled(&adapter->rx_rings[i]);
-	}
 }
 
 /**
@@ -1615,7 +1588,6 @@ static int iavf_alloc_queues(struct iavf_adapter *adapter)
 		rx_ring = &adapter->rx_rings[i];
 		rx_ring->queue_index = i;
 		rx_ring->netdev = adapter->netdev;
-		rx_ring->dev = &adapter->pdev->dev;
 		rx_ring->count = adapter->rx_desc_count;
 		rx_ring->itr_setting = IAVF_ITR_RX_DEF;
 	}
@@ -2170,17 +2142,8 @@ static int iavf_process_aq_command(struct iavf_adapter *adapter)
 		iavf_add_cloud_filter(adapter);
 		return 0;
 	}
-
 	if (adapter->aq_required & IAVF_FLAG_AQ_DEL_CLOUD_FILTER) {
 		iavf_del_cloud_filter(adapter);
-		return 0;
-	}
-	if (adapter->aq_required & IAVF_FLAG_AQ_DEL_CLOUD_FILTER) {
-		iavf_del_cloud_filter(adapter);
-		return 0;
-	}
-	if (adapter->aq_required & IAVF_FLAG_AQ_ADD_CLOUD_FILTER) {
-		iavf_add_cloud_filter(adapter);
 		return 0;
 	}
 	if (adapter->aq_required & IAVF_FLAG_AQ_ADD_FDIR_FILTER) {
@@ -2651,9 +2614,8 @@ static void iavf_init_config_adapter(struct iavf_adapter *adapter)
 	iavf_set_ethtool_ops(netdev);
 	netdev->watchdog_timeo = 5 * HZ;
 
-	/* MTU range: 68 - 9710 */
 	netdev->min_mtu = ETH_MIN_MTU;
-	netdev->max_mtu = IAVF_MAX_RXBUFFER - IAVF_PACKET_HDR_PAD;
+	netdev->max_mtu = LIBIE_MAX_MTU;
 
 	if (!is_valid_ether_addr(adapter->hw.mac.addr)) {
 		dev_info(&pdev->dev, "Invalid MAC address %pM, using random\n",
@@ -3512,6 +3474,34 @@ static void iavf_del_all_cloud_filters(struct iavf_adapter *adapter)
 }
 
 /**
+ * iavf_is_tc_config_same - Compare the mqprio TC config with the
+ * TC config already configured on this adapter.
+ * @adapter: board private structure
+ * @mqprio_qopt: TC config received from kernel.
+ *
+ * This function compares the TC config received from the kernel
+ * with the config already configured on the adapter.
+ *
+ * Return: True if configuration is same, false otherwise.
+ **/
+static bool iavf_is_tc_config_same(struct iavf_adapter *adapter,
+				   struct tc_mqprio_qopt *mqprio_qopt)
+{
+	struct virtchnl_channel_info *ch = &adapter->ch_config.ch_info[0];
+	int i;
+
+	if (adapter->num_tc != mqprio_qopt->num_tc)
+		return false;
+
+	for (i = 0; i < adapter->num_tc; i++) {
+		if (ch[i].count != mqprio_qopt->count[i] ||
+		    ch[i].offset != mqprio_qopt->offset[i])
+			return false;
+	}
+	return true;
+}
+
+/**
  * __iavf_setup_tc - configure multiple traffic classes
  * @netdev: network interface device structure
  * @type_data: tc offload data
@@ -3568,7 +3558,7 @@ static int __iavf_setup_tc(struct net_device *netdev, void *type_data)
 		if (ret)
 			return ret;
 		/* Return if same TC config is requested */
-		if (adapter->num_tc == num_tc)
+		if (iavf_is_tc_config_same(adapter, &mqprio_qopt->qopt))
 			return 0;
 		adapter->num_tc = num_tc;
 
@@ -3766,6 +3756,10 @@ static int iavf_parse_cls_flower(struct iavf_adapter *adapter,
 
 		flow_rule_match_control(rule, &match);
 		addr_type = match.key->addr_type;
+
+		if (flow_rule_has_control_flags(match.mask->flags,
+						f->common.extack))
+			return -EOPNOTSUPP;
 	}
 
 	if (addr_type == FLOW_DISSECTOR_KEY_IPV4_ADDRS) {
@@ -4019,7 +4013,7 @@ static int iavf_delete_clsflower(struct iavf_adapter *adapter,
 
 /**
  * iavf_setup_tc_cls_flower - flower classifier offloads
- * @adapter: board private structure
+ * @adapter: pointer to iavf adapter structure
  * @cls_flower: pointer to flow_cls_offload struct with flow info
  */
 static int iavf_setup_tc_cls_flower(struct iavf_adapter *adapter,
@@ -4032,6 +4026,154 @@ static int iavf_setup_tc_cls_flower(struct iavf_adapter *adapter,
 		return iavf_delete_clsflower(adapter, cls_flower);
 	case FLOW_CLS_STATS:
 		return -EOPNOTSUPP;
+	default:
+		return -EOPNOTSUPP;
+	}
+}
+
+/**
+ * iavf_add_cls_u32 - Add U32 classifier offloads
+ * @adapter: pointer to iavf adapter structure
+ * @cls_u32: pointer to tc_cls_u32_offload struct with flow info
+ *
+ * Return: 0 on success or negative errno on failure.
+ */
+static int iavf_add_cls_u32(struct iavf_adapter *adapter,
+			    struct tc_cls_u32_offload *cls_u32)
+{
+	struct netlink_ext_ack *extack = cls_u32->common.extack;
+	struct virtchnl_fdir_rule *rule_cfg;
+	struct virtchnl_filter_action *vact;
+	struct virtchnl_proto_hdrs *hdrs;
+	struct ethhdr *spec_h, *mask_h;
+	const struct tc_action *act;
+	struct iavf_fdir_fltr *fltr;
+	struct tcf_exts *exts;
+	unsigned int q_index;
+	int i, status = 0;
+	int off_base = 0;
+
+	if (cls_u32->knode.link_handle) {
+		NL_SET_ERR_MSG_MOD(extack, "Linking not supported");
+		return -EOPNOTSUPP;
+	}
+
+	fltr = kzalloc(sizeof(*fltr), GFP_KERNEL);
+	if (!fltr)
+		return -ENOMEM;
+
+	rule_cfg = &fltr->vc_add_msg.rule_cfg;
+	hdrs = &rule_cfg->proto_hdrs;
+	hdrs->count = 0;
+
+	/* The parser lib at the PF expects the packet starting with MAC hdr */
+	switch (ntohs(cls_u32->common.protocol)) {
+	case ETH_P_802_3:
+		break;
+	case ETH_P_IP:
+		spec_h = (struct ethhdr *)hdrs->raw.spec;
+		mask_h = (struct ethhdr *)hdrs->raw.mask;
+		spec_h->h_proto = htons(ETH_P_IP);
+		mask_h->h_proto = htons(0xFFFF);
+		off_base += ETH_HLEN;
+		break;
+	default:
+		NL_SET_ERR_MSG_MOD(extack, "Only 802_3 and ip filter protocols are supported");
+		status = -EOPNOTSUPP;
+		goto free_alloc;
+	}
+
+	for (i = 0; i < cls_u32->knode.sel->nkeys; i++) {
+		__be32 val, mask;
+		int off;
+
+		off = off_base + cls_u32->knode.sel->keys[i].off;
+		val = cls_u32->knode.sel->keys[i].val;
+		mask = cls_u32->knode.sel->keys[i].mask;
+
+		if (off >= sizeof(hdrs->raw.spec)) {
+			NL_SET_ERR_MSG_MOD(extack, "Input exceeds maximum allowed.");
+			status = -EINVAL;
+			goto free_alloc;
+		}
+
+		memcpy(&hdrs->raw.spec[off], &val, sizeof(val));
+		memcpy(&hdrs->raw.mask[off], &mask, sizeof(mask));
+		hdrs->raw.pkt_len = off + sizeof(val);
+	}
+
+	/* Only one action is allowed */
+	rule_cfg->action_set.count = 1;
+	vact = &rule_cfg->action_set.actions[0];
+	exts = cls_u32->knode.exts;
+
+	tcf_exts_for_each_action(i, act, exts) {
+		/* FDIR queue */
+		if (is_tcf_skbedit_rx_queue_mapping(act)) {
+			q_index = tcf_skbedit_rx_queue_mapping(act);
+			if (q_index >= adapter->num_active_queues) {
+				status = -EINVAL;
+				goto free_alloc;
+			}
+
+			vact->type = VIRTCHNL_ACTION_QUEUE;
+			vact->act_conf.queue.index = q_index;
+			break;
+		}
+
+		/* Drop */
+		if (is_tcf_gact_shot(act)) {
+			vact->type = VIRTCHNL_ACTION_DROP;
+			break;
+		}
+
+		/* Unsupported action */
+		NL_SET_ERR_MSG_MOD(extack, "Unsupported action.");
+		status = -EOPNOTSUPP;
+		goto free_alloc;
+	}
+
+	fltr->vc_add_msg.vsi_id = adapter->vsi.id;
+	fltr->cls_u32_handle = cls_u32->knode.handle;
+	return iavf_fdir_add_fltr(adapter, fltr);
+
+free_alloc:
+	kfree(fltr);
+	return status;
+}
+
+/**
+ * iavf_del_cls_u32 - Delete U32 classifier offloads
+ * @adapter: pointer to iavf adapter structure
+ * @cls_u32: pointer to tc_cls_u32_offload struct with flow info
+ *
+ * Return: 0 on success or negative errno on failure.
+ */
+static int iavf_del_cls_u32(struct iavf_adapter *adapter,
+			    struct tc_cls_u32_offload *cls_u32)
+{
+	return iavf_fdir_del_fltr(adapter, true, cls_u32->knode.handle);
+}
+
+/**
+ * iavf_setup_tc_cls_u32 - U32 filter offloads
+ * @adapter: pointer to iavf adapter structure
+ * @cls_u32: pointer to tc_cls_u32_offload struct with flow info
+ *
+ * Return: 0 on success or negative errno on failure.
+ */
+static int iavf_setup_tc_cls_u32(struct iavf_adapter *adapter,
+				 struct tc_cls_u32_offload *cls_u32)
+{
+	if (!TC_U32_SUPPORT(adapter) || !FDIR_FLTR_SUPPORT(adapter))
+		return -EOPNOTSUPP;
+
+	switch (cls_u32->command) {
+	case TC_CLSU32_NEW_KNODE:
+	case TC_CLSU32_REPLACE_KNODE:
+		return iavf_add_cls_u32(adapter, cls_u32);
+	case TC_CLSU32_DELETE_KNODE:
+		return iavf_del_cls_u32(adapter, cls_u32);
 	default:
 		return -EOPNOTSUPP;
 	}
@@ -4056,6 +4198,8 @@ static int iavf_setup_tc_block_cb(enum tc_setup_type type, void *type_data,
 	switch (type) {
 	case TC_SETUP_CLSFLOWER:
 		return iavf_setup_tc_cls_flower(cb_priv, type_data);
+	case TC_SETUP_CLSU32:
+		return iavf_setup_tc_cls_u32(cb_priv, type_data);
 	default:
 		return -EOPNOTSUPP;
 	}
@@ -4338,8 +4482,8 @@ static void iavf_disable_fdir(struct iavf_adapter *adapter)
 		    fdir->state == IAVF_FDIR_FLTR_INACTIVE) {
 			/* Delete filters not registered in PF */
 			list_del(&fdir->list);
+			iavf_dec_fdir_active_fltr(adapter, fdir);
 			kfree(fdir);
-			adapter->fdir_active_fltr--;
 		} else if (fdir->state == IAVF_FDIR_FLTR_ADD_PENDING ||
 			   fdir->state == IAVF_FDIR_FLTR_DIS_REQUEST ||
 			   fdir->state == IAVF_FDIR_FLTR_ACTIVE) {
@@ -4423,12 +4567,12 @@ static netdev_features_t iavf_features_check(struct sk_buff *skb,
 		features &= ~NETIF_F_GSO_MASK;
 
 	/* MACLEN can support at most 63 words */
-	len = skb_network_header(skb) - skb->data;
+	len = skb_network_offset(skb);
 	if (len & ~(63 * 2))
 		goto out_err;
 
 	/* IPLEN and EIPLEN can support at most 127 dwords */
-	len = skb_transport_header(skb) - skb_network_header(skb);
+	len = skb_network_header_len(skb);
 	if (len & ~(127 * 4))
 		goto out_err;
 
@@ -4849,9 +4993,11 @@ int iavf_process_config(struct iavf_adapter *adapter)
 	/* get HW VLAN features that can be toggled */
 	hw_vlan_features = iavf_get_netdev_vlan_hw_features(adapter);
 
-	/* Enable cloud filter if ADQ is supported */
-	if (vfres->vf_cap_flags & VIRTCHNL_VF_OFFLOAD_ADQ)
+	/* Enable HW TC offload if ADQ or tc U32 is supported */
+	if (vfres->vf_cap_flags & VIRTCHNL_VF_OFFLOAD_ADQ ||
+	    TC_U32_SUPPORT(adapter))
 		hw_features |= NETIF_F_HW_TC;
+
 	if (vfres->vf_cap_flags & VIRTCHNL_VF_OFFLOAD_USO)
 		hw_features |= NETIF_F_GSO_UDP_L4;
 
@@ -5032,7 +5178,7 @@ err_dma:
  *
  * Called when the system (VM) is entering sleep/suspend.
  **/
-static int __maybe_unused iavf_suspend(struct device *dev_d)
+static int iavf_suspend(struct device *dev_d)
 {
 	struct net_device *netdev = dev_get_drvdata(dev_d);
 	struct iavf_adapter *adapter = netdev_priv(netdev);
@@ -5060,7 +5206,7 @@ static int __maybe_unused iavf_suspend(struct device *dev_d)
  *
  * Called when the system (VM) is resumed from sleep/suspend.
  **/
-static int __maybe_unused iavf_resume(struct device *dev_d)
+static int iavf_resume(struct device *dev_d)
 {
 	struct pci_dev *pdev = to_pci_dev(dev_d);
 	struct iavf_adapter *adapter;
@@ -5247,14 +5393,14 @@ static void iavf_shutdown(struct pci_dev *pdev)
 		pci_set_power_state(pdev, PCI_D3hot);
 }
 
-static SIMPLE_DEV_PM_OPS(iavf_pm_ops, iavf_suspend, iavf_resume);
+static DEFINE_SIMPLE_DEV_PM_OPS(iavf_pm_ops, iavf_suspend, iavf_resume);
 
 static struct pci_driver iavf_driver = {
 	.name      = iavf_driver_name,
 	.id_table  = iavf_pci_tbl,
 	.probe     = iavf_probe,
 	.remove    = iavf_remove,
-	.driver.pm = &iavf_pm_ops,
+	.driver.pm = pm_sleep_ptr(&iavf_pm_ops),
 	.shutdown  = iavf_shutdown,
 };
 

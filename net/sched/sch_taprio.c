@@ -1620,7 +1620,7 @@ static int taprio_parse_clockid(struct Qdisc *sch, struct nlattr **tb,
 
 	if (FULL_OFFLOAD_IS_ENABLED(q->flags)) {
 		const struct ethtool_ops *ops = dev->ethtool_ops;
-		struct ethtool_ts_info info = {
+		struct kernel_ethtool_ts_info info = {
 			.cmd = ETHTOOL_GET_TS_INFO,
 			.phc_index = -1,
 		};
@@ -1759,10 +1759,7 @@ static int taprio_parse_tc_entries(struct Qdisc *sch,
 		fp[tc] = q->fp[tc];
 	}
 
-	nla_for_each_nested(n, opt, rem) {
-		if (nla_type(n) != TCA_TAPRIO_ATTR_TC_ENTRY)
-			continue;
-
+	nla_for_each_nested_type(n, TCA_TAPRIO_ATTR_TC_ENTRY, opt, rem) {
 		err = taprio_parse_tc_entry(sch, n, max_sdu, fp, &seen_tcs,
 					    extack);
 		if (err)

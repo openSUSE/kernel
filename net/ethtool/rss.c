@@ -43,7 +43,8 @@ rss_parse_request(struct ethnl_req_info *req_info, struct nlattr **tb,
 
 static int
 rss_prepare_data(const struct ethnl_req_info *req_base,
-		 struct ethnl_reply_data *reply_base, struct genl_info *info)
+		 struct ethnl_reply_data *reply_base,
+		 const struct genl_info *info)
 {
 	struct rss_reply_data *data = RSS_REPDATA(reply_base);
 	struct rss_req_info *request = RSS_REQINFO(req_base);
@@ -110,7 +111,8 @@ rss_reply_size(const struct ethnl_req_info *req_base,
 	const struct rss_reply_data *data = RSS_REPDATA(reply_base);
 	int len;
 
-	len = nla_total_size(sizeof(u32)) +	/* _RSS_HFUNC */
+	len = nla_total_size(sizeof(u32)) +	/* _RSS_CONTEXT */
+	      nla_total_size(sizeof(u32)) +	/* _RSS_HFUNC */
 	      nla_total_size(sizeof(u32)) +	/* _RSS_INPUT_XFRM */
 	      nla_total_size(sizeof(u32) * data->indir_size) + /* _RSS_INDIR */
 	      nla_total_size(data->hkey_size);	/* _RSS_HKEY */
@@ -123,6 +125,11 @@ rss_fill_reply(struct sk_buff *skb, const struct ethnl_req_info *req_base,
 	       const struct ethnl_reply_data *reply_base)
 {
 	const struct rss_reply_data *data = RSS_REPDATA(reply_base);
+	struct rss_req_info *request = RSS_REQINFO(req_base);
+
+	if (request->rss_context &&
+	    nla_put_u32(skb, ETHTOOL_A_RSS_CONTEXT, request->rss_context))
+		return -EMSGSIZE;
 
 	if ((data->hfunc &&
 	     nla_put_u32(skb, ETHTOOL_A_RSS_HFUNC, data->hfunc)) ||

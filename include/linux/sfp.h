@@ -284,6 +284,12 @@ enum {
 	SFF8024_ID_QSFP_8438		= 0x0c,
 	SFF8024_ID_QSFP_8436_8636	= 0x0d,
 	SFF8024_ID_QSFP28_8636		= 0x11,
+	SFF8024_ID_QSFP_DD		= 0x18,
+	SFF8024_ID_OSFP			= 0x19,
+	SFF8024_ID_DSFP			= 0x1B,
+	SFF8024_ID_QSFP_PLUS_CMIS	= 0x1E,
+	SFF8024_ID_SFP_DD_CMIS		= 0x1F,
+	SFF8024_ID_SFP_PLUS_CMIS	= 0x20,
 
 	SFF8024_ENCODING_UNSPEC		= 0x00,
 	SFF8024_ENCODING_8B10B		= 0x01,
@@ -556,6 +562,7 @@ int sfp_get_module_eeprom_by_page(struct sfp_bus *bus,
 				  struct netlink_ext_ack *extack);
 void sfp_upstream_start(struct sfp_bus *bus);
 void sfp_upstream_stop(struct sfp_bus *bus);
+void sfp_upstream_set_signal_rate(struct sfp_bus *bus, unsigned int rate_kbd);
 void sfp_bus_put(struct sfp_bus *bus);
 struct sfp_bus *sfp_bus_find_fwnode(const struct fwnode_handle *fwnode);
 int sfp_bus_add_upstream(struct sfp_bus *bus, void *upstream,
@@ -612,6 +619,11 @@ static inline void sfp_upstream_start(struct sfp_bus *bus)
 }
 
 static inline void sfp_upstream_stop(struct sfp_bus *bus)
+{
+}
+
+static inline void sfp_upstream_set_signal_rate(struct sfp_bus *bus,
+						unsigned int rate_kbd)
 {
 }
 

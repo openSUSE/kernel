@@ -371,6 +371,10 @@ SECTIONS
 	PERCPU_SECTION(INTERNODE_CACHE_BYTES)
 #endif
 
+	RUNTIME_CONST(shift, d_hash_shift)
+	RUNTIME_CONST(ptr, dentry_hashtable)
+	RUNTIME_CONST(ptr, USER_PTR_MAX)
+
 	. = ALIGN(PAGE_SIZE);
 
 	/* freed after init ends here */
