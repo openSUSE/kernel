@@ -184,7 +184,7 @@ static void snd_pcm_lib_preallocate_proc_write(struct snd_info_entry *entry,
 	struct snd_pcm_substream *substream = entry->private_data;
 	struct snd_card *card = substream->pcm->card;
 	char line[64], str[64];
-	size_t size;
+	unsigned long size;
 	struct snd_dma_buffer new_dmab;
 
 	guard(mutex)(&substream->pcm->open_mutex);
@@ -194,7 +194,10 @@ static void snd_pcm_lib_preallocate_proc_write(struct snd_info_entry *entry,
 	}
 	if (!snd_info_get_line(buffer, line, sizeof(line))) {
 		snd_info_get_str(str, line, sizeof(str));
-		size = simple_strtoul(str, NULL, 10) * 1024;
+		buffer->error = kstrtoul(str, 10, &size);
+		if (buffer->error != 0)
+			return;
+		size *= 1024;
 		if ((size != 0 && size < 8192) || size > substream->dma_max) {
 			buffer->error = -EINVAL;
 			return;
@@ -210,7 +213,7 @@ static void snd_pcm_lib_preallocate_proc_write(struct snd_info_entry *entry,
 					   substream->stream,
 					   size, &new_dmab) < 0) {
 				buffer->error = -ENOMEM;
-				pr_debug("ALSA pcmC%dD%d%c,%d:%s: cannot preallocate for size %zu\n",
+				pr_debug("ALSA pcmC%dD%d%c,%d:%s: cannot preallocate for size %lu\n",
 					 substream->pcm->card->number, substream->pcm->device,
 					 substream->stream ? 'c' : 'p', substream->number,
 					 substream->pcm->name, size);
