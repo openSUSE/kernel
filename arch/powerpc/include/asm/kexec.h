@@ -54,6 +54,9 @@
 
 typedef void (*crash_shutdown_t)(void);
 
+struct kimage;
+struct pt_regs;
+
 #ifdef CONFIG_KEXEC_CORE
 
 /*
@@ -87,8 +90,6 @@ extern void crash_send_ipi(void (*crash_ipi_callback)(struct pt_regs *));
 extern void crash_ipi_callback(struct pt_regs *);
 extern int crash_wake_offline;
 
-struct kimage;
-struct pt_regs;
 extern void default_machine_kexec(struct kimage *image);
 extern void default_machine_crash_shutdown(struct pt_regs *regs);
 extern int crash_shutdown_register(crash_shutdown_t handler);
