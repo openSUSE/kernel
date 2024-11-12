@@ -223,8 +223,9 @@ static int csi_set_format(struct v4l2_subdev *subdev,
 /*
  * V4L2 Subdevice Video Operations
  */
-static int tegra_csi_g_frame_interval(struct v4l2_subdev *subdev,
-				      struct v4l2_subdev_frame_interval *vfi)
+static int tegra_csi_get_frame_interval(struct v4l2_subdev *subdev,
+					struct v4l2_subdev_state *sd_state,
+					struct v4l2_subdev_frame_interval *vfi)
 {
 	struct tegra_csi_channel *csi_chan = to_csi_chan(subdev);
 
@@ -431,8 +432,6 @@ static int tegra_csi_s_stream(struct v4l2_subdev *subdev, int enable)
  */
 static const struct v4l2_subdev_video_ops tegra_csi_video_ops = {
 	.s_stream = tegra_csi_s_stream,
-	.g_frame_interval = tegra_csi_g_frame_interval,
-	.s_frame_interval = tegra_csi_g_frame_interval,
 };
 
 static const struct v4l2_subdev_pad_ops tegra_csi_pad_ops = {
@@ -441,6 +440,8 @@ static const struct v4l2_subdev_pad_ops tegra_csi_pad_ops = {
 	.enum_frame_interval	= csi_enum_frameintervals,
 	.get_fmt		= csi_get_format,
 	.set_fmt		= csi_set_format,
+	.get_frame_interval	= tegra_csi_get_frame_interval,
+	.set_frame_interval	= tegra_csi_get_frame_interval,
 };
 
 static const struct v4l2_subdev_ops tegra_csi_ops = {

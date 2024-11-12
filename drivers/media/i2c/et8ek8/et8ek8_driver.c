@@ -1047,6 +1047,7 @@ static int et8ek8_set_pad_format(struct v4l2_subdev *subdev,
 }
 
 static int et8ek8_get_frame_interval(struct v4l2_subdev *subdev,
+				     struct v4l2_subdev_state *sd_state,
 				     struct v4l2_subdev_frame_interval *fi)
 {
 	struct et8ek8_sensor *sensor = to_et8ek8_sensor(subdev);
@@ -1058,6 +1059,7 @@ static int et8ek8_get_frame_interval(struct v4l2_subdev *subdev,
 }
 
 static int et8ek8_set_frame_interval(struct v4l2_subdev *subdev,
+				     struct v4l2_subdev_state *sd_state,
 				     struct v4l2_subdev_frame_interval *fi)
 {
 	struct et8ek8_sensor *sensor = to_et8ek8_sensor(subdev);
@@ -1343,8 +1345,6 @@ static int et8ek8_close(struct v4l2_subdev *sd, struct v4l2_subdev_fh *fh)
 
 static const struct v4l2_subdev_video_ops et8ek8_video_ops = {
 	.s_stream = et8ek8_s_stream,
-	.g_frame_interval = et8ek8_get_frame_interval,
-	.s_frame_interval = et8ek8_set_frame_interval,
 };
 
 static const struct v4l2_subdev_core_ops et8ek8_core_ops = {
@@ -1357,6 +1357,8 @@ static const struct v4l2_subdev_pad_ops et8ek8_pad_ops = {
 	.enum_frame_interval = et8ek8_enum_frame_ival,
 	.get_fmt = et8ek8_get_pad_format,
 	.set_fmt = et8ek8_set_pad_format,
+	.get_frame_interval = et8ek8_get_frame_interval,
+	.set_frame_interval = et8ek8_set_frame_interval,
 };
 
 static const struct v4l2_subdev_ops et8ek8_ops = {
