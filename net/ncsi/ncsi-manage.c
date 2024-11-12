@@ -1323,6 +1323,8 @@ void ncsi_unregister_dev(struct ncsi_dev *nd)
 #endif
 	spin_unlock_irqrestore(&ncsi_dev_lock, flags);
 
+	cancel_work_sync(&ndp->work);
+
 	kfree(ndp);
 }
 EXPORT_SYMBOL_GPL(ncsi_unregister_dev);
