@@ -279,7 +279,9 @@ enum sof_tokens {
 	SOF_GAIN_TOKENS,
 	SOF_ACPDMIC_TOKENS,
 	SOF_ACPI2S_TOKENS,
+#ifndef __GENKSYMS__
 	SOF_MICFIL_TOKENS,
+#endif
 
 	/* this should be the last */
 	SOF_TOKEN_COUNT,
@@ -517,7 +519,6 @@ struct snd_sof_route {
 struct snd_sof_dai {
 	struct snd_soc_component *scomp;
 	const char *name;
-	u32 type;
 
 	int number_configs;
 	int current_config;
@@ -525,6 +526,9 @@ struct snd_sof_dai {
 	/* core should not touch this */
 	const void *platform_private;
 	void *private;
+#ifndef __GENKSYMS__
+	u32 type;
+#endif
 };
 
 /*
