@@ -540,8 +540,8 @@ static void imx7_csi_configure(struct imx7_csi *csi,
 	} else {
 		const struct v4l2_mbus_framefmt *sink_fmt;
 
-		sink_fmt = v4l2_subdev_get_pad_format(&csi->sd, sd_state,
-						      IMX7_CSI_PAD_SINK);
+		sink_fmt = v4l2_subdev_state_get_format(sd_state,
+							IMX7_CSI_PAD_SINK);
 
 		cr1 = BIT_SOF_POL | BIT_REDGE | BIT_HSYNC_POL | BIT_FCC
 		    | BIT_MCLKDIV(1) | BIT_MCLKEN;
@@ -1779,7 +1779,7 @@ static int imx7_csi_init_cfg(struct v4l2_subdev *sd,
 
 	for (i = 0; i < IMX7_CSI_PADS_NUM; i++) {
 		struct v4l2_mbus_framefmt *mf =
-			v4l2_subdev_get_pad_format(sd, sd_state, i);
+			v4l2_subdev_state_get_format(sd_state, i);
 
 		mf->code = IMX7_CSI_DEF_MBUS_CODE;
 		mf->width = IMX7_CSI_DEF_PIX_WIDTH;
@@ -1803,7 +1803,7 @@ static int imx7_csi_enum_mbus_code(struct v4l2_subdev *sd,
 	struct v4l2_mbus_framefmt *in_fmt;
 	int ret = 0;
 
-	in_fmt = v4l2_subdev_get_pad_format(sd, sd_state, IMX7_CSI_PAD_SINK);
+	in_fmt = v4l2_subdev_state_get_format(sd_state, IMX7_CSI_PAD_SINK);
 
 	switch (code->pad) {
 	case IMX7_CSI_PAD_SINK:
@@ -1882,7 +1882,7 @@ static void imx7_csi_try_fmt(struct v4l2_subdev *sd,
 	struct v4l2_mbus_framefmt *in_fmt;
 	u32 code;
 
-	in_fmt = v4l2_subdev_get_pad_format(sd, sd_state, IMX7_CSI_PAD_SINK);
+	in_fmt = v4l2_subdev_state_get_format(sd_state, IMX7_CSI_PAD_SINK);
 
 	switch (sdformat->pad) {
 	case IMX7_CSI_PAD_SRC:
@@ -1932,7 +1932,7 @@ static int imx7_csi_set_fmt(struct v4l2_subdev *sd,
 
 	imx7_csi_try_fmt(sd, sd_state, sdformat, &cc);
 
-	fmt = v4l2_subdev_get_pad_format(sd, sd_state, sdformat->pad);
+	fmt = v4l2_subdev_state_get_format(sd_state, sdformat->pad);
 
 	*fmt = sdformat->format;
 
@@ -1943,8 +1943,8 @@ static int imx7_csi_set_fmt(struct v4l2_subdev *sd,
 		format.format = sdformat->format;
 		imx7_csi_try_fmt(sd, sd_state, &format, &outcc);
 
-		outfmt = v4l2_subdev_get_pad_format(sd, sd_state,
-						    IMX7_CSI_PAD_SRC);
+		outfmt = v4l2_subdev_state_get_format(sd_state,
+						      IMX7_CSI_PAD_SRC);
 		*outfmt = format.format;
 	}
 
