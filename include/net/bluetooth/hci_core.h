@@ -722,6 +722,9 @@ struct hci_conn {
 	__u8		pin_length;
 	__u8		enc_key_size;
 	__u8		io_capability;
+#ifndef __GENKSYMS__
+	__u16		mtu;
+#endif
 	__u32		passkey_notify;
 	__u8		passkey_entered;
 	__u16		disc_timeout;
