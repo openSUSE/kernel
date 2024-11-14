@@ -3169,6 +3169,9 @@ static int ip6_route_multipath_add(struct fib6_config *cfg,
 
 	err_nh = NULL;
 	list_for_each_entry(nh, &rt6_nh_list, next) {
+		/* We don't have to release the refcount when error occurs
+			because rt6_info is going to be released soon.*/
+		rt6_hold(nh->rt6_info);
 		err = __ip6_ins_rt(nh->rt6_info, info, &nh->mxc, extack);
 
 		if (err) {
@@ -3177,12 +3180,20 @@ static int ip6_route_multipath_add(struct fib6_config *cfg,
 			err_nh = nh;
 			goto add_errout;
 		}
+
 		/* save reference to last route successfully inserted */
+		if (rt_last)
+			rt6_release(rt_last);
 		rt_last = nh->rt6_info;
 
 		/* save reference to first route for notification */
-		if (!rt_notif)
+		if (!rt_notif) {
+			rt6_hold(nh->rt6_info);
 			rt_notif = nh->rt6_info;
+		}
+
+		/* nh->rt6_info is used or freed at this point, reset to NULL*/
+		nh->rt6_info = NULL;
 
 		/* Because each route is added like a single route we remove
 		 * these flags after the first nexthop: if there is a collision,
@@ -3217,8 +3228,14 @@ add_errout:
 	}
 
 cleanup:
+	if (rt_notif) {
+		rt6_release(rt_notif);
+		rt6_release(rt_last);
+	}
+
 	list_for_each_entry_safe(nh, nh_safe, &rt6_nh_list, next) {
-		dst_release_immediate(&nh->rt6_info->dst);
+		if (nh->rt6_info)
+			dst_release_immediate(&nh->rt6_info->dst);
 		kfree(nh->mxc.mx);
 		list_del(&nh->next);
 		kfree(nh);
