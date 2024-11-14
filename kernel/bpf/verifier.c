@@ -1744,7 +1744,7 @@ static void free_verifier_state(struct bpf_verifier_state *state,
 	}
 	clear_jmp_history(state);
 	if (free_self)
-		kfree(state);
+		kfree(extra(state));
 }
 
 /* copy verifier state from src to dst growing dst stack space
@@ -1766,6 +1766,7 @@ static int copy_func_state(struct bpf_func_state *dst,
 static int copy_verifier_state(struct bpf_verifier_state *dst_state,
 			       const struct bpf_verifier_state *src)
 {
+	const struct suse_bpf_verifier_state_extra *src_extra = &container_of(src, const struct suse_bpf_verifier_state_wrapper, state)->extra;
 	struct bpf_func_state *dst;
 	int i, err;
 
@@ -1790,8 +1791,8 @@ static int copy_verifier_state(struct bpf_verifier_state *dst_state,
 	dst_state->parent = src->parent;
 	dst_state->first_insn_idx = src->first_insn_idx;
 	dst_state->last_insn_idx = src->last_insn_idx;
-	dst_state->dfs_depth = src->dfs_depth;
-	dst_state->callback_unroll_depth = src->callback_unroll_depth;
+	extra(dst_state)->dfs_depth = src_extra->dfs_depth;
+	extra(dst_state)->callback_unroll_depth = src_extra->callback_unroll_depth;
 	dst_state->used_as_loop_entry = src->used_as_loop_entry;
 	for (i = 0; i <= src->curframe; i++) {
 		dst = dst_state->frame[i];
@@ -1959,16 +1960,16 @@ static bool same_callsites(struct bpf_verifier_state *a, struct bpf_verifier_sta
  */
 static struct bpf_verifier_state *get_loop_entry(struct bpf_verifier_state *st)
 {
-	struct bpf_verifier_state *topmost = st->loop_entry, *old;
+	struct bpf_verifier_state *topmost = extra(st)->loop_entry, *old;
 
-	while (topmost && topmost->loop_entry && topmost != topmost->loop_entry)
-		topmost = topmost->loop_entry;
+	while (topmost && extra(topmost)->loop_entry && topmost != extra(topmost)->loop_entry)
+		topmost = extra(topmost)->loop_entry;
 	/* Update loop entries for intermediate states to avoid this
 	 * traversal in future get_loop_entry() calls.
 	 */
-	while (st && st->loop_entry != topmost) {
-		old = st->loop_entry;
-		st->loop_entry = topmost;
+	while (st && extra(st)->loop_entry != topmost) {
+		old = extra(st)->loop_entry;
+		extra(st)->loop_entry = topmost;
 		st = old;
 	}
 	return topmost;
@@ -1986,8 +1987,8 @@ static void update_loop_entry(struct bpf_verifier_state *cur, struct bpf_verifie
 	 * hence 'cur' and 'hdr' are not in the same loop and there is
 	 * no need to update cur->loop_entry.
 	 */
-	if (hdr1->branches && hdr1->dfs_depth <= cur1->dfs_depth) {
-		cur->loop_entry = hdr;
+	if (hdr1->branches && extra(hdr1)->dfs_depth <= extra(cur1)->dfs_depth) {
+		extra(cur)->loop_entry = hdr;
 		hdr->used_as_loop_entry = true;
 	}
 }
@@ -2002,8 +2003,8 @@ static void update_branch_counts(struct bpf_verifier_env *env, struct bpf_verifi
 		 * turned out that st is a part of some loop.
 		 * This is a part of 'case A' in get_loop_entry() comment.
 		 */
-		if (br == 0 && st->parent && st->loop_entry)
-			update_loop_entry(st->parent, st->loop_entry);
+		if (br == 0 && st->parent && extra(st)->loop_entry)
+			update_loop_entry(st->parent, extra(st)->loop_entry);
 
 		/* WARN_ON(br > 1) technically makes sense here,
 		 * but see comment in push_stack(), hence:
@@ -2040,7 +2041,7 @@ static int pop_stack(struct bpf_verifier_env *env, int *prev_insn_idx,
 		*prev_insn_idx = head->prev_insn_idx;
 	elem = head->next;
 	free_verifier_state(&head->st, false);
-	kfree(head);
+	kfree(extra(&head->st));
 	env->head = elem;
 	env->stack_size--;
 	return 0;
@@ -2050,14 +2051,17 @@ static struct bpf_verifier_state *push_stack(struct bpf_verifier_env *env,
 					     int insn_idx, int prev_insn_idx,
 					     bool speculative)
 {
+	struct suse_bpf_verifier_state_wrapper *elem_wrapper;
 	struct bpf_verifier_state *cur = env->cur_state;
 	struct bpf_verifier_stack_elem *elem;
 	int err;
 
-	elem = kzalloc(sizeof(struct bpf_verifier_stack_elem), GFP_KERNEL);
-	if (!elem)
+
+	elem_wrapper = kzalloc(sizeof(struct suse_bpf_verifier_state_extra) + sizeof(struct bpf_verifier_stack_elem), GFP_KERNEL);
+	if (!elem_wrapper)
 		goto err;
 
+	elem = (struct bpf_verifier_stack_elem *) &elem_wrapper->state;
 	elem->insn_idx = insn_idx;
 	elem->prev_insn_idx = prev_insn_idx;
 	elem->next = env->head;
@@ -2613,13 +2617,15 @@ static struct bpf_verifier_state *push_async_cb(struct bpf_verifier_env *env,
 						int insn_idx, int prev_insn_idx,
 						int subprog)
 {
+	struct suse_bpf_verifier_state_wrapper *elem_wrapper;
 	struct bpf_verifier_stack_elem *elem;
 	struct bpf_func_state *frame;
 
-	elem = kzalloc(sizeof(struct bpf_verifier_stack_elem), GFP_KERNEL);
-	if (!elem)
+	elem_wrapper = kzalloc(sizeof(struct suse_bpf_verifier_state_extra) + sizeof(struct bpf_verifier_stack_elem), GFP_KERNEL);
+	if (!elem_wrapper)
 		goto err;
 
+	elem = (struct bpf_verifier_stack_elem *) &elem_wrapper->state;
 	elem->insn_idx = insn_idx;
 	elem->prev_insn_idx = prev_insn_idx;
 	elem->next = env->head;
@@ -7843,7 +7849,7 @@ static struct bpf_verifier_state *find_prev_entry(struct bpf_verifier_env *env,
 		 */
 		st = &sl->state;
 		if (st->insn_idx == insn_idx && st->branches && same_callsites(st, cur) &&
-		    st->dfs_depth < cur->dfs_depth)
+		    extra(st)->dfs_depth < extra(cur)->dfs_depth)
 			return st;
 	}
 
@@ -9357,7 +9363,7 @@ static int push_callback_call(struct bpf_verifier_env *env, struct bpf_insn *ins
 	if (err)
 		return err;
 
-	callback_state->callback_unroll_depth++;
+	extra(callback_state)->callback_unroll_depth++;
 	callback_state->frame[callback_state->curframe - 1]->callback_depth++;
 	caller->callback_depth = 0;
 	return 0;
@@ -16624,6 +16630,7 @@ static bool iter_active_depths_differ(struct bpf_verifier_state *old, struct bpf
 
 static int is_state_visited(struct bpf_verifier_env *env, int insn_idx)
 {
+	struct suse_bpf_verifier_state_wrapper *new_sl_wrapper;
 	struct bpf_verifier_state_list *new_sl;
 	struct bpf_verifier_state_list *sl, **pprev;
 	struct bpf_verifier_state *cur = env->cur_state, *new, *loop_entry;
@@ -16741,7 +16748,7 @@ static int is_state_visited(struct bpf_verifier_env *env, int insn_idx)
 			if (states_maybe_looping(&sl->state, cur) &&
 			    states_equal(env, &sl->state, cur, false) &&
 			    !iter_active_depths_differ(&sl->state, cur) &&
-			    sl->state.callback_unroll_depth == cur->callback_unroll_depth) {
+			    extra(&sl->state)->callback_unroll_depth == extra(cur)->callback_unroll_depth) {
 				verbose_linfo(env, insn_idx, "; ");
 				verbose(env, "infinite loop detected at insn %d\n", insn_idx);
 				verbose(env, "cur state:");
@@ -16855,7 +16862,7 @@ miss:
 					  "BUG live_done but branches_to_explore %d\n",
 					  br);
 				free_verifier_state(&sl->state, false);
-				kfree(sl);
+				kfree(extra(&sl->state));
 				env->peak_states--;
 			} else {
 				/* cannot free this state, since parentage chain may
@@ -16891,9 +16898,10 @@ next:
 	 * When looping the sl->state.branches will be > 0 and this state
 	 * will not be considered for equivalence until branches == 0.
 	 */
-	new_sl = kzalloc(sizeof(struct bpf_verifier_state_list), GFP_KERNEL);
-	if (!new_sl)
+	new_sl_wrapper = kzalloc(sizeof(struct suse_bpf_verifier_state_extra) + sizeof(struct bpf_verifier_state_list), GFP_KERNEL);
+	if (!new_sl_wrapper)
 		return -ENOMEM;
+	new_sl = (struct bpf_verifier_state_list *) &new_sl_wrapper->state;
 	env->total_states++;
 	env->peak_states++;
 	env->prev_jmps_processed = env->jmps_processed;
@@ -16908,7 +16916,7 @@ next:
 	err = copy_verifier_state(new, cur);
 	if (err) {
 		free_verifier_state(new, false);
-		kfree(new_sl);
+		kfree(extra(&new_sl->state));
 		return err;
 	}
 	new->insn_idx = insn_idx;
@@ -16917,7 +16925,7 @@ next:
 
 	cur->parent = new;
 	cur->first_insn_idx = insn_idx;
-	cur->dfs_depth = new->dfs_depth + 1;
+	extra(cur)->dfs_depth = extra(new)->dfs_depth + 1;
 	clear_jmp_history(cur);
 	new_sl->next = *explored_state(env, insn_idx);
 	*explored_state(env, insn_idx) = new_sl;
@@ -19681,7 +19689,7 @@ static void free_states(struct bpf_verifier_env *env)
 	while (sl) {
 		sln = sl->next;
 		free_verifier_state(&sl->state, false);
-		kfree(sl);
+		kfree(extra(&sl->state));
 		sl = sln;
 	}
 	env->free_list = NULL;
@@ -19695,7 +19703,7 @@ static void free_states(struct bpf_verifier_env *env)
 		while (sl) {
 			sln = sl->next;
 			free_verifier_state(&sl->state, false);
-			kfree(sl);
+			kfree(extra(&sl->state));
 			sl = sln;
 		}
 		env->explored_states[i] = NULL;
@@ -19704,6 +19712,7 @@ static void free_states(struct bpf_verifier_env *env)
 
 static int do_check_common(struct bpf_verifier_env *env, int subprog)
 {
+	struct suse_bpf_verifier_state_wrapper *state_wrapper;
 	bool pop_log = !(env->log.level & BPF_LOG_LEVEL2);
 	struct bpf_verifier_state *state;
 	struct bpf_reg_state *regs;
@@ -19712,15 +19721,16 @@ static int do_check_common(struct bpf_verifier_env *env, int subprog)
 	env->prev_linfo = NULL;
 	env->pass_cnt++;
 
-	state = kzalloc(sizeof(struct bpf_verifier_state), GFP_KERNEL);
-	if (!state)
+	state_wrapper = kzalloc(sizeof(struct suse_bpf_verifier_state_wrapper), GFP_KERNEL);
+	if (!state_wrapper)
 		return -ENOMEM;
+	state = &state_wrapper->state;
 	state->curframe = 0;
 	state->speculative = false;
 	state->branches = 1;
 	state->frame[0] = kzalloc(sizeof(struct bpf_func_state), GFP_KERNEL);
 	if (!state->frame[0]) {
-		kfree(state);
+		kfree(state_wrapper);
 		return -ENOMEM;
 	}
 	env->cur_state = state;
