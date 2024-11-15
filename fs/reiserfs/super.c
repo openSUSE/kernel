@@ -30,26 +30,6 @@
 #include <linux/namei.h>
 #include <linux/crc32.h>
 #include <linux/seq_file.h>
-#include <linux/moduleparam.h>
-#include <linux/unsupported-feature.h>
-
-DECLARE_SUSE_UNSUPPORTED_FEATURE(reiserfs)
-DEFINE_SUSE_UNSUPPORTED_FEATURE(reiserfs)
-
-static bool check_rw_mount(struct super_block *sb, unsigned long flags)
-{
-	if (flags & SB_RDONLY)
-		return true;
-
-	if (reiserfs_allow_unsupported()) {
-		reiserfs_mark_unsupported();
-		return true;
-	}
-
-	pr_warn("reiserfs: read-write mode is unsupported.\n");
-	pr_warn("reiserfs: load module with allow_unsupported=1 to enable read-write mode.\n");
-	return false;
-}
 
 struct file_system_type reiserfs_fs_type;
 
@@ -690,7 +670,6 @@ static int __init init_inodecache(void)
 						  sizeof(struct
 							 reiserfs_inode_info),
 						  0, (SLAB_RECLAIM_ACCOUNT|
-						      SLAB_MEM_SPREAD|
 						      SLAB_ACCOUNT),
 						  init_once);
 	if (reiserfs_inode_cachep == NULL)
@@ -822,7 +801,7 @@ static ssize_t reiserfs_quota_write(struct super_block *, int, const char *,
 static ssize_t reiserfs_quota_read(struct super_block *, int, char *, size_t,
 				   loff_t);
 
-static struct dquot **reiserfs_get_dquots(struct inode *inode)
+static struct dquot __rcu **reiserfs_get_dquots(struct inode *inode)
 {
 	return REISERFS_I(inode)->i_dquot;
 }
@@ -1462,9 +1441,6 @@ static int reiserfs_remount(struct super_block *s, int *mount_flags, char *arg)
 	int i;
 #endif
 
-	if (!check_rw_mount(s, *mount_flags))
-		return -EACCES;
-
 	sync_filesystem(s);
 	reiserfs_write_lock(s);
 
@@ -1923,9 +1899,6 @@ static int reiserfs_fill_super(struct super_block *s, void *data, int silent)
 	int errval = -EINVAL;
 	char *qf_names[REISERFS_MAXQUOTAS] = {};
 	unsigned int qfmt = 0;
-
-	if (!check_rw_mount(s, s->s_flags))
-		return -EACCES;
 
 	sbi = kzalloc(sizeof(struct reiserfs_sb_info), GFP_KERNEL);
 	if (!sbi)
@@ -2613,7 +2586,7 @@ out:
 		return err;
 	if (inode->i_size < off + len - towrite)
 		i_size_write(inode, off + len - towrite);
-	inode->i_mtime = inode->i_ctime = current_time(inode);
+	inode_set_mtime_to_ts(inode, inode_set_ctime_current(inode));
 	mark_inode_dirty(inode);
 	return len - towrite;
 }

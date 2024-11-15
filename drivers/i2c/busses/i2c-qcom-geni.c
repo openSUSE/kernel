@@ -586,7 +586,8 @@ static int geni_i2c_gpi_xfer(struct geni_i2c_dev *gi2c, struct i2c_msg msgs[], i
 {
 	struct dma_slave_config config = {};
 	struct gpi_i2c_config peripheral = {};
-	int i, ret = 0, timeout;
+	int i, ret = 0;
+	unsigned long time_left;
 	dma_addr_t tx_addr, rx_addr;
 	void *tx_buf = NULL, *rx_buf = NULL;
 	const struct geni_i2c_clk_fld *itr = gi2c->clk_fld;
@@ -629,12 +630,9 @@ static int geni_i2c_gpi_xfer(struct geni_i2c_dev *gi2c, struct i2c_msg msgs[], i
 
 		dma_async_issue_pending(gi2c->tx_c);
 
-		timeout = wait_for_completion_timeout(&gi2c->done, XFER_TIMEOUT);
-		if (!timeout) {
-			dev_err(gi2c->se.dev, "I2C timeout gpi flags:%d addr:0x%x\n",
-				gi2c->cur->flags, gi2c->cur->addr);
+		time_left = wait_for_completion_timeout(&gi2c->done, XFER_TIMEOUT);
+		if (!time_left)
 			gi2c->err = -ETIMEDOUT;
-		}
 
 		if (gi2c->err) {
 			ret = gi2c->err;
@@ -722,7 +720,8 @@ static const struct i2c_algorithm geni_i2c_algo = {
 #ifdef CONFIG_ACPI
 static const struct acpi_device_id geni_i2c_acpi_match[] = {
 	{ "QCOM0220"},
-	{ },
+	{ "QCOM0411" },
+	{ }
 };
 MODULE_DEVICE_TABLE(acpi, geni_i2c_acpi_match);
 #endif
@@ -767,7 +766,6 @@ err_tx:
 static int geni_i2c_probe(struct platform_device *pdev)
 {
 	struct geni_i2c_dev *gi2c;
-	struct resource *res;
 	u32 proto, tx_depth, fifo_disable;
 	int ret;
 	struct device *dev = &pdev->dev;
@@ -779,8 +777,7 @@ static int geni_i2c_probe(struct platform_device *pdev)
 
 	gi2c->se.dev = dev;
 	gi2c->se.wrapper = dev_get_drvdata(dev->parent);
-	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	gi2c->se.base = devm_ioremap_resource(dev, res);
+	gi2c->se.base = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(gi2c->se.base))
 		return PTR_ERR(gi2c->se.base);
 
@@ -940,14 +937,13 @@ err_dma:
 	return ret;
 }
 
-static int geni_i2c_remove(struct platform_device *pdev)
+static void geni_i2c_remove(struct platform_device *pdev)
 {
 	struct geni_i2c_dev *gi2c = platform_get_drvdata(pdev);
 
 	i2c_del_adapter(&gi2c->adap);
 	release_gpi_dma(gi2c);
 	pm_runtime_disable(gi2c->se.dev);
-	return 0;
 }
 
 static void geni_i2c_shutdown(struct platform_device *pdev)
@@ -988,21 +984,24 @@ static int __maybe_unused geni_i2c_runtime_resume(struct device *dev)
 		return ret;
 
 	ret = clk_prepare_enable(gi2c->core_clk);
-	if (ret) {
-		geni_icc_disable(&gi2c->se);
-		return ret;
-	}
+	if (ret)
+		goto out_icc_disable;
 
 	ret = geni_se_resources_on(&gi2c->se);
-	if (ret) {
-		clk_disable_unprepare(gi2c->core_clk);
-		geni_icc_disable(&gi2c->se);
-		return ret;
-	}
+	if (ret)
+		goto out_clk_disable;
 
 	enable_irq(gi2c->irq);
 	gi2c->suspended = 0;
+
 	return 0;
+
+out_clk_disable:
+	clk_disable_unprepare(gi2c->core_clk);
+out_icc_disable:
+	geni_icc_disable(&gi2c->se);
+
+	return ret;
 }
 
 static int __maybe_unused geni_i2c_suspend_noirq(struct device *dev)
@@ -1050,7 +1049,7 @@ MODULE_DEVICE_TABLE(of, geni_i2c_dt_match);
 
 static struct platform_driver geni_i2c_driver = {
 	.probe  = geni_i2c_probe,
-	.remove = geni_i2c_remove,
+	.remove_new = geni_i2c_remove,
 	.shutdown = geni_i2c_shutdown,
 	.driver = {
 		.name = "geni_i2c",

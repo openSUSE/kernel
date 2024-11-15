@@ -83,8 +83,9 @@ Code  Seq#    Include File                                           Comments
 0x10  00-0F  drivers/char/s390/vmcp.h
 0x10  10-1F  arch/s390/include/uapi/sclp_ctl.h
 0x10  20-2F  arch/s390/include/uapi/asm/hypfs.h
-0x12  all    linux/fs.h
+0x12  all    linux/fs.h                                              BLK* ioctls
              linux/blkpg.h
+0x15  all    linux/fs.h                                              FS_IOC_* ioctls
 0x1b  all                                                            InfiniBand Subsystem
                                                                      <http://infiniband.sourceforge.net/>
 0x20  all    drivers/cdrom/cm206.h
@@ -97,6 +98,8 @@ Code  Seq#    Include File                                           Comments
 '%'   00-0F  include/uapi/linux/stm.h                                System Trace Module subsystem
                                                                      <mailto:alexander.shishkin@linux.intel.com>
 '&'   00-07  drivers/firewire/nosy-user.h
+'*'   00-1F  uapi/linux/user_events.h                                User Events Subsystem
+                                                                     <mailto:linux-trace-kernel@vger.kernel.org>
 '1'   00-1F  linux/timepps.h                                         PPS kit from Ulrich Windl
                                                                      <ftp://ftp.de.kernel.org/pub/linux/daemons/ntp/PPS/>
 '2'   01-04  linux/i2o.h
@@ -129,7 +132,6 @@ Code  Seq#    Include File                                           Comments
 'F'   all    linux/fb.h                                              conflict!
 'F'   01-02  drivers/scsi/pmcraid.h                                  conflict!
 'F'   20     drivers/video/fsl-diu-fb.h                              conflict!
-'F'   20     drivers/video/intelfb/intelfb.h                         conflict!
 'F'   20     linux/ivtvfb.h                                          conflict!
 'F'   20     linux/matroxfb.h                                        conflict!
 'F'   20     drivers/video/aty/atyfb_base.c                          conflict!
@@ -175,15 +177,19 @@ Code  Seq#    Include File                                           Comments
 'M'   00-0F  drivers/video/fsl-diu-fb.h                              conflict!
 'N'   00-1F  drivers/usb/scanner.h
 'N'   40-7F  drivers/block/nvme.c
+'N'   80-8F  uapi/linux/ntsync.h                                     NT synchronization primitives
+                                                                     <mailto:wine-devel@winehq.org>
 'O'   00-06  mtd/ubi-user.h                                          UBI
 'P'   all    linux/soundcard.h                                       conflict!
 'P'   60-6F  sound/sscape_ioctl.h                                    conflict!
 'P'   00-0F  drivers/usb/class/usblp.c                               conflict!
 'P'   01-09  drivers/misc/pci_endpoint_test.c                        conflict!
 'P'   00-0F  xen/privcmd.h                                           conflict!
+'P'   00-05  linux/tps6594_pfsm.h                                    conflict!
 'Q'   all    linux/soundcard.h
 'R'   00-1F  linux/random.h                                          conflict!
 'R'   01     linux/rfkill.h                                          conflict!
+'R'   20-2F  linux/trace_mmap.h
 'R'   C0-DF  net/bluetooth/rfcomm.h
 'R'   E0     uapi/linux/fsl_mc.h
 'S'   all    linux/cdrom.h                                           conflict!
@@ -287,6 +293,7 @@ Code  Seq#    Include File                                           Comments
 't'   80-8F  linux/isdn_ppp.h
 't'   90-91  linux/toshiba.h                                         toshiba and toshiba_acpi SMM
 'u'   00-1F  linux/smb_fs.h                                          gone
+'u'   00-2F  linux/ublk_cmd.h                                        conflict!
 'u'   20-3F  linux/uvcvideo.h                                        USB video class host driver
 'u'   40-4f  linux/udmabuf.h                                         userspace dma-buf misc device
 'v'   00-1F  linux/ext2_fs.h                                         conflict!
@@ -310,6 +317,7 @@ Code  Seq#    Include File                                           Comments
 0x89  0B-DF  linux/sockios.h
 0x89  E0-EF  linux/sockios.h                                         SIOCPROTOPRIVATE range
 0x89  F0-FF  linux/sockios.h                                         SIOCDEVPRIVATE range
+0x8A  00-1F  linux/eventpoll.h
 0x8B  all    linux/wireless.h
 0x8C  00-3F                                                          WiNRADiO driver
                                                                      <http://www.winradio.com.au/>
@@ -359,6 +367,7 @@ Code  Seq#    Include File                                           Comments
 0xB6  all    linux/fpga-dfl.h
 0xB7  all    uapi/linux/remoteproc_cdev.h                            <mailto:linux-remoteproc@vger.kernel.org>
 0xB7  all    uapi/linux/nsfs.h                                       <mailto:Andrei Vagin <avagin@openvz.org>>
+0xB8  01-02  uapi/misc/mrvl_cn10k_dpi.h                              Marvell CN10K DPI driver
 0xC0  00-0F  linux/usb/iowarrior.h
 0xCA  00-0F  uapi/misc/cxl.h
 0xCA  10-2F  uapi/misc/ocxl.h

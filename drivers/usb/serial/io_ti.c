@@ -2421,7 +2421,7 @@ static int edge_tiocmget(struct tty_struct *tty)
 	return result;
 }
 
-static void edge_break(struct tty_struct *tty, int break_state)
+static int edge_break(struct tty_struct *tty, int break_state)
 {
 	struct usb_serial_port *port = tty->driver_data;
 	struct edgeport_port *edge_port = usb_get_serial_port_data(port);
@@ -2430,10 +2430,15 @@ static void edge_break(struct tty_struct *tty, int break_state)
 
 	if (break_state == -1)
 		bv = 1;	/* On */
+
 	status = ti_do_config(edge_port, UMPC_SET_CLR_BREAK, bv);
-	if (status)
+	if (status) {
 		dev_dbg(&port->dev, "%s - error %d sending break set/clear command.\n",
 			__func__, status);
+		return status;
+	}
+
+	return 0;
 }
 
 static void edge_heartbeat_schedule(struct edgeport_serial *edge_serial)
@@ -2665,7 +2670,6 @@ static int edge_resume(struct usb_serial *serial)
 
 static struct usb_serial_driver edgeport_1port_device = {
 	.driver = {
-		.owner		= THIS_MODULE,
 		.name		= "edgeport_ti_1",
 	},
 	.description		= "Edgeport TI 1 port adapter",
@@ -2703,7 +2707,6 @@ static struct usb_serial_driver edgeport_1port_device = {
 
 static struct usb_serial_driver edgeport_2port_device = {
 	.driver = {
-		.owner		= THIS_MODULE,
 		.name		= "edgeport_ti_2",
 	},
 	.description		= "Edgeport TI 2 port adapter",

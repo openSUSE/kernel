@@ -222,8 +222,8 @@ static int stw481x_probe(struct i2c_client *client)
  * the structure of the I2C core.
  */
 static const struct i2c_device_id stw481x_id[] = {
-	{ "stw481x", 0 },
-	{ },
+	{ "stw481x" },
+	{ }
 };
 MODULE_DEVICE_TABLE(i2c, stw481x_id);
 
@@ -239,7 +239,7 @@ static struct i2c_driver stw481x_driver = {
 		.name	= "stw481x",
 		.of_match_table = stw481x_match,
 	},
-	.probe_new	= stw481x_probe,
+	.probe		= stw481x_probe,
 	.id_table	= stw481x_id,
 };
 

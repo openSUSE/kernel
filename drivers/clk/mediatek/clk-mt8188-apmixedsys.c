@@ -5,7 +5,7 @@
  */
 
 #include <dt-bindings/clock/mediatek,mt8188-clk.h>
-#include <linux/of_device.h>
+#include <linux/mod_devicetable.h>
 #include <linux/platform_device.h>
 
 #include "clk-gate.h"
@@ -132,7 +132,7 @@ free_apmixed_data:
 	return r;
 }
 
-static int clk_mt8188_apmixed_remove(struct platform_device *pdev)
+static void clk_mt8188_apmixed_remove(struct platform_device *pdev)
 {
 	struct device_node *node = pdev->dev.of_node;
 	struct clk_hw_onecell_data *clk_data = platform_get_drvdata(pdev);
@@ -141,8 +141,6 @@ static int clk_mt8188_apmixed_remove(struct platform_device *pdev)
 	mtk_clk_unregister_gates(apmixed_clks, ARRAY_SIZE(apmixed_clks), clk_data);
 	mtk_clk_unregister_plls(plls, ARRAY_SIZE(plls), clk_data);
 	mtk_free_clk_data(clk_data);
-
-	return 0;
 }
 
 static struct platform_driver clk_mt8188_apmixed_drv = {
@@ -154,4 +152,6 @@ static struct platform_driver clk_mt8188_apmixed_drv = {
 	},
 };
 module_platform_driver(clk_mt8188_apmixed_drv);
+
+MODULE_DESCRIPTION("MediaTek MT8188 apmixedsys clocks driver");
 MODULE_LICENSE("GPL");

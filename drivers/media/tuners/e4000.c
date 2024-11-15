@@ -719,7 +719,7 @@ static void e4000_remove(struct i2c_client *client)
 }
 
 static const struct i2c_device_id e4000_id_table[] = {
-	{"e4000", 0},
+	{ "e4000" },
 	{}
 };
 MODULE_DEVICE_TABLE(i2c, e4000_id_table);
@@ -729,7 +729,7 @@ static struct i2c_driver e4000_driver = {
 		.name	= "e4000",
 		.suppress_bind_attrs = true,
 	},
-	.probe_new	= e4000_probe,
+	.probe		= e4000_probe,
 	.remove		= e4000_remove,
 	.id_table	= e4000_id_table,
 };

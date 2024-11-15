@@ -133,7 +133,7 @@ static ssize_t isci_show_id(struct device *dev, struct device_attribute *attr, c
 	struct sas_ha_struct *sas_ha = SHOST_TO_SAS_HA(shost);
 	struct isci_host *ihost = container_of(sas_ha, typeof(*ihost), sas_ha);
 
-	return snprintf(buf, PAGE_SIZE, "%d\n", ihost->id);
+	return sysfs_emit(buf, "%d\n", ihost->id);
 }
 
 static DEVICE_ATTR(isci_id, S_IRUGO, isci_show_id, NULL);
@@ -145,33 +145,20 @@ static struct attribute *isci_host_attrs[] = {
 
 ATTRIBUTE_GROUPS(isci_host);
 
-static const struct scsi_host_template isci_sht = {
+static const struct attribute_group *isci_sdev_groups[] = {
+	&sas_ata_sdev_attr_group,
+	NULL
+};
 
-	.module				= THIS_MODULE,
-	.name				= DRV_NAME,
-	.proc_name			= DRV_NAME,
-	.queuecommand			= sas_queuecommand,
-	.dma_need_drain			= ata_scsi_dma_need_drain,
-	.target_alloc			= sas_target_alloc,
-	.slave_configure		= sas_slave_configure,
+static const struct scsi_host_template isci_sht = {
+	LIBSAS_SHT_BASE
 	.scan_finished			= isci_host_scan_finished,
 	.scan_start			= isci_host_start,
-	.change_queue_depth		= sas_change_queue_depth,
-	.bios_param			= sas_bios_param,
 	.can_queue			= ISCI_CAN_QUEUE_VAL,
-	.this_id			= -1,
 	.sg_tablesize			= SG_ALL,
-	.max_sectors			= SCSI_DEFAULT_MAX_SECTORS,
-	.eh_abort_handler		= sas_eh_abort_handler,
-	.eh_device_reset_handler        = sas_eh_device_reset_handler,
-	.eh_target_reset_handler        = sas_eh_target_reset_handler,
-	.slave_alloc			= sas_slave_alloc,
-	.target_destroy			= sas_target_destroy,
-	.ioctl				= sas_ioctl,
-#ifdef CONFIG_COMPAT
-	.compat_ioctl			= sas_ioctl,
-#endif
+	.eh_abort_handler               = sas_eh_abort_handler,
 	.shost_groups			= isci_host_groups,
+	.sdev_groups			= isci_sdev_groups,
 	.track_queue_depth		= 1,
 };
 
@@ -259,9 +246,7 @@ static int isci_register_sas_ha(struct isci_host *isci_host)
 
 	sas_ha->strict_wide_ports = 1;
 
-	sas_register_ha(sas_ha);
-
-	return 0;
+	return sas_register_ha(sas_ha);
 }
 
 static void isci_unregister(struct isci_host *isci_host)
@@ -769,6 +754,7 @@ static __exit void isci_exit(void)
 	sas_release_transport(isci_transport_template);
 }
 
+MODULE_DESCRIPTION("Intel(R) C600 Series Chipset SAS Controller driver");
 MODULE_LICENSE("Dual BSD/GPL");
 MODULE_FIRMWARE(ISCI_FW_NAME);
 module_init(isci_init);

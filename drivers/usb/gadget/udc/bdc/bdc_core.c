@@ -583,7 +583,7 @@ disable_clk:
 	return ret;
 }
 
-static int bdc_remove(struct platform_device *pdev)
+static void bdc_remove(struct platform_device *pdev)
 {
 	struct bdc *bdc;
 
@@ -593,7 +593,6 @@ static int bdc_remove(struct platform_device *pdev)
 	bdc_hw_exit(bdc);
 	bdc_phy_exit(bdc);
 	clk_disable_unprepare(bdc->clk);
-	return 0;
 }
 
 #ifdef CONFIG_PM_SLEEP
@@ -640,6 +639,7 @@ static const struct of_device_id bdc_of_match[] = {
 	{ .compatible = "brcm,bdc" },
 	{ /* sentinel */ }
 };
+MODULE_DEVICE_TABLE(of, bdc_of_match);
 
 static struct platform_driver bdc_driver = {
 	.driver		= {
@@ -648,7 +648,7 @@ static struct platform_driver bdc_driver = {
 		.of_match_table	= bdc_of_match,
 	},
 	.probe		= bdc_probe,
-	.remove		= bdc_remove,
+	.remove_new	= bdc_remove,
 };
 
 module_platform_driver(bdc_driver);

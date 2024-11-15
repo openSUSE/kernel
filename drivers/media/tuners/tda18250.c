@@ -868,7 +868,7 @@ static void tda18250_remove(struct i2c_client *client)
 }
 
 static const struct i2c_device_id tda18250_id_table[] = {
-	{"tda18250", 0},
+	{ "tda18250" },
 	{}
 };
 MODULE_DEVICE_TABLE(i2c, tda18250_id_table);
@@ -877,7 +877,7 @@ static struct i2c_driver tda18250_driver = {
 	.driver = {
 		.name	= "tda18250",
 	},
-	.probe_new	= tda18250_probe,
+	.probe		= tda18250_probe,
 	.remove		= tda18250_remove,
 	.id_table	= tda18250_id_table,
 };

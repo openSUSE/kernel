@@ -15,7 +15,6 @@
 #include <linux/slab.h>
 #include <linux/rfkill.h>
 #include <linux/nfc.h>
-#include <linux/pm_runtime.h>
 
 #include <net/genetlink.h>
 
@@ -38,8 +37,6 @@ int nfc_fw_download(struct nfc_dev *dev, const char *firmware_name)
 	pr_debug("%s do firmware %s\n", dev_name(&dev->dev), firmware_name);
 
 	device_lock(&dev->dev);
-	/* failures MUST be ignored */
-	pm_runtime_get_sync(&dev->dev);
 
 	if (dev->shutting_down) {
 		rc = -ENODEV;
@@ -61,11 +58,7 @@ int nfc_fw_download(struct nfc_dev *dev, const char *firmware_name)
 	if (rc)
 		dev->fw_download_in_progress = false;
 
-	device_unlock(&dev->dev);
-	return 0;
-
 error:
-	pm_runtime_put(&dev->dev);
 	device_unlock(&dev->dev);
 	return rc;
 }
@@ -80,12 +73,9 @@ error:
 int nfc_fw_download_done(struct nfc_dev *dev, const char *firmware_name,
 			 u32 result)
 {
-	int rc;
 	dev->fw_download_in_progress = false;
 
-	rc = nfc_genl_fw_download_done(dev, firmware_name, result);
-	pm_runtime_put(&dev->dev);
-	return rc;
+	return nfc_genl_fw_download_done(dev, firmware_name, result);
 }
 EXPORT_SYMBOL(nfc_fw_download_done);
 
@@ -103,8 +93,6 @@ int nfc_dev_up(struct nfc_dev *dev)
 	pr_debug("dev_name=%s\n", dev_name(&dev->dev));
 
 	device_lock(&dev->dev);
-	/* errors MUST be ignored, we are using the child count */
-	pm_runtime_get_sync(&dev->dev);
 
 	if (dev->shutting_down) {
 		rc = -ENODEV;
@@ -135,11 +123,8 @@ int nfc_dev_up(struct nfc_dev *dev)
 	/* We have to enable the device before discovering SEs */
 	if (dev->ops->discover_se && dev->ops->discover_se(dev))
 		pr_err("SE discovery failed\n");
-	device_unlock(&dev->dev);
-	return rc;
 
 error:
-	pm_runtime_put(&dev->dev);
 	device_unlock(&dev->dev);
 	return rc;
 }
@@ -176,9 +161,6 @@ int nfc_dev_down(struct nfc_dev *dev)
 		dev->ops->dev_down(dev);
 
 	dev->dev_up = false;
-	pm_runtime_put(&dev->dev);
-	device_unlock(&dev->dev);
-	return rc;
 
 error:
 	device_unlock(&dev->dev);
@@ -1033,7 +1015,7 @@ static void nfc_check_pres_timeout(struct timer_list *t)
 	schedule_work(&dev->check_pres_work);
 }
 
-struct class nfc_class = {
+const struct class nfc_class = {
 	.name = "nfc",
 	.dev_release = nfc_release,
 };

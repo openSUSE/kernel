@@ -632,7 +632,6 @@ static int atmel_pctl_dt_node_to_map(struct pinctrl_dev *pctldev,
 				     struct pinctrl_map **map,
 				     unsigned int *num_maps)
 {
-	struct device_node *np;
 	unsigned int reserved_maps;
 	int ret;
 
@@ -648,13 +647,11 @@ static int atmel_pctl_dt_node_to_map(struct pinctrl_dev *pctldev,
 	ret = atmel_pctl_dt_subnode_to_map(pctldev, np_config, map,
 					   &reserved_maps, num_maps);
 	if (ret) {
-		for_each_child_of_node(np_config, np) {
+		for_each_child_of_node_scoped(np_config, np) {
 			ret = atmel_pctl_dt_subnode_to_map(pctldev, np, map,
 						    &reserved_maps, num_maps);
-			if (ret < 0) {
-				of_node_put(np);
+			if (ret < 0)
 				break;
-			}
 		}
 	}
 
@@ -762,6 +759,11 @@ static int atmel_conf_pin_config_group_get(struct pinctrl_dev *pctldev,
 			return -EINVAL;
 		arg = 1;
 		break;
+	case PIN_CONFIG_DRIVE_PUSH_PULL:
+		if (res & ATMEL_PIO_OPD_MASK)
+			return -EINVAL;
+		arg = 1;
+		break;
 	case PIN_CONFIG_INPUT_SCHMITT_ENABLE:
 		if (!(res & ATMEL_PIO_SCHMITT_MASK))
 			return -EINVAL;
@@ -827,10 +829,10 @@ static int atmel_conf_pin_config_group_set(struct pinctrl_dev *pctldev,
 			conf &= (~ATMEL_PIO_PUEN_MASK);
 			break;
 		case PIN_CONFIG_DRIVE_OPEN_DRAIN:
-			if (arg == 0)
-				conf &= (~ATMEL_PIO_OPD_MASK);
-			else
-				conf |= ATMEL_PIO_OPD_MASK;
+			conf |= ATMEL_PIO_OPD_MASK;
+			break;
+		case PIN_CONFIG_DRIVE_PUSH_PULL:
+			conf &= ~ATMEL_PIO_OPD_MASK;
 			break;
 		case PIN_CONFIG_INPUT_SCHMITT_ENABLE:
 			if (arg == 0)
@@ -934,10 +936,9 @@ static void atmel_conf_pin_config_dbg_show(struct pinctrl_dev *pctldev,
 	if (!atmel_pioctrl->pins[pin_id]->device)
 		return;
 
-	if (atmel_pioctrl->pins[pin_id])
-		seq_printf(s, " (%s, ioset %u) ",
-			   atmel_pioctrl->pins[pin_id]->device,
-			   atmel_pioctrl->pins[pin_id]->ioset);
+	seq_printf(s, " (%s, ioset %u) ",
+		   atmel_pioctrl->pins[pin_id]->device,
+		   atmel_pioctrl->pins[pin_id]->ioset);
 
 	conf = atmel_pin_config_read(pctldev, pin_id);
 	if (conf & ATMEL_PIO_PUEN_MASK)
@@ -948,6 +949,8 @@ static void atmel_conf_pin_config_dbg_show(struct pinctrl_dev *pctldev,
 		seq_printf(s, "%s ", "debounce");
 	if (conf & ATMEL_PIO_OPD_MASK)
 		seq_printf(s, "%s ", "open-drain");
+	else
+		seq_printf(s, "%s ", "push-pull");
 	if (conf & ATMEL_PIO_SCHMITT_MASK)
 		seq_printf(s, "%s ", "schmitt");
 	if (atmel_pioctrl->slew_rate_support && (conf & ATMEL_PIO_SR_MASK))

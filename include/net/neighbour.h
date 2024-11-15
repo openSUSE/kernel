@@ -162,7 +162,7 @@ struct neighbour {
 	struct rcu_head		rcu;
 	struct net_device	*dev;
 	netdevice_tracker	dev_tracker;
-	u8			primary_key[0];
+	u8			primary_key[];
 } __randomize_layout;
 
 struct neigh_ops {
@@ -394,8 +394,6 @@ void neigh_for_each(struct neigh_table *tbl,
 void __neigh_for_each_release(struct neigh_table *tbl,
 			      int (*cb)(struct neighbour *));
 int neigh_xmit(int fam, struct net_device *, const void *, struct sk_buff *);
-void pneigh_for_each(struct neigh_table *tbl,
-		     void (*cb)(struct pneigh_entry *));
 
 struct neigh_seq_state {
 	struct seq_net_private p;
@@ -414,12 +412,12 @@ void *neigh_seq_start(struct seq_file *, loff_t *, struct neigh_table *,
 void *neigh_seq_next(struct seq_file *, void *, loff_t *);
 void neigh_seq_stop(struct seq_file *, void *);
 
-int neigh_proc_dointvec(struct ctl_table *ctl, int write,
+int neigh_proc_dointvec(const struct ctl_table *ctl, int write,
 			void *buffer, size_t *lenp, loff_t *ppos);
-int neigh_proc_dointvec_jiffies(struct ctl_table *ctl, int write,
+int neigh_proc_dointvec_jiffies(const struct ctl_table *ctl, int write,
 				void *buffer,
 				size_t *lenp, loff_t *ppos);
-int neigh_proc_dointvec_ms_jiffies(struct ctl_table *ctl, int write,
+int neigh_proc_dointvec_ms_jiffies(const struct ctl_table *ctl, int write,
 				   void *buffer, size_t *lenp, loff_t *ppos);
 
 int neigh_sysctl_register(struct net_device *dev, struct neigh_parms *p,

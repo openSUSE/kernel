@@ -5,13 +5,13 @@
  * Copyright 2022- IBM Inc. All rights reserved
  */
 
-#include <asm/unaligned.h>
+#include <linux/unaligned.h>
 #include <asm/simd.h>
 #include <asm/switch_to.h>
-#include <crypto/gcm.h>
 #include <crypto/aes.h>
 #include <crypto/algapi.h>
 #include <crypto/b128ops.h>
+#include <crypto/gcm.h>
 #include <crypto/gf128mul.h>
 #include <crypto/internal/simd.h>
 #include <crypto/internal/aead.h>
@@ -414,7 +414,7 @@ static int __init p10_init(void)
 {
 	int ret;
 
-	if (!cpu_has_feature(CPU_FTR_ARCH_31))
+	if (!cpu_has_feature(PPC_FEATURE2_ARCH_3_1))
 		return 0;
 
 	ret = simd_register_aeads_compat(gcm_aes_algs,

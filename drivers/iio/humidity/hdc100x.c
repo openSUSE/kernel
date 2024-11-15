@@ -396,12 +396,12 @@ static int hdc100x_probe(struct i2c_client *client)
 }
 
 static const struct i2c_device_id hdc100x_id[] = {
-	{ "hdc100x", 0 },
-	{ "hdc1000", 0 },
-	{ "hdc1008", 0 },
-	{ "hdc1010", 0 },
-	{ "hdc1050", 0 },
-	{ "hdc1080", 0 },
+	{ "hdc100x" },
+	{ "hdc1000" },
+	{ "hdc1008" },
+	{ "hdc1010" },
+	{ "hdc1050" },
+	{ "hdc1080" },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, hdc100x_id);
@@ -428,7 +428,7 @@ static struct i2c_driver hdc100x_driver = {
 		.of_match_table = hdc100x_dt_ids,
 		.acpi_match_table = hdc100x_acpi_match,
 	},
-	.probe_new = hdc100x_probe,
+	.probe = hdc100x_probe,
 	.id_table = hdc100x_id,
 };
 module_i2c_driver(hdc100x_driver);

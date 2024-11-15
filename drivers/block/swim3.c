@@ -882,7 +882,7 @@ static int fd_eject(struct floppy_state *fs)
 static struct floppy_struct floppy_type =
 	{ 2880,18,2,80,0,0x1B,0x00,0xCF,0x6C,NULL };	/*  7 1.44MB 3.5"   */
 
-static int floppy_locked_ioctl(struct block_device *bdev,
+static int floppy_locked_ioctl(struct block_device *bdev, blk_mode_t mode,
 			unsigned int cmd, unsigned long param)
 {
 	struct floppy_state *fs = bdev->bd_disk->private_data;
@@ -1189,6 +1189,9 @@ static int swim3_add_device(struct macio_dev *mdev, int index)
 static int swim3_attach(struct macio_dev *mdev,
 			const struct of_device_id *match)
 {
+	struct queue_limits lim = {
+		.features		= BLK_FEAT_ROTATIONAL,
+	};
 	struct floppy_state *fs;
 	struct gendisk *disk;
 	int rc;
@@ -1210,7 +1213,7 @@ static int swim3_attach(struct macio_dev *mdev,
 	if (rc)
 		goto out_unregister;
 
-	disk = blk_mq_alloc_disk(&fs->tag_set, fs);
+	disk = blk_mq_alloc_disk(&fs->tag_set, &lim, fs);
 	if (IS_ERR(disk)) {
 		rc = PTR_ERR(disk);
 		goto out_free_tag_set;

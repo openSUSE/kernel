@@ -26,10 +26,8 @@
 #include <linux/mnt_idmapping.h>
 #include <linux/iversion.h>
 #include <linux/security.h>
-#include <linux/evm.h>
 #include <linux/fsnotify.h>
 #include <linux/filelock.h>
-#include <linux/magic.h>
 
 #include "internal.h"
 
@@ -601,7 +599,7 @@ EXPORT_SYMBOL(__posix_acl_chmod);
  * the vfsmount must be passed through @idmap. This function will then
  * take care to map the inode according to @idmap before checking
  * permissions. On non-idmapped mounts or if permission checking is to be
- * performed on the raw inode simply passs @nop_mnt_idmap.
+ * performed on the raw inode simply pass @nop_mnt_idmap.
  */
 int
  posix_acl_chmod(struct mnt_idmap *idmap, struct dentry *dentry,
@@ -701,7 +699,7 @@ EXPORT_SYMBOL_GPL(posix_acl_create);
  * the vfsmount must be passed through @idmap. This function will then
  * take care to map the inode according to @idmap before checking
  * permissions. On non-idmapped mounts or if permission checking is to be
- * performed on the raw inode simply passs @nop_mnt_idmap.
+ * performed on the raw inode simply pass @nop_mnt_idmap.
  *
  * Called from set_acl inode operations.
  */
@@ -717,8 +715,8 @@ int posix_acl_update_mode(struct mnt_idmap *idmap,
 		return error;
 	if (error == 0)
 		*acl = NULL;
-	if (!vfsgid_in_group_p(i_gid_into_vfsgid(idmap, inode)) &&
-	    !capable_wrt_inode_uidgid(idmap, inode, CAP_FSETID))
+	if (!in_group_or_capable(idmap, inode,
+				 i_gid_into_vfsgid(idmap, inode)))
 		mode &= ~S_ISGID;
 	*mode_p = mode;
 	return 0;
@@ -787,12 +785,12 @@ struct posix_acl *posix_acl_from_xattr(struct user_namespace *userns,
 		return ERR_PTR(count);
 	if (count == 0)
 		return NULL;
-	
+
 	acl = posix_acl_alloc(count, GFP_NOFS);
 	if (!acl)
 		return ERR_PTR(-ENOMEM);
 	acl_e = acl->a_entries;
-	
+
 	for (end = entry + count; entry != end; acl_e++, entry++) {
 		acl_e->e_tag  = le16_to_cpu(entry->e_tag);
 		acl_e->e_perm = le16_to_cpu(entry->e_perm);
@@ -946,14 +944,8 @@ set_posix_acl(struct mnt_idmap *idmap, struct dentry *dentry,
 
 	if (type == ACL_TYPE_DEFAULT && !S_ISDIR(inode->i_mode))
 		return acl ? -EACCES : 0;
-	/* NFS doesn't need an owner check, as the server will
-	 * do that.  The owner check is wrong when the server
-	 * is mapping uids, such as with all_squash (which makes
-	 * everyone an owner of a newly created file).
-	 */
-	if (inode->i_sb->s_magic != NFS_SUPER_MAGIC)
-		if (!inode_owner_or_capable(idmap, inode))
-			return -EPERM;
+	if (!inode_owner_or_capable(idmap, inode))
+		return -EPERM;
 
 	if (acl) {
 		int ret = posix_acl_valid(inode->i_sb->s_user_ns, acl);
@@ -1034,7 +1026,7 @@ int simple_set_acl(struct mnt_idmap *idmap, struct dentry *dentry,
 			return error;
 	}
 
-	inode->i_ctime = current_time(inode);
+	inode_set_ctime_current(inode);
 	if (IS_I_VERSION(inode))
 		inode_inc_iversion(inode);
 	set_cached_acl(inode, type, acl);
@@ -1144,7 +1136,7 @@ retry_deleg:
 		error = -EIO;
 	if (!error) {
 		fsnotify_xattr(dentry);
-		evm_inode_post_set_acl(dentry, acl_name, kacl);
+		security_inode_post_set_acl(dentry, acl_name, kacl);
 	}
 
 out_inode_unlock:
@@ -1252,7 +1244,7 @@ retry_deleg:
 		error = -EIO;
 	if (!error) {
 		fsnotify_xattr(dentry);
-		evm_inode_post_remove_acl(idmap, dentry, acl_name);
+		security_inode_post_remove_acl(idmap, dentry, acl_name);
 	}
 
 out_inode_unlock:

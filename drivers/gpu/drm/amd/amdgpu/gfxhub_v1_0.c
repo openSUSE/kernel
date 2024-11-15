@@ -443,7 +443,6 @@ static void gfxhub_v1_0_init(struct amdgpu_device *adev)
 		mmVM_INVALIDATE_ENG0_ADDR_RANGE_LO32;
 }
 
-
 const struct amdgpu_gfxhub_funcs gfxhub_v1_0_funcs = {
 	.get_mc_fb_offset = gfxhub_v1_0_get_mc_fb_offset,
 	.setup_vm_pt_regs = gfxhub_v1_0_setup_vm_pt_regs,

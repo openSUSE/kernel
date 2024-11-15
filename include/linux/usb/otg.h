@@ -40,7 +40,6 @@ struct usb_otg {
 	/* start or continue HNP role switch */
 	int	(*start_hnp)(struct usb_otg *otg);
 
-	void *suse_kabi_padding;
 };
 
 /**

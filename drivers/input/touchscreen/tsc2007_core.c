@@ -400,7 +400,7 @@ static int tsc2007_probe(struct i2c_client *client)
 }
 
 static const struct i2c_device_id tsc2007_idtable[] = {
-	{ "tsc2007", 0 },
+	{ "tsc2007" },
 	{ }
 };
 
@@ -418,7 +418,7 @@ static struct i2c_driver tsc2007_driver = {
 		.of_match_table = tsc2007_of_match,
 	},
 	.id_table	= tsc2007_idtable,
-	.probe_new	= tsc2007_probe,
+	.probe		= tsc2007_probe,
 };
 
 module_i2c_driver(tsc2007_driver);

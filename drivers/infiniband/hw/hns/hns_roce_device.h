@@ -185,6 +185,7 @@ enum {
 
 #define HNS_ROCE_CMD_SUCCESS			1
 
+#define HNS_ROCE_MAX_HOP_NUM			3
 /* The minimum page size is 4K for hardware */
 #define HNS_HW_PAGE_SHIFT			12
 #define HNS_HW_PAGE_SIZE			(1 << HNS_HW_PAGE_SHIFT)
@@ -278,6 +279,11 @@ struct hns_roce_hem_list {
 	dma_addr_t root_ba; /* pointer to the root ba table */
 };
 
+enum mtr_type {
+	MTR_DEFAULT = 0,
+	MTR_PBL,
+};
+
 struct hns_roce_buf_attr {
 	struct {
 		size_t	size;  /* region size */
@@ -286,7 +292,10 @@ struct hns_roce_buf_attr {
 	unsigned int region_count; /* valid region count */
 	unsigned int page_shift;  /* buffer page shift */
 	unsigned int user_access; /* umem access flag */
+	u64 iova;
+	enum mtr_type type;
 	bool mtt_only; /* only alloc buffer-required MTT memory */
+	bool adaptive; /* adaptive for page_shift and hopnum */
 };
 
 struct hns_roce_hem_cfg {
@@ -645,6 +654,8 @@ struct hns_roce_qp {
 	struct hns_user_mmap_entry *dwqe_mmap_entry;
 	u32			config;
 	enum hns_roce_cong_type	cong_type;
+	u8			tc_mode;
+	u8			priority;
 };
 
 struct hns_roce_ib_iboe {
@@ -846,7 +857,8 @@ struct hns_roce_caps {
 	u16		default_aeq_period;
 	u16		default_aeq_arm_st;
 	u16		default_ceq_arm_st;
-	enum hns_roce_cong_type cong_type;
+	u8		cong_cap;
+	enum hns_roce_cong_type default_cong_type;
 };
 
 enum hns_roce_device_state {
@@ -923,8 +935,7 @@ struct hns_roce_hw {
 	int (*rereg_write_mtpt)(struct hns_roce_dev *hr_dev,
 				struct hns_roce_mr *mr, int flags,
 				void *mb_buf);
-	int (*frmr_write_mtpt)(struct hns_roce_dev *hr_dev, void *mb_buf,
-			       struct hns_roce_mr *mr);
+	int (*frmr_write_mtpt)(void *mb_buf, struct hns_roce_mr *mr);
 	int (*mw_write_mtpt)(void *mb_buf, struct hns_roce_mw *mw);
 	void (*write_cqc)(struct hns_roce_dev *hr_dev,
 			  struct hns_roce_cq *hr_cq, void *mb_buf, u64 *mtts,
@@ -947,8 +958,11 @@ struct hns_roce_hw {
 	int (*query_qpc)(struct hns_roce_dev *hr_dev, u32 qpn, void *buffer);
 	int (*query_mpt)(struct hns_roce_dev *hr_dev, u32 key, void *buffer);
 	int (*query_srqc)(struct hns_roce_dev *hr_dev, u32 srqn, void *buffer);
+	int (*query_sccc)(struct hns_roce_dev *hr_dev, u32 qpn, void *buffer);
 	int (*query_hw_counter)(struct hns_roce_dev *hr_dev,
 				u64 *stats, u32 port, int *hw_counters);
+	int (*get_dscp)(struct hns_roce_dev *hr_dev, u8 dscp,
+			u8 *tc_mode, u8 *priority);
 	const struct ib_device_ops *hns_roce_dev_ops;
 	const struct ib_device_ops *hns_roce_dev_srq_ops;
 };
@@ -1163,8 +1177,13 @@ void hns_roce_cmd_use_polling(struct hns_roce_dev *hr_dev);
 
 /* hns roce hw need current block and next block addr from mtt */
 #define MTT_MIN_COUNT	 2
+static inline dma_addr_t hns_roce_get_mtr_ba(struct hns_roce_mtr *mtr)
+{
+	return mtr->hem_cfg.root_ba;
+}
+
 int hns_roce_mtr_find(struct hns_roce_dev *hr_dev, struct hns_roce_mtr *mtr,
-		      u32 offset, u64 *mtt_buf, int mtt_max, u64 *base_addr);
+		      u32 offset, u64 *mtt_buf, int mtt_max);
 int hns_roce_mtr_create(struct hns_roce_dev *hr_dev, struct hns_roce_mtr *mtr,
 			struct hns_roce_buf_attr *buf_attr,
 			unsigned int page_shift, struct ib_udata *udata,
@@ -1222,7 +1241,7 @@ struct hns_roce_buf *hns_roce_buf_alloc(struct hns_roce_dev *hr_dev, u32 size,
 int hns_roce_get_kmem_bufs(struct hns_roce_dev *hr_dev, dma_addr_t *bufs,
 			   int buf_cnt, struct hns_roce_buf *buf,
 			   unsigned int page_shift);
-int hns_roce_get_umem_bufs(struct hns_roce_dev *hr_dev, dma_addr_t *bufs,
+int hns_roce_get_umem_bufs(dma_addr_t *bufs,
 			   int buf_cnt, struct ib_umem *umem,
 			   unsigned int page_shift);
 
@@ -1255,7 +1274,7 @@ __be32 send_ieth(const struct ib_send_wr *wr);
 int to_hr_qp_type(int qp_type);
 
 int hns_roce_create_cq(struct ib_cq *ib_cq, const struct ib_cq_init_attr *attr,
-		       struct ib_udata *udata);
+		       struct uverbs_attr_bundle *attrs);
 
 int hns_roce_destroy_cq(struct ib_cq *ib_cq, struct ib_udata *udata);
 int hns_roce_db_map_user(struct hns_roce_ucontext *context, unsigned long virt,
@@ -1286,4 +1305,6 @@ struct hns_user_mmap_entry *
 hns_roce_user_mmap_entry_insert(struct ib_ucontext *ucontext, u64 address,
 				size_t length,
 				enum hns_roce_mmap_type mmap_type);
+bool check_sl_valid(struct hns_roce_dev *hr_dev, u8 sl);
+
 #endif /* _HNS_ROCE_DEVICE_H */

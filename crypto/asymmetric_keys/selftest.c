@@ -49,7 +49,7 @@ void fips_signature_selftest(const char *name,
 	if (ret < 0)
 		panic("Certs %s selftest: pkcs7_verify() = %d\n", name, ret);
 
-	ret = pkcs7_validate_trust(pkcs7, keyring, VERIFYING_UNSPECIFIED_SIGNATURE);
+	ret = pkcs7_validate_trust(pkcs7, keyring);
 	if (ret < 0)
 		panic("Certs %s selftest: pkcs7_validate_trust() = %d\n", name, ret);
 

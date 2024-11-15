@@ -5,6 +5,7 @@
  */
 #include "qla_def.h"
 
+#include <linux/bitfield.h>
 #include <linux/moduleparam.h>
 #include <linux/vmalloc.h>
 #include <linux/delay.h>
@@ -633,8 +634,8 @@ qla24xx_pci_info_str(struct scsi_qla_host *vha, char *str, size_t str_len)
 		const char *speed_str;
 
 		pcie_capability_read_dword(ha->pdev, PCI_EXP_LNKCAP, &lstat);
-		lspeed = lstat & PCI_EXP_LNKCAP_SLS;
-		lwidth = (lstat & PCI_EXP_LNKCAP_MLW) >> 4;
+		lspeed = FIELD_GET(PCI_EXP_LNKCAP_SLS, lstat);
+		lwidth = FIELD_GET(PCI_EXP_LNKCAP_MLW, lstat);
 
 		switch (lspeed) {
 		case 1:
@@ -1951,9 +1952,6 @@ qla2xxx_slave_configure(struct scsi_device *sdev)
 	scsi_qla_host_t *vha = shost_priv(sdev->host);
 	struct req_que *req = vha->req;
 
-	if (IS_T10_PI_CAPABLE(vha->hw))
-		blk_queue_update_dma_alignment(sdev->request_queue, 0x7);
-
 	scsi_change_queue_depth(sdev, req->max_q_depth);
 	return 0;
 }
@@ -2883,7 +2881,7 @@ static void qla2x00_iocb_work_fn(struct work_struct *work)
 static void
 qla_trace_init(void)
 {
-	qla_trc_array = trace_array_get_by_name("qla2xxx");
+	qla_trc_array = trace_array_get_by_name("qla2xxx", NULL);
 	if (!qla_trc_array) {
 		ql_log(ql_log_fatal, NULL, 0x0001,
 		       "Unable to create qla2xxx trace instance, instance logging will be disabled.\n");
@@ -2919,14 +2917,6 @@ qla2x00_probe_one(struct pci_dev *pdev, const struct pci_device_id *id)
 	struct req_que *req = NULL;
 	struct rsp_que *rsp = NULL;
 	int i;
-
-	if (pdev->device == PCI_DEVICE_ID_QLOGIC_ISP2532 ||
-	    pdev->device == PCI_DEVICE_ID_QLOGIC_ISP2031 ||
-	    pdev->device == PCI_DEVICE_ID_QLOGIC_ISP8031) {
-		pr_warn("Warning: Unmaintained hardware is detected: %s:%04x:%04x @ %s\n",
-			dev_driver_string(&pdev->dev), pdev->device,
-			pdev->vendor, pci_name(pdev));
-	}
 
 	bars = pci_select_bars(pdev, IORESOURCE_MEM | IORESOURCE_IO);
 	sht = &qla2xxx_driver_template;
@@ -3511,11 +3501,13 @@ qla2x00_probe_one(struct pci_dev *pdev, const struct pci_device_id *id)
 
 	if (IS_QLA8031(ha) || IS_MCTP_CAPABLE(ha)) {
 		sprintf(wq_name, "qla2xxx_%lu_dpc_lp_wq", base_vha->host_no);
-		ha->dpc_lp_wq = create_singlethread_workqueue(wq_name);
+		ha->dpc_lp_wq =
+			alloc_ordered_workqueue("%s", WQ_MEM_RECLAIM, wq_name);
 		INIT_WORK(&ha->idc_aen, qla83xx_service_idc_aen);
 
 		sprintf(wq_name, "qla2xxx_%lu_dpc_hp_wq", base_vha->host_no);
-		ha->dpc_hp_wq = create_singlethread_workqueue(wq_name);
+		ha->dpc_hp_wq =
+			alloc_ordered_workqueue("%s", WQ_MEM_RECLAIM, wq_name);
 		INIT_WORK(&ha->nic_core_reset, qla83xx_nic_core_reset_work);
 		INIT_WORK(&ha->idc_state_handler,
 		    qla83xx_idc_state_handler_work);
@@ -3576,6 +3568,9 @@ skip_dpc:
 		host->sg_tablesize = (ha->mr.extended_io_enabled) ?
 		    QLA_SG_ALL : 128;
 	}
+
+	if (IS_T10_PI_CAPABLE(base_vha->hw))
+		host->dma_alignment = 0x7;
 
 	ret = scsi_add_host(host, &pdev->dev);
 	if (ret)
@@ -8368,7 +8363,6 @@ module_exit(qla2x00_module_exit);
 MODULE_AUTHOR("QLogic Corporation");
 MODULE_DESCRIPTION("QLogic Fibre Channel HBA Driver");
 MODULE_LICENSE("GPL");
-MODULE_VERSION(QLA2XXX_VERSION);
 MODULE_FIRMWARE(FW_FILE_ISP21XX);
 MODULE_FIRMWARE(FW_FILE_ISP22XX);
 MODULE_FIRMWARE(FW_FILE_ISP2300);

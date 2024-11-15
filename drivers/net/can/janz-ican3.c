@@ -2023,7 +2023,7 @@ out_return:
 	return ret;
 }
 
-static int ican3_remove(struct platform_device *pdev)
+static void ican3_remove(struct platform_device *pdev)
 {
 	struct net_device *ndev = platform_get_drvdata(pdev);
 	struct ican3_dev *mod = netdev_priv(ndev);
@@ -2042,8 +2042,6 @@ static int ican3_remove(struct platform_device *pdev)
 	iounmap(mod->dpm);
 
 	free_candev(ndev);
-
-	return 0;
 }
 
 static struct platform_driver ican3_driver = {

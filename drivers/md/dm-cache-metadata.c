@@ -170,7 +170,7 @@ struct dm_cache_metadata {
  */
 #define SUPERBLOCK_CSUM_XOR 9031977
 
-static void sb_prepare_for_write(struct dm_block_validator *v,
+static void sb_prepare_for_write(const struct dm_block_validator *v,
 				 struct dm_block *b,
 				 size_t sb_block_size)
 {
@@ -195,7 +195,7 @@ static int check_metadata_version(struct cache_disk_superblock *disk_super)
 	return 0;
 }
 
-static int sb_check(struct dm_block_validator *v,
+static int sb_check(const struct dm_block_validator *v,
 		    struct dm_block *b,
 		    size_t sb_block_size)
 {
@@ -228,7 +228,7 @@ static int sb_check(struct dm_block_validator *v,
 	return check_metadata_version(disk_super);
 }
 
-static struct dm_block_validator sb_validator = {
+static const struct dm_block_validator sb_validator = {
 	.name = "superblock",
 	.prepare_for_write = sb_prepare_for_write,
 	.check = sb_check
@@ -1282,15 +1282,6 @@ int dm_cache_insert_mapping(struct dm_cache_metadata *cmd,
 	return r;
 }
 
-struct thunk {
-	load_mapping_fn fn;
-	void *context;
-
-	struct dm_cache_metadata *cmd;
-	bool respect_dirty_flags;
-	bool hints_valid;
-};
-
 static bool policy_unchanged(struct dm_cache_metadata *cmd,
 			     struct dm_cache_policy *policy)
 {
@@ -1828,7 +1819,7 @@ int dm_cache_metadata_abort(struct dm_cache_metadata *cmd)
 	 * Replacement block manager (new_bm) is created and old_bm destroyed outside of
 	 * cmd root_lock to avoid ABBA deadlock that would result (due to life-cycle of
 	 * shrinker associated with the block manager's bufio client vs cmd root_lock).
-	 * - must take shrinker_rwsem without holding cmd->root_lock
+	 * - must take shrinker_mutex without holding cmd->root_lock
 	 */
 	new_bm = dm_block_manager_create(cmd->bdev, DM_CACHE_METADATA_BLOCK_SIZE << SECTOR_SHIFT,
 					 CACHE_MAX_CONCURRENT_LOCKS);

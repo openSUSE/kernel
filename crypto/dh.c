@@ -106,6 +106,12 @@ err_clear_ctx:
  */
 static int dh_is_pubkey_valid(struct dh_ctx *ctx, MPI y)
 {
+	MPI val, q;
+	int ret;
+
+	if (!fips_enabled)
+		return 0;
+
 	if (unlikely(!ctx->p))
 		return -EINVAL;
 
@@ -125,40 +131,35 @@ static int dh_is_pubkey_valid(struct dh_ctx *ctx, MPI y)
 	 *
 	 * For the safe-prime groups q = (p - 1)/2.
 	 */
-	if (fips_enabled) {
-		MPI val, q;
-		int ret;
+	val = mpi_alloc(0);
+	if (!val)
+		return -ENOMEM;
 
-		val = mpi_alloc(0);
-		if (!val)
-			return -ENOMEM;
-
-		q = mpi_alloc(mpi_get_nlimbs(ctx->p));
-		if (!q) {
-			mpi_free(val);
-			return -ENOMEM;
-		}
-
-		/*
-		 * ->p is odd, so no need to explicitly subtract one
-		 * from it before shifting to the right.
-		 */
-		mpi_rshift(q, ctx->p, 1);
-
-		ret = mpi_powm(val, y, q, ctx->p);
-		mpi_free(q);
-		if (ret) {
-			mpi_free(val);
-			return ret;
-		}
-
-		ret = mpi_cmp_ui(val, 1);
-
+	q = mpi_alloc(mpi_get_nlimbs(ctx->p));
+	if (!q) {
 		mpi_free(val);
-
-		if (ret != 0)
-			return -EINVAL;
+		return -ENOMEM;
 	}
+
+	/*
+	 * ->p is odd, so no need to explicitly subtract one
+	 * from it before shifting to the right.
+	 */
+	ret = mpi_rshift(q, ctx->p, 1) ?:
+	      mpi_powm(val, y, q, ctx->p);
+
+	mpi_free(q);
+	if (ret) {
+		mpi_free(val);
+		return ret;
+	}
+
+	ret = mpi_cmp_ui(val, 1);
+
+	mpi_free(val);
+
+	if (ret != 0)
+		return -EINVAL;
 
 	return 0;
 }
@@ -226,35 +227,10 @@ static int dh_compute_value(struct kpp_request *req)
 
 		/* SP800-56A rev 3 5.6.2.1.3 key check */
 		} else {
-			MPI val_pct;
-
 			if (dh_is_pubkey_valid(ctx, val)) {
 				ret = -EAGAIN;
 				goto err_free_val;
 			}
-
-			/*
-			 * SP800-56Arev3, 5.6.2.1.4: ("Owner Assurance
-			 * of Pair-wise Consistency"): recompute the
-			 * public key and check if the results match.
-			 */
-			val_pct = mpi_alloc(0);
-			if (!val_pct) {
-				ret = -ENOMEM;
-				goto err_free_val;
-			}
-
-			ret = _compute_val(ctx, base, val_pct);
-			if (ret) {
-				mpi_free(val_pct);
-				goto err_free_val;
-			}
-
-			if (mpi_cmp(val, val_pct) != 0) {
-				mpi_free(val_pct);
-				panic("DH PCT failed in FIPS mode");
-			}
-			mpi_free(val_pct);
 		}
 	}
 

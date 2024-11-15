@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * drivers/watchdog/m54xx_wdt.c
  *
@@ -11,9 +12,6 @@
  *  Copyright 2004 (c) MontaVista, Software, Inc.
  *  Based on sa1100 driver, Copyright (C) 2000 Oleg Drokin <green@crimea.edu>
  *
- * This file is licensed under  the terms of the GNU General Public
- * License version 2. This program is licensed "as is" without any
- * warranty of any kind, whether express or implied.
  */
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
@@ -181,7 +179,6 @@ static int m54xx_wdt_release(struct inode *inode, struct file *file)
 
 static const struct file_operations m54xx_wdt_fops = {
 	.owner		= THIS_MODULE,
-	.llseek		= no_llseek,
 	.write		= m54xx_wdt_write,
 	.unlocked_ioctl	= m54xx_wdt_ioctl,
 	.compat_ioctl	= compat_ptr_ioctl,

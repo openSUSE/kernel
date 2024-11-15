@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0+
 /*
- *  Copyright IBM Corp. 2001, 2022
+ *  Copyright IBM Corp. 2001, 2023
  *  Author(s): Robert Burroughs
  *	       Eric Rossman (edrossma@us.ibm.com)
  *
@@ -42,7 +42,7 @@ struct response_type {
 
 MODULE_AUTHOR("IBM Corporation");
 MODULE_DESCRIPTION("Cryptographic Coprocessor (message type 6), " \
-		   "Copyright IBM Corp. 2001, 2012");
+		   "Copyright IBM Corp. 2001, 2023");
 MODULE_LICENSE("GPL");
 
 struct function_and_rules_block {
@@ -425,11 +425,6 @@ static int xcrb_msg_to_type6cprb_msgx(bool userspace, struct ap_message *ap_msg,
 	    memcmp(function_code, "AU", 2) == 0)
 		ap_msg->flags |= AP_MSG_FLAG_SPECIAL;
 
-#ifdef CONFIG_ZCRYPT_DEBUG
-	if (ap_msg->fi.flags & AP_FI_FLAG_TOGGLE_SPECIAL)
-		ap_msg->flags ^= AP_MSG_FLAG_SPECIAL;
-#endif
-
 	/* check CPRB minor version, set info bits in ap_message flag field */
 	switch (*(unsigned short *)(&msg->cprbx.func_id[0])) {
 	case 0x5432: /* "T2" */
@@ -442,9 +437,8 @@ static int xcrb_msg_to_type6cprb_msgx(bool userspace, struct ap_message *ap_msg,
 		ap_msg->flags |= AP_MSG_FLAG_ADMIN;
 		break;
 	default:
-		ZCRYPT_DBF_DBG("%s unknown CPRB minor version '%c%c'\n",
-			       __func__, msg->cprbx.func_id[0],
-			       msg->cprbx.func_id[1]);
+		pr_debug("unknown CPRB minor version '%c%c'\n",
+			 msg->cprbx.func_id[0], msg->cprbx.func_id[1]);
 	}
 
 	/* copy data block */
@@ -534,11 +528,6 @@ static int xcrb_msg_to_type6_ep11cprb_msgx(bool userspace, struct ap_message *ap
 	/* enable special processing based on the cprbs flags special bit */
 	if (msg->cprbx.flags & 0x20)
 		ap_msg->flags |= AP_MSG_FLAG_SPECIAL;
-
-#ifdef CONFIG_ZCRYPT_DEBUG
-	if (ap_msg->fi.flags & AP_FI_FLAG_TOGGLE_SPECIAL)
-		ap_msg->flags ^= AP_MSG_FLAG_SPECIAL;
-#endif
 
 	/* set info bits in ap_message flag field */
 	if (msg->cprbx.flags & 0x80)
@@ -639,9 +628,8 @@ static int convert_type86_xcrb(bool userspace, struct zcrypt_queue *zq,
 
 	/* Copy CPRB to user */
 	if (xcrb->reply_control_blk_length < msg->fmt2.count1) {
-		ZCRYPT_DBF_DBG("%s reply_control_blk_length %u < required %u => EMSGSIZE\n",
-			       __func__, xcrb->reply_control_blk_length,
-			       msg->fmt2.count1);
+		pr_debug("reply_control_blk_length %u < required %u => EMSGSIZE\n",
+			 xcrb->reply_control_blk_length, msg->fmt2.count1);
 		return -EMSGSIZE;
 	}
 	if (z_copy_to_user(userspace, xcrb->reply_control_blk_addr,
@@ -652,9 +640,8 @@ static int convert_type86_xcrb(bool userspace, struct zcrypt_queue *zq,
 	/* Copy data buffer to user */
 	if (msg->fmt2.count2) {
 		if (xcrb->reply_data_length < msg->fmt2.count2) {
-			ZCRYPT_DBF_DBG("%s reply_data_length %u < required %u => EMSGSIZE\n",
-				       __func__, xcrb->reply_data_length,
-				       msg->fmt2.count2);
+			pr_debug("reply_data_length %u < required %u => EMSGSIZE\n",
+				 xcrb->reply_data_length, msg->fmt2.count2);
 			return -EMSGSIZE;
 		}
 		if (z_copy_to_user(userspace, xcrb->reply_data_addr,
@@ -683,9 +670,8 @@ static int convert_type86_ep11_xcrb(bool userspace, struct zcrypt_queue *zq,
 	char *data = reply->msg;
 
 	if (xcrb->resp_len < msg->fmt2.count1) {
-		ZCRYPT_DBF_DBG("%s resp_len %u < required %u => EMSGSIZE\n",
-			       __func__, (unsigned int)xcrb->resp_len,
-			       msg->fmt2.count1);
+		pr_debug("resp_len %u < required %u => EMSGSIZE\n",
+			 (unsigned int)xcrb->resp_len, msg->fmt2.count1);
 		return -EMSGSIZE;
 	}
 
@@ -885,7 +871,7 @@ static void zcrypt_msgtype6_receive(struct ap_queue *aq,
 			len = sizeof(struct type86x_reply) + t86r->length;
 			if (len > reply->bufsize || len > msg->bufsize ||
 			    len != reply->len) {
-				ZCRYPT_DBF_DBG("%s len mismatch => EMSGSIZE\n", __func__);
+				pr_debug("len mismatch => EMSGSIZE\n");
 				msg->rc = -EMSGSIZE;
 				goto out;
 			}
@@ -899,7 +885,7 @@ static void zcrypt_msgtype6_receive(struct ap_queue *aq,
 				len = t86r->fmt2.offset1 + t86r->fmt2.count1;
 			if (len > reply->bufsize || len > msg->bufsize ||
 			    len != reply->len) {
-				ZCRYPT_DBF_DBG("%s len mismatch => EMSGSIZE\n", __func__);
+				pr_debug("len mismatch => EMSGSIZE\n");
 				msg->rc = -EMSGSIZE;
 				goto out;
 			}
@@ -949,7 +935,7 @@ static void zcrypt_msgtype6_receive_ep11(struct ap_queue *aq,
 			len = t86r->fmt2.offset1 + t86r->fmt2.count1;
 			if (len > reply->bufsize || len > msg->bufsize ||
 			    len != reply->len) {
-				ZCRYPT_DBF_DBG("%s len mismatch => EMSGSIZE\n", __func__);
+				pr_debug("len mismatch => EMSGSIZE\n");
 				msg->rc = -EMSGSIZE;
 				goto out;
 			}
@@ -1161,9 +1147,9 @@ static long zcrypt_msgtype6_send_cprb(bool userspace, struct zcrypt_queue *zq,
 
 out:
 	if (rc)
-		ZCRYPT_DBF_DBG("%s send cprb at dev=%02x.%04x rc=%d\n",
-			       __func__, AP_QID_CARD(zq->queue->qid),
-			       AP_QID_QUEUE(zq->queue->qid), rc);
+		pr_debug("send cprb at dev=%02x.%04x rc=%d\n",
+			 AP_QID_CARD(zq->queue->qid),
+			 AP_QID_QUEUE(zq->queue->qid), rc);
 	return rc;
 }
 
@@ -1284,9 +1270,9 @@ static long zcrypt_msgtype6_send_ep11_cprb(bool userspace, struct zcrypt_queue *
 
 out:
 	if (rc)
-		ZCRYPT_DBF_DBG("%s send cprb at dev=%02x.%04x rc=%d\n",
-			       __func__, AP_QID_CARD(zq->queue->qid),
-			       AP_QID_QUEUE(zq->queue->qid), rc);
+		pr_debug("send cprb at dev=%02x.%04x rc=%d\n",
+			 AP_QID_CARD(zq->queue->qid),
+			 AP_QID_QUEUE(zq->queue->qid), rc);
 	return rc;
 }
 
@@ -1358,14 +1344,6 @@ out:
 /*
  * The crypto operations for a CEXxC card.
  */
-static struct zcrypt_ops zcrypt_msgtype6_norng_ops = {
-	.owner = THIS_MODULE,
-	.name = MSGTYPE06_NAME,
-	.variant = MSGTYPE06_VARIANT_NORNG,
-	.rsa_modexpo = zcrypt_msgtype6_modexpo,
-	.rsa_modexpo_crt = zcrypt_msgtype6_modexpo_crt,
-	.send_cprb = zcrypt_msgtype6_send_cprb,
-};
 
 static struct zcrypt_ops zcrypt_msgtype6_ops = {
 	.owner = THIS_MODULE,
@@ -1388,14 +1366,12 @@ static struct zcrypt_ops zcrypt_msgtype6_ep11_ops = {
 
 void __init zcrypt_msgtype6_init(void)
 {
-	zcrypt_msgtype_register(&zcrypt_msgtype6_norng_ops);
 	zcrypt_msgtype_register(&zcrypt_msgtype6_ops);
 	zcrypt_msgtype_register(&zcrypt_msgtype6_ep11_ops);
 }
 
 void __exit zcrypt_msgtype6_exit(void)
 {
-	zcrypt_msgtype_unregister(&zcrypt_msgtype6_norng_ops);
 	zcrypt_msgtype_unregister(&zcrypt_msgtype6_ops);
 	zcrypt_msgtype_unregister(&zcrypt_msgtype6_ep11_ops);
 }

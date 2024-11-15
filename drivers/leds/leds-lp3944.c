@@ -417,7 +417,7 @@ static void lp3944_remove(struct i2c_client *client)
 
 /* lp3944 i2c driver struct */
 static const struct i2c_device_id lp3944_id[] = {
-	{"lp3944", 0},
+	{ "lp3944" },
 	{}
 };
 
@@ -427,7 +427,7 @@ static struct i2c_driver lp3944_driver = {
 	.driver   = {
 		   .name = "lp3944",
 	},
-	.probe_new = lp3944_probe,
+	.probe    = lp3944_probe,
 	.remove   = lp3944_remove,
 	.id_table = lp3944_id,
 };

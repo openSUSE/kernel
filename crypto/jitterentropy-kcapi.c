@@ -61,8 +61,7 @@ void *jent_kvzalloc(unsigned int len)
 
 void jent_kvzfree(void *ptr, unsigned int len)
 {
-	memzero_explicit(ptr, len);
-	kvfree(ptr);
+	kvfree_sensitive(ptr, len);
 }
 
 void *jent_zalloc(unsigned int len)
@@ -99,6 +98,7 @@ void jent_get_nstime(__u64 *out)
 		tmp = ktime_get_ns();
 
 	*out = tmp;
+	jent_raw_hires_entropy_store(tmp);
 }
 
 int jent_hash_time(void *hash_state, __u64 time, u8 *addtl,
@@ -255,7 +255,9 @@ static int jent_kcapi_init(struct crypto_tfm *tfm)
 	crypto_shash_init(sdesc);
 	rng->sdesc = sdesc;
 
-	rng->entropy_collector = jent_entropy_collector_alloc(0, 0, sdesc);
+	rng->entropy_collector =
+		jent_entropy_collector_alloc(CONFIG_CRYPTO_JITTERENTROPY_OSR, 0,
+					     sdesc);
 	if (!rng->entropy_collector) {
 		ret = -ENOMEM;
 		goto err;
@@ -334,13 +336,17 @@ static int __init jent_mod_init(void)
 	struct crypto_shash *tfm;
 	int ret = 0;
 
+	jent_testing_init();
+
 	tfm = crypto_alloc_shash(JENT_CONDITIONING_HASH, 0, 0);
-	if (IS_ERR(tfm))
+	if (IS_ERR(tfm)) {
+		jent_testing_exit();
 		return PTR_ERR(tfm);
+	}
 
 	desc->tfm = tfm;
 	crypto_shash_init(desc);
-	ret = jent_entropy_init(0, 0, desc, NULL);
+	ret = jent_entropy_init(CONFIG_CRYPTO_JITTERENTROPY_OSR, 0, desc, NULL);
 	shash_desc_zero(desc);
 	crypto_free_shash(tfm);
 	if (ret) {
@@ -348,6 +354,7 @@ static int __init jent_mod_init(void)
 		if (fips_enabled)
 			panic("jitterentropy: Initialization failed with host not compliant with requirements: %d\n", ret);
 
+		jent_testing_exit();
 		pr_info("jitterentropy: Initialization failed with host not compliant with requirements: %d\n", ret);
 		return -EFAULT;
 	}
@@ -356,6 +363,7 @@ static int __init jent_mod_init(void)
 
 static void __exit jent_mod_exit(void)
 {
+	jent_testing_exit();
 	crypto_unregister_rng(&jent_alg);
 }
 

@@ -169,6 +169,7 @@ static struct cmn2asic_msg_mapping smu_v13_0_0_message_map[SMU_MSG_MAX_COUNT] = 
 	MSG_MAP(AllowIHHostInterrupt,		PPSMC_MSG_AllowIHHostInterrupt,       0),
 	MSG_MAP(ReenableAcDcInterrupt,		PPSMC_MSG_ReenableAcDcInterrupt,       0),
 	MSG_MAP(DALNotPresent,		PPSMC_MSG_DALNotPresent,       0),
+	MSG_MAP(EnableUCLKShadow,		PPSMC_MSG_EnableUCLKShadow,            0),
 };
 
 static struct cmn2asic_mapping smu_v13_0_0_clk_map[SMU_CLK_COUNT] = {
@@ -253,6 +254,7 @@ static struct cmn2asic_mapping smu_v13_0_0_table_map[SMU_TABLE_COUNT] = {
 	TAB_MAP(I2C_COMMANDS),
 	TAB_MAP(ECCINFO),
 	TAB_MAP(OVERDRIVE),
+	TAB_MAP(WIFIBAND),
 };
 
 static struct cmn2asic_mapping smu_v13_0_0_pwr_src_map[SMU_POWER_SOURCE_COUNT] = {
@@ -498,6 +500,9 @@ static int smu_v13_0_0_tables_init(struct smu_context *smu)
 			PAGE_SIZE, AMDGPU_GEM_DOMAIN_VRAM);
 	SMU_TABLE_INIT(tables, SMU_TABLE_ECCINFO, sizeof(EccInfoTable_t),
 			PAGE_SIZE, AMDGPU_GEM_DOMAIN_VRAM);
+	SMU_TABLE_INIT(tables, SMU_TABLE_WIFIBAND,
+		       sizeof(WifiBandEntryTable_t), PAGE_SIZE,
+		       AMDGPU_GEM_DOMAIN_VRAM);
 
 	smu_table->metrics_table = kzalloc(sizeof(SmuMetricsExternal_t), GFP_KERNEL);
 	if (!smu_table->metrics_table)
@@ -2490,6 +2495,9 @@ static int smu_v13_0_0_set_power_profile_mode(struct smu_context *smu,
 	}
 
 	if (smu->power_profile_mode == PP_SMC_POWER_PROFILE_CUSTOM) {
+		if (size != 9)
+			return -EINVAL;
+
 		ret = smu_cmn_update_table(smu,
 					   SMU_TABLE_ACTIVITY_MONITOR_COEFF,
 					   WORKLOAD_PPLIB_CUSTOM_BIT,
@@ -2521,6 +2529,8 @@ static int smu_v13_0_0_set_power_profile_mode(struct smu_context *smu,
 			activity_monitor->Fclk_PD_Data_error_coeff = input[7];
 			activity_monitor->Fclk_PD_Data_error_rate_coeff = input[8];
 			break;
+		default:
+			return -EINVAL;
 		}
 
 		ret = smu_cmn_update_table(smu,
@@ -2544,11 +2554,12 @@ static int smu_v13_0_0_set_power_profile_mode(struct smu_context *smu,
 
 	workload_mask = 1 << workload_type;
 
-	/* Add optimizations for SMU13.0.0.  Reuse the power saving profile */
-	if (smu->power_profile_mode == PP_SMC_POWER_PROFILE_COMPUTE &&
-	    (amdgpu_ip_version(smu->adev, MP1_HWIP, 0) == IP_VERSION(13, 0, 0)) &&
-	    ((smu->adev->pm.fw_version == 0x004e6601) ||
-	     (smu->adev->pm.fw_version >= 0x004e7400))) {
+	/* Add optimizations for SMU13.0.0/10.  Reuse the power saving profile */
+	if ((amdgpu_ip_version(smu->adev, MP1_HWIP, 0) == IP_VERSION(13, 0, 0) &&
+	     ((smu->adev->pm.fw_version == 0x004e6601) ||
+	      (smu->adev->pm.fw_version >= 0x004e7300))) ||
+	    (amdgpu_ip_version(smu->adev, MP1_HWIP, 0) == IP_VERSION(13, 0, 10) &&
+	     smu->adev->pm.fw_version >= 0x00504500)) {
 		workload_type = smu_cmn_to_asic_specific_index(smu,
 							       CMN2ASIC_MAPPING_WORKLOAD,
 							       PP_SMC_POWER_PROFILE_POWERSAVING);
@@ -2556,40 +2567,22 @@ static int smu_v13_0_0_set_power_profile_mode(struct smu_context *smu,
 			workload_mask |= 1 << workload_type;
 	}
 
-	return smu_cmn_send_smc_msg_with_param(smu,
+	smu->workload_mask |= workload_mask;
+	ret = smu_cmn_send_smc_msg_with_param(smu,
 					       SMU_MSG_SetWorkloadMask,
-					       workload_mask,
+					       smu->workload_mask,
 					       NULL);
-}
-
-static int smu_v13_0_0_baco_enter(struct smu_context *smu)
-{
-	struct smu_baco_context *smu_baco = &smu->smu_baco;
-	struct amdgpu_device *adev = smu->adev;
-
-	if (adev->in_runpm && smu_cmn_is_audio_func_enabled(adev))
-		return smu_v13_0_baco_set_armd3_sequence(smu,
-				(smu_baco->maco_support && amdgpu_runtime_pm != 1) ?
-					BACO_SEQ_BAMACO : BACO_SEQ_BACO);
-	else
-		return smu_v13_0_baco_enter(smu);
-}
-
-static int smu_v13_0_0_baco_exit(struct smu_context *smu)
-{
-	struct amdgpu_device *adev = smu->adev;
-	int ret;
-
-	if (adev->in_runpm && smu_cmn_is_audio_func_enabled(adev)) {
-		/* Wait for PMFW handling for the Dstate change */
-		usleep_range(10000, 11000);
-		ret = smu_v13_0_baco_set_armd3_sequence(smu, BACO_SEQ_ULPS);
-	} else {
-		ret = smu_v13_0_baco_exit(smu);
+	if (!ret) {
+		smu_cmn_assign_power_profile(smu);
+		if (smu->power_profile_mode == PP_SMC_POWER_PROFILE_POWERSAVING) {
+			workload_type = smu_cmn_to_asic_specific_index(smu,
+							       CMN2ASIC_MAPPING_WORKLOAD,
+							       PP_SMC_POWER_PROFILE_FULLSCREEN3D);
+			smu->power_profile_mode = smu->workload_mask & (1 << workload_type)
+										? PP_SMC_POWER_PROFILE_FULLSCREEN3D
+										: PP_SMC_POWER_PROFILE_BOOTUP_DEFAULT;
+		}
 	}
-
-	if (!ret)
-		adev->gfx.is_poweron = false;
 
 	return ret;
 }
@@ -2724,7 +2717,6 @@ static int smu_v13_0_0_i2c_control_init(struct smu_context *smu)
 		smu_i2c->port = i;
 		mutex_init(&smu_i2c->mutex);
 		control->owner = THIS_MODULE;
-		control->class = I2C_CLASS_SPD;
 		control->dev.parent = &adev->pdev->dev;
 		control->algo = &smu_v13_0_0_i2c_algo;
 		snprintf(control->name, sizeof(control->name), "AMDGPU SMU %d", i);
@@ -2776,7 +2768,13 @@ static int smu_v13_0_0_set_mp1_state(struct smu_context *smu,
 
 	switch (mp1_state) {
 	case PP_MP1_STATE_UNLOAD:
-		ret = smu_cmn_set_mp1_state(smu, mp1_state);
+		ret = smu_cmn_send_smc_msg_with_param(smu,
+											  SMU_MSG_PrepareMp1ForUnload,
+											  0x55, NULL);
+
+		if (!ret && smu->smu_baco.state == SMU_BACO_STATE_EXIT)
+			ret = smu_v13_0_disable_pmfw_state(smu);
+
 		break;
 	default:
 		/* Ignore others */
@@ -2800,10 +2798,9 @@ static void smu_v13_0_0_set_mode1_reset_param(struct smu_context *smu,
 						uint32_t *param)
 {
 	struct amdgpu_device *adev = smu->adev;
-	struct amdgpu_ras *ras = amdgpu_ras_get_context(adev);
 
 	if ((smu->smc_fw_version >= supported_version) &&
-			ras && atomic_read(&ras->in_recovery))
+	    amdgpu_ras_get_fed_status(adev))
 		/* Set RAS fatal error reset flag */
 		*param = 1 << 16;
 	else
@@ -2968,6 +2965,20 @@ static ssize_t smu_v13_0_0_get_ecc_info(struct smu_context *smu,
 	return ret;
 }
 
+static bool smu_v13_0_0_wbrf_support_check(struct smu_context *smu)
+{
+	struct amdgpu_device *adev = smu->adev;
+
+	switch (amdgpu_ip_version(adev, MP1_HWIP, 0)) {
+	case IP_VERSION(13, 0, 0):
+		return smu->smc_fw_version >= 0x004e6300;
+	case IP_VERSION(13, 0, 10):
+		return smu->smc_fw_version >= 0x00503300;
+	default:
+		return false;
+	}
+}
+
 static int smu_v13_0_0_set_power_limit(struct smu_context *smu,
 				       enum smu_ppt_limit_type limit_type,
 				       uint32_t limit)
@@ -3081,11 +3092,9 @@ static const struct pptable_funcs smu_v13_0_0_ppt_funcs = {
 	.set_tool_table_location = smu_v13_0_set_tool_table_location,
 	.deep_sleep_control = smu_v13_0_deep_sleep_control,
 	.gfx_ulv_control = smu_v13_0_gfx_ulv_control,
-	.baco_is_support = smu_v13_0_baco_is_support,
-	.baco_get_state = smu_v13_0_baco_get_state,
-	.baco_set_state = smu_v13_0_baco_set_state,
-	.baco_enter = smu_v13_0_0_baco_enter,
-	.baco_exit = smu_v13_0_0_baco_exit,
+	.get_bamaco_support = smu_v13_0_get_bamaco_support,
+	.baco_enter = smu_v13_0_baco_enter,
+	.baco_exit = smu_v13_0_baco_exit,
 	.mode1_reset_is_support = smu_v13_0_0_is_mode1_reset_supported,
 	.mode1_reset = smu_v13_0_0_mode1_reset,
 	.mode2_reset = smu_v13_0_0_mode2_reset,
@@ -3097,6 +3106,9 @@ static const struct pptable_funcs smu_v13_0_0_ppt_funcs = {
 	.gpo_control = smu_v13_0_gpo_control,
 	.get_ecc_info = smu_v13_0_0_get_ecc_info,
 	.notify_display_change = smu_v13_0_notify_display_change,
+	.is_asic_wbrf_supported = smu_v13_0_0_wbrf_support_check,
+	.enable_uclk_shadow = smu_v13_0_enable_uclk_shadow,
+	.set_wbrf_exclusion_ranges = smu_v13_0_set_wbrf_exclusion_ranges,
 };
 
 void smu_v13_0_0_set_ppt_funcs(struct smu_context *smu)

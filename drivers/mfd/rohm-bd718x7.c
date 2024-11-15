@@ -14,7 +14,7 @@
 #include <linux/mfd/rohm-bd718x7.h>
 #include <linux/mfd/core.h>
 #include <linux/module.h>
-#include <linux/of_device.h>
+#include <linux/of.h>
 #include <linux/regmap.h>
 #include <linux/types.h>
 
@@ -60,7 +60,7 @@ static const struct regmap_irq bd718xx_irqs[] = {
 	REGMAP_IRQ_REG(BD718XX_INT_STBY_REQ, 0, BD718XX_INT_STBY_REQ_MASK),
 };
 
-static struct regmap_irq_chip bd718xx_irq_chip = {
+static const struct regmap_irq_chip bd718xx_irq_chip = {
 	.name = "bd718xx-irq",
 	.irqs = bd718xx_irqs,
 	.num_irqs = ARRAY_SIZE(bd718xx_irqs),
@@ -87,7 +87,7 @@ static const struct regmap_config bd718xx_regmap_config = {
 	.val_bits = 8,
 	.volatile_table = &volatile_regs,
 	.max_register = BD718XX_MAX_REGISTER - 1,
-	.cache_type = REGCACHE_RBTREE,
+	.cache_type = REGCACHE_MAPLE,
 };
 
 static int bd718xx_init_press_duration(struct regmap *regmap,
@@ -208,7 +208,7 @@ static struct i2c_driver bd718xx_i2c_driver = {
 		.name = "rohm-bd718x7",
 		.of_match_table = bd718xx_of_match,
 	},
-	.probe_new = bd718xx_i2c_probe,
+	.probe = bd718xx_i2c_probe,
 };
 
 static int __init bd718xx_i2c_init(void)

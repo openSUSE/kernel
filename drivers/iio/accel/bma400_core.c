@@ -13,6 +13,7 @@
 
 #include <linux/bitfield.h>
 #include <linux/bitops.h>
+#include <linux/cleanup.h>
 #include <linux/device.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
@@ -21,7 +22,7 @@
 #include <linux/regulator/consumer.h>
 #include <linux/slab.h>
 
-#include <asm/unaligned.h>
+#include <linux/unaligned.h>
 
 #include <linux/iio/iio.h>
 #include <linux/iio/buffer.h>
@@ -795,21 +796,19 @@ static int bma400_enable_steps(struct bma400_data *data, int val)
 
 static int bma400_get_steps_reg(struct bma400_data *data, int *val)
 {
-	u8 *steps_raw;
 	int ret;
 
-	steps_raw = kmalloc(BMA400_STEP_RAW_LEN, GFP_KERNEL);
+	u8 *steps_raw __free(kfree) = kmalloc(BMA400_STEP_RAW_LEN, GFP_KERNEL);
 	if (!steps_raw)
 		return -ENOMEM;
 
 	ret = regmap_bulk_read(data->regmap, BMA400_STEP_CNT0_REG,
 			       steps_raw, BMA400_STEP_RAW_LEN);
-	if (ret) {
-		kfree(steps_raw);
+	if (ret)
 		return ret;
-	}
+
 	*val = get_unaligned_le24(steps_raw);
-	kfree(steps_raw);
+
 	return IIO_VAL_INT;
 }
 
@@ -868,8 +867,7 @@ static int bma400_init(struct bma400_data *data)
 					     ARRAY_SIZE(regulator_names),
 					     regulator_names);
 	if (ret)
-		return dev_err_probe(data->dev, ret, "Failed to get regulators: %d\n",
-				     ret);
+		return dev_err_probe(data->dev, ret, "Failed to get regulators\n");
 
 	/* Try to read chip_id register. It must return 0x90. */
 	ret = regmap_read(data->regmap, BMA400_CHIP_ID_REG, &val);

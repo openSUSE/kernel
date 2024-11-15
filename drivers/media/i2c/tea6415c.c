@@ -141,7 +141,7 @@ static void tea6415c_remove(struct i2c_client *client)
 }
 
 static const struct i2c_device_id tea6415c_id[] = {
-	{ "tea6415c", 0 },
+	{ "tea6415c" },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, tea6415c_id);
@@ -150,7 +150,7 @@ static struct i2c_driver tea6415c_driver = {
 	.driver = {
 		.name	= "tea6415c",
 	},
-	.probe_new	= tea6415c_probe,
+	.probe		= tea6415c_probe,
 	.remove		= tea6415c_remove,
 	.id_table	= tea6415c_id,
 };

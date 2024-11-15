@@ -96,6 +96,7 @@ out:
 	if (skb_at_tc_ingress(skb))
 		skb_pull_rcsum(skb, skb->mac_len);
 
+	skb_reset_mac_len(skb);
 	return action;
 
 drop:
@@ -151,7 +152,7 @@ static int tcf_vlan_init(struct net *net, struct nlattr *nla,
 		return err;
 	exists = err;
 	if (exists && bind)
-		return 0;
+		return ACT_P_BOUND;
 
 	switch (parm->v_action) {
 	case TCA_VLAN_ACT_POP:

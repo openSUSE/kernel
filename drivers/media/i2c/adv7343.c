@@ -403,7 +403,7 @@ adv7343_get_pdata(struct i2c_client *client)
 	if (!IS_ENABLED(CONFIG_OF) || !client->dev.of_node)
 		return client->dev.platform_data;
 
-	np = of_graph_get_next_endpoint(client->dev.of_node, NULL);
+	np = of_graph_get_endpoint_by_regs(client->dev.of_node, 0, -1);
 	if (!np)
 		return NULL;
 
@@ -502,8 +502,8 @@ static void adv7343_remove(struct i2c_client *client)
 }
 
 static const struct i2c_device_id adv7343_id[] = {
-	{"adv7343", 0},
-	{},
+	{ "adv7343" },
+	{}
 };
 
 MODULE_DEVICE_TABLE(i2c, adv7343_id);
@@ -521,7 +521,7 @@ static struct i2c_driver adv7343_driver = {
 		.of_match_table = of_match_ptr(adv7343_of_match),
 		.name	= "adv7343",
 	},
-	.probe_new	= adv7343_probe,
+	.probe		= adv7343_probe,
 	.remove		= adv7343_remove,
 	.id_table	= adv7343_id,
 };

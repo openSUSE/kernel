@@ -27,7 +27,6 @@
 #include <linux/err.h>
 #include <linux/pm_runtime.h>
 #include <linux/of.h>
-#include <linux/of_device.h>
 #include <linux/platform_device.h>
 #include <linux/platform_data/dmtimer-omap.h>
 
@@ -130,7 +129,6 @@ struct dmtimer {
 	void __iomem	*func_base;	/* function register base */
 
 	atomic_t enabled;
-	unsigned long rate;
 	unsigned reserved:1;
 	unsigned posted:1;
 	unsigned omap1:1;

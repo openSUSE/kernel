@@ -21,7 +21,7 @@
 #include <linux/reboot.h>
 #include <linux/regmap.h>
 #include <linux/types.h>
-#include <asm/unaligned.h>
+#include <linux/unaligned.h>
 
 #define NTXEC_REG_VERSION	0x00
 #define NTXEC_REG_POWEROFF	0x50
@@ -260,7 +260,7 @@ static struct i2c_driver ntxec_driver = {
 		.name = "ntxec",
 		.of_match_table = of_ntxec_match_table,
 	},
-	.probe_new = ntxec_probe,
+	.probe = ntxec_probe,
 	.remove = ntxec_remove,
 };
 module_i2c_driver(ntxec_driver);

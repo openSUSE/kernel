@@ -8,9 +8,7 @@
 #ifndef __CROS_EC_LPC_MEC_H
 #define __CROS_EC_LPC_MEC_H
 
-#ifndef __GENKSYMS__
 #include <linux/acpi.h>
-#endif
 
 enum cros_ec_lpc_mec_emi_access_mode {
 	/* 8-bit access */
@@ -77,9 +75,10 @@ int cros_ec_lpc_mec_in_range(unsigned int offset, unsigned int length);
  * @length:  Number of bytes to read / write
  * @buf:     Destination / source buffer
  *
- * @return 8-bit checksum of all bytes read / written
+ * @return:  A negative error code on error, or 8-bit checksum of all
+ *           bytes read / written
  */
-u8 cros_ec_lpc_io_bytes_mec(enum cros_ec_lpc_mec_io_type io_type,
-			    unsigned int offset, unsigned int length, u8 *buf);
+int cros_ec_lpc_io_bytes_mec(enum cros_ec_lpc_mec_io_type io_type,
+			     unsigned int offset, unsigned int length, u8 *buf);
 
 #endif /* __CROS_EC_LPC_MEC_H */

@@ -1,8 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0
 
-#ifdef CONFIG_XEN_BALLOON_MEMORY_HOTPLUG
-#include <linux/memblock.h>
-#endif
 #include <linux/console.h>
 #include <linux/cpu.h>
 #include <linux/kexec.h>
@@ -23,8 +20,6 @@
 #include <asm/setup.h>
 
 #include "xen-ops.h"
-#include "smp.h"
-#include "pmu.h"
 
 EXPORT_SYMBOL_GPL(hypercall_page);
 
@@ -33,7 +28,7 @@ EXPORT_SYMBOL_GPL(hypercall_page);
  * &HYPERVISOR_shared_info->vcpu_info[cpu]. See xen_hvm_init_shared_info
  * and xen_vcpu_setup for details. By default it points to share_info->vcpu_info
  * but during boot it is switched to point to xen_vcpu_info.
- * The pointer is used in __xen_evtchn_do_upcall to acknowledge pending events.
+ * The pointer is used in xen_evtchn_do_upcall to acknowledge pending events.
  * Make sure that xen_vcpu_info doesn't cross a page boundary by making it
  * cache-line aligned (the struct is guaranteed to have a size of 64 bytes,
  * which matches the cache line size of 64-bit x86 processors).

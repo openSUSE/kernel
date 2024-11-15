@@ -13,6 +13,7 @@
 #include <linux/net_tstamp.h>
 #include <linux/interrupt.h>
 #include <linux/phy/phy.h>
+#include <linux/workqueue.h>
 
 #if defined(CONFIG_ARCH_DMA_ADDR_T_64BIT) || defined(CONFIG_MACB_USE_HWSTAMP)
 #define MACB_EXT_DESC
@@ -82,6 +83,7 @@
 #define GEM_NCFGR		0x0004 /* Network Config */
 #define GEM_USRIO		0x000c /* User IO */
 #define GEM_DMACFG		0x0010 /* DMA Configuration */
+#define GEM_PBUFRXCUT		0x0044 /* RX Partial Store and Forward */
 #define GEM_JML			0x0048 /* Jumbo Max Length */
 #define GEM_HS_MAC_CONFIG	0x0050 /* GEM high speed config */
 #define GEM_HRB			0x0080 /* Hash Bottom */
@@ -347,6 +349,10 @@
 #define GEM_ADDR64_SIZE		1
 
 
+/* Bitfields in PBUFRXCUT */
+#define GEM_ENCUTTHRU_OFFSET	31 /* Enable RX partial store and forward */
+#define GEM_ENCUTTHRU_SIZE	1
+
 /* Bitfields in NSR */
 #define MACB_NSR_LINK_OFFSET	0 /* pcs_link_state */
 #define MACB_NSR_LINK_SIZE	1
@@ -513,6 +519,8 @@
 #define GEM_TX_PKT_BUFF_OFFSET			21
 #define GEM_TX_PKT_BUFF_SIZE			1
 
+#define GEM_RX_PBUF_ADDR_OFFSET			22
+#define GEM_RX_PBUF_ADDR_SIZE			4
 
 /* Bitfields in DCFG5. */
 #define GEM_TSU_OFFSET				8
@@ -521,6 +529,8 @@
 /* Bitfields in DCFG6. */
 #define GEM_PBUF_LSO_OFFSET			27
 #define GEM_PBUF_LSO_SIZE			1
+#define GEM_PBUF_CUTTHRU_OFFSET			25
+#define GEM_PBUF_CUTTHRU_SIZE			1
 #define GEM_DAW64_OFFSET			23
 #define GEM_DAW64_SIZE				1
 
@@ -636,6 +646,10 @@
 #define GEM_T2OFST_OFFSET			0 /* offset value */
 #define GEM_T2OFST_SIZE				7
 
+/* Bitfields in queue pointer registers */
+#define MACB_QUEUE_DISABLE_OFFSET		0 /* disable queue */
+#define MACB_QUEUE_DISABLE_SIZE			1
+
 /* Offset for screener type 2 compare values (T2CMPOFST).
  * Note the offset is applied after the specified point,
  * e.g. GEM_T2COMPOFST_ETYPE denotes the EtherType field, so an offset
@@ -724,6 +738,7 @@
 #define MACB_CAPS_NEEDS_RSTONUBR		0x00000100
 #define MACB_CAPS_MIIONRGMII			0x00000200
 #define MACB_CAPS_NEED_TSUCLK			0x00000400
+#define MACB_CAPS_QUEUE_DISABLE			0x00000800
 #define MACB_CAPS_PCS				0x01000000
 #define MACB_CAPS_HIGH_SPEED			0x02000000
 #define MACB_CAPS_CLK_HW_CHG			0x04000000
@@ -1154,11 +1169,12 @@ struct macb_ptp_info {
 	s32 (*get_ptp_max_adj)(void);
 	unsigned int (*get_tsu_rate)(struct macb *bp);
 	int (*get_ts_info)(struct net_device *dev,
-			   struct ethtool_ts_info *info);
+			   struct kernel_ethtool_ts_info *info);
 	int (*get_hwtst)(struct net_device *netdev,
-			 struct ifreq *ifr);
+			 struct kernel_hwtstamp_config *tstamp_config);
 	int (*set_hwtst)(struct net_device *netdev,
-			 struct ifreq *ifr, int cmd);
+			 struct kernel_hwtstamp_config *tstamp_config,
+			 struct netlink_ext_ack *extack);
 };
 
 struct macb_pm_data {
@@ -1181,6 +1197,7 @@ struct macb_config {
 			    struct clk **hclk, struct clk **tx_clk,
 			    struct clk **rx_clk, struct clk **tsu_clk);
 	int	(*init)(struct platform_device *pdev);
+	unsigned int		max_tx_length;
 	int	jumbo_max_len;
 	const struct macb_usrio_config *usrio;
 };
@@ -1243,6 +1260,8 @@ struct macb {
 	u32	(*macb_reg_readl)(struct macb *bp, int offset);
 	void	(*macb_reg_writel)(struct macb *bp, int offset, u32 value);
 
+	struct macb_dma_desc	*rx_ring_tieoff;
+	dma_addr_t		rx_ring_tieoff_dma;
 	size_t			rx_buffer_size;
 
 	unsigned int		rx_ring_size;
@@ -1288,6 +1307,10 @@ struct macb {
 	unsigned int		jumbo_max_len;
 
 	u32			wol;
+	u32			wolopts;
+
+	/* holds value of rx watermark value for pbuf_rxcutthru register */
+	u32			rx_watermark;
 
 	struct macb_ptp_info	*ptp_info;	/* macb-ptp interface */
 
@@ -1301,14 +1324,14 @@ struct macb {
 	struct ptp_clock *ptp_clock;
 	struct ptp_clock_info ptp_clock_info;
 	struct tsu_incr tsu_incr;
-	struct hwtstamp_config tstamp_config;
+	struct kernel_hwtstamp_config tstamp_config;
 
 	/* RX queue filer rule set*/
 	struct ethtool_rx_fs_list rx_fs_list;
 	spinlock_t rx_fs_lock;
 	unsigned int max_tuples;
 
-	struct tasklet_struct	hresp_err_tasklet;
+	struct work_struct	hresp_err_bh_work;
 
 	int	rx_bd_rd_prefetch;
 	int	tx_bd_rd_prefetch;
@@ -1350,8 +1373,12 @@ static inline void gem_ptp_do_rxstamp(struct macb *bp, struct sk_buff *skb, stru
 
 	gem_ptp_rxstamp(bp, skb, desc);
 }
-int gem_get_hwtst(struct net_device *dev, struct ifreq *rq);
-int gem_set_hwtst(struct net_device *dev, struct ifreq *ifr, int cmd);
+
+int gem_get_hwtst(struct net_device *dev,
+		  struct kernel_hwtstamp_config *tstamp_config);
+int gem_set_hwtst(struct net_device *dev,
+		  struct kernel_hwtstamp_config *tstamp_config,
+		  struct netlink_ext_ack *extack);
 #else
 static inline void gem_ptp_init(struct net_device *ndev) { }
 static inline void gem_ptp_remove(struct net_device *ndev) { }

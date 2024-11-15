@@ -43,8 +43,6 @@ struct scsi_transport_template {
 	 * Allows a transport to override the default error handler.
 	 */
 	void (* eh_strategy_handler)(struct Scsi_Host *);
-
-	void *suse_kabi_padding;
 };
 
 #define transport_class_to_shost(tc) \
@@ -85,6 +83,6 @@ scsi_transport_device_data(struct scsi_device *sdev)
 		+ shost->transportt->device_private_offset;
 }
 
-void __scsi_init_queue(struct Scsi_Host *shost, struct request_queue *q);
+void scsi_init_limits(struct Scsi_Host *shost, struct queue_limits *lim);
 
 #endif /* SCSI_TRANSPORT_H */

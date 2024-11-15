@@ -2259,7 +2259,7 @@ lpfc_debugfs_ras_log_open(struct inode *inode, struct file *file)
 	spin_unlock_irq(&phba->ras_fwlog_lock);
 
 	if (check_mul_overflow(LPFC_RAS_MIN_BUFF_POST_SIZE,
-			       (int)phba->cfg_ras_fwlog_buffsize, &size))
+			       phba->cfg_ras_fwlog_buffsize, &size))
 		goto out;
 
 	debug = kzalloc(sizeof(*debug), GFP_KERNEL);

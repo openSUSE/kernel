@@ -33,6 +33,112 @@
 #include <linux/switchtec.h>
 #include "pci.h"
 
+/*
+ * Retrain the link of a downstream PCIe port by hand if necessary.
+ *
+ * This is needed at least where a downstream port of the ASMedia ASM2824
+ * Gen 3 switch is wired to the upstream port of the Pericom PI7C9X2G304
+ * Gen 2 switch, and observed with the Delock Riser Card PCI Express x1 >
+ * 2 x PCIe x1 device, P/N 41433, plugged into the SiFive HiFive Unmatched
+ * board.
+ *
+ * In such a configuration the switches are supposed to negotiate the link
+ * speed of preferably 5.0GT/s, falling back to 2.5GT/s.  However the link
+ * continues switching between the two speeds indefinitely and the data
+ * link layer never reaches the active state, with link training reported
+ * repeatedly active ~84% of the time.  Forcing the target link speed to
+ * 2.5GT/s with the upstream ASM2824 device makes the two switches talk to
+ * each other correctly however.  And more interestingly retraining with a
+ * higher target link speed afterwards lets the two successfully negotiate
+ * 5.0GT/s.
+ *
+ * With the ASM2824 we can rely on the otherwise optional Data Link Layer
+ * Link Active status bit and in the failed link training scenario it will
+ * be off along with the Link Bandwidth Management Status indicating that
+ * hardware has changed the link speed or width in an attempt to correct
+ * unreliable link operation.  For a port that has been left unconnected
+ * both bits will be clear.  So use this information to detect the problem
+ * rather than polling the Link Training bit and watching out for flips or
+ * at least the active status.
+ *
+ * Since the exact nature of the problem isn't known and in principle this
+ * could trigger where an ASM2824 device is downstream rather upstream,
+ * apply this erratum workaround to any downstream ports as long as they
+ * support Link Active reporting and have the Link Control 2 register.
+ * Restrict the speed to 2.5GT/s then with the Target Link Speed field,
+ * request a retrain and check the result.
+ *
+ * If this turns out successful and we know by the Vendor:Device ID it is
+ * safe to do so, then lift the restriction, letting the devices negotiate
+ * a higher speed.  Also check for a similar 2.5GT/s speed restriction the
+ * firmware may have already arranged and lift it with ports that already
+ * report their data link being up.
+ *
+ * Otherwise revert the speed to the original setting and request a retrain
+ * again to remove any residual state, ignoring the result as it's supposed
+ * to fail anyway.
+ *
+ * Return 0 if the link has been successfully retrained.  Return an error
+ * if retraining was not needed or we attempted a retrain and it failed.
+ */
+int pcie_failed_link_retrain(struct pci_dev *dev)
+{
+	static const struct pci_device_id ids[] = {
+		{ PCI_VDEVICE(ASMEDIA, 0x2824) }, /* ASMedia ASM2824 */
+		{}
+	};
+	u16 lnksta, lnkctl2;
+	int ret = -ENOTTY;
+
+	if (!pci_is_pcie(dev) || !pcie_downstream_port(dev) ||
+	    !pcie_cap_has_lnkctl2(dev) || !dev->link_active_reporting)
+		return ret;
+
+	pcie_capability_read_word(dev, PCI_EXP_LNKCTL2, &lnkctl2);
+	pcie_capability_read_word(dev, PCI_EXP_LNKSTA, &lnksta);
+	if ((lnksta & (PCI_EXP_LNKSTA_LBMS | PCI_EXP_LNKSTA_DLLLA)) ==
+	    PCI_EXP_LNKSTA_LBMS) {
+		u16 oldlnkctl2 = lnkctl2;
+
+		pci_info(dev, "broken device, retraining non-functional downstream link at 2.5GT/s\n");
+
+		lnkctl2 &= ~PCI_EXP_LNKCTL2_TLS;
+		lnkctl2 |= PCI_EXP_LNKCTL2_TLS_2_5GT;
+		pcie_capability_write_word(dev, PCI_EXP_LNKCTL2, lnkctl2);
+
+		ret = pcie_retrain_link(dev, false);
+		if (ret) {
+			pci_info(dev, "retraining failed\n");
+			pcie_capability_write_word(dev, PCI_EXP_LNKCTL2,
+						   oldlnkctl2);
+			pcie_retrain_link(dev, true);
+			return ret;
+		}
+
+		pcie_capability_read_word(dev, PCI_EXP_LNKSTA, &lnksta);
+	}
+
+	if ((lnksta & PCI_EXP_LNKSTA_DLLLA) &&
+	    (lnkctl2 & PCI_EXP_LNKCTL2_TLS) == PCI_EXP_LNKCTL2_TLS_2_5GT &&
+	    pci_match_id(ids, dev)) {
+		u32 lnkcap;
+
+		pci_info(dev, "removing 2.5GT/s downstream link speed restriction\n");
+		pcie_capability_read_dword(dev, PCI_EXP_LNKCAP, &lnkcap);
+		lnkctl2 &= ~PCI_EXP_LNKCTL2_TLS;
+		lnkctl2 |= lnkcap & PCI_EXP_LNKCAP_SLS;
+		pcie_capability_write_word(dev, PCI_EXP_LNKCTL2, lnkctl2);
+
+		ret = pcie_retrain_link(dev, false);
+		if (ret) {
+			pci_info(dev, "retraining failed\n");
+			return ret;
+		}
+	}
+
+	return ret;
+}
+
 static ktime_t fixup_debug_start(struct pci_dev *dev,
 				 void (*fn)(struct pci_dev *dev))
 {
@@ -268,6 +374,7 @@ DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_NEC,	PCI_DEVICE_ID_NEC_CBUS_2,	quirk_isa_d
 DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_NEC,	PCI_DEVICE_ID_NEC_CBUS_3,	quirk_isa_dma_hangs);
 #endif
 
+#ifdef CONFIG_HAS_IOPORT
 /*
  * Intel NM10 "Tiger Point" LPC PM1a_STS.BM_STS must be clear
  * for some HT machines to use C4 w/o hanging.
@@ -287,6 +394,7 @@ static void quirk_tigerpoint_bm_sts(struct pci_dev *dev)
 	}
 }
 DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, PCI_DEVICE_ID_INTEL_TGP_LPC, quirk_tigerpoint_bm_sts);
+#endif
 
 /* Chipsets where PCI->PCI transfers vanish or hang */
 static void quirk_nopcipci(struct pci_dev *dev)
@@ -475,13 +583,14 @@ static void quirk_extend_bar_to_page(struct pci_dev *dev)
 
 	for (i = 0; i < PCI_STD_NUM_BARS; i++) {
 		struct resource *r = &dev->resource[i];
+		const char *r_name = pci_resource_name(dev, i);
 
 		if (r->flags & IORESOURCE_MEM && resource_size(r) < PAGE_SIZE) {
 			r->end = PAGE_SIZE - 1;
 			r->start = 0;
 			r->flags |= IORESOURCE_UNSET;
-			pci_info(dev, "expanded BAR %d to page size: %pR\n",
-				 i, r);
+			pci_info(dev, "%s %pR: expanded to page size\n",
+				 r_name, r);
 		}
 	}
 }
@@ -510,6 +619,7 @@ static void quirk_io(struct pci_dev *dev, int pos, unsigned int size,
 	u32 region;
 	struct pci_bus_region bus_region;
 	struct resource *res = dev->resource + pos;
+	const char *res_name = pci_resource_name(dev, pos);
 
 	pci_read_config_dword(dev, PCI_BASE_ADDRESS_0 + (pos << 2), &region);
 
@@ -527,8 +637,7 @@ static void quirk_io(struct pci_dev *dev, int pos, unsigned int size,
 	bus_region.end = region + size - 1;
 	pcibios_bus_to_resource(dev->bus, res, &bus_region);
 
-	pci_info(dev, FW_BUG "%s quirk: reg 0x%x: %pR\n",
-		 name, PCI_BASE_ADDRESS_0 + (pos << 2), res);
+	pci_info(dev, FW_BUG "%s %pR: %s quirk\n", res_name, res, name);
 }
 
 /*
@@ -575,6 +684,12 @@ static void quirk_io_region(struct pci_dev *dev, int port,
 	bus_region.end = region + size - 1;
 	pcibios_bus_to_resource(dev->bus, res, &bus_region);
 
+	/*
+	 * "res" is typically a bridge window resource that's not being
+	 * used for a bridge window, so it's just a place to stash this
+	 * non-standard resource.  Printing "nr" or pci_resource_name() of
+	 * it doesn't really make sense.
+	 */
 	if (!pci_claim_resource(dev, nr))
 		pci_info(dev, "quirk: %pR claimed by %s\n", res, name);
 }
@@ -1754,8 +1869,8 @@ static void quirk_jmicron_ata(struct pci_dev *pdev)
 
 	/* Update pdev accordingly */
 	pci_read_config_byte(pdev, PCI_HEADER_TYPE, &hdr);
-	pdev->hdr_type = hdr & 0x7f;
-	pdev->multifunction = !!(hdr & 0x80);
+	pdev->hdr_type = hdr & PCI_HEADER_TYPE_MASK;
+	pdev->multifunction = FIELD_GET(PCI_HEADER_TYPE_MFD, hdr);
 
 	pci_read_config_dword(pdev, PCI_CLASS_REVISION, &class);
 	pdev->class = class >> 8;
@@ -5005,6 +5120,10 @@ static const struct pci_dev_acs_enabled {
 	{ PCI_VENDOR_ID_BROADCOM, 0x1750, pci_quirk_mf_endpoint_acs },
 	{ PCI_VENDOR_ID_BROADCOM, 0x1751, pci_quirk_mf_endpoint_acs },
 	{ PCI_VENDOR_ID_BROADCOM, 0x1752, pci_quirk_mf_endpoint_acs },
+	{ PCI_VENDOR_ID_BROADCOM, 0x1760, pci_quirk_mf_endpoint_acs },
+	{ PCI_VENDOR_ID_BROADCOM, 0x1761, pci_quirk_mf_endpoint_acs },
+	{ PCI_VENDOR_ID_BROADCOM, 0x1762, pci_quirk_mf_endpoint_acs },
+	{ PCI_VENDOR_ID_BROADCOM, 0x1763, pci_quirk_mf_endpoint_acs },
 	{ PCI_VENDOR_ID_BROADCOM, 0xD714, pci_quirk_brcm_acs },
 	/* Amazon Annapurna Labs */
 	{ PCI_VENDOR_ID_AMAZON_ANNAPURNA_LABS, 0x0031, pci_quirk_al_acs },
@@ -5623,7 +5742,7 @@ static void quirk_nvidia_hda(struct pci_dev *gpu)
 
 	/* The GPU becomes a multi-function device when the HDA is enabled */
 	pci_read_config_byte(gpu, PCI_HEADER_TYPE, &hdr_type);
-	gpu->multifunction = !!(hdr_type & 0x80);
+	gpu->multifunction = FIELD_GET(PCI_HEADER_TYPE_MFD, hdr_type);
 }
 DECLARE_PCI_FIXUP_CLASS_HEADER(PCI_VENDOR_ID_NVIDIA, PCI_ANY_ID,
 			       PCI_BASE_CLASS_DISPLAY, 16, quirk_nvidia_hda);
@@ -6137,6 +6256,18 @@ DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0xa76e, dpc_log_size);
 #endif
 
 /*
+ * For a PCI device with multiple downstream devices, its driver may use
+ * a flattened device tree to describe the downstream devices.
+ * To overlay the flattened device tree, the PCI device and all its ancestor
+ * devices need to have device tree nodes on system base device tree. Thus,
+ * before driver probing, it might need to add a device tree node as the final
+ * fixup.
+ */
+DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_XILINX, 0x5020, of_pci_make_dev_node);
+DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_XILINX, 0x5021, of_pci_make_dev_node);
+DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_REDHAT, 0x0005, of_pci_make_dev_node);
+
+/*
  * Devices known to require a longer delay before first config space access
  * after reset recovery or resume from D3cold:
  *
@@ -6147,3 +6278,23 @@ static void pci_fixup_d3cold_delay_1sec(struct pci_dev *pdev)
 	pdev->d3cold_delay = 1000;
 }
 DECLARE_PCI_FIXUP_FINAL(0x5555, 0x0004, pci_fixup_d3cold_delay_1sec);
+
+#ifdef CONFIG_PCIEAER
+static void pci_mask_replay_timer_timeout(struct pci_dev *pdev)
+{
+	struct pci_dev *parent = pci_upstream_bridge(pdev);
+	u32 val;
+
+	if (!parent || !parent->aer_cap)
+		return;
+
+	pci_info(parent, "mask Replay Timer Timeout Correctable Errors due to %s hardware defect",
+		 pci_name(pdev));
+
+	pci_read_config_dword(parent, parent->aer_cap + PCI_ERR_COR_MASK, &val);
+	val |= PCI_ERR_COR_REP_TIMER;
+	pci_write_config_dword(parent, parent->aer_cap + PCI_ERR_COR_MASK, val);
+}
+DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_GLI, 0x9750, pci_mask_replay_timer_timeout);
+DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_GLI, 0x9755, pci_mask_replay_timer_timeout);
+#endif

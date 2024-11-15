@@ -39,8 +39,8 @@ static DEFINE_MUTEX(fsverity_hash_alg_init_mutex);
  *
  * Return: pointer to the hash alg on success, else an ERR_PTR()
  */
-struct fsverity_hash_alg *fsverity_get_hash_alg(const struct inode *inode,
-						unsigned int num)
+const struct fsverity_hash_alg *fsverity_get_hash_alg(const struct inode *inode,
+						      unsigned int num)
 {
 	struct fsverity_hash_alg *alg;
 	struct crypto_shash *tfm;
@@ -108,7 +108,7 @@ out_unlock:
  * Return: NULL if the salt is empty, otherwise the kmalloc()'ed precomputed
  *	   initial hash state on success or an ERR_PTR() on failure.
  */
-const u8 *fsverity_prepare_hash_state(struct fsverity_hash_alg *alg,
+const u8 *fsverity_prepare_hash_state(const struct fsverity_hash_alg *alg,
 				      const u8 *salt, size_t salt_size)
 {
 	u8 *hashstate = NULL;
@@ -206,7 +206,7 @@ int fsverity_hash_block(const struct merkle_tree_params *params,
  *
  * Return: 0 on success, -errno on failure
  */
-int fsverity_hash_buffer(struct fsverity_hash_alg *alg,
+int fsverity_hash_buffer(const struct fsverity_hash_alg *alg,
 			 const void *data, size_t size, u8 *out)
 {
 	return crypto_shash_tfm_digest(alg->tfm, data, size, out);
@@ -225,6 +225,14 @@ void __init fsverity_check_hash_algs(void)
 
 		if (!alg->name)
 			continue;
+
+		/*
+		 * 0 must never be allocated as an FS_VERITY_HASH_ALG_* value,
+		 * as it is reserved for users that use 0 to mean unspecified or
+		 * a default value.  fs/verity/ itself doesn't care and doesn't
+		 * have a default algorithm, but some users make use of this.
+		 */
+		BUG_ON(i == 0);
 
 		BUG_ON(alg->digest_size > FS_VERITY_MAX_DIGEST_SIZE);
 

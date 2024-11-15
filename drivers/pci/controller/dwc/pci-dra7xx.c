@@ -13,11 +13,11 @@
 #include <linux/err.h>
 #include <linux/interrupt.h>
 #include <linux/irq.h>
+#include <linux/irqchip/chained_irq.h>
 #include <linux/irqdomain.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
-#include <linux/of_device.h>
-#include <linux/of_gpio.h>
+#include <linux/of.h>
 #include <linux/of_pci.h>
 #include <linux/pci.h>
 #include <linux/phy/phy.h>
@@ -113,9 +113,9 @@ static inline void dra7xx_pcie_writel(struct dra7xx_pcie *pcie, u32 offset,
 	writel(value, pcie->base + offset);
 }
 
-static u64 dra7xx_pcie_cpu_addr_fixup(struct dw_pcie *pci, u64 pci_addr)
+static u64 dra7xx_pcie_cpu_addr_fixup(struct dw_pcie *pci, u64 cpu_addr)
 {
-	return pci_addr & DRA7XX_CPU_TO_BUS_ADDR;
+	return cpu_addr & DRA7XX_CPU_TO_BUS_ADDR;
 }
 
 static int dra7xx_pcie_link_up(struct dw_pcie *pci)
@@ -386,7 +386,7 @@ static void dra7xx_pcie_ep_init(struct dw_pcie_ep *ep)
 	dra7xx_pcie_enable_wrapper_interrupts(dra7xx);
 }
 
-static void dra7xx_pcie_raise_legacy_irq(struct dra7xx_pcie *dra7xx)
+static void dra7xx_pcie_raise_intx_irq(struct dra7xx_pcie *dra7xx)
 {
 	dra7xx_pcie_writel(dra7xx, PCIECTRL_TI_CONF_INTX_ASSERT, 0x1);
 	mdelay(1);
@@ -404,16 +404,16 @@ static void dra7xx_pcie_raise_msi_irq(struct dra7xx_pcie *dra7xx,
 }
 
 static int dra7xx_pcie_raise_irq(struct dw_pcie_ep *ep, u8 func_no,
-				 enum pci_epc_irq_type type, u16 interrupt_num)
+				 unsigned int type, u16 interrupt_num)
 {
 	struct dw_pcie *pci = to_dw_pcie_from_ep(ep);
 	struct dra7xx_pcie *dra7xx = to_dra7xx_pcie(pci);
 
 	switch (type) {
-	case PCI_EPC_IRQ_LEGACY:
-		dra7xx_pcie_raise_legacy_irq(dra7xx);
+	case PCI_IRQ_INTX:
+		dra7xx_pcie_raise_intx_irq(dra7xx);
 		break;
-	case PCI_EPC_IRQ_MSI:
+	case PCI_IRQ_MSI:
 		dra7xx_pcie_raise_msi_irq(dra7xx, interrupt_num);
 		break;
 	default:
@@ -436,7 +436,7 @@ dra7xx_pcie_get_features(struct dw_pcie_ep *ep)
 }
 
 static const struct dw_pcie_ep_ops pcie_ep_ops = {
-	.ep_init = dra7xx_pcie_ep_init,
+	.init = dra7xx_pcie_ep_init,
 	.raise_irq = dra7xx_pcie_raise_irq,
 	.get_features = dra7xx_pcie_get_features,
 };
@@ -466,6 +466,15 @@ static int dra7xx_add_pcie_ep(struct dra7xx_pcie *dra7xx,
 		dev_err(dev, "failed to initialize endpoint\n");
 		return ret;
 	}
+
+	ret = dw_pcie_ep_init_registers(ep);
+	if (ret) {
+		dev_err(dev, "Failed to initialize DWC endpoint registers\n");
+		dw_pcie_ep_deinit(ep);
+		return ret;
+	}
+
+	pci_epc_init_notify(ep->epc);
 
 	return 0;
 }
@@ -854,7 +863,7 @@ err_deinit:
 	if (dra7xx->mode == DW_PCIE_RC_TYPE)
 		dw_pcie_host_deinit(&dra7xx->pci->pp);
 	else
-		dw_pcie_ep_exit(&dra7xx->pci->ep);
+		dw_pcie_ep_deinit(&dra7xx->pci->ep);
 
 err_gpio:
 err_get_sync:

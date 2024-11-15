@@ -820,6 +820,8 @@ struct vmbus_requestor {
 #define VMBUS_RQST_RESET (U64_MAX - 3)
 
 struct vmbus_device {
+	/* preferred ring buffer size in KB, 0 means no preferred size for this device */
+	size_t pref_ring_size;
 	u16  dev_type;
 	guid_t guid;
 	bool perf_device;
@@ -831,47 +833,9 @@ struct vmbus_device {
 struct vmbus_gpadl {
 	u32 gpadl_handle;
 	u32 size;
-#ifdef __GENKSYMS__
 	void *buffer;
-#else
-	void *SUSE_buffer_and_decrypted;
-#endif
+	bool decrypted;
 };
-
-static inline void* SUSE_vmbus_gpadl_get_buffer(const struct vmbus_gpadl *gpadl)
-{
-	unsigned long val = (unsigned long)gpadl->SUSE_buffer_and_decrypted;
-
-	val &= ~0x1UL;
-	return (void *)val;
-}
-
-static inline void SUSE_vmbus_gpadl_set_buffer(struct vmbus_gpadl *gpadl, void *buffer)
-{
-	unsigned long old_val = (unsigned long)gpadl->SUSE_buffer_and_decrypted;
-	unsigned long old_decrypted = old_val & 0x1UL;
-	unsigned long new_ptr = (unsigned long)buffer;
-
-	new_ptr = (new_ptr & ~0x1UL) | old_decrypted;
-	gpadl->SUSE_buffer_and_decrypted = (void *)new_ptr;
-}
-
-static inline bool SUSE_vmbus_gpadl_get_decrypted(const struct vmbus_gpadl *gpadl)
-{
-	unsigned long val = (unsigned long)gpadl->SUSE_buffer_and_decrypted;
-
-	return val & 0x1UL;
-}
-
-static inline void SUSE_vmbus_gpadl_set_decrypted(struct vmbus_gpadl *gpadl, bool decrypted)
-{
-	unsigned long old_val = (unsigned long)gpadl->SUSE_buffer_and_decrypted;
-	unsigned long old_buffer = old_val & ~0x1UL;
-	unsigned long new_decrypted = decrypted;
-
-	new_decrypted |= old_buffer;
-	gpadl->SUSE_buffer_and_decrypted = (void *)new_decrypted;
-}
 
 struct vmbus_channel {
 	struct list_head listentry;
@@ -1366,11 +1330,7 @@ struct hv_device {
 
 
 #define device_to_hv_device(d)	container_of_const(d, struct hv_device, device)
-
-static inline struct hv_driver *drv_to_hv_drv(struct device_driver *d)
-{
-	return container_of(d, struct hv_driver, driver);
-}
+#define drv_to_hv_drv(d)	container_of_const(d, struct hv_driver, driver)
 
 static inline void hv_set_drvdata(struct hv_device *dev, void *data)
 {

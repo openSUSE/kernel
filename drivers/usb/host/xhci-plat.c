@@ -131,6 +131,9 @@ static const struct of_device_id usb_xhci_of_match[] = {
 		.compatible = "brcm,xhci-brcm-v2",
 		.data = &xhci_plat_brcm,
 	}, {
+		.compatible = "brcm,bcm2711-xhci",
+		.data = &xhci_plat_brcm,
+	}, {
 		.compatible = "brcm,bcm7445-xhci",
 		.data = &xhci_plat_brcm,
 	},
@@ -252,6 +255,15 @@ int xhci_plat_probe(struct platform_device *pdev, struct device *sysdev, const s
 
 		if (device_property_read_bool(tmpdev, "xhci-sg-trb-cache-size-quirk"))
 			xhci->quirks |= XHCI_SG_TRB_CACHE_SIZE_QUIRK;
+
+		if (device_property_read_bool(tmpdev, "write-64-hi-lo-quirk"))
+			xhci->quirks |= XHCI_WRITE_64_HI_LO;
+
+		if (device_property_read_bool(tmpdev, "xhci-missing-cas-quirk"))
+			xhci->quirks |= XHCI_MISSING_CAS;
+
+		if (device_property_read_bool(tmpdev, "xhci-skip-phy-init-quirk"))
+			xhci->quirks |= XHCI_SKIP_PHY_INIT;
 
 		device_property_read_u32(tmpdev, "imod-interval-ns",
 					 &xhci->imod_interval);
@@ -402,7 +414,7 @@ static int xhci_generic_plat_probe(struct platform_device *pdev)
 	return xhci_plat_probe(pdev, sysdev, priv_match);
 }
 
-int xhci_plat_remove(struct platform_device *dev)
+void xhci_plat_remove(struct platform_device *dev)
 {
 	struct usb_hcd	*hcd = platform_get_drvdata(dev);
 	struct xhci_hcd	*xhci = hcd_to_xhci(hcd);
@@ -410,8 +422,8 @@ int xhci_plat_remove(struct platform_device *dev)
 	struct clk *reg_clk = xhci->reg_clk;
 	struct usb_hcd *shared_hcd = xhci->shared_hcd;
 
-	pm_runtime_get_sync(&dev->dev);
 	xhci->xhc_state |= XHCI_STATE_REMOVING;
+	pm_runtime_get_sync(&dev->dev);
 
 	if (shared_hcd) {
 		usb_remove_hcd(shared_hcd);
@@ -433,8 +445,6 @@ int xhci_plat_remove(struct platform_device *dev)
 	pm_runtime_disable(&dev->dev);
 	pm_runtime_put_noidle(&dev->dev);
 	pm_runtime_set_suspended(&dev->dev);
-
-	return 0;
 }
 EXPORT_SYMBOL_GPL(xhci_plat_remove);
 
@@ -563,7 +573,7 @@ MODULE_DEVICE_TABLE(acpi, usb_xhci_acpi_match);
 
 static struct platform_driver usb_generic_xhci_driver = {
 	.probe	= xhci_generic_plat_probe,
-	.remove	= xhci_plat_remove,
+	.remove_new = xhci_plat_remove,
 	.shutdown = usb_hcd_platform_shutdown,
 	.driver	= {
 		.name = "xhci-hcd",

@@ -15,7 +15,6 @@
 #include <linux/errno.h>
 #include <linux/bcd.h>
 #include <linux/of.h>
-#include <linux/of_device.h>
 #include <linux/regmap.h>
 
 /*
@@ -487,7 +486,7 @@ static struct i2c_driver pcf85363_driver = {
 		.name	= "pcf85363",
 		.of_match_table = of_match_ptr(dev_ids),
 	},
-	.probe_new = pcf85363_probe,
+	.probe = pcf85363_probe,
 };
 
 module_i2c_driver(pcf85363_driver);

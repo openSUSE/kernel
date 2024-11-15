@@ -414,7 +414,7 @@ static void tw2804_remove(struct i2c_client *client)
 }
 
 static const struct i2c_device_id tw2804_id[] = {
-	{ "tw2804", 0 },
+	{ "tw2804" },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, tw2804_id);
@@ -423,7 +423,7 @@ static struct i2c_driver tw2804_driver = {
 	.driver = {
 		.name	= "tw2804",
 	},
-	.probe_new	= tw2804_probe,
+	.probe		= tw2804_probe,
 	.remove		= tw2804_remove,
 	.id_table	= tw2804_id,
 };

@@ -24,7 +24,7 @@
 static inline size_t unpacked_ea_size(const struct EA_FULL *ea)
 {
 	return ea->size ? le32_to_cpu(ea->size) :
-				ALIGN(struct_size(ea, name,
+			  ALIGN(struct_size(ea, name,
 					    1 + ea->name_len +
 						    le16_to_cpu(ea->elength)),
 				4);
@@ -195,10 +195,8 @@ static ssize_t ntfs_list_ea(struct ntfs_inode *ni, char *buffer,
 {
 	const struct EA_INFO *info;
 	struct EA_FULL *ea_all = NULL;
-	const struct EA_FULL *ea;
 	u32 off, size;
 	int err;
-	int ea_size;
 	size_t ret;
 
 	err = ntfs_read_ea(ni, &ea_all, 0, &info);
@@ -211,27 +209,38 @@ static ssize_t ntfs_list_ea(struct ntfs_inode *ni, char *buffer,
 	size = le32_to_cpu(info->size);
 
 	/* Enumerate all xattrs. */
-	for (ret = 0, off = 0; off < size; off += ea_size) {
-		ea = Add2Ptr(ea_all, off);
-		ea_size = unpacked_ea_size(ea);
+	ret = 0;
+	off = 0;
+	while (off + sizeof(struct EA_FULL) < size) {
+		const struct EA_FULL *ea = Add2Ptr(ea_all, off);
+		int ea_size = unpacked_ea_size(ea);
+		u8 name_len = ea->name_len;
 
-		if (!ea->name_len)
+		if (!name_len)
 			break;
 
-		if (ea->name_len > ea_size)
+		if (name_len > ea_size) {
+			ntfs_set_state(ni->mi.sbi, NTFS_DIRTY_ERROR);
+			err = -EINVAL; /* corrupted fs. */
 			break;
+		}
 
 		if (buffer) {
-			if (ret + ea->name_len + 1 > bytes_per_buffer) {
+			/* Check if we can use field ea->name */
+			if (off + ea_size > size)
+				break;
+
+			if (ret + name_len + 1 > bytes_per_buffer) {
 				err = -ERANGE;
 				goto out;
 			}
 
-			memcpy(buffer + ret, ea->name, ea->name_len);
-			buffer[ret + ea->name_len] = 0;
+			memcpy(buffer + ret, ea->name, name_len);
+			buffer[ret + name_len] = 0;
 		}
 
-		ret += ea->name_len + 1;
+		ret += name_len + 1;
+		off += ea_size;
 	}
 
 out:
@@ -531,8 +540,8 @@ out:
 /*
  * ntfs_get_acl - inode_operations::get_acl
  */
-struct posix_acl *ntfs_get_acl(struct mnt_idmap *idmap,
-			       struct dentry *dentry, int type)
+struct posix_acl *ntfs_get_acl(struct mnt_idmap *idmap, struct dentry *dentry,
+			       int type)
 {
 	struct inode *inode = d_inode(dentry);
 	struct ntfs_inode *ni = ntfs_i(inode);
@@ -599,8 +608,7 @@ static noinline int ntfs_set_acl_ex(struct mnt_idmap *idmap,
 	case ACL_TYPE_ACCESS:
 		/* Do not change i_mode if we are in init_acl */
 		if (acl && !init_acl) {
-			err = posix_acl_update_mode(idmap, inode, &mode,
-						    &acl);
+			err = posix_acl_update_mode(idmap, inode, &mode, &acl);
 			if (err)
 				return err;
 		}
@@ -641,7 +649,7 @@ static noinline int ntfs_set_acl_ex(struct mnt_idmap *idmap,
 	if (!err) {
 		set_cached_acl(inode, type, acl);
 		inode->i_mode = mode;
-		inode->i_ctime = current_time(inode);
+		inode_set_ctime_current(inode);
 		mark_inode_dirty(inode);
 	}
 
@@ -697,7 +705,7 @@ int ntfs_init_acl(struct mnt_idmap *idmap, struct inode *inode,
 #endif
 
 /*
- * ntfs_acl_chmod - Helper for ntfs3_setattr().
+ * ntfs_acl_chmod - Helper for ntfs_setattr().
  */
 int ntfs_acl_chmod(struct mnt_idmap *idmap, struct dentry *dentry)
 {
@@ -742,6 +750,9 @@ static int ntfs_getxattr(const struct xattr_handler *handler, struct dentry *de,
 {
 	int err;
 	struct ntfs_inode *ni = ntfs_i(inode);
+
+	if (unlikely(ntfs3_forced_shutdown(inode->i_sb)))
+		return -EIO;
 
 	/* Dispatch request. */
 	if (!strcmp(name, SYSTEM_DOS_ATTRIB)) {
@@ -823,10 +834,9 @@ out:
  * ntfs_setxattr - inode_operations::setxattr
  */
 static noinline int ntfs_setxattr(const struct xattr_handler *handler,
-				  struct mnt_idmap *idmap,
-				  struct dentry *de, struct inode *inode,
-				  const char *name, const void *value,
-				  size_t size, int flags)
+				  struct mnt_idmap *idmap, struct dentry *de,
+				  struct inode *inode, const char *name,
+				  const void *value, size_t size, int flags)
 {
 	int err = -EINVAL;
 	struct ntfs_inode *ni = ntfs_i(inode);
@@ -929,7 +939,7 @@ set_new_fa:
 			  NULL);
 
 out:
-	inode->i_ctime = current_time(inode);
+	inode_set_ctime_current(inode);
 	mark_inode_dirty(inode);
 
 	return err;
@@ -1021,7 +1031,7 @@ static const struct xattr_handler ntfs_other_xattr_handler = {
 	.list	= ntfs_xattr_user_list,
 };
 
-const struct xattr_handler *ntfs_xattr_handlers[] = {
+const struct xattr_handler * const ntfs_xattr_handlers[] = {
 	&ntfs_other_xattr_handler,
 	NULL,
 };

@@ -543,9 +543,10 @@ out:
 }
 
 static int
-nfs3_proc_symlink(struct inode *dir, struct dentry *dentry, struct page *page,
+nfs3_proc_symlink(struct inode *dir, struct dentry *dentry, struct folio *folio,
 		  unsigned int len, struct iattr *sattr)
 {
+	struct page *page = &folio->page;
 	struct nfs3_createdata *data;
 	struct dentry *d_alias;
 	int status = -ENOMEM;
@@ -962,7 +963,7 @@ nfs3_proc_lock(struct file *filp, int cmd, struct file_lock *fl)
 	struct nfs_open_context *ctx = nfs_file_open_context(filp);
 	int status;
 
-	if (fl->fl_flags & FL_CLOSE) {
+	if (fl->c.flc_flags & FL_CLOSE) {
 		l_ctx = nfs_get_lock_context(ctx);
 		if (IS_ERR(l_ctx))
 			l_ctx = NULL;
@@ -978,8 +979,15 @@ nfs3_proc_lock(struct file *filp, int cmd, struct file_lock *fl)
 	return status;
 }
 
-static int nfs3_have_delegation(struct inode *inode, fmode_t flags)
+static int nfs3_have_delegation(struct inode *inode, fmode_t type, int flags)
 {
+	return 0;
+}
+
+static int nfs3_return_delegation(struct inode *inode)
+{
+	if (S_ISREG(inode->i_mode))
+		nfs_wb_all(inode);
 	return 0;
 }
 
@@ -1061,6 +1069,7 @@ const struct nfs_rpc_ops nfs_v3_clientops = {
 	.clear_acl_cache = forget_all_cached_acls,
 	.close_context	= nfs_close_context,
 	.have_delegation = nfs3_have_delegation,
+	.return_delegation = nfs3_return_delegation,
 	.alloc_client	= nfs_alloc_client,
 	.init_client	= nfs_init_client,
 	.free_client	= nfs_free_client,

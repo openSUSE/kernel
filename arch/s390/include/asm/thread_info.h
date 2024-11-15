@@ -16,7 +16,7 @@
 /*
  * General size of kernel stacks
  */
-#ifdef CONFIG_KASAN
+#if defined(CONFIG_KASAN) || defined(CONFIG_KMSAN)
 #define THREAD_SIZE_ORDER 4
 #else
 #define THREAD_SIZE_ORDER 2
@@ -40,6 +40,7 @@ struct thread_info {
 	unsigned long		flags;		/* low level flags */
 	unsigned long		syscall_work;	/* SYSCALL_WORK_ flags */
 	unsigned int		cpu;		/* current CPU */
+	unsigned char		sie;		/* running in SIE context */
 };
 
 /*
@@ -51,9 +52,6 @@ struct thread_info {
 }
 
 struct task_struct;
-
-void arch_release_task_struct(struct task_struct *tsk);
-int arch_dup_task_struct(struct task_struct *dst, struct task_struct *src);
 
 void arch_setup_new_exec(void);
 #define arch_setup_new_exec arch_setup_new_exec

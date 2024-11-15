@@ -701,7 +701,7 @@ void exit_lazy_flush_tlb(struct mm_struct *mm, bool always_flush)
 	 * that's what the caller expects.
 	 */
 	if (cpumask_test_cpu(cpu, mm_cpumask(mm))) {
-		atomic_dec(&mm->context.active_cpus);
+		dec_mm_active_cpus(mm);
 		cpumask_clear_cpu(cpu, mm_cpumask(mm));
 		always_flush = true;
 	}
@@ -1197,7 +1197,28 @@ void radix__tlb_flush(struct mmu_gather *tlb)
 	 * See the comment for radix in arch_exit_mmap().
 	 */
 	if (tlb->fullmm) {
-		__flush_all_mm(mm, true);
+		if (IS_ENABLED(CONFIG_MMU_LAZY_TLB_SHOOTDOWN)) {
+			/*
+			 * Shootdown based lazy tlb mm refcounting means we
+			 * have to IPI everyone in the mm_cpumask anyway soon
+			 * when the mm goes away, so might as well do it as
+			 * part of the final flush now.
+			 *
+			 * If lazy shootdown was improved to reduce IPIs (e.g.,
+			 * by batching), then it may end up being better to use
+			 * tlbies here instead.
+			 */
+			preempt_disable();
+
+			smp_mb(); /* see radix__flush_tlb_mm */
+			exit_flush_lazy_tlbs(mm);
+			__flush_all_mm(mm, true);
+
+			preempt_enable();
+		} else {
+			__flush_all_mm(mm, true);
+		}
+
 	} else if ( (psize = radix_get_mmu_psize(page_size)) == -1) {
 		if (!tlb->freed_tables)
 			radix__flush_tlb_mm(mm);
@@ -1345,6 +1366,13 @@ void radix__flush_pmd_tlb_range(struct vm_area_struct *vma,
 	radix__flush_tlb_range_psize(vma->vm_mm, start, end, MMU_PAGE_2M);
 }
 EXPORT_SYMBOL(radix__flush_pmd_tlb_range);
+
+void radix__flush_pud_tlb_range(struct vm_area_struct *vma,
+				unsigned long start, unsigned long end)
+{
+	radix__flush_tlb_range_psize(vma->vm_mm, start, end, MMU_PAGE_1G);
+}
+EXPORT_SYMBOL(radix__flush_pud_tlb_range);
 
 void radix__flush_tlb_all(void)
 {

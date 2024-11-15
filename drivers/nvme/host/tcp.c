@@ -191,7 +191,7 @@ struct nvme_tcp_ctrl {
 	struct sockaddr_storage src_addr;
 	struct nvme_ctrl	ctrl;
 
-	struct delayed_work	err_work;
+	struct work_struct	err_work;
 	struct delayed_work	connect_work;
 	struct nvme_tcp_request async_req;
 	u32			io_queues[HCTX_MAX_TYPES];
@@ -586,25 +586,13 @@ static void nvme_tcp_init_recv_ctx(struct nvme_tcp_queue *queue)
 	queue->ddgst_remaining = 0;
 }
 
-/*
- * Error recovery needs to be started after KATO expired,
- * always delay until the next KATO interval before
- * starting error recovery.
- */
 static void nvme_tcp_error_recovery(struct nvme_ctrl *ctrl)
 {
-	unsigned long delay;
-
 	if (!nvme_change_ctrl_state(ctrl, NVME_CTRL_RESETTING))
 		return;
 
-	delay = ctrl->opts->recovery_delay * HZ;
-	if (!delay)
-		delay = nvme_keep_alive_work_period(ctrl);
-
-	dev_warn(ctrl->device, "starting error recovery in %lu seconds\n",
-		 delay / HZ);
-	queue_delayed_work(nvme_reset_wq, &to_tcp_ctrl(ctrl)->err_work, delay);
+	dev_warn(ctrl->device, "starting error recovery\n");
+	queue_work(nvme_reset_wq, &to_tcp_ctrl(ctrl)->err_work);
 }
 
 static int nvme_tcp_process_nvme_cqe(struct nvme_tcp_queue *queue,
@@ -1078,7 +1066,7 @@ static int nvme_tcp_try_send_data(struct nvme_tcp_request *req)
 		else
 			msg.msg_flags |= MSG_MORE;
 
-		if (!sendpage_ok(page))
+		if (!sendpages_ok(page, len, offset))
 			msg.msg_flags &= ~MSG_SPLICE_PAGES;
 
 		bvec_set_page(&bvec, page, len, offset);
@@ -1385,7 +1373,6 @@ static int nvme_tcp_alloc_async_req(struct nvme_tcp_ctrl *ctrl)
 
 static void nvme_tcp_free_queue(struct nvme_ctrl *nctrl, int qid)
 {
-	struct page *page;
 	struct nvme_tcp_ctrl *ctrl = to_tcp_ctrl(nctrl);
 	struct nvme_tcp_queue *queue = &ctrl->queues[qid];
 	unsigned int noreclaim_flag;
@@ -1396,11 +1383,7 @@ static void nvme_tcp_free_queue(struct nvme_ctrl *nctrl, int qid)
 	if (queue->hdr_digest || queue->data_digest)
 		nvme_tcp_free_crypto(queue);
 
-	if (queue->pf_cache.va) {
-		page = virt_to_head_page(queue->pf_cache.va);
-		__page_frag_cache_drain(page, queue->pf_cache.pagecnt_bias);
-		queue->pf_cache.va = NULL;
-	}
+	page_frag_cache_drain(&queue->pf_cache);
 
 	noreclaim_flag = memalloc_noreclaim_save();
 	/* ->sock will be released by fput() */
@@ -2312,22 +2295,22 @@ static void nvme_tcp_reconnect_ctrl_work(struct work_struct *work)
 	if (ret)
 		goto requeue;
 
-	dev_info(ctrl->device, "Successfully reconnected (%d attempt)\n",
-			ctrl->nr_reconnects);
+	dev_info(ctrl->device, "Successfully reconnected (attempt %d/%d)\n",
+		 ctrl->nr_reconnects, ctrl->opts->max_reconnects);
 
 	ctrl->nr_reconnects = 0;
 
 	return;
 
 requeue:
-	dev_info(ctrl->device, "Failed reconnect attempt %d\n",
-			ctrl->nr_reconnects);
+	dev_info(ctrl->device, "Failed reconnect attempt %d/%d\n",
+		 ctrl->nr_reconnects, ctrl->opts->max_reconnects);
 	nvme_tcp_reconnect_or_remove(ctrl, ret);
 }
 
 static void nvme_tcp_error_recovery_work(struct work_struct *work)
 {
-	struct nvme_tcp_ctrl *tcp_ctrl = container_of(to_delayed_work(work),
+	struct nvme_tcp_ctrl *tcp_ctrl = container_of(work,
 				struct nvme_tcp_ctrl, err_work);
 	struct nvme_ctrl *ctrl = &tcp_ctrl->ctrl;
 
@@ -2396,7 +2379,7 @@ out_fail:
 
 static void nvme_tcp_stop_ctrl(struct nvme_ctrl *ctrl)
 {
-	flush_delayed_work(&to_tcp_ctrl(ctrl)->err_work);
+	flush_work(&to_tcp_ctrl(ctrl)->err_work);
 	cancel_delayed_work_sync(&to_tcp_ctrl(ctrl)->connect_work);
 }
 
@@ -2490,21 +2473,13 @@ static enum blk_eh_timer_return nvme_tcp_timeout(struct request *rq)
 	struct nvme_tcp_request *req = blk_mq_rq_to_pdu(rq);
 	struct nvme_ctrl *ctrl = &req->queue->ctrl->ctrl;
 	struct nvme_tcp_cmd_pdu *pdu = nvme_tcp_req_cmd_pdu(req);
-	u8 opc = pdu->cmd.common.opcode, fctype = pdu->cmd.fabrics.fctype;
+	struct nvme_command *cmd = &pdu->cmd;
 	int qid = nvme_tcp_queue_id(req->queue);
 
 	dev_warn(ctrl->device,
-		"queue %d: timeout cid %#x type %d opcode %#x (%s)\n",
-		nvme_tcp_queue_id(req->queue), nvme_cid(rq), pdu->hdr.type,
-		opc, nvme_opcode_str(qid, opc, fctype));
-
-	/*
-	 * If the error recovery is started all commands will be
-	 * aborted anyway, and nothing is to be done here.
-	 */
-	if (nvme_ctrl_state(ctrl) == NVME_CTRL_RESETTING &&
-	    delayed_work_pending(&to_tcp_ctrl(ctrl)->err_work))
-		return BLK_EH_RESET_TIMER;
+		 "I/O tag %d (%04x) type %d opcode %#x (%s) QID %d timeout\n",
+		 rq->tag, nvme_cid(rq), pdu->hdr.type, cmd->common.opcode,
+		 nvme_fabrics_opcode_str(qid, cmd), qid);
 
 	if (nvme_ctrl_state(ctrl) != NVME_CTRL_LIVE) {
 		/*
@@ -2669,10 +2644,11 @@ static int nvme_tcp_get_address(struct nvme_ctrl *ctrl, char *buf, int size)
 
 	len = nvmf_get_address(ctrl, buf, size);
 
+	if (!test_bit(NVME_TCP_Q_LIVE, &queue->flags))
+		return len;
+
 	mutex_lock(&queue->queue_lock);
 
-	if (!test_bit(NVME_TCP_Q_LIVE, &queue->flags))
-		goto done;
 	ret = kernel_getsockname(queue->sock, (struct sockaddr *)&src_addr);
 	if (ret > 0) {
 		if (len > 0)
@@ -2680,7 +2656,7 @@ static int nvme_tcp_get_address(struct nvme_ctrl *ctrl, char *buf, int size)
 		len += scnprintf(buf + len, size - len, "%ssrc_addr=%pISc\n",
 				(len) ? "," : "", &src_addr);
 	}
-done:
+
 	mutex_unlock(&queue->queue_lock);
 
 	return len;
@@ -2739,7 +2715,7 @@ nvme_tcp_existing_controller(struct nvmf_ctrl_options *opts)
 	return found;
 }
 
-static struct nvme_ctrl *nvme_tcp_create_ctrl(struct device *dev,
+static struct nvme_tcp_ctrl *nvme_tcp_alloc_ctrl(struct device *dev,
 		struct nvmf_ctrl_options *opts)
 {
 	struct nvme_tcp_ctrl *ctrl;
@@ -2758,8 +2734,7 @@ static struct nvme_ctrl *nvme_tcp_create_ctrl(struct device *dev,
 
 	INIT_DELAYED_WORK(&ctrl->connect_work,
 			nvme_tcp_reconnect_ctrl_work);
-	INIT_DELAYED_WORK(&ctrl->err_work,
-			  nvme_tcp_error_recovery_work);
+	INIT_WORK(&ctrl->err_work, nvme_tcp_error_recovery_work);
 	INIT_WORK(&ctrl->ctrl.reset_work, nvme_reset_ctrl_work);
 
 	if (!(opts->mask & NVMF_OPT_TRSVCID)) {
@@ -2815,6 +2790,28 @@ static struct nvme_ctrl *nvme_tcp_create_ctrl(struct device *dev,
 	if (ret)
 		goto out_kfree_queues;
 
+	return ctrl;
+out_kfree_queues:
+	kfree(ctrl->queues);
+out_free_ctrl:
+	kfree(ctrl);
+	return ERR_PTR(ret);
+}
+
+static struct nvme_ctrl *nvme_tcp_create_ctrl(struct device *dev,
+		struct nvmf_ctrl_options *opts)
+{
+	struct nvme_tcp_ctrl *ctrl;
+	int ret;
+
+	ctrl = nvme_tcp_alloc_ctrl(dev, opts);
+	if (IS_ERR(ctrl))
+		return ERR_CAST(ctrl);
+
+	ret = nvme_add_ctrl(&ctrl->ctrl);
+	if (ret)
+		goto out_put_ctrl;
+
 	if (!nvme_change_ctrl_state(&ctrl->ctrl, NVME_CTRL_CONNECTING)) {
 		WARN_ON_ONCE(1);
 		ret = -EINTR;
@@ -2825,8 +2822,8 @@ static struct nvme_ctrl *nvme_tcp_create_ctrl(struct device *dev,
 	if (ret)
 		goto out_uninit_ctrl;
 
-	dev_info(ctrl->ctrl.device, "new ctrl: NQN \"%s\", addr %pISp\n",
-		nvmf_ctrl_subsysnqn(&ctrl->ctrl), &ctrl->addr);
+	dev_info(ctrl->ctrl.device, "new ctrl: NQN \"%s\", addr %pISp, hostnqn: %s\n",
+		nvmf_ctrl_subsysnqn(&ctrl->ctrl), &ctrl->addr, opts->host->nqn);
 
 	mutex_lock(&nvme_tcp_ctrl_mutex);
 	list_add_tail(&ctrl->list, &nvme_tcp_ctrl_list);
@@ -2836,14 +2833,10 @@ static struct nvme_ctrl *nvme_tcp_create_ctrl(struct device *dev,
 
 out_uninit_ctrl:
 	nvme_uninit_ctrl(&ctrl->ctrl);
+out_put_ctrl:
 	nvme_put_ctrl(&ctrl->ctrl);
 	if (ret > 0)
 		ret = -EIO;
-	return ERR_PTR(ret);
-out_kfree_queues:
-	kfree(ctrl->queues);
-out_free_ctrl:
-	kfree(ctrl);
 	return ERR_PTR(ret);
 }
 
@@ -2902,4 +2895,5 @@ static void __exit nvme_tcp_cleanup_module(void)
 module_init(nvme_tcp_init_module);
 module_exit(nvme_tcp_cleanup_module);
 
+MODULE_DESCRIPTION("NVMe host TCP transport driver");
 MODULE_LICENSE("GPL v2");

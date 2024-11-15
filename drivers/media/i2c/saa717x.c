@@ -1334,7 +1334,7 @@ static void saa717x_remove(struct i2c_client *client)
 /* ----------------------------------------------------------------------- */
 
 static const struct i2c_device_id saa717x_id[] = {
-	{ "saa717x", 0 },
+	{ "saa717x" },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, saa717x_id);
@@ -1343,7 +1343,7 @@ static struct i2c_driver saa717x_driver = {
 	.driver = {
 		.name	= "saa717x",
 	},
-	.probe_new	= saa717x_probe,
+	.probe		= saa717x_probe,
 	.remove		= saa717x_remove,
 	.id_table	= saa717x_id,
 };

@@ -21,8 +21,7 @@
  */
 static int pkcs7_validate_trust_one(struct pkcs7_message *pkcs7,
 				    struct pkcs7_signed_info *sinfo,
-				    struct key *trust_keyring,
-				    enum key_being_used_for usage)
+				    struct key *trust_keyring)
 {
 	struct public_key_signature *sig = sinfo->sig;
 	struct x509_certificate *x509, *last = NULL, *p;
@@ -113,14 +112,6 @@ static int pkcs7_validate_trust_one(struct pkcs7_message *pkcs7,
 	return -ENOKEY;
 
 matched:
-	/* when sig equals to sinfo->sig, means we are in the last resort
-	 * the CodeSigning should be checked */
-	if ((sig == sinfo->sig) && !check_codesign_eku_by_key(key, usage)) {
-		pr_warn("sinfo %u: The signer %x key is not CodeSigning\n",
-			sinfo->index, key_serial(key));
-		key_put(key);
-		return -ENOKEY;
-	}
 	ret = verify_signature(key, sig);
 	key_put(key);
 	if (ret < 0) {
@@ -165,8 +156,7 @@ verified:
  * May also return -ENOMEM.
  */
 int pkcs7_validate_trust(struct pkcs7_message *pkcs7,
-			 struct key *trust_keyring,
-			 enum key_being_used_for usage)
+			 struct key *trust_keyring)
 {
 	struct pkcs7_signed_info *sinfo;
 	struct x509_certificate *p;
@@ -177,7 +167,7 @@ int pkcs7_validate_trust(struct pkcs7_message *pkcs7,
 		p->seen = false;
 
 	for (sinfo = pkcs7->signed_infos; sinfo; sinfo = sinfo->next) {
-		ret = pkcs7_validate_trust_one(pkcs7, sinfo, trust_keyring, usage);
+		ret = pkcs7_validate_trust_one(pkcs7, sinfo, trust_keyring);
 		switch (ret) {
 		case -ENOKEY:
 			continue;

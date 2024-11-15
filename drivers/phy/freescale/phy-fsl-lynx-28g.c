@@ -2,6 +2,7 @@
 /* Copyright (c) 2021-2022 NXP. */
 
 #include <linux/module.h>
+#include <linux/of.h>
 #include <linux/phy.h>
 #include <linux/phy/phy.h>
 #include <linux/platform_device.h>
@@ -555,7 +556,7 @@ static void lynx_28g_lane_read_configuration(struct lynx_28g_lane *lane)
 }
 
 static struct phy *lynx_28g_xlate(struct device *dev,
-				  struct of_phandle_args *args)
+				  const struct of_phandle_args *args)
 {
 	struct lynx_28g_priv *priv = dev_get_drvdata(dev);
 	int idx = args->args[0];

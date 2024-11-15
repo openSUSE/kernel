@@ -16,7 +16,7 @@
 #include <linux/spinlock.h>
 
 static DEFINE_IDA(fpga_region_ida);
-static struct class *fpga_region_class;
+static const struct class fpga_region_class;
 
 struct fpga_region *
 fpga_region_class_find(struct device *start, const void *data,
@@ -24,7 +24,7 @@ fpga_region_class_find(struct device *start, const void *data,
 {
 	struct device *dev;
 
-	dev = class_find_device(fpga_region_class, start, data, match);
+	dev = class_find_device(&fpga_region_class, start, data, match);
 	if (!dev)
 		return NULL;
 
@@ -38,9 +38,10 @@ EXPORT_SYMBOL_GPL(fpga_region_class_find);
  *
  * Caller should call fpga_region_put() when done with region.
  *
- * Return fpga_region struct if successful.
- * Return -EBUSY if someone already has a reference to the region.
- * Return -ENODEV if @np is not an FPGA Region.
+ * Return:
+ * * fpga_region struct if successful.
+ * * -EBUSY if someone already has a reference to the region.
+ * * -ENODEV if can't take parent driver module refcount.
  */
 static struct fpga_region *fpga_region_get(struct fpga_region *region)
 {
@@ -91,7 +92,7 @@ static void fpga_region_put(struct fpga_region *region)
  * The caller will need to call fpga_bridges_put() before attempting to
  * reprogram the region.
  *
- * Return 0 for success or negative error code.
+ * Return: 0 for success or negative error code.
  */
 int fpga_region_program_fpga(struct fpga_region *region)
 {
@@ -219,7 +220,7 @@ __fpga_region_register_full(struct device *parent, const struct fpga_region_info
 	mutex_init(&region->mutex);
 	INIT_LIST_HEAD(&region->bridge_list);
 
-	region->dev.class = fpga_region_class;
+	region->dev.class = &fpga_region_class;
 	region->dev.parent = parent;
 	region->dev.of_node = parent->of_node;
 	region->dev.id = id;
@@ -244,15 +245,6 @@ err_free:
 	return ERR_PTR(ret);
 }
 EXPORT_SYMBOL_GPL(__fpga_region_register_full);
-
-/* FIXME: provided only for kABI compatibility */
-#undef fpga_region_register_full
-struct fpga_region *
-fpga_region_register_full(struct device *parent, const struct fpga_region_info *info)
-{
-	return __fpga_region_register_full(parent, info, parent->driver->owner);
-}
-EXPORT_SYMBOL_GPL(fpga_region_register_full);
 
 /**
  * __fpga_region_register - create and register an FPGA Region device
@@ -280,17 +272,6 @@ __fpga_region_register(struct device *parent, struct fpga_manager *mgr,
 }
 EXPORT_SYMBOL_GPL(__fpga_region_register);
 
-/* FIXME: provided only for kABI compatibility */
-#undef fpga_region_register
-struct fpga_region *
-fpga_region_register(struct device *parent, struct fpga_manager *mgr,
-		     int (*get_bridges)(struct fpga_region *))
-{
-	return __fpga_region_register(parent, mgr, get_bridges,
-				      parent->driver->owner);
-}
-EXPORT_SYMBOL_GPL(fpga_region_register);
-
 /**
  * fpga_region_unregister - unregister an FPGA region
  * @region: FPGA region
@@ -311,25 +292,25 @@ static void fpga_region_dev_release(struct device *dev)
 	kfree(region);
 }
 
+static const struct class fpga_region_class = {
+	.name = "fpga_region",
+	.dev_groups = fpga_region_groups,
+	.dev_release = fpga_region_dev_release,
+};
+
 /**
- * fpga_region_init - init function for fpga_region class
- * Creates the fpga_region class and registers a reconfig notifier.
+ * fpga_region_init - creates the fpga_region class.
+ *
+ * Return: 0 on success or ERR_PTR() on error.
  */
 static int __init fpga_region_init(void)
 {
-	fpga_region_class = class_create("fpga_region");
-	if (IS_ERR(fpga_region_class))
-		return PTR_ERR(fpga_region_class);
-
-	fpga_region_class->dev_groups = fpga_region_groups;
-	fpga_region_class->dev_release = fpga_region_dev_release;
-
-	return 0;
+	return class_register(&fpga_region_class);
 }
 
 static void __exit fpga_region_exit(void)
 {
-	class_destroy(fpga_region_class);
+	class_unregister(&fpga_region_class);
 	ida_destroy(&fpga_region_ida);
 }
 

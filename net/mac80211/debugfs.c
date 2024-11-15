@@ -4,7 +4,7 @@
  *
  * Copyright 2007	Johannes Berg <johannes@sipsolutions.net>
  * Copyright 2013-2014  Intel Mobile Communications GmbH
- * Copyright (C) 2018 - 2019, 2021-2023 Intel Corporation
+ * Copyright (C) 2018 - 2019, 2021-2024 Intel Corporation
  */
 
 #include <linux/debugfs.h>
@@ -483,7 +483,6 @@ static const char *hw_flag_names[] = {
 	FLAG(REPORTS_LOW_ACK),
 	FLAG(SUPPORTS_TX_FRAG),
 	FLAG(SUPPORTS_TDLS_BUFFER_STA),
-	FLAG(DEAUTH_NEED_MGD_TX_PREP),
 	FLAG(DOESNT_SUPPORT_QOS_NDP),
 	FLAG(BUFF_MMPDU_TXQ),
 	FLAG(SUPPORTS_VHT_EXT_NSS_BW),
@@ -498,6 +497,8 @@ static const char *hw_flag_names[] = {
 	FLAG(DETECTS_COLOR_COLLISION),
 	FLAG(MLO_MCAST_MULTI_LINK_TX),
 	FLAG(DISALLOW_PUNCTURING),
+	FLAG(DISALLOW_PUNCTURING_5GHZ),
+	FLAG(HANDLES_QUIET_CSA),
 #undef FLAG
 };
 

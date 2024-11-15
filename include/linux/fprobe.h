@@ -7,6 +7,16 @@
 #include <linux/ftrace.h>
 #include <linux/rethook.h>
 
+struct fprobe;
+
+typedef int (*fprobe_entry_cb)(struct fprobe *fp, unsigned long entry_ip,
+			       unsigned long ret_ip, struct pt_regs *regs,
+			       void *entry_data);
+
+typedef void (*fprobe_exit_cb)(struct fprobe *fp, unsigned long entry_ip,
+			       unsigned long ret_ip, struct pt_regs *regs,
+			       void *entry_data);
+
 /**
  * struct fprobe - ftrace based probe.
  * @ops: The ftrace_ops.
@@ -34,12 +44,8 @@ struct fprobe {
 	size_t			entry_data_size;
 	int			nr_maxactive;
 
-	int (*entry_handler)(struct fprobe *fp, unsigned long entry_ip,
-			     unsigned long ret_ip, struct pt_regs *regs,
-			     void *entry_data);
-	void (*exit_handler)(struct fprobe *fp, unsigned long entry_ip,
-			     unsigned long ret_ip, struct pt_regs *regs,
-			     void *entry_data);
+	fprobe_entry_cb entry_handler;
+	fprobe_exit_cb  exit_handler;
 };
 
 /* This fprobe is soft-disabled. */
@@ -66,6 +72,7 @@ int register_fprobe(struct fprobe *fp, const char *filter, const char *notfilter
 int register_fprobe_ips(struct fprobe *fp, unsigned long *addrs, int num);
 int register_fprobe_syms(struct fprobe *fp, const char **syms, int num);
 int unregister_fprobe(struct fprobe *fp);
+bool fprobe_is_registered(struct fprobe *fp);
 #else
 static inline int register_fprobe(struct fprobe *fp, const char *filter, const char *notfilter)
 {
@@ -82,6 +89,10 @@ static inline int register_fprobe_syms(struct fprobe *fp, const char **syms, int
 static inline int unregister_fprobe(struct fprobe *fp)
 {
 	return -EOPNOTSUPP;
+}
+static inline bool fprobe_is_registered(struct fprobe *fp)
+{
+	return false;
 }
 #endif
 

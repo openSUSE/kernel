@@ -1373,6 +1373,8 @@ static bool mxc_jpeg_source_change(struct mxc_jpeg_ctx *ctx,
 		q_data_cap->crop.top = 0;
 		q_data_cap->crop.width = jpeg_src_buf->w;
 		q_data_cap->crop.height = jpeg_src_buf->h;
+		q_data_cap->bytesperline[0] = 0;
+		q_data_cap->bytesperline[1] = 0;
 
 		/*
 		 * align up the resolution for CAST IP,
@@ -1755,6 +1757,14 @@ static u32 mxc_jpeg_get_image_format(struct device *dev,
 
 static void mxc_jpeg_bytesperline(struct mxc_jpeg_q_data *q, u32 precision)
 {
+	u32 bytesperline[2];
+
+	bytesperline[0] = q->bytesperline[0];
+	bytesperline[1] = q->bytesperline[0];	/*imx-jpeg only support the same line pitch*/
+	v4l_bound_align_image(&bytesperline[0], 0, MXC_JPEG_MAX_LINE, 2,
+			      &bytesperline[1], 0, MXC_JPEG_MAX_LINE, 2,
+			      0);
+
 	/* Bytes distance between the leftmost pixels in two adjacent lines */
 	if (q->fmt->fourcc == V4L2_PIX_FMT_JPEG) {
 		/* bytesperline unused for compressed formats */
@@ -1777,6 +1787,12 @@ static void mxc_jpeg_bytesperline(struct mxc_jpeg_q_data *q, u32 precision)
 		/* grayscale */
 		q->bytesperline[0] = q->w_adjusted * DIV_ROUND_UP(precision, 8);
 		q->bytesperline[1] = 0;
+	}
+
+	if (q->fmt->fourcc != V4L2_PIX_FMT_JPEG) {
+		q->bytesperline[0] = max(q->bytesperline[0], bytesperline[0]);
+		if (q->fmt->mem_planes > 1)
+			q->bytesperline[1] = max(q->bytesperline[1], bytesperline[1]);
 	}
 }
 
@@ -2760,7 +2776,6 @@ static int mxc_jpeg_probe(struct platform_device *pdev)
 	dev_info(&pdev->dev, "choose slot %d\n", jpeg->slot_data.slot);
 	dec_irq = platform_get_irq(pdev, 0);
 	if (dec_irq < 0) {
-		dev_err(&pdev->dev, "Failed to get irq %d\n", dec_irq);
 		ret = dec_irq;
 		goto err_irq;
 	}
@@ -2787,7 +2802,7 @@ static int mxc_jpeg_probe(struct platform_device *pdev)
 	ret = mxc_jpeg_attach_pm_domains(jpeg);
 	if (ret < 0) {
 		dev_err(dev, "failed to attach power domains %d\n", ret);
-		return ret;
+		goto err_clk;
 	}
 
 	/* v4l2 */

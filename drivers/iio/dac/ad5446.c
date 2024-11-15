@@ -22,7 +22,7 @@
 #include <linux/iio/iio.h>
 #include <linux/iio/sysfs.h>
 
-#include <asm/unaligned.h>
+#include <linux/unaligned.h>
 
 #define MODE_PWRDWN_1k		0x1
 #define MODE_PWRDWN_100k	0x2
@@ -595,7 +595,7 @@ static struct i2c_driver ad5446_i2c_driver = {
 	.driver = {
 		   .name = "ad5446",
 	},
-	.probe_new = ad5446_i2c_probe,
+	.probe = ad5446_i2c_probe,
 	.remove = ad5446_i2c_remove,
 	.id_table = ad5446_i2c_ids,
 };

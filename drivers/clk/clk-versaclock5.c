@@ -19,7 +19,7 @@
 #include <linux/mod_devicetable.h>
 #include <linux/module.h>
 #include <linux/of.h>
-#include <linux/of_platform.h>
+#include <linux/property.h>
 #include <linux/regmap.h>
 #include <linux/slab.h>
 
@@ -217,7 +217,7 @@ static bool vc5_regmap_is_writeable(struct device *dev, unsigned int reg)
 static const struct regmap_config vc5_regmap_config = {
 	.reg_bits = 8,
 	.val_bits = 8,
-	.cache_type = REGCACHE_RBTREE,
+	.cache_type = REGCACHE_MAPLE,
 	.max_register = 0x76,
 	.writeable_reg = vc5_regmap_is_writeable,
 };
@@ -281,6 +281,7 @@ static int vc5_mux_set_parent(struct clk_hw *hw, u8 index)
 }
 
 static const struct clk_ops vc5_mux_ops = {
+	.determine_rate	= clk_hw_determine_rate_no_reparent,
 	.set_parent	= vc5_mux_set_parent,
 	.get_parent	= vc5_mux_get_parent,
 };
@@ -725,6 +726,7 @@ static int vc5_clk_out_set_parent(struct clk_hw *hw, u8 index)
 static const struct clk_ops vc5_clk_out_ops = {
 	.prepare	= vc5_clk_out_prepare,
 	.unprepare	= vc5_clk_out_unprepare,
+	.determine_rate	= clk_hw_determine_rate_no_reparent,
 	.set_parent	= vc5_clk_out_set_parent,
 	.get_parent	= vc5_clk_out_get_parent,
 };
@@ -953,7 +955,7 @@ static int vc5_probe(struct i2c_client *client)
 
 	i2c_set_clientdata(client, vc5);
 	vc5->client = client;
-	vc5->chip_info = of_device_get_match_data(&client->dev);
+	vc5->chip_info = i2c_get_match_data(client);
 
 	vc5->pin_xin = devm_clk_get(&client->dev, "xin");
 	if (PTR_ERR(vc5->pin_xin) == -EPROBE_DEFER)
@@ -1333,7 +1335,7 @@ static struct i2c_driver vc5_driver = {
 		.pm	= &vc5_pm_ops,
 		.of_match_table = clk_vc5_of_match,
 	},
-	.probe_new	= vc5_probe,
+	.probe		= vc5_probe,
 	.remove		= vc5_remove,
 	.id_table	= vc5_id,
 };

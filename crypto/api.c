@@ -21,7 +21,6 @@
 #include <linux/slab.h>
 #include <linux/string.h>
 #include <linux/completion.h>
-#include <linux/fips.h>
 #include "internal.h"
 
 LIST_HEAD(crypto_alg_list);
@@ -32,12 +31,14 @@ EXPORT_SYMBOL_GPL(crypto_alg_sem);
 BLOCKING_NOTIFIER_HEAD(crypto_chain);
 EXPORT_SYMBOL_GPL(crypto_chain);
 
-#ifndef CONFIG_CRYPTO_MANAGER_DISABLE_TESTS
+#if IS_BUILTIN(CONFIG_CRYPTO_ALGAPI) && \
+    !IS_ENABLED(CONFIG_CRYPTO_MANAGER_DISABLE_TESTS)
 DEFINE_STATIC_KEY_FALSE(__crypto_boot_test_finished);
-EXPORT_SYMBOL_GPL(__crypto_boot_test_finished);
 #endif
 
 static struct crypto_alg *crypto_larval_wait(struct crypto_alg *alg);
+static struct crypto_alg *crypto_alg_lookup(const char *name, u32 type,
+					    u32 mask);
 
 struct crypto_alg *crypto_mod_get(struct crypto_alg *alg)
 {
@@ -67,11 +68,6 @@ static struct crypto_alg *__crypto_alg_lookup(const char *name, u32 type,
 			continue;
 
 		if ((q->cra_flags ^ type) & mask)
-			continue;
-
-		if (crypto_is_larval(q) &&
-		    !crypto_is_test_larval((struct crypto_larval *)q) &&
-		    ((struct crypto_larval *)q)->mask != mask)
 			continue;
 
 		exact = !strcmp(q->cra_driver_name, name);
@@ -112,6 +108,8 @@ struct crypto_larval *crypto_larval_alloc(const char *name, u32 type, u32 mask)
 	if (!larval)
 		return ERR_PTR(-ENOMEM);
 
+	type &= ~CRYPTO_ALG_TYPE_MASK | (mask ?: CRYPTO_ALG_TYPE_MASK);
+
 	larval->mask = mask;
 	larval->alg.cra_flags = CRYPTO_ALG_LARVAL | type;
 	larval->alg.cra_priority = -1;
@@ -129,15 +127,6 @@ static struct crypto_alg *crypto_larval_add(const char *name, u32 type,
 {
 	struct crypto_alg *alg;
 	struct crypto_larval *larval;
-
-	if (fips_enabled && !((type | mask) & CRYPTO_ALG_TESTED)) {
-		/*
-		 * Make sure the __crypto_alg_lookup() below won't return
-		 * any untested algorithm.
-		 */
-		mask |= CRYPTO_ALG_TESTED;
-		type |= CRYPTO_ALG_TESTED;
-	}
 
 	larval = crypto_larval_alloc(name, type, mask);
 	if (IS_ERR(larval))
@@ -162,32 +151,31 @@ static struct crypto_alg *crypto_larval_add(const char *name, u32 type,
 	return alg;
 }
 
-void crypto_larval_kill(struct crypto_alg *alg)
+static void crypto_larval_kill(struct crypto_larval *larval)
 {
-	struct crypto_larval *larval = (void *)alg;
+	bool unlinked;
 
 	down_write(&crypto_alg_sem);
-	list_del(&alg->cra_list);
+	unlinked = list_empty(&larval->alg.cra_list);
+	if (!unlinked)
+		list_del_init(&larval->alg.cra_list);
 	up_write(&crypto_alg_sem);
-	complete_all(&larval->completion);
-	crypto_alg_put(alg);
-}
-EXPORT_SYMBOL_GPL(crypto_larval_kill);
 
-void crypto_wait_for_test(struct crypto_larval *larval)
+	if (unlinked)
+		return;
+
+	complete_all(&larval->completion);
+	crypto_alg_put(&larval->alg);
+}
+
+void crypto_schedule_test(struct crypto_larval *larval)
 {
 	int err;
 
 	err = crypto_probing_notify(CRYPTO_MSG_ALG_REGISTER, larval->adult);
-	if (WARN_ON_ONCE(err != NOTIFY_STOP))
-		goto out;
-
-	err = wait_for_completion_killable(&larval->completion);
-	WARN_ON(err);
-out:
-	crypto_larval_kill(&larval->alg);
+	WARN_ON_ONCE(err != NOTIFY_STOP);
 }
-EXPORT_SYMBOL_GPL(crypto_wait_for_test);
+EXPORT_SYMBOL_GPL(crypto_schedule_test);
 
 static void crypto_start_test(struct crypto_larval *larval)
 {
@@ -206,28 +194,40 @@ static void crypto_start_test(struct crypto_larval *larval)
 	larval->test_started = true;
 	up_write(&crypto_alg_sem);
 
-	crypto_wait_for_test(larval);
+	crypto_schedule_test(larval);
 }
 
 static struct crypto_alg *crypto_larval_wait(struct crypto_alg *alg)
 {
-	struct crypto_larval *larval = (void *)alg;
-	long timeout;
+	struct crypto_larval *larval;
+	long time_left;
+
+again:
+	larval = container_of(alg, struct crypto_larval, alg);
 
 	if (!crypto_boot_test_finished())
 		crypto_start_test(larval);
 
-	timeout = wait_for_completion_killable_timeout(
+	time_left = wait_for_completion_killable_timeout(
 		&larval->completion, 60 * HZ);
 
 	alg = larval->adult;
-	if (timeout < 0)
+	if (time_left < 0)
 		alg = ERR_PTR(-EINTR);
-	else if (!timeout)
+	else if (!time_left) {
+		if (crypto_is_test_larval(larval))
+			crypto_larval_kill(larval);
 		alg = ERR_PTR(-ETIMEDOUT);
-	else if (!alg)
-		alg = ERR_PTR(-ENOENT);
-	else if (IS_ERR(alg))
+	} else if (!alg) {
+		u32 type;
+		u32 mask;
+
+		alg = &larval->alg;
+		type = alg->cra_flags & ~(CRYPTO_ALG_LARVAL | CRYPTO_ALG_DEAD);
+		mask = larval->mask;
+		alg = crypto_alg_lookup(alg->cra_name, type, mask) ?:
+		      ERR_PTR(-EAGAIN);
+	} else if (IS_ERR(alg))
 		;
 	else if (crypto_is_test_larval(larval) &&
 		 !(alg->cra_flags & CRYPTO_ALG_TESTED))
@@ -237,6 +237,9 @@ static struct crypto_alg *crypto_larval_wait(struct crypto_alg *alg)
 	else if (!crypto_mod_get(alg))
 		alg = ERR_PTR(-EAGAIN);
 	crypto_mod_put(&larval->alg);
+
+	if (!IS_ERR(alg) && crypto_is_larval(alg))
+		goto again;
 
 	return alg;
 }
@@ -289,7 +292,6 @@ static struct crypto_alg *crypto_larval_lookup(const char *name, u32 type,
 	type &= ~(CRYPTO_ALG_LARVAL | CRYPTO_ALG_DEAD);
 	mask &= ~(CRYPTO_ALG_LARVAL | CRYPTO_ALG_DEAD);
 
-again:
 	alg = crypto_alg_lookup(name, type, mask);
 	if (!alg && !(mask & CRYPTO_NOLOAD)) {
 		request_module("crypto-%s", name);
@@ -301,45 +303,14 @@ again:
 		alg = crypto_alg_lookup(name, type, mask);
 	}
 
-	/*
-	 * As a downstream solution, unapproved crypto driver
-	 * instances' tests are forced to fail in FIPS mode from
-	 * testmgr. A lot of those register "fused" implementations of
-	 * certain algorithm constructions, which would otherwise get
-	 * served by some generic templates. However, those driver
-	 * instances are kept on the global algorithms list in failed
-	 * state and crypto_alg_lookup() would return -ELIBBAD upon
-	 * encountering a matching such one. In order to still allow
-	 * the generic template implementations to serve the request,
-	 * check if the the ELIBBAD had been coming from a matching
-	 * template instantiation in failed state and ignore it if
-	 * not.
-	 */
-	if (fips_enabled && IS_ERR(alg) && PTR_ERR(alg) == -ELIBBAD &&
-	    strchr(name, '(')) {
-		alg = crypto_alg_lookup(name,
-					type | CRYPTO_ALG_INSTANCE,
-					mask | CRYPTO_ALG_INSTANCE);
-	}
-
 	if (!IS_ERR_OR_NULL(alg) && crypto_is_larval(alg))
 		alg = crypto_larval_wait(alg);
-	else if (!alg)
+	else if (alg)
+		;
+	else if (!(mask & CRYPTO_ALG_TESTED))
 		alg = crypto_larval_add(name, type, mask);
-
-	/*
-	 * As outlined above, unapproved crypto driver instances'
-	 * tests are forced to fail in FIPS mode from testmgr. If
-	 * crypto_larval_wait() returned -EAGAIN, chances are the wait
-	 * had been on such a driver instance's failed test larval.
-	 * Retry the search in this case.
-	 */
-	if (fips_enabled && IS_ERR(alg) && PTR_ERR(alg) == -EAGAIN) {
-		if (fatal_signal_pending(current))
-			return ERR_PTR(-EINTR);
-		cond_resched();
-		goto again;
-	}
+	else
+		alg = ERR_PTR(-ENOENT);
 
 	return alg;
 }
@@ -386,19 +357,10 @@ struct crypto_alg *crypto_alg_mod_lookup(const char *name, u32 type, u32 mask)
 		crypto_mod_put(larval);
 		alg = ERR_PTR(-ENOENT);
 	}
-	crypto_larval_kill(larval);
+	crypto_larval_kill(container_of(larval, struct crypto_larval, alg));
 	return alg;
 }
 EXPORT_SYMBOL_GPL(crypto_alg_mod_lookup);
-
-static int crypto_init_ops(struct crypto_tfm *tfm, u32 type, u32 mask)
-{
-	const struct crypto_type *type_obj = tfm->__crt_alg->cra_type;
-
-	if (type_obj)
-		return type_obj->init(tfm, type, mask);
-	return 0;
-}
 
 static void crypto_exit_ops(struct crypto_tfm *tfm)
 {
@@ -441,24 +403,20 @@ void crypto_shoot_alg(struct crypto_alg *alg)
 }
 EXPORT_SYMBOL_GPL(crypto_shoot_alg);
 
-struct crypto_tfm *__crypto_alloc_tfm(struct crypto_alg *alg, u32 type,
-				      u32 mask)
+struct crypto_tfm *__crypto_alloc_tfmgfp(struct crypto_alg *alg, u32 type,
+					 u32 mask, gfp_t gfp)
 {
-	struct crypto_tfm *tfm = NULL;
+	struct crypto_tfm *tfm;
 	unsigned int tfm_size;
 	int err = -ENOMEM;
 
 	tfm_size = sizeof(*tfm) + crypto_ctxsize(alg, type, mask);
-	tfm = kzalloc(tfm_size, GFP_KERNEL);
+	tfm = kzalloc(tfm_size, gfp);
 	if (tfm == NULL)
 		goto out_err;
 
 	tfm->__crt_alg = alg;
 	refcount_set(&tfm->refcnt, 1);
-
-	err = crypto_init_ops(tfm, type, mask);
-	if (err)
-		goto out_free_tfm;
 
 	if (!tfm->exit && alg->cra_init && (err = alg->cra_init(tfm)))
 		goto cra_init_failed;
@@ -467,7 +425,6 @@ struct crypto_tfm *__crypto_alloc_tfm(struct crypto_alg *alg, u32 type,
 
 cra_init_failed:
 	crypto_exit_ops(tfm);
-out_free_tfm:
 	if (err == -EAGAIN)
 		crypto_shoot_alg(alg);
 	kfree(tfm);
@@ -475,6 +432,13 @@ out_err:
 	tfm = ERR_PTR(err);
 out:
 	return tfm;
+}
+EXPORT_SYMBOL_GPL(__crypto_alloc_tfmgfp);
+
+struct crypto_tfm *__crypto_alloc_tfm(struct crypto_alg *alg, u32 type,
+				      u32 mask)
+{
+	return __crypto_alloc_tfmgfp(alg, type, mask, GFP_KERNEL);
 }
 EXPORT_SYMBOL_GPL(__crypto_alloc_tfm);
 

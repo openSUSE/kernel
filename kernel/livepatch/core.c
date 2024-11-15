@@ -20,7 +20,6 @@
 #include <linux/completion.h>
 #include <linux/memory.h>
 #include <linux/rcupdate.h>
-#include <uapi/linux/livepatch.h>
 #include <asm/cacheflush.h>
 #include "core.h"
 #include "patch.h"
@@ -227,7 +226,7 @@ static int klp_resolve_symbols(Elf_Shdr *sechdrs, const char *strtab,
 
 		/* Format: .klp.sym.sym_objname.sym_name,sympos */
 		cnt = sscanf(strtab + sym->st_name,
-			     KLP_SYM_PREFIX "%55[^.].%511[^,],%lu",
+			     ".klp.sym.%55[^.].%511[^,],%lu",
 			     sym_objname, sym_name, &sympos);
 		if (cnt != 3) {
 			pr_err("symbol %s has an incorrectly formatted name\n",
@@ -306,7 +305,7 @@ static int klp_write_section_relocs(struct module *pmod, Elf_Shdr *sechdrs,
 	 * See comment in klp_resolve_symbols() for an explanation
 	 * of the selected field width value.
 	 */
-	cnt = sscanf(shstrtab + sec->sh_name, KLP_RELA_PREFIX "%55[^.]",
+	cnt = sscanf(shstrtab + sec->sh_name, ".klp.rela.%55[^.]",
 		     sec_objname);
 	if (cnt != 1) {
 		pr_err("section %s has an incorrectly formatted name\n",
@@ -347,6 +346,7 @@ int klp_apply_section_relocs(struct module *pmod, Elf_Shdr *sechdrs,
  * /sys/kernel/livepatch/<patch>/enabled
  * /sys/kernel/livepatch/<patch>/transition
  * /sys/kernel/livepatch/<patch>/force
+ * /sys/kernel/livepatch/<patch>/replace
  * /sys/kernel/livepatch/<patch>/<object>
  * /sys/kernel/livepatch/<patch>/<object>/patched
  * /sys/kernel/livepatch/<patch>/<object>/<function,sympos>
@@ -402,7 +402,7 @@ static ssize_t enabled_show(struct kobject *kobj,
 	struct klp_patch *patch;
 
 	patch = container_of(kobj, struct klp_patch, kobj);
-	return snprintf(buf, PAGE_SIZE-1, "%d\n", patch->enabled);
+	return sysfs_emit(buf, "%d\n", patch->enabled);
 }
 
 static ssize_t transition_show(struct kobject *kobj,
@@ -411,8 +411,7 @@ static ssize_t transition_show(struct kobject *kobj,
 	struct klp_patch *patch;
 
 	patch = container_of(kobj, struct klp_patch, kobj);
-	return snprintf(buf, PAGE_SIZE-1, "%d\n",
-			patch == klp_transition_patch);
+	return sysfs_emit(buf, "%d\n", patch == klp_transition_patch);
 }
 
 static ssize_t force_store(struct kobject *kobj, struct kobj_attribute *attr,
@@ -444,13 +443,24 @@ static ssize_t force_store(struct kobject *kobj, struct kobj_attribute *attr,
 	return count;
 }
 
+static ssize_t replace_show(struct kobject *kobj,
+			    struct kobj_attribute *attr, char *buf)
+{
+	struct klp_patch *patch;
+
+	patch = container_of(kobj, struct klp_patch, kobj);
+	return sysfs_emit(buf, "%d\n", patch->replace);
+}
+
 static struct kobj_attribute enabled_kobj_attr = __ATTR_RW(enabled);
 static struct kobj_attribute transition_kobj_attr = __ATTR_RO(transition);
 static struct kobj_attribute force_kobj_attr = __ATTR_WO(force);
+static struct kobj_attribute replace_kobj_attr = __ATTR_RO(replace);
 static struct attribute *klp_patch_attrs[] = {
 	&enabled_kobj_attr.attr,
 	&transition_kobj_attr.attr,
 	&force_kobj_attr.attr,
+	&replace_kobj_attr.attr,
 	NULL
 };
 ATTRIBUTE_GROUPS(klp_patch);
@@ -964,15 +974,6 @@ static int klp_init_patch(struct klp_patch *patch)
 	return 0;
 }
 
-static void klp_taint_kernel(const struct klp_patch *patch)
-{
-#ifdef CONFIG_SUSE_KERNEL_SUPPORTED
-	pr_warn("attempt to disable live patch %s, setting NO_SUPPORT taint flag\n",
-			patch->mod->name);
-	add_taint(TAINT_NO_SUPPORT, LOCKDEP_STILL_OK);
-#endif
-}
-
 static int __klp_disable_patch(struct klp_patch *patch)
 {
 	struct klp_object *obj;
@@ -983,9 +984,7 @@ static int __klp_disable_patch(struct klp_patch *patch)
 	if (klp_transition_patch)
 		return -EBUSY;
 
-	klp_taint_kernel(patch);
-
-	klp_init_transition(patch, KLP_UNPATCHED);
+	klp_init_transition(patch, KLP_TRANSITION_UNPATCHED);
 
 	klp_for_each_object(patch, obj)
 		if (obj->patched)
@@ -1020,7 +1019,7 @@ static int __klp_enable_patch(struct klp_patch *patch)
 
 	pr_notice("enabling patch '%s'\n", patch->mod->name);
 
-	klp_init_transition(patch, KLP_PATCHED);
+	klp_init_transition(patch, KLP_TRANSITION_PATCHED);
 
 	/*
 	 * Enforce the order of the func->transition writes in

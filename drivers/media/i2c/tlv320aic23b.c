@@ -188,7 +188,7 @@ static void tlv320aic23b_remove(struct i2c_client *client)
 /* ----------------------------------------------------------------------- */
 
 static const struct i2c_device_id tlv320aic23b_id[] = {
-	{ "tlv320aic23b", 0 },
+	{ "tlv320aic23b" },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, tlv320aic23b_id);
@@ -197,7 +197,7 @@ static struct i2c_driver tlv320aic23b_driver = {
 	.driver = {
 		.name	= "tlv320aic23b",
 	},
-	.probe_new	= tlv320aic23b_probe,
+	.probe		= tlv320aic23b_probe,
 	.remove		= tlv320aic23b_remove,
 	.id_table	= tlv320aic23b_id,
 };

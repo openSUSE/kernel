@@ -70,8 +70,8 @@ exit:
 	return rc;
 }
 
-static int i2c_opal_master_xfer(struct i2c_adapter *adap, struct i2c_msg *msgs,
-				int num)
+static int i2c_opal_xfer(struct i2c_adapter *adap, struct i2c_msg *msgs,
+			 int num)
 {
 	unsigned long opal_id = (unsigned long)adap->algo_data;
 	struct opal_i2c_request req;
@@ -179,9 +179,9 @@ static u32 i2c_opal_func(struct i2c_adapter *adapter)
 }
 
 static const struct i2c_algorithm i2c_opal_algo = {
-	.master_xfer	= i2c_opal_master_xfer,
-	.smbus_xfer	= i2c_opal_smbus_xfer,
-	.functionality	= i2c_opal_func,
+	.xfer = i2c_opal_xfer,
+	.smbus_xfer = i2c_opal_smbus_xfer,
+	.functionality = i2c_opal_func,
 };
 
 /*
@@ -232,13 +232,11 @@ static int i2c_opal_probe(struct platform_device *pdev)
 	return rc;
 }
 
-static int i2c_opal_remove(struct platform_device *pdev)
+static void i2c_opal_remove(struct platform_device *pdev)
 {
 	struct i2c_adapter *adapter = platform_get_drvdata(pdev);
 
 	i2c_del_adapter(adapter);
-
-	return 0;
 }
 
 static const struct of_device_id i2c_opal_of_match[] = {
@@ -251,7 +249,7 @@ MODULE_DEVICE_TABLE(of, i2c_opal_of_match);
 
 static struct platform_driver i2c_opal_driver = {
 	.probe	= i2c_opal_probe,
-	.remove	= i2c_opal_remove,
+	.remove_new = i2c_opal_remove,
 	.driver	= {
 		.name		= "i2c-opal",
 		.of_match_table	= i2c_opal_of_match,

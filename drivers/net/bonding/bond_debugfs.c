@@ -75,7 +75,7 @@ void bond_debug_reregister(struct bonding *bond)
 	}
 }
 
-void bond_create_debugfs(void)
+void __init bond_create_debugfs(void)
 {
 	bonding_debug_root = debugfs_create_dir("bonding", NULL);
 
@@ -104,7 +104,7 @@ void bond_debug_reregister(struct bonding *bond)
 {
 }
 
-void bond_create_debugfs(void)
+void __init bond_create_debugfs(void)
 {
 }
 

@@ -303,7 +303,7 @@ static int vangogh_get_legacy_smu_metrics_data(struct smu_context *smu,
 		*value = metrics->GfxActivity / 100;
 		break;
 	case METRICS_AVERAGE_VCNACTIVITY:
-		*value = metrics->UvdActivity;
+		*value = metrics->UvdActivity / 100;
 		break;
 	case METRICS_AVERAGE_SOCKETPOWER:
 		*value = (metrics->CurrentSocketPower << 8) /
@@ -453,7 +453,7 @@ static int vangogh_init_smc_tables(struct smu_context *smu)
 
 #ifdef CONFIG_X86
 	/* AMD x86 APU only */
-	smu->cpu_core_num = boot_cpu_data.x86_max_cores;
+	smu->cpu_core_num = topology_num_cores_per_package();
 #else
 	smu->cpu_core_num = 4;
 #endif
@@ -1079,7 +1079,7 @@ static int vangogh_set_power_profile_mode(struct smu_context *smu, long *input, 
 	}
 
 	ret = smu_cmn_send_smc_msg_with_param(smu, SMU_MSG_ActiveProcessNotify,
-				    1 << workload_type,
+				    smu->workload_mask,
 				    NULL);
 	if (ret) {
 		dev_err_once(smu->adev->dev, "Fail to set workload type %d\n",
@@ -1087,7 +1087,7 @@ static int vangogh_set_power_profile_mode(struct smu_context *smu, long *input, 
 		return ret;
 	}
 
-	smu->power_profile_mode = profile_mode;
+	smu_cmn_assign_power_profile(smu);
 
 	return 0;
 }
@@ -1519,6 +1519,12 @@ static int vangogh_read_sensor(struct smu_context *smu,
 		ret = vangogh_common_get_smu_metrics_data(smu,
 						   METRICS_AVERAGE_GFXACTIVITY,
 						   (uint32_t *)data);
+		*size = 4;
+		break;
+	case AMDGPU_PP_SENSOR_VCN_LOAD:
+		ret = vangogh_common_get_smu_metrics_data(smu,
+						METRICS_AVERAGE_VCNACTIVITY,
+						(uint32_t *)data);
 		*size = 4;
 		break;
 	case AMDGPU_PP_SENSOR_GPU_AVG_POWER:

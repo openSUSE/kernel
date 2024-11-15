@@ -167,6 +167,8 @@ static u32 ieee80211_calc_hw_conf_chan(struct ieee80211_local *local,
 	}
 
 	power = ieee80211_chandef_max_power(&chandef);
+	if (local->user_power_level != IEEE80211_UNSET_POWER_LEVEL)
+		power = min(local->user_power_level, power);
 
 	rcu_read_lock();
 	list_for_each_entry_rcu(sdata, &local->interfaces, list) {
@@ -1051,9 +1053,9 @@ static int ieee80211_init_cipher_suites(struct ieee80211_local *local)
 			return 0;
 
 		/* Driver provides cipher suites, but we need to exclude WEP */
-		suites = kmemdup(local->hw.wiphy->cipher_suites,
-				 sizeof(u32) * local->hw.wiphy->n_cipher_suites,
-				 GFP_KERNEL);
+		suites = kmemdup_array(local->hw.wiphy->cipher_suites,
+				       local->hw.wiphy->n_cipher_suites,
+				       sizeof(u32), GFP_KERNEL);
 		if (!suites)
 			return -ENOMEM;
 
@@ -1089,6 +1091,27 @@ static int ieee80211_init_cipher_suites(struct ieee80211_local *local)
 	local->wiphy_ciphers_allocated = true;
 
 	return 0;
+}
+
+static bool
+ieee80211_ifcomb_check(const struct ieee80211_iface_combination *c, int n_comb)
+{
+	int i, j;
+
+	for (i = 0; i < n_comb; i++, c++) {
+		/* DFS is not supported with multi-channel combinations yet */
+		if (c->radar_detect_widths &&
+		    c->num_different_channels > 1)
+			return false;
+
+		/* mac80211 doesn't support more than one IBSS interface */
+		for (j = 0; j < c->n_limits; j++)
+			if ((c->limits[j].types & BIT(NL80211_IFTYPE_ADHOC)) &&
+			    c->limits[j].max > 1)
+				return false;
+	}
+
+	return true;
 }
 
 int ieee80211_register_hw(struct ieee80211_hw *hw)
@@ -1161,9 +1184,6 @@ int ieee80211_register_hw(struct ieee80211_hw *hw)
 
 		if (WARN_ON(!ieee80211_hw_check(hw, AP_LINK_PS)))
 			return -EINVAL;
-
-		if (WARN_ON(ieee80211_hw_check(hw, DEAUTH_NEED_MGD_TX_PREP)))
-			return -EINVAL;
 	}
 
 #ifdef CONFIG_PM
@@ -1180,17 +1200,20 @@ int ieee80211_register_hw(struct ieee80211_hw *hw)
 			if (comb->num_different_channels > 1)
 				return -EINVAL;
 		}
-	} else {
-		/* DFS is not supported with multi-channel combinations yet */
-		for (i = 0; i < local->hw.wiphy->n_iface_combinations; i++) {
-			const struct ieee80211_iface_combination *comb;
+	}
 
-			comb = &local->hw.wiphy->iface_combinations[i];
+	if (hw->wiphy->n_radio) {
+		for (i = 0; i < hw->wiphy->n_radio; i++) {
+			const struct wiphy_radio *radio = &hw->wiphy->radio[i];
 
-			if (comb->radar_detect_widths &&
-			    comb->num_different_channels > 1)
+			if (!ieee80211_ifcomb_check(radio->iface_combinations,
+						    radio->n_iface_combinations))
 				return -EINVAL;
 		}
+	} else {
+		if (!ieee80211_ifcomb_check(hw->wiphy->iface_combinations,
+					    hw->wiphy->n_iface_combinations))
+			return -EINVAL;
 	}
 
 	/* Only HW csum features are currently compatible with mac80211 */
@@ -1237,7 +1260,7 @@ int ieee80211_register_hw(struct ieee80211_hw *hw)
 						&sband->channels[i],
 						NL80211_CHAN_NO_HT);
 			/* init channel we're on */
-			local->monitor_chandef = dflt_chandef;
+			local->monitor_chanreq.oper = dflt_chandef;
 			if (local->emulate_chanctx) {
 				local->dflt_chandef = dflt_chandef;
 				local->hw.conf.chandef = dflt_chandef;
@@ -1262,8 +1285,26 @@ int ieee80211_register_hw(struct ieee80211_hw *hw)
 		supp_vht = supp_vht || sband->vht_cap.vht_supported;
 
 		for_each_sband_iftype_data(sband, i, iftd) {
+			u8 he_40_mhz_cap;
+
 			supp_he = supp_he || iftd->he_cap.has_he;
 			supp_eht = supp_eht || iftd->eht_cap.has_eht;
+
+			if (band == NL80211_BAND_2GHZ)
+				he_40_mhz_cap =
+					IEEE80211_HE_PHY_CAP0_CHANNEL_WIDTH_SET_40MHZ_IN_2G;
+			else
+				he_40_mhz_cap =
+					IEEE80211_HE_PHY_CAP0_CHANNEL_WIDTH_SET_40MHZ_80MHZ_IN_5G;
+
+			/* currently no support for HE client where HT has 40 MHz but not HT */
+			if (iftd->he_cap.has_he &&
+			    iftd->types_mask & (BIT(NL80211_IFTYPE_STATION) |
+						BIT(NL80211_IFTYPE_P2P_CLIENT)) &&
+			    sband->ht_cap.ht_supported &&
+			    sband->ht_cap.cap & IEEE80211_HT_CAP_SUP_WIDTH_20_40 &&
+			    !(iftd->he_cap.he_cap_elem.phy_cap_info[0] & he_40_mhz_cap))
+				return -EINVAL;
 		}
 
 		/* HT, VHT, HE require QoS, thus >= 4 queues */
@@ -1302,18 +1343,6 @@ int ieee80211_register_hw(struct ieee80211_hw *hw)
 	hw->wiphy->interface_modes |= BIT(NL80211_IFTYPE_MONITOR);
 	hw->wiphy->software_iftypes |= BIT(NL80211_IFTYPE_MONITOR);
 
-	/* mac80211 doesn't support more than one IBSS interface right now */
-	for (i = 0; i < hw->wiphy->n_iface_combinations; i++) {
-		const struct ieee80211_iface_combination *c;
-		int j;
-
-		c = &hw->wiphy->iface_combinations[i];
-
-		for (j = 0; j < c->n_limits; j++)
-			if ((c->limits[j].types & BIT(NL80211_IFTYPE_ADHOC)) &&
-			    c->limits[j].max > 1)
-				return -EINVAL;
-	}
 
 	local->int_scan_req = kzalloc(sizeof(*local->int_scan_req) +
 				      sizeof(void *) * channels, GFP_KERNEL);
@@ -1551,6 +1580,8 @@ int ieee80211_register_hw(struct ieee80211_hw *hw)
 
 	debugfs_hw_add(local);
 	rate_control_add_debugfs(local);
+
+	ieee80211_check_wbrf_support(local);
 
 	rtnl_lock();
 	wiphy_lock(hw->wiphy);

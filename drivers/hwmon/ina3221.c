@@ -762,7 +762,7 @@ static const struct regmap_config ina3221_regmap_config = {
 	.reg_bits = 8,
 	.val_bits = 16,
 
-	.cache_type = REGCACHE_RBTREE,
+	.cache_type = REGCACHE_MAPLE,
 	.volatile_table = &ina3221_volatile_table,
 };
 
@@ -813,7 +813,6 @@ static int ina3221_probe_child_from_dt(struct device *dev,
 static int ina3221_probe_from_dt(struct device *dev, struct ina3221_data *ina)
 {
 	const struct device_node *np = dev->of_node;
-	struct device_node *child;
 	int ret;
 
 	/* Compatible with non-DT platforms */
@@ -822,12 +821,10 @@ static int ina3221_probe_from_dt(struct device *dev, struct ina3221_data *ina)
 
 	ina->single_shot = of_property_read_bool(np, "ti,single-shot");
 
-	for_each_child_of_node(np, child) {
+	for_each_child_of_node_scoped(np, child) {
 		ret = ina3221_probe_child_from_dt(dev, child, ina);
-		if (ret) {
-			of_node_put(child);
+		if (ret)
 			return ret;
-		}
 	}
 
 	return 0;
@@ -1031,13 +1028,13 @@ static const struct of_device_id ina3221_of_match_table[] = {
 MODULE_DEVICE_TABLE(of, ina3221_of_match_table);
 
 static const struct i2c_device_id ina3221_ids[] = {
-	{ "ina3221", 0 },
+	{ "ina3221" },
 	{ /* sentinel */ }
 };
 MODULE_DEVICE_TABLE(i2c, ina3221_ids);
 
 static struct i2c_driver ina3221_i2c_driver = {
-	.probe_new = ina3221_probe,
+	.probe = ina3221_probe,
 	.remove = ina3221_remove,
 	.driver = {
 		.name = INA3221_DRIVER_NAME,

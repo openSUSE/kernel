@@ -15,6 +15,7 @@
 #include "aq_macsec.h"
 #include "aq_main.h"
 
+#include <linux/linkmode.h>
 #include <linux/ptp_clock_kernel.h>
 
 static void aq_ethtool_get_regs(struct net_device *ndev,
@@ -265,7 +266,7 @@ static void aq_ethtool_get_strings(struct net_device *ndev,
 		const int rx_stat_cnt = ARRAY_SIZE(aq_ethtool_queue_rx_stat_names);
 		const int tx_stat_cnt = ARRAY_SIZE(aq_ethtool_queue_tx_stat_names);
 		char tc_string[8];
-		int tc;
+		unsigned int tc;
 
 		memset(tc_string, 0, sizeof(tc_string));
 		memcpy(p, aq_ethtool_stat_names,
@@ -274,22 +275,20 @@ static void aq_ethtool_get_strings(struct net_device *ndev,
 
 		for (tc = 0; tc < cfg->tcs; tc++) {
 			if (cfg->is_qos)
-				snprintf(tc_string, 8, "TC%d ", tc);
+				snprintf(tc_string, 8, "TC%u ", tc);
 
 			for (i = 0; i < cfg->vecs; i++) {
 				for (si = 0; si < rx_stat_cnt; si++) {
-					snprintf(p, ETH_GSTRING_LEN,
+					ethtool_sprintf(&p,
 					     aq_ethtool_queue_rx_stat_names[si],
 					     tc_string,
 					     AQ_NIC_CFG_TCVEC2RING(cfg, tc, i));
-					p += ETH_GSTRING_LEN;
 				}
 				for (si = 0; si < tx_stat_cnt; si++) {
-					snprintf(p, ETH_GSTRING_LEN,
+					ethtool_sprintf(&p,
 					     aq_ethtool_queue_tx_stat_names[si],
 					     tc_string,
 					     AQ_NIC_CFG_TCVEC2RING(cfg, tc, i));
-					p += ETH_GSTRING_LEN;
 				}
 			}
 		}
@@ -304,20 +303,18 @@ static void aq_ethtool_get_strings(struct net_device *ndev,
 
 			for (i = 0; i < max(rx_ring_cnt, tx_ring_cnt); i++) {
 				for (si = 0; si < rx_stat_cnt; si++) {
-					snprintf(p, ETH_GSTRING_LEN,
+					ethtool_sprintf(&p,
 						 aq_ethtool_queue_rx_stat_names[si],
 						 tc_string,
 						 i ? PTP_HWST_RING_IDX : ptp_ring_idx);
-					p += ETH_GSTRING_LEN;
 				}
 				if (i >= tx_ring_cnt)
 					continue;
 				for (si = 0; si < tx_stat_cnt; si++) {
-					snprintf(p, ETH_GSTRING_LEN,
+					ethtool_sprintf(&p,
 						 aq_ethtool_queue_tx_stat_names[si],
 						 tc_string,
 						 i ? PTP_HWST_RING_IDX : ptp_ring_idx);
-					p += ETH_GSTRING_LEN;
 				}
 			}
 		}
@@ -337,9 +334,8 @@ static void aq_ethtool_get_strings(struct net_device *ndev,
 			for (si = 0;
 				si < ARRAY_SIZE(aq_macsec_txsc_stat_names);
 				si++) {
-				snprintf(p, ETH_GSTRING_LEN,
+				ethtool_sprintf(&p,
 					 aq_macsec_txsc_stat_names[si], i);
-				p += ETH_GSTRING_LEN;
 			}
 			aq_txsc = &nic->macsec_cfg->aq_txsc[i];
 			for (sa = 0; sa < MACSEC_NUM_AN; sa++) {
@@ -348,10 +344,9 @@ static void aq_ethtool_get_strings(struct net_device *ndev,
 				for (si = 0;
 				     si < ARRAY_SIZE(aq_macsec_txsa_stat_names);
 				     si++) {
-					snprintf(p, ETH_GSTRING_LEN,
+					ethtool_sprintf(&p,
 						 aq_macsec_txsa_stat_names[si],
 						 i, sa);
-					p += ETH_GSTRING_LEN;
 				}
 			}
 		}
@@ -368,10 +363,9 @@ static void aq_ethtool_get_strings(struct net_device *ndev,
 				for (si = 0;
 				     si < ARRAY_SIZE(aq_macsec_rxsa_stat_names);
 				     si++) {
-					snprintf(p, ETH_GSTRING_LEN,
+					ethtool_sprintf(&p,
 						 aq_macsec_rxsa_stat_names[si],
 						 i, sa);
-					p += ETH_GSTRING_LEN;
 				}
 			}
 		}
@@ -651,7 +645,7 @@ static int aq_ethtool_set_wol(struct net_device *ndev,
 }
 
 static int aq_ethtool_get_ts_info(struct net_device *ndev,
-				  struct ethtool_ts_info *info)
+				  struct kernel_ethtool_ts_info *info)
 {
 	struct aq_nic_s *aq_nic = netdev_priv(ndev);
 
@@ -681,23 +675,19 @@ static int aq_ethtool_get_ts_info(struct net_device *ndev,
 	return 0;
 }
 
-static u32 eee_mask_to_ethtool_mask(u32 speed)
+static void eee_mask_to_ethtool_mask(unsigned long *mode, u32 speed)
 {
-	u32 rate = 0;
-
 	if (speed & AQ_NIC_RATE_EEE_10G)
-		rate |= SUPPORTED_10000baseT_Full;
+		linkmode_set_bit(ETHTOOL_LINK_MODE_10000baseT_Full_BIT, mode);
 
 	if (speed & AQ_NIC_RATE_EEE_1G)
-		rate |= SUPPORTED_1000baseT_Full;
+		linkmode_set_bit(ETHTOOL_LINK_MODE_1000baseT_Full_BIT, mode);
 
 	if (speed & AQ_NIC_RATE_EEE_100M)
-		rate |= SUPPORTED_100baseT_Full;
-
-	return rate;
+		linkmode_set_bit(ETHTOOL_LINK_MODE_100baseT_Full_BIT, mode);
 }
 
-static int aq_ethtool_get_eee(struct net_device *ndev, struct ethtool_eee *eee)
+static int aq_ethtool_get_eee(struct net_device *ndev, struct ethtool_keee *eee)
 {
 	struct aq_nic_s *aq_nic = netdev_priv(ndev);
 	u32 rate, supported_rates;
@@ -713,14 +703,14 @@ static int aq_ethtool_get_eee(struct net_device *ndev, struct ethtool_eee *eee)
 	if (err < 0)
 		return err;
 
-	eee->supported = eee_mask_to_ethtool_mask(supported_rates);
+	eee_mask_to_ethtool_mask(eee->supported, supported_rates);
 
 	if (aq_nic->aq_nic_cfg.eee_speeds)
-		eee->advertised = eee->supported;
+		linkmode_copy(eee->advertised, eee->supported);
 
-	eee->lp_advertised = eee_mask_to_ethtool_mask(rate);
+	eee_mask_to_ethtool_mask(eee->lp_advertised, rate);
 
-	eee->eee_enabled = !!eee->advertised;
+	eee->eee_enabled = !linkmode_empty(eee->advertised);
 
 	eee->tx_lpi_enabled = eee->eee_enabled;
 	if ((supported_rates & rate) & AQ_NIC_RATE_EEE_MSK)
@@ -729,7 +719,7 @@ static int aq_ethtool_get_eee(struct net_device *ndev, struct ethtool_eee *eee)
 	return 0;
 }
 
-static int aq_ethtool_set_eee(struct net_device *ndev, struct ethtool_eee *eee)
+static int aq_ethtool_set_eee(struct net_device *ndev, struct ethtool_keee *eee)
 {
 	struct aq_nic_s *aq_nic = netdev_priv(ndev);
 	u32 rate, supported_rates;

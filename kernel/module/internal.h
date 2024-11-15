@@ -32,6 +32,18 @@
 /* Maximum number of characters written by module_flags() */
 #define MODULE_FLAGS_BUF_SIZE (TAINT_FLAGS_COUNT + 4)
 
+struct kernel_symbol {
+#ifdef CONFIG_HAVE_ARCH_PREL32_RELOCATIONS
+	int value_offset;
+	int name_offset;
+	int namespace_offset;
+#else
+	unsigned long value;
+	const char *name;
+	const char *namespace;
+#endif
+};
+
 extern struct mutex module_mutex;
 extern struct list_head modules;
 
@@ -310,9 +322,9 @@ static inline struct module *mod_find(unsigned long addr, struct mod_tree_root *
 }
 #endif /* CONFIG_MODULES_TREE_LOOKUP */
 
-void module_enable_ro(const struct module *mod, bool after_init);
-void module_enable_nx(const struct module *mod);
-void module_enable_x(const struct module *mod);
+int module_enable_rodata_ro(const struct module *mod, bool after_init);
+int module_enable_data_nx(const struct module *mod);
+int module_enable_text_rox(const struct module *mod);
 int module_enforce_rwx_sections(Elf_Ehdr *hdr, Elf_Shdr *sechdrs,
 				char *secstrings, struct module *mod);
 

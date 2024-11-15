@@ -106,9 +106,6 @@ static const struct iommu_regset iommu_regs_64[] = {
 	IOMMU_REGSET_ENTRY(MTRR_PHYSMASK8),
 	IOMMU_REGSET_ENTRY(MTRR_PHYSBASE9),
 	IOMMU_REGSET_ENTRY(MTRR_PHYSMASK9),
-	IOMMU_REGSET_ENTRY(VCCAP),
-	IOMMU_REGSET_ENTRY(VCMD),
-	IOMMU_REGSET_ENTRY(VCRSP),
 };
 
 static struct dentry *intel_iommu_debug;
@@ -709,7 +706,6 @@ static ssize_t dmar_perf_latency_write(struct file *filp,
 			dmar_latency_disable(iommu, DMAR_LATENCY_INV_IOTLB);
 			dmar_latency_disable(iommu, DMAR_LATENCY_INV_DEVTLB);
 			dmar_latency_disable(iommu, DMAR_LATENCY_INV_IEC);
-			dmar_latency_disable(iommu, DMAR_LATENCY_PRQ);
 		}
 		rcu_read_unlock();
 		break;
@@ -729,12 +725,6 @@ static ssize_t dmar_perf_latency_write(struct file *filp,
 		rcu_read_lock();
 		for_each_active_iommu(iommu, drhd)
 			dmar_latency_enable(iommu, DMAR_LATENCY_INV_IEC);
-		rcu_read_unlock();
-		break;
-	case 4:
-		rcu_read_lock();
-		for_each_active_iommu(iommu, drhd)
-			dmar_latency_enable(iommu, DMAR_LATENCY_PRQ);
 		rcu_read_unlock();
 		break;
 	default:

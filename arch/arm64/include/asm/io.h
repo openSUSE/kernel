@@ -22,31 +22,35 @@
  * Generic IO read/write.  These perform native-endian accesses.
  */
 #define __raw_writeb __raw_writeb
-static inline void __raw_writeb(u8 val, volatile void __iomem *addr)
+static __always_inline void __raw_writeb(u8 val, volatile void __iomem *addr)
 {
-	asm volatile("strb %w0, [%1]" : : "rZ" (val), "r" (addr));
+	volatile u8 __iomem *ptr = addr;
+	asm volatile("strb %w0, %1" : : "rZ" (val), "Qo" (*ptr));
 }
 
 #define __raw_writew __raw_writew
-static inline void __raw_writew(u16 val, volatile void __iomem *addr)
+static __always_inline void __raw_writew(u16 val, volatile void __iomem *addr)
 {
-	asm volatile("strh %w0, [%1]" : : "rZ" (val), "r" (addr));
+	volatile u16 __iomem *ptr = addr;
+	asm volatile("strh %w0, %1" : : "rZ" (val), "Qo" (*ptr));
 }
 
 #define __raw_writel __raw_writel
 static __always_inline void __raw_writel(u32 val, volatile void __iomem *addr)
 {
-	asm volatile("str %w0, [%1]" : : "rZ" (val), "r" (addr));
+	volatile u32 __iomem *ptr = addr;
+	asm volatile("str %w0, %1" : : "rZ" (val), "Qo" (*ptr));
 }
 
 #define __raw_writeq __raw_writeq
-static inline void __raw_writeq(u64 val, volatile void __iomem *addr)
+static __always_inline void __raw_writeq(u64 val, volatile void __iomem *addr)
 {
-	asm volatile("str %x0, [%1]" : : "rZ" (val), "r" (addr));
+	volatile u64 __iomem *ptr = addr;
+	asm volatile("str %x0, %1" : : "rZ" (val), "Qo" (*ptr));
 }
 
 #define __raw_readb __raw_readb
-static inline u8 __raw_readb(const volatile void __iomem *addr)
+static __always_inline u8 __raw_readb(const volatile void __iomem *addr)
 {
 	u8 val;
 	asm volatile(ALTERNATIVE("ldrb %w0, [%1]",
@@ -57,7 +61,7 @@ static inline u8 __raw_readb(const volatile void __iomem *addr)
 }
 
 #define __raw_readw __raw_readw
-static inline u16 __raw_readw(const volatile void __iomem *addr)
+static __always_inline u16 __raw_readw(const volatile void __iomem *addr)
 {
 	u16 val;
 
@@ -80,7 +84,7 @@ static __always_inline u32 __raw_readl(const volatile void __iomem *addr)
 }
 
 #define __raw_readq __raw_readq
-static inline u64 __raw_readq(const volatile void __iomem *addr)
+static __always_inline u64 __raw_readq(const volatile void __iomem *addr)
 {
 	u64 val;
 	asm volatile(ALTERNATIVE("ldr %0, [%1]",
@@ -194,7 +198,7 @@ __const_memcpy_toio_aligned32(volatile u32 __iomem *to, const u32 *from,
 void __iowrite32_copy_full(void __iomem *to, const void *from, size_t count);
 
 static __always_inline void
-__iowrite32_copy_inlined(void __iomem *to, const void *from, size_t count)
+__iowrite32_copy(void __iomem *to, const void *from, size_t count)
 {
 	if (__builtin_constant_p(count) &&
 	    (count == 8 || count == 4 || count == 2 || count == 1)) {
@@ -204,7 +208,7 @@ __iowrite32_copy_inlined(void __iomem *to, const void *from, size_t count)
 		__iowrite32_copy_full(to, from, count);
 	}
 }
-#define __iowrite32_copy_inlined __iowrite32_copy_inlined
+#define __iowrite32_copy __iowrite32_copy
 
 static __always_inline void
 __const_memcpy_toio_aligned64(volatile u64 __iomem *to, const u64 *from,
@@ -251,7 +255,7 @@ __const_memcpy_toio_aligned64(volatile u64 __iomem *to, const u64 *from,
 void __iowrite64_copy_full(void __iomem *to, const void *from, size_t count);
 
 static __always_inline void
-__iowrite64_copy_inlined(void __iomem *to, const void *from, size_t count)
+__iowrite64_copy(void __iomem *to, const void *from, size_t count)
 {
 	if (__builtin_constant_p(count) &&
 	    (count == 8 || count == 4 || count == 2 || count == 1)) {
@@ -261,14 +265,17 @@ __iowrite64_copy_inlined(void __iomem *to, const void *from, size_t count)
 		__iowrite64_copy_full(to, from, count);
 	}
 }
-#define __iowrite64_copy_inlined __iowrite64_copy_inlined
+#define __iowrite64_copy __iowrite64_copy
 
 /*
  * I/O memory mapping functions.
  */
 
-bool ioremap_allowed(phys_addr_t phys_addr, size_t size, unsigned long prot);
-#define ioremap_allowed ioremap_allowed
+typedef int (*ioremap_prot_hook_t)(phys_addr_t phys_addr, size_t size,
+				   pgprot_t *prot);
+int arm64_ioremap_prot_hook_register(const ioremap_prot_hook_t hook);
+
+#define ioremap_prot ioremap_prot
 
 #define _PAGE_IOREMAP PROT_DEVICE_nGnRE
 

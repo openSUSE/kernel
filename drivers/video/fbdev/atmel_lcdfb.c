@@ -153,7 +153,6 @@ static void init_backlight(struct atmel_lcdfb_info *sinfo)
 	sinfo->backlight = bl;
 
 	bl->props.power = FB_BLANK_UNBLANK;
-	bl->props.fb_blank = FB_BLANK_UNBLANK;
 	bl->props.brightness = atmel_bl_get_brightness(bl);
 }
 
@@ -1300,7 +1299,7 @@ static int atmel_lcdfb_resume(struct platform_device *pdev)
 
 static struct platform_driver atmel_lcdfb_driver = {
 	.probe		= atmel_lcdfb_probe,
-	.remove_new	= atmel_lcdfb_remove,
+	.remove		= atmel_lcdfb_remove,
 	.suspend	= atmel_lcdfb_suspend,
 	.resume		= atmel_lcdfb_resume,
 	.driver		= {

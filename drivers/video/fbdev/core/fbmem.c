@@ -212,8 +212,8 @@ static int fb_check_caps(struct fb_info *info, struct fb_var_screeninfo *var,
 	fbcon_get_requirement(info, &caps);
 	info->fbops->fb_get_caps(info, &fbcaps, var);
 
-	if (((fbcaps.x ^ caps.x) & caps.x) ||
-	    ((fbcaps.y ^ caps.y) & caps.y) ||
+	if (!bitmap_subset(caps.x, fbcaps.x, FB_MAX_BLIT_WIDTH) ||
+	    !bitmap_subset(caps.y, fbcaps.y, FB_MAX_BLIT_HEIGHT) ||
 	    (fbcaps.len < caps.len))
 		err = -EINVAL;
 
@@ -420,11 +420,11 @@ static int do_register_framebuffer(struct fb_info *fb_info)
 	}
 	fb_info->pixmap.offset = 0;
 
-	if (!fb_info->pixmap.blit_x)
-		fb_info->pixmap.blit_x = ~(u32)0;
+	if (bitmap_empty(fb_info->pixmap.blit_x, FB_MAX_BLIT_WIDTH))
+		bitmap_fill(fb_info->pixmap.blit_x, FB_MAX_BLIT_WIDTH);
 
-	if (!fb_info->pixmap.blit_y)
-		fb_info->pixmap.blit_y = ~(u32)0;
+	if (bitmap_empty(fb_info->pixmap.blit_y, FB_MAX_BLIT_HEIGHT))
+		bitmap_fill(fb_info->pixmap.blit_y, FB_MAX_BLIT_HEIGHT);
 
 	if (!fb_info->modelist.prev || !fb_info->modelist.next)
 		INIT_LIST_HEAD(&fb_info->modelist);
@@ -544,6 +544,36 @@ unregister_framebuffer(struct fb_info *fb_info)
 }
 EXPORT_SYMBOL(unregister_framebuffer);
 
+static void devm_unregister_framebuffer(void *data)
+{
+	struct fb_info *info = data;
+
+	unregister_framebuffer(info);
+}
+
+/**
+ *	devm_register_framebuffer - resource-managed frame buffer device registration
+ *	@dev: device the framebuffer belongs to
+ *	@fb_info: frame buffer info structure
+ *
+ *	Registers a frame buffer device @fb_info to device @dev.
+ *
+ *	Returns negative errno on error, or zero for success.
+ *
+ */
+int
+devm_register_framebuffer(struct device *dev, struct fb_info *fb_info)
+{
+	int ret;
+
+	ret = register_framebuffer(fb_info);
+	if (ret)
+		return ret;
+
+	return devm_add_action_or_reset(dev, devm_unregister_framebuffer, fb_info);
+}
+EXPORT_SYMBOL(devm_register_framebuffer);
+
 /**
  *	fb_set_suspend - low level driver signals suspend
  *	@info: framebuffer affected
@@ -645,7 +675,6 @@ int fb_new_modelist(struct fb_info *info)
 	return 0;
 }
 
-#if defined(CONFIG_VIDEO_NOMODESET)
 bool fb_modesetting_disabled(const char *drvname)
 {
 	bool fwonly = video_firmware_drivers_only();
@@ -657,6 +686,5 @@ bool fb_modesetting_disabled(const char *drvname)
 	return fwonly;
 }
 EXPORT_SYMBOL(fb_modesetting_disabled);
-#endif
 
 MODULE_LICENSE("GPL");

@@ -28,10 +28,10 @@ trusted userspace bits.
 
 This facility uses X.509 ITU-T standard certificates to encode the public keys
 involved.  The signatures are not themselves encoded in any industrial standard
-type.  The facility currently only supports the RSA public key encryption
-standard (though it is pluggable and permits others to be used).  The possible
-hash algorithms that can be used are SHA-1, SHA-224, SHA-256, SHA-384, and
-SHA-512 (the algorithm is selected by data in the signature).
+type.  The built-in facility currently only supports the RSA & NIST P-384 ECDSA
+public key signing standard (though it is pluggable and permits others to be
+used).  The possible hash algorithms that can be used are SHA-2 and SHA-3 of
+sizes 256, 384, and 512 (the algorithm is selected by data in the signature).
 
 
 ==========================
@@ -81,11 +81,12 @@ This has a number of options available:
      sign the modules with:
 
         =============================== ==========================================
-	``CONFIG_MODULE_SIG_SHA1``	:menuselection:`Sign modules with SHA-1`
-	``CONFIG_MODULE_SIG_SHA224``	:menuselection:`Sign modules with SHA-224`
 	``CONFIG_MODULE_SIG_SHA256``	:menuselection:`Sign modules with SHA-256`
 	``CONFIG_MODULE_SIG_SHA384``	:menuselection:`Sign modules with SHA-384`
 	``CONFIG_MODULE_SIG_SHA512``	:menuselection:`Sign modules with SHA-512`
+	``CONFIG_MODULE_SIG_SHA3_256``	:menuselection:`Sign modules with SHA3-256`
+	``CONFIG_MODULE_SIG_SHA3_384``	:menuselection:`Sign modules with SHA3-384`
+	``CONFIG_MODULE_SIG_SHA3_512``	:menuselection:`Sign modules with SHA3-512`
         =============================== ==========================================
 
      The algorithm selected here will also be built into the kernel (rather
@@ -145,6 +146,10 @@ into vmlinux) using parameters in the::
 
 file (which is also generated if it does not already exist).
 
+One can select between RSA (``MODULE_SIG_KEY_TYPE_RSA``) and ECDSA
+(``MODULE_SIG_KEY_TYPE_ECDSA``) to generate either RSA 4k or NIST
+P-384 keypair.
+
 It is strongly recommended that you provide your own x509.genkey file.
 
 Most notably, in the x509.genkey file, the req_distinguished_name section
@@ -169,12 +174,6 @@ generate the public/private key files::
 	openssl req -new -nodes -utf8 -sha256 -days 36500 -batch -x509 \
 	   -config x509.genkey -outform PEM -out kernel_key.pem \
 	   -keyout kernel_key.pem
-
-When ``CONFIG_CHECK_CODESIGN_EKU`` option be enabled, the following openssl
-command option should be added for generating CodeSign extended key usage in
-X.509::
-
-        -addext "extendedKeyUsage=codeSigning"
 
 The full pathname for the resulting kernel_key.pem file can then be specified
 in the ``CONFIG_MODULE_SIG_KEY`` option, and the certificate and key therein will
@@ -272,7 +271,7 @@ for which it has a public key.   Otherwise, it will also load modules that are
 unsigned.   Any module for which the kernel has a key, but which proves to have
 a signature mismatch will not be permitted to load.
 
-Any module that has an unparseable signature will be rejected.
+Any module that has an unparsable signature will be rejected.
 
 
 =========================================

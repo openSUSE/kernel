@@ -113,19 +113,16 @@ static void md_bio_reset_resync_pages(struct bio *bio, struct resync_pages *rp,
 	} while (idx++ < RESYNC_PAGES && size > 0);
 }
 
+
 static inline void raid1_submit_write(struct bio *bio)
 {
 	struct md_rdev *rdev = (void *)bio->bi_bdev;
 
 	bio->bi_next = NULL;
 	bio_set_dev(bio, rdev->bdev);
-	if (test_bit(Faulty, &rdev->flags)) {
-		if (test_bit(Timeout, &rdev->flags))
-			bio->bi_status = BLK_STS_TIMEOUT;
-		else
-			bio->bi_status = BLK_STS_IOERR;
-		 bio_endio(bio);
-	} else if (unlikely(bio_op(bio) ==  REQ_OP_DISCARD &&
+	if (test_bit(Faulty, &rdev->flags))
+		bio_io_error(bio);
+	else if (unlikely(bio_op(bio) ==  REQ_OP_DISCARD &&
 			  !bdev_max_discard_sectors(bio->bi_bdev)))
 		/* Just ignore it */
 		bio_endio(bio);
@@ -143,7 +140,7 @@ static inline bool raid1_add_bio_to_plug(struct mddev *mddev, struct bio *bio,
 	 * If bitmap is not enabled, it's safe to submit the io directly, and
 	 * this can get optimal performance.
 	 */
-	if (!md_bitmap_enabled(mddev->bitmap)) {
+	if (!mddev->bitmap_ops->enabled(mddev)) {
 		raid1_submit_write(bio);
 		return true;
 	}
@@ -169,12 +166,9 @@ static inline bool raid1_add_bio_to_plug(struct mddev *mddev, struct bio *bio,
  * while current io submission must wait for bitmap io to be done. In order to
  * avoid such deadlock, submit bitmap io asynchronously.
  */
-static inline void raid1_prepare_flush_writes(struct bitmap *bitmap)
+static inline void raid1_prepare_flush_writes(struct mddev *mddev)
 {
-	if (current->bio_list)
-		md_bitmap_unplug_async(bitmap);
-	else
-		md_bitmap_unplug(bitmap);
+	mddev->bitmap_ops->unplug(mddev, current->bio_list == NULL);
 }
 
 /*

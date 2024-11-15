@@ -42,9 +42,11 @@ enum utf16_endian;
 #define MINUS_ONE_T			((size_t)(-1))
 /* Biggest MFT / smallest cluster */
 #define MAXIMUM_BYTES_PER_MFT		4096
+#define MAXIMUM_SHIFT_BYTES_PER_MFT	12
 #define NTFS_BLOCKS_PER_MFT_RECORD	(MAXIMUM_BYTES_PER_MFT / 512)
 
 #define MAXIMUM_BYTES_PER_INDEX		4096
+#define MAXIMUM_SHIFT_BYTES_PER_INDEX	12
 #define NTFS_BLOCKS_PER_INODE		(MAXIMUM_BYTES_PER_INDEX / 512)
 
 /* NTFS specific error code when fixup failed. */
@@ -59,6 +61,8 @@ enum utf16_endian;
 
 /* sbi->flags */
 #define NTFS_FLAGS_NODISCARD		0x00000001
+/* ntfs in shutdown state. */
+#define NTFS_FLAGS_SHUTDOWN_BIT		0x00000002  /* == 4*/
 /* Set when LogFile is replaying. */
 #define NTFS_FLAGS_LOG_REPLAYING	0x00000008
 /* Set when we changed first MFT's which copy must be updated in $MftMirr. */
@@ -224,7 +228,7 @@ struct ntfs_sb_info {
 	u64 maxbytes; // Maximum size for normal files.
 	u64 maxbytes_sparse; // Maximum size for sparse file.
 
-	u32 flags; // See NTFS_FLAGS_XXX.
+	unsigned long flags; // See NTFS_FLAGS_
 
 	CLST zone_max; // Maximum MFT zone length in clusters
 	CLST bad_clusters; // The count of marked bad clusters.
@@ -276,7 +280,7 @@ struct ntfs_sb_info {
 		__le16 flags; // Cached current VOLUME_INFO::flags, VOLUME_FLAG_DIRTY.
 		u8 major_ver;
 		u8 minor_ver;
-		char label[65];
+		char label[256];
 		bool real_dirty; // Real fs state.
 	} volume;
 
@@ -286,7 +290,6 @@ struct ntfs_sb_info {
 		struct ntfs_inode *ni;
 		u32 next_id;
 		u64 next_off;
-
 		__le32 def_security_id;
 	} security;
 
@@ -314,6 +317,7 @@ struct ntfs_sb_info {
 
 	struct ntfs_mount_options *options;
 	struct ratelimit_state msg_ratelimit;
+	struct proc_dir_entry *procdir;
 };
 
 /* One MFT record(usually 1024 bytes), consists of attributes. */
@@ -330,7 +334,7 @@ struct mft_inode {
 
 /* Nested class for ntfs_inode::ni_lock. */
 enum ntfs_inode_mutex_lock_class {
-	NTFS_INODE_MUTEX_DIRTY,
+	NTFS_INODE_MUTEX_DIRTY = 1,
 	NTFS_INODE_MUTEX_SECURITY,
 	NTFS_INODE_MUTEX_OBJID,
 	NTFS_INODE_MUTEX_REPARSE,
@@ -379,7 +383,7 @@ struct ntfs_inode {
 			struct rw_semaphore run_lock;
 			struct runs_tree run;
 #ifdef CONFIG_NTFS3_LZX_XPRESS
-			struct page *offs_page;
+			struct folio *offs_folio;
 #endif
 		} file;
 	};
@@ -430,8 +434,8 @@ int attr_set_size(struct ntfs_inode *ni, enum ATTR_TYPE type,
 		  struct ATTRIB **ret);
 int attr_data_get_block(struct ntfs_inode *ni, CLST vcn, CLST clen, CLST *lcn,
 			CLST *len, bool *new, bool zero);
-int attr_data_read_resident(struct ntfs_inode *ni, struct page *page);
-int attr_data_write_resident(struct ntfs_inode *ni, struct page *page);
+int attr_data_read_resident(struct ntfs_inode *ni, struct folio *folio);
+int attr_data_write_resident(struct ntfs_inode *ni, struct folio *folio);
 int attr_load_runs_vcn(struct ntfs_inode *ni, enum ATTR_TYPE type,
 		       const __le16 *name, u8 name_len, struct runs_tree *run,
 		       CLST vcn);
@@ -448,6 +452,8 @@ int attr_allocate_frame(struct ntfs_inode *ni, CLST frame, size_t compr_size,
 int attr_collapse_range(struct ntfs_inode *ni, u64 vbo, u64 bytes);
 int attr_insert_range(struct ntfs_inode *ni, u64 vbo, u64 bytes);
 int attr_punch_hole(struct ntfs_inode *ni, u64 vbo, u64 bytes, u32 *frame_size);
+int attr_force_nonresident(struct ntfs_inode *ni);
+int attr_set_compress(struct ntfs_inode *ni, bool compr);
 
 /* Functions from attrlist.c */
 void al_destroy(struct ntfs_inode *ni);
@@ -466,9 +472,6 @@ int al_add_le(struct ntfs_inode *ni, enum ATTR_TYPE type, const __le16 *name,
 	      u8 name_len, CLST svcn, __le16 id, const struct MFT_REF *ref,
 	      struct ATTR_LIST_ENTRY **new_le);
 bool al_remove_le(struct ntfs_inode *ni, struct ATTR_LIST_ENTRY *le);
-bool al_delete_le(struct ntfs_inode *ni, enum ATTR_TYPE type, CLST vcn,
-		  const __le16 *name, size_t name_len,
-		  const struct MFT_REF *ref);
 int al_update(struct ntfs_inode *ni, int sync);
 static inline size_t al_aligned(size_t size)
 {
@@ -490,20 +493,25 @@ struct inode *dir_search_u(struct inode *dir, const struct cpu_str *uni,
 			   struct ntfs_fnd *fnd);
 bool dir_is_empty(struct inode *dir);
 extern const struct file_operations ntfs_dir_operations;
+extern const struct file_operations ntfs_legacy_dir_operations;
 
 /* Globals from file.c */
+int ntfs_fileattr_get(struct dentry *dentry, struct fileattr *fa);
+int ntfs_fileattr_set(struct mnt_idmap *idmap, struct dentry *dentry,
+		      struct fileattr *fa);
 int ntfs_getattr(struct mnt_idmap *idmap, const struct path *path,
 		 struct kstat *stat, u32 request_mask, u32 flags);
-int ntfs3_setattr(struct mnt_idmap *idmap, struct dentry *dentry,
-		  struct iattr *attr);
-void ntfs_sparse_cluster(struct inode *inode, struct page *page0, CLST vcn,
-			 CLST len);
+int ntfs_setattr(struct mnt_idmap *idmap, struct dentry *dentry,
+		 struct iattr *attr);
 int ntfs_file_open(struct inode *inode, struct file *file);
 int ntfs_fiemap(struct inode *inode, struct fiemap_extent_info *fieinfo,
 		__u64 start, __u64 len);
+long ntfs_ioctl(struct file *filp, u32 cmd, unsigned long arg);
+long ntfs_compat_ioctl(struct file *filp, u32 cmd, unsigned long arg);
 extern const struct inode_operations ntfs_special_inode_operations;
 extern const struct inode_operations ntfs_file_inode_operations;
 extern const struct file_operations ntfs_file_operations;
+extern const struct file_operations ntfs_legacy_file_operations;
 
 /* Globals from frecord.c */
 void ni_remove_mi(struct ntfs_inode *ni, struct mft_inode *mi);
@@ -527,7 +535,7 @@ struct ATTRIB *ni_load_attr(struct ntfs_inode *ni, enum ATTR_TYPE type,
 int ni_load_all_mi(struct ntfs_inode *ni);
 bool ni_add_subrecord(struct ntfs_inode *ni, CLST rno, struct mft_inode **mi);
 int ni_remove_attr(struct ntfs_inode *ni, enum ATTR_TYPE type,
-		   const __le16 *name, size_t name_len, bool base_only,
+		   const __le16 *name, u8 name_len, bool base_only,
 		   const __le16 *id);
 int ni_create_attr_list(struct ntfs_inode *ni);
 int ni_expand_list(struct ntfs_inode *ni);
@@ -544,7 +552,7 @@ void ni_remove_attr_le(struct ntfs_inode *ni, struct ATTRIB *attr,
 		       struct mft_inode *mi, struct ATTR_LIST_ENTRY *le);
 int ni_delete_all(struct ntfs_inode *ni);
 struct ATTR_FILE_NAME *ni_fname_name(struct ntfs_inode *ni,
-				     const struct cpu_str *uni,
+				     const struct le_str *uni,
 				     const struct MFT_REF *home,
 				     struct mft_inode **mi,
 				     struct ATTR_LIST_ENTRY **entry);
@@ -558,7 +566,7 @@ int ni_write_inode(struct inode *inode, int sync, const char *hint);
 #define _ni_write_inode(i, w) ni_write_inode(i, w, __func__)
 int ni_fiemap(struct ntfs_inode *ni, struct fiemap_extent_info *fieinfo,
 	      __u64 vbo, __u64 len);
-int ni_readpage_cmpr(struct ntfs_inode *ni, struct page *page);
+int ni_readpage_cmpr(struct ntfs_inode *ni, struct folio *folio);
 int ni_decompress_file(struct ntfs_inode *ni);
 int ni_read_frame(struct ntfs_inode *ni, u64 frame_vbo, struct page **pages,
 		  u32 pages_per_frame);
@@ -579,12 +587,14 @@ int ni_rename(struct ntfs_inode *dir_ni, struct ntfs_inode *new_dir_ni,
 	      bool *is_bad);
 
 bool ni_is_dirty(struct inode *inode);
+int ni_set_compress(struct inode *inode, bool compr);
 
 /* Globals from fslog.c */
 bool check_index_header(const struct INDEX_HDR *hdr, size_t bytes);
 int log_replay(struct ntfs_inode *ni, bool *initialized);
 
 /* Globals from fsntfs.c */
+struct buffer_head *ntfs_bread(struct super_block *sb, sector_t block);
 bool ntfs_fix_pre_write(struct NTFS_RECORD_HEADER *rhdr, size_t bytes);
 int ntfs_fix_post_read(struct NTFS_RECORD_HEADER *rhdr, size_t bytes,
 		       bool simple);
@@ -631,7 +641,7 @@ int ntfs_bio_fill_1(struct ntfs_sb_info *sbi, const struct runs_tree *run);
 int ntfs_vbo_to_lbo(struct ntfs_sb_info *sbi, const struct runs_tree *run,
 		    u64 vbo, u64 *lbo, u64 *bytes);
 struct ntfs_inode *ntfs_new_inode(struct ntfs_sb_info *sbi, CLST nRec,
-				  bool dir);
+				  enum RECORD_FLAG flag);
 extern const u8 s_default_security[0x50];
 bool is_sd_valid(const struct SECURITY_DESCRIPTOR_RELATIVE *sd, u32 len);
 int ntfs_security_init(struct ntfs_sb_info *sbi);
@@ -649,8 +659,10 @@ int ntfs_insert_reparse(struct ntfs_sb_info *sbi, __le32 rtag,
 int ntfs_remove_reparse(struct ntfs_sb_info *sbi, __le32 rtag,
 			const struct MFT_REF *ref);
 void mark_as_free_ex(struct ntfs_sb_info *sbi, CLST lcn, CLST len, bool trim);
-int run_deallocate(struct ntfs_sb_info *sbi, struct runs_tree *run, bool trim);
+int run_deallocate(struct ntfs_sb_info *sbi, const struct runs_tree *run,
+		   bool trim);
 bool valid_windows_name(struct ntfs_sb_info *sbi, const struct le_str *name);
+int ntfs_set_label(struct ntfs_sb_info *sbi, u8 *label, int len);
 
 /* Globals from index.c */
 int indx_used_bit(struct ntfs_index *indx, struct ntfs_inode *ni, size_t *bit);
@@ -696,23 +708,21 @@ int indx_update_dup(struct ntfs_inode *ni, struct ntfs_sb_info *sbi,
 struct inode *ntfs_iget5(struct super_block *sb, const struct MFT_REF *ref,
 			 const struct cpu_str *name);
 int ntfs_set_size(struct inode *inode, u64 new_size);
-int reset_log_file(struct inode *inode);
 int ntfs_get_block(struct inode *inode, sector_t vbn,
 		   struct buffer_head *bh_result, int create);
 int ntfs_write_begin(struct file *file, struct address_space *mapping,
-		     loff_t pos, u32 len, struct page **pagep, void **fsdata);
+		     loff_t pos, u32 len, struct folio **foliop, void **fsdata);
 int ntfs_write_end(struct file *file, struct address_space *mapping, loff_t pos,
-		   u32 len, u32 copied, struct page *page, void *fsdata);
+		   u32 len, u32 copied, struct folio *folio, void *fsdata);
 int ntfs3_write_inode(struct inode *inode, struct writeback_control *wbc);
 int ntfs_sync_inode(struct inode *inode);
 int ntfs_flush_inodes(struct super_block *sb, struct inode *i1,
 		      struct inode *i2);
-int inode_write_data(struct inode *inode, const void *data, size_t bytes);
-struct inode *ntfs_create_inode(struct mnt_idmap *idmap,
-				struct inode *dir, struct dentry *dentry,
-				const struct cpu_str *uni, umode_t mode,
-				dev_t dev, const char *symname, u32 size,
-				struct ntfs_fnd *fnd);
+int inode_read_data(struct inode *inode, void *data, size_t bytes);
+int ntfs_create_inode(struct mnt_idmap *idmap, struct inode *dir,
+		      struct dentry *dentry, const struct cpu_str *uni,
+		      umode_t mode, dev_t dev, const char *symname, u32 size,
+		      struct ntfs_fnd *fnd);
 int ntfs_link_inode(struct inode *inode, struct dentry *dentry);
 int ntfs_unlink_inode(struct inode *dir, const struct dentry *dentry);
 void ntfs_evict_inode(struct inode *inode);
@@ -738,7 +748,7 @@ struct ATTRIB *mi_enum_attr(struct mft_inode *mi, struct ATTRIB *attr);
 // TODO: id?
 struct ATTRIB *mi_find_attr(struct mft_inode *mi, struct ATTRIB *attr,
 			    enum ATTR_TYPE type, const __le16 *name,
-			    size_t name_len, const __le16 *id);
+			    u8 name_len, const __le16 *id);
 static inline struct ATTRIB *rec_find_attr_le(struct mft_inode *rec,
 					      struct ATTR_LIST_ENTRY *le)
 {
@@ -858,12 +868,12 @@ unsigned long ntfs_names_hash(const u16 *name, size_t len, const u16 *upcase,
 
 /* globals from xattr.c */
 #ifdef CONFIG_NTFS3_FS_POSIX_ACL
-struct posix_acl *ntfs_get_acl(struct mnt_idmap *idmap,
-			       struct dentry *dentry, int type);
+struct posix_acl *ntfs_get_acl(struct mnt_idmap *idmap, struct dentry *dentry,
+			       int type);
 int ntfs_set_acl(struct mnt_idmap *idmap, struct dentry *dentry,
 		 struct posix_acl *acl, int type);
 int ntfs_init_acl(struct mnt_idmap *idmap, struct inode *inode,
-		 struct inode *dir);
+		  struct inode *dir);
 #else
 #define ntfs_get_acl NULL
 #define ntfs_set_acl NULL
@@ -871,7 +881,7 @@ int ntfs_init_acl(struct mnt_idmap *idmap, struct inode *inode,
 
 int ntfs_acl_chmod(struct mnt_idmap *idmap, struct dentry *dentry);
 ssize_t ntfs_listxattr(struct dentry *dentry, char *buffer, size_t size);
-extern const struct xattr_handler *ntfs_xattr_handlers[];
+extern const struct xattr_handler *const ntfs_xattr_handlers[];
 
 int ntfs_save_wsl_perm(struct inode *inode, __le16 *ea_size);
 void ntfs_get_wsl_perm(struct inode *inode);
@@ -900,22 +910,6 @@ static inline bool ntfs_is_meta_file(struct ntfs_sb_info *sbi, CLST rno)
 	return rno < MFT_REC_FREE || rno == sbi->objid_no ||
 	       rno == sbi->quota_no || rno == sbi->reparse_no ||
 	       rno == sbi->usn_jrnl_no;
-}
-
-static inline void ntfs_unmap_page(struct page *page)
-{
-	kunmap(page);
-	put_page(page);
-}
-
-static inline struct page *ntfs_map_page(struct address_space *mapping,
-					 unsigned long index)
-{
-	struct page *page = read_mapping_page(mapping, index, NULL);
-
-	if (!IS_ERR(page))
-		kmap(page);
-	return page;
 }
 
 static inline size_t wnd_zone_bit(const struct wnd_bitmap *wnd)
@@ -960,9 +954,9 @@ static inline bool run_is_empty(struct runs_tree *run)
 }
 
 /* NTFS uses quad aligned bitmaps. */
-static inline size_t bitmap_size(size_t bits)
+static inline size_t ntfs3_bitmap_size(size_t bits)
 {
-	return ALIGN((bits + 7) >> 3, 8);
+	return BITS_TO_U64(bits) * sizeof(u64);
 }
 
 #define _100ns2seconds 10000000
@@ -998,6 +992,11 @@ static inline struct ntfs_sb_info *ntfs_sb(struct super_block *sb)
 	return sb->s_fs_info;
 }
 
+static inline int ntfs3_forced_shutdown(struct super_block *sb)
+{
+	return test_bit(NTFS_FLAGS_SHUTDOWN_BIT, &ntfs_sb(sb)->flags);
+}
+
 /*
  * ntfs_up_cluster - Align up on cluster boundary.
  */
@@ -1022,19 +1021,6 @@ static inline CLST bytes_to_cluster(const struct ntfs_sb_info *sbi, u64 size)
 static inline u64 bytes_to_block(const struct super_block *sb, u64 size)
 {
 	return (size + sb->s_blocksize - 1) >> sb->s_blocksize_bits;
-}
-
-static inline struct buffer_head *ntfs_bread(struct super_block *sb,
-					     sector_t block)
-{
-	struct buffer_head *bh = sb_bread(sb, block);
-
-	if (bh)
-		return bh;
-
-	ntfs_err(sb, "failed to read volume at offset 0x%llx",
-		 (u64)block << sb->s_blocksize_bits);
-	return NULL;
 }
 
 static inline struct ntfs_inode *ntfs_i(struct inode *inode)
@@ -1155,5 +1141,14 @@ static inline void le64_sub_cpu(__le64 *var, u64 val)
 {
 	*var = cpu_to_le64(le64_to_cpu(*var) - val);
 }
+
+#if IS_ENABLED(CONFIG_NTFS_FS)
+bool is_legacy_ntfs(struct super_block *sb);
+#else
+static inline bool is_legacy_ntfs(struct super_block *sb)
+{
+	return false;
+}
+#endif
 
 #endif /* _LINUX_NTFS3_NTFS_FS_H */

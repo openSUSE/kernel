@@ -187,7 +187,7 @@ free_clk_data:
 	return ret;
 }
 
-static int clk_mt6795_apmixed_remove(struct platform_device *pdev)
+static void clk_mt6795_apmixed_remove(struct platform_device *pdev)
 {
 	struct device_node *node = pdev->dev.of_node;
 	struct clk_hw_onecell_data *clk_data = platform_get_drvdata(pdev);
@@ -197,8 +197,6 @@ static int clk_mt6795_apmixed_remove(struct platform_device *pdev)
 	mtk_clk_unregister_pllfhs(plls, ARRAY_SIZE(plls), pllfhs,
 				  ARRAY_SIZE(pllfhs), clk_data);
 	mtk_free_clk_data(clk_data);
-
-	return 0;
 }
 
 static struct platform_driver clk_mt6795_apmixed_drv = {

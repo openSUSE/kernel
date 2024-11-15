@@ -3,14 +3,14 @@
 // This file is provided under a dual BSD/GPLv2 license.  When using or
 // redistributing this file, you may do so under either license.
 //
-// Copyright(c) 2018-2022 Intel Corporation. All rights reserved.
+// Copyright(c) 2018-2022 Intel Corporation
 //
 // Author: Keyon Jie <yang.jie@linux.intel.com>
 //
 
 #include <linux/io-64-nonatomic-lo-hi.h>
 #include <linux/platform_device.h>
-#include <asm/unaligned.h>
+#include <linux/unaligned.h>
 #include <sound/soc.h>
 #include <sound/sof.h>
 #include "sof-priv.h"
@@ -92,7 +92,7 @@ int sof_block_write(struct snd_sof_dev *sdev, enum snd_sof_fw_blk_type blk_type,
 	n = size % 4;
 
 	/* __iowrite32_copy use 32bit size values so divide by 4 */
-	__iowrite32_copy_inlined(dest, src, m);
+	__iowrite32_copy(dest, src, m);
 
 	if (n) {
 		affected_mask = (1 << (8 * n)) - 1;

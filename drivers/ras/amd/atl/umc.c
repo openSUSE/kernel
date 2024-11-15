@@ -383,7 +383,7 @@ static u8 get_die_id(struct atl_err *err)
 	 * For CPUs, this is the AMD Node ID modulo the number
 	 * of AMD Nodes per socket.
 	 */
-	return topology_die_id(err->cpu) % amd_get_nodes_per_socket();
+	return topology_amd_node_id(err->cpu) % topology_amd_nodes_per_pkg();
 }
 
 #define UMC_CHANNEL_NUM	GENMASK(31, 20)
@@ -401,9 +401,14 @@ unsigned long convert_umc_mca_addr_to_sys_addr(struct atl_err *err)
 	u8 coh_st_inst_id = get_coh_st_inst_id(err);
 	unsigned long addr = get_addr(err->addr);
 	u8 die_id = get_die_id(err);
+	unsigned long ret_addr;
 
 	pr_debug("socket_id=0x%x die_id=0x%x coh_st_inst_id=0x%x addr=0x%016lx",
 		 socket_id, die_id, coh_st_inst_id, addr);
+
+	ret_addr = prm_umc_norm_to_sys_addr(socket_id, err->ipid, addr);
+	if (!IS_ERR_VALUE(ret_addr))
+		return ret_addr;
 
 	return norm_to_sys_addr(socket_id, die_id, coh_st_inst_id, addr);
 }

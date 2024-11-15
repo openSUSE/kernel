@@ -182,8 +182,6 @@ struct sas_function_template {
 	int (*set_phy_speed)(struct sas_phy *, struct sas_phy_linkrates *);
 	void (*smp_handler)(struct bsg_job *, struct Scsi_Host *,
 			struct sas_rphy *);
-
-	void *suse_kabi_padding;
 };
 
 
@@ -201,6 +199,8 @@ unsigned int sas_tlr_supported(struct scsi_device *);
 unsigned int sas_is_tlr_enabled(struct scsi_device *);
 void sas_disable_tlr(struct scsi_device *);
 void sas_enable_tlr(struct scsi_device *);
+
+bool sas_ata_ncq_prio_supported(struct scsi_device *sdev);
 
 extern struct sas_rphy *sas_end_device_alloc(struct sas_port *);
 extern struct sas_rphy *sas_expander_alloc(struct sas_port *, enum sas_device_type);

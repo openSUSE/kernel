@@ -57,14 +57,10 @@ struct sk_buff;
 struct crypto_type {
 	unsigned int (*ctxsize)(struct crypto_alg *alg, u32 type, u32 mask);
 	unsigned int (*extsize)(struct crypto_alg *alg);
-	int (*init)(struct crypto_tfm *tfm, u32 type, u32 mask);
 	int (*init_tfm)(struct crypto_tfm *tfm);
 	void (*show)(struct seq_file *m, struct crypto_alg *alg);
 	int (*report)(struct sk_buff *skb, struct crypto_alg *alg);
 	void (*free)(struct crypto_instance *inst);
-#ifdef CONFIG_CRYPTO_STATS
-	int (*report_stat)(struct sk_buff *skb, struct crypto_alg *alg);
-#endif
 
 	unsigned int type;
 	unsigned int maskclear;
@@ -194,11 +190,6 @@ static inline void *crypto_tfm_ctx_align(struct crypto_tfm *tfm,
 		align = 1;
 
 	return PTR_ALIGN(crypto_tfm_ctx(tfm), align);
-}
-
-static inline void *crypto_tfm_ctx_aligned(struct crypto_tfm *tfm)
-{
-	return crypto_tfm_ctx_align(tfm, crypto_tfm_alg_alignmask(tfm) + 1);
 }
 
 static inline unsigned int crypto_dma_align(void)

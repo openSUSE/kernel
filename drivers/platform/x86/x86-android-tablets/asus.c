@@ -24,7 +24,7 @@ static struct gpiod_lookup_table int3496_gpo2_pin22_gpios = {
 	},
 };
 
-static struct x86_gpio_button asus_me176c_tf103c_lid = {
+static const struct x86_gpio_button asus_me176c_tf103c_lid __initconst = {
 	.button = {
 		.code = SW_LID,
 		.active_low = true,
@@ -37,7 +37,7 @@ static struct x86_gpio_button asus_me176c_tf103c_lid = {
 	.pin = 12,
 };
 
-/* Asus ME176C tablets have an Android factory img with everything hardcoded */
+/* Asus ME176C tablets have an Android factory image with everything hardcoded */
 static const char * const asus_me176c_accel_mount_matrix[] = {
 	"-1", "0", "0",
 	"0", "1", "0",
@@ -112,7 +112,7 @@ static const struct x86_i2c_client_info asus_me176c_i2c_clients[] __initconst = 
 		},
 		.adapter_path = "\\_SB_.I2C5",
 	}, {
-		/* kxtj21009 accel */
+		/* kxtj21009 accelerometer */
 		.board_info = {
 			.type = "kxtj21009",
 			.addr = 0x0f,
@@ -175,13 +175,13 @@ const struct x86_dev_info asus_me176c_info __initconst = {
 	.serdev_info = asus_me176c_serdevs,
 	.serdev_count = ARRAY_SIZE(asus_me176c_serdevs),
 	.gpio_button = &asus_me176c_tf103c_lid,
+	.gpio_button_count = 1,
 	.gpiod_lookup_tables = asus_me176c_gpios,
 	.bat_swnode = &generic_lipo_hv_4v35_battery_node,
 	.modules = bq24190_modules,
-	.invalid_aei_gpiochip = "INT33FC:02",
 };
 
-/* Asus TF103C tablets have an Android factory img with everything hardcoded */
+/* Asus TF103C tablets have an Android factory image with everything hardcoded */
 static const char * const asus_tf103c_accel_mount_matrix[] = {
 	"0", "-1", "0",
 	"-1", "0", "0",
@@ -280,7 +280,7 @@ static const struct x86_i2c_client_info asus_tf103c_i2c_clients[] __initconst = 
 		},
 		.adapter_path = "\\_SB_.I2C5",
 	}, {
-		/* kxtj21009 accel */
+		/* kxtj21009 accelerometer */
 		.board_info = {
 			.type = "kxtj21009",
 			.addr = 0x0f,
@@ -303,6 +303,7 @@ static const struct x86_i2c_client_info asus_tf103c_i2c_clients[] __initconst = 
 			.index = 28,
 			.trigger = ACPI_EDGE_SENSITIVE,
 			.polarity = ACPI_ACTIVE_LOW,
+			.con_id = "atmel_mxt_ts_irq",
 		},
 	},
 };
@@ -318,8 +319,8 @@ const struct x86_dev_info asus_tf103c_info __initconst = {
 	.pdev_info = int3496_pdevs,
 	.pdev_count = 1,
 	.gpio_button = &asus_me176c_tf103c_lid,
+	.gpio_button_count = 1,
 	.gpiod_lookup_tables = asus_tf103c_gpios,
 	.bat_swnode = &asus_tf103c_battery_node,
 	.modules = bq24190_modules,
-	.invalid_aei_gpiochip = "INT33FC:02",
 };

@@ -388,12 +388,6 @@ static int nv_cspmu_init_ops(struct arm_cspmu *cspmu)
 	impl_ops->get_format_attrs		= nv_cspmu_get_format_attrs;
 	impl_ops->get_name			= nv_cspmu_get_name;
 
-	/* Set others to NULL to use default callback. */
-	impl_ops->event_type			= NULL;
-	impl_ops->event_attr_is_visible		= NULL;
-	impl_ops->get_identifier		= NULL;
-	impl_ops->is_cycle_counter_event	= NULL;
-
 	return 0;
 }
 
@@ -423,4 +417,5 @@ static void __exit nvidia_cspmu_exit(void)
 module_init(nvidia_cspmu_init);
 module_exit(nvidia_cspmu_exit);
 
+MODULE_DESCRIPTION("NVIDIA Coresight Architecture Performance Monitor Driver");
 MODULE_LICENSE("GPL v2");

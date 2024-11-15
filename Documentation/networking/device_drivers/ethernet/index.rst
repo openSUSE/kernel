@@ -15,6 +15,7 @@ Contents:
    amazon/ena
    altera/altera_tse
    amd/pds_core
+   amd/pds_vdpa
    amd/pds_vfio_pci
    aquantia/atlantic
    chelsio/cxgb
@@ -41,7 +42,9 @@ Contents:
    intel/ice
    marvell/octeontx2
    marvell/octeon_ep
+   marvell/octeon_ep_vf
    mellanox/mlx5/index
+   meta/fbnic
    microsoft/netvsc
    neterion/s2io
    netronome/nfp

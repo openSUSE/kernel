@@ -306,7 +306,7 @@ static int ntb_netdev_change_mtu(struct net_device *ndev, int new_mtu)
 		return -EINVAL;
 
 	if (!netif_running(ndev)) {
-		ndev->mtu = new_mtu;
+		WRITE_ONCE(ndev->mtu, new_mtu);
 		return 0;
 	}
 
@@ -335,7 +335,7 @@ static int ntb_netdev_change_mtu(struct net_device *ndev, int new_mtu)
 		}
 	}
 
-	ndev->mtu = new_mtu;
+	WRITE_ONCE(ndev->mtu, new_mtu);
 
 	ntb_transport_link_up(dev->qp);
 
@@ -493,7 +493,7 @@ static int __init ntb_netdev_init_module(void)
 
 	return 0;
 }
-module_init(ntb_netdev_init_module);
+late_initcall(ntb_netdev_init_module);
 
 static void __exit ntb_netdev_exit_module(void)
 {

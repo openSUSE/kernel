@@ -76,10 +76,6 @@ const struct rpc_program nfs_program = {
 	.pipe_dir_name		= NFS_PIPE_DIRNAME,
 };
 
-struct rpc_stat nfs_rpcstat = {
-	.program		= &nfs_program
-};
-
 static struct nfs_subversion *find_nfs_version(unsigned int version)
 {
 	struct nfs_subversion *nfs;
@@ -182,6 +178,13 @@ struct nfs_client *nfs_alloc_client(const struct nfs_client_initdata *cl_init)
 	clp->cl_max_connect = cl_init->max_connect ? cl_init->max_connect : 1;
 	clp->cl_net = get_net(cl_init->net);
 
+#if IS_ENABLED(CONFIG_NFS_LOCALIO)
+	seqlock_init(&clp->cl_boot_lock);
+	ktime_get_real_ts64(&clp->cl_nfssvc_boot);
+	nfs_uuid_init(&clp->cl_uuid);
+	spin_lock_init(&clp->cl_localio_lock);
+#endif /* CONFIG_NFS_LOCALIO */
+
 	clp->cl_principal = "*";
 	clp->cl_xprtsec = cl_init->xprtsec;
 	return clp;
@@ -237,6 +240,8 @@ static void pnfs_init_server(struct nfs_server *server)
  */
 void nfs_free_client(struct nfs_client *clp)
 {
+	nfs_local_disable(clp);
+
 	/* -EIO all pending I/O */
 	if (!IS_ERR(clp->cl_rpcclient))
 		rpc_shutdown_client(clp->cl_rpcclient);
@@ -245,7 +250,7 @@ void nfs_free_client(struct nfs_client *clp)
 	put_nfs_version(clp->cl_nfs_mod);
 	kfree(clp->cl_hostname);
 	kfree(clp->cl_acceptor);
-	kfree(clp);
+	kfree_rcu(clp, rcu);
 }
 EXPORT_SYMBOL_GPL(nfs_free_client);
 
@@ -428,7 +433,10 @@ struct nfs_client *nfs_get_client(const struct nfs_client_initdata *cl_init)
 			list_add_tail(&new->cl_share_link,
 					&nn->nfs_client_list);
 			spin_unlock(&nn->nfs_client_lock);
-			return rpc_ops->init_client(new, cl_init);
+			new = rpc_ops->init_client(new, cl_init);
+			if (!IS_ERR(new))
+				 nfs_local_probe(new);
+			return new;
 		}
 
 		spin_unlock(&nn->nfs_client_lock);
@@ -514,11 +522,12 @@ int nfs_create_rpc_client(struct nfs_client *clp,
 		.nodename	= cl_init->nodename,
 		.program	= &nfs_program,
 		.stats		= &nn->rpcstats,
-		.flags		= RPC_CLNT_CREATE_STATS,
 		.version	= clp->rpc_ops->version,
 		.authflavor	= flavor,
 		.cred		= cl_init->cred,
 		.xprtsec	= cl_init->xprtsec,
+		.connect_timeout = cl_init->connect_timeout,
+		.reconnect_timeout = cl_init->reconnect_timeout,
 	};
 
 	if (test_bit(NFS_CS_DISCRTRY, &clp->cl_flags))
@@ -601,6 +610,7 @@ static int nfs_start_lockd(struct nfs_server *server)
 
 	server->nlm_host = host;
 	server->destroy = nfs_destroy_server;
+	nfs_sysfs_link_rpc_client(server, nlmclnt_rpc_clnt(host), NULL);
 	return 0;
 }
 
@@ -630,6 +640,7 @@ int nfs_init_server_rpcclient(struct nfs_server *server,
 	if (server->flags & NFS_MOUNT_SOFT)
 		server->client->cl_softrtry = 1;
 
+	nfs_sysfs_link_rpc_client(server, server->client, NULL);
 	return 0;
 }
 EXPORT_SYMBOL_GPL(nfs_init_server_rpcclient);
@@ -700,6 +711,8 @@ static int nfs_init_server(struct nfs_server *server,
 		return PTR_ERR(clp);
 
 	server->nfs_client = clp;
+	nfs_sysfs_add_server(server);
+	nfs_sysfs_link_rpc_client(server, clp->cl_rpcclient, "_state");
 
 	/* Initialise the client representation from the mount data */
 	server->flags = ctx->flags;
@@ -954,6 +967,8 @@ void nfs_server_remove_lists(struct nfs_server *server)
 }
 EXPORT_SYMBOL_GPL(nfs_server_remove_lists);
 
+static DEFINE_IDA(s_sysfs_ids);
+
 /*
  * Allocate and initialise a server record
  */
@@ -964,6 +979,12 @@ struct nfs_server *nfs_alloc_server(void)
 	server = kzalloc(sizeof(struct nfs_server), GFP_KERNEL);
 	if (!server)
 		return NULL;
+
+	server->s_sysfs_id = ida_alloc(&s_sysfs_ids, GFP_KERNEL);
+	if (server->s_sysfs_id < 0) {
+		kfree(server);
+		return NULL;
+	}
 
 	server->client = server->client_acl = ERR_PTR(-EINVAL);
 
@@ -989,14 +1010,22 @@ struct nfs_server *nfs_alloc_server(void)
 	init_waitqueue_head(&server->write_congestion_wait);
 	atomic_long_set(&server->writeback, 0);
 
-	ida_init(&server->openowner_id);
-	ida_init(&server->lockowner_id);
+	atomic64_set(&server->owner_ctr, 0);
+
 	pnfs_init_server(server);
 	rpc_init_wait_queue(&server->uoc_rpcwaitq, "NFS UOC");
 
 	return server;
 }
 EXPORT_SYMBOL_GPL(nfs_alloc_server);
+
+static void delayed_free(struct rcu_head *p)
+{
+	struct nfs_server *server = container_of(p, struct nfs_server, rcu);
+
+	nfs_free_iostats(server->io_stats);
+	kfree(server);
+}
 
 /*
  * Free up a server record
@@ -1015,12 +1044,15 @@ void nfs_free_server(struct nfs_server *server)
 
 	nfs_put_client(server->nfs_client);
 
-	ida_destroy(&server->lockowner_id);
-	ida_destroy(&server->openowner_id);
-	nfs_free_iostats(server->io_stats);
+	if (server->kobj.state_initialized) {
+		nfs_sysfs_remove_server(server);
+		kobject_put(&server->kobj);
+	}
+	ida_free(&s_sysfs_ids, server->s_sysfs_id);
+
 	put_cred(server->cred);
-	kfree(server);
 	nfs_release_automount_timer();
+	call_rcu(&server->rcu, delayed_free);
 }
 EXPORT_SYMBOL_GPL(nfs_free_server);
 
@@ -1115,6 +1147,11 @@ struct nfs_server *nfs_clone_server(struct nfs_server *source,
 	nfs_server_copy_userdata(server, source);
 
 	server->fsid = fattr->fsid;
+
+	nfs_sysfs_add_server(server);
+
+	nfs_sysfs_link_rpc_client(server,
+		server->nfs_client->cl_rpcclient, "_state");
 
 	error = nfs_init_server_rpcclient(server,
 			source->client->cl_timeout,
@@ -1401,6 +1438,7 @@ error_0:
 void nfs_fs_proc_exit(void)
 {
 	remove_proc_subtree("fs/nfsfs", NULL);
+	ida_destroy(&s_sysfs_ids);
 }
 
 #endif /* CONFIG_PROC_FS */

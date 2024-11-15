@@ -7,13 +7,14 @@
 #include <linux/bitfield.h>
 #include <linux/bitmap.h>
 #include <linux/bitops.h>
+#include <linux/cleanup.h>
 #include <linux/device.h>
 #include <linux/io.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
+#include <linux/nvmem-consumer.h>
 #include <linux/of.h>
-#include <linux/of_device.h>
 #include <linux/regmap.h>
 #include <linux/sizes.h>
 #include <linux/slab.h>
@@ -92,6 +93,19 @@
  * @write_scid_en: Bit enables write cache support for a given scid.
  * @write_scid_cacheable_en: Enables write cache cacheable support for a
  *			     given scid (not supported on v2 or older hardware).
+ * @stale_en: Bit enables stale.
+ * @stale_cap_en: Bit enables stale only if current scid is over-cap.
+ * @mru_uncap_en: Roll-over on reserved cache ways if current scid is
+ *                under-cap.
+ * @mru_rollover: Roll-over on reserved cache ways.
+ * @alloc_oneway_en: Allways allocate one way on over-cap even if there's no
+ *                   same-scid lines for replacement.
+ * @ovcap_en: Once current scid is over-capacity, allocate other over-cap SCID.
+ * @ovcap_prio: Once current scid is over-capacity, allocate other low priority
+ *              over-cap scid. Depends on corresponding bit being set in
+ *              ovcap_en.
+ * @vict_prio: When current scid is under-capacity, allocate over other
+ *             lower-than victim priority-line threshold scid.
  */
 struct llcc_slice_config {
 	u32 usecase_id;
@@ -125,6 +139,7 @@ struct qcom_llcc_config {
 	int size;
 	bool need_llcc_cfg;
 	bool no_edac;
+	bool irq_configured;
 };
 
 struct qcom_sct_config {
@@ -135,6 +150,25 @@ struct qcom_sct_config {
 enum llcc_reg_offset {
 	LLCC_COMMON_HW_INFO,
 	LLCC_COMMON_STATUS0,
+};
+
+static const struct llcc_slice_config sa8775p_data[] =  {
+	{LLCC_CPUSS,    1, 2048, 1, 0, 0x00FF, 0x0, 0, 0, 0, 1, 1, 0, 0},
+	{LLCC_VIDSC0,   2, 512, 3, 1, 0x00FF, 0x0, 0, 0, 0, 1, 0, 0, 0},
+	{LLCC_CPUSS1,   3, 1024, 1, 1, 0x00FF, 0x0, 0, 0, 0, 1, 0, 0, 0},
+	{LLCC_CPUHWT,   5, 512, 1, 1, 0x00FF, 0x0, 0, 0, 0, 1, 0, 0, 0},
+	{LLCC_AUDIO,    6, 1024, 1, 1, 0x00FF, 0x0, 0, 0, 0, 0, 0, 0, 0},
+	{LLCC_CMPT,     10, 4096, 1, 1, 0x00FF, 0x0, 0, 0, 0, 1, 0, 0, 0},
+	{LLCC_GPUHTW,   11, 1024, 1, 1, 0x00FF, 0x0, 0, 0, 0, 1, 0, 0, 0},
+	{LLCC_GPU,      12, 1024, 1, 1, 0x00FF, 0x0, 0, 0, 0, 1, 0, 1, 0},
+	{LLCC_MMUHWT,   13, 1024, 1, 1, 0x00FF, 0x0, 0, 0, 0, 0, 1, 0, 0},
+	{LLCC_CMPTDMA,  15, 1024, 1, 1, 0x00FF, 0x0, 0, 0, 0, 1, 0, 0, 0},
+	{LLCC_DISP,     16, 4096, 2, 1, 0x00FF, 0x0, 0, 0, 0, 1, 0, 0, 0},
+	{LLCC_VIDFW,    17, 3072, 1, 0, 0x00FF, 0x0, 0, 0, 0, 1, 0, 0, 0},
+	{LLCC_AUDHW,    22, 1024, 1, 1, 0x00FF, 0x0, 0, 0, 0, 0, 0, 0, 0},
+	{LLCC_CVP,      28, 256, 3, 1, 0x00FF, 0x0, 0, 0, 0, 1, 0, 0, 0},
+	{LLCC_APTCM,    30, 1024, 3, 1, 0x0, 0xF0, 1, 0, 0, 1, 0, 0, 0},
+	{LLCC_WRCACHE,    31, 512, 1, 1, 0x00FF, 0x0, 0, 0, 0, 0, 1, 0, 0},
 };
 
 static const struct llcc_slice_config sc7180_data[] =  {
@@ -191,7 +225,7 @@ static const struct llcc_slice_config sc8280xp_data[] = {
 	{ LLCC_MMUHWT,   13, 1024, 1, 1, 0xfff, 0x0, 0, 0, 0, 0, 1, 0 },
 	{ LLCC_DISP,     16, 6144, 1, 1, 0xfff, 0x0, 0, 0, 0, 1, 0, 0 },
 	{ LLCC_AUDHW,    22, 2048, 1, 1, 0xfff, 0x0, 0, 0, 0, 1, 0, 0 },
-	{ LLCC_DRE,      26, 1024, 1, 1, 0xfff, 0x0, 0, 0, 0, 1, 0, 0 },
+	{ LLCC_ECC,      26, 1024, 1, 1, 0xfff, 0x0, 0, 0, 0, 1, 0, 0 },
 	{ LLCC_CVP,      28, 512,  3, 1, 0xfff, 0x0, 0, 0, 0, 1, 0, 0 },
 	{ LLCC_APTCM,    30, 1024, 3, 1, 0x0,   0x1, 1, 0, 0, 1, 0, 0 },
 	{ LLCC_WRCACHE,  31, 1024, 1, 1, 0xfff, 0x0, 0, 0, 0, 0, 1, 0 },
@@ -362,6 +396,84 @@ static const struct llcc_slice_config sm8550_data[] =  {
 	{LLCC_VIDVSP,   28,  256, 4, 1, 0xFFFFFF, 0x0,   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, },
 };
 
+static const struct llcc_slice_config sm8650_data[] = {
+	{LLCC_CPUSS,     1, 5120, 1, 0, 0xFFFFFF, 0x0,      0, 0x0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0},
+	{LLCC_VIDSC0,    2,  512, 3, 1, 0xFFFFFF, 0x0,      0, 0x0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+	{LLCC_AUDIO,     6,  512, 1, 1, 0xFFFFFF, 0x0,      0, 0x0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+	{LLCC_MDMHPGRW, 25, 1024, 3, 0, 0xFFFFFF, 0x0,      0, 0x0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+	{LLCC_MODHW,    26, 1024, 1, 1, 0xFFFFFF, 0x0,      0, 0x0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+	{LLCC_CMPT,     10, 4096, 1, 1, 0xFFFFFF, 0x0,      0, 0x0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+	{LLCC_GPUHTW,   11,  512, 1, 1, 0xFFFFFF, 0x0,      0, 0x0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+	{LLCC_GPU,       9, 3096, 1, 0, 0xFFFFFF, 0x0,      0, 0x0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0},
+	{LLCC_MMUHWT,   18,  768, 1, 1, 0xFFFFFF, 0x0,      0, 0x0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+	{LLCC_DISP,     16, 6144, 1, 1, 0xFFFFFF, 0x0,      2, 0x0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+	{LLCC_MDMHPFX,  24, 1024, 3, 1, 0xFFFFFF, 0x0,      0, 0x0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+	{LLCC_MDMPNG,   27, 1024, 0, 1, 0x000000, 0x0,      0, 0x0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+	{LLCC_AUDHW,    22, 1024, 1, 1, 0xFFFFFF, 0x0,      0, 0x0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+	{LLCC_CVP,       8,  256, 3, 1, 0xFFFFFF, 0x0,      0, 0x0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+	{LLCC_MODPE,    29,  128, 1, 1, 0xF00000, 0x0,      0, 0x0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0},
+	{LLCC_WRCACHE,  31,  512, 1, 1, 0xFFFFFF, 0x0,      0, 0x0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+	{LLCC_CAMEXP0,   4,  256, 3, 1,      0xF, 0x0,      0, 0x0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+	{LLCC_CAMEXP1,   7, 3200, 3, 1, 0xFFFFF0, 0x0,      2, 0x0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+	{LLCC_CMPTHCP,  17,  256, 3, 1, 0xFFFFFF, 0x0,      0, 0x0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+	{LLCC_LCPDARE,  30,  128, 3, 1, 0xFFFFFF, 0x0,      0, 0x0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0},
+	{LLCC_AENPU,     3, 3072, 1, 1, 0xFFFFFF, 0x0,      2, 0x0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+	{LLCC_ISLAND1,  12, 5888, 7, 1,      0x0, 0x7FFFFF, 0, 0x0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+	{LLCC_DISP_WB,  23, 1024, 3, 1, 0xFFFFFF, 0x0,      0, 0x0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+	{LLCC_VIDVSP,   28,  256, 3, 1, 0xFFFFFF, 0x0,      0, 0x0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+};
+
+static const struct llcc_slice_config qdu1000_data_2ch[] = {
+	{ LLCC_MDMHPGRW, 7, 512, 1, 1, 0xfff, 0x0, 0, 0, 0, 1, 0, 0, 0 },
+	{ LLCC_MODHW,    9, 256, 1, 1, 0xfff, 0x0, 0, 0, 0, 1, 0, 0, 0 },
+	{ LLCC_MDMPNG,  21, 256, 0, 1, 0x3,   0x0, 0, 0, 0, 1, 0, 0, 0 },
+	{ LLCC_ECC,     26, 512, 3, 1, 0xffc, 0x0, 0, 0, 0, 0, 1, 0, 0 },
+	{ LLCC_MODPE,   29, 256, 1, 1, 0xfff, 0x0, 0, 0, 0, 1, 0, 0, 0 },
+	{ LLCC_APTCM,   30, 256, 3, 1, 0x0,   0xc, 1, 0, 0, 1, 0, 0, 0 },
+	{ LLCC_WRCACHE, 31, 128, 1, 1, 0x3,   0x0, 0, 0, 0, 0, 1, 0, 0 },
+};
+
+static const struct llcc_slice_config qdu1000_data_4ch[] = {
+	{ LLCC_MDMHPGRW, 7, 1024, 1, 1, 0xfff, 0x0, 0, 0, 0, 1, 0, 0, 0 },
+	{ LLCC_MODHW,    9, 512,  1, 1, 0xfff, 0x0, 0, 0, 0, 1, 0, 0, 0 },
+	{ LLCC_MDMPNG,  21, 512,  0, 1, 0x3,   0x0, 0, 0, 0, 1, 0, 0, 0 },
+	{ LLCC_ECC,     26, 1024, 3, 1, 0xffc, 0x0, 0, 0, 0, 0, 1, 0, 0 },
+	{ LLCC_MODPE,   29, 512,  1, 1, 0xfff, 0x0, 0, 0, 0, 1, 0, 0, 0 },
+	{ LLCC_APTCM,   30, 512,  3, 1, 0x0,   0xc, 1, 0, 0, 1, 0, 0, 0 },
+	{ LLCC_WRCACHE, 31, 256,  1, 1, 0x3,   0x0, 0, 0, 0, 0, 1, 0, 0 },
+};
+
+static const struct llcc_slice_config qdu1000_data_8ch[] = {
+	{ LLCC_MDMHPGRW, 7, 2048, 1, 1, 0xfff, 0x0, 0, 0, 0, 1, 0, 0, 0 },
+	{ LLCC_MODHW,    9, 1024, 1, 1, 0xfff, 0x0, 0, 0, 0, 1, 0, 0, 0 },
+	{ LLCC_MDMPNG,  21, 1024, 0, 1, 0x3,   0x0, 0, 0, 0, 1, 0, 0, 0 },
+	{ LLCC_ECC,     26, 2048, 3, 1, 0xffc, 0x0, 0, 0, 0, 0, 1, 0, 0 },
+	{ LLCC_MODPE,   29, 1024, 1, 1, 0xfff, 0x0, 0, 0, 0, 1, 0, 0, 0 },
+	{ LLCC_APTCM,   30, 1024, 3, 1, 0x0,   0xc, 1, 0, 0, 1, 0, 0, 0 },
+	{ LLCC_WRCACHE, 31, 512,  1, 1, 0x3,   0x0, 0, 0, 0, 0, 1, 0, 0 },
+};
+
+static const struct llcc_slice_config x1e80100_data[] = {
+	{LLCC_CPUSS,	 1, 6144, 1, 1, 0xFFF, 0x0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+	{LLCC_VIDSC0,	 2,  512, 4, 1, 0xFFF, 0x0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+	{LLCC_AUDIO,	 6, 1024, 1, 1, 0xFFF, 0x0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+	{LLCC_CMPT,     10, 6144, 1, 1, 0xFFF, 0x0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+	{LLCC_GPUHTW,   11,  512, 1, 1, 0xFFF, 0x0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+	{LLCC_GPU,       9, 4608, 1, 0, 0xFFF, 0x0, 0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0},
+	{LLCC_MMUHWT,   18,  512, 1, 1, 0xFFF, 0x0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+	{LLCC_AUDHW,    22, 1024, 1, 1, 0xFFF, 0x0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+	{LLCC_CVP,       8,  512, 4, 1, 0xFFF, 0x0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+	{LLCC_WRCACHE,  31, 1024, 1, 1, 0xFFF, 0x0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+	{LLCC_CAMEXP0,   4,  256, 4, 1,   0x3, 0x0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+	{LLCC_CAMEXP1,   7, 3072, 3, 1, 0xFFC, 0x0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+	{LLCC_LCPDARE,  30,  512, 3, 1, 0xFFF, 0x0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0},
+	{LLCC_AENPU,     3, 3072, 1, 1, 0xFFF, 0x0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+	{LLCC_ISLAND1,  12, 2048, 7, 1,   0x0, 0xF, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+	{LLCC_CAMEXP2,  19, 3072, 3, 1, 0xFFC, 0x0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+	{LLCC_CAMEXP3,  20, 3072, 2, 1, 0xFFC, 0x0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+	{LLCC_CAMEXP4,  21, 3072, 2, 1, 0xFFC, 0x0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+};
+
 static const struct llcc_edac_reg_offset llcc_v1_edac_reg_offset = {
 	.trp_ecc_error_status0 = 0x20344,
 	.trp_ecc_error_status1 = 0x20348,
@@ -426,6 +538,47 @@ static const u32 llcc_v1_reg_offset[] = {
 static const u32 llcc_v2_1_reg_offset[] = {
 	[LLCC_COMMON_HW_INFO]	= 0x00034000,
 	[LLCC_COMMON_STATUS0]	= 0x0003400c,
+};
+
+static const struct qcom_llcc_config qdu1000_cfg[] = {
+	{
+		.sct_data       = qdu1000_data_8ch,
+		.size		= ARRAY_SIZE(qdu1000_data_8ch),
+		.need_llcc_cfg	= true,
+		.reg_offset	= llcc_v2_1_reg_offset,
+		.edac_reg_offset = &llcc_v2_1_edac_reg_offset,
+	},
+	{
+		.sct_data       = qdu1000_data_4ch,
+		.size           = ARRAY_SIZE(qdu1000_data_4ch),
+		.need_llcc_cfg  = true,
+		.reg_offset     = llcc_v2_1_reg_offset,
+		.edac_reg_offset = &llcc_v2_1_edac_reg_offset,
+	},
+	{
+		.sct_data       = qdu1000_data_4ch,
+		.size           = ARRAY_SIZE(qdu1000_data_4ch),
+		.need_llcc_cfg  = true,
+		.reg_offset     = llcc_v2_1_reg_offset,
+		.edac_reg_offset = &llcc_v2_1_edac_reg_offset,
+	},
+	{
+		.sct_data       = qdu1000_data_2ch,
+		.size           = ARRAY_SIZE(qdu1000_data_2ch),
+		.need_llcc_cfg  = true,
+		.reg_offset     = llcc_v2_1_reg_offset,
+		.edac_reg_offset = &llcc_v2_1_edac_reg_offset,
+	},
+};
+
+static const struct qcom_llcc_config sa8775p_cfg[] = {
+	{
+		.sct_data	= sa8775p_data,
+		.size		= ARRAY_SIZE(sa8775p_data),
+		.need_llcc_cfg	= true,
+		.reg_offset	= llcc_v2_1_reg_offset,
+		.edac_reg_offset = &llcc_v2_1_edac_reg_offset,
+	},
 };
 
 static const struct qcom_llcc_config sc7180_cfg[] = {
@@ -549,6 +702,37 @@ static const struct qcom_llcc_config sm8550_cfg[] = {
 	},
 };
 
+static const struct qcom_llcc_config sm8650_cfg[] = {
+	{
+		.sct_data       = sm8650_data,
+		.size           = ARRAY_SIZE(sm8650_data),
+		.need_llcc_cfg	= true,
+		.reg_offset	= llcc_v2_1_reg_offset,
+		.edac_reg_offset = &llcc_v2_1_edac_reg_offset,
+	},
+};
+
+static const struct qcom_llcc_config x1e80100_cfg[] = {
+	{
+		.sct_data	= x1e80100_data,
+		.size		= ARRAY_SIZE(x1e80100_data),
+		.need_llcc_cfg	= true,
+		.reg_offset	= llcc_v2_1_reg_offset,
+		.edac_reg_offset = &llcc_v2_1_edac_reg_offset,
+		.irq_configured = true,
+	},
+};
+
+static const struct qcom_sct_config qdu1000_cfgs = {
+	.llcc_config	= qdu1000_cfg,
+	.num_config	= ARRAY_SIZE(qdu1000_cfg),
+};
+
+static const struct qcom_sct_config sa8775p_cfgs = {
+	.llcc_config	= sa8775p_cfg,
+	.num_config	= ARRAY_SIZE(sa8775p_cfg),
+};
+
 static const struct qcom_sct_config sc7180_cfgs = {
 	.llcc_config	= sc7180_cfg,
 	.num_config	= ARRAY_SIZE(sc7180_cfg),
@@ -609,6 +793,16 @@ static const struct qcom_sct_config sm8550_cfgs = {
 	.num_config	= ARRAY_SIZE(sm8550_cfg),
 };
 
+static const struct qcom_sct_config sm8650_cfgs = {
+	.llcc_config	= sm8650_cfg,
+	.num_config	= ARRAY_SIZE(sm8650_cfg),
+};
+
+static const struct qcom_sct_config x1e80100_cfgs = {
+	.llcc_config	= x1e80100_cfg,
+	.num_config	= ARRAY_SIZE(x1e80100_cfg),
+};
+
 static struct llcc_drv_data *drv_data = (void *) -EPROBE_DEFER;
 
 /**
@@ -649,7 +843,7 @@ struct llcc_slice_desc *llcc_slice_getd(u32 uid)
 EXPORT_SYMBOL_GPL(llcc_slice_getd);
 
 /**
- * llcc_slice_putd - llcc slice descritpor
+ * llcc_slice_putd - llcc slice descriptor
  * @desc: Pointer to llcc slice descriptor
  */
 void llcc_slice_putd(struct llcc_slice_desc *desc)
@@ -662,6 +856,7 @@ EXPORT_SYMBOL_GPL(llcc_slice_putd);
 static int llcc_update_act_ctrl(u32 sid,
 				u32 act_ctrl_reg_val, u32 status)
 {
+	struct regmap *regmap;
 	u32 act_ctrl_reg;
 	u32 act_clear_reg;
 	u32 status_reg;
@@ -690,7 +885,8 @@ static int llcc_update_act_ctrl(u32 sid,
 		return ret;
 
 	if (drv_data->version >= LLCC_VERSION_4_1_0_0) {
-		ret = regmap_read_poll_timeout(drv_data->bcast_regmap, status_reg,
+		regmap = drv_data->bcast_and_regmap ?: drv_data->bcast_regmap;
+		ret = regmap_read_poll_timeout(regmap, status_reg,
 				      slice_status, (slice_status & ACT_COMPLETE),
 				      0, LLCC_STATUS_READ_DELAY);
 		if (ret)
@@ -998,11 +1194,28 @@ static int qcom_llcc_cfg_program(struct platform_device *pdev,
 	return ret;
 }
 
-static int qcom_llcc_remove(struct platform_device *pdev)
+static int qcom_llcc_get_cfg_index(struct platform_device *pdev, u8 *cfg_index, int num_config)
+{
+	int ret;
+
+	ret = nvmem_cell_read_u8(&pdev->dev, "multi-chan-ddr", cfg_index);
+	if (ret == -ENOENT || ret == -EOPNOTSUPP) {
+		if (num_config > 1)
+			return -EINVAL;
+		*cfg_index = 0;
+		return 0;
+	}
+
+	if (!ret && *cfg_index >= num_config)
+		ret = -EINVAL;
+
+	return ret;
+}
+
+static void qcom_llcc_remove(struct platform_device *pdev)
 {
 	/* Set the global pointer to a error code to avoid referencing it */
 	drv_data = ERR_PTR(-ENODEV);
-	return 0;
 }
 
 static struct regmap *qcom_llcc_init_mmio(struct platform_device *pdev, u8 index,
@@ -1034,6 +1247,7 @@ static int qcom_llcc_probe(struct platform_device *pdev)
 	const struct qcom_llcc_config *cfg;
 	const struct llcc_slice_config *llcc_cfg;
 	u32 sz;
+	u8 cfg_index;
 	u32 version;
 	struct regmap *regmap;
 
@@ -1058,7 +1272,10 @@ static int qcom_llcc_probe(struct platform_device *pdev)
 		ret = -EINVAL;
 		goto err;
 	}
-	cfg = &cfgs->llcc_config[0];
+	ret = qcom_llcc_get_cfg_index(pdev, &cfg_index, cfgs->num_config);
+	if (ret)
+		goto err;
+	cfg = &cfgs->llcc_config[cfg_index];
 
 	ret = regmap_read(regmap, cfg->reg_offset[LLCC_COMMON_STATUS0], &num_banks);
 	if (ret)
@@ -1078,16 +1295,13 @@ static int qcom_llcc_probe(struct platform_device *pdev)
 
 	/* Initialize rest of LLCC bank regmaps */
 	for (i = 1; i < num_banks; i++) {
-		char *base = kasprintf(GFP_KERNEL, "llcc%d_base", i);
+		char *base __free(kfree) = kasprintf(GFP_KERNEL, "llcc%d_base", i);
 
 		drv_data->regmaps[i] = qcom_llcc_init_mmio(pdev, i, base);
 		if (IS_ERR(drv_data->regmaps[i])) {
 			ret = PTR_ERR(drv_data->regmaps[i]);
-			kfree(base);
 			goto err;
 		}
-
-		kfree(base);
 	}
 
 	drv_data->bcast_regmap = qcom_llcc_init_mmio(pdev, i, "llcc_broadcast_base");
@@ -1103,6 +1317,18 @@ static int qcom_llcc_probe(struct platform_device *pdev)
 		goto err;
 
 	drv_data->version = version;
+
+	/* Applicable only when drv_data->version >= 4.1 */
+	if (drv_data->version >= LLCC_VERSION_4_1_0_0) {
+		drv_data->bcast_and_regmap = qcom_llcc_init_mmio(pdev, i + 1, "llcc_broadcast_and_base");
+		if (IS_ERR(drv_data->bcast_and_regmap)) {
+			ret = PTR_ERR(drv_data->bcast_and_regmap);
+			if (ret == -EINVAL)
+				drv_data->bcast_and_regmap = NULL;
+			else
+				goto err;
+		}
+	}
 
 	llcc_cfg = cfg->sct_data;
 	sz = cfg->size;
@@ -1121,6 +1347,7 @@ static int qcom_llcc_probe(struct platform_device *pdev)
 	drv_data->cfg = llcc_cfg;
 	drv_data->cfg_size = sz;
 	drv_data->edac_reg_offset = cfg->edac_reg_offset;
+	drv_data->ecc_irq_configured = cfg->irq_configured;
 	mutex_init(&drv_data->lock);
 	platform_set_drvdata(pdev, drv_data);
 
@@ -1151,6 +1378,8 @@ err:
 }
 
 static const struct of_device_id qcom_llcc_of_match[] = {
+	{ .compatible = "qcom,qdu1000-llcc", .data = &qdu1000_cfgs},
+	{ .compatible = "qcom,sa8775p-llcc", .data = &sa8775p_cfgs },
 	{ .compatible = "qcom,sc7180-llcc", .data = &sc7180_cfgs },
 	{ .compatible = "qcom,sc7280-llcc", .data = &sc7280_cfgs },
 	{ .compatible = "qcom,sc8180x-llcc", .data = &sc8180x_cfgs },
@@ -1163,6 +1392,8 @@ static const struct of_device_id qcom_llcc_of_match[] = {
 	{ .compatible = "qcom,sm8350-llcc", .data = &sm8350_cfgs },
 	{ .compatible = "qcom,sm8450-llcc", .data = &sm8450_cfgs },
 	{ .compatible = "qcom,sm8550-llcc", .data = &sm8550_cfgs },
+	{ .compatible = "qcom,sm8650-llcc", .data = &sm8650_cfgs },
+	{ .compatible = "qcom,x1e80100-llcc", .data = &x1e80100_cfgs },
 	{ }
 };
 MODULE_DEVICE_TABLE(of, qcom_llcc_of_match);
@@ -1173,7 +1404,7 @@ static struct platform_driver qcom_llcc_driver = {
 		.of_match_table = qcom_llcc_of_match,
 	},
 	.probe = qcom_llcc_probe,
-	.remove = qcom_llcc_remove,
+	.remove_new = qcom_llcc_remove,
 };
 module_platform_driver(qcom_llcc_driver);
 

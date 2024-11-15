@@ -916,9 +916,7 @@
 
 			pd_vic: vic {
 				clocks = <&tegra_car TEGRA210_CLK_VIC03>;
-				clock-names = "vic";
 				resets = <&tegra_car 178>;
-				reset-names = "vic";
 				#power-domain-cells = <0>;
 			};
 
@@ -2001,11 +1999,12 @@
 		L2: l2-cache {
 			compatible = "cache";
 			cache-level = <2>;
+			cache-unified;
 		};
 	};
 
 	pmu {
-		compatible = "arm,armv8-pmuv3";
+		compatible = "arm,cortex-a57-pmu";
 		interrupts = <GIC_SPI 144 IRQ_TYPE_LEVEL_HIGH>,
 			     <GIC_SPI 145 IRQ_TYPE_LEVEL_HIGH>,
 			     <GIC_SPI 146 IRQ_TYPE_LEVEL_HIGH>,

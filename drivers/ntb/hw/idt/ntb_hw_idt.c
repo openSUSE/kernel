@@ -2129,7 +2129,7 @@ static int idt_init_isr(struct idt_ntb_dev *ndev)
 	int ret;
 
 	/* Allocate just one interrupt vector for the ISR */
-	ret = pci_alloc_irq_vectors(pdev, 1, 1, PCI_IRQ_MSI | PCI_IRQ_LEGACY);
+	ret = pci_alloc_irq_vectors(pdev, 1, 1, PCI_IRQ_MSI | PCI_IRQ_INTX);
 	if (ret != 1) {
 		dev_err(&pdev->dev, "Failed to allocate IRQ vector");
 		return ret;
@@ -2547,7 +2547,7 @@ static void idt_deinit_dbgfs(struct idt_ntb_dev *ndev)
  */
 
 /*
- * idt_check_setup() - Check whether the IDT PCIe-swtich is properly
+ * idt_check_setup() - Check whether the IDT PCIe-switch is properly
  *		       pre-initialized
  * @pdev:	Pointer to the PCI device descriptor
  *
@@ -2651,20 +2651,18 @@ static int idt_init_pci(struct idt_ntb_dev *ndev)
 	}
 
 	/*
-	 * Enable the device advanced error reporting. It's not critical to
+	 * The PCI core enables device error reporting. It's not critical to
 	 * have AER disabled in the kernel.
+	 *
+	 * Cleanup nonfatal error status before getting to init.
 	 */
-	ret = pci_enable_pcie_error_reporting(pdev);
-	if (ret != 0)
-		dev_warn(&pdev->dev, "PCIe AER capability disabled\n");
-	else /* Cleanup nonfatal error status before getting to init */
-		pci_aer_clear_nonfatal_status(pdev);
+	pci_aer_clear_nonfatal_status(pdev);
 
 	/* First enable the PCI device */
 	ret = pcim_enable_device(pdev);
 	if (ret != 0) {
 		dev_err(&pdev->dev, "Failed to enable PCIe device\n");
-		goto err_disable_aer;
+		return ret;
 	}
 
 	/*
@@ -2692,8 +2690,6 @@ static int idt_init_pci(struct idt_ntb_dev *ndev)
 
 err_clear_master:
 	pci_clear_master(pdev);
-err_disable_aer:
-	(void)pci_disable_pcie_error_reporting(pdev);
 
 	return ret;
 }
@@ -2713,9 +2709,6 @@ static void idt_deinit_pci(struct idt_ntb_dev *ndev)
 
 	/* Clear the bus master disabling the Request TLPs translation */
 	pci_clear_master(pdev);
-
-	/* Disable the AER capability */
-	(void)pci_disable_pcie_error_reporting(pdev);
 
 	dev_dbg(&pdev->dev, "NT-function PCIe interface cleared");
 }

@@ -535,9 +535,9 @@ static void vpx3220_remove(struct i2c_client *client)
 }
 
 static const struct i2c_device_id vpx3220_id[] = {
-	{ "vpx3220a", 0 },
-	{ "vpx3216b", 0 },
-	{ "vpx3214c", 0 },
+	{ "vpx3220a" },
+	{ "vpx3216b" },
+	{ "vpx3214c" },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, vpx3220_id);
@@ -546,7 +546,7 @@ static struct i2c_driver vpx3220_driver = {
 	.driver = {
 		.name	= "vpx3220",
 	},
-	.probe_new	= vpx3220_probe,
+	.probe		= vpx3220_probe,
 	.remove		= vpx3220_remove,
 	.id_table	= vpx3220_id,
 };

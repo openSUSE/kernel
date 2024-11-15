@@ -1691,7 +1691,7 @@ static int sienna_cichlid_get_power_profile_mode(struct smu_context *smu, char *
 		size += sysfs_emit_at(buf, size, "%19s %d(%13s) %7d %7d %7d %7d %7d %7d %7d %7d %7d\n",
 			" ",
 			2,
-			"MEMLK",
+			"MEMCLK",
 			activity_monitor->Mem_FPS,
 			activity_monitor->Mem_MinFreqStep,
 			activity_monitor->Mem_MinActiveFreqType,
@@ -1722,6 +1722,8 @@ static int sienna_cichlid_set_power_profile_mode(struct smu_context *smu, long *
 	}
 
 	if (smu->power_profile_mode == PP_SMC_POWER_PROFILE_CUSTOM) {
+		if (size != 10)
+			return -EINVAL;
 
 		ret = smu_cmn_update_table(smu,
 				       SMU_TABLE_ACTIVITY_MONITOR_COEFF, WORKLOAD_PPLIB_CUSTOM_BIT,
@@ -1754,7 +1756,7 @@ static int sienna_cichlid_set_power_profile_mode(struct smu_context *smu, long *
 			activity_monitor->Fclk_PD_Data_error_coeff = input[8];
 			activity_monitor->Fclk_PD_Data_error_rate_coeff = input[9];
 			break;
-		case 2: /* Memlk */
+		case 2: /* Memclk */
 			activity_monitor->Mem_FPS = input[1];
 			activity_monitor->Mem_MinFreqStep = input[2];
 			activity_monitor->Mem_MinActiveFreqType = input[3];
@@ -1765,6 +1767,8 @@ static int sienna_cichlid_set_power_profile_mode(struct smu_context *smu, long *
 			activity_monitor->Mem_PD_Data_error_coeff = input[8];
 			activity_monitor->Mem_PD_Data_error_rate_coeff = input[9];
 			break;
+		default:
+			return -EINVAL;
 		}
 
 		ret = smu_cmn_update_table(smu,
@@ -1782,8 +1786,13 @@ static int sienna_cichlid_set_power_profile_mode(struct smu_context *smu, long *
 						       smu->power_profile_mode);
 	if (workload_type < 0)
 		return -EINVAL;
-	smu_cmn_send_smc_msg_with_param(smu, SMU_MSG_SetWorkloadMask,
-				    1 << workload_type, NULL);
+
+	ret = smu_cmn_send_smc_msg_with_param(smu, SMU_MSG_SetWorkloadMask,
+				    smu->workload_mask, NULL);
+	if (ret)
+		dev_err(smu->adev->dev, "[%s] Failed to set work load mask!", __func__);
+	else
+		smu_cmn_assign_power_profile(smu);
 
 	return ret;
 }
@@ -4431,9 +4440,7 @@ static const struct pptable_funcs sienna_cichlid_ppt_funcs = {
 	.register_irq_handler = smu_v11_0_register_irq_handler,
 	.set_azalia_d3_pme = smu_v11_0_set_azalia_d3_pme,
 	.get_max_sustainable_clocks_by_dc = smu_v11_0_get_max_sustainable_clocks_by_dc,
-	.baco_is_support = smu_v11_0_baco_is_support,
-	.baco_get_state = smu_v11_0_baco_get_state,
-	.baco_set_state = smu_v11_0_baco_set_state,
+	.get_bamaco_support = smu_v11_0_get_bamaco_support,
 	.baco_enter = sienna_cichlid_baco_enter,
 	.baco_exit = sienna_cichlid_baco_exit,
 	.mode1_reset_is_support = sienna_cichlid_is_mode1_reset_supported,

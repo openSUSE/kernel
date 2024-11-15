@@ -210,7 +210,7 @@ static bool is_dpll_supported(struct mlx5_core_dev *dev)
 		return false;
 
 	if (!MLX5_CAP_MCAM_REG2(dev, synce_registers)) {
-		mlx5_core_warn(dev, "Missing SyncE capability\n");
+		mlx5_core_dbg(dev, "Missing SyncE capability\n");
 		return false;
 	}
 
@@ -349,7 +349,7 @@ int mlx5_attach_device(struct mlx5_core_dev *dev)
 {
 	struct mlx5_priv *priv = &dev->priv;
 	struct auxiliary_device *adev;
-	struct auxiliary_driver *adrv;
+	const struct auxiliary_driver *adrv;
 	int ret = 0, i;
 
 	devl_assert_locked(priv_to_devlink(dev));
@@ -406,7 +406,7 @@ void mlx5_detach_device(struct mlx5_core_dev *dev, bool suspend)
 {
 	struct mlx5_priv *priv = &dev->priv;
 	struct auxiliary_device *adev;
-	struct auxiliary_driver *adrv;
+	const struct auxiliary_driver *adrv;
 	pm_message_t pm = {};
 	int i;
 

@@ -23,7 +23,7 @@
 #include <linux/vmalloc.h>
 #include <linux/slab.h>
 #include <linux/delay.h>
-#include <asm/unaligned.h>
+#include <linux/unaligned.h>
 #include <video/udlfb.h>
 #include "edid.h"
 
@@ -330,6 +330,8 @@ static int dlfb_ops_mmap(struct fb_info *info, struct vm_area_struct *vma)
 
 	if (info->fbdefio)
 		return fb_deferred_io_mmap(info, vma);
+
+	vma->vm_page_prot = pgprot_decrypted(vma->vm_page_prot);
 
 	if (vma->vm_pgoff > (~0UL >> PAGE_SHIFT))
 		return -EINVAL;

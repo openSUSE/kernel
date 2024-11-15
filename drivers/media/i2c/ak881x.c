@@ -304,8 +304,8 @@ static void ak881x_remove(struct i2c_client *client)
 }
 
 static const struct i2c_device_id ak881x_id[] = {
-	{ "ak8813", 0 },
-	{ "ak8814", 0 },
+	{ "ak8813" },
+	{ "ak8814" },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, ak881x_id);
@@ -314,7 +314,7 @@ static struct i2c_driver ak881x_i2c_driver = {
 	.driver = {
 		.name = "ak881x",
 	},
-	.probe_new	= ak881x_probe,
+	.probe		= ak881x_probe,
 	.remove		= ak881x_remove,
 	.id_table	= ak881x_id,
 };

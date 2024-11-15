@@ -31,6 +31,9 @@ config HAVE_FUNCTION_GRAPH_TRACER
 	help
 	  See Documentation/trace/ftrace-design.rst
 
+config HAVE_FUNCTION_GRAPH_RETVAL
+	bool
+
 config HAVE_DYNAMIC_FTRACE
 	bool
 	help
@@ -160,7 +163,7 @@ config TRACING
 	select BINARY_PRINTF
 	select EVENT_TRACING
 	select TRACE_CLOCK
-	select TASKS_RCU if PREEMPTION
+	select NEED_TASKS_RCU
 
 config GENERIC_TRACER
 	bool
@@ -201,7 +204,7 @@ config FUNCTION_TRACER
 	select GENERIC_TRACER
 	select CONTEXT_SWITCH_TRACER
 	select GLOB
-	select TASKS_RCU if PREEMPTION
+	select NEED_TASKS_RCU
 	select TASKS_RUDE_RCU
 	help
 	  Enable the kernel to trace every kernel function. This is done
@@ -226,6 +229,18 @@ config FUNCTION_GRAPH_TRACER
 	  draw a call graph for each thread with some information like
 	  the return value. This is done by setting the current return
 	  address on the current task structure into a stack of calls.
+
+config FUNCTION_GRAPH_RETVAL
+	bool "Kernel Function Graph Return Value"
+	depends on HAVE_FUNCTION_GRAPH_RETVAL
+	depends on FUNCTION_GRAPH_TRACER
+	default n
+	help
+	  Support recording and printing the function return value when
+	  using function graph tracer. It can be helpful to locate functions
+	  that return errors. This feature is off by default, and you can
+	  enable it via the trace option funcgraph-retval.
+	  See Documentation/trace/ftrace.rst
 
 config DYNAMIC_FTRACE
 	bool "enable/disable function tracing dynamically"
@@ -650,6 +665,32 @@ config BLK_DEV_IO_TRACE
 
 	  If unsure, say N.
 
+config FPROBE_EVENTS
+	depends on FPROBE
+	depends on HAVE_REGS_AND_STACK_ACCESS_API
+	bool "Enable fprobe-based dynamic events"
+	select TRACING
+	select PROBE_EVENTS
+	select DYNAMIC_EVENTS
+	default y
+	help
+	  This allows user to add tracing events on the function entry and
+	  exit via ftrace interface. The syntax is same as the kprobe events
+	  and the kprobe events on function entry and exit will be
+	  transparently converted to this fprobe events.
+
+config PROBE_EVENTS_BTF_ARGS
+	depends on HAVE_FUNCTION_ARG_ACCESS_API
+	depends on FPROBE_EVENTS || KPROBE_EVENTS
+	depends on DEBUG_INFO_BTF && BPF_SYSCALL
+	bool "Support BTF function arguments for probe events"
+	default y
+	help
+	  The user can specify the arguments of the probe event using the names
+	  of the arguments of the probed function, when the probe location is a
+	  kernel function entry or a tracepoint.
+	  This is available only if BTF (BPF Type Format) support is enabled.
+
 config KPROBE_EVENTS
 	depends on KPROBES
 	depends on HAVE_REGS_AND_STACK_ACCESS_API
@@ -924,7 +965,7 @@ config FTRACE_RECORD_RECURSION
 
 config FTRACE_RECORD_RECURSION_SIZE
 	int "Max number of recursed functions to record"
-	default	128
+	default 128
 	depends on FTRACE_RECORD_RECURSION
 	help
 	  This defines the limit of number of functions that can be
@@ -932,6 +973,19 @@ config FTRACE_RECORD_RECURSION_SIZE
 	  the functions that caused a recursion to happen.
 	  This file can be reset, but the limit can not change in
 	  size at runtime.
+
+config FTRACE_VALIDATE_RCU_IS_WATCHING
+	bool "Validate RCU is on during ftrace execution"
+	depends on FUNCTION_TRACER
+	depends on ARCH_WANTS_NO_INSTR
+	help
+	  All callbacks that attach to the function tracing have some sort of
+	  protection against recursion. This option is only to verify that
+	  ftrace (and other users of ftrace_test_recursion_trylock()) are not
+	  called outside of RCU, as if they are, it can cause a race. But it
+	  also has a noticeable overhead when enabled.
+
+	  If unsure, say N
 
 config RING_BUFFER_RECORD_RECURSION
 	bool "Record functions that recurse in the ring buffer"

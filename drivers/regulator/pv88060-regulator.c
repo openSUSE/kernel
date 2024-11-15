@@ -360,8 +360,8 @@ static int pv88060_i2c_probe(struct i2c_client *i2c)
 }
 
 static const struct i2c_device_id pv88060_i2c_id[] = {
-	{"pv88060", 0},
-	{},
+	{ "pv88060" },
+	{}
 };
 MODULE_DEVICE_TABLE(i2c, pv88060_i2c_id);
 
@@ -379,7 +379,7 @@ static struct i2c_driver pv88060_regulator_driver = {
 		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
 		.of_match_table = of_match_ptr(pv88060_dt_ids),
 	},
-	.probe_new = pv88060_i2c_probe,
+	.probe = pv88060_i2c_probe,
 	.id_table = pv88060_i2c_id,
 };
 

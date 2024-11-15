@@ -368,16 +368,13 @@ static int dmirror_do_read(struct dmirror *dmirror, unsigned long start,
 	for (pfn = start >> PAGE_SHIFT; pfn < (end >> PAGE_SHIFT); pfn++) {
 		void *entry;
 		struct page *page;
-		void *tmp;
 
 		entry = xa_load(&dmirror->pt, pfn);
 		page = xa_untag_pointer(entry);
 		if (!page)
 			return -ENOENT;
 
-		tmp = kmap(page);
-		memcpy(ptr, tmp, PAGE_SIZE);
-		kunmap(page);
+		memcpy_from_page(ptr, page, 0, PAGE_SIZE);
 
 		ptr += PAGE_SIZE;
 		bounce->cpages++;
@@ -437,16 +434,13 @@ static int dmirror_do_write(struct dmirror *dmirror, unsigned long start,
 	for (pfn = start >> PAGE_SHIFT; pfn < (end >> PAGE_SHIFT); pfn++) {
 		void *entry;
 		struct page *page;
-		void *tmp;
 
 		entry = xa_load(&dmirror->pt, pfn);
 		page = xa_untag_pointer(entry);
 		if (!page || xa_pointer_tag(entry) != DPT_XA_TAG_WRITE)
 			return -ENOENT;
 
-		tmp = kmap(page);
-		memcpy(tmp, ptr, PAGE_SIZE);
-		kunmap(page);
+		memcpy_to_page(page, 0, ptr, PAGE_SIZE);
 
 		ptr += PAGE_SIZE;
 		bounce->cpages++;
@@ -805,10 +799,7 @@ static int dmirror_exclusive(struct dmirror *dmirror,
 		unsigned long mapped = 0;
 		int i;
 
-		if (end < addr + (ARRAY_SIZE(pages) << PAGE_SHIFT))
-			next = end;
-		else
-			next = addr + (ARRAY_SIZE(pages) << PAGE_SHIFT);
+		next = min(end, addr + (ARRAY_SIZE(pages) << PAGE_SHIFT));
 
 		ret = make_device_exclusive_range(mm, addr, next, pages, NULL);
 		/*
@@ -1556,4 +1547,5 @@ static void __exit hmm_dmirror_exit(void)
 
 module_init(hmm_dmirror_init);
 module_exit(hmm_dmirror_exit);
+MODULE_DESCRIPTION("HMM (Heterogeneous Memory Management) test module");
 MODULE_LICENSE("GPL");

@@ -109,12 +109,12 @@ static int adt7316_i2c_probe(struct i2c_client *client)
 }
 
 static const struct i2c_device_id adt7316_i2c_id[] = {
-	{ "adt7316", 0 },
-	{ "adt7317", 0 },
-	{ "adt7318", 0 },
-	{ "adt7516", 0 },
-	{ "adt7517", 0 },
-	{ "adt7519", 0 },
+	{ "adt7316" },
+	{ "adt7317" },
+	{ "adt7318" },
+	{ "adt7516" },
+	{ "adt7517" },
+	{ "adt7519" },
 	{ }
 };
 
@@ -138,7 +138,7 @@ static struct i2c_driver adt7316_driver = {
 		.of_match_table = adt7316_of_match,
 		.pm = ADT7316_PM_OPS,
 	},
-	.probe_new = adt7316_i2c_probe,
+	.probe = adt7316_i2c_probe,
 	.id_table = adt7316_i2c_id,
 };
 module_i2c_driver(adt7316_driver);

@@ -6,6 +6,7 @@
 #include <asm/page.h>
 #include <asm/extable.h>
 #include <asm/kup.h>
+#include <asm/asm-compat.h>
 
 #ifdef __powerpc64__
 /* We use TASK_SIZE_USER64 as TASK_SIZE is not constant */
@@ -92,19 +93,13 @@ __pu_failed:							\
 		: label)
 #endif
 
-#ifdef CONFIG_CC_IS_CLANG
-#define DS_FORM_CONSTRAINT "Z<>"
-#else
-#define DS_FORM_CONSTRAINT "YZ<>"
-#endif
-
 #ifdef __powerpc64__
 #ifdef CONFIG_PPC_KERNEL_PREFIXED
 #define __put_user_asm2_goto(x, ptr, label)			\
 	__put_user_asm_goto(x, ptr, label, "std")
 #else
 #define __put_user_asm2_goto(x, addr, label)			\
-	asm goto("1: std%U1%X1 %0,%1	# put_user\n"		\
+	asm goto ("1: std%U1%X1 %0,%1	# put_user\n"		\
 		EX_TABLE(1b, %l2)				\
 		:						\
 		: "r" (x), DS_FORM_CONSTRAINT (*addr)		\
@@ -401,7 +396,7 @@ copy_mc_to_user(void __user *to, const void *from, unsigned long n)
 	if (check_copy_size(from, n, true)) {
 		if (access_ok(to, n)) {
 			allow_write_to_user(to, n);
-			n = copy_mc_generic((void *)to, from, n);
+			n = copy_mc_generic((void __force *)to, from, n);
 			prevent_write_to_user(to, n);
 		}
 	}
@@ -413,7 +408,7 @@ copy_mc_to_user(void __user *to, const void *from, unsigned long n)
 extern long __copy_from_user_flushcache(void *dst, const void __user *src,
 		unsigned size);
 
-static __must_check inline bool user_access_begin(const void __user *ptr, size_t len)
+static __must_check __always_inline bool user_access_begin(const void __user *ptr, size_t len)
 {
 	if (unlikely(!access_ok(ptr, len)))
 		return false;
@@ -428,7 +423,7 @@ static __must_check inline bool user_access_begin(const void __user *ptr, size_t
 #define user_access_save	prevent_user_access_return
 #define user_access_restore	restore_user_access
 
-static __must_check inline bool
+static __must_check __always_inline bool
 user_read_access_begin(const void __user *ptr, size_t len)
 {
 	if (unlikely(!access_ok(ptr, len)))
@@ -442,7 +437,7 @@ user_read_access_begin(const void __user *ptr, size_t len)
 #define user_read_access_begin	user_read_access_begin
 #define user_read_access_end		prevent_current_read_from_user
 
-static __must_check inline bool
+static __must_check __always_inline bool
 user_write_access_begin(const void __user *ptr, size_t len)
 {
 	if (unlikely(!access_ok(ptr, len)))

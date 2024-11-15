@@ -7,17 +7,34 @@
 #ifndef _LINUX_SERIAL_8250_H
 #define _LINUX_SERIAL_8250_H
 
+#include <linux/errno.h>
 #include <linux/serial_core.h>
 #include <linux/serial_reg.h>
 #include <linux/platform_device.h>
 
+struct uart_8250_port;
+
 /*
  * This is the platform device platform_data structure
+ *
+ * @mapsize:	Port size for ioremap()
+ * @bugs:	Port bugs
+ *
+ * @dl_read: ``u32 ()(struct uart_8250_port *up)``
+ *
+ *	UART divisor latch read.
+ *
+ * @dl_write: ``void ()(struct uart_8250_port *up, u32 value)``
+ *
+ *	Write @value into UART divisor latch.
+ *
+ *	Locking: Caller holds port's lock.
  */
 struct plat_serial8250_port {
 	unsigned long	iobase;		/* io base address */
 	void __iomem	*membase;	/* ioremap cookie or NULL */
 	resource_size_t	mapbase;	/* resource base */
+	resource_size_t	mapsize;
 	unsigned int	uartclk;	/* UART clock rate */
 	unsigned int	irq;		/* interrupt number */
 	unsigned long	irqflags;	/* request_irq flags */
@@ -28,8 +45,11 @@ struct plat_serial8250_port {
 	unsigned char	has_sysrq;	/* supports magic SysRq */
 	unsigned int	type;		/* If UPF_FIXED_TYPE */
 	upf_t		flags;		/* UPF_* flags */
+	u16		bugs;		/* port bugs */
 	unsigned int	(*serial_in)(struct uart_port *, int);
 	void		(*serial_out)(struct uart_port *, int, int);
+	u32		(*dl_read)(struct uart_8250_port *up);
+	void		(*dl_write)(struct uart_8250_port *up, u32 value);
 	void		(*set_termios)(struct uart_port *,
 			               struct ktermios *new,
 			               const struct ktermios *old);
@@ -90,14 +110,23 @@ struct uart_8250_em485 {
  * their own 8250 ports without registering their own
  * platform device.  Using these will make your driver
  * dependent on the 8250 driver.
+ *
+ * @dl_read: ``u32 ()(struct uart_8250_port *port)``
+ *
+ *	UART divisor latch read.
+ *
+ * @dl_write: ``void ()(struct uart_8250_port *port, u32 value)``
+ *
+ *	Write @value into UART divisor latch.
+ *
+ *	Locking: Caller holds port's lock.
  */
-
 struct uart_8250_port {
 	struct uart_port	port;
 	struct timer_list	timer;		/* "no irq" timer */
 	struct list_head	list;		/* ports on this IRQ */
 	u32			capabilities;	/* port capabilities */
-	unsigned short		bugs;		/* port bugs */
+	u16			bugs;		/* port bugs */
 	unsigned int		tx_loadsz;	/* transmit fifo load size */
 	unsigned char		acr;
 	unsigned char		fcr;
@@ -128,8 +157,8 @@ struct uart_8250_port {
 	const struct uart_8250_ops *ops;
 
 	/* 8250 specific callbacks */
-	int			(*dl_read)(struct uart_8250_port *);
-	void			(*dl_write)(struct uart_8250_port *, int);
+	u32			(*dl_read)(struct uart_8250_port *up);
+	void			(*dl_write)(struct uart_8250_port *up, u32 value);
 
 	struct uart_8250_em485 *em485;
 	void			(*rs485_start_tx)(struct uart_8250_port *);
@@ -164,7 +193,7 @@ void serial8250_do_pm(struct uart_port *port, unsigned int state,
 		      unsigned int oldstate);
 void serial8250_do_set_mctrl(struct uart_port *port, unsigned int mctrl);
 void serial8250_do_set_divisor(struct uart_port *port, unsigned int baud,
-			       unsigned int quot, unsigned int quot_frac);
+			       unsigned int quot);
 int fsl8250_handle_irq(struct uart_port *port);
 int serial8250_handle_irq(struct uart_port *port, unsigned int iir);
 u16 serial8250_rx_chars(struct uart_8250_port *up, u16 lsr);
@@ -181,9 +210,18 @@ int serial8250_console_exit(struct uart_port *port);
 void serial8250_set_isa_configurator(void (*v)(int port, struct uart_port *up,
 					       u32 *capabilities));
 
+#ifdef CONFIG_SERIAL_8250_CONSOLE
+extern int hp300_setup_serial_console(void) __init;
+#else
+static inline int hp300_setup_serial_console(void) { return 0; }
+#endif
+
 #ifdef CONFIG_SERIAL_8250_RT288X
-unsigned int au_serial_in(struct uart_port *p, int offset);
-void au_serial_out(struct uart_port *p, int offset, int value);
+int rt288x_setup(struct uart_port *p);
+int au_platform_setup(struct plat_serial8250_port *p);
+#else
+static inline int rt288x_setup(struct uart_port *p) { return -ENODEV; }
+static inline int au_platform_setup(struct plat_serial8250_port *p) { return -ENODEV; }
 #endif
 
 #endif

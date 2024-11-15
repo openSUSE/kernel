@@ -776,7 +776,7 @@ static int bd2802_resume(struct device *dev)
 static SIMPLE_DEV_PM_OPS(bd2802_pm, bd2802_suspend, bd2802_resume);
 
 static const struct i2c_device_id bd2802_id[] = {
-	{ "BD2802", 0 },
+	{ "BD2802" },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, bd2802_id);
@@ -786,7 +786,7 @@ static struct i2c_driver bd2802_i2c_driver = {
 		.name	= "BD2802",
 		.pm	= &bd2802_pm,
 	},
-	.probe_new	= bd2802_probe,
+	.probe		= bd2802_probe,
 	.remove		= bd2802_remove,
 	.id_table	= bd2802_id,
 };

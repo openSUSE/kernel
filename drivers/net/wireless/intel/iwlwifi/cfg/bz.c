@@ -10,10 +10,10 @@
 #include "fw/api/txq.h"
 
 /* Highest firmware API version supported */
-#define IWL_BZ_UCODE_API_MAX	89
+#define IWL_BZ_UCODE_API_MAX	93
 
 /* Lowest firmware API version supported */
-#define IWL_BZ_UCODE_API_MIN	80
+#define IWL_BZ_UCODE_API_MIN	90
 
 /* NVM versions */
 #define IWL_BZ_NVM_VERSION		0x0a1d
@@ -160,6 +160,8 @@ const struct iwl_cfg_trans_params iwl_gl_trans_cfg = {
 };
 
 const char iwl_bz_name[] = "Intel(R) TBD Bz device";
+const char iwl_fm_name[] = "Intel(R) Wi-Fi 7 BE201 320MHz";
+const char iwl_gl_name[] = "Intel(R) Wi-Fi 7 BE200 320MHz";
 const char iwl_mtp_name[] = "Intel(R) Wi-Fi 7 BE202 160MHz";
 
 const struct iwl_cfg iwl_cfg_bz = {

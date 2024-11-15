@@ -143,6 +143,8 @@ static const struct audit_nfcfgop_tab audit_nfcfgs[] = {
 	{ AUDIT_NFT_OP_OBJ_RESET,		"nft_reset_obj"		   },
 	{ AUDIT_NFT_OP_FLOWTABLE_REGISTER,	"nft_register_flowtable"   },
 	{ AUDIT_NFT_OP_FLOWTABLE_UNREGISTER,	"nft_unregister_flowtable" },
+	{ AUDIT_NFT_OP_SETELEM_RESET,		"nft_reset_setelem"        },
+	{ AUDIT_NFT_OP_RULE_RESET,		"nft_reset_rule"           },
 	{ AUDIT_NFT_OP_INVALID,			"nft_invalid"		   },
 };
 
@@ -880,7 +882,8 @@ static void audit_filter_syscall(struct task_struct *tsk,
  */
 static int audit_filter_inode_name(struct task_struct *tsk,
 				   struct audit_names *n,
-				   struct audit_context *ctx) {
+				   struct audit_context *ctx)
+{
 	int h = audit_hash_ino((u32)n->ino);
 	struct list_head *list = &audit_inode_hash[h];
 
@@ -1064,7 +1067,8 @@ int audit_alloc(struct task_struct *tsk)
 		return 0;
 	}
 
-	if (!(context = audit_alloc_context(state))) {
+	context = audit_alloc_context(state);
+	if (!context) {
 		kfree(key);
 		audit_log_lost("out of memory in audit_alloc");
 		return -ENOMEM;
@@ -2124,7 +2128,7 @@ retry:
 	d = dentry;
 	rcu_read_lock();
 	seq = read_seqbegin(&rename_lock);
-	for(;;) {
+	for (;;) {
 		struct inode *inode = d_backing_inode(d);
 
 		if (inode && unlikely(inode->i_fsnotify_marks)) {
@@ -2208,7 +2212,7 @@ __audit_reusename(const __user char *uptr)
 		if (!n->name)
 			continue;
 		if (n->name->uptr == uptr) {
-			n->name->refcnt++;
+			atomic_inc(&n->name->refcnt);
 			return n->name;
 		}
 	}
@@ -2237,7 +2241,7 @@ void __audit_getname(struct filename *name)
 	n->name = name;
 	n->name_len = AUDIT_NAME_FULL;
 	name->aname = n;
-	name->refcnt++;
+	atomic_inc(&name->refcnt);
 }
 
 static inline int audit_copy_fcaps(struct audit_names *name,
@@ -2269,7 +2273,7 @@ static void audit_copy_inode(struct audit_names *name,
 			     struct inode *inode, unsigned int flags)
 {
 	name->ino   = inode->i_ino;
-	name->dev   = inode_get_dev(inode);
+	name->dev   = inode->i_sb->s_dev;
 	name->mode  = inode->i_mode;
 	name->uid   = inode->i_uid;
 	name->gid   = inode->i_gid;
@@ -2341,7 +2345,7 @@ void __audit_inode(struct filename *name, const struct dentry *dentry,
 		if (n->ino) {
 			/* valid inode number, use that for the comparison */
 			if (n->ino != inode->i_ino ||
-			    n->dev != inode_get_dev(inode))
+			    n->dev != inode->i_sb->s_dev)
 				continue;
 		} else if (n->name) {
 			/* inode number has not been set, check the name */
@@ -2369,7 +2373,7 @@ out_alloc:
 		return;
 	if (name) {
 		n->name = name;
-		name->refcnt++;
+		atomic_inc(&name->refcnt);
 	}
 
 out:
@@ -2446,7 +2450,7 @@ void __audit_inode_child(struct inode *parent,
 		     n->type != AUDIT_TYPE_UNKNOWN))
 			continue;
 
-		if (n->ino == parent->i_ino && n->dev == inode_get_dev(parent) &&
+		if (n->ino == parent->i_ino && n->dev == parent->i_sb->s_dev &&
 		    !audit_compare_dname_path(dname,
 					      n->name->name, n->name_len)) {
 			if (n->type == AUDIT_TYPE_UNKNOWN)
@@ -2496,7 +2500,7 @@ void __audit_inode_child(struct inode *parent,
 		if (found_parent) {
 			found_child->name = found_parent->name;
 			found_child->name_len = AUDIT_NAME_FULL;
-			found_child->name->refcnt++;
+			atomic_inc(&found_child->name->refcnt);
 		}
 	}
 
@@ -2929,7 +2933,7 @@ void __audit_log_nfcfg(const char *name, u8 af, unsigned int nentries,
 	audit_log_format(ab, "table=%s family=%u entries=%u op=%s",
 			 name, af, nentries, audit_nfcfgs[op].s);
 
-	audit_log_format(ab, " pid=%u", task_pid_nr(current));
+	audit_log_format(ab, " pid=%u", task_tgid_nr(current));
 	audit_log_task_context(ab); /* subj= */
 	audit_log_format(ab, " comm=");
 	audit_log_untrustedstring(ab, get_task_comm(comm, current));

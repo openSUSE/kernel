@@ -33,9 +33,12 @@
 
 extern int dbg_level;
 extern int dbg_func;
-extern int mipicsi_flag;
 extern int pad_w;
 extern int pad_h;
+
+/* Minimum padding requirements for ISP2400 (BYT) */
+#define ISP2400_MIN_PAD_W		12
+#define ISP2400_MIN_PAD_H		12
 
 #define CSS_DTRACE_VERBOSITY_LEVEL	5	/* Controls trace verbosity */
 #define CSS_DTRACE_VERBOSITY_TIMEOUT	9	/* Verbosity on ISP timeout */

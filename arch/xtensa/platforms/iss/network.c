@@ -201,7 +201,7 @@ static int tuntap_write(struct iss_net_private *lp, struct sk_buff **skb)
 	return simc_write(lp->tp.info.tuntap.fd, (*skb)->data, (*skb)->len);
 }
 
-unsigned short tuntap_protocol(struct sk_buff *skb)
+static unsigned short tuntap_protocol(struct sk_buff *skb)
 {
 	return eth_type_trans(skb, skb->dev);
 }
@@ -441,7 +441,7 @@ static int iss_net_change_mtu(struct net_device *dev, int new_mtu)
 	return -EINVAL;
 }
 
-void iss_net_user_timer_expire(struct timer_list *unused)
+static void iss_net_user_timer_expire(struct timer_list *unused)
 {
 }
 
@@ -540,6 +540,7 @@ static void iss_net_configure(int index, char *init)
 		rtnl_unlock();
 		pr_err("%s: error registering net device!\n", dev->name);
 		platform_device_unregister(&lp->pdev);
+		/* dev is freed by the iss_net_pdev_release callback */
 		return;
 	}
 	rtnl_unlock();

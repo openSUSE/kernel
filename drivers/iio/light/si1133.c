@@ -17,7 +17,7 @@
 
 #include <linux/util_macros.h>
 
-#include <asm/unaligned.h>
+#include <linux/unaligned.h>
 
 #define SI1133_REG_PART_ID		0x00
 #define SI1133_REG_REV_ID		0x01
@@ -1055,7 +1055,7 @@ static int si1133_probe(struct i2c_client *client)
 }
 
 static const struct i2c_device_id si1133_ids[] = {
-	{ "si1133", 0 },
+	{ "si1133" },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, si1133_ids);
@@ -1064,7 +1064,7 @@ static struct i2c_driver si1133_driver = {
 	.driver = {
 	    .name   = "si1133",
 	},
-	.probe_new = si1133_probe,
+	.probe = si1133_probe,
 	.id_table = si1133_ids,
 };
 

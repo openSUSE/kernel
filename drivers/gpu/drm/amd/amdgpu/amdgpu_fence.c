@@ -61,9 +61,7 @@ static struct kmem_cache *amdgpu_fence_slab;
 
 int amdgpu_fence_slab_init(void)
 {
-	amdgpu_fence_slab = kmem_cache_create(
-		"amdgpu_fence", sizeof(struct amdgpu_fence), 0,
-		SLAB_HWCACHE_ALIGN, NULL);
+	amdgpu_fence_slab = KMEM_CACHE(amdgpu_fence, SLAB_HWCACHE_ALIGN);
 	if (!amdgpu_fence_slab)
 		return -ENOMEM;
 	return 0;
@@ -980,7 +978,9 @@ static void amdgpu_debugfs_reset_work(struct work_struct *work)
 
 	reset_context.method = AMD_RESET_METHOD_NONE;
 	reset_context.reset_req_dev = adev;
+	reset_context.src = AMDGPU_RESET_SRC_USER;
 	set_bit(AMDGPU_NEED_FULL_RESET, &reset_context.flags);
+	set_bit(AMDGPU_SKIP_COREDUMP, &reset_context.flags);
 
 	amdgpu_device_gpu_recover(adev, NULL, &reset_context);
 }

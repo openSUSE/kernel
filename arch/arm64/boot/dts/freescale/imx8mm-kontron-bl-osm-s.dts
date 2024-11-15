@@ -107,8 +107,7 @@
 		#size-cells = <0>;
 
 		ethphy: ethernet-phy@0 {
-			compatible = "ethernet-phy-id4f51.e91b",
-				     "ethernet-phy-ieee802.3-c22";
+			compatible = "ethernet-phy-id4f51.e91b";
 			reg = <0>;
 			reset-assert-us = <10000>;
 			reset-gpios = <&gpio1 3 GPIO_ACTIVE_LOW>;
@@ -250,8 +249,8 @@
 	};
 
 	pinctrl_usb_hub: usbhubgrp {
- 		fsl,pins = <
+		fsl,pins = <
 			MX8MM_IOMUXC_SAI3_MCLK_GPIO5_IO2		0x19 /* SDIO_B_WP */
- 		>;
+		>;
 	};
 };

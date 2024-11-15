@@ -73,7 +73,7 @@ void setup_kup(void)
 
 #define CTOR(shift) static void ctor_##shift(void *addr) \
 {							\
-	memset(addr, 0, sizeof(void *) << (shift));	\
+	memset(addr, 0, sizeof(pgd_t) << (shift));	\
 }
 
 CTOR(0); CTOR(1); CTOR(2); CTOR(3); CTOR(4); CTOR(5); CTOR(6); CTOR(7);
@@ -117,18 +117,14 @@ EXPORT_SYMBOL_GPL(pgtable_cache);	/* used by kvm_hv module */
 void pgtable_cache_add(unsigned int shift)
 {
 	char *name;
-	unsigned long table_size = sizeof(void *) << shift;
+	unsigned long table_size = sizeof(pgd_t) << shift;
 	unsigned long align = table_size;
 
 	/* When batching pgtable pointers for RCU freeing, we store
 	 * the index size in the low bits.  Table alignment must be
 	 * big enough to fit it.
-	 *
-	 * Likewise, hugeapge pagetable pointers contain a (different)
-	 * shift value in the low bits.  All tables must be aligned so
-	 * as to leave enough 0 bits in the address to contain it. */
-	unsigned long minalign = max(MAX_PGTABLE_INDEX_SIZE + 1,
-				     HUGEPD_SHIFT_MASK + 1);
+	 */
+	unsigned long minalign = MAX_PGTABLE_INDEX_SIZE + 1;
 	struct kmem_cache *new = NULL;
 
 	/* It would be nice if this was a BUILD_BUG_ON(), but at the

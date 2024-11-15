@@ -1158,7 +1158,7 @@ static void bnxt_qplib_start_rcfw(struct bnxt_qplib_rcfw *rcfw)
 				    CMDQ_INIT_CMDQ_LVL_MASK));
 	init.creq_ring_id = cpu_to_le16(creq->ring_id);
 	/* Write to the Bono mailbox register */
-	__iowrite32_copy_inlined(mbox->reg.bar_reg, &init, sizeof(init) / 4);
+	__iowrite32_copy(mbox->reg.bar_reg, &init, sizeof(init) / 4);
 }
 
 int bnxt_qplib_enable_rcfw_channel(struct bnxt_qplib_rcfw *rcfw,

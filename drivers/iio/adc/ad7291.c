@@ -536,15 +536,15 @@ static int ad7291_probe(struct i2c_client *client)
 }
 
 static const struct i2c_device_id ad7291_id[] = {
-	{ "ad7291", 0 },
-	{}
+	{ "ad7291" },
+	{ }
 };
 
 MODULE_DEVICE_TABLE(i2c, ad7291_id);
 
 static const struct of_device_id ad7291_of_match[] = {
 	{ .compatible = "adi,ad7291" },
-	{}
+	{ }
 };
 MODULE_DEVICE_TABLE(of, ad7291_of_match);
 
@@ -553,7 +553,7 @@ static struct i2c_driver ad7291_driver = {
 		.name = KBUILD_MODNAME,
 		.of_match_table = ad7291_of_match,
 	},
-	.probe_new = ad7291_probe,
+	.probe = ad7291_probe,
 	.id_table = ad7291_id,
 };
 module_i2c_driver(ad7291_driver);

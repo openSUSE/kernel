@@ -10,8 +10,9 @@
 #include <linux/device.h>
 #include <linux/init.h>
 #include <linux/module.h>
-#include <linux/of_device.h>
+#include <linux/of.h>
 #include <linux/of_dma.h>
+#include <linux/platform_device.h>
 #include <linux/reset.h>
 #include <linux/spinlock.h>
 #include <linux/interrupt.h>
@@ -129,7 +130,7 @@ struct admac_data {
 	int irq;
 	int irq_index;
 	int nchannels;
-	struct admac_chan channels[];
+	struct admac_chan channels[] __counted_by(nchannels);
 };
 
 struct admac_tx {
@@ -927,7 +928,7 @@ free_reset:
 	return err;
 }
 
-static int admac_remove(struct platform_device *pdev)
+static void admac_remove(struct platform_device *pdev)
 {
 	struct admac_data *ad = platform_get_drvdata(pdev);
 
@@ -935,8 +936,6 @@ static int admac_remove(struct platform_device *pdev)
 	dma_async_device_unregister(&ad->dma);
 	free_irq(ad->irq, ad);
 	reset_control_rearm(ad->rstc);
-
-	return 0;
 }
 
 static const struct of_device_id admac_of_match[] = {
@@ -951,7 +950,7 @@ static struct platform_driver apple_admac_driver = {
 		.of_match_table = admac_of_match,
 	},
 	.probe = admac_probe,
-	.remove = admac_remove,
+	.remove_new = admac_remove,
 };
 module_platform_driver(apple_admac_driver);
 

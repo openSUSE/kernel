@@ -14,6 +14,7 @@
 
 #define dev_fmt(fmt) "pciehp: " fmt
 
+#include <linux/bitfield.h>
 #include <linux/dmi.h>
 #include <linux/kernel.h>
 #include <linux/types.h>
@@ -484,7 +485,9 @@ int pciehp_set_raw_indicator_status(struct hotplug_slot *hotplug_slot,
 	struct pci_dev *pdev = ctrl_dev(ctrl);
 
 	pci_config_pm_runtime_get(pdev);
-	pcie_write_cmd_nowait(ctrl, status << 6,
+
+	/* Attention and Power Indicator Control bits are supported */
+	pcie_write_cmd_nowait(ctrl, FIELD_PREP(PCI_EXP_SLTCTL_AIC | PCI_EXP_SLTCTL_PIC, status),
 			      PCI_EXP_SLTCTL_AIC | PCI_EXP_SLTCTL_PIC);
 	pci_config_pm_runtime_put(pdev);
 	return 0;
@@ -716,11 +719,8 @@ static irqreturn_t pciehp_ist(int irq, void *dev_id)
 	}
 
 	/* Check Attention Button Pressed */
-	if (events & PCI_EXP_SLTSTA_ABP) {
-		ctrl_info(ctrl, "Slot(%s): Attention button pressed\n",
-			  slot_name(ctrl));
+	if (events & PCI_EXP_SLTSTA_ABP)
 		pciehp_handle_button_press(ctrl);
-	}
 
 	/* Check Power Fault Detected */
 	if (events & PCI_EXP_SLTSTA_PFD) {
@@ -978,7 +978,7 @@ static inline int pcie_hotplug_depth(struct pci_dev *dev)
 struct controller *pcie_init(struct pcie_device *dev)
 {
 	struct controller *ctrl;
-	u32 slot_cap, slot_cap2, link_cap;
+	u32 slot_cap, slot_cap2;
 	u8 poweron;
 	struct pci_dev *pdev = dev->port;
 	struct pci_bus *subordinate = pdev->subordinate;
@@ -1024,9 +1024,6 @@ struct controller *pcie_init(struct pcie_device *dev)
 	if (dmi_first_match(inband_presence_disabled_dmi_table))
 		ctrl->inband_presence_disabled = 1;
 
-	/* Check if Data Link Layer Link Active Reporting is implemented */
-	pcie_capability_read_dword(pdev, PCI_EXP_LNKCAP, &link_cap);
-
 	/* Clear all remaining event bits in Slot Status register. */
 	pcie_capability_write_word(pdev, PCI_EXP_SLTSTA,
 		PCI_EXP_SLTSTA_ABP | PCI_EXP_SLTSTA_PFD |
@@ -1034,7 +1031,7 @@ struct controller *pcie_init(struct pcie_device *dev)
 		PCI_EXP_SLTSTA_DLLSC | PCI_EXP_SLTSTA_PDC);
 
 	ctrl_info(ctrl, "Slot #%d AttnBtn%c PwrCtrl%c MRL%c AttnInd%c PwrInd%c HotPlug%c Surprise%c Interlock%c NoCompl%c IbPresDis%c LLActRep%c%s\n",
-		(slot_cap & PCI_EXP_SLTCAP_PSN) >> 19,
+		FIELD_GET(PCI_EXP_SLTCAP_PSN, slot_cap),
 		FLAG(slot_cap, PCI_EXP_SLTCAP_ABP),
 		FLAG(slot_cap, PCI_EXP_SLTCAP_PCP),
 		FLAG(slot_cap, PCI_EXP_SLTCAP_MRLSP),
@@ -1045,7 +1042,7 @@ struct controller *pcie_init(struct pcie_device *dev)
 		FLAG(slot_cap, PCI_EXP_SLTCAP_EIP),
 		FLAG(slot_cap, PCI_EXP_SLTCAP_NCCS),
 		FLAG(slot_cap2, PCI_EXP_SLTCAP2_IBPD),
-		FLAG(link_cap, PCI_EXP_LNKCAP_DLLLARC),
+		FLAG(pdev->link_active_reporting, true),
 		pdev->broken_cmd_compl ? " (with Cmd Compl erratum)" : "");
 
 	/*
@@ -1059,6 +1056,11 @@ struct controller *pcie_init(struct pcie_device *dev)
 			pciehp_power_off_slot(ctrl);
 		}
 	}
+
+	pdev = pci_get_slot(subordinate, PCI_DEVFN(0, 0));
+	if (pdev)
+		ctrl->dsn = pci_get_dsn(pdev);
+	pci_dev_put(pdev);
 
 	return ctrl;
 }

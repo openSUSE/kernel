@@ -9,12 +9,25 @@
 #include <asm/pgtable.h>
 #include <asm/tlbflush.h>
 
+struct page *dmw_virt_to_page(unsigned long kaddr)
+{
+	return phys_to_page(__pa(kaddr));
+}
+EXPORT_SYMBOL(dmw_virt_to_page);
+
+struct page *tlb_virt_to_page(unsigned long kaddr)
+{
+	return phys_to_page(pfn_to_phys(pte_pfn(*virt_to_kpte(kaddr))));
+}
+EXPORT_SYMBOL(tlb_virt_to_page);
+
 pgd_t *pgd_alloc(struct mm_struct *mm)
 {
-	pgd_t *ret, *init;
+	pgd_t *init, *ret = NULL;
+	struct ptdesc *ptdesc = pagetable_alloc(GFP_KERNEL & ~__GFP_HIGHMEM, 0);
 
-	ret = (pgd_t *) __get_free_page(GFP_KERNEL);
-	if (ret) {
+	if (ptdesc) {
+		ret = (pgd_t *)ptdesc_address(ptdesc);
 		init = pgd_offset(&init_mm, 0UL);
 		pgd_init(ret);
 		memcpy(ret + USER_PTRS_PER_PGD, init + USER_PTRS_PER_PGD,
@@ -103,11 +116,31 @@ void pud_init(void *addr)
 EXPORT_SYMBOL_GPL(pud_init);
 #endif
 
+void kernel_pte_init(void *addr)
+{
+	unsigned long *p, *end;
+
+	p = (unsigned long *)addr;
+	end = p + PTRS_PER_PTE;
+
+	do {
+		p[0] = _PAGE_GLOBAL;
+		p[1] = _PAGE_GLOBAL;
+		p[2] = _PAGE_GLOBAL;
+		p[3] = _PAGE_GLOBAL;
+		p[4] = _PAGE_GLOBAL;
+		p += 8;
+		p[-3] = _PAGE_GLOBAL;
+		p[-2] = _PAGE_GLOBAL;
+		p[-1] = _PAGE_GLOBAL;
+	} while (p != end);
+}
+
 pmd_t mk_pmd(struct page *page, pgprot_t prot)
 {
 	pmd_t pmd;
 
-	pmd_val(pmd) = (page_to_pfn(page) << _PFN_SHIFT) | pgprot_val(prot);
+	pmd_val(pmd) = (page_to_pfn(page) << PFN_PTE_SHIFT) | pgprot_val(prot);
 
 	return pmd;
 }
@@ -115,7 +148,7 @@ pmd_t mk_pmd(struct page *page, pgprot_t prot)
 void set_pmd_at(struct mm_struct *mm, unsigned long addr,
 		pmd_t *pmdp, pmd_t pmd)
 {
-	*pmdp = pmd;
+	WRITE_ONCE(*pmdp, pmd);
 	flush_tlb_all();
 }
 

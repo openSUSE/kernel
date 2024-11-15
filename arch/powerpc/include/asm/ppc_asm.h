@@ -201,11 +201,13 @@
 
 #ifdef CONFIG_PPC64_ELF_ABI_V2
 #define STK_GOT		24
-#define __STK_PARAM(i)	(32 + ((i)-3)*8)
+#define STK_PARAM_AREA	32
 #else
 #define STK_GOT		40
-#define __STK_PARAM(i)	(48 + ((i)-3)*8)
+#define STK_PARAM_AREA	48
 #endif
+
+#define __STK_PARAM(i)	(STK_PARAM_AREA + ((i)-3)*8)
 #define STK_PARAM(i)	__STK_PARAM(__REG_##i)
 
 #ifdef CONFIG_PPC64_ELF_ABI_V2
@@ -406,6 +408,15 @@ n:
 /* offsets for stack frame layout */
 #define LRSAVE	16
 
+/*
+ * GCC stack frames follow a different pattern on 32 vs 64. This can be used
+ * to make asm frames be consistent with C.
+ */
+#define PPC_CREATE_STACK_FRAME(size)			\
+	mflr		r0;				\
+	std		r0,16(r1);			\
+	stdu		r1,-(size)(r1)
+
 #else /* 32-bit */
 
 #define LOAD_REG_IMMEDIATE(reg, expr) __LOAD_REG_IMMEDIATE_32 reg, expr
@@ -421,6 +432,11 @@ n:
 
 /* offsets for stack frame layout */
 #define LRSAVE	4
+
+#define PPC_CREATE_STACK_FRAME(size)			\
+	stwu		r1,-(size)(r1);			\
+	mflr		r0;				\
+	stw		r0,(size+4)(r1)
 
 #endif
 
@@ -466,7 +482,7 @@ END_FTR_SECTION_NESTED(CPU_FTR_CELL_TB_BUG, CPU_FTR_CELL_TB_BUG, 96)
  * and they must be used.
  */
 
-#if !defined(CONFIG_4xx) && !defined(CONFIG_PPC_8xx)
+#if !defined(CONFIG_44x) && !defined(CONFIG_PPC_8xx)
 #define tlbia					\
 	li	r4,1024;			\
 	mtctr	r4;				\

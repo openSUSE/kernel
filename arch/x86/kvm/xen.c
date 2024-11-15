@@ -35,41 +35,32 @@ static bool kvm_xen_hcall_evtchn_send(struct kvm_vcpu *vcpu, u64 param, u64 *r);
 
 DEFINE_STATIC_KEY_DEFERRED_FALSE(kvm_xen_enabled, HZ);
 
-static int kvm_xen_shared_info_init(struct kvm *kvm, gfn_t gfn)
+static int kvm_xen_shared_info_init(struct kvm *kvm)
 {
 	struct gfn_to_pfn_cache *gpc = &kvm->arch.xen.shinfo_cache;
 	struct pvclock_wall_clock *wc;
-	gpa_t gpa = gfn_to_gpa(gfn);
 	u32 *wc_sec_hi;
 	u32 wc_version;
 	u64 wall_nsec;
 	int ret = 0;
 	int idx = srcu_read_lock(&kvm->srcu);
 
-	if (gfn == KVM_XEN_INVALID_GFN) {
-		kvm_gpc_deactivate(gpc);
-		goto out;
-	}
+	read_lock_irq(&gpc->lock);
+	while (!kvm_gpc_check(gpc, PAGE_SIZE)) {
+		read_unlock_irq(&gpc->lock);
 
-	do {
-		ret = kvm_gpc_activate(gpc, gpa, PAGE_SIZE);
+		ret = kvm_gpc_refresh(gpc, PAGE_SIZE);
 		if (ret)
 			goto out;
 
-		/*
-		 * This code mirrors kvm_write_wall_clock() except that it writes
-		 * directly through the pfn cache and doesn't mark the page dirty.
-		 */
-		wall_nsec = kvm_get_wall_clock_epoch(kvm);
-
-		/* It could be invalid again already, so we need to check */
 		read_lock_irq(&gpc->lock);
+	}
 
-		if (gpc->valid)
-			break;
-
-		read_unlock_irq(&gpc->lock);
-	} while (1);
+	/*
+	 * This code mirrors kvm_write_wall_clock() except that it writes
+	 * directly through the pfn cache and doesn't mark the page dirty.
+	 */
+	wall_nsec = kvm_get_wall_clock_epoch(kvm);
 
 	/* Paranoia checks on the 32-bit struct layout */
 	BUILD_BUG_ON(offsetof(struct compat_shared_info, wc) != 0x900);
@@ -536,14 +527,13 @@ static void kvm_xen_update_runstate_guest(struct kvm_vcpu *v, bool atomic)
 		smp_wmb();
 	}
 
-	if (user_len2)
+	if (user_len2) {
+		kvm_gpc_mark_dirty_in_slot(gpc2);
 		read_unlock(&gpc2->lock);
+	}
 
+	kvm_gpc_mark_dirty_in_slot(gpc1);
 	read_unlock_irqrestore(&gpc1->lock, flags);
-
-	mark_page_dirty_in_slot(v->kvm, gpc1->memslot, gpc1->gpa >> PAGE_SHIFT);
-	if (user_len2)
-		mark_page_dirty_in_slot(v->kvm, gpc2->memslot, gpc2->gpa >> PAGE_SHIFT);
 }
 
 void kvm_xen_update_runstate(struct kvm_vcpu *v, int state)
@@ -647,13 +637,13 @@ void kvm_xen_inject_pending_events(struct kvm_vcpu *v)
 			     : "0" (evtchn_pending_sel32));
 		WRITE_ONCE(vi->evtchn_upcall_pending, 1);
 	}
+
+	kvm_gpc_mark_dirty_in_slot(gpc);
 	read_unlock_irqrestore(&gpc->lock, flags);
 
 	/* For the per-vCPU lapic vector, deliver it as MSI. */
 	if (v->arch.xen.upcall_vector)
 		kvm_xen_inject_vcpu_vector(v);
-
-	mark_page_dirty_in_slot(v->kvm, gpc->memslot, gpc->gpa >> PAGE_SHIFT);
 }
 
 int __kvm_xen_has_interrupt(struct kvm_vcpu *v)
@@ -717,17 +707,59 @@ int kvm_xen_hvm_set_attr(struct kvm *kvm, struct kvm_xen_hvm_attr *data)
 		} else {
 			mutex_lock(&kvm->arch.xen.xen_lock);
 			kvm->arch.xen.long_mode = !!data->u.long_mode;
+
+			/*
+			 * Re-initialize shared_info to put the wallclock in the
+			 * correct place. Whilst it's not necessary to do this
+			 * unless the mode is actually changed, it does no harm
+			 * to make the call anyway.
+			 */
+			r = kvm->arch.xen.shinfo_cache.active ?
+				kvm_xen_shared_info_init(kvm) : 0;
 			mutex_unlock(&kvm->arch.xen.xen_lock);
-			r = 0;
 		}
 		break;
 
 	case KVM_XEN_ATTR_TYPE_SHARED_INFO:
+	case KVM_XEN_ATTR_TYPE_SHARED_INFO_HVA: {
+		int idx;
+
 		mutex_lock(&kvm->arch.xen.xen_lock);
-		r = kvm_xen_shared_info_init(kvm, data->u.shared_info.gfn);
+
+		idx = srcu_read_lock(&kvm->srcu);
+
+		if (data->type == KVM_XEN_ATTR_TYPE_SHARED_INFO) {
+			gfn_t gfn = data->u.shared_info.gfn;
+
+			if (gfn == KVM_XEN_INVALID_GFN) {
+				kvm_gpc_deactivate(&kvm->arch.xen.shinfo_cache);
+				r = 0;
+			} else {
+				r = kvm_gpc_activate(&kvm->arch.xen.shinfo_cache,
+						     gfn_to_gpa(gfn), PAGE_SIZE);
+			}
+		} else {
+			void __user * hva = u64_to_user_ptr(data->u.shared_info.hva);
+
+			if (!PAGE_ALIGNED(hva)) {
+				r = -EINVAL;
+			} else if (!hva) {
+				kvm_gpc_deactivate(&kvm->arch.xen.shinfo_cache);
+				r = 0;
+			} else {
+				r = kvm_gpc_activate_hva(&kvm->arch.xen.shinfo_cache,
+							 (unsigned long)hva, PAGE_SIZE);
+			}
+		}
+
+		srcu_read_unlock(&kvm->srcu, idx);
+
+		if (!r && kvm->arch.xen.shinfo_cache.active)
+			r = kvm_xen_shared_info_init(kvm);
+
 		mutex_unlock(&kvm->arch.xen.xen_lock);
 		break;
-
+	}
 	case KVM_XEN_ATTR_TYPE_UPCALL_VECTOR:
 		if (data->u.vector && data->u.vector < 0x10)
 			r = -EINVAL;
@@ -781,10 +813,18 @@ int kvm_xen_hvm_get_attr(struct kvm *kvm, struct kvm_xen_hvm_attr *data)
 		break;
 
 	case KVM_XEN_ATTR_TYPE_SHARED_INFO:
-		if (kvm->arch.xen.shinfo_cache.active)
+		if (kvm_gpc_is_gpa_active(&kvm->arch.xen.shinfo_cache))
 			data->u.shared_info.gfn = gpa_to_gfn(kvm->arch.xen.shinfo_cache.gpa);
 		else
 			data->u.shared_info.gfn = KVM_XEN_INVALID_GFN;
+		r = 0;
+		break;
+
+	case KVM_XEN_ATTR_TYPE_SHARED_INFO_HVA:
+		if (kvm_gpc_is_hva_active(&kvm->arch.xen.shinfo_cache))
+			data->u.shared_info.hva = kvm->arch.xen.shinfo_cache.uhva;
+		else
+			data->u.shared_info.hva = 0;
 		r = 0;
 		break;
 
@@ -824,20 +864,33 @@ int kvm_xen_vcpu_set_attr(struct kvm_vcpu *vcpu, struct kvm_xen_vcpu_attr *data)
 
 	switch (data->type) {
 	case KVM_XEN_VCPU_ATTR_TYPE_VCPU_INFO:
+	case KVM_XEN_VCPU_ATTR_TYPE_VCPU_INFO_HVA:
 		/* No compat necessary here. */
 		BUILD_BUG_ON(sizeof(struct vcpu_info) !=
 			     sizeof(struct compat_vcpu_info));
 		BUILD_BUG_ON(offsetof(struct vcpu_info, time) !=
 			     offsetof(struct compat_vcpu_info, time));
 
-		if (data->u.gpa == KVM_XEN_INVALID_GPA) {
-			kvm_gpc_deactivate(&vcpu->arch.xen.vcpu_info_cache);
-			r = 0;
-			break;
+		if (data->type == KVM_XEN_VCPU_ATTR_TYPE_VCPU_INFO) {
+			if (data->u.gpa == KVM_XEN_INVALID_GPA) {
+				kvm_gpc_deactivate(&vcpu->arch.xen.vcpu_info_cache);
+				r = 0;
+				break;
+			}
+
+			r = kvm_gpc_activate(&vcpu->arch.xen.vcpu_info_cache,
+					     data->u.gpa, sizeof(struct vcpu_info));
+		} else {
+			if (data->u.hva == 0) {
+				kvm_gpc_deactivate(&vcpu->arch.xen.vcpu_info_cache);
+				r = 0;
+				break;
+			}
+
+			r = kvm_gpc_activate_hva(&vcpu->arch.xen.vcpu_info_cache,
+						 data->u.hva, sizeof(struct vcpu_info));
 		}
 
-		r = kvm_gpc_activate(&vcpu->arch.xen.vcpu_info_cache,
-				     data->u.gpa, sizeof(struct vcpu_info));
 		if (!r)
 			kvm_make_request(KVM_REQ_CLOCK_UPDATE, vcpu);
 
@@ -1057,10 +1110,18 @@ int kvm_xen_vcpu_get_attr(struct kvm_vcpu *vcpu, struct kvm_xen_vcpu_attr *data)
 
 	switch (data->type) {
 	case KVM_XEN_VCPU_ATTR_TYPE_VCPU_INFO:
-		if (vcpu->arch.xen.vcpu_info_cache.active)
+		if (kvm_gpc_is_gpa_active(&vcpu->arch.xen.vcpu_info_cache))
 			data->u.gpa = vcpu->arch.xen.vcpu_info_cache.gpa;
 		else
 			data->u.gpa = KVM_XEN_INVALID_GPA;
+		r = 0;
+		break;
+
+	case KVM_XEN_VCPU_ATTR_TYPE_VCPU_INFO_HVA:
+		if (kvm_gpc_is_hva_active(&vcpu->arch.xen.vcpu_info_cache))
+			data->u.hva = vcpu->arch.xen.vcpu_info_cache.uhva;
+		else
+			data->u.hva = 0;
 		r = 0;
 		break;
 
@@ -1173,9 +1234,24 @@ int kvm_xen_write_hypercall_page(struct kvm_vcpu *vcpu, u64 data)
 	u32 page_num = data & ~PAGE_MASK;
 	u64 page_addr = data & PAGE_MASK;
 	bool lm = is_long_mode(vcpu);
+	int r = 0;
 
-	/* Latch long_mode for shared_info pages etc. */
-	vcpu->kvm->arch.xen.long_mode = lm;
+	mutex_lock(&kvm->arch.xen.xen_lock);
+	if (kvm->arch.xen.long_mode != lm) {
+		kvm->arch.xen.long_mode = lm;
+
+		/*
+		 * Re-initialize shared_info to put the wallclock in the
+		 * correct place.
+		 */
+		if (kvm->arch.xen.shinfo_cache.active &&
+		    kvm_xen_shared_info_init(kvm))
+			r = 1;
+	}
+	mutex_unlock(&kvm->arch.xen.xen_lock);
+
+	if (r)
+		return r;
 
 	/*
 	 * If Xen hypercall intercept is enabled, fill the hypercall
@@ -1194,7 +1270,7 @@ int kvm_xen_write_hypercall_page(struct kvm_vcpu *vcpu, u64 data)
 		instructions[0] = 0xb8;
 
 		/* vmcall / vmmcall */
-		static_call(kvm_x86_patch_hypercall)(vcpu, instructions + 5);
+		kvm_x86_call(patch_hypercall)(vcpu, instructions + 5);
 
 		/* ret */
 		instructions[8] = 0xc3;
@@ -1574,7 +1650,7 @@ int kvm_xen_hypercall(struct kvm_vcpu *vcpu)
 		params[5] = (u64)kvm_r9_read(vcpu);
 	}
 #endif
-	cpl = static_call(kvm_x86_get_cpl)(vcpu);
+	cpl = kvm_x86_call(get_cpl)(vcpu);
 	trace_kvm_xen_hypercall(cpl, input, params[0], params[1], params[2],
 				params[3], params[4], params[5]);
 
@@ -1678,9 +1754,6 @@ int kvm_xen_set_evtchn_fast(struct kvm_xen_evtchn *xe, struct kvm *kvm)
 			return -EINVAL;
 		WRITE_ONCE(xe->vcpu_idx, vcpu->vcpu_idx);
 	}
-
-	if (!vcpu->arch.xen.vcpu_info_cache.active)
-		return -EINVAL;
 
 	if (xe->port >= max_evtchn_port(kvm))
 		return -EINVAL;
@@ -2149,7 +2222,7 @@ static bool kvm_xen_hcall_evtchn_send(struct kvm_vcpu *vcpu, u64 param, u64 *r)
 		if (ret < 0 && ret != -ENOTCONN)
 			return false;
 	} else {
-		eventfd_signal(evtchnfd->deliver.eventfd.ctx, 1);
+		eventfd_signal(evtchnfd->deliver.eventfd.ctx);
 	}
 
 	*r = 0;
@@ -2163,14 +2236,10 @@ void kvm_xen_init_vcpu(struct kvm_vcpu *vcpu)
 
 	timer_setup(&vcpu->arch.xen.poll_timer, cancel_evtchn_poll, 0);
 
-	kvm_gpc_init(&vcpu->arch.xen.runstate_cache, vcpu->kvm, NULL,
-		     KVM_HOST_USES_PFN);
-	kvm_gpc_init(&vcpu->arch.xen.runstate2_cache, vcpu->kvm, NULL,
-		     KVM_HOST_USES_PFN);
-	kvm_gpc_init(&vcpu->arch.xen.vcpu_info_cache, vcpu->kvm, NULL,
-		     KVM_HOST_USES_PFN);
-	kvm_gpc_init(&vcpu->arch.xen.vcpu_time_info_cache, vcpu->kvm, NULL,
-		     KVM_HOST_USES_PFN);
+	kvm_gpc_init(&vcpu->arch.xen.runstate_cache, vcpu->kvm);
+	kvm_gpc_init(&vcpu->arch.xen.runstate2_cache, vcpu->kvm);
+	kvm_gpc_init(&vcpu->arch.xen.vcpu_info_cache, vcpu->kvm);
+	kvm_gpc_init(&vcpu->arch.xen.vcpu_time_info_cache, vcpu->kvm);
 }
 
 void kvm_xen_destroy_vcpu(struct kvm_vcpu *vcpu)
@@ -2213,7 +2282,7 @@ void kvm_xen_init_vm(struct kvm *kvm)
 {
 	mutex_init(&kvm->arch.xen.xen_lock);
 	idr_init(&kvm->arch.xen.evtchn_ports);
-	kvm_gpc_init(&kvm->arch.xen.shinfo_cache, kvm, NULL, KVM_HOST_USES_PFN);
+	kvm_gpc_init(&kvm->arch.xen.shinfo_cache, kvm);
 }
 
 void kvm_xen_destroy_vm(struct kvm *kvm)

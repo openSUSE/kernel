@@ -328,7 +328,7 @@ static int sbrmi_probe(struct i2c_client *client)
 }
 
 static const struct i2c_device_id sbrmi_id[] = {
-	{"sbrmi", 0},
+	{"sbrmi"},
 	{}
 };
 MODULE_DEVICE_TABLE(i2c, sbrmi_id);
@@ -342,12 +342,11 @@ static const struct of_device_id __maybe_unused sbrmi_of_match[] = {
 MODULE_DEVICE_TABLE(of, sbrmi_of_match);
 
 static struct i2c_driver sbrmi_driver = {
-	.class = I2C_CLASS_HWMON,
 	.driver = {
 		.name = "sbrmi",
 		.of_match_table = of_match_ptr(sbrmi_of_match),
 	},
-	.probe_new = sbrmi_probe,
+	.probe = sbrmi_probe,
 	.id_table = sbrmi_id,
 };
 

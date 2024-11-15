@@ -2,7 +2,7 @@
 /*
  * Core driver for the S32 CC (Common Chassis) pin controller
  *
- * Copyright 2017-2022 NXP
+ * Copyright 2017-2022,2024 NXP
  * Copyright (C) 2022 SUSE LLC
  * Copyright 2015-2016 Freescale Semiconductor, Inc.
  */
@@ -14,7 +14,7 @@
 #include <linux/io.h>
 #include <linux/module.h>
 #include <linux/of.h>
-#include <linux/of_device.h>
+#include <linux/platform_device.h>
 #include <linux/pinctrl/machine.h>
 #include <linux/pinctrl/pinconf.h>
 #include <linux/pinctrl/pinctrl.h>
@@ -38,6 +38,11 @@
 #define S32_MSCR_IBE		BIT(19)
 #define S32_MSCR_ODE		BIT(20)
 #define S32_MSCR_OBE		BIT(21)
+
+enum s32_write_type {
+	S32_PINCONF_UPDATE_ONLY,
+	S32_PINCONF_OVERWRITE,
+};
 
 static struct regmap_config s32_regmap_config = {
 	.reg_bits = 32,
@@ -106,7 +111,7 @@ s32_get_region(struct pinctrl_dev *pctldev, unsigned int pin)
 {
 	struct s32_pinctrl *ipctl = pinctrl_dev_get_drvdata(pctldev);
 	const struct s32_pin_range *pin_range;
-	unsigned int mem_regions = ipctl->info->mem_regions;
+	unsigned int mem_regions = ipctl->info->soc_data->mem_regions;
 	unsigned int i;
 
 	for (i = 0; i < mem_regions; i++) {
@@ -268,26 +273,23 @@ static int s32_dt_node_to_map(struct pinctrl_dev *pctldev,
 			      unsigned int *num_maps)
 {
 	unsigned int reserved_maps;
-	struct device_node *np;
-	int ret = 0;
+	int ret;
 
 	reserved_maps = 0;
 	*map = NULL;
 	*num_maps = 0;
 
-	for_each_available_child_of_node(np_config, np) {
+	for_each_available_child_of_node_scoped(np_config, np) {
 		ret = s32_dt_group_node_to_map(pctldev, np, map,
 					       &reserved_maps, num_maps,
 					       np_config->name);
-		if (ret < 0)
-			break;
+		if (ret < 0) {
+			pinctrl_utils_free_map(pctldev, *map, *num_maps);
+			return ret;
+		}
 	}
 
-	if (ret)
-		pinctrl_utils_free_map(pctldev, *map, *num_maps);
-
-	return ret;
-
+	return 0;
 }
 
 static const struct pinctrl_ops s32_pctrl_ops = {
@@ -434,16 +436,15 @@ static int s32_pmx_gpio_set_direction(struct pinctrl_dev *pctldev,
 				      unsigned int offset,
 				      bool input)
 {
-	unsigned int config;
+	/* Always enable IBE for GPIOs. This allows us to read the
+	 * actual line value and compare it with the one set.
+	 */
+	unsigned int config = S32_MSCR_IBE;
 	unsigned int mask = S32_MSCR_IBE | S32_MSCR_OBE;
 
-	if (input) {
-		/* Disable output buffer and enable input buffer */
-		config = S32_MSCR_IBE;
-	} else {
-		/* Disable input buffer and enable output buffer */
-		config = S32_MSCR_OBE;
-	}
+	/* Enable output buffer */
+	if (!input)
+		config |= S32_MSCR_OBE;
 
 	return s32_regmap_update(pctldev, offset, mask, config);
 }
@@ -514,6 +515,10 @@ static int s32_parse_pincfg(unsigned long pincfg, unsigned int *mask,
 		*config |= S32_MSCR_ODE;
 		*mask |= S32_MSCR_ODE;
 		break;
+	case PIN_CONFIG_DRIVE_PUSH_PULL:
+		*config &= ~S32_MSCR_ODE;
+		*mask |= S32_MSCR_ODE;
+		break;
 	case PIN_CONFIG_OUTPUT_ENABLE:
 		if (arg)
 			*config |= S32_MSCR_OBE;
@@ -552,10 +557,11 @@ static int s32_parse_pincfg(unsigned long pincfg, unsigned int *mask,
 	return 0;
 }
 
-static int s32_pinconf_mscr_update(struct pinctrl_dev *pctldev,
+static int s32_pinconf_mscr_write(struct pinctrl_dev *pctldev,
 				   unsigned int pin_id,
 				   unsigned long *configs,
-				   unsigned int num_configs)
+				   unsigned int num_configs,
+				   enum s32_write_type write_type)
 {
 	struct s32_pinctrl *ipctl = pinctrl_dev_get_drvdata(pctldev);
 	unsigned int config = 0, mask = 0;
@@ -574,10 +580,20 @@ static int s32_pinconf_mscr_update(struct pinctrl_dev *pctldev,
 			return ret;
 	}
 
+	/* If the MSCR configuration has to be written,
+	 * the SSS field should not be touched.
+	 */
+	if (write_type == S32_PINCONF_OVERWRITE)
+		mask = (unsigned int)~S32_MSCR_SSS_MASK;
+
 	if (!config && !mask)
 		return 0;
 
-	dev_dbg(ipctl->dev, "update: pin %u cfg 0x%x\n", pin_id, config);
+	if (write_type == S32_PINCONF_OVERWRITE)
+		dev_dbg(ipctl->dev, "set: pin %u cfg 0x%x\n", pin_id, config);
+	else
+		dev_dbg(ipctl->dev, "update: pin %u cfg 0x%x\n", pin_id,
+			config);
 
 	return s32_regmap_update(pctldev, pin_id, mask, config);
 }
@@ -593,8 +609,8 @@ static int s32_pinconf_set(struct pinctrl_dev *pctldev,
 			   unsigned int pin_id, unsigned long *configs,
 			   unsigned int num_configs)
 {
-	return s32_pinconf_mscr_update(pctldev, pin_id, configs,
-				       num_configs);
+	return s32_pinconf_mscr_write(pctldev, pin_id, configs,
+				       num_configs, S32_PINCONF_UPDATE_ONLY);
 }
 
 static int s32_pconf_group_set(struct pinctrl_dev *pctldev, unsigned int selector,
@@ -607,8 +623,8 @@ static int s32_pconf_group_set(struct pinctrl_dev *pctldev, unsigned int selecto
 
 	grp = &info->groups[selector];
 	for (i = 0; i < grp->data.npins; i++) {
-		ret = s32_pinconf_mscr_update(pctldev, grp->data.pins[i],
-					      configs, num_configs);
+		ret = s32_pinconf_mscr_write(pctldev, grp->data.pins[i],
+					      configs, num_configs, S32_PINCONF_OVERWRITE);
 		if (ret)
 			return ret;
 	}
@@ -688,8 +704,8 @@ int s32_pinctrl_suspend(struct device *dev)
 	int ret;
 	unsigned int config;
 
-	for (i = 0; i < info->npins; i++) {
-		pin = &info->pins[i];
+	for (i = 0; i < info->soc_data->npins; i++) {
+		pin = &info->soc_data->pins[i];
 
 		if (!s32_pinctrl_should_save(ipctl, pin->number))
 			continue;
@@ -713,8 +729,8 @@ int s32_pinctrl_resume(struct device *dev)
 	struct s32_pinctrl_context *saved_context = &ipctl->saved_context;
 	int ret, i;
 
-	for (i = 0; i < info->npins; i++) {
-		pin = &info->pins[i];
+	for (i = 0; i < info->soc_data->npins; i++) {
+		pin = &info->soc_data->pins[i];
 
 		if (!s32_pinctrl_should_save(ipctl, pin->number))
 			continue;
@@ -733,9 +749,7 @@ static int s32_pinctrl_parse_groups(struct device_node *np,
 				     struct s32_pin_group *grp,
 				     struct s32_pinctrl_soc_info *info)
 {
-	const __be32 *p;
 	struct device *dev;
-	struct property *prop;
 	unsigned int *pins, *sss;
 	int i, npins;
 	u32 pinmux;
@@ -766,7 +780,7 @@ static int s32_pinctrl_parse_groups(struct device_node *np,
 		return -ENOMEM;
 
 	i = 0;
-	of_property_for_each_u32(np, "pinmux", prop, p, pinmux) {
+	of_property_for_each_u32(np, "pinmux", pinmux) {
 		pins[i] = get_pin_no(pinmux);
 		sss[i] = get_pin_func(pinmux);
 
@@ -784,7 +798,6 @@ static int s32_pinctrl_parse_functions(struct device_node *np,
 					struct s32_pinctrl_soc_info *info,
 					u32 index)
 {
-	struct device_node *child;
 	struct pinfunction *func;
 	struct s32_pin_group *grp;
 	const char **groups;
@@ -808,7 +821,7 @@ static int s32_pinctrl_parse_functions(struct device_node *np,
 	if (!groups)
 		return -ENOMEM;
 
-	for_each_child_of_node(np, child) {
+	for_each_child_of_node_scoped(np, child) {
 		groups[i] = child->name;
 		grp = &info->groups[info->grp_index++];
 		ret = s32_pinctrl_parse_groups(child, grp, info);
@@ -827,11 +840,10 @@ static int s32_pinctrl_probe_dt(struct platform_device *pdev,
 {
 	struct s32_pinctrl_soc_info *info = ipctl->info;
 	struct device_node *np = pdev->dev.of_node;
-	struct device_node *child;
 	struct resource *res;
 	struct regmap *map;
 	void __iomem *base;
-	int mem_regions = info->mem_regions;
+	unsigned int mem_regions = info->soc_data->mem_regions;
 	int ret;
 	u32 nfuncs = 0;
 	u32 i = 0;
@@ -869,7 +881,7 @@ static int s32_pinctrl_probe_dt(struct platform_device *pdev,
 		}
 
 		ipctl->regions[i].map = map;
-		ipctl->regions[i].pin_range = &info->mem_pin_ranges[i];
+		ipctl->regions[i].pin_range = &info->soc_data->mem_pin_ranges[i];
 	}
 
 	nfuncs = of_get_child_count(np);
@@ -885,7 +897,7 @@ static int s32_pinctrl_probe_dt(struct platform_device *pdev,
 		return -ENOMEM;
 
 	info->ngroups = 0;
-	for_each_child_of_node(np, child)
+	for_each_child_of_node_scoped(np, child)
 		info->ngroups += of_get_child_count(child);
 
 	info->groups = devm_kcalloc(&pdev->dev, info->ngroups,
@@ -894,7 +906,7 @@ static int s32_pinctrl_probe_dt(struct platform_device *pdev,
 		return -ENOMEM;
 
 	i = 0;
-	for_each_child_of_node(np, child) {
+	for_each_child_of_node_scoped(np, child) {
 		ret = s32_pinctrl_parse_functions(child, info, i++);
 		if (ret)
 			return ret;
@@ -904,20 +916,26 @@ static int s32_pinctrl_probe_dt(struct platform_device *pdev,
 }
 
 int s32_pinctrl_probe(struct platform_device *pdev,
-		      struct s32_pinctrl_soc_info *info)
+		      const struct s32_pinctrl_soc_data *soc_data)
 {
 	struct s32_pinctrl *ipctl;
 	int ret;
 	struct pinctrl_desc *s32_pinctrl_desc;
+	struct s32_pinctrl_soc_info *info;
 #ifdef CONFIG_PM_SLEEP
 	struct s32_pinctrl_context *saved_context;
 #endif
 
-	if (!info || !info->pins || !info->npins) {
+	if (!soc_data || !soc_data->pins || !soc_data->npins) {
 		dev_err(&pdev->dev, "wrong pinctrl info\n");
 		return -EINVAL;
 	}
 
+	info = devm_kzalloc(&pdev->dev, sizeof(*info), GFP_KERNEL);
+	if (!info)
+		return -ENOMEM;
+
+	info->soc_data = soc_data;
 	info->dev = &pdev->dev;
 
 	/* Create state holders etc for this driver */
@@ -938,8 +956,8 @@ int s32_pinctrl_probe(struct platform_device *pdev,
 		return -ENOMEM;
 
 	s32_pinctrl_desc->name = dev_name(&pdev->dev);
-	s32_pinctrl_desc->pins = info->pins;
-	s32_pinctrl_desc->npins = info->npins;
+	s32_pinctrl_desc->pins = info->soc_data->pins;
+	s32_pinctrl_desc->npins = info->soc_data->npins;
 	s32_pinctrl_desc->pctlops = &s32_pctrl_ops;
 	s32_pinctrl_desc->pmxops = &s32_pmx_ops;
 	s32_pinctrl_desc->confops = &s32_pinconf_ops;
@@ -960,7 +978,7 @@ int s32_pinctrl_probe(struct platform_device *pdev,
 #ifdef CONFIG_PM_SLEEP
 	saved_context = &ipctl->saved_context;
 	saved_context->pads =
-		devm_kcalloc(&pdev->dev, info->npins,
+		devm_kcalloc(&pdev->dev, info->soc_data->npins,
 			     sizeof(*saved_context->pads),
 			     GFP_KERNEL);
 	if (!saved_context->pads)

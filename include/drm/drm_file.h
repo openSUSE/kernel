@@ -45,6 +45,8 @@ struct drm_printer;
 struct device;
 struct file;
 
+extern struct xarray drm_minors_xa;
+
 /*
  * FIXME: Not sure we want to have drm_minor here in the end, but to avoid
  * header include loops we need it here for now.
@@ -386,11 +388,6 @@ struct drm_file {
 	 * Per-file buffer caches used by the PRIME buffer sharing code.
 	 */
 	struct drm_prime_file_private prime;
-
-	/* private: */
-#if IS_ENABLED(CONFIG_DRM_LEGACY)
-	unsigned long lock_count; /* DRI1 legacy lock count */
-#endif
 };
 
 /**
@@ -438,6 +435,9 @@ static inline bool drm_is_accel_client(const struct drm_file *file_priv)
 }
 
 void drm_file_update_pid(struct drm_file *);
+
+struct drm_minor *drm_minor_acquire(struct xarray *minors_xa, unsigned int minor_id);
+void drm_minor_release(struct drm_minor *minor);
 
 int drm_open(struct inode *inode, struct file *filp);
 int drm_open_helper(struct file *filp, struct drm_minor *minor);

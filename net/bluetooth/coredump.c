@@ -5,7 +5,7 @@
 
 #include <linux/devcoredump.h>
 
-#include <asm/unaligned.h>
+#include <linux/unaligned.h>
 #include <net/bluetooth/bluetooth.h>
 #include <net/bluetooth/hci_core.h>
 
@@ -100,8 +100,7 @@ void hci_devcd_reset(struct hci_dev *hdev)
 /* Call with hci_dev_lock only. */
 static void hci_devcd_free(struct hci_dev *hdev)
 {
-	if (hdev->dump.head)
-		vfree(hdev->dump.head);
+	vfree(hdev->dump.head);
 
 	hci_devcd_reset(hdev);
 }

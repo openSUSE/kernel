@@ -13,13 +13,16 @@ ARM64 Architecture
     asymmetric-32bit
     booting
     cpu-feature-registers
+    cpu-hotplug
     elf_hwcaps
     hugetlbpage
+    kdump
     legacy_instructions
     memory
     memory-tagging-extension
     perf
     pointer-authentication
+    ptdump
     silicon-errata
     sme
     sve

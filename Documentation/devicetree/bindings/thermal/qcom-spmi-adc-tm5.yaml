@@ -8,6 +8,8 @@ title: Qualcomm's SPMI PMIC ADC Thermal Monitoring
 maintainers:
   - Dmitry Baryshkov <dmitry.baryshkov@linaro.org>
 
+$ref: thermal-sensor.yaml#
+
 properties:
   compatible:
     enum:
@@ -23,9 +25,6 @@ properties:
 
   "#thermal-sensor-cells":
     const: 1
-    description:
-      Number of cells required to uniquely identify the thermal sensors. Since
-      we have multiple sensors this is set to 1
 
   "#address-cells":
     const: 1
@@ -159,9 +158,8 @@ required:
   - interrupts
   - "#address-cells"
   - "#size-cells"
-  - "#thermal-sensor-cells"
 
-additionalProperties: false
+unevaluatedProperties: false
 
 examples:
   - |
@@ -171,9 +169,10 @@ examples:
     pmic {
         #address-cells = <1>;
         #size-cells = <0>;
+
         pm8150b_adc: adc@3100 {
-            reg = <0x3100>;
             compatible = "qcom,spmi-adc5";
+            reg = <0x3100>;
             #address-cells = <1>;
             #size-cells = <0>;
             #io-channel-cells = <1>;
@@ -187,7 +186,7 @@ examples:
             };
         };
 
-        pm8150b_adc_tm: adc-tm@3500 {
+        adc-tm@3500 {
             compatible = "qcom,spmi-adc-tm5";
             reg = <0x3500>;
             interrupts = <0x2 0x35 0x0 IRQ_TYPE_EDGE_RISING>;
@@ -212,9 +211,10 @@ examples:
     pmic {
         #address-cells = <1>;
         #size-cells = <0>;
+
         pmk8350_vadc: adc@3100 {
-            reg = <0x3100>;
             compatible = "qcom,spmi-adc7";
+            reg = <0x3100>;
             #address-cells = <1>;
             #size-cells = <0>;
             #io-channel-cells = <1>;
@@ -235,7 +235,7 @@ examples:
             };
         };
 
-        pmk8350_adc_tm: adc-tm@3400 {
+        adc-tm@3400 {
             compatible = "qcom,spmi-adc-tm5-gen2";
             reg = <0x3400>;
             interrupts = <0x0 0x34 0x0 IRQ_TYPE_EDGE_RISING>;

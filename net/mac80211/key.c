@@ -18,7 +18,7 @@
 #include <linux/slab.h>
 #include <linux/export.h>
 #include <net/mac80211.h>
-#include <asm/unaligned.h>
+#include <linux/unaligned.h>
 #include "ieee80211_i.h"
 #include "driver-ops.h"
 #include "debugfs_key.h"
@@ -1501,14 +1501,3 @@ int ieee80211_key_switch_links(struct ieee80211_sub_if_data *sdata,
 
 	return 0;
 }
-
-/* FIXME: old symbol for kABI compatibility */
-#undef ieee80211_gtk_rekey_add
-struct ieee80211_key_conf *
-ieee80211_gtk_rekey_add(struct ieee80211_vif *vif,
-			struct ieee80211_key_conf *keyconf)
-{
-	return _ieee80211_gtk_rekey_add(vif, keyconf, 0);
-}
-EXPORT_SYMBOL_GPL(ieee80211_gtk_rekey_add);
-

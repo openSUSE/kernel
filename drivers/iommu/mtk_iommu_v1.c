@@ -398,9 +398,9 @@ static const struct iommu_ops mtk_iommu_v1_ops;
  * MTK generation one iommu HW only support one iommu domain, and all the client
  * sharing the same iova address space.
  */
-static int mtk_iommu_v1_create_mapping(struct device *dev, struct of_phandle_args *args)
+static int mtk_iommu_v1_create_mapping(struct device *dev,
+				       const struct of_phandle_args *args)
 {
-	struct iommu_fwspec *fwspec = dev_iommu_fwspec_get(dev);
 	struct mtk_iommu_v1_data *data;
 	struct platform_device *m4updev;
 	struct dma_iommu_mapping *mtk_mapping;
@@ -412,14 +412,9 @@ static int mtk_iommu_v1_create_mapping(struct device *dev, struct of_phandle_arg
 		return -EINVAL;
 	}
 
-	if (!fwspec) {
-		ret = iommu_fwspec_init(dev, &args->np->fwnode, &mtk_iommu_v1_ops);
-		if (ret)
-			return ret;
-		fwspec = dev_iommu_fwspec_get(dev);
-	} else if (dev_iommu_fwspec_get(dev)->ops != &mtk_iommu_v1_ops) {
-		return -EINVAL;
-	}
+	ret = iommu_fwspec_init(dev, of_fwnode_handle(args->np));
+	if (ret)
+		return ret;
 
 	if (!dev_iommu_priv_get(dev)) {
 		/* Get the m4u device */
@@ -438,8 +433,7 @@ static int mtk_iommu_v1_create_mapping(struct device *dev, struct of_phandle_arg
 	mtk_mapping = data->mapping;
 	if (!mtk_mapping) {
 		/* MTK iommu support 4GB iova address space. */
-		mtk_mapping = arm_iommu_create_mapping(&platform_bus_type,
-						0, 1ULL << 32);
+		mtk_mapping = arm_iommu_create_mapping(dev, 0, 1ULL << 32);
 		if (IS_ERR(mtk_mapping))
 			return PTR_ERR(mtk_mapping);
 
@@ -480,9 +474,6 @@ static struct iommu_device *mtk_iommu_v1_probe_device(struct device *dev)
 		fwspec = dev_iommu_fwspec_get(dev);
 		idx++;
 	}
-
-	if (!fwspec || fwspec->ops != &mtk_iommu_v1_ops)
-		return ERR_PTR(-ENODEV); /* Not a iommu client device */
 
 	data = dev_iommu_priv_get(dev);
 
@@ -625,8 +616,8 @@ static int mtk_iommu_v1_probe(struct platform_device *pdev)
 	data->dev = dev;
 
 	/* Protect memory. HW will access here while translation fault.*/
-	protect = devm_kzalloc(dev, MTK_PROTECT_PA_ALIGN * 2,
-			GFP_KERNEL | GFP_DMA);
+	protect = devm_kcalloc(dev, 2, MTK_PROTECT_PA_ALIGN,
+			       GFP_KERNEL | GFP_DMA);
 	if (!protect)
 		return -ENOMEM;
 	data->protect_base = ALIGN(virt_to_phys(protect), MTK_PROTECT_PA_ALIGN);

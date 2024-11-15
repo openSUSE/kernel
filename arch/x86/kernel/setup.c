@@ -7,9 +7,9 @@
  */
 #include <linux/acpi.h>
 #include <linux/console.h>
+#include <linux/cpu.h>
 #include <linux/crash_dump.h>
 #include <linux/dma-map-ops.h>
-#include <linux/dmi.h>
 #include <linux/efi.h>
 #include <linux/ima.h>
 #include <linux/init_ohci1394_dma.h>
@@ -25,7 +25,6 @@
 #include <linux/static_call.h>
 #include <linux/swiotlb.h>
 #include <linux/random.h>
-#include <linux/security.h>
 
 #include <uapi/linux/mount.h>
 
@@ -116,7 +115,6 @@ static struct resource bss_resource = {
 #ifdef CONFIG_X86_32
 /* CPU data as detected by the assembly code in head_32.S */
 struct cpuinfo_x86 new_cpu_data;
-unsigned int def_to_bigsmp;
 
 struct apm_info apm_info;
 EXPORT_SYMBOL(apm_info);
@@ -166,7 +164,8 @@ unsigned long saved_video_mode;
 
 static char __initdata command_line[COMMAND_LINE_SIZE];
 #ifdef CONFIG_CMDLINE_BOOL
-static char __initdata builtin_cmdline[COMMAND_LINE_SIZE] = CONFIG_CMDLINE;
+char builtin_cmdline[COMMAND_LINE_SIZE] = CONFIG_CMDLINE;
+bool builtin_cmdline_added __ro_after_init;
 #endif
 
 #if defined(CONFIG_EDD) || defined(CONFIG_EDD_MODULE)
@@ -229,8 +228,6 @@ static void __init reserve_brk(void)
 	_brk_start = 0;
 }
 
-u64 relocated_ramdisk;
-
 #ifdef CONFIG_BLK_DEV_INITRD
 
 static u64 __init get_ramdisk_image(void)
@@ -264,7 +261,7 @@ static void __init relocate_initrd(void)
 	u64 area_size     = PAGE_ALIGN(ramdisk_size);
 
 	/* We need to move the initrd down into directly mapped mem */
-	relocated_ramdisk = memblock_phys_alloc_range(area_size, PAGE_SIZE, 0,
+	u64 relocated_ramdisk = memblock_phys_alloc_range(area_size, PAGE_SIZE, 0,
 						      PFN_PHYS(max_pfn_mapped));
 	if (!relocated_ramdisk)
 		panic("Cannot find place for new RAMDISK of size %lld\n",
@@ -385,22 +382,10 @@ int __init ima_get_kexec_buffer(void **addr, size_t *size)
 }
 #endif
 
-static void __init remove_setup_data(u64 pa_prev, u64 pa_next)
-{
-	struct setup_data *data;
-
-	if (pa_prev) {
-		data = early_memremap(pa_prev, sizeof(*data));
-		data->next = pa_next;
-		early_iounmap(data, sizeof(*data));
-	} else
-		boot_params.hdr.setup_data = pa_next;
-}
-
 static void __init parse_setup_data(void)
 {
 	struct setup_data *data;
-	u64 pa_data, pa_next, pa_prev = 0;
+	u64 pa_data, pa_next;
 
 	pa_data = boot_params.hdr.setup_data;
 	while (pa_data) {
@@ -434,14 +419,9 @@ static void __init parse_setup_data(void)
 			memzero_explicit(&data->len, sizeof(data->len));
 			early_memunmap(data, data_len);
 			break;
-		case SETUP_EFI_SECRET_KEY:
-			parse_efi_secret_key_setup(pa_data, data_len);
-			remove_setup_data(pa_prev, pa_next);
-			break;
 		default:
 			break;
 		}
-		pa_prev = pa_data;
 		pa_data = pa_next;
 	}
 }
@@ -488,17 +468,17 @@ static void __init memblock_x86_reserve_range_setup_data(void)
 
 static void __init arch_reserve_crashkernel(void)
 {
-	unsigned long long crash_base, crash_size, low_size = 0, cma_size = 0;
+	unsigned long long crash_base, crash_size, low_size = 0;
 	char *cmdline = boot_command_line;
 	bool high = false;
 	int ret;
 
-	if (!IS_ENABLED(CONFIG_KEXEC_CORE))
+	if (!IS_ENABLED(CONFIG_CRASH_RESERVE))
 		return;
 
 	ret = parse_crashkernel(cmdline, memblock_phys_mem_size(),
 				&crash_size, &crash_base,
-				&low_size, &cma_size, &high);
+				&low_size, &high);
 	if (ret)
 		return;
 
@@ -509,7 +489,6 @@ static void __init arch_reserve_crashkernel(void)
 
 	reserve_crashkernel_generic(cmdline, crash_size, crash_base,
 				    low_size, high);
-	reserve_crashkernel_cma(cma_size);
 }
 
 static struct resource standard_io_resources[] = {
@@ -687,7 +666,6 @@ static void __init early_reserve_memory(void)
 
 	memblock_x86_reserve_range_setup_data();
 
-	reserve_ibft_region();
 	reserve_bios_regions();
 	trim_snb_memory();
 }
@@ -777,6 +755,23 @@ void __init setup_arch(char **cmdline_p)
 	boot_cpu_data.x86_phys_bits = MAX_PHYSMEM_BITS;
 #endif
 
+#ifdef CONFIG_CMDLINE_BOOL
+#ifdef CONFIG_CMDLINE_OVERRIDE
+	strscpy(boot_command_line, builtin_cmdline, COMMAND_LINE_SIZE);
+#else
+	if (builtin_cmdline[0]) {
+		/* append boot loader cmdline to builtin */
+		strlcat(builtin_cmdline, " ", COMMAND_LINE_SIZE);
+		strlcat(builtin_cmdline, boot_command_line, COMMAND_LINE_SIZE);
+		strscpy(boot_command_line, builtin_cmdline, COMMAND_LINE_SIZE);
+	}
+#endif
+	builtin_cmdline_added = true;
+#endif
+
+	strscpy(command_line, boot_command_line, COMMAND_LINE_SIZE);
+	*cmdline_p = command_line;
+
 	/*
 	 * If we have OLPC OFW, we might end up relocating the fixmap due to
 	 * reserve_top(), so do this before touching the ioremap area.
@@ -856,22 +851,6 @@ void __init setup_arch(char **cmdline_p)
 	bss_resource.start = __pa_symbol(__bss_start);
 	bss_resource.end = __pa_symbol(__bss_stop)-1;
 
-#ifdef CONFIG_CMDLINE_BOOL
-#ifdef CONFIG_CMDLINE_OVERRIDE
-	strscpy(boot_command_line, builtin_cmdline, COMMAND_LINE_SIZE);
-#else
-	if (builtin_cmdline[0]) {
-		/* append boot loader cmdline to builtin */
-		strlcat(builtin_cmdline, " ", COMMAND_LINE_SIZE);
-		strlcat(builtin_cmdline, boot_command_line, COMMAND_LINE_SIZE);
-		strscpy(boot_command_line, builtin_cmdline, COMMAND_LINE_SIZE);
-	}
-#endif
-#endif
-
-	strscpy(command_line, boot_command_line, COMMAND_LINE_SIZE);
-	*cmdline_p = command_line;
-
 	/*
 	 * x86_configure_nx() is called before parse_early_param() to detect
 	 * whether hardware doesn't support NX (so that the early EHCI debug
@@ -910,9 +889,11 @@ void __init setup_arch(char **cmdline_p)
 
 	x86_report_nx();
 
+	apic_setup_apic_calls();
+
 	if (acpi_mps_check()) {
 #ifdef CONFIG_X86_LOCAL_APIC
-		disable_apic = 1;
+		apic_is_disabled = true;
 #endif
 		setup_clear_cpu_cap(X86_FEATURE_APIC);
 	}
@@ -923,14 +904,8 @@ void __init setup_arch(char **cmdline_p)
 	if (efi_enabled(EFI_BOOT))
 		efi_init();
 
-	efi_set_secure_boot(boot_params.secure_boot);
-
-#ifdef CONFIG_LOCK_DOWN_IN_EFI_SECURE_BOOT
-	if (efi_enabled(EFI_SECURE_BOOT))
-		security_lock_kernel_down("EFI Secure Boot mode", LOCKDOWN_INTEGRITY_MAX);
-#endif
-
-	dmi_setup();
+	reserve_ibft_region();
+	x86_init.resources.dmi_setup();
 
 	/*
 	 * VMware detection requires dmi to be available, so this
@@ -998,10 +973,8 @@ void __init setup_arch(char **cmdline_p)
 	high_memory = (void *)__va(max_pfn * PAGE_SIZE - 1) + 1;
 #endif
 
-	/*
-	 * Find and reserve possible boot-time SMP configuration:
-	 */
-	find_smp_config();
+	/* Find and reserve MPTABLE area */
+	x86_init.mpparse.find_mptable();
 
 	early_alloc_pgt_buf();
 
@@ -1021,10 +994,9 @@ void __init setup_arch(char **cmdline_p)
 	 * Needs to run after memblock setup because it needs the physical
 	 * memory size.
 	 */
-	sev_setup_arch();
+	mem_encrypt_setup_arch();
 	cc_random_init();
 
-	efi_fake_memmap();
 	efi_find_mirror();
 	efi_esrt_init();
 	efi_mokvar_table_init();
@@ -1067,7 +1039,12 @@ void __init setup_arch(char **cmdline_p)
 
 	init_mem_mapping();
 
-	idt_setup_early_pf();
+	/*
+	 * init_mem_mapping() relies on the early IDT page fault handling.
+	 * Now either enable FRED or install the real page fault handler
+	 * for 64-bit in the IDT.
+	 */
+	cpu_init_replace_early_idt();
 
 	/*
 	 * Update mmu_cr4_features (and, indirectly, trampoline_cr4_features)
@@ -1093,7 +1070,19 @@ void __init setup_arch(char **cmdline_p)
 	/* Allocate bigger log buffer */
 	setup_log_buf(1);
 
-	efi_set_secure_boot(boot_params.secure_boot);
+	if (efi_enabled(EFI_BOOT)) {
+		switch (boot_params.secure_boot) {
+		case efi_secureboot_mode_disabled:
+			pr_info("Secure boot disabled\n");
+			break;
+		case efi_secureboot_mode_enabled:
+			pr_info("Secure boot enabled\n");
+			break;
+		default:
+			pr_info("Secure boot could not be determined\n");
+			break;
+		}
+	}
 
 	reserve_initrd();
 
@@ -1107,7 +1096,11 @@ void __init setup_arch(char **cmdline_p)
 
 	early_platform_quirks();
 
+	/* Some platforms need the APIC registered for NUMA configuration */
 	early_acpi_boot_init();
+	x86_init.mpparse.early_parse_smp_cfg();
+
+	x86_flattree_get_config();
 
 	initmem_init();
 	dma_contiguous_reserve(max_pfn_mapped << PAGE_SHIFT);
@@ -1120,8 +1113,6 @@ void __init setup_arch(char **cmdline_p)
 	 * won't consume hotpluggable memory.
 	 */
 	arch_reserve_crashkernel();
-
-	memblock_find_dma_reserve();
 
 	if (!early_xdbc_setup_hardware())
 		early_xdbc_register_console();
@@ -1142,28 +1133,23 @@ void __init setup_arch(char **cmdline_p)
 
 	map_vsyscall();
 
-	generic_apic_probe();
+	x86_32_probe_apic();
 
 	early_quirks();
 
+	topology_apply_cmdline_limits_early();
+
 	/*
-	 * Read APIC and some other early information from ACPI tables.
+	 * Parse SMP configuration. Try ACPI first and then the platform
+	 * specific parser.
 	 */
 	acpi_boot_init();
-	x86_dtb_init();
+	x86_init.mpparse.parse_smp_cfg();
 
-	/*
-	 * get boot-time SMP configuration:
-	 */
-	get_smp_config();
-
-	/*
-	 * Systems w/o ACPI and mptables might not have it mapped the local
-	 * APIC yet, but prefill_possible_map() might need to access it.
-	 */
+	/* Last opportunity to detect and map the local APIC */
 	init_apic_mappings();
 
-	prefill_possible_map();
+	topology_init_possible_cpus();
 
 	init_cpu_to_node();
 	init_gi_nodes();
@@ -1237,3 +1223,10 @@ static int __init register_kernel_offset_dumper(void)
 	return 0;
 }
 __initcall(register_kernel_offset_dumper);
+
+#ifdef CONFIG_HOTPLUG_CPU
+bool arch_cpu_is_hotpluggable(int cpu)
+{
+	return cpu > 0;
+}
+#endif /* CONFIG_HOTPLUG_CPU */

@@ -36,7 +36,7 @@
 #include <asm/io.h>
 #include <asm/irq.h>
 #include <asm/traps.h>
-#include <asm/unaligned.h>
+#include <linux/unaligned.h>
 #include <linux/atomic.h>
 #include <asm/smp.h>
 #include <asm/pdc.h>
@@ -46,6 +46,8 @@
 #include <asm/cacheflush.h>
 #include <linux/kgdb.h>
 #include <linux/kprobes.h>
+
+#include "unaligned.h"
 
 #if defined(CONFIG_LIGHTWEIGHT_SPINLOCK_CHECK)
 #include <asm/spinlock.h>
@@ -335,10 +337,7 @@ static void default_trap(int code, struct pt_regs *regs)
 	show_regs(regs);
 }
 
-void (*cpu_lpmc) (int code, struct pt_regs *regs) __read_mostly = default_trap;
-
-
-void transfer_pim_to_trap_frame(struct pt_regs *regs)
+static void transfer_pim_to_trap_frame(struct pt_regs *regs)
 {
     register int i;
     extern unsigned int hpmc_pim_data[];
@@ -507,7 +506,7 @@ void notrace handle_interruption(int code, struct pt_regs *regs)
 	if (((unsigned long)regs->iaoq[0] & 3) &&
 	    ((unsigned long)regs->iasq[0] != (unsigned long)regs->sr[7])) { 
 		/* Kill the user process later */
-		regs->iaoq[0] = 0 | 3;
+		regs->iaoq[0] = 0 | PRIV_USER;
 		regs->iaoq[1] = regs->iaoq[0] + 4;
 		regs->iasq[0] = regs->iasq[1] = regs->sr[7];
 		regs->gr[0] &= ~PSW_B;
@@ -557,7 +556,7 @@ void notrace handle_interruption(int code, struct pt_regs *regs)
 		
 		flush_cache_all();
 		flush_tlb_all();
-		cpu_lpmc(5, regs);
+		default_trap(code, regs);
 		return;
 
 	case  PARISC_ITLB_TRAP:
@@ -800,14 +799,13 @@ void notrace handle_interruption(int code, struct pt_regs *regs)
 }
 
 
-void __init initialize_ivt(const void *iva)
+static void __init initialize_ivt(const void *iva)
 {
 	extern const u32 os_hpmc[];
 
 	int i;
 	u32 check = 0;
 	u32 *ivap;
-	u32 *hpmcp;
 	u32 instr;
 
 	if (strcmp((const char *)iva, "cows can fly"))
@@ -839,8 +837,6 @@ void __init initialize_ivt(const void *iva)
 
 	/* Setup IVA and compute checksum for HPMC handler */
 	ivap[6] = (u32)__pa(os_hpmc);
-
-	hpmcp = (u32 *)os_hpmc;
 
 	for (i=0; i<8; i++)
 	    check += ivap[i];

@@ -40,7 +40,6 @@ struct intel_gvt_irq_info {
 	char *name;
 	i915_reg_t reg_base;
 	enum intel_gvt_event_type bit_to_event[INTEL_GVT_IRQ_BITWIDTH];
-	unsigned long warned;
 	int group;
 	DECLARE_BITMAP(downstream_irq_bitmap, INTEL_GVT_IRQ_BITWIDTH);
 	bool has_upstream_irq;
@@ -453,7 +452,7 @@ static void inject_virtual_interrupt(struct intel_vgpu *vgpu)
 	if (!test_bit(INTEL_VGPU_STATUS_ATTACHED, vgpu->status))
 		return;
 	if (vgpu->msi_trigger)
-		eventfd_signal(vgpu->msi_trigger, 1);
+		eventfd_signal(vgpu->msi_trigger);
 }
 
 static void propagate_event(struct intel_gvt_irq *irq,

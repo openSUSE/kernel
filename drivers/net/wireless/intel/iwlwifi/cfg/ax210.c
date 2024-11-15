@@ -13,7 +13,7 @@
 #define IWL_AX210_UCODE_API_MAX	89
 
 /* Lowest firmware API version supported */
-#define IWL_AX210_UCODE_API_MIN	59
+#define IWL_AX210_UCODE_API_MIN	77
 
 /* NVM versions */
 #define IWL_AX210_NVM_VERSION		0x0a1d
@@ -300,5 +300,8 @@ MODULE_FIRMWARE(IWL_MA_B_GF_A_FW_MODULE_FIRMWARE(IWL_AX210_UCODE_API_MAX));
 MODULE_FIRMWARE(IWL_MA_B_GF4_A_FW_MODULE_FIRMWARE(IWL_AX210_UCODE_API_MAX));
 MODULE_FIRMWARE(IWL_MA_B_MR_A_FW_MODULE_FIRMWARE(IWL_AX210_UCODE_API_MAX));
 
-MODULE_FIRMWARE("iwlwifi-ma-b0-gf4-a0.pnvm");
+MODULE_FIRMWARE("iwlwifi-so-a0-gf-a0.pnvm");
+MODULE_FIRMWARE("iwlwifi-so-a0-gf4-a0.pnvm");
+MODULE_FIRMWARE("iwlwifi-ty-a0-gf-a0.pnvm");
 MODULE_FIRMWARE("iwlwifi-ma-b0-gf-a0.pnvm");
+MODULE_FIRMWARE("iwlwifi-ma-b0-gf4-a0.pnvm");

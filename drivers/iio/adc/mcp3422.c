@@ -19,7 +19,7 @@
 #include <linux/mod_devicetable.h>
 #include <linux/delay.h>
 #include <linux/sysfs.h>
-#include <asm/unaligned.h>
+#include <linux/unaligned.h>
 
 #include <linux/iio/iio.h>
 #include <linux/iio/sysfs.h>
@@ -417,7 +417,7 @@ static struct i2c_driver mcp3422_driver = {
 		.name = "mcp3422",
 		.of_match_table = mcp3422_of_match,
 	},
-	.probe_new = mcp3422_probe,
+	.probe = mcp3422_probe,
 	.id_table = mcp3422_id,
 };
 module_i2c_driver(mcp3422_driver);

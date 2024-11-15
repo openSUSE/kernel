@@ -2086,7 +2086,7 @@ static void tvaudio_remove(struct i2c_client *client)
    detect which device is present. So rather than listing all supported
    devices here, we pretend to support a single, fake device type. */
 static const struct i2c_device_id tvaudio_id[] = {
-	{ "tvaudio", 0 },
+	{ "tvaudio" },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, tvaudio_id);
@@ -2095,7 +2095,7 @@ static struct i2c_driver tvaudio_driver = {
 	.driver = {
 		.name	= "tvaudio",
 	},
-	.probe_new	= tvaudio_probe,
+	.probe		= tvaudio_probe,
 	.remove		= tvaudio_remove,
 	.id_table	= tvaudio_id,
 };

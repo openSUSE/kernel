@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0-only or BSD-3-Clause
+// SPDX-License-Identifier: GPL-2.0-only OR BSD-3-Clause
 /* Copyright (C) 2022 NVIDIA CORPORATION & AFFILIATES */
 
 #include <linux/bitfield.h>
@@ -259,16 +259,16 @@ static int mlxbf3_pinctrl_probe(struct platform_device *pdev)
 		return PTR_ERR(priv->fw_ctrl_set0);
 
 	priv->fw_ctrl_clr0 = devm_platform_ioremap_resource(pdev, 1);
-	if (IS_ERR(priv->fw_ctrl_set0))
-		return PTR_ERR(priv->fw_ctrl_set0);
+	if (IS_ERR(priv->fw_ctrl_clr0))
+		return PTR_ERR(priv->fw_ctrl_clr0);
 
 	priv->fw_ctrl_set1 = devm_platform_ioremap_resource(pdev, 2);
-	if (IS_ERR(priv->fw_ctrl_set0))
-		return PTR_ERR(priv->fw_ctrl_set0);
+	if (IS_ERR(priv->fw_ctrl_set1))
+		return PTR_ERR(priv->fw_ctrl_set1);
 
 	priv->fw_ctrl_clr1 = devm_platform_ioremap_resource(pdev, 3);
-	if (IS_ERR(priv->fw_ctrl_set0))
-		return PTR_ERR(priv->fw_ctrl_set0);
+	if (IS_ERR(priv->fw_ctrl_clr1))
+		return PTR_ERR(priv->fw_ctrl_clr1);
 
 	ret = devm_pinctrl_register_and_init(dev,
 					     &mlxbf3_pin_desc,

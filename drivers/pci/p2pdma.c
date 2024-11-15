@@ -28,9 +28,9 @@ struct pci_p2pdma {
 };
 
 struct pci_p2pdma_pagemap {
-	struct dev_pagemap pgmap;
 	struct pci_dev *provider;
 	u64 bus_offset;
+	struct dev_pagemap pgmap;
 };
 
 static struct pci_p2pdma_pagemap *to_p2p_pgmap(struct dev_pagemap *pgmap)
@@ -532,8 +532,7 @@ static bool host_bridge_whitelist(struct pci_dev *a, struct pci_dev *b,
 
 static unsigned long map_types_idx(struct pci_dev *client)
 {
-	return (pci_domain_nr(client->bus) << 16) |
-		(client->bus->number << 8) | client->devfn;
+	return (pci_domain_nr(client->bus) << 16) | pci_dev_id(client);
 }
 
 /*
@@ -838,7 +837,6 @@ void *pci_alloc_p2pmem(struct pci_dev *pdev, size_t size)
 	if (unlikely(!percpu_ref_tryget_live_rcu(ref))) {
 		gen_pool_free(p2pdma->pool, (unsigned long) ret, size);
 		ret = NULL;
-		goto out;
 	}
 out:
 	rcu_read_unlock();

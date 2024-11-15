@@ -179,7 +179,7 @@ static inline bool hv_reenlightenment_available(void)
 
 DEFINE_IDTENTRY_SYSVEC(sysvec_hyperv_reenlightenment)
 {
-	ack_APIC_irq();
+	apic_eoi();
 	inc_irq_stat(irq_hv_reenlightenment_count);
 	schedule_delayed_work(&hv_reenlightenment_work, HZ/10);
 }
@@ -569,6 +569,7 @@ void __init hyperv_init(void)
 		wrmsrl(HV_X64_MSR_HYPERCALL, hypercall_msr.as_uint64);
 	}
 
+skip_hypercall_pg_init:
 	/*
 	 * Some versions of Hyper-V that provide IBT in guest VMs have a bug
 	 * in that there's no ENDBR64 instruction at the entry to the
@@ -589,7 +590,6 @@ void __init hyperv_init(void)
 	}
 #endif
 
-skip_hypercall_pg_init:
 	/*
 	 * hyperv_init() is called before LAPIC is initialized: see
 	 * apic_intr_mode_init() -> x86_platform.apic_post_init() and
@@ -664,14 +664,14 @@ void hyperv_cleanup(void)
 	hv_hypercall_pg = NULL;
 
 	/* Reset the hypercall page */
-	hypercall_msr.as_uint64 = hv_get_register(HV_X64_MSR_HYPERCALL);
+	hypercall_msr.as_uint64 = hv_get_msr(HV_X64_MSR_HYPERCALL);
 	hypercall_msr.enable = 0;
-	hv_set_register(HV_X64_MSR_HYPERCALL, hypercall_msr.as_uint64);
+	hv_set_msr(HV_X64_MSR_HYPERCALL, hypercall_msr.as_uint64);
 
 	/* Reset the TSC page */
-	tsc_msr.as_uint64 = hv_get_register(HV_X64_MSR_REFERENCE_TSC);
+	tsc_msr.as_uint64 = hv_get_msr(HV_X64_MSR_REFERENCE_TSC);
 	tsc_msr.enable = 0;
-	hv_set_register(HV_X64_MSR_REFERENCE_TSC, tsc_msr.as_uint64);
+	hv_set_msr(HV_X64_MSR_REFERENCE_TSC, tsc_msr.as_uint64);
 }
 
 void hyperv_report_panic(struct pt_regs *regs, long err, bool in_die)

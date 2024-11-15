@@ -751,7 +751,7 @@ u16 mlx4_en_select_queue(struct net_device *dev, struct sk_buff *skb,
 static void mlx4_bf_copy(void __iomem *dst, const void *src,
 			 unsigned int bytecnt)
 {
-	__iowrite64_copy_inlined(dst, src, bytecnt / 8);
+	__iowrite64_copy(dst, src, bytecnt / 8);
 }
 
 void mlx4_en_xmit_doorbell(struct mlx4_en_tx_ring *ring)
@@ -992,7 +992,7 @@ netdev_tx_t mlx4_en_xmit(struct sk_buff *skb, struct net_device *dev)
 		tx_info->ts_requested = 1;
 	}
 
-	/* Prepare ctrl segement apart opcode+ownership, which depends on
+	/* Prepare ctrl segment apart opcode+ownership, which depends on
 	 * whether LSO is used */
 	tx_desc->ctrl.srcrb_flags = priv->ctrl_flags;
 	if (likely(skb->ip_summed == CHECKSUM_PARTIAL)) {

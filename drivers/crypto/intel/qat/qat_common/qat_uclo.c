@@ -58,7 +58,7 @@ static int qat_uclo_free_ae_data(struct icp_qat_uclo_aedata *ae_data)
 	unsigned int i;
 
 	if (!ae_data) {
-		pr_err("QAT: bad argument, ae_data is NULL\n ");
+		pr_err("QAT: bad argument, ae_data is NULL\n");
 		return -EINVAL;
 	}
 
@@ -733,6 +733,7 @@ qat_uclo_get_dev_type(struct icp_qat_fw_loader_handle *handle)
 	case ADF_4XXX_PCI_DEVICE_ID:
 	case ADF_401XX_PCI_DEVICE_ID:
 	case ADF_402XX_PCI_DEVICE_ID:
+	case ADF_420XX_PCI_DEVICE_ID:
 		return ICP_QAT_AC_4XXX_A_DEV_TYPE;
 	default:
 		pr_err("QAT: unsupported device 0x%x\n",

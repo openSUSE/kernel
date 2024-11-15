@@ -115,7 +115,8 @@ static int test_pidfd_send_signal_exited_fail(void)
 
 	pidfd = open(buf, O_DIRECTORY | O_CLOEXEC);
 
-	(void)wait_for_pid(pid);
+	ret = wait_for_pid(pid);
+	ksft_print_msg("waitpid WEXITSTATUS=%d\n", ret);
 
 	if (pidfd < 0)
 		ksft_exit_fail_msg(
@@ -571,5 +572,5 @@ int main(int argc, char **argv)
 	test_pidfd_send_signal_exited_fail();
 	test_pidfd_send_signal_recycled_pid_fail();
 
-	return ksft_exit_pass();
+	ksft_exit_pass();
 }

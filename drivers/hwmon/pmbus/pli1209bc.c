@@ -5,6 +5,7 @@
  * Copyright (c) 2022 9elements GmbH
  */
 
+#include <linux/delay.h>
 #include <linux/i2c.h>
 #include <linux/module.h>
 #include <linux/pmbus.h>
@@ -102,6 +103,7 @@ static struct pmbus_driver_info pli1209bc_info = {
 	    | PMBUS_HAVE_TEMP | PMBUS_HAVE_STATUS_TEMP
 	    | PMBUS_HAVE_STATUS_IOUT | PMBUS_HAVE_STATUS_INPUT,
 	.read_word_data = pli1209bc_read_word_data,
+	.write_delay = 250,
 #if IS_ENABLED(CONFIG_SENSORS_PLI1209BC_REGULATOR)
 	.num_regulators = 1,
 	.reg_desc = &pli1209bc_reg_desc,
@@ -115,7 +117,7 @@ static int pli1209bc_probe(struct i2c_client *client)
 }
 
 static const struct i2c_device_id pli1209bc_id[] = {
-	{"pli1209bc", 0},
+	{"pli1209bc"},
 	{}
 };
 
@@ -134,7 +136,7 @@ static struct i2c_driver pli1209bc_driver = {
 		   .name = "pli1209bc",
 		   .of_match_table = of_match_ptr(pli1209bc_of_match),
 		   },
-	.probe_new = pli1209bc_probe,
+	.probe = pli1209bc_probe,
 	.id_table = pli1209bc_id,
 };
 

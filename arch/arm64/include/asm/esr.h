@@ -47,7 +47,7 @@
 #define ESR_ELx_EC_DABT_LOW	UL(0x24)
 #define ESR_ELx_EC_DABT_CUR	UL(0x25)
 #define ESR_ELx_EC_SP_ALIGN	UL(0x26)
-/* Unallocated EC: 0x27 */
+#define ESR_ELx_EC_MOPS		UL(0x27)
 #define ESR_ELx_EC_FP_EXC32	UL(0x28)
 /* Unallocated EC: 0x29 - 0x2B */
 #define ESR_ELx_EC_FP_EXC64	UL(0x2C)
@@ -75,8 +75,11 @@
 
 #define ESR_ELx_IL_SHIFT	(25)
 #define ESR_ELx_IL		(UL(1) << ESR_ELx_IL_SHIFT)
-#define ESR_ELx_ISS_MASK	(ESR_ELx_IL - 1)
+#define ESR_ELx_ISS_MASK	(GENMASK(24, 0))
 #define ESR_ELx_ISS(esr)	((esr) & ESR_ELx_ISS_MASK)
+#define ESR_ELx_ISS2_SHIFT	(32)
+#define ESR_ELx_ISS2_MASK	(GENMASK_ULL(55, 32))
+#define ESR_ELx_ISS2(esr)	(((esr) & ESR_ELx_ISS2_MASK) >> ESR_ELx_ISS2_SHIFT)
 
 /* ISS field definitions shared by different classes */
 #define ESR_ELx_WNR_SHIFT	(6)
@@ -114,15 +117,17 @@
 #define ESR_ELx_FSC_ACCESS	(0x08)
 #define ESR_ELx_FSC_FAULT	(0x04)
 #define ESR_ELx_FSC_PERM	(0x0C)
-#define ESR_ELx_FSC_SEA_TTW0	(0x14)
-#define ESR_ELx_FSC_SEA_TTW1	(0x15)
-#define ESR_ELx_FSC_SEA_TTW2	(0x16)
-#define ESR_ELx_FSC_SEA_TTW3	(0x17)
+#define ESR_ELx_FSC_SEA_TTW(n)	(0x14 + (n))
 #define ESR_ELx_FSC_SECC	(0x18)
-#define ESR_ELx_FSC_SECC_TTW0	(0x1c)
-#define ESR_ELx_FSC_SECC_TTW1	(0x1d)
-#define ESR_ELx_FSC_SECC_TTW2	(0x1e)
-#define ESR_ELx_FSC_SECC_TTW3	(0x1f)
+#define ESR_ELx_FSC_SECC_TTW(n)	(0x1c + (n))
+
+/* Status codes for individual page table levels */
+#define ESR_ELx_FSC_ACCESS_L(n)	(ESR_ELx_FSC_ACCESS + (n))
+#define ESR_ELx_FSC_PERM_L(n)	(ESR_ELx_FSC_PERM + (n))
+
+#define ESR_ELx_FSC_FAULT_nL	(0x2C)
+#define ESR_ELx_FSC_FAULT_L(n)	(((n) < 0 ? ESR_ELx_FSC_FAULT_nL : \
+					    ESR_ELx_FSC_FAULT) + (n))
 
 /* ISS field definitions for Data Aborts */
 #define ESR_ELx_ISV_SHIFT	(24)
@@ -140,7 +145,23 @@
 #define ESR_ELx_CM_SHIFT	(8)
 #define ESR_ELx_CM 		(UL(1) << ESR_ELx_CM_SHIFT)
 
+/* ISS2 field definitions for Data Aborts */
+#define ESR_ELx_TnD_SHIFT	(10)
+#define ESR_ELx_TnD 		(UL(1) << ESR_ELx_TnD_SHIFT)
+#define ESR_ELx_TagAccess_SHIFT	(9)
+#define ESR_ELx_TagAccess	(UL(1) << ESR_ELx_TagAccess_SHIFT)
+#define ESR_ELx_GCS_SHIFT	(8)
+#define ESR_ELx_GCS 		(UL(1) << ESR_ELx_GCS_SHIFT)
+#define ESR_ELx_Overlay_SHIFT	(6)
+#define ESR_ELx_Overlay		(UL(1) << ESR_ELx_Overlay_SHIFT)
+#define ESR_ELx_DirtyBit_SHIFT	(5)
+#define ESR_ELx_DirtyBit	(UL(1) << ESR_ELx_DirtyBit_SHIFT)
+#define ESR_ELx_Xs_SHIFT	(0)
+#define ESR_ELx_Xs_MASK		(GENMASK_ULL(4, 0))
+
 /* ISS field definitions for exceptions taken in to Hyp */
+#define ESR_ELx_FSC_ADDRSZ	(0x00)
+#define ESR_ELx_FSC_ADDRSZ_L(n)	(ESR_ELx_FSC_ADDRSZ + (n))
 #define ESR_ELx_CV		(UL(1) << 24)
 #define ESR_ELx_COND_SHIFT	(20)
 #define ESR_ELx_COND_MASK	(UL(0xF) << ESR_ELx_COND_SHIFT)
@@ -356,14 +377,77 @@
 #define ESR_ELx_SME_ISS_ZA_DISABLED	3
 #define ESR_ELx_SME_ISS_ZT_DISABLED	4
 
+/* ISS field definitions for MOPS exceptions */
+#define ESR_ELx_MOPS_ISS_MEM_INST	(UL(1) << 24)
+#define ESR_ELx_MOPS_ISS_FROM_EPILOGUE	(UL(1) << 18)
+#define ESR_ELx_MOPS_ISS_WRONG_OPTION	(UL(1) << 17)
+#define ESR_ELx_MOPS_ISS_OPTION_A	(UL(1) << 16)
+#define ESR_ELx_MOPS_ISS_DESTREG(esr)	(((esr) & (UL(0x1f) << 10)) >> 10)
+#define ESR_ELx_MOPS_ISS_SRCREG(esr)	(((esr) & (UL(0x1f) << 5)) >> 5)
+#define ESR_ELx_MOPS_ISS_SIZEREG(esr)	(((esr) & (UL(0x1f) << 0)) >> 0)
+
 #ifndef __ASSEMBLY__
 #include <asm/types.h>
+
+static inline unsigned long esr_brk_comment(unsigned long esr)
+{
+	return esr & ESR_ELx_BRK64_ISS_COMMENT_MASK;
+}
 
 static inline bool esr_is_data_abort(unsigned long esr)
 {
 	const unsigned long ec = ESR_ELx_EC(esr);
 
 	return ec == ESR_ELx_EC_DABT_LOW || ec == ESR_ELx_EC_DABT_CUR;
+}
+
+static inline bool esr_is_cfi_brk(unsigned long esr)
+{
+	return ESR_ELx_EC(esr) == ESR_ELx_EC_BRK64 &&
+	       (esr_brk_comment(esr) & ~CFI_BRK_IMM_MASK) == CFI_BRK_IMM_BASE;
+}
+
+static inline bool esr_fsc_is_translation_fault(unsigned long esr)
+{
+	esr = esr & ESR_ELx_FSC;
+
+	return (esr == ESR_ELx_FSC_FAULT_L(3)) ||
+	       (esr == ESR_ELx_FSC_FAULT_L(2)) ||
+	       (esr == ESR_ELx_FSC_FAULT_L(1)) ||
+	       (esr == ESR_ELx_FSC_FAULT_L(0)) ||
+	       (esr == ESR_ELx_FSC_FAULT_L(-1));
+}
+
+static inline bool esr_fsc_is_permission_fault(unsigned long esr)
+{
+	esr = esr & ESR_ELx_FSC;
+
+	return (esr == ESR_ELx_FSC_PERM_L(3)) ||
+	       (esr == ESR_ELx_FSC_PERM_L(2)) ||
+	       (esr == ESR_ELx_FSC_PERM_L(1)) ||
+	       (esr == ESR_ELx_FSC_PERM_L(0));
+}
+
+static inline bool esr_fsc_is_access_flag_fault(unsigned long esr)
+{
+	esr = esr & ESR_ELx_FSC;
+
+	return (esr == ESR_ELx_FSC_ACCESS_L(3)) ||
+	       (esr == ESR_ELx_FSC_ACCESS_L(2)) ||
+	       (esr == ESR_ELx_FSC_ACCESS_L(1)) ||
+	       (esr == ESR_ELx_FSC_ACCESS_L(0));
+}
+
+/* Indicate whether ESR.EC==0x1A is for an ERETAx instruction */
+static inline bool esr_iss_is_eretax(unsigned long esr)
+{
+	return esr & ESR_ELx_ERET_ISS_ERET;
+}
+
+/* Indicate which key is used for ERETAx (false: A-Key, true: B-Key) */
+static inline bool esr_iss_is_eretab(unsigned long esr)
+{
+	return esr & ESR_ELx_ERET_ISS_ERETA;
 }
 
 const char *esr_get_class_string(unsigned long esr);

@@ -18,7 +18,12 @@
 	qcom,msm-id = <356 0x20001>; /* SM8250 v2.1 */
 	qcom,board-id = <0x10008 0>;
 
+	aliases {
+		serial0 = &uart12;
+	};
+
 	chosen {
+		stdout-path = "serial0:115200n8";
 		#address-cells = <2>;
 		#size-cells = <2>;
 		ranges;
@@ -126,7 +131,7 @@
 			reg = <0x0 0xffc00000 0x0 0x100000>;
 			record-size = <0x1000>;
 			console-size = <0x40000>;
-			msg-size = <0x20000 0x20000>;
+			pmsg-size = <0x20000>;
 			ecc-size = <16>;
 			no-map;
 		};
@@ -500,13 +505,6 @@
 	};
 };
 
-&i2c5 {
-	status = "okay";
-	clock-frequency = <400000>;
-
-	/* Dialog SLG51000 CMIC @ 75 */
-};
-
 &i2c9 {
 	status = "okay";
 	clock-frequency = <400000>;
@@ -522,7 +520,7 @@
 		compatible = "samsung,s6sy761";
 		reg = <0x48>;
 		interrupt-parent = <&tlmm>;
-		interrupts = <39 0x2008>;
+		interrupts = <39 IRQ_TYPE_LEVEL_LOW>;
 		/* It's "vddio" downstream but it works anyway! */
 		vdd-supply = <&vreg_l1c_1p8>;
 		avdd-supply = <&vreg_l10c_3p3>;
@@ -714,4 +712,9 @@
 
 	vdda-phy-supply = <&vreg_l9a_1p2>;
 	vdda-pll-supply = <&vreg_l18a_0p9>;
+};
+
+&venus {
+	firmware-name = "qcom/sm8250/Sony/edo/venus.mbn";
+	status = "okay";
 };

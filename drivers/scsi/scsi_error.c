@@ -48,7 +48,7 @@
 
 #include <trace/events/scsi.h>
 
-#include <asm/unaligned.h>
+#include <linux/unaligned.h>
 
 /*
  * These should *probably* be handled by the host itself.
@@ -302,6 +302,7 @@ void scsi_eh_scmd_add(struct scsi_cmnd *scmd)
 	int ret;
 
 	WARN_ON_ONCE(!shost->ehandler);
+	WARN_ON_ONCE(!test_bit(SCMD_STATE_INFLIGHT, &scmd->state));
 
 	spin_lock_irqsave(shost->host_lock, flags);
 	if (scsi_host_set_state(shost, SHOST_RECOVERY)) {
@@ -652,8 +653,7 @@ enum scsi_disposition scsi_check_sense(struct scsi_cmnd *scmd)
 		 * if the device is in the process of becoming ready, we
 		 * should retry.
 		 */
-		if ((sshdr.asc == 0x04) &&
-		    (sshdr.ascq == 0x01 || sshdr.ascq == 0x0a))
+		if ((sshdr.asc == 0x04) && (sshdr.ascq == 0x01))
 			return NEEDS_RETRY;
 		/*
 		 * if the device is not started, we need to wake
@@ -2038,11 +2038,8 @@ enum scsi_disposition scsi_decide_disposition(struct scsi_cmnd *scmd)
 		return SUCCESS;
 
 	case SAM_STAT_RESERVATION_CONFLICT:
-		if (scmd->cmnd[0] != TEST_UNIT_READY)
-			sdev_printk(KERN_INFO, scmd->device,
-				    "reservation conflict\n");
-		else
-			scsi_cmd_to_rq(scmd)->rq_flags |= RQF_QUIET;
+		sdev_printk(KERN_INFO, scmd->device,
+			    "reservation conflict\n");
 		set_scsi_ml_byte(scmd, SCSIML_STAT_RESV_CONFLICT);
 		return SUCCESS; /* causes immediate i/o error */
 	}

@@ -34,6 +34,8 @@
 #include <linux/compat.h>
 #include <linux/jhash.h>
 #include <linux/pagemap.h>
+#include <linux/debugfs.h>
+#include <linux/plist.h>
 #include <linux/memblock.h>
 #include <linux/fault-inject.h>
 #include <linux/slab.h>
@@ -193,7 +195,7 @@ static u64 get_inode_sequence_number(struct inode *inode)
 /**
  * get_futex_key() - Get parameters which are the keys for a futex
  * @uaddr:	virtual address of the futex
- * @fshared:	false for a PROCESS_PRIVATE futex, true for PROCESS_SHARED
+ * @flags:	FLAGS_*
  * @key:	address where result is stored.
  * @rw:		mapping needs to be read/write (values: FUTEX_READ,
  *              FUTEX_WRITE)
@@ -217,7 +219,7 @@ static u64 get_inode_sequence_number(struct inode *inode)
  *
  * lock_page() might sleep, the caller should not hold a spinlock.
  */
-int get_futex_key(u32 __user *uaddr, bool fshared, union futex_key *key,
+int get_futex_key(u32 __user *uaddr, unsigned int flags, union futex_key *key,
 		  enum futex_access rw)
 {
 	unsigned long address = (unsigned long)uaddr;
@@ -226,6 +228,9 @@ int get_futex_key(u32 __user *uaddr, bool fshared, union futex_key *key,
 	struct folio *folio;
 	struct address_space *mapping;
 	int err, ro = 0;
+	bool fshared;
+
+	fshared = flags & FLAGS_SHARED;
 
 	/*
 	 * The futex address must be "naturally" aligned.
@@ -249,7 +254,17 @@ int get_futex_key(u32 __user *uaddr, bool fshared, union futex_key *key,
 	 *        but access_ok() should be faster than find_vma()
 	 */
 	if (!fshared) {
-		key->private.mm = mm;
+		/*
+		 * On no-MMU, shared futexes are treated as private, therefore
+		 * we must not include the current process in the key. Since
+		 * there is only one address space, the address is a unique key
+		 * on its own.
+		 */
+		if (IS_ENABLED(CONFIG_MMU))
+			key->private.mm = mm;
+		else
+			key->private.mm = NULL;
+
 		key->private.address = address;
 		return 0;
 	}
@@ -696,7 +711,8 @@ retry:
 	owner = uval & FUTEX_TID_MASK;
 
 	if (pending_op && !pi && !owner) {
-		futex_wake(uaddr, 1, 1, FUTEX_BITSET_MATCH_ANY);
+		futex_wake(uaddr, FLAGS_SIZE_32 | FLAGS_SHARED, 1,
+			   FUTEX_BITSET_MATCH_ANY);
 		return 0;
 	}
 
@@ -748,8 +764,10 @@ retry:
 	 * Wake robust non-PI futexes here. The wakeup of
 	 * PI futexes happens in exit_pi_state():
 	 */
-	if (!pi && (uval & FUTEX_WAITERS))
-		futex_wake(uaddr, 1, 1, FUTEX_BITSET_MATCH_ANY);
+	if (!pi && (uval & FUTEX_WAITERS)) {
+		futex_wake(uaddr, FLAGS_SIZE_32 | FLAGS_SHARED, 1,
+			   FUTEX_BITSET_MATCH_ANY);
+	}
 
 	return 0;
 }
@@ -1133,15 +1151,14 @@ static int __init futex_init(void)
 	unsigned int futex_shift;
 	unsigned long i;
 
-#if CONFIG_BASE_SMALL
+#ifdef CONFIG_BASE_SMALL
 	futex_hashsize = 16;
 #else
 	futex_hashsize = roundup_pow_of_two(256 * num_possible_cpus());
 #endif
 
 	futex_queues = alloc_large_system_hash("futex", sizeof(*futex_queues),
-					       futex_hashsize, 0,
-					       futex_hashsize < 256 ? HASH_SMALL : 0,
+					       futex_hashsize, 0, 0,
 					       &futex_shift, NULL,
 					       futex_hashsize, futex_hashsize);
 	futex_hashsize = 1UL << futex_shift;

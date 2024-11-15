@@ -25,6 +25,7 @@
 #include "wmi-tlv.h"
 #include "wmi-ops.h"
 #include "wow.h"
+#include "leds.h"
 
 /*********/
 /* Rates */
@@ -1436,7 +1437,7 @@ static void ath10k_recalc_radar_detection(struct ath10k *ar)
 		 * by indicating that radar was detected.
 		 */
 		ath10k_warn(ar, "failed to start CAC: %d\n", ret);
-		ieee80211_radar_detected(ar->hw);
+		ieee80211_radar_detected(ar->hw, NULL);
 	}
 }
 
@@ -2034,7 +2035,7 @@ static void ath10k_mac_vif_ap_csa_count_down(struct ath10k_vif *arvif)
 	if (!arvif->is_up)
 		return;
 
-	if (!ieee80211_beacon_cntdwn_is_complete(vif)) {
+	if (!ieee80211_beacon_cntdwn_is_complete(vif, 0)) {
 		ieee80211_beacon_update_cntdwn(vif, 0);
 
 		ret = ath10k_mac_setup_bcn_tmpl(arvif);
@@ -2047,7 +2048,7 @@ static void ath10k_mac_vif_ap_csa_count_down(struct ath10k_vif *arvif)
 			ath10k_warn(ar, "failed to update prb tmpl during csa: %d\n",
 				    ret);
 	} else {
-		ieee80211_csa_finish(vif);
+		ieee80211_csa_finish(vif, 0);
 	}
 }
 
@@ -5362,7 +5363,7 @@ err:
 	return ret;
 }
 
-static void ath10k_stop(struct ieee80211_hw *hw)
+static void ath10k_stop(struct ieee80211_hw *hw, bool suspend)
 {
 	struct ath10k *ar = hw->priv;
 	u32 opt;

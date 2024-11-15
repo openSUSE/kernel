@@ -163,8 +163,8 @@ static int shstk_setup(void)
 	if (features_enabled(ARCH_SHSTK_SHSTK))
 		return 0;
 
-	/* Also not supported for 32 bit and x32 */
-	if (!cpu_feature_enabled(X86_FEATURE_USER_SHSTK) || in_32bit_syscall())
+	/* Also not supported for 32 bit */
+	if (!cpu_feature_enabled(X86_FEATURE_USER_SHSTK) || in_ia32_syscall())
 		return -EOPNOTSUPP;
 
 	size = adjust_shstk_size(0);
@@ -426,7 +426,18 @@ void shstk_free(struct task_struct *tsk)
 	if (!shstk->base)
 		return;
 
+	/*
+	 * shstk->base is NULL for CLONE_VFORK child tasks, and so is
+	 * normal. But size = 0 on a shstk->base is not normal and
+	 * indicated an attempt to free the thread shadow stack twice.
+	 * Warn about it.
+	 */
+	if (WARN_ON(!shstk->size))
+		return;
+
 	unmap_shadow_stack(shstk->base, shstk->size);
+
+	shstk->size = 0;
 }
 
 static int wrss_control(bool enable)
@@ -576,4 +587,9 @@ int shstk_update_last_frame(unsigned long val)
 
 	ssp = get_user_shstk_addr();
 	return write_user_shstk_64((u64 __user *)ssp, (u64)val);
+}
+
+bool shstk_is_enabled(void)
+{
+	return features_enabled(ARCH_SHSTK_SHSTK);
 }

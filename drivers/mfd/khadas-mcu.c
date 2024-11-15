@@ -72,7 +72,7 @@ static const struct regmap_config khadas_mcu_regmap_config = {
 	.max_register	= KHADAS_MCU_CMD_FAN_STATUS_CTRL_REG,
 	.volatile_reg	= khadas_mcu_reg_volatile,
 	.writeable_reg	= khadas_mcu_reg_writeable,
-	.cache_type	= REGCACHE_RBTREE,
+	.cache_type	= REGCACHE_MAPLE,
 };
 
 static struct mfd_cell khadas_mcu_fan_cells[] = {
@@ -134,7 +134,7 @@ static struct i2c_driver khadas_mcu_driver = {
 		.name = "khadas-mcu-core",
 		.of_match_table = of_match_ptr(khadas_mcu_of_match),
 	},
-	.probe_new = khadas_mcu_probe,
+	.probe = khadas_mcu_probe,
 };
 module_i2c_driver(khadas_mcu_driver);
 

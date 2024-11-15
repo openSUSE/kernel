@@ -30,7 +30,13 @@
 #include <linux/sunrpc/xprtmultipath.h>
 
 struct rpc_inode;
-struct rpc_sysfs_client;
+struct rpc_sysfs_client {
+	struct kobject kobject;
+	struct net *net;
+	struct rpc_clnt *clnt;
+	struct rpc_xprt_switch *xprt_switch;
+};
+
 
 /*
  * The high-level client handle
@@ -57,7 +63,8 @@ struct rpc_clnt {
 				cl_discrtry : 1,/* disconnect before retry */
 				cl_noretranstimeo: 1,/* No retransmit timeouts */
 				cl_autobind : 1,/* use getport() */
-				cl_chatty   : 1;/* be verbose */
+				cl_chatty   : 1,/* be verbose */
+				cl_shutdown : 1;/* rpc immediate -EIO */
 	struct xprtsec_parms	cl_xprtsec;	/* transport security policy */
 
 	struct rpc_rtt *	cl_rtt;		/* RTO estimator data */
@@ -85,9 +92,7 @@ struct rpc_clnt {
 	};
 	const struct cred	*cl_cred;
 	unsigned int		cl_max_connect; /* max number of transports not to the same IP */
-#ifndef __GENKSYMS__
 	struct super_block *pipefs_sb;
-#endif
 };
 
 /*
@@ -134,6 +139,7 @@ struct rpc_create_args {
 	const char		*servername;
 	const char		*nodename;
 	const struct rpc_program *program;
+	struct rpc_stat		*stats;
 	u32			prognumber;	/* overrides program->number */
 	u32			version;
 	rpc_authflavor_t	authflavor;
@@ -144,10 +150,8 @@ struct rpc_create_args {
 	const struct cred	*cred;
 	unsigned int		max_connect;
 	struct xprtsec_parms	xprtsec;
-#ifndef __GENKSYMS__
-	/* Only present if RPC_CLNT_CREATE_STATS set */
-	struct rpc_stat		*stats;
-#endif
+	unsigned long		connect_timeout;
+	unsigned long		reconnect_timeout;
 };
 
 struct rpc_add_xprt_test {
@@ -170,8 +174,6 @@ struct rpc_add_xprt_test {
 #define RPC_CLNT_CREATE_SOFTERR		(1UL << 10)
 #define RPC_CLNT_CREATE_REUSEPORT	(1UL << 11)
 #define RPC_CLNT_CREATE_CONNECTED	(1UL << 12)
-
-#define RPC_CLNT_CREATE_STATS		(1UL << 20)
 
 struct rpc_clnt *rpc_create(struct rpc_create_args *args);
 struct rpc_clnt	*rpc_bind_new_program(struct rpc_clnt *,
@@ -251,7 +253,6 @@ void		rpc_clnt_probe_trunked_xprts(struct rpc_clnt *,
 
 const char *rpc_proc_name(const struct rpc_task *task);
 
-void rpc_clnt_xprt_switch_put(struct rpc_clnt *);
 void rpc_clnt_xprt_switch_add_xprt(struct rpc_clnt *, struct rpc_xprt *);
 void rpc_clnt_xprt_switch_remove_xprt(struct rpc_clnt *, struct rpc_xprt *);
 bool rpc_clnt_xprt_switch_has_addr(struct rpc_clnt *clnt,

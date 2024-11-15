@@ -109,10 +109,11 @@ static struct i2c_driver rt4831_driver = {
 		.name = "rt4831",
 		.of_match_table = rt4831_of_match,
 	},
-	.probe_new = rt4831_probe,
+	.probe = rt4831_probe,
 	.remove = rt4831_remove,
 };
 module_i2c_driver(rt4831_driver);
 
 MODULE_AUTHOR("ChiYuan Huang <cy_huang@richtek.com>");
+MODULE_DESCRIPTION("Richtek RT4831 core driver");
 MODULE_LICENSE("GPL v2");

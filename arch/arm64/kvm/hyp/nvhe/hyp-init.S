@@ -5,6 +5,7 @@
  */
 
 #include <linux/arm-smccc.h>
+#include <linux/cfi_types.h>
 #include <linux/linkage.h>
 
 #include <asm/alternative.h>
@@ -23,28 +24,25 @@
 	.align	11
 
 SYM_CODE_START(__kvm_hyp_init)
-	ventry	__invalid		// Synchronous EL2t
-	ventry	__invalid		// IRQ EL2t
-	ventry	__invalid		// FIQ EL2t
-	ventry	__invalid		// Error EL2t
+	ventry	.			// Synchronous EL2t
+	ventry	.			// IRQ EL2t
+	ventry	.			// FIQ EL2t
+	ventry	.			// Error EL2t
 
-	ventry	__invalid		// Synchronous EL2h
-	ventry	__invalid		// IRQ EL2h
-	ventry	__invalid		// FIQ EL2h
-	ventry	__invalid		// Error EL2h
+	ventry	.			// Synchronous EL2h
+	ventry	.			// IRQ EL2h
+	ventry	.			// FIQ EL2h
+	ventry	.			// Error EL2h
 
 	ventry	__do_hyp_init		// Synchronous 64-bit EL1
-	ventry	__invalid		// IRQ 64-bit EL1
-	ventry	__invalid		// FIQ 64-bit EL1
-	ventry	__invalid		// Error 64-bit EL1
+	ventry	.			// IRQ 64-bit EL1
+	ventry	.			// FIQ 64-bit EL1
+	ventry	.			// Error 64-bit EL1
 
-	ventry	__invalid		// Synchronous 32-bit EL1
-	ventry	__invalid		// IRQ 32-bit EL1
-	ventry	__invalid		// FIQ 32-bit EL1
-	ventry	__invalid		// Error 32-bit EL1
-
-__invalid:
-	b	.
+	ventry	.			// Synchronous 32-bit EL1
+	ventry	.			// IRQ 32-bit EL1
+	ventry	.			// FIQ 32-bit EL1
+	ventry	.			// Error 32-bit EL1
 
 	/*
 	 * Only uses x0..x3 so as to not clobber callee-saved SMCCC registers.
@@ -75,6 +73,13 @@ __do_hyp_init:
 	eret
 SYM_CODE_END(__kvm_hyp_init)
 
+SYM_CODE_START_LOCAL(__kvm_init_el2_state)
+	/* Initialize EL2 CPU state to sane values. */
+	init_el2_state				// Clobbers x0..x2
+	finalise_el2_state
+	ret
+SYM_CODE_END(__kvm_init_el2_state)
+
 /*
  * Initialize the hypervisor in EL2.
  *
@@ -84,9 +89,6 @@ SYM_CODE_END(__kvm_hyp_init)
  * x0: struct kvm_nvhe_init_params PA
  */
 SYM_CODE_START_LOCAL(___kvm_hyp_init)
-	ldr	x1, [x0, #NVHE_INIT_TPIDR_EL2]
-	msr	tpidr_el2, x1
-
 	ldr	x1, [x0, #NVHE_INIT_STACK_HYP_VA]
 	mov	sp, x1
 
@@ -100,11 +102,21 @@ SYM_CODE_START_LOCAL(___kvm_hyp_init)
 	and	x2, x1, x2
 	cbz	x2, 1f
 
-	mrs	x1, cnthctl_el2
-	and	x1, x1, #~(BIT(0) | BIT(1))
-	orr	x1, x1, #(BIT(10) | BIT(11))
-	msr	cnthctl_el2, x1
+	// hVHE: Replay the EL2 setup to account for the E2H bit
+	// TPIDR_EL2 is used to preserve x0 across the macro maze...
+	isb
+	msr	tpidr_el2, x0
+	str	lr, [x0, #NVHE_INIT_TMP]
+
+	bl	__kvm_init_el2_state
+
+	mrs	x0, tpidr_el2
+	ldr	lr, [x0, #NVHE_INIT_TMP]
+
 1:
+	ldr	x1, [x0, #NVHE_INIT_TPIDR_EL2]
+	msr	tpidr_el2, x1
+
 	ldr	x1, [x0, #NVHE_INIT_VTTBR]
 	msr	vttbr_el2, x1
 
@@ -118,11 +130,7 @@ alternative_if ARM64_HAS_CNP
 alternative_else_nop_endif
 	msr	ttbr0_el2, x2
 
-	/*
-	 * Set the PS bits in TCR_EL2.
-	 */
 	ldr	x0, [x0, #NVHE_INIT_TCR_EL2]
-	tcr_compute_pa_size x0, #TCR_EL2_PS_SHIFT, x1, x2
 	msr	tcr_el2, x0
 
 	isb
@@ -138,6 +146,13 @@ alternative_if ARM64_HAS_ADDRESS_AUTH
 		     SCTLR_ELx_ENDA | SCTLR_ELx_ENDB)
 	orr	x0, x0, x1
 alternative_else_nop_endif
+
+#ifdef CONFIG_ARM64_BTI_KERNEL
+alternative_if ARM64_BTI
+	orr	x0, x0, #SCTLR_EL2_BT
+alternative_else_nop_endif
+#endif /* CONFIG_ARM64_BTI_KERNEL */
+
 	msr	sctlr_el2, x0
 	isb
 
@@ -191,9 +206,9 @@ SYM_CODE_START_LOCAL(__kvm_hyp_init_cpu)
 
 2:	msr	SPsel, #1			// We want to use SP_EL{1,2}
 
-	/* Initialize EL2 CPU state to sane values. */
-	init_el2_state				// Clobbers x0..x2
-	finalise_el2_state
+	bl	__kvm_init_el2_state
+
+	__init_el2_nvhe_prepare_eret
 
 	/* Enable MMU, set vectors and stack. */
 	mov	x0, x28
@@ -206,6 +221,11 @@ SYM_CODE_START_LOCAL(__kvm_hyp_init_cpu)
 SYM_CODE_END(__kvm_hyp_init_cpu)
 
 SYM_CODE_START(__kvm_handle_stub_hvc)
+	/*
+	 * __kvm_handle_stub_hvc called from __host_hvc through branch instruction(br) so
+	 * we need bti j at beginning.
+	 */
+	bti j
 	cmp	x0, #HVC_SOFT_RESTART
 	b.ne	1f
 
@@ -255,8 +275,11 @@ SYM_CODE_END(__kvm_handle_stub_hvc)
 /*
  * void __pkvm_init_switch_pgd(phys_addr_t pgd, unsigned long sp,
  *                             void (*fn)(void));
+ *
+ * SYM_TYPED_FUNC_START() allows C to call this ID-mapped function indirectly
+ * using a physical pointer without triggering a kCFI failure.
  */
-SYM_FUNC_START(__pkvm_init_switch_pgd)
+SYM_TYPED_FUNC_START(__pkvm_init_switch_pgd)
 	/* Turn the MMU off */
 	pre_disable_mmu_workaround
 	mrs	x3, sctlr_el2

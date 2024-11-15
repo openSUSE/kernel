@@ -28,7 +28,7 @@ static int bma400_i2c_probe(struct i2c_client *client)
 }
 
 static const struct i2c_device_id bma400_i2c_ids[] = {
-	{ "bma400", 0 },
+	{ "bma400" },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, bma400_i2c_ids);
@@ -44,7 +44,7 @@ static struct i2c_driver bma400_i2c_driver = {
 		.name = "bma400",
 		.of_match_table = bma400_of_i2c_match,
 	},
-	.probe_new = bma400_i2c_probe,
+	.probe = bma400_i2c_probe,
 	.id_table = bma400_i2c_ids,
 };
 

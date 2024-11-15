@@ -143,7 +143,7 @@ Return values
 ~~~~~~~~~~~~~
 
 The return value, if any, should be described in a dedicated section
-named ``Return``.
+named ``Return`` (or ``Returns``).
 
 .. note::
 
@@ -151,9 +151,9 @@ named ``Return``.
      line breaks, so if you try to format some text nicely, as in::
 
 	* Return:
-	* 0 - OK
-	* -EINVAL - invalid argument
-	* -ENOMEM - out of memory
+	* %0 - OK
+	* %-EINVAL - invalid argument
+	* %-ENOMEM - out of memory
 
      this will all run together and produce::
 
@@ -163,8 +163,8 @@ named ``Return``.
      ReST list, e. g.::
 
       * Return:
-      * * 0		- OK to runtime suspend the device
-      * * -EBUSY	- Device should not be runtime suspended
+      * * %0		- OK to runtime suspend the device
+      * * %-EBUSY	- Device should not be runtime suspended
 
   #) If the descriptive text you provide has lines that begin with
      some phrase followed by a colon, each of those phrases will be taken
@@ -337,7 +337,7 @@ Typedefs with function prototypes can also be documented::
    * Description of the type.
    *
    * Context: Locking context.
-   * Return: Meaning of the return value.
+   * Returns: Meaning of the return value.
    */
    typedef void (*type_name)(struct v4l2_ctrl *arg1, void *arg2);
 

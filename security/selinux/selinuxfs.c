@@ -97,7 +97,7 @@ static int selinux_fs_info_create(struct super_block *sb)
 static void selinux_fs_info_free(struct super_block *sb)
 {
 	struct selinux_fs_info *fsi = sb->s_fs_info;
-	int i;
+	unsigned int i;
 
 	if (fsi) {
 		for (i = 0; i < fsi->bool_num; i++)
@@ -138,7 +138,8 @@ static ssize_t sel_write_enforce(struct file *file, const char __user *buf,
 {
 	char *page = NULL;
 	ssize_t length;
-	int old_value, new_value;
+	int scan_value;
+	bool old_value, new_value;
 
 	if (count >= PAGE_SIZE)
 		return -ENOMEM;
@@ -152,10 +153,10 @@ static ssize_t sel_write_enforce(struct file *file, const char __user *buf,
 		return PTR_ERR(page);
 
 	length = -EINVAL;
-	if (sscanf(page, "%d", &new_value) != 1)
+	if (sscanf(page, "%d", &scan_value) != 1)
 		goto out;
 
-	new_value = !!new_value;
+	new_value = !!scan_value;
 
 	old_value = enforcing_enabled();
 	if (new_value != old_value) {
@@ -570,10 +571,17 @@ static ssize_t sel_write_load(struct file *file, const char __user *buf,
 			      size_t count, loff_t *ppos)
 
 {
-	struct selinux_fs_info *fsi = file_inode(file)->i_sb->s_fs_info;
+	struct selinux_fs_info *fsi;
 	struct selinux_load_state load_state;
 	ssize_t length;
 	void *data = NULL;
+
+	/* no partial writes */
+	if (*ppos)
+		return -EINVAL;
+	/* no empty policies */
+	if (!count)
+		return -EINVAL;
 
 	mutex_lock(&selinux_state.policy_mutex);
 
@@ -582,26 +590,22 @@ static ssize_t sel_write_load(struct file *file, const char __user *buf,
 	if (length)
 		goto out;
 
-	/* No partial writes. */
-	length = -EINVAL;
-	if (*ppos != 0)
-		goto out;
-
-	length = -ENOMEM;
 	data = vmalloc(count);
-	if (!data)
+	if (!data) {
+		length = -ENOMEM;
 		goto out;
-
-	length = -EFAULT;
-	if (copy_from_user(data, buf, count) != 0)
+	}
+	if (copy_from_user(data, buf, count) != 0) {
+		length = -EFAULT;
 		goto out;
+	}
 
 	length = security_load_policy(data, count, &load_state);
 	if (length) {
 		pr_warn_ratelimited("SELinux: failed to load policy\n");
 		goto out;
 	}
-
+	fsi = file_inode(file)->i_sb->s_fs_info;
 	length = sel_make_policy_nodes(fsi, load_state.policy);
 	if (length) {
 		pr_warn_ratelimited("SELinux: failed to initialize selinuxfs\n");
@@ -610,13 +614,12 @@ static ssize_t sel_write_load(struct file *file, const char __user *buf,
 	}
 
 	selinux_policy_commit(&load_state);
-
 	length = count;
-
 	audit_log(audit_context(), GFP_KERNEL, AUDIT_MAC_POLICY_LOAD,
 		"auid=%u ses=%u lsm=selinux res=1",
 		from_kuid(&init_user_ns, audit_get_loginuid(current)),
 		audit_get_sessionid(current));
+
 out:
 	mutex_unlock(&selinux_state.policy_mutex);
 	vfree(data);
@@ -940,7 +943,7 @@ static ssize_t sel_write_create(struct file *file, char *buf, size_t size)
 		 * either whitespace or multibyte characters, they shall be
 		 * encoded based on the percentage-encoding rule.
 		 * If not encoded, the sscanf logic picks up only left-half
-		 * of the supplied name; splitted by a whitespace unexpectedly.
+		 * of the supplied name; split by a whitespace unexpectedly.
 		 */
 		char   *r, *w;
 		int     c1, c2;
@@ -1063,8 +1066,8 @@ static ssize_t sel_write_user(struct file *file, char *buf, size_t size)
 	u32 sid, *sids = NULL;
 	ssize_t length;
 	char *newcon;
-	int i, rc;
-	u32 len, nsids;
+	int rc;
+	u32 i, len, nsids;
 
 	length = avc_has_perm(current_sid(), SECINITSID_SECURITY,
 			      SECCLASS_SECURITY, SECURITY__COMPUTE_USER,
@@ -1180,13 +1183,13 @@ out:
 	return length;
 }
 
-static struct inode *sel_make_inode(struct super_block *sb, int mode)
+static struct inode *sel_make_inode(struct super_block *sb, umode_t mode)
 {
 	struct inode *ret = new_inode(sb);
 
 	if (ret) {
 		ret->i_mode = mode;
-		ret->i_atime = ret->i_mtime = ret->i_ctime = current_time(ret);
+		simple_inode_init_ts(ret);
 	}
 	return ret;
 }
@@ -1580,7 +1583,7 @@ static int sel_make_avc_files(struct dentry *dir)
 {
 	struct super_block *sb = dir->d_sb;
 	struct selinux_fs_info *fsi = sb->s_fs_info;
-	int i;
+	unsigned int i;
 	static const struct tree_descr files[] = {
 		{ "cache_threshold",
 		  &sel_avc_cache_threshold_ops, S_IRUGO|S_IWUSR },
@@ -1616,8 +1619,8 @@ static int sel_make_ss_files(struct dentry *dir)
 {
 	struct super_block *sb = dir->d_sb;
 	struct selinux_fs_info *fsi = sb->s_fs_info;
-	int i;
-	static struct tree_descr files[] = {
+	unsigned int i;
+	static const struct tree_descr files[] = {
 		{ "sidtab_hash_stats", &sel_sidtab_hash_stats_ops, S_IRUGO },
 	};
 
@@ -1667,7 +1670,7 @@ static const struct file_operations sel_initcon_ops = {
 
 static int sel_make_initcon_files(struct dentry *dir)
 {
-	int i;
+	unsigned int i;
 
 	for (i = 1; i <= SECINITSID_NUM; i++) {
 		struct inode *inode;
@@ -1765,7 +1768,8 @@ static int sel_make_perm_files(struct selinux_policy *newpolicy,
 			char *objclass, int classvalue,
 			struct dentry *dir)
 {
-	int i, rc, nperms;
+	u32 i, nperms;
+	int rc;
 	char **perms;
 
 	rc = security_get_permissions(newpolicy, objclass, &perms, &nperms);
@@ -1835,8 +1839,8 @@ static int sel_make_classes(struct selinux_policy *newpolicy,
 			    struct dentry *class_dir,
 			    unsigned long *last_class_ino)
 {
-
-	int rc, nclasses, i;
+	u32 i, nclasses;
+	int rc;
 	char **classes;
 
 	rc = security_get_classes(newpolicy, &classes, &nclasses);
@@ -2158,6 +2162,12 @@ static int __init init_sel_fs(void)
 		selinux_null.dentry = NULL;
 		return err;
 	}
+
+	/*
+	 * Try to pre-allocate the status page, so the sequence number of the
+	 * initial policy load can be stored.
+	 */
+	(void) selinux_kernel_status_page();
 
 	return err;
 }

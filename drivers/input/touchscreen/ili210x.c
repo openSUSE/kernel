@@ -8,11 +8,11 @@
 #include <linux/input/mt.h>
 #include <linux/input/touchscreen.h>
 #include <linux/interrupt.h>
+#include <linux/mod_devicetable.h>
 #include <linux/module.h>
-#include <linux/of_device.h>
 #include <linux/sizes.h>
 #include <linux/slab.h>
-#include <asm/unaligned.h>
+#include <linux/unaligned.h>
 
 #define ILI2XXX_POLL_PERIOD	15
 
@@ -370,22 +370,33 @@ static int ili251x_firmware_update_resolution(struct device *dev)
 
 	/* The firmware update blob might have changed the resolution. */
 	error = priv->chip->read_reg(client, REG_PANEL_INFO, &rs, sizeof(rs));
-	if (error)
-		return error;
+	if (!error) {
+		resx = le16_to_cpup((__le16 *)rs);
+		resy = le16_to_cpup((__le16 *)(rs + 2));
 
-	resx = le16_to_cpup((__le16 *)rs);
-	resy = le16_to_cpup((__le16 *)(rs + 2));
+		/* The value reported by the firmware is invalid. */
+		if (!resx || resx == 0xffff || !resy || resy == 0xffff)
+			error = -EINVAL;
+	}
 
-	/* The value reported by the firmware is invalid. */
-	if (!resx || resx == 0xffff || !resy || resy == 0xffff)
-		return -EINVAL;
+	/*
+	 * In case of error, the firmware might be stuck in bootloader mode,
+	 * e.g. after a failed firmware update. Set maximum resolution, but
+	 * do not fail to probe, so the user can re-trigger the firmware
+	 * update and recover the touch controller.
+	 */
+	if (error) {
+		dev_warn(dev, "Invalid resolution reported by controller.\n");
+		resx = 16384;
+		resy = 16384;
+	}
 
 	input_abs_set_max(priv->input, ABS_X, resx - 1);
 	input_abs_set_max(priv->input, ABS_Y, resy - 1);
 	input_abs_set_max(priv->input, ABS_MT_POSITION_X, resx - 1);
 	input_abs_set_max(priv->input, ABS_MT_POSITION_Y, resy - 1);
 
-	return 0;
+	return error;
 }
 
 static ssize_t ili251x_firmware_update_firmware_version(struct device *dev)
@@ -571,14 +582,12 @@ static ssize_t ili210x_calibrate(struct device *dev,
 }
 static DEVICE_ATTR(calibrate, S_IWUSR, NULL, ili210x_calibrate);
 
-static int ili251x_firmware_to_buffer(const struct firmware *fw,
-				      u8 **buf, u16 *ac_end, u16 *df_end)
+static const u8 *ili251x_firmware_to_buffer(const struct firmware *fw,
+					    u16 *ac_end, u16 *df_end)
 {
 	const struct ihex_binrec *rec;
 	u32 fw_addr, fw_last_addr = 0;
 	u16 fw_len;
-	u8 *fw_buf;
-	int error;
 
 	/*
 	 * The firmware ihex blob can never be bigger than 64 kiB, so make this
@@ -586,9 +595,9 @@ static int ili251x_firmware_to_buffer(const struct firmware *fw,
 	 * once, copy them all into this buffer at the right locations, and then
 	 * do all operations on this linear buffer.
 	 */
-	fw_buf = kvmalloc(SZ_64K, GFP_KERNEL);
+	u8* fw_buf __free(kvfree) = kvmalloc(SZ_64K, GFP_KERNEL);
 	if (!fw_buf)
-		return -ENOMEM;
+		return ERR_PTR(-ENOMEM);
 
 	rec = (const struct ihex_binrec *)fw->data;
 	while (rec) {
@@ -596,10 +605,8 @@ static int ili251x_firmware_to_buffer(const struct firmware *fw,
 		fw_len = be16_to_cpu(rec->len);
 
 		/* The last 32 Byte firmware block can be 0xffe0 */
-		if (fw_addr + fw_len > SZ_64K || fw_addr > SZ_64K - 32) {
-			error = -EFBIG;
-			goto err_big;
-		}
+		if (fw_addr + fw_len > SZ_64K || fw_addr > SZ_64K - 32)
+			return ERR_PTR(-EFBIG);
 
 		/* Find the last address before DF start address, that is AC end */
 		if (fw_addr == 0xf000)
@@ -612,12 +619,8 @@ static int ili251x_firmware_to_buffer(const struct firmware *fw,
 
 	/* DF end address is the last address in the firmware blob */
 	*df_end = fw_addr + fw_len;
-	*buf = fw_buf;
-	return 0;
 
-err_big:
-	kvfree(fw_buf);
-	return error;
+	return_ptr(fw_buf);
 }
 
 /* Switch mode between Application and BootLoader */
@@ -680,7 +683,7 @@ static int ili251x_firmware_busy(struct i2c_client *client)
 	return 0;
 }
 
-static int ili251x_firmware_write_to_ic(struct device *dev, u8 *fwbuf,
+static int ili251x_firmware_write_to_ic(struct device *dev, const u8 *fwbuf,
 					u16 start, u16 end, u8 dataflash)
 {
 	struct i2c_client *client = to_i2c_client(dev);
@@ -765,47 +768,17 @@ static void ili210x_hardware_reset(struct gpio_desc *reset_gpio)
 	msleep(300);
 }
 
-static ssize_t ili210x_firmware_update_store(struct device *dev,
-					     struct device_attribute *attr,
-					     const char *buf, size_t count)
+static int ili210x_do_firmware_update(struct ili210x *priv,
+				      const u8 *fwbuf, u16 ac_end, u16 df_end)
 {
-	struct i2c_client *client = to_i2c_client(dev);
-	struct ili210x *priv = i2c_get_clientdata(client);
-	const char *fwname = ILI251X_FW_FILENAME;
-	const struct firmware *fw;
-	u16 ac_end, df_end;
-	u8 *fwbuf;
+	struct i2c_client *client = priv->client;
+	struct device *dev = &client->dev;
 	int error;
 	int i;
 
-	error = request_ihex_firmware(&fw, fwname, dev);
-	if (error) {
-		dev_err(dev, "Failed to request firmware %s, error=%d\n",
-			fwname, error);
-		return error;
-	}
-
-	error = ili251x_firmware_to_buffer(fw, &fwbuf, &ac_end, &df_end);
-	release_firmware(fw);
-	if (error)
-		return error;
-
-	/*
-	 * Disable touchscreen IRQ, so that we would not get spurious touch
-	 * interrupt during firmware update, and so that the IRQ handler won't
-	 * trigger and interfere with the firmware update. There is no bit in
-	 * the touch controller to disable the IRQs during update, so we have
-	 * to do it this way here.
-	 */
-	disable_irq(client->irq);
-
-	dev_dbg(dev, "Firmware update started, firmware=%s\n", fwname);
-
-	ili210x_hardware_reset(priv->reset_gpio);
-
 	error = ili251x_firmware_reset(client);
 	if (error)
-		goto exit;
+		return error;
 
 	/* This may not succeed on first try, so re-try a few times. */
 	for (i = 0; i < 5; i++) {
@@ -815,7 +788,7 @@ static ssize_t ili210x_firmware_update_store(struct device *dev,
 	}
 
 	if (error)
-		goto exit;
+		return error;
 
 	dev_dbg(dev, "IC is now in BootLoader mode\n");
 
@@ -824,7 +797,7 @@ static ssize_t ili210x_firmware_update_store(struct device *dev,
 	error = ili251x_firmware_write_to_ic(dev, fwbuf, 0xf000, df_end, 1);
 	if (error) {
 		dev_err(dev, "DF firmware update failed, error=%d\n", error);
-		goto exit;
+		return error;
 	}
 
 	dev_dbg(dev, "DataFlash firmware written\n");
@@ -832,7 +805,7 @@ static ssize_t ili210x_firmware_update_store(struct device *dev,
 	error = ili251x_firmware_write_to_ic(dev, fwbuf, 0x2000, ac_end, 0);
 	if (error) {
 		dev_err(dev, "AC firmware update failed, error=%d\n", error);
-		goto exit;
+		return error;
 	}
 
 	dev_dbg(dev, "Application firmware written\n");
@@ -845,27 +818,66 @@ static ssize_t ili210x_firmware_update_store(struct device *dev,
 	}
 
 	if (error)
-		goto exit;
+		return error;
 
 	dev_dbg(dev, "IC is now in Application mode\n");
 
 	error = ili251x_firmware_update_cached_state(dev);
 	if (error)
-		goto exit;
+		return error;
 
-	error = count;
+	return 0;
+}
 
-exit:
-	ili210x_hardware_reset(priv->reset_gpio);
-	dev_dbg(dev, "Firmware update ended, error=%i\n", error);
-	enable_irq(client->irq);
-	kvfree(fwbuf);
-	return error;
+static ssize_t ili210x_firmware_update_store(struct device *dev,
+					     struct device_attribute *attr,
+					     const char *buf, size_t count)
+{
+	struct i2c_client *client = to_i2c_client(dev);
+	struct ili210x *priv = i2c_get_clientdata(client);
+	const char *fwname = ILI251X_FW_FILENAME;
+	u16 ac_end, df_end;
+	int error;
+
+	const struct firmware *fw __free(firmware) = NULL;
+	error = request_ihex_firmware(&fw, fwname, dev);
+	if (error) {
+		dev_err(dev, "Failed to request firmware %s, error=%d\n",
+			fwname, error);
+		return error;
+	}
+
+	const u8* fwbuf __free(kvfree) =
+			ili251x_firmware_to_buffer(fw, &ac_end, &df_end);
+	error = PTR_ERR_OR_ZERO(fwbuf);
+	if (error)
+		return error;
+
+	/*
+	 * Disable touchscreen IRQ, so that we would not get spurious touch
+	 * interrupt during firmware update, and so that the IRQ handler won't
+	 * trigger and interfere with the firmware update. There is no bit in
+	 * the touch controller to disable the IRQs during update, so we have
+	 * to do it this way here.
+	 */
+	scoped_guard(disable_irq, &client->irq) {
+		dev_dbg(dev, "Firmware update started, firmware=%s\n", fwname);
+
+		ili210x_hardware_reset(priv->reset_gpio);
+
+		error = ili210x_do_firmware_update(priv, fwbuf, ac_end, df_end);
+
+		ili210x_hardware_reset(priv->reset_gpio);
+
+		dev_dbg(dev, "Firmware update ended, error=%i\n", error);
+	}
+
+	return error ?: count;
 }
 
 static DEVICE_ATTR(firmware_update, 0200, NULL, ili210x_firmware_update_store);
 
-static struct attribute *ili210x_attributes[] = {
+static struct attribute *ili210x_attrs[] = {
 	&dev_attr_calibrate.attr,
 	&dev_attr_firmware_update.attr,
 	&dev_attr_firmware_version.attr,
@@ -893,10 +905,11 @@ static umode_t ili210x_attributes_visible(struct kobject *kobj,
 	return attr->mode;
 }
 
-static const struct attribute_group ili210x_attr_group = {
-	.attrs = ili210x_attributes,
+static const struct attribute_group ili210x_group = {
+	.attrs = ili210x_attrs,
 	.is_visible = ili210x_attributes_visible,
 };
+__ATTRIBUTE_GROUPS(ili210x);
 
 static void ili210x_power_down(void *data)
 {
@@ -977,11 +990,10 @@ static int ili210x_i2c_probe(struct i2c_client *client)
 	if (priv->chip->has_pressure_reg)
 		input_set_abs_params(input, ABS_MT_PRESSURE, 0, 0xa, 0, 0);
 	error = ili251x_firmware_update_cached_state(dev);
-	if (error) {
-		dev_err(dev, "Unable to cache firmware information, err: %d\n",
-			error);
-		return error;
-	}
+	if (error)
+		dev_warn(dev, "Unable to cache firmware information, err: %d\n",
+			 error);
+
 	touchscreen_parse_properties(input, true, &priv->prop);
 
 	error = input_mt_init_slots(input, priv->chip->max_touches,
@@ -1002,13 +1014,6 @@ static int ili210x_i2c_probe(struct i2c_client *client)
 	error = devm_add_action_or_reset(dev, ili210x_stop, priv);
 	if (error)
 		return error;
-
-	error = devm_device_add_group(dev, &ili210x_attr_group);
-	if (error) {
-		dev_err(dev, "Unable to create sysfs attributes, err: %d\n",
-			error);
-		return error;
-	}
 
 	error = input_register_device(priv->input);
 	if (error) {
@@ -1040,10 +1045,11 @@ MODULE_DEVICE_TABLE(of, ili210x_dt_ids);
 static struct i2c_driver ili210x_ts_driver = {
 	.driver = {
 		.name = "ili210x_i2c",
+		.dev_groups = ili210x_groups,
 		.of_match_table = ili210x_dt_ids,
 	},
 	.id_table = ili210x_i2c_id,
-	.probe_new = ili210x_i2c_probe,
+	.probe = ili210x_i2c_probe,
 };
 
 module_i2c_driver(ili210x_ts_driver);

@@ -548,13 +548,11 @@ enum {
 enum fec_txbuf_type {
 	FEC_TXBUF_T_SKB,
 	FEC_TXBUF_T_XDP_NDO,
+	FEC_TXBUF_T_XDP_TX,
 };
 
 struct fec_tx_buffer {
-	union {
-		struct sk_buff *skb;
-		struct xdp_frame *xdp;
-	};
+	void *buf_p;
 	enum fec_txbuf_type type;
 };
 
@@ -652,12 +650,9 @@ struct fec_enet_private {
 
 	struct ptp_clock *ptp_clock;
 	struct ptp_clock_info ptp_caps;
-	unsigned long last_overflow_check;
 	spinlock_t tmreg_lock;
 	struct cyclecounter cc;
 	struct timecounter tc;
-	int rx_hwtstamp_filter;
-	u32 base_incval;
 	u32 cycle_speed;
 	int hwts_rx_en;
 	int hwts_tx_en;
@@ -677,10 +672,8 @@ struct fec_enet_private {
 	unsigned int itr_clk_rate;
 
 	/* tx lpi eee mode */
-	struct ethtool_eee eee;
+	struct ethtool_keee eee;
 	unsigned int clk_ref_rate;
-
-	u32 rx_copybreak;
 
 	/* ptp clock period in ns*/
 	unsigned int ptp_inc;
@@ -698,15 +691,24 @@ struct fec_enet_private {
 	/* XDP BPF Program */
 	struct bpf_prog *xdp_prog;
 
+	struct {
+		int pps_enable;
+		u64 ns_sys, ns_phc;
+		u32 at_corr;
+		u8 at_inc_corr;
+	} ptp_saved_state;
+
 	u64 ethtool_stats[];
 };
 
 void fec_ptp_init(struct platform_device *pdev, int irq_idx);
+void fec_ptp_restore_state(struct fec_enet_private *fep);
+void fec_ptp_save_state(struct fec_enet_private *fep);
 void fec_ptp_stop(struct platform_device *pdev);
 void fec_ptp_start_cyclecounter(struct net_device *ndev);
-void fec_ptp_disable_hwts(struct net_device *ndev);
-int fec_ptp_set(struct net_device *ndev, struct ifreq *ifr);
-int fec_ptp_get(struct net_device *ndev, struct ifreq *ifr);
+int fec_ptp_set(struct net_device *ndev, struct kernel_hwtstamp_config *config,
+		struct netlink_ext_ack *extack);
+void fec_ptp_get(struct net_device *ndev, struct kernel_hwtstamp_config *config);
 
 /****************************************************************************/
 #endif /* FEC_H */

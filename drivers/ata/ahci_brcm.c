@@ -437,7 +437,6 @@ static int brcm_ahci_probe(struct platform_device *pdev)
 	struct device *dev = &pdev->dev;
 	struct brcm_ahci_priv *priv;
 	struct ahci_host_priv *hpriv;
-	struct resource *res;
 	int ret;
 
 	priv = devm_kzalloc(dev, sizeof(*priv), GFP_KERNEL);
@@ -451,8 +450,7 @@ static int brcm_ahci_probe(struct platform_device *pdev)
 	priv->version = (unsigned long)of_id->data;
 	priv->dev = dev;
 
-	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "top-ctrl");
-	priv->top_ctrl = devm_ioremap_resource(dev, res);
+	priv->top_ctrl = devm_platform_ioremap_resource_byname(pdev, "top-ctrl");
 	if (IS_ERR(priv->top_ctrl))
 		return PTR_ERR(priv->top_ctrl);
 
@@ -544,7 +542,7 @@ out_reset:
 	return ret;
 }
 
-static int brcm_ahci_remove(struct platform_device *pdev)
+static void brcm_ahci_remove(struct platform_device *pdev)
 {
 	struct ata_host *host = dev_get_drvdata(&pdev->dev);
 	struct ahci_host_priv *hpriv = host->private_data;
@@ -552,7 +550,7 @@ static int brcm_ahci_remove(struct platform_device *pdev)
 
 	brcm_sata_phys_disable(priv);
 
-	return ata_platform_remove_one(pdev);
+	ata_platform_remove_one(pdev);
 }
 
 static void brcm_ahci_shutdown(struct platform_device *pdev)
@@ -573,7 +571,7 @@ static SIMPLE_DEV_PM_OPS(ahci_brcm_pm_ops, brcm_ahci_suspend, brcm_ahci_resume);
 
 static struct platform_driver brcm_ahci_driver = {
 	.probe = brcm_ahci_probe,
-	.remove = brcm_ahci_remove,
+	.remove_new = brcm_ahci_remove,
 	.shutdown = brcm_ahci_shutdown,
 	.driver = {
 		.name = DRV_NAME,

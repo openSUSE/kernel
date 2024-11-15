@@ -134,8 +134,8 @@ static void gdlm_ast(void *arg)
 
 	switch (gl->gl_lksb.sb_status) {
 	case -DLM_EUNLOCK: /* Unlocked, so glock can be freed */
-		if (gl->gl_ops->go_free)
-			gl->gl_ops->go_free(gl);
+		if (gl->gl_ops->go_unlocked)
+			gl->gl_ops->go_unlocked(gl);
 		gfs2_glock_free(gl);
 		return;
 	case -DLM_ECANCEL: /* Cancel while getting lock */
@@ -163,11 +163,21 @@ static void gdlm_ast(void *arg)
 			BUG();
 	}
 
-	set_bit(GLF_INITIAL, &gl->gl_flags);
+	/*
+	 * The GLF_INITIAL flag is initially set for new glocks.  Upon the
+	 * first successful new (non-conversion) request, we clear this flag to
+	 * indicate that a DLM lock exists and that gl->gl_lksb.sb_lkid is the
+	 * identifier to use for identifying it.
+	 *
+	 * Any failed initial requests do not create a DLM lock, so we ignore
+	 * the gl->gl_lksb.sb_lkid values that come with such requests.
+	 */
+
+	clear_bit(GLF_INITIAL, &gl->gl_flags);
 	gfs2_glock_complete(gl, ret);
 	return;
 out:
-	if (!test_bit(GLF_INITIAL, &gl->gl_flags))
+	if (test_bit(GLF_INITIAL, &gl->gl_flags))
 		gl->gl_lksb.sb_lkid = 0;
 	gfs2_glock_complete(gl, ret);
 }
@@ -230,11 +240,6 @@ static u32 make_flags(struct gfs2_glock *gl, const unsigned int gfs_flags,
 		lkf |= DLM_LKF_NOQUEUEBAST;
 	}
 
-	if (gfs_flags & LM_FLAG_PRIORITY) {
-		lkf |= DLM_LKF_NOORDER;
-		lkf |= DLM_LKF_HEADQUE;
-	}
-
 	if (gfs_flags & LM_FLAG_ANY) {
 		if (req == DLM_LOCK_PR)
 			lkf |= DLM_LKF_ALTCW;
@@ -244,7 +249,7 @@ static u32 make_flags(struct gfs2_glock *gl, const unsigned int gfs_flags,
 			BUG();
 	}
 
-	if (gl->gl_lksb.sb_lkid != 0) {
+	if (!test_bit(GLF_INITIAL, &gl->gl_flags)) {
 		lkf |= DLM_LKF_CONVERT;
 		if (test_bit(GLF_BLOCKING, &gl->gl_flags))
 			lkf |= DLM_LKF_QUECVT;
@@ -275,14 +280,14 @@ static int gdlm_lock(struct gfs2_glock *gl, unsigned int req_state,
 	lkf = make_flags(gl, flags, req);
 	gfs2_glstats_inc(gl, GFS2_LKS_DCOUNT);
 	gfs2_sbstats_inc(gl, GFS2_LKS_DCOUNT);
-	if (gl->gl_lksb.sb_lkid) {
-		gfs2_update_request_times(gl);
-	} else {
+	if (test_bit(GLF_INITIAL, &gl->gl_flags)) {
 		memset(strname, ' ', GDLM_STRNAME_BYTES - 1);
 		strname[GDLM_STRNAME_BYTES - 1] = '\0';
 		gfs2_reverse_hex(strname + 7, gl->gl_name.ln_type);
 		gfs2_reverse_hex(strname + 23, gl->gl_name.ln_number);
 		gl->gl_dstamp = ktime_get_real();
+	} else {
+		gfs2_update_request_times(gl);
 	}
 	/*
 	 * Submit the actual lock request.
@@ -306,7 +311,7 @@ static void gdlm_put_lock(struct gfs2_glock *gl)
 
 	BUG_ON(!__lockref_is_dead(&gl->gl_lockref));
 
-	if (gl->gl_lksb.sb_lkid == 0) {
+	if (test_bit(GLF_INITIAL, &gl->gl_flags)) {
 		gfs2_glock_free(gl);
 		return;
 	}
@@ -321,10 +326,16 @@ static void gdlm_put_lock(struct gfs2_glock *gl)
 		gfs2_glock_free(gl);
 		return;
 	}
-	/* don't want to skip dlm_unlock writing the lvb when lock has one */
+
+	/*
+	 * When the lockspace is released, all remaining glocks will be
+	 * unlocked automatically.  This is more efficient than unlocking them
+	 * individually, but when the lock is held in DLM_LOCK_EX or
+	 * DLM_LOCK_PW mode, the lock value block (LVB) will be lost.
+	 */
 
 	if (test_bit(SDF_SKIP_DLM_UNLOCK, &sdp->sd_flags) &&
-	    !gl->gl_lksb.sb_lvbptr) {
+	    (!gl->gl_lksb.sb_lvbptr || gl->gl_state != LM_ST_EXCLUSIVE)) {
 		gfs2_glock_free_later(gl);
 		return;
 	}
@@ -341,7 +352,6 @@ again:
 		fs_err(sdp, "gdlm_unlock %x,%llx err=%d\n",
 		       gl->gl_name.ln_type,
 		       (unsigned long long)gl->gl_name.ln_number, error);
-		return;
 	}
 }
 
@@ -1140,7 +1150,7 @@ static void gdlm_recover_prep(void *arg)
 	struct gfs2_sbd *sdp = arg;
 	struct lm_lockstruct *ls = &sdp->sd_lockstruct;
 
-	if (gfs2_withdrawn(sdp)) {
+	if (gfs2_withdrawing_or_withdrawn(sdp)) {
 		fs_err(sdp, "recover_prep ignored due to withdraw.\n");
 		return;
 	}
@@ -1166,7 +1176,7 @@ static void gdlm_recover_slot(void *arg, struct dlm_slot *slot)
 	struct lm_lockstruct *ls = &sdp->sd_lockstruct;
 	int jid = slot->slot - 1;
 
-	if (gfs2_withdrawn(sdp)) {
+	if (gfs2_withdrawing_or_withdrawn(sdp)) {
 		fs_err(sdp, "recover_slot jid %d ignored due to withdraw.\n",
 		       jid);
 		return;
@@ -1195,7 +1205,7 @@ static void gdlm_recover_done(void *arg, struct dlm_slot *slots, int num_slots,
 	struct gfs2_sbd *sdp = arg;
 	struct lm_lockstruct *ls = &sdp->sd_lockstruct;
 
-	if (gfs2_withdrawn(sdp)) {
+	if (gfs2_withdrawing_or_withdrawn(sdp)) {
 		fs_err(sdp, "recover_done ignored due to withdraw.\n");
 		return;
 	}
@@ -1226,7 +1236,7 @@ static void gdlm_recovery_result(struct gfs2_sbd *sdp, unsigned int jid,
 {
 	struct lm_lockstruct *ls = &sdp->sd_lockstruct;
 
-	if (gfs2_withdrawn(sdp)) {
+	if (gfs2_withdrawing_or_withdrawn(sdp)) {
 		fs_err(sdp, "recovery_result jid %d ignored due to withdraw.\n",
 		       jid);
 		return;

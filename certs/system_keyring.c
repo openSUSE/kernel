@@ -330,6 +330,12 @@ int verify_pkcs7_message_sig(const void *data, size_t len,
 	if (ret < 0)
 		goto error;
 
+	ret = is_key_on_revocation_list(pkcs7);
+	if (ret != -ENOKEY) {
+		pr_devel("PKCS#7 key is on revocation list\n");
+		goto error;
+	}
+
 	if (!trusted_keys) {
 		trusted_keys = builtin_trusted_keys;
 	} else if (trusted_keys == VERIFY_USE_SECONDARY_KEYRING) {
@@ -349,14 +355,8 @@ int verify_pkcs7_message_sig(const void *data, size_t len,
 			pr_devel("PKCS#7 platform keyring is not available\n");
 			goto error;
 		}
-
-		ret = is_key_on_revocation_list(pkcs7, usage);
-		if (ret != -ENOKEY) {
-			pr_devel("PKCS#7 platform key is on revocation list\n");
-			goto error;
-		}
 	}
-	ret = pkcs7_validate_trust(pkcs7, trusted_keys, usage);
+	ret = pkcs7_validate_trust(pkcs7, trusted_keys);
 	if (ret < 0) {
 		if (ret == -ENOKEY)
 			pr_devel("PKCS#7 signature not signed with a trusted key\n");

@@ -157,7 +157,7 @@ static int tcf_skbmod_init(struct net *net, struct nlattr *nla,
 		return err;
 	exists = err;
 	if (exists && bind)
-		return 0;
+		return ACT_P_BOUND;
 
 	if (!lflags) {
 		if (exists)
@@ -246,7 +246,7 @@ static int tcf_skbmod_dump(struct sk_buff *skb, struct tc_action *a,
 
 	memset(&opt, 0, sizeof(opt));
 	opt.index   = d->tcf_index;
-	opt.refcnt  = refcount_read(&d->tcf_refcnt) - ref,
+	opt.refcnt  = refcount_read(&d->tcf_refcnt) - ref;
 	opt.bindcnt = atomic_read(&d->tcf_bindcnt) - bind;
 	spin_lock_bh(&d->tcf_lock);
 	opt.action = d->tcf_action;

@@ -4,7 +4,7 @@
 // Author: Chun-Jie Chen <chun-jie.chen@mediatek.com>
 
 #include <linux/clk-provider.h>
-#include <linux/of_device.h>
+#include <linux/mod_devicetable.h>
 #include <linux/platform_device.h>
 
 #include "clk-mtk.h"
@@ -52,4 +52,6 @@ static struct platform_driver clk_mt8192_venc_drv = {
 	},
 };
 module_platform_driver(clk_mt8192_venc_drv);
+
+MODULE_DESCRIPTION("MediaTek MT8192 Video Encoders clocks driver");
 MODULE_LICENSE("GPL");

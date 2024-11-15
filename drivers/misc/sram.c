@@ -10,8 +10,8 @@
 #include <linux/genalloc.h>
 #include <linux/io.h>
 #include <linux/list_sort.h>
+#include <linux/of.h>
 #include <linux/of_address.h>
-#include <linux/of_device.h>
 #include <linux/platform_device.h>
 #include <linux/regmap.h>
 #include <linux/slab.h>
@@ -235,10 +235,11 @@ static int sram_reserve_regions(struct sram_dev *sram, struct resource *res)
 				goto err_chunks;
 			}
 			if (!label)
-				label = child->name;
-
-			block->label = devm_kstrdup(sram->dev,
-						    label, GFP_KERNEL);
+				block->label = devm_kasprintf(sram->dev, GFP_KERNEL,
+							      "%s", of_node_full_name(child));
+			else
+				block->label = devm_kstrdup(sram->dev,
+							    label, GFP_KERNEL);
 			if (!block->label) {
 				ret = -ENOMEM;
 				goto err_chunks;
@@ -434,7 +435,7 @@ err_free_partitions:
 	return ret;
 }
 
-static int sram_remove(struct platform_device *pdev)
+static void sram_remove(struct platform_device *pdev)
 {
 	struct sram_dev *sram = platform_get_drvdata(pdev);
 
@@ -442,8 +443,6 @@ static int sram_remove(struct platform_device *pdev)
 
 	if (sram->pool && gen_pool_avail(sram->pool) < gen_pool_size(sram->pool))
 		dev_err(sram->dev, "removed while SRAM allocated\n");
-
-	return 0;
 }
 
 static struct platform_driver sram_driver = {
@@ -452,7 +451,7 @@ static struct platform_driver sram_driver = {
 		.of_match_table = sram_dt_ids,
 	},
 	.probe = sram_probe,
-	.remove = sram_remove,
+	.remove_new = sram_remove,
 };
 
 static int __init sram_init(void)

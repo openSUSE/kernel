@@ -25,6 +25,7 @@
 #include "au8522_priv.h"
 
 MODULE_AUTHOR("Devin Heitmueller");
+MODULE_DESCRIPTION("Auvitek AU8522 QAM/8VSB demodulator driver and video decoder");
 MODULE_LICENSE("GPL");
 
 static int au8522_analog_debug;
@@ -766,7 +767,7 @@ static void au8522_remove(struct i2c_client *client)
 }
 
 static const struct i2c_device_id au8522_id[] = {
-	{"au8522", 0},
+	{ "au8522" },
 	{}
 };
 
@@ -776,7 +777,7 @@ static struct i2c_driver au8522_driver = {
 	.driver = {
 		.name	= "au8522",
 	},
-	.probe_new	= au8522_probe,
+	.probe		= au8522_probe,
 	.remove		= au8522_remove,
 	.id_table	= au8522_id,
 };

@@ -4,8 +4,8 @@
 #ifndef _UAPI_IOMMUFD_TEST_H
 #define _UAPI_IOMMUFD_TEST_H
 
-#include <linux/types.h>
 #include <linux/iommufd.h>
+#include <linux/types.h>
 
 enum {
 	IOMMU_TEST_OP_ADD_RESERVED = 1,
@@ -21,6 +21,8 @@ enum {
 	IOMMU_TEST_OP_ACCESS_REPLACE_IOAS,
 	IOMMU_TEST_OP_MOCK_DOMAIN_FLAGS,
 	IOMMU_TEST_OP_DIRTY,
+	IOMMU_TEST_OP_MD_CHECK_IOTLB,
+	IOMMU_TEST_OP_TRIGGER_IOPF,
 };
 
 enum {
@@ -44,6 +46,7 @@ enum {
 
 enum {
 	MOCK_FLAGS_DEVICE_NO_DIRTY = 1 << 0,
+	MOCK_FLAGS_DEVICE_HUGE_IOVA = 1 << 1,
 };
 
 enum {
@@ -121,6 +124,17 @@ struct iommu_test_cmd {
 			__aligned_u64 uptr;
 			__aligned_u64 out_nr_dirty;
 		} dirty;
+		struct {
+			__u32 id;
+			__u32 iotlb;
+		} check_iotlb;
+		struct {
+			__u32 dev_id;
+			__u32 pasid;
+			__u32 grpid;
+			__u32 perm;
+			__u64 addr;
+		} trigger_iopf;
 	};
 	__u32 last;
 };
@@ -146,6 +160,24 @@ struct iommu_test_hw_info {
  */
 struct iommu_hwpt_selftest {
 	__u32 iotlb;
+};
+
+/* Should not be equal to any defined value in enum iommu_hwpt_invalidate_data_type */
+#define IOMMU_HWPT_INVALIDATE_DATA_SELFTEST 0xdeadbeef
+#define IOMMU_HWPT_INVALIDATE_DATA_SELFTEST_INVALID 0xdadbeef
+
+/**
+ * struct iommu_hwpt_invalidate_selftest - Invalidation data for Mock driver
+ *                                         (IOMMU_HWPT_INVALIDATE_DATA_SELFTEST)
+ * @flags: Invalidate flags
+ * @iotlb_id: Invalidate iotlb entry index
+ *
+ * If IOMMU_TEST_INVALIDATE_ALL is set in @flags, @iotlb_id will be ignored
+ */
+struct iommu_hwpt_invalidate_selftest {
+#define IOMMU_TEST_INVALIDATE_FLAG_ALL	(1 << 0)
+	__u32 flags;
+	__u32 iotlb_id;
 };
 
 #endif

@@ -87,7 +87,9 @@
 
 struct gpio_desc;
 struct sg_table;
+struct uvc_control;
 struct uvc_device;
+struct uvc_video_chain;
 
 /*
  * TODO: Put the most frequently accessed fields at the beginning of
@@ -126,6 +128,9 @@ struct uvc_control_mapping {
 	s32 master_manual;
 	u32 slave_ids[2];
 
+	const struct uvc_control_mapping *(*filter_mapping)
+				(struct uvc_video_chain *chain,
+				struct uvc_control *ctrl);
 	s32 (*get)(struct uvc_control_mapping *mapping, u8 query,
 		   const u8 *data);
 	void (*set)(struct uvc_control_mapping *mapping, s32 value,
@@ -254,7 +259,7 @@ struct uvc_frame {
 	u32 dwMaxVideoFrameBufferSize;
 	u8  bFrameIntervalType;
 	u32 dwDefaultFrameInterval;
-	u32 *dwFrameInterval;
+	const u32 *dwFrameInterval;
 };
 
 struct uvc_format {
@@ -268,7 +273,7 @@ struct uvc_format {
 	u32 flags;
 
 	unsigned int nframes;
-	struct uvc_frame *frame;
+	const struct uvc_frame *frames;
 };
 
 struct uvc_streaming_header {
@@ -441,12 +446,12 @@ struct uvc_streaming {
 	enum v4l2_buf_type type;
 
 	unsigned int nformats;
-	struct uvc_format *format;
+	const struct uvc_format *formats;
 
 	struct uvc_streaming_control ctrl;
-	struct uvc_format *def_format;
-	struct uvc_format *cur_format;
-	struct uvc_frame *cur_frame;
+	const struct uvc_format *def_format;
+	const struct uvc_format *cur_format;
+	const struct uvc_frame *cur_frame;
 
 	/*
 	 * Protect access to ctrl, cur_format, cur_frame and hardware video
@@ -501,6 +506,7 @@ struct uvc_streaming {
 		unsigned int head;
 		unsigned int count;
 		unsigned int size;
+		unsigned int last_sof_overflow;
 
 		u16 last_sof;
 		u16 sof_offset;
@@ -525,7 +531,6 @@ struct uvc_device_info {
 	u32	quirks;
 	u32	meta_format;
 	u16	uvc_version;
-	const struct uvc_control_mapping **mappings;
 };
 
 struct uvc_status_streaming {
@@ -751,8 +756,6 @@ int uvc_status_start(struct uvc_device *dev, gfp_t flags);
 void uvc_status_stop(struct uvc_device *dev);
 
 /* Controls */
-extern const struct uvc_control_mapping uvc_ctrl_power_line_mapping_limited;
-extern const struct uvc_control_mapping uvc_ctrl_power_line_mapping_uvc11;
 extern const struct v4l2_subscribed_event_ops uvc_ctrl_sub_ev_ops;
 
 int uvc_query_v4l2_ctrl(struct uvc_video_chain *chain,

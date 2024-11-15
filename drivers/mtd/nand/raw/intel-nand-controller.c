@@ -22,7 +22,7 @@
 #include <linux/slab.h>
 #include <linux/types.h>
 #include <linux/units.h>
-#include <asm/unaligned.h>
+#include <linux/unaligned.h>
 
 #define EBU_CLC			0x000
 #define EBU_CLC_RST		0x00000000u
@@ -295,7 +295,7 @@ static int ebu_dma_start(struct ebu_nand_controller *ebu_host, u32 dir,
 	unsigned long flags = DMA_CTRL_ACK | DMA_PREP_INTERRUPT;
 	dma_addr_t buf_dma;
 	int ret;
-	u32 timeout;
+	unsigned long time_left;
 
 	if (dir == DMA_DEV_TO_MEM) {
 		chan = ebu_host->dma_rx;
@@ -335,8 +335,8 @@ static int ebu_dma_start(struct ebu_nand_controller *ebu_host, u32 dir,
 	dma_async_issue_pending(chan);
 
 	/* Wait DMA to finish the data transfer.*/
-	timeout = wait_for_completion_timeout(dma_completion, msecs_to_jiffies(1000));
-	if (!timeout) {
+	time_left = wait_for_completion_timeout(dma_completion, msecs_to_jiffies(1000));
+	if (!time_left) {
 		dev_err(ebu_host->dev, "I/O Error in DMA RX (status %d)\n",
 			dmaengine_tx_status(chan, cookie, NULL));
 		dmaengine_terminate_sync(chan);
@@ -631,16 +631,10 @@ static int ebu_nand_probe(struct platform_device *pdev)
 		goto err_of_node_put;
 	}
 
-	ebu_host->clk = devm_clk_get(dev, NULL);
+	ebu_host->clk = devm_clk_get_enabled(dev, NULL);
 	if (IS_ERR(ebu_host->clk)) {
 		ret = dev_err_probe(dev, PTR_ERR(ebu_host->clk),
-				    "failed to get clock\n");
-		goto err_of_node_put;
-	}
-
-	ret = clk_prepare_enable(ebu_host->clk);
-	if (ret) {
-		dev_err(dev, "failed to enable clock: %d\n", ret);
+				    "failed to get and enable clock\n");
 		goto err_of_node_put;
 	}
 
@@ -648,7 +642,7 @@ static int ebu_nand_probe(struct platform_device *pdev)
 	if (IS_ERR(ebu_host->dma_tx)) {
 		ret = dev_err_probe(dev, PTR_ERR(ebu_host->dma_tx),
 				    "failed to request DMA tx chan!.\n");
-		goto err_disable_unprepare_clk;
+		goto err_of_node_put;
 	}
 
 	ebu_host->dma_rx = dma_request_chan(dev, "rx");
@@ -708,8 +702,6 @@ err_clean_nand:
 	nand_cleanup(&ebu_host->chip);
 err_cleanup_dma:
 	ebu_dma_cleanup(ebu_host);
-err_disable_unprepare_clk:
-	clk_disable_unprepare(ebu_host->clk);
 err_of_node_put:
 	of_node_put(chip_np);
 
@@ -726,7 +718,6 @@ static void ebu_nand_remove(struct platform_device *pdev)
 	nand_cleanup(&ebu_host->chip);
 	ebu_nand_disable(&ebu_host->chip);
 	ebu_dma_cleanup(ebu_host);
-	clk_disable_unprepare(ebu_host->clk);
 }
 
 static const struct of_device_id ebu_nand_match[] = {

@@ -23,7 +23,10 @@
  */
 
 #include <linux/firmware.h>
+#include <linux/module.h>
+#include <linux/debugfs.h>
 #include <drm/drm_exec.h>
+#include <drm/drm_drv.h>
 
 #include "amdgpu.h"
 #include "amdgpu_umsch_mm.h"
@@ -86,7 +89,7 @@ static int map_ring_data(struct amdgpu_device *adev, struct amdgpu_vm *vm,
 
 	amdgpu_sync_create(&sync);
 
-	drm_exec_init(&exec, 0);
+	drm_exec_init(&exec, 0, 0);
 	drm_exec_until_all_locked(&exec) {
 		r = drm_exec_lock_obj(&exec, &bo->tbo.base);
 		drm_exec_retry_on_contention(&exec);
@@ -149,7 +152,7 @@ static int unmap_ring_data(struct amdgpu_device *adev, struct amdgpu_vm *vm,
 	struct drm_exec exec;
 	long r;
 
-	drm_exec_init(&exec, 0);
+	drm_exec_init(&exec, 0, 0);
 	drm_exec_until_all_locked(&exec) {
 		r = drm_exec_lock_obj(&exec, &bo->tbo.base);
 		drm_exec_retry_on_contention(&exec);
@@ -189,10 +192,13 @@ static void setup_vpe_queue(struct amdgpu_device *adev,
 	mqd->rptr_val = 0;
 	mqd->unmapped = 1;
 
+	if (adev->vpe.collaborate_mode)
+		memcpy(++mqd, test->mqd_data_cpu_addr, sizeof(struct MQD_INFO));
+
 	qinfo->mqd_addr = test->mqd_data_gpu_addr;
 	qinfo->csa_addr = test->ctx_data_gpu_addr +
 		offsetof(struct umsch_mm_test_ctx_data, vpe_ctx_csa);
-	qinfo->doorbell_offset_0 = (adev->doorbell_index.vpe_ring + 1) << 1;
+	qinfo->doorbell_offset_0 = 0;
 	qinfo->doorbell_offset_1 = 0;
 }
 
@@ -287,7 +293,10 @@ static int submit_vpe_queue(struct amdgpu_device *adev, struct umsch_mm_test *te
 	ring[5] = 0;
 
 	mqd->wptr_val = (6 << 2);
-	// WDOORBELL32(adev->umsch_mm.agdb_index[CONTEXT_PRIORITY_LEVEL_NORMAL], mqd->wptr_val);
+	if (adev->vpe.collaborate_mode)
+		(++mqd)->wptr_val = (6 << 2);
+
+	WDOORBELL32(adev->umsch_mm.agdb_index[CONTEXT_PRIORITY_LEVEL_NORMAL], mqd->wptr_val);
 
 	for (i = 0; i < adev->usec_timeout; i++) {
 		if (*fence == test_pattern)
@@ -358,7 +367,7 @@ static int setup_umsch_mm_test(struct amdgpu_device *adev,
 
 	memset(test->ring_data_cpu_addr, 0, sizeof(struct umsch_mm_test_ring_data));
 
-	test->ring_data_gpu_addr = AMDGPU_VA_RESERVED_SIZE;
+	test->ring_data_gpu_addr = AMDGPU_VA_RESERVED_BOTTOM;
 	r = map_ring_data(adev, test->vm, test->ring_data_obj, &test->bo_va,
 			  test->ring_data_gpu_addr, sizeof(struct umsch_mm_test_ring_data));
 	if (r)
@@ -571,13 +580,14 @@ int amdgpu_umsch_mm_init_microcode(struct amdgpu_umsch_mm *umsch)
 
 	switch (amdgpu_ip_version(adev, VCN_HWIP, 0)) {
 	case IP_VERSION(4, 0, 5):
+	case IP_VERSION(4, 0, 6):
 		fw_name = "amdgpu/umsch_mm_4_0_0.bin";
 		break;
 	default:
 		break;
 	}
 
-	r = amdgpu_ucode_request(adev, &adev->umsch_mm.fw, fw_name);
+	r = amdgpu_ucode_request(adev, &adev->umsch_mm.fw, "%s", fw_name);
 	if (r) {
 		release_firmware(adev->umsch_mm.fw);
 		adev->umsch_mm.fw = NULL;
@@ -736,6 +746,17 @@ static int umsch_mm_init(struct amdgpu_device *adev)
 		return r;
 	}
 
+	r = amdgpu_bo_create_kernel(adev, AMDGPU_UMSCHFW_LOG_SIZE, PAGE_SIZE,
+				    AMDGPU_GEM_DOMAIN_VRAM |
+				    AMDGPU_GEM_DOMAIN_GTT,
+				    &adev->umsch_mm.dbglog_bo,
+				    &adev->umsch_mm.log_gpu_addr,
+				    &adev->umsch_mm.log_cpu_addr);
+	if (r) {
+		dev_err(adev->dev, "(%d) failed to allocate umsch debug bo\n", r);
+		return r;
+	}
+
 	mutex_init(&adev->umsch_mm.mutex_hidden);
 
 	umsch_mm_agdb_index_init(adev);
@@ -750,6 +771,7 @@ static int umsch_mm_early_init(void *handle)
 
 	switch (amdgpu_ip_version(adev, VCN_HWIP, 0)) {
 	case IP_VERSION(4, 0, 5):
+	case IP_VERSION(4, 0, 6):
 		umsch_mm_v4_0_set_funcs(&adev->umsch_mm);
 		break;
 	default:
@@ -766,6 +788,9 @@ static int umsch_mm_late_init(void *handle)
 {
 	struct amdgpu_device *adev = (struct amdgpu_device *)handle;
 
+	if (amdgpu_in_reset(adev) || adev->in_s0ix || adev->in_suspend)
+		return 0;
+
 	return umsch_mm_test(adev);
 }
 
@@ -778,6 +803,7 @@ static int umsch_mm_sw_init(void *handle)
 	if (r)
 		return r;
 
+	amdgpu_umsch_fwlog_init(&adev->umsch_mm);
 	r = umsch_mm_ring_init(&adev->umsch_mm);
 	if (r)
 		return r;
@@ -803,6 +829,10 @@ static int umsch_mm_sw_fini(void *handle)
 	amdgpu_bo_free_kernel(&adev->umsch_mm.cmd_buf_obj,
 			      &adev->umsch_mm.cmd_buf_gpu_addr,
 			      (void **)&adev->umsch_mm.cmd_buf_ptr);
+
+	amdgpu_bo_free_kernel(&adev->umsch_mm.dbglog_bo,
+				    &adev->umsch_mm.log_gpu_addr,
+				    (void **)&adev->umsch_mm.log_cpu_addr);
 
 	amdgpu_device_wb_free(adev, adev->umsch_mm.wb_index);
 
@@ -857,6 +887,106 @@ static int umsch_mm_resume(void *handle)
 	return umsch_mm_hw_init(adev);
 }
 
+void amdgpu_umsch_fwlog_init(struct amdgpu_umsch_mm *umsch_mm)
+{
+#if defined(CONFIG_DEBUG_FS)
+	void *fw_log_cpu_addr = umsch_mm->log_cpu_addr;
+	volatile struct amdgpu_umsch_fwlog *log_buf = fw_log_cpu_addr;
+
+	log_buf->header_size = sizeof(struct amdgpu_umsch_fwlog);
+	log_buf->buffer_size = AMDGPU_UMSCHFW_LOG_SIZE;
+	log_buf->rptr = log_buf->header_size;
+	log_buf->wptr = log_buf->header_size;
+	log_buf->wrapped = 0;
+#endif
+}
+
+/*
+ * debugfs for mapping umsch firmware log buffer.
+ */
+#if defined(CONFIG_DEBUG_FS)
+static ssize_t amdgpu_debugfs_umsch_fwlog_read(struct file *f, char __user *buf,
+					     size_t size, loff_t *pos)
+{
+	struct amdgpu_umsch_mm *umsch_mm;
+	void *log_buf;
+	volatile struct amdgpu_umsch_fwlog *plog;
+	unsigned int read_pos, write_pos, available, i, read_bytes = 0;
+	unsigned int read_num[2] = {0};
+
+	umsch_mm = file_inode(f)->i_private;
+	if (!umsch_mm)
+		return -ENODEV;
+
+	if (!umsch_mm->log_cpu_addr)
+		return -EFAULT;
+
+	log_buf = umsch_mm->log_cpu_addr;
+
+	plog = (volatile struct amdgpu_umsch_fwlog *)log_buf;
+	read_pos = plog->rptr;
+	write_pos = plog->wptr;
+
+	if (read_pos > AMDGPU_UMSCHFW_LOG_SIZE || write_pos > AMDGPU_UMSCHFW_LOG_SIZE)
+		return -EFAULT;
+
+	if (!size || (read_pos == write_pos))
+		return 0;
+
+	if (write_pos > read_pos) {
+		available = write_pos - read_pos;
+		read_num[0] = min_t(size_t, size, available);
+	} else {
+		read_num[0] = AMDGPU_UMSCHFW_LOG_SIZE - read_pos;
+		available = read_num[0] + write_pos - plog->header_size;
+		if (size > available)
+			read_num[1] = write_pos - plog->header_size;
+		else if (size > read_num[0])
+			read_num[1] = size - read_num[0];
+		else
+			read_num[0] = size;
+	}
+
+	for (i = 0; i < 2; i++) {
+		if (read_num[i]) {
+			if (read_pos == AMDGPU_UMSCHFW_LOG_SIZE)
+				read_pos = plog->header_size;
+			if (read_num[i] == copy_to_user((buf + read_bytes),
+							(log_buf + read_pos), read_num[i]))
+				return -EFAULT;
+
+			read_bytes += read_num[i];
+			read_pos += read_num[i];
+		}
+	}
+
+	plog->rptr = read_pos;
+	*pos += read_bytes;
+	return read_bytes;
+}
+
+static const struct file_operations amdgpu_debugfs_umschfwlog_fops = {
+	.owner = THIS_MODULE,
+	.read = amdgpu_debugfs_umsch_fwlog_read,
+	.llseek = default_llseek
+};
+#endif
+
+void amdgpu_debugfs_umsch_fwlog_init(struct amdgpu_device *adev,
+			struct amdgpu_umsch_mm *umsch_mm)
+{
+#if defined(CONFIG_DEBUG_FS)
+	struct drm_minor *minor = adev_to_drm(adev)->primary;
+	struct dentry *root = minor->debugfs_root;
+	char name[32];
+
+	sprintf(name, "amdgpu_umsch_fwlog");
+	debugfs_create_file_size(name, S_IFREG | 0444, root, umsch_mm,
+				 &amdgpu_debugfs_umschfwlog_fops,
+				 AMDGPU_UMSCHFW_LOG_SIZE);
+#endif
+}
+
 static const struct amd_ip_funcs umsch_mm_v4_0_ip_funcs = {
 	.name = "umsch_mm_v4_0",
 	.early_init = umsch_mm_early_init,
@@ -867,6 +997,8 @@ static const struct amd_ip_funcs umsch_mm_v4_0_ip_funcs = {
 	.hw_fini = umsch_mm_hw_fini,
 	.suspend = umsch_mm_suspend,
 	.resume = umsch_mm_resume,
+	.dump_ip_state = NULL,
+	.print_ip_state = NULL,
 };
 
 const struct amdgpu_ip_block_version umsch_mm_v4_0_ip_block = {

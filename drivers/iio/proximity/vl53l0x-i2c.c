@@ -278,7 +278,7 @@ static int vl53l0x_probe(struct i2c_client *client)
 }
 
 static const struct i2c_device_id vl53l0x_id[] = {
-	{ "vl53l0x", 0 },
+	{ "vl53l0x" },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, vl53l0x_id);
@@ -294,7 +294,7 @@ static struct i2c_driver vl53l0x_driver = {
 		.name = "vl53l0x-i2c",
 		.of_match_table = st_vl53l0x_dt_match,
 	},
-	.probe_new = vl53l0x_probe,
+	.probe = vl53l0x_probe,
 	.id_table = vl53l0x_id,
 };
 module_i2c_driver(vl53l0x_driver);

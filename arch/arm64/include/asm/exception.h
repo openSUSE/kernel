@@ -72,8 +72,9 @@ void do_el0_svc(struct pt_regs *regs);
 void do_el0_svc_compat(struct pt_regs *regs);
 void do_el0_fpac(struct pt_regs *regs, unsigned long esr);
 void do_el1_fpac(struct pt_regs *regs, unsigned long esr);
+void do_el0_mops(struct pt_regs *regs, unsigned long esr);
 void do_serror(struct pt_regs *regs, unsigned long esr);
-void do_notify_resume(struct pt_regs *regs, unsigned long thread_flags);
+void do_signal(struct pt_regs *regs);
 
 void __noreturn panic_bad_stack(struct pt_regs *regs, unsigned long esr, unsigned long far);
 #endif	/* __ASM_EXCEPTION_H */

@@ -245,7 +245,7 @@ static void s3fwrn5_i2c_remove(struct i2c_client *client)
 }
 
 static const struct i2c_device_id s3fwrn5_i2c_id_table[] = {
-	{S3FWRN5_I2C_DRIVER_NAME, 0},
+	{ S3FWRN5_I2C_DRIVER_NAME },
 	{}
 };
 MODULE_DEVICE_TABLE(i2c, s3fwrn5_i2c_id_table);
@@ -261,7 +261,7 @@ static struct i2c_driver s3fwrn5_i2c_driver = {
 		.name = S3FWRN5_I2C_DRIVER_NAME,
 		.of_match_table = of_match_ptr(of_s3fwrn5_i2c_match),
 	},
-	.probe_new = s3fwrn5_i2c_probe,
+	.probe = s3fwrn5_i2c_probe,
 	.remove = s3fwrn5_i2c_remove,
 	.id_table = s3fwrn5_i2c_id_table,
 };

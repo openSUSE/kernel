@@ -761,7 +761,7 @@ bfa_fcs_fabric_psymb_init(struct bfa_fcs_fabric_s *fabric)
 	bfa_ioc_get_adapter_model(&fabric->fcs->bfa->ioc, model);
 
 	/* Model name/number */
-	strlcpy(port_cfg->sym_name.symname, model,
+	strscpy(port_cfg->sym_name.symname, model,
 		BFA_SYMNAME_MAXLEN);
 	strlcat(port_cfg->sym_name.symname, BFA_FCS_PORT_SYMBNAME_SEPARATOR,
 		BFA_SYMNAME_MAXLEN);
@@ -822,7 +822,7 @@ bfa_fcs_fabric_nsymb_init(struct bfa_fcs_fabric_s *fabric)
 	bfa_ioc_get_adapter_model(&fabric->fcs->bfa->ioc, model);
 
 	/* Model name/number */
-	strlcpy(port_cfg->node_sym_name.symname, model,
+	strscpy(port_cfg->node_sym_name.symname, model,
 		BFA_SYMNAME_MAXLEN);
 	strlcat(port_cfg->node_sym_name.symname,
 			BFA_FCS_PORT_SYMBNAME_SEPARATOR,
@@ -1431,7 +1431,7 @@ bfa_cb_lps_flogo_comp(void *bfad, void *uarg)
  *	param[in]	vf_id - VF_ID
  *
  *	return
- *	If lookup succeeds, retuns fcs vf object, otherwise returns NULL
+ *	If lookup succeeds, returns fcs vf object, otherwise returns NULL
  */
 bfa_fcs_vf_t   *
 bfa_fcs_vf_lookup(struct bfa_fcs_s *fcs, u16 vf_id)

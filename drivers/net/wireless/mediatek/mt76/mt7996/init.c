@@ -42,6 +42,7 @@ static const struct ieee80211_iface_combination if_comb[] = {
 				       BIT(NL80211_CHAN_WIDTH_40) |
 				       BIT(NL80211_CHAN_WIDTH_80) |
 				       BIT(NL80211_CHAN_WIDTH_160),
+		.beacon_int_min_gcd = 100,
 	}
 };
 
@@ -347,7 +348,7 @@ mt7996_regd_notifier(struct wiphy *wiphy,
 }
 
 static void
-mt7996_init_wiphy(struct ieee80211_hw *hw)
+mt7996_init_wiphy(struct ieee80211_hw *hw, struct mtk_wed_device *wed)
 {
 	struct mt7996_phy *phy = mt7996_hw_phy(hw);
 	struct mt76_dev *mdev = &phy->dev->mt76;
@@ -359,6 +360,8 @@ mt7996_init_wiphy(struct ieee80211_hw *hw)
 	hw->max_rx_aggregation_subframes = max_subframes;
 	hw->max_tx_aggregation_subframes = max_subframes;
 	hw->netdev_features = NETIF_F_RXCSUM;
+	if (mtk_wed_device_active(wed))
+		hw->netdev_features |= NETIF_F_HW_TC;
 
 	hw->radiotap_timestamp.units_pos =
 		IEEE80211_RADIOTAP_TIMESTAMP_UNIT_US;
@@ -512,8 +515,17 @@ void mt7996_mac_init(struct mt7996_dev *dev)
 		mt7996_mcu_set_rro(dev, UNI_RRO_SET_PLATFORM_TYPE,
 				   dev->hif2 ? 7 : 0);
 
-	mt7996_mcu_set_rro(dev, UNI_RRO_SET_BYPASS_MODE, 3);
-	mt7996_mcu_set_rro(dev, UNI_RRO_SET_TXFREE_PATH, 1);
+	if (dev->has_rro) {
+		u16 timeout;
+
+		timeout = mt76_rr(dev, MT_HW_REV) == MT_HW_REV1 ? 512 : 128;
+		mt7996_mcu_set_rro(dev, UNI_RRO_SET_FLUSH_TIMEOUT, timeout);
+		mt7996_mcu_set_rro(dev, UNI_RRO_SET_BYPASS_MODE, 1);
+		mt7996_mcu_set_rro(dev, UNI_RRO_SET_TXFREE_PATH, 0);
+	} else {
+		mt7996_mcu_set_rro(dev, UNI_RRO_SET_BYPASS_MODE, 3);
+		mt7996_mcu_set_rro(dev, UNI_RRO_SET_TXFREE_PATH, 1);
+	}
 
 	mt7996_mcu_wa_cmd(dev, MCU_WA_PARAM_CMD(SET),
 			  MCU_WA_PARAM_HW_PATH_HIF_VER,
@@ -551,6 +563,7 @@ static int mt7996_register_phy(struct mt7996_dev *dev, struct mt7996_phy *phy,
 	struct mt76_phy *mphy;
 	u32 mac_ofs, hif1_ofs = 0;
 	int ret;
+	struct mtk_wed_device *wed = &dev->mt76.mmio.wed;
 
 	if (!mt7996_band_valid(dev, band) || band == MT_BAND0)
 		return 0;
@@ -558,8 +571,10 @@ static int mt7996_register_phy(struct mt7996_dev *dev, struct mt7996_phy *phy,
 	if (phy)
 		return 0;
 
-	if (is_mt7996(&dev->mt76) && band == MT_BAND2 && dev->hif2)
+	if (is_mt7996(&dev->mt76) && band == MT_BAND2 && dev->hif2) {
 		hif1_ofs = MT_WFDMA0_PCIE1(0) - MT_WFDMA0(0);
+		wed = &dev->mt76.mmio.wed_hif2;
+	}
 
 	mphy = mt76_alloc_phy(&dev->mt76, sizeof(*phy), &mt7996_ops, band);
 	if (!mphy)
@@ -592,12 +607,12 @@ static int mt7996_register_phy(struct mt7996_dev *dev, struct mt7996_phy *phy,
 	mt76_eeprom_override(mphy);
 
 	/* init wiphy according to mphy and phy */
-	mt7996_init_wiphy(mphy->hw);
-	ret = mt76_connac_init_tx_queues(phy->mt76,
-					 MT_TXQ_ID(band),
-					 MT7996_TX_RING_SIZE,
-					 MT_TXQ_RING_BASE(band) + hif1_ofs,
-					 NULL, 0);
+	mt7996_init_wiphy(mphy->hw, wed);
+	ret = mt7996_init_tx_queues(mphy->priv,
+				    MT_TXQ_ID(band),
+				    MT7996_TX_RING_SIZE,
+				    MT_TXQ_RING_BASE(band) + hif1_ofs,
+				    wed);
 	if (ret)
 		goto error;
 
@@ -613,6 +628,13 @@ static int mt7996_register_phy(struct mt7996_dev *dev, struct mt7996_phy *phy,
 	ret = mt7996_init_debugfs(phy);
 	if (ret)
 		goto error;
+
+	if (wed == &dev->mt76.mmio.wed_hif2 && mtk_wed_device_active(wed)) {
+		u32 irq_mask = dev->mt76.mmio.irqmask | MT_INT_TX_DONE_BAND2;
+
+		mt76_wr(dev, MT_INT1_MASK_CSR, irq_mask);
+		mtk_wed_device_start(&dev->mt76.mmio.wed_hif2, irq_mask);
+	}
 
 	return 0;
 
@@ -657,6 +679,211 @@ void mt7996_wfsys_reset(struct mt7996_dev *dev)
 	msleep(20);
 }
 
+static int mt7996_wed_rro_init(struct mt7996_dev *dev)
+{
+#ifdef CONFIG_NET_MEDIATEK_SOC_WED
+	struct mtk_wed_device *wed = &dev->mt76.mmio.wed;
+	u32 reg = MT_RRO_ADDR_ELEM_SEG_ADDR0;
+	struct mt7996_wed_rro_addr *addr;
+	void *ptr;
+	int i;
+
+	if (!dev->has_rro)
+		return 0;
+
+	if (!mtk_wed_device_active(wed))
+		return 0;
+
+	for (i = 0; i < ARRAY_SIZE(dev->wed_rro.ba_bitmap); i++) {
+		ptr = dmam_alloc_coherent(dev->mt76.dma_dev,
+					  MT7996_RRO_BA_BITMAP_CR_SIZE,
+					  &dev->wed_rro.ba_bitmap[i].phy_addr,
+					  GFP_KERNEL);
+		if (!ptr)
+			return -ENOMEM;
+
+		dev->wed_rro.ba_bitmap[i].ptr = ptr;
+	}
+
+	for (i = 0; i < ARRAY_SIZE(dev->wed_rro.addr_elem); i++) {
+		int j;
+
+		ptr = dmam_alloc_coherent(dev->mt76.dma_dev,
+				MT7996_RRO_WINDOW_MAX_SIZE * sizeof(*addr),
+				&dev->wed_rro.addr_elem[i].phy_addr,
+				GFP_KERNEL);
+		if (!ptr)
+			return -ENOMEM;
+
+		dev->wed_rro.addr_elem[i].ptr = ptr;
+		memset(dev->wed_rro.addr_elem[i].ptr, 0,
+		       MT7996_RRO_WINDOW_MAX_SIZE * sizeof(*addr));
+
+		addr = dev->wed_rro.addr_elem[i].ptr;
+		for (j = 0; j < MT7996_RRO_WINDOW_MAX_SIZE; j++) {
+			addr->signature = 0xff;
+			addr++;
+		}
+
+		wed->wlan.ind_cmd.addr_elem_phys[i] =
+			dev->wed_rro.addr_elem[i].phy_addr;
+	}
+
+	ptr = dmam_alloc_coherent(dev->mt76.dma_dev,
+				  MT7996_RRO_WINDOW_MAX_LEN * sizeof(*addr),
+				  &dev->wed_rro.session.phy_addr,
+				  GFP_KERNEL);
+	if (!ptr)
+		return -ENOMEM;
+
+	dev->wed_rro.session.ptr = ptr;
+	addr = dev->wed_rro.session.ptr;
+	for (i = 0; i < MT7996_RRO_WINDOW_MAX_LEN; i++) {
+		addr->signature = 0xff;
+		addr++;
+	}
+
+	/* rro hw init */
+	/* TODO: remove line after WM has set */
+	mt76_clear(dev, WF_RRO_AXI_MST_CFG, WF_RRO_AXI_MST_CFG_DIDX_OK);
+
+	/* setup BA bitmap cache address */
+	mt76_wr(dev, MT_RRO_BA_BITMAP_BASE0,
+		dev->wed_rro.ba_bitmap[0].phy_addr);
+	mt76_wr(dev, MT_RRO_BA_BITMAP_BASE1, 0);
+	mt76_wr(dev, MT_RRO_BA_BITMAP_BASE_EXT0,
+		dev->wed_rro.ba_bitmap[1].phy_addr);
+	mt76_wr(dev, MT_RRO_BA_BITMAP_BASE_EXT1, 0);
+
+	/* setup Address element address */
+	for (i = 0; i < ARRAY_SIZE(dev->wed_rro.addr_elem); i++) {
+		mt76_wr(dev, reg, dev->wed_rro.addr_elem[i].phy_addr >> 4);
+		reg += 4;
+	}
+
+	/* setup Address element address - separate address segment mode */
+	mt76_wr(dev, MT_RRO_ADDR_ARRAY_BASE1,
+		MT_RRO_ADDR_ARRAY_ELEM_ADDR_SEG_MODE);
+
+	wed->wlan.ind_cmd.win_size = ffs(MT7996_RRO_WINDOW_MAX_LEN) - 6;
+	wed->wlan.ind_cmd.particular_sid = MT7996_RRO_MAX_SESSION;
+	wed->wlan.ind_cmd.particular_se_phys = dev->wed_rro.session.phy_addr;
+	wed->wlan.ind_cmd.se_group_nums = MT7996_RRO_ADDR_ELEM_LEN;
+	wed->wlan.ind_cmd.ack_sn_addr = MT_RRO_ACK_SN_CTRL;
+
+	mt76_wr(dev, MT_RRO_IND_CMD_SIGNATURE_BASE0, 0x15010e00);
+	mt76_set(dev, MT_RRO_IND_CMD_SIGNATURE_BASE1,
+		 MT_RRO_IND_CMD_SIGNATURE_BASE1_EN);
+
+	/* particular session configure */
+	/* use max session idx + 1 as particular session id */
+	mt76_wr(dev, MT_RRO_PARTICULAR_CFG0, dev->wed_rro.session.phy_addr);
+	mt76_wr(dev, MT_RRO_PARTICULAR_CFG1,
+		MT_RRO_PARTICULAR_CONFG_EN |
+		FIELD_PREP(MT_RRO_PARTICULAR_SID, MT7996_RRO_MAX_SESSION));
+
+	/* interrupt enable */
+	mt76_wr(dev, MT_RRO_HOST_INT_ENA,
+		MT_RRO_HOST_INT_ENA_HOST_RRO_DONE_ENA);
+
+	/* rro ind cmd queue init */
+	return mt7996_dma_rro_init(dev);
+#else
+	return 0;
+#endif
+}
+
+static void mt7996_wed_rro_free(struct mt7996_dev *dev)
+{
+#ifdef CONFIG_NET_MEDIATEK_SOC_WED
+	int i;
+
+	if (!dev->has_rro)
+		return;
+
+	if (!mtk_wed_device_active(&dev->mt76.mmio.wed))
+		return;
+
+	for (i = 0; i < ARRAY_SIZE(dev->wed_rro.ba_bitmap); i++) {
+		if (!dev->wed_rro.ba_bitmap[i].ptr)
+			continue;
+
+		dmam_free_coherent(dev->mt76.dma_dev,
+				   MT7996_RRO_BA_BITMAP_CR_SIZE,
+				   dev->wed_rro.ba_bitmap[i].ptr,
+				   dev->wed_rro.ba_bitmap[i].phy_addr);
+	}
+
+	for (i = 0; i < ARRAY_SIZE(dev->wed_rro.addr_elem); i++) {
+		if (!dev->wed_rro.addr_elem[i].ptr)
+			continue;
+
+		dmam_free_coherent(dev->mt76.dma_dev,
+				   MT7996_RRO_WINDOW_MAX_SIZE *
+				   sizeof(struct mt7996_wed_rro_addr),
+				   dev->wed_rro.addr_elem[i].ptr,
+				   dev->wed_rro.addr_elem[i].phy_addr);
+	}
+
+	if (!dev->wed_rro.session.ptr)
+		return;
+
+	dmam_free_coherent(dev->mt76.dma_dev,
+			   MT7996_RRO_WINDOW_MAX_LEN *
+			   sizeof(struct mt7996_wed_rro_addr),
+			   dev->wed_rro.session.ptr,
+			   dev->wed_rro.session.phy_addr);
+#endif
+}
+
+static void mt7996_wed_rro_work(struct work_struct *work)
+{
+#ifdef CONFIG_NET_MEDIATEK_SOC_WED
+	struct mt7996_dev *dev;
+	LIST_HEAD(list);
+
+	dev = (struct mt7996_dev *)container_of(work, struct mt7996_dev,
+						wed_rro.work);
+
+	spin_lock_bh(&dev->wed_rro.lock);
+	list_splice_init(&dev->wed_rro.poll_list, &list);
+	spin_unlock_bh(&dev->wed_rro.lock);
+
+	while (!list_empty(&list)) {
+		struct mt7996_wed_rro_session_id *e;
+		int i;
+
+		e = list_first_entry(&list, struct mt7996_wed_rro_session_id,
+				     list);
+		list_del_init(&e->list);
+
+		for (i = 0; i < MT7996_RRO_WINDOW_MAX_LEN; i++) {
+			void *ptr = dev->wed_rro.session.ptr;
+			struct mt7996_wed_rro_addr *elem;
+			u32 idx, elem_id = i;
+
+			if (e->id == MT7996_RRO_MAX_SESSION)
+				goto reset;
+
+			idx = e->id / MT7996_RRO_BA_BITMAP_SESSION_SIZE;
+			if (idx >= ARRAY_SIZE(dev->wed_rro.addr_elem))
+				goto out;
+
+			ptr = dev->wed_rro.addr_elem[idx].ptr;
+			elem_id +=
+				(e->id % MT7996_RRO_BA_BITMAP_SESSION_SIZE) *
+				MT7996_RRO_WINDOW_MAX_LEN;
+reset:
+			elem = ptr + elem_id * sizeof(*elem);
+			elem->signature = 0xff;
+		}
+		mt7996_mcu_wed_rro_reset_sessions(dev, e->id);
+out:
+		kfree(e);
+	}
+#endif
+}
+
 static int mt7996_init_hardware(struct mt7996_dev *dev)
 {
 	int ret, idx;
@@ -668,6 +895,9 @@ static int mt7996_init_hardware(struct mt7996_dev *dev)
 	}
 
 	INIT_WORK(&dev->init_work, mt7996_init_work);
+	INIT_WORK(&dev->wed_rro.work, mt7996_wed_rro_work);
+	INIT_LIST_HEAD(&dev->wed_rro.poll_list);
+	spin_lock_init(&dev->wed_rro.lock);
 
 	ret = mt7996_dma_init(dev);
 	if (ret)
@@ -676,6 +906,10 @@ static int mt7996_init_hardware(struct mt7996_dev *dev)
 	set_bit(MT76_STATE_INITIALIZED, &dev->mphy.state);
 
 	ret = mt7996_mcu_init(dev);
+	if (ret)
+		return ret;
+
+	ret = mt7996_wed_rro_init(dev);
 	if (ret)
 		return ret;
 
@@ -708,8 +942,12 @@ void mt7996_set_stream_vht_txbf_caps(struct mt7996_phy *phy)
 	cap = &phy->mt76->sband_5g.sband.vht_cap.cap;
 
 	*cap |= IEEE80211_VHT_CAP_SU_BEAMFORMEE_CAPABLE |
-		IEEE80211_VHT_CAP_MU_BEAMFORMEE_CAPABLE |
-		FIELD_PREP(IEEE80211_VHT_CAP_BEAMFORMEE_STS_MASK, sts - 1);
+		IEEE80211_VHT_CAP_MU_BEAMFORMEE_CAPABLE;
+
+	if (is_mt7996(phy->mt76->dev))
+		*cap |= FIELD_PREP(IEEE80211_VHT_CAP_BEAMFORMEE_STS_MASK, 3);
+	else
+		*cap |= FIELD_PREP(IEEE80211_VHT_CAP_BEAMFORMEE_STS_MASK, 4);
 
 	*cap &= ~(IEEE80211_VHT_CAP_SOUNDING_DIMENSIONS_MASK |
 		  IEEE80211_VHT_CAP_SU_BEAMFORMER_CAPABLE |
@@ -754,9 +992,15 @@ mt7996_set_stream_he_txbf_caps(struct mt7996_phy *phy,
 	    IEEE80211_HE_PHY_CAP2_UL_MU_PARTIAL_MU_MIMO;
 	elem->phy_cap_info[2] |= c;
 
-	c = IEEE80211_HE_PHY_CAP4_SU_BEAMFORMEE |
-	    IEEE80211_HE_PHY_CAP4_BEAMFORMEE_MAX_STS_UNDER_80MHZ_4 |
-	    IEEE80211_HE_PHY_CAP4_BEAMFORMEE_MAX_STS_ABOVE_80MHZ_4;
+	c = IEEE80211_HE_PHY_CAP4_SU_BEAMFORMEE;
+
+	if (is_mt7996(phy->mt76->dev))
+		c |= IEEE80211_HE_PHY_CAP4_BEAMFORMEE_MAX_STS_UNDER_80MHZ_4 |
+		     IEEE80211_HE_PHY_CAP4_BEAMFORMEE_MAX_STS_ABOVE_80MHZ_4;
+	else
+		c |= IEEE80211_HE_PHY_CAP4_BEAMFORMEE_MAX_STS_UNDER_80MHZ_5 |
+		     IEEE80211_HE_PHY_CAP4_BEAMFORMEE_MAX_STS_ABOVE_80MHZ_5;
+
 	elem->phy_cap_info[4] |= c;
 
 	/* do not support NG16 due to spec D4.0 changes subcarrier idx */
@@ -953,7 +1197,8 @@ mt7996_init_eht_caps(struct mt7996_phy *phy, enum nl80211_band band,
 		IEEE80211_EHT_PHY_CAP0_SU_BEAMFORMER |
 		IEEE80211_EHT_PHY_CAP0_SU_BEAMFORMEE;
 
-	val = max_t(u8, sts - 1, 3);
+	/* Set the maximum capability regardless of the antenna configuration. */
+	val = is_mt7992(phy->mt76->dev) ? 4 : 3;
 	eht_cap_elem->phy_cap_info[0] |=
 		u8_encode_bits(u8_get_bits(val, BIT(0)),
 			       IEEE80211_EHT_PHY_CAP0_BEAMFORMEE_SS_80MHZ_MASK);
@@ -1107,7 +1352,7 @@ int mt7996_register_device(struct mt7996_dev *dev)
 	if (ret)
 		return ret;
 
-	mt7996_init_wiphy(hw);
+	mt7996_init_wiphy(hw, &dev->mt76.mmio.wed);
 
 	ret = mt76_register_device(&dev->mt76, true, mt76_rates,
 				   ARRAY_SIZE(mt76_rates));
@@ -1148,11 +1393,13 @@ error:
 
 void mt7996_unregister_device(struct mt7996_dev *dev)
 {
+	cancel_work_sync(&dev->wed_rro.work);
 	mt7996_unregister_phy(mt7996_phy3(dev), MT_BAND2);
 	mt7996_unregister_phy(mt7996_phy2(dev), MT_BAND1);
 	mt7996_unregister_thermal(&dev->phy);
 	mt7996_coredump_unregister(dev);
 	mt76_unregister_device(&dev->mt76);
+	mt7996_wed_rro_free(dev);
 	mt7996_mcu_exit(dev);
 	mt7996_tx_token_put(dev);
 	mt7996_dma_cleanup(dev);

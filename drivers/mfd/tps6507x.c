@@ -20,7 +20,6 @@
 #include <linux/slab.h>
 #include <linux/i2c.h>
 #include <linux/of.h>
-#include <linux/of_device.h>
 #include <linux/mfd/core.h>
 #include <linux/mfd/tps6507x.h>
 
@@ -104,7 +103,7 @@ static int tps6507x_i2c_probe(struct i2c_client *i2c)
 }
 
 static const struct i2c_device_id tps6507x_i2c_id[] = {
-	{ "tps6507x", 0 },
+	{ "tps6507x" },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, tps6507x_i2c_id);
@@ -122,7 +121,7 @@ static struct i2c_driver tps6507x_i2c_driver = {
 		   .name = "tps6507x",
 		   .of_match_table = of_match_ptr(tps6507x_of_match),
 	},
-	.probe_new = tps6507x_i2c_probe,
+	.probe = tps6507x_i2c_probe,
 	.id_table = tps6507x_i2c_id,
 };
 

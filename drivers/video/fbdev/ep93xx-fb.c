@@ -311,6 +311,8 @@ static int ep93xxfb_mmap(struct fb_info *info, struct vm_area_struct *vma)
 {
 	unsigned int offset = vma->vm_pgoff << PAGE_SHIFT;
 
+	vma->vm_page_prot = pgprot_decrypted(vma->vm_page_prot);
+
 	if (offset < info->fix.smem_len) {
 		return dma_mmap_wc(info->device, vma, info->screen_base,
 				   info->fix.smem_start, info->fix.smem_len);
@@ -590,7 +592,7 @@ static void ep93xxfb_remove(struct platform_device *pdev)
 
 static struct platform_driver ep93xxfb_driver = {
 	.probe		= ep93xxfb_probe,
-	.remove_new	= ep93xxfb_remove,
+	.remove		= ep93xxfb_remove,
 	.driver = {
 		.name	= "ep93xx-fb",
 	},

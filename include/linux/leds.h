@@ -82,15 +82,7 @@ struct led_init_data {
 	bool devname_mandatory;
 };
 
-#if IS_ENABLED(CONFIG_NEW_LEDS)
 enum led_default_state led_init_default_state_get(struct fwnode_handle *fwnode);
-#else
-static inline enum led_default_state
-led_init_default_state_get(struct fwnode_handle *fwnode)
-{
-	return LEDS_DEFSTATE_OFF;
-}
-#endif
 
 struct led_hw_trigger_type {
 	int dummy;
@@ -100,6 +92,7 @@ struct led_classdev {
 	const char		*name;
 	unsigned int brightness;
 	unsigned int max_brightness;
+	unsigned int color;
 	int			 flags;
 
 	/* Lower 16 bits reflect status */
@@ -114,6 +107,8 @@ struct led_classdev {
 #define LED_BRIGHT_HW_CHANGED	BIT(21)
 #define LED_RETAIN_AT_SHUTDOWN	BIT(22)
 #define LED_INIT_DEFAULT_TRIGGER BIT(23)
+#define LED_REJECT_NAME_CONFLICT BIT(24)
+#define LED_MULTI_COLOR		BIT(25)
 
 	/* set_brightness_work / blink_timer flags, atomic, private. */
 	unsigned long		work_flags;
@@ -124,6 +119,10 @@ struct led_classdev {
 #define LED_BLINK_INVERT		3
 #define LED_BLINK_BRIGHTNESS_CHANGE 	4
 #define LED_BLINK_DISABLE		5
+	/* Brightness off also disables hw-blinking so it is a separate action */
+#define LED_SET_BRIGHTNESS_OFF		6
+#define LED_SET_BRIGHTNESS		7
+#define LED_SET_BLINK			8
 
 	/* Set LED brightness level
 	 * Must not sleep. Use brightness_set_blocking for drivers
@@ -147,6 +146,10 @@ struct led_classdev {
 	 * match the values specified exactly.
 	 * Deactivate blinking again when the brightness is set to LED_OFF
 	 * via the brightness_set() callback.
+	 * For led_blink_set_nosleep() the LED core assumes that blink_set
+	 * implementations, of drivers which do not use brightness_set_blocking,
+	 * will not sleep. Therefor if brightness_set_blocking is not set
+	 * this function must not sleep!
 	 */
 	int		(*blink_set)(struct led_classdev *led_cdev,
 				     unsigned long *delay_on,
@@ -170,6 +173,8 @@ struct led_classdev {
 
 	struct work_struct	set_brightness_work;
 	int			delayed_set_value;
+	unsigned long		delayed_delay_on;
+	unsigned long		delayed_delay_off;
 
 #ifdef CONFIG_LEDS_TRIGGERS
 	/* Protects the trigger data below */
@@ -183,6 +188,49 @@ struct led_classdev {
 
 	/* LEDs that have private triggers have this set */
 	struct led_hw_trigger_type	*trigger_type;
+
+	/* Unique trigger name supported by LED set in hw control mode */
+	const char		*hw_control_trigger;
+	/*
+	 * Check if the LED driver supports the requested mode provided by the
+	 * defined supported trigger to setup the LED to hw control mode.
+	 *
+	 * Return 0 on success. Return -EOPNOTSUPP when the passed flags are not
+	 * supported and software fallback needs to be used.
+	 * Return a negative error number on any other case  for check fail due
+	 * to various reason like device not ready or timeouts.
+	 */
+	int			(*hw_control_is_supported)(struct led_classdev *led_cdev,
+							   unsigned long flags);
+	/*
+	 * Activate hardware control, LED driver will use the provided flags
+	 * from the supported trigger and setup the LED to be driven by hardware
+	 * following the requested mode from the trigger flags.
+	 * Deactivate hardware blink control by setting brightness to LED_OFF via
+	 * the brightness_set() callback.
+	 *
+	 * Return 0 on success, a negative error number on flags apply fail.
+	 */
+	int			(*hw_control_set)(struct led_classdev *led_cdev,
+						  unsigned long flags);
+	/*
+	 * Get from the LED driver the current mode that the LED is set in hw
+	 * control mode and put them in flags.
+	 * Trigger can use this to get the initial state of a LED already set in
+	 * hardware blink control.
+	 *
+	 * Return 0 on success, a negative error number on failing parsing the
+	 * initial mode. Error from this function is NOT FATAL as the device
+	 * may be in a not supported initial state by the attached LED trigger.
+	 */
+	int			(*hw_control_get)(struct led_classdev *led_cdev,
+						  unsigned long *flags);
+	/*
+	 * Get the device this LED blinks in response to.
+	 * e.g. for a PHY LED, it is the network device. If the LED is
+	 * not yet associated to a device, return NULL.
+	 */
+	struct device		*(*hw_control_get_device)(struct led_classdev *led_cdev);
 #endif
 
 #ifdef CONFIG_LEDS_BRIGHTNESS_HW_CHANGED
@@ -225,20 +273,9 @@ static inline int led_classdev_register(struct device *parent,
 	return led_classdev_register_ext(parent, led_cdev, NULL);
 }
 
-#if IS_ENABLED(CONFIG_LEDS_CLASS)
 int devm_led_classdev_register_ext(struct device *parent,
 					  struct led_classdev *led_cdev,
 					  struct led_init_data *init_data);
-#else
-static inline int
-devm_led_classdev_register_ext(struct device *parent,
-			       struct led_classdev *led_cdev,
-			       struct led_init_data *init_data)
-{
-	return 0;
-}
-#endif
-
 static inline int devm_led_classdev_register(struct device *parent,
 					     struct led_classdev *led_cdev)
 {
@@ -260,6 +297,8 @@ extern struct led_classdev *of_led_get(struct device_node *np, int index);
 extern void led_put(struct led_classdev *led_cdev);
 struct led_classdev *__must_check devm_of_led_get(struct device *dev,
 						  int index);
+struct led_classdev *__must_check devm_of_led_get_optional(struct device *dev,
+						  int index);
 
 /**
  * led_blink_set - set blinking with software fallback
@@ -272,12 +311,27 @@ struct led_classdev *__must_check devm_of_led_get(struct device *dev,
  * software blinking if there is no hardware blinking or if
  * the LED refuses the passed values.
  *
+ * This function may sleep!
+ *
  * Note that if software blinking is active, simply calling
  * led_cdev->brightness_set() will not stop the blinking,
  * use led_set_brightness() instead.
  */
 void led_blink_set(struct led_classdev *led_cdev, unsigned long *delay_on,
 		   unsigned long *delay_off);
+
+/**
+ * led_blink_set_nosleep - set blinking, guaranteed to not sleep
+ * @led_cdev: the LED to start blinking
+ * @delay_on: the time it should be on (in ms)
+ * @delay_off: the time it should ble off (in ms)
+ *
+ * This function makes the LED blink and is guaranteed to not sleep. Otherwise
+ * this is the same as led_blink_set(), see led_blink_set() for details.
+ */
+void led_blink_set_nosleep(struct led_classdev *led_cdev, unsigned long delay_on,
+			   unsigned long delay_off);
+
 /**
  * led_blink_set_oneshot - do a oneshot software blink
  * @led_cdev: the LED to start blinking
@@ -291,6 +345,8 @@ void led_blink_set(struct led_classdev *led_cdev, unsigned long *delay_on,
  *
  * If invert is set, led blinks for delay_off first, then for
  * delay_on and leave the led on after the on-off cycle.
+ *
+ * This function is guaranteed not to sleep.
  */
 void led_blink_set_oneshot(struct led_classdev *led_cdev,
 			   unsigned long *delay_on, unsigned long *delay_off,
@@ -318,6 +374,25 @@ void led_set_brightness(struct led_classdev *led_cdev, unsigned int brightness);
  * Returns: 0 on success or negative error value on failure
  */
 int led_set_brightness_sync(struct led_classdev *led_cdev, unsigned int value);
+
+/**
+ * led_mc_set_brightness - set mc LED color intensity values and brightness
+ * @led_cdev: the LED to set
+ * @intensity_value: array of per color intensity values to set
+ * @num_colors: amount of entries in intensity_value array
+ * @brightness: the brightness to set the LED to
+ *
+ * Set a multi-color LED's per color intensity values and brightness.
+ * If necessary, this cancels the software blink timer. This function is
+ * guaranteed not to sleep.
+ *
+ * Calling this function on a non multi-color led_classdev or with the wrong
+ * num_colors value is an error. In this case an error will be logged once
+ * and the call will do nothing.
+ */
+void led_mc_set_brightness(struct led_classdev *led_cdev,
+			   unsigned int *intensity_value, unsigned int num_colors,
+			   unsigned int brightness);
 
 /**
  * led_update_brightness - update LED brightness
@@ -374,6 +449,16 @@ int led_compose_name(struct device *dev, struct led_init_data *init_data,
 		     char *led_classdev_name);
 
 /**
+ * led_get_color_name - get string representation of color ID
+ * @color_id: The LED_COLOR_ID_* constant
+ *
+ * Get the string name of a LED_COLOR_ID_* constant.
+ *
+ * Returns: A string constant or NULL on an invalid ID.
+ */
+const char *led_get_color_name(u8 color_id);
+
+/**
  * led_sysfs_is_disabled - check if LED sysfs interface is disabled
  * @led_cdev: the LED to query
  *
@@ -400,6 +485,9 @@ struct led_trigger {
 	const char	 *name;
 	int		(*activate)(struct led_classdev *led_cdev);
 	void		(*deactivate)(struct led_classdev *led_cdev);
+
+	/* Brightness set by led_trigger_event */
+	enum led_brightness brightness;
 
 	/* LED-private triggers have this set */
 	struct led_hw_trigger_type *trigger_type;
@@ -433,6 +521,9 @@ void led_trigger_register_simple(const char *name,
 				struct led_trigger **trigger);
 void led_trigger_unregister_simple(struct led_trigger *trigger);
 void led_trigger_event(struct led_trigger *trigger,  enum led_brightness event);
+void led_mc_trigger_event(struct led_trigger *trig,
+			  unsigned int *intensity_value, unsigned int num_colors,
+			  enum led_brightness brightness);
 void led_trigger_blink(struct led_trigger *trigger, unsigned long delay_on,
 		       unsigned long delay_off);
 void led_trigger_blink_oneshot(struct led_trigger *trigger,
@@ -454,22 +545,11 @@ static inline void *led_get_trigger_data(struct led_classdev *led_cdev)
 	return led_cdev->trigger_data;
 }
 
-/**
- * led_trigger_rename_static - rename a trigger
- * @name: the new trigger name
- * @trig: the LED trigger to rename
- *
- * Change a LED trigger name by copying the string passed in
- * name into current trigger name, which MUST be large
- * enough for the new string.
- *
- * Note that name must NOT point to the same string used
- * during LED registration, as that could lead to races.
- *
- * This is meant to be used on triggers with statically
- * allocated name.
- */
-void led_trigger_rename_static(const char *name, struct led_trigger *trig);
+static inline enum led_brightness
+led_trigger_get_brightness(const struct led_trigger *trigger)
+{
+	return trigger ? trigger->brightness : LED_OFF;
+}
 
 #define module_led_trigger(__led_trigger) \
 	module_driver(__led_trigger, led_trigger_register, \
@@ -486,6 +566,9 @@ static inline void led_trigger_register_simple(const char *name,
 static inline void led_trigger_unregister_simple(struct led_trigger *trigger) {}
 static inline void led_trigger_event(struct led_trigger *trigger,
 				enum led_brightness event) {}
+static inline void led_mc_trigger_event(struct led_trigger *trig,
+				unsigned int *intensity_value, unsigned int num_colors,
+				enum led_brightness brightness) {}
 static inline void led_trigger_blink(struct led_trigger *trigger,
 				      unsigned long delay_on,
 				      unsigned long delay_off) {}
@@ -507,7 +590,33 @@ static inline void *led_get_trigger_data(struct led_classdev *led_cdev)
 	return NULL;
 }
 
+static inline enum led_brightness
+led_trigger_get_brightness(const struct led_trigger *trigger)
+{
+	return LED_OFF;
+}
+
 #endif /* CONFIG_LEDS_TRIGGERS */
+
+/* Trigger specific enum */
+enum led_trigger_netdev_modes {
+	TRIGGER_NETDEV_LINK = 0,
+	TRIGGER_NETDEV_LINK_10,
+	TRIGGER_NETDEV_LINK_100,
+	TRIGGER_NETDEV_LINK_1000,
+	TRIGGER_NETDEV_LINK_2500,
+	TRIGGER_NETDEV_LINK_5000,
+	TRIGGER_NETDEV_LINK_10000,
+	TRIGGER_NETDEV_HALF_DUPLEX,
+	TRIGGER_NETDEV_FULL_DUPLEX,
+	TRIGGER_NETDEV_TX,
+	TRIGGER_NETDEV_RX,
+	TRIGGER_NETDEV_TX_ERR,
+	TRIGGER_NETDEV_RX_ERR,
+
+	/* Keep last */
+	__TRIGGER_NETDEV_MAX,
+};
 
 /* Trigger specific functions */
 #ifdef CONFIG_LEDS_TRIGGER_DISK
@@ -584,7 +693,7 @@ struct gpio_led_platform_data {
 	gpio_blink_set_t	gpio_blink_set;
 };
 
-#ifdef CONFIG_NEW_LEDS
+#ifdef CONFIG_LEDS_GPIO_REGISTER
 struct platform_device *gpio_led_register_device(
 		int id, const struct gpio_led_platform_data *pdata);
 #else
@@ -634,19 +743,5 @@ enum led_audio {
 	LED_AUDIO_MICMUTE,	/* mic mute LED */
 	NUM_AUDIO_LEDS
 };
-
-#if IS_ENABLED(CONFIG_LEDS_TRIGGER_AUDIO)
-enum led_brightness ledtrig_audio_get(enum led_audio type);
-void ledtrig_audio_set(enum led_audio type, enum led_brightness state);
-#else
-static inline enum led_brightness ledtrig_audio_get(enum led_audio type)
-{
-	return LED_OFF;
-}
-static inline void ledtrig_audio_set(enum led_audio type,
-				     enum led_brightness state)
-{
-}
-#endif
 
 #endif		/* __LINUX_LEDS_H_INCLUDED */

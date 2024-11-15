@@ -29,18 +29,21 @@
 struct x86_pmu_capability __read_mostly kvm_pmu_cap;
 EXPORT_SYMBOL_GPL(kvm_pmu_cap);
 
+struct kvm_pmu_emulated_event_selectors __read_mostly kvm_pmu_eventsel;
+EXPORT_SYMBOL_GPL(kvm_pmu_eventsel);
+
 /* Precise Distribution of Instructions Retired (PDIR) */
 static const struct x86_cpu_id vmx_pebs_pdir_cpu[] = {
-	X86_MATCH_INTEL_FAM6_MODEL(ICELAKE_D, NULL),
-	X86_MATCH_INTEL_FAM6_MODEL(ICELAKE_X, NULL),
+	X86_MATCH_VFM(INTEL_ICELAKE_D, NULL),
+	X86_MATCH_VFM(INTEL_ICELAKE_X, NULL),
 	/* Instruction-Accurate PDIR (PDIR++) */
-	X86_MATCH_INTEL_FAM6_MODEL(SAPPHIRERAPIDS_X, NULL),
+	X86_MATCH_VFM(INTEL_SAPPHIRERAPIDS_X, NULL),
 	{}
 };
 
 /* Precise Distribution (PDist) */
 static const struct x86_cpu_id vmx_pebs_pdist_cpu[] = {
-	X86_MATCH_INTEL_FAM6_MODEL(SAPPHIRERAPIDS_X, NULL),
+	X86_MATCH_VFM(INTEL_SAPPHIRERAPIDS_X, NULL),
 	{}
 };
 
@@ -66,8 +69,8 @@ static const struct x86_cpu_id vmx_pebs_pdist_cpu[] = {
  *        code. Each pmc, stored in kvm_pmc.idx field, is unique across
  *        all perf counters (both gp and fixed). The mapping relationship
  *        between pmc and perf counters is as the following:
- *        * Intel: [0 .. KVM_INTEL_PMC_MAX_GENERIC-1] <=> gp counters
- *                 [INTEL_PMC_IDX_FIXED .. INTEL_PMC_IDX_FIXED + 2] <=> fixed
+ *        * Intel: [0 .. KVM_MAX_NR_INTEL_GP_COUNTERS-1] <=> gp counters
+ *                 [KVM_FIXED_PMC_BASE_IDX .. KVM_FIXED_PMC_BASE_IDX + 2] <=> fixed
  *        * AMD:   [0 .. AMD64_NUM_COUNTERS-1] and, for families 15H
  *          and later, [0 .. AMD64_NUM_COUNTERS_CORE-1] <=> gp counters
  */
@@ -191,7 +194,7 @@ static int pmc_reprogram_counter(struct kvm_pmc *pmc, u32 type, u64 config,
 	attr.sample_period = get_sample_period(pmc, pmc->counter);
 
 	if ((attr.config & HSW_IN_TX_CHECKPOINTED) &&
-	    guest_cpuid_is_intel(pmc->vcpu)) {
+	    (boot_cpu_has(X86_FEATURE_RTM) || boot_cpu_has(X86_FEATURE_HLE))) {
 		/*
 		 * HSW_IN_TX_CHECKPOINTED is not supported with nonzero
 		 * period. Just clear the sample period so at least
@@ -411,7 +414,7 @@ static bool is_gp_event_allowed(struct kvm_x86_pmu_event_filter *f,
 static bool is_fixed_event_allowed(struct kvm_x86_pmu_event_filter *filter,
 				   int idx)
 {
-	int fixed_idx = idx - INTEL_PMC_IDX_FIXED;
+	int fixed_idx = idx - KVM_FIXED_PMC_BASE_IDX;
 
 	if (filter->action == KVM_PMU_EVENT_DENY &&
 	    test_bit(fixed_idx, (ulong *)&filter->fixed_counter_bitmap))
@@ -444,7 +447,7 @@ static bool pmc_event_is_allowed(struct kvm_pmc *pmc)
 	       check_pmu_event_filter(pmc);
 }
 
-static void reprogram_counter(struct kvm_pmc *pmc)
+static int reprogram_counter(struct kvm_pmc *pmc)
 {
 	struct kvm_pmu *pmu = pmc_to_pmu(pmc);
 	u64 eventsel = pmc->eventsel;
@@ -455,7 +458,7 @@ static void reprogram_counter(struct kvm_pmc *pmc)
 	emulate_overflow = pmc_pause_counter(pmc);
 
 	if (!pmc_event_is_allowed(pmc))
-		goto reprogram_complete;
+		return 0;
 
 	if (emulate_overflow)
 		__kvm_perf_overflow(pmc, false);
@@ -465,60 +468,62 @@ static void reprogram_counter(struct kvm_pmc *pmc)
 
 	if (pmc_is_fixed(pmc)) {
 		fixed_ctr_ctrl = fixed_ctrl_field(pmu->fixed_ctr_ctrl,
-						  pmc->idx - INTEL_PMC_IDX_FIXED);
-		if (fixed_ctr_ctrl & 0x1)
+						  pmc->idx - KVM_FIXED_PMC_BASE_IDX);
+		if (fixed_ctr_ctrl & INTEL_FIXED_0_KERNEL)
 			eventsel |= ARCH_PERFMON_EVENTSEL_OS;
-		if (fixed_ctr_ctrl & 0x2)
+		if (fixed_ctr_ctrl & INTEL_FIXED_0_USER)
 			eventsel |= ARCH_PERFMON_EVENTSEL_USR;
-		if (fixed_ctr_ctrl & 0x8)
+		if (fixed_ctr_ctrl & INTEL_FIXED_0_ENABLE_PMI)
 			eventsel |= ARCH_PERFMON_EVENTSEL_INT;
 		new_config = (u64)fixed_ctr_ctrl;
 	}
 
 	if (pmc->current_config == new_config && pmc_resume_counter(pmc))
-		goto reprogram_complete;
+		return 0;
 
 	pmc_release_perf_event(pmc);
 
 	pmc->current_config = new_config;
 
-	/*
-	 * If reprogramming fails, e.g. due to contention, leave the counter's
-	 * regprogram bit set, i.e. opportunistically try again on the next PMU
-	 * refresh.  Don't make a new request as doing so can stall the guest
-	 * if reprogramming repeatedly fails.
-	 */
-	if (pmc_reprogram_counter(pmc, PERF_TYPE_RAW,
-				  (eventsel & pmu->raw_event_mask),
-				  !(eventsel & ARCH_PERFMON_EVENTSEL_USR),
-				  !(eventsel & ARCH_PERFMON_EVENTSEL_OS),
-				  eventsel & ARCH_PERFMON_EVENTSEL_INT))
-		return;
-
-reprogram_complete:
-	clear_bit(pmc->idx, (unsigned long *)&pmc_to_pmu(pmc)->reprogram_pmi);
+	return pmc_reprogram_counter(pmc, PERF_TYPE_RAW,
+				     (eventsel & pmu->raw_event_mask),
+				     !(eventsel & ARCH_PERFMON_EVENTSEL_USR),
+				     !(eventsel & ARCH_PERFMON_EVENTSEL_OS),
+				     eventsel & ARCH_PERFMON_EVENTSEL_INT);
 }
 
 void kvm_pmu_handle_event(struct kvm_vcpu *vcpu)
 {
+	DECLARE_BITMAP(bitmap, X86_PMC_IDX_MAX);
 	struct kvm_pmu *pmu = vcpu_to_pmu(vcpu);
+	struct kvm_pmc *pmc;
 	int bit;
 
-	for_each_set_bit(bit, pmu->reprogram_pmi, X86_PMC_IDX_MAX) {
-		struct kvm_pmc *pmc = static_call(kvm_x86_pmu_pmc_idx_to_pmc)(pmu, bit);
+	bitmap_copy(bitmap, pmu->reprogram_pmi, X86_PMC_IDX_MAX);
 
-		if (unlikely(!pmc)) {
-			clear_bit(bit, pmu->reprogram_pmi);
-			continue;
-		}
+	/*
+	 * The reprogramming bitmap can be written asynchronously by something
+	 * other than the task that holds vcpu->mutex, take care to clear only
+	 * the bits that will actually processed.
+	 */
+	BUILD_BUG_ON(sizeof(bitmap) != sizeof(atomic64_t));
+	atomic64_andnot(*(s64 *)bitmap, &pmu->__reprogram_pmi);
 
-		reprogram_counter(pmc);
+	kvm_for_each_pmc(pmu, pmc, bit, bitmap) {
+		/*
+		 * If reprogramming fails, e.g. due to contention, re-set the
+		 * regprogram bit set, i.e. opportunistically try again on the
+		 * next PMU refresh.  Don't make a new request as doing so can
+		 * stall the guest if reprogramming repeatedly fails.
+		 */
+		if (reprogram_counter(pmc))
+			set_bit(pmc->idx, pmu->reprogram_pmi);
 	}
 
 	/*
-	 * Unused perf_events are only released if the corresponding MSRs
-	 * weren't accessed during the last vCPU time slice. kvm_arch_sched_in
-	 * triggers KVM_REQ_PMU if cleanup is needed.
+	 * Release unused perf_events if the corresponding guest MSRs weren't
+	 * accessed during the last vCPU time slice (need_cleanup is set when
+	 * the vCPU is scheduled back in).
 	 */
 	if (unlikely(pmu->need_cleanup))
 		kvm_pmu_cleanup(vcpu);
@@ -537,7 +542,7 @@ int kvm_pmu_check_rdpmc_early(struct kvm_vcpu *vcpu, unsigned int idx)
 	if (!kvm_pmu_ops.check_rdpmc_early)
 		return 0;
 
-	return static_call(kvm_x86_pmu_check_rdpmc_early)(vcpu, idx);
+	return kvm_pmu_call(check_rdpmc_early)(vcpu, idx);
 }
 
 bool is_vmware_backdoor_pmc(u32 pmc_idx)
@@ -586,12 +591,12 @@ int kvm_pmu_rdpmc(struct kvm_vcpu *vcpu, unsigned idx, u64 *data)
 	if (is_vmware_backdoor_pmc(idx))
 		return kvm_pmu_rdpmc_vmware(vcpu, idx, data);
 
-	pmc = static_call(kvm_x86_pmu_rdpmc_ecx_to_pmc)(vcpu, idx, &mask);
+	pmc = kvm_pmu_call(rdpmc_ecx_to_pmc)(vcpu, idx, &mask);
 	if (!pmc)
 		return 1;
 
 	if (!kvm_is_cr4_bit_set(vcpu, X86_CR4_PCE) &&
-	    (static_call(kvm_x86_get_cpl)(vcpu) != 0) &&
+	    (kvm_x86_call(get_cpl)(vcpu) != 0) &&
 	    kvm_is_cr0_bit_set(vcpu, X86_CR0_PE))
 		return 1;
 
@@ -602,7 +607,7 @@ int kvm_pmu_rdpmc(struct kvm_vcpu *vcpu, unsigned idx, u64 *data)
 void kvm_pmu_deliver_pmi(struct kvm_vcpu *vcpu)
 {
 	if (lapic_in_kernel(vcpu)) {
-		static_call_cond(kvm_x86_pmu_deliver_pmi)(vcpu);
+		kvm_pmu_call(deliver_pmi)(vcpu);
 		kvm_apic_local_deliver(vcpu->arch.apic, APIC_LVTPC);
 	}
 }
@@ -617,14 +622,14 @@ bool kvm_pmu_is_valid_msr(struct kvm_vcpu *vcpu, u32 msr)
 	default:
 		break;
 	}
-	return static_call(kvm_x86_pmu_msr_idx_to_pmc)(vcpu, msr) ||
-		static_call(kvm_x86_pmu_is_valid_msr)(vcpu, msr);
+	return kvm_pmu_call(msr_idx_to_pmc)(vcpu, msr) ||
+	       kvm_pmu_call(is_valid_msr)(vcpu, msr);
 }
 
 static void kvm_pmu_mark_pmc_in_use(struct kvm_vcpu *vcpu, u32 msr)
 {
 	struct kvm_pmu *pmu = vcpu_to_pmu(vcpu);
-	struct kvm_pmc *pmc = static_call(kvm_x86_pmu_msr_idx_to_pmc)(vcpu, msr);
+	struct kvm_pmc *pmc = kvm_pmu_call(msr_idx_to_pmc)(vcpu, msr);
 
 	if (pmc)
 		__set_bit(pmc->idx, pmu->pmc_in_use);
@@ -649,7 +654,7 @@ int kvm_pmu_get_msr(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 		msr_info->data = 0;
 		break;
 	default:
-		return static_call(kvm_x86_pmu_get_msr)(vcpu, msr_info);
+		return kvm_pmu_call(get_msr)(vcpu, msr_info);
 	}
 
 	return 0;
@@ -676,13 +681,13 @@ int kvm_pmu_set_msr(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 		if (!msr_info->host_initiated)
 			break;
 
-		if (data & pmu->global_status_mask)
+		if (data & pmu->global_status_rsvd)
 			return 1;
 
 		pmu->global_status = data;
 		break;
 	case MSR_AMD64_PERF_CNTR_GLOBAL_CTL:
-		data &= ~pmu->global_ctrl_mask;
+		data &= ~pmu->global_ctrl_rsvd;
 		fallthrough;
 	case MSR_CORE_PERF_GLOBAL_CTRL:
 		if (!kvm_valid_perf_global_ctrl(pmu, data))
@@ -699,7 +704,7 @@ int kvm_pmu_set_msr(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 		 * GLOBAL_OVF_CTRL, a.k.a. GLOBAL STATUS_RESET, clears bits in
 		 * GLOBAL_STATUS, and so the set of reserved bits is the same.
 		 */
-		if (data & pmu->global_status_mask)
+		if (data & pmu->global_status_rsvd)
 			return 1;
 		fallthrough;
 	case MSR_AMD64_PERF_CNTR_GLOBAL_STATUS_CLR:
@@ -708,7 +713,7 @@ int kvm_pmu_set_msr(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 		break;
 	default:
 		kvm_pmu_mark_pmc_in_use(vcpu, msr_info->index);
-		return static_call(kvm_x86_pmu_set_msr)(vcpu, msr_info);
+		return kvm_pmu_call(set_msr)(vcpu, msr_info);
 	}
 
 	return 0;
@@ -724,11 +729,7 @@ static void kvm_pmu_reset(struct kvm_vcpu *vcpu)
 
 	bitmap_zero(pmu->reprogram_pmi, X86_PMC_IDX_MAX);
 
-	for_each_set_bit(i, pmu->all_valid_pmc_idx, X86_PMC_IDX_MAX) {
-		pmc = static_call(kvm_x86_pmu_pmc_idx_to_pmc)(pmu, i);
-		if (!pmc)
-			continue;
-
+	kvm_for_each_pmc(pmu, pmc, i, pmu->all_valid_pmc_idx) {
 		pmc_stop_counter(pmc);
 		pmc->counter = 0;
 		pmc->emulated_counter = 0;
@@ -739,7 +740,7 @@ static void kvm_pmu_reset(struct kvm_vcpu *vcpu)
 
 	pmu->fixed_ctr_ctrl = pmu->global_ctrl = pmu->global_status = 0;
 
-	static_call_cond(kvm_x86_pmu_reset)(vcpu);
+	kvm_pmu_call(reset)(vcpu);
 }
 
 
@@ -767,17 +768,17 @@ void kvm_pmu_refresh(struct kvm_vcpu *vcpu)
 	pmu->counter_bitmask[KVM_PMC_FIXED] = 0;
 	pmu->reserved_bits = 0xffffffff00200000ull;
 	pmu->raw_event_mask = X86_RAW_EVENT_MASK;
-	pmu->global_ctrl_mask = ~0ull;
-	pmu->global_status_mask = ~0ull;
-	pmu->fixed_ctr_ctrl_mask = ~0ull;
-	pmu->pebs_enable_mask = ~0ull;
-	pmu->pebs_data_cfg_mask = ~0ull;
+	pmu->global_ctrl_rsvd = ~0ull;
+	pmu->global_status_rsvd = ~0ull;
+	pmu->fixed_ctr_ctrl_rsvd = ~0ull;
+	pmu->pebs_enable_rsvd = ~0ull;
+	pmu->pebs_data_cfg_rsvd = ~0ull;
 	bitmap_zero(pmu->all_valid_pmc_idx, X86_PMC_IDX_MAX);
 
 	if (!vcpu->kvm->arch.enable_pmu)
 		return;
 
-	static_call(kvm_x86_pmu_refresh)(vcpu);
+	kvm_pmu_call(refresh)(vcpu);
 
 	/*
 	 * At RESET, both Intel and AMD CPUs set all enable bits for general
@@ -795,7 +796,7 @@ void kvm_pmu_init(struct kvm_vcpu *vcpu)
 	struct kvm_pmu *pmu = vcpu_to_pmu(vcpu);
 
 	memset(pmu, 0, sizeof(*pmu));
-	static_call(kvm_x86_pmu_init)(vcpu);
+	kvm_pmu_call(init)(vcpu);
 	kvm_pmu_refresh(vcpu);
 }
 
@@ -812,14 +813,12 @@ void kvm_pmu_cleanup(struct kvm_vcpu *vcpu)
 	bitmap_andnot(bitmask, pmu->all_valid_pmc_idx,
 		      pmu->pmc_in_use, X86_PMC_IDX_MAX);
 
-	for_each_set_bit(i, bitmask, X86_PMC_IDX_MAX) {
-		pmc = static_call(kvm_x86_pmu_pmc_idx_to_pmc)(pmu, i);
-
-		if (pmc && pmc->perf_event && !pmc_speculative_in_use(pmc))
+	kvm_for_each_pmc(pmu, pmc, i, bitmask) {
+		if (pmc->perf_event && !pmc_speculative_in_use(pmc))
 			pmc_stop_counter(pmc);
 	}
 
-	static_call_cond(kvm_x86_pmu_cleanup)(vcpu);
+	kvm_pmu_call(cleanup)(vcpu);
 
 	bitmap_zero(pmu->pmc_in_use, X86_PMC_IDX_MAX);
 }
@@ -835,13 +834,6 @@ static void kvm_pmu_incr_counter(struct kvm_pmc *pmc)
 	kvm_pmu_request_counter_reprogram(pmc);
 }
 
-static inline bool eventsel_match_perf_hw_id(struct kvm_pmc *pmc,
-	unsigned int perf_hw_id)
-{
-	return !((pmc->eventsel ^ perf_get_hw_event_config(perf_hw_id)) &
-		AMD64_RAW_EVENT_MASK_NB);
-}
-
 static inline bool cpl_is_matched(struct kvm_pmc *pmc)
 {
 	bool select_os, select_user;
@@ -853,29 +845,57 @@ static inline bool cpl_is_matched(struct kvm_pmc *pmc)
 		select_user = config & ARCH_PERFMON_EVENTSEL_USR;
 	} else {
 		config = fixed_ctrl_field(pmc_to_pmu(pmc)->fixed_ctr_ctrl,
-					  pmc->idx - INTEL_PMC_IDX_FIXED);
-		select_os = config & 0x1;
-		select_user = config & 0x2;
+					  pmc->idx - KVM_FIXED_PMC_BASE_IDX);
+		select_os = config & INTEL_FIXED_0_KERNEL;
+		select_user = config & INTEL_FIXED_0_USER;
 	}
 
-	return (static_call(kvm_x86_get_cpl)(pmc->vcpu) == 0) ? select_os : select_user;
+	/*
+	 * Skip the CPL lookup, which isn't free on Intel, if the result will
+	 * be the same regardless of the CPL.
+	 */
+	if (select_os == select_user)
+		return select_os;
+
+	return (kvm_x86_call(get_cpl)(pmc->vcpu) == 0) ? select_os :
+							 select_user;
 }
 
-void kvm_pmu_trigger_event(struct kvm_vcpu *vcpu, u64 perf_hw_id)
+void kvm_pmu_trigger_event(struct kvm_vcpu *vcpu, u64 eventsel)
 {
+	DECLARE_BITMAP(bitmap, X86_PMC_IDX_MAX);
 	struct kvm_pmu *pmu = vcpu_to_pmu(vcpu);
 	struct kvm_pmc *pmc;
 	int i;
 
-	for_each_set_bit(i, pmu->all_valid_pmc_idx, X86_PMC_IDX_MAX) {
-		pmc = static_call(kvm_x86_pmu_pmc_idx_to_pmc)(pmu, i);
+	BUILD_BUG_ON(sizeof(pmu->global_ctrl) * BITS_PER_BYTE != X86_PMC_IDX_MAX);
 
-		if (!pmc || !pmc_event_is_allowed(pmc))
+	if (!kvm_pmu_has_perf_global_ctrl(pmu))
+		bitmap_copy(bitmap, pmu->all_valid_pmc_idx, X86_PMC_IDX_MAX);
+	else if (!bitmap_and(bitmap, pmu->all_valid_pmc_idx,
+			     (unsigned long *)&pmu->global_ctrl, X86_PMC_IDX_MAX))
+		return;
+
+	kvm_for_each_pmc(pmu, pmc, i, bitmap) {
+		/*
+		 * Ignore checks for edge detect (all events currently emulated
+		 * but KVM are always rising edges), pin control (unsupported
+		 * by modern CPUs), and counter mask and its invert flag (KVM
+		 * doesn't emulate multiple events in a single clock cycle).
+		 *
+		 * Note, the uppermost nibble of AMD's mask overlaps Intel's
+		 * IN_TX (bit 32) and IN_TXCP (bit 33), as well as two reserved
+		 * bits (bits 35:34).  Checking the "in HLE/RTM transaction"
+		 * flags is correct as the vCPU can't be in a transaction if
+		 * KVM is emulating an instruction.  Checking the reserved bits
+		 * might be wrong if they are defined in the future, but so
+		 * could ignoring them, so do the simple thing for now.
+		 */
+		if (((pmc->eventsel ^ eventsel) & AMD64_RAW_EVENT_MASK_NB) ||
+		    !pmc_event_is_allowed(pmc) || !cpl_is_matched(pmc))
 			continue;
 
-		/* Ignore checks for edge detect, pin control, invert and CMASK bits */
-		if (eventsel_match_perf_hw_id(pmc, perf_hw_id) && cpl_is_matched(pmc))
-			kvm_pmu_incr_counter(pmc);
+		kvm_pmu_incr_counter(pmc);
 	}
 }
 EXPORT_SYMBOL_GPL(kvm_pmu_trigger_event);

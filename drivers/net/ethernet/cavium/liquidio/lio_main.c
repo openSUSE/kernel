@@ -92,12 +92,6 @@ static int octeon_console_debug_enabled(u32 console)
 /* time to wait for possible in-flight requests in milliseconds */
 #define WAIT_INFLIGHT_REQUEST	msecs_to_jiffies(1000)
 
-struct oct_link_status_resp {
-	u64 rh;
-	struct oct_link_info link_info;
-	u64 status;
-};
-
 struct oct_timestamp_resp {
 	u64 rh;
 	u64 timestamp;
@@ -191,8 +185,7 @@ static void octeon_droq_bh(struct tasklet_struct *t)
 
 static int lio_wait_for_oq_pkts(struct octeon_device *oct)
 {
-	struct octeon_device_priv *oct_priv =
-		(struct octeon_device_priv *)oct->priv;
+	struct octeon_device_priv *oct_priv = oct->priv;
 	int retry = 100, pkt_cnt = 0, pending_pkts = 0;
 	int i;
 
@@ -950,8 +943,7 @@ static void octeon_destroy_resources(struct octeon_device *oct)
 {
 	int i, refcount;
 	struct msix_entry *msix_entries;
-	struct octeon_device_priv *oct_priv =
-		(struct octeon_device_priv *)oct->priv;
+	struct octeon_device_priv *oct_priv = oct->priv;
 
 	struct handshake *hs;
 
@@ -1211,8 +1203,7 @@ static int send_rx_ctrl_cmd(struct lio *lio, int start_stop)
 static void liquidio_destroy_nic_device(struct octeon_device *oct, int ifidx)
 {
 	struct net_device *netdev = oct->props[ifidx].netdev;
-	struct octeon_device_priv *oct_priv =
-		(struct octeon_device_priv *)oct->priv;
+	struct octeon_device_priv *oct_priv = oct->priv;
 	struct napi_struct *napi, *n;
 	struct lio *lio;
 
@@ -1692,7 +1683,7 @@ static int load_firmware(struct octeon_device *oct)
 
 	if (fw_type_is_auto()) {
 		tmp_fw_type = LIO_FW_NAME_TYPE_NIC;
-		strncpy(fw_type, tmp_fw_type, sizeof(fw_type));
+		strscpy_pad(fw_type, tmp_fw_type, sizeof(fw_type));
 	} else {
 		tmp_fw_type = fw_type;
 	}
@@ -1774,8 +1765,7 @@ static int liquidio_open(struct net_device *netdev)
 {
 	struct lio *lio = GET_LIO(netdev);
 	struct octeon_device *oct = lio->oct_dev;
-	struct octeon_device_priv *oct_priv =
-		(struct octeon_device_priv *)oct->priv;
+	struct octeon_device_priv *oct_priv = oct->priv;
 	struct napi_struct *napi, *n;
 	int ret = 0;
 
@@ -1855,8 +1845,7 @@ static int liquidio_stop(struct net_device *netdev)
 {
 	struct lio *lio = GET_LIO(netdev);
 	struct octeon_device *oct = lio->oct_dev;
-	struct octeon_device_priv *oct_priv =
-		(struct octeon_device_priv *)oct->priv;
+	struct octeon_device_priv *oct_priv = oct->priv;
 	struct napi_struct *napi, *n;
 	int ret = 0;
 
@@ -4057,8 +4046,7 @@ static int octeon_device_init(struct octeon_device *octeon_dev)
 	char bootcmd[] = "\n";
 	char *dbg_enb = NULL;
 	enum lio_fw_state fw_state;
-	struct octeon_device_priv *oct_priv =
-		(struct octeon_device_priv *)octeon_dev->priv;
+	struct octeon_device_priv *oct_priv = octeon_dev->priv;
 	atomic_set(&octeon_dev->status, OCT_DEV_BEGIN_STATE);
 
 	/* Enable access to the octeon device and make its DMA capability

@@ -177,7 +177,7 @@ err_rmr:
 	return rv;
 }
 
-static int ohci_hcd_ppc_of_remove(struct platform_device *op)
+static void ohci_hcd_ppc_of_remove(struct platform_device *op)
 {
 	struct usb_hcd *hcd = platform_get_drvdata(op);
 
@@ -188,8 +188,6 @@ static int ohci_hcd_ppc_of_remove(struct platform_device *op)
 	irq_dispose_mapping(hcd->irq);
 
 	usb_put_hcd(hcd);
-
-	return 0;
 }
 
 static const struct of_device_id ohci_hcd_ppc_of_match[] = {
@@ -204,10 +202,6 @@ static const struct of_device_id ohci_hcd_ppc_of_match[] = {
 	},
 #endif
 #ifdef CONFIG_USB_OHCI_HCD_PPC_OF_LE
-	{
-		.name = "usb",
-		.compatible = "ohci-littledian",
-	},
 	{
 		.name = "usb",
 		.compatible = "ohci-le",
@@ -225,7 +219,7 @@ MODULE_DEVICE_TABLE(of, ohci_hcd_ppc_of_match);
 
 static struct platform_driver ohci_hcd_ppc_of_driver = {
 	.probe		= ohci_hcd_ppc_of_probe,
-	.remove		= ohci_hcd_ppc_of_remove,
+	.remove_new	= ohci_hcd_ppc_of_remove,
 	.shutdown	= usb_hcd_platform_shutdown,
 	.driver = {
 		.name = "ppc-of-ohci",

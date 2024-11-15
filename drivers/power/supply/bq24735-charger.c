@@ -489,7 +489,7 @@ static int bq24735_charger_probe(struct i2c_client *client)
 }
 
 static const struct i2c_device_id bq24735_charger_id[] = {
-	{ "bq24735-charger", 0 },
+	{ "bq24735-charger" },
 	{}
 };
 MODULE_DEVICE_TABLE(i2c, bq24735_charger_id);
@@ -505,7 +505,7 @@ static struct i2c_driver bq24735_charger_driver = {
 		.name = "bq24735-charger",
 		.of_match_table = bq24735_match_ids,
 	},
-	.probe_new = bq24735_charger_probe,
+	.probe = bq24735_charger_probe,
 	.id_table = bq24735_charger_id,
 };
 

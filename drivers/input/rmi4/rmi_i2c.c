@@ -365,7 +365,7 @@ static const struct dev_pm_ops rmi_i2c_pm = {
 };
 
 static const struct i2c_device_id rmi_id[] = {
-	{ "rmi4_i2c", 0 },
+	{ "rmi4_i2c" },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, rmi_id);
@@ -377,7 +377,7 @@ static struct i2c_driver rmi_i2c_driver = {
 		.of_match_table = of_match_ptr(rmi_i2c_of_match),
 	},
 	.id_table	= rmi_id,
-	.probe_new	= rmi_i2c_probe,
+	.probe		= rmi_i2c_probe,
 };
 
 module_i2c_driver(rmi_i2c_driver);

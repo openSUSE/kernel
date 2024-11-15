@@ -673,7 +673,7 @@ static const struct scsi_host_template mv6_sht = {
 	.sdev_groups		= ata_ncq_sdev_groups,
 	.change_queue_depth	= ata_scsi_change_queue_depth,
 	.tag_alloc_policy	= BLK_TAG_ALLOC_RR,
-	.slave_configure	= ata_scsi_slave_config
+	.device_configure	= ata_scsi_device_configure
 };
 
 static struct ata_port_operations mv5_ops = {
@@ -3602,7 +3602,7 @@ static int mv_hardreset(struct ata_link *link, unsigned int *class,
 
 	/* Workaround for errata FEr SATA#10 (part 2) */
 	do {
-		const unsigned long *timing =
+		const unsigned int *timing =
 				sata_ehc_deb_timing(&link->eh_context);
 
 		rc = sata_link_hardreset(link, timing, deadline + extra,
@@ -4092,10 +4092,13 @@ static int mv_platform_probe(struct platform_device *pdev)
 	hpriv->base -= SATAHC0_REG_BASE;
 
 	hpriv->clk = clk_get(&pdev->dev, NULL);
-	if (IS_ERR(hpriv->clk))
+	if (IS_ERR(hpriv->clk)) {
 		dev_notice(&pdev->dev, "cannot get optional clkdev\n");
-	else
-		clk_prepare_enable(hpriv->clk);
+	} else {
+		rc = clk_prepare_enable(hpriv->clk);
+		if (rc)
+			goto err;
+	}
 
 	for (port = 0; port < n_ports; port++) {
 		char port_number[16];
@@ -4179,7 +4182,7 @@ err:
  *      A platform bus SATA device has been unplugged. Perform the needed
  *      cleanup. Also called on module unload for any active devices.
  */
-static int mv_platform_remove(struct platform_device *pdev)
+static void mv_platform_remove(struct platform_device *pdev)
 {
 	struct ata_host *host = platform_get_drvdata(pdev);
 	struct mv_host_priv *hpriv = host->private_data;
@@ -4197,7 +4200,6 @@ static int mv_platform_remove(struct platform_device *pdev)
 		}
 		phy_power_off(hpriv->port_phys[port]);
 	}
-	return 0;
 }
 
 #ifdef CONFIG_PM_SLEEP
@@ -4253,7 +4255,7 @@ MODULE_DEVICE_TABLE(of, mv_sata_dt_ids);
 
 static struct platform_driver mv_platform_driver = {
 	.probe		= mv_platform_probe,
-	.remove		= mv_platform_remove,
+	.remove_new	= mv_platform_remove,
 	.suspend	= mv_platform_suspend,
 	.resume		= mv_platform_resume,
 	.driver		= {

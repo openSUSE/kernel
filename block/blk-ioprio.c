@@ -23,36 +23,31 @@
 /**
  * enum prio_policy - I/O priority class policy.
  * @POLICY_NO_CHANGE: (default) do not modify the I/O priority class.
- * @POLICY_NONE_TO_RT: modify IOPRIO_CLASS_NONE into IOPRIO_CLASS_RT.
+ * @POLICY_PROMOTE_TO_RT: modify no-IOPRIO_CLASS_RT to IOPRIO_CLASS_RT.
  * @POLICY_RESTRICT_TO_BE: modify IOPRIO_CLASS_NONE and IOPRIO_CLASS_RT into
  *		IOPRIO_CLASS_BE.
  * @POLICY_ALL_TO_IDLE: change the I/O priority class into IOPRIO_CLASS_IDLE.
+ * @POLICY_NONE_TO_RT: an alias for POLICY_PROMOTE_TO_RT.
  *
  * See also <linux/ioprio.h>.
  */
 enum prio_policy {
 	POLICY_NO_CHANGE	= 0,
-	POLICY_NONE_TO_RT	= 1,
+	POLICY_PROMOTE_TO_RT	= 1,
 	POLICY_RESTRICT_TO_BE	= 2,
 	POLICY_ALL_TO_IDLE	= 3,
+	POLICY_NONE_TO_RT	= 4,
 };
 
 static const char *policy_name[] = {
 	[POLICY_NO_CHANGE]	= "no-change",
-	[POLICY_NONE_TO_RT]	= "none-to-rt",
+	[POLICY_PROMOTE_TO_RT]	= "promote-to-rt",
 	[POLICY_RESTRICT_TO_BE]	= "restrict-to-be",
 	[POLICY_ALL_TO_IDLE]	= "idle",
+	[POLICY_NONE_TO_RT]	= "none-to-rt",
 };
 
 static struct blkcg_policy ioprio_policy;
-
-/**
- * struct ioprio_blkg - Per (cgroup, request queue) data.
- * @pd: blkg_policy_data structure.
- */
-struct ioprio_blkg {
-	struct blkg_policy_data pd;
-};
 
 /**
  * struct ioprio_blkcg - Per cgroup data.
@@ -64,11 +59,6 @@ struct ioprio_blkcg {
 	enum prio_policy	 prio_policy;
 };
 
-static inline struct ioprio_blkg *pd_to_ioprio(struct blkg_policy_data *pd)
-{
-	return pd ? container_of(pd, struct ioprio_blkg, pd) : NULL;
-}
-
 static struct ioprio_blkcg *blkcg_to_ioprio_blkcg(struct blkcg *blkcg)
 {
 	return container_of(blkcg_to_cpd(blkcg, &ioprio_policy),
@@ -79,16 +69,6 @@ static struct ioprio_blkcg *
 ioprio_blkcg_from_css(struct cgroup_subsys_state *css)
 {
 	return blkcg_to_ioprio_blkcg(css_to_blkcg(css));
-}
-
-static struct ioprio_blkcg *ioprio_blkcg_from_bio(struct bio *bio)
-{
-	struct blkg_policy_data *pd = blkg_to_pd(bio->bi_blkg, &ioprio_policy);
-
-	if (!pd)
-		return NULL;
-
-	return blkcg_to_ioprio_blkcg(pd->blkg->blkcg);
 }
 
 static int ioprio_show_prio_policy(struct seq_file *sf, void *v)
@@ -113,25 +93,6 @@ static ssize_t ioprio_set_prio_policy(struct kernfs_open_file *of, char *buf,
 		return ret;
 	blkcg->prio_policy = ret;
 	return nbytes;
-}
-
-static struct blkg_policy_data *
-ioprio_alloc_pd(struct gendisk *disk, struct blkcg *blkcg, gfp_t gfp)
-{
-	struct ioprio_blkg *ioprio_blkg;
-
-	ioprio_blkg = kzalloc(sizeof(*ioprio_blkg), gfp);
-	if (!ioprio_blkg)
-		return NULL;
-
-	return &ioprio_blkg->pd;
-}
-
-static void ioprio_free_pd(struct blkg_policy_data *pd)
-{
-	struct ioprio_blkg *ioprio_blkg = pd_to_ioprio(pd);
-
-	kfree(ioprio_blkg);
 }
 
 static struct blkcg_policy_data *ioprio_alloc_cpd(gfp_t gfp)
@@ -176,18 +137,29 @@ static struct blkcg_policy ioprio_policy = {
 
 	.cpd_alloc_fn	= ioprio_alloc_cpd,
 	.cpd_free_fn	= ioprio_free_cpd,
-
-	.pd_alloc_fn	= ioprio_alloc_pd,
-	.pd_free_fn	= ioprio_free_pd,
 };
 
 void blkcg_set_ioprio(struct bio *bio)
 {
-	struct ioprio_blkcg *blkcg = ioprio_blkcg_from_bio(bio);
+	struct ioprio_blkcg *blkcg = blkcg_to_ioprio_blkcg(bio->bi_blkg->blkcg);
 	u16 prio;
 
 	if (!blkcg || blkcg->prio_policy == POLICY_NO_CHANGE)
 		return;
+
+	if (blkcg->prio_policy == POLICY_PROMOTE_TO_RT ||
+	    blkcg->prio_policy == POLICY_NONE_TO_RT) {
+		/*
+		 * For RT threads, the default priority level is 4 because
+		 * task_nice is 0. By promoting non-RT io-priority to RT-class
+		 * and default level 4, those requests that are already
+		 * RT-class but need a higher io-priority can use ioprio_set()
+		 * to achieve this.
+		 */
+		if (IOPRIO_PRIO_CLASS(bio->bi_ioprio) != IOPRIO_CLASS_RT)
+			bio->bi_ioprio = IOPRIO_PRIO_VALUE(IOPRIO_CLASS_RT, 4);
+		return;
+	}
 
 	/*
 	 * Except for IOPRIO_CLASS_NONE, higher I/O priority numbers
@@ -200,16 +172,6 @@ void blkcg_set_ioprio(struct bio *bio)
 			IOPRIO_PRIO_VALUE(blkcg->prio_policy, 0));
 	if (prio > bio->bi_ioprio)
 		bio->bi_ioprio = prio;
-}
-
-void blk_ioprio_exit(struct gendisk *disk)
-{
-	blkcg_deactivate_policy(disk, &ioprio_policy);
-}
-
-int blk_ioprio_init(struct gendisk *disk)
-{
-	return blkcg_activate_policy(disk, &ioprio_policy);
 }
 
 static int __init ioprio_init(void)

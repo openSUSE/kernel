@@ -105,7 +105,7 @@ static int gmc_v10_0_process_interrupt(struct amdgpu_device *adev,
 	struct amdgpu_vmhub *hub = &adev->vmhub[vmhub_index];
 	bool retry_fault = !!(entry->src_data[1] & 0x80);
 	bool write_fault = !!(entry->src_data[1] & 0x20);
-	struct amdgpu_task_info task_info;
+	struct amdgpu_task_info *task_info;
 	uint32_t status = 0;
 	u64 addr;
 
@@ -132,7 +132,8 @@ static int gmc_v10_0_process_interrupt(struct amdgpu_device *adev,
 		/* Try to handle the recoverable page faults by filling page
 		 * tables
 		 */
-		if (amdgpu_vm_handle_fault(adev, entry->pasid, 0, 0, addr, write_fault))
+		if (amdgpu_vm_handle_fault(adev, entry->pasid, 0, 0, addr,
+					   entry->timestamp, write_fault))
 			return 1;
 	}
 
@@ -157,18 +158,22 @@ static int gmc_v10_0_process_interrupt(struct amdgpu_device *adev,
 	if (!printk_ratelimit())
 		return 0;
 
-	memset(&task_info, 0, sizeof(struct amdgpu_task_info));
-	amdgpu_vm_get_task_info(adev, entry->pasid, &task_info);
-
 	dev_err(adev->dev,
-		"[%s] page fault (src_id:%u ring:%u vmid:%u pasid:%u, for process %s pid %d thread %s pid %d)\n",
+		"[%s] page fault (src_id:%u ring:%u vmid:%u pasid:%u)\n",
 		entry->vmid_src ? "mmhub" : "gfxhub",
-		entry->src_id, entry->ring_id, entry->vmid,
-		entry->pasid, task_info.process_name, task_info.tgid,
-		task_info.task_name, task_info.pid);
+		entry->src_id, entry->ring_id, entry->vmid, entry->pasid);
+	task_info = amdgpu_vm_get_task_info_pasid(adev, entry->pasid);
+	if (task_info) {
+		dev_err(adev->dev,
+			" in process %s pid %d thread %s pid %d\n",
+			task_info->process_name, task_info->tgid,
+			task_info->task_name, task_info->pid);
+		amdgpu_vm_put_task_info(task_info);
+	}
+
 	dev_err(adev->dev, "  in page starting at address 0x%016llx from client 0x%x (%s)\n",
-		addr, entry->client_id,
-		soc15_ih_clientid_name[entry->client_id]);
+			addr, entry->client_id,
+			soc15_ih_clientid_name[entry->client_id]);
 
 	if (!amdgpu_sriov_vf(adev))
 		hub->vmhub_funcs->print_l2_protection_fault_status(adev,
@@ -262,16 +267,17 @@ static void gmc_v10_0_flush_gpu_tlb(struct amdgpu_device *adev, uint32_t vmid,
 	/* flush hdp cache */
 	adev->hdp.funcs->flush_hdp(adev, NULL);
 
-	/* For SRIOV run time, driver shouldn't access the register through MMIO
-	 * Directly use kiq to do the vm invalidation instead
+	/* This is necessary for SRIOV as well as for GFXOFF to function
+	 * properly under bare metal
 	 */
 	if (adev->gfx.kiq[0].ring.sched.ready && !adev->enable_mes &&
 	    (amdgpu_sriov_runtime(adev) || !amdgpu_sriov_vf(adev))) {
-		amdgpu_virt_kiq_reg_write_reg_wait(adev, req, ack, inv_req,
-				1 << vmid, GET_INST(GC, 0));
+		amdgpu_gmc_fw_reg_write_reg_wait(adev, req, ack, inv_req,
+						 1 << vmid, GET_INST(GC, 0));
 		return;
 	}
 
+	/* This path is needed before KIQ/MES/GFXOFF are set up */
 	hub_ip = (vmhub == AMDGPU_GFXHUB(0)) ? GC_HWIP : MMHUB_HWIP;
 
 	spin_lock(&adev->gmc.invalidate_lock);
@@ -468,17 +474,17 @@ static uint64_t gmc_v10_0_map_mtype(struct amdgpu_device *adev, uint32_t flags)
 {
 	switch (flags) {
 	case AMDGPU_VM_MTYPE_DEFAULT:
-		return AMDGPU_PTE_MTYPE_NV10(MTYPE_NC);
+		return AMDGPU_PTE_MTYPE_NV10(0ULL, MTYPE_NC);
 	case AMDGPU_VM_MTYPE_NC:
-		return AMDGPU_PTE_MTYPE_NV10(MTYPE_NC);
+		return AMDGPU_PTE_MTYPE_NV10(0ULL, MTYPE_NC);
 	case AMDGPU_VM_MTYPE_WC:
-		return AMDGPU_PTE_MTYPE_NV10(MTYPE_WC);
+		return AMDGPU_PTE_MTYPE_NV10(0ULL, MTYPE_WC);
 	case AMDGPU_VM_MTYPE_CC:
-		return AMDGPU_PTE_MTYPE_NV10(MTYPE_CC);
+		return AMDGPU_PTE_MTYPE_NV10(0ULL, MTYPE_CC);
 	case AMDGPU_VM_MTYPE_UC:
-		return AMDGPU_PTE_MTYPE_NV10(MTYPE_UC);
+		return AMDGPU_PTE_MTYPE_NV10(0ULL, MTYPE_UC);
 	default:
-		return AMDGPU_PTE_MTYPE_NV10(MTYPE_NC);
+		return AMDGPU_PTE_MTYPE_NV10(0ULL, MTYPE_NC);
 	}
 }
 
@@ -531,8 +537,7 @@ static void gmc_v10_0_get_vm_pte(struct amdgpu_device *adev,
 	if (bo && bo->flags & (AMDGPU_GEM_CREATE_COHERENT |
 			       AMDGPU_GEM_CREATE_EXT_COHERENT |
 			       AMDGPU_GEM_CREATE_UNCACHED))
-		*flags = (*flags & ~AMDGPU_PTE_MTYPE_NV10_MASK) |
-			 AMDGPU_PTE_MTYPE_NV10(MTYPE_UC);
+		*flags = AMDGPU_PTE_MTYPE_NV10(*flags, MTYPE_UC);
 }
 
 static unsigned int gmc_v10_0_get_vbios_fb_size(struct amdgpu_device *adev)
@@ -758,7 +763,7 @@ static int gmc_v10_0_gart_init(struct amdgpu_device *adev)
 		return r;
 
 	adev->gart.table_size = adev->gart.num_gpu_pages * 8;
-	adev->gart.gart_pte_flags = AMDGPU_PTE_MTYPE_NV10(MTYPE_UC) |
+	adev->gart.gart_pte_flags = AMDGPU_PTE_MTYPE_NV10(0ULL, MTYPE_UC) |
 				 AMDGPU_PTE_EXECUTABLE;
 
 	return amdgpu_gart_table_vram_alloc(adev);

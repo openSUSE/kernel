@@ -6,10 +6,7 @@
 #include <linux/compiler.h>
 #include <linux/cpu.h>
 #include <linux/cpuidle.h>
-
-/* HMAC algorithm for hibernate snapshot signature */
-#define SNAPSHOT_HMAC	"hmac(sha512)"
-#define SNAPSHOT_DIGEST_SIZE 64
+#include <linux/crypto.h>
 
 struct swsusp_info {
 	struct new_utsname	uts;
@@ -19,8 +16,6 @@ struct swsusp_info {
 	unsigned long		image_pages;
 	unsigned long		pages;
 	unsigned long		size;
-	unsigned long           trampoline_pfn;
-	u8                      signature[SNAPSHOT_DIGEST_SIZE];
 } __aligned(PAGE_SIZE);
 
 #ifdef CONFIG_HIBERNATION
@@ -31,9 +26,6 @@ extern void __init hibernate_image_size_init(void);
 #ifdef CONFIG_ARCH_HIBERNATION_HEADER
 /* Maximum size of architecture specific data in a hibernation header */
 #define MAX_ARCH_HEADER_SIZE	(sizeof(struct new_utsname) + 4)
-
-extern int arch_hibernation_header_save(void *addr, unsigned int max_size);
-extern int arch_hibernation_header_restore(void *addr);
 
 static inline int init_header_complete(struct swsusp_info *info)
 {
@@ -46,8 +38,6 @@ static inline const char *check_image_kernel(struct swsusp_info *info)
 			"architecture specific data" : NULL;
 }
 #endif /* CONFIG_ARCH_HIBERNATION_HEADER */
-
-extern int hibernate_resume_nonboot_cpu_disable(void);
 
 /*
  * Keep some memory free so that I/O operations can succeed without paging
@@ -65,6 +55,10 @@ asmlinkage int swsusp_save(void);
 
 /* kernel/power/hibernate.c */
 extern bool freezer_test_done;
+extern char hib_comp_algo[CRYPTO_MAX_ALG_NAME];
+
+/* kernel/power/swap.c */
+extern unsigned int swsusp_header_flags;
 
 extern int hibernation_snapshot(int platform_mode);
 extern int hibernation_restore(int platform_mode);
@@ -159,25 +153,8 @@ extern unsigned int snapshot_additional_pages(struct zone *zone);
 extern unsigned long snapshot_get_image_size(void);
 extern int snapshot_read_next(struct snapshot_handle *handle);
 extern int snapshot_write_next(struct snapshot_handle *handle);
-extern void snapshot_write_finalize(struct snapshot_handle *handle);
+int snapshot_write_finalize(struct snapshot_handle *handle);
 extern int snapshot_image_loaded(struct snapshot_handle *handle);
-extern int snapshot_create_trampoline(void);
-extern void snapshot_init_trampoline(void);
-extern void snapshot_restore_trampoline(void);
-extern void snapshot_free_trampoline(void);
-#ifdef CONFIG_HIBERNATE_VERIFICATION
-extern int snapshot_image_verify(void);
-extern int swsusp_prepare_hash(bool may_sleep);
-extern void swsusp_finish_hash(void);
-extern void snapshot_set_enforce_verify(void);
-extern int snapshot_is_enforce_verify(void);
-#else
-static inline int snapshot_image_verify(void) { return 0; }
-static inline int swsusp_prepare_hash(bool may_sleep) { return 0; }
-static inline void swsusp_finish_hash(void) {}
-static inline void snapshot_set_enforce_verify(void) {}
-static inline int snapshot_is_enforce_verify(void) {return 0;}
-#endif
 
 extern bool hibernate_acquire(void);
 extern void hibernate_release(void);
@@ -190,19 +167,35 @@ extern int swsusp_swap_in_use(void);
  * Flags that can be passed from the hibernatig hernel to the "boot" kernel in
  * the image header.
  */
+#define SF_COMPRESSION_ALG_LZO	0 /* dummy, details given  below */
 #define SF_PLATFORM_MODE	1
 #define SF_NOCOMPRESS_MODE	2
 #define SF_CRC32_MODE	        4
 #define SF_HW_SIG		8
 
+/*
+ * Bit to indicate the compression algorithm to be used(for LZ4). The same
+ * could be checked while saving/loading image to/from disk to use the
+ * corresponding algorithms.
+ *
+ * By default, LZO compression is enabled if SF_CRC32_MODE is set. Use
+ * SF_COMPRESSION_ALG_LZ4 to override this behaviour and use LZ4.
+ *
+ * SF_CRC32_MODE, SF_COMPRESSION_ALG_LZO(dummy) -> Compression, LZO
+ * SF_CRC32_MODE, SF_COMPRESSION_ALG_LZ4 -> Compression, LZ4
+ */
+#define SF_COMPRESSION_ALG_LZ4	16
+
 /* kernel/power/hibernate.c */
-int swsusp_check(bool snapshot_test);
+int swsusp_check(bool exclusive);
 extern void swsusp_free(void);
 extern int swsusp_read(unsigned int *flags_p);
 extern int swsusp_write(unsigned int flags);
-void swsusp_close(bool snapshot_test);
+void swsusp_close(void);
 #ifdef CONFIG_SUSPEND
 extern int swsusp_unmark(void);
+#else
+static inline int swsusp_unmark(void) { return 0; }
 #endif
 
 struct __kernel_old_timeval;
@@ -353,3 +346,5 @@ static inline void pm_sleep_enable_secondary_cpus(void)
 	suspend_enable_secondary_cpus();
 	cpuidle_resume();
 }
+
+void dpm_save_errno(int err);

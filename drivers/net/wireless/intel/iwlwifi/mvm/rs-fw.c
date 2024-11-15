@@ -514,6 +514,8 @@ void iwl_mvm_tlc_update_notif(struct iwl_mvm *mvm,
 				link_sta->agg.max_tid_amsdu_len[i] = 1;
 		}
 
+		ieee80211_sta_recalc_aggregates(sta);
+
 		IWL_DEBUG_RATE(mvm,
 			       "AMSDU update. AMSDU size: %d, AMSDU selected size: %d, AMSDU TID bitmap 0x%X\n",
 			       le32_to_cpu(notif->amsdu_size), size,
@@ -531,10 +533,10 @@ u16 rs_fw_get_max_amsdu_len(struct ieee80211_sta *sta,
 	const struct ieee80211_sta_ht_cap *ht_cap = &link_sta->ht_cap;
 	const struct ieee80211_sta_eht_cap *eht_cap = &link_sta->eht_cap;
 
-	if (WARN_ON_ONCE(!link_conf->chandef.chan))
+	if (WARN_ON_ONCE(!link_conf->chanreq.oper.chan))
 		return IEEE80211_MAX_MPDU_LEN_VHT_3895;
 
-	if (link_conf->chandef.chan->band == NL80211_BAND_6GHZ) {
+	if (link_conf->chanreq.oper.chan->band == NL80211_BAND_6GHZ) {
 		switch (le16_get_bits(link_sta->he_6ghz_capa.capa,
 				      IEEE80211_HE_6GHZ_CAP_MAX_MPDU_LEN)) {
 		case IEEE80211_VHT_CAP_MAX_MPDU_LENGTH_11454:
@@ -544,7 +546,7 @@ u16 rs_fw_get_max_amsdu_len(struct ieee80211_sta *sta,
 		default:
 			return IEEE80211_MAX_MPDU_LEN_VHT_3895;
 		}
-	} else if (link_conf->chandef.chan->band == NL80211_BAND_2GHZ &&
+	} else if (link_conf->chanreq.oper.chan->band == NL80211_BAND_2GHZ &&
 		   eht_cap->has_eht) {
 		switch (u8_get_bits(eht_cap->eht_cap_elem.mac_cap_info[0],
 				    IEEE80211_EHT_MAC_CAP0_MAX_MPDU_LEN_MASK)) {
@@ -609,6 +611,7 @@ void iwl_mvm_rs_fw_rate_init(struct iwl_mvm *mvm,
 				cpu_to_le16(max_amsdu_len) : 0,
 	};
 	unsigned int link_id = link_conf->link_id;
+	struct iwl_mvm_vif *mvmvif = iwl_mvm_vif_from_mac80211(mvmsta->vif);
 	int cmd_ver;
 	int ret;
 
@@ -652,12 +655,12 @@ void iwl_mvm_rs_fw_rate_init(struct iwl_mvm *mvm,
 	 * since TLC offload works with one mode we can assume
 	 * that only vht/ht is used and also set it as station max amsdu
 	 */
-	sta->deflink.agg.max_amsdu_len = max_amsdu_len;
+	link_sta->agg.max_amsdu_len = max_amsdu_len;
+	ieee80211_sta_recalc_aggregates(sta);
 
-	cmd_ver = iwl_fw_lookup_cmd_ver(mvm->fw,
-					WIDE_ID(DATA_PATH_GROUP,
-						TLC_MNG_CONFIG_CMD),
-					0);
+	cfg_cmd.max_tx_op = cpu_to_le16(mvmvif->max_tx_op);
+
+	cmd_ver = iwl_fw_lookup_cmd_ver(mvm->fw, cmd_id, 0);
 	IWL_DEBUG_RATE(mvm, "TLC CONFIG CMD, sta_id=%d, max_ch_width=%d, mode=%d\n",
 		       cfg_cmd.sta_id, cfg_cmd.max_ch_width, cfg_cmd.mode);
 	IWL_DEBUG_RATE(mvm, "TLC CONFIG CMD, chains=0x%X, ch_wid_supp=%d, flags=0x%X\n",
@@ -693,9 +696,7 @@ void iwl_mvm_rs_fw_rate_init(struct iwl_mvm *mvm,
 		u16 cmd_size = sizeof(cfg_cmd_v3);
 
 		/* In old versions of the API the struct is 4 bytes smaller */
-		if (iwl_fw_lookup_cmd_ver(mvm->fw,
-					  WIDE_ID(DATA_PATH_GROUP,
-						  TLC_MNG_CONFIG_CMD), 0) < 3)
+		if (iwl_fw_lookup_cmd_ver(mvm->fw, cmd_id, 0) < 3)
 			cmd_size -= 4;
 
 		ret = iwl_mvm_send_cmd_pdu(mvm, cmd_id, CMD_ASYNC, cmd_size,

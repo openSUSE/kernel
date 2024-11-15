@@ -637,7 +637,7 @@ static const struct of_device_id icp10100_of_match[] = {
 MODULE_DEVICE_TABLE(of, icp10100_of_match);
 
 static const struct i2c_device_id icp10100_id[] = {
-	{ "icp10100", 0 },
+	{ "icp10100" },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, icp10100_id);
@@ -648,7 +648,7 @@ static struct i2c_driver icp10100_driver = {
 		.pm = pm_ptr(&icp10100_pm),
 		.of_match_table = icp10100_of_match,
 	},
-	.probe_new = icp10100_probe,
+	.probe = icp10100_probe,
 	.id_table = icp10100_id,
 };
 module_i2c_driver(icp10100_driver);

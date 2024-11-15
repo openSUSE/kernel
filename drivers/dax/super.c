@@ -13,6 +13,7 @@
 #include <linux/uio.h>
 #include <linux/dax.h>
 #include <linux/fs.h>
+#include <linux/cacheinfo.h>
 #include "dax-private.h"
 
 /**
@@ -331,7 +332,8 @@ void kill_dax(struct dax_device *dax_dev)
 		return;
 
 	if (dax_dev->holder_data != NULL)
-		dax_holder_notify_failure(dax_dev, 0, U64_MAX, 0);
+		dax_holder_notify_failure(dax_dev, 0, U64_MAX,
+				MF_MEM_PRE_REMOVE);
 
 	clear_bit(DAXDEV_ALIVE, &dax_dev->flags);
 	synchronize_srcu(&dax_srcu);
@@ -450,6 +452,14 @@ struct dax_device *alloc_dax(void *private, const struct dax_operations *ops)
 	dev_t devt;
 	int minor;
 
+	/*
+	 * Unavailable on architectures with virtually aliased data caches,
+	 * except for device-dax (NULL operations pointer), which does
+	 * not use aliased mappings from the kernel.
+	 */
+	if (ops && cpu_dcache_is_aliasing())
+		return ERR_PTR(-EOPNOTSUPP);
+
 	if (WARN_ON_ONCE(ops && !ops->zero_page_range))
 		return ERR_PTR(-EINVAL);
 
@@ -536,8 +546,7 @@ static int dax_fs_init(void)
 	int rc;
 
 	dax_cache = kmem_cache_create("dax_cache", sizeof(struct dax_device), 0,
-			(SLAB_HWCACHE_ALIGN|SLAB_RECLAIM_ACCOUNT|
-			 SLAB_MEM_SPREAD|SLAB_ACCOUNT),
+			SLAB_HWCACHE_ALIGN | SLAB_RECLAIM_ACCOUNT | SLAB_ACCOUNT,
 			init_once);
 	if (!dax_cache)
 		return -ENOMEM;
@@ -597,6 +606,7 @@ static void __exit dax_core_exit(void)
 }
 
 MODULE_AUTHOR("Intel Corporation");
+MODULE_DESCRIPTION("DAX: direct access to differentiated memory");
 MODULE_LICENSE("GPL v2");
 subsys_initcall(dax_core_init);
 module_exit(dax_core_exit);

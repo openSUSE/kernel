@@ -133,7 +133,7 @@ static void * __meminit altmap_alloc_block_buf(unsigned long size,
 void __meminit vmemmap_verify(pte_t *pte, int node,
 				unsigned long start, unsigned long end)
 {
-	unsigned long pfn = pte_pfn(*pte);
+	unsigned long pfn = pte_pfn(ptep_get(pte));
 	int actual_node = early_pfn_to_nid(pfn);
 
 	if (node_distance(actual_node, node) > LOCAL_DISTANCE)
@@ -146,7 +146,7 @@ pte_t * __meminit vmemmap_pte_populate(pmd_t *pmd, unsigned long addr, int node,
 				       struct page *reuse)
 {
 	pte_t *pte = pte_offset_kernel(pmd, addr);
-	if (pte_none(*pte)) {
+	if (pte_none(ptep_get(pte))) {
 		pte_t entry;
 		void *p;
 
@@ -184,6 +184,10 @@ static void * __meminit vmemmap_alloc_block_zero(unsigned long size, int node)
 	return p;
 }
 
+void __weak __meminit kernel_pte_init(void *addr)
+{
+}
+
 pmd_t * __meminit vmemmap_pmd_populate(pud_t *pud, unsigned long addr, int node)
 {
 	pmd_t *pmd = pmd_offset(pud, addr);
@@ -191,6 +195,7 @@ pmd_t * __meminit vmemmap_pmd_populate(pud_t *pud, unsigned long addr, int node)
 		void *p = vmemmap_alloc_block_zero(PAGE_SIZE, node);
 		if (!p)
 			return NULL;
+		kernel_pte_init(p);
 		pmd_populate_kernel(&init_mm, pmd, p);
 	}
 	return pmd;
@@ -358,6 +363,7 @@ int __meminit vmemmap_populate_hugepages(unsigned long start, unsigned long end,
 	return 0;
 }
 
+#ifndef vmemmap_populate_compound_pages
 /*
  * For compound pages bigger than section size (e.g. x86 1G compound
  * pages with 2M subsection size) fill the rest of sections as tail
@@ -414,7 +420,7 @@ static int __meminit vmemmap_populate_compound_pages(unsigned long start_pfn,
 		 * with just tail struct pages.
 		 */
 		return vmemmap_populate_range(start, end, node, NULL,
-					      pte_page(*pte));
+					      pte_page(ptep_get(pte)));
 	}
 
 	size = min(end - start, pgmap_vmemmap_nr(pgmap) * sizeof(struct page));
@@ -438,13 +444,15 @@ static int __meminit vmemmap_populate_compound_pages(unsigned long start_pfn,
 		 */
 		next += PAGE_SIZE;
 		rc = vmemmap_populate_range(next, last, node, NULL,
-					    pte_page(*pte));
+					    pte_page(ptep_get(pte)));
 		if (rc)
 			return -ENOMEM;
 	}
 
 	return 0;
 }
+
+#endif
 
 struct page * __meminit __populate_section_memmap(unsigned long pfn,
 		unsigned long nr_pages, int nid, struct vmem_altmap *altmap,
@@ -465,6 +473,11 @@ struct page * __meminit __populate_section_memmap(unsigned long pfn,
 
 	if (r < 0)
 		return NULL;
+
+	if (system_state == SYSTEM_BOOTING)
+		memmap_boot_pages_add(DIV_ROUND_UP(end - start, PAGE_SIZE));
+	else
+		memmap_pages_add(DIV_ROUND_UP(end - start, PAGE_SIZE));
 
 	return pfn_to_page(pfn);
 }

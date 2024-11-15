@@ -145,7 +145,7 @@ static noinstr void enter_s2idle_proper(struct cpuidle_driver *drv,
 
 	instrumentation_begin();
 
-	time_start = ns_to_ktime(local_clock());
+	time_start = ns_to_ktime(local_clock_noinstr());
 
 	tick_freeze();
 	/*
@@ -169,7 +169,7 @@ static noinstr void enter_s2idle_proper(struct cpuidle_driver *drv,
 	tick_unfreeze();
 	start_critical_timings();
 
-	time_end = ns_to_ktime(local_clock());
+	time_end = ns_to_ktime(local_clock_noinstr());
 
 	dev->states_usage[index].s2idle_time += ktime_us_delta(time_end, time_start);
 	dev->states_usage[index].s2idle_usage++;
@@ -228,22 +228,19 @@ noinstr int cpuidle_enter_state(struct cpuidle_device *dev,
 	if (broadcast && tick_broadcast_enter()) {
 		index = find_deepest_state(drv, dev, target_state->exit_latency_ns,
 					   CPUIDLE_FLAG_TIMER_STOP, false);
-		if (index < 0) {
-			default_idle_call();
-			return -EBUSY;
-		}
+
 		target_state = &drv->states[index];
 		broadcast = false;
 	}
 
 	if (target_state->flags & CPUIDLE_FLAG_TLB_FLUSHED)
-		leave_mm(dev->cpu);
+		leave_mm();
 
 	/* Take note of the planned idle state. */
 	sched_idle_set_state(target_state);
 
 	trace_cpu_idle(index, dev->cpu);
-	time_start = ns_to_ktime(local_clock());
+	time_start = ns_to_ktime(local_clock_noinstr());
 
 	stop_critical_timings();
 	if (!(target_state->flags & CPUIDLE_FLAG_RCU_IDLE)) {
@@ -276,7 +273,7 @@ noinstr int cpuidle_enter_state(struct cpuidle_device *dev,
 	start_critical_timings();
 
 	sched_clock_idle_wakeup_event();
-	time_end = ns_to_ktime(local_clock());
+	time_end = ns_to_ktime(local_clock_noinstr());
 	trace_cpu_idle(PWR_EVENT_EXIT, dev->cpu);
 
 	/* The cpu is no longer idle or about to enter idle. */

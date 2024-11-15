@@ -304,7 +304,7 @@ static void bq32k_remove(struct i2c_client *client)
 }
 
 static const struct i2c_device_id bq32k_id[] = {
-	{ "bq32000", 0 },
+	{ "bq32000" },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, bq32k_id);
@@ -320,7 +320,7 @@ static struct i2c_driver bq32k_driver = {
 		.name	= "bq32k",
 		.of_match_table = of_match_ptr(bq32k_of_match),
 	},
-	.probe_new	= bq32k_probe,
+	.probe		= bq32k_probe,
 	.remove		= bq32k_remove,
 	.id_table	= bq32k_id,
 };

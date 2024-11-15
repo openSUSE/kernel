@@ -20,6 +20,7 @@
 #include <linux/compiler.h>
 #include <linux/of.h>
 #include <linux/of_address.h>
+#include <linux/mm.h>
 
 #include "internal.h"
 #include "ram_internal.h"
@@ -48,6 +49,10 @@ static unsigned long long mem_address;
 module_param_hw(mem_address, ullong, other, 0400);
 MODULE_PARM_DESC(mem_address,
 		"start of reserved RAM used to store oops/panic logs");
+
+static char *mem_name;
+module_param_named(mem_name, mem_name, charp, 0400);
+MODULE_PARM_DESC(mem_name, "name of kernel param that holds addr");
 
 static ulong mem_size;
 module_param(mem_size, ulong, 0400);
@@ -268,7 +273,7 @@ static ssize_t ramoops_pstore_read(struct pstore_record *record)
 	/* ECC correction notice */
 	record->ecc_notice_size = persistent_ram_ecc_string(prz, NULL, 0);
 
-	record->buf = kmalloc(size + record->ecc_notice_size + 1, GFP_KERNEL);
+	record->buf = kvzalloc(size + record->ecc_notice_size + 1, GFP_KERNEL);
 	if (record->buf == NULL) {
 		size = -ENOMEM;
 		goto out;
@@ -282,7 +287,7 @@ static ssize_t ramoops_pstore_read(struct pstore_record *record)
 
 out:
 	if (free_prz) {
-		kfree(prz->old_log);
+		kvfree(prz->old_log);
 		kfree(prz);
 	}
 
@@ -834,7 +839,7 @@ static int ramoops_probe(struct platform_device *pdev)
 	 */
 	if (cxt->pstore.flags & PSTORE_FLAGS_DMESG) {
 		cxt->pstore.bufsize = cxt->dprzs[0]->buffer_size;
-		cxt->pstore.buf = kzalloc(cxt->pstore.bufsize, GFP_KERNEL);
+		cxt->pstore.buf = kvzalloc(cxt->pstore.bufsize, GFP_KERNEL);
 		if (!cxt->pstore.buf) {
 			pr_err("cannot allocate pstore crash dump buffer\n");
 			err = -ENOMEM;
@@ -867,7 +872,7 @@ static int ramoops_probe(struct platform_device *pdev)
 	return 0;
 
 fail_buf:
-	kfree(cxt->pstore.buf);
+	kvfree(cxt->pstore.buf);
 fail_clear:
 	cxt->pstore.bufsize = 0;
 fail_init:
@@ -876,28 +881,27 @@ fail_out:
 	return err;
 }
 
-static int ramoops_remove(struct platform_device *pdev)
+static void ramoops_remove(struct platform_device *pdev)
 {
 	struct ramoops_context *cxt = &oops_cxt;
 
 	pstore_unregister(&cxt->pstore);
 
-	kfree(cxt->pstore.buf);
+	kvfree(cxt->pstore.buf);
 	cxt->pstore.bufsize = 0;
 
 	ramoops_free_przs(cxt);
-
-	return 0;
 }
 
 static const struct of_device_id dt_match[] = {
 	{ .compatible = "ramoops" },
 	{}
 };
+MODULE_DEVICE_TABLE(of, dt_match);
 
 static struct platform_driver ramoops_driver = {
 	.probe		= ramoops_probe,
-	.remove		= ramoops_remove,
+	.remove_new	= ramoops_remove,
 	.driver		= {
 		.name		= "ramoops",
 		.of_match_table	= dt_match,
@@ -913,6 +917,16 @@ static inline void ramoops_unregister_dummy(void)
 static void __init ramoops_register_dummy(void)
 {
 	struct ramoops_platform_data pdata;
+
+	if (mem_name) {
+		phys_addr_t start;
+		phys_addr_t size;
+
+		if (reserve_mem_find_by_name(mem_name, &start, &size)) {
+			mem_address = start;
+			mem_size = size;
+		}
+	}
 
 	/*
 	 * Prepare a dummy platform data structure to carry the module

@@ -19,7 +19,7 @@
 #include <linux/highmem.h>
 
 static DEFINE_IDA(fpga_mgr_ida);
-static struct class *fpga_mgr_class;
+static const struct class fpga_mgr_class;
 
 struct fpga_mgr_devres {
 	struct fpga_manager *mgr;
@@ -692,7 +692,7 @@ struct fpga_manager *fpga_mgr_get(struct device *dev)
 	struct fpga_manager *mgr;
 	struct device *mgr_dev;
 
-	mgr_dev = class_find_device(fpga_mgr_class, NULL, dev, fpga_mgr_dev_match);
+	mgr_dev = class_find_device(&fpga_mgr_class, NULL, dev, fpga_mgr_dev_match);
 	if (!mgr_dev)
 		return ERR_PTR(-ENODEV);
 
@@ -716,7 +716,7 @@ struct fpga_manager *of_fpga_mgr_get(struct device_node *node)
 	struct fpga_manager *mgr;
 	struct device *mgr_dev;
 
-	mgr_dev = class_find_device_by_of_node(fpga_mgr_class, node);
+	mgr_dev = class_find_device_by_of_node(&fpga_mgr_class, node);
 	if (!mgr_dev)
 		return ERR_PTR(-ENODEV);
 
@@ -820,7 +820,7 @@ __fpga_mgr_register_full(struct device *parent, const struct fpga_manager_info *
 	mgr->priv = info->priv;
 	mgr->compat_id = info->compat_id;
 
-	mgr->dev.class = fpga_mgr_class;
+	mgr->dev.class = &fpga_mgr_class;
 	mgr->dev.groups = mops->groups;
 	mgr->dev.parent = parent;
 	mgr->dev.of_node = parent->of_node;
@@ -854,15 +854,6 @@ error_kfree:
 }
 EXPORT_SYMBOL_GPL(__fpga_mgr_register_full);
 
-/* FIXME: provided only for kABI compatibility */
-#undef fpga_mgr_register_full
-struct fpga_manager *
-fpga_mgr_register_full(struct device *parent, const struct fpga_manager_info *info)
-{
-	return __fpga_mgr_register_full(parent, info, parent->driver->owner);
-}
-EXPORT_SYMBOL_GPL(fpga_mgr_register_full);
-
 /**
  * __fpga_mgr_register - create and register an FPGA Manager device
  * @parent:	fpga manager device from pdev
@@ -892,17 +883,6 @@ __fpga_mgr_register(struct device *parent, const char *name,
 	return __fpga_mgr_register_full(parent, &info, owner);
 }
 EXPORT_SYMBOL_GPL(__fpga_mgr_register);
-
-/* FIXME: provided only for kABI compatibility */
-#undef fpga_mgr_register
-struct fpga_manager *
-fpga_mgr_register(struct device *parent, const char *name,
-		  const struct fpga_manager_ops *mops, void *priv)
-{
-	return __fpga_mgr_register(parent, name, mops, priv,
-				   parent->driver->owner);
-}
-EXPORT_SYMBOL_GPL(fpga_mgr_register);
 
 /**
  * fpga_mgr_unregister - unregister an FPGA manager
@@ -966,15 +946,6 @@ __devm_fpga_mgr_register_full(struct device *parent, const struct fpga_manager_i
 }
 EXPORT_SYMBOL_GPL(__devm_fpga_mgr_register_full);
 
-/* FIXME: provided only for kABI compatibility */
-#undef devm_fpga_mgr_register_full
-struct fpga_manager *
-devm_fpga_mgr_register_full(struct device *parent, const struct fpga_manager_info *info)
-{
-	return __devm_fpga_mgr_register_full(parent, info, parent->driver->owner);
-}
-EXPORT_SYMBOL_GPL(devm_fpga_mgr_register_full);
-
 /**
  * __devm_fpga_mgr_register - resource managed variant of fpga_mgr_register()
  * @parent:	fpga manager device from pdev
@@ -1004,17 +975,6 @@ __devm_fpga_mgr_register(struct device *parent, const char *name,
 }
 EXPORT_SYMBOL_GPL(__devm_fpga_mgr_register);
 
-/* FIXME: provided only for kABI compatibility */
-#undef devm_fpga_mgr_register
-struct fpga_manager *
-devm_fpga_mgr_register(struct device *parent, const char *name,
-		       const struct fpga_manager_ops *mops, void *priv)
-{
-	return __devm_fpga_mgr_register(parent, name, mops, priv,
-					parent->driver->owner);
-}
-EXPORT_SYMBOL_GPL(devm_fpga_mgr_register);
-
 static void fpga_mgr_dev_release(struct device *dev)
 {
 	struct fpga_manager *mgr = to_fpga_manager(dev);
@@ -1023,23 +983,22 @@ static void fpga_mgr_dev_release(struct device *dev)
 	kfree(mgr);
 }
 
+static const struct class fpga_mgr_class = {
+	.name = "fpga_manager",
+	.dev_groups = fpga_mgr_groups,
+	.dev_release = fpga_mgr_dev_release,
+};
+
 static int __init fpga_mgr_class_init(void)
 {
 	pr_info("FPGA manager framework\n");
 
-	fpga_mgr_class = class_create("fpga_manager");
-	if (IS_ERR(fpga_mgr_class))
-		return PTR_ERR(fpga_mgr_class);
-
-	fpga_mgr_class->dev_groups = fpga_mgr_groups;
-	fpga_mgr_class->dev_release = fpga_mgr_dev_release;
-
-	return 0;
+	return class_register(&fpga_mgr_class);
 }
 
 static void __exit fpga_mgr_class_exit(void)
 {
-	class_destroy(fpga_mgr_class);
+	class_unregister(&fpga_mgr_class);
 	ida_destroy(&fpga_mgr_ida);
 }
 

@@ -22,15 +22,6 @@
 
 static const char simplefb_resname[] = "BOOTFB";
 static const struct simplefb_format formats[] = SIMPLEFB_FORMATS;
-static bool enable_sysfb;
-
-static int __init do_enable_sysfb(char *str)
-{
-	enable_sysfb = true;
-
-	return 1;
-}
-__setup("enable_sysfb", do_enable_sysfb);
 
 /* try parsing screen_info into a simple-framebuffer mode struct */
 __init bool sysfb_parse_mode(const struct screen_info *si,
@@ -39,9 +30,6 @@ __init bool sysfb_parse_mode(const struct screen_info *si,
 	__u8 type;
 	u32 bits_per_pixel;
 	unsigned int i;
-
-	if (!enable_sysfb)
-		return false;
 
 	type = si->orig_video_isVGA;
 	if (type != VIDEO_TYPE_VLFB && type != VIDEO_TYPE_EFI)
@@ -103,7 +91,8 @@ __init bool sysfb_parse_mode(const struct screen_info *si,
 }
 
 __init struct platform_device *sysfb_create_simplefb(const struct screen_info *si,
-						     const struct simplefb_platform_data *mode)
+						     const struct simplefb_platform_data *mode,
+						     struct device *parent)
 {
 	struct platform_device *pd;
 	struct resource res;
@@ -154,6 +143,8 @@ __init struct platform_device *sysfb_create_simplefb(const struct screen_info *s
 	pd = platform_device_alloc("simple-framebuffer", 0);
 	if (!pd)
 		return ERR_PTR(-ENOMEM);
+
+	pd->dev.parent = parent;
 
 	sysfb_set_efifb_fwnode(pd);
 

@@ -189,7 +189,7 @@ static void veml6070_remove(struct i2c_client *client)
 }
 
 static const struct i2c_device_id veml6070_id[] = {
-	{ "veml6070", 0 },
+	{ "veml6070" },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, veml6070_id);
@@ -198,7 +198,7 @@ static struct i2c_driver veml6070_driver = {
 	.driver = {
 		.name   = VEML6070_DRV_NAME,
 	},
-	.probe_new = veml6070_probe,
+	.probe = veml6070_probe,
 	.remove  = veml6070_remove,
 	.id_table = veml6070_id,
 };

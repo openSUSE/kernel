@@ -234,10 +234,10 @@ static void mtty_trigger_interrupt(struct mdev_state *mdev_state)
 
 	if (is_msi(mdev_state)) {
 		if (mdev_state->msi_evtfd)
-			eventfd_signal(mdev_state->msi_evtfd, 1);
+			eventfd_signal(mdev_state->msi_evtfd);
 	} else if (is_intx(mdev_state)) {
 		if (mdev_state->intx_evtfd && !mdev_state->intx_mask) {
-			eventfd_signal(mdev_state->intx_evtfd, 1);
+			eventfd_signal(mdev_state->intx_evtfd);
 			mdev_state->intx_mask = true;
 		}
 	}
@@ -927,7 +927,6 @@ static const struct file_operations mtty_save_fops = {
 	.unlocked_ioctl = mtty_precopy_ioctl,
 	.compat_ioctl = compat_ptr_ioctl,
 	.release = mtty_release_migf,
-	.llseek = no_llseek,
 };
 
 static void mtty_save_state(struct mdev_state *mdev_state)
@@ -1082,7 +1081,6 @@ static const struct file_operations mtty_resume_fops = {
 	.owner = THIS_MODULE,
 	.write = mtty_resume_write,
 	.release = mtty_release_migf,
-	.llseek = no_llseek,
 };
 
 static struct mtty_migration_file *
@@ -2058,6 +2056,6 @@ module_init(mtty_dev_init)
 module_exit(mtty_dev_exit)
 
 MODULE_LICENSE("GPL v2");
-MODULE_INFO(supported, "Test driver that simulate serial port over PCI");
+MODULE_DESCRIPTION("Test driver that simulate serial port over PCI");
 MODULE_VERSION(VERSION_STRING);
 MODULE_AUTHOR(DRIVER_AUTHOR);

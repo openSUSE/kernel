@@ -185,8 +185,9 @@ struct inode *gfs2_inode_lookup(struct super_block *sb, unsigned int type,
 		set_bit(GLF_INSTANTIATE_NEEDED, &ip->i_gl->gl_flags);
 
 		/* Lowest possible timestamp; will be overwritten in gfs2_dinode_in. */
-		inode->i_atime.tv_sec = 1LL << (8 * sizeof(inode->i_atime.tv_sec) - 1);
-		inode->i_atime.tv_nsec = 0;
+		inode_set_atime(inode,
+				1LL << (8 * sizeof(inode_get_atime_sec(inode)) - 1),
+				0);
 
 		glock_set_object(ip->i_gl, ip);
 
@@ -697,7 +698,7 @@ static int gfs2_create_inode(struct inode *dir, struct dentry *dentry,
 	set_nlink(inode, S_ISDIR(mode) ? 2 : 1);
 	inode->i_rdev = dev;
 	inode->i_size = size;
-	inode->i_atime = inode->i_mtime = inode_set_ctime_current(inode);
+	simple_inode_init_ts(inode);
 	munge_mode_uid_gid(dip, inode);
 	check_and_update_goal(dip);
 	ip->i_goal = dip->i_goal;
@@ -2086,7 +2087,7 @@ static int gfs2_getattr(struct mnt_idmap *idmap,
 				  STATX_ATTR_IMMUTABLE |
 				  STATX_ATTR_NODUMP);
 
-	generic_fillattr(&nop_mnt_idmap, inode, stat);
+	generic_fillattr(&nop_mnt_idmap, request_mask, inode, stat);
 
 	if (gfs2_holder_initialized(&gh))
 		gfs2_glock_dq_uninit(&gh);
@@ -2154,8 +2155,7 @@ loff_t gfs2_seek_hole(struct file *file, loff_t offset)
 	return vfs_setpos(file, ret, inode->i_sb->s_maxbytes);
 }
 
-static int gfs2_update_time(struct inode *inode, struct timespec64 *time,
-			    int flags)
+static int gfs2_update_time(struct inode *inode, int flags)
 {
 	struct gfs2_inode *ip = GFS2_I(inode);
 	struct gfs2_glock *gl = ip->i_gl;
@@ -2163,14 +2163,15 @@ static int gfs2_update_time(struct inode *inode, struct timespec64 *time,
 	int error;
 
 	gh = gfs2_glock_is_locked_by_me(gl);
-	if (gh && !gfs2_glock_is_held_excl(gl)) {
+	if (gh && gl->gl_state != LM_ST_EXCLUSIVE) {
 		gfs2_glock_dq(gh);
 		gfs2_holder_reinit(LM_ST_EXCLUSIVE, 0, gh);
 		error = gfs2_glock_nq(gh);
 		if (error)
 			return error;
 	}
-	return generic_update_time(inode, time, flags);
+	generic_update_time(inode, flags);
+	return 0;
 }
 
 static const struct inode_operations gfs2_file_iops = {

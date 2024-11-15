@@ -35,9 +35,6 @@
   *  - Arnaldo Carvalho de Melo <acme@conectiva.com.br>
   */
 
-#define ARCH_HAS_IOREMAP_WC
-#define ARCH_HAS_IOREMAP_WT
-
 #include <linux/string.h>
 #include <linux/compiler.h>
 #include <linux/cc_platform.h>
@@ -45,6 +42,7 @@
 #include <asm/early_ioremap.h>
 #include <asm/pgtable_types.h>
 #include <asm/shared/io.h>
+#include <asm/special_insns.h>
 
 #define build_mmio_read(name, size, type, reg, barrier) \
 static inline type name(const volatile void __iomem *addr) \
@@ -212,15 +210,13 @@ void memset_io(volatile void __iomem *, int, size_t);
 #define memcpy_toio memcpy_toio
 #define memset_io memset_io
 
-#include <asm-generic/iomap.h>
-
 #ifdef CONFIG_X86_64
 /*
  * Commit 0f07496144c2 ("[PATCH] Add faster __iowrite32_copy routine for
  * x86_64") says that circa 2006 rep movsl is noticeably faster than a copy
  * loop.
  */
-static inline void __iowrite32_copy_inlined(void __iomem *to, const void *from,
+static inline void __iowrite32_copy(void __iomem *to, const void *from,
 				    size_t count)
 {
 	asm volatile("rep ; movsl"
@@ -228,7 +224,7 @@ static inline void __iowrite32_copy_inlined(void __iomem *to, const void *from,
 		     : "0"(count), "1"(to), "2"(from)
 		     : "memory");
 }
-#define __iowrite32_copy_inlined __iowrite32_copy_inlined
+#define __iowrite32_copy __iowrite32_copy
 #endif
 
 /*
@@ -264,7 +260,7 @@ static inline void slow_down_io(void)
 
 #endif
 
-#define BUILDIO(bwl, bw, type)						\
+#define BUILDIO(bwl, type)						\
 static inline void out##bwl##_p(type value, u16 port)			\
 {									\
 	out##bwl(value, port);						\
@@ -310,9 +306,9 @@ static inline void ins##bwl(u16 port, void *addr, unsigned long count)	\
 	}								\
 }
 
-BUILDIO(b, b, u8)
-BUILDIO(w, w, u16)
-BUILDIO(l,  , u32)
+BUILDIO(b, u8)
+BUILDIO(w, u16)
+BUILDIO(l, u32)
 #undef BUILDIO
 
 #define inb_p inb_p

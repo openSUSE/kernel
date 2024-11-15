@@ -46,8 +46,6 @@ static unsigned int kallsyms_expand_symbol(unsigned int off,
 	const char *tptr;
 	const u8 *data;
 
-	result[0] = '\0';
-
 	/* Get the compressed symbol length from the first symbol byte. */
 	data = &kallsyms_names[off];
 	len = *data;
@@ -150,9 +148,6 @@ static unsigned int get_symbol_offset(unsigned long pos)
 
 unsigned long kallsyms_sym_address(int idx)
 {
-	if (!IS_ENABLED(CONFIG_KALLSYMS_BASE_RELATIVE))
-		return kallsyms_addresses[idx];
-
 	/* values are unsigned offsets if --absolute-percpu is not in effect */
 	if (!IS_ENABLED(CONFIG_KALLSYMS_ABSOLUTE_PERCPU))
 		return kallsyms_relative_base + (u32)kallsyms_offsets[idx];
@@ -163,40 +158,6 @@ unsigned long kallsyms_sym_address(int idx)
 
 	/* ...and negative offsets are relative to kallsyms_relative_base - 1 */
 	return kallsyms_relative_base - 1 - kallsyms_offsets[idx];
-}
-
-static bool cleanup_symbol_name(char *s)
-{
-	char *res;
-
-	if (!IS_ENABLED(CONFIG_LTO_CLANG))
-		return false;
-
-	/*
-	 * LLVM appends various suffixes for local functions and variables that
-	 * must be promoted to global scope as part of LTO.  This can break
-	 * hooking of static functions with kprobes. '.' is not a valid
-	 * character in an identifier in C. Suffixes only in LLVM LTO observed:
-	 * - foo.llvm.[0-9a-f]+
-	 */
-	res = strstr(s, ".llvm.");
-	if (res) {
-		*res = '\0';
-		return true;
-	}
-
-	return false;
-}
-
-static int compare_symbol_name(const char *name, char *namebuf)
-{
-	/* The kallsyms_seqs_of_names is sorted based on names after
-	 * cleanup_symbol_name() (see scripts/kallsyms.c) if clang lto is enabled.
-	 * To ensure correct bisection in kallsyms_lookup_names(), do
-	 * cleanup_symbol_name(namebuf) before comparing name and namebuf.
-	 */
-	cleanup_symbol_name(namebuf);
-	return strcmp(name, namebuf);
 }
 
 static unsigned int get_symbol_seq(int index)
@@ -226,7 +187,7 @@ static int kallsyms_lookup_names(const char *name,
 		seq = get_symbol_seq(mid);
 		off = get_symbol_offset(seq);
 		kallsyms_expand_symbol(off, namebuf, ARRAY_SIZE(namebuf));
-		ret = compare_symbol_name(name, namebuf);
+		ret = strcmp(name, namebuf);
 		if (ret > 0)
 			low = mid + 1;
 		else if (ret < 0)
@@ -243,7 +204,7 @@ static int kallsyms_lookup_names(const char *name,
 		seq = get_symbol_seq(low - 1);
 		off = get_symbol_offset(seq);
 		kallsyms_expand_symbol(off, namebuf, ARRAY_SIZE(namebuf));
-		if (compare_symbol_name(name, namebuf))
+		if (strcmp(name, namebuf))
 			break;
 		low--;
 	}
@@ -255,7 +216,7 @@ static int kallsyms_lookup_names(const char *name,
 			seq = get_symbol_seq(high + 1);
 			off = get_symbol_offset(seq);
 			kallsyms_expand_symbol(off, namebuf, ARRAY_SIZE(namebuf));
-			if (compare_symbol_name(name, namebuf))
+			if (strcmp(name, namebuf))
 				break;
 			high++;
 		}
@@ -281,7 +242,6 @@ unsigned long kallsyms_lookup_name(const char *name)
 
 	return module_kallsyms_lookup_name(name);
 }
-EXPORT_SYMBOL_GPL(kallsyms_lookup_name);
 
 /*
  * Iterate over all symbols in vmlinux.  For symbols from modules use
@@ -304,7 +264,6 @@ int kallsyms_on_each_symbol(int (*fn)(void *, const char *, unsigned long),
 	}
 	return 0;
 }
-EXPORT_SYMBOL_GPL(kallsyms_on_each_symbol);
 
 int kallsyms_on_each_match_symbol(int (*fn)(void *, unsigned long),
 				  const char *name, void *data)
@@ -331,13 +290,7 @@ static unsigned long get_symbol_pos(unsigned long addr,
 	unsigned long symbol_start = 0, symbol_end = 0;
 	unsigned long i, low, high, mid;
 
-	/* This kernel should never had been booted. */
-	if (!IS_ENABLED(CONFIG_KALLSYMS_BASE_RELATIVE))
-		BUG_ON(!kallsyms_addresses);
-	else
-		BUG_ON(!kallsyms_offsets);
-
-	/* Do a binary search on the sorted kallsyms_addresses array. */
+	/* Do a binary search on the sorted kallsyms_offsets array. */
 	low = 0;
 	high = kallsyms_num_syms;
 
@@ -400,40 +353,14 @@ int kallsyms_lookup_size_offset(unsigned long addr, unsigned long *symbolsize,
 	       !!__bpf_address_lookup(addr, symbolsize, offset, namebuf);
 }
 
-/*
- * Find details about the symbol on the given address.
- *
- * Return pointer to the symbol name stored in the given @namebuf on success,
- * NULL on failure.
- *
- * The other parameters are set to valid values on success. They are not
- * touched on failure except for @namebuf[*].
- *
- * IMPORTANT: @modname and @modbuildid point to mod->name and mod->buildid
- *	from the related struct module. The structure is guarded by RCU.
- *	The caller has to disable preemption to keep them valid.
- *
- *	The two parameters are set to NULL when the symbol comes from
- *	the kernel core. @modbuildid might be NULL also when
- *	CONFIG_STACKTRACE_BUILD_ID is not enabled.
- *
- * [*] On error, @namebuf is updated to contain the empty string. It is
- *     a historic and obsolete behavior. Some code paths still depend
- *     on it though.
- */
-static const char *kallsyms_lookup_buildid(unsigned long addr,
+static int kallsyms_lookup_buildid(unsigned long addr,
 			unsigned long *symbolsize,
 			unsigned long *offset, char **modname,
 			const unsigned char **modbuildid, char *namebuf)
 {
-	const char *ret;
+	int ret;
 
-	/*
-	 * The function returns pointer to namebuf on success and
-	 * NULL on error. But some callers ignore the return value.
-	 * Instead they expect @namebuf filled either with valid
-	 * or empty string.
-	 */
+	namebuf[KSYM_NAME_LEN - 1] = 0;
 	namebuf[0] = 0;
 
 	if (is_ksym_addr(addr)) {
@@ -448,23 +375,20 @@ static const char *kallsyms_lookup_buildid(unsigned long addr,
 		if (modbuildid)
 			*modbuildid = NULL;
 
-		ret = namebuf;
-		goto found;
+		return strlen(namebuf);
 	}
 
 	/* See if it's in a module or a BPF JITed image. */
 	ret = module_address_lookup(addr, symbolsize, offset,
 				    modname, modbuildid, namebuf);
 	if (!ret)
-		ret = bpf_address_lookup(addr, symbolsize, offset,
-					 modname, modbuildid, namebuf);
+		ret = bpf_address_lookup(addr, symbolsize,
+					 offset, modname, namebuf);
 
 	if (!ret)
-		ret = ftrace_mod_address_lookup(addr, symbolsize, offset,
-						modname, modbuildid, namebuf);
+		ret = ftrace_mod_address_lookup(addr, symbolsize,
+						offset, modname, namebuf);
 
-found:
-	cleanup_symbol_name(namebuf);
 	return ret;
 }
 
@@ -480,14 +404,17 @@ const char *kallsyms_lookup(unsigned long addr,
 			    unsigned long *offset,
 			    char **modname, char *namebuf)
 {
-	return kallsyms_lookup_buildid(addr, symbolsize, offset, modname,
-				       NULL, namebuf);
+	int ret = kallsyms_lookup_buildid(addr, symbolsize, offset, modname,
+					  NULL, namebuf);
+
+	if (!ret)
+		return NULL;
+
+	return namebuf;
 }
 
 int lookup_symbol_name(unsigned long addr, char *symname)
 {
-	int res;
-
 	symname[0] = '\0';
 	symname[KSYM_NAME_LEN - 1] = '\0';
 
@@ -498,73 +425,11 @@ int lookup_symbol_name(unsigned long addr, char *symname)
 		/* Grab name */
 		kallsyms_expand_symbol(get_symbol_offset(pos),
 				       symname, KSYM_NAME_LEN);
-		goto found;
-	}
-	/* See if it's in a module. */
-	res = lookup_module_symbol_name(addr, symname);
-	if (res)
-		return res;
-
-found:
-	cleanup_symbol_name(symname);
-	return 0;
-}
-
-int lookup_symbol_attrs(unsigned long addr, unsigned long *size,
-			unsigned long *offset, char *modname, char *name)
-{
-	int res;
-
-	name[0] = '\0';
-	name[KSYM_NAME_LEN - 1] = '\0';
-
-	if (is_ksym_addr(addr)) {
-		unsigned long pos;
-
-		pos = get_symbol_pos(addr, size, offset);
-		/* Grab name */
-		kallsyms_expand_symbol(get_symbol_offset(pos),
-				       name, KSYM_NAME_LEN);
-		modname[0] = '\0';
-		goto found;
-	}
-	/* See if it's in a module. */
-	res = lookup_module_symbol_attrs(addr, size, offset, modname, name);
-	if (res)
-		return res;
-
-found:
-	cleanup_symbol_name(name);
-	return 0;
-}
-
-#ifdef CONFIG_STACKTRACE_BUILD_ID
-
-static int append_buildid(char *buffer,  const char *modname,
-			  const unsigned char *buildid)
-{
-	/* build ID should match length of sprintf */
-#ifdef CONFIG_MODULES
-	static_assert(sizeof(typeof_member(struct module, build_id)) == 20);
-#endif
-
-	if (modname && !buildid) {
-		pr_warn("Undefined buildid for the module %s\n", modname);
 		return 0;
 	}
-
-	return sprintf(buffer, " %20phN", buildid);
+	/* See if it's in a module. */
+	return lookup_module_symbol_name(addr, symname);
 }
-
-#else /* CONFIG_STACKTRACE_BUILD_ID */
-
-static int append_buildid(char *buffer,   const char *modname,
-			  const unsigned char *buildid)
-{
-	return 0;
-}
-
-#endif /* CONFIG_STACKTRACE_BUILD_ID */
 
 /* Look up a kernel symbol and return it in a text buffer. */
 static int __sprint_symbol(char *buffer, unsigned long address,
@@ -572,24 +437,15 @@ static int __sprint_symbol(char *buffer, unsigned long address,
 {
 	char *modname;
 	const unsigned char *buildid;
-	const char *name;
 	unsigned long offset, size;
 	int len;
 
-	/* Prevent module removal until modname and modbuildid are printed */
-	preempt_disable();
-
 	address += symbol_offset;
-	name = kallsyms_lookup_buildid(address, &size, &offset,
-				       &modname, &buildid, buffer);
-	if (!name) {
-		len = sprintf(buffer, "0x%lx", address - symbol_offset);
-		goto out;
-	}
+	len = kallsyms_lookup_buildid(address, &size, &offset, &modname, &buildid,
+				       buffer);
+	if (!len)
+		return sprintf(buffer, "0x%lx", address - symbol_offset);
 
-	if (name != buffer)
-		strcpy(buffer, name);
-	len = strlen(buffer);
 	offset -= symbol_offset;
 
 	if (add_offset)
@@ -597,13 +453,17 @@ static int __sprint_symbol(char *buffer, unsigned long address,
 
 	if (modname) {
 		len += sprintf(buffer + len, " [%s", modname);
-		if (add_buildid)
-			len += append_buildid(buffer + len, modname, buildid);
+#if IS_ENABLED(CONFIG_STACKTRACE_BUILD_ID)
+		if (add_buildid && buildid) {
+			/* build ID should match length of sprintf */
+#if IS_ENABLED(CONFIG_MODULES)
+			static_assert(sizeof(typeof_member(struct module, build_id)) == 20);
+#endif
+			len += sprintf(buffer + len, " %20phN", buildid);
+		}
+#endif
 		len += sprintf(buffer + len, "]");
 	}
-
-out:
-	preempt_enable();
 
 	return len;
 }
@@ -750,7 +610,7 @@ static int get_ksymbol_bpf(struct kallsym_iter *iter)
 {
 	int ret;
 
-	strlcpy(iter->module_name, "bpf", MODULE_NAME_LEN);
+	strscpy(iter->module_name, "bpf", MODULE_NAME_LEN);
 	iter->exported = 0;
 	ret = bpf_get_kallsym(iter->pos - iter->pos_ftrace_mod_end,
 			      &iter->value, &iter->type,
@@ -770,7 +630,7 @@ static int get_ksymbol_bpf(struct kallsym_iter *iter)
  */
 static int get_ksymbol_kprobe(struct kallsym_iter *iter)
 {
-	strlcpy(iter->module_name, "__builtin__kprobes", MODULE_NAME_LEN);
+	strscpy(iter->module_name, "__builtin__kprobes", MODULE_NAME_LEN);
 	iter->exported = 0;
 	return kprobe_get_kallsym(iter->pos - iter->pos_bpf_end,
 				  &iter->value, &iter->type,
@@ -989,41 +849,6 @@ static int __init bpf_ksym_iter_register(void)
 late_initcall(bpf_ksym_iter_register);
 
 #endif /* CONFIG_BPF_SYSCALL */
-
-static inline int kallsyms_for_perf(void)
-{
-#ifdef CONFIG_PERF_EVENTS
-	extern int sysctl_perf_event_paranoid;
-	if (sysctl_perf_event_paranoid <= 1)
-		return 1;
-#endif
-	return 0;
-}
-
-/*
- * We show kallsyms information even to normal users if we've enabled
- * kernel profiling and are explicitly not paranoid (so kptr_restrict
- * is clear, and sysctl_perf_event_paranoid isn't set).
- *
- * Otherwise, require CAP_SYSLOG (assuming kptr_restrict isn't set to
- * block even that).
- */
-bool kallsyms_show_value(const struct cred *cred)
-{
-	switch (kptr_restrict) {
-	case 0:
-		if (kallsyms_for_perf())
-			return true;
-		fallthrough;
-	case 1:
-		if (security_capable(cred, &init_user_ns, CAP_SYSLOG,
-				     CAP_OPT_NOAUDIT) == 0)
-			return true;
-		fallthrough;
-	default:
-		return false;
-	}
-}
 
 static int kallsyms_open(struct inode *inode, struct file *file)
 {

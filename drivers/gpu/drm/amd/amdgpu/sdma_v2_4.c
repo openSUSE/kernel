@@ -57,22 +57,19 @@ static void sdma_v2_4_set_irq_funcs(struct amdgpu_device *adev);
 MODULE_FIRMWARE("amdgpu/topaz_sdma.bin");
 MODULE_FIRMWARE("amdgpu/topaz_sdma1.bin");
 
-static const u32 sdma_offsets[SDMA_MAX_INSTANCE] =
-{
+static const u32 sdma_offsets[SDMA_MAX_INSTANCE] = {
 	SDMA0_REGISTER_OFFSET,
 	SDMA1_REGISTER_OFFSET
 };
 
-static const u32 golden_settings_iceland_a11[] =
-{
+static const u32 golden_settings_iceland_a11[] = {
 	mmSDMA0_CHICKEN_BITS, 0xfc910007, 0x00810007,
 	mmSDMA0_CLK_CTRL, 0xff000fff, 0x00000000,
 	mmSDMA1_CHICKEN_BITS, 0xfc910007, 0x00810007,
 	mmSDMA1_CLK_CTRL, 0xff000fff, 0x00000000,
 };
 
-static const u32 iceland_mgcg_cgcg_init[] =
-{
+static const u32 iceland_mgcg_cgcg_init[] = {
 	mmSDMA0_CLK_CTRL, 0xff000ff0, 0x00000100,
 	mmSDMA1_CLK_CTRL, 0xff000ff0, 0x00000100
 };
@@ -130,7 +127,6 @@ static void sdma_v2_4_free_microcode(struct amdgpu_device *adev)
 static int sdma_v2_4_init_microcode(struct amdgpu_device *adev)
 {
 	const char *chip_name;
-	char fw_name[30];
 	int err = 0, i;
 	struct amdgpu_firmware_info *info = NULL;
 	const struct common_firmware_header *header = NULL;
@@ -142,15 +138,17 @@ static int sdma_v2_4_init_microcode(struct amdgpu_device *adev)
 	case CHIP_TOPAZ:
 		chip_name = "topaz";
 		break;
-	default: BUG();
+	default:
+		BUG();
 	}
 
 	for (i = 0; i < adev->sdma.num_instances; i++) {
 		if (i == 0)
-			snprintf(fw_name, sizeof(fw_name), "amdgpu/%s_sdma.bin", chip_name);
+			err = amdgpu_ucode_request(adev, &adev->sdma.instance[i].fw,
+						   "amdgpu/%s_sdma.bin", chip_name);
 		else
-			snprintf(fw_name, sizeof(fw_name), "amdgpu/%s_sdma1.bin", chip_name);
-		err = amdgpu_ucode_request(adev, &adev->sdma.instance[i].fw, fw_name);
+			err = amdgpu_ucode_request(adev, &adev->sdma.instance[i].fw,
+						   "amdgpu/%s_sdma1.bin", chip_name);
 		if (err)
 			goto out;
 		hdr = (const struct sdma_firmware_header_v1_0 *)adev->sdma.instance[i].fw->data;
@@ -171,7 +169,8 @@ static int sdma_v2_4_init_microcode(struct amdgpu_device *adev)
 
 out:
 	if (err) {
-		pr_err("sdma_v2_4: Failed to load firmware \"%s\"\n", fw_name);
+		pr_err("sdma_v2_4: Failed to load firmware \"%s_sdma%s.bin\"\n",
+		       chip_name, i == 0 ? "" : "1");
 		for (i = 0; i < adev->sdma.num_instances; i++)
 			amdgpu_ucode_release(&adev->sdma.instance[i].fw);
 	}
@@ -1115,6 +1114,8 @@ static const struct amd_ip_funcs sdma_v2_4_ip_funcs = {
 	.soft_reset = sdma_v2_4_soft_reset,
 	.set_clockgating_state = sdma_v2_4_set_clockgating_state,
 	.set_powergating_state = sdma_v2_4_set_powergating_state,
+	.dump_ip_state = NULL,
+	.print_ip_state = NULL,
 };
 
 static const struct amdgpu_ring_funcs sdma_v2_4_ring_funcs = {
@@ -1178,7 +1179,7 @@ static void sdma_v2_4_set_irq_funcs(struct amdgpu_device *adev)
  * @src_offset: src GPU address
  * @dst_offset: dst GPU address
  * @byte_count: number of bytes to xfer
- * @tmz: unused
+ * @copy_flags: unused
  *
  * Copy GPU buffers using the DMA engine (VI).
  * Used by the amdgpu ttm implementation to move pages if
@@ -1188,7 +1189,7 @@ static void sdma_v2_4_emit_copy_buffer(struct amdgpu_ib *ib,
 				       uint64_t src_offset,
 				       uint64_t dst_offset,
 				       uint32_t byte_count,
-				       bool tmz)
+				       uint32_t copy_flags)
 {
 	ib->ptr[ib->length_dw++] = SDMA_PKT_HEADER_OP(SDMA_OP_COPY) |
 		SDMA_PKT_HEADER_SUB_OP(SDMA_SUBOP_COPY_LINEAR);
@@ -1258,8 +1259,7 @@ static void sdma_v2_4_set_vm_pte_funcs(struct amdgpu_device *adev)
 	adev->vm_manager.vm_pte_num_scheds = adev->sdma.num_instances;
 }
 
-const struct amdgpu_ip_block_version sdma_v2_4_ip_block =
-{
+const struct amdgpu_ip_block_version sdma_v2_4_ip_block = {
 	.type = AMD_IP_BLOCK_TYPE_SDMA,
 	.major = 2,
 	.minor = 4,

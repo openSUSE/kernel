@@ -14,14 +14,15 @@
 
 #include <linux/init.h>
 #include <linux/slab.h>
-#include <net/llc_sap.h>
+#include <net/llc.h>
+#include <net/llc_c_ac.h>
+#include <net/llc_c_ev.h>
+#include <net/llc_c_st.h>
 #include <net/llc_conn.h>
+#include <net/llc_pdu.h>
+#include <net/llc_sap.h>
 #include <net/sock.h>
 #include <net/tcp_states.h>
-#include <net/llc_c_ev.h>
-#include <net/llc_c_ac.h>
-#include <net/llc_c_st.h>
-#include <net/llc_pdu.h>
 
 #if 0
 #define dprintk(args...) printk(KERN_DEBUG args)
@@ -33,10 +34,10 @@ static int llc_find_offset(int state, int ev_type);
 static void llc_conn_send_pdus(struct sock *sk);
 static int llc_conn_service(struct sock *sk, struct sk_buff *skb);
 static int llc_exec_conn_trans_actions(struct sock *sk,
-				       struct llc_conn_state_trans *trans,
+				       const struct llc_conn_state_trans *trans,
 				       struct sk_buff *ev);
-static struct llc_conn_state_trans *llc_qualify_conn_ev(struct sock *sk,
-							struct sk_buff *skb);
+static const struct llc_conn_state_trans *llc_qualify_conn_ev(struct sock *sk,
+							      struct sk_buff *skb);
 
 /* Offset table on connection states transition diagram */
 static int llc_offset_table[NBR_CONN_STATES][NBR_CONN_EV];
@@ -355,9 +356,9 @@ static void llc_conn_send_pdus(struct sock *sk)
  */
 static int llc_conn_service(struct sock *sk, struct sk_buff *skb)
 {
-	int rc = 1;
+	const struct llc_conn_state_trans *trans;
 	struct llc_sock *llc = llc_sk(sk);
-	struct llc_conn_state_trans *trans;
+	int rc = 1;
 
 	if (llc->state > NBR_CONN_STATES)
 		goto out;
@@ -383,10 +384,10 @@ out:
  *	This function finds transition that matches with happened event.
  *	Returns pointer to found transition on success, %NULL otherwise.
  */
-static struct llc_conn_state_trans *llc_qualify_conn_ev(struct sock *sk,
-							struct sk_buff *skb)
+static const struct llc_conn_state_trans *llc_qualify_conn_ev(struct sock *sk,
+							      struct sk_buff *skb)
 {
-	struct llc_conn_state_trans **next_trans;
+	const struct llc_conn_state_trans **next_trans;
 	const llc_conn_ev_qfyr_t *next_qualifier;
 	struct llc_conn_state_ev *ev = llc_conn_ev(skb);
 	struct llc_sock *llc = llc_sk(sk);
@@ -431,7 +432,7 @@ static struct llc_conn_state_trans *llc_qualify_conn_ev(struct sock *sk,
  *	success, 1 to indicate failure of at least one action.
  */
 static int llc_exec_conn_trans_actions(struct sock *sk,
-				       struct llc_conn_state_trans *trans,
+				       const struct llc_conn_state_trans *trans,
 				       struct sk_buff *skb)
 {
 	int rc = 0;
@@ -634,8 +635,8 @@ u8 llc_data_accept_state(u8 state)
  */
 static u16 __init llc_find_next_offset(struct llc_conn_state *state, u16 offset)
 {
+	const struct llc_conn_state_trans **next_trans;
 	u16 cnt = 0;
-	struct llc_conn_state_trans **next_trans;
 
 	for (next_trans = state->transitions + offset;
 	     (*next_trans)->ev; next_trans++)

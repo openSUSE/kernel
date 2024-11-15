@@ -103,7 +103,6 @@ static struct gfs2_sbd *init_sbd(struct super_block *sb)
 	init_completion(&sdp->sd_journal_ready);
 
 	INIT_LIST_HEAD(&sdp->sd_quota_list);
-	mutex_init(&sdp->sd_quota_mutex);
 	mutex_init(&sdp->sd_quota_sync_mutex);
 	init_waitqueue_head(&sdp->sd_quota_wait);
 	spin_lock_init(&sdp->sd_bitmap_lock);
@@ -114,10 +113,10 @@ static struct gfs2_sbd *init_sbd(struct super_block *sb)
 
 	address_space_init_once(mapping);
 	mapping->a_ops = &gfs2_rgrp_aops;
-	mapping->host = sb->s_bdev->bd_inode;
+	mapping->host = sb->s_bdev->bd_mapping->host;
 	mapping->flags = 0;
 	mapping_set_gfp_mask(mapping, GFP_NOFS);
-	mapping->private_data = NULL;
+	mapping->i_private_data = NULL;
 	mapping->writeback_index = 0;
 
 	spin_lock_init(&sdp->sd_log_lock);
@@ -135,7 +134,6 @@ static struct gfs2_sbd *init_sbd(struct super_block *sb)
 	init_rwsem(&sdp->sd_log_flush_lock);
 	atomic_set(&sdp->sd_log_in_flight, 0);
 	init_waitqueue_head(&sdp->sd_log_flush_wait);
-	atomic_set(&sdp->sd_freeze_state, SFS_UNFROZEN);
 	mutex_init(&sdp->sd_freeze_mutex);
 	INIT_LIST_HEAD(&sdp->sd_dead_glocks);
 
@@ -186,22 +184,10 @@ static int gfs2_check_sb(struct gfs2_sbd *sdp, int silent)
 	return 0;
 }
 
-static void end_bio_io_page(struct bio *bio)
-{
-	struct page *page = bio->bi_private;
-
-	if (!bio->bi_status)
-		SetPageUptodate(page);
-	else
-		pr_warn("error %d reading superblock\n", bio->bi_status);
-	unlock_page(page);
-}
-
-static void gfs2_sb_in(struct gfs2_sbd *sdp, const void *buf)
+static void gfs2_sb_in(struct gfs2_sbd *sdp, const struct gfs2_sb *str)
 {
 	struct gfs2_sb_host *sb = &sdp->sd_sb;
 	struct super_block *s = sdp->sd_vfs;
-	const struct gfs2_sb *str = buf;
 
 	sb->sb_magic = be32_to_cpu(str->sb_header.mh_magic);
 	sb->sb_type = be32_to_cpu(str->sb_header.mh_type);
@@ -216,7 +202,7 @@ static void gfs2_sb_in(struct gfs2_sbd *sdp, const void *buf)
 
 	memcpy(sb->sb_lockproto, str->sb_lockproto, GFS2_LOCKNAME_LEN);
 	memcpy(sb->sb_locktable, str->sb_locktable, GFS2_LOCKNAME_LEN);
-	memcpy(&s->s_uuid, str->sb_uuid, 16);
+	super_set_uuid(s, str->sb_uuid, 16);
 }
 
 /**
@@ -241,34 +227,26 @@ static void gfs2_sb_in(struct gfs2_sbd *sdp, const void *buf)
 static int gfs2_read_super(struct gfs2_sbd *sdp, sector_t sector, int silent)
 {
 	struct super_block *sb = sdp->sd_vfs;
-	struct gfs2_sb *p;
 	struct page *page;
-	struct bio *bio;
+	struct bio_vec bvec;
+	struct bio bio;
+	int err;
 
-	page = alloc_page(GFP_NOFS);
+	page = alloc_page(GFP_KERNEL);
 	if (unlikely(!page))
 		return -ENOMEM;
 
-	ClearPageUptodate(page);
-	ClearPageDirty(page);
-	lock_page(page);
+	bio_init(&bio, sb->s_bdev, &bvec, 1, REQ_OP_READ | REQ_META);
+	bio.bi_iter.bi_sector = sector * (sb->s_blocksize >> 9);
+	__bio_add_page(&bio, page, PAGE_SIZE, 0);
 
-	bio = bio_alloc(sb->s_bdev, 1, REQ_OP_READ | REQ_META, GFP_NOFS);
-	bio->bi_iter.bi_sector = sector * (sb->s_blocksize >> 9);
-	__bio_add_page(bio, page, PAGE_SIZE, 0);
-
-	bio->bi_end_io = end_bio_io_page;
-	bio->bi_private = page;
-	submit_bio(bio);
-	wait_on_page_locked(page);
-	bio_put(bio);
-	if (!PageUptodate(page)) {
+	err = submit_bio_wait(&bio);
+	if (err) {
+		pr_warn("error %d reading superblock\n", err);
 		__free_page(page);
-		return -EIO;
+		return err;
 	}
-	p = kmap(page);
-	gfs2_sb_in(sdp, p);
-	kunmap(page);
+	gfs2_sb_in(sdp, page_address(page));
 	__free_page(page);
 	return gfs2_check_sb(sdp, silent);
 }
@@ -294,8 +272,7 @@ static int gfs2_read_sb(struct gfs2_sbd *sdp, int silent)
 		return error;
 	}
 
-	sdp->sd_fsb2bb_shift = sdp->sd_sb.sb_bsize_shift -
-			       GFS2_BASIC_BLOCK_SHIFT;
+	sdp->sd_fsb2bb_shift = sdp->sd_sb.sb_bsize_shift - 9;
 	sdp->sd_fsb2bb = BIT(sdp->sd_fsb2bb_shift);
 	sdp->sd_diptrs = (sdp->sd_sb.sb_bsize -
 			  sizeof(struct gfs2_dinode)) / sizeof(u64);
@@ -435,7 +412,7 @@ static int init_locking(struct gfs2_sbd *sdp, struct gfs2_holder *mount_gh,
 	error = gfs2_glock_get(sdp, GFS2_FREEZE_LOCK, &gfs2_freeze_glops,
 			       CREATE, &sdp->sd_freeze_gl);
 	if (error) {
-		fs_err(sdp, "can't create transaction glock: %d\n", error);
+		fs_err(sdp, "can't create freeze glock: %d\n", error);
 		goto fail_rename;
 	}
 
@@ -1076,7 +1053,7 @@ hostdata_error:
 void gfs2_lm_unmount(struct gfs2_sbd *sdp)
 {
 	const struct lm_lockops *lm = sdp->sd_lockstruct.ls_ops;
-	if (likely(!gfs2_withdrawn(sdp)) && lm->lm_unmount)
+	if (!gfs2_withdrawing_or_withdrawn(sdp) && lm->lm_unmount)
 		lm->lm_unmount(sdp);
 }
 
@@ -1105,27 +1082,44 @@ static int init_threads(struct gfs2_sbd *sdp)
 	struct task_struct *p;
 	int error = 0;
 
-	p = kthread_run(gfs2_logd, sdp, "gfs2_logd");
+	p = kthread_create(gfs2_logd, sdp, "gfs2_logd/%s", sdp->sd_fsname);
 	if (IS_ERR(p)) {
 		error = PTR_ERR(p);
-		fs_err(sdp, "can't start logd thread: %d\n", error);
+		fs_err(sdp, "can't create logd thread: %d\n", error);
 		return error;
 	}
+	get_task_struct(p);
 	sdp->sd_logd_process = p;
 
-	p = kthread_run(gfs2_quotad, sdp, "gfs2_quotad");
+	p = kthread_create(gfs2_quotad, sdp, "gfs2_quotad/%s", sdp->sd_fsname);
 	if (IS_ERR(p)) {
 		error = PTR_ERR(p);
-		fs_err(sdp, "can't start quotad thread: %d\n", error);
+		fs_err(sdp, "can't create quotad thread: %d\n", error);
 		goto fail;
 	}
+	get_task_struct(p);
 	sdp->sd_quotad_process = p;
+
+	wake_up_process(sdp->sd_logd_process);
+	wake_up_process(sdp->sd_quotad_process);
 	return 0;
 
 fail:
-	kthread_stop(sdp->sd_logd_process);
+	kthread_stop_put(sdp->sd_logd_process);
 	sdp->sd_logd_process = NULL;
 	return error;
+}
+
+void gfs2_destroy_threads(struct gfs2_sbd *sdp)
+{
+	if (sdp->sd_logd_process) {
+		kthread_stop_put(sdp->sd_logd_process);
+		sdp->sd_logd_process = NULL;
+	}
+	if (sdp->sd_quotad_process) {
+		kthread_stop_put(sdp->sd_quotad_process);
+		sdp->sd_quotad_process = NULL;
+	}
 }
 
 /**
@@ -1141,7 +1135,6 @@ static int gfs2_fill_super(struct super_block *sb, struct fs_context *fc)
 	int silent = fc->sb_flags & SB_SILENT;
 	struct gfs2_sbd *sdp;
 	struct gfs2_holder mount_gh;
-	struct gfs2_holder freeze_gh;
 	int error;
 
 	sdp = init_sbd(sb);
@@ -1173,10 +1166,9 @@ static int gfs2_fill_super(struct super_block *sb, struct fs_context *fc)
 
 	/* Set up the buffer cache and fill in some fake block size values
 	   to allow us to read-in the on-disk superblock. */
-	sdp->sd_sb.sb_bsize = sb_min_blocksize(sb, GFS2_BASIC_BLOCK);
+	sdp->sd_sb.sb_bsize = sb_min_blocksize(sb, 512);
 	sdp->sd_sb.sb_bsize_shift = sb->s_blocksize_bits;
-	sdp->sd_fsb2bb_shift = sdp->sd_sb.sb_bsize_shift -
-                               GFS2_BASIC_BLOCK_SHIFT;
+	sdp->sd_fsb2bb_shift = sdp->sd_sb.sb_bsize_shift - 9;
 	sdp->sd_fsb2bb = BIT(sdp->sd_fsb2bb_shift);
 
 	sdp->sd_tune.gt_logd_secs = sdp->sd_args.ar_commit;
@@ -1195,11 +1187,17 @@ static int gfs2_fill_super(struct super_block *sb, struct fs_context *fc)
 
 	snprintf(sdp->sd_fsname, sizeof(sdp->sd_fsname), "%s", sdp->sd_table_name);
 
+	error = -ENOMEM;
+	sdp->sd_glock_wq = alloc_workqueue("gfs2-glock/%s",
+			WQ_MEM_RECLAIM | WQ_HIGHPRI | WQ_FREEZABLE, 0,
+			sdp->sd_fsname);
+	if (!sdp->sd_glock_wq)
+		goto fail_free;
+
 	sdp->sd_delete_wq = alloc_workqueue("gfs2-delete/%s",
 			WQ_MEM_RECLAIM | WQ_FREEZABLE, 0, sdp->sd_fsname);
-	error = -ENOMEM;
 	if (!sdp->sd_delete_wq)
-		goto fail_free;
+		goto fail_glock_wq;
 
 	error = gfs2_sys_fs_add(sdp);
 	if (error)
@@ -1268,21 +1266,16 @@ static int gfs2_fill_super(struct super_block *sb, struct fs_context *fc)
 			goto fail_per_node;
 	}
 
-	error = gfs2_freeze_lock(sdp, &freeze_gh, 0);
+	error = gfs2_freeze_lock_shared(sdp);
 	if (error)
 		goto fail_per_node;
 
 	if (!sb_rdonly(sb))
 		error = gfs2_make_fs_rw(sdp);
 
-	gfs2_freeze_unlock(&freeze_gh);
 	if (error) {
-		if (sdp->sd_quotad_process)
-			kthread_stop(sdp->sd_quotad_process);
-		sdp->sd_quotad_process = NULL;
-		if (sdp->sd_logd_process)
-			kthread_stop(sdp->sd_logd_process);
-		sdp->sd_logd_process = NULL;
+		gfs2_freeze_unlock(sdp);
+		gfs2_destroy_threads(sdp);
 		fs_err(sdp, "can't make FS RW: %d\n", error);
 		goto fail_per_node;
 	}
@@ -1313,6 +1306,9 @@ fail_debug:
 	gfs2_sys_fs_del(sdp);
 fail_delete_wq:
 	destroy_workqueue(sdp->sd_delete_wq);
+fail_glock_wq:
+	if (sdp->sd_glock_wq)
+		destroy_workqueue(sdp->sd_glock_wq);
 fail_free:
 	free_sbd(sdp);
 	sb->s_fs_info = NULL;
@@ -1382,6 +1378,7 @@ static const struct constant_table gfs2_param_quota[] = {
 	{"off",        GFS2_QUOTA_OFF},
 	{"account",    GFS2_QUOTA_ACCOUNT},
 	{"on",         GFS2_QUOTA_ON},
+	{"quiet",      GFS2_QUOTA_QUIET},
 	{}
 };
 
@@ -1589,12 +1586,6 @@ static int gfs2_reconfigure(struct fs_context *fc)
 		fc->sb_flags |= SB_RDONLY;
 
 	if ((sb->s_flags ^ fc->sb_flags) & SB_RDONLY) {
-		struct gfs2_holder freeze_gh;
-
-		error = gfs2_freeze_lock(sdp, &freeze_gh, 0);
-		if (error)
-			return -EINVAL;
-
 		if (fc->sb_flags & SB_RDONLY) {
 			gfs2_make_fs_ro(sdp);
 		} else {
@@ -1602,7 +1593,6 @@ static int gfs2_reconfigure(struct fs_context *fc)
 			if (error)
 				errorfc(fc, "unable to remount read-write");
 		}
-		gfs2_freeze_unlock(&freeze_gh);
 	}
 	sdp->sd_args = *newargs;
 
@@ -1794,9 +1784,9 @@ static void gfs2_kill_sb(struct super_block *sb)
 	/*
 	 * Flush and then drain the delete workqueue here (via
 	 * destroy_workqueue()) to ensure that any delete work that
-	 * may be running will also see the SDF_DEACTIVATING flag.
+	 * may be running will also see the SDF_KILL flag.
 	 */
-	set_bit(SDF_DEACTIVATING, &sdp->sd_flags);
+	set_bit(SDF_KILL, &sdp->sd_flags);
 	gfs2_flush_delete_work(sdp);
 	destroy_workqueue(sdp->sd_delete_wq);
 

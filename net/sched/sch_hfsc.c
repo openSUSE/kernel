@@ -116,7 +116,6 @@ struct hfsc_class {
 	struct net_rate_estimator __rcu *rate_est;
 	struct tcf_proto __rcu *filter_list; /* filter list */
 	struct tcf_block *block;
-	unsigned int	filter_cnt;	/* filter count */
 	unsigned int	level;		/* class level in hierarchy */
 
 	struct hfsc_sched *sched;	/* scheduler data */
@@ -1108,8 +1107,11 @@ hfsc_delete_class(struct Qdisc *sch, unsigned long arg,
 	struct hfsc_sched *q = qdisc_priv(sch);
 	struct hfsc_class *cl = (struct hfsc_class *)arg;
 
-	if (cl->level > 0 || cl->filter_cnt > 0 || cl == &q->root)
+	if (cl->level > 0 || qdisc_class_in_use(&cl->cl_common) ||
+	    cl == &q->root) {
+		NL_SET_ERR_MSG(extack, "HFSC class in use");
 		return -EBUSY;
+	}
 
 	sch_tree_lock(sch);
 
@@ -1172,7 +1174,8 @@ hfsc_classify(struct sk_buff *skb, struct Qdisc *sch, int *qerr)
 	}
 
 	/* classification failed, try default class */
-	cl = hfsc_find_class(TC_H_MAKE(TC_H_MAJ(sch->handle), q->defcls), sch);
+	cl = hfsc_find_class(TC_H_MAKE(TC_H_MAJ(sch->handle),
+				       READ_ONCE(q->defcls)), sch);
 	if (cl == NULL || cl->level > 0)
 		return NULL;
 
@@ -1237,7 +1240,7 @@ hfsc_bind_tcf(struct Qdisc *sch, unsigned long parent, u32 classid)
 	if (cl != NULL) {
 		if (p != NULL && p->level <= cl->level)
 			return 0;
-		cl->filter_cnt++;
+		qdisc_class_get(&cl->cl_common);
 	}
 
 	return (unsigned long)cl;
@@ -1248,7 +1251,7 @@ hfsc_unbind_tcf(struct Qdisc *sch, unsigned long arg)
 {
 	struct hfsc_class *cl = (struct hfsc_class *)arg;
 
-	cl->filter_cnt--;
+	qdisc_class_put(&cl->cl_common);
 }
 
 static struct tcf_block *hfsc_tcf_block(struct Qdisc *sch, unsigned long arg,
@@ -1441,9 +1444,7 @@ hfsc_change_qdisc(struct Qdisc *sch, struct nlattr *opt,
 		return -EINVAL;
 	qopt = nla_data(opt);
 
-	sch_tree_lock(sch);
-	q->defcls = qopt->defcls;
-	sch_tree_unlock(sch);
+	WRITE_ONCE(q->defcls, qopt->defcls);
 
 	return 0;
 }
@@ -1523,7 +1524,7 @@ hfsc_dump_qdisc(struct Qdisc *sch, struct sk_buff *skb)
 	unsigned char *b = skb_tail_pointer(skb);
 	struct tc_hfsc_qopt qopt;
 
-	qopt.defcls = q->defcls;
+	qopt.defcls = READ_ONCE(q->defcls);
 	if (nla_put(skb, TCA_OPTIONS, sizeof(qopt), &qopt))
 		goto nla_put_failure;
 	return skb->len;
@@ -1692,5 +1693,6 @@ hfsc_cleanup(void)
 }
 
 MODULE_LICENSE("GPL");
+MODULE_DESCRIPTION("Hierarchical Fair Service Curve scheduler");
 module_init(hfsc_init);
 module_exit(hfsc_cleanup);

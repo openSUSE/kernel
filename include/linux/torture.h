@@ -14,13 +14,14 @@
 #include <linux/cache.h>
 #include <linux/spinlock.h>
 #include <linux/threads.h>
-#include <linux/cpumask.h>
+#include <linux/cpumask_types.h>
 #include <linux/seqlock.h>
 #include <linux/lockdep.h>
 #include <linux/completion.h>
 #include <linux/debugobjects.h>
 #include <linux/bug.h>
 #include <linux/compiler.h>
+#include <linux/hrtimer.h>
 
 /* Definitions for a non-string torture-test module parameter. */
 #define torture_param(type, name, init, msg) \

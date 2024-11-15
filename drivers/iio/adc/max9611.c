@@ -504,9 +504,9 @@ static int max9611_init(struct max9611_dev *max9611)
 }
 
 static const struct of_device_id max9611_of_table[] = {
-	{.compatible = "maxim,max9611", .data = "max9611"},
-	{.compatible = "maxim,max9612", .data = "max9612"},
-	{ },
+	{ .compatible = "maxim,max9611", .data = "max9611" },
+	{ .compatible = "maxim,max9612", .data = "max9612" },
+	{ }
 };
 
 MODULE_DEVICE_TABLE(of, max9611_of_table);
@@ -556,7 +556,7 @@ static struct i2c_driver max9611_driver = {
 		   .name = DRIVER_NAME,
 		   .of_match_table = max9611_of_table,
 	},
-	.probe_new = max9611_probe,
+	.probe = max9611_probe,
 };
 module_i2c_driver(max9611_driver);
 

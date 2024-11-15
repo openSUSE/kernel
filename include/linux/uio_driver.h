@@ -28,10 +28,15 @@ struct uio_map;
  *			logical, virtual, or physical & phys_addr_t
  *			should always be large enough to handle any of
  *			the address types)
+ * @dma_addr:		DMA handle set by dma_alloc_coherent, used with
+ *			UIO_MEM_DMA_COHERENT only (@addr should be the
+ *			void * returned from the same dma_alloc_coherent call)
  * @offs:               offset of device memory within the page
  * @size:		size of IO (multiple of page size)
  * @memtype:		type of memory addr points to
  * @internal_addr:	ioremap-ped version of addr, for driver internal use
+ * @dma_device:		device struct that was passed to dma_alloc_coherent,
+ *			used with UIO_MEM_DMA_COHERENT only
  * @map:		for use by the UIO core only.
  */
 struct uio_mem {

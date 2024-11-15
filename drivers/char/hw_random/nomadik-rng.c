@@ -39,11 +39,8 @@ static int nmk_rng_probe(struct amba_device *dev, const struct amba_id *id)
 	int ret;
 
 	rng_clk = devm_clk_get_enabled(&dev->dev, NULL);
-	if (IS_ERR(rng_clk)) {
-		dev_err(&dev->dev, "could not get rng clock\n");
-		ret = PTR_ERR(rng_clk);
-		return ret;
-	}
+	if (IS_ERR(rng_clk))
+		return dev_err_probe(&dev->dev, PTR_ERR(rng_clk), "could not get rng clock\n");
 
 	ret = amba_request_regions(dev, dev->dev.init_name);
 	if (ret)
@@ -81,7 +78,6 @@ MODULE_DEVICE_TABLE(amba, nmk_rng_ids);
 
 static struct amba_driver nmk_rng_driver = {
 	.drv = {
-		.owner = THIS_MODULE,
 		.name = "rng",
 		},
 	.probe = nmk_rng_probe,
@@ -91,4 +87,5 @@ static struct amba_driver nmk_rng_driver = {
 
 module_amba_driver(nmk_rng_driver);
 
+MODULE_DESCRIPTION("ST-Ericsson Nomadik Random Number Generator");
 MODULE_LICENSE("GPL");

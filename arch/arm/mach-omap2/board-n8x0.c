@@ -142,8 +142,7 @@ static struct gpiod_lookup_table nokia800_mmc_gpio_table = {
 	.dev_id = "mmci-omap.0",
 	.table = {
 		/* Slot switch, GPIO 96 */
-		GPIO_LOOKUP("gpio-80-111", 16,
-			    "switch", GPIO_ACTIVE_HIGH),
+		GPIO_LOOKUP("gpio-96-127", 0, "switch", GPIO_ACTIVE_HIGH),
 		{ }
 	},
 };
@@ -154,11 +153,9 @@ static struct gpiod_lookup_table nokia810_mmc_gpio_table = {
 		/* Slot switch, GPIO 96 */
 		GPIO_LOOKUP("gpio-96-127", 0, "switch", GPIO_ACTIVE_HIGH),
 		/* Slot index 1, VSD power, GPIO 23 */
-		GPIO_LOOKUP_IDX("gpio-16-31", 7,
-				"vsd", 1, GPIO_ACTIVE_HIGH),
+		GPIO_LOOKUP_IDX("gpio-0-31", 23, "vsd", 1, GPIO_ACTIVE_HIGH),
 		/* Slot index 1, VIO power, GPIO 9 */
-		GPIO_LOOKUP_IDX("gpio-0-15", 9,
-				"vsd", 1, GPIO_ACTIVE_HIGH),
+		GPIO_LOOKUP_IDX("gpio-0-31", 9, "vio", 1, GPIO_ACTIVE_HIGH),
 		{ }
 	},
 };
@@ -498,6 +495,15 @@ struct menelaus_platform_data n8x0_menelaus_platform_data = {
 	.late_init = n8x0_menelaus_late_init,
 };
 
+static struct gpiod_lookup_table nokia810_asoc_gpio_table = {
+	.dev_id = "soc-audio",
+	.table = {
+		GPIO_LOOKUP("gpio-0-15", 10, "headset", GPIO_ACTIVE_HIGH),
+		GPIO_LOOKUP("gpio-80-111", 21, "speaker", GPIO_ACTIVE_HIGH),
+		{ }
+	},
+};
+
 static int __init n8x0_late_initcall(void)
 {
 	if (!board_caps)
@@ -505,6 +511,7 @@ static int __init n8x0_late_initcall(void)
 
 	n8x0_mmc_init();
 	n8x0_usb_init();
+	gpiod_add_lookup_table(&nokia810_asoc_gpio_table);
 
 	return 0;
 }

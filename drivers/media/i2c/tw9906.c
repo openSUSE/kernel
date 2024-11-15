@@ -213,7 +213,7 @@ static void tw9906_remove(struct i2c_client *client)
 /* ----------------------------------------------------------------------- */
 
 static const struct i2c_device_id tw9906_id[] = {
-	{ "tw9906", 0 },
+	{ "tw9906" },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, tw9906_id);
@@ -222,7 +222,7 @@ static struct i2c_driver tw9906_driver = {
 	.driver = {
 		.name	= "tw9906",
 	},
-	.probe_new = tw9906_probe,
+	.probe = tw9906_probe,
 	.remove = tw9906_remove,
 	.id_table = tw9906_id,
 };

@@ -283,7 +283,7 @@ out:
 static DEFINE_SIMPLE_DEV_PM_OPS(drv2665_pm_ops, drv2665_suspend, drv2665_resume);
 
 static const struct i2c_device_id drv2665_id[] = {
-	{ "drv2665", 0 },
+	{ "drv2665" },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, drv2665_id);
@@ -297,7 +297,7 @@ MODULE_DEVICE_TABLE(of, drv2665_of_match);
 #endif
 
 static struct i2c_driver drv2665_driver = {
-	.probe_new	= drv2665_probe,
+	.probe		= drv2665_probe,
 	.driver		= {
 		.name	= "drv2665-haptics",
 		.of_match_table = of_match_ptr(drv2665_of_match),

@@ -1617,11 +1617,11 @@ static const struct dev_pm_ops bq25890_pm = {
 };
 
 static const struct i2c_device_id bq25890_i2c_ids[] = {
-	{ "bq25890", 0 },
-	{ "bq25892", 0 },
-	{ "bq25895", 0 },
-	{ "bq25896", 0 },
-	{},
+	{ "bq25890" },
+	{ "bq25892" },
+	{ "bq25895" },
+	{ "bq25896" },
+	{}
 };
 MODULE_DEVICE_TABLE(i2c, bq25890_i2c_ids);
 
@@ -1649,7 +1649,7 @@ static struct i2c_driver bq25890_driver = {
 		.acpi_match_table = ACPI_PTR(bq25890_acpi_match),
 		.pm = &bq25890_pm,
 	},
-	.probe_new = bq25890_probe,
+	.probe = bq25890_probe,
 	.remove = bq25890_remove,
 	.shutdown = bq25890_shutdown,
 	.id_table = bq25890_i2c_ids,

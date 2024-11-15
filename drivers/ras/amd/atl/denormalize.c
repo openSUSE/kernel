@@ -102,7 +102,7 @@ static u64 make_space_for_coh_st_id_mi300(struct addr_ctx *ctx)
 	}
 
 	/* Channel bits. Covers up to 4 bits at [11:8]. */
-	denorm_addr = expand_bits(8, min_t(u8, num_intlv_bits, 4), ctx->ret_addr);
+	denorm_addr = expand_bits(8, min(num_intlv_bits, 4), ctx->ret_addr);
 
 	/* Die bits. Always starts at [12]. */
 	denorm_addr = expand_bits(12, ilog2(ctx->map.num_intlv_dies), denorm_addr);

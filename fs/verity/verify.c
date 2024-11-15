@@ -12,23 +12,6 @@
 
 static struct workqueue_struct *fsverity_read_workqueue;
 
-static inline int cmp_hashes(const struct fsverity_info *vi,
-			     const u8 *want_hash, const u8 *real_hash,
-			     u64 data_pos, int level)
-{
-	const unsigned int hsize = vi->tree_params.digest_size;
-
-	if (memcmp(want_hash, real_hash, hsize) == 0)
-		return 0;
-
-	fsverity_err(vi->inode,
-		     "FILE CORRUPTED! pos=%llu, level=%d, want_hash=%s:%*phN, real_hash=%s:%*phN",
-		     data_pos, level,
-		     vi->tree_params.hash_alg->name, hsize, want_hash,
-		     vi->tree_params.hash_alg->name, hsize, real_hash);
-	return -EBADMSG;
-}
-
 /*
  * Returns true if the hash block with index @hblock_idx in the tree, located in
  * @hpage, has already been verified.
@@ -36,7 +19,6 @@ static inline int cmp_hashes(const struct fsverity_info *vi,
 static bool is_hash_block_verified(struct fsverity_info *vi, struct page *hpage,
 				   unsigned long hblock_idx)
 {
-	bool verified;
 	unsigned int blocks_per_page;
 	unsigned int i;
 
@@ -60,12 +42,20 @@ static bool is_hash_block_verified(struct fsverity_info *vi, struct page *hpage,
 	 * re-instantiated from the backing storage are re-verified.  To do
 	 * this, we use PG_checked again, but now it doesn't really mean
 	 * "checked".  Instead, now it just serves as an indicator for whether
-	 * the hash page is newly instantiated or not.
+	 * the hash page is newly instantiated or not.  If the page is new, as
+	 * indicated by PG_checked=0, we clear the bitmap bits for the page's
+	 * blocks since they are untrustworthy, then set PG_checked=1.
+	 * Otherwise we return the bitmap bit for the requested block.
 	 *
-	 * The first thread that sees PG_checked=0 must clear the corresponding
-	 * bitmap bits, then set PG_checked=1.  This requires a spinlock.  To
-	 * avoid having to take this spinlock in the common case of
-	 * PG_checked=1, we start with an opportunistic lockless read.
+	 * Multiple threads may execute this code concurrently on the same page.
+	 * This is safe because we use memory barriers to ensure that if a
+	 * thread sees PG_checked=1, then it also sees the associated bitmap
+	 * clearing to have occurred.  Also, all writes and their corresponding
+	 * reads are atomic, and all writes are safe to repeat in the event that
+	 * multiple threads get into the PG_checked=0 section.  (Clearing a
+	 * bitmap bit again at worst causes a hash block to be verified
+	 * redundantly.  That event should be very rare, so it's not worth using
+	 * a lock to avoid.  Setting PG_checked again has no effect.)
 	 */
 	if (PageChecked(hpage)) {
 		/*
@@ -75,24 +65,17 @@ static bool is_hash_block_verified(struct fsverity_info *vi, struct page *hpage,
 		smp_rmb();
 		return test_bit(hblock_idx, vi->hash_block_verified);
 	}
-	spin_lock(&vi->hash_page_init_lock);
-	if (PageChecked(hpage)) {
-		verified = test_bit(hblock_idx, vi->hash_block_verified);
-	} else {
-		blocks_per_page = vi->tree_params.blocks_per_page;
-		hblock_idx = round_down(hblock_idx, blocks_per_page);
-		for (i = 0; i < blocks_per_page; i++)
-			clear_bit(hblock_idx + i, vi->hash_block_verified);
-		/*
-		 * A write memory barrier is needed here to give RELEASE
-		 * semantics to the below SetPageChecked() operation.
-		 */
-		smp_wmb();
-		SetPageChecked(hpage);
-		verified = false;
-	}
-	spin_unlock(&vi->hash_page_init_lock);
-	return verified;
+	blocks_per_page = vi->tree_params.blocks_per_page;
+	hblock_idx = round_down(hblock_idx, blocks_per_page);
+	for (i = 0; i < blocks_per_page; i++)
+		clear_bit(hblock_idx + i, vi->hash_block_verified);
+	/*
+	 * A write memory barrier is needed here to give RELEASE semantics to
+	 * the below SetPageChecked() operation.
+	 */
+	smp_wmb();
+	SetPageChecked(hpage);
+	return false;
 }
 
 /*
@@ -131,7 +114,6 @@ verify_data_block(struct inode *inode, struct fsverity_info *vi,
 	 * index of that block's hash within the current level.
 	 */
 	u64 hidx = data_pos >> params->log_blocksize;
-	int err;
 
 	/* Up to 1 + FS_VERITY_MAX_LEVELS pages may be mapped at once */
 	BUILD_BUG_ON(1 + FS_VERITY_MAX_LEVELS > KM_MAX_IDX);
@@ -191,11 +173,10 @@ verify_data_block(struct inode *inode, struct fsverity_info *vi,
 				hpage_idx, level == 0 ? min(max_ra_pages,
 					params->tree_pages - hpage_idx) : 0);
 		if (IS_ERR(hpage)) {
-			err = PTR_ERR(hpage);
 			fsverity_err(inode,
-				     "Error %d reading Merkle tree page %lu",
-				     err, hpage_idx);
-			goto out;
+				     "Error %ld reading Merkle tree page %lu",
+				     PTR_ERR(hpage), hpage_idx);
+			goto error;
 		}
 		haddr = kmap_local_page(hpage) + hblock_offset_in_page;
 		if (is_hash_block_verified(vi, hpage, hblock_idx)) {
@@ -221,12 +202,10 @@ descend:
 		unsigned long hblock_idx = hblocks[level - 1].index;
 		unsigned int hoffset = hblocks[level - 1].hoffset;
 
-		err = fsverity_hash_block(params, inode, haddr, real_hash);
-		if (err)
-			goto out;
-		err = cmp_hashes(vi, want_hash, real_hash, data_pos, level - 1);
-		if (err)
-			goto out;
+		if (fsverity_hash_block(params, inode, haddr, real_hash) != 0)
+			goto error;
+		if (memcmp(want_hash, real_hash, hsize) != 0)
+			goto corrupted;
 		/*
 		 * Mark the hash block as verified.  This must be atomic and
 		 * idempotent, as the same hash block might be verified by
@@ -243,16 +222,24 @@ descend:
 	}
 
 	/* Finally, verify the data block. */
-	err = fsverity_hash_block(params, inode, data, real_hash);
-	if (err)
-		goto out;
-	err = cmp_hashes(vi, want_hash, real_hash, data_pos, -1);
-out:
+	if (fsverity_hash_block(params, inode, data, real_hash) != 0)
+		goto error;
+	if (memcmp(want_hash, real_hash, hsize) != 0)
+		goto corrupted;
+	return true;
+
+corrupted:
+	fsverity_err(inode,
+		     "FILE CORRUPTED! pos=%llu, level=%d, want_hash=%s:%*phN, real_hash=%s:%*phN",
+		     data_pos, level - 1,
+		     params->hash_alg->name, hsize, want_hash,
+		     params->hash_alg->name, hsize, real_hash);
+error:
 	for (; level > 0; level--) {
 		kunmap_local(hblocks[level - 1].addr);
 		put_page(hblocks[level - 1].page);
 	}
-	return err == 0;
+	return false;
 }
 
 static bool
@@ -359,7 +346,7 @@ void fsverity_enqueue_verify_work(struct work_struct *work)
 }
 EXPORT_SYMBOL_GPL(fsverity_enqueue_verify_work);
 
-int __init fsverity_init_workqueue(void)
+void __init fsverity_init_workqueue(void)
 {
 	/*
 	 * Use a high-priority workqueue to prioritize verification work, which
@@ -373,12 +360,5 @@ int __init fsverity_init_workqueue(void)
 						  WQ_HIGHPRI,
 						  num_online_cpus());
 	if (!fsverity_read_workqueue)
-		return -ENOMEM;
-	return 0;
-}
-
-void __init fsverity_exit_workqueue(void)
-{
-	destroy_workqueue(fsverity_read_workqueue);
-	fsverity_read_workqueue = NULL;
+		panic("failed to allocate fsverity_read_queue");
 }

@@ -71,7 +71,7 @@ Protocol 2.13	(Kernel 3.14) Support 32- and 64-bit flags being set in
 
 Protocol 2.14	BURNT BY INCORRECT COMMIT
                 ae7e1238e68f2a472a125673ab506d49158c1889
-		(x86/boot: Add ACPI RSDP address to setup_header)
+		("x86/boot: Add ACPI RSDP address to setup_header")
 		DO NOT USE!!! ASSUME SAME AS 2.13.
 
 Protocol 2.15	(Kernel 5.5) Added the kernel_info and kernel_info.setup_type_max.
@@ -878,7 +878,8 @@ Protocol:	2.10+
   address if possible.
 
   A non-relocatable kernel will unconditionally move itself and to run
-  at this address.
+  at this address. A relocatable kernel will move itself to this address if it
+  loaded below this address.
 
 ============	=======
 Field name:	init_size
@@ -1105,7 +1106,7 @@ The kernel command line should not be located below the real-mode
 code, nor should it be located in high memory.
 
 
-Sample Boot Configuartion
+Sample Boot Configuration
 =========================
 
 As a sample configuration, assume the following layout of the real

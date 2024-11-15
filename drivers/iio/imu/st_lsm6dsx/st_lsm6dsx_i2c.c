@@ -134,6 +134,10 @@ static const struct of_device_id st_lsm6dsx_i2c_of_match[] = {
 		.compatible = "st,asm330lhb",
 		.data = (void *)ST_ASM330LHB_ID,
 	},
+	{
+		.compatible = "st,asm330lhhxg1",
+		.data = (void *)ST_ASM330LHHXG1_ID,
+	},
 	{},
 };
 MODULE_DEVICE_TABLE(of, st_lsm6dsx_i2c_of_match);
@@ -168,6 +172,7 @@ static const struct i2c_device_id st_lsm6dsx_i2c_id_table[] = {
 	{ ST_LSM6DSO16IS_DEV_NAME, ST_LSM6DSO16IS_ID },
 	{ ST_ISM330IS_DEV_NAME, ST_ISM330IS_ID },
 	{ ST_ASM330LHB_DEV_NAME, ST_ASM330LHB_ID },
+	{ ST_ASM330LHHXG1_DEV_NAME, ST_ASM330LHHXG1_ID },
 	{},
 };
 MODULE_DEVICE_TABLE(i2c, st_lsm6dsx_i2c_id_table);
@@ -179,7 +184,7 @@ static struct i2c_driver st_lsm6dsx_driver = {
 		.of_match_table = st_lsm6dsx_i2c_of_match,
 		.acpi_match_table = st_lsm6dsx_i2c_acpi_match,
 	},
-	.probe_new = st_lsm6dsx_i2c_probe,
+	.probe = st_lsm6dsx_i2c_probe,
 	.id_table = st_lsm6dsx_i2c_id_table,
 };
 module_i2c_driver(st_lsm6dsx_driver);

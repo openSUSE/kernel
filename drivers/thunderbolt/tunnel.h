@@ -67,7 +67,6 @@ struct tb_tunnel {
 	void (*reclaim_available_bandwidth)(struct tb_tunnel *tunnel,
 					    int *available_up,
 					    int *available_down);
-	void *suse_kabi_padding_methods;
 	struct list_head list;
 	enum tb_tunnel_type type;
 	int max_up;
@@ -75,8 +74,6 @@ struct tb_tunnel {
 	int allocated_up;
 	int allocated_down;
 	bool bw_mode;
-
-	void *suse_kabi_padding;
 };
 
 struct tb_tunnel *tb_tunnel_discover_pci(struct tb *tb, struct tb_port *down,
@@ -140,6 +137,12 @@ static inline bool tb_tunnel_is_dma(const struct tb_tunnel *tunnel)
 static inline bool tb_tunnel_is_usb3(const struct tb_tunnel *tunnel)
 {
 	return tunnel->type == TB_TUNNEL_USB3;
+}
+
+static inline bool tb_tunnel_direction_downstream(const struct tb_tunnel *tunnel)
+{
+	return tb_port_path_direction_downstream(tunnel->src_port,
+						 tunnel->dst_port);
 }
 
 const char *tb_tunnel_type_name(const struct tb_tunnel *tunnel);

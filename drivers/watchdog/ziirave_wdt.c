@@ -20,7 +20,7 @@
 #include <linux/types.h>
 #include <linux/watchdog.h>
 
-#include <asm/unaligned.h>
+#include <linux/unaligned.h>
 
 #define ZIIRAVE_TIMEOUT_MIN	3
 #define ZIIRAVE_TIMEOUT_MAX	255
@@ -731,7 +731,7 @@ static struct i2c_driver ziirave_wdt_driver = {
 		.name = "ziirave_wdt",
 		.of_match_table = zrv_wdt_of_match,
 	},
-	.probe_new = ziirave_wdt_probe,
+	.probe = ziirave_wdt_probe,
 	.remove = ziirave_wdt_remove,
 	.id_table = ziirave_wdt_id,
 };

@@ -112,7 +112,7 @@ static void wf_max6690_remove(struct i2c_client *client)
 }
 
 static const struct i2c_device_id wf_max6690_id[] = {
-	{ "MAC,max6690", 0 },
+	{ "MAC,max6690" },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, wf_max6690_id);
@@ -128,7 +128,7 @@ static struct i2c_driver wf_max6690_driver = {
 		.name		= "wf_max6690",
 		.of_match_table = wf_max6690_of_id,
 	},
-	.probe_new	= wf_max6690_probe,
+	.probe		= wf_max6690_probe,
 	.remove		= wf_max6690_remove,
 	.id_table	= wf_max6690_id,
 };

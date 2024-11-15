@@ -56,6 +56,7 @@
 #include "dcn30/dcn30_cm_common.h"
 #include "dcn31/dcn31_hwseq.h"
 #include "dcn20/dcn20_hwseq.h"
+#include "dc_state_priv.h"
 
 #define DC_LOGGER_INIT(logger) \
 	struct dal_logger *dc_logger = logger
@@ -133,6 +134,7 @@ void dcn35_init_hw(struct dc *dc)
 	struct dc_bios *dcb = dc->ctx->dc_bios;
 	struct resource_pool *res_pool = dc->res_pool;
 	uint32_t backlight = MAX_BACKLIGHT_LEVEL;
+	uint32_t user_level = MAX_BACKLIGHT_LEVEL;
 	int i;
 
 	if (dc->clk_mgr && dc->clk_mgr->funcs->init_clocks)
@@ -145,18 +147,6 @@ void dcn35_init_hw(struct dc *dc)
 		hws->funcs.bios_golden_init(dc);
 	}
 
-	REG_WRITE(DCCG_GATE_DISABLE_CNTL, 0);
-	REG_WRITE(DCCG_GATE_DISABLE_CNTL2,  0);
-
-	/* Disable gating for PHYASYMCLK. This will be enabled in dccg if needed */
-	REG_UPDATE_5(DCCG_GATE_DISABLE_CNTL2, PHYASYMCLK_ROOT_GATE_DISABLE, 1,
-			PHYBSYMCLK_ROOT_GATE_DISABLE, 1,
-			PHYCSYMCLK_ROOT_GATE_DISABLE, 1,
-			PHYDSYMCLK_ROOT_GATE_DISABLE, 1,
-			PHYESYMCLK_ROOT_GATE_DISABLE, 1);
-
-	REG_WRITE(DCCG_GATE_DISABLE_CNTL5, 0x1f7c3fcf);
-
 	// Initialize the dccg
 	if (res_pool->dccg->funcs->dccg_init)
 		res_pool->dccg->funcs->dccg_init(res_pool->dccg);
@@ -167,7 +157,7 @@ void dcn35_init_hw(struct dc *dc)
 		res_pool->ref_clocks.xtalin_clock_inKhz =
 				dc->ctx->dc_bios->fw_info.pll_info.crystal_frequency;
 
-		if (res_pool->dccg && res_pool->hubbub) {
+		if (res_pool->hubbub) {
 
 			(res_pool->dccg->funcs->get_dccg_ref_freq)(res_pool->dccg,
 				dc->ctx->dc_bios->fw_info.pll_info.crystal_frequency,
@@ -250,6 +240,10 @@ void dcn35_init_hw(struct dc *dc)
 			dc->res_pool->hubbub->funcs->allow_self_refresh_control(dc->res_pool->hubbub,
 					!dc->res_pool->hubbub->ctx->dc->debug.disable_stutter);
 	}
+	if (res_pool->dccg->funcs->dccg_root_gate_disable_control) {
+		for (i = 0; i < res_pool->pipe_count; i++)
+			res_pool->dccg->funcs->dccg_root_gate_disable_control(res_pool->dccg, i, 0);
+	}
 
 	for (i = 0; i < res_pool->audio_count; i++) {
 		struct audio *audio = res_pool->audios[i];
@@ -260,13 +254,15 @@ void dcn35_init_hw(struct dc *dc)
 	for (i = 0; i < dc->link_count; i++) {
 		struct dc_link *link = dc->links[i];
 
-		if (link->panel_cntl)
+		if (link->panel_cntl) {
 			backlight = link->panel_cntl->funcs->hw_init(link->panel_cntl);
+			user_level = link->panel_cntl->stored_backlight_registers.USER_LEVEL;
+		}
 	}
 	if (dc->ctx->dmub_srv) {
 	for (i = 0; i < dc->res_pool->pipe_count; i++) {
 		if (abms[i] != NULL && abms[i]->funcs != NULL)
-			abms[i]->funcs->abm_init(abms[i], backlight);
+			abms[i]->funcs->abm_init(abms[i], backlight, user_level);
 		}
 	}
 
@@ -282,20 +278,6 @@ void dcn35_init_hw(struct dc *dc)
 
 	if (!dc->debug.disable_clock_gate) {
 		/* enable all DCN clock gating */
-		REG_WRITE(DCCG_GATE_DISABLE_CNTL, 0);
-
-		REG_UPDATE_5(DCCG_GATE_DISABLE_CNTL2, SYMCLKA_FE_GATE_DISABLE, 0,
-				SYMCLKB_FE_GATE_DISABLE, 0,
-				SYMCLKC_FE_GATE_DISABLE, 0,
-				SYMCLKD_FE_GATE_DISABLE, 0,
-				SYMCLKE_FE_GATE_DISABLE, 0);
-		REG_UPDATE(DCCG_GATE_DISABLE_CNTL2, HDMICHARCLK0_GATE_DISABLE, 0);
-		REG_UPDATE_5(DCCG_GATE_DISABLE_CNTL2, SYMCLKA_GATE_DISABLE, 0,
-				SYMCLKB_GATE_DISABLE, 0,
-				SYMCLKC_GATE_DISABLE, 0,
-				SYMCLKD_GATE_DISABLE, 0,
-				SYMCLKE_GATE_DISABLE, 0);
-
 		REG_UPDATE(DCFCLK_CNTL, DCFCLK_GATE_DIS, 0);
 	}
 
@@ -326,15 +308,12 @@ void dcn35_init_hw(struct dc *dc)
 	if (dc->ctx->dmub_srv) {
 		dc_dmub_srv_query_caps_cmd(dc->ctx->dmub_srv);
 		dc->caps.dmub_caps.psr = dc->ctx->dmub_srv->dmub->feature_caps.psr;
-		dc->caps.dmub_caps.mclk_sw = dc->ctx->dmub_srv->dmub->feature_caps.fw_assisted_mclk_switch;
+		dc->caps.dmub_caps.mclk_sw = dc->ctx->dmub_srv->dmub->feature_caps.fw_assisted_mclk_switch_ver;
 	}
 
 	if (dc->res_pool->pg_cntl) {
 		if (dc->res_pool->pg_cntl->funcs->init_pg_status)
 			dc->res_pool->pg_cntl->funcs->init_pg_status(dc->res_pool->pg_cntl);
-
-		if (dc->res_pool->pg_cntl->funcs->set_force_poweron_domain22)
-			dc->res_pool->pg_cntl->funcs->set_force_poweron_domain22(dc->res_pool->pg_cntl, false);
 	}
 }
 
@@ -353,7 +332,7 @@ static void update_dsc_on_stream(struct pipe_ctx *pipe_ctx, bool enable)
 
 	if (enable) {
 		struct dsc_config dsc_cfg;
-		struct dsc_optc_config dsc_optc_cfg;
+		struct dsc_optc_config dsc_optc_cfg = {0};
 		enum optc_dsc_mode optc_dsc_mode;
 		struct dcn_dsc_state dsc_state = {0};
 
@@ -444,6 +423,8 @@ void dcn35_update_odm(struct dc *dc, struct dc_state *context, struct pipe_ctx *
 	struct pipe_ctx *odm_pipe;
 	int opp_cnt = 0;
 	int opp_inst[MAX_PIPES] = {0};
+	int odm_slice_width = resource_get_odm_slice_dst_width(pipe_ctx, false);
+	int last_odm_slice_width = resource_get_odm_slice_dst_width(pipe_ctx, true);
 
 	opp_cnt = get_odm_config(pipe_ctx, opp_inst);
 
@@ -451,7 +432,7 @@ void dcn35_update_odm(struct dc *dc, struct dc_state *context, struct pipe_ctx *
 		pipe_ctx->stream_res.tg->funcs->set_odm_combine(
 				pipe_ctx->stream_res.tg,
 				opp_inst, opp_cnt,
-				&pipe_ctx->stream->timing);
+				odm_slice_width, last_odm_slice_width);
 	else
 		pipe_ctx->stream_res.tg->funcs->set_odm_bypass(
 				pipe_ctx->stream_res.tg, &pipe_ctx->stream->timing);
@@ -485,6 +466,28 @@ void dcn35_dpp_root_clock_control(struct dce_hwseq *hws, unsigned int dpp_inst, 
 	if (hws->ctx->dc->res_pool->dccg->funcs->dpp_root_clock_control) {
 		hws->ctx->dc->res_pool->dccg->funcs->dpp_root_clock_control(
 			hws->ctx->dc->res_pool->dccg, dpp_inst, clock_on);
+	}
+}
+
+void dcn35_dpstream_root_clock_control(struct dce_hwseq *hws, unsigned int dp_hpo_inst, bool clock_on)
+{
+	if (!hws->ctx->dc->debug.root_clock_optimization.bits.dpstream)
+		return;
+
+	if (hws->ctx->dc->res_pool->dccg->funcs->set_dpstreamclk_root_clock_gating) {
+		hws->ctx->dc->res_pool->dccg->funcs->set_dpstreamclk_root_clock_gating(
+			hws->ctx->dc->res_pool->dccg, dp_hpo_inst, clock_on);
+	}
+}
+
+void dcn35_physymclk_root_clock_control(struct dce_hwseq *hws, unsigned int phy_inst, bool clock_on)
+{
+	if (!hws->ctx->dc->debug.root_clock_optimization.bits.physymclk)
+		return;
+
+	if (hws->ctx->dc->res_pool->dccg->funcs->set_physymclk_root_clock_gating) {
+		hws->ctx->dc->res_pool->dccg->funcs->set_physymclk_root_clock_gating(
+			hws->ctx->dc->res_pool->dccg, phy_inst, clock_on);
 	}
 }
 
@@ -598,10 +601,10 @@ void dcn35_power_down_on_boot(struct dc *dc)
 	if (edp_link && edp_link->link_enc->funcs->is_dig_enabled &&
 			edp_link->link_enc->funcs->is_dig_enabled(edp_link->link_enc) &&
 			dc->hwseq->funcs.edp_backlight_control &&
-			dc->hwss.power_down &&
+			dc->hwseq->funcs.power_down &&
 			dc->hwss.edp_power_control) {
 		dc->hwseq->funcs.edp_backlight_control(edp_link, false);
-		dc->hwss.power_down(dc);
+		dc->hwseq->funcs.power_down(dc);
 		dc->hwss.edp_power_control(edp_link, false);
 	} else {
 		for (i = 0; i < dc->link_count; i++) {
@@ -609,8 +612,8 @@ void dcn35_power_down_on_boot(struct dc *dc)
 
 			if (link->link_enc && link->link_enc->funcs->is_dig_enabled &&
 					link->link_enc->funcs->is_dig_enabled(link->link_enc) &&
-					dc->hwss.power_down) {
-				dc->hwss.power_down(dc);
+					dc->hwseq->funcs.power_down) {
+				dc->hwseq->funcs.power_down(dc);
 				break;
 			}
 
@@ -631,14 +634,42 @@ void dcn35_power_down_on_boot(struct dc *dc)
 
 bool dcn35_apply_idle_power_optimizations(struct dc *dc, bool enable)
 {
-	struct dc_link *edp_links[MAX_NUM_EDP];
-	int edp_num;
 	if (dc->debug.dmcub_emulation)
 		return true;
 
 	if (enable) {
-		dc_get_edp_links(dc, edp_links, &edp_num);
-		if (edp_num == 0 || edp_num > 1)
+		uint32_t num_active_edp = 0;
+		int i;
+
+		for (i = 0; i < dc->current_state->stream_count; ++i) {
+			struct dc_stream_state *stream = dc->current_state->streams[i];
+			struct dc_link *link = stream->link;
+			bool is_psr = link && !link->panel_config.psr.disable_psr &&
+				      (link->psr_settings.psr_version == DC_PSR_VERSION_1 ||
+				       link->psr_settings.psr_version == DC_PSR_VERSION_SU_1);
+			bool is_replay = link && link->replay_settings.replay_feature_enabled;
+
+			/* Ignore streams that disabled. */
+			if (stream->dpms_off)
+				continue;
+
+			/* Active external displays block idle optimizations. */
+			if (!dc_is_embedded_signal(stream->signal))
+				return false;
+
+			/* If not PWRSEQ0 can't enter idle optimizations */
+			if (link && link->link_index != 0)
+				return false;
+
+			/* Check for panel power features required for idle optimizations. */
+			if (!is_psr && !is_replay)
+				return false;
+
+			num_active_edp += 1;
+		}
+
+		/* If more than one active eDP then disallow. */
+		if (num_active_edp > 1)
 			return false;
 	}
 
@@ -665,6 +696,7 @@ void dcn35_init_pipes(struct dc *dc, struct dc_state *context)
 	struct hubbub *hubbub = dc->res_pool->hubbub;
 	struct pg_cntl *pg_cntl = dc->res_pool->pg_cntl;
 	bool can_apply_seamless_boot = false;
+	bool tg_enabled[MAX_PIPES] = {false};
 
 	for (i = 0; i < context->stream_count; i++) {
 		if (context->streams[i]->apply_seamless_boot_optimization) {
@@ -711,6 +743,8 @@ void dcn35_init_pipes(struct dc *dc, struct dc_state *context)
 		if (hubbub && hubp) {
 			if (hubbub->funcs->program_det_size)
 				hubbub->funcs->program_det_size(hubbub, hubp->inst, 0);
+			if (hubbub->funcs->program_det_segments)
+				hubbub->funcs->program_det_segments(hubbub, hubp->inst, 0);
 		}
 	}
 
@@ -746,6 +780,7 @@ void dcn35_init_pipes(struct dc *dc, struct dc_state *context)
 			// requesting data while in PSR.
 			tg->funcs->tg_init(tg);
 			hubp->power_gated = true;
+			tg_enabled[i] = true;
 			continue;
 		}
 
@@ -769,12 +804,12 @@ void dcn35_init_pipes(struct dc *dc, struct dc_state *context)
 		dc->res_pool->opps[i]->mpcc_disconnect_pending[pipe_ctx->plane_res.mpcc_inst] = true;
 		pipe_ctx->stream_res.opp = dc->res_pool->opps[i];
 
-		hws->funcs.plane_atomic_disconnect(dc, pipe_ctx);
+		hws->funcs.plane_atomic_disconnect(dc, context, pipe_ctx);
 
 		if (tg->funcs->is_tg_enabled(tg))
 			tg->funcs->unlock(tg);
 
-		dc->hwss.disable_plane(dc, pipe_ctx);
+		dc->hwss.disable_plane(dc, context, pipe_ctx);
 
 		pipe_ctx->stream_res.tg = NULL;
 		pipe_ctx->plane_res.hubp = NULL;
@@ -785,6 +820,20 @@ void dcn35_init_pipes(struct dc *dc, struct dc_state *context)
 		}
 
 		tg->funcs->tg_init(tg);
+	}
+
+	/* Clean up MPC tree */
+	for (i = 0; i < dc->res_pool->pipe_count; i++) {
+		if (tg_enabled[i]) {
+			if (dc->res_pool->opps[i]->mpc_tree_params.opp_list) {
+				if (dc->res_pool->opps[i]->mpc_tree_params.opp_list->mpcc_bot) {
+					int bot_id = dc->res_pool->opps[i]->mpc_tree_params.opp_list->mpcc_bot->mpcc_id;
+
+					if ((bot_id < MAX_MPCC) && (bot_id < MAX_PIPES) && (!tg_enabled[bot_id]))
+						dc->res_pool->opps[i]->mpc_tree_params.opp_list = NULL;
+				}
+			}
+		}
 	}
 
 	if (pg_cntl != NULL) {
@@ -901,10 +950,10 @@ void dcn35_plane_atomic_disable(struct dc *dc, struct pipe_ctx *pipe_ctx)
 	pipe_ctx->plane_state = NULL;
 }
 
-void dcn35_disable_plane(struct dc *dc, struct pipe_ctx *pipe_ctx)
+void dcn35_disable_plane(struct dc *dc, struct dc_state *state, struct pipe_ctx *pipe_ctx)
 {
 	struct dce_hwseq *hws = dc->hwseq;
-	bool is_phantom = pipe_ctx->plane_state && pipe_ctx->plane_state->is_phantom;
+	bool is_phantom = dc_state_get_pipe_subvp_type(state, pipe_ctx) == SUBVP_PHANTOM;
 	struct timing_generator *tg = is_phantom ? pipe_ctx->stream_res.tg : NULL;
 
 	DC_LOGGER_INIT(dc->ctx->logger);
@@ -931,6 +980,8 @@ void dcn35_calc_blocks_to_gate(struct dc *dc, struct dc_state *context,
 	bool hpo_frl_stream_enc_acquired = false;
 	bool hpo_dp_stream_enc_acquired = false;
 	int i = 0, j = 0;
+	int edp_num = 0;
+	struct dc_link *edp_links[MAX_NUM_EDP] = { NULL };
 
 	memset(update_state, 0, sizeof(struct pg_block_update));
 
@@ -971,8 +1022,45 @@ void dcn35_calc_blocks_to_gate(struct dc *dc, struct dc_state *context,
 		if (pipe_ctx->stream_res.opp)
 			update_state->pg_pipe_res_update[PG_OPP][pipe_ctx->stream_res.opp->inst] = false;
 
-		if (pipe_ctx->stream_res.tg)
-			update_state->pg_pipe_res_update[PG_OPTC][pipe_ctx->stream_res.tg->inst] = false;
+		if (pipe_ctx->stream_res.hpo_dp_stream_enc)
+			update_state->pg_pipe_res_update[PG_DPSTREAM][pipe_ctx->stream_res.hpo_dp_stream_enc->inst] = false;
+	}
+
+	for (i = 0; i < dc->link_count; i++) {
+		update_state->pg_pipe_res_update[PG_PHYSYMCLK][dc->links[i]->link_enc_hw_inst] = true;
+		if (dc->links[i]->type != dc_connection_none)
+			update_state->pg_pipe_res_update[PG_PHYSYMCLK][dc->links[i]->link_enc_hw_inst] = false;
+	}
+
+	/*domain24 controls all the otg, mpc, opp, as long as one otg is still up, avoid enabling OTG PG*/
+	for (i = 0; i < dc->res_pool->timing_generator_count; i++) {
+		struct timing_generator *tg = dc->res_pool->timing_generators[i];
+		if (tg && tg->funcs->is_tg_enabled(tg)) {
+			update_state->pg_pipe_res_update[PG_OPTC][i] = false;
+			break;
+		}
+	}
+
+	dc_get_edp_links(dc, edp_links, &edp_num);
+	if (edp_num == 0 ||
+		((!edp_links[0] || !edp_links[0]->edp_sink_present) &&
+			(!edp_links[1] || !edp_links[1]->edp_sink_present))) {
+		/*eDP not exist on this config, keep Domain24 power on, for S0i3, this will be handled in dmubfw*/
+		update_state->pg_pipe_res_update[PG_OPTC][0] = false;
+	}
+
+	if (dc->caps.sequential_ono) {
+		for (i = dc->res_pool->pipe_count - 1; i >= 0; i--) {
+			if (!update_state->pg_pipe_res_update[PG_HUBP][i] &&
+			    !update_state->pg_pipe_res_update[PG_DPP][i]) {
+				for (j = i - 1; j >= 0; j--) {
+					update_state->pg_pipe_res_update[PG_HUBP][j] = false;
+					update_state->pg_pipe_res_update[PG_DPP][j] = false;
+				}
+
+				break;
+			}
+		}
 	}
 }
 
@@ -1014,6 +1102,9 @@ void dcn35_calc_blocks_to_ungate(struct dc *dc, struct dc_state *context,
 
 				if (j == PG_OPTC && new_pipe->stream_res.tg)
 					update_state->pg_pipe_res_update[j][new_pipe->stream_res.tg->inst] = true;
+
+				if (j == PG_DPSTREAM && new_pipe->stream_res.hpo_dp_stream_enc)
+					update_state->pg_pipe_res_update[j][new_pipe->stream_res.hpo_dp_stream_enc->inst] = true;
 			}
 		} else if (cur_pipe->plane_state == new_pipe->plane_state ||
 				cur_pipe == new_pipe) {
@@ -1043,9 +1134,18 @@ void dcn35_calc_blocks_to_ungate(struct dc *dc, struct dc_state *context,
 					cur_pipe->stream_res.tg != new_pipe->stream_res.tg &&
 					new_pipe->stream_res.tg)
 					update_state->pg_pipe_res_update[j][new_pipe->stream_res.tg->inst] = true;
+
+				if (j == PG_DPSTREAM &&
+					cur_pipe->stream_res.hpo_dp_stream_enc != new_pipe->stream_res.hpo_dp_stream_enc &&
+					new_pipe->stream_res.hpo_dp_stream_enc)
+					update_state->pg_pipe_res_update[j][new_pipe->stream_res.hpo_dp_stream_enc->inst] = true;
 			}
 		}
 	}
+
+	for (i = 0; i < dc->link_count; i++)
+		if (dc->links[i]->type != dc_connection_none)
+			update_state->pg_pipe_res_update[PG_PHYSYMCLK][dc->links[i]->link_enc_hw_inst] = true;
 
 	for (i = 0; i < dc->res_pool->hpo_dp_stream_enc_count; i++) {
 		if (context->res_ctx.is_hpo_dp_stream_enc_acquired[i] &&
@@ -1058,10 +1158,49 @@ void dcn35_calc_blocks_to_ungate(struct dc *dc, struct dc_state *context,
 	if (hpo_frl_stream_enc_acquired || hpo_dp_stream_enc_acquired)
 		update_state->pg_res_update[PG_HPO] = true;
 
+	if (hpo_frl_stream_enc_acquired)
+		update_state->pg_pipe_res_update[PG_HDMISTREAM][0] = true;
+
+	if (dc->caps.sequential_ono) {
+		for (i = dc->res_pool->pipe_count - 1; i >= 0; i--) {
+			if (update_state->pg_pipe_res_update[PG_HUBP][i] &&
+			    update_state->pg_pipe_res_update[PG_DPP][i]) {
+				for (j = i - 1; j >= 0; j--) {
+					update_state->pg_pipe_res_update[PG_HUBP][j] = true;
+					update_state->pg_pipe_res_update[PG_DPP][j] = true;
+				}
+
+				break;
+			}
+		}
+	}
 }
 
-void dcn35_block_power_control(struct dc *dc,
-	struct pg_block_update *update_state, bool power_on)
+/**
+ * dcn35_hw_block_power_down() - power down sequence
+ *
+ * The following sequence describes the ON-OFF (ONO) for power down:
+ *
+ *	ONO Region 3, DCPG 25: hpo - SKIPPED
+ *	ONO Region 4, DCPG 0: dchubp0, dpp0
+ *	ONO Region 6, DCPG 1: dchubp1, dpp1
+ *	ONO Region 8, DCPG 2: dchubp2, dpp2
+ *	ONO Region 10, DCPG 3: dchubp3, dpp3
+ *	ONO Region 1, DCPG 23: dchubbub dchvm dchubbubmem - SKIPPED. PMFW will pwr dwn at IPS2 entry
+ *	ONO Region 5, DCPG 16: dsc0
+ *	ONO Region 7, DCPG 17: dsc1
+ *	ONO Region 9, DCPG 18: dsc2
+ *	ONO Region 11, DCPG 19: dsc3
+ *	ONO Region 2, DCPG 24: mpc opp optc dwb
+ *	ONO Region 0, DCPG 22: dccg dio dcio - SKIPPED. will be pwr dwn after lono timer is armed
+ *
+ * If sequential ONO is specified the order is modified from ONO Region 11 -> ONO Region 0 descending.
+ *
+ * @dc: Current DC state
+ * @update_state: update PG sequence states for HW block
+ */
+void dcn35_hw_block_power_down(struct dc *dc,
+	struct pg_block_update *update_state)
 {
 	int i = 0;
 	struct pg_cntl *pg_cntl = dc->res_pool->pg_cntl;
@@ -1070,48 +1209,115 @@ void dcn35_block_power_control(struct dc *dc,
 		return;
 	if (dc->debug.ignore_pg)
 		return;
+
 	if (update_state->pg_res_update[PG_HPO]) {
 		if (pg_cntl->funcs->hpo_pg_control)
-			pg_cntl->funcs->hpo_pg_control(pg_cntl, power_on);
+			pg_cntl->funcs->hpo_pg_control(pg_cntl, false);
+	}
+
+	if (!dc->caps.sequential_ono) {
+		for (i = 0; i < dc->res_pool->pipe_count; i++) {
+			if (update_state->pg_pipe_res_update[PG_HUBP][i] &&
+			    update_state->pg_pipe_res_update[PG_DPP][i]) {
+				if (pg_cntl->funcs->hubp_dpp_pg_control)
+					pg_cntl->funcs->hubp_dpp_pg_control(pg_cntl, i, false);
+			}
+		}
+
+		for (i = 0; i < dc->res_pool->res_cap->num_dsc; i++) {
+			if (update_state->pg_pipe_res_update[PG_DSC][i]) {
+				if (pg_cntl->funcs->dsc_pg_control)
+					pg_cntl->funcs->dsc_pg_control(pg_cntl, i, false);
+			}
+		}
+	} else {
+		for (i = dc->res_pool->pipe_count - 1; i >= 0; i--) {
+			if (update_state->pg_pipe_res_update[PG_DSC][i]) {
+				if (pg_cntl->funcs->dsc_pg_control)
+					pg_cntl->funcs->dsc_pg_control(pg_cntl, i, false);
+			}
+
+			if (update_state->pg_pipe_res_update[PG_HUBP][i] &&
+			    update_state->pg_pipe_res_update[PG_DPP][i]) {
+				if (pg_cntl->funcs->hubp_dpp_pg_control)
+					pg_cntl->funcs->hubp_dpp_pg_control(pg_cntl, i, false);
+			}
+		}
+	}
+
+	/*this will need all the clients to unregister optc interruts let dmubfw handle this*/
+	if (pg_cntl->funcs->plane_otg_pg_control)
+		pg_cntl->funcs->plane_otg_pg_control(pg_cntl, false);
+
+	//domain22, 23, 25 currently always on.
+
+}
+
+/**
+ * dcn35_hw_block_power_up() - power up sequence
+ *
+ * The following sequence describes the ON-OFF (ONO) for power up:
+ *
+ *	ONO Region 0, DCPG 22: dccg dio dcio - SKIPPED
+ *	ONO Region 2, DCPG 24: mpc opp optc dwb
+ *	ONO Region 5, DCPG 16: dsc0
+ *	ONO Region 7, DCPG 17: dsc1
+ *	ONO Region 9, DCPG 18: dsc2
+ *	ONO Region 11, DCPG 19: dsc3
+ *	ONO Region 1, DCPG 23: dchubbub dchvm dchubbubmem - SKIPPED. PMFW will power up at IPS2 exit
+ *	ONO Region 4, DCPG 0: dchubp0, dpp0
+ *	ONO Region 6, DCPG 1: dchubp1, dpp1
+ *	ONO Region 8, DCPG 2: dchubp2, dpp2
+ *	ONO Region 10, DCPG 3: dchubp3, dpp3
+ *	ONO Region 3, DCPG 25: hpo - SKIPPED
+ *
+ * If sequential ONO is specified the order is modified from ONO Region 0 -> ONO Region 11 ascending.
+ *
+ * @dc: Current DC state
+ * @update_state: update PG sequence states for HW block
+ */
+void dcn35_hw_block_power_up(struct dc *dc,
+	struct pg_block_update *update_state)
+{
+	int i = 0;
+	struct pg_cntl *pg_cntl = dc->res_pool->pg_cntl;
+
+	if (!pg_cntl)
+		return;
+	if (dc->debug.ignore_pg)
+		return;
+	//domain22, 23, 25 currently always on.
+	/*this will need all the clients to unregister optc interruts let dmubfw handle this*/
+	if (pg_cntl->funcs->plane_otg_pg_control)
+		pg_cntl->funcs->plane_otg_pg_control(pg_cntl, true);
+
+	if (!dc->caps.sequential_ono) {
+		for (i = 0; i < dc->res_pool->res_cap->num_dsc; i++)
+			if (update_state->pg_pipe_res_update[PG_DSC][i]) {
+				if (pg_cntl->funcs->dsc_pg_control)
+					pg_cntl->funcs->dsc_pg_control(pg_cntl, i, true);
+			}
 	}
 
 	for (i = 0; i < dc->res_pool->pipe_count; i++) {
 		if (update_state->pg_pipe_res_update[PG_HUBP][i] &&
 			update_state->pg_pipe_res_update[PG_DPP][i]) {
 			if (pg_cntl->funcs->hubp_dpp_pg_control)
-				pg_cntl->funcs->hubp_dpp_pg_control(pg_cntl, i, power_on);
+				pg_cntl->funcs->hubp_dpp_pg_control(pg_cntl, i, true);
 		}
 
-		if (update_state->pg_pipe_res_update[PG_DSC][i]) {
-			if (pg_cntl->funcs->dsc_pg_control)
-				pg_cntl->funcs->dsc_pg_control(pg_cntl, i, power_on);
-		}
-
-		if (update_state->pg_pipe_res_update[PG_MPCC][i]) {
-			if (pg_cntl->funcs->mpcc_pg_control)
-				pg_cntl->funcs->mpcc_pg_control(pg_cntl, i, power_on);
-		}
-
-		if (update_state->pg_pipe_res_update[PG_OPP][i]) {
-			if (pg_cntl->funcs->opp_pg_control)
-				pg_cntl->funcs->opp_pg_control(pg_cntl, i, power_on);
-		}
-
-		if (update_state->pg_pipe_res_update[PG_OPTC][i]) {
-			if (pg_cntl->funcs->optc_pg_control)
-				pg_cntl->funcs->optc_pg_control(pg_cntl, i, power_on);
+		if (dc->caps.sequential_ono) {
+			if (update_state->pg_pipe_res_update[PG_DSC][i]) {
+				if (pg_cntl->funcs->dsc_pg_control)
+					pg_cntl->funcs->dsc_pg_control(pg_cntl, i, true);
+			}
 		}
 	}
-
-	if (update_state->pg_res_update[PG_DWB]) {
-		if (pg_cntl->funcs->dwb_pg_control)
-			pg_cntl->funcs->dwb_pg_control(pg_cntl, power_on);
+	if (update_state->pg_res_update[PG_HPO]) {
+		if (pg_cntl->funcs->hpo_pg_control)
+			pg_cntl->funcs->hpo_pg_control(pg_cntl, true);
 	}
-
-	if (pg_cntl->funcs->plane_otg_pg_control)
-		pg_cntl->funcs->plane_otg_pg_control(pg_cntl, power_on);
 }
-
 void dcn35_root_clock_control(struct dc *dc,
 	struct pg_block_update *update_state, bool power_on)
 {
@@ -1120,14 +1326,26 @@ void dcn35_root_clock_control(struct dc *dc,
 
 	if (!pg_cntl)
 		return;
-
-	for (i = 0; i < dc->res_pool->pipe_count; i++) {
-		if (update_state->pg_pipe_res_update[PG_HUBP][i] &&
-			update_state->pg_pipe_res_update[PG_DPP][i]) {
-			if (dc->hwseq->funcs.dpp_root_clock_control)
-				dc->hwseq->funcs.dpp_root_clock_control(dc->hwseq, i, power_on);
+	/*enable root clock first when power up*/
+	if (power_on) {
+		for (i = 0; i < dc->res_pool->pipe_count; i++) {
+			if (update_state->pg_pipe_res_update[PG_HUBP][i] &&
+				update_state->pg_pipe_res_update[PG_DPP][i]) {
+				if (dc->hwseq->funcs.dpp_root_clock_control)
+					dc->hwseq->funcs.dpp_root_clock_control(dc->hwseq, i, power_on);
+			}
+			if (update_state->pg_pipe_res_update[PG_DPSTREAM][i])
+				if (dc->hwseq->funcs.dpstream_root_clock_control)
+					dc->hwseq->funcs.dpstream_root_clock_control(dc->hwseq, i, power_on);
 		}
 
+		for (i = 0; i < dc->res_pool->dig_link_enc_count; i++)
+			if (update_state->pg_pipe_res_update[PG_PHYSYMCLK][i])
+				if (dc->hwseq->funcs.physymclk_root_clock_control)
+					dc->hwseq->funcs.physymclk_root_clock_control(dc->hwseq, i, power_on);
+
+	}
+	for (i = 0; i < dc->res_pool->res_cap->num_dsc; i++) {
 		if (update_state->pg_pipe_res_update[PG_DSC][i]) {
 			if (power_on) {
 				if (dc->res_pool->dccg->funcs->enable_dsc)
@@ -1137,6 +1355,25 @@ void dcn35_root_clock_control(struct dc *dc,
 					dc->res_pool->dccg->funcs->disable_dsc(dc->res_pool->dccg, i);
 			}
 		}
+	}
+	/*disable root clock first when power down*/
+	if (!power_on) {
+		for (i = 0; i < dc->res_pool->pipe_count; i++) {
+			if (update_state->pg_pipe_res_update[PG_HUBP][i] &&
+				update_state->pg_pipe_res_update[PG_DPP][i]) {
+				if (dc->hwseq->funcs.dpp_root_clock_control)
+					dc->hwseq->funcs.dpp_root_clock_control(dc->hwseq, i, power_on);
+			}
+			if (update_state->pg_pipe_res_update[PG_DPSTREAM][i])
+				if (dc->hwseq->funcs.dpstream_root_clock_control)
+					dc->hwseq->funcs.dpstream_root_clock_control(dc->hwseq, i, power_on);
+		}
+
+		for (i = 0; i < dc->res_pool->dig_link_enc_count; i++)
+			if (update_state->pg_pipe_res_update[PG_PHYSYMCLK][i])
+				if (dc->hwseq->funcs.physymclk_root_clock_control)
+					dc->hwseq->funcs.physymclk_root_clock_control(dc->hwseq, i, power_on);
+
 	}
 }
 
@@ -1151,9 +1388,9 @@ void dcn35_prepare_bandwidth(
 
 		if (dc->hwss.root_clock_control)
 			dc->hwss.root_clock_control(dc, &pg_update_state, true);
-
-		if (dc->hwss.block_power_control)
-			dc->hwss.block_power_control(dc, &pg_update_state, true);
+		/*power up required HW block*/
+		if (dc->hwss.hw_block_power_up)
+			dc->hwss.hw_block_power_up(dc, &pg_update_state);
 	}
 
 	dcn20_prepare_bandwidth(dc, context);
@@ -1169,27 +1406,172 @@ void dcn35_optimize_bandwidth(
 
 	if (dc->hwss.calc_blocks_to_gate) {
 		dc->hwss.calc_blocks_to_gate(dc, context, &pg_update_state);
-
-		if (dc->hwss.block_power_control)
-			dc->hwss.block_power_control(dc, &pg_update_state, false);
+		/*try to power down unused block*/
+		if (dc->hwss.hw_block_power_down)
+			dc->hwss.hw_block_power_down(dc, &pg_update_state);
 
 		if (dc->hwss.root_clock_control)
 			dc->hwss.root_clock_control(dc, &pg_update_state, false);
 	}
 }
 
-void dcn35_set_idle_state(const struct dc *dc, bool allow_idle)
+void dcn35_set_drr(struct pipe_ctx **pipe_ctx,
+		int num_pipes, struct dc_crtc_timing_adjust adjust)
 {
-	// TODO: Find a more suitable communcation
-	if (dc->clk_mgr->funcs->set_idle_state)
-		dc->clk_mgr->funcs->set_idle_state(dc->clk_mgr, allow_idle);
+	int i = 0;
+	struct drr_params params = {0};
+	// DRR set trigger event mapped to OTG_TRIG_A
+	unsigned int event_triggers = 0x2;//Bit[1]: OTG_TRIG_A
+	// Note DRR trigger events are generated regardless of whether num frames met.
+	unsigned int num_frames = 2;
+
+	params.vertical_total_max = adjust.v_total_max;
+	params.vertical_total_min = adjust.v_total_min;
+	params.vertical_total_mid = adjust.v_total_mid;
+	params.vertical_total_mid_frame_num = adjust.v_total_mid_frame_num;
+
+	for (i = 0; i < num_pipes; i++) {
+		/* dc_state_destruct() might null the stream resources, so fetch tg
+		 * here first to avoid a race condition. The lifetime of the pointee
+		 * itself (the timing_generator object) is not a problem here.
+		 */
+		struct timing_generator *tg = pipe_ctx[i]->stream_res.tg;
+
+		if ((tg != NULL) && tg->funcs) {
+			if (pipe_ctx[i]->stream && pipe_ctx[i]->stream->ctx->dc->debug.static_screen_wait_frames) {
+				struct dc_crtc_timing *timing = &pipe_ctx[i]->stream->timing;
+				struct dc *dc = pipe_ctx[i]->stream->ctx->dc;
+				unsigned int frame_rate = timing->pix_clk_100hz / (timing->h_total * timing->v_total);
+
+				if (frame_rate >= 120 && dc->caps.ips_support &&
+					dc->config.disable_ips != DMUB_IPS_DISABLE_ALL) {
+					/*ips enable case*/
+					num_frames = 2 * (frame_rate % 60);
+				}
+			}
+			if (tg->funcs->set_drr)
+				tg->funcs->set_drr(tg, &params);
+			if (adjust.v_total_max != 0 && adjust.v_total_min != 0)
+				if (tg->funcs->set_static_screen_control)
+					tg->funcs->set_static_screen_control(
+						tg, event_triggers, num_frames);
+		}
+	}
+}
+void dcn35_set_static_screen_control(struct pipe_ctx **pipe_ctx,
+		int num_pipes, const struct dc_static_screen_params *params)
+{
+	unsigned int i;
+	unsigned int triggers = 0;
+
+	if (params->triggers.surface_update)
+		triggers |= 0x200;/*bit 9  : 10 0000 0000*/
+	if (params->triggers.cursor_update)
+		triggers |= 0x8;/*bit3*/
+	if (params->triggers.force_trigger)
+		triggers |= 0x1;
+	for (i = 0; i < num_pipes; i++)
+		pipe_ctx[i]->stream_res.tg->funcs->
+			set_static_screen_control(pipe_ctx[i]->stream_res.tg,
+					triggers, params->num_frames);
 }
 
-uint32_t dcn35_get_idle_state(const struct dc *dc)
+void dcn35_set_long_vblank(struct pipe_ctx **pipe_ctx,
+		int num_pipes, uint32_t v_total_min, uint32_t v_total_max)
 {
-	// TODO: Find a more suitable communcation
-	if (dc->clk_mgr->funcs->get_idle_state)
-		return dc->clk_mgr->funcs->get_idle_state(dc->clk_mgr);
+	int i = 0;
+	struct long_vtotal_params params = {0};
 
-	return 0;
+	params.vertical_total_max = v_total_max;
+	params.vertical_total_min = v_total_min;
+
+	for (i = 0; i < num_pipes; i++) {
+		if (!pipe_ctx[i])
+			continue;
+
+		if (pipe_ctx[i]->stream) {
+			struct dc_crtc_timing *timing = &pipe_ctx[i]->stream->timing;
+
+			if (timing)
+				params.vertical_blank_start = timing->v_total - timing->v_front_porch;
+			else
+				params.vertical_blank_start = 0;
+
+			if ((pipe_ctx[i]->stream_res.tg != NULL) && pipe_ctx[i]->stream_res.tg->funcs &&
+				pipe_ctx[i]->stream_res.tg->funcs->set_long_vtotal)
+				pipe_ctx[i]->stream_res.tg->funcs->set_long_vtotal(pipe_ctx[i]->stream_res.tg, &params);
+		}
+	}
+}
+
+static bool should_avoid_empty_tu(struct pipe_ctx *pipe_ctx)
+{
+	/* Calculate average pixel count per TU, return false if under ~2.00 to
+	 * avoid empty TUs. This is only required for DPIA tunneling as empty TUs
+	 * are legal to generate for native DP links. Assume TU size 64 as there
+	 * is currently no scenario where it's reprogrammed from HW default.
+	 * MTPs have no such limitation, so this does not affect MST use cases.
+	 */
+	unsigned int pix_clk_mhz;
+	unsigned int symclk_mhz;
+	unsigned int avg_pix_per_tu_x1000;
+	unsigned int tu_size_bytes = 64;
+	struct dc_crtc_timing *timing = &pipe_ctx->stream->timing;
+	struct dc_link_settings *link_settings = &pipe_ctx->link_config.dp_link_settings;
+	const struct dc *dc = pipe_ctx->stream->link->dc;
+
+	if (pipe_ctx->stream->link->ep_type != DISPLAY_ENDPOINT_USB4_DPIA)
+		return false;
+
+	// Not necessary for MST configurations
+	if (pipe_ctx->stream->signal == SIGNAL_TYPE_DISPLAY_PORT_MST)
+		return false;
+
+	pix_clk_mhz = timing->pix_clk_100hz / 10000;
+
+	// If this is true, can't block due to dynamic ODM
+	if (pix_clk_mhz > dc->clk_mgr->bw_params->clk_table.entries[0].dispclk_mhz)
+		return false;
+
+	switch (link_settings->link_rate) {
+	case LINK_RATE_LOW:
+		symclk_mhz = 162;
+		break;
+	case LINK_RATE_HIGH:
+		symclk_mhz = 270;
+		break;
+	case LINK_RATE_HIGH2:
+		symclk_mhz = 540;
+		break;
+	case LINK_RATE_HIGH3:
+		symclk_mhz = 810;
+		break;
+	default:
+		// We shouldn't be tunneling any other rates, something is wrong
+		ASSERT(0);
+		return false;
+	}
+
+	avg_pix_per_tu_x1000 = (1000 * pix_clk_mhz * tu_size_bytes)
+		/ (symclk_mhz * link_settings->lane_count);
+
+	// Add small empirically-decided margin to account for potential jitter
+	return (avg_pix_per_tu_x1000 < 2020);
+}
+
+bool dcn35_is_dp_dig_pixel_rate_div_policy(struct pipe_ctx *pipe_ctx)
+{
+	struct dc *dc = pipe_ctx->stream->ctx->dc;
+
+	if (!is_h_timing_divisible_by_2(pipe_ctx->stream))
+		return false;
+
+	if (should_avoid_empty_tu(pipe_ctx))
+		return false;
+
+	if (dc_is_dp_signal(pipe_ctx->stream->signal) && !dc->link_srv->dp_is_128b_132b_signal(pipe_ctx) &&
+		dc->debug.enable_dp_dig_pixel_rate_div_policy)
+		return true;
+
+	return false;
 }

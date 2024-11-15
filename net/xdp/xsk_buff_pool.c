@@ -211,6 +211,11 @@ int xp_assign_dev(struct xsk_buff_pool *pool,
 		goto err_unreg_pool;
 	}
 
+	if (dev_get_min_mp_channel_count(netdev)) {
+		err = -EBUSY;
+		goto err_unreg_pool;
+	}
+
 	bpf.command = XDP_SETUP_XSK_POOL;
 	bpf.xsk.pool = pool;
 	bpf.xsk.queue_id = queue_id;
@@ -338,7 +343,6 @@ static struct xsk_dma_map *xp_create_dma_map(struct device *dev, struct net_devi
 
 	dma_map->netdev = netdev;
 	dma_map->dev = dev;
-	dma_map->dma_need_sync = false;
 	dma_map->dma_pages_cnt = nr_pages;
 	refcount_set(&dma_map->users, 1);
 	list_add(&dma_map->list, &umem->xsk_dma_list);
@@ -424,7 +428,6 @@ static int xp_init_dma_info(struct xsk_buff_pool *pool, struct xsk_dma_map *dma_
 
 	pool->dev = dma_map->dev;
 	pool->dma_pages_cnt = dma_map->dma_pages_cnt;
-	pool->dma_need_sync = dma_map->dma_need_sync;
 	memcpy(pool->dma_pages, dma_map->dma_pages,
 	       pool->dma_pages_cnt * sizeof(*pool->dma_pages));
 
@@ -460,8 +463,6 @@ int xp_dma_map(struct xsk_buff_pool *pool, struct device *dev,
 			__xp_dma_unmap(dma_map, attrs);
 			return -ENOMEM;
 		}
-		if (dma_need_sync(dev, dma))
-			dma_map->dma_need_sync = true;
 		dma_map->dma_pages[i] = dma;
 	}
 
@@ -557,11 +558,9 @@ struct xdp_buff *xp_alloc(struct xsk_buff_pool *pool)
 	xskb->xdp.data_meta = xskb->xdp.data;
 	xskb->xdp.flags = 0;
 
-	if (pool->dma_need_sync) {
-		dma_sync_single_range_for_device(pool->dev, xskb->dma, 0,
-						 pool->frame_len,
-						 DMA_BIDIRECTIONAL);
-	}
+	if (pool->dev)
+		xp_dma_sync_for_device(pool, xskb->dma, pool->frame_len);
+
 	return &xskb->xdp;
 }
 EXPORT_SYMBOL(xp_alloc);
@@ -629,19 +628,30 @@ static u32 xp_alloc_reused(struct xsk_buff_pool *pool, struct xdp_buff **xdp, u3
 	return nb_entries;
 }
 
+static u32 xp_alloc_slow(struct xsk_buff_pool *pool, struct xdp_buff **xdp,
+			 u32 max)
+{
+	int i;
+
+	for (i = 0; i < max; i++) {
+		struct xdp_buff *buff;
+
+		buff = xp_alloc(pool);
+		if (unlikely(!buff))
+			return i;
+		*xdp = buff;
+		xdp++;
+	}
+
+	return max;
+}
+
 u32 xp_alloc_batch(struct xsk_buff_pool *pool, struct xdp_buff **xdp, u32 max)
 {
 	u32 nb_entries1 = 0, nb_entries2;
 
-	if (unlikely(pool->dma_need_sync)) {
-		struct xdp_buff *buff;
-
-		/* Slow path */
-		buff = xp_alloc(pool);
-		if (buff)
-			*xdp = buff;
-		return !!buff;
-	}
+	if (unlikely(pool->dev && dma_dev_need_sync(pool->dev)))
+		return xp_alloc_slow(pool, xdp, max);
 
 	if (unlikely(pool->free_list_cnt)) {
 		nb_entries1 = xp_alloc_reused(pool, xdp, max);
@@ -662,9 +672,17 @@ EXPORT_SYMBOL(xp_alloc_batch);
 
 bool xp_can_alloc(struct xsk_buff_pool *pool, u32 count)
 {
+	u32 req_count, avail_count;
+
 	if (pool->free_list_cnt >= count)
 		return true;
-	return xskq_cons_has_entries(pool->fq, count - pool->free_list_cnt);
+
+	req_count = count - pool->free_list_cnt;
+	avail_count = xskq_cons_nb_entries(pool->fq, req_count);
+	if (!avail_count)
+		pool->fq->queue_empty_descs++;
+
+	return avail_count >= req_count;
 }
 EXPORT_SYMBOL(xp_can_alloc);
 
@@ -693,18 +711,3 @@ dma_addr_t xp_raw_get_dma(struct xsk_buff_pool *pool, u64 addr)
 		(addr & ~PAGE_MASK);
 }
 EXPORT_SYMBOL(xp_raw_get_dma);
-
-void xp_dma_sync_for_cpu_slow(struct xdp_buff_xsk *xskb)
-{
-	dma_sync_single_range_for_cpu(xskb->pool->dev, xskb->dma, 0,
-				      xskb->pool->frame_len, DMA_BIDIRECTIONAL);
-}
-EXPORT_SYMBOL(xp_dma_sync_for_cpu_slow);
-
-void xp_dma_sync_for_device_slow(struct xsk_buff_pool *pool, dma_addr_t dma,
-				 size_t size)
-{
-	dma_sync_single_range_for_device(pool->dev, dma, 0,
-					 size, DMA_BIDIRECTIONAL);
-}
-EXPORT_SYMBOL(xp_dma_sync_for_device_slow);

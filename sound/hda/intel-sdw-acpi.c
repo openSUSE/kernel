@@ -17,11 +17,14 @@
 #include <linux/string.h>
 
 #define SDW_LINK_TYPE		4 /* from Intel ACPI documentation */
-#define SDW_MAX_LINKS		4
 
 static int ctrl_link_mask;
 module_param_named(sdw_link_mask, ctrl_link_mask, int, 0444);
 MODULE_PARM_DESC(sdw_link_mask, "Intel link mask (one bit per link)");
+
+static ulong ctrl_addr = 0x40000000;
+module_param_named(sdw_ctrl_addr, ctrl_addr, ulong, 0444);
+MODULE_PARM_DESC(sdw_ctrl_addr, "Intel SoundWire Controller _ADR");
 
 static bool is_link_enabled(struct fwnode_handle *fw_node, u8 idx)
 {
@@ -54,8 +57,10 @@ sdw_intel_scan_controller(struct sdw_intel_acpi_info *info)
 {
 	struct acpi_device *adev = acpi_fetch_acpi_dev(info->handle);
 	struct fwnode_handle *fwnode;
+	unsigned long list;
 	unsigned int i;
 	u32 count;
+	u32 tmp;
 	int ret;
 
 	if (!adev)
@@ -63,10 +68,9 @@ sdw_intel_scan_controller(struct sdw_intel_acpi_info *info)
 
 	fwnode = acpi_fwnode_handle(adev);
 
-	/* Found controller, find links supported */
-	ret = fwnode_property_read_u32(fwnode, "mipi-sdw-master-count", &count);
-
 	/*
+	 * Found controller, find links supported
+	 *
 	 * In theory we could check the number of links supported in
 	 * hardware, but in that step we cannot assume SoundWire IP is
 	 * powered.
@@ -77,17 +81,25 @@ sdw_intel_scan_controller(struct sdw_intel_acpi_info *info)
 	 *
 	 * We will check the hardware capabilities in the startup() step
 	 */
-
+	ret = fwnode_property_read_u32(fwnode, "mipi-sdw-manager-list", &tmp);
 	if (ret) {
-		dev_err(&adev->dev,
-			"Failed to read mipi-sdw-master-count: %d\n", ret);
-		return ret;
+		ret = fwnode_property_read_u32(fwnode, "mipi-sdw-master-count", &count);
+		if (ret) {
+			dev_err(&adev->dev,
+				"Failed to read mipi-sdw-master-count: %d\n",
+				ret);
+			return ret;
+		}
+		list = GENMASK(count - 1, 0);
+	} else {
+		list = tmp;
+		count = hweight32(list);
 	}
 
 	/* Check count is within bounds */
-	if (count > SDW_MAX_LINKS) {
+	if (count > SDW_INTEL_MAX_LINKS) {
 		dev_err(&adev->dev, "Link count %d exceeds max %d\n",
-			count, SDW_MAX_LINKS);
+			count, SDW_INTEL_MAX_LINKS);
 		return -EINVAL;
 	}
 
@@ -100,7 +112,7 @@ sdw_intel_scan_controller(struct sdw_intel_acpi_info *info)
 	info->count = count;
 	info->link_mask = 0;
 
-	for (i = 0; i < count; i++) {
+	for_each_set_bit(i, &list, SDW_INTEL_MAX_LINKS) {
 		if (ctrl_link_mask && !(ctrl_link_mask & BIT(i))) {
 			dev_dbg(&adev->dev,
 				"Link %d masked, will not be enabled\n", i);
@@ -123,11 +135,11 @@ static acpi_status sdw_intel_acpi_cb(acpi_handle handle, u32 level,
 				     void *cdata, void **return_value)
 {
 	struct sdw_intel_acpi_info *info = cdata;
-	acpi_status status;
 	u64 adr;
+	int ret;
 
-	status = acpi_evaluate_integer(handle, METHOD_NAME__ADR, NULL, &adr);
-	if (ACPI_FAILURE(status))
+	ret = acpi_get_local_u64_address(handle, &adr);
+	if (ret < 0)
 		return AE_OK; /* keep going */
 
 	if (!acpi_fetch_acpi_dev(handle)) {
@@ -143,6 +155,9 @@ static acpi_status sdw_intel_acpi_cb(acpi_handle handle, u32 level,
 	 * SoundWire link so filter accordingly
 	 */
 	if (FIELD_GET(GENMASK(31, 28), adr) != SDW_LINK_TYPE)
+		return AE_OK; /* keep going */
+
+	if (adr != ctrl_addr)
 		return AE_OK; /* keep going */
 
 	/* found the correct SoundWire controller */

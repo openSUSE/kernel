@@ -366,7 +366,9 @@ static void gfxhub_v1_2_xcc_setup_vmid_config(struct amdgpu_device *adev,
 					amdgpu_ip_version(adev, GC_HWIP, 0) ==
 						IP_VERSION(9, 4, 2) ||
 					amdgpu_ip_version(adev, GC_HWIP, 0) ==
-						IP_VERSION(9, 4, 3));
+						IP_VERSION(9, 4, 3) ||
+					amdgpu_ip_version(adev, GC_HWIP, 0) ==
+						IP_VERSION(9, 4, 4));
 			WREG32_SOC15_OFFSET(GC, GET_INST(GC, j), regVM_CONTEXT1_CNTL,
 					    i * hub->ctx_distance, tmp);
 			WREG32_SOC15_OFFSET(GC, GET_INST(GC, j),
@@ -456,10 +458,12 @@ static void gfxhub_v1_2_xcc_gart_disable(struct amdgpu_device *adev,
 		WREG32_SOC15_RLC(GC, GET_INST(GC, j), regMC_VM_MX_L1_TLB_CNTL, tmp);
 
 		/* Setup L2 cache */
-		tmp = RREG32_SOC15(GC, GET_INST(GC, j), regVM_L2_CNTL);
-		tmp = REG_SET_FIELD(tmp, VM_L2_CNTL, ENABLE_L2_CACHE, 0);
-		WREG32_SOC15(GC, GET_INST(GC, j), regVM_L2_CNTL, tmp);
-		WREG32_SOC15(GC, GET_INST(GC, j), regVM_L2_CNTL3, 0);
+		if (!amdgpu_sriov_vf(adev)) {
+			tmp = RREG32_SOC15(GC, GET_INST(GC, j), regVM_L2_CNTL);
+			tmp = REG_SET_FIELD(tmp, VM_L2_CNTL, ENABLE_L2_CACHE, 0);
+			WREG32_SOC15(GC, GET_INST(GC, j), regVM_L2_CNTL, tmp);
+			WREG32_SOC15(GC, GET_INST(GC, j), regVM_L2_CNTL3, 0);
+		}
 	}
 }
 

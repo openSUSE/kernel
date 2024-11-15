@@ -347,8 +347,8 @@ static void ad5820_remove(struct i2c_client *client)
 }
 
 static const struct i2c_device_id ad5820_id_table[] = {
-	{ "ad5820", 0 },
-	{ "ad5821", 0 },
+	{ "ad5820" },
+	{ "ad5821" },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, ad5820_id_table);
@@ -368,7 +368,7 @@ static struct i2c_driver ad5820_i2c_driver = {
 		.pm	= &ad5820_pm,
 		.of_match_table = ad5820_of_table,
 	},
-	.probe_new	= ad5820_probe,
+	.probe		= ad5820_probe,
 	.remove		= ad5820_remove,
 	.id_table	= ad5820_id_table,
 };

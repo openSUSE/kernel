@@ -28,6 +28,7 @@
 #include <linux/jump_label.h>
 #include <linux/pci.h>
 #include <linux/printk.h>
+#include <linux/lockdep.h>
 
 #include <asm/isc.h>
 #include <asm/airq.h>
@@ -249,68 +250,25 @@ resource_size_t pcibios_align_resource(void *data, const struct resource *res,
 	return 0;
 }
 
-/* combine single writes by using store-block insn */
-void __iowrite64_copy(void __iomem *to, const void *from, size_t count)
+void __iomem *ioremap_prot(phys_addr_t phys_addr, size_t size,
+			   unsigned long prot)
 {
-	zpci_memcpy_toio(to, from, count * 8);
-}
-
-static void __iomem *__ioremap(phys_addr_t addr, size_t size, pgprot_t prot)
-{
-	unsigned long offset, vaddr;
-	struct vm_struct *area;
-	phys_addr_t last_addr;
-
-	last_addr = addr + size - 1;
-	if (!size || last_addr < addr)
-		return NULL;
-
+	/*
+	 * When PCI MIO instructions are unavailable the "physical" address
+	 * encodes a hint for accessing the PCI memory space it represents.
+	 * Just pass it unchanged such that ioread/iowrite can decode it.
+	 */
 	if (!static_branch_unlikely(&have_mio))
-		return (void __iomem *) addr;
+		return (void __iomem *)phys_addr;
 
-	offset = addr & ~PAGE_MASK;
-	addr &= PAGE_MASK;
-	size = PAGE_ALIGN(size + offset);
-	area = get_vm_area(size, VM_IOREMAP);
-	if (!area)
-		return NULL;
-
-	vaddr = (unsigned long) area->addr;
-	if (ioremap_page_range(vaddr, vaddr + size, addr, prot)) {
-		free_vm_area(area);
-		return NULL;
-	}
-	return (void __iomem *) ((unsigned long) area->addr + offset);
-}
-
-void __iomem *ioremap_prot(phys_addr_t addr, size_t size, unsigned long prot)
-{
-	return __ioremap(addr, size, __pgprot(prot));
+	return generic_ioremap_prot(phys_addr, size, __pgprot(prot));
 }
 EXPORT_SYMBOL(ioremap_prot);
-
-void __iomem *ioremap(phys_addr_t addr, size_t size)
-{
-	return __ioremap(addr, size, PAGE_KERNEL);
-}
-EXPORT_SYMBOL(ioremap);
-
-void __iomem *ioremap_wc(phys_addr_t addr, size_t size)
-{
-	return __ioremap(addr, size, pgprot_writecombine(PAGE_KERNEL));
-}
-EXPORT_SYMBOL(ioremap_wc);
-
-void __iomem *ioremap_wt(phys_addr_t addr, size_t size)
-{
-	return __ioremap(addr, size, pgprot_writethrough(PAGE_KERNEL));
-}
-EXPORT_SYMBOL(ioremap_wt);
 
 void iounmap(volatile void __iomem *addr)
 {
 	if (static_branch_likely(&have_mio))
-		vunmap((__force void *) ((unsigned long) addr & PAGE_MASK));
+		generic_iounmap(addr);
 }
 EXPORT_SYMBOL(iounmap);
 
@@ -629,7 +587,6 @@ int pcibios_device_add(struct pci_dev *pdev)
 	if (pdev->is_physfn)
 		pdev->no_vf_scan = 1;
 
-	pdev->dev.groups = zpci_attr_groups;
 	zpci_map_resources(pdev);
 
 	for (i = 0; i < PCI_STD_NUM_BARS; i++) {
@@ -767,12 +724,12 @@ EXPORT_SYMBOL_GPL(zpci_disable_device);
  * equivalent to its state during boot when first probing a driver.
  * Consequently after reset the PCI function requires re-initialization via the
  * common PCI code including re-enabling IRQs via pci_alloc_irq_vectors()
- * and enabling the function via e.g.pci_enablde_device_flags().The caller
+ * and enabling the function via e.g. pci_enable_device_flags(). The caller
  * must guard against concurrent reset attempts.
  *
  * In most cases this function should not be called directly but through
  * pci_reset_function() or pci_reset_bus() which handle the save/restore and
- * locking.
+ * locking - asserted by lockdep.
  *
  * Return: 0 on success and an error value otherwise
  */
@@ -781,6 +738,7 @@ int zpci_hot_reset_device(struct zpci_dev *zdev)
 	u8 status;
 	int rc;
 
+	lockdep_assert_held(&zdev->state_lock);
 	zpci_dbg(3, "rst fid:%x, fh:%x\n", zdev->fid, zdev->fh);
 	if (zdev_enabled(zdev)) {
 		/* Disables device access, DMAs and IRQs (reset state) */
@@ -843,7 +801,8 @@ struct zpci_dev *zpci_create_device(u32 fid, u32 fh, enum zpci_state state)
 	zdev->state =  state;
 
 	kref_init(&zdev->kref);
-	mutex_init(&zdev->lock);
+	mutex_init(&zdev->state_lock);
+	mutex_init(&zdev->fmb_lock);
 	mutex_init(&zdev->kzdev_lock);
 
 	rc = zpci_init_iommu(zdev);
@@ -907,6 +866,10 @@ int zpci_deconfigure_device(struct zpci_dev *zdev)
 {
 	int rc;
 
+	lockdep_assert_held(&zdev->state_lock);
+	if (zdev->state != ZPCI_FN_STATE_CONFIGURED)
+		return 0;
+
 	if (zdev->zbus->bus)
 		zpci_bus_remove_device(zdev, false);
 
@@ -926,7 +889,7 @@ int zpci_deconfigure_device(struct zpci_dev *zdev)
 }
 
 /**
- * zpci_device_reserved() - Mark device as resverved
+ * zpci_device_reserved() - Mark device as reserved
  * @zdev: the zpci_dev that was reserved
  *
  * Handle the case that a given zPCI function was reserved by another system.
@@ -936,8 +899,6 @@ int zpci_deconfigure_device(struct zpci_dev *zdev)
  */
 void zpci_device_reserved(struct zpci_dev *zdev)
 {
-	if (zdev->has_hp_slot)
-		zpci_exit_slot(zdev);
 	/*
 	 * Remove device from zpci_list as it is going away. This also
 	 * makes sure we ignore subsequent zPCI events for this device.
@@ -954,6 +915,9 @@ void zpci_release_device(struct kref *kref)
 {
 	struct zpci_dev *zdev = container_of(kref, struct zpci_dev, kref);
 	int ret;
+
+	if (zdev->has_hp_slot)
+		zpci_exit_slot(zdev);
 
 	if (zdev->zbus->bus)
 		zpci_bus_remove_device(zdev, false);
@@ -1099,7 +1063,7 @@ char * __init pcibios_setup(char *str)
 		return NULL;
 	}
 	if (!strcmp(str, "nomio")) {
-		S390_lowcore.machine_flags &= ~MACHINE_FLAG_PCI_MIO;
+		get_lowcore()->machine_flags &= ~MACHINE_FLAG_PCI_MIO;
 		return NULL;
 	}
 	if (!strcmp(str, "force_floating")) {
@@ -1132,7 +1096,7 @@ static int __init pci_base_init(void)
 
 	if (MACHINE_HAS_PCI_MIO) {
 		static_branch_enable(&have_mio);
-		ctl_set_bit(2, 5);
+		system_ctl_set_bit(2, CR2_MIO_ADDRESSING_BIT);
 	}
 
 	rc = zpci_debug_init();

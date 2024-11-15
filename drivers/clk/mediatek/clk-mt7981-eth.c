@@ -8,9 +8,7 @@
  */
 
 #include <linux/clk-provider.h>
-#include <linux/of.h>
-#include <linux/of_address.h>
-#include <linux/of_device.h>
+#include <linux/mod_devicetable.h>
 #include <linux/platform_device.h>
 
 #include "clk-mtk.h"
@@ -116,4 +114,6 @@ static struct platform_driver clk_mt7981_eth_drv = {
 	},
 };
 module_platform_driver(clk_mt7981_eth_drv);
+
+MODULE_DESCRIPTION("MediaTek MT7981 Ethernet clocks driver");
 MODULE_LICENSE("GPL");

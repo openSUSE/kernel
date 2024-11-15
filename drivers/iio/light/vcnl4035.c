@@ -653,7 +653,7 @@ static DEFINE_RUNTIME_DEV_PM_OPS(vcnl4035_pm_ops, vcnl4035_runtime_suspend,
 				 vcnl4035_runtime_resume, NULL);
 
 static const struct i2c_device_id vcnl4035_id[] = {
-	{ "vcnl4035", 0 },
+	{ "vcnl4035" },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, vcnl4035_id);
@@ -670,7 +670,7 @@ static struct i2c_driver vcnl4035_driver = {
 		.pm	= pm_ptr(&vcnl4035_pm_ops),
 		.of_match_table = vcnl4035_of_match,
 	},
-	.probe_new = vcnl4035_probe,
+	.probe = vcnl4035_probe,
 	.remove	= vcnl4035_remove,
 	.id_table = vcnl4035_id,
 };

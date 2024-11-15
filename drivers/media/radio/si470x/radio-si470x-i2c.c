@@ -28,7 +28,7 @@
 /* I2C Device ID List */
 static const struct i2c_device_id si470x_i2c_id[] = {
 	/* Generic Entry */
-	{ "si470x", 0 },
+	{ "si470x" },
 	/* Terminating entry */
 	{ }
 };
@@ -532,7 +532,7 @@ static struct i2c_driver si470x_i2c_driver = {
 		.pm		= &si470x_i2c_pm,
 #endif
 	},
-	.probe_new		= si470x_i2c_probe,
+	.probe			= si470x_i2c_probe,
 	.remove			= si470x_i2c_remove,
 	.id_table		= si470x_i2c_id,
 };

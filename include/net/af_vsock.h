@@ -169,6 +169,9 @@ struct vsock_transport {
 	void (*notify_buffer_size)(struct vsock_sock *, u64 *);
 	int (*notify_set_rcvlowat)(struct vsock_sock *vsk, int val);
 
+	/* SIOCOUTQ ioctl */
+	ssize_t (*unsent_bytes)(struct vsock_sock *vsk);
+
 	/* Shutdown. */
 	int (*shutdown)(struct vsock_sock *, int);
 
@@ -204,7 +207,6 @@ static inline bool __vsock_in_connected_table(struct vsock_sock *vsk)
 	return !list_empty(&vsk->connected_table);
 }
 
-void vsock_release_pending(struct sock *pending);
 void vsock_add_pending(struct sock *listener, struct sock *pending);
 void vsock_remove_pending(struct sock *listener, struct sock *pending);
 void vsock_enqueue_accept(struct sock *listener, struct sock *connected);
@@ -228,12 +230,15 @@ struct vsock_tap {
 	struct list_head list;
 };
 
-int vsock_init_tap(void);
 int vsock_add_tap(struct vsock_tap *vt);
 int vsock_remove_tap(struct vsock_tap *vt);
 void vsock_deliver_tap(struct sk_buff *build_skb(void *opaque), void *opaque);
+int __vsock_connectible_recvmsg(struct socket *sock, struct msghdr *msg, size_t len,
+				int flags);
 int vsock_connectible_recvmsg(struct socket *sock, struct msghdr *msg, size_t len,
 			      int flags);
+int __vsock_dgram_recvmsg(struct socket *sock, struct msghdr *msg,
+			  size_t len, int flags);
 int vsock_dgram_recvmsg(struct socket *sock, struct msghdr *msg,
 			size_t len, int flags);
 

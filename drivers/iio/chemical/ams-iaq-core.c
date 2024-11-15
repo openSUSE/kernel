@@ -24,7 +24,7 @@ struct ams_iaqcore_reading {
 	u8 status;
 	__be32 resistance;
 	__be16 voc_ppb;
-} __attribute__((__packed__));
+} __packed;
 
 struct ams_iaqcore_data {
 	struct i2c_client *client;
@@ -163,7 +163,7 @@ static int ams_iaqcore_probe(struct i2c_client *client)
 }
 
 static const struct i2c_device_id ams_iaqcore_id[] = {
-	{ "ams-iaq-core", 0 },
+	{ "ams-iaq-core" },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, ams_iaqcore_id);
@@ -179,7 +179,7 @@ static struct i2c_driver ams_iaqcore_driver = {
 		.name	= "ams-iaq-core",
 		.of_match_table = ams_iaqcore_dt_ids,
 	},
-	.probe_new = ams_iaqcore_probe,
+	.probe = ams_iaqcore_probe,
 	.id_table = ams_iaqcore_id,
 };
 module_i2c_driver(ams_iaqcore_driver);

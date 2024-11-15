@@ -200,7 +200,7 @@ static void cs53l32a_remove(struct i2c_client *client)
 }
 
 static const struct i2c_device_id cs53l32a_id[] = {
-	{ "cs53l32a", 0 },
+	{ "cs53l32a" },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, cs53l32a_id);
@@ -209,7 +209,7 @@ static struct i2c_driver cs53l32a_driver = {
 	.driver = {
 		.name	= "cs53l32a",
 	},
-	.probe_new	= cs53l32a_probe,
+	.probe		= cs53l32a_probe,
 	.remove		= cs53l32a_remove,
 	.id_table	= cs53l32a_id,
 };

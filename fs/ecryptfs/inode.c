@@ -21,7 +21,7 @@
 #include <linux/posix_acl.h>
 #include <linux/posix_acl_xattr.h>
 #include <linux/fileattr.h>
-#include <asm/unaligned.h>
+#include <linux/unaligned.h>
 #include "ecryptfs_kernel.h"
 
 static int lock_parent(struct dentry *dentry,
@@ -156,7 +156,7 @@ static int ecryptfs_do_unlink(struct inode *dir, struct dentry *dentry,
 	}
 	fsstack_copy_attr_times(dir, lower_dir);
 	set_nlink(inode, ecryptfs_inode_to_lower(inode)->i_nlink);
-	inode->i_ctime = dir->i_ctime;
+	inode_set_ctime_to_ts(inode, inode_get_ctime(dir));
 out_unlock:
 	dput(lower_dentry);
 	inode_unlock(lower_dir);
@@ -992,7 +992,7 @@ static int ecryptfs_getattr_link(struct mnt_idmap *idmap,
 
 	mount_crypt_stat = &ecryptfs_superblock_to_private(
 						dentry->d_sb)->mount_crypt_stat;
-	generic_fillattr(&nop_mnt_idmap, d_inode(dentry), stat);
+	generic_fillattr(&nop_mnt_idmap, request_mask, d_inode(dentry), stat);
 	if (mount_crypt_stat->flags & ECRYPTFS_GLOBAL_ENCRYPT_FILENAMES) {
 		char *target;
 		size_t targetsiz;
@@ -1008,6 +1008,14 @@ static int ecryptfs_getattr_link(struct mnt_idmap *idmap,
 	return rc;
 }
 
+static int ecryptfs_do_getattr(const struct path *path, struct kstat *stat,
+			       u32 request_mask, unsigned int flags)
+{
+	if (flags & AT_GETATTR_NOSEC)
+		return vfs_getattr_nosec(path, stat, request_mask, flags);
+	return vfs_getattr(path, stat, request_mask, flags);
+}
+
 static int ecryptfs_getattr(struct mnt_idmap *idmap,
 			    const struct path *path, struct kstat *stat,
 			    u32 request_mask, unsigned int flags)
@@ -1016,12 +1024,13 @@ static int ecryptfs_getattr(struct mnt_idmap *idmap,
 	struct kstat lower_stat;
 	int rc;
 
-	rc = vfs_getattr(ecryptfs_dentry_to_lower_path(dentry), &lower_stat,
-			 request_mask, flags);
+	rc = ecryptfs_do_getattr(ecryptfs_dentry_to_lower_path(dentry),
+				 &lower_stat, request_mask, flags);
 	if (!rc) {
 		fsstack_copy_attr_all(d_inode(dentry),
 				      ecryptfs_inode_to_lower(d_inode(dentry)));
-		generic_fillattr(&nop_mnt_idmap, d_inode(dentry), stat);
+		generic_fillattr(&nop_mnt_idmap, request_mask,
+				 d_inode(dentry), stat);
 		stat->blocks = lower_stat.blocks;
 	}
 	return rc;
@@ -1219,7 +1228,7 @@ static const struct xattr_handler ecryptfs_xattr_handler = {
 	.set = ecryptfs_xattr_set,
 };
 
-const struct xattr_handler *ecryptfs_xattr_handlers[] = {
+const struct xattr_handler * const ecryptfs_xattr_handlers[] = {
 	&ecryptfs_xattr_handler,
 	NULL
 };

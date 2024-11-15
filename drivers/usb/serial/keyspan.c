@@ -599,7 +599,7 @@ struct keyspan_port_private {
 #include "keyspan_usa67msg.h"
 
 
-static void keyspan_break_ctl(struct tty_struct *tty, int break_state)
+static int keyspan_break_ctl(struct tty_struct *tty, int break_state)
 {
 	struct usb_serial_port *port = tty->driver_data;
 	struct keyspan_port_private 	*p_priv;
@@ -611,7 +611,10 @@ static void keyspan_break_ctl(struct tty_struct *tty, int break_state)
 	else
 		p_priv->break_on = 0;
 
+	/* FIXME: return errors */
 	keyspan_send_setup(port, 0);
+
+	return 0;
 }
 
 
@@ -918,7 +921,6 @@ static void usa28_indat_callback(struct urb *urb)
 
 	port =  urb->context;
 	p_priv = usb_get_serial_port_data(port);
-	data = urb->transfer_buffer;
 
 	if (urb != p_priv->in_urbs[p_priv->in_flip])
 		return;
@@ -2999,7 +3001,6 @@ static void keyspan_port_remove(struct usb_serial_port *port)
 /* Structs for the devices, pre and post renumeration. */
 static struct usb_serial_driver keyspan_pre_device = {
 	.driver = {
-		.owner		= THIS_MODULE,
 		.name		= "keyspan_no_firm",
 	},
 	.description		= "Keyspan - (without firmware)",
@@ -3010,7 +3011,6 @@ static struct usb_serial_driver keyspan_pre_device = {
 
 static struct usb_serial_driver keyspan_1port_device = {
 	.driver = {
-		.owner		= THIS_MODULE,
 		.name		= "keyspan_1",
 	},
 	.description		= "Keyspan 1 port adapter",
@@ -3034,7 +3034,6 @@ static struct usb_serial_driver keyspan_1port_device = {
 
 static struct usb_serial_driver keyspan_2port_device = {
 	.driver = {
-		.owner		= THIS_MODULE,
 		.name		= "keyspan_2",
 	},
 	.description		= "Keyspan 2 port adapter",
@@ -3058,7 +3057,6 @@ static struct usb_serial_driver keyspan_2port_device = {
 
 static struct usb_serial_driver keyspan_4port_device = {
 	.driver = {
-		.owner		= THIS_MODULE,
 		.name		= "keyspan_4",
 	},
 	.description		= "Keyspan 4 port adapter",

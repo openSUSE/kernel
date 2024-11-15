@@ -32,8 +32,8 @@ static void mma7455_i2c_remove(struct i2c_client *i2c)
 }
 
 static const struct i2c_device_id mma7455_i2c_ids[] = {
-	{ "mma7455", 0 },
-	{ "mma7456", 0 },
+	{ "mma7455" },
+	{ "mma7456" },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, mma7455_i2c_ids);
@@ -46,7 +46,7 @@ static const struct of_device_id mma7455_of_match[] = {
 MODULE_DEVICE_TABLE(of, mma7455_of_match);
 
 static struct i2c_driver mma7455_i2c_driver = {
-	.probe_new = mma7455_i2c_probe,
+	.probe = mma7455_i2c_probe,
 	.remove = mma7455_i2c_remove,
 	.id_table = mma7455_i2c_ids,
 	.driver = {

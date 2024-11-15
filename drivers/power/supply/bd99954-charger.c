@@ -70,13 +70,6 @@
 
 #include "bd99954-charger.h"
 
-struct battery_data {
-	u16 precharge_current;	/* Trickle-charge Current */
-	u16 fc_reg_voltage;	/* Fast Charging Regulation Voltage */
-	u16 voltage_min;
-	u16 voltage_max;
-};
-
 /* Initial field values, converted to initial register values */
 struct bd9995x_init_data {
 	u16 vsysreg_set;	/* VSYS Regulation Setting */
@@ -536,7 +529,7 @@ static irqreturn_t bd9995x_irq_handler_thread(int irq, void *private)
 
 	for_each_set_bit(i, &tmp, 7) {
 		int sub_status, sub_mask;
-		int sub_status_reg[] = {
+		static const int sub_status_reg[] = {
 			INT1_STATUS, INT2_STATUS, INT3_STATUS, INT4_STATUS,
 			INT5_STATUS, INT6_STATUS, INT7_STATUS,
 		};
@@ -1077,7 +1070,7 @@ static struct i2c_driver bd9995x_driver = {
 		.name = "bd9995x-charger",
 		.of_match_table = bd9995x_of_match,
 	},
-	.probe_new = bd9995x_probe,
+	.probe = bd9995x_probe,
 };
 module_i2c_driver(bd9995x_driver);
 

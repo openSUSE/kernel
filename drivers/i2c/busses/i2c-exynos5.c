@@ -18,9 +18,7 @@
 #include <linux/clk.h>
 #include <linux/slab.h>
 #include <linux/io.h>
-#include <linux/of_address.h>
-#include <linux/of_device.h>
-#include <linux/of_irq.h>
+#include <linux/of.h>
 #include <linux/spinlock.h>
 
 /*
@@ -195,6 +193,11 @@ struct exynos5_i2c {
 	 * state here.
 	 */
 	int			trans_done;
+
+	/*
+	 * Called from atomic context, don't use interrupts.
+	 */
+	unsigned int		atomic;
 
 	/* Controller operating frequency */
 	unsigned int		op_clock;
@@ -741,10 +744,26 @@ static void exynos5_i2c_message_start(struct exynos5_i2c *i2c, int stop)
 	spin_unlock_irqrestore(&i2c->lock, flags);
 }
 
+static bool exynos5_i2c_poll_irqs_timeout(struct exynos5_i2c *i2c,
+					  unsigned long timeout)
+{
+	unsigned long time_left = jiffies + timeout;
+
+	while (time_before(jiffies, time_left) &&
+	       !((i2c->trans_done && (i2c->msg->len == i2c->msg_ptr)) ||
+	         (i2c->state < 0))) {
+		while (readl(i2c->regs + HSI2C_INT_ENABLE) &
+		       readl(i2c->regs + HSI2C_INT_STATUS))
+			exynos5_i2c_irq(i2c->irq, i2c);
+		usleep_range(100, 200);
+	}
+	return time_before(jiffies, time_left);
+}
+
 static int exynos5_i2c_xfer_msg(struct exynos5_i2c *i2c,
 			      struct i2c_msg *msgs, int stop)
 {
-	unsigned long timeout;
+	unsigned long time_left;
 	int ret;
 
 	i2c->msg = msgs;
@@ -755,9 +774,14 @@ static int exynos5_i2c_xfer_msg(struct exynos5_i2c *i2c,
 
 	exynos5_i2c_message_start(i2c, stop);
 
-	timeout = wait_for_completion_timeout(&i2c->msg_complete,
-					      EXYNOS5_I2C_TIMEOUT);
-	if (timeout == 0)
+	if (!i2c->atomic)
+		time_left = wait_for_completion_timeout(&i2c->msg_complete,
+							EXYNOS5_I2C_TIMEOUT);
+	else
+		time_left = exynos5_i2c_poll_irqs_timeout(i2c,
+							  EXYNOS5_I2C_TIMEOUT);
+
+	if (time_left == 0)
 		ret = -ETIMEDOUT;
 	else
 		ret = i2c->state;
@@ -807,6 +831,21 @@ err_pclk:
 	return ret ?: num;
 }
 
+static int exynos5_i2c_xfer_atomic(struct i2c_adapter *adap,
+				   struct i2c_msg *msgs, int num)
+{
+	struct exynos5_i2c *i2c = adap->algo_data;
+	int ret;
+
+	disable_irq(i2c->irq);
+	i2c->atomic = true;
+	ret = exynos5_i2c_xfer(adap, msgs, num);
+	i2c->atomic = false;
+	enable_irq(i2c->irq);
+
+	return ret;
+}
+
 static u32 exynos5_i2c_func(struct i2c_adapter *adap)
 {
 	return I2C_FUNC_I2C | (I2C_FUNC_SMBUS_EMUL & ~I2C_FUNC_SMBUS_QUICK);
@@ -814,6 +853,7 @@ static u32 exynos5_i2c_func(struct i2c_adapter *adap)
 
 static const struct i2c_algorithm exynos5_i2c_algorithm = {
 	.master_xfer		= exynos5_i2c_xfer,
+	.master_xfer_atomic	= exynos5_i2c_xfer_atomic,
 	.functionality		= exynos5_i2c_func,
 };
 
@@ -910,7 +950,7 @@ static int exynos5_i2c_probe(struct platform_device *pdev)
 	return ret;
 }
 
-static int exynos5_i2c_remove(struct platform_device *pdev)
+static void exynos5_i2c_remove(struct platform_device *pdev)
 {
 	struct exynos5_i2c *i2c = platform_get_drvdata(pdev);
 
@@ -918,11 +958,8 @@ static int exynos5_i2c_remove(struct platform_device *pdev)
 
 	clk_unprepare(i2c->clk);
 	clk_unprepare(i2c->pclk);
-
-	return 0;
 }
 
-#ifdef CONFIG_PM_SLEEP
 static int exynos5_i2c_suspend_noirq(struct device *dev)
 {
 	struct exynos5_i2c *i2c = dev_get_drvdata(dev);
@@ -964,19 +1001,18 @@ err_pclk:
 	clk_disable_unprepare(i2c->pclk);
 	return ret;
 }
-#endif
 
 static const struct dev_pm_ops exynos5_i2c_dev_pm_ops = {
-	SET_NOIRQ_SYSTEM_SLEEP_PM_OPS(exynos5_i2c_suspend_noirq,
-				      exynos5_i2c_resume_noirq)
+	NOIRQ_SYSTEM_SLEEP_PM_OPS(exynos5_i2c_suspend_noirq,
+				  exynos5_i2c_resume_noirq)
 };
 
 static struct platform_driver exynos5_i2c_driver = {
 	.probe		= exynos5_i2c_probe,
-	.remove		= exynos5_i2c_remove,
+	.remove_new	= exynos5_i2c_remove,
 	.driver		= {
 		.name	= "exynos5-hsi2c",
-		.pm	= &exynos5_i2c_dev_pm_ops,
+		.pm	= pm_sleep_ptr(&exynos5_i2c_dev_pm_ops),
 		.of_match_table = exynos5_i2c_match,
 	},
 };

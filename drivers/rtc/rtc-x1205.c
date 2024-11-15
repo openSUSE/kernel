@@ -663,7 +663,7 @@ static void x1205_remove(struct i2c_client *client)
 }
 
 static const struct i2c_device_id x1205_id[] = {
-	{ "x1205", 0 },
+	{ "x1205" },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, x1205_id);
@@ -679,7 +679,7 @@ static struct i2c_driver x1205_driver = {
 		.name	= "rtc-x1205",
 		.of_match_table = x1205_dt_ids,
 	},
-	.probe_new	= x1205_probe,
+	.probe		= x1205_probe,
 	.remove		= x1205_remove,
 	.id_table	= x1205_id,
 };

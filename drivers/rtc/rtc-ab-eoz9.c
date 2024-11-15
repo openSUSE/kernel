@@ -455,7 +455,7 @@ static const struct hwmon_channel_info abeoz9_temp = {
 	.config = abeoz9_temp_config,
 };
 
-static const struct hwmon_channel_info *abeoz9_info[] = {
+static const struct hwmon_channel_info * const abeoz9_info[] = {
 	&abeoz9_chip,
 	&abeoz9_temp,
 	NULL
@@ -575,7 +575,7 @@ MODULE_DEVICE_TABLE(of, abeoz9_dt_match);
 #endif
 
 static const struct i2c_device_id abeoz9_id[] = {
-	{ "abeoz9", 0 },
+	{ "abeoz9" },
 	{ }
 };
 
@@ -584,7 +584,7 @@ static struct i2c_driver abeoz9_driver = {
 		.name = "rtc-ab-eoz9",
 		.of_match_table = of_match_ptr(abeoz9_dt_match),
 	},
-	.probe_new = abeoz9_probe,
+	.probe = abeoz9_probe,
 	.id_table = abeoz9_id,
 };
 

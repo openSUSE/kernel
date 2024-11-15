@@ -201,7 +201,7 @@ static int sd3078_probe(struct i2c_client *client)
 }
 
 static const struct i2c_device_id sd3078_id[] = {
-	{"sd3078", 0},
+	{ "sd3078" },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, sd3078_id);
@@ -217,7 +217,7 @@ static struct i2c_driver sd3078_driver = {
 		.name   = "sd3078",
 		.of_match_table = of_match_ptr(rtc_dt_match),
 	},
-	.probe_new  = sd3078_probe,
+	.probe      = sd3078_probe,
 	.id_table   = sd3078_id,
 };
 

@@ -5,8 +5,9 @@
  * Register definitions taken from original Realtek rtl8723au driver
  */
 
-#include <asm/byteorder.h>
 #include <linux/average.h>
+#include <linux/usb.h>
+#include <net/mac80211.h>
 
 #define RTL8XXXU_DEBUG_REG_WRITE	0x01
 #define RTL8XXXU_DEBUG_REG_READ		0x02
@@ -1874,8 +1875,6 @@ struct rtl8xxxu_priv {
 	/* Protect the indirect register accesses of RTL8710BU. */
 	struct mutex syson_indirect_access_mutex;
 
-	void *suse_kabi_padding;
-
 	struct usb_anchor rx_anchor;
 	struct usb_anchor tx_anchor;
 	struct usb_anchor int_anchor;
@@ -2033,7 +2032,6 @@ struct rtl8xxxu_fileops {
 
 extern int rtl8xxxu_debug;
 
-extern const struct rtl8xxxu_reg8val rtl8xxxu_gen1_mac_init_table[];
 extern const u32 rtl8xxxu_iqk_phy_iq_bb_reg[];
 u8 rtl8xxxu_read8(struct rtl8xxxu_priv *priv, u16 addr);
 u16 rtl8xxxu_read16(struct rtl8xxxu_priv *priv, u16 addr);

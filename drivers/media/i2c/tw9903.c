@@ -245,7 +245,7 @@ static void tw9903_remove(struct i2c_client *client)
 /* ----------------------------------------------------------------------- */
 
 static const struct i2c_device_id tw9903_id[] = {
-	{ "tw9903", 0 },
+	{ "tw9903" },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, tw9903_id);
@@ -254,7 +254,7 @@ static struct i2c_driver tw9903_driver = {
 	.driver = {
 		.name	= "tw9903",
 	},
-	.probe_new = tw9903_probe,
+	.probe = tw9903_probe,
 	.remove = tw9903_remove,
 	.id_table = tw9903_id,
 };

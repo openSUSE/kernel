@@ -6,9 +6,17 @@
 #ifndef BTRFS_TREE_LOG_H
 #define BTRFS_TREE_LOG_H
 
+#include <linux/list.h>
+#include <linux/fs.h>
 #include "messages.h"
 #include "ctree.h"
 #include "transaction.h"
+
+struct inode;
+struct dentry;
+struct btrfs_ordered_extent;
+struct btrfs_root;
+struct btrfs_trans_handle;
 
 /* return value for btrfs_log_dentry_safe that means we don't need to log it at all */
 #define BTRFS_NO_LOG_SYNC 256
@@ -83,9 +91,11 @@ void btrfs_end_log_trans(struct btrfs_root *root);
 void btrfs_pin_log_trans(struct btrfs_root *root);
 void btrfs_record_unlink_dir(struct btrfs_trans_handle *trans,
 			     struct btrfs_inode *dir, struct btrfs_inode *inode,
-			     int for_rename);
+			     bool for_rename);
 void btrfs_record_snapshot_destroy(struct btrfs_trans_handle *trans,
 				   struct btrfs_inode *dir);
+void btrfs_record_new_subvolume(const struct btrfs_trans_handle *trans,
+				struct btrfs_inode *dir);
 void btrfs_log_new_name(struct btrfs_trans_handle *trans,
 			struct dentry *old_dentry, struct btrfs_inode *old_dir,
 			u64 old_dir_index, struct dentry *parent);

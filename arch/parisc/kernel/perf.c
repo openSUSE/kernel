@@ -57,7 +57,7 @@ struct rdr_tbl_ent {
 static int perf_processor_interface __read_mostly = UNKNOWN_INTF;
 static int perf_enabled __read_mostly;
 static DEFINE_SPINLOCK(perf_lock);
-struct parisc_device *cpu_device __read_mostly;
+static struct parisc_device *cpu_device __read_mostly;
 
 /* RDRs to write for PCX-W */
 static const int perf_rdrs_W[] =
@@ -288,7 +288,7 @@ static ssize_t perf_read(struct file *file, char __user *buf, size_t cnt, loff_t
 static ssize_t perf_write(struct file *file, const char __user *buf,
 	size_t count, loff_t *ppos)
 {
-	size_t image_size;
+	size_t image_size __maybe_unused;
 	uint32_t image_type;
 	uint32_t interface_type;
 	uint32_t test;
@@ -466,7 +466,6 @@ static long perf_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 }
 
 static const struct file_operations perf_fops = {
-	.llseek = no_llseek,
 	.read = perf_read,
 	.write = perf_write,
 	.unlocked_ioctl = perf_ioctl,

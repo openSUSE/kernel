@@ -99,7 +99,7 @@ static struct key *nvme_tls_psk_lookup(struct key *keyring,
 	key_serial_t keyring_id;
 
 	identity = kzalloc(identity_len, GFP_KERNEL);
-	if (WARN_ON(!identity))
+	if (!identity)
 		return ERR_PTR(-ENOMEM);
 
 	snprintf(identity, identity_len, "NVMe%u%c%02u %s %s",
@@ -127,13 +127,11 @@ static struct key *nvme_tls_psk_lookup(struct key *keyring,
 /*
  * NVMe PSK priority list
  *
- * 'Retained' PSKs (ie 'generated == false')
- * should be preferred to 'generated' PSKs,
- * PSKs with hash (psk_ver 1) should be
- * preferred to PSKs without (psk_ver 0),
- * and SHA-384 should be preferred to SHA-256.
+ * 'Retained' PSKs (ie 'generated == false') should be preferred to 'generated'
+ * PSKs, PSKs with hash (psk_ver 1) should be preferred to PSKs without hash
+ * (psk_ver 0), and SHA-384 should be preferred to SHA-256.
  */
-struct nvme_tls_psk_priority_list {
+static struct nvme_tls_psk_priority_list {
 	bool generated;
 	u8 psk_ver;
 	enum nvme_tcp_tls_cipher cipher;
@@ -221,5 +219,6 @@ static void __exit nvme_keyring_exit(void)
 
 MODULE_LICENSE("GPL v2");
 MODULE_AUTHOR("Hannes Reinecke <hare@suse.de>");
+MODULE_DESCRIPTION("NVMe Keyring implementation");
 module_init(nvme_keyring_init);
 module_exit(nvme_keyring_exit);

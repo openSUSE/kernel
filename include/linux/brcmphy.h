@@ -11,6 +11,7 @@
 
 #define PHY_ID_BCM50610			0x0143bd60
 #define PHY_ID_BCM50610M		0x0143bd70
+#define PHY_ID_BCM5221			0x004061e0
 #define PHY_ID_BCM5241			0x0143bc30
 #define PHY_ID_BCMAC131			0x0143bc70
 #define PHY_ID_BCM5481			0x0143bca0
@@ -44,6 +45,7 @@
 #define PHY_ID_BCM7366			0x600d8490
 #define PHY_ID_BCM7346			0x600d8650
 #define PHY_ID_BCM7362			0x600d84b0
+#define PHY_ID_BCM74165			0x359052c0
 #define PHY_ID_BCM7425			0x600d86b0
 #define PHY_ID_BCM7429			0x600d8730
 #define PHY_ID_BCM7435			0x600d8750
@@ -89,6 +91,7 @@
 #define MII_BCM54XX_EXP_SEL	0x17	/* Expansion register select */
 #define MII_BCM54XX_EXP_SEL_TOP	0x0d00	/* TOP_MISC expansion register select */
 #define MII_BCM54XX_EXP_SEL_SSD	0x0e00	/* Secondary SerDes select */
+#define MII_BCM54XX_EXP_SEL_WOL	0x0e00	/* Wake-on-LAN expansion select register */
 #define MII_BCM54XX_EXP_SEL_ER	0x0f00	/* Expansion register select */
 #define MII_BCM54XX_EXP_SEL_ETC	0x0d00	/* Expansion register spare + 2k mem */
 
@@ -160,6 +163,7 @@
 #define BCM_LED_SRC_OPENSHORT	0xb
 #define BCM_LED_SRC_OFF		0xe	/* Tied high */
 #define BCM_LED_SRC_ON		0xf	/* Tied low */
+#define BCM_LED_SRC_MASK	GENMASK(3, 0)
 
 /*
  * Broadcom Multicolor LED configurations (expansion register 4)
@@ -205,11 +209,13 @@
 #define  BCM_NO_ANEG_APD_EN		0x0060 /* bits 5 & 6 */
 #define  BCM_APD_SINGLELP_EN	0x0100 /* Bit 8 */
 
-#define BCM5482_SHD_LEDS1	0x0d	/* 01101: LED Selector 1 */
+#define BCM54XX_SHD_LEDS1	0x0d	/* 01101: LED Selector 1 */
 					/* LED3 / ~LINKSPD[2] selector */
-#define BCM5482_SHD_LEDS1_LED3(src)	((src & 0xf) << 4)
+#define BCM54XX_SHD_LEDS_SHIFT(led)	(4 * (led))
+#define BCM54XX_SHD_LEDS1_LED3(src)	((src & 0xf) << 4)
 					/* LED1 / ~LINKSPD[1] selector */
-#define BCM5482_SHD_LEDS1_LED1(src)	((src & 0xf) << 0)
+#define BCM54XX_SHD_LEDS1_LED1(src)	((src & 0xf) << 0)
+#define BCM54XX_SHD_LEDS2	0x0e	/* 01110: LED Selector 2 */
 #define BCM54XX_SHD_RGMII_MODE	0x0b	/* 01011: RGMII Mode Selector */
 #define BCM5482_SHD_SSD		0x14	/* 10100: Secondary SerDes control */
 #define BCM5482_SHD_SSD_LEDM	0x0008	/* SSD LED Mode enable */
@@ -253,6 +259,9 @@
 #define BCM54XX_TOP_MISC_IDDQ_SD		(1 << 2)
 #define BCM54XX_TOP_MISC_IDDQ_SR		(1 << 3)
 
+#define BCM54XX_TOP_MISC_LED_CTL		(MII_BCM54XX_EXP_SEL_TOP + 0x0C)
+#define  BCM54XX_LED4_SEL_INTR			BIT(1)
+
 /*
  * BCM5482: Secondary SerDes registers
  */
@@ -262,15 +271,163 @@
 #define BCM5482_SSD_SGMII_SLAVE_EN	0x0002	/* Slave mode enable */
 #define BCM5482_SSD_SGMII_SLAVE_AD	0x0001	/* Slave auto-detection */
 
+/* BroadR-Reach LRE Registers. */
+#define MII_BCM54XX_LRECR		0x00	/* LRE Control Register                    */
+#define MII_BCM54XX_LRESR		0x01	/* LRE Status Register                     */
+#define MII_BCM54XX_LREPHYSID1		0x02	/* LRE PHYS ID 1                           */
+#define MII_BCM54XX_LREPHYSID2		0x03	/* LRE PHYS ID 2                           */
+#define MII_BCM54XX_LREANAA		0x04	/* LDS Auto-Negotiation Advertised Ability */
+#define MII_BCM54XX_LREANAC		0x05	/* LDS Auto-Negotiation Advertised Control */
+#define MII_BCM54XX_LREANPT		0x06	/* LDS Ability Next Page Transmit          */
+#define MII_BCM54XX_LRELPA		0x07	/* LDS Link Partner Ability                */
+#define MII_BCM54XX_LRELPNPM		0x08	/* LDS Link Partner Next Page Message      */
+#define MII_BCM54XX_LRELPNPC		0x09	/* LDS Link Partner Next Page Control      */
+#define MII_BCM54XX_LRELDSE		0x0a	/* LDS Expansion Register                  */
+#define MII_BCM54XX_LREES		0x0f	/* LRE Extended Status                     */
+
+/* LRE control register. */
+#define LRECR_RESET			0x8000	/* Reset to default state      */
+#define LRECR_LOOPBACK			0x4000	/* Internal Loopback           */
+#define LRECR_LDSRES			0x2000	/* Restart LDS Process         */
+#define LRECR_LDSEN			0x1000	/* LDS Enable                  */
+#define LRECR_PDOWN			0x0800	/* Enable low power state      */
+#define LRECR_ISOLATE			0x0400	/* Isolate data paths from MII */
+#define LRECR_SPEED100			0x0200	/* Select 100 Mbps             */
+#define LRECR_SPEED10			0x0000	/* Select 10 Mbps              */
+#define LRECR_4PAIRS			0x0020	/* Select 4 Pairs              */
+#define LRECR_2PAIRS			0x0010	/* Select 2 Pairs              */
+#define LRECR_1PAIR			0x0000	/* Select 1 Pair               */
+#define LRECR_MASTER			0x0008	/* Force Master when LDS disabled */
+#define LRECR_SLAVE			0x0000	/* Force Slave when LDS disabled  */
+
+/* LRE status register. */
+#define LRESR_100_1PAIR			0x2000	/* Can do 100Mbps 1 Pair       */
+#define LRESR_100_4PAIR			0x1000	/* Can do 100Mbps 4 Pairs      */
+#define LRESR_100_2PAIR			0x0800	/* Can do 100Mbps 2 Pairs      */
+#define LRESR_10_2PAIR			0x0400	/* Can do 10Mbps 2 Pairs       */
+#define LRESR_10_1PAIR			0x0200	/* Can do 10Mbps 1 Pair        */
+#define LRESR_ESTATEN			0x0100	/* Extended Status in R15      */
+#define LRESR_RESV			0x0080	/* Unused...                   */
+#define LRESR_MFPS			0x0040	/* Can suppress Management Frames Preamble */
+#define LRESR_LDSCOMPLETE		0x0020	/* LDS Auto-negotiation complete */
+#define LRESR_8023			0x0010	/* Has IEEE 802.3 Support      */
+#define LRESR_LDSABILITY		0x0008	/* LDS auto-negotiation capable */
+#define LRESR_LSTATUS			0x0004	/* Link status                 */
+#define LRESR_JCD			0x0002	/* Jabber detected             */
+#define LRESR_ERCAP			0x0001	/* Ext-reg capability          */
+
+/* LDS Auto-Negotiation Advertised Ability. */
+#define LREANAA_PAUSE_ASYM		0x8000	/* Can pause asymmetrically    */
+#define LREANAA_PAUSE			0x4000	/* Can pause                   */
+#define LREANAA_100_1PAIR		0x0020	/* Can do 100Mbps 1 Pair       */
+#define LREANAA_100_4PAIR		0x0010	/* Can do 100Mbps 4 Pair       */
+#define LREANAA_100_2PAIR		0x0008	/* Can do 100Mbps 2 Pair       */
+#define LREANAA_10_2PAIR		0x0004	/* Can do 10Mbps 2 Pair        */
+#define LREANAA_10_1PAIR		0x0002	/* Can do 10Mbps 1 Pair        */
+
+#define LRE_ADVERTISE_FULL		(LREANAA_100_1PAIR | LREANAA_100_4PAIR | \
+					 LREANAA_100_2PAIR | LREANAA_10_2PAIR | \
+					 LREANAA_10_1PAIR)
+
+#define LRE_ADVERTISE_ALL		LRE_ADVERTISE_FULL
+
+/* LDS Link Partner Ability. */
+#define LRELPA_PAUSE_ASYM		0x8000	/* Supports asymmetric pause   */
+#define LRELPA_PAUSE			0x4000	/* Supports pause capability   */
+#define LRELPA_100_1PAIR		0x0020	/* 100Mbps 1 Pair capable      */
+#define LRELPA_100_4PAIR		0x0010	/* 100Mbps 4 Pair capable      */
+#define LRELPA_100_2PAIR		0x0008	/* 100Mbps 2 Pair capable      */
+#define LRELPA_10_2PAIR			0x0004	/* 10Mbps 2 Pair capable       */
+#define LRELPA_10_1PAIR			0x0002	/* 10Mbps 1 Pair capable       */
+
+/* LDS Expansion register. */
+#define LDSE_DOWNGRADE			0x8000	/* Can do LDS Speed Downgrade  */
+#define LDSE_MASTER			0x4000	/* Master / Slave              */
+#define LDSE_PAIRS_MASK			0x3000	/* Pair Count Mask             */
+#define LDSE_PAIRS_SHIFT		12
+#define LDSE_4PAIRS			(2 << LDSE_PAIRS_SHIFT)	/* 4 Pairs Connection */
+#define LDSE_2PAIRS			(1 << LDSE_PAIRS_SHIFT)	/* 2 Pairs Connection */
+#define LDSE_1PAIR			(0 << LDSE_PAIRS_SHIFT)	/* 1 Pair  Connection */
+#define LDSE_CABLEN_MASK		0x0FFF	/* Cable Length Mask           */
+
 /* BCM54810 Registers */
 #define BCM54810_EXP_BROADREACH_LRE_MISC_CTL	(MII_BCM54XX_EXP_SEL_ER + 0x90)
 #define BCM54810_EXP_BROADREACH_LRE_MISC_CTL_EN	(1 << 0)
 #define BCM54810_SHD_CLK_CTL			0x3
 #define BCM54810_SHD_CLK_CTL_GTXCLK_EN		(1 << 9)
 
+/* BCM54811 Registers */
+#define BCM54811_EXP_BROADREACH_LRE_OVERLAY_CTL	(MII_BCM54XX_EXP_SEL_ER + 0x9A)
+/* Access Control Override Enable */
+#define BCM54811_EXP_BROADREACH_LRE_OVERLAY_CTL_EN		BIT(15)
+/* Access Control Override Value */
+#define BCM54811_EXP_BROADREACH_LRE_OVERLAY_CTL_OVERRIDE_VAL	BIT(14)
+/* Access Control Value */
+#define BCM54811_EXP_BROADREACH_LRE_OVERLAY_CTL_VAL		BIT(13)
+
 /* BCM54612E Registers */
 #define BCM54612E_EXP_SPARE0		(MII_BCM54XX_EXP_SEL_ETC + 0x34)
 #define BCM54612E_LED4_CLK125OUT_EN	(1 << 1)
+
+
+/* Wake-on-LAN registers */
+#define BCM54XX_WOL_MAIN_CTL		(MII_BCM54XX_EXP_SEL_WOL + 0x80)
+#define  BCM54XX_WOL_EN			BIT(0)
+#define  BCM54XX_WOL_MODE_SINGLE_MPD	0
+#define  BCM54XX_WOL_MODE_SINGLE_MPDSEC	1
+#define  BCM54XX_WOL_MODE_DUAL		2
+#define  BCM54XX_WOL_MODE_SHIFT		1
+#define  BCM54XX_WOL_MODE_MASK		0x3
+#define  BCM54XX_WOL_MP_MSB_FF_EN	BIT(3)
+#define  BCM54XX_WOL_SECKEY_OPT_4B	0
+#define  BCM54XX_WOL_SECKEY_OPT_6B	1
+#define  BCM54XX_WOL_SECKEY_OPT_8B	2
+#define  BCM54XX_WOL_SECKEY_OPT_SHIFT	4
+#define  BCM54XX_WOL_SECKEY_OPT_MASK	0x3
+#define  BCM54XX_WOL_L2_TYPE_CHK	BIT(6)
+#define  BCM54XX_WOL_L4IPV4UDP_CHK	BIT(7)
+#define  BCM54XX_WOL_L4IPV6UDP_CHK	BIT(8)
+#define  BCM54XX_WOL_UDPPORT_CHK	BIT(9)
+#define  BCM54XX_WOL_CRC_CHK		BIT(10)
+#define  BCM54XX_WOL_SECKEY_MODE	BIT(11)
+#define  BCM54XX_WOL_RST		BIT(12)
+#define  BCM54XX_WOL_DIR_PKT_EN		BIT(13)
+#define  BCM54XX_WOL_MASK_MODE_DA_FF	0
+#define  BCM54XX_WOL_MASK_MODE_DA_MPD	1
+#define  BCM54XX_WOL_MASK_MODE_DA_ONLY	2
+#define  BCM54XX_WOL_MASK_MODE_MPD	3
+#define  BCM54XX_WOL_MASK_MODE_SHIFT	14
+#define  BCM54XX_WOL_MASK_MODE_MASK	0x3
+
+#define BCM54XX_WOL_INNER_PROTO		(MII_BCM54XX_EXP_SEL_WOL + 0x81)
+#define BCM54XX_WOL_OUTER_PROTO		(MII_BCM54XX_EXP_SEL_WOL + 0x82)
+#define BCM54XX_WOL_OUTER_PROTO2	(MII_BCM54XX_EXP_SEL_WOL + 0x83)
+
+#define BCM54XX_WOL_MPD_DATA1(x)	(MII_BCM54XX_EXP_SEL_WOL + 0x84 + (x))
+#define BCM54XX_WOL_MPD_DATA2(x)	(MII_BCM54XX_EXP_SEL_WOL + 0x87 + (x))
+#define BCM54XX_WOL_SEC_KEY_8B		(MII_BCM54XX_EXP_SEL_WOL + 0x8A)
+#define BCM54XX_WOL_MASK(x)		(MII_BCM54XX_EXP_SEL_WOL + 0x8B + (x))
+#define BCM54XX_SEC_KEY_STORE(x)	(MII_BCM54XX_EXP_SEL_WOL + 0x8E)
+#define BCM54XX_WOL_SHARED_CNT		(MII_BCM54XX_EXP_SEL_WOL + 0x92)
+
+#define BCM54XX_WOL_INT_MASK		(MII_BCM54XX_EXP_SEL_WOL + 0x93)
+#define  BCM54XX_WOL_PKT1		BIT(0)
+#define  BCM54XX_WOL_PKT2		BIT(1)
+#define  BCM54XX_WOL_DIR		BIT(2)
+#define  BCM54XX_WOL_ALL_INTRS		(BCM54XX_WOL_PKT1 | \
+					 BCM54XX_WOL_PKT2 | \
+					 BCM54XX_WOL_DIR)
+
+#define BCM54XX_WOL_INT_STATUS		(MII_BCM54XX_EXP_SEL_WOL + 0x94)
+
+/* BCM5221 Registers */
+#define BCM5221_AEGSR			0x1C
+#define BCM5221_AEGSR_MDIX_STATUS	BIT(13)
+#define BCM5221_AEGSR_MDIX_MAN_SWAP	BIT(12)
+#define BCM5221_AEGSR_MDIX_DIS		BIT(11)
+
+#define BCM5221_SHDW_AM4_EN_CLK_LPM	BIT(2)
+#define BCM5221_SHDW_AM4_FORCE_LPM	BIT(1)
 
 /*****************************************************************************/
 /* Fast Ethernet Transceiver definitions. */
@@ -303,6 +460,8 @@
 #define BRCM_CL45VEN_EEE_CONTROL	0x803d
 #define LPI_FEATURE_EN			0x8000
 #define LPI_FEATURE_EN_DIG1000X		0x4000
+
+#define BRCM_CL45VEN_EEE_LPI_CNT	0x803f
 
 /* Core register definitions*/
 #define MII_BRCM_CORE_BASE12	0x12

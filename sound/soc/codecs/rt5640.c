@@ -12,11 +12,10 @@
 #include <linux/init.h>
 #include <linux/delay.h>
 #include <linux/pm.h>
-#include <linux/gpio.h>
+#include <linux/gpio/consumer.h>
 #include <linux/i2c.h>
 #include <linux/regmap.h>
 #include <linux/of.h>
-#include <linux/of_gpio.h>
 #include <linux/platform_device.h>
 #include <linux/spi/spi.h>
 #include <linux/acpi.h>
@@ -1950,9 +1949,6 @@ static int rt5640_set_bias_level(struct snd_soc_component *component,
 		 * away from ON. Disable the clock in that case, otherwise
 		 * enable it.
 		 */
-		if (IS_ERR(rt5640->mclk))
-			break;
-
 		if (snd_soc_component_get_bias_level(component) == SND_SOC_BIAS_ON) {
 			clk_disable_unprepare(rt5640->mclk);
 		} else {
@@ -2570,7 +2566,7 @@ static void rt5640_enable_jack_detect(struct snd_soc_component *component,
 			  IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING | IRQF_ONESHOT,
 			  "rt5640", rt5640);
 	if (ret) {
-		dev_warn(component->dev, "Failed to reguest IRQ %d: %d\n", rt5640->irq, ret);
+		dev_warn(component->dev, "Failed to request IRQ %d: %d\n", rt5640->irq, ret);
 		rt5640_disable_jack_detect(component);
 		return;
 	}
@@ -2624,7 +2620,7 @@ static void rt5640_enable_hda_jack_detect(
 	ret = request_irq(rt5640->irq, rt5640_irq,
 			  IRQF_TRIGGER_RISING | IRQF_ONESHOT, "rt5640", rt5640);
 	if (ret) {
-		dev_warn(component->dev, "Failed to reguest IRQ %d: %d\n", rt5640->irq, ret);
+		dev_warn(component->dev, "Failed to request IRQ %d: %d\n", rt5640->irq, ret);
 		rt5640->jack = NULL;
 		return;
 	}
@@ -2664,9 +2660,9 @@ static int rt5640_probe(struct snd_soc_component *component)
 	u32 val;
 
 	/* Check if MCLK provided */
-	rt5640->mclk = devm_clk_get(component->dev, "mclk");
-	if (PTR_ERR(rt5640->mclk) == -EPROBE_DEFER)
-		return -EPROBE_DEFER;
+	rt5640->mclk = devm_clk_get_optional(component->dev, "mclk");
+	if (IS_ERR(rt5640->mclk))
+		return PTR_ERR(rt5640->mclk);
 
 	rt5640->component = component;
 
@@ -2812,8 +2808,8 @@ static int rt5640_suspend(struct snd_soc_component *component)
 	rt5640_reset(component);
 	regcache_cache_only(rt5640->regmap, true);
 	regcache_mark_dirty(rt5640->regmap);
-	if (gpio_is_valid(rt5640->ldo1_en))
-		gpio_set_value_cansleep(rt5640->ldo1_en, 0);
+	if (rt5640->ldo1_en)
+		gpiod_set_value_cansleep(rt5640->ldo1_en, 0);
 
 	return 0;
 }
@@ -2822,8 +2818,8 @@ static int rt5640_resume(struct snd_soc_component *component)
 {
 	struct rt5640_priv *rt5640 = snd_soc_component_get_drvdata(component);
 
-	if (gpio_is_valid(rt5640->ldo1_en)) {
-		gpio_set_value_cansleep(rt5640->ldo1_en, 1);
+	if (rt5640->ldo1_en) {
+		gpiod_set_value_cansleep(rt5640->ldo1_en, 1);
 		msleep(400);
 	}
 
@@ -2956,9 +2952,9 @@ static const struct regmap_config rt5640_regmap = {
 };
 
 static const struct i2c_device_id rt5640_i2c_id[] = {
-	{ "rt5640", 0 },
-	{ "rt5639", 0 },
-	{ "rt5642", 0 },
+	{ "rt5640" },
+	{ "rt5639" },
+	{ "rt5642" },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, rt5640_i2c_id);
@@ -2984,22 +2980,6 @@ static const struct acpi_device_id rt5640_acpi_match[] = {
 MODULE_DEVICE_TABLE(acpi, rt5640_acpi_match);
 #endif
 
-static int rt5640_parse_dt(struct rt5640_priv *rt5640, struct device_node *np)
-{
-	rt5640->ldo1_en = of_get_named_gpio(np, "realtek,ldo1-en-gpios", 0);
-	/*
-	 * LDO1_EN is optional (it may be statically tied on the board).
-	 * -ENOENT means that the property doesn't exist, i.e. there is no
-	 * GPIO, so is not an error. Any other error code means the property
-	 * exists, but could not be parsed.
-	 */
-	if (!gpio_is_valid(rt5640->ldo1_en) &&
-			(rt5640->ldo1_en != -ENOENT))
-		return rt5640->ldo1_en;
-
-	return 0;
-}
-
 static int rt5640_i2c_probe(struct i2c_client *i2c)
 {
 	struct rt5640_priv *rt5640;
@@ -3013,12 +2993,16 @@ static int rt5640_i2c_probe(struct i2c_client *i2c)
 		return -ENOMEM;
 	i2c_set_clientdata(i2c, rt5640);
 
-	if (i2c->dev.of_node) {
-		ret = rt5640_parse_dt(rt5640, i2c->dev.of_node);
-		if (ret)
-			return ret;
-	} else
-		rt5640->ldo1_en = -EINVAL;
+	rt5640->ldo1_en = devm_gpiod_get_optional(&i2c->dev,
+						  "realtek,ldo1-en",
+						  GPIOD_OUT_HIGH);
+	if (IS_ERR(rt5640->ldo1_en))
+		return PTR_ERR(rt5640->ldo1_en);
+
+	if (rt5640->ldo1_en) {
+		gpiod_set_consumer_name(rt5640->ldo1_en, "RT5640 LDO1_EN");
+		msleep(400);
+	}
 
 	rt5640->regmap = devm_regmap_init_i2c(i2c, &rt5640_regmap);
 	if (IS_ERR(rt5640->regmap)) {
@@ -3026,18 +3010,6 @@ static int rt5640_i2c_probe(struct i2c_client *i2c)
 		dev_err(&i2c->dev, "Failed to allocate register map: %d\n",
 			ret);
 		return ret;
-	}
-
-	if (gpio_is_valid(rt5640->ldo1_en)) {
-		ret = devm_gpio_request_one(&i2c->dev, rt5640->ldo1_en,
-					    GPIOF_OUT_INIT_HIGH,
-					    "RT5640 LDO1_EN");
-		if (ret < 0) {
-			dev_err(&i2c->dev, "Failed to request LDO1_EN %d: %d\n",
-				rt5640->ldo1_en, ret);
-			return ret;
-		}
-		msleep(400);
 	}
 
 	regmap_read(rt5640->regmap, RT5640_VENDOR_ID2, &val);

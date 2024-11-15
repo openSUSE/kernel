@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0+ */
 /*
- * Copyright IBM Corp. 2006, 2019
+ * Copyright IBM Corp. 2006, 2023
  * Author(s): Cornelia Huck <cornelia.huck@de.ibm.com>
  *	      Martin Schwidefsky <schwidefsky@de.ibm.com>
  *	      Ralph Wuerthner <rwuerthn@de.ibm.com>
@@ -67,30 +67,13 @@ static inline int ap_test_bit(unsigned int *ptr, unsigned int nr)
 #define AP_RESPONSE_INVALID_DOMAIN	     0x42
 
 /*
- * Known device types
+ * Supported AP device types
  */
-#define AP_DEVICE_TYPE_PCICC	3
-#define AP_DEVICE_TYPE_PCICA	4
-#define AP_DEVICE_TYPE_PCIXCC	5
-#define AP_DEVICE_TYPE_CEX2A	6
-#define AP_DEVICE_TYPE_CEX2C	7
-#define AP_DEVICE_TYPE_CEX3A	8
-#define AP_DEVICE_TYPE_CEX3C	9
 #define AP_DEVICE_TYPE_CEX4	10
 #define AP_DEVICE_TYPE_CEX5	11
 #define AP_DEVICE_TYPE_CEX6	12
 #define AP_DEVICE_TYPE_CEX7	13
 #define AP_DEVICE_TYPE_CEX8	14
-
-/*
- * Known function facilities
- */
-#define AP_FUNC_MEX4K 1
-#define AP_FUNC_CRT4K 2
-#define AP_FUNC_COPRO 3
-#define AP_FUNC_ACCEL 4
-#define AP_FUNC_EP11  5
-#define AP_FUNC_APXA  6
 
 /*
  * AP queue state machine states
@@ -175,7 +158,7 @@ struct ap_driver {
 				 struct ap_config_info *old_config_info);
 };
 
-#define to_ap_drv(x) container_of((x), struct ap_driver, driver)
+#define to_ap_drv(x) container_of_const((x), struct ap_driver, driver)
 
 int ap_driver_register(struct ap_driver *, struct module *, char *);
 void ap_driver_unregister(struct ap_driver *);
@@ -189,9 +172,7 @@ struct ap_device {
 
 struct ap_card {
 	struct ap_device ap_dev;
-	int raw_hwtype;			/* AP raw hardware type. */
-	unsigned int functions;		/* TAPQ GR2 upper 32 facility bits */
-	int queue_depth;		/* AP queue depth.*/
+	struct ap_tapq_hwinfo hwinfo;	/* TAPQ GR2 content */
 	int id;				/* AP card number. */
 	unsigned int maxmsgsize;	/* AP msg limit for this card */
 	bool config;			/* configured state */
@@ -199,7 +180,7 @@ struct ap_card {
 	atomic64_t total_request_count;	/* # requests ever for this AP device.*/
 };
 
-#define TAPQ_CARD_FUNC_CMP_MASK 0xFFFF0000
+#define TAPQ_CARD_HWINFO_MASK 0xFEFF0000FFFF0F0FUL
 #define ASSOC_IDX_INVALID 0x10000
 
 #define to_ap_card(x) container_of((x), struct ap_card, ap_dev.device)
@@ -213,7 +194,7 @@ struct ap_queue {
 	bool config;			/* configured state */
 	bool chkstop;			/* checkstop state */
 	ap_qid_t qid;			/* AP queue id. */
-	bool interrupt;			/* indicate if interrupts are enabled */
+	unsigned int se_bstate;		/* SE bind state (BS) */
 	unsigned int assoc_idx;		/* SE association index */
 	int queue_count;		/* # messages currently on AP queue. */
 	int pendingq_count;		/* # requests on pendingq list. */
@@ -233,30 +214,6 @@ struct ap_queue {
 
 typedef enum ap_sm_wait (ap_func_t)(struct ap_queue *queue);
 
-/* failure injection cmd struct */
-struct ap_fi {
-	union {
-		u16 cmd;		/* fi flags + action */
-		struct {
-			u8 flags;	/* fi flags only */
-			u8 action;	/* fi action only */
-		};
-	};
-};
-
-/* all currently known fi actions */
-enum ap_fi_actions {
-	AP_FI_ACTION_CCA_AGENT_FF   = 0x01,
-	AP_FI_ACTION_CCA_DOM_INVAL  = 0x02,
-	AP_FI_ACTION_NQAP_QID_INVAL = 0x03,
-};
-
-/* all currently known fi flags */
-enum ap_fi_flags {
-	AP_FI_FLAG_NO_RETRY	  = 0x01,
-	AP_FI_FLAG_TOGGLE_SPECIAL = 0x02,
-};
-
 struct ap_message {
 	struct list_head list;		/* Request queueing. */
 	unsigned long psmid;		/* Message id. */
@@ -264,7 +221,6 @@ struct ap_message {
 	size_t len;			/* actual msg len in msg buffer */
 	size_t bufsize;			/* allocated msg buffer size */
 	u16 flags;			/* Flags, see AP_MSG_FLAG_xxx */
-	struct ap_fi fi;		/* Failure Injection cmd */
 	int rc;				/* Return code for this message */
 	void *private;			/* ap driver private pointer. */
 	/* receive is called from tasklet context */
@@ -297,40 +253,33 @@ static inline void ap_release_message(struct ap_message *ap_msg)
 	kfree_sensitive(ap_msg->private);
 }
 
-/*
- * Note: don't use ap_send/ap_recv after using ap_queue_message
- * for the first time. Otherwise the ap message queue will get
- * confused.
- */
-int ap_send(ap_qid_t qid, unsigned long psmid, void *msg, size_t msglen);
-int ap_recv(ap_qid_t qid, unsigned long *psmid, void *msg, size_t msglen);
-
 enum ap_sm_wait ap_sm_event(struct ap_queue *aq, enum ap_sm_event event);
 enum ap_sm_wait ap_sm_event_loop(struct ap_queue *aq, enum ap_sm_event event);
 
 int ap_queue_message(struct ap_queue *aq, struct ap_message *ap_msg);
 void ap_cancel_message(struct ap_queue *aq, struct ap_message *ap_msg);
 void ap_flush_queue(struct ap_queue *aq);
+bool ap_queue_usable(struct ap_queue *aq);
 
 void *ap_airq_ptr(void);
 int ap_sb_available(void);
 bool ap_is_se_guest(void);
 void ap_wait(enum ap_sm_wait wait);
 void ap_request_timeout(struct timer_list *t);
-void ap_bus_force_rescan(void);
+bool ap_bus_force_rescan(void);
 
 int ap_test_config_usage_domain(unsigned int domain);
 int ap_test_config_ctrl_domain(unsigned int domain);
 
 void ap_queue_init_reply(struct ap_queue *aq, struct ap_message *ap_msg);
-struct ap_queue *ap_queue_create(ap_qid_t qid, int device_type);
+struct ap_queue *ap_queue_create(ap_qid_t qid, struct ap_card *ac);
 void ap_queue_prepare_remove(struct ap_queue *aq);
 void ap_queue_remove(struct ap_queue *aq);
 void ap_queue_init_state(struct ap_queue *aq);
 void _ap_queue_init_state(struct ap_queue *aq);
 
-struct ap_card *ap_card_create(int id, int queue_depth, int raw_type,
-			       int comp_type, unsigned int functions, int ml);
+struct ap_card *ap_card_create(int id, struct ap_tapq_hwinfo info,
+			       int comp_type);
 
 #define APMASKSIZE (BITS_TO_LONGS(AP_DEVICES) * sizeof(unsigned long))
 #define AQMASKSIZE (BITS_TO_LONGS(AP_DOMAINS) * sizeof(unsigned long))
@@ -386,13 +335,35 @@ int ap_apqn_in_matrix_owned_by_def_drv(unsigned long *apm,
  * like "+1-16,-32,-0x40,+128" where only single bits or ranges of
  * bits are cleared or set. Distinction is done based on the very
  * first character which may be '+' or '-' for the relative string
- * and othewise assume to be an absolute value string. If parsing fails
+ * and otherwise assume to be an absolute value string. If parsing fails
  * a negative errno value is returned. All arguments and bitmaps are
  * big endian order.
  */
 int ap_parse_mask_str(const char *str,
 		      unsigned long *bitmap, int bits,
 		      struct mutex *lock);
+
+/*
+ * ap_hex2bitmap() - Convert a string containing a hexadecimal number (str)
+ * into a bitmap (bitmap) with bits set that correspond to the bits represented
+ * by the hex string. Input and output data is in big endian order.
+ *
+ * str - Input hex string of format "0x1234abcd". The leading "0x" is optional.
+ * At least one digit is required. Must be large enough to hold the number of
+ * bits represented by the bits parameter.
+ *
+ * bitmap - Pointer to a bitmap. Upon successful completion of this function,
+ * this bitmap will have bits set to match the value of str. If bitmap is longer
+ * than str, then the rightmost bits of bitmap are padded with zeros. Must be
+ * large enough to hold the number of bits represented by the bits parameter.
+ *
+ * bits - Length, in bits, of the bitmap represented by str. Must be a multiple
+ * of 8.
+ *
+ * Returns: 0		On success
+ *	    -EINVAL	If str format is invalid or bits is not a multiple of 8.
+ */
+int ap_hex2bitmap(const char *str, unsigned long *bitmap, int bits);
 
 /*
  * Interface to wait for the AP bus to have done one initial ap bus
@@ -403,8 +374,12 @@ int ap_parse_mask_str(const char *str,
  * the return value is 0. If the timeout (in jiffies) hits instead
  * -ETIME is returned. On failures negative return values are
  * returned to the caller.
+ * It may be that the AP bus scan finds new devices. Then the
+ * condition that all APQNs are bound to their device drivers
+ * is reset to false and this call again blocks until either all
+ * APQNs are bound to a device driver or the timeout hits again.
  */
-int ap_wait_init_apqn_bindings_complete(unsigned long timeout);
+int ap_wait_apqn_bindings_complete(unsigned long timeout);
 
 void ap_send_config_uevent(struct ap_device *ap_dev, bool cfg);
 void ap_send_online_uevent(struct ap_device *ap_dev, int online);

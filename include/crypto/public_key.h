@@ -10,6 +10,7 @@
 #ifndef _LINUX_PUBLIC_KEY_H
 #define _LINUX_PUBLIC_KEY_H
 
+#include <linux/errno.h>
 #include <linux/keyctl.h>
 #include <linux/oid_registry.h>
 
@@ -32,7 +33,6 @@ struct public_key {
 #define KEY_EFLAG_CA		0	/* set if the CA basic constraints is set */
 #define KEY_EFLAG_DIGITALSIG	1	/* set if the digitalSignature usage is set */
 #define KEY_EFLAG_KEYCERTSIGN	2	/* set if the keyCertSign usage is set */
-	unsigned int eku : 9;      /* Extended Key Usage (9-bit) */
 };
 
 extern void public_key_free(struct public_key *key);

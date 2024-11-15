@@ -251,7 +251,7 @@ static int t5403_probe(struct i2c_client *client)
 }
 
 static const struct i2c_device_id t5403_id[] = {
-	{ "t5403", 0 },
+	{ "t5403" },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, t5403_id);
@@ -260,7 +260,7 @@ static struct i2c_driver t5403_driver = {
 	.driver = {
 		.name	= "t5403",
 	},
-	.probe_new = t5403_probe,
+	.probe = t5403_probe,
 	.id_table = t5403_id,
 };
 module_i2c_driver(t5403_driver);

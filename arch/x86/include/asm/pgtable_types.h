@@ -145,10 +145,10 @@
  * instance, and is *not* included in this mask since
  * pte_modify() does modify it.
  */
-#define _COMMON_PAGE_CHG_MASK	(PTE_PFN_MASK | _PAGE_PCD | _PAGE_PWT |	       \
-				 _PAGE_SPECIAL | _PAGE_ACCESSED | _PAGE_DIRTY_BITS |\
-				 _PAGE_SOFT_DIRTY | _PAGE_DEVMAP | _PAGE_CC | \
-				 _PAGE_UFFD_WP)
+#define _COMMON_PAGE_CHG_MASK	(PTE_PFN_MASK | _PAGE_PCD | _PAGE_PWT |	\
+				 _PAGE_SPECIAL | _PAGE_ACCESSED |	\
+				 _PAGE_DIRTY_BITS | _PAGE_SOFT_DIRTY |	\
+				 _PAGE_DEVMAP | _PAGE_CC | _PAGE_UFFD_WP)
 #define _PAGE_CHG_MASK	(_COMMON_PAGE_CHG_MASK | _PAGE_PAT)
 #define _HPAGE_CHG_MASK (_COMMON_PAGE_CHG_MASK | _PAGE_PSE | _PAGE_PAT_LARGE)
 
@@ -517,8 +517,6 @@ typedef struct page *pgtable_t;
 
 extern pteval_t __supported_pte_mask;
 extern pteval_t __default_kernel_pte_mask;
-extern void set_nx(void);
-extern int nx_enabled;
 
 #define pgprot_writecombine	pgprot_writecombine
 extern pgprot_t pgprot_writecombine(pgprot_t prot);
@@ -543,15 +541,13 @@ extern void native_pagetable_init(void);
 #define native_pagetable_init        paging_init
 #endif
 
-struct seq_file;
-extern void arch_report_meminfo(struct seq_file *m);
-
 enum pg_level {
 	PG_LEVEL_NONE,
 	PG_LEVEL_4K,
 	PG_LEVEL_2M,
 	PG_LEVEL_1G,
 	PG_LEVEL_512G,
+	PG_LEVEL_256T,
 	PG_LEVEL_NUM
 };
 

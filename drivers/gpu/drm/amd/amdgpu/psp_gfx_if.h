@@ -296,6 +296,7 @@ enum psp_gfx_fw_type {
 	GFX_FW_TYPE_VPEC_FW1                        = 100,  /* VPEC FW1 To Save         VPE     */
 	GFX_FW_TYPE_VPEC_FW2                        = 101,  /* VPEC FW2 To Save         VPE     */
 	GFX_FW_TYPE_VPE                             = 102,
+	GFX_FW_TYPE_JPEG_RAM                        = 128,  /**< JPEG Command buffer */
 	GFX_FW_TYPE_P2S_TABLE                       = 129,
 	GFX_FW_TYPE_MAX
 };
@@ -463,8 +464,9 @@ struct psp_gfx_rb_frame
 #define PSP_ERR_UNKNOWN_COMMAND 0x00000100
 
 enum tee_error_code {
-    TEE_SUCCESS                         = 0x00000000,
-    TEE_ERROR_NOT_SUPPORTED             = 0xFFFF000A,
+	TEE_SUCCESS			= 0x00000000,
+	TEE_ERROR_CANCEL		= 0xFFFF0002,
+	TEE_ERROR_NOT_SUPPORTED		= 0xFFFF000A,
 };
 
 #endif /* _PSP_TEE_GFX_IF_H_ */

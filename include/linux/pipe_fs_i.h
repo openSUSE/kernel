@@ -62,9 +62,6 @@ struct pipe_inode_info {
 	unsigned int tail;
 	unsigned int max_usage;
 	unsigned int ring_size;
-#ifdef CONFIG_WATCH_QUEUE
-	bool note_loss;
-#endif
 	unsigned int nr_accounted;
 	unsigned int readers;
 	unsigned int writers;
@@ -72,6 +69,9 @@ struct pipe_inode_info {
 	unsigned int r_counter;
 	unsigned int w_counter;
 	bool poll_usage;
+#ifdef CONFIG_WATCH_QUEUE
+	bool note_loss;
+#endif
 	struct page *tmp_page;
 	struct fasync_struct *fasync_readers;
 	struct fasync_struct *fasync_writers;
@@ -285,10 +285,10 @@ bool pipe_is_unprivileged_user(void);
 
 /* for F_SETPIPE_SZ and F_GETPIPE_SZ */
 int pipe_resize_ring(struct pipe_inode_info *pipe, unsigned int nr_slots);
-long pipe_fcntl(struct file *, unsigned int, unsigned long arg);
+long pipe_fcntl(struct file *, unsigned int, unsigned int arg);
 struct pipe_inode_info *get_pipe_info(struct file *file, bool for_splice);
 
 int create_pipe_files(struct file **, int);
-unsigned int round_pipe_size(unsigned long size);
+unsigned int round_pipe_size(unsigned int size);
 
 #endif

@@ -148,6 +148,11 @@ static inline bool kvm_is_error_hva(unsigned long addr)
 
 #endif
 
+static inline bool kvm_is_error_gpa(gpa_t gpa)
+{
+	return gpa == INVALID_GPA;
+}
+
 #define KVM_ERR_PTR_BAD_PAGE	(ERR_PTR(-ENOENT))
 
 static inline bool is_error_page(struct page *page)
@@ -188,10 +193,6 @@ static inline bool is_error_page(struct page *page)
 bool kvm_make_vcpus_request_mask(struct kvm *kvm, unsigned int req,
 				 unsigned long *vcpu_bitmap);
 bool kvm_make_all_cpus_request(struct kvm *kvm, unsigned int req);
-bool kvm_make_all_cpus_request_except(struct kvm *kvm, unsigned int req,
-				      struct kvm_vcpu *except);
-bool kvm_make_cpus_request_mask(struct kvm *kvm, unsigned int req,
-				unsigned long *vcpu_bitmap);
 
 #define KVM_USERSPACE_IRQ_SOURCE_ID		0
 #define KVM_IRQFD_RESAMPLE_IRQ_SOURCE_ID	1
@@ -240,7 +241,6 @@ struct kvm_async_pf {
 	struct list_head link;
 	struct list_head queue;
 	struct kvm_vcpu *vcpu;
-	struct mm_struct *mm;
 	gpa_t cr2_or_gpa;
 	unsigned long addr;
 	struct kvm_arch_async_pf arch;
@@ -257,7 +257,6 @@ int kvm_async_pf_wakeup_all(struct kvm_vcpu *vcpu);
 
 #ifdef CONFIG_KVM_GENERIC_MMU_NOTIFIER
 union kvm_mmu_notifier_arg {
-	pte_t pte;
 	unsigned long attributes;
 };
 
@@ -266,14 +265,11 @@ struct kvm_gfn_range {
 	gfn_t start;
 	gfn_t end;
 	union kvm_mmu_notifier_arg arg;
-	bool only_private;
-	bool only_shared;
 	bool may_block;
 };
 bool kvm_unmap_gfn_range(struct kvm *kvm, struct kvm_gfn_range *range);
 bool kvm_age_gfn(struct kvm *kvm, struct kvm_gfn_range *range);
 bool kvm_test_age_gfn(struct kvm *kvm, struct kvm_gfn_range *range);
-bool kvm_set_spte_gfn(struct kvm *kvm, struct kvm_gfn_range *range);
 #endif
 
 enum {
@@ -382,8 +378,10 @@ struct kvm_vcpu {
 		bool dy_eligible;
 	} spin_loop;
 #endif
+	bool wants_to_run;
 	bool preempted;
 	bool ready;
+	bool scheduled_out;
 	struct kvm_vcpu_arch arch;
 	struct kvm_vcpu_stat stat;
 	char stats_id[KVM_STATS_NAME_SIZE];
@@ -487,7 +485,15 @@ static __always_inline void guest_state_enter_irqoff(void)
  */
 static __always_inline void guest_context_exit_irqoff(void)
 {
-	context_tracking_guest_exit();
+	/*
+	 * Guest mode is treated as a quiescent state, see
+	 * guest_context_enter_irqoff() for more details.
+	 */
+	if (!context_tracking_guest_exit()) {
+		instrumentation_begin();
+		rcu_virt_note_context_switch();
+		instrumentation_end();
+	}
 }
 
 /*
@@ -681,7 +687,7 @@ struct kvm_irq_routing_table {
 	 * Array indexed by gsi. Each entry contains list of irq chips
 	 * the gsi is connected to.
 	 */
-	struct hlist_head map[];
+	struct hlist_head map[] __counted_by(nr_rt_entries);
 };
 #endif
 
@@ -714,6 +720,13 @@ static inline int kvm_arch_vcpu_memslots_id(struct kvm_vcpu *vcpu)
 static inline bool kvm_arch_has_private_mem(struct kvm *kvm)
 {
 	return false;
+}
+#endif
+
+#ifndef kvm_arch_has_readonly_mem
+static inline bool kvm_arch_has_readonly_mem(struct kvm *kvm)
+{
+	return IS_ENABLED(CONFIG_HAVE_KVM_READONLY_MEM);
 }
 #endif
 
@@ -786,6 +799,7 @@ struct kvm {
 	struct list_head vm_list;
 	struct mutex lock;
 	struct kvm_io_bus __rcu *buses[KVM_NR_BUSES];
+#ifdef CONFIG_HAVE_KVM_IRQCHIP
 	struct {
 		spinlock_t        lock;
 		struct list_head  items;
@@ -793,6 +807,7 @@ struct kvm {
 		struct list_head  resampler_list;
 		struct mutex      resampler_lock;
 	} irqfds;
+#endif
 	struct list_head ioeventfds;
 	struct kvm_vm_stat stat;
 	struct kvm_arch arch;
@@ -1046,6 +1061,8 @@ static inline bool kvm_memslots_empty(struct kvm_memslots *slots)
 	return RB_EMPTY_ROOT(&slots->gfn_tree);
 }
 
+bool kvm_are_all_memslots_empty(struct kvm *kvm);
+
 #define kvm_for_each_memslot(memslot, bkt, slots)			      \
 	hash_for_each(slots->id_hash, bkt, memslot, id_node[slots->node_idx]) \
 		if (WARN_ON_ONCE(!memslot->npages)) {			      \
@@ -1296,8 +1313,6 @@ void mark_page_dirty(struct kvm *kvm, gfn_t gfn);
 
 struct kvm_memslots *kvm_vcpu_memslots(struct kvm_vcpu *vcpu);
 struct kvm_memory_slot *kvm_vcpu_gfn_to_memslot(struct kvm_vcpu *vcpu, gfn_t gfn);
-kvm_pfn_t kvm_vcpu_gfn_to_pfn_atomic(struct kvm_vcpu *vcpu, gfn_t gfn);
-kvm_pfn_t kvm_vcpu_gfn_to_pfn(struct kvm_vcpu *vcpu, gfn_t gfn);
 int kvm_vcpu_map(struct kvm_vcpu *vcpu, gpa_t gpa, struct kvm_host_map *map);
 void kvm_vcpu_unmap(struct kvm_vcpu *vcpu, struct kvm_host_map *map, bool dirty);
 unsigned long kvm_vcpu_gfn_to_hva(struct kvm_vcpu *vcpu, gfn_t gfn);
@@ -1319,21 +1334,12 @@ void kvm_vcpu_mark_page_dirty(struct kvm_vcpu *vcpu, gfn_t gfn);
  *
  * @gpc:	   struct gfn_to_pfn_cache object.
  * @kvm:	   pointer to kvm instance.
- * @vcpu:	   vCPU to be used for marking pages dirty and to be woken on
- *		   invalidation.
- * @usage:	   indicates if the resulting host physical PFN is used while
- *		   the @vcpu is IN_GUEST_MODE (in which case invalidation of 
- *		   the cache from MMU notifiers---but not for KVM memslot
- *		   changes!---will also force @vcpu to exit the guest and
- *		   refresh the cache); and/or if the PFN used directly
- *		   by KVM (and thus needs a kernel virtual mapping).
  *
  * This sets up a gfn_to_pfn_cache by initializing locks and assigning the
  * immutable attributes.  Note, the cache must be zero-allocated (or zeroed by
  * the caller before init).
  */
-void kvm_gpc_init(struct gfn_to_pfn_cache *gpc, struct kvm *kvm,
-		  struct kvm_vcpu *vcpu, enum pfn_cache_usage usage);
+void kvm_gpc_init(struct gfn_to_pfn_cache *gpc, struct kvm *kvm);
 
 /**
  * kvm_gpc_activate - prepare a cached kernel mapping and HPA for a given guest
@@ -1352,6 +1358,22 @@ void kvm_gpc_init(struct gfn_to_pfn_cache *gpc, struct kvm *kvm,
  * to ensure that the cache is valid before accessing the target page.
  */
 int kvm_gpc_activate(struct gfn_to_pfn_cache *gpc, gpa_t gpa, unsigned long len);
+
+/**
+ * kvm_gpc_activate_hva - prepare a cached kernel mapping and HPA for a given HVA.
+ *
+ * @gpc:          struct gfn_to_pfn_cache object.
+ * @hva:          userspace virtual address to map.
+ * @len:          sanity check; the range being access must fit a single page.
+ *
+ * @return:       0 for success.
+ *                -EINVAL for a mapping which would cross a page boundary.
+ *                -EFAULT for an untranslatable guest physical address.
+ *
+ * The semantics of this function are the same as those of kvm_gpc_activate(). It
+ * merely bypasses a layer of address translation.
+ */
+int kvm_gpc_activate_hva(struct gfn_to_pfn_cache *gpc, unsigned long hva, unsigned long len);
 
 /**
  * kvm_gpc_check - check validity of a gfn_to_pfn_cache.
@@ -1398,6 +1420,16 @@ int kvm_gpc_refresh(struct gfn_to_pfn_cache *gpc, unsigned long len);
  * invocation.
  */
 void kvm_gpc_deactivate(struct gfn_to_pfn_cache *gpc);
+
+static inline bool kvm_gpc_is_gpa_active(struct gfn_to_pfn_cache *gpc)
+{
+	return gpc->active && !kvm_is_error_gpa(gpc->gpa);
+}
+
+static inline bool kvm_gpc_is_hva_active(struct gfn_to_pfn_cache *gpc)
+{
+	return gpc->active && kvm_is_error_gpa(gpc->gpa);
+}
 
 void kvm_sigset_activate(struct kvm_vcpu *vcpu);
 void kvm_sigset_deactivate(struct kvm_vcpu *vcpu);
@@ -1477,8 +1509,6 @@ int kvm_arch_vcpu_ioctl_set_guest_debug(struct kvm_vcpu *vcpu,
 					struct kvm_guest_debug *dbg);
 int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu);
 
-void kvm_arch_sched_in(struct kvm_vcpu *vcpu, int cpu);
-
 void kvm_arch_vcpu_load(struct kvm_vcpu *vcpu, int cpu);
 void kvm_arch_vcpu_put(struct kvm_vcpu *vcpu);
 int kvm_arch_vcpu_precreate(struct kvm *kvm, unsigned int id);
@@ -1497,17 +1527,32 @@ static inline void kvm_create_vcpu_debugfs(struct kvm_vcpu *vcpu) {}
 #endif
 
 #ifdef CONFIG_KVM_GENERIC_HARDWARE_ENABLING
-int kvm_arch_hardware_enable(void);
-void kvm_arch_hardware_disable(void);
+/*
+ * kvm_arch_{enable,disable}_virtualization() are called on one CPU, under
+ * kvm_usage_lock, immediately after/before 0=>1 and 1=>0 transitions of
+ * kvm_usage_count, i.e. at the beginning of the generic hardware enabling
+ * sequence, and at the end of the generic hardware disabling sequence.
+ */
+void kvm_arch_enable_virtualization(void);
+void kvm_arch_disable_virtualization(void);
+/*
+ * kvm_arch_{enable,disable}_virtualization_cpu() are called on "every" CPU to
+ * do the actual twiddling of hardware bits.  The hooks are called on all
+ * online CPUs when KVM enables/disabled virtualization, and on a single CPU
+ * when that CPU is onlined/offlined (including for Resume/Suspend).
+ */
+int kvm_arch_enable_virtualization_cpu(void);
+void kvm_arch_disable_virtualization_cpu(void);
 #endif
 int kvm_arch_vcpu_runnable(struct kvm_vcpu *vcpu);
 bool kvm_arch_vcpu_in_kernel(struct kvm_vcpu *vcpu);
 int kvm_arch_vcpu_should_kick(struct kvm_vcpu *vcpu);
 bool kvm_arch_dy_runnable(struct kvm_vcpu *vcpu);
 bool kvm_arch_dy_has_pending_interrupt(struct kvm_vcpu *vcpu);
+bool kvm_arch_vcpu_preempted_in_kernel(struct kvm_vcpu *vcpu);
 int kvm_arch_post_init_vm(struct kvm *kvm);
 void kvm_arch_pre_destroy_vm(struct kvm *kvm);
-int kvm_arch_create_vm_debugfs(struct kvm *kvm);
+void kvm_arch_create_vm_debugfs(struct kvm *kvm);
 
 #ifndef __KVM_HAVE_ARCH_VM_ALLOC
 /*
@@ -1788,11 +1833,21 @@ static inline hpa_t pfn_to_hpa(kvm_pfn_t pfn)
 	return (hpa_t)pfn << PAGE_SHIFT;
 }
 
-static inline bool kvm_is_error_gpa(struct kvm *kvm, gpa_t gpa)
+static inline bool kvm_is_gpa_in_memslot(struct kvm *kvm, gpa_t gpa)
 {
 	unsigned long hva = gfn_to_hva(kvm, gpa_to_gfn(gpa));
 
-	return kvm_is_error_hva(hva);
+	return !kvm_is_error_hva(hva);
+}
+
+static inline void kvm_gpc_mark_dirty_in_slot(struct gfn_to_pfn_cache *gpc)
+{
+	lockdep_assert_held(&gpc->lock);
+
+	if (!gpc->memslot)
+		return;
+
+	mark_page_dirty_in_slot(gpc->kvm, gpc->memslot, gpa_to_gfn(gpc->gpa));
 }
 
 enum kvm_stat_kind {
@@ -1927,8 +1982,6 @@ struct _kvm_stats_desc {
 			HALT_POLL_HIST_COUNT),				       \
 	STATS_DESC_IBOOLEAN(VCPU_GENERIC, blocking)
 
-extern struct dentry *kvm_debugfs_dir;
-
 ssize_t kvm_stats_read(char *id, const struct kvm_stats_header *header,
 		       const struct _kvm_stats_desc *desc,
 		       void *stats, size_t size_stats,
@@ -2031,6 +2084,32 @@ static inline int mmu_invalidate_retry_gfn(struct kvm *kvm,
 		return 1;
 	return 0;
 }
+
+/*
+ * This lockless version of the range-based retry check *must* be paired with a
+ * call to the locked version after acquiring mmu_lock, i.e. this is safe to
+ * use only as a pre-check to avoid contending mmu_lock.  This version *will*
+ * get false negatives and false positives.
+ */
+static inline bool mmu_invalidate_retry_gfn_unsafe(struct kvm *kvm,
+						   unsigned long mmu_seq,
+						   gfn_t gfn)
+{
+	/*
+	 * Use READ_ONCE() to ensure the in-progress flag and sequence counter
+	 * are always read from memory, e.g. so that checking for retry in a
+	 * loop won't result in an infinite retry loop.  Don't force loads for
+	 * start+end, as the key to avoiding infinite retry loops is observing
+	 * the 1=>0 transition of in-progress, i.e. getting false negatives
+	 * due to stale start+end values is acceptable.
+	 */
+	if (unlikely(READ_ONCE(kvm->mmu_invalidate_in_progress)) &&
+	    gfn >= kvm->mmu_invalidate_range_start &&
+	    gfn < kvm->mmu_invalidate_range_end)
+		return true;
+
+	return READ_ONCE(kvm->mmu_invalidate_seq) != mmu_seq;
+}
 #endif
 
 #ifdef CONFIG_HAVE_KVM_IRQ_ROUTING
@@ -2042,6 +2121,7 @@ int kvm_set_irq_routing(struct kvm *kvm,
 			const struct kvm_irq_routing_entry *entries,
 			unsigned nr,
 			unsigned flags);
+int kvm_init_irq_routing(struct kvm *kvm);
 int kvm_set_routing_entry(struct kvm *kvm,
 			  struct kvm_kernel_irq_routing_entry *e,
 			  const struct kvm_irq_routing_entry *ue);
@@ -2050,6 +2130,11 @@ void kvm_free_irq_routing(struct kvm *kvm);
 #else
 
 static inline void kvm_free_irq_routing(struct kvm *kvm) {}
+
+static inline int kvm_init_irq_routing(struct kvm *kvm)
+{
+	return 0;
+}
 
 #endif
 
@@ -2197,8 +2282,6 @@ struct kvm_device_ops {
 	int (*mmap)(struct kvm_device *dev, struct vm_area_struct *vma);
 };
 
-void kvm_device_get(struct kvm_device *dev);
-void kvm_device_put(struct kvm_device *dev);
 struct kvm_device *kvm_device_from_filp(struct file *filp);
 int kvm_register_device_ops(const struct kvm_device_ops *ops, u32 type);
 void kvm_unregister_device_ops(u32 type);
@@ -2358,7 +2441,7 @@ static inline unsigned long kvm_get_memory_attributes(struct kvm *kvm, gfn_t gfn
 }
 
 bool kvm_range_has_memory_attributes(struct kvm *kvm, gfn_t start, gfn_t end,
-				     unsigned long attrs);
+				     unsigned long mask, unsigned long attrs);
 bool kvm_arch_pre_set_memory_attributes(struct kvm *kvm,
 					struct kvm_gfn_range *range);
 bool kvm_arch_post_set_memory_attributes(struct kvm *kvm,
@@ -2388,5 +2471,47 @@ static inline int kvm_gmem_get_pfn(struct kvm *kvm,
 	return -EIO;
 }
 #endif /* CONFIG_KVM_PRIVATE_MEM */
+
+#ifdef CONFIG_HAVE_KVM_ARCH_GMEM_PREPARE
+int kvm_arch_gmem_prepare(struct kvm *kvm, gfn_t gfn, kvm_pfn_t pfn, int max_order);
+#endif
+
+#ifdef CONFIG_KVM_GENERIC_PRIVATE_MEM
+/**
+ * kvm_gmem_populate() - Populate/prepare a GPA range with guest data
+ *
+ * @kvm: KVM instance
+ * @gfn: starting GFN to be populated
+ * @src: userspace-provided buffer containing data to copy into GFN range
+ *       (passed to @post_populate, and incremented on each iteration
+ *       if not NULL)
+ * @npages: number of pages to copy from userspace-buffer
+ * @post_populate: callback to issue for each gmem page that backs the GPA
+ *                 range
+ * @opaque: opaque data to pass to @post_populate callback
+ *
+ * This is primarily intended for cases where a gmem-backed GPA range needs
+ * to be initialized with userspace-provided data prior to being mapped into
+ * the guest as a private page. This should be called with the slots->lock
+ * held so that caller-enforced invariants regarding the expected memory
+ * attributes of the GPA range do not race with KVM_SET_MEMORY_ATTRIBUTES.
+ *
+ * Returns the number of pages that were populated.
+ */
+typedef int (*kvm_gmem_populate_cb)(struct kvm *kvm, gfn_t gfn, kvm_pfn_t pfn,
+				    void __user *src, int order, void *opaque);
+
+long kvm_gmem_populate(struct kvm *kvm, gfn_t gfn, void __user *src, long npages,
+		       kvm_gmem_populate_cb post_populate, void *opaque);
+#endif
+
+#ifdef CONFIG_HAVE_KVM_ARCH_GMEM_INVALIDATE
+void kvm_arch_gmem_invalidate(kvm_pfn_t start, kvm_pfn_t end);
+#endif
+
+#ifdef CONFIG_KVM_GENERIC_PRE_FAULT_MEMORY
+long kvm_arch_vcpu_pre_fault_memory(struct kvm_vcpu *vcpu,
+				    struct kvm_pre_fault_memory *range);
+#endif
 
 #endif

@@ -52,7 +52,7 @@ int amdgpu_gmc_pdb0_alloc(struct amdgpu_device *adev)
 	struct amdgpu_bo_param bp;
 	u64 vram_size = adev->gmc.xgmi.node_segment_size * adev->gmc.xgmi.num_physical_nodes;
 	uint32_t pde0_page_shift = adev->gmc.vmid0_page_table_block_size + 21;
-	uint32_t npdes = (vram_size + (1ULL << pde0_page_shift) -1) >> pde0_page_shift;
+	uint32_t npdes = (vram_size + (1ULL << pde0_page_shift) - 1) >> pde0_page_shift;
 
 	memset(&bp, 0, sizeof(bp));
 	bp.size = PAGE_ALIGN((npdes + 1) * 8);
@@ -589,7 +589,8 @@ int amdgpu_gmc_allocate_vm_inv_eng(struct amdgpu_device *adev)
 		ring = adev->rings[i];
 		vmhub = ring->vm_hub;
 
-		if (ring == &adev->mes.ring ||
+		if (ring == &adev->mes.ring[0] ||
+		    ring == &adev->mes.ring[1] ||
 		    ring == &adev->umsch_mm.ring)
 			continue;
 
@@ -620,10 +621,8 @@ void amdgpu_gmc_flush_gpu_tlb(struct amdgpu_device *adev, uint32_t vmid,
 	int r;
 
 	if (!hub->sdma_invalidation_workaround || vmid ||
-	    !adev->mman.buffer_funcs_enabled ||
-	    !adev->ib_pool_ready || amdgpu_in_reset(adev) ||
+	    !adev->mman.buffer_funcs_enabled || !adev->ib_pool_ready ||
 	    !ring->sched.ready) {
-
 		/*
 		 * A GPU reset should flush all TLBs anyway, so no need to do
 		 * this while one is ongoing.
@@ -752,6 +751,60 @@ error_unlock_reset:
 	return r;
 }
 
+void amdgpu_gmc_fw_reg_write_reg_wait(struct amdgpu_device *adev,
+				      uint32_t reg0, uint32_t reg1,
+				      uint32_t ref, uint32_t mask,
+				      uint32_t xcc_inst)
+{
+	struct amdgpu_kiq *kiq = &adev->gfx.kiq[xcc_inst];
+	struct amdgpu_ring *ring = &kiq->ring;
+	signed long r, cnt = 0;
+	unsigned long flags;
+	uint32_t seq;
+
+	if (adev->mes.ring[0].sched.ready) {
+		amdgpu_mes_reg_write_reg_wait(adev, reg0, reg1,
+					      ref, mask);
+		return;
+	}
+
+	spin_lock_irqsave(&kiq->ring_lock, flags);
+	amdgpu_ring_alloc(ring, 32);
+	amdgpu_ring_emit_reg_write_reg_wait(ring, reg0, reg1,
+					    ref, mask);
+	r = amdgpu_fence_emit_polling(ring, &seq, MAX_KIQ_REG_WAIT);
+	if (r)
+		goto failed_undo;
+
+	amdgpu_ring_commit(ring);
+	spin_unlock_irqrestore(&kiq->ring_lock, flags);
+
+	r = amdgpu_fence_wait_polling(ring, seq, MAX_KIQ_REG_WAIT);
+
+	/* don't wait anymore for IRQ context */
+	if (r < 1 && in_interrupt())
+		goto failed_kiq;
+
+	might_sleep();
+	while (r < 1 && cnt++ < MAX_KIQ_REG_TRY &&
+	       !amdgpu_reset_pending(adev->reset_domain)) {
+
+		msleep(MAX_KIQ_REG_BAILOUT_INTERVAL);
+		r = amdgpu_fence_wait_polling(ring, seq, MAX_KIQ_REG_WAIT);
+	}
+
+	if (cnt > MAX_KIQ_REG_TRY)
+		goto failed_kiq;
+
+	return;
+
+failed_undo:
+	amdgpu_ring_undo(ring);
+	spin_unlock_irqrestore(&kiq->ring_lock, flags);
+failed_kiq:
+	dev_err(adev->dev, "failed to write reg %x wait reg %x\n", reg0, reg1);
+}
+
 /**
  * amdgpu_gmc_tmz_set -- check and set if a device supports TMZ
  * @adev: amdgpu_device pointer
@@ -796,6 +849,8 @@ void amdgpu_gmc_tmz_set(struct amdgpu_device *adev)
 	case IP_VERSION(10, 3, 3):
 	case IP_VERSION(11, 0, 4):
 	case IP_VERSION(11, 5, 0):
+	case IP_VERSION(11, 5, 1):
+	case IP_VERSION(11, 5, 2):
 		/* Don't enable it by default yet.
 		 */
 		if (amdgpu_tmz < 1) {
@@ -832,6 +887,7 @@ void amdgpu_gmc_noretry_set(struct amdgpu_device *adev)
 				gc_ver == IP_VERSION(9, 4, 1) ||
 				gc_ver == IP_VERSION(9, 4, 2) ||
 				gc_ver == IP_VERSION(9, 4, 3) ||
+				gc_ver == IP_VERSION(9, 4, 4) ||
 				gc_ver >= IP_VERSION(10, 3, 0));
 
 	if (!amdgpu_sriov_xnack_support(adev))
@@ -966,7 +1022,7 @@ void amdgpu_gmc_init_pdb0(struct amdgpu_device *adev)
 	flags |= AMDGPU_PTE_WRITEABLE;
 	flags |= AMDGPU_PTE_SNOOPED;
 	flags |= AMDGPU_PTE_FRAG((adev->gmc.vmid0_page_table_block_size + 9*1));
-	flags |= AMDGPU_PDE_PTE;
+	flags |= AMDGPU_PDE_PTE_FLAG(adev);
 
 	/* The first n PDE0 entries are used as PTE,
 	 * pointing to vram
@@ -979,7 +1035,7 @@ void amdgpu_gmc_init_pdb0(struct amdgpu_device *adev)
 	 * pointing to a 4K system page
 	 */
 	flags = AMDGPU_PTE_VALID;
-	flags |= AMDGPU_PDE_BFS(0) | AMDGPU_PTE_SNOOPED;
+	flags |= AMDGPU_PTE_SNOOPED | AMDGPU_PDE_BFS_FLAG(adev, 0);
 	/* Requires gart_ptb_gpu_pa to be 4K aligned */
 	amdgpu_gmc_set_pte_pde(adev, adev->gmc.ptr_pdb0, i, gart_ptb_gpu_pa, flags);
 	drm_dev_exit(idx);
@@ -1098,8 +1154,6 @@ static ssize_t current_memory_partition_show(
 	default:
 		return sysfs_emit(buf, "UNKNOWN\n");
 	}
-
-	return sysfs_emit(buf, "UNKNOWN\n");
 }
 
 static DEVICE_ATTR_RO(current_memory_partition);
@@ -1116,4 +1170,80 @@ int amdgpu_gmc_sysfs_init(struct amdgpu_device *adev)
 void amdgpu_gmc_sysfs_fini(struct amdgpu_device *adev)
 {
 	device_remove_file(adev->dev, &dev_attr_current_memory_partition);
+}
+
+int amdgpu_gmc_get_nps_memranges(struct amdgpu_device *adev,
+				 struct amdgpu_mem_partition_info *mem_ranges,
+				 int exp_ranges)
+{
+	struct amdgpu_gmc_memrange *ranges;
+	int range_cnt, ret, i, j;
+	uint32_t nps_type;
+
+	if (!mem_ranges)
+		return -EINVAL;
+
+	ret = amdgpu_discovery_get_nps_info(adev, &nps_type, &ranges,
+					    &range_cnt);
+
+	if (ret)
+		return ret;
+
+	/* TODO: For now, expect ranges and partition count to be the same.
+	 * Adjust if there are holes expected in any NPS domain.
+	 */
+	if (range_cnt != exp_ranges) {
+		dev_warn(
+			adev->dev,
+			"NPS config mismatch - expected ranges: %d discovery - nps mode: %d, nps ranges: %d",
+			exp_ranges, nps_type, range_cnt);
+		ret = -EINVAL;
+		goto err;
+	}
+
+	for (i = 0; i < exp_ranges; ++i) {
+		if (ranges[i].base_address >= ranges[i].limit_address) {
+			dev_warn(
+				adev->dev,
+				"Invalid NPS range - nps mode: %d, range[%d]: base: %llx limit: %llx",
+				nps_type, i, ranges[i].base_address,
+				ranges[i].limit_address);
+			ret = -EINVAL;
+			goto err;
+		}
+
+		/* Check for overlaps, not expecting any now */
+		for (j = i - 1; j >= 0; j--) {
+			if (max(ranges[j].base_address,
+				ranges[i].base_address) <=
+			    min(ranges[j].limit_address,
+				ranges[i].limit_address)) {
+				dev_warn(
+					adev->dev,
+					"overlapping ranges detected [ %llx - %llx ] | [%llx - %llx]",
+					ranges[j].base_address,
+					ranges[j].limit_address,
+					ranges[i].base_address,
+					ranges[i].limit_address);
+				ret = -EINVAL;
+				goto err;
+			}
+		}
+
+		mem_ranges[i].range.fpfn =
+			(ranges[i].base_address -
+			 adev->vm_manager.vram_base_offset) >>
+			AMDGPU_GPU_PAGE_SHIFT;
+		mem_ranges[i].range.lpfn =
+			(ranges[i].limit_address -
+			 adev->vm_manager.vram_base_offset) >>
+			AMDGPU_GPU_PAGE_SHIFT;
+		mem_ranges[i].size =
+			ranges[i].limit_address - ranges[i].base_address + 1;
+	}
+
+err:
+	kfree(ranges);
+
+	return ret;
 }

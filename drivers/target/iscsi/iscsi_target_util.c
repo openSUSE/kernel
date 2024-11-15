@@ -285,19 +285,13 @@ static inline int iscsit_check_received_cmdsn(struct iscsit_session *sess, u32 c
 int iscsit_sequence_cmd(struct iscsit_conn *conn, struct iscsit_cmd *cmd,
 			unsigned char *buf, __be32 cmdsn)
 {
-	int ret, cmdsn_ret = CMDSN_NORMAL_OPERATION;
+	int ret, cmdsn_ret;
 	bool reject = false;
 	u8 reason = ISCSI_REASON_BOOKMARK_NO_RESOURCES;
 
 	mutex_lock(&conn->sess->cmdsn_mutex);
 
-	/*
-	 * Check the sequence number iff we are not in an immediate command.
-	 * See rfc3730 Section 3.2.2.1. Immediate commands can be outside
-	 * the normal range.
-	 */
-	if (!cmd->immediate_cmd)
-		cmdsn_ret = iscsit_check_received_cmdsn(conn->sess, be32_to_cpu(cmdsn));
+	cmdsn_ret = iscsit_check_received_cmdsn(conn->sess, be32_to_cpu(cmdsn));
 	switch (cmdsn_ret) {
 	case CMDSN_NORMAL_OPERATION:
 		ret = iscsit_execute_cmd(cmd, 0);
@@ -1381,7 +1375,7 @@ void iscsit_collect_login_stats(
 		if (conn->param_list)
 			intrname = iscsi_find_param_from_key(INITIATORNAME,
 							     conn->param_list);
-		strlcpy(ls->last_intr_fail_name,
+		strscpy(ls->last_intr_fail_name,
 		       (intrname ? intrname->value : "Unknown"),
 		       sizeof(ls->last_intr_fail_name));
 
@@ -1420,7 +1414,7 @@ void iscsit_fill_cxn_timeout_err_stats(struct iscsit_session *sess)
 		return;
 
 	spin_lock_bh(&tiqn->sess_err_stats.lock);
-	strlcpy(tiqn->sess_err_stats.last_sess_fail_rem_name,
+	strscpy(tiqn->sess_err_stats.last_sess_fail_rem_name,
 			sess->sess_ops->InitiatorName,
 			sizeof(tiqn->sess_err_stats.last_sess_fail_rem_name));
 	tiqn->sess_err_stats.last_sess_failure_type =

@@ -15,6 +15,7 @@ config ASYMMETRIC_PUBLIC_KEY_SUBTYPE
 	select MPILIB
 	select CRYPTO_HASH_INFO
 	select CRYPTO_AKCIPHER
+	select CRYPTO_SIG
 	select CRYPTO_HASH
 	help
 	  This option provides support for asymmetric public key type handling.
@@ -85,6 +86,8 @@ config FIPS_SIGNATURE_SELFTEST
 	depends on ASYMMETRIC_KEY_TYPE
 	depends on PKCS7_MESSAGE_PARSER=X509_CERTIFICATE_PARSER
 	depends on X509_CERTIFICATE_PARSER
+	depends on CRYPTO_RSA
+	depends on CRYPTO_SHA256
 
 config FIPS_SIGNATURE_SELFTEST_RSA
 	bool
@@ -99,15 +102,5 @@ config FIPS_SIGNATURE_SELFTEST_ECDSA
 	depends on FIPS_SIGNATURE_SELFTEST
 	depends on CRYPTO_SHA256=y || CRYPTO_SHA256=FIPS_SIGNATURE_SELFTEST
 	depends on CRYPTO_ECDSA=y || CRYPTO_ECDSA=FIPS_SIGNATURE_SELFTEST
-
-config CHECK_CODESIGN_EKU
-	bool "Check codeSigning extended key usage"
-	depends on PKCS7_MESSAGE_PARSER=y
-	depends on SYSTEM_DATA_VERIFICATION
-	help
-	  This option provides support for checking the codeSigning extended
-	  key usage extension when verifying the signature in PKCS#7. It
-	  affects kernel module verification and kexec PE binary verification
-	  now.
 
 endif # ASYMMETRIC_KEY_TYPE

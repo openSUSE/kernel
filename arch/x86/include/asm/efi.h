@@ -143,15 +143,6 @@ extern void efi_free_boot_services(void);
 void arch_efi_call_virt_setup(void);
 void arch_efi_call_virt_teardown(void);
 
-/* kexec external ABI */
-struct efi_setup_data {
-	u64 fw_vendor;
-	u64 __unused;
-	u64 tables;
-	u64 smbios;
-	u64 reserved[8];
-};
-
 extern u64 efi_setup;
 
 #ifdef CONFIG_EFI
@@ -179,14 +170,6 @@ static inline bool efi_runtime_supported(void)
 }
 
 extern void parse_efi_setup(u64 phys_addr, u32 data_len);
-
-#ifdef CONFIG_EFI_SECRET_KEY
-extern void efi_setup_secret_key(struct boot_params *params);
-extern void parse_efi_secret_key_setup(u64 phys_addr, u32 data_len);
-#else
-static inline void efi_setup_secret_key(struct boot_params *params) {}
-static inline void parse_efi_secret_key_setup(u64 phys_addr, u32 data_len) {}
-#endif /* CONFIG_EFI_SECRET_KEY */
 
 extern void efi_thunk_runtime_setup(void);
 efi_status_t efi_set_virtual_address_map(unsigned long memory_map_size,
@@ -246,7 +229,8 @@ static inline bool efi_is_native(void)
 
 static inline void *efi64_zero_upper(void *p)
 {
-	((u32 *)p)[1] = 0;
+	if (p)
+		((u32 *)p)[1] = 0;
 	return p;
 }
 
@@ -332,6 +316,10 @@ static inline u32 efi64_convert_status(efi_status_t status)
 #define __efi64_argmap_clear_memory_attributes(protocol, phys, size, flags) \
 	((protocol), __efi64_split(phys), __efi64_split(size), __efi64_split(flags))
 
+/* EFI SMBIOS protocol */
+#define __efi64_argmap_get_next(protocol, smbioshandle, type, record, phandle) \
+	((protocol), (smbioshandle), (type), efi64_zero_upper(record), \
+	 efi64_zero_upper(phandle))
 /*
  * The macros below handle the plumbing for the argument mapping. To add a
  * mapping for a specific EFI method, simply define a macro
@@ -388,9 +376,6 @@ extern bool efi_is_table_address(unsigned long phys_addr);
 extern void efi_reserve_boot_services(void);
 #else
 static inline void parse_efi_setup(u64 phys_addr, u32 data_len) {}
-static inline void parse_efi_secret_key_setup(u64 phys_addr, u32 data_len) {}
-static inline void efi_setup_secret_key(efi_system_table_t *table,
-					struct boot_params *params) {}
 static inline bool efi_reboot_required(void)
 {
 	return false;
@@ -404,23 +389,8 @@ static inline void efi_reserve_boot_services(void)
 }
 #endif /* CONFIG_EFI */
 
-#ifdef CONFIG_EFI_FAKE_MEMMAP
-extern void __init efi_fake_memmap_early(void);
-extern void __init efi_fake_memmap(void);
-#else
-static inline void efi_fake_memmap_early(void)
-{
-}
-
-static inline void efi_fake_memmap(void)
-{
-}
-#endif
-
 extern int __init efi_memmap_alloc(unsigned int num_entries,
 				   struct efi_memory_map_data *data);
-extern void __efi_memmap_free(u64 phys, unsigned long size,
-			      unsigned long flags);
 
 extern int __init efi_memmap_install(struct efi_memory_map_data *data);
 extern int __init efi_memmap_split_count(efi_memory_desc_t *md,
@@ -428,8 +398,9 @@ extern int __init efi_memmap_split_count(efi_memory_desc_t *md,
 extern void __init efi_memmap_insert(struct efi_memory_map *old_memmap,
 				     void *buf, struct efi_mem_range *mem);
 
-#define arch_ima_efi_boot_mode	\
-	({ extern struct boot_params boot_params; boot_params.secure_boot; })
+extern enum efi_secureboot_mode __x86_ima_efi_boot_mode(void);
+
+#define arch_ima_efi_boot_mode	__x86_ima_efi_boot_mode()
 
 #ifdef CONFIG_EFI_RUNTIME_MAP
 int efi_get_runtime_map_size(void);

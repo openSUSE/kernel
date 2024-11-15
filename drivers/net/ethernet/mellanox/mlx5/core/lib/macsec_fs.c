@@ -1066,7 +1066,6 @@ static int macsec_fs_rx_create_crypto_table_groups(struct mlx5_macsec_flow_table
 	in = kvzalloc(inlen, GFP_KERNEL);
 	if (!in) {
 		kfree(ft->g);
-		ft->g = NULL;
 		return -ENOMEM;
 	}
 

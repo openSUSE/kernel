@@ -1095,6 +1095,8 @@ static int omapfb_mmap(struct fb_info *fbi, struct vm_area_struct *vma)
 	u32 len;
 	int r;
 
+	vma->vm_page_prot = pgprot_decrypted(vma->vm_page_prot);
+
 	rg = omapfb_get_mem_region(ofbi->region);
 
 	start = omapfb_get_region_paddr(ofbi);
@@ -2612,7 +2614,7 @@ static void omapfb_remove(struct platform_device *pdev)
 
 static struct platform_driver omapfb_driver = {
 	.probe		= omapfb_probe,
-	.remove_new     = omapfb_remove,
+	.remove         = omapfb_remove,
 	.driver         = {
 		.name   = "omapfb",
 	},

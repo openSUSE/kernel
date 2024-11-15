@@ -33,6 +33,7 @@
 
 #include "link.h"
 #include "dcn20_fpu.h"
+#include "dc_state_priv.h"
 
 #define DC_LOGGER \
 	dc->ctx->logger
@@ -1083,7 +1084,10 @@ static enum dcn_zstate_support_state  decide_zstate_support(struct dc *dc, struc
 		struct dc_stream_status *stream_status = &context->stream_status[0];
 		int minmum_z8_residency = dc->debug.minimum_z8_residency_time > 0 ? dc->debug.minimum_z8_residency_time : 1000;
 		bool allow_z8 = context->bw_ctx.dml.vba.StutterPeriod > (double)minmum_z8_residency;
-		bool is_pwrseq0 = link->link_index == 0;
+		bool is_pwrseq0 = (link && link->link_index == 0);
+		bool is_psr = (link && (link->psr_settings.psr_version == DC_PSR_VERSION_1 ||
+						link->psr_settings.psr_version == DC_PSR_VERSION_SU_1) && !link->panel_config.psr.disable_psr);
+		bool is_replay = link && link->replay_settings.replay_feature_enabled;
 
 		/* Don't support multi-plane configurations */
 		if (stream_status->plane_count > 1)
@@ -1091,8 +1095,8 @@ static enum dcn_zstate_support_state  decide_zstate_support(struct dc *dc, struc
 
 		if (is_pwrseq0 && context->bw_ctx.dml.vba.StutterPeriod > 5000.0)
 			return DCN_ZSTATE_SUPPORT_ALLOW;
-		else if (is_pwrseq0 && link->psr_settings.psr_version == DC_PSR_VERSION_1 && !link->panel_config.psr.disable_psr)
-			return allow_z8 ? DCN_ZSTATE_SUPPORT_ALLOW_Z8_Z10_ONLY : DCN_ZSTATE_SUPPORT_ALLOW_Z10_ONLY;
+		else if (is_pwrseq0 && (is_psr || is_replay))
+			return DCN_ZSTATE_SUPPORT_ALLOW_Z8_Z10_ONLY;
 		else
 			return allow_z8 ? DCN_ZSTATE_SUPPORT_ALLOW_Z8_ONLY : DCN_ZSTATE_SUPPORT_DISALLOW;
 	} else {
@@ -1128,7 +1132,8 @@ static void dcn20_adjust_freesync_v_startup(
 					patched_crtc_timing.v_addressable -
 					patched_crtc_timing.v_border_top;
 
-	newVstartup = asic_blank_end + (patched_crtc_timing.v_total - asic_blank_start);
+	/* The newVStartUp is 1 line before vsync point */
+	newVstartup = asic_blank_end + 1;
 
 	*vstartup_start = ((newVstartup > *vstartup_start) ? newVstartup : *vstartup_start);
 }
@@ -1182,7 +1187,7 @@ void dcn20_calculate_dlg_params(struct dc *dc,
 		pipes[pipe_idx].pipe.dest.vupdate_width = get_vupdate_width(&context->bw_ctx.dml, pipes, pipe_cnt, pipe_idx);
 		pipes[pipe_idx].pipe.dest.vready_offset = get_vready_offset(&context->bw_ctx.dml, pipes, pipe_cnt, pipe_idx);
 
-		if (context->res_ctx.pipe_ctx[i].stream->mall_stream_config.type == SUBVP_PHANTOM) {
+		if (dc_state_get_pipe_subvp_type(context, &context->res_ctx.pipe_ctx[i]) == SUBVP_PHANTOM) {
 			// Phantom pipe requires that DET_SIZE = 0 and no unbounded requests
 			context->res_ctx.pipe_ctx[i].det_buffer_size_kb = 0;
 			context->res_ctx.pipe_ctx[i].unbounded_req = false;
@@ -1532,7 +1537,7 @@ int dcn20_populate_dml_pipes_from_context(struct dc *dc,
 		 */
 		if (res_ctx->pipe_ctx[i].plane_state &&
 				(res_ctx->pipe_ctx[i].plane_state->address.type == PLN_ADDR_TYPE_VIDEO_PROGRESSIVE ||
-				 res_ctx->pipe_ctx[i].stream->mall_stream_config.type == SUBVP_PHANTOM))
+				dc_state_get_pipe_subvp_type(context, &res_ctx->pipe_ctx[i]) == SUBVP_PHANTOM))
 			pipes[pipe_cnt].pipe.src.num_cursors = 0;
 		else
 			pipes[pipe_cnt].pipe.src.num_cursors = dc->dml.ip.number_of_cursors;
@@ -1558,6 +1563,8 @@ int dcn20_populate_dml_pipes_from_context(struct dc *dc,
 			pipes[pipe_cnt].pipe.src.surface_width_c = pipes[pipe_cnt].pipe.src.viewport_width;
 			pipes[pipe_cnt].pipe.src.data_pitch = ((pipes[pipe_cnt].pipe.src.viewport_width + 255) / 256) * 256;
 			pipes[pipe_cnt].pipe.src.source_format = dm_444_32;
+			pipes[pipe_cnt].pipe.src.cur0_src_width = 0;
+			pipes[pipe_cnt].pipe.src.cur1_src_width = 0;
 			pipes[pipe_cnt].pipe.dest.recout_width = pipes[pipe_cnt].pipe.src.viewport_width; /*vp_width/hratio*/
 			pipes[pipe_cnt].pipe.dest.recout_height = pipes[pipe_cnt].pipe.src.viewport_height; /*vp_height/vratio*/
 			pipes[pipe_cnt].pipe.dest.full_recout_width = pipes[pipe_cnt].pipe.dest.recout_width;  /*when is_hsplit != 1*/
@@ -1878,10 +1885,10 @@ void dcn20_update_bounding_box(struct dc *dc,
 		bb->clock_limits[i].fabricclk_mhz = (min_fclk_required_by_uclk < min_dcfclk) ?
 				min_dcfclk : min_fclk_required_by_uclk;
 
-		bb->clock_limits[i].socclk_mhz = (bb->clock_limits[i].fabricclk_mhz > max_clocks->socClockInKhz / 1000) ?
+		bb->clock_limits[i].socclk_mhz = (bb->clock_limits[i].fabricclk_mhz > max_clocks->socClockInKhz / 1000.0) ?
 				max_clocks->socClockInKhz / 1000 : bb->clock_limits[i].fabricclk_mhz;
 
-		bb->clock_limits[i].dcfclk_mhz = (bb->clock_limits[i].fabricclk_mhz > max_clocks->dcfClockInKhz / 1000) ?
+		bb->clock_limits[i].dcfclk_mhz = (bb->clock_limits[i].fabricclk_mhz > max_clocks->dcfClockInKhz / 1000.0) ?
 				max_clocks->dcfClockInKhz / 1000 : bb->clock_limits[i].fabricclk_mhz;
 
 		bb->clock_limits[i].dispclk_mhz = max_clocks->displayClockInKhz / 1000;
@@ -1913,35 +1920,35 @@ void dcn20_cap_soc_clocks(struct _vcs_dpi_soc_bounding_box_st *bb,
 
 	// First pass - cap all clocks higher than the reported max
 	for (i = 0; i < bb->num_states; i++) {
-		if ((bb->clock_limits[i].dcfclk_mhz > (max_clocks.dcfClockInKhz / 1000))
+		if ((bb->clock_limits[i].dcfclk_mhz > (max_clocks.dcfClockInKhz / 1000.0))
 				&& max_clocks.dcfClockInKhz != 0)
 			bb->clock_limits[i].dcfclk_mhz = (max_clocks.dcfClockInKhz / 1000);
 
-		if ((bb->clock_limits[i].dram_speed_mts > (max_clocks.uClockInKhz / 1000) * 16)
+		if ((bb->clock_limits[i].dram_speed_mts > (max_clocks.uClockInKhz / 1000.0) * 16)
 						&& max_clocks.uClockInKhz != 0)
 			bb->clock_limits[i].dram_speed_mts = (max_clocks.uClockInKhz / 1000) * 16;
 
-		if ((bb->clock_limits[i].fabricclk_mhz > (max_clocks.fabricClockInKhz / 1000))
+		if ((bb->clock_limits[i].fabricclk_mhz > (max_clocks.fabricClockInKhz / 1000.0))
 						&& max_clocks.fabricClockInKhz != 0)
 			bb->clock_limits[i].fabricclk_mhz = (max_clocks.fabricClockInKhz / 1000);
 
-		if ((bb->clock_limits[i].dispclk_mhz > (max_clocks.displayClockInKhz / 1000))
+		if ((bb->clock_limits[i].dispclk_mhz > (max_clocks.displayClockInKhz / 1000.0))
 						&& max_clocks.displayClockInKhz != 0)
 			bb->clock_limits[i].dispclk_mhz = (max_clocks.displayClockInKhz / 1000);
 
-		if ((bb->clock_limits[i].dppclk_mhz > (max_clocks.dppClockInKhz / 1000))
+		if ((bb->clock_limits[i].dppclk_mhz > (max_clocks.dppClockInKhz / 1000.0))
 						&& max_clocks.dppClockInKhz != 0)
 			bb->clock_limits[i].dppclk_mhz = (max_clocks.dppClockInKhz / 1000);
 
-		if ((bb->clock_limits[i].phyclk_mhz > (max_clocks.phyClockInKhz / 1000))
+		if ((bb->clock_limits[i].phyclk_mhz > (max_clocks.phyClockInKhz / 1000.0))
 						&& max_clocks.phyClockInKhz != 0)
 			bb->clock_limits[i].phyclk_mhz = (max_clocks.phyClockInKhz / 1000);
 
-		if ((bb->clock_limits[i].socclk_mhz > (max_clocks.socClockInKhz / 1000))
+		if ((bb->clock_limits[i].socclk_mhz > (max_clocks.socClockInKhz / 1000.0))
 						&& max_clocks.socClockInKhz != 0)
 			bb->clock_limits[i].socclk_mhz = (max_clocks.socClockInKhz / 1000);
 
-		if ((bb->clock_limits[i].dscclk_mhz > (max_clocks.dscClockInKhz / 1000))
+		if ((bb->clock_limits[i].dscclk_mhz > (max_clocks.dscClockInKhz / 1000.0))
 						&& max_clocks.dscClockInKhz != 0)
 			bb->clock_limits[i].dscclk_mhz = (max_clocks.dscClockInKhz / 1000);
 	}
@@ -2368,7 +2375,7 @@ validate_out:
 
 static struct _vcs_dpi_voltage_scaling_st construct_low_pstate_lvl(struct clk_limit_table *clk_table, unsigned int high_voltage_lvl)
 {
-	struct _vcs_dpi_voltage_scaling_st low_pstate_lvl;
+	struct _vcs_dpi_voltage_scaling_st low_pstate_lvl = {0};
 	int i;
 
 	low_pstate_lvl.state = 1;
@@ -2473,7 +2480,7 @@ void dcn201_populate_dml_writeback_from_context_fpu(struct dc *dc,
 	int pipe_cnt, i, j;
 	double max_calc_writeback_dispclk;
 	double writeback_dispclk;
-	struct writeback_st dout_wb;
+	struct writeback_st dout_wb = {0};
 
 	dc_assert_fp_enabled();
 

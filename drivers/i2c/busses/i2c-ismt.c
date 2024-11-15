@@ -633,7 +633,6 @@ static int ismt_access(struct i2c_adapter *adap, u16 addr,
 
 	if (unlikely(!time_left)) {
 		ismt_kill_transaction(priv);
-		dev_err(dev, "completion wait timed out\n");
 		ret = -ETIMEDOUT;
 		goto out;
 	}

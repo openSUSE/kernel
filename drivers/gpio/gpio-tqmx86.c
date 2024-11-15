@@ -320,8 +320,6 @@ static int tqmx86_gpio_probe(struct platform_device *pdev)
 
 	tqmx86_gpio_write(gpio, (u8)~TQMX86_DIR_INPUT_MASK, TQMX86_GPIODD);
 
-	platform_set_drvdata(pdev, gpio);
-
 	/*
 	 * Reading the previous output state is not possible with TQMx86 hardware.
 	 * Initialize all outputs to 0 to have a defined state that matches the

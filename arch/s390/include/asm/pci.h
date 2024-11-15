@@ -122,6 +122,7 @@ struct zpci_dev {
 	struct rcu_head rcu;
 	struct hotplug_slot hotplug_slot;
 
+	struct mutex state_lock;	/* protect state changes */
 	enum zpci_state state;
 	u32		fid;		/* function ID, used by sclp */
 	u32		fh;		/* function handle, used by insn's */
@@ -142,7 +143,6 @@ struct zpci_dev {
 	u8		reserved	: 2;
 	unsigned int	devfn;		/* DEVFN part of the RID*/
 
-	struct mutex lock;
 	u8 pfip[CLP_PFIP_NR_SEGMENTS];	/* pci function internal path */
 	u32 uid;			/* user defined id */
 	u8 util_str[CLP_UTIL_STR_LEN];	/* utility string */
@@ -170,6 +170,7 @@ struct zpci_dev {
 	u64		dma_mask;	/* DMA address space mask */
 
 	/* Function measurement block */
+	struct mutex fmb_lock;
 	struct zpci_fmb *fmb;
 	u16		fmb_update;	/* update interval */
 	u16		fmb_length;
@@ -190,7 +191,14 @@ static inline bool zdev_enabled(struct zpci_dev *zdev)
 	return (zdev->fh & (1UL << 31)) ? true : false;
 }
 
-extern const struct attribute_group *zpci_attr_groups[];
+extern const struct attribute_group zpci_attr_group;
+extern const struct attribute_group pfip_attr_group;
+extern const struct attribute_group zpci_ident_attr_group;
+
+#define ARCH_PCI_DEV_GROUPS &zpci_attr_group,		 \
+			    &pfip_attr_group,		 \
+			    &zpci_ident_attr_group,
+
 extern unsigned int s390_pci_force_floating __initdata;
 extern unsigned int s390_pci_no_rid;
 

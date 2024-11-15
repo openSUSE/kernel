@@ -25,6 +25,7 @@ select:
           - rockchip,rk3368-gmac
           - rockchip,rk3399-gmac
           - rockchip,rk3568-gmac
+          - rockchip,rk3576-gmac
           - rockchip,rk3588-gmac
           - rockchip,rv1108-gmac
           - rockchip,rv1126-gmac
@@ -32,7 +33,7 @@ select:
     - compatible
 
 allOf:
-  - $ref: "snps,dwmac.yaml#"
+  - $ref: snps,dwmac.yaml#
 
 properties:
   compatible:
@@ -52,6 +53,7 @@ properties:
       - items:
           - enum:
               - rockchip,rk3568-gmac
+              - rockchip,rk3576-gmac
               - rockchip,rk3588-gmac
               - rockchip,rv1126-gmac
           - const: snps,dwmac-4.20a
@@ -80,6 +82,7 @@ properties:
       "output" means GMAC provides the reference clock.
     $ref: /schemas/types.yaml#/definitions/string
     enum: [input, output]
+    default: input
 
   rockchip,grf:
     description: The phandle of the syscon node for the general register file.
@@ -136,8 +139,6 @@ examples:
         assigned-clock-parents = <&ext_gmac>;
 
         rockchip,grf = <&grf>;
-        phy-mode = "rgmii";
+        phy-mode = "rgmii-id";
         clock_in_out = "input";
-        tx_delay = <0x30>;
-        rx_delay = <0x10>;
     };

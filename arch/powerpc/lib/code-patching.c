@@ -227,7 +227,7 @@ void __init poking_init(void)
 
 static unsigned long get_patch_pfn(void *addr)
 {
-	if (IS_ENABLED(CONFIG_MODULES) && is_vmalloc_or_module_addr(addr))
+	if (IS_ENABLED(CONFIG_EXECMEM) && is_vmalloc_or_module_addr(addr))
 		return vmalloc_to_pfn(addr);
 	else
 		return __pa_symbol(addr) >> PAGE_SHIFT;
@@ -386,12 +386,18 @@ NOKPROBE_SYMBOL(patch_instruction);
 
 int patch_uint(void *addr, unsigned int val)
 {
+	if (!IS_ALIGNED((unsigned long)addr, sizeof(unsigned int)))
+		return -EINVAL;
+
 	return patch_mem(addr, val, false);
 }
 NOKPROBE_SYMBOL(patch_uint);
 
 int patch_ulong(void *addr, unsigned long val)
 {
+	if (!IS_ALIGNED((unsigned long)addr, sizeof(unsigned long)))
+		return -EINVAL;
+
 	return patch_mem(addr, val, true);
 }
 NOKPROBE_SYMBOL(patch_ulong);
@@ -406,9 +412,32 @@ NOKPROBE_SYMBOL(patch_instruction)
 
 #endif
 
+static int patch_memset64(u64 *addr, u64 val, size_t count)
+{
+	for (u64 *end = addr + count; addr < end; addr++)
+		__put_kernel_nofault(addr, &val, u64, failed);
+
+	return 0;
+
+failed:
+	return -EPERM;
+}
+
+static int patch_memset32(u32 *addr, u32 val, size_t count)
+{
+	for (u32 *end = addr + count; addr < end; addr++)
+		__put_kernel_nofault(addr, &val, u32, failed);
+
+	return 0;
+
+failed:
+	return -EPERM;
+}
+
 static int __patch_instructions(u32 *patch_addr, u32 *code, size_t len, bool repeat_instr)
 {
 	unsigned long start = (unsigned long)patch_addr;
+	int err;
 
 	/* Repeat instruction */
 	if (repeat_instr) {
@@ -417,19 +446,19 @@ static int __patch_instructions(u32 *patch_addr, u32 *code, size_t len, bool rep
 		if (ppc_inst_prefixed(instr)) {
 			u64 val = ppc_inst_as_ulong(instr);
 
-			memset64((u64 *)patch_addr, val, len / 8);
+			err = patch_memset64((u64 *)patch_addr, val, len / 8);
 		} else {
 			u32 val = ppc_inst_val(instr);
 
-			memset32(patch_addr, val, len / 4);
+			err = patch_memset32(patch_addr, val, len / 4);
 		}
 	} else {
-		memcpy(patch_addr, code, len);
+		err = copy_to_kernel_nofault(patch_addr, code, len);
 	}
 
 	smp_wmb();	/* smp write barrier */
 	flush_icache_range(start, start + len);
-	return 0;
+	return err;
 }
 
 /*

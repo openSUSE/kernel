@@ -7,7 +7,7 @@
  *
  * This file handle the TRNG
  *
- * You could find a link for the datasheet in Documentation/arm/sunxi.rst
+ * You could find a link for the datasheet in Documentation/arch/arm/sunxi.rst
  */
 #include "sun8i-ce.h"
 #include <linux/dma-mapping.h>
@@ -77,7 +77,7 @@ static int sun8i_ce_trng_read(struct hwrng *rng, void *data, size_t max, bool wa
 	cet->t_sym_ctl = 0;
 	cet->t_asym_ctl = 0;
 
-	cet->t_dst[0].addr = cpu_to_le32(dma_dst);
+	cet->t_dst[0].addr = desc_addr_val_le32(ce, dma_dst);
 	cet->t_dst[0].len = cpu_to_le32(todo / 4);
 	ce->chanlist[flow].timeout = todo;
 

@@ -258,7 +258,7 @@ static int uio_dmem_genirq_probe(struct platform_device *pdev)
 			break;
 		}
 		uiomem->memtype = UIO_MEM_DMA_COHERENT;
-		uiomem->dma_device = &pdev->dev,
+		uiomem->dma_device = &pdev->dev;
 		uiomem->addr = DMEM_MAP_ERROR;
 		uiomem->size = pdata->dynamic_region_sizes[i];
 		++uiomem;

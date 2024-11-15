@@ -447,14 +447,14 @@ static int ads7924_probe(struct i2c_client *client)
 }
 
 static const struct i2c_device_id ads7924_id[] = {
-	{ "ads7924", 0 },
-	{}
+	{ "ads7924" },
+	{ }
 };
 MODULE_DEVICE_TABLE(i2c, ads7924_id);
 
 static const struct of_device_id ads7924_of_match[] = {
 	{ .compatible = "ti,ads7924", },
-	{}
+	{ }
 };
 MODULE_DEVICE_TABLE(of, ads7924_of_match);
 
@@ -463,7 +463,7 @@ static struct i2c_driver ads7924_driver = {
 		.name = "ads7924",
 		.of_match_table = ads7924_of_match,
 	},
-	.probe_new	= ads7924_probe,
+	.probe		= ads7924_probe,
 	.id_table	= ads7924_id,
 };
 

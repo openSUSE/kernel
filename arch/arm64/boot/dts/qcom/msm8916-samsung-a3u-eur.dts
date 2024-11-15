@@ -49,15 +49,16 @@
 	};
 };
 
-&touchkey {
-	vcc-supply = <&reg_touch_key>;
-	vdd-supply = <&reg_key_led>;
-};
-
 &accelerometer {
 	mount-matrix = "0", "1", "0",
 		       "1", "0", "0",
 		       "0", "0", "1";
+};
+
+&battery {
+	charge-term-current-microamp = <150000>;
+	constant-charge-current-max-microamp = <1000000>;
+	constant-charge-voltage-max-microvolt = <4350000>;
 };
 
 &blsp_i2c5 {
@@ -85,7 +86,7 @@
 	status = "okay";
 };
 
-&dsi0 {
+&mdss_dsi0 {
 	panel@0 {
 		reg = <0>;
 
@@ -97,15 +98,20 @@
 
 		port {
 			panel_in: endpoint {
-				remote-endpoint = <&dsi0_out>;
+				remote-endpoint = <&mdss_dsi0_out>;
 			};
 		};
 	};
 };
 
-&dsi0_out {
+&mdss_dsi0_out {
 	data-lanes = <0 1>;
 	remote-endpoint = <&panel_in>;
+};
+
+&touchkey {
+	vcc-supply = <&reg_touch_key>;
+	vdd-supply = <&reg_key_led>;
 };
 
 &vibrator {
@@ -118,6 +124,10 @@
 
 &wcnss_iris {
 	compatible = "qcom,wcn3620";
+};
+
+&wcnss_mem {
+	status = "okay";
 };
 
 &tlmm {

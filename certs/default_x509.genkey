@@ -15,4 +15,3 @@ basicConstraints=critical,CA:FALSE
 keyUsage=digitalSignature
 subjectKeyIdentifier=hash
 authorityKeyIdentifier=keyid
-extendedKeyUsage=codeSigning

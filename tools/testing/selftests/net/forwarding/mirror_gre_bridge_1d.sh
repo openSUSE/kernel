@@ -65,7 +65,8 @@ setup_prepare()
 	vrf_prepare
 	mirror_gre_topo_create
 
-	ip link add name br2 type bridge vlan_filtering 0
+	ip link add name br2 address $(mac_get $swp3) \
+		type bridge vlan_filtering 0
 	ip link set dev br2 up
 
 	ip link set dev $swp3 master br2
@@ -107,30 +108,11 @@ test_ip6gretap()
 	full_test_span_gre_dir gt6 egress 0 8 "mirror to ip6gretap"
 }
 
-test_all()
-{
-	slow_path_trap_install $swp1 ingress
-	slow_path_trap_install $swp1 egress
-
-	tests_run
-
-	slow_path_trap_uninstall $swp1 egress
-	slow_path_trap_uninstall $swp1 ingress
-}
-
 trap cleanup EXIT
 
 setup_prepare
 setup_wait
 
-tcflags="skip_hw"
-test_all
-
-if ! tc_offload_check; then
-	echo "WARN: Could not test offloaded functionality"
-else
-	tcflags="skip_sw"
-	test_all
-fi
+tests_run
 
 exit $EXIT_STATUS

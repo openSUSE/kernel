@@ -408,7 +408,6 @@ struct v4l2_ctrl_handler {
 	struct list_head requests;
 	struct list_head requests_queued;
 	struct media_request_object req_obj;
-	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 /**

@@ -2,13 +2,9 @@
 /* Copyright (C) 2023 Intel Corporation */
 
 #include "idpf.h"
+#include "idpf_virtchnl.h"
 
-static const struct net_device_ops idpf_netdev_ops_splitq;
-static const struct net_device_ops idpf_netdev_ops_singleq;
-
-const char * const idpf_vport_vc_state_str[] = {
-	IDPF_FOREACH_VPORT_VC_STATE(IDPF_GEN_STRING)
-};
+static const struct net_device_ops idpf_netdev_ops;
 
 /**
  * idpf_init_vector_stack - Fill the MSIX vector stack with vector index
@@ -82,19 +78,12 @@ static void idpf_mb_intr_rel_irq(struct idpf_adapter *adapter)
  */
 void idpf_intr_rel(struct idpf_adapter *adapter)
 {
-	int err;
-
 	if (!adapter->msix_entries)
 		return;
 
 	idpf_mb_intr_rel_irq(adapter);
 	pci_free_irq_vectors(adapter->pdev);
-
-	err = idpf_send_dealloc_vectors_msg(adapter);
-	if (err)
-		dev_err(&adapter->pdev->dev,
-			"Failed to deallocate vectors: %d\n", err);
-
+	idpf_send_dealloc_vectors_msg(adapter);
 	idpf_deinit_vector_stack(adapter);
 	kfree(adapter->msix_entries);
 	adapter->msix_entries = NULL;
@@ -368,24 +357,11 @@ int idpf_intr_req(struct idpf_adapter *adapter)
 		goto free_msix;
 	}
 
-	if (adapter->req_vec_chunks) {
-		struct virtchnl2_vector_chunks *vchunks;
-		struct virtchnl2_alloc_vectors *ac;
-
-		ac = adapter->req_vec_chunks;
-		vchunks = &ac->vchunks;
-
-		num_vec_ids = idpf_get_vec_ids(adapter, vecids, total_vecs,
-					       vchunks);
-		if (num_vec_ids < v_actual) {
-			err = -EINVAL;
-			goto free_vecids;
-		}
-	} else {
-		int i;
-
-		for (i = 0; i < v_actual; i++)
-			vecids[i] = i;
+	num_vec_ids = idpf_get_vec_ids(adapter, vecids, total_vecs,
+				       &adapter->req_vec_chunks->vchunks);
+	if (num_vec_ids < v_actual) {
+		err = -EINVAL;
+		goto free_vecids;
 	}
 
 	for (vector = 0; vector < v_actual; vector++) {
@@ -774,13 +750,10 @@ static int idpf_cfg_netdev(struct idpf_vport *vport)
 	}
 
 	/* assign netdev_ops */
-	if (idpf_is_queue_model_split(vport->txq_model))
-		netdev->netdev_ops = &idpf_netdev_ops_splitq;
-	else
-		netdev->netdev_ops = &idpf_netdev_ops_singleq;
+	netdev->netdev_ops = &idpf_netdev_ops;
 
-	/* setup watchdog timeout value to be 30 seconds */
-	netdev->watchdog_timeo = 30 * HZ;
+	/* setup watchdog timeout value to be 5 second */
+	netdev->watchdog_timeo = 5 * HZ;
 
 	netdev->dev_port = idx;
 
@@ -955,6 +928,9 @@ static void idpf_decfg_netdev(struct idpf_vport *vport)
 {
 	struct idpf_adapter *adapter = vport->adapter;
 
+	kfree(vport->rx_ptype_lkup);
+	vport->rx_ptype_lkup = NULL;
+
 	unregister_netdev(vport->netdev);
 	free_netdev(vport->netdev);
 	vport->netdev = NULL;
@@ -974,7 +950,6 @@ static void idpf_vport_rel(struct idpf_vport *vport)
 	struct idpf_rss_data *rss_data;
 	struct idpf_vport_max_q max_q;
 	u16 idx = vport->idx;
-	int i;
 
 	vport_config = adapter->vport_config[vport->idx];
 	idpf_deinit_rss(vport);
@@ -983,20 +958,6 @@ static void idpf_vport_rel(struct idpf_vport *vport)
 	rss_data->rss_key = NULL;
 
 	idpf_send_destroy_vport_msg(vport);
-
-	/* Set all bits as we dont know on which vc_state the vport vhnl_wq
-	 * is waiting on and wakeup the virtchnl workqueue even if it is
-	 * waiting for the response as we are going down
-	 */
-	for (i = 0; i < IDPF_VC_NBITS; i++)
-		set_bit(i, vport->vc_state);
-	wake_up(&vport->vchnl_wq);
-
-	mutex_destroy(&vport->vc_buf_lock);
-
-	/* Clear all the bits */
-	for (i = 0; i < IDPF_VC_NBITS; i++)
-		clear_bit(i, vport->vc_state);
 
 	/* Release all max queues allocated to the adapter's pool */
 	max_q.max_rxq = vport_config->max_q.max_rxq;
@@ -1252,7 +1213,7 @@ void idpf_mbx_task(struct work_struct *work)
 		queue_delayed_work(adapter->mbx_wq, &adapter->mbx_task,
 				   msecs_to_jiffies(300));
 
-	idpf_recv_mb_msg(adapter, VIRTCHNL2_OP_UNKNOWN, NULL, 0);
+	idpf_recv_mb_msg(adapter);
 }
 
 /**
@@ -1342,14 +1303,14 @@ static void idpf_rx_init_buf_tail(struct idpf_vport *vport)
 
 		if (idpf_is_queue_model_split(vport->rxq_model)) {
 			for (j = 0; j < vport->num_bufqs_per_qgrp; j++) {
-				struct idpf_queue *q =
+				const struct idpf_buf_queue *q =
 					&grp->splitq.bufq_sets[j].bufq;
 
 				writel(q->next_to_alloc, q->tail);
 			}
 		} else {
 			for (j = 0; j < grp->singleq.num_rxq; j++) {
-				struct idpf_queue *q =
+				const struct idpf_rx_queue *q =
 					grp->singleq.rxqs[j];
 
 				writel(q->next_to_alloc, q->tail);
@@ -1540,9 +1501,7 @@ void idpf_init_task(struct work_struct *work)
 	vport_config = adapter->vport_config[index];
 
 	init_waitqueue_head(&vport->sw_marker_wq);
-	init_waitqueue_head(&vport->vchnl_wq);
 
-	mutex_init(&vport->vc_buf_lock);
 	spin_lock_init(&vport_config->mac_filter_list_lock);
 
 	INIT_LIST_HEAD(&vport_config->user_config.mac_filter_list);
@@ -1820,11 +1779,14 @@ static int idpf_init_hard_reset(struct idpf_adapter *adapter)
 		goto unlock_mutex;
 	}
 
+	queue_delayed_work(adapter->mbx_wq, &adapter->mbx_task, 0);
+
 	/* Initialize the state machine, also allocate memory and request
 	 * resources
 	 */
 	err = idpf_vc_core_init(adapter);
 	if (err) {
+		cancel_delayed_work_sync(&adapter->mbx_task);
 		idpf_deinit_dflt_mbx(adapter);
 		goto unlock_mutex;
 	}
@@ -1876,7 +1838,7 @@ int idpf_initiate_soft_reset(struct idpf_vport *vport,
 	enum idpf_vport_state current_state = np->state;
 	struct idpf_adapter *adapter = vport->adapter;
 	struct idpf_vport *new_vport;
-	int err, i;
+	int err;
 
 	/* If the system is low on memory, we can end up in bad state if we
 	 * free all the memory for queue resources and try to allocate them
@@ -1899,7 +1861,7 @@ int idpf_initiate_soft_reset(struct idpf_vport *vport,
 	 * mess with. Nothing below should use those variables from new_vport
 	 * and should instead always refer to them in vport if they need to.
 	 */
-	memcpy(new_vport, vport, offsetof(struct idpf_vport, vc_state));
+	memcpy(new_vport, vport, offsetof(struct idpf_vport, link_up));
 
 	/* Adjust resource parameters prior to reallocating resources */
 	switch (reset_cause) {
@@ -1945,47 +1907,7 @@ int idpf_initiate_soft_reset(struct idpf_vport *vport,
 	/* Same comment as above regarding avoiding copying the wait_queues and
 	 * mutexes applies here. We do not want to mess with those if possible.
 	 */
-	memcpy(vport, new_vport, offsetof(struct idpf_vport, vc_state));
-
-	/* Since idpf_vport_queues_alloc was called with new_port, the queue
-	 * back pointers are currently pointing to the local new_vport. Reset
-	 * the backpointers to the original vport here
-	 */
-	for (i = 0; i < vport->num_txq_grp; i++) {
-		struct idpf_txq_group *tx_qgrp = &vport->txq_grps[i];
-		int j;
-
-		tx_qgrp->vport = vport;
-		for (j = 0; j < tx_qgrp->num_txq; j++)
-			tx_qgrp->txqs[j]->vport = vport;
-
-		if (idpf_is_queue_model_split(vport->txq_model))
-			tx_qgrp->complq->vport = vport;
-	}
-
-	for (i = 0; i < vport->num_rxq_grp; i++) {
-		struct idpf_rxq_group *rx_qgrp = &vport->rxq_grps[i];
-		struct idpf_queue *q;
-		u16 num_rxq;
-		int j;
-
-		rx_qgrp->vport = vport;
-		for (j = 0; j < vport->num_bufqs_per_qgrp; j++)
-			rx_qgrp->splitq.bufq_sets[j].bufq.vport = vport;
-
-		if (idpf_is_queue_model_split(vport->rxq_model))
-			num_rxq = rx_qgrp->splitq.num_rxq_sets;
-		else
-			num_rxq = rx_qgrp->singleq.num_rxq;
-
-		for (j = 0; j < num_rxq; j++) {
-			if (idpf_is_queue_model_split(vport->rxq_model))
-				q = &rx_qgrp->splitq.rxq_sets[j]->rxq;
-			else
-				q = rx_qgrp->singleq.rxqs[j];
-			q->vport = vport;
-		}
-	}
+	memcpy(vport, new_vport, offsetof(struct idpf_vport, link_up));
 
 	if (reset_cause == IDPF_SR_Q_CHANGE)
 		idpf_vport_alloc_vec_indexes(vport);
@@ -2259,7 +2181,7 @@ static int idpf_change_mtu(struct net_device *netdev, int new_mtu)
 	idpf_vport_ctrl_lock(netdev);
 	vport = idpf_netdev_to_vport(netdev);
 
-	netdev->mtu = new_mtu;
+	WRITE_ONCE(netdev->mtu, new_mtu);
 
 	err = idpf_initiate_soft_reset(vport, IDPF_SR_MTU_CHANGE);
 
@@ -2417,24 +2339,10 @@ void idpf_free_dma_mem(struct idpf_hw *hw, struct idpf_dma_mem *mem)
 	mem->pa = 0;
 }
 
-static const struct net_device_ops idpf_netdev_ops_splitq = {
+static const struct net_device_ops idpf_netdev_ops = {
 	.ndo_open = idpf_open,
 	.ndo_stop = idpf_stop,
-	.ndo_start_xmit = idpf_tx_splitq_start,
-	.ndo_features_check = idpf_features_check,
-	.ndo_set_rx_mode = idpf_set_rx_mode,
-	.ndo_validate_addr = eth_validate_addr,
-	.ndo_set_mac_address = idpf_set_mac,
-	.ndo_change_mtu = idpf_change_mtu,
-	.ndo_get_stats64 = idpf_get_stats64,
-	.ndo_set_features = idpf_set_features,
-	.ndo_tx_timeout = idpf_tx_timeout,
-};
-
-static const struct net_device_ops idpf_netdev_ops_singleq = {
-	.ndo_open = idpf_open,
-	.ndo_stop = idpf_stop,
-	.ndo_start_xmit = idpf_tx_singleq_start,
+	.ndo_start_xmit = idpf_tx_start,
 	.ndo_features_check = idpf_features_check,
 	.ndo_set_rx_mode = idpf_set_rx_mode,
 	.ndo_validate_addr = eth_validate_addr,

@@ -223,6 +223,41 @@ struct mt7996_mcu_all_sta_info_event {
 	} __packed;
 } __packed;
 
+struct mt7996_mcu_wed_rro_event {
+	struct mt7996_mcu_rxd rxd;
+
+	u8 __rsv1[4];
+
+	__le16 tag;
+	__le16 len;
+} __packed;
+
+struct mt7996_mcu_wed_rro_ba_event {
+	__le16 tag;
+	__le16 len;
+
+	__le16 wlan_id;
+	u8 tid;
+	u8 __rsv1;
+	__le32 status;
+	__le16 id;
+	u8 __rsv2[2];
+} __packed;
+
+struct mt7996_mcu_wed_rro_ba_delete_event {
+	__le16 tag;
+	__le16 len;
+
+	__le16 session_id;
+	u8 __rsv2[2];
+} __packed;
+
+enum  {
+	UNI_WED_RRO_BA_SESSION_STATUS,
+	UNI_WED_RRO_BA_SESSION_TBL,
+	UNI_WED_RRO_BA_SESSION_DELETE,
+};
+
 struct mt7996_mcu_thermal_notify {
 	struct mt7996_mcu_rxd rxd;
 
@@ -833,6 +868,8 @@ enum {
 	UNI_RRO_GET_BA_SESSION_TABLE,
 	UNI_RRO_SET_BYPASS_MODE,
 	UNI_RRO_SET_TXFREE_PATH,
+	UNI_RRO_DEL_BA_SESSION,
+	UNI_RRO_SET_FLUSH_TIMEOUT
 };
 
 enum{

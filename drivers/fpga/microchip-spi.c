@@ -3,12 +3,12 @@
  * Microchip Polarfire FPGA programming over slave SPI interface.
  */
 
-#include <asm/unaligned.h>
+#include <linux/unaligned.h>
 #include <linux/delay.h>
 #include <linux/fpga/fpga-mgr.h>
 #include <linux/iopoll.h>
 #include <linux/module.h>
-#include <linux/of_device.h>
+#include <linux/of.h>
 #include <linux/spi/spi.h>
 
 #define	MPF_SPI_ISC_ENABLE	0x0B

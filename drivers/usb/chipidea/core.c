@@ -890,7 +890,7 @@ struct platform_device *ci_hdrc_add_device(struct device *dev,
 	if (ret)
 		return ERR_PTR(ret);
 
-	id = ida_simple_get(&ci_ida, 0, 0, GFP_KERNEL);
+	id = ida_alloc(&ci_ida, GFP_KERNEL);
 	if (id < 0)
 		return ERR_PTR(id);
 
@@ -920,7 +920,7 @@ struct platform_device *ci_hdrc_add_device(struct device *dev,
 err:
 	platform_device_put(pdev);
 put_id:
-	ida_simple_remove(&ci_ida, id);
+	ida_free(&ci_ida, id);
 	return ERR_PTR(ret);
 }
 EXPORT_SYMBOL_GPL(ci_hdrc_add_device);
@@ -929,7 +929,7 @@ void ci_hdrc_remove_device(struct platform_device *pdev)
 {
 	int id = pdev->id;
 	platform_device_unregister(pdev);
-	ida_simple_remove(&ci_ida, id);
+	ida_free(&ci_ida, id);
 }
 EXPORT_SYMBOL_GPL(ci_hdrc_remove_device);
 
@@ -1056,8 +1056,7 @@ static int ci_hdrc_probe(struct platform_device *pdev)
 		return -ENODEV;
 	}
 
-	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	base = devm_ioremap_resource(dev, res);
+	base = devm_platform_get_and_ioremap_resource(pdev, 0, &res);
 	if (IS_ERR(base))
 		return PTR_ERR(base);
 
@@ -1259,7 +1258,7 @@ ulpi_exit:
 	return ret;
 }
 
-static int ci_hdrc_remove(struct platform_device *pdev)
+static void ci_hdrc_remove(struct platform_device *pdev)
 {
 	struct ci_hdrc *ci = platform_get_drvdata(pdev);
 
@@ -1277,8 +1276,6 @@ static int ci_hdrc_remove(struct platform_device *pdev)
 	ci_hdrc_enter_lpm(ci, true);
 	ci_usb_phy_exit(ci);
 	ci_ulpi_exit(ci);
-
-	return 0;
 }
 
 #ifdef CONFIG_PM
@@ -1498,7 +1495,7 @@ static const struct dev_pm_ops ci_pm_ops = {
 
 static struct platform_driver ci_hdrc_driver = {
 	.probe	= ci_hdrc_probe,
-	.remove	= ci_hdrc_remove,
+	.remove_new = ci_hdrc_remove,
 	.driver	= {
 		.name	= "ci_hdrc",
 		.pm	= &ci_pm_ops,

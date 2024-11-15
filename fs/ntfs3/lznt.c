@@ -236,6 +236,9 @@ static inline ssize_t decompress_chunk(u8 *unc, u8 *unc_end, const u8 *cmpr,
 
 	/* Do decompression until pointers are inside range. */
 	while (up < unc_end && cmpr < cmpr_end) {
+		// return err if more than LZNT_CHUNK_SIZE bytes are written
+		if (up - unc > LZNT_CHUNK_SIZE)
+			return -EINVAL;
 		/* Correct index */
 		while (unc + s_max_off[index] < up)
 			index += 1;
@@ -297,7 +300,7 @@ next:
 struct lznt *get_lznt_ctx(int level)
 {
 	struct lznt *r = kzalloc(level ? offsetof(struct lznt, hash) :
-					       sizeof(struct lznt),
+					 sizeof(struct lznt),
 				 GFP_NOFS);
 
 	if (r)
@@ -393,8 +396,8 @@ ssize_t decompress_lznt(const void *cmpr, size_t cmpr_size, void *unc,
 		} else {
 			/* This chunk does not contain compressed data. */
 			unc_use = unc_chunk + LZNT_CHUNK_SIZE > unc_end ?
-						unc_end - unc_chunk :
-						LZNT_CHUNK_SIZE;
+					  unc_end - unc_chunk :
+					  LZNT_CHUNK_SIZE;
 
 			if (cmpr_chunk + sizeof(chunk_hdr) + unc_use >
 			    cmpr_end) {

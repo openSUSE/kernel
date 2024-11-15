@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-1.0+
 /*
  * IBM Automatic Server Restart driver.
  *
@@ -6,8 +7,6 @@
  * Based on driver written by Pete Reynolds.
  * Copyright (c) IBM Corporation, 1998-2004.
  *
- * This software may be used and distributed according to the terms
- * of the GNU Public License, incorporated herein by reference.
  */
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
@@ -341,7 +340,6 @@ static int asr_release(struct inode *inode, struct file *file)
 
 static const struct file_operations asr_fops = {
 	.owner =		THIS_MODULE,
-	.llseek =		no_llseek,
 	.write =		asr_write,
 	.unlocked_ioctl =	asr_ioctl,
 	.compat_ioctl =		compat_ptr_ioctl,

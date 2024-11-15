@@ -780,7 +780,7 @@ static void __log_error(unsigned int bank, u64 status, u64 addr, u64 misc)
 {
 	struct mce m;
 
-	mce_setup(&m);
+	mce_prep_record(&m);
 
 	m.status = status;
 	m.misc   = misc;
@@ -809,7 +809,7 @@ DEFINE_IDTENTRY_SYSVEC(sysvec_deferred_error)
 	inc_irq_stat(irq_deferred_error_count);
 	deferred_error_int_vector();
 	trace_deferred_error_apic_exit(DEFERRED_ERROR_VECTOR);
-	ack_APIC_irq();
+	apic_eoi();
 }
 
 /*
@@ -1231,7 +1231,7 @@ static int threshold_create_bank(struct threshold_bank **bp, unsigned int cpu,
 		return -ENODEV;
 
 	if (is_shared_bank(bank)) {
-		nb = node_to_amd_nb(topology_die_id(cpu));
+		nb = node_to_amd_nb(topology_amd_node_id(cpu));
 
 		/* threshold descriptor already initialized on this node? */
 		if (nb && nb->bank4) {
@@ -1335,7 +1335,7 @@ static void threshold_remove_bank(struct threshold_bank *bank)
 		 * The last CPU on this node using the shared bank is going
 		 * away, remove that bank now.
 		 */
-		nb = node_to_amd_nb(topology_die_id(smp_processor_id()));
+		nb = node_to_amd_nb(topology_amd_node_id(smp_processor_id()));
 		nb->bank4 = NULL;
 	}
 

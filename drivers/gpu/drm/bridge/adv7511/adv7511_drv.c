@@ -17,6 +17,7 @@
 #include <drm/drm_atomic.h>
 #include <drm/drm_atomic_helper.h>
 #include <drm/drm_edid.h>
+#include <drm/drm_of.h>
 #include <drm/drm_print.h>
 #include <drm/drm_probe_helper.h>
 
@@ -468,6 +469,8 @@ static int adv7511_irq_process(struct adv7511 *adv7511, bool process_hpd)
 {
 	unsigned int irq0, irq1;
 	int ret;
+	int cec_status = IRQ_NONE;
+	int irq_status = IRQ_NONE;
 
 	ret = regmap_read(adv7511->regmap, ADV7511_REG_INT(0), &irq0);
 	if (ret < 0)
@@ -480,21 +483,28 @@ static int adv7511_irq_process(struct adv7511 *adv7511, bool process_hpd)
 	regmap_write(adv7511->regmap, ADV7511_REG_INT(0), irq0);
 	regmap_write(adv7511->regmap, ADV7511_REG_INT(1), irq1);
 
-	if (process_hpd && irq0 & ADV7511_INT0_HPD && adv7511->bridge.encoder)
+	if (process_hpd && irq0 & ADV7511_INT0_HPD && adv7511->bridge.encoder) {
 		schedule_work(&adv7511->hpd_work);
+		irq_status = IRQ_HANDLED;
+	}
 
 	if (irq0 & ADV7511_INT0_EDID_READY || irq1 & ADV7511_INT1_DDC_ERROR) {
 		adv7511->edid_read = true;
 
 		if (adv7511->i2c_main->irq)
 			wake_up_all(&adv7511->wq);
+		irq_status = IRQ_HANDLED;
 	}
 
 #ifdef CONFIG_DRM_I2C_ADV7511_CEC
-	adv7511_cec_irq_process(adv7511, irq1);
+	cec_status = adv7511_cec_irq_process(adv7511, irq1);
 #endif
 
-	return 0;
+	/* If there is no IRQ to handle, exit indicating no IRQ data */
+	if (irq_status == IRQ_HANDLED || cec_status == IRQ_HANDLED)
+		return IRQ_HANDLED;
+
+	return IRQ_NONE;
 }
 
 static irqreturn_t adv7511_irq_handler(int irq, void *devid)
@@ -503,7 +513,7 @@ static irqreturn_t adv7511_irq_handler(int irq, void *devid)
 	int ret;
 
 	ret = adv7511_irq_process(adv7511, true);
-	return ret < 0 ? IRQ_NONE : IRQ_HANDLED;
+	return ret < 0 ? IRQ_NONE : ret;
 }
 
 /* -----------------------------------------------------------------------------
@@ -604,10 +614,10 @@ static int adv7511_get_edid_block(void *data, u8 *buf, unsigned int block,
  * ADV75xx helpers
  */
 
-static struct edid *adv7511_get_edid(struct adv7511 *adv7511,
-				     struct drm_connector *connector)
+static const struct drm_edid *adv7511_edid_read(struct adv7511 *adv7511,
+						struct drm_connector *connector)
 {
-	struct edid *edid;
+	const struct drm_edid *drm_edid;
 
 	/* Reading the EDID only works if the device is powered */
 	if (!adv7511->powered) {
@@ -621,31 +631,44 @@ static struct edid *adv7511_get_edid(struct adv7511 *adv7511,
 			     edid_i2c_addr);
 	}
 
-	edid = drm_do_get_edid(connector, adv7511_get_edid_block, adv7511);
+	drm_edid = drm_edid_read_custom(connector, adv7511_get_edid_block, adv7511);
 
 	if (!adv7511->powered)
 		__adv7511_power_off(adv7511);
 
-	adv7511_set_config_csc(adv7511, connector, adv7511->rgb,
-			       drm_detect_hdmi_monitor(edid));
+	if (drm_edid) {
+		/*
+		 * FIXME: The CEC physical address should be set using
+		 * cec_s_phys_addr(adap,
+		 * connector->display_info.source_physical_address, false) from
+		 * a path that has read the EDID and called
+		 * drm_edid_connector_update().
+		 */
+		const struct edid *edid = drm_edid_raw(drm_edid);
 
-	cec_s_phys_addr_from_edid(adv7511->cec_adap, edid);
+		adv7511_set_config_csc(adv7511, connector, adv7511->rgb,
+				       drm_detect_hdmi_monitor(edid));
 
-	return edid;
+		cec_s_phys_addr_from_edid(adv7511->cec_adap, edid);
+	} else {
+		cec_s_phys_addr_from_edid(adv7511->cec_adap, NULL);
+	}
+
+	return drm_edid;
 }
 
 static int adv7511_get_modes(struct adv7511 *adv7511,
 			     struct drm_connector *connector)
 {
-	struct edid *edid;
+	const struct drm_edid *drm_edid;
 	unsigned int count;
 
-	edid = adv7511_get_edid(adv7511, connector);
+	drm_edid = adv7511_edid_read(adv7511, connector);
 
-	drm_connector_update_edid_property(connector, edid);
-	count = drm_add_edid_modes(connector, edid);
+	drm_edid_connector_update(connector, drm_edid);
+	count = drm_edid_connector_add_modes(connector);
 
-	kfree(edid);
+	drm_edid_free(drm_edid);
 
 	return count;
 }
@@ -858,11 +881,6 @@ static int adv7511_connector_init(struct adv7511 *adv)
 	struct drm_bridge *bridge = &adv->bridge;
 	int ret;
 
-	if (!bridge->encoder) {
-		DRM_ERROR("Parent encoder object not found");
-		return -ENODEV;
-	}
-
 	if (adv->i2c_main->irq)
 		adv->connector.polled = DRM_CONNECTOR_POLL_HPD;
 	else
@@ -933,6 +951,13 @@ static int adv7511_bridge_attach(struct drm_bridge *bridge,
 	struct adv7511 *adv = bridge_to_adv7511(bridge);
 	int ret = 0;
 
+	if (adv->next_bridge) {
+		ret = drm_bridge_attach(bridge->encoder, adv->next_bridge, bridge,
+					flags | DRM_BRIDGE_ATTACH_NO_CONNECTOR);
+		if (ret)
+			return ret;
+	}
+
 	if (!(flags & DRM_BRIDGE_ATTACH_NO_CONNECTOR)) {
 		ret = adv7511_connector_init(adv);
 		if (ret < 0)
@@ -953,12 +978,12 @@ static enum drm_connector_status adv7511_bridge_detect(struct drm_bridge *bridge
 	return adv7511_detect(adv, NULL);
 }
 
-static struct edid *adv7511_bridge_get_edid(struct drm_bridge *bridge,
-					    struct drm_connector *connector)
+static const struct drm_edid *adv7511_bridge_edid_read(struct drm_bridge *bridge,
+						       struct drm_connector *connector)
 {
 	struct adv7511 *adv = bridge_to_adv7511(bridge);
 
-	return adv7511_get_edid(adv, connector);
+	return adv7511_edid_read(adv, connector);
 }
 
 static void adv7511_bridge_hpd_notify(struct drm_bridge *bridge,
@@ -977,7 +1002,7 @@ static const struct drm_bridge_funcs adv7511_bridge_funcs = {
 	.mode_valid = adv7511_bridge_mode_valid,
 	.attach = adv7511_bridge_attach,
 	.detect = adv7511_bridge_detect,
-	.get_edid = adv7511_bridge_get_edid,
+	.edid_read = adv7511_bridge_edid_read,
 	.hpd_notify = adv7511_bridge_hpd_notify,
 };
 
@@ -1203,6 +1228,11 @@ static int adv7511_probe(struct i2c_client *i2c)
 
 	memset(&link_config, 0, sizeof(link_config));
 
+	ret = drm_of_find_panel_or_bridge(dev->of_node, 1, -1, NULL,
+					  &adv7511->next_bridge);
+	if (ret && ret != -ENODEV)
+		return ret;
+
 	if (adv7511->info->link_config)
 		ret = adv7511_parse_dt(dev->of_node, &link_config);
 	else
@@ -1305,7 +1335,8 @@ static int adv7511_probe(struct i2c_client *i2c)
 
 		ret = devm_request_threaded_irq(dev, i2c->irq, NULL,
 						adv7511_irq_handler,
-						IRQF_ONESHOT, dev_name(dev),
+						IRQF_ONESHOT | IRQF_SHARED,
+						dev_name(dev),
 						adv7511);
 		if (ret)
 			goto err_unregister_audio;

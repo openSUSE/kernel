@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause */
 /*
- * Copyright(c) 2021-2023 Intel Corporation
+ * Copyright(c) 2021-2024 Intel Corporation
  */
 #ifndef __iwl_fw_uefi__
 #define __iwl_fw_uefi__
@@ -21,6 +21,8 @@
 #define IWL_UEFI_WRDD_NAME		L"UefiCnvWlanWRDD"
 #define IWL_UEFI_ECKV_NAME		L"UefiCnvWlanECKV"
 #define IWL_UEFI_DSM_NAME		L"UefiCnvWlanGeneralCfg"
+#define IWL_UEFI_WBEM_NAME		L"UefiCnvWlanWBEM"
+#define IWL_UEFI_PUNCTURING_NAME	L"UefiCnvWlanPuncturing"
 
 
 #define IWL_SGOM_MAP_SIZE		339
@@ -35,7 +37,9 @@
 #define IWL_UEFI_SPLC_REVISION		0
 #define IWL_UEFI_WRDD_REVISION		0
 #define IWL_UEFI_ECKV_REVISION		0
+#define IWL_UEFI_WBEM_REVISION		0
 #define IWL_UEFI_DSM_REVISION		4
+#define IWL_UEFI_PUNCTURING_REVISION	0
 
 struct pnvm_sku_package {
 	u8 rev;
@@ -176,6 +180,39 @@ struct uefi_cnv_var_general_cfg {
 	u32 functions[UEFI_MAX_DSM_FUNCS];
 } __packed;
 
+#define IWL_UEFI_WBEM_REV0_MASK (BIT(0) | BIT(1))
+/* struct uefi_cnv_wlan_wbem_data - Bandwidth enablement per MCC as defined
+ *	in UEFI
+ * @revision: the revision of the table
+ * @wbem_320mhz_per_mcc: enablement of 320MHz bandwidth per MCC
+ *	bit 0 - if set, 320MHz is enabled for Japan
+ *	bit 1 - if set, 320MHz is enabled for South Korea
+ *	bit 2- 31, Reserved
+ */
+struct uefi_cnv_wlan_wbem_data {
+	u8 revision;
+	u32 wbem_320mhz_per_mcc;
+} __packed;
+
+enum iwl_uefi_cnv_puncturing_flags {
+	IWL_UEFI_CNV_PUNCTURING_USA_EN_MSK	= BIT(0),
+	IWL_UEFI_CNV_PUNCTURING_CANADA_EN_MSK	= BIT(1),
+};
+
+#define IWL_UEFI_PUNCTURING_REV0_MASK (IWL_UEFI_CNV_PUNCTURING_USA_EN_MSK | \
+				       IWL_UEFI_CNV_PUNCTURING_CANADA_EN_MSK)
+/**
+ * struct uefi_cnv_var_puncturing_data - controlling channel
+ *	puncturing for few countries.
+ * @revision: the revision of the table
+ * @puncturing: enablement of channel puncturing per mcc
+ *	see &enum iwl_uefi_cnv_puncturing_flags.
+ */
+struct uefi_cnv_var_puncturing_data {
+	u8 revision;
+	u32 puncturing;
+} __packed;
+
 /*
  * This is known to be broken on v4.19 and to work on v5.4.  Until we
  * figure out why this is the case and how to make it work, simply
@@ -200,11 +237,13 @@ int iwl_uefi_get_pwr_limit(struct iwl_fw_runtime *fwrt,
 			   u64 *dflt_pwr_limit);
 int iwl_uefi_get_mcc(struct iwl_fw_runtime *fwrt, char *mcc);
 int iwl_uefi_get_eckv(struct iwl_fw_runtime *fwrt, u32 *extl_clk);
+int iwl_uefi_get_wbem(struct iwl_fw_runtime *fwrt, u32 *value);
 int iwl_uefi_get_dsm(struct iwl_fw_runtime *fwrt, enum iwl_dsm_funcs func,
 		     u32 *value);
 void iwl_uefi_get_sgom_table(struct iwl_trans *trans, struct iwl_fw_runtime *fwrt);
 int iwl_uefi_get_uats_table(struct iwl_trans *trans,
 			    struct iwl_fw_runtime *fwrt);
+int iwl_uefi_get_puncturing(struct iwl_fw_runtime *fwrt);
 #else /* CONFIG_EFI */
 static inline void *iwl_uefi_get_pnvm(struct iwl_trans *trans, size_t *len)
 {
@@ -279,6 +318,11 @@ static inline int iwl_uefi_get_eckv(struct iwl_fw_runtime *fwrt, u32 *extl_clk)
 	return -ENOENT;
 }
 
+static inline int iwl_uefi_get_wbem(struct iwl_fw_runtime *fwrt, u32 *value)
+{
+	return -ENOENT;
+}
+
 static inline int iwl_uefi_get_dsm(struct iwl_fw_runtime *fwrt,
 				   enum iwl_dsm_funcs func, u32 *value)
 {
@@ -293,6 +337,12 @@ void iwl_uefi_get_sgom_table(struct iwl_trans *trans, struct iwl_fw_runtime *fwr
 static inline
 int iwl_uefi_get_uats_table(struct iwl_trans *trans,
 			    struct iwl_fw_runtime *fwrt)
+{
+	return 0;
+}
+
+static inline
+int iwl_uefi_get_puncturing(struct iwl_fw_runtime *fwrt)
 {
 	return 0;
 }

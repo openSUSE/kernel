@@ -685,6 +685,47 @@ clk_core_forward_rate_req(struct clk_core *core,
 		req->max_rate = old_req->max_rate;
 }
 
+static int
+clk_core_determine_rate_no_reparent(struct clk_hw *hw,
+				    struct clk_rate_request *req)
+{
+	struct clk_core *core = hw->core;
+	struct clk_core *parent = core->parent;
+	unsigned long best;
+	int ret;
+
+	if (core->flags & CLK_SET_RATE_PARENT) {
+		struct clk_rate_request parent_req;
+
+		if (!parent) {
+			req->rate = 0;
+			return 0;
+		}
+
+		clk_core_forward_rate_req(core, req, parent, &parent_req,
+					  req->rate);
+
+		trace_clk_rate_request_start(&parent_req);
+
+		ret = clk_core_round_rate_nolock(parent, &parent_req);
+		if (ret)
+			return ret;
+
+		trace_clk_rate_request_done(&parent_req);
+
+		best = parent_req.rate;
+	} else if (parent) {
+		best = clk_core_get_rate_nolock(parent);
+	} else {
+		best = clk_core_get_rate_nolock(core);
+	}
+
+	req->best_parent_rate = best;
+	req->rate = best;
+
+	return 0;
+}
+
 int clk_mux_determine_rate_flags(struct clk_hw *hw,
 				 struct clk_rate_request *req,
 				 unsigned long flags)
@@ -694,35 +735,8 @@ int clk_mux_determine_rate_flags(struct clk_hw *hw,
 	unsigned long best = 0;
 
 	/* if NO_REPARENT flag set, pass through to current parent */
-	if (core->flags & CLK_SET_RATE_NO_REPARENT) {
-		parent = core->parent;
-		if (core->flags & CLK_SET_RATE_PARENT) {
-			struct clk_rate_request parent_req;
-
-			if (!parent) {
-				req->rate = 0;
-				return 0;
-			}
-
-			clk_core_forward_rate_req(core, req, parent, &parent_req, req->rate);
-
-			trace_clk_rate_request_start(&parent_req);
-
-			ret = clk_core_round_rate_nolock(parent, &parent_req);
-			if (ret)
-				return ret;
-
-			trace_clk_rate_request_done(&parent_req);
-
-			best = parent_req.rate;
-		} else if (parent) {
-			best = clk_core_get_rate_nolock(parent);
-		} else {
-			best = clk_core_get_rate_nolock(core);
-		}
-
-		goto out;
-	}
+	if (core->flags & CLK_SET_RATE_NO_REPARENT)
+		return clk_core_determine_rate_no_reparent(hw, req);
 
 	/* find the parent that can provide the fastest rate <= rate */
 	num_parents = core->num_parents;
@@ -761,9 +775,7 @@ int clk_mux_determine_rate_flags(struct clk_hw *hw,
 	if (!best_parent)
 		return -EINVAL;
 
-out:
-	if (best_parent)
-		req->best_parent_hw = best_parent->hw;
+	req->best_parent_hw = best_parent->hw;
 	req->best_parent_rate = best;
 	req->rate = best;
 
@@ -862,6 +874,25 @@ int __clk_mux_determine_rate_closest(struct clk_hw *hw,
 	return clk_mux_determine_rate_flags(hw, req, CLK_MUX_ROUND_CLOSEST);
 }
 EXPORT_SYMBOL_GPL(__clk_mux_determine_rate_closest);
+
+/*
+ * clk_hw_determine_rate_no_reparent - clk_ops::determine_rate implementation for a clk that doesn't reparent
+ * @hw: mux type clk to determine rate on
+ * @req: rate request, also used to return preferred frequency
+ *
+ * Helper for finding best parent rate to provide a given frequency.
+ * This can be used directly as a determine_rate callback (e.g. for a
+ * mux), or from a more complex clock that may combine a mux with other
+ * operations.
+ *
+ * Returns: 0 on success, -EERROR value on error
+ */
+int clk_hw_determine_rate_no_reparent(struct clk_hw *hw,
+				      struct clk_rate_request *req)
+{
+	return clk_core_determine_rate_no_reparent(hw, req);
+}
+EXPORT_SYMBOL_GPL(clk_hw_determine_rate_no_reparent);
 
 /***        clk api        ***/
 
@@ -3432,6 +3463,21 @@ static int clk_rate_set(void *data, u64 val)
 
 #define clk_rate_mode	0644
 
+static int clk_phase_set(void *data, u64 val)
+{
+	struct clk_core *core = data;
+	int degrees = do_div(val, 360);
+	int ret;
+
+	clk_prepare_lock();
+	ret = clk_core_set_phase_nolock(core, degrees);
+	clk_prepare_unlock();
+
+	return ret;
+}
+
+#define clk_phase_mode	0644
+
 static int clk_prepare_enable_set(void *data, u64 val)
 {
 	struct clk_core *core = data;
@@ -3459,6 +3505,9 @@ DEFINE_DEBUGFS_ATTRIBUTE(clk_prepare_enable_fops, clk_prepare_enable_get,
 #else
 #define clk_rate_set	NULL
 #define clk_rate_mode	0444
+
+#define clk_phase_set	NULL
+#define clk_phase_mode	0644
 #endif
 
 static int clk_rate_get(void *data, u64 *val)
@@ -3473,6 +3522,16 @@ static int clk_rate_get(void *data, u64 *val)
 }
 
 DEFINE_DEBUGFS_ATTRIBUTE(clk_rate_fops, clk_rate_get, clk_rate_set, "%llu\n");
+
+static int clk_phase_get(void *data, u64 *val)
+{
+	struct clk_core *core = data;
+
+	*val = core->phase;
+	return 0;
+}
+
+DEFINE_DEBUGFS_ATTRIBUTE(clk_phase_fops, clk_phase_get, clk_phase_set, "%llu\n");
 
 static const struct {
 	unsigned long flag;
@@ -3667,7 +3726,8 @@ static void clk_debug_create_one(struct clk_core *core, struct dentry *pdentry)
 	debugfs_create_file("clk_min_rate", 0444, root, core, &clk_min_rate_fops);
 	debugfs_create_file("clk_max_rate", 0444, root, core, &clk_max_rate_fops);
 	debugfs_create_ulong("clk_accuracy", 0444, root, &core->accuracy);
-	debugfs_create_u32("clk_phase", 0444, root, &core->phase);
+	debugfs_create_file("clk_phase", clk_phase_mode, root, core,
+			    &clk_phase_fops);
 	debugfs_create_file("clk_flags", 0444, root, core, &clk_flags_fops);
 	debugfs_create_u32("clk_prepare_count", 0444, root, &core->prepare_count);
 	debugfs_create_u32("clk_enable_count", 0444, root, &core->enable_count);
@@ -3879,6 +3939,13 @@ static int __clk_core_init(struct clk_core *core)
 	if (core->ops->set_parent && !core->ops->get_parent) {
 		pr_err("%s: %s must implement .get_parent & .set_parent\n",
 		       __func__, core->name);
+		ret = -EINVAL;
+		goto out;
+	}
+
+	if (core->ops->set_parent && !core->ops->determine_rate) {
+		pr_err("%s: %s must implement .set_parent & .determine_rate\n",
+			__func__, core->name);
 		ret = -EINVAL;
 		goto out;
 	}
@@ -4440,11 +4507,18 @@ static int clk_nodrv_set_parent(struct clk_hw *hw, u8 index)
 	return -ENXIO;
 }
 
+static int clk_nodrv_determine_rate(struct clk_hw *hw,
+				    struct clk_rate_request *req)
+{
+	return -ENXIO;
+}
+
 static const struct clk_ops clk_nodrv_ops = {
 	.enable		= clk_nodrv_prepare_enable,
 	.disable	= clk_nodrv_disable_unprepare,
 	.prepare	= clk_nodrv_prepare_enable,
 	.unprepare	= clk_nodrv_disable_unprepare,
+	.determine_rate	= clk_nodrv_determine_rate,
 	.set_rate	= clk_nodrv_set_rate,
 	.set_parent	= clk_nodrv_set_parent,
 };
@@ -4688,7 +4762,7 @@ void __clk_put(struct clk *clk)
 		clk->exclusive_count = 0;
 	}
 
-	hlist_del(&clk->clks_node);
+	clk_core_unlink_consumer(clk);
 
 	/* If we had any boundaries on that clock, let's drop them. */
 	if (clk->min_rate > 0 || clk->max_rate < ULONG_MAX)
@@ -5158,7 +5232,7 @@ static int of_parse_clkspec(const struct device_node *np, int index,
 		 * clocks.
 		 */
 		np = np->parent;
-		if (np && !of_get_property(np, "clock-ranges", NULL))
+		if (np && !of_property_present(np, "clock-ranges"))
 			break;
 		index = 0;
 	}
@@ -5290,9 +5364,8 @@ EXPORT_SYMBOL_GPL(of_clk_get_parent_count);
 const char *of_clk_get_parent_name(const struct device_node *np, int index)
 {
 	struct of_phandle_args clkspec;
-	struct property *prop;
 	const char *clk_name;
-	const __be32 *vp;
+	bool found = false;
 	u32 pv;
 	int rc;
 	int count;
@@ -5309,15 +5382,16 @@ const char *of_clk_get_parent_name(const struct device_node *np, int index)
 	/* if there is an indices property, use it to transfer the index
 	 * specified into an array offset for the clock-output-names property.
 	 */
-	of_property_for_each_u32(clkspec.np, "clock-indices", prop, vp, pv) {
+	of_property_for_each_u32(clkspec.np, "clock-indices", pv) {
 		if (index == pv) {
 			index = count;
+			found = true;
 			break;
 		}
 		count++;
 	}
 	/* We went off the end of 'clock-indices' without finding it */
-	if (prop && !vp)
+	if (of_property_present(clkspec.np, "clock-indices") && !found)
 		return NULL;
 
 	if (of_property_read_string_index(clkspec.np, "clock-output-names",
@@ -5430,14 +5504,12 @@ static int parent_ready(struct device_node *np)
 int of_clk_detect_critical(struct device_node *np, int index,
 			   unsigned long *flags)
 {
-	struct property *prop;
-	const __be32 *cur;
 	uint32_t idx;
 
 	if (!np || !flags)
 		return -EINVAL;
 
-	of_property_for_each_u32(np, "clock-critical", prop, cur, idx)
+	of_property_for_each_u32(np, "clock-critical", idx)
 		if (index == idx)
 			*flags |= CLK_IS_CRITICAL;
 

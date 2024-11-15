@@ -678,8 +678,8 @@ static DEFINE_RUNTIME_DEV_PM_OPS(isl29028_pm_ops, isl29028_suspend,
 				 isl29028_resume, NULL);
 
 static const struct i2c_device_id isl29028_id[] = {
-	{"isl29028", 0},
-	{"isl29030", 0},
+	{ "isl29028" },
+	{ "isl29030" },
 	{}
 };
 MODULE_DEVICE_TABLE(i2c, isl29028_id);
@@ -698,7 +698,7 @@ static struct i2c_driver isl29028_driver = {
 		.pm = pm_ptr(&isl29028_pm_ops),
 		.of_match_table = isl29028_of_match,
 	},
-	.probe_new = isl29028_probe,
+	.probe = isl29028_probe,
 	.remove  = isl29028_remove,
 	.id_table = isl29028_id,
 };

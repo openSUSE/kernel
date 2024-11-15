@@ -13,7 +13,7 @@
 #include <linux/mutex.h>
 #include <asm/div64.h>
 
-#include <media/dvb_math.h>
+#include <linux/int_log.h>
 #include <media/dvb_frontend.h>
 
 #include "dib7000p.h"
@@ -31,11 +31,6 @@ MODULE_PARM_DESC(buggy_sfn_workaround, "Enable work-around for buggy SFNs (defau
 		printk(KERN_DEBUG pr_fmt("%s: " fmt),			\
 		       __func__, ##arg);				\
 } while (0)
-
-struct i2c_device {
-	struct i2c_adapter *i2c_adap;
-	u8 i2c_addr;
-};
 
 struct dib7000p_state {
 	struct dvb_frontend demod;

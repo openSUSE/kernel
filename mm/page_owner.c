@@ -32,6 +32,8 @@ struct page_owner {
 	char comm[TASK_COMM_LEN];
 	pid_t pid;
 	pid_t tgid;
+	pid_t free_pid;
+	pid_t free_tgid;
 };
 
 struct stack {
@@ -138,7 +140,7 @@ struct page_ext_operations page_owner_ops = {
 
 static inline struct page_owner *get_page_owner(struct page_ext *page_ext)
 {
-	return (void *)page_ext + page_owner_ops.offset;
+	return page_ext_data(page_ext, &page_owner_ops);
 }
 
 static noinline depot_stack_handle_t save_stack(gfp_t flags)
@@ -166,13 +168,8 @@ static void add_stack_record_to_list(struct stack_record *stack_record,
 	unsigned long flags;
 	struct stack *stack;
 
-	/* Filter gfp_mask the same way stackdepot does, for consistency */
-	gfp_mask &= ~GFP_ZONEMASK;
-	gfp_mask &= (GFP_ATOMIC | GFP_KERNEL);
-	gfp_mask |= __GFP_NOWARN;
-
 	set_current_in_page_owner();
-	stack = kmalloc(sizeof(*stack), gfp_mask);
+	stack = kmalloc(sizeof(*stack), gfp_nested_mask(gfp_mask));
 	if (!stack) {
 		unset_current_in_page_owner();
 		return;
@@ -262,6 +259,7 @@ static inline void __update_page_owner_handle(struct page_ext *page_ext,
 static inline void __update_page_owner_free_handle(struct page_ext *page_ext,
 						   depot_stack_handle_t handle,
 						   unsigned short order,
+						   pid_t pid, pid_t tgid,
 						   u64 free_ts_nsec)
 {
 	int i;
@@ -275,6 +273,8 @@ static inline void __update_page_owner_free_handle(struct page_ext *page_ext,
 			page_owner->free_handle = handle;
 		}
 		page_owner->free_ts_nsec = free_ts_nsec;
+		page_owner->free_pid = current->pid;
+		page_owner->free_tgid = current->tgid;
 		page_ext = page_ext_next(page_ext);
 	}
 }
@@ -295,8 +295,10 @@ void __reset_page_owner(struct page *page, unsigned short order)
 	alloc_handle = page_owner->handle;
 
 	handle = save_stack(GFP_NOWAIT | __GFP_NOWARN);
-	__update_page_owner_free_handle(page_ext, handle, order, free_ts_nsec);
+	__update_page_owner_free_handle(page_ext, handle, order, current->pid,
+					current->tgid, free_ts_nsec);
 	page_ext_put(page_ext);
+
 	if (alloc_handle != early_handle)
 		/*
 		 * early_handle is being set as a handle for all those
@@ -340,7 +342,7 @@ void __set_page_owner_migrate_reason(struct page *page, int reason)
 	page_ext_put(page_ext);
 }
 
-void __split_page_owner(struct page *page, unsigned int nr)
+void __split_page_owner(struct page *page, int old_order, int new_order)
 {
 	int i;
 	struct page_ext *page_ext = page_ext_get(page);
@@ -349,9 +351,9 @@ void __split_page_owner(struct page *page, unsigned int nr)
 	if (unlikely(!page_ext))
 		return;
 
-	for (i = 0; i < nr; i++) {
+	for (i = 0; i < (1 << old_order); i++) {
 		page_owner = get_page_owner(page_ext);
-		page_owner->order = 0;
+		page_owner->order = new_order;
 		page_ext = page_ext_next(page_ext);
 	}
 	page_ext_put(page_ext);
@@ -390,6 +392,8 @@ void __folio_copy_owner(struct folio *newfolio, struct folio *old)
 	 * useful.
 	 */
 	__update_page_owner_free_handle(new_ext, 0, old_page_owner->order,
+					old_page_owner->free_pid,
+					old_page_owner->free_tgid,
 					old_page_owner->free_ts_nsec);
 	/*
 	 * We linked the original stack to the new folio, we need to do the same
@@ -401,6 +405,7 @@ void __folio_copy_owner(struct folio *newfolio, struct folio *old)
 		old_ext = page_ext_next(old_ext);
 		old_page_owner = get_page_owner(old_ext);
 	}
+
 	page_ext_put(new_ext);
 	page_ext_put(old_ext);
 }
@@ -448,7 +453,7 @@ void pagetypeinfo_showmixedcount_print(struct seq_file *m,
 				unsigned long freepage_order;
 
 				freepage_order = buddy_order_unsafe(page);
-				if (freepage_order <= MAX_ORDER)
+				if (freepage_order <= MAX_PAGE_ORDER)
 					pfn += (1UL << freepage_order) - 1;
 				continue;
 			}
@@ -505,7 +510,7 @@ static inline int print_page_owner_memcg(char *kbuf, size_t count, int ret,
 	if (!memcg_data)
 		goto out_unlock;
 
-	if (memcg_data & MEMCG_DATA_OBJCGS)
+	if (memcg_data & MEMCG_DATA_OBJEXTS)
 		ret += scnprintf(kbuf + ret, count - ret,
 				"Slab cache page\n");
 
@@ -541,17 +546,17 @@ print_page_owner(char __user *buf, size_t count, unsigned long pfn,
 		return -ENOMEM;
 
 	ret = scnprintf(kbuf, count,
-			"Page allocated via order %u, mask %#x(%pGg), pid %d, tgid %d (%s), ts %llu ns, free_ts %llu ns\n",
+			"Page allocated via order %u, mask %#x(%pGg), pid %d, tgid %d (%s), ts %llu ns\n",
 			page_owner->order, page_owner->gfp_mask,
 			&page_owner->gfp_mask, page_owner->pid,
 			page_owner->tgid, page_owner->comm,
-			page_owner->ts_nsec, page_owner->free_ts_nsec);
+			page_owner->ts_nsec);
 
 	/* Print information relevant to grouping pages by mobility */
 	pageblock_mt = get_pageblock_migratetype(page);
 	page_mt  = gfp_migratetype(page_owner->gfp_mask);
 	ret += scnprintf(kbuf + ret, count - ret,
-			"PFN %lu type %s Block %lu type %s Flags %pGp\n",
+			"PFN 0x%lx type %s Block %lu type %s Flags %pGp\n",
 			pfn,
 			migratetype_names[page_mt],
 			pfn >> pageblock_order,
@@ -628,7 +633,8 @@ void __dump_page_owner(const struct page *page)
 	if (!handle) {
 		pr_alert("page_owner free stack trace missing\n");
 	} else {
-		pr_alert("page last free stack trace:\n");
+		pr_alert("page last free pid %d tgid %d stack trace:\n",
+			  page_owner->free_pid, page_owner->free_tgid);
 		stack_depot_print(handle);
 	}
 
@@ -682,7 +688,7 @@ read_page_owner(struct file *file, char __user *buf, size_t count, loff_t *ppos)
 		if (PageBuddy(page)) {
 			unsigned long freepage_order = buddy_order_unsafe(page);
 
-			if (freepage_order <= MAX_ORDER)
+			if (freepage_order <= MAX_PAGE_ORDER)
 				pfn += (1UL << freepage_order) - 1;
 			continue;
 		}
@@ -790,7 +796,7 @@ static void init_pages_in_zone(pg_data_t *pgdat, struct zone *zone)
 			if (PageBuddy(page)) {
 				unsigned long order = buddy_order_unsafe(page);
 
-				if (order > 0 && order <= MAX_ORDER)
+				if (order > 0 && order <= MAX_PAGE_ORDER)
 					pfn += (1UL << order) - 1;
 				continue;
 			}

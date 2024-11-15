@@ -50,6 +50,7 @@ extern const struct ieee80211_ops rtw_ops;
 #define RTW_MAX_CHANNEL_NUM_5G 49
 
 struct rtw_dev;
+struct rtw_debugfs;
 
 enum rtw_hci_type {
 	RTW_HCI_TYPE_PCIE,
@@ -187,6 +188,7 @@ enum rtw_chip_type {
 	RTW_CHIP_TYPE_8822C,
 	RTW_CHIP_TYPE_8723D,
 	RTW_CHIP_TYPE_8821C,
+	RTW_CHIP_TYPE_8703B,
 };
 
 enum rtw_tx_queue_type {
@@ -621,6 +623,7 @@ struct rtw_rx_pkt_stat {
 	bool crc_err;
 	bool decrypted;
 	bool is_c2h;
+	bool channel_invalid;
 
 	s32 signal_power;
 	u16 pkt_len;
@@ -739,7 +742,6 @@ struct rtw_txq {
 	unsigned long flags;
 };
 
-#define RTW_BC_MC_MACID 1
 DECLARE_EWMA(rssi, 10, 16);
 
 struct rtw_sta_info {
@@ -802,7 +804,7 @@ struct rtw_bf_info {
 struct rtw_vif {
 	enum rtw_net_type net_type;
 	u16 aid;
-	u8 mac_id; /* for STA mode only */
+	u8 mac_id;
 	u8 mac_addr[ETH_ALEN];
 	u8 bssid[ETH_ALEN];
 	u8 port;
@@ -1195,6 +1197,8 @@ struct rtw_chip_info {
 
 	u16 fw_fifo_addr[RTW_FW_FIFO_MAX];
 	const struct rtw_fwcd_segs *fwcd_segs;
+
+	u8 usb_tx_agg_desc_num;
 
 	u8 default_1ss_tx_path;
 
@@ -1700,11 +1704,13 @@ struct rtw_dm_info {
 	s8 delta_power_index[RTW_RF_PATH_MAX];
 	s8 delta_power_index_last[RTW_RF_PATH_MAX];
 	u8 default_ofdm_index;
+	u8 default_cck_index;
 	bool pwr_trk_triggered;
 	bool pwr_trk_init_trigger;
 	struct ewma_thermal avg_thermal[RTW_RF_PATH_MAX];
 	s8 txagc_remnant_cck;
 	s8 txagc_remnant_ofdm;
+	u8 rx_cck_agc_report_type;
 
 	/* backup dack results for each path and I/Q */
 	u32 dack_adck[RTW_RF_PATH_MAX];
@@ -1779,6 +1785,8 @@ struct rtw_efuse {
 	/* bt share antenna with wifi */
 	bool share_ant;
 	u8 bt_setting;
+
+	u8 usb_mode_switch;
 
 	struct {
 		u8 hci;
@@ -2046,7 +2054,7 @@ struct rtw_dev {
 	bool beacon_loss;
 	struct completion lps_leave_check;
 
-	struct dentry *debugfs;
+	struct rtw_debugfs *debugfs;
 
 	u8 sta_cnt;
 	u32 rts_threshold;
@@ -2120,6 +2128,17 @@ static inline bool rtw_chip_has_rx_ldpc(struct rtw_dev *rtwdev)
 static inline bool rtw_chip_has_tx_stbc(struct rtw_dev *rtwdev)
 {
 	return rtwdev->chip->tx_stbc;
+}
+
+static inline u8 rtw_acquire_macid(struct rtw_dev *rtwdev)
+{
+	unsigned long mac_id;
+
+	mac_id = find_first_zero_bit(rtwdev->mac_id_map, RTW_MAX_MAC_ID_NUM);
+	if (mac_id < RTW_MAX_MAC_ID_NUM)
+		set_bit(mac_id, rtwdev->mac_id_map);
+
+	return mac_id;
 }
 
 static inline void rtw_release_macid(struct rtw_dev *rtwdev, u8 mac_id)

@@ -182,6 +182,7 @@ enum cdns_i2c_slave_state {
  * @reset:		Reset control for the device
  * @quirks:		flag for broken hold bit usage in r1p10
  * @ctrl_reg:		Cached value of the control register.
+ * @rinfo:		I2C GPIO recovery information
  * @ctrl_reg_diva_divb: value of fields DIV_A and DIV_B from CR register
  * @slave:		Registered slave instance.
  * @dev_mode:		I2C operating role(master/slave).
@@ -789,8 +790,6 @@ static int cdns_i2c_process_msg(struct cdns_i2c *id, struct i2c_msg *msg,
 	time_left = wait_for_completion_timeout(&id->xfer_done, msg_timeout);
 	if (time_left == 0) {
 		cdns_i2c_master_reset(adap);
-		dev_err(id->adap.dev.parent,
-				"timeout waiting on completion\n");
 		return -ETIMEDOUT;
 	}
 
@@ -1176,6 +1175,18 @@ static int __maybe_unused cdns_i2c_runtime_suspend(struct device *dev)
 	return 0;
 }
 
+static int __maybe_unused cdns_i2c_suspend(struct device *dev)
+{
+	struct cdns_i2c *xi2c = dev_get_drvdata(dev);
+
+	i2c_mark_adapter_suspended(&xi2c->adap);
+
+	if (!pm_runtime_status_suspended(dev))
+		return cdns_i2c_runtime_suspend(dev);
+
+	return 0;
+}
+
 /**
  * cdns_i2c_init -  Controller initialisation
  * @id:		Device private data structure
@@ -1219,7 +1230,28 @@ static int __maybe_unused cdns_i2c_runtime_resume(struct device *dev)
 	return 0;
 }
 
+static int __maybe_unused cdns_i2c_resume(struct device *dev)
+{
+	struct cdns_i2c *xi2c = dev_get_drvdata(dev);
+	int err;
+
+	err = cdns_i2c_runtime_resume(dev);
+	if (err)
+		return err;
+
+	if (pm_runtime_status_suspended(dev)) {
+		err = cdns_i2c_runtime_suspend(dev);
+		if (err)
+			return err;
+	}
+
+	i2c_mark_adapter_resumed(&xi2c->adap);
+
+	return 0;
+}
+
 static const struct dev_pm_ops cdns_i2c_dev_pm_ops = {
+	SET_NOIRQ_SYSTEM_SLEEP_PM_OPS(cdns_i2c_suspend, cdns_i2c_resume)
 	SET_RUNTIME_PM_OPS(cdns_i2c_runtime_suspend,
 			   cdns_i2c_runtime_resume, NULL)
 };
@@ -1416,7 +1448,7 @@ err_clk_dis:
  *
  * Return: 0 always
  */
-static int cdns_i2c_remove(struct platform_device *pdev)
+static void cdns_i2c_remove(struct platform_device *pdev)
 {
 	struct cdns_i2c *id = platform_get_drvdata(pdev);
 
@@ -1428,8 +1460,6 @@ static int cdns_i2c_remove(struct platform_device *pdev)
 	clk_notifier_unregister(id->clk, &id->clk_rate_change_nb);
 	reset_control_assert(id->reset);
 	clk_disable_unprepare(id->clk);
-
-	return 0;
 }
 
 static struct platform_driver cdns_i2c_drv = {
@@ -1439,7 +1469,7 @@ static struct platform_driver cdns_i2c_drv = {
 		.pm = &cdns_i2c_dev_pm_ops,
 	},
 	.probe  = cdns_i2c_probe,
-	.remove = cdns_i2c_remove,
+	.remove_new = cdns_i2c_remove,
 };
 
 module_platform_driver(cdns_i2c_drv);

@@ -47,7 +47,6 @@ struct netlink_kernel_cfg {
 	unsigned int	groups;
 	unsigned int	flags;
 	void		(*input)(struct sk_buff *skb);
-	struct mutex	*cb_mutex;
 	int		(*bind)(struct net *net, int group);
 	void		(*unbind)(struct net *net, int group);
 	void            (*release) (struct sock *sk, unsigned long *groups);
@@ -291,6 +290,7 @@ struct netlink_callback {
 	u16			answer_flags;
 	u32			min_dump_alloc;
 	unsigned int		prev_seq, seq;
+	int			flags;
 	bool			strict_check;
 	union {
 		u8		ctx[48];
@@ -323,6 +323,7 @@ struct netlink_dump_control {
 	void *data;
 	struct module *module;
 	u32 min_dump_alloc;
+	int flags;
 };
 
 int __netlink_dump_start(struct sock *ssk, struct sk_buff *skb,

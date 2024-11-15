@@ -13,7 +13,7 @@
 #include <linux/errno.h>
 #include <linux/mm_types.h>
 #include <linux/pgtable.h>
-
+#include <linux/io.h>
 #include <asm/asm-offsets.h>
 #include <asm/facility.h>
 #include <asm/current.h>
@@ -22,7 +22,6 @@
 #include <asm/sysinfo.h>
 #include <asm/page-states.h>
 #include <asm/gmap.h>
-#include <asm/io.h>
 #include <asm/ptrace.h>
 #include <asm/sclp.h>
 #include <asm/ap.h>
@@ -58,7 +57,7 @@ static int handle_gs(struct kvm_vcpu *vcpu)
 	if (test_kvm_facility(vcpu->kvm, 133)) {
 		VCPU_EVENT(vcpu, 3, "%s", "ENABLE: GS (lazy)");
 		preempt_disable();
-		__ctl_set_bit(2, 4);
+		local_ctl_set_bit(2, CR2_GUARDED_STORAGE_BIT);
 		current->thread.gs_cb = (struct gs_cb *)&vcpu->run->s.regs.gscb;
 		restore_gs_cb(current->thread.gs_cb);
 		preempt_enable();
@@ -150,7 +149,7 @@ static int handle_set_prefix(struct kvm_vcpu *vcpu)
 	 * first page, since address is 8k aligned and memory pieces are always
 	 * at least 1MB aligned and have at least a size of 1MB.
 	 */
-	if (kvm_is_error_gpa(vcpu->kvm, address))
+	if (!kvm_is_gpa_in_memslot(vcpu->kvm, address))
 		return kvm_s390_inject_program_int(vcpu, PGM_ADDRESSING);
 
 	kvm_s390_set_prefix(vcpu, address);
@@ -465,7 +464,7 @@ static int handle_test_block(struct kvm_vcpu *vcpu)
 		return kvm_s390_inject_prog_irq(vcpu, &vcpu->arch.pgm);
 	addr = kvm_s390_real_to_abs(vcpu, addr);
 
-	if (kvm_is_error_gpa(vcpu->kvm, addr))
+	if (!kvm_is_gpa_in_memslot(vcpu->kvm, addr))
 		return kvm_s390_inject_program_int(vcpu, PGM_ADDRESSING);
 	/*
 	 * We don't expect errors on modern systems, and do not care

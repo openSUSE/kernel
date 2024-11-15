@@ -16,7 +16,6 @@
 #include <linux/srcu.h>
 #include <linux/errno.h>
 #include <linux/types.h>
-#include <linux/cpumask.h>
 #include <linux/rcupdate.h>
 #include <linux/tracepoint-defs.h>
 #include <linux/static_call.h>
@@ -65,6 +64,13 @@ struct tp_module {
 bool trace_module_has_bad_taint(struct module *mod);
 extern int register_tracepoint_module_notifier(struct notifier_block *nb);
 extern int unregister_tracepoint_module_notifier(struct notifier_block *nb);
+void for_each_module_tracepoint(void (*fct)(struct tracepoint *,
+					struct module *, void *),
+				void *priv);
+void for_each_tracepoint_in_module(struct module *,
+				   void (*fct)(struct tracepoint *,
+					struct module *, void *),
+				   void *priv);
 #else
 static inline bool trace_module_has_bad_taint(struct module *mod)
 {
@@ -79,6 +85,19 @@ static inline
 int unregister_tracepoint_module_notifier(struct notifier_block *nb)
 {
 	return 0;
+}
+static inline
+void for_each_module_tracepoint(void (*fct)(struct tracepoint *,
+					struct module *, void *),
+				void *priv)
+{
+}
+static inline
+void for_each_tracepoint_in_module(struct module *mod,
+				   void (*fct)(struct tracepoint *,
+					struct module *, void *),
+				   void *priv)
+{
 }
 #endif /* CONFIG_MODULES */
 
@@ -199,7 +218,8 @@ static inline struct tracepoint *tracepoint_ptr_deref(tracepoint_ptr_t *p)
 		if (!(cond))						\
 			return;						\
 									\
-		if (WARN_ON_ONCE(RCUIDLE_COND(rcuidle)))		\
+		if (WARN_ONCE(RCUIDLE_COND(rcuidle),			\
+			      "Bad RCU usage for tracepoint"))		\
 			return;						\
 									\
 		/* keep srcu and sched-rcu usage consistent */		\
@@ -259,7 +279,8 @@ static inline struct tracepoint *tracepoint_ptr_deref(tracepoint_ptr_t *p)
 				TP_ARGS(args),				\
 				TP_CONDITION(cond), 0);			\
 		if (IS_ENABLED(CONFIG_LOCKDEP) && (cond)) {		\
-			WARN_ON_ONCE(!rcu_is_watching());		\
+			WARN_ONCE(!rcu_is_watching(),			\
+				  "RCU not watching for tracepoint");	\
 		}							\
 	}								\
 	__DECLARE_TRACE_RCU(name, PARAMS(proto), PARAMS(args),		\
@@ -303,6 +324,7 @@ static inline struct tracepoint *tracepoint_ptr_deref(tracepoint_ptr_t *p)
 	__section("__tracepoints_strings") = #_name;			\
 	extern struct static_call_key STATIC_CALL_KEY(tp_func_##_name);	\
 	int __traceiter_##_name(void *__data, proto);			\
+	void __probestub_##_name(void *__data, proto);			\
 	struct tracepoint __tracepoint_##_name	__used			\
 	__section("__tracepoints") = {					\
 		.name = __tpstrtab_##_name,				\
@@ -310,6 +332,7 @@ static inline struct tracepoint *tracepoint_ptr_deref(tracepoint_ptr_t *p)
 		.static_call_key = &STATIC_CALL_KEY(tp_func_##_name),	\
 		.static_call_tramp = STATIC_CALL_TRAMP_ADDR(tp_func_##_name), \
 		.iterator = &__traceiter_##_name,			\
+		.probestub = &__probestub_##_name,			\
 		.regfunc = _reg,					\
 		.unregfunc = _unreg,					\
 		.funcs = NULL };					\
@@ -329,6 +352,9 @@ static inline struct tracepoint *tracepoint_ptr_deref(tracepoint_ptr_t *p)
 			} while ((++it_func_ptr)->func);		\
 		}							\
 		return 0;						\
+	}								\
+	void __probestub_##_name(void *__data, proto)			\
+	{								\
 	}								\
 	DEFINE_STATIC_CALL(tp_func_##_name, __traceiter_##_name);
 

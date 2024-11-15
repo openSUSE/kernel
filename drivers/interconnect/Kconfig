@@ -12,7 +12,14 @@ menuconfig INTERCONNECT
 if INTERCONNECT
 
 source "drivers/interconnect/imx/Kconfig"
+source "drivers/interconnect/mediatek/Kconfig"
 source "drivers/interconnect/qcom/Kconfig"
 source "drivers/interconnect/samsung/Kconfig"
+
+config INTERCONNECT_CLK
+	tristate
+	depends on COMMON_CLK
+	help
+	  Support for wrapping clocks into the interconnect nodes.
 
 endif

@@ -1393,13 +1393,6 @@ static int cmp_refcount_rec_by_cpos(const void *a, const void *b)
 	return 0;
 }
 
-static void swap_refcount_rec(void *a, void *b, int size)
-{
-	struct ocfs2_refcount_rec *l = a, *r = b;
-
-	swap(*l, *r);
-}
-
 /*
  * The refcount cpos are ordered by their 64bit cpos,
  * But we will use the low 32 bit to be the e_cpos in the b-tree.
@@ -1475,7 +1468,7 @@ static int ocfs2_divide_leaf_refcount_block(struct buffer_head *ref_leaf_bh,
 	 */
 	sort(&rl->rl_recs, le16_to_cpu(rl->rl_used),
 	     sizeof(struct ocfs2_refcount_rec),
-	     cmp_refcount_rec_by_low_cpos, swap_refcount_rec);
+	     cmp_refcount_rec_by_low_cpos, NULL);
 
 	ret = ocfs2_find_refcount_split_pos(rl, &cpos, &split_index);
 	if (ret) {
@@ -1500,11 +1493,11 @@ static int ocfs2_divide_leaf_refcount_block(struct buffer_head *ref_leaf_bh,
 
 	sort(&rl->rl_recs, le16_to_cpu(rl->rl_used),
 	     sizeof(struct ocfs2_refcount_rec),
-	     cmp_refcount_rec_by_cpos, swap_refcount_rec);
+	     cmp_refcount_rec_by_cpos, NULL);
 
 	sort(&new_rl->rl_recs, le16_to_cpu(new_rl->rl_used),
 	     sizeof(struct ocfs2_refcount_rec),
-	     cmp_refcount_rec_by_cpos, swap_refcount_rec);
+	     cmp_refcount_rec_by_cpos, NULL);
 
 	*split_cpos = cpos;
 	return 0;
@@ -3751,9 +3744,9 @@ static int ocfs2_change_ctime(struct inode *inode,
 		goto out_commit;
 	}
 
-	inode->i_ctime = current_time(inode);
-	di->i_ctime = cpu_to_le64(inode->i_ctime.tv_sec);
-	di->i_ctime_nsec = cpu_to_le32(inode->i_ctime.tv_nsec);
+	inode_set_ctime_current(inode);
+	di->i_ctime = cpu_to_le64(inode_get_ctime_sec(inode));
+	di->i_ctime_nsec = cpu_to_le32(inode_get_ctime_nsec(inode));
 
 	ocfs2_journal_dirty(handle, di_bh);
 
@@ -4074,12 +4067,12 @@ static int ocfs2_complete_reflink(struct inode *s_inode,
 		 * we want mtime to appear identical to the source and
 		 * update ctime.
 		 */
-		t_inode->i_ctime = current_time(t_inode);
+		inode_set_ctime_current(t_inode);
 
-		di->i_ctime = cpu_to_le64(t_inode->i_ctime.tv_sec);
-		di->i_ctime_nsec = cpu_to_le32(t_inode->i_ctime.tv_nsec);
+		di->i_ctime = cpu_to_le64(inode_get_ctime_sec(t_inode));
+		di->i_ctime_nsec = cpu_to_le32(inode_get_ctime_nsec(t_inode));
 
-		t_inode->i_mtime = s_inode->i_mtime;
+		inode_set_mtime_to_ts(t_inode, inode_get_mtime(s_inode));
 		di->i_mtime = s_di->i_mtime;
 		di->i_mtime_nsec = s_di->i_mtime_nsec;
 	}
@@ -4478,7 +4471,7 @@ int ocfs2_reflink_update_dest(struct inode *dest,
 	if (newlen > i_size_read(dest))
 		i_size_write(dest, newlen);
 	spin_unlock(&OCFS2_I(dest)->ip_lock);
-	dest->i_ctime = dest->i_mtime = current_time(dest);
+	inode_set_mtime_to_ts(dest, inode_set_ctime_current(dest));
 
 	ret = ocfs2_mark_inode_dirty(handle, dest, d_bh);
 	if (ret) {

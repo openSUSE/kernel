@@ -710,8 +710,8 @@ static void ts2020_remove(struct i2c_client *client)
 }
 
 static const struct i2c_device_id ts2020_id_table[] = {
-	{"ts2020", 0},
-	{"ts2022", 0},
+	{ "ts2020" },
+	{ "ts2022" },
 	{}
 };
 MODULE_DEVICE_TABLE(i2c, ts2020_id_table);
@@ -720,7 +720,7 @@ static struct i2c_driver ts2020_driver = {
 	.driver = {
 		.name	= "ts2020",
 	},
-	.probe_new	= ts2020_probe,
+	.probe		= ts2020_probe,
 	.remove		= ts2020_remove,
 	.id_table	= ts2020_id_table,
 };

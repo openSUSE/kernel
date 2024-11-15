@@ -143,7 +143,7 @@ static int vfio_platform_set_irq_unmask(struct vfio_platform_device *vdev,
 static void vfio_send_eventfd(struct vfio_platform_irq *irq_ctx)
 {
 	if (likely(irq_ctx->trigger))
-		eventfd_signal(irq_ctx->trigger, 1);
+		eventfd_signal(irq_ctx->trigger);
 }
 
 static irqreturn_t vfio_automasked_irq_handler(int irq, void *dev_id)
@@ -353,6 +353,8 @@ void vfio_platform_irq_cleanup(struct vfio_platform_device *vdev)
 	int i;
 
 	for (i = 0; i < vdev->num_irqs; i++) {
+		vfio_virqfd_disable(&vdev->irqs[i].mask);
+		vfio_virqfd_disable(&vdev->irqs[i].unmask);
 		if (!IS_ERR(vdev->irqs[i].name)) {
 			free_irq(vdev->irqs[i].hwirq, &vdev->irqs[i]);
 			if (vdev->irqs[i].trigger)

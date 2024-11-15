@@ -368,7 +368,7 @@ static void cm3232_remove(struct i2c_client *client)
 }
 
 static const struct i2c_device_id cm3232_id[] = {
-	{"cm3232", 0},
+	{ "cm3232" },
 	{}
 };
 
@@ -417,7 +417,7 @@ static struct i2c_driver cm3232_driver = {
 		.pm	= pm_sleep_ptr(&cm3232_pm_ops),
 	},
 	.id_table	= cm3232_id,
-	.probe_new	= cm3232_probe,
+	.probe		= cm3232_probe,
 	.remove		= cm3232_remove,
 };
 

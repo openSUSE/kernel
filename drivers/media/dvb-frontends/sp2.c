@@ -407,7 +407,7 @@ static void sp2_remove(struct i2c_client *client)
 }
 
 static const struct i2c_device_id sp2_id[] = {
-	{"sp2", 0},
+	{ "sp2" },
 	{}
 };
 MODULE_DEVICE_TABLE(i2c, sp2_id);
@@ -416,7 +416,7 @@ static struct i2c_driver sp2_driver = {
 	.driver = {
 		.name	= "sp2",
 	},
-	.probe_new	= sp2_probe,
+	.probe		= sp2_probe,
 	.remove		= sp2_remove,
 	.id_table	= sp2_id,
 };

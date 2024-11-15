@@ -824,7 +824,7 @@ fail:
 	return err;
 }
 
-static int rcar_can_remove(struct platform_device *pdev)
+static void rcar_can_remove(struct platform_device *pdev)
 {
 	struct net_device *ndev = platform_get_drvdata(pdev);
 	struct rcar_can_priv *priv = netdev_priv(ndev);
@@ -832,7 +832,6 @@ static int rcar_can_remove(struct platform_device *pdev)
 	unregister_candev(ndev);
 	netif_napi_del(&priv->napi);
 	free_candev(ndev);
-	return 0;
 }
 
 static int __maybe_unused rcar_can_suspend(struct device *dev)

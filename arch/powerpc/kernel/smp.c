@@ -47,6 +47,7 @@
 #include <asm/smp.h>
 #include <asm/time.h>
 #include <asm/machdep.h>
+#include <asm/mmu_context.h>
 #include <asm/cputhreads.h>
 #include <asm/cputable.h>
 #include <asm/mpic.h>
@@ -282,7 +283,7 @@ void smp_muxed_ipi_set_message(int cpu, int msg)
 	 * Order previous accesses before accesses in the IPI handler.
 	 */
 	smp_mb();
-	message[msg] = 1;
+	WRITE_ONCE(message[msg], 1);
 }
 
 void smp_muxed_ipi_message_pass(int cpu, int msg)
@@ -341,7 +342,7 @@ irqreturn_t smp_ipi_demux_relaxed(void)
 		if (all & IPI_MESSAGE(PPC_MSG_NMI_IPI))
 			nmi_ipi_action(0, NULL);
 #endif
-	} while (info->messages);
+	} while (READ_ONCE(info->messages));
 
 	return IRQ_HANDLED;
 }
@@ -408,9 +409,9 @@ noinstr static void nmi_ipi_lock_start(unsigned long *flags)
 {
 	raw_local_irq_save(*flags);
 	hard_irq_disable();
-	while (arch_atomic_cmpxchg(&__nmi_ipi_lock, 0, 1) == 1) {
+	while (raw_atomic_cmpxchg(&__nmi_ipi_lock, 0, 1) == 1) {
 		raw_local_irq_restore(*flags);
-		spin_until_cond(arch_atomic_read(&__nmi_ipi_lock) == 0);
+		spin_until_cond(raw_atomic_read(&__nmi_ipi_lock) == 0);
 		raw_local_irq_save(*flags);
 		hard_irq_disable();
 	}
@@ -418,15 +419,15 @@ noinstr static void nmi_ipi_lock_start(unsigned long *flags)
 
 noinstr static void nmi_ipi_lock(void)
 {
-	while (arch_atomic_cmpxchg(&__nmi_ipi_lock, 0, 1) == 1)
-		spin_until_cond(arch_atomic_read(&__nmi_ipi_lock) == 0);
+	while (raw_atomic_cmpxchg(&__nmi_ipi_lock, 0, 1) == 1)
+		spin_until_cond(raw_atomic_read(&__nmi_ipi_lock) == 0);
 }
 
 noinstr static void nmi_ipi_unlock(void)
 {
 	smp_mb();
-	WARN_ON(arch_atomic_read(&__nmi_ipi_lock) != 1);
-	arch_atomic_set(&__nmi_ipi_lock, 0);
+	WARN_ON(raw_atomic_read(&__nmi_ipi_lock) != 1);
+	raw_atomic_set(&__nmi_ipi_lock, 0);
 }
 
 noinstr static void nmi_ipi_unlock_end(unsigned long *flags)
@@ -587,7 +588,7 @@ void smp_send_debugger_break(void)
 }
 #endif
 
-#ifdef CONFIG_KEXEC_CORE
+#ifdef CONFIG_CRASH_DUMP
 void crash_send_ipi(void (*crash_ipi_callback)(struct pt_regs *))
 {
 	int cpu;
@@ -630,7 +631,7 @@ void crash_smp_send_stop(void)
 
 	stopped = true;
 
-#ifdef CONFIG_KEXEC_CORE
+#ifdef CONFIG_CRASH_DUMP
 	if (kexec_crash_image) {
 		crash_kexec_prepare();
 		return;
@@ -983,7 +984,7 @@ static bool shared_caches __ro_after_init;
 /* cpumask of CPUs with asymmetric SMT dependency */
 static int powerpc_smt_flags(void)
 {
-	int flags = SD_SHARE_CPUCAPACITY | SD_SHARE_PKG_RESOURCES;
+	int flags = SD_SHARE_CPUCAPACITY | SD_SHARE_LLC;
 
 	if (cpu_has_feature(CPU_FTR_ASYM_SMT)) {
 		printk_once(KERN_INFO "Enabling Asymmetric SMT scheduling\n");
@@ -1009,9 +1010,9 @@ static __ro_after_init DEFINE_STATIC_KEY_FALSE(splpar_asym_pack);
 static int powerpc_shared_cache_flags(void)
 {
 	if (static_branch_unlikely(&splpar_asym_pack))
-		return SD_SHARE_PKG_RESOURCES | SD_ASYM_PACKING;
+		return SD_SHARE_LLC | SD_ASYM_PACKING;
 
-	return SD_SHARE_PKG_RESOURCES;
+	return SD_SHARE_LLC;
 }
 
 static int powerpc_shared_proc_flags(void)
@@ -1165,7 +1166,7 @@ void __init smp_prepare_cpus(unsigned int max_cpus)
 	cpu_smt_set_num_threads(num_threads, threads_per_core);
 }
 
-void smp_prepare_boot_cpu(void)
+void __init smp_prepare_boot_cpu(void)
 {
 	BUG_ON(smp_processor_id() != boot_cpuid);
 #ifdef CONFIG_PPC64
@@ -1566,7 +1567,7 @@ static void add_cpu_to_masks(int cpu)
 
 	/*
 	 * This CPU will not be in the online mask yet so we need to manually
-	 * add it to it's own thread sibling mask.
+	 * add it to its own thread sibling mask.
 	 */
 	map_cpu_to_node(cpu, cpu_to_node(cpu));
 	cpumask_set_cpu(cpu, cpu_sibling_mask(cpu));
@@ -1625,10 +1626,13 @@ void start_secondary(void *unused)
 
 	mmgrab_lazy_tlb(&init_mm);
 	current->active_mm = &init_mm;
+	VM_WARN_ON(cpumask_test_cpu(smp_processor_id(), mm_cpumask(&init_mm)));
+	cpumask_set_cpu(cpu, mm_cpumask(&init_mm));
+	inc_mm_active_cpus(&init_mm);
 
 	smp_store_cpu_info(cpu);
 	set_dec(tb_ticks_per_jiffy);
-	rcu_cpu_starting(cpu);
+	rcutree_report_cpu_starting(cpu);
 	cpu_callin_map[cpu] = 1;
 
 	if (smp_ops->setup_cpu)
@@ -1773,6 +1777,14 @@ int __cpu_disable(void)
 
 void __cpu_die(unsigned int cpu)
 {
+	/*
+	 * This could perhaps be a generic call in idlea_task_dead(), but
+	 * that requires testing from all archs, so first put it here to
+	 */
+	VM_WARN_ON_ONCE(!cpumask_test_cpu(cpu, mm_cpumask(&init_mm)));
+	dec_mm_active_cpus(&init_mm);
+	cpumask_clear_cpu(cpu, mm_cpumask(&init_mm));
+
 	if (smp_ops->cpu_die)
 		smp_ops->cpu_die(cpu);
 }

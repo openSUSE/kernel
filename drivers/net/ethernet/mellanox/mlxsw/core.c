@@ -204,6 +204,20 @@ int mlxsw_core_max_lag(struct mlxsw_core *mlxsw_core, u16 *p_max_lag)
 }
 EXPORT_SYMBOL(mlxsw_core_max_lag);
 
+enum mlxsw_cmd_mbox_config_profile_lag_mode
+mlxsw_core_lag_mode(struct mlxsw_core *mlxsw_core)
+{
+	return mlxsw_core->bus->lag_mode(mlxsw_core->bus_priv);
+}
+EXPORT_SYMBOL(mlxsw_core_lag_mode);
+
+enum mlxsw_cmd_mbox_config_profile_flood_mode
+mlxsw_core_flood_mode(struct mlxsw_core *mlxsw_core)
+{
+	return mlxsw_core->bus->flood_mode(mlxsw_core->bus_priv);
+}
+EXPORT_SYMBOL(mlxsw_core_flood_mode);
+
 void *mlxsw_core_driver_priv(struct mlxsw_core *mlxsw_core)
 {
 	return mlxsw_core->driver_priv;
@@ -835,7 +849,7 @@ free_skb:
 
 static const struct mlxsw_listener mlxsw_emad_rx_listener =
 	MLXSW_RXL(mlxsw_emad_rx_listener_func, ETHEMAD, TRAP_TO_CPU, false,
-		  EMAD, DISCARD);
+		  EMAD, FORWARD);
 
 static int mlxsw_emad_tlv_enable(struct mlxsw_core *mlxsw_core)
 {

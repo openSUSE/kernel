@@ -18,6 +18,7 @@
 #include "nfs4idmap.h"
 #include "pnfs.h"
 #include "netns.h"
+#include "sysfs.h"
 
 #define NFSDBG_FACILITY		NFSDBG_CLIENT
 
@@ -922,6 +923,7 @@ static int nfs4_set_client(struct nfs_server *server,
 	else
 		cl_init.max_connect = max_connect;
 	switch (proto) {
+	case XPRT_TRANSPORT_RDMA:
 	case XPRT_TRANSPORT_TCP:
 	case XPRT_TRANSPORT_TCP_TLS:
 		cl_init.nconnect = nconnect;
@@ -945,7 +947,6 @@ static int nfs4_set_client(struct nfs_server *server,
 		return -ELOOP;
 	}
 
-	__set_bit(NFS_CS_DS, &cl_init.init_flags);
 	/*
 	 * Query for the lease time on clientid setup or renewal
 	 *
@@ -956,6 +957,9 @@ static int nfs4_set_client(struct nfs_server *server,
 	set_bit(NFS_CS_CHECK_LEASE_TIME, &clp->cl_res_state);
 
 	server->nfs_client = clp;
+	nfs_sysfs_add_server(server);
+	nfs_sysfs_link_rpc_client(server, clp->cl_rpcclient, "_state");
+
 	return 0;
 }
 
@@ -996,6 +1000,7 @@ struct nfs_client *nfs4_set_ds_client(struct nfs_server *mds_srv,
 	cl_init.hostname = buf;
 
 	switch (ds_proto) {
+	case XPRT_TRANSPORT_RDMA:
 	case XPRT_TRANSPORT_TCP:
 	case XPRT_TRANSPORT_TCP_TLS:
 		if (mds_clp->cl_nconnect > 1) {

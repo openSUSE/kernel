@@ -243,7 +243,7 @@ static void qm1d1b0004_remove(struct i2c_client *client)
 
 
 static const struct i2c_device_id qm1d1b0004_id[] = {
-	{"qm1d1b0004", 0},
+	{ "qm1d1b0004" },
 	{}
 };
 
@@ -253,7 +253,7 @@ static struct i2c_driver qm1d1b0004_driver = {
 	.driver = {
 		.name = "qm1d1b0004",
 	},
-	.probe_new = qm1d1b0004_probe,
+	.probe    = qm1d1b0004_probe,
 	.remove   = qm1d1b0004_remove,
 	.id_table = qm1d1b0004_id,
 };

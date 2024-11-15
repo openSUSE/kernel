@@ -563,7 +563,7 @@ static const struct of_device_id tmp007_of_match[] = {
 MODULE_DEVICE_TABLE(of, tmp007_of_match);
 
 static const struct i2c_device_id tmp007_id[] = {
-	{ "tmp007", 0 },
+	{ "tmp007" },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, tmp007_id);
@@ -574,7 +574,7 @@ static struct i2c_driver tmp007_driver = {
 		.of_match_table = tmp007_of_match,
 		.pm	= pm_sleep_ptr(&tmp007_pm_ops),
 	},
-	.probe_new	= tmp007_probe,
+	.probe		= tmp007_probe,
 	.id_table	= tmp007_id,
 };
 module_i2c_driver(tmp007_driver);

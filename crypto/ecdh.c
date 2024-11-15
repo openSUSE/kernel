@@ -11,8 +11,7 @@
 #include <crypto/kpp.h>
 #include <crypto/ecdh.h>
 #include <linux/scatterlist.h>
-#include <linux/fips.h>
-#include <linux/fips.h>
+
 struct ecdh_ctx {
 	unsigned int curve_id;
 	unsigned int ndigits;
@@ -29,6 +28,7 @@ static int ecdh_set_secret(struct crypto_kpp *tfm, const void *buf,
 {
 	struct ecdh_ctx *ctx = ecdh_get_ctx(tfm);
 	struct ecdh params;
+	int ret = 0;
 
 	if (crypto_ecdh_decode_key(buf, len, &params) < 0 ||
 	    params.key_size > sizeof(u64) * ctx->ndigits)
@@ -40,14 +40,16 @@ static int ecdh_set_secret(struct crypto_kpp *tfm, const void *buf,
 		return ecc_gen_privkey(ctx->curve_id, ctx->ndigits,
 				       ctx->private_key);
 
-	memcpy(ctx->private_key, params.key, params.key_size);
+	ecc_digits_from_bytes(params.key, params.key_size,
+			      ctx->private_key, ctx->ndigits);
 
 	if (ecc_is_key_valid(ctx->curve_id, ctx->ndigits,
 			     ctx->private_key, params.key_size) < 0) {
 		memzero_explicit(ctx->private_key, params.key_size);
-		return -EINVAL;
+		ret = -EINVAL;
 	}
-	return 0;
+
+	return ret;
 }
 
 static int ecdh_compute_value(struct kpp_request *req)
@@ -97,36 +99,6 @@ static int ecdh_compute_value(struct kpp_request *req)
 				       ctx->private_key, public_key);
 		buf = public_key;
 		nbytes = public_key_sz;
-
-		/*
-		 * SP800-56Arev3, 5.6.2.1.4: ("Owner Assurance of
-		 * Pair-wise Consistency"): recompute the public key
-		 * and check if the results match.
-		 */
-		if (fips_enabled) {
-			u64 *public_key_pct;
-
-			if (ret < 0)
-				goto free_all;
-
-			public_key_pct = kmalloc(public_key_sz, GFP_KERNEL);
-			if (!public_key_pct) {
-				ret = -ENOMEM;
-				goto free_all;
-			}
-
-			ret = ecc_make_pub_key(ctx->curve_id, ctx->ndigits,
-					       ctx->private_key,
-					       public_key_pct);
-			if (ret < 0) {
-				kfree(public_key_pct);
-				goto free_all;
-			}
-
-			if (memcmp(public_key, public_key_pct, public_key_sz))
-				panic("ECDH PCT failed in FIPS mode");
-			kfree(public_key_pct);
-		}
 	}
 
 	if (ret < 0)
@@ -144,7 +116,7 @@ static int ecdh_compute_value(struct kpp_request *req)
 free_all:
 	kfree_sensitive(shared_secret);
 free_pubkey:
-	kfree_sensitive(public_key);
+	kfree(public_key);
 	return ret;
 }
 

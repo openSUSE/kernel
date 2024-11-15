@@ -12,8 +12,7 @@
 #include <linux/io.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
-#include <linux/of_device.h>
-#include <linux/of_platform.h>
+#include <linux/of.h>
 #include <linux/platform_device.h>
 #include <linux/regmap.h>
 #include <linux/reset.h>
@@ -167,6 +166,8 @@
 
 #define MAX_CDEV_NAME_LEN 16
 
+#define MAX_ASPEED_FAN_TACH_CHANNELS 16
+
 struct aspeed_cooling_device {
 	char name[16];
 	struct aspeed_pwm_tacho_data *priv;
@@ -182,7 +183,7 @@ struct aspeed_pwm_tacho_data {
 	struct reset_control *rst;
 	unsigned long clk_freq;
 	bool pwm_present[8];
-	bool fan_tach_present[16];
+	bool fan_tach_present[MAX_ASPEED_FAN_TACH_CHANNELS];
 	u8 type_pwm_clock_unit[3];
 	u8 type_pwm_clock_division_h[3];
 	u8 type_pwm_clock_division_l[3];
@@ -191,7 +192,7 @@ struct aspeed_pwm_tacho_data {
 	u16 type_fan_tach_unit[3];
 	u8 pwm_port_type[8];
 	u8 pwm_port_fan_ctrl[8];
-	u8 fan_tach_ch_source[16];
+	u8 fan_tach_ch_source[MAX_ASPEED_FAN_TACH_CHANNELS];
 	struct aspeed_cooling_device *cdev[8];
 	const struct attribute_group *groups[3];
 	/* protects access to shared ASPEED_PTCR_RESULT */
@@ -744,20 +745,27 @@ static void aspeed_create_pwm_port(struct aspeed_pwm_tacho_data *priv,
 	aspeed_set_pwm_port_fan_ctrl(priv, pwm_port, INIT_FAN_CTRL);
 }
 
-static void aspeed_create_fan_tach_channel(struct aspeed_pwm_tacho_data *priv,
-					   u8 *fan_tach_ch,
-					   int count,
-					   u8 pwm_source)
+static int aspeed_create_fan_tach_channel(struct device *dev,
+					  struct aspeed_pwm_tacho_data *priv,
+					  u8 *fan_tach_ch,
+					  int count,
+					  u8 pwm_source)
 {
 	u8 val, index;
 
 	for (val = 0; val < count; val++) {
 		index = fan_tach_ch[val];
+		if (index >= MAX_ASPEED_FAN_TACH_CHANNELS) {
+			dev_err(dev, "Invalid Fan Tach input channel %u\n.", index);
+			return -EINVAL;
+		}
 		aspeed_set_fan_tach_ch_enable(priv->regmap, index, true);
 		priv->fan_tach_present[index] = true;
 		priv->fan_tach_ch_source[index] = pwm_source;
 		aspeed_set_fan_tach_ch_source(priv->regmap, index, pwm_source);
 	}
+
+	return 0;
 }
 
 static int
@@ -881,7 +889,10 @@ static int aspeed_create_fan(struct device *dev,
 					fan_tach_ch, count);
 	if (ret)
 		return ret;
-	aspeed_create_fan_tach_channel(priv, fan_tach_ch, count, pwm_port);
+
+	ret = aspeed_create_fan_tach_channel(dev, priv, fan_tach_ch, count, pwm_port);
+	if (ret)
+		return ret;
 
 	return 0;
 }
@@ -896,7 +907,7 @@ static void aspeed_pwm_tacho_remove(void *data)
 static int aspeed_pwm_tacho_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
-	struct device_node *np, *child;
+	struct device_node *np;
 	struct aspeed_pwm_tacho_data *priv;
 	void __iomem *regs;
 	struct device *hwmon;
@@ -940,12 +951,10 @@ static int aspeed_pwm_tacho_probe(struct platform_device *pdev)
 
 	aspeed_create_type(priv);
 
-	for_each_child_of_node(np, child) {
+	for_each_child_of_node_scoped(np, child) {
 		ret = aspeed_create_fan(dev, child, priv);
-		if (ret) {
-			of_node_put(child);
+		if (ret)
 			return ret;
-		}
 	}
 
 	priv->groups[0] = &pwm_dev_group;

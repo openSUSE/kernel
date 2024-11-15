@@ -25,9 +25,11 @@
 #include <linux/quotaops.h>
 #include <linux/iomap.h>
 #include <linux/uio.h>
+#include <linux/buffer_head.h>
 #include "ext2.h"
 #include "xattr.h"
 #include "acl.h"
+#include "trace.h"
 
 #ifdef CONFIG_FS_DAX
 static ssize_t ext2_dax_read_iter(struct kiocb *iocb, struct iov_iter *to)
@@ -101,7 +103,7 @@ static vm_fault_t ext2_dax_fault(struct vm_fault *vmf)
 	}
 	filemap_invalidate_lock_shared(inode->i_mapping);
 
-	ret = dax_iomap_fault(vmf, PE_SIZE_PTE, NULL, NULL, &ext2_iomap_ops);
+	ret = dax_iomap_fault(vmf, 0, NULL, NULL, &ext2_iomap_ops);
 
 	filemap_invalidate_unlock_shared(inode->i_mapping);
 	if (write)
@@ -153,7 +155,7 @@ int ext2_fsync(struct file *file, loff_t start, loff_t end, int datasync)
 	int ret;
 	struct super_block *sb = file->f_mapping->host->i_sb;
 
-	ret = generic_file_fsync(file, start, end, datasync);
+	ret = generic_buffers_fsync(file, start, end, datasync);
 	if (ret == -EIO)
 		/* We don't really know where the IO error happened... */
 		ext2_error(sb, __func__,
@@ -167,9 +169,11 @@ static ssize_t ext2_dio_read_iter(struct kiocb *iocb, struct iov_iter *to)
 	struct inode *inode = file->f_mapping->host;
 	ssize_t ret;
 
+	trace_ext2_dio_read_begin(iocb, to, 0);
 	inode_lock_shared(inode);
 	ret = iomap_dio_rw(iocb, to, &ext2_iomap_ops, NULL, 0, NULL, 0);
 	inode_unlock_shared(inode);
+	trace_ext2_dio_read_end(iocb, to, ret);
 
 	return ret;
 }
@@ -197,6 +201,7 @@ static int ext2_dio_write_end_io(struct kiocb *iocb, ssize_t size,
 		mark_inode_dirty(inode);
 	}
 out:
+	trace_ext2_dio_write_endio(iocb, size, error);
 	return error;
 }
 
@@ -213,7 +218,9 @@ static ssize_t ext2_dio_write_iter(struct kiocb *iocb, struct iov_iter *from)
 	unsigned long blocksize = inode->i_sb->s_blocksize;
 	loff_t offset = iocb->ki_pos;
 	loff_t count = iov_iter_count(from);
+	ssize_t status = 0;
 
+	trace_ext2_dio_write_begin(iocb, from, 0);
 	inode_lock(inode);
 	ret = generic_write_checks(iocb, from);
 	if (ret <= 0)
@@ -241,7 +248,6 @@ static ssize_t ext2_dio_write_iter(struct kiocb *iocb, struct iov_iter *from)
 	/* handle case for partial write and for fallback to buffered write */
 	if (ret >= 0 && iov_iter_count(from)) {
 		loff_t pos, endbyte;
-		ssize_t status;
 		int ret2;
 
 		iocb->ki_flags &= ~IOCB_DIRECT;
@@ -252,7 +258,6 @@ static ssize_t ext2_dio_write_iter(struct kiocb *iocb, struct iov_iter *from)
 			goto out_unlock;
 		}
 
-		iocb->ki_pos += status;
 		ret += status;
 		endbyte = pos + status - 1;
 		ret2 = filemap_write_and_wait_range(inode->i_mapping, pos,
@@ -267,6 +272,9 @@ static ssize_t ext2_dio_write_iter(struct kiocb *iocb, struct iov_iter *from)
 
 out_unlock:
 	inode_unlock(inode);
+	if (status)
+		trace_ext2_dio_write_buff_end(iocb, from, status);
+	trace_ext2_dio_write_end(iocb, from, ret);
 	return ret;
 }
 
@@ -294,6 +302,12 @@ static ssize_t ext2_file_write_iter(struct kiocb *iocb, struct iov_iter *from)
 	return generic_file_write_iter(iocb, from);
 }
 
+static int ext2_file_open(struct inode *inode, struct file *filp)
+{
+	filp->f_mode |= FMODE_CAN_ODIRECT;
+	return dquot_file_open(inode, filp);
+}
+
 const struct file_operations ext2_file_operations = {
 	.llseek		= generic_file_llseek,
 	.read_iter	= ext2_file_read_iter,
@@ -303,7 +317,7 @@ const struct file_operations ext2_file_operations = {
 	.compat_ioctl	= ext2_compat_ioctl,
 #endif
 	.mmap		= ext2_file_mmap,
-	.open		= dquot_file_open,
+	.open		= ext2_file_open,
 	.release	= ext2_release_file,
 	.fsync		= ext2_fsync,
 	.get_unmapped_area = thp_get_unmapped_area,

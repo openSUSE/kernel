@@ -19,7 +19,6 @@ static inline void imx_register_uart_clocks(void)
 }
 #endif
 void imx_mmdc_mask_handshake(void __iomem *ccm_base, unsigned int chn);
-void imx_unregister_clocks(struct clk *clks[], unsigned int count);
 void imx_unregister_hw_clocks(struct clk_hw *hws[], unsigned int count);
 
 extern void imx_cscmr1_fixup(u32 *val);
@@ -442,6 +441,10 @@ struct clk_hw *__imx8m_clk_hw_composite(const char *name,
 #define imx8m_clk_hw_composite_bus(name, parent_names, reg)	\
 	_imx8m_clk_hw_composite(name, parent_names, reg, \
 			IMX_COMPOSITE_BUS, IMX_COMPOSITE_CLK_FLAGS_DEFAULT)
+
+#define imx8m_clk_hw_composite_bus_flags(name, parent_names, reg, flags) \
+	_imx8m_clk_hw_composite(name, parent_names, reg, \
+			IMX_COMPOSITE_BUS, IMX_COMPOSITE_CLK_FLAGS_DEFAULT | flags)
 
 #define imx8m_clk_hw_composite_bus_critical(name, parent_names, reg)	\
 	_imx8m_clk_hw_composite(name, parent_names, reg, \

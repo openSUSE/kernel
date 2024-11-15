@@ -52,6 +52,7 @@ struct usb_ep;
  * @short_not_ok: When reading data, makes short packets be
  *     treated as errors (queue stops advancing till cleanup).
  * @dma_mapped: Indicates if request has been mapped to DMA (internal)
+ * @sg_was_mapped: Set if the scatterlist has been mapped before the request
  * @complete: Function called when request completes, so this request and
  *	its buffer may be re-used.  The function will always be called with
  *	interrupts disabled, and it must not sleep.
@@ -111,6 +112,7 @@ struct usb_request {
 	unsigned		zero:1;
 	unsigned		short_not_ok:1;
 	unsigned		dma_mapped:1;
+	unsigned		sg_was_mapped:1;
 
 	void			(*complete)(struct usb_ep *ep,
 					struct usb_request *req);
@@ -121,8 +123,6 @@ struct usb_request {
 
 	int			status;
 	unsigned		actual;
-
-	void *suse_kabi_padding;
 };
 
 /*-------------------------------------------------------------------------*/
@@ -153,8 +153,6 @@ struct usb_ep_ops {
 
 	int (*fifo_status) (struct usb_ep *ep);
 	void (*fifo_flush) (struct usb_ep *ep);
-
-	void *suse_kabi_padding;
 };
 
 /**
@@ -231,20 +229,18 @@ struct usb_ep {
 
 	const char		*name;
 	const struct usb_ep_ops	*ops;
+	const struct usb_endpoint_descriptor	*desc;
+	const struct usb_ss_ep_comp_descriptor	*comp_desc;
 	struct list_head	ep_list;
 	struct usb_ep_caps	caps;
 	bool			claimed;
 	bool			enabled;
-	unsigned		maxpacket:16;
-	unsigned		maxpacket_limit:16;
-	unsigned		max_streams:16;
 	unsigned		mult:2;
 	unsigned		maxburst:5;
 	u8			address;
-	const struct usb_endpoint_descriptor	*desc;
-	const struct usb_ss_ep_comp_descriptor	*comp_desc;
-
-	void *suse_kabi_padding;
+	u16			maxpacket;
+	u16			maxpacket_limit;
+	u16			max_streams;
 };
 
 /*-------------------------------------------------------------------------*/
@@ -337,8 +333,6 @@ struct usb_gadget_ops {
 			struct usb_endpoint_descriptor *,
 			struct usb_ss_ep_comp_descriptor *);
 	int	(*check_config)(struct usb_gadget *gadget);
-
-	void *suse_kabi_padding;
 };
 
 /**
@@ -461,8 +455,6 @@ struct usb_gadget {
 	unsigned			wakeup_armed:1;
 	int				irq;
 	int				id_number;
-
-	void *suse_kabi_padding;
 };
 #define work_to_gadget(w)	(container_of((w), struct usb_gadget, work))
 
@@ -721,6 +713,15 @@ static inline int usb_gadget_check_config(struct usb_gadget *gadget)
  * get_interface.  Setting a configuration (or interface) is where
  * endpoints should be activated or (config 0) shut down.
  *
+ * The gadget driver's setup() callback does not have to queue a response to
+ * ep0 within the setup() call, the driver can do it after setup() returns.
+ * The UDC driver must wait until such a response is queued before proceeding
+ * with the data/status stages of the control transfer.
+ *
+ * NOTE: Currently, a number of UDC drivers rely on USB_GADGET_DELAYED_STATUS
+ * being returned from the setup() callback, which is a bug. See the comment
+ * next to USB_GADGET_DELAYED_STATUS for details.
+ *
  * (Note that only the default control endpoint is supported.  Neither
  * hosts nor devices generally support control traffic except to ep0.)
  *
@@ -751,8 +752,6 @@ struct usb_gadget_driver {
 	char			*udc_name;
 	unsigned                match_existing_only:1;
 	bool			is_bound:1;
-
-	void *suse_kabi_padding;
 };
 
 

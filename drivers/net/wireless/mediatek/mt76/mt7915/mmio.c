@@ -706,13 +706,13 @@ int mt7915_mmio_wed_init(struct mt7915_dev *dev, void *pdev_ptr,
 	}
 
 	wed->wlan.init_buf = mt7915_wed_init_buf;
-	wed->wlan.offload_enable = mt76_mmio_wed_offload_enable;
-	wed->wlan.offload_disable = mt76_mmio_wed_offload_disable;
-	wed->wlan.init_rx_buf = mt76_mmio_wed_init_rx_buf;
-	wed->wlan.release_rx_buf = mt76_mmio_wed_release_rx_buf;
+	wed->wlan.offload_enable = mt76_wed_offload_enable;
+	wed->wlan.offload_disable = mt76_wed_offload_disable;
+	wed->wlan.init_rx_buf = mt76_wed_init_rx_buf;
+	wed->wlan.release_rx_buf = mt76_wed_release_rx_buf;
 	wed->wlan.update_wo_rx_stats = mt7915_mmio_wed_update_rx_stats;
 	wed->wlan.reset = mt7915_mmio_wed_reset;
-	wed->wlan.reset_complete = mt76_mmio_wed_reset_complete;
+	wed->wlan.reset_complete = mt76_wed_reset_complete;
 
 	dev->mt76.rx_token_size = wed->wlan.rx_npkt;
 
@@ -927,8 +927,10 @@ struct mt7915_dev *mt7915_mmio_probe(struct device *pdev,
 		.rx_check = mt7915_rx_check,
 		.rx_poll_complete = mt7915_rx_poll_complete,
 		.sta_add = mt7915_mac_sta_add,
+		.sta_event = mt7915_mac_sta_event,
 		.sta_remove = mt7915_mac_sta_remove,
 		.update_survey = mt7915_update_channel,
+		.set_channel = mt7915_set_channel,
 	};
 	struct mt7915_dev *dev;
 	struct mt76_dev *mdev;

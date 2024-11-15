@@ -116,7 +116,7 @@ enum {
 #define PM800_CHIP_GEN_ID_NUM	0x3
 
 static const struct i2c_device_id pm80x_id_table[] = {
-	{"88PM800", 0},
+	{ "88PM800" },
 	{} /* NULL terminated */
 };
 MODULE_DEVICE_TABLE(i2c, pm80x_id_table);
@@ -391,7 +391,7 @@ static void device_irq_exit_800(struct pm80x_chip *chip)
 	regmap_del_irq_chip(chip->irq, chip->irq_data);
 }
 
-static struct regmap_irq_chip pm800_irq_chip = {
+static const struct regmap_irq_chip pm800_irq_chip = {
 	.name = "88pm800",
 	.irqs = pm800_irqs,
 	.num_irqs = ARRAY_SIZE(pm800_irqs),
@@ -597,7 +597,7 @@ static struct i2c_driver pm800_driver = {
 		.name = "88PM800",
 		.pm = pm_sleep_ptr(&pm80x_pm_ops),
 		},
-	.probe_new = pm800_probe,
+	.probe = pm800_probe,
 	.remove = pm800_remove,
 	.id_table = pm80x_id_table,
 };

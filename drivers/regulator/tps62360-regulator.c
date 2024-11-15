@@ -275,7 +275,7 @@ static const struct regmap_config tps62360_regmap_config = {
 	.reg_bits		= 8,
 	.val_bits		= 8,
 	.max_register		= REG_CHIPID,
-	.cache_type		= REGCACHE_RBTREE,
+	.cache_type		= REGCACHE_MAPLE,
 };
 
 static struct tps62360_regulator_platform_data *
@@ -491,7 +491,7 @@ static struct i2c_driver tps62360_i2c_driver = {
 		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
 		.of_match_table = of_match_ptr(tps62360_of_match),
 	},
-	.probe_new = tps62360_probe,
+	.probe = tps62360_probe,
 	.shutdown = tps62360_shutdown,
 	.id_table = tps62360_id,
 };

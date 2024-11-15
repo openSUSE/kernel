@@ -9,18 +9,7 @@
 #include <linux/const.h>
 
 /* PAGE_SHIFT determines the page size */
-#if defined(CONFIG_PAGE_SIZE_4KB)
-# define PAGE_SHIFT	12
-#elif defined(CONFIG_PAGE_SIZE_8KB)
-# define PAGE_SHIFT	13
-#elif defined(CONFIG_PAGE_SIZE_16KB)
-# define PAGE_SHIFT	14
-#elif defined(CONFIG_PAGE_SIZE_64KB)
-# define PAGE_SHIFT	16
-#else
-# error "Bogus kernel page size?"
-#endif
-
+#define PAGE_SHIFT	CONFIG_PAGE_SHIFT
 #define PAGE_SIZE	(_AC(1, UL) << PAGE_SHIFT)
 #define PAGE_MASK	(~(PAGE_SIZE-1))
 #define PTE_MASK	PAGE_MASK
@@ -173,11 +162,5 @@ typedef struct page *pgtable_t;
 
 #include <asm-generic/memory_model.h>
 #include <asm-generic/getorder.h>
-
-/*
- * Some drivers need to perform DMA into kmalloc'ed buffers
- * and so we have to increase the kmalloc minalign for this.
- */
-#define ARCH_DMA_MINALIGN	L1_CACHE_BYTES
 
 #endif /* __ASM_SH_PAGE_H */

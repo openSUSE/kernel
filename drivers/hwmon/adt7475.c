@@ -10,7 +10,6 @@
  */
 
 #include <linux/module.h>
-#include <linux/of_device.h>
 #include <linux/init.h>
 #include <linux/slab.h>
 #include <linux/i2c.h>
@@ -21,6 +20,8 @@
 #include <linux/jiffies.h>
 #include <linux/of.h>
 #include <linux/util_macros.h>
+
+#include <dt-bindings/pwm/pwm.h>
 
 /* Indexes for the sysfs hooks */
 enum adt_sysfs_id {
@@ -44,6 +45,7 @@ enum adt_sysfs_id {
 /* 7475 Common Registers */
 
 #define REG_DEVREV2		0x12	/* ADT7490 only */
+#define REG_IMON		0x1D	/* ADT7490 only */
 
 #define REG_VTT			0x1E	/* ADT7490 only */
 #define REG_EXTEND3		0x1F	/* ADT7490 only */
@@ -104,6 +106,9 @@ enum adt_sysfs_id {
 #define REG_VTT_MIN		0x84	/* ADT7490 only */
 #define REG_VTT_MAX		0x86	/* ADT7490 only */
 
+#define REG_IMON_MIN		0x85	/* ADT7490 only */
+#define REG_IMON_MAX		0x87	/* ADT7490 only */
+
 #define VID_VIDSEL		0x80	/* ADT7476 only */
 
 #define CONFIG2_ATTN		0x20
@@ -124,7 +129,7 @@ enum adt_sysfs_id {
 
 /* ADT7475 Settings */
 
-#define ADT7475_VOLTAGE_COUNT	5	/* Not counting Vtt */
+#define ADT7475_VOLTAGE_COUNT	5	/* Not counting Vtt or Imon */
 #define ADT7475_TEMP_COUNT	3
 #define ADT7475_TACH_COUNT	4
 #define ADT7475_PWM_COUNT	3
@@ -205,7 +210,7 @@ struct adt7475_data {
 	u8 has_fan4:1;
 	u8 has_vid:1;
 	u32 alarms;
-	u16 voltage[3][6];
+	u16 voltage[3][7];
 	u16 temp[7][3];
 	u16 tach[2][4];
 	u8 pwm[4][3];
@@ -216,7 +221,7 @@ struct adt7475_data {
 
 	u8 vid;
 	u8 vrm;
-	const struct attribute_group *groups[9];
+	const struct attribute_group *groups[10];
 };
 
 static struct i2c_driver adt7475_driver;
@@ -274,13 +279,14 @@ static inline u16 rpm2tach(unsigned long rpm)
 }
 
 /* Scaling factors for voltage inputs, taken from the ADT7490 datasheet */
-static const int adt7473_in_scaling[ADT7475_VOLTAGE_COUNT + 1][2] = {
+static const int adt7473_in_scaling[ADT7475_VOLTAGE_COUNT + 2][2] = {
 	{ 45, 94 },	/* +2.5V */
 	{ 175, 525 },	/* Vccp */
 	{ 68, 71 },	/* Vcc */
 	{ 93, 47 },	/* +5V */
 	{ 120, 20 },	/* +12V */
 	{ 45, 45 },	/* Vtt */
+	{ 45, 45 },	/* Imon */
 };
 
 static inline int reg2volt(int channel, u16 reg, u8 bypass_attn)
@@ -370,11 +376,16 @@ static ssize_t voltage_store(struct device *dev,
 			reg = VOLTAGE_MIN_REG(sattr->index);
 		else
 			reg = VOLTAGE_MAX_REG(sattr->index);
-	} else {
+	} else if (sattr->index == 5) {
 		if (sattr->nr == MIN)
 			reg = REG_VTT_MIN;
 		else
 			reg = REG_VTT_MAX;
+	} else {
+		if (sattr->nr == MIN)
+			reg = REG_IMON_MIN;
+		else
+			reg = REG_IMON_MAX;
 	}
 
 	i2c_smbus_write_byte_data(client, reg,
@@ -1105,6 +1116,10 @@ static SENSOR_DEVICE_ATTR_2_RO(in5_input, voltage, INPUT, 5);
 static SENSOR_DEVICE_ATTR_2_RW(in5_max, voltage, MAX, 5);
 static SENSOR_DEVICE_ATTR_2_RW(in5_min, voltage, MIN, 5);
 static SENSOR_DEVICE_ATTR_2_RO(in5_alarm, voltage, ALARM, 31);
+static SENSOR_DEVICE_ATTR_2_RO(in6_input, voltage, INPUT, 6);
+static SENSOR_DEVICE_ATTR_2_RW(in6_max, voltage, MAX, 6);
+static SENSOR_DEVICE_ATTR_2_RW(in6_min, voltage, MIN, 6);
+static SENSOR_DEVICE_ATTR_2_RO(in6_alarm, voltage, ALARM, 30);
 static SENSOR_DEVICE_ATTR_2_RO(temp1_input, temp, INPUT, 0);
 static SENSOR_DEVICE_ATTR_2_RO(temp1_alarm, temp, ALARM, 0);
 static SENSOR_DEVICE_ATTR_2_RO(temp1_fault, temp, FAULT, 0);
@@ -1295,6 +1310,14 @@ static struct attribute *in5_attrs[] = {
 	NULL
 };
 
+static struct attribute *in6_attrs[] = {
+	&sensor_dev_attr_in6_input.dev_attr.attr,
+	&sensor_dev_attr_in6_max.dev_attr.attr,
+	&sensor_dev_attr_in6_min.dev_attr.attr,
+	&sensor_dev_attr_in6_alarm.dev_attr.attr,
+	NULL
+};
+
 static struct attribute *vid_attrs[] = {
 	&dev_attr_cpu0_vid.attr,
 	&dev_attr_vrm.attr,
@@ -1308,6 +1331,7 @@ static const struct attribute_group in0_attr_group = { .attrs = in0_attrs };
 static const struct attribute_group in3_attr_group = { .attrs = in3_attrs };
 static const struct attribute_group in4_attr_group = { .attrs = in4_attrs };
 static const struct attribute_group in5_attr_group = { .attrs = in5_attrs };
+static const struct attribute_group in6_attr_group = { .attrs = in6_attrs };
 static const struct attribute_group vid_attr_group = { .attrs = vid_attrs };
 
 static int adt7475_detect(struct i2c_client *client,
@@ -1390,6 +1414,18 @@ static int adt7475_update_limits(struct i2c_client *client)
 		data->voltage[MAX][5] = ret << 2;
 	}
 
+	if (data->has_voltage & (1 << 6)) {
+		ret = adt7475_read(REG_IMON_MIN);
+		if (ret < 0)
+			return ret;
+		data->voltage[MIN][6] = ret << 2;
+
+		ret = adt7475_read(REG_IMON_MAX);
+		if (ret < 0)
+			return ret;
+		data->voltage[MAX][6] = ret << 2;
+	}
+
 	for (i = 0; i < ADT7475_TEMP_COUNT; i++) {
 		/* Adjust values so they match the input precision */
 		ret = adt7475_read(TEMP_MIN_REG(i));
@@ -1468,7 +1504,7 @@ static int load_config3(const struct i2c_client *client, const char *propname)
 	u8 config3;
 	int ret;
 
-	ret = of_property_read_string(client->dev.of_node, propname, &function);
+	ret = device_property_read_string(&client->dev, propname, &function);
 	if (!ret) {
 		ret = adt7475_read(REG_CONFIG3);
 		if (ret < 0)
@@ -1494,7 +1530,7 @@ static int load_config4(const struct i2c_client *client, const char *propname)
 	u8 config4;
 	int ret;
 
-	ret = of_property_read_string(client->dev.of_node, propname, &function);
+	ret = device_property_read_string(&client->dev, propname, &function);
 	if (!ret) {
 		ret = adt7475_read(REG_CONFIG4);
 		if (ret < 0)
@@ -1556,8 +1592,8 @@ static int set_property_bit(const struct i2c_client *client, char *property,
 			    u8 *config, u8 bit_index)
 {
 	u32 prop_value = 0;
-	int ret = of_property_read_u32(client->dev.of_node, property,
-					&prop_value);
+	int ret = device_property_read_u32(&client->dev, property,
+					   &prop_value);
 
 	if (!ret) {
 		if (prop_value)
@@ -1628,6 +1664,129 @@ static int adt7475_set_pwm_polarity(struct i2c_client *client)
 	return 0;
 }
 
+struct adt7475_pwm_config {
+	int index;
+	int freq;
+	int flags;
+	int duty;
+};
+
+static int _adt7475_pwm_properties_parse_args(u32 args[4], struct adt7475_pwm_config *cfg)
+{
+	int freq_hz;
+	int duty;
+
+	if (args[1] == 0)
+		return -EINVAL;
+
+	freq_hz = 1000000000UL / args[1];
+	if (args[3] >= args[1])
+		duty = 255;
+	else
+		duty = div_u64(255ULL * args[3], args[1]);
+
+	cfg->index = args[0];
+	cfg->freq = find_closest(freq_hz, pwmfreq_table, ARRAY_SIZE(pwmfreq_table));
+	cfg->flags = args[2];
+	cfg->duty = duty;
+
+	return 0;
+}
+
+static int adt7475_pwm_properties_parse_reference_args(struct fwnode_handle *fwnode,
+						       struct adt7475_pwm_config *cfg)
+{
+	int ret, i;
+	struct fwnode_reference_args rargs = {};
+	u32 args[4] = {};
+
+	ret = fwnode_property_get_reference_args(fwnode, "pwms", "#pwm-cells", 0, 0, &rargs);
+	if (ret)
+		return ret;
+
+	if (rargs.nargs != 4) {
+		fwnode_handle_put(rargs.fwnode);
+		return -EINVAL;
+	}
+
+	for (i = 0; i < 4; i++)
+		args[i] = rargs.args[i];
+
+	ret = _adt7475_pwm_properties_parse_args(args, cfg);
+
+	fwnode_handle_put(rargs.fwnode);
+
+	return ret;
+}
+
+static int adt7475_pwm_properties_parse_args(struct fwnode_handle *fwnode,
+					     struct adt7475_pwm_config *cfg)
+{
+	int ret;
+	u32 args[4] = {};
+
+	ret = fwnode_property_read_u32_array(fwnode, "pwms", args, ARRAY_SIZE(args));
+	if (ret)
+		return ret;
+
+	return _adt7475_pwm_properties_parse_args(args, cfg);
+}
+
+static int adt7475_fan_pwm_config(struct i2c_client *client)
+{
+	struct adt7475_data *data = i2c_get_clientdata(client);
+	struct adt7475_pwm_config cfg = {};
+	int ret;
+
+	device_for_each_child_node_scoped(&client->dev, child) {
+		if (!fwnode_property_present(child, "pwms"))
+			continue;
+
+		if (is_of_node(child))
+			ret = adt7475_pwm_properties_parse_reference_args(child, &cfg);
+		else
+			ret = adt7475_pwm_properties_parse_args(child, &cfg);
+
+		if (cfg.index >= ADT7475_PWM_COUNT)
+			return -EINVAL;
+
+		ret = adt7475_read(PWM_CONFIG_REG(cfg.index));
+		if (ret < 0)
+			return ret;
+		data->pwm[CONTROL][cfg.index] = ret;
+		if (cfg.flags & PWM_POLARITY_INVERTED)
+			data->pwm[CONTROL][cfg.index] |= BIT(4);
+		else
+			data->pwm[CONTROL][cfg.index] &= ~BIT(4);
+
+		/* Force to manual mode so PWM values take effect */
+		data->pwm[CONTROL][cfg.index] &= ~0xE0;
+		data->pwm[CONTROL][cfg.index] |= 0x07 << 5;
+
+		ret = i2c_smbus_write_byte_data(client, PWM_CONFIG_REG(cfg.index),
+						data->pwm[CONTROL][cfg.index]);
+		if (ret)
+			return ret;
+
+		data->pwm[INPUT][cfg.index] = cfg.duty;
+		ret = i2c_smbus_write_byte_data(client, PWM_REG(cfg.index),
+						data->pwm[INPUT][cfg.index]);
+		if (ret)
+			return ret;
+
+		data->range[cfg.index] = adt7475_read(TEMP_TRANGE_REG(cfg.index));
+		data->range[cfg.index] &= ~0xf;
+		data->range[cfg.index] |= cfg.freq;
+
+		ret = i2c_smbus_write_byte_data(client, TEMP_TRANGE_REG(cfg.index),
+						data->range[cfg.index]);
+		if (ret)
+			return ret;
+	}
+
+	return 0;
+}
+
 static int adt7475_probe(struct i2c_client *client)
 {
 	enum chips chip;
@@ -1642,7 +1801,6 @@ static int adt7475_probe(struct i2c_client *client)
 	struct device *hwmon_dev;
 	int i, ret = 0, revision, group_num = 0;
 	u8 config3;
-	const struct i2c_device_id *id = i2c_match_id(adt7475_id, client);
 
 	data = devm_kzalloc(&client->dev, sizeof(*data), GFP_KERNEL);
 	if (data == NULL)
@@ -1652,10 +1810,7 @@ static int adt7475_probe(struct i2c_client *client)
 	data->client = client;
 	i2c_set_clientdata(client, data);
 
-	if (client->dev.of_node)
-		chip = (enum chips)of_device_get_match_data(&client->dev);
-	else
-		chip = id->driver_data;
+	chip = (uintptr_t)i2c_get_match_data(client);
 
 	/* Initialize device-specific values */
 	switch (chip) {
@@ -1664,7 +1819,7 @@ static int adt7475_probe(struct i2c_client *client)
 		revision = adt7475_read(REG_DEVID2) & 0x07;
 		break;
 	case adt7490:
-		data->has_voltage = 0x3e;	/* in1 to in5 */
+		data->has_voltage = 0x7e;	/* in1 to in6 */
 		revision = adt7475_read(REG_DEVID2) & 0x03;
 		if (revision == 0x03)
 			revision += adt7475_read(REG_DEVREV2);
@@ -1683,7 +1838,7 @@ static int adt7475_probe(struct i2c_client *client)
 	if (!(config3 & CONFIG3_SMBALERT))
 		data->has_pwm2 = 1;
 	/* Meaning of this bit is inverted for the ADT7473-1 */
-	if (id->driver_data == adt7473 && revision >= 1)
+	if (chip == adt7473 && revision >= 1)
 		data->has_pwm2 = !data->has_pwm2;
 
 	data->config4 = adt7475_read(REG_CONFIG4);
@@ -1696,12 +1851,12 @@ static int adt7475_probe(struct i2c_client *client)
 	 * because 2 different pins (TACH4 and +2.5 Vin) can be used for
 	 * this function
 	 */
-	if (id->driver_data == adt7490) {
+	if (chip == adt7490) {
 		if ((data->config4 & CONFIG4_PINFUNC) == 0x1 &&
 		    !(config3 & CONFIG3_THERM))
 			data->has_fan4 = 1;
 	}
-	if (id->driver_data == adt7476 || id->driver_data == adt7490) {
+	if (chip == adt7476 || chip == adt7490) {
 		if (!(config3 & CONFIG3_THERM) ||
 		    (data->config4 & CONFIG4_PINFUNC) == 0x1)
 			data->has_voltage |= (1 << 0);		/* in0 */
@@ -1711,7 +1866,7 @@ static int adt7475_probe(struct i2c_client *client)
 	 * On the ADT7476, the +12V input pin may instead be used as VID5,
 	 * and VID pins may alternatively be used as GPIO
 	 */
-	if (id->driver_data == adt7476) {
+	if (chip == adt7476) {
 		u8 vid = adt7475_read(REG_VID);
 		if (!(vid & VID_VIDSEL))
 			data->has_voltage |= (1 << 4);		/* in4 */
@@ -1743,6 +1898,10 @@ static int adt7475_probe(struct i2c_client *client)
 	ret = adt7475_set_pwm_polarity(client);
 	if (ret && ret != -EINVAL)
 		dev_warn(&client->dev, "Error configuring pwm polarity\n");
+
+	ret = adt7475_fan_pwm_config(client);
+	if (ret)
+		dev_warn(&client->dev, "Error %d configuring fan/pwm\n", ret);
 
 	/* Start monitoring */
 	switch (chip) {
@@ -1776,6 +1935,9 @@ static int adt7475_probe(struct i2c_client *client)
 	if (data->has_voltage & (1 << 5)) {
 		data->groups[group_num++] = &in5_attr_group;
 	}
+	if (data->has_voltage & (1 << 6)) {
+		data->groups[group_num++] = &in6_attr_group;
+	}
 	if (data->has_vid) {
 		data->vrm = vid_which_vrm();
 		data->groups[group_num] = &vid_attr_group;
@@ -1792,7 +1954,7 @@ static int adt7475_probe(struct i2c_client *client)
 	}
 
 	dev_info(&client->dev, "%s device, revision %d\n",
-		 names[id->driver_data], revision);
+		 names[chip], revision);
 	if ((data->has_voltage & 0x11) || data->has_fan4 || data->has_pwm2)
 		dev_info(&client->dev, "Optional features:%s%s%s%s%s\n",
 			 (data->has_voltage & (1 << 0)) ? " in0" : "",
@@ -1821,7 +1983,7 @@ static struct i2c_driver adt7475_driver = {
 		.name	= "adt7475",
 		.of_match_table = of_match_ptr(adt7475_of_match),
 	},
-	.probe_new	= adt7475_probe,
+	.probe		= adt7475_probe,
 	.id_table	= adt7475_id,
 	.detect		= adt7475_detect,
 	.address_list	= normal_i2c,
@@ -1959,6 +2121,24 @@ static int adt7475_update_measure(struct device *dev)
 			return ret;
 		data->voltage[INPUT][5] = ret << 2 |
 			((ext >> 4) & 3);
+	}
+
+	if (data->has_voltage & (1 << 6)) {
+		ret = adt7475_read(REG_STATUS4);
+		if (ret < 0)
+			return ret;
+		data->alarms |= ret << 24;
+
+		ret = adt7475_read(REG_EXTEND3);
+		if (ret < 0)
+			return ret;
+		ext = ret;
+
+		ret = adt7475_read(REG_IMON);
+		if (ret < 0)
+			return ret;
+		data->voltage[INPUT][6] = ret << 2 |
+			((ext >> 6) & 3);
 	}
 
 	for (i = 0; i < ADT7475_TACH_COUNT; i++) {

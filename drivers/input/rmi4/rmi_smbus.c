@@ -413,7 +413,7 @@ static const struct dev_pm_ops rmi_smb_pm = {
 };
 
 static const struct i2c_device_id rmi_id[] = {
-	{ "rmi4_smbus", 0 },
+	{ "rmi4_smbus" },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, rmi_id);
@@ -424,7 +424,7 @@ static struct i2c_driver rmi_smb_driver = {
 		.pm	= pm_ptr(&rmi_smb_pm),
 	},
 	.id_table	= rmi_id,
-	.probe_new	= rmi_smb_probe,
+	.probe		= rmi_smb_probe,
 	.remove		= rmi_smb_remove,
 };
 

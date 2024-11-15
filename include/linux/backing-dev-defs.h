@@ -179,8 +179,8 @@ struct backing_dev_info {
 	atomic_long_t tot_write_bandwidth;
 	/*
 	 * Jiffies when last process was dirty throttled on this bdi. Used by
- 	 * blk-wbt.
-	*/
+	 * blk-wbt.
+	 */
 	unsigned long last_bdp_sleep;
 
 	struct bdi_writeback wb;  /* the root writeback info for this bdi */

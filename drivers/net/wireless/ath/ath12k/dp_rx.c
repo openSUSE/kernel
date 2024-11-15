@@ -17,6 +17,7 @@
 #include "dp_tx.h"
 #include "peer.h"
 #include "dp_mon.h"
+#include "debugfs_htt_stats.h"
 
 #define ATH12K_DP_RX_FRAGMENT_TIMEOUT_MS (2 * HZ)
 
@@ -239,31 +240,61 @@ static inline u8 ath12k_dp_rx_get_msdu_src_link(struct ath12k_base *ab,
 	return ab->hal_rx_ops->rx_desc_get_msdu_src_link_id(desc);
 }
 
-static int ath12k_dp_purge_mon_ring(struct ath12k_base *ab)
+static void ath12k_dp_clean_up_skb_list(struct sk_buff_head *skb_list)
 {
-	int i, reaped = 0;
-	unsigned long timeout = jiffies + msecs_to_jiffies(DP_MON_PURGE_TIMEOUT_MS);
+	struct sk_buff *skb;
 
-	do {
-		for (i = 0; i < ab->hw_params->num_rxmda_per_pdev; i++)
-			reaped += ath12k_dp_mon_process_ring(ab, i, NULL,
-							     DP_MON_SERVICE_BUDGET,
-							     ATH12K_DP_RX_MONITOR_MODE);
+	while ((skb = __skb_dequeue(skb_list)))
+		dev_kfree_skb_any(skb);
+}
 
-		/* nothing more to reap */
-		if (reaped < DP_MON_SERVICE_BUDGET)
-			return 0;
+static size_t ath12k_dp_list_cut_nodes(struct list_head *list,
+				       struct list_head *head,
+				       size_t count)
+{
+	struct list_head *cur;
+	struct ath12k_rx_desc_info *rx_desc;
+	size_t nodes = 0;
 
-	} while (time_before(jiffies, timeout));
+	if (!count) {
+		INIT_LIST_HEAD(list);
+		goto out;
+	}
 
-	ath12k_warn(ab, "dp mon ring purge timeout");
+	list_for_each(cur, head) {
+		if (!count)
+			break;
 
-	return -ETIMEDOUT;
+		rx_desc = list_entry(cur, struct ath12k_rx_desc_info, list);
+		rx_desc->in_use = true;
+
+		count--;
+		nodes++;
+	}
+
+	list_cut_before(list, head, cur);
+out:
+	return nodes;
+}
+
+static void ath12k_dp_rx_enqueue_free(struct ath12k_dp *dp,
+				      struct list_head *used_list)
+{
+	struct ath12k_rx_desc_info *rx_desc, *safe;
+
+	/* Reset the use flag */
+	list_for_each_entry_safe(rx_desc, safe, used_list, list)
+		rx_desc->in_use = false;
+
+	spin_lock_bh(&dp->rx_desc_lock);
+	list_splice_tail(used_list, &dp->rx_desc_free_list);
+	spin_unlock_bh(&dp->rx_desc_lock);
 }
 
 /* Returns number of Rx buffers replenished */
 int ath12k_dp_rx_bufs_replenish(struct ath12k_base *ab,
 				struct dp_rxdma_ring *rx_ring,
+				struct list_head *used_list,
 				int req_entries)
 {
 	struct ath12k_buffer_addr *desc;
@@ -292,6 +323,19 @@ int ath12k_dp_rx_bufs_replenish(struct ath12k_base *ab,
 	req_entries = min(num_free, req_entries);
 	num_remain = req_entries;
 
+	if (!num_remain)
+		goto out;
+
+	/* Get the descriptor from free list */
+	if (list_empty(used_list)) {
+		spin_lock_bh(&dp->rx_desc_lock);
+		req_entries = ath12k_dp_list_cut_nodes(used_list,
+						       &dp->rx_desc_free_list,
+						       num_remain);
+		spin_unlock_bh(&dp->rx_desc_lock);
+		num_remain = req_entries;
+	}
+
 	while (num_remain > 0) {
 		skb = dev_alloc_skb(DP_RX_BUFFER_SIZE +
 				    DP_RX_BUFFER_ALIGN_SIZE);
@@ -311,33 +355,20 @@ int ath12k_dp_rx_bufs_replenish(struct ath12k_base *ab,
 		if (dma_mapping_error(ab->dev, paddr))
 			goto fail_free_skb;
 
-		spin_lock_bh(&dp->rx_desc_lock);
-
-		/* Get desc from free list and store in used list
-		 * for cleanup purposes
-		 *
-		 * TODO: pass the removed descs rather than
-		 * add/read to optimize
-		 */
-		rx_desc = list_first_entry_or_null(&dp->rx_desc_free_list,
+		rx_desc = list_first_entry_or_null(used_list,
 						   struct ath12k_rx_desc_info,
 						   list);
-		if (!rx_desc) {
-			spin_unlock_bh(&dp->rx_desc_lock);
+		if (!rx_desc)
 			goto fail_dma_unmap;
-		}
 
 		rx_desc->skb = skb;
 		cookie = rx_desc->cookie;
-		list_del(&rx_desc->list);
-		list_add_tail(&rx_desc->list, &dp->rx_desc_used_list);
-
-		spin_unlock_bh(&dp->rx_desc_lock);
 
 		desc = ath12k_hal_srng_src_get_next_entry(ab, srng);
 		if (!desc)
-			goto fail_buf_unassign;
+			goto fail_dma_unmap;
 
+		list_del(&rx_desc->list);
 		ATH12K_SKB_RXCB(skb)->paddr = paddr;
 
 		num_remain--;
@@ -345,25 +376,18 @@ int ath12k_dp_rx_bufs_replenish(struct ath12k_base *ab,
 		ath12k_hal_rx_buf_addr_info_set(desc, paddr, cookie, mgr);
 	}
 
-	ath12k_hal_srng_access_end(ab, srng);
+	goto out;
 
-	spin_unlock_bh(&srng->lock);
-
-	return req_entries - num_remain;
-
-fail_buf_unassign:
-	spin_lock_bh(&dp->rx_desc_lock);
-	list_del(&rx_desc->list);
-	list_add_tail(&rx_desc->list, &dp->rx_desc_free_list);
-	rx_desc->skb = NULL;
-	spin_unlock_bh(&dp->rx_desc_lock);
 fail_dma_unmap:
 	dma_unmap_single(ab->dev, paddr, skb->len + skb_tailroom(skb),
 			 DMA_FROM_DEVICE);
 fail_free_skb:
 	dev_kfree_skb_any(skb);
-
+out:
 	ath12k_hal_srng_access_end(ab, srng);
+
+	if (!list_empty(used_list))
+		ath12k_dp_rx_enqueue_free(dp, used_list);
 
 	spin_unlock_bh(&srng->lock);
 
@@ -399,8 +423,6 @@ static int ath12k_dp_rxdma_buf_free(struct ath12k_base *ab)
 
 	ath12k_dp_rxdma_mon_buf_ring_free(ab, &dp->rxdma_mon_buf_ring);
 
-	ath12k_dp_rxdma_mon_buf_ring_free(ab, &dp->tx_mon_buf_ring);
-
 	return 0;
 }
 
@@ -422,13 +444,12 @@ static int ath12k_dp_rxdma_mon_ring_buf_setup(struct ath12k_base *ab,
 static int ath12k_dp_rxdma_ring_buf_setup(struct ath12k_base *ab,
 					  struct dp_rxdma_ring *rx_ring)
 {
-	int num_entries;
+	LIST_HEAD(list);
 
-	num_entries = rx_ring->refill_buf_ring.size /
-		ath12k_hal_srng_get_entrysize(ab, HAL_RXDMA_BUF);
+	rx_ring->bufs_max = rx_ring->refill_buf_ring.size /
+			ath12k_hal_srng_get_entrysize(ab, HAL_RXDMA_BUF);
 
-	rx_ring->bufs_max = num_entries;
-	ath12k_dp_rx_bufs_replenish(ab, rx_ring, num_entries);
+	ath12k_dp_rx_bufs_replenish(ab, rx_ring, &list, 0);
 
 	return 0;
 }
@@ -454,15 +475,6 @@ static int ath12k_dp_rxdma_buf_setup(struct ath12k_base *ab)
 				    "failed to setup HAL_RXDMA_MONITOR_BUF\n");
 			return ret;
 		}
-
-		ret = ath12k_dp_rxdma_mon_ring_buf_setup(ab,
-							 &dp->tx_mon_buf_ring,
-							 HAL_TX_MONITOR_BUF);
-		if (ret) {
-			ath12k_warn(ab,
-				    "failed to setup HAL_TX_MONITOR_BUF\n");
-			return ret;
-		}
 	}
 
 	return 0;
@@ -474,10 +486,8 @@ static void ath12k_dp_rx_pdev_srng_free(struct ath12k *ar)
 	struct ath12k_base *ab = ar->ab;
 	int i;
 
-	for (i = 0; i < ab->hw_params->num_rxmda_per_pdev; i++) {
+	for (i = 0; i < ab->hw_params->num_rxdma_per_pdev; i++)
 		ath12k_dp_srng_cleanup(ab, &dp->rxdma_mon_dst_ring[i]);
-		ath12k_dp_srng_cleanup(ab, &dp->tx_mon_dst_ring[i]);
-	}
 }
 
 void ath12k_dp_rx_pdev_reo_cleanup(struct ath12k_base *ab)
@@ -521,7 +531,7 @@ static int ath12k_dp_rx_pdev_srng_alloc(struct ath12k *ar)
 	int ret;
 	u32 mac_id = dp->mac_id;
 
-	for (i = 0; i < ab->hw_params->num_rxmda_per_pdev; i++) {
+	for (i = 0; i < ab->hw_params->num_rxdma_per_pdev; i++) {
 		ret = ath12k_dp_srng_setup(ar->ab,
 					   &dp->rxdma_mon_dst_ring[i],
 					   HAL_RXDMA_MONITOR_DST,
@@ -530,17 +540,6 @@ static int ath12k_dp_rx_pdev_srng_alloc(struct ath12k *ar)
 		if (ret) {
 			ath12k_warn(ar->ab,
 				    "failed to setup HAL_RXDMA_MONITOR_DST\n");
-			return ret;
-		}
-
-		ret = ath12k_dp_srng_setup(ar->ab,
-					   &dp->tx_mon_dst_ring[i],
-					   HAL_TX_MONITOR_DST,
-					   0, mac_id + i,
-					   DP_TX_MONITOR_DEST_RING_SIZE);
-		if (ret) {
-			ath12k_warn(ar->ab,
-				    "failed to setup HAL_TX_MONITOR_DST\n");
 			return ret;
 		}
 	}
@@ -1270,10 +1269,10 @@ static int ath12k_htt_tlv_ppdu_stats_parse(struct ath12k_base *ab,
 	return 0;
 }
 
-static int ath12k_dp_htt_tlv_iter(struct ath12k_base *ab, const void *ptr, size_t len,
-				  int (*iter)(struct ath12k_base *ar, u16 tag, u16 len,
-					      const void *ptr, void *data),
-				  void *data)
+int ath12k_dp_htt_tlv_iter(struct ath12k_base *ab, const void *ptr, size_t len,
+			   int (*iter)(struct ath12k_base *ar, u16 tag, u16 len,
+				       const void *ptr, void *data),
+			   void *data)
 {
 	const struct htt_tlv *tlv;
 	const void *begin = ptr;
@@ -1743,6 +1742,7 @@ void ath12k_dp_htt_htc_t2h_msg_handler(struct ath12k_base *ab,
 		ath12k_htt_pull_ppdu_stats(ab, skb);
 		break;
 	case HTT_T2H_MSG_TYPE_EXT_STATS_CONF:
+		ath12k_debugfs_htt_ext_stats_handler(ab, skb);
 		break;
 	case HTT_T2H_MSG_TYPE_MLO_TIMESTAMP_OFFSET_IND:
 		ath12k_htt_mlo_offset_event_handler(ab, skb);
@@ -2426,7 +2426,7 @@ static void ath12k_dp_rx_deliver_msdu(struct ath12k *ar, struct napi_struct *nap
 	spin_unlock_bh(&ab->base_lock);
 
 	ath12k_dbg(ab, ATH12K_DBG_DATA,
-		   "rx skb %pK len %u peer %pM %d %s sn %u %s%s%s%s%s%s%s%s%s rate_idx %u vht_nss %u freq %u band %u flag 0x%x fcs-err %i mic-err %i amsdu-more %i\n",
+		   "rx skb %p len %u peer %pM %d %s sn %u %s%s%s%s%s%s%s%s%s rate_idx %u vht_nss %u freq %u band %u flag 0x%x fcs-err %i mic-err %i amsdu-more %i\n",
 		   msdu,
 		   msdu->len,
 		   peer ? peer->addr : NULL,
@@ -2611,6 +2611,7 @@ static u16 ath12k_dp_rx_get_peer_id(struct ath12k_base *ab,
 int ath12k_dp_rx_process(struct ath12k_base *ab, int ring_id,
 			 struct napi_struct *napi, int budget)
 {
+	LIST_HEAD(rx_desc_used_list);
 	struct ath12k_rx_desc_info *desc_info;
 	struct ath12k_dp *dp = &ab->dp;
 	struct dp_rxdma_ring *rx_ring = &dp->rx_refill_buf_ring;
@@ -2654,7 +2655,8 @@ try_again:
 		if (!desc_info) {
 			desc_info = ath12k_dp_get_rx_desc(ab, cookie);
 			if (!desc_info) {
-				ath12k_warn(ab, "Invalid cookie in manual desc retrieval");
+				ath12k_warn(ab, "Invalid cookie in manual descriptor retrieval: 0x%x\n",
+					    cookie);
 				continue;
 			}
 		}
@@ -2665,9 +2667,7 @@ try_again:
 		msdu = desc_info->skb;
 		desc_info->skb = NULL;
 
-		spin_lock_bh(&dp->rx_desc_lock);
-		list_move_tail(&desc_info->list, &dp->rx_desc_free_list);
-		spin_unlock_bh(&dp->rx_desc_lock);
+		list_add_tail(&desc_info->list, &rx_desc_used_list);
 
 		rxcb = ATH12K_SKB_RXCB(msdu);
 		dma_unmap_single(ab->dev, rxcb->paddr,
@@ -2731,7 +2731,8 @@ try_again:
 	if (!total_msdu_reaped)
 		goto exit;
 
-	ath12k_dp_rx_bufs_replenish(ab, rx_ring, num_buffs_reaped);
+	ath12k_dp_rx_bufs_replenish(ab, rx_ring, &rx_desc_used_list,
+				    num_buffs_reaped);
 
 	ath12k_dp_rx_process_received_packets(ab, napi, &msdu_list,
 					      ring_id);
@@ -3004,6 +3005,7 @@ static int ath12k_dp_rx_h_defrag_reo_reinject(struct ath12k *ar,
 	u32 cookie, hal_rx_desc_sz, dest_ring_info0, queue_addr_hi;
 	int ret;
 	struct ath12k_rx_desc_info *desc_info;
+	enum hal_rx_buf_return_buf_manager idle_link_rbm = dp->idle_link_rbm;
 	u8 dst_ind;
 
 	hal_rx_desc_sz = ab->hal.hal_desc_sz;
@@ -3053,9 +3055,9 @@ static int ath12k_dp_rx_h_defrag_reo_reinject(struct ath12k *ar,
 	}
 
 	desc_info->skb = defrag_skb;
+	desc_info->in_use = true;
 
 	list_del(&desc_info->list);
-	list_add_tail(&desc_info->list, &dp->rx_desc_used_list);
 	spin_unlock_bh(&dp->rx_desc_lock);
 
 	ATH12K_SKB_RXCB(defrag_skb)->paddr = buf_paddr;
@@ -3081,7 +3083,7 @@ static int ath12k_dp_rx_h_defrag_reo_reinject(struct ath12k *ar,
 
 	ath12k_hal_rx_buf_addr_info_set(&reo_ent_ring->buf_addr_info, link_paddr,
 					cookie,
-					HAL_RX_BUF_RBM_WBM_CHIP0_IDLE_DESC_LIST);
+					idle_link_rbm);
 
 	mpdu_info = u32_encode_bits(1, RX_MPDU_DESC_INFO0_MSDU_COUNT) |
 		    u32_encode_bits(0, RX_MPDU_DESC_INFO0_FRAG_FLAG) |
@@ -3115,9 +3117,9 @@ static int ath12k_dp_rx_h_defrag_reo_reinject(struct ath12k *ar,
 
 err_free_desc:
 	spin_lock_bh(&dp->rx_desc_lock);
-	list_del(&desc_info->list);
-	list_add_tail(&desc_info->list, &dp->rx_desc_free_list);
+	desc_info->in_use = false;
 	desc_info->skb = NULL;
+	list_add_tail(&desc_info->list, &dp->rx_desc_free_list);
 	spin_unlock_bh(&dp->rx_desc_lock);
 err_unmap_dma:
 	dma_unmap_single(ab->dev, buf_paddr, defrag_skb->len + skb_tailroom(defrag_skb),
@@ -3334,6 +3336,7 @@ out_unlock:
 
 static int
 ath12k_dp_process_rx_err_buf(struct ath12k *ar, struct hal_reo_dest_ring *desc,
+			     struct list_head *used_list,
 			     bool drop, u32 cookie)
 {
 	struct ath12k_base *ab = ar->ab;
@@ -3353,7 +3356,8 @@ ath12k_dp_process_rx_err_buf(struct ath12k *ar, struct hal_reo_dest_ring *desc,
 	if (!desc_info) {
 		desc_info = ath12k_dp_get_rx_desc(ab, cookie);
 		if (!desc_info) {
-			ath12k_warn(ab, "Invalid cookie in manual desc retrieval");
+			ath12k_warn(ab, "Invalid cookie in DP rx error descriptor retrieval: 0x%x\n",
+				    cookie);
 			return -EINVAL;
 		}
 	}
@@ -3363,9 +3367,8 @@ ath12k_dp_process_rx_err_buf(struct ath12k *ar, struct hal_reo_dest_ring *desc,
 
 	msdu = desc_info->skb;
 	desc_info->skb = NULL;
-	spin_lock_bh(&ab->dp.rx_desc_lock);
-	list_move_tail(&desc_info->list, &ab->dp.rx_desc_free_list);
-	spin_unlock_bh(&ab->dp.rx_desc_lock);
+
+	list_add_tail(&desc_info->list, used_list);
 
 	rxcb = ATH12K_SKB_RXCB(msdu);
 	dma_unmap_single(ar->ab->dev, rxcb->paddr,
@@ -3421,6 +3424,7 @@ int ath12k_dp_rx_process_err(struct ath12k_base *ab, struct napi_struct *napi,
 	struct hal_reo_dest_ring *reo_desc;
 	struct dp_rxdma_ring *rx_ring;
 	struct dp_srng *reo_except;
+	LIST_HEAD(rx_desc_used_list);
 	u32 desc_bank, num_msdus;
 	struct hal_srng *srng;
 	struct ath12k_dp *dp;
@@ -3428,7 +3432,7 @@ int ath12k_dp_rx_process_err(struct ath12k_base *ab, struct napi_struct *napi,
 	struct ath12k *ar;
 	dma_addr_t paddr;
 	bool is_frag;
-	bool drop = false;
+	bool drop;
 	int pdev_id;
 
 	tot_n_bufs_reaped = 0;
@@ -3446,7 +3450,9 @@ int ath12k_dp_rx_process_err(struct ath12k_base *ab, struct napi_struct *napi,
 
 	while (budget &&
 	       (reo_desc = ath12k_hal_srng_dst_get_next_entry(ab, srng))) {
+		drop = false;
 		ab->soc_stats.err_ring_pkts++;
+
 		ret = ath12k_hal_desc_reo_parse_err(ab, reo_desc, &paddr,
 						    &desc_bank);
 		if (ret) {
@@ -3458,7 +3464,7 @@ int ath12k_dp_rx_process_err(struct ath12k_base *ab, struct napi_struct *napi,
 			       (paddr - link_desc_banks[desc_bank].paddr);
 		ath12k_hal_rx_msdu_link_info_get(link_desc_va, &num_msdus, msdu_cookies,
 						 &rbm);
-		if (rbm != HAL_RX_BUF_RBM_WBM_CHIP0_IDLE_DESC_LIST &&
+		if (rbm != dp->idle_link_rbm &&
 		    rbm != HAL_RX_BUF_RBM_SW3_BM &&
 		    rbm != ab->hw_params->hal_params->rx_buf_rbm) {
 			ab->soc_stats.invalid_rbm++;
@@ -3488,7 +3494,9 @@ int ath12k_dp_rx_process_err(struct ath12k_base *ab, struct napi_struct *napi,
 			pdev_id = ath12k_hw_mac_id_to_pdev_id(ab->hw_params, mac_id);
 			ar = ab->pdevs[pdev_id].ar;
 
-			if (!ath12k_dp_process_rx_err_buf(ar, reo_desc, drop,
+			if (!ath12k_dp_process_rx_err_buf(ar, reo_desc,
+							  &rx_desc_used_list,
+							  drop,
 							  msdu_cookies[i]))
 				tot_n_bufs_reaped++;
 		}
@@ -3508,7 +3516,8 @@ exit:
 
 	rx_ring = &dp->rx_refill_buf_ring;
 
-	ath12k_dp_rx_bufs_replenish(ab, rx_ring, tot_n_bufs_reaped);
+	ath12k_dp_rx_bufs_replenish(ab, rx_ring, &rx_desc_used_list,
+				    tot_n_bufs_reaped);
 
 	return tot_n_bufs_reaped;
 }
@@ -3725,25 +3734,27 @@ static void ath12k_dp_rx_wbm_err(struct ath12k *ar,
 int ath12k_dp_rx_process_wbm_err(struct ath12k_base *ab,
 				 struct napi_struct *napi, int budget)
 {
+	LIST_HEAD(rx_desc_used_list);
 	struct ath12k *ar;
 	struct ath12k_dp *dp = &ab->dp;
 	struct dp_rxdma_ring *rx_ring;
 	struct hal_rx_wbm_rel_info err_info;
 	struct hal_srng *srng;
 	struct sk_buff *msdu;
-	struct sk_buff_head msdu_list;
+	struct sk_buff_head msdu_list, scatter_msdu_list;
 	struct ath12k_skb_rxcb *rxcb;
 	void *rx_desc;
 	u8 mac_id;
 	int num_buffs_reaped = 0;
 	struct ath12k_rx_desc_info *desc_info;
 	int ret, pdev_id;
+	struct hal_rx_desc *msdu_data;
 
 	__skb_queue_head_init(&msdu_list);
+	__skb_queue_head_init(&scatter_msdu_list);
 
 	srng = &ab->hal.srng_list[dp->rx_rel_ring.ring_id];
 	rx_ring = &dp->rx_refill_buf_ring;
-
 	spin_lock_bh(&srng->lock);
 
 	ath12k_hal_srng_access_begin(ab, srng);
@@ -3767,7 +3778,8 @@ int ath12k_dp_rx_process_wbm_err(struct ath12k_base *ab,
 		if (!desc_info) {
 			desc_info = ath12k_dp_get_rx_desc(ab, err_info.cookie);
 			if (!desc_info) {
-				ath12k_warn(ab, "Invalid cookie in manual desc retrieval");
+				ath12k_warn(ab, "Invalid cookie in DP WBM rx error descriptor retrieval: 0x%x\n",
+					    err_info.cookie);
 				continue;
 			}
 		}
@@ -3778,9 +3790,7 @@ int ath12k_dp_rx_process_wbm_err(struct ath12k_base *ab,
 		msdu = desc_info->skb;
 		desc_info->skb = NULL;
 
-		spin_lock_bh(&dp->rx_desc_lock);
-		list_move_tail(&desc_info->list, &dp->rx_desc_free_list);
-		spin_unlock_bh(&dp->rx_desc_lock);
+		list_add_tail(&desc_info->list, &rx_desc_used_list);
 
 		rxcb = ATH12K_SKB_RXCB(msdu);
 		dma_unmap_single(ab->dev, rxcb->paddr,
@@ -3798,16 +3808,52 @@ int ath12k_dp_rx_process_wbm_err(struct ath12k_base *ab,
 			continue;
 		}
 
+		msdu_data = (struct hal_rx_desc *)msdu->data;
 		rxcb->err_rel_src = err_info.err_rel_src;
 		rxcb->err_code = err_info.err_code;
-		rxcb->rx_desc = (struct hal_rx_desc *)msdu->data;
-
-		__skb_queue_tail(&msdu_list, msdu);
-
 		rxcb->is_first_msdu = err_info.first_msdu;
 		rxcb->is_last_msdu = err_info.last_msdu;
 		rxcb->is_continuation = err_info.continuation;
+		rxcb->rx_desc = msdu_data;
+
+		if (err_info.continuation) {
+			__skb_queue_tail(&scatter_msdu_list, msdu);
+			continue;
+		}
+
+		mac_id = ath12k_dp_rx_get_msdu_src_link(ab,
+							msdu_data);
+		if (mac_id >= MAX_RADIOS) {
+			dev_kfree_skb_any(msdu);
+
+			/* In any case continuation bit is set
+			 * in the previous record, cleanup scatter_msdu_list
+			 */
+			ath12k_dp_clean_up_skb_list(&scatter_msdu_list);
+			continue;
+		}
+
+		if (!skb_queue_empty(&scatter_msdu_list)) {
+			struct sk_buff *msdu;
+
+			skb_queue_walk(&scatter_msdu_list, msdu) {
+				rxcb = ATH12K_SKB_RXCB(msdu);
+				rxcb->mac_id = mac_id;
+			}
+
+			skb_queue_splice_tail_init(&scatter_msdu_list,
+						   &msdu_list);
+		}
+
+		rxcb = ATH12K_SKB_RXCB(msdu);
+		rxcb->mac_id = mac_id;
+		__skb_queue_tail(&msdu_list, msdu);
 	}
+
+	/* In any case continuation bit is set in the
+	 * last record, cleanup scatter_msdu_list
+	 */
+	ath12k_dp_clean_up_skb_list(&scatter_msdu_list);
 
 	ath12k_hal_srng_access_end(ab, srng);
 
@@ -3816,12 +3862,14 @@ int ath12k_dp_rx_process_wbm_err(struct ath12k_base *ab,
 	if (!num_buffs_reaped)
 		goto done;
 
-	ath12k_dp_rx_bufs_replenish(ab, rx_ring, num_buffs_reaped);
+	ath12k_dp_rx_bufs_replenish(ab, rx_ring, &rx_desc_used_list,
+				    num_buffs_reaped);
 
 	rcu_read_lock();
 	while ((msdu = __skb_dequeue(&msdu_list))) {
-		mac_id = ath12k_dp_rx_get_msdu_src_link(ab,
-							(struct hal_rx_desc *)msdu->data);
+		rxcb = ATH12K_SKB_RXCB(msdu);
+		mac_id = rxcb->mac_id;
+
 		pdev_id = ath12k_hw_mac_id_to_pdev_id(ab->hw_params, mac_id);
 		ar = ab->pdevs[pdev_id].ar;
 
@@ -3927,7 +3975,7 @@ void ath12k_dp_rx_free(struct ath12k_base *ab)
 
 	ath12k_dp_srng_cleanup(ab, &dp->rx_refill_buf_ring.refill_buf_ring);
 
-	for (i = 0; i < ab->hw_params->num_rxmda_per_pdev; i++) {
+	for (i = 0; i < ab->hw_params->num_rxdma_per_pdev; i++) {
 		if (ab->hw_params->rx_mac_buf_ring)
 			ath12k_dp_srng_cleanup(ab, &dp->rx_mac_buf_ring[i]);
 	}
@@ -3936,7 +3984,6 @@ void ath12k_dp_rx_free(struct ath12k_base *ab)
 		ath12k_dp_srng_cleanup(ab, &dp->rxdma_err_dst_ring[i]);
 
 	ath12k_dp_srng_cleanup(ab, &dp->rxdma_mon_buf_ring.refill_buf_ring);
-	ath12k_dp_srng_cleanup(ab, &dp->tx_mon_buf_ring.refill_buf_ring);
 
 	ath12k_dp_rxdma_buf_free(ab);
 }
@@ -4020,7 +4067,7 @@ int ath12k_dp_rxdma_ring_sel_config_wcn7850(struct ath12k_base *ab)
 	 * and modify the rx_desc struct
 	 */
 
-	for (i = 0; i < ab->hw_params->num_rxmda_per_pdev; i++) {
+	for (i = 0; i < ab->hw_params->num_rxdma_per_pdev; i++) {
 		ring_id = dp->rx_mac_buf_ring[i].ring_id;
 		ret = ath12k_dp_tx_htt_rx_filter_setup(ab, ring_id, i,
 						       HAL_RXDMA_BUF,
@@ -4047,7 +4094,7 @@ int ath12k_dp_rx_htt_setup(struct ath12k_base *ab)
 	}
 
 	if (ab->hw_params->rx_mac_buf_ring) {
-		for (i = 0; i < ab->hw_params->num_rxmda_per_pdev; i++) {
+		for (i = 0; i < ab->hw_params->num_rxdma_per_pdev; i++) {
 			ring_id = dp->rx_mac_buf_ring[i].ring_id;
 			ret = ath12k_dp_tx_htt_srng_setup(ab, ring_id,
 							  i, HAL_RXDMA_BUF);
@@ -4079,15 +4126,6 @@ int ath12k_dp_rx_htt_setup(struct ath12k_base *ab)
 				    ret);
 			return ret;
 		}
-
-		ring_id = dp->tx_mon_buf_ring.refill_buf_ring.ring_id;
-		ret = ath12k_dp_tx_htt_srng_setup(ab, ring_id,
-						  0, HAL_TX_MONITOR_BUF);
-		if (ret) {
-			ath12k_warn(ab, "failed to configure rxdma_mon_buf_ring %d\n",
-				    ret);
-			return ret;
-		}
 	}
 
 	ret = ab->hw_params->hw_ops->rxdma_ring_sel_config(ab);
@@ -4107,9 +4145,6 @@ int ath12k_dp_rx_alloc(struct ath12k_base *ab)
 	idr_init(&dp->rxdma_mon_buf_ring.bufs_idr);
 	spin_lock_init(&dp->rxdma_mon_buf_ring.idr_lock);
 
-	idr_init(&dp->tx_mon_buf_ring.bufs_idr);
-	spin_lock_init(&dp->tx_mon_buf_ring.idr_lock);
-
 	ret = ath12k_dp_srng_setup(ab,
 				   &dp->rx_refill_buf_ring.refill_buf_ring,
 				   HAL_RXDMA_BUF, 0, 0,
@@ -4120,7 +4155,7 @@ int ath12k_dp_rx_alloc(struct ath12k_base *ab)
 	}
 
 	if (ab->hw_params->rx_mac_buf_ring) {
-		for (i = 0; i < ab->hw_params->num_rxmda_per_pdev; i++) {
+		for (i = 0; i < ab->hw_params->num_rxdma_per_pdev; i++) {
 			ret = ath12k_dp_srng_setup(ab,
 						   &dp->rx_mac_buf_ring[i],
 						   HAL_RXDMA_BUF, 1,
@@ -4152,15 +4187,6 @@ int ath12k_dp_rx_alloc(struct ath12k_base *ab)
 			ath12k_warn(ab, "failed to setup HAL_RXDMA_MONITOR_BUF\n");
 			return ret;
 		}
-
-		ret = ath12k_dp_srng_setup(ab,
-					   &dp->tx_mon_buf_ring.refill_buf_ring,
-					   HAL_TX_MONITOR_BUF, 0, 0,
-					   DP_TX_MONITOR_BUF_RING_SIZE);
-		if (ret) {
-			ath12k_warn(ab, "failed to setup DP_TX_MONITOR_BUF_RING_SIZE\n");
-			return ret;
-		}
 	}
 
 	ret = ath12k_dp_rxdma_buf_setup(ab);
@@ -4189,7 +4215,7 @@ int ath12k_dp_rx_pdev_alloc(struct ath12k_base *ab, int mac_id)
 		return ret;
 	}
 
-	for (i = 0; i < ab->hw_params->num_rxmda_per_pdev; i++) {
+	for (i = 0; i < ab->hw_params->num_rxdma_per_pdev; i++) {
 		ring_id = dp->rxdma_mon_dst_ring[i].ring_id;
 		ret = ath12k_dp_tx_htt_srng_setup(ab, ring_id,
 						  mac_id + i,
@@ -4197,17 +4223,6 @@ int ath12k_dp_rx_pdev_alloc(struct ath12k_base *ab, int mac_id)
 		if (ret) {
 			ath12k_warn(ab,
 				    "failed to configure rxdma_mon_dst_ring %d %d\n",
-				    i, ret);
-			return ret;
-		}
-
-		ring_id = dp->tx_mon_dst_ring[i].ring_id;
-		ret = ath12k_dp_tx_htt_srng_setup(ab, ring_id,
-						  mac_id + i,
-						  HAL_TX_MONITOR_DST);
-		if (ret) {
-			ath12k_warn(ab,
-				    "failed to configure tx_mon_dst_ring %d %d\n",
 				    i, ret);
 			return ret;
 		}
@@ -4251,32 +4266,6 @@ int ath12k_dp_rx_pdev_mon_attach(struct ath12k *ar)
 	pmon->mon_last_linkdesc_paddr = 0;
 	pmon->mon_last_buf_cookie = DP_RX_DESC_COOKIE_MAX + 1;
 	spin_lock_init(&pmon->mon_lock);
-
-	return 0;
-}
-
-int ath12k_dp_rx_pktlog_start(struct ath12k_base *ab)
-{
-	/* start reap timer */
-	mod_timer(&ab->mon_reap_timer,
-		  jiffies + msecs_to_jiffies(ATH12K_MON_TIMER_INTERVAL));
-
-	return 0;
-}
-
-int ath12k_dp_rx_pktlog_stop(struct ath12k_base *ab, bool stop_timer)
-{
-	int ret;
-
-	if (stop_timer)
-		del_timer_sync(&ab->mon_reap_timer);
-
-	/* reap all the monitor related rings */
-	ret = ath12k_dp_purge_mon_ring(ab);
-	if (ret) {
-		ath12k_warn(ab, "failed to purge dp mon ring: %d\n", ret);
-		return ret;
-	}
 
 	return 0;
 }

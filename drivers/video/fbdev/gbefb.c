@@ -1000,6 +1000,8 @@ static int gbefb_mmap(struct fb_info *info,
 	unsigned long phys_addr, phys_size;
 	u16 *tile;
 
+	vma->vm_page_prot = pgprot_decrypted(vma->vm_page_prot);
+
 	/* check range */
 	if (vma->vm_pgoff > (~0UL >> PAGE_SHIFT))
 		return -EINVAL;
@@ -1245,10 +1247,10 @@ static void gbefb_remove(struct platform_device* p_dev)
 
 static struct platform_driver gbefb_driver = {
 	.probe = gbefb_probe,
-	.remove_new = gbefb_remove,
-	.driver	= {
+	.remove = gbefb_remove,
+	.driver = {
 		.name = "gbefb",
-		.dev_groups	= gbefb_groups,
+		.dev_groups = gbefb_groups,
 	},
 };
 

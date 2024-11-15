@@ -446,8 +446,8 @@ static void adv7393_remove(struct i2c_client *client)
 }
 
 static const struct i2c_device_id adv7393_id[] = {
-	{"adv7393", 0},
-	{},
+	{ "adv7393" },
+	{}
 };
 MODULE_DEVICE_TABLE(i2c, adv7393_id);
 
@@ -455,7 +455,7 @@ static struct i2c_driver adv7393_driver = {
 	.driver = {
 		.name	= "adv7393",
 	},
-	.probe_new	= adv7393_probe,
+	.probe		= adv7393_probe,
 	.remove		= adv7393_remove,
 	.id_table	= adv7393_id,
 };

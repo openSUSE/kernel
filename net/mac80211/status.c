@@ -5,13 +5,13 @@
  * Copyright 2006-2007	Jiri Benc <jbenc@suse.cz>
  * Copyright 2008-2010	Johannes Berg <johannes@sipsolutions.net>
  * Copyright 2013-2014  Intel Mobile Communications GmbH
- * Copyright 2021-2023  Intel Corporation
+ * Copyright 2021-2024  Intel Corporation
  */
 
 #include <linux/export.h>
 #include <linux/etherdevice.h>
 #include <net/mac80211.h>
-#include <asm/unaligned.h>
+#include <linux/unaligned.h>
 #include "ieee80211_i.h"
 #include "rate.h"
 #include "mesh.h"
@@ -696,6 +696,23 @@ static void ieee80211_handle_smps_status(struct ieee80211_sub_if_data *sdata,
 	wiphy_work_queue(sdata->local->hw.wiphy, &link->u.mgd.recalc_smps);
 }
 
+static void
+ieee80211_handle_teardown_ttlm_status(struct ieee80211_sub_if_data *sdata,
+				      bool acked)
+{
+	if (!sdata || !ieee80211_sdata_running(sdata))
+		return;
+
+	if (!acked)
+		return;
+
+	if (sdata->vif.type != NL80211_IFTYPE_STATION)
+		return;
+
+	wiphy_work_queue(sdata->local->hw.wiphy,
+			 &sdata->u.mgd.teardown_ttlm_work);
+}
+
 static void ieee80211_report_used_skb(struct ieee80211_local *local,
 				      struct sk_buff *skb, bool dropped,
 				      ktime_t ack_hwtstamp)
@@ -772,6 +789,9 @@ static void ieee80211_report_used_skb(struct ieee80211_local *local,
 		case IEEE80211_STATUS_TYPE_SMPS:
 			ieee80211_handle_smps_status(sdata, acked,
 						     info->status_data);
+			break;
+		case IEEE80211_STATUS_TYPE_NEG_TTLM:
+			ieee80211_handle_teardown_ttlm_status(sdata, acked);
 			break;
 		}
 		rcu_read_unlock();
@@ -1113,13 +1133,6 @@ void ieee80211_tx_status_skb(struct ieee80211_hw *hw, struct sk_buff *skb)
 }
 EXPORT_SYMBOL(ieee80211_tx_status_skb);
 
-// FIXME: for kABI compatibility
-void ieee80211_tx_status(struct ieee80211_hw *hw, struct sk_buff *skb)
-{
-	ieee80211_tx_status_skb(hw, skb);
-}
-EXPORT_SYMBOL(ieee80211_tx_status);
-
 void ieee80211_tx_status_ext(struct ieee80211_hw *hw,
 			     struct ieee80211_tx_status *status)
 {
@@ -1288,3 +1301,4 @@ void ieee80211_purge_tx_queue(struct ieee80211_hw *hw,
 	while ((skb = __skb_dequeue(skbs)))
 		ieee80211_free_txskb(hw, skb);
 }
+EXPORT_SYMBOL(ieee80211_purge_tx_queue);

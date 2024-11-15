@@ -143,8 +143,8 @@ static const struct attribute_group veml6030_event_attr_group = {
 
 static int veml6030_als_pwr_on(struct veml6030_data *data)
 {
-	return regmap_update_bits(data->regmap, VEML6030_REG_ALS_CONF,
-				 VEML6030_ALS_SD, 0);
+	return regmap_clear_bits(data->regmap, VEML6030_REG_ALS_CONF,
+				 VEML6030_ALS_SD);
 }
 
 static int veml6030_als_shut_down(struct veml6030_data *data)
@@ -880,7 +880,7 @@ static const struct of_device_id veml6030_of_match[] = {
 MODULE_DEVICE_TABLE(of, veml6030_of_match);
 
 static const struct i2c_device_id veml6030_id[] = {
-	{ "veml6030", 0 },
+	{ "veml6030" },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, veml6030_id);
@@ -891,7 +891,7 @@ static struct i2c_driver veml6030_driver = {
 		.of_match_table = veml6030_of_match,
 		.pm = pm_ptr(&veml6030_pm_ops),
 	},
-	.probe_new = veml6030_probe,
+	.probe = veml6030_probe,
 	.id_table = veml6030_id,
 };
 module_i2c_driver(veml6030_driver);

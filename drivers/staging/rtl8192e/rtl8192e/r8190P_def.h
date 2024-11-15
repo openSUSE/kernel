@@ -8,10 +8,9 @@
 #define R8190P_DEF_H
 
 #include <linux/types.h>
+#include "r8192E_phy.h"
 
 #define		MAX_SILENT_RESET_RX_SLOT_NUM	10
-
-#define RX_MPDU_QUEUE				0
 
 enum rtl819x_loopback {
 	RTL819X_NO_LOOPBACK = 0,
@@ -85,15 +84,12 @@ enum rtl819x_loopback {
 #define HAL_PRIME_CHNL_OFFSET_LOWER		1
 #define HAL_PRIME_CHNL_OFFSET_UPPER		2
 
-
 enum version_8190_loopback {
 	VERSION_8190_BD = 0x3,
 	VERSION_8190_BE
 };
 
-#define IC_VersionCut_C	0x2
 #define IC_VersionCut_D	0x3
-#define IC_VersionCut_E	0x4
 
 enum rf_optype {
 	RF_OP_By_SW_3wire = 0,
@@ -139,19 +135,10 @@ struct tx_fwinfo_8190pci {
 	u32			Retry_Limit:4;
 	u32			Reserved2:1;
 	u32			PacketID:13;
-
-
-};
-
-struct phy_ofdm_rx_status_rxsc_sgien_exintfflag {
-	u8			reserved:4;
-	u8			rxsc:2;
-	u8			sgi_en:1;
-	u8			ex_intf_flag:1;
 };
 
 struct phy_sts_ofdm_819xpci {
-	u8	trsw_gain_X[4];
+	u8	trsw_gain_X[RF90_PATH_MAX];
 	u8	pwdb_all;
 	u8	cfosho_X[4];
 	u8	cfotail_X[4];
@@ -171,7 +158,6 @@ struct phy_sts_cck_819xpci {
 	u8	sq_rpt;
 	u8	cck_agc_rpt;
 };
-
 
 #define		PHY_RSSI_SLID_WIN_MAX				100
 #define		PHY_Beacon_RSSI_SLID_WIN_MAX		10
@@ -214,7 +200,6 @@ struct tx_desc {
 	u32	Reserved7;
 };
 
-
 struct tx_desc_cmd {
 	u16	PktSize;
 	u8	Reserved1;
@@ -242,7 +227,7 @@ struct rx_desc {
 	u16			Length:14;
 	u16			CRC32:1;
 	u16			ICV:1;
-	u8			RxDrvInfoSize;
+	u8			rx_drv_info_size;
 	u8			Shift:2;
 	u8			PHYStatus:1;
 	u8			SWDec:1;
@@ -256,9 +241,7 @@ struct rx_desc {
 	u32			Reserved3;
 
 	u32	BufferAddress;
-
 };
-
 
 struct rx_fwinfo {
 	u16			Reserved1:12;
@@ -278,7 +261,6 @@ struct rx_fwinfo {
 	u8			Reserved4:1;
 
 	u32			TSFL;
-
 };
 
 #endif

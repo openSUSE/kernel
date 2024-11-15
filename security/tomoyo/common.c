@@ -184,6 +184,7 @@ static bool tomoyo_manage_by_non_root;
  *
  * Returns nothing.
  */
+__printf(3, 4)
 static void tomoyo_addprintf(char *buffer, int len, const char *fmt, ...)
 {
 	va_list args;
@@ -2786,7 +2787,7 @@ void tomoyo_check_profile(void)
 		else
 			continue;
 		pr_err("Userland tools for TOMOYO 2.6 must be installed and policy must be initialized.\n");
-		pr_err("Please see https://tomoyo.osdn.jp/2.6/ for more information.\n");
+		pr_err("Please see https://tomoyo.sourceforge.net/2.6/ for more information.\n");
 		panic("STOP!");
 	}
 	tomoyo_read_unlock(idx);

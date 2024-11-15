@@ -14,7 +14,7 @@
  *      3) V4L2_CID_JPEG_ACTIVE_MARKER
  */
 
-#include <asm/unaligned.h>
+#include <linux/unaligned.h>
 #include <linux/clk.h>
 #include <linux/err.h>
 #include <linux/interrupt.h>
@@ -1600,10 +1600,8 @@ static int jpu_probe(struct platform_device *pdev)
 
 	/* interrupt service routine registration */
 	jpu->irq = ret = platform_get_irq(pdev, 0);
-	if (ret < 0) {
-		dev_err(&pdev->dev, "cannot find IRQ\n");
+	if (ret < 0)
 		return ret;
-	}
 
 	ret = devm_request_irq(&pdev->dev, jpu->irq, jpu_irq_handler, 0,
 			       dev_name(&pdev->dev), jpu);

@@ -204,7 +204,12 @@ static bool check_pipe(struct perf_data *data)
 				data->file.fd = fd;
 				data->use_stdio = false;
 			}
-		} else {
+
+		/*
+		 * When is_pipe and data->file.fd is given, use given fd
+		 * instead of STDIN_FILENO or STDOUT_FILENO
+		 */
+		} else if (data->file.fd <= 0) {
 			data->file.fd = fd;
 		}
 	}
@@ -413,7 +418,7 @@ ssize_t perf_data_file__write(struct perf_data_file *file,
 }
 
 ssize_t perf_data__write(struct perf_data *data,
-			      void *buf, size_t size)
+			 void *buf, size_t size)
 {
 	if (data->use_stdio) {
 		if (fwrite(buf, size, 1, data->file.fptr) == 1)
@@ -424,9 +429,9 @@ ssize_t perf_data__write(struct perf_data *data,
 }
 
 int perf_data__switch(struct perf_data *data,
-			   const char *postfix,
-			   size_t pos, bool at_exit,
-			   char **new_filepath)
+		      const char *postfix,
+		      size_t pos, bool at_exit,
+		      char **new_filepath)
 {
 	int ret;
 

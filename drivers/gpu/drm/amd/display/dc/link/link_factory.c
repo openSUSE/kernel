@@ -213,8 +213,10 @@ static void construct_link_service_edp_panel_control(struct link_service *link_s
 	link_srv->edp_get_replay_state = edp_get_replay_state;
 	link_srv->edp_set_replay_allow_active = edp_set_replay_allow_active;
 	link_srv->edp_setup_replay = edp_setup_replay;
+	link_srv->edp_send_replay_cmd = edp_send_replay_cmd;
 	link_srv->edp_set_coasting_vtotal = edp_set_coasting_vtotal;
 	link_srv->edp_replay_residency = edp_replay_residency;
+	link_srv->edp_set_replay_power_opt_and_coasting_vtotal = edp_set_replay_power_opt_and_coasting_vtotal;
 
 	link_srv->edp_wait_for_t12 = edp_wait_for_t12;
 	link_srv->edp_is_ilr_optimization_required =
@@ -388,7 +390,7 @@ static void link_destruct(struct dc_link *link)
 		 * the dynamic assignment of link encoders to streams. Virtual links
 		 * are not assigned encoder resources on creation.
 		 */
-		if (link->link_id.id != CONNECTOR_ID_VIRTUAL) {
+		if (link->link_id.id != CONNECTOR_ID_VIRTUAL && link->eng_id != ENGINE_ID_UNKNOWN) {
 			link->dc->res_pool->link_encoders[link->eng_id - ENGINE_ID_DIGA] = NULL;
 			link->dc->res_pool->dig_link_enc_count--;
 		}
@@ -454,7 +456,6 @@ static bool construct_phy(struct dc_link *link,
 	struct dc_context *dc_ctx = init_params->ctx;
 	struct encoder_init_data enc_init_data = { 0 };
 	struct panel_cntl_init_data panel_cntl_init_data = { 0 };
-	struct integrated_info info = { 0 };
 	struct dc_bios *bios = init_params->dc->ctx->dc_bios;
 	const struct dc_vbios_funcs *bp_funcs = bios->funcs;
 	struct bp_disp_connector_caps_info disp_connect_caps_info = { 0 };
@@ -523,6 +524,7 @@ static bool construct_phy(struct dc_link *link,
 		link->connector_signal = SIGNAL_TYPE_DVI_DUAL_LINK;
 		break;
 	case CONNECTOR_ID_DISPLAY_PORT:
+	case CONNECTOR_ID_MXM:
 	case CONNECTOR_ID_USBC:
 		link->connector_signal = SIGNAL_TYPE_DISPLAY_PORT;
 
@@ -669,42 +671,44 @@ static bool construct_phy(struct dc_link *link,
 		break;
 	}
 
-	if (bios->integrated_info)
-		info = *bios->integrated_info;
+	if (bios->integrated_info) {
+		/* Look for channel mapping corresponding to connector and device tag */
+		for (i = 0; i < MAX_NUMBER_OF_EXT_DISPLAY_PATH; i++) {
+			struct external_display_path *path =
+				&bios->integrated_info->ext_disp_conn_info.path[i];
 
-	/* Look for channel mapping corresponding to connector and device tag */
-	for (i = 0; i < MAX_NUMBER_OF_EXT_DISPLAY_PATH; i++) {
-		struct external_display_path *path =
-			&info.ext_disp_conn_info.path[i];
+			if (path->device_connector_id.enum_id == link->link_id.enum_id &&
+			    path->device_connector_id.id == link->link_id.id &&
+			    path->device_connector_id.type == link->link_id.type) {
+				if (link->device_tag.acpi_device != 0 &&
+				    path->device_acpi_enum == link->device_tag.acpi_device) {
+					link->ddi_channel_mapping = path->channel_mapping;
+					link->chip_caps = path->caps;
+					DC_LOG_DC("BIOS object table - ddi_channel_mapping: 0x%04X",
+						  link->ddi_channel_mapping.raw);
+					DC_LOG_DC("BIOS object table - chip_caps: %d",
+						  link->chip_caps);
+				} else if (path->device_tag ==
+					   link->device_tag.dev_id.raw_device_tag) {
+					link->ddi_channel_mapping = path->channel_mapping;
+					link->chip_caps = path->caps;
+					DC_LOG_DC("BIOS object table - ddi_channel_mapping: 0x%04X",
+						  link->ddi_channel_mapping.raw);
+					DC_LOG_DC("BIOS object table - chip_caps: %d",
+						  link->chip_caps);
+				}
 
-		if (path->device_connector_id.enum_id == link->link_id.enum_id &&
-		    path->device_connector_id.id == link->link_id.id &&
-		    path->device_connector_id.type == link->link_id.type) {
-			if (link->device_tag.acpi_device != 0 &&
-			    path->device_acpi_enum == link->device_tag.acpi_device) {
-				link->ddi_channel_mapping = path->channel_mapping;
-				link->chip_caps = path->caps;
-				DC_LOG_DC("BIOS object table - ddi_channel_mapping: 0x%04X", link->ddi_channel_mapping.raw);
-				DC_LOG_DC("BIOS object table - chip_caps: %d", link->chip_caps);
-			} else if (path->device_tag ==
-				   link->device_tag.dev_id.raw_device_tag) {
-				link->ddi_channel_mapping = path->channel_mapping;
-				link->chip_caps = path->caps;
-				DC_LOG_DC("BIOS object table - ddi_channel_mapping: 0x%04X", link->ddi_channel_mapping.raw);
-				DC_LOG_DC("BIOS object table - chip_caps: %d", link->chip_caps);
+				if (link->chip_caps & EXT_DISPLAY_PATH_CAPS__DP_FIXED_VS_EN) {
+					link->bios_forced_drive_settings.VOLTAGE_SWING =
+						(bios->integrated_info->ext_disp_conn_info.fixdpvoltageswing & 0x3);
+					link->bios_forced_drive_settings.PRE_EMPHASIS =
+						((bios->integrated_info->ext_disp_conn_info.fixdpvoltageswing >> 2) & 0x3);
+				}
+
+				break;
 			}
-
-			if (link->chip_caps & EXT_DISPLAY_PATH_CAPS__DP_FIXED_VS_EN) {
-				link->bios_forced_drive_settings.VOLTAGE_SWING =
-						(info.ext_disp_conn_info.fixdpvoltageswing & 0x3);
-				link->bios_forced_drive_settings.PRE_EMPHASIS =
-						((info.ext_disp_conn_info.fixdpvoltageswing >> 2) & 0x3);
-			}
-
-			break;
 		}
 	}
-
 	if (bios->funcs->get_atom_dc_golden_table)
 		bios->funcs->get_atom_dc_golden_table(bios);
 

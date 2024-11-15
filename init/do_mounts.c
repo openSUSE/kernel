@@ -18,6 +18,7 @@
 #include <linux/slab.h>
 #include <linux/ramfs.h>
 #include <linux/shmem_fs.h>
+#include <linux/ktime.h>
 
 #include <linux/nfs_fs.h>
 #include <linux/nfs_fs_sb.h>
@@ -71,11 +72,36 @@ static int __init rootwait_setup(char *str)
 {
 	if (*str)
 		return 0;
-	root_wait = 1;
+	root_wait = -1;
 	return 1;
 }
 
 __setup("rootwait", rootwait_setup);
+
+static int __init rootwait_timeout_setup(char *str)
+{
+	int sec;
+
+	if (kstrtoint(str, 0, &sec) || sec < 0) {
+		pr_warn("ignoring invalid rootwait value\n");
+		goto ignore;
+	}
+
+	if (check_mul_overflow(sec, MSEC_PER_SEC, &root_wait)) {
+		pr_warn("ignoring excessive rootwait value\n");
+		goto ignore;
+	}
+
+	return 1;
+
+ignore:
+	/* Fallback to indefinite wait */
+	root_wait = -1;
+
+	return 1;
+}
+
+__setup("rootwait=", rootwait_timeout_setup);
 
 static char * __initdata root_mount_data;
 static int __init root_data_setup(char *str)
@@ -103,7 +129,7 @@ __setup("rootfstype=", fs_names_setup);
 __setup("rootdelay=", root_delay_setup);
 
 /* This can return zero length strings. Caller should check */
-static int __init split_fs_names(char *page, size_t size, char *names)
+static int __init split_fs_names(char *page, size_t size)
 {
 	int count = 1;
 	char *p = page;
@@ -133,8 +159,7 @@ static int __init do_mount_root(const char *name, const char *fs,
 		if (!p)
 			return -ENOMEM;
 		data_page = page_address(p);
-		/* zero-pad. init_mount() will make sure it's terminated */
-		strncpy(data_page, data, PAGE_SIZE);
+		strscpy_pad(data_page, data, PAGE_SIZE);
 	}
 
 	ret = init_mount(name, "/root", fs, flags, data_page);
@@ -143,7 +168,7 @@ static int __init do_mount_root(const char *name, const char *fs,
 
 	init_chdir("/root");
 	s = current->fs->pwd.dentry->d_sb;
-	ROOT_DEV = inode_get_dev(d_inode(current->fs->pwd.dentry));
+	ROOT_DEV = s->s_dev;
 	printk(KERN_INFO
 	       "VFS: Mounted root (%s filesystem)%s on device %u:%u.\n",
 	       s->s_type->name,
@@ -167,7 +192,7 @@ void __init mount_root_generic(char *name, char *pretty_name, int flags)
 	scnprintf(b, BDEVNAME_SIZE, "unknown-block(%u,%u)",
 		  MAJOR(ROOT_DEV), MINOR(ROOT_DEV));
 	if (root_fs_names)
-		num_fs = split_fs_names(fs_names, PAGE_SIZE, root_fs_names);
+		num_fs = split_fs_names(fs_names, PAGE_SIZE);
 	else
 		num_fs = list_bdev_fs_names(fs_names, PAGE_SIZE);
 retry:
@@ -182,6 +207,9 @@ retry:
 				goto out;
 			case -EACCES:
 			case -EINVAL:
+#ifdef CONFIG_BLOCK
+				init_flush_fput();
+#endif
 				continue;
 		}
 	        /*
@@ -192,8 +220,19 @@ retry:
 		printk("VFS: Cannot open root device \"%s\" or %s: error %d\n",
 				pretty_name, b, err);
 		printk("Please append a correct \"root=\" boot option; here are the available partitions:\n");
-
 		printk_all_partitions();
+
+		if (root_fs_names)
+			num_fs = list_bdev_fs_names(fs_names, PAGE_SIZE);
+		if (!num_fs)
+			pr_err("Can't find any bdev filesystem to be used for mount!\n");
+		else {
+			pr_err("List of all bdev filesystems:\n");
+			for (i = 0, p = fs_names; i < num_fs; i++, p += strlen(p)+1)
+				pr_err(" %s", p);
+			pr_err("\n");
+		}
+
 		panic("VFS: Unable to mount root fs on %s", b);
 	}
 	if (!(flags & SB_RDONLY)) {
@@ -207,7 +246,7 @@ retry:
 	for (i = 0, p = fs_names; i < num_fs; i++, p += strlen(p)+1)
 		printk(" %s", p);
 	printk("\n");
-	panic("VFS: Unable to mount root fs on %s", b);
+	panic("VFS: Unable to mount root fs on \"%s\" or %s", pretty_name, b);
 out:
 	put_page(page);
 }
@@ -255,8 +294,6 @@ static inline void mount_nfs_root(void)
 #endif /* CONFIG_ROOT_NFS */
 
 #ifdef CONFIG_CIFS_ROOT
-
-extern int cifs_root_data(char **dev, char **opts);
 
 #define CIFSROOT_TIMEOUT_MIN	5
 #define CIFSROOT_TIMEOUT_MAX	30
@@ -315,7 +352,7 @@ static int __init mount_nodev_root(char *root_device_name)
 	fs_names = (void *)__get_free_page(GFP_KERNEL);
 	if (!fs_names)
 		return -EINVAL;
-	num_fs = split_fs_names(fs_names, PAGE_SIZE, root_fs_names);
+	num_fs = split_fs_names(fs_names, PAGE_SIZE);
 
 	for (i = 0, fstype = fs_names; i < num_fs;
 	     i++, fstype += strlen(fstype) + 1) {
@@ -375,14 +412,22 @@ void __init mount_root(char *root_device_name)
 /* wait for any asynchronous scanning to complete */
 static void __init wait_for_root(char *root_device_name)
 {
+	ktime_t end;
+
 	if (ROOT_DEV != 0)
 		return;
 
 	pr_info("Waiting for root device %s...\n", root_device_name);
 
+	end = ktime_add_ms(ktime_get_raw(), root_wait);
+
 	while (!driver_probe_done() ||
-	       early_lookup_bdev(root_device_name, &ROOT_DEV) < 0)
+	       early_lookup_bdev(root_device_name, &ROOT_DEV) < 0) {
 		msleep(5);
+		if (root_wait > 0 && ktime_after(ktime_get_raw(), end))
+			break;
+	}
+
 	async_synchronize_full();
 
 }
@@ -467,7 +512,10 @@ struct file_system_type rootfs_fs_type = {
 
 void __init init_rootfs(void)
 {
-	if (IS_ENABLED(CONFIG_TMPFS) && !saved_root_name[0] &&
-		(!root_fs_names || strstr(root_fs_names, "tmpfs")))
-		is_tmpfs = true;
+	if (IS_ENABLED(CONFIG_TMPFS)) {
+		if (!saved_root_name[0] && !root_fs_names)
+			is_tmpfs = true;
+		else if (root_fs_names && !!strstr(root_fs_names, "tmpfs"))
+			is_tmpfs = true;
+	}
 }

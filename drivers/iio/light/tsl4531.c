@@ -227,7 +227,7 @@ static DEFINE_SIMPLE_DEV_PM_OPS(tsl4531_pm_ops, tsl4531_suspend,
 				tsl4531_resume);
 
 static const struct i2c_device_id tsl4531_id[] = {
-	{ "tsl4531", 0 },
+	{ "tsl4531" },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, tsl4531_id);
@@ -237,7 +237,7 @@ static struct i2c_driver tsl4531_driver = {
 		.name   = TSL4531_DRV_NAME,
 		.pm	= pm_sleep_ptr(&tsl4531_pm_ops),
 	},
-	.probe_new = tsl4531_probe,
+	.probe = tsl4531_probe,
 	.remove = tsl4531_remove,
 	.id_table = tsl4531_id,
 };

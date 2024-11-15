@@ -62,7 +62,7 @@ static ssize_t state_store(struct device *dev, struct device_attribute *attr,
 			break;
 		}
 
-		ret = adf_dev_down(accel_dev, true);
+		ret = adf_dev_down(accel_dev);
 		if (ret)
 			return ret;
 
@@ -76,7 +76,7 @@ static ssize_t state_store(struct device *dev, struct device_attribute *attr,
 		} else if (ret) {
 			dev_err(dev, "Failed to start device qat_dev%d\n",
 				accel_id);
-			adf_dev_down(accel_dev, true);
+			adf_dev_down(accel_dev);
 			return ret;
 		}
 		break;
@@ -204,6 +204,42 @@ static ssize_t pm_idle_enabled_store(struct device *dev, struct device_attribute
 }
 static DEVICE_ATTR_RW(pm_idle_enabled);
 
+static ssize_t auto_reset_show(struct device *dev, struct device_attribute *attr,
+			       char *buf)
+{
+	char *auto_reset;
+	struct adf_accel_dev *accel_dev;
+
+	accel_dev = adf_devmgr_pci_to_accel_dev(to_pci_dev(dev));
+	if (!accel_dev)
+		return -EINVAL;
+
+	auto_reset = accel_dev->autoreset_on_error ? "on" : "off";
+
+	return sysfs_emit(buf, "%s\n", auto_reset);
+}
+
+static ssize_t auto_reset_store(struct device *dev, struct device_attribute *attr,
+				const char *buf, size_t count)
+{
+	struct adf_accel_dev *accel_dev;
+	bool enabled = false;
+	int ret;
+
+	ret = kstrtobool(buf, &enabled);
+	if (ret)
+		return ret;
+
+	accel_dev = adf_devmgr_pci_to_accel_dev(to_pci_dev(dev));
+	if (!accel_dev)
+		return -EINVAL;
+
+	accel_dev->autoreset_on_error = enabled;
+
+	return count;
+}
+static DEVICE_ATTR_RW(auto_reset);
+
 static DEVICE_ATTR_RW(state);
 static DEVICE_ATTR_RW(cfg_services);
 
@@ -291,6 +327,7 @@ static struct attribute *qat_attrs[] = {
 	&dev_attr_pm_idle_enabled.attr,
 	&dev_attr_rp2srv.attr,
 	&dev_attr_num_rps.attr,
+	&dev_attr_auto_reset.attr,
 	NULL,
 };
 

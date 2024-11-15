@@ -9,9 +9,10 @@
 #include <linux/errno.h>
 #include <linux/module.h>
 #include <uapi/linux/pr.h>
-#include <asm/unaligned.h>
+#include <linux/unaligned.h>
 #include <scsi/scsi_common.h>
 
+MODULE_DESCRIPTION("SCSI functions used by both the initiator and the target code");
 MODULE_LICENSE("GPL v2");
 
 /* Command group 3 is reserved and should never be used.  */
@@ -219,8 +220,7 @@ bool scsi_normalize_sense(const u8 *sense_buffer, int sb_len,
 		if (sb_len > 2)
 			sshdr->sense_key = (sense_buffer[2] & 0xf);
 		if (sb_len > 7) {
-			sb_len = (sb_len < (sense_buffer[7] + 8)) ?
-					 sb_len : (sense_buffer[7] + 8);
+			sb_len = min(sb_len, sense_buffer[7] + 8);
 			if (sb_len > 12)
 				sshdr->asc = sense_buffer[12];
 			if (sb_len > 13)

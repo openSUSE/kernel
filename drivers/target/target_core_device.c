@@ -21,7 +21,7 @@
 #include <linux/in.h>
 #include <linux/export.h>
 #include <linux/t10-pi.h>
-#include <asm/unaligned.h>
+#include <linux/unaligned.h>
 #include <net/sock.h>
 #include <net/tcp.h>
 #include <scsi/scsi_common.h>
@@ -37,7 +37,6 @@
 #include "target_core_ua.h"
 
 static DEFINE_MUTEX(device_mutex);
-static LIST_HEAD(device_list);
 static DEFINE_IDR(devices_idr);
 
 static struct se_hba *lun0_hba;
@@ -692,7 +691,7 @@ struct se_device *target_alloc_device(struct se_hba *hba, const char *name)
 
 	dev->queues = kcalloc(nr_cpu_ids, sizeof(*dev->queues), GFP_KERNEL);
 	if (!dev->queues) {
-		dev->transport->free_device(dev);
+		hba->backend->ops->free_device(dev);
 		return NULL;
 	}
 
@@ -774,6 +773,7 @@ struct se_device *target_alloc_device(struct se_hba *hba, const char *name)
 	dev->dev_attrib.unmap_zeroes_data =
 				DA_UNMAP_ZEROES_DATA_DEFAULT;
 	dev->dev_attrib.max_write_same_len = DA_MAX_WRITE_SAME_LEN;
+	dev->dev_attrib.submit_type = TARGET_FABRIC_DEFAULT_SUBMIT;
 
 	xcopy_lun = &dev->xcopy_lun;
 	rcu_assign_pointer(xcopy_lun->lun_se_dev, dev);
@@ -784,10 +784,10 @@ struct se_device *target_alloc_device(struct se_hba *hba, const char *name)
 	xcopy_lun->lun_tpg = &xcopy_pt_tpg;
 
 	/* Preload the default INQUIRY const values */
-	strlcpy(dev->t10_wwn.vendor, "LIO-ORG", sizeof(dev->t10_wwn.vendor));
-	strlcpy(dev->t10_wwn.model, dev->transport->inquiry_prod,
+	strscpy(dev->t10_wwn.vendor, "LIO-ORG", sizeof(dev->t10_wwn.vendor));
+	strscpy(dev->t10_wwn.model, dev->transport->inquiry_prod,
 		sizeof(dev->t10_wwn.model));
-	strlcpy(dev->t10_wwn.revision, dev->transport->inquiry_rev,
+	strscpy(dev->t10_wwn.revision, dev->transport->inquiry_rev,
 		sizeof(dev->t10_wwn.revision));
 
 	return dev;
@@ -838,7 +838,6 @@ sector_t target_to_linux_sector(struct se_device *dev, sector_t lb)
 EXPORT_SYMBOL(target_to_linux_sector);
 
 struct devices_idr_iter {
-	struct config_item *prev_item;
 	int (*fn)(struct se_device *dev, void *data);
 	void *data;
 };
@@ -848,10 +847,8 @@ static int target_devices_idr_iter(int id, void *p, void *data)
 {
 	struct devices_idr_iter *iter = data;
 	struct se_device *dev = p;
+	struct config_item *item;
 	int ret;
-
-	config_item_put(iter->prev_item);
-	iter->prev_item = NULL;
 
 	/*
 	 * We add the device early to the idr, so it can be used
@@ -862,12 +859,13 @@ static int target_devices_idr_iter(int id, void *p, void *data)
 	if (!target_dev_configured(dev))
 		return 0;
 
-	iter->prev_item = config_item_get_unless_zero(&dev->dev_group.cg_item);
-	if (!iter->prev_item)
+	item = config_item_get_unless_zero(&dev->dev_group.cg_item);
+	if (!item)
 		return 0;
 	mutex_unlock(&device_mutex);
 
 	ret = iter->fn(dev, iter->data);
+	config_item_put(item);
 
 	mutex_lock(&device_mutex);
 	return ret;
@@ -890,7 +888,6 @@ int target_for_each_device(int (*fn)(struct se_device *dev, void *data),
 	mutex_lock(&device_mutex);
 	ret = idr_for_each(&devices_idr, target_devices_idr_iter, &iter);
 	mutex_unlock(&device_mutex);
-	config_item_put(iter.prev_item);
 	return ret;
 }
 

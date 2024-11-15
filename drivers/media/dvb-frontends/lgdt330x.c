@@ -28,7 +28,7 @@
 #include <asm/byteorder.h>
 
 #include <media/dvb_frontend.h>
-#include <media/dvb_math.h>
+#include <linux/int_log.h>
 #include "lgdt330x_priv.h"
 #include "lgdt330x.h"
 
@@ -983,7 +983,7 @@ static void lgdt330x_remove(struct i2c_client *client)
 }
 
 static const struct i2c_device_id lgdt330x_id_table[] = {
-	{"lgdt330x", 0},
+	{ "lgdt330x" },
 	{}
 };
 MODULE_DEVICE_TABLE(i2c, lgdt330x_id_table);
@@ -993,7 +993,7 @@ static struct i2c_driver lgdt330x_driver = {
 		.name	= "lgdt330x",
 		.suppress_bind_attrs = true,
 	},
-	.probe_new	= lgdt330x_probe,
+	.probe		= lgdt330x_probe,
 	.remove		= lgdt330x_remove,
 	.id_table	= lgdt330x_id_table,
 };

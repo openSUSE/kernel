@@ -1639,8 +1639,8 @@ static void si4713_remove(struct i2c_client *client)
 
 /* si4713_i2c_driver - i2c driver interface */
 static const struct i2c_device_id si4713_id[] = {
-	{ "si4713" , 0 },
-	{ },
+	{ "si4713" },
+	{ }
 };
 MODULE_DEVICE_TABLE(i2c, si4713_id);
 
@@ -1657,7 +1657,7 @@ static struct i2c_driver si4713_i2c_driver = {
 		.name	= "si4713",
 		.of_match_table = of_match_ptr(si4713_of_match),
 	},
-	.probe_new	= si4713_probe,
+	.probe		= si4713_probe,
 	.remove         = si4713_remove,
 	.id_table       = si4713_id,
 };

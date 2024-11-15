@@ -5,8 +5,6 @@
  */
 
 #include <linux/of.h>
-#include <linux/of_address.h>
-#include <linux/of_device.h>
 #include <linux/platform_device.h>
 
 #include "clk-gate.h"
@@ -710,4 +708,6 @@ static int __init clk_mt6797_init(void)
 }
 
 arch_initcall(clk_mt6797_init);
+
+MODULE_DESCRIPTION("MediaTek MT6797 main clocks driver");
 MODULE_LICENSE("GPL");

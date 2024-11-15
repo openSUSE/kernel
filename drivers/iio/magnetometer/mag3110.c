@@ -624,7 +624,7 @@ static DEFINE_SIMPLE_DEV_PM_OPS(mag3110_pm_ops, mag3110_suspend,
 				mag3110_resume);
 
 static const struct i2c_device_id mag3110_id[] = {
-	{ "mag3110", 0 },
+	{ "mag3110" },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, mag3110_id);
@@ -641,7 +641,7 @@ static struct i2c_driver mag3110_driver = {
 		.of_match_table = mag3110_of_match,
 		.pm	= pm_sleep_ptr(&mag3110_pm_ops),
 	},
-	.probe_new = mag3110_probe,
+	.probe = mag3110_probe,
 	.remove = mag3110_remove,
 	.id_table = mag3110_id,
 };

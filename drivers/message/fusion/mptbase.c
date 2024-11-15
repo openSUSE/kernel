@@ -712,7 +712,7 @@ mpt_register(MPT_CALLBACK cbfunc, MPT_DRIVER_CLASS dclass, char *func_name)
 			MptDriverClass[cb_idx] = dclass;
 			MptEvHandlers[cb_idx] = NULL;
 			last_drv_idx = cb_idx;
-			strlcpy(MptCallbacksName[cb_idx], func_name,
+			strscpy(MptCallbacksName[cb_idx], func_name,
 				MPT_MAX_CALLBACKNAME_LEN+1);
 			break;
 		}
@@ -1856,10 +1856,8 @@ mpt_attach(struct pci_dev *pdev, const struct pci_device_id *id)
 	/* Initialize workqueue */
 	INIT_DELAYED_WORK(&ioc->fault_reset_work, mpt_fault_reset_work);
 
-	snprintf(ioc->reset_work_q_name, MPT_KOBJ_NAME_LEN,
-		 "mpt_poll_%d", ioc->id);
-	ioc->reset_work_q = alloc_workqueue(ioc->reset_work_q_name,
-					    WQ_MEM_RECLAIM, 0);
+	ioc->reset_work_q =
+		alloc_workqueue("mpt_poll_%d", WQ_MEM_RECLAIM, 0, ioc->id);
 	if (!ioc->reset_work_q) {
 		printk(MYIOC_s_ERR_FMT "Insufficient memory to add adapter!\n",
 		    ioc->name);
@@ -1986,9 +1984,7 @@ mpt_attach(struct pci_dev *pdev, const struct pci_device_id *id)
 
 	INIT_LIST_HEAD(&ioc->fw_event_list);
 	spin_lock_init(&ioc->fw_event_lock);
-	snprintf(ioc->fw_event_q_name, MPT_KOBJ_NAME_LEN, "mpt/%d", ioc->id);
-	ioc->fw_event_q = alloc_workqueue(ioc->fw_event_q_name,
-					  WQ_MEM_RECLAIM, 0);
+	ioc->fw_event_q = alloc_workqueue("mpt/%d", WQ_MEM_RECLAIM, 0, ioc->id);
 	if (!ioc->fw_event_q) {
 		printk(MYIOC_s_ERR_FMT "Insufficient memory to add adapter!\n",
 		    ioc->name);
@@ -7666,7 +7662,7 @@ mpt_display_event_info(MPT_ADAPTER *ioc, EventNotificationReply_t *pEventReply)
 		break;
 	}
 	if (ds)
-		strlcpy(evStr, ds, EVENT_DESCR_STR_SZ);
+		strscpy(evStr, ds, EVENT_DESCR_STR_SZ);
 
 
 	devtprintk(ioc, printk(MYIOC_s_DEBUG_FMT

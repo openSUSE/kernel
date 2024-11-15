@@ -3360,15 +3360,13 @@ static int usbf_probe(struct platform_device *pdev)
 	return 0;
 }
 
-static int usbf_remove(struct platform_device *pdev)
+static void usbf_remove(struct platform_device *pdev)
 {
 	struct usbf_udc *udc = platform_get_drvdata(pdev);
 
 	usb_del_gadget_udc(&udc->gadget);
 
 	pm_runtime_put(&pdev->dev);
-
-	return 0;
 }
 
 static const struct of_device_id usbf_match[] = {
@@ -3380,11 +3378,10 @@ MODULE_DEVICE_TABLE(of, usbf_match);
 static struct platform_driver udc_driver = {
 	.driver = {
 		.name = "usbf_renesas",
-		.owner = THIS_MODULE,
 		.of_match_table = usbf_match,
 	},
 	.probe          = usbf_probe,
-	.remove         = usbf_remove,
+	.remove_new     = usbf_remove,
 };
 
 module_platform_driver(udc_driver);

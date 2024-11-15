@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
- * Maxim MAX9286 Quad GMSL2 Deserializer Driver
+ * Maxim MAX96712 Quad GMSL2 Deserializer Driver
  *
  * Copyright (C) 2021 Renesas Electronics Corporation
  * Copyright (C) 2021 Niklas Söderlund
@@ -30,6 +30,7 @@ struct max96712_priv {
 	struct regmap *regmap;
 	struct gpio_desc *gpiod_pwdn;
 
+	bool cphy;
 	struct v4l2_mbus_config_mipi_csi2 mipi;
 
 	struct v4l2_subdev sd;
@@ -127,10 +128,18 @@ static void max96712_mipi_configure(struct max96712_priv *priv)
 	/* Select 2x4 mode. */
 	max96712_write(priv, 0x8a0, 0x04);
 
-	/* Configure a 4-lane DPHY using PHY0 and PHY1. */
 	/* TODO: Add support for 2-lane and 1-lane configurations. */
-	/* TODO: Add support CPHY mode. */
-	max96712_write(priv, 0x94a, 0xc0);
+	if (priv->cphy) {
+		/* Configure a 3-lane C-PHY using PHY0 and PHY1. */
+		max96712_write(priv, 0x94a, 0xa0);
+
+		/* Configure C-PHY timings. */
+		max96712_write(priv, 0x8ad, 0x3f);
+		max96712_write(priv, 0x8ae, 0x7d);
+	} else {
+		/* Configure a 4-lane D-PHY using PHY0 and PHY1. */
+		max96712_write(priv, 0x94a, 0xc0);
+	}
 
 	/* Configure lane mapping for PHY0 and PHY1. */
 	/* TODO: Add support for lane swapping. */
@@ -233,21 +242,34 @@ static const struct v4l2_subdev_video_ops max96712_video_ops = {
 	.s_stream = max96712_s_stream,
 };
 
-static int max96712_get_pad_format(struct v4l2_subdev *sd,
-				   struct v4l2_subdev_state *sd_state,
-				   struct v4l2_subdev_format *format)
+static int max96712_init_state(struct v4l2_subdev *sd,
+			       struct v4l2_subdev_state *state)
 {
-	format->format.width = 1920;
-	format->format.height = 1080;
-	format->format.code = MEDIA_BUS_FMT_RGB888_1X24;
-	format->format.field = V4L2_FIELD_NONE;
+	static const struct v4l2_mbus_framefmt default_fmt = {
+		.width          = 1920,
+		.height         = 1080,
+		.code           = MEDIA_BUS_FMT_RGB888_1X24,
+		.colorspace     = V4L2_COLORSPACE_SRGB,
+		.field          = V4L2_FIELD_NONE,
+		.ycbcr_enc      = V4L2_YCBCR_ENC_DEFAULT,
+		.quantization   = V4L2_QUANTIZATION_DEFAULT,
+		.xfer_func      = V4L2_XFER_FUNC_DEFAULT,
+	};
+	struct v4l2_mbus_framefmt *fmt;
+
+	fmt = v4l2_subdev_state_get_format(state, 0);
+	*fmt = default_fmt;
 
 	return 0;
 }
 
+static const struct v4l2_subdev_internal_ops max96712_internal_ops = {
+	.init_state = max96712_init_state,
+};
+
 static const struct v4l2_subdev_pad_ops max96712_pad_ops = {
-	.get_fmt = max96712_get_pad_format,
-	.set_fmt = max96712_get_pad_format,
+	.get_fmt = v4l2_subdev_get_fmt,
+	.set_fmt = v4l2_subdev_get_fmt,
 };
 
 static const struct v4l2_subdev_ops max96712_subdev_ops = {
@@ -284,6 +306,7 @@ static int max96712_v4l2_register(struct max96712_priv *priv)
 	long pixel_rate;
 	int ret;
 
+	priv->sd.internal_ops = &max96712_internal_ops;
 	v4l2_i2c_subdev_init(&priv->sd, priv->client, &max96712_subdev_ops);
 	priv->sd.flags |= V4L2_SUBDEV_FL_HAS_DEVNODE;
 	priv->sd.entity.function = MEDIA_ENT_F_VID_IF_BRIDGE;
@@ -315,6 +338,11 @@ static int max96712_v4l2_register(struct max96712_priv *priv)
 
 	v4l2_set_subdevdata(&priv->sd, priv);
 
+	priv->sd.state_lock = priv->ctrl_handler.lock;
+	ret = v4l2_subdev_init_finalize(&priv->sd);
+	if (ret)
+		goto error;
+
 	ret = v4l2_async_register_subdev(&priv->sd);
 	if (ret < 0) {
 		dev_err(&priv->client->dev, "Unable to register subdevice\n");
@@ -332,8 +360,9 @@ static int max96712_parse_dt(struct max96712_priv *priv)
 {
 	struct fwnode_handle *ep;
 	struct v4l2_fwnode_endpoint v4l2_ep = {
-		.bus_type = V4L2_MBUS_CSI2_DPHY
+		.bus_type = V4L2_MBUS_UNKNOWN,
 	};
+	unsigned int supported_lanes;
 	int ret;
 
 	ep = fwnode_graph_get_endpoint_by_id(dev_fwnode(&priv->client->dev), 4,
@@ -350,8 +379,24 @@ static int max96712_parse_dt(struct max96712_priv *priv)
 		return -EINVAL;
 	}
 
-	if (v4l2_ep.bus.mipi_csi2.num_data_lanes != 4) {
-		dev_err(&priv->client->dev, "Only 4 data lanes supported\n");
+	switch (v4l2_ep.bus_type) {
+	case V4L2_MBUS_CSI2_DPHY:
+		supported_lanes = 4;
+		priv->cphy = false;
+		break;
+	case V4L2_MBUS_CSI2_CPHY:
+		supported_lanes = 3;
+		priv->cphy = true;
+		break;
+	default:
+		dev_err(&priv->client->dev, "Unsupported bus-type %u\n",
+			v4l2_ep.bus_type);
+		return -EINVAL;
+	}
+
+	if (v4l2_ep.bus.mipi_csi2.num_data_lanes != supported_lanes) {
+		dev_err(&priv->client->dev, "Only %u data lanes supported\n",
+			supported_lanes);
 		return -EINVAL;
 	}
 
@@ -427,7 +472,7 @@ static struct i2c_driver max96712_i2c_driver = {
 		.name = "max96712",
 		.of_match_table	= of_match_ptr(max96712_of_table),
 	},
-	.probe_new = max96712_probe,
+	.probe = max96712_probe,
 	.remove = max96712_remove,
 };
 

@@ -41,9 +41,9 @@ static int wm8350_i2c_probe(struct i2c_client *i2c)
 }
 
 static const struct i2c_device_id wm8350_i2c_id[] = {
-	{ "wm8350", 0 },
-	{ "wm8351", 0 },
-	{ "wm8352", 0 },
+	{ "wm8350" },
+	{ "wm8351" },
+	{ "wm8352" },
 	{ }
 };
 
@@ -52,7 +52,7 @@ static struct i2c_driver wm8350_i2c_driver = {
 		   .name = "wm8350",
 		   .suppress_bind_attrs = true,
 	},
-	.probe_new = wm8350_i2c_probe,
+	.probe = wm8350_i2c_probe,
 	.id_table = wm8350_i2c_id,
 };
 

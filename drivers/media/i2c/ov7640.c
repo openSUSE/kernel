@@ -77,7 +77,7 @@ static void ov7640_remove(struct i2c_client *client)
 }
 
 static const struct i2c_device_id ov7640_id[] = {
-	{ "ov7640", 0 },
+	{ "ov7640" },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, ov7640_id);
@@ -86,7 +86,7 @@ static struct i2c_driver ov7640_driver = {
 	.driver = {
 		.name	= "ov7640",
 	},
-	.probe_new = ov7640_probe,
+	.probe = ov7640_probe,
 	.remove = ov7640_remove,
 	.id_table = ov7640_id,
 };

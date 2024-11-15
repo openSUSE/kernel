@@ -465,6 +465,7 @@ mt76_phy_init(struct mt76_phy *phy, struct ieee80211_hw *hw)
 	ieee80211_hw_set(hw, SUPPORTS_CLONED_SKBS);
 	ieee80211_hw_set(hw, SUPPORTS_AMSDU_IN_AMPDU);
 	ieee80211_hw_set(hw, SUPPORTS_REORDERING_BUFFER);
+	ieee80211_hw_set(hw, SPECTRUM_MGMT);
 
 	if (!(dev->drv->drv_flags & MT_DRV_AMSDU_OFFLOAD) &&
 	    hw->max_tx_fragments > 1) {
@@ -928,14 +929,19 @@ void mt76_update_survey(struct mt76_phy *phy)
 }
 EXPORT_SYMBOL_GPL(mt76_update_survey);
 
-void mt76_set_channel(struct mt76_phy *phy)
+int mt76_set_channel(struct mt76_phy *phy, struct cfg80211_chan_def *chandef,
+		     bool offchannel)
 {
 	struct mt76_dev *dev = phy->dev;
-	struct ieee80211_hw *hw = phy->hw;
-	struct cfg80211_chan_def *chandef = &hw->conf.chandef;
-	bool offchannel = hw->conf.flags & IEEE80211_CONF_OFFCHANNEL;
 	int timeout = HZ / 5;
+	int ret;
 
+	cancel_delayed_work_sync(&phy->mac_work);
+
+	mutex_lock(&dev->mutex);
+	set_bit(MT76_RESET, &phy->state);
+
+	mt76_worker_disable(&dev->tx_worker);
 	wait_event_timeout(dev->tx_wait, !mt76_has_tx_pending(phy), timeout);
 	mt76_update_survey(phy);
 
@@ -945,14 +951,34 @@ void mt76_set_channel(struct mt76_phy *phy)
 
 	phy->chandef = *chandef;
 	phy->chan_state = mt76_channel_state(phy, chandef->chan);
+	phy->offchannel = offchannel;
 
 	if (!offchannel)
 		phy->main_chan = chandef->chan;
 
 	if (chandef->chan != phy->main_chan)
 		memset(phy->chan_state, 0, sizeof(*phy->chan_state));
+	mt76_worker_enable(&dev->tx_worker);
+
+	ret = dev->drv->set_channel(phy);
+
+	clear_bit(MT76_RESET, &phy->state);
+	mt76_worker_schedule(&dev->tx_worker);
+
+	mutex_unlock(&dev->mutex);
+
+	return ret;
 }
-EXPORT_SYMBOL_GPL(mt76_set_channel);
+
+int mt76_update_channel(struct mt76_phy *phy)
+{
+	struct ieee80211_hw *hw = phy->hw;
+	struct cfg80211_chan_def *chandef = &hw->conf.chandef;
+	bool offchannel = hw->conf.flags & IEEE80211_CONF_OFFCHANNEL;
+
+	return mt76_set_channel(phy, chandef, offchannel);
+}
+EXPORT_SYMBOL_GPL(mt76_update_channel);
 
 int mt76_get_survey(struct ieee80211_hw *hw, int idx,
 		    struct survey_info *survey)
@@ -1123,6 +1149,11 @@ mt76_rx_convert(struct mt76_dev *dev, struct sk_buff *skb,
 		     sizeof(mstat.chain_signal));
 	memcpy(status->chain_signal, mstat.chain_signal,
 	       sizeof(mstat.chain_signal));
+
+	if (mstat.wcid) {
+		status->link_valid = mstat.wcid->link_valid;
+		status->link_id = mstat.wcid->link_id;
+	}
 
 	*sta = wcid_to_sta(mstat.wcid);
 	*hw = mt76_phy_hw(dev, mstat.phy_idx);
@@ -1478,21 +1509,32 @@ int mt76_sta_state(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
 {
 	struct mt76_phy *phy = hw->priv;
 	struct mt76_dev *dev = phy->dev;
+	enum mt76_sta_event ev;
 
 	if (old_state == IEEE80211_STA_NOTEXIST &&
 	    new_state == IEEE80211_STA_NONE)
 		return mt76_sta_add(phy, vif, sta);
 
-	if (old_state == IEEE80211_STA_AUTH &&
-	    new_state == IEEE80211_STA_ASSOC &&
-	    dev->drv->sta_assoc)
-		dev->drv->sta_assoc(dev, vif, sta);
-
 	if (old_state == IEEE80211_STA_NONE &&
 	    new_state == IEEE80211_STA_NOTEXIST)
 		mt76_sta_remove(dev, vif, sta);
 
-	return 0;
+	if (!dev->drv->sta_event)
+		return 0;
+
+	if (old_state == IEEE80211_STA_AUTH &&
+	    new_state == IEEE80211_STA_ASSOC)
+		ev = MT76_STA_EVENT_ASSOC;
+	else if (old_state == IEEE80211_STA_ASSOC &&
+		 new_state == IEEE80211_STA_AUTHORIZED)
+		ev = MT76_STA_EVENT_AUTHORIZE;
+	else if (old_state == IEEE80211_STA_ASSOC &&
+		 new_state == IEEE80211_STA_AUTH)
+		ev = MT76_STA_EVENT_DISASSOC;
+	else
+		return 0;
+
+	return dev->drv->sta_event(dev, vif, sta, ev);
 }
 EXPORT_SYMBOL_GPL(mt76_sta_state);
 
@@ -1515,6 +1557,7 @@ void mt76_wcid_init(struct mt76_wcid *wcid)
 {
 	INIT_LIST_HEAD(&wcid->tx_list);
 	skb_queue_head_init(&wcid->tx_pending);
+	skb_queue_head_init(&wcid->tx_offchannel);
 
 	INIT_LIST_HEAD(&wcid->list);
 	idr_init(&wcid->pktid);
@@ -1621,8 +1664,8 @@ EXPORT_SYMBOL_GPL(mt76_get_sar_power);
 static void
 __mt76_csa_finish(void *priv, u8 *mac, struct ieee80211_vif *vif)
 {
-	if (vif->bss_conf.csa_active && ieee80211_beacon_cntdwn_is_complete(vif))
-		ieee80211_csa_finish(vif);
+	if (vif->bss_conf.csa_active && ieee80211_beacon_cntdwn_is_complete(vif, 0))
+		ieee80211_csa_finish(vif, 0);
 }
 
 void mt76_csa_finish(struct mt76_dev *dev)
@@ -1646,7 +1689,7 @@ __mt76_csa_check(void *priv, u8 *mac, struct ieee80211_vif *vif)
 	if (!vif->bss_conf.csa_active)
 		return;
 
-	dev->csa_complete |= ieee80211_beacon_cntdwn_is_complete(vif);
+	dev->csa_complete |= ieee80211_beacon_cntdwn_is_complete(vif, 0);
 }
 
 void mt76_csa_check(struct mt76_dev *dev)
@@ -1691,14 +1734,15 @@ int mt76_get_rate(struct mt76_dev *dev,
 		  struct ieee80211_supported_band *sband,
 		  int idx, bool cck)
 {
+	bool is_2g = sband->band == NL80211_BAND_2GHZ;
 	int i, offset = 0, len = sband->n_bitrates;
 
 	if (cck) {
-		if (sband != &dev->phy.sband_2g.sband)
+		if (!is_2g)
 			return 0;
 
 		idx &= ~BIT(2); /* short preamble */
-	} else if (sband == &dev->phy.sband_2g.sband) {
+	} else if (is_2g) {
 		offset = 4;
 	}
 
@@ -1862,19 +1906,3 @@ enum mt76_dfs_state mt76_phy_dfs_state(struct mt76_phy *phy)
 	return MT_DFS_STATE_ACTIVE;
 }
 EXPORT_SYMBOL_GPL(mt76_phy_dfs_state);
-
-#ifdef CONFIG_NET_MEDIATEK_SOC_WED
-int mt76_net_setup_tc(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
-		      struct net_device *netdev, enum tc_setup_type type,
-		      void *type_data)
-{
-	struct mt76_phy *phy = hw->priv;
-	struct mtk_wed_device *wed = &phy->dev->mmio.wed;
-
-	if (!mtk_wed_device_active(wed))
-		return -EOPNOTSUPP;
-
-	return mtk_wed_device_setup_tc(wed, netdev, type, type_data);
-}
-EXPORT_SYMBOL_GPL(mt76_net_setup_tc);
-#endif /* CONFIG_NET_MEDIATEK_SOC_WED */

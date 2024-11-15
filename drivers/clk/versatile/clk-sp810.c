@@ -63,6 +63,7 @@ static int clk_sp810_timerclken_set_parent(struct clk_hw *hw, u8 index)
 }
 
 static const struct clk_ops clk_sp810_timerclken_ops = {
+	.determine_rate = clk_hw_determine_rate_no_reparent,
 	.get_parent = clk_sp810_timerclken_get_parent,
 	.set_parent = clk_sp810_timerclken_set_parent,
 };
@@ -109,7 +110,7 @@ static void __init clk_sp810_of_setup(struct device_node *node)
 	init.parent_names = parent_names;
 	init.num_parents = num;
 
-	deprecated = !of_find_property(node, "assigned-clock-parents", NULL);
+	deprecated = !of_property_present(node, "assigned-clock-parents");
 
 	for (i = 0; i < ARRAY_SIZE(sp810->timerclken); i++) {
 		snprintf(name, sizeof(name), "sp810_%d_%d", instance, i);

@@ -400,7 +400,7 @@ static void tda7432_remove(struct i2c_client *client)
 }
 
 static const struct i2c_device_id tda7432_id[] = {
-	{ "tda7432", 0 },
+	{ "tda7432" },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, tda7432_id);
@@ -409,7 +409,7 @@ static struct i2c_driver tda7432_driver = {
 	.driver = {
 		.name	= "tda7432",
 	},
-	.probe_new	= tda7432_probe,
+	.probe		= tda7432_probe,
 	.remove		= tda7432_remove,
 	.id_table	= tda7432_id,
 };

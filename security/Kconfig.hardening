@@ -279,6 +279,29 @@ config ZERO_CALL_USED_REGS
 
 endmenu
 
+menu "Hardening of kernel data structures"
+
+config LIST_HARDENED
+	bool "Check integrity of linked list manipulation"
+	help
+	  Minimal integrity checking in the linked-list manipulation routines
+	  to catch memory corruptions that are not guaranteed to result in an
+	  immediate access fault.
+
+	  If unsure, say N.
+
+config BUG_ON_DATA_CORRUPTION
+	bool "Trigger a BUG when data corruption is detected"
+	select LIST_HARDENED
+	help
+	  Select this option if the kernel should BUG when it encounters
+	  data corruption in kernel memory structures when they get checked
+	  for validity.
+
+	  If unsure, say N.
+
+endmenu
+
 config CC_HAS_RANDSTRUCT
 	def_bool $(cc-option,-frandomize-layout-seed-file=/dev/null)
 	# Randstruct was first added in Clang 15, but it isn't safe to use until
@@ -317,7 +340,7 @@ choice
 	config RANDSTRUCT_FULL
 		bool "Fully randomize structure layout"
 		depends on CC_HAS_RANDSTRUCT || GCC_PLUGINS
-		select MODVERSIONS if MODULES
+		select MODVERSIONS if MODULES && !COMPILE_TEST
 		help
 		  Fully randomize the member layout of sensitive
 		  structures as much as possible, which may have both a
@@ -333,7 +356,7 @@ choice
 	config RANDSTRUCT_PERFORMANCE
 		bool "Limit randomization of structure layout to cache-lines"
 		depends on GCC_PLUGINS
-		select MODVERSIONS if MODULES
+		select MODVERSIONS if MODULES && !COMPILE_TEST
 		help
 		  Randomization of sensitive kernel structures will make a
 		  best effort at restricting randomization to cacheline-sized

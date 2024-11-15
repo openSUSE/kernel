@@ -48,7 +48,7 @@ struct fsl_mc_driver {
 	struct device_driver driver;
 	const struct fsl_mc_device_id *match_id_table;
 	int (*probe)(struct fsl_mc_device *dev);
-	int (*remove)(struct fsl_mc_device *dev);
+	void (*remove)(struct fsl_mc_device *dev);
 	void (*shutdown)(struct fsl_mc_device *dev);
 	int (*suspend)(struct fsl_mc_device *dev, pm_message_t state);
 	int (*resume)(struct fsl_mc_device *dev);
@@ -56,7 +56,7 @@ struct fsl_mc_driver {
 };
 
 #define to_fsl_mc_driver(_drv) \
-	container_of(_drv, struct fsl_mc_driver, driver)
+	container_of_const(_drv, struct fsl_mc_driver, driver)
 
 /**
  * enum fsl_mc_pool_type - Types of allocatable MC bus resources
@@ -436,7 +436,7 @@ void fsl_mc_free_irqs(struct fsl_mc_device *mc_dev);
 struct fsl_mc_device *fsl_mc_get_endpoint(struct fsl_mc_device *mc_dev,
 					  u16 if_id);
 
-extern struct bus_type fsl_mc_bus_type;
+extern const struct bus_type fsl_mc_bus_type;
 
 extern struct device_type fsl_mc_bus_dprc_type;
 extern struct device_type fsl_mc_bus_dpni_type;

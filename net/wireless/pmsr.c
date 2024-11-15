@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0 */
 /*
- * Copyright (C) 2018 - 2021, 2023 Intel Corporation
+ * Copyright (C) 2018 - 2021, 2023 - 2024 Intel Corporation
  */
 #include <net/cfg80211.h>
 #include "core.h"
@@ -148,6 +148,14 @@ static int pmsr_parse_ftm(struct cfg80211_registered_device *rdev,
 		return -EINVAL;
 	}
 
+	if (out->ftm.ftms_per_burst > 31 && !out->ftm.non_trigger_based &&
+	    !out->ftm.trigger_based) {
+		NL_SET_ERR_MSG_ATTR(info->extack,
+				    tb[NL80211_PMSR_FTM_REQ_ATTR_FTMS_PER_BURST],
+				    "FTM: FTMs per burst must be set lower than 31");
+		return -ERANGE;
+	}
+
 	if ((out->ftm.trigger_based || out->ftm.non_trigger_based) &&
 	    out->ftm.preamble != NL80211_PREAMBLE_HE) {
 		NL_SET_ERR_MSG_ATTR(info->extack,
@@ -291,6 +299,7 @@ int nl80211_pmsr_start(struct sk_buff *skb, struct genl_info *info)
 	req = kzalloc(struct_size(req, peers, count), GFP_KERNEL);
 	if (!req)
 		return -ENOMEM;
+	req->n_peers = count;
 
 	if (info->attrs[NL80211_ATTR_TIMEOUT])
 		req->timeout = nla_get_u32(info->attrs[NL80211_ATTR_TIMEOUT]);
@@ -321,8 +330,6 @@ int nl80211_pmsr_start(struct sk_buff *skb, struct genl_info *info)
 			goto out_err;
 		idx++;
 	}
-
-	req->n_peers = count;
 	req->cookie = cfg80211_assign_cookie(rdev);
 	req->nl_portid = info->snd_portid;
 

@@ -20,7 +20,15 @@
 		{I_CLEAR,		"I_CLEAR"},		\
 		{I_SYNC,		"I_SYNC"},		\
 		{I_DIRTY_TIME,		"I_DIRTY_TIME"},	\
-		{I_REFERENCED,		"I_REFERENCED"}		\
+		{I_REFERENCED,		"I_REFERENCED"},	\
+		{I_LINKABLE,		"I_LINKABLE"},		\
+		{I_WB_SWITCH,		"I_WB_SWITCH"},		\
+		{I_OVL_INUSE,		"I_OVL_INUSE"},		\
+		{I_CREATING,		"I_CREATING"},		\
+		{I_DONTCACHE,		"I_DONTCACHE"},		\
+		{I_SYNC_QUEUED,		"I_SYNC_QUEUED"},	\
+		{I_PINNING_NETFS_WB,	"I_PINNING_NETFS_WB"},	\
+		{I_LRU_ISOLATING,	"I_LRU_ISOLATING"}	\
 	)
 
 /* enums need to be exported to user space */
@@ -809,7 +817,7 @@ DECLARE_EVENT_CLASS(writeback_inode_template,
 	),
 
 	TP_fast_assign(
-		__entry->dev	= inode_get_dev(inode);
+		__entry->dev	= inode->i_sb->s_dev;
 		__entry->ino	= inode->i_ino;
 		__entry->state	= inode->i_state;
 		__entry->mode	= inode->i_mode;

@@ -102,6 +102,11 @@ void __init time_early_init(void)
 			((long) qui.old_leap * 4096000000L);
 }
 
+unsigned long long noinstr sched_clock_noinstr(void)
+{
+	return tod_to_ns(__get_tod_clock_monotonic());
+}
+
 /*
  * Scheduler clock - returns current time in nanosec units.
  */
@@ -126,7 +131,7 @@ void clock_comparator_work(void)
 {
 	struct clock_event_device *cd;
 
-	S390_lowcore.clock_comparator = clock_comparator_max;
+	get_lowcore()->clock_comparator = clock_comparator_max;
 	cd = this_cpu_ptr(&comparators);
 	cd->event_handler(cd);
 }
@@ -134,8 +139,8 @@ void clock_comparator_work(void)
 static int s390_next_event(unsigned long delta,
 			   struct clock_event_device *evt)
 {
-	S390_lowcore.clock_comparator = get_tod_clock() + delta;
-	set_clock_comparator(S390_lowcore.clock_comparator);
+	get_lowcore()->clock_comparator = get_tod_clock() + delta;
+	set_clock_comparator(get_lowcore()->clock_comparator);
 	return 0;
 }
 
@@ -148,8 +153,8 @@ void init_cpu_timer(void)
 	struct clock_event_device *cd;
 	int cpu;
 
-	S390_lowcore.clock_comparator = clock_comparator_max;
-	set_clock_comparator(S390_lowcore.clock_comparator);
+	get_lowcore()->clock_comparator = clock_comparator_max;
+	set_clock_comparator(get_lowcore()->clock_comparator);
 
 	cpu = smp_processor_id();
 	cd = &per_cpu(comparators, cpu);
@@ -168,10 +173,10 @@ void init_cpu_timer(void)
 	clockevents_register_device(cd);
 
 	/* Enable clock comparator timer interrupt. */
-	__ctl_set_bit(0,11);
+	local_ctl_set_bit(0, CR0_CLOCK_COMPARATOR_SUBMASK_BIT);
 
 	/* Always allow the timing alert external interrupt. */
-	__ctl_set_bit(0, 4);
+	local_ctl_set_bit(0, CR0_ETR_SUBMASK_BIT);
 }
 
 static void clock_comparator_interrupt(struct ext_code ext_code,
@@ -179,8 +184,8 @@ static void clock_comparator_interrupt(struct ext_code ext_code,
 				       unsigned long param64)
 {
 	inc_irq_stat(IRQEXT_CLK);
-	if (S390_lowcore.clock_comparator == clock_comparator_max)
-		set_clock_comparator(S390_lowcore.clock_comparator);
+	if (get_lowcore()->clock_comparator == clock_comparator_max)
+		set_clock_comparator(get_lowcore()->clock_comparator);
 }
 
 static void stp_timing_alert(struct stp_irq_parm *);
@@ -246,8 +251,8 @@ static struct clocksource clocksource_tod = {
 	.rating		= 400,
 	.read		= read_tod_clock,
 	.mask		= CLOCKSOURCE_MASK(64),
-	.mult		= 1000,
-	.shift		= 12,
+	.mult		= 4096000,
+	.shift		= 24,
 	.flags		= CLOCK_SOURCE_IS_CONTINUOUS,
 	.vdso_clock_mode = VDSO_CLOCKMODE_TOD,
 };
@@ -403,12 +408,12 @@ static void clock_sync_global(long delta)
 static void clock_sync_local(long delta)
 {
 	/* Add the delta to the clock comparator. */
-	if (S390_lowcore.clock_comparator != clock_comparator_max) {
-		S390_lowcore.clock_comparator += delta;
-		set_clock_comparator(S390_lowcore.clock_comparator);
+	if (get_lowcore()->clock_comparator != clock_comparator_max) {
+		get_lowcore()->clock_comparator += delta;
+		set_clock_comparator(get_lowcore()->clock_comparator);
 	}
 	/* Adjust the last_update_clock time-stamp. */
-	S390_lowcore.last_update_clock += delta;
+	get_lowcore()->last_update_clock += delta;
 }
 
 /* Single threaded workqueue used for stp sync events */
@@ -697,7 +702,7 @@ static void stp_work_fn(struct work_struct *work)
 
 	if (!check_sync_clock())
 		/*
-		 * There is a usable clock but the synchonization failed.
+		 * There is a usable clock but the synchronization failed.
 		 * Retry after a second.
 		 */
 		mod_timer(&stp_timer, jiffies + msecs_to_jiffies(MSEC_PER_SEC));
@@ -711,7 +716,7 @@ out_unlock:
 /*
  * STP subsys sysfs interface functions
  */
-static struct bus_type stp_subsys = {
+static const struct bus_type stp_subsys = {
 	.name		= "stp",
 	.dev_name	= "stp",
 };

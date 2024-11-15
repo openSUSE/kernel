@@ -40,11 +40,13 @@ void cifs_dump_detail(void *buf, struct TCP_Server_Info *server)
 #ifdef CONFIG_CIFS_DEBUG2
 	struct smb_hdr *smb = buf;
 
-	cifs_dbg(VFS, "Cmd: %d Err: 0x%x Flags: 0x%x Flgs2: 0x%x Mid: %d Pid: %d\n",
-		 smb->Command, smb->Status.CifsError,
-		 smb->Flags, smb->Flags2, smb->Mid, smb->Pid);
-	cifs_dbg(VFS, "smb buf %p len %u\n", smb,
-		 server->ops->calc_smb_size(smb));
+	cifs_dbg(VFS, "Cmd: %d Err: 0x%x Flags: 0x%x Flgs2: 0x%x Mid: %d Pid: %d Wct: %d\n",
+		 smb->Command, smb->Status.CifsError, smb->Flags,
+		 smb->Flags2, smb->Mid, smb->Pid, smb->WordCount);
+	if (!server->ops->check_message(buf, server->total_read, server)) {
+		cifs_dbg(VFS, "smb buf %p len %u\n", smb,
+			 server->ops->calc_smb_size(smb));
+	}
 #endif /* CONFIG_CIFS_DEBUG2 */
 }
 
@@ -278,6 +280,24 @@ static int cifs_debug_files_proc_show(struct seq_file *m, void *v)
 	return 0;
 }
 
+static __always_inline const char *compression_alg_str(__le16 alg)
+{
+	switch (alg) {
+	case SMB3_COMPRESS_NONE:
+		return "NONE";
+	case SMB3_COMPRESS_LZNT1:
+		return "LZNT1";
+	case SMB3_COMPRESS_LZ77:
+		return "LZ77";
+	case SMB3_COMPRESS_LZ77_HUFF:
+		return "LZ77-Huffman";
+	case SMB3_COMPRESS_PATTERN:
+		return "Pattern_V1";
+	default:
+		return "invalid";
+	}
+}
+
 static int cifs_debug_data_proc_show(struct seq_file *m, void *v)
 {
 	struct mid_q_entry *mid_entry;
@@ -330,6 +350,9 @@ static int cifs_debug_data_proc_show(struct seq_file *m, void *v)
 #ifdef CONFIG_CIFS_SWN_UPCALL
 	seq_puts(m, ",WITNESS");
 #endif
+#ifdef CONFIG_CIFS_COMPRESSION
+	seq_puts(m, ",COMPRESSION");
+#endif
 	seq_putc(m, '\n');
 	seq_printf(m, "CIFSMaxBufSize: %d\n", CIFSMaxBufSize);
 	seq_printf(m, "Active VFS Requests: %d\n", GlobalTotalActiveXid);
@@ -340,7 +363,7 @@ static int cifs_debug_data_proc_show(struct seq_file *m, void *v)
 	spin_lock(&cifs_tcp_ses_lock);
 	list_for_each_entry(server, &cifs_tcp_ses_list, tcp_ses_list) {
 		/* channel info will be printed as a part of sessions below */
-		if (CIFS_SERVER_IS_CHAN(server))
+		if (SERVER_IS_CHAN(server))
 			continue;
 
 		c++;
@@ -423,18 +446,14 @@ skip_rdma:
 			server->echo_credits,
 			server->oplock_credits,
 			server->dialect);
-		if (server->compress_algorithm == SMB3_COMPRESS_LZNT1)
-			seq_printf(m, " COMPRESS_LZNT1");
-		else if (server->compress_algorithm == SMB3_COMPRESS_LZ77)
-			seq_printf(m, " COMPRESS_LZ77");
-		else if (server->compress_algorithm == SMB3_COMPRESS_LZ77_HUFF)
-			seq_printf(m, " COMPRESS_LZ77_HUFF");
 		if (server->sign)
 			seq_printf(m, " signed");
 		if (server->posix_ext_supported)
 			seq_printf(m, " posix");
 		if (server->nosharesock)
 			seq_printf(m, " nosharesock");
+
+		seq_printf(m, "\nServer capabilities: 0x%x", server->capabilities);
 
 		if (server->rdma)
 			seq_printf(m, "\nRDMA ");
@@ -457,6 +476,16 @@ skip_rdma:
 			seq_printf(m, "\nDFS leaf full path: %s",
 				   server->leaf_fullpath);
 		}
+
+		seq_puts(m, "\nCompression: ");
+		if (!IS_ENABLED(CONFIG_CIFS_COMPRESSION))
+			seq_puts(m, "no built-in support");
+		else if (!server->compression.requested)
+			seq_puts(m, "disabled on mount");
+		else if (server->compression.enabled)
+			seq_printf(m, "enabled (%s)", compression_alg_str(server->compression.alg));
+		else
+			seq_puts(m, "disabled (not supported by this server)");
 
 		seq_printf(m, "\n\n\tSessions: ");
 		i = 0;
@@ -486,6 +515,8 @@ skip_rdma:
 				ses->ses_count, ses->serverOS, ses->serverNOS,
 				ses->capabilities, ses->ses_status);
 			}
+			if (ses->expired_pwd)
+				seq_puts(m, "password no longer valid ");
 			spin_unlock(&ses->ses_lock);
 
 			seq_printf(m, "\n\tSecurity type: %s ",
@@ -773,14 +804,14 @@ static ssize_t name##_write(struct file *file, const char __user *buffer, \
 	size_t count, loff_t *ppos) \
 { \
 	int rc; \
-	rc = kstrtoint_from_user(buffer, count, 10, & name); \
+	rc = kstrtoint_from_user(buffer, count, 10, &name); \
 	if (rc) \
 		return rc; \
 	return count; \
 } \
 static int name##_proc_show(struct seq_file *m, void *v) \
 { \
-	seq_printf(m, "%d\n", name ); \
+	seq_printf(m, "%d\n", name); \
 	return 0; \
 } \
 static int name##_open(struct inode *inode, struct file *file) \
@@ -1046,7 +1077,7 @@ static int cifs_security_flags_proc_open(struct inode *inode, struct file *file)
 static void
 cifs_security_flags_handle_must_flags(unsigned int *flags)
 {
-	unsigned int signflags = *flags & CIFSSEC_MUST_SIGN;
+	unsigned int signflags = *flags & (CIFSSEC_MUST_SIGN | CIFSSEC_MUST_SEAL);
 
 	if ((*flags & CIFSSEC_MUST_KRB5) == CIFSSEC_MUST_KRB5)
 		*flags = CIFSSEC_MUST_KRB5;

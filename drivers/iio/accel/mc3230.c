@@ -180,7 +180,7 @@ static int mc3230_resume(struct device *dev)
 static DEFINE_SIMPLE_DEV_PM_OPS(mc3230_pm_ops, mc3230_suspend, mc3230_resume);
 
 static const struct i2c_device_id mc3230_i2c_id[] = {
-	{"mc3230", 0},
+	{ "mc3230" },
 	{}
 };
 MODULE_DEVICE_TABLE(i2c, mc3230_i2c_id);
@@ -190,7 +190,7 @@ static struct i2c_driver mc3230_driver = {
 		.name = "mc3230",
 		.pm = pm_sleep_ptr(&mc3230_pm_ops),
 	},
-	.probe_new	= mc3230_probe,
+	.probe		= mc3230_probe,
 	.remove		= mc3230_remove,
 	.id_table	= mc3230_i2c_id,
 };

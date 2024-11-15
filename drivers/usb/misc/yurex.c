@@ -400,8 +400,9 @@ static ssize_t yurex_read(struct file *file, char __user *buffer, size_t count,
 			  loff_t *ppos)
 {
 	struct usb_yurex *dev;
-	int len = 0;
+	int len;
 	char in_buffer[20];
+	unsigned long flags;
 
 	dev = file->private_data;
 
@@ -411,9 +412,9 @@ static ssize_t yurex_read(struct file *file, char __user *buffer, size_t count,
 		return -ENODEV;
 	}
 
-	spin_lock_irq(&dev->lock);
+	spin_lock_irqsave(&dev->lock, flags);
 	len = snprintf(in_buffer, 20, "%lld\n", dev->bbu);
-	spin_unlock_irq(&dev->lock);
+	spin_unlock_irqrestore(&dev->lock, flags);
 	mutex_unlock(&dev->io_mutex);
 
 	if (WARN_ON_ONCE(len >= sizeof(in_buffer)))
@@ -529,4 +530,5 @@ static const struct file_operations yurex_fops = {
 
 module_usb_driver(yurex_driver);
 
+MODULE_DESCRIPTION("USB YUREX driver support");
 MODULE_LICENSE("GPL");

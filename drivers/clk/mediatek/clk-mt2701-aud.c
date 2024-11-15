@@ -7,7 +7,7 @@
 #include <linux/clk-provider.h>
 #include <linux/of.h>
 #include <linux/of_address.h>
-#include <linux/of_device.h>
+#include <linux/of_platform.h>
 #include <linux/platform_device.h>
 
 #include "clk-mtk.h"
@@ -150,10 +150,10 @@ err_plat_populate:
 	return r;
 }
 
-static int clk_mt2701_aud_remove(struct platform_device *pdev)
+static void clk_mt2701_aud_remove(struct platform_device *pdev)
 {
 	of_platform_depopulate(&pdev->dev);
-	return mtk_clk_simple_remove(pdev);
+	mtk_clk_simple_remove(pdev);
 }
 
 static struct platform_driver clk_mt2701_aud_drv = {
@@ -165,4 +165,6 @@ static struct platform_driver clk_mt2701_aud_drv = {
 	},
 };
 module_platform_driver(clk_mt2701_aud_drv);
+
+MODULE_DESCRIPTION("MediaTek MT2701 audio clocks driver");
 MODULE_LICENSE("GPL");

@@ -57,7 +57,6 @@
 #include <linux/io.h>
 #include <linux/kfifo.h>
 #include <linux/of.h>
-#include <linux/of_device.h>
 #include <linux/of_gpio.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
@@ -2844,7 +2843,6 @@ static int ca8210_interrupt_init(struct spi_device *spi)
 	);
 	if (ret) {
 		dev_crit(&spi->dev, "request_irq %d failed\n", pdata->irq_id);
-		gpiod_unexport(gpio_to_desc(pdata->gpio_irq));
 		gpio_free(pdata->gpio_irq);
 	}
 
@@ -2859,19 +2857,13 @@ static int ca8210_interrupt_init(struct spi_device *spi)
  */
 static int ca8210_dev_com_init(struct ca8210_priv *priv)
 {
-	priv->mlme_workqueue = alloc_ordered_workqueue(
-		"MLME work queue",
-		WQ_UNBOUND
-	);
+	priv->mlme_workqueue = alloc_ordered_workqueue("MLME work queue", 0);
 	if (!priv->mlme_workqueue) {
 		dev_crit(&priv->spi->dev, "alloc of mlme_workqueue failed!\n");
 		return -ENOMEM;
 	}
 
-	priv->irq_workqueue = alloc_ordered_workqueue(
-		"ca8210 irq worker",
-		WQ_UNBOUND
-	);
+	priv->irq_workqueue = alloc_ordered_workqueue("ca8210 irq worker", 0);
 	if (!priv->irq_workqueue) {
 		dev_crit(&priv->spi->dev, "alloc of irq_workqueue failed!\n");
 		destroy_workqueue(priv->mlme_workqueue);
@@ -2934,7 +2926,8 @@ static void ca8210_hw_setup(struct ieee802154_hw *ca8210_hw)
 	ca8210_hw->phy->flags =
 		WPAN_PHY_FLAG_TXPOWER |
 		WPAN_PHY_FLAG_CCA_ED_LEVEL |
-		WPAN_PHY_FLAG_CCA_MODE;
+		WPAN_PHY_FLAG_CCA_MODE |
+		WPAN_PHY_FLAG_DATAGRAMS_ONLY;
 }
 
 /**
@@ -2957,7 +2950,7 @@ static int ca8210_test_interface_init(struct ca8210_priv *priv)
 		node_name,
 		sizeof(node_name),
 		"ca8210@%d_%d",
-		priv->spi->master->bus_num,
+		priv->spi->controller->bus_num,
 		spi_get_chipselect(priv->spi, 0)
 	);
 

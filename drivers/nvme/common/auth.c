@@ -8,7 +8,7 @@
 #include <linux/base64.h>
 #include <linux/prandom.h>
 #include <linux/scatterlist.h>
-#include <asm/unaligned.h>
+#include <linux/unaligned.h>
 #include <crypto/hash.h>
 #include <crypto/dh.h>
 #include <linux/nvme.h>
@@ -471,4 +471,5 @@ int nvme_auth_generate_key(u8 *secret, struct nvme_dhchap_key **ret_key)
 }
 EXPORT_SYMBOL_GPL(nvme_auth_generate_key);
 
+MODULE_DESCRIPTION("NVMe Authentication framework");
 MODULE_LICENSE("GPL v2");

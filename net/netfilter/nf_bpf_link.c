@@ -152,11 +152,12 @@ static int bpf_nf_link_fill_link_info(const struct bpf_link *link,
 				      struct bpf_link_info *info)
 {
 	struct bpf_nf_link *nf_link = container_of(link, struct bpf_nf_link, link);
+	const struct nf_defrag_hook *hook = nf_link->defrag_hook;
 
 	info->netfilter.pf = nf_link->hook_ops.pf;
 	info->netfilter.hooknum = nf_link->hook_ops.hooknum;
 	info->netfilter.priority = nf_link->hook_ops.priority;
-	info->netfilter.flags = 0;
+	info->netfilter.flags = hook ? BPF_F_NETFILTER_IP_DEFRAG : 0;
 
 	return 0;
 }
@@ -318,7 +319,7 @@ static bool nf_is_valid_access(int off, int size, enum bpf_access_type type,
 static const struct bpf_func_proto *
 bpf_nf_func_proto(enum bpf_func_id func_id, const struct bpf_prog *prog)
 {
-	return bpf_base_func_proto(func_id);
+	return bpf_base_func_proto(func_id, prog);
 }
 
 const struct bpf_verifier_ops netfilter_verifier_ops = {

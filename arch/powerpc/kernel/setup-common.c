@@ -30,12 +30,11 @@
 #include <linux/serial_8250.h>
 #include <linux/percpu.h>
 #include <linux/memblock.h>
-#include <linux/of_irq.h>
+#include <linux/of.h>
 #include <linux/of_fdt.h>
-#include <linux/of_platform.h>
+#include <linux/of_irq.h>
 #include <linux/hugetlb.h>
 #include <linux/pgtable.h>
-#include <linux/security.h>
 #include <asm/io.h>
 #include <asm/paca.h>
 #include <asm/processor.h>
@@ -68,7 +67,6 @@
 #include <asm/cpu_has_feature.h>
 #include <asm/kasan.h>
 #include <asm/mce.h>
-#include <asm/secure_boot.h>
 
 #include "setup.h"
 
@@ -112,7 +110,7 @@ int ppc_do_canonicalize_irqs;
 EXPORT_SYMBOL(ppc_do_canonicalize_irqs);
 #endif
 
-#ifdef CONFIG_CRASH_CORE
+#ifdef CONFIG_CRASH_DUMP
 /* This keeps a track of which one is the crashing cpu. */
 int crashing_cpu = -1;
 #endif
@@ -407,7 +405,7 @@ static void __init cpu_init_thread_core_maps(int tpc)
 		cpumask_set_cpu(i, &threads_core_mask);
 
 	printk(KERN_INFO "CPU maps initialized for %d thread%s per core\n",
-	       tpc, tpc > 1 ? "s" : "");
+	       tpc, str_plural(tpc));
 	printk(KERN_DEBUG " (thread shift is %d)\n", threads_shift);
 }
 
@@ -611,7 +609,6 @@ struct seq_buf ppc_hw_desc __initdata = {
 	.buffer = ppc_hw_desc_buf,
 	.size = sizeof(ppc_hw_desc_buf),
 	.len = 0,
-	.readpos = 0,
 };
 
 static __init void probe_machine(void)
@@ -642,6 +639,8 @@ static __init void probe_machine(void)
 	     machine_id++) {
 		DBG("  %s ...\n", machine_id->name);
 		if (machine_id->compatible && !of_machine_is_compatible(machine_id->compatible))
+			continue;
+		if (machine_id->compatibles && !of_machine_compatible_match(machine_id->compatibles))
 			continue;
 		memcpy(&ppc_md, machine_id, sizeof(struct machdep_calls));
 		if (ppc_md.probe && !ppc_md.probe())
@@ -923,16 +922,6 @@ void __init setup_arch(char **cmdline_p)
 	 */
 	initialize_cache_info();
 
-	/*
-	 * Lock down the kernel if booted in secure mode. This is required to
-	 * maintain kernel integrity.
-	 */
-	if (IS_ENABLED(CONFIG_LOCK_DOWN_IN_EFI_SECURE_BOOT)) {
-		if (is_ppc_secureboot_enabled())
-			security_lock_kernel_down("Power Secure Boot mode",
-						  LOCKDOWN_INTEGRITY_MAX);
-	}
-
 	/* Initialize RTAS if available. */
 	rtas_initialize();
 
@@ -968,6 +957,9 @@ void __init setup_arch(char **cmdline_p)
 
 	/* Parse memory topology */
 	mem_topology_setup();
+	/* Set max_mapnr before paging_init() */
+	set_max_mapnr(max_pfn);
+	high_memory = (void *)__va(max_low_pfn * PAGE_SIZE);
 
 	/*
 	 * Release secondary cpus out of their spinloops at 0x60 now that
@@ -989,8 +981,12 @@ void __init setup_arch(char **cmdline_p)
 	klp_init_thread_info(&init_task);
 
 	setup_initial_init_mm(_stext, _etext, _edata, _end);
-
+	/* sched_init() does the mmgrab(&init_mm) for the primary CPU */
+	VM_WARN_ON(cpumask_test_cpu(smp_processor_id(), mm_cpumask(&init_mm)));
+	cpumask_set_cpu(smp_processor_id(), mm_cpumask(&init_mm));
+	inc_mm_active_cpus(&init_mm);
 	mm_iommu_init(&init_mm);
+
 	irqstack_early_init();
 	exc_lvl_early_init();
 	emergency_stack_init();

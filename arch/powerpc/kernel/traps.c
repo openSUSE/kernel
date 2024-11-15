@@ -121,7 +121,7 @@ static void pmac_backlight_unblank(void)
 
 		props = &pmac_backlight->props;
 		props->brightness = props->max_brightness;
-		props->power = FB_BLANK_UNBLANK;
+		props->power = BACKLIGHT_POWER_ON;
 		backlight_update_status(pmac_backlight);
 	}
 	mutex_unlock(&pmac_backlight_mutex);
@@ -157,7 +157,7 @@ static int die_owner = -1;
 static unsigned int die_nest_count;
 static int die_counter;
 
-extern void panic_flush_kmsg_start(void)
+void panic_flush_kmsg_start(void)
 {
 	/*
 	 * These are mostly taken from kernel/panic.c, but tries to do
@@ -170,7 +170,7 @@ extern void panic_flush_kmsg_start(void)
 	bust_spinlocks(1);
 }
 
-extern void panic_flush_kmsg_end(void)
+void panic_flush_kmsg_end(void)
 {
 	kmsg_dump(KMSG_DUMP_PANIC);
 	bust_spinlocks(0);
@@ -1158,12 +1158,13 @@ DEFINE_INTERRUPT_HANDLER(single_step_exception)
  * pretend we got a single-step exception.  This was pointed out
  * by Kumar Gala.  -- paulus
  */
-static void emulate_single_step(struct pt_regs *regs)
+void emulate_single_step(struct pt_regs *regs)
 {
 	if (single_stepping(regs))
 		__single_step_exception(regs);
 }
 
+#ifdef CONFIG_PPC_FPU_REGS
 static inline int __parse_fpscr(unsigned long fpscr)
 {
 	int ret = FPE_FLTUNK;
@@ -1190,6 +1191,7 @@ static inline int __parse_fpscr(unsigned long fpscr)
 
 	return ret;
 }
+#endif
 
 static void parse_fpe(struct pt_regs *regs)
 {
@@ -1437,10 +1439,12 @@ static int emulate_instruction(struct pt_regs *regs)
 	return -EINVAL;
 }
 
+#ifdef CONFIG_GENERIC_BUG
 int is_valid_bugaddr(unsigned long addr)
 {
 	return is_kernel_addr(addr);
 }
+#endif
 
 #ifdef CONFIG_MATH_EMULATION
 static int emulate_math(struct pt_regs *regs)
@@ -1508,13 +1512,8 @@ static void do_program_check(struct pt_regs *regs)
 
 		if (!user_mode(regs) &&
 		    report_bug(bugaddr, regs) == BUG_TRAP_TYPE_WARN) {
-			const struct exception_table_entry *entry;
-
-			entry = search_exception_tables(bugaddr);
-			if (entry) {
-				regs_set_return_ip(regs, extable_fixup(entry) + regs->nip - bugaddr);
-				return;
-			}
+			regs_add_return_ip(regs, 4);
+			return;
 		}
 
 		/* User mode considers other cases after enabling IRQs */
@@ -2245,22 +2244,11 @@ void __noreturn unrecoverable_exception(struct pt_regs *regs)
 		;
 }
 
-#if defined(CONFIG_BOOKE_WDT) || defined(CONFIG_40x)
-/*
- * Default handler for a Watchdog exception,
- * spins until a reboot occurs
- */
-void __attribute__ ((weak)) WatchdogHandler(struct pt_regs *regs)
-{
-	/* Generic WatchdogHandler, implement your own */
-	mtspr(SPRN_TCR, mfspr(SPRN_TCR)&(~TCR_WIE));
-	return;
-}
-
+#ifdef CONFIG_BOOKE_WDT
 DEFINE_INTERRUPT_HANDLER_NMI(WatchdogException)
 {
 	printk (KERN_EMERG "PowerPC Book-E Watchdog Exception\n");
-	WatchdogHandler(regs);
+	mtspr(SPRN_TCR, mfspr(SPRN_TCR) & ~TCR_WIE);
 	return 0;
 }
 #endif

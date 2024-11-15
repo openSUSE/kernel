@@ -787,7 +787,7 @@ static void mos7840_close(struct usb_serial_port *port)
  * mos7840_break
  *	this function sends a break to the port
  *****************************************************************************/
-static void mos7840_break(struct tty_struct *tty, int break_state)
+static int mos7840_break(struct tty_struct *tty, int break_state)
 {
 	struct usb_serial_port *port = tty->driver_data;
 	struct moschip_port *mos7840_port = usb_get_serial_port_data(port);
@@ -801,8 +801,9 @@ static void mos7840_break(struct tty_struct *tty, int break_state)
 	/* FIXME: no locking on shadowLCR anywhere in driver */
 	mos7840_port->shadowLCR = data;
 	dev_dbg(&port->dev, "%s mos7840_port->shadowLCR is %x\n", __func__, mos7840_port->shadowLCR);
-	mos7840_set_uart_reg(port, LINE_CONTROL_REGISTER,
-			     mos7840_port->shadowLCR);
+
+	return mos7840_set_uart_reg(port, LINE_CONTROL_REGISTER,
+				    mos7840_port->shadowLCR);
 }
 
 /*****************************************************************************
@@ -1781,7 +1782,6 @@ static int mos7840_resume(struct usb_serial *serial)
 
 static struct usb_serial_driver moschip7840_4port_device = {
 	.driver = {
-		   .owner = THIS_MODULE,
 		   .name = "mos7840",
 		   },
 	.description = DRIVER_DESC,

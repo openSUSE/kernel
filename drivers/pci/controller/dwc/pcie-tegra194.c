@@ -13,7 +13,6 @@
 #include <linux/clk.h>
 #include <linux/debugfs.h>
 #include <linux/delay.h>
-#include <linux/gpio.h>
 #include <linux/gpio/consumer.h>
 #include <linux/interconnect.h>
 #include <linux/interrupt.h>
@@ -21,8 +20,6 @@
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/of.h>
-#include <linux/of_device.h>
-#include <linux/of_gpio.h>
 #include <linux/of_pci.h>
 #include <linux/pci.h>
 #include <linux/phy/phy.h>
@@ -180,17 +177,12 @@
 #define N_FTS_VAL					52
 #define FTS_VAL						52
 
-#define GEN3_EQ_CONTROL_OFF			0x8a8
-#define GEN3_EQ_CONTROL_OFF_PSET_REQ_VEC_SHIFT	8
-#define GEN3_EQ_CONTROL_OFF_PSET_REQ_VEC_MASK	GENMASK(23, 8)
-#define GEN3_EQ_CONTROL_OFF_FB_MODE_MASK	GENMASK(3, 0)
-
 #define PORT_LOGIC_AMBA_ERROR_RESPONSE_DEFAULT	0x8D0
-#define AMBA_ERROR_RESPONSE_CRS_SHIFT		3
-#define AMBA_ERROR_RESPONSE_CRS_MASK		GENMASK(1, 0)
-#define AMBA_ERROR_RESPONSE_CRS_OKAY		0
-#define AMBA_ERROR_RESPONSE_CRS_OKAY_FFFFFFFF	1
-#define AMBA_ERROR_RESPONSE_CRS_OKAY_FFFF0001	2
+#define AMBA_ERROR_RESPONSE_RRS_SHIFT		3
+#define AMBA_ERROR_RESPONSE_RRS_MASK		GENMASK(1, 0)
+#define AMBA_ERROR_RESPONSE_RRS_OKAY		0
+#define AMBA_ERROR_RESPONSE_RRS_OKAY_FFFFFFFF	1
+#define AMBA_ERROR_RESPONSE_RRS_OKAY_FFFF0001	2
 
 #define MSIX_ADDR_MATCH_LOW_OFF			0x940
 #define MSIX_ADDR_MATCH_LOW_OFF_EN		BIT(0)
@@ -309,10 +301,6 @@ static inline u32 appl_readl(struct tegra_pcie_dw *pcie, const u32 reg)
 	return readl_relaxed(pcie->appl_base + reg);
 }
 
-struct tegra_pcie_soc {
-	enum dw_pcie_device_mode mode;
-};
-
 static void tegra_pcie_icc_set(struct tegra_pcie_dw *pcie)
 {
 	struct dw_pcie *pci = &pcie->pci;
@@ -323,9 +311,9 @@ static void tegra_pcie_icc_set(struct tegra_pcie_dw *pcie)
 	speed = FIELD_GET(PCI_EXP_LNKSTA_CLS, val);
 	width = FIELD_GET(PCI_EXP_LNKSTA_NLW, val);
 
-	val = width * (PCIE_SPEED2MBS_ENC(pcie_link_speed[speed]) / BITS_PER_BYTE);
+	val = width * PCIE_SPEED2MBS_ENC(pcie_link_speed[speed]);
 
-	if (icc_set_bw(pcie->icc_path, MBps_to_icc(val), 0))
+	if (icc_set_bw(pcie->icc_path, Mbps_to_icc(val), 0))
 		dev_err(pcie->dev, "can't set bw[%u]\n", val);
 
 	if (speed >= ARRAY_SIZE(pcie_gen_freq))
@@ -774,13 +762,13 @@ static void tegra_pcie_enable_system_interrupts(struct dw_pcie_rp *pp)
 			   val_w);
 }
 
-static void tegra_pcie_enable_legacy_interrupts(struct dw_pcie_rp *pp)
+static void tegra_pcie_enable_intx_interrupts(struct dw_pcie_rp *pp)
 {
 	struct dw_pcie *pci = to_dw_pcie_from_pp(pp);
 	struct tegra_pcie_dw *pcie = to_tegra_pcie(pci);
 	u32 val;
 
-	/* Enable legacy interrupt generation */
+	/* Enable INTX interrupt generation */
 	val = appl_readl(pcie, APPL_INTR_EN_L0_0);
 	val |= APPL_INTR_EN_L0_0_SYS_INTR_EN;
 	val |= APPL_INTR_EN_L0_0_INT_INT_EN;
@@ -831,7 +819,7 @@ static void tegra_pcie_enable_interrupts(struct dw_pcie_rp *pp)
 	appl_writel(pcie, 0xFFFFFFFF, APPL_INTR_STATUS_L1_17);
 
 	tegra_pcie_enable_system_interrupts(pp);
-	tegra_pcie_enable_legacy_interrupts(pp);
+	tegra_pcie_enable_intx_interrupts(pp);
 	if (IS_ENABLED(CONFIG_PCI_MSI))
 		tegra_pcie_enable_msi_interrupts(pp);
 }
@@ -868,9 +856,9 @@ static void config_gen3_gen4_eq_presets(struct tegra_pcie_dw *pcie)
 	dw_pcie_writel_dbi(pci, GEN3_RELATED_OFF, val);
 
 	val = dw_pcie_readl_dbi(pci, GEN3_EQ_CONTROL_OFF);
-	val &= ~GEN3_EQ_CONTROL_OFF_PSET_REQ_VEC_MASK;
-	val |= (0x3ff << GEN3_EQ_CONTROL_OFF_PSET_REQ_VEC_SHIFT);
-	val &= ~GEN3_EQ_CONTROL_OFF_FB_MODE_MASK;
+	val &= ~GEN3_EQ_CONTROL_OFF_PSET_REQ_VEC;
+	val |= FIELD_PREP(GEN3_EQ_CONTROL_OFF_PSET_REQ_VEC, 0x3ff);
+	val &= ~GEN3_EQ_CONTROL_OFF_FB_MODE;
 	dw_pcie_writel_dbi(pci, GEN3_EQ_CONTROL_OFF, val);
 
 	val = dw_pcie_readl_dbi(pci, GEN3_RELATED_OFF);
@@ -879,10 +867,10 @@ static void config_gen3_gen4_eq_presets(struct tegra_pcie_dw *pcie)
 	dw_pcie_writel_dbi(pci, GEN3_RELATED_OFF, val);
 
 	val = dw_pcie_readl_dbi(pci, GEN3_EQ_CONTROL_OFF);
-	val &= ~GEN3_EQ_CONTROL_OFF_PSET_REQ_VEC_MASK;
-	val |= (pcie->of_data->gen4_preset_vec <<
-		GEN3_EQ_CONTROL_OFF_PSET_REQ_VEC_SHIFT);
-	val &= ~GEN3_EQ_CONTROL_OFF_FB_MODE_MASK;
+	val &= ~GEN3_EQ_CONTROL_OFF_PSET_REQ_VEC;
+	val |= FIELD_PREP(GEN3_EQ_CONTROL_OFF_PSET_REQ_VEC,
+			  pcie->of_data->gen4_preset_vec);
+	val &= ~GEN3_EQ_CONTROL_OFF_FB_MODE;
 	dw_pcie_writel_dbi(pci, GEN3_EQ_CONTROL_OFF, val);
 
 	val = dw_pcie_readl_dbi(pci, GEN3_RELATED_OFF);
@@ -914,18 +902,12 @@ static int tegra_pcie_dw_host_init(struct dw_pcie_rp *pp)
 
 	dw_pcie_writel_dbi(pci, PCI_BASE_ADDRESS_0, 0);
 
-	/* Enable as 0xFFFF0001 response for CRS */
+	/* Enable as 0xFFFF0001 response for RRS */
 	val = dw_pcie_readl_dbi(pci, PORT_LOGIC_AMBA_ERROR_RESPONSE_DEFAULT);
-	val &= ~(AMBA_ERROR_RESPONSE_CRS_MASK << AMBA_ERROR_RESPONSE_CRS_SHIFT);
-	val |= (AMBA_ERROR_RESPONSE_CRS_OKAY_FFFF0001 <<
-		AMBA_ERROR_RESPONSE_CRS_SHIFT);
+	val &= ~(AMBA_ERROR_RESPONSE_RRS_MASK << AMBA_ERROR_RESPONSE_RRS_SHIFT);
+	val |= (AMBA_ERROR_RESPONSE_RRS_OKAY_FFFF0001 <<
+		AMBA_ERROR_RESPONSE_RRS_SHIFT);
 	dw_pcie_writel_dbi(pci, PORT_LOGIC_AMBA_ERROR_RESPONSE_DEFAULT, val);
-
-	/* Configure Max lane width from DT */
-	val = dw_pcie_readl_dbi(pci, pcie->pcie_cap_base + PCI_EXP_LNKCAP);
-	val &= ~PCI_EXP_LNKCAP_MLW;
-	val |= FIELD_PREP(PCI_EXP_LNKCAP_MLW, pcie->num_lanes);
-	dw_pcie_writel_dbi(pci, pcie->pcie_cap_base + PCI_EXP_LNKCAP, val);
 
 	/* Clear Slot Clock Configuration bit if SRNS configuration */
 	if (pcie->enable_srns) {
@@ -1722,6 +1704,9 @@ static void pex_ep_event_pex_rst_assert(struct tegra_pcie_dw *pcie)
 	if (ret)
 		dev_err(pcie->dev, "Failed to go Detect state: %d\n", ret);
 
+	pci_epc_deinit_notify(pcie->pci.ep.epc);
+	dw_pcie_ep_cleanup(&pcie->pci.ep);
+
 	reset_control_assert(pcie->core_rst);
 
 	tegra_pcie_disable_phy(pcie);
@@ -1902,13 +1887,13 @@ static void pex_ep_event_pex_rst_deassert(struct tegra_pcie_dw *pcie)
 	val = (upper_32_bits(ep->msi_mem_phys) & MSIX_ADDR_MATCH_HIGH_OFF_MASK);
 	dw_pcie_writel_dbi(pci, MSIX_ADDR_MATCH_HIGH_OFF, val);
 
-	ret = dw_pcie_ep_init_complete(ep);
+	ret = dw_pcie_ep_init_registers(ep);
 	if (ret) {
 		dev_err(dev, "Failed to complete initialization: %d\n", ret);
 		goto fail_init_complete;
 	}
 
-	dw_pcie_ep_init_notify(ep);
+	pci_epc_init_notify(ep->epc);
 
 	/* Program the private control to allow sending LTR upstream */
 	if (pcie->of_data->has_ltr_req_fix) {
@@ -1954,7 +1939,7 @@ static irqreturn_t tegra_pcie_ep_pex_rst_irq(int irq, void *arg)
 	return IRQ_HANDLED;
 }
 
-static int tegra_pcie_ep_raise_legacy_irq(struct tegra_pcie_dw *pcie, u16 irq)
+static int tegra_pcie_ep_raise_intx_irq(struct tegra_pcie_dw *pcie, u16 irq)
 {
 	/* Tegra194 supports only INTA */
 	if (irq > 1)
@@ -1986,20 +1971,19 @@ static int tegra_pcie_ep_raise_msix_irq(struct tegra_pcie_dw *pcie, u16 irq)
 }
 
 static int tegra_pcie_ep_raise_irq(struct dw_pcie_ep *ep, u8 func_no,
-				   enum pci_epc_irq_type type,
-				   u16 interrupt_num)
+				   unsigned int type, u16 interrupt_num)
 {
 	struct dw_pcie *pci = to_dw_pcie_from_ep(ep);
 	struct tegra_pcie_dw *pcie = to_tegra_pcie(pci);
 
 	switch (type) {
-	case PCI_EPC_IRQ_LEGACY:
-		return tegra_pcie_ep_raise_legacy_irq(pcie, interrupt_num);
+	case PCI_IRQ_INTX:
+		return tegra_pcie_ep_raise_intx_irq(pcie, interrupt_num);
 
-	case PCI_EPC_IRQ_MSI:
+	case PCI_IRQ_MSI:
 		return tegra_pcie_ep_raise_msi_irq(pcie, interrupt_num);
 
-	case PCI_EPC_IRQ_MSIX:
+	case PCI_IRQ_MSIX:
 		return tegra_pcie_ep_raise_msix_irq(pcie, interrupt_num);
 
 	default:
@@ -2012,12 +1996,15 @@ static int tegra_pcie_ep_raise_irq(struct dw_pcie_ep *ep, u8 func_no,
 
 static const struct pci_epc_features tegra_pcie_epc_features = {
 	.linkup_notifier = true,
-	.core_init_notifier = true,
 	.msi_capable = false,
 	.msix_capable = false,
-	.reserved_bar = 1 << BAR_2 | 1 << BAR_3 | 1 << BAR_4 | 1 << BAR_5,
-	.bar_fixed_64bit = 1 << BAR_0,
-	.bar_fixed_size[0] = SZ_1M,
+	.bar[BAR_0] = { .type = BAR_FIXED, .fixed_size = SZ_1M,
+			.only_64bit = true, },
+	.bar[BAR_1] = { .type = BAR_RESERVED, },
+	.bar[BAR_2] = { .type = BAR_RESERVED, },
+	.bar[BAR_3] = { .type = BAR_RESERVED, },
+	.bar[BAR_4] = { .type = BAR_RESERVED, },
+	.bar[BAR_5] = { .type = BAR_RESERVED, },
 	.align = SZ_64K,
 };
 
@@ -2293,13 +2280,13 @@ fail:
 	return ret;
 }
 
-static int tegra_pcie_dw_remove(struct platform_device *pdev)
+static void tegra_pcie_dw_remove(struct platform_device *pdev)
 {
 	struct tegra_pcie_dw *pcie = platform_get_drvdata(pdev);
 
 	if (pcie->of_data->mode == DW_PCIE_RC_TYPE) {
 		if (!pcie->link_state)
-			return 0;
+			return;
 
 		debugfs_remove_recursive(pcie->debugfs);
 		tegra_pcie_deinit_controller(pcie);
@@ -2313,8 +2300,6 @@ static int tegra_pcie_dw_remove(struct platform_device *pdev)
 	tegra_bpmp_put(pcie->bpmp);
 	if (pcie->pex_refclk_sel_gpiod)
 		gpiod_set_value(pcie->pex_refclk_sel_gpiod, 0);
-
-	return 0;
 }
 
 static int tegra_pcie_dw_suspend_late(struct device *dev)
@@ -2508,7 +2493,7 @@ static const struct dev_pm_ops tegra_pcie_dw_pm_ops = {
 
 static struct platform_driver tegra_pcie_dw_driver = {
 	.probe = tegra_pcie_dw_probe,
-	.remove = tegra_pcie_dw_remove,
+	.remove_new = tegra_pcie_dw_remove,
 	.shutdown = tegra_pcie_dw_shutdown,
 	.driver = {
 		.name	= "tegra194-pcie",

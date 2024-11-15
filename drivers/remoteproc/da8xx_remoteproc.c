@@ -239,8 +239,6 @@ static int da8xx_rproc_probe(struct platform_device *pdev)
 	struct da8xx_rproc *drproc;
 	struct rproc *rproc;
 	struct irq_data *irq_data;
-	struct resource *bootreg_res;
-	struct resource *chipsig_res;
 	struct clk *dsp_clk;
 	struct reset_control *dsp_reset;
 	void __iomem *chipsig;
@@ -258,15 +256,11 @@ static int da8xx_rproc_probe(struct platform_device *pdev)
 		return -EINVAL;
 	}
 
-	bootreg_res = platform_get_resource_byname(pdev, IORESOURCE_MEM,
-						   "host1cfg");
-	bootreg = devm_ioremap_resource(dev, bootreg_res);
+	bootreg = devm_platform_ioremap_resource_byname(pdev, "host1cfg");
 	if (IS_ERR(bootreg))
 		return PTR_ERR(bootreg);
 
-	chipsig_res = platform_get_resource_byname(pdev, IORESOURCE_MEM,
-						   "chipsig");
-	chipsig = devm_ioremap_resource(dev, chipsig_res);
+	chipsig = devm_platform_ioremap_resource_byname(pdev, "chipsig");
 	if (IS_ERR(chipsig))
 		return PTR_ERR(chipsig);
 
@@ -357,7 +351,7 @@ free_mem:
 	return ret;
 }
 
-static int da8xx_rproc_remove(struct platform_device *pdev)
+static void da8xx_rproc_remove(struct platform_device *pdev)
 {
 	struct rproc *rproc = platform_get_drvdata(pdev);
 	struct da8xx_rproc *drproc = rproc->priv;
@@ -374,8 +368,6 @@ static int da8xx_rproc_remove(struct platform_device *pdev)
 	rproc_free(rproc);
 	if (dev->of_node)
 		of_reserved_mem_device_release(dev);
-
-	return 0;
 }
 
 static const struct of_device_id davinci_rproc_of_match[] __maybe_unused = {
@@ -386,7 +378,7 @@ MODULE_DEVICE_TABLE(of, davinci_rproc_of_match);
 
 static struct platform_driver da8xx_rproc_driver = {
 	.probe = da8xx_rproc_probe,
-	.remove = da8xx_rproc_remove,
+	.remove_new = da8xx_rproc_remove,
 	.driver = {
 		.name = "davinci-rproc",
 		.of_match_table = of_match_ptr(davinci_rproc_of_match),

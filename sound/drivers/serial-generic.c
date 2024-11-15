@@ -100,8 +100,8 @@ static void snd_serial_generic_write_wakeup(struct serdev_device *serdev)
 	snd_serial_generic_tx_wakeup(drvdata);
 }
 
-static int snd_serial_generic_receive_buf(struct serdev_device *serdev,
-				const unsigned char *buf, size_t count)
+static size_t snd_serial_generic_receive_buf(struct serdev_device *serdev,
+					     const u8 *buf, size_t count)
 {
 	int ret;
 	struct snd_serial_generic *drvdata = serdev_device_get_drvdata(serdev);
@@ -366,7 +366,7 @@ MODULE_DEVICE_TABLE(of, snd_serial_generic_dt_ids);
 static struct serdev_device_driver snd_serial_generic_driver = {
 	.driver	= {
 		.name		= "snd-serial-generic",
-		.of_match_table	= of_match_ptr(snd_serial_generic_dt_ids),
+		.of_match_table	= snd_serial_generic_dt_ids,
 	},
 	.probe	= snd_serial_generic_probe,
 };

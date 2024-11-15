@@ -10,7 +10,7 @@
  * Tomasz Figa <t.figa@samsung.com>
  */
 
-#include <asm/unaligned.h>
+#include <linux/unaligned.h>
 
 #include <linux/clk.h>
 #include <linux/delay.h>
@@ -96,6 +96,7 @@
 #define DSIM_MFLUSH_VS			BIT(29)
 /* This flag is valid only for exynos3250/3472/5260/5430 */
 #define DSIM_CLKLANE_STOP		BIT(30)
+#define DSIM_NON_CONTINUOUS_CLKLANE	BIT(31)
 
 /* DSIM_ESCMODE */
 #define DSIM_TX_TRIGGER_RST		BIT(4)
@@ -945,8 +946,12 @@ static int samsung_dsim_init_link(struct samsung_dsim *dsi)
 	 * power consumption.
 	 */
 	if (driver_data->has_clklane_stop &&
-	    dsi->mode_flags & MIPI_DSI_CLOCK_NON_CONTINUOUS)
+	    dsi->mode_flags & MIPI_DSI_CLOCK_NON_CONTINUOUS) {
+		if (!samsung_dsim_hw_is_exynos(dsi->plat_data->hw_type))
+			reg |= DSIM_NON_CONTINUOUS_CLKLANE;
+
 		reg |= DSIM_CLKLANE_STOP;
+	}
 	samsung_dsim_write(dsi, DSIM_CONFIG_REG, reg);
 
 	lanes_mask = BIT(dsi->lanes) - 1;
@@ -1498,6 +1503,7 @@ static void samsung_dsim_atomic_disable(struct drm_bridge *bridge,
 	if (!(dsi->state & DSIM_STATE_ENABLED))
 		return;
 
+	samsung_dsim_set_display_enable(dsi, false);
 	dsi->state &= ~DSIM_STATE_VIDOUT_AVAILABLE;
 }
 
@@ -1505,8 +1511,6 @@ static void samsung_dsim_atomic_post_disable(struct drm_bridge *bridge,
 					     struct drm_bridge_state *old_bridge_state)
 {
 	struct samsung_dsim *dsi = bridge_to_dsi(bridge);
-
-	samsung_dsim_set_display_enable(dsi, false);
 
 	dsi->state &= ~DSIM_STATE_ENABLED;
 	pm_runtime_put_sync(dsi->dev);
@@ -1600,6 +1604,27 @@ static int samsung_dsim_atomic_check(struct drm_bridge *bridge,
 	} else if (dsi->plat_data->hw_type == DSIM_TYPE_IMX8MP) {
 		adjusted_mode->flags &= ~(DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC);
 		adjusted_mode->flags |= (DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC);
+	}
+
+	/*
+	 * When using video sync pulses, the HFP, HBP, and HSA are divided between
+	 * the available lanes if there is more than one lane.  For certain
+	 * timings and lane configurations, the HFP may not be evenly divisible.
+	 * If the HFP is rounded down, it ends up being too small which can cause
+	 * some monitors to not sync properly. In these instances, adjust htotal
+	 * and hsync to round the HFP up, and recalculate the htotal. Through trial
+	 * and error, it appears that the HBP and HSA do not appearto need the same
+	 * correction that HFP does.
+	 */
+	if (dsi->lanes > 1) {
+		int hfp = adjusted_mode->hsync_start - adjusted_mode->hdisplay;
+		int remainder = hfp % dsi->lanes;
+
+		if (remainder) {
+			adjusted_mode->hsync_start += remainder;
+			adjusted_mode->hsync_end   += remainder;
+			adjusted_mode->htotal      += remainder;
+		}
 	}
 
 	return 0;
@@ -1992,11 +2017,11 @@ int samsung_dsim_probe(struct platform_device *pdev)
 	else
 		dsi->bridge.timings = &samsung_dsim_bridge_timings_de_high;
 
-	if (dsi->plat_data->host_ops && dsi->plat_data->host_ops->register_host)
+	if (dsi->plat_data->host_ops && dsi->plat_data->host_ops->register_host) {
 		ret = dsi->plat_data->host_ops->register_host(dsi);
-
-	if (ret)
-		goto err_disable_runtime;
+		if (ret)
+			goto err_disable_runtime;
+	}
 
 	return 0;
 

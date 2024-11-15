@@ -24,7 +24,7 @@ static const struct regmap_access_table m10bmc_access_table = {
 	.n_yes_ranges	= ARRAY_SIZE(m10bmc_regmap_range),
 };
 
-static struct regmap_config intel_m10bmc_regmap_config = {
+static const struct regmap_config intel_m10bmc_regmap_config = {
 	.reg_bits = 32,
 	.val_bits = 32,
 	.reg_stride = 4,
@@ -109,6 +109,7 @@ static const struct m10bmc_csr_map m10bmc_n3000_csr_map = {
 	.pr_reh_addr = M10BMC_N3000_PR_REH_ADDR,
 	.pr_magic = M10BMC_N3000_PR_PROG_MAGIC,
 	.rsu_update_counter = M10BMC_N3000_STAGING_FLASH_COUNT,
+	.staging_size = M10BMC_STAGING_SIZE,
 };
 
 static struct mfd_cell m10bmc_d5005_subdevs[] = {
@@ -116,10 +117,18 @@ static struct mfd_cell m10bmc_d5005_subdevs[] = {
 	{ .name = "d5005bmc-sec-update" },
 };
 
+static const struct regmap_range m10bmc_d5005_fw_handshake_regs[] = {
+	regmap_reg_range(M10BMC_N3000_TELEM_START, M10BMC_D5005_TELEM_END),
+};
+
 static struct mfd_cell m10bmc_pacn3000_subdevs[] = {
 	{ .name = "n3000bmc-hwmon" },
 	{ .name = "n3000bmc-retimer" },
 	{ .name = "n3000bmc-sec-update" },
+};
+
+static const struct regmap_range m10bmc_n3000_fw_handshake_regs[] = {
+	regmap_reg_range(M10BMC_N3000_TELEM_START, M10BMC_N3000_TELEM_END),
 };
 
 static struct mfd_cell m10bmc_n5010_subdevs[] = {
@@ -129,18 +138,24 @@ static struct mfd_cell m10bmc_n5010_subdevs[] = {
 static const struct intel_m10bmc_platform_info m10bmc_spi_n3000 = {
 	.cells = m10bmc_pacn3000_subdevs,
 	.n_cells = ARRAY_SIZE(m10bmc_pacn3000_subdevs),
+	.handshake_sys_reg_ranges = m10bmc_n3000_fw_handshake_regs,
+	.handshake_sys_reg_nranges = ARRAY_SIZE(m10bmc_n3000_fw_handshake_regs),
 	.csr_map = &m10bmc_n3000_csr_map,
 };
 
 static const struct intel_m10bmc_platform_info m10bmc_spi_d5005 = {
 	.cells = m10bmc_d5005_subdevs,
 	.n_cells = ARRAY_SIZE(m10bmc_d5005_subdevs),
+	.handshake_sys_reg_ranges = m10bmc_d5005_fw_handshake_regs,
+	.handshake_sys_reg_nranges = ARRAY_SIZE(m10bmc_d5005_fw_handshake_regs),
 	.csr_map = &m10bmc_n3000_csr_map,
 };
 
 static const struct intel_m10bmc_platform_info m10bmc_spi_n5010 = {
 	.cells = m10bmc_n5010_subdevs,
 	.n_cells = ARRAY_SIZE(m10bmc_n5010_subdevs),
+	.handshake_sys_reg_ranges = m10bmc_n3000_fw_handshake_regs,
+	.handshake_sys_reg_nranges = ARRAY_SIZE(m10bmc_n3000_fw_handshake_regs),
 	.csr_map = &m10bmc_n3000_csr_map,
 };
 
@@ -166,3 +181,4 @@ MODULE_DESCRIPTION("Intel MAX 10 BMC SPI bus interface");
 MODULE_AUTHOR("Intel Corporation");
 MODULE_LICENSE("GPL v2");
 MODULE_ALIAS("spi:intel-m10-bmc");
+MODULE_IMPORT_NS(INTEL_M10_BMC_CORE);

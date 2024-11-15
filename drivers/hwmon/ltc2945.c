@@ -508,7 +508,7 @@ static int ltc2945_probe(struct i2c_client *client)
 }
 
 static const struct i2c_device_id ltc2945_id[] = {
-	{"ltc2945", 0},
+	{"ltc2945"},
 	{ }
 };
 
@@ -519,7 +519,7 @@ static struct i2c_driver ltc2945_driver = {
 		.name = "ltc2945",
 		.of_match_table = of_match_ptr(ltc2945_of_match),
 	},
-	.probe_new = ltc2945_probe,
+	.probe = ltc2945_probe,
 	.id_table = ltc2945_id,
 };
 

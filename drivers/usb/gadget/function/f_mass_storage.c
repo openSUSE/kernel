@@ -188,7 +188,7 @@
 #include <linux/freezer.h>
 #include <linux/module.h>
 #include <linux/uaccess.h>
-#include <asm/unaligned.h>
+#include <linux/unaligned.h>
 
 #include <linux/usb/ch9.h>
 #include <linux/usb/gadget.h>
@@ -2873,7 +2873,7 @@ int fsg_common_create_lun(struct fsg_common *common, struct fsg_lun_config *cfg,
 			  const char **name_pfx)
 {
 	struct fsg_lun *lun;
-	char *pathbuf, *p;
+	char *pathbuf = NULL, *p = "(no medium)";
 	int rc = -ENOMEM;
 
 	if (id >= ARRAY_SIZE(common->luns))
@@ -2923,12 +2923,9 @@ int fsg_common_create_lun(struct fsg_common *common, struct fsg_lun_config *cfg,
 		rc = fsg_lun_open(lun, cfg->filename);
 		if (rc)
 			goto error_lun;
-	}
 
-	pathbuf = kmalloc(PATH_MAX, GFP_KERNEL);
-	p = "(no medium)";
-	if (fsg_lun_is_open(lun)) {
 		p = "(error)";
+		pathbuf = kmalloc(PATH_MAX, GFP_KERNEL);
 		if (pathbuf) {
 			p = file_path(lun->filp, pathbuf, PATH_MAX);
 			if (IS_ERR(p))
@@ -2947,7 +2944,6 @@ int fsg_common_create_lun(struct fsg_common *common, struct fsg_lun_config *cfg,
 error_lun:
 	if (device_is_registered(&lun->dev))
 		device_unregister(&lun->dev);
-	fsg_lun_close(lun);
 	common->luns[id] = NULL;
 error_sysfs:
 	kfree(lun);
@@ -3054,7 +3050,7 @@ static int fsg_bind(struct usb_configuration *c, struct usb_function *f)
 	if (!common->thread_task) {
 		common->state = FSG_STATE_NORMAL;
 		common->thread_task =
-			kthread_create(fsg_main_thread, common, "file-storage");
+			kthread_run(fsg_main_thread, common, "file-storage");
 		if (IS_ERR(common->thread_task)) {
 			ret = PTR_ERR(common->thread_task);
 			common->thread_task = NULL;
@@ -3063,7 +3059,6 @@ static int fsg_bind(struct usb_configuration *c, struct usb_function *f)
 		}
 		DBG(common, "I/O thread pid: %d\n",
 		    task_pid_nr(common->thread_task));
-		wake_up_process(common->thread_task);
 	}
 
 	fsg->gadget = gadget;
@@ -3581,6 +3576,7 @@ static struct usb_function *fsg_alloc(struct usb_function_instance *fi)
 }
 
 DECLARE_USB_FUNCTION_INIT(mass_storage, fsg_alloc_inst, fsg_alloc);
+MODULE_DESCRIPTION("Mass Storage USB Composite Function");
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Michal Nazarewicz");
 

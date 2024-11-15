@@ -852,8 +852,8 @@ static const struct of_device_id ssif_bmc_match[] = {
 MODULE_DEVICE_TABLE(of, ssif_bmc_match);
 
 static const struct i2c_device_id ssif_bmc_id[] = {
-	{ DEVICE_NAME, 0 },
-	{ },
+	{ DEVICE_NAME },
+	{ }
 };
 MODULE_DEVICE_TABLE(i2c, ssif_bmc_id);
 
@@ -862,7 +862,7 @@ static struct i2c_driver ssif_bmc_driver = {
 		.name           = DEVICE_NAME,
 		.of_match_table = ssif_bmc_match,
 	},
-	.probe_new      = ssif_bmc_probe,
+	.probe          = ssif_bmc_probe,
 	.remove         = ssif_bmc_remove,
 	.id_table       = ssif_bmc_id,
 };

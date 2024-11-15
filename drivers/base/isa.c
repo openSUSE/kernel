@@ -23,7 +23,7 @@ struct isa_dev {
 
 #define to_isa_dev(x) container_of((x), struct isa_dev, dev)
 
-static int isa_bus_match(struct device *dev, struct device_driver *driver)
+static int isa_bus_match(struct device *dev, const struct device_driver *driver)
 {
 	struct isa_driver *isa_driver = to_isa_driver(driver);
 
@@ -82,7 +82,7 @@ static int isa_bus_resume(struct device *dev)
 	return 0;
 }
 
-static struct bus_type isa_bus_type = {
+static const struct bus_type isa_bus_type = {
 	.name		= "isa",
 	.match		= isa_bus_match,
 	.probe		= isa_bus_probe,
@@ -149,11 +149,8 @@ int isa_register_driver(struct isa_driver *isa_driver, unsigned int ndev)
 			break;
 		}
 
-		if (isa_dev->dev.platform_data) {
-			isa_dev->next = isa_driver->devices;
-			isa_driver->devices = &isa_dev->dev;
-		} else
-			device_unregister(&isa_dev->dev);
+		isa_dev->next = isa_driver->devices;
+		isa_driver->devices = &isa_dev->dev;
 	}
 
 	if (!error && !isa_driver->devices)

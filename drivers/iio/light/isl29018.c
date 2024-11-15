@@ -550,9 +550,9 @@ static int isl29018_chip_init(struct isl29018_chip *chip)
 			return -ENODEV;
 
 		/* Clear brownout bit */
-		status = regmap_update_bits(chip->regmap,
-					    ISL29035_REG_DEVICE_ID,
-					    ISL29035_BOUT_MASK, 0);
+		status = regmap_clear_bits(chip->regmap,
+					   ISL29035_REG_DEVICE_ID,
+					   ISL29035_BOUT_MASK);
 		if (status < 0)
 			return status;
 	}
@@ -865,7 +865,7 @@ static struct i2c_driver isl29018_driver = {
 			.pm = pm_sleep_ptr(&isl29018_pm_ops),
 			.of_match_table = isl29018_of_match,
 		    },
-	.probe_new = isl29018_probe,
+	.probe = isl29018_probe,
 	.id_table = isl29018_id,
 };
 module_i2c_driver(isl29018_driver);

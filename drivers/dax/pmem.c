@@ -31,9 +31,9 @@ static struct dev_dax *__dax_pmem_probe(struct device *dev)
 	if (rc)
 		return ERR_PTR(rc);
 	rc = nvdimm_setup_pfn(nd_pfn, &pgmap);
-	devm_namespace_disable(dev, ndns);
 	if (rc)
 		return ERR_PTR(rc);
+	devm_namespace_disable(dev, ndns);
 
 	/* reserve the metadata area, device-dax will reserve the data */
 	pfn_sb = nd_pfn->pfn_sb;
@@ -94,6 +94,7 @@ static void __exit dax_pmem_exit(void)
 }
 module_exit(dax_pmem_exit);
 
+MODULE_DESCRIPTION("PMEM DAX: direct access to persistent memory");
 MODULE_LICENSE("GPL v2");
 MODULE_AUTHOR("Intel Corporation");
 MODULE_ALIAS_ND_DEVICE(ND_DEVICE_DAX_PMEM);

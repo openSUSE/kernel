@@ -89,7 +89,9 @@ static void nbio_v7_11_vpe_doorbell_range(struct amdgpu_device *adev, int instan
 					  bool use_doorbell, int doorbell_index,
 					  int doorbell_size)
 {
-	u32 reg = SOC15_REG_OFFSET(NBIO, 0, regGDC0_BIF_VPE_DOORBELL_RANGE);
+	u32 reg = instance == 0 ?
+		  SOC15_REG_OFFSET(NBIO, 0, regGDC0_BIF_VPE_DOORBELL_RANGE) :
+		  SOC15_REG_OFFSET(NBIO, 0, regGDC0_BIF_VPE1_DOORBELL_RANGE);
 	u32 doorbell_range = RREG32_PCIE_PORT(reg);
 
 	if (use_doorbell) {
@@ -112,7 +114,10 @@ static void nbio_v7_11_vcn_doorbell_range(struct amdgpu_device *adev,
 					  bool use_doorbell,
 					  int doorbell_index, int instance)
 {
-	u32 reg = SOC15_REG_OFFSET(NBIO, 0, regGDC0_BIF_VCN0_DOORBELL_RANGE);
+	u32 reg = instance == 0 ?
+		SOC15_REG_OFFSET(NBIO, 0, regGDC0_BIF_VCN0_DOORBELL_RANGE):
+		SOC15_REG_OFFSET(NBIO, 0, regGDC0_BIF_VCN1_DOORBELL_RANGE);
+
 	u32 doorbell_range = RREG32_PCIE_PORT(reg);
 
 	if (use_doorbell) {
@@ -347,6 +352,20 @@ static void nbio_v7_11_get_clockgating_state(struct amdgpu_device *adev,
 		*flags |= AMD_CG_SUPPORT_BIF_LS;
 }
 
+#define MMIO_REG_HOLE_OFFSET (0x80000 - PAGE_SIZE)
+
+static void nbio_v7_11_set_reg_remap(struct amdgpu_device *adev)
+{
+	if (!amdgpu_sriov_vf(adev) && (PAGE_SIZE <= 4096)) {
+		adev->rmmio_remap.reg_offset = MMIO_REG_HOLE_OFFSET;
+		adev->rmmio_remap.bus_addr = adev->rmmio_base + MMIO_REG_HOLE_OFFSET;
+	} else {
+		adev->rmmio_remap.reg_offset =
+			SOC15_REG_OFFSET(NBIO, 0, regBIF_BX_PF1_HDP_MEM_COHERENCY_FLUSH_CNTL) << 2;
+		adev->rmmio_remap.bus_addr = 0;
+	}
+}
+
 const struct amdgpu_nbio_funcs nbio_v7_11_funcs = {
 	.get_hdp_flush_req_offset = nbio_v7_11_get_hdp_flush_req_offset,
 	.get_hdp_flush_done_offset = nbio_v7_11_get_hdp_flush_done_offset,
@@ -369,4 +388,5 @@ const struct amdgpu_nbio_funcs nbio_v7_11_funcs = {
 	.ih_control = nbio_v7_11_ih_control,
 	.init_registers = nbio_v7_11_init_registers,
 	.remap_hdp_registers = nbio_v7_11_remap_hdp_registers,
+	.set_reg_remap = nbio_v7_11_set_reg_remap,
 };

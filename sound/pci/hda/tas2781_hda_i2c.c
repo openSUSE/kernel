@@ -7,7 +7,7 @@
 // Author: Shenghao Ding <shenghao-ding@ti.com>
 // Current maintainer: Baojun Xu <baojun.xu@ti.com>
 
-#include <asm/unaligned.h>
+#include <linux/unaligned.h>
 #include <linux/acpi.h>
 #include <linux/crc8.h>
 #include <linux/crc32.h>
@@ -113,9 +113,7 @@ static int tas2781_get_i2c_res(struct acpi_resource *ares, void *data)
 static int tas2781_read_acpi(struct tasdevice_priv *p, const char *hid)
 {
 	struct acpi_device *adev;
-	struct device *physdev;
 	LIST_HEAD(resources);
-	const char *sub;
 	int ret;
 
 	adev = acpi_dev_get_first_match_dev(hid, NULL, -1);
@@ -131,17 +129,7 @@ static int tas2781_read_acpi(struct tasdevice_priv *p, const char *hid)
 
 	acpi_dev_free_resource_list(&resources);
 	strscpy(p->dev_name, hid, sizeof(p->dev_name));
-	physdev = get_device(acpi_get_first_physical_node(adev));
 	acpi_dev_put(adev);
-
-	/* No side-effect to the playback even if subsystem_id is NULL*/
-	sub = acpi_get_subsystem_id(ACPI_HANDLE(physdev));
-	if (IS_ERR(sub))
-		sub = NULL;
-
-	p->acpi_subsystem_id = sub;
-
-	put_device(physdev);
 
 	return 0;
 
@@ -175,8 +163,6 @@ static void tas2781_hda_playback_hook(struct device *dev, int action)
 		pm_runtime_put_autosuspend(dev);
 		break;
 	default:
-		dev_dbg(tas_hda->dev, "Playback action not supported: %d\n",
-			action);
 		break;
 	}
 }
@@ -203,6 +189,9 @@ static int tasdevice_get_profile_id(struct snd_kcontrol *kcontrol,
 
 	ucontrol->value.integer.value[0] = tas_priv->rcabin.profile_cfg_id;
 
+	dev_dbg(tas_priv->dev, "%s: kcontrol %s: %d\n",
+		__func__, kcontrol->id.name, tas_priv->rcabin.profile_cfg_id);
+
 	mutex_unlock(&tas_priv->codec_lock);
 
 	return 0;
@@ -219,6 +208,10 @@ static int tasdevice_set_profile_id(struct snd_kcontrol *kcontrol,
 	val = clamp(nr_profile, 0, max);
 
 	mutex_lock(&tas_priv->codec_lock);
+
+	dev_dbg(tas_priv->dev, "%s: kcontrol %s: %d -> %d\n",
+		__func__, kcontrol->id.name,
+		tas_priv->rcabin.profile_cfg_id, val);
 
 	if (tas_priv->rcabin.profile_cfg_id != val) {
 		tas_priv->rcabin.profile_cfg_id = val;
@@ -267,6 +260,9 @@ static int tasdevice_program_get(struct snd_kcontrol *kcontrol,
 
 	ucontrol->value.integer.value[0] = tas_priv->cur_prog;
 
+	dev_dbg(tas_priv->dev, "%s: kcontrol %s: %d\n",
+		__func__, kcontrol->id.name, tas_priv->cur_prog);
+
 	mutex_unlock(&tas_priv->codec_lock);
 
 	return 0;
@@ -284,6 +280,9 @@ static int tasdevice_program_put(struct snd_kcontrol *kcontrol,
 	val = clamp(nr_program, 0, max);
 
 	mutex_lock(&tas_priv->codec_lock);
+
+	dev_dbg(tas_priv->dev, "%s: kcontrol %s: %d -> %d\n",
+		__func__, kcontrol->id.name, tas_priv->cur_prog, val);
 
 	if (tas_priv->cur_prog != val) {
 		tas_priv->cur_prog = val;
@@ -304,6 +303,9 @@ static int tasdevice_config_get(struct snd_kcontrol *kcontrol,
 
 	ucontrol->value.integer.value[0] = tas_priv->cur_conf;
 
+	dev_dbg(tas_priv->dev, "%s: kcontrol %s: %d\n",
+		__func__, kcontrol->id.name, tas_priv->cur_conf);
+
 	mutex_unlock(&tas_priv->codec_lock);
 
 	return 0;
@@ -321,6 +323,9 @@ static int tasdevice_config_put(struct snd_kcontrol *kcontrol,
 	val = clamp(nr_config, 0, max);
 
 	mutex_lock(&tas_priv->codec_lock);
+
+	dev_dbg(tas_priv->dev, "%s: kcontrol %s: %d -> %d\n",
+		__func__, kcontrol->id.name, tas_priv->cur_conf, val);
 
 	if (tas_priv->cur_conf != val) {
 		tas_priv->cur_conf = val;
@@ -344,6 +349,9 @@ static int tas2781_amp_getvol(struct snd_kcontrol *kcontrol,
 
 	ret = tasdevice_amp_getvol(tas_priv, ucontrol, mc);
 
+	dev_dbg(tas_priv->dev, "%s: kcontrol %s: %ld\n",
+		__func__, kcontrol->id.name, ucontrol->value.integer.value[0]);
+
 	mutex_unlock(&tas_priv->codec_lock);
 
 	return ret;
@@ -358,6 +366,9 @@ static int tas2781_amp_putvol(struct snd_kcontrol *kcontrol,
 	int ret;
 
 	mutex_lock(&tas_priv->codec_lock);
+
+	dev_dbg(tas_priv->dev, "%s: kcontrol %s: -> %ld\n",
+		__func__, kcontrol->id.name, ucontrol->value.integer.value[0]);
 
 	/* The check of the given value is in tasdevice_amp_putvol. */
 	ret = tasdevice_amp_putvol(tas_priv, ucontrol, mc);
@@ -375,8 +386,8 @@ static int tas2781_force_fwload_get(struct snd_kcontrol *kcontrol,
 	mutex_lock(&tas_priv->codec_lock);
 
 	ucontrol->value.integer.value[0] = (int)tas_priv->force_fwload_status;
-	dev_dbg(tas_priv->dev, "%s : Force FWload %s\n", __func__,
-			tas_priv->force_fwload_status ? "ON" : "OFF");
+	dev_dbg(tas_priv->dev, "%s: kcontrol %s: %d\n",
+		__func__, kcontrol->id.name, tas_priv->force_fwload_status);
 
 	mutex_unlock(&tas_priv->codec_lock);
 
@@ -391,14 +402,16 @@ static int tas2781_force_fwload_put(struct snd_kcontrol *kcontrol,
 
 	mutex_lock(&tas_priv->codec_lock);
 
+	dev_dbg(tas_priv->dev, "%s: kcontrol %s: %d -> %d\n",
+		__func__, kcontrol->id.name,
+		tas_priv->force_fwload_status, val);
+
 	if (tas_priv->force_fwload_status == val)
 		change = false;
 	else {
 		change = true;
 		tas_priv->force_fwload_status = val;
 	}
-	dev_dbg(tas_priv->dev, "%s : Force FWload %s\n", __func__,
-		tas_priv->force_fwload_status ? "ON" : "OFF");
 
 	mutex_unlock(&tas_priv->codec_lock);
 
@@ -588,18 +601,13 @@ static void tas2781_hda_remove_controls(struct tas2781_hda *tas_hda)
 {
 	struct hda_codec *codec = tas_hda->priv->codec;
 
-	if (tas_hda->dsp_prog_ctl)
-		snd_ctl_remove(codec->card, tas_hda->dsp_prog_ctl);
-
-	if (tas_hda->dsp_conf_ctl)
-		snd_ctl_remove(codec->card, tas_hda->dsp_conf_ctl);
+	snd_ctl_remove(codec->card, tas_hda->dsp_prog_ctl);
+	snd_ctl_remove(codec->card, tas_hda->dsp_conf_ctl);
 
 	for (int i = ARRAY_SIZE(tas_hda->snd_ctls) - 1; i >= 0; i--)
-		if (tas_hda->snd_ctls[i])
-			snd_ctl_remove(codec->card, tas_hda->snd_ctls[i]);
+		snd_ctl_remove(codec->card, tas_hda->snd_ctls[i]);
 
-	if (tas_hda->prof_ctl)
-		snd_ctl_remove(codec->card, tas_hda->prof_ctl);
+	snd_ctl_remove(codec->card, tas_hda->prof_ctl);
 }
 
 static void tasdev_fw_ready(const struct firmware *fmw, void *context)
@@ -697,20 +705,20 @@ static int tas2781_hda_bind(struct device *dev, struct device *master,
 	void *master_data)
 {
 	struct tas2781_hda *tas_hda = dev_get_drvdata(dev);
-	struct hda_component *comps = master_data;
+	struct hda_component_parent *parent = master_data;
+	struct hda_component *comp;
 	struct hda_codec *codec;
 	unsigned int subid;
 	int ret;
 
-	if (!comps || tas_hda->priv->index < 0 ||
-		tas_hda->priv->index >= HDA_MAX_COMPONENTS)
+	comp = hda_component_from_index(parent, tas_hda->priv->index);
+	if (!comp)
 		return -EINVAL;
 
-	comps = &comps[tas_hda->priv->index];
-	if (comps->dev)
+	if (comp->dev)
 		return -EBUSY;
 
-	codec = comps->codec;
+	codec = parent->codec;
 	subid = codec->core.subsystem_id >> 16;
 
 	switch (subid) {
@@ -724,13 +732,13 @@ static int tas2781_hda_bind(struct device *dev, struct device *master,
 
 	pm_runtime_get_sync(dev);
 
-	comps->dev = dev;
+	comp->dev = dev;
 
-	strscpy(comps->name, dev_name(dev), sizeof(comps->name));
+	strscpy(comp->name, dev_name(dev), sizeof(comp->name));
 
 	ret = tascodec_init(tas_hda->priv, codec, THIS_MODULE, tasdev_fw_ready);
 	if (!ret)
-		comps->playback_hook = tas2781_hda_playback_hook;
+		comp->playback_hook = tas2781_hda_playback_hook;
 
 	pm_runtime_mark_last_busy(dev);
 	pm_runtime_put_autosuspend(dev);
@@ -742,13 +750,14 @@ static void tas2781_hda_unbind(struct device *dev,
 	struct device *master, void *master_data)
 {
 	struct tas2781_hda *tas_hda = dev_get_drvdata(dev);
-	struct hda_component *comps = master_data;
-	comps = &comps[tas_hda->priv->index];
+	struct hda_component_parent *parent = master_data;
+	struct hda_component *comp;
 
-	if (comps->dev == dev) {
-		comps->dev = NULL;
-		memset(comps->name, 0, sizeof(comps->name));
-		comps->playback_hook = NULL;
+	comp = hda_component_from_index(parent, tas_hda->priv->index);
+	if (comp && (comp->dev == dev)) {
+		comp->dev = NULL;
+		memset(comp->name, 0, sizeof(comp->name));
+		comp->playback_hook = NULL;
 	}
 
 	tas2781_hda_remove_controls(tas_hda);
@@ -809,7 +818,7 @@ static int tas2781_hda_i2c_probe(struct i2c_client *clt)
 	} else
 		return -ENODEV;
 
-	tas_hda->priv->irq_info.irq = clt->irq;
+	tas_hda->priv->irq = clt->irq;
 	ret = tas2781_read_acpi(tas_hda->priv, device_name);
 	if (ret)
 		return dev_err_probe(tas_hda->dev, ret,
@@ -825,7 +834,7 @@ static int tas2781_hda_i2c_probe(struct i2c_client *clt)
 	pm_runtime_set_active(tas_hda->dev);
 	pm_runtime_enable(tas_hda->dev);
 
-	tas2781_reset(tas_hda->priv);
+	tasdevice_reset(tas_hda->priv);
 
 	ret = component_add(tas_hda->dev, &tas2781_hda_comp_ops);
 	if (ret) {
@@ -920,7 +929,7 @@ static int tas2781_system_resume(struct device *dev)
 		tas_hda->priv->tasdevice[i].cur_prog = -1;
 		tas_hda->priv->tasdevice[i].cur_conf = -1;
 	}
-	tas2781_reset(tas_hda->priv);
+	tasdevice_reset(tas_hda->priv);
 	tasdevice_prmg_load(tas_hda->priv, tas_hda->priv->cur_prog);
 
 	/* If calibrated data occurs error, dsp will still work with default
@@ -942,7 +951,7 @@ static const struct dev_pm_ops tas2781_hda_pm_ops = {
 };
 
 static const struct i2c_device_id tas2781_hda_i2c_id[] = {
-	{ "tas2781-hda", 0 },
+	{ "tas2781-hda" },
 	{}
 };
 

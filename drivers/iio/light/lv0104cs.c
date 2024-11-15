@@ -510,7 +510,7 @@ static int lv0104cs_probe(struct i2c_client *client)
 }
 
 static const struct i2c_device_id lv0104cs_id[] = {
-	{ "lv0104cs", 0 },
+	{ "lv0104cs" },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, lv0104cs_id);
@@ -520,7 +520,7 @@ static struct i2c_driver lv0104cs_i2c_driver = {
 		.name	= "lv0104cs",
 	},
 	.id_table	= lv0104cs_id,
-	.probe_new	= lv0104cs_probe,
+	.probe		= lv0104cs_probe,
 };
 module_i2c_driver(lv0104cs_i2c_driver);
 

@@ -13,7 +13,6 @@
 #include <linux/i2c.h>
 #include <linux/bcd.h>
 #include <linux/of.h>
-#include <linux/of_device.h>
 #include <linux/regmap.h>
 #include <linux/rtc.h>
 #include <linux/log2.h>
@@ -308,7 +307,7 @@ static int rx8581_probe(struct i2c_client *client)
 }
 
 static const struct i2c_device_id rx8581_id[] = {
-	{ "rx8581", 0 },
+	{ "rx8581" },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, rx8581_id);
@@ -325,7 +324,7 @@ static struct i2c_driver rx8581_driver = {
 		.name	= "rtc-rx8581",
 		.of_match_table = of_match_ptr(rx8581_of_match),
 	},
-	.probe_new	= rx8581_probe,
+	.probe		= rx8581_probe,
 	.id_table	= rx8581_id,
 };
 

@@ -50,8 +50,7 @@ struct path;
 #define MNT_ATIME_MASK (MNT_NOATIME | MNT_NODIRATIME | MNT_RELATIME )
 
 #define MNT_INTERNAL_FLAGS (MNT_SHARED | MNT_WRITE_HOLD | MNT_INTERNAL | \
-			    MNT_DOOMED | MNT_SYNC_UMOUNT | MNT_MARKED | \
-			    MNT_CURSOR)
+			    MNT_DOOMED | MNT_SYNC_UMOUNT | MNT_MARKED | MNT_ONRB)
 
 #define MNT_INTERNAL	0x4000
 
@@ -65,14 +64,13 @@ struct path;
 #define MNT_SYNC_UMOUNT		0x2000000
 #define MNT_MARKED		0x4000000
 #define MNT_UMOUNT		0x8000000
-#define MNT_CURSOR		0x10000000
+#define MNT_ONRB		0x10000000
 
 struct vfsmount {
 	struct dentry *mnt_root;	/* root of the mounted tree */
 	struct super_block *mnt_sb;	/* pointer to superblock */
 	int mnt_flags;
 	struct mnt_idmap *mnt_idmap;
-	void *suse_kabi_padding;
 } __randomize_layout;
 
 static inline struct mnt_idmap *mnt_idmap(const struct vfsmount *mnt)
@@ -93,8 +91,8 @@ extern bool __mnt_is_readonly(struct vfsmount *mnt);
 extern bool mnt_may_suid(struct vfsmount *mnt);
 
 extern struct vfsmount *clone_private_mount(const struct path *path);
-extern int __mnt_want_write(struct vfsmount *);
-extern void __mnt_drop_write(struct vfsmount *);
+int mnt_get_write_access(struct vfsmount *mnt);
+void mnt_put_write_access(struct vfsmount *mnt);
 
 extern struct vfsmount *fc_mount(struct fs_context *fc);
 extern struct vfsmount *vfs_create_mount(struct fs_context *fc);
@@ -123,5 +121,7 @@ extern void drop_collected_mounts(struct vfsmount *);
 extern int iterate_mounts(int (*)(struct vfsmount *, void *), void *,
 			  struct vfsmount *);
 extern void kern_unmount_array(struct vfsmount *mnt[], unsigned int num);
+
+extern int cifs_root_data(char **dev, char **opts);
 
 #endif /* _LINUX_MOUNT_H */

@@ -2,7 +2,7 @@ config SUSE_KERNEL
 	def_bool y
 
 menu "SUSE Release Details"
-choice SUSE_PRODUCT_CODE
+choice
 	prompt "SUSE Product Family"
 	default SUSE_PRODUCT_SLE
 	depends on SUSE_KERNEL

@@ -15,7 +15,6 @@ struct typec_plug {
 	enum typec_plug_index		index;
 	struct ida			mode_ids;
 	int				num_altmodes;
-	void *suse_kabi_padding;
 };
 
 struct typec_cable {
@@ -24,7 +23,7 @@ struct typec_cable {
 	struct usb_pd_identity		*identity;
 	unsigned int			active:1;
 	u16				pd_revision; /* 0300H = "3.0" */
-	void *suse_kabi_padding;
+	enum usb_pd_svdm_ver		svdm_version;
 };
 
 struct typec_partner {
@@ -41,8 +40,6 @@ struct typec_partner {
 
 	void (*attach)(struct typec_partner *partner, struct device *dev);
 	void (*deattach)(struct typec_partner *partner, struct device *dev);
-
-	void				*suse_kabi_padding;
 };
 
 struct typec_port {
@@ -79,8 +76,6 @@ struct typec_port {
 	 */
 	struct device			*usb2_dev;
 	struct device			*usb3_dev;
-
-	void				*suse_kabi_padding;
 };
 
 #define to_typec_port(_dev_) container_of(_dev_, struct typec_port, dev)
@@ -98,9 +93,9 @@ extern const struct device_type typec_port_dev_type;
 #define is_typec_plug(dev) ((dev)->type == &typec_plug_dev_type)
 #define is_typec_port(dev) ((dev)->type == &typec_port_dev_type)
 
-extern struct class typec_mux_class;
-extern struct class retimer_class;
-extern struct class typec_class;
+extern const struct class typec_mux_class;
+extern const struct class retimer_class;
+extern const struct class typec_class;
 
 #if defined(CONFIG_ACPI)
 int typec_link_ports(struct typec_port *connector);

@@ -23,6 +23,7 @@
 #include "../dmaengine.h"
 
 MODULE_VERSION(IOAT_DMA_VERSION);
+MODULE_DESCRIPTION("Intel I/OAT DMA Linux driver");
 MODULE_LICENSE("Dual BSD/GPL");
 MODULE_AUTHOR("Intel Corporation");
 
@@ -420,7 +421,7 @@ int ioat_dma_setup_interrupts(struct ioatdma_device *ioat_dma)
 
 msix:
 	/* The number of MSI-X vectors should equal the number of channels */
-	msixcnt = ioat_dma->dma_dev.chancnt;
+	msixcnt = ioat_dma->chancnt;
 	for (i = 0; i < msixcnt; i++)
 		ioat_dma->msix_entries[i].entry = i;
 
@@ -511,7 +512,7 @@ static int ioat_probe(struct ioatdma_device *ioat_dma)
 	dma_cap_set(DMA_MEMCPY, dma->cap_mask);
 	dma->dev = &pdev->dev;
 
-	if (!dma->chancnt) {
+	if (!ioat_dma->chancnt) {
 		dev_err(dev, "channel enumeration error\n");
 		goto err_setup_interrupts;
 	}
@@ -555,15 +556,16 @@ static void ioat_enumerate_channels(struct ioatdma_device *ioat_dma)
 	struct device *dev = &ioat_dma->pdev->dev;
 	struct dma_device *dma = &ioat_dma->dma_dev;
 	u8 xfercap_log;
+	int chancnt;
 	int i;
 
 	INIT_LIST_HEAD(&dma->channels);
-	dma->chancnt = readb(ioat_dma->reg_base + IOAT_CHANCNT_OFFSET);
-	dma->chancnt &= 0x1f; /* bits [4:0] valid */
-	if (dma->chancnt > ARRAY_SIZE(ioat_dma->idx)) {
+	chancnt = readb(ioat_dma->reg_base + IOAT_CHANCNT_OFFSET);
+	chancnt &= 0x1f; /* bits [4:0] valid */
+	if (chancnt > ARRAY_SIZE(ioat_dma->idx)) {
 		dev_warn(dev, "(%d) exceeds max supported channels (%zu)\n",
-			 dma->chancnt, ARRAY_SIZE(ioat_dma->idx));
-		dma->chancnt = ARRAY_SIZE(ioat_dma->idx);
+			 chancnt, ARRAY_SIZE(ioat_dma->idx));
+		chancnt = ARRAY_SIZE(ioat_dma->idx);
 	}
 	xfercap_log = readb(ioat_dma->reg_base + IOAT_XFERCAP_OFFSET);
 	xfercap_log &= 0x1f; /* bits [4:0] valid */
@@ -571,7 +573,7 @@ static void ioat_enumerate_channels(struct ioatdma_device *ioat_dma)
 		return;
 	dev_dbg(dev, "%s: xfercap = %d\n", __func__, 1 << xfercap_log);
 
-	for (i = 0; i < dma->chancnt; i++) {
+	for (i = 0; i < chancnt; i++) {
 		ioat_chan = kzalloc(sizeof(*ioat_chan), GFP_KERNEL);
 		if (!ioat_chan)
 			break;
@@ -584,7 +586,7 @@ static void ioat_enumerate_channels(struct ioatdma_device *ioat_dma)
 			break;
 		}
 	}
-	dma->chancnt = i;
+	ioat_dma->chancnt = i;
 }
 
 /**
@@ -903,7 +905,7 @@ static int ioat_xor_val_self_test(struct ioatdma_device *ioat_dma)
 
 	op = IOAT_OP_XOR_VAL;
 
-	/* validate the sources with the destintation page */
+	/* validate the sources with the destination page */
 	for (i = 0; i < IOAT_NUM_SRC_TEST; i++)
 		xor_val_srcs[i] = xor_srcs[i];
 	xor_val_srcs[i] = dest;

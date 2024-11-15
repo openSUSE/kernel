@@ -708,7 +708,7 @@ static void mn88472_remove(struct i2c_client *client)
 }
 
 static const struct i2c_device_id mn88472_id_table[] = {
-	{"mn88472", 0},
+	{ "mn88472" },
 	{}
 };
 MODULE_DEVICE_TABLE(i2c, mn88472_id_table);
@@ -718,7 +718,7 @@ static struct i2c_driver mn88472_driver = {
 		.name = "mn88472",
 		.suppress_bind_attrs = true,
 	},
-	.probe_new = mn88472_probe,
+	.probe    = mn88472_probe,
 	.remove   = mn88472_remove,
 	.id_table = mn88472_id_table,
 };

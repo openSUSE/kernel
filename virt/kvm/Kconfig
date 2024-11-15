@@ -1,9 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0
 # KVM common configuration items and defaults
 
-config HAVE_KVM
-       bool
-
 config KVM_COMMON
        bool
        select EVENTFD
@@ -55,13 +52,13 @@ config KVM_ASYNC_PF_SYNC
 config HAVE_KVM_MSI
        bool
 
+config HAVE_KVM_READONLY_MEM
+       bool
+
 config HAVE_KVM_CPU_RELAX_INTERCEPT
        bool
 
 config KVM_VFIO
-       bool
-
-config HAVE_KVM_ARCH_TLB_FLUSH_ALL
        bool
 
 config HAVE_KVM_INVALID_WAKEUPS
@@ -70,12 +67,16 @@ config HAVE_KVM_INVALID_WAKEUPS
 config KVM_GENERIC_DIRTYLOG_READ_PROTECT
        bool
 
+config KVM_GENERIC_PRE_FAULT_MEMORY
+       bool
+
 config KVM_COMPAT
        def_bool y
        depends on KVM && COMPAT && !(S390 || ARM64 || RISCV)
 
 config HAVE_KVM_IRQ_BYPASS
        bool
+       select IRQ_BYPASS_MANAGER
 
 config HAVE_KVM_VCPU_ASYNC_IOCTL
        bool
@@ -100,7 +101,7 @@ config KVM_GENERIC_MMU_NOTIFIER
        bool
 
 config KVM_GENERIC_MEMORY_ATTRIBUTES
-       select KVM_GENERIC_MMU_NOTIFIER
+       depends on KVM_GENERIC_MMU_NOTIFIER
        bool
 
 config KVM_PRIVATE_MEM
@@ -111,3 +112,11 @@ config KVM_GENERIC_PRIVATE_MEM
        select KVM_GENERIC_MEMORY_ATTRIBUTES
        select KVM_PRIVATE_MEM
        bool
+
+config HAVE_KVM_ARCH_GMEM_PREPARE
+       bool
+       depends on KVM_PRIVATE_MEM
+
+config HAVE_KVM_ARCH_GMEM_INVALIDATE
+       bool
+       depends on KVM_PRIVATE_MEM

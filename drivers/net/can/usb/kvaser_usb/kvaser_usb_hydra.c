@@ -10,7 +10,6 @@
  *  - Transition from CAN_STATE_ERROR_WARNING to CAN_STATE_ERROR_ACTIVE is only
  *    reported after a call to do_get_berr_counter(), since firmware does not
  *    distinguish between ERROR_WARNING and ERROR_ACTIVE.
- *  - Hardware timestamps are not set for CAN Tx frames.
  */
 
 #include <linux/completion.h>
@@ -261,6 +260,15 @@ struct kvaser_cmd_tx_can {
 	u8 reserved[11];
 } __packed;
 
+struct kvaser_cmd_tx_ack {
+	__le32 id;
+	u8 data[8];
+	u8 dlc;
+	u8 flags;
+	__le16 timestamp[3];
+	u8 reserved0[8];
+} __packed;
+
 struct kvaser_cmd_header {
 	u8 cmd_no;
 	/* The destination HE address is stored in 0..5 of he_addr.
@@ -297,6 +305,7 @@ struct kvaser_cmd {
 
 		struct kvaser_cmd_rx_can rx_can;
 		struct kvaser_cmd_tx_can tx_can;
+		struct kvaser_cmd_tx_ack tx_ack;
 	} __packed;
 } __packed;
 
@@ -522,23 +531,25 @@ kvaser_usb_hydra_net_priv_from_cmd(const struct kvaser_usb *dev,
 	return priv;
 }
 
-static ktime_t
-kvaser_usb_hydra_ktime_from_rx_cmd(const struct kvaser_usb_dev_cfg *cfg,
-				   const struct kvaser_cmd *cmd)
+static ktime_t kvaser_usb_hydra_ktime_from_cmd(const struct kvaser_usb_dev_cfg *cfg,
+					       const struct kvaser_cmd *cmd)
 {
-	u64 ticks;
+	ktime_t hwtstamp = 0;
 
 	if (cmd->header.cmd_no == CMD_EXTENDED) {
 		struct kvaser_cmd_ext *cmd_ext = (struct kvaser_cmd_ext *)cmd;
 
-		ticks = le64_to_cpu(cmd_ext->rx_can.timestamp);
-	} else {
-		ticks = le16_to_cpu(cmd->rx_can.timestamp[0]);
-		ticks += (u64)(le16_to_cpu(cmd->rx_can.timestamp[1])) << 16;
-		ticks += (u64)(le16_to_cpu(cmd->rx_can.timestamp[2])) << 32;
+		if (cmd_ext->cmd_no_ext == CMD_RX_MESSAGE_FD)
+			hwtstamp = kvaser_usb_timestamp64_to_ktime(cfg, cmd_ext->rx_can.timestamp);
+		else if (cmd_ext->cmd_no_ext == CMD_TX_ACKNOWLEDGE_FD)
+			hwtstamp = kvaser_usb_timestamp64_to_ktime(cfg, cmd_ext->tx_ack.timestamp);
+	} else if (cmd->header.cmd_no == CMD_RX_MESSAGE) {
+		hwtstamp = kvaser_usb_timestamp48_to_ktime(cfg, cmd->rx_can.timestamp);
+	} else if (cmd->header.cmd_no == CMD_TX_ACKNOWLEDGE) {
+		hwtstamp = kvaser_usb_timestamp48_to_ktime(cfg, cmd->tx_ack.timestamp);
 	}
 
-	return ns_to_ktime(div_u64(ticks * 1000, cfg->timestamp_freq));
+	return hwtstamp;
 }
 
 static int kvaser_usb_hydra_send_simple_cmd(struct kvaser_usb *dev,
@@ -1175,6 +1186,7 @@ static void kvaser_usb_hydra_tx_acknowledge(const struct kvaser_usb *dev,
 	bool one_shot_fail = false;
 	bool is_err_frame = false;
 	u16 transid = kvaser_usb_hydra_get_cmd_transid(cmd);
+	struct sk_buff *skb;
 
 	priv = kvaser_usb_hydra_net_priv_from_cmd(dev, cmd);
 	if (!priv)
@@ -1201,6 +1213,9 @@ static void kvaser_usb_hydra_tx_acknowledge(const struct kvaser_usb *dev,
 
 	spin_lock_irqsave(&priv->tx_contexts_lock, irq_flags);
 
+	skb = priv->can.echo_skb[context->echo_index];
+	if (skb)
+		skb_hwtstamps(skb)->hwtstamp = kvaser_usb_hydra_ktime_from_cmd(dev->cfg, cmd);
 	len = can_get_echo_skb(priv->netdev, context->echo_index, NULL);
 	context->echo_index = dev->max_tx_urbs;
 	--priv->active_tx_contexts;
@@ -1234,7 +1249,7 @@ static void kvaser_usb_hydra_rx_msg_std(const struct kvaser_usb *dev,
 	stats = &priv->netdev->stats;
 
 	flags = cmd->rx_can.flags;
-	hwtstamp = kvaser_usb_hydra_ktime_from_rx_cmd(dev->cfg, cmd);
+	hwtstamp = kvaser_usb_hydra_ktime_from_cmd(dev->cfg, cmd);
 
 	if (flags & KVASER_USB_HYDRA_CF_FLAG_ERROR_FRAME) {
 		kvaser_usb_hydra_error_frame(priv, &cmd->rx_can.err_frame_data,
@@ -1263,7 +1278,7 @@ static void kvaser_usb_hydra_rx_msg_std(const struct kvaser_usb *dev,
 	if (flags & KVASER_USB_HYDRA_CF_FLAG_OVERRUN)
 		kvaser_usb_can_rx_over_error(priv->netdev);
 
-	cf->len = can_cc_dlc2len(cmd->rx_can.dlc);
+	can_frame_set_cc_len((struct can_frame *)cf, cmd->rx_can.dlc, priv->can.ctrlmode);
 
 	if (flags & KVASER_USB_HYDRA_CF_FLAG_REMOTE_FRAME) {
 		cf->can_id |= CAN_RTR_FLAG;
@@ -1302,7 +1317,7 @@ static void kvaser_usb_hydra_rx_msg_ext(const struct kvaser_usb *dev,
 		KVASER_USB_KCAN_DATA_DLC_SHIFT;
 
 	flags = le32_to_cpu(cmd->rx_can.flags);
-	hwtstamp = kvaser_usb_hydra_ktime_from_rx_cmd(dev->cfg, std_cmd);
+	hwtstamp = kvaser_usb_hydra_ktime_from_cmd(dev->cfg, std_cmd);
 
 	if (flags & KVASER_USB_HYDRA_CF_FLAG_ERROR_FRAME) {
 		kvaser_usb_hydra_error_frame(priv, &cmd->rx_can.err_frame_data,
@@ -1342,7 +1357,7 @@ static void kvaser_usb_hydra_rx_msg_ext(const struct kvaser_usb *dev,
 		if (flags & KVASER_USB_HYDRA_CF_FLAG_ESI)
 			cf->flags |= CANFD_ESI;
 	} else {
-		cf->len = can_cc_dlc2len(dlc);
+		can_frame_set_cc_len((struct can_frame *)cf, dlc, priv->can.ctrlmode);
 	}
 
 	if (flags & KVASER_USB_HYDRA_CF_FLAG_REMOTE_FRAME) {
@@ -1442,7 +1457,7 @@ kvaser_usb_hydra_frame_to_cmd_ext(const struct kvaser_usb_net_priv *priv,
 	struct kvaser_usb *dev = priv->dev;
 	struct kvaser_cmd_ext *cmd;
 	struct canfd_frame *cf = (struct canfd_frame *)skb->data;
-	u8 dlc = can_fd_len2dlc(cf->len);
+	u8 dlc;
 	u8 nbr_of_bytes = cf->len;
 	u32 flags;
 	u32 id;
@@ -1466,6 +1481,11 @@ kvaser_usb_hydra_frame_to_cmd_ext(const struct kvaser_usb_net_priv *priv,
 			 8);
 
 	cmd->len = cpu_to_le16(*cmd_len);
+
+	if (can_is_canfd_skb(skb))
+		dlc = can_fd_len2dlc(cf->len);
+	else
+		dlc = can_get_cc_dlc((struct can_frame *)cf, priv->can.ctrlmode);
 
 	cmd->tx_can.databytes = nbr_of_bytes;
 	cmd->tx_can.dlc = dlc;
@@ -1542,7 +1562,7 @@ kvaser_usb_hydra_frame_to_cmd_std(const struct kvaser_usb_net_priv *priv,
 		id = cf->can_id & CAN_SFF_MASK;
 	}
 
-	cmd->tx_can.dlc = cf->len;
+	cmd->tx_can.dlc = can_get_cc_dlc(cf, priv->can.ctrlmode);
 
 	flags = (cf->can_id & CAN_EFF_FLAG ?
 		 KVASER_USB_HYDRA_CF_FLAG_EXTENDED_ID : 0);

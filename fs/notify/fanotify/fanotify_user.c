@@ -86,7 +86,6 @@ static struct ctl_table fanotify_table[] = {
 		.proc_handler	= proc_dointvec_minmax,
 		.extra1		= SYSCTL_ZERO
 	},
-	{ }
 };
 
 static void __init fanotify_sysctls_init(void)
@@ -112,10 +111,10 @@ static void __init fanotify_sysctls_init(void)
 
 extern const struct fsnotify_ops fanotify_fsnotify_ops;
 
-struct kmem_cache *fanotify_mark_cache __read_mostly;
-struct kmem_cache *fanotify_fid_event_cachep __read_mostly;
-struct kmem_cache *fanotify_path_event_cachep __read_mostly;
-struct kmem_cache *fanotify_perm_event_cachep __read_mostly;
+struct kmem_cache *fanotify_mark_cache __ro_after_init;
+struct kmem_cache *fanotify_fid_event_cachep __ro_after_init;
+struct kmem_cache *fanotify_path_event_cachep __ro_after_init;
+struct kmem_cache *fanotify_perm_event_cachep __ro_after_init;
 
 #define FANOTIFY_EVENT_ALIGN 4
 #define FANOTIFY_FID_INFO_HDR_LEN \
@@ -1007,17 +1006,17 @@ static int fanotify_find_path(int dfd, const char __user *filename,
 		struct fd f = fdget(dfd);
 
 		ret = -EBADF;
-		if (!f.file)
+		if (!fd_file(f))
 			goto out;
 
 		ret = -ENOTDIR;
 		if ((flags & FAN_MARK_ONLYDIR) &&
-		    !(S_ISDIR(file_inode(f.file)->i_mode))) {
+		    !(S_ISDIR(file_inode(fd_file(f))->i_mode))) {
 			fdput(f);
 			goto out;
 		}
 
-		*path = f.file->f_path;
+		*path = fd_file(f)->f_path;
 		path_get(path);
 		fdput(f);
 	} else {
@@ -1077,7 +1076,7 @@ static __u32 fanotify_mark_remove_from_mask(struct fsnotify_mark *fsn_mark,
 }
 
 static int fanotify_remove_mark(struct fsnotify_group *group,
-				fsnotify_connp_t *connp, __u32 mask,
+				void *obj, unsigned int obj_type, __u32 mask,
 				unsigned int flags, __u32 umask)
 {
 	struct fsnotify_mark *fsn_mark = NULL;
@@ -1085,7 +1084,7 @@ static int fanotify_remove_mark(struct fsnotify_group *group,
 	int destroy_mark;
 
 	fsnotify_group_lock(group);
-	fsn_mark = fsnotify_find_mark(connp, group);
+	fsn_mark = fsnotify_find_mark(obj, obj_type, group);
 	if (!fsn_mark) {
 		fsnotify_group_unlock(group);
 		return -ENOENT;
@@ -1104,30 +1103,6 @@ static int fanotify_remove_mark(struct fsnotify_group *group,
 	/* matches the fsnotify_find_mark() */
 	fsnotify_put_mark(fsn_mark);
 	return 0;
-}
-
-static int fanotify_remove_vfsmount_mark(struct fsnotify_group *group,
-					 struct vfsmount *mnt, __u32 mask,
-					 unsigned int flags, __u32 umask)
-{
-	return fanotify_remove_mark(group, &real_mount(mnt)->mnt_fsnotify_marks,
-				    mask, flags, umask);
-}
-
-static int fanotify_remove_sb_mark(struct fsnotify_group *group,
-				   struct super_block *sb, __u32 mask,
-				   unsigned int flags, __u32 umask)
-{
-	return fanotify_remove_mark(group, &sb->s_fsnotify_marks, mask,
-				    flags, umask);
-}
-
-static int fanotify_remove_inode_mark(struct fsnotify_group *group,
-				      struct inode *inode, __u32 mask,
-				      unsigned int flags, __u32 umask)
-{
-	return fanotify_remove_mark(group, &inode->i_fsnotify_marks, mask,
-				    flags, umask);
 }
 
 static bool fanotify_mark_update_flags(struct fsnotify_mark *fsn_mark,
@@ -1250,7 +1225,7 @@ static int fanotify_set_mark_fsid(struct fsnotify_group *group,
 }
 
 static struct fsnotify_mark *fanotify_add_new_mark(struct fsnotify_group *group,
-						   fsnotify_connp_t *connp,
+						   void *obj,
 						   unsigned int obj_type,
 						   unsigned int fan_flags,
 						   struct fan_fsid *fsid)
@@ -1289,7 +1264,7 @@ static struct fsnotify_mark *fanotify_add_new_mark(struct fsnotify_group *group,
 		fan_mark->fsid.val[0] = fan_mark->fsid.val[1] = 0;
 	}
 
-	ret = fsnotify_add_mark_locked(mark, connp, obj_type, 0);
+	ret = fsnotify_add_mark_locked(mark, obj, obj_type, 0);
 	if (ret)
 		goto out_put_mark;
 
@@ -1345,7 +1320,7 @@ static int fanotify_may_update_existing_mark(struct fsnotify_mark *fsn_mark,
 }
 
 static int fanotify_add_mark(struct fsnotify_group *group,
-			     fsnotify_connp_t *connp, unsigned int obj_type,
+			     void *obj, unsigned int obj_type,
 			     __u32 mask, unsigned int fan_flags,
 			     struct fan_fsid *fsid)
 {
@@ -1354,9 +1329,9 @@ static int fanotify_add_mark(struct fsnotify_group *group,
 	int ret = 0;
 
 	fsnotify_group_lock(group);
-	fsn_mark = fsnotify_find_mark(connp, group);
+	fsn_mark = fsnotify_find_mark(obj, obj_type, group);
 	if (!fsn_mark) {
-		fsn_mark = fanotify_add_new_mark(group, connp, obj_type,
+		fsn_mark = fanotify_add_new_mark(group, obj, obj_type,
 						 fan_flags, fsid);
 		if (IS_ERR(fsn_mark)) {
 			fsnotify_group_unlock(group);
@@ -1391,42 +1366,6 @@ out:
 
 	fsnotify_put_mark(fsn_mark);
 	return ret;
-}
-
-static int fanotify_add_vfsmount_mark(struct fsnotify_group *group,
-				      struct vfsmount *mnt, __u32 mask,
-				      unsigned int flags, struct fan_fsid *fsid)
-{
-	return fanotify_add_mark(group, &real_mount(mnt)->mnt_fsnotify_marks,
-				 FSNOTIFY_OBJ_TYPE_VFSMOUNT, mask, flags, fsid);
-}
-
-static int fanotify_add_sb_mark(struct fsnotify_group *group,
-				struct super_block *sb, __u32 mask,
-				unsigned int flags, struct fan_fsid *fsid)
-{
-	return fanotify_add_mark(group, &sb->s_fsnotify_marks,
-				 FSNOTIFY_OBJ_TYPE_SB, mask, flags, fsid);
-}
-
-static int fanotify_add_inode_mark(struct fsnotify_group *group,
-				   struct inode *inode, __u32 mask,
-				   unsigned int flags, struct fan_fsid *fsid)
-{
-	pr_debug("%s: group=%p inode=%p\n", __func__, group, inode);
-
-	/*
-	 * If some other task has this inode open for write we should not add
-	 * an ignore mask, unless that ignore mask is supposed to survive
-	 * modification changes anyway.
-	 */
-	if ((flags & FANOTIFY_MARK_IGNORE_BITS) &&
-	    !(flags & FAN_MARK_IGNORED_SURV_MODIFY) &&
-	    inode_is_open_for_write(inode))
-		return 0;
-
-	return fanotify_add_mark(group, &inode->i_fsnotify_marks,
-				 FSNOTIFY_OBJ_TYPE_INODE, mask, flags, fsid);
 }
 
 static struct fsnotify_event *fanotify_alloc_overflow_event(void)
@@ -1541,7 +1480,7 @@ SYSCALL_DEFINE2(fanotify_init, unsigned int, flags, unsigned int, event_f_flags)
 
 	/* fsnotify_alloc_group takes a ref.  Dropped in fanotify_release */
 	group = fsnotify_alloc_group(&fanotify_fsnotify_ops,
-				     FSNOTIFY_GROUP_USER | FSNOTIFY_GROUP_NOFS);
+				     FSNOTIFY_GROUP_USER);
 	if (IS_ERR(group)) {
 		return PTR_ERR(group);
 	}
@@ -1577,13 +1516,13 @@ SYSCALL_DEFINE2(fanotify_init, unsigned int, flags, unsigned int, event_f_flags)
 	INIT_LIST_HEAD(&group->fanotify_data.access_list);
 	switch (class) {
 	case FAN_CLASS_NOTIF:
-		group->priority = FS_PRIO_0;
+		group->priority = FSNOTIFY_PRIO_NORMAL;
 		break;
 	case FAN_CLASS_CONTENT:
-		group->priority = FS_PRIO_1;
+		group->priority = FSNOTIFY_PRIO_CONTENT;
 		break;
 	case FAN_CLASS_PRE_CONTENT:
-		group->priority = FS_PRIO_2;
+		group->priority = FSNOTIFY_PRIO_PRE_CONTENT;
 		break;
 	default:
 		fd = -EINVAL;
@@ -1665,17 +1604,25 @@ weak:
 }
 
 /* Check if filesystem can encode a unique fid */
-static int fanotify_test_fid(struct dentry *dentry)
+static int fanotify_test_fid(struct dentry *dentry, unsigned int flags)
 {
+	unsigned int mark_type = flags & FANOTIFY_MARK_TYPE_BITS;
+	const struct export_operations *nop = dentry->d_sb->s_export_op;
+
 	/*
-	 * We need to make sure that the file system supports at least
-	 * encoding a file handle so user can use name_to_handle_at() to
-	 * compare fid returned with event to the file handle of watched
-	 * objects. However, name_to_handle_at() requires that the
-	 * filesystem also supports decoding file handles.
+	 * We need to make sure that the filesystem supports encoding of
+	 * file handles so user can use name_to_handle_at() to compare fids
+	 * reported with events to the file handle of watched objects.
 	 */
-	if (!dentry->d_sb->s_export_op ||
-	    !dentry->d_sb->s_export_op->fh_to_dentry)
+	if (!exportfs_can_encode_fid(nop))
+		return -EOPNOTSUPP;
+
+	/*
+	 * For sb/mount mark, we also need to make sure that the filesystem
+	 * supports decoding file handles, so user has a way to map back the
+	 * reported fids to filesystem objects.
+	 */
+	if (mark_type != FAN_MARK_INODE && !exportfs_can_decode_fh(nop))
 		return -EOPNOTSUPP;
 
 	return 0;
@@ -1743,6 +1690,7 @@ static int do_fanotify_mark(int fanotify_fd, unsigned int flags, __u64 mask,
 	unsigned int mark_cmd = flags & FANOTIFY_MARK_CMD_BITS;
 	unsigned int ignore = flags & FANOTIFY_MARK_IGNORE_BITS;
 	unsigned int obj_type, fid_mode;
+	void *obj;
 	u32 umask = 0;
 	int ret;
 
@@ -1805,14 +1753,14 @@ static int do_fanotify_mark(int fanotify_fd, unsigned int flags, __u64 mask,
 	}
 
 	f = fdget(fanotify_fd);
-	if (unlikely(!f.file))
+	if (unlikely(!fd_file(f)))
 		return -EBADF;
 
 	/* verify that this is indeed an fanotify instance */
 	ret = -EINVAL;
-	if (unlikely(f.file->f_op != &fanotify_fops))
+	if (unlikely(fd_file(f)->f_op != &fanotify_fops))
 		goto fput_and_out;
-	group = f.file->private_data;
+	group = fd_file(f)->private_data;
 
 	/*
 	 * An unprivileged user is not allowed to setup mount nor filesystem
@@ -1826,12 +1774,11 @@ static int do_fanotify_mark(int fanotify_fd, unsigned int flags, __u64 mask,
 		goto fput_and_out;
 
 	/*
-	 * group->priority == FS_PRIO_0 == FAN_CLASS_NOTIF.  These are not
-	 * allowed to set permissions events.
+	 * Permission events require minimum priority FAN_CLASS_CONTENT.
 	 */
 	ret = -EINVAL;
 	if (mask & FANOTIFY_PERM_EVENTS &&
-	    group->priority == FS_PRIO_0)
+	    group->priority < FSNOTIFY_PRIO_CONTENT)
 		goto fput_and_out;
 
 	if (mask & FAN_FS_ERROR &&
@@ -1893,7 +1840,7 @@ static int do_fanotify_mark(int fanotify_fd, unsigned int flags, __u64 mask,
 		if (ret)
 			goto path_put_and_out;
 
-		ret = fanotify_test_fid(path.dentry);
+		ret = fanotify_test_fid(path.dentry, flags);
 		if (ret)
 			goto path_put_and_out;
 
@@ -1901,17 +1848,34 @@ static int do_fanotify_mark(int fanotify_fd, unsigned int flags, __u64 mask,
 	}
 
 	/* inode held in place by reference to path; group by fget on fd */
-	if (mark_type == FAN_MARK_INODE)
+	if (mark_type == FAN_MARK_INODE) {
 		inode = path.dentry->d_inode;
-	else
+		obj = inode;
+	} else {
 		mnt = path.mnt;
+		if (mark_type == FAN_MARK_MOUNT)
+			obj = mnt;
+		else
+			obj = mnt->mnt_sb;
+	}
 
-	ret = mnt ? -EINVAL : -EISDIR;
-	/* FAN_MARK_IGNORE requires SURV_MODIFY for sb/mount/dir marks */
-	if (mark_cmd == FAN_MARK_ADD && ignore == FAN_MARK_IGNORE &&
-	    (mnt || S_ISDIR(inode->i_mode)) &&
-	    !(flags & FAN_MARK_IGNORED_SURV_MODIFY))
-		goto path_put_and_out;
+	/*
+	 * If some other task has this inode open for write we should not add
+	 * an ignore mask, unless that ignore mask is supposed to survive
+	 * modification changes anyway.
+	 */
+	if (mark_cmd == FAN_MARK_ADD && (flags & FANOTIFY_MARK_IGNORE_BITS) &&
+	    !(flags & FAN_MARK_IGNORED_SURV_MODIFY)) {
+		ret = mnt ? -EINVAL : -EISDIR;
+		/* FAN_MARK_IGNORE requires SURV_MODIFY for sb/mount/dir marks */
+		if (ignore == FAN_MARK_IGNORE &&
+		    (mnt || S_ISDIR(inode->i_mode)))
+			goto path_put_and_out;
+
+		ret = 0;
+		if (inode && inode_is_open_for_write(inode))
+			goto path_put_and_out;
+	}
 
 	/* Mask out FAN_EVENT_ON_CHILD flag for sb/mount/non-dir marks */
 	if (mnt || !S_ISDIR(inode->i_mode)) {
@@ -1929,26 +1893,12 @@ static int do_fanotify_mark(int fanotify_fd, unsigned int flags, __u64 mask,
 	/* create/update an inode mark */
 	switch (mark_cmd) {
 	case FAN_MARK_ADD:
-		if (mark_type == FAN_MARK_MOUNT)
-			ret = fanotify_add_vfsmount_mark(group, mnt, mask,
-							 flags, fsid);
-		else if (mark_type == FAN_MARK_FILESYSTEM)
-			ret = fanotify_add_sb_mark(group, mnt->mnt_sb, mask,
-						   flags, fsid);
-		else
-			ret = fanotify_add_inode_mark(group, inode, mask,
-						      flags, fsid);
+		ret = fanotify_add_mark(group, obj, obj_type, mask, flags,
+					fsid);
 		break;
 	case FAN_MARK_REMOVE:
-		if (mark_type == FAN_MARK_MOUNT)
-			ret = fanotify_remove_vfsmount_mark(group, mnt, mask,
-							    flags, umask);
-		else if (mark_type == FAN_MARK_FILESYSTEM)
-			ret = fanotify_remove_sb_mark(group, mnt->mnt_sb, mask,
-						      flags, umask);
-		else
-			ret = fanotify_remove_inode_mark(group, inode, mask,
-							 flags, umask);
+		ret = fanotify_remove_mark(group, obj, obj_type, mask, flags,
+					   umask);
 		break;
 	default:
 		ret = -EINVAL;

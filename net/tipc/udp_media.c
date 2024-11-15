@@ -177,7 +177,7 @@ static int tipc_udp_xmit(struct net *net, struct sk_buff *skb,
 	local_bh_disable();
 	ndst = dst_cache_get(cache);
 	if (dst->proto == htons(ETH_P_IP)) {
-		struct rtable *rt = (struct rtable *)ndst;
+		struct rtable *rt = dst_rtable(ndst);
 
 		if (!rt) {
 			struct flowi4 fl = {
@@ -742,10 +742,6 @@ static int tipc_udp_enable(struct net *net, struct tipc_bearer *b,
 		udp_conf.use_udp_checksums = false;
 		ub->ifindex = dev->ifindex;
 		b->encap_hlen = sizeof(struct iphdr) + sizeof(struct udphdr);
-		if (tipc_mtu_bad(dev, b->encap_hlen)) {
-			err = -EINVAL;
-			goto err;
-		}
 		b->mtu = b->media->mtu;
 #if IS_ENABLED(CONFIG_IPV6)
 	} else if (local.proto == htons(ETH_P_IPV6)) {

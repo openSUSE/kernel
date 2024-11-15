@@ -160,6 +160,16 @@ static int mlxsw_sp_flower_parse_actions(struct mlxsw_sp *mlxsw_sp,
 			 */
 			rulei->egress_bind_blocker = 1;
 
+			/* Ignore learning and security lookup as redirection
+			 * using ingress filters happens before the bridge.
+			 */
+			err = mlxsw_sp_acl_rulei_act_ignore(mlxsw_sp, rulei,
+							    true, true);
+			if (err) {
+				NL_SET_ERR_MSG_MOD(extack, "Cannot append ignore action");
+				return err;
+			}
+
 			fid = mlxsw_sp_acl_dummy_fid(mlxsw_sp);
 			fid_index = mlxsw_sp_fid_index(fid);
 			err = mlxsw_sp_acl_rulei_act_fid_set(mlxsw_sp, rulei,
@@ -585,6 +595,10 @@ static int mlxsw_sp_flower_parse(struct mlxsw_sp *mlxsw_sp,
 
 		flow_rule_match_control(rule, &match);
 		addr_type = match.key->addr_type;
+
+		if (flow_rule_has_control_flags(match.mask->flags,
+						f->common.extack))
+			return -EOPNOTSUPP;
 	}
 
 	if (flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_BASIC)) {

@@ -228,8 +228,10 @@ static int fanotify_get_response(struct fsnotify_group *group,
 
 	pr_debug("%s: group=%p event=%p\n", __func__, group, event);
 
-	ret = wait_event_killable(group->fanotify_data.access_waitq,
-				  event->state == FAN_EVENT_ANSWERED);
+	ret = wait_event_state(group->fanotify_data.access_waitq,
+				  event->state == FAN_EVENT_ANSWERED,
+				  (TASK_KILLABLE|TASK_FREEZABLE));
+
 	/* Signal pending? */
 	if (ret < 0) {
 		spin_lock(&group->notification_lock);
@@ -374,7 +376,7 @@ static int fanotify_encode_fh_len(struct inode *inode)
 	if (!inode)
 		return 0;
 
-	exportfs_encode_inode_fh(inode, NULL, &dwords, NULL);
+	exportfs_encode_fid(inode, NULL, &dwords);
 	fh_len = dwords << 2;
 
 	/*
@@ -437,9 +439,9 @@ static int fanotify_encode_fh(struct fanotify_fh *fh, struct inode *inode,
 	}
 
 	dwords = fh_len >> 2;
-	type = exportfs_encode_inode_fh(inode, buf, &dwords, NULL);
+	type = exportfs_encode_fid(inode, buf, &dwords);
 	err = -EINVAL;
-	if (!type || type == FILEID_INVALID || fh_len != dwords << 2)
+	if (type <= 0 || type == FILEID_INVALID || fh_len != dwords << 2)
 		goto out_err;
 
 	fh->type = type;

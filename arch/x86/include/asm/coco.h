@@ -11,7 +11,6 @@ enum cc_vendor {
 	CC_VENDOR_INTEL,
 };
 
-
 #ifdef CONFIG_ARCH_HAS_CC_PLATFORM
 extern enum cc_vendor cc_vendor;
 extern u64 cc_mask;

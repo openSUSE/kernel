@@ -42,15 +42,8 @@ static int tps65912_i2c_probe(struct i2c_client *client)
 	return tps65912_device_init(tps);
 }
 
-static void tps65912_i2c_remove(struct i2c_client *client)
-{
-	struct tps65912 *tps = i2c_get_clientdata(client);
-
-	tps65912_device_exit(tps);
-}
-
 static const struct i2c_device_id tps65912_i2c_id_table[] = {
-	{ "tps65912", 0 },
+	{ "tps65912" },
 	{ /* sentinel */ }
 };
 MODULE_DEVICE_TABLE(i2c, tps65912_i2c_id_table);
@@ -60,8 +53,7 @@ static struct i2c_driver tps65912_i2c_driver = {
 		.name	= "tps65912",
 		.of_match_table = tps65912_i2c_of_match_table,
 	},
-	.probe_new	= tps65912_i2c_probe,
-	.remove		= tps65912_i2c_remove,
+	.probe		= tps65912_i2c_probe,
 	.id_table       = tps65912_i2c_id_table,
 };
 module_i2c_driver(tps65912_i2c_driver);

@@ -285,7 +285,7 @@ exit:
 	return err;
 }
 
-static int cc770_isa_remove(struct platform_device *pdev)
+static void cc770_isa_remove(struct platform_device *pdev)
 {
 	struct net_device *dev = platform_get_drvdata(pdev);
 	struct cc770_priv *priv = netdev_priv(dev);
@@ -303,8 +303,6 @@ static int cc770_isa_remove(struct platform_device *pdev)
 			release_region(port[idx], CC770_IOSIZE);
 	}
 	free_cc770dev(dev);
-
-	return 0;
 }
 
 static struct platform_driver cc770_isa_driver = {

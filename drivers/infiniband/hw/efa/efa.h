@@ -57,6 +57,7 @@ struct efa_dev {
 	u64 db_bar_addr;
 	u64 db_bar_len;
 
+	unsigned int num_irq_vectors;
 	int admin_msix_vector_idx;
 	struct efa_irq admin_irq;
 
@@ -160,14 +161,14 @@ int efa_create_qp(struct ib_qp *ibqp, struct ib_qp_init_attr *init_attr,
 		  struct ib_udata *udata);
 int efa_destroy_cq(struct ib_cq *ibcq, struct ib_udata *udata);
 int efa_create_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr,
-		  struct ib_udata *udata);
+		  struct uverbs_attr_bundle *attrs);
 struct ib_mr *efa_reg_mr(struct ib_pd *ibpd, u64 start, u64 length,
 			 u64 virt_addr, int access_flags,
 			 struct ib_udata *udata);
 struct ib_mr *efa_reg_user_mr_dmabuf(struct ib_pd *ibpd, u64 start,
 				     u64 length, u64 virt_addr,
 				     int fd, int access_flags,
-				     struct ib_udata *udata);
+				     struct uverbs_attr_bundle *attrs);
 int efa_dereg_mr(struct ib_mr *ibmr, struct ib_udata *udata);
 int efa_get_port_immutable(struct ib_device *ibdev, u32 port_num,
 			   struct ib_port_immutable *immutable);

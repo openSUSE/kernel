@@ -197,6 +197,7 @@ struct pdsc {
 	struct pdsc_qcq notifyqcq;
 	u64 last_eid;
 	struct pdsc_viftype *viftype_status;
+	struct work_struct pci_reset_work;
 };
 
 /** enum pds_core_dbell_bits - bitwise composition of dbell values.
@@ -255,7 +256,8 @@ int pdsc_dl_flash_update(struct devlink *dl,
 int pdsc_dl_enable_get(struct devlink *dl, u32 id,
 		       struct devlink_param_gset_ctx *ctx);
 int pdsc_dl_enable_set(struct devlink *dl, u32 id,
-		       struct devlink_param_gset_ctx *ctx);
+		       struct devlink_param_gset_ctx *ctx,
+		       struct netlink_ext_ack *extack);
 int pdsc_dl_enable_validate(struct devlink *dl, u32 id,
 			    union devlink_param_value val,
 			    struct netlink_ext_ack *extack);
@@ -281,8 +283,8 @@ int pdsc_devcmd_locked(struct pdsc *pdsc, union pds_core_dev_cmd *cmd,
 		       union pds_core_dev_comp *comp, int max_seconds);
 int pdsc_devcmd_init(struct pdsc *pdsc);
 int pdsc_devcmd_reset(struct pdsc *pdsc);
-int pdsc_dev_reinit(struct pdsc *pdsc);
 int pdsc_dev_init(struct pdsc *pdsc);
+void pdsc_dev_uninit(struct pdsc *pdsc);
 
 int pdsc_intr_alloc(struct pdsc *pdsc, char *name,
 		    irq_handler_t handler, void *data);
@@ -310,4 +312,9 @@ irqreturn_t pdsc_adminq_isr(int irq, void *data);
 
 int pdsc_firmware_update(struct pdsc *pdsc, const struct firmware *fw,
 			 struct netlink_ext_ack *extack);
+
+void pdsc_fw_down(struct pdsc *pdsc);
+void pdsc_fw_up(struct pdsc *pdsc);
+void pdsc_pci_reset_thread(struct work_struct *work);
+
 #endif /* _PDSC_H_ */

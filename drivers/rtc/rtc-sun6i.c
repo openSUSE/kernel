@@ -24,7 +24,6 @@
 #include <linux/module.h>
 #include <linux/of.h>
 #include <linux/of_address.h>
-#include <linux/of_device.h>
 #include <linux/platform_device.h>
 #include <linux/rtc.h>
 #include <linux/slab.h>
@@ -214,6 +213,7 @@ static int sun6i_rtc_osc_set_parent(struct clk_hw *hw, u8 index)
 
 static const struct clk_ops sun6i_rtc_osc_ops = {
 	.recalc_rate	= sun6i_rtc_osc_recalc_rate,
+	.determine_rate	= clk_hw_determine_rate_no_reparent,
 
 	.get_parent	= sun6i_rtc_osc_get_parent,
 	.set_parent	= sun6i_rtc_osc_set_parent,
@@ -402,6 +402,7 @@ CLK_OF_DECLARE_DRIVER(sun8i_r40_rtc_clk, "allwinner,sun8i-r40-rtc",
 static const struct sun6i_rtc_clk_data sun8i_v3_rtc_data = {
 	.rc_osc_rate = 32000,
 	.has_out_clk = 1,
+	.has_auto_swt = 1,
 };
 
 static void __init sun8i_v3_rtc_clk_init(struct device_node *node)
@@ -845,8 +846,6 @@ static int sun6i_rtc_probe(struct platform_device *pdev)
 	ret = devm_rtc_nvmem_register(chip->rtc, &sun6i_rtc_nvmem_cfg);
 	if (ret)
 		return ret;
-
-	dev_info(&pdev->dev, "RTC enabled\n");
 
 	return 0;
 }

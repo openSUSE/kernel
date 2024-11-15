@@ -6,6 +6,7 @@
 #include <linux/highmem.h>
 #include <linux/debugfs.h>
 #include <linux/blkdev.h>
+#include <linux/blk-integrity.h>
 #include <linux/pagemap.h>
 #include <linux/module.h>
 #include <linux/device.h>
@@ -750,7 +751,7 @@ static struct arena_info *alloc_arena(struct btt *btt, size_t size,
 	u64 logsize, mapsize, datasize;
 	u64 available = size;
 
-	arena = kzalloc(sizeof(struct arena_info), GFP_KERNEL);
+	arena = kzalloc(sizeof(*arena), GFP_KERNEL);
 	if (!arena)
 		return NULL;
 	arena->nd_btt = btt->nd_btt;
@@ -977,7 +978,7 @@ static int btt_arena_write_layout(struct arena_info *arena)
 	if (ret)
 		return ret;
 
-	super = kzalloc(sizeof(struct btt_sb), GFP_NOIO);
+	super = kzalloc(sizeof(*super), GFP_NOIO);
 	if (!super)
 		return -ENOMEM;
 
@@ -1496,27 +1497,27 @@ static int btt_blk_init(struct btt *btt)
 {
 	struct nd_btt *nd_btt = btt->nd_btt;
 	struct nd_namespace_common *ndns = nd_btt->ndns;
-	int rc = -ENOMEM;
+	struct queue_limits lim = {
+		.logical_block_size	= btt->sector_size,
+		.max_hw_sectors		= UINT_MAX,
+		.max_integrity_segments	= 1,
+		.features		= BLK_FEAT_SYNCHRONOUS,
+	};
+	int rc;
 
-	btt->btt_disk = blk_alloc_disk(NUMA_NO_NODE);
-	if (!btt->btt_disk)
-		return -ENOMEM;
+	if (btt_meta_size(btt) && IS_ENABLED(CONFIG_BLK_DEV_INTEGRITY)) {
+		lim.integrity.tuple_size = btt_meta_size(btt);
+		lim.integrity.tag_size = btt_meta_size(btt);
+	}
+
+	btt->btt_disk = blk_alloc_disk(&lim, NUMA_NO_NODE);
+	if (IS_ERR(btt->btt_disk))
+		return PTR_ERR(btt->btt_disk);
 
 	nvdimm_namespace_disk_name(ndns, btt->btt_disk->disk_name);
 	btt->btt_disk->first_minor = 0;
 	btt->btt_disk->fops = &btt_fops;
 	btt->btt_disk->private_data = btt;
-
-	blk_queue_logical_block_size(btt->btt_disk->queue, btt->sector_size);
-	blk_queue_max_hw_sectors(btt->btt_disk->queue, UINT_MAX);
-	blk_queue_flag_set(QUEUE_FLAG_NONROT, btt->btt_disk->queue);
-	blk_queue_flag_set(QUEUE_FLAG_SYNCHRONOUS, btt->btt_disk->queue);
-
-	if (btt_meta_size(btt)) {
-		rc = nd_integrity_init(btt->btt_disk, btt_meta_size(btt));
-		if (rc)
-			goto out_cleanup_disk;
-	}
 
 	set_capacity(btt->btt_disk, btt->nlba * btt->sector_size >> 9);
 	rc = device_add_disk(&btt->nd_btt->dev, btt->btt_disk, NULL);
@@ -1673,16 +1674,13 @@ int nvdimm_namespace_attach_btt(struct nd_namespace_common *ndns)
 		dev_dbg(&nd_btt->dev, "%s must be at least %ld bytes\n",
 				dev_name(&ndns->dev),
 				ARENA_MIN_SIZE + nd_btt->initial_offset);
-		devm_namespace_disable(&nd_btt->dev, ndns);
 		return -ENXIO;
 	}
 	nd_region = to_nd_region(nd_btt->dev.parent);
 	btt = btt_init(nd_btt, rawsize, nd_btt->lbasize, nd_btt->uuid,
 		       nd_region);
-	if (!btt) {
-		devm_namespace_disable(&nd_btt->dev, ndns);
+	if (!btt)
 		return -ENOMEM;
-	}
 	nd_btt->btt = btt;
 
 	return 0;
@@ -1718,6 +1716,7 @@ static void __exit nd_btt_exit(void)
 
 MODULE_ALIAS_ND_DEVICE(ND_DEVICE_BTT);
 MODULE_AUTHOR("Vishal Verma <vishal.l.verma@linux.intel.com>");
+MODULE_DESCRIPTION("NVDIMM Block Translation Table");
 MODULE_LICENSE("GPL v2");
 module_init(nd_btt_init);
 module_exit(nd_btt_exit);

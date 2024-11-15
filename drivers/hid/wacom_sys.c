@@ -1813,6 +1813,13 @@ static void wacom_destroy_battery(struct wacom *wacom)
 	}
 }
 
+static void wacom_aes_battery_handler(struct work_struct *work)
+{
+	struct wacom *wacom = container_of(work, struct wacom, aes_battery_work.work);
+
+	wacom_destroy_battery(wacom);
+}
+
 static ssize_t wacom_show_speed(struct device *dev,
 				struct device_attribute
 				*attr, char *buf)
@@ -1997,7 +2004,7 @@ static int wacom_initialize_remotes(struct wacom *wacom)
 	spin_lock_init(&remote->remote_lock);
 
 	error = kfifo_alloc(&remote->remote_fifo,
-			5 * sizeof(struct wacom_remote_data),
+			5 * sizeof(struct wacom_remote_work_data),
 			GFP_KERNEL);
 	if (error) {
 		hid_err(wacom->hdev, "failed allocating remote_fifo\n");
@@ -2683,17 +2690,18 @@ static void wacom_remote_work(struct work_struct *work)
 	struct wacom *wacom = container_of(work, struct wacom, remote_work);
 	struct wacom_remote *remote = wacom->remote;
 	ktime_t kt = ktime_get();
-	struct wacom_remote_data data;
+	struct wacom_remote_work_data remote_work_data;
 	unsigned long flags;
 	unsigned int count;
-	u32 serial;
+	u32 work_serial;
 	int i;
 
 	spin_lock_irqsave(&remote->remote_lock, flags);
 
-	count = kfifo_out(&remote->remote_fifo, &data, sizeof(data));
+	count = kfifo_out(&remote->remote_fifo, &remote_work_data,
+			  sizeof(remote_work_data));
 
-	if (count != sizeof(data)) {
+	if (count != sizeof(remote_work_data)) {
 		hid_err(wacom->hdev,
 			"workitem triggered without status available\n");
 		spin_unlock_irqrestore(&remote->remote_lock, flags);
@@ -2706,14 +2714,14 @@ static void wacom_remote_work(struct work_struct *work)
 	spin_unlock_irqrestore(&remote->remote_lock, flags);
 
 	for (i = 0; i < WACOM_MAX_REMOTES; i++) {
-		serial = data.remote[i].serial;
-		if (data.remote[i].connected) {
+		work_serial = remote_work_data.remote[i].serial;
+		if (work_serial) {
 
 			if (kt - remote->remotes[i].active_time > WACOM_REMOTE_BATTERY_TIMEOUT
 			    && remote->remotes[i].active_time != 0)
 				wacom_remote_destroy_battery(wacom, i);
 
-			if (remote->remotes[i].serial == serial) {
+			if (remote->remotes[i].serial == work_serial) {
 				wacom_remote_attach_battery(wacom, i);
 				continue;
 			}
@@ -2721,7 +2729,7 @@ static void wacom_remote_work(struct work_struct *work)
 			if (remote->remotes[i].serial)
 				wacom_remote_destroy_one(wacom, i);
 
-			wacom_remote_create_one(wacom, serial, i);
+			wacom_remote_create_one(wacom, work_serial, i);
 
 		} else if (remote->remotes[i].serial) {
 			wacom_remote_destroy_one(wacom, i);
@@ -2816,6 +2824,7 @@ static int wacom_probe(struct hid_device *hdev,
 
 	mutex_init(&wacom->lock);
 	INIT_DELAYED_WORK(&wacom->init_work, wacom_init_work);
+	INIT_DELAYED_WORK(&wacom->aes_battery_work, wacom_aes_battery_handler);
 	INIT_WORK(&wacom->wireless_work, wacom_wireless_work);
 	INIT_WORK(&wacom->battery_work, wacom_battery_work);
 	INIT_WORK(&wacom->remote_work, wacom_remote_work);

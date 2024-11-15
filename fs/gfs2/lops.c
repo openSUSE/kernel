@@ -391,22 +391,15 @@ static void gfs2_log_write_page(struct gfs2_sbd *sdp, struct page *page)
  * Simply unlock the pages in the bio. The main thread will wait on them and
  * process them in order as necessary.
  */
-
 static void gfs2_end_log_read(struct bio *bio)
 {
-	struct page *page;
-	struct bio_vec *bvec;
-	struct bvec_iter_all iter_all;
+	int error = blk_status_to_errno(bio->bi_status);
+	struct folio_iter fi;
 
-	bio_for_each_segment_all(bvec, bio, iter_all) {
-		page = bvec->bv_page;
-		if (bio->bi_status) {
-			int err = blk_status_to_errno(bio->bi_status);
-
-			SetPageError(page);
-			mapping_set_error(page->mapping, err);
-		}
-		unlock_page(page);
+	bio_for_each_folio_all(fi, bio) {
+		/* We're abusing wb_err to get the error to gfs2_find_jhead */
+		filemap_set_wb_err(fi.folio->mapping, error);
+		folio_end_read(fi.folio, !error);
 	}
 
 	bio_put(bio);
@@ -427,10 +420,11 @@ static bool gfs2_jhead_pg_srch(struct gfs2_jdesc *jd,
 {
 	struct gfs2_sbd *sdp = GFS2_SB(jd->jd_inode);
 	struct gfs2_log_header_host lh;
-	void *kaddr = kmap_atomic(page);
+	void *kaddr;
 	unsigned int offset;
 	bool ret = false;
 
+	kaddr = kmap_local_page(page);
 	for (offset = 0; offset < PAGE_SIZE; offset += sdp->sd_sb.sb_bsize) {
 		if (!__get_log_header(sdp, kaddr + offset, 0, &lh)) {
 			if (lh.lh_sequence >= head->lh_sequence)
@@ -441,7 +435,7 @@ static bool gfs2_jhead_pg_srch(struct gfs2_jdesc *jd,
 			}
 		}
 	}
-	kunmap_atomic(kaddr);
+	kunmap_local(kaddr);
 	return ret;
 }
 
@@ -474,7 +468,7 @@ static void gfs2_jhead_process_page(struct gfs2_jdesc *jd, unsigned long index,
 	folio = filemap_get_folio(jd->jd_inode->i_mapping, index);
 
 	folio_wait_locked(folio);
-	if (folio_test_error(folio))
+	if (!folio_test_uptodate(folio))
 		*done = true;
 
 	if (!*done)
@@ -625,11 +619,11 @@ static void gfs2_check_magic(struct buffer_head *bh)
 	__be32 *ptr;
 
 	clear_buffer_escaped(bh);
-	kaddr = kmap_atomic(bh->b_page);
+	kaddr = kmap_local_page(bh->b_page);
 	ptr = kaddr + bh_offset(bh);
 	if (*ptr == cpu_to_be32(GFS2_MAGIC))
 		set_buffer_escaped(bh);
-	kunmap_atomic(kaddr);
+	kunmap_local(kaddr);
 }
 
 static int blocknr_cmp(void *priv, const struct list_head *a,
@@ -695,14 +689,12 @@ static void gfs2_before_commit(struct gfs2_sbd *sdp, unsigned int limit,
 			lock_buffer(bd2->bd_bh);
 
 			if (buffer_escaped(bd2->bd_bh)) {
-				void *kaddr;
+				void *p;
+
 				page = mempool_alloc(gfs2_page_pool, GFP_NOIO);
-				ptr = page_address(page);
-				kaddr = kmap_atomic(bd2->bd_bh->b_page);
-				memcpy(ptr, kaddr + bh_offset(bd2->bd_bh),
-				       bd2->bd_bh->b_size);
-				kunmap_atomic(kaddr);
-				*(__be32 *)ptr = 0;
+				p = page_address(page);
+				memcpy_from_page(p, page, bh_offset(bd2->bd_bh), bd2->bd_bh->b_size);
+				*(__be32 *)p = 0;
 				clear_buffer_escaped(bd2->bd_bh);
 				unlock_buffer(bd2->bd_bh);
 				brelse(bd2->bd_bh);

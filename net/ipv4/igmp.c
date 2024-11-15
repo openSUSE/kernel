@@ -120,12 +120,12 @@
  */
 
 #define IGMP_V1_SEEN(in_dev) \
-	(IPV4_DEVCONF_ALL(dev_net(in_dev->dev), FORCE_IGMP_VERSION) == 1 || \
+	(IPV4_DEVCONF_ALL_RO(dev_net(in_dev->dev), FORCE_IGMP_VERSION) == 1 || \
 	 IN_DEV_CONF_GET((in_dev), FORCE_IGMP_VERSION) == 1 || \
 	 ((in_dev)->mr_v1_seen && \
 	  time_before(jiffies, (in_dev)->mr_v1_seen)))
 #define IGMP_V2_SEEN(in_dev) \
-	(IPV4_DEVCONF_ALL(dev_net(in_dev->dev), FORCE_IGMP_VERSION) == 2 || \
+	(IPV4_DEVCONF_ALL_RO(dev_net(in_dev->dev), FORCE_IGMP_VERSION) == 2 || \
 	 IN_DEV_CONF_GET((in_dev), FORCE_IGMP_VERSION) == 2 || \
 	 ((in_dev)->mr_v2_seen && \
 	  time_before(jiffies, (in_dev)->mr_v2_seen)))
@@ -1842,7 +1842,8 @@ static struct in_device *ip_mc_find_dev(struct net *net, struct ip_mreqn *imr)
 	if (!dev) {
 		struct rtable *rt = ip_route_output(net,
 						    imr->imr_multiaddr.s_addr,
-						    0, 0, 0);
+						    0, 0, 0,
+						    RT_SCOPE_UNIVERSE);
 		if (!IS_ERR(rt)) {
 			dev = rt->dst.dev;
 			ip_rt_put(rt);
@@ -2661,7 +2662,7 @@ int ip_mc_sf_allow(const struct sock *sk, __be32 loc_addr, __be32 rmt_addr,
 		     (sdif && pmc->multi.imr_ifindex == sdif)))
 			break;
 	}
-	ret = inet->mc_all;
+	ret = inet_test_bit(MC_ALL, sk);
 	if (!pmc)
 		goto unlock;
 	psl = rcu_dereference(pmc->sflist);

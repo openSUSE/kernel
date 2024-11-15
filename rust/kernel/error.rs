@@ -2,18 +2,18 @@
 
 //! Kernel errors.
 //!
-//! C header: [`include/uapi/asm-generic/errno-base.h`](../../../include/uapi/asm-generic/errno-base.h)
+//! C header: [`include/uapi/asm-generic/errno-base.h`](srctree/include/uapi/asm-generic/errno-base.h)
 
-use alloc::{
-    alloc::{AllocError, LayoutError},
-    collections::TryReserveError,
-};
+use crate::{alloc::AllocError, str::CStr};
 
-use core::convert::From;
+use alloc::alloc::LayoutError;
+
+use core::fmt;
 use core::num::TryFromIntError;
 use core::str::Utf8Error;
 
 /// Contains the C-compatible error codes.
+#[rustfmt::skip]
 pub mod code {
     macro_rules! declare_err {
         ($err:tt $(,)? $($doc:expr),+) => {
@@ -58,6 +58,25 @@ pub mod code {
     declare_err!(EPIPE, "Broken pipe.");
     declare_err!(EDOM, "Math argument out of domain of func.");
     declare_err!(ERANGE, "Math result not representable.");
+    declare_err!(ERESTARTSYS, "Restart the system call.");
+    declare_err!(ERESTARTNOINTR, "System call was interrupted by a signal and will be restarted.");
+    declare_err!(ERESTARTNOHAND, "Restart if no handler.");
+    declare_err!(ENOIOCTLCMD, "No ioctl command.");
+    declare_err!(ERESTART_RESTARTBLOCK, "Restart by calling sys_restart_syscall.");
+    declare_err!(EPROBE_DEFER, "Driver requests probe retry.");
+    declare_err!(EOPENSTALE, "Open found a stale dentry.");
+    declare_err!(ENOPARAM, "Parameter not supported.");
+    declare_err!(EBADHANDLE, "Illegal NFS file handle.");
+    declare_err!(ENOTSYNC, "Update synchronization mismatch.");
+    declare_err!(EBADCOOKIE, "Cookie is stale.");
+    declare_err!(ENOTSUPP, "Operation is not supported.");
+    declare_err!(ETOOSMALL, "Buffer or request is too small.");
+    declare_err!(ESERVERFAULT, "An untranslatable error occurred.");
+    declare_err!(EBADTYPE, "Type not supported by server.");
+    declare_err!(EJUKEBOX, "Request initiated, but will not complete before timeout.");
+    declare_err!(EIOCBQUEUED, "iocb queued, will get completion event.");
+    declare_err!(ERECALLCONFLICT, "Conflict with recalled state.");
+    declare_err!(ENOGRACE, "NFS file lock reclaim refused.");
 }
 
 /// Generic integer kernel error.
@@ -107,11 +126,56 @@ impl Error {
         self.0
     }
 
+    #[cfg(CONFIG_BLOCK)]
+    pub(crate) fn to_blk_status(self) -> bindings::blk_status_t {
+        // SAFETY: `self.0` is a valid error due to its invariant.
+        unsafe { bindings::errno_to_blk_status(self.0) }
+    }
+
     /// Returns the error encoded as a pointer.
     #[allow(dead_code)]
     pub(crate) fn to_ptr<T>(self) -> *mut T {
+        #[cfg_attr(target_pointer_width = "32", allow(clippy::useless_conversion))]
         // SAFETY: `self.0` is a valid error due to its invariant.
-        unsafe { bindings::ERR_PTR(self.0.into()) as *mut _ }
+        unsafe {
+            bindings::ERR_PTR(self.0.into()) as *mut _
+        }
+    }
+
+    /// Returns a string representing the error, if one exists.
+    #[cfg(not(testlib))]
+    pub fn name(&self) -> Option<&'static CStr> {
+        // SAFETY: Just an FFI call, there are no extra safety requirements.
+        let ptr = unsafe { bindings::errname(-self.0) };
+        if ptr.is_null() {
+            None
+        } else {
+            // SAFETY: The string returned by `errname` is static and `NUL`-terminated.
+            Some(unsafe { CStr::from_char_ptr(ptr) })
+        }
+    }
+
+    /// Returns a string representing the error, if one exists.
+    ///
+    /// When `testlib` is configured, this always returns `None` to avoid the dependency on a
+    /// kernel function so that tests that use this (e.g., by calling [`Result::unwrap`]) can still
+    /// run in userspace.
+    #[cfg(testlib)]
+    pub fn name(&self) -> Option<&'static CStr> {
+        None
+    }
+}
+
+impl fmt::Debug for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.name() {
+            // Print out number if no name can be found.
+            None => f.debug_tuple("Error").field(&-self.0).finish(),
+            // SAFETY: These strings are ASCII-only.
+            Some(name) => f
+                .debug_tuple(unsafe { core::str::from_utf8_unchecked(name) })
+                .finish(),
+        }
     }
 }
 
@@ -130,12 +194,6 @@ impl From<TryFromIntError> for Error {
 impl From<Utf8Error> for Error {
     fn from(_: Utf8Error) -> Error {
         code::EINVAL
-    }
-}
-
-impl From<TryReserveError> for Error {
-    fn from(_: TryReserveError) -> Error {
-        code::ENOMEM
     }
 }
 
@@ -177,7 +235,7 @@ impl From<core::convert::Infallible> for Error {
 /// Note that even if a function does not return anything when it succeeds,
 /// it should still be modeled as returning a `Result` rather than
 /// just an [`Error`].
-pub type Result<T = ()> = core::result::Result<T, Error>;
+pub type Result<T = (), E = Error> = core::result::Result<T, E>;
 
 /// Converts an integer as returned by a C kernel function to an error if it's negative, and
 /// `Ok(())` otherwise.
@@ -205,13 +263,9 @@ pub fn to_result(err: core::ffi::c_int) -> Result {
 ///     pdev: &mut PlatformDevice,
 ///     index: u32,
 /// ) -> Result<*mut core::ffi::c_void> {
-///     // SAFETY: FFI call.
-///     unsafe {
-///         from_err_ptr(bindings::devm_platform_ioremap_resource(
-///             pdev.to_ptr(),
-///             index,
-///         ))
-///     }
+///     // SAFETY: `pdev` points to a valid platform device. There are no safety requirements
+///     // on `index`.
+///     from_err_ptr(unsafe { bindings::devm_platform_ioremap_resource(pdev.to_ptr(), index) })
 /// }
 /// ```
 // TODO: Remove `dead_code` marker once an in-kernel client is available.
@@ -276,3 +330,7 @@ where
         Err(e) => T::from(e.to_errno() as i16),
     }
 }
+
+/// Error message for calling a default function of a [`#[vtable]`](macros::vtable) trait.
+pub const VTABLE_DEFAULT_ERROR: &str =
+    "This function must not be called, see the #[vtable] documentation.";

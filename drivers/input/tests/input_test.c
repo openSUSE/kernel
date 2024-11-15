@@ -31,7 +31,7 @@ static int input_test_init(struct kunit *test)
 	ret = input_register_device(input_dev);
 	if (ret) {
 		input_free_device(input_dev);
-		KUNIT_ASSERT_FAILURE(test, "Register device failed: %d", ret);
+		KUNIT_FAIL_AND_ABORT(test, "Register device failed: %d", ret);
 	}
 
 	test->priv = input_dev;
@@ -130,10 +130,42 @@ static void input_test_match_device_id(struct kunit *test)
 	KUNIT_ASSERT_FALSE(test, input_match_device_id(input_dev, &id));
 }
 
+static void input_test_grab(struct kunit *test)
+{
+	struct input_dev *input_dev = test->priv;
+	struct input_handle test_handle;
+	struct input_handler handler;
+	struct input_handle handle;
+	struct input_device_id id;
+	int res;
+
+	handler.name = "handler";
+	handler.id_table = &id;
+
+	handle.dev = input_get_device(input_dev);
+	handle.name = dev_name(&input_dev->dev);
+	handle.handler = &handler;
+	res = input_grab_device(&handle);
+	KUNIT_ASSERT_TRUE(test, res == 0);
+
+	test_handle.dev = input_get_device(input_dev);
+	test_handle.name = dev_name(&input_dev->dev);
+	test_handle.handler = &handler;
+	res = input_grab_device(&test_handle);
+	KUNIT_ASSERT_EQ(test, res, -EBUSY);
+
+	input_release_device(&handle);
+	input_put_device(input_dev);
+	res = input_grab_device(&test_handle);
+	KUNIT_ASSERT_TRUE(test, res == 0);
+	input_put_device(input_dev);
+}
+
 static struct kunit_case input_tests[] = {
 	KUNIT_CASE(input_test_polling),
 	KUNIT_CASE(input_test_timestamp),
 	KUNIT_CASE(input_test_match_device_id),
+	KUNIT_CASE(input_test_grab),
 	{ /* sentinel */ }
 };
 
@@ -147,4 +179,5 @@ static struct kunit_suite input_test_suite = {
 kunit_test_suite(input_test_suite);
 
 MODULE_AUTHOR("Javier Martinez Canillas <javierm@redhat.com>");
+MODULE_DESCRIPTION("KUnit test for the input core");
 MODULE_LICENSE("GPL");

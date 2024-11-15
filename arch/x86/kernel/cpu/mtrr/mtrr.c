@@ -55,6 +55,12 @@
 
 #include "mtrr.h"
 
+static_assert(X86_MEMTYPE_UC == MTRR_TYPE_UNCACHABLE);
+static_assert(X86_MEMTYPE_WC == MTRR_TYPE_WRCOMB);
+static_assert(X86_MEMTYPE_WT == MTRR_TYPE_WRTHROUGH);
+static_assert(X86_MEMTYPE_WP == MTRR_TYPE_WRPROT);
+static_assert(X86_MEMTYPE_WB == MTRR_TYPE_WRBACK);
+
 /* arch_phys_wc_add returns an MTRR register index plus this offset. */
 #define MTRR_TO_PHYS_WC_OFFSET 1000
 
@@ -332,7 +338,7 @@ static int mtrr_check(unsigned long base, unsigned long size)
 {
 	if ((base & (PAGE_SIZE - 1)) || (size & (PAGE_SIZE - 1))) {
 		pr_warn("size and base must be multiples of 4 kiB\n");
-		pr_debug("size: 0x%lx  base: 0x%lx\n", size, base);
+		Dprintk("size: 0x%lx  base: 0x%lx\n", size, base);
 		dump_stack();
 		return -1;
 	}
@@ -423,8 +429,7 @@ int mtrr_del_page(int reg, unsigned long base, unsigned long size)
 			}
 		}
 		if (reg < 0) {
-			pr_debug("no MTRR for %lx000,%lx000 found\n",
-				 base, size);
+			Dprintk("no MTRR for %lx000,%lx000 found\n", base, size);
 			goto out;
 		}
 	}

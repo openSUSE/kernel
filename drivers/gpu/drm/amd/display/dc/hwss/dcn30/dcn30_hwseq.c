@@ -51,7 +51,7 @@
 #include "dcn20/dcn20_hwseq.h"
 #include "dcn30/dcn30_resource.h"
 #include "link.h"
-
+#include "dc_state_priv.h"
 
 
 
@@ -69,21 +69,171 @@
 #define FN(reg_name, field_name) \
 	hws->shifts->field_name, hws->masks->field_name
 
+void dcn30_log_color_state(struct dc *dc,
+			   struct dc_log_buffer_ctx *log_ctx)
+{
+	struct dc_context *dc_ctx = dc->ctx;
+	struct resource_pool *pool = dc->res_pool;
+	int i;
+
+	DTN_INFO("DPP:  DGAM ROM  DGAM ROM type  DGAM LUT  SHAPER mode"
+		 "  3DLUT mode  3DLUT bit depth  3DLUT size  RGAM mode"
+		 "  GAMUT adjust  "
+		 "C11        C12        C13        C14        "
+		 "C21        C22        C23        C24        "
+		 "C31        C32        C33        C34        \n");
+
+	for (i = 0; i < pool->pipe_count; i++) {
+		struct dpp *dpp = pool->dpps[i];
+		struct dcn_dpp_state s = {0};
+
+		dpp->funcs->dpp_read_state(dpp, &s);
+		dpp->funcs->dpp_get_gamut_remap(dpp, &s.gamut_remap);
+
+		if (!s.is_enabled)
+			continue;
+
+		DTN_INFO("[%2d]:  %7x  %13s  %8s  %11s  %10s  %15s  %10s  %9s"
+			 "  %12s  "
+			 "%010lld %010lld %010lld %010lld "
+			 "%010lld %010lld %010lld %010lld "
+			 "%010lld %010lld %010lld %010lld",
+			dpp->inst,
+			s.pre_dgam_mode,
+			(s.pre_dgam_select == 0) ? "sRGB" :
+			 ((s.pre_dgam_select == 1) ? "Gamma 2.2" :
+			 ((s.pre_dgam_select == 2) ? "Gamma 2.4" :
+			 ((s.pre_dgam_select == 3) ? "Gamma 2.6" :
+			 ((s.pre_dgam_select == 4) ? "BT.709" :
+			 ((s.pre_dgam_select == 5) ? "PQ" :
+			 ((s.pre_dgam_select == 6) ? "HLG" :
+						     "Unknown")))))),
+			(s.gamcor_mode == 0) ? "Bypass" :
+			 ((s.gamcor_mode == 1) ? "RAM A" :
+						 "RAM B"),
+			(s.shaper_lut_mode == 1) ? "RAM A" :
+			 ((s.shaper_lut_mode == 2) ? "RAM B" :
+						     "Bypass"),
+			(s.lut3d_mode == 1) ? "RAM A" :
+			 ((s.lut3d_mode == 2) ? "RAM B" :
+						"Bypass"),
+			(s.lut3d_bit_depth <= 0) ? "12-bit" : "10-bit",
+			(s.lut3d_size == 0) ? "17x17x17" : "9x9x9",
+			(s.rgam_lut_mode == 0) ? "Bypass" :
+			 ((s.rgam_lut_mode == 1) ? "RAM A" :
+						   "RAM B"),
+			(s.gamut_remap.gamut_adjust_type == 0) ? "Bypass" :
+				((s.gamut_remap.gamut_adjust_type == 1) ? "HW" :
+									  "SW"),
+			s.gamut_remap.temperature_matrix[0].value,
+			s.gamut_remap.temperature_matrix[1].value,
+			s.gamut_remap.temperature_matrix[2].value,
+			s.gamut_remap.temperature_matrix[3].value,
+			s.gamut_remap.temperature_matrix[4].value,
+			s.gamut_remap.temperature_matrix[5].value,
+			s.gamut_remap.temperature_matrix[6].value,
+			s.gamut_remap.temperature_matrix[7].value,
+			s.gamut_remap.temperature_matrix[8].value,
+			s.gamut_remap.temperature_matrix[9].value,
+			s.gamut_remap.temperature_matrix[10].value,
+			s.gamut_remap.temperature_matrix[11].value);
+		DTN_INFO("\n");
+	}
+	DTN_INFO("\n");
+	DTN_INFO("DPP Color Caps: input_lut_shared:%d  icsc:%d"
+		 "  dgam_ram:%d  dgam_rom: srgb:%d,bt2020:%d,gamma2_2:%d,pq:%d,hlg:%d"
+		 "  post_csc:%d  gamcor:%d  dgam_rom_for_yuv:%d  3d_lut:%d"
+		 "  blnd_lut:%d  oscs:%d\n\n",
+		 dc->caps.color.dpp.input_lut_shared,
+		 dc->caps.color.dpp.icsc,
+		 dc->caps.color.dpp.dgam_ram,
+		 dc->caps.color.dpp.dgam_rom_caps.srgb,
+		 dc->caps.color.dpp.dgam_rom_caps.bt2020,
+		 dc->caps.color.dpp.dgam_rom_caps.gamma2_2,
+		 dc->caps.color.dpp.dgam_rom_caps.pq,
+		 dc->caps.color.dpp.dgam_rom_caps.hlg,
+		 dc->caps.color.dpp.post_csc,
+		 dc->caps.color.dpp.gamma_corr,
+		 dc->caps.color.dpp.dgam_rom_for_yuv,
+		 dc->caps.color.dpp.hw_3d_lut,
+		 dc->caps.color.dpp.ogam_ram,
+		 dc->caps.color.dpp.ocsc);
+
+	DTN_INFO("MPCC:  OPP  DPP  MPCCBOT  MODE  ALPHA_MODE  PREMULT  OVERLAP_ONLY  IDLE"
+		 "  SHAPER mode  3DLUT mode  3DLUT bit-depth  3DLUT size  OGAM mode  OGAM LUT"
+		 "  GAMUT adjust  "
+		 "C11        C12        C13        C14        "
+		 "C21        C22        C23        C24        "
+		 "C31        C32        C33        C34        \n");
+
+	for (i = 0; i < pool->mpcc_count; i++) {
+		struct mpcc_state s = {0};
+
+		pool->mpc->funcs->read_mpcc_state(pool->mpc, i, &s);
+		mpc3_get_gamut_remap(pool->mpc, i,  &s.gamut_remap);
+
+		if (s.opp_id != 0xf)
+			DTN_INFO("[%2d]:  %2xh  %2xh  %6xh  %4d  %10d  %7d  %12d  %4d  %11s %11s %16s %11s %10s %9s"
+				 "  %-12s  "
+				 "%010lld %010lld %010lld %010lld "
+				 "%010lld %010lld %010lld %010lld "
+				 "%010lld %010lld %010lld %010lld\n",
+				i, s.opp_id, s.dpp_id, s.bot_mpcc_id,
+				s.mode, s.alpha_mode, s.pre_multiplied_alpha, s.overlap_only,
+				s.idle,
+				(s.shaper_lut_mode == 1) ? "RAM A" :
+				 ((s.shaper_lut_mode == 2) ? "RAM B" :
+							     "Bypass"),
+				(s.lut3d_mode == 1) ? "RAM A" :
+				 ((s.lut3d_mode == 2) ? "RAM B" :
+							"Bypass"),
+				(s.lut3d_bit_depth <= 0) ? "12-bit" : "10-bit",
+				(s.lut3d_size == 0) ? "17x17x17" : "9x9x9",
+				(s.rgam_mode == 0) ? "Bypass" :
+				 ((s.rgam_mode == 2) ? "RAM" :
+						       "Unknown"),
+				(s.rgam_mode == 1) ? "B" : "A",
+				(s.gamut_remap.gamut_adjust_type == 0) ? "Bypass" :
+					((s.gamut_remap.gamut_adjust_type == 1) ? "HW" :
+										  "SW"),
+				s.gamut_remap.temperature_matrix[0].value,
+				s.gamut_remap.temperature_matrix[1].value,
+				s.gamut_remap.temperature_matrix[2].value,
+				s.gamut_remap.temperature_matrix[3].value,
+				s.gamut_remap.temperature_matrix[4].value,
+				s.gamut_remap.temperature_matrix[5].value,
+				s.gamut_remap.temperature_matrix[6].value,
+				s.gamut_remap.temperature_matrix[7].value,
+				s.gamut_remap.temperature_matrix[8].value,
+				s.gamut_remap.temperature_matrix[9].value,
+				s.gamut_remap.temperature_matrix[10].value,
+				s.gamut_remap.temperature_matrix[11].value);
+
+	}
+	DTN_INFO("\n");
+	DTN_INFO("MPC Color Caps: gamut_remap:%d, 3dlut:%d, ogam_ram:%d, ocsc:%d\n\n",
+		 dc->caps.color.mpc.gamut_remap,
+		 dc->caps.color.mpc.num_3dluts,
+		 dc->caps.color.mpc.ogam_ram,
+		 dc->caps.color.mpc.ocsc);
+}
+
 bool dcn30_set_blend_lut(
 	struct pipe_ctx *pipe_ctx, const struct dc_plane_state *plane_state)
 {
 	struct dpp *dpp_base = pipe_ctx->plane_res.dpp;
 	bool result = true;
-	struct pwl_params *blend_lut = NULL;
+	const struct pwl_params *blend_lut = NULL;
 
-	if (plane_state->blend_tf) {
-		if (plane_state->blend_tf->type == TF_TYPE_HWPWL)
-			blend_lut = &plane_state->blend_tf->pwl;
-		else if (plane_state->blend_tf->type == TF_TYPE_DISTRIBUTED_POINTS) {
-			cm3_helper_translate_curve_to_hw_format(
-					plane_state->blend_tf, &dpp_base->regamma_params, false);
-			blend_lut = &dpp_base->regamma_params;
-		}
+	if (plane_state->blend_tf.type == TF_TYPE_HWPWL)
+		blend_lut = &plane_state->blend_tf.pwl;
+	else if (plane_state->blend_tf.type == TF_TYPE_DISTRIBUTED_POINTS) {
+		result = cm3_helper_translate_curve_to_hw_format(
+				&plane_state->blend_tf, &dpp_base->regamma_params, false);
+		if (!result)
+			return result;
+
+		blend_lut = &dpp_base->regamma_params;
 	}
 	result = dpp_base->funcs->dpp_program_blnd_lut(dpp_base, blend_lut);
 
@@ -151,27 +301,24 @@ bool dcn30_set_input_transfer_func(struct dc *dc,
 	struct dpp *dpp_base = pipe_ctx->plane_res.dpp;
 	enum dc_transfer_func_predefined tf;
 	bool result = true;
-	struct pwl_params *params = NULL;
+	const struct pwl_params *params = NULL;
 
 	if (dpp_base == NULL || plane_state == NULL)
 		return false;
 
 	tf = TRANSFER_FUNCTION_UNITY;
 
-	if (plane_state->in_transfer_func &&
-		plane_state->in_transfer_func->type == TF_TYPE_PREDEFINED)
-		tf = plane_state->in_transfer_func->tf;
+	if (plane_state->in_transfer_func.type == TF_TYPE_PREDEFINED)
+		tf = plane_state->in_transfer_func.tf;
 
 	dpp_base->funcs->dpp_set_pre_degam(dpp_base, tf);
 
-	if (plane_state->in_transfer_func) {
-		if (plane_state->in_transfer_func->type == TF_TYPE_HWPWL)
-			params = &plane_state->in_transfer_func->pwl;
-		else if (plane_state->in_transfer_func->type == TF_TYPE_DISTRIBUTED_POINTS &&
-			cm3_helper_translate_curve_to_hw_format(plane_state->in_transfer_func,
-					&dpp_base->degamma_params, false))
-			params = &dpp_base->degamma_params;
-	}
+	if (plane_state->in_transfer_func.type == TF_TYPE_HWPWL)
+		params = &plane_state->in_transfer_func.pwl;
+	else if (plane_state->in_transfer_func.type == TF_TYPE_DISTRIBUTED_POINTS &&
+		cm3_helper_translate_curve_to_hw_format(&plane_state->in_transfer_func,
+				&dpp_base->degamma_params, false))
+		params = &dpp_base->degamma_params;
 
 	result = dpp_base->funcs->dpp_program_gamcor_lut(dpp_base, params);
 
@@ -229,24 +376,24 @@ bool dcn30_set_output_transfer_func(struct dc *dc,
 {
 	int mpcc_id = pipe_ctx->plane_res.hubp->inst;
 	struct mpc *mpc = pipe_ctx->stream_res.opp->ctx->dc->res_pool->mpc;
-	struct pwl_params *params = NULL;
+	const struct pwl_params *params = NULL;
 	bool ret = false;
 
 	/* program OGAM or 3DLUT only for the top pipe*/
 	if (pipe_ctx->top_pipe == NULL) {
 		/*program rmu shaper and 3dlut in MPC*/
 		ret = dcn30_set_mpc_shaper_3dlut(pipe_ctx, stream);
-		if (ret == false && mpc->funcs->set_output_gamma && stream->out_transfer_func) {
-			if (stream->out_transfer_func->type == TF_TYPE_HWPWL)
-				params = &stream->out_transfer_func->pwl;
-			else if (pipe_ctx->stream->out_transfer_func->type ==
+		if (ret == false && mpc->funcs->set_output_gamma) {
+			if (stream->out_transfer_func.type == TF_TYPE_HWPWL)
+				params = &stream->out_transfer_func.pwl;
+			else if (pipe_ctx->stream->out_transfer_func.type ==
 					TF_TYPE_DISTRIBUTED_POINTS &&
 					cm3_helper_translate_curve_to_hw_format(
-					stream->out_transfer_func,
+					&stream->out_transfer_func,
 					&mpc->blender_params, false))
 				params = &mpc->blender_params;
 			 /* there are no ROM LUTs in OUTGAM */
-			if (stream->out_transfer_func->type == TF_TYPE_PREDEFINED)
+			if (stream->out_transfer_func.type == TF_TYPE_PREDEFINED)
 				BREAK_TO_DEBUGGER();
 		}
 	}
@@ -308,7 +455,7 @@ bool dcn30_mmhubbub_warmup(
 	struct mcif_wb *mcif_wb;
 	struct mcif_warmup_params warmup_params = {0};
 	unsigned int  i, i_buf;
-	/*make sure there is no active DWB eanbled */
+	/* make sure there is no active DWB enabled */
 	for (i = 0; i < num_dwb; i++) {
 		dwb = dc->res_pool->dwbc[wb_info[i].dwb_pipe_inst];
 		if (dwb->dwb_is_efc_transition || dwb->dwb_is_drc) {
@@ -371,6 +518,10 @@ void dcn30_enable_writeback(
 	DC_LOG_DWB("%s dwb_pipe_inst = %d, mpcc_inst = %d",\
 		__func__, wb_info->dwb_pipe_inst,\
 		wb_info->mpcc_inst);
+
+	/* Warmup interface */
+	dcn30_mmhubbub_warmup(dc, 1, wb_info);
+
 	/* Update writeback pipe */
 	dcn30_set_writeback(dc, wb_info, context);
 
@@ -476,6 +627,7 @@ void dcn30_init_hw(struct dc *dc)
 	int i;
 	int edp_num;
 	uint32_t backlight = MAX_BACKLIGHT_LEVEL;
+	uint32_t user_level = MAX_BACKLIGHT_LEVEL;
 
 	if (dc->clk_mgr && dc->clk_mgr->funcs && dc->clk_mgr->funcs->init_clocks)
 		dc->clk_mgr->funcs->init_clocks(dc->clk_mgr);
@@ -511,7 +663,7 @@ void dcn30_init_hw(struct dc *dc)
 		res_pool->ref_clocks.xtalin_clock_inKhz =
 				dc->ctx->dc_bios->fw_info.pll_info.crystal_frequency;
 
-		if (res_pool->dccg && res_pool->hubbub) {
+		if (res_pool->hubbub) {
 
 			(res_pool->dccg->funcs->get_dccg_ref_freq)(res_pool->dccg,
 					dc->ctx->dc_bios->fw_info.pll_info.crystal_frequency,
@@ -583,10 +735,10 @@ void dcn30_init_hw(struct dc *dc)
 		if (edp_link && edp_link->link_enc->funcs->is_dig_enabled &&
 				edp_link->link_enc->funcs->is_dig_enabled(edp_link->link_enc) &&
 				dc->hwss.edp_backlight_control &&
-				dc->hwss.power_down &&
+				hws->funcs.power_down &&
 				dc->hwss.edp_power_control) {
 			dc->hwss.edp_backlight_control(edp_link, false);
-			dc->hwss.power_down(dc);
+			hws->funcs.power_down(dc);
 			dc->hwss.edp_power_control(edp_link, false);
 		} else {
 			for (i = 0; i < dc->link_count; i++) {
@@ -594,8 +746,8 @@ void dcn30_init_hw(struct dc *dc)
 
 				if (link->link_enc->funcs->is_dig_enabled &&
 						link->link_enc->funcs->is_dig_enabled(link->link_enc) &&
-						dc->hwss.power_down) {
-					dc->hwss.power_down(dc);
+						hws->funcs.power_down) {
+					hws->funcs.power_down(dc);
 					break;
 				}
 
@@ -612,13 +764,15 @@ void dcn30_init_hw(struct dc *dc)
 	for (i = 0; i < dc->link_count; i++) {
 		struct dc_link *link = dc->links[i];
 
-		if (link->panel_cntl)
+		if (link->panel_cntl) {
 			backlight = link->panel_cntl->funcs->hw_init(link->panel_cntl);
+			user_level = link->panel_cntl->stored_backlight_registers.USER_LEVEL;
+		}
 	}
 
 	for (i = 0; i < dc->res_pool->pipe_count; i++) {
 		if (abms[i] != NULL)
-			abms[i]->funcs->abm_init(abms[i], backlight);
+			abms[i]->funcs->abm_init(abms[i], backlight, user_level);
 	}
 
 	/* power AFMT HDMI memory TODO: may move to dis/en output save power*/
@@ -653,7 +807,7 @@ void dcn30_init_hw(struct dc *dc)
 	// Get DMCUB capabilities
 	dc_dmub_srv_query_caps_cmd(dc->ctx->dmub_srv);
 	dc->caps.dmub_caps.psr = dc->ctx->dmub_srv->dmub->feature_caps.psr;
-	dc->caps.dmub_caps.mclk_sw = dc->ctx->dmub_srv->dmub->feature_caps.fw_assisted_mclk_switch;
+	dc->caps.dmub_caps.mclk_sw = dc->ctx->dmub_srv->dmub->feature_caps.fw_assisted_mclk_switch_ver;
 }
 
 void dcn30_set_avmute(struct pipe_ctx *pipe_ctx, bool enable)
@@ -667,7 +821,7 @@ void dcn30_set_avmute(struct pipe_ctx *pipe_ctx, bool enable)
 				enable);
 
 		/* Wait for two frame to make sure AV mute is sent out */
-		if (enable) {
+		if (enable && pipe_ctx->stream_res.tg->funcs->is_tg_enabled(pipe_ctx->stream_res.tg)) {
 			pipe_ctx->stream_res.tg->funcs->wait_for_state(pipe_ctx->stream_res.tg, CRTC_STATE_VACTIVE);
 			pipe_ctx->stream_res.tg->funcs->wait_for_state(pipe_ctx->stream_res.tg, CRTC_STATE_VBLANK);
 			pipe_ctx->stream_res.tg->funcs->wait_for_state(pipe_ctx->stream_res.tg, CRTC_STATE_VACTIVE);
@@ -739,7 +893,7 @@ bool dcn30_apply_idle_power_optimizations(struct dc *dc, bool enable)
 {
 	union dmub_rb_cmd cmd;
 	uint32_t tmr_delay = 0, tmr_scale = 0;
-	struct dc_cursor_attributes cursor_attr;
+	struct dc_cursor_attributes cursor_attr = {0};
 	bool cursor_cache_enable = false;
 	struct dc_stream_state *stream = NULL;
 	struct dc_plane_state *plane = NULL;
@@ -798,7 +952,8 @@ bool dcn30_apply_idle_power_optimizations(struct dc *dc, bool enable)
 					plane->format >= SURFACE_PIXEL_FORMAT_GRPH_ARGB8888 &&
 					plane->address.page_table_base.quad_part == 0 &&
 					dc->hwss.does_plane_fit_in_mall &&
-					dc->hwss.does_plane_fit_in_mall(dc, plane,
+					dc->hwss.does_plane_fit_in_mall(dc, plane->plane_size.surface_pitch,
+							plane->plane_size.surface_size.height, plane->format,
 							cursor_cache_enable ? &cursor_attr : NULL)) {
 				unsigned int v_total = stream->adjust.v_total_max ?
 						stream->adjust.v_total_max : stream->timing.v_total;
@@ -894,7 +1049,7 @@ bool dcn30_apply_idle_power_optimizations(struct dc *dc, bool enable)
 
 					/* Use copied cursor, and it's okay to not switch back */
 					cursor_attr.address.quad_part = cmd.mall.cursor_copy_dst.quad_part;
-					dc_stream_set_cursor_attributes(stream, &cursor_attr);
+					dc_stream_program_cursor_attributes(stream, &cursor_attr);
 				}
 
 				/* Enable MALL */
@@ -928,11 +1083,15 @@ bool dcn30_apply_idle_power_optimizations(struct dc *dc, bool enable)
 	return true;
 }
 
-bool dcn30_does_plane_fit_in_mall(struct dc *dc, struct dc_plane_state *plane, struct dc_cursor_attributes *cursor_attr)
+bool dcn30_does_plane_fit_in_mall(struct dc *dc,
+		unsigned int pitch,
+		unsigned int height,
+		enum surface_pixel_format format,
+		struct dc_cursor_attributes *cursor_attr)
 {
 	// add meta size?
-	unsigned int surface_size = plane->plane_size.surface_pitch * plane->plane_size.surface_size.height *
-			(plane->format >= SURFACE_PIXEL_FORMAT_GRPH_ARGB16161616 ? 8 : 4);
+	unsigned int surface_size = pitch * height *
+			(format >= SURFACE_PIXEL_FORMAT_GRPH_ARGB16161616 ? 8 : 4);
 	unsigned int mall_size = dc->caps.mall_size_total;
 	unsigned int cursor_size = 0;
 
@@ -980,7 +1139,7 @@ void dcn30_hardware_release(struct dc *dc)
 		if (!pipe->stream)
 			continue;
 
-		if (pipe->stream->mall_stream_config.type == SUBVP_MAIN) {
+		if (dc_state_get_pipe_subvp_type(dc->current_state, pipe) == SUBVP_MAIN) {
 			subvp_in_use = true;
 			break;
 		}
@@ -1025,22 +1184,4 @@ void dcn30_prepare_bandwidth(struct dc *dc,
 
 	if (!dc->clk_mgr->clks.fw_based_mclk_switching)
 		dc_dmub_srv_p_state_delegate(dc, false, context);
-}
-
-void dcn30_set_static_screen_control(struct pipe_ctx **pipe_ctx,
-		int num_pipes, const struct dc_static_screen_params *params)
-{
-	unsigned int i;
-	unsigned int triggers = 0;
-
-	if (params->triggers.surface_update)
-		triggers |= 0x100;
-	if (params->triggers.cursor_update)
-		triggers |= 0x8;
-	if (params->triggers.force_trigger)
-		triggers |= 0x1;
-
-	for (i = 0; i < num_pipes; i++)
-		pipe_ctx[i]->stream_res.tg->funcs->set_static_screen_control(pipe_ctx[i]->stream_res.tg,
-					triggers, params->num_frames);
 }

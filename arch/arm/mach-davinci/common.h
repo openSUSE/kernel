@@ -52,14 +52,7 @@ struct davinci_soc_info {
 extern struct davinci_soc_info davinci_soc_info;
 
 extern void davinci_common_init(const struct davinci_soc_info *soc_info);
-extern void davinci_init_ide(void);
 void davinci_init_late(void);
-
-#ifdef CONFIG_CPU_FREQ
-int davinci_cpufreq_init(void);
-#else
-static inline int davinci_cpufreq_init(void) { return 0; }
-#endif
 
 #ifdef CONFIG_SUSPEND
 int davinci_pm_init(void);

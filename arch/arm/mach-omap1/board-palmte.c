@@ -51,11 +51,6 @@
 #define PALMTE_HDQ_GPIO		11
 #define PALMTE_HEADPHONES_GPIO	14
 #define PALMTE_SPEAKER_GPIO	15
-#define PALMTE_DC_GPIO		OMAP_MPUIO(2)
-#define PALMTE_MMC_SWITCH_GPIO	OMAP_MPUIO(4)
-#define PALMTE_MMC1_GPIO	OMAP_MPUIO(6)
-#define PALMTE_MMC2_GPIO	OMAP_MPUIO(7)
-#define PALMTE_MMC3_GPIO	OMAP_MPUIO(11)
 
 static const unsigned int palmte_keymap[] = {
 	KEY(0, 0, KEY_F1),		/* Calendar */
@@ -270,7 +265,6 @@ MACHINE_START(OMAP_PALMTE, "OMAP310 based Palm Tungsten E")
 	.map_io		= omap1_map_io,
 	.init_early     = omap1_init_early,
 	.init_irq	= omap1_init_irq,
-	.handle_irq	= omap1_handle_irq,
 	.init_machine	= omap_palmte_init,
 	.init_late	= omap1_init_late,
 	.init_time	= omap1_timer_init,

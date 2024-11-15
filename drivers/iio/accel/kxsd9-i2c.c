@@ -43,8 +43,8 @@ static const struct of_device_id kxsd9_of_match[] = {
 MODULE_DEVICE_TABLE(of, kxsd9_of_match);
 
 static const struct i2c_device_id kxsd9_i2c_id[] = {
-	{"kxsd9", 0},
-	{ },
+	{ "kxsd9" },
+	{ }
 };
 MODULE_DEVICE_TABLE(i2c, kxsd9_i2c_id);
 
@@ -54,7 +54,7 @@ static struct i2c_driver kxsd9_i2c_driver = {
 		.of_match_table = kxsd9_of_match,
 		.pm = pm_ptr(&kxsd9_dev_pm_ops),
 	},
-	.probe_new	= kxsd9_i2c_probe,
+	.probe		= kxsd9_i2c_probe,
 	.remove		= kxsd9_i2c_remove,
 	.id_table	= kxsd9_i2c_id,
 };

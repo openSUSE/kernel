@@ -18,7 +18,6 @@
 #include <linux/acpi.h>
 #include <linux/delay.h>
 #include <linux/device.h>
-#include <linux/dmi.h>
 #include <linux/firmware.h>
 #include <linux/i2c.h>
 #include <linux/init.h>
@@ -37,7 +36,7 @@
 #include <linux/pm_wakeirq.h>
 #include <linux/property.h>
 #include <linux/regulator/consumer.h>
-#include <asm/unaligned.h>
+#include <linux/unaligned.h>
 
 #include "elan_i2c.h"
 
@@ -573,7 +572,7 @@ static ssize_t elan_sysfs_read_fw_checksum(struct device *dev,
 	struct i2c_client *client = to_i2c_client(dev);
 	struct elan_tp_data *data = i2c_get_clientdata(client);
 
-	return sprintf(buf, "0x%04x\n", data->fw_checksum);
+	return sysfs_emit(buf, "0x%04x\n", data->fw_checksum);
 }
 
 static ssize_t elan_sysfs_read_product_id(struct device *dev,
@@ -583,8 +582,8 @@ static ssize_t elan_sysfs_read_product_id(struct device *dev,
 	struct i2c_client *client = to_i2c_client(dev);
 	struct elan_tp_data *data = i2c_get_clientdata(client);
 
-	return sprintf(buf, ETP_PRODUCT_ID_FORMAT_STRING "\n",
-		       data->product_id);
+	return sysfs_emit(buf, ETP_PRODUCT_ID_FORMAT_STRING "\n",
+			  data->product_id);
 }
 
 static ssize_t elan_sysfs_read_fw_ver(struct device *dev,
@@ -594,7 +593,7 @@ static ssize_t elan_sysfs_read_fw_ver(struct device *dev,
 	struct i2c_client *client = to_i2c_client(dev);
 	struct elan_tp_data *data = i2c_get_clientdata(client);
 
-	return sprintf(buf, "%d.0\n", data->fw_version);
+	return sysfs_emit(buf, "%d.0\n", data->fw_version);
 }
 
 static ssize_t elan_sysfs_read_sm_ver(struct device *dev,
@@ -604,7 +603,7 @@ static ssize_t elan_sysfs_read_sm_ver(struct device *dev,
 	struct i2c_client *client = to_i2c_client(dev);
 	struct elan_tp_data *data = i2c_get_clientdata(client);
 
-	return sprintf(buf, "%d.0\n", data->sm_version);
+	return sysfs_emit(buf, "%d.0\n", data->sm_version);
 }
 
 static ssize_t elan_sysfs_read_iap_ver(struct device *dev,
@@ -614,7 +613,7 @@ static ssize_t elan_sysfs_read_iap_ver(struct device *dev,
 	struct i2c_client *client = to_i2c_client(dev);
 	struct elan_tp_data *data = i2c_get_clientdata(client);
 
-	return sprintf(buf, "%d.0\n", data->iap_version);
+	return sysfs_emit(buf, "%d.0\n", data->iap_version);
 }
 
 static ssize_t elan_sysfs_update_fw(struct device *dev,
@@ -755,7 +754,7 @@ static ssize_t elan_sysfs_read_mode(struct device *dev,
 	if (error)
 		return error;
 
-	return sprintf(buf, "%d\n", (int)mode);
+	return sysfs_emit(buf, "%d\n", (int)mode);
 }
 
 static DEVICE_ATTR(product_id, S_IRUGO, elan_sysfs_read_product_id, NULL);
@@ -859,7 +858,7 @@ static ssize_t min_show(struct device *dev,
 		goto out;
 	}
 
-	retval = snprintf(buf, PAGE_SIZE, "%d", data->min_baseline);
+	retval = sysfs_emit(buf, "%d", data->min_baseline);
 
 out:
 	mutex_unlock(&data->sysfs_mutex);
@@ -882,7 +881,7 @@ static ssize_t max_show(struct device *dev,
 		goto out;
 	}
 
-	retval = snprintf(buf, PAGE_SIZE, "%d", data->max_baseline);
+	retval = sysfs_emit(buf, "%d", data->max_baseline);
 
 out:
 	mutex_unlock(&data->sysfs_mutex);
@@ -1188,20 +1187,6 @@ static void elan_disable_regulator(void *_data)
 	regulator_disable(data->vcc);
 }
 
-static const struct dmi_system_id elan_i2c_denylist[] = {
-#if IS_ENABLED(CONFIG_I2C_HID_ACPI)
-	{
-		/* Lenovo Yoga Slim 7 is better supported by i2c-hid */
-		.matches = {
-			DMI_MATCH(DMI_SYS_VENDOR, "LENOVO"),
-			DMI_MATCH(DMI_PRODUCT_NAME, "82A3"),
-			DMI_MATCH(DMI_PRODUCT_VERSION, "Yoga Slim 7 14ITL05"),
-		},
-	},
-#endif
-	{ }
-};
-
 static int elan_probe(struct i2c_client *client)
 {
 	const struct elan_transport_ops *transport_ops;
@@ -1212,10 +1197,6 @@ static int elan_probe(struct i2c_client *client)
 
 	if (IS_ENABLED(CONFIG_MOUSE_ELAN_I2C_I2C) &&
 	    i2c_check_functionality(client->adapter, I2C_FUNC_I2C)) {
-		if (dmi_check_system(elan_i2c_denylist)) {
-			dev_info(dev, "Hits deny list, skipping\n");
-			return -ENODEV;
-		}
 		transport_ops = &elan_i2c_ops;
 	} else if (IS_ENABLED(CONFIG_MOUSE_ELAN_I2C_SMBUS) &&
 		   i2c_check_functionality(client->adapter,
@@ -1240,13 +1221,8 @@ static int elan_probe(struct i2c_client *client)
 	mutex_init(&data->sysfs_mutex);
 
 	data->vcc = devm_regulator_get(dev, "vcc");
-	if (IS_ERR(data->vcc)) {
-		error = PTR_ERR(data->vcc);
-		if (error != -EPROBE_DEFER)
-			dev_err(dev, "Failed to get 'vcc' regulator: %d\n",
-				error);
-		return error;
-	}
+	if (IS_ERR(data->vcc))
+		return dev_err_probe(dev, PTR_ERR(data->vcc), "Failed to get 'vcc' regulator\n");
 
 	error = regulator_enable(data->vcc);
 	if (error) {
@@ -1418,8 +1394,8 @@ err:
 static DEFINE_SIMPLE_DEV_PM_OPS(elan_pm_ops, elan_suspend, elan_resume);
 
 static const struct i2c_device_id elan_id[] = {
-	{ DRIVER_NAME, 0 },
-	{ },
+	{ DRIVER_NAME },
+	{ }
 };
 MODULE_DEVICE_TABLE(i2c, elan_id);
 
@@ -1445,7 +1421,7 @@ static struct i2c_driver elan_driver = {
 		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
 		.dev_groups = elan_sysfs_groups,
 	},
-	.probe_new	= elan_probe,
+	.probe		= elan_probe,
 	.id_table	= elan_id,
 };
 

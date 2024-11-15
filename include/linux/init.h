@@ -84,14 +84,15 @@
 
 #define __exit          __section(".exit.text") __exitused __cold notrace
 
-/* Used for MEMORY_HOTPLUG */
-#define __meminit        __section(".meminit.text") __cold notrace \
-						  __latent_entropy
-#define __meminitdata    __section(".meminit.data")
-#define __meminitconst   __section(".meminit.rodata")
-#define __memexit        __section(".memexit.text") __exitused __cold notrace
-#define __memexitdata    __section(".memexit.data")
-#define __memexitconst   __section(".memexit.rodata")
+#ifdef CONFIG_MEMORY_HOTPLUG
+#define __meminit
+#define __meminitdata
+#define __meminitconst
+#else
+#define __meminit	__init
+#define __meminitdata	__initdata
+#define __meminitconst	__initconst
+#endif
 
 /* For assembly routines */
 #define __HEAD		.section	".head.text","ax"
@@ -101,10 +102,6 @@
 #define __INITDATA	.section	".init.data","aw",%progbits
 #define __INITRODATA	.section	".init.rodata","a",%progbits
 #define __FINITDATA	.previous
-
-#define __MEMINIT        .section	".meminit.text", "ax"
-#define __MEMINITDATA    .section	".meminit.data", "aw"
-#define __MEMINITRODATA  .section	".meminit.rodata", "a"
 
 /* silence warnings when references are OK */
 #define __REF            .section       ".ref.text", "ax"
@@ -152,18 +149,38 @@ extern unsigned int reset_devices;
 void setup_arch(char **);
 void prepare_namespace(void);
 void __init init_rootfs(void);
+
+void init_IRQ(void);
+void time_init(void);
+void poking_init(void);
+void pgtable_cache_init(void);
+
+extern initcall_entry_t __initcall_start[];
+extern initcall_entry_t __initcall0_start[];
+extern initcall_entry_t __initcall1_start[];
+extern initcall_entry_t __initcall2_start[];
+extern initcall_entry_t __initcall3_start[];
+extern initcall_entry_t __initcall4_start[];
+extern initcall_entry_t __initcall5_start[];
+extern initcall_entry_t __initcall6_start[];
+extern initcall_entry_t __initcall7_start[];
+extern initcall_entry_t __initcall_end[];
+
 extern struct file_system_type rootfs_fs_type;
 
-#if defined(CONFIG_STRICT_KERNEL_RWX) || defined(CONFIG_STRICT_MODULE_RWX)
 extern bool rodata_enabled;
-#endif
-#ifdef CONFIG_STRICT_KERNEL_RWX
 void mark_rodata_ro(void);
-#endif
 
 extern void (*late_time_init)(void);
 
 extern bool initcall_debug;
+
+#ifdef MODULE
+extern struct module __this_module;
+#define THIS_MODULE (&__this_module)
+#else
+#define THIS_MODULE ((struct module *)0)
+#endif
 
 #endif
   
@@ -308,6 +325,8 @@ struct obs_kernel_param {
 	int (*setup_func)(char *);
 	int early;
 };
+
+extern const struct obs_kernel_param __setup_start[], __setup_end[];
 
 /*
  * Only for really core code.  See moduleparam.h for the normal way.

@@ -22,7 +22,6 @@
 #include <linux/slab.h>
 #include <linux/spinlock.h>
 #include <linux/workqueue.h>
-#include <linux/of_device.h>
 
 #define DEV_ID				0x0
 #define DEV_ID_I3C_MASTER		0x5034
@@ -389,7 +388,7 @@ struct cdns_i3c_xfer {
 	struct completion comp;
 	int ret;
 	unsigned int ncmds;
-	struct cdns_i3c_cmd cmds[];
+	struct cdns_i3c_cmd cmds[] __counted_by(ncmds);
 };
 
 struct cdns_i3c_data {
@@ -1563,6 +1562,7 @@ static const struct of_device_id cdns_i3c_master_of_ids[] = {
 	{ .compatible = "cdns,i3c-master", .data = &cdns_i3c_devdata },
 	{ /* sentinel */ },
 };
+MODULE_DEVICE_TABLE(of, cdns_i3c_master_of_ids);
 
 static int cdns_i3c_master_probe(struct platform_device *pdev)
 {

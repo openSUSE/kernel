@@ -22,7 +22,7 @@ struct regcache_rbtree_node {
 	/* block of adjacent registers */
 	void *block;
 	/* Which registers are present */
-	long *cache_present;
+	unsigned long *cache_present;
 	/* base register handled by this block */
 	unsigned int base_reg;
 	/* number of registers available in the block */
@@ -187,7 +187,7 @@ static int regcache_rbtree_init(struct regmap *map)
 	int i;
 	int ret;
 
-	map->cache = kmalloc(sizeof *rbtree_ctx, GFP_KERNEL);
+	map->cache = kmalloc(sizeof *rbtree_ctx, map->alloc_flags);
 	if (!map->cache)
 		return -ENOMEM;
 

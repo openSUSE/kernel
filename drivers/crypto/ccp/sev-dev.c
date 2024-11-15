@@ -107,7 +107,7 @@ static void *sev_init_ex_buffer;
  *   Array containing range of pages that firmware transitions to HV-fixed
  *   page state.
  */
-struct sev_data_range_list *snp_range_list;
+static struct sev_data_range_list *snp_range_list;
 
 static inline bool sev_version_greater_or_equal(u8 maj, u8 min)
 {
@@ -834,6 +834,7 @@ static int __sev_do_cmd_locked(int cmd, void *data, int *psp_ret)
 	struct cmd_buf_desc desc_list[CMD_BUF_DESC_MAX] = {0};
 	struct psp_device *psp = psp_master;
 	struct sev_device *sev;
+	unsigned int cmdbuff_hi, cmdbuff_lo;
 	unsigned int phys_lsb, phys_msb;
 	unsigned int reg, ret = 0;
 	void *cmd_buf;
@@ -943,6 +944,19 @@ static int __sev_do_cmd_locked(int cmd, void *data, int *psp_ret)
 	if (FIELD_GET(PSP_CMDRESP_STS, reg)) {
 		dev_dbg(sev->dev, "sev command %#x failed (%#010lx)\n",
 			cmd, FIELD_GET(PSP_CMDRESP_STS, reg));
+
+		/*
+		 * PSP firmware may report additional error information in the
+		 * command buffer registers on error. Print contents of command
+		 * buffer registers if they changed.
+		 */
+		cmdbuff_hi = ioread32(sev->io_regs + sev->vdata->cmdbuff_addr_hi_reg);
+		cmdbuff_lo = ioread32(sev->io_regs + sev->vdata->cmdbuff_addr_lo_reg);
+		if (cmdbuff_hi != phys_msb || cmdbuff_lo != phys_lsb) {
+			dev_dbg(sev->dev, "Additional error information reported in cmdbuff:");
+			dev_dbg(sev->dev, "  cmdbuff hi: %#010x\n", cmdbuff_hi);
+			dev_dbg(sev->dev, "  cmdbuff lo: %#010x\n", cmdbuff_lo);
+		}
 		ret = -EIO;
 	} else {
 		ret = sev_write_init_ex_file_if_required(cmd);
@@ -1087,7 +1101,7 @@ static int __sev_snp_init_locked(int *error)
 	void *arg = &data;
 	int cmd, rc = 0;
 
-	if (!cpu_feature_enabled(X86_FEATURE_SEV_SNP))
+	if (!cc_platform_has(CC_ATTR_HOST_SEV_SNP))
 		return -ENODEV;
 
 	sev = psp->sev_data;
@@ -1626,8 +1640,6 @@ static int sev_update_firmware(struct device *dev)
 
 	if (ret)
 		dev_dbg(dev, "Failed to update SEV firmware: %#x\n", error);
-	else
-		dev_info(dev, "SEV firmware update successful\n");
 
 	__free_pages(p, order);
 
@@ -1779,7 +1791,7 @@ static int sev_ioctl_do_get_id2(struct sev_issue_cmd *argp)
 		/*
 		 * The length of the ID shouldn't be assumed by software since
 		 * it may change in the future.  The allocation size is limited
-		 * to 1 << (PAGE_SHIFT + MAX_ORDER) by the page allocator.
+		 * to 1 << (PAGE_SHIFT + MAX_PAGE_ORDER) by the page allocator.
 		 * If the allocation fails, simply return ENOMEM rather than
 		 * warning in the kernel log.
 		 */
@@ -2030,6 +2042,39 @@ static int sev_ioctl_do_snp_set_config(struct sev_issue_cmd *argp, bool writable
 	return __sev_do_cmd_locked(SEV_CMD_SNP_CONFIG, &config, &argp->error);
 }
 
+static int sev_ioctl_do_snp_vlek_load(struct sev_issue_cmd *argp, bool writable)
+{
+	struct sev_device *sev = psp_master->sev_data;
+	struct sev_user_data_snp_vlek_load input;
+	void *blob;
+	int ret;
+
+	if (!sev->snp_initialized || !argp->data)
+		return -EINVAL;
+
+	if (!writable)
+		return -EPERM;
+
+	if (copy_from_user(&input, u64_to_user_ptr(argp->data), sizeof(input)))
+		return -EFAULT;
+
+	if (input.len != sizeof(input) || input.vlek_wrapped_version != 0)
+		return -EINVAL;
+
+	blob = psp_copy_user_blob(input.vlek_wrapped_address,
+				  sizeof(struct sev_user_data_snp_wrapped_vlek_hashstick));
+	if (IS_ERR(blob))
+		return PTR_ERR(blob);
+
+	input.vlek_wrapped_address = __psp_pa(blob);
+
+	ret = __sev_do_cmd_locked(SEV_CMD_SNP_VLEK_LOAD, &input, &argp->error);
+
+	kfree(blob);
+
+	return ret;
+}
+
 static long sev_ioctl(struct file *file, unsigned int ioctl, unsigned long arg)
 {
 	void __user *argp = (void __user *)arg;
@@ -2089,6 +2134,9 @@ static long sev_ioctl(struct file *file, unsigned int ioctl, unsigned long arg)
 		break;
 	case SNP_SET_CONFIG:
 		ret = sev_ioctl_do_snp_set_config(&input, writable);
+		break;
+	case SNP_VLEK_LOAD:
+		ret = sev_ioctl_do_snp_vlek_load(&input, writable);
 		break;
 	default:
 		ret = -EINVAL;
@@ -2343,6 +2391,7 @@ void sev_pci_init(void)
 {
 	struct sev_device *sev = psp_master->sev_data;
 	struct sev_platform_init_args args = {0};
+	u8 api_major, api_minor, build;
 	int rc;
 
 	if (!sev)
@@ -2353,8 +2402,18 @@ void sev_pci_init(void)
 	if (sev_get_api_version())
 		goto err;
 
+	api_major = sev->api_major;
+	api_minor = sev->api_minor;
+	build     = sev->build;
+
 	if (sev_update_firmware(sev->dev) == 0)
 		sev_get_api_version();
+
+	if (api_major != sev->api_major || api_minor != sev->api_minor ||
+	    build != sev->build)
+		dev_info(sev->dev, "SEV firmware updated from %d.%d.%d to %d.%d.%d\n",
+			 api_major, api_minor, build,
+			 sev->api_major, sev->api_minor, sev->build);
 
 	/* Initialize the platform */
 	args.probe = true;

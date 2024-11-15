@@ -2,10 +2,26 @@
 
 //! Tasks (threads and processes).
 //!
-//! C header: [`include/linux/sched.h`](../../../../include/linux/sched.h).
+//! C header: [`include/linux/sched.h`](srctree/include/linux/sched.h).
 
-use crate::{bindings, types::Opaque};
-use core::{marker::PhantomData, ops::Deref, ptr};
+use crate::types::Opaque;
+use core::{
+    ffi::{c_int, c_long, c_uint},
+    marker::PhantomData,
+    ops::Deref,
+    ptr,
+};
+
+/// A sentinel value used for infinite timeouts.
+pub const MAX_SCHEDULE_TIMEOUT: c_long = c_long::MAX;
+
+/// Bitmask for tasks that are sleeping in an interruptible state.
+pub const TASK_INTERRUPTIBLE: c_int = bindings::TASK_INTERRUPTIBLE as c_int;
+/// Bitmask for tasks that are sleeping in an uninterruptible state.
+pub const TASK_UNINTERRUPTIBLE: c_int = bindings::TASK_UNINTERRUPTIBLE as c_int;
+/// Convenience constant for waking up tasks regardless of whether they are in interruptible or
+/// uninterruptible sleep.
+pub const TASK_NORMAL: c_uint = bindings::TASK_NORMAL as c_uint;
 
 /// Returns the currently running task.
 #[macro_export]
@@ -23,7 +39,7 @@ macro_rules! current {
 ///
 /// All instances are valid tasks created by the C portion of the kernel.
 ///
-/// Instances of this type are always ref-counted, that is, a call to `get_task_struct` ensures
+/// Instances of this type are always refcounted, that is, a call to `get_task_struct` ensures
 /// that the allocation remains valid at least until the matching call to `put_task_struct`.
 ///
 /// # Examples
@@ -64,8 +80,14 @@ macro_rules! current {
 #[repr(transparent)]
 pub struct Task(pub(crate) Opaque<bindings::task_struct>);
 
-// SAFETY: It's OK to access `Task` through references from other threads because we're either
-// accessing properties that don't change (e.g., `pid`, `group_leader`) or that are properly
+// SAFETY: By design, the only way to access a `Task` is via the `current` function or via an
+// `ARef<Task>` obtained through the `AlwaysRefCounted` impl. This means that the only situation in
+// which a `Task` can be accessed mutably is when the refcount drops to zero and the destructor
+// runs. It is safe for that to happen on any thread, so it is ok for this type to be `Send`.
+unsafe impl Send for Task {}
+
+// SAFETY: It's OK to access `Task` through shared references from other threads because we're
+// either accessing properties that don't change (e.g., `pid`, `group_leader`) or that are properly
 // synchronised by C code (e.g., `signal_pending`).
 unsafe impl Sync for Task {}
 
@@ -76,7 +98,7 @@ impl Task {
     /// Returns a task reference for the currently executing task/thread.
     ///
     /// The recommended way to get the current task/thread is to use the
-    /// [`current`](crate::current) macro because it is safe.
+    /// [`current`] macro because it is safe.
     ///
     /// # Safety
     ///
@@ -110,7 +132,7 @@ impl Task {
     /// Returns the group leader of the given task.
     pub fn group_leader(&self) -> &Task {
         // SAFETY: By the type invariant, we know that `self.0` is a valid task. Valid tasks always
-        // have a valid group_leader.
+        // have a valid `group_leader`.
         let ptr = unsafe { *ptr::addr_of!((*self.0.get()).group_leader) };
 
         // SAFETY: The lifetime of the returned task reference is tied to the lifetime of `self`,
@@ -141,7 +163,7 @@ impl Task {
     }
 }
 
-// SAFETY: The type invariants guarantee that `Task` is always ref-counted.
+// SAFETY: The type invariants guarantee that `Task` is always refcounted.
 unsafe impl crate::types::AlwaysRefCounted for Task {
     fn inc_ref(&self) {
         // SAFETY: The existence of a shared reference means that the refcount is nonzero.

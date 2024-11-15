@@ -16,17 +16,26 @@
 #include <asm/pci_io.h>
 
 #define xlate_dev_mem_ptr xlate_dev_mem_ptr
+#define kc_xlate_dev_mem_ptr xlate_dev_mem_ptr
 void *xlate_dev_mem_ptr(phys_addr_t phys);
 #define unxlate_dev_mem_ptr unxlate_dev_mem_ptr
+#define kc_unxlate_dev_mem_ptr unxlate_dev_mem_ptr
 void unxlate_dev_mem_ptr(phys_addr_t phys, void *addr);
 
 #define IO_SPACE_LIMIT 0
 
-void __iomem *ioremap_prot(phys_addr_t addr, size_t size, unsigned long prot);
-void __iomem *ioremap(phys_addr_t addr, size_t size);
-void __iomem *ioremap_wc(phys_addr_t addr, size_t size);
-void __iomem *ioremap_wt(phys_addr_t addr, size_t size);
-void iounmap(volatile void __iomem *addr);
+/*
+ * I/O memory mapping functions.
+ */
+#define ioremap_prot ioremap_prot
+#define iounmap iounmap
+
+#define _PAGE_IOREMAP pgprot_val(PAGE_KERNEL)
+
+#define ioremap_wc(addr, size)  \
+	ioremap_prot((addr), (size), pgprot_val(pgprot_writecombine(PAGE_KERNEL)))
+#define ioremap_wt(addr, size)  \
+	ioremap_prot((addr), (size), pgprot_val(pgprot_writethrough(PAGE_KERNEL)))
 
 static inline void __iomem *ioport_map(unsigned long port, unsigned int nr)
 {
@@ -51,10 +60,6 @@ static inline void ioport_unmap(void __iomem *p)
 #define pci_iomap_wc pci_iomap_wc
 #define pci_iomap_wc_range pci_iomap_wc_range
 
-#define ioremap ioremap
-#define ioremap_wt ioremap_wt
-#define ioremap_wc ioremap_wc
-
 #define memcpy_fromio(dst, src, count)	zpci_memcpy_fromio(dst, src, count)
 #define memcpy_toio(dst, src, count)	zpci_memcpy_toio(dst, src, count)
 #define memset_io(dst, val, count)	zpci_memset_io(dst, val, count)
@@ -71,19 +76,19 @@ static inline void ioport_unmap(void __iomem *p)
 #define __raw_writeq	zpci_write_u64
 
 /* combine single writes by using store-block insn */
-static inline void __iowrite32_copy_inlined(void __iomem *to, const void *from,
+static inline void __iowrite32_copy(void __iomem *to, const void *from,
 				    size_t count)
 {
 	zpci_memcpy_toio(to, from, count * 4);
 }
-#define __iowrite32_copy_inlined __iowrite32_copy_inlined
+#define __iowrite32_copy __iowrite32_copy
 
-static inline void __iowrite64_copy_inlined(void __iomem *to, const void *from,
+static inline void __iowrite64_copy(void __iomem *to, const void *from,
 				    size_t count)
 {
 	zpci_memcpy_toio(to, from, count * 8);
 }
-#define __iowrite64_copy_inlined __iowrite64_copy_inlined
+#define __iowrite64_copy __iowrite64_copy
 
 #endif /* CONFIG_PCI */
 

@@ -327,7 +327,7 @@ static int vcap_find_keystream_typegroup_sw(struct vcap_control *vctrl,
 }
 
 /* Verify that the typegroup information, subword count, keyset and type id
- * are in sync and correct, return the list of matchin keysets
+ * are in sync and correct, return the list of matching keysets
  */
 int
 vcap_find_keystream_keysets(struct vcap_control *vctrl,
@@ -1135,7 +1135,7 @@ static void vcap_copy_to_client_actionfield(struct vcap_rule_internal *ri,
 			vcap_copy_from_w32be(field->data.u128.value, value,
 					     field_size, width);
 			break;
-		};
+		}
 	} else {
 		switch (field->ctrl.type) {
 		case VCAP_FIELD_BIT:
@@ -1176,7 +1176,7 @@ static void vcap_copy_to_client_actionfield(struct vcap_rule_internal *ri,
 						      value,
 						      width, field_size);
 			break;
-		};
+		}
 	}
 }
 
@@ -1250,7 +1250,7 @@ static void vcap_copy_to_client_keyfield(struct vcap_rule_internal *ri,
 			vcap_copy_from_w32be(field->data.u128.mask,  mask,
 					     field_size, width);
 			break;
-		};
+		}
 	} else {
 		switch (field->ctrl.type) {
 		case VCAP_FIELD_BIT:
@@ -1298,7 +1298,7 @@ static void vcap_copy_to_client_keyfield(struct vcap_rule_internal *ri,
 						   value, mask,
 						   width, field_size);
 			break;
-		};
+		}
 	}
 }
 
@@ -2410,7 +2410,7 @@ struct vcap_rule *vcap_decode_rule(struct vcap_rule_internal *elem)
 
 	ri = vcap_dup_rule(elem, elem->state == VCAP_RS_DISABLED);
 	if (IS_ERR(ri))
-		return ERR_PTR(PTR_ERR(ri));
+		return ERR_CAST(ri);
 
 	if (ri->state == VCAP_RS_DISABLED)
 		goto out;
@@ -2443,7 +2443,7 @@ struct vcap_rule *vcap_get_rule(struct vcap_control *vctrl, u32 id)
 
 	elem = vcap_get_locked_rule(vctrl, id);
 	if (!elem)
-		return NULL;
+		return ERR_PTR(-ENOENT);
 
 	rule = vcap_decode_rule(elem);
 	mutex_unlock(&elem->admin->lock);
@@ -2907,6 +2907,18 @@ int vcap_rule_add_action_u32(struct vcap_rule *rule,
 }
 EXPORT_SYMBOL_GPL(vcap_rule_add_action_u32);
 
+/* Add a 72 bit action field with value to the rule */
+int vcap_rule_add_action_u72(struct vcap_rule *rule,
+			     enum vcap_action_field action,
+			     struct vcap_u72_action *fieldval)
+{
+	struct vcap_client_actionfield_data data;
+
+	memcpy(&data.u72, fieldval, sizeof(data.u72));
+	return vcap_rule_add_action(rule, action, VCAP_FIELD_U72, &data);
+}
+EXPORT_SYMBOL_GPL(vcap_rule_add_action_u72);
+
 static int vcap_read_counter(struct vcap_rule_internal *ri,
 			     struct vcap_counter *ctr)
 {
@@ -2931,7 +2943,7 @@ void vcap_netbytes_copy(u8 *dst, u8 *src, int count)
 }
 EXPORT_SYMBOL_GPL(vcap_netbytes_copy);
 
-/* Convert validation error code into tc extact error message */
+/* Convert validation error code into tc extack error message */
 void vcap_set_tc_exterr(struct flow_cls_offload *fco, struct vcap_rule *vrule)
 {
 	switch (vrule->exterr) {

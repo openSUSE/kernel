@@ -6,11 +6,11 @@
 menu "PCS device drivers"
 
 config PCS_XPCS
-	tristate
+	tristate "Synopsys DesignWare Ethernet XPCS"
 	select PHYLINK
 	help
-	  This module provides helper functions for Synopsys DesignWare XPCS
-	  controllers.
+	  This module provides a driver and helper functions for Synopsys
+	  DesignWare XPCS controllers.
 
 config PCS_LYNX
 	tristate
@@ -32,11 +32,5 @@ config PCS_RZN1_MIIC
 	  This module provides a driver for the MII converter that is available
 	  on RZ/N1 SoCs. This PCS converts MII to RMII/RGMII or can be set in
 	  pass-through mode for MII.
-
-config PCS_ALTERA_TSE
-	tristate
-	help
-	  This module provides helper functions for the Altera Triple Speed
-	  Ethernet SGMII PCS, that can be found on the Intel Socfpga family.
 
 endmenu

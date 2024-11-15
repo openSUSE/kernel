@@ -19,13 +19,6 @@
 #define LCB_F_PERCPU	(1U << 4)
 #define LCB_F_MUTEX	(1U << 5)
 
-struct tstamp_data {
-	__u64 timestamp;
-	__u64 lock;
-	__u32 flags;
-	__s32 stack_id;
-};
-
 /* callstack storage  */
 struct {
 	__uint(type, BPF_MAP_TYPE_STACK_TRACE);
@@ -124,21 +117,24 @@ struct mm_struct___new {
 } __attribute__((preserve_access_index));
 
 /* control flags */
-int enabled;
-int has_cpu;
-int has_task;
-int has_type;
-int has_addr;
-int has_cgroup;
-int needs_callstack;
-int stack_skip;
-int lock_owner;
-
-int use_cgroup_v2;
-int perf_subsys_id = -1;
+const volatile int has_cpu;
+const volatile int has_task;
+const volatile int has_type;
+const volatile int has_addr;
+const volatile int has_cgroup;
+const volatile int needs_callstack;
+const volatile int stack_skip;
+const volatile int lock_owner;
+const volatile int use_cgroup_v2;
 
 /* determine the key of lock stat */
-int aggr_mode;
+const volatile int aggr_mode;
+
+int enabled;
+
+int perf_subsys_id = -1;
+
+__u64 end_ts;
 
 /* error stat */
 int task_fail;
@@ -328,8 +324,7 @@ static inline struct tstamp_data *get_tstamp_elem(__u32 flags)
 	struct tstamp_data *pelem;
 
 	/* Use per-cpu array map for spinlock and rwlock */
-	if (flags == (LCB_F_SPIN | LCB_F_READ) || flags == LCB_F_SPIN ||
-	    flags == (LCB_F_SPIN | LCB_F_WRITE)) {
+	if ((flags & (LCB_F_SPIN | LCB_F_MUTEX)) == LCB_F_SPIN) {
 		__u32 idx = 0;
 
 		pelem = bpf_map_lookup_elem(&tstamp_cpu, &idx);
@@ -444,11 +439,8 @@ int contention_end(u64 *ctx)
 
 	duration = bpf_ktime_get_ns() - pelem->timestamp;
 	if ((__s64)duration < 0) {
-		pelem->lock = 0;
-		if (need_delete)
-			bpf_map_delete_elem(&tstamp, &pid);
 		__sync_fetch_and_add(&time_fail, 1);
-		return 0;
+		goto out;
 	}
 
 	switch (aggr_mode) {
@@ -482,11 +474,8 @@ int contention_end(u64 *ctx)
 	data = bpf_map_lookup_elem(&lock_stat, &key);
 	if (!data) {
 		if (data_map_full) {
-			pelem->lock = 0;
-			if (need_delete)
-				bpf_map_delete_elem(&tstamp, &pid);
 			__sync_fetch_and_add(&data_fail, 1);
-			return 0;
+			goto out;
 		}
 
 		struct contention_data first = {
@@ -503,16 +492,20 @@ int contention_end(u64 *ctx)
 
 		err = bpf_map_update_elem(&lock_stat, &key, &first, BPF_NOEXIST);
 		if (err < 0) {
+			if (err == -EEXIST) {
+				/* it lost the race, try to get it again */
+				data = bpf_map_lookup_elem(&lock_stat, &key);
+				if (data != NULL)
+					goto found;
+			}
 			if (err == -E2BIG)
 				data_map_full = 1;
 			__sync_fetch_and_add(&data_fail, 1);
 		}
-		pelem->lock = 0;
-		if (need_delete)
-			bpf_map_delete_elem(&tstamp, &pid);
-		return 0;
+		goto out;
 	}
 
+found:
 	__sync_fetch_and_add(&data->total_time, duration);
 	__sync_fetch_and_add(&data->count, 1);
 
@@ -522,6 +515,7 @@ int contention_end(u64 *ctx)
 	if (data->min_time > duration)
 		data->min_time = duration;
 
+out:
 	pelem->lock = 0;
 	if (need_delete)
 		bpf_map_delete_elem(&tstamp, &pid);
@@ -559,6 +553,13 @@ int BPF_PROG(collect_lock_syms)
 		lock_flag = LOCK_CLASS_RQLOCK;
 		bpf_map_update_elem(&lock_syms, &lock_addr, &lock_flag, BPF_ANY);
 	}
+	return 0;
+}
+
+SEC("raw_tp/bpf_test_finish")
+int BPF_PROG(end_timestamp)
+{
+	end_ts = bpf_ktime_get_ns();
 	return 0;
 }
 

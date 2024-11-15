@@ -256,7 +256,7 @@ static int vpu_core_register(struct device *dev, struct vpu_core *core)
 	if (vpu_core_is_exist(vpu, core))
 		return 0;
 
-	core->workqueue = alloc_workqueue("vpu", WQ_UNBOUND | WQ_MEM_RECLAIM, 1);
+	core->workqueue = alloc_ordered_workqueue("vpu", WQ_MEM_RECLAIM);
 	if (!core->workqueue) {
 		dev_err(core->dev, "fail to alloc workqueue\n");
 		return -ENOMEM;
@@ -642,7 +642,7 @@ static int vpu_core_probe(struct platform_device *pdev)
 		return -ENODEV;
 
 	core->type = core->res->type;
-	core->id = of_alias_get_id(dev->of_node, "vpu_core");
+	core->id = of_alias_get_id(dev->of_node, "vpu-core");
 	if (core->id < 0) {
 		dev_err(dev, "can't get vpu core id\n");
 		return core->id;

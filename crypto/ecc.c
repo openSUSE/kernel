@@ -33,7 +33,7 @@
 #include <crypto/ecdh.h>
 #include <crypto/rng.h>
 #include <crypto/internal/ecc.h>
-#include <asm/unaligned.h>
+#include <linux/unaligned.h>
 #include <linux/ratelimit.h>
 
 #include "ecc_curve_defs.h"
@@ -60,11 +60,35 @@ const struct ecc_curve *ecc_get_curve(unsigned int curve_id)
 		return &nist_p256;
 	case ECC_CURVE_NIST_P384:
 		return &nist_p384;
+	case ECC_CURVE_NIST_P521:
+		return &nist_p521;
 	default:
 		return NULL;
 	}
 }
 EXPORT_SYMBOL(ecc_get_curve);
+
+void ecc_digits_from_bytes(const u8 *in, unsigned int nbytes,
+			   u64 *out, unsigned int ndigits)
+{
+	int diff = ndigits - DIV_ROUND_UP(nbytes, sizeof(u64));
+	unsigned int o = nbytes & 7;
+	__be64 msd = 0;
+
+	/* diff > 0: not enough input bytes: set most significant digits to 0 */
+	if (diff > 0) {
+		ndigits -= diff;
+		memset(&out[ndigits], 0, diff * sizeof(u64));
+	}
+
+	if (o) {
+		memcpy((u8 *)&msd + sizeof(msd) - o, in, o);
+		out[--ndigits] = be64_to_cpu(msd);
+		in += o;
+	}
+	ecc_swap_digits(in, out, ndigits);
+}
+EXPORT_SYMBOL(ecc_digits_from_bytes);
 
 static u64 *ecc_alloc_digits_space(unsigned int ndigits)
 {
@@ -689,7 +713,7 @@ static void vli_mmod_barrett(u64 *result, u64 *product, const u64 *mod,
 static void vli_mmod_fast_192(u64 *result, const u64 *product,
 			      const u64 *curve_prime, u64 *tmp)
 {
-	const unsigned int ndigits = 3;
+	const unsigned int ndigits = ECC_CURVE_NIST_P192_DIGITS;
 	int carry;
 
 	vli_set(result, product, ndigits);
@@ -717,7 +741,7 @@ static void vli_mmod_fast_256(u64 *result, const u64 *product,
 			      const u64 *curve_prime, u64 *tmp)
 {
 	int carry;
-	const unsigned int ndigits = 4;
+	const unsigned int ndigits = ECC_CURVE_NIST_P256_DIGITS;
 
 	/* t */
 	vli_set(result, product, ndigits);
@@ -800,7 +824,7 @@ static void vli_mmod_fast_384(u64 *result, const u64 *product,
 				const u64 *curve_prime, u64 *tmp)
 {
 	int carry;
-	const unsigned int ndigits = 6;
+	const unsigned int ndigits = ECC_CURVE_NIST_P384_DIGITS;
 
 	/* t */
 	vli_set(result, product, ndigits);
@@ -902,6 +926,28 @@ static void vli_mmod_fast_384(u64 *result, const u64 *product,
 #undef AND64H
 #undef AND64L
 
+/*
+ * Computes result = product % curve_prime
+ * from "Recommendations for Discrete Logarithm-Based Cryptography:
+ *       Elliptic Curve Domain Parameters" section G.1.4
+ */
+static void vli_mmod_fast_521(u64 *result, const u64 *product,
+			      const u64 *curve_prime, u64 *tmp)
+{
+	const unsigned int ndigits = ECC_CURVE_NIST_P521_DIGITS;
+	size_t i;
+
+	/* Initialize result with lowest 521 bits from product */
+	vli_set(result, product, ndigits);
+	result[8] &= 0x1ff;
+
+	for (i = 0; i < ndigits; i++)
+		tmp[i] = (product[8 + i] >> 9) | (product[9 + i] << 55);
+	tmp[8] &= 0x1ff;
+
+	vli_mod_add(result, result, tmp, curve_prime, ndigits);
+}
+
 /* Computes result = product % curve_prime for different curve_primes.
  *
  * Note that curve_primes are distinguished just by heuristic check and
@@ -932,14 +978,17 @@ static bool vli_mmod_fast(u64 *result, u64 *product,
 	}
 
 	switch (ndigits) {
-	case 3:
+	case ECC_CURVE_NIST_P192_DIGITS:
 		vli_mmod_fast_192(result, product, curve_prime, tmp);
 		break;
-	case 4:
+	case ECC_CURVE_NIST_P256_DIGITS:
 		vli_mmod_fast_256(result, product, curve_prime, tmp);
 		break;
-	case 6:
+	case ECC_CURVE_NIST_P384_DIGITS:
 		vli_mmod_fast_384(result, product, curve_prime, tmp);
+		break;
+	case ECC_CURVE_NIST_P521_DIGITS:
+		vli_mmod_fast_521(result, product, curve_prime, tmp);
 		break;
 	default:
 		pr_err_ratelimited("ecc: unsupported digits size!\n");
@@ -1295,7 +1344,10 @@ static void ecc_point_mult(struct ecc_point *result,
 	carry = vli_add(sk[0], scalar, curve->n, ndigits);
 	vli_add(sk[1], sk[0], curve->n, ndigits);
 	scalar = sk[!carry];
-	num_bits = sizeof(u64) * ndigits * 8 + 1;
+	if (curve->nbits == 521)	/* NIST P521 */
+		num_bits = curve->nbits + 2;
+	else
+		num_bits = sizeof(u64) * ndigits * 8 + 1;
 
 	vli_set(rx[1], point->x, ndigits);
 	vli_set(ry[1], point->y, ndigits);
@@ -1467,10 +1519,10 @@ EXPORT_SYMBOL(ecc_is_key_valid);
  * This method generates a private key uniformly distributed in the range
  * [2, n-3].
  */
-int ecc_gen_privkey(unsigned int curve_id, unsigned int ndigits, u64 *privkey)
+int ecc_gen_privkey(unsigned int curve_id, unsigned int ndigits,
+		    u64 *private_key)
 {
 	const struct ecc_curve *curve = ecc_get_curve(curve_id);
-	u64 priv[ECC_MAX_DIGITS];
 	unsigned int nbytes = ndigits << ECC_DIGITS_TO_BYTES_SHIFT;
 	unsigned int nbits = vli_num_bits(curve->n, ndigits);
 	int err;
@@ -1479,7 +1531,7 @@ int ecc_gen_privkey(unsigned int curve_id, unsigned int ndigits, u64 *privkey)
 	 * Step 1 & 2: check that N is included in Table 1 of FIPS 186-5,
 	 * section 6.1.1.
 	 */
-	if (nbits < 224 || ndigits > ARRAY_SIZE(priv))
+	if (nbits < 224)
 		return -EINVAL;
 
 	/*
@@ -1497,16 +1549,15 @@ int ecc_gen_privkey(unsigned int curve_id, unsigned int ndigits, u64 *privkey)
 		return -EFAULT;
 
 	/* Step 3: obtain N returned_bits from the DRBG. */
-	err = crypto_rng_get_bytes(crypto_default_rng, (u8 *)priv, nbytes);
+	err = crypto_rng_get_bytes(crypto_default_rng,
+				   (u8 *)private_key, nbytes);
 	crypto_put_default_rng();
 	if (err)
 		return err;
 
 	/* Step 4: make sure the private key is in the valid range. */
-	if (__ecc_is_key_valid(curve, priv, ndigits))
+	if (__ecc_is_key_valid(curve, private_key, ndigits))
 		return -EINVAL;
-
-	ecc_swap_digits(priv, privkey, ndigits);
 
 	return 0;
 }
@@ -1517,15 +1568,12 @@ int ecc_make_pub_key(unsigned int curve_id, unsigned int ndigits,
 {
 	int ret = 0;
 	struct ecc_point *pk;
-	u64 priv[ECC_MAX_DIGITS];
 	const struct ecc_curve *curve = ecc_get_curve(curve_id);
 
-	if (!private_key || !curve || ndigits > ARRAY_SIZE(priv)) {
+	if (!private_key) {
 		ret = -EINVAL;
 		goto out;
 	}
-
-	ecc_swap_digits(private_key, priv, ndigits);
 
 	pk = ecc_alloc_point(ndigits);
 	if (!pk) {
@@ -1533,7 +1581,7 @@ int ecc_make_pub_key(unsigned int curve_id, unsigned int ndigits,
 		goto out;
 	}
 
-	ecc_point_mult(pk, &curve->g, priv, NULL, curve, ndigits);
+	ecc_point_mult(pk, &curve->g, private_key, NULL, curve, ndigits);
 
 	/* SP800-56A rev 3 5.6.2.1.3 key check */
 	if (ecc_is_pubkey_valid_full(curve, pk)) {
@@ -1617,13 +1665,11 @@ int crypto_ecdh_shared_secret(unsigned int curve_id, unsigned int ndigits,
 {
 	int ret = 0;
 	struct ecc_point *product, *pk;
-	u64 priv[ECC_MAX_DIGITS];
 	u64 rand_z[ECC_MAX_DIGITS];
 	unsigned int nbytes;
 	const struct ecc_curve *curve = ecc_get_curve(curve_id);
 
-	if (!private_key || !public_key || !curve ||
-	    ndigits > ARRAY_SIZE(priv) || ndigits > ARRAY_SIZE(rand_z)) {
+	if (!private_key || !public_key || ndigits > ARRAY_SIZE(rand_z)) {
 		ret = -EINVAL;
 		goto out;
 	}
@@ -1644,15 +1690,13 @@ int crypto_ecdh_shared_secret(unsigned int curve_id, unsigned int ndigits,
 	if (ret)
 		goto err_alloc_product;
 
-	ecc_swap_digits(private_key, priv, ndigits);
-
 	product = ecc_alloc_point(ndigits);
 	if (!product) {
 		ret = -ENOMEM;
 		goto err_alloc_product;
 	}
 
-	ecc_point_mult(product, pk, priv, rand_z, curve, ndigits);
+	ecc_point_mult(product, pk, private_key, rand_z, curve, ndigits);
 
 	if (ecc_point_is_zero(product)) {
 		ret = -EFAULT;
@@ -1662,7 +1706,6 @@ int crypto_ecdh_shared_secret(unsigned int curve_id, unsigned int ndigits,
 	ecc_swap_digits(product->x, secret, ndigits);
 
 err_validity:
-	memzero_explicit(priv, sizeof(priv));
 	memzero_explicit(rand_z, sizeof(rand_z));
 	ecc_free_point(product);
 err_alloc_product:
@@ -1672,4 +1715,5 @@ out:
 }
 EXPORT_SYMBOL(crypto_ecdh_shared_secret);
 
+MODULE_DESCRIPTION("core elliptic curve module");
 MODULE_LICENSE("Dual BSD/GPL");

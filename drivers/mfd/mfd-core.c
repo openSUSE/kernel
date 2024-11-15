@@ -29,7 +29,7 @@ struct mfd_of_node_entry {
 	struct device_node *np;
 };
 
-static struct device_type mfd_dev_type = {
+static const struct device_type mfd_dev_type = {
 	.name	= "mfd_device",
 };
 
@@ -87,7 +87,7 @@ static void mfd_acpi_add_device(const struct mfd_cell *cell,
 		}
 	}
 
-	ACPI_COMPANION_SET(&pdev->dev, adev ?: parent);
+	device_set_node(&pdev->dev, acpi_fwnode_handle(adev ?: parent));
 }
 #else
 static inline void mfd_acpi_add_device(const struct mfd_cell *cell,
@@ -102,7 +102,6 @@ static int mfd_match_of_node_to_dev(struct platform_device *pdev,
 {
 #if IS_ENABLED(CONFIG_OF)
 	struct mfd_of_node_entry *of_entry;
-	const __be32 *reg;
 	u64 of_node_addr;
 
 	/* Skip if OF node has previously been allocated to a device */
@@ -115,12 +114,9 @@ static int mfd_match_of_node_to_dev(struct platform_device *pdev,
 		goto allocate_of_node;
 
 	/* We only care about each node's first defined address */
-	reg = of_get_address(np, 0, NULL, NULL);
-	if (!reg)
+	if (of_property_read_reg(np, 0, &of_node_addr, NULL))
 		/* OF node does not contatin a 'reg' property to match to */
 		return -EAGAIN;
-
-	of_node_addr = of_read_number(reg, of_n_addr_cells(np));
 
 	if (cell->of_reg != of_node_addr)
 		/* No match */
@@ -135,8 +131,7 @@ allocate_of_node:
 	of_entry->np = np;
 	list_add_tail(&of_entry->list, &mfd_of_node_list);
 
-	pdev->dev.of_node = np;
-	pdev->dev.fwnode = &np->fwnode;
+	device_set_node(&pdev->dev, of_fwnode_handle(np));
 #endif
 	return 0;
 }
@@ -441,5 +436,6 @@ int devm_mfd_add_devices(struct device *dev, int id,
 }
 EXPORT_SYMBOL(devm_mfd_add_devices);
 
+MODULE_DESCRIPTION("Core MFD support");
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Ian Molton, Dmitry Baryshkov");

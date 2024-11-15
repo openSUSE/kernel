@@ -448,8 +448,7 @@ static irqreturn_t stk8312_trigger_handler(int irq, void *p)
 			goto err;
 		}
 	} else {
-		for_each_set_bit(bit, indio_dev->active_scan_mask,
-				 indio_dev->masklength) {
+		iio_for_each_active_channel(indio_dev, bit) {
 			ret = stk8312_read_accel(data, bit);
 			if (ret < 0) {
 				mutex_unlock(&data->lock);
@@ -633,8 +632,8 @@ static DEFINE_SIMPLE_DEV_PM_OPS(stk8312_pm_ops, stk8312_suspend,
 
 static const struct i2c_device_id stk8312_i2c_id[] = {
 	/* Deprecated in favour of lowercase form */
-	{ "STK8312", 0 },
-	{ "stk8312", 0 },
+	{ "STK8312" },
+	{ "stk8312" },
 	{}
 };
 MODULE_DEVICE_TABLE(i2c, stk8312_i2c_id);
@@ -644,7 +643,7 @@ static struct i2c_driver stk8312_driver = {
 		.name = STK8312_DRIVER_NAME,
 		.pm = pm_sleep_ptr(&stk8312_pm_ops),
 	},
-	.probe_new =        stk8312_probe,
+	.probe =        stk8312_probe,
 	.remove =           stk8312_remove,
 	.id_table =         stk8312_i2c_id,
 };

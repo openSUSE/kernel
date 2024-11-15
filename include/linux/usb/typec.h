@@ -18,6 +18,7 @@ struct typec_cable;
 struct typec_plug;
 struct typec_port;
 struct typec_altmode_ops;
+struct typec_cable_ops;
 
 struct fwnode_handle;
 struct device;
@@ -157,11 +158,17 @@ void typec_port_register_altmodes(struct typec_port *port,
 	const struct typec_altmode_ops *ops, void *drvdata,
 	struct typec_altmode **altmodes, size_t n);
 
+void typec_port_register_cable_ops(struct typec_altmode **altmodes, int max_altmodes,
+				   const struct typec_cable_ops *ops);
+
 void typec_unregister_altmode(struct typec_altmode *altmode);
 
 struct typec_port *typec_altmode2port(struct typec_altmode *alt);
 
 void typec_altmode_update_active(struct typec_altmode *alt, bool active);
+
+void typec_altmode_set_ops(struct typec_altmode *alt,
+			   const struct typec_altmode_ops *ops);
 
 enum typec_plug_index {
 	TYPEC_PLUG_SOP_P,
@@ -194,7 +201,6 @@ struct typec_cable_desc {
 	struct usb_pd_identity	*identity;
 	u16			pd_revision; /* 0300H = "3.0" */
 
-	void *suse_kabi_padding;
 };
 
 /*
@@ -223,8 +229,6 @@ struct typec_partner_desc {
 
 	void (*attach)(struct typec_partner *partner, struct device *dev);
 	void (*deattach)(struct typec_partner *partner, struct device *dev);
-
-	void			*suse_kabi_padding;
 };
 
 /**
@@ -246,8 +250,6 @@ struct typec_operations {
 			     enum typec_port_type type);
 	struct usb_power_delivery **(*pd_get)(struct typec_port *port);
 	int (*pd_set)(struct typec_port *port, struct usb_power_delivery *pd);
-
-	void *suse_kabi_padding;
 };
 
 enum usb_pd_svdm_ver {
@@ -288,8 +290,6 @@ struct typec_capability {
 	struct usb_power_delivery *pd;
 
 	const struct typec_operations	*ops;
-
-	void *suse_kabi_padding;
 };
 
 /* Specific to try_role(). Indicates the user want's to clear the preference. */
@@ -340,6 +340,9 @@ void typec_partner_set_svdm_version(struct typec_partner *partner,
 				    enum usb_pd_svdm_ver svdm_version);
 int typec_get_negotiated_svdm_version(struct typec_port *port);
 
+int typec_get_cable_svdm_version(struct typec_port *port);
+void typec_cable_set_svdm_version(struct typec_cable *cable, enum usb_pd_svdm_ver svdm_version);
+
 struct usb_power_delivery *typec_partner_usb_power_delivery_register(struct typec_partner *partner,
 							struct usb_power_delivery_desc *desc);
 
@@ -365,7 +368,6 @@ int typec_partner_set_usb_power_delivery(struct typec_partner *partner,
 struct typec_connector {
 	void (*attach)(struct typec_connector *con, struct device *dev);
 	void (*deattach)(struct typec_connector *con, struct device *dev);
-	void *suse_kabi_padding;
 };
 
 static inline void typec_attach(struct typec_connector *con, struct device *dev)

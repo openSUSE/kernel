@@ -170,7 +170,7 @@ void dcn201_init_blank(
 	struct tg_color black_color = {0};
 	struct output_pixel_processor *opp = NULL;
 	uint32_t num_opps, opp_id_src0, opp_id_src1;
-	uint32_t otg_active_width, otg_active_height;
+	uint32_t otg_active_width = 0, otg_active_height = 0;
 
 	/* program opp dpg blank color */
 	color_space = COLOR_SPACE_SRGB;
@@ -240,7 +240,7 @@ void dcn201_init_hw(struct dc *dc)
 		res_pool->ref_clocks.xtalin_clock_inKhz =
 			dc->ctx->dc_bios->fw_info.pll_info.crystal_frequency;
 
-		if (res_pool->dccg && res_pool->hubbub) {
+		if (res_pool->hubbub) {
 			(res_pool->dccg->funcs->get_dccg_ref_freq)(res_pool->dccg,
 					dc->ctx->dc_bios->fw_info.pll_info.crystal_frequency,
 					&res_pool->ref_clocks.dccg_ref_clock_inKhz);
@@ -323,7 +323,7 @@ void dcn201_init_hw(struct dc *dc)
 		res_pool->opps[i]->mpcc_disconnect_pending[pipe_ctx->plane_res.mpcc_inst] = true;
 		pipe_ctx->stream_res.opp = res_pool->opps[i];
 		/*To do: number of MPCC != number of opp*/
-		hws->funcs.plane_atomic_disconnect(dc, pipe_ctx);
+		hws->funcs.plane_atomic_disconnect(dc, context, pipe_ctx);
 	}
 
 	/* initialize DWB pointer to MCIF_WB */
@@ -340,7 +340,7 @@ void dcn201_init_hw(struct dc *dc)
 	for (i = 0; i < res_pool->pipe_count; i++) {
 		struct pipe_ctx *pipe_ctx = &context->res_ctx.pipe_ctx[i];
 
-		dc->hwss.disable_plane(dc, pipe_ctx);
+		dc->hwss.disable_plane(dc, context, pipe_ctx);
 
 		pipe_ctx->stream_res.tg = NULL;
 		pipe_ctx->plane_res.hubp = NULL;
@@ -372,7 +372,9 @@ void dcn201_init_hw(struct dc *dc)
 }
 
 /* trigger HW to start disconnect plane from stream on the next vsync */
-void dcn201_plane_atomic_disconnect(struct dc *dc, struct pipe_ctx *pipe_ctx)
+void dcn201_plane_atomic_disconnect(struct dc *dc,
+		struct dc_state *state,
+		struct pipe_ctx *pipe_ctx)
 {
 	struct dce_hwseq *hws = dc->hwseq;
 	struct hubp *hubp = pipe_ctx->plane_res.hubp;
@@ -406,8 +408,7 @@ void dcn201_plane_atomic_disconnect(struct dc *dc, struct pipe_ctx *pipe_ctx)
 	if (mpcc_removed == false)
 		return;
 
-	if (opp != NULL)
-		opp->mpcc_disconnect_pending[pipe_ctx->plane_res.mpcc_inst] = true;
+	opp->mpcc_disconnect_pending[pipe_ctx->plane_res.mpcc_inst] = true;
 
 	dc->optimized_required = true;
 
@@ -602,7 +603,7 @@ void dcn201_unblank_stream(struct pipe_ctx *pipe_ctx,
 
 	if (dc_is_dp_signal(pipe_ctx->stream->signal)) {
 		/*check whether it is half the rate*/
-		if (optc201_is_two_pixels_per_containter(&stream->timing))
+		if (pipe_ctx->stream_res.tg->funcs->is_two_pixels_per_container(&stream->timing))
 			params.timing.pix_clk_100hz /= 2;
 
 		pipe_ctx->stream_res.stream_enc->funcs->dp_unblank(link, pipe_ctx->stream_res.stream_enc, &params);

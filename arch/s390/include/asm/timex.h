@@ -63,7 +63,7 @@ static inline int store_tod_clock_ext_cc(union tod_clock *clk)
 	return cc;
 }
 
-static inline void store_tod_clock_ext(union tod_clock *tod)
+static __always_inline void store_tod_clock_ext(union tod_clock *tod)
 {
 	asm volatile("stcke %0" : "=Q" (*tod) : : "cc");
 }
@@ -161,23 +161,23 @@ static inline unsigned long local_tick_disable(void)
 {
 	unsigned long old;
 
-	old = S390_lowcore.clock_comparator;
-	S390_lowcore.clock_comparator = clock_comparator_max;
-	set_clock_comparator(S390_lowcore.clock_comparator);
+	old = get_lowcore()->clock_comparator;
+	get_lowcore()->clock_comparator = clock_comparator_max;
+	set_clock_comparator(get_lowcore()->clock_comparator);
 	return old;
 }
 
 static inline void local_tick_enable(unsigned long comp)
 {
-	S390_lowcore.clock_comparator = comp;
-	set_clock_comparator(S390_lowcore.clock_comparator);
+	get_lowcore()->clock_comparator = comp;
+	set_clock_comparator(get_lowcore()->clock_comparator);
 }
 
 #define CLOCK_TICK_RATE		1193180 /* Underlying HZ */
 
 typedef unsigned long cycles_t;
 
-static inline unsigned long get_tod_clock(void)
+static __always_inline unsigned long get_tod_clock(void)
 {
 	union tod_clock clk;
 
@@ -204,6 +204,11 @@ void init_cpu_timer(void);
 
 extern union tod_clock tod_clock_base;
 
+static __always_inline unsigned long __get_tod_clock_monotonic(void)
+{
+	return get_tod_clock() - tod_clock_base.tod;
+}
+
 /**
  * get_clock_monotonic - returns current time in clock rate units
  *
@@ -216,7 +221,7 @@ static inline unsigned long get_tod_clock_monotonic(void)
 	unsigned long tod;
 
 	preempt_disable_notrace();
-	tod = get_tod_clock() - tod_clock_base.tod;
+	tod = __get_tod_clock_monotonic();
 	preempt_enable_notrace();
 	return tod;
 }
@@ -240,7 +245,7 @@ static inline unsigned long get_tod_clock_monotonic(void)
  * -> ns = (th * 125) + ((tl * 125) >> 9);
  *
  */
-static inline unsigned long tod_to_ns(unsigned long todval)
+static __always_inline unsigned long tod_to_ns(unsigned long todval)
 {
 	return ((todval >> 9) * 125) + (((todval & 0x1ff) * 125) >> 9);
 }

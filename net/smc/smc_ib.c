@@ -193,7 +193,7 @@ bool smc_ib_port_active(struct smc_ib_device *smcibdev, u8 ibport)
 	return smcibdev->pattr[ibport - 1].state == IB_PORT_ACTIVE;
 }
 
-int smc_ib_find_route(__be32 saddr, __be32 daddr,
+int smc_ib_find_route(struct net *net, __be32 saddr, __be32 daddr,
 		      u8 nexthop_mac[], u8 *uses_gateway)
 {
 	struct neighbour *neigh = NULL;
@@ -205,7 +205,7 @@ int smc_ib_find_route(__be32 saddr, __be32 daddr,
 
 	if (daddr == cpu_to_be32(INADDR_NONE))
 		goto out;
-	rt = ip_route_output_flow(&init_net, &fl4, NULL);
+	rt = ip_route_output_flow(net, &fl4, NULL);
 	if (IS_ERR(rt))
 		goto out;
 	if (rt->rt_uses_gateway && rt->rt_gw_family != AF_INET)
@@ -240,6 +240,7 @@ static int smc_ib_determine_gid_rcu(const struct net_device *ndev,
 	if (smcrv2 && attr->gid_type == IB_GID_TYPE_ROCE_UDP_ENCAP &&
 	    smc_ib_gid_to_ipv4((u8 *)&attr->gid) != cpu_to_be32(INADDR_NONE)) {
 		struct in_device *in_dev = __in_dev_get_rcu(ndev);
+		struct net *net = dev_net(ndev);
 		const struct in_ifaddr *ifa;
 		bool subnet_match = false;
 
@@ -253,7 +254,7 @@ static int smc_ib_determine_gid_rcu(const struct net_device *ndev,
 		}
 		if (!subnet_match)
 			goto out;
-		if (smcrv2->daddr && smc_ib_find_route(smcrv2->saddr,
+		if (smcrv2->daddr && smc_ib_find_route(net, smcrv2->saddr,
 						       smcrv2->daddr,
 						       smcrv2->nexthop_mac,
 						       &smcrv2->uses_gateway))
@@ -848,7 +849,7 @@ long smc_ib_setup_per_ibdev(struct smc_ib_device *smcibdev)
 		goto out;
 	/* the calculated number of cq entries fits to mlx5 cq allocation */
 	cqe_size_order = cache_line_size() == 128 ? 7 : 6;
-	smc_order = MAX_ORDER - cqe_size_order;
+	smc_order = MAX_PAGE_ORDER - cqe_size_order;
 	if (SMC_MAX_CQE + 2 > (0x00000001 << smc_order) * PAGE_SIZE)
 		cqattr.cqe = (0x00000001 << smc_order) * PAGE_SIZE - 2;
 	smcibdev->roce_cq_send = ib_create_cq(smcibdev->ibdev,
@@ -898,9 +899,7 @@ static void smc_copy_netdev_ifindex(struct smc_ib_device *smcibdev, int port)
 	struct ib_device *ibdev = smcibdev->ibdev;
 	struct net_device *ndev;
 
-	if (!ibdev->ops.get_netdev)
-		return;
-	ndev = ibdev->ops.get_netdev(ibdev, port + 1);
+	ndev = ib_device_get_netdev(ibdev, port + 1);
 	if (ndev) {
 		smcibdev->ndev_ifidx[port] = ndev->ifindex;
 		dev_put(ndev);
@@ -920,9 +919,7 @@ void smc_ib_ndev_change(struct net_device *ndev, unsigned long event)
 		port_cnt = smcibdev->ibdev->phys_port_cnt;
 		for (i = 0; i < min_t(size_t, port_cnt, SMC_MAX_PORTS); i++) {
 			libdev = smcibdev->ibdev;
-			if (!libdev->ops.get_netdev)
-				continue;
-			lndev = libdev->ops.get_netdev(libdev, i + 1);
+			lndev = ib_device_get_netdev(libdev, i + 1);
 			dev_put(lndev);
 			if (lndev != ndev)
 				continue;

@@ -7,9 +7,7 @@
 #include <linux/clk.h>
 #include <linux/delay.h>
 #include <linux/mfd/syscon.h>
-#include <linux/of.h>
-#include <linux/of_address.h>
-#include <linux/of_device.h>
+#include <linux/mod_devicetable.h>
 #include <linux/platform_device.h>
 #include <linux/slab.h>
 
@@ -1002,4 +1000,6 @@ static struct platform_driver clk_mt2712_drv = {
 	},
 };
 module_platform_driver(clk_mt2712_drv);
+
+MODULE_DESCRIPTION("MediaTek MT2712 main clocks driver");
 MODULE_LICENSE("GPL");

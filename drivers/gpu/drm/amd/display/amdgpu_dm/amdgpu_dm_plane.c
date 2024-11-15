@@ -105,8 +105,6 @@ void amdgpu_dm_plane_fill_blending_from_plane_state(const struct drm_plane_state
 	*global_alpha = false;
 	*global_alpha_value = 0xff;
 
-	if (plane_state->plane->type != DRM_PLANE_TYPE_OVERLAY)
-		return;
 
 	if (plane_state->pixel_blend_mode == DRM_MODE_BLEND_PREMULTI ||
 		plane_state->pixel_blend_mode == DRM_MODE_BLEND_COVERAGE) {
@@ -348,6 +346,46 @@ static int amdgpu_dm_plane_fill_gfx9_plane_attributes_from_modifiers(struct amdg
 		address->grph.meta_addr.high_part = upper_32_bits(dcc_address);
 	}
 
+	ret = amdgpu_dm_plane_validate_dcc(adev, format, rotation, tiling_info, dcc, address, plane_size);
+	if (ret)
+		drm_dbg_kms(adev_to_drm(adev), "amdgpu_dm_plane_validate_dcc: returned error: %d\n", ret);
+
+	return ret;
+}
+
+static int amdgpu_dm_plane_fill_gfx12_plane_attributes_from_modifiers(struct amdgpu_device *adev,
+								      const struct amdgpu_framebuffer *afb,
+								      const enum surface_pixel_format format,
+								      const enum dc_rotation_angle rotation,
+								      const struct plane_size *plane_size,
+								      union dc_tiling_info *tiling_info,
+								      struct dc_plane_dcc_param *dcc,
+								      struct dc_plane_address *address,
+								      const bool force_disable_dcc)
+{
+	const uint64_t modifier = afb->base.modifier;
+	int ret = 0;
+
+	/* TODO: Most of this function shouldn't be needed on GFX12. */
+	amdgpu_dm_plane_fill_gfx9_tiling_info_from_device(adev, tiling_info);
+
+	tiling_info->gfx9.swizzle = amdgpu_dm_plane_modifier_gfx9_swizzle_mode(modifier);
+
+	if (amdgpu_dm_plane_modifier_has_dcc(modifier) && !force_disable_dcc) {
+		int max_compressed_block = AMD_FMT_MOD_GET(DCC_MAX_COMPRESSED_BLOCK, modifier);
+
+		dcc->enable = 1;
+		dcc->independent_64b_blks = max_compressed_block == 0;
+
+		if (max_compressed_block == 0)
+			dcc->dcc_ind_blk = hubp_ind_block_64b;
+		else if (max_compressed_block == 1)
+			dcc->dcc_ind_blk = hubp_ind_block_128b;
+		else
+			dcc->dcc_ind_blk = hubp_ind_block_unconstrained;
+	}
+
+	/* TODO: This seems wrong because there is no DCC plane on GFX12. */
 	ret = amdgpu_dm_plane_validate_dcc(adev, format, rotation, tiling_info, dcc, address, plane_size);
 	if (ret)
 		drm_dbg_kms(adev_to_drm(adev), "amdgpu_dm_plane_validate_dcc: returned error: %d\n", ret);
@@ -648,6 +686,38 @@ static void amdgpu_dm_plane_add_gfx11_modifiers(struct amdgpu_device *adev,
 				     AMD_FMT_MOD_SET(TILE, AMD_FMT_MOD_TILE_GFX9_64K_D));
 }
 
+static void amdgpu_dm_plane_add_gfx12_modifiers(struct amdgpu_device *adev,
+		      uint64_t **mods, uint64_t *size, uint64_t *capacity)
+{
+	uint64_t ver = AMD_FMT_MOD | AMD_FMT_MOD_SET(TILE_VERSION, AMD_FMT_MOD_TILE_VER_GFX12);
+	uint64_t mod_256k = ver | AMD_FMT_MOD_SET(TILE, AMD_FMT_MOD_TILE_GFX12_256K_2D);
+	uint64_t mod_64k = ver | AMD_FMT_MOD_SET(TILE, AMD_FMT_MOD_TILE_GFX12_64K_2D);
+	uint64_t mod_4k = ver | AMD_FMT_MOD_SET(TILE, AMD_FMT_MOD_TILE_GFX12_4K_2D);
+	uint64_t mod_256b = ver | AMD_FMT_MOD_SET(TILE, AMD_FMT_MOD_TILE_GFX12_256B_2D);
+	uint64_t dcc = ver | AMD_FMT_MOD_SET(DCC, 1);
+	uint8_t max_comp_block[] = {1, 0};
+	uint64_t max_comp_block_mod[ARRAY_SIZE(max_comp_block)] = {0};
+	uint8_t i = 0, j = 0;
+	uint64_t gfx12_modifiers[] = {mod_256k, mod_64k, mod_4k, mod_256b, DRM_FORMAT_MOD_LINEAR};
+
+	for (i = 0; i < ARRAY_SIZE(max_comp_block); i++)
+		max_comp_block_mod[i] = AMD_FMT_MOD_SET(DCC_MAX_COMPRESSED_BLOCK, max_comp_block[i]);
+
+	/* With DCC: Best choice should be kept first. Hence, add all 256k modifiers of different
+	 * max compressed blocks first and then move on to the next smaller sized layouts.
+	 * Do not add the linear modifier here, and hence the condition of size-1 for the loop
+	 */
+	for (j = 0; j < ARRAY_SIZE(gfx12_modifiers) - 1; j++)
+		for (i = 0; i < ARRAY_SIZE(max_comp_block); i++)
+			amdgpu_dm_plane_add_modifier(mods, size, capacity,
+						     ver | dcc | max_comp_block_mod[i] | gfx12_modifiers[j]);
+
+	/* Without DCC. Add all modifiers including linear at the end */
+	for (i = 0; i < ARRAY_SIZE(gfx12_modifiers); i++)
+		amdgpu_dm_plane_add_modifier(mods, size, capacity, gfx12_modifiers[i]);
+
+}
+
 static int amdgpu_dm_plane_get_plane_modifiers(struct amdgpu_device *adev, unsigned int plane_type, uint64_t **mods)
 {
 	uint64_t size = 0, capacity = 128;
@@ -684,6 +754,9 @@ static int amdgpu_dm_plane_get_plane_modifiers(struct amdgpu_device *adev, unsig
 	case AMDGPU_FAMILY_GC_11_0_1:
 	case AMDGPU_FAMILY_GC_11_5_0:
 		amdgpu_dm_plane_add_gfx11_modifiers(adev, mods, &size, &capacity);
+		break;
+	case AMDGPU_FAMILY_GC_12_0_0:
+		amdgpu_dm_plane_add_gfx12_modifiers(adev, mods, &size, &capacity);
 		break;
 	}
 
@@ -823,7 +896,15 @@ int amdgpu_dm_plane_fill_plane_buffer_attributes(struct amdgpu_device *adev,
 			upper_32_bits(chroma_addr);
 	}
 
-	if (adev->family >= AMDGPU_FAMILY_AI) {
+	if (adev->family >= AMDGPU_FAMILY_GC_12_0_0) {
+		ret = amdgpu_dm_plane_fill_gfx12_plane_attributes_from_modifiers(adev, afb, format,
+										 rotation, plane_size,
+										 tiling_info, dcc,
+										 address,
+										 force_disable_dcc);
+		if (ret)
+			return ret;
+	} else if (adev->family >= AMDGPU_FAMILY_AI) {
 		ret = amdgpu_dm_plane_fill_gfx9_plane_attributes_from_modifiers(adev, afb, format,
 										rotation, plane_size,
 										tiling_info, dcc,
@@ -880,6 +961,7 @@ static int amdgpu_dm_plane_helper_prepare_fb(struct drm_plane *plane,
 	else
 		domain = AMDGPU_GEM_DOMAIN_VRAM;
 
+	rbo->flags |= AMDGPU_GEM_CREATE_VRAM_CONTIGUOUS;
 	r = amdgpu_bo_pin(rbo, domain);
 	if (unlikely(r != 0)) {
 		if (r != -ERESTARTSYS)
@@ -1180,17 +1262,29 @@ static int amdgpu_dm_plane_atomic_check(struct drm_plane *plane,
 static int amdgpu_dm_plane_atomic_async_check(struct drm_plane *plane,
 					      struct drm_atomic_state *state)
 {
+	struct drm_crtc_state *new_crtc_state;
+	struct drm_plane_state *new_plane_state;
+	struct dm_crtc_state *dm_new_crtc_state;
+
 	/* Only support async updates on cursor planes. */
 	if (plane->type != DRM_PLANE_TYPE_CURSOR)
+		return -EINVAL;
+
+	new_plane_state = drm_atomic_get_new_plane_state(state, plane);
+	new_crtc_state = drm_atomic_get_new_crtc_state(state, new_plane_state->crtc);
+	dm_new_crtc_state = to_dm_crtc_state(new_crtc_state);
+	/* Reject overlay cursors for now*/
+	if (dm_new_crtc_state->cursor_mode == DM_CURSOR_OVERLAY_MODE)
 		return -EINVAL;
 
 	return 0;
 }
 
-static int amdgpu_dm_plane_get_cursor_position(struct drm_plane *plane, struct drm_crtc *crtc,
-					       struct dc_cursor_position *position)
+int amdgpu_dm_plane_get_cursor_position(struct drm_plane *plane, struct drm_crtc *crtc,
+					struct dc_cursor_position *position)
 {
 	struct amdgpu_crtc *amdgpu_crtc = to_amdgpu_crtc(crtc);
+	struct amdgpu_device *adev = drm_to_adev(plane->dev);
 	int x, y;
 	int xorigin = 0, yorigin = 0;
 
@@ -1222,11 +1316,13 @@ static int amdgpu_dm_plane_get_cursor_position(struct drm_plane *plane, struct d
 		y = 0;
 	}
 	position->enable = true;
-	position->translate_by_source = true;
 	position->x = x;
 	position->y = y;
 	position->x_hotspot = xorigin;
 	position->y_hotspot = yorigin;
+
+	if (amdgpu_ip_version(adev, DCE_HWIP, 0) < IP_VERSION(4, 0, 1))
+		position->translate_by_source = true;
 
 	return 0;
 }
@@ -1259,7 +1355,7 @@ void amdgpu_dm_plane_handle_cursor_update(struct drm_plane *plane,
 		/* turn off cursor */
 		if (crtc_state && crtc_state->stream) {
 			mutex_lock(&adev->dm.dc_lock);
-			dc_stream_set_cursor_position(crtc_state->stream,
+			dc_stream_program_cursor_position(crtc_state->stream,
 						      &position);
 			mutex_unlock(&adev->dm.dc_lock);
 		}
@@ -1290,11 +1386,11 @@ void amdgpu_dm_plane_handle_cursor_update(struct drm_plane *plane,
 
 	if (crtc_state->stream) {
 		mutex_lock(&adev->dm.dc_lock);
-		if (!dc_stream_set_cursor_attributes(crtc_state->stream,
+		if (!dc_stream_program_cursor_attributes(crtc_state->stream,
 							 &attributes))
 			DRM_ERROR("DC failed to set cursor attributes\n");
 
-		if (!dc_stream_set_cursor_position(crtc_state->stream,
+		if (!dc_stream_program_cursor_position(crtc_state->stream,
 						   &position))
 			DRM_ERROR("DC failed to set cursor position\n");
 		mutex_unlock(&adev->dm.dc_lock);
@@ -1343,8 +1439,14 @@ static void amdgpu_dm_plane_drm_plane_reset(struct drm_plane *plane)
 	amdgpu_state = kzalloc(sizeof(*amdgpu_state), GFP_KERNEL);
 	WARN_ON(amdgpu_state == NULL);
 
-	if (amdgpu_state)
-		__drm_atomic_helper_plane_reset(plane, &amdgpu_state->base);
+	if (!amdgpu_state)
+		return;
+
+	__drm_atomic_helper_plane_reset(plane, &amdgpu_state->base);
+	amdgpu_state->degamma_tf = AMDGPU_TRANSFER_FUNCTION_DEFAULT;
+	amdgpu_state->hdr_mult = AMDGPU_HDR_MULT_DEFAULT;
+	amdgpu_state->shaper_tf = AMDGPU_TRANSFER_FUNCTION_DEFAULT;
+	amdgpu_state->blend_tf = AMDGPU_TRANSFER_FUNCTION_DEFAULT;
 }
 
 static struct drm_plane_state *amdgpu_dm_plane_drm_plane_duplicate_state(struct drm_plane *plane)
@@ -1362,6 +1464,27 @@ static struct drm_plane_state *amdgpu_dm_plane_drm_plane_duplicate_state(struct 
 		dm_plane_state->dc_state = old_dm_plane_state->dc_state;
 		dc_plane_state_retain(dm_plane_state->dc_state);
 	}
+
+	if (old_dm_plane_state->degamma_lut)
+		dm_plane_state->degamma_lut =
+			drm_property_blob_get(old_dm_plane_state->degamma_lut);
+	if (old_dm_plane_state->ctm)
+		dm_plane_state->ctm =
+			drm_property_blob_get(old_dm_plane_state->ctm);
+	if (old_dm_plane_state->shaper_lut)
+		dm_plane_state->shaper_lut =
+			drm_property_blob_get(old_dm_plane_state->shaper_lut);
+	if (old_dm_plane_state->lut3d)
+		dm_plane_state->lut3d =
+			drm_property_blob_get(old_dm_plane_state->lut3d);
+	if (old_dm_plane_state->blend_lut)
+		dm_plane_state->blend_lut =
+			drm_property_blob_get(old_dm_plane_state->blend_lut);
+
+	dm_plane_state->degamma_tf = old_dm_plane_state->degamma_tf;
+	dm_plane_state->hdr_mult = old_dm_plane_state->hdr_mult;
+	dm_plane_state->shaper_tf = old_dm_plane_state->shaper_tf;
+	dm_plane_state->blend_tf = old_dm_plane_state->blend_tf;
 
 	return &dm_plane_state->base;
 }
@@ -1433,11 +1556,205 @@ static void amdgpu_dm_plane_drm_plane_destroy_state(struct drm_plane *plane,
 {
 	struct dm_plane_state *dm_plane_state = to_dm_plane_state(state);
 
+	if (dm_plane_state->degamma_lut)
+		drm_property_blob_put(dm_plane_state->degamma_lut);
+	if (dm_plane_state->ctm)
+		drm_property_blob_put(dm_plane_state->ctm);
+	if (dm_plane_state->lut3d)
+		drm_property_blob_put(dm_plane_state->lut3d);
+	if (dm_plane_state->shaper_lut)
+		drm_property_blob_put(dm_plane_state->shaper_lut);
+	if (dm_plane_state->blend_lut)
+		drm_property_blob_put(dm_plane_state->blend_lut);
+
 	if (dm_plane_state->dc_state)
 		dc_plane_state_release(dm_plane_state->dc_state);
 
 	drm_atomic_helper_plane_destroy_state(plane, state);
 }
+
+#ifdef AMD_PRIVATE_COLOR
+static void
+dm_atomic_plane_attach_color_mgmt_properties(struct amdgpu_display_manager *dm,
+					     struct drm_plane *plane)
+{
+	struct amdgpu_mode_info mode_info = dm->adev->mode_info;
+	struct dpp_color_caps dpp_color_caps = dm->dc->caps.color.dpp;
+
+	/* Check HW color pipeline capabilities on DPP block (pre-blending)
+	 * before exposing related properties.
+	 */
+	if (dpp_color_caps.dgam_ram || dpp_color_caps.gamma_corr) {
+		drm_object_attach_property(&plane->base,
+					   mode_info.plane_degamma_lut_property,
+					   0);
+		drm_object_attach_property(&plane->base,
+					   mode_info.plane_degamma_lut_size_property,
+					   MAX_COLOR_LUT_ENTRIES);
+		drm_object_attach_property(&plane->base,
+					   dm->adev->mode_info.plane_degamma_tf_property,
+					   AMDGPU_TRANSFER_FUNCTION_DEFAULT);
+	}
+	/* HDR MULT is always available */
+	drm_object_attach_property(&plane->base,
+				   dm->adev->mode_info.plane_hdr_mult_property,
+				   AMDGPU_HDR_MULT_DEFAULT);
+
+	/* Only enable plane CTM if both DPP and MPC gamut remap is available. */
+	if (dm->dc->caps.color.mpc.gamut_remap)
+		drm_object_attach_property(&plane->base,
+					   dm->adev->mode_info.plane_ctm_property, 0);
+
+	if (dpp_color_caps.hw_3d_lut) {
+		drm_object_attach_property(&plane->base,
+					   mode_info.plane_shaper_lut_property, 0);
+		drm_object_attach_property(&plane->base,
+					   mode_info.plane_shaper_lut_size_property,
+					   MAX_COLOR_LUT_ENTRIES);
+		drm_object_attach_property(&plane->base,
+					   mode_info.plane_shaper_tf_property,
+					   AMDGPU_TRANSFER_FUNCTION_DEFAULT);
+		drm_object_attach_property(&plane->base,
+					   mode_info.plane_lut3d_property, 0);
+		drm_object_attach_property(&plane->base,
+					   mode_info.plane_lut3d_size_property,
+					   MAX_COLOR_3DLUT_SIZE);
+	}
+
+	if (dpp_color_caps.ogam_ram) {
+		drm_object_attach_property(&plane->base,
+					   mode_info.plane_blend_lut_property, 0);
+		drm_object_attach_property(&plane->base,
+					   mode_info.plane_blend_lut_size_property,
+					   MAX_COLOR_LUT_ENTRIES);
+		drm_object_attach_property(&plane->base,
+					   mode_info.plane_blend_tf_property,
+					   AMDGPU_TRANSFER_FUNCTION_DEFAULT);
+	}
+}
+
+static int
+dm_atomic_plane_set_property(struct drm_plane *plane,
+			     struct drm_plane_state *state,
+			     struct drm_property *property,
+			     uint64_t val)
+{
+	struct dm_plane_state *dm_plane_state = to_dm_plane_state(state);
+	struct amdgpu_device *adev = drm_to_adev(plane->dev);
+	bool replaced = false;
+	int ret;
+
+	if (property == adev->mode_info.plane_degamma_lut_property) {
+		ret = drm_property_replace_blob_from_id(plane->dev,
+							&dm_plane_state->degamma_lut,
+							val, -1,
+							sizeof(struct drm_color_lut),
+							&replaced);
+		dm_plane_state->base.color_mgmt_changed |= replaced;
+		return ret;
+	} else if (property == adev->mode_info.plane_degamma_tf_property) {
+		if (dm_plane_state->degamma_tf != val) {
+			dm_plane_state->degamma_tf = val;
+			dm_plane_state->base.color_mgmt_changed = 1;
+		}
+	} else if (property == adev->mode_info.plane_hdr_mult_property) {
+		if (dm_plane_state->hdr_mult != val) {
+			dm_plane_state->hdr_mult = val;
+			dm_plane_state->base.color_mgmt_changed = 1;
+		}
+	} else if (property == adev->mode_info.plane_ctm_property) {
+		ret = drm_property_replace_blob_from_id(plane->dev,
+							&dm_plane_state->ctm,
+							val,
+							sizeof(struct drm_color_ctm_3x4), -1,
+							&replaced);
+		dm_plane_state->base.color_mgmt_changed |= replaced;
+		return ret;
+	} else if (property == adev->mode_info.plane_shaper_lut_property) {
+		ret = drm_property_replace_blob_from_id(plane->dev,
+							&dm_plane_state->shaper_lut,
+							val, -1,
+							sizeof(struct drm_color_lut),
+							&replaced);
+		dm_plane_state->base.color_mgmt_changed |= replaced;
+		return ret;
+	} else if (property == adev->mode_info.plane_shaper_tf_property) {
+		if (dm_plane_state->shaper_tf != val) {
+			dm_plane_state->shaper_tf = val;
+			dm_plane_state->base.color_mgmt_changed = 1;
+		}
+	} else if (property == adev->mode_info.plane_lut3d_property) {
+		ret = drm_property_replace_blob_from_id(plane->dev,
+							&dm_plane_state->lut3d,
+							val, -1,
+							sizeof(struct drm_color_lut),
+							&replaced);
+		dm_plane_state->base.color_mgmt_changed |= replaced;
+		return ret;
+	} else if (property == adev->mode_info.plane_blend_lut_property) {
+		ret = drm_property_replace_blob_from_id(plane->dev,
+							&dm_plane_state->blend_lut,
+							val, -1,
+							sizeof(struct drm_color_lut),
+							&replaced);
+		dm_plane_state->base.color_mgmt_changed |= replaced;
+		return ret;
+	} else if (property == adev->mode_info.plane_blend_tf_property) {
+		if (dm_plane_state->blend_tf != val) {
+			dm_plane_state->blend_tf = val;
+			dm_plane_state->base.color_mgmt_changed = 1;
+		}
+	} else {
+		drm_dbg_atomic(plane->dev,
+			       "[PLANE:%d:%s] unknown property [PROP:%d:%s]]\n",
+			       plane->base.id, plane->name,
+			       property->base.id, property->name);
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
+static int
+dm_atomic_plane_get_property(struct drm_plane *plane,
+			     const struct drm_plane_state *state,
+			     struct drm_property *property,
+			     uint64_t *val)
+{
+	struct dm_plane_state *dm_plane_state = to_dm_plane_state(state);
+	struct amdgpu_device *adev = drm_to_adev(plane->dev);
+
+	if (property == adev->mode_info.plane_degamma_lut_property) {
+		*val = (dm_plane_state->degamma_lut) ?
+			dm_plane_state->degamma_lut->base.id : 0;
+	} else if (property == adev->mode_info.plane_degamma_tf_property) {
+		*val = dm_plane_state->degamma_tf;
+	} else if (property == adev->mode_info.plane_hdr_mult_property) {
+		*val = dm_plane_state->hdr_mult;
+	} else if (property == adev->mode_info.plane_ctm_property) {
+		*val = (dm_plane_state->ctm) ?
+			dm_plane_state->ctm->base.id : 0;
+	} else 	if (property == adev->mode_info.plane_shaper_lut_property) {
+		*val = (dm_plane_state->shaper_lut) ?
+			dm_plane_state->shaper_lut->base.id : 0;
+	} else if (property == adev->mode_info.plane_shaper_tf_property) {
+		*val = dm_plane_state->shaper_tf;
+	} else 	if (property == adev->mode_info.plane_lut3d_property) {
+		*val = (dm_plane_state->lut3d) ?
+			dm_plane_state->lut3d->base.id : 0;
+	} else 	if (property == adev->mode_info.plane_blend_lut_property) {
+		*val = (dm_plane_state->blend_lut) ?
+			dm_plane_state->blend_lut->base.id : 0;
+	} else if (property == adev->mode_info.plane_blend_tf_property) {
+		*val = dm_plane_state->blend_tf;
+
+	} else {
+		return -EINVAL;
+	}
+
+	return 0;
+}
+#endif
 
 static const struct drm_plane_funcs dm_plane_funcs = {
 	.update_plane	= drm_atomic_helper_update_plane,
@@ -1447,6 +1764,10 @@ static const struct drm_plane_funcs dm_plane_funcs = {
 	.atomic_duplicate_state = amdgpu_dm_plane_drm_plane_duplicate_state,
 	.atomic_destroy_state = amdgpu_dm_plane_drm_plane_destroy_state,
 	.format_mod_supported = amdgpu_dm_plane_format_mod_supported,
+#ifdef AMD_PRIVATE_COLOR
+	.atomic_set_property = dm_atomic_plane_set_property,
+	.atomic_get_property = dm_atomic_plane_get_property,
+#endif
 };
 
 int amdgpu_dm_plane_init(struct amdgpu_display_manager *dm,
@@ -1459,6 +1780,7 @@ int amdgpu_dm_plane_init(struct amdgpu_display_manager *dm,
 	int res = -EPERM;
 	unsigned int supported_rotations;
 	uint64_t *modifiers = NULL;
+	unsigned int primary_zpos = dm->dc->caps.max_slave_planes;
 
 	num_formats = amdgpu_dm_plane_get_plane_formats(plane, plane_cap, formats,
 							ARRAY_SIZE(formats));
@@ -1488,10 +1810,19 @@ int amdgpu_dm_plane_init(struct amdgpu_display_manager *dm,
 	}
 
 	if (plane->type == DRM_PLANE_TYPE_PRIMARY) {
-		drm_plane_create_zpos_immutable_property(plane, 0);
+		/*
+		 * Allow OVERLAY planes to be used as underlays by assigning an
+		 * immutable zpos = # of OVERLAY planes to the PRIMARY plane.
+		 */
+		drm_plane_create_zpos_immutable_property(plane, primary_zpos);
 	} else if (plane->type == DRM_PLANE_TYPE_OVERLAY) {
-		unsigned int zpos = 1 + drm_plane_index(plane);
-		drm_plane_create_zpos_property(plane, zpos, 1, 254);
+		/*
+		 * OVERLAY planes can be below or above the PRIMARY, but cannot
+		 * be above the CURSOR plane.
+		 */
+		unsigned int zpos = primary_zpos + 1 + drm_plane_index(plane);
+
+		drm_plane_create_zpos_property(plane, zpos, 0, 254);
 	} else if (plane->type == DRM_PLANE_TYPE_CURSOR) {
 		drm_plane_create_zpos_immutable_property(plane, 255);
 	}
@@ -1526,6 +1857,9 @@ int amdgpu_dm_plane_init(struct amdgpu_display_manager *dm,
 
 	drm_plane_helper_add(plane, &dm_plane_helper_funcs);
 
+#ifdef AMD_PRIVATE_COLOR
+	dm_atomic_plane_attach_color_mgmt_properties(dm, plane);
+#endif
 	/* Create (reset) the plane state */
 	if (plane->funcs->reset)
 		plane->funcs->reset(plane);

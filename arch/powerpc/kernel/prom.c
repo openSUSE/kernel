@@ -482,7 +482,7 @@ static int __init early_init_dt_scan_chosen_ppc(unsigned long node,
 		tce_alloc_end = *lprop;
 #endif
 
-#ifdef CONFIG_KEXEC_CORE
+#ifdef CONFIG_CRASH_RESERVE
 	lprop = of_get_flat_dt_prop(node, "linux,crashkernel-base", NULL);
 	if (lprop)
 		crashk_res.start = *lprop;
@@ -719,7 +719,7 @@ static void __init early_reserve_mem(void)
 }
 
 #ifdef CONFIG_PPC_TRANSACTIONAL_MEM
-static bool tm_disabled __initdata = true;
+static bool tm_disabled __initdata;
 
 static int __init parse_ppc_tm(char *str)
 {
@@ -786,7 +786,7 @@ static inline void save_fscr_to_task(void) {}
 
 void __init early_init_devtree(void *params)
 {
-	phys_addr_t limit;
+	phys_addr_t int_vector_size;
 
 	DBG(" -> early_init_devtree(%px)\n", params);
 
@@ -820,6 +820,9 @@ void __init early_init_devtree(void *params)
 	 */
 	of_scan_flat_dt(early_init_dt_scan_chosen_ppc, boot_command_line);
 
+	/* Append additional parameters passed for fadump capture kernel */
+	fadump_append_bootargs();
+
 	/* Scan memory nodes and rebuild MEMBLOCKs */
 	early_init_dt_scan_root();
 	early_init_dt_scan_memory_ppc();
@@ -839,9 +842,16 @@ void __init early_init_devtree(void *params)
 	setup_initial_memory_limit(memstart_addr, first_memblock_size);
 	/* Reserve MEMBLOCK regions used by kernel, initrd, dt, etc... */
 	memblock_reserve(PHYSICAL_START, __pa(_end) - PHYSICAL_START);
+#ifdef CONFIG_PPC64
+	/* If relocatable, reserve at least 32k for interrupt vectors etc. */
+	int_vector_size = __end_interrupts - _stext;
+	int_vector_size = max_t(phys_addr_t, SZ_32K, int_vector_size);
+#else
 	/* If relocatable, reserve first 32k for interrupt vectors etc. */
+	int_vector_size = SZ_32K;
+#endif
 	if (PHYSICAL_START > MEMORY_START)
-		memblock_reserve(MEMORY_START, 0x8000);
+		memblock_reserve(MEMORY_START, int_vector_size);
 	reserve_kdump_trampoline();
 #if defined(CONFIG_FA_DUMP) || defined(CONFIG_PRESERVE_FA_DUMP)
 	/*
@@ -853,9 +863,12 @@ void __init early_init_devtree(void *params)
 		reserve_crashkernel();
 	early_reserve_mem();
 
-	/* Ensure that total memory size is page-aligned. */
-	limit = ALIGN(memory_limit ?: memblock_phys_mem_size(), PAGE_SIZE);
-	memblock_enforce_memory_limit(limit);
+	if (memory_limit > memblock_phys_mem_size())
+		memory_limit = 0;
+
+	/* Align down to 16 MB which is large page size with hash page translation */
+	memory_limit = ALIGN_DOWN(memory_limit ?: memblock_phys_mem_size(), SZ_16M);
+	memblock_enforce_memory_limit(memory_limit);
 
 #if defined(CONFIG_PPC_BOOK3S_64) && defined(CONFIG_PPC_4K_PAGES)
 	if (!early_radix_enabled())

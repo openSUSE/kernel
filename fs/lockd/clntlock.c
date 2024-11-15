@@ -93,6 +93,12 @@ void nlmclnt_prepare_block(struct nlm_wait *block, struct nlm_host *host, struct
 	block->b_status = nlm_lck_blocked;
 }
 
+struct rpc_clnt *nlmclnt_rpc_clnt(struct nlm_host *host)
+{
+	return host->h_rpcclnt;
+}
+EXPORT_SYMBOL_GPL(nlmclnt_rpc_clnt);
+
 /*
  * Queue up a lock for blocking so that the GRANTED request can see it
  */
@@ -179,7 +185,7 @@ __be32 nlmclnt_grant(const struct sockaddr *addr, const struct nlm_lock *lock)
 			continue;
 		if (!rpc_cmp_addr(nlm_addr(block->b_host), addr))
 			continue;
-		if (nfs_compare_fh(NFS_FH(file_inode(fl_blocked->fl_file)), fh) != 0)
+		if (nfs_compare_fh(NFS_FH(file_inode(fl_blocked->c.flc_file)), fh) != 0)
 			continue;
 		/* Alright, we found a lock. Set the return status
 		 * and wake up the caller

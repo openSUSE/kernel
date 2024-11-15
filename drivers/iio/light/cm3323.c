@@ -250,7 +250,7 @@ static int cm3323_probe(struct i2c_client *client)
 }
 
 static const struct i2c_device_id cm3323_id[] = {
-	{"cm3323", 0},
+	{ "cm3323" },
 	{}
 };
 MODULE_DEVICE_TABLE(i2c, cm3323_id);
@@ -266,7 +266,7 @@ static struct i2c_driver cm3323_driver = {
 		.name = CM3323_DRV_NAME,
 		.of_match_table = cm3323_of_match,
 	},
-	.probe_new	= cm3323_probe,
+	.probe		= cm3323_probe,
 	.id_table	= cm3323_id,
 };
 

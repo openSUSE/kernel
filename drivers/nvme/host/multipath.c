@@ -86,7 +86,7 @@ void nvme_mpath_start_freeze(struct nvme_subsystem *subsys)
 void nvme_failover_req(struct request *req)
 {
 	struct nvme_ns *ns = req->q->queuedata;
-	u16 status = nvme_req(req)->status & 0x7ff;
+	u16 status = nvme_req(req)->status & NVME_SCT_SC_MASK;
 	unsigned long flags;
 	struct bio *bio;
 
@@ -431,7 +431,6 @@ static bool nvme_available_path(struct nvme_ns_head *head)
 		case NVME_CTRL_LIVE:
 		case NVME_CTRL_RESETTING:
 		case NVME_CTRL_CONNECTING:
-			/* fallthru */
 			return true;
 		default:
 			break;
@@ -491,6 +490,21 @@ static void nvme_ns_head_release(struct gendisk *disk)
 	nvme_put_ns_head(disk->private_data);
 }
 
+static int nvme_ns_head_get_unique_id(struct gendisk *disk, u8 id[16],
+		enum blk_unique_id type)
+{
+	struct nvme_ns_head *head = disk->private_data;
+	struct nvme_ns *ns;
+	int srcu_idx, ret = -EWOULDBLOCK;
+
+	srcu_idx = srcu_read_lock(&head->srcu);
+	ns = nvme_find_path(head);
+	if (ns)
+		ret = nvme_ns_get_unique_id(ns, id, type);
+	srcu_read_unlock(&head->srcu, srcu_idx);
+	return ret;
+}
+
 #ifdef CONFIG_BLK_DEV_ZONED
 static int nvme_ns_head_report_zones(struct gendisk *disk, sector_t sector,
 		unsigned int nr_zones, report_zones_cb cb, void *data)
@@ -518,6 +532,7 @@ const struct block_device_operations nvme_ns_head_ops = {
 	.ioctl		= nvme_ns_head_ioctl,
 	.compat_ioctl	= blkdev_compat_ptr_ioctl,
 	.getgeo		= nvme_getgeo,
+	.get_unique_id	= nvme_ns_head_get_unique_id,
 	.report_zones	= nvme_ns_head_report_zones,
 	.pr_ops		= &nvme_pr_ops,
 };
@@ -564,10 +579,10 @@ static int nvme_add_ns_head_cdev(struct nvme_ns_head *head)
 	return ret;
 }
 
-static void nvme_scan_work(struct work_struct *work)
+static void nvme_partition_scan_work(struct work_struct *work)
 {
 	struct nvme_ns_head *head =
-		container_of(work, struct nvme_ns_head, scan_work);
+		container_of(work, struct nvme_ns_head, partition_scan_work);
 
 	if (WARN_ON_ONCE(!test_and_clear_bit(GD_SUPPRESS_PART_SCAN,
 					     &head->disk->state)))
@@ -598,13 +613,13 @@ static void nvme_requeue_work(struct work_struct *work)
 
 int nvme_mpath_alloc_disk(struct nvme_ctrl *ctrl, struct nvme_ns_head *head)
 {
-	bool vwc = false;
+	struct queue_limits lim;
 
 	mutex_init(&head->lock);
 	bio_list_init(&head->requeue_list);
 	spin_lock_init(&head->requeue_lock);
 	INIT_WORK(&head->requeue_work, nvme_requeue_work);
-	INIT_WORK(&head->scan_work, nvme_scan_work);
+	INIT_WORK(&head->partition_scan_work, nvme_partition_scan_work);
 
 	/*
 	 * Add a multipath node if the subsystems supports multiple controllers.
@@ -615,37 +630,31 @@ int nvme_mpath_alloc_disk(struct nvme_ctrl *ctrl, struct nvme_ns_head *head)
 	    !nvme_is_unique_nsid(ctrl, head) || !multipath)
 		return 0;
 
-	head->disk = blk_alloc_disk(ctrl->numa_node);
-	if (!head->disk)
-		return -ENOMEM;
+	blk_set_stacking_limits(&lim);
+	lim.dma_alignment = 3;
+	lim.features |= BLK_FEAT_IO_STAT | BLK_FEAT_NOWAIT | BLK_FEAT_POLL;
+	if (head->ids.csi == NVME_CSI_ZNS)
+		lim.features |= BLK_FEAT_ZONED;
+	else
+		lim.max_zone_append_sectors = 0;
+
+	head->disk = blk_alloc_disk(&lim, ctrl->numa_node);
+	if (IS_ERR(head->disk))
+		return PTR_ERR(head->disk);
 	head->disk->fops = &nvme_ns_head_ops;
 	head->disk->private_data = head;
+
+	/*
+	 * We need to suppress the partition scan from occuring within the
+	 * controller's scan_work context. If a path error occurs here, the IO
+	 * will wait until a path becomes available or all paths are torn down,
+	 * but that action also occurs within scan_work, so it would deadlock.
+	 * Defer the partion scan to a different context that does not block
+	 * scan_work.
+	 */
 	set_bit(GD_SUPPRESS_PART_SCAN, &head->disk->state);
 	sprintf(head->disk->disk_name, "nvme%dn%d",
 			ctrl->subsys->instance, head->instance);
-
-	blk_queue_flag_set(QUEUE_FLAG_NONROT, head->disk->queue);
-	blk_queue_flag_set(QUEUE_FLAG_NOWAIT, head->disk->queue);
-	blk_queue_flag_set(QUEUE_FLAG_IO_STAT, head->disk->queue);
-	/*
-	 * This assumes all controllers that refer to a namespace either
-	 * support poll queues or not.  That is not a strict guarantee,
-	 * but if the assumption is wrong the effect is only suboptimal
-	 * performance but not correctness problem.
-	 */
-	if (ctrl->tagset->nr_maps > HCTX_TYPE_POLL &&
-	    ctrl->tagset->map[HCTX_TYPE_POLL].nr_queues)
-		blk_queue_flag_set(QUEUE_FLAG_POLL, head->disk->queue);
-
-	/* set to a default value of 512 until the disk is validated */
-	blk_queue_logical_block_size(head->disk->queue, 512);
-	blk_set_stacking_limits(&head->disk->queue->limits);
-	blk_queue_dma_alignment(head->disk->queue, 3);
-
-	/* we need to propagate up the VMC settings */
-	if (ctrl->vwc & NVME_CTRL_VWC_PRESENT)
-		vwc = true;
-	blk_queue_write_cache(head->disk->queue, vwc, vwc);
 	return 0;
 }
 
@@ -664,13 +673,13 @@ static void nvme_mpath_set_live(struct nvme_ns *ns)
 	 */
 	if (!test_and_set_bit(NVME_NSHEAD_DISK_LIVE, &head->flags)) {
 		rc = device_add_disk(&head->subsys->dev, head->disk,
-				     nvme_ns_id_attr_groups);
+				     nvme_ns_attr_groups);
 		if (rc) {
 			clear_bit(NVME_NSHEAD_DISK_LIVE, &head->flags);
 			return;
 		}
 		nvme_add_ns_head_cdev(head);
-		kblockd_schedule_work(&head->scan_work);
+		kblockd_schedule_work(&head->partition_scan_work);
 	}
 
 	mutex_lock(&head->lock);
@@ -978,9 +987,6 @@ void nvme_mpath_add_disk(struct nvme_ns *ns, __le32 anagrpid)
 		nvme_mpath_set_live(ns);
 	}
 
-	if (blk_queue_stable_writes(ns->queue) && ns->head->disk)
-		blk_queue_flag_set(QUEUE_FLAG_STABLE_WRITES,
-				   ns->head->disk->queue);
 #ifdef CONFIG_BLK_DEV_ZONED
 	if (blk_queue_is_zoned(ns->queue) && ns->head->disk)
 		ns->head->disk->nr_zones = ns->disk->nr_zones;
@@ -1010,7 +1016,7 @@ void nvme_mpath_remove_disk(struct nvme_ns_head *head)
 	/* make sure all pending bios are cleaned up */
 	kblockd_schedule_work(&head->requeue_work);
 	flush_work(&head->requeue_work);
-	flush_work(&head->scan_work);
+	flush_work(&head->partition_scan_work);
 	put_disk(head->disk);
 }
 

@@ -729,7 +729,7 @@ static const struct attribute_group softing_pdev_group = {
 /*
  * platform driver
  */
-static int softing_pdev_remove(struct platform_device *pdev)
+static void softing_pdev_remove(struct platform_device *pdev)
 {
 	struct softing *card = platform_get_drvdata(pdev);
 	int j;
@@ -747,7 +747,6 @@ static int softing_pdev_remove(struct platform_device *pdev)
 
 	iounmap(card->dpram);
 	kfree(card);
-	return 0;
 }
 
 static int softing_pdev_probe(struct platform_device *pdev)

@@ -826,7 +826,7 @@ static void opt3001_remove(struct i2c_client *client)
 }
 
 static const struct i2c_device_id opt3001_id[] = {
-	{ "opt3001", 0 },
+	{ "opt3001" },
 	{ } /* Terminating Entry */
 };
 MODULE_DEVICE_TABLE(i2c, opt3001_id);
@@ -838,7 +838,7 @@ static const struct of_device_id opt3001_of_match[] = {
 MODULE_DEVICE_TABLE(of, opt3001_of_match);
 
 static struct i2c_driver opt3001_driver = {
-	.probe_new = opt3001_probe,
+	.probe = opt3001_probe,
 	.remove = opt3001_remove,
 	.id_table = opt3001_id,
 

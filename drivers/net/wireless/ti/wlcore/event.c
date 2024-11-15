@@ -83,7 +83,7 @@ int wlcore_event_fw_logger(struct wl1271 *wl)
 	/* Copy initial part up to the end of ring buffer */
 	len = min(actual_len, available_len);
 	wl12xx_copy_fwlog(wl, &buffer[start_loc], len);
-	clear_ptr = addr_ptr + start_loc + actual_len;
+	clear_ptr = addr_ptr + start_loc + len;
 	if (clear_ptr == buff_end_ptr)
 		clear_ptr = buff_start_ptr;
 
@@ -233,7 +233,7 @@ void wlcore_event_channel_switch(struct wl1271 *wl,
 			cancel_delayed_work(&wlvif->channel_switch_work);
 		} else {
 			set_bit(WLVIF_FLAG_BEACON_DISABLED, &wlvif->flags);
-			ieee80211_csa_finish(vif);
+			ieee80211_csa_finish(vif, 0);
 		}
 	}
 }

@@ -28,6 +28,7 @@ properties:
       - national,lp5523
       - ti,lp55231
       - ti,lp5562
+      - ti,lp5569
       - ti,lp8501
 
   reg:
@@ -66,6 +67,14 @@ properties:
   '#size-cells':
     const: 0
 
+  ti,charge-pump-mode:
+    description:
+      Set the operating mode of the internal charge pump as defined in
+      <dt-bindings/leds/leds-lp55xx.h>.
+    $ref: /schemas/types.yaml#/definitions/uint32
+    default: 3 # auto
+    maximum: 3
+
 patternProperties:
   '^multi-led@[0-8]$':
     type: object
@@ -98,7 +107,7 @@ patternProperties:
 
           max-cur:
             $ref: /schemas/types.yaml#/definitions/uint8
-            description: Maximun current at each LED channel.
+            description: Maximum current at each LED channel.
 
           reg:
             maximum: 8
@@ -121,7 +130,7 @@ patternProperties:
 
       max-cur:
         $ref: /schemas/types.yaml#/definitions/uint8
-        description: Maximun current at each LED channel.
+        description: Maximum current at each LED channel.
 
       reg:
         description: |
@@ -143,6 +152,16 @@ patternProperties:
         $ref: /schemas/types.yaml#/definitions/string
         description: name of channel
 
+if:
+  not:
+    properties:
+      compatible:
+        contains:
+          const: ti,lp8501
+then:
+  properties:
+    pwr-sel: false
+
 required:
   - compatible
   - reg
@@ -152,6 +171,7 @@ additionalProperties: false
 examples:
   - |
     #include <dt-bindings/leds/common.h>
+    #include <dt-bindings/leds/leds-lp55xx.h>
 
     i2c {
         #address-cells = <1>;
@@ -164,6 +184,7 @@ examples:
             reg = <0x32>;
             clock-mode = /bits/ 8 <2>;
             pwr-sel = /bits/ 8 <3>;	/* D1~9 connected to VOUT */
+            ti,charge-pump-mode = <LP55XX_CP_BYPASS>;
 
             led@0 {
                 reg = <0>;

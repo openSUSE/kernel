@@ -33,6 +33,7 @@
 #define UINPUT_NAME		"uinput"
 #define UINPUT_BUFFER_SIZE	16
 #define UINPUT_NUM_REQUESTS	16
+#define UINPUT_TIMESTAMP_ALLOWED_OFFSET_SECS 10
 
 enum uinput_state { UIST_NEW_DEVICE, UIST_SETUP_COMPLETE, UIST_CREATED };
 
@@ -378,7 +379,7 @@ static int uinput_open(struct inode *inode, struct file *file)
 {
 	struct uinput_device *newdev;
 
-	newdev = kzalloc(sizeof(struct uinput_device), GFP_KERNEL);
+	newdev = kzalloc(sizeof(*newdev), GFP_KERNEL);
 	if (!newdev)
 		return -ENOMEM;
 
@@ -583,11 +584,40 @@ static int uinput_setup_device_legacy(struct uinput_device *udev,
 	return retval;
 }
 
+/*
+ * Returns true if the given timestamp is valid (i.e., if all the following
+ * conditions are satisfied), false otherwise.
+ * 1) given timestamp is positive
+ * 2) it's within the allowed offset before the current time
+ * 3) it's not in the future
+ */
+static bool is_valid_timestamp(const ktime_t timestamp)
+{
+	ktime_t zero_time;
+	ktime_t current_time;
+	ktime_t min_time;
+	ktime_t offset;
+
+	zero_time = ktime_set(0, 0);
+	if (ktime_compare(zero_time, timestamp) >= 0)
+		return false;
+
+	current_time = ktime_get();
+	offset = ktime_set(UINPUT_TIMESTAMP_ALLOWED_OFFSET_SECS, 0);
+	min_time = ktime_sub(current_time, offset);
+
+	if (ktime_after(min_time, timestamp) || ktime_after(timestamp, current_time))
+		return false;
+
+	return true;
+}
+
 static ssize_t uinput_inject_events(struct uinput_device *udev,
 				    const char __user *buffer, size_t count)
 {
 	struct input_event ev;
 	size_t bytes = 0;
+	ktime_t timestamp;
 
 	if (count != 0 && count < input_event_size())
 		return -EINVAL;
@@ -601,6 +631,10 @@ static ssize_t uinput_inject_events(struct uinput_device *udev,
 		 */
 		if (input_event_from_user(buffer + bytes, &ev))
 			return -EFAULT;
+
+		timestamp = ktime_set(ev.input_event_sec, ev.input_event_usec * NSEC_PER_USEC);
+		if (is_valid_timestamp(timestamp))
+			input_set_timestamp(udev->dev, timestamp);
 
 		input_event(udev->dev, ev.type, ev.code, ev.value);
 		bytes += input_event_size();
@@ -1098,7 +1132,6 @@ static const struct file_operations uinput_fops = {
 #ifdef CONFIG_COMPAT
 	.compat_ioctl	= uinput_compat_ioctl,
 #endif
-	.llseek		= no_llseek,
 };
 
 static struct miscdevice uinput_misc = {

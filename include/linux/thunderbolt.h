@@ -33,7 +33,6 @@ enum tb_cfg_pkg_type {
 	TB_CFG_PKG_ICM_EVENT = 10,
 	TB_CFG_PKG_ICM_CMD = 11,
 	TB_CFG_PKG_ICM_RESP = 12,
-	TB_CFG_PKG_PREPARE_TO_SLEEP = 13,
 };
 
 /**
@@ -83,15 +82,12 @@ struct tb {
 	int index;
 	enum tb_security_level security_level;
 	size_t nboot_acl;
-
-	void *suse_kabi_padding;
-
 	unsigned long privdata[];
 };
 
-extern struct bus_type tb_bus_type;
-extern struct device_type tb_service_type;
-extern struct device_type tb_xdomain_type;
+extern const struct bus_type tb_bus_type;
+extern const struct device_type tb_service_type;
+extern const struct device_type tb_xdomain_type;
 
 #define TB_LINKS_PER_PHY_PORT	2
 
@@ -110,7 +106,6 @@ static inline unsigned int tb_phy_port_from_link(unsigned int link)
 struct tb_property_dir {
 	const uuid_t *uuid;
 	struct list_head properties;
-	void *suse_kabi_padding;
 };
 
 enum tb_property_type {
@@ -144,8 +139,6 @@ struct tb_property {
 		char *text;
 		u32 immediate;
 	} value;
-
-	void *suse_kabi_padding;
 };
 
 struct tb_property_dir *tb_property_parse_dir(const u32 *block,
@@ -181,7 +174,7 @@ void tb_unregister_property_dir(const char *key, struct tb_property_dir *dir);
  * enum tb_link_width - Thunderbolt/USB4 link width
  * @TB_LINK_WIDTH_SINGLE: Single lane link
  * @TB_LINK_WIDTH_DUAL: Dual lane symmetric link
- * @TB_LINK_WIDTH_ASYM_TX: Dual lane asymmetric Gen 4 link with 3 trasmitters
+ * @TB_LINK_WIDTH_ASYM_TX: Dual lane asymmetric Gen 4 link with 3 transmitters
  * @TB_LINK_WIDTH_ASYM_RX: Dual lane asymmetric Gen 4 link with 3 receivers
  */
 enum tb_link_width {
@@ -275,8 +268,6 @@ struct tb_xdomain {
 	u8 target_link_width;
 	u8 link;
 	u8 depth;
-
-	void *suse_kabi_padding;
 };
 
 int tb_xdomain_lane_bonding_enable(struct tb_xdomain *xd);
@@ -380,8 +371,6 @@ struct tb_protocol_handler {
 	int (*callback)(const void *buf, size_t size, void *data);
 	void *data;
 	struct list_head list;
-
-	void *suse_kabi_padding;
 };
 
 int tb_register_protocol_handler(struct tb_protocol_handler *handler);
@@ -413,8 +402,6 @@ struct tb_service {
 	u32 prtcrevs;
 	u32 prtcstns;
 	struct dentry *debugfs_dir;
-
-	void *suse_kabi_padding;
 };
 
 static inline struct tb_service *tb_service_get(struct tb_service *svc)
@@ -456,8 +443,6 @@ struct tb_service_driver {
 	void (*remove)(struct tb_service *svc);
 	void (*shutdown)(struct tb_service *svc);
 	const struct tb_service_id *id_table;
-
-	void *suse_kabi_padding;
 };
 
 #define TB_SERVICE(key, id)				\
@@ -515,8 +500,6 @@ struct tb_nhi {
 	struct work_struct interrupt_work;
 	u32 hop_count;
 	unsigned long quirks;
-
-	void *suse_kabi_padding;
 };
 
 /**
@@ -567,8 +550,6 @@ struct tb_ring {
 	u16 eof_mask;
 	void (*start_poll)(void *data);
 	void *poll_data;
-
-	void *suse_kabi_padding;
 };
 
 /* Leave ring interrupt enabled on suspend */

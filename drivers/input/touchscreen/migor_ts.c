@@ -211,7 +211,7 @@ static int migor_ts_resume(struct device *dev)
 static DEFINE_SIMPLE_DEV_PM_OPS(migor_ts_pm, migor_ts_suspend, migor_ts_resume);
 
 static const struct i2c_device_id migor_ts_id[] = {
-	{ "migor_ts", 0 },
+	{ "migor_ts" },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, migor_ts_id);
@@ -221,7 +221,7 @@ static struct i2c_driver migor_ts_driver = {
 		.name = "migor_ts",
 		.pm = pm_sleep_ptr(&migor_ts_pm),
 	},
-	.probe_new = migor_ts_probe,
+	.probe = migor_ts_probe,
 	.remove = migor_ts_remove,
 	.id_table = migor_ts_id,
 };

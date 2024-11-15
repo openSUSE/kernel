@@ -256,8 +256,8 @@ static DEFINE_RUNTIME_DEV_PM_OPS(bh1780_dev_pm_ops, bh1780_runtime_suspend,
 				bh1780_runtime_resume, NULL);
 
 static const struct i2c_device_id bh1780_id[] = {
-	{ "bh1780", 0 },
-	{ },
+	{ "bh1780" },
+	{ }
 };
 
 MODULE_DEVICE_TABLE(i2c, bh1780_id);
@@ -269,7 +269,7 @@ static const struct of_device_id of_bh1780_match[] = {
 MODULE_DEVICE_TABLE(of, of_bh1780_match);
 
 static struct i2c_driver bh1780_driver = {
-	.probe_new	= bh1780_probe,
+	.probe		= bh1780_probe,
 	.remove		= bh1780_remove,
 	.id_table	= bh1780_id,
 	.driver = {

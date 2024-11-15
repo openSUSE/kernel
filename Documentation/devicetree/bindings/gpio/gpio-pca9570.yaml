@@ -24,6 +24,13 @@ properties:
   '#gpio-cells':
     const: 2
 
+  gpio-line-names:
+    minItems: 4
+    maxItems: 8
+
+  label:
+    description: A descriptive name for this device.
+
 required:
   - compatible
   - reg

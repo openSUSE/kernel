@@ -17,7 +17,7 @@
 #include <linux/idr.h>
 #include <linux/delay.h>
 #include <linux/sched/signal.h>
-#include <asm/unaligned.h>
+#include <linux/unaligned.h>
 #include <linux/inet.h>
 #include <net/ipv6.h>
 #include <scsi/scsi_proto.h>
@@ -1039,10 +1039,9 @@ int iscsit_setup_scsi_cmd(struct iscsit_conn *conn, struct iscsit_cmd *cmd,
 		hdr->flags &= ~ISCSI_FLAG_CMD_READ;
 		hdr->flags &= ~ISCSI_FLAG_CMD_WRITE;
 
-		pr_debug("ISCSI_FLAG_CMD_READ or ISCSI_FLAG_CMD_WRITE"
+		pr_warn("ISCSI_FLAG_CMD_READ or ISCSI_FLAG_CMD_WRITE"
 			" set when Expected Data Transfer Length is 0 for"
-			" CDB: 0x%02x, cleared READ/WRITE flag(s)\n",
-			hdr->cdb[0]);
+			" CDB: 0x%02x, Fixing up flags\n", hdr->cdb[0]);
 	}
 
 	if (!(hdr->flags & ISCSI_FLAG_CMD_READ) &&
@@ -1057,6 +1056,13 @@ int iscsit_setup_scsi_cmd(struct iscsit_conn *conn, struct iscsit_cmd *cmd,
 	if ((hdr->flags & ISCSI_FLAG_CMD_READ) &&
 	    (hdr->flags & ISCSI_FLAG_CMD_WRITE)) {
 		pr_err("Bidirectional operations not supported!\n");
+		return iscsit_add_reject_cmd(cmd,
+					     ISCSI_REASON_BOOKMARK_INVALID, buf);
+	}
+
+	if (hdr->opcode & ISCSI_OP_IMMEDIATE) {
+		pr_err("Illegally set Immediate Bit in iSCSI Initiator"
+				" Scsi Command PDU.\n");
 		return iscsit_add_reject_cmd(cmd,
 					     ISCSI_REASON_BOOKMARK_INVALID, buf);
 	}
@@ -1228,12 +1234,6 @@ attach_cmd:
 	spin_lock_bh(&conn->cmd_lock);
 	list_add_tail(&cmd->i_conn_node, &conn->conn_cmd_list);
 	spin_unlock_bh(&conn->cmd_lock);
-	/*
-	 * Check if we need to delay processing because of ALUA
-	 * Active/NonOptimized primary access state..
-	 */
-	core_alua_check_nonop_delay(&cmd->se_cmd);
-
 	return 0;
 }
 EXPORT_SYMBOL(iscsit_setup_scsi_cmd);
@@ -1255,15 +1255,14 @@ int iscsit_process_scsi_cmd(struct iscsit_conn *conn, struct iscsit_cmd *cmd,
 	/*
 	 * Check the CmdSN against ExpCmdSN/MaxCmdSN here if
 	 * the Immediate Bit is not set, and no Immediate
-	 * Data is attached. Also skip the check if this is
-	 * an immediate command.
+	 * Data is attached.
 	 *
 	 * A PDU/CmdSN carrying Immediate Data can only
 	 * be processed after the DataCRC has passed.
 	 * If the DataCRC fails, the CmdSN MUST NOT
 	 * be acknowledged. (See below)
 	 */
-	if (!cmd->immediate_data && !cmd->immediate_cmd) {
+	if (!cmd->immediate_data) {
 		cmdsn_ret = iscsit_sequence_cmd(conn, cmd,
 					(unsigned char *)hdr, hdr->cmdsn);
 		if (cmdsn_ret == CMDSN_ERROR_CANNOT_RECOVER)

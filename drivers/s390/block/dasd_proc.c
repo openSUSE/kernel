@@ -11,8 +11,6 @@
  *
  */
 
-#define KMSG_COMPONENT "dasd"
-
 #include <linux/ctype.h>
 #include <linux/slab.h>
 #include <linux/string.h>
@@ -22,9 +20,6 @@
 
 #include <asm/debug.h>
 #include <linux/uaccess.h>
-
-/* This is ugly... */
-#define PRINTK_HEADER "dasd_proc:"
 
 #include "dasd_int.h"
 
@@ -355,7 +350,6 @@ dasd_proc_init(void)
 	remove_proc_entry("devices", dasd_proc_root_entry);
  out_nodevices:
 	remove_proc_entry("dasd", NULL);
-	dasd_proc_root_entry = NULL;
  out_nodasd:
 	return -ENOENT;
 }
@@ -363,10 +357,7 @@ dasd_proc_init(void)
 void
 dasd_proc_exit(void)
 {
-	if (dasd_proc_root_entry != NULL) {
-		remove_proc_entry("devices", dasd_proc_root_entry);
-		remove_proc_entry("statistics", dasd_proc_root_entry);
-		remove_proc_entry("dasd", NULL);
-		dasd_proc_root_entry = NULL;
-	}
+	remove_proc_entry("devices", dasd_proc_root_entry);
+	remove_proc_entry("statistics", dasd_proc_root_entry);
+	remove_proc_entry("dasd", NULL);
 }

@@ -293,7 +293,7 @@ out:
 	/* If we trim data a full sg elem before curr pointer update
 	 * copybreak and current so that any future copy operations
 	 * start at new copy location.
-	 * However trimed data that has not yet been used in a copy op
+	 * However trimmed data that has not yet been used in a copy op
 	 * does not require an update.
 	 */
 	if (!msg->sg.size) {
@@ -827,6 +827,8 @@ static void sk_psock_destroy(struct work_struct *work)
 
 	if (psock->sk_redir)
 		sock_put(psock->sk_redir);
+	if (psock->sk_pair)
+		sock_put(psock->sk_pair);
 	sock_put(psock->sk);
 	kfree(psock);
 }
@@ -1209,13 +1211,17 @@ out:
 static void sk_psock_verdict_data_ready(struct sock *sk)
 {
 	struct socket *sock = sk->sk_socket;
+	const struct proto_ops *ops;
 	int copied;
 
 	trace_sk_data_ready(sk);
 
-	if (unlikely(!sock || !sock->ops || !sock->ops->read_skb))
+	if (unlikely(!sock))
 		return;
-	copied = sock->ops->read_skb(sk, sk_psock_verdict_recv);
+	ops = READ_ONCE(sock->ops);
+	if (!ops || !ops->read_skb)
+		return;
+	copied = ops->read_skb(sk, sk_psock_verdict_recv);
 	if (copied >= 0) {
 		struct sk_psock *psock;
 

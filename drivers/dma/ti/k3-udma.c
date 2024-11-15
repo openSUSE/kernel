@@ -20,7 +20,6 @@
 #include <linux/sys_soc.h>
 #include <linux/of.h>
 #include <linux/of_dma.h>
-#include <linux/of_device.h>
 #include <linux/of_irq.h>
 #include <linux/workqueue.h>
 #include <linux/completion.h>
@@ -4346,6 +4345,15 @@ static struct udma_soc_data am62a_dmss_csi_soc_data = {
 	},
 };
 
+static struct udma_soc_data j721s2_bcdma_csi_soc_data = {
+	.oes = {
+		.bcdma_tchan_data = 0x800,
+		.bcdma_tchan_ring = 0xa00,
+		.bcdma_rchan_data = 0xe00,
+		.bcdma_rchan_ring = 0x1000,
+	},
+};
+
 static struct udma_match_data am62a_bcdma_csirx_data = {
 	.type = DMA_TYPE_BCDMA,
 	.psil_base = 0x3100,
@@ -4384,6 +4392,18 @@ static struct udma_match_data am64_pktdma_data = {
 	},
 };
 
+static struct udma_match_data j721s2_bcdma_csi_data = {
+	.type = DMA_TYPE_BCDMA,
+	.psil_base = 0x2000,
+	.enable_memcpy_support = false,
+	.burst_size = {
+		TI_SCI_RM_UDMAP_CHAN_BURST_SIZE_64_BYTES, /* Normal Channels */
+		0, /* No H Channels */
+		0, /* No UH Channels */
+	},
+	.soc_data = &j721s2_bcdma_csi_soc_data,
+};
+
 static const struct of_device_id udma_of_match[] = {
 	{
 		.compatible = "ti,am654-navss-main-udmap",
@@ -4411,8 +4431,13 @@ static const struct of_device_id udma_of_match[] = {
 		.compatible = "ti,am62a-dmss-bcdma-csirx",
 		.data = &am62a_bcdma_csirx_data,
 	},
+	{
+		.compatible = "ti,j721s2-dmss-bcdma-csi",
+		.data = &j721s2_bcdma_csi_data,
+	},
 	{ /* Sentinel */ },
 };
+MODULE_DEVICE_TABLE(of, udma_of_match);
 
 static struct udma_soc_data am654_soc_data = {
 	.oes = {
@@ -4455,6 +4480,8 @@ static const struct soc_device_attribute k3_soc_devices[] = {
 	{ .family = "AM62X", .data = &am64_soc_data },
 	{ .family = "AM62AX", .data = &am64_soc_data },
 	{ .family = "J784S4", .data = &j721e_soc_data },
+	{ .family = "AM62PX", .data = &am64_soc_data },
+	{ .family = "J722S", .data = &am64_soc_data },
 	{ /* sentinel */ }
 };
 
@@ -5629,6 +5656,7 @@ static struct platform_driver udma_driver = {
 };
 
 module_platform_driver(udma_driver);
+MODULE_DESCRIPTION("Texas Instruments UDMA support");
 MODULE_LICENSE("GPL v2");
 
 /* Private interfaces to UDMA */

@@ -1,20 +1,7 @@
+// SPDX-License-Identifier: GPL-2.0 OR BSD-2-Clause
 /*
  *   Copyright (c) 2011, 2012, Qualcomm Atheros Communications Inc.
  *   Copyright (c) 2014, I2SE GmbH
- *
- *   Permission to use, copy, modify, and/or distribute this software
- *   for any purpose with or without fee is hereby granted, provided
- *   that the above copyright notice and this permission notice appear
- *   in all copies.
- *
- *   THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL
- *   WARRANTIES WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED
- *   WARRANTIES OF MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL
- *   THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT, INDIRECT, OR
- *   CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM
- *   LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT,
- *   NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
- *   CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
 /*   This file contains debugging routines for use in the QCA7K driver.
@@ -111,10 +98,8 @@ qcaspi_info_show(struct seq_file *s, void *what)
 
 	seq_printf(s, "IRQ              : %d\n",
 		   qca->spi_dev->irq);
-	seq_printf(s, "INTR REQ         : %u\n",
-		   qca->intr_req);
-	seq_printf(s, "INTR SVC         : %u\n",
-		   qca->intr_svc);
+	seq_printf(s, "INTR             : %lx\n",
+		   qca->intr);
 
 	seq_printf(s, "SPI max speed    : %lu\n",
 		   (unsigned long)qca->spi_dev->max_speed_hz);
@@ -255,7 +240,7 @@ qcaspi_get_ringparam(struct net_device *dev, struct ethtool_ringparam *ring,
 	struct qcaspi *qca = netdev_priv(dev);
 
 	ring->rx_max_pending = QCASPI_RX_MAX_FRAMES;
-	ring->tx_max_pending = TX_RING_MAX_LEN;
+	ring->tx_max_pending = QCASPI_TX_RING_MAX_LEN;
 	ring->rx_pending = QCASPI_RX_MAX_FRAMES;
 	ring->tx_pending = qca->txr.count;
 }
@@ -275,8 +260,8 @@ qcaspi_set_ringparam(struct net_device *dev, struct ethtool_ringparam *ring,
 	if (qca->spi_thread)
 		kthread_park(qca->spi_thread);
 
-	qca->txr.count = max_t(u32, ring->tx_pending, TX_RING_MIN_LEN);
-	qca->txr.count = min_t(u16, qca->txr.count, TX_RING_MAX_LEN);
+	qca->txr.count = max_t(u32, ring->tx_pending, QCASPI_TX_RING_MIN_LEN);
+	qca->txr.count = min_t(u16, qca->txr.count, QCASPI_TX_RING_MAX_LEN);
 
 	if (qca->spi_thread)
 		kthread_unpark(qca->spi_thread);

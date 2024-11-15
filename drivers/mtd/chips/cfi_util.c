@@ -1,11 +1,10 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * Common Flash Interface support:
  *   Generic utility functions not dependent on command set
  *
  * Copyright (C) 2002 Red Hat
  * Copyright (C) 2003 STMicroelectronics Limited
- *
- * This code is covered by the GPL.
  */
 
 #include <linux/module.h>
@@ -442,4 +441,5 @@ int cfi_varsize_frob(struct mtd_info *mtd, varsize_frob_t frob,
 
 EXPORT_SYMBOL(cfi_varsize_frob);
 
+MODULE_DESCRIPTION("Common Flash Interface Generic utility functions");
 MODULE_LICENSE("GPL");

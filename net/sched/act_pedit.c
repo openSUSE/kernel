@@ -202,7 +202,7 @@ static int tcf_pedit_init(struct net *net, struct nlattr *nla,
 		ret = ACT_P_CREATED;
 	} else if (err > 0) {
 		if (bind)
-			return 0;
+			return ACT_P_BOUND;
 		if (!(flags & TCA_ACT_FLAGS_REPLACE)) {
 			ret = -EEXIST;
 			goto out_release;
@@ -246,13 +246,11 @@ static int tcf_pedit_init(struct net *net, struct nlattr *nla,
 	nparms->tcfp_flags = parm->flags;
 	nparms->tcfp_nkeys = parm->nkeys;
 
-	nparms->tcfp_keys = kmalloc(ksize, GFP_KERNEL);
+	nparms->tcfp_keys = kmemdup(parm->keys, ksize, GFP_KERNEL);
 	if (!nparms->tcfp_keys) {
 		ret = -ENOMEM;
 		goto put_chain;
 	}
-
-	memcpy(nparms->tcfp_keys, parm->keys, ksize);
 
 	for (i = 0; i < nparms->tcfp_nkeys; ++i) {
 		u32 offmask = nparms->tcfp_keys[i].offmask;
@@ -517,11 +515,11 @@ static int tcf_pedit_dump(struct sk_buff *skb, struct tc_action *a,
 		spin_unlock_bh(&p->tcf_lock);
 		return -ENOBUFS;
 	}
+	opt->nkeys = parms->tcfp_nkeys;
 
 	memcpy(opt->keys, parms->tcfp_keys,
 	       flex_array_size(opt, keys, parms->tcfp_nkeys));
 	opt->index = p->tcf_index;
-	opt->nkeys = parms->tcfp_nkeys;
 	opt->flags = parms->tcfp_flags;
 	opt->action = p->tcf_action;
 	opt->refcnt = refcount_read(&p->tcf_refcnt) - ref;

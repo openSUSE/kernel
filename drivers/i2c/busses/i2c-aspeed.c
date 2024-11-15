@@ -991,7 +991,7 @@ static const struct of_device_id aspeed_i2c_bus_of_table[] = {
 		.compatible = "aspeed,ast2600-i2c-bus",
 		.data = aspeed_i2c_25xx_get_clk_reg_val,
 	},
-	{ },
+	{ }
 };
 MODULE_DEVICE_TABLE(of, aspeed_i2c_bus_of_table);
 
@@ -1082,7 +1082,7 @@ static int aspeed_i2c_probe_bus(struct platform_device *pdev)
 	return 0;
 }
 
-static int aspeed_i2c_remove_bus(struct platform_device *pdev)
+static void aspeed_i2c_remove_bus(struct platform_device *pdev)
 {
 	struct aspeed_i2c_bus *bus = platform_get_drvdata(pdev);
 	unsigned long flags;
@@ -1098,13 +1098,11 @@ static int aspeed_i2c_remove_bus(struct platform_device *pdev)
 	reset_control_assert(bus->rst);
 
 	i2c_del_adapter(&bus->adap);
-
-	return 0;
 }
 
 static struct platform_driver aspeed_i2c_bus_driver = {
 	.probe		= aspeed_i2c_probe_bus,
-	.remove		= aspeed_i2c_remove_bus,
+	.remove_new	= aspeed_i2c_remove_bus,
 	.driver		= {
 		.name		= "aspeed-i2c-bus",
 		.of_match_table	= aspeed_i2c_bus_of_table,

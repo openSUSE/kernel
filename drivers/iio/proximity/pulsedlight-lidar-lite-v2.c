@@ -322,9 +322,9 @@ static void lidar_remove(struct i2c_client *client)
 }
 
 static const struct i2c_device_id lidar_id[] = {
-	{"lidar-lite-v2", 0},
-	{"lidar-lite-v3", 0},
-	{ },
+	{ "lidar-lite-v2" },
+	{ "lidar-lite-v3" },
+	{ }
 };
 MODULE_DEVICE_TABLE(i2c, lidar_id);
 
@@ -365,7 +365,7 @@ static struct i2c_driver lidar_driver = {
 		.of_match_table	= lidar_dt_ids,
 		.pm	= pm_ptr(&lidar_pm_ops),
 	},
-	.probe_new	= lidar_probe,
+	.probe		= lidar_probe,
 	.remove		= lidar_remove,
 	.id_table	= lidar_id,
 };

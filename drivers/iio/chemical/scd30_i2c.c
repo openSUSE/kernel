@@ -13,7 +13,7 @@
 #include <linux/mod_devicetable.h>
 #include <linux/module.h>
 #include <linux/types.h>
-#include <asm/unaligned.h>
+#include <linux/unaligned.h>
 
 #include "scd30.h"
 
@@ -130,7 +130,7 @@ static struct i2c_driver scd30_i2c_driver = {
 		.of_match_table = scd30_i2c_of_match,
 		.pm = pm_sleep_ptr(&scd30_pm_ops),
 	},
-	.probe_new = scd30_i2c_probe,
+	.probe = scd30_i2c_probe,
 };
 module_i2c_driver(scd30_i2c_driver);
 

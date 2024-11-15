@@ -62,7 +62,7 @@ static void reloc_to_sec_off(struct reloc *reloc, struct section **sec,
 			     unsigned long *off)
 {
 	*sec = reloc->sym->sec;
-	*off = reloc->sym->offset + reloc->addend;
+	*off = reloc->sym->offset + reloc_addend(reloc);
 }
 
 static int get_alt_entry(struct elf *elf, const struct special_entry *entry,
@@ -84,6 +84,14 @@ static int get_alt_entry(struct elf *elf, const struct special_entry *entry,
 						  entry->new_len);
 	}
 
+	orig_reloc = find_reloc_by_dest(elf, sec, offset + entry->orig);
+	if (!orig_reloc) {
+		WARN_FUNC("can't find orig reloc", sec, offset + entry->orig);
+		return -1;
+	}
+
+	reloc_to_sec_off(orig_reloc, &alt->orig_sec, &alt->orig_off);
+
 	if (entry->feature) {
 		unsigned short feature;
 
@@ -93,14 +101,6 @@ static int get_alt_entry(struct elf *elf, const struct special_entry *entry,
 							      entry->feature));
 		arch_handle_alternative(feature, alt);
 	}
-
-	orig_reloc = find_reloc_by_dest(elf, sec, offset + entry->orig);
-	if (!orig_reloc) {
-		WARN_FUNC("can't find orig reloc", sec, offset + entry->orig);
-		return -1;
-	}
-
-	reloc_to_sec_off(orig_reloc, &alt->orig_sec, &alt->orig_off);
 
 	if (!entry->group || alt->new_len) {
 		new_reloc = find_reloc_by_dest(elf, sec, offset + entry->new);
@@ -126,7 +126,7 @@ static int get_alt_entry(struct elf *elf, const struct special_entry *entry,
 				  sec, offset + entry->key);
 			return -1;
 		}
-		alt->key_addend = key_reloc->addend;
+		alt->key_addend = reloc_addend(key_reloc);
 	}
 
 	return 0;

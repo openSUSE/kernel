@@ -13,7 +13,7 @@
 #include "smb2proto.h"
 #include "cifs_debug.h"
 #include "cifs_unicode.h"
-#include "smb2status.h"
+#include "../common/smb2status.h"
 #include "smb2glob.h"
 #include "nterr.h"
 #include "cached_dir.h"
@@ -145,7 +145,7 @@ smb2_check_message(char *buf, unsigned int len, struct TCP_Server_Info *server)
 	__u64 mid;
 
 	/* If server is a channel, select the primary channel */
-	pserver = CIFS_SERVER_IS_CHAN(server) ? server->primary_server : server;
+	pserver = SERVER_IS_CHAN(server) ? server->primary_server : server;
 
 	/*
 	 * Add function to do table lookup of StructureSize by command
@@ -313,6 +313,9 @@ static const bool has_smb2_data_area[NUMBER_OF_SMB2_COMMANDS] = {
 char *
 smb2_get_data_area_len(int *off, int *len, struct smb2_hdr *shdr)
 {
+	const int max_off = 4096;
+	const int max_len = 128 * 1024;
+
 	*off = 0;
 	*len = 0;
 
@@ -384,29 +387,20 @@ smb2_get_data_area_len(int *off, int *len, struct smb2_hdr *shdr)
 	 * Invalid length or offset probably means data area is invalid, but
 	 * we have little choice but to ignore the data area in this case.
 	 */
-	if (*off > 4096) {
-		cifs_dbg(VFS, "offset %d too large, data area ignored\n", *off);
-		*len = 0;
-		*off = 0;
-	} else if (*off < 0) {
-		cifs_dbg(VFS, "negative offset %d to data invalid ignore data area\n",
-			 *off);
+	if (unlikely(*off < 0 || *off > max_off ||
+		     *len < 0 || *len > max_len)) {
+		cifs_dbg(VFS, "%s: invalid data area (off=%d len=%d)\n",
+			 __func__, *off, *len);
 		*off = 0;
 		*len = 0;
-	} else if (*len < 0) {
-		cifs_dbg(VFS, "negative data length %d invalid, data area ignored\n",
-			 *len);
-		*len = 0;
-	} else if (*len > 128 * 1024) {
-		cifs_dbg(VFS, "data area larger than 128K: %d\n", *len);
+	} else if (*off == 0) {
 		*len = 0;
 	}
 
 	/* return pointer to beginning of data area, ie offset from SMB start */
-	if ((*off != 0) && (*len != 0))
+	if (*off > 0 && *len > 0)
 		return (char *)shdr + *off;
-	else
-		return NULL;
+	return NULL;
 }
 
 /*
@@ -623,7 +617,7 @@ smb2_is_valid_lease_break(char *buffer, struct TCP_Server_Info *server)
 	cifs_dbg(FYI, "Checking for lease break\n");
 
 	/* If server is a channel, select the primary channel */
-	pserver = CIFS_SERVER_IS_CHAN(server) ? server->primary_server : server;
+	pserver = SERVER_IS_CHAN(server) ? server->primary_server : server;
 
 	/* look up tcon based on tid & uid */
 	spin_lock(&cifs_tcp_ses_lock);
@@ -700,7 +694,7 @@ smb2_is_valid_oplock_break(char *buffer, struct TCP_Server_Info *server)
 	cifs_dbg(FYI, "oplock level 0x%x\n", rsp->OplockLevel);
 
 	/* If server is a channel, select the primary channel */
-	pserver = CIFS_SERVER_IS_CHAN(server) ? server->primary_server : server;
+	pserver = SERVER_IS_CHAN(server) ? server->primary_server : server;
 
 	/* look up tcon based on tid & uid */
 	spin_lock(&cifs_tcp_ses_lock);
@@ -773,7 +767,7 @@ smb2_cancelled_close_fid(struct work_struct *work)
 	if (rc)
 		cifs_tcon_dbg(VFS, "Close cancelled mid failed rc:%d\n", rc);
 
-	cifs_put_tcon(tcon);
+	cifs_put_tcon(tcon, netfs_trace_tcon_ref_put_cancelled_close_fid);
 	kfree(cancelled);
 }
 
@@ -817,6 +811,8 @@ smb2_handle_cancelled_close(struct cifs_tcon *tcon, __u64 persistent_fid,
 	if (tcon->tc_count <= 0) {
 		struct TCP_Server_Info *server = NULL;
 
+		trace_smb3_tcon_ref(tcon->debug_id, tcon->tc_count,
+				    netfs_trace_tcon_ref_see_cancelled_close);
 		WARN_ONCE(tcon->tc_count < 0, "tcon refcount is negative");
 		spin_unlock(&cifs_tcp_ses_lock);
 
@@ -829,12 +825,14 @@ smb2_handle_cancelled_close(struct cifs_tcon *tcon, __u64 persistent_fid,
 		return 0;
 	}
 	tcon->tc_count++;
+	trace_smb3_tcon_ref(tcon->debug_id, tcon->tc_count,
+			    netfs_trace_tcon_ref_get_cancelled_close);
 	spin_unlock(&cifs_tcp_ses_lock);
 
 	rc = __smb2_handle_cancelled_cmd(tcon, SMB2_CLOSE_HE, 0,
 					 persistent_fid, volatile_fid);
 	if (rc)
-		cifs_put_tcon(tcon);
+		cifs_put_tcon(tcon, netfs_trace_tcon_ref_put_cancelled_close);
 
 	return rc;
 }
@@ -862,7 +860,7 @@ smb2_handle_cancelled_mid(struct mid_q_entry *mid, struct TCP_Server_Info *serve
 					 rsp->PersistentFileId,
 					 rsp->VolatileFileId);
 	if (rc)
-		cifs_put_tcon(tcon);
+		cifs_put_tcon(tcon, netfs_trace_tcon_ref_put_cancelled_mid);
 
 	return rc;
 }

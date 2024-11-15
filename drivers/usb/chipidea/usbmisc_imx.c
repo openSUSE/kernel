@@ -114,7 +114,6 @@
 #define MX7D_USBNC_USB_CTRL2_DP_DM_MASK			(BIT(12) | BIT(13) | \
 							BIT(14) | BIT(15))
 
-#define MX7D_USB_OTG_PHY_CFG1		0x30
 #define MX7D_USB_OTG_PHY_CFG2_CHRG_CHRGSEL	BIT(0)
 #define MX7D_USB_OTG_PHY_CFG2_CHRG_VDATDETENB0	BIT(1)
 #define MX7D_USB_OTG_PHY_CFG2_CHRG_VDATSRCENB0	BIT(2)
@@ -132,6 +131,8 @@
 #define MX7D_USB_OTG_PHY_CFG1		0x30
 #define TXPREEMPAMPTUNE0_BIT		28
 #define TXPREEMPAMPTUNE0_MASK		(3 << 28)
+#define TXRISETUNE0_BIT			24
+#define TXRISETUNE0_MASK		(3 << 24)
 #define TXVREFTUNE0_BIT			20
 #define TXVREFTUNE0_MASK		(0xf << 20)
 
@@ -673,6 +674,13 @@ static int usbmisc_imx7d_init(struct imx_usbmisc_data *data)
 			(TXVREFTUNE0_MASK >> TXVREFTUNE0_BIT)) {
 			reg &= ~TXVREFTUNE0_MASK;
 			reg |= (data->dc_vol_level_adjust << TXVREFTUNE0_BIT);
+		}
+
+		if (data->rise_fall_time_adjust >= 0 &&
+			data->rise_fall_time_adjust <=
+			(TXRISETUNE0_MASK >> TXRISETUNE0_BIT)) {
+			reg &= ~TXRISETUNE0_MASK;
+			reg |= (data->rise_fall_time_adjust << TXRISETUNE0_BIT);
 		}
 
 		writel(reg, usbmisc->base + MX7D_USB_OTG_PHY_CFG1);

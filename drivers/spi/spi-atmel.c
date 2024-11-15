@@ -234,8 +234,6 @@
  */
 #define DMA_MIN_BYTES	16
 
-#define SPI_DMA_TIMEOUT		(msecs_to_jiffies(1000))
-
 #define AUTOSUSPEND_TIMEOUT	2000
 
 struct atmel_spi_caps {
@@ -989,8 +987,6 @@ static void atmel_spi_pdc_next_xfer(struct spi_controller *host,
  * For DMA, tx_buf/tx_dma have the same relationship as rx_buf/rx_dma:
  *  - The buffer is either valid for CPU access, else NULL
  *  - If the buffer is valid, so is its DMA address
- *
- * This driver manages the dma address unless message->is_dma_mapped.
  */
 static int
 atmel_spi_dma_map_xfer(struct atmel_spi *as, struct spi_transfer *xfer)
@@ -1359,7 +1355,8 @@ static int atmel_spi_one_transfer(struct spi_controller *host,
 	struct atmel_spi_device	*asd;
 	int			timeout;
 	int			ret;
-	unsigned long		dma_timeout;
+	unsigned int		dma_timeout;
+	long			ret_timeout;
 
 	as = spi_controller_get_devdata(host);
 
@@ -1375,8 +1372,7 @@ static int atmel_spi_one_transfer(struct spi_controller *host,
 	 * DMA map early, for performance (empties dcache ASAP) and
 	 * better fault reporting.
 	 */
-	if ((!host->cur_msg->is_dma_mapped)
-		&& as->use_pdc) {
+	if (as->use_pdc) {
 		if (atmel_spi_dma_map_xfer(as, xfer) < 0)
 			return -ENOMEM;
 	}
@@ -1413,9 +1409,9 @@ static int atmel_spi_one_transfer(struct spi_controller *host,
 			atmel_spi_unlock(as);
 		}
 
-		dma_timeout = wait_for_completion_timeout(&as->xfer_completion,
-							  SPI_DMA_TIMEOUT);
-		if (WARN_ON(dma_timeout == 0)) {
+		dma_timeout = msecs_to_jiffies(spi_controller_xfer_timeout(host, xfer));
+		ret_timeout = wait_for_completion_timeout(&as->xfer_completion, dma_timeout);
+		if (!ret_timeout) {
 			dev_err(&spi->dev, "spi transfer timeout\n");
 			as->done_status = -EIO;
 		}
@@ -1455,8 +1451,7 @@ static int atmel_spi_one_transfer(struct spi_controller *host,
 		}
 	}
 
-	if (!host->cur_msg->is_dma_mapped
-		&& as->use_pdc)
+	if (as->use_pdc)
 		atmel_spi_dma_unmap_xfer(host, xfer);
 
 	if (as->use_pdc)
@@ -1526,10 +1521,6 @@ static int atmel_spi_probe(struct platform_device *pdev)
 	/* Select default pin state */
 	pinctrl_pm_select_default_state(&pdev->dev);
 
-	regs = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	if (!regs)
-		return -ENXIO;
-
 	irq = platform_get_irq(pdev, 0);
 	if (irq < 0)
 		return irq;
@@ -1566,7 +1557,7 @@ static int atmel_spi_probe(struct platform_device *pdev)
 	spin_lock_init(&as->lock);
 
 	as->pdev = pdev;
-	as->regs = devm_ioremap_resource(&pdev->dev, regs);
+	as->regs = devm_platform_get_and_ioremap_resource(pdev, 0, &regs);
 	if (IS_ERR(as->regs)) {
 		ret = PTR_ERR(as->regs);
 		goto out_unmap_regs;

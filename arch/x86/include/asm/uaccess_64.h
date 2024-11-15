@@ -11,6 +11,7 @@
 #include <asm/alternative.h>
 #include <asm/cpufeatures.h>
 #include <asm/page.h>
+#include <asm/percpu.h>
 #include <asm/runtime-const.h>
 
 /*
@@ -25,14 +26,10 @@ extern unsigned long USER_PTR_MAX;
  */
 static inline unsigned long __untagged_addr(unsigned long addr)
 {
-	/*
-	 * Refer tlbstate_untag_mask directly to avoid RIP-relative relocation
-	 * in alternative instructions. The relocation gets wrong when gets
-	 * copied to the target place.
-	 */
 	asm (ALTERNATIVE("",
-			 "and %%gs:tlbstate_untag_mask, %[addr]\n\t", X86_FEATURE_LAM)
-	     : [addr] "+r" (addr) : "m" (tlbstate_untag_mask));
+			 "and " __percpu_arg([mask]) ", %[addr]", X86_FEATURE_LAM)
+	     : [addr] "+r" (addr)
+	     : [mask] "m" (__my_cpu_var(tlbstate_untag_mask)));
 
 	return addr;
 }
@@ -103,8 +100,9 @@ static inline bool __access_ok(const void __user *ptr, unsigned long size)
 	if (__builtin_constant_p(size <= PAGE_SIZE) && size <= PAGE_SIZE) {
 		return valid_user_address(ptr);
 	} else {
-		unsigned long sum = size + (unsigned long)ptr;
-		return valid_user_address(sum) && sum >= (unsigned long)ptr;
+		unsigned long sum = size + (__force unsigned long)ptr;
+
+		return valid_user_address(sum) && sum >= (__force unsigned long)ptr;
 	}
 }
 #define __access_ok __access_ok

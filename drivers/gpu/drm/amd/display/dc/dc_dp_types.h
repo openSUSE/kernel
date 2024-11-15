@@ -137,8 +137,13 @@ enum dp_link_encoding {
 
 enum dp_test_link_rate {
 	DP_TEST_LINK_RATE_RBR		= 0x06,
+	DP_TEST_LINK_RATE_RATE_2    = 0x08,	// Rate_2        - 2.16 Gbps/Lane
+	DP_TEST_LINK_RATE_RATE_3    = 0x09,	// Rate_3        - 2.43 Gbps/Lane
 	DP_TEST_LINK_RATE_HBR		= 0x0A,
+	DP_TEST_LINK_RATE_RBR2      = 0x0C,	// Rate_5 (RBR2) - 3.24 Gbps/Lane
+	DP_TEST_LINK_RATE_RATE_6    = 0x10,	// Rate_6        - 4.32 Gbps/Lane
 	DP_TEST_LINK_RATE_HBR2		= 0x14,
+	DP_TEST_LINK_RATE_RATE_8    = 0x19,	// Rate_8        - 6.75 Gbps/Lane
 	DP_TEST_LINK_RATE_HBR3		= 0x1E,
 	DP_TEST_LINK_RATE_UHBR10	= 0x01,
 	DP_TEST_LINK_RATE_UHBR20	= 0x02,
@@ -917,16 +922,6 @@ struct dpcd_usb4_dp_tunneling_info {
 	uint8_t usb4_topology_id[DPCD_USB4_TOPOLOGY_ID_LEN];
 };
 
-#ifndef DP_DFP_CAPABILITY_EXTENSION_SUPPORT
-#define DP_DFP_CAPABILITY_EXTENSION_SUPPORT		0x0A3
-#endif
-#ifndef DP_TEST_264BIT_CUSTOM_PATTERN_7_0
-#define DP_TEST_264BIT_CUSTOM_PATTERN_7_0		0X2230
-#endif
-#ifndef DP_TEST_264BIT_CUSTOM_PATTERN_263_256
-#define DP_TEST_264BIT_CUSTOM_PATTERN_263_256		0X2250
-#endif
-
 union dp_main_line_channel_coding_cap {
 	struct {
 		uint8_t DP_8b_10b_SUPPORTED	:1;
@@ -972,6 +967,14 @@ union dp_sink_video_fallback_formats {
 		uint8_t RESERVED			:5;
 	} bits;
 	uint8_t raw;
+};
+
+union dpcd_max_uncompressed_pixel_rate_cap {
+	struct {
+		uint16_t max_uncompressed_pixel_rate_cap	:15;
+		uint16_t valid			:1;
+	} bits;
+	uint8_t raw[2];
 };
 
 union dp_fec_capability1 {
@@ -1175,6 +1178,7 @@ struct dpcd_caps {
 	struct dc_lttpr_caps lttpr_caps;
 	struct adaptive_sync_caps adaptive_sync_caps;
 	struct dpcd_usb4_dp_tunneling_info usb4_dp_tun_info;
+	union dpcd_max_uncompressed_pixel_rate_cap max_uncompressed_pixel_rate_cap;
 
 	union dp_128b_132b_supported_link_rates dp_128b_132b_supported_link_rates;
 	union dp_main_line_channel_coding_cap channel_coding_cap;
@@ -1232,8 +1236,7 @@ union replay_enable_and_configuration {
 		unsigned char FREESYNC_PANEL_REPLAY_MODE              :1;
 		unsigned char TIMING_DESYNC_ERROR_VERIFICATION        :1;
 		unsigned char STATE_TRANSITION_ERROR_DETECTION        :1;
-		unsigned char RESERVED0                               :1;
-		unsigned char RESERVED1                               :4;
+		unsigned char RESERVED                                :5;
 	} bits;
 	unsigned char raw;
 };
@@ -1345,6 +1348,9 @@ struct dp_trace {
 #endif
 #ifndef DP_CABLE_ATTRIBUTES_UPDATED_BY_DPTX
 #define DP_CABLE_ATTRIBUTES_UPDATED_BY_DPTX		0x110
+#endif
+#ifndef DPCD_MAX_UNCOMPRESSED_PIXEL_RATE_CAP
+#define DPCD_MAX_UNCOMPRESSED_PIXEL_RATE_CAP    0x221c
 #endif
 #ifndef DP_REPEATER_CONFIGURATION_AND_STATUS_SIZE
 #define DP_REPEATER_CONFIGURATION_AND_STATUS_SIZE	0x50

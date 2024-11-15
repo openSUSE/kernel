@@ -26,6 +26,7 @@ struct x86_exception {
 	bool nested_page_fault;
 	u64 address; /* cr2 or nested page fault gpa */
 	u8 async_page_fault;
+	unsigned long exit_qualification;
 };
 
 /*
@@ -203,16 +204,12 @@ struct x86_emulate_ops {
 	ulong (*get_cr)(struct x86_emulate_ctxt *ctxt, int cr);
 	int (*set_cr)(struct x86_emulate_ctxt *ctxt, int cr, ulong val);
 	int (*cpl)(struct x86_emulate_ctxt *ctxt);
-	void (*get_dr)(struct x86_emulate_ctxt *ctxt, int dr, ulong *dest);
+	ulong (*get_dr)(struct x86_emulate_ctxt *ctxt, int dr);
 	int (*set_dr)(struct x86_emulate_ctxt *ctxt, int dr, ulong value);
 	int (*set_msr_with_filter)(struct x86_emulate_ctxt *ctxt, u32 msr_index, u64 data);
 	int (*get_msr_with_filter)(struct x86_emulate_ctxt *ctxt, u32 msr_index, u64 *pdata);
 	int (*get_msr)(struct x86_emulate_ctxt *ctxt, u32 msr_index, u64 *pdata);
-#ifdef __GENKSYMS__
-	int (*check_pmc)(struct x86_emulate_ctxt *ctxt, u32 pmc);
-#else
 	int (*check_rdpmc_early)(struct x86_emulate_ctxt *ctxt, u32 pmc);
-#endif
 	int (*read_pmc)(struct x86_emulate_ctxt *ctxt, u32 pmc, u64 *pdata);
 	void (*halt)(struct x86_emulate_ctxt *ctxt);
 	void (*wbinvd)(struct x86_emulate_ctxt *ctxt);
@@ -226,6 +223,7 @@ struct x86_emulate_ops {
 	bool (*guest_has_movbe)(struct x86_emulate_ctxt *ctxt);
 	bool (*guest_has_fxsr)(struct x86_emulate_ctxt *ctxt);
 	bool (*guest_has_rdpid)(struct x86_emulate_ctxt *ctxt);
+	bool (*guest_cpuid_is_intel_compatible)(struct x86_emulate_ctxt *ctxt);
 
 	void (*set_nmi_mask)(struct x86_emulate_ctxt *ctxt, bool masked);
 

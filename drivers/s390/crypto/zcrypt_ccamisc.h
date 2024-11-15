@@ -115,7 +115,7 @@ struct eccprivkeytoken {
 	u64 mkvp;     /* master key verification pattern */
 	u8  opk[48];  /* encrypted object protection key data */
 	u16 adatalen; /* associated data length in bytes */
-	u16 fseclen;  /* formated section length in bytes */
+	u16 fseclen;  /* formatted section length in bytes */
 	u8  more_data[]; /* more data follows */
 } __packed;
 
@@ -153,7 +153,7 @@ int cca_check_secaescipherkey(debug_info_t *dbg, int dbflvl,
  * key token. Returns 0 on success or errno value on failure.
  */
 int cca_check_sececckeytoken(debug_info_t *dbg, int dbflvl,
-			     const u8 *token, size_t keysize,
+			     const u8 *token, u32 keysize,
 			     int checkcpacfexport);
 
 /*
@@ -178,7 +178,7 @@ int cca_sec2protkey(u16 cardnr, u16 domain,
  * Generate (random) CCA AES CIPHER secure key.
  */
 int cca_gencipherkey(u16 cardnr, u16 domain, u32 keybitsize, u32 keygenflags,
-		     u8 *keybuf, size_t *keybufsize);
+		     u8 *keybuf, u32 *keybufsize);
 
 /*
  * Derive proteced key from CCA AES cipher secure key.
@@ -190,7 +190,7 @@ int cca_cipher2protkey(u16 cardnr, u16 domain, const u8 *ckey,
  * Build CCA AES CIPHER secure key with a given clear key value.
  */
 int cca_clr2cipherkey(u16 cardnr, u16 domain, u32 keybitsize, u32 keygenflags,
-		      const u8 *clrkey, u8 *keybuf, size_t *keybufsize);
+		      const u8 *clrkey, u8 *keybuf, u32 *keybufsize);
 
 /*
  * Derive proteced key from CCA ECC secure private key.
@@ -232,7 +232,7 @@ int cca_findcard(const u8 *key, u16 *pcardnr, u16 *pdomain, int verify);
  * the number of apqns stored into the list is returned in *nr_apqns. One apqn
  * entry is simple a 32 bit value with 16 bit cardnr and 16 bit domain nr and
  * may be casted to struct pkey_apqn. The return value is either 0 for success
- * or a negative errno value. If no apqn meeting the criterias is found,
+ * or a negative errno value. If no apqn meeting the criteria is found,
  * -ENODEV is returned.
  */
 int cca_findcard2(u32 **apqns, u32 *nr_apqns, u16 cardnr, u16 domain,

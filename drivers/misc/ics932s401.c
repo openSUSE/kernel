@@ -95,7 +95,7 @@ static int ics932s401_detect(struct i2c_client *client,
 static void ics932s401_remove(struct i2c_client *client);
 
 static const struct i2c_device_id ics932s401_id[] = {
-	{ "ics932s401", 0 },
+	{ "ics932s401" },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, ics932s401_id);
@@ -105,7 +105,7 @@ static struct i2c_driver ics932s401_driver = {
 	.driver = {
 		.name	= "ics932s401",
 	},
-	.probe_new	= ics932s401_probe,
+	.probe		= ics932s401_probe,
 	.remove		= ics932s401_remove,
 	.id_table	= ics932s401_id,
 	.detect		= ics932s401_detect,

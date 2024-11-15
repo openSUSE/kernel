@@ -111,6 +111,7 @@ static void std_init_compound(const struct v4l2_ctrl *ctrl, u32 idx,
 	struct v4l2_ctrl_vp9_frame *p_vp9_frame;
 	struct v4l2_ctrl_fwht_params *p_fwht_params;
 	struct v4l2_ctrl_h264_scaling_matrix *p_h264_scaling_matrix;
+	struct v4l2_ctrl_av1_sequence *p_av1_sequence;
 	void *p = ptr.p + idx * ctrl->elem_size;
 
 	if (ctrl->p_def.p_const)
@@ -156,6 +157,10 @@ static void std_init_compound(const struct v4l2_ctrl *ctrl, u32 idx,
 		p_vp9_frame->bit_depth = 8;
 		p_vp9_frame->flags |= V4L2_VP9_FRAME_FLAG_X_SUBSAMPLING |
 			V4L2_VP9_FRAME_FLAG_Y_SUBSAMPLING;
+		break;
+	case V4L2_CTRL_TYPE_AV1_SEQUENCE:
+		p_av1_sequence = p;
+		p_av1_sequence->bit_depth = 8;
 		break;
 	case V4L2_CTRL_TYPE_FWHT_PARAMS:
 		p_fwht_params = p;
@@ -289,6 +294,9 @@ void v4l2_ctrl_type_op_log(const struct v4l2_ctrl *ctrl)
 		break;
 	case V4L2_CTRL_TYPE_U32:
 		pr_cont("%u", (unsigned)*ptr.p_u32);
+		break;
+	case V4L2_CTRL_TYPE_AREA:
+		pr_cont("%ux%u", ptr.p_area->width, ptr.p_area->height);
 		break;
 	case V4L2_CTRL_TYPE_H264_SPS:
 		pr_cont("H264_SPS");
@@ -1499,11 +1507,12 @@ int check_range(enum v4l2_ctrl_type type,
 		return 0;
 	case V4L2_CTRL_TYPE_MENU:
 	case V4L2_CTRL_TYPE_INTEGER_MENU:
-		if (min > max || def < min || def > max)
+		if (min > max || def < min || def > max ||
+		    min < 0 || (step && max >= BITS_PER_LONG_LONG))
 			return -ERANGE;
 		/* Note: step == menu_skip_mask for menu controls.
 		   So here we check if the default value is masked out. */
-		if (step && ((1 << def) & step))
+		if (def < BITS_PER_LONG_LONG && (step & BIT_ULL(def)))
 			return -EINVAL;
 		return 0;
 	case V4L2_CTRL_TYPE_STRING:
@@ -2550,6 +2559,9 @@ int v4l2_ctrl_new_fwnode_properties(struct v4l2_ctrl_handler *hdl,
 				    const struct v4l2_ctrl_ops *ctrl_ops,
 				    const struct v4l2_fwnode_device_properties *p)
 {
+	if (hdl->error)
+		return hdl->error;
+
 	if (p->orientation != V4L2_FWNODE_PROPERTY_UNSET) {
 		u32 orientation_ctrl;
 

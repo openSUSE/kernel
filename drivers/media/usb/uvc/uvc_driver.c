@@ -19,7 +19,7 @@
 #include <linux/videodev2.h>
 #include <linux/vmalloc.h>
 #include <linux/wait.h>
-#include <asm/unaligned.h>
+#include <linux/unaligned.h>
 
 #include <media/v4l2-common.h>
 #include <media/v4l2-ioctl.h>
@@ -185,7 +185,7 @@ static void uvc_stream_delete(struct uvc_streaming *stream)
 
 	usb_put_intf(stream->intf);
 
-	kfree(stream->format);
+	kfree(stream->formats);
 	kfree(stream->header.bmaControls);
 	kfree(stream);
 }
@@ -222,7 +222,8 @@ static struct uvc_streaming *uvc_stream_new(struct uvc_device *dev,
 
 static int uvc_parse_format(struct uvc_device *dev,
 	struct uvc_streaming *streaming, struct uvc_format *format,
-	u32 **intervals, unsigned char *buffer, int buflen)
+	struct uvc_frame *frames, u32 **intervals, const unsigned char *buffer,
+	int buflen)
 {
 	struct usb_interface *intf = streaming->intf;
 	struct usb_host_interface *alts = intf->cur_altsetting;
@@ -236,6 +237,7 @@ static int uvc_parse_format(struct uvc_device *dev,
 
 	format->type = buffer[2];
 	format->index = buffer[3];
+	format->frames = frames;
 
 	switch (buffer[2]) {
 	case UVC_VS_FORMAT_UNCOMPRESSED:
@@ -340,8 +342,8 @@ static int uvc_parse_format(struct uvc_device *dev,
 		ftype = 0;
 
 		/* Create a dummy frame descriptor. */
-		frame = &format->frame[0];
-		memset(&format->frame[0], 0, sizeof(format->frame[0]));
+		frame = &frames[0];
+		memset(frame, 0, sizeof(*frame));
 		frame->bFrameIntervalType = 1;
 		frame->dwDefaultFrameInterval = 1;
 		frame->dwFrameInterval = *intervals;
@@ -371,7 +373,9 @@ static int uvc_parse_format(struct uvc_device *dev,
 	 */
 	while (buflen > 2 && buffer[1] == USB_DT_CS_INTERFACE &&
 	       buffer[2] == ftype) {
-		frame = &format->frame[format->nframes];
+		unsigned int maxIntervalIndex;
+
+		frame = &frames[format->nframes];
 		if (ftype != UVC_VS_FRAME_FRAME_BASED)
 			n = buflen > 25 ? buffer[25] : 0;
 		else
@@ -406,7 +410,26 @@ static int uvc_parse_format(struct uvc_device *dev,
 				get_unaligned_le32(&buffer[17]);
 			frame->bFrameIntervalType = buffer[21];
 		}
+
+		/*
+		 * Copy the frame intervals.
+		 *
+		 * Some bogus devices report dwMinFrameInterval equal to
+		 * dwMaxFrameInterval and have dwFrameIntervalStep set to
+		 * zero. Setting all null intervals to 1 fixes the problem and
+		 * some other divisions by zero that could happen.
+		 */
 		frame->dwFrameInterval = *intervals;
+
+		for (i = 0; i < n; ++i) {
+			interval = get_unaligned_le32(&buffer[26+4*i]);
+			(*intervals)[i] = interval ? interval : 1;
+		}
+
+		/*
+		 * Apply more fixes, quirks and workarounds to handle incorrect
+		 * or broken descriptors.
+		 */
 
 		/*
 		 * Several UVC chipsets screw up dwMaxVideoFrameBufferSize
@@ -422,30 +445,25 @@ static int uvc_parse_format(struct uvc_device *dev,
 				* frame->wWidth * frame->wHeight / 8;
 
 		/*
-		 * Some bogus devices report dwMinFrameInterval equal to
-		 * dwMaxFrameInterval and have dwFrameIntervalStep set to
-		 * zero. Setting all null intervals to 1 fixes the problem and
-		 * some other divisions by zero that could happen.
+		 * Clamp the default frame interval to the boundaries. A zero
+		 * bFrameIntervalType value indicates a continuous frame
+		 * interval range, with dwFrameInterval[0] storing the minimum
+		 * value and dwFrameInterval[1] storing the maximum value.
 		 */
-		for (i = 0; i < n; ++i) {
-			interval = get_unaligned_le32(&buffer[26+4*i]);
-			*(*intervals)++ = interval ? interval : 1;
-		}
+		maxIntervalIndex = frame->bFrameIntervalType ? n - 1 : 1;
+		frame->dwDefaultFrameInterval =
+			clamp(frame->dwDefaultFrameInterval,
+			      frame->dwFrameInterval[0],
+			      frame->dwFrameInterval[maxIntervalIndex]);
 
 		/*
-		 * Make sure that the default frame interval stays between
-		 * the boundaries.
+		 * Some devices report frame intervals that are not functional.
+		 * If the corresponding quirk is set, restrict operation to the
+		 * first interval only.
 		 */
-		n -= frame->bFrameIntervalType ? 1 : 2;
-		frame->dwDefaultFrameInterval =
-			min(frame->dwFrameInterval[n],
-			    max(frame->dwFrameInterval[0],
-				frame->dwDefaultFrameInterval));
-
 		if (dev->quirks & UVC_QUIRK_RESTRICT_FRAME_RATE) {
 			frame->bFrameIntervalType = 1;
-			frame->dwFrameInterval[0] =
-				frame->dwDefaultFrameInterval;
+			(*intervals)[0] = frame->dwDefaultFrameInterval;
 		}
 
 		uvc_dbg(dev, DESCR, "- %ux%u (%u.%u fps)\n",
@@ -454,6 +472,8 @@ static int uvc_parse_format(struct uvc_device *dev,
 			(100000000 / frame->dwDefaultFrameInterval) % 10);
 
 		format->nframes++;
+		*intervals += n;
+
 		buflen -= buffer[0];
 		buffer += buffer[0];
 	}
@@ -494,7 +514,7 @@ static int uvc_parse_streaming(struct uvc_device *dev,
 	struct uvc_format *format;
 	struct uvc_frame *frame;
 	struct usb_host_interface *alts = &intf->altsetting[0];
-	unsigned char *_buffer, *buffer = alts->extra;
+	const unsigned char *_buffer, *buffer = alts->extra;
 	int _buflen, buflen = alts->extralen;
 	unsigned int nformats = 0, nframes = 0, nintervals = 0;
 	unsigned int size, i, n, p;
@@ -688,7 +708,7 @@ static int uvc_parse_streaming(struct uvc_device *dev,
 	interval = (void *)frame + nframes * sizeof(*frame);
 	interval = PTR_ALIGN(interval, __alignof__(*interval));
 
-	streaming->format = format;
+	streaming->formats = format;
 	streaming->nformats = 0;
 
 	/* Parse the format descriptors. */
@@ -698,8 +718,7 @@ static int uvc_parse_streaming(struct uvc_device *dev,
 		case UVC_VS_FORMAT_MJPEG:
 		case UVC_VS_FORMAT_DV:
 		case UVC_VS_FORMAT_FRAME_BASED:
-			format->frame = frame;
-			ret = uvc_parse_format(dev, streaming, format,
+			ret = uvc_parse_format(dev, streaming, format, frame,
 				&interval, buffer, buflen);
 			if (ret < 0)
 				goto error;
@@ -1158,7 +1177,7 @@ static int uvc_parse_standard_control(struct uvc_device *dev,
 static int uvc_parse_control(struct uvc_device *dev)
 {
 	struct usb_host_interface *alts = dev->intf->cur_altsetting;
-	unsigned char *buffer = alts->extra;
+	const unsigned char *buffer = alts->extra;
 	int buflen = alts->extralen;
 	int ret;
 
@@ -2381,20 +2400,6 @@ MODULE_PARM_DESC(timeout, "Streaming control requests timeout");
  * Driver initialization and cleanup
  */
 
-static const struct uvc_device_info uvc_ctrl_power_line_limited = {
-	.mappings = (const struct uvc_control_mapping *[]) {
-		&uvc_ctrl_power_line_mapping_limited,
-		NULL, /* Sentinel */
-	},
-};
-
-static const struct uvc_device_info uvc_ctrl_power_line_uvc11 = {
-	.mappings = (const struct uvc_control_mapping *[]) {
-		&uvc_ctrl_power_line_mapping_uvc11,
-		NULL, /* Sentinel */
-	},
-};
-
 static const struct uvc_device_info uvc_quirk_probe_minmax = {
 	.quirks = UVC_QUIRK_PROBE_MINMAX,
 };
@@ -2425,33 +2430,17 @@ static const struct uvc_device_info uvc_quirk_force_y8 = {
  * though they are compliant.
  */
 static const struct usb_device_id uvc_ids[] = {
-	/* Quanta USB2.0 HD UVC Webcam */
+	/* Quanta ACER HD User Facing */
 	{ .match_flags		= USB_DEVICE_ID_MATCH_DEVICE
 				| USB_DEVICE_ID_MATCH_INT_INFO,
 	  .idVendor		= 0x0408,
-	  .idProduct		= 0x3090,
-	  .bInterfaceClass	= USB_CLASS_VIDEO,
-	  .bInterfaceSubClass	= 1,
-	  .bInterfaceProtocol	= 0,
-	  .driver_info		= (kernel_ulong_t)&uvc_ctrl_power_line_limited },
-	/* Quanta USB2.0 HD UVC Webcam */
-	{ .match_flags		= USB_DEVICE_ID_MATCH_DEVICE
-				| USB_DEVICE_ID_MATCH_INT_INFO,
-	  .idVendor		= 0x0408,
-	  .idProduct		= 0x4030,
-	  .bInterfaceClass	= USB_CLASS_VIDEO,
-	  .bInterfaceSubClass	= 1,
-	  .bInterfaceProtocol	= 0,
-	  .driver_info		= (kernel_ulong_t)&uvc_ctrl_power_line_limited },
-	/* Quanta USB2.0 HD UVC Webcam */
-	{ .match_flags		= USB_DEVICE_ID_MATCH_DEVICE
-				| USB_DEVICE_ID_MATCH_INT_INFO,
-	  .idVendor		= 0x0408,
-	  .idProduct		= 0x4034,
+	  .idProduct		= 0x4035,
 	  .bInterfaceClass	= USB_CLASS_VIDEO,
 	  .bInterfaceSubClass	= 1,
 	  .bInterfaceProtocol	= UVC_PC_PROTOCOL_15,
-	  .driver_info		= (kernel_ulong_t)&uvc_ctrl_power_line_limited },
+	  .driver_info		= (kernel_ulong_t)&(const struct uvc_device_info){
+		.uvc_version = 0x010a,
+	  } },
 	/* LogiLink Wireless Webcam */
 	{ .match_flags		= USB_DEVICE_ID_MATCH_DEVICE
 				| USB_DEVICE_ID_MATCH_INT_INFO,
@@ -2618,42 +2607,6 @@ static const struct usb_device_id uvc_ids[] = {
 	  .bInterfaceSubClass	= 1,
 	  .bInterfaceProtocol	= 0,
 	  .driver_info		= UVC_INFO_QUIRK(UVC_QUIRK_RESTRICT_FRAME_RATE) },
-	/* Chicony EasyCamera */
-	{ .match_flags		= USB_DEVICE_ID_MATCH_DEVICE
-				| USB_DEVICE_ID_MATCH_INT_INFO,
-	  .idVendor		= 0x04f2,
-	  .idProduct		= 0xb5eb,
-	  .bInterfaceClass	= USB_CLASS_VIDEO,
-	  .bInterfaceSubClass	= 1,
-	  .bInterfaceProtocol	= 0,
-	  .driver_info		= (kernel_ulong_t)&uvc_ctrl_power_line_limited },
-	/* Chicony EasyCamera */
-	{ .match_flags		= USB_DEVICE_ID_MATCH_DEVICE
-				| USB_DEVICE_ID_MATCH_INT_INFO,
-	  .idVendor		= 0x04f2,
-	  .idProduct		= 0xb6ba,
-	  .bInterfaceClass	= USB_CLASS_VIDEO,
-	  .bInterfaceSubClass	= 1,
-	  .bInterfaceProtocol	= 0,
-	  .driver_info		= (kernel_ulong_t)&uvc_ctrl_power_line_limited },
-	/* Chicony Electronics Co., Ltd Integrated Camera */
-	{ .match_flags		= USB_DEVICE_ID_MATCH_DEVICE
-				| USB_DEVICE_ID_MATCH_INT_INFO,
-	  .idVendor		= 0x04f2,
-	  .idProduct		= 0xb67c,
-	  .bInterfaceClass	= USB_CLASS_VIDEO,
-	  .bInterfaceSubClass	= 1,
-	  .bInterfaceProtocol	= UVC_PC_PROTOCOL_15,
-	  .driver_info		= (kernel_ulong_t)&uvc_ctrl_power_line_uvc11 },
-	/* Chicony EasyCamera */
-	{ .match_flags		= USB_DEVICE_ID_MATCH_DEVICE
-				| USB_DEVICE_ID_MATCH_INT_INFO,
-	  .idVendor		= 0x04f2,
-	  .idProduct		= 0xb746,
-	  .bInterfaceClass	= USB_CLASS_VIDEO,
-	  .bInterfaceSubClass	= 1,
-	  .bInterfaceProtocol	= 0,
-	  .driver_info		= (kernel_ulong_t)&uvc_ctrl_power_line_limited },
 	/* Alcor Micro AU3820 (Future Boy PC USB Webcam) */
 	{ .match_flags		= USB_DEVICE_ID_MATCH_DEVICE
 				| USB_DEVICE_ID_MATCH_INT_INFO,
@@ -3038,15 +2991,6 @@ static const struct usb_device_id uvc_ids[] = {
 	  .bInterfaceSubClass	= 1,
 	  .bInterfaceProtocol	= 0,
 	  .driver_info		= UVC_INFO_QUIRK(UVC_QUIRK_FORCE_BPP) },
-	/* SunplusIT Inc HD Camera */
-	{ .match_flags		= USB_DEVICE_ID_MATCH_DEVICE
-				| USB_DEVICE_ID_MATCH_INT_INFO,
-	  .idVendor		= 0x2b7e,
-	  .idProduct		= 0xb752,
-	  .bInterfaceClass	= USB_CLASS_VIDEO,
-	  .bInterfaceSubClass	= 1,
-	  .bInterfaceProtocol	= UVC_PC_PROTOCOL_15,
-	  .driver_info		= (kernel_ulong_t)&uvc_ctrl_power_line_uvc11 },
 	/* Insta360 Link */
 	{ .match_flags		= USB_DEVICE_ID_MATCH_DEVICE
 				| USB_DEVICE_ID_MATCH_INT_INFO,
@@ -3056,47 +3000,74 @@ static const struct usb_device_id uvc_ids[] = {
 	  .bInterfaceSubClass	= 1,
 	  .bInterfaceProtocol	= 0,
 	  .driver_info		= UVC_INFO_QUIRK(UVC_QUIRK_DISABLE_AUTOSUSPEND) },
-	/* Lenovo Integrated Camera */
+	/* Intel D410/ASR depth camera */
 	{ .match_flags		= USB_DEVICE_ID_MATCH_DEVICE
 				| USB_DEVICE_ID_MATCH_INT_INFO,
-	  .idVendor		= 0x30c9,
-	  .idProduct		= 0x0093,
-	  .bInterfaceClass	= USB_CLASS_VIDEO,
-	  .bInterfaceSubClass	= 1,
-	  .bInterfaceProtocol	= UVC_PC_PROTOCOL_15,
-	  .driver_info		= (kernel_ulong_t)&uvc_ctrl_power_line_uvc11 },
-	/* Sonix Technology USB 2.0 Camera */
-	{ .match_flags		= USB_DEVICE_ID_MATCH_DEVICE
-				| USB_DEVICE_ID_MATCH_INT_INFO,
-	  .idVendor		= 0x3277,
-	  .idProduct		= 0x0072,
+	  .idVendor		= 0x8086,
+	  .idProduct		= 0x0ad2,
 	  .bInterfaceClass	= USB_CLASS_VIDEO,
 	  .bInterfaceSubClass	= 1,
 	  .bInterfaceProtocol	= 0,
-	  .driver_info		= (kernel_ulong_t)&uvc_ctrl_power_line_limited },
-	/* Acer EasyCamera */
+	  .driver_info		= UVC_INFO_META(V4L2_META_FMT_D4XX) },
+	/* Intel D415/ASRC depth camera */
 	{ .match_flags		= USB_DEVICE_ID_MATCH_DEVICE
 				| USB_DEVICE_ID_MATCH_INT_INFO,
-	  .idVendor		= 0x5986,
-	  .idProduct		= 0x1172,
+	  .idVendor		= 0x8086,
+	  .idProduct		= 0x0ad3,
 	  .bInterfaceClass	= USB_CLASS_VIDEO,
 	  .bInterfaceSubClass	= 1,
 	  .bInterfaceProtocol	= 0,
-	  .driver_info		= (kernel_ulong_t)&uvc_ctrl_power_line_limited },
-	/* Acer EasyCamera */
+	  .driver_info		= UVC_INFO_META(V4L2_META_FMT_D4XX) },
+	/* Intel D430/AWG depth camera */
 	{ .match_flags		= USB_DEVICE_ID_MATCH_DEVICE
 				| USB_DEVICE_ID_MATCH_INT_INFO,
-	  .idVendor		= 0x5986,
-	  .idProduct		= 0x1180,
+	  .idVendor		= 0x8086,
+	  .idProduct		= 0x0ad4,
 	  .bInterfaceClass	= USB_CLASS_VIDEO,
 	  .bInterfaceSubClass	= 1,
 	  .bInterfaceProtocol	= 0,
-	  .driver_info		= (kernel_ulong_t)&uvc_ctrl_power_line_limited },
+	  .driver_info		= UVC_INFO_META(V4L2_META_FMT_D4XX) },
 	/* Intel RealSense D4M */
 	{ .match_flags		= USB_DEVICE_ID_MATCH_DEVICE
 				| USB_DEVICE_ID_MATCH_INT_INFO,
 	  .idVendor		= 0x8086,
 	  .idProduct		= 0x0b03,
+	  .bInterfaceClass	= USB_CLASS_VIDEO,
+	  .bInterfaceSubClass	= 1,
+	  .bInterfaceProtocol	= 0,
+	  .driver_info		= UVC_INFO_META(V4L2_META_FMT_D4XX) },
+	/* Intel D435/AWGC depth camera */
+	{ .match_flags		= USB_DEVICE_ID_MATCH_DEVICE
+				| USB_DEVICE_ID_MATCH_INT_INFO,
+	  .idVendor		= 0x8086,
+	  .idProduct		= 0x0b07,
+	  .bInterfaceClass	= USB_CLASS_VIDEO,
+	  .bInterfaceSubClass	= 1,
+	  .bInterfaceProtocol	= 0,
+	  .driver_info		= UVC_INFO_META(V4L2_META_FMT_D4XX) },
+	/* Intel D435i depth camera */
+	{ .match_flags		= USB_DEVICE_ID_MATCH_DEVICE
+				| USB_DEVICE_ID_MATCH_INT_INFO,
+	  .idVendor		= 0x8086,
+	  .idProduct		= 0x0b3a,
+	  .bInterfaceClass	= USB_CLASS_VIDEO,
+	  .bInterfaceSubClass	= 1,
+	  .bInterfaceProtocol	= 0,
+	  .driver_info		= UVC_INFO_META(V4L2_META_FMT_D4XX) },
+	/* Intel D405 Depth Camera */
+	{ .match_flags		= USB_DEVICE_ID_MATCH_DEVICE
+				| USB_DEVICE_ID_MATCH_INT_INFO,
+	  .idVendor		= 0x8086,
+	  .idProduct		= 0x0b5b,
+	  .bInterfaceClass	= USB_CLASS_VIDEO,
+	  .bInterfaceSubClass	= 1,
+	  .bInterfaceProtocol	= 0,
+	  .driver_info		= UVC_INFO_META(V4L2_META_FMT_D4XX) },
+	/* Intel D455 Depth Camera */
+	{ .match_flags		= USB_DEVICE_ID_MATCH_DEVICE
+				| USB_DEVICE_ID_MATCH_INT_INFO,
+	  .idVendor		= 0x8086,
+	  .idProduct		= 0x0b5c,
 	  .bInterfaceClass	= USB_CLASS_VIDEO,
 	  .bInterfaceSubClass	= 1,
 	  .bInterfaceProtocol	= 0,

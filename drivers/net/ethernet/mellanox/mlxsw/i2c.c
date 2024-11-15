@@ -424,9 +424,7 @@ mlxsw_i2c_cmd(struct device *dev, u16 opcode, u32 in_mod, size_t in_mbox_size,
 
 	if (in_mbox) {
 		reg_size = mlxsw_i2c_get_reg_size(in_mbox);
-		num = reg_size / mlxsw_i2c->block_size;
-		if (reg_size % mlxsw_i2c->block_size)
-			num++;
+		num = DIV_ROUND_UP(reg_size, mlxsw_i2c->block_size);
 
 		if (mutex_lock_interruptible(&mlxsw_i2c->cmd.lock) < 0) {
 			dev_err(&client->dev, "Could not acquire lock");
@@ -752,7 +750,7 @@ static void mlxsw_i2c_remove(struct i2c_client *client)
 
 int mlxsw_i2c_driver_register(struct i2c_driver *i2c_driver)
 {
-	i2c_driver->probe_new = mlxsw_i2c_probe;
+	i2c_driver->probe = mlxsw_i2c_probe;
 	i2c_driver->remove = mlxsw_i2c_remove;
 	return i2c_add_driver(i2c_driver);
 }

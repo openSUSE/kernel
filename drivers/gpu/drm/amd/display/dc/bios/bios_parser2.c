@@ -75,6 +75,10 @@ static enum bp_result get_firmware_info_v3_4(
 	struct bios_parser *bp,
 	struct dc_firmware_info *info);
 
+static enum bp_result get_firmware_info_v3_5(
+	struct bios_parser *bp,
+	struct dc_firmware_info *info);
+
 static struct atom_hpd_int_record *get_hpd_record(struct bios_parser *bp,
 		struct atom_display_object_path_v2 *object);
 
@@ -1594,8 +1598,6 @@ static bool bios_parser_is_device_id_supported(
 		return (le16_to_cpu(bp->object_info_tbl.v1_5->supporteddevices) & mask) != 0;
 		break;
 	}
-
-	return false;
 }
 
 static uint32_t bios_parser_get_ss_entry_number(
@@ -1755,6 +1757,9 @@ static enum bp_result bios_parser_get_firmware_info(
 				break;
 			case 4:
 				result = get_firmware_info_v3_4(bp, info);
+				break;
+			case 5:
+				result = get_firmware_info_v3_5(bp, info);
 				break;
 			default:
 				break;
@@ -2046,6 +2051,63 @@ static enum bp_result get_firmware_info_v3_4(
 	return BP_RESULT_OK;
 }
 
+static enum bp_result get_firmware_info_v3_5(
+	struct bios_parser *bp,
+	struct dc_firmware_info *info)
+{
+	struct atom_firmware_info_v3_5 *firmware_info;
+	struct atom_common_table_header *header;
+	struct atom_data_revision revision;
+	struct atom_display_controller_info_v4_5 *dce_info_v4_5 = NULL;
+
+	if (!info)
+		return BP_RESULT_BADINPUT;
+
+	firmware_info = GET_IMAGE(struct atom_firmware_info_v3_5,
+			DATA_TABLES(firmwareinfo));
+
+	if (!firmware_info)
+		return BP_RESULT_BADBIOSTABLE;
+
+	memset(info, 0, sizeof(*info));
+
+	if (firmware_info->board_i2c_feature_id == 0x2) {
+		info->oem_i2c_present = true;
+		info->oem_i2c_obj_id = firmware_info->board_i2c_feature_gpio_id;
+	} else {
+		info->oem_i2c_present = false;
+	}
+
+	header = GET_IMAGE(struct atom_common_table_header,
+					DATA_TABLES(dce_info));
+
+	get_atom_data_table_revision(header, &revision);
+
+	switch (revision.major) {
+	case 4:
+		switch (revision.minor) {
+		case 5:
+			dce_info_v4_5 = GET_IMAGE(struct atom_display_controller_info_v4_5,
+							DATA_TABLES(dce_info));
+
+			if (!dce_info_v4_5)
+				return BP_RESULT_BADBIOSTABLE;
+
+			 /* 100MHz expected */
+			info->pll_info.crystal_frequency = dce_info_v4_5->dce_refclk_10khz * 10;
+			break;
+		default:
+			break;
+		}
+		break;
+	default:
+		break;
+	}
+
+
+	return BP_RESULT_OK;
+}
+
 static enum bp_result bios_parser_get_encoder_cap_info(
 	struct dc_bios *dcb,
 	struct graphics_object_id object_id,
@@ -2223,22 +2285,22 @@ static enum bp_result bios_parser_get_disp_connector_caps_info(
 
 	switch (bp->object_info_tbl.revision.minor) {
 	case 4:
-	    default:
-		    object = get_bios_object(bp, object_id);
+		default:
+			object = get_bios_object(bp, object_id);
 
-		    if (!object)
-			    return BP_RESULT_BADINPUT;
+			if (!object)
+				return BP_RESULT_BADINPUT;
 
-		    record = get_disp_connector_caps_record(bp, object);
-		    if (!record)
-			    return BP_RESULT_NORECORD;
+			record = get_disp_connector_caps_record(bp, object);
+			if (!record)
+				return BP_RESULT_NORECORD;
 
-		    info->INTERNAL_DISPLAY =
-			    (record->connectcaps & ATOM_CONNECTOR_CAP_INTERNAL_DISPLAY) ? 1 : 0;
-		    info->INTERNAL_DISPLAY_BL =
-			    (record->connectcaps & ATOM_CONNECTOR_CAP_INTERNAL_DISPLAY_BL) ? 1 : 0;
-		    break;
-	    case 5:
+			info->INTERNAL_DISPLAY =
+				(record->connectcaps & ATOM_CONNECTOR_CAP_INTERNAL_DISPLAY) ? 1 : 0;
+			info->INTERNAL_DISPLAY_BL =
+				(record->connectcaps & ATOM_CONNECTOR_CAP_INTERNAL_DISPLAY_BL) ? 1 : 0;
+			break;
+	case 5:
 		object_path_v3 = get_bios_object_from_path_v3(bp, object_id);
 
 		if (!object_path_v3)
@@ -2400,6 +2462,24 @@ static enum bp_result get_vram_info_v30(
 	return result;
 }
 
+static enum bp_result get_vram_info_from_umc_info_v40(
+		struct bios_parser *bp,
+		struct dc_vram_info *info)
+{
+	struct atom_umc_info_v4_0 *info_v40;
+	enum bp_result result = BP_RESULT_OK;
+
+	info_v40 = GET_IMAGE(struct atom_umc_info_v4_0,
+						DATA_TABLES(umc_info));
+
+	if (info_v40 == NULL)
+		return BP_RESULT_BADBIOSTABLE;
+
+	info->num_chans = info_v40->channel_num;
+	info->dram_channel_width_bytes = (1 << info_v40->channel_width) / 8;
+
+	return result;
+}
 
 /*
  * get_integrated_info_v11
@@ -3046,7 +3126,31 @@ static enum bp_result bios_parser_get_vram_info(
 	struct atom_common_table_header *header;
 	struct atom_data_revision revision;
 
-	if (info && DATA_TABLES(vram_info)) {
+	// vram info moved to umc_info for DCN4x
+	if (dcb->ctx->dce_version >= DCN_VERSION_4_01 &&
+		dcb->ctx->dce_version < DCN_VERSION_MAX &&
+		info && DATA_TABLES(umc_info)) {
+		header = GET_IMAGE(struct atom_common_table_header,
+					DATA_TABLES(umc_info));
+
+		get_atom_data_table_revision(header, &revision);
+
+		switch (revision.major) {
+		case 4:
+			switch (revision.minor) {
+			case 0:
+				result = get_vram_info_from_umc_info_v40(bp, info);
+				break;
+			default:
+				break;
+			}
+			break;
+		default:
+			break;
+		}
+	}
+
+	if (result != BP_RESULT_OK && info && DATA_TABLES(vram_info)) {
 		header = GET_IMAGE(struct atom_common_table_header,
 					DATA_TABLES(vram_info));
 
@@ -3340,27 +3444,28 @@ static enum bp_result get_bracket_layout_record(
 		DC_LOG_DETECTION_EDID_PARSER("Invalid slot_layout_info\n");
 		return BP_RESULT_BADINPUT;
 	}
+
 	tbl = &bp->object_info_tbl;
 	v1_4 = tbl->v1_4;
 	v1_5 = tbl->v1_5;
 
 	result = BP_RESULT_NORECORD;
 	switch (bp->object_info_tbl.revision.minor) {
-		case 4:
-		default:
-			for (i = 0; i < v1_4->number_of_path; ++i)	{
-				if (bracket_layout_id ==
-					v1_4->display_path[i].display_objid) {
-					result = update_slot_layout_info(dcb, i, slot_layout_info);
-					break;
-				}
+	case 4:
+	default:
+		for (i = 0; i < v1_4->number_of_path; ++i) {
+			if (bracket_layout_id == v1_4->display_path[i].display_objid) {
+				result = update_slot_layout_info(dcb, i, slot_layout_info);
+				break;
 			}
-		    break;
-		case 5:
-			for (i = 0; i < v1_5->number_of_path; ++i)
-				result = update_slot_layout_info_v2(dcb, i, slot_layout_info);
-			break;
+		}
+		break;
+	case 5:
+		for (i = 0; i < v1_5->number_of_path; ++i)
+			result = update_slot_layout_info_v2(dcb, i, slot_layout_info);
+		break;
 	}
+
 	return result;
 }
 
@@ -3369,9 +3474,7 @@ static enum bp_result bios_get_board_layout_info(
 	struct board_layout_info *board_layout_info)
 {
 	unsigned int i;
-
 	struct bios_parser *bp;
-
 	static enum bp_result record_result;
 	unsigned int max_slots;
 
@@ -3380,7 +3483,6 @@ static enum bp_result bios_get_board_layout_info(
 		GENERICOBJECT_BRACKET_LAYOUT_ENUM_ID2,
 		0, 0
 	};
-
 
 	bp = BP_FROM_DCB(dcb);
 
@@ -3562,7 +3664,6 @@ static const struct dc_vbios_funcs vbios_funcs = {
 	.bios_parser_destroy = firmware_parser_destroy,
 
 	.get_board_layout_info = bios_get_board_layout_info,
-	/* TODO: use this fn in hw init?*/
 	.pack_data_tables = bios_parser_pack_data_tables,
 
 	.get_atom_dc_golden_table = bios_get_atom_dc_golden_table,
@@ -3672,7 +3773,7 @@ static bool bios_parser2_construct(
 	bp->base.integrated_info = bios_parser_create_integrated_info(&bp->base);
 	bp->base.fw_info_valid = bios_parser_get_firmware_info(&bp->base, &bp->base.fw_info) == BP_RESULT_OK;
 	bios_parser_get_vram_info(&bp->base, &bp->base.vram_info);
-
+	bios_parser_get_soc_bb_info(&bp->base, &bp->base.bb_info);
 	return true;
 }
 

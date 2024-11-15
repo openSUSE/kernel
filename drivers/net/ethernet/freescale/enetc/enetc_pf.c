@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: (GPL-2.0+ OR BSD-3-Clause)
 /* Copyright 2017-2019 NXP */
 
-#include <asm/unaligned.h>
+#include <linux/unaligned.h>
 #include <linux/mdio.h>
 #include <linux/module.h>
 #include <linux/fsl/enetc_mdio.h>
@@ -665,18 +665,10 @@ static int enetc_sriov_configure(struct pci_dev *pdev, int num_vfs)
 
 	if (!num_vfs) {
 		enetc_msg_psi_free(pf);
-		kfree(pf->vf_state);
 		pf->num_vfs = 0;
 		pci_disable_sriov(pdev);
 	} else {
 		pf->num_vfs = num_vfs;
-
-		pf->vf_state = kcalloc(num_vfs, sizeof(struct enetc_vf_state),
-				       GFP_KERNEL);
-		if (!pf->vf_state) {
-			pf->num_vfs = 0;
-			return -ENOMEM;
-		}
 
 		err = enetc_msg_psi_init(pf);
 		if (err) {
@@ -696,7 +688,6 @@ static int enetc_sriov_configure(struct pci_dev *pdev, int num_vfs)
 err_en_sriov:
 	enetc_msg_psi_free(pf);
 err_msg_psi:
-	kfree(pf->vf_state);
 	pf->num_vfs = 0;
 
 	return err;
@@ -863,7 +854,6 @@ static int enetc_imdio_create(struct enetc_pf *pf)
 	struct device *dev = &pf->si->pdev->dev;
 	struct enetc_mdio_priv *mdio_priv;
 	struct phylink_pcs *phylink_pcs;
-	struct mdio_device *mdio_device;
 	struct mii_bus *bus;
 	int err;
 
@@ -889,17 +879,9 @@ static int enetc_imdio_create(struct enetc_pf *pf)
 		goto free_mdio_bus;
 	}
 
-	mdio_device = mdio_device_create(bus, 0);
-	if (IS_ERR(mdio_device)) {
-		err = PTR_ERR(mdio_device);
-		dev_err(dev, "cannot create mdio device (%d)\n", err);
-		goto unregister_mdiobus;
-	}
-
-	phylink_pcs = lynx_pcs_create(mdio_device);
-	if (!phylink_pcs) {
-		mdio_device_free(mdio_device);
-		err = -ENOMEM;
+	phylink_pcs = lynx_pcs_create_mdiodev(bus, 0);
+	if (IS_ERR(phylink_pcs)) {
+		err = PTR_ERR(phylink_pcs);
 		dev_err(dev, "cannot create lynx pcs (%d)\n", err);
 		goto unregister_mdiobus;
 	}
@@ -918,13 +900,8 @@ free_mdio_bus:
 
 static void enetc_imdio_remove(struct enetc_pf *pf)
 {
-	struct mdio_device *mdio_device;
-
-	if (pf->pcs) {
-		mdio_device = lynx_get_mdio_device(pf->pcs);
-		mdio_device_free(mdio_device);
+	if (pf->pcs)
 		lynx_pcs_destroy(pf->pcs);
-	}
 	if (pf->imdio) {
 		mdiobus_unregister(pf->imdio);
 		mdiobus_free(pf->imdio);
@@ -934,6 +911,7 @@ static void enetc_imdio_remove(struct enetc_pf *pf)
 static bool enetc_port_has_pcs(struct enetc_pf *pf)
 {
 	return (pf->if_mode == PHY_INTERFACE_MODE_SGMII ||
+		pf->if_mode == PHY_INTERFACE_MODE_1000BASEX ||
 		pf->if_mode == PHY_INTERFACE_MODE_2500BASEX ||
 		pf->if_mode == PHY_INTERFACE_MODE_USXGMII);
 }
@@ -1130,6 +1108,8 @@ static int enetc_phylink_create(struct enetc_ndev_priv *priv,
 		  pf->phylink_config.supported_interfaces);
 	__set_bit(PHY_INTERFACE_MODE_SGMII,
 		  pf->phylink_config.supported_interfaces);
+	__set_bit(PHY_INTERFACE_MODE_1000BASEX,
+		  pf->phylink_config.supported_interfaces);
 	__set_bit(PHY_INTERFACE_MODE_2500BASEX,
 		  pf->phylink_config.supported_interfaces);
 	__set_bit(PHY_INTERFACE_MODE_USXGMII,
@@ -1200,13 +1180,8 @@ static int enetc_init_port_rss_memory(struct enetc_si *si)
 
 static int enetc_pf_register_with_ierb(struct pci_dev *pdev)
 {
-	struct device_node *node = pdev->dev.of_node;
 	struct platform_device *ierb_pdev;
 	struct device_node *ierb_node;
-
-	/* Don't register with the IERB if the PF itself is disabled */
-	if (!node || !of_device_is_available(node))
-		return 0;
 
 	ierb_node = of_find_compatible_node(NULL, NULL,
 					    "fsl,ls1028a-enetc-ierb");
@@ -1299,15 +1274,15 @@ static int enetc_pf_probe(struct pci_dev *pdev,
 		goto err_psi_create;
 	}
 
-	if (node && !of_device_is_available(node)) {
-		dev_info(&pdev->dev, "device is disabled, skipping\n");
-		err = -ENODEV;
-		goto err_device_disabled;
-	}
-
 	pf = enetc_si_priv(si);
 	pf->si = si;
 	pf->total_vfs = pci_sriov_get_totalvfs(pdev);
+	if (pf->total_vfs) {
+		pf->vf_state = kcalloc(pf->total_vfs, sizeof(struct enetc_vf_state),
+				       GFP_KERNEL);
+		if (!pf->vf_state)
+			goto err_alloc_vf_state;
+	}
 
 	err = enetc_setup_mac_addresses(node, pf);
 	if (err)
@@ -1384,8 +1359,9 @@ err_alloc_si_res:
 	si->ndev = NULL;
 	free_netdev(ndev);
 err_alloc_netdev:
-err_device_disabled:
 err_setup_mac_addresses:
+	kfree(pf->vf_state);
+err_alloc_vf_state:
 	enetc_psi_destroy(pdev);
 err_psi_create:
 	return err;
@@ -1412,6 +1388,7 @@ static void enetc_pf_remove(struct pci_dev *pdev)
 	enetc_free_si_resources(priv);
 
 	free_netdev(si->ndev);
+	kfree(pf->vf_state);
 
 	enetc_psi_destroy(pdev);
 }

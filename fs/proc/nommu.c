@@ -40,7 +40,7 @@ static int nommu_region_show(struct seq_file *m, struct vm_region *region)
 
 	if (file) {
 		struct inode *inode = file_inode(region->vm_file);
-		dev = inode_get_dev(inode);
+		dev = inode->i_sb->s_dev;
 		ino = inode->i_ino;
 	}
 
@@ -58,7 +58,7 @@ static int nommu_region_show(struct seq_file *m, struct vm_region *region)
 
 	if (file) {
 		seq_pad(m, ' ');
-		seq_file_path(m, file, "");
+		seq_path(m, file_user_path(file), "");
 	}
 
 	seq_putc(m, '\n');

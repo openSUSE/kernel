@@ -2630,25 +2630,20 @@ lpfc_get_hba_model_desc(struct lpfc_hba *phba, uint8_t *mdp, uint8_t *descp)
 				"Obsolete, Unsupported Fibre Channel Adapter"};
 		break;
 	case PCI_DEVICE_ID_ZEPHYR:
-		m = (typeof(m)){"LPe11000", "PCIe",
-				 "Obsolete, Unsupported Fibre Channel Adapter"};
+		m = (typeof(m)){"LPe11000", "PCIe", "Fibre Channel Adapter"};
 		break;
 	case PCI_DEVICE_ID_ZEPHYR_SCSP:
-		m = (typeof(m)){"LPe11000", "PCIe",
-				"Obsolete, Unsupported Fibre Channel Adapter"};
+		m = (typeof(m)){"LPe11000", "PCIe", "Fibre Channel Adapter"};
 		break;
 	case PCI_DEVICE_ID_ZEPHYR_DCSP:
-		m = (typeof(m)){"LP2105", "PCIe",
-				"Obsolete, Unsupported FCoE Adapter"};
+		m = (typeof(m)){"LP2105", "PCIe", "FCoE Adapter"};
 		GE = 1;
 		break;
 	case PCI_DEVICE_ID_ZMID:
-		m = (typeof(m)){"LPe1150", "PCIe",
-				"Obsolete, Unsupported Fibre Channel Adapter"};
+		m = (typeof(m)){"LPe1150", "PCIe", "Fibre Channel Adapter"};
 		break;
 	case PCI_DEVICE_ID_ZSMB:
-		m = (typeof(m)){"LPe111", "PCIe",
-				"Obsolete, Unsupported Fibre Channel Adapter"};
+		m = (typeof(m)){"LPe111", "PCIe", "Fibre Channel Adapter"};
 		break;
 	case PCI_DEVICE_ID_LP101:
 		m = (typeof(m)){"LP101", "PCI-X",
@@ -2667,28 +2662,22 @@ lpfc_get_hba_model_desc(struct lpfc_hba *phba, uint8_t *mdp, uint8_t *descp)
 				"Obsolete, Unsupported Fibre Channel Adapter"};
 		break;
 	case PCI_DEVICE_ID_SAT:
-		m = (typeof(m)){"LPe12000", "PCIe",
-				"Obsolete, Unsupported Fibre Channel Adapter"};
+		m = (typeof(m)){"LPe12000", "PCIe", "Fibre Channel Adapter"};
 		break;
 	case PCI_DEVICE_ID_SAT_MID:
-		m = (typeof(m)){"LPe1250", "PCIe",
-			"Obsolete, Unsupported Fibre Channel Adapter"};
+		m = (typeof(m)){"LPe1250", "PCIe", "Fibre Channel Adapter"};
 		break;
 	case PCI_DEVICE_ID_SAT_SMB:
-		m = (typeof(m)){"LPe121", "PCIe",
-			"Obsolete, Unsupported Fibre Channel Adapter"};
+		m = (typeof(m)){"LPe121", "PCIe", "Fibre Channel Adapter"};
 		break;
 	case PCI_DEVICE_ID_SAT_DCSP:
-		m = (typeof(m)){"LPe12002-SP", "PCIe",
-			"Obsolete, Unsupported Fibre Channel Adapter"};
+		m = (typeof(m)){"LPe12002-SP", "PCIe", "Fibre Channel Adapter"};
 		break;
 	case PCI_DEVICE_ID_SAT_SCSP:
-		m = (typeof(m)){"LPe12000-SP", "PCIe",
-			"Obsolete, Unsupported Fibre Channel Adapter"};
+		m = (typeof(m)){"LPe12000-SP", "PCIe", "Fibre Channel Adapter"};
 		break;
 	case PCI_DEVICE_ID_SAT_S:
-		m = (typeof(m)){"LPe12000-S", "PCIe",
-			"Obsolete, Unsupported Fibre Channel Adapter"};
+		m = (typeof(m)){"LPe12000-S", "PCIe", "Fibre Channel Adapter"};
 		break;
 	case PCI_DEVICE_ID_PROTEUS_VF:
 		m = (typeof(m)){"LPev12000", "PCIe IOV",
@@ -2704,25 +2693,22 @@ lpfc_get_hba_model_desc(struct lpfc_hba *phba, uint8_t *mdp, uint8_t *descp)
 		break;
 	case PCI_DEVICE_ID_TIGERSHARK:
 		oneConnect = 1;
-		m = (typeof(m)){"OCe10100", "PCIe",
-				"Obsolete, Unsupported FCoE Adapter"};
+		m = (typeof(m)){"OCe10100", "PCIe", "FCoE"};
 		break;
 	case PCI_DEVICE_ID_TOMCAT:
 		oneConnect = 1;
-		m = (typeof(m)){"OCe11100", "PCIe",
-				"Obsolete, Unsupported Fibre Channel Adapter"};
+		m = (typeof(m)){"OCe11100", "PCIe", "FCoE"};
 		break;
 	case PCI_DEVICE_ID_FALCON:
 		m = (typeof(m)){"LPSe12002-ML1-E", "PCIe",
-				"Obsolete, Unsupported Fibre Channel Adapter"};
+				"EmulexSecure Fibre"};
 		break;
 	case PCI_DEVICE_ID_BALIUS:
 		m = (typeof(m)){"LPVe12002", "PCIe Shared I/O",
 				"Obsolete, Unsupported Fibre Channel Adapter"};
 		break;
 	case PCI_DEVICE_ID_LANCER_FC:
-		m = (typeof(m)){"LPe16000", "PCIe",
-				"Obsolete, Unsupported Fibre Channel Adapter"};
+		m = (typeof(m)){"LPe16000", "PCIe", "Fibre Channel Adapter"};
 		break;
 	case PCI_DEVICE_ID_LANCER_FC_VF:
 		m = (typeof(m)){"LPe16000", "PCIe",
@@ -2730,8 +2716,7 @@ lpfc_get_hba_model_desc(struct lpfc_hba *phba, uint8_t *mdp, uint8_t *descp)
 		break;
 	case PCI_DEVICE_ID_LANCER_FCOE:
 		oneConnect = 1;
-		m = (typeof(m)){"OCe15100", "PCIe",
-				"Obsolete, Unsupported FCoE Adapter"};
+		m = (typeof(m)){"OCe15100", "PCIe", "FCoE"};
 		break;
 	case PCI_DEVICE_ID_LANCER_FCOE_VF:
 		oneConnect = 1;
@@ -2750,8 +2735,7 @@ lpfc_get_hba_model_desc(struct lpfc_hba *phba, uint8_t *mdp, uint8_t *descp)
 	case PCI_DEVICE_ID_SKYHAWK:
 	case PCI_DEVICE_ID_SKYHAWK_VF:
 		oneConnect = 1;
-		m = (typeof(m)){"OCe14000", "PCIe",
-				"Obsolete, Unsupported FCoE Adapter"};
+		m = (typeof(m)){"OCe14000", "PCIe", "FCoE"};
 		break;
 	default:
 		m = (typeof(m)){"Unknown", "", ""};
@@ -12261,13 +12245,9 @@ lpfc_sli_enable_intr(struct lpfc_hba *phba, uint32_t cfg_mode)
 
 	/* Need to issue conf_port mbox cmd before conf_msi mbox cmd */
 	retval = lpfc_sli_config_port(phba, LPFC_SLI_REV3);
-	if (retval) {
-		/* Try SLI-2 before erroring out */
-		retval = lpfc_sli_config_port(phba, LPFC_SLI_REV2);
-		if (retval)
-			return intr_mode;
-	}
- 	clear_bit(HBA_NEEDS_CFG_PORT, &phba->hba_flag);
+	if (retval)
+		return intr_mode;
+	clear_bit(HBA_NEEDS_CFG_PORT, &phba->hba_flag);
 
 	if (cfg_mode == 2) {
 		/* Now, try to enable MSI-X interrupt mode */
@@ -12478,9 +12458,6 @@ lpfc_cpu_affinity_check(struct lpfc_hba *phba, int vectors)
 	int max_core_id, min_core_id;
 	struct lpfc_vector_map_info *cpup;
 	struct lpfc_vector_map_info *new_cpup;
-#ifdef CONFIG_X86
-	struct cpuinfo_x86 *cpuinfo;
-#endif
 #ifdef CONFIG_SCSI_LPFC_DEBUG_FS
 	struct lpfc_hdwq_stat *c_stat;
 #endif
@@ -12494,9 +12471,8 @@ lpfc_cpu_affinity_check(struct lpfc_hba *phba, int vectors)
 	for_each_present_cpu(cpu) {
 		cpup = &phba->sli4_hba.cpu_map[cpu];
 #ifdef CONFIG_X86
-		cpuinfo = &cpu_data(cpu);
-		cpup->phys_id = cpuinfo->phys_proc_id;
-		cpup->core_id = cpuinfo->cpu_core_id;
+		cpup->phys_id = topology_physical_package_id(cpu);
+		cpup->core_id = topology_core_id(cpu);
 		if (lpfc_find_hyper(phba, cpu, cpup->phys_id, cpup->core_id))
 			cpup->flag |= LPFC_CPU_MAP_HYPER;
 #else
@@ -13907,12 +13883,7 @@ fcponly:
 	if (sli4_params->sge_supp_len > LPFC_MAX_SGE_SIZE)
 		sli4_params->sge_supp_len = LPFC_MAX_SGE_SIZE;
 
-	rc = dma_set_max_seg_size(&phba->pcidev->dev, sli4_params->sge_supp_len);
-	if (unlikely(rc)) {
-		lpfc_printf_log(phba, KERN_INFO, LOG_INIT,
-				"6400 Can't set dma maximum segment size\n");
-		return rc;
-	}
+	dma_set_max_seg_size(&phba->pcidev->dev, sli4_params->sge_supp_len);
 
 	/*
 	 * Check whether the adapter supports an embedded copy of the

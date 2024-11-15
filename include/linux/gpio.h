@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0 */
 /*
- * <linux/gpio.h>
+ * NOTE: This header *must not* be included.
  *
  * This is the LEGACY GPIO bulk include file, including legacy APIs. It is
  * used for GPIO drivers still referencing the global GPIO numberspace,
@@ -16,32 +16,13 @@
 
 struct device;
 
-/* see Documentation/driver-api/gpio/legacy.rst */
-
 /* make these flag values available regardless of GPIO kconfig options */
-#define GPIOF_DIR_OUT	(0 << 0)
-#define GPIOF_DIR_IN	(1 << 0)
-
-#define GPIOF_INIT_LOW	(0 << 1)
-#define GPIOF_INIT_HIGH	(1 << 1)
-
-#define GPIOF_IN		(GPIOF_DIR_IN)
-#define GPIOF_OUT_INIT_LOW	(GPIOF_DIR_OUT | GPIOF_INIT_LOW)
-#define GPIOF_OUT_INIT_HIGH	(GPIOF_DIR_OUT | GPIOF_INIT_HIGH)
+#define GPIOF_IN		((1 << 0))
+#define GPIOF_OUT_INIT_LOW	((0 << 0) | (0 << 1))
+#define GPIOF_OUT_INIT_HIGH	((0 << 0) | (1 << 1))
 
 /* Gpio pin is active-low */
 #define GPIOF_ACTIVE_LOW        (1 << 2)
-
-/* Gpio pin is open drain */
-#define GPIOF_OPEN_DRAIN	(1 << 3)
-
-/* Gpio pin is open source */
-#define GPIOF_OPEN_SOURCE	(1 << 4)
-
-#define GPIOF_EXPORT		(1 << 5)
-#define GPIOF_EXPORT_CHANGEABLE	(1 << 6)
-#define GPIOF_EXPORT_DIR_FIXED	(GPIOF_EXPORT)
-#define GPIOF_EXPORT_DIR_CHANGEABLE (GPIOF_EXPORT | GPIOF_EXPORT_CHANGEABLE)
 
 /**
  * struct gpio - a structure describing a GPIO with configuration
@@ -85,6 +66,12 @@ static inline bool gpio_is_valid(int number)
  * Until they are all fixed, leave 0-512 space for them.
  */
 #define GPIO_DYNAMIC_BASE	512
+/*
+ * Define the maximum of the possible GPIO in the global numberspace.
+ * While the GPIO base and numbers are positive, we limit it with signed
+ * maximum as a lot of code is using negative values for special cases.
+ */
+#define GPIO_DYNAMIC_MAX	INT_MAX
 
 /* Always use the library code for GPIO management calls,
  * or when sleeping may be involved.
@@ -119,21 +106,12 @@ static inline void gpio_set_value(unsigned gpio, int value)
 	return gpiod_set_raw_value(gpio_to_desc(gpio), value);
 }
 
-static inline int gpio_cansleep(unsigned gpio)
-{
-	return gpiod_cansleep(gpio_to_desc(gpio));
-}
-
 static inline int gpio_to_irq(unsigned gpio)
 {
 	return gpiod_to_irq(gpio_to_desc(gpio));
 }
 
 int gpio_request_one(unsigned gpio, unsigned long flags, const char *label);
-int gpio_request_array(const struct gpio *array, size_t num);
-void gpio_free_array(const struct gpio *array, size_t num);
-
-/* CONFIG_GPIOLIB: bindings for managed devices that want to request gpios */
 
 int devm_gpio_request(struct device *dev, unsigned gpio, const char *label);
 int devm_gpio_request_one(struct device *dev, unsigned gpio,
@@ -162,20 +140,7 @@ static inline int gpio_request_one(unsigned gpio,
 	return -ENOSYS;
 }
 
-static inline int gpio_request_array(const struct gpio *array, size_t num)
-{
-	return -ENOSYS;
-}
-
 static inline void gpio_free(unsigned gpio)
-{
-	might_sleep();
-
-	/* GPIO can never have been requested */
-	WARN_ON(1);
-}
-
-static inline void gpio_free_array(const struct gpio *array, size_t num)
 {
 	might_sleep();
 
@@ -204,13 +169,6 @@ static inline void gpio_set_value(unsigned gpio, int value)
 {
 	/* GPIO can never have been requested or set as output */
 	WARN_ON(1);
-}
-
-static inline int gpio_cansleep(unsigned gpio)
-{
-	/* GPIO can never have been requested or set as {in,out}put */
-	WARN_ON(1);
-	return 0;
 }
 
 static inline int gpio_get_value_cansleep(unsigned gpio)

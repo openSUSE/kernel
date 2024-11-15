@@ -15,7 +15,6 @@
 #include <linux/mtd/mtd.h>
 #include <linux/mtd/rawnand.h>
 #include <linux/of.h>
-#include <linux/of_device.h>
 #include <linux/platform_device.h>
 #include <linux/slab.h>
 
@@ -160,8 +159,7 @@ struct rk_nfc_nand_chip {
 	u32 timing;
 
 	u8 nsels;
-	u8 sels[];
-	/* Nothing after this field. */
+	u8 sels[] __counted_by(nsels);
 };
 
 struct rk_nfc {
@@ -1121,7 +1119,7 @@ static int rk_nfc_nand_chip_init(struct device *dev, struct rk_nfc *nfc,
 		return -EINVAL;
 	}
 
-	rknand = devm_kzalloc(dev, sizeof(*rknand) + nsels * sizeof(u8),
+	rknand = devm_kzalloc(dev, struct_size(rknand, sels, nsels),
 			      GFP_KERNEL);
 	if (!rknand)
 		return -ENOMEM;
@@ -1213,7 +1211,7 @@ static void rk_nfc_chips_cleanup(struct rk_nfc *nfc)
 
 static int rk_nfc_nand_chips_init(struct device *dev, struct rk_nfc *nfc)
 {
-	struct device_node *np = dev->of_node, *nand_np;
+	struct device_node *np = dev->of_node;
 	int nchips = of_get_child_count(np);
 	int ret;
 
@@ -1223,10 +1221,9 @@ static int rk_nfc_nand_chips_init(struct device *dev, struct rk_nfc *nfc)
 		return -EINVAL;
 	}
 
-	for_each_child_of_node(np, nand_np) {
+	for_each_child_of_node_scoped(np, nand_np) {
 		ret = rk_nfc_nand_chip_init(dev, nfc, nand_np);
 		if (ret) {
-			of_node_put(nand_np);
 			rk_nfc_chips_cleanup(nfc);
 			return ret;
 		}

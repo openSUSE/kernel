@@ -361,7 +361,7 @@ fail_power_off:
 	return err;
 }
 
-static int tegra_usb_remove(struct platform_device *pdev)
+static void tegra_usb_remove(struct platform_device *pdev)
 {
 	struct tegra_usb *usb = platform_get_drvdata(pdev);
 
@@ -370,11 +370,9 @@ static int tegra_usb_remove(struct platform_device *pdev)
 
 	pm_runtime_put_sync_suspend(&pdev->dev);
 	pm_runtime_force_suspend(&pdev->dev);
-
-	return 0;
 }
 
-static int __maybe_unused tegra_usb_runtime_resume(struct device *dev)
+static int tegra_usb_runtime_resume(struct device *dev)
 {
 	struct tegra_usb *usb = dev_get_drvdata(dev);
 	int err;
@@ -388,7 +386,7 @@ static int __maybe_unused tegra_usb_runtime_resume(struct device *dev)
 	return 0;
 }
 
-static int __maybe_unused tegra_usb_runtime_suspend(struct device *dev)
+static int tegra_usb_runtime_suspend(struct device *dev)
 {
 	struct tegra_usb *usb = dev_get_drvdata(dev);
 
@@ -398,18 +396,17 @@ static int __maybe_unused tegra_usb_runtime_suspend(struct device *dev)
 }
 
 static const struct dev_pm_ops tegra_usb_pm = {
-	SET_RUNTIME_PM_OPS(tegra_usb_runtime_suspend, tegra_usb_runtime_resume,
-			   NULL)
+	RUNTIME_PM_OPS(tegra_usb_runtime_suspend, tegra_usb_runtime_resume, NULL)
 };
 
 static struct platform_driver tegra_usb_driver = {
 	.driver = {
 		.name = "tegra-usb",
 		.of_match_table = tegra_usb_of_match,
-		.pm = &tegra_usb_pm,
+		.pm = pm_ptr(&tegra_usb_pm),
 	},
 	.probe = tegra_usb_probe,
-	.remove = tegra_usb_remove,
+	.remove_new = tegra_usb_remove,
 };
 module_platform_driver(tegra_usb_driver);
 

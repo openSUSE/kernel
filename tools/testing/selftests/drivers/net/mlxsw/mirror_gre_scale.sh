@@ -79,7 +79,7 @@ mirror_gre_tunnels_create()
 		cat >> $MIRROR_GRE_BATCH_FILE <<-EOF
 			filter add dev $swp1 ingress pref 1000 \
 				protocol ipv6 \
-				flower $tcflags dst_ip $match_dip \
+				flower skip_sw dst_ip $match_dip \
 				action mirred egress mirror dev $tun
 		EOF
 	done
@@ -107,7 +107,7 @@ mirror_gre_tunnels_destroy()
 	done
 }
 
-__mirror_gre_test()
+mirror_gre_test()
 {
 	local count=$1; shift
 	local should_fail=$1; shift
@@ -131,20 +131,6 @@ __mirror_gre_test()
 	done
 }
 
-mirror_gre_test()
-{
-	local count=$1; shift
-	local should_fail=$1; shift
-
-	if ! tc_offload_check $TC_FLOWER_NUM_NETIFS; then
-		check_err 1 "Could not test offloaded functionality"
-		return
-	fi
-
-	tcflags="skip_sw"
-	__mirror_gre_test $count $should_fail
-}
-
 mirror_gre_setup_prepare()
 {
 	h1=${NETIFS[p1]}
@@ -165,6 +151,7 @@ mirror_gre_setup_prepare()
 	simple_if_init $h3
 
 	ip link add name br1 type bridge vlan_filtering 1
+	ip link set dev br1 addrgenmode none
 	ip link set dev br1 up
 
 	ip link set dev $swp1 master br1

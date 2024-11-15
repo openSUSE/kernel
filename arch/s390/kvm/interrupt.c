@@ -19,13 +19,13 @@
 #include <linux/slab.h>
 #include <linux/bitmap.h>
 #include <linux/vmalloc.h>
+#include <asm/access-regs.h>
 #include <asm/asm-offsets.h>
 #include <asm/dis.h>
 #include <linux/uaccess.h>
 #include <asm/sclp.h>
 #include <asm/isc.h>
 #include <asm/gmap.h>
-#include <asm/switch_to.h>
 #include <asm/nmi.h>
 #include <asm/airq.h>
 #include <asm/tpi.h>
@@ -584,7 +584,7 @@ static int __write_machine_check(struct kvm_vcpu *vcpu,
 
 	mci.val = mchk->mcic;
 	/* take care of lazy register loading */
-	save_fpu_regs();
+	kvm_s390_fpu_store(vcpu->run);
 	save_access_regs(vcpu->run->s.regs.acrs);
 	if (MACHINE_HAS_GS && vcpu->arch.gs_enabled)
 		save_gs_cb(current->thread.gs_cb);
@@ -639,7 +639,7 @@ static int __write_machine_check(struct kvm_vcpu *vcpu,
 	rc |= put_guest_lc(vcpu, mci.val, (u64 __user *) __LC_MCCK_CODE);
 
 	/* Register-save areas */
-	if (MACHINE_HAS_VX) {
+	if (cpu_has_vx()) {
 		convert_vx_to_fp(fprs, (__vector128 *) vcpu->run->s.regs.vrs);
 		rc |= write_guest_lc(vcpu, __LC_FPREGS_SAVE_AREA, fprs, 128);
 	} else {
@@ -648,7 +648,7 @@ static int __write_machine_check(struct kvm_vcpu *vcpu,
 	}
 	rc |= write_guest_lc(vcpu, __LC_GPREGS_SAVE_AREA,
 			     vcpu->run->s.regs.gprs, 128);
-	rc |= put_guest_lc(vcpu, current->thread.fpu.fpc,
+	rc |= put_guest_lc(vcpu, vcpu->run->s.regs.fpc,
 			   (u32 __user *) __LC_FP_CREG_SAVE_AREA);
 	rc |= put_guest_lc(vcpu, vcpu->arch.sie_block->todpr,
 			   (u32 __user *) __LC_TOD_PROGREG_SAVE_AREA);
@@ -1387,6 +1387,7 @@ int __must_check kvm_s390_deliver_pending_interrupts(struct kvm_vcpu *vcpu)
 {
 	struct kvm_s390_local_interrupt *li = &vcpu->arch.local_int;
 	int rc = 0;
+	bool delivered = false;
 	unsigned long irq_type;
 	unsigned long irqs;
 
@@ -1460,6 +1461,19 @@ int __must_check kvm_s390_deliver_pending_interrupts(struct kvm_vcpu *vcpu)
 			WARN_ONCE(1, "Unknown pending irq type %ld", irq_type);
 			clear_bit(irq_type, &li->pending_irqs);
 		}
+		delivered |= !rc;
+	}
+
+	/*
+	 * We delivered at least one interrupt and modified the PC. Force a
+	 * singlestep event now.
+	 */
+	if (delivered && guestdbg_sstep_enabled(vcpu)) {
+		struct kvm_debug_exit_arch *debug_exit = &vcpu->run->debug.arch;
+
+		debug_exit->addr = vcpu->arch.sie_block->gpsw.addr;
+		debug_exit->type = KVM_SINGLESTEP;
+		vcpu->guest_debug |= KVM_GUESTDBG_EXIT_PENDING;
 	}
 
 	set_intercept_indicators(vcpu);
@@ -2772,7 +2786,7 @@ static struct page *get_map_page(struct kvm *kvm, u64 uaddr)
 
 	mmap_read_lock(kvm->mm);
 	get_user_pages_remote(kvm->mm, uaddr, 1, FOLL_WRITE,
-			      &page, NULL, NULL);
+			      &page, NULL);
 	mmap_read_unlock(kvm->mm);
 	return page;
 }
@@ -3394,7 +3408,6 @@ static void gib_alert_irq_handler(struct airq_struct *airq,
 
 static struct airq_struct gib_alert_irq = {
 	.handler = gib_alert_irq_handler,
-	.lsi_ptr = &gib_alert_irq.lsi_mask,
 };
 
 void kvm_s390_gib_destroy(void)
@@ -3434,6 +3447,8 @@ int __init kvm_s390_gib_init(u8 nisc)
 		rc = -EIO;
 		goto out_free_gib;
 	}
+	/* adapter interrupts used for AP (applicable here) don't use the LSI */
+	*gib_alert_irq.lsi_ptr = 0xff;
 
 	gib->nisc = nisc;
 	gib_origin = virt_to_phys(gib);

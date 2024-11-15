@@ -15,7 +15,6 @@
 #include <linux/cpu.h>
 #include <linux/spinlock.h>
 #include <linux/percpu-defs.h>
-#include <linux/kexec.h>
 #include <linux/mutex.h>
 #include <linux/list.h>
 #include <linux/memblock.h>
@@ -28,14 +27,13 @@
 #include <linux/log2.h>
 #include <linux/acpi.h>
 #include <linux/suspend.h>
-#include <linux/acpi.h>
 #include <asm/page.h>
 #include <asm/special_insns.h>
 #include <asm/msr-index.h>
 #include <asm/msr.h>
 #include <asm/cpufeature.h>
 #include <asm/tdx.h>
-#include <asm/intel-family.h>
+#include <asm/cpu_device_id.h>
 #include <asm/processor.h>
 #include <asm/mce.h>
 #include "tdx.h"
@@ -1428,9 +1426,9 @@ static void __init check_tdx_erratum(void)
 	 * private memory poisons that memory, and a subsequent read of
 	 * that memory triggers #MC.
 	 */
-	switch (boot_cpu_data.x86_model) {
-	case INTEL_FAM6_SAPPHIRERAPIDS_X:
-	case INTEL_FAM6_EMERALDRAPIDS_X:
+	switch (boot_cpu_data.x86_vfm) {
+	case INTEL_SAPPHIRERAPIDS_X:
+	case INTEL_EMERALDRAPIDS_X:
 		setup_force_cpu_bug(X86_BUG_TDX_PW_MCE);
 	}
 }
@@ -1479,10 +1477,6 @@ void __init tdx_init(void)
 	acpi_suspend_lowlevel = NULL;
 #endif
 
-#ifdef CONFIG_KEXEC_CORE
-	pr_info("Disable kexec. Turn off TDX in the BIOS to use kexec.\n");
-	kexec_disable();
-#endif
 	/*
 	 * Just use the first TDX KeyID as the 'global KeyID' and
 	 * leave the rest for TDX guests.

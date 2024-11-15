@@ -219,7 +219,7 @@ static void upd64031a_remove(struct i2c_client *client)
 /* ----------------------------------------------------------------------- */
 
 static const struct i2c_device_id upd64031a_id[] = {
-	{ "upd64031a", 0 },
+	{ "upd64031a" },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, upd64031a_id);
@@ -228,7 +228,7 @@ static struct i2c_driver upd64031a_driver = {
 	.driver = {
 		.name	= "upd64031a",
 	},
-	.probe_new	= upd64031a_probe,
+	.probe		= upd64031a_probe,
 	.remove		= upd64031a_remove,
 	.id_table	= upd64031a_id,
 };

@@ -6,7 +6,7 @@
 #include <linux/crc32.h>
 #include <linux/base64.h>
 #include <linux/prandom.h>
-#include <asm/unaligned.h>
+#include <linux/unaligned.h>
 #include <crypto/hash.h>
 #include <crypto/dh.h>
 #include "nvme.h"
@@ -756,12 +756,11 @@ static void nvme_queue_auth_work(struct work_struct *work)
 		__func__, chap->qid);
 	mutex_lock(&ctrl->dhchap_auth_mutex);
 	ret = nvme_auth_dhchap_setup_host_response(ctrl, chap);
+	mutex_unlock(&ctrl->dhchap_auth_mutex);
 	if (ret) {
-		mutex_unlock(&ctrl->dhchap_auth_mutex);
 		chap->error = ret;
 		goto fail2;
 	}
-	mutex_unlock(&ctrl->dhchap_auth_mutex);
 
 	/* DH-HMAC-CHAP Step 3: send reply */
 	dev_dbg(ctrl->device, "%s: qid %d send reply\n",

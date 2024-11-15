@@ -716,9 +716,15 @@ enum ibmvfc_target_action {
 	IBMVFC_TGT_ACTION_LOGOUT_DELETED_RPORT,
 };
 
+enum ibmvfc_protocol {
+	IBMVFC_PROTO_SCSI = 0,
+	IBMVFC_PROTO_NVME = 1,
+};
+
 struct ibmvfc_target {
 	struct list_head queue;
 	struct ibmvfc_host *vhost;
+	enum ibmvfc_protocol protocol;
 	u64 scsi_id;
 	u64 wwpn;
 	u64 new_scsi_id;
@@ -813,11 +819,18 @@ struct ibmvfc_queue {
 	unsigned long irq;
 	unsigned long hwq_id;
 	char name[32];
+	irq_handler_t handler;
 };
 
-struct ibmvfc_scsi_channels {
+struct ibmvfc_channels {
 	struct ibmvfc_queue *scrqs;
+	enum ibmvfc_protocol protocol;
 	unsigned int active_queues;
+	unsigned int desired_queues;
+	unsigned int max_queues;
+	int disc_buf_sz;
+	struct ibmvfc_discover_targets_entry *disc_buf;
+	dma_addr_t disc_buf_dma;
 };
 
 enum ibmvfc_host_action {
@@ -866,37 +879,33 @@ struct ibmvfc_host {
 	mempool_t *tgt_pool;
 	struct ibmvfc_queue crq;
 	struct ibmvfc_queue async_crq;
-	struct ibmvfc_scsi_channels scsi_scrqs;
+	struct ibmvfc_channels scsi_scrqs;
 	struct ibmvfc_npiv_login login_info;
 	union ibmvfc_npiv_login_data *login_buf;
 	dma_addr_t login_buf_dma;
 	struct ibmvfc_channel_setup *channel_setup_buf;
 	dma_addr_t channel_setup_dma;
-	int disc_buf_sz;
 	int log_level;
-	struct ibmvfc_discover_targets_entry *disc_buf;
 	struct mutex passthru_mutex;
-	int max_vios_scsi_channels;
+	unsigned int max_vios_scsi_channels;
 	int task_set;
 	int init_retries;
 	int discovery_threads;
 	int abort_threads;
-	int client_migrated;
-	int reinit;
-	int delay_init;
-	int scan_complete;
+	unsigned int client_migrated:1;
+	unsigned int reinit:1;
+	unsigned int delay_init:1;
+	unsigned int logged_in:1;
+	unsigned int mq_enabled:1;
+	unsigned int using_channels:1;
+	unsigned int do_enquiry:1;
+	unsigned int aborting_passthru:1;
+	unsigned int scan_complete:1;
 	int scan_timeout;
-	int logged_in;
-	int mq_enabled;
-	int using_channels;
-	int do_enquiry;
-	int client_scsi_channels;
-	int aborting_passthru;
 	int events_to_log;
 #define IBMVFC_AE_LINKUP	0x0001
 #define IBMVFC_AE_LINKDOWN	0x0002
 #define IBMVFC_AE_RSCN		0x0004
-	dma_addr_t disc_buf_dma;
 	unsigned int partition_number;
 	char partition_name[97];
 	void (*job_step) (struct ibmvfc_host *);

@@ -64,11 +64,19 @@ struct vfio_device {
 	struct completion comp;
 	struct iommufd_access *iommufd_access;
 	void (*put_kvm)(struct kvm *kvm);
+	struct inode *inode;
 #if IS_ENABLED(CONFIG_IOMMUFD)
 	struct iommufd_device *iommufd_device;
 	u8 iommufd_attached:1;
 #endif
 	u8 cdev_opened:1;
+#ifdef CONFIG_DEBUG_FS
+	/*
+	 * debug_root is a static property of the vfio_device
+	 * which must be set prior to registering the vfio_device.
+	 */
+	struct dentry *debug_root;
+#endif
 };
 
 /**
@@ -349,10 +357,8 @@ struct virqfd {
 	wait_queue_entry_t		wait;
 	poll_table		pt;
 	struct work_struct	shutdown;
-	struct virqfd		**pvirqfd;
-#ifndef __GENKSYMS__
 	struct work_struct	flush_inject;
-#endif
+	struct virqfd		**pvirqfd;
 };
 
 int vfio_virqfd_enable(void *opaque, int (*handler)(void *, void *),

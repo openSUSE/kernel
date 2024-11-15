@@ -14,7 +14,7 @@ before giving up the cpu to the scheduler in order to let something else run.
 Polling provides a latency advantage in cases where the guest can be run again
 very quickly by at least saving us a trip through the scheduler, normally on
 the order of a few micro-seconds, although performance benefits are workload
-dependant. In the event that no wakeup source arrives during the polling
+dependent. In the event that no wakeup source arrives during the polling
 interval or some other task on the runqueue is runnable the scheduler is
 invoked. Thus halt polling is especially useful on workloads with very short
 wakeup periods where the time spent halt polling is minimised and the time
@@ -79,11 +79,11 @@ adjustment of the polling interval.
 Module Parameters
 =================
 
-The kvm module has 3 tuneable module parameters to adjust the global max
-polling interval as well as the rate at which the polling interval is grown and
-shrunk. These variables are defined in include/linux/kvm_host.h and as module
-parameters in virt/kvm/kvm_main.c, or arch/powerpc/kvm/book3s_hv.c in the
-powerpc kvm-hv case.
+The kvm module has 4 tunable module parameters to adjust the global max polling
+interval, the initial value (to grow from 0), and the rate at which the polling
+interval is grown and shrunk. These variables are defined in
+include/linux/kvm_host.h and as module parameters in virt/kvm/kvm_main.c, or
+arch/powerpc/kvm/book3s_hv.c in the powerpc kvm-hv case.
 
 +-----------------------+---------------------------+-------------------------+
 |Module Parameter	|   Description		    |	     Default Value    |
@@ -105,18 +105,18 @@ powerpc kvm-hv case.
 |			| grow_halt_poll_ns()	    |			      |
 |			| function.		    |			      |
 +-----------------------+---------------------------+-------------------------+
-|halt_poll_ns_shrink	| The value by which the    | 0			      |
+|halt_poll_ns_shrink	| The value by which the    | 2			      |
 |			| halt polling interval is  |			      |
 |			| divided in the	    |			      |
 |			| shrink_halt_poll_ns()	    |			      |
 |			| function.		    |			      |
 +-----------------------+---------------------------+-------------------------+
 
-These module parameters can be set from the debugfs files in:
+These module parameters can be set from the sysfs files in:
 
 	/sys/module/kvm/parameters/
 
-Note: that these module parameters are system wide values and are not able to
+Note: these module parameters are system-wide values and are not able to
       be tuned on a per vm basis.
 
 Any changes to these parameters will be picked up by new and existing vCPUs the
@@ -142,12 +142,12 @@ Further Notes
   global max polling interval (halt_poll_ns) then the host will always poll for the
   entire block time and thus cpu utilisation will go to 100%.
 
-- Halt polling essentially presents a trade off between power usage and latency and
+- Halt polling essentially presents a trade-off between power usage and latency and
   the module parameters should be used to tune the affinity for this. Idle cpu time is
   essentially converted to host kernel time with the aim of decreasing latency when
   entering the guest.
 
 - Halt polling will only be conducted by the host when no other tasks are runnable on
   that cpu, otherwise the polling will cease immediately and schedule will be invoked to
-  allow that other task to run. Thus this doesn't allow a guest to denial of service the
-  cpu.
+  allow that other task to run. Thus this doesn't allow a guest to cause denial of service
+  of the cpu.

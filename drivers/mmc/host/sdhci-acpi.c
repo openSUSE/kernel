@@ -966,7 +966,7 @@ err_free:
 	return err;
 }
 
-static int sdhci_acpi_remove(struct platform_device *pdev)
+static void sdhci_acpi_remove(struct platform_device *pdev)
 {
 	struct sdhci_acpi_host *c = platform_get_drvdata(pdev);
 	struct device *dev = &pdev->dev;
@@ -988,8 +988,6 @@ static int sdhci_acpi_remove(struct platform_device *pdev)
 		c->slot->free_slot(pdev);
 
 	sdhci_free_host(c->host);
-
-	return 0;
 }
 
 static void __maybe_unused sdhci_acpi_reset_signal_voltage_if_needed(
@@ -1082,7 +1080,7 @@ static struct platform_driver sdhci_acpi_driver = {
 		.pm			= &sdhci_acpi_pm_ops,
 	},
 	.probe	= sdhci_acpi_probe,
-	.remove	= sdhci_acpi_remove,
+	.remove_new = sdhci_acpi_remove,
 };
 
 module_platform_driver(sdhci_acpi_driver);

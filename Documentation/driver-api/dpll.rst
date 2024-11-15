@@ -214,6 +214,27 @@ offset values are fractional with 3-digit decimal places and shell be
 divided with ``DPLL_PIN_PHASE_OFFSET_DIVIDER`` to get integer part and
 modulo divided to get fractional part.
 
+Embedded SYNC
+=============
+
+Device may provide ability to use Embedded SYNC feature. It allows
+to embed additional SYNC signal into the base frequency of a pin - a one
+special pulse of base frequency signal every time SYNC signal pulse
+happens. The user can configure the frequency of Embedded SYNC.
+The Embedded SYNC capability is always related to a given base frequency
+and HW capabilities. The user is provided a range of Embedded SYNC
+frequencies supported, depending on current base frequency configured for
+the pin.
+
+  ========================================= =================================
+  ``DPLL_A_PIN_ESYNC_FREQUENCY``            current Embedded SYNC frequency
+  ``DPLL_A_PIN_ESYNC_FREQUENCY_SUPPORTED``  nest available Embedded SYNC
+                                            frequency ranges
+    ``DPLL_A_PIN_FREQUENCY_MIN``            attr minimum value of frequency
+    ``DPLL_A_PIN_FREQUENCY_MAX``            attr maximum value of frequency
+  ``DPLL_A_PIN_ESYNC_PULSE``                pulse type of Embedded SYNC
+  ========================================= =================================
+
 Configuration commands group
 ============================
 
@@ -545,7 +566,7 @@ In such scenario, dpll device input signal shall be also configurable
 to drive dpll with signal recovered from the PHY netdevice.
 This is done by exposing a pin to the netdevice - attaching pin to the
 netdevice itself with
-``netdev_dpll_pin_set(struct net_device *dev, struct dpll_pin *dpll_pin)``.
+``dpll_netdev_pin_set(struct net_device *dev, struct dpll_pin *dpll_pin)``.
 Exposed pin id handle ``DPLL_A_PIN_ID`` is then identifiable by the user
 as it is attached to rtnetlink respond to get ``RTM_NEWLINK`` command in
 nested attribute ``IFLA_DPLL_PIN``.

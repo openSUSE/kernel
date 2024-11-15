@@ -120,6 +120,7 @@ struct inode_smack {
 struct task_smack {
 	struct smack_known	*smk_task;	/* label for access control */
 	struct smack_known	*smk_forked;	/* label when forked */
+	struct smack_known	*smk_transmuted;/* label when transmuted */
 	struct list_head	smk_rules;	/* per task access rules */
 	struct mutex		smk_rules_lock;	/* lock for the rules */
 	struct list_head	smk_relabel;	/* transit allowed labels */
@@ -127,7 +128,7 @@ struct task_smack {
 
 #define	SMK_INODE_INSTANT	0x01	/* inode is instantiated */
 #define	SMK_INODE_TRANSMUTE	0x02	/* directory is transmuting */
-#define	SMK_INODE_CHANGED	0x04	/* smack was transmuted */
+#define	SMK_INODE_CHANGED	0x04	/* smack was transmuted (unused) */
 #define	SMK_INODE_IMPURE	0x08	/* involved in an impure transaction */
 
 /*
@@ -353,6 +354,18 @@ static inline struct superblock_smack *smack_superblock(
 {
 	return superblock->s_security + smack_blob_sizes.lbs_superblock;
 }
+
+static inline struct socket_smack *smack_sock(const struct sock *sock)
+{
+	return sock->sk_security + smack_blob_sizes.lbs_sock;
+}
+
+#ifdef CONFIG_KEYS
+static inline struct smack_known **smack_key(const struct key *key)
+{
+	return key->security + smack_blob_sizes.lbs_key;
+}
+#endif /* CONFIG_KEYS */
 
 /*
  * Is the directory transmuting?

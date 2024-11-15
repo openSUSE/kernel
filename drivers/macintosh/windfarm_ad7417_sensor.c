@@ -304,7 +304,7 @@ static void wf_ad7417_remove(struct i2c_client *client)
 }
 
 static const struct i2c_device_id wf_ad7417_id[] = {
-	{ "MAC,ad7417", 0 },
+	{ "MAC,ad7417" },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, wf_ad7417_id);
@@ -320,7 +320,7 @@ static struct i2c_driver wf_ad7417_driver = {
 		.name	= "wf_ad7417",
 		.of_match_table = wf_ad7417_of_id,
 	},
-	.probe_new	= wf_ad7417_probe,
+	.probe		= wf_ad7417_probe,
 	.remove		= wf_ad7417_remove,
 	.id_table	= wf_ad7417_id,
 };

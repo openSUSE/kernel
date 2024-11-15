@@ -54,7 +54,7 @@
 注意您还可以使用 ``clang-format`` 工具来帮助您处理这些规则，快速自动重新格式
 化部分代码，和审阅完整的文件以发现代码样式错误、拼写错误和可能的改进。它还
 可以方便地排序 ``#includes`` 、对齐变量/宏、重排文本和其他类似任务。有关详细
-信息，请参阅文档 :ref:`Documentation/process/clang-format.rst <clangformat>`
+信息，请参阅文档 :ref:`Documentation/dev-tools/clang-format.rst <clangformat>`
 
 抽象层
 ******
@@ -149,7 +149,7 @@ Linus对这个问题给出了最佳答案:
 	所以我们不会通过引入新问题来修复错误。这种方式是靠不住的，没人知道
 	是否真的有进展。是前进两步、后退一步，还是前进一步、后退两步？
 
-（http://lwn.net/articles/243460/）
+（http://lwn.net/Articles/243460/）
 
 特别不受欢迎的一种回归类型是用户空间ABI的任何变化。一旦接口被导出到用户空间，
 就必须无限期地支持它。这一事实使得用户空间接口的创建特别具有挑战性：因为它们

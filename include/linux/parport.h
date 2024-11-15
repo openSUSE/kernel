@@ -252,13 +252,10 @@ struct parport {
 
 struct parport_driver {
 	const char *name;
-	void (*attach) (struct parport *);
 	void (*detach) (struct parport *);
 	void (*match_port)(struct parport *);
 	int (*probe)(struct pardevice *);
 	struct device_driver driver;
-	bool devmodel;
-	struct list_head list;
 };
 
 #define to_parport_driver(n) container_of(n, struct parport_driver, driver)
@@ -300,9 +297,6 @@ int __must_check __parport_register_driver(struct parport_driver *,
  *	This can be called by a parallel port device driver in order
  *	to receive notifications about ports being found in the
  *	system, as well as ports no longer available.
- *
- *	If devmodel is true then the new device model is used
- *	for registration.
  *
  *	The @driver structure is allocated by the caller and must not be
  *	deallocated until after calling parport_unregister_driver().
@@ -514,7 +508,7 @@ extern int parport_device_proc_register(struct pardevice *device);
 extern int parport_device_proc_unregister(struct pardevice *device);
 
 /* If PC hardware is the only type supported, we can optimise a bit.  */
-#if !defined(CONFIG_PARPORT_NOT_PC)
+#if !defined(CONFIG_PARPORT_NOT_PC) && defined(CONFIG_PARPORT_PC)
 
 #include <linux/parport_pc.h>
 #define parport_write_data(p,x)            parport_pc_write_data(p,x)

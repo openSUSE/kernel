@@ -807,8 +807,8 @@ static int rv3029_i2c_probe(struct i2c_client *client)
 }
 
 static const struct i2c_device_id rv3029_id[] = {
-	{ "rv3029", 0 },
-	{ "rv3029c2", 0 },
+	{ "rv3029" },
+	{ "rv3029c2" },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, rv3029_id);
@@ -824,7 +824,7 @@ static struct i2c_driver rv3029_driver = {
 		.name = "rv3029",
 		.of_match_table = of_match_ptr(rv3029_of_match),
 	},
-	.probe_new	= rv3029_i2c_probe,
+	.probe		= rv3029_i2c_probe,
 	.id_table	= rv3029_id,
 };
 

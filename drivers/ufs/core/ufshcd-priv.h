@@ -64,21 +64,20 @@ void ufshcd_auto_hibern8_update(struct ufs_hba *hba, u32 ahit);
 void ufshcd_compl_one_cqe(struct ufs_hba *hba, int task_tag,
 			  struct cq_entry *cqe);
 int ufshcd_mcq_init(struct ufs_hba *hba);
+void ufshcd_mcq_disable(struct ufs_hba *hba);
 int ufshcd_mcq_decide_queue_depth(struct ufs_hba *hba);
 int ufshcd_mcq_memory_alloc(struct ufs_hba *hba);
-void ufshcd_mcq_make_queues_operational(struct ufs_hba *hba);
-void ufshcd_mcq_config_mac(struct ufs_hba *hba, u32 max_active_cmds);
-void ufshcd_mcq_select_mcq_mode(struct ufs_hba *hba);
-u32 ufshcd_mcq_read_cqis(struct ufs_hba *hba, int i);
-void ufshcd_mcq_write_cqis(struct ufs_hba *hba, u32 val, int i);
-unsigned long ufshcd_mcq_poll_cqe_nolock(struct ufs_hba *hba,
-					 struct ufs_hw_queue *hwq);
 struct ufs_hw_queue *ufshcd_mcq_req_to_hwq(struct ufs_hba *hba,
 					   struct request *req);
-unsigned long ufshcd_mcq_poll_cqe_lock(struct ufs_hba *hba,
-				       struct ufs_hw_queue *hwq);
+void ufshcd_mcq_compl_all_cqes_lock(struct ufs_hba *hba,
+				    struct ufs_hw_queue *hwq);
+bool ufshcd_cmd_inflight(struct scsi_cmnd *cmd);
+int ufshcd_mcq_sq_cleanup(struct ufs_hba *hba, int task_tag);
+int ufshcd_mcq_abort(struct scsi_cmnd *cmd);
+int ufshcd_try_to_abort_task(struct ufs_hba *hba, int tag);
+void ufshcd_release_scsi_cmd(struct ufs_hba *hba,
+			     struct ufshcd_lrb *lrbp);
 
-#define UFSHCD_MCQ_IO_QUEUE_OFFSET	1
 #define SD_ASCII_STD true
 #define SD_RAW false
 int ufshcd_read_string_desc(struct ufs_hba *hba, u8 desc_index,
@@ -89,7 +88,7 @@ int ufshcd_send_uic_cmd(struct ufs_hba *hba, struct uic_command *uic_cmd);
 int ufshcd_exec_raw_upiu_cmd(struct ufs_hba *hba,
 			     struct utp_upiu_req *req_upiu,
 			     struct utp_upiu_req *rsp_upiu,
-			     int msgcode,
+			     enum upiu_request_transaction msgcode,
 			     u8 *desc_buff, int *buff_len,
 			     enum query_opcode desc_op);
 
@@ -251,14 +250,6 @@ static inline int ufshcd_vops_mcq_config_resource(struct ufs_hba *hba)
 	return -EOPNOTSUPP;
 }
 
-static inline int ufshcd_mcq_vops_get_hba_mac(struct ufs_hba *hba)
-{
-	if (hba->vops && hba->vops->get_hba_mac)
-		return hba->vops->get_hba_mac(hba);
-
-	return -EOPNOTSUPP;
-}
-
 static inline int ufshcd_mcq_vops_op_runtime_config(struct ufs_hba *hba)
 {
 	if (hba->vops && hba->vops->op_runtime_config)
@@ -290,7 +281,7 @@ extern const struct ufs_pm_lvl_states ufs_pm_lvl_states[];
  * ufshcd_scsi_to_upiu_lun - maps scsi LUN to UPIU LUN
  * @scsi_lun: scsi LUN id
  *
- * Returns UPIU LUN id
+ * Return: UPIU LUN id
  */
 static inline u8 ufshcd_scsi_to_upiu_lun(unsigned int scsi_lun)
 {
@@ -323,6 +314,11 @@ static inline int ufshcd_update_ee_usr_mask(struct ufs_hba *hba,
 static inline int ufshcd_rpm_get_sync(struct ufs_hba *hba)
 {
 	return pm_runtime_get_sync(&hba->ufs_device_wlun->sdev_gendev);
+}
+
+static inline int ufshcd_rpm_get_if_active(struct ufs_hba *hba)
+{
+	return pm_runtime_get_if_active(&hba->ufs_device_wlun->sdev_gendev);
 }
 
 static inline int ufshcd_rpm_put_sync(struct ufs_hba *hba)
@@ -363,10 +359,11 @@ static inline bool ufs_is_valid_unit_desc_lun(struct ufs_dev_info *dev_info, u8 
 static inline void ufshcd_inc_sq_tail(struct ufs_hw_queue *q)
 	__must_hold(&q->sq_lock)
 {
-	u32 mask = q->max_entries - 1;
 	u32 val;
 
-	q->sq_tail_slot = (q->sq_tail_slot + 1) & mask;
+	q->sq_tail_slot++;
+	if (q->sq_tail_slot == q->max_entries)
+		q->sq_tail_slot = 0;
 	val = q->sq_tail_slot * sizeof(struct utp_transfer_req_desc);
 	writel(val, q->mcq_sq_tail);
 }
@@ -401,4 +398,12 @@ static inline struct cq_entry *ufshcd_mcq_cur_cqe(struct ufs_hw_queue *q)
 
 	return cqe + q->cq_head_slot;
 }
+
+static inline u32 ufshcd_mcq_get_sq_head_slot(struct ufs_hw_queue *q)
+{
+	u32 val = readl(q->mcq_sq_head);
+
+	return val / sizeof(struct utp_transfer_req_desc);
+}
+
 #endif /* _UFSHCD_PRIV_H_ */

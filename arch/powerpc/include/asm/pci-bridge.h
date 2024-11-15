@@ -138,7 +138,6 @@ struct pci_controller {
 
 	/* iommu_ops support */
 	struct iommu_device	iommu;
-	void* suse_kabi_padding;
 };
 
 /* These are used for config access before all the PCI probing

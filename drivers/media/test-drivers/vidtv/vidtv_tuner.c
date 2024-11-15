@@ -385,7 +385,7 @@ static const struct dvb_tuner_ops vidtv_tuner_ops = {
 };
 
 static const struct i2c_device_id vidtv_tuner_i2c_id_table[] = {
-	{"dvb_vidtv_tuner", 0},
+	{ "dvb_vidtv_tuner" },
 	{}
 };
 MODULE_DEVICE_TABLE(i2c, vidtv_tuner_i2c_id_table);
@@ -425,7 +425,7 @@ static struct i2c_driver vidtv_tuner_i2c_driver = {
 		.name                = "dvb_vidtv_tuner",
 		.suppress_bind_attrs = true,
 	},
-	.probe_new = vidtv_tuner_i2c_probe,
+	.probe    = vidtv_tuner_i2c_probe,
 	.remove   = vidtv_tuner_i2c_remove,
 	.id_table = vidtv_tuner_i2c_id_table,
 };

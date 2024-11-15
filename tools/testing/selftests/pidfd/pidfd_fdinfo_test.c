@@ -143,6 +143,7 @@ static inline int child_join(struct child *child, struct error *err)
 		r = -1;
 	}
 
+	ksft_print_msg("waitpid WEXITSTATUS=%d\n", r);
 	return r;
 }
 
@@ -306,5 +307,5 @@ int main(int argc, char **argv)
 	test_pidfd_fdinfo_nspid();
 	test_pidfd_dead_fdinfo();
 
-	return ksft_exit_pass();
+	ksft_exit_pass();
 }

@@ -61,28 +61,14 @@ static enum dc_link_rate get_link_rate_from_test_link_rate(uint8_t test_rate)
 	}
 }
 
-static bool is_dp_phy_sqaure_pattern(enum dp_test_pattern test_pattern)
-{
-	return (DP_TEST_PATTERN_SQUARE_BEGIN <= test_pattern &&
-			test_pattern <= DP_TEST_PATTERN_SQUARE_END);
-}
-
-static bool is_dp_phy_pattern(enum dp_test_pattern test_pattern)
-{
-	if ((DP_TEST_PATTERN_PHY_PATTERN_BEGIN <= test_pattern &&
-			test_pattern <= DP_TEST_PATTERN_PHY_PATTERN_END) ||
-			test_pattern == DP_TEST_PATTERN_VIDEO_MODE)
-		return true;
-	else
-		return false;
-}
-
 static void dp_retrain_link_dp_test(struct dc_link *link,
 			struct dc_link_settings *link_setting,
 			bool skip_video_pattern)
 {
 	struct pipe_ctx *pipes[MAX_PIPES];
 	struct dc_state *state = link->dc->current_state;
+	bool was_hpo_acquired = resource_is_hpo_acquired(link->dc->current_state);
+	bool is_hpo_acquired;
 	uint8_t count;
 	int i;
 
@@ -97,6 +83,12 @@ static void dp_retrain_link_dp_test(struct dc_link *link,
 				link->dc,
 				state,
 				pipes[i]);
+	}
+
+	if (link->dc->hwss.setup_hpo_hw_control) {
+		is_hpo_acquired = resource_is_hpo_acquired(state);
+		if (was_hpo_acquired != is_hpo_acquired)
+			link->dc->hwss.setup_hpo_hw_control(link->dc->hwseq, is_hpo_acquired);
 	}
 
 	for (i = count-1; i >= 0; i--)
@@ -361,7 +353,7 @@ static void dp_test_send_phy_test_pattern(struct dc_link *link)
 				test_pattern_size);
 	}
 
-	if (is_dp_phy_sqaure_pattern(test_pattern)) {
+	if (IS_DP_PHY_SQUARE_PATTERN(test_pattern)) {
 		test_pattern_size = 1; // Square pattern data is 1 byte (DP spec)
 		core_link_read_dpcd(
 				link,
@@ -623,6 +615,8 @@ bool dp_set_test_pattern(
 	if (pipe_ctx == NULL)
 		return false;
 
+	link->pending_test_pattern = test_pattern;
+
 	/* Reset CRTC Test Pattern if it is currently running and request is VideoMode */
 	if (link->test_pattern_enabled && test_pattern ==
 			DP_TEST_PATTERN_VIDEO_MODE) {
@@ -643,12 +637,13 @@ bool dp_set_test_pattern(
 		/* Reset Test Pattern state */
 		link->test_pattern_enabled = false;
 		link->current_test_pattern = test_pattern;
+		link->pending_test_pattern = DP_TEST_PATTERN_UNSUPPORTED;
 
 		return true;
 	}
 
 	/* Check for PHY Test Patterns */
-	if (is_dp_phy_pattern(test_pattern)) {
+	if (IS_DP_PHY_PATTERN(test_pattern)) {
 		/* Set DPCD Lane Settings before running test pattern */
 		if (p_link_settings != NULL) {
 			if ((link->chip_caps & EXT_DISPLAY_PATH_CAPS__DP_FIXED_VS_EN) &&
@@ -681,6 +676,7 @@ bool dp_set_test_pattern(
 			/* Set Test Pattern state */
 			link->test_pattern_enabled = true;
 			link->current_test_pattern = test_pattern;
+			link->pending_test_pattern = DP_TEST_PATTERN_UNSUPPORTED;
 			if (p_link_settings != NULL)
 				dpcd_set_link_settings(link,
 						p_link_settings);
@@ -756,7 +752,7 @@ bool dp_set_test_pattern(
 			return false;
 
 		if (link->dpcd_caps.dpcd_rev.raw >= DPCD_REV_12) {
-			if (is_dp_phy_sqaure_pattern(test_pattern))
+			if (IS_DP_PHY_SQUARE_PATTERN(test_pattern))
 				core_link_write_dpcd(link,
 						DP_LINK_SQUARE_PATTERN,
 						p_custom_pattern,
@@ -868,7 +864,7 @@ bool dp_set_test_pattern(
 				CRTC_STATE_VACTIVE);
 
 		if (pipe_ctx->stream_res.tg->funcs->lock_doublebuffer_disable) {
-			if (pipe_ctx->stream && should_use_dmub_lock(pipe_ctx->stream->link)) {
+			if (should_use_dmub_lock(pipe_ctx->stream->link)) {
 				union dmub_hw_lock_flags hw_locks = { 0 };
 				struct dmub_hw_lock_inst_flags inst_flags = { 0 };
 
@@ -887,6 +883,7 @@ bool dp_set_test_pattern(
 		/* Set Test Pattern state */
 		link->test_pattern_enabled = true;
 		link->current_test_pattern = test_pattern;
+		link->pending_test_pattern = DP_TEST_PATTERN_UNSUPPORTED;
 	}
 
 	return true;
@@ -898,7 +895,7 @@ void dp_set_preferred_link_settings(struct dc *dc,
 {
 	int i;
 	struct pipe_ctx *pipe;
-	struct dc_stream_state *link_stream;
+	struct dc_stream_state *link_stream = 0;
 	struct dc_link_settings store_settings = *link_setting;
 
 	link->preferred_link_setting = store_settings;

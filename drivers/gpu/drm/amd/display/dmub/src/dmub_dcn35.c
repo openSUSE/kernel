@@ -229,7 +229,8 @@ void dmub_dcn35_setup_windows(struct dmub_srv *dmub,
 			      const struct dmub_window *cw3,
 			      const struct dmub_window *cw4,
 			      const struct dmub_window *cw5,
-			      const struct dmub_window *cw6)
+			      const struct dmub_window *cw6,
+			      const struct dmub_window *region6)
 {
 	union dmub_addr offset;
 
@@ -275,6 +276,15 @@ void dmub_dcn35_setup_windows(struct dmub_srv *dmub,
 	REG_SET_2(DMCUB_REGION3_CW6_TOP_ADDRESS, 0,
 		  DMCUB_REGION3_CW6_TOP_ADDRESS, cw6->region.top,
 		  DMCUB_REGION3_CW6_ENABLE, 1);
+
+	offset = region6->offset;
+
+	REG_WRITE(DMCUB_REGION6_OFFSET, offset.u.low_part);
+	REG_WRITE(DMCUB_REGION6_OFFSET_HIGH, offset.u.high_part);
+	REG_SET_2(DMCUB_REGION6_TOP_ADDRESS, 0,
+		  DMCUB_REGION6_TOP_ADDRESS,
+		  region6->region.top - region6->region.base - 1,
+		  DMCUB_REGION6_ENABLE, 1);
 }
 
 void dmub_dcn35_setup_mailbox(struct dmub_srv *dmub,
@@ -400,16 +410,22 @@ union dmub_fw_boot_options dmub_dcn35_get_fw_boot_option(struct dmub_srv *dmub)
 void dmub_dcn35_enable_dmub_boot_options(struct dmub_srv *dmub, const struct dmub_srv_hw_params *params)
 {
 	union dmub_fw_boot_options boot_options = {0};
+	union dmub_fw_boot_options cur_boot_options = {0};
+
+	cur_boot_options = dmub_dcn35_get_fw_boot_option(dmub);
 
 	boot_options.bits.z10_disable = params->disable_z10;
 	boot_options.bits.dpia_supported = params->dpia_supported;
-	boot_options.bits.enable_dpia = params->disable_dpia == true ? 0:1;
+	boot_options.bits.enable_dpia = cur_boot_options.bits.enable_dpia && !params->disable_dpia;
 	boot_options.bits.usb4_cm_version = params->usb4_cm_version;
 	boot_options.bits.dpia_hpd_int_enable_supported = params->dpia_hpd_int_enable_supported;
 	boot_options.bits.power_optimization = params->power_optimization;
 	boot_options.bits.disable_clk_ds = params->disallow_dispclk_dppclk_ds;
 	boot_options.bits.disable_clk_gate = params->disable_clock_gate;
 	boot_options.bits.ips_disable = params->disable_ips;
+	boot_options.bits.ips_sequential_ono = params->ips_sequential_ono;
+	boot_options.bits.disable_sldo_opt = params->disable_sldo_opt;
+	boot_options.bits.enable_non_transparent_setconfig = params->enable_non_transparent_setconfig;
 
 	REG_WRITE(DMCUB_SCRATCH14, boot_options.all);
 }
@@ -487,6 +503,10 @@ void dmub_dcn35_get_diagnostic_data(struct dmub_srv *dmub, struct dmub_diagnosti
 	diag_data->inbox0_wptr = REG_READ(DMCUB_INBOX0_WPTR);
 	diag_data->inbox0_size = REG_READ(DMCUB_INBOX0_SIZE);
 
+	diag_data->outbox1_rptr = REG_READ(DMCUB_OUTBOX1_RPTR);
+	diag_data->outbox1_wptr = REG_READ(DMCUB_OUTBOX1_WPTR);
+	diag_data->outbox1_size = REG_READ(DMCUB_OUTBOX1_SIZE);
+
 	REG_GET(DMCUB_CNTL, DMCUB_ENABLE, &is_dmub_enabled);
 	diag_data->is_dmcub_enabled = is_dmub_enabled;
 
@@ -503,6 +523,7 @@ void dmub_dcn35_get_diagnostic_data(struct dmub_srv *dmub, struct dmub_diagnosti
 	diag_data->is_cw6_enabled = is_cw6_enabled;
 
 	diag_data->gpint_datain0 = REG_READ(DMCUB_GPINT_DATAIN0);
+	diag_data->timeout_info = dmub->debug;
 }
 void dmub_dcn35_configure_dmub_in_system_memory(struct dmub_srv *dmub)
 {
@@ -542,8 +563,14 @@ uint32_t dmub_dcn35_read_inbox0_ack_register(struct dmub_srv *dmub)
 bool dmub_dcn35_is_hw_powered_up(struct dmub_srv *dmub)
 {
 	union dmub_fw_boot_status status;
+	uint32_t is_enable;
+
+	REG_GET(DMCUB_CNTL, DMCUB_ENABLE, &is_enable);
+	if (is_enable == 0)
+		return false;
 
 	status.all = REG_READ(DMCUB_SCRATCH0);
 
-	return status.bits.hw_power_init_done;
+	return (status.bits.dal_fw && status.bits.hw_power_init_done && status.bits.mailbox_rdy) ||
+	       (!status.bits.dal_fw && status.bits.mailbox_rdy);
 }

@@ -11,6 +11,7 @@
 #include <asm/cmpxchg.h>
 #include <asm/barrier.h>
 #include <asm/asm-const.h>
+#include <asm/asm-compat.h>
 
 /*
  * Since *_return_relaxed and {cmp}xchg_relaxed are implemented with
@@ -126,18 +127,6 @@ ATOMIC_OPS(xor, xor, "", K)
 #undef ATOMIC_OP_RETURN_RELAXED
 #undef ATOMIC_OP
 
-#define arch_atomic_cmpxchg(v, o, n) \
-	(arch_cmpxchg(&((v)->counter), (o), (n)))
-#define arch_atomic_cmpxchg_relaxed(v, o, n) \
-	arch_cmpxchg_relaxed(&((v)->counter), (o), (n))
-#define arch_atomic_cmpxchg_acquire(v, o, n) \
-	arch_cmpxchg_acquire(&((v)->counter), (o), (n))
-
-#define arch_atomic_xchg(v, new) \
-	(arch_xchg(&((v)->counter), new))
-#define arch_atomic_xchg_relaxed(v, new) \
-	arch_xchg_relaxed(&((v)->counter), (new))
-
 /**
  * atomic_fetch_add_unless - add unless the number is a given value
  * @v: pointer of type atomic_t
@@ -209,7 +198,7 @@ static __inline__ s64 arch_atomic64_read(const atomic64_t *v)
 	if (IS_ENABLED(CONFIG_PPC_KERNEL_PREFIXED))
 		__asm__ __volatile__("ld %0,0(%1)" : "=r"(t) : "b"(&v->counter));
 	else
-		__asm__ __volatile__("ld%U1%X1 %0,%1" : "=r"(t) : "m<>"(v->counter));
+		__asm__ __volatile__("ld%U1%X1 %0,%1" : "=r"(t) : DS_FORM_CONSTRAINT (v->counter));
 
 	return t;
 }
@@ -220,7 +209,7 @@ static __inline__ void arch_atomic64_set(atomic64_t *v, s64 i)
 	if (IS_ENABLED(CONFIG_PPC_KERNEL_PREFIXED))
 		__asm__ __volatile__("std %1,0(%2)" : "=m"(v->counter) : "r"(i), "b"(&v->counter));
 	else
-		__asm__ __volatile__("std%U0%X0 %1,%0" : "=m<>"(v->counter) : "r"(i));
+		__asm__ __volatile__("std%U0%X0 %1,%0" : "=" DS_FORM_CONSTRAINT (v->counter) : "r"(i));
 }
 
 #define ATOMIC64_OP(op, asm_op)						\
@@ -395,18 +384,6 @@ static __inline__ s64 arch_atomic64_dec_if_positive(atomic64_t *v)
 	return t;
 }
 #define arch_atomic64_dec_if_positive arch_atomic64_dec_if_positive
-
-#define arch_atomic64_cmpxchg(v, o, n) \
-	(arch_cmpxchg(&((v)->counter), (o), (n)))
-#define arch_atomic64_cmpxchg_relaxed(v, o, n) \
-	arch_cmpxchg_relaxed(&((v)->counter), (o), (n))
-#define arch_atomic64_cmpxchg_acquire(v, o, n) \
-	arch_cmpxchg_acquire(&((v)->counter), (o), (n))
-
-#define arch_atomic64_xchg(v, new) \
-	(arch_xchg(&((v)->counter), new))
-#define arch_atomic64_xchg_relaxed(v, new) \
-	arch_xchg_relaxed(&((v)->counter), (new))
 
 /**
  * atomic64_fetch_add_unless - add unless the number is a given value

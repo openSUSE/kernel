@@ -65,15 +65,16 @@ argument - drivers can process completions for any number of Tx
 packets but should only process up to ``budget`` number of
 Rx packets. Rx processing is usually much more expensive.
 
-In other words, it is recommended to ignore the budget argument when
-performing TX buffer reclamation to ensure that the reclamation is not
-arbitrarily bounded; however, it is required to honor the budget argument
-for RX processing.
+In other words for Rx processing the ``budget`` argument limits how many
+packets driver can process in a single poll. Rx specific APIs like page
+pool or XDP cannot be used at all when ``budget`` is 0.
+skb Tx processing should happen regardless of the ``budget``, but if
+the argument is 0 driver cannot call any XDP (or page pool) APIs.
 
 .. warning::
 
-   The ``budget`` argument may be 0 if core tries to only process Tx completions
-   and no Rx packets.
+   The ``budget`` argument may be 0 if core tries to only process
+   skb Tx completions and no Rx or XDP packets.
 
 The poll method returns the amount of work done. If the driver still
 has outstanding work to do (e.g. ``budget`` was exhausted)
@@ -143,9 +144,8 @@ IRQ should only be unmasked after a successful call to napi_complete_done():
 
 napi_schedule_irqoff() is a variant of napi_schedule() which takes advantage
 of guarantees given by being invoked in IRQ context (no need to
-mask interrupts). Note that PREEMPT_RT forces all interrupts
-to be threaded so the interrupt may need to be marked ``IRQF_NO_THREAD``
-to avoid issues on real-time kernel configurations.
+mask interrupts). napi_schedule_irqoff() will fall back to napi_schedule() if
+IRQs are threaded (such as if ``PREEMPT_RT`` is enabled).
 
 Instance to queue mapping
 -------------------------

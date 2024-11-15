@@ -65,10 +65,8 @@ static const struct regmap_config meson_mx_sdhc_regmap_config = {
 	.max_register = MESON_SDHC_CLK2,
 };
 
-static void meson_mx_sdhc_hw_reset(struct mmc_host *mmc)
+static void meson_mx_sdhc_reset(struct meson_mx_sdhc_host *host)
 {
-	struct meson_mx_sdhc_host *host = mmc_priv(mmc);
-
 	regmap_write(host->regmap, MESON_SDHC_SRST, MESON_SDHC_SRST_MAIN_CTRL |
 		     MESON_SDHC_SRST_RXFIFO | MESON_SDHC_SRST_TXFIFO |
 		     MESON_SDHC_SRST_DPHY_RX | MESON_SDHC_SRST_DPHY_TX |
@@ -116,7 +114,7 @@ static void meson_mx_sdhc_wait_cmd_ready(struct mmc_host *mmc)
 		dev_warn(mmc_dev(mmc),
 			 "Failed to poll for CMD_BUSY while processing CMD%d\n",
 			 host->cmd->opcode);
-		meson_mx_sdhc_hw_reset(mmc);
+		meson_mx_sdhc_reset(host);
 	}
 
 	ret = regmap_read_poll_timeout(host->regmap, MESON_SDHC_ESTA, esta,
@@ -127,7 +125,7 @@ static void meson_mx_sdhc_wait_cmd_ready(struct mmc_host *mmc)
 		dev_warn(mmc_dev(mmc),
 			 "Failed to poll for ESTA[13:11] while processing CMD%d\n",
 			 host->cmd->opcode);
-		meson_mx_sdhc_hw_reset(mmc);
+		meson_mx_sdhc_reset(host);
 	}
 }
 
@@ -495,7 +493,6 @@ static int meson_mx_sdhc_execute_tuning(struct mmc_host *mmc, u32 opcode)
 }
 
 static const struct mmc_host_ops meson_mx_sdhc_ops = {
-	.card_hw_reset			= meson_mx_sdhc_hw_reset,
 	.request			= meson_mx_sdhc_request,
 	.set_ios			= meson_mx_sdhc_set_ios,
 	.card_busy			= meson_mx_sdhc_card_busy,
@@ -618,7 +615,7 @@ static irqreturn_t meson_mx_sdhc_irq_thread(int irq, void *irq_data)
 	}
 
 	if (cmd->error == -EIO || cmd->error == -ETIMEDOUT)
-		meson_mx_sdhc_hw_reset(host->mmc);
+		meson_mx_sdhc_reset(host);
 	else if (cmd->data)
 		/*
 		 * Clear the FIFOs after completing data transfers to prevent
@@ -728,7 +725,7 @@ static void meson_mx_sdhc_init_hw(struct mmc_host *mmc)
 {
 	struct meson_mx_sdhc_host *host = mmc_priv(mmc);
 
-	meson_mx_sdhc_hw_reset(mmc);
+	meson_mx_sdhc_reset(host);
 
 	regmap_write(host->regmap, MESON_SDHC_CTRL,
 		     FIELD_PREP(MESON_SDHC_CTRL_RX_PERIOD, 0xf) |
@@ -760,6 +757,11 @@ static void meson_mx_sdhc_init_hw(struct mmc_host *mmc)
 	regmap_write(host->regmap, MESON_SDHC_ISTA, MESON_SDHC_ISTA_ALL_IRQS);
 }
 
+static void meason_mx_mmc_free_host(void *data)
+{
+       mmc_free_host(data);
+}
+
 static int meson_mx_sdhc_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
@@ -772,8 +774,7 @@ static int meson_mx_sdhc_probe(struct platform_device *pdev)
 	if (!mmc)
 		return -ENOMEM;
 
-	ret = devm_add_action_or_reset(dev, (void(*)(void *))mmc_free_host,
-				       mmc);
+	ret = devm_add_action_or_reset(dev, meason_mx_mmc_free_host, mmc);
 	if (ret) {
 		dev_err(dev, "Failed to register mmc_free_host action\n");
 		return ret;
@@ -860,7 +861,7 @@ err_disable_pclk:
 	return ret;
 }
 
-static int meson_mx_sdhc_remove(struct platform_device *pdev)
+static void meson_mx_sdhc_remove(struct platform_device *pdev)
 {
 	struct meson_mx_sdhc_host *host = platform_get_drvdata(pdev);
 
@@ -869,8 +870,6 @@ static int meson_mx_sdhc_remove(struct platform_device *pdev)
 	meson_mx_sdhc_disable_clks(host->mmc);
 
 	clk_disable_unprepare(host->pclk);
-
-	return 0;
 }
 
 static const struct meson_mx_sdhc_data meson_mx_sdhc_data_meson8 = {
@@ -905,7 +904,7 @@ MODULE_DEVICE_TABLE(of, meson_mx_sdhc_of_match);
 
 static struct platform_driver meson_mx_sdhc_driver = {
 	.probe   = meson_mx_sdhc_probe,
-	.remove  = meson_mx_sdhc_remove,
+	.remove_new = meson_mx_sdhc_remove,
 	.driver  = {
 		.name = "meson-mx-sdhc",
 		.probe_type = PROBE_PREFER_ASYNCHRONOUS,

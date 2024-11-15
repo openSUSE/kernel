@@ -51,9 +51,9 @@ static void alchemy_8250_pm(struct uart_port *port, unsigned int state,
 #define PORT(_base, _irq)					\
 	{							\
 		.mapbase	= _base,			\
+		.mapsize	= 0x1000,			\
 		.irq		= _irq,				\
 		.regshift	= 2,				\
-		.iotype		= UPIO_AU,			\
 		.flags		= UPF_SKIP_TEST | UPF_IOREMAP | \
 				  UPF_FIXED_TYPE,		\
 		.type		= PORT_16550A,			\
@@ -124,8 +124,14 @@ static void __init alchemy_setup_uarts(int ctype)
 	au1xx0_uart_device.dev.platform_data = ports;
 
 	/* Fill up uartclk. */
-	for (s = 0; s < c; s++)
+	for (s = 0; s < c; s++) {
 		ports[s].uartclk = uartclk;
+		if (au_platform_setup(&ports[s]) < 0) {
+			kfree(ports);
+			printk(KERN_INFO "Alchemy: missing support for UARTs\n");
+			return;
+		}
+	}
 	if (platform_device_register(&au1xx0_uart_device))
 		printk(KERN_INFO "Alchemy: failed to register UARTs\n");
 }
@@ -403,8 +409,8 @@ static void __init alchemy_setup_macs(int ctype)
 	if (alchemy_get_macs(ctype) < 1)
 		return;
 
-	macres = kmemdup(au1xxx_eth0_resources[ctype],
-			 sizeof(struct resource) * MAC_RES_COUNT, GFP_KERNEL);
+	macres = kmemdup_array(au1xxx_eth0_resources[ctype], MAC_RES_COUNT,
+			       sizeof(*macres), GFP_KERNEL);
 	if (!macres) {
 		printk(KERN_INFO "Alchemy: no memory for MAC0 resources\n");
 		return;
@@ -424,8 +430,8 @@ static void __init alchemy_setup_macs(int ctype)
 	if (alchemy_get_macs(ctype) < 2)
 		return;
 
-	macres = kmemdup(au1xxx_eth1_resources[ctype],
-			 sizeof(struct resource) * MAC_RES_COUNT, GFP_KERNEL);
+	macres = kmemdup_array(au1xxx_eth1_resources[ctype], MAC_RES_COUNT,
+			       sizeof(*macres), GFP_KERNEL);
 	if (!macres) {
 		printk(KERN_INFO "Alchemy: no memory for MAC1 resources\n");
 		return;

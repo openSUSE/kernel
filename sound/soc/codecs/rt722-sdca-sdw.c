@@ -177,7 +177,7 @@ static int rt722_sdca_update_status(struct sdw_slave *slave,
 		 * This also could sync with the cache value as the rt722_sdca_jack_init set.
 		 */
 			sdw_write_no_pm(rt722->slave, SDW_SCP_SDCA_INTMASK1,
-				SDW_SCP_SDCA_INTMASK_SDCA_0 | SDW_SCP_SDCA_INTMASK_SDCA_6);
+				SDW_SCP_SDCA_INTMASK_SDCA_6);
 			sdw_write_no_pm(rt722->slave, SDW_SCP_SDCA_INTMASK2,
 				SDW_SCP_SDCA_INTMASK_SDCA_8);
 		}
@@ -253,10 +253,13 @@ static int rt722_sdca_read_prop(struct sdw_slave *slave)
 	}
 
 	/* set the timeout values */
-	prop->clk_stop_timeout = 200;
+	prop->clk_stop_timeout = 900;
 
 	/* wake-up event */
 	prop->wake_capable = 1;
+
+	/* Three data lanes are supported by rt722-sdca codec */
+	prop->lane_control_support = true;
 
 	return 0;
 }
@@ -361,7 +364,7 @@ io_error:
 	return ret;
 }
 
-static struct sdw_slave_ops rt722_sdca_slave_ops = {
+static const struct sdw_slave_ops rt722_sdca_slave_ops = {
 	.read_prop = rt722_sdca_read_prop,
 	.interrupt_callback = rt722_sdca_interrupt_callback,
 	.update_status = rt722_sdca_update_status,
@@ -502,7 +505,6 @@ static const struct dev_pm_ops rt722_sdca_pm = {
 static struct sdw_driver rt722_sdca_sdw_driver = {
 	.driver = {
 		.name = "rt722-sdca",
-		.owner = THIS_MODULE,
 		.pm = &rt722_sdca_pm,
 	},
 	.probe = rt722_sdca_sdw_probe,

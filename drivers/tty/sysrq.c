@@ -100,12 +100,11 @@ __setup("sysrq_always_enabled", sysrq_always_enabled_setup);
 
 static void sysrq_handle_loglevel(u8 key)
 {
-	int i;
+	u8 loglevel = key - '0';
 
-	i = key - '0';
 	console_loglevel = CONSOLE_LOGLEVEL_DEFAULT;
-	pr_info("Loglevel set to %d\n", i);
-	console_loglevel = i;
+	pr_info("Loglevel set to %u\n", loglevel);
+	console_loglevel = loglevel;
 }
 static const struct sysrq_key_op sysrq_loglevel_op = {
 	.handler	= sysrq_handle_loglevel,
@@ -343,7 +342,7 @@ static const struct sysrq_key_op sysrq_ftrace_dump_op = {
 
 static void sysrq_handle_showmem(u8 key)
 {
-	show_mem(0, NULL);
+	show_mem();
 }
 static const struct sysrq_key_op sysrq_showmem_op = {
 	.handler	= sysrq_handle_showmem,
@@ -451,6 +450,17 @@ static const struct sysrq_key_op sysrq_unrt_op = {
 	.enable_mask	= SYSRQ_ENABLE_RTNICE,
 };
 
+static void sysrq_handle_replay_logs(u8 key)
+{
+	console_try_replay_all();
+}
+static struct sysrq_key_op sysrq_replay_logs_op = {
+	.handler        = sysrq_handle_replay_logs,
+	.help_msg       = "replay-kernel-logs(R)",
+	.action_msg     = "Replay kernel logs on consoles",
+	.enable_mask    = SYSRQ_ENABLE_DUMP,
+};
+
 /* Key Operations table and lock */
 static DEFINE_SPINLOCK(sysrq_key_table_lock);
 
@@ -520,7 +530,8 @@ static const struct sysrq_key_op *sysrq_key_table[62] = {
 	NULL,				/* O */
 	NULL,				/* P */
 	NULL,				/* Q */
-	NULL,				/* R */
+	&sysrq_replay_logs_op,		/* R */
+	/* S: May be registered by sched_ext for resetting */
 	NULL,				/* S */
 	NULL,				/* T */
 	NULL,				/* U */
@@ -532,25 +543,24 @@ static const struct sysrq_key_op *sysrq_key_table[62] = {
 };
 
 /* key2index calculation, -1 on invalid index */
-static int sysrq_key_table_key2index(int key)
+static int sysrq_key_table_key2index(u8 key)
 {
-	int retval;
-
-	if ((key >= '0') && (key <= '9'))
-		retval = key - '0';
-	else if ((key >= 'a') && (key <= 'z'))
-		retval = key + 10 - 'a';
-	else if ((key >= 'A') && (key <= 'Z'))
-		retval = key + 36 - 'A';
-	else
-		retval = -1;
-	return retval;
+	switch (key) {
+	case '0' ... '9':
+		return key - '0';
+	case 'a' ... 'z':
+		return key - 'a' + 10;
+	case 'A' ... 'Z':
+		return key - 'A' + 10 + 26;
+	default:
+		return -1;
+	}
 }
 
 /*
  * get and put functions for the table, exposed to modules.
  */
-static const struct sysrq_key_op *__sysrq_get_key_op(int key)
+static const struct sysrq_key_op *__sysrq_get_key_op(u8 key)
 {
 	const struct sysrq_key_op *op_p = NULL;
 	int i;
@@ -562,7 +572,7 @@ static const struct sysrq_key_op *__sysrq_get_key_op(int key)
 	return op_p;
 }
 
-static void __sysrq_put_key_op(int key, const struct sysrq_key_op *op_p)
+static void __sysrq_put_key_op(u8 key, const struct sysrq_key_op *op_p)
 {
 	int i = sysrq_key_table_key2index(key);
 
@@ -570,7 +580,7 @@ static void __sysrq_put_key_op(int key, const struct sysrq_key_op *op_p)
 		sysrq_key_table[i] = op_p;
 }
 
-void __handle_sysrq(int key, bool check_mask)
+void __handle_sysrq(u8 key, bool check_mask)
 {
 	const struct sysrq_key_op *op_p;
 	int orig_log_level;
@@ -629,7 +639,7 @@ void __handle_sysrq(int key, bool check_mask)
 	suppress_printk = orig_suppress_printk;
 }
 
-void handle_sysrq(int key)
+void handle_sysrq(u8 key)
 {
 	if (sysrq_on())
 		__handle_sysrq(key, true);
@@ -761,8 +771,6 @@ static void sysrq_of_get_keyreset_config(void)
 {
 	u32 key;
 	struct device_node *np;
-	struct property *prop;
-	const __be32 *p;
 
 	np = of_find_node_by_path("/chosen/linux,sysrq-reset-seq");
 	if (!np) {
@@ -773,7 +781,7 @@ static void sysrq_of_get_keyreset_config(void)
 	/* Reset in case a __weak definition was present */
 	sysrq_reset_seq_len = 0;
 
-	of_property_for_each_u32(np, "keyset", prop, p, key) {
+	of_property_for_each_u32(np, "keyset", key) {
 		if (key == KEY_RESERVED || key > KEY_MAX ||
 		    sysrq_reset_seq_len == SYSRQ_KEY_RESET_MAX)
 			break;
@@ -1113,7 +1121,7 @@ int sysrq_toggle_support(int enable_mask)
 }
 EXPORT_SYMBOL_GPL(sysrq_toggle_support);
 
-static int __sysrq_swap_key_ops(int key, const struct sysrq_key_op *insert_op_p,
+static int __sysrq_swap_key_ops(u8 key, const struct sysrq_key_op *insert_op_p,
 				const struct sysrq_key_op *remove_op_p)
 {
 	int retval;
@@ -1137,13 +1145,13 @@ static int __sysrq_swap_key_ops(int key, const struct sysrq_key_op *insert_op_p,
 	return retval;
 }
 
-int register_sysrq_key(int key, const struct sysrq_key_op *op_p)
+int register_sysrq_key(u8 key, const struct sysrq_key_op *op_p)
 {
 	return __sysrq_swap_key_ops(key, op_p, NULL);
 }
 EXPORT_SYMBOL(register_sysrq_key);
 
-int unregister_sysrq_key(int key, const struct sysrq_key_op *op_p)
+int unregister_sysrq_key(u8 key, const struct sysrq_key_op *op_p)
 {
 	return __sysrq_swap_key_ops(key, NULL, op_p);
 }
@@ -1152,16 +1160,29 @@ EXPORT_SYMBOL(unregister_sysrq_key);
 #ifdef CONFIG_PROC_FS
 /*
  * writing 'C' to /proc/sysrq-trigger is like sysrq-C
+ * Normally, only the first character written is processed.
+ * However, if the first character is an underscore,
+ * all characters are processed.
  */
 static ssize_t write_sysrq_trigger(struct file *file, const char __user *buf,
 				   size_t count, loff_t *ppos)
 {
-	if (count) {
+	bool bulk = false;
+	size_t i;
+
+	for (i = 0; i < count; i++) {
 		char c;
 
-		if (get_user(c, buf))
+		if (get_user(c, buf + i))
 			return -EFAULT;
-		__handle_sysrq(c, false);
+
+		if (c == '_')
+			bulk = true;
+		else
+			__handle_sysrq(c, false);
+
+		if (!bulk)
+			break;
 	}
 
 	return count;

@@ -407,7 +407,7 @@ static const struct dvb_frontend_ops vidtv_demod_ops = {
 };
 
 static const struct i2c_device_id vidtv_demod_i2c_id_table[] = {
-	{"dvb_vidtv_demod", 0},
+	{ "dvb_vidtv_demod" },
 	{}
 };
 MODULE_DEVICE_TABLE(i2c, vidtv_demod_i2c_id_table);
@@ -449,7 +449,7 @@ static struct i2c_driver vidtv_demod_i2c_driver = {
 		.name                = "dvb_vidtv_demod",
 		.suppress_bind_attrs = true,
 	},
-	.probe_new = vidtv_demod_i2c_probe,
+	.probe    = vidtv_demod_i2c_probe,
 	.remove   = vidtv_demod_i2c_remove,
 	.id_table = vidtv_demod_i2c_id_table,
 };

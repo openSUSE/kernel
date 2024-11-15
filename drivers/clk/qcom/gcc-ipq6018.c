@@ -8,7 +8,6 @@
 #include <linux/platform_device.h>
 #include <linux/module.h>
 #include <linux/of.h>
-#include <linux/of_device.h>
 #include <linux/clk-provider.h>
 #include <linux/regmap.h>
 
@@ -25,8 +24,6 @@
 #include "clk-regmap-divider.h"
 #include "clk-regmap-mux.h"
 #include "reset.h"
-
-#define F(f, s, h, m, n) { (f), (s), (2 * (h) - 1), (m), (n) }
 
 enum {
 	P_XO,
@@ -1620,7 +1617,7 @@ static const struct freq_tbl ftbl_sdcc_apps_clk_src[] = {
 	F(96000000, P_GPLL2, 12, 0, 0),
 	F(177777778, P_GPLL0, 4.5, 0, 0),
 	F(192000000, P_GPLL2, 6, 0, 0),
-	F(384000000, P_GPLL2, 3, 0, 0),
+	F(200000000, P_GPLL0, 4, 0, 0),
 	{ }
 };
 
@@ -2119,6 +2116,26 @@ static struct clk_branch gcc_blsp1_qup5_spi_apps_clk = {
 					&blsp1_qup5_spi_apps_clk_src.clkr.hw },
 			.num_parents = 1,
 			.flags = CLK_SET_RATE_PARENT,
+			.ops = &clk_branch2_ops,
+		},
+	},
+};
+
+static struct clk_branch gcc_blsp1_qup6_i2c_apps_clk = {
+	.halt_reg = 0x07010,
+	.clkr = {
+		.enable_reg = 0x07010,
+		.enable_mask = BIT(0),
+		.hw.init = &(struct clk_init_data){
+			.name = "gcc_blsp1_qup6_i2c_apps_clk",
+			.parent_hws = (const struct clk_hw *[]){
+					&blsp1_qup6_i2c_apps_clk_src.clkr.hw },
+			.num_parents = 1,
+			/*
+			 * RPM uses QUP6 I2C to communicate with the external
+			 * PMIC so it must not be disabled.
+			 */
+			.flags = CLK_SET_RATE_PARENT | CLK_IS_CRITICAL,
 			.ops = &clk_branch2_ops,
 		},
 	},
@@ -2667,7 +2684,7 @@ static struct clk_rcg2 lpass_q6_axim_clk_src = {
 	},
 };
 
-static struct freq_tbl ftbl_rbcpr_wcss_clk_src[] = {
+static const struct freq_tbl ftbl_rbcpr_wcss_clk_src[] = {
 	F(24000000, P_XO, 1, 0, 0),
 	F(50000000, P_GPLL0, 16, 0, 0),
 	{ }
@@ -3507,6 +3524,22 @@ static struct clk_branch gcc_prng_ahb_clk = {
 	},
 };
 
+static struct clk_branch gcc_qdss_at_clk = {
+	.halt_reg = 0x29024,
+	.clkr = {
+		.enable_reg = 0x29024,
+		.enable_mask = BIT(0),
+		.hw.init = &(struct clk_init_data){
+			.name = "gcc_qdss_at_clk",
+			.parent_hws = (const struct clk_hw *[]){
+				&qdss_at_clk_src.clkr.hw },
+			.num_parents = 1,
+			.flags = CLK_SET_RATE_PARENT,
+			.ops = &clk_branch2_ops,
+		},
+	},
+};
+
 static struct clk_branch gcc_qdss_dap_clk = {
 	.halt_reg = 0x29084,
 	.clkr = {
@@ -4147,15 +4180,18 @@ static struct clk_branch gcc_dcc_clk = {
 
 static const struct alpha_pll_config ubi32_pll_config = {
 	.l = 0x3e,
-	.alpha = 0x57,
-	.config_ctl_val = 0x240d6aa8,
-	.config_ctl_hi_val = 0x3c2,
+	.alpha = 0x6667,
+	.config_ctl_val = 0x240d4828,
+	.config_ctl_hi_val = 0x6,
 	.main_output_mask = BIT(0),
 	.aux_output_mask = BIT(1),
 	.pre_div_val = 0x0,
 	.pre_div_mask = BIT(12),
 	.post_div_val = 0x0,
 	.post_div_mask = GENMASK(9, 8),
+	.alpha_en_mask = BIT(24),
+	.test_ctl_val = 0x1C0000C0,
+	.test_ctl_hi_val = 0x4000,
 };
 
 static const struct alpha_pll_config nss_crypto_pll_config = {
@@ -4277,6 +4313,7 @@ static struct clk_regmap *gcc_ipq6018_clks[] = {
 	[GCC_BLSP1_QUP4_SPI_APPS_CLK] = &gcc_blsp1_qup4_spi_apps_clk.clkr,
 	[GCC_BLSP1_QUP5_I2C_APPS_CLK] = &gcc_blsp1_qup5_i2c_apps_clk.clkr,
 	[GCC_BLSP1_QUP5_SPI_APPS_CLK] = &gcc_blsp1_qup5_spi_apps_clk.clkr,
+	[GCC_BLSP1_QUP6_I2C_APPS_CLK] = &gcc_blsp1_qup6_i2c_apps_clk.clkr,
 	[GCC_BLSP1_QUP6_SPI_APPS_CLK] = &gcc_blsp1_qup6_spi_apps_clk.clkr,
 	[GCC_BLSP1_UART1_APPS_CLK] = &gcc_blsp1_uart1_apps_clk.clkr,
 	[GCC_BLSP1_UART2_APPS_CLK] = &gcc_blsp1_uart2_apps_clk.clkr,
@@ -4342,6 +4379,7 @@ static struct clk_regmap *gcc_ipq6018_clks[] = {
 	[GCC_SYS_NOC_PCIE0_AXI_CLK] = &gcc_sys_noc_pcie0_axi_clk.clkr,
 	[GCC_PCIE0_PIPE_CLK] = &gcc_pcie0_pipe_clk.clkr,
 	[GCC_PRNG_AHB_CLK] = &gcc_prng_ahb_clk.clkr,
+	[GCC_QDSS_AT_CLK] = &gcc_qdss_at_clk.clkr,
 	[GCC_QDSS_DAP_CLK] = &gcc_qdss_dap_clk.clkr,
 	[GCC_QPIC_AHB_CLK] = &gcc_qpic_ahb_clk.clkr,
 	[GCC_QPIC_CLK] = &gcc_qpic_clk.clkr,
@@ -4604,7 +4642,7 @@ static int gcc_ipq6018_probe(struct platform_device *pdev)
 	clk_alpha_pll_configure(&nss_crypto_pll_main, regmap,
 				&nss_crypto_pll_config);
 
-	return qcom_cc_really_probe(pdev, &gcc_ipq6018_desc, regmap);
+	return qcom_cc_really_probe(&pdev->dev, &gcc_ipq6018_desc, regmap);
 }
 
 static struct platform_driver gcc_ipq6018_driver = {
