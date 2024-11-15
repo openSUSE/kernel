@@ -430,7 +430,12 @@ struct bpf_verifier_state {
 	 */
 	struct bpf_idx_pair *jmp_history;
 	u32 jmp_history_cnt;
-#ifndef __GENKSYMS__
+};
+
+/* Used for kABI workaround. This must be position right before
+ * bpf_verifier_state in memory.
+ */
+struct suse_bpf_verifier_state_extra {
 	u32 dfs_depth;
 	u32 callback_unroll_depth;
 	/* If this state is a part of states loop this field points to some
@@ -443,10 +448,31 @@ struct bpf_verifier_state {
 	 * See get_loop_entry() for more information.
 	 */
 	struct bpf_verifier_state *loop_entry;
-#endif /* __GENKSYMS__ */
 };
 
-struct bpf_verifier_state_old {
+/* Used for kABI workaround. Make accessing suse_bpf_verifier_state_extra from
+ * bpf_verifier_state pointer easier.
+ */
+struct suse_bpf_verifier_state_wrapper {
+	struct suse_bpf_verifier_state_extra extra;
+	struct bpf_verifier_state state;
+};
+
+/* kABI workarund. Get pointer to struct suse_bpf_verifier_state_extra from a
+ * pointer to struct suse_bpf_verifier_state. This works because we ensure all
+ * allocation of bpf_verifier_state (as well as bpf_verifier_stack_elem and
+ * bpf_verifier_state_list that embeds it) has struct bpf_verifier_state_extra
+ * right before it.
+ */
+static inline struct suse_bpf_verifier_state_extra *extra(struct bpf_verifier_state *state)
+{
+	struct suse_bpf_verifier_state_wrapper *wrapper;
+	wrapper = container_of(state, struct suse_bpf_verifier_state_wrapper, state);
+	return &wrapper->extra;
+}
+
+/* The original state of "struct bpf_verifier_state" before kABI changes */
+struct __orig_bpf_verifier_state {
 	struct bpf_func_state *frame[MAX_CALL_FRAMES];
 	struct bpf_verifier_state *parent;
 	u32 branches;
@@ -463,7 +489,11 @@ struct bpf_verifier_state_old {
 
 /* Make sure "bool used_as_loop_entry" field does not affect memory layout */
 static_assert(offsetof(struct bpf_verifier_state, first_insn_idx) ==
-		offsetof(struct bpf_verifier_state_old, first_insn_idx));
+		offsetof(struct __orig_bpf_verifier_state, first_insn_idx));
+
+/* Make sure size of "struct bpf_verifier_state" stays the same */
+static_assert(sizeof(struct bpf_verifier_state) ==
+		sizeof(struct __orig_bpf_verifier_state));
 
 #define bpf_get_spilled_reg(slot, frame)				\
 	(((slot < frame->allocated_stack / BPF_REG_SIZE) &&		\
