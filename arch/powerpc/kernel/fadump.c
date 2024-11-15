@@ -1756,7 +1756,7 @@ err_out:
  * Reserve memory to store additional parameters to be passed
  * for fadump/capture kernel.
  */
-static void fadump_setup_param_area(void)
+static void __init fadump_setup_param_area(void)
 {
 	phys_addr_t range_start, range_end;
 
