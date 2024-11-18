@@ -9,6 +9,8 @@
 #include <string.h>
 #include <regex.h>
 
+#include <hash.h>
+#include <xalloc.h>
 #include "internal.h"
 #include "lkc.h"
 
@@ -516,6 +518,7 @@ void sym_clear_all_valid(void)
 
 	for_all_symbols(sym)
 		sym->flags &= ~SYMBOL_VALID;
+	expr_invalidate_all();
 	conf_set_changed(true);
 	sym_calc_value(modules_sym);
 }
@@ -891,7 +894,7 @@ struct symbol *sym_lookup(const char *name, int flags)
 			case 'n': return &symbol_no;
 			}
 		}
-		hash = strhash(name);
+		hash = hash_str(name);
 
 		hash_for_each_possible(sym_hashtable, symbol, node, hash) {
 			if (symbol->name &&
@@ -934,7 +937,7 @@ struct symbol *sym_find(const char *name)
 		case 'n': return &symbol_no;
 		}
 	}
-	hash = strhash(name);
+	hash = hash_str(name);
 
 	hash_for_each_possible(sym_hashtable, symbol, node, hash) {
 		if (symbol->name &&
@@ -1320,8 +1323,6 @@ const char *prop_get_type_name(enum prop_type type)
 		return "imply";
 	case P_RANGE:
 		return "range";
-	case P_SYMBOL:
-		return "symbol";
 	case P_UNKNOWN:
 		break;
 	}

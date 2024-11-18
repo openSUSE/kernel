@@ -378,6 +378,26 @@ struct bio *bio_split_rw(struct bio *bio, const struct queue_limits *lim,
 			get_max_io_size(bio, lim) << SECTOR_SHIFT));
 }
 
+/*
+ * REQ_OP_ZONE_APPEND bios must never be split by the block layer.
+ *
+ * But we want the nr_segs calculation provided by bio_split_rw_at, and having
+ * a good sanity check that the submitter built the bio correctly is nice to
+ * have as well.
+ */
+struct bio *bio_split_zone_append(struct bio *bio,
+		const struct queue_limits *lim, unsigned *nr_segs)
+{
+	unsigned int max_sectors = queue_limits_max_zone_append_sectors(lim);
+	int split_sectors;
+
+	split_sectors = bio_split_rw_at(bio, lim, nr_segs,
+			max_sectors << SECTOR_SHIFT);
+	if (WARN_ON_ONCE(split_sectors > 0))
+		split_sectors = -EINVAL;
+	return bio_submit_split(bio, split_sectors);
+}
+
 /**
  * bio_split_to_limits - split a bio to fit the queue limits
  * @bio:     bio to be split
@@ -619,6 +639,9 @@ static inline int ll_new_hw_segment(struct request *req, struct bio *bio,
 	 * counters.
 	 */
 	req->nr_phys_segments += nr_phys_segs;
+	if (bio_integrity(bio))
+		req->nr_integrity_segments += blk_rq_count_integrity_sg(req->q,
+									bio);
 	return 1;
 
 no_merge:
@@ -711,6 +734,7 @@ static int ll_merge_requests_fn(struct request_queue *q, struct request *req,
 
 	/* Merge is OK... */
 	req->nr_phys_segments = total_phys_segments;
+	req->nr_integrity_segments += next->nr_integrity_segments;
 	return 1;
 }
 

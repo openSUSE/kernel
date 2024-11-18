@@ -43,6 +43,16 @@ static int vp_avq_index(struct virtio_device *vdev, u16 *index, u16 *num)
 	return 0;
 }
 
+static bool vp_is_avq(struct virtio_device *vdev, unsigned int index)
+{
+	struct virtio_pci_device *vp_dev = to_vp_device(vdev);
+
+	if (!virtio_has_feature(vdev, VIRTIO_F_ADMIN_VQ))
+		return false;
+
+	return index == vp_dev->admin_vq.vq_index;
+}
+
 void vp_modern_avq_done(struct virtqueue *vq)
 {
 	struct virtio_pci_device *vp_dev = to_vp_device(vq->vdev);
@@ -235,7 +245,7 @@ static void vp_modern_avq_cleanup(struct virtio_device *vdev)
 	if (!virtio_has_feature(vdev, VIRTIO_F_ADMIN_VQ))
 		return;
 
-	vq = vp_dev->admin_vq.info->vq;
+	vq = vp_dev->vqs[vp_dev->admin_vq.vq_index]->vq;
 	if (!vq)
 		return;
 
