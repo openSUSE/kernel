@@ -2766,7 +2766,8 @@ retry_probe:
 		}
 
 		sprintf(host_buf, "host_%d", qedi->shost->host_no);
-		qedi->tmf_thread = create_singlethread_workqueue(host_buf);
+		qedi->tmf_thread =
+			alloc_ordered_workqueue("%s", WQ_MEM_RECLAIM, host_buf);
 		if (!qedi->tmf_thread) {
 			QEDI_ERR(&qedi->dbg_ctx,
 				 "Unable to start tmf thread!\n");
@@ -2775,7 +2776,8 @@ retry_probe:
 		}
 
 		sprintf(host_buf, "qedi_ofld%d", qedi->shost->host_no);
-		qedi->offload_thread = create_workqueue(host_buf);
+		qedi->offload_thread =
+			alloc_workqueue("%s", WQ_MEM_RECLAIM, 1, host_buf);
 		if (!qedi->offload_thread) {
 			QEDI_ERR(&qedi->dbg_ctx,
 				 "Unable to start offload thread!\n");
