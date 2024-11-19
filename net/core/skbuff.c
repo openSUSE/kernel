@@ -3304,7 +3304,7 @@ struct sk_buff *skb_segment(struct sk_buff *head_skb,
 		 * now.
 		 * Cap len to not accidentally hit GSO_BY_FRAGS.
 		 */
-		partial_segs = min(len, GSO_BY_FRAGS - 1) / mss;
+		partial_segs = min(len, (unsigned int)(GSO_BY_FRAGS - 1)) / mss;
 		if (partial_segs > 1)
 			mss *= partial_segs;
 		else
