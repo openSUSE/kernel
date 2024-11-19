@@ -4434,8 +4434,8 @@ lpfc_sli_flush_io_rings(struct lpfc_hba *phba)
 			if (!phba->sli4_hba.hdwq ||
 			    !phba->sli4_hba.hdwq[i].io_wq) {
 				lpfc_printf_log(phba, KERN_ERR, LOG_SLI,
-						"7777 hdwq's deleted %lx "
-						"%lx %x %x\n",
+						"7777 hdwq's deleted %x "
+						"%x %x %x\n",
 						phba->pport->load_flag,
 						phba->hba_flag,
 						phba->link_state,
