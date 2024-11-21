@@ -54,6 +54,9 @@
 
 typedef void (*crash_shutdown_t)(void);
 
+struct kimage;
+struct pt_regs;
+
 #ifdef CONFIG_KEXEC_CORE
 
 /*
@@ -71,13 +74,22 @@ static inline void crash_setup_regs(struct pt_regs *newregs,
 
 extern void kexec_smp_wait(void);	/* get and clear naca physid, wait for
 					  master to copy new code to 0 */
+#ifdef CONFIG_CRASH_HOTPLUG
+void arch_crash_handle_hotplug_event(struct kimage *image, void *arg);
+#define arch_crash_handle_hotplug_event arch_crash_handle_hotplug_event
+
+int arch_crash_hotplug_support(struct kimage *image, unsigned long kexec_flags);
+#define arch_crash_hotplug_support arch_crash_hotplug_support
+
+unsigned int arch_crash_get_elfcorehdr_size(void);
+#define crash_get_elfcorehdr_size arch_crash_get_elfcorehdr_size
+#endif /* CONFIG_CRASH_HOTPLUG */
+
 extern int crashing_cpu;
 extern void crash_send_ipi(void (*crash_ipi_callback)(struct pt_regs *));
 extern void crash_ipi_callback(struct pt_regs *);
 extern int crash_wake_offline;
 
-struct kimage;
-struct pt_regs;
 extern void default_machine_kexec(struct kimage *image);
 extern void default_machine_crash_shutdown(struct pt_regs *regs);
 extern int crash_shutdown_register(crash_shutdown_t handler);

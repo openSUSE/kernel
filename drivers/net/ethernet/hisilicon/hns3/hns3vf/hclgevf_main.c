@@ -11,6 +11,7 @@
 #include "hnae3.h"
 #include "hclgevf_devlink.h"
 #include "hclge_comm_rss.h"
+#include "hclgevf_trace.h"
 
 #define HCLGEVF_NAME	"hclgevf"
 
@@ -47,6 +48,42 @@ int hclgevf_cmd_send(struct hclgevf_hw *hw, struct hclge_desc *desc, int num)
 	return hclge_comm_cmd_send(&hw->hw, desc, num);
 }
 
+static void hclgevf_trace_cmd_send(struct hclge_comm_hw *hw, struct hclge_desc *desc,
+				   int num, bool is_special)
+{
+	int i;
+
+	trace_hclge_vf_cmd_send(hw, desc, 0, num);
+
+	if (is_special)
+		return;
+
+	for (i = 1; i < num; i++)
+		trace_hclge_vf_cmd_send(hw, &desc[i], i, num);
+}
+
+static void hclgevf_trace_cmd_get(struct hclge_comm_hw *hw, struct hclge_desc *desc,
+				  int num, bool is_special)
+{
+	int i;
+
+	if (!HCLGE_COMM_SEND_SYNC(le16_to_cpu(desc->flag)))
+		return;
+
+	trace_hclge_vf_cmd_get(hw, desc, 0, num);
+
+	if (is_special)
+		return;
+
+	for (i = 1; i < num; i++)
+		trace_hclge_vf_cmd_get(hw, &desc[i], i, num);
+}
+
+static const struct hclge_comm_cmq_ops hclgevf_cmq_ops = {
+	.trace_cmd_send = hclgevf_trace_cmd_send,
+	.trace_cmd_get = hclgevf_trace_cmd_get,
+};
+
 void hclgevf_arq_init(struct hclgevf_dev *hdev)
 {
 	struct hclge_comm_cmq *cmdq = &hdev->hw.hw.cmq;
@@ -70,8 +107,7 @@ struct hclgevf_dev *hclgevf_ae_get_hdev(struct hnae3_handle *handle)
 		return container_of(handle, struct hclgevf_dev, nic);
 }
 
-static void hclgevf_update_stats(struct hnae3_handle *handle,
-				 struct net_device_stats *net_stats)
+static void hclgevf_update_stats(struct hnae3_handle *handle)
 {
 	struct hclgevf_dev *hdev = hclgevf_ae_get_hdev(handle);
 	int status;
@@ -413,7 +449,8 @@ static int hclgevf_set_handle_info(struct hclgevf_dev *hdev)
 
 	nic->ae_algo = &ae_algovf;
 	nic->pdev = hdev->pdev;
-	nic->numa_node_mask = hdev->numa_node_mask;
+	bitmap_copy(nic->numa_node_mask.bits, hdev->numa_node_mask.bits,
+		    MAX_NUMNODES);
 	nic->flags |= HNAE3_SUPPORT_VF;
 	nic->kinfo.io_base = hdev->hw.hw.io_base;
 
@@ -1601,8 +1638,7 @@ err_reset:
 	hclgevf_reset_err_handle(hdev);
 }
 
-static enum hnae3_reset_type hclgevf_get_reset_level(struct hclgevf_dev *hdev,
-						     unsigned long *addr)
+static enum hnae3_reset_type hclgevf_get_reset_level(unsigned long *addr)
 {
 	enum hnae3_reset_type rst_level = HNAE3_NONE_RESET;
 
@@ -1641,8 +1677,7 @@ static void hclgevf_reset_event(struct pci_dev *pdev,
 
 	if (hdev->default_reset_request)
 		hdev->reset_level =
-			hclgevf_get_reset_level(hdev,
-						&hdev->default_reset_request);
+			hclgevf_get_reset_level(&hdev->default_reset_request);
 	else
 		hdev->reset_level = HNAE3_VF_FUNC_RESET;
 
@@ -1712,8 +1747,8 @@ static void hclgevf_reset_done(struct hnae3_ae_dev *ae_dev)
 			 ret);
 
 	hdev->reset_type = HNAE3_NONE_RESET;
-	clear_bit(HCLGEVF_STATE_RST_HANDLING, &hdev->state);
-	up(&hdev->reset_sem);
+	if (test_and_clear_bit(HCLGEVF_STATE_RST_HANDLING, &hdev->state))
+		up(&hdev->reset_sem);
 }
 
 static u32 hclgevf_get_fw_version(struct hnae3_handle *handle)
@@ -1784,7 +1819,7 @@ static void hclgevf_reset_service_task(struct hclgevf_dev *hdev)
 
 		hdev->last_reset_time = jiffies;
 		hdev->reset_type =
-			hclgevf_get_reset_level(hdev, &hdev->reset_pending);
+			hclgevf_get_reset_level(&hdev->reset_pending);
 		if (hdev->reset_type != HNAE3_NONE_RESET)
 			hclgevf_reset(hdev);
 	} else if (test_and_clear_bit(HCLGEVF_RESET_REQUESTED,
@@ -2085,8 +2120,8 @@ static int hclgevf_init_roce_base_info(struct hclgevf_dev *hdev)
 
 	roce->pdev = nic->pdev;
 	roce->ae_algo = nic->ae_algo;
-	roce->numa_node_mask = nic->numa_node_mask;
-
+	bitmap_copy(roce->numa_node_mask.bits, nic->numa_node_mask.bits,
+		    MAX_NUMNODES);
 	return 0;
 }
 
@@ -2128,8 +2163,7 @@ static int hclgevf_rss_init_hw(struct hclgevf_dev *hdev)
 		if (ret)
 			return ret;
 
-		ret = hclge_comm_set_rss_input_tuple(&hdev->nic, &hdev->hw.hw,
-						     false, rss_cfg);
+		ret = hclge_comm_set_rss_input_tuple(&hdev->hw.hw, rss_cfg);
 		if (ret)
 			return ret;
 	}
@@ -2184,8 +2218,7 @@ static void hclgevf_set_timer_task(struct hnae3_handle *handle, bool enable)
 	} else {
 		set_bit(HCLGEVF_STATE_DOWN, &hdev->state);
 
-		/* flush memory to make sure DOWN is seen by service task */
-		smp_mb__before_atomic();
+		smp_mb__after_atomic(); /* flush memory to make sure DOWN is seen by service task */
 		hclgevf_flush_link_update(hdev);
 	}
 }
@@ -2800,6 +2833,7 @@ static int hclgevf_reset_hdev(struct hclgevf_dev *hdev)
 	}
 
 	hclgevf_arq_init(hdev);
+
 	ret = hclge_comm_cmd_init(hdev->ae_dev, &hdev->hw.hw,
 				  &hdev->fw_version, false,
 				  hdev->reset_pending);
@@ -2854,6 +2888,8 @@ static int hclgevf_init_hdev(struct hclgevf_dev *hdev)
 		goto err_cmd_queue_init;
 
 	hclgevf_arq_init(hdev);
+
+	hclge_comm_cmd_init_ops(&hdev->hw.hw, &hclgevf_cmq_ops);
 	ret = hclge_comm_cmd_init(hdev->ae_dev, &hdev->hw.hw,
 				  &hdev->fw_version, false,
 				  hdev->reset_pending);

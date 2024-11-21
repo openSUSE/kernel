@@ -1460,6 +1460,7 @@ sk_memory_allocated(const struct sock *sk)
 
 /* 1 MB per cpu, in page units */
 #define SK_MEMORY_PCPU_RESERVE (1 << (20 - PAGE_SHIFT))
+extern int sysctl_mem_pcpu_rsv;
 
 static inline void proto_memory_pcpu_drain(struct proto *proto)
 {
@@ -1476,7 +1477,7 @@ sk_memory_allocated_add(const struct sock *sk, int val)
 
 	val = this_cpu_add_return(*proto->per_cpu_fw_alloc, val);
 
-	if (unlikely(val >= SK_MEMORY_PCPU_RESERVE))
+	if (unlikely(val >= READ_ONCE(sysctl_mem_pcpu_rsv)))
 		proto_memory_pcpu_drain(proto);
 }
 
@@ -1487,7 +1488,7 @@ sk_memory_allocated_sub(const struct sock *sk, int val)
 
 	val = this_cpu_sub_return(*proto->per_cpu_fw_alloc, val);
 
-	if (unlikely(val <= -SK_MEMORY_PCPU_RESERVE))
+	if (unlikely(val <= -READ_ONCE(sysctl_mem_pcpu_rsv)))
 		proto_memory_pcpu_drain(proto);
 }
 
@@ -2919,7 +2920,6 @@ extern __u32 sysctl_wmem_max;
 extern __u32 sysctl_rmem_max;
 
 extern int sysctl_tstamp_allow_data;
-extern int sysctl_optmem_max;
 
 extern __u32 sysctl_wmem_default;
 extern __u32 sysctl_rmem_default;

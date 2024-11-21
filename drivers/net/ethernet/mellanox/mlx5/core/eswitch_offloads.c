@@ -43,6 +43,7 @@
 #include "rdma.h"
 #include "en.h"
 #include "fs_core.h"
+#include "lib/mlx5.h"
 #include "lib/devcom.h"
 #include "lib/eq.h"
 #include "lib/fs_chains.h"
@@ -65,6 +66,9 @@
 #define MLX5_ESW_VPORT_TBL_NUM_GROUPS  4
 
 #define MLX5_ESW_FT_OFFLOADS_DROP_RULE (1)
+
+#define MLX5_ESW_MAX_CTRL_EQS 4
+#define MLX5_ESW_DEFAULT_SF_COMP_EQS 8
 
 static struct esw_vport_tbl_namespace mlx5_esw_vport_tbl_mirror_ns = {
 	.max_fte = MLX5_ESW_VPORT_TBL_SIZE,
@@ -607,6 +611,13 @@ esw_setup_dests(struct mlx5_flow_destination *dest,
 						   1, 0, *i);
 			(*i)++;
 		}
+	}
+
+	if (attr->extra_split_ft) {
+		flow_act->flags |= FLOW_ACT_IGNORE_FLOW_LEVEL;
+		dest[*i].type = MLX5_FLOW_DESTINATION_TYPE_FLOW_TABLE;
+		dest[*i].ft = attr->extra_split_ft;
+		(*i)++;
 	}
 
 out:
@@ -3068,7 +3079,7 @@ void mlx5_esw_offloads_devcom_init(struct mlx5_eswitch *esw, u64 key)
 						     key,
 						     mlx5_esw_offloads_devcom_event,
 						     esw);
-	if (IS_ERR_OR_NULL(esw->devcom))
+	if (IS_ERR(esw->devcom))
 		return;
 
 	mlx5_devcom_send_event(esw->devcom,
@@ -3719,6 +3730,12 @@ int mlx5_devlink_eswitch_mode_set(struct devlink *devlink, u16 mode,
 
 	if (esw_mode_from_devlink(mode, &mlx5_mode))
 		return -EINVAL;
+
+	if (mode == DEVLINK_ESWITCH_MODE_SWITCHDEV && mlx5_get_sd(esw->dev)) {
+		NL_SET_ERR_MSG_MOD(extack,
+				   "Can't change E-Switch mode to switchdev when multi-PF netdev (Socket Direct) is configured.");
+		return -EPERM;
+	}
 
 	mlx5_lag_disable_change(esw->dev);
 	err = mlx5_esw_try_lock(esw);
@@ -4570,3 +4587,122 @@ unlock:
 	return err;
 }
 #endif /* CONFIG_XFRM_OFFLOAD */
+
+int
+mlx5_devlink_port_fn_max_io_eqs_get(struct devlink_port *port, u32 *max_io_eqs,
+				    struct netlink_ext_ack *extack)
+{
+	struct mlx5_vport *vport = mlx5_devlink_port_vport_get(port);
+	int query_out_sz = MLX5_ST_SZ_BYTES(query_hca_cap_out);
+	u16 vport_num = vport->vport;
+	struct mlx5_eswitch *esw;
+	void *query_ctx;
+	void *hca_caps;
+	u32 max_eqs;
+	int err;
+
+	esw = mlx5_devlink_eswitch_nocheck_get(port->devlink);
+	if (!MLX5_CAP_GEN(esw->dev, vhca_resource_manager)) {
+		NL_SET_ERR_MSG_MOD(extack,
+				   "Device doesn't support VHCA management");
+		return -EOPNOTSUPP;
+	}
+
+	if (!MLX5_CAP_GEN_2(esw->dev, max_num_eqs_24b)) {
+		NL_SET_ERR_MSG_MOD(extack,
+				   "Device doesn't support getting the max number of EQs");
+		return -EOPNOTSUPP;
+	}
+
+	query_ctx = kzalloc(query_out_sz, GFP_KERNEL);
+	if (!query_ctx)
+		return -ENOMEM;
+
+	mutex_lock(&esw->state_lock);
+	err = mlx5_vport_get_other_func_cap(esw->dev, vport_num, query_ctx,
+					    MLX5_CAP_GENERAL_2);
+	if (err) {
+		NL_SET_ERR_MSG_MOD(extack, "Failed getting HCA caps");
+		goto out;
+	}
+
+	hca_caps = MLX5_ADDR_OF(query_hca_cap_out, query_ctx, capability);
+	max_eqs = MLX5_GET(cmd_hca_cap_2, hca_caps, max_num_eqs_24b);
+	if (max_eqs < MLX5_ESW_MAX_CTRL_EQS)
+		*max_io_eqs = 0;
+	else
+		*max_io_eqs = max_eqs - MLX5_ESW_MAX_CTRL_EQS;
+out:
+	mutex_unlock(&esw->state_lock);
+	kfree(query_ctx);
+	return err;
+}
+
+int
+mlx5_devlink_port_fn_max_io_eqs_set(struct devlink_port *port, u32 max_io_eqs,
+				    struct netlink_ext_ack *extack)
+{
+	struct mlx5_vport *vport = mlx5_devlink_port_vport_get(port);
+	int query_out_sz = MLX5_ST_SZ_BYTES(query_hca_cap_out);
+	u16 vport_num = vport->vport;
+	struct mlx5_eswitch *esw;
+	void *query_ctx;
+	void *hca_caps;
+	u16 max_eqs;
+	int err;
+
+	esw = mlx5_devlink_eswitch_nocheck_get(port->devlink);
+	if (!MLX5_CAP_GEN(esw->dev, vhca_resource_manager)) {
+		NL_SET_ERR_MSG_MOD(extack,
+				   "Device doesn't support VHCA management");
+		return -EOPNOTSUPP;
+	}
+
+	if (!MLX5_CAP_GEN_2(esw->dev, max_num_eqs_24b)) {
+		NL_SET_ERR_MSG_MOD(extack,
+				   "Device doesn't support changing the max number of EQs");
+		return -EOPNOTSUPP;
+	}
+
+	if (check_add_overflow(max_io_eqs, MLX5_ESW_MAX_CTRL_EQS, &max_eqs)) {
+		NL_SET_ERR_MSG_MOD(extack, "Supplied value out of range");
+		return -EINVAL;
+	}
+
+	query_ctx = kzalloc(query_out_sz, GFP_KERNEL);
+	if (!query_ctx)
+		return -ENOMEM;
+
+	mutex_lock(&esw->state_lock);
+	err = mlx5_vport_get_other_func_cap(esw->dev, vport_num, query_ctx,
+					    MLX5_CAP_GENERAL_2);
+	if (err) {
+		NL_SET_ERR_MSG_MOD(extack, "Failed getting HCA caps");
+		goto out;
+	}
+
+	hca_caps = MLX5_ADDR_OF(query_hca_cap_out, query_ctx, capability);
+	MLX5_SET(cmd_hca_cap_2, hca_caps, max_num_eqs_24b, max_eqs);
+
+	if (mlx5_esw_is_sf_vport(esw, vport_num))
+		MLX5_SET(cmd_hca_cap_2, hca_caps, sf_eq_usage, 1);
+
+	err = mlx5_vport_set_other_func_cap(esw->dev, hca_caps, vport_num,
+					    MLX5_SET_HCA_CAP_OP_MOD_GENERAL_DEVICE2);
+	if (err)
+		NL_SET_ERR_MSG_MOD(extack, "Failed setting HCA caps");
+	vport->max_eqs_set = true;
+out:
+	mutex_unlock(&esw->state_lock);
+	kfree(query_ctx);
+	return err;
+}
+
+int
+mlx5_devlink_port_fn_max_io_eqs_set_sf_default(struct devlink_port *port,
+					       struct netlink_ext_ack *extack)
+{
+	return mlx5_devlink_port_fn_max_io_eqs_set(port,
+						   MLX5_ESW_DEFAULT_SF_COMP_EQS,
+						   extack);
+}
