@@ -425,7 +425,7 @@ int sr_reset(struct cdrom_device_info *cdi)
 	return 0;
 }
 
-int sr_select_speed(struct cdrom_device_info *cdi, unsigned long speed)
+int sr_select_speed(struct cdrom_device_info *cdi, int speed)
 {
 	Scsi_CD *cd = cdi->handle;
 	struct packet_command cgc;
