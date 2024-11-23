@@ -934,6 +934,7 @@ void hns_roce_cleanup_hem_table(struct hns_roce_dev *hr_dev,
 
 	if (hns_roce_check_whether_mhop(hr_dev, table->type)) {
 		hns_roce_cleanup_mhop_hem_table(hr_dev, table);
+		mutex_destroy(&table->mutex);
 		return;
 	}
 
@@ -948,6 +949,7 @@ void hns_roce_cleanup_hem_table(struct hns_roce_dev *hr_dev,
 			hns_roce_free_hem(hr_dev, table->hem[i]);
 		}
 
+	mutex_destroy(&table->mutex);
 	kfree(table->hem);
 }
 
