@@ -798,6 +798,7 @@ int rxe_qp_to_attr(struct rxe_qp *qp, struct ib_qp_attr *attr, int mask)
 	rxe_av_to_attr(&qp->pri_av, &attr->ah_attr);
 	rxe_av_to_attr(&qp->alt_av, &attr->alt_ah_attr);
 
+	attr->cur_qp_state = qp_state(qp);
 	if (qp->req.state == QP_STATE_DRAIN) {
 		attr->sq_draining = 1;
 		/* applications that get this state
