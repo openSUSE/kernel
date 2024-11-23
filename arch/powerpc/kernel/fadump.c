@@ -131,6 +131,41 @@ static int __init fadump_cma_init(void)
 static int __init fadump_cma_init(void) { return 1; }
 #endif /* CONFIG_CMA */
 
+/*
+ * Additional parameters meant for capture kernel are placed in a dedicated area.
+ * If this is capture kernel boot, append these parameters to bootargs.
+ */
+void __init fadump_append_bootargs(void)
+{
+	char *append_args;
+	size_t len;
+
+	if (!fw_dump.dump_active || !fw_dump.param_area_supported || !fw_dump.param_area)
+		return;
+
+	if (fw_dump.param_area < fw_dump.boot_mem_top) {
+		if (memblock_reserve(fw_dump.param_area, COMMAND_LINE_SIZE)) {
+			pr_warn("WARNING: Can't use additional parameters area!\n");
+			fw_dump.param_area = 0;
+			return;
+		}
+	}
+
+	append_args = (char *)fw_dump.param_area;
+	len = strlen(boot_command_line);
+
+	/*
+	 * Too late to fail even if cmdline size exceeds. Truncate additional parameters
+	 * to cmdline size and proceed anyway.
+	 */
+	if (len + strlen(append_args) >= COMMAND_LINE_SIZE - 1)
+		pr_warn("WARNING: Appending parameters exceeds cmdline size. Truncating!\n");
+
+	pr_debug("Cmdline: %s\n", boot_command_line);
+	snprintf(boot_command_line + len, COMMAND_LINE_SIZE - len, " %s", append_args);
+	pr_info("Updated cmdline: %s\n", boot_command_line);
+}
+
 /* Scan the Firmware Assisted dump configuration details. */
 int __init early_init_dt_scan_fw_dump(unsigned long node, const char *uname,
 				      int depth, void *data)
@@ -215,28 +250,6 @@ static bool is_fadump_mem_area_contiguous(u64 d_start, u64 d_end)
 
 			d_start = end + 1;
 		}
-	}
-
-	return ret;
-}
-
-/*
- * Returns true, if there are no holes in boot memory area,
- * false otherwise.
- */
-bool is_fadump_boot_mem_contiguous(void)
-{
-	unsigned long d_start, d_end;
-	bool ret = false;
-	int i;
-
-	for (i = 0; i < fw_dump.boot_mem_regs_cnt; i++) {
-		d_start = fw_dump.boot_mem_addr[i];
-		d_end   = d_start + fw_dump.boot_mem_sz[i];
-
-		ret = is_fadump_mem_area_contiguous(d_start, d_end);
-		if (!ret)
-			break;
 	}
 
 	return ret;
@@ -381,10 +394,11 @@ static unsigned long __init get_fadump_area_size(void)
 static int __init add_boot_mem_region(unsigned long rstart,
 				      unsigned long rsize)
 {
+	int max_boot_mem_rgns = fw_dump.ops->fadump_max_boot_mem_rgns();
 	int i = fw_dump.boot_mem_regs_cnt++;
 
-	if (fw_dump.boot_mem_regs_cnt > FADUMP_MAX_MEM_REGS) {
-		fw_dump.boot_mem_regs_cnt = FADUMP_MAX_MEM_REGS;
+	if (fw_dump.boot_mem_regs_cnt > max_boot_mem_rgns) {
+		fw_dump.boot_mem_regs_cnt = max_boot_mem_rgns;
 		return 0;
 	}
 
@@ -1468,6 +1482,43 @@ static ssize_t registered_show(struct kobject *kobj,
 	return sprintf(buf, "%d\n", fw_dump.dump_registered);
 }
 
+static ssize_t bootargs_append_show(struct kobject *kobj,
+				   struct kobj_attribute *attr,
+				   char *buf)
+{
+	return sprintf(buf, "%s\n", (char *)__va(fw_dump.param_area));
+}
+
+static ssize_t bootargs_append_store(struct kobject *kobj,
+				   struct kobj_attribute *attr,
+				   const char *buf, size_t count)
+{
+	char *params;
+
+	if (!fw_dump.fadump_enabled || fw_dump.dump_active)
+		return -EPERM;
+
+	if (count >= COMMAND_LINE_SIZE)
+		return -EINVAL;
+
+	/*
+	 * Fail here instead of handling this scenario with
+	 * some silly workaround in capture kernel.
+	 */
+	if (saved_command_line_len + count >= COMMAND_LINE_SIZE) {
+		pr_err("Appending parameters exceeds cmdline size!\n");
+		return -ENOSPC;
+	}
+
+	params = __va(fw_dump.param_area);
+	strscpy_pad(params, buf, COMMAND_LINE_SIZE);
+	/* Remove newline character at the end. */
+	if (params[count-1] == '\n')
+		params[count-1] = '\0';
+
+	return count;
+}
+
 static ssize_t registered_store(struct kobject *kobj,
 				struct kobj_attribute *attr,
 				const char *buf, size_t count)
@@ -1527,6 +1578,7 @@ static struct kobj_attribute enable_attr = __ATTR_RO(enabled);
 static struct kobj_attribute register_attr = __ATTR_RW(registered);
 static struct kobj_attribute mem_reserved_attr = __ATTR_RO(mem_reserved);
 static struct kobj_attribute hotplug_ready_attr = __ATTR_RO(hotplug_ready);
+static struct kobj_attribute bootargs_append_attr = __ATTR_RW(bootargs_append);
 
 static struct attribute *fadump_attrs[] = {
 	&enable_attr.attr,
@@ -1548,6 +1600,12 @@ static void __init fadump_init_files(void)
 	if (!fadump_kobj) {
 		pr_err("failed to create fadump kobject\n");
 		return;
+	}
+
+	if (fw_dump.param_area) {
+		rc = sysfs_create_file(fadump_kobj, &bootargs_append_attr.attr);
+		if (rc)
+			pr_err("unable to create bootargs_append sysfs file (%d)\n", rc);
 	}
 
 	debugfs_create_file("fadump_region", 0444, arch_debugfs_dir, NULL,
@@ -1698,6 +1756,54 @@ static void __init fadump_process(void)
 
 err_out:
 	fadump_invalidate_release_mem();
+}
+
+/*
+ * Reserve memory to store additional parameters to be passed
+ * for fadump/capture kernel.
+ */
+void __init fadump_setup_param_area(void)
+{
+	phys_addr_t range_start, range_end;
+
+	if (!fw_dump.param_area_supported || fw_dump.dump_active)
+		return;
+
+	/* This memory can't be used by PFW or bootloader as it is shared across kernels */
+	if (early_radix_enabled()) {
+		/*
+		 * Anywhere in the upper half should be good enough as all memory
+		 * is accessible in real mode.
+		 */
+		range_start = memblock_end_of_DRAM() / 2;
+		range_end = memblock_end_of_DRAM();
+	} else {
+		/*
+		 * Passing additional parameters is supported for hash MMU only
+		 * if the first memory block size is 768MB or higher.
+		 */
+		if (ppc64_rma_size < 0x30000000)
+			return;
+
+		/*
+		 * 640 MB to 768 MB is not used by PFW/bootloader. So, try reserving
+		 * memory for passing additional parameters in this range to avoid
+		 * being stomped on by PFW/bootloader.
+		 */
+		range_start = 0x2A000000;
+		range_end = range_start + 0x4000000;
+	}
+
+	fw_dump.param_area = memblock_phys_alloc_range(COMMAND_LINE_SIZE,
+						       COMMAND_LINE_SIZE,
+						       range_start,
+						       range_end);
+	if (!fw_dump.param_area) {
+		pr_warn("WARNING: Could not setup area to pass additional parameters!\n");
+		return;
+	}
+
+	memset((void *)fw_dump.param_area, 0, COMMAND_LINE_SIZE);
 }
 
 /*

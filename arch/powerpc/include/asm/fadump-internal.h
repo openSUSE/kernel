@@ -124,6 +124,8 @@ struct fw_dump {
 	unsigned long	cpu_notes_buf_vaddr;
 	unsigned long	cpu_notes_buf_size;
 
+	unsigned long	param_area;
+
 	/*
 	 * Maximum size supported by firmware to copy from source to
 	 * destination address per entry.
@@ -138,6 +140,7 @@ struct fw_dump {
 	unsigned long	dump_active:1;
 	unsigned long	dump_registered:1;
 	unsigned long	nocma:1;
+	unsigned long	param_area_supported:1;
 
 	struct fadump_ops	*ops;
 };
@@ -156,6 +159,7 @@ struct fadump_ops {
 				      struct seq_file *m);
 	void	(*fadump_trigger)(struct fadump_crash_info_header *fdh,
 				  const char *msg);
+	int	(*fadump_max_boot_mem_rgns)(void);
 };
 
 /* Helper functions */
@@ -163,7 +167,6 @@ s32 __init fadump_setup_cpu_notes_buf(u32 num_cpus);
 void fadump_free_cpu_notes_buf(void);
 u32 *__init fadump_regs_to_elf_notes(u32 *buf, struct pt_regs *regs);
 void __init fadump_update_elfcore_header(char *bufp);
-bool is_fadump_boot_mem_contiguous(void);
 bool is_fadump_reserved_mem_contiguous(void);
 
 #else /* !CONFIG_PRESERVE_FA_DUMP */
