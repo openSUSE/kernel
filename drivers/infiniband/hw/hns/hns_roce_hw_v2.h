@@ -1427,7 +1427,7 @@ struct hns_roce_v2_priv {
 struct hns_roce_dip {
 	u8 dgid[GID_LEN_V2];
 	u32 dip_idx;
-	struct list_head node; /* all dips are on a list */
+	u32 qp_cnt;
 };
 
 /* only for RNR timeout issue of HIP08 */
