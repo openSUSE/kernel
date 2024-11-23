@@ -635,6 +635,7 @@ struct hns_roce_rinl_buf {
 
 enum {
 	HNS_ROCE_FLUSH_FLAG = 0,
+	HNS_ROCE_STOP_FLUSH_FLAG = 1,
 };
 
 struct hns_roce_work {
@@ -703,6 +704,7 @@ struct hns_roce_qp {
 	struct hns_user_mmap_entry *dwqe_mmap_entry;
 	u32			config;
 	enum hns_roce_cong_type	cong_type;
+	spinlock_t flush_lock;
 };
 
 struct hns_roce_ib_iboe {
