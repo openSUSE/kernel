@@ -430,6 +430,7 @@ err_srqc:
 	free_srqc(hr_dev, srq);
 err_srq_buf:
 	free_srq_buf(hr_dev, srq);
+	mutex_destroy(&srq->mutex);
 
 	return ret;
 }
@@ -441,6 +442,7 @@ int hns_roce_destroy_srq(struct ib_srq *ibsrq, struct ib_udata *udata)
 
 	free_srqc(hr_dev, srq);
 	free_srq_buf(hr_dev, srq);
+	mutex_destroy(&srq->mutex);
 	return 0;
 }
 
