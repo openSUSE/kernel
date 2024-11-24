@@ -2834,7 +2834,6 @@ static int mlx5_ib_dev_res_init(struct mlx5_ib_dev *dev)
 	struct ib_srq_init_attr attr;
 	struct ib_device *ibdev;
 	struct ib_cq_init_attr cq_attr = {.cqe = 1};
-	int port;
 	int ret = 0;
 
 	ibdev = &dev->ib_dev;
