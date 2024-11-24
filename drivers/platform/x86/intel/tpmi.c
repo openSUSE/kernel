@@ -128,6 +128,9 @@ struct intel_tpmi_info {
  * @dev:	PCI device number
  * @bus:	PCI bus number
  * @pkg:	CPU Package id
+ * @segment:	PCI segment id
+ * @partition:	Package Partition id
+ * @cdie_mask:	Bitmap of compute dies in the current partition
  * @reserved:	Reserved for future use
  * @lock:	When set to 1 the register is locked and becomes read-only
  *		until next reset. Not for use by the OS driver.
@@ -139,7 +142,10 @@ struct tpmi_info_header {
 	u64 dev:5;
 	u64 bus:8;
 	u64 pkg:8;
-	u64 reserved:39;
+	u64 segment:8;
+	u64 partition:2;
+	u64 cdie_mask:16;
+	u64 reserved:13;
 	u64 lock:1;
 } __packed;
 
@@ -169,19 +175,6 @@ struct tpmi_feature_state {
 	u32 reserved_3:15;
 	u32 locked:1;
 } __packed;
-
-/*
- * List of supported TMPI IDs.
- * Some TMPI IDs are not used by Linux, so the numbers are not consecutive.
- */
-enum intel_tpmi_id {
-	TPMI_ID_RAPL = 0, /* Running Average Power Limit */
-	TPMI_ID_PEM = 1, /* Power and Perf excursion Monitor */
-	TPMI_ID_UNCORE = 2, /* Uncore Frequency Scaling */
-	TPMI_ID_SST = 5, /* Speed Select Technology */
-	TPMI_CONTROL_ID = 0x80, /* Special ID for getting feature status */
-	TPMI_INFO_ID = 0x81, /* Special ID for PCI BDF and Package ID information */
-};
 
 /*
  * The size from hardware is in u32 units. This size is from a trusted hardware,
@@ -345,8 +338,8 @@ err_unlock:
 	return ret;
 }
 
-int tpmi_get_feature_status(struct auxiliary_device *auxdev, int feature_id,
-			    int *locked, int *disabled)
+int tpmi_get_feature_status(struct auxiliary_device *auxdev,
+			    int feature_id, bool *read_blocked, bool *write_blocked)
 {
 	struct intel_vsec_device *intel_vsec_dev = dev_to_ivdev(auxdev->dev.parent);
 	struct intel_tpmi_info *tpmi_info = auxiliary_get_drvdata(&intel_vsec_dev->auxdev);
@@ -357,12 +350,21 @@ int tpmi_get_feature_status(struct auxiliary_device *auxdev, int feature_id,
 	if (ret)
 		return ret;
 
-	*locked = feature_state.locked;
-	*disabled = !feature_state.enabled;
+	*read_blocked = feature_state.read_blocked;
+	*write_blocked = feature_state.write_blocked;
 
 	return 0;
 }
 EXPORT_SYMBOL_NS_GPL(tpmi_get_feature_status, INTEL_TPMI);
+
+struct dentry *tpmi_get_debugfs_dir(struct auxiliary_device *auxdev)
+{
+	struct intel_vsec_device *intel_vsec_dev = dev_to_ivdev(auxdev->dev.parent);
+	struct intel_tpmi_info *tpmi_info = auxiliary_get_drvdata(&intel_vsec_dev->auxdev);
+
+	return tpmi_info->dbgfs_dir;
+}
+EXPORT_SYMBOL_NS_GPL(tpmi_get_debugfs_dir, INTEL_TPMI);
 
 static int tpmi_pfs_dbg_show(struct seq_file *s, void *unused)
 {
@@ -584,6 +586,8 @@ static const char *intel_tpmi_name(enum intel_tpmi_id id)
 		return "uncore";
 	case TPMI_ID_SST:
 		return "sst";
+	case TPMI_ID_PLR:
+		return "plr";
 	default:
 		return NULL;
 	}
@@ -599,9 +603,21 @@ static int tpmi_create_device(struct intel_tpmi_info *tpmi_info,
 	struct intel_vsec_device *vsec_dev = tpmi_info->vsec_dev;
 	char feature_id_name[TPMI_FEATURE_NAME_LEN];
 	struct intel_vsec_device *feature_vsec_dev;
+	struct tpmi_feature_state feature_state;
 	struct resource *res, *tmp;
 	const char *name;
-	int i;
+	int i, ret;
+
+	ret = tpmi_read_feature_status(tpmi_info, pfs->pfs_header.tpmi_id, &feature_state);
+	if (ret)
+		return ret;
+
+	/*
+	 * If not enabled, continue to look at other features in the PFS, so return -EOPNOTSUPP.
+	 * This will not cause failure of loading of this driver.
+	 */
+	if (!feature_state.enabled)
+		return -EOPNOTSUPP;
 
 	name = intel_tpmi_name(pfs->pfs_header.tpmi_id);
 	if (!name)
@@ -667,28 +683,44 @@ static int tpmi_create_devices(struct intel_tpmi_info *tpmi_info)
 }
 
 #define TPMI_INFO_BUS_INFO_OFFSET	0x08
+#define TPMI_INFO_MAJOR_VERSION		0x00
+#define TPMI_INFO_MINOR_VERSION		0x02
 
 static int tpmi_process_info(struct intel_tpmi_info *tpmi_info,
 			     struct intel_tpmi_pm_feature *pfs)
 {
 	struct tpmi_info_header header;
 	void __iomem *info_mem;
+	u64 feature_header;
+	int ret = 0;
 
-	info_mem = ioremap(pfs->vsec_offset + TPMI_INFO_BUS_INFO_OFFSET,
-			   pfs->pfs_header.entry_size * sizeof(u32) - TPMI_INFO_BUS_INFO_OFFSET);
+	info_mem = ioremap(pfs->vsec_offset, pfs->pfs_header.entry_size * sizeof(u32));
 	if (!info_mem)
 		return -ENOMEM;
 
-	memcpy_fromio(&header, info_mem, sizeof(header));
+	feature_header = readq(info_mem);
+	if (TPMI_MAJOR_VERSION(feature_header) != TPMI_INFO_MAJOR_VERSION) {
+		ret = -ENODEV;
+		goto error_info_header;
+	}
+
+	memcpy_fromio(&header, info_mem + TPMI_INFO_BUS_INFO_OFFSET, sizeof(header));
 
 	tpmi_info->plat_info.package_id = header.pkg;
 	tpmi_info->plat_info.bus_number = header.bus;
 	tpmi_info->plat_info.device_number = header.dev;
 	tpmi_info->plat_info.function_number = header.fn;
 
+	if (TPMI_MINOR_VERSION(feature_header) >= TPMI_INFO_MINOR_VERSION) {
+		tpmi_info->plat_info.cdie_mask = header.cdie_mask;
+		tpmi_info->plat_info.partition = header.partition;
+		tpmi_info->plat_info.segment = header.segment;
+	}
+
+error_info_header:
 	iounmap(info_mem);
 
-	return 0;
+	return ret;
 }
 
 static int tpmi_fetch_pfs_header(struct intel_tpmi_pm_feature *pfs, u64 start, int size)
