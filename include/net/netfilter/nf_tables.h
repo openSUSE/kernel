@@ -298,6 +298,7 @@ struct nft_set_elem {
 };
 
 
+#ifndef __GENKSYMS__
 /**
  * enum nft_iter_type - nftables set iterator type
  *
@@ -309,11 +310,14 @@ enum nft_iter_type {
 	NFT_ITER_READ,
 	NFT_ITER_UPDATE,
 };
+#endif
 
 struct nft_set;
 struct nft_set_iter {
 	u8		genmask;
+#ifndef __GENKSYMS__
 	enum nft_iter_type type:8;
+#endif
 	unsigned int	count;
 	unsigned int	skip;
 	int		err;
