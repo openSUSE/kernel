@@ -1369,7 +1369,7 @@ xfs_validate_stripe_geometry(
 		goto check_override;
 	}
 
-	if (sunit > swidth) {
+	if (swidth && sunit > swidth) {
 		if (!silent)
 			xfs_notice(mp,
 "stripe unit (%lld) is larger than the stripe width (%lld)", sunit, swidth);
