@@ -953,13 +953,10 @@ static int tpm2_load_null(struct tpm_chip *chip, u32 *null_key)
 	/* Deduce from the name change TPM interference: */
 	dev_err(&chip->dev, "null key integrity check failed\n");
 	tpm2_flush_context(chip, tmp_null_key);
+	chip->flags |= TPM_CHIP_FLAG_DISABLE;
 
 err:
-	if (rc) {
-		chip->flags |= TPM_CHIP_FLAG_DISABLE;
-		rc = -ENODEV;
-	}
-	return rc;
+	return rc ? -ENODEV : 0;
 }
 
 /**
