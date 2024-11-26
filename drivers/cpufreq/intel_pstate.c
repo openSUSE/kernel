@@ -3765,7 +3765,7 @@ static int __init intel_pstate_init(void)
 	}
 	/* Without HWP start in the passive mode. */
 	if (!default_driver)
-		default_driver = &intel_cpufreq;
+		default_driver = &intel_pstate;
 
 hwp_cpu_matched:
 	/*
