@@ -55,6 +55,7 @@ struct dvb_net {
 	struct dmx_demux *demux;
 	struct mutex ioctl_mutex;
 	struct mutex remove_mutex;
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 /**

@@ -54,6 +54,8 @@ struct cec_devnode {
 	/* protect access to fhs */
 	struct mutex lock_fhs;
 	struct list_head fhs;
+
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 struct cec_adapter;
@@ -105,6 +107,8 @@ struct cec_fh {
 	struct cec_event_entry	core_events[CEC_NUM_CORE_EVENTS];
 	struct list_head	msgs; /* queued messages */
 	unsigned int		queued_msgs;
+
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 #define CEC_SIGNAL_FREE_TIME_RETRY		3
@@ -296,6 +300,8 @@ struct cec_adapter {
 	u32 sequence;
 
 	char input_phys[40];
+
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 static inline int cec_get_device(struct cec_adapter *adap)

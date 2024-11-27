@@ -124,6 +124,8 @@ struct dvb_adapter {
 	struct media_entity *conn;
 	struct media_pad *conn_pads;
 #endif
+
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 /**

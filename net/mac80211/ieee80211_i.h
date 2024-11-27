@@ -1613,6 +1613,8 @@ struct ieee80211_local {
 	u8 ext_capa[8];
 
 	bool wbrf_supported;
+
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 static inline struct ieee80211_sub_if_data *
