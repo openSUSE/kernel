@@ -12,9 +12,6 @@
 #include <linux/of.h>
 #include <linux/of_device.h>
 #include <linux/psci.h>
-
-#ifdef CONFIG_ACPI_PROCESSOR_IDLE
-
 #include <acpi/processor.h>
 
 #define ARM64_LPI_IS_RETENTION_STATE(arch_flags) (!(arch_flags))
@@ -73,4 +70,3 @@ __cpuidle int acpi_processor_ffh_lpi_enter(struct acpi_lpi_state *lpi)
 		return CPU_PM_CPU_IDLE_ENTER_PARAM_RCU(psci_cpu_suspend_enter,
 					     lpi->index, state);
 }
-#endif
