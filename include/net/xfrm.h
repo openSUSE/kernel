@@ -176,10 +176,14 @@ struct xfrm_state {
 		struct hlist_node	gclist;
 		struct hlist_node	bydst;
 	};
+#ifdef __GENKSYMS__
+	struct hlist_node       bysrc;
+#else
 	union {
 		struct hlist_node	dev_gclist;
 		struct hlist_node	bysrc;
 	};
+#endif
 	struct hlist_node	byspi;
 	struct hlist_node	byseq;
 
