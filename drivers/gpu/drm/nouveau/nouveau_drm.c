@@ -246,7 +246,6 @@ nouveau_cli_init(struct nouveau_drm *drm, const char *sname,
 		{ NVIF_CLASS_VMM_NV04 , -1 },
 		{}
 	};
-	u64 device = nouveau_name(drm->dev);
 	int ret;
 
 	snprintf(cli->name, sizeof(cli->name), "%s", sname);
@@ -259,8 +258,7 @@ nouveau_cli_init(struct nouveau_drm *drm, const char *sname,
 
 	if (cli != &drm->master) {
 		mutex_lock(&drm->master.lock);
-		ret = nvif_client_ctor(&drm->master.base, cli->name, device,
-				       &cli->base);
+		ret = nvif_client_ctor(&drm->master.base, cli->name, &cli->base);
 		mutex_unlock(&drm->master.lock);
 	}
 	if (ret) {
