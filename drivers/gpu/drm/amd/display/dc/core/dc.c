@@ -5464,9 +5464,10 @@ static void blank_and_force_memclk(struct dc *dc, bool apply, unsigned int memcl
 			hubp->funcs->set_blank_regs(hubp, true);
 		}
 	}
-
-	dc->clk_mgr->funcs->set_max_memclk(dc->clk_mgr, memclk_mhz);
-	dc->clk_mgr->funcs->set_min_memclk(dc->clk_mgr, memclk_mhz);
+	if (dc->clk_mgr->funcs->set_max_memclk)
+		dc->clk_mgr->funcs->set_max_memclk(dc->clk_mgr, memclk_mhz);
+	if (dc->clk_mgr->funcs->set_min_memclk)
+		dc->clk_mgr->funcs->set_min_memclk(dc->clk_mgr, memclk_mhz);
 
 	for (i = 0; i < dc->res_pool->pipe_count; i++) {
 		pipe = &context->res_ctx.pipe_ctx[i];
@@ -5515,7 +5516,7 @@ void dc_enable_dcmode_clk_limit(struct dc *dc, bool enable)
 
 	if (enable && !dc->clk_mgr->dc_mode_softmax_enabled) {
 		if (p_state_change_support) {
-			if (funcMin <= softMax)
+			if (funcMin <= softMax && dc->clk_mgr->funcs->set_max_memclk)
 				dc->clk_mgr->funcs->set_max_memclk(dc->clk_mgr, softMax);
 			// else: No-Op
 		} else {
@@ -5525,7 +5526,7 @@ void dc_enable_dcmode_clk_limit(struct dc *dc, bool enable)
 		}
 	} else if (!enable && dc->clk_mgr->dc_mode_softmax_enabled) {
 		if (p_state_change_support) {
-			if (funcMin <= softMax)
+			if (funcMin <= softMax && dc->clk_mgr->funcs->set_max_memclk)
 				dc->clk_mgr->funcs->set_max_memclk(dc->clk_mgr, maxDPM);
 			// else: No-Op
 		} else {
