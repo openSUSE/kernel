@@ -1550,6 +1550,7 @@ static enum dc_status dce110_enable_stream_timing(
 				0,
 				0,
 				0,
+				0,
 				pipe_ctx->stream->signal,
 				true);
 	}
