@@ -388,7 +388,7 @@ struct mod_kallsyms {
 	char *typetab;
 };
 
-#ifdef CONFIG_LIVEPATCH
+#if defined(CONFIG_LIVEPATCH) || defined(__aarch64__)
 /**
  * struct klp_modinfo - ELF information preserved from the livepatch module
  *
@@ -555,7 +555,7 @@ struct module {
 #endif
 
 
-#ifdef CONFIG_LIVEPATCH
+#if defined(CONFIG_LIVEPATCH) || defined(__aarch64__)
 	bool klp; /* Is this a livepatch module? */
 	bool klp_alive;
 
@@ -748,6 +748,18 @@ static inline void __module_get(struct module *module)
 	__mod ? __mod->name : "kernel";		\
 })
 
+#ifdef CONFIG_STACKTRACE_BUILD_ID
+static inline const unsigned char *module_buildid(struct module *mod)
+{
+	return mod->build_id;
+}
+#else
+static inline const unsigned char *module_buildid(struct module *mod)
+{
+	return NULL;
+}
+#endif
+
 /* Dereference module function descriptor */
 void *dereference_module_function_descriptor(struct module *mod, void *ptr);
 
@@ -840,6 +852,11 @@ static inline void module_put(struct module *module)
 }
 
 #define module_name(mod) "kernel"
+
+static inline const unsigned char *module_buildid(struct module *mod)
+{
+	return NULL;
+}
 
 static inline int register_module_notifier(struct notifier_block *nb)
 {

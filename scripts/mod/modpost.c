@@ -1726,6 +1726,10 @@ static void read_symbols(const char *modname)
 			warn("missing MODULE_DESCRIPTION() in %s\n", modname);
 	}
 
+	/* Livepatch modules have unresolved symbols resolved by klp-convert */
+	if (get_modinfo(&info, "livepatch"))
+		mod->is_livepatch = true;
+
 	for (sym = info.symtab_start; sym < info.symtab_stop; sym++) {
 		symname = remove_dot(info.strtab + sym->st_name);
 
@@ -1812,10 +1816,18 @@ static void check_exports(struct module *mod)
 		const char *basename;
 		exp = find_symbol(s->name);
 		if (!exp) {
-			if (!s->weak && nr_unresolved++ < MAX_UNRESOLVED_REPORTS)
+			if (!s->weak && nr_unresolved++ < MAX_UNRESOLVED_REPORTS) {
+				/*
+				 * In case of livepatch module we allow
+				 * unresolved symbol with a specific format
+				 */
+				if (mod->is_livepatch &&
+				    strncmp(s->name, KLP_SYM_RELA, strlen(KLP_SYM_RELA)) == 0)
+					break;
 				modpost_log(!warn_unresolved,
 					    "\"%s\" [%s.ko] undefined!\n",
 					    s->name, mod->name);
+			}
 			continue;
 		}
 		if (exp->module == mod) {
@@ -2257,6 +2269,20 @@ static void write_namespace_deps_files(const char *fname)
 	free(ns_deps_buf.p);
 }
 
+static void write_livepatch_modules(const char *fname)
+{
+	struct buffer buf = { };
+	struct module *mod;
+
+	list_for_each_entry(mod, &modules, list) {
+		if (mod->is_livepatch)
+			buf_printf(&buf, "%s.o\n", mod->name);
+	}
+
+	write_if_changed(&buf, fname);
+	free(buf.p);
+}
+
 struct dump_list {
 	struct list_head list;
 	const char *file;
@@ -2287,6 +2313,7 @@ int main(int argc, char **argv)
 	char *missing_namespace_deps = NULL;
 	char *unused_exports_white_list = NULL;
 	char *dump_write = NULL, *files_source = NULL;
+	char *livepatch_modules = NULL;
 #ifdef CONFIG_SUSE_KERNEL_SUPPORTED
 	const char *supported = NULL;
 #endif
@@ -2294,7 +2321,7 @@ int main(int argc, char **argv)
 	LIST_HEAD(dump_lists);
 	struct dump_list *dl, *dl2;
 
-	while ((opt = getopt(argc, argv, "ei:MmnT:to:au:WwENd:S:")) != -1) {
+	while ((opt = getopt(argc, argv, "ei:l:MmnT:to:au:WwENd:S:")) != -1) {
 		switch (opt) {
 		case 'e':
 			external_module = true;
@@ -2303,6 +2330,9 @@ int main(int argc, char **argv)
 			dl = xmalloc(sizeof(*dl));
 			dl->file = optarg;
 			list_add_tail(&dl->list, &dump_lists);
+			break;
+		case 'l':
+			livepatch_modules = optarg;
 			break;
 		case 'M':
 			module_enabled = true;
@@ -2397,6 +2427,8 @@ int main(int argc, char **argv)
 
 	if (dump_write)
 		write_dump(dump_write);
+	if (livepatch_modules)
+		write_livepatch_modules(livepatch_modules);
 	if (sec_mismatch_count && !sec_mismatch_warn_only)
 		error("Section mismatches detected.\n"
 		      "Set CONFIG_SECTION_MISMATCH_WARN_ONLY=y to allow them.\n");

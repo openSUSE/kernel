@@ -235,6 +235,25 @@ int klp_apply_section_relocs(struct module *pmod, Elf_Shdr *sechdrs,
 			     unsigned int symindex, unsigned int secindex,
 			     const char *objname);
 
+/**
+ * KLP_RELOC_SYMBOL_POS - define relocation for external symbols
+ *
+ * @LP_OBJ_NAME: name of the livepatched object where the symbol is needed
+ * @SYM_OBJ_NAME: name of the object where the symbol exists
+ * @SYM_NAME: symbol name
+ * @SYM_POS: position of the symbol in SYM_OBJ when there are more
+ *       symbols of the same name.
+ *
+ * Use for annotating external symbols used in livepatches which are
+ * not exported in vmlinux or are in livepatched modules, see
+ * Documentation/livepatch/module-elf-format.rst
+ */
+#define KLP_RELOC_SYMBOL_POS(LP_OBJ_NAME, SYM_OBJ_NAME, SYM_NAME, SYM_POS)	\
+	asm("\".klp.sym.rela." #LP_OBJ_NAME "." #SYM_OBJ_NAME "." #SYM_NAME "," #SYM_POS "\"")
+
+#define KLP_RELOC_SYMBOL(LP_OBJ_NAME, SYM_OBJ_NAME, SYM_NAME)	\
+	KLP_RELOC_SYMBOL_POS(LP_OBJ_NAME, SYM_OBJ_NAME, SYM_NAME, 0)
+
 #else /* !CONFIG_LIVEPATCH */
 
 static inline int klp_module_coming(struct module *mod) { return 0; }
