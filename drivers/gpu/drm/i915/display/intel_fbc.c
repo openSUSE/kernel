@@ -1087,7 +1087,7 @@ static void intel_fbc_max_surface_size(struct intel_display *display,
 	} else if (DISPLAY_VER(display) >= 7) {
 		*w = 4096;
 		*h = 4096;
-	} else if (IS_G4X(i915) || DISPLAY_VER(display) >= 5) {
+	} else if (DISPLAY_VER(display) >= 5 || IS_G4X(i915)) {
 		*w = 4096;
 		*h = 2048;
 	} else {
@@ -1128,7 +1128,7 @@ static void intel_fbc_max_plane_size(struct intel_display *display,
 	} else if (DISPLAY_VER(display) >= 8 || IS_HASWELL(i915)) {
 		*w = 4096;
 		*h = 4096;
-	} else if (IS_G4X(i915) || DISPLAY_VER(display) >= 5) {
+	} else if (DISPLAY_VER(display) >= 5 || IS_G4X(i915)) {
 		*w = 4096;
 		*h = 2048;
 	} else {
