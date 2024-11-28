@@ -211,6 +211,7 @@ nouveau_cli_fini(struct nouveau_cli *cli)
 	nouveau_vmm_fini(&cli->svm);
 	nouveau_vmm_fini(&cli->vmm);
 	nvif_mmu_dtor(&cli->mmu);
+	cli->device.object.map.ptr = NULL;
 	nvif_device_dtor(&cli->device);
 	if (cli != &cli->drm->master) {
 		mutex_lock(&cli->drm->master.lock);
@@ -271,6 +272,8 @@ nouveau_cli_init(struct nouveau_drm *drm, const char *sname,
 		NV_PRINTK(err, cli, "Device allocation failed: %d\n", ret);
 		goto done;
 	}
+
+	cli->device.object.map.ptr = drm->device.object.map.ptr;
 
 	ret = nvif_mclass(&cli->device.object, mmus);
 	if (ret < 0) {
@@ -720,6 +723,7 @@ nouveau_drm_device_del(struct nouveau_drm *drm)
 	if (drm->dev)
 		drm_dev_put(drm->dev);
 
+	nvif_device_dtor(&drm->device);
 	nvif_client_dtor(&drm->master.base);
 	nvif_parent_dtor(&drm->parent);
 
@@ -755,6 +759,18 @@ nouveau_drm_device_new(const struct drm_driver *drm_driver, struct device *paren
 			       nouveau_name(drm->dev), &drm->master.base);
 	if (ret)
 		goto done;
+
+	ret = nvif_device_ctor(&drm->master.base, "drmDevice", &drm->device);
+	if (ret) {
+		NV_ERROR(drm, "Device allocation failed: %d\n", ret);
+		goto done;
+	}
+
+	ret = nvif_device_map(&drm->device);
+	if (ret) {
+		NV_ERROR(drm, "Failed to map PRI: %d\n", ret);
+		goto done;
+	}
 
 done:
 	if (ret) {
