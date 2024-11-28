@@ -97,6 +97,8 @@ struct infrared {
 };
 
 
+#define MAX_CI_SLOTS	2
+
 /* place to store all the necessary device information */
 struct av7110 {
 
@@ -177,7 +179,7 @@ struct av7110 {
 
 	/* CA */
 
-	ca_slot_info_t		ci_slot[2];
+	ca_slot_info_t		ci_slot[MAX_CI_SLOTS];
 
 	enum av7110_video_mode	vidmode;
 	struct dmxdev		dmxdev;
