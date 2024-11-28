@@ -1270,6 +1270,8 @@ static int mes_v12_0_sw_init(void *handle)
 
 	adev->mes.event_log_size = AMDGPU_MES_LOG_BUFFER_SIZE;
 
+	adev->mes.event_log_size = AMDGPU_MES_LOG_BUFFER_SIZE;
+
 	r = amdgpu_mes_init(adev);
 	if (r)
 		return r;
