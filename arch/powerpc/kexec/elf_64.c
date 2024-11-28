@@ -161,7 +161,7 @@ out:
 }
 
 #ifdef CONFIG_KEXEC_SIG
-int elf64_verify_sig(const char *kernel, unsigned long kernel_len)
+static int elf64_verify_sig(const char *kernel, unsigned long kernel_len)
 {
 	const unsigned long marker_len = sizeof(MODULE_SIG_STRING) - 1;
 	struct module_signature *ms;
