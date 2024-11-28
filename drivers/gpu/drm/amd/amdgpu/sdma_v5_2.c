@@ -1756,6 +1756,7 @@ static void sdma_v5_2_print_ip_state(void *handle, struct drm_printer *p)
 				   adev->sdma.ip_dump[instance_offset + j]);
 	}
 }
+
 static void sdma_v5_2_dump_ip_state(void *handle)
 {
 	struct amdgpu_device *adev = (struct amdgpu_device *)handle;
