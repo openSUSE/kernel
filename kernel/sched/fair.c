@@ -4953,9 +4953,10 @@ static inline bool entity_is_long_sleeper(struct sched_entity *se)
 }
 
 static void
-place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int initial)
+place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 {
 	u64 vruntime = cfs_rq->min_vruntime;
+	int initial = (flags & ENQUEUE_INITIAL);
 
 	/*
 	 * The 'current' period is already promised to the current tasks,
@@ -4963,11 +4964,11 @@ place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int initial)
 	 * little, place the new task so that it fits in the slot that
 	 * stays open at the end.
 	 */
-	if (initial && sched_feat(START_DEBIT))
-		vruntime += sched_vslice(cfs_rq, se);
-
-	/* sleeps up to a single latency don't count. */
-	if (!initial) {
+	if (initial) {
+		if (sched_feat(START_DEBIT))
+			vruntime += sched_vslice(cfs_rq, se);
+	} else {
+		/* sleeps up to a single latency don't count. */
 		unsigned long thresh;
 
 		if (se_is_idle(se))
@@ -5084,7 +5085,7 @@ enqueue_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 	account_entity_enqueue(cfs_rq, se);
 
 	if (flags & ENQUEUE_WAKEUP)
-		place_entity(cfs_rq, se, 0);
+		place_entity(cfs_rq, se, flags);
 	/* Entity has migrated, no longer consider this task hot */
 	if (flags & ENQUEUE_MIGRATED)
 		se->exec_start = 0;
@@ -12680,7 +12681,7 @@ static void task_fork_fair(struct task_struct *p)
 		update_curr(cfs_rq);
 		se->vruntime = curr->vruntime;
 	}
-	place_entity(cfs_rq, se, 1);
+	place_entity(cfs_rq, se, ENQUEUE_INITIAL);
 
 	if (sysctl_sched_child_runs_first && curr && entity_before(curr, se)) {
 		/*
