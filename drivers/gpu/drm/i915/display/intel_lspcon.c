@@ -277,17 +277,23 @@ static bool lspcon_probe(struct intel_lspcon *lspcon)
 	drm_dbg_kms(display->drm, "LSPCON detected\n");
 	lspcon->mode = lspcon_wait_mode(lspcon, expected_mode);
 
+	return true;
+}
+
+static bool lspcon_set_pcon_mode(struct intel_lspcon *lspcon)
+{
+
 	/*
 	 * In the SW state machine, lets Put LSPCON in PCON mode only.
 	 * In this way, it will work with both HDMI 1.4 sinks as well as HDMI
 	 * 2.0 sinks.
 	 */
-	if (lspcon->mode != DRM_LSPCON_MODE_PCON) {
-		if (lspcon_change_mode(lspcon, DRM_LSPCON_MODE_PCON) < 0) {
-			drm_err(display->drm, "LSPCON mode change to PCON failed\n");
-			return false;
-		}
-	}
+	if (lspcon->mode == DRM_LSPCON_MODE_PCON)
+		return true;
+
+	if (lspcon_change_mode(lspcon, DRM_LSPCON_MODE_PCON) < 0)
+		return false;
+
 	return true;
 }
 
@@ -671,8 +677,11 @@ bool lspcon_init(struct intel_digital_port *dig_port)
 	lspcon->active = false;
 	lspcon->mode = DRM_LSPCON_MODE_INVALID;
 
-	if (!lspcon_probe(lspcon)) {
-		drm_err(display->drm, "Failed to probe lspcon\n");
+	if (!lspcon_probe(lspcon))
+		return false;
+
+	if (!lspcon_set_pcon_mode(lspcon)) {
+		drm_err(display->drm, "LSPCON mode change to PCON failed\n");
 		return false;
 	}
 
