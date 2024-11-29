@@ -681,24 +681,30 @@ bool lspcon_init(struct intel_digital_port *dig_port)
 		return false;
 
 	if (!lspcon_set_pcon_mode(lspcon)) {
-		drm_err(display->drm, "LSPCON mode change to PCON failed\n");
-		return false;
+		drm_dbg_kms(display->drm, "LSPCON mode change to PCON failed\n");
+		goto lspcon_init_failed;
 	}
 
 	if (drm_dp_read_dpcd_caps(&intel_dp->aux, intel_dp->dpcd) != 0) {
-		drm_err(display->drm, "LSPCON DPCD read failed\n");
-		return false;
+		drm_dbg_kms(display->drm, "LSPCON DPCD read failed\n");
+		goto lspcon_init_failed;
 	}
 
 	if (!lspcon_detect_vendor(lspcon)) {
-		drm_err(display->drm, "LSPCON vendor detection failed\n");
-		return false;
+		drm_dbg_kms(display->drm, "LSPCON vendor detection failed\n");
+		goto lspcon_init_failed;
 	}
 
 	connector->ycbcr_420_allowed = true;
 	lspcon->active = true;
 	drm_dbg_kms(display->drm, "Success: LSPCON init\n");
 	return true;
+
+lspcon_init_failed:
+	drm_err(display->drm, "LSPCON init failed on port %c\n",
+		port_name(dig_port->base.port));
+
+	return false;
 }
 
 u32 intel_lspcon_infoframes_enabled(struct intel_encoder *encoder,
@@ -718,13 +724,8 @@ void lspcon_resume(struct intel_digital_port *dig_port)
 	if (!intel_bios_encoder_is_lspcon(dig_port->base.devdata))
 		return;
 
-	if (!lspcon->active) {
-		if (!lspcon_init(dig_port)) {
-			drm_err(display->drm, "LSPCON init failed on port %c\n",
-				port_name(dig_port->base.port));
-			return;
-		}
-	}
+	if (!lspcon->active && !lspcon_init(dig_port))
+		return;
 
 	expected_mode = lspcon_get_expected_mode(lspcon);
 	if (expected_mode == DRM_LSPCON_MODE_PCON)
