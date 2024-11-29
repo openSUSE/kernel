@@ -1464,14 +1464,10 @@ static int amd_pstate_epp_cpu_init(struct cpufreq_policy *policy)
 	policy->boost_enabled = READ_ONCE(cpudata->boost_supported);
 
 	/*
-	 * Set the policy to provide a valid fallback value in case
+	 * Set the policy to powersave to provide a valid fallback value in case
 	 * the default cpufreq governor is neither powersave nor performance.
 	 */
-	if (amd_pstate_acpi_pm_profile_server() ||
-	    amd_pstate_acpi_pm_profile_undefined())
-		policy->policy = CPUFREQ_POLICY_PERFORMANCE;
-	else
-		policy->policy = CPUFREQ_POLICY_POWERSAVE;
+	policy->policy = CPUFREQ_POLICY_POWERSAVE;
 
 	if (cpu_feature_enabled(X86_FEATURE_CPPC)) {
 		ret = rdmsrl_on_cpu(cpudata->cpu, MSR_AMD_CPPC_REQ, &value);
