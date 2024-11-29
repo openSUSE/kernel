@@ -9596,6 +9596,19 @@ static void amdgpu_dm_commit_streams(struct drm_atomic_state *state,
 				amdgpu_dm_backlight_set_level(dm, i, dm->brightness[i]);
 		}
 	}
+
+	/* During boot up and resume the DC layer will reset the panel brightness
+	 * to fix a flicker issue.
+	 * It will cause the dm->actual_brightness is not the current panel brightness
+	 * level. (the dm->brightness is the correct panel level)
+	 * So we set the backlight level with dm->brightness value after set mode
+	 */
+	if (set_backlight_level) {
+		for (i = 0; i < dm->num_of_edps; i++) {
+			if (dm->backlight_dev[i])
+				amdgpu_dm_backlight_set_level(dm, i, dm->brightness[i]);
+		}
+	}
 }
 
 static void dm_set_writeback(struct amdgpu_display_manager *dm,
