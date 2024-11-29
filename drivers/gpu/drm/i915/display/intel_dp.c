@@ -6180,9 +6180,6 @@ intel_dp_connector_register(struct drm_connector *connector)
 	 * ToDo: Clean this up to handle lspcon init and resume more
 	 * efficiently and streamlined.
 	 */
-	if (!lspcon_probe(lspcon))
-		return ret;
-
 	if (lspcon_init(dig_port)) {
 		lspcon_detect_hdr_capability(lspcon);
 		if (lspcon->hdr_supported)
