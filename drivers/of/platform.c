@@ -587,7 +587,7 @@ static int __init of_platform_default_populate_init(void)
 			of_node_put(node);
 		}
 
-		sysfb_disable();
+		sysfb_disable(NULL);
 		node = of_get_compatible_child(of_chosen, "simple-framebuffer");
 		if (node) {
 			/*
@@ -600,7 +600,7 @@ static int __init of_platform_default_populate_init(void)
 			 * This can happen for example on DT systems that do EFI
 			 * booting and may provide a GOP handle to the EFI stub.
 			 */
-			sysfb_disable();
+			sysfb_disable(NULL);
 			of_platform_device_create(node, NULL, NULL);
 			of_node_put(node);
 		}
