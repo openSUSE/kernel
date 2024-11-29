@@ -1464,14 +1464,10 @@ static int amd_pstate_epp_cpu_init(struct cpufreq_policy *policy)
 	policy->boost_enabled = READ_ONCE(cpudata->boost_supported);
 
 	/*
-	 * Set the policy to provide a valid fallback value in case
+	 * Set the policy to powersave to provide a valid fallback value in case
 	 * the default cpufreq governor is neither powersave nor performance.
 	 */
-	if (amd_pstate_acpi_pm_profile_server() ||
-	    amd_pstate_acpi_pm_profile_undefined())
-		policy->policy = CPUFREQ_POLICY_PERFORMANCE;
-	else
-		policy->policy = CPUFREQ_POLICY_POWERSAVE;
+	policy->policy = CPUFREQ_POLICY_POWERSAVE;
 
 	if (cpu_feature_enabled(X86_FEATURE_CPPC)) {
 		ret = rdmsrl_on_cpu(cpudata->cpu, MSR_AMD_CPPC_REQ, &value);
@@ -1535,7 +1531,7 @@ static int amd_pstate_epp_update_limit(struct cpufreq_policy *policy)
 	value = READ_ONCE(cpudata->cppc_req_cached);
 
 	if (cpudata->policy == CPUFREQ_POLICY_PERFORMANCE)
-		min_perf = max_perf;
+		min_perf = min(cpudata->nominal_perf, max_perf);
 
 	/* Initial min/max values for CPPC Performance Controls Register */
 	value &= ~AMD_CPPC_MIN_PERF(~0L);
@@ -1864,10 +1860,10 @@ static int __init amd_pstate_init(void)
 	if (cppc_state == AMD_PSTATE_UNDEFINED) {
 		/* Disable on the following configs by default:
 		 * 1. Undefined platforms
-		 * 2. Server platforms
+		 * 2. Server platforms with CPUs older than Family 0x1A.
 		 */
 		if (amd_pstate_acpi_pm_profile_undefined() ||
-		    amd_pstate_acpi_pm_profile_server()) {
+		    (amd_pstate_acpi_pm_profile_server() && boot_cpu_data.x86 < 0x1A)) {
 			pr_info("driver load is disabled, boot with specific mode to enable this\n");
 			return -ENODEV;
 		}
