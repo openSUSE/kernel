@@ -520,7 +520,7 @@ struct sched_statistics {
 	u64				block_max;
 	s64				sum_block_runtime;
 
-	u64				exec_max;
+	s64				exec_max;
 	u64				slice_max;
 
 	u64				nr_migrations_cold;
@@ -642,6 +642,8 @@ struct sched_dl_entity {
 	 *
 	 * @dl_overrun tells if the task asked to be informed about runtime
 	 * overruns.
+	 *
+	 * @dl_server tells if this is a server entity.
 	 */
 	unsigned int			dl_throttled      : 1;
 	unsigned int			dl_yielded        : 1;
@@ -1221,7 +1223,6 @@ struct task_struct {
 	/* Sequence number to catch updates: */
 	seqcount_spinlock_t		mems_allowed_seq;
 	int				cpuset_mem_spread_rotor;
-	int				cpuset_slab_spread_rotor;
 #endif
 #ifdef CONFIG_CGROUPS
 	/* Control Group info protected by css_set_lock: */
