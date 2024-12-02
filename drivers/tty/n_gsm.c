@@ -2530,12 +2530,20 @@ static void gsm_cleanup_mux(struct gsm_mux *gsm, bool disc)
 	mutex_unlock(&gsm->mutex);
 	/* Now wipe the queues */
 	tty_ldisc_flush(gsm->tty);
+
+	/* guard(spinlock_irqsave)(&gsm->tx_lock); */
+	/*
+	 * NOTE: No need for irq-safe version, this function cannot be called
+	 * from irq and also locks mutex etc.
+	 */
+	spin_lock(&gsm->tx_lock);
 	list_for_each_entry_safe(txq, ntxq, &gsm->tx_ctrl_list, list)
 		kfree(txq);
 	INIT_LIST_HEAD(&gsm->tx_ctrl_list);
 	list_for_each_entry_safe(txq, ntxq, &gsm->tx_data_list, list)
 		kfree(txq);
 	INIT_LIST_HEAD(&gsm->tx_data_list);
+	spin_unlock(&gsm->tx_lock);
 }
 
 /**
