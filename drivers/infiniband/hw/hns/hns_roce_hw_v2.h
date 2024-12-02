@@ -131,6 +131,11 @@
 
 #define HNS_ROCE_V2_TABLE_CHUNK_SIZE		(1 << 18)
 
+/* budget must be smaller than aeqe_depth to guarantee that we update
+ * the ci before we polled all the entries in the EQ.
+ */
+#define HNS_AEQ_POLLING_BUDGET 64
+
 enum {
 	HNS_ROCE_CMD_FLAG_IN = BIT(0),
 	HNS_ROCE_CMD_FLAG_OUT = BIT(1),
@@ -313,6 +318,10 @@ struct hns_roce_v2_cq_context {
 	__le32 cqe_report_timer;
 	__le32 byte_64_se_cqe_idx;
 };
+
+#define CQC_CQE_BA_L_S 3
+#define CQC_CQE_BA_H_S (32 + CQC_CQE_BA_L_S)
+#define CQC_CQE_DB_RECORD_ADDR_H_S 32
 
 #define HNS_ROCE_V2_CQ_DEFAULT_BURST_NUM 0x0
 #define HNS_ROCE_V2_CQ_DEFAULT_INTERVAL	0x0
@@ -510,6 +519,12 @@ struct hns_roce_v2_qp_context {
 
 	struct hns_roce_v2_qp_context_ex ext;
 };
+
+#define QPC_TRRL_BA_L_S 4
+#define QPC_TRRL_BA_M_S (16 + QPC_TRRL_BA_L_S)
+#define QPC_TRRL_BA_H_S (32 + QPC_TRRL_BA_M_S)
+#define QPC_IRRL_BA_L_S 6
+#define QPC_IRRL_BA_H_S (32 + QPC_IRRL_BA_L_S)
 
 #define QPC_FIELD_LOC(h, l) FIELD_LOC(struct hns_roce_v2_qp_context, h, l)
 
@@ -773,6 +788,9 @@ struct hns_roce_v2_mpt_entry {
 	__le32	byte_64_buf_pa1;
 };
 
+#define MPT_PBL_BUF_ADDR_S 6
+#define MPT_PBL_BA_ADDR_S 3
+
 #define MPT_FIELD_LOC(h, l) FIELD_LOC(struct hns_roce_v2_mpt_entry, h, l)
 
 #define MPT_ST MPT_FIELD_LOC(1, 0)
@@ -956,6 +974,7 @@ struct hns_roce_v2_rc_send_wqe {
 #define RC_SEND_WQE_OWNER RC_SEND_WQE_FIELD_LOC(7, 7)
 #define RC_SEND_WQE_CQE RC_SEND_WQE_FIELD_LOC(8, 8)
 #define RC_SEND_WQE_FENCE RC_SEND_WQE_FIELD_LOC(9, 9)
+#define RC_SEND_WQE_SO RC_SEND_WQE_FIELD_LOC(10, 10)
 #define RC_SEND_WQE_SE RC_SEND_WQE_FIELD_LOC(11, 11)
 #define RC_SEND_WQE_INLINE RC_SEND_WQE_FIELD_LOC(12, 12)
 #define RC_SEND_WQE_WQE_INDEX RC_SEND_WQE_FIELD_LOC(30, 15)
@@ -1408,7 +1427,7 @@ struct hns_roce_v2_priv {
 struct hns_roce_dip {
 	u8 dgid[GID_LEN_V2];
 	u32 dip_idx;
-	struct list_head node; /* all dips are on a list */
+	u32 qp_cnt;
 };
 
 /* only for RNR timeout issue of HIP08 */
