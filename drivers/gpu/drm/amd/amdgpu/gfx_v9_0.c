@@ -2418,6 +2418,8 @@ static int gfx_v9_0_sw_fini(void *handle)
 	amdgpu_gfx_kiq_free_ring(&adev->gfx.kiq[0].ring);
 	amdgpu_gfx_kiq_fini(adev, 0);
 
+	amdgpu_gfx_cleaner_shader_sw_fini(adev);
+
 	gfx_v9_0_mec_fini(adev);
 	amdgpu_bo_free_kernel(&adev->gfx.rlc.clear_state_obj,
 				&adev->gfx.rlc.clear_state_gpu_addr,
@@ -7236,10 +7238,6 @@ static int gfx_v9_0_reset_kcq(struct amdgpu_ring *ring,
 	struct amdgpu_ring *kiq_ring = &kiq->ring;
 	unsigned long flags;
 	int i, r;
-
-	if (!adev->debug_exp_resets &&
-	    !adev->gfx.num_gfx_rings)
-		return -EINVAL;
 
 	if (amdgpu_sriov_vf(adev))
 		return -EINVAL;
