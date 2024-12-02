@@ -614,7 +614,7 @@ void destroy_large_folio(struct folio *folio)
 	enum compound_dtor_id dtor = folio->_folio_dtor;
 
 	if (folio_test_transhuge(folio) && dtor == TRANSHUGE_PAGE_DTOR) {
-		folio_undo_large_rmappable(folio);
+		folio_unqueue_deferred_split(folio);
 		free_compound_page(&folio->page);
 		return;
 	}

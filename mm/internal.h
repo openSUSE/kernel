@@ -386,7 +386,14 @@ extern void memblock_free_pages(struct page *page, unsigned long pfn,
 					unsigned int order);
 extern void __free_pages_core(struct page *page, unsigned int order);
 
-void folio_undo_large_rmappable(struct folio *folio);
+#ifdef CONFIG_TRANSPARENT_HUGEPAGE
+bool folio_unqueue_deferred_split(struct folio *folio);
+#else
+static inline bool folio_unqueue_deferred_split(struct folio *folio)
+{
+	return false;
+}
+#endif
 
 static inline void prep_compound_head(struct page *page, unsigned int order)
 {
