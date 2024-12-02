@@ -318,15 +318,6 @@ static inline bool thp_migration_supported(void)
 	return IS_ENABLED(CONFIG_ARCH_ENABLE_THP_MIGRATION);
 }
 
-static inline struct list_head *page_deferred_list(struct page *page)
-{
-	/*
-	 * Global or memcg deferred list in the second tail pages is
-	 * occupied by compound_head.
-	 */
-	return &page[2].deferred_list;
-}
-
 #else /* CONFIG_TRANSPARENT_HUGEPAGE */
 #define HPAGE_PMD_SHIFT ({ BUILD_BUG(); 0; })
 #define HPAGE_PMD_MASK ({ BUILD_BUG(); 0; })
@@ -483,6 +474,15 @@ static inline bool thp_migration_supported(void)
 	return false;
 }
 #endif /* CONFIG_TRANSPARENT_HUGEPAGE */
+
+static inline struct list_head *page_deferred_list(struct page *page)
+{
+	/*
+	 * Global or memcg deferred list in the second tail pages is
+	 * occupied by compound_head.
+	 */
+	return &page[2].deferred_list;
+}
 
 /**
  * thp_size - Size of a transparent huge page.

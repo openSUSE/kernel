@@ -2749,7 +2749,7 @@ out:
 	return ret;
 }
 
-void free_transhuge_page(struct page *page)
+static void __page_unqueue_deferred_split(struct page *page)
 {
 	struct deferred_split *ds_queue = get_deferred_split_queue(page);
 	unsigned long flags;
@@ -2757,10 +2757,23 @@ void free_transhuge_page(struct page *page)
 	spin_lock_irqsave(&ds_queue->split_queue_lock, flags);
 	if (!list_empty(page_deferred_list(page))) {
 		ds_queue->split_queue_len--;
-		list_del(page_deferred_list(page));
+		list_del_init(page_deferred_list(page));
 	}
 	spin_unlock_irqrestore(&ds_queue->split_queue_lock, flags);
+}
+
+void free_transhuge_page(struct page *page)
+{
+	__page_unqueue_deferred_split(page);
 	free_compound_page(page);
+}
+
+void page_unqueue_deferred_split(struct page *page)
+{
+	if (list_empty(page_deferred_list(page)))
+		return;
+
+	__page_unqueue_deferred_split(page);
 }
 
 void deferred_split_huge_page(struct page *page)
