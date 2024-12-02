@@ -102,6 +102,8 @@ struct bus_type {
 	const struct dev_pm_ops *pm;
 
 	bool need_parent_lock;
+
+	void *suse_kabi_padding;
 };
 
 int __must_check bus_register(const struct bus_type *bus);

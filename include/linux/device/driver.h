@@ -119,6 +119,8 @@ struct device_driver {
 	void (*coredump) (struct device *dev);
 
 	struct driver_private *p;
+
+	void *suse_kabi_padding;
 };
 
 

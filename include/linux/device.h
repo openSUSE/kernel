@@ -827,6 +827,7 @@ struct device {
 #ifdef CONFIG_IOMMU_DMA
 	bool			dma_iommu:1;
 #endif
+	void			*suse_kabi_padding;
 };
 
 /**

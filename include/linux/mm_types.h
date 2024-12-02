@@ -770,6 +770,7 @@ struct vm_area_struct {
 	struct vma_numab_state *numab_state;	/* NUMA Balancing state */
 #endif
 	struct vm_userfaultfd_ctx vm_userfaultfd_ctx;
+	void *suse_kabi_padding;
 } __randomize_layout;
 
 #ifdef CONFIG_NUMA
@@ -1032,6 +1033,7 @@ struct mm_struct {
 #endif /* CONFIG_LRU_GEN_WALKS_MMU */
 	} __randomize_layout;
 
+	void *suse_kabi_padding;
 	/*
 	 * The mm_cpumask needs to be at the end of mm_struct, because it
 	 * is dynamically sized based on nr_cpu_ids.
