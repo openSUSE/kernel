@@ -3,6 +3,8 @@
 pahole-ver := $(CONFIG_PAHOLE_VERSION)
 pahole-flags-y :=
 
+JOBS := $(patsubst -j%,%,$(filter -j%,$(MAKEFLAGS)))
+
 ifeq ($(call test-le, $(pahole-ver), 125),y)
 
 # pahole 1.18 through 1.21 can't handle zero-sized per-CPU vars
