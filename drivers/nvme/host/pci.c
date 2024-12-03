@@ -2074,10 +2074,20 @@ static int nvme_dev_add(struct nvme_dev *dev)
 
 		nvme_dbbuf_set(dev);
 	} else {
+		/* Give up if we are racing with nvme_dev_disable() */
+		if (!mutex_trylock(&dev->shutdown_lock))
+			return -EAGAIN;
+
+		/* Check if nvme_dev_disable() has been executed already */
+		if (!dev->online_queues) {
+			mutex_unlock(&dev->shutdown_lock);
+			return -EAGAIN;
+		}
 		blk_mq_update_nr_hw_queues(&dev->tagset, dev->online_queues - 1);
 
 		/* Free previously allocated queues that are no longer usable */
 		nvme_free_queues(dev, dev->online_queues);
+		mutex_unlock(&dev->shutdown_lock);
 	}
 
 	return 0;
