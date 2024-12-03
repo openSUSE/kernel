@@ -333,8 +333,8 @@ static int ena_xdp_xmit_frame(struct ena_ring *xdp_ring,
 
 error_unmap_dma:
 	ena_unmap_tx_buff(xdp_ring, tx_info);
-	tx_info->xdpf = NULL;
 error_drop_packet:
+	tx_info->xdpf = NULL;
 	xdp_return_frame(xdpf);
 	return rc;
 }
