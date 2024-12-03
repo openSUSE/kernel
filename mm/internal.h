@@ -696,4 +696,10 @@ int numa_migrate_prep(struct page *page, struct vm_area_struct *vma,
 void free_zone_device_page(struct page *page);
 int migrate_device_coherent_page(struct page *page);
 
+#ifdef CONFIG_TRANSPARENT_HUGEPAGE
+void page_unqueue_deferred_split(struct page *page);
+#else
+static inline void page_unqueue_deferred_split(struct page *page) { }
+#endif
+
 #endif	/* __MM_INTERNAL_H */
