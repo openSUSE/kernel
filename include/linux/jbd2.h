@@ -1098,13 +1098,6 @@ struct journal_s
 	int			j_revoke_records_per_block;
 
 	/**
-	 * @j_transaction_overhead_buffers:
-	 *
-	 * Number of blocks each transaction needs for its own bookkeeping
-	 */
-	int			j_transaction_overhead_buffers;
-
-	/**
 	 * @j_commit_interval:
 	 *
 	 * What is the maximum transaction lifetime before we begin a commit?
@@ -1167,6 +1160,15 @@ struct journal_s
 	 * through the journal.
 	 */
 	pid_t			j_last_sync_writer;
+
+#ifndef __GENKSYMS__
+	/**
+	 * @j_transaction_overhead_buffers:
+	 *
+	 * Number of blocks each transaction needs for its own bookkeeping
+	 */
+	int			j_transaction_overhead_buffers;
+#endif
 
 	/**
 	 * @j_average_commit_time:
