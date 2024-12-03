@@ -1443,10 +1443,10 @@ static struct sk_buff *ena_rx_skb(struct ena_ring *rx_ring,
 				  u32 descs,
 				  u16 *next_to_clean)
 {
-	struct sk_buff *skb;
 	struct ena_rx_buffer *rx_info;
 	struct ena_adapter *adapter;
 	u16 len, req_id, buf = 0;
+	struct sk_buff *skb;
 	void *page_addr;
 	u32 page_offset;
 	void *data_addr;
