@@ -305,7 +305,8 @@ void dec_rlimit_put_ucounts(struct ucounts *ucounts, enum ucount_type type)
 	do_dec_rlimit_put_ucounts(ucounts, NULL, type);
 }
 
-long inc_rlimit_get_ucounts(struct ucounts *ucounts, enum ucount_type type)
+long inc_rlimit_get_ucounts(struct ucounts *ucounts, enum ucount_type type,
+			    bool override_rlimit)
 {
 	/* Caller must hold a reference to ucounts */
 	struct ucounts *iter;
@@ -318,7 +319,8 @@ long inc_rlimit_get_ucounts(struct ucounts *ucounts, enum ucount_type type)
 			goto dec_unwind;
 		if (iter == ucounts)
 			ret = new;
-		max = READ_ONCE(iter->ns->ucount_max[type]);
+		if (!override_rlimit)
+			max = READ_ONCE(iter->ns->ucount_max[type]);
 		/*
 		 * Grab an extra ucount reference for the caller when
 		 * the rlimit count was previously 0.
