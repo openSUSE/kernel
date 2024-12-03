@@ -1318,6 +1318,16 @@ skb_set_hash(struct sk_buff *skb, __u32 hash, enum pkt_hash_types type)
 }
 
 static inline void
+skb_page_unref(const struct sk_buff *skb, struct page *page)
+{
+#ifdef CONFIG_PAGE_POOL
+	if (skb->pp_recycle && page_pool_return_skb_page(page))
+		return;
+#endif
+	put_page(page);
+}
+
+static inline void
 __skb_set_sw_hash(struct sk_buff *skb, __u32 hash, bool is_l4)
 {
 	__skb_set_hash(skb, hash, true, is_l4);
