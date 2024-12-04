@@ -6225,6 +6225,7 @@ static ext4_fsblk_t ext4_mb_new_blocks_simple(handle_t *handle,
 	ext4_mb_mark_bb(sb, block, 1, 1);
 	ar->len = 1;
 
+	*errp = 0;
 	return block;
 }
 
