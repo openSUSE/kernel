@@ -2796,6 +2796,8 @@ static void accumulate_memcg_tree(struct mem_cgroup *memcg,
 		for (i = 0; i < NR_LRU_LISTS; i++)
 			acc->lru_pages[i] +=
 				mem_cgroup_nr_lru_pages(mi, BIT(i));
+
+		cond_resched();
 	}
 }
 
