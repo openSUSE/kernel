@@ -1758,8 +1758,8 @@ static void remove_one(struct pci_dev *pdev)
 
 	set_bit(MLX5_BREAK_FW_WAIT, &dev->intf_state);
 	mlx5_drain_fw_reset(dev);
-	mlx5_sriov_disable(pdev);
 	mlx5_drain_health_wq(dev);
+	mlx5_sriov_disable(pdev);
 	mlx5_uninit_one(dev);
 	mlx5_pci_close(dev);
 	mlx5_mdev_uninit(dev);
