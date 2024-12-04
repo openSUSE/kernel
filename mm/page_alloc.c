@@ -294,9 +294,6 @@ compound_page_dtor * const compound_page_dtors[NR_COMPOUND_DTORS] = {
 #ifdef CONFIG_HUGETLB_PAGE
 	[HUGETLB_PAGE_DTOR] = free_huge_page,
 #endif
-#ifdef CONFIG_TRANSPARENT_HUGEPAGE
-	[TRANSHUGE_PAGE_DTOR] = free_transhuge_page,
-#endif
 };
 
 int min_free_kbytes = 1024;
@@ -615,6 +612,12 @@ void prep_compound_page(struct page *page, unsigned int order)
 void destroy_large_folio(struct folio *folio)
 {
 	enum compound_dtor_id dtor = folio->_folio_dtor;
+
+	if (folio_test_transhuge(folio) && dtor == TRANSHUGE_PAGE_DTOR) {
+		folio_unqueue_deferred_split(folio);
+		free_compound_page(&folio->page);
+		return;
+	}
 
 	VM_BUG_ON_FOLIO(dtor >= NR_COMPOUND_DTORS, folio);
 	compound_page_dtors[dtor](&folio->page);
@@ -1010,10 +1013,11 @@ static int free_tail_page_prepare(struct page *head_page, struct page *page)
 		}
 		break;
 	case 2:
-		/*
-		 * the second tail page: ->mapping is
-		 * deferred_list.next -- ignore value.
-		 */
+		/* the second tail page: deferred_list overlaps ->mapping */
+		if (unlikely(!list_empty(&folio->_deferred_list))) {
+			bad_page(page, "on deferred list");
+			goto out;
+		}
 		break;
 	default:
 		if (page->mapping != TAIL_MAPPING) {
