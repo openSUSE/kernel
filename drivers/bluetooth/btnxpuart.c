@@ -444,6 +444,23 @@ static bool ps_wakeup(struct btnxpuart_dev *nxpdev)
 	return false;
 }
 
+static void ps_cleanup(struct btnxpuart_dev *nxpdev)
+{
+	struct ps_data *psdata = &nxpdev->psdata;
+	u8 ps_state;
+
+	mutex_lock(&psdata->ps_lock);
+	ps_state = psdata->ps_state;
+	mutex_unlock(&psdata->ps_lock);
+
+	if (ps_state != PS_STATE_AWAKE)
+		ps_control(psdata->hdev, PS_STATE_AWAKE);
+
+	ps_cancel_timer(nxpdev);
+	cancel_work_sync(&psdata->work);
+	mutex_destroy(&psdata->ps_lock);
+}
+
 static int send_ps_cmd(struct hci_dev *hdev, void *data)
 {
 	struct btnxpuart_dev *nxpdev = hci_get_drvdata(hdev);
@@ -1245,7 +1262,6 @@ static int btnxpuart_close(struct hci_dev *hdev)
 {
 	struct btnxpuart_dev *nxpdev = hci_get_drvdata(hdev);
 
-	ps_wakeup(nxpdev);
 	serdev_device_close(nxpdev->serdev);
 	skb_queue_purge(&nxpdev->txq);
 	if (!IS_ERR_OR_NULL(nxpdev->rx_skb)) {
@@ -1382,7 +1398,7 @@ static void nxp_serdev_remove(struct serdev_device *serdev)
 		nxp_set_baudrate_cmd(hdev, NULL);
 	}
 
-	ps_cancel_timer(nxpdev);
+	ps_cleanup(nxpdev);
 	hci_unregister_dev(hdev);
 	hci_free_dev(hdev);
 }
