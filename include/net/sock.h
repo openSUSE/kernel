@@ -544,6 +544,7 @@ struct sock {
 	struct rcu_head		sk_rcu;
 	netns_tracker		ns_tracker;
 	struct xarray		sk_user_frags;
+	void			*suse_kabi_padding;
 };
 
 struct sock_bh_locked {

@@ -67,6 +67,7 @@ typedef struct {
 	u16 pkey_allocation_map;
 	s16 execute_only_pkey;
 #endif
+	void *suse_kabi_padding;
 } mm_context_t;
 
 #define INIT_MM_CONTEXT(mm)						\

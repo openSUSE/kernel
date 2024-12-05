@@ -246,6 +246,7 @@ struct signal_struct {
 						 * and may have inconsistent
 						 * permissions.
 						 */
+	void *suse_kabi_padding;
 } __randomize_layout;
 
 /*
