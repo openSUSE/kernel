@@ -1628,7 +1628,6 @@ static int ext4_insert_delayed_block(struct inode *inode, ext4_lblk_t lblk)
 	struct ext4_sb_info *sbi = EXT4_SB(inode->i_sb);
 	int ret;
 	bool allocated = false;
-	bool reserved = false;
 
 	/*
 	 * If the cluster containing lblk is shared with a delayed,
@@ -1644,8 +1643,7 @@ static int ext4_insert_delayed_block(struct inode *inode, ext4_lblk_t lblk)
 	if (sbi->s_cluster_ratio == 1) {
 		ret = ext4_da_reserve_space(inode);
 		if (ret != 0)   /* ENOSPC */
-			goto errout;
-		reserved = true;
+			return ret;
 	} else {   /* bigalloc */
 		if (!ext4_es_scan_clu(inode, &ext4_es_is_delonly, lblk)) {
 			if (!ext4_es_scan_clu(inode,
@@ -1653,12 +1651,11 @@ static int ext4_insert_delayed_block(struct inode *inode, ext4_lblk_t lblk)
 				ret = ext4_clu_mapped(inode,
 						      EXT4_B2C(sbi, lblk));
 				if (ret < 0)
-					goto errout;
+					return ret;
 				if (ret == 0) {
 					ret = ext4_da_reserve_space(inode);
 					if (ret != 0)   /* ENOSPC */
-						goto errout;
-					reserved = true;
+						return ret;
 				} else {
 					allocated = true;
 				}
@@ -1668,12 +1665,8 @@ static int ext4_insert_delayed_block(struct inode *inode, ext4_lblk_t lblk)
 		}
 	}
 
-	ret = ext4_es_insert_delayed_block(inode, lblk, allocated);
-	if (ret && reserved)
-		ext4_da_release_space(inode, 1);
-
-errout:
-	return ret;
+	ext4_es_insert_delayed_block(inode, lblk, allocated);
+	return 0;
 }
 
 /*

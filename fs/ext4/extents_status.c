@@ -2018,11 +2018,9 @@ bool ext4_is_pending(struct inode *inode, ext4_lblk_t lblk)
  * @lblk - logical block to be added
  * @allocated - indicates whether a physical cluster has been allocated for
  *              the logical cluster that contains the block
- *
- * Returns 0 on success, negative error code on failure.
  */
-int ext4_es_insert_delayed_block(struct inode *inode, ext4_lblk_t lblk,
-				 bool allocated)
+void ext4_es_insert_delayed_block(struct inode *inode, ext4_lblk_t lblk,
+				  bool allocated)
 {
 	struct extent_status newes;
 	int err1 = 0;
@@ -2031,7 +2029,7 @@ int ext4_es_insert_delayed_block(struct inode *inode, ext4_lblk_t lblk,
 	struct extent_status *es2 = NULL;
 
 	if (EXT4_SB(inode->i_sb)->s_mount_state & EXT4_FC_REPLAY)
-		return 0;
+		return;
 
 	es_debug("add [%u/1) delayed to extent status tree of inode %lu\n",
 		 lblk, inode->i_ino);
@@ -2073,7 +2071,7 @@ error:
 
 	ext4_es_print_tree(inode);
 	ext4_print_pending_tree(inode);
-	return 0;
+	return;
 }
 
 /*
