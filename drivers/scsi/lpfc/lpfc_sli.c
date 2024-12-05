@@ -34,6 +34,7 @@
 #include <scsi/scsi_host.h>
 #include <scsi/scsi_transport_fc.h>
 #include <scsi/fc/fc_fs.h>
+#include <linux/aer.h>
 #include <linux/crash_dump.h>
 #ifdef CONFIG_X86
 #include <asm/set_memory.h>
@@ -5207,8 +5208,12 @@ lpfc_sli_brdrestart_s3(struct lpfc_hba *phba)
 	volatile struct MAILBOX_word0 mb;
 	struct lpfc_sli *psli;
 	void __iomem *to_slim;
+	uint32_t hba_aer_enabled;
 
 	spin_lock_irq(&phba->hbalock);
+
+	/* Take PCIe device Advanced Error Reporting (AER) state */
+	hba_aer_enabled = test_bit(HBA_AER_ENABLED, &phba->hba_flag);
 
 	psli = &phba->sli;
 
@@ -5250,6 +5255,10 @@ lpfc_sli_brdrestart_s3(struct lpfc_hba *phba)
 	/* Give the INITFF and Post time to settle. */
 	mdelay(100);
 
+	/* Reset HBA AER if it was enabled, note hba_flag was reset above */
+	if (hba_aer_enabled)
+		pci_disable_pcie_error_reporting(phba->pcidev);
+
 	lpfc_hba_down_post(phba);
 
 	return 0;
@@ -5268,12 +5277,16 @@ static int
 lpfc_sli_brdrestart_s4(struct lpfc_hba *phba)
 {
 	struct lpfc_sli *psli = &phba->sli;
+	uint32_t hba_aer_enabled;
 	int rc;
 
 	/* Restart HBA */
 	lpfc_printf_log(phba, KERN_INFO, LOG_SLI,
 			"0296 Restart HBA Data: x%x x%x\n",
 			phba->pport->port_state, psli->sli_flag);
+
+	/* Take PCIe device Advanced Error Reporting (AER) state */
+	hba_aer_enabled = test_bit(HBA_AER_ENABLED, &phba->hba_flag);
 
 	lpfc_sli4_queue_unset(phba);
 
@@ -5293,6 +5306,10 @@ lpfc_sli_brdrestart_s4(struct lpfc_hba *phba)
 
 	memset(&psli->lnk_stat_offsets, 0, sizeof(psli->lnk_stat_offsets));
 	psli->stats_start = ktime_get_seconds();
+
+	/* Reset HBA AER if it was enabled, note hba_flag was reset above */
+	if (hba_aer_enabled)
+		pci_disable_pcie_error_reporting(phba->pcidev);
 
 hba_down_queue:
 	lpfc_hba_down_post(phba);
@@ -5745,6 +5762,25 @@ lpfc_sli_hba_setup(struct lpfc_hba *phba)
 		clear_bit(HBA_NEEDS_CFG_PORT, &phba->hba_flag);
 	}
 	phba->fcp_embed_io = 0;	/* SLI4 FC support only */
+
+	/* Enable PCIe device Advanced Error Reporting (AER) if configured */
+	if (phba->cfg_aer_support == 1 && !(test_bit(HBA_AER_ENABLED, &phba->hba_flag))) {
+		rc = pci_enable_pcie_error_reporting(phba->pcidev);
+		if (!rc) {
+			lpfc_printf_log(phba, KERN_INFO, LOG_INIT,
+					"2709 This device supports "
+					"Advanced Error Reporting (AER)\n");
+			spin_lock_irq(&phba->hbalock);
+			set_bit(HBA_AER_ENABLED, &phba->hba_flag);
+			spin_unlock_irq(&phba->hbalock);
+		} else {
+			lpfc_printf_log(phba, KERN_INFO, LOG_INIT,
+					"2708 This device does not support "
+					"Advanced Error Reporting (AER): %d\n",
+					rc);
+			phba->cfg_aer_support = 0;
+		}
+	}
 
 	if (phba->sli_rev == 3) {
 		phba->iocb_cmd_size = SLI3_IOCB_CMD_SIZE;
@@ -9060,6 +9096,25 @@ lpfc_sli4_hba_setup(struct lpfc_hba *phba)
 	/* Start error attention (ERATT) polling timer */
 	mod_timer(&phba->eratt_poll,
 		  jiffies + msecs_to_jiffies(1000 * phba->eratt_poll_interval));
+
+	/* Enable PCIe device Advanced Error Reporting (AER) if configured */
+	if (phba->cfg_aer_support == 1 && !(test_bit(HBA_AER_ENABLED, &phba->hba_flag))) {
+		rc = pci_enable_pcie_error_reporting(phba->pcidev);
+		if (!rc) {
+			lpfc_printf_log(phba, KERN_INFO, LOG_INIT,
+					"2829 This device supports "
+					"Advanced Error Reporting (AER)\n");
+			spin_lock_irq(&phba->hbalock);
+			set_bit(HBA_AER_ENABLED, &phba->hba_flag);
+			spin_unlock_irq(&phba->hbalock);
+		} else {
+			lpfc_printf_log(phba, KERN_INFO, LOG_INIT,
+					"2830 This device does not support "
+					"Advanced Error Reporting (AER)\n");
+			phba->cfg_aer_support = 0;
+		}
+		rc = 0;
+	}
 
 	/*
 	 * The port is ready, set the host's link state to LINK_DOWN

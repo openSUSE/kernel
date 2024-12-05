@@ -414,6 +414,7 @@ enum lpfc_hba_flag { /* hba generic flags */
 	FCF_TS_INPROG           = 9, /* FCF table scan in progress */
 	FCF_RR_INPROG           = 10, /* FCF roundrobin flogi in progress */
 	HBA_FIP_SUPPORT		= 11, /* FIP support in HBA */
+	HBA_AER_ENABLED		= 12, /* AER enabled with HBA */
 	HBA_DEVLOSS_TMO         = 13, /* HBA in devloss timeout */
 	HBA_RRQ_ACTIVE		= 14, /* process the rrq active list */
 	HBA_IOQ_FLUSH		= 15, /* I/O queues being flushed */
@@ -1182,6 +1183,7 @@ struct lpfc_hba {
 #define LPFC_MAX_ENBL_FC4_TYPE LPFC_ENABLE_FCP
 #define LPFC_DEF_ENBL_FC4_TYPE LPFC_ENABLE_FCP
 #endif
+	uint32_t cfg_aer_support;
 	uint32_t cfg_sriov_nr_virtfn;
 	uint32_t cfg_request_firmware_upgrade;
 	uint32_t cfg_suppress_link_up;
