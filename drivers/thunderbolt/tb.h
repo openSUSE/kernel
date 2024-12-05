@@ -62,6 +62,7 @@ struct tb_nvm {
 	bool authenticating;
 	bool flushed;
 	const struct tb_nvm_vendor_ops *vops;
+	void *suse_kabi_padding;
 };
 
 enum tb_nvm_write_ops {
@@ -212,6 +213,7 @@ struct tb_switch {
 	unsigned int max_pcie_credits;
 	unsigned int max_dma_credits;
 	unsigned int clx;
+	void *suse_kabi_padding;
 };
 
 /**
@@ -297,6 +299,8 @@ struct tb_port {
 	struct list_head group_list;
 	unsigned int max_bw;
 	bool redrive;
+
+	void *suse_kabi_padding;
 };
 
 /**
@@ -313,6 +317,7 @@ struct usb4_port {
 	struct tb_port *port;
 	bool can_offline;
 	bool offline;
+	void *suse_kabi_padding;
 #ifdef CONFIG_USB4_DEBUGFS_MARGINING
 	struct tb_margining *margining;
 #endif
@@ -344,6 +349,7 @@ struct tb_retimer {
 #ifdef CONFIG_USB4_DEBUGFS_MARGINING
 	struct tb_margining *margining;
 #endif
+	void *suse_kabi_padding;
 };
 
 /**
@@ -381,6 +387,7 @@ struct tb_path_hop {
 	int next_hop_index;
 	unsigned int initial_credits;
 	unsigned int nfc_credits;
+	void *suse_kabi_padding;
 	bool pm_support;
 };
 
@@ -438,6 +445,7 @@ struct tb_path {
 	struct tb_path_hop *hops;
 	int path_length;
 	bool alloc_hopid;
+	void *suse_kabi_padding;
 };
 
 /* HopIDs 0-7 are reserved by the Thunderbolt protocol */
@@ -534,6 +542,7 @@ struct tb_cm_ops {
 			      void *rx_data, size_t rx_data_len);
 	int (*usb4_switch_nvm_authenticate_status)(struct tb_switch *sw,
 						   u32 *status);
+	void *suse_kabi_padding;
 };
 
 static inline void *tb_priv(struct tb *tb)

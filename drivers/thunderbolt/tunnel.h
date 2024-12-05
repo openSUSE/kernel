@@ -67,6 +67,7 @@ struct tb_tunnel {
 	void (*reclaim_available_bandwidth)(struct tb_tunnel *tunnel,
 					    int *available_up,
 					    int *available_down);
+	void *suse_kabi_padding_methods;
 	struct list_head list;
 	enum tb_tunnel_type type;
 	int max_up;

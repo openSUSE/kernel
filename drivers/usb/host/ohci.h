@@ -74,6 +74,7 @@ struct ed {
 	struct td		*pending_td;
 #define	OKAY_TO_TAKEBACK(ohci, ed)			\
 		((int) (ohci->wdh_cnt - ed->takeback_wdh_cnt) >= 0)
+	void *suse_kabi_padding;
 
 } __attribute__ ((aligned(16)));
 
@@ -337,6 +338,7 @@ typedef struct urb_priv {
 	u16			length;		// # tds in this request
 	u16			td_cnt;		// tds already serviced
 	struct list_head	pending;
+	void *suse_kabi_padding;
 	struct td		*td[] __counted_by(length); // all TDs in this request
 
 } urb_priv_t;
@@ -433,6 +435,7 @@ struct ohci_hcd {
 	struct work_struct	nec_work;	/* Worker for NEC quirk */
 
 	struct dentry		*debug_dir;
+	void *suse_kabi_padding;
 
 	/* platform-specific data -- must come last */
 	unsigned long           priv[] __aligned(sizeof(s64));
