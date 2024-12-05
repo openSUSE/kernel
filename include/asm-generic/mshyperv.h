@@ -135,6 +135,7 @@ static inline u64 hv_generate_guest_id(u64 kernel_version)
 	u64 guest_id;
 
 	guest_id = (((u64)HV_LINUX_VENDOR_ID) << 48);
+	guest_id |= 0x10ULL /* SUSE */ << 48;
 	guest_id |= (kernel_version << 16);
 
 	return guest_id;
