@@ -114,11 +114,13 @@ static int vc4_get_param_ioctl(struct drm_device *dev, void *data,
 
 static int vc4_open(struct drm_device *dev, struct drm_file *file)
 {
+	struct vc4_dev *vc4 = to_vc4_dev(dev);
 	struct vc4_file *vc4file;
 
 	vc4file = kzalloc(sizeof(*vc4file), GFP_KERNEL);
 	if (!vc4file)
 		return -ENOMEM;
+	vc4file->dev = vc4;
 
 	vc4_perfmon_open_file(vc4file);
 	file->driver_priv = vc4file;

@@ -553,6 +553,8 @@ struct vc4_exec_info {
  * released when the DRM file is closed should be placed here.
  */
 struct vc4_file {
+	struct vc4_dev *dev;
+
 	struct {
 		struct idr idr;
 		struct mutex lock;
