@@ -677,7 +677,6 @@ static int objects_lookup(struct drm_file *filp, u32 *handle, int count,
  * For a single handle lookup, use drm_gem_object_lookup().
  *
  * Returns:
- *
  * @objs filled in with GEM object pointers. Returned GEM objects need to be
  * released with drm_gem_object_put(). -ENOENT is returned on a lookup
  * failure. 0 is returned on success.
@@ -725,12 +724,11 @@ EXPORT_SYMBOL(drm_gem_objects_lookup);
  * @filp: DRM file private date
  * @handle: userspace handle
  *
- * Returns:
+ * If looking up an array of handles, use drm_gem_objects_lookup().
  *
+ * Returns:
  * A reference to the object named by the handle if such exists on @filp, NULL
  * otherwise.
- *
- * If looking up an array of handles, use drm_gem_objects_lookup().
  */
 struct drm_gem_object *
 drm_gem_object_lookup(struct drm_file *filp, u32 handle)
@@ -751,7 +749,6 @@ EXPORT_SYMBOL(drm_gem_object_lookup);
  * @timeout: timeout value in jiffies or zero to return immediately
  *
  * Returns:
- *
  * Returns -ERESTARTSYS if interrupted, 0 if the wait timed out, or
  * greater than 0 on success.
  */
