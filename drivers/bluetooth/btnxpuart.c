@@ -109,6 +109,7 @@ struct ps_data {
 	struct hci_dev *hdev;
 	struct work_struct work;
 	struct timer_list ps_timer;
+	struct mutex ps_lock;
 };
 
 struct wakeup_cmd_payload {
@@ -315,6 +316,9 @@ static void ps_start_timer(struct btnxpuart_dev *nxpdev)
 
 	if (psdata->cur_psmode == PS_MODE_ENABLE)
 		mod_timer(&psdata->ps_timer, jiffies + msecs_to_jiffies(psdata->h2c_ps_interval));
+
+	if (psdata->ps_state == PS_STATE_AWAKE && psdata->ps_cmd == PS_CMD_ENTER_PS)
+		cancel_work_sync(&psdata->work);
 }
 
 static void ps_cancel_timer(struct btnxpuart_dev *nxpdev)
@@ -335,6 +339,7 @@ static void ps_control(struct hci_dev *hdev, u8 ps_state)
 	    !test_bit(BTNXPUART_SERDEV_OPEN, &nxpdev->tx_state))
 		return;
 
+	mutex_lock(&psdata->ps_lock);
 	switch (psdata->cur_h2c_wakeupmode) {
 	case WAKEUP_METHOD_DTR:
 		if (ps_state == PS_STATE_AWAKE)
@@ -348,12 +353,15 @@ static void ps_control(struct hci_dev *hdev, u8 ps_state)
 			status = serdev_device_break_ctl(nxpdev->serdev, 0);
 		else
 			status = serdev_device_break_ctl(nxpdev->serdev, -1);
+		msleep(20); /* Allow chip to detect UART-break and enter sleep */
 		bt_dev_dbg(hdev, "Set UART break: %s, status=%d",
 			   str_on_off(ps_state == PS_STATE_SLEEP), status);
 		break;
 	}
 	if (!status)
 		psdata->ps_state = ps_state;
+	mutex_unlock(&psdata->ps_lock);
+
 	if (ps_state == PS_STATE_AWAKE)
 		btnxpuart_tx_wakeup(nxpdev);
 }
@@ -406,6 +414,7 @@ static int ps_init_work(struct hci_dev *hdev)
 	psdata->cur_psmode = PS_MODE_DISABLE;
 	psdata->cur_h2c_wakeupmode = WAKEUP_METHOD_INVALID;
 	INIT_WORK(&psdata->work, ps_work_func);
+	mutex_init(&psdata->ps_lock);
 
 	return 0;
 }
@@ -418,14 +427,21 @@ static void ps_init_timer(struct hci_dev *hdev)
 	timer_setup(&psdata->ps_timer, ps_timeout_func, 0);
 }
 
-static void ps_wakeup(struct btnxpuart_dev *nxpdev)
+static bool ps_wakeup(struct btnxpuart_dev *nxpdev)
 {
 	struct ps_data *psdata = &nxpdev->psdata;
+	u8 ps_state;
 
-	if (psdata->ps_state != PS_STATE_AWAKE) {
+	mutex_lock(&psdata->ps_lock);
+	ps_state = psdata->ps_state;
+	mutex_unlock(&psdata->ps_lock);
+
+	if (ps_state != PS_STATE_AWAKE) {
 		psdata->ps_cmd = PS_CMD_EXIT_PS;
 		schedule_work(&psdata->work);
+		return true;
 	}
+	return false;
 }
 
 static int send_ps_cmd(struct hci_dev *hdev, void *data)
@@ -1166,7 +1182,6 @@ static struct sk_buff *nxp_dequeue(void *data)
 {
 	struct btnxpuart_dev *nxpdev = (struct btnxpuart_dev *)data;
 
-	ps_wakeup(nxpdev);
 	ps_start_timer(nxpdev);
 	return skb_dequeue(&nxpdev->txq);
 }
@@ -1180,6 +1195,9 @@ static void btnxpuart_tx_work(struct work_struct *work)
 	struct hci_dev *hdev = nxpdev->hdev;
 	struct sk_buff *skb;
 	int len;
+
+	if (ps_wakeup(nxpdev))
+		return;
 
 	while ((skb = nxp_dequeue(nxpdev))) {
 		len = serdev_device_write_buf(serdev, skb->data, skb->len);
