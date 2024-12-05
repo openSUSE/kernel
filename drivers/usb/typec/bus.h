@@ -24,6 +24,8 @@ struct altmode {
 
 	struct altmode			*partner;
 	struct altmode			*plug[2];
+
+	void *				suse_kabi_padding;
 };
 
 #define to_altmode(d) container_of(d, struct altmode, adev)

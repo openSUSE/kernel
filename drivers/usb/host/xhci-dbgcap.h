@@ -113,11 +113,13 @@ struct dbc_port {
 	unsigned int			tx_boundary;
 
 	bool				registered;
+	void *suse_kabi_padding;
 };
 
 struct dbc_driver {
 	int (*configure)(struct xhci_dbc *dbc);
 	void (*disconnect)(struct xhci_dbc *dbc);
+	void *suse_kabi_padding;
 };
 
 struct xhci_dbc {
@@ -146,6 +148,7 @@ struct xhci_dbc {
 	struct dbc_ep			eps[2];
 
 	const struct dbc_driver		*driver;
+	void *suse_kabi_padding;
 	void				*priv;
 };
 
@@ -164,6 +167,7 @@ struct dbc_request {
 	dma_addr_t			trb_dma;
 	union xhci_trb			*trb;
 	unsigned			direction:1;
+	void *suse_kabi_padding;
 };
 
 #define dbc_bulkout_ctx(d)		\

@@ -201,6 +201,7 @@ struct typec_cable_desc {
 	struct usb_pd_identity	*identity;
 	u16			pd_revision; /* 0300H = "3.0" */
 
+	void *suse_kabi_padding;
 };
 
 /*
@@ -229,6 +230,8 @@ struct typec_partner_desc {
 
 	void (*attach)(struct typec_partner *partner, struct device *dev);
 	void (*deattach)(struct typec_partner *partner, struct device *dev);
+
+	void			*suse_kabi_padding;
 };
 
 /**
@@ -250,6 +253,8 @@ struct typec_operations {
 			     enum typec_port_type type);
 	struct usb_power_delivery **(*pd_get)(struct typec_port *port);
 	int (*pd_set)(struct typec_port *port, struct usb_power_delivery *pd);
+
+	void *suse_kabi_padding;
 };
 
 enum usb_pd_svdm_ver {
@@ -290,6 +295,8 @@ struct typec_capability {
 	struct usb_power_delivery *pd;
 
 	const struct typec_operations	*ops;
+
+	void *suse_kabi_padding;
 };
 
 /* Specific to try_role(). Indicates the user want's to clear the preference. */
@@ -368,6 +375,7 @@ int typec_partner_set_usb_power_delivery(struct typec_partner *partner,
 struct typec_connector {
 	void (*attach)(struct typec_connector *con, struct device *dev);
 	void (*deattach)(struct typec_connector *con, struct device *dev);
+	void *suse_kabi_padding;
 };
 
 static inline void typec_attach(struct typec_connector *con, struct device *dev)
