@@ -1257,7 +1257,6 @@ int udf_setsize(struct inode *inode, loff_t newsize)
 	if (IS_APPEND(inode) || IS_IMMUTABLE(inode))
 		return -EPERM;
 
-	filemap_invalidate_lock(inode->i_mapping);
 	iinfo = UDF_I(inode);
 	if (newsize > inode->i_size) {
 		if (iinfo->i_alloc_type == ICBTAG_FLAG_AD_IN_ICB) {
@@ -1270,11 +1269,11 @@ int udf_setsize(struct inode *inode, loff_t newsize)
 			}
 			err = udf_expand_file_adinicb(inode);
 			if (err)
-				goto out_unlock;
+				return err;
 		}
 		err = udf_extend_file(inode, newsize);
 		if (err)
-			goto out_unlock;
+			return err;
 set_size:
 		truncate_setsize(inode, newsize);
 	} else {
@@ -1292,14 +1291,14 @@ set_size:
 		err = block_truncate_page(inode->i_mapping, newsize,
 					  udf_get_block);
 		if (err)
-			goto out_unlock;
+			return err;
 		truncate_setsize(inode, newsize);
 		down_write(&iinfo->i_data_sem);
 		udf_clear_extent_cache(inode);
 		err = udf_truncate_extents(inode);
 		up_write(&iinfo->i_data_sem);
 		if (err)
-			goto out_unlock;
+			return err;
 	}
 update_time:
 	inode->i_mtime = inode->i_ctime = current_time(inode);
@@ -1307,8 +1306,6 @@ update_time:
 		udf_sync_inode(inode);
 	else
 		mark_inode_dirty(inode);
-out_unlock:
-	filemap_invalidate_unlock(inode->i_mapping);
 	return err;
 }
 
