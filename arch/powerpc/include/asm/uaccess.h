@@ -7,6 +7,7 @@
 #include <asm/page.h>
 #include <asm/extable.h>
 #include <asm/kup.h>
+#include <asm/asm-compat.h>
 
 #ifdef __powerpc64__
 /* We use TASK_SIZE_USER64 as TASK_SIZE is not constant */
@@ -89,12 +90,6 @@ __pu_failed:							\
 		: "r" (x), "m<>" (*addr)		\
 		:						\
 		: label)
-
-#ifdef CONFIG_CC_IS_CLANG
-#define DS_FORM_CONSTRAINT "Z<>"
-#else
-#define DS_FORM_CONSTRAINT "YZ<>"
-#endif
 
 #ifdef __powerpc64__
 #ifdef CONFIG_PPC_KERNEL_PREFIXED
