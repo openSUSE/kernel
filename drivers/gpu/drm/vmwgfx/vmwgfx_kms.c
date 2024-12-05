@@ -1265,6 +1265,8 @@ static int vmw_framebuffer_surface_create_handle(struct drm_framebuffer *fb,
 	struct vmw_framebuffer_surface *vfbs = vmw_framebuffer_to_vfbs(fb);
 	struct vmw_bo *bo = vmw_user_object_buffer(&vfbs->uo);
 
+	if (WARN_ON(!bo))
+		return -EINVAL;
 	return drm_gem_handle_create(file_priv, &bo->tbo.base, handle);
 }
 
@@ -1283,7 +1285,6 @@ static int vmw_kms_new_framebuffer_surface(struct vmw_private *dev_priv,
 {
 	struct drm_device *dev = &dev_priv->drm;
 	struct vmw_framebuffer_surface *vfbs;
-	enum SVGA3dSurfaceFormat format;
 	struct vmw_surface *surface;
 	int ret;
 
@@ -1317,34 +1318,6 @@ static int vmw_kms_new_framebuffer_surface(struct vmw_private *dev_priv,
 		     surface->metadata.base_size.depth != 1)) {
 		DRM_ERROR("Incompatible surface dimensions "
 			  "for requested mode.\n");
-		return -EINVAL;
-	}
-
-	switch (mode_cmd->pixel_format) {
-	case DRM_FORMAT_ARGB8888:
-		format = SVGA3D_A8R8G8B8;
-		break;
-	case DRM_FORMAT_XRGB8888:
-		format = SVGA3D_X8R8G8B8;
-		break;
-	case DRM_FORMAT_RGB565:
-		format = SVGA3D_R5G6B5;
-		break;
-	case DRM_FORMAT_XRGB1555:
-		format = SVGA3D_A1R5G5B5;
-		break;
-	default:
-		DRM_ERROR("Invalid pixel format: %p4cc\n",
-			  &mode_cmd->pixel_format);
-		return -EINVAL;
-	}
-
-	/*
-	 * For DX, surface format validation is done when surface->scanout
-	 * is set.
-	 */
-	if (!has_sm4_context(dev_priv) && format != surface->metadata.format) {
-		DRM_ERROR("Invalid surface format for requested mode.\n");
 		return -EINVAL;
 	}
 

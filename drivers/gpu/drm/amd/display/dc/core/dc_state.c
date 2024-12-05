@@ -265,6 +265,9 @@ struct dc_state *dc_state_create_copy(struct dc_state *src_state)
 	dc_state_copy_internal(new_state, src_state);
 
 #ifdef CONFIG_DRM_AMD_DC_FP
+	new_state->bw_ctx.dml2 = NULL;
+	new_state->bw_ctx.dml2_dc_power_source = NULL;
+
 	if (src_state->bw_ctx.dml2 &&
 			!dml2_create_copy(&new_state->bw_ctx.dml2, src_state->bw_ctx.dml2)) {
 		dc_state_release(new_state);
@@ -967,10 +970,10 @@ bool dc_state_is_fams2_in_use(
 	bool is_fams2_in_use = false;
 
 	if (state)
-		is_fams2_in_use |= state->bw_ctx.bw.dcn.fams2_stream_count > 0;
+		is_fams2_in_use |= state->bw_ctx.bw.dcn.fams2_global_config.features.bits.enable;
 
 	if (dc->current_state)
-		is_fams2_in_use |= dc->current_state->bw_ctx.bw.dcn.fams2_stream_count > 0;
+		is_fams2_in_use |= dc->current_state->bw_ctx.bw.dcn.fams2_global_config.features.bits.enable;
 
 	return is_fams2_in_use;
 }
