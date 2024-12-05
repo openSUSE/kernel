@@ -2205,6 +2205,7 @@ extern const u32		sched_prio_to_wmult[40];
 #else
 #define ENQUEUE_MIGRATED	0x00
 #endif
+#define ENQUEUE_INITIAL		0x80
 
 #define RETRY_TASK		((void *)-1UL)
 
@@ -2213,6 +2214,8 @@ struct affinity_context {
 	struct cpumask *user_mask;
 	unsigned int flags;
 };
+
+extern s64 update_curr_common(struct rq *rq);
 
 struct sched_class {
 
@@ -3252,16 +3255,6 @@ extern int preempt_dynamic_mode;
 extern int sched_dynamic_mode(const char *str);
 extern void sched_dynamic_update(int mode);
 #endif
-
-static inline void update_current_exec_runtime(struct task_struct *curr,
-						u64 now, u64 delta_exec)
-{
-	curr->se.sum_exec_runtime += delta_exec;
-	account_group_exec_runtime(curr, delta_exec);
-
-	curr->se.exec_start = now;
-	cgroup_account_cputime(curr, delta_exec);
-}
 
 #ifdef CONFIG_SCHED_MM_CID
 

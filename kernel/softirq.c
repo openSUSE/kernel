@@ -650,16 +650,16 @@ static inline void tick_irq_exit(void)
 #endif
 }
 
-#ifdef CONFIG_PREEMPT_RT
-DEFINE_PER_CPU(struct task_struct *, timersd);
+#ifdef CONFIG_IRQ_FORCED_THREADING
+DEFINE_PER_CPU(struct task_struct *, ktimerd);
 DEFINE_PER_CPU(unsigned long, pending_timer_softirq);
 
 static void wake_timersd(void)
 {
-        struct task_struct *tsk = __this_cpu_read(timersd);
+	struct task_struct *tsk = __this_cpu_read(ktimerd);
 
-        if (tsk)
-                wake_up_process(tsk);
+	if (tsk)
+		wake_up_process(tsk);
 }
 
 #else
@@ -680,8 +680,8 @@ static inline void __irq_exit_rcu(void)
 	if (!in_interrupt() && local_softirq_pending())
 		invoke_softirq();
 
-	if (IS_ENABLED(CONFIG_PREEMPT_RT) && local_pending_timers() &&
-	    !(in_nmi() | in_hardirq()))
+	if (IS_ENABLED(CONFIG_IRQ_FORCED_THREADING) && force_irqthreads() &&
+	    local_timers_pending_force_th() && !(in_nmi() | in_hardirq()))
 		wake_timersd();
 
 	tick_irq_exit();
@@ -796,10 +796,8 @@ EXPORT_SYMBOL(__tasklet_hi_schedule);
 
 static bool tasklet_clear_sched(struct tasklet_struct *t)
 {
-	if (test_and_clear_bit(TASKLET_STATE_SCHED, &t->state)) {
-		wake_up_var(&t->state);
+	if (test_and_clear_wake_up_bit(TASKLET_STATE_SCHED, &t->state))
 		return true;
-	}
 
 	WARN_ONCE(1, "tasklet SCHED state not set: %s %pS\n",
 		  t->use_callback ? "callback" : "func",
@@ -918,8 +916,7 @@ void tasklet_kill(struct tasklet_struct *t)
 	if (in_interrupt())
 		pr_notice("Attempt to kill tasklet from interrupt\n");
 
-	while (test_and_set_bit(TASKLET_STATE_SCHED, &t->state))
-		wait_var_event(&t->state, !test_bit(TASKLET_STATE_SCHED, &t->state));
+	wait_on_bit_lock(&t->state, TASKLET_STATE_SCHED, TASK_UNINTERRUPTIBLE);
 
 	tasklet_unlock_wait(t);
 	tasklet_clear_sched(t);
@@ -929,16 +926,13 @@ EXPORT_SYMBOL(tasklet_kill);
 #if defined(CONFIG_SMP) || defined(CONFIG_PREEMPT_RT)
 void tasklet_unlock(struct tasklet_struct *t)
 {
-	smp_mb__before_atomic();
-	clear_bit(TASKLET_STATE_RUN, &t->state);
-	smp_mb__after_atomic();
-	wake_up_var(&t->state);
+	clear_and_wake_up_bit(TASKLET_STATE_RUN, &t->state);
 }
 EXPORT_SYMBOL_GPL(tasklet_unlock);
 
 void tasklet_unlock_wait(struct tasklet_struct *t)
 {
-	wait_var_event(&t->state, !test_bit(TASKLET_STATE_RUN, &t->state));
+	wait_on_bit(&t->state, TASKLET_STATE_RUN, TASK_UNINTERRUPTIBLE);
 }
 EXPORT_SYMBOL_GPL(tasklet_unlock_wait);
 #endif
@@ -1016,24 +1010,31 @@ static struct smp_hotplug_thread softirq_threads = {
 	.thread_comm		= "ksoftirqd/%u",
 };
 
-#ifdef CONFIG_PREEMPT_RT
-static void timersd_setup(unsigned int cpu)
+#ifdef CONFIG_IRQ_FORCED_THREADING
+static void ktimerd_setup(unsigned int cpu)
 {
-        sched_set_fifo_low(current);
+	/* Above SCHED_NORMAL to handle timers before regular tasks. */
+	sched_set_fifo_low(current);
 }
 
-static int timersd_should_run(unsigned int cpu)
+static int ktimerd_should_run(unsigned int cpu)
 {
-        return local_pending_timers();
+	return local_timers_pending_force_th();
 }
 
-static void run_timersd(unsigned int cpu)
+void raise_ktimers_thread(unsigned int nr)
+{
+	trace_softirq_raise(nr);
+	__this_cpu_or(pending_timer_softirq, BIT(nr));
+}
+
+static void run_ktimerd(unsigned int cpu)
 {
 	unsigned int timer_si;
 
 	ksoftirqd_run_begin();
 
-	timer_si = local_pending_timers();
+	timer_si = local_timers_pending_force_th();
 	__this_cpu_write(pending_timer_softirq, 0);
 	or_softirq_pending(timer_si);
 
@@ -1042,33 +1043,12 @@ static void run_timersd(unsigned int cpu)
 	ksoftirqd_run_end();
 }
 
-static void raise_ktimers_thread(unsigned int nr)
-{
-	trace_softirq_raise(nr);
-	__this_cpu_or(pending_timer_softirq, 1 << nr);
-}
-
-void raise_hrtimer_softirq(void)
-{
-	raise_ktimers_thread(HRTIMER_SOFTIRQ);
-}
-
-void raise_timer_softirq(void)
-{
-	unsigned long flags;
-
-	local_irq_save(flags);
-	raise_ktimers_thread(TIMER_SOFTIRQ);
-	wake_timersd();
-	local_irq_restore(flags);
-}
-
-static struct smp_hotplug_thread timer_threads = {
-        .store                  = &timersd,
-        .setup                  = timersd_setup,
-        .thread_should_run      = timersd_should_run,
-        .thread_fn              = run_timersd,
-        .thread_comm            = "ktimers/%u",
+static struct smp_hotplug_thread timer_thread = {
+	.store			= &ktimerd,
+	.setup			= ktimerd_setup,
+	.thread_should_run	= ktimerd_should_run,
+	.thread_fn		= run_ktimerd,
+	.thread_comm		= "ktimers/%u",
 };
 #endif
 
@@ -1077,8 +1057,9 @@ static __init int spawn_ksoftirqd(void)
 	cpuhp_setup_state_nocalls(CPUHP_SOFTIRQ_DEAD, "softirq:dead", NULL,
 				  takeover_tasklets);
 	BUG_ON(smpboot_register_percpu_thread(&softirq_threads));
-#ifdef CONFIG_PREEMPT_RT
-	BUG_ON(smpboot_register_percpu_thread(&timer_threads));
+#ifdef CONFIG_IRQ_FORCED_THREADING
+	if (force_irqthreads())
+		BUG_ON(smpboot_register_percpu_thread(&timer_thread));
 #endif
 	return 0;
 }

@@ -2409,11 +2409,13 @@ static int rcutorture_booster_init(unsigned int cpu)
 		WARN_ON_ONCE(!t);
 		sp.sched_priority = 2;
 		sched_setscheduler_nocheck(t, SCHED_FIFO, &sp);
-#ifdef CONFIG_PREEMPT_RT
-		t = per_cpu(timersd, cpu);
-		WARN_ON_ONCE(!t);
-		sp.sched_priority = 2;
-		sched_setscheduler_nocheck(t, SCHED_FIFO, &sp);
+#ifdef CONFIG_IRQ_FORCED_THREADING
+		if (force_irqthreads()) {
+			t = per_cpu(ktimerd, cpu);
+			WARN_ON_ONCE(!t);
+			sp.sched_priority = 2;
+			sched_setscheduler_nocheck(t, SCHED_FIFO, &sp);
+		}
 #endif
 	}
 
