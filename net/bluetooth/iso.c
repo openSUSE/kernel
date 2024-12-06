@@ -1392,6 +1392,13 @@ static void iso_conn_big_sync(struct sock *sk)
 	if (!hdev)
 		return;
 
+	/* hci_le_big_create_sync requires hdev lock to be held, since
+	 * it enqueues the HCI LE BIG Create Sync command via
+	 * hci_cmd_sync_queue_once, which checks hdev flags that might
+	 * change.
+	 */
+	hci_dev_lock(hdev);
+
 	if (!test_and_set_bit(BT_SK_BIG_SYNC, &iso_pi(sk)->flags)) {
 		err = hci_le_big_create_sync(hdev, iso_pi(sk)->conn->hcon,
 					     &iso_pi(sk)->qos,
@@ -1402,6 +1409,8 @@ static void iso_conn_big_sync(struct sock *sk)
 			bt_dev_err(hdev, "hci_le_big_create_sync: %d",
 				   err);
 	}
+
+	hci_dev_unlock(hdev);
 }
 
 static int iso_sock_recvmsg(struct socket *sock, struct msghdr *msg,
@@ -1996,6 +2005,7 @@ int iso_connect_ind(struct hci_dev *hdev, bdaddr_t *bdaddr, __u8 *flags)
 
 		if (sk) {
 			int err;
+			struct hci_conn	*hcon = iso_pi(sk)->conn->hcon;
 
 			iso_pi(sk)->qos.bcast.encryption = ev2->encryption;
 
@@ -2004,7 +2014,8 @@ int iso_connect_ind(struct hci_dev *hdev, bdaddr_t *bdaddr, __u8 *flags)
 
 			if (!test_bit(BT_SK_DEFER_SETUP, &bt_sk(sk)->flags) &&
 			    !test_and_set_bit(BT_SK_BIG_SYNC, &iso_pi(sk)->flags)) {
-				err = hci_le_big_create_sync(hdev, NULL,
+				err = hci_le_big_create_sync(hdev,
+							     hcon,
 							     &iso_pi(sk)->qos,
 							     iso_pi(sk)->sync_handle,
 							     iso_pi(sk)->bc_num_bis,
