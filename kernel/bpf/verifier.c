@@ -37,19 +37,6 @@ static const struct bpf_verifier_ops * const bpf_verifier_ops[] = {
 #undef BPF_LINK_TYPE
 };
 
-/* kABI workarund. Get pointer to struct bpf_verifier_state_extra from a
- * pointer to struct bpf_verifier_state. This works because we ensure all
- * allocation of bpf_verifier_state (as well as bpf_verifier_stack_elem and
- * bpf_verifier_state_list that embeds it) has struct bpf_verifier_state_extra
- * right before it.
- */
-static inline struct bpf_verifier_state_extra *extra(struct bpf_verifier_state *state)
-{
-	struct bpf_verifier_state_wrapper *wrapper;
-	wrapper = container_of(state, struct bpf_verifier_state_wrapper, state);
-	return &wrapper->extra;
-}
-
 /* bpf_check() is a static code analyzer that walks eBPF program
  * instruction by instruction and updates register/stack state.
  * All paths of conditional branches are analyzed until 'bpf_exit' insn.
@@ -1377,8 +1364,9 @@ static void free_verifier_state(struct bpf_verifier_state *state,
 	}
 	clear_jmp_history(state);
 	if (free_self) {
-		/* kABI workarund. Free from struct bpf_verifier_state_extra
-		 * that always comes before struct bpf_verifier_state. */
+		/* kABI workarund. Free from struct
+		 * suse_bpf_verifier_state_extra that always comes before
+		 * struct bpf_verifier_state. */
 		kfree(extra(state));
 	}
 }
@@ -1401,7 +1389,7 @@ static int copy_func_state(struct bpf_func_state *dst,
 static int copy_verifier_state(struct bpf_verifier_state *dst_state,
 			       const struct bpf_verifier_state *src)
 {
-	const struct bpf_verifier_state_extra *src_extra = &container_of(src, const struct bpf_verifier_state_wrapper, state)->extra;
+	const struct suse_bpf_verifier_state_extra *src_extra = &container_of(src, const struct suse_bpf_verifier_state_wrapper, state)->extra;
 	struct bpf_func_state *dst;
 	int i, err;
 
@@ -1684,12 +1672,12 @@ static struct bpf_verifier_state *push_stack(struct bpf_verifier_env *env,
 					     int insn_idx, int prev_insn_idx,
 					     bool speculative)
 {
+	struct suse_bpf_verifier_state_wrapper *elem_wrapper;
 	struct bpf_verifier_state *cur = env->cur_state;
-	struct bpf_verifier_state_wrapper *elem_wrapper;
 	struct bpf_verifier_stack_elem *elem;
 	int err;
 
-	elem_wrapper = kzalloc(sizeof(struct bpf_verifier_state_extra) + sizeof(struct bpf_verifier_stack_elem), GFP_KERNEL);
+	elem_wrapper = kzalloc(sizeof(struct suse_bpf_verifier_state_extra) + sizeof(struct bpf_verifier_stack_elem), GFP_KERNEL);
 	if (!elem_wrapper)
 		goto err;
 	elem = (struct bpf_verifier_stack_elem *) &elem_wrapper->state;
@@ -2196,11 +2184,11 @@ static struct bpf_verifier_state *push_async_cb(struct bpf_verifier_env *env,
 						int insn_idx, int prev_insn_idx,
 						int subprog)
 {
-	struct bpf_verifier_state_wrapper *elem_wrapper;
+	struct suse_bpf_verifier_state_wrapper *elem_wrapper;
 	struct bpf_verifier_stack_elem *elem;
 	struct bpf_func_state *frame;
 
-	elem_wrapper = kzalloc(sizeof(struct bpf_verifier_state_extra) + sizeof(struct bpf_verifier_stack_elem), GFP_KERNEL);
+	elem_wrapper = kzalloc(sizeof(struct suse_bpf_verifier_state_extra) + sizeof(struct bpf_verifier_stack_elem), GFP_KERNEL);
 	if (!elem_wrapper)
 		goto err;
 	elem = (struct bpf_verifier_stack_elem *) &elem_wrapper->state;
@@ -13247,7 +13235,7 @@ static bool states_maybe_looping(struct bpf_verifier_state *old,
 
 static int is_state_visited(struct bpf_verifier_env *env, int insn_idx)
 {
-	struct bpf_verifier_state_wrapper *new_sl_wrapper;
+	struct suse_bpf_verifier_state_wrapper *new_sl_wrapper;
 	struct bpf_verifier_state_list *new_sl;
 	struct bpf_verifier_state_list *sl, **pprev;
 	struct bpf_verifier_state *cur = env->cur_state, *new, *loop_entry;
@@ -13454,7 +13442,7 @@ next:
 	 * When looping the sl->state.branches will be > 0 and this state
 	 * will not be considered for equivalence until branches == 0.
 	 */
-	new_sl_wrapper = kzalloc(sizeof(struct bpf_verifier_state_extra) + sizeof(struct bpf_verifier_state_list), GFP_KERNEL);
+	new_sl_wrapper = kzalloc(sizeof(struct suse_bpf_verifier_state_extra) + sizeof(struct bpf_verifier_state_list), GFP_KERNEL);
 	if (!new_sl_wrapper)
 		return -ENOMEM;
 	new_sl = (struct bpf_verifier_state_list *) &new_sl_wrapper->state;
@@ -15914,8 +15902,8 @@ static void free_states(struct bpf_verifier_env *env)
 
 static int do_check_common(struct bpf_verifier_env *env, int subprog)
 {
+	struct suse_bpf_verifier_state_wrapper *state_wrapper;
 	bool pop_log = !(env->log.level & BPF_LOG_LEVEL2);
-	struct bpf_verifier_state_wrapper *state_wrapper;
 	struct bpf_verifier_state *state;
 	struct bpf_reg_state *regs;
 	int ret, i;
@@ -15923,7 +15911,7 @@ static int do_check_common(struct bpf_verifier_env *env, int subprog)
 	env->prev_linfo = NULL;
 	env->pass_cnt++;
 
-	state_wrapper = kzalloc(sizeof(struct bpf_verifier_state_wrapper), GFP_KERNEL);
+	state_wrapper = kzalloc(sizeof(struct suse_bpf_verifier_state_wrapper), GFP_KERNEL);
 	if (!state_wrapper)
 		return -ENOMEM;
 	state = &state_wrapper->state;

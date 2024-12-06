@@ -97,6 +97,9 @@
 #include <linux/io_uring.h>
 #include <linux/bpf.h>
 #include <linux/sched/mm.h>
+#ifndef __GENKSYMS__
+#include <linux/tick.h>
+#endif
 
 #include <asm/pgalloc.h>
 #include <linux/uaccess.h>
@@ -2096,6 +2099,7 @@ static __latent_entropy struct task_struct *copy_process(
 	acct_clear_integrals(p);
 
 	posix_cputimers_init(&p->posix_cputimers);
+	tick_dep_init_task(p);
 
 	p->io_context = NULL;
 	audit_set_context(p, NULL);

@@ -2522,6 +2522,7 @@ __nvme_fc_abort_outstanding_ios(struct nvme_fc_ctrl *ctrl, bool start_queues)
 	/*
 	 * clean up the admin queue. Same thing as above.
 	 */
+	nvme_stop_keep_alive(&ctrl->ctrl);
 	nvme_stop_admin_queue(&ctrl->ctrl);
 
 	blk_sync_queue(ctrl->ctrl.admin_q);

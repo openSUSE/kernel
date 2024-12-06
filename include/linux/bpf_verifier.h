@@ -374,7 +374,7 @@ struct bpf_verifier_state {
 /* Used for kABI workaround. This must be position right before
  * bpf_verifier_state in memory.
  */
-struct bpf_verifier_state_extra {
+struct suse_bpf_verifier_state_extra {
 	/* If this state was ever pointed-to by other state's loop_entry field
 	 * this flag would be set to true. Used to avoid freeing such states
 	 * while they are still in use.
@@ -385,13 +385,27 @@ struct bpf_verifier_state_extra {
 	u32 callback_unroll_depth;
 };
 
-/* Used for kABI workaround. Make accessing bpf_verifier_state_extra from
+/* Used for kABI workaround. Make accessing suse_bpf_verifier_state_extra from
  * bpf_verifier_state pointer easier.
  */
-struct bpf_verifier_state_wrapper {
-	struct bpf_verifier_state_extra extra;
+struct suse_bpf_verifier_state_wrapper {
+	struct suse_bpf_verifier_state_extra extra;
 	struct bpf_verifier_state state;
 };
+
+/* kABI workarund. Get pointer to struct bpf_verifier_state_extra from a
+ * pointer to struct bpf_verifier_state. This works because we ensure all
+ * allocation of bpf_verifier_state (as well as bpf_verifier_stack_elem and
+ * bpf_verifier_state_list that embeds it) has struct
+ * suse_bpf_verifier_state_extra right before it.
+ */
+static inline struct suse_bpf_verifier_state_extra *extra(struct bpf_verifier_state *state)
+{
+	struct suse_bpf_verifier_state_wrapper *wrapper;
+	wrapper = container_of(state, struct suse_bpf_verifier_state_wrapper, state);
+	return &wrapper->extra;
+}
+
 
 #define bpf_get_spilled_reg(slot, frame)				\
 	(((slot < frame->allocated_stack / BPF_REG_SIZE) &&		\

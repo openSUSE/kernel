@@ -263,14 +263,71 @@ struct bpf_map {
 	bool bypass_spec_v1;
 	bool frozen; /* write-once; write-protected by freeze_mutex */
 #ifndef __GENKSYMS__
+	/* Fits into the hole in struct */
 	bool free_after_mult_rcu_gp;
+#endif
+#ifndef __GENKSYMS__
+	/* Uses the SUSE kABI padding */
 	const struct btf_type *owner_attach_func_proto;
 #else
 	void *suse_kabi_padding;
 #endif
 };
 
-static_assert(sizeof(struct work_struct) >= sizeof(struct rcu_head));
+struct __orig_bpf_map {
+	/* The first two cachelines with read-mostly members of which some
+	 * are also accessed in fast-path (e.g. ops, max_entries).
+	 */
+	const struct bpf_map_ops *ops ____cacheline_aligned;
+	struct bpf_map *inner_map_meta;
+#ifdef CONFIG_SECURITY
+	void *security;
+#endif
+	enum bpf_map_type map_type;
+	u32 key_size;
+	u32 value_size;
+	u32 max_entries;
+	u64 map_extra; /* any per-map-type extra fields */
+	u32 map_flags;
+	int spin_lock_off; /* >=0 valid offset, <0 error */
+	struct bpf_map_value_off *kptr_off_tab;
+	int timer_off; /* >=0 valid offset, <0 error */
+	u32 id;
+	int numa_node;
+	u32 btf_key_type_id;
+	u32 btf_value_type_id;
+	u32 btf_vmlinux_value_type_id;
+	struct btf *btf;
+#ifdef CONFIG_MEMCG_KMEM
+	struct mem_cgroup *memcg;
+#endif
+	char name[BPF_OBJ_NAME_LEN];
+	struct bpf_map_off_arr *off_arr;
+	/* The 3rd and 4th cacheline with misc members to avoid false sharing
+	 * particularly with refcounting.
+	 */
+	atomic64_t refcnt ____cacheline_aligned;
+	atomic64_t usercnt;
+	struct work_struct work;
+	struct mutex freeze_mutex;
+	atomic64_t writecnt;
+	/* 'Ownership' of program-containing map is claimed by the first program
+	 * that is going to use this map or by the first program which FD is
+	 * stored in the map to make sure that all callers and callees have the
+	 * same prog type, JITed flag and xdp_has_frags flag.
+	 */
+	struct {
+		spinlock_t lock;
+		enum bpf_prog_type type;
+		bool jited;
+		bool xdp_has_frags;
+	} owner;
+	bool bypass_spec_v1;
+	bool frozen; /* write-once; write-protected by freeze_mutex */
+	void *suse_kabi_padding;
+};
+/* Make sure our kABI workaround really does work */
+static_assert(sizeof(struct __orig_bpf_map) == sizeof(struct bpf_map));
 
 static inline bool map_value_has_spin_lock(const struct bpf_map *map)
 {

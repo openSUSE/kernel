@@ -6062,7 +6062,9 @@ static int mem_cgroup_move_charge_pte_range(pmd_t *pmd,
 	enum mc_target_type target_type;
 	union mc_target target;
 	struct page *page;
+	bool tried_split_before = false;
 
+retry_pmd:
 	ptl = pmd_trans_huge_lock(pmd, vma);
 	if (ptl) {
 		if (mc.precharge < HPAGE_PMD_NR) {
@@ -6072,6 +6074,22 @@ static int mem_cgroup_move_charge_pte_range(pmd_t *pmd,
 		target_type = get_mctgt_type_thp(vma, addr, *pmd, &target);
 		if (target_type == MC_TARGET_PAGE) {
 			page = target.page;
+			if (!list_empty(page_deferred_list(page))) {
+				spin_unlock(ptl);
+				if (!tried_split_before) {
+					if (!trylock_page(page)) {
+						put_page(page);
+						return 0;
+					}
+					split_huge_page(page);
+					unlock_page(page);
+				}
+				put_page(page);
+				if (tried_split_before)
+					return 0;
+				tried_split_before = true;
+				goto retry_pmd;
+			}
 			if (!isolate_lru_page(page)) {
 				if (!mem_cgroup_move_account(page, true,
 							     mc.from, mc.to)) {
@@ -7296,6 +7314,8 @@ void mem_cgroup_swapout(struct page *page, swp_entry_t entry)
 	VM_BUG_ON_PAGE(oldid, page);
 	mod_memcg_state(swap_memcg, MEMCG_SWAP, nr_entries);
 
+	if (nr_entries > 1)
+		page_unqueue_deferred_split(page);
 	page->memcg_data = 0;
 
 	if (!mem_cgroup_is_root(memcg))
