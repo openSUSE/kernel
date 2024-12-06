@@ -8,6 +8,14 @@
 #include <asm/asm-offsets.h>
 #include <asm/assembler.h>
 
+/*
+ * Unused, but exported. Keep because of kABI.
+ */
+SYM_FUNC_START(__arm_smccc_sve_check)
+    ret
+SYM_FUNC_END(__arm_smccc_sve_check)
+EXPORT_SYMBOL(__arm_smccc_sve_check)
+
 	.macro SMCCC instr
 	\instr	#0
 	ldr	x4, [sp]
