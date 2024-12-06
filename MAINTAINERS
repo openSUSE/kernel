@@ -5210,6 +5210,7 @@ L:	linux-cxl@vger.kernel.org
 S:	Maintained
 F:	drivers/cxl/
 F:	include/linux/cxl-einj.h
+F:	include/linux/cxl-event.h
 F:	include/uapi/linux/cxl_mem.h
 
 CONEXANT ACCESSRUNNER USB DRIVER
