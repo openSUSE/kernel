@@ -7,6 +7,7 @@
 #include <asm/page.h>
 #include <asm/extable.h>
 #include <asm/kup.h>
+#include <asm/asm-compat.h>
 
 #ifdef __powerpc64__
 /* We use TASK_SIZE_USER64 as TASK_SIZE is not constant */
@@ -86,15 +87,9 @@ __pu_failed:							\
 		"1:	" op "%U1%X1 %0,%1	# put_user\n"	\
 		EX_TABLE(1b, %l2)				\
 		:						\
-		: "r" (x), "m"UPD_CONSTR (*addr)		\
+		: "r" (x), "m<>" (*addr)		\
 		:						\
 		: label)
-
-#ifdef CONFIG_CC_IS_CLANG
-#define DS_FORM_CONSTRAINT "Z<>"
-#else
-#define DS_FORM_CONSTRAINT "YZ<>"
-#endif
 
 #ifdef __powerpc64__
 #ifdef CONFIG_PPC_KERNEL_PREFIXED
@@ -159,7 +154,7 @@ do {								\
 		"1:	"op"%U1%X1 %0, %1	# get_user\n"	\
 		EX_TABLE(1b, %l2)				\
 		: "=r" (x)					\
-		: "m"UPD_CONSTR (*addr)				\
+		: "m<>" (*addr)				\
 		:						\
 		: label)
 
@@ -227,7 +222,7 @@ __gus_failed:								\
 		".previous\n"				\
 		EX_TABLE(1b, 3b)			\
 		: "=r" (err), "=r" (x)			\
-		: "m"UPD_CONSTR (*addr), "i" (-EFAULT), "0" (err))
+		: "m<>" (*addr), "i" (-EFAULT), "0" (err))
 
 #ifdef __powerpc64__
 #define __get_user_asm2(x, addr, err)			\
