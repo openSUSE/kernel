@@ -324,6 +324,9 @@ struct arm_smccc_quirk {
 	} state;
 };
 
+/* This is empty. Keep it because of kABI */
+asmlinkage unsigned long __arm_smccc_sve_check(unsigned long x0);
+
 /**
  * __arm_smccc_smc() - make SMC calls
  * @a0-a7: arguments passed in registers 0 to 7
