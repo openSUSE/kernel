@@ -6413,6 +6413,7 @@ static void dml_prefetch_check(struct display_mode_lib_st *mode_lib)
 			}
 
 			for (k = 0; k <= mode_lib->ms.num_active_planes - 1; k++) {
+				if (mode_lib->ms.cache_display_cfg.plane.NumberOfCursors[k] > 0) {
 					CalculateUrgentBurstFactor(
 							mode_lib->ms.cache_display_cfg.plane.UseMALLForPStateChange[k],
 							mode_lib->ms.swath_width_luma_ub_this_state[k],
@@ -6435,6 +6436,7 @@ static void dml_prefetch_check(struct display_mode_lib_st *mode_lib)
 							&mode_lib->ms.UrgentBurstFactorLumaPre[k],
 							&mode_lib->ms.UrgentBurstFactorChroma[k],
 							&mode_lib->ms.NotUrgentLatencyHidingPre[k]);
+				}
 
 					mode_lib->ms.cursor_bw_pre[k] = mode_lib->ms.cache_display_cfg.plane.NumberOfCursors[k] * mode_lib->ms.cache_display_cfg.plane.CursorWidth[k] *
 													mode_lib->ms.cache_display_cfg.plane.CursorBPP[k] / 8.0 / (mode_lib->ms.cache_display_cfg.timing.HTotal[k] /
@@ -8058,10 +8060,9 @@ dml_bool_t dml_core_mode_support(struct display_mode_lib_st *mode_lib)
 	/*Cursor Support Check*/
 	mode_lib->ms.support.CursorSupport = true;
 	for (k = 0; k <= mode_lib->ms.num_active_planes - 1; k++) {
-		if (mode_lib->ms.cache_display_cfg.plane.CursorWidth[k] > 0.0) {
-			if (mode_lib->ms.cache_display_cfg.plane.CursorBPP[k] == 64 && mode_lib->ms.ip.cursor_64bpp_support == false) {
+		if (mode_lib->ms.cache_display_cfg.plane.NumberOfCursors[k] > 0) {
+			if (mode_lib->ms.cache_display_cfg.plane.CursorBPP[k] == 64 && mode_lib->ms.ip.cursor_64bpp_support == false)
 				mode_lib->ms.support.CursorSupport = false;
-			}
 		}
 	}
 
@@ -8870,7 +8871,8 @@ void dml_core_mode_programming(struct display_mode_lib_st *mode_lib, const struc
 												mode_lib->ms.FabricClock);
 
 	for (k = 0; k < mode_lib->ms.num_active_planes; ++k) {
-		CalculateUrgentBurstFactor(mode_lib->ms.cache_display_cfg.plane.UseMALLForPStateChange[k],
+		if (mode_lib->ms.cache_display_cfg.plane.NumberOfCursors[k] > 0) {
+			CalculateUrgentBurstFactor(mode_lib->ms.cache_display_cfg.plane.UseMALLForPStateChange[k],
 									locals->swath_width_luma_ub[k],
 									locals->swath_width_chroma_ub[k],
 									locals->SwathHeightY[k],
@@ -8892,7 +8894,7 @@ void dml_core_mode_programming(struct display_mode_lib_st *mode_lib, const struc
 									&locals->UrgBurstFactorLuma[k],
 									&locals->UrgBurstFactorChroma[k],
 									&locals->NoUrgentLatencyHiding[k]);
-
+		}
 		locals->cursor_bw[k] = mode_lib->ms.cache_display_cfg.plane.NumberOfCursors[k] * mode_lib->ms.cache_display_cfg.plane.CursorWidth[k] * mode_lib->ms.cache_display_cfg.plane.CursorBPP[k] / 8.0 /
 								((dml_float_t) mode_lib->ms.cache_display_cfg.timing.HTotal[k] / mode_lib->ms.cache_display_cfg.timing.PixelClock[k]) * mode_lib->ms.cache_display_cfg.plane.VRatio[k];
 	}
@@ -9057,29 +9059,30 @@ void dml_core_mode_programming(struct display_mode_lib_st *mode_lib, const struc
 		}
 
 		for (k = 0; k < mode_lib->ms.num_active_planes; ++k) {
-			CalculateUrgentBurstFactor(
-				mode_lib->ms.cache_display_cfg.plane.UseMALLForPStateChange[k],
-				locals->swath_width_luma_ub[k],
-				locals->swath_width_chroma_ub[k],
-				locals->SwathHeightY[k],
-				locals->SwathHeightC[k],
-				mode_lib->ms.cache_display_cfg.timing.HTotal[k] / mode_lib->ms.cache_display_cfg.timing.PixelClock[k],
-				locals->UrgentLatency,
-				mode_lib->ms.ip.cursor_buffer_size,
-				mode_lib->ms.cache_display_cfg.plane.CursorWidth[k],
-				mode_lib->ms.cache_display_cfg.plane.CursorBPP[k],
-				locals->VRatioPrefetchY[k],
-				locals->VRatioPrefetchC[k],
-				locals->BytePerPixelDETY[k],
-				locals->BytePerPixelDETC[k],
-				locals->DETBufferSizeY[k],
-				locals->DETBufferSizeC[k],
-				/* Output */
-				&locals->UrgBurstFactorCursorPre[k],
-				&locals->UrgBurstFactorLumaPre[k],
-				&locals->UrgBurstFactorChromaPre[k],
-				&locals->NoUrgentLatencyHidingPre[k]);
-
+			if (mode_lib->ms.cache_display_cfg.plane.NumberOfCursors[k] > 0) {
+				CalculateUrgentBurstFactor(
+					mode_lib->ms.cache_display_cfg.plane.UseMALLForPStateChange[k],
+					locals->swath_width_luma_ub[k],
+					locals->swath_width_chroma_ub[k],
+					locals->SwathHeightY[k],
+					locals->SwathHeightC[k],
+					mode_lib->ms.cache_display_cfg.timing.HTotal[k] / mode_lib->ms.cache_display_cfg.timing.PixelClock[k],
+					locals->UrgentLatency,
+					mode_lib->ms.ip.cursor_buffer_size,
+					mode_lib->ms.cache_display_cfg.plane.CursorWidth[k],
+					mode_lib->ms.cache_display_cfg.plane.CursorBPP[k],
+					locals->VRatioPrefetchY[k],
+					locals->VRatioPrefetchC[k],
+					locals->BytePerPixelDETY[k],
+					locals->BytePerPixelDETC[k],
+					locals->DETBufferSizeY[k],
+					locals->DETBufferSizeC[k],
+					/* Output */
+					&locals->UrgBurstFactorCursorPre[k],
+					&locals->UrgBurstFactorLumaPre[k],
+					&locals->UrgBurstFactorChromaPre[k],
+					&locals->NoUrgentLatencyHidingPre[k]);
+			}
 			locals->cursor_bw_pre[k] = mode_lib->ms.cache_display_cfg.plane.NumberOfCursors[k] * mode_lib->ms.cache_display_cfg.plane.CursorWidth[k] * mode_lib->ms.cache_display_cfg.plane.CursorBPP[k] / 8.0 / (mode_lib->ms.cache_display_cfg.timing.HTotal[k] / mode_lib->ms.cache_display_cfg.timing.PixelClock[k]) * locals->VRatioPrefetchY[k];
 
 #ifdef __DML_VBA_DEBUG__
