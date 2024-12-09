@@ -342,6 +342,7 @@ static struct fileIdentDesc *udf_add_entry(struct inode *dir,
 	udf_pblk_t block;
 	struct kernel_lb_addr eloc;
 	uint32_t elen = 0;
+	int8_t etype;
 	sector_t offset;
 	struct extent_position epos = {};
 	struct udf_inode_info *dinfo;
@@ -448,7 +449,7 @@ add:
 		epos.block = dinfo->i_location;
 		epos.offset = udf_file_entry_alloc_offset(dir);
 		/* Load extent udf_expand_dir_adinicb() has created */
-		udf_current_aext(dir, &epos, &eloc, &elen, 1);
+		udf_current_aext(dir, &epos, &eloc, &elen, &etype, 1);
 	}
 
 	/* Entry fits into current block? */
