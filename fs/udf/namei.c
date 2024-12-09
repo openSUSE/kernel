@@ -506,8 +506,9 @@ add:
 
 		if (!fibh->soffset) {
 			/* Find the freshly allocated block */
-			while (udf_next_aext(dir, &epos, &eloc, &elen, 1) ==
-				(EXT_RECORDED_ALLOCATED >> 30))
+			while (udf_next_aext(dir, &epos, &eloc, &elen, &etype,
+					     1) > 0 &&
+			       etype == (EXT_RECORDED_ALLOCATED >> 30))
 				;
 			block = eloc.logicalBlockNum + ((elen - 1) >>
 					dir->i_sb->s_blocksize_bits);
@@ -537,8 +538,9 @@ add:
 			dinfo->i_lenAlloc += nfidlen;
 		else {
 			/* Find the last extent and truncate it to proper size */
-			while (udf_next_aext(dir, &epos, &eloc, &elen, 1) ==
-				(EXT_RECORDED_ALLOCATED >> 30))
+			while (udf_next_aext(dir, &epos, &eloc, &elen, &etype,
+					     1) > 0 &&
+			       etype == (EXT_RECORDED_ALLOCATED >> 30))
 				;
 			elen -= dinfo->i_lenExtents - dir->i_size;
 			if (dinfo->i_alloc_type == ICBTAG_FLAG_AD_SHORT)
