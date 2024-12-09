@@ -56,6 +56,23 @@
 		: "i" (low), "i" (high));				\
 } while (0)
 
+static __always_inline void local_ctl_load(unsigned int cr, unsigned long *reg)
+{
+	asm volatile(
+		"	lctlg	%[cr],%[cr],%[reg]\n"
+		:
+		: [reg] "Q" (*reg), [cr] "i" (cr)
+		: "memory");
+}
+
+static __always_inline void local_ctl_store(unsigned int cr, unsigned long *reg)
+{
+	asm volatile(
+		"	stctg	%[cr],%[cr],%[reg]\n"
+		: [reg] "=Q" (*reg)
+		: [cr] "i" (cr));
+}
+
 static __always_inline void __ctl_set_bit(unsigned int cr, unsigned int bit)
 {
 	unsigned long reg;
