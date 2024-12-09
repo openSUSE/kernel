@@ -589,7 +589,6 @@ out:
 		pkt_len = 1;
 	qdisc_skb_cb(skb)->pkt_len = pkt_len;
 }
-EXPORT_SYMBOL(__qdisc_calculate_pkt_len);
 
 void qdisc_warn_nonwc(const char *txt, struct Qdisc *qdisc)
 {
@@ -1026,29 +1025,34 @@ skip:
 			dev_activate(dev);
 	} else {
 		const struct Qdisc_class_ops *cops = parent->ops->cl_ops;
+		unsigned long cl;
+		int err;
 
 		/* Only support running class lockless if parent is lockless */
-		if (new && (new->flags & TCQ_F_NOLOCK) &&
-		    parent && !(parent->flags & TCQ_F_NOLOCK))
+		if (new && (new->flags & TCQ_F_NOLOCK) && !(parent->flags & TCQ_F_NOLOCK))
 			qdisc_clear_nolock(new);
 
-		err = -EOPNOTSUPP;
-		if (cops && cops->graft) {
-			unsigned long cl = cops->find(parent, classid);
+		if (!cops || !cops->graft)
+			return -EOPNOTSUPP;
 
-			if (new && new->ops == &noqueue_qdisc_ops) {
-				NL_SET_ERR_MSG(extack, "Cannot assign noqueue to a class");
-				return -EINVAL;
-			}
-
-			if (cl) {
-				err = cops->graft(parent, cl, new, &old,
-						  extack);
-			} else {
-				NL_SET_ERR_MSG(extack, "Specified class not found");
-				err = -ENOENT;
-			}
+		cl = cops->find(parent, classid);
+		if (!cl) {
+			NL_SET_ERR_MSG(extack, "Specified class not found");
+			return -ENOENT;
 		}
+
+		if (new && new->ops == &noqueue_qdisc_ops) {
+			NL_SET_ERR_MSG(extack, "Cannot assign noqueue to a class");
+			return -EINVAL;
+		}
+
+		if (new &&
+		    !(parent->flags & TCQ_F_MQROOT) &&
+		    rcu_access_pointer(new->stab)) {
+			NL_SET_ERR_MSG(extack, "STAB not supported on a non root");
+			return -EINVAL;
+		}
+		err = cops->graft(parent, cl, new, &old, extack);
 		if (!err)
 			notify_and_destroy(net, skb, n, classid, old, new);
 	}
