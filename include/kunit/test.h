@@ -11,6 +11,7 @@
 
 #include <kunit/assert.h>
 #include <kunit/try-catch.h>
+#include <linux/args.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/slab.h>
