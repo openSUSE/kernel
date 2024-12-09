@@ -161,7 +161,10 @@ EXPORT_SYMBOL_GPL(scmi_driver_unregister);
 
 static void scmi_device_release(struct device *dev)
 {
-	kfree(to_scmi_dev(dev));
+	struct scmi_device *scmi_dev = to_scmi_dev(dev);
+
+	kfree_const(scmi_dev->name);
+	kfree(scmi_dev);
 }
 
 struct scmi_device *
@@ -202,7 +205,6 @@ scmi_device_create(struct device_node *np, struct device *parent, int protocol,
 
 	return scmi_dev;
 put_dev:
-	kfree_const(scmi_dev->name);
 	put_device(&scmi_dev->dev);
 	ida_simple_remove(&scmi_bus_id, id);
 	return NULL;
@@ -210,7 +212,6 @@ put_dev:
 
 void scmi_device_destroy(struct scmi_device *scmi_dev)
 {
-	kfree_const(scmi_dev->name);
 	scmi_handle_put(scmi_dev->handle);
 	ida_simple_remove(&scmi_bus_id, scmi_dev->id);
 	device_unregister(&scmi_dev->dev);

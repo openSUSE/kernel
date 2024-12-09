@@ -23,7 +23,7 @@ static void idpf_recv_event_msg(struct idpf_vport *vport,
 
 	switch (event) {
 	case VIRTCHNL2_EVENT_LINK_CHANGE:
-		vport->link_speed_mbps = le32_to_cpu(v2e->link_speed);
+		np->link_speed_mbps = le32_to_cpu(v2e->link_speed);
 		link_status = v2e->link_status;
 
 		if (vport->link_up == link_status)
