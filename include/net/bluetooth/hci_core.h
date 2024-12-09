@@ -742,6 +742,9 @@ struct hci_conn {
 	__s8		rssi;
 	__s8		tx_power;
 	__s8		max_tx_power;
+#ifndef __GENKSYMS__
+	__u16		mtu;
+#endif
 	struct bt_iso_qos iso_qos;
 	unsigned long	flags;
 

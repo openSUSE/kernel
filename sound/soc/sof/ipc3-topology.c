@@ -20,6 +20,9 @@
 /* size of tplg ABI in bytes */
 #define SOF_IPC3_TPLG_ABI_SIZE 3
 
+/* Base of SOF_DAI_INTEL_ALH, this should be aligned with SOC_SDW_INTEL_BIDIR_PDI_BASE */
+#define INTEL_ALH_DAI_INDEX_BASE 2
+
 struct sof_widget_data {
 	int ctrl_type;
 	int ipc_cmd;
@@ -72,6 +75,8 @@ static const struct sof_topology_token buffer_tokens[] = {
 		offsetof(struct sof_ipc_buffer, size)},
 	{SOF_TKN_BUF_CAPS, SND_SOC_TPLG_TUPLE_TYPE_WORD, get_token_u32,
 		offsetof(struct sof_ipc_buffer, caps)},
+	{SOF_TKN_BUF_FLAGS, SND_SOC_TPLG_TUPLE_TYPE_WORD, get_token_u32,
+		offsetof(struct sof_ipc_buffer, flags)},
 };
 
 /* DAI */
@@ -286,6 +291,16 @@ static const struct sof_topology_token acpi2s_tokens[] = {
 		offsetof(struct sof_ipc_dai_acp_params, tdm_mode)},
 };
 
+/* MICFIL PDM */
+static const struct sof_topology_token micfil_pdm_tokens[] = {
+	{SOF_TKN_IMX_MICFIL_RATE,
+		SND_SOC_TPLG_TUPLE_TYPE_WORD, get_token_u32,
+		offsetof(struct sof_ipc_dai_micfil_params, pdm_rate)},
+	{SOF_TKN_IMX_MICFIL_CH,
+		SND_SOC_TPLG_TUPLE_TYPE_WORD, get_token_u32,
+		offsetof(struct sof_ipc_dai_micfil_params, pdm_ch)},
+};
+
 /* Core tokens */
 static const struct sof_topology_token core_tokens[] = {
 	{SOF_TKN_COMP_CORE_ID, SND_SOC_TPLG_TUPLE_TYPE_WORD, get_token_u32,
@@ -322,6 +337,8 @@ static const struct sof_token_info ipc3_token_list[SOF_TOKEN_COUNT] = {
 	[SOF_AFE_TOKENS] = {"AFE tokens", afe_tokens, ARRAY_SIZE(afe_tokens)},
 	[SOF_ACPDMIC_TOKENS] = {"ACPDMIC tokens", acpdmic_tokens, ARRAY_SIZE(acpdmic_tokens)},
 	[SOF_ACPI2S_TOKENS]   = {"ACPI2S tokens", acpi2s_tokens, ARRAY_SIZE(acpi2s_tokens)},
+	[SOF_MICFIL_TOKENS] = {"MICFIL PDM tokens",
+		micfil_pdm_tokens, ARRAY_SIZE(micfil_pdm_tokens)},
 };
 
 /**
@@ -1138,6 +1155,37 @@ static int sof_link_esai_load(struct snd_soc_component *scomp, struct snd_sof_da
 	return 0;
 }
 
+static int sof_link_micfil_load(struct snd_soc_component *scomp, struct snd_sof_dai_link *slink,
+				struct sof_ipc_dai_config *config, struct snd_sof_dai *dai)
+{
+	struct snd_soc_tplg_hw_config *hw_config = slink->hw_configs;
+	struct sof_dai_private_data *private = dai->private;
+	u32 size = sizeof(*config);
+	int ret;
+
+       /* handle master/slave and inverted clocks */
+	sof_dai_set_format(hw_config, config);
+
+	config->hdr.size = size;
+
+	/* parse the required set of MICFIL PDM tokens based on num_hw_cfgs */
+	ret = sof_update_ipc_object(scomp, &config->micfil, SOF_MICFIL_TOKENS, slink->tuples,
+				    slink->num_tuples, size, slink->num_hw_configs);
+	if (ret < 0)
+		return ret;
+
+	dev_info(scomp->dev, "MICFIL PDM config dai_index %d channel %d rate %d\n",
+		 config->dai_index, config->micfil.pdm_ch, config->micfil.pdm_rate);
+
+	dai->number_configs = 1;
+	dai->current_config = 0;
+	private->dai_config = kmemdup(config, size, GFP_KERNEL);
+	if (!private->dai_config)
+		return -ENOMEM;
+
+	return 0;
+}
+
 static int sof_link_acp_dmic_load(struct snd_soc_component *scomp, struct snd_sof_dai_link *slink,
 				  struct sof_ipc_dai_config *config, struct snd_sof_dai *dai)
 {
@@ -1176,6 +1224,7 @@ static int sof_link_acp_bt_load(struct snd_soc_component *scomp, struct snd_sof_
 	struct snd_soc_tplg_hw_config *hw_config = slink->hw_configs;
 	struct sof_dai_private_data *private = dai->private;
 	u32 size = sizeof(*config);
+	int ret;
 
 	/* handle master/slave and inverted clocks */
 	sof_dai_set_format(hw_config, config);
@@ -1184,12 +1233,14 @@ static int sof_link_acp_bt_load(struct snd_soc_component *scomp, struct snd_sof_
 	memset(&config->acpbt, 0, sizeof(config->acpbt));
 	config->hdr.size = size;
 
-	config->acpbt.fsync_rate = le32_to_cpu(hw_config->fsync_rate);
-	config->acpbt.tdm_slots = le32_to_cpu(hw_config->tdm_slots);
+	ret = sof_update_ipc_object(scomp, &config->acpbt, SOF_ACPI2S_TOKENS, slink->tuples,
+				    slink->num_tuples, size, slink->num_hw_configs);
+	if (ret < 0)
+		return ret;
 
-	dev_info(scomp->dev, "ACP_BT config ACP%d channel %d rate %d\n",
+	dev_info(scomp->dev, "ACP_BT config ACP%d channel %d rate %d tdm_mode %d\n",
 		 config->dai_index, config->acpbt.tdm_slots,
-		 config->acpbt.fsync_rate);
+		 config->acpbt.fsync_rate, config->acpbt.tdm_mode);
 
 	dai->number_configs = 1;
 	dai->current_config = 0;
@@ -1500,14 +1551,26 @@ static int sof_ipc3_widget_setup_comp_dai(struct snd_sof_widget *swidget)
 	ret = sof_update_ipc_object(scomp, comp_dai, SOF_DAI_TOKENS, swidget->tuples,
 				    swidget->num_tuples, sizeof(*comp_dai), 1);
 	if (ret < 0)
-		goto free;
+		goto free_comp;
 
 	/* update comp_tokens */
 	ret = sof_update_ipc_object(scomp, &comp_dai->config, SOF_COMP_TOKENS,
 				    swidget->tuples, swidget->num_tuples,
 				    sizeof(comp_dai->config), 1);
 	if (ret < 0)
-		goto free;
+		goto free_comp;
+
+	/* Subtract the base to match the FW dai index. */
+	if (comp_dai->type == SOF_DAI_INTEL_ALH) {
+		if (comp_dai->dai_index < INTEL_ALH_DAI_INDEX_BASE) {
+			dev_err(sdev->dev,
+				"Invalid ALH dai index %d, only Pin numbers >= %d can be used\n",
+				comp_dai->dai_index, INTEL_ALH_DAI_INDEX_BASE);
+			ret = -EINVAL;
+			goto free_comp;
+		}
+		comp_dai->dai_index -= INTEL_ALH_DAI_INDEX_BASE;
+	}
 
 	dev_dbg(scomp->dev, "dai %s: type %d index %d\n",
 		swidget->widget->name, comp_dai->type, comp_dai->dai_index);
@@ -1560,6 +1623,9 @@ static int sof_ipc3_widget_setup_comp_dai(struct snd_sof_widget *swidget)
 			break;
 		case SOF_DAI_IMX_ESAI:
 			ret = sof_link_esai_load(scomp, slink, config, dai);
+			break;
+		case SOF_DAI_IMX_MICFIL:
+			ret = sof_link_micfil_load(scomp, slink, config, dai);
 			break;
 		case SOF_DAI_AMD_BT:
 			ret = sof_link_acp_bt_load(scomp, slink, config, dai);
@@ -2076,8 +2142,16 @@ static int sof_ipc3_dai_config(struct snd_sof_dev *sdev, struct snd_sof_widget *
 	case SOF_DAI_INTEL_ALH:
 		if (data) {
 			/* save the dai_index during hw_params and reuse it for hw_free */
-			if (flags & SOF_DAI_CONFIG_FLAGS_HW_PARAMS)
-				config->dai_index = data->dai_index;
+			if (flags & SOF_DAI_CONFIG_FLAGS_HW_PARAMS) {
+				/* Subtract the base to match the FW dai index. */
+				if (data->dai_index < INTEL_ALH_DAI_INDEX_BASE) {
+					dev_err(sdev->dev,
+						"Invalid ALH dai index %d, only Pin numbers >= %d can be used\n",
+						config->dai_index, INTEL_ALH_DAI_INDEX_BASE);
+					return -EINVAL;
+				}
+				config->dai_index = data->dai_index - INTEL_ALH_DAI_INDEX_BASE;
+			}
 			config->alh.stream_id = data->dai_data;
 		}
 		break;

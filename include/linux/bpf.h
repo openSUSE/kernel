@@ -933,6 +933,7 @@ struct bpf_insn_access_aux {
 	struct bpf_verifier_log *log; /* for verbose logs */
 #ifndef __GENKSYMS__
 	bool is_ldsx;
+	bool is_retval; /* is accessing function return value ? */
 #endif
 };
 

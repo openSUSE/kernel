@@ -275,6 +275,11 @@ struct bpf_reference_state {
 	int callback_ref;
 };
 
+struct bpf_retval_range {
+	s32 minval;
+	s32 maxval;
+};
+
 /* state of the program:
  * type of all registers and stack info
  */
@@ -298,7 +303,14 @@ struct bpf_func_state {
 	 */
 	u32 async_entry_cnt;
 	bool in_callback_fn;
+#ifndef __GENKSYMS__
+	union {
+	struct bpf_retval_range callback_ret_range;
+	struct tnum __unused_callback_ret_range;
+	};
+#else
 	struct tnum callback_ret_range;
+#endif
 	bool in_async_callback_fn;
 
 	/* The following fields should be last. See copy_func_state() */
@@ -321,7 +333,6 @@ struct bpf_func_state {
 	 * copy_func_state() to keep the code working while preserving kABI at
 	 * the same time.
 	 */
-
 #ifndef __GENKSYMS__
 	/* For callback calling functions that limit number of possible
 	 * callback executions (e.g. bpf_loop) keeps track of current
@@ -337,12 +348,46 @@ struct bpf_func_state {
 #endif /* __GENKSYMS__ */
 };
 
+#define MAX_CALL_FRAMES 8
+
+/* instruction history flags, used in bpf_jmp_history_entry.flags field */
+enum {
+	/* instruction references stack slot through PTR_TO_STACK register;
+	 * we also store stack's frame number in lower 3 bits (MAX_CALL_FRAMES is 8)
+	 * and accessed stack slot's index in next 6 bits (MAX_BPF_STACK is 512,
+	 * 8 bytes per slot, so slot index (spi) is [0, 63])
+	 */
+	INSN_F_FRAMENO_MASK = 0x7, /* 3 bits */
+
+	INSN_F_SPI_MASK = 0x3f, /* 6 bits */
+	INSN_F_SPI_SHIFT = 3, /* shifted 3 bits to the left */
+
+	INSN_F_STACK_ACCESS = BIT(9), /* we need 10 bits total */
+};
+
+static_assert(INSN_F_FRAMENO_MASK + 1 >= MAX_CALL_FRAMES);
+static_assert(INSN_F_SPI_MASK + 1 >= MAX_BPF_STACK / 8);
+
+/* Original definition that is no longer used but kept to preserve kABI */
 struct bpf_idx_pair {
 	u32 prev_idx;
 	u32 idx;
 };
 
-#define MAX_CALL_FRAMES 8
+struct bpf_jmp_history_entry {
+	u32 prev_idx;
+	u32 idx;
+	u32 flags;
+};
+
+/* Make sure "u32 prev_idx" location stays the same */
+static_assert(offsetof(struct bpf_jmp_history_entry, prev_idx) ==
+		offsetof(struct bpf_idx_pair, prev_idx));
+
+/* Make sure "u32 idx" location stays the same */
+static_assert(offsetof(struct bpf_jmp_history_entry, idx) ==
+		offsetof(struct bpf_idx_pair, idx));
+
 /* Maximum number of register states that can exist at once */
 #define BPF_ID_MAP_SIZE ((MAX_BPF_REG + MAX_BPF_STACK / BPF_REG_SIZE) * MAX_CALL_FRAMES)
 struct bpf_verifier_state {
@@ -417,9 +462,18 @@ struct bpf_verifier_state {
 	 * For most states jmp_history_cnt is [0-3].
 	 * For loops can go up to ~40.
 	 */
-	struct bpf_idx_pair *jmp_history;
-	u32 jmp_history_cnt;
 #ifndef __GENKSYMS__
+	struct bpf_jmp_history_entry *jmp_history;
+#else
+	struct bpf_idx_pair *jmp_history;
+#endif
+	u32 jmp_history_cnt;
+};
+
+/* Used for kABI workaround. This must be position right before
+ * bpf_verifier_state in memory.
+ */
+struct suse_bpf_verifier_state_extra {
 	u32 dfs_depth;
 	u32 callback_unroll_depth;
 	/* If this state is a part of states loop this field points to some
@@ -432,10 +486,31 @@ struct bpf_verifier_state {
 	 * See get_loop_entry() for more information.
 	 */
 	struct bpf_verifier_state *loop_entry;
-#endif /* __GENKSYMS__ */
 };
 
-struct bpf_verifier_state_old {
+/* Used for kABI workaround. Make accessing suse_bpf_verifier_state_extra from
+ * bpf_verifier_state pointer easier.
+ */
+struct suse_bpf_verifier_state_wrapper {
+	struct suse_bpf_verifier_state_extra extra;
+	struct bpf_verifier_state state;
+};
+
+/* kABI workarund. Get pointer to struct suse_bpf_verifier_state_extra from a
+ * pointer to struct suse_bpf_verifier_state. This works because we ensure all
+ * allocation of bpf_verifier_state (as well as bpf_verifier_stack_elem and
+ * bpf_verifier_state_list that embeds it) has struct bpf_verifier_state_extra
+ * right before it.
+ */
+static inline struct suse_bpf_verifier_state_extra *extra(struct bpf_verifier_state *state)
+{
+	struct suse_bpf_verifier_state_wrapper *wrapper;
+	wrapper = container_of(state, struct suse_bpf_verifier_state_wrapper, state);
+	return &wrapper->extra;
+}
+
+/* The original state of "struct bpf_verifier_state" before kABI changes */
+struct __orig_bpf_verifier_state {
 	struct bpf_func_state *frame[MAX_CALL_FRAMES];
 	struct bpf_verifier_state *parent;
 	u32 branches;
@@ -446,13 +521,17 @@ struct bpf_verifier_state_old {
 	bool active_rcu_lock;
 	u32 first_insn_idx;
 	u32 last_insn_idx;
-	struct bpf_idx_pair *jmp_history;
-	u32 jmp_history_cnt;
+ 	struct bpf_idx_pair *jmp_history;
+ 	u32 jmp_history_cnt;
 };
 
 /* Make sure "bool used_as_loop_entry" field does not affect memory layout */
 static_assert(offsetof(struct bpf_verifier_state, first_insn_idx) ==
-		offsetof(struct bpf_verifier_state_old, first_insn_idx));
+		offsetof(struct __orig_bpf_verifier_state, first_insn_idx));
+
+/* Make sure size of "struct bpf_verifier_state" stays the same */
+static_assert(sizeof(struct bpf_verifier_state) ==
+		sizeof(struct __orig_bpf_verifier_state));
 
 #define bpf_get_spilled_reg(slot, frame)				\
 	(((slot < frame->allocated_stack / BPF_REG_SIZE) &&		\
@@ -719,7 +798,11 @@ struct bpf_verifier_env {
 	 * e.g., in reg_type_str() to generate reg_type string
 	 */
 	char tmp_str_buf[TMP_STR_BUF_LEN];
+#ifndef __GENKSYMS__
+	struct bpf_jmp_history_entry *cur_hist_ent;
+#else
 	void *suse_kabi_padding;
+#endif
 };
 
 __printf(2, 0) void bpf_verifier_vlog(struct bpf_verifier_log *log,

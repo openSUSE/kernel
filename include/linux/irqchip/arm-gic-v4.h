@@ -58,9 +58,16 @@ struct its_vpe {
 				bool	enabled;
 				bool	group;
 			}			sgi_config[16];
+#ifdef __GENKSYMS__
 			atomic_t vmapp_count;
+#endif
 		};
 	};
+
+#ifndef __GENKSYMS__
+	/* Track the VPE being mapped */
+	atomic_t vmapp_count;
+#endif
 
 	/*
 	 * Ensures mutual exclusion between affinity setting of the
