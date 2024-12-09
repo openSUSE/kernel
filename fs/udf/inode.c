@@ -649,8 +649,10 @@ static int udf_extend_file(struct inode *inode, loff_t newsize)
 	 */
 	udf_discard_prealloc(inode);
 
-	etype = inode_bmap(inode, first_block, &epos, &eloc, &elen, &offset);
-	within_last_ext = (etype != -1);
+	err = inode_bmap(inode, first_block, &epos, &eloc, &elen, &offset, &etype);
+	if (err < 0)
+		goto out;
+	within_last_ext = (err == 1);
 	/* We don't expect extents past EOF... */
 	WARN_ON_ONCE(within_last_ext &&
 		     elen > ((loff_t)offset + 1) << inode->i_blkbits);
@@ -2385,13 +2387,15 @@ int8_t udf_delete_aext(struct inode *inode, struct extent_position epos)
 	return (elen >> 30);
 }
 
-int8_t inode_bmap(struct inode *inode, sector_t block,
-		  struct extent_position *pos, struct kernel_lb_addr *eloc,
-		  uint32_t *elen, sector_t *offset)
+/*
+ * Returns 1 on success, -errno on error, 0 on hit EOF.
+ */
+int inode_bmap(struct inode *inode, sector_t block, struct extent_position *pos,
+	       struct kernel_lb_addr *eloc, uint32_t *elen, sector_t *offset,
+	       int8_t *etype)
 {
 	unsigned char blocksize_bits = inode->i_sb->s_blocksize_bits;
 	loff_t lbcount = 0, bcount = (loff_t) block << blocksize_bits;
-	int8_t etype;
 	struct udf_inode_info *iinfo;
 	int err = 0;
 
@@ -2403,13 +2407,13 @@ int8_t inode_bmap(struct inode *inode, sector_t block,
 	}
 	*elen = 0;
 	do {
-		err = udf_next_aext(inode, pos, eloc, elen, &etype, 1);
+		err = udf_next_aext(inode, pos, eloc, elen, etype, 1);
 		if (err <= 0) {
 			if (err == 0) {
 				*offset = (bcount - lbcount) >> blocksize_bits;
 				iinfo->i_lenExtents = lbcount;
 			}
-			return -1;
+			return err;
 		}
 		lbcount += *elen;
 	} while (lbcount <= bcount);
@@ -2417,7 +2421,7 @@ int8_t inode_bmap(struct inode *inode, sector_t block,
 	udf_update_extent_cache(inode, lbcount - *elen, pos);
 	*offset = (bcount + *elen - lbcount) >> blocksize_bits;
 
-	return etype;
+	return 1;
 }
 
 udf_pblk_t udf_block_map(struct inode *inode, sector_t block)
@@ -2427,11 +2431,12 @@ udf_pblk_t udf_block_map(struct inode *inode, sector_t block)
 	sector_t offset;
 	struct extent_position epos = {};
 	udf_pblk_t ret;
+	int8_t etype;
 
 	down_read(&UDF_I(inode)->i_data_sem);
 
-	if (inode_bmap(inode, block, &epos, &eloc, &elen, &offset) ==
-						(EXT_RECORDED_ALLOCATED >> 30))
+	if (inode_bmap(inode, block, &epos, &eloc, &elen, &offset, &etype) > 0 &&
+	    etype == (EXT_RECORDED_ALLOCATED >> 30))
 		ret = udf_get_lb_pblock(inode->i_sb, &eloc, offset);
 	else
 		ret = 0;

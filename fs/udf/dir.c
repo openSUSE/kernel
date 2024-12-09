@@ -55,6 +55,7 @@ static int udf_readdir(struct file *file, struct dir_context *ctx)
 	struct buffer_head *tmp, *bha[16];
 	struct kernel_lb_addr eloc;
 	uint32_t elen;
+	int8_t etype;
 	sector_t offset;
 	int i, num, ret = 0;
 	struct extent_position epos = { NULL, 0, {0, 0} };
@@ -96,10 +97,12 @@ static int udf_readdir(struct file *file, struct dir_context *ctx)
 
 	fibh.soffset = fibh.eoffset = nf_pos & (sb->s_blocksize - 1);
 	if (iinfo->i_alloc_type != ICBTAG_FLAG_AD_IN_ICB) {
-		if (inode_bmap(dir, nf_pos >> sb->s_blocksize_bits,
-		    &epos, &eloc, &elen, &offset)
-		    != (EXT_RECORDED_ALLOCATED >> 30)) {
-			ret = -ENOENT;
+		ret = inode_bmap(dir, nf_pos >> sb->s_blocksize_bits,
+		    		 &epos, &eloc, &elen, &offset, &etype);
+		if (ret < 0)
+			goto out;
+		if (ret == 0 || etype != (EXT_RECORDED_ALLOCATED >> 30)) {
+			ret = -EIO;
 			goto out;
 		}
 		block = udf_get_lb_pblock(sb, &eloc, offset);

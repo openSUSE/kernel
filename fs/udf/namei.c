@@ -176,6 +176,7 @@ static struct fileIdentDesc *udf_find_entry(struct inode *dir,
 	loff_t size;
 	struct kernel_lb_addr eloc;
 	uint32_t elen;
+	int8_t etype;
 	sector_t offset;
 	struct extent_position epos = {};
 	struct udf_inode_info *dinfo = UDF_I(dir);
@@ -190,7 +191,8 @@ static struct fileIdentDesc *udf_find_entry(struct inode *dir,
 	fibh->soffset = fibh->eoffset = f_pos & (sb->s_blocksize - 1);
 	if (dinfo->i_alloc_type != ICBTAG_FLAG_AD_IN_ICB) {
 		if (inode_bmap(dir, f_pos >> sb->s_blocksize_bits, &epos,
-		    &eloc, &elen, &offset) != (EXT_RECORDED_ALLOCATED >> 30)) {
+		    	       &eloc, &elen, &offset, &etype) <= 0 ||
+		    etype != (EXT_RECORDED_ALLOCATED >> 30)) {
 			fi = ERR_PTR(-EIO);
 			goto out_err;
 		}
@@ -346,6 +348,7 @@ static struct fileIdentDesc *udf_add_entry(struct inode *dir,
 	sector_t offset;
 	struct extent_position epos = {};
 	struct udf_inode_info *dinfo;
+	int ret;
 
 	fibh->sbh = fibh->ebh = NULL;
 	name = kmalloc(UDF_NAME_LEN_CS0, GFP_NOFS);
@@ -377,8 +380,13 @@ static struct fileIdentDesc *udf_add_entry(struct inode *dir,
 	fibh->soffset = fibh->eoffset = f_pos & (dir->i_sb->s_blocksize - 1);
 	dinfo = UDF_I(dir);
 	if (dinfo->i_alloc_type != ICBTAG_FLAG_AD_IN_ICB) {
-		if (inode_bmap(dir, f_pos >> dir->i_sb->s_blocksize_bits, &epos,
-		    &eloc, &elen, &offset) != (EXT_RECORDED_ALLOCATED >> 30)) {
+		ret = inode_bmap(dir, f_pos >> dir->i_sb->s_blocksize_bits, &epos,
+		    		 &eloc, &elen, &offset, &etype);
+		if (ret < 0) {
+			*err = ret;
+			goto out_err;
+		}
+		if (ret == 0 || etype != (EXT_RECORDED_ALLOCATED >> 30)) {
 			block = udf_get_lb_pblock(dir->i_sb,
 					&dinfo->i_location, 0);
 			fibh->soffset = fibh->eoffset = sb->s_blocksize;
@@ -734,6 +742,7 @@ static int empty_dir(struct inode *dir)
 	udf_pblk_t block;
 	struct kernel_lb_addr eloc;
 	uint32_t elen;
+	int8_t etype;
 	sector_t offset;
 	struct extent_position epos = {};
 	struct udf_inode_info *dinfo = UDF_I(dir);
@@ -744,8 +753,8 @@ static int empty_dir(struct inode *dir)
 	if (dinfo->i_alloc_type == ICBTAG_FLAG_AD_IN_ICB)
 		fibh.sbh = fibh.ebh = NULL;
 	else if (inode_bmap(dir, f_pos >> dir->i_sb->s_blocksize_bits,
-			      &epos, &eloc, &elen, &offset) ==
-					(EXT_RECORDED_ALLOCATED >> 30)) {
+			      &epos, &eloc, &elen, &offset, &etype) > 0 &&
+		 etype == (EXT_RECORDED_ALLOCATED >> 30)) {
 		block = udf_get_lb_pblock(dir->i_sb, &eloc, offset);
 		if ((++offset << dir->i_sb->s_blocksize_bits) < elen) {
 			if (dinfo->i_alloc_type == ICBTAG_FLAG_AD_SHORT)
