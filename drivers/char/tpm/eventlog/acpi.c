@@ -26,6 +26,8 @@
 #include "../tpm.h"
 #include "common.h"
 
+#define MAX_TPM_LOG_LEN		(128 * 1024)
+
 struct acpi_tcpa {
 	struct acpi_table_header hdr;
 	u16 platform_class;
@@ -133,6 +135,12 @@ int tpm_read_log_acpi(struct tpm_chip *chip)
 	if (!len) {
 		dev_warn(&chip->dev, "%s: TCPA log area empty\n", __func__);
 		return -EIO;
+	}
+
+	if (len > MAX_TPM_LOG_LEN) {
+		dev_warn(&chip->dev, "Excessive TCPA log len %llu truncated to %u bytes\n",
+			 len, MAX_TPM_LOG_LEN);
+		len = MAX_TPM_LOG_LEN;
 	}
 
 	/* malloc EventLog space */
