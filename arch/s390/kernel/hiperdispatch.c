@@ -298,6 +298,7 @@ static struct ctl_table hiperdispatch_ctl_table[] = {
 		.mode		= 0644,
 		.proc_handler	= hiperdispatch_ctl_handler,
 	},
+	{ },
 };
 
 static ssize_t hd_steal_threshold_show(struct device *dev,
