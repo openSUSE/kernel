@@ -2033,7 +2033,7 @@ static void __destroy(struct cache *cache)
 	if (cache->policy)
 		dm_cache_policy_destroy(cache->policy);
 
-	bioset_exit(&cache->bs);
+	bioset_exit(cache->bs);
 
 	kfree(cache);
 }
