@@ -266,7 +266,7 @@ static void __init arch_reserve_crashkernel(void)
 		return;
 
 	ret = parse_crashkernel(cmdline, memblock_phys_mem_size(),
-				&crash_size, &crash_base, &low_size, &high);
+				&crash_size, &crash_base, &low_size, NULL, &high);
 	if (ret)
 		return;
 
