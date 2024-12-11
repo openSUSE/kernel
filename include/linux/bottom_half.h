@@ -35,10 +35,8 @@ static inline void local_bh_enable(void)
 
 #ifdef CONFIG_PREEMPT_RT
 extern bool local_bh_blocked(void);
-extern void softirq_preempt(void);
 #else
 static inline bool local_bh_blocked(void) { return false; }
-static inline void softirq_preempt(void) { }
 #endif
 
 #endif /* _LINUX_BH_H */
