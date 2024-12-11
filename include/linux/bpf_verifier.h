@@ -306,12 +306,17 @@ enum {
 static_assert(INSN_F_FRAMENO_MASK + 1 >= MAX_CALL_FRAMES);
 static_assert(INSN_F_SPI_MASK + 1 >= MAX_BPF_STACK / 8);
 
-struct bpf_jmp_history_entry {
+/* Original definition that is no longer used but kept to preserve kABI */
+struct bpf_idx_pair {
+	u32 prev_idx;
 	u32 idx;
-	/* insn idx can't be bigger than 1 million */
-	u32 prev_idx : 22;
+};
+
+struct bpf_jmp_history_entry {
+	u32 prev_idx;
+	u32 idx;
 	/* special flags, e.g., whether insn is doing register stack spill/load */
-	u32 flags : 10;
+	u32 flags;
 };
 
 #define BPF_ID_MAP_SIZE_OLD (MAX_BPF_REG + MAX_BPF_STACK / BPF_REG_SIZE)
@@ -389,7 +394,11 @@ struct bpf_verifier_state {
 	 * For most states jmp_history_cnt is [0-3].
 	 * For loops can go up to ~40.
 	 */
+#ifndef __GENKSYMS__
 	struct bpf_jmp_history_entry *jmp_history;
+#else
+	struct bpf_idx_pair *jmp_history;
+#endif
 	u32 jmp_history_cnt;
 };
 
@@ -649,7 +658,6 @@ struct bpf_verifier_env {
 		int *insn_stack;
 		int cur_stack;
 	} cfg;
-	struct bpf_jmp_history_entry *cur_hist_ent;
 	u32 pass_cnt; /* number of times do_check() was called */
 	u32 subprog_cnt;
 	/* number of instructions analyzed by the verifier */
@@ -688,6 +696,7 @@ struct bpf_verifier_env {
 		struct bpf_idset idset_scratch;
 	};
 	struct backtrack_state bt;
+	struct bpf_jmp_history_entry *cur_hist_ent;
 #else
 	char type_str_buf[TYPE_STR_BUF_LEN_OLD];
 #endif /* __GENKSYMS__ */
