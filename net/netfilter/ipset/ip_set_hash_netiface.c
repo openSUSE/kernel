@@ -140,7 +140,7 @@ hash_netiface4_data_next(struct hash_netiface4_elem *next,
 #if IS_ENABLED(CONFIG_BRIDGE_NETFILTER)
 static const char *get_physindev_name(const struct sk_buff *skb, struct net *net)
 {
-	struct net_device *dev = nf_bridge_get_physindev(skb, net);
+	struct net_device *dev = __nf_bridge_get_physindev(skb, net);
 
 	return dev ? dev->name : NULL;
 }

@@ -56,7 +56,15 @@ static inline int nf_bridge_get_physoutif(const struct sk_buff *skb)
 }
 
 static inline struct net_device *
-nf_bridge_get_physindev(const struct sk_buff *skb, struct net *net)
+nf_bridge_get_physindev(const struct sk_buff *skb)
+{
+	const struct nf_bridge_info *nf_bridge = nf_bridge_info_get(skb);
+
+	return nf_bridge ? nf_bridge->physindev : NULL;
+}
+
+static inline struct net_device *
+__nf_bridge_get_physindev(const struct sk_buff *skb, struct net *net)
 {
 	const struct nf_bridge_info *nf_bridge = nf_bridge_info_get(skb);
 

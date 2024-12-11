@@ -347,7 +347,7 @@ void nf_send_reset6(struct net *net, struct sock *sk, struct sk_buff *oldskb,
 		struct ethhdr *oeth = eth_hdr(oldskb);
 		struct net_device *br_indev;
 
-		br_indev = nf_bridge_get_physindev(oldskb, net);
+		br_indev = __nf_bridge_get_physindev(oldskb, net);
 		if (!br_indev) {
 			kfree_skb(nskb);
 			return;

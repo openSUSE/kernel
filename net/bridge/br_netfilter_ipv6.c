@@ -105,7 +105,7 @@ static int br_nf_pre_routing_finish_ipv6(struct net *net, struct sock *sk, struc
 	struct net_device *dev = skb->dev, *br_indev;
 	const struct nf_ipv6_ops *v6ops = nf_get_ipv6_ops();
 
-	br_indev = nf_bridge_get_physindev(skb, net);
+	br_indev = __nf_bridge_get_physindev(skb, net);
 	if (!br_indev) {
 		kfree_skb(skb);
 		return 0;

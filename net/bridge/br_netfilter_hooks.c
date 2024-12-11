@@ -282,7 +282,7 @@ int br_nf_pre_routing_finish_bridge(struct net *net, struct sock *sk, struct sk_
 		    READ_ONCE(neigh->hh.hh_len)) {
 			struct net_device *br_indev;
 
-			br_indev = nf_bridge_get_physindev(skb, net);
+			br_indev = __nf_bridge_get_physindev(skb, net);
 			if (!br_indev) {
 				neigh_release(neigh);
 				goto free_skb;
@@ -368,7 +368,7 @@ static int br_nf_pre_routing_finish(struct net *net, struct sock *sk, struct sk_
 	struct rtable *rt;
 	int err;
 
-	br_indev = nf_bridge_get_physindev(skb, net);
+	br_indev = __nf_bridge_get_physindev(skb, net);
 	if (!br_indev) {
 		kfree_skb(skb);
 		return 0;
@@ -472,6 +472,7 @@ struct net_device *setup_pre_routing(struct sk_buff *skb, const struct net *net)
 	}
 
 	nf_bridge->in_prerouting = 1;
+	nf_bridge->physindev = skb->dev;
 	nf_bridge->physinif = skb->dev->ifindex;
 	skb->dev = brnf_get_logical_dev(skb, skb->dev, net);
 
@@ -569,7 +570,7 @@ static int br_nf_forward_finish(struct net *net, struct sock *sk, struct sk_buff
 		if (skb->protocol == htons(ETH_P_IPV6))
 			nf_bridge->frag_max_size = IP6CB(skb)->frag_max_size;
 
-		in = nf_bridge_get_physindev(skb, net);
+		in = __nf_bridge_get_physindev(skb, net);
 		if (!in) {
 			kfree_skb(skb);
 			return 0;
@@ -923,7 +924,7 @@ static void br_nf_pre_routing_finish_bridge_slow(struct sk_buff *skb)
 	struct nf_bridge_info *nf_bridge = nf_bridge_info_get(skb);
 	struct net_device *br_indev;
 
-	br_indev = nf_bridge_get_physindev(skb, dev_net(skb->dev));
+	br_indev = __nf_bridge_get_physindev(skb, dev_net(skb->dev));
 	if (!br_indev) {
 		kfree_skb(skb);
 		return;
