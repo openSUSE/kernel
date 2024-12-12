@@ -1199,12 +1199,14 @@ static int udf_rename(struct user_namespace *mnt_userns, struct inode *old_dir,
 	mark_inode_dirty(new_dir);
 
 	if (is_dir) {
-		dir_fi->icb.extLocation = cpu_to_lelb(UDF_I(new_dir)->i_location);
-		udf_update_tag((char *)dir_fi, udf_dir_entry_len(dir_fi));
-		if (old_iinfo->i_alloc_type == ICBTAG_FLAG_AD_IN_ICB)
-			mark_inode_dirty(old_inode);
-		else
-			mark_buffer_dirty_inode(dir_bh, old_inode);
+		if (dir_fi) {
+			dir_fi->icb.extLocation = cpu_to_lelb(UDF_I(new_dir)->i_location);
+			udf_update_tag((char *)dir_fi, udf_dir_entry_len(dir_fi));
+			if (old_iinfo->i_alloc_type == ICBTAG_FLAG_AD_IN_ICB)
+				mark_inode_dirty(old_inode);
+			else
+				mark_buffer_dirty_inode(dir_bh, old_inode);
+		}
 
 		inode_dec_link_count(old_dir);
 		if (new_inode)
