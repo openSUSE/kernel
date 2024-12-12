@@ -2271,6 +2271,8 @@ struct dc_state *dc_copy_state(struct dc_state *src_ctx)
 	memcpy(new_ctx, src_ctx, sizeof(struct dc_state));
 
 #ifdef CONFIG_DRM_AMD_DC_FP
+	new_ctx->bw_ctx.dml2 = NULL;
+
 	if (new_ctx->bw_ctx.dml2 && !dml2_create_copy(&new_ctx->bw_ctx.dml2, src_ctx->bw_ctx.dml2)) {
 		dc_release_state(new_ctx);
 		return NULL;
