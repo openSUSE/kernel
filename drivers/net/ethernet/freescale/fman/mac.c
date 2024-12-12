@@ -680,7 +680,7 @@ static int mac_probe(struct platform_device *_of_dev)
 	if (err) {
 		dev_err(dev, "failed to read cell-index for %pOF\n", dev_node);
 		err = -EINVAL;
-		goto _return_of_node_put;
+		goto _return_dev_put;
 	}
 	/* cell-index 0 => FMan id 1 */
 	fman_id = (u8)(val + 1);
@@ -689,17 +689,23 @@ static int mac_probe(struct platform_device *_of_dev)
 	if (!priv->fman) {
 		dev_err(dev, "fman_bind(%pOF) failed\n", dev_node);
 		err = -ENODEV;
-		goto _return_of_node_put;
+		goto _return_dev_put;
 	}
 
+	/* Two references have been taken in of_find_device_by_node()
+	 * and fman_bind(). Release one of them here. The second one
+	 * will be released in mac_remove().
+	 */
+	put_device(mac_dev->fman_dev);
 	of_node_put(dev_node);
+	dev_node = NULL;
 
 	/* Get the address of the memory mapped registers */
 	err = of_address_to_resource(mac_node, 0, &res);
 	if (err < 0) {
 		dev_err(dev, "of_address_to_resource(%pOF) = %d\n",
 			mac_node, err);
-		goto _return_of_get_parent;
+		goto _return_dev_put;
 	}
 
 	mac_dev->res = __devm_request_region(dev,
@@ -709,7 +715,7 @@ static int mac_probe(struct platform_device *_of_dev)
 	if (!mac_dev->res) {
 		dev_err(dev, "__devm_request_mem_region(mac) failed\n");
 		err = -EBUSY;
-		goto _return_of_get_parent;
+		goto _return_dev_put;
 	}
 
 	priv->vaddr = devm_ioremap(dev, mac_dev->res->start,
@@ -717,12 +723,12 @@ static int mac_probe(struct platform_device *_of_dev)
 	if (!priv->vaddr) {
 		dev_err(dev, "devm_ioremap() failed\n");
 		err = -EIO;
-		goto _return_of_get_parent;
+		goto _return_dev_put;
 	}
 
 	if (!of_device_is_available(mac_node)) {
 		err = -ENODEV;
-		goto _return_of_get_parent;
+		goto _return_dev_put;
 	}
 
 	/* Get the cell-index */
@@ -730,7 +736,7 @@ static int mac_probe(struct platform_device *_of_dev)
 	if (err) {
 		dev_err(dev, "failed to read cell-index for %pOF\n", mac_node);
 		err = -EINVAL;
-		goto _return_of_get_parent;
+		goto _return_dev_put;
 	}
 	priv->cell_index = (u8)val;
 
@@ -745,24 +751,25 @@ static int mac_probe(struct platform_device *_of_dev)
 		dev_err(dev, "of_count_phandle_with_args(%pOF, fsl,fman-ports) failed\n",
 			mac_node);
 		err = nph;
-		goto _return_of_get_parent;
+		goto _return_dev_put;
 	}
 
 	if (nph != ARRAY_SIZE(mac_dev->port)) {
 		dev_err(dev, "Not supported number of fman-ports handles of mac node %pOF from device tree\n",
 			mac_node);
 		err = -EINVAL;
-		goto _return_of_get_parent;
+		goto _return_dev_put;
 	}
 
-	for (i = 0; i < ARRAY_SIZE(mac_dev->port); i++) {
+	/* PORT_NUM determines the size of the port array */
+	for (i = 0; i < PORT_NUM; i++) {
 		/* Find the port node */
 		dev_node = of_parse_phandle(mac_node, "fsl,fman-ports", i);
 		if (!dev_node) {
 			dev_err(dev, "of_parse_phandle(%pOF, fsl,fman-ports) failed\n",
 				mac_node);
 			err = -EINVAL;
-			goto _return_of_node_put;
+			goto _return_dev_arr_put;
 		}
 
 		of_dev = of_find_device_by_node(dev_node);
@@ -770,7 +777,7 @@ static int mac_probe(struct platform_device *_of_dev)
 			dev_err(dev, "of_find_device_by_node(%pOF) failed\n",
 				dev_node);
 			err = -EINVAL;
-			goto _return_of_node_put;
+			goto _return_dev_arr_put;
 		}
 		mac_dev->fman_port_devs[i] = &of_dev->dev;
 
@@ -779,9 +786,15 @@ static int mac_probe(struct platform_device *_of_dev)
 			dev_err(dev, "dev_get_drvdata(%pOF) failed\n",
 				dev_node);
 			err = -EINVAL;
-			goto _return_of_node_put;
+			goto _return_dev_arr_put;
 		}
+		/* Two references have been taken in of_find_device_by_node()
+		 * and fman_port_bind(). Release one of them here. The second
+		 * one will be released in mac_remove().
+		 */
+		put_device(mac_dev->fman_port_devs[i]);
 		of_node_put(dev_node);
+		dev_node = NULL;
 	}
 
 	/* Get the PHY connection type */
@@ -817,13 +830,13 @@ static int mac_probe(struct platform_device *_of_dev)
 
 		err = of_phy_register_fixed_link(mac_node);
 		if (err)
-			goto _return_of_get_parent;
+			goto _return_dev_arr_put;
 
 		priv->fixed_link = kzalloc(sizeof(*priv->fixed_link),
 					   GFP_KERNEL);
 		if (!priv->fixed_link) {
 			err = -ENOMEM;
-			goto _return_of_get_parent;
+			goto _return_dev_arr_put;
 		}
 
 		mac_dev->phy_node = of_node_get(mac_node);
@@ -831,7 +844,7 @@ static int mac_probe(struct platform_device *_of_dev)
 		if (!phy) {
 			err = -EINVAL;
 			of_node_put(mac_dev->phy_node);
-			goto _return_of_get_parent;
+			goto _return_dev_arr_put;
 		}
 
 		priv->fixed_link->link = phy->link;
@@ -847,7 +860,7 @@ static int mac_probe(struct platform_device *_of_dev)
 	if (err < 0) {
 		dev_err(dev, "mac_dev->init() = %d\n", err);
 		of_node_put(mac_dev->phy_node);
-		goto _return_of_get_parent;
+		goto _return_dev_arr_put;
 	}
 
 	/* pause frame autonegotiation enabled */
@@ -861,8 +874,10 @@ static int mac_probe(struct platform_device *_of_dev)
 	mac_dev->rx_pause_active = false;
 	mac_dev->tx_pause_active = false;
 	err = fman_set_mac_active_pause(mac_dev, true, true);
-	if (err < 0)
+	if (err < 0) {
 		dev_err(dev, "fman_set_mac_active_pause() = %d\n", err);
+		goto _return_dev_arr_put;
+	}
 
 	if (!is_zero_ether_addr(mac_dev->addr))
 		dev_info(dev, "FMan MAC address: %pM\n", mac_dev->addr);
@@ -876,6 +891,12 @@ static int mac_probe(struct platform_device *_of_dev)
 
 	goto _return;
 
+_return_dev_arr_put:
+	/* mac_dev is kzalloc'ed */
+	for (i = 0; i < PORT_NUM; i++)
+		put_device(mac_dev->fman_port_devs[i]);
+_return_dev_put:
+	put_device(mac_dev->fman_dev);
 _return_of_node_put:
 	of_node_put(dev_node);
 _return_of_get_parent:
@@ -887,6 +908,11 @@ _return:
 static int mac_remove(struct platform_device *pdev)
 {
 	struct mac_device *mac_dev = platform_get_drvdata(pdev);
+	int		   i;
+
+	for (i = 0; i < PORT_NUM; i++)
+		put_device(mac_dev->fman_port_devs[i]);
+	put_device(mac_dev->fman_dev);
 
 	platform_device_unregister(mac_dev->priv->eth_dev);
 	return 0;
