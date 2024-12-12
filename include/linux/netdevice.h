@@ -334,7 +334,11 @@ struct napi_struct {
 
 	unsigned long		state;
 	int			weight;
+#ifdef __GENKSYMS__
+	int			defer_hard_irqs_count;
+#else
 	u32			defer_hard_irqs_count;
+#endif
 	unsigned long		gro_bitmask;
 	int			(*poll)(struct napi_struct *, int);
 #ifdef CONFIG_NETPOLL
@@ -2129,7 +2133,11 @@ struct net_device {
 
 	struct bpf_prog __rcu	*xdp_prog;
 	unsigned long		gro_flush_timeout;
+#ifdef __GENKSYMS__
+	int			napi_defer_hard_irqs;
+#else
 	u32			napi_defer_hard_irqs;
+#endif
 #define GRO_MAX_SIZE		65536
 	unsigned int		gro_max_size;
 	rx_handler_func_t __rcu	*rx_handler;
