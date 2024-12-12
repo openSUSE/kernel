@@ -1726,7 +1726,7 @@ static int cio2_pci_probe(struct pci_dev *pci_dev,
 			return -EINVAL;
 		}
 
-		r = ipu_bridge_init(pci_dev);
+		r = ipu_bridge_init(dev);
 		if (r)
 			return r;
 	}
