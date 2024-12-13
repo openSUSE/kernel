@@ -624,7 +624,7 @@ static int trie_get_next_key(struct bpf_map *map, void *_key, void *_next_key)
 	if (!key || key->prefixlen > trie->max_prefixlen)
 		goto find_leftmost;
 
-	node_stack = kmalloc(trie->max_prefixlen * sizeof(struct lpm_trie_node *),
+	node_stack = kmalloc((trie->max_prefixlen + 1) * sizeof(struct lpm_trie_node *),
 			     GFP_ATOMIC | __GFP_NOWARN);
 	if (!node_stack)
 		return -ENOMEM;
