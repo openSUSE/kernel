@@ -139,4 +139,11 @@ extern int xfs_dir2_sf_verify(struct xfs_inode *ip);
 extern int xfs_readdir(struct xfs_inode *dp, struct dir_context *ctx,
 		       size_t bufsize);
 
+static inline unsigned int
+xfs_dir2_data_unusedsize(
+	unsigned int	len)
+{
+	return round_up(len, XFS_DIR2_DATA_ALIGN);
+}
+
 #endif /* __XFS_DIR2_PRIV_H__ */

@@ -63,6 +63,7 @@ __xfs_dir3_data_check(
 	struct xfs_name		name;
 	const struct xfs_dir_ops *ops;
 	struct xfs_da_geometry	*geo;
+	unsigned int		reclen;
 
 	mp = bp->b_target->bt_mount;
 	geo = mp->m_dir_geo;
@@ -132,15 +133,28 @@ __xfs_dir3_data_check(
 	 */
 	while (p < endp) {
 		dup = (xfs_dir2_data_unused_t *)p;
+
+		/*
+		 * Are the remaining bytes large enough to hold an
+		 * unused entry?
+		 */
+		if (p > endp - xfs_dir2_data_unusedsize(1))
+			return false;
+
 		/*
 		 * If it's unused, look for the space in the bestfree table.
 		 * If we find it, account for that, else make sure it
 		 * doesn't need to be there.
 		 */
 		if (be16_to_cpu(dup->freetag) == XFS_DIR2_DATA_FREE_TAG) {
+
+			reclen = xfs_dir2_data_unusedsize(
+					be16_to_cpu(dup->length));
 			if (lastfree != 0)
 				return false;
-			if (endp < p + be16_to_cpu(dup->length))
+			if (be16_to_cpu(dup->length) != reclen)
+				return false;
+			if (p + reclen > endp)
 				return false;
 			if (be16_to_cpu(*xfs_dir2_data_unused_tag_p(dup)) !=
 			    (char *)dup - (char *)hdr)
@@ -156,10 +170,18 @@ __xfs_dir3_data_check(
 				    be16_to_cpu(bf[2].length))
 					return false;
 			}
-			p += be16_to_cpu(dup->length);
+			p += reclen;
 			lastfree = 1;
 			continue;
 		}
+
+		/*
+		 * This is not an unused entry. Are the remaining bytes
+		 * large enough for a dirent with a single-byte name?
+		 */
+		if (p > endp - ops->data_entsize(1))
+			return false;
+
 		/*
 		 * It's a real entry.  Validate the fields.
 		 * If this is a block directory then make sure it's
@@ -169,9 +191,10 @@ __xfs_dir3_data_check(
 		dep = (xfs_dir2_data_entry_t *)p;
 		if (dep->namelen == 0)
 			return false;
-		if (xfs_dir_ino_validate(mp, be64_to_cpu(dep->inumber)))
+		reclen = ops->data_entsize(dep->namelen);
+		if (p + reclen > endp)
 			return false;
-		if (endp < p + ops->data_entsize(dep->namelen))
+		if (xfs_dir_ino_validate(mp, be64_to_cpu(dep->inumber)))
 			return false;
 		if (be16_to_cpu(*ops->data_entry_tag_p(dep)) !=
 		    (char *)dep - (char *)hdr)
@@ -196,7 +219,7 @@ __xfs_dir3_data_check(
 			if (i >= be32_to_cpu(btp->count))
 				return false;
 		}
-		p += ops->data_entsize(dep->namelen);
+		p += reclen;
 	}
 	/*
 	 * Need to have seen all the entries and all the bestfree slots.
