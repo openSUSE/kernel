@@ -362,7 +362,11 @@ struct napi_struct {
 
 	unsigned long		state;
 	int			weight;
+#ifdef __GENKSYMS__
 	int			defer_hard_irqs_count;
+#else
+	u32			defer_hard_irqs_count;
+#endif
 	unsigned long		gro_bitmask;
 	int			(*poll)(struct napi_struct *, int);
 #ifdef CONFIG_NETPOLL
@@ -2159,7 +2163,11 @@ struct net_device {
 	unsigned int		real_num_rx_queues;
 	struct netdev_rx_queue	*_rx;
 	unsigned long		gro_flush_timeout;
+#ifdef __GENKSYMS__
 	int			napi_defer_hard_irqs;
+#else
+	u32			napi_defer_hard_irqs;
+#endif
 	unsigned int		gro_max_size;
 	unsigned int		gro_ipv4_max_size;
 	rx_handler_func_t __rcu	*rx_handler;
