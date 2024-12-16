@@ -172,6 +172,7 @@ static struct fileIdentDesc *udf_find_entry(struct inode *dir,
 	loff_t size;
 	struct kernel_lb_addr eloc;
 	uint32_t elen;
+	int8_t etype;
 	sector_t offset;
 	struct extent_position epos = {};
 	struct udf_inode_info *dinfo = UDF_I(dir);
@@ -186,7 +187,8 @@ static struct fileIdentDesc *udf_find_entry(struct inode *dir,
 	fibh->soffset = fibh->eoffset = f_pos & (sb->s_blocksize - 1);
 	if (dinfo->i_alloc_type != ICBTAG_FLAG_AD_IN_ICB) {
 		if (inode_bmap(dir, f_pos >> sb->s_blocksize_bits, &epos,
-		    &eloc, &elen, &offset) != (EXT_RECORDED_ALLOCATED >> 30)) {
+		    	       &eloc, &elen, &offset, &etype) <= 0 ||
+		    etype != (EXT_RECORDED_ALLOCATED >> 30)) {
 			fi = ERR_PTR(-EIO);
 			goto out_err;
 		}
@@ -355,9 +357,11 @@ static struct fileIdentDesc *udf_add_entry(struct inode *dir,
 	int block;
 	struct kernel_lb_addr eloc;
 	uint32_t elen = 0;
+	int8_t etype;
 	sector_t offset;
 	struct extent_position epos = {};
 	struct udf_inode_info *dinfo;
+	int ret;
 
 	fibh->sbh = fibh->ebh = NULL;
 	name = kmalloc(UDF_NAME_LEN_CS0, GFP_NOFS);
@@ -389,8 +393,13 @@ static struct fileIdentDesc *udf_add_entry(struct inode *dir,
 	fibh->soffset = fibh->eoffset = f_pos & (dir->i_sb->s_blocksize - 1);
 	dinfo = UDF_I(dir);
 	if (dinfo->i_alloc_type != ICBTAG_FLAG_AD_IN_ICB) {
-		if (inode_bmap(dir, f_pos >> dir->i_sb->s_blocksize_bits, &epos,
-		    &eloc, &elen, &offset) != (EXT_RECORDED_ALLOCATED >> 30)) {
+		ret = inode_bmap(dir, f_pos >> dir->i_sb->s_blocksize_bits, &epos,
+		    		 &eloc, &elen, &offset, &etype);
+		if (ret < 0) {
+			*err = ret;
+			goto out_err;
+		}
+		if (ret == 0 || etype != (EXT_RECORDED_ALLOCATED >> 30)) {
 			block = udf_get_lb_pblock(dir->i_sb,
 					&dinfo->i_location, 0);
 			fibh->soffset = fibh->eoffset = sb->s_blocksize;
@@ -465,7 +474,7 @@ add:
 		epos.block = dinfo->i_location;
 		epos.offset = udf_file_entry_alloc_offset(dir);
 		/* Load extent udf_expand_dir_adinicb() has created */
-		udf_current_aext(dir, &epos, &eloc, &elen, 1);
+		udf_current_aext(dir, &epos, &eloc, &elen, &etype, 1);
 	}
 
 	/* Entry fits into current block? */
@@ -523,8 +532,9 @@ add:
 
 		if (!fibh->soffset) {
 			/* Find the freshly allocated block */
-			while (udf_next_aext(dir, &epos, &eloc, &elen, 1) ==
-				(EXT_RECORDED_ALLOCATED >> 30))
+			while (udf_next_aext(dir, &epos, &eloc, &elen, &etype,
+					     1) > 0 &&
+			       etype == (EXT_RECORDED_ALLOCATED >> 30))
 				;
 			block = eloc.logicalBlockNum + ((elen - 1) >>
 					dir->i_sb->s_blocksize_bits);
@@ -554,8 +564,9 @@ add:
 			dinfo->i_lenAlloc += nfidlen;
 		else {
 			/* Find the last extent and truncate it to proper size */
-			while (udf_next_aext(dir, &epos, &eloc, &elen, 1) ==
-				(EXT_RECORDED_ALLOCATED >> 30))
+			while (udf_next_aext(dir, &epos, &eloc, &elen, &etype,
+					     1) > 0 &&
+			       etype == (EXT_RECORDED_ALLOCATED >> 30))
 				;
 			elen -= dinfo->i_lenExtents - dir->i_size;
 			if (dinfo->i_alloc_type == ICBTAG_FLAG_AD_SHORT)
@@ -750,6 +761,7 @@ static int empty_dir(struct inode *dir)
 	int block;
 	struct kernel_lb_addr eloc;
 	uint32_t elen;
+	int8_t etype;
 	sector_t offset;
 	struct extent_position epos = {};
 	struct udf_inode_info *dinfo = UDF_I(dir);
@@ -760,8 +772,8 @@ static int empty_dir(struct inode *dir)
 	if (dinfo->i_alloc_type == ICBTAG_FLAG_AD_IN_ICB)
 		fibh.sbh = fibh.ebh = NULL;
 	else if (inode_bmap(dir, f_pos >> dir->i_sb->s_blocksize_bits,
-			      &epos, &eloc, &elen, &offset) ==
-					(EXT_RECORDED_ALLOCATED >> 30)) {
+			      &epos, &eloc, &elen, &offset, &etype) > 0 &&
+		 etype == (EXT_RECORDED_ALLOCATED >> 30)) {
 		block = udf_get_lb_pblock(dir->i_sb, &eloc, offset);
 		if ((++offset << dir->i_sb->s_blocksize_bits) < elen) {
 			if (dinfo->i_alloc_type == ICBTAG_FLAG_AD_SHORT)
