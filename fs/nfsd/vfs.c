@@ -1671,8 +1671,8 @@ retry:
 		goto out_want_write;
 	}
 	ffhp->fh_locked = tfhp->fh_locked = true;
-	fill_pre_wcc(ffhp);
-	fill_pre_wcc(tfhp);
+	fh_fill_pre_attrs(ffhp);
+	fh_fill_pre_attrs(tfhp);
 
 	odentry = lookup_one_len(fname, fdentry, flen);
 	host_err = PTR_ERR(odentry);
@@ -1726,8 +1726,8 @@ retry:
 	 * were the same, so again we do it by hand.
 	 */
 	if (!close_cached) {
-		fill_post_wcc(ffhp);
-		fill_post_wcc(tfhp);
+		fh_fill_post_attrs(ffhp);
+		fh_fill_post_attrs(tfhp);
 	}
 	unlock_rename(tdentry, fdentry);
 out_want_write:
