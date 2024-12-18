@@ -279,7 +279,7 @@ static inline u64 nfsd4_change_attribute(struct kstat *stat,
 
 extern void fh_fill_pre_attrs(struct svc_fh *fhp);
 extern void fh_fill_post_attrs(struct svc_fh *fhp);
-
+extern void fh_fill_both_attrs(struct svc_fh *fhp);
 #else /* !CONFIG_NFSD_V3 */
 
 static inline void fh_clear_pre_post_attrs(struct svc_fh *fhp)
