@@ -1177,6 +1177,7 @@ extern ssize_t usb_show_dynids(struct usb_dynids *dynids, char *buf);
  *	post_reset method is called.
  * @post_reset: Called by usb_reset_device() after the device
  *	has been reset
+ * @shutdown: Called at shut-down time to quiesce the device.
  * @id_table: USB drivers use ID table to support hotplugging.
  *	Export this with MODULE_DEVICE_TABLE(usb,...).  This must be set
  *	or your driver's probe function will never get called.
@@ -1227,6 +1228,8 @@ struct usb_driver {
 
 	int (*pre_reset)(struct usb_interface *intf);
 	int (*post_reset)(struct usb_interface *intf);
+
+	void (*shutdown)(struct usb_interface *intf);
 
 	const struct usb_device_id *id_table;
 	const struct attribute_group **dev_groups;
