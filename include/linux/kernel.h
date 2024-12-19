@@ -403,3 +403,12 @@ static inline void ftrace_dump(enum ftrace_dump_mode oops_dump_mode) { }
 	 BUILD_BUG_ON_ZERO((perms) & 2) +					\
 	 (perms))
 #endif
+
+#ifdef CONFIG_LOCK_DOWN_KERNEL_EARLY
+int kernel_is_locked_down_early(int what);
+#else
+static int kernel_is_locked_down_early(int what)
+{
+	return 0;
+}
+#endif
