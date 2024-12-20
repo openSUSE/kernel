@@ -2605,10 +2605,6 @@ static long ice_ptp_create_clock(struct ice_pf *pf)
 		return PTR_ERR(pf->ptp.clock);
 	}
 
-	/* Re-enable all periodic outputs and external timestamp events */
-	ice_ptp_enable_all_clkout(pf);
-	ice_ptp_enable_all_extts(pf);
-
 	return 0;
 }
 
@@ -2853,6 +2849,10 @@ static int ice_ptp_rebuild_owner(struct ice_pf *pf)
 
 		ice_ptp_restart_all_phy(pf);
 	}
+
+	/* Re-enable all periodic outputs and external timestamp events */
+	ice_ptp_enable_all_clkout(pf);
+	ice_ptp_enable_all_extts(pf);
 
 	return 0;
 }
