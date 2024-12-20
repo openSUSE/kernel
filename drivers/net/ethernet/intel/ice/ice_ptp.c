@@ -2856,10 +2856,8 @@ static int ice_ptp_rebuild_owner(struct ice_pf *pf)
 
 	/* Write the increment time value to PHY and LAN */
 	err = ice_ptp_write_incval(hw, ice_base_incval(pf));
-	if (err) {
-		ice_ptp_unlock(hw);
-		return err;
-	}
+	if (err)
+		goto err_unlock;
 
 	/* Write the initial Time value to PHY and LAN using the cached PHC
 	 * time before the reset and time difference between stopping and
@@ -2872,10 +2870,8 @@ static int ice_ptp_rebuild_owner(struct ice_pf *pf)
 		ts = ktime_to_timespec64(ktime_get_real());
 	}
 	err = ice_ptp_write_init(pf, &ts);
-	if (err) {
-		ice_ptp_unlock(hw);
-		return err;
-	}
+	if (err)
+		goto err_unlock;
 
 	/* Release the global hardware lock */
 	ice_ptp_unlock(hw);
@@ -2899,6 +2895,10 @@ static int ice_ptp_rebuild_owner(struct ice_pf *pf)
 	ice_ptp_enable_all_extts(pf);
 
 	return 0;
+
+err_unlock:
+	ice_ptp_unlock(hw);
+	return err;
 }
 
 /**
@@ -3031,18 +3031,14 @@ static int ice_ptp_init_owner(struct ice_pf *pf)
 
 	/* Write the increment time value to PHY and LAN */
 	err = ice_ptp_write_incval(hw, ice_base_incval(pf));
-	if (err) {
-		ice_ptp_unlock(hw);
-		goto err_exit;
-	}
+	if (err)
+		goto err_unlock;
 
 	ts = ktime_to_timespec64(ktime_get_real());
 	/* Write the initial Time value to PHY and LAN */
 	err = ice_ptp_write_init(pf, &ts);
-	if (err) {
-		ice_ptp_unlock(hw);
-		goto err_exit;
-	}
+	if (err)
+		goto err_unlock;
 
 	/* Release the global hardware lock */
 	ice_ptp_unlock(hw);
@@ -3061,6 +3057,10 @@ static int ice_ptp_init_owner(struct ice_pf *pf)
 err_clk:
 	pf->ptp.clock = NULL;
 err_exit:
+	return err;
+
+err_unlock:
+	ice_ptp_unlock(hw);
 	return err;
 }
 
