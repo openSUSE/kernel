@@ -295,8 +295,6 @@ static const struct vb2_ops cx25821_video_qops = {
 	.buf_prepare  = cx25821_buffer_prepare,
 	.buf_finish = cx25821_buffer_finish,
 	.buf_queue    = cx25821_buffer_queue,
-	.wait_prepare = vb2_ops_wait_prepare,
-	.wait_finish = vb2_ops_wait_finish,
 	.start_streaming = cx25821_start_streaming,
 	.stop_streaming = cx25821_stop_streaming,
 };
@@ -730,7 +728,7 @@ int cx25821_video_register(struct cx25821_dev *dev)
 		q->io_modes = VB2_MMAP | VB2_USERPTR | VB2_DMABUF;
 		q->io_modes |= is_output ? VB2_WRITE : VB2_READ;
 		q->gfp_flags = GFP_DMA32;
-		q->min_buffers_needed = 2;
+		q->min_queued_buffers = 2;
 		q->drv_priv = chan;
 		q->buf_struct_size = sizeof(struct cx25821_buffer);
 		q->ops = &cx25821_video_qops;

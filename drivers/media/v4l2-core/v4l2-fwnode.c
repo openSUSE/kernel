@@ -1179,7 +1179,9 @@ v4l2_async_nf_parse_fwnode_sensor(struct device *dev,
 	static const char * const led_props[] = { "led" };
 	static const struct v4l2_fwnode_int_props props[] = {
 		{ "flash-leds", led_props, ARRAY_SIZE(led_props) },
-		{ "lens-focus", NULL, 0 },
+		{ "mipi-img-flash-leds", },
+		{ "lens-focus", },
+		{ "mipi-img-lens-focus", },
 	};
 	unsigned int i;
 
@@ -1215,7 +1217,7 @@ int v4l2_async_register_subdev_sensor(struct v4l2_subdev *sd)
 	if (!notifier)
 		return -ENOMEM;
 
-	v4l2_async_nf_init(notifier);
+	v4l2_async_subdev_nf_init(notifier, sd);
 
 	ret = v4l2_subdev_get_privacy_led(sd);
 	if (ret < 0)
@@ -1225,7 +1227,7 @@ int v4l2_async_register_subdev_sensor(struct v4l2_subdev *sd)
 	if (ret < 0)
 		goto out_cleanup;
 
-	ret = v4l2_async_subdev_nf_register(sd, notifier);
+	ret = v4l2_async_nf_register(notifier);
 	if (ret < 0)
 		goto out_cleanup;
 
