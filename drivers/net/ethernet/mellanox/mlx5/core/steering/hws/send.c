@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0 OR Linux-OpenIB
 /* Copyright (c) 2024 NVIDIA Corporation & Affiliates */
 
-#include "mlx5hws_internal.h"
+#include "internal.h"
 #include "lib/clock.h"
 
 enum { CQ_OK = 0, CQ_EMPTY = -1, CQ_POLL_ERR = -2 };
@@ -990,6 +990,7 @@ static int hws_bwc_send_queues_init(struct mlx5hws_context *ctx)
 	for (i = 0; i < bwc_queues; i++) {
 		mutex_init(&ctx->bwc_send_queue_locks[i]);
 		lockdep_register_key(ctx->bwc_lock_class_keys + i);
+		lockdep_set_class(ctx->bwc_send_queue_locks + i, ctx->bwc_lock_class_keys + i);
 	}
 
 	return 0;

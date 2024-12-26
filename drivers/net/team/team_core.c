@@ -1957,8 +1957,7 @@ static void team_netpoll_cleanup(struct net_device *dev)
 	mutex_unlock(&team->lock);
 }
 
-static int team_netpoll_setup(struct net_device *dev,
-			      struct netpoll_info *npifo)
+static int team_netpoll_setup(struct net_device *dev)
 {
 	struct team *team = netdev_priv(dev);
 	struct team_port *port;
@@ -2023,8 +2022,7 @@ static netdev_features_t team_fix_features(struct net_device *dev,
 	netdev_features_t mask;
 
 	mask = features;
-	features &= ~NETIF_F_ONE_FOR_ALL;
-	features |= NETIF_F_ALL_FOR_ALL;
+	features = netdev_base_features(features);
 
 	rcu_read_lock();
 	list_for_each_entry_rcu(port, &team->port_list, list) {
