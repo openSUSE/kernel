@@ -701,12 +701,6 @@ static int ceu_start_streaming(struct vb2_queue *vq, unsigned int count)
 	/* Grab the first available buffer and trigger the first capture. */
 	buf = list_first_entry(&ceudev->capture, struct ceu_buffer,
 			       queue);
-	if (!buf) {
-		spin_unlock_irqrestore(&ceudev->lock, irqflags);
-		dev_dbg(ceudev->dev,
-			"No buffer available for capture.\n");
-		goto error_stop_sensor;
-	}
 
 	list_del(&buf->queue);
 	ceudev->active = &buf->vb;
@@ -720,9 +714,6 @@ static int ceu_start_streaming(struct vb2_queue *vq, unsigned int count)
 	spin_unlock_irqrestore(&ceudev->lock, irqflags);
 
 	return 0;
-
-error_stop_sensor:
-	v4l2_subdev_call(v4l2_sd, video, s_stream, 0);
 
 error_return_bufs:
 	spin_lock_irqsave(&ceudev->lock, irqflags);
@@ -1412,7 +1403,7 @@ static int ceu_notify_complete(struct v4l2_async_notifier *notifier)
 	q->mem_ops		= &vb2_dma_contig_memops;
 	q->buf_struct_size	= sizeof(struct ceu_buffer);
 	q->timestamp_flags	= V4L2_BUF_FLAG_TIMESTAMP_MONOTONIC;
-	q->min_buffers_needed	= 2;
+	q->min_queued_buffers	= 2;
 	q->lock			= &ceudev->mlock;
 	q->dev			= ceudev->v4l2_dev.dev;
 
@@ -1666,7 +1657,7 @@ static int ceu_probe(struct platform_device *pdev)
 	if (ret)
 		goto error_pm_disable;
 
-	v4l2_async_nf_init(&ceudev->notifier);
+	v4l2_async_nf_init(&ceudev->notifier, &ceudev->v4l2_dev);
 
 	if (IS_ENABLED(CONFIG_OF) && dev->of_node) {
 		ceu_data = of_device_get_match_data(dev);
@@ -1688,7 +1679,7 @@ static int ceu_probe(struct platform_device *pdev)
 
 	ceudev->notifier.v4l2_dev	= &ceudev->v4l2_dev;
 	ceudev->notifier.ops		= &ceu_notify_ops;
-	ret = v4l2_async_nf_register(&ceudev->v4l2_dev, &ceudev->notifier);
+	ret = v4l2_async_nf_register(&ceudev->notifier);
 	if (ret)
 		goto error_cleanup;
 

@@ -185,7 +185,7 @@ static void uvc_stream_delete(struct uvc_streaming *stream)
 
 	usb_put_intf(stream->intf);
 
-	kfree(stream->format);
+	kfree(stream->formats);
 	kfree(stream->header.bmaControls);
 	kfree(stream);
 }
@@ -688,7 +688,7 @@ static int uvc_parse_streaming(struct uvc_device *dev,
 	interval = (void *)frame + nframes * sizeof(*frame);
 	interval = PTR_ALIGN(interval, __alignof__(*interval));
 
-	streaming->format = format;
+	streaming->formats = format;
 	streaming->nformats = 0;
 
 	/* Parse the format descriptors. */

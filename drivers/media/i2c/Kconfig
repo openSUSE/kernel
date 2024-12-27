@@ -126,6 +126,7 @@ config VIDEO_IMX219
 	select MEDIA_CONTROLLER
 	select VIDEO_V4L2_SUBDEV_API
 	select V4L2_FWNODE
+	select V4L2_CCI_I2C
 	help
 	  This is a Video4Linux2 sensor driver for the Sony
 	  IMX219 camera.
@@ -431,6 +432,7 @@ config VIDEO_OV2680
 	depends on VIDEO_DEV && I2C
 	select MEDIA_CONTROLLER
 	select V4L2_FWNODE
+	select V4L2_CCI_I2C
 	help
 	  This is a Video4Linux2 sensor driver for the OmniVision
 	  OV2680 camera.

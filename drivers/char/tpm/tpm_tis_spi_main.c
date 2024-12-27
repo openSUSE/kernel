@@ -203,6 +203,14 @@ static int tpm_tis_spi_transfer_full(struct tpm_tis_data *data, u32 addr,
 	}
 
 exit:
+	if (ret < 0) {
+		/* Deactivate chip select */
+		memset(&spi_xfer, 0, sizeof(spi_xfer));
+		spi_message_init(&m);
+		spi_message_add_tail(&spi_xfer, &m);
+		spi_sync_locked(phy->spi_device, &m);
+	}
+
 	spi_bus_unlock(phy->spi_device->master);
 	return ret;
 }
