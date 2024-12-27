@@ -2968,3 +2968,9 @@ void bpf_arch_poke_desc_update(struct bpf_jit_poke_descriptor *poke,
 		BUG_ON(ret < 0);
 	}
 }
+
+/* x86-64 JIT emits its own code to filter user addresses so return 0 here */
+u64 bpf_arch_uaddress_limit(void)
+{
+	return 0;
+}
