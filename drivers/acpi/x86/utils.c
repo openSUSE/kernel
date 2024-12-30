@@ -12,7 +12,6 @@
 
 #include <linux/acpi.h>
 #include <linux/dmi.h>
-#include <linux/pci.h>
 #include <linux/platform_device.h>
 #include <asm/cpu_device_id.h>
 #include <asm/intel-family.h>
@@ -401,19 +400,6 @@ static const struct dmi_system_id acpi_quirk_skip_dmi_ids[] = {
 					ACPI_QUIRK_SKIP_ACPI_AC_AND_BATTERY),
 	},
 	{
-		/* Vexia Edu Atla 10 tablet 9V version */
-		.matches = {
-			DMI_MATCH(DMI_BOARD_VENDOR, "AMI Corporation"),
-			DMI_MATCH(DMI_BOARD_NAME, "Aptio CRB"),
-			/* Above strings are too generic, also match on BIOS date */
-			DMI_MATCH(DMI_BIOS_DATE, "08/25/2014"),
-		},
-		.driver_data = (void *)(ACPI_QUIRK_SKIP_I2C_CLIENTS |
-					ACPI_QUIRK_UART1_SKIP |
-					ACPI_QUIRK_SKIP_ACPI_AC_AND_BATTERY |
-					ACPI_QUIRK_SKIP_GPIO_EVENT_HANDLERS),
-	},
-	{
 		/* Whitelabel (sold as various brands) TM800A550L */
 		.matches = {
 			DMI_MATCH(DMI_BOARD_VENDOR, "AMI Corporation"),
@@ -457,40 +443,25 @@ bool acpi_quirk_skip_i2c_client_enumeration(struct acpi_device *adev)
 }
 EXPORT_SYMBOL_GPL(acpi_quirk_skip_i2c_client_enumeration);
 
-static int acpi_dmi_skip_serdev_enumeration(struct device *controller_parent, bool *skip)
+int acpi_quirk_skip_serdev_enumeration(struct device *controller_parent, bool *skip)
 {
 	struct acpi_device *adev = ACPI_COMPANION(controller_parent);
 	const struct dmi_system_id *dmi_id;
 	long quirks = 0;
-	u64 uid = 0;
+	u64 uid;
+	int ret;
+
+	*skip = false;
+
+	ret = acpi_dev_uid_to_integer(adev, &uid);
+	if (ret)
+		return 0;
 
 	dmi_id = dmi_first_match(acpi_quirk_skip_dmi_ids);
-	if (!dmi_id)
-		return 0;
+	if (dmi_id)
+		quirks = (unsigned long)dmi_id->driver_data;
 
-	quirks = (unsigned long)dmi_id->driver_data;
-
-	/* uid is left at 0 on errors and 0 is not a valid UART UID */
-	acpi_dev_uid_to_integer(adev, &uid);
-
-	/* For PCI UARTs without an UID */
-	if (!uid && dev_is_pci(controller_parent)) {
-		struct pci_dev *pdev = to_pci_dev(controller_parent);
-
-		/*
-		 * Devfn values for PCI UARTs on Bay Trail SoCs, which are
-		 * the only devices where this fallback is necessary.
-		 */
-		if (pdev->devfn == PCI_DEVFN(0x1e, 3))
-			uid = 1;
-		else if (pdev->devfn == PCI_DEVFN(0x1e, 4))
-			uid = 2;
-	}
-
-	if (!uid)
-		return 0;
-
-	if (!dev_is_platform(controller_parent) && !dev_is_pci(controller_parent)) {
+	if (!dev_is_platform(controller_parent)) {
 		/* PNP enumerated UARTs */
 		if ((quirks & ACPI_QUIRK_PNP_UART1_SKIP) && uid == 1)
 			*skip = true;
@@ -511,6 +482,7 @@ static int acpi_dmi_skip_serdev_enumeration(struct device *controller_parent, bo
 
 	return 0;
 }
+EXPORT_SYMBOL_GPL(acpi_quirk_skip_serdev_enumeration);
 
 bool acpi_quirk_skip_gpio_event_handlers(void)
 {
@@ -525,20 +497,7 @@ bool acpi_quirk_skip_gpio_event_handlers(void)
 	return (quirks & ACPI_QUIRK_SKIP_GPIO_EVENT_HANDLERS);
 }
 EXPORT_SYMBOL_GPL(acpi_quirk_skip_gpio_event_handlers);
-#else
-static int acpi_dmi_skip_serdev_enumeration(struct device *controller_parent, bool *skip)
-{
-	return 0;
-}
 #endif
-
-int acpi_quirk_skip_serdev_enumeration(struct device *controller_parent, bool *skip)
-{
-	*skip = false;
-
-	return acpi_dmi_skip_serdev_enumeration(controller_parent, skip);
-}
-EXPORT_SYMBOL_GPL(acpi_quirk_skip_serdev_enumeration);
 
 /* Lists of PMIC ACPI HIDs with an (often better) native charger driver */
 static const struct {
