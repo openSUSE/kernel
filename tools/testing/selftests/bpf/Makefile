@@ -170,14 +170,6 @@ VMLINUX_BTF ?= $(abspath $(firstword $(wildcard $(VMLINUX_BTF_PATHS))))
 ifeq ($(VMLINUX_BTF),)
 $(error Cannot find a vmlinux for VMLINUX_BTF at any of "$(VMLINUX_BTF_PATHS)")
 endif
-BTRFS_BTF_PATHS ?= $(if $(O),$(O)/fs/btrfs/btrfs.ko)				\
-		     $(if $(KBUILD_OUTPUT),$(KBUILD_OUTPUT)/fs/btrfs/btrfs.ko)	\
-		     ../../../../fs/btrfs/btrfs.ko				\
-		     /sys/kernel/btf/btrfs
-BTRFS_BTF ?= $(abspath $(firstword $(wildcard $(BTRFS_BTF_PATHS))))
-ifeq ($(BTRFS_BTF),)
-$(error Cannot find a btrfs.ko for BTRFS_BTF at any of "$(BTRFS_BTF_PATHS)")
-endif
 
 # Define simple and short `make test_progs`, `make test_sysctl`, etc targets
 # to build individual tests.
@@ -345,12 +337,7 @@ endif
 $(INCLUDE_DIR)/vmlinux.h: $(VMLINUX_BTF) $(BPFTOOL) | $(INCLUDE_DIR)
 ifeq ($(VMLINUX_H),)
 	$(call msg,GEN,,$@)
-	# This is a lie, we're dumping BTF of the btrfs modules because we need
-	# definition of btrfs-related definitions (see bsc#1198585). But since
-	# the header file generated also contains vmlinux definiton (more
-	# specifically, it is a superset of vmlinux definition), it can be used
-	# in places where vmlinux.h is expected.
-	$(Q)$(BPFTOOL) btf dump --base-btf $(VMLINUX_BTF) file $(BTRFS_BTF) format c > $@
+	$(Q)$(BPFTOOL) btf dump file $(VMLINUX_BTF) format c > $@
 else
 	$(call msg,CP,,$@)
 	$(Q)cp "$(VMLINUX_H)" $@
