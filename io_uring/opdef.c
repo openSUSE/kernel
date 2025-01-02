@@ -444,6 +444,12 @@ const struct io_issue_def io_issue_defs[] = {
 		.prep			= io_waitid_prep,
 		.issue			= io_waitid,
 	},
+	[IORING_OP_FIXED_FD_INSTALL] = {
+		.needs_file		= 1,
+		.audit_skip		= 1,
+		.prep			= io_install_fixed_fd_prep,
+		.issue			= io_install_fixed_fd,
+	},
 };
 
 const struct io_cold_def io_cold_defs[] = {
@@ -669,6 +675,9 @@ const struct io_cold_def io_cold_defs[] = {
 	[IORING_OP_WAITID] = {
 		.name			= "WAITID",
 		.async_size		= sizeof(struct io_waitid_async),
+	},
+	[IORING_OP_FIXED_FD_INSTALL] = {
+		.name			= "FIXED_FD_INSTALL",
 	},
 };
 
