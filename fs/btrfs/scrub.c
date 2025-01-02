@@ -3631,6 +3631,11 @@ static noinline_for_stack int scrub_stripe(struct scrub_ctx *sctx,
 	scrub_blocked_if_needed(fs_info);
 
 	root = btrfs_extent_root(fs_info, bg->start);
+	if (unlikely(!root)) {
+		btrfs_err(fs_info, "no valid extent root for scrub");
+		btrfs_free_path(path);
+		return -EUCLEAN;
+	}
 	csum_root = btrfs_csum_root(fs_info, bg->start);
 
 	/*
