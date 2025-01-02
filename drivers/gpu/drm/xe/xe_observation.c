@@ -66,6 +66,7 @@ static struct ctl_table observation_ctl_table[] = {
 	 .extra1 = SYSCTL_ZERO,
 	 .extra2 = SYSCTL_ONE,
 	 },
+	{}
 };
 
 /**
