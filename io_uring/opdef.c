@@ -444,6 +444,15 @@ const struct io_issue_def io_issue_defs[] = {
 		.prep			= io_waitid_prep,
 		.issue			= io_waitid,
 	},
+	[IORING_OP_FUTEX_WAIT] = {
+		.prep			= io_eopnotsupp_prep,
+	},
+	[IORING_OP_FUTEX_WAKE] = {
+		.prep			= io_eopnotsupp_prep,
+	},
+	[IORING_OP_FUTEX_WAITV] = {
+		.prep			= io_eopnotsupp_prep,
+	},
 	[IORING_OP_FIXED_FD_INSTALL] = {
 		.needs_file		= 1,
 		.audit_skip		= 1,
@@ -675,6 +684,15 @@ const struct io_cold_def io_cold_defs[] = {
 	[IORING_OP_WAITID] = {
 		.name			= "WAITID",
 		.async_size		= sizeof(struct io_waitid_async),
+	},
+	[IORING_OP_FUTEX_WAIT] = {
+		.name			= "FUTEX_WAIT",
+	},
+	[IORING_OP_FUTEX_WAKE] = {
+		.name			= "FUTEX_WAKE",
+	},
+	[IORING_OP_FUTEX_WAITV] = {
+		.name			= "FUTEX_WAITV",
 	},
 	[IORING_OP_FIXED_FD_INSTALL] = {
 		.name			= "FIXED_FD_INSTALL",
