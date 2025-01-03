@@ -664,6 +664,17 @@ static int swiotlb_do_find_slots(struct device *dev, int area_index,
 	BUG_ON(area_index >= mem->nareas);
 
 	/*
+	 * Historically, swiotlb allocations >= PAGE_SIZE were guaranteed to be
+	 * page-aligned in the absence of any other alignment requirements.
+	 * 'alloc_align_mask' was later introduced to specify the alignment
+	 * explicitly, however this is passed as zero for streaming mappings
+	 * and so we preserve the old behaviour there in case any drivers are
+	 * relying on it.
+	 */
+	if (!alloc_align_mask && !iotlb_align_mask && alloc_size >= PAGE_SIZE)
+		alloc_align_mask = PAGE_SIZE - 1;
+
+	/*
 	 * Ensure that the allocation is at least slot-aligned and update
 	 * 'iotlb_align_mask' to ignore bits that will be preserved when
 	 * offsetting into the allocation.
@@ -676,13 +687,6 @@ static int swiotlb_do_find_slots(struct device *dev, int area_index,
 	 * unaligned slots once we found an aligned one.
 	 */
 	stride = get_max_slots(max(alloc_align_mask, iotlb_align_mask));
-
-	/*
-	 * For allocations of PAGE_SIZE or larger only look for page aligned
-	 * allocations.
-	 */
-	if (alloc_size >= PAGE_SIZE)
-		stride = umax(stride, PAGE_SHIFT - IO_TLB_SHIFT + 1);
 
 	spin_lock_irqsave(&area->lock, flags);
 	if (unlikely(nslots > mem->area_nslabs - area->used))
@@ -1072,6 +1076,12 @@ struct page *swiotlb_alloc(struct device *dev, size_t size)
 		return NULL;
 
 	tlb_addr = slot_addr(mem->start, index);
+	if (unlikely(!PAGE_ALIGNED(tlb_addr))) {
+		dev_WARN_ONCE(dev, 1, "Cannot allocate pages from non page-aligned swiotlb addr 0x%pa.\n",
+			      &tlb_addr);
+		swiotlb_release_slots(dev, tlb_addr);
+		return NULL;
+	}
 
 	return pfn_to_page(PFN_DOWN(tlb_addr));
 }

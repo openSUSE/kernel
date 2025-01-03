@@ -123,9 +123,9 @@ struct data_loc_info {
 	u64 var_addr;
 	u8 cpumode;
 	struct annotated_op_loc *op;
+	struct debuginfo *di;
 
 	/* These are used internally */
-	struct debuginfo *di;
 	int fbreg;
 	bool fb_cfa;
 
@@ -176,6 +176,7 @@ struct type_state_reg {
 	bool ok;
 	bool caller_saved;
 	u8 kind;
+	u8 copied_from;
 };
 
 /* Type information in a stack location, dynamically allocated */
