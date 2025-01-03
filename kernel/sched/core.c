@@ -7646,6 +7646,30 @@ static inline void preempt_dynamic_init(void) { }
 
 #endif /* CONFIG_PREEMPT_DYNAMIC */
 
+const char *preempt_model_str(void)
+{
+	if (IS_ENABLED(CONFIG_ARCH_HAS_PREEMPT_LAZY) && preempt_model_lazy()) {
+		if (preempt_model_rt())
+			return "PREEMPT_RT+LAZY";
+		if (preempt_model_full())
+			return "PREEMPT+LAZY";
+		if (preempt_model_voluntary())
+			return "VOLUNTARY+LAZY";
+		if (preempt_model_none())
+			return "NONE+LAZY";
+	} else {
+		if (preempt_model_rt())
+			return "PREEMPT_RT";
+		if (preempt_model_full())
+			return "PREEMPT";
+		if (preempt_model_voluntary())
+			return "VOLUNTARY";
+		if (preempt_model_none())
+			return "NONE";
+	}
+	return "UNKNOWN-PREEMPT";
+}
+
 int io_schedule_prepare(void)
 {
 	int old_iowait = current->in_iowait;
