@@ -23,17 +23,6 @@ extern bool CONFIG_SECURITY_APPARMOR __kconfig __weak;
 #define EPERM 1
 #endif
 
-/* We have CONFIG_PACKET=m, so socketaddr_ll won't be in vmlinux.h */
-struct sockaddr_ll {
-	unsigned short	sll_family;
-	__be16		sll_protocol;
-	int		sll_ifindex;
-	unsigned short	sll_hatype;
-	unsigned char	sll_pkttype;
-	unsigned char	sll_halen;
-	unsigned char	sll_addr[8];
-};
-
 struct {
 	__uint(type, BPF_MAP_TYPE_CGROUP_STORAGE);
 	__type(key, __u64);
