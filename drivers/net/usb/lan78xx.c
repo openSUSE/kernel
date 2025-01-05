@@ -4140,11 +4140,6 @@ static int lan78xx_probe(struct usb_interface *intf,
 	if (!dev->urb_intr) {
 		ret = -ENOMEM;
 		goto out4;
-	} else {
-		usb_fill_int_urb(dev->urb_intr, dev->udev,
-				 dev->pipe_intr, buf, maxp,
-				 intr_complete, dev, period);
-		dev->urb_intr->transfer_flags |= URB_FREE_BUFFER;
 	}
 
 	dev->maxpacket = usb_maxpacket(dev->udev, dev->pipe_out, 1);
@@ -4155,16 +4150,24 @@ static int lan78xx_probe(struct usb_interface *intf,
 		goto out5;
 	}
 
+	usb_fill_int_urb(dev->urb_intr, dev->udev,
+			dev->pipe_intr, buf, maxp,
+			intr_complete, dev, period);
+	dev->urb_intr->transfer_flags |= URB_FREE_BUFFER;
+
 	/* driver requires remote-wakeup capability during autosuspend. */
 	intf->needs_remote_wakeup = 1;
 
 	ret = lan78xx_phy_init(dev);
-	if (ret < 0)
+	if (ret < 0) {
+		dev->urb_intr->transfer_flags &= ~URB_FREE_BUFFER;
 		goto out5;
+	}
 
 	ret = register_netdev(netdev);
 	if (ret != 0) {
 		netif_err(dev, probe, netdev, "couldn't register the device\n");
+		dev->urb_intr->transfer_flags &= ~URB_FREE_BUFFER;
 		goto out6;
 	}
 
