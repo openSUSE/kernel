@@ -10629,24 +10629,6 @@ static bool is_kfunc_rcu(struct bpf_kfunc_call_arg_meta *meta)
 	return meta->kfunc_flags & KF_RCU;
 }
 
-static bool __kfunc_param_match_suffix(const struct btf *btf,
-				       const struct btf_param *arg,
-				       const char *suffix)
-{
-	int suffix_len = strlen(suffix), len;
-	const char *param_name;
-
-	/* In the future, this can be ported to use BTF tagging */
-	param_name = btf_name_by_offset(btf, arg->name_off);
-	if (str_is_empty(param_name))
-		return false;
-	len = strlen(param_name);
-	if (len < suffix_len)
-		return false;
-	param_name += len - suffix_len;
-	return !strncmp(param_name, suffix, suffix_len);
-}
-
 static bool is_kfunc_arg_mem_size(const struct btf *btf,
 				  const struct btf_param *arg,
 				  const struct bpf_reg_state *reg)
@@ -10657,7 +10639,7 @@ static bool is_kfunc_arg_mem_size(const struct btf *btf,
 	if (!btf_type_is_scalar(t) || reg->type != SCALAR_VALUE)
 		return false;
 
-	return __kfunc_param_match_suffix(btf, arg, "__sz");
+	return btf_param_match_suffix(btf, arg, "__sz");
 }
 
 static bool is_kfunc_arg_const_mem_size(const struct btf *btf,
@@ -10670,37 +10652,37 @@ static bool is_kfunc_arg_const_mem_size(const struct btf *btf,
 	if (!btf_type_is_scalar(t) || reg->type != SCALAR_VALUE)
 		return false;
 
-	return __kfunc_param_match_suffix(btf, arg, "__szk");
+	return btf_param_match_suffix(btf, arg, "__szk");
 }
 
 static bool is_kfunc_arg_optional(const struct btf *btf, const struct btf_param *arg)
 {
-	return __kfunc_param_match_suffix(btf, arg, "__opt");
+	return btf_param_match_suffix(btf, arg, "__opt");
 }
 
 static bool is_kfunc_arg_constant(const struct btf *btf, const struct btf_param *arg)
 {
-	return __kfunc_param_match_suffix(btf, arg, "__k");
+	return btf_param_match_suffix(btf, arg, "__k");
 }
 
 static bool is_kfunc_arg_ignore(const struct btf *btf, const struct btf_param *arg)
 {
-	return __kfunc_param_match_suffix(btf, arg, "__ign");
+	return btf_param_match_suffix(btf, arg, "__ign");
 }
 
 static bool is_kfunc_arg_alloc_obj(const struct btf *btf, const struct btf_param *arg)
 {
-	return __kfunc_param_match_suffix(btf, arg, "__alloc");
+	return btf_param_match_suffix(btf, arg, "__alloc");
 }
 
 static bool is_kfunc_arg_uninit(const struct btf *btf, const struct btf_param *arg)
 {
-	return __kfunc_param_match_suffix(btf, arg, "__uninit");
+	return btf_param_match_suffix(btf, arg, "__uninit");
 }
 
 static bool is_kfunc_arg_refcounted_kptr(const struct btf *btf, const struct btf_param *arg)
 {
-	return __kfunc_param_match_suffix(btf, arg, "__refcounted_kptr");
+	return btf_param_match_suffix(btf, arg, "__refcounted_kptr");
 }
 
 static bool is_kfunc_arg_scalar_with_name(const struct btf *btf,
