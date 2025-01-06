@@ -70,6 +70,7 @@ struct slab {
 #endif
 			};
 			/* Double-word boundary */
+#ifndef __GENKSYMS__
 			union {
 				struct {
 					void *freelist;		/* first free object */
@@ -86,6 +87,17 @@ struct slab {
 				freelist_aba_t freelist_counter;
 #endif
 			};
+#else /* __GENKSYMS__ */
+			void *freelist;         /* first free object */
+			union {
+				unsigned long counters;
+				struct {
+					unsigned inuse:16;
+					unsigned objects:15;
+					unsigned frozen:1;
+				};
+			};
+#endif /* __GENKSYMS__ */
 		};
 		struct rcu_head rcu_head;
 	};

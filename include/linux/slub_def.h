@@ -48,6 +48,7 @@ enum stat_item {
  * with this_cpu_cmpxchg_double() alignment requirements.
  */
 struct kmem_cache_cpu {
+#ifndef __GENKSYMS__
 	union {
 		struct {
 			void **freelist;	/* Pointer to next available object */
@@ -55,6 +56,10 @@ struct kmem_cache_cpu {
 		};
 		freelist_aba_t freelist_tid;
 	};
+#else
+	void **freelist;        /* Pointer to next available object */
+	unsigned long tid;      /* Globally unique transaction id */
+#endif
 	struct slab *slab;	/* The slab from which we are allocating */
 #ifdef CONFIG_SLUB_CPU_PARTIAL
 	struct slab *partial;	/* Partially allocated frozen slabs */
