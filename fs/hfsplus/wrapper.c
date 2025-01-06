@@ -182,6 +182,8 @@ int hfsplus_read_wrapper(struct super_block *sb)
 	if (!blocksize)
 		goto out;
 
+	sbi->min_io_size = blocksize;
+
 	if (hfsplus_get_last_session(sb, &part_start, &part_size))
 		goto out;
 	if ((u64)part_start + part_size > 0x100000000ULL) {
