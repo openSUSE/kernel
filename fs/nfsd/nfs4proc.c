@@ -1796,6 +1796,14 @@ nfsd4_copy(struct svc_rqst *rqstp, struct nfsd4_compound_state *cstate,
 	struct nfsd42_write_res *result;
 	__be32 status;
 
+	/*
+	 * Currently, async COPY is not reliable. Force all COPY
+	 * requests to be synchronous to avoid client application
+	 * hangs waiting for COPY completion.
+	 */
+	nfsd4_copy_set_sync(copy, true);
+
+	copy->cp_clp = cstate->clp;
 	if (nfsd4_ssc_is_inter(copy)) {
 		if (!inter_copy_offload_enable || nfsd4_copy_is_sync(copy)) {
 			status = nfserr_notsupp;
@@ -1808,19 +1816,11 @@ nfsd4_copy(struct svc_rqst *rqstp, struct nfsd4_compound_state *cstate,
 		status = nfsd4_setup_intra_ssc(rqstp, cstate, copy);
 		if (status)
 			return status;
-	}
-
-	/*
-	 * Currently, async COPY is not reliable. Force all COPY
-	 * requests to be synchronous to avoid client application
-	 * hangs waiting for COPY completion.
-	 */
-	nfsd4_copy_set_sync(copy, true);
-
 	result = &copy->cp_res;
 	nfsd_copy_write_verifier((__be32 *)&result->wr_verifier.data, nn);
 
-	copy->cp_clp = cstate->clp;
+	}
+
 	memcpy(&copy->fh, &cstate->current_fh.fh_handle,
 		sizeof(struct knfsd_fh));
 	if (nfsd4_copy_is_async(copy)) {
