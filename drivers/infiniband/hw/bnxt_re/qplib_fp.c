@@ -990,8 +990,7 @@ int bnxt_qplib_create_qp(struct bnxt_qplib_res *res, struct bnxt_qplib_qp *qp)
 	u32 tbl_indx;
 	u16 nsge;
 
-	if (res->dattr)
-		qp->dev_cap_flags = res->dattr->dev_cap_flags;
+	qp->dev_cap_flags = res->dattr->dev_cap_flags;
 
 	sq->dbinfo.flags = 0;
 	bnxt_qplib_rcfw_cmd_prep((struct cmdq_base *)&req,
