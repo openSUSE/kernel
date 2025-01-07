@@ -9737,10 +9737,12 @@ static void kvm_x86_check_cpu_compat(void *ret)
 	*(int *)ret = kvm_x86_check_processor_compatibility();
 }
 
-static int __kvm_x86_vendor_init(struct kvm_x86_init_ops *ops)
+int kvm_x86_vendor_init(struct kvm_x86_init_ops *ops)
 {
 	u64 host_pat;
 	int r, cpu;
+
+	guard(mutex)(&vendor_module_lock);
 
 	if (kvm_x86_ops.hardware_enable) {
 		pr_err("already loaded vendor module '%s'\n", kvm_x86_ops.name);
@@ -9876,17 +9878,6 @@ out_free_percpu:
 	free_percpu(user_return_msrs);
 out_free_x86_emulator_cache:
 	kmem_cache_destroy(x86_emulator_cache);
-	return r;
-}
-
-int kvm_x86_vendor_init(struct kvm_x86_init_ops *ops)
-{
-	int r;
-
-	mutex_lock(&vendor_module_lock);
-	r = __kvm_x86_vendor_init(ops);
-	mutex_unlock(&vendor_module_lock);
-
 	return r;
 }
 EXPORT_SYMBOL_GPL(kvm_x86_vendor_init);
