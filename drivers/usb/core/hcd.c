@@ -156,27 +156,6 @@ static const u8 usb3_rh_dev_descriptor[18] = {
 	0x01        /*  __u8  bNumConfigurations; */
 };
 
-/* usb 2.5 (wireless USB 1.0) root hub device descriptor */
-static const u8 usb25_rh_dev_descriptor[18] = {
-	0x12,       /*  __u8  bLength; */
-	USB_DT_DEVICE, /* __u8 bDescriptorType; Device */
-	0x50, 0x02, /*  __le16 bcdUSB; v2.5 */
-
-	0x09,	    /*  __u8  bDeviceClass; HUB_CLASSCODE */
-	0x00,	    /*  __u8  bDeviceSubClass; */
-	0x00,       /*  __u8  bDeviceProtocol; [ usb 2.0 no TT ] */
-	0xFF,       /*  __u8  bMaxPacketSize0; always 0xFF (WUSB Spec 7.4.1). */
-
-	0x6b, 0x1d, /*  __le16 idVendor; Linux Foundation 0x1d6b */
-	0x02, 0x00, /*  __le16 idProduct; device 0x0002 */
-	KERNEL_VER, KERNEL_REL, /*  __le16 bcdDevice */
-
-	0x03,       /*  __u8  iManufacturer; */
-	0x02,       /*  __u8  iProduct; */
-	0x01,       /*  __u8  iSerialNumber; */
-	0x01        /*  __u8  bNumConfigurations; */
-};
-
 /* usb 2.0 root hub device descriptor */
 static const u8 usb2_rh_dev_descriptor[18] = {
 	0x12,       /*  __u8  bLength; */
@@ -368,7 +347,7 @@ static const u8 ss_rh_config_descriptor[] = {
 };
 
 /* authorized_default behaviour:
- * -1 is authorized for all devices except wireless (old behaviour)
+ * -1 is authorized for all devices (leftover from wireless USB)
  * 0 is unauthorized for all devices
  * 1 is authorized for all devices
  * 2 is authorized for internal devices
@@ -383,7 +362,7 @@ module_param(authorized_default, int, S_IRUGO|S_IWUSR);
 MODULE_PARM_DESC(authorized_default,
 		"Default USB device authorization: 0 is not authorized, 1 is "
 		"authorized, 2 is authorized for internal devices, -1 is "
-		"authorized except for wireless USB (default, old behaviour)");
+		"authorized (default, same as 1)");
 /*-------------------------------------------------------------------------*/
 
 /**
@@ -578,9 +557,6 @@ static int rh_call_control (struct usb_hcd *hcd, struct urb *urb)
 			case HCD_USB3:
 				bufp = usb3_rh_dev_descriptor;
 				break;
-			case HCD_USB25:
-				bufp = usb25_rh_dev_descriptor;
-				break;
 			case HCD_USB2:
 				bufp = usb2_rh_dev_descriptor;
 				break;
@@ -602,7 +578,6 @@ static int rh_call_control (struct usb_hcd *hcd, struct urb *urb)
 				bufp = ss_rh_config_descriptor;
 				len = sizeof ss_rh_config_descriptor;
 				break;
-			case HCD_USB25:
 			case HCD_USB2:
 				bufp = hs_rh_config_descriptor;
 				len = sizeof hs_rh_config_descriptor;
@@ -893,7 +868,7 @@ static int usb_rh_urb_dequeue(struct usb_hcd *hcd, struct urb *urb, int status)
  */
 static void usb_bus_init (struct usb_bus *bus)
 {
-	memset (&bus->devmap, 0, sizeof(struct usb_devmap));
+	memset(&bus->devmap, 0, sizeof(bus->devmap));
 
 	bus->devnum_next = 1;
 
@@ -989,7 +964,7 @@ static int register_root_hub(struct usb_hcd *hcd)
 
 	usb_dev->devnum = devnum;
 	usb_dev->bus->devnum_next = devnum + 1;
-	set_bit (devnum, usb_dev->bus->devmap.devicemap);
+	set_bit(devnum, usb_dev->bus->devmap);
 	usb_set_device_state(usb_dev, USB_STATE_ADDRESS);
 
 	mutex_lock(&usb_bus_idr_lock);
@@ -2818,11 +2793,23 @@ int usb_add_hcd(struct usb_hcd *hcd,
 	int retval;
 	struct usb_device *rhdev;
 	struct usb_hcd *shared_hcd;
+	int skip_phy_initialization;
 
-	if (!hcd->skip_phy_initialization && usb_hcd_is_primary_hcd(hcd)) {
-		hcd->phy_roothub = usb_phy_roothub_alloc(hcd->self.sysdev);
-		if (IS_ERR(hcd->phy_roothub))
-			return PTR_ERR(hcd->phy_roothub);
+	if (usb_hcd_is_primary_hcd(hcd))
+		skip_phy_initialization = hcd->skip_phy_initialization;
+	else
+		skip_phy_initialization = hcd->primary_hcd->skip_phy_initialization;
+
+	if (!skip_phy_initialization) {
+		if (usb_hcd_is_primary_hcd(hcd)) {
+			hcd->phy_roothub = usb_phy_roothub_alloc(hcd->self.sysdev);
+			if (IS_ERR(hcd->phy_roothub))
+				return PTR_ERR(hcd->phy_roothub);
+		} else {
+			hcd->phy_roothub = usb_phy_roothub_alloc_usb3_phy(hcd->self.sysdev);
+			if (IS_ERR(hcd->phy_roothub))
+				return PTR_ERR(hcd->phy_roothub);
+		}
 
 		retval = usb_phy_roothub_init(hcd->phy_roothub);
 		if (retval)
@@ -2848,18 +2835,14 @@ int usb_add_hcd(struct usb_hcd *hcd,
 		hcd->dev_policy = USB_DEVICE_AUTHORIZE_NONE;
 		break;
 
-	case USB_AUTHORIZE_ALL:
-		hcd->dev_policy = USB_DEVICE_AUTHORIZE_ALL;
-		break;
-
 	case USB_AUTHORIZE_INTERNAL:
 		hcd->dev_policy = USB_DEVICE_AUTHORIZE_INTERNAL;
 		break;
 
+	case USB_AUTHORIZE_ALL:
 	case USB_AUTHORIZE_WIRED:
 	default:
-		hcd->dev_policy = hcd->wireless ?
-			USB_DEVICE_AUTHORIZE_NONE : USB_DEVICE_AUTHORIZE_ALL;
+		hcd->dev_policy = USB_DEVICE_AUTHORIZE_ALL;
 		break;
 	}
 
@@ -2902,9 +2885,6 @@ int usb_add_hcd(struct usb_hcd *hcd,
 		break;
 	case HCD_USB2:
 		rhdev->speed = USB_SPEED_HIGH;
-		break;
-	case HCD_USB25:
-		rhdev->speed = USB_SPEED_WIRELESS;
 		break;
 	case HCD_USB3:
 		rhdev->speed = USB_SPEED_SUPER;
