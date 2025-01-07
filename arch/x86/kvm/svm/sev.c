@@ -215,7 +215,8 @@ again:
 
 	mutex_unlock(&sev_bitmap_lock);
 
-	return asid;
+	sev->asid = asid;
+	return 0;
 e_uncharge:
 	sev_misc_cg_uncharge(sev);
 	put_misc_cg(sev->misc_cg);
@@ -398,7 +399,7 @@ static int __sev_guest_init(struct kvm *kvm, struct kvm_sev_cmd *argp,
 	struct sev_platform_init_args init_args = {0};
 	bool es_active = vm_type != KVM_X86_SEV_VM;
 	u64 valid_vmsa_features = es_active ? sev_supported_vmsa_features : 0;
-	int asid, ret;
+	int ret;
 
 	if (kvm->created_vcpus)
 		return -EINVAL;
@@ -431,10 +432,9 @@ static int __sev_guest_init(struct kvm *kvm, struct kvm_sev_cmd *argp,
 	if (vm_type == KVM_X86_SNP_VM)
 		sev->vmsa_features |= SVM_SEV_FEAT_SNP_ACTIVE;
 
-	asid = sev_asid_new(sev);
-	if (asid < 0)
+	ret = sev_asid_new(sev);
+	if (ret)
 		goto e_no_asid;
-	sev->asid = asid;
 
 	init_args.probe = false;
 	ret = sev_platform_init(&init_args);
