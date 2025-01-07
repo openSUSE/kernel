@@ -223,13 +223,21 @@ static int csi_set_format(struct v4l2_subdev *subdev,
 /*
  * V4L2 Subdevice Video Operations
  */
-static int tegra_csi_g_frame_interval(struct v4l2_subdev *subdev,
-				      struct v4l2_subdev_frame_interval *vfi)
+static int tegra_csi_get_frame_interval(struct v4l2_subdev *subdev,
+					struct v4l2_subdev_state *sd_state,
+					struct v4l2_subdev_frame_interval *vfi)
 {
 	struct tegra_csi_channel *csi_chan = to_csi_chan(subdev);
 
 	if (!IS_ENABLED(CONFIG_VIDEO_TEGRA_TPG))
 		return -ENOIOCTLCMD;
+
+	/*
+	 * FIXME: Implement support for V4L2_SUBDEV_FORMAT_TRY, using the V4L2
+	 * subdev active state API.
+	 */
+	if (vfi->which != V4L2_SUBDEV_FORMAT_ACTIVE)
+		return -EINVAL;
 
 	vfi->interval.numerator = 1;
 	vfi->interval.denominator = csi_chan->framerate;
@@ -431,8 +439,6 @@ static int tegra_csi_s_stream(struct v4l2_subdev *subdev, int enable)
  */
 static const struct v4l2_subdev_video_ops tegra_csi_video_ops = {
 	.s_stream = tegra_csi_s_stream,
-	.g_frame_interval = tegra_csi_g_frame_interval,
-	.s_frame_interval = tegra_csi_g_frame_interval,
 };
 
 static const struct v4l2_subdev_pad_ops tegra_csi_pad_ops = {
@@ -441,6 +447,8 @@ static const struct v4l2_subdev_pad_ops tegra_csi_pad_ops = {
 	.enum_frame_interval	= csi_enum_frameintervals,
 	.get_fmt		= csi_get_format,
 	.set_fmt		= csi_set_format,
+	.get_frame_interval	= tegra_csi_get_frame_interval,
+	.set_frame_interval	= tegra_csi_get_frame_interval,
 };
 
 static const struct v4l2_subdev_ops tegra_csi_ops = {
@@ -608,10 +616,10 @@ static int tegra_csi_channel_init(struct tegra_csi_channel *chan)
 	v4l2_subdev_init(subdev, &tegra_csi_ops);
 	subdev->dev = csi->dev;
 	if (IS_ENABLED(CONFIG_VIDEO_TEGRA_TPG))
-		snprintf(subdev->name, V4L2_SUBDEV_NAME_SIZE, "%s-%d", "tpg",
+		snprintf(subdev->name, sizeof(subdev->name), "%s-%d", "tpg",
 			 chan->csi_port_nums[0]);
 	else
-		snprintf(subdev->name, V4L2_SUBDEV_NAME_SIZE, "%s",
+		snprintf(subdev->name, sizeof(subdev->name), "%s",
 			 kbasename(chan->of_node->full_name));
 
 	v4l2_set_subdevdata(subdev, chan);

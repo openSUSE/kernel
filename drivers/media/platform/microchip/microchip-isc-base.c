@@ -478,12 +478,8 @@ static const struct vb2_ops isc_vb2_ops = {
 static int isc_querycap(struct file *file, void *priv,
 			struct v4l2_capability *cap)
 {
-	struct isc_device *isc = video_drvdata(file);
-
 	strscpy(cap->driver, "microchip-isc", sizeof(cap->driver));
 	strscpy(cap->card, "Microchip Image Sensor Controller", sizeof(cap->card));
-	snprintf(cap->bus_info, sizeof(cap->bus_info),
-		 "platform:%s", isc->v4l2_dev.name);
 
 	return 0;
 }
@@ -858,6 +854,8 @@ static int isc_try_configure_pipeline(struct isc_device *isc)
 static void isc_try_fse(struct isc_device *isc,
 			struct v4l2_subdev_state *sd_state)
 {
+	struct v4l2_rect *try_crop =
+		v4l2_subdev_state_get_crop(sd_state, 0);
 	struct v4l2_subdev_frame_size_enum fse = {
 		.which = V4L2_SUBDEV_FORMAT_TRY,
 	};
@@ -879,11 +877,11 @@ static void isc_try_fse(struct isc_device *isc,
 	 * just use the maximum ISC can receive.
 	 */
 	if (ret) {
-		sd_state->pads->try_crop.width = isc->max_width;
-		sd_state->pads->try_crop.height = isc->max_height;
+		try_crop->width = isc->max_width;
+		try_crop->height = isc->max_height;
 	} else {
-		sd_state->pads->try_crop.width = fse.max_width;
-		sd_state->pads->try_crop.height = fse.max_height;
+		try_crop->width = fse.max_width;
+		try_crop->height = fse.max_height;
 	}
 }
 
@@ -1823,7 +1821,7 @@ static int isc_async_complete(struct v4l2_async_notifier *notifier)
 	q->mem_ops		= &vb2_dma_contig_memops;
 	q->timestamp_flags	= V4L2_BUF_FLAG_TIMESTAMP_MONOTONIC;
 	q->lock			= &isc->lock;
-	q->min_buffers_needed	= 1;
+	q->min_queued_buffers	= 1;
 	q->dev			= isc->dev;
 
 	ret = vb2_queue_init(q);
@@ -1993,8 +1991,6 @@ int isc_mc_init(struct isc_device *isc, u32 ver)
 	strscpy(isc->mdev.driver_name, KBUILD_MODNAME,
 		sizeof(isc->mdev.driver_name));
 	strscpy(isc->mdev.model, match->compatible, sizeof(isc->mdev.model));
-	snprintf(isc->mdev.bus_info, sizeof(isc->mdev.bus_info), "platform:%s",
-		 isc->v4l2_dev.name);
 	isc->mdev.hw_revision = ver;
 
 	media_device_init(&isc->mdev);

@@ -56,6 +56,23 @@
 		: "i" (low), "i" (high));				\
 } while (0)
 
+static __always_inline void local_ctl_load(unsigned int cr, unsigned long *reg)
+{
+	asm volatile(
+		"	lctlg	%[cr],%[cr],%[reg]\n"
+		:
+		: [reg] "Q" (*reg), [cr] "i" (cr)
+		: "memory");
+}
+
+static __always_inline void local_ctl_store(unsigned int cr, unsigned long *reg)
+{
+	asm volatile(
+		"	stctg	%[cr],%[cr],%[reg]\n"
+		: [reg] "=Q" (*reg)
+		: [cr] "i" (cr));
+}
+
 static __always_inline void __ctl_set_bit(unsigned int cr, unsigned int bit)
 {
 	unsigned long reg;
@@ -96,8 +113,9 @@ union ctlreg0 {
 		unsigned long	   : 3;
 		unsigned long ccc  : 1; /* Cryptography counter control */
 		unsigned long pec  : 1; /* PAI extension control */
-		unsigned long	   : 17;
-		unsigned long	   : 3;
+		unsigned long	   : 15;
+		unsigned long wti  : 1; /* Warning-track */
+		unsigned long	   : 4;
 		unsigned long lap  : 1; /* Low-address-protection control */
 		unsigned long	   : 4;
 		unsigned long edat : 1; /* Enhanced-DAT-enablement control */

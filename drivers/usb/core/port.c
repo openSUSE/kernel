@@ -465,7 +465,7 @@ static const struct dev_pm_ops usb_port_pm_ops = {
 #endif
 };
 
-struct device_type usb_port_device_type = {
+const struct device_type usb_port_device_type = {
 	.name =		"usb_port",
 	.release =	usb_port_device_release,
 	.pm =		&usb_port_pm_ops,
@@ -750,6 +750,7 @@ int usb_hub_create_port_device(struct usb_hub *hub, int port1)
 	set_bit(port1, hub->power_bits);
 	port_dev->dev.parent = hub->intfdev;
 	if (hub_is_superspeed(hdev)) {
+		port_dev->is_superspeed = 1;
 		port_dev->usb3_lpm_u1_permit = 1;
 		port_dev->usb3_lpm_u2_permit = 1;
 		port_dev->dev.groups = port_dev_usb3_group;
@@ -757,8 +758,6 @@ int usb_hub_create_port_device(struct usb_hub *hub, int port1)
 		port_dev->dev.groups = port_dev_group;
 	port_dev->dev.type = &usb_port_device_type;
 	port_dev->dev.driver = &usb_port_driver;
-	if (hub_is_superspeed(hub->hdev))
-		port_dev->is_superspeed = 1;
 	dev_set_name(&port_dev->dev, "%s-port%d", dev_name(&hub->hdev->dev),
 			port1);
 	mutex_init(&port_dev->status_lock);

@@ -126,7 +126,6 @@ struct imx335_mode {
  * @vblank: Vertical blanking in lines
  * @cur_mode: Pointer to current selected sensor mode
  * @mutex: Mutex for serializing sensor controls
- * @streaming: Flag indicating streaming state
  */
 struct imx335 {
 	struct device *dev;
@@ -149,7 +148,6 @@ struct imx335 {
 	u32 vblank;
 	const struct imx335_mode *cur_mode;
 	struct mutex mutex;
-	bool streaming;
 };
 
 static const s64 link_freq[] = {
@@ -580,7 +578,7 @@ static int imx335_get_pad_format(struct v4l2_subdev *sd,
 	if (fmt->which == V4L2_SUBDEV_FORMAT_TRY) {
 		struct v4l2_mbus_framefmt *framefmt;
 
-		framefmt = v4l2_subdev_get_try_format(sd, sd_state, fmt->pad);
+		framefmt = v4l2_subdev_state_get_format(sd_state, fmt->pad);
 		fmt->format = *framefmt;
 	} else {
 		imx335_fill_pad_format(imx335, imx335->cur_mode, fmt);
@@ -615,7 +613,7 @@ static int imx335_set_pad_format(struct v4l2_subdev *sd,
 	if (fmt->which == V4L2_SUBDEV_FORMAT_TRY) {
 		struct v4l2_mbus_framefmt *framefmt;
 
-		framefmt = v4l2_subdev_get_try_format(sd, sd_state, fmt->pad);
+		framefmt = v4l2_subdev_state_get_format(sd_state, fmt->pad);
 		*framefmt = fmt->format;
 	} else {
 		ret = imx335_update_controls(imx335, mode);
@@ -629,14 +627,14 @@ static int imx335_set_pad_format(struct v4l2_subdev *sd,
 }
 
 /**
- * imx335_init_pad_cfg() - Initialize sub-device pad configuration
+ * imx335_init_state() - Initialize sub-device state
  * @sd: pointer to imx335 V4L2 sub-device structure
  * @sd_state: V4L2 sub-device configuration
  *
  * Return: 0 if successful, error code otherwise.
  */
-static int imx335_init_pad_cfg(struct v4l2_subdev *sd,
-			       struct v4l2_subdev_state *sd_state)
+static int imx335_init_state(struct v4l2_subdev *sd,
+			     struct v4l2_subdev_state *sd_state)
 {
 	struct imx335 *imx335 = to_imx335(sd);
 	struct v4l2_subdev_format fmt = { 0 };
@@ -714,11 +712,6 @@ static int imx335_set_stream(struct v4l2_subdev *sd, int enable)
 
 	mutex_lock(&imx335->mutex);
 
-	if (imx335->streaming == enable) {
-		mutex_unlock(&imx335->mutex);
-		return 0;
-	}
-
 	if (enable) {
 		ret = pm_runtime_resume_and_get(imx335->dev);
 		if (ret)
@@ -731,8 +724,6 @@ static int imx335_set_stream(struct v4l2_subdev *sd, int enable)
 		imx335_stop_streaming(imx335);
 		pm_runtime_put(imx335->dev);
 	}
-
-	imx335->streaming = enable;
 
 	mutex_unlock(&imx335->mutex);
 
@@ -864,7 +855,6 @@ static const struct v4l2_subdev_video_ops imx335_video_ops = {
 };
 
 static const struct v4l2_subdev_pad_ops imx335_pad_ops = {
-	.init_cfg = imx335_init_pad_cfg,
 	.enum_mbus_code = imx335_enum_mbus_code,
 	.enum_frame_size = imx335_enum_frame_size,
 	.get_fmt = imx335_get_pad_format,
@@ -874,6 +864,10 @@ static const struct v4l2_subdev_pad_ops imx335_pad_ops = {
 static const struct v4l2_subdev_ops imx335_subdev_ops = {
 	.video = &imx335_video_ops,
 	.pad = &imx335_pad_ops,
+};
+
+static const struct v4l2_subdev_internal_ops imx335_internal_ops = {
+	.init_state = imx335_init_state,
 };
 
 /**
@@ -1039,6 +1033,7 @@ static int imx335_probe(struct i2c_client *client)
 
 	/* Initialize subdev */
 	v4l2_i2c_subdev_init(&imx335->sd, client, &imx335_subdev_ops);
+	imx335->sd.internal_ops = &imx335_internal_ops;
 
 	ret = imx335_parse_hw_config(imx335);
 	if (ret) {

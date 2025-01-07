@@ -561,12 +561,25 @@ static int v4l2_async_nf_match_valid(struct v4l2_async_notifier *notifier,
 	return 0;
 }
 
-void v4l2_async_nf_init(struct v4l2_async_notifier *notifier)
+void v4l2_async_nf_init(struct v4l2_async_notifier *notifier,
+			struct v4l2_device *v4l2_dev)
 {
 	INIT_LIST_HEAD(&notifier->waiting_list);
 	INIT_LIST_HEAD(&notifier->done_list);
+	INIT_LIST_HEAD(&notifier->notifier_entry);
+	notifier->v4l2_dev = v4l2_dev;
 }
 EXPORT_SYMBOL(v4l2_async_nf_init);
+
+void v4l2_async_subdev_nf_init(struct v4l2_async_notifier *notifier,
+			       struct v4l2_subdev *sd)
+{
+	INIT_LIST_HEAD(&notifier->waiting_list);
+	INIT_LIST_HEAD(&notifier->done_list);
+	INIT_LIST_HEAD(&notifier->notifier_entry);
+	notifier->sd = sd;
+}
+EXPORT_SYMBOL_GPL(v4l2_async_subdev_nf_init);
 
 static int __v4l2_async_nf_register(struct v4l2_async_notifier *notifier)
 {
@@ -608,41 +621,14 @@ err_unlock:
 	return ret;
 }
 
-int v4l2_async_nf_register(struct v4l2_device *v4l2_dev,
-			   struct v4l2_async_notifier *notifier)
+int v4l2_async_nf_register(struct v4l2_async_notifier *notifier)
 {
-	int ret;
-
-	if (WARN_ON(!v4l2_dev || notifier->sd))
+	if (WARN_ON(!notifier->v4l2_dev == !notifier->sd))
 		return -EINVAL;
 
-	notifier->v4l2_dev = v4l2_dev;
-
-	ret = __v4l2_async_nf_register(notifier);
-	if (ret)
-		notifier->v4l2_dev = NULL;
-
-	return ret;
+	return __v4l2_async_nf_register(notifier);
 }
 EXPORT_SYMBOL(v4l2_async_nf_register);
-
-int v4l2_async_subdev_nf_register(struct v4l2_subdev *sd,
-				  struct v4l2_async_notifier *notifier)
-{
-	int ret;
-
-	if (WARN_ON(!sd || notifier->v4l2_dev))
-		return -EINVAL;
-
-	notifier->sd = sd;
-
-	ret = __v4l2_async_nf_register(notifier);
-	if (ret)
-		notifier->sd = NULL;
-
-	return ret;
-}
-EXPORT_SYMBOL(v4l2_async_subdev_nf_register);
 
 static void
 __v4l2_async_nf_unregister(struct v4l2_async_notifier *notifier)
@@ -652,10 +638,7 @@ __v4l2_async_nf_unregister(struct v4l2_async_notifier *notifier)
 
 	v4l2_async_nf_unbind_all_subdevs(notifier);
 
-	notifier->sd = NULL;
-	notifier->v4l2_dev = NULL;
-
-	list_del(&notifier->notifier_entry);
+	list_del_init(&notifier->notifier_entry);
 }
 
 void v4l2_async_nf_unregister(struct v4l2_async_notifier *notifier)
@@ -686,6 +669,9 @@ static void __v4l2_async_nf_cleanup(struct v4l2_async_notifier *notifier)
 
 		kfree(asc);
 	}
+
+	notifier->sd = NULL;
+	notifier->v4l2_dev = NULL;
 }
 
 void v4l2_async_nf_cleanup(struct v4l2_async_notifier *notifier)
@@ -833,20 +819,16 @@ int v4l2_async_register_subdev(struct v4l2_subdev *sd)
 		if (!v4l2_dev)
 			continue;
 
-again:
-		asc = v4l2_async_find_match(notifier, sd);
-		if (!asc)
-			continue;
+		while ((asc = v4l2_async_find_match(notifier, sd))) {
+			ret = v4l2_async_match_notify(notifier, v4l2_dev, sd,
+						      asc);
+			if (ret)
+				goto err_unbind;
 
-		ret = v4l2_async_match_notify(notifier, v4l2_dev, sd, asc);
-		if (ret)
-			goto err_unbind;
-
-		ret = v4l2_async_nf_try_complete(notifier);
-		if (ret)
-			goto err_unbind;
-
-		goto again;
+			ret = v4l2_async_nf_try_complete(notifier);
+			if (ret)
+				goto err_unbind;
+		}
 	}
 
 	/* None matched, wait for hot-plugging */
@@ -893,9 +875,6 @@ void v4l2_async_unregister_subdev(struct v4l2_subdev *sd)
 	if (sd->asc_list.next) {
 		list_for_each_entry_safe(asc, asc_tmp, &sd->asc_list,
 					 asc_subdev_entry) {
-			list_move(&asc->asc_entry,
-				  &asc->notifier->waiting_list);
-
 			v4l2_async_unbind_subdev_one(asc->notifier, asc);
 		}
 	}

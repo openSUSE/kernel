@@ -124,7 +124,7 @@ extern unsigned int __max_die_per_package;
 extern unsigned int __max_logical_packages;
 #define topology_max_packages()			(__max_logical_packages)
 
-static inline int topology_max_die_per_package(void)
+static inline int topology_max_dies_per_package(void)
 {
 	return __max_die_per_package;
 }

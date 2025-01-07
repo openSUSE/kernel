@@ -428,8 +428,6 @@ static const struct vb2_ops cobalt_qops = {
 	.buf_queue = cobalt_buf_queue,
 	.start_streaming = cobalt_start_streaming,
 	.stop_streaming = cobalt_stop_streaming,
-	.wait_prepare = vb2_ops_wait_prepare,
-	.wait_finish = vb2_ops_wait_finish,
 };
 
 /* V4L2 ioctls */
@@ -1264,7 +1262,7 @@ static int cobalt_node_register(struct cobalt *cobalt, int node)
 	q->ops = &cobalt_qops;
 	q->mem_ops = &vb2_dma_sg_memops;
 	q->timestamp_flags = V4L2_BUF_FLAG_TIMESTAMP_MONOTONIC;
-	q->min_buffers_needed = 2;
+	q->min_queued_buffers = 2;
 	q->lock = &s->lock;
 	q->dev = &cobalt->pci_dev->dev;
 	vdev->queue = q;

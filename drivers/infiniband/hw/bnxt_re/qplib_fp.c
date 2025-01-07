@@ -1034,7 +1034,12 @@ int bnxt_qplib_create_qp(struct bnxt_qplib_res *res, struct bnxt_qplib_qp *qp)
 				    : 0;
 	/* Update msn tbl size */
 	if (qp->is_host_msn_tbl && psn_sz) {
-		hwq_attr.aux_depth = roundup_pow_of_two(bnxt_qplib_set_sq_size(sq, qp->wqe_mode));
+		if (qp->wqe_mode == BNXT_QPLIB_WQE_MODE_STATIC)
+			hwq_attr.aux_depth =
+				roundup_pow_of_two(bnxt_qplib_set_sq_size(sq, qp->wqe_mode));
+		else
+			hwq_attr.aux_depth =
+				roundup_pow_of_two(bnxt_qplib_set_sq_size(sq, qp->wqe_mode)) / 2;
 		qp->msn_tbl_sz = hwq_attr.aux_depth;
 		qp->msn = 0;
 	}
@@ -1283,7 +1288,8 @@ static void __filter_modify_flags(struct bnxt_qplib_qp *qp)
 	}
 }
 
-static void bnxt_set_mandatory_attributes(struct bnxt_qplib_qp *qp,
+static void bnxt_set_mandatory_attributes(struct bnxt_qplib_res *res,
+					  struct bnxt_qplib_qp *qp,
 					  struct cmdq_modify_qp *req)
 {
 	u32 mandatory_flags = 0;
@@ -1296,6 +1302,14 @@ static void bnxt_set_mandatory_attributes(struct bnxt_qplib_qp *qp,
 		if (qp->type == CMDQ_MODIFY_QP_QP_TYPE_RC && qp->srq)
 			req->flags = cpu_to_le16(CMDQ_MODIFY_QP_FLAGS_SRQ_USED);
 		mandatory_flags |= CMDQ_MODIFY_QP_MODIFY_MASK_PKEY;
+	}
+
+	if (_is_min_rnr_in_rtr_rts_mandatory(res->dattr->dev_cap_flags2) &&
+	    (qp->cur_qp_state == CMDQ_MODIFY_QP_NEW_STATE_RTR &&
+	     qp->state == CMDQ_MODIFY_QP_NEW_STATE_RTS)) {
+		if (qp->type == CMDQ_MODIFY_QP_QP_TYPE_RC)
+			mandatory_flags |=
+				CMDQ_MODIFY_QP_MODIFY_MASK_MIN_RNR_TIMER;
 	}
 
 	if (qp->type == CMDQ_MODIFY_QP_QP_TYPE_UD ||
@@ -1338,7 +1352,7 @@ int bnxt_qplib_modify_qp(struct bnxt_qplib_res *res, struct bnxt_qplib_qp *qp)
 		/* Set mandatory attributes for INIT -> RTR and RTR -> RTS transition */
 		if (_is_optimize_modify_qp_supported(res->dattr->dev_cap_flags2) &&
 		    is_optimized_state_transition(qp))
-			bnxt_set_mandatory_attributes(qp, &req);
+			bnxt_set_mandatory_attributes(res, qp, &req);
 	}
 	bmask = qp->modify_flags;
 	req.modify_mask = cpu_to_le32(qp->modify_flags);

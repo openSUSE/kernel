@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /* Copyright(c) 2020 Intel Corporation. All rights reserved. */
+#include <asm-generic/unaligned.h>
 #include <linux/io-64-nonatomic-lo-hi.h>
 #include <linux/moduleparam.h>
 #include <linux/module.h>
@@ -807,6 +808,6 @@ static struct pci_driver cxl_pci_driver = {
 	},
 };
 
-MODULE_LICENSE("GPL v2");
 module_pci_driver(cxl_pci_driver);
+MODULE_LICENSE("GPL v2");
 MODULE_IMPORT_NS(CXL);

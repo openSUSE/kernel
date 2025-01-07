@@ -1129,6 +1129,7 @@ static int iso_listen_bis(struct sock *sk)
 		return -EHOSTUNREACH;
 
 	hci_dev_lock(hdev);
+	lock_sock(sk);
 
 	/* Fail if user set invalid QoS */
 	if (iso_pi(sk)->qos_user_set && !check_bcast_qos(&iso_pi(sk)->qos)) {
@@ -1158,10 +1159,10 @@ static int iso_listen_bis(struct sock *sk)
 		goto unlock;
 	}
 
-	hci_dev_put(hdev);
-
 unlock:
+	release_sock(sk);
 	hci_dev_unlock(hdev);
+	hci_dev_put(hdev);
 	return err;
 }
 
@@ -1188,6 +1189,7 @@ static int iso_sock_listen(struct socket *sock, int backlog)
 
 	BT_DBG("sk %p backlog %d", sk, backlog);
 
+	sock_hold(sk);
 	lock_sock(sk);
 
 	if (sk->sk_state != BT_BOUND) {
@@ -1200,10 +1202,16 @@ static int iso_sock_listen(struct socket *sock, int backlog)
 		goto done;
 	}
 
-	if (!bacmp(&iso_pi(sk)->dst, BDADDR_ANY))
+	if (!bacmp(&iso_pi(sk)->dst, BDADDR_ANY)) {
 		err = iso_listen_cis(sk);
-	else
+	} else {
+		/* Drop sock lock to avoid potential
+		 * deadlock with the hdev lock.
+		 */
+		release_sock(sk);
 		err = iso_listen_bis(sk);
+		lock_sock(sk);
+	}
 
 	if (err)
 		goto done;
@@ -1215,6 +1223,7 @@ static int iso_sock_listen(struct socket *sock, int backlog)
 
 done:
 	release_sock(sk);
+	sock_put(sk);
 	return err;
 }
 
@@ -1226,7 +1235,11 @@ static int iso_sock_accept(struct socket *sock, struct socket *newsock,
 	long timeo;
 	int err = 0;
 
-	lock_sock(sk);
+	/* Use explicit nested locking to avoid lockdep warnings generated
+	 * because the parent socket and the child socket are locked on the
+	 * same thread.
+	 */
+	lock_sock_nested(sk, SINGLE_DEPTH_NESTING);
 
 	timeo = sock_rcvtimeo(sk, flags & O_NONBLOCK);
 
@@ -1257,7 +1270,7 @@ static int iso_sock_accept(struct socket *sock, struct socket *newsock,
 		release_sock(sk);
 
 		timeo = wait_woken(&wait, TASK_INTERRUPTIBLE, timeo);
-		lock_sock(sk);
+		lock_sock_nested(sk, SINGLE_DEPTH_NESTING);
 	}
 	remove_wait_queue(sk_sleep(sk), &wait);
 

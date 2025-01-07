@@ -73,6 +73,7 @@ void udf_truncate_tail_extent(struct inode *inode)
 	int8_t etype = -1, netype;
 	int adsize;
 	struct udf_inode_info *iinfo = UDF_I(inode);
+	int ret;
 
 	if (iinfo->i_alloc_type == ICBTAG_FLAG_AD_IN_ICB ||
 	    inode->i_size == iinfo->i_lenExtents)
@@ -89,7 +90,10 @@ void udf_truncate_tail_extent(struct inode *inode)
 		BUG();
 
 	/* Find the last extent in the file */
-	while ((netype = udf_next_aext(inode, &epos, &eloc, &elen, 1)) != -1) {
+	while (1) {
+		ret = udf_next_aext(inode, &epos, &eloc, &elen, &netype, 1);
+		if (ret <= 0)
+			break;
 		etype = netype;
 		lbcount += elen;
 		if (lbcount > inode->i_size) {
@@ -105,7 +109,8 @@ void udf_truncate_tail_extent(struct inode *inode)
 			epos.offset -= adsize;
 			extent_trunc(inode, &epos, &eloc, etype, elen, nelen);
 			epos.offset += adsize;
-			if (udf_next_aext(inode, &epos, &eloc, &elen, 1) != -1)
+			if (udf_next_aext(inode, &epos, &eloc, &elen,
+					  &netype, 1) > 0)
 				udf_err(inode->i_sb,
 					"Extent after EOF in inode %u\n",
 					(unsigned)inode->i_ino);
@@ -114,7 +119,8 @@ void udf_truncate_tail_extent(struct inode *inode)
 	}
 	/* This inode entry is in-memory only and thus we don't have to mark
 	 * the inode dirty */
-	iinfo->i_lenExtents = inode->i_size;
+	if (ret == 0)
+		iinfo->i_lenExtents = inode->i_size;
 	brelse(epos.bh);
 }
 
@@ -128,6 +134,8 @@ void udf_discard_prealloc(struct inode *inode)
 	int8_t etype = -1;
 	struct udf_inode_info *iinfo = UDF_I(inode);
 	int bsize = i_blocksize(inode);
+	int8_t tmpetype = -1;
+	int ret;
 
 	if (iinfo->i_alloc_type == ICBTAG_FLAG_AD_IN_ICB ||
 	    ALIGN(inode->i_size, bsize) == ALIGN(iinfo->i_lenExtents, bsize))
@@ -136,15 +144,23 @@ void udf_discard_prealloc(struct inode *inode)
 	epos.block = iinfo->i_location;
 
 	/* Find the last extent in the file */
-	while (udf_next_aext(inode, &epos, &eloc, &elen, 0) != -1) {
+	while (1) {
+		ret = udf_next_aext(inode, &epos, &eloc, &elen, &tmpetype, 0);
+		if (ret < 0)
+			goto out;
+		if (ret == 0)
+			break;
 		brelse(prev_epos.bh);
 		prev_epos = epos;
 		if (prev_epos.bh)
 			get_bh(prev_epos.bh);
 
-		etype = udf_next_aext(inode, &epos, &eloc, &elen, 1);
+		ret = udf_next_aext(inode, &epos, &eloc, &elen, &etype, 1);
+		if (ret < 0)
+			goto out;
 		lbcount += elen;
 	}
+
 	if (etype == (EXT_NOT_RECORDED_ALLOCATED >> 30)) {
 		lbcount -= elen;
 		udf_delete_aext(inode, prev_epos);
@@ -154,6 +170,7 @@ void udf_discard_prealloc(struct inode *inode)
 	/* This inode entry is in-memory only and thus we don't have to mark
 	 * the inode dirty */
 	iinfo->i_lenExtents = lbcount;
+out:
 	brelse(epos.bh);
 	brelse(prev_epos.bh);
 }
@@ -192,6 +209,7 @@ int udf_truncate_extents(struct inode *inode)
 	loff_t byte_offset;
 	int adsize;
 	struct udf_inode_info *iinfo = UDF_I(inode);
+	int ret = 0;
 
 	if (iinfo->i_alloc_type == ICBTAG_FLAG_AD_SHORT)
 		adsize = sizeof(struct short_ad);
@@ -200,10 +218,12 @@ int udf_truncate_extents(struct inode *inode)
 	else
 		BUG();
 
-	etype = inode_bmap(inode, first_block, &epos, &eloc, &elen, &offset);
+	ret = inode_bmap(inode, first_block, &epos, &eloc, &elen, &offset, &etype);
+	if (ret < 0)
+		return ret;
 	byte_offset = (offset << sb->s_blocksize_bits) +
 		(inode->i_size & (sb->s_blocksize - 1));
-	if (etype == -1) {
+	if (ret == 0) {
 		/* We should extend the file? */
 		WARN_ON(byte_offset);
 		return 0;
@@ -221,8 +241,8 @@ int udf_truncate_extents(struct inode *inode)
 	else
 		lenalloc -= sizeof(struct allocExtDesc);
 
-	while ((etype = udf_current_aext(inode, &epos, &eloc,
-					 &elen, 0)) != -1) {
+	while ((ret = udf_current_aext(inode, &epos, &eloc,
+				       &elen, &etype, 0)) > 0) {
 		if (etype == (EXT_NEXT_EXTENT_ALLOCDESCS >> 30)) {
 			udf_write_aext(inode, &epos, &neloc, nelen, 0);
 			if (indirect_ext_len) {
@@ -255,6 +275,11 @@ int udf_truncate_extents(struct inode *inode)
 			extent_trunc(inode, &epos, &eloc, etype, elen, 0);
 			epos.offset += adsize;
 		}
+	}
+
+	if (ret < 0) {
+		brelse(epos.bh);
+		return ret;
 	}
 
 	if (indirect_ext_len) {

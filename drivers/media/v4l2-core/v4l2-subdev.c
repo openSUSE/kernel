@@ -15,6 +15,7 @@
 #include <linux/module.h>
 #include <linux/overflow.h>
 #include <linux/slab.h>
+#include <linux/string.h>
 #include <linux/types.h>
 #include <linux/version.h>
 #include <linux/videodev2.h>
@@ -176,7 +177,7 @@ static int check_state(struct v4l2_subdev *sd, struct v4l2_subdev_state *state,
 {
 	if (sd->flags & V4L2_SUBDEV_FL_STREAMS) {
 #if defined(CONFIG_VIDEO_V4L2_SUBDEV_API)
-		if (!v4l2_subdev_state_get_stream_format(state, pad, stream))
+		if (!v4l2_subdev_state_get_format(state, pad, stream))
 			return -EINVAL;
 		return 0;
 #else
@@ -199,9 +200,6 @@ static inline int check_format(struct v4l2_subdev *sd,
 {
 	if (!format)
 		return -EINVAL;
-
-	if (!(sd->flags & V4L2_SUBDEV_FL_STREAMS))
-		format->stream = 0;
 
 	return check_which(format->which) ? : check_pad(sd, format->pad) ? :
 	       check_state(sd, state, format->which, format->pad, format->stream);
@@ -230,9 +228,6 @@ static int call_enum_mbus_code(struct v4l2_subdev *sd,
 	if (!code)
 		return -EINVAL;
 
-	if (!(sd->flags & V4L2_SUBDEV_FL_STREAMS))
-		code->stream = 0;
-
 	return check_which(code->which) ? : check_pad(sd, code->pad) ? :
 	       check_state(sd, state, code->which, code->pad, code->stream) ? :
 	       sd->ops->pad->enum_mbus_code(sd, state, code);
@@ -245,35 +240,9 @@ static int call_enum_frame_size(struct v4l2_subdev *sd,
 	if (!fse)
 		return -EINVAL;
 
-	if (!(sd->flags & V4L2_SUBDEV_FL_STREAMS))
-		fse->stream = 0;
-
 	return check_which(fse->which) ? : check_pad(sd, fse->pad) ? :
 	       check_state(sd, state, fse->which, fse->pad, fse->stream) ? :
 	       sd->ops->pad->enum_frame_size(sd, state, fse);
-}
-
-static inline int check_frame_interval(struct v4l2_subdev *sd,
-				       struct v4l2_subdev_frame_interval *fi)
-{
-	if (!fi)
-		return -EINVAL;
-
-	return check_pad(sd, fi->pad);
-}
-
-static int call_g_frame_interval(struct v4l2_subdev *sd,
-				 struct v4l2_subdev_frame_interval *fi)
-{
-	return check_frame_interval(sd, fi) ? :
-	       sd->ops->video->g_frame_interval(sd, fi);
-}
-
-static int call_s_frame_interval(struct v4l2_subdev *sd,
-				 struct v4l2_subdev_frame_interval *fi)
-{
-	return check_frame_interval(sd, fi) ? :
-	       sd->ops->video->s_frame_interval(sd, fi);
 }
 
 static int call_enum_frame_interval(struct v4l2_subdev *sd,
@@ -282,9 +251,6 @@ static int call_enum_frame_interval(struct v4l2_subdev *sd,
 {
 	if (!fie)
 		return -EINVAL;
-
-	if (!(sd->flags & V4L2_SUBDEV_FL_STREAMS))
-		fie->stream = 0;
 
 	return check_which(fie->which) ? : check_pad(sd, fie->pad) ? :
 	       check_state(sd, state, fie->which, fie->pad, fie->stream) ? :
@@ -297,9 +263,6 @@ static inline int check_selection(struct v4l2_subdev *sd,
 {
 	if (!sel)
 		return -EINVAL;
-
-	if (!(sd->flags & V4L2_SUBDEV_FL_STREAMS))
-		sel->stream = 0;
 
 	return check_which(sel->which) ? : check_pad(sd, sel->pad) ? :
 	       check_state(sd, state, sel->which, sel->pad, sel->stream);
@@ -319,6 +282,74 @@ static int call_set_selection(struct v4l2_subdev *sd,
 {
 	return check_selection(sd, state, sel) ? :
 	       sd->ops->pad->set_selection(sd, state, sel);
+}
+
+static inline int check_frame_interval(struct v4l2_subdev *sd,
+				       struct v4l2_subdev_state *state,
+				       struct v4l2_subdev_frame_interval *fi)
+{
+	if (!fi)
+		return -EINVAL;
+
+	return check_which(fi->which) ? : check_pad(sd, fi->pad) ? :
+	       check_state(sd, state, fi->which, fi->pad, fi->stream);
+}
+
+static int call_get_frame_interval(struct v4l2_subdev *sd,
+				   struct v4l2_subdev_state *state,
+				   struct v4l2_subdev_frame_interval *fi)
+{
+	return check_frame_interval(sd, state, fi) ? :
+	       sd->ops->pad->get_frame_interval(sd, state, fi);
+}
+
+static int call_set_frame_interval(struct v4l2_subdev *sd,
+				   struct v4l2_subdev_state *state,
+				   struct v4l2_subdev_frame_interval *fi)
+{
+	return check_frame_interval(sd, state, fi) ? :
+	       sd->ops->pad->set_frame_interval(sd, state, fi);
+}
+
+static int call_get_frame_desc(struct v4l2_subdev *sd, unsigned int pad,
+			       struct v4l2_mbus_frame_desc *fd)
+{
+	unsigned int i;
+	int ret;
+
+#if defined(CONFIG_MEDIA_CONTROLLER)
+	if (!(sd->entity.pads[pad].flags & MEDIA_PAD_FL_SOURCE))
+		return -EOPNOTSUPP;
+#endif
+
+	memset(fd, 0, sizeof(*fd));
+
+	ret = sd->ops->pad->get_frame_desc(sd, pad, fd);
+	if (ret)
+		return ret;
+
+	dev_dbg(sd->dev, "Frame descriptor on pad %u, type %s\n", pad,
+		fd->type == V4L2_MBUS_FRAME_DESC_TYPE_PARALLEL ? "parallel" :
+		fd->type == V4L2_MBUS_FRAME_DESC_TYPE_CSI2 ? "CSI-2" :
+		"unknown");
+
+	for (i = 0; i < fd->num_entries; i++) {
+		struct v4l2_mbus_frame_desc_entry *entry = &fd->entry[i];
+		char buf[20] = "";
+
+		if (fd->type == V4L2_MBUS_FRAME_DESC_TYPE_CSI2)
+			WARN_ON(snprintf(buf, sizeof(buf),
+					 ", vc %u, dt 0x%02x",
+					 entry->bus.csi2.vc,
+					 entry->bus.csi2.dt) >= sizeof(buf));
+
+		dev_dbg(sd->dev,
+			"\tstream %u, code 0x%04x, length %u, flags 0x%04x%s\n",
+			entry->stream, entry->pixelcode, entry->length,
+			entry->flags, buf);
+	}
+
+	return 0;
 }
 
 static inline int check_edid(struct v4l2_subdev *sd,
@@ -341,6 +372,36 @@ static int call_get_edid(struct v4l2_subdev *sd, struct v4l2_subdev_edid *edid)
 static int call_set_edid(struct v4l2_subdev *sd, struct v4l2_subdev_edid *edid)
 {
 	return check_edid(sd, edid) ? : sd->ops->pad->set_edid(sd, edid);
+}
+
+static int call_s_dv_timings(struct v4l2_subdev *sd, unsigned int pad,
+			     struct v4l2_dv_timings *timings)
+{
+	if (!timings)
+		return -EINVAL;
+
+	return check_pad(sd, pad) ? :
+	       sd->ops->pad->s_dv_timings(sd, pad, timings);
+}
+
+static int call_g_dv_timings(struct v4l2_subdev *sd, unsigned int pad,
+			     struct v4l2_dv_timings *timings)
+{
+	if (!timings)
+		return -EINVAL;
+
+	return check_pad(sd, pad) ? :
+	       sd->ops->pad->g_dv_timings(sd, pad, timings);
+}
+
+static int call_query_dv_timings(struct v4l2_subdev *sd, unsigned int pad,
+				 struct v4l2_dv_timings *timings)
+{
+	if (!timings)
+		return -EINVAL;
+
+	return check_pad(sd, pad) ? :
+	       sd->ops->pad->query_dv_timings(sd, pad, timings);
 }
 
 static int call_dv_timings_cap(struct v4l2_subdev *sd,
@@ -374,14 +435,27 @@ static int call_s_stream(struct v4l2_subdev *sd, int enable)
 {
 	int ret;
 
+	/*
+	 * The .s_stream() operation must never be called to start or stop an
+	 * already started or stopped subdev. Catch offenders but don't return
+	 * an error yet to avoid regressions.
+	 *
+	 * As .s_stream() is mutually exclusive with the .enable_streams() and
+	 * .disable_streams() operation, we can use the enabled_streams field
+	 * to store the subdev streaming state.
+	 */
+	if (WARN_ON(!!sd->enabled_streams == !!enable))
+		return 0;
+
 	ret = sd->ops->video->s_stream(sd, enable);
 
 	if (!enable && ret < 0) {
 		dev_warn(sd->dev, "disabling streaming failed (%d)\n", ret);
-		return 0;
+		ret = 0;
 	}
 
 	if (!ret) {
+		sd->enabled_streams = enable ? BIT(0) : 0;
 #if IS_REACHABLE(CONFIG_LEDS_CLASS)
 		if (!IS_ERR_OR_NULL(sd->privacy_led)) {
 			if (enable)
@@ -445,16 +519,20 @@ static const struct v4l2_subdev_pad_ops v4l2_subdev_call_pad_wrappers = {
 	.enum_frame_interval	= call_enum_frame_interval_state,
 	.get_selection		= call_get_selection_state,
 	.set_selection		= call_set_selection_state,
+	.get_frame_interval	= call_get_frame_interval,
+	.set_frame_interval	= call_set_frame_interval,
 	.get_edid		= call_get_edid,
 	.set_edid		= call_set_edid,
+	.s_dv_timings		= call_s_dv_timings,
+	.g_dv_timings		= call_g_dv_timings,
+	.query_dv_timings	= call_query_dv_timings,
 	.dv_timings_cap		= call_dv_timings_cap,
 	.enum_dv_timings	= call_enum_dv_timings,
+	.get_frame_desc		= call_get_frame_desc,
 	.get_mbus_config	= call_get_mbus_config,
 };
 
 static const struct v4l2_subdev_video_ops v4l2_subdev_call_video_wrappers = {
-	.g_frame_interval	= call_g_frame_interval,
-	.s_frame_interval	= call_s_frame_interval,
 	.s_stream		= call_s_stream,
 };
 
@@ -496,6 +574,17 @@ subdev_ioctl_get_state(struct v4l2_subdev *sd, struct v4l2_subdev_fh *subdev_fh,
 	case VIDIOC_SUBDEV_S_SELECTION:
 		which = ((struct v4l2_subdev_selection *)arg)->which;
 		break;
+	case VIDIOC_SUBDEV_G_FRAME_INTERVAL:
+	case VIDIOC_SUBDEV_S_FRAME_INTERVAL: {
+		struct v4l2_subdev_frame_interval *fi = arg;
+
+		if (!(subdev_fh->client_caps &
+		      V4L2_SUBDEV_CLIENT_CAP_INTERVAL_USES_WHICH))
+			fi->which = V4L2_SUBDEV_FORMAT_ACTIVE;
+
+		which = fi->which;
+		break;
+	}
 	case VIDIOC_SUBDEV_G_ROUTING:
 	case VIDIOC_SUBDEV_S_ROUTING:
 		which = ((struct v4l2_subdev_routing *)arg)->which;
@@ -598,10 +687,25 @@ static long subdev_do_ioctl(struct file *file, unsigned int cmd, void *arg,
 		return v4l2_event_dequeue(vfh, arg, file->f_flags & O_NONBLOCK);
 
 	case VIDIOC_SUBSCRIBE_EVENT:
-		return v4l2_subdev_call(sd, core, subscribe_event, vfh, arg);
+		if (v4l2_subdev_has_op(sd, core, subscribe_event))
+			return v4l2_subdev_call(sd, core, subscribe_event,
+						vfh, arg);
+
+		if ((sd->flags & V4L2_SUBDEV_FL_HAS_EVENTS) &&
+		    vfh->ctrl_handler)
+			return v4l2_ctrl_subdev_subscribe_event(sd, vfh, arg);
+
+		return -ENOIOCTLCMD;
 
 	case VIDIOC_UNSUBSCRIBE_EVENT:
-		return v4l2_subdev_call(sd, core, unsubscribe_event, vfh, arg);
+		if (v4l2_subdev_has_op(sd, core, unsubscribe_event))
+			return v4l2_subdev_call(sd, core, unsubscribe_event,
+						vfh, arg);
+
+		if (sd->flags & V4L2_SUBDEV_FL_HAS_EVENTS)
+			return v4l2_event_subdev_unsubscribe(sd, vfh, arg);
+
+		return -ENOIOCTLCMD;
 
 #ifdef CONFIG_VIDEO_ADV_DEBUG
 	case VIDIOC_DBG_G_REGISTER:
@@ -748,20 +852,20 @@ static long subdev_do_ioctl(struct file *file, unsigned int cmd, void *arg,
 			fi->stream = 0;
 
 		memset(fi->reserved, 0, sizeof(fi->reserved));
-		return v4l2_subdev_call(sd, video, g_frame_interval, arg);
+		return v4l2_subdev_call(sd, pad, get_frame_interval, state, fi);
 	}
 
 	case VIDIOC_SUBDEV_S_FRAME_INTERVAL: {
 		struct v4l2_subdev_frame_interval *fi = arg;
 
-		if (ro_subdev)
-			return -EPERM;
-
 		if (!client_supports_streams)
 			fi->stream = 0;
 
+		if (fi->which != V4L2_SUBDEV_FORMAT_TRY && ro_subdev)
+			return -EPERM;
+
 		memset(fi->reserved, 0, sizeof(fi->reserved));
-		return v4l2_subdev_call(sd, video, s_frame_interval, arg);
+		return v4l2_subdev_call(sd, pad, set_frame_interval, state, fi);
 	}
 
 	case VIDIOC_SUBDEV_ENUM_FRAME_INTERVAL: {
@@ -825,16 +929,16 @@ static long subdev_do_ioctl(struct file *file, unsigned int cmd, void *arg,
 	}
 
 	case VIDIOC_SUBDEV_QUERY_DV_TIMINGS:
-		return v4l2_subdev_call(sd, video, query_dv_timings, arg);
+		return v4l2_subdev_call(sd, pad, query_dv_timings, 0, arg);
 
 	case VIDIOC_SUBDEV_G_DV_TIMINGS:
-		return v4l2_subdev_call(sd, video, g_dv_timings, arg);
+		return v4l2_subdev_call(sd, pad, g_dv_timings, 0, arg);
 
 	case VIDIOC_SUBDEV_S_DV_TIMINGS:
 		if (ro_subdev)
 			return -EPERM;
 
-		return v4l2_subdev_call(sd, video, s_dv_timings, arg);
+		return v4l2_subdev_call(sd, pad, s_dv_timings, 0, arg);
 
 	case VIDIOC_SUBDEV_G_STD:
 		return v4l2_subdev_call(sd, video, g_std, arg);
@@ -956,7 +1060,8 @@ static long subdev_do_ioctl(struct file *file, unsigned int cmd, void *arg,
 			client_cap->capabilities &= ~V4L2_SUBDEV_CLIENT_CAP_STREAMS;
 
 		/* Filter out unsupported capabilities */
-		client_cap->capabilities &= V4L2_SUBDEV_CLIENT_CAP_STREAMS;
+		client_cap->capabilities &= (V4L2_SUBDEV_CLIENT_CAP_STREAMS |
+					     V4L2_SUBDEV_CLIENT_CAP_INTERVAL_USES_WHICH);
 
 		subdev_fh->client_caps = client_cap->capabilities;
 
@@ -1415,6 +1520,8 @@ __v4l2_subdev_state_alloc(struct v4l2_subdev *sd, const char *lock_name,
 	else
 		state->lock = &state->_lock;
 
+	state->sd = sd;
+
 	/* Drivers that support streams do not need the legacy pad config */
 	if (!(sd->flags & V4L2_SUBDEV_FL_STREAMS) && sd->entity.num_pads) {
 		state->pads = kvcalloc(sd->entity.num_pads,
@@ -1425,16 +1532,18 @@ __v4l2_subdev_state_alloc(struct v4l2_subdev *sd, const char *lock_name,
 		}
 	}
 
-	/*
-	 * There can be no race at this point, but we lock the state anyway to
-	 * satisfy lockdep checks.
-	 */
-	v4l2_subdev_lock_state(state);
-	ret = v4l2_subdev_call(sd, pad, init_cfg, state);
-	v4l2_subdev_unlock_state(state);
+	if (sd->internal_ops && sd->internal_ops->init_state) {
+		/*
+		 * There can be no race at this point, but we lock the state
+		 * anyway to satisfy lockdep checks.
+		 */
+		v4l2_subdev_lock_state(state);
+		ret = sd->internal_ops->init_state(sd, state);
+		v4l2_subdev_unlock_state(state);
 
-	if (ret < 0 && ret != -ENOIOCTLCMD)
-		goto err;
+		if (ret)
+			goto err;
+	}
 
 	return state;
 
@@ -1467,6 +1576,9 @@ int __v4l2_subdev_init_finalize(struct v4l2_subdev *sd, const char *name,
 {
 	struct v4l2_subdev_state *state;
 
+	if (sd->ctrl_handler)
+		sd->flags |= V4L2_SUBDEV_FL_HAS_EVENTS;
+
 	state = __v4l2_subdev_state_alloc(sd, name, key);
 	if (IS_ERR(state))
 		return PTR_ERR(state);
@@ -1484,7 +1596,8 @@ void v4l2_subdev_cleanup(struct v4l2_subdev *sd)
 	__v4l2_subdev_state_free(sd->active_state);
 	sd->active_state = NULL;
 
-	if (list_empty(&sd->async_subdev_endpoint_list))
+	/* Uninitialised sub-device, bail out here. */
+	if (!sd->async_subdev_endpoint_list.next)
 		return;
 
 	list_for_each_entry_safe(ase, ase_tmp, &sd->async_subdev_endpoint_list,
@@ -1495,6 +1608,144 @@ void v4l2_subdev_cleanup(struct v4l2_subdev *sd)
 	}
 }
 EXPORT_SYMBOL_GPL(v4l2_subdev_cleanup);
+
+struct v4l2_mbus_framefmt *
+__v4l2_subdev_state_get_format(struct v4l2_subdev_state *state,
+			       unsigned int pad, u32 stream)
+{
+	struct v4l2_subdev_stream_configs *stream_configs;
+	unsigned int i;
+
+	if (WARN_ON_ONCE(!state))
+		return NULL;
+
+	if (state->pads) {
+		if (stream)
+			return NULL;
+
+		if (pad >= state->sd->entity.num_pads)
+			return NULL;
+
+		return &state->pads[pad].format;
+	}
+
+	lockdep_assert_held(state->lock);
+
+	stream_configs = &state->stream_configs;
+
+	for (i = 0; i < stream_configs->num_configs; ++i) {
+		if (stream_configs->configs[i].pad == pad &&
+		    stream_configs->configs[i].stream == stream)
+			return &stream_configs->configs[i].fmt;
+	}
+
+	return NULL;
+}
+EXPORT_SYMBOL_GPL(__v4l2_subdev_state_get_format);
+
+struct v4l2_rect *
+__v4l2_subdev_state_get_crop(struct v4l2_subdev_state *state, unsigned int pad,
+			     u32 stream)
+{
+	struct v4l2_subdev_stream_configs *stream_configs;
+	unsigned int i;
+
+	if (WARN_ON_ONCE(!state))
+		return NULL;
+
+	if (state->pads) {
+		if (stream)
+			return NULL;
+
+		if (pad >= state->sd->entity.num_pads)
+			return NULL;
+
+		return &state->pads[pad].crop;
+	}
+
+	lockdep_assert_held(state->lock);
+
+	stream_configs = &state->stream_configs;
+
+	for (i = 0; i < stream_configs->num_configs; ++i) {
+		if (stream_configs->configs[i].pad == pad &&
+		    stream_configs->configs[i].stream == stream)
+			return &stream_configs->configs[i].crop;
+	}
+
+	return NULL;
+}
+EXPORT_SYMBOL_GPL(__v4l2_subdev_state_get_crop);
+
+struct v4l2_rect *
+__v4l2_subdev_state_get_compose(struct v4l2_subdev_state *state,
+				unsigned int pad, u32 stream)
+{
+	struct v4l2_subdev_stream_configs *stream_configs;
+	unsigned int i;
+
+	if (WARN_ON_ONCE(!state))
+		return NULL;
+
+	if (state->pads) {
+		if (stream)
+			return NULL;
+
+		if (pad >= state->sd->entity.num_pads)
+			return NULL;
+
+		return &state->pads[pad].compose;
+	}
+
+	lockdep_assert_held(state->lock);
+
+	stream_configs = &state->stream_configs;
+
+	for (i = 0; i < stream_configs->num_configs; ++i) {
+		if (stream_configs->configs[i].pad == pad &&
+		    stream_configs->configs[i].stream == stream)
+			return &stream_configs->configs[i].compose;
+	}
+
+	return NULL;
+}
+EXPORT_SYMBOL_GPL(__v4l2_subdev_state_get_compose);
+
+struct v4l2_fract *
+__v4l2_subdev_state_get_interval(struct v4l2_subdev_state *state,
+				 unsigned int pad, u32 stream)
+{
+	struct v4l2_subdev_stream_configs *stream_configs;
+	unsigned int i;
+
+	if (WARN_ON(!state))
+		return NULL;
+
+	lockdep_assert_held(state->lock);
+
+	if (state->pads) {
+		if (stream)
+			return NULL;
+
+		if (pad >= state->sd->entity.num_pads)
+			return NULL;
+
+		return &state->pads[pad].interval;
+	}
+
+	lockdep_assert_held(state->lock);
+
+	stream_configs = &state->stream_configs;
+
+	for (i = 0; i < stream_configs->num_configs; ++i) {
+		if (stream_configs->configs[i].pad == pad &&
+		    stream_configs->configs[i].stream == stream)
+			return &stream_configs->configs[i].interval;
+	}
+
+	return NULL;
+}
+EXPORT_SYMBOL_GPL(__v4l2_subdev_state_get_interval);
 
 #if defined(CONFIG_VIDEO_V4L2_SUBDEV_API)
 
@@ -1552,14 +1803,7 @@ int v4l2_subdev_get_fmt(struct v4l2_subdev *sd, struct v4l2_subdev_state *state,
 {
 	struct v4l2_mbus_framefmt *fmt;
 
-	if (sd->flags & V4L2_SUBDEV_FL_STREAMS)
-		fmt = v4l2_subdev_state_get_stream_format(state, format->pad,
-							  format->stream);
-	else if (format->pad < sd->entity.num_pads && format->stream == 0)
-		fmt = v4l2_subdev_get_pad_format(sd, state, format->pad);
-	else
-		fmt = NULL;
-
+	fmt = v4l2_subdev_state_get_format(state, format->pad, format->stream);
 	if (!fmt)
 		return -EINVAL;
 
@@ -1568,6 +1812,22 @@ int v4l2_subdev_get_fmt(struct v4l2_subdev *sd, struct v4l2_subdev_state *state,
 	return 0;
 }
 EXPORT_SYMBOL_GPL(v4l2_subdev_get_fmt);
+
+int v4l2_subdev_get_frame_interval(struct v4l2_subdev *sd,
+				   struct v4l2_subdev_state *state,
+				   struct v4l2_subdev_frame_interval *fi)
+{
+	struct v4l2_fract *interval;
+
+	interval = v4l2_subdev_state_get_interval(state, fi->pad, fi->stream);
+	if (!interval)
+		return -EINVAL;
+
+	fi->interval = *interval;
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(v4l2_subdev_get_frame_interval);
 
 int v4l2_subdev_set_routing(struct v4l2_subdev *sd,
 			    struct v4l2_subdev_state *state,
@@ -1629,7 +1889,7 @@ EXPORT_SYMBOL_GPL(__v4l2_subdev_next_active_route);
 
 int v4l2_subdev_set_routing_with_fmt(struct v4l2_subdev *sd,
 				     struct v4l2_subdev_state *state,
-				     struct v4l2_subdev_krouting *routing,
+				     const struct v4l2_subdev_krouting *routing,
 				     const struct v4l2_mbus_framefmt *fmt)
 {
 	struct v4l2_subdev_stream_configs *stream_configs;
@@ -1648,69 +1908,6 @@ int v4l2_subdev_set_routing_with_fmt(struct v4l2_subdev *sd,
 	return 0;
 }
 EXPORT_SYMBOL_GPL(v4l2_subdev_set_routing_with_fmt);
-
-struct v4l2_mbus_framefmt *
-v4l2_subdev_state_get_stream_format(struct v4l2_subdev_state *state,
-				    unsigned int pad, u32 stream)
-{
-	struct v4l2_subdev_stream_configs *stream_configs;
-	unsigned int i;
-
-	lockdep_assert_held(state->lock);
-
-	stream_configs = &state->stream_configs;
-
-	for (i = 0; i < stream_configs->num_configs; ++i) {
-		if (stream_configs->configs[i].pad == pad &&
-		    stream_configs->configs[i].stream == stream)
-			return &stream_configs->configs[i].fmt;
-	}
-
-	return NULL;
-}
-EXPORT_SYMBOL_GPL(v4l2_subdev_state_get_stream_format);
-
-struct v4l2_rect *
-v4l2_subdev_state_get_stream_crop(struct v4l2_subdev_state *state,
-				  unsigned int pad, u32 stream)
-{
-	struct v4l2_subdev_stream_configs *stream_configs;
-	unsigned int i;
-
-	lockdep_assert_held(state->lock);
-
-	stream_configs = &state->stream_configs;
-
-	for (i = 0; i < stream_configs->num_configs; ++i) {
-		if (stream_configs->configs[i].pad == pad &&
-		    stream_configs->configs[i].stream == stream)
-			return &stream_configs->configs[i].crop;
-	}
-
-	return NULL;
-}
-EXPORT_SYMBOL_GPL(v4l2_subdev_state_get_stream_crop);
-
-struct v4l2_rect *
-v4l2_subdev_state_get_stream_compose(struct v4l2_subdev_state *state,
-				     unsigned int pad, u32 stream)
-{
-	struct v4l2_subdev_stream_configs *stream_configs;
-	unsigned int i;
-
-	lockdep_assert_held(state->lock);
-
-	stream_configs = &state->stream_configs;
-
-	for (i = 0; i < stream_configs->num_configs; ++i) {
-		if (stream_configs->configs[i].pad == pad &&
-		    stream_configs->configs[i].stream == stream)
-			return &stream_configs->configs[i].compose;
-	}
-
-	return NULL;
-}
-EXPORT_SYMBOL_GPL(v4l2_subdev_state_get_stream_compose);
 
 int v4l2_subdev_routing_find_opposite_end(const struct v4l2_subdev_krouting *routing,
 					  u32 pad, u32 stream, u32 *other_pad,
@@ -1756,8 +1953,7 @@ v4l2_subdev_state_get_opposite_stream_format(struct v4l2_subdev_state *state,
 	if (ret)
 		return NULL;
 
-	return v4l2_subdev_state_get_stream_format(state, other_pad,
-						   other_stream);
+	return v4l2_subdev_state_get_format(state, other_pad, other_stream);
 }
 EXPORT_SYMBOL_GPL(v4l2_subdev_state_get_opposite_stream_format);
 
@@ -2016,11 +2212,16 @@ int v4l2_subdev_enable_streams(struct v4l2_subdev *sd, u32 pad,
 		goto done;
 	}
 
+	dev_dbg(dev, "enable streams %u:%#llx\n", pad, streams_mask);
+
 	/* Call the .enable_streams() operation. */
 	ret = v4l2_subdev_call(sd, pad, enable_streams, state, pad,
 			       streams_mask);
-	if (ret)
+	if (ret) {
+		dev_dbg(dev, "enable streams %u:%#llx failed: %d\n", pad,
+			streams_mask, ret);
 		goto done;
+	}
 
 	/* Mark the streams as enabled. */
 	for (i = 0; i < state->stream_configs.num_configs; ++i) {
@@ -2128,11 +2329,16 @@ int v4l2_subdev_disable_streams(struct v4l2_subdev *sd, u32 pad,
 		goto done;
 	}
 
+	dev_dbg(dev, "disable streams %u:%#llx\n", pad, streams_mask);
+
 	/* Call the .disable_streams() operation. */
 	ret = v4l2_subdev_call(sd, pad, disable_streams, state, pad,
 			       streams_mask);
-	if (ret)
+	if (ret) {
+		dev_dbg(dev, "disable streams %u:%#llx failed: %d\n", pad,
+			streams_mask, ret);
 		goto done;
+	}
 
 	/* Mark the streams as disabled. */
 	for (i = 0; i < state->stream_configs.num_configs; ++i) {

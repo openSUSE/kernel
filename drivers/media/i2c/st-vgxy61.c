@@ -780,8 +780,7 @@ static int vgxy61_get_fmt(struct v4l2_subdev *sd,
 	mutex_lock(&sensor->lock);
 
 	if (format->which == V4L2_SUBDEV_FORMAT_TRY)
-		fmt = v4l2_subdev_get_try_format(&sensor->sd, sd_state,
-						 format->pad);
+		fmt = v4l2_subdev_state_get_format(sd_state, format->pad);
 	else
 		fmt = &sensor->fmt;
 
@@ -1170,14 +1169,9 @@ static int vgxy61_stream_enable(struct vgxy61_dev *sensor)
 	if (ret)
 		return ret;
 
-	ret = pm_runtime_get_sync(&client->dev);
-	if (ret < 0) {
-		pm_runtime_put_autosuspend(&client->dev);
+	ret = pm_runtime_resume_and_get(&client->dev);
+	if (ret)
 		return ret;
-	}
-
-	/* pm_runtime_get_sync() can return 1 as a valid return code */
-	ret = 0;
 
 	vgxy61_write_reg(sensor, VGXY61_REG_FORMAT_CTRL,
 			 get_bpp_by_code(sensor->fmt.code), &ret);
@@ -1294,7 +1288,7 @@ static int vgxy61_set_fmt(struct v4l2_subdev *sd,
 		goto out;
 
 	if (format->which == V4L2_SUBDEV_FORMAT_TRY) {
-		fmt = v4l2_subdev_get_try_format(sd, sd_state, 0);
+		fmt = v4l2_subdev_state_get_format(sd_state, 0);
 		*fmt = format->format;
 	} else if (sensor->current_mode != new_mode ||
 		   sensor->fmt.code != format->format.code) {
@@ -1328,8 +1322,8 @@ out:
 	return ret;
 }
 
-static int vgxy61_init_cfg(struct v4l2_subdev *sd,
-			   struct v4l2_subdev_state *sd_state)
+static int vgxy61_init_state(struct v4l2_subdev *sd,
+			     struct v4l2_subdev_state *sd_state)
 {
 	struct vgxy61_dev *sensor = to_vgxy61_dev(sd);
 	struct v4l2_subdev_format fmt = { 0 };
@@ -1475,7 +1469,6 @@ static const struct v4l2_subdev_video_ops vgxy61_video_ops = {
 };
 
 static const struct v4l2_subdev_pad_ops vgxy61_pad_ops = {
-	.init_cfg = vgxy61_init_cfg,
 	.enum_mbus_code = vgxy61_enum_mbus_code,
 	.get_fmt = vgxy61_get_fmt,
 	.set_fmt = vgxy61_set_fmt,
@@ -1486,6 +1479,10 @@ static const struct v4l2_subdev_pad_ops vgxy61_pad_ops = {
 static const struct v4l2_subdev_ops vgxy61_subdev_ops = {
 	.video = &vgxy61_video_ops,
 	.pad = &vgxy61_pad_ops,
+};
+
+static const struct v4l2_subdev_internal_ops vgxy61_internal_ops = {
+	.init_state = vgxy61_init_state,
 };
 
 static const struct media_entity_operations vgxy61_subdev_entity_ops = {
@@ -1848,6 +1845,7 @@ static int vgxy61_probe(struct i2c_client *client)
 		device_property_read_bool(dev, "st,strobe-gpios-polarity");
 
 	v4l2_i2c_subdev_init(&sensor->sd, client, &vgxy61_subdev_ops);
+	sensor->sd.internal_ops = &vgxy61_internal_ops;
 	sensor->sd.flags |= V4L2_SUBDEV_FL_HAS_DEVNODE;
 	sensor->pad.flags = MEDIA_PAD_FL_SOURCE;
 	sensor->sd.entity.ops = &vgxy61_subdev_entity_ops;

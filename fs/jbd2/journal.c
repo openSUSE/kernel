@@ -96,6 +96,7 @@ EXPORT_SYMBOL(jbd2_journal_begin_ordered_truncate);
 EXPORT_SYMBOL(jbd2_inode_cache);
 
 static int jbd2_journal_create_slab(size_t slab_size);
+static void jbd2_journal_init_transaction_limits(journal_t *journal);
 
 #ifdef CONFIG_JBD2_DEBUG
 void __jbd2_debug(int level, const char *file, const char *func,
@@ -408,6 +409,7 @@ repeat:
 		tmp = jbd2_alloc(bh_in->b_size, GFP_NOFS);
 		if (!tmp) {
 			brelse(new_bh);
+			free_buffer_head(new_bh);
 			return -ENOMEM;
 		}
 		spin_lock(&jh_in->b_state_lock);
@@ -1565,8 +1567,6 @@ static int journal_reset(journal_t *journal)
 	journal->j_commit_sequence = journal->j_transaction_sequence - 1;
 	journal->j_commit_request = journal->j_commit_sequence;
 
-	journal->j_max_transaction_buffers = jbd2_journal_get_max_txn_bufs(journal);
-
 	/*
 	 * Now that journal recovery is done, turn fast commits off here. This
 	 * way, if fast commit was enabled before the crash but if now FS has
@@ -1620,9 +1620,11 @@ static int jbd2_write_superblock(journal_t *journal, blk_opf_t write_flags)
 		return -EIO;
 	}
 
-	trace_jbd2_write_superblock(journal, write_flags);
 	if (!(journal->j_flags & JBD2_BARRIER))
 		write_flags &= ~(REQ_FUA | REQ_PREFLUSH);
+
+	trace_jbd2_write_superblock(journal, write_flags);
+
 	if (buffer_write_io_error(bh)) {
 		/*
 		 * Oh, dear.  A previous attempt to write the journal
@@ -1995,8 +1997,8 @@ static int journal_get_superblock(journal_t *journal)
 						   sizeof(sb->s_uuid));
 	}
 
-	journal->j_revoke_records_per_block =
-				journal_revoke_records_per_block(journal);
+	/* After journal features are set, we can compute transaction limits */
+	jbd2_journal_init_transaction_limits(journal);
 	set_buffer_verified(bh);
 
 	return 0;
@@ -2004,6 +2006,48 @@ static int journal_get_superblock(journal_t *journal)
 out:
 	journal_fail_superblock(journal);
 	return err;
+}
+
+static int jbd2_journal_get_max_txn_bufs(journal_t *journal)
+{
+	return (journal->j_total_len - journal->j_fc_wbufsize) / 4;
+}
+
+/*
+ * Base amount of descriptor blocks we reserve for each transaction.
+ */
+static int jbd2_descriptor_blocks_per_trans(journal_t *journal)
+{
+	int tag_space = journal->j_blocksize - sizeof(journal_header_t);
+	int tags_per_block;
+
+	/* Subtract UUID */
+	tag_space -= 16;
+	if (jbd2_journal_has_csum_v2or3(journal))
+		tag_space -= sizeof(struct jbd2_journal_block_tail);
+	/* Commit code leaves a slack space of 16 bytes at the end of block */
+	tags_per_block = (tag_space - 16) / journal_tag_bytes(journal);
+	/*
+	 * Revoke descriptors are accounted separately so we need to reserve
+	 * space for commit block and normal transaction descriptor blocks.
+	 */
+	return 1 + DIV_ROUND_UP(jbd2_journal_get_max_txn_bufs(journal),
+				tags_per_block);
+}
+
+/*
+ * Initialize number of blocks each transaction reserves for its bookkeeping
+ * and maximum number of blocks a transaction can use. This needs to be called
+ * after the journal size and the fastcommit area size are initialized.
+ */
+static void jbd2_journal_init_transaction_limits(journal_t *journal)
+{
+	journal->j_revoke_records_per_block =
+				journal_revoke_records_per_block(journal);
+	journal->j_transaction_overhead_buffers =
+				jbd2_descriptor_blocks_per_trans(journal);
+	journal->j_max_transaction_buffers =
+				jbd2_journal_get_max_txn_bufs(journal);
 }
 
 /*
@@ -2293,8 +2337,6 @@ jbd2_journal_initialize_fast_commit(journal_t *journal)
 	journal->j_fc_first = journal->j_last + 1;
 	journal->j_fc_off = 0;
 	journal->j_free = journal->j_last - journal->j_first;
-	journal->j_max_transaction_buffers =
-		jbd2_journal_get_max_txn_bufs(journal);
 
 	return 0;
 }
@@ -2382,8 +2424,7 @@ int jbd2_journal_set_features(journal_t *journal, unsigned long compat,
 	sb->s_feature_ro_compat |= cpu_to_be32(ro);
 	sb->s_feature_incompat  |= cpu_to_be32(incompat);
 	unlock_buffer(journal->j_sb_buffer);
-	journal->j_revoke_records_per_block =
-				journal_revoke_records_per_block(journal);
+	jbd2_journal_init_transaction_limits(journal);
 
 	return 1;
 #undef COMPAT_FEATURE_ON
@@ -2414,8 +2455,7 @@ void jbd2_journal_clear_features(journal_t *journal, unsigned long compat,
 	sb->s_feature_compat    &= ~cpu_to_be32(compat);
 	sb->s_feature_ro_compat &= ~cpu_to_be32(ro);
 	sb->s_feature_incompat  &= ~cpu_to_be32(incompat);
-	journal->j_revoke_records_per_block =
-				journal_revoke_records_per_block(journal);
+	jbd2_journal_init_transaction_limits(journal);
 }
 EXPORT_SYMBOL(jbd2_journal_clear_features);
 
