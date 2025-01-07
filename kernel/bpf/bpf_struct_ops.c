@@ -40,6 +40,7 @@ struct bpf_struct_ops_map {
 	 * (in kvalue.data).
 	 */
 	struct bpf_link **links;
+	u32 links_cnt;
 	/* image is a page that has all the trampolines
 	 * that stores the func args before calling the bpf_prog.
 	 * A PAGE_SIZE "image" is enough to store all trampoline for
@@ -296,10 +297,9 @@ static void *bpf_struct_ops_map_lookup_elem(struct bpf_map *map, void *key)
 
 static void bpf_struct_ops_map_put_progs(struct bpf_struct_ops_map *st_map)
 {
-	const struct btf_type *t = st_map->st_ops->type;
 	u32 i;
 
-	for (i = 0; i < btf_type_vlen(t); i++) {
+	for (i = 0; i < st_map->links_cnt; i++) {
 		if (st_map->links[i]) {
 			bpf_link_put(st_map->links[i]);
 			st_map->links[i] = NULL;
@@ -625,6 +625,8 @@ static void __bpf_struct_ops_map_free(struct bpf_map *map)
 
 static void bpf_struct_ops_map_free(struct bpf_map *map)
 {
+	struct bpf_struct_ops_map *st_map = (struct bpf_struct_ops_map *)map;
+
 	/* The struct_ops's function may switch to another struct_ops.
 	 *
 	 * For example, bpf_tcp_cc_x->init() may switch to
@@ -702,8 +704,9 @@ static struct bpf_map *bpf_struct_ops_map_alloc(union bpf_attr *attr)
 		return ERR_PTR(-ENOMEM);
 	}
 	st_map->uvalue = bpf_map_area_alloc(vt->size, NUMA_NO_NODE);
+	st_map->links_cnt = btf_type_vlen(t);
 	st_map->links =
-		bpf_map_area_alloc(btf_type_vlen(t) * sizeof(struct bpf_links *),
+		bpf_map_area_alloc(st_map->links_cnt * sizeof(struct bpf_links *),
 				   NUMA_NO_NODE);
 	if (!st_map->uvalue || !st_map->links) {
 		__bpf_struct_ops_map_free(map);
