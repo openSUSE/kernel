@@ -1856,7 +1856,7 @@ error:
 	return 0;
 }
 
-static void at76_mac80211_stop(struct ieee80211_hw *hw)
+static void at76_mac80211_stop(struct ieee80211_hw *hw, bool suspend)
 {
 	struct at76_priv *priv = hw->priv;
 
