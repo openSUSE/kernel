@@ -3,6 +3,7 @@
 #include <linux/memory.h>
 #include <linux/bug.h>
 #include <asm/text-patching.h>
+#include <asm/sync_core.h>
 
 enum insn_type {
 	CALL = 0, /* site call */
@@ -133,6 +134,15 @@ void arch_static_call_transform(void *site, void *tramp, void *func, bool tail)
 	__arch_static_call_transform(site, tramp, func, tail, false);
 }
 EXPORT_SYMBOL_GPL(arch_static_call_transform);
+
+noinstr void __static_call_update_early(void *tramp, void *func)
+{
+	BUG_ON(system_state != SYSTEM_BOOTING);
+	BUG_ON(!early_boot_irqs_disabled);
+	BUG_ON(static_call_initialized);
+	__text_gen_insn(tramp, JMP32_INSN_OPCODE, tramp, func, JMP32_INSN_SIZE);
+	sync_core();
+}
 
 #ifdef CONFIG_RETPOLINE
 /*
