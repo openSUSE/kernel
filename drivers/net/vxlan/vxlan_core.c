@@ -1244,7 +1244,7 @@ static int vxlan_fdb_parse(struct nlattr *tb[], struct vxlan_dev *vxlan,
 static int vxlan_fdb_add(struct ndmsg *ndm, struct nlattr *tb[],
 			 struct net_device *dev,
 			 const unsigned char *addr, u16 vid, u16 flags,
-			 struct netlink_ext_ack *extack)
+			 bool *notified, struct netlink_ext_ack *extack)
 {
 	struct vxlan_dev *vxlan = netdev_priv(dev);
 	/* struct net *net = dev_net(vxlan->dev); */
@@ -1279,6 +1279,9 @@ static int vxlan_fdb_add(struct ndmsg *ndm, struct nlattr *tb[],
 			       ndm->ndm_flags | NTF_VXLAN_ADDED_BY_USER,
 			       nhid, true, extack);
 	spin_unlock_bh(&vxlan->hash_lock[hash_index]);
+
+	if (!err)
+		*notified = true;
 
 	return err;
 }
@@ -1319,7 +1322,7 @@ out:
 /* Delete entry (via netlink) */
 static int vxlan_fdb_delete(struct ndmsg *ndm, struct nlattr *tb[],
 			    struct net_device *dev,
-			    const unsigned char *addr, u16 vid,
+			    const unsigned char *addr, u16 vid, bool *notified,
 			    struct netlink_ext_ack *extack)
 {
 	struct vxlan_dev *vxlan = netdev_priv(dev);
@@ -1340,6 +1343,9 @@ static int vxlan_fdb_delete(struct ndmsg *ndm, struct nlattr *tb[],
 	err = __vxlan_fdb_delete(vxlan, addr, ip, port, src_vni, vni, ifindex,
 				 true);
 	spin_unlock_bh(&vxlan->hash_lock[hash_index]);
+
+	if (!err)
+		*notified = true;
 
 	return err;
 }
