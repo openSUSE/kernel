@@ -67,8 +67,10 @@ static void usb6fire_chip_abort(struct sfire_chip *chip)
 	}
 }
 
-static void usb6fire_chip_destroy(struct sfire_chip *chip)
+static void usb6fire_card_free(struct snd_card *card)
 {
+	struct sfire_chip *chip = card->private_data;
+
 	if (chip) {
 		if (chip->pcm)
 			usb6fire_pcm_destroy(chip);
@@ -78,8 +80,6 @@ static void usb6fire_chip_destroy(struct sfire_chip *chip)
 			usb6fire_comm_destroy(chip);
 		if (chip->control)
 			usb6fire_control_destroy(chip);
-		if (chip->card)
-			snd_card_free(chip->card);
 	}
 }
 
@@ -143,39 +143,35 @@ static int __devinit usb6fire_chip_probe(struct usb_interface *intf,
 	chip->regidx = regidx;
 	chip->intf_count = 1;
 	chip->card = card;
+	card->private_free = usb6fire_card_free;
 
 	ret = usb6fire_comm_init(chip);
-	if (ret < 0) {
-		usb6fire_chip_destroy(chip);
-		return ret;
-	}
+	if (ret < 0)
+		goto destroy_chip;
 
 	ret = usb6fire_midi_init(chip);
-	if (ret < 0) {
-		usb6fire_chip_destroy(chip);
-		return ret;
-	}
+	if (ret < 0)
+		goto destroy_chip;
 
 	ret = usb6fire_pcm_init(chip);
-	if (ret < 0) {
-		usb6fire_chip_destroy(chip);
-		return ret;
-	}
+	if (ret < 0)
+		goto destroy_chip;
 
 	ret = usb6fire_control_init(chip);
-	if (ret < 0) {
-		usb6fire_chip_destroy(chip);
-		return ret;
-	}
+	if (ret < 0)
+		goto destroy_chip;
 
 	ret = snd_card_register(card);
 	if (ret < 0) {
 		snd_printk(KERN_ERR PREFIX "cannot register card.");
-		usb6fire_chip_destroy(chip);
-		return ret;
+		goto destroy_chip;
 	}
 	usb_set_intfdata(intf, chip);
 	return 0;
+
+destroy_chip:
+	snd_card_free(card);
+	return ret;
 }
 
 static void usb6fire_chip_disconnect(struct usb_interface *intf)
@@ -195,7 +191,6 @@ static void usb6fire_chip_disconnect(struct usb_interface *intf)
 
 			chip->shutdown = true;
 			usb6fire_chip_abort(chip);
-			usb6fire_chip_destroy(chip);
 		}
 	}
 }
