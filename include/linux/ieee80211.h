@@ -2249,26 +2249,6 @@ int ieee80211_get_vht_max_nss(struct ieee80211_vht_cap *cap,
 			      unsigned int max_vht_nss);
 
 /**
- * enum ieee80211_ap_reg_power - regulatory power for a Access Point
- *
- * @IEEE80211_REG_UNSET_AP: Access Point has no regulatory power mode
- * @IEEE80211_REG_LPI: Indoor Access Point
- * @IEEE80211_REG_SP: Standard power Access Point
- * @IEEE80211_REG_VLP: Very low power Access Point
- * @IEEE80211_REG_AP_POWER_AFTER_LAST: internal
- * @IEEE80211_REG_AP_POWER_MAX: maximum value
- */
-enum ieee80211_ap_reg_power {
-	IEEE80211_REG_UNSET_AP,
-	IEEE80211_REG_LPI_AP,
-	IEEE80211_REG_SP_AP,
-	IEEE80211_REG_VLP_AP,
-	IEEE80211_REG_AP_POWER_AFTER_LAST,
-	IEEE80211_REG_AP_POWER_MAX =
-		IEEE80211_REG_AP_POWER_AFTER_LAST - 1,
-};
-
-/**
  * enum ieee80211_client_reg_power - regulatory power for a client
  *
  * @IEEE80211_REG_UNSET_CLIENT: Client has no regulatory power mode
