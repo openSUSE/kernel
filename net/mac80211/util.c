@@ -3470,7 +3470,7 @@ void ieee80211_dfs_cac_cancel(struct ieee80211_local *local)
 			cfg80211_cac_event(sdata->dev,
 					   &chandef,
 					   NL80211_RADAR_CAC_ABORTED,
-					   GFP_KERNEL);
+					   GFP_KERNEL, 0);
 		}
 	}
 }
