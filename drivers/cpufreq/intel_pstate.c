@@ -313,6 +313,7 @@ static struct cpufreq_driver *intel_pstate_driver __read_mostly;
 
 #define HYBRID_SCALING_FACTOR		78741
 #define HYBRID_SCALING_FACTOR_MTL	80000
+#define HYBRID_SCALING_FACTOR_LNL	86957
 
 static int hybrid_scaling_factor = HYBRID_SCALING_FACTOR;
 
@@ -3691,6 +3692,7 @@ static const struct x86_cpu_id intel_epp_default[] = {
 static const struct x86_cpu_id intel_hybrid_scaling_factor[] = {
 	X86_MATCH_VFM(INTEL_METEORLAKE_L, HYBRID_SCALING_FACTOR_MTL),
 	X86_MATCH_VFM(INTEL_ARROWLAKE, HYBRID_SCALING_FACTOR_MTL),
+	X86_MATCH_VFM(INTEL_LUNARLAKE_M, HYBRID_SCALING_FACTOR_LNL),
 	{}
 };
 
