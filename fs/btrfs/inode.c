@@ -9106,8 +9106,8 @@ out:
 }
 
 struct btrfs_encoded_read_private {
-	wait_queue_head_t wait;
-	atomic_t pending;
+	struct completion done;
+	refcount_t pending_refs;
 	blk_status_t status;
 };
 
@@ -9126,8 +9126,8 @@ static void btrfs_encoded_read_endio(struct btrfs_bio *bbio)
 		 */
 		WRITE_ONCE(priv->status, bbio->bio.bi_status);
 	}
-	if (atomic_dec_and_test(&priv->pending))
-		wake_up(&priv->wait);
+	if (refcount_dec_and_test(&priv->pending_refs))
+		complete(&priv->done);
 	bio_put(&bbio->bio);
 }
 
@@ -9136,13 +9136,12 @@ int btrfs_encoded_read_regular_fill_pages(struct btrfs_inode *inode,
 					  u64 disk_io_size, struct page **pages)
 {
 	struct btrfs_fs_info *fs_info = inode->root->fs_info;
-	struct btrfs_encoded_read_private priv = {
-		.pending = ATOMIC_INIT(1),
-	};
+	struct btrfs_encoded_read_private priv = { };
 	unsigned long i = 0;
 	struct btrfs_bio *bbio;
 
-	init_waitqueue_head(&priv.wait);
+	init_completion(&priv.done);
+	refcount_set(&priv.pending_refs, 1);
 
 	bbio = btrfs_bio_alloc(BIO_MAX_VECS, REQ_OP_READ, fs_info,
 			       btrfs_encoded_read_endio, &priv);
@@ -9153,7 +9152,7 @@ int btrfs_encoded_read_regular_fill_pages(struct btrfs_inode *inode,
 		size_t bytes = min_t(u64, disk_io_size, PAGE_SIZE);
 
 		if (bio_add_page(&bbio->bio, pages[i], bytes, 0) < bytes) {
-			atomic_inc(&priv.pending);
+			refcount_inc(&priv.pending_refs);
 			btrfs_submit_bbio(bbio, 0);
 
 			bbio = btrfs_bio_alloc(BIO_MAX_VECS, REQ_OP_READ, fs_info,
@@ -9168,11 +9167,11 @@ int btrfs_encoded_read_regular_fill_pages(struct btrfs_inode *inode,
 		disk_io_size -= bytes;
 	} while (disk_io_size);
 
-	atomic_inc(&priv.pending);
+	refcount_inc(&priv.pending_refs);
 	btrfs_submit_bbio(bbio, 0);
 
-	if (atomic_dec_return(&priv.pending))
-		io_wait_event(priv.wait, !atomic_read(&priv.pending));
+	if (refcount_dec_and_test(&priv.pending_refs))
+		wait_for_completion_io(&priv.done);
 	/* See btrfs_encoded_read_endio() for ordering. */
 	return blk_status_to_errno(READ_ONCE(priv.status));
 }
