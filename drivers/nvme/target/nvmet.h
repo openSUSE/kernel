@@ -23,6 +23,7 @@
 
 #define NVMET_DEFAULT_VS		NVME_VS(1, 3, 0)
 
+#define NVMET_NS_ENABLED		XA_MARK_1
 #define NVMET_ASYNC_EVENTS		4
 #define NVMET_ERROR_LOG_SLOTS		128
 #define NVMET_NO_ERROR_LOC		((u16)-1)
@@ -30,6 +31,12 @@
 #define NVMET_MN_MAX_SIZE		40
 #define NVMET_SN_MAX_SIZE		20
 #define NVMET_FR_MAX_SIZE		8
+
+#define nvmet_for_each_ns(xa, index, entry) \
+	xa_for_each(xa, index, entry)
+
+#define nvmet_for_each_enabled_ns(xa, index, entry) \
+	xa_for_each_marked(xa, index, entry, NVMET_NS_ENABLED)
 
 /*
  * Supported optional AENs:
