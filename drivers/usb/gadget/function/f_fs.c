@@ -1382,7 +1382,7 @@ ffs_sb_make_inode(struct super_block *sb, void *data,
 	inode = new_inode(sb);
 
 	if (inode) {
-		struct timespec64 ts = current_time(inode);
+		struct timespec64 ts = inode_set_ctime_current(inode);
 
 		inode->i_ino	 = get_next_ino();
 		inode->i_mode    = perms->mode;
@@ -1390,7 +1390,6 @@ ffs_sb_make_inode(struct super_block *sb, void *data,
 		inode->i_gid     = perms->gid;
 		inode->i_atime   = ts;
 		inode->i_mtime   = ts;
-		inode->i_ctime   = ts;
 		inode->i_private = data;
 		if (fops)
 			inode->i_fop = fops;
