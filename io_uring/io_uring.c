@@ -4210,9 +4210,8 @@ static int __init io_uring_init(void)
 				SLAB_ACCOUNT | SLAB_TYPESAFE_BY_RCU,
 				offsetof(struct io_kiocb, cmd.data),
 				sizeof_field(struct io_kiocb, cmd.data), NULL);
-	io_buf_cachep = kmem_cache_create("io_buffer", sizeof(struct io_buffer), 0,
-					  SLAB_HWCACHE_ALIGN | SLAB_PANIC | SLAB_ACCOUNT,
-					  NULL);
+	io_buf_cachep = KMEM_CACHE(io_buffer,
+					  SLAB_HWCACHE_ALIGN | SLAB_PANIC | SLAB_ACCOUNT);
 
 	iou_wq = alloc_workqueue("iou_exit", WQ_UNBOUND, 64);
 
