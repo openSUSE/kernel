@@ -69,6 +69,7 @@
 
 #define QM_AEQE_PHASE(aeqe)		((le32_to_cpu((aeqe)->dw0) >> 16) & 0x1)
 #define QM_AEQE_TYPE_SHIFT		17
+#define QM_AEQE_TYPE_MASK		0xf
 #define QM_AEQE_CQN_MASK		GENMASK(15, 0)
 #define QM_CQ_OVERFLOW			0
 #define QM_EQ_OVERFLOW			1
@@ -1086,7 +1087,8 @@ static irqreturn_t qm_aeq_thread(int irq, void *data)
 	atomic64_inc(&qm->debug.dfx.aeq_irq_cnt);
 
 	while (QM_AEQE_PHASE(aeqe) == qm->status.aeqc_phase) {
-		type = le32_to_cpu(aeqe->dw0) >> QM_AEQE_TYPE_SHIFT;
+		type = (le32_to_cpu(aeqe->dw0) >> QM_AEQE_TYPE_SHIFT) &
+			QM_AEQE_TYPE_MASK;
 		qp_id = le32_to_cpu(aeqe->dw0) & QM_AEQE_CQN_MASK;
 
 		switch (type) {
