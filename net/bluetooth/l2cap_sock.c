@@ -1061,6 +1061,7 @@ static int l2cap_sock_create(struct net *net, struct socket *sock, int protocol,
 	chan = l2cap_chan_create(sk);
 	if (!chan) {
 		l2cap_sock_kill(sk);
+		sock->sk = NULL;
 		return -ENOMEM;
 	}
 
