@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0-only
-source "drivers/media/pci/intel/ipu6/Kconfig
+source "drivers/media/pci/intel/ipu6/Kconfig"
 
 config IPU_BRIDGE
 	tristate

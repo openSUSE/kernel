@@ -5826,7 +5826,7 @@ out:
 }
 
 void
-il4965_mac_stop(struct ieee80211_hw *hw)
+il4965_mac_stop(struct ieee80211_hw *hw, bool suspend)
 {
 	struct il_priv *il = hw->priv;
 
