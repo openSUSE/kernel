@@ -62,7 +62,7 @@ static __init int kvm_parse_nopvspin(char *arg)
 early_param("kvm_nopvspin", kvm_parse_nopvspin);
 #endif
 
-DEFINE_STATIC_KEY_FALSE(kvm_async_pf_enabled);
+DEFINE_STATIC_KEY_FALSE_RO(kvm_async_pf_enabled);
 
 static int kvmapf = 1;
 
