@@ -1039,7 +1039,7 @@ static void __hybrid_init_cpu_capacity_scaling(void)
 	hybrid_update_cpu_capacity_scaling();
 }
 
-static void hybrid_init_cpu_capacity_scaling(void)
+static void hybrid_init_cpu_capacity_scaling(bool refresh)
 {
 	bool disable_itmt = false;
 
@@ -1050,7 +1050,7 @@ static void hybrid_init_cpu_capacity_scaling(void)
 	 * scaling has been enabled already and the driver is just changing the
 	 * operation mode.
 	 */
-	if (hybrid_max_perf_cpu) {
+	if (refresh) {
 		__hybrid_init_cpu_capacity_scaling();
 		goto unlock;
 	}
@@ -1074,6 +1074,18 @@ unlock:
 	 */
 	if (disable_itmt)
 		sched_clear_itmt_support();
+}
+
+static bool hybrid_clear_max_perf_cpu(void)
+{
+	bool ret;
+
+	guard(mutex)(&hybrid_capacity_lock);
+
+	ret = !!hybrid_max_perf_cpu;
+	hybrid_max_perf_cpu = NULL;
+
+	return ret;
 }
 
 static void __intel_pstate_get_hwp_cap(struct cpudata *cpu)
@@ -3356,6 +3368,7 @@ static void intel_pstate_driver_cleanup(void)
 
 static int intel_pstate_register_driver(struct cpufreq_driver *driver)
 {
+	bool refresh_cpu_cap_scaling;
 	int ret;
 
 	if (driver == &intel_pstate)
@@ -3368,6 +3381,8 @@ static int intel_pstate_register_driver(struct cpufreq_driver *driver)
 
 	arch_set_max_freq_ratio(global.turbo_disabled);
 
+	refresh_cpu_cap_scaling = hybrid_clear_max_perf_cpu();
+
 	intel_pstate_driver = driver;
 	ret = cpufreq_register_driver(intel_pstate_driver);
 	if (ret) {
@@ -3377,7 +3392,7 @@ static int intel_pstate_register_driver(struct cpufreq_driver *driver)
 
 	global.min_perf_pct = min_perf_pct_min();
 
-	hybrid_init_cpu_capacity_scaling();
+	hybrid_init_cpu_capacity_scaling(refresh_cpu_cap_scaling);
 
 	return 0;
 }
