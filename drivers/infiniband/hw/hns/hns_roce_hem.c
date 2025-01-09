@@ -1236,7 +1236,7 @@ static int alloc_fake_root_bt(struct hns_roce_dev *hr_dev, void *cpu_base,
 
 	/* The root_ba can be reused only when r->hopnum > 0. */
 	if (r->hopnum)
-		hem_list_assign_bt(hr_dev, hem, cpu_base, phy_base);
+		hem_list_assign_bt(hem, cpu_base, phy_base);
 	list_add(&hem->list, branch_head);
 	list_add(&hem->sibling, leaf_head);
 
