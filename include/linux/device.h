@@ -258,8 +258,6 @@ enum probe_type {
  * @resume:	Called to bring a device from sleep mode.
  * @groups:	Default attributes that get created by the driver core
  *		automatically.
- * @dev_groups:	Additional attributes attached to device instance once the
- *		it is bound to the driver.
  * @pm:		Power management operations of the device which matched
  *		this driver.
  * @p:		Driver core's private data, no one other than the driver
@@ -295,9 +293,6 @@ struct device_driver {
 	const struct dev_pm_ops *pm;
 
 	struct driver_private *p;
-#ifndef __GENKSYMS__
-	const struct attribute_group **dev_groups;
-#endif
 };
 
 
