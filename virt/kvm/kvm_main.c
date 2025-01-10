@@ -835,8 +835,7 @@ static int kvm_mmu_notifier_invalidate_range_start(struct mmu_notifier *mn,
 	 * mn_active_invalidate_count (see above) instead of
 	 * mmu_invalidate_in_progress.
 	 */
-	gfn_to_pfn_cache_invalidate_start(kvm, range->start, range->end,
-					  hva_range.may_block);
+	gfn_to_pfn_cache_invalidate_start(kvm, range->start, range->end);
 
 	/*
 	 * If one or more memslots were found and thus zapped, notify arch code
@@ -1153,10 +1152,7 @@ static int kvm_create_vm_debugfs(struct kvm *kvm, const char *fdname)
 				    &stat_fops_per_vm);
 	}
 
-	ret = kvm_arch_create_vm_debugfs(kvm);
-	if (ret)
-		goto out_err;
-
+	kvm_arch_create_vm_debugfs(kvm);
 	return 0;
 out_err:
 	kvm_destroy_vm_debugfs(kvm);
@@ -1186,9 +1182,8 @@ void __weak kvm_arch_pre_destroy_vm(struct kvm *kvm)
  * Cleanup should be automatic done in kvm_destroy_vm_debugfs() recursively, so
  * a per-arch destroy interface is not needed.
  */
-int __weak kvm_arch_create_vm_debugfs(struct kvm *kvm)
+void __weak kvm_arch_create_vm_debugfs(struct kvm *kvm)
 {
-	return 0;
 }
 
 static struct kvm *kvm_create_vm(unsigned long type, const char *fdname)
@@ -4036,6 +4031,18 @@ static bool vcpu_dy_runnable(struct kvm_vcpu *vcpu)
 	return false;
 }
 
+/*
+ * By default, simply query the target vCPU's current mode when checking if a
+ * vCPU was preempted in kernel mode.  All architectures except x86 (or more
+ * specifical, except VMX) allow querying whether or not a vCPU is in kernel
+ * mode even if the vCPU is NOT loaded, i.e. using kvm_arch_vcpu_in_kernel()
+ * directly for cross-vCPU checks is functionally correct and accurate.
+ */
+bool __weak kvm_arch_vcpu_preempted_in_kernel(struct kvm_vcpu *vcpu)
+{
+	return kvm_arch_vcpu_in_kernel(vcpu);
+}
+
 bool __weak kvm_arch_dy_has_pending_interrupt(struct kvm_vcpu *vcpu)
 {
 	return false;
@@ -4075,7 +4082,7 @@ void kvm_vcpu_on_spin(struct kvm_vcpu *me, bool yield_to_kernel_mode)
 				continue;
 			if (READ_ONCE(vcpu->preempted) && yield_to_kernel_mode &&
 			    !kvm_arch_dy_has_pending_interrupt(vcpu) &&
-			    !kvm_arch_vcpu_in_kernel(vcpu))
+			    !kvm_arch_vcpu_preempted_in_kernel(vcpu))
 				continue;
 			if (!kvm_vcpu_eligible_for_directed_yield(vcpu))
 				continue;
