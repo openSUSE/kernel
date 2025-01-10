@@ -378,8 +378,8 @@ struct task_group {
 	struct sched_rt_entity	**rt_se;
 	struct rt_rq		**rt_rq;
 
-	struct rt_bandwidth	rt_bandwidth;
 #endif
+	struct rt_bandwidth	rt_bandwidth;
 
 	struct rcu_head		rcu;
 	struct list_head	list;
@@ -2426,7 +2426,6 @@ extern void reweight_task(struct task_struct *p, int prio);
 extern void resched_curr(struct rq *rq);
 extern void resched_cpu(int cpu);
 
-extern struct rt_bandwidth def_rt_bandwidth;
 extern void init_rt_bandwidth(struct rt_bandwidth *rt_b, u64 period, u64 runtime);
 extern bool sched_rt_bandwidth_account(struct rt_rq *rt_rq);
 

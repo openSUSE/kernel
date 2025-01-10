@@ -10,8 +10,6 @@ static const u64 max_rt_runtime = MAX_BW;
 
 static int do_sched_rt_period_timer(struct rt_bandwidth *rt_b, int overrun);
 
-struct rt_bandwidth def_rt_bandwidth;
-
 /*
  * period over which we measure -rt task CPU usage in us.
  * default: 1s
@@ -255,7 +253,7 @@ int alloc_rt_sched_group(struct task_group *tg, struct task_group *parent)
 		goto err;
 
 	init_rt_bandwidth(&tg->rt_bandwidth,
-			ktime_to_ns(def_rt_bandwidth.rt_period), 0);
+			ktime_to_ns(root_task_group.rt_bandwidth.rt_period), 0);
 
 	for_each_possible_cpu(i) {
 		rt_rq = kzalloc_node(sizeof(struct rt_rq),
@@ -614,7 +612,7 @@ static inline u64 sched_rt_runtime(struct rt_rq *rt_rq)
 
 static inline u64 sched_rt_period(struct rt_rq *rt_rq)
 {
-	return ktime_to_ns(def_rt_bandwidth.rt_period);
+	return ktime_to_ns(root_task_group.rt_bandwidth.rt_period);
 }
 
 typedef struct rt_rq *rt_rq_iter_t;
@@ -664,7 +662,7 @@ struct rt_rq *sched_rt_period_rt_rq(struct rt_bandwidth *rt_b, int cpu)
 
 static inline struct rt_bandwidth *sched_rt_bandwidth(struct rt_rq *rt_rq)
 {
-	return &def_rt_bandwidth;
+	return &root_task_group.rt_bandwidth;
 }
 
 #endif /* CONFIG_RT_GROUP_SCHED */
@@ -1185,7 +1183,7 @@ dec_rt_group(struct sched_rt_entity *rt_se, struct rt_rq *rt_rq)
 static void
 inc_rt_group(struct sched_rt_entity *rt_se, struct rt_rq *rt_rq)
 {
-	start_rt_bandwidth(&def_rt_bandwidth);
+	start_rt_bandwidth(&root_task_group.rt_bandwidth);
 }
 
 static inline
@@ -2916,7 +2914,7 @@ static int sched_rt_global_constraints(void)
 	unsigned long flags;
 	int i;
 
-	raw_spin_lock_irqsave(&def_rt_bandwidth.rt_runtime_lock, flags);
+	raw_spin_lock_irqsave(&root_task_group.rt_bandwidth.rt_runtime_lock, flags);
 	for_each_possible_cpu(i) {
 		struct rt_rq *rt_rq = &cpu_rq(i)->rt;
 
@@ -2924,7 +2922,7 @@ static int sched_rt_global_constraints(void)
 		rt_rq->rt_runtime = global_rt_runtime();
 		raw_spin_unlock(&rt_rq->rt_runtime_lock);
 	}
-	raw_spin_unlock_irqrestore(&def_rt_bandwidth.rt_runtime_lock, flags);
+	raw_spin_unlock_irqrestore(&root_task_group.rt_bandwidth.rt_runtime_lock, flags);
 
 	return 0;
 }
@@ -2947,10 +2945,10 @@ static void sched_rt_do_global(void)
 {
 	unsigned long flags;
 
-	raw_spin_lock_irqsave(&def_rt_bandwidth.rt_runtime_lock, flags);
-	def_rt_bandwidth.rt_runtime = global_rt_runtime();
-	def_rt_bandwidth.rt_period = ns_to_ktime(global_rt_period());
-	raw_spin_unlock_irqrestore(&def_rt_bandwidth.rt_runtime_lock, flags);
+	raw_spin_lock_irqsave(&root_task_group.rt_bandwidth.rt_runtime_lock, flags);
+	root_task_group.rt_bandwidth.rt_runtime = global_rt_runtime();
+	root_task_group.rt_bandwidth.rt_period = ns_to_ktime(global_rt_period());
+	raw_spin_unlock_irqrestore(&root_task_group.rt_bandwidth.rt_runtime_lock, flags);
 }
 
 static int sched_rt_handler(struct ctl_table *table, int write, void *buffer,
