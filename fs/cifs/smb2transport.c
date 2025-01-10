@@ -101,16 +101,61 @@ smb2_find_smb_ses_unlocked(struct TCP_Server_Info *server, __u64 ses_id)
 	return NULL;
 }
 
-struct cifs_ses *
-smb2_find_smb_ses(struct TCP_Server_Info *server, __u64 ses_id)
+static int smb2_get_sign_key(struct TCP_Server_Info *server, __u64 ses_id, u8 *key)
 {
 	struct cifs_ses *ses;
+	int rc = -ENOENT;
 
 	spin_lock(&cifs_tcp_ses_lock);
-	ses = smb2_find_smb_ses_unlocked(server, ses_id);
-	spin_unlock(&cifs_tcp_ses_lock);
+	list_for_each_entry(ses, &server->smb_ses_list, smb_ses_list) {
+		if (ses->Suid != ses_id)
+			continue;
 
-	return ses;
+		rc = 0;
+		switch (ses->status) {
+		case CifsExiting: /* SMB2_LOGOFF */
+		case CifsGood:
+			if (likely(ses->auth_key.response)) {
+				memcpy(key, ses->auth_key.response,
+				       SMB2_NTLMV2_SESSKEY_SIZE);
+			} else {
+				rc = -EIO;
+			}
+			break;
+		default:
+			rc = -EAGAIN;
+			break;
+		}
+		break;
+	}
+	spin_unlock(&cifs_tcp_ses_lock);
+	return rc;
+}
+
+static int smb3_get_sign_key(struct TCP_Server_Info *server, __u64 ses_id, u8 *key)
+{
+	struct cifs_ses *ses;
+	int rc = -ENOENT;
+
+	spin_lock(&cifs_tcp_ses_lock);
+	list_for_each_entry(ses, &server->smb_ses_list, smb_ses_list) {
+		if (ses->Suid != ses_id)
+			continue;
+
+		rc = 0;
+		switch (ses->status) {
+		case CifsExiting: /* SMB2_LOGOFF */
+		case CifsGood:
+			memcpy(key, ses->smb3signingkey, SMB2_NTLMV2_SESSKEY_SIZE);
+			break;
+		default:
+			rc = -EAGAIN;
+			break;
+		}
+		break;
+	}
+	spin_unlock(&cifs_tcp_ses_lock);
+	return rc;
 }
 
 static struct cifs_tcon *
@@ -160,14 +205,16 @@ smb2_calc_signature(struct smb_rqst *rqst, struct TCP_Server_Info *server,
 	unsigned char *sigptr = smb2_signature;
 	struct kvec *iov = rqst->rq_iov;
 	struct smb2_sync_hdr *shdr = (struct smb2_sync_hdr *)iov[0].iov_base;
-	struct cifs_ses *ses;
 	struct shash_desc *shash = NULL;
 	struct smb_rqst drqst;
+	__u64 sid = le64_to_cpu(shdr->SessionId);
+	u8 key[SMB2_NTLMV2_SESSKEY_SIZE];
 
-	ses = smb2_find_smb_ses(server, shdr->SessionId);
-	if (unlikely(!ses)) {
-		cifs_server_dbg(VFS, "%s: Could not find session\n", __func__);
-		return -ENOENT;
+	rc = smb2_get_sign_key(server, sid, key);
+	if (unlikely(rc)) {
+		cifs_server_dbg(FYI, "%s: [sesid=0x%llx] couldn't find signing key: %d\n",
+				__func__, sid, rc);
+		return rc;
 	}
 
 	memset(smb2_signature, 0x0, SMB2_HMACSHA256_SIZE);
@@ -184,8 +231,7 @@ smb2_calc_signature(struct smb_rqst *rqst, struct TCP_Server_Info *server,
 		shash = server->secmech.hmacsha256;
 	}
 
-	rc = crypto_shash_setkey(shash->tfm, ses->auth_key.response,
-			SMB2_NTLMV2_SESSKEY_SIZE);
+	rc = crypto_shash_setkey(shash->tfm, key, sizeof(key));
 	if (rc) {
 		cifs_server_dbg(VFS,
 				"%s: Could not update with response\n",
@@ -426,14 +472,14 @@ smb3_calc_signature(struct smb_rqst *rqst, struct TCP_Server_Info *server,
 	unsigned char *sigptr = smb3_signature;
 	struct kvec *iov = rqst->rq_iov;
 	struct smb2_sync_hdr *shdr = (struct smb2_sync_hdr *)iov[0].iov_base;
-	struct cifs_ses *ses;
 	struct shash_desc *shash = NULL;
 	struct smb_rqst drqst;
+	u8 key[SMB3_SIGNKEY_SIZE];
 
-	ses = smb2_find_smb_ses(server, shdr->SessionId);
-	if (unlikely(!ses)) {
-		cifs_server_dbg(VFS, "%s: Could not find session\n", __func__);
-		return -ENOENT;
+	rc = smb3_get_sign_key(server, le64_to_cpu(shdr->SessionId), key);
+	if (unlikely(rc)) {
+		cifs_dbg(VFS, "%s: Could not get signing key\n", __func__);
+		return rc;
 	}
 
 	if (allocate_crypto) {
@@ -447,7 +493,7 @@ smb3_calc_signature(struct smb_rqst *rqst, struct TCP_Server_Info *server,
 	memset(smb3_signature, 0x0, SMB2_CMACAES_SIZE);
 	memset(shdr->Signature, 0x0, SMB2_SIGNATURE_SIZE);
 
-	rc = crypto_shash_setkey(shash->tfm, ses->smb3signingkey, SMB2_CMACAES_SIZE);
+	rc = crypto_shash_setkey(shash->tfm, key, SMB3_SIGNKEY_SIZE);
 	if (rc) {
 		cifs_server_dbg(VFS, "%s: Could not set key for cmac aes\n", __func__);
 		goto out;
