@@ -313,6 +313,8 @@ static void adf_dev_stop(struct adf_accel_dev *accel_dev)
 	if (hw_data->stop_timer)
 		hw_data->stop_timer(accel_dev);
 
+	hw_data->disable_iov(accel_dev);
+
 	if (wait)
 		msleep(100);
 
@@ -373,8 +375,6 @@ static void adf_dev_shutdown(struct adf_accel_dev *accel_dev)
 		hw_data->ras_ops.disable_ras_errors(accel_dev);
 
 	adf_heartbeat_shutdown(accel_dev);
-
-	hw_data->disable_iov(accel_dev);
 
 	if (test_bit(ADF_STATUS_IRQ_ALLOCATED, &accel_dev->status)) {
 		hw_data->free_irq(accel_dev);

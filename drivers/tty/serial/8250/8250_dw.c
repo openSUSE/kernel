@@ -9,7 +9,6 @@
  * LCR is written whilst busy.  If it is, then a busy detect interrupt is
  * raised, the LCR needs to be rewritten and the uart status register read.
  */
-#include <linux/acpi.h>
 #include <linux/clk.h>
 #include <linux/delay.h>
 #include <linux/device.h>
@@ -56,6 +55,8 @@
 #define DW_UART_QUIRK_ARMADA_38X	BIT(1)
 #define DW_UART_QUIRK_SKIP_SET_RATE	BIT(2)
 #define DW_UART_QUIRK_IS_DMA_FC		BIT(3)
+#define DW_UART_QUIRK_APMC0D08		BIT(4)
+#define DW_UART_QUIRK_CPR_VALUE		BIT(5)
 
 static inline struct dw8250_data *clk_to_dw8250_data(struct notifier_block *nb)
 {
@@ -446,43 +447,44 @@ static void dw8250_prepare_rx_dma(struct uart_8250_port *p)
 static void dw8250_quirks(struct uart_port *p, struct dw8250_data *data)
 {
 	struct device_node *np = p->dev->of_node;
+	unsigned int quirks = data->pdata ? data->pdata->quirks : 0;
+	u32 cpr_value = data->pdata ? data->pdata->cpr_value : 0;
+	int id;
 
-	if (np) {
-		unsigned int quirks = data->pdata->quirks;
-		int id;
+	if (quirks & DW_UART_QUIRK_CPR_VALUE)
+		data->data.cpr_value = cpr_value;
 
-		/* get index of serial line, if found in DT aliases */
-		id = of_alias_get_id(np, "serial");
-		if (id >= 0)
-			p->line = id;
+	/* get index of serial line, if found in DT aliases */
+	id = of_alias_get_id(np, "serial");
+	if (id >= 0)
+		p->line = id;
 #ifdef CONFIG_64BIT
-		if (quirks & DW_UART_QUIRK_OCTEON) {
-			p->serial_in = dw8250_serial_inq;
-			p->serial_out = dw8250_serial_outq;
-			p->flags = UPF_SKIP_TEST | UPF_SHARE_IRQ | UPF_FIXED_TYPE;
-			p->type = PORT_OCTEON;
-			data->skip_autocfg = true;
-		}
+	if (quirks & DW_UART_QUIRK_OCTEON) {
+		p->serial_in = dw8250_serial_inq;
+		p->serial_out = dw8250_serial_outq;
+		p->flags = UPF_SKIP_TEST | UPF_SHARE_IRQ | UPF_FIXED_TYPE;
+		p->type = PORT_OCTEON;
+		data->skip_autocfg = true;
+	}
 #endif
 
-		if (of_device_is_big_endian(np)) {
-			p->iotype = UPIO_MEM32BE;
-			p->serial_in = dw8250_serial_in32be;
-			p->serial_out = dw8250_serial_out32be;
-		}
+	if (of_device_is_big_endian(np)) {
+		p->iotype = UPIO_MEM32BE;
+		p->serial_in = dw8250_serial_in32be;
+		p->serial_out = dw8250_serial_out32be;
+	}
 
-		if (quirks & DW_UART_QUIRK_ARMADA_38X)
-			p->serial_out = dw8250_serial_out38x;
-		if (quirks & DW_UART_QUIRK_SKIP_SET_RATE)
-			p->set_termios = dw8250_do_set_termios;
-		if (quirks & DW_UART_QUIRK_IS_DMA_FC) {
-			data->data.dma.txconf.device_fc = 1;
-			data->data.dma.rxconf.device_fc = 1;
-			data->data.dma.prepare_tx_dma = dw8250_prepare_tx_dma;
-			data->data.dma.prepare_rx_dma = dw8250_prepare_rx_dma;
-		}
-
-	} else if (acpi_dev_present("APMC0D08", NULL, -1)) {
+	if (quirks & DW_UART_QUIRK_ARMADA_38X)
+		p->serial_out = dw8250_serial_out38x;
+	if (quirks & DW_UART_QUIRK_SKIP_SET_RATE)
+		p->set_termios = dw8250_do_set_termios;
+	if (quirks & DW_UART_QUIRK_IS_DMA_FC) {
+		data->data.dma.txconf.device_fc = 1;
+		data->data.dma.rxconf.device_fc = 1;
+		data->data.dma.prepare_tx_dma = dw8250_prepare_tx_dma;
+		data->data.dma.prepare_rx_dma = dw8250_prepare_rx_dma;
+	}
+	if (quirks & DW_UART_QUIRK_APMC0D08) {
 		p->iotype = UPIO_MEM32;
 		p->regshift = 2;
 		p->serial_in = dw8250_serial_in32;
@@ -763,11 +765,11 @@ static const struct dw8250_platform_data dw8250_armada_38x_data = {
 
 static const struct dw8250_platform_data dw8250_renesas_rzn1_data = {
 	.usr_reg = DW_UART_USR,
-	.cpr_val = 0x00012f32,
-	.quirks = DW_UART_QUIRK_IS_DMA_FC,
+	.cpr_value = 0x00012f32,
+	.quirks = DW_UART_QUIRK_CPR_VALUE | DW_UART_QUIRK_IS_DMA_FC,
 };
 
-static const struct dw8250_platform_data dw8250_starfive_jh7100_data = {
+static const struct dw8250_platform_data dw8250_skip_set_rate_data = {
 	.usr_reg = DW_UART_USR,
 	.quirks = DW_UART_QUIRK_SKIP_SET_RATE,
 };
@@ -777,10 +779,16 @@ static const struct of_device_id dw8250_of_match[] = {
 	{ .compatible = "cavium,octeon-3860-uart", .data = &dw8250_octeon_3860_data },
 	{ .compatible = "marvell,armada-38x-uart", .data = &dw8250_armada_38x_data },
 	{ .compatible = "renesas,rzn1-uart", .data = &dw8250_renesas_rzn1_data },
-	{ .compatible = "starfive,jh7100-uart", .data = &dw8250_starfive_jh7100_data },
+	{ .compatible = "sophgo,sg2044-uart", .data = &dw8250_skip_set_rate_data },
+	{ .compatible = "starfive,jh7100-uart", .data = &dw8250_skip_set_rate_data },
 	{ /* Sentinel */ }
 };
 MODULE_DEVICE_TABLE(of, dw8250_of_match);
+
+static const struct dw8250_platform_data dw8250_apmc0d08 = {
+	.usr_reg = DW_UART_USR,
+	.quirks = DW_UART_QUIRK_APMC0D08,
+};
 
 static const struct acpi_device_id dw8250_acpi_match[] = {
 	{ "80860F0A", (kernel_ulong_t)&dw8250_dw_apb },
@@ -788,7 +796,7 @@ static const struct acpi_device_id dw8250_acpi_match[] = {
 	{ "AMD0020", (kernel_ulong_t)&dw8250_dw_apb },
 	{ "AMDI0020", (kernel_ulong_t)&dw8250_dw_apb },
 	{ "AMDI0022", (kernel_ulong_t)&dw8250_dw_apb },
-	{ "APMC0D08", (kernel_ulong_t)&dw8250_dw_apb},
+	{ "APMC0D08", (kernel_ulong_t)&dw8250_apmc0d08 },
 	{ "BRCM2032", (kernel_ulong_t)&dw8250_dw_apb },
 	{ "HISI0031", (kernel_ulong_t)&dw8250_dw_apb },
 	{ "INT33C4", (kernel_ulong_t)&dw8250_dw_apb },

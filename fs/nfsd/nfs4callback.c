@@ -297,17 +297,17 @@ static int decode_cb_compound4res(struct xdr_stream *xdr,
 	u32 length;
 	__be32 *p;
 
-	p = xdr_inline_decode(xdr, 4 + 4);
+	p = xdr_inline_decode(xdr, XDR_UNIT);
 	if (unlikely(p == NULL))
 		goto out_overflow;
-	hdr->status = be32_to_cpup(p++);
+	hdr->status = be32_to_cpup(p);
 	/* Ignore the tag */
-	length = be32_to_cpup(p++);
-	p = xdr_inline_decode(xdr, length + 4);
-	if (unlikely(p == NULL))
+	if (xdr_stream_decode_u32(xdr, &length) < 0)
 		goto out_overflow;
-	p += XDR_QUADLEN(length);
-	hdr->nops = be32_to_cpup(p);
+	if (xdr_inline_decode(xdr, length) == NULL)
+		goto out_overflow;
+	if (xdr_stream_decode_u32(xdr, &hdr->nops) < 0)
+		goto out_overflow;
 	return 0;
 out_overflow:
 	return -EIO;
@@ -911,14 +911,7 @@ static struct workqueue_struct *callback_wq;
 
 static bool nfsd4_queue_cb(struct nfsd4_callback *cb)
 {
-	return queue_delayed_work(callback_wq, &cb->cb_work, 0);
-}
-
-static void nfsd4_queue_cb_delayed(struct nfsd4_callback *cb,
-				   unsigned long msecs)
-{
-	queue_delayed_work(callback_wq, &cb->cb_work,
-			   msecs_to_jiffies(msecs));
+	return queue_work(callback_wq, &cb->cb_work);
 }
 
 static void nfsd41_cb_inflight_begin(struct nfs4_client *clp)
@@ -993,7 +986,7 @@ static int setup_callback_client(struct nfs4_client *clp, struct nfs4_cb_conn *c
 		args.authflavor = clp->cl_cred.cr_flavor;
 		clp->cl_cb_ident = conn->cb_ident;
 	} else {
-		if (!conn->cb_xprt)
+		if (!conn->cb_xprt || !ses)
 			return -EINVAL;
 		clp->cl_cb_session = ses;
 		args.bc_xprt = conn->cb_xprt;
@@ -1410,26 +1403,25 @@ static void
 nfsd4_run_cb_work(struct work_struct *work)
 {
 	struct nfsd4_callback *cb =
-		container_of(work, struct nfsd4_callback, cb_work.work);
+		container_of(work, struct nfsd4_callback, cb_work);
 	struct nfs4_client *clp = cb->cb_clp;
 	struct rpc_clnt *clnt;
 	int flags;
+
+	if (cb->cb_need_restart) {
+		cb->cb_need_restart = false;
+	} else {
+		if (cb->cb_ops && cb->cb_ops->prepare)
+			cb->cb_ops->prepare(cb);
+	}
 
 	if (clp->cl_flags & NFSD4_CLIENT_CB_FLAG_MASK)
 		nfsd4_process_cb_update(cb);
 
 	clnt = clp->cl_cb_client;
 	if (!clnt) {
-		if (test_bit(NFSD4_CLIENT_CB_KILL, &clp->cl_flags))
-			nfsd41_destroy_cb(cb);
-		else {
-			/*
-			 * XXX: Ideally, we could wait for the client to
-			 *	reconnect, but I haven't figured out how
-			 *	to do that yet.
-			 */
-			nfsd4_queue_cb_delayed(cb, 25);
-		}
+		/* Callback channel broken, or client killed; give up: */
+		nfsd41_destroy_cb(cb);
 		return;
 	}
 
@@ -1442,12 +1434,6 @@ nfsd4_run_cb_work(struct work_struct *work)
 		return;
 	}
 
-	if (cb->cb_need_restart) {
-		cb->cb_need_restart = false;
-	} else {
-		if (cb->cb_ops && cb->cb_ops->prepare)
-			cb->cb_ops->prepare(cb);
-	}
 	cb->cb_msg.rpc_cred = clp->cl_cb_cred;
 	flags = clp->cl_minorversion ? RPC_TASK_NOCONNECT : RPC_TASK_SOFTCONN;
 	rpc_call_async(clnt, &cb->cb_msg, RPC_TASK_SOFT | flags,
@@ -1462,7 +1448,7 @@ void nfsd4_init_cb(struct nfsd4_callback *cb, struct nfs4_client *clp,
 	cb->cb_msg.rpc_argp = cb;
 	cb->cb_msg.rpc_resp = cb;
 	cb->cb_ops = ops;
-	INIT_DELAYED_WORK(&cb->cb_work, nfsd4_run_cb_work);
+	INIT_WORK(&cb->cb_work, nfsd4_run_cb_work);
 	cb->cb_seq_status = 1;
 	cb->cb_status = 0;
 	cb->cb_need_restart = false;

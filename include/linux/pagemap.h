@@ -203,6 +203,8 @@ enum mapping_flags {
 	/* writeback related tags are not used */
 	AS_NO_WRITEBACK_TAGS = 5,
 	AS_LARGE_FOLIO_SUPPORT = 6,
+	AS_STABLE_WRITES = 7,	/* must wait for writeback before modifying
+				   folio contents */
 	AS_UNMOVABLE	= 8,	/* The mapping cannot be moved, ever */
 };
 
@@ -272,6 +274,21 @@ static inline void mapping_set_no_writeback_tags(struct address_space *mapping)
 static inline int mapping_use_writeback_tags(struct address_space *mapping)
 {
 	return !test_bit(AS_NO_WRITEBACK_TAGS, &mapping->flags);
+}
+
+static inline bool mapping_stable_writes(const struct address_space *mapping)
+{
+	return test_bit(AS_STABLE_WRITES, &mapping->flags);
+}
+
+static inline void mapping_set_stable_writes(struct address_space *mapping)
+{
+	set_bit(AS_STABLE_WRITES, &mapping->flags);
+}
+
+static inline void mapping_clear_stable_writes(struct address_space *mapping)
+{
+	clear_bit(AS_STABLE_WRITES, &mapping->flags);
 }
 
 static inline void mapping_set_unmovable(struct address_space *mapping)

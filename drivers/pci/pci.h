@@ -11,8 +11,23 @@
 
 #define PCI_VSEC_ID_INTEL_TBT	0x1234	/* Thunderbolt */
 
-/* Power stable to PERST# inactive from PCIe card Electromechanical Spec */
+/*
+ * Power stable to PERST# inactive.
+ *
+ * See the "Power Sequencing and Reset Signal Timings" table of the PCI Express
+ * Card Electromechanical Specification, Revision 5.1, Section 2.9.2, Symbol
+ * "T_PVPERL".
+ */
 #define PCIE_T_PVPERL_MS		100
+
+/*
+ * REFCLK stable before PERST# inactive.
+ *
+ * See the "Power Sequencing and Reset Signal Timings" table of the PCI Express
+ * Card Electromechanical Specification, Revision 5.1, Section 2.9.2, Symbol
+ * "T_PERST-CLK".
+ */
+#define PCIE_T_PERST_CLK_US		100
 
 /*
  * PCIe r6.0, sec 5.3.3.2.1 <PME Synchronization>
@@ -47,6 +62,7 @@ bool pci_reset_supported(struct pci_dev *dev);
 void pci_init_reset_methods(struct pci_dev *dev);
 int pci_bridge_secondary_bus_reset(struct pci_dev *dev);
 int pci_bus_error_reset(struct pci_dev *dev);
+int __pci_reset_bus(struct pci_bus *bus);
 
 struct pci_cap_saved_data {
 	u16		cap_nr;
