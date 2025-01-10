@@ -172,8 +172,7 @@ DECLARE_EVENT_CLASS(xhci_log_free_virt_dev,
 		__field(void *, vdev)
 		__field(unsigned long long, out_ctx)
 		__field(unsigned long long, in_ctx)
-		__field(u8, fake_port)
-		__field(u8, real_port)
+		__field(int, slot_id)
 		__field(u16, current_mel)
 
 	),
@@ -181,13 +180,12 @@ DECLARE_EVENT_CLASS(xhci_log_free_virt_dev,
 		__entry->vdev = vdev;
 		__entry->in_ctx = (unsigned long long) vdev->in_ctx->dma;
 		__entry->out_ctx = (unsigned long long) vdev->out_ctx->dma;
-		__entry->fake_port = (u8) vdev->fake_port;
-		__entry->real_port = (u8) vdev->real_port;
+		__entry->slot_id = (int) vdev->slot_id;
 		__entry->current_mel = (u16) vdev->current_mel;
 		),
-	TP_printk("vdev %p ctx %llx | %llx fake_port %d real_port %d current_mel %d",
-		__entry->vdev, __entry->in_ctx, __entry->out_ctx,
-		__entry->fake_port, __entry->real_port, __entry->current_mel
+	TP_printk("vdev %p slot %d ctx %llx | %llx current_mel %d",
+		__entry->vdev, __entry->slot_id, __entry->in_ctx,
+		__entry->out_ctx, __entry->current_mel
 	)
 );
 
@@ -453,8 +451,6 @@ DECLARE_EVENT_CLASS(xhci_log_ring,
 		__field(void *, ring)
 		__field(dma_addr_t, enq)
 		__field(dma_addr_t, deq)
-		__field(dma_addr_t, enq_seg)
-		__field(dma_addr_t, deq_seg)
 		__field(unsigned int, num_segs)
 		__field(unsigned int, stream_id)
 		__field(unsigned int, cycle_state)
@@ -465,17 +461,15 @@ DECLARE_EVENT_CLASS(xhci_log_ring,
 		__entry->type = ring->type;
 		__entry->num_segs = ring->num_segs;
 		__entry->stream_id = ring->stream_id;
-		__entry->enq_seg = ring->enq_seg->dma;
-		__entry->deq_seg = ring->deq_seg->dma;
 		__entry->cycle_state = ring->cycle_state;
 		__entry->bounce_buf_len = ring->bounce_buf_len;
 		__entry->enq = xhci_trb_virt_to_dma(ring->enq_seg, ring->enqueue);
 		__entry->deq = xhci_trb_virt_to_dma(ring->deq_seg, ring->dequeue);
 	),
-	TP_printk("%s %p: enq %pad(%pad) deq %pad(%pad) segs %d stream %d bounce %d cycle %d",
+	TP_printk("%s %p: enq %pad deq %pad segs %d stream %d bounce %d cycle %d",
 			xhci_ring_type_string(__entry->type), __entry->ring,
-			&__entry->enq, &__entry->enq_seg,
-			&__entry->deq, &__entry->deq_seg,
+			&__entry->enq,
+			&__entry->deq,
 			__entry->num_segs,
 			__entry->stream_id,
 			__entry->bounce_buf_len,
@@ -512,14 +506,17 @@ DECLARE_EVENT_CLASS(xhci_log_portsc,
 		    TP_PROTO(struct xhci_port *port, u32 portsc),
 		    TP_ARGS(port, portsc),
 		    TP_STRUCT__entry(
+				     __field(u32, busnum)
 				     __field(u32, portnum)
 				     __field(u32, portsc)
 				     ),
 		    TP_fast_assign(
+				   __entry->busnum = port->rhub->hcd->self.busnum;
 				   __entry->portnum = port->hcd_portnum;
 				   __entry->portsc = portsc;
 				   ),
-		    TP_printk("port-%d: %s",
+		    TP_printk("port %d-%d: %s",
+			      __entry->busnum,
 			      __entry->portnum,
 			      xhci_decode_portsc(__get_buf(XHCI_MSG_MAX), __entry->portsc)
 			      )
