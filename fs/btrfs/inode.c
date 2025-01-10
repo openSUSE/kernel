@@ -9925,7 +9925,7 @@ out:
 }
 
 struct btrfs_encoded_read_private {
-	wait_queue_head_t wait;
+	struct completion done;
 	atomic_t pending;
 	blk_status_t status;
 };
@@ -9946,7 +9946,7 @@ static void btrfs_encoded_read_endio(struct btrfs_bio *bbio)
 		WRITE_ONCE(priv->status, bbio->bio.bi_status);
 	}
 	if (atomic_dec_and_test(&priv->pending))
-		wake_up(&priv->wait);
+		complete(&priv->done);
 	bio_put(&bbio->bio);
 }
 
@@ -9961,7 +9961,7 @@ int btrfs_encoded_read_regular_fill_pages(struct btrfs_inode *inode,
 	unsigned long i = 0;
 	struct btrfs_bio *bbio;
 
-	init_waitqueue_head(&priv.wait);
+	init_completion(&priv.done);
 
 	bbio = btrfs_bio_alloc(BIO_MAX_VECS, REQ_OP_READ, fs_info,
 			       btrfs_encoded_read_endio, &priv);
@@ -9990,8 +9990,8 @@ int btrfs_encoded_read_regular_fill_pages(struct btrfs_inode *inode,
 	atomic_inc(&priv.pending);
 	btrfs_submit_bio(bbio, 0);
 
-	if (atomic_dec_return(&priv.pending))
-		io_wait_event(priv.wait, !atomic_read(&priv.pending));
+	if (!atomic_dec_and_test(&priv.pending))
+		wait_for_completion_io(&priv.done);
 	/* See btrfs_encoded_read_endio() for ordering. */
 	return blk_status_to_errno(READ_ONCE(priv.status));
 }
