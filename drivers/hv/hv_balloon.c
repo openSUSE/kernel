@@ -757,7 +757,7 @@ static void hv_mem_hot_add(unsigned long start, unsigned long size,
 		 * adding succeeded, it is ok to proceed even if the memory was
 		 * not onlined in time.
 		 */
-		wait_for_completion_timeout(&dm_device.ol_waitevent, 5 * HZ);
+		wait_for_completion_timeout(&dm_device.ol_waitevent, secs_to_jiffies(5));
 		post_status(&dm_device);
 	}
 }
@@ -1374,7 +1374,8 @@ static int dm_thread_func(void *dm_dev)
 	struct hv_dynmem_device *dm = dm_dev;
 
 	while (!kthread_should_stop()) {
-		wait_for_completion_interruptible_timeout(&dm_device.config_event, 1 * HZ);
+		wait_for_completion_interruptible_timeout(&dm_device.config_event,
+								secs_to_jiffies(1));
 		/*
 		 * The host expects us to post information on the memory
 		 * pressure every second.
@@ -1749,7 +1750,7 @@ static int balloon_connect_vsp(struct hv_device *dev)
 	if (ret)
 		goto out;
 
-	t = wait_for_completion_timeout(&dm_device.host_event, 5 * HZ);
+	t = wait_for_completion_timeout(&dm_device.host_event, secs_to_jiffies(5));
 	if (t == 0) {
 		ret = -ETIMEDOUT;
 		goto out;
@@ -1807,7 +1808,7 @@ static int balloon_connect_vsp(struct hv_device *dev)
 	if (ret)
 		goto out;
 
-	t = wait_for_completion_timeout(&dm_device.host_event, 5 * HZ);
+	t = wait_for_completion_timeout(&dm_device.host_event, secs_to_jiffies(5));
 	if (t == 0) {
 		ret = -ETIMEDOUT;
 		goto out;
