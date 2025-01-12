@@ -1374,4 +1374,22 @@ extern struct blocking_notifier_head efivar_ops_nh;
 void efivars_generic_ops_register(void);
 void efivars_generic_ops_unregister(void);
 
+#ifdef CONFIG_EFI_SECRET_KEY
+#define EFI_SECRET_GUID \
+	EFI_GUID(0x8c136d32, 0x039a, 0x4016, 0x8b, 0xb4, 0x9e, 0x98, 0x5e, 0x62, 0x78, 0x6f)
+#define SECRET_KEY_SIZE        64
+struct efi_skey_setup_data {
+	unsigned long detect_status;
+	unsigned long final_status;
+	unsigned long key_size;
+	u8 secret_key[SECRET_KEY_SIZE];
+};
+extern void *get_efi_secret_key(void);
+#else
+#define SECRET_KEY_SIZE        0
+static inline void *get_efi_secret_key(void)
+{
+	return NULL;
+}
+#endif /* CONFIG_EFI_SECRET_KEY */
 #endif /* _LINUX_EFI_H */

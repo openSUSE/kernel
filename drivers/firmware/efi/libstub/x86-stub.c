@@ -1040,6 +1040,9 @@ void __noreturn efi_stub_entry(efi_handle_t handle,
 
 	setup_efi_pci(boot_params);
 
+	if (boot_params->secure_boot == efi_secureboot_mode_enabled)
+		efi_setup_secret_key(boot_params);
+
 	setup_quirks(boot_params);
 
 	setup_unaccepted_memory();
