@@ -23,6 +23,7 @@
 #include <linux/mm.h>
 #include <linux/platform_device.h>
 #include <linux/unaligned.h>
+#include <linux/security.h>
 
 #include "apei-internal.h"
 
@@ -547,6 +548,9 @@ int einj_error_inject(u32 type, u32 flags, u64 param1, u64 param2, u64 param3,
 {
 	int rc;
 	u64 base_addr, size;
+
+	if (security_locked_down(LOCKDOWN_ACPI_TABLES))
+		return -EPERM;
 
 	/* If user manually set "flags", make sure it is legal */
 	if (flags && (flags &
