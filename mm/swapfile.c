@@ -1609,7 +1609,8 @@ static int unuse_mm(struct mm_struct *mm,
 		lock_page(page);
 	}
 	for (vma = mm->mmap; vma; vma = vma->vm_next) {
-		if (vma->anon_vma && (ret = unuse_vma(vma, entry, page)))
+		if (vma->anon_vma && !is_vm_hugetlb_page(vma)
+		    && (ret = unuse_vma(vma, entry, page)))
 			break;
 		cond_resched();
 	}
