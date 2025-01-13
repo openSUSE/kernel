@@ -729,11 +729,11 @@ void sev_guest_memory_reclaimed(struct kvm *kvm);
 int sev_handle_vmgexit(struct kvm_vcpu *vcpu);
 
 /* These symbols are used in common code and are stubbed below.  */
-struct page *__snp_safe_alloc_page(gfp_t gfp);
 
+struct page *snp_safe_alloc_page_node(int node, gfp_t gfp);
 static inline struct page *snp_safe_alloc_page(void)
 {
-	return __snp_safe_alloc_page(GFP_KERNEL_ACCOUNT);
+	return snp_safe_alloc_page_node(numa_node_id(), GFP_KERNEL_ACCOUNT);
 }
 
 void sev_free_vcpu(struct kvm_vcpu *vcpu);
@@ -750,14 +750,14 @@ int sev_gmem_prepare(struct kvm *kvm, kvm_pfn_t pfn, gfn_t gfn, int max_order);
 void sev_gmem_invalidate(kvm_pfn_t start, kvm_pfn_t end);
 int sev_private_max_mapping_level(struct kvm *kvm, kvm_pfn_t pfn);
 #else
-static inline struct page *__snp_safe_alloc_page(gfp_t gfp)
+static inline struct page *snp_safe_alloc_page_node(int node, gfp_t gfp)
 {
-	return alloc_page(gfp | __GFP_ZERO);
+	return alloc_pages_node(node, gfp | __GFP_ZERO, 0);
 }
 
 static inline struct page *snp_safe_alloc_page(void)
 {
-	return __snp_safe_alloc_page(GFP_KERNEL_ACCOUNT);
+	return snp_safe_alloc_page_node(numa_node_id(), GFP_KERNEL_ACCOUNT);
 }
 
 static inline void sev_free_vcpu(struct kvm_vcpu *vcpu) {}
