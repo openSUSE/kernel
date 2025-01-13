@@ -4590,7 +4590,7 @@ void sev_es_prepare_switch_to_guest(struct vcpu_svm *svm, struct sev_es_save_are
 	 */
 	hostsa->xcr0 = xgetbv(XCR_XFEATURE_ENABLED_MASK);
 	hostsa->pkru = read_pkru();
-	hostsa->xss = host_xss;
+	hostsa->xss = kvm_host.xss;
 
 	/*
 	 * If DebugSwap is enabled, debug registers are loaded but NOT saved by
