@@ -261,7 +261,7 @@ static INLINE void* populate_cgroup_info(struct cgroup_data_t* cgroup_data,
 #ifdef UNROLL
 		__pragma_loop_unroll
 #endif
-		for (int i = 0; i < CGROUP_SUBSYS_COUNT; i++) {
+		for (int i = 0; i < CGROUP_SUBSYS_COUNT_USED; i++) {
 			struct cgroup_subsys_state* subsys =
 				BPF_CORE_READ(task, cgroups, subsys[i]);
 			if (subsys != NULL) {
