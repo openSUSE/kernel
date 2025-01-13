@@ -10,3 +10,4 @@ obj-$(CONFIG_IO_URING)		+= io_uring.o xattr.o nop.o fs.o splice.o \
 					cancel.o kbuf.o rsrc.o rw.o opdef.o \
 					notif.o waitid.o register.o truncate.o
 obj-$(CONFIG_IO_WQ)		+= io-wq.o
+obj-$(CONFIG_NET_RX_BUSY_POLL) += napi.o
