@@ -3049,8 +3049,12 @@ static void restore_plane_states_for_stream(
 	if (!status)
 		return;
 
-	for (i = 0; i < status->plane_count; i++)
+	for (i = 0; i < status->plane_count; i++) {
+		/* refcount will always be valid, restore everything else */
+		struct kref refcount = status->plane_states[i]->refcount;
 		*status->plane_states[i] = plane_states[i];
+		status->plane_states[i]->refcount = refcount;
+	}
 }
 
 static bool update_planes_and_stream_state(struct dc *dc,
