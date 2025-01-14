@@ -289,6 +289,7 @@ struct io_ring_ctx {
 		struct io_hash_table	cancel_table_locked;
 		struct io_alloc_cache	apoll_cache;
 		struct io_alloc_cache	netmsg_cache;
+		struct io_alloc_cache	rw_cache;
 
 		/*
 		 * ->iopoll_list is protected by the ctx->uring_lock for
