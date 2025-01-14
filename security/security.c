@@ -68,7 +68,7 @@ const char *const lockdown_reasons[LOCKDOWN_CONFIDENTIALITY_MAX + 1] = {
 	[LOCKDOWN_PCI_ACCESS] = "direct PCI access",
 	[LOCKDOWN_IOPORT] = "raw io port access",
 	[LOCKDOWN_MSR] = "raw MSR access",
-	[LOCKDOWN_ACPI_TABLES] = "modifying ACPI tables",
+	[LOCKDOWN_ACPI_TABLES] = "modifying ACPI tables or ACPI error injection",
 	[LOCKDOWN_DEVICE_TREE] = "modifying device tree contents",
 	[LOCKDOWN_PCMCIA_CIS] = "direct PCMCIA CIS storage",
 	[LOCKDOWN_TIOCSSERIAL] = "reconfiguration of serial port IO",
@@ -5768,6 +5768,20 @@ int security_locked_down(enum lockdown_reason what)
 	return call_int_hook(locked_down, what);
 }
 EXPORT_SYMBOL(security_locked_down);
+
+/**
+ * @security_lock_kernel_down
+ *     Put the kernel into lock-down mode.
+ *
+ *     @where: Where the lock-down is originating from (e.g. command line option)
+ *     @level: The lock-down level (can only increase)
+ *
+ */
+int security_lock_kernel_down(const char *where, enum lockdown_reason level)
+{
+	return call_int_hook(lock_kernel_down, where, level);
+}
+EXPORT_SYMBOL(security_lock_kernel_down);
 
 /**
  * security_bdev_alloc() - Allocate a block device LSM blob
