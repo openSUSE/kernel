@@ -118,6 +118,9 @@ struct net {
 #endif
 #if defined(CONFIG_NF_TABLES) || defined(CONFIG_NF_TABLES_MODULE)
 	struct netns_nftables	nft;
+#ifndef __GENKSYMS__
+	u64			tstamp;
+#endif
 #endif
 #if IS_ENABLED(CONFIG_NF_DEFRAG_IPV6)
 	struct netns_nf_frag	nf_frag;
