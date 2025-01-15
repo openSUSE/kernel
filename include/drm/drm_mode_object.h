@@ -58,6 +58,8 @@ struct drm_mode_object {
 	struct drm_object_properties *properties;
 	struct kref refcount;
 	void (*free_cb)(struct kref *kref);
+
+	void *suse_kabi_padding;
 };
 
 #define DRM_OBJECT_MAX_PROPERTY 64
