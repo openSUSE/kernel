@@ -497,6 +497,9 @@ static inline void set_task_rq_fair(struct sched_entity *se,
 #else /* CONFIG_CGROUP_SCHED */
 
 struct cfs_bandwidth { };
+struct task_group {
+	struct rt_bandwidth	rt_bandwidth;
+};
 static inline bool cfs_task_bw_constrained(struct task_struct *p) { return false; }
 
 #endif	/* CONFIG_CGROUP_SCHED */
@@ -692,9 +695,8 @@ struct rt_rq {
 
 	struct rq		*rq; /* this is always top-level rq, cache? */
 #endif
-#ifdef CONFIG_CGROUP_SCHED
+	/* Used also with !CONFIG_CGROUPS */
 	struct task_group	*tg; /* this tg has "this" rt_rq on given CPU for runnable entities */
-#endif
 };
 
 static inline bool rt_rq_is_runnable(struct rt_rq *rt_rq)

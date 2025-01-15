@@ -10041,6 +10041,9 @@ LIST_HEAD(task_groups);
 
 /* Cacheline aligned slab cache for task_group */
 static struct kmem_cache *task_group_cache __read_mostly;
+#else
+/* Stub root_task_group for RT throttling */
+struct task_group root_task_group;
 #endif
 
 void __init sched_init(void)
