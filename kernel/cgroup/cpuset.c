@@ -3775,9 +3775,6 @@ static ssize_t sched_partition_write(struct kernfs_open_file *of, char *buf,
 
 	buf = strstrip(buf);
 
-	/*
-	 * Convert "root" to ENABLED, and convert "member" to DISABLED.
-	 */
 	if (!strcmp(buf, "root"))
 		val = PRS_ROOT;
 	else if (!strcmp(buf, "member"))
