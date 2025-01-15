@@ -720,6 +720,7 @@ static int load_image_and_restore(void)
 		swsusp_close();
 		goto Unlock;
 	}
+	efi_skey_stop_regen();
 
 	error = swsusp_read(&flags);
 	swsusp_close();
