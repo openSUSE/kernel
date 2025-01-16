@@ -46,6 +46,7 @@ static void __init register_page_bootmem_info_section(unsigned long start_pfn)
 	struct mem_section *ms;
 	struct page *page, *memmap;
 	struct mem_section_usage *usage;
+	struct mem_section_usage_rcu *usage_rcu;
 
 	section_nr = pfn_to_section_nr(start_pfn);
 	ms = __nr_to_section(section_nr);
@@ -66,7 +67,8 @@ static void __init register_page_bootmem_info_section(unsigned long start_pfn)
 		get_page_bootmem(section_nr, page, SECTION_INFO);
 
 	usage = ms->usage;
-	page = virt_to_page(usage);
+	usage_rcu = container_of(usage, struct mem_section_usage_rcu, usage);
+	page = virt_to_page(usage_rcu);
 
 	mapsize = PAGE_ALIGN(mem_section_usage_size()) >> PAGE_SHIFT;
 
@@ -81,6 +83,7 @@ static void __init register_page_bootmem_info_section(unsigned long start_pfn)
 	struct mem_section *ms;
 	struct page *page, *memmap;
 	struct mem_section_usage *usage;
+	struct mem_section_usage_rcu *usage_rcu;
 
 	section_nr = pfn_to_section_nr(start_pfn);
 	ms = __nr_to_section(section_nr);
@@ -90,7 +93,8 @@ static void __init register_page_bootmem_info_section(unsigned long start_pfn)
 	register_page_bootmem_memmap(section_nr, memmap, PAGES_PER_SECTION);
 
 	usage = ms->usage;
-	page = virt_to_page(usage);
+	usage_rcu = container_of(usage, struct mem_section_usage_rcu, usage);
+	page = virt_to_page(usage_rcu);
 
 	mapsize = PAGE_ALIGN(mem_section_usage_size()) >> PAGE_SHIFT;
 
