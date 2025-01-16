@@ -123,7 +123,7 @@ sev_es_terminate(unsigned int set, unsigned int reason)
 	/* Tell the hypervisor what went wrong. */
 	val |= GHCB_SEV_TERM_REASON(set, reason);
 
-	/* Request Guest Termination from Hypvervisor */
+	/* Request Guest Termination from Hypervisor */
 	sev_es_wr_ghcb_msr(val);
 	VMGEXIT();
 
