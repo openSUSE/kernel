@@ -465,6 +465,10 @@ is_valid_oplock_break(char *buffer, struct TCP_Server_Info *srv)
 	spin_lock(&cifs_tcp_ses_lock);
 	list_for_each(tmp, &srv->smb_ses_list) {
 		ses = list_entry(tmp, struct cifs_ses, smb_ses_list);
+
+		if (ses->status == CifsExiting)
+			continue;
+
 		list_for_each(tmp1, &ses->tcon_list) {
 			tcon = list_entry(tmp1, struct cifs_tcon, tcon_list);
 			if (tcon->tid != buf->Tid)
