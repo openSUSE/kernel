@@ -27,9 +27,6 @@ static int kvm_gmem_prepare_folio(struct inode *inode, pgoff_t index, struct fol
 		gfn_t gfn;
 		int rc;
 
-		if (!kvm_arch_gmem_prepare_needed(kvm))
-			continue;
-
 		slot = xa_load(&gmem->bindings, index);
 		if (!slot)
 			continue;
