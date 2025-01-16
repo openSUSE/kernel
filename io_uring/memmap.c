@@ -8,7 +8,9 @@
 #include <linux/vmalloc.h>
 #include <linux/io_uring.h>
 #include <linux/io_uring_types.h>
+#include <linux/hugetlb.h>
 #include <asm/shmparam.h>
+
 
 #include "memmap.h"
 #include "kbuf.h"
