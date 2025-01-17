@@ -1021,8 +1021,11 @@ int io_send_zc_prep(struct io_kiocb *req, const struct io_uring_sqe *sqe)
 		if (zc->flags & ~IO_ZC_FLAGS_VALID)
 			return -EINVAL;
 		if (zc->flags & IORING_SEND_ZC_REPORT_USAGE) {
-			io_notif_set_extended(notif);
-			io_notif_to_data(notif)->zc_report = true;
+			struct io_notif_data *nd = io_notif_to_data(notif);
+
+			nd->zc_report = true;
+			nd->zc_used = false;
+			nd->zc_copied = false;
 		}
 	}
 
@@ -1131,7 +1134,6 @@ static int io_send_zc_import(struct io_kiocb *req, struct io_async_msghdr *kmsg)
 			return ret;
 		kmsg->msg.sg_from_iter = io_sg_from_iter;
 	} else {
-		io_notif_set_extended(sr->notif);
 		ret = import_ubuf(ITER_SOURCE, sr->buf, sr->len, &kmsg->msg.msg_iter);
 		if (unlikely(ret))
 			return ret;
@@ -1219,8 +1221,6 @@ int io_sendmsg_zc(struct io_kiocb *req, unsigned int issue_flags)
 	struct socket *sock;
 	unsigned flags;
 	int ret, min_ret = 0;
-
-	io_notif_set_extended(sr->notif);
 
 	sock = sock_from_file(req->file);
 	if (unlikely(!sock))
