@@ -266,6 +266,8 @@ struct ttm_device {
 	 * @wq: Work queue structure for the delayed delete workqueue.
 	 */
 	struct workqueue_struct *wq;
+
+	void *suse_kabi_padding;
 };
 
 int ttm_global_swapout(struct ttm_operation_ctx *ctx, gfp_t gfp_flags);
