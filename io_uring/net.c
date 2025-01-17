@@ -1489,6 +1489,9 @@ void io_sendrecv_fail(struct io_kiocb *req)
 		req->cqe.flags |= IORING_CQE_F_MORE;
 }
 
+#define ACCEPT_FLAGS	(IORING_ACCEPT_MULTISHOT | IORING_ACCEPT_DONTWAIT | \
+			 IORING_ACCEPT_POLL_FIRST)
+
 int io_accept_prep(struct io_kiocb *req, const struct io_uring_sqe *sqe)
 {
 	struct io_accept *accept = io_kiocb_to_cmd(req, struct io_accept);
@@ -1501,7 +1504,7 @@ int io_accept_prep(struct io_kiocb *req, const struct io_uring_sqe *sqe)
 	accept->flags = READ_ONCE(sqe->accept_flags);
 	accept->nofile = rlimit(RLIMIT_NOFILE);
 	accept->iou_flags = READ_ONCE(sqe->ioprio);
-	if (accept->iou_flags & ~(IORING_ACCEPT_MULTISHOT | IORING_ACCEPT_DONTWAIT))
+	if (accept->iou_flags & ~ACCEPT_FLAGS)
 		return -EINVAL;
 
 	accept->file_slot = READ_ONCE(sqe->file_index);
@@ -1531,6 +1534,10 @@ int io_accept(struct io_kiocb *req, unsigned int issue_flags)
 	bool fixed = !!accept->file_slot;
 	struct file *file;
 	int ret, fd;
+
+	if (!(req->flags & REQ_F_POLLED) &&
+	    accept->iou_flags & IORING_ACCEPT_POLL_FIRST)
+		return -EAGAIN;
 
 retry:
 	if (!fixed) {
