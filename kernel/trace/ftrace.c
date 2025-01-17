@@ -3821,6 +3821,9 @@ ftrace_mod_callback(struct trace_array *tr, struct ftrace_hash *hash,
 {
 	int ret;
 
+	if (!tr)
+		return -ENODEV;
+
 	/*
 	 * cmd == 'mod' because we only registered this func
 	 * for the 'mod' ftrace_func_command.
