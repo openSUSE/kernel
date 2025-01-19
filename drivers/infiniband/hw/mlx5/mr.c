@@ -1587,6 +1587,8 @@ int mlx5_ib_dereg_mr(struct ib_mr *ibmr, struct ib_udata *udata)
 {
 	struct mlx5_ib_mr *mr = to_mmr(ibmr);
 	struct mlx5_ib_dev *dev = to_mdev(ibmr->device);
+	bool is_odp = is_odp_mr(mr);
+	bool odp_locked = is_odp;
 	int rc;
 
 	/*
@@ -1628,25 +1630,42 @@ int mlx5_ib_dereg_mr(struct ib_mr *ibmr, struct ib_udata *udata)
 	}
 
 	/* Stop DMA */
+	if (odp_locked)
+		mutex_lock(&to_ib_umem_odp(mr->umem)->umem_mutex);
+
 	if (mr->mmkey.cache_ent) {
 		xa_lock_irq(&mr->mmkey.cache_ent->mkeys);
 		mr->mmkey.cache_ent->in_use--;
 		xa_unlock_irq(&mr->mmkey.cache_ent->mkeys);
 
-		if (mlx5r_umr_revoke_mr(mr) ||
-		    push_mkey(mr->mmkey.cache_ent, false,
-			      xa_mk_value(mr->mmkey.key)))
+		if (mlx5r_umr_revoke_mr(mr)) {
 			mr->mmkey.cache_ent = NULL;
+		} else {
+			if (odp_locked) {
+				to_ib_umem_odp(mr->umem)->private = NULL;
+				mutex_unlock(&to_ib_umem_odp(mr->umem)->umem_mutex);
+				odp_locked = false;
+			}
+			if (push_mkey(mr->mmkey.cache_ent, false,
+				      xa_mk_value(mr->mmkey.key)))
+				mr->mmkey.cache_ent = NULL;
+		}
 	}
 	if (!mr->mmkey.cache_ent) {
 		rc = destroy_mkey(to_mdev(mr->ibmr.device), mr);
-		if (rc)
+		if (rc) {
+			if (odp_locked)
+				mutex_unlock(&to_ib_umem_odp(mr->umem)->umem_mutex);
 			return rc;
+		}
+	}
+
+	if (odp_locked) {
+		to_ib_umem_odp(mr->umem)->private = NULL;
+		mutex_unlock(&to_ib_umem_odp(mr->umem)->umem_mutex);
 	}
 
 	if (mr->umem) {
-		bool is_odp = is_odp_mr(mr);
-
 		if (!is_odp)
 			atomic_sub(ib_umem_num_pages(mr->umem),
 				   &dev->mdev->priv.reg_pages);
