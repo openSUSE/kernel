@@ -101,7 +101,7 @@ smb2_find_smb_ses_unlocked(struct TCP_Server_Info *server, __u64 ses_id)
 	return NULL;
 }
 
-static int smb2_get_sign_key(struct TCP_Server_Info *server, __u64 ses_id, u8 *key)
+static int smb2_get_sign_key(struct TCP_Server_Info *server, __le64 ses_id, u8 *key)
 {
 	struct cifs_ses *ses;
 	int rc = -ENOENT;
@@ -132,7 +132,7 @@ static int smb2_get_sign_key(struct TCP_Server_Info *server, __u64 ses_id, u8 *k
 	return rc;
 }
 
-static int smb3_get_sign_key(struct TCP_Server_Info *server, __u64 ses_id, u8 *key)
+static int smb3_get_sign_key(struct TCP_Server_Info *server, __le64 ses_id, u8 *key)
 {
 	struct cifs_ses *ses;
 	int rc = -ENOENT;
@@ -207,7 +207,7 @@ smb2_calc_signature(struct smb_rqst *rqst, struct TCP_Server_Info *server,
 	struct smb2_sync_hdr *shdr = (struct smb2_sync_hdr *)iov[0].iov_base;
 	struct shash_desc *shash = NULL;
 	struct smb_rqst drqst;
-	__u64 sid = le64_to_cpu(shdr->SessionId);
+	__le64 sid = shdr->SessionId;
 	u8 key[SMB2_NTLMV2_SESSKEY_SIZE];
 
 	rc = smb2_get_sign_key(server, sid, key);
@@ -476,7 +476,7 @@ smb3_calc_signature(struct smb_rqst *rqst, struct TCP_Server_Info *server,
 	struct smb_rqst drqst;
 	u8 key[SMB3_SIGNKEY_SIZE];
 
-	rc = smb3_get_sign_key(server, le64_to_cpu(shdr->SessionId), key);
+	rc = smb3_get_sign_key(server, shdr->SessionId, key);
 	if (unlikely(rc)) {
 		cifs_dbg(VFS, "%s: Could not get signing key\n", __func__);
 		return rc;

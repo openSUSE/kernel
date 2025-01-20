@@ -864,19 +864,22 @@ int open_cached_dir(unsigned int xid, struct cifs_tcon *tcon,
 	dget(dentry);
 	kref_init(&tcon->crfid.refcount);
 
-	/* BB TBD check to see if oplock level check can be removed below */
-	if (o_rsp->OplockLevel == SMB2_OPLOCK_LEVEL_LEASE) {
-		/*
-		 * See commit 2f94a3125b87. Increment the refcount when we
-		 * get a lease for root, release it if lease break occurs
-		 */
-		kref_get(&tcon->crfid.refcount);
-		tcon->crfid.has_lease = true;
-		smb2_parse_contexts(server, o_rsp,
-				&oparms.fid->epoch,
-				    oparms.fid->lease_key, &oplock,
-				    NULL, NULL);
-	} else
+	if (o_rsp->OplockLevel != SMB2_OPLOCK_LEVEL_LEASE) {
+		rc = -EINVAL;
+		goto oshr_exit;
+	}
+
+	/*
+	 * See commit 2f94a3125b87. Increment the refcount when we
+	 * get a lease for root, release it if lease break occurs
+	 */
+	kref_get(&tcon->crfid.refcount);
+	tcon->crfid.has_lease = true;
+	rc = smb2_parse_contexts(server, rsp_iov,
+				 &oparms.fid->epoch,
+				 oparms.fid->lease_key,
+				 &oplock, NULL, NULL);
+	if (rc)
 		goto oshr_exit;
 
 	qi_rsp = (struct smb2_query_info_rsp *)rsp_iov[1].iov_base;
