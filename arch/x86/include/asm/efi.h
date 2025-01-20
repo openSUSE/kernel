@@ -174,9 +174,11 @@ extern void parse_efi_setup(u64 phys_addr, u32 data_len);
 #ifdef CONFIG_EFI_SECRET_KEY
 extern void efi_setup_secret_key(struct boot_params *params);
 extern void parse_efi_secret_key_setup(u64 phys_addr, u32 data_len);
+extern void efi_clean_secret_key(void);
 #else
 static inline void efi_setup_secret_key(struct boot_params *params) {}
 static inline void parse_efi_secret_key_setup(u64 phys_addr, u32 data_len) {}
+static inline void efi_clean_secret_key(void) {}
 #endif /* CONFIG_EFI_SECRET_KEY */
 
 extern void efi_thunk_runtime_setup(void);

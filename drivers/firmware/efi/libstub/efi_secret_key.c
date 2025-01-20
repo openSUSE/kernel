@@ -247,3 +247,16 @@ void efi_setup_secret_key(struct boot_params *params)
 	else
 		params->hdr.setup_data = (unsigned long)skey_setup_data;
 }
+
+void efi_clean_secret_key(void)
+{
+	u32 attributes = 0;
+	unsigned long key_size = 0;
+	efi_status_t status;
+
+	/* detect and remove secret key variable */
+	status = get_efi_var(secret_key_name, &EFI_SECRET_GUID,
+			     &attributes, &key_size, NULL);
+	if (status == EFI_BUFFER_TOO_SMALL)
+		remove_secret_key(attributes);
+}

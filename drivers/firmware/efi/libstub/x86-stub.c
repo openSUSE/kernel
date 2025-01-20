@@ -1040,8 +1040,13 @@ void __noreturn efi_stub_entry(efi_handle_t handle,
 
 	setup_efi_pci(boot_params);
 
+	/* EFI secret key is no longer safe when EFI secure boot is
+	 * disabled. So we removed it. User should trigger key
+	 * re-generate when secure boot be enabled again */
 	if (boot_params->secure_boot == efi_secureboot_mode_enabled)
 		efi_setup_secret_key(boot_params);
+	else
+		efi_clean_secret_key();
 
 	setup_quirks(boot_params);
 
