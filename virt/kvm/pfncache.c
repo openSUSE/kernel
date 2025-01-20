@@ -247,12 +247,7 @@ static int __kvm_gpc_refresh(struct gfn_to_pfn_cache *gpc, gpa_t gpa, unsigned l
 	if (!kvm_gpc_is_valid_len(gpa, uhva, len))
 		return -EINVAL;
 
-	/*
-	 * If another task is refreshing the cache, wait for it to complete.
-	 * There is no guarantee that concurrent refreshes will see the same
-	 * gpa, memslots generation, etc..., so they must be fully serialized.
-	 */
-	mutex_lock(&gpc->refresh_lock);
+	lockdep_assert_held(&gpc->refresh_lock);
 
 	write_lock_irq(&gpc->lock);
 
@@ -342,8 +337,6 @@ static int __kvm_gpc_refresh(struct gfn_to_pfn_cache *gpc, gpa_t gpa, unsigned l
 out_unlock:
 	write_unlock_irq(&gpc->lock);
 
-	mutex_unlock(&gpc->refresh_lock);
-
 	if (unmap_old)
 		gpc_unmap(old_pfn, old_khva);
 
@@ -352,13 +345,16 @@ out_unlock:
 
 int kvm_gpc_refresh(struct gfn_to_pfn_cache *gpc, unsigned long len)
 {
+	unsigned long uhva;
+
+	guard(mutex)(&gpc->refresh_lock);
+
 	/*
 	 * If the GPA is valid then ignore the HVA, as a cache can be GPA-based
 	 * or HVA-based, not both.  For GPA-based caches, the HVA will be
 	 * recomputed during refresh if necessary.
 	 */
-	unsigned long uhva = kvm_is_error_gpa(gpc->gpa) ? gpc->uhva :
-							  KVM_HVA_ERR_BAD;
+	uhva = kvm_is_error_gpa(gpc->gpa) ? gpc->uhva : KVM_HVA_ERR_BAD;
 
 	return __kvm_gpc_refresh(gpc, gpc->gpa, uhva, len);
 }
@@ -372,12 +368,15 @@ void kvm_gpc_init(struct gfn_to_pfn_cache *gpc, struct kvm *kvm)
 	gpc->pfn = KVM_PFN_ERR_FAULT;
 	gpc->gpa = INVALID_GPA;
 	gpc->uhva = KVM_HVA_ERR_BAD;
+	gpc->active = gpc->valid = false;
 }
 
 static int __kvm_gpc_activate(struct gfn_to_pfn_cache *gpc, gpa_t gpa, unsigned long uhva,
 			      unsigned long len)
 {
 	struct kvm *kvm = gpc->kvm;
+
+	guard(mutex)(&gpc->refresh_lock);
 
 	if (!gpc->active) {
 		if (KVM_BUG_ON(gpc->valid, kvm))
@@ -417,6 +416,8 @@ void kvm_gpc_deactivate(struct gfn_to_pfn_cache *gpc)
 	struct kvm *kvm = gpc->kvm;
 	kvm_pfn_t old_pfn;
 	void *old_khva;
+
+	guard(mutex)(&gpc->refresh_lock);
 
 	if (gpc->active) {
 		/*
