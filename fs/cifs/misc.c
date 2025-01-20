@@ -475,7 +475,7 @@ is_valid_oplock_break(char *buffer, struct TCP_Server_Info *srv)
 	list_for_each(tmp, &srv->smb_ses_list) {
 		ses = list_entry(tmp, struct cifs_ses, smb_ses_list);
 
-		if (ses->ses_status == CifsExiting)
+		if (ses->ses_status == SES_EXITING)
 			continue;
 
 		list_for_each(tmp1, &ses->tcon_list) {
