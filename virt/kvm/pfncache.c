@@ -229,8 +229,7 @@ out_error:
 	return -EFAULT;
 }
 
-static int __kvm_gpc_refresh(struct gfn_to_pfn_cache *gpc, gpa_t gpa, unsigned long uhva,
-			     unsigned long len)
+static int __kvm_gpc_refresh(struct gfn_to_pfn_cache *gpc, gpa_t gpa, unsigned long uhva)
 {
 	unsigned long page_offset;
 	bool unmap_old = false;
@@ -242,9 +241,6 @@ static int __kvm_gpc_refresh(struct gfn_to_pfn_cache *gpc, gpa_t gpa, unsigned l
 
 	/* Either gpa or uhva must be valid, but not both */
 	if (WARN_ON_ONCE(kvm_is_error_gpa(gpa) == kvm_is_error_hva(uhva)))
-		return -EINVAL;
-
-	if (!kvm_gpc_is_valid_len(gpa, uhva, len))
 		return -EINVAL;
 
 	lockdep_assert_held(&gpc->refresh_lock);
@@ -349,6 +345,9 @@ int kvm_gpc_refresh(struct gfn_to_pfn_cache *gpc, unsigned long len)
 
 	guard(mutex)(&gpc->refresh_lock);
 
+	if (!kvm_gpc_is_valid_len(gpc->gpa, gpc->uhva, len))
+		return -EINVAL;
+
 	/*
 	 * If the GPA is valid then ignore the HVA, as a cache can be GPA-based
 	 * or HVA-based, not both.  For GPA-based caches, the HVA will be
@@ -356,7 +355,7 @@ int kvm_gpc_refresh(struct gfn_to_pfn_cache *gpc, unsigned long len)
 	 */
 	uhva = kvm_is_error_gpa(gpc->gpa) ? gpc->uhva : KVM_HVA_ERR_BAD;
 
-	return __kvm_gpc_refresh(gpc, gpc->gpa, uhva, len);
+	return __kvm_gpc_refresh(gpc, gpc->gpa, uhva);
 }
 
 void kvm_gpc_init(struct gfn_to_pfn_cache *gpc, struct kvm *kvm)
@@ -375,6 +374,9 @@ static int __kvm_gpc_activate(struct gfn_to_pfn_cache *gpc, gpa_t gpa, unsigned 
 			      unsigned long len)
 {
 	struct kvm *kvm = gpc->kvm;
+
+	if (!kvm_gpc_is_valid_len(gpa, uhva, len))
+		return -EINVAL;
 
 	guard(mutex)(&gpc->refresh_lock);
 
@@ -395,7 +397,7 @@ static int __kvm_gpc_activate(struct gfn_to_pfn_cache *gpc, gpa_t gpa, unsigned 
 		gpc->active = true;
 		write_unlock_irq(&gpc->lock);
 	}
-	return __kvm_gpc_refresh(gpc, gpa, uhva, len);
+	return __kvm_gpc_refresh(gpc, gpa, uhva);
 }
 
 int kvm_gpc_activate(struct gfn_to_pfn_cache *gpc, gpa_t gpa, unsigned long len)
