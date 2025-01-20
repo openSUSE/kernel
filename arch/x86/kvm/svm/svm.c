@@ -53,6 +53,7 @@
 #include "svm_onhyperv.h"
 
 MODULE_AUTHOR("Qumranet");
+MODULE_DESCRIPTION("KVM support for SVM (AMD-V) extensions");
 MODULE_LICENSE("GPL");
 
 #ifdef MODULE
@@ -570,6 +571,11 @@ static void __svm_write_tsc_multiplier(u64 multiplier)
 	__this_cpu_write(current_tsc_ratio, multiplier);
 }
 
+static __always_inline struct sev_es_save_area *sev_es_host_save_area(struct svm_cpu_data *sd)
+{
+	return page_address(sd->save_area) + 0x400;
+}
+
 static inline void kvm_cpu_svm_disable(void)
 {
 	uint64_t efer;
@@ -674,12 +680,9 @@ static int svm_hardware_enable(void)
 	 * TSC_AUX field now to avoid a RDMSR on every vCPU run.
 	 */
 	if (boot_cpu_has(X86_FEATURE_V_TSC_AUX)) {
-		struct sev_es_save_area *hostsa;
 		u32 __maybe_unused msr_hi;
 
-		hostsa = (struct sev_es_save_area *)(page_address(sd->save_area) + 0x400);
-
-		rdmsr(MSR_TSC_AUX, hostsa->tsc_aux, msr_hi);
+		rdmsr(MSR_TSC_AUX, sev_es_host_save_area(sd)->tsc_aux, msr_hi);
 	}
 
 	return 0;
@@ -704,7 +707,7 @@ static int svm_cpu_init(int cpu)
 	int ret = -ENOMEM;
 
 	memset(sd, 0, sizeof(struct svm_cpu_data));
-	sd->save_area = snp_safe_alloc_page(NULL);
+	sd->save_area = snp_safe_alloc_page_node(cpu_to_node(cpu), GFP_KERNEL);
 	if (!sd->save_area)
 		return ret;
 
@@ -1202,7 +1205,7 @@ static inline void init_vmcb_after_set_cpuid(struct kvm_vcpu *vcpu)
 {
 	struct vcpu_svm *svm = to_svm(vcpu);
 
-	if (guest_cpuid_is_intel(vcpu)) {
+	if (guest_cpuid_is_intel_compatible(vcpu)) {
 		/*
 		 * We must intercept SYSENTER_EIP and SYSENTER_ESP
 		 * accesses because the processor only stores 32 bits.
@@ -1430,7 +1433,7 @@ static int svm_vcpu_create(struct kvm_vcpu *vcpu)
 	svm = to_svm(vcpu);
 
 	err = -ENOMEM;
-	vmcb01_page = snp_safe_alloc_page(vcpu);
+	vmcb01_page = snp_safe_alloc_page();
 	if (!vmcb01_page)
 		goto out;
 
@@ -1439,7 +1442,7 @@ static int svm_vcpu_create(struct kvm_vcpu *vcpu)
 		 * SEV-ES guests require a separate VMSA page used to contain
 		 * the encrypted register state of the guest.
 		 */
-		vmsa_page = snp_safe_alloc_page(vcpu);
+		vmsa_page = snp_safe_alloc_page();
 		if (!vmsa_page)
 			goto error_free_vmcb_page;
 	}
@@ -1504,11 +1507,6 @@ static void svm_vcpu_free(struct kvm_vcpu *vcpu)
 	__free_pages(virt_to_page(svm->msrpm), get_order(MSRPM_SIZE));
 }
 
-static __always_inline struct sev_es_save_area *sev_es_host_save_area(struct svm_cpu_data *sd)
-{
-	return page_address(sd->save_area) + 0x400;
-}
-
 static void svm_prepare_switch_to_guest(struct kvm_vcpu *vcpu)
 {
 	struct vcpu_svm *svm = to_svm(vcpu);
@@ -1553,6 +1551,9 @@ static void svm_vcpu_load(struct kvm_vcpu *vcpu, int cpu)
 {
 	struct vcpu_svm *svm = to_svm(vcpu);
 	struct svm_cpu_data *sd = per_cpu_ptr(&svm_data, cpu);
+
+	if (vcpu->scheduled_out && !kvm_pause_in_guest(vcpu->kvm))
+		shrink_ple_window(vcpu);
 
 	if (sd->current_vmcb != svm->vmcb) {
 		sd->current_vmcb = svm->vmcb;
@@ -2893,12 +2894,12 @@ static int svm_get_msr(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 		break;
 	case MSR_IA32_SYSENTER_EIP:
 		msr_info->data = (u32)svm->vmcb01.ptr->save.sysenter_eip;
-		if (guest_cpuid_is_intel(vcpu))
+		if (guest_cpuid_is_intel_compatible(vcpu))
 			msr_info->data |= (u64)svm->sysenter_eip_hi << 32;
 		break;
 	case MSR_IA32_SYSENTER_ESP:
 		msr_info->data = svm->vmcb01.ptr->save.sysenter_esp;
-		if (guest_cpuid_is_intel(vcpu))
+		if (guest_cpuid_is_intel_compatible(vcpu))
 			msr_info->data |= (u64)svm->sysenter_esp_hi << 32;
 		break;
 	case MSR_TSC_AUX:
@@ -3131,11 +3132,11 @@ static int svm_set_msr(struct kvm_vcpu *vcpu, struct msr_data *msr)
 		 * 32 bit part of these msrs to support Intel's
 		 * implementation of SYSENTER/SYSEXIT.
 		 */
-		svm->sysenter_eip_hi = guest_cpuid_is_intel(vcpu) ? (data >> 32) : 0;
+		svm->sysenter_eip_hi = guest_cpuid_is_intel_compatible(vcpu) ? (data >> 32) : 0;
 		break;
 	case MSR_IA32_SYSENTER_ESP:
 		svm->vmcb01.ptr->save.sysenter_esp = (u32)data;
-		svm->sysenter_esp_hi = guest_cpuid_is_intel(vcpu) ? (data >> 32) : 0;
+		svm->sysenter_esp_hi = guest_cpuid_is_intel_compatible(vcpu) ? (data >> 32) : 0;
 		break;
 	case MSR_TSC_AUX:
 		/*
@@ -4392,11 +4393,11 @@ static void svm_vcpu_after_set_cpuid(struct kvm_vcpu *vcpu)
 	kvm_governed_feature_check_and_set(vcpu, X86_FEATURE_LBRV);
 
 	/*
-	 * Intercept VMLOAD if the vCPU mode is Intel in order to emulate that
+	 * Intercept VMLOAD if the vCPU model is Intel in order to emulate that
 	 * VMLOAD drops bits 63:32 of SYSENTER (ignoring the fact that exposing
 	 * SVM on Intel is bonkers and extremely unlikely to work).
 	 */
-	if (!guest_cpuid_is_intel(vcpu))
+	if (!guest_cpuid_is_intel_compatible(vcpu))
 		kvm_governed_feature_check_and_set(vcpu, X86_FEATURE_V_VMSAVE_VMLOAD);
 
 	kvm_governed_feature_check_and_set(vcpu, X86_FEATURE_PAUSEFILTER);
@@ -4613,12 +4614,6 @@ static void svm_handle_exit_irqoff(struct kvm_vcpu *vcpu)
 {
 	if (to_svm(vcpu)->vmcb->control.exit_code == SVM_EXIT_INTR)
 		vcpu->arch.at_instruction_boundary = true;
-}
-
-static void svm_sched_in(struct kvm_vcpu *vcpu, int cpu)
-{
-	if (!kvm_pause_in_guest(vcpu->kvm))
-		shrink_ple_window(vcpu);
 }
 
 static void svm_setup_mce(struct kvm_vcpu *vcpu)
@@ -4962,6 +4957,7 @@ static int svm_vm_init(struct kvm *kvm)
 		to_kvm_sev_info(kvm)->need_init = true;
 
 		kvm->arch.has_private_mem = (type == KVM_X86_SNP_VM);
+		kvm->arch.pre_fault_allowed = !kvm->arch.has_private_mem;
 	}
 
 	if (!pause_filter_count || !pause_filter_thresh)
@@ -4978,18 +4974,12 @@ static int svm_vm_init(struct kvm *kvm)
 
 static void *svm_alloc_apic_backing_page(struct kvm_vcpu *vcpu)
 {
-	struct page *page = snp_safe_alloc_page(vcpu);
+	struct page *page = snp_safe_alloc_page();
 
 	if (!page)
 		return NULL;
 
 	return page_address(page);
-}
-
-static void svm_vcpu_unblocking(struct kvm_vcpu *vcpu)
-{
-	sev_vcpu_unblocking(vcpu);
-	avic_vcpu_unblocking(vcpu);
 }
 
 static struct kvm_x86_ops svm_x86_ops __initdata = {
@@ -5014,7 +5004,7 @@ static struct kvm_x86_ops svm_x86_ops __initdata = {
 	.vcpu_load = svm_vcpu_load,
 	.vcpu_put = svm_vcpu_put,
 	.vcpu_blocking = avic_vcpu_blocking,
-	.vcpu_unblocking = svm_vcpu_unblocking,
+	.vcpu_unblocking = avic_vcpu_unblocking,
 
 	.update_exception_bitmap = svm_update_exception_bitmap,
 	.get_msr_feature = svm_get_msr_feature,
@@ -5090,8 +5080,6 @@ static struct kvm_x86_ops svm_x86_ops __initdata = {
 
 	.check_intercept = svm_check_intercept,
 	.handle_exit_irqoff = svm_handle_exit_irqoff,
-
-	.sched_in = svm_sched_in,
 
 	.nested_ops = &svm_nested_ops,
 

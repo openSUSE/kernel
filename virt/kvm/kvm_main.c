@@ -2383,48 +2383,47 @@ static int kvm_vm_ioctl_clear_dirty_log(struct kvm *kvm,
 #endif /* CONFIG_KVM_GENERIC_DIRTYLOG_READ_PROTECT */
 
 #ifdef CONFIG_KVM_GENERIC_MEMORY_ATTRIBUTES
-/*
- * Returns true if _all_ gfns in the range [@start, @end) have attributes
- * matching @attrs.
- */
-bool kvm_range_has_memory_attributes(struct kvm *kvm, gfn_t start, gfn_t end,
-				     unsigned long attrs)
-{
-	XA_STATE(xas, &kvm->mem_attr_array, start);
-	unsigned long index;
-	bool has_attrs;
-	void *entry;
-
-	rcu_read_lock();
-
-	if (!attrs) {
-		has_attrs = !xas_find(&xas, end - 1);
-		goto out;
-	}
-
-	has_attrs = true;
-	for (index = start; index < end; index++) {
-		do {
-			entry = xas_next(&xas);
-		} while (xas_retry(&xas, entry));
-
-		if (xas.xa_index != index || xa_to_value(entry) != attrs) {
-			has_attrs = false;
-			break;
-		}
-	}
-
-out:
-	rcu_read_unlock();
-	return has_attrs;
-}
-
 static u64 kvm_supported_mem_attributes(struct kvm *kvm)
 {
 	if (!kvm || kvm_arch_has_private_mem(kvm))
 		return KVM_MEMORY_ATTRIBUTE_PRIVATE;
 
 	return 0;
+}
+
+/*
+ * Returns true if _all_ gfns in the range [@start, @end) have attributes
+ * such that the bits in @mask match @attrs.
+ */
+bool kvm_range_has_memory_attributes(struct kvm *kvm, gfn_t start, gfn_t end,
+				     unsigned long mask, unsigned long attrs)
+{
+	XA_STATE(xas, &kvm->mem_attr_array, start);
+	unsigned long index;
+	void *entry;
+
+	mask &= kvm_supported_mem_attributes(kvm);
+	if (attrs & ~mask)
+		return false;
+
+	if (end == start + 1)
+		return (kvm_get_memory_attributes(kvm, start) & mask) == attrs;
+
+	guard(rcu)();
+	if (!attrs)
+		return !xas_find(&xas, end - 1);
+
+	for (index = start; index < end; index++) {
+		do {
+			entry = xas_next(&xas);
+		} while (xas_retry(&xas, entry));
+
+		if (xas.xa_index != index ||
+		    (xa_to_value(entry) & mask) != attrs)
+			return false;
+	}
+
+	return true;
 }
 
 static __always_inline void kvm_handle_gfn_range(struct kvm *kvm,
@@ -2519,7 +2518,7 @@ static int kvm_vm_set_mem_attributes(struct kvm *kvm, gfn_t start, gfn_t end,
 	mutex_lock(&kvm->slots_lock);
 
 	/* Nothing to do if the entire range as the desired attributes. */
-	if (kvm_range_has_memory_attributes(kvm, start, end, attributes))
+	if (kvm_range_has_memory_attributes(kvm, start, end, ~0, attributes))
 		goto out_unlock;
 
 	/*
@@ -4355,6 +4354,52 @@ static int kvm_vcpu_ioctl_get_stats_fd(struct kvm_vcpu *vcpu)
 	return fd;
 }
 
+#ifdef CONFIG_KVM_GENERIC_PRE_FAULT_MEMORY
+static int kvm_vcpu_pre_fault_memory(struct kvm_vcpu *vcpu,
+				     struct kvm_pre_fault_memory *range)
+{
+	int idx;
+	long r;
+	u64 full_size;
+
+	if (range->flags)
+		return -EINVAL;
+
+	if (!PAGE_ALIGNED(range->gpa) ||
+	    !PAGE_ALIGNED(range->size) ||
+	    range->gpa + range->size <= range->gpa)
+		return -EINVAL;
+
+	vcpu_load(vcpu);
+	idx = srcu_read_lock(&vcpu->kvm->srcu);
+
+	full_size = range->size;
+	do {
+		if (signal_pending(current)) {
+			r = -EINTR;
+			break;
+		}
+
+		r = kvm_arch_vcpu_pre_fault_memory(vcpu, range);
+		if (WARN_ON_ONCE(r == 0 || r == -EIO))
+			break;
+
+		if (r < 0)
+			break;
+
+		range->size -= r;
+		range->gpa += r;
+		cond_resched();
+	} while (range->size);
+
+	srcu_read_unlock(&vcpu->kvm->srcu, idx);
+	vcpu_put(vcpu);
+
+	/* Return success if at least one page was mapped successfully.  */
+	return full_size == range->size ? r : 0;
+}
+#endif
+
 static long kvm_vcpu_ioctl(struct file *filp,
 			   unsigned int ioctl, unsigned long arg)
 {
@@ -4401,7 +4446,10 @@ static long kvm_vcpu_ioctl(struct file *filp,
 				synchronize_rcu();
 			put_pid(oldpid);
 		}
+		vcpu->wants_to_run = !READ_ONCE(vcpu->run->immediate_exit);
 		r = kvm_arch_vcpu_ioctl_run(vcpu);
+		vcpu->wants_to_run = false;
+
 		trace_kvm_userspace_exit(vcpu->run->exit_reason, r);
 		break;
 	}
@@ -4556,6 +4604,20 @@ out_free1:
 		r = kvm_vcpu_ioctl_get_stats_fd(vcpu);
 		break;
 	}
+#ifdef CONFIG_KVM_GENERIC_PRE_FAULT_MEMORY
+	case KVM_PRE_FAULT_MEMORY: {
+		struct kvm_pre_fault_memory range;
+
+		r = -EFAULT;
+		if (copy_from_user(&range, argp, sizeof(range)))
+			break;
+		r = kvm_vcpu_pre_fault_memory(vcpu, &range);
+		/* Pass back leftover range. */
+		if (copy_to_user(argp, &range, sizeof(range)))
+			r = -EFAULT;
+		break;
+	}
+#endif
 	default:
 		r = kvm_arch_vcpu_ioctl(filp, ioctl, arg);
 	}
@@ -6263,14 +6325,17 @@ static void kvm_sched_in(struct preempt_notifier *pn, int cpu)
 	WRITE_ONCE(vcpu->ready, false);
 
 	__this_cpu_write(kvm_running_vcpu, vcpu);
-	kvm_arch_sched_in(vcpu, cpu);
 	kvm_arch_vcpu_load(vcpu, cpu);
+
+	WRITE_ONCE(vcpu->scheduled_out, false);
 }
 
 static void kvm_sched_out(struct preempt_notifier *pn,
 			  struct task_struct *next)
 {
 	struct kvm_vcpu *vcpu = preempt_notifier_to_vcpu(pn);
+
+	WRITE_ONCE(vcpu->scheduled_out, true);
 
 	if (current->on_rq) {
 		WRITE_ONCE(vcpu->preempted, true);

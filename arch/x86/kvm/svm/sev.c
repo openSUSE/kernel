@@ -264,6 +264,21 @@ static void sev_decommission(unsigned int handle)
 }
 
 /*
+ * Transition a page to hypervisor-owned/shared state in the RMP table. This
+ * should not fail under normal conditions, but leak the page should that
+ * happen since it will no longer be usable by the host due to RMP protections.
+ */
+static int kvm_rmp_make_shared(struct kvm *kvm, u64 pfn, enum pg_level level)
+{
+	if (KVM_BUG_ON(rmp_make_shared(pfn, level), kvm)) {
+		snp_leak_pages(pfn, page_level_size(level) >> PAGE_SHIFT);
+		return -EIO;
+	}
+
+	return 0;
+}
+
+/*
  * Certain page-states, such as Pre-Guest and Firmware pages (as documented
  * in Chapter 5 of the SEV-SNP Firmware ABI under "Page States") cannot be
  * directly transitioned back to normal/hypervisor-owned state via RMPUPDATE
@@ -272,32 +287,25 @@ static void sev_decommission(unsigned int handle)
  * Until they are reclaimed and subsequently transitioned via RMPUPDATE, they
  * might not be usable by the host due to being set as immutable or still
  * being associated with a guest ASID.
+ *
+ * Bug the VM and leak the page if reclaim fails, or if the RMP entry can't be
+ * converted back to shared, as the page is no longer usable due to RMP
+ * protections, and it's infeasible for the guest to continue on.
  */
-static int snp_page_reclaim(u64 pfn)
+static int snp_page_reclaim(struct kvm *kvm, u64 pfn)
 {
 	struct sev_data_snp_page_reclaim data = {0};
-	int err, rc;
+	int fw_err, rc;
 
 	data.paddr = __sme_set(pfn << PAGE_SHIFT);
-	rc = sev_do_cmd(SEV_CMD_SNP_PAGE_RECLAIM, &data, &err);
-	if (WARN_ONCE(rc, "Failed to reclaim PFN %llx", pfn))
+	rc = sev_do_cmd(SEV_CMD_SNP_PAGE_RECLAIM, &data, &fw_err);
+	if (KVM_BUG(rc, kvm, "Failed to reclaim PFN %llx, rc %d fw_err %d", pfn, rc, fw_err)) {
 		snp_leak_pages(pfn, 1);
+		return -EIO;
+	}
 
-	return rc;
-}
-
-/*
- * Transition a page to hypervisor-owned/shared state in the RMP table. This
- * should not fail under normal conditions, but leak the page should that
- * happen since it will no longer be usable by the host due to RMP protections.
- */
-static int host_rmp_make_shared(u64 pfn, enum pg_level level)
-{
-	int rc;
-
-	rc = rmp_make_shared(pfn, level);
-	if (WARN_ON_ONCE(rc))
-		snp_leak_pages(pfn, page_level_size(level) >> PAGE_SHIFT);
+	if (kvm_rmp_make_shared(kvm, pfn, PG_LEVEL_4K))
+		return -EIO;
 
 	return rc;
 }
@@ -2270,18 +2278,11 @@ static int sev_gmem_post_populate(struct kvm *kvm, gfn_t gfn_start, kvm_pfn_t pf
 		bool assigned = false;
 		int level;
 
-		if (!kvm_mem_is_private(kvm, gfn)) {
-			pr_debug("%s: Failed to ensure GFN 0x%llx has private memory attribute set\n",
-				 __func__, gfn);
-			ret = -EINVAL;
-			goto err;
-		}
-
 		ret = snp_lookup_rmpentry((u64)pfn + i, &assigned, &level);
 		if (ret || assigned) {
 			pr_debug("%s: Failed to ensure GFN 0x%llx RMP entry is initial shared state, ret: %d assigned: %d\n",
 				 __func__, gfn, ret, assigned);
-			ret = -EINVAL;
+			ret = ret ? -EINVAL : -EEXIST;
 			goto err;
 		}
 
@@ -2329,7 +2330,7 @@ fw_err:
 	 * information to provide information on which CPUID leaves/fields
 	 * failed CPUID validation.
 	 */
-	if (!snp_page_reclaim(pfn + i) && !host_rmp_make_shared(pfn + i, PG_LEVEL_4K) &&
+	if (!snp_page_reclaim(kvm, pfn + i) &&
 	    sev_populate_args->type == KVM_SEV_SNP_PAGE_TYPE_CPUID &&
 	    sev_populate_args->fw_error == SEV_RET_INVALID_PARAM) {
 		void *vaddr = kmap_local_pfn(pfn + i);
@@ -2347,7 +2348,7 @@ err:
 	pr_debug("%s: exiting with error ret %d (fw_error %d), restoring %d gmem PFNs to shared.\n",
 		 __func__, ret, sev_populate_args->fw_error, n_private);
 	for (i = 0; i < n_private; i++)
-		host_rmp_make_shared(pfn + i, PG_LEVEL_4K);
+		kvm_rmp_make_shared(kvm, pfn + i, PG_LEVEL_4K);
 
 	return ret;
 }
@@ -2465,8 +2466,7 @@ static int snp_launch_update_vmsa(struct kvm *kvm, struct kvm_sev_cmd *argp)
 		ret = __sev_issue_cmd(argp->sev_fd, SEV_CMD_SNP_LAUNCH_UPDATE,
 				      &data, &argp->error);
 		if (ret) {
-			if (!snp_page_reclaim(pfn))
-				host_rmp_make_shared(pfn, PG_LEVEL_4K);
+			snp_page_reclaim(kvm, pfn);
 
 			return ret;
 		}
@@ -2541,6 +2541,14 @@ static int snp_launch_finish(struct kvm *kvm, struct kvm_sev_cmd *argp)
 	memcpy(data->host_data, params.host_data, KVM_SEV_SNP_FINISH_DATA_SIZE);
 	data->gctx_paddr = __psp_pa(sev->snp_context);
 	ret = sev_issue_cmd(kvm, SEV_CMD_SNP_LAUNCH_FINISH, data, &argp->error);
+
+	/*
+	 * Now that there will be no more SNP_LAUNCH_UPDATE ioctls, private pages
+	 * can be given to the guest simply by marking the RMP entry as private.
+	 * This can happen on first access and also with KVM_PRE_FAULT_MEMORY.
+	 */
+	if (!ret)
+		kvm->arch.pre_fault_allowed = true;
 
 	kfree(id_auth);
 
@@ -3170,7 +3178,7 @@ void sev_free_vcpu(struct kvm_vcpu *vcpu)
 	if (sev_snp_guest(vcpu->kvm)) {
 		u64 pfn = __pa(svm->sev_es.vmsa) >> PAGE_SHIFT;
 
-		if (host_rmp_make_shared(pfn, PG_LEVEL_4K))
+		if (kvm_rmp_make_shared(vcpu->kvm, pfn, PG_LEVEL_4K))
 			goto skip_vmsa_free;
 	}
 
@@ -4011,10 +4019,6 @@ static int sev_snp_ap_creation(struct vcpu_svm *svm)
 out:
 	if (kick) {
 		kvm_make_request(KVM_REQ_UPDATE_PROTECTED_GUEST_STATE, target_vcpu);
-
-		if (target_vcpu->arch.mp_state == KVM_MP_STATE_UNINITIALIZED)
-			kvm_make_request(KVM_REQ_UNBLOCK, target_vcpu);
-
 		kvm_vcpu_kick(target_vcpu);
 	}
 
@@ -4588,9 +4592,9 @@ void sev_es_prepare_switch_to_guest(struct vcpu_svm *svm, struct sev_es_save_are
 	 * isn't saved by VMRUN, that isn't already saved by VMSAVE (performed
 	 * by common SVM code).
 	 */
-	hostsa->xcr0 = xgetbv(XCR_XFEATURE_ENABLED_MASK);
+	hostsa->xcr0 = kvm_host.xcr0;
 	hostsa->pkru = read_pkru();
-	hostsa->xss = host_xss;
+	hostsa->xss = kvm_host.xss;
 
 	/*
 	 * If DebugSwap is enabled, debug registers are loaded but NOT saved by
@@ -4646,13 +4650,13 @@ void sev_vcpu_deliver_sipi_vector(struct kvm_vcpu *vcpu, u8 vector)
 	}
 }
 
-struct page *snp_safe_alloc_page(struct kvm_vcpu *vcpu)
+struct page *snp_safe_alloc_page_node(int node, gfp_t gfp)
 {
 	unsigned long pfn;
 	struct page *p;
 
 	if (!cc_platform_has(CC_ATTR_HOST_SEV_SNP))
-		return alloc_page(GFP_KERNEL_ACCOUNT | __GFP_ZERO);
+		return alloc_pages_node(node, gfp | __GFP_ZERO, 0);
 
 	/*
 	 * Allocate an SNP-safe page to workaround the SNP erratum where
@@ -4663,7 +4667,7 @@ struct page *snp_safe_alloc_page(struct kvm_vcpu *vcpu)
 	 * Allocate one extra page, choose a page which is not
 	 * 2MB-aligned, and free the other.
 	 */
-	p = alloc_pages(GFP_KERNEL_ACCOUNT | __GFP_ZERO, 1);
+	p = alloc_pages_node(node, gfp | __GFP_ZERO, 1);
 	if (!p)
 		return NULL;
 
@@ -4676,16 +4680,6 @@ struct page *snp_safe_alloc_page(struct kvm_vcpu *vcpu)
 		__free_page(p + 1);
 
 	return p;
-}
-
-void sev_vcpu_unblocking(struct kvm_vcpu *vcpu)
-{
-	if (!sev_snp_guest(vcpu->kvm))
-		return;
-
-	if (kvm_test_request(KVM_REQ_UPDATE_PROTECTED_GUEST_STATE, vcpu) &&
-	    vcpu->arch.mp_state == KVM_MP_STATE_UNINITIALIZED)
-		vcpu->arch.mp_state = KVM_MP_STATE_RUNNABLE;
 }
 
 void sev_handle_rmp_fault(struct kvm_vcpu *vcpu, gpa_t gpa, u64 error_code)

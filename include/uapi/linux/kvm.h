@@ -1217,6 +1217,7 @@ struct kvm_ppc_resize_hpt {
 #define KVM_CAP_MEMORY_ATTRIBUTES 233
 #define KVM_CAP_GUEST_MEMFD 234
 #define KVM_CAP_VM_TYPES 235
+#define KVM_CAP_PRE_FAULT_MEMORY 236
 
 #ifdef KVM_CAP_IRQ_ROUTING
 
@@ -2359,6 +2360,15 @@ struct kvm_create_guest_memfd {
 	__u64 size;
 	__u64 flags;
 	__u64 reserved[6];
+};
+
+#define KVM_PRE_FAULT_MEMORY	_IOWR(KVMIO, 0xd5, struct kvm_pre_fault_memory)
+
+struct kvm_pre_fault_memory {
+	__u64 gpa;
+	__u64 size;
+	__u64 flags;
+	__u64 padding[5];
 };
 
 #endif /* __LINUX_KVM_H */
