@@ -214,18 +214,20 @@ static struct mfd_cell bxt_wc_dev[] = {
 		.resources = bcu_resources,
 	},
 	{
-		.name = "bxt_wcove_tmu",
-		.num_resources = ARRAY_SIZE(tmu_resources),
-		.resources = tmu_resources,
-	},
-
-	{
 		.name = "bxt_wcove_gpio",
 		.num_resources = ARRAY_SIZE(gpio_resources),
 		.resources = gpio_resources,
 	},
 	{
 		.name = "bxt_wcove_region",
+	},
+};
+
+static const struct mfd_cell bxt_wc_tmu_dev[] = {
+	{
+		.name = "bxt_wcove_tmu",
+		.num_resources = ARRAY_SIZE(tmu_resources),
+		.resources = tmu_resources,
 	},
 };
 
@@ -434,6 +436,14 @@ static int bxtwc_probe(struct platform_device *pdev)
 	if (ret) {
 		dev_err(&pdev->dev, "Failed to add TMU IRQ chip\n");
 		goto err_irq_chip_tmu;
+	}
+
+	ret = mfd_add_devices(&pdev->dev, PLATFORM_DEVID_NONE,
+			      bxt_wc_tmu_dev, ARRAY_SIZE(bxt_wc_tmu_dev),
+			      NULL, 0, NULL);
+	if (ret) {
+		dev_err(&pdev->dev, "Failed to add devices\n");
+		goto err_mfd;
 	}
 
 	ret = mfd_add_devices(&pdev->dev, PLATFORM_DEVID_NONE, bxt_wc_dev,
