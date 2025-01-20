@@ -1868,7 +1868,7 @@ fail:
 	} while (1);
 
 	/* avoid locking problems by failing it from a clean context */
-	if (ret < 0)
+	if (ret)
 		io_req_task_queue_fail(req, ret);
 }
 
