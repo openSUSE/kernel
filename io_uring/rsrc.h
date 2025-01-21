@@ -49,7 +49,7 @@ struct io_mapped_ubuf {
 	unsigned int    folio_shift;
 	unsigned long	acct_pages;
 	unsigned long   folio_mask;
-	struct bio_vec	bvec[];
+	struct bio_vec	bvec[] __counted_by(nr_bvecs);
 };
 
 struct io_imu_folio_data {
