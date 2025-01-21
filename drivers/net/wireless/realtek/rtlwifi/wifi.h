@@ -2695,6 +2695,8 @@ struct rtl_priv {
 
 	struct rtl_rate_priv *rate_priv;
 
+	void *suse_kabi_padding;
+
 	/* sta entry list for ap adhoc or mesh */
 	struct list_head entry_list;
 
