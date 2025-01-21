@@ -208,6 +208,8 @@ struct input_dev {
 
 	ktime_t timestamp[INPUT_CLK_MAX];
 
+	void *suse_kabi_padding;
+
 	bool inhibited;
 };
 #define to_input_dev(d) container_of(d, struct input_dev, dev)
@@ -319,6 +321,8 @@ struct input_handler {
 	int (*connect)(struct input_handler *handler, struct input_dev *dev, const struct input_device_id *id);
 	void (*disconnect)(struct input_handle *handle);
 	void (*start)(struct input_handle *handle);
+
+	void *suse_kabi_padding;
 
 	bool legacy_minors;
 	int minor;
@@ -562,6 +566,9 @@ struct ff_device {
 
 	int max_effects;
 	struct ff_effect *effects;
+
+	void *suse_kabi_padding;
+
 	struct file *effect_owners[];
 };
 
