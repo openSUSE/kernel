@@ -506,7 +506,7 @@ static void io_prep_async_link(struct io_kiocb *req)
 	}
 }
 
-static void io_queue_iowq(struct io_kiocb *req)
+void io_queue_iowq(struct io_kiocb *req, struct io_tw_state *ts_dont_use)
 {
 	struct io_kiocb *link = io_prep_linked_timeout(req);
 	struct io_uring_task *tctx = req->task->io_uring;
@@ -1513,7 +1513,7 @@ void io_req_task_submit(struct io_kiocb *req, struct io_tw_state *ts)
 	if (unlikely(req->task->flags & PF_EXITING))
 		io_req_defer_failed(req, -EFAULT);
 	else if (req->flags & REQ_F_FORCE_ASYNC)
-		io_queue_iowq(req);
+		io_queue_iowq(req, ts);
 	else
 		io_queue_sqe(req);
 }
@@ -2077,7 +2077,7 @@ static void io_queue_async(struct io_kiocb *req, int ret)
 		break;
 	case IO_APOLL_ABORTED:
 		io_kbuf_recycle(req, 0);
-		io_queue_iowq(req);
+		io_queue_iowq(req, NULL);
 		break;
 	case IO_APOLL_OK:
 		break;
@@ -2124,7 +2124,7 @@ static void io_queue_sqe_fallback(struct io_kiocb *req)
 		if (unlikely(req->ctx->drain_active))
 			io_drain_req(req);
 		else
-			io_queue_iowq(req);
+			io_queue_iowq(req, NULL);
 	}
 }
 
