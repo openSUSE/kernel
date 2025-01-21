@@ -233,6 +233,7 @@ struct io_ring_ctx {
 		unsigned int		poll_activated: 1;
 		unsigned int		drain_disabled: 1;
 		unsigned int		compat: 1;
+		unsigned int		iowq_limits_set : 1;
 
 		struct task_struct	*submitter_task;
 		struct io_rings		*rings;
@@ -271,10 +272,20 @@ struct io_ring_ctx {
 		 */
 		struct io_rsrc_node	*rsrc_node;
 		atomic_t		cancel_seq;
+
+		/*
+		 * ->iopoll_list is protected by the ctx->uring_lock for
+		 * io_uring instances that don't use IORING_SETUP_SQPOLL.
+		 * For SQPOLL, only the single threaded io_sq_thread() will
+		 * manipulate the list, hence no extra locking is needed there.
+		 */
+		bool			poll_multi_queue;
+		struct io_wq_work_list	iopoll_list;
+
 		struct io_file_table	file_table;
+		struct io_mapped_ubuf	**user_bufs;
 		unsigned		nr_user_files;
 		unsigned		nr_user_bufs;
-		struct io_mapped_ubuf	**user_bufs;
 
 		struct io_submit_state	submit_state;
 
@@ -285,15 +296,6 @@ struct io_ring_ctx {
 		struct io_alloc_cache	netmsg_cache;
 		struct io_alloc_cache	rw_cache;
 		struct io_alloc_cache	uring_cache;
-
-		/*
-		 * ->iopoll_list is protected by the ctx->uring_lock for
-		 * io_uring instances that don't use IORING_SETUP_SQPOLL.
-		 * For SQPOLL, only the single threaded io_sq_thread() will
-		 * manipulate the list, hence no extra locking is needed there.
-		 */
-		struct io_wq_work_list	iopoll_list;
-		bool			poll_multi_queue;
 
 		/*
 		 * Any cancelable uring_cmd is added to this list in
@@ -353,9 +355,6 @@ struct io_ring_ctx {
 	unsigned int		file_alloc_start;
 	unsigned int		file_alloc_end;
 
-	struct xarray		personalities;
-	u32			pers_next;
-
 	struct list_head	io_buffers_cache;
 
 	/* Keep this last, we don't need it for the fast path */
@@ -371,6 +370,9 @@ struct io_ring_ctx {
 	struct io_alloc_cache		rsrc_node_cache;
 	struct wait_queue_head		rsrc_quiesce_wq;
 	unsigned			rsrc_quiesce;
+
+	u32			pers_next;
+	struct xarray		personalities;
 
 	/* hashed buffered write serialization */
 	struct io_wq_hash		*hash_map;
@@ -388,7 +390,6 @@ struct io_ring_ctx {
 
 	/* io-wq management, e.g. thread count */
 	u32				iowq_limits[2];
-	bool				iowq_limits_set;
 
 	struct callback_head		poll_wq_task_work;
 	struct list_head		defer_list;
