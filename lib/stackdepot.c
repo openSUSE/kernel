@@ -283,7 +283,7 @@ depot_alloc_stack(unsigned long *entries, int size, u32 hash, void **prealloc)
 	stack = stack_pools[pool_index] + pool_offset;
 	stack->hash = hash;
 	stack->size = size;
-	stack->handle.pool_index = pool_index + 1;
+	stack->handle.pool_index_plus_1 = pool_index + 1;
 	stack->handle.offset = pool_offset >> DEPOT_STACK_ALIGN;
 	stack->handle.valid = 1;
 	stack->handle.extra = 0;
@@ -309,13 +309,13 @@ static struct stack_record *depot_fetch_stack(depot_stack_handle_t handle)
 	 */
 	int pool_index_cached = READ_ONCE(pool_index);
 	void *pool;
-	u32 pool_index_real = parts.pool_index - 1;
+	u32 pool_index_real = parts.pool_index_plus_1 - 1;
 	size_t offset = parts.offset << DEPOT_STACK_ALIGN;
 	struct stack_record *stack;
 
 	if (pool_index_real > pool_index_cached) {
 		WARN(1, "pool index %d out of bounds (%d) for stack id %08x\n",
-		     parts.pool_index, pool_index_cached, handle);
+		     parts.pool_index_plus_1, pool_index_cached, handle);
 		return NULL;
 	}
 
