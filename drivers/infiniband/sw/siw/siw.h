@@ -46,6 +46,9 @@
  */
 #define SIW_IRQ_MAXBURST_SQ_ACTIVE 4
 
+/* There is always only a port 1 per siw device */
+#define SIW_PORT 1
+
 struct siw_dev_cap {
 	int max_qp;
 	int max_qp_wr;
@@ -69,15 +72,11 @@ struct siw_pd {
 
 struct siw_device {
 	struct ib_device base_dev;
-	struct net_device *netdev;
 	struct siw_dev_cap attrs;
 
 	u32 vendor_part_id;
 	int numa_node;
 	char raw_gid[ETH_ALEN];
-
-	/* physical port state (only one port per device) */
-	enum ib_port_state state;
 
 	spinlock_t lock;
 
@@ -724,4 +723,32 @@ void siw_sq_flush(struct siw_qp *qp);
 void siw_rq_flush(struct siw_qp *qp);
 int siw_reap_cqe(struct siw_cq *cq, struct ib_wc *wc);
 
+static inline struct net_device *ib_device_get_netdev(struct ib_device *ib_dev,
+						      u32 port)
+{
+	struct ib_port_data *pdata;
+	struct net_device *res;
+
+	if (!rdma_is_port_valid(ib_dev, port))
+		return NULL;
+
+	if (!ib_dev->port_data)
+		return NULL;
+
+	pdata = &ib_dev->port_data[port];
+
+	/*
+	 * New drivers should use ib_device_set_netdev() not the legacy
+	 * get_netdev().
+	 */
+	{
+		spin_lock(&pdata->netdev_lock);
+		res = rcu_dereference_protected(
+			pdata->netdev, lockdep_is_held(&pdata->netdev_lock));
+		dev_hold(res);
+		spin_unlock(&pdata->netdev_lock);
+	}
+
+	return res;
+}
 #endif
