@@ -1434,16 +1434,10 @@ static bool kvm_vcpu_write_protect_gfn(struct kvm_vcpu *vcpu, u64 gfn)
 	return kvm_mmu_slot_gfn_write_protect(vcpu->kvm, slot, gfn, PG_LEVEL_4K);
 }
 
-static bool __kvm_zap_rmap(struct kvm *kvm, struct kvm_rmap_head *rmap_head,
-			   const struct kvm_memory_slot *slot)
+static bool kvm_zap_rmap(struct kvm *kvm, struct kvm_rmap_head *rmap_head,
+			 const struct kvm_memory_slot *slot)
 {
 	return kvm_zap_all_rmap_sptes(kvm, rmap_head);
-}
-
-static bool kvm_zap_rmap(struct kvm *kvm, struct kvm_rmap_head *rmap_head,
-			 struct kvm_memory_slot *slot, gfn_t gfn, int level)
-{
-	return __kvm_zap_rmap(kvm, rmap_head, slot);
 }
 
 struct slot_rmap_walk_iterator {
@@ -1577,7 +1571,7 @@ static bool __kvm_rmap_zap_gfn_range(struct kvm *kvm,
 				     gfn_t start, gfn_t end, bool can_yield,
 				     bool flush)
 {
-	return __walk_slot_rmaps(kvm, slot, __kvm_zap_rmap,
+	return __walk_slot_rmaps(kvm, slot, kvm_zap_rmap,
 				 PG_LEVEL_4K, KVM_MAX_HUGEPAGE_LEVEL,
 				 start, end - 1, can_yield, true, flush);
 }
@@ -1606,7 +1600,9 @@ bool kvm_unmap_gfn_range(struct kvm *kvm, struct kvm_gfn_range *range)
 	bool flush = false;
 
 	if (kvm_memslots_have_rmaps(kvm))
-		flush = kvm_handle_gfn_range(kvm, range, kvm_zap_rmap);
+		flush = __kvm_rmap_zap_gfn_range(kvm, range->slot,
+						 range->start, range->end,
+						 range->may_block, flush);
 
 	if (tdp_mmu_enabled)
 		flush = kvm_tdp_mmu_unmap_gfn_range(kvm, range, flush);
@@ -7052,17 +7048,9 @@ static void kvm_mmu_zap_memslot_leafs(struct kvm *kvm, struct kvm_memory_slot *s
 		.end = slot->base_gfn + slot->npages,
 		.may_block = true,
 	};
-	bool flush = false;
 
 	write_lock(&kvm->mmu_lock);
-
-	if (kvm_memslots_have_rmaps(kvm))
-		flush = kvm_handle_gfn_range(kvm, &range, kvm_zap_rmap);
-
-	if (tdp_mmu_enabled)
-		flush = kvm_tdp_mmu_unmap_gfn_range(kvm, &range, flush);
-
-	if (flush)
+	if (kvm_unmap_gfn_range(kvm, &range))
 		kvm_flush_remote_tlbs_memslot(kvm, slot);
 
 	write_unlock(&kvm->mmu_lock);
