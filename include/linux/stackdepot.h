@@ -46,10 +46,10 @@ typedef u32 depot_stack_handle_t;
 union handle_parts {
 	depot_stack_handle_t handle;
 	struct {
-		u32 pool_index	: DEPOT_POOL_INDEX_BITS; /* pool_index is offset by 1 */
-		u32 offset	: DEPOT_OFFSET_BITS;
-		u32 valid	: DEPOT_VALID_BITS;
-		u32 extra	: STACK_DEPOT_EXTRA_BITS;
+		u32 pool_index_plus_1	: DEPOT_POOL_INDEX_BITS;
+		u32 offset		: DEPOT_OFFSET_BITS;
+		u32 valid		: DEPOT_VALID_BITS;
+		u32 extra		: STACK_DEPOT_EXTRA_BITS;
 	};
 };
 
