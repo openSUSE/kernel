@@ -311,6 +311,8 @@ struct i2c_driver {
 	const unsigned short *address_list;
 	struct list_head clients;
 
+	void *suse_kabi_padding;
+
 	u32 flags;
 };
 #define to_i2c_driver(d) container_of(d, struct i2c_driver, driver)
@@ -359,6 +361,7 @@ struct i2c_client {
 #if IS_ENABLED(CONFIG_I2C_SLAVE)
 	i2c_slave_cb_t slave_cb;	/* callback for slave mode	*/
 #endif
+	void *suse_kabi_padding;
 	void *devres_group_id;		/* ID of probe devres group	*/
 };
 #define to_i2c_client(d) container_of(d, struct i2c_client, dev)
@@ -575,6 +578,7 @@ struct i2c_algorithm {
 	int (*reg_slave)(struct i2c_client *client);
 	int (*unreg_slave)(struct i2c_client *client);
 #endif
+	void *suse_kabi_padding;
 };
 
 /**
@@ -664,6 +668,8 @@ struct i2c_bus_recovery_info {
 	struct pinctrl *pinctrl;
 	struct pinctrl_state *pins_default;
 	struct pinctrl_state *pins_gpio;
+
+	void *suse_kabi_padding;
 };
 
 int i2c_recover_bus(struct i2c_adapter *adap);
@@ -757,6 +763,8 @@ struct i2c_adapter {
 	struct regulator *bus_regulator;
 
 	struct dentry *debugfs;
+
+	void *suse_kabi_padding;
 
 	/* 7bit address space */
 	DECLARE_BITMAP(addrs_in_instantiation, 1 << 7);
