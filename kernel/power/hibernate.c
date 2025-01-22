@@ -30,6 +30,7 @@
 #include <linux/syscore_ops.h>
 #include <linux/ctype.h>
 #include <linux/ktime.h>
+#include <linux/efi.h>
 #include <linux/security.h>
 #include <linux/secretmem.h>
 #include <trace/events/power.h>
@@ -91,9 +92,19 @@ void hibernate_release(void)
 
 bool hibernation_available(void)
 {
-	return nohibernate == 0 &&
-		!security_locked_down(LOCKDOWN_HIBERNATION) &&
-		!secretmem_active() && !cxl_mem_active();
+	if (nohibernate != 0 || secretmem_active() || cxl_mem_active())
+		return false;
+
+	if (security_locked_down(LOCKDOWN_HIBERNATION) || snapshot_is_enforce_verify()) {
+		snapshot_set_enforce_verify();
+		if (get_efi_secret_key())
+			return true;
+		else
+			pr_warn("the secret key is invalid\n");
+		return false;
+	} else {
+		return true;
+	}
 }
 
 /**
@@ -303,10 +314,14 @@ static int create_image(int platform_mode)
 {
 	int error;
 
+	error = swsusp_prepare_hash(false);
+	if (error)
+		return error;
+
 	error = dpm_suspend_end(PMSG_FREEZE);
 	if (error) {
 		pr_err("Some devices failed to power down, aborting\n");
-		return error;
+		goto finish_hash;
 	}
 
 	error = platform_pre_snapshot(platform_mode);
@@ -366,6 +381,9 @@ static int create_image(int platform_mode)
 
 	dpm_resume_start(in_suspend ?
 		(error ? PMSG_RECOVER : PMSG_THAW) : PMSG_RESTORE);
+
+ finish_hash:
+	swsusp_finish_hash();
 
 	return error;
 }
@@ -712,6 +730,7 @@ static int load_image_and_restore(void)
 		swsusp_close();
 		goto Unlock;
 	}
+	efi_skey_stop_regen();
 
 	error = swsusp_read(&flags);
 	swsusp_close();
@@ -738,6 +757,7 @@ int hibernate(void)
 	bool snapshot_test = false;
 	unsigned int sleep_flags;
 	int error;
+	void *secret_key;
 
 	if (!hibernation_available()) {
 		pm_pr_dbg("Hibernation not available.\n");
@@ -752,6 +772,21 @@ int hibernate(void)
 		if (crypto_has_comp(hib_comp_algo, 0, 0) != 1) {
 			pr_err("%s compression is not available\n", hib_comp_algo);
 			return -EOPNOTSUPP;
+		}
+	}
+
+	error = snapshot_create_trampoline();
+	if (error)
+		return error;
+
+	/* using EFI secret key to encrypt hidden area */
+	secret_key = get_efi_secret_key();
+	if (secret_key) {
+		error = encrypt_backup_hidden_area(secret_key, SECRET_KEY_SIZE);
+		if (error) {
+			pr_err("Encrypt hidden area failed: %d\n", error);
+			snapshot_free_trampoline();
+			return error;
 		}
 	}
 
@@ -820,6 +855,7 @@ int hibernate(void)
 		pm_restore_gfp_mask();
 	} else {
 		pm_pr_dbg("Hibernation image restored successfully.\n");
+		snapshot_restore_trampoline();
 	}
 
  Free_bitmaps:
@@ -1394,6 +1430,8 @@ static int __init hibernate_setup(char *str)
 	} else if (IS_ENABLED(CONFIG_STRICT_KERNEL_RWX)
 		   && !strncmp(str, "protect_image", 13)) {
 		enable_restore_image_protection();
+	} else if (!strncmp(str, "sigenforce", 10)) {
+		snapshot_set_enforce_verify();
 	}
 	return 1;
 }

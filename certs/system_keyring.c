@@ -330,7 +330,7 @@ int verify_pkcs7_message_sig(const void *data, size_t len,
 	if (ret < 0)
 		goto error;
 
-	ret = is_key_on_revocation_list(pkcs7);
+	ret = is_key_on_revocation_list(pkcs7, usage);
 	if (ret != -ENOKEY) {
 		pr_devel("PKCS#7 key is on revocation list\n");
 		goto error;
@@ -356,7 +356,7 @@ int verify_pkcs7_message_sig(const void *data, size_t len,
 			goto error;
 		}
 	}
-	ret = pkcs7_validate_trust(pkcs7, trusted_keys);
+	ret = pkcs7_validate_trust(pkcs7, trusted_keys, usage);
 	if (ret < 0) {
 		if (ret == -ENOKEY)
 			pr_devel("PKCS#7 signature not signed with a trusted key\n");

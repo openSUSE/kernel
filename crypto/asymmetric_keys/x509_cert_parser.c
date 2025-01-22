@@ -550,6 +550,8 @@ int x509_process_extension(void *context, size_t hdrlen,
 	struct x509_parse_context *ctx = context;
 	struct asymmetric_key_id *kid;
 	const unsigned char *v = value;
+	int i = 0;
+	enum OID oid;
 
 	pr_debug("Extension: %u\n", ctx->last_oid);
 
@@ -626,6 +628,35 @@ int x509_process_extension(void *context, size_t hdrlen,
 			return -EBADMSG;
 		if (vlen >= 4 && v[1] != 0 && v[2] == ASN1_BOOL && v[3] == 1)
 			ctx->cert->pub->key_eflags |= 1 << KEY_EFLAG_CA;
+		return 0;
+	}
+
+	if (ctx->last_oid == OID_extKeyUsage) {
+		if (v[0] != ((ASN1_UNIV << 6) | ASN1_CONS_BIT | ASN1_SEQ) ||
+		    v[1] != vlen - 2)
+			return -EBADMSG;
+		i += 2;
+
+		while (i < vlen) {
+			int oid_size = v[i + 1];
+
+			/* e.g. A 10 bytes EKU OID Octet blob =
+			 * 1 byte ASN1_OID + 1 byte size + 8 bytes OID */
+			if (v[i] != ASN1_OID || (i + 2 + oid_size) > vlen)
+				return -EBADMSG;
+
+			/* (v + i + 2) is the start address of oid data */
+			oid = look_up_OID(v + i + 2, oid_size);
+			if (oid == OID_codeSigning) {
+				ctx->cert->pub->eku |= EKU_codeSigning;
+			} else if (oid == OID__NR) {
+				char buffer[50];
+				sprint_oid(v + i + 2, oid_size, buffer, sizeof(buffer));
+				pr_debug("Unknown extKeyUsage: %s\n", buffer);
+			}
+			i += (2 + oid_size);
+		}
+		pr_debug("extKeyUsage: %d\n", ctx->cert->pub->eku);
 		return 0;
 	}
 

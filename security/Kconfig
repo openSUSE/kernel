@@ -211,6 +211,12 @@ config LOCK_DOWN_KERNEL_EARLY
          Locking down the kernel turns off various features that might
          otherwise allow access to the kernel image.
 
+config HIDDEN_AREA
+	def_bool n
+	help
+          The data in hidden area will be filtered out when user space uses
+          /dev/mem, /dev/kmem, hibernation, kdump...
+
 source "security/selinux/Kconfig"
 source "security/smack/Kconfig"
 source "security/tomoyo/Kconfig"
