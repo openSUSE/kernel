@@ -69,6 +69,8 @@
 
 		cpcap_audio: audio-codec {
 			#sound-dai-cells = <1>;
+			interrupts-extended = <&cpcap 9 0>, <&cpcap 10 0>;
+			interrupt-names = "hs", "mb2";
 
 			port@0 {
 				cpcap_audio_codec0: endpoint {
