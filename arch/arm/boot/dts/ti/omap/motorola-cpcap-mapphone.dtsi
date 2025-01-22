@@ -267,6 +267,8 @@
 		regulator-min-microvolt = <2775000>;
 		regulator-max-microvolt = <2775000>;
 		regulator-enable-ramp-delay = <1000>;
-		regulator-initial-mode = <0x00>; /* NORMAL */
+		regulator-allowed-modes = <0x00>, <0x40>; /* ON, LOW_PWR */
+		regulator-initial-mode = <0x00>; /* ON */
+		regulator-always-on;
 	};
 };
