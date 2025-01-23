@@ -6,7 +6,7 @@
 #include <linux/ptrace.h>	/* for force_successful_syscall_return */
 #include <linux/blk-integrity.h>
 #include <linux/nvme_ioctl.h>
-#include <linux/io_uring.h>
+#include <linux/io_uring/cmd.h>
 #include "nvme.h"
 
 enum {

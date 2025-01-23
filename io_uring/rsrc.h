@@ -2,10 +2,6 @@
 #ifndef IOU_RSRC_H
 #define IOU_RSRC_H
 
-#include <net/af_unix.h>
-
-#include "alloc_cache.h"
-
 #define IO_NODE_ALLOC_CACHE_MAX 32
 
 #define IO_RSRC_TAG_TABLE_SHIFT	(PAGE_SHIFT - 3)
@@ -38,10 +34,7 @@ struct io_rsrc_data {
 };
 
 struct io_rsrc_node {
-	union {
-		struct io_cache_entry		cache;
-		struct io_ring_ctx		*ctx;
-	};
+	struct io_ring_ctx		*ctx;
 	int				refs;
 	bool				empty;
 	u16				type;
@@ -53,8 +46,18 @@ struct io_mapped_ubuf {
 	u64		ubuf;
 	u64		ubuf_end;
 	unsigned int	nr_bvecs;
+	unsigned int    folio_shift;
 	unsigned long	acct_pages;
-	struct bio_vec	bvec[];
+	unsigned long   folio_mask;
+	struct bio_vec	bvec[] __counted_by(nr_bvecs);
+};
+
+struct io_imu_folio_data {
+	/* Head folio can be partially included in the fixed buf */
+	unsigned int	nr_pages_head;
+	/* For non-head/tail folios, has to be fully included */
+	unsigned int	nr_pages_mid;
+	unsigned int	folio_shift;
 };
 
 void io_rsrc_node_ref_zero(struct io_rsrc_node *node);
@@ -90,16 +93,18 @@ static inline void io_put_rsrc_node(struct io_ring_ctx *ctx, struct io_rsrc_node
 		io_rsrc_node_ref_zero(node);
 }
 
-static inline void io_req_put_rsrc_locked(struct io_kiocb *req,
-					  struct io_ring_ctx *ctx)
-{
-	io_put_rsrc_node(ctx, req->rsrc_node);
-}
-
 static inline void io_charge_rsrc_node(struct io_ring_ctx *ctx,
 				       struct io_rsrc_node *node)
 {
 	node->refs++;
+}
+
+static inline void __io_req_set_rsrc_node(struct io_kiocb *req,
+					  struct io_ring_ctx *ctx)
+{
+	lockdep_assert_held(&ctx->uring_lock);
+	req->rsrc_node = ctx->rsrc_node;
+	io_charge_rsrc_node(ctx, ctx->rsrc_node);
 }
 
 static inline void io_req_set_rsrc_node(struct io_kiocb *req,
@@ -108,11 +113,7 @@ static inline void io_req_set_rsrc_node(struct io_kiocb *req,
 {
 	if (!req->rsrc_node) {
 		io_ring_submit_lock(ctx, issue_flags);
-
-		lockdep_assert_held(&ctx->uring_lock);
-
-		req->rsrc_node = ctx->rsrc_node;
-		io_charge_rsrc_node(ctx, ctx->rsrc_node);
+		__io_req_set_rsrc_node(req, ctx);
 		io_ring_submit_unlock(ctx, issue_flags);
 	}
 }
