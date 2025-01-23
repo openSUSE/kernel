@@ -5553,7 +5553,7 @@ static int __hardware_enable_nolock(void)
 	if (__this_cpu_read(hardware_enabled))
 		return 0;
 
-	if (kvm_arch_hardware_enable()) {
+	if (kvm_arch_enable_virtualization_cpu()) {
 		pr_info("kvm: enabling virtualization on CPU%d failed\n",
 			raw_smp_processor_id());
 		return -EIO;
@@ -5594,7 +5594,7 @@ static void hardware_disable_nolock(void *junk)
 	if (!__this_cpu_read(hardware_enabled))
 		return;
 
-	kvm_arch_hardware_disable();
+	kvm_arch_disable_virtualization_cpu();
 
 	__this_cpu_write(hardware_enabled, false);
 }
