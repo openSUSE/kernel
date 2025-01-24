@@ -5596,9 +5596,6 @@ int workqueue_unbound_exclude_cpumask(cpumask_var_t exclude_cpumask)
 	lockdep_assert_cpus_held();
 	mutex_lock(&wq_pool_mutex);
 
-	/* Save the current isolated cpumask & export it via sysfs */
-	cpumask_copy(wq_isolated_cpumask, exclude_cpumask);
-
 	/*
 	 * If the operation fails, it will fall back to
 	 * wq_requested_unbound_cpumask which is initially set to
@@ -5609,6 +5606,10 @@ int workqueue_unbound_exclude_cpumask(cpumask_var_t exclude_cpumask)
 		cpumask_copy(cpumask, wq_requested_unbound_cpumask);
 	if (!cpumask_equal(cpumask, wq_unbound_cpumask))
 		ret = workqueue_apply_unbound_cpumask(cpumask);
+
+	/* Save the current isolated cpumask & export it via sysfs */
+	if (!ret)
+		cpumask_copy(wq_isolated_cpumask, exclude_cpumask);
 
 	mutex_unlock(&wq_pool_mutex);
 	free_cpumask_var(cpumask);
@@ -5882,7 +5883,6 @@ static int workqueue_set_unbound_cpumask(cpumask_var_t cpumask)
 	cpumask_and(cpumask, cpumask, cpu_possible_mask);
 	if (!cpumask_empty(cpumask)) {
 		apply_wqattrs_lock();
-		cpumask_copy(wq_requested_unbound_cpumask, cpumask);
 		if (cpumask_equal(cpumask, wq_unbound_cpumask)) {
 			ret = 0;
 			goto out_unlock;
@@ -5891,6 +5891,8 @@ static int workqueue_set_unbound_cpumask(cpumask_var_t cpumask)
 		ret = workqueue_apply_unbound_cpumask(cpumask);
 
 out_unlock:
+		if (!ret)
+			cpumask_copy(wq_requested_unbound_cpumask, cpumask);
 		apply_wqattrs_unlock();
 	}
 
