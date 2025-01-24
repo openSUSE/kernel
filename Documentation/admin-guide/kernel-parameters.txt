@@ -1772,9 +1772,7 @@
 			allocation boundaries as a proactive defense
 			against bounds-checking flaws in the kernel's
 			copy_to_user()/copy_from_user() interface.
-			The default is determined by
-			CONFIG_HARDENED_USERCOPY_DEFAULT_ON.
-		on	Perform hardened usercopy checks.
+		on	Perform hardened usercopy checks (default).
 		off	Disable hardened usercopy checks.
 
 	hardlockup_all_cpu_backtrace=
