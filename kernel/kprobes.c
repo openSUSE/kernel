@@ -1570,7 +1570,7 @@ static int check_kprobe_address_safe(struct kprobe *p,
 	if (ret)
 		return ret;
 	jump_label_lock();
-	preempt_disable();
+	rcu_read_lock();
 
 	/* Ensure the address is in a text area, and find a module if exists. */
 	*probed_mod = NULL;
@@ -1616,7 +1616,7 @@ static int check_kprobe_address_safe(struct kprobe *p,
 	}
 
 out:
-	preempt_enable();
+	rcu_read_unlock();
 	jump_label_unlock();
 
 	return ret;
