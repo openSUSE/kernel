@@ -885,6 +885,9 @@ struct task_struct {
 	unsigned			sched_reset_on_fork:1;
 	unsigned			sched_contributes_to_load:1;
 	unsigned			sched_migrated:1;
+#ifndef __GENKSYMS__
+	unsigned			sched_task_hot:1;
+#endif /* __GENKSYMS__ */
 
 	/* Force alignment to the next boundary: */
 	unsigned			:0;
