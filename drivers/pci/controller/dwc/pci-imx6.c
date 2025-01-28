@@ -753,9 +753,11 @@ static int imx6_pcie_deassert_core_reset(struct imx6_pcie *imx6_pcie)
 	case IMX8MQ:
 	case IMX8MQ_EP:
 		reset_control_deassert(imx6_pcie->pciephy_reset);
+		reset_control_deassert(imx6_pcie->apps_reset);
 		break;
 	case IMX7D:
 		reset_control_deassert(imx6_pcie->pciephy_reset);
+		reset_control_deassert(imx6_pcie->apps_reset);
 
 		/* Workaround for ERR010728, failure of PCI-e PLL VCO to
 		 * oscillate, especially when cold.  This turns off "Duty-cycle
@@ -789,10 +791,12 @@ static int imx6_pcie_deassert_core_reset(struct imx6_pcie *imx6_pcie)
 		usleep_range(200, 500);
 		break;
 	case IMX6Q:		/* Nothing to do */
+		break;
 	case IMX8MM:
 	case IMX8MM_EP:
 	case IMX8MP:
 	case IMX8MP_EP:
+		reset_control_deassert(imx6_pcie->apps_reset);
 		break;
 	}
 
@@ -1343,8 +1347,6 @@ static int imx6_pcie_probe(struct platform_device *pdev)
 		if (IS_ERR(imx6_pcie->pcie_aux))
 			return dev_err_probe(dev, PTR_ERR(imx6_pcie->pcie_aux),
 					     "pcie_aux clock source missing or invalid\n");
-		fallthrough;
-	case IMX7D:
 		if (dbi_base->start == IMX8MQ_PCIE2_BASE_ADDR)
 			imx6_pcie->controller_id = 1;
 
