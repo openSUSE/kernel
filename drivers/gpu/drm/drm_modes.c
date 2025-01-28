@@ -786,7 +786,7 @@ int drm_mode_vrefresh(const struct drm_display_mode *mode)
 	else if (mode->htotal > 0 && mode->vtotal > 0) {
 		unsigned int num, den;
 
-		num = mode->clock * 1000;
+		num = mode->clock;
 		den = mode->htotal * mode->vtotal;
 
 		if (mode->flags & DRM_MODE_FLAG_INTERLACE)
@@ -796,7 +796,7 @@ int drm_mode_vrefresh(const struct drm_display_mode *mode)
 		if (mode->vscan > 1)
 			den *= mode->vscan;
 
-		refresh = DIV_ROUND_CLOSEST(num, den);
+		refresh = DIV_ROUND_CLOSEST_ULL(mul_u32_u32(num, 1000), den);
 	}
 	return refresh;
 }
