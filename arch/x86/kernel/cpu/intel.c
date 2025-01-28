@@ -835,7 +835,8 @@ static void init_intel(struct cpuinfo_x86 *c)
 		set_cpu_bug(c, X86_BUG_CLFLUSH_MONITOR);
 
 	if (c->x86 == 6 && boot_cpu_has(X86_FEATURE_MWAIT) &&
-		((c->x86_model == INTEL_FAM6_ATOM_GOLDMONT)))
+		((c->x86_model == INTEL_FAM6_ATOM_GOLDMONT ||
+		  c->x86_model == INTEL_FAM6_ATOM_TREMONT)))
 		set_cpu_bug(c, X86_BUG_MONITOR);
 
 #ifdef CONFIG_X86_64
