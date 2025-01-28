@@ -784,10 +784,7 @@ int drm_mode_vrefresh(const struct drm_display_mode *mode)
 	if (mode->vrefresh > 0)
 		refresh = mode->vrefresh;
 	else if (mode->htotal > 0 && mode->vtotal > 0) {
-		unsigned int num, den;
-
-		num = mode->clock;
-		den = mode->htotal * mode->vtotal;
+		int num = 1, den = 1;
 
 		if (mode->flags & DRM_MODE_FLAG_INTERLACE)
 			num *= 2;
@@ -795,6 +792,11 @@ int drm_mode_vrefresh(const struct drm_display_mode *mode)
 			den *= 2;
 		if (mode->vscan > 1)
 			den *= mode->vscan;
+
+		if (check_mul_overflow(mode->clock, num, &num))
+			return 0;
+		if (check_mul_overflow(mode->htotal * mode->vtotal, den, &den))
+			return 0;
 
 		refresh = DIV_ROUND_CLOSEST_ULL(mul_u32_u32(num, 1000), den);
 	}
