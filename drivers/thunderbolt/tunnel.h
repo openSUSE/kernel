@@ -75,6 +75,8 @@ struct tb_tunnel {
 	int allocated_up;
 	int allocated_down;
 	bool bw_mode;
+
+	void *suse_kabi_padding;
 };
 
 struct tb_tunnel *tb_tunnel_discover_pci(struct tb *tb, struct tb_port *down,
