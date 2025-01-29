@@ -92,6 +92,8 @@ struct tb_cfg_request {
 	struct work_struct work;
 	struct tb_cfg_result result;
 	struct list_head list;
+
+	void *suse_kabi_padding;
 };
 
 #define TB_CFG_REQUEST_ACTIVE		0

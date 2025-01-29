@@ -83,6 +83,9 @@ struct mt76_bus_ops {
 		     const struct mt76_reg_pair *rp, int len);
 	int (*rd_rp)(struct mt76_dev *dev, u32 base,
 		     struct mt76_reg_pair *rp, int len);
+
+	void *suse_kabi_padding;
+
 	enum mt76_bus_type type;
 };
 
@@ -249,6 +252,8 @@ struct mt76_mcu_ops {
 	int (*mcu_rd_rp)(struct mt76_dev *dev, u32 base,
 			 struct mt76_reg_pair *rp, int len);
 	int (*mcu_restart)(struct mt76_dev *dev);
+
+	void *suse_kabi_padding;
 };
 
 struct mt76_queue_ops {
@@ -279,6 +284,8 @@ struct mt76_queue_ops {
 	void (*kick)(struct mt76_dev *dev, struct mt76_queue *q);
 
 	void (*reset_q)(struct mt76_dev *dev, struct mt76_queue *q);
+
+	void *suse_kabi_padding;
 };
 
 enum mt76_phy_type {
@@ -528,6 +535,8 @@ struct mt76_driver_ops {
 
 	void (*sta_remove)(struct mt76_dev *dev, struct ieee80211_vif *vif,
 			   struct ieee80211_sta *sta);
+
+	void *suse_kabi_padding;
 };
 
 struct mt76_channel_state {
@@ -617,6 +626,8 @@ struct mt76_usb {
 		int rp_len;
 		u32 base;
 	} mcu;
+
+	void *suse_kabi_padding;
 };
 
 #define MT76S_XMIT_BUF_SZ	0x3fe00
@@ -645,6 +656,7 @@ struct mt76_sdio {
 	} sched;
 
 	int (*parse_irq)(struct mt76_dev *dev, struct mt76s_intr *intr);
+	void *suse_kabi_padding;
 };
 
 struct mt76_mmio {
@@ -917,6 +929,8 @@ struct mt76_dev {
 	} test_mtd;
 #endif
 	struct workqueue_struct *wq;
+
+	void *suse_kabi_padding;
 
 	union {
 		struct mt76_mmio mmio;
