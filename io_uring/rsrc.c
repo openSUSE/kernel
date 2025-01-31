@@ -882,7 +882,7 @@ struct page **io_pin_pages(unsigned long ubuf, unsigned long len, int *npages)
 
 	if (check_add_overflow(ubuf, len, &end))
 		return ERR_PTR(-EOVERFLOW);
-	if (check_add_overflow(ubuf, PAGE_SIZE - 1, &end))
+	if (check_add_overflow(end, PAGE_SIZE - 1, &end))
 		return ERR_PTR(-EOVERFLOW);
 
 	end = end >> PAGE_SHIFT;
