@@ -713,6 +713,9 @@ static int create_snapshot(struct btrfs_root *root, struct inode *dir,
 	int ret;
 	bool snapshot_force_cow = false;
 
+	if (btrfs_root_refs(&root->root_item) == 0)
+		return -ENOENT;
+
 	if (!test_bit(BTRFS_ROOT_REF_COWS, &root->state))
 		return -EINVAL;
 
