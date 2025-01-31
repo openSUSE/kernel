@@ -120,8 +120,6 @@ struct psmouse *psmouse_from_serio(struct serio *serio)
 {
 	struct ps2dev *ps2dev = serio_get_drvdata(serio);
 
-	if (!ps2dev)
-		return NULL;
 	return container_of(ps2dev, struct psmouse, ps2dev);
 }
 
