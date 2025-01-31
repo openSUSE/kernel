@@ -7628,6 +7628,16 @@ static void alc287_fixup_lenovo_thinkpad_with_alc1318(struct hda_codec *codec,
 	spec->gen.pcm_playback_hook = alc287_alc1318_playback_pcm_hook;
 }
 
+/*
+ * Clear COEF 0x0d (PCBEEP passthrough) bit 0x40 where BIOS sets it wrongly
+ * at PM resume
+ */
+static void alc283_fixup_dell_hp_resume(struct hda_codec *codec,
+					const struct hda_fixup *fix, int action)
+{
+	if (action == HDA_FIXUP_ACT_INIT)
+		alc_write_coef_idx(codec, 0xd, 0x2800);
+}
 
 enum {
 	ALC269_FIXUP_GPIO2,
@@ -7936,6 +7946,7 @@ enum {
 	ALC245_FIXUP_CLEVO_NOISY_MIC,
 	ALC269_FIXUP_VAIO_VJFH52_MIC_NO_PRESENCE,
 	ALC233_FIXUP_MEDION_MTL_SPK,
+	ALC283_FIXUP_DELL_HP_RESUME,
 };
 
 /* A special fixup for Lenovo C940 and Yoga Duet 7;
@@ -12356,6 +12367,10 @@ static const struct hda_fixup alc861vd_fixups[] = {
 	[ALC861VD_FIX_DALLAS] = {
 		.type = HDA_FIXUP_FUNC,
 		.v.func = alc861vd_fixup_dallas,
+	},
+	[ALC283_FIXUP_DELL_HP_RESUME] = {
+		.type = HDA_FIXUP_FUNC,
+		.v.func = alc283_fixup_dell_hp_resume,
 	},
 };
 
