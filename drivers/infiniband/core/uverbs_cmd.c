@@ -2199,8 +2199,9 @@ ssize_t ib_uverbs_post_send(struct ib_uverbs_file *file,
 	if (copy_from_user(&cmd, buf, sizeof cmd))
 		return -EFAULT;
 
-	if (in_len < sizeof cmd + cmd.wqe_size * cmd.wr_count +
-	    cmd.sge_count * sizeof (struct ib_uverbs_sge))
+	if (in_len < size_add(sizeof cmd,
+				size_add(size_mul(cmd.wqe_size, cmd.wr_count),
+					size_mul(cmd.sge_count, sizeof (struct ib_uverbs_sge)))))
 		return -EINVAL;
 
 	if (cmd.wqe_size < sizeof (struct ib_uverbs_send_wr))
@@ -2381,8 +2382,8 @@ static struct ib_recv_wr *ib_uverbs_unmarshall_recv(const char __user *buf,
 	int                       i;
 	int                       ret;
 
-	if (in_len < wqe_size * wr_count +
-	    sge_count * sizeof (struct ib_uverbs_sge))
+	if (in_len < size_add(size_mul(wqe_size, wr_count),
+				size_mul(sge_count, sizeof (struct ib_uverbs_sge))))
 		return ERR_PTR(-EINVAL);
 
 	if (wqe_size < sizeof (struct ib_uverbs_recv_wr))
