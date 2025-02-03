@@ -107,3 +107,9 @@ struct printk_message {
 };
 
 bool other_cpu_in_panic(void);
+
+#ifdef CONFIG_SMP
+bool is_printk_cpu_sync_owner(void);
+#else
+static inline bool is_printk_cpu_sync_owner(void) { return false; }
+#endif
