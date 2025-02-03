@@ -791,24 +791,25 @@ int nfs_readdir_xdr_to_array(nfs_readdir_descriptor_t *desc,
 {
 	struct page **pages;
 	struct page *page = *arrays;
-	struct nfs_entry entry;
+	struct nfs_entry *entry;
 	struct nfs_cache_array *array;
 	size_t array_size;
 	size_t dtsize = NFS_SERVER(inode)->dtsize;
 	int status = -ENOMEM;
 
-	entry.prev_cookie = 0;
-	entry.cookie = nfs_readdir_page_last_cookie(page);
-	entry.eof = 0;
-	entry.fh = nfs_alloc_fhandle();
-	entry.fattr = nfs_alloc_fattr();
-	entry.server = NFS_SERVER(inode);
-	if (entry.fh == NULL || entry.fattr == NULL)
+	entry = kzalloc(sizeof(*entry), GFP_KERNEL);
+	if (!entry)
+		return -ENOMEM;
+	entry->cookie = nfs_readdir_page_last_cookie(page);
+	entry->fh = nfs_alloc_fhandle();
+	entry->fattr = nfs_alloc_fattr();
+	entry->server = NFS_SERVER(inode);
+	if (entry->fh == NULL || entry->fattr == NULL)
 		goto out;
 
-	entry.label = nfs4_label_alloc(NFS_SERVER(inode), GFP_NOWAIT);
-	if (IS_ERR(entry.label)) {
-		status = PTR_ERR(entry.label);
+	entry->label = nfs4_label_alloc(NFS_SERVER(inode), GFP_NOWAIT);
+	if (IS_ERR(entry->label)) {
+		status = PTR_ERR(entry->label);
 		goto out;
 	}
 
@@ -821,7 +822,7 @@ int nfs_readdir_xdr_to_array(nfs_readdir_descriptor_t *desc,
 
 	do {
 		unsigned int pglen;
-		status = nfs_readdir_xdr_filler(desc, entry.cookie,
+		status = nfs_readdir_xdr_filler(desc, entry->cookie,
 						pages, dtsize);
 		if (status < 0)
 			break;
@@ -832,7 +833,7 @@ int nfs_readdir_xdr_to_array(nfs_readdir_descriptor_t *desc,
 			break;
 		}
 
-		status = nfs_readdir_page_filler(desc, &entry, pages, pglen,
+		status = nfs_readdir_page_filler(desc, entry, pages, pglen,
 						 arrays, narrays);
 	} while (!status && !nfs_readdir_array_is_full(array) &&
 		page_mapping(page));
@@ -840,10 +841,11 @@ int nfs_readdir_xdr_to_array(nfs_readdir_descriptor_t *desc,
 	nfs_readdir_free_pages(pages, array_size);
 out_release_array:
 	kunmap(page);
-	nfs4_label_free(entry.label);
+	nfs4_label_free(entry->label);
 out:
-	nfs_free_fattr(entry.fattr);
-	nfs_free_fhandle(entry.fh);
+	nfs_free_fattr(entry->fattr);
+	nfs_free_fhandle(entry->fh);
+	kfree(entry);
 	return status;
 }
 
@@ -989,7 +991,7 @@ int uncached_readdir(nfs_readdir_descriptor_t *desc)
 
 	status = nfs_readdir_xdr_to_array(desc, arrays, sz, inode);
 
-	for (i = 0; !desc->eof && i < sz && arrays[i]; i++) {
+	for (i = 0; !desc->eob && i < sz && arrays[i]; i++) {
 		desc->page = arrays[i];
 		status = nfs_do_filldir(desc);
 	}
@@ -1014,14 +1016,9 @@ static int nfs_readdir(struct file *file, struct dir_context *ctx)
 	struct inode	*inode = d_inode(dentry);
 	struct nfs_inode *nfsi = NFS_I(inode);
 	struct nfs_open_dir_context *dir_ctx = file->private_data;
-	nfs_readdir_descriptor_t my_desc = {
-		.file = file,
-		.ctx = ctx,
-		.plus = nfs_use_readdirplus(inode, ctx),
-	},
-			*desc = &my_desc;
+	struct nfs_readdir_descriptor *desc;
 	pgoff_t page_index;
-	int res = 0;
+	int res;
 
 	dfprintk(FILE, "NFS: readdir(%pD2) starting at cookie %llu\n",
 			file, (long long)ctx->pos);
@@ -1033,15 +1030,19 @@ static int nfs_readdir(struct file *file, struct dir_context *ctx)
 	 * to either find the entry with the appropriate number or
 	 * revalidate the cookie.
 	 */
-	if (desc->eof) {
-		res = 0;
-		goto out;
+	if (ctx->pos == 0 || nfs_attribute_cache_expired(inode)) {
+		res = nfs_revalidate_mapping(inode, file->f_mapping);
+		if (res < 0)
+			goto out;
 	}
 
-	if (ctx->pos == 0 || nfs_attribute_cache_expired(inode))
-		res = nfs_revalidate_mapping(inode, file->f_mapping);
-	if (res < 0)
+	res = -ENOMEM;
+	desc = kzalloc(sizeof(*desc), GFP_KERNEL);
+	if (!desc)
 		goto out;
+	desc->file = file;
+	desc->ctx = ctx;
+	desc->plus = nfs_use_readdirplus(inode, ctx);
 
 	spin_lock(&file->f_lock);
 	desc->dir_cookie = dir_ctx->dir_cookie;
@@ -1051,7 +1052,13 @@ static int nfs_readdir(struct file *file, struct dir_context *ctx)
 	desc->page_index = page_index;
 	desc->last_cookie = dir_ctx->last_cookie;
 	desc->attr_gencount = dir_ctx->attr_gencount;
+	desc->eof = dir_ctx->eof;
 	spin_unlock(&file->f_lock);
+
+	if (desc->eof) {
+		res = 0;
+		goto out_free;
+	}
 
 	if (test_and_clear_bit(NFS_INO_FORCE_READDIR, &nfsi->flags) &&
 	    list_is_singular(&nfsi->open_files))
@@ -1094,11 +1101,13 @@ static int nfs_readdir(struct file *file, struct dir_context *ctx)
 	dir_ctx->last_cookie = desc->last_cookie;
 	dir_ctx->duped = desc->duped;
 	dir_ctx->attr_gencount = desc->attr_gencount;
+	dir_ctx->eof = desc->eof;
 	dir_ctx->page_index = desc->page_index;
 	spin_unlock(&file->f_lock);
+out_free:
+	kfree(desc);
 
 out:
-	dir_ctx->eof = desc->eof;
 	if (res > 0)
 		res = 0;
 	dfprintk(FILE, "NFS: readdir(%pD2) returns %d\n", file, res);
