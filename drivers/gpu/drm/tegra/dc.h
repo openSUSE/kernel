@@ -94,6 +94,7 @@ struct tegra_dc {
 	int irq;
 
 	struct tegra_output *rgb;
+	struct tegra_pmc *pmc;
 
 	struct tegra_dc_stats stats;
 	struct list_head list;
