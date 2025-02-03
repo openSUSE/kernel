@@ -958,6 +958,8 @@ int readdir_search_pagecache(nfs_readdir_descriptor_t *desc)
 	return res;
 }
 
+#define NFS_READDIR_CACHE_MISS_THRESHOLD (16UL)
+
 /*
  * Once we've found the start of the dirent within a page: fill 'er up...
  */
@@ -968,6 +970,7 @@ int nfs_do_filldir(nfs_readdir_descriptor_t *desc)
 	int i = 0;
 	int res = 0;
 	struct nfs_cache_array *array = NULL;
+	bool first_emit = !desc->dir_cookie;
 
 	array = kmap(desc->page);
 	for (i = desc->cache_entry_index; i < array->size; i++) {
@@ -989,6 +992,10 @@ int nfs_do_filldir(nfs_readdir_descriptor_t *desc)
 			desc->ctx->pos++;
 		if (desc->duped != 0)
 			desc->duped = 1;
+		if (first_emit && i > NFS_READDIR_CACHE_MISS_THRESHOLD + 1) {
+			desc->eob = true;
+			break;
+		}
 	}
 	if (array->page_is_eof)
 		desc->eof = !desc->eob;
@@ -1063,8 +1070,6 @@ out:
 	dfprintk(DIRCACHE, "NFS: %s: returns %d\n", __func__, status);
 	return status;
 }
-
-#define NFS_READDIR_CACHE_MISS_THRESHOLD (16UL)
 
 static void nfs_readdir_handle_cache_misses(struct inode *inode,
 					    struct nfs_readdir_descriptor *desc,
