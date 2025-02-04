@@ -59,7 +59,6 @@ int atomisp_buffers_in_css(struct atomisp_video_pipe *pipe);
 void atomisp_buffer_done(struct ia_css_frame *frame, enum vb2_buffer_state state);
 void atomisp_flush_video_pipe(struct atomisp_video_pipe *pipe, enum vb2_buffer_state state,
 			      bool warn_on_css_frames);
-void atomisp_flush_bufs_and_wakeup(struct atomisp_sub_device *asd);
 void atomisp_clear_css_buffer_counters(struct atomisp_sub_device *asd);
 
 /* Interrupt functions */
@@ -283,15 +282,11 @@ void atomisp_buf_done(struct atomisp_sub_device *asd, int error,
 		      enum ia_css_pipe_id css_pipe_id,
 		      bool q_buffers, enum atomisp_input_stream_id stream_id);
 
-void atomisp_css_flush(struct atomisp_device *isp);
-
 /* Events. Only one event has to be exported for now. */
 void atomisp_eof_event(struct atomisp_sub_device *asd, uint8_t exp_id);
 
-enum mipi_port_id __get_mipi_port(struct atomisp_device *isp,
-				  enum atomisp_camera_port port);
-
-bool atomisp_is_vf_pipe(struct atomisp_video_pipe *pipe);
+enum mipi_port_id atomisp_port_to_mipi_port(struct atomisp_device *isp,
+					    enum atomisp_camera_port port);
 
 void atomisp_apply_css_parameters(
     struct atomisp_sub_device *asd,

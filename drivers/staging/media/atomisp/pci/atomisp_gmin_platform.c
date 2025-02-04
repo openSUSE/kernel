@@ -189,6 +189,7 @@ int atomisp_register_i2c_module(struct v4l2_subdev *subdev,
 
 	pdata.subdevs[i].type = type;
 	pdata.subdevs[i].port = gs->csi_port;
+	pdata.subdevs[i].lanes = gs->csi_lanes;
 	pdata.subdevs[i].subdev = subdev;
 	return 0;
 }
@@ -1150,6 +1151,7 @@ int atomisp_register_sensor_no_gmin(struct v4l2_subdev *subdev, u32 lanes,
 
 	pdata.subdevs[i].type = RAW_CAMERA;
 	pdata.subdevs[i].port = port;
+	pdata.subdevs[i].lanes = lanes;
 	pdata.subdevs[i].subdev = subdev;
 	return 0;
 }
@@ -1522,7 +1524,7 @@ static int v4l2_acpi_handle_gpio_res(struct acpi_resource *ares, void *_data)
 	const char *name;
 	bool active_low;
 	unsigned int i;
-	u32 settings;
+	u32 settings = 0;
 	u8 pin;
 
 	if (!acpi_gpio_get_io_resource(ares, &agpio))
