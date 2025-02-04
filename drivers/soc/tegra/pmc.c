@@ -514,10 +514,12 @@ struct tegra_pmc {
 	u32 *wake_status;
 };
 
+#if defined(CONFIG_ARM)
 static struct tegra_pmc *early_pmc = &(struct tegra_pmc) {
 	.base = NULL,
 	.suspend_mode = TEGRA_SUSPEND_NOT_READY,
 };
+#endif
 
 static inline struct tegra_powergate *
 to_powergate(struct generic_pm_domain *domain)
@@ -1153,68 +1155,6 @@ int tegra_pmc_powergate_sequence_power_up(struct tegra_pmc *pmc,
 }
 EXPORT_SYMBOL(tegra_pmc_powergate_sequence_power_up);
 
-/**
- * tegra_get_cpu_powergate_id() - convert from CPU ID to partition ID
- * @pmc: power management controller
- * @cpuid: CPU partition ID
- *
- * Returns the partition ID corresponding to the CPU partition ID or a
- * negative error code on failure.
- */
-static int tegra_get_cpu_powergate_id(struct tegra_pmc *pmc,
-				      unsigned int cpuid)
-{
-	if (pmc->soc && cpuid < pmc->soc->num_cpu_powergates)
-		return pmc->soc->cpu_powergates[cpuid];
-
-	return -EINVAL;
-}
-
-/**
- * tegra_pmc_cpu_is_powered() - check if CPU partition is powered
- * @cpuid: CPU partition ID
- */
-bool tegra_pmc_cpu_is_powered(unsigned int cpuid)
-{
-	int id;
-
-	id = tegra_get_cpu_powergate_id(early_pmc, cpuid);
-	if (id < 0)
-		return false;
-
-	return tegra_powergate_is_powered(early_pmc, id);
-}
-
-/**
- * tegra_pmc_cpu_power_on() - power on CPU partition
- * @cpuid: CPU partition ID
- */
-int tegra_pmc_cpu_power_on(unsigned int cpuid)
-{
-	int id;
-
-	id = tegra_get_cpu_powergate_id(early_pmc, cpuid);
-	if (id < 0)
-		return id;
-
-	return tegra_powergate_set(early_pmc, id, true);
-}
-
-/**
- * tegra_pmc_cpu_remove_clamping() - remove power clamps for CPU partition
- * @cpuid: CPU partition ID
- */
-int tegra_pmc_cpu_remove_clamping(unsigned int cpuid)
-{
-	int id;
-
-	id = tegra_get_cpu_powergate_id(early_pmc, cpuid);
-	if (id < 0)
-		return id;
-
-	return tegra_pmc_powergate_remove_clamping(early_pmc, id);
-}
-
 static void tegra_pmc_program_reboot_reason(struct tegra_pmc *pmc,
 					    const char *cmd)
 {
@@ -1486,11 +1426,6 @@ free_mem:
 	kfree(pg);
 
 	return err;
-}
-
-bool tegra_pmc_core_domain_state_synced(void)
-{
-	return early_pmc->core_domain_state_synced;
 }
 
 static int
@@ -1905,57 +1840,6 @@ static int tegra_io_pad_get_voltage(struct tegra_pmc *pmc, enum tegra_io_pad id)
 
 	return TEGRA_IO_PAD_VOLTAGE_3V3;
 }
-
-#ifdef CONFIG_PM_SLEEP
-enum tegra_suspend_mode tegra_pmc_get_suspend_mode(void)
-{
-	return early_pmc->suspend_mode;
-}
-
-void tegra_pmc_set_suspend_mode(enum tegra_suspend_mode mode)
-{
-	if (mode < TEGRA_SUSPEND_NONE || mode >= TEGRA_MAX_SUSPEND_MODE)
-		return;
-
-	early_pmc->suspend_mode = mode;
-}
-
-void tegra_pmc_enter_suspend_mode(enum tegra_suspend_mode mode)
-{
-	unsigned long long rate = 0;
-	u64 ticks;
-	u32 value;
-
-	switch (mode) {
-	case TEGRA_SUSPEND_LP1:
-		rate = 32768;
-		break;
-
-	case TEGRA_SUSPEND_LP2:
-		rate = early_pmc->rate;
-		break;
-
-	default:
-		break;
-	}
-
-	if (WARN_ON_ONCE(rate == 0))
-		rate = 100000000;
-
-	ticks = early_pmc->cpu_good_time * rate + USEC_PER_SEC - 1;
-	do_div(ticks, USEC_PER_SEC);
-	tegra_pmc_writel(early_pmc, ticks, PMC_CPUPWRGOOD_TIMER);
-
-	ticks = early_pmc->cpu_off_time * rate + USEC_PER_SEC - 1;
-	do_div(ticks, USEC_PER_SEC);
-	tegra_pmc_writel(early_pmc, ticks, PMC_CPUPWROFF_TIMER);
-
-	value = tegra_pmc_readl(early_pmc, PMC_CNTRL);
-	value &= ~PMC_CNTRL_SIDE_EFFECT_LP0;
-	value |= PMC_CNTRL_CPU_PWRREQ_OE;
-	tegra_pmc_writel(early_pmc, value, PMC_CNTRL);
-}
-#endif
 
 static int tegra_pmc_parse_dt(struct tegra_pmc *pmc, struct device_node *np)
 {
@@ -3103,6 +2987,7 @@ static int tegra_pmc_probe(struct platform_device *pdev)
 	struct resource *res;
 	int err;
 
+#if defined(CONFIG_ARM)
 	/*
 	 * Early initialisation should have configured an initial
 	 * register mapping and setup the soc data pointer. If these
@@ -3110,6 +2995,7 @@ static int tegra_pmc_probe(struct platform_device *pdev)
 	 */
 	if (WARN_ON(!early_pmc->base || !early_pmc->soc))
 		return -ENODEV;
+#endif
 
 	pmc = devm_kzalloc(&pdev->dev, sizeof(*pmc), GFP_KERNEL);
 	if (!pmc)
@@ -3259,10 +3145,12 @@ static int tegra_pmc_probe(struct platform_device *pdev)
 	if (err < 0)
 		goto cleanup_powergates;
 
+#if defined(CONFIG_ARM)
 	mutex_lock(&early_pmc->powergates_lock);
 	iounmap(early_pmc->base);
 	early_pmc->base = pmc->base;
 	mutex_unlock(&early_pmc->powergates_lock);
+#endif
 
 	tegra_pmc_clock_register(pmc, pdev->dev.of_node);
 	platform_set_drvdata(pdev, pmc);
@@ -4843,6 +4731,125 @@ static struct platform_driver tegra_pmc_driver = {
 };
 builtin_platform_driver(tegra_pmc_driver);
 
+#if defined(CONFIG_ARM)
+/**
+ * tegra_get_cpu_powergate_id() - convert from CPU ID to partition ID
+ * @pmc: power management controller
+ * @cpuid: CPU partition ID
+ *
+ * Returns the partition ID corresponding to the CPU partition ID or a
+ * negative error code on failure.
+ */
+static int tegra_get_cpu_powergate_id(struct tegra_pmc *pmc,
+				      unsigned int cpuid)
+{
+	if (pmc->soc && cpuid < pmc->soc->num_cpu_powergates)
+		return pmc->soc->cpu_powergates[cpuid];
+
+	return -EINVAL;
+}
+
+/**
+ * tegra_pmc_cpu_is_powered() - check if CPU partition is powered
+ * @cpuid: CPU partition ID
+ */
+bool tegra_pmc_cpu_is_powered(unsigned int cpuid)
+{
+	int id;
+
+	id = tegra_get_cpu_powergate_id(early_pmc, cpuid);
+	if (id < 0)
+		return false;
+
+	return tegra_powergate_is_powered(early_pmc, id);
+}
+
+/**
+ * tegra_pmc_cpu_power_on() - power on CPU partition
+ * @cpuid: CPU partition ID
+ */
+int tegra_pmc_cpu_power_on(unsigned int cpuid)
+{
+	int id;
+
+	id = tegra_get_cpu_powergate_id(early_pmc, cpuid);
+	if (id < 0)
+		return id;
+
+	return tegra_powergate_set(early_pmc, id, true);
+}
+
+/**
+ * tegra_pmc_cpu_remove_clamping() - remove power clamps for CPU partition
+ * @cpuid: CPU partition ID
+ */
+int tegra_pmc_cpu_remove_clamping(unsigned int cpuid)
+{
+	int id;
+
+	id = tegra_get_cpu_powergate_id(early_pmc, cpuid);
+	if (id < 0)
+		return id;
+
+	return tegra_pmc_powergate_remove_clamping(early_pmc, id);
+}
+
+bool tegra_pmc_core_domain_state_synced(void)
+{
+	return early_pmc->core_domain_state_synced;
+}
+
+#ifdef CONFIG_PM_SLEEP
+enum tegra_suspend_mode tegra_pmc_get_suspend_mode(void)
+{
+	return early_pmc->suspend_mode;
+}
+
+void tegra_pmc_set_suspend_mode(enum tegra_suspend_mode mode)
+{
+	if (mode < TEGRA_SUSPEND_NONE || mode >= TEGRA_MAX_SUSPEND_MODE)
+		return;
+
+	early_pmc->suspend_mode = mode;
+}
+
+void tegra_pmc_enter_suspend_mode(enum tegra_suspend_mode mode)
+{
+	unsigned long long rate = 0;
+	u64 ticks;
+	u32 value;
+
+	switch (mode) {
+	case TEGRA_SUSPEND_LP1:
+		rate = 32768;
+		break;
+
+	case TEGRA_SUSPEND_LP2:
+		rate = early_pmc->rate;
+		break;
+
+	default:
+		break;
+	}
+
+	if (WARN_ON_ONCE(rate == 0))
+		rate = 100000000;
+
+	ticks = early_pmc->cpu_good_time * rate + USEC_PER_SEC - 1;
+	do_div(ticks, USEC_PER_SEC);
+	tegra_pmc_writel(early_pmc, ticks, PMC_CPUPWRGOOD_TIMER);
+
+	ticks = early_pmc->cpu_off_time * rate + USEC_PER_SEC - 1;
+	do_div(ticks, USEC_PER_SEC);
+	tegra_pmc_writel(early_pmc, ticks, PMC_CPUPWROFF_TIMER);
+
+	value = tegra_pmc_readl(early_pmc, PMC_CNTRL);
+	value &= ~PMC_CNTRL_SIDE_EFFECT_LP0;
+	value |= PMC_CNTRL_CPU_PWRREQ_OE;
+	tegra_pmc_writel(early_pmc, value, PMC_CNTRL);
+}
+#endif /* CONFIG_PM_SLEEP */
+
 /*
  * Early initialization to allow access to registers in the very early boot
  * process.
@@ -4920,3 +4927,4 @@ static int __init tegra_pmc_early_init(void)
 	return 0;
 }
 early_initcall(tegra_pmc_early_init);
+#endif /* CONFIG_ARM */
