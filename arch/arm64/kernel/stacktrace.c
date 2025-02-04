@@ -111,8 +111,10 @@ kunwind_recover_return_address(struct kunwind_state *state)
 		orig_pc = ftrace_graph_ret_addr(state->task, &state->graph_idx,
 						state->common.pc,
 						(void *)state->common.fp);
-		if (WARN_ON_ONCE(state->common.pc == orig_pc))
+		if (state->common.pc == orig_pc) {
+			WARN_ON_ONCE(state->task == current);
 			return -EINVAL;
+		}
 		state->common.pc = orig_pc;
 	}
 #endif /* CONFIG_FUNCTION_GRAPH_TRACER */
