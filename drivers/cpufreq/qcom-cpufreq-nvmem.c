@@ -26,6 +26,7 @@
 #include <linux/platform_device.h>
 #include <linux/pm_domain.h>
 #include <linux/pm_opp.h>
+#include <linux/pm_runtime.h>
 #include <linux/slab.h>
 #include <linux/soc/qcom/smem.h>
 
@@ -56,6 +57,7 @@ struct qcom_cpufreq_match_data {
 
 struct qcom_cpufreq_drv_cpu {
 	int opp_token;
+	struct device **virt_devs;
 };
 
 struct qcom_cpufreq_drv {
@@ -263,6 +265,18 @@ static const struct qcom_cpufreq_match_data match_data_qcs404 = {
 	.genpd_names = qcs404_genpd_names,
 };
 
+static void qcom_cpufreq_put_virt_devs(struct qcom_cpufreq_drv *drv, unsigned int cpu)
+{
+	const char * const *name = drv->data->genpd_names;
+	int i;
+
+	if (!drv->cpus[cpu].virt_devs)
+		return;
+
+	for (i = 0; *name; i++, name++)
+		pm_runtime_put(drv->cpus[cpu].virt_devs[i]);
+}
+
 static int qcom_cpufreq_probe(struct platform_device *pdev)
 {
 	struct qcom_cpufreq_drv *drv;
@@ -316,6 +330,7 @@ static int qcom_cpufreq_probe(struct platform_device *pdev)
 	of_node_put(np);
 
 	for_each_possible_cpu(cpu) {
+		struct device **virt_devs = NULL;
 		struct dev_pm_opp_config config = {
 			.supported_hw = NULL,
 		};
@@ -336,7 +351,7 @@ static int qcom_cpufreq_probe(struct platform_device *pdev)
 
 		if (drv->data->genpd_names) {
 			config.genpd_names = drv->data->genpd_names;
-			config.virt_devs = NULL;
+			config.virt_devs = &virt_devs;
 		}
 
 		if (config.supported_hw || config.genpd_names) {
@@ -346,6 +361,27 @@ static int qcom_cpufreq_probe(struct platform_device *pdev)
 				dev_err(cpu_dev, "Failed to set OPP config\n");
 				goto free_opp;
 			}
+		}
+
+		if (virt_devs) {
+			const char * const *name = config.genpd_names;
+			int i, j;
+
+			for (i = 0; *name; i++, name++) {
+				ret = pm_runtime_resume_and_get(virt_devs[i]);
+				if (ret) {
+					dev_err(cpu_dev, "failed to resume %s: %d\n",
+						*name, ret);
+
+					/* Rollback previous PM runtime calls */
+					name = config.genpd_names;
+					for (j = 0; *name && j < i; j++, name++)
+						pm_runtime_put(virt_devs[j]);
+
+					goto free_opp;
+				}
+			}
+			drv->cpus[cpu].virt_devs = virt_devs;
 		}
 	}
 
@@ -360,8 +396,10 @@ static int qcom_cpufreq_probe(struct platform_device *pdev)
 	dev_err(cpu_dev, "Failed to register platform device\n");
 
 free_opp:
-	for_each_possible_cpu(cpu)
+	for_each_possible_cpu(cpu) {
+		qcom_cpufreq_put_virt_devs(drv, cpu);
 		dev_pm_opp_clear_config(drv->cpus[cpu].opp_token);
+	}
 	return ret;
 }
 
@@ -372,8 +410,10 @@ static int qcom_cpufreq_remove(struct platform_device *pdev)
 
 	platform_device_unregister(cpufreq_dt_pdev);
 
-	for_each_possible_cpu(cpu)
+	for_each_possible_cpu(cpu) {
+		qcom_cpufreq_put_virt_devs(drv, cpu);
 		dev_pm_opp_clear_config(drv->cpus[cpu].opp_token);
+	}
 
 	return 0;
 }
