@@ -1066,16 +1066,6 @@ int tegra_pmc_powergate_power_on(struct tegra_pmc *pmc, unsigned int id)
 EXPORT_SYMBOL(tegra_pmc_powergate_power_on);
 
 /**
- * tegra_powergate_power_on() - power on partition
- * @id: partition ID
- */
-int tegra_powergate_power_on(unsigned int id)
-{
-	return tegra_pmc_powergate_power_on(early_pmc, id);
-}
-EXPORT_SYMBOL(tegra_powergate_power_on);
-
-/**
  * tegra_pmc_powergate_power_off() - power off partition
  * @pmc: power management controller
  * @id: partition ID
@@ -1088,16 +1078,6 @@ int tegra_pmc_powergate_power_off(struct tegra_pmc *pmc, unsigned int id)
 	return tegra_powergate_set(pmc, id, false);
 }
 EXPORT_SYMBOL(tegra_pmc_powergate_power_off);
-
-/**
- * tegra_powergate_power_off() - power off partition
- * @id: partition ID
- */
-int tegra_powergate_power_off(unsigned int id)
-{
-	return tegra_pmc_powergate_power_off(early_pmc, id);
-}
-EXPORT_SYMBOL(tegra_powergate_power_off);
 
 /**
  * tegra_powergate_is_powered() - check if partition is powered
@@ -1125,16 +1105,6 @@ int tegra_pmc_powergate_remove_clamping(struct tegra_pmc *pmc, unsigned int id)
 	return __tegra_powergate_remove_clamping(pmc, id);
 }
 EXPORT_SYMBOL(tegra_pmc_powergate_remove_clamping);
-
-/**
- * tegra_powergate_remove_clamping() - remove power clamps for partition
- * @id: partition ID
- */
-int tegra_powergate_remove_clamping(unsigned int id)
-{
-	return tegra_pmc_powergate_remove_clamping(early_pmc, id);
-}
-EXPORT_SYMBOL(tegra_powergate_remove_clamping);
 
 /**
  * tegra_pmc_powergate_sequence_power_up() - power up partition
@@ -1182,21 +1152,6 @@ int tegra_pmc_powergate_sequence_power_up(struct tegra_pmc *pmc,
 	return err;
 }
 EXPORT_SYMBOL(tegra_pmc_powergate_sequence_power_up);
-
-/**
- * tegra_powergate_sequence_power_up() - power up partition
- * @id: partition ID
- * @clk: clock for partition
- * @rst: reset for partition
- *
- * Must be called with clk disabled, and returns with clk enabled.
- */
-int tegra_powergate_sequence_power_up(unsigned int id, struct clk *clk,
-				      struct reset_control *rst)
-{
-	return tegra_pmc_powergate_sequence_power_up(early_pmc, id, clk, rst);
-}
-EXPORT_SYMBOL(tegra_powergate_sequence_power_up);
 
 /**
  * tegra_get_cpu_powergate_id() - convert from CPU ID to partition ID
@@ -1826,18 +1781,6 @@ unlock:
 EXPORT_SYMBOL(tegra_pmc_io_pad_power_enable);
 
 /**
- * tegra_io_pad_power_enable() - enable power to I/O pad
- * @id: Tegra I/O pad ID for which to enable power
- *
- * Returns: 0 on success or a negative error code on failure.
- */
-int tegra_io_pad_power_enable(enum tegra_io_pad id)
-{
-	return tegra_pmc_io_pad_power_enable(early_pmc, id);
-}
-EXPORT_SYMBOL(tegra_io_pad_power_enable);
-
-/**
  * tegra_pmc_io_pad_power_disable() - disable power to I/O pad
  * @pmc: power management controller
  * @id: Tegra I/O pad ID for which to disable power
@@ -1880,18 +1823,6 @@ unlock:
 	return err;
 }
 EXPORT_SYMBOL(tegra_pmc_io_pad_power_disable);
-
-/**
- * tegra_io_pad_power_disable() - disable power to I/O pad
- * @id: Tegra I/O pad ID for which to disable power
- *
- * Returns: 0 on success or a negative error code on failure.
- */
-int tegra_io_pad_power_disable(enum tegra_io_pad id)
-{
-	return tegra_pmc_io_pad_power_disable(early_pmc, id);
-}
-EXPORT_SYMBOL(tegra_io_pad_power_disable);
 
 static int tegra_io_pad_is_powered(struct tegra_pmc *pmc, enum tegra_io_pad id)
 {

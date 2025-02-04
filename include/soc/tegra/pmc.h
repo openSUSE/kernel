@@ -164,16 +164,6 @@ int tegra_pmc_io_pad_power_enable(struct tegra_pmc *pmc, enum tegra_io_pad id);
 int tegra_pmc_io_pad_power_disable(struct tegra_pmc *pmc, enum tegra_io_pad id);
 
 /* legacy */
-int tegra_powergate_power_on(unsigned int id);
-int tegra_powergate_power_off(unsigned int id);
-int tegra_powergate_remove_clamping(unsigned int id);
-
-int tegra_powergate_sequence_power_up(unsigned int id, struct clk *clk,
-				      struct reset_control *rst);
-
-int tegra_io_pad_power_enable(enum tegra_io_pad id);
-int tegra_io_pad_power_disable(enum tegra_io_pad id);
-
 void tegra_pmc_set_suspend_mode(enum tegra_suspend_mode mode);
 void tegra_pmc_enter_suspend_mode(enum tegra_suspend_mode mode);
 
@@ -220,43 +210,6 @@ tegra_pmc_io_pad_power_enable(struct tegra_pmc *pmc, enum tegra_io_pad id)
 
 static inline int
 tegra_pmc_io_pad_power_disable(struct tegra_pmc *pmc, enum tegra_io_pad id)
-{
-	return -ENOSYS;
-}
-
-static inline int tegra_powergate_power_on(unsigned int id)
-{
-	return -ENOSYS;
-}
-
-static inline int tegra_powergate_power_off(unsigned int id)
-{
-	return -ENOSYS;
-}
-
-static inline int tegra_powergate_remove_clamping(unsigned int id)
-{
-	return -ENOSYS;
-}
-
-static inline int tegra_powergate_sequence_power_up(unsigned int id,
-						    struct clk *clk,
-						    struct reset_control *rst)
-{
-	return -ENOSYS;
-}
-
-static inline int tegra_io_pad_power_enable(enum tegra_io_pad id)
-{
-	return -ENOSYS;
-}
-
-static inline int tegra_io_pad_power_disable(enum tegra_io_pad id)
-{
-	return -ENOSYS;
-}
-
-static inline int tegra_io_pad_get_voltage(enum tegra_io_pad id)
 {
 	return -ENOSYS;
 }
