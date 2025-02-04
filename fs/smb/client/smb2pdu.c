@@ -3459,9 +3459,10 @@ replay_again:
 		 */
 		if (pbuf)
 			memcpy(pbuf, (char *)&rsp->CreationTime, sizeof(*pbuf) - 4);
+
+		atomic_dec(&tcon->num_remote_opens);
 	}
 
-	atomic_dec(&tcon->num_remote_opens);
 close_exit:
 	SMB2_close_free(&rqst);
 	free_rsp_buf(resp_buftype, rsp);
