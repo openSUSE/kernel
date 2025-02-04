@@ -663,9 +663,8 @@ xfs_buf_find_insert(
 		spin_unlock(&bch->bc_lock);
 		goto out_free_buf;
 	}
-	if (bp) {
+	if (bp && atomic_inc_not_zero(&bp->b_hold)) {
 		/* found an existing buffer */
-		atomic_inc(&bp->b_hold);
 		spin_unlock(&bch->bc_lock);
 		error = xfs_buf_find_lock(bp, flags);
 		if (error)
@@ -1656,10 +1655,8 @@ _xfs_buf_ioapply(
 	op |= REQ_META;
 
 	/* in-memory targets are directly mapped, no IO required. */
-	if (xfs_buftarg_is_mem(bp->b_target)) {
-		xfs_buf_ioend(bp);
+	if (xfs_buftarg_is_mem(bp->b_target))
 		return;
-	}
 
 	/*
 	 * Walk all the vectors issuing IO on them. Set up the initial offset

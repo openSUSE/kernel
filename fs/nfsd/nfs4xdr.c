@@ -4326,6 +4326,15 @@ static __be32 nfsd4_encode_splice_read(
 	__be32 nfserr;
 
 	/*
+	 * Splice read doesn't work if encoding has already wandered
+	 * into the XDR buf's page array.
+	 */
+	if (unlikely(xdr->buf->page_len)) {
+		WARN_ON_ONCE(1);
+		return nfserr_serverfault;
+	}
+
+	/*
 	 * Make sure there is room at the end of buf->head for
 	 * svcxdr_encode_opaque_pages() to create a tail buffer
 	 * to XDR-pad the payload.
@@ -4407,24 +4416,22 @@ nfsd4_encode_read(struct nfsd4_compoundres *resp, __be32 nfserr,
 	struct nfsd4_compoundargs *argp = resp->rqstp->rq_argp;
 	struct nfsd4_read *read = &u->read;
 	struct xdr_stream *xdr = resp->xdr;
-	int starting_len = xdr->buf->len;
 	bool splice_ok = argp->splice_ok;
+	unsigned int eof_offset;
 	unsigned long maxcount;
+	__be32 wire_data[2];
 	struct file *file;
-	__be32 *p;
 
 	if (nfserr)
 		return nfserr;
+
+	eof_offset = xdr->buf->len;
 	file = read->rd_nf->nf_file;
 
-	p = xdr_reserve_space(xdr, 8); /* eof flag and byte count */
-	if (!p) {
+	/* Reserve space for the eof flag and byte count */
+	if (unlikely(!xdr_reserve_space(xdr, XDR_UNIT * 2))) {
 		WARN_ON_ONCE(splice_ok);
 		return nfserr_resource;
-	}
-	if (resp->xdr->buf->page_len && splice_ok) {
-		WARN_ON_ONCE(1);
-		return nfserr_serverfault;
 	}
 	xdr_commit_encode(xdr);
 
@@ -4436,12 +4443,13 @@ nfsd4_encode_read(struct nfsd4_compoundres *resp, __be32 nfserr,
 	else
 		nfserr = nfsd4_encode_readv(resp, read, file, maxcount);
 	if (nfserr) {
-		xdr_truncate_encode(xdr, starting_len);
+		xdr_truncate_encode(xdr, eof_offset);
 		return nfserr;
 	}
 
-	p = xdr_encode_bool(p, read->rd_eof);
-	*p = cpu_to_be32(read->rd_length);
+	wire_data[0] = read->rd_eof ? xdr_one : xdr_zero;
+	wire_data[1] = cpu_to_be32(read->rd_length);
+	write_bytes_to_xdr_buf(xdr->buf, eof_offset, &wire_data, XDR_UNIT * 2);
 	return nfs_ok;
 }
 
@@ -5283,17 +5291,20 @@ nfsd4_encode_read_plus_data(struct nfsd4_compoundres *resp,
 	struct file *file = read->rd_nf->nf_file;
 	struct xdr_stream *xdr = resp->xdr;
 	bool splice_ok = argp->splice_ok;
+	unsigned int offset_offset;
+	__be32 nfserr, wire_count;
 	unsigned long maxcount;
-	__be32 nfserr, *p;
+	__be64 wire_offset;
 
-	/* Content type, offset, byte count */
-	p = xdr_reserve_space(xdr, 4 + 8 + 4);
-	if (!p)
+	if (xdr_stream_encode_u32(xdr, NFS4_CONTENT_DATA) != XDR_UNIT)
 		return nfserr_io;
-	if (resp->xdr->buf->page_len && splice_ok) {
-		WARN_ON_ONCE(splice_ok);
-		return nfserr_serverfault;
-	}
+
+	offset_offset = xdr->buf->len;
+
+	/* Reserve space for the byte offset and count */
+	if (unlikely(!xdr_reserve_space(xdr, XDR_UNIT * 3)))
+		return nfserr_io;
+	xdr_commit_encode(xdr);
 
 	maxcount = min_t(unsigned long, read->rd_length,
 			 (xdr->buf->buflen - xdr->buf->len));
@@ -5305,10 +5316,12 @@ nfsd4_encode_read_plus_data(struct nfsd4_compoundres *resp,
 	if (nfserr)
 		return nfserr;
 
-	*p++ = cpu_to_be32(NFS4_CONTENT_DATA);
-	p = xdr_encode_hyper(p, read->rd_offset);
-	*p = cpu_to_be32(read->rd_length);
-
+	wire_offset = cpu_to_be64(read->rd_offset);
+	write_bytes_to_xdr_buf(xdr->buf, offset_offset, &wire_offset,
+			       XDR_UNIT * 2);
+	wire_count = cpu_to_be32(read->rd_length);
+	write_bytes_to_xdr_buf(xdr->buf, offset_offset + XDR_UNIT * 2,
+			       &wire_count, XDR_UNIT);
 	return nfs_ok;
 }
 
@@ -5319,16 +5332,17 @@ nfsd4_encode_read_plus(struct nfsd4_compoundres *resp, __be32 nfserr,
 	struct nfsd4_read *read = &u->read;
 	struct file *file = read->rd_nf->nf_file;
 	struct xdr_stream *xdr = resp->xdr;
-	int starting_len = xdr->buf->len;
+	unsigned int eof_offset;
+	__be32 wire_data[2];
 	u32 segments = 0;
-	__be32 *p;
 
 	if (nfserr)
 		return nfserr;
 
-	/* eof flag, segment count */
-	p = xdr_reserve_space(xdr, 4 + 4);
-	if (!p)
+	eof_offset = xdr->buf->len;
+
+	/* Reserve space for the eof flag and segment count */
+	if (unlikely(!xdr_reserve_space(xdr, XDR_UNIT * 2)))
 		return nfserr_io;
 	xdr_commit_encode(xdr);
 
@@ -5338,15 +5352,16 @@ nfsd4_encode_read_plus(struct nfsd4_compoundres *resp, __be32 nfserr,
 
 	nfserr = nfsd4_encode_read_plus_data(resp, read);
 	if (nfserr) {
-		xdr_truncate_encode(xdr, starting_len);
+		xdr_truncate_encode(xdr, eof_offset);
 		return nfserr;
 	}
 
 	segments++;
 
 out:
-	p = xdr_encode_bool(p, read->rd_eof);
-	*p = cpu_to_be32(segments);
+	wire_data[0] = read->rd_eof ? xdr_one : xdr_zero;
+	wire_data[1] = cpu_to_be32(segments);
+	write_bytes_to_xdr_buf(xdr->buf, eof_offset, &wire_data, XDR_UNIT * 2);
 	return nfserr;
 }
 
