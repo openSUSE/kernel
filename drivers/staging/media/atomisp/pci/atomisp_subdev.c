@@ -117,33 +117,17 @@ const struct atomisp_in_fmt_conv *atomisp_find_in_fmt_conv_by_atomisp_in_fmt(
 	return NULL;
 }
 
-bool atomisp_subdev_format_conversion(struct atomisp_sub_device *asd,
-				      unsigned int source_pad)
+bool atomisp_subdev_format_conversion(struct atomisp_sub_device *asd)
 {
 	struct v4l2_mbus_framefmt *sink, *src;
 
 	sink = atomisp_subdev_get_ffmt(&asd->subdev, NULL,
-				       V4L2_SUBDEV_FORMAT_ACTIVE,
-				       ATOMISP_SUBDEV_PAD_SINK);
+				       V4L2_SUBDEV_FORMAT_ACTIVE, ATOMISP_SUBDEV_PAD_SINK);
 	src = atomisp_subdev_get_ffmt(&asd->subdev, NULL,
-				      V4L2_SUBDEV_FORMAT_ACTIVE, source_pad);
+				      V4L2_SUBDEV_FORMAT_ACTIVE, ATOMISP_SUBDEV_PAD_SOURCE);
 
 	return atomisp_is_mbuscode_raw(sink->code)
 	       && !atomisp_is_mbuscode_raw(src->code);
-}
-
-uint16_t atomisp_subdev_source_pad(struct video_device *vdev)
-{
-	struct media_link *link;
-	u16 ret = 0;
-
-	list_for_each_entry(link, &vdev->entity.links, list) {
-		if (link->source) {
-			ret = link->source->index;
-			break;
-		}
-	}
-	return ret;
 }
 
 /*
@@ -355,7 +339,7 @@ static const char *atomisp_pad_str(unsigned int pad)
 {
 	static const char *const pad_str[] = {
 		"ATOMISP_SUBDEV_PAD_SINK",
-		"ATOMISP_SUBDEV_PAD_SOURCE_PREVIEW",
+		"ATOMISP_SUBDEV_PAD_SOURCE",
 	};
 
 	if (pad >= ARRAY_SIZE(pad_str))
@@ -404,8 +388,7 @@ int atomisp_subdev_set_selection(struct v4l2_subdev *sd,
 			padding_h = 12;
 		}
 
-		if (atomisp_subdev_format_conversion(isp_sd,
-						     isp_sd->capture_pad)
+		if (atomisp_subdev_format_conversion(isp_sd)
 		    && crop[pad]->width && crop[pad]->height) {
 			crop[pad]->width -= padding_w;
 			crop[pad]->height -= padding_h;
@@ -431,7 +414,7 @@ int atomisp_subdev_set_selection(struct v4l2_subdev *sd,
 			struct v4l2_rect tmp = *crop[pad];
 
 			atomisp_subdev_set_selection(sd, sd_state, which,
-						     ATOMISP_SUBDEV_PAD_SOURCE_PREVIEW,
+						     ATOMISP_SUBDEV_PAD_SOURCE,
 						     V4L2_SEL_TGT_COMPOSE, flags, &tmp);
 		}
 
@@ -593,7 +576,7 @@ void atomisp_subdev_set_ffmt(struct v4l2_subdev *sd,
 
 		break;
 	}
-	case ATOMISP_SUBDEV_PAD_SOURCE_PREVIEW:
+	case ATOMISP_SUBDEV_PAD_SOURCE:
 		__ffmt->code = ffmt->code;
 		break;
 	}
@@ -897,14 +880,13 @@ static int isp_subdev_init_entities(struct atomisp_sub_device *asd)
 	sprintf(sd->name, "ATOMISP_SUBDEV");
 	v4l2_set_subdevdata(sd, asd);
 	sd->flags |= V4L2_SUBDEV_FL_HAS_EVENTS | V4L2_SUBDEV_FL_HAS_DEVNODE;
+	sd->devnode = &asd->video_out.vdev;
 
 	pads[ATOMISP_SUBDEV_PAD_SINK].flags = MEDIA_PAD_FL_SINK;
-	pads[ATOMISP_SUBDEV_PAD_SOURCE_PREVIEW].flags = MEDIA_PAD_FL_SOURCE;
+	pads[ATOMISP_SUBDEV_PAD_SOURCE].flags = MEDIA_PAD_FL_SOURCE;
 
-	asd->fmt[ATOMISP_SUBDEV_PAD_SINK].fmt.code =
-	    MEDIA_BUS_FMT_SBGGR10_1X10;
-	asd->fmt[ATOMISP_SUBDEV_PAD_SOURCE_PREVIEW].fmt.code =
-	    MEDIA_BUS_FMT_SBGGR10_1X10;
+	asd->fmt[ATOMISP_SUBDEV_PAD_SINK].fmt.code = MEDIA_BUS_FMT_SBGGR10_1X10;
+	asd->fmt[ATOMISP_SUBDEV_PAD_SOURCE].fmt.code = MEDIA_BUS_FMT_SBGGR10_1X10;
 
 	me->ops = &isp_subdev_media_ops;
 	me->function = MEDIA_ENT_F_PROC_VIDEO_ISP;
@@ -912,13 +894,11 @@ static int isp_subdev_init_entities(struct atomisp_sub_device *asd)
 	if (ret < 0)
 		return ret;
 
-	ret = atomisp_init_subdev_pipe(asd, &asd->video_out_preview,
-				       V4L2_BUF_TYPE_VIDEO_CAPTURE);
+	ret = atomisp_init_subdev_pipe(asd, &asd->video_out, V4L2_BUF_TYPE_VIDEO_CAPTURE);
 	if (ret)
 		return ret;
 
-	ret = atomisp_video_init(&asd->video_out_preview, "PREVIEW",
-				 ATOMISP_RUN_MODE_PREVIEW);
+	ret = atomisp_video_init(&asd->video_out);
 	if (ret < 0)
 		return ret;
 
@@ -953,42 +933,6 @@ static int isp_subdev_init_entities(struct atomisp_sub_device *asd)
 	return asd->ctrl_handler.error;
 }
 
-int atomisp_create_pads_links(struct atomisp_device *isp)
-{
-	int i, ret;
-
-	for (i = 0; i < ATOMISP_CAMERA_NR_PORTS; i++) {
-		ret = media_create_pad_link(&isp->csi2_port[i].subdev.entity,
-					    CSI2_PAD_SOURCE, &isp->asd.subdev.entity,
-					    ATOMISP_SUBDEV_PAD_SINK, 0);
-		if (ret < 0)
-			return ret;
-	}
-
-	for (i = 0; i < isp->input_cnt; i++) {
-		/* Don't create links for the test-pattern-generator */
-		if (isp->inputs[i].type == TEST_PATTERN)
-			continue;
-
-		ret = media_create_pad_link(&isp->inputs[i].camera->entity, 0,
-					    &isp->csi2_port[isp->inputs[i].
-						    port].subdev.entity,
-					    CSI2_PAD_SINK,
-					    MEDIA_LNK_FL_ENABLED |
-					    MEDIA_LNK_FL_IMMUTABLE);
-		if (ret < 0)
-			return ret;
-	}
-
-	ret = media_create_pad_link(&isp->asd.subdev.entity,
-				    ATOMISP_SUBDEV_PAD_SOURCE_PREVIEW,
-				    &isp->asd.video_out_preview.vdev.entity, 0, 0);
-	if (ret < 0)
-		return ret;
-
-	return 0;
-}
-
 static void atomisp_subdev_cleanup_entities(struct atomisp_sub_device *asd)
 {
 	v4l2_ctrl_handler_free(&asd->ctrl_handler);
@@ -1014,32 +958,13 @@ void atomisp_subdev_unregister_entities(struct atomisp_sub_device *asd)
 {
 	atomisp_subdev_cleanup_entities(asd);
 	v4l2_device_unregister_subdev(&asd->subdev);
-	atomisp_video_unregister(&asd->video_out_preview);
+	atomisp_video_unregister(&asd->video_out);
 }
 
 int atomisp_subdev_register_subdev(struct atomisp_sub_device *asd,
 				   struct v4l2_device *vdev)
 {
 	return v4l2_device_register_subdev(vdev, &asd->subdev);
-}
-
-int atomisp_subdev_register_video_nodes(struct atomisp_sub_device *asd,
-					struct v4l2_device *vdev)
-{
-	int ret;
-
-	asd->video_out_preview.vdev.v4l2_dev = vdev;
-	asd->video_out_preview.vdev.device_caps = V4L2_CAP_VIDEO_CAPTURE | V4L2_CAP_STREAMING;
-	ret = video_register_device(&asd->video_out_preview.vdev,
-				    VFL_TYPE_VIDEO, -1);
-	if (ret < 0)
-		goto error;
-
-	return 0;
-
-error:
-	atomisp_subdev_unregister_entities(asd);
-	return ret;
 }
 
 /*

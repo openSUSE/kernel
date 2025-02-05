@@ -47,7 +47,6 @@ static int atomisp_queue_setup(struct vb2_queue *vq,
 			       unsigned int sizes[], struct device *alloc_devs[])
 {
 	struct atomisp_video_pipe *pipe = container_of(vq, struct atomisp_video_pipe, vb_queue);
-	u16 source_pad = atomisp_subdev_source_pad(&pipe->vdev);
 	int ret;
 
 	mutex_lock(&pipe->asd->isp->mutex); /* for get_css_frame_info() / set_fmt() */
@@ -56,7 +55,7 @@ static int atomisp_queue_setup(struct vb2_queue *vq,
 	 * When VIDIOC_S_FMT has not been called before VIDIOC_REQBUFS, then
 	 * this will fail. Call atomisp_set_fmt() ourselves and try again.
 	 */
-	ret = atomisp_get_css_frame_info(pipe->asd, source_pad, &pipe->frame_info);
+	ret = atomisp_get_css_frame_info(pipe->asd, &pipe->frame_info);
 	if (ret) {
 		struct v4l2_format f = {
 			.fmt.pix.pixelformat = V4L2_PIX_FMT_YUV420,
@@ -68,7 +67,7 @@ static int atomisp_queue_setup(struct vb2_queue *vq,
 		if (ret)
 			goto out;
 
-		ret = atomisp_get_css_frame_info(pipe->asd, source_pad, &pipe->frame_info);
+		ret = atomisp_get_css_frame_info(pipe->asd, &pipe->frame_info);
 		if (ret)
 			goto out;
 	}
@@ -362,7 +361,7 @@ int atomisp_qbuffers_to_css(struct atomisp_sub_device *asd)
 		pipe_id = IA_CSS_PIPE_ID_CAPTURE;
 	}
 
-	atomisp_q_video_buffers_to_css(asd, &asd->video_out_preview,
+	atomisp_q_video_buffers_to_css(asd, &asd->video_out,
 				       ATOMISP_INPUT_STREAM_GENERAL,
 				       IA_CSS_BUFFER_TYPE_OUTPUT_FRAME, pipe_id);
 	return 0;
@@ -403,9 +402,8 @@ static void atomisp_buf_queue(struct vb2_buffer *vb)
 	 *     is put to waiting list until previous per-frame parameter buffers
 	 *     get enqueued.
 	 */
-	if (!atomisp_is_vf_pipe(pipe) &&
-	    (pipe->frame_request_config_id[vb->index] ||
-	     !list_empty(&pipe->buffers_waiting_for_param)))
+	if (pipe->frame_request_config_id[vb->index] ||
+	    !list_empty(&pipe->buffers_waiting_for_param))
 		list_add_tail(&frame->queue, &pipe->buffers_waiting_for_param);
 	else
 		list_add_tail(&frame->queue, &pipe->activeq);
@@ -413,7 +411,7 @@ static void atomisp_buf_queue(struct vb2_buffer *vb)
 	spin_unlock_irqrestore(&pipe->irq_lock, irqflags);
 
 	/* TODO: do this better, not best way to queue to css */
-	if (asd->streaming == ATOMISP_DEVICE_STREAMING_ENABLED) {
+	if (asd->streaming) {
 		if (!list_empty(&pipe->buffers_waiting_for_param))
 			atomisp_handle_parameter_and_buffer(pipe);
 		else
@@ -450,7 +448,6 @@ static void atomisp_dev_init_struct(struct atomisp_device *isp)
 	unsigned int i;
 
 	isp->isp_fatal_error = false;
-	isp->mipi_frame_size = 0;
 
 	for (i = 0; i < isp->input_cnt; i++)
 		isp->inputs[i].asd = NULL;
@@ -480,7 +477,6 @@ static void atomisp_subdev_init_struct(struct atomisp_sub_device *asd)
 	/* Add for channel */
 	asd->input_curr = 0;
 
-	asd->mipi_frame_size = 0;
 	asd->copy_mode = false;
 
 	asd->stream_prepared = false;
@@ -493,16 +489,6 @@ static void atomisp_subdev_init_struct(struct atomisp_sub_device *asd)
 /*
  * file operation functions
  */
-static unsigned int atomisp_subdev_users(struct atomisp_sub_device *asd)
-{
-	return asd->video_out_preview.users;
-}
-
-unsigned int atomisp_dev_users(struct atomisp_device *isp)
-{
-	return atomisp_subdev_users(&isp->asd);
-}
-
 static int atomisp_open(struct file *file)
 {
 	struct video_device *vdev = video_devdata(file);
@@ -519,8 +505,6 @@ static int atomisp_open(struct file *file)
 
 	mutex_lock(&isp->mutex);
 
-	asd->subdev.devnode = vdev;
-
 	if (!isp->input_cnt) {
 		dev_err(isp->dev, "no camera attached\n");
 		ret = -EINVAL;
@@ -534,11 +518,6 @@ static int atomisp_open(struct file *file)
 		dev_dbg(isp->dev, "video node already opened\n");
 		mutex_unlock(&isp->mutex);
 		return -EBUSY;
-	}
-
-	if (atomisp_dev_users(isp)) {
-		dev_dbg(isp->dev, "skip init isp in open\n");
-		goto init_subdev;
 	}
 
 	/* runtime power management, turn on ISP */
@@ -556,19 +535,12 @@ static int atomisp_open(struct file *file)
 		goto css_error;
 	}
 
-init_subdev:
-	if (atomisp_subdev_users(asd))
-		goto done;
-
 	atomisp_subdev_init_struct(asd);
 	/* Ensure that a mode is set */
-	v4l2_ctrl_s_ctrl(asd->run_mode, pipe->default_run_mode);
+	v4l2_ctrl_s_ctrl(asd->run_mode, ATOMISP_RUN_MODE_PREVIEW);
 
-done:
 	pipe->users++;
 	mutex_unlock(&isp->mutex);
-
-
 	return 0;
 
 css_error:
@@ -587,14 +559,11 @@ static int atomisp_release(struct file *file)
 	struct atomisp_sub_device *asd = pipe->asd;
 	struct v4l2_subdev_fh fh;
 	struct v4l2_rect clear_compose = {0};
-	unsigned long flags;
 	int ret;
 
 	v4l2_fh_init(&fh.vfh, vdev);
 
 	dev_dbg(isp->dev, "release device %s\n", vdev->name);
-
-	asd->subdev.devnode = vdev;
 
 	/* Note file must not be used after this! */
 	vb2_fop_release(file);
@@ -602,8 +571,6 @@ static int atomisp_release(struct file *file)
 	mutex_lock(&isp->mutex);
 
 	pipe->users--;
-	if (pipe->users)
-		goto done;
 
 	/*
 	 * A little trick here:
@@ -620,9 +587,6 @@ static int atomisp_release(struct file *file)
 					ATOMISP_SUBDEV_PAD_SINK, &isp_sink_fmt);
 	}
 
-	if (atomisp_subdev_users(asd))
-		goto done;
-
 	atomisp_css_free_stat_buffers(asd);
 	atomisp_free_internal_buffers(asd);
 
@@ -636,14 +600,7 @@ static int atomisp_release(struct file *file)
 		isp->inputs[asd->input_curr].asd = NULL;
 	}
 
-	spin_lock_irqsave(&isp->lock, flags);
-	asd->streaming = ATOMISP_DEVICE_STREAMING_DISABLED;
-	spin_unlock_irqrestore(&isp->lock, flags);
-
-	if (atomisp_dev_users(isp))
-		goto done;
-
-	atomisp_destroy_pipes_stream_force(asd);
+	atomisp_destroy_pipes_stream(asd);
 
 	ret = v4l2_subdev_call(isp->flash, core, s_power, 0);
 	if (ret < 0 && ret != -ENODEV && ret != -ENOIOCTLCMD)
@@ -652,10 +609,9 @@ static int atomisp_release(struct file *file)
 	if (pm_runtime_put_sync(vdev->v4l2_dev->dev) < 0)
 		dev_err(isp->dev, "Failed to power off device\n");
 
-done:
 	atomisp_subdev_set_selection(&asd->subdev, fh.state,
 				     V4L2_SUBDEV_FORMAT_ACTIVE,
-				     atomisp_subdev_source_pad(vdev),
+				     ATOMISP_SUBDEV_PAD_SOURCE,
 				     V4L2_SEL_TGT_COMPOSE, 0,
 				     &clear_compose);
 	mutex_unlock(&isp->mutex);
