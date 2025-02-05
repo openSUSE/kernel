@@ -1329,6 +1329,10 @@ static int ov13b10_check_hwcfg(struct device *dev)
 	if (!fwnode)
 		return -ENXIO;
 
+	ep = fwnode_graph_get_next_endpoint(fwnode, NULL);
+	if (!ep)
+		return -EPROBE_DEFER;
+
 	ret = fwnode_property_read_u32(dev_fwnode(dev), "clock-frequency",
 				       &ext_clk);
 	if (ret) {
@@ -1341,10 +1345,6 @@ static int ov13b10_check_hwcfg(struct device *dev)
 			ext_clk);
 		return -EINVAL;
 	}
-
-	ep = fwnode_graph_get_next_endpoint(fwnode, NULL);
-	if (!ep)
-		return -ENXIO;
 
 	ret = v4l2_fwnode_endpoint_alloc_parse(ep, &bus_cfg);
 	fwnode_handle_put(ep);
