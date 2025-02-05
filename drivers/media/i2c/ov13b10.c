@@ -1486,6 +1486,7 @@ static const struct dev_pm_ops ov13b10_pm_ops = {
 #ifdef CONFIG_ACPI
 static const struct acpi_device_id ov13b10_acpi_ids[] = {
 	{"OVTIDB10"},
+	{"OVTI13B1"},
 	{ /* sentinel */ }
 };
 
