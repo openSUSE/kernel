@@ -696,7 +696,8 @@ static void __bpf_struct_ops_map_free(struct bpf_map *map)
 
 static void bpf_struct_ops_map_free(struct bpf_map *map)
 {
-	struct bpf_struct_ops_map *st_map = (struct bpf_struct_ops_map *)map;
+ 	struct bpf_struct_ops_map *st_map = (struct bpf_struct_ops_map *)map;
+ 
 	bpf_struct_ops_map_del_ksyms(st_map);
 
 	/* The struct_ops's function may switch to another struct_ops.
