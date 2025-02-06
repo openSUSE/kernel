@@ -595,4 +595,5 @@ void __exit lb_modexit(void)
 	usb_function_unregister(&Loopbackusb_func);
 }
 
+MODULE_DESCRIPTION("USB peripheral loopback configuration driver");
 MODULE_LICENSE("GPL");
