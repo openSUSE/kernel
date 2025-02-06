@@ -113,6 +113,7 @@ config VIDEO_IMX214
 	select MEDIA_CONTROLLER
 	select VIDEO_V4L2_SUBDEV_API
 	select REGMAP_I2C
+	select V4L2_CCI_I2C
 	help
 	  This is a Video4Linux2 sensor driver for the Sony
 	  IMX214 camera.
@@ -562,6 +563,7 @@ config VIDEO_OV5693
 	tristate "OmniVision OV5693 sensor support"
 	depends on I2C && VIDEO_DEV
 	select V4L2_FWNODE
+	select V4L2_CCI_I2C
 	help
 	  This is a Video4Linux2 sensor driver for the OmniVision
 	  OV5693 camera.
