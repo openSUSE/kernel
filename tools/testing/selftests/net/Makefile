@@ -97,10 +97,11 @@ TEST_PROGS += fdb_flush.sh
 TEST_PROGS += fq_band_pktlimit.sh
 TEST_PROGS += vlan_hw_filter.sh
 TEST_PROGS += bpf_offload.py
+TEST_PROGS += busy_poll_test.sh
 
 # YNL files, must be before "include ..lib.mk"
 EXTRA_CLEAN += $(OUTPUT)/libynl.a
-YNL_GEN_FILES := ncdevmem
+YNL_GEN_FILES := ncdevmem busy_poller
 TEST_GEN_FILES += $(YNL_GEN_FILES)
 
 TEST_FILES := settings
@@ -111,6 +112,10 @@ TEST_GEN_FILES += $(patsubst %.c,%.o,$(wildcard *.bpf.c))
 TEST_INCLUDES := forwarding/lib.sh
 
 include ../lib.mk
+
+# YNL build
+YNL_GENS := netdev
+include ynl.mk
 
 # YNL build
 YNL_GENS := netdev
