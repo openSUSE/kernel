@@ -7864,7 +7864,7 @@ static int process_dynptr_func(struct bpf_verifier_env *env, int regno, int insn
 	if (reg->type != PTR_TO_STACK && reg->type != CONST_PTR_TO_DYNPTR) {
 		verbose(env,
 			"arg#%d expected pointer to stack or const struct bpf_dynptr\n",
-			regno);
+			regno - 1);
 		return -EINVAL;
 	}
 
@@ -7918,7 +7918,7 @@ static int process_dynptr_func(struct bpf_verifier_env *env, int regno, int insn
 		if (!is_dynptr_reg_valid_init(env, reg)) {
 			verbose(env,
 				"Expected an initialized dynptr as arg #%d\n",
-				regno);
+				regno - 1);
 			return -EINVAL;
 		}
 
@@ -7926,7 +7926,7 @@ static int process_dynptr_func(struct bpf_verifier_env *env, int regno, int insn
 		if (!is_dynptr_type_expected(env, reg, arg_type & ~MEM_RDONLY)) {
 			verbose(env,
 				"Expected a dynptr of type %s as arg #%d\n",
-				dynptr_type_str(arg_to_dynptr_type(arg_type)), regno);
+				dynptr_type_str(arg_to_dynptr_type(arg_type)), regno - 1);
 			return -EINVAL;
 		}
 
@@ -7982,6 +7982,11 @@ static int process_iter_arg(struct bpf_verifier_env *env, int regno, int insn_id
 	const struct btf_type *t;
 	int spi, err, i, nr_slots, btf_id;
 
+	if (reg->type != PTR_TO_STACK) {
+		verbose(env, "arg#%d expected pointer to an iterator on stack\n", regno - 1);
+		return -EINVAL;
+	}
+
 	/* For iter_{new,next,destroy} functions, btf_check_iter_kfuncs()
 	 * ensures struct convention, so we wouldn't need to do any BTF
 	 * validation here. But given iter state can be passed as a parameter
@@ -7990,7 +7995,7 @@ static int process_iter_arg(struct bpf_verifier_env *env, int regno, int insn_id
 	 */
 	btf_id = btf_check_iter_arg(meta->btf, meta->func_proto, regno - 1);
 	if (btf_id < 0) {
-		verbose(env, "expected valid iter pointer as arg #%d\n", regno);
+		verbose(env, "expected valid iter pointer as arg #%d\n", regno - 1);
 		return -EINVAL;
 	}
 	t = btf_type_by_id(meta->btf, btf_id);
@@ -8000,7 +8005,7 @@ static int process_iter_arg(struct bpf_verifier_env *env, int regno, int insn_id
 		/* bpf_iter_<type>_new() expects pointer to uninit iter state */
 		if (!is_iter_reg_valid_uninit(env, reg, nr_slots)) {
 			verbose(env, "expected uninitialized iter_%s as arg #%d\n",
-				iter_type_str(meta->btf, btf_id), regno);
+				iter_type_str(meta->btf, btf_id), regno - 1);
 			return -EINVAL;
 		}
 
@@ -8024,7 +8029,7 @@ static int process_iter_arg(struct bpf_verifier_env *env, int regno, int insn_id
 			break;
 		case -EINVAL:
 			verbose(env, "expected an initialized iter_%s as arg #%d\n",
-				iter_type_str(meta->btf, btf_id), regno);
+				iter_type_str(meta->btf, btf_id), regno - 1);
 			return err;
 		case -EPROTO:
 			verbose(env, "expected an RCU CS when using %s\n", meta->func_name);
@@ -10315,6 +10320,34 @@ static int check_reference_leak(struct bpf_verifier_env *env, bool exception_exi
 	return refs_lingering ? -EINVAL : 0;
 }
 
+static int check_resource_leak(struct bpf_verifier_env *env, bool exception_exit, bool check_lock, const char *prefix)
+{
+	int err;
+
+	if (check_lock && env->cur_state->active_lock.ptr) {
+		verbose(env, "%s cannot be used inside bpf_spin_lock-ed region\n", prefix);
+		return -EINVAL;
+	}
+
+	err = check_reference_leak(env, exception_exit);
+	if (err) {
+		verbose(env, "%s would lead to reference leak\n", prefix);
+		return err;
+	}
+
+	if (check_lock && env->cur_state->active_rcu_lock) {
+		verbose(env, "%s cannot be used inside bpf_rcu_read_lock-ed region\n", prefix);
+		return -EINVAL;
+	}
+
+	if (check_lock && env->cur_state->active_preempt_lock) {
+		verbose(env, "%s cannot be used inside bpf_preempt_disable-ed region\n", prefix);
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
 static int check_bpf_snprintf_call(struct bpf_verifier_env *env,
 				   struct bpf_reg_state *regs)
 {
@@ -10467,7 +10500,7 @@ static int check_helper_call(struct bpf_verifier_env *env, struct bpf_insn *insn
 	}
 
 	/* With LD_ABS/IND some JITs save/restore skb from r1. */
-	changes_data = bpf_helper_changes_pkt_data(fn->func);
+	changes_data = bpf_helper_changes_pkt_data(func_id);
 	if (changes_data && fn->arg1_type != ARG_PTR_TO_CTX) {
 		verbose(env, "kernel subsystem misconfigured func %s#%d: r1 != ctx\n",
 			func_id_name(func_id), func_id);
@@ -10583,11 +10616,9 @@ static int check_helper_call(struct bpf_verifier_env *env, struct bpf_insn *insn
 
 	switch (func_id) {
 	case BPF_FUNC_tail_call:
-		err = check_reference_leak(env, false);
-		if (err) {
-			verbose(env, "tail_call would lead to reference leak\n");
+		err = check_resource_leak(env, false, true, "tail_call");
+		if (err)
 			return err;
-		}
 		break;
 	case BPF_FUNC_get_local_storage:
 		/* check that flags argument in get_local_storage(map, flags) is 0,
@@ -15744,26 +15775,9 @@ static int check_ld_abs(struct bpf_verifier_env *env, struct bpf_insn *insn)
 	 * gen_ld_abs() may terminate the program at runtime, leading to
 	 * reference leak.
 	 */
-	err = check_reference_leak(env, false);
-	if (err) {
-		verbose(env, "BPF_LD_[ABS|IND] cannot be mixed with socket references\n");
+	err = check_resource_leak(env, false, true, "BPF_LD_[ABS|IND]");
+	if (err)
 		return err;
-	}
-
-	if (env->cur_state->active_lock.ptr) {
-		verbose(env, "BPF_LD_[ABS|IND] cannot be used inside bpf_spin_lock-ed region\n");
-		return -EINVAL;
-	}
-
-	if (env->cur_state->active_rcu_lock) {
-		verbose(env, "BPF_LD_[ABS|IND] cannot be used inside bpf_rcu_read_lock-ed region\n");
-		return -EINVAL;
-	}
-
-	if (env->cur_state->active_preempt_lock) {
-		verbose(env, "BPF_LD_[ABS|IND] cannot be used inside bpf_preempt_disable-ed region\n");
-		return -EINVAL;
-	}
 
 	if (regs[ctx_reg].type != PTR_TO_CTX) {
 		verbose(env,
@@ -15907,6 +15921,15 @@ static int check_return_code(struct bpf_verifier_env *env, int regno, const char
 			break;
 		default:
 			return -ENOTSUPP;
+		}
+		break;
+	case BPF_PROG_TYPE_KPROBE:
+		switch (env->prog->expected_attach_type) {
+		case BPF_TRACE_KPROBE_SESSION:
+			range = retval_range(0, 1);
+			break;
+		default:
+			return 0;
 		}
 		break;
 	case BPF_PROG_TYPE_SK_LOOKUP:
@@ -18555,30 +18578,14 @@ static int do_check(struct bpf_verifier_env *env)
 					return -EINVAL;
 				}
 process_bpf_exit_full:
-				if (env->cur_state->active_lock.ptr && !env->cur_state->curframe) {
-					verbose(env, "bpf_spin_unlock is missing\n");
-					return -EINVAL;
-				}
-
-				if (env->cur_state->active_rcu_lock && !env->cur_state->curframe) {
-					verbose(env, "bpf_rcu_read_unlock is missing\n");
-					return -EINVAL;
-				}
-
-				if (env->cur_state->active_preempt_lock && !env->cur_state->curframe) {
-					verbose(env, "%d bpf_preempt_enable%s missing\n",
-						env->cur_state->active_preempt_lock,
-						env->cur_state->active_preempt_lock == 1 ? " is" : "(s) are");
-					return -EINVAL;
-				}
-
 				/* We must do check_reference_leak here before
 				 * prepare_func_exit to handle the case when
 				 * state->curframe > 0, it may be a callback
 				 * function, for which reference_state must
 				 * match caller reference state when it exits.
 				 */
-				err = check_reference_leak(env, exception_exit);
+				err = check_resource_leak(env, exception_exit, !env->cur_state->curframe,
+							  "BPF_EXIT instruction");
 				if (err)
 					return err;
 
