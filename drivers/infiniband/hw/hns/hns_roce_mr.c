@@ -669,7 +669,7 @@ static void hns_roce_mr_free(struct hns_roce_dev *hr_dev,
 		ret = hns_roce_hw2sw_mpt(hr_dev, NULL, key_to_hw_index(mr->key)
 					 & (hr_dev->caps.num_mtpts - 1));
 		if (ret)
-			dev_warn(dev, "HW2SW_MPT failed (%d)\n", ret);
+			dev_warn_ratelimited(dev, "HW2SW_MPT failed (%d)\n", ret);
 	}
 
 	if (mr->size != ~0ULL) {

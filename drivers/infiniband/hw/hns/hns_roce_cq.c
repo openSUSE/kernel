@@ -194,8 +194,8 @@ void hns_roce_free_cq(struct hns_roce_dev *hr_dev, struct hns_roce_cq *hr_cq)
 
 	ret = hns_roce_hw2sw_cq(hr_dev, NULL, hr_cq->cqn);
 	if (ret)
-		dev_err(dev, "HW2SW_CQ failed (%d) for CQN %06lx\n", ret,
-			hr_cq->cqn);
+		dev_err_ratelimited(dev, "HW2SW_CQ failed (%d) for CQN %06lx\n", ret,
+				hr_cq->cqn);
 
 	/* Waiting interrupt process procedure carried out */
 	synchronize_irq(hr_dev->eq_table.eq[hr_cq->vector].irq);

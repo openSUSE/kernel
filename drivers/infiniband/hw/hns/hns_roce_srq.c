@@ -168,8 +168,8 @@ static void hns_roce_srq_free(struct hns_roce_dev *hr_dev,
 
 	ret = hns_roce_hw2sw_srq(hr_dev, NULL, srq->srqn);
 	if (ret)
-		dev_err(hr_dev->dev, "HW2SW_SRQ failed (%d) for CQN %06lx\n",
-			ret, srq->srqn);
+		dev_err_ratelimited(hr_dev->dev, "HW2SW_SRQ failed (%d) for CQN %06lx\n",
+				ret, srq->srqn);
 
 	spin_lock_irq(&srq_table->lock);
 	radix_tree_delete(&srq_table->tree, srq->srqn);
