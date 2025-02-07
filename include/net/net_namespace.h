@@ -60,7 +60,6 @@ struct net {
 	struct list_head	list;		/* list of network namespaces */
 	struct list_head	cleanup_list;	/* namespaces on death row */
 	struct list_head	exit_list;	/* Use only net_mutex */
-	struct llist_node	defer_free_list;
 
 	struct user_namespace   *user_ns;	/* Owning user namespace */
 	struct ucounts		*ucounts;
@@ -98,6 +97,9 @@ struct net {
 	struct netns_mib	mib;
 	struct netns_packet	packet;
 	struct netns_unix	unx;
+#ifndef __GENKSYMS__
+	struct llist_node	defer_free_list;
+#endif
 	struct netns_ipv4	ipv4;
 #if IS_ENABLED(CONFIG_IPV6)
 	struct netns_ipv6	ipv6;
