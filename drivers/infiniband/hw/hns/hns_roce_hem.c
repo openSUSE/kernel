@@ -763,7 +763,7 @@ void hns_roce_table_put(struct hns_roce_dev *hr_dev,
 	if (--table->hem[i]->refcount == 0) {
 		/* Clear HEM base address */
 		if (hr_dev->hw->clear_hem(hr_dev, table, obj, 0))
-			dev_warn(dev, "Clear HEM base address failed.\n");
+			dev_warn_ratelimited(dev, "Clear HEM base address failed.\n");
 
 		hns_roce_free_hem(hr_dev, table->hem[i]);
 		table->hem[i] = NULL;

@@ -262,7 +262,6 @@ static int hns_roce_v2_post_send(struct ib_qp *ibqp,
 
 	if (unlikely(qp->state == IB_QPS_RESET || qp->state == IB_QPS_INIT ||
 		     qp->state == IB_QPS_RTR)) {
-		dev_err(dev, "Post WQE fail, QP state %d err!\n", qp->state);
 		*bad_wr = wr;
 		return -EINVAL;
 	}
@@ -1258,7 +1257,6 @@ static void hns_roce_function_clear(struct hns_roce_dev *hr_dev)
 	}
 
 out:
-	dev_err(hr_dev->dev, "Func clear fail.\n");
 	hns_roce_func_clr_rst_prc(hr_dev, ret, fclr_write_fail_flag);
 }
 
@@ -4075,7 +4073,6 @@ static int hns_roce_v2_modify_qp(struct ib_qp *ibqp,
 		/* Nothing */
 		;
 	} else {
-		dev_err(dev, "Illegal state for QP!\n");
 		ret = -EINVAL;
 		goto out;
 	}
@@ -4364,7 +4361,7 @@ static int hns_roce_v2_modify_qp(struct ib_qp *ibqp,
 	ret = hns_roce_v2_qp_modify(hr_dev, &hr_qp->mtt, cur_state, new_state,
 				    context, hr_qp);
 	if (ret) {
-		dev_err(dev, "hns_roce_qp_modify failed(%d)\n", ret);
+		dev_err_ratelimited(dev, "hns_roce_qp_modify failed(%d)\n", ret);
 		goto out;
 	}
 
@@ -4432,7 +4429,6 @@ static int hns_roce_v2_query_qpc(struct hns_roce_dev *hr_dev,
 				HNS_ROCE_CMD_QUERY_QPC,
 				HNS_ROCE_CMD_TIMEOUT_MSECS);
 	if (ret) {
-		dev_err(hr_dev->dev, "QUERY QP cmd process error\n");
 		goto out;
 	}
 
@@ -4472,7 +4468,7 @@ static int hns_roce_v2_query_qp(struct ib_qp *ibqp, struct ib_qp_attr *qp_attr,
 
 	ret = hns_roce_v2_query_qpc(hr_dev, hr_qp, context);
 	if (ret) {
-		dev_err(dev, "query qpc error\n");
+		dev_err_ratelimited(dev, "query qpc error\n");
 		ret = -EINVAL;
 		goto out;
 	}
@@ -4481,7 +4477,7 @@ static int hns_roce_v2_query_qp(struct ib_qp *ibqp, struct ib_qp_attr *qp_attr,
 			       V2_QPC_BYTE_60_QP_ST_M, V2_QPC_BYTE_60_QP_ST_S);
 	tmp_qp_state = to_ib_qp_st((enum hns_roce_v2_qp_state)state);
 	if (tmp_qp_state == -1) {
-		dev_err(dev, "Illegal ib_qp_state\n");
+		dev_err_ratelimited(dev, "Illegal ib_qp_state\n");
 		ret = -EINVAL;
 		goto out;
 	}
@@ -4590,8 +4586,8 @@ static int hns_roce_v2_destroy_qp_common(struct hns_roce_dev *hr_dev,
 		ret = hns_roce_v2_modify_qp(&hr_qp->ibqp, NULL, 0,
 					    hr_qp->state, IB_QPS_RESET);
 		if (ret) {
-			dev_err(dev, "modify QP %06lx to ERR failed.\n",
-				hr_qp->qpn);
+			dev_err_ratelimited(dev, "modify QP %06lx to ERR failed.\n",
+					hr_qp->qpn);
 			return ret;
 		}
 	}
@@ -4658,7 +4654,7 @@ static int hns_roce_v2_destroy_qp(struct ib_qp *ibqp)
 
 	ret = hns_roce_v2_destroy_qp_common(hr_dev, hr_qp, !!ibqp->pd->uobject);
 	if (ret) {
-		dev_err(hr_dev->dev, "Destroy qp failed(%d)\n", ret);
+		dev_err_ratelimited(hr_dev->dev, "Destroy qp failed(%d)\n", ret);
 		return ret;
 	}
 
@@ -4759,7 +4755,7 @@ static int hns_roce_v2_modify_cq(struct ib_cq *cq, u16 cq_count, u16 cq_period)
 				HNS_ROCE_CMD_TIMEOUT_MSECS);
 	hns_roce_free_cmd_mailbox(hr_dev, mailbox);
 	if (ret)
-		dev_err(hr_dev->dev, "MODIFY CQ Failed to cmd mailbox.\n");
+		dev_err_ratelimited(hr_dev->dev, "MODIFY CQ Failed to cmd mailbox.\n");
 
 	return ret;
 }
@@ -4793,8 +4789,8 @@ static void hns_roce_set_qps_to_err(struct hns_roce_dev *hr_dev, u32 qpn)
 	ret = hns_roce_v2_modify_qp(&hr_qp->ibqp, &attr, attr_mask,
 				    hr_qp->state, IB_QPS_ERR);
 	if (ret)
-		dev_err(hr_dev->dev, "failed to modify qp %d to err state.\n",
-			qpn);
+		dev_err_ratelimited(hr_dev->dev, "failed to modify qp %d to err state.\n",
+				qpn);
 }
 
 static void hns_roce_irq_work_handle(struct work_struct *work)
@@ -5192,7 +5188,7 @@ static void hns_roce_v2_destroy_eqc(struct hns_roce_dev *hr_dev, int eqn)
 					0, HNS_ROCE_CMD_DESTROY_AEQC,
 					HNS_ROCE_CMD_TIMEOUT_MSECS);
 	if (ret)
-		dev_err(dev, "[mailbox cmd] destroy eqc(%d) failed.\n", eqn);
+		dev_err_ratelimited(dev, "[mailbox cmd] destroy eqc(%d) failed.\n", eqn);
 }
 
 static void hns_roce_mhop_free_eq(struct hns_roce_dev *hr_dev,
@@ -5687,7 +5683,7 @@ static int hns_roce_v2_create_eq(struct hns_roce_dev *hr_dev,
 	ret = hns_roce_cmd_mbox(hr_dev, mailbox->dma, 0, eq->eqn, 0,
 				eq_cmd, HNS_ROCE_CMD_TIMEOUT_MSECS);
 	if (ret) {
-		dev_err(dev, "[mailbox cmd] create eqc failed.\n");
+		dev_err_ratelimited(dev, "[mailbox cmd] create eqc failed.\n");
 		goto err_cmd_mbox;
 	}
 
@@ -6051,8 +6047,8 @@ static int hns_roce_v2_modify_srq(struct ib_srq *ibsrq,
 					HNS_ROCE_CMD_TIMEOUT_MSECS);
 		hns_roce_free_cmd_mailbox(hr_dev, mailbox);
 		if (ret) {
-			dev_err(hr_dev->dev,
-				"MODIFY SRQ Failed to cmd mailbox.\n");
+			dev_err_ratelimited(hr_dev->dev,
+					"MODIFY SRQ Failed to cmd mailbox.\n");
 			return ret;
 		}
 	}
@@ -6078,7 +6074,7 @@ static int hns_roce_v2_query_srq(struct ib_srq *ibsrq, struct ib_srq_attr *attr)
 				HNS_ROCE_CMD_QUERY_SRQC,
 				HNS_ROCE_CMD_TIMEOUT_MSECS);
 	if (ret) {
-		dev_err(hr_dev->dev, "QUERY SRQ cmd process error\n");
+		dev_err_ratelimited(hr_dev->dev, "QUERY SRQ cmd process error\n");
 		goto out;
 	}
 
