@@ -128,6 +128,7 @@ struct mxs_ssp {
 	unsigned int			dma_dir;
 	enum dma_transfer_direction	slave_dirn;
 	u32				ssp_pio_words[SSP_PIO_NUM];
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 void mxs_ssp_set_clk_rate(struct mxs_ssp *ssp, unsigned int rate);

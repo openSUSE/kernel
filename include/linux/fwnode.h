@@ -47,6 +47,7 @@ struct fwnode_handle {
 	struct list_head suppliers;
 	struct list_head consumers;
 	u8 flags;
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 /*

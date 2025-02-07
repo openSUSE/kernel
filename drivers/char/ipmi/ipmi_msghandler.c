@@ -203,6 +203,8 @@ struct ipmi_user {
 
 	/* Free must run in process context for RCU cleanup. */
 	struct work_struct remove_work;
+
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 static struct workqueue_struct *remove_work_wq;
@@ -324,6 +326,7 @@ struct bmc_device {
 	struct kref	       usecount;
 	struct work_struct     remove_work;
 	unsigned char	       cc; /* completion code */
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 #define to_bmc_device(x) container_of((x), struct bmc_device, pdev.dev)
 

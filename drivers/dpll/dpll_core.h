@@ -34,6 +34,7 @@ struct dpll_device {
 	struct xarray pin_refs;
 	refcount_t refcount;
 	struct list_head registration_list;
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 /**

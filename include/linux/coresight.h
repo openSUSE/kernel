@@ -112,6 +112,7 @@ struct coresight_platform_data {
 	int nr_inport;
 	int nr_outport;
 	struct coresight_connection *conns;
+	unsigned long suse_kabi_padding[2]
 };
 
 /**

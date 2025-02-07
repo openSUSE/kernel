@@ -686,6 +686,7 @@ struct iommu_device {
 	struct device *dev;
 	struct iommu_group *singleton_group;
 	u32 max_pasids;
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 /**

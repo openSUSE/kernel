@@ -13,6 +13,7 @@ struct fh_pll_state {
 	void __iomem *base;
 	u32 fh_enable;
 	u32 ssc_rate;
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 struct fh_pll_data {

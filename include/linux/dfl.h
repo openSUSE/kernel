@@ -51,6 +51,7 @@ struct dfl_device {
 	u8 dfh_version;
 	unsigned int param_size;
 	void *params;
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 /**
