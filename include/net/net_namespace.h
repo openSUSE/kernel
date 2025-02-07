@@ -166,6 +166,10 @@ struct net {
 	/* Used to store attached BPF programs */
 	struct netns_bpf	bpf;
 
+#ifndef __GENKSYMS__
+	struct llist_node defer_free_list;
+#endif
+
 	/* Note : following structs are cache line aligned */
 #ifdef CONFIG_XFRM
 	struct netns_xfrm	xfrm;
