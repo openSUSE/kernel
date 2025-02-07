@@ -457,7 +457,7 @@ static void usX2Y_usb_disconnect(struct usb_device *device, void* ptr)
 		}
 		if (usX2Y->us428ctls_sharedmem) 
 			wake_up(&usX2Y->us428ctls_wait_queue_head);
-		snd_card_free(card);
+		snd_card_free_when_closed(card);
 	}
 }
 

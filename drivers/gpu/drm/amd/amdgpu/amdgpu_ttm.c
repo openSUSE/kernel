@@ -1722,6 +1722,7 @@ int amdgpu_ttm_init(struct amdgpu_device *adev)
 	if (r) {
 		return r;
 	}
+	dma_set_max_seg_size(adev->dev, UINT_MAX);
 	/* No others user of address space so set it to 0 */
 	r = ttm_bo_device_init(&adev->mman.bdev,
 			       adev->mman.bo_global_ref.ref.object,
