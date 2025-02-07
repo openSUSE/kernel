@@ -120,6 +120,9 @@ struct net {
 	struct netns_packet	packet;
 	struct netns_unix	unx;
 	struct netns_nexthop	nexthop;
+#ifndef __GENKSYMS__
+	struct llist_node	defer_free_list;
+#endif
 	struct netns_ipv4	ipv4;
 #if IS_ENABLED(CONFIG_IPV6)
 	struct netns_ipv6	ipv6;
