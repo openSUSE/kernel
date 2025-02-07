@@ -1551,7 +1551,7 @@ void nbcon_cpu_emergency_exit(void)
 		do_trigger_flush = true;
 		if (!force_printkthreads() &&
 		    printing_via_unlock &&
-		    !is_printk_deferred()) {
+		    !is_printk_legacy_deferred()) {
 			if (console_trylock()) {
 				do_trigger_flush = false;
 				console_unlock();
@@ -1600,7 +1600,7 @@ void nbcon_cpu_emergency_flush(void)
 
 	if (!force_printkthreads() &&
 	    printing_via_unlock &&
-	    !is_printk_deferred()) {
+	    !is_printk_legacy_deferred()) {
 		if (console_trylock())
 			console_unlock();
 	}

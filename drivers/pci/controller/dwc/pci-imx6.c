@@ -60,6 +60,13 @@ enum imx6_pcie_variants {
 #define IMX6_PCIE_FLAG_IMX6_PHY			BIT(0)
 #define IMX6_PCIE_FLAG_IMX6_SPEED_CHANGE	BIT(1)
 #define IMX6_PCIE_FLAG_SUPPORTS_SUSPEND		BIT(2)
+/*
+ * Because of ERR005723 (PCIe does not support L2 power down) we need to
+ * workaround suspend resume on some devices which are affected by this errata.
+ */
+#define IMX_PCIE_FLAG_BROKEN_SUSPEND		BIT(9)
+
+#define imx_check_flag(pci, val)     (pci->drvdata->flags & val)
 
 struct imx6_pcie_drvdata {
 	enum imx6_pcie_variants variant;
@@ -746,9 +753,11 @@ static int imx6_pcie_deassert_core_reset(struct imx6_pcie *imx6_pcie)
 	case IMX8MQ:
 	case IMX8MQ_EP:
 		reset_control_deassert(imx6_pcie->pciephy_reset);
+		reset_control_deassert(imx6_pcie->apps_reset);
 		break;
 	case IMX7D:
 		reset_control_deassert(imx6_pcie->pciephy_reset);
+		reset_control_deassert(imx6_pcie->apps_reset);
 
 		/* Workaround for ERR010728, failure of PCI-e PLL VCO to
 		 * oscillate, especially when cold.  This turns off "Duty-cycle
@@ -782,10 +791,12 @@ static int imx6_pcie_deassert_core_reset(struct imx6_pcie *imx6_pcie)
 		usleep_range(200, 500);
 		break;
 	case IMX6Q:		/* Nothing to do */
+		break;
 	case IMX8MM:
 	case IMX8MM_EP:
 	case IMX8MP:
 	case IMX8MP_EP:
+		reset_control_deassert(imx6_pcie->apps_reset);
 		break;
 	}
 
@@ -1188,9 +1199,19 @@ static int imx6_pcie_suspend_noirq(struct device *dev)
 	if (!(imx6_pcie->drvdata->flags & IMX6_PCIE_FLAG_SUPPORTS_SUSPEND))
 		return 0;
 
-	imx6_pcie_pm_turnoff(imx6_pcie);
-	imx6_pcie_stop_link(imx6_pcie->pci);
-	imx6_pcie_host_exit(pp);
+	if (imx_check_flag(imx6_pcie, IMX_PCIE_FLAG_BROKEN_SUSPEND)) {
+		/*
+		 * The minimum for a workaround would be to set PERST# and to
+		 * set the PCIE_TEST_PD flag. However, we can also disable the
+		 * clock which saves some power.
+		 */
+		imx6_pcie_assert_core_reset(imx6_pcie);
+		imx6_pcie_enable_ref_clk(imx6_pcie);
+	} else {
+		imx6_pcie_pm_turnoff(imx6_pcie);
+		imx6_pcie_stop_link(imx6_pcie->pci);
+		imx6_pcie_host_exit(pp);
+	}
 
 	return 0;
 }
@@ -1204,13 +1225,30 @@ static int imx6_pcie_resume_noirq(struct device *dev)
 	if (!(imx6_pcie->drvdata->flags & IMX6_PCIE_FLAG_SUPPORTS_SUSPEND))
 		return 0;
 
-	ret = imx6_pcie_host_init(pp);
-	if (ret)
-		return ret;
-	dw_pcie_setup_rc(pp);
+	if (imx_check_flag(imx6_pcie, IMX_PCIE_FLAG_BROKEN_SUSPEND)) {
+		ret = imx6_pcie_enable_ref_clk(imx6_pcie);
+		if (ret)
+			return ret;
+		ret = imx6_pcie_deassert_core_reset(imx6_pcie);
+		if (ret)
+			return ret;
+		/*
+		 * Using PCIE_TEST_PD seems to disable MSI and powers down the
+		 * root complex. This is why we have to setup the rc again and
+		 * why we have to restore the MSI register.
+		 */
+		ret = dw_pcie_setup_rc(&imx6_pcie->pci->pp);
+		if (ret)
+			return ret;
+	} else {
+		ret = imx6_pcie_host_init(pp);
+		if (ret)
+			return ret;
+		dw_pcie_setup_rc(pp);
 
-	if (imx6_pcie->link_is_up)
-		imx6_pcie_start_link(imx6_pcie->pci);
+		if (imx6_pcie->link_is_up)
+			imx6_pcie_start_link(imx6_pcie->pci);
+	}
 
 	return 0;
 }
@@ -1309,8 +1347,6 @@ static int imx6_pcie_probe(struct platform_device *pdev)
 		if (IS_ERR(imx6_pcie->pcie_aux))
 			return dev_err_probe(dev, PTR_ERR(imx6_pcie->pcie_aux),
 					     "pcie_aux clock source missing or invalid\n");
-		fallthrough;
-	case IMX7D:
 		if (dbi_base->start == IMX8MQ_PCIE2_BASE_ADDR)
 			imx6_pcie->controller_id = 1;
 
@@ -1453,7 +1489,9 @@ static const struct imx6_pcie_drvdata drvdata[] = {
 	[IMX6Q] = {
 		.variant = IMX6Q,
 		.flags = IMX6_PCIE_FLAG_IMX6_PHY |
-			 IMX6_PCIE_FLAG_IMX6_SPEED_CHANGE,
+			 IMX6_PCIE_FLAG_IMX6_SPEED_CHANGE |
+			 IMX_PCIE_FLAG_BROKEN_SUSPEND |
+			 IMX6_PCIE_FLAG_SUPPORTS_SUSPEND,
 		.dbi_length = 0x200,
 		.gpr = "fsl,imx6q-iomuxc-gpr",
 	},

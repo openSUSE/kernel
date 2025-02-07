@@ -1257,7 +1257,7 @@ static void mntput_no_expire(struct mount *mnt)
 				return;
 		}
 		if (llist_add(&mnt->mnt_llist, &delayed_mntput_list))
-			schedule_delayed_work(&delayed_mntput_work, 1);
+			queue_delayed_work(system_unbound_wq, &delayed_mntput_work, 1);
 		return;
 	}
 	cleanup_mnt(mnt);
