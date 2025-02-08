@@ -33,6 +33,7 @@
 
 struct caam_blob_priv {
 	struct device jrdev;
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 struct caam_blob_job_result {

@@ -118,6 +118,7 @@ struct mfd_cell {
 	 */
 	int			num_parent_supplies;
 	const char * const	*parent_supplies;
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 /*
