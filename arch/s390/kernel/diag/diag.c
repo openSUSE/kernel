@@ -15,7 +15,7 @@
 #include <asm/diag.h>
 #include <asm/trace/diag.h>
 #include <asm/sections.h>
-#include "entry.h"
+#include "../entry.h"
 
 struct diag_stat {
 	unsigned int counter[NR_DIAG_STAT];
