@@ -81,6 +81,8 @@ struct snd_soc_dpcm {
 #ifdef CONFIG_DEBUG_FS
 	struct dentry *debugfs_state;
 #endif
+
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 /*
@@ -102,6 +104,8 @@ struct snd_soc_dpcm_runtime {
 	int be_start; /* refcount protected by BE stream pcm lock */
 	int be_pause; /* refcount protected by BE stream pcm lock */
 	bool fe_pause; /* used to track STOP after PAUSE */
+
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 #define for_each_dpcm_fe(be, stream, _dpcm)				\

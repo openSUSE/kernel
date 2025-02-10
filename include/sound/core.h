@@ -145,6 +145,8 @@ struct snd_card {
 	struct snd_mixer_oss *mixer_oss;
 	int mixer_oss_change_count;
 #endif
+
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 #define dev_to_snd_card(p)	container_of(p, struct snd_card, card_dev)

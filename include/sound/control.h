@@ -60,6 +60,7 @@ struct snd_kcontrol_new {
 		const unsigned int *p;
 	} tlv;
 	unsigned long private_value;
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 struct snd_kcontrol_volatile {
@@ -81,6 +82,7 @@ struct snd_kcontrol {
 	unsigned long private_value;
 	void *private_data;
 	void (*private_free)(struct snd_kcontrol *kcontrol);
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 	struct snd_kcontrol_volatile vd[] __counted_by(count);	/* volatile data */
 };
 

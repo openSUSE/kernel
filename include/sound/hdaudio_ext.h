@@ -64,6 +64,7 @@ struct hdac_ext_stream {
 	int (*host_setup)(struct hdac_stream *, bool);
 
 	struct snd_pcm_substream *link_substream;
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 #define hdac_stream(s)		(&(s)->hstream)
@@ -101,6 +102,7 @@ struct hdac_ext_link {
 	int ref_count;
 
 	struct list_head list;
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 int snd_hdac_ext_bus_link_power_up(struct hdac_ext_link *hlink);
@@ -130,11 +132,13 @@ struct hda_dai_map {
 	char *dai_name;
 	hda_nid_t nid;
 	u32	maxbps;
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 struct hdac_ext_dma_params {
 	u32 format;
 	u8 stream_tag;
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 int snd_hda_ext_driver_register(struct hdac_driver *drv);

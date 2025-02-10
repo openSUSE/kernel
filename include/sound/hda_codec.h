@@ -62,6 +62,8 @@ struct hda_bus {
 
 	int primary_dig_out_type;	/* primary digital out PCM type */
 	unsigned int mixer_assigned;	/* codec addr for mixer name */
+
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 /* from hdac_bus to hda_bus */
@@ -143,6 +145,7 @@ struct hda_pcm_stream {
 	unsigned int maxbps;	/* supported max. bit per sample */
 	const struct snd_pcm_chmap_elem *chmap; /* chmap to override */
 	struct hda_pcm_ops ops;
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 /* PCM types */
@@ -167,6 +170,7 @@ struct hda_pcm {
 	struct hda_codec *codec;
 	struct list_head list;
 	unsigned int disconnected:1;
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 /* codec information */
@@ -283,6 +287,8 @@ struct hda_codec {
 
 	/* additional init verbs */
 	struct snd_array verbs;
+
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 #define dev_to_hda_codec(_dev)	container_of(_dev, struct hda_codec, core.dev)
