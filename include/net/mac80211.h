@@ -270,6 +270,8 @@ struct ieee80211_chanctx_conf {
 
 	bool radar_enabled;
 
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
+
 	u8 drv_priv[] __aligned(sizeof(void *));
 };
 
@@ -834,6 +836,8 @@ struct ieee80211_bss_conf {
 	bool eht_su_beamformee;
 	bool eht_mu_beamformer;
 	bool eht_80mhz_full_bw_ul_mumimo;
+
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 /**
@@ -2029,6 +2033,7 @@ struct ieee80211_vif {
 #ifdef CONFIG_MAC80211_DEBUGFS
 	struct dentry *debugfs_dir;
 #endif
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 
 	bool probe_req_reg;
 	bool rx_mcast_action_reg;
@@ -4828,6 +4833,8 @@ struct ieee80211_ops {
 	enum ieee80211_neg_ttlm_res
 	(*can_neg_ttlm)(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
 			struct ieee80211_neg_ttlm *ttlm);
+
+	void *suse_kabi_padding[4];	/* XXX SLE-specific kABI placeholder */
 };
 
 /**
