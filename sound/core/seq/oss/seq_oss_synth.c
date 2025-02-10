@@ -66,6 +66,7 @@ static struct seq_oss_synth midi_synth_dev = {
 };
 
 static DEFINE_SPINLOCK(register_lock);
+static DEFINE_MUTEX(sysex_mutex);
 
 /*
  * prototypes
@@ -497,11 +498,14 @@ snd_seq_oss_synth_sysex(struct seq_oss_devinfo *dp, int dev, unsigned char *buf,
 	if (!info)
 		return -ENXIO;
 
+	mutex_lock(&sysex_mutex);
 	sysex = info->sysex;
 	if (sysex == NULL) {
 		sysex = kzalloc(sizeof(*sysex), GFP_KERNEL);
-		if (sysex == NULL)
+		if (sysex == NULL) {
+			mutex_unlock(&sysex_mutex);
 			return -ENOMEM;
+		}
 		info->sysex = sysex;
 	}
 
@@ -526,18 +530,23 @@ snd_seq_oss_synth_sysex(struct seq_oss_devinfo *dp, int dev, unsigned char *buf,
 		if (sysex->skip) {
 			sysex->skip = 0;
 			sysex->len = 0;
+			mutex_unlock(&sysex_mutex);
 			return -EINVAL; /* skip */
 		}
 		/* copy the data to event record and send it */
 		ev->flags = SNDRV_SEQ_EVENT_LENGTH_VARIABLE;
-		if (snd_seq_oss_synth_addr(dp, dev, ev))
+		if (snd_seq_oss_synth_addr(dp, dev, ev)) {
+			mutex_unlock(&sysex_mutex);
 			return -EINVAL;
+		}
 		ev->data.ext.len = sysex->len;
 		ev->data.ext.ptr = sysex->buf;
 		sysex->len = 0;
+		mutex_unlock(&sysex_mutex);
 		return 0;
 	}
 
+	mutex_unlock(&sysex_mutex);
 	return -EINVAL; /* skip */
 }
 
