@@ -77,6 +77,7 @@ struct snd_rawmidi_runtime {
 	/* private data */
 	void *private_data;
 	void (*private_free)(struct snd_rawmidi_substream *substream);
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 struct snd_rawmidi_substream {
@@ -98,6 +99,7 @@ struct snd_rawmidi_substream {
 	struct pid *pid;
 	/* hardware layer */
 	const struct snd_rawmidi_ops *ops;
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 struct snd_rawmidi_file {
@@ -111,6 +113,7 @@ struct snd_rawmidi_str {
 	unsigned int substream_count;
 	unsigned int substream_opened;
 	struct list_head substreams;
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 struct snd_rawmidi {
@@ -142,6 +145,7 @@ struct snd_rawmidi {
 #if IS_ENABLED(CONFIG_SND_SEQUENCER)
 	struct snd_seq_device *seq_dev;
 #endif
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 /* main rawmidi functions */

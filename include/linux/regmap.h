@@ -455,6 +455,8 @@ struct regmap_config {
 	unsigned int hwlock_mode;
 
 	bool can_sleep;
+
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 /**
@@ -578,6 +580,8 @@ struct regmap_bus {
 	enum regmap_endian val_format_endian_default;
 	size_t max_raw_read;
 	size_t max_raw_write;
+
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 /*
@@ -1671,6 +1675,8 @@ struct regmap_irq_chip {
 	unsigned int (*get_irq_reg)(struct regmap_irq_chip_data *data,
 				    unsigned int base, int index);
 	void *irq_drv_data;
+
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 unsigned int regmap_irq_get_irq_reg_linear(struct regmap_irq_chip_data *data,

@@ -602,6 +602,8 @@ struct ieee80211_if_managed {
 	/* dialog token enumerator for neg TTLM request */
 	u8 dialog_token_alloc;
 	struct wiphy_delayed_work neg_ttlm_timeout_work;
+
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 struct ieee80211_if_ibss {
@@ -1084,6 +1086,8 @@ struct ieee80211_link_data {
 #ifdef CONFIG_MAC80211_DEBUGFS
 	struct dentry *debugfs_dir;
 #endif
+
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 struct ieee80211_sub_if_data {
@@ -1182,6 +1186,8 @@ struct ieee80211_sub_if_data {
 		struct dentry *default_beacon_key;
 	} debugfs;
 #endif
+
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 
 	/* must be last, dynamically sized area in this! */
 	struct ieee80211_vif vif;
@@ -1796,6 +1802,8 @@ struct ieee802_11_elems {
 
 	/* whether/which parse error occurred while retrieving these elements */
 	u8 parse_error;
+
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 static inline struct ieee80211_local *hw_to_local(

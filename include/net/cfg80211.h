@@ -206,6 +206,7 @@ struct ieee80211_channel {
 	unsigned long dfs_state_entered;
 	unsigned int dfs_cac_ms;
 	s8 psd;
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 /**
@@ -2706,6 +2707,7 @@ struct cfg80211_scan_request {
 	struct cfg80211_scan_6ghz_params *scan_6ghz_params;
 	s8 tsf_report_link_id;
 
+
 	/* keep last */
 	struct ieee80211_channel *channels[] __counted_by(n_channels);
 };
@@ -2986,6 +2988,8 @@ struct cfg80211_bss {
 	u8 use_for;
 	u8 cannot_use_reasons;
 
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
+
 	u8 priv[] __aligned(sizeof(void *));
 };
 
@@ -3053,6 +3057,7 @@ struct cfg80211_auth_request {
 	size_t auth_data_len;
 	s8 link_id;
 	const u8 *ap_mld_addr;
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 /**
@@ -3160,6 +3165,7 @@ struct cfg80211_assoc_request {
 	struct cfg80211_assoc_link links[IEEE80211_MLD_MAX_NUM_LINKS];
 	const u8 *ap_mld_addr;
 	s8 link_id;
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 /**
@@ -3372,6 +3378,7 @@ struct cfg80211_connect_params {
 	size_t fils_erp_rrk_len;
 	bool want_1x;
 	struct ieee80211_edmg edmg;
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 /**
@@ -4946,6 +4953,8 @@ struct cfg80211_ops {
 	int	(*set_ttlm)(struct wiphy *wiphy, struct net_device *dev,
 			    struct cfg80211_ttlm_params *params);
 	u32	(*get_radio_mask)(struct wiphy *wiphy, struct net_device *dev);
+
+	void *suse_kabi_padding[4];	/* XXX SLE-specific kABI placeholder */
 };
 
 /*
@@ -6379,6 +6388,8 @@ struct wireless_dev {
 		unsigned int cac_time_ms;
 	} links[IEEE80211_MLD_MAX_NUM_LINKS];
 	u16 valid_links;
+
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 static inline const u8 *wdev_address(struct wireless_dev *wdev)
