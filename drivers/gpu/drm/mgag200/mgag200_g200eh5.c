@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
+
+#include <linux/limits.h>
 #include <linux/pci.h>
 #include <linux/units.h>
 
@@ -26,7 +28,7 @@ static int mgag200_g200eh5_pixpllc_atomic_check(struct drm_crtc *crtc,
 	long clock = new_crtc_state->mode.clock;
 	struct mgag200_pll_values *pixpllc = &new_mgag200_crtc_state->pixpllc;
 
-	unsigned long long fdelta = 0xFFFFFFFFFFFFFFFFULL;
+	unsigned long long fdelta = ULLONG_MAX;
 
 	u16 mult_max = (u16)(VCO_MAX / PLL_FREQ_REF); // 400 (0x190)
 	u16 mult_min = (u16)(VCO_MIN / PLL_FREQ_REF); // 100 (0x64)
