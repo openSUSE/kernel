@@ -927,6 +927,8 @@ int blk_mq_freeze_queue_wait_timeout(struct request_queue *q,
 				     unsigned long timeout);
 
 void blk_mq_map_queues(struct blk_mq_queue_map *qmap);
+void blk_mq_map_hw_queues(struct blk_mq_queue_map *qmap,
+			  struct device *dev, unsigned int offset);
 void blk_mq_update_nr_hw_queues(struct blk_mq_tag_set *set, int nr_hw_queues);
 
 void blk_mq_quiesce_queue_nowait(struct request_queue *q);
