@@ -57,8 +57,8 @@ extern struct list_head mrioc_list;
 extern int prot_mask;
 extern atomic64_t event_counter;
 
-#define MPI3MR_DRIVER_VERSION	"8.9.1.0.51"
-#define MPI3MR_DRIVER_RELDATE	"29-May-2024"
+#define MPI3MR_DRIVER_VERSION	"8.12.0.0.50"
+#define MPI3MR_DRIVER_RELDATE	"05-Sept-2024"
 
 #define MPI3MR_DRIVER_NAME	"mpi3mr"
 #define MPI3MR_DRIVER_LICENSE	"GPL"
@@ -176,7 +176,7 @@ extern atomic64_t event_counter;
 #define MPI3MR_DEFAULT_SDEV_QD	32
 
 /* Definitions for Threaded IRQ poll*/
-#define MPI3MR_IRQ_POLL_SLEEP			2
+#define MPI3MR_IRQ_POLL_SLEEP			20
 #define MPI3MR_IRQ_POLL_TRIGGER_IOCOUNT		8
 
 /* Definitions for the controller security status*/
@@ -211,6 +211,7 @@ extern atomic64_t event_counter;
 #define MPI3MR_HDB_QUERY_ELEMENT_TRIGGER_FORMAT_INDEX   0
 #define MPI3MR_HDB_QUERY_ELEMENT_TRIGGER_FORMAT_DATA    1
 
+#define MPI3MR_THRESHOLD_REPLY_COUNT	100
 
 /* SGE Flag definition */
 #define MPI3MR_SGEFLAGS_SYSTEM_SIMPLE_END_OF_LIST \
@@ -1057,7 +1058,6 @@ struct scmd_priv {
  * @sbq_lock: Sense buffer queue lock
  * @sbq_host_index: Sense buffer queuehost index
  * @event_masks: Event mask bitmap
- * @fwevt_worker_name: Firmware event worker thread name
  * @fwevt_worker_thread: Firmware event worker thread
  * @fwevt_lock: Firmware event lock
  * @fwevt_list: Firmware event list
@@ -1088,6 +1088,7 @@ struct scmd_priv {
  * @evtack_cmds_bitmap: Event Ack bitmap
  * @delayed_evtack_cmds_list: Delayed event acknowledgment list
  * @ts_update_counter: Timestamp update counter
+ * @ts_update_interval: Timestamp update interval
  * @reset_in_progress: Reset in progress flag
  * @unrecoverable: Controller unrecoverable flag
  * @prev_reset_result: Result of previous reset
@@ -1235,7 +1236,6 @@ struct mpi3mr_ioc {
 	u32 sbq_host_index;
 	u32 event_masks[MPI3_EVENT_NOTIFY_EVENTMASK_WORDS];
 
-	char fwevt_worker_name[MPI3MR_NAME_LENGTH];
 	struct workqueue_struct	*fwevt_worker_thread;
 	spinlock_t fwevt_lock;
 	struct list_head fwevt_list;
@@ -1273,7 +1273,8 @@ struct mpi3mr_ioc {
 	unsigned long *evtack_cmds_bitmap;
 	struct list_head delayed_evtack_cmds_list;
 
-	u32 ts_update_counter;
+	u16 ts_update_counter;
+	u16 ts_update_interval;
 	u8 reset_in_progress;
 	u8 unrecoverable;
 	int prev_reset_result;
