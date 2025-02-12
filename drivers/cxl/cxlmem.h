@@ -6,6 +6,7 @@
 #include <linux/cdev.h>
 #include <linux/uuid.h>
 #include <linux/cxl-event.h>
+#include <linux/rcuwait.h>
 #include "cxl.h"
 
 /* CXL 2.0 8.2.8.5.1.1 Memory Device Status Register */
@@ -109,6 +110,9 @@ static inline struct cxl_ep *cxl_ep_load(struct cxl_port *port,
  *            variable sized output commands, it tells the exact number of bytes
  *            written.
  * @min_out: (input) internal command output payload size validation
+ * @poll_count: (input) Number of timeouts to attempt.
+ * @poll_interval_ms: (input) Time between mailbox background command polling
+ *                    interval timeouts.
  * @return_code: (output) Error code returned from hardware.
  *
  * This is the primary mechanism used to send commands to the hardware.
@@ -124,6 +128,8 @@ struct cxl_mbox_cmd {
 	size_t size_in;
 	size_t size_out;
 	size_t min_out;
+	int poll_count;
+	int poll_interval_ms;
 	u16 return_code;
 };
 
@@ -332,6 +338,7 @@ struct cxl_dev_state {
 	struct cxl_event_state event;
 	struct cxl_poison_state poison;
 
+	struct rcuwait mbox_wait;
 	int (*mbox_send)(struct cxl_dev_state *cxlds, struct cxl_mbox_cmd *cmd);
 };
 
