@@ -1357,7 +1357,7 @@ static bool enable_ddw(struct pci_dev *dev, struct device_node *pdn)
 	struct ddw_query_response query;
 	struct ddw_create_response create;
 	int page_shift;
-	u64 win_addr;
+	u64 win_addr, dynamic_offset = 0;
 	const char *win_name;
 	struct device_node *dn;
 	u32 ddw_avail[DDW_APPLICABLE_SIZE];
@@ -1365,6 +1365,7 @@ static bool enable_ddw(struct pci_dev *dev, struct device_node *pdn)
 	struct property *win64;
 	struct failed_ddw_pdn *fpdn;
 	bool default_win_removed = false, direct_mapping = false;
+	bool dynamic_mapping = false;
 	bool pmem_present;
 	struct pci_dn *pci = PCI_DN(pdn);
 	struct property *default_win = NULL;
@@ -1460,7 +1461,6 @@ static bool enable_ddw(struct pci_dev *dev, struct device_node *pdn)
 		goto out_failed;
 	}
 
-
 	/*
 	 * The "ibm,pmemory" can appear anywhere in the address space.
 	 * Assuming it is still backed by page structs, try MAX_PHYSMEM_BITS
@@ -1485,13 +1485,41 @@ static bool enable_ddw(struct pci_dev *dev, struct device_node *pdn)
 			1ULL << page_shift);
 
 		len = order_base_2(query.largest_available_block << page_shift);
-		win_name = DMA64_PROPNAME;
+
+		dynamic_mapping = true;
 	} else {
 		direct_mapping = !default_win_removed ||
 			(len == MAX_PHYSMEM_BITS) ||
 			(!pmem_present && (len == max_ram_len));
-		win_name = direct_mapping ? DIRECT64_PROPNAME : DMA64_PROPNAME;
+
+		/* DDW is big enough to direct map RAM. If there is vPMEM, check
+		 * if enough space is left in DDW where we can dynamically
+		 * allocate TCEs for vPMEM. For now, this Hybrid sharing of DDW
+		 * is only for SR-IOV devices.
+		 */
+		if (default_win_removed && pmem_present && !direct_mapping) {
+			/* DDW is big enough to be split */
+			if ((query.largest_available_block << page_shift) >=
+			     MIN_DDW_VPMEM_DMA_WINDOW + (1ULL << max_ram_len)) {
+				direct_mapping = true;
+
+				/* offset of the Dynamic part of DDW */
+				dynamic_offset = 1ULL << max_ram_len;
+			}
+
+			/* DDW will at least have dynamic allocation */
+			dynamic_mapping = true;
+
+			/* create max size DDW possible */
+			len = order_base_2(query.largest_available_block
+							<< page_shift);
+		}
 	}
+
+	/* Even if the DDW is split into both direct mapped RAM and dynamically
+	 * mapped vPMEM, the DDW property in OF will be marked as Direct.
+	 */
+	win_name = direct_mapping ? DIRECT64_PROPNAME : DMA64_PROPNAME;
 
 	ret = create_ddw(dev, ddw_avail, &create, page_shift, len);
 	if (ret != 0)
@@ -1520,9 +1548,9 @@ static bool enable_ddw(struct pci_dev *dev, struct device_node *pdn)
 	if (!window)
 		goto out_del_prop;
 
-	if (direct_mapping) {
-		window->direct = true;
+	window->direct = direct_mapping;
 
+	if (direct_mapping) {
 		/* DDW maps the whole partition, so enable direct DMA mapping */
 		ret = walk_system_ram_range(0, memblock_end_of_DRAM() >> PAGE_SHIFT,
 					    win64->value, tce_setrange_multi_pSeriesLP_walk);
@@ -1534,12 +1562,13 @@ static bool enable_ddw(struct pci_dev *dev, struct device_node *pdn)
 			clean_dma_window(pdn, win64->value);
 			goto out_del_list;
 		}
-	} else {
+	}
+
+	if (dynamic_mapping) {
 		struct iommu_table *newtbl;
 		int i;
 		unsigned long start = 0, end = 0;
-
-		window->direct = false;
+		u64 dynamic_addr, dynamic_len;
 
 		for (i = 0; i < ARRAY_SIZE(pci->phb->mem_resources); i++) {
 			const unsigned long mask = IORESOURCE_MEM_64 | IORESOURCE_MEM;
@@ -1559,8 +1588,15 @@ static bool enable_ddw(struct pci_dev *dev, struct device_node *pdn)
 			goto out_del_list;
 		}
 
-		iommu_table_setparms_common(newtbl, pci->phb->bus->number, create.liobn, win_addr,
-					    1UL << len, page_shift, NULL, &iommu_table_lpar_multi_ops);
+		/* If the DDW is split between directly mapped RAM and Dynamic
+		 * mapped for TCES, offset into the DDW where the dynamic part
+		 * begins.
+		 */
+		dynamic_addr = win_addr + dynamic_offset;
+		dynamic_len = (1UL << len) - dynamic_offset;
+		iommu_table_setparms_common(newtbl, pci->phb->bus->number, create.liobn,
+					    dynamic_addr, dynamic_len, page_shift, NULL,
+					    &iommu_table_lpar_multi_ops);
 		iommu_init_table(newtbl, pci->phb->node,
 				 start >> page_shift, end >> page_shift);
 
@@ -1613,13 +1649,12 @@ out_failed:
 out_unlock:
 	mutex_unlock(&dma_win_init_mutex);
 
-	/*
-	 * If we have persistent memory and the window size is only as big
-	 * as RAM, then we failed to create a window to cover persistent
-	 * memory and need to set the DMA limit.
+	/* If we have persistent memory and the window size is not big enough
+	 * to directly map both RAM and vPMEM, then we need to set DMA limit.
 	 */
-	if (pmem_present && direct_mapping && len == max_ram_len)
-		dev->dev.bus_dma_limit = dev->dev.archdata.dma_offset + (1ULL << len);
+	if (pmem_present && direct_mapping && len != MAX_PHYSMEM_BITS)
+		dev->dev.bus_dma_limit = dev->dev.archdata.dma_offset +
+						(1ULL << max_ram_len);
 
 	return direct_mapping;
 }
