@@ -288,6 +288,7 @@ reval_cfid:
 		.desired_access =  FILE_READ_DATA | FILE_READ_ATTRIBUTES,
 		.disposition = FILE_OPEN,
 		.fid = pfid,
+		.replay = !!(retries),
 	};
 
 	rc = SMB2_open_init(tcon, server,
