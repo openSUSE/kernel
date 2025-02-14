@@ -105,10 +105,6 @@
 #define CORSAIR_VOID_SIDETONE_MAX_WIRELESS	55
 #define CORSAIR_VOID_SIDETONE_MAX_WIRED		4096
 
-#define CORSAIR_VOID_ADD_BATTERY		BIT(0)
-#define CORSAIR_VOID_REMOVE_BATTERY		BIT(1)
-#define CORSAIR_VOID_UPDATE_BATTERY		BIT(2)
-
 enum {
 	CORSAIR_VOID_WIRELESS,
 	CORSAIR_VOID_WIRED,
@@ -120,6 +116,12 @@ enum {
 	CORSAIR_VOID_BATTERY_CRITICAL	= 3,
 	CORSAIR_VOID_BATTERY_CHARGED	= 4,
 	CORSAIR_VOID_BATTERY_CHARGING	= 5,
+};
+
+enum {
+	CORSAIR_VOID_ADD_BATTERY	= 0,
+	CORSAIR_VOID_REMOVE_BATTERY	= 1,
+	CORSAIR_VOID_UPDATE_BATTERY	= 2,
 };
 
 static enum power_supply_property corsair_void_battery_props[] = {
@@ -577,21 +579,15 @@ static void corsair_void_battery_work_handler(struct work_struct *work)
 	bool update_battery = test_and_clear_bit(CORSAIR_VOID_UPDATE_BATTERY,
 						 &drvdata->battery_work_flags);
 
-	/* Add, remove or skip battery */
 	if (add_battery && !remove_battery) {
 		corsair_void_add_battery(drvdata);
-	} else if (remove_battery && !add_battery) {
-		if (drvdata->battery) {
-			power_supply_unregister(drvdata->battery);
-			drvdata->battery = NULL;
-		}
+	} else if (remove_battery && !add_battery && drvdata->battery) {
+		power_supply_unregister(drvdata->battery);
+		drvdata->battery = NULL;
 	}
 
-	/* Communicate that battery values changed */
-	if (update_battery) {
-		if (drvdata->battery)
-			power_supply_changed(drvdata->battery);
-	}
+	if (update_battery && drvdata->battery)
+		power_supply_changed(drvdata->battery);
 
 }
 
