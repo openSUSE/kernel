@@ -885,7 +885,7 @@ static int oxu_buf_alloc(struct oxu_hcd *oxu, struct ehci_qtd *qtd, int len)
 	int a_blocks;	/* blocks allocated */
 	int i, j;
 
-	/* Don't allocte bigger than supported */
+	/* Don't allocate bigger than supported */
 	if (len > BUFFER_SIZE * BUFFER_NUM) {
 		oxu_err(oxu, "buffer too big (%d)\n", len);
 		return -ENOMEM;
@@ -4289,7 +4289,7 @@ static int oxu_drv_resume(struct device *dev)
 
 static struct platform_driver oxu_driver = {
 	.probe		= oxu_drv_probe,
-	.remove_new	= oxu_drv_remove,
+	.remove		= oxu_drv_remove,
 	.shutdown	= oxu_drv_shutdown,
 	.suspend	= oxu_drv_suspend,
 	.resume		= oxu_drv_resume,
