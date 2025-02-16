@@ -285,6 +285,9 @@ static int __cxl_parse_cfmws(struct acpi_cedt_cfmws *cfmws,
 			}
 		}
 	}
+
+	cxlrd->qos_class = cfmws->qtg_id;
+
 	rc = cxl_decoder_add(cxld, target_map);
 err_xormap:
 	if (rc)
