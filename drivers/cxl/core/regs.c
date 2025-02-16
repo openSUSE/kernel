@@ -395,10 +395,11 @@ int cxl_map_pmu_regs(struct pci_dev *pdev, struct cxl_pmu_regs *regs,
 }
 EXPORT_SYMBOL_NS_GPL(cxl_map_pmu_regs, CXL);
 
-resource_size_t __rcrb_to_component(struct device *dev, resource_size_t rcrb,
+resource_size_t __rcrb_to_component(struct device *dev, struct cxl_rcrb_info *ri,
 				    enum cxl_rcrb which)
 {
 	resource_size_t component_reg_phys;
+	resource_size_t rcrb = ri->base;
 	void __iomem *addr;
 	u32 bar0, bar1;
 	u16 cmd;
@@ -463,6 +464,6 @@ resource_size_t cxl_rcd_component_reg_phys(struct device *dev,
 {
 	if (!dport->rch)
 		return CXL_RESOURCE_NONE;
-	return __rcrb_to_component(dev, dport->rcrb, CXL_RCRB_UPSTREAM);
+	return __rcrb_to_component(dev, &dport->rcrb, CXL_RCRB_UPSTREAM);
 }
 EXPORT_SYMBOL_NS_GPL(cxl_rcd_component_reg_phys, CXL);
