@@ -4460,10 +4460,11 @@ nfsd4_sequence(struct svc_rqst *rqstp, struct nfsd4_compound_state *cstate,
 			}
 		} while (slot && --cnt > 0);
 	}
+
+out:
 	seq->maxslots = max(session->se_target_maxslots, seq->maxslots);
 	seq->target_maxslots = session->se_target_maxslots;
 
-out:
 	switch (clp->cl_cb_state) {
 	case NFSD4_CB_DOWN:
 		seq->status_flags = SEQ4_STATUS_CB_PATH_DOWN;
