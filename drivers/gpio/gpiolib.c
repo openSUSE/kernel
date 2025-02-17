@@ -1072,12 +1072,13 @@ static int gpiochip_setup_dev(struct gpio_device *gdev)
 	chip_dbg(gdev->chip, "added GPIO chardev (%d:%d)\n",
 		 MAJOR(gpio_devt), gdev->id);
 
+	/* From this point, the .release() function cleans up gpio_device */
+	gdev->dev.release = gpiodevice_release;
+
 	status = gpiochip_sysfs_register(gdev);
 	if (status)
 		goto err_remove_device;
 
-	/* From this point, the .release() function cleans up gpio_device */
-	gdev->dev.release = gpiodevice_release;
 	pr_debug("%s: registered GPIOs %d to %d on device: %s (%s)\n",
 		 __func__, gdev->base, gdev->base + gdev->ngpio - 1,
 		 dev_name(&gdev->dev), gdev->chip->label ? : "generic");
@@ -1127,7 +1128,8 @@ int gpiochip_add_data(struct gpio_chip *chip, void *data)
 	unsigned long	flags;
 	int		status = 0;
 	unsigned	i;
-	int		base = chip->base;
+	u32		ngpios = 0;
+	int		base = 0;
 	struct gpio_device *gdev;
 
 	/*
@@ -1167,16 +1169,17 @@ int gpiochip_add_data(struct gpio_chip *chip, void *data)
 	else
 		gdev->owner = THIS_MODULE;
 
+	ngpios = chip->ngpio;
+	if (ngpios == 0) {
+		chip_err(chip, "tried to insert a GPIO chip with zero lines\n");
+		status = -EINVAL;
+		goto err_free_ida;
+	}
+
 	gdev->descs = kcalloc(chip->ngpio, sizeof(gdev->descs[0]), GFP_KERNEL);
 	if (!gdev->descs) {
 		status = -ENOMEM;
 		goto err_free_ida;
-	}
-
-	if (chip->ngpio == 0) {
-		chip_err(chip, "tried to insert a GPIO chip with zero lines\n");
-		status = -EINVAL;
-		goto err_free_descs;
 	}
 
 	if (chip->label)
@@ -1200,11 +1203,13 @@ int gpiochip_add_data(struct gpio_chip *chip, void *data)
 	 * it may be a pipe dream. It will not happen before we get rid
 	 * of the sysfs interface anyways.
 	 */
+	base = chip->base;
 	if (base < 0) {
 		base = gpiochip_find_base(chip->ngpio);
 		if (base < 0) {
-			status = base;
 			spin_unlock_irqrestore(&gpio_lock, flags);
+			status = base;
+			base = 0;
 			goto err_free_label;
 		}
 		/*
@@ -1277,6 +1282,11 @@ err_remove_chip:
 	gpiochip_free_hogs(chip);
 	of_gpiochip_remove(chip);
 	gpiochip_irqchip_free_valid_mask(chip);
+	if (gdev->dev.release) {
+		/* release() has been registered by gpiochip_setup_dev() */
+		put_device(&gdev->dev);
+		goto err_print_message;
+	}
 err_remove_from_list:
 	spin_lock_irqsave(&gpio_lock, flags);
 	list_del(&gdev->list);
@@ -1288,11 +1298,12 @@ err_free_descs:
 err_free_ida:
 	ida_simple_remove(&gpio_ida, gdev->id);
 err_free_gdev:
+	kfree(gdev);
+err_print_message:
 	/* failures here can mean systems won't boot... */
 	pr_err("%s: GPIOs %d..%d (%s) failed to register\n", __func__,
-	       gdev->base, gdev->base + gdev->ngpio - 1,
+	       base, base + (int)ngpios - 1,
 	       chip->label ? : "generic");
-	kfree(gdev);
 	return status;
 }
 EXPORT_SYMBOL_GPL(gpiochip_add_data);
