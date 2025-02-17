@@ -41,15 +41,15 @@ MODULE_PARM_DESC(quirks, "Bit flags for quirks to be enabled as default");
 
 static bool td_on_ring(struct xhci_td *td, struct xhci_ring *ring)
 {
-	struct xhci_segment *seg = ring->first_seg;
+	struct xhci_segment *seg;
 
 	if (!td || !td->start_seg)
 		return false;
-	do {
+
+	xhci_for_each_ring_seg(ring->first_seg, seg) {
 		if (seg == td->start_seg)
 			return true;
-		seg = seg->next;
-	} while (seg && seg != ring->first_seg);
+	}
 
 	return false;
 }
@@ -474,14 +474,7 @@ static int xhci_init(struct usb_hcd *hcd)
 
 	xhci_dbg_trace(xhci, trace_xhci_dbg_init, "xhci_init");
 	spin_lock_init(&xhci->lock);
-	if (xhci->hci_version == 0x95 && link_quirk) {
-		xhci_dbg_trace(xhci, trace_xhci_dbg_quirks,
-				"QUIRK: Not clearing Link TRB chain bits.");
-		xhci->quirks |= XHCI_LINK_TRB_QUIRK;
-	} else {
-		xhci_dbg_trace(xhci, trace_xhci_dbg_init,
-				"xHCI doesn't need link TRB QUIRK");
-	}
+
 	retval = xhci_mem_init(xhci, GFP_KERNEL);
 	xhci_dbg_trace(xhci, trace_xhci_dbg_init, "Finished xhci_init");
 
@@ -786,16 +779,10 @@ static void xhci_clear_command_ring(struct xhci_hcd *xhci)
 	struct xhci_segment *seg;
 
 	ring = xhci->cmd_ring;
-	seg = ring->deq_seg;
-	do {
-		memset(seg->trbs, 0,
-			sizeof(union xhci_trb) * (TRBS_PER_SEGMENT - 1));
-		seg->trbs[TRBS_PER_SEGMENT - 1].link.control &=
-			cpu_to_le32(~TRB_CYCLE);
-		seg = seg->next;
-	} while (seg != ring->deq_seg);
+	xhci_for_each_ring_seg(ring->first_seg, seg)
+		memset(seg->trbs, 0, sizeof(union xhci_trb) * (TRBS_PER_SEGMENT - 1));
 
-	xhci_initialize_ring_info(ring, 1);
+	xhci_initialize_ring_info(ring);
 	/*
 	 * Reset the hardware dequeue pointer.
 	 * Yes, this will need to be re-written after resume, but we're paranoid
@@ -1757,7 +1744,7 @@ static int xhci_urb_dequeue(struct usb_hcd *hcd, struct urb *urb, int status)
 				urb->ep->desc.bEndpointAddress,
 				(unsigned long long) xhci_trb_virt_to_dma(
 					urb_priv->td[i].start_seg,
-					urb_priv->td[i].first_trb));
+					urb_priv->td[i].start_trb));
 
 	for (; i < urb_priv->num_tds; i++) {
 		td = &urb_priv->td[i];
@@ -5327,6 +5314,11 @@ int xhci_gen_setup(struct usb_hcd *hcd, xhci_get_quirks_t get_quirks)
 	 */
 	if (xhci->hci_version > 0x96)
 		xhci->quirks |= XHCI_SPURIOUS_SUCCESS;
+
+	if (xhci->hci_version == 0x95 && link_quirk) {
+		xhci_dbg(xhci, "QUIRK: Not clearing Link TRB chain bits");
+		xhci->quirks |= XHCI_LINK_TRB_QUIRK;
+	}
 
 	/* Make sure the HC is halted. */
 	retval = xhci_halt(xhci);
