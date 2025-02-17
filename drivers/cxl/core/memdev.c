@@ -234,7 +234,7 @@ int cxl_trigger_poison_list(struct cxl_memdev *cxlmd)
 	struct cxl_port *port;
 	int rc;
 
-	port = dev_get_drvdata(&cxlmd->dev);
+	port = cxlmd->endpoint;
 	if (!port || !is_cxl_endpoint(port))
 		return -EINVAL;
 

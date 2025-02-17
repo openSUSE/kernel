@@ -1170,7 +1170,7 @@ static struct device *endpoint_host(struct cxl_port *endpoint)
 static void delete_endpoint(void *data)
 {
 	struct cxl_memdev *cxlmd = data;
-	struct cxl_port *endpoint = dev_get_drvdata(&cxlmd->dev);
+	struct cxl_port *endpoint = cxlmd->endpoint;
 	struct device *host = endpoint_host(endpoint);
 
 	device_lock(host);
@@ -1179,6 +1179,7 @@ static void delete_endpoint(void *data)
 		devm_release_action(host, cxl_unlink_uport, endpoint);
 		devm_release_action(host, unregister_port, endpoint);
 	}
+	cxlmd->endpoint = NULL;
 	device_unlock(host);
 	put_device(&endpoint->dev);
 	put_device(host);
@@ -1191,7 +1192,7 @@ int cxl_endpoint_autoremove(struct cxl_memdev *cxlmd, struct cxl_port *endpoint)
 
 	get_device(host);
 	get_device(&endpoint->dev);
-	dev_set_drvdata(dev, endpoint);
+	cxlmd->endpoint = endpoint;
 	cxlmd->depth = endpoint->depth;
 	return devm_add_action_or_reset(dev, delete_endpoint, cxlmd);
 }
