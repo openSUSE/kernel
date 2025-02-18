@@ -419,6 +419,11 @@ static bool subflow_use_different_dport(struct mptcp_sock *msk, const struct soc
 	return inet_sk(sk)->inet_dport != inet_sk((struct sock *)msk)->inet_dport;
 }
 
+void __mptcp_set_connected(struct sock *sk)
+{
+	__mptcp_sync_state(sk, TCP_ESTABLISHED);
+}
+
 void __mptcp_sync_state(struct sock *sk, int state)
 {
 	if (sk->sk_state == TCP_SYN_SENT) {

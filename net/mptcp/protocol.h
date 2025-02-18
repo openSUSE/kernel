@@ -122,8 +122,9 @@
 #define MPTCP_ERROR_REPORT	3
 #define MPTCP_RETRANSMIT	4
 #define MPTCP_FLUSH_JOIN_LIST	5
-#define MPTCP_SYNC_STATE	6
+#define MPTCP_CONNECTED		6
 #define MPTCP_RESET_SCHEDULER	7
+#define MPTCP_SYNC_STATE	8
 
 struct mptcp_skb_cb {
 	u64 map_seq;
@@ -290,15 +291,17 @@ struct mptcp_sock {
 	bool		use_64bit_ack; /* Set when we received a 64-bit DSN */
 	bool		csum_enabled;
 	bool		allow_infinite_fallback;
-	u8		pending_state; /* A subflow asked to set this sk_state,
-					* protected by the msk data lock
-					*/
 	u8		mpc_endpoint_id;
 	u8		recvmsg_inq:1,
 			cork:1,
 			nodelay:1,
 			fastopening:1,
 			in_accept_queue:1;
+#ifndef __GENKSYMS__
+	u8		pending_state; /* A subflow asked to set this sk_state,
+					* protected by the msk data lock
+					*/
+#endif
 	struct work_struct work;
 	struct sk_buff  *ooo_last_skb;
 	struct rb_root  out_of_order_queue;
@@ -694,6 +697,7 @@ void mptcp_get_options(const struct sk_buff *skb,
 		       struct mptcp_options_received *mp_opt);
 
 void mptcp_finish_connect(struct sock *sk);
+void __mptcp_set_connected(struct sock *sk);
 void __mptcp_sync_state(struct sock *sk, int state);
 void mptcp_reset_timeout(struct mptcp_sock *msk, unsigned long fail_tout);
 static inline bool mptcp_is_fully_established(struct sock *sk)
