@@ -124,6 +124,8 @@ typedef unsigned int __bitwise blk_mode_t;
 #define BLK_OPEN_NDELAY		((__force blk_mode_t)(1 << 3))
 /* open for "writes" only for ioctls (specialy hack for floppy.c) */
 #define BLK_OPEN_WRITE_IOCTL	((__force blk_mode_t)(1 << 4))
+/* return partition scanning errors */
+#define BLK_OPEN_STRICT_SCAN	((__force blk_mode_t)(1 << 6))
 
 struct gendisk {
 	/*
