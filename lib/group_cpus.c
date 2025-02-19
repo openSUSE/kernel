@@ -482,8 +482,8 @@ fail_nmsk:
  * argument is used with managed_irq option. In this case only the
  * housekeeping CPUs are considered.
  */
-struct cpumask *group_cpus_evenly(unsigned int numgrps,
-				  unsigned int *nummasks)
+struct cpumask *group_cpus_evenly_nm(unsigned int numgrps,
+				     unsigned int *nummasks)
 {
 	if (housekeeping_enabled(HK_TYPE_MANAGED_IRQ)) {
 		return group_mask_cpus_evenly(numgrps,
@@ -494,8 +494,8 @@ struct cpumask *group_cpus_evenly(unsigned int numgrps,
 	return group_possible_cpus_evenly(numgrps, nummasks);
 }
 #else /* CONFIG_SMP */
-struct cpumask *group_cpus_evenly(unsigned int numgrps,
-				  unsigned int *nummasks)
+struct cpumask *group_cpus_evenly_nm(unsigned int numgrps,
+				     unsigned int *nummasks)
 {
 	struct cpumask *masks = kcalloc(numgrps, sizeof(*masks), GFP_KERNEL);
 
@@ -508,4 +508,12 @@ struct cpumask *group_cpus_evenly(unsigned int numgrps,
 	return masks;
 }
 #endif /* CONFIG_SMP */
+EXPORT_SYMBOL_GPL(group_cpus_evenly_nm);
+
+struct cpumask *group_cpus_evenly(unsigned int numgrps)
+{
+	unsigned int nummasks;
+
+	return group_cpus_evenly_nm(numgrps, &nummasks);
+}
 EXPORT_SYMBOL_GPL(group_cpus_evenly);

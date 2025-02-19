@@ -81,7 +81,7 @@ static bool blk_mq_map_hk_queues(struct blk_mq_queue_map *qmap)
 		return false;
 
 	/* map housekeeping cpus to matching hardware context */
-	hk_masks = group_cpus_evenly(qmap->nr_queues, &nr_masks);
+	hk_masks = group_cpus_evenly_nm(qmap->nr_queues, &nr_masks);
 	if (!hk_masks)
 		goto fallback;
 
@@ -128,7 +128,7 @@ void blk_mq_map_queues(struct blk_mq_queue_map *qmap)
 	if (blk_mq_map_hk_queues(qmap))
 		return;
 
-	masks = group_cpus_evenly(qmap->nr_queues, &nr_masks);
+	masks = group_cpus_evenly_nm(qmap->nr_queues, &nr_masks);
 	if (!masks) {
 		for_each_possible_cpu(cpu)
 			qmap->mq_map[cpu] = qmap->queue_offset;
