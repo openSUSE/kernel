@@ -5256,6 +5256,7 @@ static int nf_tables_abort(struct net *net, struct sk_buff *skb)
 
 static bool nf_tables_valid_genid(struct net *net, u32 genid)
 {
+	net->tstamp = get_jiffies_64();
 	return net->nft.base_seq == genid;
 }
 
