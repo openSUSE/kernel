@@ -91,8 +91,6 @@ struct bus_type {
 	void (*sync_state)(struct device *dev);
 	void (*remove)(struct device *dev);
 	void (*shutdown)(struct device *dev);
-	const struct cpumask *(*irq_get_affinity)(struct device *dev,
-			unsigned int irq_vec);
 
 	int (*online)(struct device *dev);
 	int (*offline)(struct device *dev);
@@ -111,7 +109,12 @@ struct bus_type {
 
 	bool need_parent_lock;
 
+#ifdef __GENKSYMS__
 	void *suse_kabi_padding;
+#else
+	const struct cpumask *(*irq_get_affinity)(struct device *dev,
+						  unsigned int irq_vec);
+#endif
 };
 
 int __must_check bus_register(const struct bus_type *bus);
