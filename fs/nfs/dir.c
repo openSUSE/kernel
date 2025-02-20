@@ -1131,13 +1131,13 @@ static int nfs_readdir(struct file *file, struct dir_context *ctx)
 	desc->eof = dir_ctx->eof;
 	nfs_set_dtsize(desc, dir_ctx->dtsize);
 	cache_hits = atomic_xchg(&dir_ctx->cache_hits, 0);
+	cache_misses = atomic_xchg(&dir_ctx->cache_misses, 0);
+	spin_unlock(&file->f_lock);
+
 	if (desc->eof) {
 		res = 0;
 		goto out_free;
 	}
-
-	cache_misses = atomic_xchg(&dir_ctx->cache_misses, 0);
-	spin_unlock(&file->f_lock);
 
 	desc->plus = nfs_use_readdirplus(inode, ctx, cache_hits, cache_misses);
 	nfs_readdir_handle_cache_misses(inode, desc, page_index, cache_misses);
