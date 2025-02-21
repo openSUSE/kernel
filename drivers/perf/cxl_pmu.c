@@ -858,7 +858,6 @@ static int cxl_pmu_probe(struct device *dev)
 
 	info->pmu = (struct pmu) {
 		.name = dev_name,
-		.parent = dev,
 		.module = THIS_MODULE,
 		.event_init = cxl_pmu_event_init,
 		.pmu_enable = cxl_pmu_enable,
