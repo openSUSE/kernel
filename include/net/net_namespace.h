@@ -7,6 +7,7 @@
 #include <asm/atomic.h>
 #include <linux/workqueue.h>
 #include <linux/list.h>
+#include <linux/llist.h>
 #include <linux/sysctl.h>
 
 #include <net/netns/core.h>
@@ -52,6 +53,7 @@ struct net {
 	struct list_head	list;		/* list of network namespaces */
 	struct list_head	cleanup_list;	/* namespaces on death row */
 	struct list_head	exit_list;	/* Use only net_mutex */
+	struct llist_node	defer_free_list;
 
 	struct proc_dir_entry 	*proc_net;
 	struct proc_dir_entry 	*proc_net_stat;
