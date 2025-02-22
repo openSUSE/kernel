@@ -5200,10 +5200,12 @@ S:	Maintained
 F:	include/linux/compiler_attributes.h
 
 COMPUTE EXPRESS LINK (CXL)
+M:	Davidlohr Bueso <dave@stgolabs.net>
+M:	Jonathan Cameron <jonathan.cameron@huawei.com>
+M:	Dave Jiang <dave.jiang@intel.com>
 M:	Alison Schofield <alison.schofield@intel.com>
 M:	Vishal Verma <vishal.l.verma@intel.com>
 M:	Ira Weiny <ira.weiny@intel.com>
-M:	Ben Widawsky <bwidawsk@kernel.org>
 M:	Dan Williams <dan.j.williams@intel.com>
 L:	linux-cxl@vger.kernel.org
 S:	Maintained
@@ -5211,6 +5213,14 @@ F:	drivers/cxl/
 F:	include/linux/cxl-einj.h
 F:	include/linux/cxl-event.h
 F:	include/uapi/linux/cxl_mem.h
+F:	tools/testing/cxl/
+
+COMPUTE EXPRESS LINK PMU (CPMU)
+M:	Jonathan Cameron <jonathan.cameron@huawei.com>
+L:	linux-cxl@vger.kernel.org
+S:	Maintained
+F:	Documentation/admin-guide/perf/cxl.rst
+F:	drivers/perf/cxl_pmu.c
 
 CONEXANT ACCESSRUNNER USB DRIVER
 L:	accessrunner-general@lists.sourceforge.net
