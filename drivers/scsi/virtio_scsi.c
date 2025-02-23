@@ -29,7 +29,6 @@
 #include <scsi/scsi_tcq.h>
 #include <scsi/scsi_devinfo.h>
 #include <linux/seqlock.h>
-#include <linux/blk-mq-virtio.h>
 
 #include "sd.h"
 
@@ -726,7 +725,7 @@ static void virtscsi_map_queues(struct Scsi_Host *shost)
 	struct virtio_scsi *vscsi = shost_priv(shost);
 	struct blk_mq_queue_map *qmap = &shost->tag_set.map[HCTX_TYPE_DEFAULT];
 
-	blk_mq_virtio_map_queues(qmap, vscsi->vdev, 2);
+	blk_mq_map_hw_queues(qmap, &vscsi->vdev->dev, 2);
 }
 
 static void virtscsi_commit_rqs(struct Scsi_Host *shost, u16 hwq)
@@ -866,6 +865,7 @@ static int virtscsi_probe(struct virtio_device *vdev)
 	/* We need to know how many queues before we allocate. */
 	num_queues = virtscsi_config_get(vdev, num_queues) ? : 1;
 	num_queues = min_t(unsigned int, nr_cpu_ids, num_queues);
+	num_queues = blk_mq_num_possible_queues(num_queues);
 
 	num_targets = virtscsi_config_get(vdev, max_target) + 1;
 
