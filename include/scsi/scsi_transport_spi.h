@@ -132,6 +132,8 @@ struct spi_function_template {
 	unsigned long	show_rti:1;
 	unsigned long	show_pcomp_en:1;
 	unsigned long	show_hold_mcs:1;
+
+	void *suse_kabi_padding;
 };
 
 struct scsi_transport_template *spi_attach_transport(struct spi_function_template *);

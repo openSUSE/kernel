@@ -707,6 +707,7 @@ static const match_table_t opt_tokens = {
 #ifdef CONFIG_NVME_TCP_TLS
 	{ NVMF_OPT_TLS,			"tls"			},
 #endif
+	{ NVMF_OPT_RECOVERY_DELAY,      "recovery_delay=%d"     },
 	{ NVMF_OPT_ERR,			NULL			}
 };
 
@@ -1052,6 +1053,18 @@ static int nvmf_parse_options(struct nvmf_ctrl_options *opts,
 				goto out;
 			}
 			opts->tls = true;
+			break;			
+		case NVMF_OPT_RECOVERY_DELAY:
+			if (match_int(args, &token)) {
+				ret = -EINVAL;
+				goto out;
+			}
+			if (token <= 0) {
+				pr_err("Invalid recovery_delay %d\n", token);
+				ret = -EINVAL;
+				goto out;
+			}
+			opts->recovery_delay = token;
 			break;
 		default:
 			pr_warn("unknown parameter or missing value '%s' in ctrl creation request\n",
