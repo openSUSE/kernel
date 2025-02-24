@@ -503,6 +503,8 @@ struct scsi_host_template {
 	 *   scsi_netlink.h
 	 */
 	u64 vendor_id;
+
+	void *suse_kabi_padding;
 };
 
 /*

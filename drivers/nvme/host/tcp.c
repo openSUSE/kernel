@@ -194,7 +194,7 @@ struct nvme_tcp_ctrl {
 	struct sockaddr_storage src_addr;
 	struct nvme_ctrl	ctrl;
 
-	struct work_struct	err_work;
+	struct delayed_work	err_work;
 	struct delayed_work	connect_work;
 	struct nvme_tcp_request async_req;
 	u32			io_queues[HCTX_MAX_TYPES];
@@ -589,13 +589,25 @@ static void nvme_tcp_init_recv_ctx(struct nvme_tcp_queue *queue)
 	queue->ddgst_remaining = 0;
 }
 
+/*
+ * Error recovery needs to be started after KATO expired,
+ * always delay until the next KATO interval before
+ * starting error recovery.
+ */
 static void nvme_tcp_error_recovery(struct nvme_ctrl *ctrl)
 {
+	unsigned long delay;
+
 	if (!nvme_change_ctrl_state(ctrl, NVME_CTRL_RESETTING))
 		return;
 
-	dev_warn(ctrl->device, "starting error recovery\n");
-	queue_work(nvme_reset_wq, &to_tcp_ctrl(ctrl)->err_work);
+	delay = ctrl->opts->recovery_delay * HZ;
+	if (!delay)
+		delay = nvme_keep_alive_work_period(ctrl);
+
+	dev_warn(ctrl->device, "starting error recovery in %lu seconds\n",
+		 delay / HZ);
+	queue_delayed_work(nvme_reset_wq, &to_tcp_ctrl(ctrl)->err_work, delay);
 }
 
 static int nvme_tcp_process_nvme_cqe(struct nvme_tcp_queue *queue,
@@ -2350,7 +2362,7 @@ requeue:
 
 static void nvme_tcp_error_recovery_work(struct work_struct *work)
 {
-	struct nvme_tcp_ctrl *tcp_ctrl = container_of(work,
+	struct nvme_tcp_ctrl *tcp_ctrl = container_of(to_delayed_work(work),
 				struct nvme_tcp_ctrl, err_work);
 	struct nvme_ctrl *ctrl = &tcp_ctrl->ctrl;
 
@@ -2419,7 +2431,7 @@ out_fail:
 
 static void nvme_tcp_stop_ctrl(struct nvme_ctrl *ctrl)
 {
-	flush_work(&to_tcp_ctrl(ctrl)->err_work);
+	flush_delayed_work(&to_tcp_ctrl(ctrl)->err_work);
 	cancel_delayed_work_sync(&to_tcp_ctrl(ctrl)->connect_work);
 }
 
@@ -2520,6 +2532,14 @@ static enum blk_eh_timer_return nvme_tcp_timeout(struct request *rq)
 		 "I/O tag %d (%04x) type %d opcode %#x (%s) QID %d timeout\n",
 		 rq->tag, nvme_cid(rq), pdu->hdr.type, cmd->common.opcode,
 		 nvme_fabrics_opcode_str(qid, cmd), qid);
+
+	/*
+	 * If the error recovery is started all commands will be
+	 * aborted anyway, and nothing is to be done here.
+	 */
+	if (nvme_ctrl_state(ctrl) == NVME_CTRL_RESETTING &&
+	    delayed_work_pending(&to_tcp_ctrl(ctrl)->err_work))
+		return BLK_EH_RESET_TIMER;
 
 	if (nvme_ctrl_state(ctrl) != NVME_CTRL_LIVE) {
 		/*
@@ -2774,7 +2794,8 @@ static struct nvme_tcp_ctrl *nvme_tcp_alloc_ctrl(struct device *dev,
 
 	INIT_DELAYED_WORK(&ctrl->connect_work,
 			nvme_tcp_reconnect_ctrl_work);
-	INIT_WORK(&ctrl->err_work, nvme_tcp_error_recovery_work);
+	INIT_DELAYED_WORK(&ctrl->err_work,
+			  nvme_tcp_error_recovery_work);
 	INIT_WORK(&ctrl->ctrl.reset_work, nvme_reset_ctrl_work);
 
 	if (!(opts->mask & NVMF_OPT_TRSVCID)) {
