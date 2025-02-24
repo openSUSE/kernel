@@ -43,6 +43,8 @@ struct scsi_transport_template {
 	 * Allows a transport to override the default error handler.
 	 */
 	void (* eh_strategy_handler)(struct Scsi_Host *);
+
+	void *suse_kabi_padding;
 };
 
 #define transport_class_to_shost(tc) \
