@@ -43,6 +43,7 @@ struct imx_sc_ipc {
 	u32 *msg;
 	u8 rx_size;
 	u8 count;
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 /*

@@ -56,6 +56,7 @@ struct tegra_bpmp_channel {
 	struct completion completion;
 	struct tegra_ivc *ivc;
 	unsigned int index;
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 typedef void (*tegra_bpmp_mrq_handler_t)(unsigned int mrq,
@@ -104,6 +105,7 @@ struct tegra_bpmp {
 #endif
 
 	bool suspended;
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 #define TEGRA_BPMP_MESSAGE_RESET BIT(0)

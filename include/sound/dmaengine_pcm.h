@@ -82,6 +82,7 @@ struct snd_dmaengine_dai_dma_data {
 	unsigned int flags;
 	void *peripheral_config;
 	size_t peripheral_size;
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 void snd_dmaengine_pcm_set_config_from_dai_data(
@@ -152,6 +153,7 @@ struct snd_dmaengine_pcm_config {
 
 	const struct snd_pcm_hardware *pcm_hardware;
 	unsigned int prealloc_buffer_size;
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 int snd_dmaengine_pcm_register(struct device *dev,
@@ -174,6 +176,7 @@ struct dmaengine_pcm {
 	const struct snd_dmaengine_pcm_config *config;
 	struct snd_soc_component component;
 	unsigned int flags;
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 static inline struct dmaengine_pcm *soc_component_to_pcm(struct snd_soc_component *p)

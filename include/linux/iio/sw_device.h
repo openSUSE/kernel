@@ -31,6 +31,7 @@ struct iio_sw_device {
 	struct iio_dev *device;
 	struct iio_sw_device_type *device_type;
 	struct config_group group;
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 struct iio_sw_device_ops {

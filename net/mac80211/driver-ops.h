@@ -88,7 +88,7 @@ static inline int drv_get_et_sset_count(struct ieee80211_sub_if_data *sdata,
 }
 
 int drv_start(struct ieee80211_local *local);
-void drv_stop(struct ieee80211_local *local);
+void drv_stop(struct ieee80211_local *local, bool suspend);
 
 #ifdef CONFIG_PM
 static inline int drv_suspend(struct ieee80211_local *local,
@@ -724,6 +724,9 @@ static inline void drv_flush_sta(struct ieee80211_local *local,
 	if (sdata && !check_sdata_in_driver(sdata))
 		return;
 
+	if (!sta->uploaded)
+		return;
+
 	trace_drv_flush_sta(local, sdata, &sta->sta);
 	if (local->ops->flush_sta)
 		local->ops->flush_sta(&local->hw, &sdata->vif, &sta->sta);
@@ -1150,6 +1153,9 @@ drv_pre_channel_switch(struct ieee80211_sub_if_data *sdata,
 	if (!check_sdata_in_driver(sdata))
 		return -EIO;
 
+	if (!ieee80211_vif_link_active(&sdata->vif, ch_switch->link_id))
+		return 0;
+
 	trace_drv_pre_channel_switch(local, sdata, ch_switch);
 	if (local->ops->pre_channel_switch)
 		ret = local->ops->pre_channel_switch(&local->hw, &sdata->vif,
@@ -1171,6 +1177,9 @@ drv_post_channel_switch(struct ieee80211_link_data *link)
 	if (!check_sdata_in_driver(sdata))
 		return -EIO;
 
+	if (!ieee80211_vif_link_active(&sdata->vif, link->link_id))
+		return 0;
+
 	trace_drv_post_channel_switch(local, sdata);
 	if (local->ops->post_channel_switch)
 		ret = local->ops->post_channel_switch(&local->hw, &sdata->vif,
@@ -1191,6 +1200,9 @@ drv_abort_channel_switch(struct ieee80211_link_data *link)
 	if (!check_sdata_in_driver(sdata))
 		return;
 
+	if (!ieee80211_vif_link_active(&sdata->vif, link->link_id))
+		return;
+
 	trace_drv_abort_channel_switch(local, sdata);
 
 	if (local->ops->abort_channel_switch)
@@ -1208,6 +1220,9 @@ drv_channel_switch_rx_beacon(struct ieee80211_sub_if_data *sdata,
 	lockdep_assert_wiphy(local->hw.wiphy);
 
 	if (!check_sdata_in_driver(sdata))
+		return;
+
+	if (!ieee80211_vif_link_active(&sdata->vif, ch_switch->link_id))
 		return;
 
 	trace_drv_channel_switch_rx_beacon(local, sdata, ch_switch);

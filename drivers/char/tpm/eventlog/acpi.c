@@ -26,8 +26,6 @@
 #include "../tpm.h"
 #include "common.h"
 
-#define MAX_TPM_LOG_LEN		(128 * 1024)
-
 struct acpi_tcpa {
 	struct acpi_table_header hdr;
 	u16 platform_class;
@@ -63,6 +61,11 @@ static bool tpm_is_tpm2_log(void *bios_event_log, u64 len)
 	n = memcmp(efispecid->signature, TCG_SPECID_SIG,
 		   sizeof(TCG_SPECID_SIG));
 	return n == 0;
+}
+
+static void tpm_bios_log_free(void *data)
+{
+	kvfree(data);
 }
 
 /* read binary bios log */
@@ -137,14 +140,8 @@ int tpm_read_log_acpi(struct tpm_chip *chip)
 		return -EIO;
 	}
 
-	if (len > MAX_TPM_LOG_LEN) {
-		dev_warn(&chip->dev, "Excessive TCPA log len %llu truncated to %u bytes\n",
-			 len, MAX_TPM_LOG_LEN);
-		len = MAX_TPM_LOG_LEN;
-	}
-
 	/* malloc EventLog space */
-	log->bios_event_log = devm_kmalloc(&chip->dev, len, GFP_KERNEL);
+	log->bios_event_log = kvmalloc(len, GFP_KERNEL);
 	if (!log->bios_event_log)
 		return -ENOMEM;
 
@@ -170,10 +167,16 @@ int tpm_read_log_acpi(struct tpm_chip *chip)
 		goto err;
 	}
 
+	ret = devm_add_action(&chip->dev, tpm_bios_log_free, log->bios_event_log);
+	if (ret) {
+		log->bios_event_log = NULL;
+		goto err;
+	}
+
 	return format;
 
 err:
-	devm_kfree(&chip->dev, log->bios_event_log);
+	tpm_bios_log_free(log->bios_event_log);
 	log->bios_event_log = NULL;
 	return ret;
 }

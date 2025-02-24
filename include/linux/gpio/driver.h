@@ -529,6 +529,7 @@ struct gpio_chip {
 	int (*of_xlate)(struct gpio_chip *gc,
 			const struct of_phandle_args *gpiospec, u32 *flags);
 #endif /* CONFIG_OF_GPIO */
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 const char *gpiochip_is_requested(struct gpio_chip *gc, unsigned int offset);

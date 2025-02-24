@@ -202,6 +202,8 @@ struct snd_soc_component_driver {
 #ifdef CONFIG_DEBUG_FS
 	const char *debugfs_prefix;
 #endif
+
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 struct snd_soc_component {

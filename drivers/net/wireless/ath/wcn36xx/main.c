@@ -278,7 +278,7 @@ out_err:
 	return ret;
 }
 
-static void wcn36xx_stop(struct ieee80211_hw *hw)
+static void wcn36xx_stop(struct ieee80211_hw *hw, bool suspend)
 {
 	struct wcn36xx *wcn = hw->priv;
 
@@ -1590,7 +1590,10 @@ static int wcn36xx_probe(struct platform_device *pdev)
 	}
 
 	n_channels = wcn_band_2ghz.n_channels + wcn_band_5ghz.n_channels;
-	wcn->chan_survey = devm_kmalloc(wcn->dev, n_channels, GFP_KERNEL);
+	wcn->chan_survey = devm_kcalloc(wcn->dev,
+					n_channels,
+					sizeof(struct wcn36xx_chan_survey),
+					GFP_KERNEL);
 	if (!wcn->chan_survey) {
 		ret = -ENOMEM;
 		goto out_wq;

@@ -425,6 +425,8 @@ struct snd_soc_dai_driver {
 	unsigned int symmetric_rate:1;
 	unsigned int symmetric_channels:1;
 	unsigned int symmetric_sample_bits:1;
+
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 /* for Playback/Capture */
@@ -435,6 +437,8 @@ struct snd_soc_dai_stream {
 	unsigned int tdm_mask;	/* CODEC TDM slot masks and params (for fixup) */
 
 	void *dma_data;		/* DAI DMA data */
+
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 /*
@@ -471,6 +475,8 @@ struct snd_soc_dai {
 
 	/* bit field */
 	unsigned int probed:1;
+
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 static inline const struct snd_soc_pcm_stream *

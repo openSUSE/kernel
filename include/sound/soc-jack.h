@@ -21,6 +21,7 @@ struct snd_soc_jack_pin {
 	const char *pin;
 	int mask;
 	bool invert;
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 /**
@@ -39,6 +40,7 @@ struct snd_soc_jack_zone {
 	unsigned int jack_type;
 	unsigned int debounce_time;
 	struct list_head list;
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 /**
@@ -75,6 +77,8 @@ struct snd_soc_jack_gpio {
 	void *data;
 	/* public: */
 	int (*jack_status_check)(void *data);
+
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 struct snd_soc_jack {
@@ -85,6 +89,7 @@ struct snd_soc_jack {
 	int status;
 	struct blocking_notifier_head notifier;
 	struct list_head jack_zones;
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 /* Jack reporting */

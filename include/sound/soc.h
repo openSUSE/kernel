@@ -639,6 +639,7 @@ struct snd_soc_pcm_stream {
 	unsigned int channels_min;	/* min channels */
 	unsigned int channels_max;	/* max channels */
 	unsigned int sig_bits;		/* number of bits of content */
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 /* SoC audio ops */
@@ -825,6 +826,8 @@ struct snd_soc_dai_link {
 #ifdef CONFIG_SND_SOC_TOPOLOGY
 	struct snd_soc_dobj dobj; /* For topology */
 #endif
+
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 static inline int snd_soc_link_num_ch_map(const struct snd_soc_dai_link *link)
@@ -1255,6 +1258,7 @@ struct soc_mixer_control {
 #ifdef CONFIG_SND_SOC_TOPOLOGY
 	struct snd_soc_dobj dobj;
 #endif
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 struct soc_bytes {
@@ -1273,6 +1277,7 @@ struct soc_bytes_ext {
 			unsigned int size);
 	int (*put)(struct snd_kcontrol *kcontrol, const unsigned int __user *bytes,
 			unsigned int size);
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 /* multi register control */

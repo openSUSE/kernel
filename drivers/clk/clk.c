@@ -108,6 +108,7 @@ struct clk {
 	unsigned long max_rate;
 	unsigned int exclusive_count;
 	struct hlist_node clks_node;
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 /***           runtime pm          ***/

@@ -444,12 +444,11 @@ static int skl_decoupled_trigger(struct snd_pcm_substream *substream,
 
 	spin_lock_irqsave(&bus->reg_lock, cookie);
 
-	if (start) {
+	snd_hdac_stream_timecounter_init(hstr, 0, start);
+	if (start)
 		snd_hdac_stream_start(hdac_stream(stream));
-		snd_hdac_stream_timecounter_init(hstr, 0);
-	} else {
+	else
 		snd_hdac_stream_stop(hdac_stream(stream));
-	}
 
 	spin_unlock_irqrestore(&bus->reg_lock, cookie);
 
@@ -1145,8 +1144,7 @@ static int skl_coupled_trigger(struct snd_pcm_substream *substream,
 
 	/* reset SYNC bits */
 	snd_hdac_stream_sync_trigger(hstr, false, sbits, AZX_REG_SSYNC);
-	if (start)
-		snd_hdac_stream_timecounter_init(hstr, sbits);
+	snd_hdac_stream_timecounter_init(hstr, sbits, start);
 	spin_unlock_irqrestore(&bus->reg_lock, cookie);
 
 	return 0;

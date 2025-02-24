@@ -678,6 +678,8 @@ struct snd_soc_dapm_widget {
 	struct clk *clk;
 
 	int channel;
+
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 struct snd_soc_dapm_update {
@@ -713,6 +715,8 @@ struct snd_soc_dapm_context {
 #ifdef CONFIG_DEBUG_FS
 	struct dentry *debugfs_dapm;
 #endif
+
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 /* A list of widgets associated with an object, typically a snd_kcontrol */

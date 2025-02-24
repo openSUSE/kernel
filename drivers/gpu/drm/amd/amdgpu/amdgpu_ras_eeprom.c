@@ -1440,5 +1440,5 @@ int amdgpu_ras_eeprom_init(struct amdgpu_ras_eeprom_control *control)
 		res = amdgpu_ras_eeprom_reset_table(control);
 	}
 
-	return res < 0 ? res : 0;
+	return 0;
 }

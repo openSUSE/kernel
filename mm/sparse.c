@@ -315,7 +315,7 @@ static unsigned long usemap_size(void)
 
 size_t mem_section_usage_size(void)
 {
-	return sizeof(struct mem_section_usage) + usemap_size();
+	return sizeof(struct mem_section_usage_rcu) + usemap_size();
 }
 
 #ifdef CONFIG_MEMORY_HOTREMOVE
@@ -329,11 +329,11 @@ static inline phys_addr_t pgdat_to_phys(struct pglist_data *pgdat)
 #endif
 }
 
-static struct mem_section_usage * __init
+static struct mem_section_usage_rcu * __init
 sparse_early_usemaps_alloc_pgdat_section(struct pglist_data *pgdat,
 					 unsigned long size)
 {
-	struct mem_section_usage *usage;
+	struct mem_section_usage_rcu *usage_rcu;
 	unsigned long goal, limit;
 	int nid;
 	/*
@@ -350,12 +350,12 @@ sparse_early_usemaps_alloc_pgdat_section(struct pglist_data *pgdat,
 	limit = goal + (1UL << PA_SECTION_SHIFT);
 	nid = early_pfn_to_nid(goal >> PAGE_SHIFT);
 again:
-	usage = memblock_alloc_try_nid(size, SMP_CACHE_BYTES, goal, limit, nid);
-	if (!usage && limit) {
+	usage_rcu = memblock_alloc_try_nid(size, SMP_CACHE_BYTES, goal, limit, nid);
+	if (!usage_rcu && limit) {
 		limit = 0;
 		goto again;
 	}
-	return usage;
+	return usage_rcu;
 }
 
 static void __init check_usemap_section_nr(int nid,
@@ -401,7 +401,7 @@ static void __init check_usemap_section_nr(int nid,
 		usemap_snr, pgdat_snr, nid);
 }
 #else
-static struct mem_section_usage * __init
+static struct mem_section_usage_rcu * __init
 sparse_early_usemaps_alloc_pgdat_section(struct pglist_data *pgdat,
 					 unsigned long size)
 {
@@ -508,15 +508,17 @@ static void __init sparse_init_nid(int nid, unsigned long pnum_begin,
 				   unsigned long map_count)
 {
 	struct mem_section_usage *usage;
+	struct mem_section_usage_rcu *usage_rcu;
 	unsigned long pnum;
 	struct page *map;
 
-	usage = sparse_early_usemaps_alloc_pgdat_section(NODE_DATA(nid),
+	usage_rcu = sparse_early_usemaps_alloc_pgdat_section(NODE_DATA(nid),
 			mem_section_usage_size() * map_count);
-	if (!usage) {
+	if (!usage_rcu) {
 		pr_err("%s: node[%d] usemap allocation failed", __func__, nid);
 		goto failed;
 	}
+	usage = &usage_rcu->usage;
 	sparse_buffer_init(map_count * section_map_size(), nid);
 	for_each_present_section_nr(pnum_begin, pnum) {
 		unsigned long pfn = section_nr_to_pfn(pnum);
@@ -536,7 +538,8 @@ static void __init sparse_init_nid(int nid, unsigned long pnum_begin,
 		check_usemap_section_nr(nid, usage);
 		sparse_init_one_section(__nr_to_section(pnum), pnum, map, usage,
 				SECTION_IS_EARLY);
-		usage = (void *) usage + mem_section_usage_size();
+		usage_rcu = (void *)usage_rcu + mem_section_usage_size();
+		usage = &usage_rcu->usage;
 	}
 	sparse_buffer_fini();
 	return;
@@ -781,6 +784,7 @@ static void section_deactivate(unsigned long pfn, unsigned long nr_pages,
 		struct vmem_altmap *altmap)
 {
 	struct mem_section *ms = __pfn_to_section(pfn);
+	struct mem_section_usage_rcu *usage_rcu;
 	bool section_is_early = early_section(ms);
 	struct page *memmap = NULL;
 	bool empty;
@@ -793,6 +797,13 @@ static void section_deactivate(unsigned long pfn, unsigned long nr_pages,
 		unsigned long section_nr = pfn_to_section_nr(pfn);
 
 		/*
+		 * Mark the section invalid so that valid_section()
+		 * return false. This prevents code from dereferencing
+		 * ms->usage array.
+		 */
+		ms->section_mem_map &= ~SECTION_HAS_MEM_MAP;
+
+		/*
 		 * When removing an early section, the usage map is kept (as the
 		 * usage maps of other sections fall into the same page). It
 		 * will be re-used when re-adding the section - which is then no
@@ -800,16 +811,11 @@ static void section_deactivate(unsigned long pfn, unsigned long nr_pages,
 		 * was allocated during boot.
 		 */
 		if (!PageReserved(virt_to_page(ms->usage))) {
-			kfree(ms->usage);
+			usage_rcu = container_of(ms->usage, struct mem_section_usage_rcu, usage);
+			kfree_rcu(usage_rcu, rcu);
 			ms->usage = NULL;
 		}
 		memmap = sparse_decode_mem_map(ms->section_mem_map, section_nr);
-		/*
-		 * Mark the section invalid so that valid_section()
-		 * return false. This prevents code from dereferencing
-		 * ms->usage array.
-		 */
-		ms->section_mem_map &= ~SECTION_HAS_MEM_MAP;
 	}
 
 	/*
@@ -830,15 +836,16 @@ static struct page * __meminit section_activate(int nid, unsigned long pfn,
 		struct dev_pagemap *pgmap)
 {
 	struct mem_section *ms = __pfn_to_section(pfn);
+	struct mem_section_usage_rcu *usage_rcu = NULL;
 	struct mem_section_usage *usage = NULL;
 	struct page *memmap;
 	int rc;
 
 	if (!ms->usage) {
-		usage = kzalloc(mem_section_usage_size(), GFP_KERNEL);
-		if (!usage)
+		usage_rcu = kzalloc(mem_section_usage_size(), GFP_KERNEL);
+		if (!usage_rcu)
 			return ERR_PTR(-ENOMEM);
-		ms->usage = usage;
+		ms->usage = &usage_rcu->usage;
 	}
 
 	rc = fill_subsection_map(pfn, nr_pages);

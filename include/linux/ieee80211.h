@@ -2249,26 +2249,6 @@ int ieee80211_get_vht_max_nss(struct ieee80211_vht_cap *cap,
 			      unsigned int max_vht_nss);
 
 /**
- * enum ieee80211_ap_reg_power - regulatory power for a Access Point
- *
- * @IEEE80211_REG_UNSET_AP: Access Point has no regulatory power mode
- * @IEEE80211_REG_LPI: Indoor Access Point
- * @IEEE80211_REG_SP: Standard power Access Point
- * @IEEE80211_REG_VLP: Very low power Access Point
- * @IEEE80211_REG_AP_POWER_AFTER_LAST: internal
- * @IEEE80211_REG_AP_POWER_MAX: maximum value
- */
-enum ieee80211_ap_reg_power {
-	IEEE80211_REG_UNSET_AP,
-	IEEE80211_REG_LPI_AP,
-	IEEE80211_REG_SP_AP,
-	IEEE80211_REG_VLP_AP,
-	IEEE80211_REG_AP_POWER_AFTER_LAST,
-	IEEE80211_REG_AP_POWER_MAX =
-		IEEE80211_REG_AP_POWER_AFTER_LAST - 1,
-};
-
-/**
  * enum ieee80211_client_reg_power - regulatory power for a client
  *
  * @IEEE80211_REG_UNSET_CLIENT: Client has no regulatory power mode
@@ -2667,22 +2647,6 @@ struct ieee80211_he_6ghz_oper {
 	u8 minrate;
 } __packed;
 
-/*
- * In "9.4.2.161 Transmit Power Envelope element" of "IEEE Std 802.11ax-2021",
- * it show four types in "Table 9-275a-Maximum Transmit Power Interpretation
- * subfield encoding", and two category for each type in "Table E-12-Regulatory
- * Info subfield encoding in the United States".
- * So it it totally max 8 Transmit Power Envelope element.
- */
-#define IEEE80211_TPE_MAX_IE_COUNT	8
-/*
- * In "Table 9-277—Meaning of Maximum Transmit Power Count subfield"
- * of "IEEE Std 802.11ax™‐2021", the max power level is 8.
- */
-#define IEEE80211_MAX_NUM_PWR_LEVEL	8
-
-#define IEEE80211_TPE_MAX_POWER_COUNT	8
-
 /* transmit power interpretation type of transmit power envelope element */
 enum ieee80211_tx_power_intrpt_type {
 	IEEE80211_TPE_LOCAL_EIRP,
@@ -2691,19 +2655,104 @@ enum ieee80211_tx_power_intrpt_type {
 	IEEE80211_TPE_REG_CLIENT_EIRP_PSD,
 };
 
+/* category type of transmit power envelope element */
+enum ieee80211_tx_power_category_6ghz {
+	IEEE80211_TPE_CAT_6GHZ_DEFAULT = 0,
+	IEEE80211_TPE_CAT_6GHZ_SUBORDINATE = 1,
+};
+
+/*
+ * For IEEE80211_TPE_LOCAL_EIRP / IEEE80211_TPE_REG_CLIENT_EIRP,
+ * setting to 63.5 dBm means no constraint.
+ */
+#define IEEE80211_TPE_MAX_TX_PWR_NO_CONSTRAINT	127
+
+/*
+ * For IEEE80211_TPE_LOCAL_EIRP_PSD / IEEE80211_TPE_REG_CLIENT_EIRP_PSD,
+ * setting to 127 indicates no PSD limit for the 20 MHz channel.
+ */
+#define IEEE80211_TPE_PSD_NO_LIMIT		127
+
 /**
- * struct ieee80211_tx_pwr_env
+ * struct ieee80211_tx_pwr_env - Transmit Power Envelope
+ * @info: Transmit Power Information field
+ * @variable: Maximum Transmit Power field
  *
  * This structure represents the "Transmit Power Envelope element"
  */
 struct ieee80211_tx_pwr_env {
-	u8 tx_power_info;
-	s8 tx_power[IEEE80211_TPE_MAX_POWER_COUNT];
+	u8 info;
+	u8 variable[];
 } __packed;
 
 #define IEEE80211_TX_PWR_ENV_INFO_COUNT 0x7
 #define IEEE80211_TX_PWR_ENV_INFO_INTERPRET 0x38
 #define IEEE80211_TX_PWR_ENV_INFO_CATEGORY 0xC0
+
+#define IEEE80211_TX_PWR_ENV_EXT_COUNT	0xF
+
+static inline bool ieee80211_valid_tpe_element(const u8 *data, u8 len)
+{
+	const struct ieee80211_tx_pwr_env *env = (const void *)data;
+	u8 count, interpret, category;
+	u8 needed = sizeof(*env);
+	u8 N; /* also called N in the spec */
+
+	if (len < needed)
+		return false;
+
+	count = u8_get_bits(env->info, IEEE80211_TX_PWR_ENV_INFO_COUNT);
+	interpret = u8_get_bits(env->info, IEEE80211_TX_PWR_ENV_INFO_INTERPRET);
+	category = u8_get_bits(env->info, IEEE80211_TX_PWR_ENV_INFO_CATEGORY);
+
+	switch (category) {
+	case IEEE80211_TPE_CAT_6GHZ_DEFAULT:
+	case IEEE80211_TPE_CAT_6GHZ_SUBORDINATE:
+		break;
+	default:
+		return false;
+	}
+
+	switch (interpret) {
+	case IEEE80211_TPE_LOCAL_EIRP:
+	case IEEE80211_TPE_REG_CLIENT_EIRP:
+		if (count > 3)
+			return false;
+
+		/* count == 0 encodes 1 value for 20 MHz, etc. */
+		needed += count + 1;
+
+		if (len < needed)
+			return false;
+
+		/* there can be extension fields not accounted for in 'count' */
+
+		return true;
+	case IEEE80211_TPE_LOCAL_EIRP_PSD:
+	case IEEE80211_TPE_REG_CLIENT_EIRP_PSD:
+		if (count > 4)
+			return false;
+
+		N = count ? 1 << (count - 1) : 1;
+		needed += N;
+
+		if (len < needed)
+			return false;
+
+		if (len > needed) {
+			u8 K = u8_get_bits(env->variable[N],
+					   IEEE80211_TX_PWR_ENV_EXT_COUNT);
+
+			needed += 1 + K;
+			if (len < needed)
+				return false;
+		}
+
+		return true;
+	}
+
+	return false;
+}
 
 /*
  * ieee80211_he_oper_size - calculate 802.11ax HE Operations IE size
@@ -4834,28 +4883,24 @@ static inline u8 ieee80211_mle_common_size(const u8 *data)
 {
 	const struct ieee80211_multi_link_elem *mle = (const void *)data;
 	u16 control = le16_to_cpu(mle->control);
-	u8 common = 0;
 
 	switch (u16_get_bits(control, IEEE80211_ML_CONTROL_TYPE)) {
 	case IEEE80211_ML_CONTROL_TYPE_BASIC:
 	case IEEE80211_ML_CONTROL_TYPE_PREQ:
 	case IEEE80211_ML_CONTROL_TYPE_TDLS:
 	case IEEE80211_ML_CONTROL_TYPE_RECONF:
+	case IEEE80211_ML_CONTROL_TYPE_PRIO_ACCESS:
 		/*
 		 * The length is the first octet pointed by mle->variable so no
 		 * need to add anything
 		 */
 		break;
-	case IEEE80211_ML_CONTROL_TYPE_PRIO_ACCESS:
-		if (control & IEEE80211_MLC_PRIO_ACCESS_PRES_AP_MLD_MAC_ADDR)
-			common += ETH_ALEN;
-		return common;
 	default:
 		WARN_ON(1);
 		return 0;
 	}
 
-	return sizeof(*mle) + common + mle->variable[0];
+	return sizeof(*mle) + mle->variable[0];
 }
 
 /**
@@ -5097,8 +5142,7 @@ static inline bool ieee80211_mle_size_ok(const u8 *data, size_t len)
 		check_common_len = true;
 		break;
 	case IEEE80211_ML_CONTROL_TYPE_PRIO_ACCESS:
-		if (control & IEEE80211_MLC_PRIO_ACCESS_PRES_AP_MLD_MAC_ADDR)
-			common += ETH_ALEN;
+		common = ETH_ALEN + 1;
 		break;
 	default:
 		/* we don't know this type */

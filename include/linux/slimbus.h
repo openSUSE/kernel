@@ -64,6 +64,7 @@ struct slim_device {
 	bool			is_laddr_valid;
 	struct list_head	stream_list;
 	spinlock_t stream_list_lock;
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 #define to_slim_device(d) container_of(d, struct slim_device, dev)

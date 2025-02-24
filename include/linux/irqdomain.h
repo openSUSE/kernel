@@ -170,6 +170,8 @@ struct irq_domain {
 	const struct msi_parent_ops	*msi_parent_ops;
 #endif
 
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
+
 	/* reverse map data. The linear map gets appended to the irq_domain */
 	irq_hw_number_t			hwirq_max;
 	unsigned int			revmap_size;

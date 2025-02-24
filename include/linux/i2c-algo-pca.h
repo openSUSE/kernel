@@ -78,6 +78,9 @@ struct i2c_algo_pca_data {
 	 * For PCA9665, use the frequency you want here. */
 	unsigned int			i2c_clock;
 	unsigned int			chip;
+
+	void *suse_kabi_padding;
+
 	struct pca_i2c_bus_settings		bus_settings;
 };
 

@@ -17,6 +17,7 @@ struct snd_soc_acpi_package_context {
 	struct acpi_buffer *format;
 	struct acpi_buffer *state;
 	bool data_valid;
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 /* codec name is used in DAIs is i2c-<HID>:00 with HID being 8 chars */
@@ -87,6 +88,7 @@ struct snd_soc_acpi_mach_params {
 	unsigned short subsystem_vendor;
 	unsigned short subsystem_device;
 	bool subsystem_id_set;
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 /**
@@ -205,6 +207,7 @@ struct snd_soc_acpi_mach {
 	struct snd_soc_acpi_mach_params mach_params;
 	const char *sof_tplg_filename;
 	const u32 tplg_quirk_mask;
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 #define SND_SOC_ACPI_MAX_CODECS 3
@@ -221,6 +224,7 @@ struct snd_soc_acpi_mach {
 struct snd_soc_acpi_codecs {
 	int num_codecs;
 	u8 codecs[SND_SOC_ACPI_MAX_CODECS][ACPI_ID_LEN];
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 static inline bool snd_soc_acpi_sof_parent(struct device *dev)

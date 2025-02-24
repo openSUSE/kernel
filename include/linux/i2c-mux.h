@@ -29,6 +29,9 @@ struct i2c_mux_core {
 
 	int num_adapters;
 	int max_adapters;
+
+	void *suse_kabi_padding;
+
 	struct i2c_adapter *adapter[];
 };
 

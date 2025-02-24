@@ -46,6 +46,7 @@ int pci_disable_pcie_error_reporting(struct pci_dev *dev);
 int pci_aer_clear_nonfatal_status(struct pci_dev *dev);
 void pci_save_aer_state(struct pci_dev *dev);
 void pci_restore_aer_state(struct pci_dev *dev);
+int pcie_aer_is_native(struct pci_dev *dev);
 #else
 static inline int pci_enable_pcie_error_reporting(struct pci_dev *dev)
 {
@@ -61,6 +62,7 @@ static inline int pci_aer_clear_nonfatal_status(struct pci_dev *dev)
 }
 static inline void pci_save_aer_state(struct pci_dev *dev) {}
 static inline void pci_restore_aer_state(struct pci_dev *dev) {}
+static inline int pcie_aer_is_native(struct pci_dev *dev) { return 0; }
 #endif
 
 void cper_print_aer(struct pci_dev *dev, int aer_severity,

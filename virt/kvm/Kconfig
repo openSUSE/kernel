@@ -73,6 +73,9 @@ config HAVE_KVM_INVALID_WAKEUPS
 config KVM_GENERIC_DIRTYLOG_READ_PROTECT
        bool
 
+config KVM_GENERIC_PRE_FAULT_MEMORY
+       bool
+
 config KVM_COMPAT
        def_bool y
        depends on KVM && COMPAT && !(S390 || ARM64 || RISCV)
@@ -115,10 +118,10 @@ config KVM_GENERIC_PRIVATE_MEM
        select KVM_PRIVATE_MEM
        bool
 
-config HAVE_KVM_GMEM_PREPARE
+config HAVE_KVM_ARCH_GMEM_PREPARE
        bool
        depends on KVM_PRIVATE_MEM
 
-config HAVE_KVM_GMEM_INVALIDATE
+config HAVE_KVM_ARCH_GMEM_INVALIDATE
        bool
        depends on KVM_PRIVATE_MEM

@@ -82,7 +82,7 @@ static atomic_t notify_genl_seq = ATOMIC_INIT(2); /* two. */
 
 DEFINE_MUTEX(notification_mutex);
 
-/* used bdev_open_by_path, to claim our meta data device(s) */
+/* used blkdev_get_by_path, to claim our meta data device(s) */
 static char *drbd_m_holder = "Hands off! this is DRBD's meta data device.";
 
 static void drbd_adm_send_reply(struct sk_buff *skb, struct genl_info *info)
@@ -1635,31 +1635,31 @@ success:
 	return 0;
 }
 
-static struct bdev_handle *open_backing_dev(struct drbd_device *device,
+static struct block_device *open_backing_dev(struct drbd_device *device,
 		const char *bdev_path, void *claim_ptr, bool do_bd_link)
 {
-	struct bdev_handle *handle;
+	struct block_device *bdev;
 	int err = 0;
 
-	handle = bdev_open_by_path(bdev_path, BLK_OPEN_READ | BLK_OPEN_WRITE,
-				   claim_ptr, NULL);
-	if (IS_ERR(handle)) {
+	bdev = blkdev_get_by_path(bdev_path, BLK_OPEN_READ | BLK_OPEN_WRITE,
+				  claim_ptr, NULL);
+	if (IS_ERR(bdev)) {
 		drbd_err(device, "open(\"%s\") failed with %ld\n",
-				bdev_path, PTR_ERR(handle));
-		return handle;
+				bdev_path, PTR_ERR(bdev));
+		return bdev;
 	}
 
 	if (!do_bd_link)
-		return handle;
+		return bdev;
 
-	err = bd_link_disk_holder(handle->bdev, device->vdisk);
+	err = bd_link_disk_holder(bdev, device->vdisk);
 	if (err) {
-		bdev_release(handle);
+		blkdev_put(bdev, claim_ptr);
 		drbd_err(device, "bd_link_disk_holder(\"%s\", ...) failed with %d\n",
 				bdev_path, err);
-		handle = ERR_PTR(err);
+		bdev = ERR_PTR(err);
 	}
-	return handle;
+	return bdev;
 }
 
 static int open_backing_devices(struct drbd_device *device,
@@ -1681,7 +1681,7 @@ static int open_backing_devices(struct drbd_device *device,
 	 * should check it for you already; but if you don't, or
 	 * someone fooled it, we need to double check here)
 	 */
-	handle = open_backing_dev(device, new_disk_conf->meta_dev,
+	bdev = open_backing_dev(device, new_disk_conf->meta_dev,
 		/* claim ptr: device, if claimed exclusively; shared drbd_m_holder,
 		 * if potentially shared with other drbd minors */
 			(new_disk_conf->meta_dev_idx < 0) ? (void*)device : (void*)drbd_m_holder,
@@ -1689,21 +1689,20 @@ static int open_backing_devices(struct drbd_device *device,
 		 * as would happen with internal metadata. */
 			(new_disk_conf->meta_dev_idx != DRBD_MD_INDEX_FLEX_INT &&
 			 new_disk_conf->meta_dev_idx != DRBD_MD_INDEX_INTERNAL));
-	if (IS_ERR(handle))
+	if (IS_ERR(bdev))
 		return ERR_OPEN_MD_DISK;
-	nbc->md_bdev = handle->bdev;
-	nbc->md_bdev_handle = handle;
+	nbc->md_bdev = bdev;
 	return NO_ERROR;
 }
 
-static void close_backing_dev(struct drbd_device *device,
-		struct bdev_handle *handle, bool do_bd_unlink)
+static void close_backing_dev(struct drbd_device *device, struct block_device *bdev,
+		void *claim_ptr, bool do_bd_unlink)
 {
-	if (!handle)
+	if (!bdev)
 		return;
 	if (do_bd_unlink)
-		bd_unlink_disk_holder(handle->bdev, device->vdisk);
-	bdev_release(handle);
+		bd_unlink_disk_holder(bdev, device->vdisk);
+	blkdev_put(bdev, claim_ptr);
 }
 
 void drbd_backing_dev_free(struct drbd_device *device, struct drbd_backing_dev *ldev)
@@ -1711,9 +1710,11 @@ void drbd_backing_dev_free(struct drbd_device *device, struct drbd_backing_dev *
 	if (ldev == NULL)
 		return;
 
-	close_backing_dev(device, ldev->md_bdev_handle,
+	close_backing_dev(device, ldev->md_bdev,
+			  ldev->md.meta_dev_idx < 0 ?
+				(void *)device : (void *)drbd_m_holder,
 			  ldev->md_bdev != ldev->backing_bdev);
-	close_backing_dev(device, ldev->backing_bdev_handle, true);
+	close_backing_dev(device, ldev->backing_bdev, device, true);
 
 	kfree(ldev->disk_conf);
 	kfree(ldev);
@@ -2129,9 +2130,11 @@ int drbd_adm_attach(struct sk_buff *skb, struct genl_info *info)
  fail:
 	conn_reconfig_done(connection);
 	if (nbc) {
-		close_backing_dev(device, nbc->md_bdev_handle,
+		close_backing_dev(device, nbc->md_bdev,
+			  nbc->disk_conf->meta_dev_idx < 0 ?
+				(void *)device : (void *)drbd_m_holder,
 			  nbc->md_bdev != nbc->backing_bdev);
-		close_backing_dev(device, nbc->backing_bdev_handle, true);
+		close_backing_dev(device, nbc->backing_bdev, device, true);
 		kfree(nbc);
 	}
 	kfree(new_disk_conf);

@@ -219,17 +219,6 @@ static struct event_constraint intel_grt_event_constraints[] __read_mostly = {
 	EVENT_CONSTRAINT_END
 };
 
-static struct event_constraint intel_skt_event_constraints[] __read_mostly = {
-	FIXED_EVENT_CONSTRAINT(0x00c0, 0), /* INST_RETIRED.ANY */
-	FIXED_EVENT_CONSTRAINT(0x003c, 1), /* CPU_CLK_UNHALTED.CORE */
-	FIXED_EVENT_CONSTRAINT(0x0300, 2), /* pseudo CPU_CLK_UNHALTED.REF */
-	FIXED_EVENT_CONSTRAINT(0x013c, 2), /* CPU_CLK_UNHALTED.REF_TSC_P */
-	FIXED_EVENT_CONSTRAINT(0x0073, 4), /* TOPDOWN_BAD_SPECULATION.ALL */
-	FIXED_EVENT_CONSTRAINT(0x019c, 5), /* TOPDOWN_FE_BOUND.ALL */
-	FIXED_EVENT_CONSTRAINT(0x02c2, 6), /* TOPDOWN_RETIRING.ALL */
-	EVENT_CONSTRAINT_END
-};
-
 static struct event_constraint intel_skl_event_constraints[] = {
 	FIXED_EVENT_CONSTRAINT(0x00c0, 0),	/* INST_RETIRED.ANY */
 	FIXED_EVENT_CONSTRAINT(0x003c, 1),	/* CPU_CLK_UNHALTED.CORE */
@@ -379,55 +368,6 @@ static struct extra_reg intel_rwc_extra_regs[] __read_mostly = {
 	INTEL_UEVENT_EXTRA_REG(0x04c2, MSR_PEBS_FRONTEND, 0x8, FE),
 	EVENT_EXTRA_END
 };
-
-static struct event_constraint intel_lnc_event_constraints[] = {
-	FIXED_EVENT_CONSTRAINT(0x00c0, 0),	/* INST_RETIRED.ANY */
-	FIXED_EVENT_CONSTRAINT(0x0100, 0),	/* INST_RETIRED.PREC_DIST */
-	FIXED_EVENT_CONSTRAINT(0x003c, 1),	/* CPU_CLK_UNHALTED.CORE */
-	FIXED_EVENT_CONSTRAINT(0x0300, 2),	/* CPU_CLK_UNHALTED.REF */
-	FIXED_EVENT_CONSTRAINT(0x013c, 2),	/* CPU_CLK_UNHALTED.REF_TSC_P */
-	FIXED_EVENT_CONSTRAINT(0x0400, 3),	/* SLOTS */
-	METRIC_EVENT_CONSTRAINT(INTEL_TD_METRIC_RETIRING, 0),
-	METRIC_EVENT_CONSTRAINT(INTEL_TD_METRIC_BAD_SPEC, 1),
-	METRIC_EVENT_CONSTRAINT(INTEL_TD_METRIC_FE_BOUND, 2),
-	METRIC_EVENT_CONSTRAINT(INTEL_TD_METRIC_BE_BOUND, 3),
-	METRIC_EVENT_CONSTRAINT(INTEL_TD_METRIC_HEAVY_OPS, 4),
-	METRIC_EVENT_CONSTRAINT(INTEL_TD_METRIC_BR_MISPREDICT, 5),
-	METRIC_EVENT_CONSTRAINT(INTEL_TD_METRIC_FETCH_LAT, 6),
-	METRIC_EVENT_CONSTRAINT(INTEL_TD_METRIC_MEM_BOUND, 7),
-
-	INTEL_UEVENT_CONSTRAINT(0x0148, 0x4),
-	INTEL_UEVENT_CONSTRAINT(0x0175, 0x4),
-
-	INTEL_EVENT_CONSTRAINT(0x2e, 0x3ff),
-	INTEL_EVENT_CONSTRAINT(0x3c, 0x3ff),
-	/*
-	 * Generally event codes < 0x90 are restricted to counters 0-3.
-	 * The 0x2E and 0x3C are exception, which has no restriction.
-	 */
-	INTEL_EVENT_CONSTRAINT_RANGE(0x01, 0x8f, 0xf),
-
-	INTEL_UEVENT_CONSTRAINT(0x01a3, 0xf),
-	INTEL_UEVENT_CONSTRAINT(0x02a3, 0xf),
-	INTEL_UEVENT_CONSTRAINT(0x08a3, 0x4),
-	INTEL_UEVENT_CONSTRAINT(0x0ca3, 0x4),
-	INTEL_UEVENT_CONSTRAINT(0x04a4, 0x1),
-	INTEL_UEVENT_CONSTRAINT(0x08a4, 0x1),
-	INTEL_UEVENT_CONSTRAINT(0x10a4, 0x1),
-	INTEL_UEVENT_CONSTRAINT(0x01b1, 0x8),
-	INTEL_UEVENT_CONSTRAINT(0x02cd, 0x3),
-	INTEL_EVENT_CONSTRAINT(0xce, 0x1),
-
-	INTEL_EVENT_CONSTRAINT_RANGE(0xd0, 0xdf, 0xf),
-	/*
-	 * Generally event codes >= 0x90 are likely to have no restrictions.
-	 * The exception are defined as above.
-	 */
-	INTEL_EVENT_CONSTRAINT_RANGE(0x90, 0xfe, 0x3ff),
-
-	EVENT_CONSTRAINT_END
-};
-
 
 EVENT_ATTR_STR(mem-loads,	mem_ld_nhm,	"event=0x0b,umask=0x10,ldlat=3");
 EVENT_ATTR_STR(mem-loads,	mem_ld_snb,	"event=0xcd,umask=0x1,ldlat=3");
@@ -4594,28 +4534,6 @@ static inline bool erratum_hsw11(struct perf_event *event)
 		X86_CONFIG(.event=0xc0, .umask=0x01);
 }
 
-static struct event_constraint *
-arl_h_get_event_constraints(struct cpu_hw_events *cpuc, int idx,
-			  struct perf_event *event)
-{
-	struct x86_hybrid_pmu *pmu = hybrid_pmu(event->pmu);
-
-	if (pmu->pmu_type == hybrid_tiny)
-		return cmt_get_event_constraints(cpuc, idx, event);
-
-	return mtl_get_event_constraints(cpuc, idx, event);
-}
-
-static int arl_h_hw_config(struct perf_event *event)
-{
-	struct x86_hybrid_pmu *pmu = hybrid_pmu(event->pmu);
-
-	if (pmu->pmu_type == hybrid_tiny)
-		return intel_pmu_hw_config(event);
-
-	return adl_hw_config(event);
-}
-
 /*
  * The HSW11 requires a period larger than 100 which is the same as the BDM11.
  * A minimum period of 128 is enforced as well for the INST_RETIRED.ALL.
@@ -4941,26 +4859,17 @@ static struct x86_hybrid_pmu *find_hybrid_pmu_for_cpu(void)
 
 	/*
 	 * This essentially just maps between the 'hybrid_cpu_type'
-	 * and 'hybrid_pmu_type' enums except for ARL-H processor
-	 * which needs to compare atom uarch native id since ARL-H
-	 * contains two different atom uarchs.
+	 * and 'hybrid_pmu_type' enums:
 	 */
 	for (i = 0; i < x86_pmu.num_hybrid_pmus; i++) {
 		enum hybrid_pmu_type pmu_type = x86_pmu.hybrid_pmu[i].pmu_type;
-		u32 native_id;
 
-		if (cpu_type == HYBRID_INTEL_CORE && pmu_type == hybrid_big)
+		if (cpu_type == HYBRID_INTEL_CORE &&
+		    pmu_type == hybrid_big)
 			return &x86_pmu.hybrid_pmu[i];
-		if (cpu_type == HYBRID_INTEL_ATOM) {
-			if (x86_pmu.num_hybrid_pmus == 2 && pmu_type == hybrid_small)
-				return &x86_pmu.hybrid_pmu[i];
-
-			native_id = get_this_hybrid_cpu_native_id();
-			if (native_id == skt_native_id && pmu_type == hybrid_small)
-				return &x86_pmu.hybrid_pmu[i];
-			if (native_id == cmt_native_id && pmu_type == hybrid_tiny)
-				return &x86_pmu.hybrid_pmu[i];
-		}
+		if (cpu_type == HYBRID_INTEL_ATOM &&
+		    pmu_type == hybrid_small)
+			return &x86_pmu.hybrid_pmu[i];
 	}
 
 	return NULL;
@@ -5967,54 +5876,6 @@ static struct attribute *adl_hybrid_events_attrs[] = {
 	NULL,
 };
 
-EVENT_ATTR_STR_HYBRID(topdown-retiring,      td_retiring_lnl,  "event=0xc2,umask=0x02;event=0x00,umask=0x80", hybrid_big_small);
-EVENT_ATTR_STR_HYBRID(topdown-fe-bound,      td_fe_bound_lnl,  "event=0x9c,umask=0x01;event=0x00,umask=0x82", hybrid_big_small);
-EVENT_ATTR_STR_HYBRID(topdown-be-bound,      td_be_bound_lnl,  "event=0xa4,umask=0x02;event=0x00,umask=0x83", hybrid_big_small);
-
-static struct attribute *lnl_hybrid_events_attrs[] = {
-	EVENT_PTR(slots_adl),
-	EVENT_PTR(td_retiring_lnl),
-	EVENT_PTR(td_bad_spec_adl),
-	EVENT_PTR(td_fe_bound_lnl),
-	EVENT_PTR(td_be_bound_lnl),
-	EVENT_PTR(td_heavy_ops_adl),
-	EVENT_PTR(td_br_mis_adl),
-	EVENT_PTR(td_fetch_lat_adl),
-	EVENT_PTR(td_mem_bound_adl),
-	NULL
-};
-
-/* The event string must be in PMU IDX order. */
-EVENT_ATTR_STR_HYBRID(topdown-retiring,
-		      td_retiring_arl_h,
-		      "event=0xc2,umask=0x02;event=0x00,umask=0x80;event=0xc2,umask=0x0",
-		      hybrid_big_small_tiny);
-EVENT_ATTR_STR_HYBRID(topdown-bad-spec,
-		      td_bad_spec_arl_h,
-		      "event=0x73,umask=0x0;event=0x00,umask=0x81;event=0x73,umask=0x0",
-		      hybrid_big_small_tiny);
-EVENT_ATTR_STR_HYBRID(topdown-fe-bound,
-		      td_fe_bound_arl_h,
-		      "event=0x9c,umask=0x01;event=0x00,umask=0x82;event=0x71,umask=0x0",
-		      hybrid_big_small_tiny);
-EVENT_ATTR_STR_HYBRID(topdown-be-bound,
-		      td_be_bound_arl_h,
-		      "event=0xa4,umask=0x02;event=0x00,umask=0x83;event=0x74,umask=0x0",
-		      hybrid_big_small_tiny);
-
-static struct attribute *arl_h_hybrid_events_attrs[] = {
-	EVENT_PTR(slots_adl),
-	EVENT_PTR(td_retiring_arl_h),
-	EVENT_PTR(td_bad_spec_arl_h),
-	EVENT_PTR(td_fe_bound_arl_h),
-	EVENT_PTR(td_be_bound_arl_h),
-	EVENT_PTR(td_heavy_ops_adl),
-	EVENT_PTR(td_br_mis_adl),
-	EVENT_PTR(td_fetch_lat_adl),
-	EVENT_PTR(td_mem_bound_adl),
-	NULL,
-};
-
 /* Must be in IDX order */
 EVENT_ATTR_STR_HYBRID(mem-loads,     mem_ld_adl,     "event=0xd0,umask=0x5,ldlat=3;event=0xcd,umask=0x1,ldlat=3", hybrid_big_small);
 EVENT_ATTR_STR_HYBRID(mem-stores,    mem_st_adl,     "event=0xd0,umask=0x6;event=0xcd,umask=0x2",                 hybrid_big_small);
@@ -6031,21 +5892,6 @@ static struct attribute *mtl_hybrid_mem_attrs[] = {
 	EVENT_PTR(mem_ld_adl),
 	EVENT_PTR(mem_st_adl),
 	NULL
-};
-
-EVENT_ATTR_STR_HYBRID(mem-loads,
-		      mem_ld_arl_h,
-		      "event=0xd0,umask=0x5,ldlat=3;event=0xcd,umask=0x1,ldlat=3;event=0xd0,umask=0x5,ldlat=3",
-		      hybrid_big_small_tiny);
-EVENT_ATTR_STR_HYBRID(mem-stores,
-		      mem_st_arl_h,
-		      "event=0xd0,umask=0x6;event=0xcd,umask=0x2;event=0xd0,umask=0x6",
-		      hybrid_big_small_tiny);
-
-static struct attribute *arl_h_hybrid_mem_attrs[] = {
-	EVENT_PTR(mem_ld_arl_h),
-	EVENT_PTR(mem_st_arl_h),
-	NULL,
 };
 
 EVENT_ATTR_STR_HYBRID(tx-start,          tx_start_adl,          "event=0xc9,umask=0x1",          hybrid_big);
@@ -6071,8 +5917,8 @@ static struct attribute *adl_hybrid_tsx_attrs[] = {
 
 FORMAT_ATTR_HYBRID(in_tx,       hybrid_big);
 FORMAT_ATTR_HYBRID(in_tx_cp,    hybrid_big);
-FORMAT_ATTR_HYBRID(offcore_rsp, hybrid_big_small_tiny);
-FORMAT_ATTR_HYBRID(ldlat,       hybrid_big_small_tiny);
+FORMAT_ATTR_HYBRID(offcore_rsp, hybrid_big_small);
+FORMAT_ATTR_HYBRID(ldlat,       hybrid_big_small);
 FORMAT_ATTR_HYBRID(frontend,    hybrid_big);
 
 #define ADL_HYBRID_RTM_FORMAT_ATTR	\
@@ -6095,7 +5941,7 @@ static struct attribute *adl_hybrid_extra_attr[] = {
 	NULL
 };
 
-FORMAT_ATTR_HYBRID(snoop_rsp,	hybrid_small_tiny);
+FORMAT_ATTR_HYBRID(snoop_rsp,	hybrid_small);
 
 static struct attribute *mtl_hybrid_extra_attr_rtm[] = {
 	ADL_HYBRID_RTM_FORMAT_ATTR,
@@ -6285,9 +6131,8 @@ static inline int intel_pmu_v6_addr_offset(int index, bool eventsel)
 }
 
 static const struct { enum hybrid_pmu_type id; char *name; } intel_hybrid_pmu_type_map[] __initconst = {
-	{ hybrid_small,	"cpu_atom" },
-	{ hybrid_big,	"cpu_core" },
-	{ hybrid_tiny,	"cpu_lowpower" },
+	{ hybrid_small, "cpu_atom" },
+	{ hybrid_big, "cpu_core" },
 };
 
 static __always_inline int intel_pmu_init_hybrid(enum hybrid_pmu_type pmus)
@@ -6320,7 +6165,7 @@ static __always_inline int intel_pmu_init_hybrid(enum hybrid_pmu_type pmus)
 							0, x86_pmu_num_counters(&pmu->pmu), 0, 0);
 
 		pmu->intel_cap.capabilities = x86_pmu.intel_cap.capabilities;
-		if (pmu->pmu_type & hybrid_small_tiny) {
+		if (pmu->pmu_type & hybrid_small) {
 			pmu->intel_cap.perf_metrics = 0;
 			pmu->intel_cap.pebs_output_pt_available = 1;
 			pmu->mid_ack = true;
@@ -6385,21 +6230,6 @@ static __always_inline void intel_pmu_init_grt(struct pmu *pmu)
 	hybrid(pmu, extra_regs) = intel_grt_extra_regs;
 
 	intel_pmu_ref_cycles_ext();
-}
-
-static __always_inline void intel_pmu_init_lnc(struct pmu *pmu)
-{
-	intel_pmu_init_glc(pmu);
-	hybrid(pmu, event_constraints) = intel_lnc_event_constraints;
-	hybrid(pmu, pebs_constraints) = intel_lnc_pebs_event_constraints;
-	hybrid(pmu, extra_regs) = intel_rwc_extra_regs;
-}
-
-static __always_inline void intel_pmu_init_skt(struct pmu *pmu)
-{
-	intel_pmu_init_grt(pmu);
-	hybrid(pmu, event_constraints) = intel_skt_event_constraints;
-	hybrid(pmu, extra_regs) = intel_cmt_extra_regs;
 }
 
 __init int intel_pmu_init(void)
@@ -7105,6 +6935,7 @@ __init int intel_pmu_init(void)
 
 	case INTEL_METEORLAKE:
 	case INTEL_METEORLAKE_L:
+	case INTEL_ARROWLAKE_U:
 		intel_pmu_init_hybrid(hybrid_big_small);
 
 		x86_pmu.pebs_latency_data = cmt_latency_data;
@@ -7130,64 +6961,6 @@ __init int intel_pmu_init(void)
 		intel_pmu_pebs_data_source_mtl();
 		pr_cont("Meteorlake Hybrid events, ");
 		name = "meteorlake_hybrid";
-		break;
-
-	case INTEL_LUNARLAKE_M:
-	case INTEL_ARROWLAKE:
-		intel_pmu_init_hybrid(hybrid_big_small);
-
-		x86_pmu.pebs_latency_data = lnl_latency_data;
-		x86_pmu.get_event_constraints = mtl_get_event_constraints;
-		x86_pmu.hw_config = adl_hw_config;
-
-		td_attr = lnl_hybrid_events_attrs;
-		mem_attr = mtl_hybrid_mem_attrs;
-		tsx_attr = adl_hybrid_tsx_attrs;
-		extra_attr = boot_cpu_has(X86_FEATURE_RTM) ?
-			mtl_hybrid_extra_attr_rtm : mtl_hybrid_extra_attr;
-
-		/* Initialize big core specific PerfMon capabilities.*/
-		pmu = &x86_pmu.hybrid_pmu[X86_HYBRID_PMU_CORE_IDX];
-		intel_pmu_init_lnc(&pmu->pmu);
-
-		/* Initialize Atom core specific PerfMon capabilities.*/
-		pmu = &x86_pmu.hybrid_pmu[X86_HYBRID_PMU_ATOM_IDX];
-		intel_pmu_init_skt(&pmu->pmu);
-
-		intel_pmu_pebs_data_source_lnl();
-		pr_cont("Lunarlake Hybrid events, ");
-		name = "lunarlake_hybrid";
-		break;
-
-	case INTEL_ARROWLAKE_H:
-		intel_pmu_init_hybrid(hybrid_big_small_tiny);
-
-		x86_pmu.pebs_latency_data = arl_h_latency_data;
-		x86_pmu.get_event_constraints = arl_h_get_event_constraints;
-		x86_pmu.hw_config = arl_h_hw_config;
-
-		td_attr = arl_h_hybrid_events_attrs;
-		mem_attr = arl_h_hybrid_mem_attrs;
-		tsx_attr = adl_hybrid_tsx_attrs;
-		extra_attr = boot_cpu_has(X86_FEATURE_RTM) ?
-			mtl_hybrid_extra_attr_rtm : mtl_hybrid_extra_attr;
-
-		/* Initialize big core specific PerfMon capabilities. */
-		pmu = &x86_pmu.hybrid_pmu[X86_HYBRID_PMU_CORE_IDX];
-		intel_pmu_init_lnc(&pmu->pmu);
-
-		/* Initialize Atom core specific PerfMon capabilities. */
-		pmu = &x86_pmu.hybrid_pmu[X86_HYBRID_PMU_ATOM_IDX];
-		intel_pmu_init_skt(&pmu->pmu);
-
-		/* Initialize Lower Power Atom specific PerfMon capabilities. */
-		pmu = &x86_pmu.hybrid_pmu[X86_HYBRID_PMU_TINY_IDX];
-		intel_pmu_init_grt(&pmu->pmu);
-		pmu->extra_regs = intel_cmt_extra_regs;
-
-		intel_pmu_pebs_data_source_arl_h();
-		pr_cont("ArrowLake-H Hybrid events, ");
-		name = "arrowlake_h_hybrid";
 		break;
 
 	default:
