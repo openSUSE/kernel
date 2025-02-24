@@ -1160,6 +1160,11 @@ static int io_clone_buffers(struct io_ring_ctx *ctx, struct io_ring_ctx *src_ctx
 	mutex_unlock(&ctx->uring_lock);
 
 	mutex_lock(&src_ctx->uring_lock);
+
+	ret = -EINVAL;
+	if (ctx->user != src_ctx->user || ctx->mm_account != src_ctx->mm_account)
+		goto out_unlock;
+
 	ret = -ENXIO;
 	nbufs = src_ctx->nr_user_bufs;
 	if (!nbufs)

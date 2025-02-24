@@ -364,14 +364,11 @@ static irqreturn_t regmap_irq_thread(int irq, void *d)
 		memset32(data->status_buf, GENMASK(31, 0), chip->num_regs);
 	} else if (chip->num_main_regs) {
 		unsigned int max_main_bits;
-		unsigned long size;
-
-		size = chip->num_regs * sizeof(unsigned int);
 
 		max_main_bits = (chip->num_main_status_bits) ?
 				 chip->num_main_status_bits : chip->num_regs;
 		/* Clear the status buf as we don't read all status regs */
-		memset(data->status_buf, 0, size);
+		memset32(data->status_buf, 0, chip->num_regs);
 
 		/* We could support bulk read for main status registers
 		 * but I don't expect to see devices with really many main
@@ -909,6 +906,7 @@ err_alloc:
 	kfree(d->wake_buf);
 	kfree(d->mask_buf_def);
 	kfree(d->mask_buf);
+	kfree(d->main_status_buf);
 	kfree(d->status_buf);
 	kfree(d->status_reg_buf);
 	if (d->config_buf) {
@@ -984,6 +982,7 @@ void regmap_del_irq_chip(int irq, struct regmap_irq_chip_data *d)
 	kfree(d->wake_buf);
 	kfree(d->mask_buf_def);
 	kfree(d->mask_buf);
+	kfree(d->main_status_buf);
 	kfree(d->status_reg_buf);
 	kfree(d->status_buf);
 	if (d->config_buf) {
