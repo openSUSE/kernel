@@ -2421,6 +2421,11 @@ static long btrfs_free_cached_objects(struct super_block *sb, struct shrink_cont
 	return btrfs_free_extent_maps(fs_info, nr_to_scan);
 }
 
+static dev_t btrfs_get_inode_dev(const struct inode *inode)
+{
+	return BTRFS_I(inode)->root->anon_dev;
+}
+
 static const struct super_operations btrfs_super_ops = {
 	.drop_inode	= btrfs_drop_inode,
 	.evict_inode	= btrfs_evict_inode,
@@ -2436,6 +2441,7 @@ static const struct super_operations btrfs_super_ops = {
 	.unfreeze_fs	= btrfs_unfreeze,
 	.nr_cached_objects = btrfs_nr_cached_objects,
 	.free_cached_objects = btrfs_free_cached_objects,
+	.get_inode_dev	= btrfs_get_inode_dev,
 };
 
 static const struct file_operations btrfs_ctl_fops = {

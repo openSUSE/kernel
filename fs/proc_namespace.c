@@ -137,11 +137,12 @@ static int show_mountinfo(struct seq_file *m, struct vfsmount *mnt)
 	struct proc_mounts *p = m->private;
 	struct mount *r = real_mount(mnt);
 	struct super_block *sb = mnt->mnt_sb;
+	dev_t dev = inode_get_dev(d_inode(mnt->mnt_root));
 	struct path mnt_path = { .dentry = mnt->mnt_root, .mnt = mnt };
 	int err;
 
 	seq_printf(m, "%i %i %u:%u ", r->mnt_id, r->mnt_parent->mnt_id,
-		   MAJOR(sb->s_dev), MINOR(sb->s_dev));
+		   MAJOR(dev), MINOR(dev));
 	err = show_path(m, mnt->mnt_root);
 	if (err)
 		goto out;

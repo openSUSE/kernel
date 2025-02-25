@@ -48,7 +48,7 @@ TRACE_EVENT(locks_get_lock_context,
 	),
 
 	TP_fast_assign(
-		__entry->s_dev = inode->i_sb->s_dev;
+		__entry->s_dev = inode_get_dev(inode);
 		__entry->i_ino = inode->i_ino;
 		__entry->type = type;
 		__entry->ctx = ctx;
@@ -80,7 +80,7 @@ DECLARE_EVENT_CLASS(filelock_lock,
 
 	TP_fast_assign(
 		__entry->fl = fl ? fl : NULL;
-		__entry->s_dev = inode->i_sb->s_dev;
+		__entry->s_dev = inode_get_dev(inode);
 		__entry->i_ino = inode->i_ino;
 		__entry->blocker = fl ? fl->c.flc_blocker : NULL;
 		__entry->owner = fl ? fl->c.flc_owner : NULL;
@@ -135,7 +135,7 @@ DECLARE_EVENT_CLASS(filelock_lease,
 
 	TP_fast_assign(
 		__entry->fl = fl ? fl : NULL;
-		__entry->s_dev = inode->i_sb->s_dev;
+		__entry->s_dev = inode_get_dev(inode);
 		__entry->i_ino = inode->i_ino;
 		__entry->blocker = fl ? fl->c.flc_blocker : NULL;
 		__entry->owner = fl ? fl->c.flc_owner : NULL;
@@ -185,7 +185,7 @@ TRACE_EVENT(generic_add_lease,
 	),
 
 	TP_fast_assign(
-		__entry->s_dev = inode->i_sb->s_dev;
+		__entry->s_dev = inode_get_dev(inode);
 		__entry->i_ino = inode->i_ino;
 		__entry->wcount = atomic_read(&inode->i_writecount);
 		__entry->rcount = atomic_read(&inode->i_readcount);
