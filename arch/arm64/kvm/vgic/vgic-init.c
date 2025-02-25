@@ -482,22 +482,31 @@ int kvm_vgic_map_resources(struct kvm *kvm)
 	if (ret)
 		goto out;
 
-	dist->ready = true;
 	dist_base = dist->vgic_dist_base;
 	mutex_unlock(&kvm->arch.config_lock);
 
 	ret = vgic_register_dist_iodev(kvm, dist_base, type);
-	if (ret)
+	if (ret) {
 		kvm_err("Unable to register VGIC dist MMIO regions\n");
+		goto out_slots;
+	}
 
+	/*
+	 * kvm_io_bus_register_dev() guarantees all readers see the new MMIO
+	 * registration before returning through synchronize_srcu(), which also
+	 * implies a full memory barrier. As such, marking the distributor as
+	 * 'ready' here is guaranteed to be ordered after all vCPUs having seen
+	 * a completely configured distributor.
+	 */
+	dist->ready = true;
 	goto out_slots;
 out:
 	mutex_unlock(&kvm->arch.config_lock);
 out_slots:
-	mutex_unlock(&kvm->slots_lock);
-
 	if (ret)
-		kvm_vgic_destroy(kvm);
+		kvm_vm_dead(kvm);
+
+	mutex_unlock(&kvm->slots_lock);
 
 	return ret;
 }
