@@ -1393,11 +1393,12 @@ struct usb4_port_margining_params {
 	u32 voltage_time_offset;
 	bool optional_voltage_offset_range;
 	bool right_high;
+	bool upper_eye;
 	bool time;
 };
 
 int usb4_port_margining_caps(struct tb_port *port, enum usb4_sb_target target,
-			     u8 index, u32 *caps);
+			     u8 index, u32 *caps, size_t ncaps);
 int usb4_port_hw_margin(struct tb_port *port, enum usb4_sb_target target,
 			u8 index, const struct usb4_port_margining_params *params,
 			u32 *results);
