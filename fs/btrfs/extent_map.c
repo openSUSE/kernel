@@ -216,7 +216,8 @@ static int mergable_maps(struct extent_map *prev, struct extent_map *next)
 	       prev->block_start != EXTENT_MAP_DELALLOC);
 
 	if (extent_map_end(prev) == next->start &&
-	    prev->flags == next->flags &&
+	    (prev->flags & ~(1U << EXTENT_FLAG_MERGED)) ==
+	    (next->flags & ~(1U << EXTENT_FLAG_MERGED)) &&
 	    ((next->block_start == EXTENT_MAP_HOLE &&
 	      prev->block_start == EXTENT_MAP_HOLE) ||
 	     (next->block_start == EXTENT_MAP_INLINE &&
