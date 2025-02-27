@@ -56,7 +56,9 @@ struct netdev_name_node {
 	struct list_head list;
 	struct net_device *dev;
 	const char *name;
+#ifndef __GENKSYMS__
 	struct rcu_head rcu;
+#endif
 };
 
 int netdev_get_name(struct net *net, char *name, int ifindex);
