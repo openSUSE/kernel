@@ -1018,7 +1018,9 @@ struct netdev_name_node {
 	struct list_head list;
 	struct net_device *dev;
 	const char *name;
+#ifndef __GENKSYMS__
 	struct rcu_head rcu;
+#endif
 };
 
 #define netdev_for_each_altname(dev, namenode)				\
