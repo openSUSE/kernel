@@ -1018,6 +1018,7 @@ struct netdev_name_node {
 	struct list_head list;
 	struct net_device *dev;
 	const char *name;
+	struct rcu_head rcu;
 };
 
 #define netdev_for_each_altname(dev, namenode)				\
