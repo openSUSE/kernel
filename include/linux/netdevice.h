@@ -1020,6 +1020,9 @@ struct netdev_name_node {
 	const char *name;
 };
 
+#define netdev_for_each_altname(dev, namenode)				\
+	list_for_each_entry((namenode), &(dev)->name_node->list, list)
+
 int netdev_name_node_alt_create(struct net_device *dev, const char *name);
 int netdev_name_node_alt_destroy(struct net_device *dev, const char *name);
 
