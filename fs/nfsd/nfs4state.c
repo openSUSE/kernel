@@ -2778,10 +2778,11 @@ static void nfs4_show_fname(struct seq_file *s, struct nfsd_file *f)
 static void nfs4_show_superblock(struct seq_file *s, struct nfsd_file *f)
 {
 	struct inode *inode = file_inode(f->nf_file);
+	dev_t dev = inode_get_dev(inode);
 
 	seq_printf(s, "superblock: \"%02x:%02x:%ld\"",
-					MAJOR(inode->i_sb->s_dev),
-					 MINOR(inode->i_sb->s_dev),
+					MAJOR(dev),
+					 MINOR(dev),
 					 inode->i_ino);
 }
 

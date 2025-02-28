@@ -2246,6 +2246,7 @@ struct super_operations {
 	long (*free_cached_objects)(struct super_block *,
 				    struct shrink_control *);
 	void (*shutdown)(struct super_block *sb);
+	dev_t (*get_inode_dev)(const struct inode *);
 };
 
 /*
@@ -3727,5 +3728,13 @@ static inline bool vfs_empty_path(int dfd, const char __user *path)
 }
 
 int generic_atomic_write_valid(struct kiocb *iocb, struct iov_iter *iter);
+
+static inline dev_t inode_get_dev(const struct inode *inode)
+{
+	if (inode->i_sb->s_op->get_inode_dev)
+		return inode->i_sb->s_op->get_inode_dev(inode);
+
+	return inode->i_sb->s_dev;
+}
 
 #endif /* _LINUX_FS_H */
