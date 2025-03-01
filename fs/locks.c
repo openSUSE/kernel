@@ -220,12 +220,13 @@ static void
 locks_check_ctx_lists(struct inode *inode)
 {
 	struct file_lock_context *ctx = inode->i_flctx;
+	dev_t dev = inode_get_dev(inode);
 
 	if (unlikely(!list_empty(&ctx->flc_flock) ||
 		     !list_empty(&ctx->flc_posix) ||
 		     !list_empty(&ctx->flc_lease))) {
 		pr_warn("Leaked locks on dev=0x%x:0x%x ino=0x%lx:\n",
-			MAJOR(inode->i_sb->s_dev), MINOR(inode->i_sb->s_dev),
+			MAJOR(dev), MINOR(dev),
 			inode->i_ino);
 		locks_dump_ctx_list(&ctx->flc_flock, "FLOCK");
 		locks_dump_ctx_list(&ctx->flc_posix, "POSIX");
@@ -238,13 +239,14 @@ locks_check_ctx_file_list(struct file *filp, struct list_head *list, char *list_
 {
 	struct file_lock_core *flc;
 	struct inode *inode = file_inode(filp);
+	dev_t dev = inode_get_dev(inode);
 
 	list_for_each_entry(flc, list, flc_list)
 		if (flc->flc_file == filp)
 			pr_warn("Leaked %s lock on dev=0x%x:0x%x ino=0x%lx "
 				" fl_owner=%p fl_flags=0x%x fl_type=0x%x fl_pid=%u\n",
-				list_type, MAJOR(inode->i_sb->s_dev),
-				MINOR(inode->i_sb->s_dev), inode->i_ino,
+				list_type, MAJOR(dev),
+				MINOR(dev), inode->i_ino,
 				flc->flc_owner, flc->flc_flags,
 				flc->flc_type, flc->flc_pid);
 }
@@ -2820,8 +2822,8 @@ static void lock_get_status(struct seq_file *f, struct file_lock_core *flc,
 	if (inode) {
 		/* userspace relies on this representation of dev_t */
 		seq_printf(f, "%d %02x:%02x:%lu ", pid,
-				MAJOR(inode->i_sb->s_dev),
-				MINOR(inode->i_sb->s_dev), inode->i_ino);
+				MAJOR(inode_get_dev(inode)),
+				MINOR(inode_get_dev(inode)), inode->i_ino);
 	} else {
 		seq_printf(f, "%d <none>:0 ", pid);
 	}
