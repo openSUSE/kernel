@@ -245,6 +245,9 @@ struct trace_array {
 	int			stop_count;
 	int			clock_id;
 	int			nr_topts;
+#ifndef __GENKSYMS__
+	bool			clear_trace;
+#endif
 	struct tracer		*current_trace;
 	unsigned int		trace_flags;
 	unsigned char		trace_flags_index[TRACE_FLAGS_MAX_SIZE];
@@ -269,6 +272,60 @@ struct trace_array {
 	int			function_enabled;
 #endif
 };
+
+struct __orig_trace_array {
+	struct list_head	list;
+	char			*name;
+	struct trace_buffer	trace_buffer;
+#ifdef CONFIG_TRACER_MAX_TRACE
+	struct trace_buffer	max_buffer;
+	bool			allocated_snapshot;
+#endif
+#if defined(CONFIG_TRACER_MAX_TRACE) || defined(CONFIG_HWLAT_TRACER)
+	unsigned long		max_latency;
+#endif
+	struct trace_pid_list	__rcu *filtered_pids;
+	arch_spinlock_t		max_lock;
+	int			buffer_disabled;
+#ifdef CONFIG_FTRACE_SYSCALLS
+	int			sys_refcount_enter;
+	int			sys_refcount_exit;
+	struct trace_event_file __rcu *enter_syscall_files[NR_syscalls];
+	struct trace_event_file __rcu *exit_syscall_files[NR_syscalls];
+#endif
+	int			stop_count;
+	int			clock_id;
+	int			nr_topts;
+	struct tracer		*current_trace;
+	unsigned int		trace_flags;
+	unsigned char		trace_flags_index[TRACE_FLAGS_MAX_SIZE];
+	unsigned int		flags;
+	raw_spinlock_t		start_lock;
+	struct dentry		*dir;
+	struct dentry		*options;
+	struct dentry		*percpu_dir;
+	struct dentry		*event_dir;
+	struct trace_options	*topts;
+	struct list_head	systems;
+	struct list_head	events;
+	cpumask_var_t		tracing_cpumask;
+	int			ref;
+#ifdef CONFIG_FUNCTION_TRACER
+	struct ftrace_ops	*ops;
+	struct trace_pid_list	__rcu *function_pids;
+#ifdef CONFIG_DYNAMIC_FTRACE
+	struct list_head	func_probes;
+#endif
+	int			function_enabled;
+#endif
+};
+
+_Static_assert(offsetof(struct trace_array, nr_topts) ==
+	       offsetof(struct __orig_trace_array, nr_topts),
+	       "trace_array.nr_topts stays at the same offset");
+_Static_assert(offsetof(struct trace_array, current_trace) ==
+	       offsetof(struct __orig_trace_array, current_trace),
+	       "trace_array.current_trace stays at the same offset");
 
 enum {
 	TRACE_ARRAY_FL_GLOBAL	= (1 << 0)
