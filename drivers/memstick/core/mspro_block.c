@@ -190,13 +190,8 @@ static int mspro_block_bd_open(struct block_device *bdev, fmode_t mode)
 
 	mutex_lock(&mspro_block_disk_lock);
 
-	if (msb && msb->card) {
+	if (msb && msb->card)
 		msb->usage_count++;
-		if ((mode & FMODE_WRITE) && msb->read_only)
-			rc = -EROFS;
-		else
-			rc = 0;
-	}
 
 	mutex_unlock(&mspro_block_disk_lock);
 
@@ -1241,6 +1236,9 @@ static int mspro_block_init_disk(struct memstick_dev *card)
 	capacity *= msb->page_size >> 9;
 	set_capacity(msb->disk, capacity);
 	dev_dbg(&card->dev, "capacity set %ld\n", capacity);
+
+	if (msb->read_only)
+		set_disk_ro(msb->disk, true);
 
 	device_add_disk(&card->dev, msb->disk, NULL);
 	msb->active = 1;
