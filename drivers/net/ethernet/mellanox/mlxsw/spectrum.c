@@ -3255,6 +3255,9 @@ static void mlxsw_sp_pude_event_func(const struct mlxsw_reg_info *reg,
 	u8 local_port;
 
 	local_port = mlxsw_reg_pude_local_port_get(pude_pl);
+
+	if (WARN_ON_ONCE(!mlxsw_sp_local_port_is_valid(mlxsw_sp, local_port)))
+		return;
 	mlxsw_sp_port = mlxsw_sp->ports[local_port];
 	if (!mlxsw_sp_port)
 		return;

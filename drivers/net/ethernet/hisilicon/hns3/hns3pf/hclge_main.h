@@ -864,8 +864,6 @@ struct hclge_dev {
 	u16 share_umv_size;
 	struct mutex umv_mutex; /* protect share_umv_size */
 
-	struct mutex vport_cfg_mutex;   /* Protect stored vf table */
-
 	DECLARE_KFIFO(mac_tnl_log, struct hclge_mac_tnl_stats,
 		      HCLGE_MAC_TNL_LOG_SIZE);
 };
@@ -952,6 +950,7 @@ struct hclge_vport {
 
 	struct list_head uc_mac_list;   /* Store VF unicast table */
 	struct list_head mc_mac_list;   /* Store VF multicast table */
+
 	struct list_head vlan_list;     /* Store VF vlan table */
 };
 
