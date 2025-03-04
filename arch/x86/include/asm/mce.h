@@ -179,7 +179,10 @@ struct mce_vendor_flags {
 	 */
 	      smca		: 1,
 
-	      __reserved_0	: 61;
+	      /* Skylake, Cascade Lake, Cooper Lake REP;MOVS* quirk */
+	      skx_repmov_quirk        : 1,
+
+	      __reserved_0	: 60;
 };
 
 struct mca_msr_regs {
