@@ -65,7 +65,6 @@ static inline void smc_wr_tx_process_cqe(struct ib_wc *wc)
 	struct smc_wr_tx_pend pnd_snd;
 	struct smc_link *link;
 	u32 pnd_snd_idx;
-	int i;
 
 	link = wc->qp->qp_context;
 
@@ -91,14 +90,6 @@ static inline void smc_wr_tx_process_cqe(struct ib_wc *wc)
 	if (!test_and_clear_bit(pnd_snd_idx, link->wr_tx_mask))
 		return;
 	if (wc->status) {
-		for_each_set_bit(i, link->wr_tx_mask, link->wr_tx_cnt) {
-			/* clear full struct smc_wr_tx_pend including .priv */
-			memset(&link->wr_tx_pends[i], 0,
-			       sizeof(link->wr_tx_pends[i]));
-			memset(&link->wr_tx_bufs[i], 0,
-			       sizeof(link->wr_tx_bufs[i]));
-			clear_bit(i, link->wr_tx_mask);
-		}
 		/* terminate connections of this link group abnormally */
 		smc_lgr_terminate(smc_get_lgr(link));
 	}
@@ -288,25 +279,6 @@ int smc_wr_reg_send(struct smc_link *link, struct ib_mr *mr)
 		break;
 	}
 	return rc;
-}
-
-void smc_wr_tx_dismiss_slots(struct smc_link *link, u8 wr_tx_hdr_type,
-			     smc_wr_tx_filter filter,
-			     smc_wr_tx_dismisser dismisser,
-			     unsigned long data)
-{
-	struct smc_wr_tx_pend_priv *tx_pend;
-	struct smc_wr_rx_hdr *wr_tx;
-	int i;
-
-	for_each_set_bit(i, link->wr_tx_mask, link->wr_tx_cnt) {
-		wr_tx = (struct smc_wr_rx_hdr *)&link->wr_tx_bufs[i];
-		if (wr_tx->type != wr_tx_hdr_type)
-			continue;
-		tx_pend = &link->wr_tx_pends[i].priv;
-		if (filter(tx_pend, data))
-			dismisser(tx_pend);
-	}
 }
 
 /****************************** receive queue ********************************/
