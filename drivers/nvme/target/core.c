@@ -587,6 +587,9 @@ int nvmet_ns_enable(struct nvmet_ns *ns)
 	list_for_each_entry(ctrl, &subsys->ctrls, subsys_entry)
 		nvmet_p2pmem_ns_add_p2p(ctrl, ns);
 
+	if (percpu_ref_init(&ns->ref, nvmet_destroy_namespace, 0, GFP_KERNEL))
+		goto out_dev_disable;
+
 	nvmet_ns_changed(subsys, ns->nsid);
 	ns->enabled = true;
 	xa_set_mark(&subsys->namespaces, ns->nsid, NVMET_NS_ENABLED);
@@ -617,6 +620,19 @@ void nvmet_ns_disable(struct nvmet_ns *ns)
 
 	mutex_unlock(&subsys->lock);
 
+	/*
+	 * Now that we removed the namespaces from the lookup list, we
+	 * can kill the per_cpu ref and wait for any remaining references
+	 * to be dropped, as well as a RCU grace period for anyone only
+	 * using the namepace under rcu_read_lock().  Note that we can't
+	 * use call_rcu here as we need to ensure the namespaces have
+	 * been fully destroyed before unloading the module.
+	 */
+	percpu_ref_kill(&ns->ref);
+	synchronize_rcu();
+	wait_for_completion(&ns->disable_done);
+	percpu_ref_exit(&ns->ref);
+
 	mutex_lock(&subsys->lock);
 	nvmet_ns_changed(subsys, ns->nsid);
 	nvmet_ns_dev_disable(ns);
@@ -636,22 +652,6 @@ void nvmet_ns_free(struct nvmet_ns *ns)
 	if (ns->nsid == subsys->max_nsid)
 		subsys->max_nsid = nvmet_max_nsid(subsys);
 
-	mutex_unlock(&subsys->lock);
-
-	/*
-	 * Now that we removed the namespaces from the lookup list, we
-	 * can kill the per_cpu ref and wait for any remaining references
-	 * to be dropped, as well as a RCU grace period for anyone only
-	 * using the namepace under rcu_read_lock().  Note that we can't
-	 * use call_rcu here as we need to ensure the namespaces have
-	 * been fully destroyed before unloading the module.
-	 */
-	percpu_ref_kill(&ns->ref);
-	synchronize_rcu();
-	wait_for_completion(&ns->disable_done);
-	percpu_ref_exit(&ns->ref);
-
-	mutex_lock(&subsys->lock);
 	subsys->nr_namespaces--;
 	mutex_unlock(&subsys->lock);
 
@@ -681,9 +681,6 @@ struct nvmet_ns *nvmet_ns_alloc(struct nvmet_subsys *subsys, u32 nsid)
 	ns->nsid = nsid;
 	ns->subsys = subsys;
 
-	if (percpu_ref_init(&ns->ref, nvmet_destroy_namespace, 0, GFP_KERNEL))
-		goto out_free;
-
 	if (ns->nsid > subsys->max_nsid)
 		subsys->max_nsid = nsid;
 
@@ -706,8 +703,6 @@ struct nvmet_ns *nvmet_ns_alloc(struct nvmet_subsys *subsys, u32 nsid)
 	return ns;
 out_exit:
 	subsys->max_nsid = nvmet_max_nsid(subsys);
-	percpu_ref_exit(&ns->ref);
-out_free:
 	kfree(ns);
 out_unlock:
 	mutex_unlock(&subsys->lock);
