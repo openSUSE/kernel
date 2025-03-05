@@ -439,7 +439,6 @@ struct hci_conn {
 	__u8		resp_addr_type;
 	__u16		handle;
 	__u16		state;
-	__u16		mtu;
 	__u8		mode;
 	__u8		type;
 	__u8		role;
@@ -471,6 +470,9 @@ struct hci_conn {
 	__s8		rssi;
 	__s8		tx_power;
 	__s8		max_tx_power;
+#ifndef __GENKSYMS__
+	__u16		mtu;
+#endif
 	unsigned long	flags;
 
 	__u32		clock;
