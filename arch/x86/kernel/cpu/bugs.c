@@ -1584,7 +1584,8 @@ static void __init bhi_select_mitigation(void)
 	if (bhi_mitigation == BHI_MITIGATION_OFF)
 		return;
 
-	if (cpu_feature_enabled(X86_FEATURE_RETPOLINE)) {
+	if (boot_cpu_has(X86_FEATURE_RETPOLINE) &&
+	    !boot_cpu_has(X86_FEATURE_RETPOLINE_LFENCE)) {
 		spec_ctrl_disable_kernel_rrsba();
 		if (rrsba_disabled)
 			return;
@@ -2697,19 +2698,21 @@ static char *pbrsb_eibrs_state(void)
 static const char *spectre_bhi_state(void)
 {
 	if (!boot_cpu_has_bug(X86_BUG_BHI))
-		return ", BHI: Not affected";
-	else if  (boot_cpu_has(X86_FEATURE_CLEAR_BHB_HW))
-		return ", BHI: BHI_DIS_S";
-	else if  (boot_cpu_has(X86_FEATURE_CLEAR_BHB_LOOP))
-		return ", BHI: SW loop";
+		return "; BHI: Not affected";
+	else if (boot_cpu_has(X86_FEATURE_CLEAR_BHB_HW))
+		return "; BHI: BHI_DIS_S";
+	else if (boot_cpu_has(X86_FEATURE_CLEAR_BHB_LOOP))
+		return "; BHI: SW loop";
 	else if (spectre_v2_enabled == SPECTRE_V2_IBRS &&
 		 !boot_cpu_has(X86_FEATURE_IBRS_ENHANCED) &&
 		 !boot_cpu_has(X86_FEATURE_HYPERVISOR))
-		return ", BHI: IBRS";
-	else if (boot_cpu_has(X86_FEATURE_RETPOLINE) && rrsba_disabled)
-		return ", BHI: Retpoline";
-	else if  (boot_cpu_has(X86_FEATURE_CLEAR_BHB_LOOP_ON_VMEXIT))
-		return ", BHI: Vulnerable; KVM: SW loop";
+		return "; BHI: IBRS";
+	else if (boot_cpu_has(X86_FEATURE_RETPOLINE) &&
+		 !boot_cpu_has(X86_FEATURE_RETPOLINE_LFENCE) &&
+		 rrsba_disabled)
+		return "; BHI: Retpoline";
+	else if (boot_cpu_has(X86_FEATURE_CLEAR_BHB_LOOP_ON_VMEXIT))
+		return "; BHI: Vulnerable; KVM: SW loop";
 
 	return ", BHI: Vulnerable";
 }
