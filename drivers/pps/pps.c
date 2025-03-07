@@ -372,6 +372,7 @@ int pps_register_cdev(struct pps_device *pps)
 	}
 	pps->id = err;
 
+	pps->_dev = &pps->dev; // XXX for kABI compatibility
 	pps->dev.class = pps_class;
 	pps->dev.parent = pps->info.dev;
 	pps->dev.devt = MKDEV(pps_major, pps->id);
