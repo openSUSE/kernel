@@ -142,7 +142,7 @@ static void clear_huge_pte_skeys(struct mm_struct *mm, unsigned long rste)
 		__storage_key_init_range(paddr, paddr + size);
 }
 
-void set_huge_pte_at(struct mm_struct *mm, unsigned long addr,
+void __set_huge_pte_at(struct mm_struct *mm, unsigned long addr,
 		     pte_t *ptep, pte_t pte)
 {
 	unsigned long rste;
@@ -163,13 +163,19 @@ void set_huge_pte_at(struct mm_struct *mm, unsigned long addr,
 	set_pte(ptep, __pte(rste));
 }
 
+void set_huge_pte_at(struct mm_struct *mm, unsigned long addr,
+		     pte_t *ptep, pte_t pte, unsigned long sz)
+{
+	__set_huge_pte_at(mm, addr, ptep, pte);
+}
+
 pte_t huge_ptep_get(pte_t *ptep)
 {
 	return __rste_to_pte(pte_val(*ptep));
 }
 
-pte_t huge_ptep_get_and_clear(struct mm_struct *mm,
-			      unsigned long addr, pte_t *ptep)
+pte_t __huge_ptep_get_and_clear(struct mm_struct *mm,
+				unsigned long addr, pte_t *ptep)
 {
 	pte_t pte = huge_ptep_get(ptep);
 	pmd_t *pmdp = (pmd_t *) ptep;
