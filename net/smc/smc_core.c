@@ -349,7 +349,7 @@ void smc_conn_free(struct smc_connection *conn)
 		smc_ism_unset_conn(conn);
 		tasklet_kill(&conn->rx_tsklet);
 	} else {
-		smc_cdc_tx_dismiss_slots(conn);
+		smc_cdc_wait_pend_tx_wr(conn);
 	}
 	smc_lgr_unregister_conn(conn);
 	smc_buf_unuse(conn, lgr);		/* allow buffer reuse */
@@ -363,7 +363,7 @@ static void smc_link_clear(struct smc_link *lnk)
 {
 	lnk->peer_qpn = 0;
 	smc_llc_link_clear(lnk);
-	smc_ib_modify_qp_reset(lnk);
+	smc_ib_modify_qp_error(lnk);
 	smc_wr_free_link(lnk);
 	smc_ib_destroy_queue_pair(lnk);
 	smc_ib_dealloc_protection_domain(lnk);
@@ -672,6 +672,7 @@ create:
 	conn->local_tx_ctrl.common.type = SMC_CDC_MSG_TYPE;
 	conn->local_tx_ctrl.len = SMC_WR_TX_SIZE;
 	conn->urg_state = SMC_URG_READ;
+	init_waitqueue_head(&conn->cdc_pend_tx_wq);
 	if (ini->is_smcd) {
 		conn->rx_off = sizeof(struct smcd_cdc_msg);
 		smcd_cdc_rx_init(conn); /* init tasklet for this conn */
