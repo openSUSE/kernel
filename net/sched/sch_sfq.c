@@ -491,6 +491,8 @@ static int sfq_change(struct Qdisc *sch, struct nlattr *opt)
 	if (ctl->divisor &&
 	    (!is_power_of_2(ctl->divisor) || ctl->divisor > 65536))
 		return -EINVAL;
+	if (ctl->limit == 1)
+		return -EINVAL;
 
 	sch_tree_lock(sch);
 	q->quantum = ctl->quantum ? : psched_mtu(qdisc_dev(sch));
