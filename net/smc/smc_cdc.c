@@ -149,24 +149,6 @@ int smc_cdc_get_slot_and_msg_send(struct smc_connection *conn)
 	return rc;
 }
 
-static bool smc_cdc_tx_filter(struct smc_wr_tx_pend_priv *tx_pend,
-			      unsigned long data)
-{
-	struct smc_connection *conn = (struct smc_connection *)data;
-	struct smc_cdc_tx_pend *cdc_pend =
-		(struct smc_cdc_tx_pend *)tx_pend;
-
-	return cdc_pend->conn == conn;
-}
-
-static void smc_cdc_tx_dismisser(struct smc_wr_tx_pend_priv *tx_pend)
-{
-	struct smc_cdc_tx_pend *cdc_pend =
-		(struct smc_cdc_tx_pend *)tx_pend;
-
-	cdc_pend->conn = NULL;
-}
-
 /* Send a SMC-D CDC header.
  * This increments the free space available in our send buffer.
  * Also update the confirmed receive buffer with what was sent to the peer.
