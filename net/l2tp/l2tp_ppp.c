@@ -1203,7 +1203,7 @@ static int pppol2tp_session_setsockopt(struct sock *sk,
 			po->chan.hdrlen = val ? PPPOL2TP_L2TP_HDR_SIZE_SEQ :
 				PPPOL2TP_L2TP_HDR_SIZE_NOSEQ;
 		}
-		l2tp_session_set_header_len(session, session->tunnel->version,
+		__l2tp_session_set_header_len(session, session->tunnel->version,
 					    session->tunnel->encap);
 		break;
 
