@@ -12,7 +12,9 @@
 #include <linux/slab.h>
 #include <asm/unaligned.h>
 #include <linux/bitfield.h>
+#ifndef __GENKSYMS__
 #include <linux/pci.h>
+#endif
 
 #include "xhci.h"
 #include "xhci-trace.h"
