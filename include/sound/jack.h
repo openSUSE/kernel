@@ -84,6 +84,9 @@ struct snd_jack {
 #endif /* CONFIG_SND_JACK_INPUT_DEV */
 	void *private_data;
 	void (*private_free)(struct snd_jack *);
+#ifndef __GENKSYMS__
+	struct mutex input_dev_lock;
+#endif
 };
 
 #ifdef CONFIG_SND_JACK
