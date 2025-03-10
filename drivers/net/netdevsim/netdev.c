@@ -15,6 +15,7 @@
 
 #include <linux/debugfs.h>
 #include <linux/etherdevice.h>
+#include <linux/ethtool_netlink.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/netdevice.h>
@@ -54,6 +55,7 @@ static netdev_tx_t nsim_start_xmit(struct sk_buff *skb, struct net_device *dev)
 	struct net_device *peer_dev;
 	unsigned int len = skb->len;
 	struct netdevsim *peer_ns;
+	struct netdev_config *cfg;
 	struct nsim_rq *rq;
 	int rxq;
 
@@ -70,6 +72,13 @@ static netdev_tx_t nsim_start_xmit(struct sk_buff *skb, struct net_device *dev)
 	if (rxq >= peer_dev->num_rx_queues)
 		rxq = rxq % peer_dev->num_rx_queues;
 	rq = &peer_ns->rq[rxq];
+
+	cfg = peer_dev->cfg;
+	if (skb_is_nonlinear(skb) &&
+	    (cfg->hds_config != ETHTOOL_TCP_DATA_SPLIT_ENABLED ||
+	     (cfg->hds_config == ETHTOOL_TCP_DATA_SPLIT_ENABLED &&
+	      cfg->hds_thresh > len)))
+		skb_linearize(skb);
 
 	skb_tx_timestamp(skb);
 	if (unlikely(nsim_forward_skb(peer_dev, skb, rq) == NET_RX_DROP))

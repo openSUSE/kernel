@@ -704,7 +704,7 @@ void ice_lag_move_new_vf_nodes(struct ice_vf *vf)
 	lag = pf->lag;
 
 	mutex_lock(&pf->lag_mutex);
-	if (!lag->bonded)
+	if (!lag || !lag->bonded)
 		goto new_vf_unlock;
 
 	pri_port = pf->hw.port_info->lport;

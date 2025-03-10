@@ -752,8 +752,8 @@ static int idpf_cfg_netdev(struct idpf_vport *vport)
 	/* assign netdev_ops */
 	netdev->netdev_ops = &idpf_netdev_ops;
 
-	/* setup watchdog timeout value to be 5 second */
-	netdev->watchdog_timeo = 5 * HZ;
+	/* setup watchdog timeout value to be 30 seconds */
+	netdev->watchdog_timeo = 30 * HZ;
 
 	netdev->dev_port = idx;
 
