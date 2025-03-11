@@ -52,6 +52,7 @@
 #include <net/net_trackers.h>
 #include <net/net_debug.h>
 #include <net/dropreason-core.h>
+#include <net/neighbour_tables.h>
 
 struct netpoll_info;
 struct device;
@@ -62,6 +63,7 @@ struct dsa_port;
 struct ip_tunnel_parm_kern;
 struct macsec_context;
 struct macsec_ops;
+struct netdev_config;
 struct netdev_name_node;
 struct sd_flow_limit;
 struct sfp_bus;
@@ -81,6 +83,7 @@ struct xdp_metadata_ops;
 struct xdp_md;
 struct ethtool_netdev_state;
 struct phy_link_topology;
+struct hwtstamp_provider;
 
 typedef u32 xdp_features_t;
 
@@ -380,12 +383,13 @@ struct napi_struct {
 	struct sk_buff		*skb;
 	struct list_head	rx_list; /* Pending GRO_NORMAL skbs */
 	int			rx_count; /* length of rx_list */
-	unsigned int		napi_id;
+	unsigned int		napi_id; /* protected by netdev_lock */
 	struct hrtimer		timer;
 	struct task_struct	*thread;
 	unsigned long		gro_flush_timeout;
 	unsigned long		irq_suspend_timeout;
 	u32			defer_hard_irqs;
+	/* all fields past this point are write-protected by netdev_lock */
 	/* control-path-only fields follow */
 	struct list_head	dev_list;
 	struct hlist_node	napi_hash_node;
@@ -568,16 +572,11 @@ static inline bool napi_complete(struct napi_struct *n)
 
 int dev_set_threaded(struct net_device *dev, bool threaded);
 
-/**
- *	napi_disable - prevent NAPI from scheduling
- *	@n: NAPI context
- *
- * Stop NAPI from being scheduled on this context.
- * Waits till any outstanding processing completes.
- */
 void napi_disable(struct napi_struct *n);
+void napi_disable_locked(struct napi_struct *n);
 
 void napi_enable(struct napi_struct *n);
+void napi_enable_locked(struct napi_struct *n);
 
 /**
  *	napi_synchronize - wait until NAPI is not running
@@ -2044,6 +2043,10 @@ enum netdev_reg_state {
  *	@napi_defer_hard_irqs:	If not zero, provides a counter that would
  *				allow to avoid NIC hard IRQ, on busy queues.
  *
+ *	@neighbours:	List heads pointing to this device's neighbours'
+ *			dev_list, one per address-family.
+ *	@hwprov: Tracks which PTP performs hardware packet time stamping.
+ *
  *	FIXME: cleanup struct net_device such that network protocol info
  *	moves out.
  */
@@ -2411,6 +2414,14 @@ struct net_device {
 	const struct udp_tunnel_nic_info	*udp_tunnel_nic_info;
 	struct udp_tunnel_nic	*udp_tunnel_nic;
 
+	/** @cfg: net_device queue-related configuration */
+	struct netdev_config	*cfg;
+	/**
+	 * @cfg_pending: same as @cfg but when device is being actively
+	 *	reconfigured includes any changes to the configuration
+	 *	requested by the user, but which may or may not be rejected.
+	 */
+	struct netdev_config	*cfg_pending;
 	struct ethtool_netdev_state *ethtool;
 
 	/* protected by rtnl_lock */
@@ -2441,8 +2452,24 @@ struct net_device {
 	u32			napi_defer_hard_irqs;
 
 	/**
-	 * @lock: protects @net_shaper_hierarchy, feel free to use for other
-	 * netdev-scope protection. Ordering: take after rtnl_lock.
+	 * @up: copy of @state's IFF_UP, but safe to read with just @lock.
+	 *	May report false negatives while the device is being opened
+	 *	or closed (@lock does not protect .ndo_open, or .ndo_close).
+	 */
+	bool			up;
+
+	/**
+	 * @lock: netdev-scope lock, protects a small selection of fields.
+	 * Should always be taken using netdev_lock() / netdev_unlock() helpers.
+	 * Drivers are free to use it for other protection.
+	 *
+	 * Protects:
+	 *	@napi_list, @net_shaper_hierarchy, @reg_state
+	 *
+	 * Partially protects (writers must hold both @lock and rtnl_lock):
+	 *	@up
+	 *
+	 * Ordering: take after rtnl_lock.
 	 */
 	struct mutex		lock;
 
@@ -2453,6 +2480,11 @@ struct net_device {
 	 */
 	struct net_shaper_hierarchy *net_shaper_hierarchy;
 #endif
+
+	struct hlist_head neighbours[NEIGH_NR_TABLES];
+
+	struct hwtstamp_provider __rcu	*hwprov;
+
 	u8			priv[] ____cacheline_aligned
 				       __counted_by(priv_len);
 } ____cacheline_aligned;
@@ -2632,6 +2664,12 @@ struct net *dev_net(const struct net_device *dev)
 }
 
 static inline
+struct net *dev_net_rcu(const struct net_device *dev)
+{
+	return read_pnet_rcu(&dev->nd_net);
+}
+
+static inline
 void dev_net_set(struct net_device *dev, struct net *net)
 {
 	write_pnet(&dev->nd_net, net);
@@ -2663,9 +2701,31 @@ void netif_queue_set_napi(struct net_device *dev, unsigned int queue_index,
 			  enum netdev_queue_type type,
 			  struct napi_struct *napi);
 
-static inline void netif_napi_set_irq(struct napi_struct *napi, int irq)
+static inline void netdev_lock(struct net_device *dev)
+{
+	mutex_lock(&dev->lock);
+}
+
+static inline void netdev_unlock(struct net_device *dev)
+{
+	mutex_unlock(&dev->lock);
+}
+
+static inline void netdev_assert_locked(struct net_device *dev)
+{
+	lockdep_assert_held(&dev->lock);
+}
+
+static inline void netif_napi_set_irq_locked(struct napi_struct *napi, int irq)
 {
 	napi->irq = irq;
+}
+
+static inline void netif_napi_set_irq(struct napi_struct *napi, int irq)
+{
+	netdev_lock(napi->dev);
+	netif_napi_set_irq_locked(napi, irq);
+	netdev_unlock(napi->dev);
 }
 
 /* Default NAPI poll() weight
@@ -2673,8 +2733,19 @@ static inline void netif_napi_set_irq(struct napi_struct *napi, int irq)
  */
 #define NAPI_POLL_WEIGHT 64
 
-void netif_napi_add_weight(struct net_device *dev, struct napi_struct *napi,
-			   int (*poll)(struct napi_struct *, int), int weight);
+void netif_napi_add_weight_locked(struct net_device *dev,
+				  struct napi_struct *napi,
+				  int (*poll)(struct napi_struct *, int),
+				  int weight);
+
+static inline void
+netif_napi_add_weight(struct net_device *dev, struct napi_struct *napi,
+		      int (*poll)(struct napi_struct *, int), int weight)
+{
+	netdev_lock(dev);
+	netif_napi_add_weight_locked(dev, napi, poll, weight);
+	netdev_unlock(dev);
+}
 
 /**
  * netif_napi_add() - initialize a NAPI context
@@ -2693,6 +2764,13 @@ netif_napi_add(struct net_device *dev, struct napi_struct *napi,
 }
 
 static inline void
+netif_napi_add_locked(struct net_device *dev, struct napi_struct *napi,
+		      int (*poll)(struct napi_struct *, int))
+{
+	netif_napi_add_weight_locked(dev, napi, poll, NAPI_POLL_WEIGHT);
+}
+
+static inline void
 netif_napi_add_tx_weight(struct net_device *dev,
 			 struct napi_struct *napi,
 			 int (*poll)(struct napi_struct *, int),
@@ -2700,6 +2778,15 @@ netif_napi_add_tx_weight(struct net_device *dev,
 {
 	set_bit(NAPI_STATE_NO_BUSY_POLL, &napi->state);
 	netif_napi_add_weight(dev, napi, poll, weight);
+}
+
+static inline void
+netif_napi_add_config_locked(struct net_device *dev, struct napi_struct *napi,
+			     int (*poll)(struct napi_struct *, int), int index)
+{
+	napi->index = index;
+	napi->config = &dev->napi_config[index];
+	netif_napi_add_weight_locked(dev, napi, poll, NAPI_POLL_WEIGHT);
 }
 
 /**
@@ -2713,9 +2800,9 @@ static inline void
 netif_napi_add_config(struct net_device *dev, struct napi_struct *napi,
 		      int (*poll)(struct napi_struct *, int), int index)
 {
-	napi->index = index;
-	napi->config = &dev->napi_config[index];
-	netif_napi_add_weight(dev, napi, poll, NAPI_POLL_WEIGHT);
+	netdev_lock(dev);
+	netif_napi_add_config_locked(dev, napi, poll, index);
+	netdev_unlock(dev);
 }
 
 /**
@@ -2735,6 +2822,8 @@ static inline void netif_napi_add_tx(struct net_device *dev,
 	netif_napi_add_tx_weight(dev, napi, poll, NAPI_POLL_WEIGHT);
 }
 
+void __netif_napi_del_locked(struct napi_struct *napi);
+
 /**
  *  __netif_napi_del - remove a NAPI context
  *  @napi: NAPI context
@@ -2743,7 +2832,18 @@ static inline void netif_napi_add_tx(struct net_device *dev,
  * containing @napi. Drivers might want to call this helper to combine
  * all the needed RCU grace periods into a single one.
  */
-void __netif_napi_del(struct napi_struct *napi);
+static inline void __netif_napi_del(struct napi_struct *napi)
+{
+	netdev_lock(napi->dev);
+	__netif_napi_del_locked(napi);
+	netdev_unlock(napi->dev);
+}
+
+static inline void netif_napi_del_locked(struct napi_struct *napi)
+{
+	__netif_napi_del_locked(napi);
+	synchronize_net();
+}
 
 /**
  *  netif_napi_del - remove a NAPI context
@@ -3318,6 +3418,7 @@ struct softnet_data {
 };
 
 DECLARE_PER_CPU_ALIGNED(struct softnet_data, softnet_data);
+DECLARE_PER_CPU(struct page_pool *, system_page_pool);
 
 #ifndef CONFIG_PREEMPT_RT
 static inline int dev_recursion_level(void)
@@ -4033,6 +4134,7 @@ struct sk_buff *dev_hard_start_xmit(struct sk_buff *skb, struct net_device *dev,
 int bpf_xdp_link_attach(const union bpf_attr *attr, struct bpf_prog *prog);
 u8 dev_xdp_prog_count(struct net_device *dev);
 int dev_xdp_propagate(struct net_device *dev, struct netdev_bpf *bpf);
+u8 dev_xdp_sb_prog_count(struct net_device *dev);
 u32 dev_xdp_prog_id(struct net_device *dev, enum bpf_xdp_mode mode);
 
 u32 dev_get_min_mp_channel_count(const struct net_device *dev);

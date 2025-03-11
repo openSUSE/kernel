@@ -92,6 +92,7 @@
 #include <linux/netdevice.h>
 #include <linux/etherdevice.h>
 #include <linux/ethtool.h>
+#include <linux/ethtool_netlink.h>
 #include <linux/skbuff.h>
 #include <linux/kthread.h>
 #include <linux/bpf.h>
@@ -105,6 +106,7 @@
 #include <net/dst.h>
 #include <net/dst_metadata.h>
 #include <net/gro.h>
+#include <net/netdev_queues.h>
 #include <net/pkt_sched.h>
 #include <net/pkt_cls.h>
 #include <net/checksum.h>
@@ -460,7 +462,7 @@ EXPORT_PER_CPU_SYMBOL(softnet_data);
  * PP consumers must pay attention to run APIs in the appropriate context
  * (e.g. NAPI context).
  */
-static DEFINE_PER_CPU(struct page_pool *, system_page_pool);
+DEFINE_PER_CPU(struct page_pool *, system_page_pool);
 
 #ifdef CONFIG_LOCKDEP
 /*
@@ -1510,7 +1512,7 @@ static int __dev_open(struct net_device *dev, struct netlink_ext_ack *extack)
 	if (ret)
 		clear_bit(__LINK_STATE_START, &dev->state);
 	else {
-		dev->flags |= IFF_UP;
+		netif_set_up(dev, true);
 		dev_set_rx_mode(dev);
 		dev_activate(dev);
 		add_device_randomness(dev->dev_addr, dev->addr_len);
@@ -1589,7 +1591,7 @@ static void __dev_close_many(struct list_head *head)
 		if (ops->ndo_stop)
 			ops->ndo_stop(dev);
 
-		dev->flags &= ~IFF_UP;
+		netif_set_up(dev, false);
 		netpoll_poll_enable(dev);
 	}
 }
@@ -6566,7 +6568,7 @@ void napi_resume_irqs(unsigned int napi_id)
 static void __napi_hash_add_with_id(struct napi_struct *napi,
 				    unsigned int napi_id)
 {
-	napi->napi_id = napi_id;
+	WRITE_ONCE(napi->napi_id, napi_id);
 	hlist_add_head_rcu(&napi->napi_hash_node,
 			   &napi_hash[napi->napi_id % HASH_SIZE(napi_hash)]);
 }
@@ -6746,9 +6748,12 @@ static void napi_save_config(struct napi_struct *n)
 	napi_hash_del(n);
 }
 
-void netif_napi_add_weight(struct net_device *dev, struct napi_struct *napi,
-			   int (*poll)(struct napi_struct *, int), int weight)
+void netif_napi_add_weight_locked(struct net_device *dev,
+				  struct napi_struct *napi,
+				  int (*poll)(struct napi_struct *, int),
+				  int weight)
 {
+	netdev_assert_locked(dev);
 	if (WARN_ON(test_and_set_bit(NAPI_STATE_LISTED, &napi->state)))
 		return;
 
@@ -6787,15 +6792,17 @@ void netif_napi_add_weight(struct net_device *dev, struct napi_struct *napi,
 	 */
 	if (dev->threaded && napi_kthread_create(napi))
 		dev->threaded = false;
-	netif_napi_set_irq(napi, -1);
+	netif_napi_set_irq_locked(napi, -1);
 }
-EXPORT_SYMBOL(netif_napi_add_weight);
+EXPORT_SYMBOL(netif_napi_add_weight_locked);
 
-void napi_disable(struct napi_struct *n)
+void napi_disable_locked(struct napi_struct *n)
 {
 	unsigned long val, new;
 
 	might_sleep();
+	netdev_assert_locked(n->dev);
+
 	set_bit(NAPI_STATE_DISABLE, &n->state);
 
 	val = READ_ONCE(n->state);
@@ -6818,16 +6825,25 @@ void napi_disable(struct napi_struct *n)
 
 	clear_bit(NAPI_STATE_DISABLE, &n->state);
 }
-EXPORT_SYMBOL(napi_disable);
+EXPORT_SYMBOL(napi_disable_locked);
 
 /**
- *	napi_enable - enable NAPI scheduling
- *	@n: NAPI context
+ * napi_disable() - prevent NAPI from scheduling
+ * @n: NAPI context
  *
- * Resume NAPI from being scheduled on this context.
- * Must be paired with napi_disable.
+ * Stop NAPI from being scheduled on this context.
+ * Waits till any outstanding processing completes.
+ * Takes netdev_lock() for associated net_device.
  */
-void napi_enable(struct napi_struct *n)
+void napi_disable(struct napi_struct *n)
+{
+	netdev_lock(n->dev);
+	napi_disable_locked(n);
+	netdev_unlock(n->dev);
+}
+EXPORT_SYMBOL(napi_disable);
+
+void napi_enable_locked(struct napi_struct *n)
 {
 	unsigned long new, val = READ_ONCE(n->state);
 
@@ -6843,6 +6859,22 @@ void napi_enable(struct napi_struct *n)
 		if (n->dev->threaded && n->thread)
 			new |= NAPIF_STATE_THREADED;
 	} while (!try_cmpxchg(&n->state, &val, new));
+}
+EXPORT_SYMBOL(napi_enable_locked);
+
+/**
+ * napi_enable() - enable NAPI scheduling
+ * @n: NAPI context
+ *
+ * Enable scheduling of a NAPI instance.
+ * Must be paired with napi_disable().
+ * Takes netdev_lock() for associated net_device.
+ */
+void napi_enable(struct napi_struct *n)
+{
+	netdev_lock(n->dev);
+	napi_enable_locked(n);
+	netdev_unlock(n->dev);
 }
 EXPORT_SYMBOL(napi_enable);
 
@@ -6860,8 +6892,10 @@ static void flush_gro_hash(struct napi_struct *napi)
 }
 
 /* Must be called in process context */
-void __netif_napi_del(struct napi_struct *napi)
+void __netif_napi_del_locked(struct napi_struct *napi)
 {
+	netdev_assert_locked(napi->dev);
+
 	if (!test_and_clear_bit(NAPI_STATE_LISTED, &napi->state))
 		return;
 
@@ -6881,7 +6915,7 @@ void __netif_napi_del(struct napi_struct *napi)
 		napi->thread = NULL;
 	}
 }
-EXPORT_SYMBOL(__netif_napi_del);
+EXPORT_SYMBOL(__netif_napi_del_locked);
 
 static int __napi_poll(struct napi_struct *n, bool *repoll)
 {
@@ -9497,10 +9531,30 @@ u8 dev_xdp_prog_count(struct net_device *dev)
 }
 EXPORT_SYMBOL_GPL(dev_xdp_prog_count);
 
+u8 dev_xdp_sb_prog_count(struct net_device *dev)
+{
+	u8 count = 0;
+	int i;
+
+	for (i = 0; i < __MAX_XDP_MODE; i++)
+		if (dev->xdp_state[i].prog &&
+		    !dev->xdp_state[i].prog->aux->xdp_has_frags)
+			count++;
+	return count;
+}
+
 int dev_xdp_propagate(struct net_device *dev, struct netdev_bpf *bpf)
 {
 	if (!dev->netdev_ops->ndo_bpf)
 		return -EOPNOTSUPP;
+
+	if (dev->cfg->hds_config == ETHTOOL_TCP_DATA_SPLIT_ENABLED &&
+	    bpf->command == XDP_SETUP_PROG &&
+	    bpf->prog && !bpf->prog->aux->xdp_has_frags) {
+		NL_SET_ERR_MSG(bpf->extack,
+			       "unable to propagate XDP to device using tcp-data-split");
+		return -EBUSY;
+	}
 
 	if (dev_get_min_mp_channel_count(dev)) {
 		NL_SET_ERR_MSG(bpf->extack, "unable to propagate XDP to device using memory provider");
@@ -9538,6 +9592,12 @@ static int dev_xdp_install(struct net_device *dev, enum bpf_xdp_mode mode,
 {
 	struct netdev_bpf xdp;
 	int err;
+
+	if (dev->cfg->hds_config == ETHTOOL_TCP_DATA_SPLIT_ENABLED &&
+	    prog && !prog->aux->xdp_has_frags) {
+		NL_SET_ERR_MSG(extack, "unable to install XDP to device using tcp-data-split");
+		return -EBUSY;
+	}
 
 	if (dev_get_min_mp_channel_count(dev)) {
 		NL_SET_ERR_MSG(extack, "unable to install XDP to device using memory provider");
@@ -10615,7 +10675,9 @@ int register_netdevice(struct net_device *dev)
 
 	ret = netdev_register_kobject(dev);
 
+	netdev_lock(dev);
 	WRITE_ONCE(dev->reg_state, ret ? NETREG_UNREGISTERED : NETREG_REGISTERED);
+	netdev_unlock(dev);
 
 	if (ret)
 		goto err_uninit_notify;
@@ -10913,7 +10975,9 @@ void netdev_run_todo(void)
 			continue;
 		}
 
+		netdev_lock(dev);
 		WRITE_ONCE(dev->reg_state, NETREG_UNREGISTERED);
+		netdev_unlock(dev);
 		linkwatch_sync_dev(dev);
 	}
 
@@ -11299,6 +11363,11 @@ struct net_device *alloc_netdev_mqs(int sizeof_priv, const char *name,
 	if (!dev->ethtool)
 		goto free_all;
 
+	dev->cfg = kzalloc(sizeof(*dev->cfg), GFP_KERNEL_ACCOUNT);
+	if (!dev->cfg)
+		goto free_all;
+	dev->cfg_pending = dev->cfg;
+
 	napi_config_sz = array_size(maxqs, sizeof(*dev->napi_config));
 	dev->napi_config = kvzalloc(napi_config_sz, GFP_KERNEL_ACCOUNT);
 	if (!dev->napi_config)
@@ -11353,8 +11422,8 @@ void free_netdev(struct net_device *dev)
 		return;
 	}
 
-	mutex_destroy(&dev->lock);
-
+	WARN_ON(dev->cfg != dev->cfg_pending);
+	kfree(dev->cfg);
 	kfree(dev->ethtool);
 	netif_free_tx_queues(dev);
 	netif_free_rx_queues(dev);
@@ -11380,6 +11449,8 @@ void free_netdev(struct net_device *dev)
 	dev->xdp_bulkq = NULL;
 
 	netdev_free_phy_link_topology(dev);
+
+	mutex_destroy(&dev->lock);
 
 	/*  Compatibility with error handling in drivers */
 	if (dev->reg_state == NETREG_UNINITIALIZED ||
@@ -11519,7 +11590,9 @@ void unregister_netdevice_many_notify(struct list_head *head,
 	list_for_each_entry(dev, head, unreg_list) {
 		/* And unlink it from device chain. */
 		unlist_netdevice(dev);
+		netdev_lock(dev);
 		WRITE_ONCE(dev->reg_state, NETREG_UNREGISTERING);
+		netdev_unlock(dev);
 	}
 	flush_all_backlogs();
 
@@ -12169,10 +12242,17 @@ static int net_page_pool_create(int cpuid)
 		.nid = cpu_to_mem(cpuid),
 	};
 	struct page_pool *pp_ptr;
+	int err;
 
 	pp_ptr = page_pool_create_percpu(&page_pool_params, cpuid);
 	if (IS_ERR(pp_ptr))
 		return -ENOMEM;
+
+	err = xdp_reg_page_pool(pp_ptr);
+	if (err) {
+		page_pool_destroy(pp_ptr);
+		return err;
+	}
 
 	per_cpu(system_page_pool, cpuid) = pp_ptr;
 #endif
@@ -12307,6 +12387,7 @@ out:
 			if (!pp_ptr)
 				continue;
 
+			xdp_unreg_page_pool(pp_ptr);
 			page_pool_destroy(pp_ptr);
 			per_cpu(system_page_pool, i) = NULL;
 		}

@@ -13804,6 +13804,7 @@ M:	Sunil Goutham <sgoutham@marvell.com>
 M:	Geetha sowjanya <gakula@marvell.com>
 M:	Subbaraya Sundeep <sbhatta@marvell.com>
 M:	hariprasad <hkelam@marvell.com>
+M:	Bharat Bhushan <bbhushan2@marvell.com>
 L:	netdev@vger.kernel.org
 S:	Supported
 F:	drivers/net/ethernet/marvell/octeontx2/nic/
@@ -16068,7 +16069,7 @@ F:	include/linux/inetdevice.h
 F:	include/linux/netdev*
 F:	include/linux/platform_data/wiznet.h
 F:	include/uapi/linux/cn_proc.h
-F:	include/uapi/linux/ethtool_netlink.h
+F:	include/uapi/linux/ethtool_netlink*
 F:	include/uapi/linux/if_*
 F:	include/uapi/linux/net_shaper.h
 F:	include/uapi/linux/netdev*
@@ -17432,6 +17433,8 @@ S:	Supported
 F:	Documentation/core-api/packing.rst
 F:	include/linux/packing.h
 F:	lib/packing.c
+F:	lib/packing_test.c
+F:	scripts/gen_packed_field_checks.c
 
 PADATA PARALLEL EXECUTION MECHANISM
 M:	Steffen Klassert <steffen.klassert@secunet.com>

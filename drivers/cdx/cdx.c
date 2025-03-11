@@ -470,8 +470,12 @@ static ssize_t driver_override_show(struct device *dev,
 				    struct device_attribute *attr, char *buf)
 {
 	struct cdx_device *cdx_dev = to_cdx_device(dev);
+	ssize_t len;
 
-	return sysfs_emit(buf, "%s\n", cdx_dev->driver_override);
+	device_lock(dev);
+	len = sysfs_emit(buf, "%s\n", cdx_dev->driver_override);
+	device_unlock(dev);
+	return len;
 }
 static DEVICE_ATTR_RW(driver_override);
 
@@ -707,7 +711,7 @@ static const struct vm_operations_struct cdx_phys_vm_ops = {
  * Return: true on success, false otherwise.
  */
 static int cdx_mmap_resource(struct file *fp, struct kobject *kobj,
-			     struct bin_attribute *attr,
+			     const struct bin_attribute *attr,
 			     struct vm_area_struct *vma)
 {
 	struct cdx_device *cdx_dev = to_cdx_device(kobj_to_dev(kobj));
