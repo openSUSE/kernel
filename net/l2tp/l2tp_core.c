@@ -705,7 +705,7 @@ void l2tp_recv_common(struct l2tp_session *session, struct sk_buff *skb,
 				  "%s: requested to enable seq numbers by LNS\n",
 				  session->name);
 			session->send_seq = 1;
-			l2tp_session_set_header_len(session, tunnel->version,
+			__l2tp_session_set_header_len(session, tunnel->version,
 						    tunnel->encap);
 		}
 	} else {
@@ -730,7 +730,7 @@ void l2tp_recv_common(struct l2tp_session *session, struct sk_buff *skb,
 				  "%s: requested to disable seq numbers by LNS\n",
 				  session->name);
 			session->send_seq = 0;
-			l2tp_session_set_header_len(session, tunnel->version,
+			__l2tp_session_set_header_len(session, tunnel->version,
 						    tunnel->encap);
 		} else if (session->send_seq) {
 			l2tp_warn(session, L2TP_MSG_SEQ,
@@ -1662,8 +1662,19 @@ EXPORT_SYMBOL_GPL(l2tp_session_delete);
 /* We come here whenever a session's send_seq, cookie_len or
  * l2specific_type parameters are set.
  */
-void l2tp_session_set_header_len(struct l2tp_session *session, int version,
-				 enum l2tp_encap_type encap)
+void l2tp_session_set_header_len(struct l2tp_session *session, int version)
+{
+	struct l2tp_tunnel *tunnel = READ_ONCE(session->tunnel);
+	if (tunnel)
+		__l2tp_session_set_header_len(session, version, tunnel->encap);
+}
+EXPORT_SYMBOL_GPL(l2tp_session_set_header_len);
+
+/* We come here whenever a session's send_seq, cookie_len or
+ * l2specific_type parameters are set.
+ */
+void __l2tp_session_set_header_len(struct l2tp_session *session, int version,
+                                   enum l2tp_encap_type encap)
 {
 	if (version == L2TP_HDR_VER_2) {
 		session->hdr_len = 6;
@@ -1677,7 +1688,7 @@ void l2tp_session_set_header_len(struct l2tp_session *session, int version,
 	}
 
 }
-EXPORT_SYMBOL_GPL(l2tp_session_set_header_len);
+EXPORT_SYMBOL_GPL(__l2tp_session_set_header_len);
 
 struct l2tp_session *l2tp_session_create(int priv_size, struct l2tp_tunnel *tunnel, u32 session_id, u32 peer_session_id, struct l2tp_session_cfg *cfg)
 {
@@ -1733,7 +1744,7 @@ struct l2tp_session *l2tp_session_create(int priv_size, struct l2tp_tunnel *tunn
 		else
 			session->build_header = l2tp_build_l2tpv3_header;
 
-		l2tp_session_set_header_len(session, tunnel->version, tunnel->encap);
+		__l2tp_session_set_header_len(session, tunnel->version, tunnel->encap);
 
 		l2tp_session_inc_refcount(session);
 

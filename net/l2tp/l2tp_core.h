@@ -274,7 +274,9 @@ void l2tp_recv_common(struct l2tp_session *session, struct sk_buff *skb,
 		      int length, int (*payload_hook)(struct sk_buff *skb));
 int l2tp_session_queue_purge(struct l2tp_session *session);
 int l2tp_udp_encap_recv(struct sock *sk, struct sk_buff *skb);
-void l2tp_session_set_header_len(struct l2tp_session *session, int version,
+void l2tp_session_set_header_len(struct l2tp_session *session, int version);
+/* Backported&updated version of l2tp_session_set_header_len() which should be used instead. */
+void __l2tp_session_set_header_len(struct l2tp_session *session, int version,
 				 enum l2tp_encap_type encap);
 
 int l2tp_xmit_skb(struct l2tp_session *session, struct sk_buff *skb,
