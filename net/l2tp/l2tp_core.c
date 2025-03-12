@@ -218,10 +218,18 @@ struct l2tp_session *l2tp_session_get(const struct net *net,
 		rcu_read_lock_bh();
 		hlist_for_each_entry_rcu(session, session_list, global_hlist) {
 			if (session->session_id == session_id) {
-				l2tp_session_inc_refcount(session);
-				rcu_read_unlock_bh();
+				/* session->tunnel may be NULL if another thread is in
+				 * l2tp_session_register and has added an item to
+				 * session_hlist but hasn't yet added the
+				 * session to its tunnel's session_list.
+				 */
+				struct l2tp_tunnel *tunnel = READ_ONCE(session->tunnel);
 
-				return session;
+				if (tunnel &&
+				    atomic_inc_not_zero(&session->ref_count)) {
+					rcu_read_unlock_bh();
+					return session;
+				}
 			}
 		}
 		rcu_read_unlock_bh();
@@ -338,11 +346,13 @@ int l2tp_session_register(struct l2tp_session *session,
 			}
 
 		l2tp_tunnel_inc_refcount(tunnel);
+		WRITE_ONCE(session->tunnel, tunnel);
 		hlist_add_head_rcu(&session->global_hlist, g_head);
 
 		spin_unlock_bh(&pn->l2tp_session_hlist_lock);
 	} else {
 		l2tp_tunnel_inc_refcount(tunnel);
+		WRITE_ONCE(session->tunnel, tunnel);
 	}
 
 	hlist_add_head(&session->hlist, head);
@@ -695,7 +705,8 @@ void l2tp_recv_common(struct l2tp_session *session, struct sk_buff *skb,
 				  "%s: requested to enable seq numbers by LNS\n",
 				  session->name);
 			session->send_seq = 1;
-			l2tp_session_set_header_len(session, tunnel->version);
+			l2tp_session_set_header_len(session, tunnel->version,
+						    tunnel->encap);
 		}
 	} else {
 		/* No sequence numbers.
@@ -719,7 +730,8 @@ void l2tp_recv_common(struct l2tp_session *session, struct sk_buff *skb,
 				  "%s: requested to disable seq numbers by LNS\n",
 				  session->name);
 			session->send_seq = 0;
-			l2tp_session_set_header_len(session, tunnel->version);
+			l2tp_session_set_header_len(session, tunnel->version,
+						    tunnel->encap);
 		} else if (session->send_seq) {
 			l2tp_warn(session, L2TP_MSG_SEQ,
 				  "%s: recv data has no seq numbers when required. Discarding.\n",
@@ -1650,7 +1662,8 @@ EXPORT_SYMBOL_GPL(l2tp_session_delete);
 /* We come here whenever a session's send_seq, cookie_len or
  * l2specific_type parameters are set.
  */
-void l2tp_session_set_header_len(struct l2tp_session *session, int version)
+void l2tp_session_set_header_len(struct l2tp_session *session, int version,
+				 enum l2tp_encap_type encap)
 {
 	if (version == L2TP_HDR_VER_2) {
 		session->hdr_len = 6;
@@ -1659,7 +1672,7 @@ void l2tp_session_set_header_len(struct l2tp_session *session, int version)
 	} else {
 		session->hdr_len = 4 + session->cookie_len;
 		session->hdr_len += l2tp_get_l2specific_len(session);
-		if (session->tunnel->encap == L2TP_ENCAPTYPE_UDP)
+		if (encap == L2TP_ENCAPTYPE_UDP)
 			session->hdr_len += 4;
 	}
 
@@ -1673,7 +1686,6 @@ struct l2tp_session *l2tp_session_create(int priv_size, struct l2tp_tunnel *tunn
 	session = kzalloc(sizeof(struct l2tp_session) + priv_size, GFP_KERNEL);
 	if (session != NULL) {
 		session->magic = L2TP_SESSION_MAGIC;
-		session->tunnel = tunnel;
 
 		session->session_id = session_id;
 		session->peer_session_id = peer_session_id;
@@ -1721,7 +1733,7 @@ struct l2tp_session *l2tp_session_create(int priv_size, struct l2tp_tunnel *tunn
 		else
 			session->build_header = l2tp_build_l2tpv3_header;
 
-		l2tp_session_set_header_len(session, tunnel->version);
+		l2tp_session_set_header_len(session, tunnel->version, tunnel->encap);
 
 		l2tp_session_inc_refcount(session);
 
