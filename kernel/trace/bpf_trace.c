@@ -2869,16 +2869,21 @@ static int get_modules_for_addrs(struct module ***mods, unsigned long *addrs, u3
 	u32 i, err = 0;
 
 	for (i = 0; i < addrs_cnt; i++) {
+		bool skip_add = false;
 		struct module *mod;
 
 		scoped_guard(rcu) {
 			mod = __module_address(addrs[i]);
-			/* Either no module or we it's already stored  */
-			if (!mod || has_module(&arr, mod))
-				continue;
+			/* Either no module or it's already stored  */
+			if (!mod || has_module(&arr, mod)) {
+				skip_add = true;
+				break; /* scoped_guard */
+			}
 			if (!try_module_get(mod))
 				err = -EINVAL;
 		}
+		if (skip_add)
+			continue;
 		if (err)
 			break;
 		err = add_module(&arr, mod);
