@@ -1453,9 +1453,6 @@ struct bpf_prog_aux {
 	bool sleepable;
 	bool tail_call_reachable;
 	bool xdp_has_frags;
-	bool is_extended; /* true if extended by freplace program */
-	u64 prog_array_member_cnt; /* counts how many times as member of prog_array */
-	struct mutex ext_mutex; /* mutex for is_extended and prog_array_member_cnt */
 	/* BTF_KIND_FUNC_PROTO for valid attach_btf_id */
 	const struct btf_type *attach_func_proto;
 	/* function name for valid attach_btf_id */
@@ -1516,6 +1513,9 @@ struct bpf_prog_aux {
 	};
 #ifndef __GENKSYMS__
 	bool attach_tracing_prog; /* true if tracing another tracing program */
+	bool is_extended; /* true if extended by freplace program */
+	u64 prog_array_member_cnt; /* counts how many times as member of prog_array */
+	struct mutex ext_mutex; /* mutex for is_extended and prog_array_member_cnt */
 #else
 	void *suse_kabi_padding;
 #endif
