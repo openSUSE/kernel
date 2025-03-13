@@ -501,11 +501,13 @@ static int smu_sys_set_pp_table(void *handle,
 	}
 
 	mutex_lock(&smu->mutex);
-	if (!smu_table->hardcode_pptable)
+	if (!smu_table->hardcode_pptable || smu_table->power_play_table_size < size) {
+		kfree(smu_table->hardcode_pptable);
 		smu_table->hardcode_pptable = kzalloc(size, GFP_KERNEL);
-	if (!smu_table->hardcode_pptable) {
-		ret = -ENOMEM;
-		goto failed;
+		if (!smu_table->hardcode_pptable) {
+			ret = -ENOMEM;
+			goto failed;
+		}
 	}
 
 	memcpy(smu_table->hardcode_pptable, buf, size);
