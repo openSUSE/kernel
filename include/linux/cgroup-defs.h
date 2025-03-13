@@ -42,6 +42,12 @@ struct poll_table_struct;
 #define SUBSYS(_x) _x ## _cgrp_id,
 enum cgroup_subsys_id {
 #include <linux/cgroup_subsys.h>
+	SUSE_KABI_CGROUP_SUBSYS_PADDING1,
+#ifndef __GENKSYMS__
+	CGROUP_SUBSYS_COUNT_USED = SUSE_KABI_CGROUP_SUBSYS_PADDING1,
+#endif
+	SUSE_KABI_CGROUP_SUBSYS_PADDING2,
+	SUSE_KABI_CGROUP_SUBSYS_PADDING3,
 	CGROUP_SUBSYS_COUNT,
 };
 #undef SUBSYS

@@ -177,10 +177,10 @@ extern struct list_head cgroup_roots;
 /**
  * for_each_subsys - iterate all enabled cgroup subsystems
  * @ss: the iteration cursor
- * @ssid: the index of @ss, CGROUP_SUBSYS_COUNT after reaching the end
+ * @ssid: the index of @ss, CGROUP_SUBSYS_COUNT_USED after reaching the end
  */
 #define for_each_subsys(ss, ssid)					\
-	for ((ssid) = 0; (ssid) < CGROUP_SUBSYS_COUNT &&		\
+	for ((ssid) = 0; (ssid) < CGROUP_SUBSYS_COUNT_USED &&		\
 	     (((ss) = cgroup_subsys[ssid]) || true); (ssid)++)
 
 static inline bool cgroup_is_dead(const struct cgroup *cgrp)
