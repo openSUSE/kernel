@@ -33,12 +33,26 @@ static const char SMC_EYECATCHER[4] = {'\xe2', '\xd4', '\xc3', '\xd9'};
 /* eye catcher "SMCD" EBCDIC for CLC messages */
 static const char SMCD_EYECATCHER[4] = {'\xe2', '\xd4', '\xc3', '\xc4'};
 
+static bool smc_clc_msg_prop_valid(struct smc_clc_msg_proposal *pclc)
+{
+	struct smc_clc_msg_proposal_prefix *pclc_prfx = smc_clc_proposal_get_prefix(pclc);
+	if (!pclc_prfx || pclc_prfx->ipv6_prefixes_cnt > SMC_CLC_MAX_V6_PREFIX)
+		return false;
+	if (ntohs(pclc->hdr.length) <
+		sizeof(*pclc) + ntohs(pclc->iparea_offset) +
+		sizeof(*pclc_prfx) +
+		pclc_prfx->ipv6_prefixes_cnt *
+			sizeof(struct smc_clc_ipv6_prefix) +
+		sizeof(struct smc_clc_msg_trail)
+		)
+		return false;
+	return true;
+}
 /* check if received message has a correct header length and contains valid
  * heading and trailing eyecatchers
  */
 static bool smc_clc_msg_hdr_valid(struct smc_clc_msg_hdr *clcm, bool check_trl)
 {
-	struct smc_clc_msg_proposal_prefix *pclc_prfx;
 	struct smc_clc_msg_accept_confirm *clc;
 	struct smc_clc_msg_proposal *pclc;
 	struct smc_clc_msg_decline *dclc;
@@ -50,13 +64,7 @@ static bool smc_clc_msg_hdr_valid(struct smc_clc_msg_hdr *clcm, bool check_trl)
 	switch (clcm->type) {
 	case SMC_CLC_PROPOSAL:
 		pclc = (struct smc_clc_msg_proposal *)clcm;
-		pclc_prfx = smc_clc_proposal_get_prefix(pclc);
-		if (ntohs(pclc->hdr.length) <
-			sizeof(*pclc) + ntohs(pclc->iparea_offset) +
-			sizeof(*pclc_prfx) +
-			pclc_prfx->ipv6_prefixes_cnt *
-				sizeof(struct smc_clc_ipv6_prefix) +
-			sizeof(*trl))
+		if (!smc_clc_msg_prop_valid(pclc))
 			return false;
 		trl = (struct smc_clc_msg_trail *)
 			((u8 *)pclc + ntohs(pclc->hdr.length) - sizeof(*trl));

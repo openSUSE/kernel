@@ -1149,6 +1149,8 @@ static int smc_listen_prfx_check(struct smc_sock *new_smc,
 	struct socket *newclcsock = new_smc->clcsock;
 
 	pclc_prfx = smc_clc_proposal_get_prefix(pclc);
+	if (!pclc_prfx)
+		return -EPROTO;
 	if (smc_clc_prfx_match(newclcsock, pclc_prfx))
 		return SMC_CLC_DECL_DIFFPREFIX;
 
@@ -1257,6 +1259,11 @@ decline:
 	return reason_code;
 }
 
+static inline bool smcd_indicated(int smc_type)
+{
+	return smc_type == SMC_TYPE_D || smc_type== SMC_TYPE_B;
+}
+
 /* setup for RDMA connection of server */
 static void smc_listen_work(struct work_struct *work)
 {
@@ -1265,6 +1272,7 @@ static void smc_listen_work(struct work_struct *work)
 	struct socket *newclcsock = new_smc->clcsock;
 	struct smc_clc_msg_accept_confirm cclc;
 	struct smc_clc_msg_proposal *pclc;
+	struct smc_clc_msg_smcd *pclc_smcd;
 	struct smc_init_info ini = {0};
 	bool ism_supported = false;
 	u8 buf[SMC_CLC_MAX_LEN];
@@ -1321,7 +1329,8 @@ static void smc_listen_work(struct work_struct *work)
 	smc_tx_init(new_smc);
 
 	/* check if ISM is available */
-	if (pclc->hdr.path == SMC_TYPE_D || pclc->hdr.path == SMC_TYPE_B) {
+	pclc_smcd = smc_get_clc_msg_smcd(pclc);
+	if (smcd_indicated(pclc->hdr.path) && pclc_smcd) {
 		ini.is_smcd = true; /* prepare ISM check */
 		rc = smc_find_ism_device(new_smc, &ini);
 		if (!rc)
