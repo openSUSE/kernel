@@ -81,6 +81,8 @@ static __be32 nfsacld_proc_getacl(struct svc_rqst * rqstp,
 fail:
 	posix_acl_release(resp->acl_access);
 	posix_acl_release(resp->acl_default);
+	resp->acl_access = NULL;
+	resp->acl_default = NULL;
 	RETURN_STATUS(nfserr);
 }
 
