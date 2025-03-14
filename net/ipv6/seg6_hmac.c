@@ -380,51 +380,61 @@ static void seg6_hmac_free_algo(struct seg6_hmac_algo *algo)
 	}
 }
 
-static int seg6_hmac_init_algo(void)
+static int seg6_hmac_init_algo(struct seg6_hmac_algo *algo)
 {
-	struct seg6_hmac_algo *algo;
-	struct crypto_shash *tfm;
+	struct crypto_shash *tfm, **p_tfm;
 	struct shash_desc *shash;
-	int i, alg_count, cpu;
+	int cpu, shsize;
 	int ret = -ENOMEM;
 
+	algo->tfms = alloc_percpu(struct crypto_shash *);
+	if (!algo->tfms)
+		goto error_out;
+
+	for_each_possible_cpu(cpu) {
+		tfm = crypto_alloc_shash(algo->name, 0, 0);
+		if (IS_ERR(tfm)) {
+			ret = PTR_ERR(tfm);
+			goto error_out;
+		}
+		p_tfm = per_cpu_ptr(algo->tfms, cpu);
+		*p_tfm = tfm;
+	}
+
+	p_tfm = raw_cpu_ptr(algo->tfms);
+	tfm = *p_tfm;
+
+	shsize = sizeof(*shash) + crypto_shash_descsize(tfm);
+
+	algo->shashs = alloc_percpu(struct shash_desc *);
+	if (!algo->shashs)
+		goto error_out;
+
+	for_each_possible_cpu(cpu) {
+		shash = kzalloc_node(shsize, GFP_KERNEL,
+				     cpu_to_node(cpu));
+		if (!shash)
+			goto error_out;
+		*per_cpu_ptr(algo->shashs, cpu) = shash;
+	}
+
+	return 0;
+
+error_out:
+	seg6_hmac_free_algo(algo);
+	return ret;
+}
+
+static int seg6_hmac_init_algos(void)
+{
+	int i, alg_count;
+	int ret;
+
 	alg_count = ARRAY_SIZE(hmac_algos);
-
 	for (i = 0; i < alg_count; i++) {
-		struct crypto_shash **p_tfm;
-		int shsize;
-
-		algo = &hmac_algos[i];
-		algo->tfms = alloc_percpu(struct crypto_shash *);
-		if (!algo->tfms)
+		ret = seg6_hmac_init_algo(&hmac_algos[i]);
+		if (ret)
 			goto error_out;
-
-		for_each_possible_cpu(cpu) {
-			tfm = crypto_alloc_shash(algo->name, 0, 0);
-			if (IS_ERR(tfm)) {
-				ret = PTR_ERR(tfm);
-				goto error_out;
-			}
-			p_tfm = per_cpu_ptr(algo->tfms, cpu);
-			*p_tfm = tfm;
-		}
-
-		p_tfm = raw_cpu_ptr(algo->tfms);
-		tfm = *p_tfm;
-
-		shsize = sizeof(*shash) + crypto_shash_descsize(tfm);
-
-		algo->shashs = alloc_percpu(struct shash_desc *);
-		if (!algo->shashs)
-			goto error_out;
-
-		for_each_possible_cpu(cpu) {
-			shash = kzalloc_node(shsize, GFP_KERNEL,
-					     cpu_to_node(cpu));
-			if (!shash)
-				goto error_out;
-			*per_cpu_ptr(algo->shashs, cpu) = shash;
-		}
 	}
 
 	return 0;
@@ -436,7 +446,7 @@ error_out:
 
 int __init seg6_hmac_init(void)
 {
-	return seg6_hmac_init_algo();
+	return seg6_hmac_init_algos();
 }
 
 int __net_init seg6_hmac_net_init(struct net *net)
