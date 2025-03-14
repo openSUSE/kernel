@@ -1944,6 +1944,7 @@ struct hci_cb {
 
 	char *name;
 
+	bool (*match)		(struct hci_conn *conn); // FIXME: not used, only for kABI
 	void (*connect_cfm)	(struct hci_conn *conn, __u8 status);
 	void (*disconn_cfm)	(struct hci_conn *conn, __u8 status);
 	void (*security_cfm)	(struct hci_conn *conn, __u8 status,
