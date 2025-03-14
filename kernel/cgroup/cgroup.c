@@ -656,13 +656,13 @@ EXPORT_SYMBOL_GPL(of_css);
 /**
  * for_each_css - iterate all css's of a cgroup
  * @css: the iteration cursor
- * @ssid: the index of the subsystem, CGROUP_SUBSYS_COUNT after reaching the end
+ * @ssid: the index of the subsystem, CGROUP_SUBSYS_COUNT_USED after reaching the end
  * @cgrp: the target cgroup to iterate css's of
  *
  * Should be called under cgroup_mutex.
  */
 #define for_each_css(css, ssid, cgrp)					\
-	for ((ssid) = 0; (ssid) < CGROUP_SUBSYS_COUNT; (ssid)++)	\
+	for ((ssid) = 0; (ssid) < CGROUP_SUBSYS_COUNT_USED; (ssid)++)	\
 		if (!((css) = rcu_dereference_check(			\
 				(cgrp)->subsys[(ssid)],			\
 				lockdep_is_held(&cgroup_mutex)))) { }	\
@@ -671,7 +671,7 @@ EXPORT_SYMBOL_GPL(of_css);
 /**
  * do_each_subsys_mask - filter for_each_subsys with a bitmask
  * @ss: the iteration cursor
- * @ssid: the index of @ss, CGROUP_SUBSYS_COUNT after reaching the end
+ * @ssid: the index of @ss, CGROUP_SUBSYS_COUNT_USED after reaching the end
  * @ss_mask: the bitmask
  *
  * The block will only run for cases where the ssid-th bit (1 << ssid) of
@@ -683,7 +683,7 @@ EXPORT_SYMBOL_GPL(of_css);
 		(ssid) = 0;						\
 		break;							\
 	}								\
-	for_each_set_bit(ssid, &__ss_mask, CGROUP_SUBSYS_COUNT) {	\
+	for_each_set_bit(ssid, &__ss_mask, CGROUP_SUBSYS_COUNT_USED) {	\
 		(ss) = cgroup_subsys[ssid];				\
 		{
 
@@ -3422,7 +3422,7 @@ static ssize_t cgroup_subtree_control_write(struct kernfs_open_file *of,
 			}
 			break;
 		} while_each_subsys_mask();
-		if (ssid == CGROUP_SUBSYS_COUNT)
+		if (ssid == CGROUP_SUBSYS_COUNT_USED)
 			return -EINVAL;
 	}
 
@@ -3691,7 +3691,7 @@ static int cgroup_stat_show(struct seq_file *seq, void *v)
 	 * numbers may not be consistent when that happens.
 	 */
 	rcu_read_lock();
-	for (ssid = 0; ssid < CGROUP_SUBSYS_COUNT; ssid++) {
+	for (ssid = 0; ssid < CGROUP_SUBSYS_COUNT_USED; ssid++) {
 		dying_cnt[ssid] = -1;
 		if ((BIT(ssid) & cgrp_dfl_inhibit_ss_mask) ||
 		    (cgroup_subsys[ssid]->root !=  &cgrp_dfl_root))
@@ -3704,7 +3704,7 @@ static int cgroup_stat_show(struct seq_file *seq, void *v)
 
 	seq_printf(seq, "nr_dying_descendants %d\n",
 		   cgroup->nr_dying_descendants);
-	for (ssid = 0; ssid < CGROUP_SUBSYS_COUNT; ssid++) {
+	for (ssid = 0; ssid < CGROUP_SUBSYS_COUNT_USED; ssid++) {
 		if (dying_cnt[ssid] >= 0)
 			seq_printf(seq, "nr_dying_subsys_%s %d\n",
 				   cgroup_subsys[ssid]->name, dying_cnt[ssid]);

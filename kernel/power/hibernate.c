@@ -100,7 +100,7 @@ bool hibernation_available(void)
 		if (get_efi_secret_key())
 			return true;
 		else
-			pr_warn("the secret key is invalid\n");
+			pr_notice("The secret key is invalid. It can be regenerated through /sys/firmware/efi/secret-key/regen\n");
 		return false;
 	} else {
 		return true;
