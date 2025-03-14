@@ -108,7 +108,7 @@ static struct seg6_hmac_algo *__hmac_get_algo(u8 alg_id)
 	alg_count = ARRAY_SIZE(hmac_algos);
 	for (i = 0; i < alg_count; i++) {
 		algo = &hmac_algos[i];
-		if (algo->alg_id == alg_id)
+		if (algo->alg_id == alg_id && algo->tfms)
 			return algo;
 	}
 
@@ -293,7 +293,12 @@ EXPORT_SYMBOL(seg6_hmac_info_lookup);
 int seg6_hmac_info_add(struct net *net, u32 key, struct seg6_hmac_info *hinfo)
 {
 	struct seg6_pernet_data *sdata = seg6_pernet(net);
+	struct seg6_hmac_algo *algo;
 	int err;
+
+	algo = __hmac_get_algo(hinfo->alg_id);
+	if (!algo || !algo->tfms)
+		return -ENOENT;
 
 	err = rhashtable_lookup_insert_fast(&sdata->hmac_infos, &hinfo->node,
 					    rht_params);
