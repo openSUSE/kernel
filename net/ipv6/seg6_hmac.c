@@ -433,7 +433,7 @@ static int seg6_hmac_init_algos(void)
 	alg_count = ARRAY_SIZE(hmac_algos);
 	for (i = 0; i < alg_count; i++) {
 		ret = seg6_hmac_init_algo(&hmac_algos[i]);
-		if (ret)
+		if (ret && ret != -ENOENT)
 			goto error_out;
 	}
 
