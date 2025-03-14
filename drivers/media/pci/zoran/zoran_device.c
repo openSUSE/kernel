@@ -1142,7 +1142,7 @@ zoran_reap_stat_com (struct zoran *zr)
 			     zr->jpg_err_shift) & BUZ_MASK_STAT_COM;
 		else
 			i = ((zr->jpg_dma_tail -
-			      zr->jpg_err_shift) & 1) * 2 + 1;
+			      zr->jpg_err_shift) & 1) * 2;
 
 		stat_com = le32_to_cpu(zr->stat_com[i]);
 
