@@ -654,6 +654,8 @@ static int sfq_change(struct Qdisc *sch, struct nlattr *opt)
 		if (!p)
 			return -ENOMEM;
 	}
+	if (ctl->limit == 1)
+		return -EINVAL;
 	sch_tree_lock(sch);
 	if (ctl->quantum) {
 		q->quantum = ctl->quantum;
