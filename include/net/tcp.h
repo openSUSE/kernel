@@ -840,9 +840,17 @@ static inline u32 tcp_time_stamp(const struct tcp_sock *tp)
 }
 
 /* Convert a nsec timestamp into TCP TSval timestamp (ms based currently) */
-static inline u64 tcp_ns_to_ts(u64 ns)
+static inline u64 __tcp_ns_to_ts(u64 ns)
 {
 	return div_u64(ns, NSEC_PER_SEC / TCP_TS_HZ);
+}
+
+/* Convert a nsec timestamp into TCP TSval timestamp (ms based currently)
+ * Backported version before 73ed8e0338 ("tcp: fix cookie_init_timestamp()
+ * overflows") */
+static inline u32 tcp_ns_to_ts(u64 ns)
+{
+	return __tcp_ns_to_ts(ns);
 }
 
 void tcp_mstamp_refresh(struct tcp_sock *tp);
@@ -854,7 +862,7 @@ static inline u32 tcp_stamp_us_delta(u64 t1, u64 t0)
 
 static inline u32 tcp_skb_timestamp(const struct sk_buff *skb)
 {
-	return tcp_ns_to_ts(skb->skb_mstamp_ns);
+	return __tcp_ns_to_ts(skb->skb_mstamp_ns);
 }
 
 /* provide the departure time in us unit */

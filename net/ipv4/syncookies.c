@@ -62,7 +62,7 @@ static u32 cookie_hash(__be32 saddr, __be32 daddr, __be16 sport, __be16 dport,
 u64 cookie_init_timestamp(struct request_sock *req, u64 now)
 {
 	const struct inet_request_sock *ireq = inet_rsk(req);
-	u64 ts, ts_now = tcp_ns_to_ts(now);
+	u64 ts, ts_now = __tcp_ns_to_ts(now);
 	u32 options = 0;
 
 	options = ireq->wscale_ok ? ireq->snd_wscale : TS_OPT_WSCALE_MASK;
