@@ -853,6 +853,12 @@ static inline u32 tcp_ns_to_ts(u64 ns)
 	return __tcp_ns_to_ts(ns);
 }
 
+/* Could use tcp_clock_us() / 1000, but this version uses a single divide */
+static inline u32 tcp_time_stamp_raw(void)
+{
+	return tcp_ns_to_ts(tcp_clock_ns());
+}
+
 void tcp_mstamp_refresh(struct tcp_sock *tp);
 
 static inline u32 tcp_stamp_us_delta(u64 t1, u64 t0)
