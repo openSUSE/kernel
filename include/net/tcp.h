@@ -631,6 +631,7 @@ void tcp_skb_collapse_tstamp(struct sk_buff *skb,
 /* tcp_input.c */
 void tcp_rearm_rto(struct sock *sk);
 void tcp_synack_rtt_meas(struct sock *sk, struct request_sock *req);
+void tcp_done_with_error(struct sock *sk, int err);
 void tcp_reset(struct sock *sk, struct sk_buff *skb);
 void tcp_skb_mark_lost_uncond_verify(struct tcp_sock *tp, struct sk_buff *skb);
 void tcp_fin(struct sock *sk);
@@ -744,6 +745,8 @@ static inline void tcp_fast_path_check(struct sock *sk)
 		tcp_fast_path_on(tp);
 }
 
+u32 tcp_delack_max(const struct sock *sk);
+
 /* Compute the actual rto_min value */
 static inline u32 tcp_rto_min(struct sock *sk)
 {
@@ -815,6 +818,21 @@ static inline u64 tcp_clock_us(void)
 	return div_u64(tcp_clock_ns(), NSEC_PER_USEC);
 }
 
+static inline u64 tcp_clock_ms(void)
+{
+	return div_u64(tcp_clock_ns(), NSEC_PER_MSEC);
+}
+
+/* TCP Timestamp included in TS option (RFC 1323) can either use ms
+ * or usec resolution. Each socket carries a flag to select one or other
+ * resolution, as the route attribute could change anytime.
+ * Each flow must stick to initial resolution.
+ */
+static inline u32 tcp_clock_ts(bool usec_ts)
+{
+	return usec_ts ? tcp_clock_us() : tcp_clock_ms();
+}
+
 /* This should only be used in contexts where tp->tcp_mstamp is up to date */
 static inline u32 tcp_time_stamp(const struct tcp_sock *tp)
 {
@@ -822,9 +840,17 @@ static inline u32 tcp_time_stamp(const struct tcp_sock *tp)
 }
 
 /* Convert a nsec timestamp into TCP TSval timestamp (ms based currently) */
-static inline u32 tcp_ns_to_ts(u64 ns)
+static inline u64 __tcp_ns_to_ts(u64 ns)
 {
 	return div_u64(ns, NSEC_PER_SEC / TCP_TS_HZ);
+}
+
+/* Convert a nsec timestamp into TCP TSval timestamp (ms based currently)
+ * Backported version before 73ed8e0338 ("tcp: fix cookie_init_timestamp()
+ * overflows") */
+static inline u32 tcp_ns_to_ts(u64 ns)
+{
+	return __tcp_ns_to_ts(ns);
 }
 
 /* Could use tcp_clock_us() / 1000, but this version uses a single divide */
@@ -842,7 +868,7 @@ static inline u32 tcp_stamp_us_delta(u64 t1, u64 t0)
 
 static inline u32 tcp_skb_timestamp(const struct sk_buff *skb)
 {
-	return tcp_ns_to_ts(skb->skb_mstamp_ns);
+	return __tcp_ns_to_ts(skb->skb_mstamp_ns);
 }
 
 /* provide the departure time in us unit */
@@ -851,6 +877,15 @@ static inline u64 tcp_skb_timestamp_us(const struct sk_buff *skb)
 	return div_u64(skb->skb_mstamp_ns, NSEC_PER_USEC);
 }
 
+static inline u32 tcp_tw_tsval(const struct tcp_timewait_sock *tcptw)
+{
+	return tcp_clock_ts(false) + tcptw->tw_ts_offset;
+}
+
+static inline u32 tcp_rsk_tsval(const struct tcp_request_sock *treq)
+{
+	return tcp_clock_ts(false) + treq->ts_off;
+}
 
 #define tcp_flag_byte(th) (((u_int8_t *)th)[13])
 
@@ -1502,15 +1537,20 @@ static inline int tcp_full_space(const struct sock *sk)
 	return tcp_win_from_space(sk, READ_ONCE(sk->sk_rcvbuf));
 }
 
-static inline void tcp_adjust_rcv_ssthresh(struct sock *sk)
+static inline void __tcp_adjust_rcv_ssthresh(struct sock *sk, u32 new_ssthresh)
 {
 	int unused_mem = sk_unused_reserved_mem(sk);
 	struct tcp_sock *tp = tcp_sk(sk);
 
-	tp->rcv_ssthresh = min(tp->rcv_ssthresh, 4U * tp->advmss);
+	tp->rcv_ssthresh = min(tp->rcv_ssthresh, new_ssthresh);
 	if (unused_mem)
 		tp->rcv_ssthresh = max_t(u32, tp->rcv_ssthresh,
 					 tcp_win_from_space(sk, unused_mem));
+}
+
+static inline void tcp_adjust_rcv_ssthresh(struct sock *sk)
+{
+	__tcp_adjust_rcv_ssthresh(sk, 4U * tcp_sk(sk)->advmss);
 }
 
 void tcp_cleanup_rbuf(struct sock *sk, int copied);
