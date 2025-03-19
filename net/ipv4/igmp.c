@@ -812,7 +812,7 @@ static void igmp_gq_timer_expire(unsigned long data)
 static void igmp_ifc_timer_expire(unsigned long data)
 {
 	struct in_device *in_dev = (struct in_device *)data;
-	u8 mr_ifc_count;
+	u32 mr_ifc_count;
 
 	igmpv3_send_cr(in_dev);
 restart:
