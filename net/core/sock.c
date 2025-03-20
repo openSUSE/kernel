@@ -696,8 +696,12 @@ int sock_setsockopt(struct socket *sock, int level, int optname,
 		break;
 	case SO_REUSEPORT:
 		family = READ_ONCE(sk->sk_family);
+		/* SO_REUSEPORT has no practical effet on non INET sockets.
+		 * Instead of returning ENOTSUPP, return 0 but ignore the flag
+		 * on non INET socks so we keep legacy userland apps working
+		 * while avoiding CVE-2024-57903 */
 		if (valbool && !(family == AF_INET || family == AF_INET6))
-			ret = -EOPNOTSUPP;
+			ret = 0;
 		else
 			sk->sk_reuseport = valbool;
 		break;

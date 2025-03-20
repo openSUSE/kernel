@@ -270,7 +270,7 @@ static inline bool sysctl_dev_name_is_allowed(const char *name)
 
 static inline int inet_prot_sock(struct net *net)
 {
-	return net->ipv4.sysctl_ip_prot_sock;
+	return  READ_ONCE(net->ipv4.sysctl_ip_prot_sock);
 }
 
 #else
