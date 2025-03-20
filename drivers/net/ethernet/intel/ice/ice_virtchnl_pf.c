@@ -201,6 +201,8 @@ static void ice_dis_vf_mappings(struct ice_vf *vf)
 
 	hw = &pf->hw;
 	vsi = pf->vsi[vf->lan_vsi_idx];
+	if (WARN_ON(!vsi))
+		return;
 
 	wr32(hw, VPINT_ALLOC(vf->vf_id), 0);
 	wr32(hw, VPINT_ALLOC_PCI(vf->vf_id), 0);
@@ -263,6 +265,8 @@ void ice_free_vfs(struct ice_pf *pf)
 			continue;
 
 		vsi = pf->vsi[pf->vf[i].lan_vsi_idx];
+		if (WARN_ON(!vsi))
+			continue;
 		/* stop rings without wait time */
 		ice_vsi_stop_lan_tx_rings(vsi, ICE_NO_RESET, i);
 		ice_vsi_stop_rx_rings(vsi);
@@ -580,6 +584,9 @@ static void ice_ena_vf_mappings(struct ice_vf *vf)
 
 	hw = &pf->hw;
 	vsi = pf->vsi[vf->lan_vsi_idx];
+	if (WARN_ON(!vsi))
+		return;
+
 	first = vf->first_vector_idx +
 		hw->func_caps.common_cap.msix_vector_first_id;
 	last = (first + pf->num_vf_msix) - 1;
@@ -885,6 +892,8 @@ bool ice_reset_all_vfs(struct ice_pf *pf, bool is_vflr)
 
 		vf = &pf->vf[v];
 		vsi = pf->vsi[vf->lan_vsi_idx];
+		if (WARN_ON(!vsi))
+			continue;
 		if (test_bit(ICE_VF_STATE_ENA, vf->vf_states)) {
 			ice_vsi_stop_lan_tx_rings(vsi, ICE_VF_RESET, vf->vf_id);
 			ice_vsi_stop_rx_rings(vsi);
@@ -987,6 +996,8 @@ static bool ice_reset_vf(struct ice_vf *vf, bool is_vflr)
 	ice_trigger_vf_reset(vf, is_vflr);
 
 	vsi = pf->vsi[vf->lan_vsi_idx];
+	if (WARN_ON(!vsi))
+		return  -EIO;
 
 	if (test_bit(ICE_VF_STATE_ENA, vf->vf_states)) {
 		ice_vsi_stop_lan_tx_rings(vsi, ICE_VF_RESET, vf->vf_id);
@@ -2516,6 +2527,11 @@ static int ice_vc_ena_vlan_stripping(struct ice_vf *vf)
 	}
 
 	vsi = pf->vsi[vf->lan_vsi_idx];
+	if (!vsi) {
+		v_ret = VIRTCHNL_STATUS_ERR_PARAM;
+		goto error_param;
+	}
+
 	if (ice_vsi_manage_vlan_stripping(vsi, true))
 		v_ret = VIRTCHNL_STATUS_ERR_PARAM;
 
