@@ -175,7 +175,9 @@ void inet_csk_init_xmit_timers(struct sock *sk,
 			       void (*delack_handler)(unsigned long),
 			       void (*keepalive_handler)(unsigned long));
 void inet_csk_clear_xmit_timers(struct sock *sk);
+#ifndef __GENKSYMS__
 void inet_csk_clear_xmit_timers_sync(struct sock *sk);
+#endif
 
 static inline void inet_csk_schedule_ack(struct sock *sk)
 {
