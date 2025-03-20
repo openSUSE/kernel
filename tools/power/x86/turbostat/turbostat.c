@@ -2292,7 +2292,7 @@ void print_header(char *delim)
 			break;
 
 		case PMT_TYPE_XTAL_TIME:
-			outp += sprintf(outp, "%s%s", delim, ppmt->name);
+			outp += sprintf(outp, "%s%s", (printed++ ? delim : ""), ppmt->name);
 			break;
 		}
 
@@ -2366,7 +2366,7 @@ void print_header(char *delim)
 			break;
 
 		case PMT_TYPE_XTAL_TIME:
-			outp += sprintf(outp, "%s%s", delim, ppmt->name);
+			outp += sprintf(outp, "%s%s", (printed++ ? delim : ""), ppmt->name);
 			break;
 		}
 
@@ -2497,7 +2497,7 @@ void print_header(char *delim)
 			break;
 
 		case PMT_TYPE_XTAL_TIME:
-			outp += sprintf(outp, "%s%s", delim, ppmt->name);
+			outp += sprintf(outp, "%s%s", (printed++ ? delim : ""), ppmt->name);
 			break;
 		}
 
