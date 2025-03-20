@@ -431,7 +431,6 @@ static int zswap_cpu_comp_prepare(unsigned int cpu, struct hlist_node *node)
 		ret = PTR_ERR(acomp);
 		goto fail;
 	}
-	acomp_ctx->acomp = acomp;
 
 	req = acomp_request_alloc(acomp);
 	if (!req) {
@@ -440,6 +439,7 @@ static int zswap_cpu_comp_prepare(unsigned int cpu, struct hlist_node *node)
 		ret = -ENOMEM;
 		goto fail;
 	}
+
 	/*
 	 * Only hold the mutex after completing allocations, otherwise we may
 	 * recurse into zswap through reclaim and attempt to hold the mutex
@@ -496,7 +496,7 @@ static struct crypto_acomp_ctx *acomp_ctx_get_cpu_lock(struct zswap_pool *pool)
 		acomp_ctx = raw_cpu_ptr(pool->acomp_ctx);
 		mutex_lock(&acomp_ctx->mutex);
 		if (likely(acomp_ctx->req))
-		        return acomp_ctx;
+			return acomp_ctx;
 		/*
 		 * It is possible that we were migrated to a different CPU after
 		 * getting the per-CPU ctx but before the mutex was acquired. If
@@ -505,12 +505,12 @@ static struct crypto_acomp_ctx *acomp_ctx_get_cpu_lock(struct zswap_pool *pool)
 		 * NULL. Just try again on the new CPU that we ended up on.
 		 */
 		mutex_unlock(&acomp_ctx->mutex);
-	}
+       }
 }
 
 static void acomp_ctx_put_unlock(struct crypto_acomp_ctx *acomp_ctx)
 {
-       mutex_unlock(&acomp_ctx->mutex);
+	mutex_unlock(&acomp_ctx->mutex);
 }
 
 /*********************************
