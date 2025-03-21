@@ -10077,6 +10077,20 @@ int ufshcd_system_thaw(struct device *dev)
 EXPORT_SYMBOL_GPL(ufshcd_system_thaw);
 #endif /* CONFIG_PM_SLEEP  */
 
+ /**
+ * ufshcd_dealloc_host - deallocate Host Bus Adapter (HBA)
+ * @hba: pointer to Host Bus Adapter (HBA)
+ *
+ * XXX: this was removed upstream, but added back, here,
+ * for kABI compatability, even though nobody should be
+ * calling this any longer
+ */
+void ufshcd_dealloc_host(struct ufs_hba *hba)
+{
+	scsi_host_put(hba->host);
+}
+EXPORT_SYMBOL_GPL(ufshcd_dealloc_host);
+
 /**
  * ufshcd_set_dma_mask - Set dma mask based on the controller
  *			 addressing capability
