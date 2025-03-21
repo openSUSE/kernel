@@ -3943,6 +3943,9 @@ u32 igc_rd32(struct igc_hw *hw, u32 reg)
 	if (IGC_REMOVED(hw_addr))
 		return ~value;
 
+	if (IGC_REMOVED(hw_addr))
+		return ~value;
+
 	value = readl(&hw_addr[reg]);
 
 	/* reads should not return all F's */
