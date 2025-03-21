@@ -197,8 +197,7 @@ acpi_physical_address __init acpi_os_get_root_pointer(void)
 	 * specific location (if appropriate) so it can be carried
 	 * over further kexec()s.
 	 */
-	if (acpi_rsdp && !security_locked_down(LOCKDOWN_ACPI_TABLES) &&
-	    !kernel_is_locked_down_early(LOCKDOWN_ACPI_TABLES)) {
+	if (acpi_rsdp && !security_locked_down(LOCKDOWN_ACPI_TABLES)) {
 		acpi_arch_set_root_pointer(acpi_rsdp);
 		return acpi_rsdp;
 	}
