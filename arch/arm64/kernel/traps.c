@@ -172,6 +172,14 @@ static void dump_kernel_instr(const char *lvl, struct pt_regs *regs)
 	printk("%sCode: %s\n", lvl, str);
 }
 
+#ifdef CONFIG_PREEMPT
+#define S_PREEMPT " PREEMPT"
+#elif defined(CONFIG_PREEMPT_RT)
+#define S_PREEMPT " PREEMPT_RT"
+#else
+#define S_PREEMPT ""
+#endif
+
 #define S_SMP " SMP"
 
 static int __die(const char *str, long err, struct pt_regs *regs)
@@ -179,8 +187,8 @@ static int __die(const char *str, long err, struct pt_regs *regs)
 	static int die_counter;
 	int ret;
 
-	pr_emerg("Internal error: %s: %016lx [#%d] %s" S_SMP "\n",
-		 str, err, ++die_counter, preempt_model_str());
+	pr_emerg("Internal error: %s: %016lx [#%d]" S_PREEMPT S_SMP "\n",
+		 str, err, ++die_counter);
 
 	/* trap and error numbers are mostly meaningless on ARM */
 	ret = notify_die(DIE_OOPS, str, regs, err, 0, SIGSEGV);
