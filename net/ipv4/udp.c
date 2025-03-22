@@ -441,7 +441,7 @@ u32 udp_ehashfn(const struct net *net, const __be32 laddr, const __u16 lport,
  *
  * Return: socket with highest matching score if any, NULL if none
  */
-static struct sock *udp4_lib_lookup1(const struct net *net,
+static struct sock *udp4_lib_lookup1(struct net *net,
 				     __be32 saddr, __be16 sport,
 				     __be32 daddr, unsigned int hnum,
 				     int dif, int sdif,
