@@ -37,7 +37,11 @@ struct in_device {
 	unsigned long		mr_maxdelay;
 	unsigned char		mr_qrv;
 	unsigned char		mr_gq_running;
+#ifdef __GENKSYMS__
 	unsigned char		mr_ifc_count;
+#else
+	u32			mr_ifc_count;
+#endif
 	struct timer_list	mr_gq_timer;	/* general query timer */
 	struct timer_list	mr_ifc_timer;	/* interface change timer */
 
