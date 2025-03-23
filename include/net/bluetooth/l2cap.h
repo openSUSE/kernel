@@ -668,7 +668,11 @@ struct l2cap_conn {
 	struct l2cap_chan	*smp;
 
 	struct list_head	chan_l;
+#ifdef __GENKSYMS__
+	struct mutex		chan_lock;
+#else
 	struct mutex		lock;
+#endif
 	struct kref		ref;
 	struct list_head	users;
 };
