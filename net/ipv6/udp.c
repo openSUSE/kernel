@@ -182,7 +182,7 @@ static int compute_score(struct sock *sk, struct net *net,
  *
  * Return: socket with highest matching score if any, NULL if none
  */
-static struct sock *udp6_lib_lookup1(const struct net *net,
+static struct sock *udp6_lib_lookup1(struct net *net,
 				     const struct in6_addr *saddr, __be16 sport,
 				     const struct in6_addr *daddr,
 				     unsigned int hnum, int dif, int sdif,
