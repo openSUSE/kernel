@@ -190,7 +190,9 @@ static u32 mana_get_rxfh_key_size(struct net_device *ndev)
 
 static u32 mana_rss_indir_size(struct net_device *ndev)
 {
-	return MANA_INDIRECT_TABLE_SIZE;
+	struct mana_port_context *apc = netdev_priv(ndev);
+
+	return apc->indir_table_sz;
 }
 
 static int mana_get_rxfh(struct net_device *ndev, u32 *indir, u8 *key,
@@ -203,7 +205,7 @@ static int mana_get_rxfh(struct net_device *ndev, u32 *indir, u8 *key,
 		*hfunc = ETH_RSS_HASH_TOP; /* Toeplitz */
 
 	if (indir) {
-		for (i = 0; i < MANA_INDIRECT_TABLE_SIZE; i++)
+		for (i = 0; i < apc->indir_table_sz; i++)
 			indir[i] = apc->indir_table[i];
 	}
 
@@ -218,8 +220,8 @@ static int mana_set_rxfh(struct net_device *ndev, const u32 *indir,
 {
 	struct mana_port_context *apc = netdev_priv(ndev);
 	bool update_hash = false, update_table = false;
-	u32 save_table[MANA_INDIRECT_TABLE_SIZE];
 	u8 save_key[MANA_HASH_KEY_SIZE];
+	u32 *save_table;
 	int i, err;
 
 	if (!apc->port_is_up)
@@ -228,13 +230,19 @@ static int mana_set_rxfh(struct net_device *ndev, const u32 *indir,
 	if (hfunc != ETH_RSS_HASH_NO_CHANGE && hfunc != ETH_RSS_HASH_TOP)
 		return -EOPNOTSUPP;
 
+	save_table = kcalloc(apc->indir_table_sz, sizeof(u32), GFP_KERNEL);
+	if (!save_table)
+		return -ENOMEM;
+
 	if (indir) {
-		for (i = 0; i < MANA_INDIRECT_TABLE_SIZE; i++)
-			if (indir[i] >= apc->num_queues)
-				return -EINVAL;
+		for (i = 0; i < apc->indir_table_sz; i++)
+			if (indir[i] >= apc->num_queues) {
+				err = -EINVAL;
+				goto cleanup;
+			}
 
 		update_table = true;
-		for (i = 0; i < MANA_INDIRECT_TABLE_SIZE; i++) {
+		for (i = 0; i < apc->indir_table_sz; i++) {
 			save_table[i] = apc->indir_table[i];
 			apc->indir_table[i] = indir[i];
 		}
@@ -250,7 +258,7 @@ static int mana_set_rxfh(struct net_device *ndev, const u32 *indir,
 
 	if (err) { /* recover to original values */
 		if (update_table) {
-			for (i = 0; i < MANA_INDIRECT_TABLE_SIZE; i++)
+			for (i = 0; i < apc->indir_table_sz; i++)
 				apc->indir_table[i] = save_table[i];
 		}
 
@@ -259,6 +267,9 @@ static int mana_set_rxfh(struct net_device *ndev, const u32 *indir,
 
 		mana_config_rss(apc, TRI_STATE_TRUE, update_hash, update_table);
 	}
+
+cleanup:
+	kfree(save_table);
 
 	return err;
 }
