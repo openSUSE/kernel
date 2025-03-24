@@ -983,6 +983,16 @@ OUT:									\
 	     scall - static_calls_table.NAME < MAX_LSM_COUNT; scall++)  \
 		if (static_key_enabled(&scall->active->key))
 
+#define call_int_hook_direct(HOOK_DESC, INDEX, HOOK, ...)		\
+({									\
+	int RC = LSM_RET_DEFAULT(HOOK);					\
+	do {								\
+		struct security_hook_list *P = &HOOK_DESC[INDEX];	\
+		RC = P->hook.HOOK(__VA_ARGS__);				\
+	} while (0);							\
+	RC;								\
+})
+
 /* Security operations */
 
 /**
@@ -5765,7 +5775,7 @@ void security_bpf_token_free(struct bpf_token *token)
  */
 int security_locked_down(enum lockdown_reason what)
 {
-	return call_int_hook(locked_down, what);
+	return call_int_hook_direct(lockdown_hooks_secure_boot, INDEX_LOCKED_DOWN, locked_down, what);
 }
 EXPORT_SYMBOL(security_locked_down);
 
@@ -5779,7 +5789,7 @@ EXPORT_SYMBOL(security_locked_down);
  */
 int security_lock_kernel_down(const char *where, enum lockdown_reason level)
 {
-	return call_int_hook(lock_kernel_down, where, level);
+	return call_int_hook_direct(lockdown_hooks_secure_boot, INDEX_LOCK_KERNEL_DOWN, lock_kernel_down, where, level);
 }
 EXPORT_SYMBOL(security_lock_kernel_down);
 
