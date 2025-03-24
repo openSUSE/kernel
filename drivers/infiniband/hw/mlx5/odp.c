@@ -330,7 +330,7 @@ static bool mlx5_ib_invalidate_range(struct mmu_interval_notifier *mni,
 				     MLX5_IB_UPD_XLT_ZAP |
 				     MLX5_IB_UPD_XLT_ATOMIC);
 
-	mlx5_update_odp_stats(mr, invalidations, invalidations);
+	mlx5_update_odp_stats_with_handled(mr, invalidations, invalidations);
 
 	/*
 	 * We are now sure that the device will not access the
@@ -1016,7 +1016,7 @@ next_mr:
 		if (ret < 0)
 			goto end;
 
-		mlx5_update_odp_stats(mr, faults, ret);
+		mlx5_update_odp_stats_with_handled(mr, faults, ret);
 
 		if (ret < pages_in_range) {
 			ret = -EFAULT;
@@ -1544,7 +1544,7 @@ static void mlx5_ib_mr_memory_pfault_handler(struct mlx5_ib_dev *dev,
 			goto err;
 	}
 
-	mlx5_update_odp_stats(mr, faults, ret);
+	mlx5_update_odp_stats_with_handled(mr, faults, ret);
 	mlx5r_deref_odp_mkey(mmkey);
 
 	if (pfault->memory.flags & MLX5_MEMORY_PAGE_FAULT_FLAGS_LAST)
