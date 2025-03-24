@@ -254,12 +254,7 @@ EXPORT_SYMBOL_GPL(efivars_generic_ops_unregister);
 static char efivar_ssdt[EFIVAR_SSDT_NAME_MAX] __initdata;
 static int __init efivar_ssdt_setup(char *str)
 {
-	int ret = kernel_is_locked_down_early(LOCKDOWN_ACPI_TABLES);
-
-	if (ret)
-		return ret;
-
-	ret = security_locked_down(LOCKDOWN_ACPI_TABLES);
+	int ret = security_locked_down(LOCKDOWN_ACPI_TABLES);
 
 	if (ret)
 		return ret;
