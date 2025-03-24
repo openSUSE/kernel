@@ -486,6 +486,11 @@ out:
 #define TIMEOUT_FOR_FW_RDY_MS			2000
 #define TIMEOUT_FOR_INPUT_RDY_MS		2000
 
+static inline unsigned long *ishtp_dev_prev_syncp(struct ishtp_device *ish)
+{
+	return (unsigned long *)(ish->hw + sizeof(struct ish_hw));
+}
+
 /**
  * ish_fw_reset_handler() - FW reset handler
  * @dev: ishtp device pointer
@@ -517,6 +522,10 @@ static int ish_fw_reset_handler(struct ishtp_device *dev)
 	/* ISH FW is dead */
 	if (!ish_is_input_ready(dev))
 		return	-EPIPE;
+
+	/* Send clock sync at once after reset */
+	*ishtp_dev_prev_syncp(ishtp_dev) = 0;
+
 	/*
 	 * Set HOST2ISH.ILUP. Apparently we need this BEFORE sending
 	 * RESET_NOTIFY_ACK - FW will be checking for it
@@ -576,15 +585,15 @@ static void fw_reset_work_fn(struct work_struct *unused)
  */
 static void _ish_sync_fw_clock(struct ishtp_device *dev)
 {
-	static unsigned long	prev_sync;
-	uint64_t	usec;
+	struct ipc_time_update_msg time = {};
+	unsigned long prev_sync = *ishtp_dev_prev_syncp(dev);
 
 	if (prev_sync && time_before(jiffies, prev_sync + 20 * HZ))
 		return;
 
-	prev_sync = jiffies;
-	usec = ktime_to_us(ktime_get_boottime());
-	ipc_send_mng_msg(dev, MNG_SYNC_FW_CLOCK, &usec, sizeof(uint64_t));
+	*ishtp_dev_prev_syncp(dev) = jiffies;
+	/* The fields of time would be updated while sending message */
+	ipc_send_mng_msg(dev, MNG_SYNC_FW_CLOCK, &time, sizeof(time));
 }
 
 /**
@@ -942,8 +951,11 @@ struct ishtp_device *ish_dev_init(struct pci_dev *pdev)
 	int	i;
 	int	ret;
 
+	// FIXME: allocate an extra pref_sync field here instead of defining
+	// in struct ishtp_device for kABI workaround
 	dev = devm_kzalloc(&pdev->dev,
-			   sizeof(struct ishtp_device) + sizeof(struct ish_hw),
+			   sizeof(struct ishtp_device) + sizeof(struct ish_hw)
+			   + sizeof(unsigned long),
 			   GFP_KERNEL);
 	if (!dev)
 		return NULL;
