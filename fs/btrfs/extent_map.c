@@ -219,7 +219,8 @@ static int mergable_maps(struct extent_map *prev, struct extent_map *next)
 		       test_bit(EXTENT_FLAG_FS_MAPPING, &next->flags));
 
 	if (extent_map_end(prev) == next->start &&
-	    prev->flags == next->flags &&
+	    (prev->flags & ~(1U << EXTENT_FLAG_MERGED)) ==
+	    (next->flags & ~(1U << EXTENT_FLAG_MERGED)) &&
 	    prev->map_lookup == next->map_lookup &&
 	    ((next->block_start == EXTENT_MAP_HOLE &&
 	      prev->block_start == EXTENT_MAP_HOLE) ||
