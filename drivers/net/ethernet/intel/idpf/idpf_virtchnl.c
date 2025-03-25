@@ -3169,7 +3169,6 @@ init_failed:
 	 * the mailbox again
 	 */
 	adapter->state = __IDPF_STARTUP;
-	idpf_deinit_dflt_mbx(adapter);
 	set_bit(IDPF_HR_DRV_LOAD, adapter->flags);
 	queue_delayed_work(adapter->vc_event_wq, &adapter->vc_event_task,
 			   msecs_to_jiffies(task_delay));
