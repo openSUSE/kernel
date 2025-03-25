@@ -68,6 +68,7 @@ static int max_cstate = CPUIDLE_STATE_MAX - 1;
 static unsigned int disabled_states_mask __read_mostly;
 static unsigned int preferred_states_mask __read_mostly;
 static bool force_irq_on __read_mostly;
+static bool ibrs_off __read_mostly;
 
 static struct cpuidle_device __percpu *intel_idle_cpuidle_devices;
 
@@ -2044,11 +2045,13 @@ static void __init intel_idle_init_cstates_icpu(struct cpuidle_driver *drv)
 			WARN_ON_ONCE(state->flags & CPUIDLE_FLAG_IRQ_ENABLE);
 			state->enter = intel_idle_xstate;
 		} else if (cpu_feature_enabled(X86_FEATURE_KERNEL_IBRS) &&
-			   state->flags & CPUIDLE_FLAG_IBRS) {
+			   ((state->flags & CPUIDLE_FLAG_IBRS) || ibrs_off)) {
 			/*
 			 * IBRS mitigation requires that C-states are entered
 			 * with interrupts disabled.
 			 */
+			if (ibrs_off && (state->flags & CPUIDLE_FLAG_IRQ_ENABLE))
+				state->flags &= ~CPUIDLE_FLAG_IRQ_ENABLE;
 			WARN_ON_ONCE(state->flags & CPUIDLE_FLAG_IRQ_ENABLE);
 			state->enter = intel_idle_ibrs;
 		} else if (state->flags & CPUIDLE_FLAG_IRQ_ENABLE) {
@@ -2302,3 +2305,9 @@ MODULE_PARM_DESC(preferred_cstates, "Mask of preferred idle states");
  * 'CPUIDLE_FLAG_INIT_XSTATE' and 'CPUIDLE_FLAG_IBRS' flags.
  */
 module_param(force_irq_on, bool, 0444);
+/*
+ * Force the disabling of IBRS when X86_FEATURE_KERNEL_IBRS is on and
+ * CPUIDLE_FLAG_IRQ_ENABLE isn't set.
+ */
+module_param(ibrs_off, bool, 0444);
+MODULE_PARM_DESC(ibrs_off, "Disable IBRS when idle");
