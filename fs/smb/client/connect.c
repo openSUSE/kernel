@@ -2655,7 +2655,7 @@ cifs_get_tcon(struct cifs_ses *ses, struct smb3_fs_context *ctx)
 	tcon->nocase = ctx->nocase;
 	tcon->broken_sparse_sup = ctx->no_sparse;
 	if (ses->server->capabilities & SMB2_GLOBAL_CAP_DIRECTORY_LEASING)
-		tcon->nohandlecache = ctx->nohandlecache;
+		tcon->nohandlecache = ctx->nohandlecache || !dir_cache_timeout;
 	else
 		tcon->nohandlecache = true;
 	tcon->nodelete = ctx->nodelete;
