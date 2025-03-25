@@ -218,8 +218,6 @@ struct gendisk {
 	 * devices that do not have multiple independent access ranges.
 	 */
 	struct blk_independent_access_ranges *ia_ranges;
-
-	void *suse_kabi_padding;
 };
 
 /**
@@ -564,7 +562,6 @@ struct request_queue {
 	struct list_head	flush_list;
 
 	struct mutex		sysfs_lock;
-	struct mutex		sysfs_dir_lock;
 	struct mutex		limits_lock;
 
 	/*
@@ -608,10 +605,6 @@ struct request_queue {
 	 * Serializes all debugfs metadata operations using the above dentries.
 	 */
 	struct mutex		debugfs_mutex;
-
-	bool			mq_sysfs_init_done;
-
-	void			*suse_kabi_padding;
 };
 
 /* Keep blk_queue_flag_name[] in sync with the definitions below */
