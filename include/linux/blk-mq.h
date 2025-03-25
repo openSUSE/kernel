@@ -441,6 +441,8 @@ struct blk_mq_hw_ctx {
 	 * q->unused_hctx_list.
 	 */
 	struct list_head	hctx_list;
+
+	void *suse_kabi_padding;
 };
 
 /**
@@ -657,6 +659,8 @@ struct blk_mq_ops {
 	 */
 	void (*show_rq)(struct seq_file *m, struct request *rq);
 #endif
+
+	void *suse_kabi_padding;
 };
 
 /* Keep hctx_flag_name[] in sync with the definitions below */
