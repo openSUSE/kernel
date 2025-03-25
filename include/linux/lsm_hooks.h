@@ -173,6 +173,11 @@ extern struct lsm_static_calls_table static_calls_table __ro_after_init;
 extern struct lsm_info __start_lsm_info[], __end_lsm_info[];
 extern struct lsm_info __start_early_lsm_info[], __end_early_lsm_info[];
 
+extern struct security_hook_list* lockdown_hooks_secure_boot;
+
+#define INDEX_LOCKED_DOWN 0
+#define INDEX_LOCK_KERNEL_DOWN 1
+
 /**
  * lsm_get_xattr_slot - Return the next available slot and increment the index
  * @xattrs: array storing LSM-provided xattrs
