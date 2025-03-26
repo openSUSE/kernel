@@ -23,7 +23,12 @@
 #include <linux/ip.h>
 #include <linux/ipv6.h>
 
-static DEFINE_PER_CPU(struct nft_inner_tun_ctx, nft_pcpu_tun_ctx);
+struct nft_inner_tun_ctx_extended {
+	unsigned long cookie;
+	struct nft_inner_tun_ctx nft_inner_tun_ctx;
+};
+
+static DEFINE_PER_CPU(struct nft_inner_tun_ctx_extended, nft_pcpu_tun_ctx_extended);
 
 /* Same layout as nft_expr but it embeds the private expression data area. */
 struct __nft_expr {
@@ -208,38 +213,71 @@ static int nft_inner_parse_tunhdr(const struct nft_inner *priv,
 
 static int nft_inner_parse(const struct nft_inner *priv,
 			   struct nft_pktinfo *pkt,
-			   struct nft_inner_tun_ctx *tun_ctx)
+			   struct nft_inner_tun_ctx_extended *tun_ctx_extended)
 {
-	struct nft_inner_tun_ctx ctx = {};
 	u32 off = pkt->inneroff;
+	struct nft_inner_tun_ctx *tun_ctx = &tun_ctx_extended->nft_inner_tun_ctx;
+
 
 	if (priv->flags & NFT_INNER_HDRSIZE &&
-	    nft_inner_parse_tunhdr(priv, pkt, &ctx, &off) < 0)
+	    nft_inner_parse_tunhdr(priv, pkt, tun_ctx, &off) < 0)
 		return -1;
 
 	if (priv->flags & (NFT_INNER_LL | NFT_INNER_NH)) {
-		if (nft_inner_parse_l2l3(priv, pkt, &ctx, off) < 0)
+		if (nft_inner_parse_l2l3(priv, pkt, tun_ctx, off) < 0)
 			return -1;
 	} else if (priv->flags & NFT_INNER_TH) {
-		ctx.inner_thoff = off;
-		ctx.flags |= NFT_PAYLOAD_CTX_INNER_TH;
+		tun_ctx->inner_thoff = off;
+		tun_ctx->flags |= NFT_PAYLOAD_CTX_INNER_TH;
 	}
 
-	*tun_ctx = ctx;
 	tun_ctx->type = priv->type;
+	tun_ctx_extended->cookie = (unsigned long)pkt->skb;
 	pkt->flags |= NFT_PKTINFO_INNER_FULL;
 
 	return 0;
 }
 
+static bool nft_inner_restore_tun_ctx(const struct nft_pktinfo *pkt,
+				      struct nft_inner_tun_ctx_extended *tun_ctx_ext)
+{
+	struct nft_inner_tun_ctx_extended *this_cpu_tun_ctx_extended;
+
+	local_bh_disable();
+	this_cpu_tun_ctx_extended = this_cpu_ptr(&nft_pcpu_tun_ctx_extended);
+	if (this_cpu_tun_ctx_extended->cookie != (unsigned long)pkt->skb) {
+		local_bh_enable();
+		return false;
+	}
+	*tun_ctx_ext = *this_cpu_tun_ctx_extended;
+	local_bh_enable();
+
+	return true;
+}
+
+static void nft_inner_save_tun_ctx(const struct nft_pktinfo *pkt,
+				   const struct nft_inner_tun_ctx_extended *tun_ctx_ext)
+{
+	struct nft_inner_tun_ctx_extended *this_cpu_tun_ctx_extended;
+
+	local_bh_disable();
+	this_cpu_tun_ctx_extended = this_cpu_ptr(&nft_pcpu_tun_ctx_extended);
+	if (this_cpu_tun_ctx_extended->cookie != tun_ctx_ext->cookie)
+		*this_cpu_tun_ctx_extended = *tun_ctx_ext;
+	local_bh_enable();
+}
+
 static bool nft_inner_parse_needed(const struct nft_inner *priv,
 				   const struct nft_pktinfo *pkt,
-				   const struct nft_inner_tun_ctx *tun_ctx)
+				   struct nft_inner_tun_ctx_extended *tun_ctx_ext)
 {
 	if (!(pkt->flags & NFT_PKTINFO_INNER_FULL))
 		return true;
 
-	if (priv->type != tun_ctx->type)
+	if (!nft_inner_restore_tun_ctx(pkt, tun_ctx_ext))
+		return true;
+
+	if (priv->type != tun_ctx_ext->nft_inner_tun_ctx.type)
 		return true;
 
 	return false;
@@ -248,14 +286,15 @@ static bool nft_inner_parse_needed(const struct nft_inner *priv,
 static void nft_inner_eval(const struct nft_expr *expr, struct nft_regs *regs,
 			   const struct nft_pktinfo *pkt)
 {
-	struct nft_inner_tun_ctx *tun_ctx = this_cpu_ptr(&nft_pcpu_tun_ctx);
 	const struct nft_inner *priv = nft_expr_priv(expr);
+	struct nft_inner_tun_ctx_extended tun_ctx_ext = {};
+	struct nft_inner_tun_ctx *tun_ctx = &tun_ctx_ext.nft_inner_tun_ctx;
 
 	if (nft_payload_inner_offset(pkt) < 0)
 		goto err;
 
-	if (nft_inner_parse_needed(priv, pkt, tun_ctx) &&
-	    nft_inner_parse(priv, (struct nft_pktinfo *)pkt, tun_ctx) < 0)
+	if (nft_inner_parse_needed(priv, pkt, &tun_ctx_ext) &&
+	    nft_inner_parse(priv, (struct nft_pktinfo *)pkt, &tun_ctx_ext) < 0)
 		goto err;
 
 	switch (priv->expr_type) {
@@ -269,6 +308,8 @@ static void nft_inner_eval(const struct nft_expr *expr, struct nft_regs *regs,
 		WARN_ON_ONCE(1);
 		goto err;
 	}
+	nft_inner_save_tun_ctx(pkt, &tun_ctx_ext);
+
 	return;
 err:
 	regs->verdict.code = NFT_BREAK;
