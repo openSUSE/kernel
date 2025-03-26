@@ -1314,6 +1314,10 @@ struct proto {
 	unsigned int		inuse_idx;
 #endif
 
+#ifndef __GENKSYMS__
+	unsigned int		ipv6_pinfo_offset;
+#endif
+
 #if IS_ENABLED(CONFIG_MPTCP)
 	int			(*forward_alloc_get)(const struct sock *sk);
 #endif
@@ -1347,7 +1351,6 @@ struct proto {
 
 	struct kmem_cache	*slab;
 	unsigned int		obj_size;
-	unsigned int		ipv6_pinfo_offset;
 	slab_flags_t		slab_flags;
 	unsigned int		useroffset;	/* Usercopy region offset */
 	unsigned int		usersize;	/* Usercopy region size */
