@@ -514,12 +514,6 @@ int mlx5e_validate_params(struct mlx5_core_dev *mdev, struct mlx5e_params *param
 	return 0;
 }
 
-#ifdef CONFIG_S390
-bool slow_pci_heuristic(struct mlx5_core_dev *mdev)
-{
-	return false;
-}
-#else
 bool slow_pci_heuristic(struct mlx5_core_dev *mdev)
 {
 	u32 link_speed = 0;
@@ -535,7 +529,6 @@ bool slow_pci_heuristic(struct mlx5_core_dev *mdev)
 	return link_speed && pci_bw &&
 		link_speed > MLX5E_SLOW_PCI_RATIO * pci_bw;
 }
-#endif
 
 int mlx5e_mpwrq_validate_regular(struct mlx5_core_dev *mdev, struct mlx5e_params *params)
 {
