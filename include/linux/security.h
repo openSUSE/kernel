@@ -2392,13 +2392,4 @@ static inline void security_initramfs_populated(void)
 }
 #endif /* CONFIG_SECURITY */
 
-#ifdef CONFIG_LOCK_DOWN_KERNEL_EARLY
-int __init lock_kernel_down_early(const char *where, enum lockdown_reason level);
-#else
-static inline int lock_kernel_down_early(const char *where, enum lockdown_reason level)
-{
-	return 0;
-}
-#endif
-
 #endif /* ! __LINUX_SECURITY_H */
