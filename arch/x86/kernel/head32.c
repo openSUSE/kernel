@@ -81,6 +81,30 @@ typedef pgd_t			pl2_t;
  * to the first kernel PMD. Note the upper half of each PMD or PTE are
  * always zero at this stage.
  */
+static __init pte_t init_map(pte_t pte, pte_t **ptep, pl2_t **pl2p,
+			     const unsigned long limit)
+{
+	while ((pte.pte & PTE_PFN_MASK) < limit) {
+		pl2_t pl2 = SET_PL2((unsigned long)ptep | PDE_IDENT_ATTR);
+		int i;
+
+		**pl2p = pl2;
+
+		if (!IS_ENABLED(CONFIG_X86_PAE)) {
+			/* Kernel PDE entry */
+			*(*pl2p +  ((PAGE_OFFSET >> PGDIR_SHIFT))) = pl2;
+		}
+		for (i = 0; i < PTRS_PER_PTE; i++) {
+			**ptep = pte;
+			pte.pte += PAGE_SIZE;
+			(*ptep)++;
+		}
+		(*pl2p)++;
+	}
+
+	return pte;
+}
+
 void __init mk_early_pgtbl_32(void)
 {
 	/* Enough space to fit pagetables for the low memory linear map */
@@ -89,26 +113,9 @@ void __init mk_early_pgtbl_32(void)
 	pte_t pte, *ptep = (pte_t *)__pa_nodebug(__brk_base);
 	pl2_t *pl2p = (pl2_t *)__pa_nodebug(pl2_base);
 	unsigned long *ptr;
-	int i;
 
 	pte.pte = PTE_IDENT_ATTR;
-
-	while ((pte.pte & PTE_PFN_MASK) < limit) {
-		pl2_t pl2 = SET_PL2((unsigned long)ptep | PDE_IDENT_ATTR);
-
-		*pl2p = pl2;
-
-		if (!IS_ENABLED(CONFIG_X86_PAE)) {
-			/* Kernel PDE entry */
-			*(pl2p +  ((PAGE_OFFSET >> PGDIR_SHIFT))) = pl2;
-		}
-		for (i = 0; i < PTRS_PER_PTE; i++) {
-			*ptep = pte;
-			pte.pte += PAGE_SIZE;
-			ptep++;
-		}
-		pl2p++;
-	}
+	pte = init_map(pte, &ptep, &pl2p, limit);
 
 	ptr = (unsigned long *)__pa_nodebug(&max_pfn_mapped);
 	/* Can't use pte_pfn() since it's a call with CONFIG_PARAVIRT */
@@ -117,4 +124,3 @@ void __init mk_early_pgtbl_32(void)
 	ptr = (unsigned long *)__pa_nodebug(&_brk_end);
 	*ptr = (unsigned long)ptep + PAGE_OFFSET;
 }
-
