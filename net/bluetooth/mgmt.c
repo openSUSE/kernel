@@ -132,6 +132,7 @@ static const u16 mgmt_commands[] = {
 	MGMT_OP_MESH_READ_FEATURES,
 	MGMT_OP_MESH_SEND,
 	MGMT_OP_MESH_SEND_CANCEL,
+	MGMT_OP_HCI_CMD_SYNC,
 };
 
 static const u16 mgmt_events[] = {
@@ -209,7 +210,7 @@ static const u16 mgmt_untrusted_events[] = {
 	MGMT_EV_EXP_FEATURE_CHANGED,
 };
 
-#define CACHE_TIMEOUT	msecs_to_jiffies(2 * 1000)
+#define CACHE_TIMEOUT	secs_to_jiffies(2)
 
 #define ZERO_KEY "\x00\x00\x00\x00\x00\x00\x00\x00" \
 		 "\x00\x00\x00\x00\x00\x00\x00\x00"
@@ -1532,7 +1533,7 @@ static void mgmt_set_discoverable_complete(struct hci_dev *hdev, void *data,
 
 	if (hci_dev_test_flag(hdev, HCI_DISCOVERABLE) &&
 	    hdev->discov_timeout > 0) {
-		int to = msecs_to_jiffies(hdev->discov_timeout * 1000);
+		int to = secs_to_jiffies(hdev->discov_timeout);
 		queue_delayed_work(hdev->req_workqueue, &hdev->discov_off, to);
 	}
 
@@ -1640,7 +1641,7 @@ static int set_discoverable(struct sock *sk, struct hci_dev *hdev, void *data,
 		hdev->discov_timeout = timeout;
 
 		if (cp->val && hdev->discov_timeout > 0) {
-			int to = msecs_to_jiffies(hdev->discov_timeout * 1000);
+			int to = secs_to_jiffies(hdev->discov_timeout);
 			queue_delayed_work(hdev->req_workqueue,
 					   &hdev->discov_off, to);
 		}
@@ -2520,6 +2521,64 @@ static int set_le(struct sock *sk, struct hci_dev *hdev, void *data, u16 len)
 	}
 
 unlock:
+	hci_dev_unlock(hdev);
+	return err;
+}
+
+static int send_hci_cmd_sync(struct hci_dev *hdev, void *data)
+{
+	struct mgmt_pending_cmd *cmd = data;
+	struct mgmt_cp_hci_cmd_sync *cp = cmd->param;
+	struct sk_buff *skb;
+
+	skb = __hci_cmd_sync_ev(hdev, le16_to_cpu(cp->opcode),
+				le16_to_cpu(cp->params_len), cp->params,
+				cp->event, cp->timeout ?
+				secs_to_jiffies(cp->timeout) :
+				HCI_CMD_TIMEOUT);
+	if (IS_ERR(skb)) {
+		mgmt_cmd_status(cmd->sk, hdev->id, MGMT_OP_HCI_CMD_SYNC,
+				mgmt_status(PTR_ERR(skb)));
+		goto done;
+	}
+
+	mgmt_cmd_complete(cmd->sk, hdev->id, MGMT_OP_HCI_CMD_SYNC, 0,
+			  skb->data, skb->len);
+
+	kfree_skb(skb);
+
+done:
+	mgmt_pending_free(cmd);
+
+	return 0;
+}
+
+static int mgmt_hci_cmd_sync(struct sock *sk, struct hci_dev *hdev,
+			     void *data, u16 len)
+{
+	struct mgmt_cp_hci_cmd_sync *cp = data;
+	struct mgmt_pending_cmd *cmd;
+	int err;
+
+	if (len < sizeof(*cp))
+		return mgmt_cmd_status(sk, hdev->id, MGMT_OP_HCI_CMD_SYNC,
+				       MGMT_STATUS_INVALID_PARAMS);
+
+	hci_dev_lock(hdev);
+	cmd = mgmt_pending_new(sk, MGMT_OP_HCI_CMD_SYNC, hdev, data, len);
+	if (!cmd)
+		err = -ENOMEM;
+	else
+		err = hci_cmd_sync_queue(hdev, send_hci_cmd_sync, cmd, NULL);
+
+	if (err < 0) {
+		err = mgmt_cmd_status(sk, hdev->id, MGMT_OP_HCI_CMD_SYNC,
+				      MGMT_STATUS_FAILED);
+
+		if (cmd)
+			mgmt_pending_free(cmd);
+	}
+
 	hci_dev_unlock(hdev);
 	return err;
 }
@@ -9431,6 +9490,7 @@ static const struct hci_mgmt_handler mgmt_handlers[] = {
 	{ mesh_send,               MGMT_MESH_SEND_SIZE,
 						HCI_MGMT_VAR_LEN },
 	{ mesh_send_cancel,        MGMT_MESH_SEND_CANCEL_SIZE },
+	{ mgmt_hci_cmd_sync,       MGMT_HCI_CMD_SYNC_SIZE, HCI_MGMT_VAR_LEN },
 };
 
 void mgmt_index_added(struct hci_dev *hdev)
