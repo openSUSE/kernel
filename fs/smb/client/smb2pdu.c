@@ -3390,9 +3390,9 @@ __SMB2_close(const unsigned int xid, struct cifs_tcon *tcon,
 		 */
 		if (pbuf)
 			memcpy(pbuf, (char *)&rsp->CreationTime, sizeof(*pbuf) - 4);
-	}
 
-	atomic_dec(&tcon->num_remote_opens);
+		atomic_dec(&tcon->num_remote_opens);
+	}
 close_exit:
 	SMB2_close_free(&rqst);
 	free_rsp_buf(resp_buftype, rsp);
@@ -3885,7 +3885,7 @@ void smb2_reconnect_server(struct work_struct *work)
 		goto done;
 
 	/* allocate a dummy tcon struct used for reconnect */
-	tcon = tconInfoAlloc();
+	tcon = tcon_info_alloc(false);
 	if (!tcon) {
 		resched = true;
 		list_for_each_entry_safe(ses, ses2, &tmp_ses_list, rlist) {
