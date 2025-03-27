@@ -13,9 +13,8 @@ static int mana_ib_cfg_vport_steering(struct mana_ib_dev *dev,
 				      u8 *rx_hash_key)
 {
 	struct mana_port_context *mpc = netdev_priv(ndev);
-	struct mana_cfg_rx_steer_req *req = NULL;
+	struct mana_cfg_rx_steer_req_v2 *req;
 	struct mana_cfg_rx_steer_resp resp = {};
-	mana_handle_t *req_indir_tab;
 	struct gdma_context *gc;
 	struct gdma_dev *mdev;
 	u32 req_buf_size;
@@ -24,14 +23,15 @@ static int mana_ib_cfg_vport_steering(struct mana_ib_dev *dev,
 	mdev = dev->gdma_dev;
 	gc = mdev->gdma_context;
 
-	req_buf_size =
-		sizeof(*req) + sizeof(mana_handle_t) * MANA_INDIRECT_TABLE_SIZE;
+	req_buf_size = struct_size(req, indir_tab, MANA_INDIRECT_TABLE_DEF_SIZE);
 	req = kzalloc(req_buf_size, GFP_KERNEL);
 	if (!req)
 		return -ENOMEM;
 
 	mana_gd_init_req_hdr(&req->hdr, MANA_CONFIG_VPORT_RX, req_buf_size,
 			     sizeof(resp));
+
+	req->hdr.req.msg_version = GDMA_MESSAGE_V2;
 
 	req->vport = mpc->port_handle;
 	req->rx_enable = 1;
@@ -43,20 +43,21 @@ static int mana_ib_cfg_vport_steering(struct mana_ib_dev *dev,
 	if (log_ind_tbl_size)
 		req->rss_enable = true;
 
-	req->num_indir_entries = MANA_INDIRECT_TABLE_SIZE;
-	req->indir_tab_offset = sizeof(*req);
+	req->num_indir_entries = MANA_INDIRECT_TABLE_DEF_SIZE;
+	req->indir_tab_offset = offsetof(struct mana_cfg_rx_steer_req_v2,
+					 indir_tab);
 	req->update_indir_tab = true;
+	req->cqe_coalescing_enable = 1;
 
-	req_indir_tab = (mana_handle_t *)(req + 1);
 	/* The ind table passed to the hardware must have
-	 * MANA_INDIRECT_TABLE_SIZE entries. Adjust the verb
+	 * MANA_INDIRECT_TABLE_DEF_SIZE entries. Adjust the verb
 	 * ind_table to MANA_INDIRECT_TABLE_SIZE if required
 	 */
 	ibdev_dbg(&dev->ib_dev, "ind table size %u\n", 1 << log_ind_tbl_size);
-	for (i = 0; i < MANA_INDIRECT_TABLE_SIZE; i++) {
-		req_indir_tab[i] = ind_table[i % (1 << log_ind_tbl_size)];
+	for (i = 0; i < MANA_INDIRECT_TABLE_DEF_SIZE; i++) {
+		req->indir_tab[i] = ind_table[i % (1 << log_ind_tbl_size)];
 		ibdev_dbg(&dev->ib_dev, "index %u handle 0x%llx\n", i,
-			  req_indir_tab[i]);
+			  req->indir_tab[i]);
 	}
 
 	req->update_hashkey = true;
@@ -141,7 +142,7 @@ static int mana_ib_create_qp_rss(struct ib_qp *ibqp, struct ib_pd *pd,
 	}
 
 	ind_tbl_size = 1 << ind_tbl->log_ind_tbl_size;
-	if (ind_tbl_size > MANA_INDIRECT_TABLE_SIZE) {
+	if (ind_tbl_size > MANA_INDIRECT_TABLE_DEF_SIZE) {
 		ibdev_dbg(&mdev->ib_dev,
 			  "Indirect table size %d exceeding limit\n",
 			  ind_tbl_size);

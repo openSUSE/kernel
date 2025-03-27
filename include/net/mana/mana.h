@@ -28,8 +28,8 @@ enum TRI_STATE {
 };
 
 /* Number of entries for hardware indirection table must be in power of 2 */
-#define MANA_INDIRECT_TABLE_SIZE 64
-#define MANA_INDIRECT_TABLE_MASK (MANA_INDIRECT_TABLE_SIZE - 1)
+#define MANA_INDIRECT_TABLE_MAX_SIZE 512
+#define MANA_INDIRECT_TABLE_DEF_SIZE 64
 
 /* The Toeplitz hash key's length in bytes: should be multiple of 8 */
 #define MANA_HASH_KEY_SIZE 40
@@ -385,10 +385,11 @@ struct mana_port_context {
 	struct mana_tx_qp *tx_qp;
 
 	/* Indirection Table for RX & TX. The values are queue indexes */
-	u32 indir_table[MANA_INDIRECT_TABLE_SIZE];
+	u32 *indir_table;
+	u32 indir_table_sz;
 
 	/* Indirection table containing RxObject Handles */
-	mana_handle_t rxobj_table[MANA_INDIRECT_TABLE_SIZE];
+	mana_handle_t *rxobj_table;
 
 	/*  Hash key used by the NIC */
 	u8 hashkey[MANA_HASH_KEY_SIZE];
@@ -590,7 +591,7 @@ struct mana_fence_rq_resp {
 }; /* HW DATA */
 
 /* Configure vPort Rx Steering */
-struct mana_cfg_rx_steer_req {
+struct mana_cfg_rx_steer_req_v2 {
 	struct gdma_req_hdr hdr;
 	mana_handle_t vport;
 	u16 num_indir_entries;
@@ -603,6 +604,9 @@ struct mana_cfg_rx_steer_req {
 	u8 reserved;
 	mana_handle_t default_rxobj;
 	u8 hashkey[MANA_HASH_KEY_SIZE];
+	u8 cqe_coalescing_enable;
+	u8 reserved2[7];
+	mana_handle_t indir_tab[];
 }; /* HW DATA */
 
 struct mana_cfg_rx_steer_resp {
