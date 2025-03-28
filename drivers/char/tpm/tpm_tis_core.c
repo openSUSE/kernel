@@ -447,7 +447,7 @@ retry_ready:
 		    (chip, TPM_STS_COMMAND_READY, chip->timeout_b,
 		     &priv->int_queue, false) < 0) {
 			if (timed_out++ < 2) {
-				dev_err(&chip->dev, "%s: %u: ready: Timed out (%u of %u ms)\n", __func__, ordinal, jiffies_to_msecs(jiffies - start), jiffies_to_msecs(chip->timeout_b));
+				dev_err(&chip->dev, "%s: %u: ready: Timeout exceeded (%u of %u ms)\n", __func__, ordinal, jiffies_to_msecs(jiffies - start), jiffies_to_msecs(chip->timeout_b));
 				goto retry_ready;
 			}
 			rc = -ETIME;
@@ -472,11 +472,19 @@ retry_ready:
 
 		count += burstcnt;
 
+		timed_out = 0; start = jiffies;
+retry_valid:
 		if (wait_for_tpm_stat(chip, TPM_STS_VALID, chip->timeout_c,
 					&priv->int_queue, false) < 0) {
+			if (timed_out++ < 20) {
+				dev_err(&chip->dev, "%s: %u: valid: Timeout exceeded (%u of %u ms)\n", __func__, ordinal, jiffies_to_msecs(jiffies - start), jiffies_to_msecs(chip->timeout_c));
+				goto retry_valid;
+			}
 			rc = -ETIME;
 			goto out_err;
 		}
+		if (timed_out)
+			dev_err(&chip->dev, "%s: %u: valid: Took (%u of %u ms)\n", __func__, ordinal, jiffies_to_msecs(jiffies - start), jiffies_to_msecs(chip->timeout_c));
 		status = tpm_tis_status(chip);
 		if (!itpm && (status & TPM_STS_DATA_EXPECT) == 0) {
 			rc = -EIO;
@@ -494,7 +502,7 @@ retry_stat:
 	if (wait_for_tpm_stat(chip, TPM_STS_VALID, chip->timeout_c,
 				&priv->int_queue, false) < 0) {
 		if (timed_out++ < 20) {
-			dev_err(&chip->dev, "%s: %u: stat: Timed out (%u of %u ms)\n", __func__, ordinal, jiffies_to_msecs(jiffies - start), jiffies_to_msecs(chip->timeout_c));
+			dev_err(&chip->dev, "%s: %u: stat: Timeout exceeded (%u of %u ms)\n", __func__, ordinal, jiffies_to_msecs(jiffies - start), jiffies_to_msecs(chip->timeout_c));
 			goto retry_stat;
 		}
 		rc = -ETIME;
