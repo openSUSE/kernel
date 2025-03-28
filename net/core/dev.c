@@ -2884,6 +2884,7 @@ int skb_checksum_help(struct sk_buff *skb)
 	if (WARN_ON_ONCE(offset + sizeof(__sum16) > skb_headlen(skb)))
 		goto out;
 
+	ret = 0;
 	if (skb_cloned(skb) &&
 	    !skb_clone_writable(skb, offset + sizeof(__sum16))) {
 		ret = pskb_expand_head(skb, 0, 0, GFP_ATOMIC);
