@@ -926,13 +926,9 @@ static int ath11k_core_continue_suspend_resume(struct ath11k_base *ab)
 	return 1;
 }
 
-int ath11k_core_suspend(struct ath11k_base *ab)
+static int ath11k_core_suspend_wow(struct ath11k_base *ab)
 {
 	int ret;
-
-	ret = ath11k_core_continue_suspend_resume(ab);
-	if (ret <= 0)
-		return ret;
 
 	ret = ath11k_dp_rx_pktlog_stop(ab, true);
 	if (ret) {
@@ -977,15 +973,22 @@ int ath11k_core_suspend(struct ath11k_base *ab)
 
 	return 0;
 }
-EXPORT_SYMBOL(ath11k_core_suspend);
 
-int ath11k_core_resume(struct ath11k_base *ab)
+int ath11k_core_suspend(struct ath11k_base *ab)
 {
 	int ret;
 
 	ret = ath11k_core_continue_suspend_resume(ab);
 	if (ret <= 0)
 		return ret;
+
+	return ath11k_core_suspend_wow(ab);
+}
+EXPORT_SYMBOL(ath11k_core_suspend);
+
+static int ath11k_core_resume_wow(struct ath11k_base *ab)
+{
+	int ret;
 
 	ret = ath11k_hif_resume(ab);
 	if (ret) {
@@ -1010,6 +1013,17 @@ int ath11k_core_resume(struct ath11k_base *ab)
 	}
 
 	return 0;
+}
+
+int ath11k_core_resume(struct ath11k_base *ab)
+{
+	int ret;
+
+	ret = ath11k_core_continue_suspend_resume(ab);
+	if (ret <= 0)
+		return ret;
+
+	return ath11k_core_resume_wow(ab);
 }
 EXPORT_SYMBOL(ath11k_core_resume);
 
