@@ -15,32 +15,75 @@
 
 static int exfat_cont_expand(struct inode *inode, loff_t size)
 {
-	struct address_space *mapping = inode->i_mapping;
-	loff_t start = i_size_read(inode), count = size - i_size_read(inode);
-	int err, err2;
+	int ret;
+	unsigned int num_clusters, new_num_clusters, last_clu;
+	struct exfat_inode_info *ei = EXFAT_I(inode);
+	struct super_block *sb = inode->i_sb;
+	struct exfat_sb_info *sbi = EXFAT_SB(sb);
+	struct exfat_chain clu;
 
-	err = generic_cont_expand_simple(inode, size);
-	if (err)
-		return err;
+	ret = inode_newsize_ok(inode, size);
+	if (ret)
+		return ret;
 
+	num_clusters = EXFAT_B_TO_CLU_ROUND_UP(ei->i_size_ondisk, sbi);
+	new_num_clusters = EXFAT_B_TO_CLU_ROUND_UP(size, sbi);
+
+	if (new_num_clusters == num_clusters)
+		goto out;
+
+	if (num_clusters) {
+		exfat_chain_set(&clu, ei->start_clu, num_clusters, ei->flags);
+		ret = exfat_find_last_cluster(sb, &clu, &last_clu);
+		if (ret)
+			return ret;
+
+		clu.dir = last_clu + 1;
+	} else {
+		last_clu = EXFAT_EOF_CLUSTER;
+		clu.dir = EXFAT_EOF_CLUSTER;
+	}
+
+	clu.size = 0;
+	clu.flags = ei->flags;
+
+	ret = exfat_alloc_cluster(inode, new_num_clusters - num_clusters,
+			&clu, inode_needs_sync(inode));
+	if (ret)
+		return ret;
+
+	/* Append new clusters to chain */
+	if (num_clusters) {
+		if (clu.flags != ei->flags)
+			if (exfat_chain_cont_cluster(sb, ei->start_clu, num_clusters))
+				goto free_clu;
+
+		if (clu.flags == ALLOC_FAT_CHAIN)
+			if (exfat_ent_set(sb, last_clu, clu.dir))
+				goto free_clu;
+	} else
+		ei->start_clu = clu.dir;
+
+	ei->flags = clu.flags;
+
+out:
 	inode->i_mtime = inode_set_ctime_current(inode);
-	EXFAT_I(inode)->valid_size = size;
+	/* Expanded range not zeroed, do not update valid_size */
+	i_size_write(inode, size);
+
+	ei->i_size_aligned = round_up(size, sb->s_blocksize);
+	ei->i_size_ondisk = ei->i_size_aligned;
+	inode->i_blocks = round_up(size, sbi->cluster_size) >> 9;
 	mark_inode_dirty(inode);
 
-	if (!IS_SYNC(inode))
-		return 0;
+	if (IS_SYNC(inode))
+		return write_inode_now(inode, 1);
 
-	err = filemap_fdatawrite_range(mapping, start, start + count - 1);
-	err2 = sync_mapping_buffers(mapping);
-	if (!err)
-		err = err2;
-	err2 = write_inode_now(inode, 1);
-	if (!err)
-		err = err2;
-	if (err)
-		return err;
+	return 0;
 
-	return filemap_fdatawait_range(mapping, start, start + count - 1);
+free_clu:
+	exfat_free_cluster(inode, &clu);
+	return -EIO;
 }
 
 static bool exfat_allow_set_time(struct exfat_sb_info *sbi, struct inode *inode)

@@ -328,7 +328,7 @@ pte_t *huge_pte_offset(struct mm_struct *mm,
 	return pte_offset_map(pmd, addr);
 }
 
-void set_huge_pte_at(struct mm_struct *mm, unsigned long addr,
+void __set_huge_pte_at(struct mm_struct *mm, unsigned long addr,
 		     pte_t *ptep, pte_t entry)
 {
 	unsigned int nptes, orig_shift, shift;
@@ -364,8 +364,14 @@ void set_huge_pte_at(struct mm_struct *mm, unsigned long addr,
 				    orig_shift);
 }
 
+void set_huge_pte_at(struct mm_struct *mm, unsigned long addr,
+		     pte_t *ptep, pte_t entry, unsigned long sz)
+{
+	__set_huge_pte_at(mm, addr, ptep, entry);
+}
+
 pte_t huge_ptep_get_and_clear(struct mm_struct *mm, unsigned long addr,
-			      pte_t *ptep)
+			      pte_t *ptep, unsigned long sz)
 {
 	unsigned int i, nptes, orig_shift, shift;
 	unsigned long size;
