@@ -692,7 +692,7 @@ void nvme_init_request(struct request *req, struct nvme_command *cmd)
 	if (req->q->queuedata) {
 		struct nvme_ns *ns = req->q->disk->private_data;
 
-		logging_enabled = ns->passthru_err_log_enabled;
+		logging_enabled = ns->head->passthru_err_log_enabled;
 		req->timeout = NVME_IO_TIMEOUT;
 	} else { /* no queuedata implies admin queue */
 		logging_enabled = nr->ctrl->passthru_err_log_enabled;
@@ -3685,7 +3685,6 @@ static void nvme_alloc_ns(struct nvme_ctrl *ctrl, struct nvme_ns_info *info)
 
 	ns->disk = disk;
 	ns->queue = disk->queue;
-	ns->passthru_err_log_enabled = false;
 
 	if (ctrl->opts && ctrl->opts->data_digest)
 		blk_queue_flag_set(QUEUE_FLAG_STABLE_WRITES, ns->queue);
