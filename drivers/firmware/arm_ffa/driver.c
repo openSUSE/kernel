@@ -145,7 +145,7 @@ static int ffa_version_check(u32 *version)
 		      .a0 = FFA_VERSION, .a1 = FFA_DRIVER_VERSION,
 		      }, &ver);
 
-	if (ver.a0 == FFA_RET_NOT_SUPPORTED) {
+	if ((s32)ver.a0 == FFA_RET_NOT_SUPPORTED) {
 		pr_info("FFA_VERSION returned not supported\n");
 		return -EOPNOTSUPP;
 	}
@@ -899,7 +899,7 @@ static void ffa_notification_info_get(void)
 			  }, &ret);
 
 		if (ret.a0 != FFA_FN_NATIVE(SUCCESS) && ret.a0 != FFA_SUCCESS) {
-			if (ret.a2 != FFA_RET_NO_DATA)
+			if ((s32)ret.a2 != FFA_RET_NO_DATA)
 				pr_err("Notification Info fetch failed: 0x%lx (0x%lx)",
 				       ret.a0, ret.a2);
 			return;
@@ -935,7 +935,7 @@ static void ffa_notification_info_get(void)
 			}
 
 			/* Per vCPU Notification */
-			for (idx = 0; idx < ids_count[list]; idx++) {
+			for (idx = 1; idx < ids_count[list]; idx++) {
 				if (ids_processed >= max_ids - 1)
 					break;
 

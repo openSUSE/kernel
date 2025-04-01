@@ -208,6 +208,13 @@ enum {
 	 */
 	HCI_QUIRK_WIDEBAND_SPEECH_SUPPORTED,
 
+	/* When this quirk is set consider Sync Flow Control as supported by
+	 * the driver.
+	 *
+	 * This quirk must be set before hci_register_dev is called.
+	 */
+	HCI_QUIRK_SYNC_FLOWCTL_SUPPORTED,
+
 	/* When this quirk is set, the LE states reported through the
 	 * HCI_LE_READ_SUPPORTED_STATES are invalid/broken.
 	 *
@@ -432,6 +439,7 @@ enum {
 	HCI_WIDEBAND_SPEECH_ENABLED,
 	HCI_EVENT_FILTER_CONFIGURED,
 	HCI_PA_SYNC,
+	HCI_SCO_FLOWCTL,
 
 	HCI_DUT_MODE,
 	HCI_VENDOR_DIAG,
@@ -853,6 +861,11 @@ struct hci_cp_remote_name_req {
 
 #define HCI_OP_REMOTE_NAME_REQ_CANCEL	0x041a
 struct hci_cp_remote_name_req_cancel {
+	bdaddr_t bdaddr;
+} __packed;
+
+struct hci_rp_remote_name_req_cancel {
+	__u8     status;
 	bdaddr_t bdaddr;
 } __packed;
 
@@ -1527,6 +1540,11 @@ struct hci_rp_read_tx_power {
 	__u8     status;
 	__le16   handle;
 	__s8     tx_power;
+} __packed;
+
+#define HCI_OP_WRITE_SYNC_FLOWCTL	0x0c2f
+struct hci_cp_write_sync_flowctl {
+	__u8     enable;
 } __packed;
 
 #define HCI_OP_READ_PAGE_SCAN_TYPE	0x0c46
