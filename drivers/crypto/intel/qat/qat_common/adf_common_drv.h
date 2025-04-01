@@ -40,6 +40,7 @@ enum adf_event {
 	ADF_EVENT_SHUTDOWN,
 	ADF_EVENT_RESTARTING,
 	ADF_EVENT_RESTARTED,
+	ADF_EVENT_FATAL_ERROR,
 };
 
 struct service_hndl {
@@ -55,18 +56,19 @@ int adf_service_register(struct service_hndl *service);
 int adf_service_unregister(struct service_hndl *service);
 
 int adf_dev_up(struct adf_accel_dev *accel_dev, bool init_config);
-int adf_dev_down(struct adf_accel_dev *accel_dev, bool cache_config);
+int adf_dev_down(struct adf_accel_dev *accel_dev);
 int adf_dev_restart(struct adf_accel_dev *accel_dev);
 
 void adf_devmgr_update_class_index(struct adf_hw_device_data *hw_data);
 void adf_clean_vf_map(bool);
+int adf_notify_fatal_error(struct adf_accel_dev *accel_dev);
+void adf_error_notifier(struct adf_accel_dev *accel_dev);
 int adf_devmgr_add_dev(struct adf_accel_dev *accel_dev,
 		       struct adf_accel_dev *pf);
 void adf_devmgr_rm_dev(struct adf_accel_dev *accel_dev,
 		       struct adf_accel_dev *pf);
 struct list_head *adf_devmgr_get_head(void);
 struct adf_accel_dev *adf_devmgr_get_dev_by_id(u32 id);
-struct adf_accel_dev *adf_devmgr_get_first(void);
 struct adf_accel_dev *adf_devmgr_pci_to_accel_dev(struct pci_dev *pci_dev);
 int adf_devmgr_verify_id(u32 id);
 void adf_devmgr_get_num_dev(u32 *num);
@@ -84,12 +86,14 @@ int adf_ae_stop(struct adf_accel_dev *accel_dev);
 extern const struct pci_error_handlers adf_err_handler;
 void adf_reset_sbr(struct adf_accel_dev *accel_dev);
 void adf_reset_flr(struct adf_accel_dev *accel_dev);
+int adf_dev_autoreset(struct adf_accel_dev *accel_dev);
 void adf_dev_restore(struct adf_accel_dev *accel_dev);
 int adf_init_aer(void);
 void adf_exit_aer(void);
 int adf_init_arb(struct adf_accel_dev *accel_dev);
 void adf_exit_arb(struct adf_accel_dev *accel_dev);
 void adf_update_ring_arb(struct adf_etr_ring_data *ring);
+int adf_disable_arb_thd(struct adf_accel_dev *accel_dev, u32 ae, u32 thr);
 
 int adf_dev_get(struct adf_accel_dev *accel_dev);
 void adf_dev_put(struct adf_accel_dev *accel_dev);
@@ -188,6 +192,7 @@ bool adf_misc_wq_queue_delayed_work(struct delayed_work *work,
 #if defined(CONFIG_PCI_IOV)
 int adf_sriov_configure(struct pci_dev *pdev, int numvfs);
 void adf_disable_sriov(struct adf_accel_dev *accel_dev);
+void adf_reenable_sriov(struct adf_accel_dev *accel_dev);
 void adf_enable_vf2pf_interrupts(struct adf_accel_dev *accel_dev, u32 vf_mask);
 void adf_disable_all_vf2pf_interrupts(struct adf_accel_dev *accel_dev);
 bool adf_recv_and_handle_pf2vf_msg(struct adf_accel_dev *accel_dev);
@@ -205,6 +210,10 @@ void adf_flush_vf_wq(struct adf_accel_dev *accel_dev);
 #define adf_sriov_configure NULL
 
 static inline void adf_disable_sriov(struct adf_accel_dev *accel_dev)
+{
+}
+
+static inline void adf_reenable_sriov(struct adf_accel_dev *accel_dev)
 {
 }
 
@@ -236,6 +245,16 @@ static inline void __iomem *adf_get_pmisc_base(struct adf_accel_dev *accel_dev)
 	pmisc = &GET_BARS(accel_dev)[hw_data->get_misc_bar_id(hw_data)];
 
 	return pmisc->virt_addr;
+}
+
+static inline void __iomem *adf_get_etr_base(struct adf_accel_dev *accel_dev)
+{
+	struct adf_hw_device_data *hw_data = accel_dev->hw_device;
+	struct adf_bar *etr;
+
+	etr = &GET_BARS(accel_dev)[hw_data->get_etr_bar_id(hw_data)];
+
+	return etr->virt_addr;
 }
 
 static inline void __iomem *adf_get_aram_base(struct adf_accel_dev *accel_dev)

@@ -28,7 +28,7 @@ static int test_current_pid_tgid(void *args)
 	if (CHECK(!skel, "skel_open_load", "failed to load skeleton\n"))
 		goto cleanup;
 
-	pid = syscall(SYS_gettid);
+	*pid = sys_gettid();
 	tgid = getpid();
 
 	err = stat("/proc/self/ns/pid", &st);

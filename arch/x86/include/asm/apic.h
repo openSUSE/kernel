@@ -345,6 +345,10 @@ struct apic {
 	int (*x86_32_early_logical_apicid)(int cpu);
 #endif
 	char	*name;
+
+#ifndef __GENKSYMS__
+	bool    nmi_to_offline_cpu;
+#endif
 };
 
 /*
@@ -420,6 +424,8 @@ static inline u32 safe_apic_wait_icr_idle(void)
 }
 
 extern void __init apic_set_eoi_write(void (*eoi_write)(u32 reg, u32 v));
+
+void apic_send_nmi_to_offline_cpu(unsigned int cpu);
 
 #else /* CONFIG_X86_LOCAL_APIC */
 

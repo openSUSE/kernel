@@ -3,6 +3,7 @@
 
 #include <uapi/linux/bpf.h>
 
+#include <linux/debugfs.h>
 #include <linux/inetdevice.h>
 #include <linux/etherdevice.h>
 #include <linux/ethtool.h>
@@ -29,6 +30,21 @@ static void mana_adev_idx_free(int idx)
 {
 	ida_free(&mana_adev_ida, idx);
 }
+
+static ssize_t mana_dbg_q_read(struct file *filp, char __user *buf, size_t count,
+			       loff_t *pos)
+{
+	struct gdma_queue *gdma_q = filp->private_data;
+
+	return simple_read_from_buffer(buf, count, pos, gdma_q->queue_mem_ptr,
+				       gdma_q->queue_size);
+}
+
+static const struct file_operations mana_dbg_q_fops = {
+	.owner  = THIS_MODULE,
+	.open   = simple_open,
+	.read   = mana_dbg_q_read,
+};
 
 /* Microsoft Azure Network Adapter (MANA) functions */
 
@@ -481,7 +497,7 @@ static int mana_get_tx_queue(struct net_device *ndev, struct sk_buff *skb,
 	struct sock *sk = skb->sk;
 	int txq;
 
-	txq = apc->indir_table[hash & MANA_INDIRECT_TABLE_MASK];
+	txq = apc->indir_table[hash & (apc->indir_table_sz - 1)];
 
 	if (txq != old_q && sk && sk_fullsock(sk) &&
 	    rcu_access_pointer(sk->sk_dst_cache))
@@ -721,8 +737,21 @@ static const struct net_device_ops mana_devops = {
 
 static void mana_cleanup_port_context(struct mana_port_context *apc)
 {
+	/*
+	 * make sure subsequent cleanup attempts don't end up removing already
+	 * cleaned dentry pointer
+	 */
+	debugfs_remove(apc->mana_port_debugfs);
+	apc->mana_port_debugfs = NULL;
 	kfree(apc->rxqs);
 	apc->rxqs = NULL;
+}
+
+static void mana_cleanup_indir_table(struct mana_port_context *apc)
+{
+	apc->indir_table_sz = 0;
+	kfree(apc->indir_table);
+	kfree(apc->rxobj_table);
 }
 
 static int mana_init_port_context(struct mana_port_context *apc)
@@ -936,6 +965,8 @@ static int mana_query_device_cfg(struct mana_context *ac, u32 proto_major_ver,
 	else
 		gc->adapter_mtu = ETH_FRAME_LEN;
 
+	debugfs_create_u16("adapter-MTU", 0400, gc->mana_pci_debugfs, &gc->adapter_mtu);
+
 	return 0;
 }
 
@@ -966,7 +997,16 @@ static int mana_query_vport_cfg(struct mana_port_context *apc, u32 vport_index,
 
 	*max_sq = resp.max_num_sq;
 	*max_rq = resp.max_num_rq;
-	*num_indir_entry = resp.num_indirection_ent;
+	if (resp.num_indirection_ent > 0 &&
+	    resp.num_indirection_ent <= MANA_INDIRECT_TABLE_MAX_SIZE &&
+	    is_power_of_2(resp.num_indirection_ent)) {
+		*num_indir_entry = resp.num_indirection_ent;
+	} else {
+		netdev_warn(apc->ndev,
+			    "Setting indirection table size to default %d for vPort %d\n",
+			    MANA_INDIRECT_TABLE_DEF_SIZE, apc->port_idx);
+		*num_indir_entry = MANA_INDIRECT_TABLE_DEF_SIZE;
+	}
 
 	apc->port_handle = resp.vport;
 	ether_addr_copy(apc->mac_addr, resp.mac_addr);
@@ -1058,15 +1098,13 @@ static int mana_cfg_vport_steering(struct mana_port_context *apc,
 				   bool update_default_rxobj, bool update_key,
 				   bool update_tab)
 {
-	u16 num_entries = MANA_INDIRECT_TABLE_SIZE;
 	struct mana_cfg_rx_steer_req_v2 *req;
 	struct mana_cfg_rx_steer_resp resp = {};
 	struct net_device *ndev = apc->ndev;
-	mana_handle_t *req_indir_tab;
 	u32 req_buf_size;
 	int err;
 
-	req_buf_size = sizeof(*req) + sizeof(mana_handle_t) * num_entries;
+	req_buf_size = struct_size(req, indir_tab, apc->indir_table_sz);
 	req = kzalloc(req_buf_size, GFP_KERNEL);
 	if (!req)
 		return -ENOMEM;
@@ -1077,8 +1115,9 @@ static int mana_cfg_vport_steering(struct mana_port_context *apc,
 	req->hdr.req.msg_version = GDMA_MESSAGE_V2;
 
 	req->vport = apc->port_handle;
-	req->num_indir_entries = num_entries;
-	req->indir_tab_offset = sizeof(*req);
+	req->num_indir_entries = apc->indir_table_sz;
+	req->indir_tab_offset = offsetof(struct mana_cfg_rx_steer_req_v2,
+					 indir_tab);
 	req->rx_enable = rx;
 	req->rss_enable = apc->rss_state;
 	req->update_default_rxobj = update_default_rxobj;
@@ -1090,11 +1129,9 @@ static int mana_cfg_vport_steering(struct mana_port_context *apc,
 	if (update_key)
 		memcpy(&req->hashkey, apc->hashkey, MANA_HASH_KEY_SIZE);
 
-	if (update_tab) {
-		req_indir_tab = (mana_handle_t *)(req + 1);
-		memcpy(req_indir_tab, apc->rxobj_table,
-		       req->num_indir_entries * sizeof(mana_handle_t));
-	}
+	if (update_tab)
+		memcpy(req->indir_tab, apc->rxobj_table,
+		       flex_array_size(req, indir_tab, req->num_indir_entries));
 
 	err = mana_send_request(apc->ac, req, req_buf_size, &resp,
 				sizeof(resp));
@@ -1117,7 +1154,7 @@ static int mana_cfg_vport_steering(struct mana_port_context *apc,
 	}
 
 	netdev_info(ndev, "Configured steering vPort %llu entries %u\n",
-		    apc->port_handle, num_entries);
+		    apc->port_handle, apc->indir_table_sz);
 out:
 	kfree(req);
 	return err;
@@ -1215,6 +1252,9 @@ static void mana_destroy_eq(struct mana_context *ac)
 	if (!ac->eqs)
 		return;
 
+	debugfs_remove_recursive(ac->mana_eqs_debugfs);
+	ac->mana_eqs_debugfs = NULL;
+
 	for (i = 0; i < gc->max_num_queues; i++) {
 		eq = ac->eqs[i].eq;
 		if (!eq)
@@ -1225,6 +1265,18 @@ static void mana_destroy_eq(struct mana_context *ac)
 
 	kfree(ac->eqs);
 	ac->eqs = NULL;
+}
+
+static void mana_create_eq_debugfs(struct mana_context *ac, int i)
+{
+	struct mana_eq eq = ac->eqs[i];
+	char eqnum[32];
+
+	sprintf(eqnum, "eq%d", i);
+	eq.mana_eq_debugfs = debugfs_create_dir(eqnum, ac->mana_eqs_debugfs);
+	debugfs_create_u32("head", 0400, eq.mana_eq_debugfs, &eq.eq->head);
+	debugfs_create_u32("tail", 0400, eq.mana_eq_debugfs, &eq.eq->tail);
+	debugfs_create_file("eq_dump", 0400, eq.mana_eq_debugfs, eq.eq, &mana_dbg_q_fops);
 }
 
 static int mana_create_eq(struct mana_context *ac)
@@ -1247,11 +1299,14 @@ static int mana_create_eq(struct mana_context *ac)
 	spec.eq.context = ac->eqs;
 	spec.eq.log2_throttle_limit = LOG2_EQ_THROTTLE;
 
+	ac->mana_eqs_debugfs = debugfs_create_dir("EQs", gc->mana_pci_debugfs);
+
 	for (i = 0; i < gc->max_num_queues; i++) {
 		spec.eq.msix_index = (i + 1) % gc->num_msix_usable;
 		err = mana_gd_create_mana_eq(gd, &spec, &ac->eqs[i].eq);
 		if (err)
 			goto out;
+		mana_create_eq_debugfs(ac, i);
 	}
 
 	return 0;
@@ -1858,6 +1913,9 @@ static void mana_destroy_txq(struct mana_port_context *apc)
 		return;
 
 	for (i = 0; i < apc->num_queues; i++) {
+		debugfs_remove_recursive(apc->tx_qp[i].mana_tx_debugfs);
+		apc->tx_qp[i].mana_tx_debugfs = NULL;
+
 		napi = &apc->tx_qp[i].tx_cq.napi;
 		if (apc->tx_qp[i].txq.napi_initialized) {
 			napi_synchronize(napi);
@@ -1874,6 +1932,31 @@ static void mana_destroy_txq(struct mana_port_context *apc)
 
 	kfree(apc->tx_qp);
 	apc->tx_qp = NULL;
+}
+
+static void mana_create_txq_debugfs(struct mana_port_context *apc, int idx)
+{
+	struct mana_tx_qp *tx_qp = &apc->tx_qp[idx];
+	char qnum[32];
+
+	sprintf(qnum, "TX-%d", idx);
+	tx_qp->mana_tx_debugfs = debugfs_create_dir(qnum, apc->mana_port_debugfs);
+	debugfs_create_u32("sq_head", 0400, tx_qp->mana_tx_debugfs,
+			   &tx_qp->txq.gdma_sq->head);
+	debugfs_create_u32("sq_tail", 0400, tx_qp->mana_tx_debugfs,
+			   &tx_qp->txq.gdma_sq->tail);
+	debugfs_create_u32("sq_pend_skb_qlen", 0400, tx_qp->mana_tx_debugfs,
+			   &tx_qp->txq.pending_skbs.qlen);
+	debugfs_create_u32("cq_head", 0400, tx_qp->mana_tx_debugfs,
+			   &tx_qp->tx_cq.gdma_cq->head);
+	debugfs_create_u32("cq_tail", 0400, tx_qp->mana_tx_debugfs,
+			   &tx_qp->tx_cq.gdma_cq->tail);
+	debugfs_create_u32("cq_budget", 0400, tx_qp->mana_tx_debugfs,
+			   &tx_qp->tx_cq.budget);
+	debugfs_create_file("txq_dump", 0400, tx_qp->mana_tx_debugfs,
+			    tx_qp->txq.gdma_sq, &mana_dbg_q_fops);
+	debugfs_create_file("cq_dump", 0400, tx_qp->mana_tx_debugfs,
+			    tx_qp->tx_cq.gdma_cq, &mana_dbg_q_fops);
 }
 
 static int mana_create_txq(struct mana_port_context *apc,
@@ -1987,6 +2070,8 @@ static int mana_create_txq(struct mana_port_context *apc,
 
 		gc->cq_table[cq->gdma_id] = cq->gdma_cq;
 
+		mana_create_txq_debugfs(apc, i);
+
 		netif_napi_add_tx(net, &cq->napi, mana_poll);
 		napi_enable(&cq->napi);
 		txq->napi_initialized = true;
@@ -2013,6 +2098,9 @@ static void mana_destroy_rxq(struct mana_port_context *apc,
 
 	if (!rxq)
 		return;
+
+	debugfs_remove_recursive(rxq->mana_rx_debugfs);
+	rxq->mana_rx_debugfs = NULL;
 
 	napi = &rxq->rx_cq.napi;
 
@@ -2295,6 +2383,28 @@ out:
 	return NULL;
 }
 
+static void mana_create_rxq_debugfs(struct mana_port_context *apc, int idx)
+{
+	struct mana_rxq *rxq;
+	char qnum[32];
+
+	rxq = apc->rxqs[idx];
+
+	sprintf(qnum, "RX-%d", idx);
+	rxq->mana_rx_debugfs = debugfs_create_dir(qnum, apc->mana_port_debugfs);
+	debugfs_create_u32("rq_head", 0400, rxq->mana_rx_debugfs, &rxq->gdma_rq->head);
+	debugfs_create_u32("rq_tail", 0400, rxq->mana_rx_debugfs, &rxq->gdma_rq->tail);
+	debugfs_create_u32("rq_nbuf", 0400, rxq->mana_rx_debugfs, &rxq->num_rx_buf);
+	debugfs_create_u32("cq_head", 0400, rxq->mana_rx_debugfs,
+			   &rxq->rx_cq.gdma_cq->head);
+	debugfs_create_u32("cq_tail", 0400, rxq->mana_rx_debugfs,
+			   &rxq->rx_cq.gdma_cq->tail);
+	debugfs_create_u32("cq_budget", 0400, rxq->mana_rx_debugfs, &rxq->rx_cq.budget);
+	debugfs_create_file("rxq_dump", 0400, rxq->mana_rx_debugfs, rxq->gdma_rq, &mana_dbg_q_fops);
+	debugfs_create_file("cq_dump", 0400, rxq->mana_rx_debugfs, rxq->rx_cq.gdma_cq,
+			    &mana_dbg_q_fops);
+}
+
 static int mana_add_rx_queues(struct mana_port_context *apc,
 			      struct net_device *ndev)
 {
@@ -2313,6 +2423,8 @@ static int mana_add_rx_queues(struct mana_port_context *apc,
 		u64_stats_init(&rxq->stats.syncp);
 
 		apc->rxqs[i] = rxq;
+
+		mana_create_rxq_debugfs(apc, i);
 	}
 
 	apc->default_rxobj = apc->rxqs[0]->rxobj;
@@ -2363,11 +2475,33 @@ static int mana_create_vport(struct mana_port_context *apc,
 	return mana_create_txq(apc, net);
 }
 
+static int mana_rss_table_alloc(struct mana_port_context *apc)
+{
+	if (!apc->indir_table_sz) {
+		netdev_err(apc->ndev,
+			   "Indirection table size not set for vPort %d\n",
+			   apc->port_idx);
+		return -EINVAL;
+	}
+
+	apc->indir_table = kcalloc(apc->indir_table_sz, sizeof(u32), GFP_KERNEL);
+	if (!apc->indir_table)
+		return -ENOMEM;
+
+	apc->rxobj_table = kcalloc(apc->indir_table_sz, sizeof(mana_handle_t), GFP_KERNEL);
+	if (!apc->rxobj_table) {
+		kfree(apc->indir_table);
+		return -ENOMEM;
+	}
+
+	return 0;
+}
+
 static void mana_rss_table_init(struct mana_port_context *apc)
 {
 	int i;
 
-	for (i = 0; i < MANA_INDIRECT_TABLE_SIZE; i++)
+	for (i = 0; i < apc->indir_table_sz; i++)
 		apc->indir_table[i] =
 			ethtool_rxfh_indir_default(i, apc->num_queues);
 }
@@ -2380,7 +2514,7 @@ int mana_config_rss(struct mana_port_context *apc, enum TRI_STATE rx,
 	int i;
 
 	if (update_tab) {
-		for (i = 0; i < MANA_INDIRECT_TABLE_SIZE; i++) {
+		for (i = 0; i < apc->indir_table_sz; i++) {
 			queue_idx = apc->indir_table[i];
 			apc->rxobj_table[i] = apc->rxqs[queue_idx]->rxobj;
 		}
@@ -2484,17 +2618,21 @@ void mana_query_gf_stats(struct mana_port_context *apc)
 static int mana_init_port(struct net_device *ndev)
 {
 	struct mana_port_context *apc = netdev_priv(ndev);
+	struct gdma_dev *gd = apc->ac->gdma_dev;
 	u32 max_txq, max_rxq, max_queues;
 	int port_idx = apc->port_idx;
-	u32 num_indirect_entries;
+	struct gdma_context *gc;
+	char vport[32];
 	int err;
 
 	err = mana_init_port_context(apc);
 	if (err)
 		return err;
 
+	gc = gd->gdma_context;
+
 	err = mana_query_vport_cfg(apc, port_idx, &max_txq, &max_rxq,
-				   &num_indirect_entries);
+				   &apc->indir_table_sz);
 	if (err) {
 		netdev_err(ndev, "Failed to query info for vPort %d\n",
 			   port_idx);
@@ -2509,7 +2647,8 @@ static int mana_init_port(struct net_device *ndev)
 		apc->num_queues = apc->max_queues;
 
 	eth_hw_addr_set(ndev, apc->mac_addr);
-
+	sprintf(vport, "vport%d", port_idx);
+	apc->mana_port_debugfs = debugfs_create_dir(vport, gc->mana_pci_debugfs);
 	return 0;
 
 reset_apc:
@@ -2745,6 +2884,10 @@ static int mana_probe_port(struct mana_context *ac, int port_idx,
 	if (err)
 		goto free_net;
 
+	err = mana_rss_table_alloc(apc);
+	if (err)
+		goto reset_apc;
+
 	netdev_lockdep_set_classes(ndev);
 
 	ndev->hw_features = NETIF_F_SG | NETIF_F_IP_CSUM | NETIF_F_IPV6_CSUM;
@@ -2760,11 +2903,13 @@ static int mana_probe_port(struct mana_context *ac, int port_idx,
 	err = register_netdev(ndev);
 	if (err) {
 		netdev_err(ndev, "Unable to register netdev.\n");
-		goto reset_apc;
+		goto free_indir;
 	}
 
 	return 0;
 
+free_indir:
+	mana_cleanup_indir_table(apc);
 reset_apc:
 	kfree(apc->rxqs);
 	apc->rxqs = NULL;
@@ -2895,16 +3040,30 @@ int mana_probe(struct gdma_dev *gd, bool resuming)
 	if (!resuming) {
 		for (i = 0; i < ac->num_ports; i++) {
 			err = mana_probe_port(ac, i, &ac->ports[i]);
-			if (err)
+			/* we log the port for which the probe failed and stop
+			 * probes for subsequent ports.
+			 * Note that we keep running ports, for which the probes
+			 * were successful, unless add_adev fails too
+			 */
+			if (err) {
+				dev_err(dev, "Probe Failed for port %d\n", i);
 				break;
+			}
 		}
 	} else {
 		for (i = 0; i < ac->num_ports; i++) {
 			rtnl_lock();
 			err = mana_attach(ac->ports[i]);
 			rtnl_unlock();
-			if (err)
+			/* we log the port for which the attach failed and stop
+			 * attach for subsequent ports
+			 * Note that we keep running ports, for which the attach
+			 * were successful, unless add_adev fails too
+			 */
+			if (err) {
+				dev_err(dev, "Attach Failed for port %d\n", i);
 				break;
+			}
 		}
 	}
 
@@ -2920,6 +3079,7 @@ void mana_remove(struct gdma_dev *gd, bool suspending)
 {
 	struct gdma_context *gc = gd->gdma_context;
 	struct mana_context *ac = gd->driver_data;
+	struct mana_port_context *apc;
 	struct device *dev = gc->dev;
 	struct net_device *ndev;
 	int err;
@@ -2931,6 +3091,7 @@ void mana_remove(struct gdma_dev *gd, bool suspending)
 
 	for (i = 0; i < ac->num_ports; i++) {
 		ndev = ac->ports[i];
+		apc = netdev_priv(ndev);
 		if (!ndev) {
 			if (i == 0)
 				dev_err(dev, "No net device to remove\n");
@@ -2954,6 +3115,7 @@ void mana_remove(struct gdma_dev *gd, bool suspending)
 		}
 
 		unregister_netdevice(ndev);
+		mana_cleanup_indir_table(apc);
 
 		rtnl_unlock();
 

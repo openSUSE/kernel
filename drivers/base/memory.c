@@ -264,7 +264,6 @@ static int memory_block_offline(struct memory_block *mem)
 		goto out;
 	}
 
-	mem_hotplug_begin();
 	if (nr_vmemmap_pages)
 		mhp_deinit_memmap_on_memory(start_pfn, nr_vmemmap_pages);
 

@@ -2358,28 +2358,30 @@
 			  "number of CPUs in system - 1".
 
 			managed_irq
+			  Isolate CPUs from IRQ-related work for drivers
+			  that support managed interrupts, ensuring no
+			  IRQ work is scheduled on the isolated CPUs. The
+			  kernel manages the affinity of managed
+			  interrupts, which cannot be changed via the
+			  /proc/irq/* interfaces.
 
-			  Isolate from being targeted by managed interrupts
-			  which have an interrupt mask containing isolated
-			  CPUs. The affinity of managed interrupts is
-			  handled by the kernel and cannot be changed via
-			  the /proc/irq/* interfaces.
+			  Since isolated CPUs do not handle IRQ work, the
+			  work is forwarded to housekeeping CPUs.
+			  Housekeeping and isolated CPUs are grouped into
+			  sets, ensuring at least one housekeeping CPU is
+			  available per set. Consequently, if all
+			  housekeeping CPUs in a set are offlined, there
+			  will be no CPU available to handle IRQ work for
+			  the isolated CPUs. Therefore, users should
+			  offline all isolated CPUs before offlining the
+			  housekeeping CPUs in a set to avoid stalls.
 
-			  This isolation is best effort and only effective
-			  if the automatically assigned interrupt mask of a
-			  device queue contains isolated and housekeeping
-			  CPUs. If housekeeping CPUs are online then such
-			  interrupts are directed to the housekeeping CPU
-			  so that IO submitted on the housekeeping CPU
-			  cannot disturb the isolated CPU.
-
-			  If a queue's affinity mask contains only isolated
-			  CPUs then this parameter has no effect on the
-			  interrupt routing decision, though interrupts are
-			  only delivered when tasks running on those
-			  isolated CPUs submit IO. IO submitted on
-			  housekeeping CPUs has no influence on those
-			  queues.
+			  The block layer ensures that no I/O is
+			  scheduled on isolated CPU, except when user
+			  applications running on the isolated CPUs issue
+			  I/O requests. In this case the I/O is issued
+			  from the isolated CPU and the IRQ related work
+			  is forwared to a housekeeping CPU.
 
 			The format of <cpu-list> is described above.
 
@@ -3345,6 +3347,11 @@
 			problem by letting the user disable the workaround.
 
 	mga=		[HW,DRM]
+
+	microcode.force_minrev=	[X86]
+			Format: <bool>
+			Enable or disable the microcode minimal revision
+			enforcement for the runtime microcode loader.
 
 	min_addr=nn[KMG]	[KNL,BOOT,IA-64] All physical memory below this
 			physical address is ignored.

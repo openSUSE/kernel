@@ -442,6 +442,7 @@ cifs_down_write(struct rw_semaphore *sem)
 }
 
 static void cifsFileInfo_put_work(struct work_struct *work);
+void serverclose_work(struct work_struct *work);
 
 struct cifsFileInfo *cifs_new_fileinfo(struct cifs_fid *fid, struct file *file,
 				       struct tcon_link *tlink, __u32 oplock,
@@ -488,6 +489,7 @@ struct cifsFileInfo *cifs_new_fileinfo(struct cifs_fid *fid, struct file *file,
 	cfile->tlink = cifs_get_tlink(tlink);
 	INIT_WORK(&cfile->oplock_break, cifs_oplock_break);
 	INIT_WORK(&cfile->put, cifsFileInfo_put_work);
+	INIT_WORK(&cfile->serverclose, serverclose_work);
 	INIT_DELAYED_WORK(&cfile->deferred, smb2_deferred_work_close);
 	mutex_init(&cfile->fh_mutex);
 	spin_lock_init(&cfile->file_info_lock);
@@ -579,6 +581,40 @@ static void cifsFileInfo_put_work(struct work_struct *work)
 	cifsFileInfo_put_final(cifs_file);
 }
 
+void serverclose_work(struct work_struct *work)
+{
+	struct cifsFileInfo *cifs_file = container_of(work,
+			struct cifsFileInfo, serverclose);
+
+	struct cifs_tcon *tcon = tlink_tcon(cifs_file->tlink);
+
+	struct TCP_Server_Info *server = tcon->ses->server;
+	int rc = 0;
+	int retries = 0;
+	int MAX_RETRIES = 4;
+
+	do {
+		if (server->ops->close_getattr)
+			rc = server->ops->close_getattr(0, tcon, cifs_file);
+		else if (server->ops->close)
+			rc = server->ops->close(0, tcon, &cifs_file->fid);
+
+		if (rc == -EBUSY || rc == -EAGAIN) {
+			retries++;
+			msleep(250);
+		}
+	} while ((rc == -EBUSY || rc == -EAGAIN) && (retries < MAX_RETRIES)
+	);
+
+	if (retries == MAX_RETRIES)
+		pr_warn("Serverclose failed %d times, giving up\n", MAX_RETRIES);
+
+	if (cifs_file->offload)
+		queue_work(fileinfo_put_wq, &cifs_file->put);
+	else
+		cifsFileInfo_put_final(cifs_file);
+}
+
 /**
  * cifsFileInfo_put - release a reference of file priv data
  *
@@ -619,10 +655,13 @@ void _cifsFileInfo_put(struct cifsFileInfo *cifs_file,
 	struct cifs_fid fid = {};
 	struct cifs_pending_open open;
 	bool oplock_break_cancelled;
+	bool serverclose_offloaded = false;
 
 	spin_lock(&tcon->open_file_lock);
 	spin_lock(&cifsi->open_file_lock);
 	spin_lock(&cifs_file->file_info_lock);
+
+	cifs_file->offload = offload;
 	if (--cifs_file->count > 0) {
 		spin_unlock(&cifs_file->file_info_lock);
 		spin_unlock(&cifsi->open_file_lock);
@@ -664,13 +703,20 @@ void _cifsFileInfo_put(struct cifsFileInfo *cifs_file,
 	if (!tcon->need_reconnect && !cifs_file->invalidHandle) {
 		struct TCP_Server_Info *server = tcon->ses->server;
 		unsigned int xid;
+		int rc = 0;
 
 		xid = get_xid();
 		if (server->ops->close_getattr)
-			server->ops->close_getattr(xid, tcon, cifs_file);
+			rc = server->ops->close_getattr(xid, tcon, cifs_file);
 		else if (server->ops->close)
-			server->ops->close(xid, tcon, &cifs_file->fid);
+			rc = server->ops->close(xid, tcon, &cifs_file->fid);
 		_free_xid(xid);
+
+		if (rc == -EBUSY || rc == -EAGAIN) {
+			// Server close failed, hence offloading it as an async op
+			queue_work(serverclose_wq, &cifs_file->serverclose);
+			serverclose_offloaded = true;
+		}
 	}
 
 	if (oplock_break_cancelled)
@@ -678,10 +724,15 @@ void _cifsFileInfo_put(struct cifsFileInfo *cifs_file,
 
 	cifs_del_pending_open(&open);
 
-	if (offload)
-		queue_work(fileinfo_put_wq, &cifs_file->put);
-	else
-		cifsFileInfo_put_final(cifs_file);
+	// if serverclose has been offloaded to wq (on failure), it will
+	// handle offloading put as well. If serverclose not offloaded,
+	// we need to handle offloading put here.
+	if (!serverclose_offloaded) {
+		if (offload)
+			queue_work(fileinfo_put_wq, &cifs_file->put);
+		else
+			cifsFileInfo_put_final(cifs_file);
+	}
 }
 
 int cifs_open(struct inode *inode, struct file *file)
@@ -1020,14 +1071,16 @@ reopen_success:
 		if (!is_interrupt_error(rc))
 			mapping_set_error(inode->i_mapping, rc);
 
-		if (tcon->posix_extensions)
-			rc = smb311_posix_get_inode_info(&inode, full_path, inode->i_sb, xid);
-		else if (tcon->unix_ext)
+		if (tcon->posix_extensions) {
+			rc = smb311_posix_get_inode_info(&inode, full_path,
+							 NULL, inode->i_sb, xid);
+		} else if (tcon->unix_ext) {
 			rc = cifs_get_inode_info_unix(&inode, full_path,
 						      inode->i_sb, xid);
-		else
+		} else {
 			rc = cifs_get_inode_info(&inode, full_path, NULL,
 						 inode->i_sb, xid, NULL);
+		}
 	}
 	/*
 	 * Else we are writing out data to server already and could deadlock if
@@ -2623,15 +2676,17 @@ static void cifs_extend_writeback(struct address_space *mapping,
 				  loff_t start,
 				  int max_pages,
 				  loff_t max_len,
-				  size_t *_len)
+				  size_t *_len,
+				  int sync_mode)
 {
 	struct folio_batch batch;
 	struct folio *folio;
-	unsigned int nr_pages;
-	pgoff_t index = (start + *_len) / PAGE_SIZE;
-	size_t len;
-	bool stop = true;
-	unsigned int i;
+	unsigned int nr_pages, i;
+	pgoff_t idx, index = (start + *_len) / PAGE_SIZE;
+	size_t len = *_len, flen;
+	bool stop = true, sync = (sync_mode != WB_SYNC_NONE);
+	long count = *_count;
+	int npages = max_pages;
 
 	folio_batch_init(&batch);
 
@@ -2646,59 +2701,118 @@ static void cifs_extend_writeback(struct address_space *mapping,
 			stop = true;
 			if (xas_retry(xas, folio))
 				continue;
-			if (xa_is_value(folio))
-				break;
-			if (folio->index != index) {
-				xas_reset(xas);
+			if (xa_is_value(folio)) {
+				stop = false;
 				break;
 			}
 
-			if (!folio_try_get_rcu(folio)) {
-				xas_reset(xas);
-				continue;
-			}
-			nr_pages = folio_nr_pages(folio);
-			if (nr_pages > max_pages) {
-				xas_reset(xas);
-				break;
-			}
+			if (folio_index(folio) != index)
+				goto xareset_next;
+
+			if (!folio_try_get_rcu(folio))
+				goto xareset_next;
 
 			/* Has the page moved or been split? */
-			if (unlikely(folio != xas_reload(xas))) {
-				folio_put(folio);
-				xas_reset(xas);
-				break;
+			if (unlikely(folio != xas_reload(xas) || folio->mapping != mapping)) {
+				stop = false;
+				goto put_next;
 			}
 
-			if (!folio_trylock(folio)) {
-				folio_put(folio);
-				xas_reset(xas);
-				break;
-			}
-			if (!folio_test_dirty(folio) ||
-			    folio_test_writeback(folio)) {
-				folio_unlock(folio);
-				folio_put(folio);
-				xas_reset(xas);
-				break;
+			if (!folio_trylock(folio))
+				goto put_next;
+
+			nr_pages = folio_nr_pages(folio);
+			if (nr_pages > npages)
+				goto unlock_next;
+
+			if (nr_pages > count)
+				goto unlock_next;
+
+			if (!folio_test_dirty(folio)) {
+				stop = false;
+				goto unlock_next;
 			}
 
-			max_pages -= nr_pages;
-			len = folio_size(folio);
+			if (folio_test_writeback(folio)) {
+				/*
+				 * For data-integrity syscalls (fsync(), msync()) we must wait for
+				 * the I/O to complete on the page.
+				 * For other cases (!sync), we can just skip this page, even if
+				 * it's dirty.
+				 */
+				if (!sync) {
+					stop = false;
+					goto unlock_next;
+				} else {
+					folio_wait_writeback(folio);
+
+					/*
+					 * More I/O started meanwhile, bail out and write on the
+					 * next call.
+					 */
+					if (WARN_ON_ONCE(folio_test_writeback(folio)))
+						goto unlock_next;
+				}
+			}
+
+			/*
+			 * We don't really have a boundary for index, so just check for overflow.
+			 */
+			if (check_add_overflow(index, nr_pages, &idx))
+				goto unlock_next;
+
+			flen = folio_size(folio);
+
+			/* Store sum in @flen so we don't have to undo it in case of failure. */
+			if (check_add_overflow(len, flen, &flen) || flen > max_len)
+				goto unlock_next;
+
+			index = idx;
+			len = flen;
+
+			/*
+			 * @npages and @count have been checked earlier (and are signed), so we
+			 * can just subtract them here.
+			 */
+			npages -= nr_pages;
+			count -= nr_pages;
+
+			/*
+			 * This is not an error; it just means we _did_ add this current folio, but
+			 * can't add any more to this batch, so break out of this loop to start
+			 * processing this batch, but don't stop the outer loop in case there are
+			 * more folios to be processed in @xas.
+			 */
 			stop = false;
-
-			index += nr_pages;
-			*_count -= nr_pages;
-			*_len += len;
-			if (max_pages <= 0 || *_len >= max_len || *_count <= 0)
-				stop = true;
-
 			if (!folio_batch_add(&batch, folio))
 				break;
+
+			/*
+			 * Folios added to the batch must be left locked for the loop below.  They
+			 * will be unlocked right away and also folio_batch_release() will take
+			 * care of putting them.
+			 */
+			continue;
+unlock_next:
+			folio_unlock(folio);
+put_next:
+			folio_put(folio);
+xareset_next:
 			if (stop)
 				break;
 		}
 
+		/*
+		 * Only reset @xas if we get here because of one of the stopping conditions above,
+		 * namely:
+		 *   - couldn't lock/get a folio (someone else was processing the same folio)
+		 *   - folio was in writeback for too long (sync call was writing the same folio)
+		 *   - out of bounds index, len, or count (the last processed folio was partial and
+		 *     we can't fit it in this write request, so it shall be processed in the next
+		 *     write)
+		 */
+		if (stop)
+			xas_reset(xas);
 		xas_pause(xas);
 		rcu_read_unlock();
 
@@ -2720,6 +2834,13 @@ static void cifs_extend_writeback(struct address_space *mapping,
 
 			folio_unlock(folio);
 		}
+
+		/*
+		 * By now, data has been updated/written out to @mapping, so from this point of
+		 * view we're done and we can safely update @_len and @_count.
+		 */
+		*_len = len;
+		*_count = count;
 
 		folio_batch_release(&batch);
 		cond_resched();
@@ -2809,7 +2930,8 @@ static ssize_t cifs_write_back_from_locked_folio(struct address_space *mapping,
 
 			if (max_pages > 0)
 				cifs_extend_writeback(mapping, xas, &count, start,
-						      max_pages, max_len, &len);
+						      max_pages, max_len, &len,
+						      wbc->sync_mode);
 		}
 	}
 	len = min_t(unsigned long long, len, i_size - start);
