@@ -430,10 +430,32 @@ struct pmc_dev {
 
 enum pmc_index {
 	PMC_IDX_MAIN,
-	PMC_IDX_SOC = PMC_IDX_MAIN,
 	PMC_IDX_IOE,
 	PMC_IDX_PCH,
 	PMC_IDX_MAX
+};
+
+/**
+ * struct pmc_dev_info - Structure to keep PMC device info
+ * @pci_func:		Function number of the primary PMC
+ * @dmu_guid:		Die Management Unit GUID
+ * @regmap_list:	Pointer to a list of pmc_info structure that could be
+ *			available for the platform. When set, this field implies
+ *			SSRAM support.
+ * @map:		Pointer to a pmc_reg_map struct that contains platform
+ *			specific attributes of the primary PMC
+ * @suspend:		Function to perform platform specific suspend
+ * @resume:		Function to perform platform specific resume
+ * @init:		Function to perform platform specific init action
+ */
+struct pmc_dev_info {
+	u8 pci_func;
+	u32 dmu_guid;
+	struct pmc_info *regmap_list;
+	const struct pmc_reg_map *map;
+	void (*suspend)(struct pmc_dev *pmcdev);
+	int (*resume)(struct pmc_dev *pmcdev);
+	int (*init)(struct pmc_dev *pmcdev, struct pmc_dev_info *pmc_dev_info);
 };
 
 extern const struct pmc_bit_map msr_map[];
@@ -592,16 +614,18 @@ extern void pmc_core_set_device_d3(unsigned int device);
 
 extern int pmc_core_ssram_init(struct pmc_dev *pmcdev, int func);
 
-int spt_core_init(struct pmc_dev *pmcdev);
-int cnp_core_init(struct pmc_dev *pmcdev);
-int icl_core_init(struct pmc_dev *pmcdev);
-int tgl_core_init(struct pmc_dev *pmcdev);
-int tgl_l_core_init(struct pmc_dev *pmcdev);
-int tgl_core_generic_init(struct pmc_dev *pmcdev, int pch_tp);
-int adl_core_init(struct pmc_dev *pmcdev);
-int mtl_core_init(struct pmc_dev *pmcdev);
-int arl_core_init(struct pmc_dev *pmcdev);
-int lnl_core_init(struct pmc_dev *pmcdev);
+int generic_core_init(struct pmc_dev *pmcdev, struct pmc_dev_info *pmc_dev_info);
+
+extern struct pmc_dev_info spt_pmc_dev;
+extern struct pmc_dev_info cnp_pmc_dev;
+extern struct pmc_dev_info icl_pmc_dev;
+extern struct pmc_dev_info tgl_l_pmc_dev;
+extern struct pmc_dev_info tgl_pmc_dev;
+extern struct pmc_dev_info adl_pmc_dev;
+extern struct pmc_dev_info mtl_pmc_dev;
+extern struct pmc_dev_info arl_pmc_dev;
+extern struct pmc_dev_info arl_h_pmc_dev;
+extern struct pmc_dev_info lnl_pmc_dev;
 
 void cnl_suspend(struct pmc_dev *pmcdev);
 int cnl_resume(struct pmc_dev *pmcdev);

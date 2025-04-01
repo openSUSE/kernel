@@ -221,20 +221,9 @@ int cnl_resume(struct pmc_dev *pmcdev)
 	return pmc_core_resume_common(pmcdev);
 }
 
-int cnp_core_init(struct pmc_dev *pmcdev)
-{
-	struct pmc *pmc = pmcdev->pmcs[PMC_IDX_MAIN];
-	int ret;
+struct pmc_dev_info cnp_pmc_dev = {
+	.map = &cnp_reg_map,
+	.suspend = cnl_suspend,
+	.resume = cnl_resume,
+};
 
-	pmcdev->suspend = cnl_suspend;
-	pmcdev->resume = cnl_resume;
-
-	pmc->map = &cnp_reg_map;
-	ret = get_primary_reg_base(pmc);
-	if (ret)
-		return ret;
-
-	pmc_core_get_low_power_modes(pmcdev);
-
-	return 0;
-}
