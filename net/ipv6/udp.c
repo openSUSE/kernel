@@ -961,11 +961,8 @@ start_lookup:
 
 static void udp6_sk_rx_dst_set(struct sock *sk, struct dst_entry *dst)
 {
-	if (udp_sk_rx_dst_set(sk, dst)) {
-		const struct rt6_info *rt = (const struct rt6_info *)dst;
-
-		sk->sk_rx_dst_cookie = rt6_get_cookie(rt);
-	}
+	if (udp_sk_rx_dst_set(sk, dst))
+		sk->sk_rx_dst_cookie = rt6_get_cookie(dst_rt6_info(dst));
 }
 
 /* wrapper for udp_queue_rcv_skb tacking care of csum conversion and
@@ -1633,7 +1630,7 @@ back_from_confirm:
 
 		skb = ip6_make_skb(sk, getfrag, msg, ulen,
 				   sizeof(struct udphdr), &ipc6,
-				   (struct rt6_info *)dst,
+				   dst_rt6_info(dst),
 				   msg->msg_flags, &cork);
 		err = PTR_ERR(skb);
 		if (!IS_ERR_OR_NULL(skb))
@@ -1660,7 +1657,7 @@ do_append_data:
 		ipc6.dontfrag = np->dontfrag;
 	up->len += ulen;
 	err = ip6_append_data(sk, getfrag, msg, ulen, sizeof(struct udphdr),
-			      &ipc6, fl6, (struct rt6_info *)dst,
+			      &ipc6, fl6, dst_rt6_info(dst),
 			      corkreq ? msg->msg_flags|MSG_MORE : msg->msg_flags);
 	if (err)
 		udp_v6_flush_pending_frames(sk);
@@ -1846,6 +1843,7 @@ struct proto udpv6_prot = {
 	.sysctl_wmem_offset     = offsetof(struct net, ipv4.sysctl_udp_wmem_min),
 	.sysctl_rmem_offset     = offsetof(struct net, ipv4.sysctl_udp_rmem_min),
 	.obj_size		= sizeof(struct udp6_sock),
+	.ipv6_pinfo_offset = offsetof(struct udp6_sock, inet6),
 	.h.udp_table		= NULL,
 	.diag_destroy		= udp_abort,
 };
