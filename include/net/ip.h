@@ -355,14 +355,19 @@ static inline bool ip_sk_ignore_df(const struct sock *sk)
 static inline unsigned int ip_dst_mtu_maybe_forward(const struct dst_entry *dst,
 						    bool forwarding)
 {
-	struct net *net = dev_net(dst->dev);
+	struct net *net;
+	unsigned int mtu;
 
+	rcu_read_lock();
+	net = dev_net_rcu(dst->dev);
 	if (net->ipv4.sysctl_ip_fwd_use_pmtu ||
 	    ip_mtu_locked(dst) ||
 	    !forwarding)
-		return dst_mtu(dst);
-
-	return min(READ_ONCE(dst->dev->mtu), IP_MAX_MTU);
+		mtu = dst_mtu(dst);
+	else
+		mtu = min(READ_ONCE(dst->dev->mtu), IP_MAX_MTU);
+	rcu_read_unlock();
+	return net;
 }
 
 static inline unsigned int ip_skb_dst_mtu(struct sock *sk,

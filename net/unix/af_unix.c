@@ -440,7 +440,7 @@ static int unix_dgram_peer_wake_me(struct sock *sk, struct sock *other)
 
 	connected = unix_dgram_peer_wake_connect(sk, other);
 
-	if (unix_recvq_full(other))
+	if (unix_recvq_full_lockless(other))
 		return 1;
 
 	if (connected)
