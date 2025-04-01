@@ -367,7 +367,7 @@ static inline unsigned int ip_dst_mtu_maybe_forward(const struct dst_entry *dst,
 	else
 		mtu = min(READ_ONCE(dst->dev->mtu), IP_MAX_MTU);
 	rcu_read_unlock();
-	return net;
+	return mtu;
 }
 
 static inline unsigned int ip_skb_dst_mtu(struct sock *sk,
