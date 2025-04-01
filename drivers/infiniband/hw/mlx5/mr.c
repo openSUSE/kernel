@@ -1928,7 +1928,8 @@ int mlx5_ib_dereg_mr(struct ib_mr *ibmr, struct ib_udata *udata)
 {
 	struct mlx5_ib_mr *mr = to_mmr(ibmr);
 	struct mlx5_ib_dev *dev = to_mdev(ibmr->device);
-	int rc;
+	bool is_odp = is_odp_mr(mr);
+	int rc = 0;
 
 	/*
 	 * Any async use of the mr must hold the refcount, once the refcount
@@ -1968,6 +1969,9 @@ int mlx5_ib_dereg_mr(struct ib_mr *ibmr, struct ib_udata *udata)
 		mr->sig = NULL;
 	}
 
+	if (is_odp)
+		mutex_lock(&to_ib_umem_odp(mr->umem)->umem_mutex);
+
 	/* Stop DMA */
 	if (mr->cache_ent) {
 		if (revoke_mr(mr)) {
@@ -1979,9 +1983,13 @@ int mlx5_ib_dereg_mr(struct ib_mr *ibmr, struct ib_udata *udata)
 	}
 	if (!mr->cache_ent) {
 		rc = destroy_mkey(to_mdev(mr->ibmr.device), mr);
-		if (rc)
-			return rc;
+		if (!rc && is_odp)
+		    to_ib_umem_odp(mr->umem)->private = NULL;
 	}
+	if (is_odp)
+		mutex_unlock(&to_ib_umem_odp(mr->umem)->umem_mutex);
+	if (rc)
+	    return rc;
 
 	if (mr->umem) {
 		bool is_odp = is_odp_mr(mr);
