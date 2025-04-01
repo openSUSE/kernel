@@ -60,7 +60,7 @@ void nvme_mpath_unfreeze(struct nvme_subsystem *subsys)
 	lockdep_assert_held(&subsys->lock);
 	list_for_each_entry(h, &subsys->nsheads, entry)
 		if (h->disk)
-			blk_mq_unfreeze_queue(h->disk->queue);
+			blk_mq_unfreeze_queue_nomemrestore(h->disk->queue);
 }
 
 void nvme_mpath_wait_freeze(struct nvme_subsystem *subsys)
@@ -642,7 +642,7 @@ int nvme_mpath_alloc_disk(struct nvme_ctrl *ctrl, struct nvme_ns_head *head)
 	if (head->ids.csi == NVME_CSI_ZNS)
 		lim.features |= BLK_FEAT_ZONED;
 	else
-		lim.max_zone_append_sectors = 0;
+		lim.max_hw_zone_append_sectors = 0;
 
 	head->disk = blk_alloc_disk(&lim, ctrl->numa_node);
 	if (IS_ERR(head->disk))
