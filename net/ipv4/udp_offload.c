@@ -414,6 +414,11 @@ struct sk_buff *udp4_gro_receive(struct list_head *head, struct sk_buff *skb)
 {
 	struct udphdr *uh = udp_gro_udphdr(skb);
 
+	if (unlikely(skb_cloned(skb))) {
+		NAPI_GRO_CB(skb)->same_flow = 0;
+		goto flush;
+	}
+
 	if (unlikely(!uh))
 		goto flush;
 

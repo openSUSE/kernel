@@ -230,6 +230,12 @@ struct sk_buff *tcp_gro_receive(struct list_head *head, struct sk_buff *skb)
 	goto out_check_final;
 
 found:
+	if (unlikely(skb_cloned(skb))) {
+		NAPI_GRO_CB(skb)->flush |= 1;
+		NAPI_GRO_CB(skb)->same_flow = 0;
+		return p;
+	}
+
 	/* Include the IP ID check below from the inner most IP hdr */
 	flush = NAPI_GRO_CB(p)->flush;
 	flush |= (__force int)(flags & TCP_FLAG_CWR);
