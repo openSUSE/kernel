@@ -491,6 +491,11 @@ retry:
 	if (ret <= 0)
 		goto put_old;
 
+	if (is_zero_pfn(page_to_pfn(old_page))) {
+		ret = -EINVAL;
+		goto put_old;
+	}
+
 	/* We are going to replace instruction, update ref_ctr. */
 	if (!ref_ctr_updated && uprobe->ref_ctr_offset) {
 		ret = update_ref_ctr(uprobe, mm, is_register ? 1 : -1);
