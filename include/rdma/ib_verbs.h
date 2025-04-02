@@ -2752,6 +2752,10 @@ struct ib_device {
 	/* CQ adaptive moderation (RDMA DIM) */
 	u16                          use_cq_dim:1;
 	u8                           node_type;
+#ifndef __GENKSYMS__
+	u8			     hw_stats_attr_index;
+#endif
+
 	u32			     phys_port_cnt;
 	struct ib_device_attr        attrs;
 	struct hw_stats_device_data *hw_stats_data;
