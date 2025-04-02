@@ -3296,10 +3296,7 @@ static int __smc_create(struct net *net, struct socket *sock, int protocol,
 		 * which need net ref.
 		 */
 		sk = smc->clcsock->sk;
-		__netns_tracker_free(net, &sk->ns_tracker, false);
-		sk->sk_net_refcnt = 1;
-		get_net_track(net, &sk->ns_tracker, GFP_KERNEL);
-		sock_inuse_add(net, 1);
+		sk_net_refcnt_upgrade(sk);
 	} else {
 		smc->clcsock = clcsock;
 	}
