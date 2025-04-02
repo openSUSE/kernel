@@ -23,7 +23,7 @@ extern void x86_virt_spec_ctrl(u64 guest_spec_ctrl, u64 guest_virt_spec_ctrl, bo
  *
  * Avoids writing to the MSR if the content/bits are the same
  */
-static inline
+static __always_inline
 void x86_spec_ctrl_set_guest(u64 guest_spec_ctrl, u64 guest_virt_spec_ctrl)
 {
 	x86_virt_spec_ctrl(guest_spec_ctrl, guest_virt_spec_ctrl, true);
