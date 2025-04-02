@@ -433,7 +433,7 @@ static void icmp6_send(struct sk_buff *skb, u8 type, u8 code, __u32 info,
 	int addr_type = 0;
 	int len;
 	int err = 0;
-	u32 mark = IP6_REPLY_MARK(net, skb->mark);
+	u32 mark;
 
 	if ((u8 *)hdr < skb->head ||
 	    (skb_network_header(skb) + sizeof(*hdr)) > skb_tail_pointer(skb))
@@ -441,7 +441,7 @@ static void icmp6_send(struct sk_buff *skb, u8 type, u8 code, __u32 info,
 
 	rcu_read_lock();
 	net = dev_net_rcu(skb->dev);
-
+	mark = IP6_REPLY_MARK(net, skb->mark);
 	/*
 	 *	Make sure we respect the rules
 	 *	i.e. RFC 1885 2.4(e)
