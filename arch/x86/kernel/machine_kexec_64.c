@@ -393,9 +393,6 @@ int arch_kexec_kernel_image_probe(struct kimage *image, void *buf,
 
 void *arch_kexec_kernel_image_load(struct kimage *image)
 {
-	vfree(image->arch.elf_headers);
-	image->arch.elf_headers = NULL;
-
 	if (!image->fops || !image->fops->load)
 		return ERR_PTR(-ENOEXEC);
 
@@ -407,6 +404,10 @@ void *arch_kexec_kernel_image_load(struct kimage *image)
 
 int arch_kimage_file_post_load_cleanup(struct kimage *image)
 {
+	vfree(image->arch.elf_headers);
+	image->arch.elf_headers = NULL;
+	image->arch.elf_headers_sz = 0;
+
 	if (!image->fops || !image->fops->cleanup)
 		return 0;
 
