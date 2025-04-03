@@ -2127,8 +2127,13 @@ bool blk_throtl_bio(struct request_queue *q, struct blkcg_gq *blkg,
 	WARN_ON_ONCE(!rcu_read_lock_held());
 
 	/* see throtl_charge_bio() */
-	if (bio_flagged(bio, BIO_THROTTLED) || !tg->has_rules[rw])
-		goto out_unlock;
+	if (bio_flagged(bio, BIO_THROTTLED))
+		return throttled;
+
+	if (!tg->has_rules[rw]) {
+		bio_set_flag(bio, BIO_THROTTLED);
+		return throttled;
+	}
 
 	spin_lock_irq(&q->queue_lock);
 
