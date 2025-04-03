@@ -5476,51 +5476,77 @@ static int send_write_or_clone(struct send_ctx *sctx,
 			       struct clone_root *clone_root)
 {
 	int ret = 0;
-	struct btrfs_file_extent_item *ei;
 	u64 offset = key->offset;
-	u64 len;
-	u8 type;
+	u64 end;
 	u64 bs = sctx->send_root->fs_info->sb->s_blocksize;
+	struct btrfs_file_extent_item *ei;
+	u64 disk_byte;
+	u64 data_offset;
+	u64 num_bytes;
+	u64 size;
 
-	ei = btrfs_item_ptr(path->nodes[0], path->slots[0],
-			struct btrfs_file_extent_item);
-	type = btrfs_file_extent_type(path->nodes[0], ei);
-	if (type == BTRFS_FILE_EXTENT_INLINE) {
-		len = btrfs_file_extent_ram_bytes(path->nodes[0], ei);
+	end = min_t(u64, btrfs_file_extent_end(path), sctx->cur_inode_size);
+	if (offset >= end)
+		return 0;
+
+	num_bytes = end - offset;
+
+	if (!clone_root)
+		goto write_data;
+
+	if (IS_ALIGNED(end, bs))
+		goto clone_data;
+
+	/*
+	 * If the extent end is not aligned, we can clone if the extent ends at
+	 * the i_size of the inode and the clone range ends at the i_size of the
+	 * source inode, otherwise the clone operation fails with -EINVAL.
+	 */
+	if (end != sctx->cur_inode_size)
+		goto write_data;
+
+	ret = get_inode_info(clone_root->root, clone_root->ino,
+				&size, NULL, NULL, NULL, NULL, NULL);
+	if (ret < 0)
+		return ret;
+
+	if (clone_root->offset + num_bytes == size) {
 		/*
-		 * it is possible the inline item won't cover the whole page,
-		 * but there may be items after this page.  Make
-		 * sure to send the whole thing
+		 * The final size of our file matches the end offset, but it may
+		 * be that its current size is larger, so we have to truncate it
+		 * to any value between the start offset of the range and the
+		 * final i_size, otherwise the clone operation is invalid
+		 * because it's unaligned and it ends before the current EOF.
+		 * We do this truncate to the final i_size when we finish
+		 * processing the inode, but it's too late by then. And here we
+		 * truncate to the start offset of the range because it's always
+		 * sector size aligned while if it were the final i_size it
+		 * would result in dirtying part of a page, filling part of a
+		 * page with zeroes and then having the clone operation at the
+		 * receiver trigger IO and wait for it due to the dirty page.
 		 */
-		len = PAGE_ALIGN(len);
-	} else {
-		len = btrfs_file_extent_num_bytes(path->nodes[0], ei);
+		if (sctx->parent_root != NULL) {
+			ret = send_truncate(sctx, sctx->cur_ino,
+					    sctx->cur_inode_gen, offset);
+			if (ret < 0)
+				return ret;
+		}
+		goto clone_data;
 	}
 
-	if (offset >= sctx->cur_inode_size) {
-		ret = 0;
-		goto out;
-	}
-	if (offset + len > sctx->cur_inode_size)
-		len = sctx->cur_inode_size - offset;
-	if (len == 0) {
-		ret = 0;
-		goto out;
-	}
+write_data:
+	ret = send_extent_data(sctx, offset, num_bytes);
+	sctx->cur_inode_next_write_offset = end;
+	return ret;
 
-	if (clone_root && IS_ALIGNED(offset + len, bs)) {
-		u64 disk_byte;
-		u64 data_offset;
-
-		disk_byte = btrfs_file_extent_disk_bytenr(path->nodes[0], ei);
-		data_offset = btrfs_file_extent_offset(path->nodes[0], ei);
-		ret = clone_range(sctx, clone_root, disk_byte, data_offset,
-				  offset, len);
-	} else {
-		ret = send_extent_data(sctx, offset, len);
-	}
-	sctx->cur_inode_next_write_offset = offset + len;
-out:
+clone_data:
+	ei = btrfs_item_ptr(path->nodes[0], path->slots[0],
+			    struct btrfs_file_extent_item);
+	disk_byte = btrfs_file_extent_disk_bytenr(path->nodes[0], ei);
+	data_offset = btrfs_file_extent_offset(path->nodes[0], ei);
+	ret = clone_range(sctx, clone_root, disk_byte, data_offset, offset,
+			  num_bytes);
+	sctx->cur_inode_next_write_offset = end;
 	return ret;
 }
 
