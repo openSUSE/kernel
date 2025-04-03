@@ -705,22 +705,6 @@ errout:
 	return err;
 }
 
-/* Combine dev_addr_genid and dev_base_seq to detect changes.
- */
-static u32 inet6_base_seq(const struct net *net)
-{
-	u32 res = atomic_read(&net->ipv6.dev_addr_genid) +
-		  net->dev_base_seq;
-
-	/* Must not return 0 (see nl_dump_check_consistent()).
-	 * Chose a value far away from 0.
-	 */
-	if (!res)
-		res = 0x80000000;
-	return res;
-}
-
-
 static int inet6_netconf_dump_devconf(struct sk_buff *skb,
 				      struct netlink_callback *cb)
 {
@@ -754,7 +738,8 @@ static int inet6_netconf_dump_devconf(struct sk_buff *skb,
 		idx = 0;
 		head = &net->dev_index_head[h];
 		rcu_read_lock();
-		cb->seq = inet6_base_seq(net);
+		cb->seq = atomic_read(&net->ipv6.dev_addr_genid) ^
+			  net->dev_base_seq;
 		hlist_for_each_entry_rcu(dev, head, index_hlist) {
 			if (idx < s_idx)
 				goto cont;
@@ -1830,8 +1815,7 @@ int ipv6_dev_get_saddr(struct net *net, const struct net_device *dst_dev,
 							    master, &dst,
 							    scores, hiscore_idx);
 
-			if (scores[hiscore_idx].ifa &&
-			    scores[hiscore_idx].scopedist >= 0)
+			if (scores[hiscore_idx].ifa)
 				goto out;
 		}
 
@@ -4130,7 +4114,7 @@ static void addrconf_dad_work(struct work_struct *w)
 			if (!ipv6_generate_eui64(addr.s6_addr + 8, idev->dev) &&
 			    ipv6_addr_equal(&ifp->addr, &addr)) {
 				/* DAD failed for link-local based on MAC */
-				WRITE_ONCE(idev->cnf.disable_ipv6, 1);
+				idev->cnf.disable_ipv6 = 1;
 
 				pr_info("%s: IPv6 being disabled!\n",
 					ifp->idev->dev->name);
@@ -5340,7 +5324,7 @@ static int inet6_dump_addr(struct sk_buff *skb, struct netlink_callback *cb,
 	}
 
 	rcu_read_lock();
-	cb->seq = inet6_base_seq(tgt_net);
+	cb->seq = atomic_read(&tgt_net->ipv6.dev_addr_genid) ^ tgt_net->dev_base_seq;
 	for (h = s_h; h < NETDEV_HASHENTRIES; h++, s_idx = 0) {
 		idx = 0;
 		head = &tgt_net->dev_index_head[h];
@@ -6119,7 +6103,11 @@ static int inet6_fill_prefix(struct sk_buff *skb, struct inet6_dev *idev,
 	pmsg->prefix_len = pinfo->prefix_len;
 	pmsg->prefix_type = pinfo->type;
 	pmsg->prefix_pad3 = 0;
-	pmsg->prefix_flags = pinfo->flags;
+	pmsg->prefix_flags = 0;
+	if (pinfo->onlink)
+		pmsg->prefix_flags |= IF_PREFIX_ONLINK;
+	if (pinfo->autoconf)
+		pmsg->prefix_flags |= IF_PREFIX_AUTOCONF;
 
 	if (nla_put(skb, PREFIX_ADDRESS, sizeof(pinfo->prefix), &pinfo->prefix))
 		goto nla_put_failure;
@@ -6286,8 +6274,7 @@ static void addrconf_disable_change(struct net *net, __s32 newf)
 		idev = __in6_dev_get(dev);
 		if (idev) {
 			int changed = (!idev->cnf.disable_ipv6) ^ (!newf);
-
-			WRITE_ONCE(idev->cnf.disable_ipv6, newf);
+			idev->cnf.disable_ipv6 = newf;
 			if (changed)
 				dev_disable_change(idev);
 		}
@@ -6304,7 +6291,7 @@ static int addrconf_disable_ipv6(struct ctl_table *table, int *p, int newf)
 
 	net = (struct net *)table->extra2;
 	old = *p;
-	WRITE_ONCE(*p, newf);
+	*p = newf;
 
 	if (p == &net->ipv6.devconf_dflt->disable_ipv6) {
 		rtnl_unlock();
@@ -6312,7 +6299,7 @@ static int addrconf_disable_ipv6(struct ctl_table *table, int *p, int newf)
 	}
 
 	if (p == &net->ipv6.devconf_all->disable_ipv6) {
-		WRITE_ONCE(net->ipv6.devconf_dflt->disable_ipv6, newf);
+		net->ipv6.devconf_dflt->disable_ipv6 = newf;
 		addrconf_disable_change(net, newf);
 	} else if ((!newf) ^ (!old))
 		dev_disable_change((struct inet6_dev *)table->extra1);
