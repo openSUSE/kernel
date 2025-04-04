@@ -225,6 +225,7 @@ static int menu_select(struct cpuidle_driver *drv, struct cpuidle_device *dev,
 	struct menu_device *data = this_cpu_ptr(&menu_devices);
 	s64 latency_req = cpuidle_governor_latency_req(dev->cpu);
 	u64 predicted_ns;
+	unsigned int nr_iowaiters;
 	ktime_t delta, delta_tick;
 	int i, idx;
 
@@ -232,6 +233,8 @@ static int menu_select(struct cpuidle_driver *drv, struct cpuidle_device *dev,
 		menu_update(drv, dev);
 		data->needs_update = 0;
 	}
+
+	nr_iowaiters = nr_iowait_cpu(dev->cpu);
 
 	/* Find the shortest expected idle interval. */
 	predicted_ns = get_typical_interval(data) * NSEC_PER_USEC;
@@ -280,20 +283,8 @@ static int menu_select(struct cpuidle_driver *drv, struct cpuidle_device *dev,
 		return 0;
 	}
 
-	if (tick_nohz_tick_stopped()) {
-		/*
-		 * If the tick is already stopped, the cost of possible short
-		 * idle duration misprediction is much higher, because the CPU
-		 * may be stuck in a shallow idle state for a long time as a
-		 * result of it.  In that case say we might mispredict and use
-		 * the known time till the closest timer event for the idle
-		 * state selection.
-		 */
-		if (predicted_ns < TICK_NSEC)
-			predicted_ns = data->next_timer_ns;
-	} else if (latency_req > predicted_ns) {
+	if (!tick_nohz_tick_stopped() && latency_req > predicted_ns)
 		latency_req = predicted_ns;
-	}
 
 	/*
 	 * Find the idle state with the lowest power while satisfying
@@ -308,6 +299,12 @@ static int menu_select(struct cpuidle_driver *drv, struct cpuidle_device *dev,
 
 		if (idx == -1)
 			idx = i; /* first enabled state */
+
+		/* Use the first non-polling c-state if there are IO waiters. */
+		if (idx >= 0 && nr_iowaiters &&
+		    !(drv->states[idx].flags & CPUIDLE_FLAG_POLLING)) {
+			return idx;
+		}
 
 		if (s->target_residency_ns > predicted_ns) {
 			/*
@@ -342,8 +339,9 @@ static int menu_select(struct cpuidle_driver *drv, struct cpuidle_device *dev,
 			 * stuck in the shallow one for too long.
 			 */
 			if (drv->states[idx].target_residency_ns < TICK_NSEC &&
-			    s->target_residency_ns <= delta_tick)
+			    s->target_residency_ns <= delta_tick) {
 				idx = i;
+			}
 
 			return idx;
 		}
@@ -361,10 +359,14 @@ static int menu_select(struct cpuidle_driver *drv, struct cpuidle_device *dev,
 	 * expected idle duration is shorter than the tick period length.
 	 */
 	if (((drv->states[idx].flags & CPUIDLE_FLAG_POLLING) ||
-	     predicted_ns < TICK_NSEC) && !tick_nohz_tick_stopped()) {
+	     predicted_ns < TICK_NSEC)) {
 		*stop_tick = false;
+		int is_deepest;
 
-		if (idx > 0 && drv->states[idx].target_residency_ns > delta_tick) {
+		if (drv->states[idx+1].enter == NULL)
+			is_deepest = 1;
+
+		if (idx > 0 && (is_deepest || drv->states[idx].target_residency_ns > delta_tick)) {
 			/*
 			 * The tick is not going to be stopped and the target
 			 * residency of the state to be returned is not within
