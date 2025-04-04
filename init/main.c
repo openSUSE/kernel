@@ -1158,6 +1158,10 @@ static int __init initcall_blacklist(char *str)
 	do {
 		str_entry = strsep(&str, ",");
 		if (str_entry) {
+			if (!strcmp(str_entry, "arm64_kernel_lockdown")) {
+				pr_debug("The arm64_kernel_lockdown initcall can not be blacklisted.\n");
+				continue;
+			}
 			pr_debug("blacklisting initcall %s\n", str_entry);
 			entry = memblock_alloc(sizeof(*entry),
 					       SMP_CACHE_BYTES);

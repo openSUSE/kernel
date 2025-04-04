@@ -1090,6 +1090,20 @@ static struct extent_map *defrag_lookup_extent(struct inode *inode, u64 start)
 	em = lookup_extent_mapping(em_tree, start, len);
 	read_unlock(&em_tree->lock);
 
+	/*
+	 * We can get a merged extent, in that case, we need to re-search
+	 * tree to get the original em for defrag.
+	 *
+	 * This is because even if we have adjacent extents that are contiguous
+	 * and compatible (same type and flags), we still want to defrag them
+	 * so that we use less metadata (extent items in the extent tree and
+	 * file extent items in the inode's subvolume tree).
+	 */
+	if (em && test_bit(EXTENT_FLAG_MERGED, &em->flags)) {
+		free_extent_map(em);
+		em = NULL;
+	}
+
 	if (!em) {
 		struct extent_state *cached = NULL;
 		u64 end = start + len - 1;

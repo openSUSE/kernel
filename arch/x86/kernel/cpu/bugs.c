@@ -59,6 +59,8 @@ EXPORT_SYMBOL_GPL(x86_spec_ctrl_current);
 u64 x86_pred_cmd __ro_after_init = PRED_CMD_IBPB;
 EXPORT_SYMBOL_GPL(x86_pred_cmd);
 
+static u64 __ro_after_init ia32_cap;
+
 static DEFINE_MUTEX(spec_ctrl_mutex);
 
 void (*x86_return_thunk)(void) __ro_after_init = &__x86_return_thunk;
@@ -134,6 +136,8 @@ void __init cpu_select_mitigations(void)
 		 */
 		x86_spec_ctrl_base &= ~SPEC_CTRL_MITIGATIONS_MASK;
 	}
+
+	ia32_cap = x86_read_arch_cap_msr();
 
 	/* Select the proper CPU mitigations before patching alternatives: */
 	spectre_v1_select_mitigation();
@@ -298,8 +302,6 @@ static const char * const taa_strings[] = {
 
 static void __init taa_select_mitigation(void)
 {
-	u64 ia32_cap;
-
 	if (!boot_cpu_has_bug(X86_BUG_TAA)) {
 		taa_mitigation = TAA_MITIGATION_OFF;
 		return;
@@ -338,7 +340,6 @@ static void __init taa_select_mitigation(void)
 	 * On MDS_NO=1 CPUs if ARCH_CAP_TSX_CTRL_MSR is not set, microcode
 	 * update is required.
 	 */
-	ia32_cap = x86_read_arch_cap_msr();
 	if ( (ia32_cap & ARCH_CAP_MDS_NO) &&
 	    !(ia32_cap & ARCH_CAP_TSX_CTRL_MSR))
 		taa_mitigation = TAA_MITIGATION_UCODE_NEEDED;
@@ -398,8 +399,6 @@ static const char * const mmio_strings[] = {
 
 static void __init mmio_select_mitigation(void)
 {
-	u64 ia32_cap;
-
 	if (!boot_cpu_has_bug(X86_BUG_MMIO_STALE_DATA) ||
 	     boot_cpu_has_bug(X86_BUG_MMIO_UNKNOWN) ||
 	     cpu_mitigations_off()) {
@@ -409,8 +408,6 @@ static void __init mmio_select_mitigation(void)
 
 	if (mmio_mitigation == MMIO_MITIGATION_OFF)
 		return;
-
-	ia32_cap = x86_read_arch_cap_msr();
 
 	/*
 	 * Enable CPU buffer clear mitigation for host and VMM, if also affected
@@ -505,7 +502,7 @@ static void __init rfds_select_mitigation(void)
 	if (rfds_mitigation == RFDS_MITIGATION_OFF)
 		return;
 
-	if (x86_read_arch_cap_msr() & ARCH_CAP_RFDS_CLEAR)
+	if (ia32_cap & ARCH_CAP_RFDS_CLEAR)
 		setup_force_cpu_cap(X86_FEATURE_CLEAR_CPU_BUF);
 	else
 		rfds_mitigation = RFDS_MITIGATION_UCODE_NEEDED;
@@ -650,8 +647,6 @@ void update_srbds_msr(void)
 
 static void __init srbds_select_mitigation(void)
 {
-	u64 ia32_cap;
-
 	if (!boot_cpu_has_bug(X86_BUG_SRBDS))
 		return;
 
@@ -660,7 +655,6 @@ static void __init srbds_select_mitigation(void)
 	 * are only exposed to SRBDS when TSX is enabled or when CPU is affected
 	 * by Processor MMIO Stale Data vulnerability.
 	 */
-	ia32_cap = x86_read_arch_cap_msr();
 	if ((ia32_cap & ARCH_CAP_MDS_NO) && !boot_cpu_has(X86_FEATURE_RTM) &&
 	    !boot_cpu_has_bug(X86_BUG_MMIO_STALE_DATA))
 		srbds_mitigation = SRBDS_MITIGATION_TSX_OFF;
@@ -776,7 +770,7 @@ static void __init gds_select_mitigation(void)
 	/* Will verify below that mitigation _can_ be disabled */
 
 	/* No microcode */
-	if (!(x86_read_arch_cap_msr() & ARCH_CAP_GDS_CTRL)) {
+	if (!(ia32_cap & ARCH_CAP_GDS_CTRL)) {
 		if (gds_mitigation == GDS_MITIGATION_FORCE) {
 			/*
 			 * This only needs to be done on the boot CPU so do it
@@ -1476,20 +1470,26 @@ static enum spectre_v2_mitigation __init spectre_v2_select_retpoline(void)
 	return SPECTRE_V2_RETPOLINE;
 }
 
+
+static bool __ro_after_init rrsba_disabled;
+
 /* Disable in-kernel use of non-RSB RET predictors */
 static void __init spec_ctrl_disable_kernel_rrsba(void)
 {
-	u64 ia32_cap;
+	if (rrsba_disabled)
+		return;
+
+	if (!(ia32_cap & ARCH_CAP_RRSBA)) {
+		rrsba_disabled = true;
+		return;
+	}
 
 	if (!boot_cpu_has(X86_FEATURE_RRSBA_CTRL))
 		return;
 
-	ia32_cap = x86_read_arch_cap_msr();
-
-	if (ia32_cap & ARCH_CAP_RRSBA) {
-		x86_spec_ctrl_base |= SPEC_CTRL_RRSBA_DIS_S;
-		update_spec_ctrl(x86_spec_ctrl_base);
-	}
+	x86_spec_ctrl_base |= SPEC_CTRL_RRSBA_DIS_S;
+	update_spec_ctrl(x86_spec_ctrl_base);
+	rrsba_disabled = true;
 }
 
 static void __init spectre_v2_determine_rsb_fill_type_at_vmexit(enum spectre_v2_mitigation mode)
@@ -1537,6 +1537,73 @@ static void __init spectre_v2_determine_rsb_fill_type_at_vmexit(enum spectre_v2_
 
 	pr_warn_once("Unknown Spectre v2 mode, disabling RSB mitigation at VM exit");
 	dump_stack();
+}
+
+/*
+ * Set BHI_DIS_S to prevent indirect branches in kernel to be influenced by
+ * branch history in userspace. Not needed if BHI_NO is set.
+ */
+static bool __init spec_ctrl_bhi_dis(void)
+{
+	if (!boot_cpu_has(X86_FEATURE_BHI_CTRL))
+		return false;
+
+	x86_spec_ctrl_base |= SPEC_CTRL_BHI_DIS_S;
+	update_spec_ctrl(x86_spec_ctrl_base);
+	setup_force_cpu_cap(X86_FEATURE_CLEAR_BHB_HW);
+
+	return true;
+}
+
+enum bhi_mitigations {
+	BHI_MITIGATION_OFF,
+	BHI_MITIGATION_ON,
+};
+
+static enum bhi_mitigations bhi_mitigation __ro_after_init =
+	IS_ENABLED(CONFIG_SPECTRE_BHI_ON) ? BHI_MITIGATION_ON : BHI_MITIGATION_OFF;
+
+static int __init spectre_bhi_parse_cmdline(char *str)
+{
+	if (!str)
+		return -EINVAL;
+
+	if (!strcmp(str, "off"))
+		bhi_mitigation = BHI_MITIGATION_OFF;
+	else if (!strcmp(str, "on"))
+		bhi_mitigation = BHI_MITIGATION_ON;
+	else
+		pr_err("Ignoring unknown spectre_bhi option (%s)", str);
+
+	return 0;
+}
+early_param("spectre_bhi", spectre_bhi_parse_cmdline);
+
+static void __init bhi_select_mitigation(void)
+{
+	if (bhi_mitigation == BHI_MITIGATION_OFF)
+		return;
+
+	if (boot_cpu_has(X86_FEATURE_RETPOLINE) &&
+	    !boot_cpu_has(X86_FEATURE_RETPOLINE_LFENCE)) {
+		spec_ctrl_disable_kernel_rrsba();
+		if (rrsba_disabled)
+			return;
+	}
+
+	if (spec_ctrl_bhi_dis())
+		return;
+
+	if (!IS_ENABLED(CONFIG_X86_64))
+		return;
+
+	/* Mitigate KVM by default */
+	setup_force_cpu_cap(X86_FEATURE_CLEAR_BHB_LOOP_ON_VMEXIT);
+	pr_info("Spectre BHI mitigation: SW BHB clearing on vm exit\n");
+
+	/* Mitigate syscalls when the mitigation is forced =on */
+	setup_force_cpu_cap(X86_FEATURE_CLEAR_BHB_LOOP);
+	pr_info("Spectre BHI mitigation: SW BHB clearing on syscall\n");
 }
 
 static void __init spectre_v2_select_mitigation(void)
@@ -1647,6 +1714,9 @@ static void __init spectre_v2_select_mitigation(void)
 	    mode == SPECTRE_V2_EIBRS_RETPOLINE ||
 	    mode == SPECTRE_V2_RETPOLINE)
 		spec_ctrl_disable_kernel_rrsba();
+
+	if (boot_cpu_has(X86_BUG_BHI))
+		bhi_select_mitigation();
 
 	spectre_v2_enabled = mode;
 	pr_info("%s\n", spectre_v2_strings[mode]);
@@ -1762,8 +1832,6 @@ static void update_indir_branch_cond(void)
 /* Update the static key controlling the MDS CPU buffer clear in idle */
 static void update_mds_branch_idle(void)
 {
-	u64 ia32_cap = x86_read_arch_cap_msr();
-
 	/*
 	 * Enable the idle clearing if SMT is active on CPUs which are
 	 * affected only by MSBDS and not any other MDS variant.
@@ -2627,6 +2695,28 @@ static char *pbrsb_eibrs_state(void)
 	}
 }
 
+static const char *spectre_bhi_state(void)
+{
+	if (!boot_cpu_has_bug(X86_BUG_BHI))
+		return "; BHI: Not affected";
+	else if (boot_cpu_has(X86_FEATURE_CLEAR_BHB_HW))
+		return "; BHI: BHI_DIS_S";
+	else if (boot_cpu_has(X86_FEATURE_CLEAR_BHB_LOOP))
+		return "; BHI: SW loop";
+	else if (spectre_v2_enabled == SPECTRE_V2_IBRS &&
+		 !boot_cpu_has(X86_FEATURE_IBRS_ENHANCED) &&
+		 !boot_cpu_has(X86_FEATURE_HYPERVISOR))
+		return "; BHI: IBRS";
+	else if (boot_cpu_has(X86_FEATURE_RETPOLINE) &&
+		 !boot_cpu_has(X86_FEATURE_RETPOLINE_LFENCE) &&
+		 rrsba_disabled)
+		return "; BHI: Retpoline";
+	else if (boot_cpu_has(X86_FEATURE_CLEAR_BHB_LOOP_ON_VMEXIT))
+		return "; BHI: Vulnerable; KVM: SW loop";
+
+	return ", BHI: Vulnerable";
+}
+
 static ssize_t spectre_v2_show_state(char *buf)
 {
 	if (spectre_v2_enabled == SPECTRE_V2_LFENCE)
@@ -2639,14 +2729,15 @@ static ssize_t spectre_v2_show_state(char *buf)
 	    spectre_v2_enabled == SPECTRE_V2_EIBRS_LFENCE)
 		return sprintf(buf, "Vulnerable: eIBRS+LFENCE with unprivileged eBPF and SMT\n");
 
-	return sprintf(buf, "%s%s%s%s%s%s%s\n",
+	return sprintf(buf, "%s%s%s%s%s%s%s%s\n",
 		       spectre_v2_strings[spectre_v2_enabled],
 		       ibpb_state(),
 		       boot_cpu_has(X86_FEATURE_USE_IBRS_FW) ? ", IBRS_FW" : "",
 		       stibp_state(),
 		       boot_cpu_has(X86_FEATURE_RSB_CTXSW) ? ", RSB filling" : "",
 		       pbrsb_eibrs_state(),
-		       spectre_v2_module_string());
+		       spectre_v2_module_string(),
+		       spectre_bhi_state());
 }
 
 static ssize_t srbds_show_state(char *buf)
