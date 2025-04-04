@@ -237,11 +237,9 @@ struct fib6_result {
 	for (rt = (w)->leaf; rt;					\
 	     rt = rcu_dereference_protected(rt->fib6_next, 1))
 
-#define dst_rt6_info(_ptr) container_of_const(_ptr, struct rt6_info, dst)
-
-static inline struct inet6_dev *ip6_dst_idev(const struct dst_entry *dst)
+static inline struct inet6_dev *ip6_dst_idev(struct dst_entry *dst)
 {
-	return dst_rt6_info(dst)->rt6i_idev;
+	return ((struct rt6_info *)dst)->rt6i_idev;
 }
 
 static inline bool fib6_requires_src(const struct fib6_info *rt)
