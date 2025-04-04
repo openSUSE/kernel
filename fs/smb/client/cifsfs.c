@@ -116,6 +116,10 @@ module_param(cifs_max_pending, uint, 0444);
 MODULE_PARM_DESC(cifs_max_pending, "Simultaneous requests to server for "
 				   "CIFS/SMB1 dialect (N/A for SMB3) "
 				   "Default: 32767 Range: 2 to 32767.");
+unsigned int dir_cache_timeout = 30;
+module_param(dir_cache_timeout, uint, 0644);
+MODULE_PARM_DESC(dir_cache_timeout, "Number of seconds to cache directory contents for which we have a lease. Default: 30 "
+				 "Range: 1 to 65000 seconds, 0 to disable caching dir contents");
 #ifdef CONFIG_CIFS_STATS2
 unsigned int slow_rsp_threshold = 1;
 module_param(slow_rsp_threshold, uint, 0644);
@@ -154,6 +158,8 @@ struct workqueue_struct	*decrypt_wq;
 struct workqueue_struct	*fileinfo_put_wq;
 struct workqueue_struct	*cifsoplockd_wq;
 struct workqueue_struct	*deferredclose_wq;
+struct workqueue_struct	*serverclose_wq;
+struct workqueue_struct	*cfid_put_wq;
 __u32 cifs_lock_secret;
 
 /*
@@ -1681,6 +1687,12 @@ init_cifs(void)
 			 CIFS_MAX_REQ);
 	}
 
+	/* Limit max to about 18 hours, and setting to zero disables directory entry caching */
+	if (dir_cache_timeout > 65000) {
+		dir_cache_timeout = 65000;
+		cifs_dbg(VFS, "dir_cache_timeout set to max of 65000 seconds\n");
+	}
+
 	cifsiod_wq = alloc_workqueue("cifsiod", WQ_FREEZABLE|WQ_MEM_RECLAIM, 0);
 	if (!cifsiod_wq) {
 		rc = -ENOMEM;
@@ -1722,9 +1734,23 @@ init_cifs(void)
 		goto out_destroy_cifsoplockd_wq;
 	}
 
+	serverclose_wq = alloc_workqueue("serverclose",
+					   WQ_FREEZABLE|WQ_MEM_RECLAIM, 0);
+	if (!serverclose_wq) {
+		rc = -ENOMEM;
+		goto out_destroy_deferredclose_wq;
+	}
+
+	cfid_put_wq = alloc_workqueue("cfid_put_wq",
+				      WQ_FREEZABLE|WQ_MEM_RECLAIM, 0);
+	if (!cfid_put_wq) {
+		rc = -ENOMEM;
+		goto out_destroy_serverclose_wq;
+	}
+
 	rc = cifs_init_inodecache();
 	if (rc)
-		goto out_destroy_deferredclose_wq;
+		goto out_destroy_cfid_put_wq;
 
 	rc = init_mids();
 	if (rc)
@@ -1786,6 +1812,10 @@ out_destroy_mids:
 	destroy_mids();
 out_destroy_inodecache:
 	cifs_destroy_inodecache();
+out_destroy_cfid_put_wq:
+	destroy_workqueue(cfid_put_wq);
+out_destroy_serverclose_wq:
+	destroy_workqueue(serverclose_wq);
 out_destroy_deferredclose_wq:
 	destroy_workqueue(deferredclose_wq);
 out_destroy_cifsoplockd_wq:
@@ -1821,10 +1851,13 @@ exit_cifs(void)
 	cifs_destroy_request_bufs();
 	destroy_mids();
 	cifs_destroy_inodecache();
+	destroy_workqueue(cfid_put_wq);
 	destroy_workqueue(deferredclose_wq);
 	destroy_workqueue(cifsoplockd_wq);
 	destroy_workqueue(decrypt_wq);
 	destroy_workqueue(fileinfo_put_wq);
+	destroy_workqueue(serverclose_wq);
+	destroy_workqueue(cfid_put_wq);
 	destroy_workqueue(cifsiod_wq);
 	cifs_proc_clean();
 }

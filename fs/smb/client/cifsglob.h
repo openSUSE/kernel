@@ -388,10 +388,10 @@ struct smb_version_operations {
 	/* set fid protocol-specific info */
 	void (*set_fid)(struct cifsFileInfo *, struct cifs_fid *, __u32);
 	/* close a file */
-	void (*close)(const unsigned int, struct cifs_tcon *,
+	int (*close)(const unsigned int, struct cifs_tcon *,
 		      struct cifs_fid *);
 	/* close a file, returning file attributes and timestamps */
-	void (*close_getattr)(const unsigned int xid, struct cifs_tcon *tcon,
+	int (*close_getattr)(const unsigned int xid, struct cifs_tcon *tcon,
 		      struct cifsFileInfo *pfile_info);
 	/* send a flush request to the server */
 	int (*flush)(const unsigned int, struct cifs_tcon *, struct cifs_fid *);
@@ -1362,6 +1362,7 @@ struct cifsFileInfo {
 	bool invalidHandle:1;	/* file closed via session abend */
 	bool swapfile:1;
 	bool oplock_break_cancelled:1;
+	bool offload:1; /* offload final part of _put to a wq */
 	unsigned int oplock_epoch; /* epoch from the lease break */
 	__u32 oplock_level; /* oplock/lease level from the lease break */
 	int count;
@@ -1370,6 +1371,7 @@ struct cifsFileInfo {
 	struct cifs_search_info srch_inf;
 	struct work_struct oplock_break; /* work for oplock breaks */
 	struct work_struct put; /* work for the final part of _put */
+	struct work_struct serverclose; /* work for serverclose */
 	struct delayed_work deferred;
 	bool deferred_close_scheduled; /* Flag to indicate close is scheduled */
 	char *symlink_target;
@@ -1967,7 +1969,8 @@ require use of the stronger protocol */
  * cifsInodeInfo->lock_sem	cifsInodeInfo->llist		cifs_init_once
  *				->can_cache_brlcks
  * cifsInodeInfo->deferred_lock	cifsInodeInfo->deferred_closes	cifsInodeInfo_alloc
- * cached_fid->fid_mutex		cifs_tcon->crfid		tconInfoAlloc
+ * cached_fid->fid_mutex		cifs_tcon->crfid		tcon_info_alloc
+ * cached_fids->cfid_list_lock	cifs_tcon->cfids->entries	 init_cached_dirs
  * cifsFileInfo->fh_mutex		cifsFileInfo			cifs_new_fileinfo
  * cifsFileInfo->file_info_lock	cifsFileInfo->count		cifs_new_fileinfo
  *				->invalidHandle			initiate_cifs_search
@@ -2041,6 +2044,7 @@ extern unsigned int CIFSMaxBufSize;  /* max size not including hdr */
 extern unsigned int cifs_min_rcv;    /* min size of big ntwrk buf pool */
 extern unsigned int cifs_min_small;  /* min size of small buf pool */
 extern unsigned int cifs_max_pending; /* MAX requests at once to server*/
+extern unsigned int dir_cache_timeout; /* max time for directory lease caching of dir */
 extern bool disable_legacy_dialects;  /* forbid vers=1.0 and vers=2.0 mounts */
 extern atomic_t mid_count;
 
@@ -2054,6 +2058,8 @@ extern struct workqueue_struct *decrypt_wq;
 extern struct workqueue_struct *fileinfo_put_wq;
 extern struct workqueue_struct *cifsoplockd_wq;
 extern struct workqueue_struct *deferredclose_wq;
+extern struct workqueue_struct *serverclose_wq;
+extern struct workqueue_struct *cfid_put_wq;
 extern __u32 cifs_lock_secret;
 
 extern mempool_t *cifs_mid_poolp;
