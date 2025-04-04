@@ -192,14 +192,6 @@ static int drm_fbdev_dma_helper_fb_dirty(struct drm_fb_helper *helper,
 	return 0;
 }
 
-static const struct drm_fb_helper_funcs drm_fbdev_dma_helper_funcs = {
-	.fb_dirty = drm_fbdev_dma_helper_fb_dirty,
-};
-
-/*
- * struct drm_fb_helper
- */
-
 static int drm_fbdev_dma_driver_fbdev_probe_tail(struct drm_fb_helper *fb_helper,
 						 struct drm_fb_helper_surface_size *sizes)
 {
@@ -331,6 +323,11 @@ err_drm_client_buffer_delete:
 	drm_client_framebuffer_delete(buffer);
 	return ret;
 }
+
+static const struct drm_fb_helper_funcs drm_fbdev_dma_helper_funcs = {
+	.fb_dirty = drm_fbdev_dma_helper_fb_dirty,
+	.fb_probe = drm_fbdev_dma_helper_fb_probe,
+};
 
 /*
  * struct drm_client_funcs
