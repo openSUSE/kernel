@@ -596,7 +596,7 @@ static int dccp_v6_do_rcv(struct sock *sk, struct sk_buff *skb)
 	   by tcp. Feel free to propose better solution.
 					       --ANK (980728)
 	 */
-	if (np->rxopt.all)
+	if (np->rxopt.all && sk->sk_state != DCCP_LISTEN)
 	/*
 	 * FIXME: Add handling of IPV6_PKTOPTIONS skb. See the comments below
 	 *        (wrt ipv6_pktopions) and net/ipv6/tcp_ipv6.c for an example.
