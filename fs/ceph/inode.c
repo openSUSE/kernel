@@ -79,9 +79,21 @@ struct inode *ceph_get_snapdir(struct inode *parent)
 	struct inode *inode = ceph_get_inode(parent->i_sb, vino);
 	struct ceph_inode_info *ci = ceph_inode(inode);
 
-	BUG_ON(!S_ISDIR(parent->i_mode));
 	if (IS_ERR(inode))
 		return inode;
+
+	if (!S_ISDIR(parent->i_mode)) {
+		pr_warn_once("bad snapdir parent type (mode=0%o)\n",
+			     parent->i_mode);
+		goto err;
+	}
+
+	if (!(inode->i_state & I_NEW) && !S_ISDIR(inode->i_mode)) {
+		pr_warn_once("bad snapdir inode type (mode=0%o)\n",
+			     inode->i_mode);
+		goto err;
+	}
+
 	inode->i_mode = parent->i_mode;
 	inode->i_uid = parent->i_uid;
 	inode->i_gid = parent->i_gid;
@@ -90,6 +102,14 @@ struct inode *ceph_get_snapdir(struct inode *parent)
 	ci->i_snap_caps = CEPH_CAP_PIN; /* so we can open */
 	ci->i_rbytes = 0;
 	return inode;
+err:
+	if ((inode->i_state & I_NEW)) {
+		/* discard_new_inode(inode); */
+		unlock_new_inode(inode);
+		iput(inode);
+	} else
+		iput(inode);
+	return ERR_PTR(-ENOTDIR);
 }
 
 const struct inode_operations ceph_file_iops = {
