@@ -34,11 +34,6 @@
  */
 unsigned int pipe_max_size = 1048576;
 
-/*
- * Minimum pipe size, as required by POSIX
- */
-unsigned int pipe_min_size = PAGE_SIZE;
-
 /* Maximum allocatable pages per user. Hard limit is unset by default, soft
  * matches default values.
  */
@@ -1039,12 +1034,16 @@ const struct file_operations pipefifo_fops = {
  * Currently we rely on the pipe array holding a power-of-2 number
  * of pages. Returns 0 on error.
  */
-static inline unsigned int round_pipe_size(unsigned int size)
+unsigned int round_pipe_size(unsigned long size)
 {
 	unsigned long nr_pages;
 
-	if (size < pipe_min_size)
-		size = pipe_min_size;
+	if (size > UINT_MAX)
+		return 0;
+
+	/* Minimum pipe size, as required by POSIX */
+	if (size < PAGE_SIZE)
+		size = PAGE_SIZE;
 
 	nr_pages = (size + PAGE_SIZE - 1) >> PAGE_SHIFT;
 	if (nr_pages == 0)
@@ -1140,28 +1139,6 @@ static long pipe_set_size(struct pipe_inode_info *pipe, unsigned long arg)
 
 out_revert_acct:
 	(void) account_pipe_buffers(pipe->user, nr_pages, pipe->buffers);
-	return ret;
-}
-
-/*
- * This should work even if CONFIG_PROC_FS isn't set, as proc_dointvec_minmax
- * will return an error.
- */
-int pipe_proc_fn(struct ctl_table *table, int write, void __user *buf,
-		 size_t *lenp, loff_t *ppos)
-{
-	unsigned int rounded_pipe_max_size;
-	int ret;
-
-	ret = proc_douintvec_minmax(table, write, buf, lenp, ppos);
-	if (ret < 0 || !write)
-		return ret;
-
-	rounded_pipe_max_size = round_pipe_size(pipe_max_size);
-	if (rounded_pipe_max_size == 0)
-		return -EINVAL;
-
-	pipe_max_size = rounded_pipe_max_size;
 	return ret;
 }
 

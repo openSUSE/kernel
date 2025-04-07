@@ -641,6 +641,7 @@ static void dax_fs_exit(void)
 {
 	kern_unmount(dax_mnt);
 	unregister_filesystem(&dax_fs_type);
+	rcu_barrier();
 	kmem_cache_destroy(dax_cache);
 }
 
