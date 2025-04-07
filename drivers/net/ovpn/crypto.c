@@ -55,7 +55,7 @@ void ovpn_crypto_state_release(struct ovpn_crypto_state *cs)
 }
 
 /* removes the key matching the specified id from the crypto context */
-void ovpn_crypto_kill_key(struct ovpn_crypto_state *cs, u8 key_id)
+bool ovpn_crypto_kill_key(struct ovpn_crypto_state *cs, u8 key_id)
 {
 	struct ovpn_crypto_key_slot *ks = NULL;
 
@@ -71,6 +71,9 @@ void ovpn_crypto_kill_key(struct ovpn_crypto_state *cs, u8 key_id)
 
 	if (ks)
 		ovpn_crypto_key_slot_put(ks);
+
+	/* let the caller know if a key was actually killed */
+	return ks;
 }
 
 /* Reset the ovpn_crypto_state object in a way that is atomic
@@ -145,10 +148,6 @@ void ovpn_crypto_key_slot_delete(struct ovpn_crypto_state *cs,
 	ovpn_crypto_key_slot_put(ks);
 }
 
-/* this swap is not atomic, but there will be a very short time frame where the
- * old_secondary key won't be available. This should not be a big deal as most
- * likely both peers are already using the new primary at this point.
- */
 void ovpn_crypto_key_slots_swap(struct ovpn_crypto_state *cs)
 {
 	const struct ovpn_crypto_key_slot *old_primary, *old_secondary;

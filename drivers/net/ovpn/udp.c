@@ -294,9 +294,6 @@ static int ovpn_udp_output(struct ovpn_peer *peer, struct dst_cache *cache,
 	if (!skb->destructor)
 		skb->sk = NULL;
 
-	/* always permit openvpn-created packets to be (outside) fragmented */
-	skb->ignore_df = 1;
-
 	rcu_read_lock();
 	bind = rcu_dereference(peer->bind);
 	if (unlikely(!bind)) {

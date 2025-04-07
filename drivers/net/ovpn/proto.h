@@ -88,7 +88,7 @@ static inline u32 ovpn_peer_id_from_skb(const struct sk_buff *skb, u16 offset)
  * @skb: the packet to extract the key ID code from
  *
  * Note: this function assumes that the skb head was pulled enough
- * to access the first byte.
+ * to access the first 4 bytes.
  *
  * Return: the key ID
  */

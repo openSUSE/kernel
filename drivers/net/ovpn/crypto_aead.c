@@ -88,10 +88,8 @@ int ovpn_aead_encrypt(struct ovpn_peer *peer, struct ovpn_crypto_key_slot *ks,
 
 	/* build scatterlist to encrypt packet payload */
 	ret = skb_to_sgvec_nomark(skb, sg + 1, 0, skb->len);
-	if (unlikely(nfrags != ret)) {
-		ret = -EINVAL;
-		goto free_sg;
-	}
+	if (unlikely(nfrags != ret))
+		return -EINVAL;
 
 	/* append auth_tag onto scatterlist */
 	__skb_push(skb, tag_size);
@@ -102,14 +100,12 @@ int ovpn_aead_encrypt(struct ovpn_peer *peer, struct ovpn_crypto_key_slot *ks,
 	 */
 	ret = ovpn_pktid_xmit_next(&ks->pid_xmit, &pktid);
 	if (unlikely(ret < 0))
-		goto free_sg;
+		return ret;
 
 	/* iv may be required by async crypto */
 	ovpn_skb_cb(skb)->iv = kmalloc(OVPN_NONCE_SIZE, GFP_ATOMIC);
-	if (unlikely(!ovpn_skb_cb(skb)->iv)) {
-		ret = -ENOMEM;
-		goto free_sg;
-	}
+	if (unlikely(!ovpn_skb_cb(skb)->iv))
+		return -ENOMEM;
 
 	iv = ovpn_skb_cb(skb)->iv;
 
@@ -132,10 +128,8 @@ int ovpn_aead_encrypt(struct ovpn_peer *peer, struct ovpn_crypto_key_slot *ks,
 	sg_set_buf(sg, skb->data, OVPN_AAD_SIZE);
 
 	req = aead_request_alloc(ks->encrypt, GFP_ATOMIC);
-	if (unlikely(!req)) {
-		ret = -ENOMEM;
-		goto free_iv;
-	}
+	if (unlikely(!req))
+		return -ENOMEM;
 
 	ovpn_skb_cb(skb)->req = req;
 
@@ -148,13 +142,6 @@ int ovpn_aead_encrypt(struct ovpn_peer *peer, struct ovpn_crypto_key_slot *ks,
 
 	/* encrypt it */
 	return crypto_aead_encrypt(req);
-free_iv:
-	kfree(ovpn_skb_cb(skb)->iv);
-	ovpn_skb_cb(skb)->iv = NULL;
-free_sg:
-	kfree(ovpn_skb_cb(skb)->sg);
-	ovpn_skb_cb(skb)->sg = NULL;
-	return ret;
 }
 
 int ovpn_aead_decrypt(struct ovpn_peer *peer, struct ovpn_crypto_key_slot *ks,
@@ -214,20 +201,16 @@ int ovpn_aead_decrypt(struct ovpn_peer *peer, struct ovpn_crypto_key_slot *ks,
 
 	/* build scatterlist to decrypt packet payload */
 	ret = skb_to_sgvec_nomark(skb, sg + 1, payload_offset, payload_len);
-	if (unlikely(nfrags != ret)) {
-		ret = -EINVAL;
-		goto free_sg;
-	}
+	if (unlikely(nfrags != ret))
+		return -EINVAL;
 
 	/* append auth_tag onto scatterlist */
 	sg_set_buf(sg + nfrags + 1, skb->data + OVPN_AAD_SIZE, tag_size);
 
 	/* iv may be required by async crypto */
 	ovpn_skb_cb(skb)->iv = kmalloc(OVPN_NONCE_SIZE, GFP_ATOMIC);
-	if (unlikely(!ovpn_skb_cb(skb)->iv)) {
-		ret = -ENOMEM;
-		goto free_sg;
-	}
+	if (unlikely(!ovpn_skb_cb(skb)->iv))
+		return -ENOMEM;
 
 	iv = ovpn_skb_cb(skb)->iv;
 
@@ -237,10 +220,8 @@ int ovpn_aead_decrypt(struct ovpn_peer *peer, struct ovpn_crypto_key_slot *ks,
 	       OVPN_NONCE_TAIL_SIZE);
 
 	req = aead_request_alloc(ks->decrypt, GFP_ATOMIC);
-	if (unlikely(!req)) {
-		ret = -ENOMEM;
-		goto free_iv;
-	}
+	if (unlikely(!req))
+		return -ENOMEM;
 
 	ovpn_skb_cb(skb)->req = req;
 
@@ -253,13 +234,6 @@ int ovpn_aead_decrypt(struct ovpn_peer *peer, struct ovpn_crypto_key_slot *ks,
 
 	/* decrypt it */
 	return crypto_aead_decrypt(req);
-free_iv:
-	kfree(ovpn_skb_cb(skb)->iv);
-	ovpn_skb_cb(skb)->iv = NULL;
-free_sg:
-	kfree(ovpn_skb_cb(skb)->sg);
-	ovpn_skb_cb(skb)->sg = NULL;
-	return ret;
 }
 
 /* Initialize a struct crypto_aead object */

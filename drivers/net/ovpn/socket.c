@@ -70,15 +70,10 @@ void ovpn_socket_release(struct ovpn_peer *peer)
 
 	might_sleep();
 
+	sock = rcu_replace_pointer(peer->sock, NULL, true);
 	/* release may be invoked after socket was detached */
-	rcu_read_lock();
-	sock = rcu_dereference_protected(peer->sock, true);
-	if (!sock) {
-		rcu_read_unlock();
+	if (!sock)
 		return;
-	}
-	rcu_assign_pointer(peer->sock, NULL);
-	rcu_read_unlock();
 
 	/* sanity check: we should not end up here if the socket
 	 * was already closed

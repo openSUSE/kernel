@@ -92,7 +92,7 @@ static void ovpn_tcp_rcv(struct strparser *strp, struct sk_buff *skb)
 		goto err;
 	}
 
-	/* we need the first byte of data to be accessible
+	/* we need the first 4 bytes of data to be accessible
 	 * to extract the opcode and the key ID later on
 	 */
 	if (!pskb_may_pull(skb, OVPN_OPCODE_SIZE)) {

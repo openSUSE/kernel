@@ -112,15 +112,9 @@ void ovpn_decrypt_post(void *data, int ret)
 	peer = ovpn_skb_cb(skb)->peer;
 
 	/* crypto is done, cleanup skb CB and its members */
-
-	if (likely(ovpn_skb_cb(skb)->iv))
-		kfree(ovpn_skb_cb(skb)->iv);
-
-	if (likely(ovpn_skb_cb(skb)->sg))
-		kfree(ovpn_skb_cb(skb)->sg);
-
-	if (likely(ovpn_skb_cb(skb)->req))
-		aead_request_free(ovpn_skb_cb(skb)->req);
+	kfree(ovpn_skb_cb(skb)->iv);
+	kfree(ovpn_skb_cb(skb)->sg);
+	aead_request_free(ovpn_skb_cb(skb)->req);
 
 	if (unlikely(ret < 0))
 		goto drop;
@@ -166,6 +160,8 @@ void ovpn_decrypt_post(void *data, int ret)
 			net_dbg_ratelimited("%s: ping received from peer %u\n",
 					    netdev_name(peer->ovpn->dev),
 					    peer->id);
+			/* we drop the packet, but this is not a failure */
+			consume_skb(skb);
 			goto drop_nocount;
 		}
 
@@ -194,12 +190,12 @@ void ovpn_decrypt_post(void *data, int ret)
 drop:
 	if (unlikely(skb))
 		dev_core_stats_rx_dropped_inc(peer->ovpn->dev);
+	kfree_skb(skb);
 drop_nocount:
 	if (likely(peer))
 		ovpn_peer_put(peer);
 	if (likely(ks))
 		ovpn_crypto_key_slot_put(ks);
-	kfree_skb(skb);
 }
 
 /* RX path entry point: decrypt packet and forward it to the device */
@@ -245,15 +241,9 @@ void ovpn_encrypt_post(void *data, int ret)
 	peer = ovpn_skb_cb(skb)->peer;
 
 	/* crypto is done, cleanup skb CB and its members */
-
-	if (likely(ovpn_skb_cb(skb)->iv))
-		kfree(ovpn_skb_cb(skb)->iv);
-
-	if (likely(ovpn_skb_cb(skb)->sg))
-		kfree(ovpn_skb_cb(skb)->sg);
-
-	if (likely(ovpn_skb_cb(skb)->req))
-		aead_request_free(ovpn_skb_cb(skb)->req);
+	kfree(ovpn_skb_cb(skb)->iv);
+	kfree(ovpn_skb_cb(skb)->sg);
+	aead_request_free(ovpn_skb_cb(skb)->req);
 
 	if (unlikely(ret == -ERANGE)) {
 		/* we ran out of IVs and we must kill the key as it can't be
@@ -262,9 +252,10 @@ void ovpn_encrypt_post(void *data, int ret)
 		netdev_warn(peer->ovpn->dev,
 			    "killing key %u for peer %u\n", ks->key_id,
 			    peer->id);
-		ovpn_crypto_kill_key(&peer->crypto, ks->key_id);
-		/* let userspace know so that a new key must be negotiated */
-		ovpn_nl_key_swap_notify(peer, ks->key_id);
+		if (ovpn_crypto_kill_key(&peer->crypto, ks->key_id))
+			/* let userspace know so that a new key must be negotiated */
+			ovpn_nl_key_swap_notify(peer, ks->key_id);
+
 		goto err;
 	}
 

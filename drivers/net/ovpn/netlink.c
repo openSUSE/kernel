@@ -202,6 +202,14 @@ static int ovpn_nl_peer_precheck(struct ovpn_priv *ovpn,
 		return -EINVAL;
 	}
 
+	if ((attrs[OVPN_A_PEER_REMOTE_IPV4] ||
+	     attrs[OVPN_A_PEER_REMOTE_IPV6]) &&
+	    !attrs[OVPN_A_PEER_REMOTE_PORT]) {
+		NL_SET_ERR_MSG_MOD(info->extack,
+				   "cannot specify remote IP address without port");
+		return -EINVAL;
+	}
+
 	if (!attrs[OVPN_A_PEER_REMOTE_IPV4] &&
 	    attrs[OVPN_A_PEER_LOCAL_IPV4]) {
 		NL_SET_ERR_MSG_MOD(info->extack,
