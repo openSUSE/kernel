@@ -113,7 +113,7 @@ u32 i2c_dw_scl_hcnt(u32 ic_clk, u32 tSYMBOL, u32 tf, int cond, int offset)
 		 *
 		 * If your hardware is free from tHD;STA issue, try this one.
 		 */
-		return (ic_clk * tSYMBOL + 500000) / 1000000 - 8 + offset;
+		return ((u64)ic_clk * tSYMBOL + 500000) / 1000000 - 8 + offset;
 	else
 		/*
 		 * Conditional expression:
@@ -129,7 +129,7 @@ u32 i2c_dw_scl_hcnt(u32 ic_clk, u32 tSYMBOL, u32 tf, int cond, int offset)
 		 * The reason why we need to take into account "tf" here,
 		 * is the same as described in i2c_dw_scl_lcnt().
 		 */
-		return (ic_clk * (tSYMBOL + tf) + 500000) / 1000000
+		return ((u64)ic_clk * (tSYMBOL + tf) + 500000) / 1000000
 			- 3 + offset;
 }
 
@@ -146,7 +146,7 @@ u32 i2c_dw_scl_lcnt(u32 ic_clk, u32 tLOW, u32 tf, int offset)
 	 * account the fall time of SCL signal (tf).  Default tf value
 	 * should be 0.3 us, for safety.
 	 */
-	return ((ic_clk * (tLOW + tf) + 500000) / 1000000) - 1 + offset;
+	return (((u64)ic_clk * (tLOW + tf) + 500000) / 1000000) - 1 + offset;
 }
 
 void __i2c_dw_enable(struct dw_i2c_dev *dev, bool enable)
