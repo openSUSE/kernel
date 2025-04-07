@@ -267,8 +267,14 @@ static void padata_reorder(struct parallel_data *pd)
 
 	next_queue = per_cpu_ptr(pd->pqueue, pd->cpu);
 	if (!list_empty(&next_queue->reorder.list) &&
-	    padata_find_next(pd, false))
+	    padata_find_next(pd, false)) {
+		/*
+		 * Other context(eg. the padata_serial_worker) can finish the request.
+		 * To avoid UAF issue, add pd ref here, and put pd ref after reorder_work finish.
+		 */
+		atomic_inc(&pd->refcnt);
 		queue_work(pinst->serial_wq, &pd->reorder_work);
+	}
 }
 
 static void invoke_padata_reorder(struct work_struct *work)
@@ -279,6 +285,9 @@ static void invoke_padata_reorder(struct work_struct *work)
 	pd = container_of(work, struct parallel_data, reorder_work);
 	padata_reorder(pd);
 	local_bh_enable();
+	/* Pairs with putting the reorder_work in the serial_wq */
+	if (atomic_dec_and_test(&pd->refcnt))
+		padata_free_pd(pd);
 }
 
 static void padata_serial_worker(struct work_struct *serial_work)
