@@ -31,4 +31,6 @@ source "lib/Kconfig.debug"
 
 source "Documentation/Kconfig"
 
+source "io_uring/Kconfig"
+
 source "init/Kconfig.suse"

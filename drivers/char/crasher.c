@@ -219,7 +219,7 @@ static void __exit crasher_exit(void)
 	unsigned int i;
 
 	if (timer) {
-		del_timer_sync(&crash_timer);
+		timer_delete_sync(&crash_timer);
 		return;
 	}
 
