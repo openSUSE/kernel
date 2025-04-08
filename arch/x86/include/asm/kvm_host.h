@@ -536,7 +536,6 @@ struct kvm_pmu_ops;
 enum {
 	KVM_DEBUGREG_BP_ENABLED = 1,
 	KVM_DEBUGREG_WONT_EXIT = 2,
-	KVM_DEBUGREG_RELOAD = 4,
 };
 
 struct kvm_mtrr_range {
@@ -1485,6 +1484,7 @@ struct kvm_x86_ops {
 #ifndef __GENKSYMS__
 	void (*guest_memory_reclaimed)(struct kvm *kvm);
 	bool (*get_if_flag)(struct kvm_vcpu *vcpu);
+	void (*set_dr6)(struct kvm_vcpu *vcpu, unsigned long value);
 #endif
 };
 
