@@ -1012,3 +1012,8 @@ void __init setup_arch(char **cmdline_p)
 		security_lock_kernel_down("IPL Secure Boot mode", LOCKDOWN_INTEGRITY_MAX);
 #endif
 }
+
+void __init arch_cpu_finalize_init(void)
+{
+	sclp_init();
+}
