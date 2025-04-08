@@ -168,7 +168,6 @@ static struct l2cap_chan *l2cap_get_chan_by_ident(struct l2cap_conn *conn,
 {
 	struct l2cap_chan *c;
 
-	mutex_lock(&conn->lock);
 	c = __l2cap_get_chan_by_ident(conn, ident);
 	if (c) {
 		/* Only lock if chan reference is not 0 */
@@ -176,7 +175,6 @@ static struct l2cap_chan *l2cap_get_chan_by_ident(struct l2cap_conn *conn,
 		if (c)
 			l2cap_chan_lock(c);
 	}
-	mutex_unlock(&conn->lock);
 
 	return c;
 }

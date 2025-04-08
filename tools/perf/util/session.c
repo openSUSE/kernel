@@ -36,6 +36,7 @@
 #include "util.h"
 #include "arch/common.h"
 #include "units.h"
+#include "perf.h"
 #include <internal/lib.h>
 
 #ifdef HAVE_ZSTD_SUPPORT
