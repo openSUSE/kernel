@@ -425,6 +425,11 @@ peer_free:
 	return ret;
 }
 
+static int ovpn_tcp_disconnect(struct sock *sk, int flags)
+{
+	return -EBUSY;
+}
+
 static void ovpn_tcp_data_ready(struct sock *sk)
 {
 	struct ovpn_socket *sock;
@@ -574,6 +579,7 @@ static void ovpn_tcp_build_protos(struct proto *new_prot,
 	memcpy(new_ops, orig_ops, sizeof(*new_ops));
 	new_prot->recvmsg = ovpn_tcp_recvmsg;
 	new_prot->sendmsg = ovpn_tcp_sendmsg;
+	new_prot->disconnect = ovpn_tcp_disconnect;
 	new_prot->close = ovpn_tcp_close;
 	new_prot->release_cb = ovpn_tcp_release;
 	new_ops->poll = ovpn_tcp_poll;
