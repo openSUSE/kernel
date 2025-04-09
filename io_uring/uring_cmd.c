@@ -173,6 +173,15 @@ void io_uring_cmd_done(struct io_uring_cmd *ioucmd, ssize_t ret, ssize_t res2,
 }
 EXPORT_SYMBOL_GPL(io_uring_cmd_done);
 
+static void io_uring_cmd_cache_sqes(struct io_kiocb *req)
+{
+	struct io_uring_cmd *ioucmd = io_kiocb_to_cmd(req, struct io_uring_cmd);
+	struct io_uring_cmd_data *cache = req->async_data;
+
+	memcpy(cache->sqes, ioucmd->sqe, uring_sqe_size(req->ctx));
+	ioucmd->sqe = cache->sqes;
+}
+
 static int io_uring_cmd_prep_setup(struct io_kiocb *req,
 				   const struct io_uring_sqe *sqe)
 {
@@ -189,8 +198,10 @@ static int io_uring_cmd_prep_setup(struct io_kiocb *req,
 		return 0;
 	}
 
-	memcpy(req->async_data, sqe, uring_sqe_size(req->ctx));
-	ioucmd->sqe = req->async_data;
+	ioucmd->sqe = sqe;
+	/* defer memcpy until we need it */
+	if (unlikely(req->flags & REQ_F_FORCE_ASYNC))
+		io_uring_cmd_cache_sqes(req);
 	return 0;
 }
 
@@ -253,7 +264,7 @@ int io_uring_cmd(struct io_kiocb *req, unsigned int issue_flags)
 		struct uring_cache *cache = req->async_data;
 
 		if (ioucmd->sqe != (void *) cache)
-			memcpy(cache, ioucmd->sqe, uring_sqe_size(req->ctx));
+			io_uring_cmd_cache_sqes(req);
 		return -EAGAIN;
 	} else if (ret == -EIOCBQUEUED) {
 		return -EIOCBQUEUED;
