@@ -9170,7 +9170,7 @@ int btrfs_encoded_read_regular_fill_pages(struct btrfs_inode *inode,
 	refcount_inc(&priv.pending_refs);
 	btrfs_submit_bbio(bbio, 0);
 
-	if (refcount_dec_and_test(&priv.pending_refs))
+	if (!refcount_dec_and_test(&priv.pending_refs))
 		wait_for_completion_io(&priv.done);
 	/* See btrfs_encoded_read_endio() for ordering. */
 	return blk_status_to_errno(READ_ONCE(priv.status));
