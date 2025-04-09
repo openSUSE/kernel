@@ -1,0 +1,21 @@
+#!/bin/bash
+
+if [ ! -e .config ]; then
+	echo No .config here
+	exit -1
+fi
+
+if [ "$1" = "" ]; then
+	echo Specify a config option
+	exit -1
+fi
+
+cp .config config-orig
+echo "$1=n" >> .config
+yes '' | make $MAKE_OPTIONS oldconfig > /dev/null
+TEST=`grep "^# $1 is not set$" .config`
+if [ "$TEST" = "" ]; then
+	echo ERROR: Failed to set config option
+	exit -1
+fi
+exit 0
