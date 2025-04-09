@@ -251,15 +251,29 @@ static void idletimer_tg_destroy(const struct xt_tgdtor_param *par)
 	mutex_unlock(&list_mutex);
 }
 
-static struct xt_target idletimer_tg __read_mostly = {
-	.name		= "IDLETIMER",
-	.family		= NFPROTO_UNSPEC,
-	.target		= idletimer_tg_target,
-	.targetsize     = sizeof(struct idletimer_tg_info),
-	.usersize	= offsetof(struct idletimer_tg_info, timer),
-	.checkentry	= idletimer_tg_checkentry,
-	.destroy        = idletimer_tg_destroy,
-	.me		= THIS_MODULE,
+static struct xt_target idletimer_tg[] __read_mostly = {
+	{
+		.name		= "IDLETIMER",
+		.family		= NFPROTO_IPV4,
+		.target		= idletimer_tg_target,
+		.targetsize     = sizeof(struct idletimer_tg_info),
+		.usersize	= offsetof(struct idletimer_tg_info, timer),
+		.checkentry	= idletimer_tg_checkentry,
+		.destroy        = idletimer_tg_destroy,
+		.me		= THIS_MODULE,
+	},
+#if IS_ENABLED(CONFIG_IP6_NF_IPTABLES)
+	{
+		.name		= "IDLETIMER",
+		.family		= NFPROTO_IPV6,
+		.target		= idletimer_tg_target,
+		.targetsize     = sizeof(struct idletimer_tg_info),
+		.usersize	= offsetof(struct idletimer_tg_info, timer),
+		.checkentry	= idletimer_tg_checkentry,
+		.destroy        = idletimer_tg_destroy,
+		.me		= THIS_MODULE,
+	},
+#endif
 };
 
 static struct class *idletimer_tg_class;
@@ -287,7 +301,7 @@ static int __init idletimer_tg_init(void)
 
 	idletimer_tg_kobj = &idletimer_tg_device->kobj;
 
-	err =  xt_register_target(&idletimer_tg);
+	err =  xt_register_targets(idletimer_tg, ARRAY_SIZE(idletimer_tg));
 	if (err < 0) {
 		pr_debug("couldn't register xt target\n");
 		goto out_dev;
@@ -304,7 +318,7 @@ out:
 
 static void __exit idletimer_tg_exit(void)
 {
-	xt_unregister_target(&idletimer_tg);
+	xt_unregister_targets(idletimer_tg, ARRAY_SIZE(idletimer_tg));
 
 	device_destroy(idletimer_tg_class, MKDEV(0, 0));
 	class_destroy(idletimer_tg_class);

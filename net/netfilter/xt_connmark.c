@@ -119,15 +119,29 @@ static void connmark_mt_destroy(const struct xt_mtdtor_param *par)
 	nf_ct_netns_put(par->net, par->family);
 }
 
-static struct xt_target connmark_tg_reg __read_mostly = {
-	.name           = "CONNMARK",
-	.revision       = 1,
-	.family         = NFPROTO_UNSPEC,
-	.checkentry     = connmark_tg_check,
-	.target         = connmark_tg,
-	.targetsize     = sizeof(struct xt_connmark_tginfo1),
-	.destroy        = connmark_tg_destroy,
-	.me             = THIS_MODULE,
+static struct xt_target connmark_tg_reg[] __read_mostly = {
+	{
+		.name           = "CONNMARK",
+		.revision       = 1,
+		.family         = NFPROTO_IPV4,
+		.checkentry     = connmark_tg_check,
+		.target         = connmark_tg,
+		.targetsize     = sizeof(struct xt_connmark_tginfo1),
+		.destroy        = connmark_tg_destroy,
+		.me             = THIS_MODULE,
+	},
+#if IS_ENABLED(CONFIG_IP6_NF_IPTABLES)
+	{
+		.name           = "CONNMARK",
+		.revision       = 1,
+		.family         = NFPROTO_IPV6,
+		.checkentry     = connmark_tg_check,
+		.target         = connmark_tg,
+		.targetsize     = sizeof(struct xt_connmark_tginfo1),
+		.destroy        = connmark_tg_destroy,
+		.me             = THIS_MODULE,
+	},
+#endif
 };
 
 static struct xt_match connmark_mt_reg __read_mostly = {
@@ -145,12 +159,12 @@ static int __init connmark_mt_init(void)
 {
 	int ret;
 
-	ret = xt_register_target(&connmark_tg_reg);
+	ret = xt_register_targets(connmark_tg_reg, ARRAY_SIZE(connmark_tg_reg));
 	if (ret < 0)
 		return ret;
 	ret = xt_register_match(&connmark_mt_reg);
 	if (ret < 0) {
-		xt_unregister_target(&connmark_tg_reg);
+		xt_unregister_targets(connmark_tg_reg, ARRAY_SIZE(connmark_tg_reg));
 		return ret;
 	}
 	return 0;
@@ -159,7 +173,7 @@ static int __init connmark_mt_init(void)
 static void __exit connmark_mt_exit(void)
 {
 	xt_unregister_match(&connmark_mt_reg);
-	xt_unregister_target(&connmark_tg_reg);
+	xt_unregister_targets(connmark_tg_reg, ARRAY_SIZE(connmark_tg_reg));
 }
 
 module_init(connmark_mt_init);

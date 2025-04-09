@@ -166,16 +166,31 @@ static void xt_rateest_tg_destroy(const struct xt_tgdtor_param *par)
 	xt_rateest_put(info->est);
 }
 
-static struct xt_target xt_rateest_tg_reg __read_mostly = {
-	.name       = "RATEEST",
-	.revision   = 0,
-	.family     = NFPROTO_UNSPEC,
-	.target     = xt_rateest_tg,
-	.checkentry = xt_rateest_tg_checkentry,
-	.destroy    = xt_rateest_tg_destroy,
-	.targetsize = sizeof(struct xt_rateest_target_info),
-	.usersize   = offsetof(struct xt_rateest_target_info, est),
-	.me         = THIS_MODULE,
+static struct xt_target xt_rateest_tg_reg[] __read_mostly = {
+	{
+		.name       = "RATEEST",
+		.revision   = 0,
+		.family     = NFPROTO_IPV4,
+		.target     = xt_rateest_tg,
+		.checkentry = xt_rateest_tg_checkentry,
+		.destroy    = xt_rateest_tg_destroy,
+		.targetsize = sizeof(struct xt_rateest_target_info),
+		.usersize   = offsetof(struct xt_rateest_target_info, est),
+		.me         = THIS_MODULE,
+	},
+#if IS_ENABLED(CONFIG_IP6_NF_IPTABLES)
+	{
+		.name       = "RATEEST",
+		.revision   = 0,
+		.family     = NFPROTO_IPV6,
+		.target     = xt_rateest_tg,
+		.checkentry = xt_rateest_tg_checkentry,
+		.destroy    = xt_rateest_tg_destroy,
+		.targetsize = sizeof(struct xt_rateest_target_info),
+		.usersize   = offsetof(struct xt_rateest_target_info, est),
+		.me         = THIS_MODULE,
+	},
+#endif
 };
 
 static int __init xt_rateest_tg_init(void)
@@ -185,12 +200,12 @@ static int __init xt_rateest_tg_init(void)
 	for (i = 0; i < ARRAY_SIZE(rateest_hash); i++)
 		INIT_HLIST_HEAD(&rateest_hash[i]);
 
-	return xt_register_target(&xt_rateest_tg_reg);
+	return xt_register_targets(xt_rateest_tg_reg, ARRAY_SIZE(xt_rateest_tg_reg));
 }
 
 static void __exit xt_rateest_tg_fini(void)
 {
-	xt_unregister_target(&xt_rateest_tg_reg);
+	xt_unregister_targets(xt_rateest_tg_reg, ARRAY_SIZE(xt_rateest_tg_reg));
 }
 
 
