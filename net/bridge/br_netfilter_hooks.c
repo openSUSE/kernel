@@ -628,7 +628,7 @@ static unsigned int br_nf_local_in(void *priv,
 	}
 
 	nf_bridge_pull_encap_header(skb);
-	ret = ct_hook->confirm(skb);
+	ret = __nf_conntrack_confirm(skb);
 	switch (ret & NF_VERDICT_MASK) {
 	case NF_STOLEN:
 		return NF_STOLEN;
