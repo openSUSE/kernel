@@ -57,6 +57,12 @@ enum cifs_sec_param {
 	Opt_sec_err
 };
 
+enum cifs_upcall_target_param {
+	Opt_upcall_target_mount,
+	Opt_upcall_target_application,
+	Opt_upcall_target_err
+};
+
 enum cifs_param {
 	/* Mount options that take no arguments */
 	Opt_user_xattr,
@@ -110,6 +116,8 @@ enum cifs_param {
 	Opt_multichannel,
 	Opt_compress,
 	Opt_witness,
+	Opt_is_upcall_target_mount,
+	Opt_is_upcall_target_application,
 
 	/* Mount options which take numeric value */
 	Opt_backupuid,
@@ -149,6 +157,7 @@ enum cifs_param {
 	Opt_vers,
 	Opt_sec,
 	Opt_cache,
+	Opt_upcalltarget,
 
 	/* Mount options to be ignored */
 	Opt_ignore,
@@ -187,6 +196,7 @@ struct smb3_fs_context {
 	umode_t file_mode;
 	umode_t dir_mode;
 	enum securityEnum sectype; /* sectype requested via mnt opts */
+	enum upcall_target_enum upcall_target; /* where to upcall for mount */
 	bool sign; /* was signing requested via mnt opts? */
 	bool ignore_signature:1;
 	bool retry:1;
