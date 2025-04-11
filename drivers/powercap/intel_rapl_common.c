@@ -12,8 +12,10 @@
 #include <linux/device.h>
 #include <linux/slab.h>
 #include <linux/log2.h>
+#ifndef __GENKSYMS__
 #include <linux/nospec.h>
 #include <linux/perf_event.h>
+#endif
 #include <linux/bitmap.h>
 #include <linux/delay.h>
 #include <linux/sysfs.h>

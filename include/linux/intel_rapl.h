@@ -191,8 +191,10 @@ struct rapl_package {
 	char name[PACKAGE_DOMAIN_NAME_LENGTH];
 	struct rapl_if_priv *priv;
 #ifdef CONFIG_PERF_EVENTS
+#ifndef __GENKSYMS__
 	bool has_pmu;
 	struct rapl_package_pmu_data pmu_data;
+#endif
 #endif
 };
 
