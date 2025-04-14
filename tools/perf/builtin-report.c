@@ -1422,7 +1422,7 @@ int cmd_report(int argc, const char **argv)
 	OPT_STRING(0, "addr2line", &addr2line_path, "path",
 		   "addr2line binary to use for line numbers"),
 	OPT_BOOLEAN(0, "demangle", &symbol_conf.demangle,
-		    "Disable symbol demangling"),
+		    "Symbol demangling. Enabled by default, use --no-demangle to disable."),
 	OPT_BOOLEAN(0, "demangle-kernel", &symbol_conf.demangle_kernel,
 		    "Enable kernel symbol demangling"),
 	OPT_BOOLEAN(0, "mem-mode", &report.mem_mode, "mem access profile"),
@@ -1555,12 +1555,12 @@ int cmd_report(int argc, const char **argv)
 			input_name = "perf.data";
 	}
 
+repeat:
 	data.path  = input_name;
 	data.force = symbol_conf.force;
 
 	symbol_conf.skip_empty = report.skip_empty;
 
-repeat:
 	perf_tool__init(&report.tool, ordered_events);
 	report.tool.sample		 = process_sample_event;
 	report.tool.mmap		 = perf_event__process_mmap;
@@ -1721,22 +1721,24 @@ repeat:
 		symbol_conf.annotate_data_sample = true;
 	}
 
-	if (sort_order && strstr(sort_order, "ipc")) {
-		parse_options_usage(report_usage, options, "s", 1);
-		goto error;
-	}
-
-	if (sort_order && strstr(sort_order, "symbol")) {
-		if (sort__mode == SORT_MODE__BRANCH) {
-			snprintf(sort_tmp, sizeof(sort_tmp), "%s,%s",
-				 sort_order, "ipc_lbr");
-			report.symbol_ipc = true;
-		} else {
-			snprintf(sort_tmp, sizeof(sort_tmp), "%s,%s",
-				 sort_order, "ipc_null");
+	if (last_key != K_SWITCH_INPUT_DATA) {
+		if (sort_order && strstr(sort_order, "ipc")) {
+			parse_options_usage(report_usage, options, "s", 1);
+			goto error;
 		}
 
-		sort_order = sort_tmp;
+		if (sort_order && strstr(sort_order, "symbol")) {
+			if (sort__mode == SORT_MODE__BRANCH) {
+				snprintf(sort_tmp, sizeof(sort_tmp), "%s,%s",
+					 sort_order, "ipc_lbr");
+				report.symbol_ipc = true;
+			} else {
+				snprintf(sort_tmp, sizeof(sort_tmp), "%s,%s",
+					 sort_order, "ipc_null");
+			}
+
+			sort_order = sort_tmp;
+		}
 	}
 
 	if ((last_key != K_SWITCH_INPUT_DATA && last_key != K_RELOAD) &&
