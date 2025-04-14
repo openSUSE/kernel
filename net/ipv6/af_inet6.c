@@ -745,8 +745,15 @@ int inet6_register_protosw(struct inet_protosw *p)
 	struct list_head *lh;
 	struct inet_protosw *answer;
 	struct list_head *last_perm;
+	struct proto *prot = p->prot;
 	int protocol = p->protocol;
 	int ret;
+
+	if (prot->ipv6_pinfo_offset == 0) {
+		/* Offset 0 is invalid and hints that no one filled this in. Revert
+		 * to the old behaviour. */
+		prot->ipv6_pinfo_offset = prot->obj_size - sizeof(struct ipv6_pinfo);
+	}
 
 	spin_lock_bh(&inetsw6_lock);
 
