@@ -2385,6 +2385,13 @@ fallback:
 	/* Don't clean all CQ masks */
 }
 
+static void hisi_sas_v3_free_vectors(void *data)
+{
+	struct pci_dev *pdev = data;
+
+	pci_free_irq_vectors(pdev);
+}
+
 static int interrupt_init_v3_hw(struct hisi_hba *hisi_hba)
 {
 	struct device *dev = hisi_hba->dev;
@@ -2405,7 +2412,7 @@ static int interrupt_init_v3_hw(struct hisi_hba *hisi_hba)
 						   GFP_KERNEL);
 		if (!hisi_hba->reply_map)
 			return -ENOMEM;
-		vectors = pci_alloc_irq_vectors_affinity(hisi_hba->pci_dev,
+		vectors = pci_alloc_irq_vectors_affinity(pdev,
 							 min_msi, max_msi,
 							 PCI_IRQ_MSI |
 							 PCI_IRQ_AFFINITY,
@@ -2415,7 +2422,7 @@ static int interrupt_init_v3_hw(struct hisi_hba *hisi_hba)
 		setup_reply_map_v3_hw(hisi_hba, vectors - BASE_VECTORS_V3_HW);
 	} else {
 		min_msi = max_msi;
-		vectors = pci_alloc_irq_vectors(hisi_hba->pci_dev, min_msi,
+		vectors = pci_alloc_irq_vectors(pdev, min_msi,
 						max_msi, PCI_IRQ_MSI);
 		if (vectors < 0)
 			return vectors;
@@ -2423,13 +2430,14 @@ static int interrupt_init_v3_hw(struct hisi_hba *hisi_hba)
 
 	hisi_hba->cq_nvecs = vectors - BASE_VECTORS_V3_HW;
 
+	devm_add_action(&pdev->dev, hisi_sas_v3_free_vectors, pdev);
+
 	rc = devm_request_irq(dev, pci_irq_vector(pdev, 1),
 			      int_phy_up_down_bcast_v3_hw, 0,
 			      DRV_NAME " phy", hisi_hba);
 	if (rc) {
 		dev_err(dev, "could not request phy interrupt, rc=%d\n", rc);
-		rc = -ENOENT;
-		goto free_irq_vectors;
+		return -ENOENT;
 	}
 
 	rc = devm_request_irq(dev, pci_irq_vector(pdev, 2),
@@ -2484,8 +2492,6 @@ free_chnl_interrupt:
 	free_irq(pci_irq_vector(pdev, 2), hisi_hba);
 free_phy_irq:
 	free_irq(pci_irq_vector(pdev, 1), hisi_hba);
-free_irq_vectors:
-	pci_free_irq_vectors(pdev);
 	return rc;
 }
 
@@ -3152,7 +3158,6 @@ hisi_sas_v3_destroy_irqs(struct pci_dev *pdev, struct hisi_hba *hisi_hba)
 
 		free_irq(pci_irq_vector(pdev, nr), cq);
 	}
-	pci_free_irq_vectors(pdev);
 }
 
 static void hisi_sas_v3_remove(struct pci_dev *pdev)
