@@ -82,6 +82,7 @@ static inline unsigned int __shrink_ple_window(unsigned int val,
 
 void kvm_service_local_tlb_flush_requests(struct kvm_vcpu *vcpu);
 int kvm_check_nested_events(struct kvm_vcpu *vcpu);
+void kvm_smm_changed(struct kvm_vcpu *vcpu, bool entering_smm);
 
 static inline bool kvm_is_exception_pending(struct kvm_vcpu *vcpu)
 {

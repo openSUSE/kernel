@@ -2130,6 +2130,8 @@ static int shutdown_interception(struct kvm_vcpu *vcpu)
 	 * in response to shutdown.
 	 */
 	clear_page(svm->vmcb);
+	if (is_smm(vcpu))
+		kvm_smm_changed(vcpu, false);
 	kvm_vcpu_reset(vcpu, true);
 
 	kvm_run->exit_reason = KVM_EXIT_SHUTDOWN;
