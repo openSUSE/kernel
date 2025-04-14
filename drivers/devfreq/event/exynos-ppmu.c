@@ -519,8 +519,10 @@ static int of_get_devfreq_events(struct device_node *np,
 
 	count = of_get_child_count(events_np);
 	desc = devm_kzalloc(dev, sizeof(*desc) * count, GFP_KERNEL);
-	if (!desc)
+	if (!desc) {
+		of_node_put(events_np);
 		return -ENOMEM;
+	}
 	info->num_events = count;
 
 	j = 0;
