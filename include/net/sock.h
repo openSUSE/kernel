@@ -2806,6 +2806,11 @@ static inline bool sk_is_udp(const struct sock *sk)
 	       sk->sk_protocol == IPPROTO_UDP;
 }
 
+static inline bool sk_is_stream_unix(const struct sock *sk)
+{
+	return sk->sk_family == AF_UNIX && sk->sk_type == SOCK_STREAM;
+}
+
 static inline bool sk_is_vsock(const struct sock *sk)
 {
 	return sk->sk_family == AF_VSOCK;
