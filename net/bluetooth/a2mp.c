@@ -243,7 +243,7 @@ static int a2mp_discover_rsp(struct amp_mgr *mgr, struct sk_buff *skb,
 		struct l2cap_conn *conn = mgr->l2cap_conn;
 		struct l2cap_chan *chan;
 
-		mutex_lock(&conn->chan_lock);
+		mutex_lock(&conn->lock);
 
 		list_for_each_entry(chan, &conn->chan_l, list) {
 
@@ -261,7 +261,7 @@ static int a2mp_discover_rsp(struct amp_mgr *mgr, struct sk_buff *skb,
 			l2cap_chan_unlock(chan);
 		}
 
-		mutex_unlock(&conn->chan_lock);
+		mutex_unlock(&conn->lock);
 	}
 
 	return 0;

@@ -873,10 +873,12 @@ static int rtw89_ops_hw_scan(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
 	if (!RTW89_CHK_FW_FEATURE(SCAN_OFFLOAD, &rtwdev->fw))
 		return 1;
 
-	if (rtwdev->scanning || rtwvif->offchan)
-		return -EBUSY;
-
 	mutex_lock(&rtwdev->mutex);
+	if (rtwdev->scanning || rtwvif->offchan) {
+		mutex_unlock(&rtwdev->mutex);
+		return -EBUSY;
+	}
+
 	rtw89_hw_scan_start(rtwdev, vif, req);
 	ret = rtw89_hw_scan_offload(rtwdev, vif, true);
 	if (ret) {
