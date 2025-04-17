@@ -325,8 +325,6 @@ void migration_entry_wait(struct mm_struct *mm, pmd_t *pmd,
 {
 	spinlock_t *ptl = pte_lockptr(mm, pmd);
 	pte_t *ptep = pte_offset_map(pmd, address);
-	if (!ptep)
-		return;
 	__migration_entry_wait(mm, ptep, ptl);
 }
 
