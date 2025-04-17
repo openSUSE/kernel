@@ -3880,7 +3880,7 @@ BPF_CALL_5(bpf_setsockopt, struct bpf_sock_ops_kern *, bpf_sock,
 				if (val <= 0 || tp->data_segs_out > tp->syn_data)
 					ret = -EINVAL;
 				else
-					tp->snd_cwnd = val;
+					tcp_snd_cwnd_set(tp, val);
 				break;
 			case TCP_BPF_SNDCWND_CLAMP:
 				if (val <= 0) {

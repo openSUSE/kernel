@@ -398,7 +398,7 @@ void tcp_init_sock(struct sock *sk)
 	 * algorithms that we must have the following bandaid to talk
 	 * efficiently to them.  -DaveM
 	 */
-	tp->snd_cwnd = TCP_INIT_CWND;
+	tcp_snd_cwnd_set(tp, TCP_INIT_CWND);
 
 	/* There's a bubble in the pipe until at least the first ACK. */
 	tp->app_limited = ~0U;
@@ -2293,7 +2293,7 @@ int tcp_disconnect(struct sock *sk, int flags)
 	if (tp->write_seq == 0)
 		tp->write_seq = 1;
 	icsk->icsk_backoff = 0;
-	tp->snd_cwnd = 2;
+	tcp_snd_cwnd_set(tp, 2);
 	icsk->icsk_probes_out = 0;
 	tp->snd_ssthresh = TCP_INFINITE_SSTHRESH;
 	tp->snd_cwnd_cnt = 0;
@@ -2822,7 +2822,7 @@ void tcp_get_info(struct sock *sk, struct tcp_info *info)
 	info->tcpi_max_pacing_rate = rate64;
 
 	info->tcpi_reordering = tp->reordering;
-	info->tcpi_snd_cwnd = tp->snd_cwnd;
+	info->tcpi_snd_cwnd = tcp_snd_cwnd(tp);
 
 	if (info->tcpi_state == TCP_LISTEN) {
 		/* listeners aliased fields :

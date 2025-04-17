@@ -388,25 +388,25 @@ void tcp_update_metrics(struct sock *sk)
 		/* Slow start still did not finish. */
 		if (!tcp_metric_locked(tm, TCP_METRIC_SSTHRESH)) {
 			val = tcp_metric_get(tm, TCP_METRIC_SSTHRESH);
-			if (val && (tp->snd_cwnd >> 1) > val)
+			if (val && (tcp_snd_cwnd(tp) >> 1) > val)
 				tcp_metric_set(tm, TCP_METRIC_SSTHRESH,
-					       tp->snd_cwnd >> 1);
+					       tcp_snd_cwnd(tp) >> 1);
 		}
 		if (!tcp_metric_locked(tm, TCP_METRIC_CWND)) {
 			val = tcp_metric_get(tm, TCP_METRIC_CWND);
-			if (tp->snd_cwnd > val)
+			if (tcp_snd_cwnd(tp) > val)
 				tcp_metric_set(tm, TCP_METRIC_CWND,
-					       tp->snd_cwnd);
+					       tcp_snd_cwnd(tp));
 		}
 	} else if (!tcp_in_slow_start(tp) &&
 		   icsk->icsk_ca_state == TCP_CA_Open) {
 		/* Cong. avoidance phase, cwnd is reliable. */
 		if (!tcp_metric_locked(tm, TCP_METRIC_SSTHRESH))
 			tcp_metric_set(tm, TCP_METRIC_SSTHRESH,
-				       max(tp->snd_cwnd >> 1, tp->snd_ssthresh));
+				       max(tcp_snd_cwnd(tp) >> 1, tp->snd_ssthresh));
 		if (!tcp_metric_locked(tm, TCP_METRIC_CWND)) {
 			val = tcp_metric_get(tm, TCP_METRIC_CWND);
-			tcp_metric_set(tm, TCP_METRIC_CWND, (val + tp->snd_cwnd) >> 1);
+			tcp_metric_set(tm, TCP_METRIC_CWND, (val + tcp_snd_cwnd(tp)) >> 1);
 		}
 	} else {
 		/* Else slow start did not finish, cwnd is non-sense,
@@ -521,9 +521,9 @@ reset:
 	 * retransmission has occurred.
 	 */
 	if (tp->total_retrans > 1)
-		tp->snd_cwnd = 1;
+		tcp_snd_cwnd_set(tp, 1);
 	else
-		tp->snd_cwnd = tcp_init_cwnd(tp, dst);
+		tcp_snd_cwnd_set(tp, tcp_init_cwnd(tp, dst));
 	tp->snd_cwnd_stamp = tcp_jiffies32;
 }
 

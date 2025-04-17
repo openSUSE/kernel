@@ -149,7 +149,7 @@ static void bictcp_cong_avoid(struct sock *sk, u32 ack, u32 acked)
 	if (tcp_in_slow_start(tp))
 		tcp_slow_start(tp, acked);
 	else {
-		bictcp_update(ca, tp->snd_cwnd);
+		bictcp_update(ca, tcp_snd_cwnd(tp));
 		tcp_cong_avoid_ai(tp, ca->cnt, 1);
 	}
 }
@@ -166,18 +166,18 @@ static u32 bictcp_recalc_ssthresh(struct sock *sk)
 	ca->epoch_start = 0;	/* end of epoch */
 
 	/* Wmax and fast convergence */
-	if (tp->snd_cwnd < ca->last_max_cwnd && fast_convergence)
-		ca->last_max_cwnd = (tp->snd_cwnd * (BICTCP_BETA_SCALE + beta))
+	if (tcp_snd_cwnd(tp) < ca->last_max_cwnd && fast_convergence)
+		ca->last_max_cwnd = (tcp_snd_cwnd(tp) * (BICTCP_BETA_SCALE + beta))
 			/ (2 * BICTCP_BETA_SCALE);
 	else
-		ca->last_max_cwnd = tp->snd_cwnd;
+		ca->last_max_cwnd = tcp_snd_cwnd(tp);
 
-	ca->loss_cwnd = tp->snd_cwnd;
+	ca->loss_cwnd = tcp_snd_cwnd(tp);
 
-	if (tp->snd_cwnd <= low_window)
-		return max(tp->snd_cwnd >> 1U, 2U);
+	if (tcp_snd_cwnd(tp) <= low_window)
+		return max(tcp_snd_cwnd(tp) >> 1U, 2U);
 	else
-		return max((tp->snd_cwnd * beta) / BICTCP_BETA_SCALE, 2U);
+		return max((tcp_snd_cwnd(tp) * beta) / BICTCP_BETA_SCALE, 2U);
 }
 
 static u32 bictcp_undo_cwnd(struct sock *sk)
@@ -185,7 +185,7 @@ static u32 bictcp_undo_cwnd(struct sock *sk)
 	const struct tcp_sock *tp = tcp_sk(sk);
 	const struct bictcp *ca = inet_csk_ca(sk);
 
-	return max(tp->snd_cwnd, ca->loss_cwnd);
+	return max(tcp_snd_cwnd(tp), ca->loss_cwnd);
 }
 
 static void bictcp_state(struct sock *sk, u8 new_state)

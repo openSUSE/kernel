@@ -348,7 +348,7 @@ static void bictcp_cong_avoid(struct sock *sk, u32 ack, u32 acked)
 		if (!acked)
 			return;
 	}
-	bictcp_update(ca, tp->snd_cwnd, acked);
+	bictcp_update(ca, tcp_snd_cwnd(tp), acked);
 	tcp_cong_avoid_ai(tp, ca->cnt, acked);
 }
 
@@ -360,15 +360,15 @@ static u32 bictcp_recalc_ssthresh(struct sock *sk)
 	ca->epoch_start = 0;	/* end of epoch */
 
 	/* Wmax and fast convergence */
-	if (tp->snd_cwnd < ca->last_max_cwnd && fast_convergence)
-		ca->last_max_cwnd = (tp->snd_cwnd * (BICTCP_BETA_SCALE + beta))
+	if (tcp_snd_cwnd(tp) < ca->last_max_cwnd && fast_convergence)
+		ca->last_max_cwnd = (tcp_snd_cwnd(tp) * (BICTCP_BETA_SCALE + beta))
 			/ (2 * BICTCP_BETA_SCALE);
 	else
-		ca->last_max_cwnd = tp->snd_cwnd;
+		ca->last_max_cwnd = tcp_snd_cwnd(tp);
 
-	ca->loss_cwnd = tp->snd_cwnd;
+	ca->loss_cwnd = tcp_snd_cwnd(tp);
 
-	return max((tp->snd_cwnd * beta) / BICTCP_BETA_SCALE, 2U);
+	return max((tcp_snd_cwnd(tp) * beta) / BICTCP_BETA_SCALE, 2U);
 }
 
 static u32 bictcp_undo_cwnd(struct sock *sk)
@@ -406,8 +406,8 @@ static void hystart_update(struct sock *sk, u32 delay)
 					      LINUX_MIB_TCPHYSTARTTRAINDETECT);
 				NET_ADD_STATS(sock_net(sk),
 					      LINUX_MIB_TCPHYSTARTTRAINCWND,
-					      tp->snd_cwnd);
-				tp->snd_ssthresh = tp->snd_cwnd;
+					      tcp_snd_cwnd(tp));
+				tp->snd_ssthresh = tcp_snd_cwnd(tp);
 			}
 		}
 	}
@@ -426,8 +426,8 @@ static void hystart_update(struct sock *sk, u32 delay)
 					      LINUX_MIB_TCPHYSTARTDELAYDETECT);
 				NET_ADD_STATS(sock_net(sk),
 					      LINUX_MIB_TCPHYSTARTDELAYCWND,
-					      tp->snd_cwnd);
-				tp->snd_ssthresh = tp->snd_cwnd;
+					      tcp_snd_cwnd(tp));
+				tp->snd_ssthresh = tcp_snd_cwnd(tp);
 			}
 		}
 	}
@@ -460,7 +460,7 @@ static void bictcp_acked(struct sock *sk, const struct ack_sample *sample)
 
 	/* hystart triggers when cwnd is larger than some threshold */
 	if (hystart && tcp_in_slow_start(tp) &&
-	    tp->snd_cwnd >= hystart_low_window)
+	    tcp_snd_cwnd(tp) >= hystart_low_window)
 		hystart_update(sk, delay);
 }
 
