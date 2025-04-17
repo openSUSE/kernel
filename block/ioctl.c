@@ -226,7 +226,7 @@ static int blk_ioctl_discard(struct block_device *bdev, fmode_t mode,
 	if (check_add_overflow(start, len, &end) ||
 	    end > i_size_read(bdev->bd_inode))
 		return -EINVAL;
-	truncate_inode_pages_range(mapping, start, start + len - 1);
+	truncate_inode_pages_range(mapping, start, end - 1);
 	return blkdev_issue_discard(bdev, start >> 9, len >> 9,
 				    GFP_KERNEL, flags);
 }
