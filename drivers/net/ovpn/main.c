@@ -95,24 +95,9 @@ static void ovpn_net_uninit(struct net_device *dev)
 	gro_cells_destroy(&ovpn->gro_cells);
 }
 
-static int ovpn_net_open(struct net_device *dev)
-{
-	struct ovpn_priv *ovpn = netdev_priv(dev);
-
-	/* carrier for P2P interfaces is switched on and off when
-	 * the peer is added or deleted.
-	 *
-	 * in case of P2MP interfaces we just keep the carrier always on
-	 */
-	if (ovpn->mode == OVPN_MODE_MP)
-		netif_carrier_on(dev);
-	return 0;
-}
-
 static const struct net_device_ops ovpn_netdev_ops = {
 	.ndo_init		= ovpn_net_init,
 	.ndo_uninit		= ovpn_net_uninit,
-	.ndo_open		= ovpn_net_open,
 	.ndo_start_xmit		= ovpn_net_xmit,
 };
 
@@ -156,7 +141,7 @@ static void ovpn_setup(struct net_device *dev)
 
 	dev->needs_free_netdev = true;
 
-	dev->pcpu_stat_type = NETDEV_PCPU_STAT_TSTATS;
+	dev->pcpu_stat_type = NETDEV_PCPU_STAT_DSTATS;
 
 	dev->ethtool_ops = &ovpn_ethtool_ops;
 	dev->netdev_ops = &ovpn_netdev_ops;
@@ -203,12 +188,29 @@ static int ovpn_newlink(struct net *src_net,
 	spin_lock_init(&ovpn->lock);
 	INIT_DELAYED_WORK(&ovpn->keepalive_work, ovpn_peer_keepalive_work);
 
-	/* turn carrier explicitly off after registration, this way state is
-	 * clearly defined
+	/* Set carrier explicitly after registration, this way state is
+	 * clearly defined.
+	 *
+	 * In case of MP interfaces we keep the carrier always on.
+	 *
+	 * Carrier for P2P interfaces is initially off and it is then
+	 * switched on and off when the remote peer is added or deleted.
 	 */
-	netif_carrier_off(dev);
+	if (ovpn->mode == OVPN_MODE_MP)
+		netif_carrier_on(dev);
+	else
+		netif_carrier_off(dev);
 
 	return register_netdevice(dev);
+}
+
+static void ovpn_dellink(struct net_device *dev, struct list_head *head)
+{
+	struct ovpn_priv *ovpn = netdev_priv(dev);
+
+	cancel_delayed_work_sync(&ovpn->keepalive_work);
+	ovpn_peers_free(ovpn, NULL, OVPN_DEL_PEER_REASON_TEARDOWN);
+	unregister_netdevice_queue(dev, head);
 }
 
 static int ovpn_fill_info(struct sk_buff *skb, const struct net_device *dev)
@@ -229,72 +231,17 @@ static struct rtnl_link_ops ovpn_link_ops = {
 	.policy = ovpn_policy,
 	.maxtype = IFLA_OVPN_MAX,
 	.newlink = ovpn_newlink,
-	.dellink = unregister_netdevice_queue,
+	.dellink = ovpn_dellink,
 	.fill_info = ovpn_fill_info,
-};
-
-static int ovpn_netdev_notifier_call(struct notifier_block *nb,
-				     unsigned long state, void *ptr)
-{
-	struct net_device *dev = netdev_notifier_info_to_dev(ptr);
-	struct ovpn_priv *ovpn;
-
-	if (!ovpn_dev_is_valid(dev))
-		return NOTIFY_DONE;
-
-	ovpn = netdev_priv(dev);
-
-	switch (state) {
-	case NETDEV_REGISTER:
-		ovpn->registered = true;
-		break;
-	case NETDEV_UNREGISTER:
-		/* twiddle thumbs on netns device moves */
-		if (dev->reg_state != NETREG_UNREGISTERING)
-			break;
-
-		/* can be delivered multiple times, so check registered flag,
-		 * then destroy the interface
-		 */
-		if (!ovpn->registered)
-			return NOTIFY_DONE;
-
-		netif_carrier_off(dev);
-		ovpn->registered = false;
-
-		cancel_delayed_work_sync(&ovpn->keepalive_work);
-		ovpn_peers_free(ovpn, NULL, OVPN_DEL_PEER_REASON_TEARDOWN);
-		break;
-	case NETDEV_POST_INIT:
-	case NETDEV_GOING_DOWN:
-	case NETDEV_DOWN:
-	case NETDEV_UP:
-	case NETDEV_PRE_UP:
-		break;
-	default:
-		return NOTIFY_DONE;
-	}
-
-	return NOTIFY_OK;
-}
-
-static struct notifier_block ovpn_netdev_notifier = {
-	.notifier_call = ovpn_netdev_notifier_call,
 };
 
 static int __init ovpn_init(void)
 {
-	int err = register_netdevice_notifier(&ovpn_netdev_notifier);
+	int err = rtnl_link_register(&ovpn_link_ops);
 
-	if (err) {
-		pr_err("ovpn: can't register netdevice notifier: %d\n", err);
-		return err;
-	}
-
-	err = rtnl_link_register(&ovpn_link_ops);
 	if (err) {
 		pr_err("ovpn: can't register rtnl link ops: %d\n", err);
-		goto unreg_netdev;
+		return err;
 	}
 
 	err = ovpn_nl_register();
@@ -309,8 +256,6 @@ static int __init ovpn_init(void)
 
 unreg_rtnl:
 	rtnl_link_unregister(&ovpn_link_ops);
-unreg_netdev:
-	unregister_netdevice_notifier(&ovpn_netdev_notifier);
 	return err;
 }
 
@@ -318,7 +263,6 @@ static __exit void ovpn_cleanup(void)
 {
 	ovpn_nl_unregister();
 	rtnl_link_unregister(&ovpn_link_ops);
-	unregister_netdevice_notifier(&ovpn_netdev_notifier);
 
 	rcu_barrier();
 }
@@ -327,5 +271,5 @@ module_init(ovpn_init);
 module_exit(ovpn_cleanup);
 
 MODULE_DESCRIPTION("OpenVPN data channel offload (ovpn)");
-MODULE_AUTHOR("(C) 2020-2025 OpenVPN, Inc.");
+MODULE_AUTHOR("Antonio Quartulli <antonio@openvpn.net>");
 MODULE_LICENSE("GPL");

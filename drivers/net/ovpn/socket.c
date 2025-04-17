@@ -186,12 +186,6 @@ struct ovpn_socket *ovpn_socket_new(struct socket *sock, struct ovpn_peer *peer)
 				goto sock_release;
 			}
 
-			/* caller is expected to increase the sock
-			 * refcounter before passing it to this
-			 * function. For this reason we drop it if
-			 * not needed, like when this socket is already
-			 * owned.
-			 */
 			rcu_read_unlock();
 			goto sock_release;
 		}
@@ -206,8 +200,8 @@ struct ovpn_socket *ovpn_socket_new(struct socket *sock, struct ovpn_peer *peer)
 		goto sock_release;
 	}
 
-	kref_init(&ovpn_sock->refcount);
 	ovpn_sock->sock = sock;
+	kref_init(&ovpn_sock->refcount);
 
 	ret = ovpn_socket_attach(ovpn_sock, peer);
 	if (ret < 0) {

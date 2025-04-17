@@ -1480,7 +1480,6 @@ static int ovpn_handle_msg(struct nl_msg *msg, void *arg)
 	struct genlmsghdr *gnlh = nlmsg_data(nlmsg_hdr(msg));
 	struct nlattr *attrs[OVPN_A_MAX + 1];
 	struct nlmsghdr *nlh = nlmsg_hdr(msg);
-	//enum ovpn_del_peer_reason reason;
 	char ifname[IF_NAMESIZE];
 	int *ret = arg;
 	__u32 ifindex;
@@ -1514,16 +1513,6 @@ static int ovpn_handle_msg(struct nl_msg *msg, void *arg)
 
 	switch (gnlh->cmd) {
 	case OVPN_CMD_PEER_DEL_NTF:
-		/*if (!attrs[OVPN_A_DEL_PEER_REASON]) {
-		 *	fprintf(stderr, "no reason in DEL_PEER message\n");
-		 *	return NL_STOP;
-		 *}
-		 *
-		 *reason = nla_get_u8(attrs[OVPN_A_DEL_PEER_REASON]);
-		 *fprintf(stderr,
-		 *	"received CMD_DEL_PEER, ifname: %s reason: %d\n",
-		 *	ifname, reason);
-		 */
 		fprintf(stdout, "received CMD_PEER_DEL_NTF\n");
 		break;
 	case OVPN_CMD_KEY_SWAP_NTF:
@@ -1872,14 +1861,6 @@ static int ovpn_recv_tcp_data(int socket)
 	fprintf(stdout, ">>>> Received %u bytes over TCP socket, header: %u\n",
 		ret, len);
 
-/*	int i;
- *	for (i = 2; i < ret; i++) {
- *		fprintf(stdout, "0x%.2x ", buf[i]);
- *		if (i && !((i - 2) % 16))
- *			fprintf(stdout, "\n");
- *	}
- *	fprintf(stdout, "\n");
- */
 	return 0;
 }
 
@@ -2044,7 +2025,7 @@ static int ovpn_run_cmd(struct ovpn_ctx *ovpn)
 		ovpn_waitbg();
 		break;
 	case CMD_NEW_PEER:
-		ret = ovpn_udp_socket(ovpn, AF_INET6); //ovpn->sa_family ?
+		ret = ovpn_udp_socket(ovpn, AF_INET6);
 		if (ret < 0)
 			return ret;
 

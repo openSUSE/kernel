@@ -207,7 +207,7 @@ attribute-sets:
         type: binary
         doc: The actual key to be used by the cipher
         checks:
-         max-len: 256
+          max-len: 256
       -
         name: nonce-tail
         type: binary
@@ -215,7 +215,7 @@ attribute-sets:
           Random nonce to be concatenated to the packet ID, in order to
           obtain the actual cipher IV
         checks:
-         exact-len: nonce-tail-size
+          exact-len: nonce-tail-size
   -
     name: ovpn
     attributes:

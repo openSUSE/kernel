@@ -129,7 +129,7 @@ static void ovpn_tcp_rcv(struct strparser *strp, struct sk_buff *skb)
 	ovpn_recv(peer, skb);
 	return;
 err:
-	dev_core_stats_rx_dropped_inc(peer->ovpn->dev);
+	dev_dstats_rx_dropped(peer->ovpn->dev);
 	kfree_skb(skb);
 	ovpn_peer_del(peer, OVPN_DEL_PEER_REASON_TRANSPORT_ERROR);
 }
@@ -264,7 +264,7 @@ static void ovpn_tcp_send_sock(struct ovpn_peer *peer, struct sock *sk)
 
 	if (!peer->tcp.out_msg.len) {
 		preempt_disable();
-		dev_sw_netstats_tx_add(peer->ovpn->dev, 1, skb->len);
+		dev_dstats_tx_add(peer->ovpn->dev, skb->len);
 		preempt_enable();
 	}
 
@@ -296,7 +296,7 @@ static void ovpn_tcp_send_sock_skb(struct ovpn_peer *peer, struct sock *sk,
 		ovpn_tcp_send_sock(peer, sk);
 
 	if (peer->tcp.out_msg.skb) {
-		dev_core_stats_tx_dropped_inc(peer->ovpn->dev);
+		dev_dstats_tx_dropped(peer->ovpn->dev);
 		kfree_skb(skb);
 		return;
 	}
@@ -318,7 +318,7 @@ void ovpn_tcp_send_skb(struct ovpn_peer *peer, struct socket *sock,
 	if (sock_owned_by_user(sock->sk)) {
 		if (skb_queue_len(&peer->tcp.out_queue) >=
 		    READ_ONCE(net_hotdata.max_backlog)) {
-			dev_core_stats_tx_dropped_inc(peer->ovpn->dev);
+			dev_dstats_tx_dropped(peer->ovpn->dev);
 			kfree_skb(skb);
 			goto unlock;
 		}

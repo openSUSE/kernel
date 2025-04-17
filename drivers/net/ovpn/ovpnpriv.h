@@ -35,7 +35,6 @@ struct ovpn_peer_collection {
 /**
  * struct ovpn_priv - per ovpn interface state
  * @dev: the actual netdev representing the tunnel
- * @registered: whether dev is still registered with netdev or not
  * @mode: device operation mode (i.e. p2p, mp, ..)
  * @lock: protect this object
  * @peers: data structures holding multi-peer references
@@ -45,7 +44,6 @@ struct ovpn_peer_collection {
  */
 struct ovpn_priv {
 	struct net_device *dev;
-	bool registered;
 	enum ovpn_mode mode;
 	spinlock_t lock; /* protect writing to the ovpn_priv object */
 	struct ovpn_peer_collection *peers;
