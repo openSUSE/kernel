@@ -431,9 +431,10 @@ static int break_ksm_pmd_entry(pmd_t *pmd, unsigned long addr, unsigned long nex
 	pte_t *pte;
 	int ret;
 
-	pte = pte_offset_map_lock(walk->mm, pmd, addr, &ptl);
-	if (!pte)
+	if (pmd_leaf(*pmd) || !pmd_present(*pmd))
 		return 0;
+
+	pte = pte_offset_map_lock(walk->mm, pmd, addr, &ptl);
 	if (pte_present(*pte)) {
 		page = vm_normal_page(walk->vma, addr, *pte);
 	} else if (!pte_none(*pte)) {
@@ -1210,8 +1211,6 @@ static int replace_page(struct vm_area_struct *vma, struct page *page,
 	mmu_notifier_invalidate_range_start(&range);
 
 	ptep = pte_offset_map_lock(mm, pmd, addr, &ptl);
-	if (!ptep)
-		goto out_mn;
 	if (!pte_same(*ptep, orig_pte)) {
 		pte_unmap_unlock(ptep, ptl);
 		goto out_mn;
