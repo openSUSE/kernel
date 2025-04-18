@@ -10480,6 +10480,10 @@ static const struct hda_fixup alc269_fixups[] = {
 			{ }
 		},
 	},
+	[ALC283_FIXUP_DELL_HP_RESUME] = {
+		.type = HDA_FIXUP_FUNC,
+		.v.func = alc283_fixup_dell_hp_resume,
+	},
 };
 
 static const struct snd_pci_quirk alc269_fixup_tbl[] = {
@@ -12516,10 +12520,6 @@ static const struct hda_fixup alc861vd_fixups[] = {
 	[ALC861VD_FIX_DALLAS] = {
 		.type = HDA_FIXUP_FUNC,
 		.v.func = alc861vd_fixup_dallas,
-	},
-	[ALC283_FIXUP_DELL_HP_RESUME] = {
-		.type = HDA_FIXUP_FUNC,
-		.v.func = alc283_fixup_dell_hp_resume,
 	},
 };
 
