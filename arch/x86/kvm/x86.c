@@ -12744,6 +12744,7 @@ int kvm_arch_init_vm(struct kvm *kvm, unsigned long type)
 			     "does not run without ignore_msrs=1, please report it to kvm@vger.kernel.org.\n");
 	}
 
+	once_init(&kvm->arch.nx_once);
 	return 0;
 
 out_uninit_mmu:
@@ -12751,12 +12752,6 @@ out_uninit_mmu:
 	kvm_page_track_cleanup(kvm);
 out:
 	return ret;
-}
-
-int kvm_arch_post_init_vm(struct kvm *kvm)
-{
-	once_init(&kvm->arch.nx_once);
-	return 0;
 }
 
 static void kvm_unload_vcpu_mmu(struct kvm_vcpu *vcpu)
