@@ -315,8 +315,28 @@ EXPORT_SYMBOL_GPL(tpm_pcr_read);
  * Return: same as with tpm_transmit_cmd()
  */
 int tpm_pcr_extend(struct tpm_chip *chip, u32 pcr_idx,
-		   struct tpm_digest *digests,
-		   unsigned long banks_skip_mask)
+		   struct tpm_digest *digests)
+{
+  return tpm_pcr_extend_sel(chip, pcr_idx, digests, 0);
+}
+EXPORT_SYMBOL_GPL(tpm_pcr_extend);
+
+/**
+ * tpm_pcr_extend_sel - selectively extend a PCR value in SHA1 bank.
+ * @chip:	a &struct tpm_chip instance, %NULL for the default chip
+ * @pcr_idx:	the PCR to be retrieved
+ * @digests:	array of tpm_digest structures used to extend PCRs
+ * @banks_skip_mask:	pcr banks to skip
+ *
+ * Note: callers must pass a digest for every allocated PCR bank, in the same
+ * order of the banks in chip->allocated_banks, independent of the value of
+ * @banks_skip_mask.
+ *
+ * Return: same as with tpm_transmit_cmd()
+ */
+int tpm_pcr_extend_sel(struct tpm_chip *chip, u32 pcr_idx,
+		       struct tpm_digest *digests,
+		       unsigned long banks_skip_mask)
 {
 	int rc;
 	int i;
@@ -350,7 +370,6 @@ out:
 	tpm_put_ops(chip);
 	return rc;
 }
-EXPORT_SYMBOL_GPL(tpm_pcr_extend);
 
 int tpm_auto_startup(struct tpm_chip *chip)
 {

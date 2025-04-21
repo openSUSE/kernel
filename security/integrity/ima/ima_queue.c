@@ -162,8 +162,8 @@ static int ima_pcr_extend(struct tpm_digest *digests_arg, int pcr)
 	pcr_banks_skip_mask = 0;
 #endif
 
-	result = tpm_pcr_extend(ima_tpm_chip, pcr, digests_arg,
-				pcr_banks_skip_mask);
+	result = tpm_pcr_extend_sel(ima_tpm_chip, pcr, digests_arg,
+				    pcr_banks_skip_mask);
 	if (result != 0) {
 		pr_err("Error Communicating to TPM chip, result: %d\n", result);
 		return result;
