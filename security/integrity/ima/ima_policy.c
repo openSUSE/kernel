@@ -48,9 +48,6 @@
 #define HASH		0x0100
 #define DONT_HASH	0x0200
 
-#define INVALID_PCR(a) (((a) < 0) || \
-	(a) >= (sizeof_field(struct ima_iint_cache, measured_pcrs) * 8))
-
 int ima_policy_flag;
 static int temp_ima_appraise;
 static int build_ima_appraise __ro_after_init;
@@ -1853,7 +1850,7 @@ static int ima_parse_rule(char *rule, struct ima_rule_entry *entry)
 			ima_log_string(ab, "pcr", args[0].from);
 
 			result = kstrtoint(args[0].from, 10, &entry->pcr);
-			if (result || INVALID_PCR(entry->pcr))
+			if (result || IMA_INVALID_PCR(entry->pcr))
 				result = -EINVAL;
 			else
 				entry->flags |= IMA_PCR;

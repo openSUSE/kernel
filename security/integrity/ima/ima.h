@@ -198,6 +198,10 @@ struct ima_iint_cache {
 	struct ima_digest_data *ima_hash;
 };
 
+#define IMA_INVALID_PCR(a) (((a) < 0) || \
+	(a) >= (sizeof_field(struct ima_iint_cache, measured_pcrs) * 8))
+
+
 extern struct lsm_blob_sizes ima_blob_sizes;
 
 static inline struct ima_iint_cache *
