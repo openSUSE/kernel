@@ -393,7 +393,7 @@ static int pcrlock(const int pcrnum)
 	if (!capable(CAP_SYS_ADMIN))
 		return -EPERM;
 
-	return tpm_pcr_extend(chip, pcrnum, digests) ? -EINVAL : 0;
+	return tpm_pcr_extend(chip, pcrnum, digests, 0) ? -EINVAL : 0;
 }
 
 /*

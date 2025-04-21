@@ -306,14 +306,17 @@ EXPORT_SYMBOL_GPL(tpm_pcr_read);
  * @chip:	a &struct tpm_chip instance, %NULL for the default chip
  * @pcr_idx:	the PCR to be retrieved
  * @digests:	array of tpm_digest structures used to extend PCRs
+ * @banks_skip_mask:	pcr banks to skip
  *
  * Note: callers must pass a digest for every allocated PCR bank, in the same
- * order of the banks in chip->allocated_banks.
+ * order of the banks in chip->allocated_banks, independent of the value of
+ * @banks_skip_mask.
  *
  * Return: same as with tpm_transmit_cmd()
  */
 int tpm_pcr_extend(struct tpm_chip *chip, u32 pcr_idx,
-		   struct tpm_digest *digests)
+		   struct tpm_digest *digests,
+		   unsigned long banks_skip_mask)
 {
 	int rc;
 	int i;
@@ -330,7 +333,13 @@ int tpm_pcr_extend(struct tpm_chip *chip, u32 pcr_idx,
 	}
 
 	if (chip->flags & TPM_CHIP_FLAG_TPM2) {
-		rc = tpm2_pcr_extend(chip, pcr_idx, digests);
+		rc = tpm2_pcr_extend(chip, pcr_idx, digests, banks_skip_mask);
+		goto out;
+	}
+
+	/* There's only one SHA1 bank with TPM 1. */
+	if (banks_skip_mask & 1) {
+		rc = 0;
 		goto out;
 	}
 

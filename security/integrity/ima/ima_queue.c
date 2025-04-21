@@ -142,7 +142,7 @@ static int ima_pcr_extend(struct tpm_digest *digests_arg, int pcr)
 	if (!ima_tpm_chip)
 		return result;
 
-	result = tpm_pcr_extend(ima_tpm_chip, pcr, digests_arg);
+	result = tpm_pcr_extend(ima_tpm_chip, pcr, digests_arg, 0);
 	if (result != 0)
 		pr_err("Error Communicating to TPM chip, result: %d\n", result);
 	return result;
