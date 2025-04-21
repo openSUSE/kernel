@@ -230,11 +230,23 @@ int __init ima_init_digests(void)
 		digest_size = ima_tpm_chip->allocated_banks[i].digest_size;
 		crypto_id = ima_tpm_chip->allocated_banks[i].crypto_id;
 
+#if IS_ENABLED(CONFIG_IMA_COMPAT_FALLBACK_TPM_EXTEND)
 		/* for unmapped TPM algorithms digest is still a padded SHA1 */
 		if (crypto_id == HASH_ALGO__LAST)
 			digest_size = SHA1_DIGEST_SIZE;
 
 		memset(digests[i].digest, 0xff, digest_size);
+#else
+		if (ima_algo_array[i].tfm) {
+			memset(digests[i].digest, 0xff, digest_size);
+		} else {
+			/*
+			 * Unsupported banks are invalidated with 0xfe ... fe
+			 * to disambiguate from violations.
+			 */
+			memset(digests[i].digest, 0xfe, digest_size);
+		}
+#endif
 	}
 
 	return 0;

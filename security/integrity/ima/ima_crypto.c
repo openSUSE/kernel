@@ -625,26 +625,44 @@ int ima_calc_field_array_hash(struct ima_field_data *field_data,
 	u16 alg_id;
 	int rc, i;
 
+#if IS_ENABLED(CONFIG_IMA_COMPAT_FALLBACK_TPM_EXTEND)
 	rc = ima_calc_field_array_hash_tfm(field_data, entry, ima_sha1_idx);
 	if (rc)
 		return rc;
 
 	entry->digests[ima_sha1_idx].alg_id = TPM_ALG_SHA1;
+#endif
 
 	for (i = 0; i < NR_BANKS(ima_tpm_chip) + ima_extra_slots; i++) {
+#if IS_ENABLED(CONFIG_IMA_COMPAT_FALLBACK_TPM_EXTEND)
 		if (i == ima_sha1_idx)
 			continue;
+#endif
 
 		if (i < NR_BANKS(ima_tpm_chip)) {
 			alg_id = ima_tpm_chip->allocated_banks[i].alg_id;
 			entry->digests[i].alg_id = alg_id;
 		}
 
-		/* for unmapped TPM algorithms digest is still a padded SHA1 */
+		/*
+		 * For unmapped TPM algorithms, the digest is still a
+		 * padded SHA1 if backwards-compatibility fallback PCR
+		 * extension is enabled. Otherwise fill with
+		 * 0xfes. This is the value to invalidate unsupported
+		 * PCR banks with. Also, a non-all-zeroes value serves
+		 * as an indicator to kexec measurement restoration
+		 * that the entry is not a violation and all its
+		 * template digests need to get recomputed.
+		 */
 		if (!ima_algo_array[i].tfm) {
+#if IS_ENABLED(CONFIG_IMA_COMPAT_FALLBACK_TPM_EXTEND)
 			memcpy(entry->digests[i].digest,
 			       entry->digests[ima_sha1_idx].digest,
 			       TPM_DIGEST_SIZE);
+#else
+			memset(entry->digests[i].digest, 0xfe,
+			       TPM_MAX_DIGEST_SIZE);
+#endif
 			continue;
 		}
 
