@@ -145,53 +145,47 @@ int __init ima_init_crypto(void)
 		goto out;
 	}
 
+	ima_algo_array[ima_hash_algo_idx].tfm = ima_shash_tfm;
+	ima_algo_array[ima_hash_algo_idx].algo = ima_hash_algo;
+
+	if (ima_hash_algo != HASH_ALGO_SHA1) {
+		ima_algo_array[ima_sha1_idx].tfm =
+			ima_alloc_tfm(HASH_ALGO_SHA1);
+		if (IS_ERR(ima_algo_array[ima_sha1_idx].tfm)) {
+#if IS_ENABLED(CONFIG_IMA_COMPAT_FALLBACK_TPM_EXTEND)
+			/*
+			 * For backwards compatible fallback PCR
+			 * extension, SHA1 is the fallback for missing
+			 * algos.
+			 */
+			rc = PTR_ERR(ima_algo_array[ima_sha1_idx].tfm);
+			goto out_array;
+#endif
+			ima_algo_array[ima_sha1_idx].tfm = NULL;
+		}
+		ima_algo_array[ima_sha1_idx].algo = HASH_ALGO_SHA1;
+	}
+
 	for (i = 0; i < NR_BANKS(ima_tpm_chip); i++) {
 		algo = ima_tpm_chip->allocated_banks[i].crypto_id;
 		ima_algo_array[i].algo = algo;
+
+		/* Initialized separately above. */
+		if (i == ima_hash_algo_idx || i == ima_sha1_idx)
+			continue;
 
 		/* unknown TPM algorithm */
 		if (algo == HASH_ALGO__LAST)
 			continue;
 
-		if (algo == ima_hash_algo) {
-			ima_algo_array[i].tfm = ima_shash_tfm;
-			continue;
-		}
-
 		ima_algo_array[i].tfm = ima_alloc_tfm(algo);
 		if (IS_ERR(ima_algo_array[i].tfm)) {
-			if (algo == HASH_ALGO_SHA1) {
-				rc = PTR_ERR(ima_algo_array[i].tfm);
-				ima_algo_array[i].tfm = NULL;
-				goto out_array;
-			}
-
 			ima_algo_array[i].tfm = NULL;
 		}
 	}
 
-	if (ima_sha1_idx >= NR_BANKS(ima_tpm_chip)) {
-		if (ima_hash_algo == HASH_ALGO_SHA1) {
-			ima_algo_array[ima_sha1_idx].tfm = ima_shash_tfm;
-		} else {
-			ima_algo_array[ima_sha1_idx].tfm =
-						ima_alloc_tfm(HASH_ALGO_SHA1);
-			if (IS_ERR(ima_algo_array[ima_sha1_idx].tfm)) {
-				rc = PTR_ERR(ima_algo_array[ima_sha1_idx].tfm);
-				goto out_array;
-			}
-		}
-
-		ima_algo_array[ima_sha1_idx].algo = HASH_ALGO_SHA1;
-	}
-
-	if (ima_hash_algo_idx >= NR_BANKS(ima_tpm_chip) &&
-	    ima_hash_algo_idx != ima_sha1_idx) {
-		ima_algo_array[ima_hash_algo_idx].tfm = ima_shash_tfm;
-		ima_algo_array[ima_hash_algo_idx].algo = ima_hash_algo;
-	}
-
 	return 0;
+#if IS_ENABLED(CONFIG_IMA_COMPAT_FALLBACK_TPM_EXTEND)
 out_array:
 	for (i = 0; i < NR_BANKS(ima_tpm_chip) + ima_extra_slots; i++) {
 		if (!ima_algo_array[i].tfm ||
@@ -201,6 +195,7 @@ out_array:
 		crypto_free_shash(ima_algo_array[i].tfm);
 	}
 	kfree(ima_algo_array);
+#endif
 out:
 	crypto_free_shash(ima_shash_tfm);
 	return rc;
