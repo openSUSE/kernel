@@ -12344,6 +12344,23 @@ lpfc_ignore_els_cmpl(struct lpfc_hba *phba, struct lpfc_iocbq *cmdiocb,
 {
 	struct lpfc_nodelist *ndlp = NULL;
 	IOCB_t *irsp = &rspiocb->iocb;
+	LPFC_MBOXQ_t *mbox;
+	struct lpfc_dmabuf *mp;
+
+	/* It is possible a PLOGI_RJT for NPIV ports to get aborted.
+	 * The MBX_REG_LOGIN64 mbox command is freed back to the
+	 * mbox_mem_pool here.
+	 */
+	if (cmdiocb->context_un.mbox) {
+		mbox = cmdiocb->context_un.mbox;
+		mp = (struct lpfc_dmabuf *)mbox->ctx_buf;
+		if (mp) {
+			lpfc_mbuf_free(phba, mp->virt, mp->phys);
+			kfree(mp);
+		}
+		mempool_free(mbox, phba->mbox_mem_pool);
+		cmdiocb->context_un.mbox = NULL;
+	}
 
 	/* ELS cmd tag <ulpIoTag> completes */
 	lpfc_printf_log(phba, KERN_INFO, LOG_ELS,
