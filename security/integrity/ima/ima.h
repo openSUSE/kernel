@@ -62,6 +62,7 @@ extern int ima_sha1_idx __ro_after_init;
 extern int ima_hash_algo_idx __ro_after_init;
 extern int ima_extra_slots __ro_after_init;
 extern struct ima_algo_desc *ima_algo_array __ro_after_init;
+extern unsigned long ima_unsupported_pcr_banks_mask __ro_after_init;
 
 extern unsigned long ima_extended_pcrs_mask;
 

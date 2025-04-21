@@ -143,11 +143,27 @@ unsigned long ima_get_binary_runtime_size(void)
 static int ima_pcr_extend(struct tpm_digest *digests_arg, int pcr)
 {
 	int result;
+	unsigned long pcr_banks_skip_mask;
 
 	if (!ima_tpm_chip)
 		return 0;
 
-	result = tpm_pcr_extend(ima_tpm_chip, pcr, digests_arg, 0);
+#if !IS_ENABLED(CONFIG_IMA_COMPAT_FALLBACK_TPM_EXTEND)
+	pcr_banks_skip_mask = ima_unsupported_pcr_banks_mask;
+	if (!(ima_extended_pcrs_mask & BIT(pcr))) {
+		/*
+		 * Invalidate unsupported banks once upon a PCR's
+		 * first usage. Note that the digests_arg[] entries for
+		 * unsupported algorithms have been filled with 0xfes.
+		 */
+		pcr_banks_skip_mask = 0;
+	}
+#else
+	pcr_banks_skip_mask = 0;
+#endif
+
+	result = tpm_pcr_extend(ima_tpm_chip, pcr, digests_arg,
+				pcr_banks_skip_mask);
 	if (result != 0) {
 		pr_err("Error Communicating to TPM chip, result: %d\n", result);
 		return result;

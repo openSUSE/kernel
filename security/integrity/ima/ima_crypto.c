@@ -67,6 +67,8 @@ int ima_extra_slots __ro_after_init;
 
 struct ima_algo_desc *ima_algo_array __ro_after_init;
 
+unsigned long ima_unsupported_pcr_banks_mask __ro_after_init;
+
 static int __init ima_init_ima_crypto(void)
 {
 	long rc;
@@ -182,6 +184,16 @@ int __init ima_init_crypto(void)
 		if (IS_ERR(ima_algo_array[i].tfm)) {
 			ima_algo_array[i].tfm = NULL;
 		}
+	}
+
+	for (i = 0; i < NR_BANKS(ima_tpm_chip); i++) {
+		if (i >= BITS_PER_LONG) {
+			pr_warn("Too many TPM PCR banks, invalidation tracking capped");
+			break;
+		}
+
+		if (!ima_algo_array[i].tfm)
+			ima_unsupported_pcr_banks_mask |= BIT(i);
 	}
 
 	return 0;
@@ -644,10 +656,11 @@ int ima_calc_field_array_hash(struct ima_field_data *field_data,
 		 * padded SHA1 if backwards-compatibility fallback PCR
 		 * extension is enabled. Otherwise fill with
 		 * 0xfes. This is the value to invalidate unsupported
-		 * PCR banks with. Also, a non-all-zeroes value serves
-		 * as an indicator to kexec measurement restoration
-		 * that the entry is not a violation and all its
-		 * template digests need to get recomputed.
+		 * PCR banks with once at first use. Also, a
+		 * non-all-zeroes value serves as an indicator to
+		 * kexec measurement restoration that the entry is not
+		 * a violation and all its template digests need to
+		 * get recomputed.
 		 */
 		if (!ima_algo_array[i].tfm) {
 #if IS_ENABLED(CONFIG_IMA_COMPAT_FALLBACK_TPM_EXTEND)
