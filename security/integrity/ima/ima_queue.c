@@ -44,6 +44,11 @@ struct ima_h_table ima_htable = {
  */
 static DEFINE_MUTEX(ima_extend_list_mutex);
 
+/*
+ * Set of PCRs ever extended by IMA.
+ */
+unsigned long ima_extended_pcrs_mask;
+
 /* lookup up the digest value in the hash table, and return the entry */
 static struct ima_queue_entry *ima_lookup_digest_entry(u8 *digest_value,
 						       int pcr)
@@ -137,15 +142,19 @@ unsigned long ima_get_binary_runtime_size(void)
 
 static int ima_pcr_extend(struct tpm_digest *digests_arg, int pcr)
 {
-	int result = 0;
+	int result;
 
 	if (!ima_tpm_chip)
-		return result;
+		return 0;
 
 	result = tpm_pcr_extend(ima_tpm_chip, pcr, digests_arg, 0);
-	if (result != 0)
+	if (result != 0) {
 		pr_err("Error Communicating to TPM chip, result: %d\n", result);
-	return result;
+		return result;
+	}
+
+	ima_extended_pcrs_mask |= BIT(pcr);
+	return 0;
 }
 
 /*

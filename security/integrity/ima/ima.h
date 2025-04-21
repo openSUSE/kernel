@@ -20,6 +20,7 @@
 #include <linux/hash.h>
 #include <linux/tpm.h>
 #include <linux/audit.h>
+#include <linux/minmax.h>
 #include <crypto/hash_info.h>
 
 #include "../integrity.h"
@@ -61,6 +62,8 @@ extern int ima_sha1_idx __ro_after_init;
 extern int ima_hash_algo_idx __ro_after_init;
 extern int ima_extra_slots __ro_after_init;
 extern struct ima_algo_desc *ima_algo_array __ro_after_init;
+
+extern unsigned long ima_extended_pcrs_mask;
 
 extern int ima_appraise;
 extern struct tpm_chip *ima_tpm_chip;
@@ -198,8 +201,9 @@ struct ima_iint_cache {
 	struct ima_digest_data *ima_hash;
 };
 
-#define IMA_INVALID_PCR(a) (((a) < 0) || \
-	(a) >= (sizeof_field(struct ima_iint_cache, measured_pcrs) * 8))
+#define IMA_INVALID_PCR(a) (((a) < 0) ||				    \
+	(a) >= (8 * min(sizeof_field(struct ima_iint_cache, measured_pcrs), \
+			sizeof(ima_extended_pcrs_mask))))
 
 
 extern struct lsm_blob_sizes ima_blob_sizes;
