@@ -436,10 +436,8 @@ static int __init create_securityfs_measurement_lists(void)
 	u16 algo;
 	int i;
 
-	securityfs_measurement_list_count = NR_BANKS(ima_tpm_chip);
-
-	if (ima_sha1_idx >= NR_BANKS(ima_tpm_chip))
-		securityfs_measurement_list_count++;
+	securityfs_measurement_list_count =
+		NR_BANKS(ima_tpm_chip) + ima_extra_slots;
 
 	ascii_securityfs_measurement_lists =
 	    kcalloc(securityfs_measurement_list_count, sizeof(struct dentry *),
