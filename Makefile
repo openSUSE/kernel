@@ -1128,7 +1128,7 @@ export MODULES_LIVEPATCH := $(extmod_prefix)modules.livepatch
 suse_version_h := include/generated/uapi/linux/suse_version.h
 
 define filechk_suse_version
-	$(CONFIG_SHELL) $(srctree)/scripts/gen-suse_version_h.sh
+	bash $(srctree)/scripts/gen-suse_version_h.sh
 endef
 
 $(suse_version_h): include/config/auto.conf FORCE
