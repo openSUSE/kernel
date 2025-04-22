@@ -831,8 +831,10 @@ static void limit_nv_id_regs(struct kvm *kvm)
 		 NV_FTR(PFR0, RAS)	|
 		 NV_FTR(PFR0, EL3)	|
 		 NV_FTR(PFR0, EL2)	|
-		 NV_FTR(PFR0, EL1));
-	/* 64bit EL1/EL2/EL3 only */
+		 NV_FTR(PFR0, EL1)	|
+		 NV_FTR(PFR0, EL0));
+	/* 64bit only at any EL */
+	val |= FIELD_PREP(NV_FTR(PFR0, EL0), 0b0001);
 	val |= FIELD_PREP(NV_FTR(PFR0, EL1), 0b0001);
 	val |= FIELD_PREP(NV_FTR(PFR0, EL2), 0b0001);
 	val |= FIELD_PREP(NV_FTR(PFR0, EL3), 0b0001);
@@ -918,12 +920,13 @@ static void limit_nv_id_regs(struct kvm *kvm)
 				  ID_AA64MMFR4_EL1_E2H0_NI_NV1);
 	kvm_set_vm_id_reg(kvm, SYS_ID_AA64MMFR4_EL1, val);
 
-	/* Only limited support for PMU, Debug, BPs and WPs */
+	/* Only limited support for PMU, Debug, BPs, WPs, and HPMN0 */
 	val = kvm_read_vm_id_reg(kvm, SYS_ID_AA64DFR0_EL1);
 	val &= (NV_FTR(DFR0, PMUVer)	|
 		NV_FTR(DFR0, WRPs)	|
 		NV_FTR(DFR0, BRPs)	|
-		NV_FTR(DFR0, DebugVer));
+		NV_FTR(DFR0, DebugVer)	|
+		NV_FTR(DFR0, HPMN0));
 
 	/* Cap Debug to ARMv8.1 */
 	tmp = FIELD_GET(NV_FTR(DFR0, DebugVer), val);
@@ -934,15 +937,15 @@ static void limit_nv_id_regs(struct kvm *kvm)
 	kvm_set_vm_id_reg(kvm, SYS_ID_AA64DFR0_EL1, val);
 }
 
-u64 kvm_vcpu_sanitise_vncr_reg(const struct kvm_vcpu *vcpu, enum vcpu_sysreg sr)
+u64 kvm_vcpu_apply_reg_masks(const struct kvm_vcpu *vcpu,
+			     enum vcpu_sysreg sr, u64 v)
 {
-	u64 v = ctxt_sys_reg(&vcpu->arch.ctxt, sr);
 	struct kvm_sysreg_masks *masks;
 
 	masks = vcpu->kvm->arch.sysreg_masks;
 
 	if (masks) {
-		sr -= __VNCR_START__;
+		sr -= __SANITISED_REG_START__;
 
 		v &= ~masks->mask[sr].res0;
 		v |= masks->mask[sr].res1;
@@ -951,22 +954,27 @@ u64 kvm_vcpu_sanitise_vncr_reg(const struct kvm_vcpu *vcpu, enum vcpu_sysreg sr)
 	return v;
 }
 
-static void set_sysreg_masks(struct kvm *kvm, int sr, u64 res0, u64 res1)
+static __always_inline void set_sysreg_masks(struct kvm *kvm, int sr, u64 res0, u64 res1)
 {
-	int i = sr - __VNCR_START__;
+	int i = sr - __SANITISED_REG_START__;
+
+	BUILD_BUG_ON(!__builtin_constant_p(sr));
+	BUILD_BUG_ON(sr < __SANITISED_REG_START__);
+	BUILD_BUG_ON(sr >= NR_SYS_REGS);
 
 	kvm->arch.sysreg_masks->mask[i].res0 = res0;
 	kvm->arch.sysreg_masks->mask[i].res1 = res1;
 }
 
-int kvm_init_nv_sysregs(struct kvm *kvm)
+int kvm_init_nv_sysregs(struct kvm_vcpu *vcpu)
 {
+	struct kvm *kvm = vcpu->kvm;
 	u64 res0, res1;
 
 	lockdep_assert_held(&kvm->arch.config_lock);
 
 	if (kvm->arch.sysreg_masks)
-		return 0;
+		goto out;
 
 	kvm->arch.sysreg_masks = kzalloc(sizeof(*(kvm->arch.sysreg_masks)),
 					 GFP_KERNEL_ACCOUNT);
@@ -1017,8 +1025,8 @@ int kvm_init_nv_sysregs(struct kvm *kvm)
 		res0 |= HCR_NV2;
 	if (!kvm_has_feat(kvm, ID_AA64MMFR2_EL1, NV, IMP))
 		res0 |= (HCR_AT | HCR_NV1 | HCR_NV);
-	if (!(__vcpu_has_feature(&kvm->arch, KVM_ARM_VCPU_PTRAUTH_ADDRESS) &&
-	      __vcpu_has_feature(&kvm->arch, KVM_ARM_VCPU_PTRAUTH_GENERIC)))
+	if (!(kvm_vcpu_has_feature(kvm, KVM_ARM_VCPU_PTRAUTH_ADDRESS) &&
+	      kvm_vcpu_has_feature(kvm, KVM_ARM_VCPU_PTRAUTH_GENERIC)))
 		res0 |= (HCR_API | HCR_APK);
 	if (!kvm_has_feat(kvm, ID_AA64ISAR0_EL1, TME, IMP))
 		res0 |= BIT(39);
@@ -1051,7 +1059,7 @@ int kvm_init_nv_sysregs(struct kvm *kvm)
 		res0 |= HCRX_EL2_PTTWI;
 	if (!kvm_has_feat(kvm, ID_AA64MMFR3_EL1, SCTLRX, IMP))
 		res0 |= HCRX_EL2_SCTLR2En;
-	if (!kvm_has_feat(kvm, ID_AA64MMFR3_EL1, TCRX, IMP))
+	if (!kvm_has_tcr2(kvm))
 		res0 |= HCRX_EL2_TCR2En;
 	if (!kvm_has_feat(kvm, ID_AA64ISAR2_EL1, MOPS, IMP))
 		res0 |= (HCRX_EL2_MSCEn | HCRX_EL2_MCE2);
@@ -1074,8 +1082,8 @@ int kvm_init_nv_sysregs(struct kvm *kvm)
 
 	/* HFG[RW]TR_EL2 */
 	res0 = res1 = 0;
-	if (!(__vcpu_has_feature(&kvm->arch, KVM_ARM_VCPU_PTRAUTH_ADDRESS) &&
-	      __vcpu_has_feature(&kvm->arch, KVM_ARM_VCPU_PTRAUTH_GENERIC)))
+	if (!(kvm_vcpu_has_feature(kvm, KVM_ARM_VCPU_PTRAUTH_ADDRESS) &&
+	      kvm_vcpu_has_feature(kvm, KVM_ARM_VCPU_PTRAUTH_GENERIC)))
 		res0 |= (HFGxTR_EL2_APDAKey | HFGxTR_EL2_APDBKey |
 			 HFGxTR_EL2_APGAKey | HFGxTR_EL2_APIAKey |
 			 HFGxTR_EL2_APIBKey);
@@ -1102,9 +1110,9 @@ int kvm_init_nv_sysregs(struct kvm *kvm)
 		res0 |= (HFGxTR_EL2_nSMPRI_EL1 | HFGxTR_EL2_nTPIDR2_EL0);
 	if (!kvm_has_feat(kvm, ID_AA64PFR1_EL1, THE, IMP))
 		res0 |= HFGxTR_EL2_nRCWMASK_EL1;
-	if (!kvm_has_feat(kvm, ID_AA64MMFR3_EL1, S1PIE, IMP))
+	if (!kvm_has_s1pie(kvm))
 		res0 |= (HFGxTR_EL2_nPIRE0_EL1 | HFGxTR_EL2_nPIR_EL1);
-	if (!kvm_has_feat(kvm, ID_AA64MMFR3_EL1, S1POE, IMP))
+	if (!kvm_has_s1poe(kvm))
 		res0 |= (HFGxTR_EL2_nPOR_EL0 | HFGxTR_EL2_nPOR_EL1);
 	if (!kvm_has_feat(kvm, ID_AA64MMFR3_EL1, S2POE, IMP))
 		res0 |= HFGxTR_EL2_nS2POR_EL1;
@@ -1201,12 +1209,90 @@ int kvm_init_nv_sysregs(struct kvm *kvm)
 		res0 |= ~(res0 | res1);
 	set_sysreg_masks(kvm, HAFGRTR_EL2, res0, res1);
 
+	/* TCR2_EL2 */
+	res0 = TCR2_EL2_RES0;
+	res1 = TCR2_EL2_RES1;
+	if (!kvm_has_feat(kvm, ID_AA64MMFR3_EL1, D128, IMP))
+		res0 |= (TCR2_EL2_DisCH0 | TCR2_EL2_DisCH1 | TCR2_EL2_D128);
+	if (!kvm_has_feat(kvm, ID_AA64MMFR3_EL1, MEC, IMP))
+		res0 |= TCR2_EL2_AMEC1 | TCR2_EL2_AMEC0;
+	if (!kvm_has_feat(kvm, ID_AA64MMFR1_EL1, HAFDBS, HAFT))
+		res0 |= TCR2_EL2_HAFT;
+	if (!kvm_has_feat(kvm, ID_AA64PFR1_EL1, THE, IMP))
+		res0 |= TCR2_EL2_PTTWI | TCR2_EL2_PnCH;
+	if (!kvm_has_feat(kvm, ID_AA64MMFR3_EL1, AIE, IMP))
+		res0 |= TCR2_EL2_AIE;
+	if (!kvm_has_s1poe(kvm))
+		res0 |= TCR2_EL2_POE | TCR2_EL2_E0POE;
+	if (!kvm_has_s1pie(kvm))
+		res0 |= TCR2_EL2_PIE;
+	if (!kvm_has_feat(kvm, ID_AA64MMFR1_EL1, VH, IMP))
+		res0 |= (TCR2_EL2_E0POE | TCR2_EL2_D128 |
+			 TCR2_EL2_AMEC1 | TCR2_EL2_DisCH0 | TCR2_EL2_DisCH1);
+	set_sysreg_masks(kvm, TCR2_EL2, res0, res1);
+
 	/* SCTLR_EL1 */
 	res0 = SCTLR_EL1_RES0;
 	res1 = SCTLR_EL1_RES1;
 	if (!kvm_has_feat(kvm, ID_AA64MMFR1_EL1, PAN, PAN3))
 		res0 |= SCTLR_EL1_EPAN;
 	set_sysreg_masks(kvm, SCTLR_EL1, res0, res1);
+
+	/* MDCR_EL2 */
+	res0 = MDCR_EL2_RES0;
+	res1 = MDCR_EL2_RES1;
+	if (!kvm_has_feat(kvm, ID_AA64DFR0_EL1, PMUVer, IMP))
+		res0 |= (MDCR_EL2_HPMN | MDCR_EL2_TPMCR |
+			 MDCR_EL2_TPM | MDCR_EL2_HPME);
+	if (!kvm_has_feat(kvm, ID_AA64DFR0_EL1, PMSVer, IMP))
+		res0 |= MDCR_EL2_E2PB | MDCR_EL2_TPMS;
+	if (!kvm_has_feat(kvm, ID_AA64DFR1_EL1, SPMU, IMP))
+		res0 |= MDCR_EL2_EnSPM;
+	if (!kvm_has_feat(kvm, ID_AA64DFR0_EL1, PMUVer, V3P1))
+		res0 |= MDCR_EL2_HPMD;
+	if (!kvm_has_feat(kvm, ID_AA64DFR0_EL1, TraceFilt, IMP))
+		res0 |= MDCR_EL2_TTRF;
+	if (!kvm_has_feat(kvm, ID_AA64DFR0_EL1, PMUVer, V3P5))
+		res0 |= MDCR_EL2_HCCD | MDCR_EL2_HLP;
+	if (!kvm_has_feat(kvm, ID_AA64DFR0_EL1, TraceBuffer, IMP))
+		res0 |= MDCR_EL2_E2TB;
+	if (!kvm_has_feat(kvm, ID_AA64MMFR0_EL1, FGT, IMP))
+		res0 |= MDCR_EL2_TDCC;
+	if (!kvm_has_feat(kvm, ID_AA64DFR0_EL1, MTPMU, IMP) ||
+	    kvm_has_feat(kvm, ID_AA64PFR0_EL1, EL3, IMP))
+		res0 |= MDCR_EL2_MTPME;
+	if (!kvm_has_feat(kvm, ID_AA64DFR0_EL1, PMUVer, V3P7))
+		res0 |= MDCR_EL2_HPMFZO;
+	if (!kvm_has_feat(kvm, ID_AA64DFR0_EL1, PMSS, IMP))
+		res0 |= MDCR_EL2_PMSSE;
+	if (!kvm_has_feat(kvm, ID_AA64DFR0_EL1, PMSVer, V1P2))
+		res0 |= MDCR_EL2_HPMFZS;
+	if (!kvm_has_feat(kvm, ID_AA64DFR1_EL1, EBEP, IMP))
+		res0 |= MDCR_EL2_PMEE;
+	if (!kvm_has_feat(kvm, ID_AA64DFR0_EL1, DebugVer, V8P9))
+		res0 |= MDCR_EL2_EBWE;
+	if (!kvm_has_feat(kvm, ID_AA64DFR2_EL1, STEP, IMP))
+		res0 |= MDCR_EL2_EnSTEPOP;
+	set_sysreg_masks(kvm, MDCR_EL2, res0, res1);
+
+	/* CNTHCTL_EL2 */
+	res0 = GENMASK(63, 20);
+	res1 = 0;
+	if (!kvm_has_feat(kvm, ID_AA64PFR0_EL1, RME, IMP))
+		res0 |= CNTHCTL_CNTPMASK | CNTHCTL_CNTVMASK;
+	if (!kvm_has_feat(kvm, ID_AA64MMFR0_EL1, ECV, CNTPOFF)) {
+		res0 |= CNTHCTL_ECV;
+		if (!kvm_has_feat(kvm, ID_AA64MMFR0_EL1, ECV, IMP))
+			res0 |= (CNTHCTL_EL1TVT | CNTHCTL_EL1TVCT |
+				 CNTHCTL_EL1NVPCT | CNTHCTL_EL1NVVCT);
+	}
+	if (!kvm_has_feat(kvm, ID_AA64MMFR1_EL1, VH, IMP))
+		res0 |= GENMASK(11, 8);
+	set_sysreg_masks(kvm, CNTHCTL_EL2, res0, res1);
+
+out:
+	for (enum vcpu_sysreg sr = __SANITISED_REG_START__; sr < NR_SYS_REGS; sr++)
+		(void)__vcpu_sys_reg(vcpu, sr);
 
 	return 0;
 }

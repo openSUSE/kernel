@@ -201,8 +201,6 @@ struct nested_vmx {
 	struct kvm_host_map virtual_apic_map;
 	struct kvm_host_map pi_desc_map;
 
-	struct kvm_host_map msr_bitmap_map;
-
 	struct pi_desc *pi_desc;
 	bool pi_pending;
 	u16 posted_intr_nv;
@@ -333,13 +331,14 @@ struct vcpu_vmx {
 	bool ple_window_dirty;
 
 	/* Support for PML */
-#define PML_ENTITY_NUM		512
+#define PML_LOG_NR_ENTRIES	512
+	/* PML is written backwards: this is the first entry written by the CPU */
+#define PML_HEAD_INDEX		(PML_LOG_NR_ENTRIES-1)
+
 	struct page *pml_pg;
 
 	/* apic deadline value in host tsc */
 	u64 hv_deadline_tsc;
-
-	unsigned long host_debugctlmsr;
 
 	/*
 	 * Only bits masked by msr_ia32_feature_control_valid_bits can be set in
