@@ -4597,6 +4597,7 @@ static struct iommu_domain identity_domain = {
 		.attach_dev	= identity_domain_attach_dev,
 		.set_dev_pasid	= identity_domain_set_dev_pasid,
 	},
+	.owner = &intel_iommu_ops,
 };
 
 const struct iommu_ops intel_iommu_ops = {
