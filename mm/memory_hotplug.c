@@ -1515,8 +1515,11 @@ do_migrate_range(unsigned long start_pfn, unsigned long end_pfn)
 		if (PageHWPoison(page)) {
 			if (WARN_ON(PageLRU(page)))
 				isolate_lru_page(page);
-			if (page_mapped(page))
+			if (page_mapped(page)) {
+				lock_page(page);
 				try_to_unmap(page, TTU_IGNORE_MLOCK);
+				unlock_page(page);
+			}
 			continue;
 		}
 
