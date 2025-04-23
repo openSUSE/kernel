@@ -436,10 +436,8 @@ static int __init create_securityfs_measurement_lists(void)
 	u16 algo;
 	int i;
 
-	securityfs_measurement_list_count = NR_BANKS(ima_tpm_chip);
-
-	if (ima_sha1_idx >= NR_BANKS(ima_tpm_chip))
-		securityfs_measurement_list_count++;
+	securityfs_measurement_list_count =
+		NR_BANKS(ima_tpm_chip) + ima_extra_slots;
 
 	ascii_securityfs_measurement_lists =
 	    kcalloc(securityfs_measurement_list_count, sizeof(struct dentry *),
@@ -454,6 +452,9 @@ static int __init create_securityfs_measurement_lists(void)
 		return -ENOMEM;
 
 	for (i = 0; i < securityfs_measurement_list_count; i++) {
+		if (!ima_algo_array[i].tfm)
+			continue;
+
 		algo = ima_algo_array[i].algo;
 
 		sprintf(file_name, "ascii_runtime_measurements_%s",
@@ -573,20 +574,26 @@ int __init ima_fs_init(void)
 	if (ret != 0)
 		goto out;
 
-	binary_runtime_measurements =
-	    securityfs_create_symlink("binary_runtime_measurements", ima_dir,
-				      "binary_runtime_measurements_sha1", NULL);
-	if (IS_ERR(binary_runtime_measurements)) {
-		ret = PTR_ERR(binary_runtime_measurements);
-		goto out;
-	}
+	if (ima_algo_array[ima_sha1_idx].tfm) {
+		binary_runtime_measurements =
+		    securityfs_create_symlink("binary_runtime_measurements",
+					      ima_dir,
+					      "binary_runtime_measurements_sha1",
+					      NULL);
+		if (IS_ERR(binary_runtime_measurements)) {
+			ret = PTR_ERR(binary_runtime_measurements);
+			goto out;
+		}
 
-	ascii_runtime_measurements =
-	    securityfs_create_symlink("ascii_runtime_measurements", ima_dir,
-				      "ascii_runtime_measurements_sha1", NULL);
-	if (IS_ERR(ascii_runtime_measurements)) {
-		ret = PTR_ERR(ascii_runtime_measurements);
-		goto out;
+		ascii_runtime_measurements =
+		    securityfs_create_symlink("ascii_runtime_measurements",
+					      ima_dir,
+					      "ascii_runtime_measurements_sha1",
+					      NULL);
+		if (IS_ERR(ascii_runtime_measurements)) {
+			ret = PTR_ERR(ascii_runtime_measurements);
+			goto out;
+		}
 	}
 
 	runtime_measurements_count =

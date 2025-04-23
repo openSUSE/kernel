@@ -226,15 +226,30 @@ out:
  * @chip:	TPM chip to use.
  * @pcr_idx:	index of the PCR.
  * @digests:	list of pcr banks and corresponding digest values to extend.
+ * @banks_skip_mask:	pcr banks to skip
  *
  * Return: Same as with tpm_transmit_cmd.
  */
 int tpm2_pcr_extend(struct tpm_chip *chip, u32 pcr_idx,
-		    struct tpm_digest *digests)
+		    struct tpm_digest *digests,
+		    unsigned long banks_skip_mask)
 {
 	struct tpm_buf buf;
+	unsigned long skip_mask;
+	u32 skipped_banks_count, banks_count;
 	int rc;
 	int i;
+
+	skipped_banks_count = 0;
+	skip_mask = banks_skip_mask;
+	for (i = 0; skip_mask && i < chip->nr_allocated_banks; i++) {
+		skipped_banks_count += skip_mask & 1;
+		skip_mask >>= 1;
+	}
+	banks_count = chip->nr_allocated_banks - skipped_banks_count;
+
+	if (banks_count == 0)
+		return 0;
 
 	if (!disable_pcr_integrity) {
 		rc = tpm2_start_auth_session(chip);
@@ -257,9 +272,16 @@ int tpm2_pcr_extend(struct tpm_chip *chip, u32 pcr_idx,
 		tpm_buf_append_auth(chip, &buf, 0, NULL, 0);
 	}
 
-	tpm_buf_append_u32(&buf, chip->nr_allocated_banks);
+	tpm_buf_append_u32(&buf, banks_count);
 
+	skip_mask = banks_skip_mask;
 	for (i = 0; i < chip->nr_allocated_banks; i++) {
+		const bool skip_bank = skip_mask & 1;
+
+		skip_mask >>= 1;
+		if (skip_bank)
+			continue;
+
 		tpm_buf_append_u16(&buf, digests[i].alg_id);
 		tpm_buf_append(&buf, (const unsigned char *)&digests[i].digest,
 			       chip->allocated_banks[i].digest_size);

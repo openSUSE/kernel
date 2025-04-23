@@ -44,6 +44,11 @@ struct ima_h_table ima_htable = {
  */
 static DEFINE_MUTEX(ima_extend_list_mutex);
 
+/*
+ * Set of PCRs ever extended by IMA.
+ */
+unsigned long ima_extended_pcrs_mask;
+
 /* lookup up the digest value in the hash table, and return the entry */
 static struct ima_queue_entry *ima_lookup_digest_entry(u8 *digest_value,
 						       int pcr)
@@ -137,15 +142,35 @@ unsigned long ima_get_binary_runtime_size(void)
 
 static int ima_pcr_extend(struct tpm_digest *digests_arg, int pcr)
 {
-	int result = 0;
+	int result;
+	unsigned long pcr_banks_skip_mask;
 
 	if (!ima_tpm_chip)
-		return result;
+		return 0;
 
-	result = tpm_pcr_extend(ima_tpm_chip, pcr, digests_arg);
-	if (result != 0)
+#if !IS_ENABLED(CONFIG_IMA_COMPAT_FALLBACK_TPM_EXTEND)
+	pcr_banks_skip_mask = ima_unsupported_pcr_banks_mask;
+	if (!(ima_extended_pcrs_mask & BIT(pcr))) {
+		/*
+		 * Invalidate unsupported banks once upon a PCR's
+		 * first usage. Note that the digests_arg[] entries for
+		 * unsupported algorithms have been filled with 0xfes.
+		 */
+		pcr_banks_skip_mask = 0;
+	}
+#else
+	pcr_banks_skip_mask = 0;
+#endif
+
+	result = tpm_pcr_extend_sel(ima_tpm_chip, pcr, digests_arg,
+				    pcr_banks_skip_mask);
+	if (result != 0) {
 		pr_err("Error Communicating to TPM chip, result: %d\n", result);
-	return result;
+		return result;
+	}
+
+	ima_extended_pcrs_mask |= BIT(pcr);
+	return 0;
 }
 
 /*
@@ -230,11 +255,23 @@ int __init ima_init_digests(void)
 		digest_size = ima_tpm_chip->allocated_banks[i].digest_size;
 		crypto_id = ima_tpm_chip->allocated_banks[i].crypto_id;
 
+#if IS_ENABLED(CONFIG_IMA_COMPAT_FALLBACK_TPM_EXTEND)
 		/* for unmapped TPM algorithms digest is still a padded SHA1 */
 		if (crypto_id == HASH_ALGO__LAST)
 			digest_size = SHA1_DIGEST_SIZE;
 
 		memset(digests[i].digest, 0xff, digest_size);
+#else
+		if (ima_algo_array[i].tfm) {
+			memset(digests[i].digest, 0xff, digest_size);
+		} else {
+			/*
+			 * Unsupported banks are invalidated with 0xfe ... fe
+			 * to disambiguate from violations.
+			 */
+			memset(digests[i].digest, 0xfe, digest_size);
+		}
+#endif
 	}
 
 	return 0;

@@ -67,6 +67,8 @@ int ima_extra_slots __ro_after_init;
 
 struct ima_algo_desc *ima_algo_array __ro_after_init;
 
+unsigned long ima_unsupported_pcr_banks_mask __ro_after_init;
+
 static int __init ima_init_ima_crypto(void)
 {
 	long rc;
@@ -145,53 +147,57 @@ int __init ima_init_crypto(void)
 		goto out;
 	}
 
+	ima_algo_array[ima_hash_algo_idx].tfm = ima_shash_tfm;
+	ima_algo_array[ima_hash_algo_idx].algo = ima_hash_algo;
+
+	if (ima_hash_algo != HASH_ALGO_SHA1) {
+		ima_algo_array[ima_sha1_idx].tfm =
+			ima_alloc_tfm(HASH_ALGO_SHA1);
+		if (IS_ERR(ima_algo_array[ima_sha1_idx].tfm)) {
+#if IS_ENABLED(CONFIG_IMA_COMPAT_FALLBACK_TPM_EXTEND)
+			/*
+			 * For backwards compatible fallback PCR
+			 * extension, SHA1 is the fallback for missing
+			 * algos.
+			 */
+			rc = PTR_ERR(ima_algo_array[ima_sha1_idx].tfm);
+			goto out_array;
+#endif
+			ima_algo_array[ima_sha1_idx].tfm = NULL;
+		}
+		ima_algo_array[ima_sha1_idx].algo = HASH_ALGO_SHA1;
+	}
+
 	for (i = 0; i < NR_BANKS(ima_tpm_chip); i++) {
 		algo = ima_tpm_chip->allocated_banks[i].crypto_id;
 		ima_algo_array[i].algo = algo;
+
+		/* Initialized separately above. */
+		if (i == ima_hash_algo_idx || i == ima_sha1_idx)
+			continue;
 
 		/* unknown TPM algorithm */
 		if (algo == HASH_ALGO__LAST)
 			continue;
 
-		if (algo == ima_hash_algo) {
-			ima_algo_array[i].tfm = ima_shash_tfm;
-			continue;
-		}
-
 		ima_algo_array[i].tfm = ima_alloc_tfm(algo);
 		if (IS_ERR(ima_algo_array[i].tfm)) {
-			if (algo == HASH_ALGO_SHA1) {
-				rc = PTR_ERR(ima_algo_array[i].tfm);
-				ima_algo_array[i].tfm = NULL;
-				goto out_array;
-			}
-
 			ima_algo_array[i].tfm = NULL;
 		}
 	}
 
-	if (ima_sha1_idx >= NR_BANKS(ima_tpm_chip)) {
-		if (ima_hash_algo == HASH_ALGO_SHA1) {
-			ima_algo_array[ima_sha1_idx].tfm = ima_shash_tfm;
-		} else {
-			ima_algo_array[ima_sha1_idx].tfm =
-						ima_alloc_tfm(HASH_ALGO_SHA1);
-			if (IS_ERR(ima_algo_array[ima_sha1_idx].tfm)) {
-				rc = PTR_ERR(ima_algo_array[ima_sha1_idx].tfm);
-				goto out_array;
-			}
+	for (i = 0; i < NR_BANKS(ima_tpm_chip); i++) {
+		if (i >= BITS_PER_LONG) {
+			pr_warn("Too many TPM PCR banks, invalidation tracking capped");
+			break;
 		}
 
-		ima_algo_array[ima_sha1_idx].algo = HASH_ALGO_SHA1;
-	}
-
-	if (ima_hash_algo_idx >= NR_BANKS(ima_tpm_chip) &&
-	    ima_hash_algo_idx != ima_sha1_idx) {
-		ima_algo_array[ima_hash_algo_idx].tfm = ima_shash_tfm;
-		ima_algo_array[ima_hash_algo_idx].algo = ima_hash_algo;
+		if (!ima_algo_array[i].tfm)
+			ima_unsupported_pcr_banks_mask |= BIT(i);
 	}
 
 	return 0;
+#if IS_ENABLED(CONFIG_IMA_COMPAT_FALLBACK_TPM_EXTEND)
 out_array:
 	for (i = 0; i < NR_BANKS(ima_tpm_chip) + ima_extra_slots; i++) {
 		if (!ima_algo_array[i].tfm ||
@@ -201,6 +207,7 @@ out_array:
 		crypto_free_shash(ima_algo_array[i].tfm);
 	}
 	kfree(ima_algo_array);
+#endif
 out:
 	crypto_free_shash(ima_shash_tfm);
 	return rc;
@@ -625,26 +632,45 @@ int ima_calc_field_array_hash(struct ima_field_data *field_data,
 	u16 alg_id;
 	int rc, i;
 
+#if IS_ENABLED(CONFIG_IMA_COMPAT_FALLBACK_TPM_EXTEND)
 	rc = ima_calc_field_array_hash_tfm(field_data, entry, ima_sha1_idx);
 	if (rc)
 		return rc;
 
 	entry->digests[ima_sha1_idx].alg_id = TPM_ALG_SHA1;
+#endif
 
 	for (i = 0; i < NR_BANKS(ima_tpm_chip) + ima_extra_slots; i++) {
+#if IS_ENABLED(CONFIG_IMA_COMPAT_FALLBACK_TPM_EXTEND)
 		if (i == ima_sha1_idx)
 			continue;
+#endif
 
 		if (i < NR_BANKS(ima_tpm_chip)) {
 			alg_id = ima_tpm_chip->allocated_banks[i].alg_id;
 			entry->digests[i].alg_id = alg_id;
 		}
 
-		/* for unmapped TPM algorithms digest is still a padded SHA1 */
+		/*
+		 * For unmapped TPM algorithms, the digest is still a
+		 * padded SHA1 if backwards-compatibility fallback PCR
+		 * extension is enabled. Otherwise fill with
+		 * 0xfes. This is the value to invalidate unsupported
+		 * PCR banks with once at first use. Also, a
+		 * non-all-zeroes value serves as an indicator to
+		 * kexec measurement restoration that the entry is not
+		 * a violation and all its template digests need to
+		 * get recomputed.
+		 */
 		if (!ima_algo_array[i].tfm) {
+#if IS_ENABLED(CONFIG_IMA_COMPAT_FALLBACK_TPM_EXTEND)
 			memcpy(entry->digests[i].digest,
 			       entry->digests[ima_sha1_idx].digest,
 			       TPM_DIGEST_SIZE);
+#else
+			memset(entry->digests[i].digest, 0xfe,
+			       TPM_MAX_DIGEST_SIZE);
+#endif
 			continue;
 		}
 
