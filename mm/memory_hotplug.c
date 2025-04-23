@@ -1815,7 +1815,7 @@ static void do_migrate_range(unsigned long start_pfn, unsigned long end_pfn)
 				folio_isolate_lru(folio);
 			if (folio_mapped(folio)) {
 				folio_lock(folio);
-				unmap_poisoned_folio(folio, TTU_IGNORE_MLOCK);
+				unmap_poisoned_folio(folio, pfn, false);
 				folio_unlock(folio);
 			}
 
