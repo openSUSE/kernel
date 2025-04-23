@@ -5775,7 +5775,11 @@ void security_bpf_token_free(struct bpf_token *token)
  */
 int security_locked_down(enum lockdown_reason what)
 {
+#ifdef CONFIG_SECURITY_LOCKDOWN_LSM
 	return call_int_hook_direct(lockdown_hooks_secure_boot, INDEX_LOCKED_DOWN, locked_down, what);
+#else
+	return call_int_hook(locked_down, what);
+#endif
 }
 EXPORT_SYMBOL(security_locked_down);
 
@@ -5789,7 +5793,11 @@ EXPORT_SYMBOL(security_locked_down);
  */
 int security_lock_kernel_down(const char *where, enum lockdown_reason level)
 {
+#ifdef CONFIG_SECURITY_LOCKDOWN_LSM
 	return call_int_hook_direct(lockdown_hooks_secure_boot, INDEX_LOCK_KERNEL_DOWN, lock_kernel_down, where, level);
+#else
+	return call_int_hook(lock_kernel_down, where, level);
+#endif
 }
 EXPORT_SYMBOL(security_lock_kernel_down);
 
