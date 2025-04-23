@@ -6725,6 +6725,7 @@ free_vqs:
 	free_receive_page_frags(vi);
 	virtnet_del_vqs(vi);
 free:
+	rss_indirection_table_free(&vi->rss);
 	free_netdev(dev);
 	return err;
 }
