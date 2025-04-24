@@ -29,6 +29,3 @@ obj-$(CONFIG_SECURITY_IPE)		+= ipe/
 
 # Object integrity file lists
 obj-$(CONFIG_INTEGRITY)			+= integrity/
-
-# Allow the kernel to be locked down in early boot stage
-obj-$(CONFIG_LOCK_DOWN_KERNEL_EARLY)	+= lockdown_early.o

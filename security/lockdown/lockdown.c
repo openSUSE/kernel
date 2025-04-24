@@ -77,6 +77,8 @@ static struct security_hook_list lockdown_hooks[] __ro_after_init = {
 	LSM_HOOK_INIT(lock_kernel_down, lock_kernel_down),
 };
 
+struct security_hook_list *lockdown_hooks_secure_boot = lockdown_hooks;
+
 static const struct lsm_id lockdown_lsmid = {
 	.name = "lockdown",
 	.id = LSM_ID_LOCKDOWN,
