@@ -504,6 +504,7 @@ static int ethnl_default_dumpit(struct sk_buff *skb,
 				ret = skb->len;
 			break;
 		}
+		ret = 0;
 	}
 	rtnl_unlock();
 
