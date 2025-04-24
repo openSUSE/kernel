@@ -89,6 +89,8 @@ extern int mwriteprotect_range(struct mm_struct *dst_mm,
 extern long uffd_wp_range(struct vm_area_struct *vma,
 			  unsigned long start, unsigned long len, bool enable_wp);
 
+extern bool vma_has_uffd_without_event_remap(struct vm_area_struct *vma);
+
 /* mm helpers */
 static inline bool is_mergeable_vm_userfaultfd_ctx(struct vm_area_struct *vma,
 					struct vm_userfaultfd_ctx vm_ctx)
@@ -195,6 +197,11 @@ extern void userfaultfd_unmap_complete(struct mm_struct *mm,
 extern bool userfaultfd_wp_unpopulated(struct vm_area_struct *vma);
 
 #else /* CONFIG_USERFAULTFD */
+
+static inline bool vma_has_uffd_without_event_remap(struct vm_area_struct *vma)
+{
+	return false;
+}
 
 /* mm helpers */
 static inline vm_fault_t handle_userfault(struct vm_fault *vmf,
