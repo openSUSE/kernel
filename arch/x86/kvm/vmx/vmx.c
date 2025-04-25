@@ -6997,16 +6997,16 @@ static void handle_nm_fault_irqoff(struct kvm_vcpu *vcpu)
 	 * MSR value is not clobbered by the host activity before the guest
 	 * has chance to consume it.
 	 *
-	 * Do not blindly read xfd_err here, since this exception might
-	 * be caused by L1 interception on a platform which doesn't
-	 * support xfd at all.
+	 * Update the guest's XFD_ERR if and only if XFD is enabled, as the #NM
+	 * interception may have been caused by L1 interception.  Per the SDM,
+	 * XFD_ERR is not modified if CR0.TS=1.
 	 *
-	 * Do it conditionally upon guest_fpu::xfd. xfd_err matters
-	 * only when xfd contains a non-zero value.
-	 *
-	 * Queuing exception is done in vmx_handle_exit. See comment there.
+	 * Note, XFD_ERR is updated _before_ the #NM interception check, i.e.
+	 * unlike CR2 and DR6, the value is not a payload that is attached to
+	 * the #NM exception.
 	 */
-	if (vcpu->arch.guest_fpu.fpstate->xfd)
+	if (vcpu->arch.guest_fpu.fpstate->xfd &&
+	    !kvm_is_cr0_bit_set(vcpu, X86_CR0_TS))
 		rdmsrl(MSR_IA32_XFD_ERR, vcpu->arch.guest_fpu.xfd_err);
 }
 
@@ -8047,18 +8047,19 @@ int vmx_check_intercept(struct kvm_vcpu *vcpu,
 	struct vmcs12 *vmcs12 = get_vmcs12(vcpu);
 
 	switch (info->intercept) {
-	/*
-	 * RDPID causes #UD if disabled through secondary execution controls.
-	 * Because it is marked as EmulateOnUD, we need to intercept it here.
-	 * Note, RDPID is hidden behind ENABLE_RDTSCP.
-	 */
 	case x86_intercept_rdpid:
+		/*
+		 * RDPID causes #UD if not enabled through secondary execution
+		 * controls (ENABLE_RDTSCP).  Note, the implicit MSR access to
+		 * TSC_AUX is NOT subject to interception, i.e. checking only
+		 * the dedicated execution control is architecturally correct.
+		 */
 		if (!nested_cpu_has2(vmcs12, SECONDARY_EXEC_ENABLE_RDTSCP)) {
 			exception->vector = UD_VECTOR;
 			exception->error_code_valid = false;
 			return X86EMUL_PROPAGATE_FAULT;
 		}
-		break;
+		return X86EMUL_CONTINUE;
 
 	case x86_intercept_in:
 	case x86_intercept_ins:
@@ -8090,7 +8091,7 @@ int vmx_check_intercept(struct kvm_vcpu *vcpu,
 		 * the PAUSE.
 		 */
 		if ((info->rep_prefix != REPE_PREFIX) ||
-		    !nested_cpu_has2(vmcs12, CPU_BASED_PAUSE_EXITING))
+		    !nested_cpu_has(vmcs12, CPU_BASED_PAUSE_EXITING))
 			return X86EMUL_CONTINUE;
 
 		break;
