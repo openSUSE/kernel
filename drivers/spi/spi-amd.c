@@ -243,7 +243,7 @@ static int amd_set_spi_freq(struct amd_spi *amd_spi, u32 speed_hz)
 	if (speed_hz < AMD_SPI_MIN_HZ)
 		return -EINVAL;
 
-	for (i = 0; i < ARRAY_SIZE(amd_spi_freq); i++)
+	for (i = 0; i < ARRAY_SIZE(amd_spi_freq)-1; i++)
 		if (speed_hz >= amd_spi_freq[i].speed_hz)
 			break;
 

@@ -229,7 +229,7 @@ reval_cfid:
 		 */
 		cond_resched();
 
-		rc = -EAGAIN;
+		rc = -ENOENT;
 		goto reval_cfid;
 	}
 	spin_unlock(&cfids->cfid_list_lock);

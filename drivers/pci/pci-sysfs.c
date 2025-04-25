@@ -1439,7 +1439,7 @@ static ssize_t resource##n##_resize_store(struct device *dev,		\
 		return -EINVAL;						\
 									\
 	device_lock(dev);						\
-	if (dev->driver) {						\
+	if (dev->driver || pci_num_vf(pdev)) {				\
 		ret = -EBUSY;						\
 		goto unlock;						\
 	}								\
@@ -1461,7 +1461,7 @@ static ssize_t resource##n##_resize_store(struct device *dev,		\
 									\
 	pci_remove_resource_files(pdev);				\
 									\
-	for (i = 0; i < PCI_STD_NUM_BARS; i++) {			\
+	for (i = 0; i < PCI_BRIDGE_RESOURCES; i++) {			\
 		if (pci_resource_len(pdev, i) &&			\
 		    pci_resource_flags(pdev, i) == flags)		\
 			pci_release_resource(pdev, i);			\
