@@ -2742,18 +2742,16 @@ menuconfig APM
 	  1) make sure that you have enough swap space and that it is
 	  enabled.
 	  2) pass the "idle=poll" option to the kernel
-	  3) switch on floating point emulation in the kernel and pass
-	  the "no387" option to the kernel
-	  4) pass the "floppy=nodma" option to the kernel
-	  5) pass the "mem=4M" option to the kernel (thereby disabling
+	  3) pass the "floppy=nodma" option to the kernel
+	  4) pass the "mem=4M" option to the kernel (thereby disabling
 	  all but the first 4 MB of RAM)
-	  6) make sure that the CPU is not over clocked.
-	  7) read the sig11 FAQ at <http://www.bitwizard.nl/sig11/>
-	  8) disable the cache from your BIOS settings
-	  9) install a fan for the video card or exchange video RAM
-	  10) install a better fan for the CPU
-	  11) exchange RAM chips
-	  12) exchange the motherboard.
+	  5) make sure that the CPU is not over clocked.
+	  6) read the sig11 FAQ at <http://www.bitwizard.nl/sig11/>
+	  7) disable the cache from your BIOS settings
+	  8) install a fan for the video card or exchange video RAM
+	  9) install a better fan for the CPU
+	  10) exchange RAM chips
+	  11) exchange the motherboard.
 
 	  To compile this driver as a module, choose M here: the
 	  module will be called apm.

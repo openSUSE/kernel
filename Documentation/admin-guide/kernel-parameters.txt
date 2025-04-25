@@ -4437,10 +4437,6 @@ Kernel parameters
 			These settings can be accessed at runtime via
 			the nmi_watchdog and hardlockup_panic sysctls.
 
-	no387		[BUGS=X86-32] Tells the kernel to use the 387 maths
-			emulation library even if a 387 maths coprocessor
-			is present.
-
 	no4lvl		[RISCV,EARLY] Disable 4-level and 5-level paging modes.
 			Forces kernel to use 3-level paging instead.
 
