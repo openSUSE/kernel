@@ -1107,11 +1107,10 @@ attribute-sets:
       -
         name: prop-list
         type: nest
-        nested-attributes: link-attrs
+        nested-attributes: prop-list-link-attrs
       -
         name: alt-ifname
         type: string
-        multi-attr: true
       -
         name: perm-address
         type: binary
@@ -1154,6 +1153,13 @@ attribute-sets:
         name: max-pacing-offload-horizon
         type: uint
         doc: EDT offload horizon supported by the device (in nsec).
+  -
+    name: prop-list-link-attrs
+    subset-of: link-attrs
+    attributes:
+      -
+        name: alt-ifname
+        multi-attr: true
   -
     name: af-spec-attrs
     attributes:
@@ -1576,7 +1582,7 @@ attribute-sets:
         name: nf-call-iptables
         type: u8
       -
-        name: nf-call-ip6-tables
+        name: nf-call-ip6tables
         type: u8
       -
         name: nf-call-arptables
@@ -2064,7 +2070,7 @@ attribute-sets:
         name: id
         type: u16
       -
-        name: flag
+        name: flags
         type: binary
         struct: ifla-vlan-flags
       -
@@ -2152,7 +2158,7 @@ attribute-sets:
         type: binary
         struct: ifla-cacheinfo
       -
-        name: icmp6-stats
+        name: icmp6stats
         type: binary
         struct: ifla-icmp6-stats
       -
@@ -2166,9 +2172,10 @@ attribute-sets:
         type: u32
   -
     name: mctp-attrs
+    name-prefix: ifla-mctp-
     attributes:
       -
-        name: mctp-net
+        name: net
         type: u32
       -
         name: phys-binding
@@ -2450,7 +2457,6 @@ operations:
             - min-mtu
             - max-mtu
             - prop-list
-            - alt-ifname
             - perm-address
             - proto-down-reason
             - parent-dev-name
