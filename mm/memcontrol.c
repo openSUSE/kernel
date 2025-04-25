@@ -4228,7 +4228,7 @@ static int memory_numa_stat_show(struct seq_file *m, void *v)
 	for (i = 0; i < ARRAY_SIZE(memory_stats); i++) {
 		int nid;
 
-		if (memory_stats[i].idx >= NR_VM_NODE_STAT_ITEMS)
+		if (memory_stats[i].idx >= NR_VM_NODE_STAT_ITEMS_USED)
 			continue;
 
 		seq_printf(m, "%s", memory_stats[i].name);
