@@ -225,6 +225,7 @@ struct cgroup_subsys_state {
 	 * Protected by cgroup_mutex.
 	 */
 	int nr_descendants;
+	void *suse_kabi_padding;
 };
 
 /*
