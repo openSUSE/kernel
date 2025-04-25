@@ -417,6 +417,7 @@ struct drm_display_mode {
 	 */
 	enum hdmi_picture_aspect picture_aspect_ratio;
 
+	void *suse_kabi_padding;
 };
 
 /**

@@ -1139,6 +1139,8 @@ struct drm_connector_state {
 	 * @drm_atomic_helper_connector_hdmi_check().
 	 */
 	struct drm_connector_hdmi_state hdmi;
+
+	void *suse_kabi_padding;
 };
 
 /**
@@ -2121,6 +2123,8 @@ struct drm_connector {
 	 * @hdmi: HDMI-related variable and properties.
 	 */
 	struct drm_connector_hdmi hdmi;
+
+	void *suse_kabi_padding;
 };
 
 #define obj_to_connector(x) container_of(x, struct drm_connector, base)
