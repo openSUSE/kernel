@@ -430,6 +430,8 @@ struct drm_gem_object {
 	 * The current LRU list that the GEM object is on.
 	 */
 	struct drm_gem_lru *lru;
+
+	void *suse_kabi_padding;
 };
 
 /**
