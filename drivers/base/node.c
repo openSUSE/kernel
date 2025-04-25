@@ -521,20 +521,20 @@ static ssize_t node_read_vmstat(struct device *dev,
 	int i;
 	int len = 0;
 
-	for (i = 0; i < NR_VM_ZONE_STAT_ITEMS; i++)
+	for (i = 0; i < NR_VM_ZONE_STAT_ITEMS_USED; i++)
 		len += sysfs_emit_at(buf, len, "%s %lu\n",
 				     zone_stat_name(i),
 				     sum_zone_node_page_state(nid, i));
 
 #ifdef CONFIG_NUMA
 	fold_vm_numa_events();
-	for (i = 0; i < NR_VM_NUMA_EVENT_ITEMS; i++)
+	for (i = 0; i < NR_VM_NUMA_EVENT_ITEMS_USED; i++)
 		len += sysfs_emit_at(buf, len, "%s %lu\n",
 				     numa_stat_name(i),
 				     sum_zone_numa_event_state(nid, i));
 
 #endif
-	for (i = 0; i < NR_VM_NODE_STAT_ITEMS; i++) {
+	for (i = 0; i < NR_VM_NODE_STAT_ITEMS_USED; i++) {
 		unsigned long pages = node_page_state_pages(pgdat, i);
 
 		if (vmstat_item_print_in_thp(i))
