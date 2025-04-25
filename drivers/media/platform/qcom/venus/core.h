@@ -509,6 +509,7 @@ struct venus_inst {
 	bool drain_active;
 	enum venus_inst_modes flags;
 	struct ida dpb_ids;
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 #define IS_V1(core)	((core)->res->hfi_version == HFI_VERSION_1XX)

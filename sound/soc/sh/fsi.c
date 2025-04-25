@@ -294,6 +294,7 @@ struct fsi_master {
 	struct fsi_priv fsib;
 	const struct fsi_core *core;
 	spinlock_t lock;
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 static inline int fsi_stream_is_play(struct fsi_priv *fsi,

@@ -37,6 +37,7 @@ struct bcm_voter {
 	struct list_head ws_list;
 	struct list_head voter_node;
 	u32 tcs_wait;
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 static int cmp_vcd(void *priv, const struct list_head *a, const struct list_head *b)

@@ -112,6 +112,7 @@ struct coresight_platform_data {
 	int nr_outconns;
 	struct coresight_connection **out_conns;
 	struct coresight_connection **in_conns;
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 /**

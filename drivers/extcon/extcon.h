@@ -63,6 +63,7 @@ struct extcon_dev {
 	struct attribute_group attr_g_muex;
 	struct attribute **attrs_muex;
 	struct device_attribute *d_attrs_muex;
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 #endif /* __LINUX_EXTCON_INTERNAL_H__ */

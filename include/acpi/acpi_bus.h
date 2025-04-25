@@ -494,6 +494,7 @@ struct acpi_device {
 	struct list_head physical_node_list;
 	struct mutex physical_node_lock;
 	void (*remove)(struct acpi_device *);
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 /* Non-device subnode */

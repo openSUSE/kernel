@@ -137,6 +137,7 @@ struct ffa_device {
 	uuid_t uuid;
 	struct device dev;
 	const struct ffa_ops *ops;
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 #define to_ffa_dev(d) container_of(d, struct ffa_device, dev)

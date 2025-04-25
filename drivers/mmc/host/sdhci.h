@@ -620,6 +620,8 @@ struct sdhci_host {
 
 	u64			data_timeout;
 
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
+
 	unsigned long private[] ____cacheline_aligned;
 };
 

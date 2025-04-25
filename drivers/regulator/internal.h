@@ -56,6 +56,7 @@ struct regulator {
 	struct device_attribute dev_attr;
 	struct regulator_dev *rdev;
 	struct dentry *debugfs;
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 extern const struct class regulator_class;

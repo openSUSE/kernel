@@ -913,6 +913,7 @@ struct scmi_handle {
 				    unsigned int *atomic_threshold);
 
 	const struct scmi_notify_ops *notify_ops;
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 enum scmi_std_protocol {
@@ -943,6 +944,7 @@ struct scmi_device {
 	const char *name;
 	struct device dev;
 	struct scmi_handle *handle;
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 #define to_scmi_dev(d) container_of_const(d, struct scmi_device, dev)

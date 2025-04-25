@@ -179,6 +179,8 @@ struct regmap {
 
 	/* if set, the regmap core can sleep */
 	bool can_sleep;
+
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 struct regcache_ops {

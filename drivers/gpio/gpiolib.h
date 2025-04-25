@@ -82,6 +82,7 @@ struct gpio_device {
 	 */
 	struct list_head pin_ranges;
 #endif
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 static inline struct gpio_device *to_gpio_device(struct device *dev)
