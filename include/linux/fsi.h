@@ -17,6 +17,7 @@ struct fsi_device {
 	struct fsi_slave	*slave;
 	uint32_t		addr;
 	uint32_t		size;
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 extern int fsi_device_read(struct fsi_device *dev, uint32_t addr,

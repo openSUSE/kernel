@@ -51,6 +51,8 @@ struct mux_control {
 	int idle_state;
 
 	ktime_t last_change;
+
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 /**

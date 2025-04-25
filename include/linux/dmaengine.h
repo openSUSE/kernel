@@ -359,6 +359,7 @@ struct dma_chan {
 	void *route_data;
 
 	void *private;
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 /**
@@ -961,6 +962,7 @@ struct dma_device {
 	/* debugfs support */
 	void (*dbg_summary_show)(struct seq_file *s, struct dma_device *dev);
 	struct dentry *dbg_dev_root;
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 static inline int dmaengine_slave_config(struct dma_chan *chan,

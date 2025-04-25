@@ -501,6 +501,8 @@ struct mmc_host {
 	struct blk_crypto_profile crypto_profile;
 #endif
 
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
+
 	/* Host Software Queue support */
 	bool			hsq_enabled;
 	int			hsq_depth;

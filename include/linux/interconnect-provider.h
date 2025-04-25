@@ -72,6 +72,7 @@ struct icc_provider {
 	int			users;
 	bool			inter_set;
 	void			*data;
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 /**
@@ -110,6 +111,7 @@ struct icc_node {
 	u32			init_avg;
 	u32			init_peak;
 	void			*data;
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 #if IS_ENABLED(CONFIG_INTERCONNECT)

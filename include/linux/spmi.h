@@ -40,6 +40,7 @@ struct spmi_device {
 	struct device		dev;
 	struct spmi_controller	*ctrl;
 	u8			usid;
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 static inline struct spmi_device *to_spmi_device(struct device *d)
