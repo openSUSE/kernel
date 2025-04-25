@@ -69,6 +69,7 @@ struct snd_ump_endpoint {
 	const struct snd_seq_ump_ops *seq_ops;
 	void *seq_client;
 #endif
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 /* ops filled by UMP drivers */
@@ -96,6 +97,7 @@ struct snd_ump_block {
 	void (*private_free)(struct snd_ump_block *blk);
 
 	struct list_head list;
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 #define rawmidi_to_ump(rmidi)	container_of(rmidi, struct snd_ump_endpoint, core)
