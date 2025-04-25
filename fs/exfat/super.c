@@ -375,7 +375,6 @@ static int exfat_read_root(struct inode *inode)
 
 	inode->i_blocks = round_up(i_size_read(inode), sbi->cluster_size) >> 9;
 	ei->i_pos = ((loff_t)sbi->root_dir << 32) | 0xffffffff;
-	ei->i_size_aligned = i_size_read(inode);
 
 	exfat_save_attr(inode, ATTR_SUBDIR);
 	inode->i_mtime = inode->i_atime = ei->i_crtime = inode_set_ctime_current(inode);
