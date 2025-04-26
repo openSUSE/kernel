@@ -818,7 +818,6 @@ static int _badblocks_set(struct badblocks *bb, sector_t s, int sectors,
 	struct badblocks_context bad;
 	int prev = -1, hint = -1;
 	unsigned long flags;
-	int rv = 0;
 	u64 *p;
 
 	if (bb->shift < 0)
@@ -848,10 +847,8 @@ re_insert:
 	bad.len = sectors;
 	len = 0;
 
-	if (badblocks_full(bb)) {
-		rv = 1;
+	if (badblocks_full(bb))
 		goto out;
-	}
 
 	if (badblocks_empty(bb)) {
 		len = insert_at(bb, 0, &bad);
@@ -891,10 +888,8 @@ re_insert:
 			int extra = 0;
 
 			if (!can_front_overwrite(bb, prev, &bad, &extra)) {
-				if (extra > 0) {
-					rv = 1;
+				if (extra > 0)
 					goto out;
-				}
 
 				len = min_t(sector_t,
 					    BB_END(p[prev]) - s, sectors);
@@ -974,10 +969,7 @@ out:
 
 	write_sequnlock_irqrestore(&bb->lock, flags);
 
-	if (!added)
-		rv = 1;
-
-	return rv;
+	return sectors;
 }
 
 /*
@@ -1341,7 +1333,8 @@ EXPORT_SYMBOL_GPL(badblocks_check);
  *
  * Return:
  *  0: success
- *  1: failed to set badblocks (out of space)
+ *  other: failed to set badblocks (out of space). Parital setting will be
+ *  treated as failure.
  */
 int badblocks_set(struct badblocks *bb, sector_t s, int sectors,
 			int acknowledged)
