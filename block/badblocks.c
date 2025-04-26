@@ -867,7 +867,7 @@ re_insert:
 		len = insert_at(bb, 0, &bad);
 		bb->count++;
 		added++;
-		hint = 0;
+		hint = ++prev;
 		goto update_sectors;
 	}
 
@@ -926,7 +926,7 @@ re_insert:
 	len = insert_at(bb, prev + 1, &bad);
 	bb->count++;
 	added++;
-	hint = prev + 1;
+	hint = ++prev;
 
 update_sectors:
 	s += len;
