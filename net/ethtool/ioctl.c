@@ -987,7 +987,7 @@ static noinline_for_stack int ethtool_set_rxnfc(struct net_device *dev,
 	if (rc)
 		return rc;
 
-	if (ops->get_rxfh) {
+	if (cmd == ETHTOOL_SRXFH && ops->get_rxfh) {
 		struct ethtool_rxfh_param rxfh = {};
 
 		rc = ops->get_rxfh(dev, &rxfh);
@@ -1279,11 +1279,12 @@ static noinline_for_stack int ethtool_set_rxfh(struct net_device *dev,
 	u32 rss_cfg_offset = offsetof(struct ethtool_rxfh, rss_config[0]);
 	const struct ethtool_ops *ops = dev->ethtool_ops;
 	u32 dev_indir_size = 0, dev_key_size = 0, i;
+	u32 user_indir_len = 0, indir_bytes = 0;
 	struct ethtool_rxfh_param rxfh_dev = {};
 	struct netlink_ext_ack *extack = NULL;
 	struct ethtool_rxnfc rx_rings;
 	struct ethtool_rxfh rxfh;
-	u32 indir_bytes = 0;
+	bool create = false;
 	u8 *rss_config;
 	int ret;
 
@@ -1308,18 +1309,23 @@ static noinline_for_stack int ethtool_set_rxfh(struct net_device *dev,
 	if (rxfh.input_xfrm && rxfh.input_xfrm != RXH_XFRM_SYM_XOR &&
 	    rxfh.input_xfrm != RXH_XFRM_NO_CHANGE)
 		return -EINVAL;
-	if ((rxfh.input_xfrm & RXH_XFRM_SYM_XOR) &&
+	if (rxfh.input_xfrm != RXH_XFRM_NO_CHANGE &&
+	    (rxfh.input_xfrm & RXH_XFRM_SYM_XOR) &&
 	    !ops->cap_rss_sym_xor_supported)
 		return -EOPNOTSUPP;
+	create = rxfh.rss_context == ETH_RXFH_CONTEXT_ALLOC;
 
-	/* If either indir, hash key or function is valid, proceed further.
-	 * Must request at least one change: indir size, hash key, function
-	 * or input transformation.
-	 */
 	if ((rxfh.indir_size &&
 	     rxfh.indir_size != ETH_RXFH_INDIR_NO_CHANGE &&
 	     rxfh.indir_size != dev_indir_size) ||
-	    (rxfh.key_size && (rxfh.key_size != dev_key_size)) ||
+	    (rxfh.key_size && rxfh.key_size != dev_key_size))
+		return -EINVAL;
+
+	/* Must request at least one change: indir size, hash key, function
+	 * or input transformation.
+	 * There's no need for any of it in case of context creation.
+	 */
+	if (!create &&
 	    (rxfh.indir_size == ETH_RXFH_INDIR_NO_CHANGE &&
 	     rxfh.key_size == 0 && rxfh.hfunc == ETH_RSS_HASH_NO_CHANGE &&
 	     rxfh.input_xfrm == RXH_XFRM_NO_CHANGE))
@@ -1343,6 +1349,7 @@ static noinline_for_stack int ethtool_set_rxfh(struct net_device *dev,
 	 */
 	if (rxfh.indir_size &&
 	    rxfh.indir_size != ETH_RXFH_INDIR_NO_CHANGE) {
+		user_indir_len = indir_bytes;
 		rxfh_dev.indir = (u32 *)rss_config;
 		rxfh_dev.indir_size = dev_indir_size;
 		ret = ethtool_copy_validate_indir(rxfh_dev.indir,
@@ -1369,7 +1376,7 @@ static noinline_for_stack int ethtool_set_rxfh(struct net_device *dev,
 		rxfh_dev.key_size = dev_key_size;
 		rxfh_dev.key = rss_config + indir_bytes;
 		if (copy_from_user(rxfh_dev.key,
-				   useraddr + rss_cfg_offset + indir_bytes,
+				   useraddr + rss_cfg_offset + user_indir_len,
 				   rxfh.key_size)) {
 			ret = -EFAULT;
 			goto out;
