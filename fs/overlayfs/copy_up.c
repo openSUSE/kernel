@@ -254,9 +254,8 @@ static struct ovl_fh *ovl_encode_fh(struct dentry *lower, uuid_t *uuid)
 	buflen = (dwords << 2);
 
 	fh = ERR_PTR(-EIO);
-	if (WARN_ON(fh_type < 0) ||
-	    WARN_ON(buflen > MAX_HANDLE_SZ) ||
-	    WARN_ON(fh_type == FILEID_INVALID))
+	if (fh_type < 0 || fh_type == FILEID_INVALID ||
+	    WARN_ON(buflen > MAX_HANDLE_SZ))
 		goto out;
 
 	BUILD_BUG_ON(MAX_HANDLE_SZ + offsetof(struct ovl_fh, fid) > 255);
