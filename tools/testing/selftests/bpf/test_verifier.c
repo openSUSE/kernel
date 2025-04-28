@@ -1315,6 +1315,28 @@ static struct bpf_test tests[] = {
 		.result = ACCEPT,
 	},
 	{
+		"jump & dead code elimination",
+		.insns = {
+		BPF_MOV64_IMM(BPF_REG_0, 1),
+		BPF_MOV64_IMM(BPF_REG_3, 0),
+		BPF_ALU64_IMM(BPF_NEG, BPF_REG_3, 0),
+		BPF_ALU64_IMM(BPF_NEG, BPF_REG_3, 0),
+		BPF_ALU64_IMM(BPF_OR, BPF_REG_3, 32767),
+		BPF_JMP_IMM(BPF_JSGE, BPF_REG_3, 0, 1),
+		BPF_EXIT_INSN(),
+		BPF_JMP_IMM(BPF_JSLE, BPF_REG_3, 0x8000, 1),
+		BPF_EXIT_INSN(),
+		BPF_ALU64_IMM(BPF_ADD, BPF_REG_3, -32767),
+		BPF_MOV64_IMM(BPF_REG_0, 2),
+		BPF_JMP_IMM(BPF_JLE, BPF_REG_3, 0, 1),
+		BPF_MOV64_REG(BPF_REG_0, BPF_REG_4),
+		BPF_EXIT_INSN(),
+		},
+		.prog_type = BPF_PROG_TYPE_SCHED_CLS,
+		.result = ACCEPT,
+		.retval = 2,
+	},
+	{
 		"access skb fields ok",
 		.insns = {
 			BPF_LDX_MEM(BPF_W, BPF_REG_0, BPF_REG_1,
