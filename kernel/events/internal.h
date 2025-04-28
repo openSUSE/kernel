@@ -57,6 +57,7 @@ struct perf_buffer {
 	void				*aux_priv;
 
 	struct perf_event_mmap_page	*user_page;
+	void				*suse_kabi_padding;
 	void				*data_pages[];
 };
 

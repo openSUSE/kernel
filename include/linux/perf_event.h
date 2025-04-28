@@ -351,6 +351,8 @@ struct pmu {
 	/* number of address filters this PMU can do */
 	unsigned int			nr_addr_filters;
 
+	void				*suse_kabi_padding;
+
 	/*
 	 * Fully disable/enable this PMU, can be used to protect from the PMI
 	 * as well as for lazy/batch writing of the MSRs.
@@ -850,6 +852,8 @@ struct perf_event {
 	struct bpf_prog			*prog;
 	u64				bpf_cookie;
 
+	void				*suse_kabi_padding;
+
 #ifdef CONFIG_EVENT_TRACING
 	struct trace_event_call		*tp_event;
 	struct event_filter		*filter;
@@ -930,6 +934,8 @@ struct perf_event_pmu_context {
 	 * such as cgroups.
 	 */
 	int				rotate_necessary;
+
+	void				*suse_kabi_padding;
 };
 
 static inline bool perf_pmu_ctx_is_active(struct perf_event_pmu_context *epc)
@@ -1008,6 +1014,8 @@ struct perf_event_context {
 	 * that until the signal is delivered.
 	 */
 	local_t				nr_no_switch_fast;
+
+	void				*suse_kabi_padding;
 };
 
 /**
@@ -1060,6 +1068,8 @@ struct perf_cpu_pmu_context {
 	struct hrtimer			hrtimer;
 	ktime_t				hrtimer_interval;
 	unsigned int			hrtimer_active;
+
+	void				*suse_kabi_padding;
 };
 
 /**
@@ -1073,6 +1083,8 @@ struct perf_cpu_context {
 #ifdef CONFIG_CGROUP_PERF
 	struct perf_cgroup		*cgrp;
 #endif
+
+	void				*suse_kabi_padding;
 
 	/*
 	 * Per-CPU storage for iterators used in visit_groups_merge. The default
