@@ -508,15 +508,17 @@ static struct bfq_group *bfq_lookup_bfqg(struct bfq_data *bfqd,
 	return NULL;
 }
 
-struct bfq_group *bfq_find_set_group(struct bfq_data *bfqd,
-				     struct blkcg *blkcg)
+struct bfq_group *bfq_find_set_group(struct bfq_data *bfqd, struct bio *bio)
 {
 	struct bfq_group *bfqg, *parent;
 	struct bfq_entity *entity;
 
-	bfqg = bfq_lookup_bfqg(bfqd, blkcg);
-	if (unlikely(!bfqg))
+	bfqg = bfq_lookup_bfqg(bfqd, bio_blkcg(bio));
+	if (unlikely(!bfqg)) {
+		bio_associate_blkcg(bio,
+				    &bfqg_to_blkg(bfqd->root_group)->blkcg->css);
 		return NULL;
+	}
 
 	/*
 	 * Update chain of bfq_groups as we might be handling a leaf group
@@ -532,9 +534,13 @@ struct bfq_group *bfq_find_set_group(struct bfq_data *bfqd,
 			if (!parent)
 				parent = bfqd->root_group;
 			bfq_group_set_parent(curr_bfqg, parent);
+			if (!curr_bfqg->online)
+				bfqg = parent;
 		}
 	}
 
+	if (bio_blkcg(bio) != bfqg_to_blkg(bfqg)->blkcg)
+		bio_associate_blkcg(bio, &bfqg_to_blkg(bfqg)->blkcg->css);
 	return bfqg;
 }
 
@@ -610,17 +616,11 @@ void bfq_bfqq_move(struct bfq_data *bfqd, struct bfq_queue *bfqq,
  */
 static struct bfq_group *__bfq_bic_change_cgroup(struct bfq_data *bfqd,
 						struct bfq_io_cq *bic,
-						struct blkcg *blkcg)
+						struct bfq_group *bfqg)
 {
 	struct bfq_queue *async_bfqq = bic_to_bfqq(bic, 0);
 	struct bfq_queue *sync_bfqq = bic_to_bfqq(bic, 1);
-	struct bfq_group *bfqg;
 	struct bfq_entity *entity;
-
-	bfqg = bfq_find_set_group(bfqd, blkcg);
-
-	if (unlikely(!bfqg))
-		bfqg = bfqd->root_group;
 
 	if (async_bfqq) {
 		entity = &async_bfqq->entity;
@@ -646,11 +646,15 @@ static struct bfq_group *__bfq_bic_change_cgroup(struct bfq_data *bfqd,
 void bfq_bic_update_cgroup(struct bfq_io_cq *bic, struct bio *bio)
 {
 	struct bfq_data *bfqd = bic_to_bfqd(bic);
-	struct bfq_group *bfqg = NULL;
+	struct bfq_group *bfqg;
 	uint64_t serial_nr;
 
 	rcu_read_lock();
-	serial_nr = bio_blkcg(bio)->css.serial_nr;
+	bfqg = bfq_find_set_group(bfqd, bio);
+	if (unlikely(!bfqg))
+		bfqg = bfqd->root_group;
+
+	serial_nr = bfqg_to_blkg(bfqg)->blkcg->css.serial_nr;
 
 	/*
 	 * Check whether blkcg has changed.  The condition may trigger
@@ -659,7 +663,7 @@ void bfq_bic_update_cgroup(struct bfq_io_cq *bic, struct bio *bio)
 	if (unlikely(!bfqd) || likely(bic->blkcg_serial_nr == serial_nr))
 		goto out;
 
-	bfqg = __bfq_bic_change_cgroup(bfqd, bic, bio_blkcg(bio));
+	bfqg = __bfq_bic_change_cgroup(bfqd, bic, bfqg);
 	/*
 	 * Update blkg_path for bfq_log_* functions. We cache this
 	 * path, and update it here, for the following
