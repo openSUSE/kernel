@@ -4792,6 +4792,13 @@ smb2_async_writev(struct cifs_writedata *wdata,
 				     rc);
 		kref_put(&wdata->refcount, release);
 		cifs_stats_fail_inc(tcon, SMB2_WRITE_HE);
+
+		/*
+		 * If the server is going to reconnect, we must return a retryable error so we don't
+		 * lose/discard data by ensuring it gets sent again.
+		 */
+		if (server->tcpStatus != CifsExiting)
+			rc = -EAGAIN;
 	}
 
 async_writev_out:
