@@ -92,6 +92,8 @@ struct typec_cable_ops {
 	int (*exit)(struct typec_altmode *altmode, enum typec_plug_index sop);
 	int (*vdm)(struct typec_altmode *altmode, enum typec_plug_index sop,
 		   const u32 hdr, const u32 *vdo, int cnt);
+
+	void *suse_kabi_padding;
 };
 
 int typec_cable_altmode_enter(struct typec_altmode *altmode, enum typec_plug_index sop, u32 *vdo);

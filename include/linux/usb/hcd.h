@@ -406,6 +406,9 @@ struct hc_driver {
 	int	(*submit_single_step_set_feature)(struct usb_hcd *,
 			struct urb *, int);
 
+	void	(*spare1) (void *p);
+	int	(*spare2) (void *p);
+
 	void *suse_kabi_padding;
 };
 
