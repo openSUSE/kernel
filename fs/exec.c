@@ -1289,6 +1289,9 @@ int flush_old_exec(struct linux_binprm * bprm)
 	if (retval)
 		goto out;
 
+	/* see the comment in check_unsafe_exec() */
+	current->fs->in_exec = 0;
+
 	/*
 	 * Must be called _before_ exec_mmap() as bprm->mm is
 	 * not visibile until then. This also enables the update
@@ -1445,6 +1448,8 @@ static void free_bprm(struct linux_binprm *bprm)
 {
 	free_arg_pages(bprm);
 	if (bprm->cred) {
+		/* in case exec fails before de_thread() succeeds */
+		current->fs->in_exec = 0;
 		mutex_unlock(&current->signal->cred_guard_mutex);
 		abort_creds(bprm->cred);
 	}
@@ -1518,6 +1523,10 @@ static void check_unsafe_exec(struct linux_binprm *bprm)
 	if (task_no_new_privs(current))
 		bprm->unsafe |= LSM_UNSAFE_NO_NEW_PRIVS;
 
+	/* we set fs->in_exec = 1 to deny clone(CLONE_FS)
+	 * from another sub-thread until de_thread() succeeds, this
+	 * state is protected by cred_guard_mutex we hold.
+	 */
 	t = p;
 	n_fs = 1;
 	spin_lock(&p->fs->lock);
@@ -1866,7 +1875,6 @@ static int __do_execve_file(int fd, struct filename *filename,
 		goto out;
 
 	/* execve succeeded */
-	current->fs->in_exec = 0;
 	current->in_execve = 0;
 	rseq_execve(current);
 	acct_update_integrals(current);
@@ -1886,7 +1894,6 @@ out:
 	}
 
 out_unmark:
-	current->fs->in_exec = 0;
 	current->in_execve = 0;
 
 out_free:
