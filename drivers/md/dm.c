@@ -32,6 +32,7 @@
 #include <linux/part_stat.h>
 #include <linux/blk-crypto.h>
 #include <linux/blk-crypto-profile.h>
+#include <scsi/sg.h>
 
 #define DM_MSG_PREFIX "core"
 
@@ -410,8 +411,9 @@ static int dm_blk_getgeo(struct block_device *bdev, struct hd_geometry *geo)
 	return dm_get_geometry(md, geo);
 }
 
-static int dm_prepare_ioctl(struct mapped_device *md, int *srcu_idx,
-			    struct block_device **bdev)
+int _dm_prepare_ioctl(struct mapped_device *md, int *srcu_idx,
+		      struct block_device **bdev,
+		      struct dm_target **tgt0)
 {
 	struct dm_target *ti;
 	struct dm_table *map;
@@ -441,19 +443,42 @@ retry:
 		goto retry;
 	}
 
+	if (r >= 0 && tgt0)
+		*tgt0 = ti;
+
 	return r;
 }
+EXPORT_SYMBOL_GPL(_dm_prepare_ioctl);
 
-static void dm_unprepare_ioctl(struct mapped_device *md, int srcu_idx)
+static int dm_prepare_ioctl(struct mapped_device *md, int *srcu_idx,
+			    struct block_device **bdev)
+{
+	return _dm_prepare_ioctl(md, srcu_idx, bdev, NULL);
+}
+
+void dm_unprepare_ioctl(struct mapped_device *md, int srcu_idx)
 {
 	dm_put_live_table(md, srcu_idx);
 }
+EXPORT_SYMBOL_GPL(dm_unprepare_ioctl);
 
 static int dm_blk_ioctl(struct block_device *bdev, blk_mode_t mode,
 			unsigned int cmd, unsigned long arg)
 {
 	struct mapped_device *md = bdev->bd_disk->private_data;
 	int r, srcu_idx;
+
+	if (cmd == SG_IO && dm_get_md_type(md) == DM_TYPE_REQUEST_BASED) {
+		struct target_type *tgt_type = dm_get_immutable_target_type(md);
+
+		if (tgt_type) {
+			dm_sg_io_ioctl_fn sg_io_ioctl;
+
+			sg_io_ioctl = tgt_type->sg_io;
+			if (sg_io_ioctl)
+				return sg_io_ioctl(bdev, mode, (void __user *)arg);
+		}
+	}
 
 	r = dm_prepare_ioctl(md, &srcu_idx, &bdev);
 	if (r < 0)
