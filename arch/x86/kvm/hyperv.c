@@ -1475,6 +1475,9 @@ static u64 kvm_hv_send_ipi(struct kvm_vcpu *current_vcpu, u64 ingpa, u64 outgpa,
 	u32 vector;
 	bool all_cpus;
 
+	if (!lapic_in_kernel(current_vcpu))
+		return HV_STATUS_INVALID_HYPERCALL_INPUT;
+
 	if (!ex) {
 		if (!fast) {
 			if (unlikely(kvm_read_guest(kvm, ingpa, &send_ipi,
