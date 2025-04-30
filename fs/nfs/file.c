@@ -81,6 +81,12 @@ nfs_file_release(struct inode *inode, struct file *filp)
 {
 	dprintk("NFS: release(%pD2)\n", filp);
 
+	if (filp->f_mode & FMODE_WRITE)
+		/* Ensure dirty mmapped pages are flushed
+		 * so there will be no dirty pages to
+		 * prevent an unmount from completing.
+		 */
+		vfs_fsync(filp, 0);
 	nfs_inc_stats(inode, NFSIOS_VFSRELEASE);
 	nfs_file_clear_open_context(filp);
 	nfs_fscache_release_file(inode, filp);
