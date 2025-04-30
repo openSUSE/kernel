@@ -5429,6 +5429,9 @@ static int mvpp2_probe(struct platform_device *pdev)
 			goto err_axi_clk;
 	}
 
+	/* Init locks for shared packet processor resources */
+	spin_lock_init(&priv->prs_spinlock);
+
 	/* Initialize network controller */
 	err = mvpp2_init(pdev, priv);
 	if (err < 0) {
