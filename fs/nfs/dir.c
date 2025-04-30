@@ -3255,8 +3255,15 @@ static int nfs_do_access(struct inode *inode, const struct cred *cred, int mask)
 	trace_nfs_access_enter(inode);
 
 	status = nfs_access_get_cached(inode, cred, &cache.mask, may_block);
-	if (status == 0)
-		goto out_cached;
+	if (status == 0) {
+		if ((mask & ~cache.mask & (MAY_READ | MAY_WRITE | MAY_EXEC)) == 0)
+			/* if access is granted, trust the cache */
+			goto out_cached;
+		if ((s64)(cache.timestamp - ktime_get_ns()) <
+		    NFS_MINATTRTIMEO(inode) * HZ)
+			/* If cache entry very new, trust even for negative */
+			goto out_cached;
+	}
 
 	status = -ECHILD;
 	if (!may_block)
