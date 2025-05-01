@@ -60,7 +60,7 @@ void ax25_dev_device_up(struct net_device *dev)
 	}
 
 	refcount_set(&ax25_dev->refcount, 1);
-	dev->ax25_ptr     = ax25_dev;
+	rcu_assign_pointer(dev->ax25_ptr, ax25_dev);
 	ax25_dev->dev     = dev;
 	netdev_hold(dev, &ax25_dev->dev_tracker, GFP_KERNEL);
 	ax25_dev->forward = NULL;
@@ -131,7 +131,7 @@ void ax25_dev_device_down(struct net_device *dev)
 
 unlock_put:
 	spin_unlock_bh(&ax25_dev_lock);
-	dev->ax25_ptr = NULL;
+	RCU_INIT_POINTER(dev->ax25_ptr, NULL);
 	netdev_put(dev, &ax25_dev->dev_tracker);
 	ax25_dev_put(ax25_dev);
 }
