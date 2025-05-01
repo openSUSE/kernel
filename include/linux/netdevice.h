@@ -2314,7 +2314,11 @@ struct net_device {
 	void 			*atalk_ptr;
 #endif
 #if IS_ENABLED(CONFIG_AX25)
-	void			*ax25_ptr;
+#ifndef __GENKSYMS__
+	struct ax25_dev	__rcu	*ax25_ptr;
+#else
+	void                    *ax25_ptr;
+#endif
 #endif
 #if IS_ENABLED(CONFIG_CFG80211)
 	struct wireless_dev	*ieee80211_ptr;
