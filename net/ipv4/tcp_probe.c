@@ -115,7 +115,7 @@ static void jtcp_rcv_established(struct sock *sk, struct sk_buff *skb,
 	     ntohs(inet->inet_dport) == port ||
 	     ntohs(inet->inet_sport) == port ||
 	     (fwmark > 0 && skb->mark == fwmark)) &&
-	    (full || tp->snd_cwnd != tcp_probe.lastcwnd)) {
+	    (full || tcp_snd_cwnd(tp)!= tcp_probe.lastcwnd)) {
 
 		spin_lock(&tcp_probe.lock);
 		/* If log fills, just silently drop */
@@ -148,7 +148,7 @@ static void jtcp_rcv_established(struct sock *sk, struct sk_buff *skb,
 			p->length = skb->len;
 			p->snd_nxt = tp->snd_nxt;
 			p->snd_una = tp->snd_una;
-			p->snd_cwnd = tp->snd_cwnd;
+			p->snd_cwnd = tcp_snd_cwnd(tp);
 			p->snd_wnd = tp->snd_wnd;
 			p->rcv_wnd = tp->rcv_wnd;
 			p->ssthresh = tcp_current_ssthresh(sk);
@@ -156,7 +156,7 @@ static void jtcp_rcv_established(struct sock *sk, struct sk_buff *skb,
 
 			tcp_probe.head = (tcp_probe.head + 1) & (bufsize - 1);
 		}
-		tcp_probe.lastcwnd = tp->snd_cwnd;
+		tcp_probe.lastcwnd = tcp_snd_cwnd(tp);
 		spin_unlock(&tcp_probe.lock);
 
 		wake_up(&tcp_probe.wait);
