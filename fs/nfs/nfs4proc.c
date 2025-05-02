@@ -2065,10 +2065,20 @@ nfs4_opendata_get_inode(struct nfs4_opendata *data)
 	case NFS4_OPEN_CLAIM_NULL:
 	case NFS4_OPEN_CLAIM_DELEGATE_CUR:
 	case NFS4_OPEN_CLAIM_DELEGATE_PREV:
-		if (!(data->f_attr.valid & NFS_ATTR_FATTR))
-			return ERR_PTR(-EAGAIN);
-		inode = nfs_fhget(data->dir->d_sb, &data->o_res.fh,
-				&data->f_attr);
+		if (data->f_attr.valid & NFS_ATTR_FATTR) {
+			inode = nfs_fhget(data->dir->d_sb, &data->o_res.fh,
+					  &data->f_attr);
+		} else {
+			/* We don't have the fileid and so cannot do inode
+			 * lookup.  If we already have this state open we MUST
+			 * update the seqid to match the server, so we need to
+			 * find it if possible.
+			 */
+			inode = nfs4_get_inode_by_stateid(&data->o_res.stateid,
+							  data->owner);
+			if (!inode)
+				inode = ERR_PTR(-EAGAIN);
+		}
 		break;
 	default:
 		inode = d_inode(data->dentry);
@@ -10722,9 +10732,16 @@ static const struct nfs4_minor_version_ops nfs_v4_0_minor_ops = {
 };
 
 #if defined(CONFIG_NFS_V4_1)
+static bool serialize_opens = false;
+module_param(serialize_opens, bool, 0644);
+MODULE_PARM_DESC(serialize_opens,
+		 "Serialize all open/close to each file - avoids some server bugs");
+
 static struct nfs_seqid *
 nfs_alloc_no_seqid(struct nfs_seqid_counter *arg1, gfp_t arg2)
 {
+	if (serialize_opens)
+		return nfs_alloc_seqid(arg1, arg2);
 	return NULL;
 }
 
