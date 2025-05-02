@@ -1514,6 +1514,7 @@ struct bpf_prog_aux {
 #ifndef __GENKSYMS__
 	bool attach_tracing_prog; /* true if tracing another tracing program */
 	bool is_extended; /* true if extended by freplace program */
+	bool changes_pkt_data;
 	u64 prog_array_member_cnt; /* counts how many times as member of prog_array */
 	struct mutex ext_mutex; /* mutex for is_extended and prog_array_member_cnt */
 #else
