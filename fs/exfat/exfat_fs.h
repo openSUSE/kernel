@@ -309,13 +309,6 @@ struct exfat_inode_info {
 	/* for avoiding the race between alloc and free */
 	unsigned int cache_valid_id;
 
-	/*
-	 * NOTE: i_size_ondisk is 64bits, so must hold ->inode_lock to access.
-	 * physically allocated size.
-	 */
-	loff_t i_size_ondisk;
-	/* block-aligned i_size (used in cont_write_begin) */
-	loff_t i_size_aligned;
 	/* on-disk position of directory entry or 0 */
 	loff_t i_pos;
 	loff_t valid_size;
@@ -417,6 +410,11 @@ static inline bool is_valid_cluster(struct exfat_sb_info *sbi,
 	return clus >= EXFAT_FIRST_CLUSTER && clus < sbi->num_clusters;
 }
 
+static inline loff_t exfat_ondisk_size(const struct inode *inode)
+{
+	return ((loff_t)inode->i_blocks) << 9;
+}
+
 /* super.c */
 int exfat_set_volume_dirty(struct super_block *sb);
 int exfat_clear_volume_dirty(struct super_block *sb);
@@ -445,7 +443,7 @@ int exfat_count_num_clusters(struct super_block *sb,
 int exfat_load_bitmap(struct super_block *sb);
 void exfat_free_bitmap(struct exfat_sb_info *sbi);
 int exfat_set_bitmap(struct inode *inode, unsigned int clu, bool sync);
-void exfat_clear_bitmap(struct inode *inode, unsigned int clu, bool sync);
+int exfat_clear_bitmap(struct inode *inode, unsigned int clu, bool sync);
 unsigned int exfat_find_free_bitmap(struct super_block *sb, unsigned int clu);
 int exfat_count_used_clusters(struct super_block *sb, unsigned int *ret_count);
 int exfat_trim_fs(struct inode *inode, struct fstrim_range *range);

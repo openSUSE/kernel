@@ -102,9 +102,9 @@ bool ipv6_mod_enabled(void)
 }
 EXPORT_SYMBOL_GPL(ipv6_mod_enabled);
 
-static __inline__ struct ipv6_pinfo *inet6_sk_generic(struct sock *sk)
+static struct ipv6_pinfo *inet6_sk_generic(struct sock *sk)
 {
-	const int offset = sk->sk_prot->obj_size - sizeof(struct ipv6_pinfo);
+	const int offset = sk->sk_prot->ipv6_pinfo_offset;
 
 	return (struct ipv6_pinfo *)(((u8 *)sk) + offset);
 }
@@ -501,7 +501,7 @@ void inet6_cleanup_sock(struct sock *sk)
 
 	/* Free tx options */
 
-	opt = xchg((__force struct ipv6_txoptions **)&np->opt, NULL);
+	opt = unrcu_pointer(xchg(&np->opt, NULL));
 	if (opt) {
 		atomic_sub(opt->tot_len, &sk->sk_omem_alloc);
 		txopt_put(opt);
@@ -745,8 +745,15 @@ int inet6_register_protosw(struct inet_protosw *p)
 	struct list_head *lh;
 	struct inet_protosw *answer;
 	struct list_head *last_perm;
+	struct proto *prot = p->prot;
 	int protocol = p->protocol;
 	int ret;
+
+	if (prot->ipv6_pinfo_offset == 0) {
+		/* Offset 0 is invalid and hints that no one filled this in. Revert
+		 * to the old behaviour. */
+		prot->ipv6_pinfo_offset = prot->obj_size - sizeof(struct ipv6_pinfo);
+	}
 
 	spin_lock_bh(&inetsw6_lock);
 

@@ -787,7 +787,7 @@ struct sctp_transport {
 		 *		calculation completes (i.e. the DATA chunk
 		 *		is SACK'd) clear this flag.
 		 */
-	__u32	rto_pending:1,
+	__u32   rto_pending:1,
 
 		/*
 		 * hb_sent : a flag that signals that we have a pending
@@ -802,6 +802,10 @@ struct sctp_transport {
 
 		/* Has this transport moved the ctsn since we last sacked */
 		sack_generation:1;
+#ifndef __GENKSYMS__
+	__u32	dead:1;
+#endif
+
 	u32 dst_cookie;
 
 	struct flowi fl;
