@@ -1507,7 +1507,12 @@ void hisi_sas_controller_reset_prepare(struct hisi_hba *hisi_hba)
 	scsi_block_requests(shost);
 	hisi_hba->hw->wait_cmds_complete_timeout(hisi_hba, 100, 5000);
 
-	del_timer_sync(&hisi_hba->timer);
+	/*
+	 * hisi_hba->timer is only used for v1/v2 hw, and check hw->sht
+	 * which is also only used for v1/v2 hw to skip it for v3 hw
+	 */
+	if (hisi_hba->hw->sht)
+		del_timer_sync(&hisi_hba->timer);
 
 	set_bit(HISI_SAS_REJECT_CMD_BIT, &hisi_hba->flags);
 }
@@ -1539,9 +1544,15 @@ void hisi_sas_controller_reset_done(struct hisi_hba *hisi_hba)
 	/* Init and wait for PHYs to come up and all libsas event finished. */
 	for (phy_no = 0; phy_no < hisi_hba->n_phy; phy_no++) {
 		struct hisi_sas_phy *phy = &hisi_hba->phy[phy_no];
+		struct asd_sas_phy *sas_phy = &phy->sas_phy;
 
-		if (!(hisi_hba->phy_state & BIT(phy_no)))
+		if (!sas_phy->phy->enabled)
 			continue;
+
+		if (!(hisi_hba->phy_state & BIT(phy_no))) {
+			hisi_sas_phy_enable(hisi_hba, phy_no, 1);
+			continue;
+		}
 
 		async_schedule_domain(hisi_sas_async_init_wait_phyup,
 				      phy, &async);
@@ -1573,7 +1584,7 @@ static int hisi_sas_controller_prereset(struct hisi_hba *hisi_hba)
 		return -EPERM;
 	}
 
-	if (hisi_sas_debugfs_enable && hisi_hba->debugfs_itct[0].itct)
+	if (hisi_sas_debugfs_enable)
 		hisi_hba->hw->debugfs_snapshot_regs(hisi_hba);
 
 	return 0;
@@ -1961,8 +1972,19 @@ static bool hisi_sas_internal_abort_timeout(struct sas_task *task,
 	struct hisi_hba *hisi_hba = dev_to_hisi_hba(device);
 	struct hisi_sas_internal_abort_data *timeout = data;
 
-	if (hisi_sas_debugfs_enable && hisi_hba->debugfs_itct[0].itct)
-		queue_work(hisi_hba->wq, &hisi_hba->debugfs_work);
+	if (hisi_sas_debugfs_enable) {
+		/*
+		 * If timeout occurs in device gone scenario, to avoid
+		 * circular dependency like:
+		 * hisi_sas_dev_gone() -> down() -> ... ->
+		 * hisi_sas_internal_abort_timeout() -> down().
+		 */
+		if (!timeout->rst_ha_timeout)
+			down(&hisi_hba->sem);
+		hisi_hba->hw->debugfs_snapshot_regs(hisi_hba);
+		if (!timeout->rst_ha_timeout)
+			up(&hisi_hba->sem);
+	}
 
 	if (task->task_state_flags & SAS_TASK_STATE_DONE) {
 		pr_err("Internal abort: timeout %016llx\n",
@@ -2615,7 +2637,8 @@ static __exit void hisi_sas_exit(void)
 {
 	sas_release_transport(hisi_sas_stt);
 
-	debugfs_remove(hisi_sas_debugfs_dir);
+	if (hisi_sas_debugfs_enable)
+		debugfs_remove(hisi_sas_debugfs_dir);
 }
 
 module_init(hisi_sas_init);

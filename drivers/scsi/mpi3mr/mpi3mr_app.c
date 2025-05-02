@@ -2330,6 +2330,7 @@ static long mpi3mr_bsg_process_mpt_cmds(struct bsg_job *job)
 		return -ENODEV;
 
 	if (!mrioc->ioctl_sges_allocated) {
+		mutex_unlock(&mrioc->bsg_cmds.mutex);
 		dprint_bsg_err(mrioc, "%s: DMA memory was not allocated\n",
 			       __func__);
 		return -ENOMEM;
@@ -2933,6 +2934,7 @@ void mpi3mr_bsg_init(struct mpi3mr_ioc *mrioc)
 {
 	struct device *bsg_dev = &mrioc->bsg_dev;
 	struct device *parent = &mrioc->shost->shost_gendev;
+	struct request_queue *q;
 
 	device_initialize(bsg_dev);
 
@@ -2948,15 +2950,17 @@ void mpi3mr_bsg_init(struct mpi3mr_ioc *mrioc)
 		return;
 	}
 
-	mrioc->bsg_queue = bsg_setup_queue(bsg_dev, dev_name(bsg_dev),
+	q = bsg_setup_queue(bsg_dev, dev_name(bsg_dev),
 			mpi3mr_bsg_request, NULL, 0);
-	if (IS_ERR(mrioc->bsg_queue)) {
+	if (IS_ERR(q)) {
 		ioc_err(mrioc, "%s: bsg registration failed\n",
 		    dev_name(bsg_dev));
 		device_del(bsg_dev);
 		put_device(bsg_dev);
 		return;
 	}
+
+	mrioc->bsg_queue = q;
 
 	blk_queue_max_segments(mrioc->bsg_queue, MPI3MR_MAX_APP_XFER_SEGMENTS);
 	blk_queue_max_hw_sectors(mrioc->bsg_queue, MPI3MR_MAX_APP_XFER_SECTORS);

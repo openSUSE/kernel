@@ -1004,7 +1004,9 @@ static inline void hugetlb_count_sub(long l, struct mm_struct *mm)
 static inline pte_t huge_ptep_modify_prot_start(struct vm_area_struct *vma,
 						unsigned long addr, pte_t *ptep)
 {
-	return huge_ptep_get_and_clear(vma->vm_mm, addr, ptep);
+	unsigned long psize = huge_page_size(hstate_vma(vma));
+
+	return huge_ptep_get_and_clear(vma->vm_mm, addr, ptep, psize);
 }
 #endif
 
@@ -1014,7 +1016,9 @@ static inline void huge_ptep_modify_prot_commit(struct vm_area_struct *vma,
 						unsigned long addr, pte_t *ptep,
 						pte_t old_pte, pte_t pte)
 {
-	set_huge_pte_at(vma->vm_mm, addr, ptep, pte);
+	unsigned long psize = huge_page_size(hstate_vma(vma));
+
+	set_huge_pte_at(vma->vm_mm, addr, ptep, pte, psize);
 }
 #endif
 
@@ -1204,7 +1208,7 @@ static inline pte_t huge_ptep_clear_flush(struct vm_area_struct *vma,
 }
 
 static inline void set_huge_pte_at(struct mm_struct *mm, unsigned long addr,
-				   pte_t *ptep, pte_t pte)
+				   pte_t *ptep, pte_t pte, unsigned long sz)
 {
 }
 

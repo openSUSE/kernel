@@ -1637,7 +1637,8 @@ static int vmx_rtit_ctl_check(struct kvm_vcpu *vcpu, u64 data)
 	 * result in a #GP unless the same write also clears TraceEn.
 	 */
 	if ((vmx->pt_desc.guest.ctl & RTIT_CTL_TRACEEN) &&
-		((vmx->pt_desc.guest.ctl ^ data) & ~RTIT_CTL_TRACEEN))
+	    (data & RTIT_CTL_TRACEEN) &&
+	    data != vmx->pt_desc.guest.ctl)
 		return 1;
 
 	/*
@@ -6044,7 +6045,7 @@ static int handle_preemption_timer(struct kvm_vcpu *vcpu)
 
 /*
  * When nested=0, all VMX instruction VM Exits filter here.  The handlers
- * are overwritten by nested_vmx_setup() when nested=1.
+ * are overwritten by nested_vmx_hardware_setup() when nested=1.
  */
 static int handle_vmx_instruction(struct kvm_vcpu *vcpu)
 {

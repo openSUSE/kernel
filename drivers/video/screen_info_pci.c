@@ -8,7 +8,7 @@
 static struct pci_dev *screen_info_lfb_pdev;
 static size_t screen_info_lfb_bar;
 static resource_size_t screen_info_lfb_offset;
-static struct resource screen_info_lfb_res = DEFINE_RES_MEM(0, 0);
+static struct pci_bus_region screen_info_lfb_region;
 
 static bool __screen_info_relocation_is_valid(const struct screen_info *si, struct resource *pr)
 {
@@ -31,7 +31,7 @@ void screen_info_apply_fixups(void)
 	if (screen_info_lfb_pdev) {
 		struct resource *pr = &screen_info_lfb_pdev->resource[screen_info_lfb_bar];
 
-		if (pr->start != screen_info_lfb_res.start) {
+		if (pr->start != screen_info_lfb_region.start) {
 			if (__screen_info_relocation_is_valid(si, pr)) {
 				/*
 				 * Only update base if we have an actual
@@ -69,10 +69,21 @@ static void screen_info_fixup_lfb(struct pci_dev *pdev)
 
 	for (i = 0; i < numres; ++i) {
 		struct resource *r = &res[i];
+		struct pci_bus_region bus_region = {
+			.start = r->start,
+			.end = r->end,
+		};
 		const struct resource *pr;
 
 		if (!(r->flags & IORESOURCE_MEM))
 			continue;
+
+		/*
+		 * Translate the address to resource if the framebuffer
+		 * is behind a PCI bridge.
+		 */
+		pcibios_bus_to_resource(pdev->bus, r, &bus_region);
+
 		pr = pci_find_resource(pdev, r);
 		if (!pr)
 			continue;
@@ -85,7 +96,7 @@ static void screen_info_fixup_lfb(struct pci_dev *pdev)
 		screen_info_lfb_pdev = pdev;
 		screen_info_lfb_bar = pr - pdev->resource;
 		screen_info_lfb_offset = r->start - pr->start;
-		memcpy(&screen_info_lfb_res, r, sizeof(screen_info_lfb_res));
+		memcpy(&screen_info_lfb_region, &bus_region, sizeof(screen_info_lfb_region));
 	}
 }
 DECLARE_PCI_FIXUP_CLASS_HEADER(PCI_ANY_ID, PCI_ANY_ID, PCI_BASE_CLASS_DISPLAY, 16,

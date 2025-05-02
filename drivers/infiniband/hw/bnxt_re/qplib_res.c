@@ -871,6 +871,7 @@ int bnxt_qplib_init_res(struct bnxt_qplib_res *res)
 
 void bnxt_qplib_free_res(struct bnxt_qplib_res *res)
 {
+	kfree(res->rcfw->qp_tbl);
 	bnxt_qplib_free_sgid_tbl(res, &res->sgid_tbl);
 	bnxt_qplib_free_pd_tbl(&res->pd_tbl);
 	bnxt_qplib_free_dpi_tbl(res, &res->dpi_tbl);
@@ -880,10 +881,18 @@ int bnxt_qplib_alloc_res(struct bnxt_qplib_res *res, struct pci_dev *pdev,
 			 struct net_device *netdev,
 			 struct bnxt_qplib_dev_attr *dev_attr)
 {
+	struct bnxt_qplib_rcfw *rcfw = res->rcfw;
 	int rc;
 
 	res->pdev = pdev;
 	res->netdev = netdev;
+
+	/* Allocate one extra to hold the QP1 entries */
+	rcfw->qp_tbl_size = max_t(u32, BNXT_RE_MAX_QPC_COUNT + 1, dev_attr->max_qp);
+	rcfw->qp_tbl = kcalloc(rcfw->qp_tbl_size, sizeof(struct bnxt_qplib_qp_node),
+			       GFP_KERNEL);
+	if (!rcfw->qp_tbl)
+		return -ENOMEM;
 
 	rc = bnxt_qplib_alloc_sgid_tbl(res, &res->sgid_tbl, dev_attr->max_sgid);
 	if (rc)

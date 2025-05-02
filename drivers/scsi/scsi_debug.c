@@ -5583,7 +5583,7 @@ static int schedule_resp(struct scsi_cmnd *cmnd, struct sdebug_dev_info *devip,
 	}
 	sd_dp = &sqcp->sd_dp;
 
-	if (polled)
+	if (polled || (ndelay > 0 && ndelay < INCLUSIVE_TIMING_MAX_NS))
 		ns_from_boot = ktime_get_boottime_ns();
 
 	/* one of the resp_*() response functions is called here */
@@ -5956,7 +5956,7 @@ static int scsi_debug_show_info(struct seq_file *m, struct Scsi_Host *host)
 		blk_mq_tagset_busy_iter(&host->tag_set, sdebug_submit_queue_iter,
 					&data);
 		if (f >= 0) {
-			seq_printf(m, "    in_use_bm BUSY: %s: %d,%d\n",
+			seq_printf(m, "    BUSY: %s: %d,%d\n",
 				   "first,last bits", f, l);
 		}
 	}

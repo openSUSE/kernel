@@ -189,8 +189,15 @@ static int io_uring_cmd_prep_setup(struct io_kiocb *req,
 		return 0;
 	}
 
-	memcpy(req->async_data, sqe, uring_sqe_size(req->ctx));
-	ioucmd->sqe = req->async_data;
+	/*
+	 * Unconditionally cache the SQE for now - this is only needed for
+	 * requests that go async, but prep handlers must ensure that any
+	 * sqe data is stable beyond prep. Since uring_cmd is special in
+	 * that it doesn't read in per-op data, play it safe and ensure that
+	 * any SQE data is stable beyond prep. This can later get relaxed.
+	 */
+	memcpy(cache->sqes, sqe, uring_sqe_size(req->ctx));
+	ioucmd->sqe = cache->sqes;
 	return 0;
 }
 
@@ -249,16 +256,8 @@ int io_uring_cmd(struct io_kiocb *req, unsigned int issue_flags)
 	}
 
 	ret = file->f_op->uring_cmd(ioucmd, issue_flags);
-	if (ret == -EAGAIN) {
-		struct uring_cache *cache = req->async_data;
-
-		if (ioucmd->sqe != (void *) cache)
-			memcpy(cache, ioucmd->sqe, uring_sqe_size(req->ctx));
-		return -EAGAIN;
-	} else if (ret == -EIOCBQUEUED) {
-		return -EIOCBQUEUED;
-	}
-
+	if (ret == -EAGAIN || ret == -EIOCBQUEUED)
+		return ret;
 	if (ret < 0)
 		req_set_fail(req);
 	io_req_uring_cleanup(req, issue_flags);

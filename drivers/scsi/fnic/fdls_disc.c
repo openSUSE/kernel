@@ -308,43 +308,29 @@ void fdls_schedule_oxid_free_retry_work(struct work_struct *work)
 	struct fnic *fnic = iport->fnic;
 	struct reclaim_entry_s *reclaim_entry;
 	unsigned long delay_j = msecs_to_jiffies(OXID_RECLAIM_TOV(iport));
+	unsigned long flags;
 	int idx;
-
-	spin_lock_irqsave(&fnic->fnic_lock, fnic->lock_flags);
 
 	for_each_set_bit(idx, oxid_pool->pending_schedule_free, FNIC_OXID_POOL_SZ) {
 
 		FNIC_FCS_DBG(KERN_INFO, fnic->host, fnic->fnic_num,
 			"Schedule oxid free. oxid idx: %d\n", idx);
 
-		spin_unlock_irqrestore(&fnic->fnic_lock, fnic->lock_flags);
-	reclaim_entry = (struct reclaim_entry_s *)
-	kzalloc(sizeof(struct reclaim_entry_s), GFP_KERNEL);
-		spin_lock_irqsave(&fnic->fnic_lock, fnic->lock_flags);
-
+		reclaim_entry = kzalloc(sizeof(*reclaim_entry), GFP_KERNEL);
 		if (!reclaim_entry) {
-			FNIC_FCS_DBG(KERN_WARNING, fnic->host, fnic->fnic_num,
-				"Failed to allocate memory for reclaim struct for oxid idx: 0x%x\n",
-				idx);
-
 			schedule_delayed_work(&oxid_pool->schedule_oxid_free_retry,
 				msecs_to_jiffies(SCHEDULE_OXID_FREE_RETRY_TIME));
-			spin_unlock_irqrestore(&fnic->fnic_lock, fnic->lock_flags);
 			return;
 		}
 
-		if (test_and_clear_bit(idx, oxid_pool->pending_schedule_free)) {
-			reclaim_entry->oxid_idx = idx;
-			reclaim_entry->expires = round_jiffies(jiffies + delay_j);
-			list_add_tail(&reclaim_entry->links, &oxid_pool->oxid_reclaim_list);
-			schedule_delayed_work(&oxid_pool->oxid_reclaim_work, delay_j);
-		} else {
-			/* unlikely scenario, free the allocated memory and continue */
-			kfree(reclaim_entry);
-		}
-}
-
-	spin_unlock_irqrestore(&fnic->fnic_lock, fnic->lock_flags);
+		clear_bit(idx, oxid_pool->pending_schedule_free);
+		reclaim_entry->oxid_idx = idx;
+		reclaim_entry->expires = round_jiffies(jiffies + delay_j);
+		spin_lock_irqsave(&fnic->fnic_lock, flags);
+		list_add_tail(&reclaim_entry->links, &oxid_pool->oxid_reclaim_list);
+		spin_unlock_irqrestore(&fnic->fnic_lock, flags);
+		schedule_delayed_work(&oxid_pool->oxid_reclaim_work, delay_j);
+	}
 }
 
 static bool fdls_is_oxid_fabric_req(uint16_t oxid)
@@ -1567,9 +1553,9 @@ void fdls_send_fabric_logo(struct fnic_iport_s *iport)
 
 	iport->fabric.flags &= ~FNIC_FDLS_FABRIC_ABORT_ISSUED;
 
-		FNIC_FCS_DBG(KERN_INFO, fnic->host, fnic->fnic_num,
-		 "0x%x: FDLS send fabric LOGO with oxid: 0x%x",
-		 iport->fcid, oxid);
+	FNIC_FCS_DBG(KERN_INFO, fnic->host, fnic->fnic_num,
+		     "0x%x: FDLS send fabric LOGO with oxid: 0x%x",
+		     iport->fcid, oxid);
 
 	fnic_send_fcoe_frame(iport, frame, frame_size);
 
@@ -4659,13 +4645,13 @@ fnic_fdls_validate_and_get_frame_type(struct fnic_iport_s *iport,
 	d_id = ntoh24(fchdr->fh_d_id);
 
 	/* some common validation */
-		if (fdls_get_state(fabric) > FDLS_STATE_FABRIC_FLOGI) {
-			if ((iport->fcid != d_id) || (!FNIC_FC_FRAME_CS_CTL(fchdr))) {
-				FNIC_FCS_DBG(KERN_INFO, fnic->host, fnic->fnic_num,
-							 "invalid frame received. Dropping frame");
-				return -1;
-			}
+	if (fdls_get_state(fabric) > FDLS_STATE_FABRIC_FLOGI) {
+		if (iport->fcid != d_id || (!FNIC_FC_FRAME_CS_CTL(fchdr))) {
+			FNIC_FCS_DBG(KERN_INFO, fnic->host, fnic->fnic_num,
+				     "invalid frame received. Dropping frame");
+			return -1;
 		}
+	}
 
 	/*  BLS ABTS response */
 	if ((fchdr->fh_r_ctl == FC_RCTL_BA_ACC)
@@ -4682,7 +4668,7 @@ fnic_fdls_validate_and_get_frame_type(struct fnic_iport_s *iport,
 					"Received unexpected ABTS RSP(oxid:0x%x) from 0x%x. Dropping frame",
 					oxid, s_id);
 				return -1;
-	}
+		}
 			return FNIC_FABRIC_BLS_ABTS_RSP;
 		} else if (fdls_is_oxid_fdmi_req(oxid)) {
 			return FNIC_FDMI_BLS_ABTS_RSP;

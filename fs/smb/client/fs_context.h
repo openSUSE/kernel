@@ -41,6 +41,13 @@ enum {
 	Opt_cache_err
 };
 
+enum cifs_reparse_parm {
+	Opt_reparse_default,
+	Opt_reparse_nfs,
+	Opt_reparse_wsl,
+	Opt_reparse_err
+};
+
 enum cifs_sec_param {
 	Opt_sec_krb5,
 	Opt_sec_krb5i,
@@ -52,6 +59,12 @@ enum cifs_sec_param {
 	Opt_sec_none,
 
 	Opt_sec_err
+};
+
+enum cifs_upcall_target_param {
+	Opt_upcall_target_mount,
+	Opt_upcall_target_application,
+	Opt_upcall_target_err
 };
 
 enum cifs_param {
@@ -107,6 +120,8 @@ enum cifs_param {
 	Opt_multichannel,
 	Opt_compress,
 	Opt_witness,
+	Opt_is_upcall_target_mount,
+	Opt_is_upcall_target_application,
 
 	/* Mount options which take numeric value */
 	Opt_backupuid,
@@ -118,6 +133,7 @@ enum cifs_param {
 	Opt_file_mode,
 	Opt_dirmode,
 	Opt_min_enc_offload,
+	Opt_retrans,
 	Opt_blocksize,
 	Opt_rasize,
 	Opt_rsize,
@@ -147,6 +163,8 @@ enum cifs_param {
 	Opt_vers,
 	Opt_sec,
 	Opt_cache,
+	Opt_reparse,
+	Opt_upcalltarget,
 
 	/* Mount options to be ignored */
 	Opt_ignore,
@@ -185,6 +203,7 @@ struct smb3_fs_context {
 	umode_t file_mode;
 	umode_t dir_mode;
 	enum securityEnum sectype; /* sectype requested via mnt opts */
+	enum upcall_target_enum upcall_target; /* where to upcall for mount */
 	bool sign; /* was signing requested via mnt opts? */
 	bool ignore_signature:1;
 	bool retry:1;
@@ -245,6 +264,7 @@ struct smb3_fs_context {
 	unsigned int rsize;
 	unsigned int wsize;
 	unsigned int min_offload;
+	unsigned int retrans;
 	bool sockopt_tcp_nodelay:1;
 	/* attribute cache timemout for files and directories in jiffies */
 	unsigned long acregmax;
@@ -269,6 +289,7 @@ struct smb3_fs_context {
 	char *leaf_fullpath;
 	struct cifs_ses *dfs_root_ses;
 	bool dfs_automount:1; /* set for dfs automount only */
+	enum cifs_reparse_type reparse_type;
 };
 
 extern const struct fs_parameter_spec smb3_fs_parameters[];

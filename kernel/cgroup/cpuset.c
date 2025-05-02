@@ -1672,7 +1672,7 @@ static inline bool is_local_partition(struct cpuset *cs)
  * remote_partition_enable - Enable current cpuset as a remote partition root
  * @cs: the cpuset to update
  * @new_prs: new partition_root_state
- * @tmp: temparary masks
+ * @tmp: temporary masks
  * Return: 0 if successful, errcode if error
  *
  * Enable the current cpuset to become a remote partition root taking CPUs
@@ -1708,9 +1708,10 @@ static int remote_partition_enable(struct cpuset *cs, int new_prs,
 	list_add(&cs->remote_sibling, &remote_children);
 	spin_unlock_irq(&callback_lock);
 	update_unbound_workqueue_cpumask(isolcpus_updated);
+	cs->prs_err = 0;
 
 	/*
-	 * Proprogate changes in top_cpuset's effective_cpus down the hierarchy.
+	 * Propagate changes in top_cpuset's effective_cpus down the hierarchy.
 	 */
 	update_tasks_cpumask(&top_cpuset, tmp->new_cpus);
 	update_sibling_cpumasks(&top_cpuset, NULL, tmp);
@@ -1720,7 +1721,7 @@ static int remote_partition_enable(struct cpuset *cs, int new_prs,
 /*
  * remote_partition_disable - Remove current cpuset from remote partition list
  * @cs: the cpuset to update
- * @tmp: temparary masks
+ * @tmp: temporary masks
  *
  * The effective_cpus is also updated.
  *
@@ -1738,15 +1739,17 @@ static void remote_partition_disable(struct cpuset *cs, struct tmpmasks *tmp)
 	list_del_init(&cs->remote_sibling);
 	isolcpus_updated = partition_xcpus_del(cs->partition_root_state,
 					       NULL, tmp->new_cpus);
-	cs->partition_root_state = -cs->partition_root_state;
-	if (!cs->prs_err)
-		cs->prs_err = PERR_INVCPUS;
+	if (cs->prs_err)
+		cs->partition_root_state = -cs->partition_root_state;
+	else
+		cs->partition_root_state = PRS_MEMBER;
+
 	reset_partition_data(cs);
 	spin_unlock_irq(&callback_lock);
 	update_unbound_workqueue_cpumask(isolcpus_updated);
 
 	/*
-	 * Proprogate changes in top_cpuset's effective_cpus down the hierarchy.
+	 * Propagate changes in top_cpuset's effective_cpus down the hierarchy.
 	 */
 	update_tasks_cpumask(&top_cpuset, tmp->new_cpus);
 	update_sibling_cpumasks(&top_cpuset, NULL, tmp);
@@ -1756,7 +1759,7 @@ static void remote_partition_disable(struct cpuset *cs, struct tmpmasks *tmp)
  * remote_cpus_update - cpus_exclusive change of remote partition
  * @cs: the cpuset to be updated
  * @newmask: the new effective_xcpus mask
- * @tmp: temparary masks
+ * @tmp: temporary masks
  *
  * top_cpuset and subpartitions_cpus will be updated or partition can be
  * invalidated.
@@ -1773,8 +1776,10 @@ static void remote_cpus_update(struct cpuset *cs, struct cpumask *newmask,
 
 	WARN_ON_ONCE(!cpumask_subset(cs->effective_xcpus, subpartitions_cpus));
 
-	if (cpumask_empty(newmask))
+	if (cpumask_empty(newmask)) {
+		cs->prs_err = PERR_CPUSEMPTY;
 		goto invalidate;
+	}
 
 	adding   = cpumask_andnot(tmp->addmask, newmask, cs->effective_xcpus);
 	deleting = cpumask_andnot(tmp->delmask, cs->effective_xcpus, newmask);
@@ -1784,10 +1789,15 @@ static void remote_cpus_update(struct cpuset *cs, struct cpumask *newmask,
 	 * not allocated to other partitions and there are effective_cpus
 	 * left in the top cpuset.
 	 */
-	if (adding && (!capable(CAP_SYS_ADMIN) ||
-		       cpumask_intersects(tmp->addmask, subpartitions_cpus) ||
-		       cpumask_subset(top_cpuset.effective_cpus, tmp->addmask)))
-		goto invalidate;
+	if (adding) {
+		if (!capable(CAP_SYS_ADMIN))
+			cs->prs_err = PERR_ACCESS;
+		else if (cpumask_intersects(tmp->addmask, subpartitions_cpus) ||
+			 cpumask_subset(top_cpuset.effective_cpus, tmp->addmask))
+			cs->prs_err = PERR_NOCPUS;
+		if (cs->prs_err)
+			goto invalidate;
+	}
 
 	spin_lock_irq(&callback_lock);
 	if (adding)
@@ -1798,7 +1808,7 @@ static void remote_cpus_update(struct cpuset *cs, struct cpumask *newmask,
 	update_unbound_workqueue_cpumask(isolcpus_updated);
 
 	/*
-	 * Proprogate changes in top_cpuset's effective_cpus down the hierarchy.
+	 * Propagate changes in top_cpuset's effective_cpus down the hierarchy.
 	 */
 	update_tasks_cpumask(&top_cpuset, tmp->new_cpus);
 	update_sibling_cpumasks(&top_cpuset, NULL, tmp);
@@ -1813,7 +1823,7 @@ invalidate:
  * @cs: the cpuset to be updated
  * @newmask: the new effective_xcpus mask
  * @delmask: temporary mask for deletion (not in tmp)
- * @tmp: temparary masks
+ * @tmp: temporary masks
  *
  * This should be called before the given cs has updated its cpus_allowed
  * and/or effective_xcpus.
@@ -1903,7 +1913,7 @@ static bool prstate_housekeeping_conflict(int prstate, struct cpumask *new_cpus)
  * The partcmd_update command is used by update_cpumasks_hier() with newmask
  * NULL and update_cpumask() with newmask set. The partcmd_invalidate is used
  * by update_cpumask() with NULL newmask. In both cases, the callers won't
- * check for error and so partition_root_state and prs_error will be updated
+ * check for error and so partition_root_state and prs_err will be updated
  * directly.
  */
 static int update_parent_effective_cpumask(struct cpuset *cs, int cmd,
@@ -1981,9 +1991,9 @@ static int update_parent_effective_cpumask(struct cpuset *cs, int cmd,
 		if (nocpu)
 			return PERR_NOCPUS;
 
-		cpumask_copy(tmp->delmask, xcpus);
-		deleting = true;
-		subparts_delta++;
+		deleting = cpumask_and(tmp->delmask, xcpus, parent->effective_xcpus);
+		if (deleting)
+			subparts_delta++;
 		new_prs = (cmd == partcmd_enable) ? PRS_ROOT : PRS_ISOLATED;
 	} else if (cmd == partcmd_disable) {
 		/*
@@ -2530,7 +2540,7 @@ static int update_cpumask(struct cpuset *cs, struct cpuset *trialcs,
 			return -EINVAL;
 
 		/*
-		 * When exclusive_cpus isn't explicitly set, it is constrainted
+		 * When exclusive_cpus isn't explicitly set, it is constrained
 		 * by cpus_allowed and parent's effective_xcpus. Otherwise,
 		 * trialcs->effective_xcpus is used as a temporary cpumask
 		 * for checking validity of the partition root.
@@ -3599,24 +3609,31 @@ static int cpuset_write_u64(struct cgroup_subsys_state *css, struct cftype *cft,
 		retval = update_flag(CS_CPU_EXCLUSIVE, cs, val);
 		break;
 	case FILE_MEM_EXCLUSIVE:
+		pr_info_once("cpuset.%s is deprecated\n", cft->name);
 		retval = update_flag(CS_MEM_EXCLUSIVE, cs, val);
 		break;
 	case FILE_MEM_HARDWALL:
+		pr_info_once("cpuset.%s is deprecated\n", cft->name);
 		retval = update_flag(CS_MEM_HARDWALL, cs, val);
 		break;
 	case FILE_SCHED_LOAD_BALANCE:
+		pr_info_once("cpuset.%s is deprecated, use cpuset.cpus.partition instead\n", cft->name);
 		retval = update_flag(CS_SCHED_LOAD_BALANCE, cs, val);
 		break;
 	case FILE_MEMORY_MIGRATE:
+		pr_info_once("cpuset.%s is deprecated\n", cft->name);
 		retval = update_flag(CS_MEMORY_MIGRATE, cs, val);
 		break;
 	case FILE_MEMORY_PRESSURE_ENABLED:
+		pr_info_once("cpuset.%s is deprecated, use memory.pressure with CONFIG_PSI instead\n", cft->name);
 		cpuset_memory_pressure_enabled = !!val;
 		break;
 	case FILE_SPREAD_PAGE:
+		pr_info_once("cpuset.%s is deprecated\n", cft->name);
 		retval = update_flag(CS_SPREAD_PAGE, cs, val);
 		break;
 	case FILE_SPREAD_SLAB:
+		pr_warn_once("cpuset.%s is deprecated\n", cft->name);
 		retval = update_flag(CS_SPREAD_SLAB, cs, val);
 		break;
 	default:
@@ -3643,6 +3660,7 @@ static int cpuset_write_s64(struct cgroup_subsys_state *css, struct cftype *cft,
 
 	switch (type) {
 	case FILE_SCHED_RELAX_DOMAIN_LEVEL:
+		pr_info_once("cpuset.%s is deprecated\n", cft->name);
 		retval = update_relax_domain_level(cs, val);
 		break;
 	default:
@@ -3666,29 +3684,6 @@ static ssize_t cpuset_write_resmask(struct kernfs_open_file *of,
 	int retval = -ENODEV;
 
 	buf = strstrip(buf);
-
-	/*
-	 * CPU or memory hotunplug may leave @cs w/o any execution
-	 * resources, in which case the hotplug code asynchronously updates
-	 * configuration and transfers all tasks to the nearest ancestor
-	 * which can execute.
-	 *
-	 * As writes to "cpus" or "mems" may restore @cs's execution
-	 * resources, wait for the previously scheduled operations before
-	 * proceeding, so that we don't end up keep removing tasks added
-	 * after execution capability is restored.
-	 *
-	 * cpuset_handle_hotplug may call back into cgroup core asynchronously
-	 * via cgroup_transfer_tasks() and waiting for it from a cgroupfs
-	 * operation like this one can lead to a deadlock through kernfs
-	 * active_ref protection.  Let's break the protection.  Losing the
-	 * protection is okay as we check whether @cs is online after
-	 * grabbing cpuset_mutex anyway.  This only happens on the legacy
-	 * hierarchies.
-	 */
-	css_get(&cs->css);
-	kernfs_break_active_protection(of->kn);
-
 	cpus_read_lock();
 	mutex_lock(&cpuset_mutex);
 	if (!is_cpuset_online(cs))
@@ -3721,8 +3716,6 @@ static ssize_t cpuset_write_resmask(struct kernfs_open_file *of,
 out_unlock:
 	mutex_unlock(&cpuset_mutex);
 	cpus_read_unlock();
-	kernfs_unbreak_active_protection(of->kn);
-	css_put(&cs->css);
 	flush_workqueue(cpuset_migrate_mm_wq);
 	return retval ?: nbytes;
 }
@@ -4544,6 +4537,7 @@ retry:
 
 	if (remote && cpumask_empty(&new_cpus) &&
 	    partition_is_populated(cs, NULL)) {
+		cs->prs_err = PERR_HOTPLUG;
 		remote_partition_disable(cs, tmp);
 		compute_effective_cpumask(&new_cpus, cs, parent);
 		remote = false;

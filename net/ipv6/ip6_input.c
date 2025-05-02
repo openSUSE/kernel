@@ -168,9 +168,9 @@ static struct sk_buff *ip6_rcv_core(struct sk_buff *skb, struct net_device *dev,
 
 	SKB_DR_SET(reason, NOT_SPECIFIED);
 	if ((skb = skb_share_check(skb, GFP_ATOMIC)) == NULL ||
-	    !idev || unlikely(idev->cnf.disable_ipv6)) {
+	    !idev || unlikely(READ_ONCE(idev->cnf.disable_ipv6))) {
 		__IP6_INC_STATS(net, idev, IPSTATS_MIB_INDISCARDS);
-		if (idev && unlikely(idev->cnf.disable_ipv6))
+		if (idev && unlikely(READ_ONCE(idev->cnf.disable_ipv6)))
 			SKB_DR_SET(reason, IPV6DISABLED);
 		goto drop;
 	}
@@ -479,9 +479,7 @@ discard:
 static int ip6_input_finish(struct net *net, struct sock *sk, struct sk_buff *skb)
 {
 	skb_clear_delivery_time(skb);
-	rcu_read_lock();
 	ip6_protocol_deliver_rcu(net, skb, 0, false);
-	rcu_read_unlock();
 
 	return 0;
 }
@@ -489,9 +487,15 @@ static int ip6_input_finish(struct net *net, struct sock *sk, struct sk_buff *sk
 
 int ip6_input(struct sk_buff *skb)
 {
-	return NF_HOOK(NFPROTO_IPV6, NF_INET_LOCAL_IN,
-		       dev_net(skb->dev), NULL, skb, skb->dev, NULL,
-		       ip6_input_finish);
+	int res;
+
+	rcu_read_lock();
+	res = NF_HOOK(NFPROTO_IPV6, NF_INET_LOCAL_IN,
+		      dev_net_rcu(skb->dev), NULL, skb, skb->dev, NULL,
+		      ip6_input_finish);
+	rcu_read_unlock();
+
+	return res;
 }
 EXPORT_SYMBOL_GPL(ip6_input);
 

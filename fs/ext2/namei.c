@@ -401,9 +401,8 @@ static int ext2_rename (struct mnt_idmap * idmap,
 		if (old_dir != new_dir) {
 			err = ext2_set_link(old_inode, dir_de, dir_page,
 					    dir_page_addr, new_dir, false);
-
+			ext2_put_page(dir_page, dir_page_addr);
 		}
-		ext2_put_page(dir_page, dir_page_addr);
 		inode_dec_link_count(old_dir);
 	}
 

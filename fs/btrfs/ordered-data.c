@@ -981,7 +981,7 @@ void btrfs_get_ordered_extents_for_logging(struct btrfs_inode *inode,
 	struct btrfs_ordered_inode_tree *tree = &inode->ordered_tree;
 	struct rb_node *n;
 
-	ASSERT(inode_is_locked(&inode->vfs_inode));
+	btrfs_assert_inode_locked(inode);
 
 	spin_lock_irq(&tree->lock);
 	for (n = rb_first(&tree->tree); n; n = rb_next(n)) {
@@ -1199,6 +1199,18 @@ struct btrfs_ordered_extent *btrfs_split_ordered_extent(
 	 */
 	if (WARN_ON_ONCE(len >= ordered->num_bytes))
 		return ERR_PTR(-EINVAL);
+	/*
+	 * If our ordered extent had an error there's no point in continuing.
+	 * The error may have come from a transaction abort done either by this
+	 * task or some other concurrent task, and the transaction abort path
+	 * iterates over all existing ordered extents and sets the flag
+	 * BTRFS_ORDERED_IOERR on them.
+	 */
+	if (unlikely(flags & (1U << BTRFS_ORDERED_IOERR))) {
+		const int fs_error = BTRFS_FS_ERROR(fs_info);
+
+		return fs_error ? ERR_PTR(fs_error) : ERR_PTR(-EIO);
+	}
 	/* We cannot split partially completed ordered extents. */
 	if (ordered->bytes_left) {
 		ASSERT(!(flags & ~BTRFS_ORDERED_TYPE_FLAGS));

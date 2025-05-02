@@ -3295,7 +3295,14 @@ int __init intel_iommu_init(void)
 		iommu_device_sysfs_add(&iommu->iommu, NULL,
 				       intel_iommu_groups,
 				       "%s", iommu->name);
+		/*
+		 * The iommu device probe is protected by the iommu_probe_device_lock.
+		 * Release the dmar_global_lock before entering the device probe path
+		 * to avoid unnecessary lock order splat.
+		 */
+		up_read(&dmar_global_lock);
 		iommu_device_register(&iommu->iommu, &intel_iommu_ops, NULL);
+		down_read(&dmar_global_lock);
 
 		iommu_pmu_register(iommu);
 	}
@@ -4278,13 +4285,14 @@ static void intel_iommu_remove_dev_pasid(struct device *dev, ioasid_t pasid,
 			break;
 		}
 	}
-	WARN_ON_ONCE(!dev_pasid);
 	spin_unlock_irqrestore(&dmar_domain->lock, flags);
 
 	cache_tag_unassign_domain(dmar_domain, dev, pasid);
 	domain_detach_iommu(dmar_domain, iommu);
-	intel_iommu_debugfs_remove_dev_pasid(dev_pasid);
-	kfree(dev_pasid);
+	if (!WARN_ON_ONCE(!dev_pasid)) {
+		intel_iommu_debugfs_remove_dev_pasid(dev_pasid);
+		kfree(dev_pasid);
+	}
 	intel_pasid_tear_down_entry(iommu, dev, pasid, false);
 	intel_drain_pasid_prq(dev, pasid);
 }
@@ -4535,9 +4543,6 @@ static int context_setup_pass_through(struct device *dev, u8 bus, u8 devfn)
 static int context_setup_pass_through_cb(struct pci_dev *pdev, u16 alias, void *data)
 {
 	struct device *dev = data;
-
-	if (dev != &pdev->dev)
-		return 0;
 
 	return context_setup_pass_through(dev, PCI_BUS_NUM(alias), alias & 0xff);
 }

@@ -258,16 +258,14 @@ static void free_iaa_compression_mode(struct iaa_compression_mode *mode)
 	kfree(mode->name);
 	kfree(mode->ll_table);
 	kfree(mode->d_table);
-	kfree(mode->header_table);
 
 	kfree(mode);
 }
 
 /*
- * IAA Compression modes are defined by an ll_table, a d_table, and an
- * optional header_table.  These tables are typically generated and
- * captured using statistics collected from running actual
- * compress/decompress workloads.
+ * IAA Compression modes are defined by an ll_table and a d_table.
+ * These tables are typically generated and captured using statistics
+ * collected from running actual compress/decompress workloads.
  *
  * A module or other kernel code can add and remove compression modes
  * with a given name using the exported @add_iaa_compression_mode()
@@ -315,9 +313,6 @@ EXPORT_SYMBOL_GPL(remove_iaa_compression_mode);
  * @ll_table_size: The ll table size in bytes
  * @d_table: The d table
  * @d_table_size: The d table size in bytes
- * @header_table: Optional header table
- * @header_table_size: Optional header table size in bytes
- * @gen_decomp_table_flags: Otional flags used to generate the decomp table
  * @init: Optional callback function to init the compression mode data
  * @free: Optional callback function to free the compression mode data
  *
@@ -330,9 +325,6 @@ int add_iaa_compression_mode(const char *name,
 			     int ll_table_size,
 			     const u32 *d_table,
 			     int d_table_size,
-			     const u8 *header_table,
-			     int header_table_size,
-			     u16 gen_decomp_table_flags,
 			     iaa_dev_comp_init_fn_t init,
 			     iaa_dev_comp_free_fn_t free)
 {
@@ -355,30 +347,18 @@ int add_iaa_compression_mode(const char *name,
 		goto free;
 
 	if (ll_table) {
-		mode->ll_table = kzalloc(ll_table_size, GFP_KERNEL);
+		mode->ll_table = kmemdup(ll_table, ll_table_size, GFP_KERNEL);
 		if (!mode->ll_table)
 			goto free;
-		memcpy(mode->ll_table, ll_table, ll_table_size);
 		mode->ll_table_size = ll_table_size;
 	}
 
 	if (d_table) {
-		mode->d_table = kzalloc(d_table_size, GFP_KERNEL);
+		mode->d_table = kmemdup(d_table, d_table_size, GFP_KERNEL);
 		if (!mode->d_table)
 			goto free;
-		memcpy(mode->d_table, d_table, d_table_size);
 		mode->d_table_size = d_table_size;
 	}
-
-	if (header_table) {
-		mode->header_table = kzalloc(header_table_size, GFP_KERNEL);
-		if (!mode->header_table)
-			goto free;
-		memcpy(mode->header_table, header_table, header_table_size);
-		mode->header_table_size = header_table_size;
-	}
-
-	mode->gen_decomp_table_flags = gen_decomp_table_flags;
 
 	mode->init = init;
 	mode->free = free;
@@ -420,10 +400,6 @@ static void free_device_compression_mode(struct iaa_device *iaa_device,
 	if (device_mode->aecs_comp_table)
 		dma_free_coherent(dev, size, device_mode->aecs_comp_table,
 				  device_mode->aecs_comp_table_dma_addr);
-	if (device_mode->aecs_decomp_table)
-		dma_free_coherent(dev, size, device_mode->aecs_decomp_table,
-				  device_mode->aecs_decomp_table_dma_addr);
-
 	kfree(device_mode);
 }
 
@@ -439,73 +415,6 @@ static int check_completion(struct device *dev,
 			    struct iax_completion_record *comp,
 			    bool compress,
 			    bool only_once);
-
-static int decompress_header(struct iaa_device_compression_mode *device_mode,
-			     struct iaa_compression_mode *mode,
-			     struct idxd_wq *wq)
-{
-	dma_addr_t src_addr, src2_addr;
-	struct idxd_desc *idxd_desc;
-	struct iax_hw_desc *desc;
-	struct device *dev;
-	int ret = 0;
-
-	idxd_desc = idxd_alloc_desc(wq, IDXD_OP_BLOCK);
-	if (IS_ERR(idxd_desc))
-		return PTR_ERR(idxd_desc);
-
-	desc = idxd_desc->iax_hw;
-
-	dev = &wq->idxd->pdev->dev;
-
-	src_addr = dma_map_single(dev, (void *)mode->header_table,
-				  mode->header_table_size, DMA_TO_DEVICE);
-	dev_dbg(dev, "%s: mode->name %s, src_addr %llx, dev %p, src %p, slen %d\n",
-		__func__, mode->name, src_addr,	dev,
-		mode->header_table, mode->header_table_size);
-	if (unlikely(dma_mapping_error(dev, src_addr))) {
-		dev_dbg(dev, "dma_map_single err, exiting\n");
-		ret = -ENOMEM;
-		return ret;
-	}
-
-	desc->flags = IAX_AECS_GEN_FLAG;
-	desc->opcode = IAX_OPCODE_DECOMPRESS;
-
-	desc->src1_addr = (u64)src_addr;
-	desc->src1_size = mode->header_table_size;
-
-	src2_addr = device_mode->aecs_decomp_table_dma_addr;
-	desc->src2_addr = (u64)src2_addr;
-	desc->src2_size = 1088;
-	dev_dbg(dev, "%s: mode->name %s, src2_addr %llx, dev %p, src2_size %d\n",
-		__func__, mode->name, desc->src2_addr, dev, desc->src2_size);
-	desc->max_dst_size = 0; // suppressed output
-
-	desc->decompr_flags = mode->gen_decomp_table_flags;
-
-	desc->priv = 1;
-
-	desc->completion_addr = idxd_desc->compl_dma;
-
-	ret = idxd_submit_desc(wq, idxd_desc);
-	if (ret) {
-		pr_err("%s: submit_desc failed ret=0x%x\n", __func__, ret);
-		goto out;
-	}
-
-	ret = check_completion(dev, idxd_desc->iax_completion, false, false);
-	if (ret)
-		dev_dbg(dev, "%s: mode->name %s check_completion failed ret=%d\n",
-			__func__, mode->name, ret);
-	else
-		dev_dbg(dev, "%s: mode->name %s succeeded\n", __func__,
-			mode->name);
-out:
-	dma_unmap_single(dev, src_addr, 1088, DMA_TO_DEVICE);
-
-	return ret;
-}
 
 static int init_device_compression_mode(struct iaa_device *iaa_device,
 					struct iaa_compression_mode *mode,
@@ -529,23 +438,10 @@ static int init_device_compression_mode(struct iaa_device *iaa_device,
 	if (!device_mode->aecs_comp_table)
 		goto free;
 
-	device_mode->aecs_decomp_table = dma_alloc_coherent(dev, size,
-							    &device_mode->aecs_decomp_table_dma_addr, GFP_KERNEL);
-	if (!device_mode->aecs_decomp_table)
-		goto free;
-
 	/* Add Huffman table to aecs */
 	memset(device_mode->aecs_comp_table, 0, sizeof(*device_mode->aecs_comp_table));
 	memcpy(device_mode->aecs_comp_table->ll_sym, mode->ll_table, mode->ll_table_size);
 	memcpy(device_mode->aecs_comp_table->d_sym, mode->d_table, mode->d_table_size);
-
-	if (mode->header_table) {
-		ret = decompress_header(device_mode, mode, wq);
-		if (ret) {
-			pr_debug("iaa header decompression failed: ret=%d\n", ret);
-			goto free;
-		}
-	}
 
 	if (mode->init) {
 		ret = mode->init(device_mode);
@@ -980,7 +876,7 @@ static int wq_table_add_wqs(int iaa, int cpu)
 		pr_debug("rebalance: added wq for cpu=%d: iaa wq %d.%d\n",
 			 cpu, iaa_wq->wq->idxd->id, iaa_wq->wq->id);
 		n_wqs_added++;
-	};
+	}
 
 	if (!n_wqs_added) {
 		pr_debug("couldn't find any iaa wqs!\n");
@@ -1024,7 +920,7 @@ static void rebalance_wq_table(void)
 	for_each_node_with_cpus(node) {
 		node_cpus = cpumask_of_node(node);
 
-		for (cpu = 0; cpu < nr_cpus_per_node; cpu++) {
+		for (cpu = 0; cpu <  cpumask_weight(node_cpus); cpu++) {
 			int node_cpu = cpumask_nth(cpu, node_cpus);
 
 			if (WARN_ON(node_cpu >= nr_cpu_ids)) {
@@ -1049,12 +945,22 @@ static inline int check_completion(struct device *dev,
 				   bool only_once)
 {
 	char *op_str = compress ? "compress" : "decompress";
+	int status_checks = 0;
 	int ret = 0;
 
 	while (!comp->status) {
 		if (only_once)
 			return -EAGAIN;
 		cpu_relax();
+		if (status_checks++ >= IAA_COMPLETION_TIMEOUT) {
+			/* Something is wrong with the hw, disable it. */
+			dev_err(dev, "%s completion timed out - "
+				"assuming broken hw, iaa_crypto now DISABLED\n",
+				op_str);
+			iaa_crypto_enabled = false;
+			ret = -ETIMEDOUT;
+			goto out;
+		}
 	}
 
 	if (comp->status != IAX_COMP_SUCCESS) {
@@ -1181,8 +1087,8 @@ static void iaa_desc_complete(struct idxd_desc *idxd_desc,
 		update_total_comp_bytes_out(ctx->req->dlen);
 		update_wq_comp_bytes(iaa_wq->wq, ctx->req->dlen);
 	} else {
-		update_total_decomp_bytes_in(ctx->req->dlen);
-		update_wq_decomp_bytes(iaa_wq->wq, ctx->req->dlen);
+		update_total_decomp_bytes_in(ctx->req->slen);
+		update_wq_decomp_bytes(iaa_wq->wq, ctx->req->slen);
 	}
 
 	if (ctx->compress && compression_ctx->verify_compress) {
@@ -1264,7 +1170,7 @@ static int iaa_compress(struct crypto_tfm *tfm,	struct acomp_req *req,
 		IDXD_OP_FLAG_RD_SRC2_AECS | IDXD_OP_FLAG_CC;
 	desc->opcode = IAX_OPCODE_COMPRESS;
 	desc->compr_flags = IAA_COMP_FLAGS;
-	desc->priv = 1;
+	desc->priv = 0;
 
 	desc->src1_addr = (u64)src_addr;
 	desc->src1_size = slen;
@@ -1418,7 +1324,7 @@ static int iaa_compress_verify(struct crypto_tfm *tfm, struct acomp_req *req,
 	desc->flags = IDXD_OP_FLAG_CRAV | IDXD_OP_FLAG_RCR | IDXD_OP_FLAG_CC;
 	desc->opcode = IAX_OPCODE_DECOMPRESS;
 	desc->decompr_flags = IAA_DECOMP_FLAGS | IAA_DECOMP_SUPPRESS_OUTPUT;
-	desc->priv = 1;
+	desc->priv = 0;
 
 	desc->src1_addr = (u64)dst_addr;
 	desc->src1_size = *dlen;
@@ -1504,7 +1410,7 @@ static int iaa_decompress(struct crypto_tfm *tfm, struct acomp_req *req,
 	desc->opcode = IAX_OPCODE_DECOMPRESS;
 	desc->max_dst_size = PAGE_SIZE;
 	desc->decompr_flags = IAA_DECOMP_FLAGS;
-	desc->priv = 1;
+	desc->priv = 0;
 
 	desc->src1_addr = (u64)src_addr;
 	desc->dst_addr = (u64)dst_addr;
@@ -1631,7 +1537,7 @@ static int iaa_comp_acompress(struct acomp_req *req)
 	iaa_wq = idxd_wq_get_private(wq);
 
 	if (!req->dst) {
-		gfp_t flags = req->flags & CRYPTO_TFM_REQ_MAY_SLEEP ? GFP_KERNEL : GFP_ATOMIC;
+		gfp_t flags = req->base.flags & CRYPTO_TFM_REQ_MAY_SLEEP ? GFP_KERNEL : GFP_ATOMIC;
 
 		/* incompressible data will always be < 2 * slen */
 		req->dlen = 2 * req->slen;
@@ -1713,7 +1619,7 @@ out:
 
 static int iaa_comp_adecompress_alloc_dest(struct acomp_req *req)
 {
-	gfp_t flags = req->flags & CRYPTO_TFM_REQ_MAY_SLEEP ?
+	gfp_t flags = req->base.flags & CRYPTO_TFM_REQ_MAY_SLEEP ?
 		GFP_KERNEL : GFP_ATOMIC;
 	struct crypto_tfm *tfm = req->base.tfm;
 	dma_addr_t src_addr, dst_addr;
@@ -1920,6 +1826,7 @@ static struct acomp_alg iaa_acomp_fixed_deflate = {
 	.base			= {
 		.cra_name		= "deflate",
 		.cra_driver_name	= "deflate-iaa",
+		.cra_flags		= CRYPTO_ALG_ASYNC,
 		.cra_ctxsize		= sizeof(struct iaa_compression_ctx),
 		.cra_module		= THIS_MODULE,
 		.cra_priority		= IAA_ALG_PRIORITY,
@@ -2106,7 +2013,7 @@ static int __init iaa_crypto_init_module(void)
 	int ret = 0;
 	int node;
 
-	nr_cpus = num_online_cpus();
+	nr_cpus = num_possible_cpus();
 	for_each_node_with_cpus(node)
 		nr_nodes++;
 	if (!nr_nodes) {

@@ -16,6 +16,7 @@
 #include <linux/rhashtable.h>
 #include <linux/average.h>
 #include <linux/firmware.h>
+#include <linux/suspend.h>
 
 #include "qmi.h"
 #include "htc.h"
@@ -881,6 +882,11 @@ struct ath11k_msi_config {
 	u16 hw_rev;
 };
 
+enum ath11k_pm_policy {
+	ATH11K_PM_DEFAULT,
+	ATH11K_PM_WOW,
+};
+
 /* Master structure to hold the hw data which may be used in core module */
 struct ath11k_base {
 	enum ath11k_hw_rev hw_rev;
@@ -1044,6 +1050,10 @@ struct ath11k_base {
 		u8 *eventdata;
 	} testmode;
 #endif
+
+	enum ath11k_pm_policy pm_policy;
+	enum ath11k_pm_policy actual_pm_policy;
+	struct notifier_block pm_nb;
 
 	/* must be last */
 	u8 drv_priv[] __aligned(sizeof(void *));
@@ -1310,5 +1320,7 @@ static inline const char *ath11k_bus_str(enum ath11k_bus bus)
 
 	return "unknown";
 }
+
+void ath11k_core_pm_notifier_unregister(struct ath11k_base *ab);
 
 #endif /* _CORE_H_ */

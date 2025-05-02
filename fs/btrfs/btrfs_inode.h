@@ -12,6 +12,7 @@
 #include "extent_io.h"
 #include "ordered-data.h"
 #include "delayed-inode.h"
+#include "messages.h"
 
 /*
  * Since we search a directory based on f_pos (struct dir_context::pos) we have
@@ -432,6 +433,14 @@ static inline void btrfs_inode_split_flags(u64 inode_item_flags,
 {
 	*flags = (u32)inode_item_flags;
 	*ro_flags = (u32)(inode_item_flags >> 32);
+}
+
+static inline void btrfs_assert_inode_locked(struct btrfs_inode *inode)
+{
+	/* Immediately trigger a crash if the inode is not locked. */
+	ASSERT(inode_is_locked(&inode->vfs_inode));
+	/* Trigger a splat in dmesg if this task is not holding the lock. */
+	lockdep_assert_held(&inode->vfs_inode.i_rwsem);
 }
 
 /* Array of bytes with variable length, hexadecimal format 0x1234 */

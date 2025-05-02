@@ -172,6 +172,8 @@ static inline struct tcp_request_sock *tcp_rsk(const struct request_sock *req)
 	return (struct tcp_request_sock *)req;
 }
 
+#define TCP_RMEM_TO_WIN_SCALE 8
+
 struct tcp_sock {
 	/* Cacheline organization can be found documented in
 	 * Documentation/networking/net_cachelines/tcp_sock.rst.

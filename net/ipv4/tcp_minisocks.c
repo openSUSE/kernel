@@ -564,8 +564,8 @@ struct sock *tcp_create_openreq_child(const struct sock *sk,
 					       USEC_PER_SEC / TCP_TS_HZ);
 		newtp->total_rto = req->num_timeout;
 		newtp->total_rto_recoveries = 1;
-		newtp->total_rto_time = tcp_time_stamp_raw() -
-						newtp->retrans_stamp;
+		newtp->total_rto_time = tcp_clock_ms() -
+					newtp->retrans_stamp;
 	}
 	newtp->tsoffset = treq->ts_off;
 #ifdef CONFIG_TCP_MD5SIG
@@ -743,8 +743,11 @@ struct sock *tcp_check_req(struct sock *sk, struct sk_buff *skb,
 
 	/* RFC793: "first check sequence number". */
 
-	if (paws_reject || !tcp_in_window(TCP_SKB_CB(skb)->seq, TCP_SKB_CB(skb)->end_seq,
-					  tcp_rsk(req)->rcv_nxt, tcp_rsk(req)->rcv_nxt + req->rsk_rcv_wnd)) {
+	if (paws_reject || !tcp_in_window(TCP_SKB_CB(skb)->seq,
+					  TCP_SKB_CB(skb)->end_seq,
+					  tcp_rsk(req)->rcv_nxt,
+					  tcp_rsk(req)->rcv_nxt +
+					  tcp_synack_window(req))) {
 		/* Out of window: send ACK and drop. */
 		if (!(flg & TCP_FLAG_RST) &&
 		    !tcp_oow_rate_limited(sock_net(sk), skb,
@@ -757,12 +760,6 @@ struct sock *tcp_check_req(struct sock *sk, struct sk_buff *skb,
 	}
 
 	/* In sequence, PAWS is OK. */
-
-	/* TODO: We probably should defer ts_recent change once
-	 * we take ownership of @req.
-	 */
-	if (tmp_opt.saw_tstamp && !after(TCP_SKB_CB(skb)->seq, tcp_rsk(req)->rcv_nxt))
-		WRITE_ONCE(req->ts_recent, tmp_opt.rcv_tsval);
 
 	if (TCP_SKB_CB(skb)->seq == tcp_rsk(req)->rcv_isn) {
 		/* Truncate SYN, it is out of window starting
@@ -811,6 +808,10 @@ struct sock *tcp_check_req(struct sock *sk, struct sk_buff *skb,
 							 req, &own_req);
 	if (!child)
 		goto listen_overflow;
+
+	if (own_req && tmp_opt.saw_tstamp &&
+	    !after(TCP_SKB_CB(skb)->seq, tcp_rsk(req)->rcv_nxt))
+		tcp_sk(child)->rx_opt.ts_recent = tmp_opt.rcv_tsval;
 
 	if (own_req && rsk_drop_req(req)) {
 		reqsk_queue_removed(&inet_csk(req->rsk_listener)->icsk_accept_queue, req);

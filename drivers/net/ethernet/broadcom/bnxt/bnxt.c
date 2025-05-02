@@ -486,6 +486,17 @@ static netdev_tx_t bnxt_start_xmit(struct sk_buff *skb, struct net_device *dev)
 	txr = &bp->tx_ring[bp->tx_ring_map[i]];
 	prod = txr->tx_prod;
 
+#if (MAX_SKB_FRAGS > TX_MAX_FRAGS)
+	if (skb_shinfo(skb)->nr_frags > TX_MAX_FRAGS) {
+		netdev_warn_once(dev, "SKB has too many (%d) fragments, max supported is %d.  SKB will be linearized.\n",
+				 skb_shinfo(skb)->nr_frags, TX_MAX_FRAGS);
+		if (skb_linearize(skb)) {
+			dev_kfree_skb_any(skb);
+			dev_core_stats_tx_dropped_inc(dev);
+			return NETDEV_TX_OK;
+		}
+	}
+#endif
 	free_size = bnxt_tx_avail(bp, txr);
 	if (unlikely(free_size < skb_shinfo(skb)->nr_frags + 2)) {
 		/* We must have raced with NAPI cleanup */
@@ -565,7 +576,7 @@ static netdev_tx_t bnxt_start_xmit(struct sk_buff *skb, struct net_device *dev)
 					TX_BD_FLAGS_LHINT_512_AND_SMALLER |
 					TX_BD_FLAGS_COAL_NOW |
 					TX_BD_FLAGS_PACKET_END |
-					(2 << TX_BD_FLAGS_BD_CNT_SHIFT));
+					TX_BD_CNT(2));
 
 		if (skb->ip_summed == CHECKSUM_PARTIAL)
 			tx_push1->tx_bd_hsize_lflags =
@@ -640,7 +651,7 @@ normal_tx:
 
 	dma_unmap_addr_set(tx_buf, mapping, mapping);
 	flags = (len << TX_BD_LEN_SHIFT) | TX_BD_TYPE_LONG_TX_BD |
-		((last_frag + 2) << TX_BD_FLAGS_BD_CNT_SHIFT);
+		TX_BD_CNT(last_frag + 2);
 
 	txbd->tx_bd_haddr = cpu_to_le64(mapping);
 	txbd->tx_bd_opaque = SET_TX_OPAQUE(bp, txr, prod, 2 + last_frag);
@@ -773,7 +784,7 @@ tx_free:
 	dev_kfree_skb_any(skb);
 tx_kick_pending:
 	if (BNXT_TX_PTP_IS_SET(lflags)) {
-		txr->tx_buf_ring[txr->tx_prod].is_ts_pkt = 0;
+		txr->tx_buf_ring[RING_TX(bp, txr->tx_prod)].is_ts_pkt = 0;
 		atomic64_inc(&bp->ptp_cfg->stats.ts_err);
 		if (!(bp->fw_cap & BNXT_FW_CAP_TX_TS_CMP))
 			/* set SKB to err so PTP worker will clean up */
@@ -781,7 +792,7 @@ tx_kick_pending:
 	}
 	if (txr->kick_pending)
 		bnxt_txr_db_kick(bp, txr, txr->tx_prod);
-	txr->tx_buf_ring[txr->tx_prod].skb = NULL;
+	txr->tx_buf_ring[RING_TX(bp, txr->tx_prod)].skb = NULL;
 	dev_core_stats_tx_dropped_inc(dev);
 	return NETDEV_TX_OK;
 }
@@ -2039,6 +2050,7 @@ static int bnxt_rx_pkt(struct bnxt *bp, struct bnxt_cp_ring_info *cpr,
 	struct rx_cmp_ext *rxcmp1;
 	u32 tmp_raw_cons = *raw_cons;
 	u16 cons, prod, cp_cons = RING_CMP(tmp_raw_cons);
+	struct skb_shared_info *sinfo;
 	struct bnxt_sw_rx_bd *rx_buf;
 	unsigned int len;
 	u8 *data_ptr, agg_bufs, cmp_type;
@@ -2165,6 +2177,7 @@ static int bnxt_rx_pkt(struct bnxt *bp, struct bnxt_cp_ring_info *cpr,
 							     false);
 			if (!frag_len)
 				goto oom_next_rx;
+
 		}
 		xdp_active = true;
 	}
@@ -2173,6 +2186,12 @@ static int bnxt_rx_pkt(struct bnxt *bp, struct bnxt_cp_ring_info *cpr,
 		if (bnxt_rx_xdp(bp, rxr, cons, &xdp, data, &data_ptr, &len, event)) {
 			rc = 1;
 			goto next_rx;
+		}
+		if (xdp_buff_has_frags(&xdp)) {
+			sinfo = xdp_get_shared_info_from_buff(&xdp);
+			agg_bufs = sinfo->nr_frags;
+		} else {
+			agg_bufs = 0;
 		}
 	}
 
@@ -2211,7 +2230,8 @@ static int bnxt_rx_pkt(struct bnxt *bp, struct bnxt_cp_ring_info *cpr,
 			if (!skb)
 				goto oom_next_rx;
 		} else {
-			skb = bnxt_xdp_build_skb(bp, skb, agg_bufs, rxr->page_pool, &xdp, rxcmp1);
+			skb = bnxt_xdp_build_skb(bp, skb, agg_bufs,
+						 rxr->page_pool, &xdp);
 			if (!skb) {
 				/* we should be able to free the old skb here */
 				bnxt_xdp_buff_frags_free(rxr, &xdp);
@@ -8294,16 +8314,20 @@ static int bnxt_hwrm_func_qcfg(struct bnxt *bp)
 	if (rc)
 		goto func_qcfg_exit;
 
+	flags = le16_to_cpu(resp->flags);
 #ifdef CONFIG_BNXT_SRIOV
 	if (BNXT_VF(bp)) {
 		struct bnxt_vf_info *vf = &bp->vf;
 
 		vf->vlan = le16_to_cpu(resp->vlan) & VLAN_VID_MASK;
+		if (flags & FUNC_QCFG_RESP_FLAGS_TRUSTED_VF)
+			vf->flags |= BNXT_VF_TRUST;
+		else
+			vf->flags &= ~BNXT_VF_TRUST;
 	} else {
 		bp->pf.registered_vfs = le16_to_cpu(resp->registered_vfs);
 	}
 #endif
-	flags = le16_to_cpu(resp->flags);
 	if (flags & (FUNC_QCFG_RESP_FLAGS_FW_DCBX_AGENT_ENABLED |
 		     FUNC_QCFG_RESP_FLAGS_FW_LLDP_AGENT_ENABLED)) {
 		bp->fw_cap |= BNXT_FW_CAP_LLDP_AGENT;
@@ -9132,10 +9156,18 @@ static int bnxt_alloc_ctx_mem(struct bnxt *bp)
 	ena = 0;
 	if ((bp->flags & BNXT_FLAG_ROCE_CAP) && !is_kdump_kernel()) {
 		pg_lvl = 2;
-		extra_qps = min_t(u32, 65536, max_qps - l2_qps - qp1_qps);
-		/* allocate extra qps if fw supports RoCE fast qp destroy feature */
-		extra_qps += fast_qpmd_qps;
-		extra_srqs = min_t(u32, 8192, max_srqs - srqs);
+		if (BNXT_SW_RES_LMT(bp)) {
+			extra_qps = max_qps - l2_qps - qp1_qps;
+			extra_srqs = max_srqs - srqs;
+		} else {
+			extra_qps = min_t(u32, 65536,
+					  max_qps - l2_qps - qp1_qps);
+			/* allocate extra qps if fw supports RoCE fast qp
+			 * destroy feature
+			 */
+			extra_qps += fast_qpmd_qps;
+			extra_srqs = min_t(u32, 8192, max_srqs - srqs);
+		}
 		if (fast_qpmd_qps)
 			ena |= FUNC_BACKING_STORE_CFG_REQ_ENABLES_QP_FAST_QPMD;
 	}
@@ -9171,14 +9203,20 @@ static int bnxt_alloc_ctx_mem(struct bnxt *bp)
 		goto skip_rdma;
 
 	ctxm = &ctx->ctx_arr[BNXT_CTX_MRAV];
-	/* 128K extra is needed to accommodate static AH context
-	 * allocation by f/w.
-	 */
-	num_mr = min_t(u32, ctxm->max_entries / 2, 1024 * 256);
-	num_ah = min_t(u32, num_mr, 1024 * 128);
-	ctxm->split_entry_cnt = BNXT_CTX_MRAV_AV_SPLIT_ENTRY + 1;
-	if (!ctxm->mrav_av_entries || ctxm->mrav_av_entries > num_ah)
-		ctxm->mrav_av_entries = num_ah;
+	if (BNXT_SW_RES_LMT(bp) &&
+	    ctxm->split_entry_cnt == BNXT_CTX_MRAV_AV_SPLIT_ENTRY + 1) {
+		num_ah = ctxm->mrav_av_entries;
+		num_mr = ctxm->max_entries - num_ah;
+	} else {
+		/* 128K extra is needed to accommodate static AH context
+		 * allocation by f/w.
+		 */
+		num_mr = min_t(u32, ctxm->max_entries / 2, 1024 * 256);
+		num_ah = min_t(u32, num_mr, 1024 * 128);
+		ctxm->split_entry_cnt = BNXT_CTX_MRAV_AV_SPLIT_ENTRY + 1;
+		if (!ctxm->mrav_av_entries || ctxm->mrav_av_entries > num_ah)
+			ctxm->mrav_av_entries = num_ah;
+	}
 
 	rc = bnxt_setup_ctxm_pg_tbls(bp, ctxm, num_mr + num_ah, 2);
 	if (rc)
@@ -9485,6 +9523,9 @@ static int __bnxt_hwrm_func_qcaps(struct bnxt *bp)
 		bp->flags |= BNXT_FLAG_UDP_GSO_CAP;
 	if (flags_ext2 & FUNC_QCAPS_RESP_FLAGS_EXT2_TX_PKT_TS_CMPL_SUPPORTED)
 		bp->fw_cap |= BNXT_FW_CAP_TX_TS_CMP;
+	if (flags_ext2 &
+	    FUNC_QCAPS_RESP_FLAGS_EXT2_SW_MAX_RESOURCE_LIMITS_SUPPORTED)
+		bp->fw_cap |= BNXT_FW_CAP_SW_MAX_RESOURCE_LIMITS;
 	if (BNXT_PF(bp) &&
 	    (flags_ext2 & FUNC_QCAPS_RESP_FLAGS_EXT2_ROCE_VF_RESOURCE_MGMT_SUPPORTED))
 		bp->fw_cap |= BNXT_FW_CAP_ROCE_VF_RESC_MGMT_SUPPORTED;
@@ -11542,6 +11583,26 @@ static int bnxt_hwrm_phy_qcaps(struct bnxt *bp)
 hwrm_phy_qcaps_exit:
 	hwrm_req_drop(bp, req);
 	return rc;
+}
+
+static void bnxt_hwrm_mac_qcaps(struct bnxt *bp)
+{
+	struct hwrm_port_mac_qcaps_output *resp;
+	struct hwrm_port_mac_qcaps_input *req;
+	int rc;
+
+	if (bp->hwrm_spec_code < 0x10a03)
+		return;
+
+	rc = hwrm_req_init(bp, req, HWRM_PORT_MAC_QCAPS);
+	if (rc)
+		return;
+
+	resp = hwrm_req_hold(bp, req);
+	rc = hwrm_req_send_silent(bp, req);
+	if (!rc)
+		bp->mac_flags = resp->flags;
+	hwrm_req_drop(bp, req);
 }
 
 static bool bnxt_support_dropped(u16 advertising, u16 supported)
@@ -15295,6 +15356,9 @@ static void bnxt_get_queue_stats_rx(struct net_device *dev, int i,
 	struct bnxt_cp_ring_info *cpr;
 	u64 *sw;
 
+	if (!bp->bnapi)
+		return;
+
 	cpr = &bp->bnapi[i]->cp_ring;
 	sw = cpr->stats.sw_stats;
 
@@ -15317,6 +15381,9 @@ static void bnxt_get_queue_stats_tx(struct net_device *dev, int i,
 	struct bnxt *bp = netdev_priv(dev);
 	struct bnxt_napi *bnapi;
 	u64 *sw;
+
+	if (!bp->tx_ring)
+		return;
 
 	bnapi = bp->tx_ring[bp->tx_ring_map[i]].bnapi;
 	sw = bnapi->cp_ring.stats.sw_stats;
@@ -15358,6 +15425,9 @@ static int bnxt_queue_mem_alloc(struct net_device *dev, void *qmem, int idx)
 	struct bnxt *bp = netdev_priv(dev);
 	struct bnxt_ring_struct *ring;
 	int rc;
+
+	if (!bp->rx_ring)
+		return -ENETDOWN;
 
 	rxr = &bp->rx_ring[idx];
 	clone = qmem;
@@ -15441,6 +15511,7 @@ static void bnxt_queue_mem_free(struct net_device *dev, void *qmem)
 	struct bnxt_ring_struct *ring;
 
 	bnxt_free_one_rx_ring_skbs(bp, rxr);
+	bnxt_free_one_tpa_info(bp, rxr);
 
 	xdp_rxq_info_unreg(&rxr->xdp_rxq);
 
@@ -15552,7 +15623,7 @@ static int bnxt_queue_start(struct net_device *dev, void *qmem, int idx)
 	cpr = &rxr->bnapi->cp_ring;
 	cpr->sw_stats->rx.rx_resets++;
 
-	for (i = 0; i <= BNXT_VNIC_NTUPLE; i++) {
+	for (i = 0; i < bp->nr_vnics; i++) {
 		vnic = &bp->vnic_info[i];
 
 		rc = bnxt_hwrm_vnic_set_rss_p5(bp, vnic, true);
@@ -15580,7 +15651,7 @@ static int bnxt_queue_stop(struct net_device *dev, void *qmem, int idx)
 	struct bnxt_vnic_info *vnic;
 	int i;
 
-	for (i = 0; i <= BNXT_VNIC_NTUPLE; i++) {
+	for (i = 0; i < bp->nr_vnics; i++) {
 		vnic = &bp->vnic_info[i];
 		vnic->mru = 0;
 		bnxt_hwrm_vnic_update(bp, vnic,
@@ -15672,6 +15743,10 @@ static int bnxt_probe_phy(struct bnxt *bp, bool fw_dflt)
 		bp->dev->priv_flags |= IFF_SUPP_NOFCS;
 	else
 		bp->dev->priv_flags &= ~IFF_SUPP_NOFCS;
+
+	bp->mac_flags = 0;
+	bnxt_hwrm_mac_qcaps(bp);
+
 	if (!fw_dflt)
 		return 0;
 

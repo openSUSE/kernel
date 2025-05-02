@@ -588,10 +588,10 @@ static struct page *follow_page_pte(struct vm_area_struct *vma,
 	if (WARN_ON_ONCE((flags & (FOLL_PIN | FOLL_GET)) ==
 			 (FOLL_PIN | FOLL_GET)))
 		return ERR_PTR(-EINVAL);
+	if (unlikely(pmd_bad(*pmd)))
+		return no_page_table(vma, flags);
 
 	ptep = pte_offset_map_lock(mm, pmd, address, &ptl);
-	if (!ptep)
-		return no_page_table(vma, flags);
 	pte = *ptep;
 	if (!pte_present(pte))
 		goto no_page;
@@ -905,9 +905,8 @@ static int get_gate_page(struct mm_struct *mm, unsigned long address,
 	pmd = pmd_offset(pud, address);
 	if (!pmd_present(*pmd))
 		return -EFAULT;
+	VM_BUG_ON(pmd_trans_huge(*pmd));
 	pte = pte_offset_map(pmd, address);
-	if (!pte)
-		return -EFAULT;
 	if (pte_none(*pte))
 		goto unmap;
 	*vma = get_gate_vma(mm);
@@ -1066,6 +1065,45 @@ static int check_vma_flags(struct vm_area_struct *vma, unsigned long gup_flags)
 	return 0;
 }
 
+/*
+ * This is "vma_lookup()", but with a warning if we would have
+ * historically expanded the stack in the GUP code.
+ */
+static struct vm_area_struct *gup_vma_lookup(struct mm_struct *mm,
+	 unsigned long addr)
+{
+#ifdef CONFIG_STACK_GROWSUP
+	return vma_lookup(mm, addr);
+#else
+	static volatile unsigned long next_warn;
+	struct vm_area_struct *vma;
+	unsigned long now, next;
+
+	vma = find_vma(mm, addr);
+	if (!vma || (addr >= vma->vm_start))
+		return vma;
+
+	/* Only warn for half-way relevant accesses */
+	if (!(vma->vm_flags & VM_GROWSDOWN))
+		return NULL;
+	if (vma->vm_start - addr > 65536)
+		return NULL;
+
+	/* Let's not warn more than once an hour.. */
+	now = jiffies; next = next_warn;
+	if (next && time_before(now, next))
+		return NULL;
+	next_warn = now + 60*60*HZ;
+
+	/* Let people know things may have changed. */
+	pr_warn("GUP no longer grows the stack in %s (%d): %lx-%lx (%lx)\n",
+		current->comm, task_pid_nr(current),
+		vma->vm_start, vma->vm_end, addr);
+	dump_stack();
+	return NULL;
+#endif
+}
+
 /**
  * __get_user_pages() - pin user pages in memory
  * @mm:		mm_struct of target mm
@@ -1147,11 +1185,7 @@ static long __get_user_pages(struct mm_struct *mm,
 
 		/* first iteration or cross vma bound */
 		if (!vma || start >= vma->vm_end) {
-			vma = find_vma(mm, start);
-			if (vma && (start < vma->vm_start)) {
-				WARN_ON_ONCE(vma->vm_flags & VM_GROWSDOWN);
-				vma = NULL;
-			}
+			vma = gup_vma_lookup(mm, start);
 			if (!vma && in_gate_area(mm, start)) {
 				ret = get_gate_page(mm, start & PAGE_MASK,
 						gup_flags, &vma,
@@ -1320,13 +1354,9 @@ int fixup_user_fault(struct mm_struct *mm,
 		fault_flags |= FAULT_FLAG_ALLOW_RETRY | FAULT_FLAG_KILLABLE;
 
 retry:
-	vma = find_vma(mm, address);
+	vma = gup_vma_lookup(mm, address);
 	if (!vma)
 		return -EFAULT;
-	if (address < vma->vm_start ) {
-		WARN_ON_ONCE(vma->vm_flags & VM_GROWSDOWN);
-		return -EFAULT;
-	}
 
 	if (!vma_permits_fault(vma, fault_flags))
 		return -EFAULT;
@@ -2444,8 +2474,6 @@ static int gup_pte_range(pmd_t pmd, pmd_t *pmdp, unsigned long addr,
 	pte_t *ptep, *ptem;
 
 	ptem = ptep = pte_offset_map(&pmd, addr);
-	if (!ptep)
-		return 0;
 	do {
 		pte_t pte = ptep_get_lockless(ptep);
 		struct page *page;

@@ -263,6 +263,7 @@ static struct apic apic_x2apic_cluster __ro_after_init = {
 	.send_IPI_allbutself		= x2apic_send_IPI_allbutself,
 	.send_IPI_all			= x2apic_send_IPI_all,
 	.send_IPI_self			= x2apic_send_IPI_self,
+	.nmi_to_offline_cpu		= true,
 
 	.inquire_remote_apic		= NULL,
 

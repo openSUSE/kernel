@@ -108,6 +108,39 @@ out:
 	close(s);
 }
 
+static void test_sockmap_vsock_delete_on_close(void)
+{
+	int map, c, p, err, zero = 0;
+
+	map = bpf_map_create(BPF_MAP_TYPE_SOCKMAP, NULL, sizeof(int),
+			     sizeof(int), 1, NULL);
+	if (!ASSERT_OK_FD(map, "bpf_map_create"))
+		return;
+
+	err = create_pair(AF_VSOCK, SOCK_STREAM, &c, &p);
+	if (!ASSERT_OK(err, "create_pair"))
+		goto close_map;
+
+	if (xbpf_map_update_elem(map, &zero, &c, BPF_NOEXIST))
+		goto close_socks;
+
+	xclose(c);
+	xclose(p);
+
+	err = create_pair(AF_VSOCK, SOCK_STREAM, &c, &p);
+	if (!ASSERT_OK(err, "create_pair"))
+		goto close_map;
+
+	err = bpf_map_update_elem(map, &zero, &c, BPF_NOEXIST);
+	ASSERT_OK(err, "after close(), bpf_map_update");
+
+close_socks:
+	xclose(c);
+	xclose(p);
+close_map:
+	xclose(map);
+}
+
 static void test_skmsg_helpers(enum bpf_map_type map_type)
 {
 	struct test_skmsg_load_helpers *skel;
@@ -524,12 +557,117 @@ out:
 	test_sockmap_pass_prog__destroy(pass);
 }
 
+static void test_sockmap_unconnected_unix(void)
+{
+	int err, map, stream = 0, dgram = 0, zero = 0;
+	struct test_sockmap_pass_prog *skel;
+
+	skel = test_sockmap_pass_prog__open_and_load();
+	if (!ASSERT_OK_PTR(skel, "open_and_load"))
+		return;
+
+	map = bpf_map__fd(skel->maps.sock_map_rx);
+
+	stream = xsocket(AF_UNIX, SOCK_STREAM, 0);
+	if (stream < 0)
+		return;
+
+	dgram = xsocket(AF_UNIX, SOCK_DGRAM, 0);
+	if (dgram < 0) {
+		close(stream);
+		return;
+	}
+
+	err = bpf_map_update_elem(map, &zero, &stream, BPF_ANY);
+	ASSERT_ERR(err, "bpf_map_update_elem(stream)");
+
+	err = bpf_map_update_elem(map, &zero, &dgram, BPF_ANY);
+	ASSERT_OK(err, "bpf_map_update_elem(dgram)");
+
+	close(stream);
+	close(dgram);
+}
+
+static void test_sockmap_skb_verdict_vsock_poll(void)
+{
+	struct test_sockmap_pass_prog *skel;
+	int err, map, conn, peer;
+	struct bpf_program *prog;
+	struct bpf_link *link;
+	char buf = 'x';
+	int zero = 0;
+
+	skel = test_sockmap_pass_prog__open_and_load();
+	if (!ASSERT_OK_PTR(skel, "open_and_load"))
+		return;
+
+	if (create_pair(AF_VSOCK, SOCK_STREAM, &conn, &peer))
+		goto destroy;
+
+	prog = skel->progs.prog_skb_verdict;
+	map = bpf_map__fd(skel->maps.sock_map_rx);
+	link = bpf_program__attach_sockmap(prog, map);
+	if (!ASSERT_OK_PTR(link, "bpf_program__attach_sockmap"))
+		goto close;
+
+	err = bpf_map_update_elem(map, &zero, &conn, BPF_ANY);
+	if (!ASSERT_OK(err, "bpf_map_update_elem"))
+		goto detach;
+
+	if (xsend(peer, &buf, 1, 0) != 1)
+		goto detach;
+
+	err = poll_read(conn, IO_TIMEOUT_SEC);
+	if (!ASSERT_OK(err, "poll"))
+		goto detach;
+
+	if (xrecv_nonblock(conn, &buf, 1, 0) != 1)
+		FAIL("xrecv_nonblock");
+detach:
+	bpf_link__detach(link);
+close:
+	xclose(conn);
+	xclose(peer);
+destroy:
+	test_sockmap_pass_prog__destroy(skel);
+}
+
+static void test_sockmap_vsock_unconnected(void)
+{
+	struct sockaddr_storage addr;
+	int map, s, zero = 0;
+	socklen_t alen;
+
+	map = bpf_map_create(BPF_MAP_TYPE_SOCKMAP, NULL, sizeof(int),
+			     sizeof(int), 1, NULL);
+	if (!ASSERT_OK_FD(map, "bpf_map_create"))
+		return;
+
+	s = xsocket(AF_VSOCK, SOCK_STREAM, 0);
+	if (s < 0)
+		goto close_map;
+
+	/* Fail connect(), but trigger transport assignment. */
+	init_addr_loopback(AF_VSOCK, &addr, &alen);
+	if (!ASSERT_ERR(connect(s, sockaddr(&addr), alen), "connect"))
+		goto close_sock;
+
+	ASSERT_ERR(bpf_map_update_elem(map, &zero, &s, BPF_ANY), "map_update");
+
+close_sock:
+	xclose(s);
+close_map:
+	xclose(map);
+}
+
 void test_sockmap_basic(void)
 {
 	if (test__start_subtest("sockmap create_update_free"))
 		test_sockmap_create_update_free(BPF_MAP_TYPE_SOCKMAP);
 	if (test__start_subtest("sockhash create_update_free"))
 		test_sockmap_create_update_free(BPF_MAP_TYPE_SOCKHASH);
+	if (test__start_subtest("sockmap vsock delete on close"))
+		test_sockmap_vsock_delete_on_close();
 	if (test__start_subtest("sockmap sk_msg load helpers"))
 		test_skmsg_helpers(BPF_MAP_TYPE_SOCKMAP);
 	if (test__start_subtest("sockhash sk_msg load helpers"))
@@ -566,4 +704,11 @@ void test_sockmap_basic(void)
 		test_sockmap_skb_verdict_fionread(false);
 	if (test__start_subtest("sockmap skb_verdict msg_f_peek"))
 		test_sockmap_skb_verdict_peek();
+
+	if (test__start_subtest("sockmap unconnected af_unix"))
+		test_sockmap_unconnected_unix();
+	if (test__start_subtest("sockmap skb_verdict vsock poll"))
+		test_sockmap_skb_verdict_vsock_poll();
+	if (test__start_subtest("sockmap vsock unconnected"))
+		test_sockmap_vsock_unconnected();
 }
