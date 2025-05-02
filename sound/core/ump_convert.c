@@ -493,7 +493,7 @@ static int do_convert_to_ump(struct ump_cvt_to_ump *cvt, unsigned char group,
 
 	if (cvt->in_sysex) {
 		cvt->buf[cvt->len++] = c;
-		if (cvt->len == 6)
+		if (cvt->len == 4) // FIXME: reduced to 4 for kABI compatibility
 			return cvt_legacy_sysex_to_ump(cvt, group, data, false);
 		return 0;
 	}
