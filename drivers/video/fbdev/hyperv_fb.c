@@ -1367,7 +1367,6 @@ static void __exit hvfb_drv_exit(void)
 }
 
 module_init(hvfb_drv_init);
-module_exit(hvfb_drv_exit);
 
 MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("Microsoft Hyper-V Synthetic Video Frame Buffer Driver");
