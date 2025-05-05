@@ -311,9 +311,12 @@ static int seg6_output(struct net *net, struct sock *sk, struct sk_buff *skb)
 			goto drop;
 		}
 
-		preempt_disable();
-		dst_cache_set_ip6(&slwt->cache, dst, &fl6.saddr);
-		preempt_enable();
+		/* cache only if we don't create a dst reference loop */
+		if (orig_dst->lwtstate != dst->lwtstate) {
+			preempt_disable();
+			dst_cache_set_ip6(&slwt->cache, dst, &fl6.saddr);
+			preempt_enable();
+		}
 	}
 
 	skb_dst_drop(skb);
