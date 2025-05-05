@@ -2185,7 +2185,7 @@ cifs_parse_mount_options(const char *mountdata, const char *devname,
 					 __func__);
 				goto cifs_parse_mount_err;
 			}
-			if (HZ * option > CIFS_MAX_ACTIMEO) {
+			if (option > CIFS_MAX_ACTIMEO / HZ) {
 				cifs_dbg(VFS, "attribute cache timeout too large\n");
 				goto cifs_parse_mount_err;
 			}
@@ -2194,7 +2194,7 @@ cifs_parse_mount_options(const char *mountdata, const char *devname,
 				cifs_dbg(VFS, "actimeo ignored since acregmax or acdirmax specified\n");
 				break;
 			}
-			vol->acdirmax = vol->acregmax = HZ * option;
+			vol->acdirmax = vol->acregmax = (unsigned int)(HZ * option);
 			break;
 		case Opt_acdirmax:
 			if (get_option_ul(args, &option)) {
