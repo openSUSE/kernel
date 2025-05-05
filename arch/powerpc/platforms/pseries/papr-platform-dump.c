@@ -340,15 +340,15 @@ static long papr_platform_dump_create_handle(u64 dump_tag)
 		goto free_area;
 	}
 
-	file = anon_inode_getfile("[papr-platform-dump]",
+	file = anon_inode_getfile_fmode("[papr-platform-dump]",
 				&papr_platform_dump_handle_ops,
-				(void *)params, O_RDONLY);
+				(void *)params, O_RDONLY,
+				FMODE_LSEEK | FMODE_PREAD);
 	if (IS_ERR(file)) {
 		err = PTR_ERR(file);
 		goto put_fd;
 	}
 
-	file->f_mode |= FMODE_LSEEK | FMODE_PREAD;
 	fd_install(fd, file);
 
 	list_add(&params->list, &platform_dump_list);
