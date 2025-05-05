@@ -940,7 +940,7 @@ int udp_sendmsg(struct sock *sk, struct msghdr *msg, size_t len)
 
 	ipc.sockc.tsflags = sk->sk_tsflags;
 	ipc.addr = inet->inet_saddr;
-	ipc.oif = sk->sk_bound_dev_if;
+	ipc.oif = READ_ONCE(sk->sk_bound_dev_if);
 
 	if (msg->msg_controllen) {
 		err = ip_cmsg_send(sk, msg, &ipc, sk->sk_family == AF_INET6);
