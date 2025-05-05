@@ -219,13 +219,13 @@ long papr_rtas_setup_file_interface(struct papr_rtas_sequence *seq,
 		goto free_blob;
 	}
 
-	file = anon_inode_getfile(name, fops, (void *)blob, O_RDONLY);
+	file = anon_inode_getfile_fmode(name, fops, (void *)blob,
+			O_RDONLY, FMODE_LSEEK | FMODE_PREAD);
 	if (IS_ERR(file)) {
 		ret = PTR_ERR(file);
 		goto put_fd;
 	}
 
-	file->f_mode |= FMODE_LSEEK | FMODE_PREAD;
 	fd_install(fd, file);
 	return fd;
 
