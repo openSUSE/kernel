@@ -93,7 +93,7 @@ static unsigned int scmd_timeout = MEGASAS_DEFAULT_CMD_TIMEOUT;
 module_param(scmd_timeout, int, 0444);
 MODULE_PARM_DESC(scmd_timeout, "scsi command timeout (10-90s), default 90s. See megasas_reset_timer.");
 
-int perf_mode = -1;
+static int perf_mode = -1;
 module_param(perf_mode, int, 0444);
 MODULE_PARM_DESC(perf_mode, "Performance mode (only for Aero adapters), options:\n\t\t"
 		"0 - balanced: High iops and low latency queues are allocated &\n\t\t"
@@ -105,15 +105,15 @@ MODULE_PARM_DESC(perf_mode, "Performance mode (only for Aero adapters), options:
 		"default mode is 'balanced'"
 		);
 
-int event_log_level = MFI_EVT_CLASS_CRITICAL;
+static int event_log_level = MFI_EVT_CLASS_CRITICAL;
 module_param(event_log_level, int, 0644);
 MODULE_PARM_DESC(event_log_level, "Asynchronous event logging level- range is: -2(CLASS_DEBUG) to 4(CLASS_DEAD), Default: 2(CLASS_CRITICAL)");
 
-unsigned int enable_sdev_max_qd;
+static unsigned int enable_sdev_max_qd;
 module_param(enable_sdev_max_qd, int, 0444);
 MODULE_PARM_DESC(enable_sdev_max_qd, "Enable sdev max qd as can_queue. Default: 0");
 
-int poll_queues;
+static int poll_queues;
 module_param(poll_queues, int, 0444);
 MODULE_PARM_DESC(poll_queues, "Number of queues to be use for io_uring poll mode.\n\t\t"
 		"This parameter is effective only if host_tagset_enable=1 &\n\t\t"
@@ -122,7 +122,7 @@ MODULE_PARM_DESC(poll_queues, "Number of queues to be use for io_uring poll mode
 		"High iops queues are not allocated &\n\t\t"
 		);
 
-int host_tagset_enable = 1;
+static int host_tagset_enable = 1;
 module_param(host_tagset_enable, int, 0444);
 MODULE_PARM_DESC(host_tagset_enable, "Shared host tagset enable/disable Default: enable(1)");
 
@@ -146,7 +146,7 @@ megasas_set_ld_removed_by_fw(struct megasas_instance *instance);
 /*
  * PCI ID table for all supported controllers
  */
-static struct pci_device_id megasas_pci_table[] = {
+static const struct pci_device_id megasas_pci_table[] = {
 
 	{PCI_DEVICE(PCI_VENDOR_ID_LSI_LOGIC, PCI_DEVICE_ID_LSI_SAS1064R)},
 	/* xscale IOP */
@@ -2103,6 +2103,9 @@ static int megasas_sdev_configure(struct scsi_device *sdev,
 	/* This sdev property may change post OCR */
 	megasas_set_dynamic_target_properties(sdev, lim, is_target_prop);
 
+	if (!MEGASAS_IS_LOGICAL(sdev))
+		sdev->no_vpd_size = 1;
+
 	mutex_unlock(&instance->reset_mutex);
 
 	return 0;
@@ -3662,8 +3665,10 @@ megasas_complete_cmd(struct megasas_instance *instance, struct megasas_cmd *cmd,
 
 		case MFI_STAT_SCSI_IO_FAILED:
 		case MFI_STAT_LD_INIT_IN_PROGRESS:
-			cmd->scmd->result =
-			    (DID_ERROR << 16) | hdr->scsi_status;
+			if (hdr->scsi_status == 0xf0)
+				cmd->scmd->result = (DID_ERROR << 16) | SAM_STAT_CHECK_CONDITION;
+			else
+				cmd->scmd->result = (DID_ERROR << 16) | hdr->scsi_status;
 			break;
 
 		case MFI_STAT_SCSI_DONE_WITH_ERROR:
