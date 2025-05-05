@@ -2202,11 +2202,11 @@ cifs_parse_mount_options(const char *mountdata, const char *devname,
 					 __func__);
 				goto cifs_parse_mount_err;
 			}
-			vol->acdirmax = HZ * option;
-			if (vol->acdirmax > CIFS_MAX_ACTIMEO) {
+			if (option > CIFS_MAX_ACTIMEO / HZ) {
 				cifs_dbg(VFS, "acdirmax too large\n");
 				goto cifs_parse_mount_err;
 			}
+			vol->acdirmax = (unsigned int)(HZ * option);
 			break;
 		case Opt_handletimeout:
 			if (get_option_ul(args, &option)) {
