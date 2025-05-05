@@ -2173,11 +2173,11 @@ cifs_parse_mount_options(const char *mountdata, const char *devname,
 					 __func__);
 				goto cifs_parse_mount_err;
 			}
-			vol->acregmax = HZ * option;
-			if (vol->acregmax > CIFS_MAX_ACTIMEO) {
+			if (option > CIFS_MAX_ACTIMEO / HZ) {
 				cifs_dbg(VFS, "acregmax too large\n");
 				goto cifs_parse_mount_err;
 			}
+			vol->acregmax = (unsigned int)(HZ * option);
 			break;
 		case Opt_actimeo:
 			if (get_option_ul(args, &option)) {
