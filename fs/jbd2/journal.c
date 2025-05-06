@@ -1796,17 +1796,15 @@ static int __jbd2_journal_erase(journal_t *journal, unsigned int flags)
 			return err;
 		}
 
-		if (block_start == ~0ULL) {
-			block_start = phys_block;
-			block_stop = block_start - 1;
-		}
+		if (block_start == ~0ULL)
+			block_stop = block_start = phys_block;
 
 		/*
 		 * last block not contiguous with current block,
 		 * process last contiguous region and return to this block on
 		 * next loop
 		 */
-		if (phys_block != block_stop + 1) {
+		if (phys_block != block_stop) {
 			block--;
 		} else {
 			block_stop++;
@@ -1825,11 +1823,10 @@ static int __jbd2_journal_erase(journal_t *journal, unsigned int flags)
 		 */
 		byte_start = block_start * journal->j_blocksize;
 		byte_stop = block_stop * journal->j_blocksize;
-		byte_count = (block_stop - block_start + 1) *
-				journal->j_blocksize;
+		byte_count = (block_stop - block_start) * journal->j_blocksize;
 
 		truncate_inode_pages_range(journal->j_dev->bd_inode->i_mapping,
-				byte_start, byte_stop);
+				byte_start, byte_stop - 1);
 
 		if (flags & JBD2_JOURNAL_FLUSH_DISCARD) {
 			err = blkdev_issue_discard(journal->j_dev,
@@ -1844,7 +1841,7 @@ static int __jbd2_journal_erase(journal_t *journal, unsigned int flags)
 		}
 
 		if (unlikely(err != 0)) {
-			pr_err("JBD2: (error %d) unable to wipe journal at physical blocks %llu - %llu",
+			pr_err("JBD2: (error %d) unable to wipe journal at physical blocks [%llu, %llu)",
 					err, block_start, block_stop);
 			return err;
 		}
