@@ -1360,12 +1360,6 @@ static int __init hvfb_drv_init(void)
 	return 0;
 }
 
-static void __exit hvfb_drv_exit(void)
-{
-	pci_unregister_driver(&hvfb_pci_stub_driver);
-	vmbus_driver_unregister(&hvfb_drv);
-}
-
 module_init(hvfb_drv_init);
 
 MODULE_LICENSE("GPL");
