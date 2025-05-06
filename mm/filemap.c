@@ -1972,8 +1972,19 @@ no_page:
 		}
 
 		folio = filemap_alloc_folio(gfp, 0);
-		if (!folio)
+		if (!folio) {
+			/*
+			 * When NOWAIT I/O fails to allocate folios this could
+			 * be due to a nonblocking memory allocation and not
+			 * because the system actually is out of memory.
+			 * Return -EAGAIN so that there caller retries in a
+			 * blocking fashion instead of propagating -ENOMEM
+			 * to the application.
+			 */
+			if (fgp_flags & FGP_NOWAIT)
+				return ERR_PTR(-EAGAIN);
 			return ERR_PTR(-ENOMEM);
+		}
 
 		if (WARN_ON_ONCE(!(fgp_flags & (FGP_LOCK | FGP_FOR_MMAP))))
 			fgp_flags |= FGP_LOCK;
