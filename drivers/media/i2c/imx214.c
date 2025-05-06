@@ -780,7 +780,7 @@ static int imx214_start_streaming(struct imx214 *imx214)
 	const struct v4l2_mbus_framefmt *fmt;
 	struct v4l2_subdev_state *state;
 	const struct imx214_mode *mode;
-	int ret;
+	int ret = 0;
 
 	ret = cci_multi_reg_write(imx214->regmap, mode_table_common,
 				  ARRAY_SIZE(mode_table_common), NULL);
