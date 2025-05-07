@@ -11308,6 +11308,7 @@ static int cpu_cfs_local_stat_show(struct seq_file *sf, void *v)
 static int cpu_rt_runtime_write(struct cgroup_subsys_state *css,
 				struct cftype *cft, s64 val)
 {
+	pr_warn_once("RT_GROUP throttling is deprecated.\n");
 	return sched_group_set_rt_runtime(css_tg(css), val);
 }
 
