@@ -629,6 +629,7 @@ static int smc_connect_rdma(struct smc_sock *smc,
 		return smc_connect_abort(smc, SMC_CLC_DECL_ERR_RTOK,
 					 ini->cln_first_contact);
 
+	smc_close_init(smc);
 	smc_rx_init(smc);
 
 	if (ini->cln_first_contact == SMC_FIRST_CONTACT) {
@@ -691,6 +692,7 @@ static int smc_connect_ism(struct smc_sock *smc,
 					 ini->cln_first_contact);
 
 	smc_conn_save_peer_info(smc, aclc);
+	smc_close_init(smc);
 	smc_rx_init(smc);
 	smc_tx_init(smc);
 
@@ -1327,6 +1329,7 @@ static void smc_listen_work(struct work_struct *work)
 	}
 
 	mutex_lock(&smc_server_lgr_pending);
+	smc_close_init(new_smc);
 	smc_rx_init(new_smc);
 	smc_tx_init(new_smc);
 
@@ -2052,7 +2055,6 @@ static int smc_create(struct net *net, struct socket *sock, int protocol,
 	smc = smc_sk(sk);
 	smc->use_fallback = false; /* assume rdma capability first */
 	smc->fallback_rsn = 0;
-	smc_close_init(smc);
 	rc = sock_create_kern(net, family, SOCK_STREAM, IPPROTO_TCP,
 			      &smc->clcsock);
 	if (rc) {
