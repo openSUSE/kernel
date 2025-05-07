@@ -1591,10 +1591,10 @@ static void __init bhi_select_mitigation(void)
 			return;
 	}
 
-	if (spec_ctrl_bhi_dis())
+	if (!IS_ENABLED(CONFIG_X86_64))
 		return;
 
-	if (!IS_ENABLED(CONFIG_X86_64))
+	if (spec_ctrl_bhi_dis())
 		return;
 
 	/* Mitigate KVM by default */
