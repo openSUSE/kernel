@@ -296,6 +296,8 @@ static uint screen_depth;
 static uint screen_fb_size;
 static uint dio_fb_size; /* FB size for deferred IO */
 
+static void hvfb_putmem(struct fb_info *info);
+
 /* Send message to Hyper-V host */
 static inline int synthvid_send(struct hv_device *hdev,
 				struct synthvid_msg *msg)
@@ -905,6 +907,17 @@ static void hvfb_cfb_imageblit(struct fb_info *p,
 					       image->width, image->height);
 }
 
+/*
+ * fb_ops.fb_destroy is called by the last put_fb_info() call at the end
+ * of unregister_framebuffer() or fb_release(). Do any cleanup related to
+ * framebuffer here.
+ */
+static void hvfb_destroy(struct fb_info *info)
+{
+	hvfb_putmem(info);
+	framebuffer_release(info);
+}
+
 static struct fb_ops hvfb_ops = {
 	.owner = THIS_MODULE,
 	.fb_check_var = hvfb_check_var,
@@ -914,6 +927,7 @@ static struct fb_ops hvfb_ops = {
 	.fb_copyarea = hvfb_cfb_copyarea,
 	.fb_imageblit = hvfb_cfb_imageblit,
 	.fb_blank = hvfb_blank,
+	.fb_destroy	= hvfb_destroy,
 };
 
 
@@ -1289,9 +1303,6 @@ static int hvfb_remove(struct hv_device *hdev)
 	vmbus_close(hdev->channel);
 	hv_set_drvdata(hdev, NULL);
 
-	hvfb_putmem(info);
-	framebuffer_release(info);
-
 	return 0;
 }
 
@@ -1360,7 +1371,14 @@ static int __init hvfb_drv_init(void)
 	return 0;
 }
 
+static void __exit hvfb_drv_exit(void)
+{
+	pci_unregister_driver(&hvfb_pci_stub_driver);
+	vmbus_driver_unregister(&hvfb_drv);
+}
+
 module_init(hvfb_drv_init);
+module_exit(hvfb_drv_exit);
 
 MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("Microsoft Hyper-V Synthetic Video Frame Buffer Driver");
