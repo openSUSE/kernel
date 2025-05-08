@@ -201,6 +201,8 @@ struct jit_context {
 /* maximum number of bytes emitted while JITing one eBPF insn */
 #define BPF_MAX_INSN_SIZE	128
 #define BPF_INSN_SAFETY		64
+/* number of bytes emit_call() needs to generate call instruction */
+#define X86_CALL_SIZE		5
 
 #define PROLOGUE_SIZE		20
 
@@ -364,6 +366,22 @@ static void emit_mov_imm64(u8 **pprog, u32 dst_reg,
 	*pprog = prog;
 }
 
+static int emit_call(u8 **pprog, void *func, void *ip)
+{
+	u8 *prog = *pprog;
+	int cnt = 0;
+	s64 offset;
+
+	offset = func - (ip + X86_CALL_SIZE);
+	if (!is_simm32(offset)) {
+		pr_err("Target call %p is out of range\n", func);
+		return -EINVAL;
+	}
+	EMIT1_off32(0xE8, offset);
+	*pprog = prog;
+	return 0;
+}
+
 static int emit_nops(u8 **pprog, int len)
 {
 	u8 *prog = *pprog;
@@ -386,6 +404,30 @@ static int emit_nops(u8 **pprog, int len)
 }
 
 #define INSN_SZ_DIFF (((addrs[i] - addrs[i - 1]) - (prog - temp)))
+
+static int emit_spectre_bhb_barrier(u8 **pprog, u8 *ip,
+				    struct bpf_prog *bpf_prog)
+{
+	u8 *prog = *pprog;
+	u8 *func;
+	int cnt = 0;
+
+	if (boot_cpu_has(X86_FEATURE_CLEAR_BHB_LOOP)) {
+		/* The clearing sequence clobbers eax and ecx. */
+		EMIT1(0x50); /* push rax */
+		EMIT1(0x51); /* push rcx */
+		ip += 2;
+
+		func = (u8 *)clear_bhb_loop;
+
+		if (emit_call(&prog, func, ip))
+			return -EINVAL;
+		EMIT1(0x59); /* pop rcx */
+		EMIT1(0x58); /* pop rax */
+	}
+	*pprog = prog;
+	return 0;
+}
 
 static int do_jit(struct bpf_prog *bpf_prog, int *addrs, u8 *image,
 		  int oldproglen, struct jit_context *ctx, bool jmp_padding)
@@ -845,13 +887,8 @@ xadd:			if (is_imm8(insn->off))
 			/* call */
 		case BPF_JMP | BPF_CALL:
 			func = (u8 *) __bpf_call_base + imm32;
-			jmp_offset = func - (image + addrs[i]);
-			if (!imm32 || !is_simm32(jmp_offset)) {
-				pr_err("unsupported bpf func %d addr %p image %p\n",
-				       imm32, func, image);
-				return -EINVAL;
-			}
-			EMIT1_off32(0xE8, jmp_offset);
+			if (!imm32 || emit_call(&prog, func, image + addrs[i - 1]))
+ 				return -EINVAL;
 			break;
 
 		case BPF_JMP | BPF_TAIL_CALL:
@@ -1062,6 +1099,13 @@ emit_jmp:
 			seen_exit = true;
 			/* update cleanup_addr */
 			ctx->cleanup_addr = proglen;
+			if (bpf_prog_was_classic(bpf_prog) &&
+			    !capable(CAP_SYS_ADMIN)) {
+				u8 *ip = image + addrs[i - 1];
+
+				if (emit_spectre_bhb_barrier(&prog, ip, bpf_prog))
+					return -EINVAL;
+			}
 			if (!bpf_prog_was_classic(bpf_prog))
 				EMIT1(0x5B); /* get rid of tail_call_cnt */
 			EMIT2(0x41, 0x5F);   /* pop r15 */
