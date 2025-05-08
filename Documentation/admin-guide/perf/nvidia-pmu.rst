@@ -160,7 +160,8 @@ see /sys/bus/event_source/devices/nvidia_cnvlink_pmu_<socket-id>.
 Each SoC socket can be connected to one or more sockets via CNVLink. The user can
 use "rem_socket" bitmap parameter to select the remote socket(s) to monitor.
 Each bit represents the socket number, e.g. "rem_socket=0xE" corresponds to
-socket 1 to 3.
+socket 1 to 3. The PMU will monitor all remote sockets by default if not
+specified.
 /sys/bus/event_source/devices/nvidia_cnvlink_pmu_<socket-id>/format/rem_socket
 shows the valid bits that can be set in the "rem_socket" parameter.
 
@@ -199,7 +200,8 @@ see /sys/bus/event_source/devices/nvidia_pcie_pmu_<socket-id>.
 
 Each SoC socket can support multiple root ports. The user can use
 "root_port" bitmap parameter to select the port(s) to monitor, i.e.
-"root_port=0xF" corresponds to root port 0 to 3.
+"root_port=0xF" corresponds to root port 0 to 3. The PMU will monitor all root
+ports by default if not specified.
 /sys/bus/event_source/devices/nvidia_pcie_pmu_<socket-id>/format/root_port
 shows the valid bits that can be set in the "root_port" parameter.
 
