@@ -390,6 +390,7 @@ static struct sock *smc_sock_alloc(struct net *net, struct socket *sock,
 	sk->sk_prot->hash(sk);
 	mutex_init(&smc->clcsock_release_lock);
 	smc_init_saved_callbacks(smc);
+	smc_close_init(smc);
 
 	return sk;
 }
@@ -3276,7 +3277,6 @@ static int __smc_create(struct net *net, struct socket *sock, int protocol,
 	smc = smc_sk(sk);
 	smc->use_fallback = false; /* assume rdma capability first */
 	smc->fallback_rsn = 0;
-	smc_close_init(smc);
 
 	/* default behavior from limit_smc_hs in every net namespace */
 	smc->limit_smc_hs = net->smc.limit_smc_hs;
