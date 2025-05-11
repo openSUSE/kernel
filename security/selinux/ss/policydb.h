@@ -326,6 +326,7 @@ extern bool policydb_context_isvalid(const struct policydb *p,
 				     const struct context *c);
 extern bool policydb_class_isvalid(const struct policydb *p, u16 class);
 extern bool policydb_type_isvalid(const struct policydb *p, u32 type);
+extern bool policydb_simpletype_isvalid(const struct policydb *p, u32 type);
 extern bool policydb_role_isvalid(const struct policydb *p, u32 role);
 extern bool policydb_user_isvalid(const struct policydb *p, u32 user);
 extern int policydb_read(struct policydb *p, struct policy_file *fp);

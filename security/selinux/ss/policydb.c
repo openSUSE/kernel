@@ -964,6 +964,23 @@ bool policydb_type_isvalid(const struct policydb *p, u32 type)
 	return true;
 }
 
+bool policydb_simpletype_isvalid(const struct policydb *p, u32 type)
+{
+	const struct type_datum *datum;
+
+	if (!type || type > p->p_types.nprim)
+		return false;
+
+	datum = p->type_val_to_struct[type - 1];
+	if (!datum)
+		return false;
+
+	if (datum->attribute)
+		return false;
+
+	return true;
+}
+
 /*
  * Return true if the fields in the security context
  * structure `c' are valid.  Return 0 otherwise.
@@ -2078,6 +2095,8 @@ static int filename_trans_read_helper_compat(struct policydb *p, struct policy_f
 	key.name = name;
 
 	otype = le32_to_cpu(buf[3]);
+	if (!policydb_simpletype_isvalid(p, otype))
+		goto out;
 
 	last = NULL;
 	datum = policydb_filenametr_search(p, &key);
@@ -2200,7 +2219,7 @@ static int filename_trans_read_helper(struct policydb *p, struct policy_file *fp
 		datum->otype = le32_to_cpu(buf[0]);
 
 		rc = -EINVAL;
-		if (!policydb_type_isvalid(p, datum->otype))
+		if (!policydb_simpletype_isvalid(p, datum->otype))
 			goto out;
 
 		dst = &datum->next;
