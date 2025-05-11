@@ -355,6 +355,20 @@ struct policy_data {
 	struct policy_file *fp;
 };
 
+static inline int size_check(size_t bytes, size_t num,
+			     const struct policy_file *fp)
+{
+	size_t len;
+
+	if (unlikely(check_mul_overflow(bytes, num, &len)))
+		return -EINVAL;
+
+	if (unlikely(len > fp->len))
+		return -EINVAL;
+
+	return 0;
+}
+
 static inline int next_entry(void *buf, struct policy_file *fp, size_t bytes)
 {
 	if (bytes > fp->len)
