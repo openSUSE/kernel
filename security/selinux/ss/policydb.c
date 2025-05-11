@@ -928,44 +928,50 @@ int policydb_load_isids(struct policydb *p, struct sidtab *s)
 	return 0;
 }
 
-int policydb_class_isvalid(struct policydb *p, u16 class)
+bool policydb_class_isvalid(const struct policydb *p, u16 class)
 {
 	if (!class || class > p->p_classes.nprim)
-		return 0;
-	return 1;
+		return false;
+	if (!p->sym_val_to_name[SYM_CLASSES][class - 1])
+		return false;
+	return true;
 }
 
-int policydb_role_isvalid(struct policydb *p, unsigned int role)
+bool policydb_role_isvalid(const struct policydb *p, u32 role)
 {
 	if (!role || role > p->p_roles.nprim)
-		return 0;
-	return 1;
+		return false;
+	if (!p->sym_val_to_name[SYM_ROLES][role - 1])
+		return false;
+	return true;
 }
 
-int policydb_type_isvalid(struct policydb *p, unsigned int type)
+bool policydb_type_isvalid(const struct policydb *p, u32 type)
 {
 	if (!type || type > p->p_types.nprim)
-		return 0;
-	return 1;
+		return false;
+	if (!p->sym_val_to_name[SYM_TYPES][type - 1])
+		return false;
+	return true;
 }
 
 /*
- * Return 1 if the fields in the security context
+ * Return true if the fields in the security context
  * structure `c' are valid.  Return 0 otherwise.
  */
-int policydb_context_isvalid(struct policydb *p, struct context *c)
+bool policydb_context_isvalid(const struct policydb *p, const struct context *c)
 {
-	struct role_datum *role;
-	struct user_datum *usrdatum;
+	const struct role_datum *role;
+	const struct user_datum *usrdatum;
 
 	if (!c->role || c->role > p->p_roles.nprim)
-		return 0;
+		return false;
 
 	if (!c->user || c->user > p->p_users.nprim)
-		return 0;
+		return false;
 
 	if (!c->type || c->type > p->p_types.nprim)
-		return 0;
+		return false;
 
 	if (c->role != OBJECT_R_VAL) {
 		/*
@@ -974,24 +980,24 @@ int policydb_context_isvalid(struct policydb *p, struct context *c)
 		role = p->role_val_to_struct[c->role - 1];
 		if (!role || !ebitmap_get_bit(&role->types, c->type - 1))
 			/* role may not be associated with type */
-			return 0;
+			return false;
 
 		/*
 		 * User must be authorized for the role.
 		 */
 		usrdatum = p->user_val_to_struct[c->user - 1];
 		if (!usrdatum)
-			return 0;
+			return false;
 
 		if (!ebitmap_get_bit(&usrdatum->roles, c->role - 1))
 			/* user may not be associated with role */
-			return 0;
+			return false;
 	}
 
 	if (!mls_context_isvalid(p, c))
-		return 0;
+		return false;
 
-	return 1;
+	return true;
 }
 
 /*

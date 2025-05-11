@@ -322,10 +322,11 @@ struct policy_file {
 
 extern void policydb_destroy(struct policydb *p);
 extern int policydb_load_isids(struct policydb *p, struct sidtab *s);
-extern int policydb_context_isvalid(struct policydb *p, struct context *c);
-extern int policydb_class_isvalid(struct policydb *p, u16 class);
-extern int policydb_type_isvalid(struct policydb *p, unsigned int type);
-extern int policydb_role_isvalid(struct policydb *p, unsigned int role);
+extern bool policydb_context_isvalid(const struct policydb *p,
+				     const struct context *c);
+extern bool policydb_class_isvalid(const struct policydb *p, u16 class);
+extern bool policydb_type_isvalid(const struct policydb *p, u32 type);
+extern bool policydb_role_isvalid(const struct policydb *p, u32 role);
 extern int policydb_read(struct policydb *p, struct policy_file *fp);
 extern int policydb_write(struct policydb *p, struct policy_file *fp);
 
@@ -397,7 +398,7 @@ static inline int put_entry(const void *buf, size_t bytes, size_t num,
 	return 0;
 }
 
-static inline char *sym_name(struct policydb *p, unsigned int sym_num,
+static inline const char *sym_name(const struct policydb *p, unsigned int sym_num,
 			     unsigned int element_nr)
 {
 	return p->sym_val_to_name[sym_num][element_nr];
