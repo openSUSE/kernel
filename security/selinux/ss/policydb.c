@@ -733,7 +733,6 @@ static int policydb_index(struct policydb *p)
 	pr_debug("SELinux:  %d classes, %d rules\n", p->p_classes.nprim,
 		 p->te_avtab.nel);
 
-	avtab_hash_eval(&p->te_avtab, "rules");
 	symtab_hash_eval(p->symtab);
 
 	p->class_val_to_struct = kzalloc_objs(*p->class_val_to_struct,
@@ -2744,6 +2743,10 @@ int policydb_read(struct policydb *p, struct policy_file *fp)
 		p->symtab[i].nprim = nprim;
 	}
 
+	rc = policydb_index(p);
+	if (rc)
+		goto bad;
+
 	rc = -EINVAL;
 	p->process_class = string_to_security_class(p, "process");
 	if (!p->process_class) {
@@ -2754,6 +2757,8 @@ int policydb_read(struct policydb *p, struct policy_file *fp)
 	rc = avtab_read(&p->te_avtab, fp, p);
 	if (rc)
 		goto bad;
+
+	avtab_hash_eval(&p->te_avtab, "rules");
 
 	if (p->policyvers >= POLICYDB_VERSION_BOOL) {
 		rc = cond_read_list(p, fp);
@@ -2849,10 +2854,6 @@ int policydb_read(struct policydb *p, struct policy_file *fp)
 	}
 
 	rc = filename_trans_read(p, fp);
-	if (rc)
-		goto bad;
-
-	rc = policydb_index(p);
 	if (rc)
 		goto bad;
 
