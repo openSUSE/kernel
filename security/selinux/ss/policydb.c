@@ -2900,6 +2900,11 @@ int policydb_read(struct policydb *p, struct policy_file *fp)
 			if (rc)
 				goto bad;
 		}
+
+		rc = -EINVAL;
+		if (ebitmap_get_highest_set_bit(e) >= p->p_types.nprim)
+			goto bad;
+
 		/* add the type itself as the degenerate case */
 		rc = ebitmap_set_bit(e, i, 1);
 		if (rc)
