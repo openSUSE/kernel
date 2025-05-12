@@ -574,6 +574,7 @@ static int __init of_platform_default_populate_init(void)
 			of_node_put(node);
 		}
 
+		sysfb_disable(NULL);
 		node = of_get_compatible_child(of_chosen, "simple-framebuffer");
 		if (node) {
 			/*
