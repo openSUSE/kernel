@@ -1202,6 +1202,11 @@ _base_sas_ioc_info(struct MPT3SAS_ADAPTER *ioc, MPI2DefaultReply_t *mpi_reply,
 		    ioc->sge_size;
 		func_str = "nvme_encapsulated";
 		break;
+	case MPI2_FUNCTION_MCTP_PASSTHROUGH:
+		frame_sz = sizeof(Mpi26MctpPassthroughRequest_t) +
+		    ioc->sge_size;
+		func_str = "mctp_passthru";
+		break;
 	default:
 		frame_sz = 32;
 		func_str = "unknown";
@@ -4874,6 +4879,12 @@ _base_display_ioc_capabilities(struct MPT3SAS_ADAPTER *ioc)
 		i++;
 	}
 
+	if (ioc->facts.IOCCapabilities &
+	    MPI26_IOCFACTS_CAPABILITY_MCTP_PASSTHRU) {
+		pr_cont("%sMCTP Passthru", i ? "," : "");
+		i++;
+	}
+
 	iounit_pg1_flags = le32_to_cpu(ioc->iounit_pg1.Flags);
 	if (!(iounit_pg1_flags & MPI2_IOUNITPAGE1_NATIVE_COMMAND_Q_DISABLE)) {
 		pr_cont("%sNCQ", i ? "," : "");
@@ -5627,7 +5638,7 @@ _base_static_config_pages(struct MPT3SAS_ADAPTER *ioc)
 	if (rc)
 		return rc;
 	if (!ioc->is_gen35_ioc && ioc->manu_pg11.EEDPTagMode == 0) {
-		pr_err("%s: overriding NVDATA EEDPTagMode setting\n",
+		pr_err("%s: overriding NVDATA EEDPTagMode setting from 0 to 1\n",
 		    ioc->name);
 		ioc->manu_pg11.EEDPTagMode &= ~0x3;
 		ioc->manu_pg11.EEDPTagMode |= 0x1;
