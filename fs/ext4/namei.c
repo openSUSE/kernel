@@ -1462,7 +1462,8 @@ static bool ext4_match(struct inode *parent,
 		 * sure cf_name was properly initialized before
 		 * considering the calculated hash.
 		 */
-		if (IS_ENCRYPTED(parent) && fname->cf_name.name &&
+		if (sb_no_casefold_compat_fallback(parent->i_sb) &&
+		    IS_ENCRYPTED(parent) && fname->cf_name.name &&
 		    (fname->hinfo.hash != EXT4_DIRENT_HASH(de) ||
 		     fname->hinfo.minor_hash != EXT4_DIRENT_MINOR_HASH(de)))
 			return false;
@@ -1595,10 +1596,15 @@ static struct buffer_head *__ext4_find_entry(struct inode *dir,
 		 * return.  Otherwise, fall back to doing a search the
 		 * old fashioned way.
 		 */
-		if (!IS_ERR(ret) || PTR_ERR(ret) != ERR_BAD_DX_DIR)
+		if (IS_ERR(ret) && PTR_ERR(ret) == ERR_BAD_DX_DIR)
+			dxtrace(printk(KERN_DEBUG "ext4_find_entry: dx failed, "
+				       "falling back\n"));
+		else if (!sb_no_casefold_compat_fallback(dir->i_sb) &&
+			 *res_dir == NULL && IS_CASEFOLDED(dir))
+			dxtrace(printk(KERN_DEBUG "ext4_find_entry: casefold "
+				       "failed, falling back\n"));
+		else
 			goto cleanup_and_exit;
-		dxtrace(printk(KERN_DEBUG "ext4_find_entry: dx failed, "
-			       "falling back\n"));
 		ret = NULL;
 	}
 	nblocks = dir->i_size >> EXT4_BLOCK_SIZE_BITS(sb);
@@ -2570,8 +2576,10 @@ again:
 		BUFFER_TRACE(frame->bh, "get_write_access");
 		err = ext4_journal_get_write_access(handle, sb, frame->bh,
 						    EXT4_JTR_NONE);
-		if (err)
+		if (err) {
+			brelse(bh2);
 			goto journal_error;
+		}
 		if (!add_level) {
 			unsigned icount1 = icount/2, icount2 = icount - icount1;
 			unsigned hash2 = dx_get_hash(entries + icount1);
@@ -2582,8 +2590,10 @@ again:
 			err = ext4_journal_get_write_access(handle, sb,
 							    (frame - 1)->bh,
 							    EXT4_JTR_NONE);
-			if (err)
+			if (err) {
+				brelse(bh2);
 				goto journal_error;
+			}
 
 			memcpy((char *) entries2, (char *) (entries + icount1),
 			       icount2 * sizeof(struct dx_entry));
@@ -2602,8 +2612,10 @@ again:
 			dxtrace(dx_show_index("node",
 			       ((struct dx_node *) bh2->b_data)->entries));
 			err = ext4_handle_dirty_dx_node(handle, dir, bh2);
-			if (err)
+			if (err) {
+				brelse(bh2);
 				goto journal_error;
+			}
 			brelse (bh2);
 			err = ext4_handle_dirty_dx_node(handle, dir,
 						   (frame - 1)->bh);
@@ -2628,8 +2640,10 @@ again:
 				       "Creating %d level index...\n",
 				       dxroot->info.indirect_levels));
 			err = ext4_handle_dirty_dx_node(handle, dir, frame->bh);
-			if (err)
+			if (err) {
+				brelse(bh2);
 				goto journal_error;
+			}
 			err = ext4_handle_dirty_dx_node(handle, dir, bh2);
 			brelse(bh2);
 			restart = 1;
@@ -3144,8 +3158,9 @@ static int ext4_rmdir(struct inode *dir, struct dentry *dentry)
 	struct ext4_dir_entry_2 *de;
 	handle_t *handle = NULL;
 
-	if (unlikely(ext4_forced_shutdown(dir->i_sb)))
-		return -EIO;
+	retval = ext4_emergency_state(dir->i_sb);
+	if (unlikely(retval))
+		return retval;
 
 	/* Initialize quotas before so that eventual writes go in
 	 * separate transaction */
@@ -3302,8 +3317,9 @@ static int ext4_unlink(struct inode *dir, struct dentry *dentry)
 {
 	int retval;
 
-	if (unlikely(ext4_forced_shutdown(dir->i_sb)))
-		return -EIO;
+	retval = ext4_emergency_state(dir->i_sb);
+	if (unlikely(retval))
+		return retval;
 
 	trace_ext4_unlink_enter(dir, dentry);
 	/*
@@ -3369,8 +3385,9 @@ static int ext4_symlink(struct mnt_idmap *idmap, struct inode *dir,
 	struct fscrypt_str disk_link;
 	int retries = 0;
 
-	if (unlikely(ext4_forced_shutdown(dir->i_sb)))
-		return -EIO;
+	err = ext4_emergency_state(dir->i_sb);
+	if (unlikely(err))
+		return err;
 
 	err = fscrypt_prepare_symlink(dir, symname, len, dir->i_sb->s_blocksize,
 				      &disk_link);
@@ -4190,8 +4207,9 @@ static int ext4_rename2(struct mnt_idmap *idmap,
 {
 	int err;
 
-	if (unlikely(ext4_forced_shutdown(old_dir->i_sb)))
-		return -EIO;
+	err = ext4_emergency_state(old_dir->i_sb);
+	if (unlikely(err))
+		return err;
 
 	if (flags & ~(RENAME_NOREPLACE | RENAME_EXCHANGE | RENAME_WHITEOUT))
 		return -EINVAL;

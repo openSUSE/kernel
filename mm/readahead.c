@@ -206,9 +206,9 @@ void page_cache_ra_unbounded(struct readahead_control *ractl,
 		unsigned long nr_to_read, unsigned long lookahead_size)
 {
 	struct address_space *mapping = ractl->mapping;
-	unsigned long ra_folio_index, index = readahead_index(ractl);
+	unsigned long index = readahead_index(ractl);
 	gfp_t gfp_mask = readahead_gfp_mask(mapping);
-	unsigned long mark, i = 0;
+	unsigned long mark = ULONG_MAX, i = 0;
 	unsigned int min_nrpages = mapping_min_folio_nrpages(mapping);
 
 	/*
@@ -232,9 +232,14 @@ void page_cache_ra_unbounded(struct readahead_control *ractl,
 	 * index that only has lookahead or "async_region" to set the
 	 * readahead flag.
 	 */
-	ra_folio_index = round_up(readahead_index(ractl) + nr_to_read - lookahead_size,
-				  min_nrpages);
-	mark = ra_folio_index - index;
+	if (lookahead_size <= nr_to_read) {
+		unsigned long ra_folio_index;
+
+		ra_folio_index = round_up(readahead_index(ractl) +
+					  nr_to_read - lookahead_size,
+					  min_nrpages);
+		mark = ra_folio_index - index;
+	}
 	nr_to_read += readahead_index(ractl) - index;
 	ractl->_index = index;
 
@@ -641,7 +646,11 @@ void page_cache_async_ra(struct readahead_control *ractl,
 			1UL << order);
 	if (index == expected) {
 		ra->start += ra->size;
-		ra->size = get_next_ra_size(ra, max_pages);
+		/*
+		 * In the case of MADV_HUGEPAGE, the actual size might exceed
+		 * the readahead window.
+		 */
+		ra->size = max(ra->size, get_next_ra_size(ra, max_pages));
 		ra->async_size = ra->size;
 		goto readit;
 	}

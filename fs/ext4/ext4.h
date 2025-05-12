@@ -1868,14 +1868,6 @@ static inline bool ext4_simulate_fail(struct super_block *sb,
 	return false;
 }
 
-static inline void ext4_simulate_fail_bh(struct super_block *sb,
-					 struct buffer_head *bh,
-					 unsigned long code)
-{
-	if (!IS_ERR(bh) && ext4_simulate_fail(sb, code))
-		clear_buffer_uptodate(bh);
-}
-
 /*
  * Error number codes for s_{first,last}_error_errno
  *
@@ -2242,13 +2234,30 @@ extern int ext4_feature_set_ok(struct super_block *sb, int readonly);
 /*
  * Superblock flags
  */
-#define EXT4_FLAGS_RESIZING	0
-#define EXT4_FLAGS_SHUTDOWN	1
-#define EXT4_FLAGS_BDEV_IS_DAX	2
+enum {
+	EXT4_FLAGS_RESIZING,	/* Avoid superblock update and resize race */
+	EXT4_FLAGS_SHUTDOWN,	/* Prevent access to the file system */
+	EXT4_FLAGS_BDEV_IS_DAX,	/* Current block device support DAX */
+	EXT4_FLAGS_EMERGENCY_RO,/* Emergency read-only due to fs errors */
+};
 
 static inline int ext4_forced_shutdown(struct super_block *sb)
 {
 	return test_bit(EXT4_FLAGS_SHUTDOWN, &EXT4_SB(sb)->s_ext4_flags);
+}
+
+static inline int ext4_emergency_ro(struct super_block *sb)
+{
+	return test_bit(EXT4_FLAGS_EMERGENCY_RO, &EXT4_SB(sb)->s_ext4_flags);
+}
+
+static inline int ext4_emergency_state(struct super_block *sb)
+{
+	if (unlikely(ext4_forced_shutdown(sb)))
+		return -EIO;
+	if (unlikely(ext4_emergency_ro(sb)))
+		return -EROFS;
+	return 0;
 }
 
 /*
@@ -3103,9 +3112,9 @@ extern struct buffer_head *ext4_sb_bread(struct super_block *sb,
 extern struct buffer_head *ext4_sb_bread_unmovable(struct super_block *sb,
 						   sector_t block);
 extern void ext4_read_bh_nowait(struct buffer_head *bh, blk_opf_t op_flags,
-				bh_end_io_t *end_io);
+				bh_end_io_t *end_io, bool simu_fail);
 extern int ext4_read_bh(struct buffer_head *bh, blk_opf_t op_flags,
-			bh_end_io_t *end_io);
+			bh_end_io_t *end_io, bool simu_fail);
 extern int ext4_read_bh_lock(struct buffer_head *bh, blk_opf_t op_flags, bool wait);
 extern void ext4_sb_breadahead_unmovable(struct super_block *sb, sector_t block);
 extern int ext4_seq_options_show(struct seq_file *seq, void *offset);
