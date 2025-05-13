@@ -6791,8 +6791,7 @@ __releases(ext4_group_lock_ptr(sb, e4b->bd_group))
 	if (start == 0 && max >= last)
 		set_trimmed = true;
 	origin_start = start;
-	start = (e4b->bd_info->bb_first_free > start) ?
-		e4b->bd_info->bb_first_free : start;
+	start = max(e4b->bd_info->bb_first_free, start);
 	count = 0;
 	free_count = 0;
 
