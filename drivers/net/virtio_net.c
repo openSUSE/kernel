@@ -5660,6 +5660,7 @@ static int virtnet_xsk_pool_enable(struct net_device *dev,
 err_rq:
 	xsk_pool_dma_unmap(pool, 0);
 err_xsk_map:
+	kvfree(rq->xsk_buffs);
 	return err;
 }
 
