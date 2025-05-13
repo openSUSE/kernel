@@ -3763,8 +3763,16 @@ static int nvme_init_ns_head(struct nvme_ns *ns, struct nvme_ns_info *info)
 	int ret;
 
 	ret = nvme_global_check_duplicate_ids(ctrl->subsys, &info->ids);
-	if (ret == -ENOTUNIQ && ctrl->quirks & NVME_QUIRK_PARTIAL_NID)
-		ret = 0;
+	if (ret == -ENOTUNIQ) {
+		if (!(ctrl->quirks & NVME_QUIRK_PARTIAL_NID)) {
+			dev_warn(ctrl->device,
+				 "Non-unique NID detected, add QUIRK_PARTIAL_NID for '%04x' to avoid this warning\n",
+				 ctrl->subsys->vendor_id);
+			ctrl->quirks |= NVME_QUIRK_PARTIAL_NID;
+		}
+		if (ctrl->quirks & NVME_QUIRK_PARTIAL_NID)
+			ret = 0;
+	}
 	if (ret) {
 		/*
 		 * We've found two different namespaces on two different
@@ -3806,8 +3814,16 @@ static int nvme_init_ns_head(struct nvme_ns *ns, struct nvme_ns_info *info)
 	head = nvme_find_ns_head(ctrl, info->nsid);
 	if (!head) {
 		ret = nvme_subsys_check_duplicate_ids(ctrl->subsys, &info->ids);
-		if (ret == -ENOTUNIQ && ctrl->quirks & NVME_QUIRK_PARTIAL_NID)
-			ret = 0;
+		if (ret == -ENOTUNIQ) {
+			if (!(ctrl->quirks & NVME_QUIRK_PARTIAL_NID)) {
+				dev_warn(ctrl->device,
+					 "Non-unique NID detected, add QUIRK_PARTIAL_NID for '%04x' to avoid this warning\n",
+					 ctrl->subsys->vendor_id);
+				ctrl->quirks |= NVME_QUIRK_PARTIAL_NID;
+			}
+			if (ctrl->quirks & NVME_QUIRK_PARTIAL_NID)
+				ret = 0;
+		}
 		if (ret) {
 			dev_err(ctrl->device,
 				"duplicate IDs in subsystem for nsid %d\n",
