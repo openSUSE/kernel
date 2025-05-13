@@ -1254,6 +1254,11 @@ void spectre_bhb_enable_mitigation(const struct arm64_cpu_capabilities *entry)
 	update_mitigation_state(&spectre_bhb_state, state);
 }
 
+bool is_spectre_bhb_fw_mitigated(void)
+{
+	return test_bit(BHB_FW, &system_bhb_mitigations);
+}
+
 /* Patched to correct the immediate */
 void __init spectre_bhb_patch_loop_iter(struct alt_instr *alt,
 					__le32 *origptr, __le32 *updptr, int nr_inst)
