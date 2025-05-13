@@ -570,6 +570,7 @@ struct module {
 	atomic_t refcnt;
 #endif
 
+
 #ifdef CONFIG_CONSTRUCTORS
 	/* Constructor functions. */
 	ctor_fn_t *ctors;
@@ -582,6 +583,13 @@ struct module {
 #endif
 #ifdef CONFIG_DYNAMIC_DEBUG_CORE
 	struct _ddebug_info dyndbg_info;
+#endif
+
+#ifndef __GENKSYMS__
+#ifdef CONFIG_MITIGATION_ITS
+	int its_num_pages;
+	void **its_page_array;
+#endif
 #endif
 	void *suse_kabi_padding;
 } ____cacheline_aligned __randomize_layout;
