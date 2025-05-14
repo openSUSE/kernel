@@ -598,16 +598,13 @@ static int nxp_download_firmware(struct hci_dev *hdev)
 	}
 
 	serdev_device_set_flow_control(nxpdev->serdev, true);
-	err = serdev_device_wait_for_cts(nxpdev->serdev, 1, 60000);
-	if (err < 0) {
-		bt_dev_err(hdev, "CTS is still high. FW Download failed.");
-		return err;
+	if (nxpdev->fw && strlen(nxpdev->fw_name)) {
+		release_firmware(nxpdev->fw);
+		memset(nxpdev->fw_name, 0, sizeof(nxpdev->fw_name));
 	}
-	release_firmware(nxpdev->fw);
-	memset(nxpdev->fw_name, 0, sizeof(nxpdev->fw_name));
 
 	/* Allow the downloaded FW to initialize */
-	usleep_range(800 * USEC_PER_MSEC, 1 * USEC_PER_SEC);
+	msleep(1200);
 
 	return 0;
 }

@@ -695,7 +695,25 @@ struct bpf_subprog_info {
 	bool tail_call_reachable;
 	bool has_ld_abs;
 	bool is_async_cb;
+#ifndef __GENKSYMS__
+	bool changes_pkt_data;
+#endif
 };
+
+struct __orig_bpf_subprog_info {
+	/* 'start' has to be the first field otherwise find_subprog() won't work */
+	u32 start; /* insn idx of function entry point */
+	u32 linfo_idx; /* The idx to the main_prog->aux->linfo */
+	u16 stack_depth; /* max. stack depth used by this function */
+	bool has_tail_call;
+	bool tail_call_reachable;
+	bool has_ld_abs;
+	bool is_async_cb;
+};
+/* struct bpf_subprog_info is embedded in struct bpf_verifier_env, make sure it
+ * does not change in size. */
+static_assert(sizeof(struct bpf_subprog_info) ==
+              sizeof(struct __orig_bpf_subprog_info));
 
 struct bpf_verifier_env;
 
