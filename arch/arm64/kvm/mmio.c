@@ -114,7 +114,7 @@ int kvm_handle_mmio_return(struct kvm_vcpu *vcpu)
 	 * the MMIO access.
 	 */
 	if (unlikely(!vcpu->mmio_needed || kvm_pending_sync_exception(vcpu)))
-		return 0;
+		return 1;
 
 	vcpu->mmio_needed = 0;
 
@@ -145,7 +145,7 @@ int kvm_handle_mmio_return(struct kvm_vcpu *vcpu)
 	 */
 	kvm_incr_pc(vcpu);
 
-	return 0;
+	return 1;
 }
 
 int io_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa)
