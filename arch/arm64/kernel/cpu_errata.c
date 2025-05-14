@@ -968,6 +968,13 @@ enum mitigation_state arm64_get_spectre_bhb_state(void)
 {
 	return spectre_bhb_state;
 }
+ 
+enum bhb_mitigation_bits {
+	BHB_LOOP,
+	BHB_FW,
+	BHB_HW,
+};
+static unsigned long system_bhb_mitigations;
 
 /*
  * This must be called with SCOPE_LOCAL_CPU for each type of CPU, before any
@@ -1208,6 +1215,7 @@ void spectre_bhb_enable_mitigation(const struct arm64_cpu_capabilities *entry)
 		this_cpu_set_vectors(EL1_VECTOR_BHB_CLEAR_INSN);
 
 		state = SPECTRE_MITIGATED;
+		set_bit(BHB_HW, &system_bhb_mitigations);
 	} else if (spectre_bhb_loop_affected(SCOPE_LOCAL_CPU)) {
 		switch (spectre_bhb_loop_affected(SCOPE_SYSTEM)) {
 		case 8:
@@ -1225,6 +1233,7 @@ void spectre_bhb_enable_mitigation(const struct arm64_cpu_capabilities *entry)
 		this_cpu_set_vectors(EL1_VECTOR_BHB_LOOP);
 
 		state = SPECTRE_MITIGATED;
+		set_bit(BHB_LOOP, &system_bhb_mitigations);
 	} else if (is_spectre_bhb_fw_affected(SCOPE_LOCAL_CPU)) {
 		fw_state = spectre_bhb_get_cpu_fw_mitigation_state();
 		if (fw_state == SPECTRE_MITIGATED) {
@@ -1238,6 +1247,7 @@ void spectre_bhb_enable_mitigation(const struct arm64_cpu_capabilities *entry)
 			__this_cpu_write(bp_hardening_data.fn, NULL);
 
 			state = SPECTRE_MITIGATED;
+			set_bit(BHB_FW, &system_bhb_mitigations);
 		}
 	}
 
