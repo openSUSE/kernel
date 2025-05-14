@@ -1565,13 +1565,7 @@ error:
 int ip6_append_data(struct sock *sk,
 		    int getfrag(void *from, char *to, int offset, int len,
 				int odd, struct sk_buff *skb),
-		    void *from,
-#ifndef __GENKSYMS__
-		    size_t length,
-#else
-		    int length,
-#endif
-		    int transhdrlen,
+		    void *from, size_t length, int transhdrlen,
 		    struct ipcm6_cookie *ipc6, struct flowi6 *fl6,
 		    struct rt6_info *rt, unsigned int flags,
 		    const struct sockcm_cookie *sockc)
@@ -1759,13 +1753,7 @@ EXPORT_SYMBOL_GPL(ip6_flush_pending_frames);
 struct sk_buff *ip6_make_skb(struct sock *sk,
 			     int getfrag(void *from, char *to, int offset,
 					 int len, int odd, struct sk_buff *skb),
-			     void *from,
-#ifndef __GENKSYMS__
-			     size_t length,
-#else
-			     int length,
-#endif
-			     int transhdrlen,
+			     void *from, size_t length, int transhdrlen,
 			     struct ipcm6_cookie *ipc6, struct flowi6 *fl6,
 			     struct rt6_info *rt, unsigned int flags,
 			     const struct sockcm_cookie *sockc)
