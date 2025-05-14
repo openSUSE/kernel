@@ -973,6 +973,7 @@ enum bhb_mitigation_bits {
 	BHB_LOOP,
 	BHB_FW,
 	BHB_HW,
+	BHB_INSN,
 };
 static unsigned long system_bhb_mitigations;
 
@@ -1215,12 +1216,13 @@ void spectre_bhb_enable_mitigation(const struct arm64_cpu_capabilities *entry)
 		pr_info_once("spectre-bhb mitigation disabled by command line option\n");
 	} else if (supports_ecbhb(SCOPE_LOCAL_CPU)) {
 		state = SPECTRE_MITIGATED;
+		set_bit(BHB_HW, &system_bhb_mitigations);
 	} else if (supports_clearbhb(SCOPE_LOCAL_CPU)) {
 		kvm_setup_bhb_slot(__spectre_bhb_clearbhb_start);
 		this_cpu_set_vectors(EL1_VECTOR_BHB_CLEAR_INSN);
 
 		state = SPECTRE_MITIGATED;
-		set_bit(BHB_HW, &system_bhb_mitigations);
+		set_bit(BHB_INSN, &system_bhb_mitigations);
 	} else if (spectre_bhb_loop_affected(SCOPE_LOCAL_CPU)) {
 		switch (spectre_bhb_loop_affected(SCOPE_SYSTEM)) {
 		case 8:

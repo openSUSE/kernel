@@ -56,6 +56,8 @@ enum aarch64_insn_hint_op {
 	AARCH64_INSN_HINT_WFI	= 0x3 << 5,
 	AARCH64_INSN_HINT_SEV	= 0x4 << 5,
 	AARCH64_INSN_HINT_SEVL	= 0x5 << 5,
+
+	AARCH64_INSN_HINT_CLEARBHB = 0x16 << 5,
 };
 
 enum aarch64_insn_imm_type {
