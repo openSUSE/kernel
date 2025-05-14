@@ -1268,6 +1268,7 @@ static void __init early_identify_cpu(struct cpuinfo_x86 *c)
 	c->x86_cache_alignment = c->x86_clflush_size;
 
 	memset(&c->x86_capability, 0, sizeof c->x86_capability);
+	memset(&c->x86_ext_capability, 0, sizeof c->x86_ext_capability);
 	c->extended_cpuid_level = 0;
 
 	/* cyrix could have cpuid enabled via c_identify()*/
@@ -1501,7 +1502,7 @@ static void identify_cpu(struct cpuinfo_x86 *c)
 	c->x86_virt_bits = 32;
 #endif
 	c->x86_cache_alignment = c->x86_clflush_size;
-	memset(&c->x86_capability, 0, sizeof c->x86_capability);
+	memset(&c->x86_ext_capability, 0, sizeof c->x86_ext_capability);
 
 	generic_identify(c);
 
@@ -1580,10 +1581,14 @@ static void identify_cpu(struct cpuinfo_x86 *c)
 		/* AND the already accumulated flags with these */
 		for (i = 0; i < NCAPINTS; i++)
 			boot_cpu_data.x86_capability[i] &= c->x86_capability[i];
+		for (i = 0; i < NEXTCAPINTS; i++)
+			boot_cpu_data.x86_ext_capability[i] &= c->x86_ext_capability[i];
 
 		/* OR, i.e. replicate the bug flags */
 		for (i = NCAPINTS; i < NCAPINTS + NBUGINTS; i++)
 			c->x86_capability[i] |= boot_cpu_data.x86_capability[i];
+		for (i = NEXTCAPINTS; i < NEXTCAPINTS + NEXTBUGINTS; i++)
+			c->x86_ext_capability[i] |= boot_cpu_data.x86_ext_capability[i];
 	}
 
 	/* Init Machine Check Exception if available. */
@@ -2108,10 +2113,12 @@ void microcode_check(void)
 	 * get overwritten in get_cpu_cap().
 	 */
 	memcpy(&info.x86_capability, &boot_cpu_data.x86_capability, sizeof(info.x86_capability));
+	memcpy(&info.x86_ext_capability, &boot_cpu_data.x86_ext_capability, sizeof(info.x86_ext_capability));
 
 	get_cpu_cap(&info);
 
-	if (!memcmp(&info.x86_capability, &boot_cpu_data.x86_capability, sizeof(info.x86_capability)))
+	if (!memcmp(&info.x86_capability, &boot_cpu_data.x86_capability, sizeof(info.x86_capability))
+	    && !memcmp(&info.x86_ext_capability, &boot_cpu_data.x86_ext_capability, sizeof(info.x86_ext_capability)))
 		return;
 
 	pr_warn("x86/CPU: CPU features have changed after loading microcode, but might not take effect.\n");
