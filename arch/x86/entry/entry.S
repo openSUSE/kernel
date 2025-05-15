@@ -5,6 +5,7 @@
 
 #include <linux/export.h>
 #include <linux/linkage.h>
+#include <linux/objtool.h>
 #include <asm/msr-index.h>
 #include <asm/unwind_hints.h>
 #include <asm/segment.h>
@@ -18,6 +19,7 @@
 
 /* Clobbers AX, CX, DX */
 SYM_FUNC_START(write_ibpb)
+	ANNOTATE_NOENDBR
 	movl	$MSR_IA32_PRED_CMD, %ecx
 	movl	_ASM_RIP(x86_pred_cmd), %eax
 	xorl	%edx, %edx
