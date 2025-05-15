@@ -816,6 +816,8 @@ static int p9_fd_open(struct p9_client *client, int rfd, int wfd)
 		return -ENOMEM;
 
 	ts->rd = fget(rfd);
+	/* prevent workers from hanging on IO when fd is a pipe */
+	ts->rd->f_flags |= O_NONBLOCK;
 	ts->wr = fget(wfd);
 	if (!ts->rd || !ts->wr) {
 		if (ts->rd)
@@ -825,6 +827,7 @@ static int p9_fd_open(struct p9_client *client, int rfd, int wfd)
 		kfree(ts);
 		return -EIO;
 	}
+	ts->wr->f_flags |= O_NONBLOCK;
 
 	client->trans = ts;
 	client->status = Connected;
