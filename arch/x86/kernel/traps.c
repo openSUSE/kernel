@@ -1543,20 +1543,6 @@ DEFINE_IDTENTRY(exc_device_not_available)
 	if (handle_xfd_event(regs))
 		return;
 
-#ifdef CONFIG_MATH_EMULATION
-	if (!boot_cpu_has(X86_FEATURE_FPU) && (cr0 & X86_CR0_EM)) {
-		struct math_emu_info info = { };
-
-		cond_local_irq_enable(regs);
-
-		info.regs = regs;
-		math_emulate(&info);
-
-		cond_local_irq_disable(regs);
-		return;
-	}
-#endif
-
 	/* This should not happen. */
 	if (WARN(cr0 & X86_CR0_TS, "CR0.TS was set")) {
 		/* Try to fix it up and carry on. */

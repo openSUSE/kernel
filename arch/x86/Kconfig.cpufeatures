@@ -70,7 +70,6 @@ config X86_REQUIRED_FEATURE_UP
 
 config X86_REQUIRED_FEATURE_FPU
 	def_bool y
-	depends on !MATH_EMULATION
 
 config X86_REQUIRED_FEATURE_PAE
 	def_bool y

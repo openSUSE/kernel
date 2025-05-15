@@ -1633,33 +1633,6 @@ config X86_BOOTPARAM_MEMORY_CORRUPTION_CHECK
 	  Set whether the default state of memory_corruption_check is
 	  on or off.
 
-config MATH_EMULATION
-	bool
-	depends on MODIFY_LDT_SYSCALL
-	prompt "Math emulation" if X86_32 && (M486SX || MELAN)
-	help
-	  Linux can emulate a math coprocessor (used for floating point
-	  operations) if you don't have one. 486DX and Pentium processors have
-	  a math coprocessor built in, 486SX and 386 do not, unless you added
-	  a 487DX or 387, respectively. (The messages during boot time can
-	  give you some hints here ["man dmesg"].) Everyone needs either a
-	  coprocessor or this emulation.
-
-	  If you don't have a math coprocessor, you need to say Y here; if you
-	  say Y here even though you have a coprocessor, the coprocessor will
-	  be used nevertheless. (This behavior can be changed with the kernel
-	  command line option "no387", which comes handy if your coprocessor
-	  is broken. Try "man bootparam" or see the documentation of your boot
-	  loader (lilo or loadlin) about how to pass options to the kernel at
-	  boot time.) This means that it is a good idea to say Y here if you
-	  intend to use this kernel on different machines.
-
-	  More information about the internals of the Linux math coprocessor
-	  emulation can be found in <file:arch/x86/math-emu/README>.
-
-	  If you are not sure, say Y; apart from resulting in a 66 KB bigger
-	  kernel, it won't hurt.
-
 config MTRR
 	def_bool y
 	prompt "MTRR (Memory Type Range Register) support" if EXPERT
