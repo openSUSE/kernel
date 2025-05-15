@@ -684,6 +684,9 @@ struct md_personality
 	int (*change_consistency_policy)(struct mddev *mddev, const char *buf);
 #ifndef __GENKSYMS__
 	void (*prepare_suspend) (struct mddev *mddev);
+	/* convert io ranges from array to bitmap */
+	void (*bitmap_sector)(struct mddev *mddev, sector_t *offset,
+			      unsigned long *sectors);
 #endif
 };
 
