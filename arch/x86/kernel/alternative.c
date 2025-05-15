@@ -1015,16 +1015,16 @@ void __init_or_module noinline apply_returns(s32 *start, s32 *end)
 		}
 	}
 }
-#else
+#else /* !CONFIG_MITIGATION_RETHUNK: */
 void __init_or_module noinline apply_returns(s32 *start, s32 *end) { }
-#endif /* CONFIG_MITIGATION_RETHUNK */
+#endif /* !CONFIG_MITIGATION_RETHUNK */
 
 #else /* !CONFIG_MITIGATION_RETPOLINE || !CONFIG_OBJTOOL */
 
 void __init_or_module noinline apply_retpolines(s32 *start, s32 *end) { }
 void __init_or_module noinline apply_returns(s32 *start, s32 *end) { }
 
-#endif /* CONFIG_MITIGATION_RETPOLINE && CONFIG_OBJTOOL */
+#endif /* !CONFIG_MITIGATION_RETPOLINE || !CONFIG_OBJTOOL */
 
 #ifdef CONFIG_X86_KERNEL_IBT
 
@@ -1086,18 +1086,18 @@ void __init_or_module noinline apply_seal_endbr(s32 *start, s32 *end)
 	}
 }
 
-#else
+#else /* !CONFIG_X86_KERNEL_IBT: */
 
 void __init_or_module apply_seal_endbr(s32 *start, s32 *end) { }
 
-#endif /* CONFIG_X86_KERNEL_IBT */
+#endif /* !CONFIG_X86_KERNEL_IBT */
 
 #ifdef CONFIG_CFI_AUTO_DEFAULT
-#define __CFI_DEFAULT	CFI_AUTO
+# define __CFI_DEFAULT CFI_AUTO
 #elif defined(CONFIG_CFI_CLANG)
-#define __CFI_DEFAULT	CFI_KCFI
+# define __CFI_DEFAULT CFI_KCFI
 #else
-#define __CFI_DEFAULT	CFI_OFF
+# define __CFI_DEFAULT CFI_OFF
 #endif
 
 enum cfi_mode cfi_mode __ro_after_init = __CFI_DEFAULT;
@@ -1600,7 +1600,7 @@ Efault:
 	return false;
 }
 
-#else
+#else /* !CONFIG_FINEIBT: */
 
 static void __apply_fineibt(s32 *start_retpoline, s32 *end_retpoline,
 			    s32 *start_cfi, s32 *end_cfi, bool builtin)
@@ -1611,7 +1611,7 @@ static void __apply_fineibt(s32 *start_retpoline, s32 *end_retpoline,
 static void poison_cfi(void *addr) { }
 #endif
 
-#endif
+#endif /* !CONFIG_FINEIBT */
 
 void apply_fineibt(s32 *start_retpoline, s32 *end_retpoline,
 		   s32 *start_cfi, s32 *end_cfi)
