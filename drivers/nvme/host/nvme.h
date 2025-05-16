@@ -177,6 +177,11 @@ enum nvme_quirks {
 	 * Align dma pool segment size to 512 bytes
 	 */
 	NVME_QUIRK_DMAPOOL_ALIGN_512		= (1 << 22),
+
+	/*
+	 * Not all namespace identifiers are unique
+	 */
+	NVME_QUIRK_PARTIAL_NID			= (1 << 23),
 };
 
 /*
