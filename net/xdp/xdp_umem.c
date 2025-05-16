@@ -307,8 +307,8 @@ static int xdp_umem_account_pages(struct xdp_umem *umem)
 static int xdp_umem_reg(struct xdp_umem *umem, struct xdp_umem_reg *mr)
 {
 	u32 chunk_size = mr->chunk_size, headroom = mr->headroom;
-	unsigned int chunks, chunks_per_page;
-	u64 addr = mr->addr, size = mr->len;
+	unsigned int chunks_per_page;
+	u64 addr = mr->addr, size = mr->len, chunks;
 	int err, i;
 
 	if (chunk_size < XDP_UMEM_MIN_CHUNK_SIZE || chunk_size > PAGE_SIZE) {
@@ -334,8 +334,8 @@ static int xdp_umem_reg(struct xdp_umem *umem, struct xdp_umem_reg *mr)
 	if ((addr + size) < addr)
 		return -EINVAL;
 
-	chunks = (unsigned int)div_u64(size, chunk_size);
-	if (chunks == 0)
+	chunks = div_u64(size, chunk_size);
+	if (chunks == 0 || chunks > U32_MAX)
 		return -EINVAL;
 
 	chunks_per_page = PAGE_SIZE / chunk_size;
