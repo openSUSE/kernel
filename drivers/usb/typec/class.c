@@ -939,10 +939,14 @@ struct typec_partner *typec_register_partner(struct typec_port *port,
 		return ERR_PTR(ret);
 	}
 
-	if (port->usb2_dev)
+	if (port->usb2_dev) {
 		typec_partner_link_device(partner, port->usb2_dev);
-	if (port->usb3_dev)
+		port->usb2_dev = NULL;
+	}
+	if (port->usb3_dev) {
 		typec_partner_link_device(partner, port->usb3_dev);
+		port->usb3_dev = NULL;
+	}
 
 	return partner;
 }
