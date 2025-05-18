@@ -129,7 +129,9 @@ const unsigned char * const x86_nops[ASM_NOP_MAX+1] =
 
 #ifdef CONFIG_MITIGATION_ITS
 
+#ifdef CONFIG_MODULES
 static struct module *its_mod;
+#endif
 static void *its_page;
 static unsigned int its_offset;
 
@@ -150,6 +152,7 @@ static void *its_init_thunk(void *thunk, int reg)
 	return thunk;
 }
 
+#ifdef CONFIG_MODULES
 void its_init_mod(struct module *mod)
 {
 	if (!cpu_feature_enabled(X86_FEATURE_INDIRECT_THUNK_ITS))
@@ -188,6 +191,7 @@ void its_free_mod(struct module *mod)
 	}
 	kfree(mod->its_page_array);
 }
+#endif /* CONFIG_MODULES */
 
 static void *its_alloc(void)
 {
@@ -196,6 +200,7 @@ static void *its_alloc(void)
 	if (!page)
 		return NULL;
 
+#ifdef CONFIG_MODULES
 	if (its_mod) {
 		void *tmp = krealloc(its_mod->its_page_array,
 				     (its_mod->its_num_pages+1) * sizeof(void *),
@@ -206,6 +211,7 @@ static void *its_alloc(void)
 		its_mod->its_page_array = tmp;
 		its_mod->its_page_array[its_mod->its_num_pages++] = page;
 	}
+#endif /* CONFIG_MODULES */
 
 	return no_free_ptr(page);
 }
@@ -238,6 +244,13 @@ static void *its_allocate_thunk(int reg)
 	set_memory_rw((unsigned long)its_page, 1);
 	thunk = its_init_thunk(thunk, reg);
 	set_memory_rox((unsigned long)its_page, 1);
+
+	return thunk;
+}
+
+u8 *its_static_thunk(int reg)
+{
+	u8 *thunk = __x86_indirect_its_thunk_array[reg];
 
 	return thunk;
 }
