@@ -136,6 +136,7 @@ void text_poke_early(void *addr, const void *opcode, size_t len);
 
 #ifdef CONFIG_MITIGATION_ITS
 
+#ifdef CONFIG_MODULES
 static struct module *its_mod;
 static void *its_page;
 static unsigned int its_offset;
@@ -252,7 +253,12 @@ static void *its_allocate_thunk(int reg)
 
 	return thunk;
 }
-
+#else /* CONFIG_MODULES */
+static void *its_allocate_thunk(int reg)
+{
+	return NULL;
+}
+#endif
 #endif
 
 /*
