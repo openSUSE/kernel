@@ -367,6 +367,7 @@ enum mod_mem_type {
 
 struct module_memory {
 	void *base;
+	bool is_rox;
 	unsigned int size;
 
 #ifdef CONFIG_MODULES_TREE_LOOKUP
@@ -580,6 +581,11 @@ struct module {
 	atomic_t refcnt;
 #endif
 
+#ifdef CONFIG_MITIGATION_ITS
+	int its_num_pages;
+	void **its_page_array;
+#endif
+
 #ifdef CONFIG_CONSTRUCTORS
 	/* Constructor functions. */
 	ctor_fn_t *ctors;
@@ -784,6 +790,7 @@ static inline bool is_livepatch_module(struct module *mod)
 }
 
 void set_module_sig_enforced(void);
+
 
 #else /* !CONFIG_MODULES... */
 

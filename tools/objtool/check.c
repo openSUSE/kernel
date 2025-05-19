@@ -615,108 +615,6 @@ static int init_pv_ops(struct objtool_file *file)
 	return 0;
 }
 
-static struct instruction *find_last_insn(struct objtool_file *file,
-					  struct section *sec)
-{
-	struct instruction *insn = NULL;
-	unsigned int offset;
-	unsigned int end = (sec->sh.sh_size > 10) ? sec->sh.sh_size - 10 : 0;
-
-	for (offset = sec->sh.sh_size - 1; offset >= end && !insn; offset--)
-		insn = find_insn(file, sec, offset);
-
-	return insn;
-}
-
-/*
- * Mark "ud2" instructions and manually annotated dead ends.
- */
-static int add_dead_ends(struct objtool_file *file)
-{
-	struct section *rsec;
-	struct reloc *reloc;
-	struct instruction *insn;
-	uint64_t offset;
-
-	/*
-	 * Check for manually annotated dead ends.
-	 */
-	rsec = find_section_by_name(file->elf, ".rela.discard.unreachable");
-	if (!rsec)
-		goto reachable;
-
-	for_each_reloc(rsec, reloc) {
-		if (reloc->sym->type == STT_SECTION) {
-			offset = reloc_addend(reloc);
-		} else if (reloc->sym->local_label) {
-			offset = reloc->sym->offset;
-		} else {
-			WARN("unexpected relocation symbol type in %s", rsec->name);
-			return -1;
-		}
-
-		insn = find_insn(file, reloc->sym->sec, offset);
-		if (insn)
-			insn = prev_insn_same_sec(file, insn);
-		else if (offset == reloc->sym->sec->sh.sh_size) {
-			insn = find_last_insn(file, reloc->sym->sec);
-			if (!insn) {
-				WARN("can't find unreachable insn at %s+0x%" PRIx64,
-				     reloc->sym->sec->name, offset);
-				return -1;
-			}
-		} else {
-			WARN("can't find unreachable insn at %s+0x%" PRIx64,
-			     reloc->sym->sec->name, offset);
-			return -1;
-		}
-
-		insn->dead_end = true;
-	}
-
-reachable:
-	/*
-	 * These manually annotated reachable checks are needed for GCC 4.4,
-	 * where the Linux unreachable() macro isn't supported.  In that case
-	 * GCC doesn't know the "ud2" is fatal, so it generates code as if it's
-	 * not a dead end.
-	 */
-	rsec = find_section_by_name(file->elf, ".rela.discard.reachable");
-	if (!rsec)
-		return 0;
-
-	for_each_reloc(rsec, reloc) {
-		if (reloc->sym->type == STT_SECTION) {
-			offset = reloc_addend(reloc);
-		} else if (reloc->sym->local_label) {
-			offset = reloc->sym->offset;
-		} else {
-			WARN("unexpected relocation symbol type in %s", rsec->name);
-			return -1;
-		}
-
-		insn = find_insn(file, reloc->sym->sec, offset);
-		if (insn)
-			insn = prev_insn_same_sec(file, insn);
-		else if (offset == reloc->sym->sec->sh.sh_size) {
-			insn = find_last_insn(file, reloc->sym->sec);
-			if (!insn) {
-				WARN("can't find reachable insn at %s+0x%" PRIx64,
-				     reloc->sym->sec->name, offset);
-				return -1;
-			}
-		} else {
-			WARN("can't find reachable insn at %s+0x%" PRIx64,
-			     reloc->sym->sec->name, offset);
-			return -1;
-		}
-
-		insn->dead_end = false;
-	}
-
-	return 0;
-}
-
 static int create_static_call_sections(struct objtool_file *file)
 {
 	struct static_call_site *site;
@@ -1311,40 +1209,6 @@ static void add_uaccess_safe(struct objtool_file *file)
 }
 
 /*
- * FIXME: For now, just ignore any alternatives which add retpolines.  This is
- * a temporary hack, as it doesn't allow ORC to unwind from inside a retpoline.
- * But it at least allows objtool to understand the control flow *around* the
- * retpoline.
- */
-static int add_ignore_alternatives(struct objtool_file *file)
-{
-	struct section *rsec;
-	struct reloc *reloc;
-	struct instruction *insn;
-
-	rsec = find_section_by_name(file->elf, ".rela.discard.ignore_alts");
-	if (!rsec)
-		return 0;
-
-	for_each_reloc(rsec, reloc) {
-		if (reloc->sym->type != STT_SECTION) {
-			WARN("unexpected relocation symbol type in %s", rsec->name);
-			return -1;
-		}
-
-		insn = find_insn(file, reloc->sym->sec, reloc_addend(reloc));
-		if (!insn) {
-			WARN("bad .discard.ignore_alts entry");
-			return -1;
-		}
-
-		insn->ignore_alts = true;
-	}
-
-	return 0;
-}
-
-/*
  * Symbols that replace INSN_CALL_DYNAMIC, every (tail) call to such a symbol
  * will be added to the .retpoline_sites section.
  */
@@ -1411,15 +1275,6 @@ static void annotate_call_site(struct objtool_file *file,
 	if (!sym)
 		sym = reloc->sym;
 
-	/*
-	 * Alternative replacement code is just template code which is
-	 * sometimes copied to the original instruction. For now, don't
-	 * annotate it. (In the future we might consider annotating the
-	 * original instruction if/when it ever makes sense to do so.)
-	 */
-	if (!strcmp(insn->sec->name, ".altinstr_replacement"))
-		return;
-
 	if (sym->static_call_tramp) {
 		list_add_tail(&insn->call_node, &file->static_call_list);
 		return;
@@ -1477,7 +1332,8 @@ static void annotate_call_site(struct objtool_file *file,
 		return;
 	}
 
-	if (insn->type == INSN_CALL && !insn->sec->init)
+	if (insn->type == INSN_CALL && !insn->sec->init &&
+	    !insn->_call_dest->embedded_insn)
 		list_add_tail(&insn->call_node, &file->call_list);
 
 	if (!sibling && dead_end_function(file, sym))
@@ -2383,52 +2239,109 @@ static int read_unwind_hints(struct objtool_file *file)
 	return 0;
 }
 
-static int read_noendbr_hints(struct objtool_file *file)
+static int read_annotate(struct objtool_file *file,
+			 int (*func)(struct objtool_file *file, int type, struct instruction *insn))
 {
+	struct section *sec;
 	struct instruction *insn;
-	struct section *rsec;
 	struct reloc *reloc;
+	uint64_t offset;
+	int type, ret;
 
-	rsec = find_section_by_name(file->elf, ".rela.discard.noendbr");
-	if (!rsec)
+	sec = find_section_by_name(file->elf, ".discard.annotate_insn");
+	if (!sec)
 		return 0;
 
-	for_each_reloc(rsec, reloc) {
-		insn = find_insn(file, reloc->sym->sec,
-				 reloc->sym->offset + reloc_addend(reloc));
+	if (!sec->rsec)
+		return 0;
+
+	if (sec->sh.sh_entsize != 8) {
+		static bool warned = false;
+		if (!warned) {
+			WARN("%s: dodgy linker, sh_entsize != 8", sec->name);
+			warned = true;
+		}
+		sec->sh.sh_entsize = 8;
+	}
+
+	for_each_reloc(sec->rsec, reloc) {
+		type = *(u32 *)(sec->data->d_buf + (reloc_idx(reloc) * sec->sh.sh_entsize) + 4);
+
+		offset = reloc->sym->offset + reloc_addend(reloc);
+		insn = find_insn(file, reloc->sym->sec, offset);
+
 		if (!insn) {
-			WARN("bad .discard.noendbr entry");
+			WARN("bad .discard.annotate_insn entry: %d of type %d", reloc_idx(reloc), type);
 			return -1;
 		}
 
-		insn->noendbr = 1;
+		ret = func(file, type, insn);
+		if (ret < 0)
+			return ret;
 	}
 
 	return 0;
 }
 
-static int read_retpoline_hints(struct objtool_file *file)
+static int __annotate_early(struct objtool_file *file, int type, struct instruction *insn)
 {
-	struct section *rsec;
-	struct instruction *insn;
-	struct reloc *reloc;
+	switch (type) {
+	case ANNOTYPE_IGNORE_ALTS:
+		insn->ignore_alts = true;
+		break;
 
-	rsec = find_section_by_name(file->elf, ".rela.discard.retpoline_safe");
-	if (!rsec)
+	/*
+	 * Must be before read_unwind_hints() since that needs insn->noendbr.
+	 */
+	case ANNOTYPE_NOENDBR:
+		insn->noendbr = 1;
+		break;
+
+	default:
+		break;
+	}
+
+	return 0;
+}
+
+static int __annotate_ifc(struct objtool_file *file, int type, struct instruction *insn)
+{
+	unsigned long dest_off;
+
+	if (type != ANNOTYPE_INTRA_FUNCTION_CALL)
 		return 0;
 
-	for_each_reloc(rsec, reloc) {
-		if (reloc->sym->type != STT_SECTION) {
-			WARN("unexpected relocation symbol type in %s", rsec->name);
-			return -1;
-		}
+	if (insn->type != INSN_CALL) {
+		WARN_INSN(insn, "intra_function_call not a direct call");
+		return -1;
+	}
 
-		insn = find_insn(file, reloc->sym->sec, reloc_addend(reloc));
-		if (!insn) {
-			WARN("bad .discard.retpoline_safe entry");
-			return -1;
-		}
+	/*
+	 * Treat intra-function CALLs as JMPs, but with a stack_op.
+	 * See add_call_destinations(), which strips stack_ops from
+	 * normal CALLs.
+	 */
+	insn->type = INSN_JUMP_UNCONDITIONAL;
 
+	dest_off = arch_jump_destination(insn);
+	insn->jump_dest = find_insn(file, insn->sec, dest_off);
+	if (!insn->jump_dest) {
+		WARN_INSN(insn, "can't find call dest at %s+0x%lx",
+			  insn->sec->name, dest_off);
+		return -1;
+	}
+
+	return 0;
+}
+
+static int __annotate_late(struct objtool_file *file, int type, struct instruction *insn)
+{
+	switch (type) {
+	case ANNOTYPE_NOENDBR:
+		/* early */
+		break;
+
+	case ANNOTYPE_RETPOLINE_SAFE:
 		if (insn->type != INSN_JUMP_DYNAMIC &&
 		    insn->type != INSN_CALL_DYNAMIC &&
 		    insn->type != INSN_RETURN &&
@@ -2438,130 +2351,35 @@ static int read_retpoline_hints(struct objtool_file *file)
 		}
 
 		insn->retpoline_safe = true;
-	}
+		break;
 
-	return 0;
-}
-
-static int read_instr_hints(struct objtool_file *file)
-{
-	struct section *rsec;
-	struct instruction *insn;
-	struct reloc *reloc;
-
-	rsec = find_section_by_name(file->elf, ".rela.discard.instr_end");
-	if (!rsec)
-		return 0;
-
-	for_each_reloc(rsec, reloc) {
-		if (reloc->sym->type != STT_SECTION) {
-			WARN("unexpected relocation symbol type in %s", rsec->name);
-			return -1;
-		}
-
-		insn = find_insn(file, reloc->sym->sec, reloc_addend(reloc));
-		if (!insn) {
-			WARN("bad .discard.instr_end entry");
-			return -1;
-		}
-
-		insn->instr--;
-	}
-
-	rsec = find_section_by_name(file->elf, ".rela.discard.instr_begin");
-	if (!rsec)
-		return 0;
-
-	for_each_reloc(rsec, reloc) {
-		if (reloc->sym->type != STT_SECTION) {
-			WARN("unexpected relocation symbol type in %s", rsec->name);
-			return -1;
-		}
-
-		insn = find_insn(file, reloc->sym->sec, reloc_addend(reloc));
-		if (!insn) {
-			WARN("bad .discard.instr_begin entry");
-			return -1;
-		}
-
+	case ANNOTYPE_INSTR_BEGIN:
 		insn->instr++;
-	}
+		break;
 
-	return 0;
-}
+	case ANNOTYPE_INSTR_END:
+		insn->instr--;
+		break;
 
-static int read_validate_unret_hints(struct objtool_file *file)
-{
-	struct section *rsec;
-	struct instruction *insn;
-	struct reloc *reloc;
-
-	rsec = find_section_by_name(file->elf, ".rela.discard.validate_unret");
-	if (!rsec)
-		return 0;
-
-	for_each_reloc(rsec, reloc) {
-		if (reloc->sym->type != STT_SECTION) {
-			WARN("unexpected relocation symbol type in %s", rsec->name);
-			return -1;
-		}
-
-		insn = find_insn(file, reloc->sym->sec, reloc_addend(reloc));
-		if (!insn) {
-			WARN("bad .discard.instr_end entry");
-			return -1;
-		}
+	case ANNOTYPE_UNRET_BEGIN:
 		insn->unret = 1;
-	}
+		break;
 
-	return 0;
-}
+	case ANNOTYPE_IGNORE_ALTS:
+		/* early */
+		break;
 
+	case ANNOTYPE_INTRA_FUNCTION_CALL:
+		/* ifc */
+		break;
 
-static int read_intra_function_calls(struct objtool_file *file)
-{
-	struct instruction *insn;
-	struct section *rsec;
-	struct reloc *reloc;
+	case ANNOTYPE_REACHABLE:
+		insn->dead_end = false;
+		break;
 
-	rsec = find_section_by_name(file->elf, ".rela.discard.intra_function_calls");
-	if (!rsec)
-		return 0;
-
-	for_each_reloc(rsec, reloc) {
-		unsigned long dest_off;
-
-		if (reloc->sym->type != STT_SECTION) {
-			WARN("unexpected relocation symbol type in %s",
-			     rsec->name);
-			return -1;
-		}
-
-		insn = find_insn(file, reloc->sym->sec, reloc_addend(reloc));
-		if (!insn) {
-			WARN("bad .discard.intra_function_call entry");
-			return -1;
-		}
-
-		if (insn->type != INSN_CALL) {
-			WARN_INSN(insn, "intra_function_call not a direct call");
-			return -1;
-		}
-
-		/*
-		 * Treat intra-function CALLs as JMPs, but with a stack_op.
-		 * See add_call_destinations(), which strips stack_ops from
-		 * normal CALLs.
-		 */
-		insn->type = INSN_JUMP_UNCONDITIONAL;
-
-		dest_off = arch_jump_destination(insn);
-		insn->jump_dest = find_insn(file, insn->sec, dest_off);
-		if (!insn->jump_dest) {
-			WARN_INSN(insn, "can't find call dest at %s+0x%lx",
-				  insn->sec->name, dest_off);
-			return -1;
-		}
+	default:
+		WARN_INSN(insn, "Unknown annotation type: %d", type);
+		break;
 	}
 
 	return 0;
@@ -2676,14 +2494,7 @@ static int decode_sections(struct objtool_file *file)
 	add_ignores(file);
 	add_uaccess_safe(file);
 
-	ret = add_ignore_alternatives(file);
-	if (ret)
-		return ret;
-
-	/*
-	 * Must be before read_unwind_hints() since that needs insn->noendbr.
-	 */
-	ret = read_noendbr_hints(file);
+	ret = read_annotate(file, __annotate_early);
 	if (ret)
 		return ret;
 
@@ -2705,19 +2516,11 @@ static int decode_sections(struct objtool_file *file)
 	 * Must be before add_call_destination(); it changes INSN_CALL to
 	 * INSN_JUMP.
 	 */
-	ret = read_intra_function_calls(file);
+	ret = read_annotate(file, __annotate_ifc);
 	if (ret)
 		return ret;
 
 	ret = add_call_destinations(file);
-	if (ret)
-		return ret;
-
-	/*
-	 * Must be after add_call_destinations() such that it can override
-	 * dead_end_function() marks.
-	 */
-	ret = add_dead_ends(file);
 	if (ret)
 		return ret;
 
@@ -2729,15 +2532,11 @@ static int decode_sections(struct objtool_file *file)
 	if (ret)
 		return ret;
 
-	ret = read_retpoline_hints(file);
-	if (ret)
-		return ret;
-
-	ret = read_instr_hints(file);
-	if (ret)
-		return ret;
-
-	ret = read_validate_unret_hints(file);
+	/*
+	 * Must be after add_call_destinations() such that it can override
+	 * dead_end_function() marks.
+	 */
+	ret = read_annotate(file, __annotate_late);
 	if (ret)
 		return ret;
 

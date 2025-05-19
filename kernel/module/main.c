@@ -1242,6 +1242,17 @@ static int module_memory_alloc(struct module *mod, enum mod_mem_type type)
 	if (!ptr)
 		return -ENOMEM;
 
+	if (execmem_is_rox(execmem_type)) {
+		int err = execmem_make_temp_rw(ptr, size);
+
+		if (err) {
+			execmem_free(ptr);
+			return -ENOMEM;
+		}
+
+		mod->mem[type].is_rox = true;
+	}
+
 	/*
 	 * The pointer to these blocks of memory are stored on the module
 	 * structure and we keep that around so long as the module is
@@ -1253,7 +1264,8 @@ static int module_memory_alloc(struct module *mod, enum mod_mem_type type)
 	 * *do* eventually get freed, but let's just keep things simple
 	 * and avoid *any* false positives.
 	 */
-	kmemleak_not_leak(ptr);
+	if (!mod->mem[type].is_rox)
+		kmemleak_not_leak(ptr);
 
 	memset(ptr, 0, size);
 	mod->mem[type].base = ptr;
@@ -1261,10 +1273,21 @@ static int module_memory_alloc(struct module *mod, enum mod_mem_type type)
 	return 0;
 }
 
+static void module_memory_restore_rox(struct module *mod)
+{
+	for_class_mod_mem_type(type, text) {
+		struct module_memory *mem = &mod->mem[type];
+
+		if (mem->is_rox)
+			execmem_restore_rox(mem->base, mem->size);
+	}
+}
+
 static void module_memory_free(struct module *mod, enum mod_mem_type type,
 			       bool unload_codetags)
 {
-	void *ptr = mod->mem[type].base;
+	struct module_memory *mem = &mod->mem[type];
+	void *ptr = mem->base;
 
 	if (!unload_codetags && mod_mem_type_is_core_data(type))
 		return;
@@ -2300,11 +2323,14 @@ static int move_module(struct module *mod, struct load_info *info)
 		void *dest;
 		Elf_Shdr *shdr = &info->sechdrs[i];
 		enum mod_mem_type type = shdr->sh_entsize >> SH_ENTSIZE_TYPE_SHIFT;
+		unsigned long offset = shdr->sh_entsize & SH_ENTSIZE_OFFSET_MASK;
+		unsigned long addr;
 
 		if (!(shdr->sh_flags & SHF_ALLOC))
 			continue;
 
-		dest = mod->mem[type].base + (shdr->sh_entsize & SH_ENTSIZE_OFFSET_MASK);
+		addr = (unsigned long)mod->mem[type].base + offset;
+		dest = mod->mem[type].base + offset;
 
 		if (shdr->sh_type != SHT_NOBITS) {
 			/*
@@ -2333,6 +2359,7 @@ static int move_module(struct module *mod, struct load_info *info)
 
 	return 0;
 out_enomem:
+	module_memory_restore_rox(mod);
 	for (t--; t >= 0; t--)
 		module_memory_free(mod, t, true);
 	return ret;
@@ -3084,6 +3111,7 @@ static int load_module(struct load_info *info, const char __user *uargs,
 				       mod->mem[type].size);
 	}
 
+	module_memory_restore_rox(mod);
 	module_deallocate(mod, info);
  free_copy:
 	/*
