@@ -243,6 +243,12 @@ static inline void __x86_return_thunk(void) {}
 
 extern void srso_alias_untrain_ret(void);
 
+#ifdef CONFIG_MITIGATION_ITS
+extern void its_return_thunk(void);
+#else
+static inline void its_return_thunk(void) {}
+#endif
+
 extern void retbleed_return_thunk(void);
 extern void srso_return_thunk(void);
 extern void srso_alias_return_thunk(void);
