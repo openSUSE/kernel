@@ -495,4 +495,5 @@
 #define X86_BUG_RFDS			X86_EXT_BUG(1*32 + 1) /* CPU is vulnerable to Register File Data Sampling */
 #define X86_BUG_BHI			X86_EXT_BUG(1*32 + 2) /* CPU is affected by Branch History Injection */
 #define X86_BUG_ITS			X86_EXT_BUG(1*32 + 6) /* "its" CPU is affected by Indirect Target Selection */
+#define X86_BUG_ITS_NATIVE_ONLY		X86_EXT_BUG(1*32 + 7) /* "its_native_only" CPU is affected by ITS, VMX is not affected */
 #endif /* _ASM_X86_CPUFEATURES_H */
