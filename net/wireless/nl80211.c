@@ -10168,7 +10168,7 @@ static int nl80211_start_radar_detection(struct sk_buff *skb,
 		switch (wdev->iftype) {
 		case NL80211_IFTYPE_AP:
 		case NL80211_IFTYPE_P2P_GO:
-			wdev->links[0].ap.chandef = chandef;
+			wdev->links[link_id].ap.chandef = chandef;
 			break;
 		case NL80211_IFTYPE_ADHOC:
 			wdev->u.ibss.chandef = chandef;
@@ -12452,7 +12452,7 @@ static int nl80211_del_pmksa(struct sk_buff *skb, struct genl_info *info)
 	if (info->attrs[NL80211_ATTR_MAC]) {
 		pmksa.bssid = nla_data(info->attrs[NL80211_ATTR_MAC]);
 	} else if (info->attrs[NL80211_ATTR_SSID]) {
-		/* SSID based pmksa flush suppported only for FILS,
+		/* SSID based pmksa flush supported only for FILS,
 		 * OWE/SAE OFFLOAD cases
 		 */
 		if (info->attrs[NL80211_ATTR_FILS_CACHE_ID] &&
@@ -14067,8 +14067,6 @@ void cfg80211_free_coalesce(struct cfg80211_coalesce *coalesce)
 
 	for (i = 0; i < coalesce->n_rules; i++) {
 		rule = &coalesce->rules[i];
-		if (!rule)
-			continue;
 		for (j = 0; j < rule->n_patterns; j++)
 			kfree(rule->patterns[j].mask);
 		kfree(rule->patterns);
@@ -15504,7 +15502,7 @@ static int nl80211_add_tx_ts(struct sk_buff *skb, struct genl_info *info)
 	if (tsid >= IEEE80211_FIRST_TSPEC_TSID) {
 		/* TODO: handle 802.11 TSPEC/admission control
 		 * need more attributes for that (e.g. BA session requirement);
-		 * change the WMM adminssion test above to allow both then
+		 * change the WMM admission test above to allow both then
 		 */
 		return -EINVAL;
 	}
