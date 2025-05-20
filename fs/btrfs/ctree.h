@@ -568,6 +568,9 @@ bool btrfs_pinned_by_swapfile(struct btrfs_fs_info *fs_info, void *ptr);
 /* Indicate that the cleaner thread is awake and doing something. */
 #define BTRFS_FS_CLEANER_RUNNING		19
 
+/* Indicate whether there are any tree modification log users */
+#define BTRFS_FS_TREE_MOD_LOG_USERS		20
+
 struct btrfs_fs_info {
 	u8 chunk_tree_uuid[BTRFS_UUID_SIZE];
 	unsigned long flags;

@@ -343,6 +343,7 @@ u64 btrfs_get_tree_mod_seq(struct btrfs_fs_info *fs_info,
 	if (!elem->seq) {
 		elem->seq = btrfs_inc_tree_mod_seq(fs_info);
 		list_add_tail(&elem->list, &fs_info->tree_mod_seq_list);
+		set_bit(BTRFS_FS_TREE_MOD_LOG_USERS, &fs_info->flags);
 	}
 	tree_mod_log_write_unlock(fs_info);
 
@@ -355,7 +356,6 @@ void btrfs_put_tree_mod_seq(struct btrfs_fs_info *fs_info,
 	struct rb_root *tm_root;
 	struct rb_node *node;
 	struct rb_node *next;
-	struct seq_list *cur_elem;
 	struct tree_mod_elem *tm;
 	u64 min_seq = (u64)-1;
 	u64 seq_putting = elem->seq;
@@ -367,18 +367,22 @@ void btrfs_put_tree_mod_seq(struct btrfs_fs_info *fs_info,
 	list_del(&elem->list);
 	elem->seq = 0;
 
-	list_for_each_entry(cur_elem, &fs_info->tree_mod_seq_list, list) {
-		if (cur_elem->seq < min_seq) {
-			if (seq_putting > cur_elem->seq) {
-				/*
-				 * blocker with lower sequence number exists, we
-				 * cannot remove anything from the log
-				 */
-				tree_mod_log_write_unlock(fs_info);
-				return;
-			}
-			min_seq = cur_elem->seq;
+	if (list_empty(&fs_info->tree_mod_seq_list)) {
+		clear_bit(BTRFS_FS_TREE_MOD_LOG_USERS, &fs_info->flags);
+	} else {
+		struct seq_list *first;
+
+		first = list_first_entry(&fs_info->tree_mod_seq_list,
+					 struct seq_list, list);
+		if (seq_putting > first->seq) {
+			/*
+			 * Blocker with lower sequence number exists, we
+			 * cannot remove anything from the log.
+			 */
+			tree_mod_log_write_unlock(fs_info);
+			return;
 		}
+		min_seq = first->seq;
 	}
 
 	/*
@@ -446,9 +450,9 @@ __tree_mod_log_insert(struct btrfs_fs_info *fs_info, struct tree_mod_elem *tm)
  * call tree_mod_log_write_unlock() to release.
  */
 static inline int tree_mod_dont_log(struct btrfs_fs_info *fs_info,
-				    struct extent_buffer *eb) {
-	smp_mb();
-	if (list_empty(&(fs_info)->tree_mod_seq_list))
+				    struct extent_buffer *eb)
+{
+	if (!test_bit(BTRFS_FS_TREE_MOD_LOG_USERS, &fs_info->flags))
 		return 1;
 	if (eb && btrfs_header_level(eb) == 0)
 		return 1;
@@ -466,8 +470,7 @@ static inline int tree_mod_dont_log(struct btrfs_fs_info *fs_info,
 static inline int tree_mod_need_log(const struct btrfs_fs_info *fs_info,
 				    struct extent_buffer *eb)
 {
-	smp_mb();
-	if (list_empty(&(fs_info)->tree_mod_seq_list))
+	if (!test_bit(BTRFS_FS_TREE_MOD_LOG_USERS, &fs_info->flags))
 		return 0;
 	if (eb && btrfs_header_level(eb) == 0)
 		return 0;
@@ -986,8 +989,16 @@ static noinline int update_ref_for_cow(struct btrfs_trans_handle *trans,
 	}
 
 	owner = btrfs_header_owner(buf);
-	BUG_ON(owner == BTRFS_TREE_RELOC_OBJECTID &&
-	       !(flags & BTRFS_BLOCK_FLAG_FULL_BACKREF));
+	if (unlikely(owner == BTRFS_TREE_RELOC_OBJECTID &&
+		     !(flags & BTRFS_BLOCK_FLAG_FULL_BACKREF))) {
+		btrfs_crit(fs_info,
+"found tree block at bytenr %llu level %d root %llu refs %llu flags %llx without full backref flag set",
+			   buf->start, btrfs_header_level(buf),
+			   root->root_key.objectid, refs, flags);
+		ret = -EUCLEAN;
+		btrfs_abort_transaction(trans, ret);
+		return ret;
+	}
 
 	if (refs > 1) {
 		if ((owner == root->root_key.objectid ||

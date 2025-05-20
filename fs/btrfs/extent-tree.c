@@ -3630,6 +3630,7 @@ void btrfs_free_tree_block(struct btrfs_trans_handle *trans,
 
 	if (last_ref && btrfs_header_generation(buf) == trans->transid) {
 		struct btrfs_block_group_cache *cache;
+		bool must_pin = false;
 
 		if (root->root_key.objectid != BTRFS_TREE_LOG_OBJECTID) {
 			ret = check_ref_cleanup(trans, buf->start);
@@ -3637,9 +3638,28 @@ void btrfs_free_tree_block(struct btrfs_trans_handle *trans,
 				goto out;
 		}
 
+		/*
+		 * If there are tree mod log users we may have recorded mod log
+		 * operations for this node.  If we re-allocate this node we
+		 * could replay operations on this node that happened when it
+		 * existed in a completely different root.  For example if it
+		 * was part of root A, then was reallocated to root B, and we
+		 * are doing a btrfs_old_search_slot(root b), we could replay
+		 * operations that happened when the block was part of root A,
+		 * giving us an inconsistent view of the btree.
+		 *
+		 * We are safe from races here because at this point no other
+		 * node or root points to this extent buffer, so if after this
+		 * check a new tree mod log user joins we will not have an
+		 * existing log of operations on this node that we have to
+		 * contend with.
+		 */
+		if (test_bit(BTRFS_FS_TREE_MOD_LOG_USERS, &fs_info->flags))
+			must_pin = true;
+
 		cache = btrfs_lookup_block_group(fs_info, buf->start);
 
-		if (btrfs_header_flag(buf, BTRFS_HEADER_FLAG_WRITTEN)) {
+		if (must_pin || btrfs_header_flag(buf, BTRFS_HEADER_FLAG_WRITTEN)) {
 			pin_down_extent(fs_info, cache, buf->start,
 					buf->len, 1);
 			btrfs_put_block_group(cache);
