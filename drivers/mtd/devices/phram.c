@@ -288,6 +288,9 @@ MODULE_PARM_DESC(phram, "Memory region to map. \"phram=<name>,<start>,<length>\"
 
 static int __init init_phram(void)
 {
+	if (secure_modules())
+		return -EPERM;
+
 	return 0;
 }
 
