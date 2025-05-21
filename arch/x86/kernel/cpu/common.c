@@ -944,7 +944,6 @@ static void apply_forced_caps(struct cpuinfo_x86 *c)
 	for (i = 0; i < NEXTCAPINTS + NEXTBUGINTS; i++) {
 		c->x86_ext_capability[i] |= cpu_caps_set[NCAPINTS+NBUGINTS + i];
 	}
-
 }
 
 static void init_speculation_control(struct cpuinfo_x86 *c)

@@ -33,21 +33,20 @@ enum cpuid_leafs
 	CPUID_7_EDX,
 	CPUID_8000_001F_EAX,
 	CPUID_8000_0021_EAX,
-	CPUID_MAX = CPUID_8000_0021_EAX,
+	CPUID_LNX_5,
+	CPUID_MAX = CPUID_LNX_5,
 	/*
 	 * Everything below should go into the extended caps array to preserve
 	 * kABI
 	 */
-	CPUID_LNX_5,
 	CPUID_LNX_6,
 };
 
-#define CPUID_IDX(x) \
-	__builtin_choose_expr((x) > CPUID_MAX, (x) - CPUID_MAX - 1, (x))
-#define IS_EXT_CPUID_BIT(bit) ((bit>>5) >= NCAPINTS)
+#define CPUID_IDX(x) ((x) - CPUID_MAX - 1)
+#define IS_EXT_BIT(bit) ((bit>>5) >= (NCAPINTS + NBUGINTS))
 
 #ifdef CONFIG_X86_FEATURE_NAMES
-extern const char * const x86_cap_flags[NCAPINTS*32];
+extern const char * const x86_cap_flags[(NCAPINTS+NEXTCAPINTS)*32];
 extern const char * const x86_power_flags[32];
 #define X86_CAP_FMT "%s"
 #define x86_cap_flag(flag) x86_cap_flags[flag]
@@ -58,22 +57,14 @@ extern const char * const x86_power_flags[32];
 
 /*
  * In order to save room, we index into this array by doing
- * X86_BUG_<name> - NCAPINTS*32.
+ * X86_BUGINDEX(X86_BUG_<name>).
  */
 extern const char * const x86_bug_flags[(NBUGINTS+NEXTBUGINTS)*32];
 
-/*
- * This macro must be called with bit belonging to one of the extended bug bits,
- * this required because the first bug word (19) aliases with the first extended
- * cap word (19) as such the check would be ambiguous if this macro is called
- * with a bit which represents an extended cpuid.
- */
-#define IS_EXT_BUG_BIT(bit) ((bit>>5) >= (NCAPINTS+NBUGINTS))
-
 #define test_cpu_cap(c, bit)						\
-	 (IS_EXT_CPUID_BIT(bit) ? test_bit((bit) - (NCAPINTS*32), \
-				(unsigned long *)((c)->x86_ext_capability)) : \
-				test_bit(bit, (unsigned long *)((c)->x86_capability)))
+ (IS_EXT_BIT(bit) ? test_bit((bit) - (NCAPINTS+NBUGINTS)*32,		\
+			     (unsigned long *)((c)->x86_ext_capability)) : \
+		    test_bit(bit, (unsigned long *)((c)->x86_capability)))
 
 /*
  * There are 32 bits/features in each mask word.  The high bits
@@ -148,8 +139,9 @@ extern const char * const x86_bug_flags[(NBUGINTS+NEXTBUGINTS)*32];
 
 #define this_cpu_has(bit)						\
 	(__builtin_constant_p(bit) && REQUIRED_MASK_BIT_SET(bit) ? 1 :	\
-	 x86_this_cpu_test_bit(bit,					\
-		(unsigned long __percpu *)&cpu_info.x86_capability))
+	 (IS_EXT_BIT(bit) ? x86_this_cpu_test_bit((bit) - (NCAPINTS+NBUGINTS)*32, \
+						  (unsigned long *)&cpu_info.x86_ext_capability) : \
+	  x86_this_cpu_test_bit(bit, (unsigned long *)&cpu_info.x86_capability)))
 
 /*
  * This macro is for detection of features which need kernel
@@ -164,47 +156,24 @@ extern const char * const x86_bug_flags[(NBUGINTS+NEXTBUGINTS)*32];
 
 #define boot_cpu_has(bit)	cpu_has(&boot_cpu_data, bit)
 
-#define set_cpu_cap(c, bit) do { \
-	if (IS_EXT_CPUID_BIT(bit)) {					      \
-		set_bit(bit - (NCAPINTS*32),                                  \
-			(unsigned long *)(c)->x86_ext_capability);	      \
-	} else {							      \
-		set_bit(bit, (unsigned long *)((c)->x86_capability));	      \
-	}								      \
+#define set_cpu_cap(c, bit) do {					\
+	if (IS_EXT_BIT(bit)) {						\
+		set_bit((bit) - (NCAPINTS+NBUGINTS)*32,			\
+			(unsigned long *)(c)->x86_ext_capability);	\
+	} else {							\
+		set_bit(bit, (unsigned long *)((c)->x86_capability));	\
+	}								\
 } while (0)
-
 
 extern void setup_clear_cpu_cap(unsigned int bit);
 extern void clear_cpu_cap(struct cpuinfo_x86 *c, unsigned int bit);
 
 #define setup_force_cpu_cap(bit) do { \
-	if (IS_EXT_CPUID_BIT(bit)) {					      \
-		set_bit(bit - (NCAPINTS*32),						      \
-			(unsigned long *)&cpu_caps_set[NCAPINTS + NBUGINTS]); \
-		set_bit(bit - (NCAPINTS*32),                                 \
-			(unsigned long *)(&boot_cpu_data)->x86_ext_capability); \
-	} else {							      \
-		set_cpu_cap(&boot_cpu_data, bit);			      \
-		set_bit(bit, (unsigned long *)cpu_caps_set);		      \
-	}								      \
+	set_cpu_cap(&boot_cpu_data, bit);	\
+	set_bit(bit, (unsigned long *)cpu_caps_set);	\
 } while (0)
 
-
-/*
- * This has to be re-implemented because of the aliasing issues between
- * extended capability bits and bug bits, see comment above IS_EXT_BUG_BIT.
- */
-#define setup_force_cpu_bug(bit) do { \
-	if (IS_EXT_BUG_BIT(bit)) {					      \
-		set_bit(bit - ((NCAPINTS+NBUGINTS)*32),		      \
-			(unsigned long *)&cpu_caps_set[NCAPINTS + NBUGINTS + NEXTCAPINTS]); \
-		set_bit(bit - ((NCAPINTS+NBUGINTS)*32),                                 \
-			(unsigned long *)&(&boot_cpu_data)->x86_ext_capability[NEXTCAPINTS]); \
-	} else {							      \
-		set_bit(bit, (unsigned long *)((&boot_cpu_data)->x86_capability));	      \
-		set_bit(bit, (unsigned long *)cpu_caps_set);		      \
-	}								      \
-} while (0)
+#define setup_force_cpu_bug(bit) setup_force_cpu_cap(bit)
 
 #if defined(__clang__) && !defined(CONFIG_CC_HAS_ASM_GOTO)
 
@@ -250,33 +219,22 @@ t_no:
 
 #define static_cpu_has(bit)					\
 ({								\
-	BUILD_BUG_ON_MSG((bit >> 5) >= NCAPINTS+NBUGINTS, "extended bits/bugs not supported"); \
+	BUILD_BUG_ON_MSG(IS_EXT_BIT(bit), "extended bits/bugs not supported"); \
 	(__builtin_constant_p(boot_cpu_has(bit)) ?		\
 		boot_cpu_has(bit) :				\
 		_static_cpu_has(bit));				\
 })
 #endif
 
-#define cpu_has_bug(c, bit) (IS_EXT_BUG_BIT((bit)) ? test_bit((bit) - ((NCAPINTS+NBUGINTS)*32), \
-				(unsigned long *)(&((c)->x86_ext_capability[NEXTCAPINTS]))) : \
-				test_bit(bit, (unsigned long *)((c)->x86_capability)))
-
-#define set_cpu_bug(c, bit) do {						\
-	if (IS_EXT_BUG_BIT(bit)) {						\
-		set_bit(bit - ((NCAPINTS+NBUGINTS)*32),                         \
-			(unsigned long *)(&((c)->x86_ext_capability[NEXTCAPINTS]))); \
-	} else {								\
-		set_bit(bit, (unsigned long *)((c)->x86_capability));		\
-	}									\
-} while (0)
-
+#define cpu_has_bug(c, bit)		cpu_has(c, (bit))
+#define set_cpu_bug(c, bit)		set_cpu_cap(c, (bit))
 #define clear_cpu_bug(c, bit)		clear_cpu_cap(c, (bit))
 
 #define static_cpu_has_bug(bit)		static_cpu_has((bit))
 #define boot_cpu_has_bug(bit)		cpu_has_bug(&boot_cpu_data, (bit))
-#define boot_cpu_set_bug(bit)		set_cpu_bug(&boot_cpu_data, (bit))
+#define boot_cpu_set_bug(bit)		set_cpu_cap(&boot_cpu_data, (bit))
 
-#define MAX_CPU_FEATURES		((NCAPINTS + NEXTCAPINTS)* 32)
+#define MAX_CPU_FEATURES		((NCAPINTS + NEXTCAPINTS)*32)
 #define cpu_have_feature		boot_cpu_has
 
 #define CPU_FEATURE_TYPEFMT		"x86,ven%04Xfam%04Xmod%04X"

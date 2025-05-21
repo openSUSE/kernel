@@ -882,7 +882,7 @@ static int emit_spectre_bhb_barrier(u8 **pprog, u8 *ip,
 	u8 *prog = *pprog;
 	u8 *func;
 
-	if (cpu_feature_enabled(X86_FEATURE_CLEAR_BHB_LOOP)) {
+	if (boot_cpu_has(X86_FEATURE_CLEAR_BHB_LOOP)) {
 		/* The clearing sequence clobbers eax and ecx. */
 		EMIT1(0x50); /* push rax */
 		EMIT1(0x51); /* push rcx */
@@ -896,9 +896,9 @@ static int emit_spectre_bhb_barrier(u8 **pprog, u8 *ip,
 		EMIT1(0x58); /* pop rax */
 	}
 	/* Insert IBHF instruction */
-	if ((cpu_feature_enabled(X86_FEATURE_CLEAR_BHB_LOOP) &&
+	if ((boot_cpu_has(X86_FEATURE_CLEAR_BHB_LOOP) &&
 	     cpu_feature_enabled(X86_FEATURE_HYPERVISOR)) ||
-	    cpu_feature_enabled(X86_FEATURE_CLEAR_BHB_HW)) {
+	    boot_cpu_has(X86_FEATURE_CLEAR_BHB_HW)) {
 		/*
 		 * Add an Indirect Branch History Fence (IBHF). IBHF acts as a
 		 * fence preventing branch history from before the fence from
