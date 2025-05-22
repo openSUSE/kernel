@@ -50,6 +50,11 @@ static int amd_powerplay_create(struct amdgpu_device *adev)
 	hwmgr->not_vf = !amdgpu_sriov_vf(adev);
 	hwmgr->pm_en = (amdgpu_dpm && hwmgr->not_vf) ? true : false;
 	hwmgr->device = amdgpu_cgs_create_device(adev);
+	if (!hwmgr->device) {
+		kfree(hwmgr);
+		return -ENOMEM;
+	}
+
 	mutex_init(&hwmgr->smu_lock);
 	hwmgr->chip_family = adev->family;
 	hwmgr->chip_id = adev->asic_type;
