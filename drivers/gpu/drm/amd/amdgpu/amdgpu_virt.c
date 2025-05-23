@@ -641,7 +641,7 @@ static void amdgpu_virt_update_vf2pf_work_item(struct work_struct *work)
 		if ((adev->virt.vf2pf_update_retry_cnt >= AMDGPU_VF2PF_UPDATE_MAX_RETRY_LIMIT) &&
 		    amdgpu_sriov_runtime(adev) && !amdgpu_in_reset(adev)) {
 			if (amdgpu_reset_domain_schedule(adev->reset_domain,
-							  &adev->virt.flr_work))
+							  &adev->kfd.reset_work))
 				return;
 			else
 				dev_err(adev->dev, "Failed to queue work! at %s", __func__);
