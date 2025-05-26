@@ -6906,7 +6906,6 @@ static int kvm_arch_suspend_notifier(struct kvm *kvm)
 	unsigned long i;
 	int ret = 0;
 
-	mutex_lock(&kvm->lock);
 	kvm_for_each_vcpu(i, vcpu, kvm) {
 		if (!vcpu->arch.pv_time.active)
 			continue;
@@ -6918,7 +6917,6 @@ static int kvm_arch_suspend_notifier(struct kvm *kvm)
 			break;
 		}
 	}
-	mutex_unlock(&kvm->lock);
 
 	return ret ? NOTIFY_BAD : NOTIFY_DONE;
 }
