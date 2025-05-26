@@ -188,6 +188,11 @@ static void ptp_clock_release(struct device *dev)
 
 /* public interface */
 
+static int ptp_enable(struct ptp_clock_info *ptp, struct ptp_clock_request *request, int on)
+{
+	return -EOPNOTSUPP;
+}
+
 struct ptp_clock *ptp_clock_register(struct ptp_clock_info *info,
 				     struct device *parent)
 {
@@ -217,6 +222,9 @@ struct ptp_clock *ptp_clock_register(struct ptp_clock_info *info,
 	mutex_init(&ptp->tsevq_mux);
 	mutex_init(&ptp->pincfg_mux);
 	init_waitqueue_head(&ptp->tsev_wq);
+
+	if (!ptp->info->enable)
+		ptp->info->enable = ptp_enable;
 
 	err = ptp_populate_pin_groups(ptp);
 	if (err)
