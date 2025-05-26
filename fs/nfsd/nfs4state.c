@@ -3981,7 +3981,7 @@ static void nfsd_break_one_deleg(struct nfs4_delegation *dp)
 	queued = nfsd4_run_cb(&dp->dl_recall);
 	WARN_ON_ONCE(!queued);
 	if (!queued)
-		nfs4_put_stid(&dp->dl_stid);
+		atomic_dec(&dp->dl_stid.sc_count);
 }
 
 /* Called from break_lease() with i_lock held. */
