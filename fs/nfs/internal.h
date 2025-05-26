@@ -400,8 +400,8 @@ struct dentry *nfs_lookup(struct inode *, struct dentry *, unsigned int);
 void nfs_d_prune_case_insensitive_aliases(struct inode *inode);
 int nfs_create(struct mnt_idmap *, struct inode *, struct dentry *,
 	       umode_t, bool);
-int nfs_mkdir(struct mnt_idmap *, struct inode *, struct dentry *,
-	      umode_t);
+struct dentry *nfs_mkdir(struct mnt_idmap *, struct inode *, struct dentry *,
+			 umode_t);
 int nfs_rmdir(struct inode *, struct dentry *);
 int nfs_unlink(struct inode *, struct dentry *);
 int nfs_symlink(struct mnt_idmap *, struct inode *, struct dentry *,
@@ -903,6 +903,11 @@ static inline u32 nfs_stateid_hash(const nfs4_stateid *stateid)
 {
 	return ~crc32_le(0xFFFFFFFF, &stateid->other[0],
 				NFS4_STATEID_OTHER_SIZE);
+}
+
+static inline bool nfs_current_task_exiting(void)
+{
+	return (current->flags & PF_EXITING) != 0;
 }
 
 static inline bool nfs_error_is_fatal(int err)

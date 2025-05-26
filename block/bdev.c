@@ -148,28 +148,69 @@ static void set_init_blocksize(struct block_device *bdev)
 		bsize <<= 1;
 	}
 	BD_INODE(bdev)->i_blkbits = blksize_bits(bsize);
+	mapping_set_folio_min_order(BD_INODE(bdev)->i_mapping,
+				    get_order(bsize));
 }
+
+/**
+ * bdev_validate_blocksize - check that this block size is acceptable
+ * @bdev:	blockdevice to check
+ * @block_size:	block size to check
+ *
+ * For block device users that do not use buffer heads or the block device
+ * page cache, make sure that this block size can be used with the device.
+ *
+ * Return: On success zero is returned, negative error code on failure.
+ */
+int bdev_validate_blocksize(struct block_device *bdev, int block_size)
+{
+	if (blk_validate_block_size(block_size))
+		return -EINVAL;
+
+	/* Size cannot be smaller than the size supported by the device */
+	if (block_size < bdev_logical_block_size(bdev))
+		return -EINVAL;
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(bdev_validate_blocksize);
 
 int set_blocksize(struct file *file, int size)
 {
 	struct inode *inode = file->f_mapping->host;
 	struct block_device *bdev = I_BDEV(inode);
+	int ret;
 
-	if (blk_validate_block_size(size))
-		return -EINVAL;
-
-	/* Size cannot be smaller than the size supported by the device */
-	if (size < bdev_logical_block_size(bdev))
-		return -EINVAL;
+	ret = bdev_validate_blocksize(bdev, size);
+	if (ret)
+		return ret;
 
 	if (!file->private_data)
 		return -EINVAL;
 
 	/* Don't change the size if it is same as current */
 	if (inode->i_blkbits != blksize_bits(size)) {
+		/*
+		 * Flush and truncate the pagecache before we reconfigure the
+		 * mapping geometry because folio sizes are variable now.  If a
+		 * reader has already allocated a folio whose size is smaller
+		 * than the new min_order but invokes readahead after the new
+		 * min_order becomes visible, readahead will think there are
+		 * "zero" blocks per folio and crash.  Take the inode and
+		 * invalidation locks to avoid racing with
+		 * read/write/fallocate.
+		 */
+		inode_lock(inode);
+		filemap_invalidate_lock(inode->i_mapping);
+
 		sync_blockdev(bdev);
-		inode->i_blkbits = blksize_bits(size);
 		kill_bdev(bdev);
+
+		inode->i_blkbits = blksize_bits(size);
+		mapping_set_folio_min_order(inode->i_mapping, get_order(size));
+		kill_bdev(bdev);
+		filemap_invalidate_unlock(inode->i_mapping);
+		inode_unlock(inode);
 	}
 	return 0;
 }
@@ -178,10 +219,11 @@ EXPORT_SYMBOL(set_blocksize);
 
 int sb_set_blocksize(struct super_block *sb, int size)
 {
+	if (!(sb->s_type->fs_flags & FS_LBS) && size > PAGE_SIZE)
+		return 0;
 	if (set_blocksize(sb->s_bdev_file, size))
 		return 0;
-	/* If we get here, we know size is power of two
-	 * and it's value is between 512 and PAGE_SIZE */
+	/* If we get here, we know size is validated */
 	sb->s_blocksize = size;
 	sb->s_blocksize_bits = blksize_bits(size);
 	return sb->s_blocksize;
@@ -1268,8 +1310,7 @@ void sync_bdevs(bool wait)
 /*
  * Handle STATX_{DIOALIGN, WRITE_ATOMIC} for block devices.
  */
-void bdev_statx(struct path *path, struct kstat *stat,
-		u32 request_mask)
+void bdev_statx(const struct path *path, struct kstat *stat, u32 request_mask)
 {
 	struct block_device *bdev;
 
