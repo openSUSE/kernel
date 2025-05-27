@@ -1121,11 +1121,16 @@ struct bpf_raw_event_map *bpf_find_raw_tracepoint(const char *name)
 static __always_inline
 void __bpf_trace_run(struct bpf_prog *prog, u64 *args)
 {
+	if (unlikely(this_cpu_inc_return(*(prog->active)) != 1)) {
+		goto out;
+	}
 	rcu_read_lock();
 	preempt_disable();
 	(void) BPF_PROG_RUN(prog, args);
 	preempt_enable();
 	rcu_read_unlock();
+out:
+	this_cpu_dec(*(prog->active));
 }
 
 #define UNPACK(...)			__VA_ARGS__
