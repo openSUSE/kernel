@@ -1225,7 +1225,7 @@ void nfsd4_init_cb(struct nfsd4_callback *cb, struct nfs4_client *clp,
 	cb->cb_holds_slot = false;
 }
 
-void nfsd4_run_cb(struct nfsd4_callback *cb)
+bool nfsd4_run_cb(struct nfsd4_callback *cb)
 {
-	queue_work(callback_wq, &cb->cb_work);
+	return queue_work(callback_wq, &cb->cb_work);
 }
