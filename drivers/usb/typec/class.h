@@ -59,7 +59,6 @@ struct typec_port {
 	enum typec_pwr_opmode		pwr_opmode;
 	enum typec_port_type		port_type;
 	struct mutex			port_type_lock;
-	struct mutex			partner_link_lock;
 
 	enum typec_orientation		orientation;
 	struct typec_switch		*sw;
@@ -82,6 +81,9 @@ struct typec_port {
 	struct device			*usb3_dev;
 
 	void				*suse_kabi_padding;
+#ifndef __GENKSYMS__
+	struct mutex			partner_link_lock;
+#endif
 };
 
 #define to_typec_port(_dev_) container_of(_dev_, struct typec_port, dev)
