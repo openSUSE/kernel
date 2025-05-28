@@ -968,7 +968,16 @@ enum mitigation_state arm64_get_spectre_bhb_state(void)
 {
 	return spectre_bhb_state;
 }
+ 
+enum bhb_mitigation_bits {
+	BHB_LOOP,
+	BHB_FW,
+	BHB_HW,
+	BHB_INSN,
+};
+static unsigned long system_bhb_mitigations;
 
+static u8 max_bhb_k;
 /*
  * This must be called with SCOPE_LOCAL_CPU for each type of CPU, before any
  * SCOPE_SYSTEM call will give the right answer.
@@ -976,13 +985,13 @@ enum mitigation_state arm64_get_spectre_bhb_state(void)
 u8 spectre_bhb_loop_affected(int scope)
 {
 	u8 k = 0;
-	static u8 max_bhb_k;
 
 	if (scope == SCOPE_LOCAL_CPU) {
 		static const struct midr_range spectre_bhb_k32_list[] = {
 			MIDR_ALL_VERSIONS(MIDR_CORTEX_A78),
 			MIDR_ALL_VERSIONS(MIDR_CORTEX_A78C),
 			MIDR_ALL_VERSIONS(MIDR_CORTEX_X1),
+			MIDR_ALL_VERSIONS(MIDR_CORTEX_X1C),
 			MIDR_ALL_VERSIONS(MIDR_CORTEX_A710),
 			MIDR_ALL_VERSIONS(MIDR_CORTEX_X2),
 			MIDR_ALL_VERSIONS(MIDR_NEOVERSE_N2),
@@ -1109,6 +1118,11 @@ bool is_spectre_bhb_affected(const struct arm64_cpu_capabilities *entry,
 	return false;
 }
 
+u8 get_spectre_bhb_loop_value(void)
+{
+	return max_bhb_k;
+}
+
 static void this_cpu_set_vectors(enum arm64_bp_harden_el1_vectors slot)
 {
 	const char *v = arm64_get_bp_hardening_vector(slot);
@@ -1203,11 +1217,13 @@ void spectre_bhb_enable_mitigation(const struct arm64_cpu_capabilities *entry)
 		pr_info_once("spectre-bhb mitigation disabled by command line option\n");
 	} else if (supports_ecbhb(SCOPE_LOCAL_CPU)) {
 		state = SPECTRE_MITIGATED;
+		set_bit(BHB_HW, &system_bhb_mitigations);
 	} else if (supports_clearbhb(SCOPE_LOCAL_CPU)) {
 		kvm_setup_bhb_slot(__spectre_bhb_clearbhb_start);
 		this_cpu_set_vectors(EL1_VECTOR_BHB_CLEAR_INSN);
 
 		state = SPECTRE_MITIGATED;
+		set_bit(BHB_INSN, &system_bhb_mitigations);
 	} else if (spectre_bhb_loop_affected(SCOPE_LOCAL_CPU)) {
 		switch (spectre_bhb_loop_affected(SCOPE_SYSTEM)) {
 		case 8:
@@ -1225,6 +1241,7 @@ void spectre_bhb_enable_mitigation(const struct arm64_cpu_capabilities *entry)
 		this_cpu_set_vectors(EL1_VECTOR_BHB_LOOP);
 
 		state = SPECTRE_MITIGATED;
+		set_bit(BHB_LOOP, &system_bhb_mitigations);
 	} else if (is_spectre_bhb_fw_affected(SCOPE_LOCAL_CPU)) {
 		fw_state = spectre_bhb_get_cpu_fw_mitigation_state();
 		if (fw_state == SPECTRE_MITIGATED) {
@@ -1238,10 +1255,16 @@ void spectre_bhb_enable_mitigation(const struct arm64_cpu_capabilities *entry)
 			__this_cpu_write(bp_hardening_data.fn, NULL);
 
 			state = SPECTRE_MITIGATED;
+			set_bit(BHB_FW, &system_bhb_mitigations);
 		}
 	}
 
 	update_mitigation_state(&spectre_bhb_state, state);
+}
+
+bool is_spectre_bhb_fw_mitigated(void)
+{
+	return test_bit(BHB_FW, &system_bhb_mitigations);
 }
 
 /* Patched to correct the immediate */
