@@ -253,6 +253,11 @@ static int ec_i2c_probe(struct platform_device *pdev)
 	u32 remote_bus;
 	int err;
 
+	if (!ec) {
+		dev_err(dev, "couldn't find parent EC device\n");
+		return -EPROBE_DEFER;
+	}
+
 	if (!ec->cmd_xfer) {
 		dev_err(dev, "Missing sendrecv\n");
 		return -EINVAL;
