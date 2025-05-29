@@ -1921,6 +1921,12 @@ static struct socket *xs_create_sock(struct rpc_xprt *xprt,
 	}
 	xs_reclassify_socket(family, sock);
 
+	if (protocol == IPPROTO_TCP) {
+		sock->sk->sk_net_refcnt = 1;
+		get_net(xprt->xprt_net);
+		sock_inuse_add(xprt->xprt_net, 1);
+	}
+
 	if (reuseport)
 		xs_sock_set_reuseport(sock);
 
