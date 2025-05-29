@@ -309,6 +309,9 @@ static int __init init_phram(void)
 {
 	int ret = 0;
 
+	if (kernel_is_locked_down())
+		return -EPERM;
+
 #ifndef MODULE
 	if (phram_paramline[0])
 		ret = phram_setup(phram_paramline);
