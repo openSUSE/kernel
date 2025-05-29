@@ -26,6 +26,7 @@
 #include <linux/moduleparam.h>
 #include <linux/slab.h>
 #include <linux/mtd/mtd.h>
+#include <linux/security.h>
 
 struct phram_mtd_list {
 	struct mtd_info mtd;
@@ -304,6 +305,10 @@ MODULE_PARM_DESC(phram, "Memory region to map. \"phram=<name>,<start>,<length>\"
 static int __init init_phram(void)
 {
 	int ret = 0;
+
+	ret = security_locked_down(LOCKDOWN_DEV_MEM);
+	if (ret)
+		return ret;
 
 #ifndef MODULE
 	if (phram_paramline[0])
