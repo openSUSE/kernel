@@ -15,7 +15,9 @@
  */
 #define NCAPINTS			22	   /* N 32-bit words worth of info */
 #define NBUGINTS			1	   /* N 32-bit bug flags */
-#define NEXTBUGINTS			1	   /* N 32-bit extended bug flags */
+
+#define NEXTCAPINTS			1
+#define NEXTBUGINTS			1
 /*
  * Note: If the comment begins with a quoted string, that string is used
  * in /proc/cpuinfo instead of the macro name.  If the string is "",
@@ -429,10 +431,16 @@
 #define X86_FEATURE_IBPB_BRTYPE		(20*32+28) /* "" MSR_PRED_CMD[IBPB] flushes all branch type predictions */
 #define X86_FEATURE_SRSO_NO		(20*32+29) /* "" CPU is not affected by SRSO */
 
+
+#define X86_EXT_FEATURE(x)		(NBUGINTS*32 + (x))
+#define X86_FEATUREINDEX(x)		((x) < NCAPINTS*32 ? (x) : (x) - NBUGINTS*32)
+
 /*
  * BUG word(s)
  */
 #define X86_BUG(x)			(NCAPINTS*32 + (x))
+#define X86_EXT_BUG(x)			((NCAPINTS+NEXTCAPINTS)*32 + (x))
+#define X86_BUGINDEX(x)			((x) < (NCAPINTS+NBUGINTS)*32 ? (x) - NCAPINTS*32 : (x) - (NCAPINTS+NEXTCAPINTS)*32)
 
 #define X86_BUG_F00F			X86_BUG(0) /* Intel F00F */
 #define X86_BUG_FDIV			X86_BUG(1) /* FPU FDIV */
@@ -474,5 +482,5 @@
 #define X86_BUG_GDS			X86_BUG(31) /* CPU is affected by Gather Data Sampling */
 
 /* BUG word 2 */
-#define X86_BUG_DIV0                   X86_BUG(1*32 + 0) /* AMD DIV0 speculation bug */
+#define X86_BUG_DIV0                   X86_EXT_BUG(1*32 + 0) /* AMD DIV0 speculation bug */
 #endif /* _ASM_X86_CPUFEATURES_H */

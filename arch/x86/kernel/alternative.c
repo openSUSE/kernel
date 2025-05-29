@@ -388,7 +388,7 @@ void __init_or_module noinline apply_alternatives(struct alt_instr *start,
 		instr = (u8 *)&a->instr_offset + a->instr_offset;
 		replacement = (u8 *)&a->repl_offset + a->repl_offset;
 		BUG_ON(a->instrlen > sizeof(insn_buff));
-		BUG_ON(feature >= (NCAPINTS + NBUGINTS + NEXTBUGINTS) * 32);
+		BUG_ON(feature >= (NCAPINTS + NBUGINTS + NEXTCAPINTS + NEXTBUGINTS) * 32);
 
 		/*
 		 * Patch if either:
