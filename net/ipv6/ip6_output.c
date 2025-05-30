@@ -1256,7 +1256,7 @@ static int __ip6_append_data(struct sock *sk,
 			     struct page_frag *pfrag,
 			     int getfrag(void *from, char *to, int offset,
 					 int len, int odd, struct sk_buff *skb),
-			     void *from, int length, int transhdrlen,
+			     void *from, size_t length, int transhdrlen,
 			     unsigned int flags, struct ipcm6_cookie *ipc6,
 			     const struct sockcm_cookie *sockc)
 {
@@ -1574,6 +1574,7 @@ int ip6_append_data(struct sock *sk,
 	struct ipv6_pinfo *np = inet6_sk(sk);
 	int exthdrlen;
 	int err;
+	size_t ulength = length;
 
 	if (flags&MSG_PROBE)
 		return 0;
@@ -1587,7 +1588,7 @@ int ip6_append_data(struct sock *sk,
 			return err;
 
 		exthdrlen = (ipc6->opt ? ipc6->opt->opt_flen : 0);
-		length += exthdrlen;
+		ulength += exthdrlen;
 		transhdrlen += exthdrlen;
 	} else {
 		fl6 = &inet->cork.fl.u.ip6;
@@ -1596,7 +1597,7 @@ int ip6_append_data(struct sock *sk,
 
 	return __ip6_append_data(sk, fl6, &sk->sk_write_queue, &inet->cork.base,
 				 &np->cork, sk_page_frag(sk), getfrag,
-				 from, length, transhdrlen, flags, ipc6, sockc);
+				 from, ulength, transhdrlen, flags, ipc6, sockc);
 }
 EXPORT_SYMBOL_GPL(ip6_append_data);
 
@@ -1763,6 +1764,7 @@ struct sk_buff *ip6_make_skb(struct sock *sk,
 	struct sk_buff_head queue;
 	int exthdrlen = (ipc6->opt ? ipc6->opt->opt_flen : 0);
 	int err;
+	size_t ulength = length;
 
 	if (flags & MSG_PROBE)
 		return NULL;
@@ -1784,7 +1786,7 @@ struct sk_buff *ip6_make_skb(struct sock *sk,
 
 	err = __ip6_append_data(sk, fl6, &queue, &cork.base, &v6_cork,
 				&current->task_frag, getfrag, from,
-				length + exthdrlen, transhdrlen + exthdrlen,
+				ulength + exthdrlen, transhdrlen + exthdrlen,
 				flags, ipc6, sockc);
 	if (err) {
 		__ip6_flush_pending_frames(sk, &queue, &cork, &v6_cork);
