@@ -311,7 +311,7 @@ static long udmabuf_create(struct miscdevice *device,
 		return -ENOMEM;
 
 	INIT_LIST_HEAD(&ubuf->unpin_list);
-	pglimit = (size_limit_mb * 1024 * 1024) >> PAGE_SHIFT;
+	pglimit = ((u64)size_limit_mb * 1024 * 1024) >> PAGE_SHIFT;
 	for (i = 0; i < head->count; i++) {
 		if (!IS_ALIGNED(list[i].offset, PAGE_SIZE))
 			goto err;
