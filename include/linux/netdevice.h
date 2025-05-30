@@ -2014,7 +2014,11 @@ struct net_device {
 #endif
 	struct inet6_dev __rcu	*ip6_ptr;
 #if IS_ENABLED(CONFIG_AX25)
+#ifndef __GENKSYMS__
 	struct ax25_dev	__rcu	*ax25_ptr;
+#else
+	void                    *ax25_ptr;
+#endif
 #endif
 	struct wireless_dev	*ieee80211_ptr;
 	struct wpan_dev		*ieee802154_ptr;
