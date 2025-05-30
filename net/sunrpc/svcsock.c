@@ -1569,6 +1569,8 @@ static struct svc_xprt *svc_create_socket(struct svc_serv *serv,
 		goto bummer;
 
 	if (protocol == IPPROTO_TCP) {
+		sock->sk->sk_net_refcnt = 1;
+		get_net(net);
 		if ((error = kernel_listen(sock, 64)) < 0)
 			goto bummer;
 	}
