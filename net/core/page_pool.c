@@ -25,7 +25,9 @@
 
 #include <trace/events/page_pool.h>
 
+#ifndef __GENKSYMS__
 #include "dev.h"
+#endif
 #include "mp_dmabuf_devmem.h"
 #include "netmem_priv.h"
 #include "page_pool_priv.h"
