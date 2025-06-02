@@ -663,8 +663,7 @@ static int sfq_change(struct Qdisc *sch, struct nlattr *opt)
 		if (!p)
 			return -ENOMEM;
 	}
-	if (ctl->limit == 1)
-		return -EINVAL;
+
 	sch_tree_lock(sch);
 
 	limit = q->limit;
@@ -705,6 +704,11 @@ static int sfq_change(struct Qdisc *sch, struct nlattr *opt)
 	if (ctl->limit) {
 		limit = min_t(u32, ctl->limit, maxdepth * maxflows);
 		maxflows = min_t(u32, maxflows, limit);
+	}
+	if (limit == 1) {
+		sch_tree_unlock(sch);
+		kfree(p);
+		return -EINVAL;
 	}
 
 	/* commit configuration */
