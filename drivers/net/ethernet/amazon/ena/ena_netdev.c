@@ -4580,6 +4580,8 @@ static struct pci_driver ena_pci_driver = {
 
 static int __init ena_init(void)
 {
+	int ret;
+
 	pr_info("%s", version);
 
 	ena_wq = create_singlethread_workqueue(DRV_MODULE_NAME);
@@ -4588,7 +4590,11 @@ static int __init ena_init(void)
 		return -ENOMEM;
 	}
 
-	return pci_register_driver(&ena_pci_driver);
+	ret = pci_register_driver(&ena_pci_driver);
+	if (ret)
+		destroy_workqueue(ena_wq);
+
+	return ret;
 }
 
 static void __exit ena_cleanup(void)
