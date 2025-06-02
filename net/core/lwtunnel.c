@@ -23,7 +23,9 @@
 #include <net/ip6_fib.h>
 #include <net/rtnh.h>
 
+#ifndef __GENKSYMS__
 #include "dev.h"
+#endif
 
 DEFINE_STATIC_KEY_FALSE(nf_hooks_lwtunnel_enabled);
 EXPORT_SYMBOL_GPL(nf_hooks_lwtunnel_enabled);
