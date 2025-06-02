@@ -1784,7 +1784,7 @@ static void identify_cpu(struct cpuinfo_x86 *c)
 		for (i = NCAPINTS; i < NCAPINTS + NBUGINTS; i++)
 			c->x86_capability[i] |= boot_cpu_data.x86_capability[i];
 		for (i = NEXTCAPINTS; i < NEXTCAPINTS + NEXTBUGINTS; i++)
-			boot_cpu_data.x86_ext_capability[i] |= c->x86_ext_capability[i];
+			c->x86_ext_capability[i] |= boot_cpu_data.x86_ext_capability[i];
 	}
 
 	/* Init Machine Check Exception if available. */
