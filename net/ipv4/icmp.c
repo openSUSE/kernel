@@ -94,8 +94,8 @@
 #include <net/l3mdev.h>
 #ifndef __GENKSYMS__
 #include <net/addrconf.h>
-#include <net/inet_dscp.h>
 #endif
+#include <net/inet_dscp.h>
 /*
  *	Build xmit assembly blocks
  */
