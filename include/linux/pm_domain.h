@@ -251,7 +251,9 @@ struct generic_pm_domain_data {
 	unsigned int default_pstate;
 	unsigned int rpm_pstate;
 	bool hw_mode;
+#ifndef __GENKSYSMS__
 	bool rpm_always_on;
+#endif
 	void *data;
 };
 
