@@ -190,18 +190,14 @@ static int tcf_mirred_init(struct net *net, struct nlattr *nla,
 	return ret;
 }
 
-static bool is_mirred_nested(void)
-{
-	return unlikely(__this_cpu_read(mirred_nest_level) > 1);
-}
-
-static int tcf_mirred_forward(bool want_ingress, struct sk_buff *skb)
+static int
+tcf_mirred_forward(bool at_ingress, bool want_ingress, struct sk_buff *skb)
 {
 	int err;
 
 	if (!want_ingress)
 		err = dev_queue_xmit(skb);
-	else if (is_mirred_nested())
+	else if (!at_ingress)
 		err = netif_rx(skb);
 	else
 		err = netif_receive_skb(skb);
@@ -220,6 +216,7 @@ static int tcf_mirred_act(struct sk_buff *skb, const struct tc_action *a,
 	bool use_reinsert;
 	bool want_ingress;
 	bool is_redirect;
+	bool at_ingress;
 	int m_eaction;
 	int mac_len;
 
@@ -228,6 +225,7 @@ static int tcf_mirred_act(struct sk_buff *skb, const struct tc_action *a,
 
 	m_mac_header_xmit = READ_ONCE(m->tcfm_mac_header_xmit);
 	m_eaction = READ_ONCE(m->tcfm_eaction);
+	is_redirect = tcf_mirred_is_act_redirect(m_eaction);
 	retval = READ_ONCE(m->tcf_action);
 	dev = rcu_dereference_bh(m->tcfm_dev);
 	if (unlikely(!dev)) {
@@ -245,7 +243,7 @@ static int tcf_mirred_act(struct sk_buff *skb, const struct tc_action *a,
 	 * since we can't easily detect the clsact caller, skip clone only for
 	 * ingress - that covers the TC S/W datapath.
 	 */
-	is_redirect = tcf_mirred_is_act_redirect(m_eaction);
+	at_ingress = skb_at_tc_ingress(skb);
 	use_reinsert = skb_at_tc_ingress(skb) && is_redirect &&
 		       tcf_mirred_can_reinsert(retval);
 	if (!use_reinsert) {
@@ -282,14 +280,14 @@ static int tcf_mirred_act(struct sk_buff *skb, const struct tc_action *a,
 		/* let's the caller reinsert the packet, if possible */
 		if (use_reinsert) {
 			res->ingress = want_ingress;
-			err = tcf_mirred_forward(res->ingress, skb);
+			err = tcf_mirred_forward(at_ingress, res->ingress, skb);
 			if (err)
 				tcf_action_inc_overlimit_qstats(&m->common);
 			return TC_ACT_CONSUMED;
 		}
 	}
 
-	err = tcf_mirred_forward(want_ingress, skb2);
+	err = tcf_mirred_forward(at_ingress, want_ingress, skb2);
 	if (err)
 		tcf_action_inc_overlimit_qstats(&m->common);
 
