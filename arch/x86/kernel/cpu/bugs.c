@@ -1586,6 +1586,11 @@ static void __init bhi_select_mitigation(void)
 	if (bhi_mitigation == BHI_MITIGATION_OFF)
 		return;
 
+	/* Retpoline mitigates against BHI unless the CPU has RRSBA behavior */
+	if (cpu_feature_enabled(X86_FEATURE_RETPOLINE) &&
+	    !(x86_read_arch_cap_msr() & ARCH_CAP_RRSBA))
+		return;
+
 	if (!IS_ENABLED(CONFIG_X86_64))
 		return;
 
