@@ -1525,10 +1525,8 @@ int l2tp_tunnel_register(struct l2tp_tunnel *tunnel, struct net *net,
 	write_lock(&sk->sk_callback_lock);
 
 	ret = l2tp_validate_socket(sk, net, tunnel->encap);
-	if (ret < 0) {
-		release_sock(sk);
+	if (ret < 0)
 		goto err_sock;
-	}
 
 	tunnel->l2tp_net = net;
 	pn = l2tp_pernet(net);
@@ -1577,6 +1575,7 @@ err_sock:
 		sockfd_put(sock);
 
 	write_unlock(&sk->sk_callback_lock);
+	release_sock(sk);
 err:
 	return ret;
 }
