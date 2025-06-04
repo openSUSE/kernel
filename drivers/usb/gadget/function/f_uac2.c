@@ -506,7 +506,7 @@ static int snd_uac2_remove(struct platform_device *pdev)
 	struct snd_card *card = platform_get_drvdata(pdev);
 
 	if (card)
-		return snd_card_free(card);
+		return snd_card_free_when_closed(card);
 
 	return 0;
 }
