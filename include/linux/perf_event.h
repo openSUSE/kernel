@@ -785,7 +785,7 @@ struct perf_event {
 	struct irq_work			pending_disable_irq;
 	struct callback_head		pending_task;
 	unsigned int			pending_work;
-	struct rcuwait			pending_work_wait;
+	struct rcuwait			pending_work_wait;	// No longer used, for KABI only
 
 	atomic_t			event_limit;
 

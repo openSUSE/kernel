@@ -456,6 +456,12 @@ struct module {
 
 	/* Startup function. */
 	int (*init)(void);
+#ifndef __GENKSYMS__
+#ifdef CONFIG_MITIGATION_ITS
+	void **its_page_array;
+	int its_num_pages;
+#endif
+#endif
 
 	struct module_memory mem[MOD_MEM_NUM_TYPES] __module_memory_align;
 
@@ -570,6 +576,7 @@ struct module {
 	atomic_t refcnt;
 #endif
 
+
 #ifdef CONFIG_CONSTRUCTORS
 	/* Constructor functions. */
 	ctor_fn_t *ctors;
@@ -583,8 +590,206 @@ struct module {
 #ifdef CONFIG_DYNAMIC_DEBUG_CORE
 	struct _ddebug_info dyndbg_info;
 #endif
+
 	void *suse_kabi_padding;
 } ____cacheline_aligned __randomize_layout;
+
+struct __orig_module {
+	enum module_state state;
+
+	/* Member of list of modules */
+	struct list_head list;
+
+	/* Unique handle for this module */
+	char name[MODULE_NAME_LEN];
+
+#ifdef CONFIG_STACKTRACE_BUILD_ID
+	/* Module build ID */
+	unsigned char build_id[BUILD_ID_SIZE_MAX];
+#endif
+
+	/* Sysfs stuff. */
+	struct module_kobject mkobj;
+	struct module_attribute *modinfo_attrs;
+	const char *version;
+	const char *srcversion;
+	struct kobject *holders_dir;
+
+	/* Exported symbols */
+	const struct kernel_symbol *syms;
+	const s32 *crcs;
+	unsigned int num_syms;
+
+#ifdef CONFIG_ARCH_USES_CFI_TRAPS
+	s32 *kcfi_traps;
+	s32 *kcfi_traps_end;
+#endif
+
+	/* Kernel parameters. */
+#ifdef CONFIG_SYSFS
+	struct mutex param_lock;
+#endif
+	struct kernel_param *kp;
+	unsigned int num_kp;
+
+	/* GPL-only exported symbols. */
+	unsigned int num_gpl_syms;
+	const struct kernel_symbol *gpl_syms;
+	const s32 *gpl_crcs;
+	bool using_gplonly_symbols;
+
+#ifdef CONFIG_MODULE_SIG
+	/* Signature was verified. */
+	bool sig_ok;
+#endif
+
+	bool async_probe_requested;
+
+	/* Exception table */
+	unsigned int num_exentries;
+	struct exception_table_entry *extable;
+
+	/* Startup function. */
+	int (*init)(void);
+#ifdef CONFIG_MITIGATION_ITS
+	void **its_page_array;
+	int its_num_pages;
+#endif
+
+	struct module_memory mem[MOD_MEM_NUM_TYPES] __module_memory_align;
+
+	/* Arch-specific module values */
+	struct mod_arch_specific arch;
+
+	unsigned long taints;	/* same bits as kernel:taint_flags */
+
+#ifdef CONFIG_GENERIC_BUG
+	/* Support for BUG */
+	unsigned num_bugs;
+	struct list_head bug_list;
+	struct bug_entry *bug_table;
+#endif
+
+#ifdef CONFIG_KALLSYMS
+	/* Protected by RCU and/or module_mutex: use rcu_dereference() */
+	struct mod_kallsyms __rcu *kallsyms;
+	struct mod_kallsyms core_kallsyms;
+
+	/* Section attributes */
+	struct module_sect_attrs *sect_attrs;
+
+	/* Notes attributes */
+	struct module_notes_attrs *notes_attrs;
+#endif
+
+	/* The command line arguments (may be mangled).  People like
+	   keeping pointers to this stuff */
+	char *args;
+
+#ifdef CONFIG_SMP
+	/* Per-cpu data. */
+	void __percpu *percpu;
+	unsigned int percpu_size;
+#endif
+	void *noinstr_text_start;
+	unsigned int noinstr_text_size;
+
+#ifdef CONFIG_TRACEPOINTS
+	unsigned int num_tracepoints;
+	tracepoint_ptr_t *tracepoints_ptrs;
+#endif
+#ifdef CONFIG_TREE_SRCU
+	unsigned int num_srcu_structs;
+	struct srcu_struct **srcu_struct_ptrs;
+#endif
+#ifdef CONFIG_BPF_EVENTS
+	unsigned int num_bpf_raw_events;
+	struct bpf_raw_event_map *bpf_raw_events;
+#endif
+#if 1
+	unsigned int btf_data_size;
+	void *btf_data;
+#endif
+#ifdef CONFIG_JUMP_LABEL
+	struct jump_entry *jump_entries;
+	unsigned int num_jump_entries;
+#endif
+#ifdef CONFIG_TRACING
+	unsigned int num_trace_bprintk_fmt;
+	const char **trace_bprintk_fmt_start;
+#endif
+#ifdef CONFIG_EVENT_TRACING
+	struct trace_event_call **trace_events;
+	unsigned int num_trace_events;
+	struct trace_eval_map **trace_evals;
+	unsigned int num_trace_evals;
+#endif
+#ifdef CONFIG_FTRACE_MCOUNT_RECORD
+	unsigned int num_ftrace_callsites;
+	unsigned long *ftrace_callsites;
+#endif
+#ifdef CONFIG_KPROBES
+	void *kprobes_text_start;
+	unsigned int kprobes_text_size;
+	unsigned long *kprobe_blacklist;
+	unsigned int num_kprobe_blacklist;
+#endif
+#ifdef CONFIG_HAVE_STATIC_CALL_INLINE
+	int num_static_call_sites;
+	struct static_call_site *static_call_sites;
+#endif
+#if IS_ENABLED(CONFIG_KUNIT)
+	int num_kunit_suites;
+	struct kunit_suite **kunit_suites;
+#endif
+
+
+#if defined(CONFIG_LIVEPATCH) || defined(__aarch64__)
+	bool klp; /* Is this a livepatch module? */
+	bool klp_alive;
+
+	/* ELF information */
+	struct klp_modinfo *klp_info;
+#endif
+
+#ifdef CONFIG_PRINTK_INDEX
+	unsigned int printk_index_size;
+	struct pi_entry **printk_index_start;
+#endif
+
+#ifdef CONFIG_MODULE_UNLOAD
+	/* What modules depend on me? */
+	struct list_head source_list;
+	/* What modules do I depend on? */
+	struct list_head target_list;
+
+	/* Destruction function. */
+	void (*exit)(void);
+
+	atomic_t refcnt;
+#endif
+
+
+#ifdef CONFIG_CONSTRUCTORS
+	/* Constructor functions. */
+	ctor_fn_t *ctors;
+	unsigned int num_ctors;
+#endif
+
+#ifdef CONFIG_FUNCTION_ERROR_INJECTION
+	struct error_injection_entry *ei_funcs;
+	unsigned int num_ei_funcs;
+#endif
+#ifdef CONFIG_DYNAMIC_DEBUG_CORE
+	struct _ddebug_info dyndbg_info;
+#endif
+
+	void *suse_kabi_padding;
+} ____cacheline_aligned __randomize_layout;
+
+static_assert(offsetof(struct module, init) == offsetof(struct __orig_module, init));
+static_assert(offsetof(struct module, mem) == offsetof(struct __orig_module, mem));
+
 #ifndef MODULE_ARCH_INIT
 #define MODULE_ARCH_INIT {}
 #endif
