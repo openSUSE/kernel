@@ -190,6 +190,21 @@ static int tcf_mirred_init(struct net *net, struct nlattr *nla,
 	return ret;
 }
 
+static int
+tcf_mirred_forward(bool at_ingress, bool want_ingress, struct sk_buff *skb)
+{
+	int err;
+
+	if (!want_ingress)
+		err = dev_queue_xmit(skb);
+	else if (!at_ingress)
+		err = netif_rx(skb);
+	else
+		err = netif_receive_skb(skb);
+
+	return err;
+}
+
 static int tcf_mirred_act(struct sk_buff *skb, const struct tc_action *a,
 			  struct tcf_result *res)
 {
@@ -210,6 +225,7 @@ static int tcf_mirred_act(struct sk_buff *skb, const struct tc_action *a,
 
 	m_mac_header_xmit = READ_ONCE(m->tcfm_mac_header_xmit);
 	m_eaction = READ_ONCE(m->tcfm_eaction);
+	is_redirect = tcf_mirred_is_act_redirect(m_eaction);
 	retval = READ_ONCE(m->tcf_action);
 	dev = rcu_dereference_bh(m->tcfm_dev);
 	if (unlikely(!dev)) {
@@ -227,7 +243,7 @@ static int tcf_mirred_act(struct sk_buff *skb, const struct tc_action *a,
 	 * since we can't easily detect the clsact caller, skip clone only for
 	 * ingress - that covers the TC S/W datapath.
 	 */
-	is_redirect = tcf_mirred_is_act_redirect(m_eaction);
+	at_ingress = skb_at_tc_ingress(skb);
 	use_reinsert = skb_at_tc_ingress(skb) && is_redirect &&
 		       tcf_mirred_can_reinsert(retval);
 	if (!use_reinsert) {
@@ -240,10 +256,9 @@ static int tcf_mirred_act(struct sk_buff *skb, const struct tc_action *a,
 	 * and devices expect a mac header on xmit, then mac push/pull is
 	 * needed.
 	 */
-	at_ingress = skb_at_tc_ingress(skb);
 	want_ingress = tcf_mirred_act_wants_ingress(m_eaction);
-	if (at_ingress != want_ingress && m_mac_header_xmit) {
-		if (!at_ingress) {
+	if (skb_at_tc_ingress(skb) != want_ingress && m_mac_header_xmit) {
+		if (!skb_at_tc_ingress(skb)) {
 			/* caught at egress, act ingress: pull mac */
 			mac_len = skb_network_header(skb) - skb_mac_header(skb);
 			skb_pull_rcsum(skb2, mac_len);
@@ -265,20 +280,16 @@ static int tcf_mirred_act(struct sk_buff *skb, const struct tc_action *a,
 		/* let's the caller reinsert the packet, if possible */
 		if (use_reinsert) {
 			res->ingress = want_ingress;
-			res->qstats = this_cpu_ptr(m->common.cpu_qstats);
-			return TC_ACT_REINSERT;
+			err = tcf_mirred_forward(at_ingress, res->ingress, skb);
+			if (err)
+				tcf_action_inc_overlimit_qstats(&m->common);
+			return TC_ACT_CONSUMED;
 		}
 	}
 
-	if (!want_ingress)
-		err = dev_queue_xmit(skb2);
-	else if (!at_ingress)
-		err = netif_rx(skb);
-	else
-		err = netif_receive_skb(skb2);
-
+	err = tcf_mirred_forward(at_ingress, want_ingress, skb2);
 	if (err)
-		qstats_overlimit_inc(this_cpu_ptr(m->common.cpu_qstats));
+		tcf_action_inc_overlimit_qstats(&m->common);
 
 	return retval;
 

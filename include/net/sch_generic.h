@@ -304,7 +304,7 @@ struct tcf_result {
 		};
 		const struct tcf_proto *goto_tp;
 
-		/* used by the TC_ACT_REINSERT action */
+		/* used in the skb_tc_reinsert function */
 		struct {
 			bool		ingress;
 			struct gnet_stats_queue *qstats;
@@ -1254,18 +1254,5 @@ void mini_qdisc_pair_swap(struct mini_Qdisc_pair *miniqp,
 			  struct tcf_proto *tp_head);
 void mini_qdisc_pair_init(struct mini_Qdisc_pair *miniqp, struct Qdisc *qdisc,
 			  struct mini_Qdisc __rcu **p_miniq);
-
-static inline void skb_tc_reinsert(struct sk_buff *skb, struct tcf_result *res)
-{
-	struct gnet_stats_queue *stats = res->qstats;
-	int ret;
-
-	if (res->ingress)
-		ret = netif_receive_skb(skb);
-	else
-		ret = dev_queue_xmit(skb);
-	if (ret && stats)
-		qstats_overlimit_inc(res->qstats);
-}
 
 #endif

@@ -587,7 +587,7 @@ static int tcf_csum_act(struct sk_buff *skb, const struct tc_action *a,
 	return action;
 
 drop:
-	qstats_drop_inc(this_cpu_ptr(p->common.cpu_qstats));
+	tcf_action_inc_drop_qstats(&p->common);
 	return TC_ACT_SHOT;
 }
 
