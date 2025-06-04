@@ -473,12 +473,19 @@ struct inode *proc_get_inode(struct super_block *sb, struct proc_dir_entry *de)
 		if (de->proc_fops) {
 			if (S_ISREG(inode->i_mode)) {
 #ifdef CONFIG_COMPAT
-				if (!de->proc_fops->compat_ioctl)
-					inode->i_fop =
-						&proc_reg_file_ops_no_compat;
-				else
-#endif
+				if (use_pde(de)) {
+					if (!de->proc_fops->compat_ioctl)
+						inode->i_fop =
+							&proc_reg_file_ops_no_compat;
+					else
+						inode->i_fop = &proc_reg_file_ops;
+					unuse_pde(de);
+				} else {
 					inode->i_fop = &proc_reg_file_ops;
+				}
+#else
+				inode->i_fop = &proc_reg_file_ops;
+#endif
 			} else {
 				inode->i_fop = de->proc_fops;
 			}
