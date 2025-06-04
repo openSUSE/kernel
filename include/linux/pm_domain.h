@@ -251,6 +251,9 @@ struct generic_pm_domain_data {
 	unsigned int default_pstate;
 	unsigned int rpm_pstate;
 	bool hw_mode;
+#ifndef __GENKSYSMS__
+	bool rpm_always_on;
+#endif
 	void *data;
 };
 
@@ -283,6 +286,7 @@ ktime_t dev_pm_genpd_get_next_hrtimer(struct device *dev);
 void dev_pm_genpd_synced_poweroff(struct device *dev);
 int dev_pm_genpd_set_hwmode(struct device *dev, bool enable);
 bool dev_pm_genpd_get_hwmode(struct device *dev);
+int dev_pm_genpd_rpm_always_on(struct device *dev, bool on);
 
 extern struct dev_power_governor simple_qos_governor;
 extern struct dev_power_governor pm_domain_always_on_gov;
@@ -364,6 +368,11 @@ static inline int dev_pm_genpd_set_hwmode(struct device *dev, bool enable)
 static inline bool dev_pm_genpd_get_hwmode(struct device *dev)
 {
 	return false;
+}
+
+static inline int dev_pm_genpd_rpm_always_on(struct device *dev, bool on)
+{
+	return -EOPNOTSUPP;
 }
 
 #define simple_qos_governor		(*(struct dev_power_governor *)(NULL))
