@@ -35,15 +35,10 @@ dump_array()
 		# Name is uppercase, VALUE is all lowercase
 		VALUE="$(echo "$VALUE" | tr A-Z a-z)"
 
-        if [ -n "$POSTFIX" ]; then
-            T=$(( $PFX_SZ + $(echo $POSTFIX | wc -c) + 2 ))
-	        TABS="$(printf '\t\t\t\t\t\t')"
-		    TABCOUNT=$(( ( 6*8 - ($T + 1) - $(echo "$NAME" | wc -c) ) / 8 ))
-		    printf "\t[%s - %s]%.*s = %s,\n" "$PFX$NAME" "$POSTFIX" "$TABCOUNT" "$TABS" "$VALUE"
-        else
-		    TABCOUNT=$(( ( 5*8 - ($PFX_SZ + 1) - $(echo "$NAME" | wc -c) ) / 8 ))
-            printf "\t[%s]%.*s = %s,\n" "$PFX$NAME" "$TABCOUNT" "$TABS" "$VALUE"
-        fi
+		T=$(( $PFX_SZ + $(echo $POSTFIX | wc -c) + 2 ))
+		TABS="$(printf '\t\t\t\t\t\t')"
+		TABCOUNT=$(( ( 6*8 - ($T + 1) - $(echo "$NAME" | wc -c) ) / 8 ))
+		printf "\t[%s(%s)]%.*s = %s,\n" "$POSTFIX" "$PFX$NAME"  "$TABCOUNT" "$TABS" "$VALUE"
 	done
 	echo "};"
 }
@@ -56,10 +51,10 @@ trap 'rm "$OUT"' EXIT
 	echo "#endif"
 	echo ""
 
-	dump_array "x86_cap_flags" "(NCAPINTS+NEXTCAPINTS)*32" "X86_FEATURE_" ""
+	dump_array "x86_cap_flags" "(NCAPINTS+NEXTCAPINTS)*32" "X86_FEATURE_" "X86_FEATUREINDEX"
 	echo ""
 
-	dump_array "x86_bug_flags" "(NBUGINTS+NEXTBUGINTS)*32" "X86_BUG_" "NCAPINTS*32"
+	dump_array "x86_bug_flags" "(NBUGINTS+NEXTBUGINTS)*32" "X86_BUG_" "X86_BUGINDEX"
 
 ) > $OUT
 
