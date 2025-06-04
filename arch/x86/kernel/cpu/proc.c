@@ -105,6 +105,12 @@ static int show_cpuinfo(struct seq_file *m, void *v)
 	for (i = 0; i < 32*NCAPINTS; i++)
 		if (cpu_has(c, i) && x86_cap_flags[i] != NULL)
 			seq_printf(m, " %s", x86_cap_flags[i]);
+	for (i = 32*NCAPINTS; i < 32*(NCAPINTS+NEXTCAPINTS); i++) {
+		unsigned int cap_bit = 32*NBUGINTS + i;
+
+		if (cpu_has(c, cap_bit) && x86_cap_flags[i] != NULL)
+			seq_printf(m, " %s", x86_cap_flags[i]);
+	}
 
 #ifdef CONFIG_X86_VMX_FEATURE_NAMES
 	if (cpu_has(c, X86_FEATURE_VMX) && c->vmx_capability[0]) {
@@ -118,8 +124,14 @@ static int show_cpuinfo(struct seq_file *m, void *v)
 #endif
 
 	seq_puts(m, "\nbugs\t\t:");
-	for (i = 0; i < 32*(NBUGINTS+NEXTBUGINTS); i++) {
+	for (i = 0; i < 32*NBUGINTS; i++) {
 		unsigned int bug_bit = 32*NCAPINTS + i;
+
+		if (cpu_has_bug(c, bug_bit) && x86_bug_flags[i])
+			seq_printf(m, " %s", x86_bug_flags[i]);
+	}
+	for (i = 32*NBUGINTS; i < 32*(NBUGINTS+NEXTBUGINTS); i++) {
+		unsigned int bug_bit = 32*(NCAPINTS+NEXTCAPINTS) + i;
 
 		if (cpu_has_bug(c, bug_bit) && x86_bug_flags[i])
 			seq_printf(m, " %s", x86_bug_flags[i]);

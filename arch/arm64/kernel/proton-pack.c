@@ -829,6 +829,7 @@ enum bhb_mitigation_bits {
 };
 static unsigned long system_bhb_mitigations;
 
+static u8 max_bhb_k;
 /*
  * This must be called with SCOPE_LOCAL_CPU for each type of CPU, before any
  * SCOPE_SYSTEM call will give the right answer.
@@ -836,7 +837,6 @@ static unsigned long system_bhb_mitigations;
 u8 spectre_bhb_loop_affected(int scope)
 {
 	u8 k = 0;
-	static u8 max_bhb_k;
 
 	if (scope == SCOPE_LOCAL_CPU) {
 		static const struct midr_range spectre_bhb_k32_list[] = {
@@ -844,6 +844,7 @@ u8 spectre_bhb_loop_affected(int scope)
 			MIDR_ALL_VERSIONS(MIDR_CORTEX_A78AE),
 			MIDR_ALL_VERSIONS(MIDR_CORTEX_A78C),
 			MIDR_ALL_VERSIONS(MIDR_CORTEX_X1),
+			MIDR_ALL_VERSIONS(MIDR_CORTEX_X1C),
 			MIDR_ALL_VERSIONS(MIDR_CORTEX_A710),
 			MIDR_ALL_VERSIONS(MIDR_CORTEX_X2),
 			MIDR_ALL_VERSIONS(MIDR_NEOVERSE_N2),
@@ -962,6 +963,11 @@ bool is_spectre_bhb_affected(const struct arm64_cpu_capabilities *entry,
 	return false;
 }
 
+u8 get_spectre_bhb_loop_value(void)
+{
+	return max_bhb_k;
+}
+
 static void this_cpu_set_vectors(enum arm64_bp_harden_el1_vectors slot)
 {
 	const char *v = arm64_get_bp_hardening_vector(slot);
@@ -1053,6 +1059,11 @@ void spectre_bhb_enable_mitigation(const struct arm64_cpu_capabilities *entry)
 	}
 
 	update_mitigation_state(&spectre_bhb_state, state);
+}
+
+bool is_spectre_bhb_fw_mitigated(void)
+{
+	return test_bit(BHB_FW, &system_bhb_mitigations);
 }
 
 /* Patched to NOP when enabled */
