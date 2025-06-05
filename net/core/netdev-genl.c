@@ -83,6 +83,7 @@ int netdev_nl_napi_get_doit(struct sk_buff *skb, struct genl_info *info)
 		return -ENOMEM;
 
 	rtnl_lock();
+	rcu_read_lock();
 
 	napi = netdev_napi_by_id(genl_info_net(info), napi_id);
 	if (napi)
@@ -90,6 +91,7 @@ int netdev_nl_napi_get_doit(struct sk_buff *skb, struct genl_info *info)
 	else
 		err = -EINVAL;
 
+	rcu_read_unlock();
 	rtnl_unlock();
 
 	if (err)
