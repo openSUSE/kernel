@@ -1557,6 +1557,7 @@ static void __init early_identify_cpu(struct cpuinfo_x86 *c)
 	c->x86_cache_alignment = c->x86_clflush_size;
 
 	memset(&c->x86_capability, 0, sizeof(c->x86_capability));
+	memset(&c->x86_ext_capability, 0, sizeof(c->x86_ext_capability));
 	c->extended_cpuid_level = 0;
 
 	if (!have_cpuid_p())
@@ -1814,6 +1815,7 @@ static void identify_cpu(struct cpuinfo_x86 *c)
 #endif
 	c->x86_cache_alignment = c->x86_clflush_size;
 	memset(&c->x86_capability, 0, sizeof(c->x86_capability));
+	memset(&c->x86_ext_capability, 0, sizeof(c->x86_ext_capability));
 #ifdef CONFIG_X86_VMX_FEATURE_NAMES
 	memset(&c->vmx_capability, 0, sizeof(c->vmx_capability));
 #endif
@@ -1900,10 +1902,14 @@ static void identify_cpu(struct cpuinfo_x86 *c)
 		/* AND the already accumulated flags with these */
 		for (i = 0; i < NCAPINTS; i++)
 			boot_cpu_data.x86_capability[i] &= c->x86_capability[i];
+		for (i = 0; i < NEXTCAPINTS; i++)
+			boot_cpu_data.x86_ext_capability[i] &= c->x86_ext_capability[i];
 
 		/* OR, i.e. replicate the bug flags */
 		for (i = NCAPINTS; i < NCAPINTS + NBUGINTS; i++)
 			c->x86_capability[i] |= boot_cpu_data.x86_capability[i];
+		for (i = NEXTCAPINTS; i < NEXTCAPINTS + NEXTBUGINTS; i++)
+			c->x86_ext_capability[i] |= boot_cpu_data.x86_ext_capability[i];
 	}
 
 	ppin_init(c);
@@ -2349,6 +2355,8 @@ void store_cpu_caps(struct cpuinfo_x86 *curr_info)
 	/* Copy all capability leafs and pick up the synthetic ones. */
 	memcpy(&curr_info->x86_capability, &boot_cpu_data.x86_capability,
 	       sizeof(curr_info->x86_capability));
+	memcpy(&curr_info->x86_ext_capability, &boot_cpu_data.x86_ext_capability,
+	       sizeof(curr_info->x86_ext_capability));
 
 	/* Get the hardware CPUID leafs */
 	get_cpu_cap(curr_info);
@@ -2375,7 +2383,9 @@ void microcode_check(struct cpuinfo_x86 *prev_info)
 	store_cpu_caps(&curr_info);
 
 	if (!memcmp(&prev_info->x86_capability, &curr_info.x86_capability,
-		    sizeof(prev_info->x86_capability)))
+		    sizeof(prev_info->x86_capability)) &&
+	    !memcmp(&prev_info->x86_ext_capability, &curr_info.x86_ext_capability,
+		    sizeof(prev_info->x86_ext_capability)))
 		return;
 
 	pr_warn("x86/CPU: CPU features have changed after loading microcode, but might not take effect.\n");
