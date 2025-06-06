@@ -100,9 +100,39 @@ u64 __seamcall_ret(u64 fn, struct tdx_module_args *args);
 u64 __seamcall_saved_ret(u64 fn, struct tdx_module_args *args);
 void tdx_init(void);
 
+#include <linux/preempt.h>
 #include <asm/archrandom.h>
+#include <asm/processor.h>
 
 typedef u64 (*sc_func_t)(u64 fn, struct tdx_module_args *args);
+
+static inline u64 do_seamcall(sc_func_t func, u64 fn,
+			      struct tdx_module_args *args)
+{
+	u64 ret;
+
+	preempt_disable();
+
+	/*
+	 * SEAMCALLs are made to the TDX module and can generate dirty
+	 * cachelines of TDX private memory.  Mark cache state incoherent
+	 * so that the cache can be flushed during kexec.
+	 *
+	 * Not all SEAMCALL leaf functions generate dirty cachelines
+	 * but for simplicity just treat all of them do.
+	 *
+	 * This needs to be done before actually making the SEAMCALL,
+	 * because kexec-ing CPU could send NMI to stop remote CPUs,
+	 * in which case even disabling IRQ won't help here.
+	 */
+	this_cpu_write(cache_state_incoherent, true);
+
+	ret = func(fn, args);
+
+	preempt_enable();
+
+	return ret;
+}
 
 static inline u64 sc_retry(sc_func_t func, u64 fn,
 			   struct tdx_module_args *args)
@@ -111,7 +141,7 @@ static inline u64 sc_retry(sc_func_t func, u64 fn,
 	u64 ret;
 
 	do {
-		ret = func(fn, args);
+		ret = do_seamcall(func, fn, args);
 	} while (ret == TDX_RND_NO_ENTROPY && --retry);
 
 	return ret;
