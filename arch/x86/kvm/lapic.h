@@ -67,6 +67,10 @@ struct kvm_lapic {
 	bool lvt0_in_nmi_mode;
 	/* Number of bits set in ISR. */
 	s16 isr_count;
+#ifndef __GENKSYMS__
+	/* Select registers in the vAPIC cannot be read/written. */
+	bool guest_apic_protected;
+#endif
 	/* The highest vector set in ISR; if -1 - invalid, must scan ISR. */
 	int highest_isr_cache;
 	/**
