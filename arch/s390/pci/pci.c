@@ -846,7 +846,7 @@ struct zpci_dev *zpci_create_device(u32 fid, u32 fh, enum zpci_state state)
 		goto error;
 	zdev->state =  state;
 
-	mutex_init(&zdev->lock);
+	mutex_init(&zdev->fmb_lock);
 	mutex_init(&zdev->kzdev_lock);
 
 	return zdev;
