@@ -28,6 +28,7 @@
 #include <linux/jump_label.h>
 #include <linux/pci.h>
 #include <linux/printk.h>
+#include <linux/lockdep.h>
 #include <linux/list_sort.h>
 
 #include <asm/isc.h>
@@ -771,12 +772,12 @@ EXPORT_SYMBOL_GPL(zpci_disable_device);
  * equivalent to its state during boot when first probing a driver.
  * Consequently after reset the PCI function requires re-initialization via the
  * common PCI code including re-enabling IRQs via pci_alloc_irq_vectors()
- * and enabling the function via e.g.pci_enablde_device_flags().The caller
+ * and enabling the function via e.g. pci_enable_device_flags(). The caller
  * must guard against concurrent reset attempts.
  *
  * In most cases this function should not be called directly but through
  * pci_reset_function() or pci_reset_bus() which handle the save/restore and
- * locking.
+ * locking - asserted by lockdep.
  *
  * Return: 0 on success and an error value otherwise
  */
@@ -785,6 +786,7 @@ int zpci_hot_reset_device(struct zpci_dev *zdev)
 	u8 status;
 	int rc;
 
+	lockdep_assert_held(&zdev->state_lock);
 	zpci_dbg(3, "rst fid:%x, fh:%x\n", zdev->fid, zdev->fh);
 	if (zdev_enabled(zdev)) {
 		/* Disables device access, DMAs and IRQs (reset state) */
@@ -846,6 +848,7 @@ struct zpci_dev *zpci_create_device(u32 fid, u32 fh, enum zpci_state state)
 		goto error;
 	zdev->state =  state;
 
+	mutex_init(&zdev->state_lock);
 	mutex_init(&zdev->fmb_lock);
 	mutex_init(&zdev->kzdev_lock);
 
@@ -932,6 +935,10 @@ int zpci_scan_configured_device(struct zpci_dev *zdev, u32 fh)
 int zpci_deconfigure_device(struct zpci_dev *zdev)
 {
 	int rc;
+
+	lockdep_assert_held(&zdev->state_lock);
+	if (zdev->state != ZPCI_FN_STATE_CONFIGURED)
+		return 0;
 
 	if (zdev->zbus->bus)
 		zpci_bus_remove_device(zdev, false);
