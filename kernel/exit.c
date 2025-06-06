@@ -70,6 +70,7 @@
 #include <linux/sysfs.h>
 #include <linux/user_events.h>
 #include <linux/uaccess.h>
+#include <linux/pidfs.h>
 
 #include <uapi/linux/wait.h>
 
@@ -250,6 +251,7 @@ repeat:
 	dec_rlimit_ucounts(task_ucounts(p), UCOUNT_RLIMIT_NPROC, 1);
 	rcu_read_unlock();
 
+	pidfs_exit(p);
 	cgroup_release(p);
 
 	write_lock_irq(&tasklist_lock);
