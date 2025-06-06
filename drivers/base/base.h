@@ -164,6 +164,12 @@ extern int devtmpfs_init(void);
 static inline int devtmpfs_init(void) { return 0; }
 #endif
 
+static inline void device_set_driver(struct device *dev, const struct device_driver *drv)
+{
+	// FIXME - this cast should not be needed "soon"
+	dev->driver = (struct device_driver *)drv;
+}
+
 /* Device links support */
 extern int device_links_read_lock(void);
 extern void device_links_read_unlock(int idx);
