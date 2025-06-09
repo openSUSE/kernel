@@ -292,6 +292,9 @@ struct bpf_prog_aux {
 		struct work_struct work;
 		struct rcu_head	rcu;
 	};
+#ifndef __GENKSYMS__
+	int __percpu *active;
+#endif
 };
 
 struct bpf_array_aux {
