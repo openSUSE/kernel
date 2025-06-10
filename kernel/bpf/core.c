@@ -96,8 +96,8 @@ struct bpf_prog *bpf_prog_alloc(unsigned int size, gfp_t gfp_extra_flags)
 		vfree(fp);
 		return NULL;
 	}
-	fp->aux->active = alloc_percpu_gfp(int, GFP_KERNEL_ACCOUNT | gfp_extra_flags);
-	if (!fp->aux->active) {
+	aux->active = alloc_percpu_gfp(int, GFP_KERNEL_ACCOUNT | gfp_extra_flags);
+	if (!aux->active) {
 		vfree(fp);
 		kfree(aux);
 		return NULL;
