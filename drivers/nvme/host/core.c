@@ -3368,18 +3368,30 @@ static int nvme_subsys_check_duplicate_ids(struct nvme_subsystem *subsys,
 	bool has_nguid = memchr_inv(ids->nguid, 0, sizeof(ids->nguid));
 	bool has_eui64 = memchr_inv(ids->eui64, 0, sizeof(ids->eui64));
 	struct nvme_ns_head *h;
+	bool match_nid = false;
 
 	lockdep_assert_held(&subsys->lock);
 
 	list_for_each_entry(h, &subsys->nsheads, entry) {
-		if (has_uuid && uuid_equal(&ids->uuid, &h->ids.uuid))
-			return -EINVAL;
-		if (has_nguid &&
-		    memcmp(&ids->nguid, &h->ids.nguid, sizeof(ids->nguid)) == 0)
-			return -EINVAL;
+		if (has_uuid) {
+			if (uuid_equal(&ids->uuid, &h->ids.uuid))
+				return -EINVAL;
+			match_nid = true;
+		}
+		if (has_nguid) {
+			if (memcmp(&ids->nguid, &h->ids.nguid, sizeof(ids->nguid)) == 0) {
+				if (match_nid)
+					return -ENOTUNIQ;
+				return -EINVAL;
+			}
+			match_nid = true;
+		}
 		if (has_eui64 &&
-		    memcmp(&ids->eui64, &h->ids.eui64, sizeof(ids->eui64)) == 0)
+		    memcmp(&ids->eui64, &h->ids.eui64, sizeof(ids->eui64)) == 0) {
+			if (match_nid)
+				return -ENOTUNIQ;
 			return -EINVAL;
+		}
 	}
 
 	return 0;
@@ -3541,6 +3553,16 @@ static int nvme_init_ns_head(struct nvme_ns *ns, struct nvme_ns_info *info)
 	int ret;
 
 	ret = nvme_global_check_duplicate_ids(ctrl->subsys, &info->ids);
+	if (ret == -ENOTUNIQ) {
+		if (!(ctrl->quirks & NVME_QUIRK_PARTIAL_NID)) {
+			dev_warn(ctrl->device,
+				 "Non-unique NID detected, add QUIRK_PARTIAL_NID for '%04x' to avoid this warning\n",
+				 ctrl->subsys->vendor_id);
+			ctrl->quirks |= NVME_QUIRK_PARTIAL_NID;
+		}
+		if (ctrl->quirks & NVME_QUIRK_PARTIAL_NID)
+			ret = 0;
+	}
 	if (ret) {
 		/*
 		 * We've found two different namespaces on two different
@@ -3582,6 +3604,16 @@ static int nvme_init_ns_head(struct nvme_ns *ns, struct nvme_ns_info *info)
 	head = nvme_find_ns_head(ctrl, info->nsid);
 	if (!head) {
 		ret = nvme_subsys_check_duplicate_ids(ctrl->subsys, &info->ids);
+		if (ret == -ENOTUNIQ) {
+			if (!(ctrl->quirks & NVME_QUIRK_PARTIAL_NID)) {
+				dev_warn(ctrl->device,
+					 "Non-unique NID detected, add QUIRK_PARTIAL_NID for '%04x' to avoid this warning\n",
+					 ctrl->subsys->vendor_id);
+				ctrl->quirks |= NVME_QUIRK_PARTIAL_NID;
+			}
+			if (ctrl->quirks & NVME_QUIRK_PARTIAL_NID)
+				ret = 0;
+		}
 		if (ret) {
 			dev_err(ctrl->device,
 				"duplicate IDs in subsystem for nsid %d\n",
@@ -4084,6 +4116,15 @@ static void nvme_scan_work(struct work_struct *work)
 			nvme_scan_ns_sequential(ctrl);
 	}
 	mutex_unlock(&ctrl->scan_lock);
+
+	/* Requeue if we have missed AENs */
+	if (test_bit(NVME_AER_NOTICE_NS_CHANGED, &ctrl->events))
+		nvme_queue_scan(ctrl);
+#ifdef CONFIG_NVME_MULTIPATH
+	else if (ctrl->ana_log_buf)
+		/* Re-read the ANA log page to not miss updates */
+		queue_work(nvme_wq, &ctrl->ana_work);
+#endif
 }
 
 /*
@@ -4275,7 +4316,8 @@ static void nvme_fw_act_work(struct work_struct *work)
 		msleep(100);
 	}
 
-	if (!nvme_change_ctrl_state(ctrl, NVME_CTRL_LIVE))
+	if (!nvme_change_ctrl_state(ctrl, NVME_CTRL_CONNECTING) ||
+	    !nvme_change_ctrl_state(ctrl, NVME_CTRL_LIVE))
 		return;
 
 	nvme_unquiesce_io_queues(ctrl);

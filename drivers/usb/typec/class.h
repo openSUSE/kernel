@@ -81,6 +81,9 @@ struct typec_port {
 	struct device			*usb3_dev;
 
 	void				*suse_kabi_padding;
+#ifndef __GENKSYMS__
+	struct mutex			partner_link_lock;
+#endif
 };
 
 #define to_typec_port(_dev_) container_of(_dev_, struct typec_port, dev)
