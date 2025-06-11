@@ -1138,10 +1138,12 @@ static ssize_t sock_write_iter(struct kiocb *iocb, struct iov_iter *from)
  */
 
 static DEFINE_MUTEX(br_ioctl_mutex);
-static int (*br_ioctl_hook)(struct net *net, unsigned int cmd,
+static int (*br_ioctl_hook)(struct net *net, struct net_bridge *br,
+			    unsigned int cmd, struct ifreq *ifr,
 			    void __user *uarg);
 
-void brioctl_set(int (*hook)(struct net *net, unsigned int cmd,
+void brioctl_set(int (*hook)(struct net *net, struct net_bridge *br,
+			     unsigned int cmd, struct ifreq *ifr,
 			     void __user *uarg))
 {
 	mutex_lock(&br_ioctl_mutex);
@@ -1150,7 +1152,8 @@ void brioctl_set(int (*hook)(struct net *net, unsigned int cmd,
 }
 EXPORT_SYMBOL(brioctl_set);
 
-int br_ioctl_call(struct net *net, unsigned int cmd, void __user *uarg)
+int br_ioctl_call(struct net *net, struct net_bridge *br, unsigned int cmd,
+		  struct ifreq *ifr, void __user *uarg)
 {
 	int err = -ENOPKG;
 
@@ -1159,7 +1162,7 @@ int br_ioctl_call(struct net *net, unsigned int cmd, void __user *uarg)
 
 	mutex_lock(&br_ioctl_mutex);
 	if (br_ioctl_hook)
-		err = br_ioctl_hook(net, cmd, uarg);
+		err = br_ioctl_hook(net, br, cmd, ifr, uarg);
 	mutex_unlock(&br_ioctl_mutex);
 
 	return err;
@@ -1258,7 +1261,7 @@ static long sock_ioctl(struct file *file, unsigned cmd, unsigned long arg)
 		case SIOCBRDELBR:
 		case SIOCBRADDIF:
 		case SIOCBRDELIF:
-			err = br_ioctl_call(net, cmd, argp);
+			err = br_ioctl_call(net, NULL, cmd, NULL, argp);
 			break;
 		case SIOCGIFVLAN:
 		case SIOCSIFVLAN:

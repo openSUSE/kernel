@@ -394,10 +394,11 @@ static int old_deviceless(struct net *net, void __user *data)
 	return -EOPNOTSUPP;
 }
 
-int br_ioctl_stub(struct net *net, unsigned int cmd, void __user *uarg)
+int br_ioctl_stub(struct net *net, struct net_bridge *br, unsigned int cmd,
+                  struct ifreq *ifr, void __user *uarg)
 {
 	int ret = -EOPNOTSUPP;
-	struct ifreq ifr;
+	struct ifreq ifr_;
 
 	if (cmd == SIOCBRADDIF || cmd == SIOCBRDELIF) {
 		void __user *data;
@@ -406,11 +407,11 @@ int br_ioctl_stub(struct net *net, unsigned int cmd, void __user *uarg)
 		if (!ns_capable(net->user_ns, CAP_NET_ADMIN))
 			return -EPERM;
 
-		if (get_user_ifreq(&ifr, &data, uarg))
+		if (get_user_ifreq(&ifr_, &data, uarg))
 			return -EFAULT;
 
-		ifr.ifr_name[IFNAMSIZ - 1] = 0;
-		colon = strchr(ifr.ifr_name, ':');
+		ifr_.ifr_name[IFNAMSIZ - 1] = 0;
+		colon = strchr(ifr_.ifr_name, ':');
 		if (colon)
 			*colon = 0;
 	}
@@ -449,7 +450,7 @@ int br_ioctl_stub(struct net *net, unsigned int cmd, void __user *uarg)
 	{
 		struct net_device *dev;
 
-		dev = __dev_get_by_name(net, ifr.ifr_name);
+		dev = __dev_get_by_name(net, ifr_.ifr_name);
 		if (!dev || !netif_device_present(dev)) {
 			ret = -ENODEV;
 			break;
@@ -459,7 +460,7 @@ int br_ioctl_stub(struct net *net, unsigned int cmd, void __user *uarg)
 			break;
 		}
 
-		ret = add_del_if(netdev_priv(dev), ifr.ifr_ifindex, cmd == SIOCBRADDIF);
+		ret = add_del_if(netdev_priv(dev), ifr_.ifr_ifindex, cmd == SIOCBRADDIF);
 	}
 		break;
 	}
