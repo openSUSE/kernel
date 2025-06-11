@@ -38,6 +38,9 @@ static int pfifo_enqueue(struct sk_buff *skb, struct Qdisc *sch)
 
 static int pfifo_tail_enqueue(struct sk_buff *skb, struct Qdisc *sch)
 {
+	if (unlikely(ACCESS_ONCE(sch->limit) == 0))
+		return qdisc_drop(skb, sch);
+
 	if (likely(skb_queue_len(&sch->q) < ACCESS_ONCE(sch->limit)))
 		return qdisc_enqueue_tail(skb, sch);
 
