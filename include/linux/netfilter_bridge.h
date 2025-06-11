@@ -35,7 +35,7 @@ static inline int nf_bridge_get_physinif(const struct sk_buff *skb)
 		return 0;
 
 	nf_bridge = skb->nf_bridge;
-	return nf_bridge->physindev ? nf_bridge->physindev->ifindex : 0;
+	return nf_bridge->physinif;
 }
 
 static inline int nf_bridge_get_physoutif(const struct sk_buff *skb)
@@ -58,7 +58,13 @@ nf_bridge_get_physindev(const struct sk_buff *skb)
 static inline struct net_device *
 __nf_bridge_get_physindev(const struct sk_buff *skb, struct net *net)
 {
-	return skb->nf_bridge ? skb->nf_bridge->physindev : NULL;
+	const struct nf_bridge_info *nf_bridge;
+
+	if (skb->nf_bridge == NULL)
+		return NULL;
+
+	nf_bridge = skb->nf_bridge;
+	return nf_bridge ? dev_get_by_index_rcu(net, nf_bridge->physinif) : NULL;
 }
 
 static inline struct net_device *

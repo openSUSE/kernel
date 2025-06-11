@@ -188,8 +188,15 @@ void nf_send_reset6(struct net *net, struct sk_buff *oldskb, int hook)
 	 */
 	if (oldskb->nf_bridge) {
 		struct ethhdr *oeth = eth_hdr(oldskb);
+		struct net_device *br_indev;
 
-		nskb->dev = __nf_bridge_get_physindev(oldskb, net);
+		br_indev = __nf_bridge_get_physindev(oldskb, net);
+		if (!br_indev) {
+			kfree_skb(nskb);
+			return;
+		}
+
+		nskb->dev = br_indev;
 		nskb->protocol = htons(ETH_P_IPV6);
 		ip6h->payload_len = htons(sizeof(struct tcphdr));
 		if (dev_hard_header(nskb, nskb->dev, ntohs(nskb->protocol),

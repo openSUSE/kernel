@@ -277,6 +277,9 @@ struct nf_bridge_info {
 		 */
 		char neigh_header[8];
 	};
+#ifndef __GENKSYMS__
+	int 			physinif;
+#endif
 };
 #endif
 
