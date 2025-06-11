@@ -880,7 +880,7 @@ static const struct ath12k_hw_params ath12k_hw_params[] = {
 		.hal_params = &ath12k_hw_hal_params_qcn9274,
 
 		.rxdma1_enable = false,
-		.num_rxmda_per_pdev = 1,
+		.num_rxdma_per_pdev = 1,
 		.num_rxdma_dst_ring = 0,
 		.rx_mac_buf_ring = false,
 		.vdev_start_delay = false,
@@ -952,7 +952,7 @@ static const struct ath12k_hw_params ath12k_hw_params[] = {
 		.hal_params = &ath12k_hw_hal_params_wcn7850,
 
 		.rxdma1_enable = false,
-		.num_rxmda_per_pdev = 2,
+		.num_rxdma_per_pdev = 2,
 		.num_rxdma_dst_ring = 1,
 		.rx_mac_buf_ring = true,
 		.vdev_start_delay = true,
@@ -1025,7 +1025,7 @@ static const struct ath12k_hw_params ath12k_hw_params[] = {
 		.hal_params = &ath12k_hw_hal_params_qcn9274,
 
 		.rxdma1_enable = false,
-		.num_rxmda_per_pdev = 1,
+		.num_rxdma_per_pdev = 1,
 		.num_rxdma_dst_ring = 0,
 		.rx_mac_buf_ring = false,
 		.vdev_start_delay = false,
