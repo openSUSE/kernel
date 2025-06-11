@@ -3454,7 +3454,7 @@ int ath12k_dp_rx_process_err(struct ath12k_base *ab, struct napi_struct *napi,
 	struct ath12k *ar;
 	dma_addr_t paddr;
 	bool is_frag;
-	bool drop = false;
+	bool drop;
 	int pdev_id;
 
 	tot_n_bufs_reaped = 0;
@@ -3472,7 +3472,9 @@ int ath12k_dp_rx_process_err(struct ath12k_base *ab, struct napi_struct *napi,
 
 	while (budget &&
 	       (reo_desc = ath12k_hal_srng_dst_get_next_entry(ab, srng))) {
+		drop = false;
 		ab->soc_stats.err_ring_pkts++;
+
 		ret = ath12k_hal_desc_reo_parse_err(ab, reo_desc, &paddr,
 						    &desc_bank);
 		if (ret) {
