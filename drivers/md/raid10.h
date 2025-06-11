@@ -152,6 +152,7 @@ struct r10bio {
 		};
 		sector_t	addr;
 		int		devnum;
+		int		error;
 	} devs[];
 };
 

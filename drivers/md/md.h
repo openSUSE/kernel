@@ -264,6 +264,9 @@ enum flag_bits {
 				 * serial bios.
 				 */
 	Nonrot,			/* non-rotational device (SSD) */
+	Timeout,		/* Device fault due to timeout.
+				 * 'Faulty' is required to be set.
+				 */
 };
 
 static inline int is_badblock(struct md_rdev *rdev, sector_t s, int sectors,
