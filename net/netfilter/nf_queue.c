@@ -59,7 +59,7 @@ void nf_queue_entry_release_refs(struct nf_queue_entry *entry)
 	if (entry->skb->nf_bridge) {
 		struct net_device *physdev;
 
-		physdev = nf_bridge_get_physindev(entry->skb, state->net);
+		physdev = __nf_bridge_get_physindev(entry->skb, state->net);
 		if (physdev)
 			dev_put(physdev);
 		physdev = nf_bridge_get_physoutdev(entry->skb);
@@ -86,7 +86,7 @@ bool __nf_queue_entry_get_refs(struct nf_queue_entry *entry)
 	if (entry->skb->nf_bridge) {
 		struct net_device *physdev;
 
-		physdev = nf_bridge_get_physindev(entry->skb, state->net);
+		physdev = __nf_bridge_get_physindev(entry->skb, state->net);
 		if (physdev)
 			dev_hold(physdev);
 		physdev = nf_bridge_get_physoutdev(entry->skb);
@@ -112,7 +112,7 @@ void nf_queue_entry_get_refs(struct nf_queue_entry *entry)
 	if (entry->skb->nf_bridge) {
 		struct net_device *physdev;
 
-		physdev = nf_bridge_get_physindev(entry->skb, state->net);
+		physdev = __nf_bridge_get_physindev(entry->skb, state->net);
 		if (physdev)
 			dev_hold(physdev);
 		physdev = nf_bridge_get_physoutdev(entry->skb);

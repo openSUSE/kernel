@@ -460,7 +460,7 @@ __build_packet_message(struct nfnl_log_net *log,
 					 htonl(indev->ifindex)))
 				goto nla_put_failure;
 
-			physindev = nf_bridge_get_physindev(skb, net);
+			physindev = __nf_bridge_get_physindev(skb, net);
 			if (physindev &&
 			    nla_put_be32(inst->skb, NFULA_IFINDEX_PHYSINDEV,
 					 htonl(physindev->ifindex)))

@@ -359,8 +359,8 @@ static void nf_log_ip6_packet(struct net *net, u_int8_t pf,
 	if (!loginfo)
 		loginfo = &default_loginfo;
 
-	nf_log_dump_packet_common(m, pf, hooknum, skb, in, out,
-				  loginfo, prefix, net);
+	__nf_log_dump_packet_common(m, pf, hooknum, skb, in, out,
+				    loginfo, prefix, net);
 
 	if (in != NULL)
 		dump_ipv6_mac_header(m, loginfo, skb);

@@ -95,8 +95,8 @@ static void nf_log_arp_packet(struct net *net, u_int8_t pf,
 	if (!loginfo)
 		loginfo = &default_loginfo;
 
-	nf_log_dump_packet_common(m, pf, hooknum, skb, in, out, loginfo,
-				  prefix, net);
+	__nf_log_dump_packet_common(m, pf, hooknum, skb, in, out, loginfo,
+				    prefix, net);
 	dump_arp_packet(m, loginfo, skb, 0);
 
 	nf_log_buf_close(m);
