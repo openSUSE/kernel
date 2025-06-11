@@ -22,7 +22,8 @@
 static int bfifo_enqueue(struct sk_buff *skb, struct Qdisc *sch,
 			 struct sk_buff **to_free)
 {
-	if (likely(sch->qstats.backlog + qdisc_pkt_len(skb) <= sch->limit))
+	if (likely(sch->qstats.backlog + qdisc_pkt_len(skb) <=
+		   READ_ONCE(sch->limit)))
 		return qdisc_enqueue_tail(skb, sch);
 
 	return qdisc_drop(skb, sch, to_free);
@@ -31,7 +32,7 @@ static int bfifo_enqueue(struct sk_buff *skb, struct Qdisc *sch,
 static int pfifo_enqueue(struct sk_buff *skb, struct Qdisc *sch,
 			 struct sk_buff **to_free)
 {
-	if (likely(sch->q.qlen < sch->limit))
+	if (likely(sch->q.qlen < READ_ONCE(sch->limit)))
 		return qdisc_enqueue_tail(skb, sch);
 
 	return qdisc_drop(skb, sch, to_free);
@@ -45,7 +46,7 @@ static int pfifo_tail_enqueue(struct sk_buff *skb, struct Qdisc *sch,
 	if (unlikely(READ_ONCE(sch->limit) == 0))
 		return qdisc_drop(skb, sch, to_free);
 
-	if (likely(sch->q.qlen < sch->limit))
+	if (likely(sch->q.qlen < READ_ONCE(sch->limit)))
 		return qdisc_enqueue_tail(skb, sch);
 
 	prev_backlog = sch->qstats.backlog;
@@ -70,14 +71,14 @@ static int fifo_init(struct Qdisc *sch, struct nlattr *opt,
 		if (is_bfifo)
 			limit *= psched_mtu(qdisc_dev(sch));
 
-		sch->limit = limit;
+		WRITE_ONCE(sch->limit, limit);
 	} else {
 		struct tc_fifo_qopt *ctl = nla_data(opt);
 
 		if (nla_len(opt) < sizeof(*ctl))
 			return -EINVAL;
 
-		sch->limit = ctl->limit;
+		WRITE_ONCE(sch->limit, ctl->limit);
 	}
 
 	if (is_bfifo)
@@ -94,7 +95,7 @@ static int fifo_init(struct Qdisc *sch, struct nlattr *opt,
 
 static int fifo_dump(struct Qdisc *sch, struct sk_buff *skb)
 {
-	struct tc_fifo_qopt opt = { .limit = sch->limit };
+	struct tc_fifo_qopt opt = { .limit = READ_ONCE(sch->limit) };
 
 	if (nla_put(skb, TCA_OPTIONS, sizeof(opt), &opt))
 		goto nla_put_failure;
