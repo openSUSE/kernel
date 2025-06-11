@@ -153,7 +153,8 @@ nf_log_dump_packet_common(struct nf_log_buf *m, u_int8_t pf,
 			  unsigned int hooknum, const struct sk_buff *skb,
 			  const struct net_device *in,
 			  const struct net_device *out,
-			  const struct nf_loginfo *loginfo, const char *prefix)
+			  const struct nf_loginfo *loginfo, const char *prefix,
+			  struct net *net)
 {
 	nf_log_buf_add(m, KERN_SOH "%c%sIN=%s OUT=%s ",
 	       '0' + loginfo->u.log.level, prefix,
@@ -164,7 +165,7 @@ nf_log_dump_packet_common(struct nf_log_buf *m, u_int8_t pf,
 		const struct net_device *physindev;
 		const struct net_device *physoutdev;
 
-		physindev = nf_bridge_get_physindev(skb);
+		physindev = nf_bridge_get_physindev(skb, net);
 		if (physindev && in != physindev)
 			nf_log_buf_add(m, "PHYSIN=%s ", physindev->name);
 		physoutdev = nf_bridge_get_physoutdev(skb);
