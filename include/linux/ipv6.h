@@ -198,6 +198,9 @@ struct inet6_cork {
 	struct ipv6_txoptions *opt;
 	u8 hop_limit;
 	u8 tclass;
+#ifndef __GENKSYMS__
+	u8 dontfrag:1;
+#endif
 };
 
 /* struct ipv6_pinfo - ipv6 private area */
