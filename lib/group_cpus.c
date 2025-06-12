@@ -390,7 +390,7 @@ static struct cpumask *group_possible_cpus_evenly(unsigned int numgrps,
 	ret = __group_cpus_evenly(curgrp, numgrps, node_to_cpumask,
 				  npresmsk, nmsk, masks);
 	if (ret < 0)
-		goto fail_build_affinity;
+		goto fail_node_to_cpumask;
 	nr_present = ret;
 
 	/*
@@ -409,10 +409,6 @@ static struct cpumask *group_possible_cpus_evenly(unsigned int numgrps,
 	if (ret >= 0)
 		nr_others = ret;
 
- fail_build_affinity:
-	if (ret >= 0)
-		WARN_ON(nr_present + nr_others < numgrps);
-
  fail_node_to_cpumask:
 	free_node_to_cpumask(node_to_cpumask);
 
@@ -425,7 +421,7 @@ static struct cpumask *group_possible_cpus_evenly(unsigned int numgrps,
 		kfree(masks);
 		return NULL;
 	}
-	*nummasks = nr_present + nr_others;
+	*nummasks = min(numgrps, nr_present + nr_others);
 	return masks;
 }
 

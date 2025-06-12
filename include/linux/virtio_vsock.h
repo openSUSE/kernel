@@ -142,6 +142,9 @@ struct virtio_vsock_sock {
 	u32 buf_alloc;
 	struct sk_buff_head rx_queue;
 	u32 msg_count;
+#ifndef __GENKSYMS__
+	u32 buf_used;
+#endif
 };
 
 struct virtio_vsock_pkt_info {

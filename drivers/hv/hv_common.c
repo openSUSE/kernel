@@ -272,7 +272,7 @@ static void hv_kmsg_dump_unregister(void)
 	atomic_notifier_chain_unregister(&panic_notifier_list,
 					 &hyperv_panic_report_block);
 
-	hv_free_hyperv_page(hv_panic_page);
+	kfree(hv_panic_page);
 	hv_panic_page = NULL;
 }
 
@@ -280,7 +280,7 @@ static void hv_kmsg_dump_register(void)
 {
 	int ret;
 
-	hv_panic_page = hv_alloc_hyperv_zeroed_page();
+	hv_panic_page = kzalloc(HV_HYP_PAGE_SIZE, GFP_KERNEL);
 	if (!hv_panic_page) {
 		pr_err("Hyper-V: panic message page memory allocation failed\n");
 		return;
@@ -289,7 +289,7 @@ static void hv_kmsg_dump_register(void)
 	ret = kmsg_dump_register(&hv_kmsg_dumper);
 	if (ret) {
 		pr_err("Hyper-V: kmsg dump register error 0x%x\n", ret);
-		hv_free_hyperv_page(hv_panic_page);
+		kfree(hv_panic_page);
 		hv_panic_page = NULL;
 	}
 }
@@ -317,6 +317,37 @@ void __init hv_get_partition_id(void)
 		pr_err("Hyper-V: failed to get partition ID: %#x\n",
 		       hv_result(status));
 }
+#if IS_ENABLED(CONFIG_HYPERV_VTL_MODE)
+u8 __init get_vtl(void)
+{
+	u64 control = HV_HYPERCALL_REP_COMP_1 | HVCALL_GET_VP_REGISTERS;
+	struct hv_input_get_vp_registers *input;
+	struct hv_output_get_vp_registers *output;
+	unsigned long flags;
+	u64 ret;
+
+	local_irq_save(flags);
+	input = *this_cpu_ptr(hyperv_pcpu_input_arg);
+	output = *this_cpu_ptr(hyperv_pcpu_output_arg);
+
+	memset(input, 0, struct_size(input, names, 1));
+	input->partition_id = HV_PARTITION_ID_SELF;
+	input->vp_index = HV_VP_INDEX_SELF;
+	input->input_vtl.as_uint8 = 0;
+	input->names[0] = HV_REGISTER_VSM_VP_STATUS;
+
+	ret = hv_do_hypercall(control, input, output);
+	if (hv_result_success(ret)) {
+		ret = output->values[0].reg8 & HV_VTL_MASK;
+	} else {
+		pr_err("Failed to get VTL(error: %lld) exiting...\n", ret);
+		BUG();
+	}
+
+	local_irq_restore(flags);
+	return ret;
+}
+#endif
 
 int __init hv_common_init(void)
 {

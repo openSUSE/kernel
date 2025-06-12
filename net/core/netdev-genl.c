@@ -671,7 +671,7 @@ netdev_nl_stats_by_queue(struct net_device *netdev, struct sk_buff *rsp,
 					    i, info);
 		if (err)
 			return err;
-		ctx->rxq_idx = i++;
+		ctx->rxq_idx = ++i;
 	}
 	i = ctx->txq_idx;
 	while (ops->get_queue_stats_tx && i < netdev->real_num_tx_queues) {
@@ -679,7 +679,7 @@ netdev_nl_stats_by_queue(struct net_device *netdev, struct sk_buff *rsp,
 					    i, info);
 		if (err)
 			return err;
-		ctx->txq_idx = i++;
+		ctx->txq_idx = ++i;
 	}
 
 	ctx->rxq_idx = 0;
