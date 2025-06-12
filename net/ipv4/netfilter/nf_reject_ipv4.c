@@ -147,8 +147,13 @@ void nf_send_reset(struct net *net, struct sk_buff *oldskb, int hook)
 	 */
 	if (oldskb->nf_bridge) {
 		struct ethhdr *oeth = eth_hdr(oldskb);
+		struct net_device *br_indev;
 
-		nskb->dev = nf_bridge_get_physindev(oldskb);
+		br_indev = __nf_bridge_get_physindev(oldskb, net);
+		if (!br_indev)
+			goto free_nskb;
+
+		nskb->dev = br_indev;
 		niph->tot_len = htons(nskb->len);
 		ip_send_check(niph);
 		if (dev_hard_header(nskb, nskb->dev, ntohs(nskb->protocol),

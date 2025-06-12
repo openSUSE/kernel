@@ -401,7 +401,8 @@ __build_packet_message(struct nfnl_log_net *log,
 			const struct net_device *outdev,
 			const char *prefix, unsigned int plen,
 			const struct nfnl_ct_hook *nfnl_ct,
-			struct nf_conn *ct, enum ip_conntrack_info ctinfo)
+			struct nf_conn *ct, enum ip_conntrack_info ctinfo,
+			struct net *net)
 {
 	struct nfulnl_msg_packet_hdr pmsg;
 	struct nlmsghdr *nlh;
@@ -459,7 +460,7 @@ __build_packet_message(struct nfnl_log_net *log,
 					 htonl(indev->ifindex)))
 				goto nla_put_failure;
 
-			physindev = nf_bridge_get_physindev(skb);
+			physindev = __nf_bridge_get_physindev(skb, net);
 			if (physindev &&
 			    nla_put_be32(inst->skb, NFULA_IFINDEX_PHYSINDEV,
 					 htonl(physindev->ifindex)))
@@ -739,7 +740,7 @@ nfulnl_log_packet(struct net *net,
 
 	__build_packet_message(log, inst, skb, data_len, pf,
 				hooknum, in, out, prefix, plen,
-				nfnl_ct, ct, ctinfo);
+				nfnl_ct, ct, ctinfo, net);
 
 	if (inst->qlen >= qthreshold)
 		__nfulnl_flush(inst);

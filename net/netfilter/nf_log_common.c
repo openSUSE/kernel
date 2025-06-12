@@ -175,6 +175,34 @@ nf_log_dump_packet_common(struct nf_log_buf *m, u_int8_t pf,
 }
 EXPORT_SYMBOL_GPL(nf_log_dump_packet_common);
 
+void
+__nf_log_dump_packet_common(struct nf_log_buf *m, u_int8_t pf,
+			  unsigned int hooknum, const struct sk_buff *skb,
+			  const struct net_device *in,
+			  const struct net_device *out,
+			  const struct nf_loginfo *loginfo, const char *prefix,
+			  struct net *net)
+{
+	nf_log_buf_add(m, KERN_SOH "%c%sIN=%s OUT=%s ",
+	       '0' + loginfo->u.log.level, prefix,
+	       in ? in->name : "",
+	       out ? out->name : "");
+#if IS_ENABLED(CONFIG_BRIDGE_NETFILTER)
+	if (skb->nf_bridge) {
+		const struct net_device *physindev;
+		const struct net_device *physoutdev;
+
+		physindev = __nf_bridge_get_physindev(skb, net);
+		if (physindev && in != physindev)
+			nf_log_buf_add(m, "PHYSIN=%s ", physindev->name);
+		physoutdev = nf_bridge_get_physoutdev(skb);
+		if (physoutdev && out != physoutdev)
+			nf_log_buf_add(m, "PHYSOUT=%s ", physoutdev->name);
+	}
+#endif
+}
+EXPORT_SYMBOL_GPL(__nf_log_dump_packet_common);
+
 /* bridge and netdev logging families share this code. */
 void nf_log_l2packet(struct net *net, u_int8_t pf,
 		     __be16 protocol,
