@@ -702,21 +702,6 @@ static int xe_bo_move(struct ttm_buffer_object *ttm_bo, bool evict,
 		goto out;
 	}
 
-	/* Reject BO eviction if BO is bound to current VM. */
-	if (evict && ctx->resv) {
-		struct drm_gpuvm_bo *vm_bo;
-
-		drm_gem_for_each_gpuvm_bo(vm_bo, &bo->ttm.base) {
-			struct xe_vm *vm = gpuvm_to_vm(vm_bo->vm);
-
-			if (xe_vm_resv(vm) == ctx->resv &&
-			    xe_vm_in_preempt_fence_mode(vm)) {
-				ret = -EBUSY;
-				goto out;
-			}
-		}
-	}
-
 	/*
 	 * Failed multi-hop where the old_mem is still marked as
 	 * TTM_PL_FLAG_TEMPORARY, should just be a dummy move.
@@ -873,6 +858,25 @@ out:
 	}
 
 	return ret;
+}
+
+static bool
+xe_bo_eviction_valuable(struct ttm_buffer_object *bo, const struct ttm_place *place)
+{
+	struct drm_gpuvm_bo *vm_bo;
+
+	if (!ttm_bo_eviction_valuable(bo, place))
+		return false;
+
+	if (!xe_bo_is_xe_bo(bo))
+		return true;
+
+	drm_gem_for_each_gpuvm_bo(vm_bo, &bo->base) {
+		if (xe_vm_is_validating(gpuvm_to_vm(vm_bo->vm)))
+			return false;
+	}
+
+	return true;
 }
 
 /**
@@ -1122,7 +1126,7 @@ const struct ttm_device_funcs xe_ttm_funcs = {
 	.io_mem_reserve = xe_ttm_io_mem_reserve,
 	.io_mem_pfn = xe_ttm_io_mem_pfn,
 	.release_notify = xe_ttm_bo_release_notify,
-	.eviction_valuable = ttm_bo_eviction_valuable,
+	.eviction_valuable = xe_bo_eviction_valuable,
 	.delete_mem_notify = xe_ttm_bo_delete_mem_notify,
 };
 
@@ -1877,6 +1881,8 @@ int xe_bo_validate(struct xe_bo *bo, struct xe_vm *vm, bool allow_res_evict)
 		.interruptible = true,
 		.no_wait_gpu = false,
 	};
+	struct pin_cookie cookie;
+	int ret;
 
 	if (vm) {
 		lockdep_assert_held(&vm->lock);
@@ -1886,7 +1892,11 @@ int xe_bo_validate(struct xe_bo *bo, struct xe_vm *vm, bool allow_res_evict)
 		ctx.resv = xe_vm_resv(vm);
 	}
 
-	return ttm_bo_validate(&bo->ttm, &bo->placement, &ctx);
+	cookie = xe_vm_set_validating(vm, allow_res_evict);
+	ret = ttm_bo_validate(&bo->ttm, &bo->placement, &ctx);
+	xe_vm_clear_validating(vm, allow_res_evict, cookie);
+
+	return ret;
 }
 
 bool xe_bo_is_xe_bo(struct ttm_buffer_object *bo)
