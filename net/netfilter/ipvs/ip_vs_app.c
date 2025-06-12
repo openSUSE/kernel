@@ -606,12 +606,16 @@ static const struct file_operations ip_vs_app_fops = {
 int __net_init ip_vs_app_net_init(struct netns_ipvs *ipvs)
 {
 	INIT_LIST_HEAD(&ipvs->app_list);
+#ifdef CONFIG_PROC_FS
 	proc_create("ip_vs_app", 0, ipvs->net->proc_net, &ip_vs_app_fops);
+#endif
 	return 0;
 }
 
 void __net_exit ip_vs_app_net_cleanup(struct netns_ipvs *ipvs)
 {
 	unregister_ip_vs_app(ipvs, NULL /* all */);
+#ifdef CONFIG_PROC_FS
 	remove_proc_entry("ip_vs_app", ipvs->net->proc_net);
+#endif
 }
