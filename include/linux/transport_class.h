@@ -63,11 +63,14 @@ struct transport_container {
 	container_of(x, struct transport_container, ac)
 
 void transport_remove_device(struct device *);
+/* KABI workaround. */
+int __transport_add_device_err(struct device *);
 void transport_add_device(struct device *);
 void transport_setup_device(struct device *);
 void transport_configure_device(struct device *);
 void transport_destroy_device(struct device *);
 
+/* KABI workaround: keep return type void. */
 static inline void
 transport_register_device(struct device *dev)
 {
