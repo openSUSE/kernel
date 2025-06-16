@@ -1007,7 +1007,7 @@ void ath12k_core_halt(struct ath12k *ar)
 	struct list_head *pos, *n;
 	struct ath12k_base *ab = ar->ab;
 
-	lockdep_assert_held(&ar->conf_mutex);
+	lockdep_assert_wiphy(ath12k_ar_to_hw(ar)->wiphy);
 
 	ar->num_created_vdevs = 0;
 	ar->allocated_vdev_map = 0;
@@ -1086,6 +1086,7 @@ static void ath12k_core_post_reconfigure_recovery(struct ath12k_base *ab)
 		if (!ah || ah->state == ATH12K_HW_STATE_OFF)
 			continue;
 
+		wiphy_lock(ah->hw->wiphy);
 		mutex_lock(&ah->hw_mutex);
 
 		switch (ah->state) {
@@ -1094,10 +1095,7 @@ static void ath12k_core_post_reconfigure_recovery(struct ath12k_base *ab)
 
 			for (j = 0; j < ah->num_radio; j++) {
 				ar = &ah->radio[j];
-
-				mutex_lock(&ar->conf_mutex);
 				ath12k_core_halt(ar);
-				mutex_unlock(&ar->conf_mutex);
 			}
 
 			break;
@@ -1118,6 +1116,7 @@ static void ath12k_core_post_reconfigure_recovery(struct ath12k_base *ab)
 		}
 
 		mutex_unlock(&ah->hw_mutex);
+		wiphy_unlock(ah->hw->wiphy);
 	}
 
 	complete(&ab->driver_recovery);
