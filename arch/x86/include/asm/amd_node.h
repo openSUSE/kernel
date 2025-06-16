@@ -25,4 +25,7 @@
 struct pci_dev *amd_node_get_func(u16 node, u8 func);
 struct pci_dev *amd_node_get_root(u16 node);
 
+int __must_check amd_smn_read(u16 node, u32 address, u32 *value);
+int __must_check amd_smn_write(u16 node, u32 address, u32 value);
+
 #endif /*_ASM_X86_AMD_NODE_H_*/

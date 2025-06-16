@@ -15,9 +15,6 @@
 #include <linux/pci_ids.h>
 #include <asm/amd_nb.h>
 
-/* Protect the PCI config register pairs used for SMN. */
-static DEFINE_MUTEX(smn_mutex);
-
 static u32 *flush_words;
 
 static const struct pci_device_id amd_nb_misc_ids[] = {
@@ -93,58 +90,6 @@ static struct pci_dev *next_northbridge(struct pci_dev *dev,
 	} while (!pci_match_id(ids, dev));
 	return dev;
 }
-
-static int __amd_smn_rw(u16 node, u32 address, u32 *value, bool write)
-{
-	struct pci_dev *root;
-	int err = -ENODEV;
-
-	if (node >= amd_northbridges.num)
-		goto out;
-
-	root = node_to_amd_nb(node)->root;
-	if (!root)
-		goto out;
-
-	mutex_lock(&smn_mutex);
-
-	err = pci_write_config_dword(root, 0x60, address);
-	if (err) {
-		pr_warn("Error programming SMN address 0x%x.\n", address);
-		goto out_unlock;
-	}
-
-	err = (write ? pci_write_config_dword(root, 0x64, *value)
-		     : pci_read_config_dword(root, 0x64, value));
-	if (err)
-		pr_warn("Error %s SMN address 0x%x.\n",
-			(write ? "writing to" : "reading from"), address);
-
-out_unlock:
-	mutex_unlock(&smn_mutex);
-
-out:
-	return err;
-}
-
-int amd_smn_read(u16 node, u32 address, u32 *value)
-{
-	int err = __amd_smn_rw(node, address, value, false);
-
-	if (PCI_POSSIBLE_ERROR(*value)) {
-		err = -ENODEV;
-		*value = 0;
-	}
-
-	return err;
-}
-EXPORT_SYMBOL_GPL(amd_smn_read);
-
-int amd_smn_write(u16 node, u32 address, u32 value)
-{
-	return __amd_smn_rw(node, address, &value, true);
-}
-EXPORT_SYMBOL_GPL(amd_smn_write);
 
 static int amd_cache_northbridges(void)
 {
