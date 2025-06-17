@@ -6718,7 +6718,8 @@ ath12k_wmi_process_csa_switch_count_event(struct ath12k_base *ab,
 					  const u32 *vdev_ids)
 {
 	int i;
-	struct ath12k_vif *arvif;
+	struct ath12k_link_vif *arvif;
+	struct ath12k_vif *ahvif;
 
 	/* Finish CSA once the switch count becomes NULL */
 	if (ev->current_switch_count)
@@ -6733,9 +6734,10 @@ ath12k_wmi_process_csa_switch_count_event(struct ath12k_base *ab,
 				    vdev_ids[i]);
 			continue;
 		}
+		ahvif = arvif->ahvif;
 
-		if (arvif->is_up && arvif->vif->bss_conf.csa_active)
-			ieee80211_csa_finish(arvif->vif, 0);
+		if (arvif->is_up && ahvif->vif->bss_conf.csa_active)
+			ieee80211_csa_finish(ahvif->vif, 0);
 	}
 	rcu_read_unlock();
 }
@@ -7129,7 +7131,7 @@ static void ath12k_wmi_gtk_offload_status_event(struct ath12k_base *ab,
 						struct sk_buff *skb)
 {
 	const struct wmi_gtk_offload_status_event *ev;
-	struct ath12k_vif *arvif;
+	struct ath12k_link_vif *arvif;
 	__be64 replay_ctr_be;
 	u64 replay_ctr;
 	const void **tb;
@@ -7167,7 +7169,7 @@ static void ath12k_wmi_gtk_offload_status_event(struct ath12k_base *ab,
 	/* supplicant expects big-endian replay counter */
 	replay_ctr_be = cpu_to_be64(replay_ctr);
 
-	ieee80211_gtk_rekey_notify(arvif->vif, arvif->bssid,
+	ieee80211_gtk_rekey_notify(arvif->ahvif->vif, arvif->bssid,
 				   (void *)&replay_ctr_be, GFP_ATOMIC);
 
 	rcu_read_unlock();
@@ -7315,9 +7317,11 @@ static int ath12k_connect_pdev_htc_service(struct ath12k_base *ab,
 					   u32 pdev_idx)
 {
 	int status;
-	u32 svc_id[] = { ATH12K_HTC_SVC_ID_WMI_CONTROL,
-			 ATH12K_HTC_SVC_ID_WMI_CONTROL_MAC1,
-			 ATH12K_HTC_SVC_ID_WMI_CONTROL_MAC2 };
+	static const u32 svc_id[] = {
+		ATH12K_HTC_SVC_ID_WMI_CONTROL,
+		ATH12K_HTC_SVC_ID_WMI_CONTROL_MAC1,
+		ATH12K_HTC_SVC_ID_WMI_CONTROL_MAC2
+	};
 	struct ath12k_htc_svc_conn_req conn_req = {};
 	struct ath12k_htc_svc_conn_resp conn_resp = {};
 
@@ -7403,13 +7407,13 @@ ath12k_wmi_send_unit_test_cmd(struct ath12k *ar,
 
 int ath12k_wmi_simulate_radar(struct ath12k *ar)
 {
-	struct ath12k_vif *arvif;
+	struct ath12k_link_vif *arvif;
 	u32 dfs_args[DFS_MAX_TEST_ARGS];
 	struct wmi_unit_test_cmd wmi_ut;
 	bool arvif_found = false;
 
 	list_for_each_entry(arvif, &ar->arvifs, list) {
-		if (arvif->is_started && arvif->vdev_type == WMI_VDEV_TYPE_AP) {
+		if (arvif->is_started && arvif->ahvif->vdev_type == WMI_VDEV_TYPE_AP) {
 			arvif_found = true;
 			break;
 		}
@@ -7971,7 +7975,7 @@ static void ath12k_wmi_fill_arp_offload(struct ath12k *ar,
 }
 
 int ath12k_wmi_arp_ns_offload(struct ath12k *ar,
-			      struct ath12k_vif *arvif,
+			      struct ath12k_link_vif *arvif,
 			      struct wmi_arp_ns_offload_arg *offload,
 			      bool enable)
 {
@@ -8020,7 +8024,7 @@ int ath12k_wmi_arp_ns_offload(struct ath12k *ar,
 }
 
 int ath12k_wmi_gtk_rekey_offload(struct ath12k *ar,
-				 struct ath12k_vif *arvif, bool enable)
+				 struct ath12k_link_vif *arvif, bool enable)
 {
 	struct ath12k_rekey_data *rekey_data = &arvif->rekey_data;
 	struct wmi_gtk_rekey_offload_cmd *cmd;
@@ -8057,7 +8061,7 @@ int ath12k_wmi_gtk_rekey_offload(struct ath12k *ar,
 }
 
 int ath12k_wmi_gtk_rekey_getinfo(struct ath12k *ar,
-				 struct ath12k_vif *arvif)
+				 struct ath12k_link_vif *arvif)
 {
 	struct wmi_gtk_rekey_offload_cmd *cmd;
 	struct sk_buff *skb;
