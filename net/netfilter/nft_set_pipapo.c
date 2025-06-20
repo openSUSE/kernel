@@ -1532,8 +1532,6 @@ static void pipapo_drop(struct nft_pipapo_match *m,
 static void pipapo_gc(const struct nft_set *set, struct nft_pipapo_match *m)
 {
 	struct nft_pipapo *priv = nft_set_priv(set);
-	struct net *net = read_pnet(&set->net);
-	u64 tstamp = nft_net_tstamp(net);
 	int rules_f0, first_rule = 0;
 	struct nft_pipapo_elem *e;
 
@@ -1559,7 +1557,7 @@ static void pipapo_gc(const struct nft_set *set, struct nft_pipapo_match *m)
 		f--;
 		i--;
 		e = f->mt[rulemap[i].to].e;
-		if (__nft_set_elem_expired(&e->ext, tstamp) &&
+		if (nft_set_elem_expired(&e->ext) &&
 		    !nft_set_elem_mark_busy(&e->ext)) {
 			priv->dirty = true;
 			pipapo_drop(m, rulemap);
