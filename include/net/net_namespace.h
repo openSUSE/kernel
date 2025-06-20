@@ -141,7 +141,6 @@ struct net {
 #if defined(CONFIG_NF_CONNTRACK) || defined(CONFIG_NF_CONNTRACK_MODULE)
 	struct netns_ct		ct;
 #endif
-	u64			tstamp;
 #if defined(CONFIG_NF_TABLES) || defined(CONFIG_NF_TABLES_MODULE)
 	struct netns_nftables	nft;
 #endif
@@ -167,6 +166,7 @@ struct net {
 
 #ifndef __GENKSYMS__
 	struct llist_node defer_free_list;
+	u64		  tstamp;
 #endif
 
 	/* Note : following structs are cache line aligned */
