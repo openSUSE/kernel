@@ -58,7 +58,7 @@ extern const char * const x86_power_flags[32];
  */
 extern const char * const x86_bug_flags[(NBUGINTS+NEXTBUGINTS)*32];
 
-#define test_cpu_cap(c, bit) \
+#define test_cpu_cap(c, bit)						\
  (IS_EXT_BIT(bit) ? test_bit((bit) - (NCAPINTS+NBUGINTS)*32,		\
 			     (unsigned long *)((c)->x86_ext_capability)) : \
 		    test_bit(bit, (unsigned long *)((c)->x86_capability)))
@@ -227,7 +227,6 @@ static __always_inline __pure bool _static_cpu_has(u16 bit)
 
 #define cpu_has_bug(c, bit)		cpu_has(c, (bit))
 #define set_cpu_bug(c, bit)		set_cpu_cap(c, (bit))
-
 #define clear_cpu_bug(c, bit)		clear_cpu_cap(c, (bit))
 
 #define static_cpu_has_bug(bit)		static_cpu_has((bit))

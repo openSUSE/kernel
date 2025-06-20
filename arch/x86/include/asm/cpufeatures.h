@@ -12,11 +12,10 @@
 /*
  * Defines x86 CPU feature bits
  */
-#define NCAPINTS	19 /* N 32-bit words worth of info */
+#define NCAPINTS	19	/* N 32-bit words worth of info */
 #define NBUGINTS	1	/* N 32-bit bug flags */
-#define NEXTCAPINTS     4
-#define NEXTBUGINTS     1
-
+#define NEXTCAPINTS	4
+#define NEXTBUGINTS	1
 
 /*
  * Note: If the comment begins with a quoted string, that string is used
@@ -380,7 +379,6 @@
 #define X86_FEATURE_FLUSH_L1D		(18*32+28) /* Flush L1D cache */
 #define X86_FEATURE_ARCH_CAPABILITIES	(18*32+29) /* IA32_ARCH_CAPABILITIES MSR (Intel) */
 #define X86_FEATURE_SPEC_CTRL_SSBD	(18*32+31) /* "" Speculative Store Bypass Disable */
-
 
 #define X86_EXT_FEATURE(x)		(NBUGINTS*32 + (x))
 #define X86_FEATUREINDEX(x)		((x) < NCAPINTS*32 ? (x) : (x) - NBUGINTS*32)
