@@ -1494,7 +1494,7 @@ ceph_direct_read_write(struct kiocb *iocb, struct iov_iter *iter,
 
 		osd_req_op_extent_osd_data_bvecs(req, 0, bvecs, num_pages, len);
 		op = &req->r_ops[0];
-		if (sparse) {
+		if (!write && sparse) {
 			ret = ceph_alloc_sparse_ext_map(op);
 			if (ret) {
 				ceph_osdc_put_request(req);
