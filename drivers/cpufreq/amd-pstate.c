@@ -1501,8 +1501,7 @@ static int amd_pstate_epp_cpu_init(struct cpufreq_policy *policy)
 	 * Set the policy to provide a valid fallback value in case
 	 * the default cpufreq governor is neither powersave nor performance.
 	 */
-	if (amd_pstate_acpi_pm_profile_server() ||
-	    amd_pstate_acpi_pm_profile_undefined()) {
+	if (cpufreq_should_get_performance_governor()) {
 		policy->policy = CPUFREQ_POLICY_PERFORMANCE;
 		cpudata->epp_default = amd_pstate_get_epp(cpudata);
 	} else {
