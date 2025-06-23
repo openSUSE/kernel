@@ -211,7 +211,7 @@ static struct string_list *process_enum(const char *name, enum symbol_type type,
 				defn = mk_node(buf);
 			}
 		}
-	} else if (type == SYM_ENUM) {
+	} else {
 		free_list(last_enum_expr, NULL);
 		last_enum_expr = NULL;
 		enum_counter = 0;
