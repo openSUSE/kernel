@@ -70,13 +70,17 @@ struct netns_xfrm {
 #if IS_ENABLED(CONFIG_IPV6)
 	struct dst_ops		xfrm6_dst_ops;
 #endif
-	spinlock_t xfrm_state_lock;
+	spinlock_t		xfrm_state_lock;
+
 	spinlock_t xfrm_policy_lock;
 	struct mutex xfrm_cfg_mutex;
 
 	/* flow cache part */
 	struct flow_cache	flow_cache_global;
 	atomic_t		flow_cache_genid;
+#ifndef __GENKSYMS__
+	seqcount_t		xfrm_state_hash_generation;
+#endif
 	struct list_head	flow_cache_gc_list;
 	atomic_t		flow_cache_gc_count;
 	spinlock_t		flow_cache_gc_lock;
