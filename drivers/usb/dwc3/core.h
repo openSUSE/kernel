@@ -1364,6 +1364,7 @@ struct dwc3 {
 	int			last_fifo_depth;
 	int			num_ep_resized;
 	struct dentry		*debug_root;
+	u32			wakeup_pending_funcs;
 };
 
 #define INCRX_BURST_MODE 0
