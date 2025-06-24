@@ -6,6 +6,8 @@
 #include <linux/cache.h>
 #include <linux/kernel.h>
 #include <asm/page.h>
+#include <linux/build_bug.h>  /* for static_assert() */
+#include <linux/stddef.h>     /* for offsetof() */
 
 struct page_counter {
 	/*
@@ -26,8 +28,41 @@ struct page_counter {
 	atomic_long_t children_low_usage;
 
 	unsigned long watermark;
+	unsigned long failcnt;
+
+	/* Keep all the read most fields in a separete cacheline. */
+	CACHELINE_PADDING(_pad2_);
+
+	unsigned long min;
+	unsigned long low;
+	unsigned long high;
+	unsigned long max;
+	struct page_counter *parent;
+#ifndef __GENKSYMS__
 	/* Latest cg2 reset watermark */
 	unsigned long local_watermark;
+#endif
+} ____cacheline_internodealigned_in_smp;
+
+struct __orig_page_counter {
+	/*
+	 * Make sure 'usage' does not share cacheline with any other field. The
+	 * memcg->memory.usage is a hot member of struct mem_cgroup.
+	 */
+	atomic_long_t usage;
+	CACHELINE_PADDING(_pad1_);
+
+	/* effective memory.min and memory.min usage tracking */
+	unsigned long emin;
+	atomic_long_t min_usage;
+	atomic_long_t children_min_usage;
+
+	/* effective memory.low and memory.low usage tracking */
+	unsigned long elow;
+	atomic_long_t low_usage;
+	atomic_long_t children_low_usage;
+
+	unsigned long watermark;
 	unsigned long failcnt;
 
 	/* Keep all the read most fields in a separete cacheline. */
@@ -39,6 +74,10 @@ struct page_counter {
 	unsigned long max;
 	struct page_counter *parent;
 } ____cacheline_internodealigned_in_smp;
+
+#ifndef CONFIG_ARM
+static_assert(sizeof(struct __orig_page_counter) == sizeof(struct page_counter));
+#endif
 
 #if BITS_PER_LONG == 32
 #define PAGE_COUNTER_MAX LONG_MAX
