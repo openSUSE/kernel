@@ -121,6 +121,7 @@ struct mhp_params {
 
 bool mhp_range_allowed(u64 start, u64 size, bool need_mapping);
 struct range mhp_get_pluggable_range(bool need_mapping);
+bool mhp_supports_memmap_on_memory(void);
 
 /*
  * Zone resizing functions
@@ -258,6 +259,11 @@ static inline void mem_hotplug_begin(void) {}
 static inline void mem_hotplug_done(void) {}
 
 static inline bool movable_node_is_enabled(void)
+{
+	return false;
+}
+
+static inline bool mhp_supports_memmap_on_memory(void)
 {
 	return false;
 }
