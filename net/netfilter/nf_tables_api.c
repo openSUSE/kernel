@@ -7383,6 +7383,7 @@ static bool nf_tables_valid_genid(struct net *net, u32 genid)
 	bool genid_ok;
 
 	mutex_lock(&net->nft.commit_mutex);
+	net->tstamp = get_jiffies_64();
 
 	genid_ok = genid == 0 || net->nft.base_seq == genid;
 	if (!genid_ok)

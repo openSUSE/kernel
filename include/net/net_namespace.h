@@ -166,6 +166,7 @@ struct net {
 
 #ifndef __GENKSYMS__
 	struct llist_node defer_free_list;
+	u64		  tstamp;
 #endif
 
 	/* Note : following structs are cache line aligned */
