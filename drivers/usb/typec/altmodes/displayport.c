@@ -436,6 +436,9 @@ pin_assignment_store(struct device *dev, struct device_attribute *attr,
 	u32 conf;
 	int ret;
 
+	if (!dp)
+		return -EAGAIN;
+
 	ret = sysfs_match_string(pin_assignments, buf);
 	if (ret < 0)
 		return ret;
@@ -485,6 +488,9 @@ static ssize_t pin_assignment_show(struct device *dev,
 	int len = 0;
 	u8 cur;
 	int i;
+
+	if (!dp)
+		return -EAGAIN;
 
 	mutex_lock(&dp->lock);
 
