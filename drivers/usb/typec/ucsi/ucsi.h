@@ -347,7 +347,11 @@ struct ucsi_debugfs_entry {
 		u64 low;
 		u64 high;
 	} response;
-	int status;
+#ifndef __GENKSYMS__
+	s32 status;
+#else
+	u32 status;
+#endif
 	struct dentry *dentry;
 	void *suse_kabi_padding;
 };
