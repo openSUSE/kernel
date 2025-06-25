@@ -1367,6 +1367,14 @@ static int release_reference_state(struct bpf_func_state *state, int ptr_id)
 	return -EINVAL;
 }
 
+static void update_peak_states(struct bpf_verifier_env *env)
+{
+	u32 cur_states;
+
+	cur_states = env->explored_states_size + env->free_list_size;
+	env->peak_states = max(env->peak_states, cur_states);
+}
+
 static void free_func_state(struct bpf_func_state *state)
 {
 	if (!state)
@@ -1436,7 +1444,7 @@ static void maybe_free_verifier_state(struct bpf_verifier_env *env,
 		list_del(&sl->node);
 		free_verifier_state(&sl->state, false);
 		kfree(sl);
-		env->peak_states--;
+		env->free_list_size--;
 		sl = loop_entry_sl;
 	}
 }
@@ -18260,6 +18268,8 @@ miss:
 			sl->in_free_list = true;
 			list_del(&sl->node);
 			list_add(&sl->node, &env->free_list);
+			env->free_list_size++;
+			env->explored_states_size--;
 			maybe_free_verifier_state(env, sl);
 		}
 	}
@@ -18286,7 +18296,8 @@ miss:
 	if (!new_sl)
 		return -ENOMEM;
 	env->total_states++;
-	env->peak_states++;
+	env->explored_states_size++;
+	update_peak_states(env);
 	env->prev_jmps_processed = env->jmps_processed;
 	env->prev_insn_processed = env->insn_processed;
 
