@@ -1559,22 +1559,10 @@ static int ftrace_cmp_recs(const void *a, const void *b)
 	return 0;
 }
 
-/**
- * ftrace_location_range - return the first address of a traced location
- *	if it touches the given ip range
- * @start: start of range to search.
- * @end: end of range to search (inclusive). @end points to the last byte
- *	to check.
- *
- * Returns rec->ip if the related ftrace location is a least partly within
- * the given address range. That is, the first address of the instruction
- * that is either a NOP or call to the function tracer. It checks the ftrace
- * internal tables to determine if the address belongs or not.
- */
-unsigned long ftrace_location_range(unsigned long start, unsigned long end)
+static struct dyn_ftrace *lookup_rec(unsigned long start, unsigned long end)
 {
 	struct ftrace_page *pg;
-	struct dyn_ftrace *rec;
+	struct dyn_ftrace *rec = NULL;
 	struct dyn_ftrace key;
 
 	key.ip = start;
@@ -1589,10 +1577,35 @@ unsigned long ftrace_location_range(unsigned long start, unsigned long end)
 			      sizeof(struct dyn_ftrace),
 			      ftrace_cmp_recs);
 		if (rec)
-			return rec->ip;
+			break;
 	}
+	return rec;
+}
 
-	return 0;
+/**
+ * ftrace_location_range - return the first address of a traced location
+ *	if it touches the given ip range
+ * @start: start of range to search.
+ * @end: end of range to search (inclusive). @end points to the last byte
+ *	to check.
+ *
+ * Returns rec->ip if the related ftrace location is a least partly within
+ * the given address range. That is, the first address of the instruction
+ * that is either a NOP or call to the function tracer. It checks the ftrace
+ * internal tables to determine if the address belongs or not.
+ */
+unsigned long ftrace_location_range(unsigned long start, unsigned long end)
+{
+	struct dyn_ftrace *rec;
+	unsigned long ip = 0;
+
+	rcu_read_lock();
+	rec = lookup_rec(start, end);
+	if (rec)
+		ip = rec->ip;
+	rcu_read_unlock();
+
+	return ip;
 }
 
 /**
@@ -3043,12 +3056,25 @@ static int ftrace_allocate_records(struct ftrace_page *pg, int count)
 	return cnt;
 }
 
+static void ftrace_free_pages(struct ftrace_page *pages)
+{
+	struct ftrace_page *pg = pages;
+	int order;
+
+	while (pg) {
+		order = get_count_order(pg->size / ENTRIES_PER_PAGE);
+		free_pages((unsigned long)pg->records, order);
+		pages = pg->next;
+		kfree(pg);
+		pg = pages;
+	}
+}
+
 static struct ftrace_page *
 ftrace_allocate_pages(unsigned long num_to_init)
 {
 	struct ftrace_page *start_pg;
 	struct ftrace_page *pg;
-	int order;
 	int cnt;
 
 	if (!num_to_init)
@@ -3082,14 +3108,7 @@ ftrace_allocate_pages(unsigned long num_to_init)
 	return start_pg;
 
  free_pages:
-	pg = start_pg;
-	while (pg) {
-		order = get_count_order(pg->size / ENTRIES_PER_PAGE);
-		free_pages((unsigned long)pg->records, order);
-		start_pg = pg->next;
-		kfree(pg);
-		pg = start_pg;
-	}
+	ftrace_free_pages(start_pg);
 	pr_info("ftrace: FAILED to allocate memory for functions\n");
 	return NULL;
 }
@@ -5309,9 +5328,11 @@ static int ftrace_process_locs(struct module *mod,
 			       unsigned long *start,
 			       unsigned long *end)
 {
+	struct ftrace_page *pg_unuse = NULL;
 	struct ftrace_page *start_pg;
 	struct ftrace_page *pg;
 	struct dyn_ftrace *rec;
+	unsigned long skipped = 0;
 	unsigned long count;
 	unsigned long *p;
 	unsigned long addr;
@@ -5364,8 +5385,10 @@ static int ftrace_process_locs(struct module *mod,
 		 * object files to satisfy alignments.
 		 * Skip any NULL pointers.
 		 */
-		if (!addr)
+		if (!addr) {
+			skipped++;
 			continue;
+		}
 
 		if (pg->index == pg->size) {
 			/* We should have allocated enough */
@@ -5378,8 +5401,10 @@ static int ftrace_process_locs(struct module *mod,
 		rec->ip = addr;
 	}
 
-	/* We should have used all pages */
-	WARN_ON(pg->next);
+	if (pg->next) {
+		pg_unuse = pg->next;
+		pg->next = NULL;
+	}
 
 	/* Assign the last page to ftrace_pages */
 	ftrace_pages = pg;
@@ -5401,6 +5426,13 @@ static int ftrace_process_locs(struct module *mod,
  out:
 	mutex_unlock(&ftrace_lock);
 
+	/* We should have used all pages unless we skipped some */
+	if (pg_unuse) {
+		WARN_ON(!skipped);
+		/* Need to synchronize with ftrace_location_range() */
+		synchronize_rcu();
+		ftrace_free_pages(pg_unuse);
+	}
 	return ret;
 }
 
@@ -5424,10 +5456,51 @@ static int referenced_filters(struct dyn_ftrace *rec)
 	return cnt;
 }
 
+static void
+clear_mod_from_hash(struct ftrace_page *pg, struct ftrace_hash *hash)
+{
+	struct ftrace_func_entry *entry;
+	struct dyn_ftrace *rec;
+	int i;
+
+	if (ftrace_hash_empty(hash))
+		return;
+
+	for (i = 0; i < pg->index; i++) {
+		rec = &pg->records[i];
+		entry = __ftrace_lookup_ip(hash, rec->ip);
+		/*
+		 * Do not allow this rec to match again.
+		 * Yeah, it may waste some memory, but will be removed
+		 * if/when the hash is modified again.
+		 */
+		if (entry)
+			entry->ip = 0;
+	}
+}
+
+/* Clear any records from hashs */
+static void clear_mod_from_hashes(struct ftrace_page *pg)
+{
+	struct trace_array *tr;
+
+	mutex_lock(&trace_types_lock);
+	list_for_each_entry(tr, &ftrace_trace_arrays, list) {
+		if (!tr->ops || !tr->ops->func_hash)
+			continue;
+		mutex_lock(&tr->ops->func_hash->regex_lock);
+		clear_mod_from_hash(pg, tr->ops->func_hash->filter_hash);
+		clear_mod_from_hash(pg, tr->ops->func_hash->notrace_hash);
+		mutex_unlock(&tr->ops->func_hash->regex_lock);
+	}
+	mutex_unlock(&trace_types_lock);
+}
+
 void ftrace_release_mod(struct module *mod)
 {
 	struct dyn_ftrace *rec;
 	struct ftrace_page **last_pg;
+	struct ftrace_page *tmp_page = NULL;
 	struct ftrace_page *pg;
 	int order;
 
@@ -5456,14 +5529,28 @@ void ftrace_release_mod(struct module *mod)
 				ftrace_pages = next_to_ftrace_page(last_pg);
 
 			*last_pg = pg->next;
-			order = get_count_order(pg->size / ENTRIES_PER_PAGE);
-			free_pages((unsigned long)pg->records, order);
-			kfree(pg);
+
+			pg->next = tmp_page;
+			tmp_page = pg;
 		} else
 			last_pg = &pg->next;
 	}
  out_unlock:
 	mutex_unlock(&ftrace_lock);
+
+	/* Need to synchronize with ftrace_location_range() */
+	if (tmp_page)
+		synchronize_rcu();
+	for (pg = tmp_page; pg; pg = tmp_page) {
+
+		/* Needs to be called outside of ftrace_lock */
+		clear_mod_from_hashes(pg);
+
+		order = get_count_order(pg->size / ENTRIES_PER_PAGE);
+		free_pages((unsigned long)pg->records, order);
+		tmp_page = pg->next;
+		kfree(pg);
+	}
 }
 
 void ftrace_module_enable(struct module *mod)
@@ -5550,10 +5637,10 @@ void __init ftrace_free_init_mem(void)
 	unsigned long start = (unsigned long)(&__init_begin);
 	unsigned long end = (unsigned long)(&__init_end);
 	struct ftrace_page **last_pg = &ftrace_pages_start;
+	struct ftrace_page *tmp_page = NULL;
 	struct ftrace_page *pg;
 	struct dyn_ftrace *rec;
 	struct dyn_ftrace key;
-	int order;
 
 	key.ip = start;
 	key.flags = end;	/* overload flags, as it is unsigned long */
@@ -5573,9 +5660,8 @@ void __init ftrace_free_init_mem(void)
 		pg->index--;
 		if (!pg->index) {
 			*last_pg = pg->next;
-			order = get_count_order(pg->size / ENTRIES_PER_PAGE);
-			free_pages((unsigned long)pg->records, order);
-			kfree(pg);
+			pg->next = tmp_page;
+			tmp_page = pg;
 			pg = container_of(last_pg, struct ftrace_page, next);
 			if (!(*last_pg))
 				ftrace_pages = pg;
@@ -5587,6 +5673,11 @@ void __init ftrace_free_init_mem(void)
 		goto again;
 	}
 	mutex_unlock(&ftrace_lock);
+	/* Need to synchronize with ftrace_location_range() */
+	if (tmp_page) {
+		synchronize_rcu();
+		ftrace_free_pages(tmp_page);
+	}
 }
 
 void __init ftrace_init(void)
