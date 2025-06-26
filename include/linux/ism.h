@@ -58,9 +58,9 @@ struct ___ism_dev {
 	struct list_head list;
 };
 
-static_assert(offsetof(struct ism_dev, lock) ==
+suse_kabi_static_assert(offsetof(struct ism_dev, lock) ==
 	      offsetof(struct ___ism_dev, lock));
-static_assert(offsetof(struct ism_dev, list) ==
+suse_kabi_static_assert(offsetof(struct ism_dev, list) ==
 	      offsetof(struct ___ism_dev, list));
 #endif
 
