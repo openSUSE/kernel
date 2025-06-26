@@ -8212,7 +8212,7 @@ again:
 		if (reserved_space < PAGE_SIZE) {
 			end = page_start + reserved_space - 1;
 			btrfs_delalloc_release_space(BTRFS_I(inode),
-					data_reserved, page_start,
+					data_reserved, end + 1,
 					PAGE_SIZE - reserved_space, true);
 		}
 	}
