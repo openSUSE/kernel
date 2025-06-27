@@ -325,6 +325,8 @@ invoke_callback:
 		if (frame->callback)
 			frame->callback(ring, frame, canceled);
 	}
+
+	wake_up(&ring->wait);
 }
 
 int __tb_ring_enqueue(struct tb_ring *ring, struct ring_frame *frame)
@@ -601,6 +603,7 @@ static struct tb_ring *tb_ring_alloc(struct tb_nhi *nhi, u32 hop, int size,
 	INIT_LIST_HEAD(&ring->queue);
 	INIT_LIST_HEAD(&ring->in_flight);
 	INIT_WORK(&ring->work, ring_work);
+	init_waitqueue_head(&ring->wait);
 
 	ring->nhi = nhi;
 	ring->hop = hop;
@@ -759,6 +762,31 @@ err:
 	spin_unlock_irq(&ring->nhi->lock);
 }
 EXPORT_SYMBOL_GPL(tb_ring_start);
+
+static bool tb_ring_empty(struct tb_ring *ring)
+{
+	guard(spinlock_irqsave)(&ring->lock);
+	return list_empty(&ring->in_flight);
+}
+
+/**
+ * tb_ring_flush() - Waits for a ring to be empty
+ * @ring: Ring to wait
+ * @timeout_msec: Timeout in ms how long to wait.
+ *
+ * This can be called before stopping a ring to make sure all the frames
+ * submitted prior have been completed.
+ *
+ * Return: %true if the ring is empty now, %false otherwise.
+ */
+bool tb_ring_flush(struct tb_ring *ring, unsigned int timeout_msec)
+{
+	if (!wait_event_timeout(ring->wait, tb_ring_empty(ring),
+				msecs_to_jiffies(timeout_msec)))
+		return false;
+	return tb_ring_empty(ring);
+}
+EXPORT_SYMBOL_GPL(tb_ring_flush);
 
 /**
  * tb_ring_stop() - shutdown a ring

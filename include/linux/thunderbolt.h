@@ -556,6 +556,7 @@ struct tb_nhi {
  * @poll_data: Data passed to @start_poll
  * @interval_nsec: Interval counter if interrupt throttling is to be
  *		   used with this ring (in ns)
+ * @wait: Used to signal that the ring may be empty now
  */
 struct tb_ring {
 	spinlock_t lock;
@@ -580,6 +581,7 @@ struct tb_ring {
 	void (*start_poll)(void *data);
 	void *poll_data;
 	unsigned int interval_nsec;
+	wait_queue_head_t wait;
 };
 
 /* Leave ring interrupt enabled on suspend */
@@ -653,6 +655,7 @@ struct tb_ring *tb_ring_alloc_rx(struct tb_nhi *nhi, int hop, int size,
 				 u16 sof_mask, u16 eof_mask,
 				 void (*start_poll)(void *), void *poll_data);
 void tb_ring_start(struct tb_ring *ring);
+bool tb_ring_flush(struct tb_ring *ring, unsigned int timeout_msec);
 void tb_ring_stop(struct tb_ring *ring);
 void tb_ring_free(struct tb_ring *ring);
 
