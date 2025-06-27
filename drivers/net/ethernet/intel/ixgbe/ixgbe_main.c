@@ -1095,7 +1095,7 @@ static void ixgbe_tx_timeout_reset(struct ixgbe_adapter *adapter)
 static int ixgbe_tx_maxrate(struct net_device *netdev,
 			    int queue_index, u32 maxrate)
 {
-	struct ixgbe_adapter *adapter = netdev_priv(netdev);
+	struct ixgbe_adapter *adapter = ixgbe_from_netdev(netdev);
 	struct ixgbe_hw *hw = &adapter->hw;
 	u32 bcnrc_val = ixgbe_link_mbps(adapter);
 
@@ -4674,7 +4674,7 @@ static void ixgbe_configure_rx(struct ixgbe_adapter *adapter)
 static int ixgbe_vlan_rx_add_vid(struct net_device *netdev,
 				 __be16 proto, u16 vid)
 {
-	struct ixgbe_adapter *adapter = netdev_priv(netdev);
+	struct ixgbe_adapter *adapter = ixgbe_from_netdev(netdev);
 	struct ixgbe_hw *hw = &adapter->hw;
 
 	/* add VID to filter table */
@@ -4733,7 +4733,7 @@ void ixgbe_update_pf_promisc_vlvf(struct ixgbe_adapter *adapter, u32 vid)
 static int ixgbe_vlan_rx_kill_vid(struct net_device *netdev,
 				  __be16 proto, u16 vid)
 {
-	struct ixgbe_adapter *adapter = netdev_priv(netdev);
+	struct ixgbe_adapter *adapter = ixgbe_from_netdev(netdev);
 	struct ixgbe_hw *hw = &adapter->hw;
 
 	/* remove VID from filter table */
@@ -4958,7 +4958,7 @@ static void ixgbe_restore_vlan(struct ixgbe_adapter *adapter)
  **/
 static int ixgbe_write_mc_addr_list(struct net_device *netdev)
 {
-	struct ixgbe_adapter *adapter = netdev_priv(netdev);
+	struct ixgbe_adapter *adapter = ixgbe_from_netdev(netdev);
 	struct ixgbe_hw *hw = &adapter->hw;
 
 	if (!netif_running(netdev))
@@ -5134,7 +5134,7 @@ int ixgbe_del_mac_filter(struct ixgbe_adapter *adapter,
 
 static int ixgbe_uc_sync(struct net_device *netdev, const unsigned char *addr)
 {
-	struct ixgbe_adapter *adapter = netdev_priv(netdev);
+	struct ixgbe_adapter *adapter = ixgbe_from_netdev(netdev);
 	int ret;
 
 	ret = ixgbe_add_mac_filter(adapter, addr, VMDQ_P(0));
@@ -5144,7 +5144,7 @@ static int ixgbe_uc_sync(struct net_device *netdev, const unsigned char *addr)
 
 static int ixgbe_uc_unsync(struct net_device *netdev, const unsigned char *addr)
 {
-	struct ixgbe_adapter *adapter = netdev_priv(netdev);
+	struct ixgbe_adapter *adapter = ixgbe_from_netdev(netdev);
 
 	ixgbe_del_mac_filter(adapter, addr, VMDQ_P(0));
 
@@ -5162,7 +5162,7 @@ static int ixgbe_uc_unsync(struct net_device *netdev, const unsigned char *addr)
  **/
 void ixgbe_set_rx_mode(struct net_device *netdev)
 {
-	struct ixgbe_adapter *adapter = netdev_priv(netdev);
+	struct ixgbe_adapter *adapter = ixgbe_from_netdev(netdev);
 	struct ixgbe_hw *hw = &adapter->hw;
 	u32 fctrl, vmolr = IXGBE_VMOLR_BAM | IXGBE_VMOLR_AUPE;
 	netdev_features_t features = netdev->features;
@@ -5264,7 +5264,7 @@ static void ixgbe_napi_disable_all(struct ixgbe_adapter *adapter)
 
 static int ixgbe_udp_tunnel_sync(struct net_device *dev, unsigned int table)
 {
-	struct ixgbe_adapter *adapter = netdev_priv(dev);
+	struct ixgbe_adapter *adapter = ixgbe_from_netdev(dev);
 	struct ixgbe_hw *hw = &adapter->hw;
 	struct udp_tunnel_info ti;
 
@@ -6598,7 +6598,7 @@ static void ixgbe_set_eee_capable(struct ixgbe_adapter *adapter)
  **/
 static void ixgbe_tx_timeout(struct net_device *netdev, unsigned int __always_unused txqueue)
 {
-	struct ixgbe_adapter *adapter = netdev_priv(netdev);
+	struct ixgbe_adapter *adapter = ixgbe_from_netdev(netdev);
 
 	/* Do the reset outside of interrupt context */
 	ixgbe_tx_timeout_reset(adapter);
@@ -7163,7 +7163,7 @@ static int ixgbe_max_xdp_frame_size(struct ixgbe_adapter *adapter)
  **/
 static int ixgbe_change_mtu(struct net_device *netdev, int new_mtu)
 {
-	struct ixgbe_adapter *adapter = netdev_priv(netdev);
+	struct ixgbe_adapter *adapter = ixgbe_from_netdev(netdev);
 
 	if (ixgbe_enabled_xdp_adapter(adapter)) {
 		int new_frame_size = new_mtu + IXGBE_PKT_HDR_PAD;
@@ -7210,7 +7210,7 @@ static int ixgbe_change_mtu(struct net_device *netdev, int new_mtu)
  **/
 int ixgbe_open(struct net_device *netdev)
 {
-	struct ixgbe_adapter *adapter = netdev_priv(netdev);
+	struct ixgbe_adapter *adapter = ixgbe_from_netdev(netdev);
 	struct ixgbe_hw *hw = &adapter->hw;
 	int err, queues;
 
@@ -7314,7 +7314,7 @@ static void ixgbe_close_suspend(struct ixgbe_adapter *adapter)
  **/
 int ixgbe_close(struct net_device *netdev)
 {
-	struct ixgbe_adapter *adapter = netdev_priv(netdev);
+	struct ixgbe_adapter *adapter = ixgbe_from_netdev(netdev);
 
 	ixgbe_ptp_stop(adapter);
 
@@ -8990,7 +8990,7 @@ static u16 ixgbe_select_queue(struct net_device *dev, struct sk_buff *skb,
 	switch (vlan_get_protocol(skb)) {
 	case htons(ETH_P_FCOE):
 	case htons(ETH_P_FIP):
-		adapter = netdev_priv(dev);
+		adapter = ixgbe_from_netdev(dev);
 
 		if (!sb_dev && (adapter->flags & IXGBE_FLAG_FCOE_ENABLED))
 			break;
@@ -9249,7 +9249,7 @@ static netdev_tx_t __ixgbe_xmit_frame(struct sk_buff *skb,
 				      struct net_device *netdev,
 				      struct ixgbe_ring *ring)
 {
-	struct ixgbe_adapter *adapter = netdev_priv(netdev);
+	struct ixgbe_adapter *adapter = ixgbe_from_netdev(netdev);
 	struct ixgbe_ring *tx_ring;
 
 	/*
@@ -9281,7 +9281,7 @@ static netdev_tx_t ixgbe_xmit_frame(struct sk_buff *skb,
  **/
 static int ixgbe_set_mac(struct net_device *netdev, void *p)
 {
-	struct ixgbe_adapter *adapter = netdev_priv(netdev);
+	struct ixgbe_adapter *adapter = ixgbe_from_netdev(netdev);
 	struct ixgbe_hw *hw = &adapter->hw;
 	struct sockaddr *addr = p;
 
@@ -9299,7 +9299,7 @@ static int ixgbe_set_mac(struct net_device *netdev, void *p)
 static int
 ixgbe_mdio_read(struct net_device *netdev, int prtad, int devad, u16 addr)
 {
-	struct ixgbe_adapter *adapter = netdev_priv(netdev);
+	struct ixgbe_adapter *adapter = ixgbe_from_netdev(netdev);
 	struct ixgbe_hw *hw = &adapter->hw;
 	u16 value;
 	int rc;
@@ -9325,7 +9325,7 @@ ixgbe_mdio_read(struct net_device *netdev, int prtad, int devad, u16 addr)
 static int ixgbe_mdio_write(struct net_device *netdev, int prtad, int devad,
 			    u16 addr, u16 value)
 {
-	struct ixgbe_adapter *adapter = netdev_priv(netdev);
+	struct ixgbe_adapter *adapter = ixgbe_from_netdev(netdev);
 	struct ixgbe_hw *hw = &adapter->hw;
 
 	if (adapter->mii_bus) {
@@ -9345,7 +9345,7 @@ static int ixgbe_mdio_write(struct net_device *netdev, int prtad, int devad,
 
 static int ixgbe_ioctl(struct net_device *netdev, struct ifreq *req, int cmd)
 {
-	struct ixgbe_adapter *adapter = netdev_priv(netdev);
+	struct ixgbe_adapter *adapter = ixgbe_from_netdev(netdev);
 
 	switch (cmd) {
 	case SIOCSHWTSTAMP:
@@ -9371,7 +9371,7 @@ static int ixgbe_ioctl(struct net_device *netdev, struct ifreq *req, int cmd)
 static int ixgbe_add_sanmac_netdev(struct net_device *dev)
 {
 	int err = 0;
-	struct ixgbe_adapter *adapter = netdev_priv(dev);
+	struct ixgbe_adapter *adapter = ixgbe_from_netdev(dev);
 	struct ixgbe_hw *hw = &adapter->hw;
 
 	if (is_valid_ether_addr(hw->mac.san_addr)) {
@@ -9395,7 +9395,7 @@ static int ixgbe_add_sanmac_netdev(struct net_device *dev)
 static int ixgbe_del_sanmac_netdev(struct net_device *dev)
 {
 	int err = 0;
-	struct ixgbe_adapter *adapter = netdev_priv(dev);
+	struct ixgbe_adapter *adapter = ixgbe_from_netdev(dev);
 	struct ixgbe_mac_info *mac = &adapter->hw.mac;
 
 	if (is_valid_ether_addr(mac->san_addr)) {
@@ -9426,7 +9426,7 @@ static void ixgbe_get_ring_stats64(struct rtnl_link_stats64 *stats,
 static void ixgbe_get_stats64(struct net_device *netdev,
 			      struct rtnl_link_stats64 *stats)
 {
-	struct ixgbe_adapter *adapter = netdev_priv(netdev);
+	struct ixgbe_adapter *adapter = ixgbe_from_netdev(netdev);
 	int i;
 
 	rcu_read_lock();
@@ -9469,7 +9469,7 @@ static void ixgbe_get_stats64(struct net_device *netdev,
 static int ixgbe_ndo_get_vf_stats(struct net_device *netdev, int vf,
 				  struct ifla_vf_stats *vf_stats)
 {
-	struct ixgbe_adapter *adapter = netdev_priv(netdev);
+	struct ixgbe_adapter *adapter = ixgbe_from_netdev(netdev);
 
 	if (vf < 0 || vf >= adapter->num_vfs)
 		return -EINVAL;
@@ -9586,7 +9586,7 @@ static int ixgbe_reassign_macvlan_pool(struct net_device *vdev,
 
 static void ixgbe_defrag_macvlan_pools(struct net_device *dev)
 {
-	struct ixgbe_adapter *adapter = netdev_priv(dev);
+	struct ixgbe_adapter *adapter = ixgbe_from_netdev(dev);
 	struct netdev_nested_priv priv = {
 		.data = (void *)adapter,
 	};
@@ -9607,7 +9607,7 @@ static void ixgbe_defrag_macvlan_pools(struct net_device *dev)
  */
 int ixgbe_setup_tc(struct net_device *dev, u8 tc)
 {
-	struct ixgbe_adapter *adapter = netdev_priv(dev);
+	struct ixgbe_adapter *adapter = ixgbe_from_netdev(dev);
 	struct ixgbe_hw *hw = &adapter->hw;
 
 	/* Hardware supports up to 8 traffic classes */
@@ -10165,7 +10165,7 @@ static LIST_HEAD(ixgbe_block_cb_list);
 static int __ixgbe_setup_tc(struct net_device *dev, enum tc_setup_type type,
 			    void *type_data)
 {
-	struct ixgbe_adapter *adapter = netdev_priv(dev);
+	struct ixgbe_adapter *adapter = ixgbe_from_netdev(dev);
 
 	switch (type) {
 	case TC_SETUP_BLOCK:
@@ -10193,7 +10193,7 @@ void ixgbe_sriov_reinit(struct ixgbe_adapter *adapter)
 #endif
 void ixgbe_do_reset(struct net_device *netdev)
 {
-	struct ixgbe_adapter *adapter = netdev_priv(netdev);
+	struct ixgbe_adapter *adapter = ixgbe_from_netdev(netdev);
 
 	if (netif_running(netdev))
 		ixgbe_reinit_locked(adapter);
@@ -10204,7 +10204,7 @@ void ixgbe_do_reset(struct net_device *netdev)
 static netdev_features_t ixgbe_fix_features(struct net_device *netdev,
 					    netdev_features_t features)
 {
-	struct ixgbe_adapter *adapter = netdev_priv(netdev);
+	struct ixgbe_adapter *adapter = ixgbe_from_netdev(netdev);
 
 	/* If Rx checksum is disabled, then RSC/LRO should also be disabled */
 	if (!(features & NETIF_F_RXCSUM))
@@ -10241,7 +10241,7 @@ static void ixgbe_reset_l2fw_offload(struct ixgbe_adapter *adapter)
 static int ixgbe_set_features(struct net_device *netdev,
 			      netdev_features_t features)
 {
-	struct ixgbe_adapter *adapter = netdev_priv(netdev);
+	struct ixgbe_adapter *adapter = ixgbe_from_netdev(netdev);
 	netdev_features_t changed = netdev->features ^ features;
 	bool need_reset = false;
 
@@ -10317,7 +10317,7 @@ static int ixgbe_ndo_fdb_add(struct ndmsg *ndm, struct nlattr *tb[],
 {
 	/* guarantee we can provide a unique filter for the unicast address */
 	if (is_unicast_ether_addr(addr) || is_link_local_ether_addr(addr)) {
-		struct ixgbe_adapter *adapter = netdev_priv(dev);
+		struct ixgbe_adapter *adapter = ixgbe_from_netdev(dev);
 		u16 pool = VMDQ_P(0);
 
 		if (netdev_uc_count(dev) >= ixgbe_available_rars(adapter, pool))
@@ -10405,7 +10405,7 @@ static int ixgbe_ndo_bridge_setlink(struct net_device *dev,
 				    struct nlmsghdr *nlh, u16 flags,
 				    struct netlink_ext_ack *extack)
 {
-	struct ixgbe_adapter *adapter = netdev_priv(dev);
+	struct ixgbe_adapter *adapter = ixgbe_from_netdev(dev);
 	struct nlattr *attr, *br_spec;
 	int rem;
 
@@ -10433,7 +10433,7 @@ static int ixgbe_ndo_bridge_getlink(struct sk_buff *skb, u32 pid, u32 seq,
 				    struct net_device *dev,
 				    u32 filter_mask, int nlflags)
 {
-	struct ixgbe_adapter *adapter = netdev_priv(dev);
+	struct ixgbe_adapter *adapter = ixgbe_from_netdev(dev);
 
 	if (!(adapter->flags & IXGBE_FLAG_SRIOV_ENABLED))
 		return 0;
@@ -10445,7 +10445,7 @@ static int ixgbe_ndo_bridge_getlink(struct sk_buff *skb, u32 pid, u32 seq,
 
 static void *ixgbe_fwd_add(struct net_device *pdev, struct net_device *vdev)
 {
-	struct ixgbe_adapter *adapter = netdev_priv(pdev);
+	struct ixgbe_adapter *adapter = ixgbe_from_netdev(pdev);
 	struct ixgbe_fwd_adapter *accel;
 	int tcs = adapter->hw_tcs ? : 1;
 	int pool, err;
@@ -10542,7 +10542,7 @@ static void *ixgbe_fwd_add(struct net_device *pdev, struct net_device *vdev)
 static void ixgbe_fwd_del(struct net_device *pdev, void *priv)
 {
 	struct ixgbe_fwd_adapter *accel = priv;
-	struct ixgbe_adapter *adapter = netdev_priv(pdev);
+	struct ixgbe_adapter *adapter = ixgbe_from_netdev(pdev);
 	unsigned int rxbase = accel->rx_base_queue;
 	unsigned int i;
 
@@ -10620,7 +10620,7 @@ ixgbe_features_check(struct sk_buff *skb, struct net_device *dev,
 static int ixgbe_xdp_setup(struct net_device *dev, struct bpf_prog *prog)
 {
 	int i, frame_size = dev->mtu + ETH_HLEN + ETH_FCS_LEN + VLAN_HLEN;
-	struct ixgbe_adapter *adapter = netdev_priv(dev);
+	struct ixgbe_adapter *adapter = ixgbe_from_netdev(dev);
 	struct bpf_prog *old_prog;
 	bool need_reset;
 	int num_queues;
@@ -10692,7 +10692,7 @@ static int ixgbe_xdp_setup(struct net_device *dev, struct bpf_prog *prog)
 
 static int ixgbe_xdp(struct net_device *dev, struct netdev_bpf *xdp)
 {
-	struct ixgbe_adapter *adapter = netdev_priv(dev);
+	struct ixgbe_adapter *adapter = ixgbe_from_netdev(dev);
 
 	switch (xdp->command) {
 	case XDP_SETUP_PROG:
@@ -10727,7 +10727,7 @@ void ixgbe_xdp_ring_update_tail_locked(struct ixgbe_ring *ring)
 static int ixgbe_xdp_xmit(struct net_device *dev, int n,
 			  struct xdp_frame **frames, u32 flags)
 {
-	struct ixgbe_adapter *adapter = netdev_priv(dev);
+	struct ixgbe_adapter *adapter = ixgbe_from_netdev(dev);
 	struct ixgbe_ring *ring;
 	int nxmit = 0;
 	int i;
@@ -11260,7 +11260,7 @@ static int ixgbe_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 
 	SET_NETDEV_DEV(netdev, &pdev->dev);
 
-	adapter = netdev_priv(netdev);
+	adapter = ixgbe_from_netdev(netdev);
 
 	adapter->netdev = netdev;
 	adapter->pdev = pdev;
