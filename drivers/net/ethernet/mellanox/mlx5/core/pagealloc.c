@@ -212,7 +212,7 @@ static int alloc_system_page(struct mlx5_core_dev *dev, u16 func_id)
 	u64 zero_addr = 1;
 	u64 addr;
 	int err;
-	int nid = dev_to_node(&dev->pdev->dev);
+	int nid = dev->priv.numa_node;
 
 	page = alloc_pages_node(nid, GFP_HIGHUSER, 0);
 	if (!page) {
