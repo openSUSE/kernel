@@ -69,9 +69,7 @@
 #include <net/dst.h>
 #include <net/sock.h>
 #include <net/checksum.h>
-#ifndef __GENKSYMS__
 #include <net/gro.h>
-#endif
 #include <net/gso.h>
 #include <net/hotdata.h>
 #include <net/ip6_checksum.h>

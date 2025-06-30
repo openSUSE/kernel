@@ -322,7 +322,7 @@ void mctrl_gpio_enable_ms(struct mctrl_gpios *gpios)
 }
 EXPORT_SYMBOL_GPL(mctrl_gpio_enable_ms);
 
-static void __mctrl_gpio_disable_ms(struct mctrl_gpios *gpios, bool sync)
+static void mctrl_gpio_disable_ms(struct mctrl_gpios *gpios, bool sync)
 {
 	enum mctrl_gpio_idx i;
 
@@ -352,7 +352,7 @@ static void __mctrl_gpio_disable_ms(struct mctrl_gpios *gpios, bool sync)
  */
 void mctrl_gpio_disable_ms_sync(struct mctrl_gpios *gpios)
 {
-	__mctrl_gpio_disable_ms(gpios, true);
+	mctrl_gpio_disable_ms(gpios, true);
 }
 EXPORT_SYMBOL_GPL(mctrl_gpio_disable_ms_sync);
 
@@ -363,15 +363,9 @@ EXPORT_SYMBOL_GPL(mctrl_gpio_disable_ms_sync);
  */
 void mctrl_gpio_disable_ms_no_sync(struct mctrl_gpios *gpios)
 {
-	__mctrl_gpio_disable_ms(gpios, false);
+	mctrl_gpio_disable_ms(gpios, false);
 }
 EXPORT_SYMBOL_GPL(mctrl_gpio_disable_ms_no_sync);
-
-void mctrl_gpio_disable_ms(struct mctrl_gpios *gpios)
-{
-	mctrl_gpio_disable_ms_sync(gpios);
-}
-EXPORT_SYMBOL_GPL(mctrl_gpio_disable_ms);
 
 void mctrl_gpio_enable_irq_wake(struct mctrl_gpios *gpios)
 {

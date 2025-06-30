@@ -1217,11 +1217,7 @@ static inline void cpufreq_register_em_with_opp(struct cpufreq_policy *policy)
 }
 
 #ifdef CONFIG_ACPI
-
-#ifndef __GENKSYMS__
 #include <linux/acpi.h>
-#endif
-
 static inline bool cpufreq_should_get_performance_governor(void)
 {
 	if (!acpi_disabled && acpi_os_get_root_pointer()) {

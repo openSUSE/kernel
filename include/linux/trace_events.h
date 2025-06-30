@@ -275,12 +275,8 @@ struct trace_event_fields {
 			const char *name;
 			const int  size;
 			const int  align;
-#ifndef __GENKSYMS__
 			const unsigned int is_signed:1;
 			unsigned int needs_test:1;
-#else
-			const int is_signed;
-#endif
 			const int  filter_type;
 			const int  len;
 		};

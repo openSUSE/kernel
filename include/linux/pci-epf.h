@@ -123,6 +123,7 @@ struct pci_epf_bar {
 	dma_addr_t	phys_addr;
 	void		*addr;
 	size_t		size;
+	size_t		aligned_size;
 	enum pci_barno	barno;
 	int		flags;
 };
@@ -184,10 +185,6 @@ struct pci_epf {
 	unsigned long		vfunction_num_map;
 	struct list_head	pci_vepf;
 	const struct pci_epc_event_ops *event_ops;
-#ifndef __GENKSYMS__
-	size_t			bar_aligned_size[6];
-	size_t			sec_bar_aligned_size[6];
-#endif
 };
 
 /**

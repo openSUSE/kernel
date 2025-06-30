@@ -1060,16 +1060,13 @@ struct kvm_vcpu_arch {
 
 	/* Protected Guests */
 	bool guest_state_protected;
+	bool guest_tsc_protected;
 
 	/*
 	 * Set when PDPTS were loaded directly by the userspace without
 	 * reading the guest memory
 	 */
 	bool pdptrs_from_userspace;
-
-#ifndef __GENKSYMS__
-	bool guest_tsc_protected;
-#endif
 
 #if IS_ENABLED(CONFIG_HYPERV)
 	hpa_t hv_root_tdp;
@@ -1338,14 +1335,6 @@ struct kvm_arch {
 	bool has_private_mem;
 	bool has_protected_state;
 	bool pre_fault_allowed;
-#ifndef __GENKSYMS__
-	/*
-	 * Size of the CPU's dirty log buffer, i.e. VMX's PML buffer. A Zero
-	 * value indicates CPU dirty logging is unsupported or disabled in
-	 * current VM.
-	 */
-	int cpu_dirty_log_size;
-#endif
 	struct hlist_head mmu_page_hash[KVM_NUM_MMU_PAGES];
 	struct list_head active_mmu_pages;
 	/*
@@ -1580,6 +1569,13 @@ struct kvm_arch {
 	struct kvm_mmu_memory_cache split_desc_cache;
 
 	gfn_t gfn_direct_bits;
+
+	/*
+	 * Size of the CPU's dirty log buffer, i.e. VMX's PML buffer. A Zero
+	 * value indicates CPU dirty logging is unsupported or disabled in
+	 * current VM.
+	 */
+	int cpu_dirty_log_size;
 };
 
 struct kvm_vm_stat {
@@ -1683,6 +1679,7 @@ struct kvm_x86_ops {
 	unsigned int vm_size;
 	int (*vm_init)(struct kvm *kvm);
 	void (*vm_destroy)(struct kvm *kvm);
+	void (*vm_pre_destroy)(struct kvm *kvm);
 
 	/* Create, but do not attach this VCPU */
 	int (*vcpu_precreate)(struct kvm *kvm);
@@ -1832,12 +1829,6 @@ struct kvm_x86_ops {
 			       struct x86_exception *exception);
 	void (*handle_exit_irqoff)(struct kvm_vcpu *vcpu);
 
-#ifndef __GENKSYMS__
-	int cpu_dirty_log_size_kabi;
-#else
-	int cpu_dirty_log_size;
-#endif
-
 	void (*update_cpu_dirty_logging)(struct kvm_vcpu *vcpu);
 
 	const struct kvm_x86_nested_ops *nested_ops;
@@ -1851,6 +1842,7 @@ struct kvm_x86_ops {
 	void (*apicv_pre_state_restore)(struct kvm_vcpu *vcpu);
 	void (*apicv_post_state_restore)(struct kvm_vcpu *vcpu);
 	bool (*dy_apicv_has_pending_interrupt)(struct kvm_vcpu *vcpu);
+	bool (*protected_apic_has_interrupt)(struct kvm_vcpu *vcpu);
 
 	int (*set_hv_timer)(struct kvm_vcpu *vcpu, u64 guest_deadline_tsc,
 			    bool *expired);
@@ -1867,6 +1859,7 @@ struct kvm_x86_ops {
 
 	int (*dev_get_attr)(u32 group, u64 attr, u64 *val);
 	int (*mem_enc_ioctl)(struct kvm *kvm, void __user *argp);
+	int (*vcpu_mem_enc_ioctl)(struct kvm_vcpu *vcpu, void __user *argp);
 	int (*mem_enc_register_region)(struct kvm *kvm, struct kvm_enc_region *argp);
 	int (*mem_enc_unregister_region)(struct kvm *kvm, struct kvm_enc_region *argp);
 	int (*vm_copy_enc_context_from)(struct kvm *kvm, unsigned int source_fd);
@@ -1897,12 +1890,6 @@ struct kvm_x86_ops {
 	int (*gmem_prepare)(struct kvm *kvm, kvm_pfn_t pfn, gfn_t gfn, int max_order);
 	void (*gmem_invalidate)(kvm_pfn_t start, kvm_pfn_t end);
 	int (*private_max_mapping_level)(struct kvm *kvm, kvm_pfn_t pfn);
-
-#ifndef __GENKSYMS__
-	void (*vm_pre_destroy)(struct kvm *kvm);
-	bool (*protected_apic_has_interrupt)(struct kvm_vcpu *vcpu);
-	int (*vcpu_mem_enc_ioctl)(struct kvm_vcpu *vcpu, void __user *argp);
-#endif
 };
 
 struct kvm_x86_nested_ops {

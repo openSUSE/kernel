@@ -20,9 +20,7 @@ enum misc_res_type {
 #endif
 #ifdef CONFIG_INTEL_TDX_HOST
 	/* Intel TDX HKIDs resource */
-#ifndef __GENKSYMS__
 	MISC_CG_RES_TDX,
-#endif
 #endif
 	/** @MISC_CG_RES_TYPES: count of enum misc_res_type constants */
 	MISC_CG_RES_TYPES
