@@ -4,5 +4,5 @@
 # AMD Power Management Controller Driver
 #
 
-amd-pmc-objs := pmc.o pmc-quirks.o
 obj-$(CONFIG_AMD_PMC) += amd-pmc.o
+amd-pmc-y := pmc.o pmc-quirks.o

@@ -1,13 +1,14 @@
 /* SPDX-License-Identifier: BSD-3-Clause-Clear */
 /*
  * Copyright (c) 2018-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2025 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef ATH12K_HW_H
 #define ATH12K_HW_H
 
 #include <linux/mhi.h>
+#include <linux/uuid.h>
 
 #include "wmi.h"
 #include "hal.h"
@@ -77,7 +78,9 @@
 #define TARGET_NUM_WDS_ENTRIES		32
 #define TARGET_DMA_BURST_SIZE		1
 #define TARGET_RX_BATCHMODE		1
+#define TARGET_EMA_MAX_PROFILE_PERIOD	8
 
+#define ATH12K_HW_DEFAULT_QUEUE		0
 #define ATH12K_HW_MAX_QUEUES		4
 #define ATH12K_QUEUE_LEN		4096
 
@@ -92,6 +95,8 @@
 #define ATH12K_AMSS_FILE		"amss.bin"
 #define ATH12K_M3_FILE			"m3.bin"
 #define ATH12K_REGDB_FILE_NAME		"regdb.bin"
+
+#define ATH12K_PCIE_MAX_PAYLOAD_SIZE	128
 
 enum ath12k_hw_rate_cck {
 	ATH12K_HW_RATE_CCK_LP_11M = 0,
@@ -170,7 +175,7 @@ struct ath12k_hw_params {
 	const struct ath12k_hw_hal_params *hal_params;
 
 	bool rxdma1_enable:1;
-	int num_rxmda_per_pdev;
+	int num_rxdma_per_pdev;
 	int num_rxdma_dst_ring;
 	bool rx_mac_buf_ring:1;
 	bool vdev_start_delay:1;
@@ -184,6 +189,7 @@ struct ath12k_hw_params {
 	bool tcl_ring_retry:1;
 	bool reoq_lut_support:1;
 	bool supports_shadow_regs:1;
+	bool supports_aspm:1;
 
 	u32 num_tcl_banks;
 	u32 max_tx_ring;
@@ -209,6 +215,11 @@ struct ath12k_hw_params {
 	u32 otp_board_id_register;
 
 	bool supports_sta_ps;
+
+	const guid_t *acpi_guid;
+	bool supports_dynamic_smps_6ghz;
+
+	u32 iova_mask;
 };
 
 struct ath12k_hw_ops {
@@ -282,6 +293,9 @@ struct ath12k_hw_regs {
 	u32 hal_tcl1_ring_msi1_base_msb;
 	u32 hal_tcl1_ring_msi1_data;
 	u32 hal_tcl_ring_base_lsb;
+	u32 hal_tcl1_ring_base_lsb;
+	u32 hal_tcl1_ring_base_msb;
+	u32 hal_tcl2_ring_base_lsb;
 
 	u32 hal_tcl_status_ring_base_lsb;
 
@@ -304,6 +318,11 @@ struct ath12k_hw_regs {
 
 	u32 pcie_qserdes_sysclk_en_sel;
 	u32 pcie_pcs_osc_dtct_config_base;
+
+	u32 hal_umac_ce0_src_reg_base;
+	u32 hal_umac_ce0_dest_reg_base;
+	u32 hal_umac_ce1_src_reg_base;
+	u32 hal_umac_ce1_dest_reg_base;
 
 	u32 hal_ppe_rel_ring_base;
 
@@ -336,6 +355,8 @@ struct ath12k_hw_regs {
 	u32 hal_reo_cmd_ring_base;
 
 	u32 hal_reo_status_ring_base;
+
+	u32 gcc_gcc_pcie_hot_rst;
 };
 
 static inline const char *ath12k_bd_ie_type_str(enum ath12k_bd_ie_type type)

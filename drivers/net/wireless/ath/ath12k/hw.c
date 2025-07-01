@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BSD-3-Clause-Clear
 /*
  * Copyright (c) 2018-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2025 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/types.h>
@@ -14,6 +14,10 @@
 #include "hw.h"
 #include "mhi.h"
 #include "dp_rx.h"
+
+static const guid_t wcn7850_uuid = GUID_INIT(0xf634f534, 0x6147, 0x11ec,
+					     0x90, 0xd6, 0x02, 0x42,
+					     0xac, 0x12, 0x00, 0x03);
 
 static u8 ath12k_hw_qcn9274_mac_from_pdev_id(int pdev_idx)
 {
@@ -611,6 +615,9 @@ static const struct ath12k_hw_regs qcn9274_v1_regs = {
 	.hal_tcl1_ring_msi1_base_msb = 0x0000094c,
 	.hal_tcl1_ring_msi1_data = 0x00000950,
 	.hal_tcl_ring_base_lsb = 0x00000b58,
+	.hal_tcl1_ring_base_lsb = 0x00000900,
+	.hal_tcl1_ring_base_msb = 0x00000904,
+	.hal_tcl2_ring_base_lsb = 0x00000978,
 
 	/* TCL STATUS ring address */
 	.hal_tcl_status_ring_base_lsb = 0x00000d38,
@@ -673,6 +680,14 @@ static const struct ath12k_hw_regs qcn9274_v1_regs = {
 
 	/* REO status ring address */
 	.hal_reo_status_ring_base = 0x00000a84,
+
+	/* CE base address */
+	.hal_umac_ce0_src_reg_base = 0x01b80000,
+	.hal_umac_ce0_dest_reg_base = 0x01b81000,
+	.hal_umac_ce1_src_reg_base = 0x01b82000,
+	.hal_umac_ce1_dest_reg_base = 0x01b83000,
+
+	.gcc_gcc_pcie_hot_rst = 0x1e38338,
 };
 
 static const struct ath12k_hw_regs qcn9274_v2_regs = {
@@ -687,6 +702,9 @@ static const struct ath12k_hw_regs qcn9274_v2_regs = {
 	.hal_tcl1_ring_msi1_base_msb = 0x0000094c,
 	.hal_tcl1_ring_msi1_data = 0x00000950,
 	.hal_tcl_ring_base_lsb = 0x00000b58,
+	.hal_tcl1_ring_base_lsb = 0x00000900,
+	.hal_tcl1_ring_base_msb = 0x00000904,
+	.hal_tcl2_ring_base_lsb = 0x00000978,
 
 	/* TCL STATUS ring address */
 	.hal_tcl_status_ring_base_lsb = 0x00000d38,
@@ -753,6 +771,14 @@ static const struct ath12k_hw_regs qcn9274_v2_regs = {
 
 	/* REO status ring address */
 	.hal_reo_status_ring_base = 0x00000aa0,
+
+	/* CE base address */
+	.hal_umac_ce0_src_reg_base = 0x01b80000,
+	.hal_umac_ce0_dest_reg_base = 0x01b81000,
+	.hal_umac_ce1_src_reg_base = 0x01b82000,
+	.hal_umac_ce1_dest_reg_base = 0x01b83000,
+
+	.gcc_gcc_pcie_hot_rst = 0x1e38338,
 };
 
 static const struct ath12k_hw_regs wcn7850_regs = {
@@ -767,6 +793,9 @@ static const struct ath12k_hw_regs wcn7850_regs = {
 	.hal_tcl1_ring_msi1_base_msb = 0x0000094c,
 	.hal_tcl1_ring_msi1_data = 0x00000950,
 	.hal_tcl_ring_base_lsb = 0x00000b58,
+	.hal_tcl1_ring_base_lsb = 0x00000900,
+	.hal_tcl1_ring_base_msb = 0x00000904,
+	.hal_tcl2_ring_base_lsb = 0x00000978,
 
 	/* TCL STATUS ring address */
 	.hal_tcl_status_ring_base_lsb = 0x00000d38,
@@ -829,6 +858,14 @@ static const struct ath12k_hw_regs wcn7850_regs = {
 
 	/* REO status ring address */
 	.hal_reo_status_ring_base = 0x00000a84,
+
+	/* CE base address */
+	.hal_umac_ce0_src_reg_base = 0x01b80000,
+	.hal_umac_ce0_dest_reg_base = 0x01b81000,
+	.hal_umac_ce1_src_reg_base = 0x01b82000,
+	.hal_umac_ce1_dest_reg_base = 0x01b83000,
+
+	.gcc_gcc_pcie_hot_rst = 0x1e40304,
 };
 
 static const struct ath12k_hw_hal_params ath12k_hw_hal_params_qcn9274 = {
@@ -876,14 +913,15 @@ static const struct ath12k_hw_params ath12k_hw_params[] = {
 		.hal_params = &ath12k_hw_hal_params_qcn9274,
 
 		.rxdma1_enable = false,
-		.num_rxmda_per_pdev = 1,
+		.num_rxdma_per_pdev = 1,
 		.num_rxdma_dst_ring = 0,
 		.rx_mac_buf_ring = false,
 		.vdev_start_delay = false,
 
 		.interface_modes = BIT(NL80211_IFTYPE_STATION) |
 					BIT(NL80211_IFTYPE_AP) |
-					BIT(NL80211_IFTYPE_MESH_POINT),
+					BIT(NL80211_IFTYPE_MESH_POINT) |
+					BIT(NL80211_IFTYPE_AP_VLAN),
 		.supports_monitor = false,
 
 		.idle_ps = false,
@@ -908,7 +946,7 @@ static const struct ath12k_hw_params ath12k_hw_params[] = {
 		.rfkill_cfg = 0,
 		.rfkill_on_level = 0,
 
-		.rddm_size = 0,
+		.rddm_size = 0x600000,
 
 		.def_num_link = 0,
 		.max_mlo_peer = 256,
@@ -916,6 +954,13 @@ static const struct ath12k_hw_params ath12k_hw_params[] = {
 		.otp_board_id_register = QCN9274_QFPROM_RAW_RFA_PDET_ROW13_LSB,
 
 		.supports_sta_ps = false,
+
+		.acpi_guid = NULL,
+		.supports_dynamic_smps_6ghz = true,
+
+		.iova_mask = 0,
+
+		.supports_aspm = false,
 	},
 	{
 		.name = "wcn7850 hw2.0",
@@ -946,7 +991,7 @@ static const struct ath12k_hw_params ath12k_hw_params[] = {
 		.hal_params = &ath12k_hw_hal_params_wcn7850,
 
 		.rxdma1_enable = false,
-		.num_rxmda_per_pdev = 2,
+		.num_rxdma_per_pdev = 2,
 		.num_rxdma_dst_ring = 1,
 		.rx_mac_buf_ring = true,
 		.vdev_start_delay = true,
@@ -960,7 +1005,7 @@ static const struct ath12k_hw_params ath12k_hw_params[] = {
 
 		.idle_ps = true,
 		.download_calib = false,
-		.supports_suspend = false,
+		.supports_suspend = true,
 		.tcl_ring_retry = false,
 		.reoq_lut_support = false,
 		.supports_shadow_regs = true,
@@ -989,6 +1034,13 @@ static const struct ath12k_hw_params ath12k_hw_params[] = {
 		.otp_board_id_register = 0,
 
 		.supports_sta_ps = true,
+
+		.acpi_guid = &wcn7850_uuid,
+		.supports_dynamic_smps_6ghz = false,
+
+		.iova_mask = ATH12K_PCIE_MAX_PAYLOAD_SIZE - 1,
+
+		.supports_aspm = true,
 	},
 	{
 		.name = "qcn9274 hw2.0",
@@ -1017,14 +1069,15 @@ static const struct ath12k_hw_params ath12k_hw_params[] = {
 		.hal_params = &ath12k_hw_hal_params_qcn9274,
 
 		.rxdma1_enable = false,
-		.num_rxmda_per_pdev = 1,
+		.num_rxdma_per_pdev = 1,
 		.num_rxdma_dst_ring = 0,
 		.rx_mac_buf_ring = false,
 		.vdev_start_delay = false,
 
 		.interface_modes = BIT(NL80211_IFTYPE_STATION) |
 					BIT(NL80211_IFTYPE_AP) |
-					BIT(NL80211_IFTYPE_MESH_POINT),
+					BIT(NL80211_IFTYPE_MESH_POINT) |
+					BIT(NL80211_IFTYPE_AP_VLAN),
 		.supports_monitor = false,
 
 		.idle_ps = false,
@@ -1049,7 +1102,7 @@ static const struct ath12k_hw_params ath12k_hw_params[] = {
 		.rfkill_cfg = 0,
 		.rfkill_on_level = 0,
 
-		.rddm_size = 0,
+		.rddm_size = 0x600000,
 
 		.def_num_link = 0,
 		.max_mlo_peer = 256,
@@ -1057,6 +1110,13 @@ static const struct ath12k_hw_params ath12k_hw_params[] = {
 		.otp_board_id_register = QCN9274_QFPROM_RAW_RFA_PDET_ROW13_LSB,
 
 		.supports_sta_ps = false,
+
+		.acpi_guid = NULL,
+		.supports_dynamic_smps_6ghz = true,
+
+		.iova_mask = 0,
+
+		.supports_aspm = false,
 	},
 };
 

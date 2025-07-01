@@ -575,7 +575,7 @@ void ftrace_graph_exit_task(struct task_struct *t)
 static int start_graph_tracing(void)
 {
 	struct ftrace_ret_stack **ret_stack_list;
-	int ret;
+	int ret, cpu;
 
 	ret_stack_list = kmalloc_array(FTRACE_RETSTACK_ALLOC_SIZE,
 				       sizeof(struct ftrace_ret_stack *),
@@ -583,6 +583,12 @@ static int start_graph_tracing(void)
 
 	if (!ret_stack_list)
 		return -ENOMEM;
+
+	/* The cpu_boot init_task->ret_stack will never be freed */
+	for_each_online_cpu(cpu) {
+		if (!idle_task(cpu)->ret_stack)
+			ftrace_graph_init_idle_task(idle_task(cpu), cpu);
+	}
 
 	do {
 		ret = alloc_retstack_tasklist(ret_stack_list);

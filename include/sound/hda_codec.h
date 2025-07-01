@@ -260,6 +260,9 @@ struct hda_codec {
 	unsigned int forced_resume:1; /* forced resume for jack */
 	unsigned int no_stream_clean_at_suspend:1; /* do not clean streams at suspend */
 	unsigned int ctl_dev_id:1; /* old control element id build behaviour */
+#ifndef __GENKSYMS__
+	unsigned int beep_just_power_on:1;
+#endif
 
 	unsigned long power_on_acct;
 	unsigned long power_off_acct;
