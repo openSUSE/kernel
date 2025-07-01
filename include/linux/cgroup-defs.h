@@ -797,6 +797,9 @@ struct cgroup_subsys {
 	 * specifies the mask of subsystems that this one depends on.
 	 */
 	unsigned int depends_on;
+#ifndef __GENKSYMS__
+	void (*css_killed)(struct cgroup_subsys_state *css);
+#endif
 };
 
 extern struct percpu_rw_semaphore cgroup_threadgroup_rwsem;
