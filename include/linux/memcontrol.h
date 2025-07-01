@@ -476,7 +476,7 @@ struct __orig_mem_cgroup {
 
 /* XXX: these macros are proxies for kernels w/out KABI verification, replace
  *      them with more direct and explicit KABI flag */
-#if !defined(CONFIG_ARM) && !defined(CONFIG_DEBUG_SPINLOCK)
+#if !defined(CONFIG_ARM) && !defined(CONFIG_DEBUG_SPINLOCK) && !defined(CONFIG_PREEMPT_RT)
 static_assert(offsetof(struct mem_cgroup, move_lock_flags) ==
 	      offsetof(struct __orig_mem_cgroup, move_lock_flags));
 static_assert(offsetof(struct mem_cgroup, _pad1_) ==
