@@ -91,7 +91,6 @@ void mctrl_gpio_enable_ms(struct mctrl_gpios *gpios);
  * any corresponding IRQ is processed
  */
 void mctrl_gpio_disable_ms_sync(struct mctrl_gpios *gpios);
-void mctrl_gpio_disable_ms(struct mctrl_gpios *gpios);
 
 /*
  * Disable gpio interrupts to report status line changes, and return

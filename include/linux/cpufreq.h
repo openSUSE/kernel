@@ -643,6 +643,7 @@ module_exit(__governor##_exit)
 
 struct cpufreq_governor *cpufreq_default_governor(void);
 struct cpufreq_governor *cpufreq_fallback_governor(void);
+struct cpufreq_governor *cpufreq_get_performance_governor(void);
 
 static inline void cpufreq_policy_apply_limits(struct cpufreq_policy *policy)
 {
@@ -1214,4 +1215,41 @@ static inline void cpufreq_register_em_with_opp(struct cpufreq_policy *policy)
 	dev_pm_opp_of_register_em(get_cpu_device(policy->cpu),
 				  policy->related_cpus);
 }
+
+#ifdef CONFIG_ACPI
+#include <linux/acpi.h>
+static inline bool cpufreq_should_get_performance_governor(void)
+{
+	if (!acpi_disabled && acpi_os_get_root_pointer()) {
+		switch (acpi_gbl_FADT.preferred_profile) {
+		case PM_ENTERPRISE_SERVER:
+		case PM_SOHO_SERVER:
+		case PM_PERFORMANCE_SERVER:
+		case PM_UNSPECIFIED:
+			return true;
+		}
+
+		if (acpi_gbl_FADT.preferred_profile >= NR_PM_PROFILES)
+			return true;
+
+		/* Non-server power management profiles */
+		return false;
+	}
+
+	/* Systems without ACPI support; non-server Arm essentially */
+	return false;
+}
+#else
+/**
+ * !CONFIG_ACPI means s390 or ppc64le.
+ * On the former, SLES doesn't do frequency scaling as it's virtualized.
+ * On the latter, bare metal ppc64le SLES installations are possible but
+ * uncommon. In any case, giving them the performance governor is the
+ * safest option.
+ */
+static inline bool cpufreq_should_get_performance_governor(void)
+{
+	return true;
+}
+#endif
 #endif /* _LINUX_CPUFREQ_H */

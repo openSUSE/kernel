@@ -59,6 +59,7 @@ struct pid
 	spinlock_t lock;
 	struct dentry *stashed;
 	u64 ino;
+	struct rb_node pidfs_node;
 	/* lists of tasks that use this pid */
 	struct hlist_head tasks[PIDTYPE_MAX];
 	struct hlist_head inodes;

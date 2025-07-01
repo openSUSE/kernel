@@ -223,7 +223,6 @@ void pci_epf_free_space(struct pci_epf *epf, void *addr, enum pci_barno bar,
 	struct device *dev;
 	struct pci_epf_bar *epf_bar;
 	struct pci_epc *epc;
-	size_t *p_aligned_size;
 
 	if (!addr)
 		return;
@@ -231,21 +230,19 @@ void pci_epf_free_space(struct pci_epf *epf, void *addr, enum pci_barno bar,
 	if (type == PRIMARY_INTERFACE) {
 		epc = epf->epc;
 		epf_bar = epf->bar;
-		p_aligned_size = &epf->bar_aligned_size[bar];
 	} else {
 		epc = epf->sec_epc;
 		epf_bar = epf->sec_epc_bar;
-		p_aligned_size = &epf->sec_bar_aligned_size[bar];
 	}
 
 	dev = epc->dev.parent;
-	dma_free_coherent(dev, *p_aligned_size, addr,
+	dma_free_coherent(dev, epf_bar[bar].aligned_size, addr,
 			  epf_bar[bar].phys_addr);
 
 	epf_bar[bar].phys_addr = 0;
 	epf_bar[bar].addr = NULL;
 	epf_bar[bar].size = 0;
-	*p_aligned_size = 0;
+	epf_bar[bar].aligned_size = 0;
 	epf_bar[bar].barno = 0;
 	epf_bar[bar].flags = 0;
 }
@@ -273,7 +270,6 @@ void *pci_epf_alloc_space(struct pci_epf *epf, size_t size, enum pci_barno bar,
 	dma_addr_t phys_addr;
 	struct pci_epc *epc;
 	struct device *dev;
-	size_t *p_aligned_size;
 	void *space;
 
 	if (size < 128)
@@ -302,11 +298,9 @@ void *pci_epf_alloc_space(struct pci_epf *epf, size_t size, enum pci_barno bar,
 	if (type == PRIMARY_INTERFACE) {
 		epc = epf->epc;
 		epf_bar = epf->bar;
-		p_aligned_size = &epf->bar_aligned_size[bar];
 	} else {
 		epc = epf->sec_epc;
 		epf_bar = epf->sec_epc_bar;
-		p_aligned_size = &epf->sec_bar_aligned_size[bar];
 	}
 
 	dev = epc->dev.parent;
@@ -319,7 +313,7 @@ void *pci_epf_alloc_space(struct pci_epf *epf, size_t size, enum pci_barno bar,
 	epf_bar[bar].phys_addr = phys_addr;
 	epf_bar[bar].addr = space;
 	epf_bar[bar].size = size;
-	*p_aligned_size = aligned_size;
+	epf_bar[bar].aligned_size = aligned_size;
 	epf_bar[bar].barno = bar;
 	if (upper_32_bits(size) || epc_features->bar[bar].only_64bit)
 		epf_bar[bar].flags |= PCI_BASE_ADDRESS_MEM_TYPE_64;

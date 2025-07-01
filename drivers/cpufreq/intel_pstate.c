@@ -3038,10 +3038,13 @@ static int intel_pstate_cpu_init(struct cpufreq_policy *policy)
 		return ret;
 
 	/*
-	 * Set the policy to powersave to provide a valid fallback value in case
+	 * Set the policy to provide a valid fallback value in case
 	 * the default cpufreq governor is neither powersave nor performance.
 	 */
-	policy->policy = CPUFREQ_POLICY_POWERSAVE;
+	if (cpufreq_should_get_performance_governor())
+		policy->policy = CPUFREQ_POLICY_PERFORMANCE;
+	else
+		policy->policy = CPUFREQ_POLICY_POWERSAVE;
 
 	if (hwp_active) {
 		struct cpudata *cpu = all_cpu_data[policy->cpu];

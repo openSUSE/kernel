@@ -3048,11 +3048,16 @@ EXPORT_SYMBOL_GPL(cpufreq_unregister_driver);
 
 static int __init cpufreq_core_init(void)
 {
-	struct cpufreq_governor *gov = cpufreq_default_governor();
+	struct cpufreq_governor *gov;
 	struct device *dev_root;
 
 	if (cpufreq_disabled())
 		return -ENODEV;
+
+	if (cpufreq_should_get_performance_governor())
+		gov = cpufreq_get_performance_governor();
+	else
+		gov = cpufreq_default_governor();
 
 	dev_root = bus_get_dev_root(&cpu_subsys);
 	if (dev_root) {
