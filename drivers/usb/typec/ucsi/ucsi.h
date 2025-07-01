@@ -347,7 +347,11 @@ struct ucsi_debugfs_entry {
 		u64 low;
 		u64 high;
 	} response;
+#ifndef __GENKSYMS__
+	s32 status;
+#else
 	u32 status;
+#endif
 	struct dentry *dentry;
 	void *suse_kabi_padding;
 };
@@ -382,6 +386,11 @@ struct ucsi {
 #define EVENT_PENDING	0
 #define COMMAND_PENDING	1
 #define ACK_PENDING	2
+
+#ifndef __GENKSYMS__
+	unsigned long quirks;
+#endif
+#define UCSI_NO_PARTNER_PDOS	BIT(0)	/* Don't read partner's PDOs */
 };
 
 #define UCSI_MAX_SVID		5

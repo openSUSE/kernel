@@ -21,6 +21,8 @@
 #include <linux/vmstat.h>
 #include <linux/writeback.h>
 #include <linux/page-flags.h>
+#include <linux/build_bug.h>  /* for static_assert() */
+#include <linux/stddef.h>     /* for offsetof() */
 
 struct mem_cgroup;
 struct obj_cgroup;
@@ -275,6 +277,13 @@ struct mem_cgroup {
 	spinlock_t		move_lock;
 	unsigned long		move_lock_flags;
 
+#ifndef __GENKSYMS__
+	/* registered local peak watchers */
+	struct list_head memory_peaks;
+	struct list_head swap_peaks;
+	spinlock_t	 peaks_lock;
+#endif
+
 	CACHELINE_PADDING(_pad1_);
 
 	/* memory.stat */
@@ -334,6 +343,145 @@ struct mem_cgroup {
 	struct mem_cgroup_per_node *nodeinfo[];
 };
 
+struct __orig_mem_cgroup {
+	struct cgroup_subsys_state css;
+
+	/* Private memcg ID. Used to ID objects that outlive the cgroup */
+	struct mem_cgroup_id id;
+
+	/* Accounted resources */
+	struct page_counter memory;		/* Both v1 & v2 */
+
+	union {
+		struct page_counter swap;	/* v2 only */
+		struct page_counter memsw;	/* v1 only */
+	};
+
+	/* Legacy consumer-oriented counters */
+	struct page_counter kmem;		/* v1 only */
+	struct page_counter tcpmem;		/* v1 only */
+
+	/* Range enforcement for interrupt charges */
+	struct work_struct high_work;
+
+#if defined(CONFIG_MEMCG_KMEM) && defined(CONFIG_ZSWAP)
+	unsigned long zswap_max;
+#endif
+
+	unsigned long soft_limit;
+
+	/* vmpressure notifications */
+	struct vmpressure vmpressure;
+
+	/*
+	 * Should the OOM killer kill all belonging tasks, had it kill one?
+	 */
+	bool oom_group;
+
+	/* protected by memcg_oom_lock */
+	bool		oom_lock;
+	int		under_oom;
+
+	int	swappiness;
+	/* OOM-Killer disable */
+	int		oom_kill_disable;
+
+	/* memory.events and memory.events.local */
+	struct cgroup_file events_file;
+	struct cgroup_file events_local_file;
+
+	/* handle for "memory.swap.events" */
+	struct cgroup_file swap_events_file;
+
+	/* protect arrays of thresholds */
+	struct mutex thresholds_lock;
+
+	/* thresholds for memory usage. RCU-protected */
+	struct mem_cgroup_thresholds thresholds;
+
+	/* thresholds for mem+swap usage. RCU-protected */
+	struct mem_cgroup_thresholds memsw_thresholds;
+
+	/* For oom notifier event fd */
+	struct list_head oom_notify;
+
+	/*
+	 * Should we move charges of a task when a task is moved into this
+	 * mem_cgroup ? And what type of charges should we move ?
+	 */
+	unsigned long move_charge_at_immigrate;
+	/* taken only while moving_account > 0 */
+	spinlock_t		move_lock;
+	unsigned long		move_lock_flags;
+
+
+	CACHELINE_PADDING(_pad1_);
+
+	/* memory.stat */
+	struct memcg_vmstats	*vmstats;
+
+	/* memory.events */
+	atomic_long_t		memory_events[MEMCG_NR_MEMORY_EVENTS];
+	atomic_long_t		memory_events_local[MEMCG_NR_MEMORY_EVENTS];
+
+	/*
+	 * Hint of reclaim pressure for socket memroy management. Note
+	 * that this indicator should NOT be used in legacy cgroup mode
+	 * where socket memory is accounted/charged separately.
+	 */
+	unsigned long		socket_pressure;
+
+	/* Legacy tcp memory accounting */
+	bool			tcpmem_active;
+	int			tcpmem_pressure;
+
+#ifdef CONFIG_MEMCG_KMEM
+	int kmemcg_id;
+	struct obj_cgroup __rcu *objcg;
+	/* list of inherited objcgs, protected by objcg_lock */
+	struct list_head objcg_list;
+#endif
+
+	CACHELINE_PADDING(_pad2_);
+
+	/*
+	 * set > 0 if pages under this cgroup are moving to other cgroup.
+	 */
+	atomic_t		moving_account;
+	struct task_struct	*move_lock_task;
+
+	struct memcg_vmstats_percpu __percpu *vmstats_percpu;
+
+#ifdef CONFIG_CGROUP_WRITEBACK
+	struct list_head cgwb_list;
+	struct wb_domain cgwb_domain;
+	struct memcg_cgwb_frn cgwb_frn[MEMCG_CGWB_FRN_CNT];
+#endif
+
+	/* List of events which userspace want to receive */
+	struct list_head event_list;
+	spinlock_t event_list_lock;
+
+#ifdef CONFIG_TRANSPARENT_HUGEPAGE
+	struct deferred_split deferred_split_queue;
+#endif
+
+#ifdef CONFIG_LRU_GEN
+	/* per-memcg mm_struct list */
+	struct lru_gen_mm_list mm_list;
+#endif
+
+	struct mem_cgroup_per_node *nodeinfo[];
+};
+
+/* XXX: these macros are proxies for kernels w/out KABI verification, replace
+ *      them with more direct and explicit KABI flag */
+#if !defined(CONFIG_ARM) && !defined(CONFIG_DEBUG_SPINLOCK) && !defined(CONFIG_PREEMPT_RT)
+static_assert(offsetof(struct mem_cgroup, move_lock_flags) ==
+	      offsetof(struct __orig_mem_cgroup, move_lock_flags));
+static_assert(offsetof(struct mem_cgroup, _pad1_) ==
+	      offsetof(struct __orig_mem_cgroup, _pad1_));
+#endif
 /*
  * size of first charge trial.
  * TODO: maybe necessary to use big numbers in big irons or dynamic based of the

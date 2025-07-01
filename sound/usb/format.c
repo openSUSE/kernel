@@ -388,6 +388,10 @@ static int parse_uac2_sample_rate_range(struct snd_usb_audio *chip,
 			if (chip->usb_id == USB_ID(0x194f, 0x010c) &&
 			    !s1810c_valid_sample_rate(fp, rate))
 				goto skip_rate;
+			/* Filter out invalid rates on Presonus Studio 1824c */
+			if (chip->usb_id == USB_ID(0x194f, 0x010d) &&
+			    !s1810c_valid_sample_rate(fp, rate))
+				goto skip_rate;
 
 			/* Filter out invalid rates on Focusrite devices */
 			if (USB_ID_VENDOR(chip->usb_id) == 0x1235 &&
@@ -554,7 +558,9 @@ static int parse_audio_format_rates_v2v3(struct snd_usb_audio *chip,
 	unsigned char tmp[2], *data;
 	int nr_triplets, data_size, ret = 0, ret_l6;
 	int clock = snd_usb_clock_find_source(chip, fp, false);
+	struct usb_host_interface *ctrl_intf;
 
+	ctrl_intf = snd_usb_find_ctrl_interface(chip, fp->iface);
 	if (clock < 0) {
 		dev_err(&dev->dev,
 			"%s(): unable to find clock source (clock %d)\n",
@@ -566,7 +572,7 @@ static int parse_audio_format_rates_v2v3(struct snd_usb_audio *chip,
 	ret = snd_usb_ctl_msg(dev, usb_rcvctrlpipe(dev, 0), UAC2_CS_RANGE,
 			      USB_TYPE_CLASS | USB_RECIP_INTERFACE | USB_DIR_IN,
 			      UAC2_CS_CONTROL_SAM_FREQ << 8,
-			      snd_usb_ctrl_intf(chip) | (clock << 8),
+			      snd_usb_ctrl_intf(ctrl_intf) | (clock << 8),
 			      tmp, sizeof(tmp));
 
 	if (ret < 0) {
@@ -601,7 +607,7 @@ static int parse_audio_format_rates_v2v3(struct snd_usb_audio *chip,
 	ret = snd_usb_ctl_msg(dev, usb_rcvctrlpipe(dev, 0), UAC2_CS_RANGE,
 			      USB_TYPE_CLASS | USB_RECIP_INTERFACE | USB_DIR_IN,
 			      UAC2_CS_CONTROL_SAM_FREQ << 8,
-			      snd_usb_ctrl_intf(chip) | (clock << 8),
+			      snd_usb_ctrl_intf(ctrl_intf) | (clock << 8),
 			      data, data_size);
 
 	if (ret < 0) {

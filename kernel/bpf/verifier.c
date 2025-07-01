@@ -1794,6 +1794,7 @@ static int copy_verifier_state(struct bpf_verifier_state *dst_state,
 	extra(dst_state)->dfs_depth = src_extra->dfs_depth;
 	extra(dst_state)->callback_unroll_depth = src_extra->callback_unroll_depth;
 	dst_state->used_as_loop_entry = src->used_as_loop_entry;
+	extra(dst_state)->loop_entry = src_extra->loop_entry;
 	for (i = 0; i <= src->curframe; i++) {
 		dst = dst_state->frame[i];
 		if (!dst) {
@@ -16095,11 +16096,15 @@ static void clean_verifier_state(struct bpf_verifier_env *env,
 static void clean_live_states(struct bpf_verifier_env *env, int insn,
 			      struct bpf_verifier_state *cur)
 {
+	struct bpf_verifier_state *loop_entry;
 	struct bpf_verifier_state_list *sl;
 
 	sl = *explored_state(env, insn);
 	while (sl) {
 		if (sl->state.branches)
+			goto next;
+		loop_entry = get_loop_entry(&sl->state);
+		if (loop_entry && loop_entry->branches)
 			goto next;
 		if (sl->state.insn_idx != insn ||
 		    !same_callsites(&sl->state, cur))
@@ -17426,6 +17431,10 @@ process_bpf_exit:
 						return err;
 					break;
 				} else {
+					if (WARN_ON_ONCE(extra(env->cur_state)->loop_entry)) {
+						verbose(env, "verifier bug: env->cur_state->loop_entry != NULL\n");
+						return -EFAULT;
+					}
 					do_print_state = true;
 					continue;
 				}

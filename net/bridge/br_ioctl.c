@@ -395,9 +395,26 @@ static int old_deviceless(struct net *net, void __user *data)
 }
 
 int br_ioctl_stub(struct net *net, struct net_bridge *br, unsigned int cmd,
-		  struct ifreq *ifr, void __user *uarg)
+                  struct ifreq *ifr, void __user *uarg)
 {
 	int ret = -EOPNOTSUPP;
+	struct ifreq ifr_;
+
+	if (cmd == SIOCBRADDIF || cmd == SIOCBRDELIF) {
+		void __user *data;
+		char *colon;
+
+		if (!ns_capable(net->user_ns, CAP_NET_ADMIN))
+			return -EPERM;
+
+		if (get_user_ifreq(&ifr_, &data, uarg))
+			return -EFAULT;
+
+		ifr_.ifr_name[IFNAMSIZ - 1] = 0;
+		colon = strchr(ifr_.ifr_name, ':');
+		if (colon)
+			*colon = 0;
+	}
 
 	rtnl_lock();
 
@@ -430,7 +447,21 @@ int br_ioctl_stub(struct net *net, struct net_bridge *br, unsigned int cmd,
 		break;
 	case SIOCBRADDIF:
 	case SIOCBRDELIF:
-		ret = add_del_if(br, ifr->ifr_ifindex, cmd == SIOCBRADDIF);
+	{
+		struct net_device *dev;
+
+		dev = __dev_get_by_name(net, ifr_.ifr_name);
+		if (!dev || !netif_device_present(dev)) {
+			ret = -ENODEV;
+			break;
+		}
+		if (!netif_is_bridge_master(dev)) {
+			ret = -EOPNOTSUPP;
+			break;
+		}
+
+		ret = add_del_if(netdev_priv(dev), ifr_.ifr_ifindex, cmd == SIOCBRADDIF);
+	}
 		break;
 	}
 
