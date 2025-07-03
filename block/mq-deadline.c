@@ -468,7 +468,8 @@ static int dd_request_merge(struct request_queue *q, struct request **rq,
 	return ELEVATOR_NO_MERGE;
 }
 
-static bool dd_bio_merge(struct blk_mq_hw_ctx *hctx, struct bio *bio)
+static bool dd_bio_merge(struct blk_mq_hw_ctx *hctx, struct bio *bio,
+			 unsigned int ctx_idx)
 {
 	struct request_queue *q = hctx->queue;
 	struct deadline_data *dd = q->elevator->elevator_data;
