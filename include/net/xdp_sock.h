@@ -38,7 +38,31 @@ struct xdp_umem {
 	struct user_struct *user;
 	unsigned long address;
 	refcount_t users;
+#ifndef __GENKSYMS__
 	spinlock_t rx_lock;
+#endif
+	struct work_struct work;
+	struct page **pgs;
+	u32 npgs;
+	struct net_device *dev;
+	struct xdp_umem_fq_reuse *fq_reuse;
+	u16 queue_id;
+	bool zc;
+	spinlock_t xsk_list_lock;
+	struct list_head xsk_list;
+};
+
+struct __orig_xdp_umem {
+	struct xsk_queue *fq;
+	struct xsk_queue *cq;
+	struct xdp_umem_page *pages;
+	u64 chunk_mask;
+	u64 size;
+	u32 headroom;
+	u32 chunk_size_nohr;
+	struct user_struct *user;
+	unsigned long address;
+	refcount_t users;
 	struct work_struct work;
 	struct page **pgs;
 	u32 npgs;
@@ -67,6 +91,11 @@ struct xdp_sock {
 	 * in the SKB destructor callback.
 	 */
 	spinlock_t tx_completion_lock;
+#ifdef __GENKSYMS__
+	spinlock_t rx_lock;
+#else
+	spinlock_t rx_lock_unused __attribute__((deprecated));
+#endif
 	u64 rx_dropped;
 };
 
