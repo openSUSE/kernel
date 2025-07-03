@@ -71,7 +71,13 @@ struct xdp_sock {
 	 */
 	u32 tx_budget_spent;
 
-	/* Statistics */
+#ifdef __GENKSYMS__
+	/* Protects generic receive. */
+	spinlock_t rx_lock;
+#else
+	spinlock_t rx_lock_unused __attribute__((deprecated));
+#endif
+
 	u64 rx_dropped;
 	u64 rx_queue_full;
 
