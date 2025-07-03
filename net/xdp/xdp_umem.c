@@ -355,6 +355,7 @@ static int xdp_umem_reg(struct xdp_umem *umem, struct xdp_umem_reg *mr)
 	umem->user = NULL;
 	INIT_LIST_HEAD(&umem->xsk_list);
 	spin_lock_init(&umem->xsk_list_lock);
+	spin_lock_init(&umem->rx_lock);
 
 	refcount_set(&umem->users, 1);
 
