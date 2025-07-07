@@ -119,9 +119,11 @@ struct cdns {
 	struct cdns3_platform_data	*pdata;
 	spinlock_t			lock;
 	struct xhci_plat_priv		*xhci_plat_data;
-	u32                             override_apb_timeout;
 
 	int (*gadget_init)(struct cdns *cdns);
+#ifndef __GENKSYMS__
+	u32				override_apb_timeout;
+#endif
 };
 
 int cdns_hw_role_switch(struct cdns *cdns);
