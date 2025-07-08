@@ -942,8 +942,9 @@ static void ucsi_handle_connector_change(struct work_struct *work)
 
 	trace_ucsi_connector_change(con->num, &con->status);
 
-	if (ucsi->ops->connector_status)
-		ucsi->ops->connector_status(con);
+	if (ucsi->ops->suse_operations)
+		if (ucsi->ops->suse_operations->connector_status)
+			ucsi->ops->suse_operations->connector_status(con);
 
 	role = !!(con->status.flags & UCSI_CONSTAT_PWR_DIR);
 
@@ -1332,8 +1333,9 @@ static int ucsi_register_port(struct ucsi *ucsi, struct ucsi_connector *con)
 	}
 	ret = 0; /* ucsi_send_command() returns length on success */
 
-	if (ucsi->ops->connector_status)
-		ucsi->ops->connector_status(con);
+	if (ucsi->ops->suse_operations)
+		if (ucsi->ops->suse_operations->connector_status)
+			ucsi->ops->suse_operations->connector_status(con);
 
 	switch (UCSI_CONSTAT_PARTNER_TYPE(con->status.flags)) {
 	case UCSI_CONSTAT_PARTNER_TYPE_UFP:

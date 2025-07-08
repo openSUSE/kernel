@@ -66,6 +66,11 @@ struct dentry;
  * Command Completion Event from the PPM before returning, and @async_write must
  * return immediately after sending the data to the PPM.
  */
+
+struct ucsi_operations_suse {
+	void (*connector_status)(struct ucsi_connector *con);
+};
+
 struct ucsi_operations {
 	int (*read)(struct ucsi *ucsi, unsigned int offset,
 		    void *val, size_t val_len);
@@ -75,9 +80,11 @@ struct ucsi_operations {
 			   const void *val, size_t val_len);
 	bool (*update_altmodes)(struct ucsi *ucsi, struct ucsi_altmode *orig,
 				struct ucsi_altmode *updated);
-	void (*connector_status)(struct ucsi_connector *con);
-
+#ifndef __GENKSYMS__
+	struct ucsi_operations_suse *suse_operations;
+#else
 	void *suse_kabi_padding;
+#endif
 };
 
 struct ucsi *ucsi_create(struct device *dev, const struct ucsi_operations *ops);
