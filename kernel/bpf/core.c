@@ -156,8 +156,10 @@ struct bpf_prog *bpf_prog_realloc(struct bpf_prog *fp_old, unsigned int size,
 
 void __bpf_prog_free(struct bpf_prog *fp)
 {
-	free_percpu(fp->aux->active);
-	kfree(fp->aux);
+	if (fp->aux) {
+		free_percpu(fp->aux->active);
+		kfree(fp->aux);
+	}
 	vfree(fp);
 }
 
