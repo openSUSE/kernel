@@ -2676,13 +2676,9 @@ static void hci_conn_complete_evt(struct hci_dev *hdev, struct sk_buff *skb)
 {
 	struct hci_ev_conn_complete *ev = (void *) skb->data;
 	struct hci_conn *conn;
+	u8 status = ev->status;
 
-	if (__le16_to_cpu(ev->handle) > HCI_CONN_HANDLE_MAX) {
-		bt_dev_err(hdev, "Ignoring HCI_Connection_Complete for invalid handle");
-		return;
-	}
-
-	BT_DBG("%s", hdev->name);
+	bt_dev_dbg(hdev, "status 0x%2.2x", status);
 
 	hci_dev_lock(hdev);
 
@@ -2731,8 +2727,14 @@ static void hci_conn_complete_evt(struct hci_dev *hdev, struct sk_buff *skb)
 		goto unlock;
 	}
 
-	if (!ev->status) {
+	if (!status) {
 		conn->handle = __le16_to_cpu(ev->handle);
+		if (conn->handle > HCI_CONN_HANDLE_MAX) {
+			bt_dev_err(hdev, "Invalid handle: 0x%4.4x > 0x%4.4x",
+				   conn->handle, HCI_CONN_HANDLE_MAX);
+			status = HCI_ERROR_INVALID_PARAMETERS;
+			goto done;
+		}
 
 		if (conn->type == ACL_LINK) {
 			conn->state = BT_CONFIG;
@@ -2773,18 +2775,18 @@ static void hci_conn_complete_evt(struct hci_dev *hdev, struct sk_buff *skb)
 			hci_send_cmd(hdev, HCI_OP_CHANGE_CONN_PTYPE, sizeof(cp),
 				     &cp);
 		}
-	} else {
-		conn->state = BT_CLOSED;
-		if (conn->type == ACL_LINK)
-			mgmt_connect_failed(hdev, &conn->dst, conn->type,
-					    conn->dst_type, ev->status);
 	}
 
 	if (conn->type == ACL_LINK)
 		hci_sco_setup(conn, ev->status);
 
-	if (ev->status) {
-		hci_connect_cfm(conn, ev->status);
+done:
+	if (status) {
+		conn->state = BT_CLOSED;
+		if (conn->type == ACL_LINK)
+			mgmt_connect_failed(hdev, &conn->dst, conn->type,
+					    conn->dst_type, status);
+		hci_connect_cfm(conn, status);
 		hci_conn_del(conn);
 	} else if (ev->link_type == SCO_LINK) {
 		switch (conn->setting & SCO_AIRMODE_MASK) {
@@ -2794,7 +2796,7 @@ static void hci_conn_complete_evt(struct hci_dev *hdev, struct sk_buff *skb)
 			break;
 		}
 
-		hci_connect_cfm(conn, ev->status);
+		hci_connect_cfm(conn, status);
 	}
 
 unlock:
@@ -4421,6 +4423,7 @@ static void hci_sync_conn_complete_evt(struct hci_dev *hdev,
 {
 	struct hci_ev_sync_conn_complete *ev = (void *) skb->data;
 	struct hci_conn *conn;
+	u8 status = ev->status;
 
 	switch (ev->link_type) {
 	case SCO_LINK:
@@ -4435,12 +4438,7 @@ static void hci_sync_conn_complete_evt(struct hci_dev *hdev,
 		return;
 	}
 
-	if (__le16_to_cpu(ev->handle) > HCI_CONN_HANDLE_MAX) {
-		bt_dev_err(hdev, "Ignoring HCI_Sync_Conn_Complete for invalid handle");
-		return;
-	}
-
-	BT_DBG("%s status 0x%2.2x", hdev->name, ev->status);
+	bt_dev_dbg(hdev, "status 0x%2.2x", status);
 
 	hci_dev_lock(hdev);
 
@@ -4474,9 +4472,17 @@ static void hci_sync_conn_complete_evt(struct hci_dev *hdev,
 		goto unlock;
 	}
 
-	switch (ev->status) {
+	switch (status) {
 	case 0x00:
 		conn->handle = __le16_to_cpu(ev->handle);
+		if (conn->handle > HCI_CONN_HANDLE_MAX) {
+			bt_dev_err(hdev, "Invalid handle: 0x%4.4x > 0x%4.4x",
+				   conn->handle, HCI_CONN_HANDLE_MAX);
+			status = HCI_ERROR_INVALID_PARAMETERS;
+			conn->state = BT_CLOSED;
+			break;
+		}
+
 		conn->state  = BT_CONNECTED;
 		conn->type   = ev->link_type;
 
@@ -4518,8 +4524,8 @@ static void hci_sync_conn_complete_evt(struct hci_dev *hdev,
 		break;
 	}
 
-	hci_connect_cfm(conn, ev->status);
-	if (ev->status)
+	hci_connect_cfm(conn, status);
+	if (status)
 		hci_conn_del(conn);
 
 unlock:
@@ -5263,11 +5269,6 @@ static void le_conn_complete_evt(struct hci_dev *hdev, u8 status,
 	struct smp_irk *irk;
 	u8 addr_type;
 
-	if (handle > HCI_CONN_HANDLE_MAX) {
-		bt_dev_err(hdev, "Ignoring HCI_LE_Connection_Complete for invalid handle");
-		return;
-	}
-
 	hci_dev_lock(hdev);
 
 	/* All controllers implicitly stop advertising in the event of a
@@ -5352,6 +5353,12 @@ static void le_conn_complete_evt(struct hci_dev *hdev, u8 status,
 			conn->dst_type = ADDR_LE_DEV_RANDOM;
 			break;
 		}
+	}
+
+	if (handle > HCI_CONN_HANDLE_MAX) {
+		bt_dev_err(hdev, "Invalid handle: 0x%4.4x > 0x%4.4x", handle,
+			   HCI_CONN_HANDLE_MAX);
+		status = HCI_ERROR_INVALID_PARAMETERS;
 	}
 
 	if (status) {
