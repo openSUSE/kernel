@@ -407,6 +407,10 @@ static void virtio_dev_shutdown(struct device *_d)
 	if (!drv)
 		return;
 
+	/* Don't reset the virtio GPU driver. */
+	if (drv->id_table && drv->id_table[0].device == VIRTIO_ID_GPU)
+		return;
+
 	/*
 	 * Some devices get wedged if you kick them after they are
 	 * reset. Mark all vqs as broken to make sure we don't.
