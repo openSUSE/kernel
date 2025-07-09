@@ -391,6 +391,7 @@ struct ucsi {
 	unsigned long quirks;
 #endif
 #define UCSI_NO_PARTNER_PDOS	BIT(0)	/* Don't read partner's PDOs */
+#define UCSI_DELAY_DEVICE_PDOS	BIT(1)	/* Reading PDOs fails until the parter is in PD mode */
 };
 
 #define UCSI_MAX_SVID		5
