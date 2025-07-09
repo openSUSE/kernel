@@ -538,6 +538,13 @@ struct module {
 	struct error_injection_entry *ei_funcs;
 	unsigned int num_ei_funcs;
 #endif
+
+#ifndef __GENKSYMS__
+#ifdef CONFIG_MITIGATION_ITS
+	int its_num_pages;
+	void **its_page_array;
+#endif
+#endif
 	void *suse_kabi_padding;
 } ____cacheline_aligned __randomize_layout;
 #ifndef MODULE_ARCH_INIT

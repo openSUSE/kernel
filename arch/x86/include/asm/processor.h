@@ -143,7 +143,11 @@ struct cpuinfo_x86 {
 #ifndef __GENKSYMS__
 	/* protected processor identification number */
 	u64			ppin;
-	__u32		x86_ext_capability[NEXTCAPINTS+NEXTBUGINTS];
+	union {
+		__u32		x86_ext_capability[NEXTCAPINTS+NEXTBUGINTS];
+		unsigned long	x86_ext_capability_alignemnt;
+	};
+
 #endif
 } __randomize_layout;
 

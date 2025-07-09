@@ -15,8 +15,9 @@
  */
 #define NCAPINTS			22	   /* N 32-bit words worth of info */
 #define NBUGINTS			1	   /* N 32-bit bug flags */
-#define NEXTCAPINTS			1          /* N 32-bit words which come after NCAPINTS */
-#define NEXTBUGINTS			1	   /* N 32-bit extended bug flags */
+
+#define NEXTCAPINTS			1
+#define NEXTBUGINTS			1
 /*
  * Note: If the comment begins with a quoted string, that string is used
  * in /proc/cpuinfo instead of the macro name.  If the string is "",
@@ -439,16 +440,24 @@
 #define X86_FEATURE_IBPB_BRTYPE		(20*32+28) /* "" MSR_PRED_CMD[IBPB] flushes all branch type predictions */
 #define X86_FEATURE_SRSO_NO		(20*32+29) /* "" CPU is not affected by SRSO */
 
+
+#define X86_FEATURE_INDIRECT_THUNK_ITS	(21*32 + 9) /* Use thunk for indirect branches in lower half of cacheline */
+
+#define X86_EXT_FEATURE(x)		(NBUGINTS*32 + (x))
+#define X86_FEATUREINDEX(x)		((x) < NCAPINTS*32 ? (x) : (x) - NBUGINTS*32)
+
 /* Linux defined features */
-#define X86_FEATURE_CLEAR_BHB_LOOP	(22*32+ 0) /* "" Clear branch history at syscall entry using SW loop */
-#define X86_FEATURE_BHI_CTRL		(22*32+ 1) /* "" BHI_DIS_S HW control available */
-#define X86_FEATURE_CLEAR_BHB_HW	(22*32+ 2) /* "" BHI_DIS_S HW control enabled */
-#define X86_FEATURE_CLEAR_BHB_LOOP_ON_VMEXIT (22*32+ 3) /* "" Clear branch history at vmexit using SW loop */
+#define X86_FEATURE_CLEAR_BHB_LOOP	X86_EXT_FEATURE(22*32+ 0) /* "" Clear branch history at syscall entry using SW loop */
+#define X86_FEATURE_BHI_CTRL		X86_EXT_FEATURE(22*32+ 1) /* "" BHI_DIS_S HW control available */
+#define X86_FEATURE_CLEAR_BHB_HW	X86_EXT_FEATURE(22*32+ 2) /* "" BHI_DIS_S HW control enabled */
+#define X86_FEATURE_CLEAR_BHB_LOOP_ON_VMEXIT X86_EXT_FEATURE(22*32+ 3) /* "" Clear branch history at vmexit using SW loop */
 
 /*
  * BUG word(s)
  */
 #define X86_BUG(x)			(NCAPINTS*32 + (x))
+#define X86_EXT_BUG(x)			((NCAPINTS+NEXTCAPINTS)*32 + (x))
+#define X86_BUGINDEX(x)			((x) < (NCAPINTS+NBUGINTS)*32 ? (x) - NCAPINTS*32 : (x) - (NCAPINTS+NEXTCAPINTS)*32)
 
 #define X86_BUG_F00F			X86_BUG(0) /* Intel F00F */
 #define X86_BUG_FDIV			X86_BUG(1) /* FPU FDIV */
@@ -490,8 +499,10 @@
 #define X86_BUG_GDS			X86_BUG(31) /* CPU is affected by Gather Data Sampling */
 
 /* BUG word 2 */
-#define X86_BUG_DIV0                   X86_BUG(1*32 + 0) /* AMD DIV0 speculation bug */
-#define X86_BUG_RFDS		       X86_BUG(1*32 + 1) /* CPU is vulnerable to Register File Data Sampling */
-#define X86_BUG_BHI		X86_BUG(1*32 + 2) /* CPU is affected by Branch History Injection */
-#define X86_BUG_IBPB_NO_RET	   	X86_BUG(1*32 + 4) /* "ibpb_no_ret" IBPB omits return target predictions */
+#define X86_BUG_DIV0			X86_EXT_BUG(1*32 + 0) /* AMD DIV0 speculation bug */
+#define X86_BUG_RFDS			X86_EXT_BUG(1*32 + 1) /* CPU is vulnerable to Register File Data Sampling */
+#define X86_BUG_BHI			X86_EXT_BUG(1*32 + 2) /* CPU is affected by Branch History Injection */
+#define X86_BUG_IBPB_NO_RET		X86_EXT_BUG(1*32 + 4) /* "ibpb_no_ret" IBPB omits return target predictions */
+#define X86_BUG_ITS			X86_EXT_BUG(1*32 + 6) /* "its" CPU is affected by Indirect Target Selection */
+#define X86_BUG_ITS_NATIVE_ONLY		X86_EXT_BUG(1*32 + 7) /* "its_native_only" CPU is affected by ITS, VMX is not affected */
 #endif /* _ASM_X86_CPUFEATURES_H */
