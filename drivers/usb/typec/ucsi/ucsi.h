@@ -60,6 +60,7 @@ struct dentry;
  * @sync_write: Blocking write operation
  * @async_write: Non-blocking write operation
  * @update_altmodes: Squashes duplicate DP altmodes
+ * @update_connector: Update connector capabilities before registering
  * @connector_status: Updates connector status, called holding connector lock
  *
  * Read and write routines for UCSI interface. @sync_write must wait for the
@@ -69,6 +70,7 @@ struct dentry;
 
 struct ucsi_operations_suse {
 	void (*connector_status)(struct ucsi_connector *con);
+	void (*update_connector)(struct ucsi_connector *con);
 };
 
 struct ucsi_operations {
