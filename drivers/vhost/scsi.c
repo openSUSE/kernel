@@ -558,7 +558,13 @@ static void vhost_scsi_complete_cmd_work(struct vhost_work *work)
 		ret = copy_to_iter(&v_rsp, sizeof(v_rsp), &iov_iter);
 		if (likely(ret == sizeof(v_rsp))) {
 			struct vhost_scsi_virtqueue *q;
+
+			mutex_lock(&cmd->tvc_vq->mutex);
+
 			vhost_add_used(cmd->tvc_vq, cmd->tvc_vq_desc, 0);
+
+			mutex_unlock(&cmd->tvc_vq->mutex);
+
 			q = container_of(cmd->tvc_vq, struct vhost_scsi_virtqueue, vq);
 			vq = q - vs->vqs;
 			__set_bit(vq, signal);
