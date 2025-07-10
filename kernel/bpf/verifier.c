@@ -8765,15 +8765,21 @@ static void find_equal_scalars(struct bpf_verifier_state *vstate,
 		state = vstate->frame[i];
 		for (j = 0; j < MAX_BPF_REG; j++) {
 			reg = &state->regs[j];
-			if (reg->type == SCALAR_VALUE && reg->id == known_reg->id)
+			if (reg->type == SCALAR_VALUE && reg->id == known_reg->id) {
+				s32 saved_subreg_def = reg->subreg_def;
 				*reg = *known_reg;
+				reg->subreg_def = saved_subreg_def;
+			}
 		}
 
 		bpf_for_each_spilled_reg(j, state, reg) {
 			if (!reg)
 				continue;
-			if (reg->type == SCALAR_VALUE && reg->id == known_reg->id)
+			if (reg->type == SCALAR_VALUE && reg->id == known_reg->id) {
+				s32 saved_subreg_def = reg->subreg_def;
 				*reg = *known_reg;
+				reg->subreg_def = saved_subreg_def;
+			}
 		}
 	}
 }
