@@ -253,6 +253,9 @@ static void pmic_glink_ucsi_notify(struct work_struct *work)
 		return;
 	}
 
+	if (cci & UCSI_CCI_BUSY)
+		return;
+
 	con_num = UCSI_CCI_CONNECTOR(cci);
 	if (con_num)
 		ucsi_connector_change(ucsi->ucsi, con_num);

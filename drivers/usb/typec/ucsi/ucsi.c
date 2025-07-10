@@ -124,15 +124,13 @@ static int ucsi_read_error(struct ucsi *ucsi)
 static int ucsi_exec_command(struct ucsi *ucsi, u64 cmd)
 {
 	u32 cci;
-	int ret;
+	int ret, ret2;
 
 	ret = ucsi->ops->sync_write(ucsi, UCSI_CONTROL, &cmd, sizeof(cmd));
 	if (ret)
 		return ret;
 
-	ret = ucsi->ops->read(ucsi, UCSI_CCI, &cci, sizeof(cci));
-	if (ret)
-		return ret;
+	ret2 = ucsi->ops->read(ucsi, UCSI_CCI, &cci, sizeof(cci));
 
 	if (cmd != UCSI_CANCEL && cci & UCSI_CCI_BUSY)
 		return ucsi_exec_command(ucsi, UCSI_CANCEL);
@@ -163,6 +161,9 @@ static int ucsi_exec_command(struct ucsi *ucsi, u64 cmd)
 		ret = ucsi_acknowledge(ucsi, false);
 		return ret ? ret : -EBUSY;
 	}
+
+	if (ret2)
+		return ret2;
 
 	return UCSI_CCI_LENGTH(cci);
 }
@@ -928,6 +929,10 @@ static void ucsi_handle_connector_change(struct work_struct *work)
 	int ret;
 
 	mutex_lock(&con->lock);
+
+	if (!test_and_set_bit(EVENT_PENDING, &ucsi->flags))
+		dev_err_once(ucsi->dev, "%s entered without EVENT_PENDING\n",
+			     __func__);
 
 	command = UCSI_GET_CONNECTOR_STATUS | UCSI_CONNECTOR_NUMBER(con->num);
 
