@@ -128,6 +128,7 @@ void ucsi_connector_change(struct ucsi *ucsi, u8 num);
 #define UCSI_COMMAND(_cmd_)			((_cmd_) & 0xff)
 
 /* CONNECTOR_RESET command bits */
+#define UCSI_CONNECTOR_RESET_HARD		BIT(23)	/* Deprecated in v1.1 */
 #define UCSI_CONNECTOR_RESET_HARD_VER_1_0	BIT(23) /* Deprecated in v1.1 */
 #define UCSI_CONNECTOR_RESET_DATA_VER_2_0	BIT(23) /* Redefined in v2.0 */
 
