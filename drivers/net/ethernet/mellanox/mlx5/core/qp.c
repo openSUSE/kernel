@@ -51,8 +51,10 @@ static struct mlx5_core_rsc_common *mlx5_get_rsc(struct mlx5_core_dev *dev,
 	spin_lock(&table->lock);
 
 	common = radix_tree_lookup(&table->tree, rsn);
-	if (common)
+	if (common && !common->invalid)
 		atomic_inc(&common->refcount);
+	else
+		common = NULL;
 
 	spin_unlock(&table->lock);
 
@@ -179,6 +181,18 @@ static int create_resource_common(struct mlx5_core_dev *dev,
 	qp->pid = current->pid;
 
 	return 0;
+}
+
+static void modify_resource_common_state(struct mlx5_core_dev *dev,
+					 struct mlx5_core_qp *qp,
+					 bool invalid)
+{
+	struct mlx5_qp_table *table = &dev->priv.qp_table;
+	unsigned long flags;
+
+	spin_lock_irqsave(&table->lock, flags);
+	qp->common.invalid = invalid;
+	spin_unlock_irqrestore(&table->lock, flags);
 }
 
 static void destroy_resource_common(struct mlx5_core_dev *dev,
@@ -551,7 +565,7 @@ int mlx5_core_xrcd_dealloc(struct mlx5_core_dev *dev, u32 xrcdn)
 }
 EXPORT_SYMBOL_GPL(mlx5_core_xrcd_dealloc);
 
-static void destroy_rq_tracked(struct mlx5_core_dev *dev, u32 rqn, u16 uid)
+static int destroy_rq_tracked(struct mlx5_core_dev *dev, u32 rqn, u16 uid)
 {
 	u32 in[MLX5_ST_SZ_DW(destroy_rq_in)]   = {};
 	u32 out[MLX5_ST_SZ_DW(destroy_rq_out)] = {};
@@ -559,7 +573,7 @@ static void destroy_rq_tracked(struct mlx5_core_dev *dev, u32 rqn, u16 uid)
 	MLX5_SET(destroy_rq_in, in, opcode, MLX5_CMD_OP_DESTROY_RQ);
 	MLX5_SET(destroy_rq_in, in, rqn, rqn);
 	MLX5_SET(destroy_rq_in, in, uid, uid);
-	mlx5_cmd_exec(dev, in, sizeof(in), out, sizeof(out));
+	return mlx5_cmd_exec(dev, in, sizeof(in), out, sizeof(out));
 }
 
 int mlx5_core_create_rq_tracked(struct mlx5_core_dev *dev, u32 *in, int inlen,
@@ -587,12 +601,25 @@ err_destroy_rq:
 }
 EXPORT_SYMBOL(mlx5_core_create_rq_tracked);
 
-void mlx5_core_destroy_rq_tracked(struct mlx5_core_dev *dev,
+int mlx5_core_destroy_rq_tracked(struct mlx5_core_dev *dev,
 				  struct mlx5_core_qp *rq)
 {
+	int ret;
+
+	/* The rq destruction can be called again in case it fails, hence we
+	 * mark the common resource as invalid and only once FW destruction
+	 * is completed successfully we actually destroy the resources.
+	 */
+	modify_resource_common_state(dev, rq, true);
+	ret = destroy_rq_tracked(dev, rq->qpn, rq->uid);
+	if (ret) {
+		modify_resource_common_state(dev, rq, false);
+		return ret;
+	}
 	destroy_resource_common(dev, rq);
-	destroy_rq_tracked(dev, rq->qpn, rq->uid);
+	return 0;
 }
+
 EXPORT_SYMBOL(mlx5_core_destroy_rq_tracked);
 
 static void destroy_sq_tracked(struct mlx5_core_dev *dev, u32 sqn, u16 uid)
