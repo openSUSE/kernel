@@ -192,7 +192,6 @@ static const char * const level_options[] = {
 	[TLMI_LEVEL_MASTER] = "master",
 };
 static struct think_lmi tlmi_priv;
-static const struct class *fw_attr_class;
 static DEFINE_MUTEX(tlmi_mutex);
 
 static inline struct tlmi_pwd_setting *to_tlmi_pwd_setting(struct kobject *kobj)
@@ -1365,11 +1364,7 @@ static int tlmi_sysfs_init(void)
 {
 	int i, ret;
 
-	ret = fw_attributes_class_get(&fw_attr_class);
-	if (ret)
-		return ret;
-
-	tlmi_priv.class_dev = device_create(fw_attr_class, NULL, MKDEV(0, 0),
+	tlmi_priv.class_dev = device_create(&firmware_attributes_class, NULL, MKDEV(0, 0),
 			NULL, "%s", "thinklmi");
 	if (IS_ERR(tlmi_priv.class_dev)) {
 		ret = PTR_ERR(tlmi_priv.class_dev);
@@ -1379,6 +1374,14 @@ static int tlmi_sysfs_init(void)
 	tlmi_priv.attribute_kset = kset_create_and_add("attributes", NULL,
 			&tlmi_priv.class_dev->kobj);
 	if (!tlmi_priv.attribute_kset) {
+		ret = -ENOMEM;
+		goto fail_device_created;
+	}
+
+	tlmi_priv.authentication_kset = kset_create_and_add("authentication", NULL,
+							    &tlmi_priv.class_dev->kobj);
+	if (!tlmi_priv.authentication_kset) {
+		kset_unregister(tlmi_priv.attribute_kset);
 		ret = -ENOMEM;
 		goto fail_device_created;
 	}
@@ -1420,12 +1423,6 @@ static int tlmi_sysfs_init(void)
 	}
 
 	/* Create authentication entries */
-	tlmi_priv.authentication_kset = kset_create_and_add("authentication", NULL,
-								&tlmi_priv.class_dev->kobj);
-	if (!tlmi_priv.authentication_kset) {
-		ret = -ENOMEM;
-		goto fail_create_attr;
-	}
 	tlmi_priv.pwd_admin->kobj.kset = tlmi_priv.authentication_kset;
 	ret = kobject_init_and_add(&tlmi_priv.pwd_admin->kobj, &tlmi_pwd_setting_ktype,
 				   NULL, "%s", "Admin");
@@ -1463,9 +1460,8 @@ static int tlmi_sysfs_init(void)
 fail_create_attr:
 	tlmi_release_attr();
 fail_device_created:
-	device_destroy(fw_attr_class, MKDEV(0, 0));
+	device_unregister(tlmi_priv.class_dev);
 fail_class_created:
-	fw_attributes_class_put();
 	return ret;
 }
 
@@ -1685,8 +1681,7 @@ fail_clear_attr:
 static void tlmi_remove(struct wmi_device *wdev)
 {
 	tlmi_release_attr();
-	device_destroy(fw_attr_class, MKDEV(0, 0));
-	fw_attributes_class_put();
+	device_unregister(tlmi_priv.class_dev);
 }
 
 static int tlmi_probe(struct wmi_device *wdev, const void *context)
