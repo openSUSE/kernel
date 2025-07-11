@@ -8,6 +8,7 @@
 #include <linux/device/class.h>
 
 extern const struct class firmware_attributes_class;
+#define fw_attributes_class_get __fw_attributes_class_get
 int fw_attributes_class_get(const struct class **fw_attr_class);
 int fw_attributes_class_put(void);
 

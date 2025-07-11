@@ -35,5 +35,13 @@ int fw_attributes_class_put(void)
 }
 EXPORT_SYMBOL_GPL(fw_attributes_class_put);
 
+/* FIXME: redefine for kABI compatibility */
+#undef fw_attributes_class_get
+int fw_attributes_class_get(struct class **fw_attr_class)
+{
+	return __fw_attributes_class_get((const struct class **)fw_attr_class);
+}
+EXPORT_SYMBOL_GPL(fw_attributes_class_get);
+
 MODULE_AUTHOR("Mark Pearson <markpearson@lenovo.com>");
 MODULE_LICENSE("GPL");
