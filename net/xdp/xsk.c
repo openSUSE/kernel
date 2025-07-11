@@ -127,12 +127,12 @@ int xsk_generic_rcv(struct xdp_sock *xs, struct xdp_buff *xdp)
 	u64 addr;
 	int err;
 
-	spin_lock_bh(&xs->rx_lock);
-
 	if (xs->dev != xdp->rxq->dev || xs->queue_id != xdp->rxq->queue_index) {
 		err = -EINVAL;
-		goto out_unlock;
+		return err;
 	}
+
+	spin_lock_bh(&xs->umem->rx_lock);
 
 	if (!xskq_peek_addr(xs->umem->fq, &addr) ||
 	    len > xs->umem->chunk_size_nohr - XDP_PACKET_HEADROOM) {
@@ -152,15 +152,14 @@ int xsk_generic_rcv(struct xdp_sock *xs, struct xdp_buff *xdp)
 	xskq_discard_addr(xs->umem->fq);
 	xskq_produce_flush_desc(xs->rx);
 
-	spin_unlock_bh(&xs->rx_lock);
+	spin_unlock_bh(&xs->umem->rx_lock);
 
 	xs->sk.sk_data_ready(&xs->sk);
 	return 0;
 
 out_drop:
 	xs->rx_dropped++;
-out_unlock:
-	spin_unlock_bh(&xs->rx_lock);
+	spin_unlock_bh(&xs->umem->rx_lock);
 	return err;
 }
 
@@ -782,7 +781,6 @@ static int xsk_create(struct net *net, struct socket *sock, int protocol,
 
 	xs = xdp_sk(sk);
 	mutex_init(&xs->mutex);
-	spin_lock_init(&xs->rx_lock);
 	spin_lock_init(&xs->tx_completion_lock);
 
 	local_bh_disable();
