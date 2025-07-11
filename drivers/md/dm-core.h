@@ -141,11 +141,15 @@ struct mapped_device {
 #ifdef CONFIG_BLK_DEV_ZONED
 	unsigned int nr_zones;
 	void *zone_revalidate_map;
-	struct task_struct *revalidate_map_task;
 #endif
 
 #ifdef CONFIG_IMA
 	struct dm_ima_measurements ima;
+#endif
+#ifndef __GENKSYMS__
+#ifdef CONFIG_BLK_DEV_ZONED
+	struct task_struct *revalidate_map_task;
+#endif
 #endif
 };
 
