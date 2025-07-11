@@ -146,6 +146,11 @@ struct mapped_device {
 #ifdef CONFIG_IMA
 	struct dm_ima_measurements ima;
 #endif
+#ifndef __GENKSYMS__
+#ifdef CONFIG_BLK_DEV_ZONED
+	struct task_struct *revalidate_map_task;
+#endif
+#endif
 };
 
 /*
