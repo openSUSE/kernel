@@ -461,6 +461,7 @@ struct mlx5_core_rsc_common {
 	enum mlx5_res_type	res;
 	atomic_t		refcount;
 	struct completion	free;
+	bool			invalid;
 };
 
 struct mlx5_core_srq {
