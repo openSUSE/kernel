@@ -100,7 +100,11 @@ struct elevator_mq_ops {
 	void (*exit_hctx)(struct blk_mq_hw_ctx *, unsigned int);
 
 	bool (*allow_merge)(struct request_queue *, struct request *, struct bio *);
+#ifndef __GENKSYMS__
+	bool (*bio_merge)(struct blk_mq_hw_ctx *, struct bio *, unsigned int);
+#else
 	bool (*bio_merge)(struct blk_mq_hw_ctx *, struct bio *);
+#endif
 	int (*request_merge)(struct request_queue *q, struct request **, struct bio *);
 	void (*request_merged)(struct request_queue *, struct request *, enum elv_merge);
 	void (*requests_merged)(struct request_queue *, struct request *, struct request *);

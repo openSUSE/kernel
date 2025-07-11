@@ -343,8 +343,9 @@ bool __blk_mq_sched_bio_merge(struct request_queue *q, struct bio *bio)
 	bool ret = false;
 
 	if (e && e->type->ops.mq.bio_merge) {
+		unsigned int ctx_idx = ctx->index_hw;
 		blk_mq_put_ctx(ctx);
-		return e->type->ops.mq.bio_merge(hctx, bio);
+		return e->type->ops.mq.bio_merge(hctx, bio, ctx_idx);
 	}
 
 	if ((hctx->flags & BLK_MQ_F_SHOULD_MERGE) &&
