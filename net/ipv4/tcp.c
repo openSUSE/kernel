@@ -458,9 +458,10 @@ static void tcp_tx_timestamp(struct sock *sk, u16 tsflags, struct sk_buff *skb)
 static inline bool tcp_stream_is_readable(const struct tcp_sock *tp,
 					  int target, struct sock *sk)
 {
+	struct proto *prot = READ_ONCE(sk->sk_prot);
 	return (tp->rcv_nxt - tp->copied_seq >= target) ||
-		(sk->sk_prot->stream_memory_read ?
-		sk->sk_prot->stream_memory_read(sk) : false);
+		(prot->stream_memory_read ?
+		prot->stream_memory_read(sk) : false);
 }
 
 /*
