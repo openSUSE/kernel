@@ -659,6 +659,9 @@ static int sfq_change(struct Qdisc *sch, struct nlattr *opt)
 			return -EINVAL;
 	}
 
+	if (ctl->perturb_period < 0 || ctl->perturb_period > INT_MAX / HZ)
+		return -EINVAL;
+
 	if (ctl_v1 && !red_check_params(ctl_v1->qth_min, ctl_v1->qth_max,
 					ctl_v1->Wlog))
 		return -EINVAL;
