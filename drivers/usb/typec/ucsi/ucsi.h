@@ -72,6 +72,19 @@ struct dentry;
 struct ucsi_operations_suse {
 	void (*connector_status)(struct ucsi_connector *con);
 	void (*update_connector)(struct ucsi_connector *con);
+	int (*read_version)(struct ucsi *ucsi, u16 *version);
+	int (*read_cci)(struct ucsi *ucsi, u32 *cci);
+	int (*poll_cci)(struct ucsi *ucsi, u32 *cci);
+	int (*read_message_in)(struct ucsi *ucsi, void *val, size_t val_len);
+	int (*sync_control)(struct ucsi *ucsi, u64 command, u32 *cci,
+			    void *data, size_t size);
+	int (*async_control)(struct ucsi *ucsi, u64 command);
+
+	void *suse_kabi_padding1;
+	void *suse_kabi_padding2;
+	void *suse_kabi_padding3;
+	void *suse_kabi_padding4;
+	void *suse_kabi_padding5;
 };
 
 struct ucsi_operations {
