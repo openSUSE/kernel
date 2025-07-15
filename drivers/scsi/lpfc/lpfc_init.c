@@ -2627,7 +2627,8 @@ lpfc_get_hba_model_desc(struct lpfc_hba *phba, uint8_t *mdp, uint8_t *descp)
 				"Obsolete, Unsupported Fibre Channel Adapter"};
 		break;
 	case PCI_DEVICE_ID_BMID:
-		m = (typeof(m)){"LP1150", "PCI-X2", "Fibre Channel Adapter"};
+		m = (typeof(m)){"LP1150", "PCI-X2",
+				"Obsolete, Unsupported Fibre Channel Adapter"};
 		break;
 	case PCI_DEVICE_ID_BSMB:
 		m = (typeof(m)){"LP111", "PCI-X2",
@@ -2635,7 +2636,7 @@ lpfc_get_hba_model_desc(struct lpfc_hba *phba, uint8_t *mdp, uint8_t *descp)
 		break;
 	case PCI_DEVICE_ID_ZEPHYR:
 		m = (typeof(m)){"LPe11000", "PCIe",
-				 "Obsolete, Unsupported Fibre Channel Adapter"};
+				"Obsolete, Unsupported Fibre Channel Adapter"};
 		break;
 	case PCI_DEVICE_ID_ZEPHYR_SCSP:
 		m = (typeof(m)){"LPe11000", "PCIe",
@@ -2676,23 +2677,23 @@ lpfc_get_hba_model_desc(struct lpfc_hba *phba, uint8_t *mdp, uint8_t *descp)
 		break;
 	case PCI_DEVICE_ID_SAT_MID:
 		m = (typeof(m)){"LPe1250", "PCIe",
-			"Obsolete, Unsupported Fibre Channel Adapter"};
+				"Obsolete, Unsupported Fibre Channel Adapter"};
 		break;
 	case PCI_DEVICE_ID_SAT_SMB:
 		m = (typeof(m)){"LPe121", "PCIe",
-			"Obsolete, Unsupported Fibre Channel Adapter"};
+				"Obsolete, Unsupported Fibre Channel Adapter"};
 		break;
 	case PCI_DEVICE_ID_SAT_DCSP:
 		m = (typeof(m)){"LPe12002-SP", "PCIe",
-			"Obsolete, Unsupported Fibre Channel Adapter"};
+				"Obsolete, Unsupported Fibre Channel Adapter"};
 		break;
 	case PCI_DEVICE_ID_SAT_SCSP:
 		m = (typeof(m)){"LPe12000-SP", "PCIe",
-			"Obsolete, Unsupported Fibre Channel Adapter"};
+				"Obsolete, Unsupported Fibre Channel Adapter"};
 		break;
 	case PCI_DEVICE_ID_SAT_S:
 		m = (typeof(m)){"LPe12000-S", "PCIe",
-			"Obsolete, Unsupported Fibre Channel Adapter"};
+				"Obsolete, Unsupported Fibre Channel Adapter"};
 		break;
 	case PCI_DEVICE_ID_PROTEUS_VF:
 		m = (typeof(m)){"LPev12000", "PCIe IOV",
@@ -2714,7 +2715,7 @@ lpfc_get_hba_model_desc(struct lpfc_hba *phba, uint8_t *mdp, uint8_t *descp)
 	case PCI_DEVICE_ID_TOMCAT:
 		oneConnect = 1;
 		m = (typeof(m)){"OCe11100", "PCIe",
-				"Obsolete, Unsupported Fibre Channel Adapter"};
+				"Obsolete, Unsupported FCoE Adapter"};
 		break;
 	case PCI_DEVICE_ID_FALCON:
 		m = (typeof(m)){"LPSe12002-ML1-E", "PCIe",
@@ -2740,7 +2741,7 @@ lpfc_get_hba_model_desc(struct lpfc_hba *phba, uint8_t *mdp, uint8_t *descp)
 	case PCI_DEVICE_ID_LANCER_FCOE_VF:
 		oneConnect = 1;
 		m = (typeof(m)){"OCe15100", "PCIe",
-				"Obsolete, Unsupported FCoE"};
+				"Obsolete, Unsupported FCoE Adapter"};
 		break;
 	case PCI_DEVICE_ID_LANCER_G6_FC:
 		m = (typeof(m)){"LPe32000", "PCIe", "Fibre Channel Adapter"};
