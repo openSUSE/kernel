@@ -746,7 +746,7 @@ static int create_snapshot(struct btrfs_root *root, struct inode *dir,
 	smp_mb__after_atomic();
 	btrfs_wait_for_no_snapshoting_writes(root);
 
-	ret = btrfs_start_delalloc_snapshot(root);
+	ret = btrfs_start_delalloc_snapshot(root, false);
 	if (ret)
 		goto dec_and_free;
 
