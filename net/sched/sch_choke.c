@@ -136,10 +136,10 @@ static void choke_drop_by_idx(struct Qdisc *sch, unsigned int idx)
 	if (idx == q->tail)
 		choke_zap_tail_holes(q);
 
+	--sch->q.qlen;
 	sch->qstats.backlog -= qdisc_pkt_len(skb);
 	qdisc_drop(skb, sch);
 	qdisc_tree_decrease_qlen(sch, 1);
-	--sch->q.qlen;
 }
 
 /*
