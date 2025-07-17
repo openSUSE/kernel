@@ -52,7 +52,6 @@ FEATURE_TESTS_BASIC :=                  \
         libtraceevent                   \
         libtracefs                      \
         libcrypto                       \
-        libunwind                       \
         pthread-attr-setaffinity-np     \
         pthread-barrier     		\
         reallocarray                    \
@@ -121,7 +120,6 @@ FEATURE_DISPLAY ?=              \
          libperl                \
          libpython              \
          libcrypto              \
-         libunwind              \
          libcapstone            \
          llvm-perf              \
          zlib                   \
