@@ -518,8 +518,8 @@ static int do_procmap_query(struct proc_maps_private *priv, void __user *uarg)
 		const struct inode *inode = file_user_inode(vma->vm_file);
 
 		karg.vma_offset = ((__u64)vma->vm_pgoff) << PAGE_SHIFT;
-		karg.dev_major = MAJOR(inode->i_sb->s_dev);
-		karg.dev_minor = MINOR(inode->i_sb->s_dev);
+		karg.dev_major = MAJOR(inode_get_dev(inode));
+		karg.dev_minor = MINOR(inode_get_dev(inode));
 		karg.inode = inode->i_ino;
 	} else {
 		karg.vma_offset = 0;
