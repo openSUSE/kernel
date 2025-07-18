@@ -191,10 +191,13 @@ struct drm_framebuffer {
 	 * DRM_MODE_FB_MODIFIERS.
 	 */
 	int flags;
+#ifndef __GENKSYMS__
+	/* FIXME: put in 4-bytes hole for kABI compatibility */
 	/**
 	 * @internal_flags: Framebuffer flags like DRM_FRAMEBUFFER_HAS_HANDLE_REF.
 	 */
 	unsigned int internal_flags;
+#endif
 	/**
 	 * @filp_head: Placed on &drm_file.fbs, protected by &drm_file.fbs_lock.
 	 */
