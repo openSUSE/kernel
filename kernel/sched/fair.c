@@ -903,25 +903,25 @@ static inline void set_protect_slice(struct cfs_rq *cfs_rq, struct sched_entity 
 	if (slice != se->slice)
 		vprot = min_vruntime(vprot, se->vruntime + calc_delta_fair(slice, se));
 
-	se->vprot = vprot;
+	se_vprot(se) = (u64)vprot;
 }
 
 static inline void update_protect_slice(struct cfs_rq *cfs_rq, struct sched_entity *se)
 {
 	u64 slice = cfs_rq_min_slice(cfs_rq);
 
-	se->vprot = min_vruntime(se->vprot, se->vruntime + calc_delta_fair(slice, se));
+	se_vprot(se) = (u64)min_vruntime((u64)se_vprot(se), se->vruntime + calc_delta_fair(slice, se));
 }
 
 static inline bool protect_slice(struct sched_entity *se)
 {
-	return ((s64)(se->vprot - se->vruntime) > 0);
+	return ((s64)((u64)se_vprot(se) - se->vruntime) > 0);
 }
 
 static inline void cancel_protect_slice(struct sched_entity *se)
 {
 	if (protect_slice(se))
-		se->vprot = se->vruntime;
+		se_vprot(se) = (u64)se->vruntime;
 }
 
 /*
