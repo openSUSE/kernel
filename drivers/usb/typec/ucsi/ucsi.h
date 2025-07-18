@@ -28,6 +28,7 @@ struct dentry;
 #define UCSIv2_MESSAGE_OUT		272
 
 /* UCSI versions */
+#define UCSI_VERSION_1_1	0x0110
 #define UCSI_VERSION_1_2	0x0120
 #define UCSI_VERSION_2_0	0x0200
 #define UCSI_VERSION_2_1	0x0210
@@ -60,11 +61,32 @@ struct dentry;
  * @sync_write: Blocking write operation
  * @async_write: Non-blocking write operation
  * @update_altmodes: Squashes duplicate DP altmodes
+ * @update_connector: Update connector capabilities before registering
+ * @connector_status: Updates connector status, called holding connector lock
  *
  * Read and write routines for UCSI interface. @sync_write must wait for the
  * Command Completion Event from the PPM before returning, and @async_write must
  * return immediately after sending the data to the PPM.
  */
+
+struct ucsi_operations_suse {
+	void (*connector_status)(struct ucsi_connector *con);
+	void (*update_connector)(struct ucsi_connector *con);
+	int (*read_version)(struct ucsi *ucsi, u16 *version);
+	int (*read_cci)(struct ucsi *ucsi, u32 *cci);
+	int (*poll_cci)(struct ucsi *ucsi, u32 *cci);
+	int (*read_message_in)(struct ucsi *ucsi, void *val, size_t val_len);
+	int (*sync_control)(struct ucsi *ucsi, u64 command, u32 *cci,
+			    void *data, size_t size);
+	int (*async_control)(struct ucsi *ucsi, u64 command);
+
+	void *suse_kabi_padding1;
+	void *suse_kabi_padding2;
+	void *suse_kabi_padding3;
+	void *suse_kabi_padding4;
+	void *suse_kabi_padding5;
+};
+
 struct ucsi_operations {
 	int (*read)(struct ucsi *ucsi, unsigned int offset,
 		    void *val, size_t val_len);
@@ -74,7 +96,11 @@ struct ucsi_operations {
 			   const void *val, size_t val_len);
 	bool (*update_altmodes)(struct ucsi *ucsi, struct ucsi_altmode *orig,
 				struct ucsi_altmode *updated);
+#ifndef __GENKSYMS__
+	struct ucsi_operations_suse *suse_operations;
+#else
 	void *suse_kabi_padding;
+#endif
 };
 
 struct ucsi *ucsi_create(struct device *dev, const struct ucsi_operations *ops);
@@ -115,7 +141,10 @@ void ucsi_connector_change(struct ucsi *ucsi, u8 num);
 #define UCSI_COMMAND(_cmd_)			((_cmd_) & 0xff)
 
 /* CONNECTOR_RESET command bits */
-#define UCSI_CONNECTOR_RESET_HARD		BIT(23) /* Deprecated in v1.1 */
+#define UCSI_CONNECTOR_RESET_HARD		BIT(23)	/* Deprecated in v1.1 */
+#define UCSI_CONNECTOR_RESET_HARD_VER_1_0	BIT(23) /* Deprecated in v1.1 */
+#define UCSI_CONNECTOR_RESET_DATA_VER_2_0	BIT(23) /* Redefined in v2.0 */
+
 
 /* ACK_CC_CI bits */
 #define UCSI_ACK_CONNECTOR_CHANGE		BIT(16)
@@ -391,6 +420,7 @@ struct ucsi {
 	unsigned long quirks;
 #endif
 #define UCSI_NO_PARTNER_PDOS	BIT(0)	/* Don't read partner's PDOs */
+#define UCSI_DELAY_DEVICE_PDOS	BIT(1)	/* Reading PDOs fails until the parter is in PD mode */
 };
 
 #define UCSI_MAX_SVID		5
