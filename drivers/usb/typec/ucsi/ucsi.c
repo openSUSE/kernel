@@ -951,9 +951,8 @@ static void ucsi_handle_connector_change(struct work_struct *work)
 
 	trace_ucsi_connector_change(con->num, &con->status);
 
-	if (ucsi->ops->suse_operations)
-		if (ucsi->ops->suse_operations->connector_status)
-			ucsi->ops->suse_operations->connector_status(con);
+	if (ucsi->ops->connector_status)
+		ucsi->ops->connector_status(con);
 
 	role = !!(con->status.flags & UCSI_CONSTAT_PWR_DIR);
 
@@ -1325,9 +1324,8 @@ static int ucsi_register_port(struct ucsi *ucsi, struct ucsi_connector *con)
 	cap->driver_data = con;
 	cap->ops = &ucsi_ops;
 
-	if (ucsi->ops->suse_operations)
-		if (ucsi->ops->suse_operations->update_connector)
-			ucsi->ops->suse_operations->update_connector(con);
+	if (ucsi->ops->update_connector)
+		ucsi->ops->update_connector(con);
 
 	ret = ucsi_register_port_psy(con);
 	if (ret)
@@ -1358,9 +1356,8 @@ static int ucsi_register_port(struct ucsi *ucsi, struct ucsi_connector *con)
 		goto out;
 	}
 
-	if (ucsi->ops->suse_operations)
-		if (ucsi->ops->suse_operations->connector_status)
-			ucsi->ops->suse_operations->connector_status(con);
+	if (ucsi->ops->connector_status)
+		ucsi->ops->connector_status(con);
 
 	switch (UCSI_CONSTAT_PARTNER_TYPE(con->status.flags)) {
 	case UCSI_CONSTAT_PARTNER_TYPE_UFP:
