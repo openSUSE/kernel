@@ -31,6 +31,7 @@
 #include <linux/crypto.h>
 #include <linux/kcov.h>
 #include <linux/property.h>
+#include <linux/srcu.h>
 #include <linux/suspend.h>
 #include <linux/wait.h>
 #include <linux/unaligned.h>
@@ -62,6 +63,9 @@ DEFINE_MUTEX(hci_cb_list_lock);
 /* HCI ID Numbering */
 static DEFINE_IDA(hci_index_ida);
 
+/* FIXME: global SRCU instead of hci_dev.srcu for kABI compatibility */
+DEFINE_STATIC_SRCU(__hci_dev_srcu);
+
 /* Get HCI device by index.
  * Device is held on return. */
 static struct hci_dev *__hci_dev_get(int index, int *srcu_index)
@@ -78,7 +82,7 @@ static struct hci_dev *__hci_dev_get(int index, int *srcu_index)
 		if (d->id == index) {
 			hdev = hci_dev_hold(d);
 			if (srcu_index)
-				*srcu_index = srcu_read_lock(&d->srcu);
+				*srcu_index = srcu_read_lock(&__hci_dev_srcu);
 			break;
 		}
 	}
@@ -98,7 +102,7 @@ static struct hci_dev *hci_dev_get_srcu(int index, int *srcu_index)
 
 static void hci_dev_put_srcu(struct hci_dev *hdev, int srcu_index)
 {
-	srcu_read_unlock(&hdev->srcu, srcu_index);
+	srcu_read_unlock(&__hci_dev_srcu, srcu_index);
 	hci_dev_put(hdev);
 }
 
@@ -2457,11 +2461,6 @@ struct hci_dev *hci_alloc_dev_priv(int sizeof_priv)
 	if (!hdev)
 		return NULL;
 
-	if (init_srcu_struct(&hdev->srcu)) {
-		kfree(hdev);
-		return NULL;
-	}
-
 	hdev->pkt_type  = (HCI_DM1 | HCI_DH1 | HCI_HV1);
 	hdev->esco_type = (ESCO_HV1);
 	hdev->link_mode = (HCI_LM_ACCEPT);
@@ -2706,8 +2705,7 @@ void hci_unregister_dev(struct hci_dev *hdev)
 	list_del(&hdev->list);
 	write_unlock(&hci_dev_list_lock);
 
-	synchronize_srcu(&hdev->srcu);
-	cleanup_srcu_struct(&hdev->srcu);
+	synchronize_srcu(&__hci_dev_srcu);
 
 	disable_work_sync(&hdev->rx_work);
 	disable_work_sync(&hdev->cmd_work);
