@@ -2965,9 +2965,13 @@ static void fbcon_new_modelist(struct fb_info *info)
 	struct vc_data *vc;
 	struct fb_var_screeninfo var;
 	const struct fb_videomode *mode;
+	signed char fb;
 
 	for (i = first_fb_vc; i <= last_fb_vc; i++) {
-		if (registered_fb[con2fb_map[i]] != info)
+		fb = con2fb_map[i];
+		if (fb < 0 || fb >= FB_MAX)
+			continue;
+		if (registered_fb[fb] != info)
 			continue;
 		if (!fb_display[i].mode)
 			continue;
