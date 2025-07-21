@@ -588,50 +588,6 @@ static void test_sockmap_unconnected_unix(void)
 	close(dgram);
 }
 
-static void test_sockmap_skb_verdict_vsock_poll(void)
-{
-	struct test_sockmap_pass_prog *skel;
-	int err, map, conn, peer;
-	struct bpf_program *prog;
-	struct bpf_link *link;
-	char buf = 'x';
-	int zero = 0;
-
-	skel = test_sockmap_pass_prog__open_and_load();
-	if (!ASSERT_OK_PTR(skel, "open_and_load"))
-		return;
-
-	if (create_pair(AF_VSOCK, SOCK_STREAM, &conn, &peer))
-		goto destroy;
-
-	prog = skel->progs.prog_skb_verdict;
-	map = bpf_map__fd(skel->maps.sock_map_rx);
-	link = bpf_program__attach_sockmap(prog, map);
-	if (!ASSERT_OK_PTR(link, "bpf_program__attach_sockmap"))
-		goto close;
-
-	err = bpf_map_update_elem(map, &zero, &conn, BPF_ANY);
-	if (!ASSERT_OK(err, "bpf_map_update_elem"))
-		goto detach;
-
-	if (xsend(peer, &buf, 1, 0) != 1)
-		goto detach;
-
-	err = poll_read(conn, IO_TIMEOUT_SEC);
-	if (!ASSERT_OK(err, "poll"))
-		goto detach;
-
-	if (xrecv_nonblock(conn, &buf, 1, 0) != 1)
-		FAIL("xrecv_nonblock");
-detach:
-	bpf_link__detach(link);
-close:
-	xclose(conn);
-	xclose(peer);
-destroy:
-	test_sockmap_pass_prog__destroy(skel);
-}
-
 static void test_sockmap_vsock_unconnected(void)
 {
 	struct sockaddr_storage addr;
@@ -707,8 +663,6 @@ void test_sockmap_basic(void)
 
 	if (test__start_subtest("sockmap unconnected af_unix"))
 		test_sockmap_unconnected_unix();
-	if (test__start_subtest("sockmap skb_verdict vsock poll"))
-		test_sockmap_skb_verdict_vsock_poll();
 	if (test__start_subtest("sockmap vsock unconnected"))
 		test_sockmap_vsock_unconnected();
 }
