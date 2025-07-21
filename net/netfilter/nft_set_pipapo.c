@@ -1582,7 +1582,7 @@ static void pipapo_gc(const struct nft_set *_set, struct nft_pipapo_match *m)
 		if (nft_set_elem_expired(&e->ext)) {
 			priv->dirty = true;
 
-			gc = nft_trans_gc_queue_sync(gc, GFP_ATOMIC);
+			gc = nft_trans_gc_queue_sync(gc, GFP_KERNEL);
 			if (!gc)
 				break;
 
