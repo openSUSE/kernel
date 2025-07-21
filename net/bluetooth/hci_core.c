@@ -31,6 +31,7 @@
 #include <linux/crypto.h>
 #include <linux/kcov.h>
 #include <linux/property.h>
+#include <linux/srcu.h>
 #include <linux/suspend.h>
 #include <linux/wait.h>
 #include <linux/unaligned.h>
@@ -62,9 +63,12 @@ DEFINE_MUTEX(hci_cb_list_lock);
 /* HCI ID Numbering */
 static DEFINE_IDA(hci_index_ida);
 
+/* FIXME: global SRCU instead of hci_dev.srcu for kABI compatibility */
+DEFINE_STATIC_SRCU(__hci_dev_srcu);
+
 /* Get HCI device by index.
  * Device is held on return. */
-struct hci_dev *hci_dev_get(int index)
+static struct hci_dev *__hci_dev_get(int index, int *srcu_index)
 {
 	struct hci_dev *hdev = NULL, *d;
 
@@ -77,11 +81,29 @@ struct hci_dev *hci_dev_get(int index)
 	list_for_each_entry(d, &hci_dev_list, list) {
 		if (d->id == index) {
 			hdev = hci_dev_hold(d);
+			if (srcu_index)
+				*srcu_index = srcu_read_lock(&__hci_dev_srcu);
 			break;
 		}
 	}
 	read_unlock(&hci_dev_list_lock);
 	return hdev;
+}
+
+struct hci_dev *hci_dev_get(int index)
+{
+	return __hci_dev_get(index, NULL);
+}
+
+static struct hci_dev *hci_dev_get_srcu(int index, int *srcu_index)
+{
+	return __hci_dev_get(index, srcu_index);
+}
+
+static void hci_dev_put_srcu(struct hci_dev *hdev, int srcu_index)
+{
+	srcu_read_unlock(&__hci_dev_srcu, srcu_index);
+	hci_dev_put(hdev);
 }
 
 /* ---- Inquiry support ---- */
@@ -568,9 +590,9 @@ static int hci_dev_do_reset(struct hci_dev *hdev)
 int hci_dev_reset(__u16 dev)
 {
 	struct hci_dev *hdev;
-	int err;
+	int err, srcu_index;
 
-	hdev = hci_dev_get(dev);
+	hdev = hci_dev_get_srcu(dev, &srcu_index);
 	if (!hdev)
 		return -ENODEV;
 
@@ -592,7 +614,7 @@ int hci_dev_reset(__u16 dev)
 	err = hci_dev_do_reset(hdev);
 
 done:
-	hci_dev_put(hdev);
+	hci_dev_put_srcu(hdev, srcu_index);
 	return err;
 }
 
@@ -2682,6 +2704,8 @@ void hci_unregister_dev(struct hci_dev *hdev)
 	write_lock(&hci_dev_list_lock);
 	list_del(&hdev->list);
 	write_unlock(&hci_dev_list_lock);
+
+	synchronize_srcu(&__hci_dev_srcu);
 
 	disable_work_sync(&hdev->rx_work);
 	disable_work_sync(&hdev->cmd_work);
