@@ -1259,6 +1259,8 @@ static int iavf_add_fdir_ethtool(struct iavf_adapter *adapter, struct ethtool_rx
 	int count = 50;
 	int err;
 
+	netdev_assert_locked(adapter->netdev);
+
 	if (!(adapter->flags & IAVF_FLAG_FDIR_ENABLED))
 		return -EOPNOTSUPP;
 
@@ -1439,6 +1441,8 @@ iavf_set_adv_rss_hash_opt(struct iavf_adapter *adapter,
 	bool symm = false;
 	u64 hash_flds;
 	u32 hdrs;
+
+	netdev_assert_locked(adapter->netdev);
 
 	if (!ADV_RSS_SUPPORT(adapter))
 		return -EOPNOTSUPP;
