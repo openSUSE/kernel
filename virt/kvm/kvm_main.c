@@ -3770,6 +3770,12 @@ out:
 	put_cpu();
 }
 EXPORT_SYMBOL_GPL(__kvm_vcpu_kick);
+
+void kvm_vcpu_kick(struct kvm_vcpu *vcpu)
+{
+	__kvm_vcpu_kick(vcpu, false);
+}
+EXPORT_SYMBOL_GPL(kvm_vcpu_kick);
 #endif /* !CONFIG_S390 */
 
 int kvm_vcpu_yield_to(struct kvm_vcpu *target)

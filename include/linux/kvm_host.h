@@ -1503,14 +1503,10 @@ bool kvm_vcpu_block(struct kvm_vcpu *vcpu);
 void kvm_arch_vcpu_blocking(struct kvm_vcpu *vcpu);
 void kvm_arch_vcpu_unblocking(struct kvm_vcpu *vcpu);
 bool kvm_vcpu_wake_up(struct kvm_vcpu *vcpu);
+void kvm_vcpu_kick(struct kvm_vcpu *vcpu);
 
 #ifndef CONFIG_S390
 void __kvm_vcpu_kick(struct kvm_vcpu *vcpu, bool wait);
-
-static inline void kvm_vcpu_kick(struct kvm_vcpu *vcpu)
-{
-	__kvm_vcpu_kick(vcpu, false);
-}
 #endif
 
 int kvm_vcpu_yield_to(struct kvm_vcpu *target);
