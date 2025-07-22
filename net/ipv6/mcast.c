@@ -1580,7 +1580,7 @@ static struct sk_buff *mld_newpack(struct inet6_dev *idev, unsigned int mtu)
 		     IPV6_TLV_PADN, 0 };
 
 	/* we assume size > sizeof(ra) here */
-	skb = alloc_skb(size, GFP_KERNEL);
+	skb = alloc_skb(size, GFP_ATOMIC);
 	if (!skb)
 		return NULL;
 
