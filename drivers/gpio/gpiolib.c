@@ -2060,6 +2060,11 @@ EXPORT_SYMBOL_GPL(gpiochip_generic_free);
 int gpiochip_generic_config(struct gpio_chip *gc, unsigned int offset,
 			    unsigned long config)
 {
+#ifdef CONFIG_PINCTRL
+	if (list_empty(&gc->gpiodev->pin_ranges))
+		return -ENOTSUPP;
+#endif
+
 	return pinctrl_gpio_set_config_new(gc, offset, config);
 }
 EXPORT_SYMBOL_GPL(gpiochip_generic_config);
@@ -2403,6 +2408,11 @@ const char *gpiochip_is_requested(struct gpio_chip *gc, unsigned int offset)
 }
 EXPORT_SYMBOL_GPL(gpiochip_is_requested);
 
+static inline const char *function_name_or_default(const char *con_id)
+{
+	return con_id ?: "(default)";
+}
+
 /**
  * gpiochip_request_own_desc - Allow GPIO chip to request its own descriptor
  * @gc: GPIO chip
@@ -2431,6 +2441,7 @@ struct gpio_desc *gpiochip_request_own_desc(struct gpio_chip *gc,
 					    enum gpiod_flags dflags)
 {
 	struct gpio_desc *desc = gpiochip_get_desc(gc, hwnum);
+	const char *name = function_name_or_default(label);
 	int ret;
 
 	if (IS_ERR(desc)) {
@@ -2444,8 +2455,8 @@ struct gpio_desc *gpiochip_request_own_desc(struct gpio_chip *gc,
 
 	ret = gpiod_configure_flags(desc, label, lflags, dflags);
 	if (ret) {
-		chip_err(gc, "setup of own GPIO %s failed\n", label);
 		gpiod_free_commit(desc);
+		chip_err(gc, "setup of own GPIO %s failed\n", name);
 		return ERR_PTR(ret);
 	}
 
@@ -4120,19 +4131,17 @@ static struct gpio_desc *gpiod_find_by_fwnode(struct fwnode_handle *fwnode,
 					      enum gpiod_flags *flags,
 					      unsigned long *lookupflags)
 {
+	const char *name = function_name_or_default(con_id);
 	struct gpio_desc *desc = ERR_PTR(-ENOENT);
 
 	if (is_of_node(fwnode)) {
-		dev_dbg(consumer, "using DT '%pfw' for '%s' GPIO lookup\n",
-			fwnode, con_id);
+		dev_dbg(consumer, "using DT '%pfw' for '%s' GPIO lookup\n", fwnode, name);
 		desc = of_find_gpio(to_of_node(fwnode), con_id, idx, lookupflags);
 	} else if (is_acpi_node(fwnode)) {
-		dev_dbg(consumer, "using ACPI '%pfw' for '%s' GPIO lookup\n",
-			fwnode, con_id);
+		dev_dbg(consumer, "using ACPI '%pfw' for '%s' GPIO lookup\n", fwnode, name);
 		desc = acpi_find_gpio(fwnode, con_id, idx, flags, lookupflags);
 	} else if (is_software_node(fwnode)) {
-		dev_dbg(consumer, "using swnode '%pfw' for '%s' GPIO lookup\n",
-			fwnode, con_id);
+		dev_dbg(consumer, "using swnode '%pfw' for '%s' GPIO lookup\n", fwnode, name);
 		desc = swnode_find_gpio(fwnode, con_id, idx, lookupflags);
 	}
 
@@ -4148,6 +4157,7 @@ struct gpio_desc *gpiod_find_and_request(struct device *consumer,
 					 bool platform_lookup_allowed)
 {
 	unsigned long lookupflags = GPIO_LOOKUP_FLAGS_DEFAULT;
+	const char *name = function_name_or_default(con_id);
 	struct gpio_desc *desc;
 	int ret;
 
@@ -4163,7 +4173,7 @@ struct gpio_desc *gpiod_find_and_request(struct device *consumer,
 	}
 
 	if (IS_ERR(desc)) {
-		dev_dbg(consumer, "No GPIO consumer %s found\n", con_id);
+		dev_dbg(consumer, "No GPIO consumer %s found\n", name);
 		return desc;
 	}
 
@@ -4184,15 +4194,14 @@ struct gpio_desc *gpiod_find_and_request(struct device *consumer,
 		 *
 		 * FIXME: Make this more sane and safe.
 		 */
-		dev_info(consumer,
-			 "nonexclusive access to GPIO for %s\n", con_id);
+		dev_info(consumer, "nonexclusive access to GPIO for %s\n", name);
 		return desc;
 	}
 
 	ret = gpiod_configure_flags(desc, con_id, lookupflags, flags);
 	if (ret < 0) {
-		dev_dbg(consumer, "setup of GPIO %s failed\n", con_id);
 		gpiod_put(desc);
+		dev_dbg(consumer, "setup of GPIO %s failed\n", name);
 		return ERR_PTR(ret);
 	}
 
@@ -4308,6 +4317,7 @@ EXPORT_SYMBOL_GPL(gpiod_get_optional);
 int gpiod_configure_flags(struct gpio_desc *desc, const char *con_id,
 		unsigned long lflags, enum gpiod_flags dflags)
 {
+	const char *name = function_name_or_default(con_id);
 	int ret;
 
 	if (lflags & GPIO_ACTIVE_LOW)
@@ -4351,7 +4361,7 @@ int gpiod_configure_flags(struct gpio_desc *desc, const char *con_id,
 
 	/* No particular flag request, return here... */
 	if (!(dflags & GPIOD_FLAGS_BIT_DIR_SET)) {
-		gpiod_dbg(desc, "no flags found for %s\n", con_id);
+		gpiod_dbg(desc, "no flags found for GPIO %s\n", name);
 		return 0;
 	}
 
