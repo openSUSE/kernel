@@ -331,6 +331,10 @@ void mlx5e_ipsec_offload_handle_rx_skb(struct net_device *netdev,
 	xs = mlx5e_ipsec_sadb_rx_lookup(ipsec, sa_handle);
 	if (unlikely(!xs)) {
 		atomic64_inc(&ipsec->sw_stats.ipsec_rx_drop_sadb_miss);
+		/* Clear secpath to prevent invalid dereference
+		 * in downstream XFRM policy checks.
+		 */
+		secpath_reset(skb);
 		return;
 	}
 
