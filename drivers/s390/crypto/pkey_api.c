@@ -738,7 +738,8 @@ static void *_copy_apqns_from_user(void __user *uapqns, size_t nr_apqns)
 	size_t nbytes;
 
 	if (uapqns && nr_apqns > 0) {
-		nbytes = nr_apqns * sizeof(struct pkey_apqn);
+		if (check_mul_overflow(nr_apqns, sizeof(struct pkey_apqn), &nbytes))
+			return ERR_PTR(-EOVERFLOW);
 		kapqns = kmalloc(nbytes, GFP_KERNEL);
 		if (!kapqns)
 			return ERR_PTR(-ENOMEM);
