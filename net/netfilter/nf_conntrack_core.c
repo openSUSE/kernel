@@ -1633,7 +1633,7 @@ init_conntrack(struct net *net, struct nf_conn *tmpl,
 	local_bh_disable();
 	if (net->ct.expect_count) {
 		spin_lock(&nf_conntrack_expect_lock);
-		exp = nf_ct_find_expectation(net, zone, tuple);
+		exp = nf_ct_find_expectation(net, zone, tuple, !tmpl || nf_ct_is_confirmed(tmpl));
 		if (exp) {
 			pr_debug("expectation arrives ct=%p exp=%p\n",
 				 ct, exp);
