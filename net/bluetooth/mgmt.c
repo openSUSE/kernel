@@ -292,7 +292,7 @@ static int read_version(struct sock *sk, struct hci_dev *hdev, void *data,
 {
 	struct mgmt_rp_read_version rp;
 
-	BT_DBG("sock %p", sk);
+	bt_dev_dbg(hdev, "sock %p", sk);
 
 	mgmt_fill_version_info(&rp);
 
@@ -308,7 +308,7 @@ static int read_commands(struct sock *sk, struct hci_dev *hdev, void *data,
 	size_t rp_size;
 	int i, err;
 
-	BT_DBG("sock %p", sk);
+	bt_dev_dbg(hdev, "sock %p", sk);
 
 	if (hci_sock_test_flag(sk, HCI_SOCK_TRUSTED)) {
 		num_commands = ARRAY_SIZE(mgmt_commands);
@@ -361,7 +361,7 @@ static int read_index_list(struct sock *sk, struct hci_dev *hdev, void *data,
 	u16 count;
 	int err;
 
-	BT_DBG("sock %p", sk);
+	bt_dev_dbg(hdev, "sock %p", sk);
 
 	read_lock(&hci_dev_list_lock);
 
@@ -395,7 +395,7 @@ static int read_index_list(struct sock *sk, struct hci_dev *hdev, void *data,
 		if (d->dev_type == HCI_PRIMARY &&
 		    !hci_dev_test_flag(d, HCI_UNCONFIGURED)) {
 			rp->index[count++] = cpu_to_le16(d->id);
-			BT_DBG("Added hci%u", d->id);
+			bt_dev_dbg(hdev, "Added hci%u", d->id);
 		}
 	}
 
@@ -421,7 +421,7 @@ static int read_unconf_index_list(struct sock *sk, struct hci_dev *hdev,
 	u16 count;
 	int err;
 
-	BT_DBG("sock %p", sk);
+	bt_dev_dbg(hdev, "sock %p", sk);
 
 	read_lock(&hci_dev_list_lock);
 
@@ -455,7 +455,7 @@ static int read_unconf_index_list(struct sock *sk, struct hci_dev *hdev,
 		if (d->dev_type == HCI_PRIMARY &&
 		    hci_dev_test_flag(d, HCI_UNCONFIGURED)) {
 			rp->index[count++] = cpu_to_le16(d->id);
-			BT_DBG("Added hci%u", d->id);
+			bt_dev_dbg(hdev, "Added hci%u", d->id);
 		}
 	}
 
@@ -480,7 +480,7 @@ static int read_ext_index_list(struct sock *sk, struct hci_dev *hdev,
 	u16 count;
 	int err;
 
-	BT_DBG("sock %p", sk);
+	bt_dev_dbg(hdev, "sock %p", sk);
 
 	read_lock(&hci_dev_list_lock);
 
@@ -522,7 +522,7 @@ static int read_ext_index_list(struct sock *sk, struct hci_dev *hdev,
 
 		rp->entry[count].bus = d->bus;
 		rp->entry[count++].index = cpu_to_le16(d->id);
-		BT_DBG("Added hci%u", d->id);
+		bt_dev_dbg(hdev, "Added hci%u", d->id);
 	}
 
 	rp->num_controllers = cpu_to_le16(count);
@@ -596,7 +596,7 @@ static int read_config_info(struct sock *sk, struct hci_dev *hdev,
 	struct mgmt_rp_read_config_info rp;
 	u32 options = 0;
 
-	BT_DBG("sock %p %s", sk, hdev->name);
+	bt_dev_dbg(hdev, "sock %p", sk);
 
 	hci_dev_lock(hdev);
 
@@ -807,7 +807,7 @@ static void rpa_expired(struct work_struct *work)
 					    rpa_expired.work);
 	struct hci_request req;
 
-	BT_DBG("");
+	bt_dev_dbg(hdev, "");
 
 	hci_dev_set_flag(hdev, HCI_RPA_EXPIRED);
 
@@ -844,7 +844,7 @@ static int read_controller_info(struct sock *sk, struct hci_dev *hdev,
 {
 	struct mgmt_rp_read_info rp;
 
-	BT_DBG("sock %p %s", sk, hdev->name);
+	bt_dev_dbg(hdev, "sock %p", sk);
 
 	hci_dev_lock(hdev);
 
@@ -900,7 +900,7 @@ static int read_ext_controller_info(struct sock *sk, struct hci_dev *hdev,
 	struct mgmt_rp_read_ext_info *rp = (void *)buf;
 	u16 eir_len;
 
-	BT_DBG("sock %p %s", sk, hdev->name);
+	bt_dev_dbg(hdev, "sock %p", sk);
 
 	memset(&buf, 0, sizeof(buf));
 
@@ -959,7 +959,7 @@ static int send_settings_rsp(struct sock *sk, u16 opcode, struct hci_dev *hdev)
 
 static void clean_up_hci_complete(struct hci_dev *hdev, u8 status, u16 opcode)
 {
-	BT_DBG("%s status 0x%02x", hdev->name, status);
+	bt_dev_dbg(hdev, "status 0x%02x", status);
 
 	if (hci_conn_count(hdev) == 0) {
 		cancel_delayed_work(&hdev->power_off);
@@ -1035,7 +1035,7 @@ static int set_powered(struct sock *sk, struct hci_dev *hdev, void *data,
 	struct mgmt_pending_cmd *cmd;
 	int err;
 
-	BT_DBG("request for %s", hdev->name);
+	bt_dev_dbg(hdev, "sock %p", sk);
 
 	if (cp->val != 0x00 && cp->val != 0x01)
 		return mgmt_cmd_status(sk, hdev->id, MGMT_OP_SET_POWERED,
@@ -1176,7 +1176,7 @@ void mgmt_set_discoverable_complete(struct hci_dev *hdev, u8 status)
 {
 	struct mgmt_pending_cmd *cmd;
 
-	BT_DBG("status 0x%02x", status);
+	bt_dev_dbg(hdev, "status 0x%02x", status);
 
 	hci_dev_lock(hdev);
 
@@ -1215,7 +1215,7 @@ static int set_discoverable(struct sock *sk, struct hci_dev *hdev, void *data,
 	u16 timeout;
 	int err;
 
-	BT_DBG("request for %s", hdev->name);
+	bt_dev_dbg(hdev, "sock %p", sk);
 
 	if (!hci_dev_test_flag(hdev, HCI_LE_ENABLED) &&
 	    !hci_dev_test_flag(hdev, HCI_BREDR_ENABLED))
@@ -1335,7 +1335,7 @@ void mgmt_set_connectable_complete(struct hci_dev *hdev, u8 status)
 {
 	struct mgmt_pending_cmd *cmd;
 
-	BT_DBG("status 0x%02x", status);
+	bt_dev_dbg(hdev, "status 0x%02x", status);
 
 	hci_dev_lock(hdev);
 
@@ -1395,7 +1395,7 @@ static int set_connectable(struct sock *sk, struct hci_dev *hdev, void *data,
 	struct mgmt_pending_cmd *cmd;
 	int err;
 
-	BT_DBG("request for %s", hdev->name);
+	bt_dev_dbg(hdev, "sock %p", sk);
 
 	if (!hci_dev_test_flag(hdev, HCI_LE_ENABLED) &&
 	    !hci_dev_test_flag(hdev, HCI_BREDR_ENABLED))
@@ -1452,7 +1452,7 @@ static int set_bondable(struct sock *sk, struct hci_dev *hdev, void *data,
 	bool changed;
 	int err;
 
-	BT_DBG("request for %s", hdev->name);
+	bt_dev_dbg(hdev, "sock %p", sk);
 
 	if (cp->val != 0x00 && cp->val != 0x01)
 		return mgmt_cmd_status(sk, hdev->id, MGMT_OP_SET_BONDABLE,
@@ -1496,7 +1496,7 @@ static int set_link_security(struct sock *sk, struct hci_dev *hdev, void *data,
 	u8 val, status;
 	int err;
 
-	BT_DBG("request for %s", hdev->name);
+	bt_dev_dbg(hdev, "sock %p", sk);
 
 	status = mgmt_bredr_support(hdev);
 	if (status)
@@ -1564,7 +1564,7 @@ static int set_ssp(struct sock *sk, struct hci_dev *hdev, void *data, u16 len)
 	u8 status;
 	int err;
 
-	BT_DBG("request for %s", hdev->name);
+	bt_dev_dbg(hdev, "sock %p", sk);
 
 	status = mgmt_bredr_support(hdev);
 	if (status)
@@ -1645,7 +1645,7 @@ static int set_hs(struct sock *sk, struct hci_dev *hdev, void *data, u16 len)
 	u8 status;
 	int err;
 
-	BT_DBG("request for %s", hdev->name);
+	bt_dev_dbg(hdev, "sock %p", sk);
 
 	if (!IS_ENABLED(CONFIG_BT_HS))
 		return mgmt_cmd_status(sk, hdev->id, MGMT_OP_SET_HS,
@@ -1748,7 +1748,7 @@ static int set_le(struct sock *sk, struct hci_dev *hdev, void *data, u16 len)
 	int err;
 	u8 val, enabled;
 
-	BT_DBG("request for %s", hdev->name);
+	bt_dev_dbg(hdev, "sock %p", sk);
 
 	if (!lmp_le_capable(hdev))
 		return mgmt_cmd_status(sk, hdev->id, MGMT_OP_SET_LE,
@@ -1906,7 +1906,7 @@ unlock:
 
 static void add_uuid_complete(struct hci_dev *hdev, u8 status, u16 opcode)
 {
-	BT_DBG("status 0x%02x", status);
+	bt_dev_dbg(hdev, "status 0x%02x", status);
 
 	mgmt_class_complete(hdev, MGMT_OP_ADD_UUID, status);
 }
@@ -1919,7 +1919,7 @@ static int add_uuid(struct sock *sk, struct hci_dev *hdev, void *data, u16 len)
 	struct bt_uuid *uuid;
 	int err;
 
-	BT_DBG("request for %s", hdev->name);
+	bt_dev_dbg(hdev, "sock %p", sk);
 
 	hci_dev_lock(hdev);
 
@@ -1985,7 +1985,7 @@ static bool enable_service_cache(struct hci_dev *hdev)
 
 static void remove_uuid_complete(struct hci_dev *hdev, u8 status, u16 opcode)
 {
-	BT_DBG("status 0x%02x", status);
+	bt_dev_dbg(hdev, "status 0x%02x", status);
 
 	mgmt_class_complete(hdev, MGMT_OP_REMOVE_UUID, status);
 }
@@ -2000,7 +2000,7 @@ static int remove_uuid(struct sock *sk, struct hci_dev *hdev, void *data,
 	struct hci_request req;
 	int err, found;
 
-	BT_DBG("request for %s", hdev->name);
+	bt_dev_dbg(hdev, "sock %p", sk);
 
 	hci_dev_lock(hdev);
 
@@ -2071,7 +2071,7 @@ unlock:
 
 static void set_class_complete(struct hci_dev *hdev, u8 status, u16 opcode)
 {
-	BT_DBG("status 0x%02x", status);
+	bt_dev_dbg(hdev, "status 0x%02x", status);
 
 	mgmt_class_complete(hdev, MGMT_OP_SET_DEV_CLASS, status);
 }
@@ -2084,7 +2084,7 @@ static int set_dev_class(struct sock *sk, struct hci_dev *hdev, void *data,
 	struct hci_request req;
 	int err;
 
-	BT_DBG("request for %s", hdev->name);
+	bt_dev_dbg(hdev, "sock %p", sk);
 
 	if (!lmp_bredr_capable(hdev))
 		return mgmt_cmd_status(sk, hdev->id, MGMT_OP_SET_DEV_CLASS,
@@ -2157,7 +2157,7 @@ static int load_link_keys(struct sock *sk, struct hci_dev *hdev, void *data,
 	bool changed;
 	int i;
 
-	BT_DBG("request for %s", hdev->name);
+	bt_dev_dbg(hdev, "sock %p", sk);
 
 	if (!lmp_bredr_capable(hdev))
 		return mgmt_cmd_status(sk, hdev->id, MGMT_OP_LOAD_LINK_KEYS,
@@ -2183,8 +2183,8 @@ static int load_link_keys(struct sock *sk, struct hci_dev *hdev, void *data,
 		return mgmt_cmd_status(sk, hdev->id, MGMT_OP_LOAD_LINK_KEYS,
 				       MGMT_STATUS_INVALID_PARAMS);
 
-	BT_DBG("%s debug_keys %u key_count %u", hdev->name, cp->debug_keys,
-	       key_count);
+	bt_dev_dbg(hdev, "debug_keys %u key_count %u", cp->debug_keys,
+		   key_count);
 
 	for (i = 0; i < key_count; i++) {
 		struct mgmt_link_key_info *key = &cp->keys[i];
@@ -2377,7 +2377,7 @@ static int disconnect(struct sock *sk, struct hci_dev *hdev, void *data,
 	struct hci_conn *conn;
 	int err;
 
-	BT_DBG("");
+	bt_dev_dbg(hdev, "sock %p", sk);
 
 	memset(&rp, 0, sizeof(rp));
 	bacpy(&rp.addr.bdaddr, &cp->addr.bdaddr);
@@ -2461,7 +2461,7 @@ static int get_connections(struct sock *sk, struct hci_dev *hdev, void *data,
 	int err;
 	u16 i;
 
-	BT_DBG("");
+	bt_dev_dbg(hdev, "sock %p", sk);
 
 	hci_dev_lock(hdev);
 
@@ -2537,7 +2537,7 @@ static int pin_code_reply(struct sock *sk, struct hci_dev *hdev, void *data,
 	struct mgmt_pending_cmd *cmd;
 	int err;
 
-	BT_DBG("");
+	bt_dev_dbg(hdev, "sock %p", sk);
 
 	hci_dev_lock(hdev);
 
@@ -2595,7 +2595,7 @@ static int set_io_capability(struct sock *sk, struct hci_dev *hdev, void *data,
 {
 	struct mgmt_cp_set_io_capability *cp = data;
 
-	BT_DBG("");
+	bt_dev_dbg(hdev, "sock %p", sk);
 
 	if (cp->io_capability > SMP_IO_KEYBOARD_DISPLAY)
 		return mgmt_cmd_status(sk, hdev->id, MGMT_OP_SET_IO_CAPABILITY,
@@ -2605,8 +2605,7 @@ static int set_io_capability(struct sock *sk, struct hci_dev *hdev, void *data,
 
 	hdev->io_capability = cp->io_capability;
 
-	BT_DBG("%s IO capability set to 0x%02x", hdev->name,
-	       hdev->io_capability);
+	bt_dev_dbg(hdev, "IO capability set to 0x%02x", hdev->io_capability);
 
 	hci_dev_unlock(hdev);
 
@@ -2718,7 +2717,7 @@ static int pair_device(struct sock *sk, struct hci_dev *hdev, void *data,
 	struct hci_conn *conn;
 	int err;
 
-	BT_DBG("");
+	bt_dev_dbg(hdev, "sock %p", sk);
 
 	memset(&rp, 0, sizeof(rp));
 	bacpy(&rp.addr.bdaddr, &cp->addr.bdaddr);
@@ -2851,7 +2850,7 @@ static int cancel_pair_device(struct sock *sk, struct hci_dev *hdev, void *data,
 	struct hci_conn *conn;
 	int err;
 
-	BT_DBG("");
+	bt_dev_dbg(hdev, "sock %p", sk);
 
 	hci_dev_lock(hdev);
 
@@ -2962,7 +2961,7 @@ static int pin_code_neg_reply(struct sock *sk, struct hci_dev *hdev,
 {
 	struct mgmt_cp_pin_code_neg_reply *cp = data;
 
-	BT_DBG("");
+	bt_dev_dbg(hdev, "sock %p", sk);
 
 	return user_pairing_resp(sk, hdev, &cp->addr,
 				MGMT_OP_PIN_CODE_NEG_REPLY,
@@ -2974,7 +2973,7 @@ static int user_confirm_reply(struct sock *sk, struct hci_dev *hdev, void *data,
 {
 	struct mgmt_cp_user_confirm_reply *cp = data;
 
-	BT_DBG("");
+	bt_dev_dbg(hdev, "sock %p", sk);
 
 	if (len != sizeof(*cp))
 		return mgmt_cmd_status(sk, hdev->id, MGMT_OP_USER_CONFIRM_REPLY,
@@ -2990,7 +2989,7 @@ static int user_confirm_neg_reply(struct sock *sk, struct hci_dev *hdev,
 {
 	struct mgmt_cp_user_confirm_neg_reply *cp = data;
 
-	BT_DBG("");
+	bt_dev_dbg(hdev, "sock %p", sk);
 
 	return user_pairing_resp(sk, hdev, &cp->addr,
 				 MGMT_OP_USER_CONFIRM_NEG_REPLY,
@@ -3002,7 +3001,7 @@ static int user_passkey_reply(struct sock *sk, struct hci_dev *hdev, void *data,
 {
 	struct mgmt_cp_user_passkey_reply *cp = data;
 
-	BT_DBG("");
+	bt_dev_dbg(hdev, "sock %p", sk);
 
 	return user_pairing_resp(sk, hdev, &cp->addr,
 				 MGMT_OP_USER_PASSKEY_REPLY,
@@ -3014,7 +3013,7 @@ static int user_passkey_neg_reply(struct sock *sk, struct hci_dev *hdev,
 {
 	struct mgmt_cp_user_passkey_neg_reply *cp = data;
 
-	BT_DBG("");
+	bt_dev_dbg(hdev, "sock %p", sk);
 
 	return user_pairing_resp(sk, hdev, &cp->addr,
 				 MGMT_OP_USER_PASSKEY_NEG_REPLY,
@@ -3055,7 +3054,7 @@ static void set_name_complete(struct hci_dev *hdev, u8 status, u16 opcode)
 	struct mgmt_cp_set_local_name *cp;
 	struct mgmt_pending_cmd *cmd;
 
-	BT_DBG("status 0x%02x", status);
+	bt_dev_dbg(hdev, "status 0x%02x", status);
 
 	hci_dev_lock(hdev);
 
@@ -3090,7 +3089,7 @@ static int set_local_name(struct sock *sk, struct hci_dev *hdev, void *data,
 	struct hci_request req;
 	int err;
 
-	BT_DBG("");
+	bt_dev_dbg(hdev, "sock %p", sk);
 
 	hci_dev_lock(hdev);
 
@@ -3159,7 +3158,7 @@ static int set_appearance(struct sock *sk, struct hci_dev *hdev, void *data,
 	u16 appearance;
 	int err;
 
-	BT_DBG("");
+	bt_dev_dbg(hdev, "sock %p", sk);
 
 	if (!lmp_le_capable(hdev))
 		return mgmt_cmd_status(sk, hdev->id, MGMT_OP_SET_APPEARANCE,
@@ -3193,7 +3192,7 @@ static void read_local_oob_data_complete(struct hci_dev *hdev, u8 status,
 	size_t rp_size = sizeof(mgmt_rp);
 	struct mgmt_pending_cmd *cmd;
 
-	BT_DBG("%s status %u", hdev->name, status);
+	bt_dev_dbg(hdev, "status %u", status);
 
 	cmd = pending_find(MGMT_OP_READ_LOCAL_OOB_DATA, hdev);
 	if (!cmd)
@@ -3252,7 +3251,7 @@ static int read_local_oob_data(struct sock *sk, struct hci_dev *hdev,
 	struct hci_request req;
 	int err;
 
-	BT_DBG("%s", hdev->name);
+	bt_dev_dbg(hdev, "sock %p", sk);
 
 	hci_dev_lock(hdev);
 
@@ -3302,7 +3301,7 @@ static int add_remote_oob_data(struct sock *sk, struct hci_dev *hdev,
 	struct mgmt_addr_info *addr = data;
 	int err;
 
-	BT_DBG("%s ", hdev->name);
+	bt_dev_dbg(hdev, "sock %p", sk);
 
 	if (!bdaddr_type_is_valid(addr->type))
 		return mgmt_cmd_complete(sk, hdev->id,
@@ -3411,7 +3410,7 @@ static int remove_remote_oob_data(struct sock *sk, struct hci_dev *hdev,
 	u8 status;
 	int err;
 
-	BT_DBG("%s", hdev->name);
+	bt_dev_dbg(hdev, "sock %p", sk);
 
 	if (cp->addr.type != BDADDR_BREDR)
 		return mgmt_cmd_complete(sk, hdev->id,
@@ -3445,7 +3444,7 @@ void mgmt_start_discovery_complete(struct hci_dev *hdev, u8 status)
 {
 	struct mgmt_pending_cmd *cmd;
 
-	BT_DBG("status %d", status);
+	bt_dev_dbg(hdev, "status %d", status);
 
 	hci_dev_lock(hdev);
 
@@ -3499,7 +3498,7 @@ static int start_discovery_internal(struct sock *sk, struct hci_dev *hdev,
 	u8 status;
 	int err;
 
-	BT_DBG("%s", hdev->name);
+	bt_dev_dbg(hdev, "sock %p", sk);
 
 	hci_dev_lock(hdev);
 
@@ -3584,7 +3583,7 @@ static int start_service_discovery(struct sock *sk, struct hci_dev *hdev,
 	u8 status;
 	int err;
 
-	BT_DBG("%s", hdev->name);
+	bt_dev_dbg(hdev, "sock", sk);
 
 	hci_dev_lock(hdev);
 
@@ -3679,7 +3678,7 @@ void mgmt_stop_discovery_complete(struct hci_dev *hdev, u8 status)
 {
 	struct mgmt_pending_cmd *cmd;
 
-	BT_DBG("status %d", status);
+	bt_dev_dbg(hdev, "status %d", status);
 
 	hci_dev_lock(hdev);
 
@@ -3699,7 +3698,7 @@ static int stop_discovery(struct sock *sk, struct hci_dev *hdev, void *data,
 	struct mgmt_pending_cmd *cmd;
 	int err;
 
-	BT_DBG("%s", hdev->name);
+	bt_dev_dbg(hdev, "sock %p", sk);
 
 	hci_dev_lock(hdev);
 
@@ -3741,7 +3740,7 @@ static int confirm_name(struct sock *sk, struct hci_dev *hdev, void *data,
 	struct inquiry_entry *e;
 	int err;
 
-	BT_DBG("%s", hdev->name);
+	bt_dev_dbg(hdev, "sock %p", sk);
 
 	hci_dev_lock(hdev);
 
@@ -3783,7 +3782,7 @@ static int block_device(struct sock *sk, struct hci_dev *hdev, void *data,
 	u8 status;
 	int err;
 
-	BT_DBG("%s", hdev->name);
+	bt_dev_dbg(hdev, "sock", sk);
 
 	if (!bdaddr_type_is_valid(cp->addr.type))
 		return mgmt_cmd_complete(sk, hdev->id, MGMT_OP_BLOCK_DEVICE,
@@ -3819,7 +3818,7 @@ static int unblock_device(struct sock *sk, struct hci_dev *hdev, void *data,
 	u8 status;
 	int err;
 
-	BT_DBG("%s", hdev->name);
+	bt_dev_dbg(hdev, "sock %p", sk);
 
 	if (!bdaddr_type_is_valid(cp->addr.type))
 		return mgmt_cmd_complete(sk, hdev->id, MGMT_OP_UNBLOCK_DEVICE,
@@ -3856,7 +3855,7 @@ static int set_device_id(struct sock *sk, struct hci_dev *hdev, void *data,
 	int err;
 	__u16 source;
 
-	BT_DBG("%s", hdev->name);
+	bt_dev_dbg(hdev, "sock %p", sk);
 
 	source = __le16_to_cpu(cp->source);
 
@@ -3886,7 +3885,7 @@ static int set_device_id(struct sock *sk, struct hci_dev *hdev, void *data,
 static void enable_advertising_instance(struct hci_dev *hdev, u8 status,
 					u16 opcode)
 {
-	BT_DBG("status %d", status);
+	bt_dev_dbg(hdev, "status %d", status);
 }
 
 static void set_advertising_complete(struct hci_dev *hdev, u8 status,
@@ -3961,7 +3960,7 @@ static int set_advertising(struct sock *sk, struct hci_dev *hdev, void *data,
 	u8 val, status;
 	int err;
 
-	BT_DBG("request for %s", hdev->name);
+	bt_dev_dbg(hdev, "request for %s", hdev->name);
 
 	status = mgmt_le_support(hdev);
 	if (status)
@@ -4161,7 +4160,7 @@ static void fast_connectable_complete(struct hci_dev *hdev, u8 status,
 {
 	struct mgmt_pending_cmd *cmd;
 
-	BT_DBG("status 0x%02x", status);
+	bt_dev_dbg(hdev, "status 0x%02x", status);
 
 	hci_dev_lock(hdev);
 
@@ -4294,7 +4293,7 @@ static int set_bredr(struct sock *sk, struct hci_dev *hdev, void *data, u16 len)
 	struct hci_request req;
 	int err;
 
-	BT_DBG("request for %s", hdev->name);
+	bt_dev_dbg(hdev, "sock %p", sk);
 
 	if (!lmp_bredr_capable(hdev) || !lmp_le_capable(hdev))
 		return mgmt_cmd_status(sk, hdev->id, MGMT_OP_SET_BREDR,
@@ -4453,7 +4452,7 @@ static int set_secure_conn(struct sock *sk, struct hci_dev *hdev,
 	u8 val;
 	int err;
 
-	BT_DBG("request for %s", hdev->name);
+	bt_dev_dbg(hdev, "sock %p", sk);
 
 	if (!lmp_sc_capable(hdev) &&
 	    !hci_dev_test_flag(hdev, HCI_LE_ENABLED))
@@ -5064,7 +5063,7 @@ static void get_clock_info_complete(struct hci_dev *hdev, u8 status, u16 opcode)
 	struct mgmt_pending_cmd *cmd;
 	struct hci_conn *conn;
 
-	BT_DBG("%s status %u", hdev->name, status);
+	bt_dev_dbg(hdev, "status %u", status);
 
 	hci_dev_lock(hdev);
 
@@ -6352,7 +6351,7 @@ static int remove_advertising(struct sock *sk, struct hci_dev *hdev,
 	struct hci_request req;
 	int err;
 
-	BT_DBG("%s", hdev->name);
+	bt_dev_dbg(hdev, "sock %p", sk);
 
 	hci_dev_lock(hdev);
 
@@ -6423,7 +6422,7 @@ static int get_adv_size_info(struct sock *sk, struct hci_dev *hdev,
 	u32 flags, supported_flags;
 	int err;
 
-	BT_DBG("%s", hdev->name);
+	bt_dev_dbg(hdev, "sock %p", sk);
 
 	if (!lmp_le_capable(hdev))
 		return mgmt_cmd_status(sk, hdev->id, MGMT_OP_GET_ADV_SIZE_INFO,
@@ -7063,7 +7062,7 @@ int mgmt_user_confirm_request(struct hci_dev *hdev, bdaddr_t *bdaddr,
 {
 	struct mgmt_ev_user_confirm_request ev;
 
-	BT_DBG("%s", hdev->name);
+	bt_dev_dbg(hdev, "entry");
 
 	bacpy(&ev.addr.bdaddr, bdaddr);
 	ev.addr.type = link_to_bdaddr(link_type, addr_type);
@@ -7079,7 +7078,7 @@ int mgmt_user_passkey_request(struct hci_dev *hdev, bdaddr_t *bdaddr,
 {
 	struct mgmt_ev_user_passkey_request ev;
 
-	BT_DBG("%s", hdev->name);
+	bt_dev_dbg(hdev, "bdaddr %pMR", bdaddr);
 
 	bacpy(&ev.addr.bdaddr, bdaddr);
 	ev.addr.type = link_to_bdaddr(link_type, addr_type);
@@ -7140,7 +7139,7 @@ int mgmt_user_passkey_notify(struct hci_dev *hdev, bdaddr_t *bdaddr,
 {
 	struct mgmt_ev_passkey_notify ev;
 
-	BT_DBG("%s", hdev->name);
+	bt_dev_dbg(hdev, "bdaddr %pMR", bdaddr);
 
 	bacpy(&ev.addr.bdaddr, bdaddr);
 	ev.addr.type = link_to_bdaddr(link_type, addr_type);
@@ -7559,7 +7558,7 @@ void mgmt_discovering(struct hci_dev *hdev, u8 discovering)
 {
 	struct mgmt_ev_discovering ev;
 
-	BT_DBG("%s discovering %u", hdev->name, discovering);
+	bt_dev_dbg(hdev, "discovering %u", discovering);
 
 	memset(&ev, 0, sizeof(ev));
 	ev.type = hdev->discovery.type;
