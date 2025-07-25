@@ -38,7 +38,9 @@ struct ring_buffer {
 	struct user_struct		*mmap_user;
 
 	/* AUX area */
+#ifndef __GENKSYMS__
 	struct mutex			aux_mutex;
+#endif /* __GENKSYMS__ */
 	local_t				aux_head;
 	local_t				aux_nest;
 	local_t				aux_wakeup;
