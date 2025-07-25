@@ -2283,10 +2283,12 @@ static int arm_smmu_device_probe(struct platform_device *pdev)
 		return err;
 
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	ioaddr = res->start;
+	if (!res)
+		return -EINVAL;
 	smmu->base = devm_ioremap_resource(dev, res);
 	if (IS_ERR(smmu->base))
 		return PTR_ERR(smmu->base);
+	ioaddr = res->start;
 	smmu->cb_base = smmu->base + resource_size(res) / 2;
 
 	num_irqs = 0;
