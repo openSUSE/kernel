@@ -280,7 +280,7 @@ nvme_tcp_fetch_request(struct nvme_tcp_queue *queue)
 	req = list_first_entry_or_null(&queue->send_list,
 			struct nvme_tcp_request, entry);
 	if (req)
-		list_del(&req->entry);
+		list_del_init(&req->entry);
 	spin_unlock(&queue->lock);
 
 	return req;
@@ -574,6 +574,13 @@ static int nvme_tcp_handle_r2t(struct nvme_tcp_queue *queue,
 		return -ENOENT;
 	}
 	req = blk_mq_rq_to_pdu(rq);
+
+	if (!list_empty(&req->entry)) {
+		dev_err(queue->ctrl->ctrl.device,
+			"req %d unexpected r2t while processing request\n",
+			rq->tag);
+		return -EPROTO;
+	}
 
 	ret = nvme_tcp_setup_h2c_data_pdu(req, pdu);
 	if (unlikely(ret))
