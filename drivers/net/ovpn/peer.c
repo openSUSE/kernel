@@ -258,7 +258,7 @@ void ovpn_peer_endpoints_update(struct ovpn_peer *peer, struct sk_buff *skb)
 		 */
 		if (unlikely(!ipv6_addr_equal(&bind->local.ipv6,
 					      &ipv6_hdr(skb)->daddr))) {
-			net_dbg_ratelimited("%s: learning local IPv6 for peer %d (%pI6c -> %pI6c\n",
+			net_dbg_ratelimited("%s: learning local IPv6 for peer %d (%pI6c -> %pI6c)\n",
 					    netdev_name(peer->ovpn->dev),
 					    peer->id, &bind->local.ipv6,
 					    &ipv6_hdr(skb)->daddr);
@@ -1145,7 +1145,7 @@ static void ovpn_peer_release_p2p(struct ovpn_priv *ovpn, struct sock *sk,
 
 	if (sk) {
 		ovpn_sock = rcu_access_pointer(peer->sock);
-		if (!ovpn_sock || ovpn_sock->sock->sk != sk) {
+		if (!ovpn_sock || ovpn_sock->sk != sk) {
 			spin_unlock_bh(&ovpn->lock);
 			ovpn_peer_put(peer);
 			return;
@@ -1175,7 +1175,7 @@ static void ovpn_peers_release_mp(struct ovpn_priv *ovpn, struct sock *sk,
 		if (sk) {
 			rcu_read_lock();
 			ovpn_sock = rcu_dereference(peer->sock);
-			remove = ovpn_sock && ovpn_sock->sock->sk == sk;
+			remove = ovpn_sock && ovpn_sock->sk == sk;
 			rcu_read_unlock();
 		}
 
@@ -1353,8 +1353,7 @@ void ovpn_peer_keepalive_work(struct work_struct *work)
 	}
 
 	/* prevent rearming if the interface is being destroyed */
-	if (next_run > 0 &&
-	    READ_ONCE(ovpn->dev->reg_state) == NETREG_REGISTERED) {
+	if (next_run > 0) {
 		netdev_dbg(ovpn->dev,
 			   "scheduling keepalive work: now=%llu next_run=%llu delta=%llu\n",
 			   next_run, now, next_run - now);
