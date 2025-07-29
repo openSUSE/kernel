@@ -365,6 +365,7 @@ struct hci_dev {
 	struct hci_conn_hash	conn_hash;
 
 	struct list_head	mgmt_pending;
+	struct mutex		mgmt_pending_lock;
 	struct list_head	blacklist;
 	struct list_head	whitelist;
 	struct list_head	uuids;
