@@ -6164,7 +6164,7 @@ int __init cgroup_init(void)
 	struct cgroup_subsys *ss;
 	int ssid;
 
-	BUILD_BUG_ON(CGROUP_SUBSYS_COUNT > 16);
+	BUILD_BUG_ON(CGROUP_SUBSYS_COUNT_USED > 16);
 	BUG_ON(cgroup_init_cftypes(NULL, cgroup_base_files));
 	BUG_ON(cgroup_init_cftypes(NULL, cgroup_psi_files));
 	BUG_ON(cgroup_init_cftypes(NULL, cgroup1_base_files));
