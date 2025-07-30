@@ -1472,13 +1472,8 @@ static void __init its_update_mitigation(void)
 		break;
 	}
 
-	/*
-	 * retbleed_update_mitigation() will try to do stuffing if its=stuff.
-	 * If it can't, such as if spectre_v2!=retpoline, then fall back to
-	 * aligned thunks.
-	 */
 	if (its_mitigation == ITS_MITIGATION_RETPOLINE_STUFF &&
-	    retbleed_mitigation != RETBLEED_MITIGATION_STUFF)
+	    !cdt_possible(spectre_v2_enabled))
 		its_mitigation = ITS_MITIGATION_ALIGNED_THUNKS;
 
 	pr_info("%s\n", its_strings[its_mitigation]);
@@ -1490,8 +1485,6 @@ static void __init its_apply_mitigation(void)
 	case ITS_MITIGATION_OFF:
 	case ITS_MITIGATION_AUTO:
 	case ITS_MITIGATION_VMEXIT_ONLY:
-	/* its=stuff forces retbleed stuffing and is enabled there. */
-	case ITS_MITIGATION_RETPOLINE_STUFF:
 		break;
 	case ITS_MITIGATION_ALIGNED_THUNKS:
 		if (!boot_cpu_has(X86_FEATURE_RETPOLINE))
@@ -1499,6 +1492,11 @@ static void __init its_apply_mitigation(void)
 
 		setup_force_cpu_cap(X86_FEATURE_RETHUNK);
 		set_return_thunk(its_return_thunk);
+		break;
+	case ITS_MITIGATION_RETPOLINE_STUFF:
+		setup_force_cpu_cap(X86_FEATURE_RETHUNK);
+		setup_force_cpu_cap(X86_FEATURE_CALL_DEPTH);
+		set_return_thunk(call_depth_return_thunk);
 		break;
 	}
 }
