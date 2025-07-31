@@ -1413,9 +1413,12 @@ static int raid10_remove_disk(mddev_t *mddev, int number)
 	conf_t *conf = mddev->private;
 	int err = 0;
 	mdk_rdev_t *rdev;
-	mirror_info_t *p = conf->mirrors+ number;
+	mirror_info_t *p;
 
 	print_conf(conf);
+	if (unlikely(number >= mddev->raid_disks))
+		return 0;
+	p = conf->mirrors+ number;
 	rdev = p->rdev;
 	if (rdev) {
 		if (test_bit(In_sync, &rdev->flags) ||
