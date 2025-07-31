@@ -331,6 +331,8 @@ static int sev_ioctl_do_platform_status(struct sev_issue_cmd *argp)
 	struct sev_user_data_status *data = &psp_master->status_cmd_buf;
 	int ret;
 
+	memset(&data, 0, sizeof(data));
+
 	ret = __sev_do_cmd_locked(SEV_CMD_PLATFORM_STATUS, data, &argp->error);
 	if (ret)
 		return ret;
@@ -379,7 +381,7 @@ static int sev_ioctl_do_pek_csr(struct sev_issue_cmd *argp)
 		goto e_free;
 	}
 
-	blob = kmalloc(input.length, GFP_KERNEL);
+	blob = kzalloc(input.length, GFP_KERNEL);
 	if (!blob) {
 		ret = -ENOMEM;
 		goto e_free;
@@ -679,7 +681,7 @@ static int sev_ioctl_do_pdh_export(struct sev_issue_cmd *argp)
 		goto e_free;
 	}
 
-	pdh_blob = kmalloc(input.pdh_cert_len, GFP_KERNEL);
+	pdh_blob = kzalloc(input.pdh_cert_len, GFP_KERNEL);
 	if (!pdh_blob) {
 		ret = -ENOMEM;
 		goto e_free;
@@ -688,7 +690,7 @@ static int sev_ioctl_do_pdh_export(struct sev_issue_cmd *argp)
 	data->pdh_cert_address = __psp_pa(pdh_blob);
 	data->pdh_cert_len = input.pdh_cert_len;
 
-	cert_blob = kmalloc(input.cert_chain_len, GFP_KERNEL);
+	cert_blob = kzalloc(input.cert_chain_len, GFP_KERNEL);
 	if (!cert_blob) {
 		ret = -ENOMEM;
 		goto e_free_pdh;
