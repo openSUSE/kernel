@@ -61,6 +61,7 @@ struct uv_rtc_timer_head {
  */
 static struct uv_rtc_timer_head		**blade_info __read_mostly;
 
+static int				uv_rtc_enable = 1;
 static int				uv_rtc_evt_enable;
 
 /*
@@ -321,6 +322,14 @@ static void uv_rtc_interrupt(void)
 	ced->event_handler(ced);
 }
 
+static int __init uv_disable_rtc(char *str)
+{
+	uv_rtc_enable = 0;
+
+	return 1;
+}
+__setup("nouvrtc", uv_disable_rtc);
+
 static int __init uv_enable_evt_rtc(char *str)
 {
 	uv_rtc_evt_enable = 1;
@@ -342,7 +351,7 @@ static __init int uv_rtc_setup_clock(void)
 {
 	int rc;
 
-	if (!is_uv_system())
+	if (!uv_rtc_enable || !is_uv_system())
 		return -ENODEV;
 
 	rc = clocksource_register_hz(&clocksource_uv, sn_rtc_cycles_per_second);
