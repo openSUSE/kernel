@@ -230,7 +230,7 @@ figure_loop_size(struct loop_device *lo, loff_t offset, loff_t sizelimit)
 	sector_t x = (sector_t)size;
 	struct block_device *bdev = lo->lo_device;
 
-	if (unlikely((loff_t)x != size))
+	if (unlikely((loff_t)x != size || offset < 0 || sizelimit < 0))
 		return -EFBIG;
 	if (lo->lo_offset != offset)
 		lo->lo_offset = offset;
