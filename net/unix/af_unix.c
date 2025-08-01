@@ -235,10 +235,19 @@ static inline int unix_recvq_full_lockless(const struct sock *sk)
 		READ_ONCE(sk->sk_max_ack_backlog);
 }
 
+static bool oob_unprivileged __ro_after_init;
+static int __init af_unix_oob_unprivileged(char *str)
+{
+	oob_unprivileged = 1;
+	pr_warn("Enabling insecure MSG_OOB on AF_UNIX for unprivileged users\n");
+	return 1;
+}
+__setup("af_unix_oob_unprivileged", af_unix_oob_unprivileged);
+
 int unix_oob_enabled(void)
 {
 #if IS_ENABLED(CONFIG_AF_UNIX_OOB)
-	return capable(CAP_SYS_ADMIN);
+	return capable(CAP_SYS_ADMIN) || oob_unprivileged;
 #endif
 	return 0;
 }
