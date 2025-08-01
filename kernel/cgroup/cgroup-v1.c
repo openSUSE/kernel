@@ -32,6 +32,9 @@ static u16 cgroup_no_v1_mask;
 /* disable named v1 mounts */
 static bool cgroup_no_v1_named;
 
+/* Show unavailable controllers in /proc/cgroups */
+static bool proc_show_all;
+
 /*
  * pidlist destructions need to be flushed on cgroup destruction.  Use a
  * separate workqueue as flush domain.
@@ -673,6 +676,7 @@ struct cftype cgroup1_base_files[] = {
 int proc_cgroupstats_show(struct seq_file *m, void *v)
 {
 	struct cgroup_subsys *ss;
+	bool cgrp_v1_visible = false;
 	int i;
 
 	seq_puts(m, "#subsys_name\thierarchy\tnum_cgroups\tenabled\n");
@@ -682,13 +686,20 @@ int proc_cgroupstats_show(struct seq_file *m, void *v)
 	 */
 
 	for_each_subsys(ss, i) {
-		if (cgroup1_subsys_absent(ss))
+		cgrp_v1_visible |= ss->root != &cgrp_dfl_root;
+
+		if (!proc_show_all && cgroup1_subsys_absent(ss))
 			continue;
+
 		seq_printf(m, "%s\t%d\t%d\t%d\n",
 			   ss->legacy_name, ss->root->hierarchy_id,
 			   atomic_read(&ss->root->nr_cgrps),
 			   cgroup_ssid_enabled(i));
 	}
+
+	if (cgrp_dfl_visible && !cgrp_v1_visible)
+		pr_info_once("/proc/cgroups lists only v1 controllers, use cgroup.controllers of root cgroup for v2 info\n");
+
 
 	return 0;
 }
@@ -1352,3 +1363,9 @@ static int __init cgroup_no_v1(char *str)
 	return 1;
 }
 __setup("cgroup_no_v1=", cgroup_no_v1);
+
+static int __init cgroup_v1_proc(char *str)
+{
+	return (kstrtobool(str, &proc_show_all) == 0);
+}
+__setup("cgroup_v1_proc=", cgroup_v1_proc);

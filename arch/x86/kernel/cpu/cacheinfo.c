@@ -179,11 +179,20 @@ struct _cpuid4_info_regs {
 };
 
 /* AMD doesn't have CPUID4. Emulate it here to report the same
-   information to the user.  This makes some assumptions about the machine:
-   L2 not shared, no SMT etc. that is currently true on AMD CPUs.
+ *   information to the user.  This makes some assumptions about the machine:
+ *   L2 not shared, no SMT etc. that is currently true on AMD CPUs.
+ *
+ *   In theory the TLBs could be reported as fake type (they are in "dummy").
+ *   Maybe later
+ *
+ * @AMD_L2_L3_INVALID_ASSOC: cache info for the respective L2/L3 cache should
+ * be determined from CPUID(0x8000001d) instead of CPUID(0x80000006).
+ */
 
-   In theory the TLBs could be reported as fake type (they are in "dummy").
-   Maybe later */
+
+#define AMD_CPUID4_FULLY_ASSOCIATIVE	0xffff
+#define AMD_L2_L3_INVALID_ASSOC		0x9
+
 union l1_cache {
 	struct {
 		unsigned line_size:8;
@@ -215,10 +224,13 @@ union l3_cache {
 	unsigned val;
 };
 
+/* L2/L3 associativity mapping */
 static const unsigned short assocs[] = {
 	[1] = 1,
 	[2] = 2,
+	[3] = 3,
 	[4] = 4,
+	[5] = 6,
 	[6] = 8,
 	[8] = 16,
 	[0xa] = 32,
@@ -226,7 +238,7 @@ static const unsigned short assocs[] = {
 	[0xc] = 64,
 	[0xd] = 96,
 	[0xe] = 128,
-	[0xf] = 0xffff /* fully associative - no way to show this currently */
+	[0xf] = AMD_CPUID4_FULLY_ASSOCIATIVE
 };
 
 static const unsigned char levels[] = { 1, 1, 2, 3 };
@@ -265,13 +277,13 @@ amd_cpuid4(int leaf, union _cpuid4_leaf_eax *eax,
 	case 0:
 		if (!l1->val)
 			return;
-		assoc = assocs[l1->assoc];
+		assoc = (l1->assoc == 0xff) ? AMD_CPUID4_FULLY_ASSOCIATIVE : l1->assoc;
 		line_size = l1->line_size;
 		lines_per_tag = l1->lines_per_tag;
 		size_in_kb = l1->size_in_kb;
 		break;
 	case 2:
-		if (!l2.val)
+		if (!l2.assoc || l2.assoc == AMD_L2_L3_INVALID_ASSOC)
 			return;
 		assoc = assocs[l2.assoc];
 		line_size = l2.line_size;
@@ -280,7 +292,7 @@ amd_cpuid4(int leaf, union _cpuid4_leaf_eax *eax,
 		size_in_kb = __this_cpu_read(cpu_info.x86_cache_size);
 		break;
 	case 3:
-		if (!l3.val)
+		if (!l3.assoc || l3.assoc == AMD_L2_L3_INVALID_ASSOC)
 			return;
 		assoc = assocs[l3.assoc];
 		line_size = l3.line_size;
@@ -302,7 +314,7 @@ amd_cpuid4(int leaf, union _cpuid4_leaf_eax *eax,
 	eax->split.num_cores_on_die = topology_num_cores_per_package();
 
 
-	if (assoc == 0xffff)
+	if (assoc == AMD_CPUID4_FULLY_ASSOCIATIVE)
 		eax->split.is_fully_associative = 1;
 	ebx->split.coherency_line_size = line_size - 1;
 	ebx->split.ways_of_associativity = assoc - 1;
