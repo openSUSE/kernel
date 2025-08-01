@@ -97,6 +97,11 @@ static int squashfs_fill_super(struct super_block *sb, void *data, int silent)
 	msblk = sb->s_fs_info;
 
 	msblk->devblksize = sb_min_blocksize(sb, SQUASHFS_DEVBLK_SIZE);
+	if (!msblk->devblksize) {
+		printk(KERN_ERR "squashfs: unable to set blocksize\n");
+		return -EINVAL;
+	}
+
 	msblk->devblksize_log2 = ffz(~msblk->devblksize);
 
 	mutex_init(&msblk->meta_index_mutex);
