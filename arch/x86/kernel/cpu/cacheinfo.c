@@ -184,6 +184,10 @@ struct _cpuid4_info_regs {
 
    In theory the TLBs could be reported as fake type (they are in "dummy").
    Maybe later */
+
+
+#define AMD_CPUID4_FULLY_ASSOCIATIVE	0xffff
+
 union l1_cache {
 	struct {
 		unsigned line_size:8;
@@ -215,6 +219,7 @@ union l3_cache {
 	unsigned val;
 };
 
+/* L2/L3 associativity mapping */
 static const unsigned short assocs[] = {
 	[1] = 1,
 	[2] = 2,
@@ -226,7 +231,7 @@ static const unsigned short assocs[] = {
 	[0xc] = 64,
 	[0xd] = 96,
 	[0xe] = 128,
-	[0xf] = 0xffff /* fully associative - no way to show this currently */
+	[0xf] = AMD_CPUID4_FULLY_ASSOCIATIVE
 };
 
 static const unsigned char levels[] = { 1, 1, 2, 3 };
@@ -265,7 +270,7 @@ amd_cpuid4(int leaf, union _cpuid4_leaf_eax *eax,
 	case 0:
 		if (!l1->val)
 			return;
-		assoc = assocs[l1->assoc];
+		assoc = (l1->assoc == 0xff) ? AMD_CPUID4_FULLY_ASSOCIATIVE : l1->assoc;
 		line_size = l1->line_size;
 		lines_per_tag = l1->lines_per_tag;
 		size_in_kb = l1->size_in_kb;
@@ -302,7 +307,7 @@ amd_cpuid4(int leaf, union _cpuid4_leaf_eax *eax,
 	eax->split.num_cores_on_die = topology_num_cores_per_package();
 
 
-	if (assoc == 0xffff)
+	if (assoc == AMD_CPUID4_FULLY_ASSOCIATIVE)
 		eax->split.is_fully_associative = 1;
 	ebx->split.coherency_line_size = line_size - 1;
 	ebx->split.ways_of_associativity = assoc - 1;
