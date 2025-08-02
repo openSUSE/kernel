@@ -39,6 +39,7 @@ static const struct usb_device_id mfi_fc_id_table[] = {
 };
 
 MODULE_DEVICE_TABLE(usb, mfi_fc_id_table);
+static void *original_name_used = NULL;
 
 /* Driver-local specific stuff */
 struct mfi_device {
@@ -203,12 +204,16 @@ static int mfi_fc_probe(struct usb_device *udev)
 
 	mfi->charge_type = POWER_SUPPLY_CHARGE_TYPE_TRICKLE;
 	mfi->battery = power_supply_register(&udev->dev,
-						&mfi->battery_desc,
+						original_name_used == NULL ?
+						&apple_mfi_fc_desc : &mfi->battery_desc,
 						&battery_cfg);
 	if (IS_ERR(mfi->battery)) {
 		dev_err(&udev->dev, "Can't register battery\n");
 		err = PTR_ERR(mfi->battery);
 		goto err_free_name;
+	} else {
+		if (!original_name_used)
+			original_name_used = udev;
 	}
 
 	mfi->udev = usb_get_dev(udev);
@@ -234,6 +239,9 @@ static void mfi_fc_disconnect(struct usb_device *udev)
 	dev_set_drvdata(&udev->dev, NULL);
 	usb_put_dev(mfi->udev);
 	kfree(mfi);
+
+	if (original_name_used == udev)
+		original_name_used = NULL;
 }
 
 static struct usb_device_driver mfi_fc_driver = {
