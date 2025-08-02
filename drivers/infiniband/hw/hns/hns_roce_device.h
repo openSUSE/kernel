@@ -844,6 +844,7 @@ struct hns_roce_caps {
 	u16		default_aeq_arm_st;
 	u16		default_ceq_arm_st;
 	enum hns_roce_cong_type cong_type;
+	u32             max_ack_req_msg_len;
 };
 
 enum hns_roce_device_state {
