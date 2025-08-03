@@ -3972,6 +3972,8 @@
 			This is required for the Braillex ib80-piezo Braille
 			reader made by F.H. Papenmeier (Germany).
 
+	nouvrtc		[X86] Disable the UV RTC clocksource (SGI RTC clock).
+
 	nosgx		[X86-64,SGX] Disables Intel SGX kernel support.
 
 	nosmap		[PPC]
@@ -7011,6 +7013,8 @@
 				nohigh = do not allocate PTE pages in
 					HIGHMEM regardless of setting
 					of CONFIG_HIGHPTE.
+
+	uvrtcevt	[X86] Use UV RTC clock events (SGI RTC clock) for timers.
 
 	vdso=		[X86,SH,SPARC]
 			On X86_32, this is an alias for vdso32=.  Otherwise:
