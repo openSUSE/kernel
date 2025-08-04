@@ -69,9 +69,7 @@ irq_create_affinity_masks(unsigned int nvecs, struct irq_affinity *affd)
 	 * have multiple sets, build each sets affinity mask separately.
 	 */
 	for (i = 0, usedvecs = 0; i < affd->nr_sets; i++) {
-		unsigned int this_vecs = affd->set_size[i];
-		unsigned int nr_masks;
-		int j;
+		unsigned int nr_masks, this_vecs = affd->set_size[i];
 		struct cpumask *result = group_cpus_evenly(this_vecs, &nr_masks);
 
 		if (!result) {
@@ -79,7 +77,7 @@ irq_create_affinity_masks(unsigned int nvecs, struct irq_affinity *affd)
 			return NULL;
 		}
 
-		for (j = 0; j < nr_masks; j++)
+		for (int j = 0; j < nr_masks; j++)
 			cpumask_copy(&masks[curvec + j].mask, &result[j]);
 		kfree(result);
 
