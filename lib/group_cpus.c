@@ -356,6 +356,9 @@ static struct cpumask *group_possible_cpus_evenly(unsigned int numgrps,
 	int ret = -ENOMEM;
 	struct cpumask *masks = NULL;
 
+	if (numgrps == 0)
+		return NULL;
+
 	if (!zalloc_cpumask_var(&nmsk, GFP_KERNEL))
 		return NULL;
 
@@ -503,8 +506,12 @@ struct cpumask *group_cpus_evenly(unsigned int numgrps,
 struct cpumask *group_cpus_evenly(unsigned int numgrps,
 				  unsigned int *nummasks)
 {
-	struct cpumask *masks = kcalloc(numgrps, sizeof(*masks), GFP_KERNEL);
+	struct cpumask *masks;
 
+	if (numgrps == 0)
+		return NULL;
+
+	masks = kcalloc(numgrps, sizeof(*masks), GFP_KERNEL);
 	if (!masks)
 		return NULL;
 
