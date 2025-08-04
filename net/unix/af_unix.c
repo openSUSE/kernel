@@ -243,6 +243,12 @@ int unix_oob_enabled(void)
 	return 0;
 }
 
+static void unix_oob_message(void)
+{
+	pr_info_once("%s cannot use MSG_OOB due to CVE-2025-38236\n",
+		     current->comm);
+}
+
 struct sock *unix_peer_get(struct sock *s)
 {
 	struct sock *peer;
@@ -2158,9 +2164,11 @@ static int unix_stream_sendmsg(struct socket *sock, struct msghdr *msg,
 #if IS_ENABLED(CONFIG_AF_UNIX_OOB)
 		if (unix_oob_enabled() && len)
 			len--;
-		else
+		else {
+			unix_oob_message();
 #endif
 			goto out_err;
+		}
 	}
 
 	if (msg->msg_namelen) {
@@ -2666,6 +2674,8 @@ static int unix_stream_read_generic(struct unix_stream_read_state *state,
 #if IS_ENABLED(CONFIG_AF_UNIX_OOB)
 		if (unix_oob_enabled())
 			err = unix_stream_recv_urg(state);
+		else
+			unix_oob_message();
 #endif
 		goto out;
 	}
@@ -3074,8 +3084,10 @@ static int unix_ioctl(struct socket *sock, unsigned int cmd, unsigned long arg)
 			if (skb && skb == READ_ONCE(unix_sk(sk)->oob_skb))
 				answ = 1;
 			err = put_user(answ, (int __user *)arg);
-		} else
+		} else {
 			err = -ENOIOCTLCMD;
+			unix_oob_message();
+		}
 		break;
 #endif
 	default:
