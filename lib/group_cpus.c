@@ -424,7 +424,7 @@ static struct cpumask *group_possible_cpus_evenly(unsigned int numgrps,
 		kfree(masks);
 		return NULL;
 	}
-	*nummasks = min(numgrps, nr_present + nr_others);
+	*nummasks = min(nr_present + nr_others, numgrps);
 	return masks;
 }
 
@@ -503,8 +503,7 @@ struct cpumask *group_cpus_evenly_nm(unsigned int numgrps,
 	return group_possible_cpus_evenly(numgrps, nummasks);
 }
 #else /* CONFIG_SMP */
-struct cpumask *group_cpus_evenly_nm(unsigned int numgrps,
-				     unsigned int *nummasks)
+struct cpumask *group_cpus_evenly_nm(unsigned int numgrps, unsigned int *nummasks)
 {
 	struct cpumask *masks;
 

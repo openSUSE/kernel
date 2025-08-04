@@ -10,7 +10,6 @@
 #include <linux/cpu.h>
 
 struct cpumask *group_cpus_evenly(unsigned int numgrps);
-struct cpumask *group_cpus_evenly_nm(unsigned int numgrps,
-				     unsigned int *nummasks);
+struct cpumask *group_cpus_evenly_nm(unsigned int numgrps, unsigned int *nummasks);
 
 #endif
