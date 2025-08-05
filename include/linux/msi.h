@@ -187,8 +187,7 @@ struct msi_desc {
 	struct msi_msg			msg;
 	struct irq_affinity_desc	*affinity;
 #ifdef CONFIG_IRQ_MSI_IOMMU
-	u64				iommu_msi_iova : 58;
-	u64				iommu_msi_shift : 6;
+	const void			*iommu_cookie;
 #endif
 #ifdef CONFIG_SYSFS
 	struct device_attribute		*sysfs_attrs;
@@ -202,6 +201,10 @@ struct msi_desc {
 		struct pci_msi_desc	pci;
 		struct msi_desc_data	data;
 	};
+#if defined(CONFIG_IRQ_MSI_IOMMU) && !defined(__GENKSYMS__)
+	u64				iommu_msi_iova : 58;
+	u64				iommu_msi_shift : 6;
+#endif
 };
 
 /*
