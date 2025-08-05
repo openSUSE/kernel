@@ -304,6 +304,7 @@ void unix_gc(void)
 
 #if IS_ENABLED(CONFIG_AF_UNIX_OOB)
 		if (u->oob_skb) {
+			WARN_ON_ONCE(!unix_oob_enabled());
 			kfree_skb(u->oob_skb);
 			u->oob_skb = NULL;
 		}
