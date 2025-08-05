@@ -1139,6 +1139,8 @@ SYSCALL_DEFINE1(close, unsigned int, fd)
 	fdt = files_fdtable(files);
 	if (fd >= fdt->max_fds)
 		goto out_unlock;
+
+	fd = array_index_nospec(fd, fdt->max_fds);
 	filp = fdt->fd[fd];
 	if (!filp)
 		goto out_unlock;
