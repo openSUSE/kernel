@@ -233,6 +233,29 @@ static inline int unix_recvq_full_lockless(const struct sock *sk)
 		READ_ONCE(sk->sk_max_ack_backlog);
 }
 
+static bool oob_unprivileged __ro_after_init;
+static int __init af_unix_oob_unprivileged(char *str)
+{
+	oob_unprivileged = 1;
+	pr_warn("Enabling insecure MSG_OOB on AF_UNIX for unprivileged users\n");
+	return 1;
+}
+__setup("af_unix_oob_unprivileged", af_unix_oob_unprivileged);
+
+int unix_oob_enabled(void)
+{
+#if IS_ENABLED(CONFIG_AF_UNIX_OOB)
+	return capable(CAP_SYS_ADMIN) || oob_unprivileged;
+#endif
+	return 0;
+}
+
+static void unix_oob_message(void)
+{
+	pr_info_once("%s cannot use MSG_OOB due to CVE-2025-38236\n",
+		     current->comm);
+}
+
 struct sock *unix_peer_get(struct sock *s)
 {
 	struct sock *peer;
@@ -615,6 +638,7 @@ static void unix_release_sock(struct sock *sk, int embrion)
 
 #if IS_ENABLED(CONFIG_AF_UNIX_OOB)
 	if (u->oob_skb) {
+		WARN_ON_ONCE(!unix_oob_enabled());
 		kfree_skb(u->oob_skb);
 		u->oob_skb = NULL;
 	}
@@ -2145,11 +2169,13 @@ static int unix_stream_sendmsg(struct socket *sock, struct msghdr *msg,
 	err = -EOPNOTSUPP;
 	if (msg->msg_flags & MSG_OOB) {
 #if IS_ENABLED(CONFIG_AF_UNIX_OOB)
-		if (len)
+		if (unix_oob_enabled() && len)
 			len--;
-		else
+		else {
+			unix_oob_message();
 #endif
 			goto out_err;
+		}
 	}
 
 	if (msg->msg_namelen) {
@@ -2234,7 +2260,7 @@ static int unix_stream_sendmsg(struct socket *sock, struct msghdr *msg,
 	}
 
 #if IS_ENABLED(CONFIG_AF_UNIX_OOB)
-	if (msg->msg_flags & MSG_OOB) {
+	if (unix_oob_enabled() && msg->msg_flags & MSG_OOB) {
 		err = queue_oob(sock, msg, other, &scm, fds_sent);
 		if (err)
 			goto out_err;
@@ -2596,7 +2622,7 @@ static int unix_stream_read_skb(struct sock *sk, skb_read_actor_t recv_actor)
 		return err;
 
 #if IS_ENABLED(CONFIG_AF_UNIX_OOB)
-	if (unlikely(skb == READ_ONCE(u->oob_skb))) {
+	if (unix_oob_enabled() && unlikely(skb == READ_ONCE(u->oob_skb))) {
 		bool drop = false;
 
 		unix_state_lock(sk);
@@ -2653,7 +2679,10 @@ static int unix_stream_read_generic(struct unix_stream_read_state *state,
 	if (unlikely(flags & MSG_OOB)) {
 		err = -EOPNOTSUPP;
 #if IS_ENABLED(CONFIG_AF_UNIX_OOB)
-		err = unix_stream_recv_urg(state);
+		if (unix_oob_enabled())
+			err = unix_stream_recv_urg(state);
+		else
+			unix_oob_message();
 #endif
 		goto out;
 	}
@@ -2686,7 +2715,7 @@ redo:
 
 again:
 #if IS_ENABLED(CONFIG_AF_UNIX_OOB)
-		if (skb) {
+		if (unix_oob_enabled() && skb) {
 			skb = manage_oob(skb, sk, flags, copied);
 			if (!skb && copied) {
 				unix_state_unlock(sk);
@@ -3054,7 +3083,7 @@ static int unix_ioctl(struct socket *sock, unsigned int cmd, unsigned long arg)
 		break;
 #if IS_ENABLED(CONFIG_AF_UNIX_OOB)
 	case SIOCATMARK:
-		{
+		if (unix_oob_enabled()) {
 			struct sk_buff *skb;
 			int answ = 0;
 
@@ -3062,6 +3091,9 @@ static int unix_ioctl(struct socket *sock, unsigned int cmd, unsigned long arg)
 			if (skb && skb == READ_ONCE(unix_sk(sk)->oob_skb))
 				answ = 1;
 			err = put_user(answ, (int __user *)arg);
+		} else {
+			err = -ENOIOCTLCMD;
+			unix_oob_message();
 		}
 		break;
 #endif
@@ -3103,8 +3135,10 @@ static __poll_t unix_poll(struct file *file, struct socket *sock, poll_table *wa
 	if (sk_is_readable(sk))
 		mask |= EPOLLIN | EPOLLRDNORM;
 #if IS_ENABLED(CONFIG_AF_UNIX_OOB)
-	if (READ_ONCE(unix_sk(sk)->oob_skb))
+	if (READ_ONCE(unix_sk(sk)->oob_skb)) {
+		WARN_ON_ONCE(!unix_oob_enabled());
 		mask |= EPOLLPRI;
+	}
 #endif
 
 	/* Connection-based need to check for termination and startup */
