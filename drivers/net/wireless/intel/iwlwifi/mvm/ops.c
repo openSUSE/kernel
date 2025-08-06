@@ -65,8 +65,10 @@ static int __init iwl_mvm_init(void)
 	}
 
 	ret = iwl_opmode_register("iwlmvm", &iwl_mvm_ops);
-	if (ret)
+	if (ret) {
 		pr_err("Unable to register MVM op_mode: %d\n", ret);
+		iwl_mvm_rate_control_unregister();
+	}
 
 	return ret;
 }
@@ -1158,6 +1160,7 @@ iwl_op_mode_mvm_start(struct iwl_trans *trans, const struct iwl_cfg *cfg,
 	size_t scan_size;
 	u32 min_backoff;
 	struct iwl_mvm_csme_conn_info *csme_conn_info __maybe_unused;
+	int err;
 
 	/*
 	 * We use IWL_MVM_STATION_COUNT_MAX to check the validity of the station
@@ -1175,7 +1178,7 @@ iwl_op_mode_mvm_start(struct iwl_trans *trans, const struct iwl_cfg *cfg,
 				iwl_mvm_has_mld_api(fw) ? &iwl_mvm_mld_hw_ops :
 				&iwl_mvm_hw_ops);
 	if (!hw)
-		return NULL;
+		return ERR_PTR(-ENOMEM);
 
 	if (trans->trans_cfg->device_family >= IWL_DEVICE_FAMILY_BZ)
 		max_agg = 512;
@@ -1219,8 +1222,10 @@ iwl_op_mode_mvm_start(struct iwl_trans *trans, const struct iwl_cfg *cfg,
 		trans->rx_mpdu_cmd_hdr_size =
 			sizeof(struct iwl_rx_mpdu_res_start);
 
-		if (WARN_ON(trans->num_rx_queues > 1))
+		if (WARN_ON(trans->num_rx_queues > 1)) {
+			err = -EINVAL;
 			goto out_free;
+		}
 	}
 
 	mvm->fw_restart = iwlwifi_mod_params.fw_restart ? -1 : 0;
@@ -1292,8 +1297,10 @@ iwl_op_mode_mvm_start(struct iwl_trans *trans, const struct iwl_cfg *cfg,
 		iwl_fw_lookup_notif_ver(mvm->fw, LOCATION_GROUP,
 					TOF_RANGE_RESPONSE_NOTIF, 5);
 	/* we only support up to version 9 */
-	if (WARN_ON_ONCE(mvm->cmd_ver.range_resp > 9))
+	if (WARN_ON_ONCE(mvm->cmd_ver.range_resp > 9)) {
+		err = -EINVAL;
 		goto out_free;
+	}
 
 	/*
 	 * Populate the state variables that the transport layer needs
@@ -1377,6 +1384,7 @@ iwl_op_mode_mvm_start(struct iwl_trans *trans, const struct iwl_cfg *cfg,
 	mvm->phy_db = iwl_phy_db_init(trans);
 	if (!mvm->phy_db) {
 		IWL_ERR(mvm, "Cannot init phy_db\n");
+		err = -ENOMEM;
 		goto out_free;
 	}
 
@@ -1392,8 +1400,10 @@ iwl_op_mode_mvm_start(struct iwl_trans *trans, const struct iwl_cfg *cfg,
 	scan_size = iwl_mvm_scan_size(mvm);
 
 	mvm->scan_cmd = kmalloc(scan_size, GFP_KERNEL);
-	if (!mvm->scan_cmd)
+	if (!mvm->scan_cmd) {
+		err = -ENOMEM;
 		goto out_free;
+	}
 	mvm->scan_cmd_size = scan_size;
 
 	/* invalidate ids to prevent accidental removal of sta_id 0 */
@@ -1422,7 +1432,8 @@ iwl_op_mode_mvm_start(struct iwl_trans *trans, const struct iwl_cfg *cfg,
 
 	iwl_mvm_mei_scan_filter_init(&mvm->mei_scan_filter);
 
-	if (iwl_mvm_start_get_nvm(mvm)) {
+	err = iwl_mvm_start_get_nvm(mvm);
+	if (err) {
 		/*
 		 * Getting NVM failed while CSME is the owner, but we are
 		 * registered to MEI, we'll get the NVM later when it'll be
@@ -1435,7 +1446,8 @@ iwl_op_mode_mvm_start(struct iwl_trans *trans, const struct iwl_cfg *cfg,
 	}
 
 
-	if (iwl_mvm_start_post_nvm(mvm))
+	err = iwl_mvm_start_post_nvm(mvm);
+	if (err)
 		goto out_thermal_exit;
 
 	return op_mode;
@@ -1457,7 +1469,7 @@ iwl_op_mode_mvm_start(struct iwl_trans *trans, const struct iwl_cfg *cfg,
 	iwl_trans_op_mode_leave(trans);
 
 	ieee80211_free_hw(mvm->hw);
-	return NULL;
+	return ERR_PTR(err);
 }
 
 void iwl_mvm_stop_device(struct iwl_mvm *mvm)

@@ -116,3 +116,4 @@ static inline void __init unix_bpf_build_proto(void)
 {}
 #endif
 #endif
+int unix_oob_enabled(void);

@@ -232,7 +232,11 @@ struct xfrm_state {
 
 	/* Data for encapsulator */
 	struct xfrm_encap_tmpl	*encap;
+#ifdef __GENKSYMS__
 	struct sock __rcu	*encap_sk;
+#else
+	struct sock __rcu	*__unused_encap_sk;
+#endif
 
 	/* Data for care-of address */
 	xfrm_address_t	*coaddr;
