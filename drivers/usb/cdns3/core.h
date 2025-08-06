@@ -79,6 +79,8 @@ struct cdns3_platform_data {
  * @pdata: platform data from glue layer
  * @lock: spinlock structure
  * @xhci_plat_data: xhci private data structure pointer
+ * @override_apb_timeout: hold value of APB timeout. For value 0 the default
+ *                        value in CHICKEN_BITS_3 will be preserved.
  * @gadget_init: pointer to gadget initialization function
  */
 struct cdns {
@@ -119,6 +121,9 @@ struct cdns {
 	struct xhci_plat_priv		*xhci_plat_data;
 
 	int (*gadget_init)(struct cdns *cdns);
+#ifndef __GENKSYMS__
+	u32				override_apb_timeout;
+#endif
 };
 
 int cdns_hw_role_switch(struct cdns *cdns);

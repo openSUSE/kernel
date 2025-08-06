@@ -22,22 +22,18 @@ static unsigned int blk_mq_num_queues(const struct cpumask *mask,
 {
 	unsigned int num;
 
-	if (housekeeping_enabled(HK_TYPE_MANAGED_IRQ))
-		mask = housekeeping_cpumask(HK_TYPE_MANAGED_IRQ);
-
 	num = cpumask_weight(mask);
 	return min_not_zero(num, max_queues);
 }
 
 /**
  * blk_mq_num_possible_queues - Calc nr of queues for multiqueue devices
- * @max_queues:	The maximal number of queues the hardware/driver
+ * @max_queues:	The maximum number of queues the hardware/driver
  *		supports. If max_queues is 0, the argument is
  *		ignored.
  *
- * Calculate the number of queues which should be used for a multiqueue
- * device based on the number of possible cpu. The helper is considering
- * isolcpus settings.
+ * Calculates the number of queues to be used for a multiqueue
+ * device based on the number of possible CPUs.
  */
 unsigned int blk_mq_num_possible_queues(unsigned int max_queues)
 {
@@ -47,13 +43,12 @@ EXPORT_SYMBOL_GPL(blk_mq_num_possible_queues);
 
 /**
  * blk_mq_num_online_queues - Calc nr of queues for multiqueue devices
- * @max_queues:	The maximal number of queues the hardware/driver
+ * @max_queues:	The maximum number of queues the hardware/driver
  *		supports. If max_queues is 0, the argument is
  *		ignored.
  *
- * Calculate the number of queues which should be used for a multiqueue
- * device based on the number of online cpus. The helper is considering
- * isolcpus settings.
+ * Calculates the number of queues to be used for a multiqueue
+ * device based on the number of online CPUs.
  */
 unsigned int blk_mq_num_online_queues(unsigned int max_queues)
 {

@@ -30,6 +30,8 @@
 
 #include "mgmt_util.h"
 
+DEFINE_MUTEX(suse_mgmt_pending_lock);
+
 static struct sk_buff *create_monitor_ctrl_event(__le16 index, u32 cookie,
 						 u16 opcode, u16 len, void *buf)
 {
@@ -217,30 +219,47 @@ int mgmt_cmd_complete(struct sock *sk, u16 index, u16 cmd, u8 status,
 struct mgmt_pending_cmd *mgmt_pending_find(unsigned short channel, u16 opcode,
 					   struct hci_dev *hdev)
 {
-	struct mgmt_pending_cmd *cmd;
+	struct mgmt_pending_cmd *cmd, *tmp;
 
-	list_for_each_entry(cmd, &hdev->mgmt_pending, list) {
+	mutex_lock(&suse_mgmt_pending_lock);
+
+	list_for_each_entry_safe(cmd, tmp, &hdev->mgmt_pending, list) {
 		if (hci_sock_get_channel(cmd->sk) != channel)
 			continue;
-		if (cmd->opcode == opcode)
+
+		if (cmd->opcode == opcode) {
+			mutex_unlock(&suse_mgmt_pending_lock);
 			return cmd;
+		}
 	}
+
+	mutex_unlock(&suse_mgmt_pending_lock);
 
 	return NULL;
 }
 
-void mgmt_pending_foreach(u16 opcode, struct hci_dev *hdev,
+void mgmt_pending_foreach(u16 opcode, struct hci_dev *hdev, bool remove,
 			  void (*cb)(struct mgmt_pending_cmd *cmd, void *data),
 			  void *data)
 {
 	struct mgmt_pending_cmd *cmd, *tmp;
 
+	mutex_lock(&suse_mgmt_pending_lock);
+
 	list_for_each_entry_safe(cmd, tmp, &hdev->mgmt_pending, list) {
 		if (opcode > 0 && cmd->opcode != opcode)
 			continue;
 
+		if (remove)
+			list_del(&cmd->list);
+
 		cb(cmd, data);
+
+		if (remove)
+			mgmt_pending_free(cmd);
 	}
+
+	mutex_unlock(&suse_mgmt_pending_lock);
 }
 
 struct mgmt_pending_cmd *mgmt_pending_new(struct sock *sk, u16 opcode,
@@ -254,7 +273,7 @@ struct mgmt_pending_cmd *mgmt_pending_new(struct sock *sk, u16 opcode,
 		return NULL;
 
 	cmd->opcode = opcode;
-	cmd->index = hdev->id;
+	cmd->hdev = hdev;
 
 	cmd->param = kmemdup(data, len, GFP_KERNEL);
 	if (!cmd->param) {
@@ -280,7 +299,9 @@ struct mgmt_pending_cmd *mgmt_pending_add(struct sock *sk, u16 opcode,
 	if (!cmd)
 		return NULL;
 
+	mutex_lock(&suse_mgmt_pending_lock);
 	list_add_tail(&cmd->list, &hdev->mgmt_pending);
+	mutex_unlock(&suse_mgmt_pending_lock);
 
 	return cmd;
 }
@@ -294,7 +315,10 @@ void mgmt_pending_free(struct mgmt_pending_cmd *cmd)
 
 void mgmt_pending_remove(struct mgmt_pending_cmd *cmd)
 {
+	mutex_lock(&suse_mgmt_pending_lock);
 	list_del(&cmd->list);
+	mutex_unlock(&suse_mgmt_pending_lock);
+
 	mgmt_pending_free(cmd);
 }
 

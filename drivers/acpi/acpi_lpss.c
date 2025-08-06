@@ -399,9 +399,6 @@ static const struct acpi_device_id acpi_lpss_device_ids[] = {
 	{ "INT3436", LPSS_ADDR(lpt_sdio_dev_desc) },
 	{ "INT3437", },
 
-	/* Wildcat Point LPSS devices */
-	{ "INT3438", LPSS_ADDR(lpt_spi_dev_desc) },
-
 	{ }
 };
 
