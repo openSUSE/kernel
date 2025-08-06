@@ -4,6 +4,9 @@
 
 #include <linux/compiler_attributes.h>
 #include <linux/types.h>
+#ifndef __GENKSYMS__
+#include <linux/stdarg.h>
+#endif
 
 int num_to_str(char *buf, int size, unsigned long long num, unsigned int width);
 

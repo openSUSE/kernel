@@ -77,11 +77,11 @@ struct memory_block {
 	 */
 	struct zone *zone;
 	struct device dev;
-	/*
-	 * Number of vmemmap pages. These pages
-	 * lay at the beginning of the memory block.
-	 */
+#ifdef __GENKSYMS__
 	unsigned long nr_vmemmap_pages;
+#else
+	struct vmem_altmap *altmap;
+#endif
 	struct memory_group *group;	/* group (if any) for this block */
 	struct list_head group_next;	/* next block inside memory group */
 #if defined(CONFIG_MEMORY_FAILURE) && defined(CONFIG_MEMORY_HOTPLUG)
@@ -147,9 +147,15 @@ static inline int hotplug_memory_notifier(notifier_fn_t fn, int pri)
 #else /* CONFIG_MEMORY_HOTPLUG */
 extern int register_memory_notifier(struct notifier_block *nb);
 extern void unregister_memory_notifier(struct notifier_block *nb);
+#ifdef __GENKSYMS__
 int create_memory_block_devices(unsigned long start, unsigned long size,
 				unsigned long vmemmap_pages,
 				struct memory_group *group);
+#else
+int create_memory_block_devices(unsigned long start, unsigned long size,
+				struct vmem_altmap *altmap,
+				struct memory_group *group);
+#endif
 void remove_memory_block_devices(unsigned long start, unsigned long size);
 extern void memory_dev_init(void);
 extern int memory_notify(unsigned long val, void *v);

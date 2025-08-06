@@ -310,6 +310,8 @@ __netlink_policy_dump_write_attr(struct netlink_policy_dump_state *state,
 					      NL_POLICY_TYPE_ATTR_PAD))
 				goto nla_put_failure;
 			break;
+		} else if (pt->validation_type == NLA_VALIDATE_FUNCTION) {
+			break;
 		}
 
 		nla_get_range_unsigned(pt, &range);
@@ -338,6 +340,9 @@ __netlink_policy_dump_write_attr(struct netlink_policy_dump_state *state,
 			type = NL_ATTR_TYPE_S64;
 		else
 			type = NL_ATTR_TYPE_SINT;
+
+		if (pt->validation_type == NLA_VALIDATE_FUNCTION)
+			break;
 
 		nla_get_range_signed(pt, &range);
 
