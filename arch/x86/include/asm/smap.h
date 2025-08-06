@@ -16,14 +16,13 @@
 #include <linux/stringify.h>
 #include <asm/nops.h>
 #include <asm/cpufeatures.h>
+#include <asm/alternative.h>
 
 /* "Raw" instruction opcodes */
 #define __ASM_CLAC	.byte 0x0f,0x01,0xca
 #define __ASM_STAC	.byte 0x0f,0x01,0xcb
 
 #ifdef __ASSEMBLY__
-
-#include <asm/alternative-asm.h>
 
 #ifdef CONFIG_X86_SMAP
 
@@ -41,8 +40,6 @@
 #endif /* CONFIG_X86_SMAP */
 
 #else /* __ASSEMBLY__ */
-
-#include <asm/alternative.h>
 
 #ifdef CONFIG_X86_SMAP
 
