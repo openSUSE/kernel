@@ -91,7 +91,13 @@ void btrfs_put_transaction(struct btrfs_transaction *transaction)
 			cache = list_first_entry(&transaction->deleted_bgs,
 						 struct btrfs_block_group_cache,
 						 bg_list);
+			/*
+			 * Not strictly necessary to lock, as no other task will be using a
+			 * block_group on the deleted_bgs list during a transaction abort.
+			 */
+			spin_lock(&transaction->fs_info->unused_bgs_lock);
 			list_del_init(&cache->bg_list);
+			spin_unlock(&transaction->fs_info->unused_bgs_lock);
 			btrfs_put_block_group_trimming(cache);
 			btrfs_put_block_group(cache);
 		}
@@ -1923,8 +1929,15 @@ static void btrfs_cleanup_pending_block_groups(struct btrfs_trans_handle *trans)
 {
        struct btrfs_block_group_cache *block_group, *tmp;
 
-       list_for_each_entry_safe(block_group, tmp, &trans->new_bgs, bg_list)
+       list_for_each_entry_safe(block_group, tmp, &trans->new_bgs, bg_list) {
+		/*
+		* Not strictly necessary to lock, as no other task will be using a
+		* block_group on the new_bgs list during a transaction abort.
+		*/
+	       spin_lock(&trans->fs_info->unused_bgs_lock);
                list_del_init(&block_group->bg_list);
+	       spin_unlock(&trans->fs_info->unused_bgs_lock);
+       }
 }
 
 static inline int btrfs_start_delalloc_flush(struct btrfs_fs_info *fs_info)

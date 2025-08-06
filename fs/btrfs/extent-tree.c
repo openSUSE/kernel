@@ -3148,7 +3148,15 @@ int btrfs_finish_extent_commit(struct btrfs_trans_handle *trans,
 						   block_group->key.offset,
 						   &trimmed);
 
+		/*
+		 * Not strictly necessary to lock, as the block_group should be
+		 * read-only from btrfs_delete_unused_bgs().
+		 */
+		ASSERT(block_group->ro);
+		spin_lock(&fs_info->unused_bgs_lock);
 		list_del_init(&block_group->bg_list);
+		spin_unlock(&fs_info->unused_bgs_lock);
+
 		btrfs_put_block_group_trimming(block_group);
 		btrfs_put_block_group(block_group);
 
