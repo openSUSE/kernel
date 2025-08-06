@@ -5814,7 +5814,6 @@ static void nft_setelem_activate(struct net *net, struct nft_set *set,
 
 	if (nft_setelem_is_catchall(set, elem)) {
 		nft_set_elem_change_active(net, set, ext);
-		nft_set_elem_clear_busy(ext);
 	} else {
 		set->ops->activate(net, set, elem);
 	}
@@ -5873,6 +5872,12 @@ static int nft_setelem_deactivate(const struct net *net,
 	return ret;
 }
 
+static void nft_setelem_catchall_destroy(struct nft_set_elem_catchall *catchall)
+{
+	list_del_rcu(&catchall->list);
+	kfree_rcu(catchall, rcu);
+}
+
 static void nft_setelem_catchall_remove(const struct net *net,
 					const struct nft_set *set,
 					const struct nft_set_elem *elem)
@@ -5881,8 +5886,7 @@ static void nft_setelem_catchall_remove(const struct net *net,
 
 	list_for_each_entry_safe(catchall, next, &set->catchall_list, list) {
 		if (catchall->elem == elem->priv) {
-			list_del_rcu(&catchall->list);
-			kfree_rcu(catchall);
+			nft_setelem_catchall_destroy(catchall);
 			break;
 		}
 	}
@@ -6469,8 +6473,7 @@ static int nft_set_catchall_flush(const struct nft_ctx *ctx,
 
 	list_for_each_entry_rcu(catchall, &set->catchall_list, list) {
 		ext = nft_set_elem_ext(set, catchall->elem);
-		if (!nft_set_elem_active(ext, genmask) ||
-		    nft_set_elem_mark_busy(ext))
+		if (!nft_set_elem_active(ext, genmask))
 			continue;
 
 		elem.priv = catchall->elem;
@@ -8818,18 +8821,17 @@ void nft_trans_gc_queue_sync_done(struct nft_trans_gc *trans)
 	call_rcu(&trans->rcu, nft_trans_gc_trans_free);
 }
 
-struct nft_trans_gc *nft_trans_gc_catchall(struct nft_trans_gc *gc,
-					   unsigned int gc_seq)
+struct nft_trans_gc *nft_trans_gc_catchall_async(struct nft_trans_gc *gc,
+						 unsigned int gc_seq)
 {
 	struct nft_set_elem_catchall *catchall;
-	u64 tstamp = nft_net_tstamp(gc->net);
 	const struct nft_set *set = gc->set;
 	struct nft_set_ext *ext;
 
 	list_for_each_entry_rcu(catchall, &set->catchall_list, list) {
 		ext = nft_set_elem_ext(set, catchall->elem);
 
-		if (!__nft_set_elem_expired(ext, tstamp))
+		if (!nft_set_elem_expired(ext))
 			continue;
 		if (nft_set_elem_is_dead(ext))
 			goto dead_elem;
@@ -8841,6 +8843,35 @@ dead_elem:
 			return NULL;
 
 		nft_trans_gc_elem_add(gc, catchall->elem);
+	}
+
+	return gc;
+}
+
+struct nft_trans_gc *nft_trans_gc_catchall_sync(struct nft_trans_gc *gc)
+{
+	struct nft_set_elem_catchall *catchall, *next;
+	u64 tstamp = nft_net_tstamp(gc->net);
+	const struct nft_set *set = gc->set;
+	struct nft_set_elem *elem;
+	struct nft_set_ext *ext;
+
+	WARN_ON_ONCE(!lockdep_commit_lock_is_held(gc->net));
+
+	list_for_each_entry_safe(catchall, next, &set->catchall_list, list) {
+		ext = nft_set_elem_ext(set, catchall->elem);
+
+		if (!__nft_set_elem_expired(ext, tstamp))
+			continue;
+
+		gc = nft_trans_gc_queue_sync(gc, GFP_KERNEL);
+		if (!gc)
+			return NULL;
+
+		elem = catchall->elem;
+		nft_setelem_data_deactivate(gc->net, gc->set, elem);
+		nft_setelem_catchall_destroy(catchall);
+		nft_trans_gc_elem_add(gc, elem);
 	}
 
 	return gc;
