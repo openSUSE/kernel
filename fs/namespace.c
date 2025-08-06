@@ -3995,6 +3995,11 @@ static int can_idmap_mount(const struct mount_kattr *kattr, struct mount *mnt)
 	if (!kattr->mnt_idmap)
 		return 0;
 
+	/* Don't allow idmaps with no mapping defined */
+	if (kattr->mnt_userns->uid_map.nr_extents == 0 ||
+	    kattr->mnt_userns->gid_map.nr_extents == 0)
+		return -EINVAL;
+
 	/*
 	 * Creating an idmapped mount with the filesystem wide idmapping
 	 * doesn't make sense so block that. We don't allow mushy semantics.
