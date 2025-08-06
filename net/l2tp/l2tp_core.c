@@ -1557,6 +1557,8 @@ int l2tp_tunnel_register(struct l2tp_tunnel *tunnel, struct net *net,
 	tunnel->old_sk_destruct = sk->sk_destruct;
 	sk->sk_destruct = &l2tp_tunnel_destruct;
 	sk->sk_allocation = GFP_ATOMIC;
+	release_sock(sk);
+
 	sock_hold(sk);
 	tunnel->sock = sk;
 
