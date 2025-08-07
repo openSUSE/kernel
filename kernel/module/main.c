@@ -2301,7 +2301,7 @@ static int find_module_sections(struct module *mod, struct load_info *info)
 static int move_module(struct module *mod, struct load_info *info)
 {
 	int i;
-	enum mod_mem_type t = 0;
+	enum mod_mem_type t = MOD_MEM_NUM_TYPES;
 	int ret = -ENOMEM;
 
 	for_each_mod_mem_type(type) {
@@ -2360,7 +2360,7 @@ static int move_module(struct module *mod, struct load_info *info)
 	return 0;
 out_enomem:
 	module_memory_restore_rox(mod);
-	for (t--; t >= 0; t--)
+	while (t--)
 		module_memory_free(mod, t, true);
 	return ret;
 }
