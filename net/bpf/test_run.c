@@ -136,10 +136,6 @@ int bpf_prog_test_run_skb(struct bpf_prog *prog, const union bpf_attr *kattr,
 		__skb_push(skb, hh_len);
 	if (is_direct_pkt_access)
 		bpf_compute_data_pointers(skb);
-	if (!skb->len) {
-		kfree_skb(skb);
-		return -EINVAL;
-	}
 	retval = bpf_test_run(prog, skb, repeat, &duration);
 	if (!is_l2) {
 		if (skb_headroom(skb) < hh_len) {
