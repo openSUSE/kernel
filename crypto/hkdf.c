@@ -11,6 +11,7 @@
 #include <crypto/sha2.h>
 #include <crypto/hkdf.h>
 #include <linux/module.h>
+#include <linux/fips.h>
 
 /*
  * HKDF consists of two steps:
@@ -487,6 +488,13 @@ static int hkdf_test(const char *shash, const struct hkdf_testvec *tv)
 		pr_err("%s(%s): prk size mismatch (vec %u, digest %u\n",
 		       tv->test, driver, tv->prk_size, prk_size);
 		err = -EINVAL;
+		goto out_free;
+	}
+
+	if (fips_enabled && tv->salt_size < 112 / 8) {
+		pr_debug("%s(%s): skipped in FIPS mode\n",
+			 tv->test, driver);
+		err = 0;
 		goto out_free;
 	}
 
