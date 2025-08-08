@@ -400,6 +400,19 @@ void unpin_user_pages_dirty_lock(struct page **pages, unsigned long npages,
 EXPORT_SYMBOL(unpin_user_pages_dirty_lock);
 
 /**
+ * unpin_user_folio() - release pages of a folio
+ * @folio:  pointer to folio to be released
+ * @npages: number of pages of same folio
+ *
+ * Release npages of the folio
+ */
+void unpin_user_folio(struct folio *folio, unsigned long npages)
+{
+	gup_put_folio(folio, npages, FOLL_PIN);
+}
+EXPORT_SYMBOL(unpin_user_folio);
+
+/**
  * unpin_user_page_range_dirty_lock() - release and optionally dirty
  * gup-pinned page range
  *
