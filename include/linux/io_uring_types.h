@@ -642,7 +642,11 @@ struct io_kiocb {
 	bool				cancel_seq_set;
 	struct io_task_work		io_task_work;
 	/* for polled requests, i.e. IORING_OP_POLL_ADD and async armed poll */
-	struct hlist_node		hash_node;
+	union {
+		struct hlist_node		hash_node;
+		/* for private io_kiocb freeing */
+		struct rcu_head 		rcu_head;
+	};
 	/* internal polling, see IORING_FEAT_FAST_POLL */
 	struct async_poll		*apoll;
 	/* opcode allocated if it needs to store data for async defer */
@@ -658,6 +662,7 @@ struct io_kiocb {
 		u64			extra1;
 		u64			extra2;
 	} big_cqe;
+
 };
 
 struct io_overflow_cqe {
