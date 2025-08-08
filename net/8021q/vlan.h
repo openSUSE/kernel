@@ -32,7 +32,9 @@ struct vlan_info {
 	struct vlan_group	grp;
 	struct list_head	vid_list;
 	unsigned int		nr_vids;
+#ifndef __GENKSYMS__
 	bool			auto_vid0;
+#endif
 	struct rcu_head		rcu;
 };
 
