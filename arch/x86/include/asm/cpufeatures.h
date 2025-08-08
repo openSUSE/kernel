@@ -390,6 +390,8 @@
 #define X86_FEATURE_IBPB_BRTYPE		X86_EXT_FEATURE(20*32+28) /* "" MSR_PRED_CMD[IBPB] flushes all branch type predictions */
 #define X86_FEATURE_SRSO_NO		X86_EXT_FEATURE(20*32+29) /* "" CPU is not affected by SRSO */
 
+#define X86_FEATURE_INDIRECT_THUNK_ITS	X86_EXT_FEATURE(21*32 + 9) /* "" Use thunk for indirect branches in lower half of cacheline */
+
 /* Linux defined features */
 #define X86_FEATURE_CLEAR_BHB_LOOP	X86_EXT_FEATURE(22*32+ 0) /* "" Clear branch history at syscall entry using SW loop */
 #define X86_FEATURE_BHI_CTRL		X86_EXT_FEATURE(22*32+ 1) /* "" BHI_DIS_S HW control available */

@@ -10,12 +10,12 @@
 #include <asm/nops.h>
 
 .macro THUNK reg
-	.section .text..__x86.indirect_thunk
-
 ENTRY(__x86_indirect_thunk_\reg)
 	CFI_STARTPROC
 	JMP_NOSPEC %\reg
 	CFI_ENDPROC
+.align 32, 0xcc		/* fill to the end of the line */
+.skip  32, 0xcc		/* skip to the next upper half */
 ENDPROC(__x86_indirect_thunk_\reg)
 .endm
 
@@ -34,9 +34,20 @@ ENDPROC(__x86_indirect_thunk_\reg)
 #define __EXPORT_THUNK(sym)	_ASM_NOKPROBE(sym); EXPORT_SYMBOL(sym)
 #define EXPORT_THUNK(reg)	__EXPORT_THUNK(__x86_indirect_thunk_ ## reg)
 
+/* Instead of introducing a new set of thunks just ensure the existing RETPOLINE
+ * thunks are properly aligned
+ */
+	.section .text..__x86.indirect_thunk
+	.align 64, 0xcc
+	.skip 32, 0xcc
+SYM_CODE_START(__x86_indirect_its_thunk_array)
+
 #undef GEN
 #define GEN(reg) THUNK reg
 #include <asm/GEN-for-each-reg.h>
+
+	.align 64, 0xcc
+SYM_CODE_END(__x86_indirect_its_thunk_array)
 
 #undef GEN
 #define GEN(reg) EXPORT_THUNK(reg)
@@ -172,6 +183,7 @@ __EXPORT_THUNK(retbleed_untrain_ret)
  * the respective instruction sequences at retbleed_return_thunk()
  * must start at a cacheline boundary.
  */
+
 
 /*
  * SRSO untraining sequence for Zen1/2, similar to retbleed_untrain_ret()

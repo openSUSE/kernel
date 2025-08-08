@@ -623,6 +623,7 @@ extern struct paravirt_patch_site __start_parainstructions[],
  * See entry_{32,64}.S for more details.
  */
 
+
 /*
  * We define the int3_magic() function in assembly to control the calling
  * convention such that we can 'call' it from assembly.

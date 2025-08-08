@@ -265,6 +265,11 @@
 	_ASM_PTR " 999b\n\t"					\
 	".popsection\n\t"
 
+
+#define ITS_THUNK_SIZE	64
+typedef u8 its_thunk_t[ITS_THUNK_SIZE];
+extern its_thunk_t	 __x86_indirect_its_thunk_array[];
+
 #ifdef CONFIG_RETPOLINE
 #ifdef CONFIG_X86_64
 
