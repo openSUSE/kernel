@@ -220,6 +220,8 @@ ENTRY(entry_untrain_ret)
 ENDPROC(entry_untrain_ret)
 __EXPORT_THUNK(entry_untrain_ret)
 
+.align 64, 0xcc
+.skip 32, 0xcc
 ENTRY(__x86_return_thunk)
 	UNWIND_HINT_FUNC
 	ALTERNATIVE_2 "jmp __ret", "call srso_safe_ret", X86_FEATURE_SRSO, \
