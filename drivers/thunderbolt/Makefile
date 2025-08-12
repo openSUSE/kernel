@@ -13,3 +13,6 @@ CFLAGS_test.o += $(DISABLE_STRUCTLEAK_PLUGIN)
 
 thunderbolt_dma_test-${CONFIG_USB4_DMA_TEST} += dma_test.o
 obj-$(CONFIG_USB4_DMA_TEST) += thunderbolt_dma_test.o
+
+thunderbolt_stream-${CONFIG_USB4_STREAM} += stream.o
+obj-$(CONFIG_USB4_STREAM) += thunderbolt_stream.o
