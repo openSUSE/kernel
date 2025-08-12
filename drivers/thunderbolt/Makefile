@@ -7,6 +7,7 @@ thunderbolt-objs += usb4_port.o nvm.o retimer.o quirks.o clx.o
 
 thunderbolt-${CONFIG_ACPI} += acpi.o
 thunderbolt-$(CONFIG_DEBUG_FS) += debugfs.o
+thunderbolt-$(CONFIG_USB4_CONFIGFS) += configfs.o
 thunderbolt-${CONFIG_USB4_KUNIT_TEST} += test.o
 CFLAGS_test.o += $(DISABLE_STRUCTLEAK_PLUGIN)
 

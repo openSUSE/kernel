@@ -13,6 +13,7 @@
 
 #include <linux/types.h>
 
+struct config_group;
 struct fwnode_handle;
 struct device;
 
@@ -726,6 +727,11 @@ static inline struct device *tb_ring_dma_device(struct tb_ring *ring)
 
 bool usb4_usb3_port_match(struct device *usb4_port_dev,
 			  const struct fwnode_handle *usb3_port_fwnode);
+
+#if IS_REACHABLE(CONFIG_CONFIGFS_FS)
+int tb_configfs_register_group(struct config_group *group);
+void tb_configfs_unregister_group(struct config_group *group);
+#endif
 
 #else /* CONFIG_USB4 */
 static inline bool usb4_usb3_port_match(struct device *usb4_port_dev,

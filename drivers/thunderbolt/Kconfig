@@ -18,6 +18,10 @@ menuconfig USB4
 
 if USB4
 
+config USB4_CONFIGFS
+	def_tristate USB4
+	depends on CONFIGFS_FS && !(USB4=y && CONFIGFS_FS=m)
+
 config USB4_DEBUGFS_WRITE
 	bool "Enable write by debugfs to configuration spaces (DANGEROUS)"
 	help
