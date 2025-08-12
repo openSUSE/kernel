@@ -75,6 +75,8 @@ source "drivers/pps/Kconfig"
 
 source "drivers/ptp/Kconfig"
 
+source "drivers/dpll/Kconfig"
+
 source "drivers/pinctrl/Kconfig"
 
 source "drivers/gpio/Kconfig"
@@ -242,7 +244,5 @@ source "drivers/peci/Kconfig"
 source "drivers/hte/Kconfig"
 
 source "drivers/cdx/Kconfig"
-
-source "drivers/dpll/Kconfig"
 
 endmenu
