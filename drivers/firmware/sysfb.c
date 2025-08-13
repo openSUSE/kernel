@@ -139,28 +139,6 @@ static struct device *sysfb_parent_dev(const struct screen_info *si)
 	return NULL;
 }
 
-static int skip_simpledrm;
-
-static int __init simpledrm_disable(char *opt)
-{
-	if (!opt)
-                return -EINVAL;
-
-	get_option(&opt, &skip_simpledrm);
-
-	if (skip_simpledrm)
-		pr_info("The simpledrm driver will not be probed\n");
-
-	return 0;
-}
-early_param("nvidia-drm.modeset", simpledrm_disable);
-
-static int __init simpledrm_disable_nosimplefb(char *opt)
-{
-	return simpledrm_disable(opt);
-}
-early_param("nosimplefb", simpledrm_disable_nosimplefb);
-
 static __init int sysfb_init(void)
 {
 	struct screen_info *si = &screen_info;
@@ -187,7 +165,7 @@ static __init int sysfb_init(void)
 
 	/* try to create a simple-framebuffer device */
 	compatible = sysfb_parse_mode(si, &mode);
-	if (compatible && !skip_simpledrm) {
+	if (compatible) {
 		pd = sysfb_create_simplefb(si, &mode, parent);
 		if (!IS_ERR(pd))
 			goto put_device;
