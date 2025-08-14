@@ -23,6 +23,7 @@
 #ifndef __DRM_FRAMEBUFFER_H__
 #define __DRM_FRAMEBUFFER_H__
 
+#include <linux/bits.h>
 #include <linux/list.h>
 #include <linux/ctype.h>
 #include <drm/drm_mode_object.h>
@@ -91,6 +92,8 @@ struct drm_framebuffer_funcs {
 		     unsigned color, struct drm_clip_rect *clips,
 		     unsigned num_clips);
 };
+
+#define DRM_FRAMEBUFFER_HAS_HANDLE_REF(_i)	BIT(16u + (_i))
 
 /**
  * struct drm_framebuffer - frame buffer object
