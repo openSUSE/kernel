@@ -4,18 +4,18 @@
 #include <linux/linkage.h>
 #include <asm/dwarf2.h>
 #include <asm/cpufeatures.h>
-#include <asm/alternative-asm.h>
+#include <asm/alternative.h>
 #include <asm/export.h>
 #include <asm/nospec-branch.h>
 #include <asm/nops.h>
 
 .macro THUNK reg
-	.section .text..__x86.indirect_thunk
-
 ENTRY(__x86_indirect_thunk_\reg)
 	CFI_STARTPROC
 	JMP_NOSPEC %\reg
 	CFI_ENDPROC
+.align 32, 0xcc		/* fill to the end of the line */
+.skip  32, 0xcc		/* skip to the next upper half */
 ENDPROC(__x86_indirect_thunk_\reg)
 .endm
 
@@ -25,28 +25,35 @@ ENDPROC(__x86_indirect_thunk_\reg)
  * only see one instance of "__x86_indirect_thunk_\reg" rather
  * than one per register with the correct names. So we do it
  * the simple and nasty way...
+ *
+ * Worse, you can only have a single EXPORT_SYMBOL per line,
+ * and CPP can't insert newlines, so we have to repeat everything
+ * at least twice.
  */
-#define __EXPORT_THUNK(sym) _ASM_NOKPROBE(sym); EXPORT_SYMBOL(sym)
-#define EXPORT_THUNK(reg) __EXPORT_THUNK(__x86_indirect_thunk_ ## reg)
-#define GENERATE_THUNK(reg) THUNK reg ; EXPORT_THUNK(reg)
 
-GENERATE_THUNK(_ASM_AX)
-GENERATE_THUNK(_ASM_BX)
-GENERATE_THUNK(_ASM_CX)
-GENERATE_THUNK(_ASM_DX)
-GENERATE_THUNK(_ASM_SI)
-GENERATE_THUNK(_ASM_DI)
-GENERATE_THUNK(_ASM_BP)
-#ifdef CONFIG_64BIT
-GENERATE_THUNK(r8)
-GENERATE_THUNK(r9)
-GENERATE_THUNK(r10)
-GENERATE_THUNK(r11)
-GENERATE_THUNK(r12)
-GENERATE_THUNK(r13)
-GENERATE_THUNK(r14)
-GENERATE_THUNK(r15)
-#endif
+#define __EXPORT_THUNK(sym)	_ASM_NOKPROBE(sym); EXPORT_SYMBOL(sym)
+#define EXPORT_THUNK(reg)	__EXPORT_THUNK(__x86_indirect_thunk_ ## reg)
+
+/* Instead of introducing a new set of thunks just ensure the existing RETPOLINE
+ * thunks are properly aligned
+ */
+	.section .text..__x86.indirect_thunk
+	.align 64, 0xcc
+	.skip 32, 0xcc
+SYM_CODE_START(__x86_indirect_its_thunk_array)
+
+#undef GEN
+#define GEN(reg) THUNK reg
+#include <asm/GEN-for-each-reg.h>
+
+	.align 64, 0xcc
+SYM_CODE_END(__x86_indirect_its_thunk_array)
+
+#undef GEN
+#define GEN(reg) EXPORT_THUNK(reg)
+#include <asm/GEN-for-each-reg.h>
+
+
 /*
  * srso_alias_untrain_ret() and srso_alias_safe_ret() are placed at
  * special addresses:
@@ -92,7 +99,6 @@ ENDPROC(srso_alias_safe_ret)
  * This function name is magical and is used by -mfunction-return=thunk-extern
  * for the compiler to generate JMPs to it.
  */
-
 	.section .text..__x86.return_thunk
 
 /*
@@ -178,6 +184,7 @@ __EXPORT_THUNK(retbleed_untrain_ret)
  * must start at a cacheline boundary.
  */
 
+
 /*
  * SRSO untraining sequence for Zen1/2, similar to retbleed_untrain_ret()
  * above. On kernel entry, srso_untrain_ret() is executed which is a
@@ -213,6 +220,8 @@ ENTRY(entry_untrain_ret)
 ENDPROC(entry_untrain_ret)
 __EXPORT_THUNK(entry_untrain_ret)
 
+.align 64, 0xcc
+.skip 32, 0xcc
 ENTRY(__x86_return_thunk)
 	UNWIND_HINT_FUNC
 	ALTERNATIVE_2 "jmp __ret", "call srso_safe_ret", X86_FEATURE_SRSO, \
@@ -220,3 +229,4 @@ ENTRY(__x86_return_thunk)
 	ud2
 ENDPROC(__x86_return_thunk)
 EXPORT_SYMBOL(__x86_return_thunk)
+
