@@ -99,7 +99,7 @@ void drm_gem_fb_destroy(struct drm_framebuffer *fb)
 	int i;
 
 	for (i = 0; i < 4; i++)
-		drm_gem_object_put_unlocked(fb->obj[i]);
+		drm_gem_object_handle_put_unlocked(fb->obj[i]);
 
 	drm_framebuffer_cleanup(fb);
 	kfree(fb);
@@ -166,17 +166,19 @@ drm_gem_fb_create_with_funcs(struct drm_device *dev, struct drm_file *file,
 		if (!objs[i]) {
 			DRM_DEBUG_KMS("Failed to lookup GEM object\n");
 			ret = -ENOENT;
-			goto err_gem_object_put;
+			goto err_gem_object_handle_put_unlocked;
 		}
+		drm_gem_object_handle_get_unlocked(objs[i]);
+		drm_gem_object_put(objs[i]);
 
 		min_size = (height - 1) * mode_cmd->pitches[i]
 			 + width * info->cpp[i]
 			 + mode_cmd->offsets[i];
 
 		if (objs[i]->size < min_size) {
-			drm_gem_object_put_unlocked(objs[i]);
+			drm_gem_object_handle_put_unlocked(objs[i]);
 			ret = -EINVAL;
-			goto err_gem_object_put;
+			goto err_gem_object_handle_put_unlocked;
 		}
 	}
 
@@ -188,9 +190,9 @@ drm_gem_fb_create_with_funcs(struct drm_device *dev, struct drm_file *file,
 
 	return fb;
 
-err_gem_object_put:
+err_gem_object_handle_put_unlocked:
 	for (i--; i >= 0; i--)
-		drm_gem_object_put_unlocked(objs[i]);
+		drm_gem_object_handle_put_unlocked(objs[i]);
 
 	return ERR_PTR(ret);
 }
