@@ -89,7 +89,7 @@ void drm_helper_mode_fill_fb_struct(struct drm_device *dev,
 		fb->offsets[i] = mode_cmd->offsets[i];
 	}
 	fb->modifier = mode_cmd->modifier[0];
-	fb->flags = mode_cmd->flags;
+	fb->flags = mode_cmd->flags & GENMASK(15, 0);
 }
 EXPORT_SYMBOL(drm_helper_mode_fill_fb_struct);
 
