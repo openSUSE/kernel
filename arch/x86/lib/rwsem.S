@@ -14,7 +14,7 @@
  */
 
 #include <linux/linkage.h>
-#include <asm/alternative-asm.h>
+#include <asm/alternative.h>
 #include <asm/frame.h>
 
 #define __ASM_HALF_REG(reg)	__ASM_SEL(reg, e##reg)
