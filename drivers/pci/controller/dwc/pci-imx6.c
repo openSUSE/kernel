@@ -674,7 +674,6 @@ static void imx6_pcie_assert_core_reset(struct imx6_pcie *imx6_pcie)
 	case IMX8MM_EP:
 	case IMX8MP:
 	case IMX8MP_EP:
-		reset_control_assert(imx6_pcie->apps_reset);
 		break;
 	case IMX6SX:
 		regmap_update_bits(imx6_pcie->iomuxc_gpr, IOMUXC_GPR12,
@@ -713,11 +712,9 @@ static int imx6_pcie_deassert_core_reset(struct imx6_pcie *imx6_pcie)
 	case IMX8MQ:
 	case IMX8MQ_EP:
 		reset_control_deassert(imx6_pcie->pciephy_reset);
-		reset_control_deassert(imx6_pcie->apps_reset);
 		break;
 	case IMX7D:
 		reset_control_deassert(imx6_pcie->pciephy_reset);
-		reset_control_deassert(imx6_pcie->apps_reset);
 
 		/* Workaround for ERR010728, failure of PCI-e PLL VCO to
 		 * oscillate, especially when cold.  This turns off "Duty-cycle
@@ -756,7 +753,6 @@ static int imx6_pcie_deassert_core_reset(struct imx6_pcie *imx6_pcie)
 	case IMX8MM_EP:
 	case IMX8MP:
 	case IMX8MP_EP:
-		reset_control_deassert(imx6_pcie->apps_reset);
 		break;
 	}
 
@@ -970,6 +966,9 @@ static int imx6_pcie_host_init(struct dw_pcie_rp *pp)
 			goto err_phy_exit;
 		}
 	}
+
+	/* Make sure that PCIe LTSSM is cleared */
+	imx6_pcie_ltssm_disable(dev);
 
 	ret = imx6_pcie_deassert_core_reset(imx6_pcie);
 	if (ret < 0) {
