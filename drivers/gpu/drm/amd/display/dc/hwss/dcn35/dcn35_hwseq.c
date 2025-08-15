@@ -965,8 +965,19 @@ void dcn35_calc_blocks_to_gate(struct dc *dc, struct dc_state *context,
 		if (pipe_ctx->plane_res.dpp || pipe_ctx->stream_res.opp)
 			update_state->pg_pipe_res_update[PG_MPCC][pipe_ctx->plane_res.mpcc_inst] = false;
 
-		if (pipe_ctx->stream_res.dsc)
+		if (pipe_ctx->stream_res.dsc) {
 			update_state->pg_pipe_res_update[PG_DSC][pipe_ctx->stream_res.dsc->inst] = false;
+			update_state->pg_pipe_res_update[PG_HUBP][pipe_ctx->stream_res.dsc->inst] = false;
+
+			/* All HUBP/DPP instances must be powered if the DSC inst != HUBP inst */
+			if (!pipe_ctx->top_pipe && pipe_ctx->plane_res.hubp &&
+				pipe_ctx->plane_res.hubp->inst != pipe_ctx->stream_res.dsc->inst) {
+				for (j = 0; j < dc->res_pool->pipe_count; ++j) {
+					update_state->pg_pipe_res_update[PG_HUBP][j] = false;
+					update_state->pg_pipe_res_update[PG_DPP][j] = false;
+				}
+			}
+		}
 
 		if (pipe_ctx->stream_res.opp)
 			update_state->pg_pipe_res_update[PG_OPP][pipe_ctx->stream_res.opp->inst] = false;
@@ -1058,6 +1069,24 @@ void dcn35_calc_blocks_to_ungate(struct dc *dc, struct dc_state *context,
 	if (hpo_frl_stream_enc_acquired || hpo_dp_stream_enc_acquired)
 		update_state->pg_res_update[PG_HPO] = true;
 
+	for (i = 0; i < dc->res_pool->pipe_count; i++) {
+		struct pipe_ctx *new_pipe = &context->res_ctx.pipe_ctx[i];
+
+		if (new_pipe->stream_res.dsc && !new_pipe->top_pipe &&
+		    update_state->pg_pipe_res_update[PG_DSC][new_pipe->stream_res.dsc->inst]) {
+			update_state->pg_pipe_res_update[PG_HUBP][new_pipe->stream_res.dsc->inst] = true;
+			update_state->pg_pipe_res_update[PG_DPP][new_pipe->stream_res.dsc->inst] = true;
+
+			/* All HUBP/DPP instances must be powered if the DSC inst != HUBP inst */
+			if (new_pipe->plane_res.hubp &&
+			    new_pipe->plane_res.hubp->inst != new_pipe->stream_res.dsc->inst) {
+				for (j = 0; j < dc->res_pool->pipe_count; ++j) {
+					update_state->pg_pipe_res_update[PG_HUBP][j] = true;
+					update_state->pg_pipe_res_update[PG_DPP][j] = true;
+				}
+			}
+		}
+	}
 }
 
 void dcn35_block_power_control(struct dc *dc,
