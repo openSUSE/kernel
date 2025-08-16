@@ -1142,6 +1142,7 @@ void smb_send_parent_lease_break_noti(struct ksmbd_file *fp,
 			atomic_inc(&opinfo->conn->r_count);
 			if (ksmbd_conn_releasing(opinfo->conn)) {
 				atomic_dec(&opinfo->conn->r_count);
+				opinfo_put(opinfo);
 				continue;
 			}
 
@@ -1184,6 +1185,7 @@ void smb_lazy_parent_lease_break_close(struct ksmbd_file *fp)
 			atomic_inc(&opinfo->conn->r_count);
 			if (ksmbd_conn_releasing(opinfo->conn)) {
 				atomic_dec(&opinfo->conn->r_count);
+				opinfo_put(opinfo);
 				continue;
 			}
 			read_unlock(&p_ci->m_lock);
@@ -1390,6 +1392,7 @@ void smb_break_all_levII_oplock(struct ksmbd_work *work, struct ksmbd_file *fp,
 		atomic_inc(&brk_op->conn->r_count);
 		if (ksmbd_conn_releasing(brk_op->conn)) {
 			atomic_dec(&brk_op->conn->r_count);
+			opinfo_put(brk_op);
 			continue;
 		}
 
