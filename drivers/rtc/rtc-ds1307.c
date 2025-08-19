@@ -1664,18 +1664,153 @@ static int ds3231_clks_register(struct ds1307 *ds1307)
 	return 0;
 }
 
+/* ds1307 RTC clock output support */
+static unsigned long ds1307_clk_rates[] = {
+	1,
+	4096,
+	8192,
+	32768,
+};
+
+static unsigned long ds1307_clk_sqw_recalc_rate(struct clk_hw *hw,
+						  unsigned long parent_rate)
+{
+	int ret;
+	unsigned int rate_id;
+	struct ds1307 *ds1307 = clk_sqw_to_ds1307(hw);
+
+	ret = regmap_read(ds1307->regmap, DS1307_REG_CONTROL, &rate_id);
+	if (ret)
+		return ret;
+
+	rate_id &= (DS1307_BIT_RS1 | DS1307_BIT_RS0);
+
+	return ds1307_clk_rates[rate_id];
+}
+
+static int ds1307_clk_sqw_determine_rate(struct clk_hw *hw,
+					 struct clk_rate_request *req)
+{
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(ds1307_clk_rates); i++) {
+		if (req->rate <= ds1307_clk_rates[i]) {
+			req->rate = ds1307_clk_rates[i];
+			return 0;
+		}
+	}
+
+	/* Default rate 1Hz */
+	req->rate = ds1307_clk_rates[0];
+
+	return 0;
+}
+
+static int ds1307_clk_sqw_set_rate(struct clk_hw *hw, unsigned long rate,
+				   unsigned long parent_rate)
+{
+	int id, ret;
+	struct ds1307 *ds1307 = clk_sqw_to_ds1307(hw);
+
+	for (id = 0; id < ARRAY_SIZE(ds1307_clk_rates); id++) {
+		if (ds1307_clk_rates[id] == rate)
+			break;
+	}
+
+	if (id >= ARRAY_SIZE(ds1307_clk_rates))
+		return -EINVAL;
+
+	ret = regmap_update_bits(ds1307->regmap, DS1307_REG_CONTROL,
+				 DS1307_BIT_RS0 | DS1307_BIT_RS1, id);
+
+	return ret;
+}
+
+static int ds1307_clk_sqw_prepare(struct clk_hw *hw)
+{
+	int ret;
+	struct ds1307 *ds1307 = clk_sqw_to_ds1307(hw);
+
+	ret = regmap_update_bits(ds1307->regmap, DS1307_REG_CONTROL,
+				 DS1307_BIT_SQWE, DS1307_BIT_SQWE);
+
+	return ret;
+}
+
+static void ds1307_clk_sqw_unprepare(struct clk_hw *hw)
+{
+	struct ds1307 *ds1307 = clk_sqw_to_ds1307(hw);
+
+	regmap_update_bits(ds1307->regmap, DS1307_REG_CONTROL,
+			   DS1307_BIT_SQWE, ~DS1307_BIT_SQWE);
+}
+
+static int ds1307_clk_sqw_is_prepared(struct clk_hw *hw)
+{
+	int ret;
+	struct ds1307 *ds1307 = clk_sqw_to_ds1307(hw);
+	unsigned int status;
+
+	ret = regmap_read(ds1307->regmap, DS1307_REG_CONTROL, &status);
+	if (ret)
+		return ret;
+
+	return !!(status & DS1307_BIT_SQWE);
+}
+
+static const struct clk_ops ds1307_clk_sqw_ops = {
+	.prepare = ds1307_clk_sqw_prepare,
+	.unprepare = ds1307_clk_sqw_unprepare,
+	.is_prepared = ds1307_clk_sqw_is_prepared,
+	.recalc_rate = ds1307_clk_sqw_recalc_rate,
+	.set_rate = ds1307_clk_sqw_set_rate,
+	.determine_rate = ds1307_clk_sqw_determine_rate,
+};
+
+static int rtc_ds1307_clks_register(struct ds1307 *ds1307)
+{
+	struct device_node *node = ds1307->dev->of_node;
+	struct clk *clk;
+	struct clk_init_data init = {0};
+
+	init.name = "ds1307_clk_sqw";
+	init.ops = &ds1307_clk_sqw_ops;
+
+	ds1307->clks[0].init = &init;
+
+	/* Register the clock with CCF */
+	clk = devm_clk_register(ds1307->dev, &ds1307->clks[0]);
+	if (IS_ERR(clk))
+		return PTR_ERR(clk);
+
+	if (node)
+		of_clk_add_provider(node, of_clk_src_simple_get, clk);
+
+	return 0;
+}
+
 static void ds1307_clks_register(struct ds1307 *ds1307)
 {
 	int ret;
 
-	if (ds1307->type != ds_3231)
-		return;
+	switch (ds1307->type) {
+	case ds_3231:
+		ret = ds3231_clks_register(ds1307);
+		break;
 
-	ret = ds3231_clks_register(ds1307);
+	case ds_1307:
+		ret = rtc_ds1307_clks_register(ds1307);
+		break;
+
+	default:
+		return;
+	}
+
 	if (ret) {
 		dev_warn(ds1307->dev, "unable to register clock device %d\n",
 			 ret);
 	}
+
 }
 
 #else
