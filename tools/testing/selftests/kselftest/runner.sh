@@ -6,9 +6,11 @@ export skip_rc=4
 export timeout_rc=124
 export logfile=/dev/stdout
 export per_test_logging=
+export RUN_IN_NETNS=
 
 # Defaults for "settings" file fields:
-# "timeout" how many seconds to let each test run before failing.
+# "timeout" how many seconds to let each test run before running
+# over our soft timeout limit.
 export kselftest_default_timeout=45
 
 # There isn't a shell-agnostic way to find the path of a sourced file,
@@ -46,7 +48,7 @@ run_one()
 {
 	DIR="$1"
 	TEST="$2"
-	NUM="$3"
+	local test_num="$3"
 
 	BASENAME_TEST=$(basename $TEST)
 
@@ -91,6 +93,14 @@ run_one()
 		done < "$settings"
 	fi
 
+	# Command line timeout overrides the settings file
+	if [ -n "$kselftest_override_timeout" ]; then
+		kselftest_timeout="$kselftest_override_timeout"
+		echo "# overriding timeout to $kselftest_timeout" >> "$logfile"
+	else
+		echo "# timeout set to $kselftest_timeout" >> "$logfile"
+	fi
+
 	TEST_HDR_MSG="selftests: $DIR: $BASENAME_TEST"
 	echo "# $TEST_HDR_MSG"
 	if [ ! -e "$TEST" ]; then
@@ -129,6 +139,33 @@ run_one()
 	fi
 }
 
+in_netns()
+{
+	local name=$1
+	ip netns exec $name bash <<-EOF
+		BASE_DIR=$BASE_DIR
+		source $BASE_DIR/kselftest/runner.sh
+		logfile=$logfile
+		run_one $DIR $TEST $test_num
+	EOF
+}
+
+run_in_netns()
+{
+	local netns=$(mktemp -u ${BASENAME_TEST}-XXXXXX)
+	local tmplog="/tmp/$(mktemp -u ${BASENAME_TEST}-XXXXXX)"
+	ip netns add $netns
+	if [ $? -ne 0 ]; then
+		echo "# Warning: Create namespace failed for $BASENAME_TEST"
+		echo "not ok $test_num selftests: $DIR: $BASENAME_TEST # Create NS failed"
+	fi
+	ip -n $netns link set lo up
+	in_netns $netns &> $tmplog
+	ip netns del $netns &> /dev/null
+	cat $tmplog
+	rm -f $tmplog
+}
+
 run_many()
 {
 	echo "TAP version 13"
@@ -143,6 +180,12 @@ run_many()
 			logfile="/tmp/$BASENAME_TEST"
 			cat /dev/null > "$logfile"
 		fi
-		run_one "$DIR" "$TEST" "$test_num"
+		if [ -n "$RUN_IN_NETNS" ]; then
+			run_in_netns &
+		else
+			run_one "$DIR" "$TEST" "$test_num"
+		fi
 	done
+
+	wait
 }
