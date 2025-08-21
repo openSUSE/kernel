@@ -407,9 +407,10 @@ struct mptcp_sock {
 
 /* Check that layout of previously existing members of struct mptcp_sock is
  * preserved. This check will fail on 32-bit architectures (armv7) but we
- * don't have to preserve kABI there.
+ * don't have to preserve kABI there. And it also fails in some kernel-debug
+ * builds where we don't care about kABI either.
  */
-#if (__SIZEOF_LONG__ > 4)
+#if (defined(CONFIG_SUSE_KERNEL_SUPPORTED) && __SIZEOF_LONG__ > 4)
 static_assert(sizeof(struct mptcp_sock) == sizeof(struct __orig_mptcp_sock));
 static_assert(offsetof(struct mptcp_sock, last_snd) == offsetof(struct __orig_mptcp_sock, last_snd));
 #endif
