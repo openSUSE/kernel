@@ -45,7 +45,6 @@ void gdc_lut_store(const gdc_ID_t ID, const int data[4][HRT_GDC_N])
 		gdc_reg_store(ID, lut_offset++, word_0);
 		gdc_reg_store(ID, lut_offset++, word_1);
 	}
-	return;
 }
 
 /*
