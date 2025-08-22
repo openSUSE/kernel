@@ -199,6 +199,9 @@ struct tee_shm *tee_shm_register(struct tee_context *ctx, unsigned long addr,
 	if (flags != req_flags)
 		return ERR_PTR(-ENOTSUPP);
 
+	if (!access_ok(VERIFY_WRITE, (void __user *)addr, length))
+		return ERR_PTR(-EFAULT);
+
 	if (!tee_device_get(teedev))
 		return ERR_PTR(-EINVAL);
 
