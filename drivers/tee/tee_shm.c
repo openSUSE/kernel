@@ -18,6 +18,7 @@
 #include <linux/sched.h>
 #include <linux/slab.h>
 #include <linux/tee_drv.h>
+#include <linux/uaccess.h>
 #include "tee_private.h"
 
 static void tee_shm_release(struct tee_device *teedev, struct tee_shm *shm)
