@@ -2263,6 +2263,9 @@ struct vfsmount *clone_private_mount(const struct path *path)
 	if (!check_mnt(old_mnt))
 		goto invalid;
 
+	if (!ns_capable(old_mnt->mnt_ns->user_ns, CAP_SYS_ADMIN))
+		goto perm;
+
 	if (has_locked_children(old_mnt, path->dentry))
 		goto invalid;
 
@@ -2280,6 +2283,10 @@ struct vfsmount *clone_private_mount(const struct path *path)
 invalid:
 	up_read(&namespace_sem);
 	return ERR_PTR(-EINVAL);
+
+perm:
+	up_read(&namespace_sem);
+	return ERR_PTR(-EPERM);
 }
 EXPORT_SYMBOL_GPL(clone_private_mount);
 
