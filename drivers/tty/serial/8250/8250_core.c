@@ -394,6 +394,11 @@ static void univ8250_console_write_atomic(struct console *co,
 	struct uart_8250_port *up = &serial8250_ports[co->index];
 
 	serial8250_console_write(up, wctxt, true);
+	/*
+	 * It might take seconds to flush all pending messages
+	 * on a slow serial console.
+	 */
+	touch_nmi_watchdog();
 }
 
 static void univ8250_console_write_thread(struct console *co,
