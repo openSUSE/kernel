@@ -2004,7 +2004,7 @@ again:
 					&cached_state);
 	if (ret2) {
 		unlock_extent(io_tree, page_start, page_end, &cached_state);
-		ret = VM_FAULT_SIGBUS;
+		ret = vmf_error(ret2);
 		goto out_unlock;
 	}
 
