@@ -626,8 +626,10 @@ void tipc_server_stop(struct tipc_server *s)
 	for (id = 0; s->idr_in_use; id++) {
 		con = idr_find(&s->conn_idr, id);
 		if (con) {
+			conn_get(con);
 			spin_unlock_bh(&s->idr_lock);
 			tipc_close_conn(con);
+			conn_put(con);
 			spin_lock_bh(&s->idr_lock);
 		}
 	}
