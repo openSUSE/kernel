@@ -18,6 +18,7 @@
 #include <linux/sched.h>
 #include <linux/slab.h>
 #include <linux/tee_drv.h>
+#include <linux/uaccess.h>
 #include "tee_private.h"
 
 static void tee_shm_release(struct tee_device *teedev, struct tee_shm *shm)
@@ -198,6 +199,9 @@ struct tee_shm *tee_shm_register(struct tee_context *ctx, unsigned long addr,
 
 	if (flags != req_flags)
 		return ERR_PTR(-ENOTSUPP);
+
+	if (!access_ok(VERIFY_WRITE, (void __user *)addr, length))
+		return ERR_PTR(-EFAULT);
 
 	if (!tee_device_get(teedev))
 		return ERR_PTR(-EINVAL);
