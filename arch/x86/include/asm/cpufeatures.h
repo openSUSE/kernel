@@ -397,6 +397,7 @@
 #define X86_FEATURE_BHI_CTRL		X86_EXT_FEATURE(22*32+ 1) /* "" BHI_DIS_S HW control available */
 #define X86_FEATURE_CLEAR_BHB_HW	X86_EXT_FEATURE(22*32+ 2) /* "" BHI_DIS_S HW control enabled */
 #define X86_FEATURE_CLEAR_BHB_LOOP_ON_VMEXIT X86_EXT_FEATURE(22*32+ 3) /* "" Clear branch history at vmexit using SW loop */
+#define X86_FEATURE_IBPB_EXIT_TO_USER	X86_EXT_FEATURE(21*32+14) /* "" Use IBPB on exit-to-userspace, see VMSCAPE bug */
 
 /*
  * BUG word(s)
