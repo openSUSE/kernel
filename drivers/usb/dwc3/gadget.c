@@ -2492,7 +2492,6 @@ static int dwc3_gadget_init_out_endpoint(struct dwc3_ep *dep)
 	struct dwc3 *dwc = dep->dwc;
 	int mdwidth;
 	int size;
-	int maxpacket;
 
 	mdwidth = DWC3_MDWIDTH(dwc->hwparams.hwparams0);
 
