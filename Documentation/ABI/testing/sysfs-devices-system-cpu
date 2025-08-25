@@ -388,6 +388,7 @@ What:		/sys/devices/system/cpu/vulnerabilities
 		/sys/devices/system/cpu/vulnerabilities/itlb_multihit
 		/sys/devices/system/cpu/vulnerabilities/mmio_stale_data
 		/sys/devices/system/cpu/vulnerabilities/reg_file_data_sampling
+		/sys/devices/system/cpu/vulnerabilities/vmscape
 
 Date:		January 2018
 Contact:	Linux kernel mailing list <linux-kernel@vger.kernel.org>
