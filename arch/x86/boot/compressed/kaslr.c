@@ -24,7 +24,9 @@
  * While both lib/ctype.c and lib/cmdline.c will bring EXPORT_SYMBOL
  * which is meaningless and will cause compiling error in some cases.
  */
+#ifndef __DISABLE_EXPORTS
 #define __DISABLE_EXPORTS
+#endif
 
 #include "misc.h"
 #include "error.h"
