@@ -86,7 +86,7 @@ int smb3_get_sign_key(__u64 ses_id, struct TCP_Server_Info *server, u8 *key)
 	spin_lock(&cifs_tcp_ses_lock);
 
 	/* If server is a channel, select the primary channel */
-	pserver = CIFS_SERVER_IS_CHAN(server) ? server->primary_server : server;
+	pserver = SERVER_IS_CHAN(server) ? server->primary_server : server;
 
 	list_for_each_entry(ses, &pserver->smb_ses_list, smb_ses_list) {
 		if (ses->Suid == ses_id)
@@ -149,7 +149,7 @@ smb2_find_smb_ses_unlocked(struct TCP_Server_Info *server, __u64 ses_id)
 	struct cifs_ses *ses;
 
 	/* If server is a channel, select the primary channel */
-	pserver = CIFS_SERVER_IS_CHAN(server) ? server->primary_server : server;
+	pserver = SERVER_IS_CHAN(server) ? server->primary_server : server;
 
 	list_for_each_entry(ses, &pserver->smb_ses_list, smb_ses_list) {
 		if (ses->Suid != ses_id)
@@ -174,7 +174,7 @@ static int smb2_get_sign_key(struct TCP_Server_Info *server,
 	struct cifs_ses *ses;
 	int rc = -ENOENT;
 
-	if (CIFS_SERVER_IS_CHAN(server))
+	if (SERVER_IS_CHAN(server))
 		server = server->primary_server;
 
 	spin_lock(&cifs_tcp_ses_lock);
@@ -263,7 +263,7 @@ smb2_calc_signature(struct smb_rqst *rqst, struct TCP_Server_Info *server,
 	struct smb_rqst drqst;
         __u64 sid = le64_to_cpu(shdr->SessionId);
         u8 key[SMB2_NTLMV2_SESSKEY_SIZE];
- 
+
         rc = smb2_get_sign_key(server, sid, key);
         if (unlikely(rc)) {
         	cifs_server_dbg(FYI, "%s: [sesid=0x%llx] couldn't find signing key: %d\n",

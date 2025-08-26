@@ -199,7 +199,11 @@ struct audit_context {
 			int			argc;
 		} execve;
 		struct {
+#ifndef __GENKSYMS__
+			const char		*name;
+#else
 			char			*name;
+#endif
 		} module;
 		struct {
 			struct audit_ntp_data	ntp_data;
