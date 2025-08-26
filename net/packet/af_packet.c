@@ -2567,9 +2567,9 @@ static int packet_set_ring(struct sock *sk, struct tpacket_req *req,
 	spin_lock(&po->bind_lock);
 	was_running = po->running;
 	num = po->num;
+	po->num = 0;
 	if (was_running) {
 		__dev_remove_pack(&po->prot_hook);
-		po->num = 0;
 		po->running = 0;
 		__sock_put(sk);
 	}
@@ -2602,10 +2602,10 @@ static int packet_set_ring(struct sock *sk, struct tpacket_req *req,
 	mutex_unlock(&po->pg_vec_lock);
 
 	spin_lock(&po->bind_lock);
+	po->num = num;
 	if (was_running && !po->running) {
 		sock_hold(sk);
 		po->running = 1;
-		po->num = num;
 		dev_add_pack(&po->prot_hook);
 	}
 	spin_unlock(&po->bind_lock);
