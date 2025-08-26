@@ -1584,10 +1584,8 @@ struct bpf_link {
 #endif
 };
 
-#ifndef __GENKSYMS__
 /* Make sure the anonymous union above is not larger than before */
 suse_kabi_static_assert(sizeof(struct rcu_head) <= sizeof(struct work_struct));
-#endif
 
 struct bpf_link_ops {
 	void (*release)(struct bpf_link *link);

@@ -75,9 +75,7 @@ struct __orig_page_counter {
 	struct page_counter *parent;
 } ____cacheline_internodealigned_in_smp;
 
-#ifndef CONFIG_ARM
 suse_kabi_static_assert(sizeof(struct __orig_page_counter) == sizeof(struct page_counter));
-#endif
 
 #if BITS_PER_LONG == 32
 #define PAGE_COUNTER_MAX LONG_MAX

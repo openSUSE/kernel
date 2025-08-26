@@ -474,12 +474,10 @@ struct __orig_mem_cgroup {
 	struct mem_cgroup_per_node *nodeinfo[];
 };
 
-#ifdef CONFIG_SUSE_HAVE_STABLE_KABI
 suse_kabi_static_assert(offsetof(struct mem_cgroup, move_lock_flags) ==
 	      offsetof(struct __orig_mem_cgroup, move_lock_flags));
 suse_kabi_static_assert(offsetof(struct mem_cgroup, _pad1_) ==
 	      offsetof(struct __orig_mem_cgroup, _pad1_));
-#endif
 /*
  * size of first charge trial.
  * TODO: maybe necessary to use big numbers in big irons or dynamic based of the

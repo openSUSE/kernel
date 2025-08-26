@@ -52,7 +52,6 @@ struct ism_dev {
 	struct ism_client *subs[MAX_CLIENTS];
 };
 
-#if defined(__s390x__)
 struct ___ism_dev {
 	spinlock_t lock; /* protects the ism device */
 	struct list_head list;
@@ -62,7 +61,6 @@ suse_kabi_static_assert(offsetof(struct ism_dev, lock) ==
 	      offsetof(struct ___ism_dev, lock));
 suse_kabi_static_assert(offsetof(struct ism_dev, list) ==
 	      offsetof(struct ___ism_dev, list));
-#endif
 
 struct ism_event {
 	u32 type;

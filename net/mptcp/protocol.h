@@ -410,10 +410,8 @@ struct mptcp_sock {
  * don't have to preserve kABI there. And it also fails in some kernel-debug
  * builds where we don't care about kABI either.
  */
-#if (defined(CONFIG_SUSE_KERNEL_SUPPORTED) && __SIZEOF_LONG__ > 4)
 suse_kabi_static_assert(sizeof(struct mptcp_sock) == sizeof(struct __orig_mptcp_sock));
 suse_kabi_static_assert(offsetof(struct mptcp_sock, last_snd) == offsetof(struct __orig_mptcp_sock, last_snd));
-#endif
 
 #define mptcp_data_lock(sk) spin_lock_bh(&(sk)->sk_lock.slock)
 #define mptcp_data_unlock(sk) spin_unlock_bh(&(sk)->sk_lock.slock)
