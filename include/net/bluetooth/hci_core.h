@@ -365,7 +365,6 @@ struct hci_dev {
 	struct hci_conn_hash	conn_hash;
 
 	struct list_head	mgmt_pending;
-	struct mutex		mgmt_pending_lock;
 	struct list_head	blacklist;
 	struct list_head	whitelist;
 	struct list_head	uuids;
@@ -424,6 +423,9 @@ struct hci_dev {
 	int (*post_init)(struct hci_dev *hdev);
 	int (*set_diag)(struct hci_dev *hdev, bool enable);
 	int (*set_bdaddr)(struct hci_dev *hdev, const bdaddr_t *bdaddr);
+#ifndef __GENKSYMS__
+	struct mutex mgmt_pending_lock;
+#endif
 };
 
 #define HCI_PHY_HANDLE(handle)	(handle & 0xff)
