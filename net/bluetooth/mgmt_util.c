@@ -255,6 +255,7 @@ struct mgmt_pending_cmd *mgmt_pending_add(struct sock *sk, u16 opcode,
 
 	cmd->opcode = opcode;
 	cmd->hdev = hdev;
+	cmd->index = 0;
 
 	cmd->param = kmemdup(data, len, GFP_KERNEL);
 	if (!cmd->param) {

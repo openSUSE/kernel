@@ -23,12 +23,15 @@
 struct mgmt_pending_cmd {
 	struct list_head list;
 	u16 opcode;
-	struct hci_dev *hdev;
+	int index; /* dummy for kABI */
 	void *param;
 	size_t param_len;
 	struct sock *sk;
 	void *user_data;
 	int (*cmd_complete)(struct mgmt_pending_cmd *cmd, u8 status);
+#ifndef __GENKSYMS__
+	struct hci_dev *hdev;
+#endif
 };
 
 int mgmt_send_event(u16 event, struct hci_dev *hdev, unsigned short channel,
