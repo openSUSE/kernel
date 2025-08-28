@@ -863,8 +863,6 @@ ext4_xattr_block_set(handle_t *handle, struct inode *inode,
 			 * ext4_xattr_block_set() to reliably detect modified
 			 * block
 			 */
-			mb_cache_entry_delete_block(ext4_mb_cache, hash,
-						    bs->bh->b_blocknr);
 			oe = mb_cache_entry_delete_or_get(ext4_mb_cache,
 					hash, bs->bh->b_blocknr);
 			if (oe) {
