@@ -710,8 +710,13 @@ struct hid_descriptor {
 	__le16 bcdHID;
 	__u8  bCountryCode;
 	__u8  bNumDescriptors;
+#ifndef __GENKSYMS__
+	struct hid_class_descriptor rpt_desc;
 
+	struct hid_class_descriptor opt_descs[];
+#else
 	struct hid_class_descriptor desc[1];
+#endif
 } __attribute__ ((packed));
 
 #define HID_DEVICE(b, g, ven, prod)					\
