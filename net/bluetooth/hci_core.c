@@ -629,7 +629,7 @@ static int hci_init3_req(struct hci_request *req, unsigned long opt)
 			events[0] |= 0x40;	/* LE Data Length Change */
 
 		/* If the controller supports Extended Scanner Filter
-		 * Policies, enable the correspondig event.
+		 * Policies, enable the corresponding event.
 		 */
 		if (hdev->le_features[0] & HCI_LE_EXT_SCAN_POLICY)
 			events[1] |= 0x04;	/* LE Direct Advertising
@@ -1323,7 +1323,7 @@ static int hci_dev_do_open(struct hci_dev *hdev)
 		}
 
 		/* Check for valid public address or a configured static
-		 * random adddress, but let the HCI setup proceed to
+		 * random address, but let the HCI setup proceed to
 		 * be able to determine if there is a public address
 		 * or not.
 		 *
@@ -2902,7 +2902,7 @@ void hci_conn_params_clear_disabled(struct hci_dev *hdev)
 		if (params->auto_connect != HCI_AUTO_CONN_DISABLED)
 			continue;
 
-		/* If trying to estabilish one time connection to disabled
+		/* If trying to establish one time connection to disabled
 		 * device, leave the params, but mark them as just once.
 		 */
 		if (params->explicit_connect) {
@@ -3003,6 +3003,7 @@ struct hci_dev *hci_alloc_dev(void)
 
 	mutex_init(&hdev->lock);
 	mutex_init(&hdev->req_lock);
+	mutex_init(&hdev->mgmt_pending_lock);
 
 	INIT_LIST_HEAD(&hdev->mgmt_pending);
 	INIT_LIST_HEAD(&hdev->blacklist);
@@ -3435,7 +3436,7 @@ void *hci_sent_cmd_data(struct hci_dev *hdev, __u16 opcode)
 	return hdev->sent_cmd->data + HCI_COMMAND_HDR_SIZE;
 }
 
-/* Send HCI command and wait for command commplete event */
+/* Send HCI command and wait for command complete event */
 struct sk_buff *hci_cmd_sync(struct hci_dev *hdev, u16 opcode, u32 plen,
 			     const void *param, u32 timeout)
 {

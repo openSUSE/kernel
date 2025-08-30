@@ -423,6 +423,9 @@ struct hci_dev {
 	int (*post_init)(struct hci_dev *hdev);
 	int (*set_diag)(struct hci_dev *hdev, bool enable);
 	int (*set_bdaddr)(struct hci_dev *hdev, const bdaddr_t *bdaddr);
+#ifndef __GENKSYMS__
+	struct mutex mgmt_pending_lock;
+#endif
 };
 
 #define HCI_PHY_HANDLE(handle)	(handle & 0xff)
