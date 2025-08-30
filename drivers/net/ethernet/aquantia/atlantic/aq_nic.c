@@ -174,12 +174,10 @@ err_exit:
 static void aq_nic_polling_timer_cb(unsigned long param)
 {
 	struct aq_nic_s *self = (struct aq_nic_s *)param;
-	struct aq_vec_s *aq_vec = NULL;
 	unsigned int i = 0U;
 
-	for (i = 0U, aq_vec = self->aq_vec[0];
-		self->aq_vecs > i; ++i, aq_vec = self->aq_vec[i])
-		aq_vec_isr(i, (void *)aq_vec);
+	for (i = 0U; self->aq_vecs > i; ++i)
+		aq_vec_isr(i, (void *)self->aq_vec[i]);
 
 	mod_timer(&self->polling_timer, jiffies +
 		AQ_CFG_POLLING_TIMER_INTERVAL);
@@ -365,7 +363,6 @@ struct net_device *aq_nic_get_ndev(struct aq_nic_s *self)
 
 int aq_nic_init(struct aq_nic_s *self)
 {
-	struct aq_vec_s *aq_vec = NULL;
 	int err = 0;
 	unsigned int i = 0U;
 
@@ -379,9 +376,8 @@ int aq_nic_init(struct aq_nic_s *self)
 	if (err < 0)
 		goto err_exit;
 
-	for (i = 0U, aq_vec = self->aq_vec[0];
-		self->aq_vecs > i; ++i, aq_vec = self->aq_vec[i])
-		aq_vec_init(aq_vec, &self->aq_hw_ops, self->aq_hw);
+	for (i = 0U; self->aq_vecs > i; ++i)
+		aq_vec_init(self->aq_vec[i], &self->aq_hw_ops, self->aq_hw);
 
 err_exit:
 	return err;
@@ -399,7 +395,6 @@ void aq_nic_ndev_queue_stop(struct aq_nic_s *self, unsigned int idx)
 
 int aq_nic_start(struct aq_nic_s *self)
 {
-	struct aq_vec_s *aq_vec = NULL;
 	int err = 0;
 	unsigned int i = 0U;
 
@@ -414,9 +409,8 @@ int aq_nic_start(struct aq_nic_s *self)
 	if (err < 0)
 		goto err_exit;
 
-	for (i = 0U, aq_vec = self->aq_vec[0];
-		self->aq_vecs > i; ++i, aq_vec = self->aq_vec[i]) {
-		err = aq_vec_start(aq_vec);
+	for (i = 0U; self->aq_vecs > i; ++i) {
+		err = aq_vec_start(self->aq_vec[i]);
 		if (err < 0)
 			goto err_exit;
 	}
@@ -440,11 +434,10 @@ int aq_nic_start(struct aq_nic_s *self)
 		mod_timer(&self->polling_timer, jiffies +
 			  AQ_CFG_POLLING_TIMER_INTERVAL);
 	} else {
-		for (i = 0U, aq_vec = self->aq_vec[0];
-			self->aq_vecs > i; ++i, aq_vec = self->aq_vec[i]) {
+		for (i = 0U; self->aq_vecs > i; ++i) {
 			err = aq_pci_func_alloc_irq(self->aq_pci_func, i,
-						    self->ndev->name, aq_vec,
-					aq_vec_get_affinity_mask(aq_vec));
+						    self->ndev->name, self->aq_vec[i],
+					aq_vec_get_affinity_mask(self->aq_vec[i]));
 			if (err < 0)
 				goto err_exit;
 		}
@@ -455,8 +448,7 @@ int aq_nic_start(struct aq_nic_s *self)
 			goto err_exit;
 	}
 
-	for (i = 0U, aq_vec = self->aq_vec[0];
-		self->aq_vecs > i; ++i, aq_vec = self->aq_vec[i])
+	for (i = 0U; self->aq_vecs > i; ++i)
 		aq_nic_ndev_queue_start(self, i);
 
 	err = netif_set_real_num_tx_queues(self->ndev, self->aq_vecs);
@@ -719,7 +711,6 @@ int aq_nic_get_regs_count(struct aq_nic_s *self)
 
 void aq_nic_get_stats(struct aq_nic_s *self, u64 *data)
 {
-	struct aq_vec_s *aq_vec = NULL;
 	unsigned int i = 0U;
 	unsigned int count = 0U;
 	int err = 0;
@@ -731,10 +722,11 @@ void aq_nic_get_stats(struct aq_nic_s *self, u64 *data)
 	data += count;
 	count = 0U;
 
-	for (i = 0U, aq_vec = self->aq_vec[0];
-		aq_vec && self->aq_vecs > i; ++i, aq_vec = self->aq_vec[i]) {
+	for (i = 0U; self->aq_vecs > i; ++i) {
+		if (!self->aq_vec[i])
+			break;
 		data += count;
-		aq_vec_get_sw_stats(aq_vec, data, &count);
+		aq_vec_get_sw_stats(self->aq_vec[i], data, &count);
 	}
 
 err_exit:;
@@ -883,11 +875,9 @@ u32 aq_nic_get_fw_version(struct aq_nic_s *self)
 
 int aq_nic_stop(struct aq_nic_s *self)
 {
-	struct aq_vec_s *aq_vec = NULL;
 	unsigned int i = 0U;
 
-	for (i = 0U, aq_vec = self->aq_vec[0];
-		self->aq_vecs > i; ++i, aq_vec = self->aq_vec[i])
+	for (i = 0U; self->aq_vecs > i; ++i)
 		aq_nic_ndev_queue_stop(self, i);
 
 	del_timer_sync(&self->service_timer);
@@ -899,24 +889,21 @@ int aq_nic_stop(struct aq_nic_s *self)
 	else
 		aq_pci_func_free_irqs(self->aq_pci_func);
 
-	for (i = 0U, aq_vec = self->aq_vec[0];
-		self->aq_vecs > i; ++i, aq_vec = self->aq_vec[i])
-		aq_vec_stop(aq_vec);
+	for (i = 0U; self->aq_vecs > i; ++i)
+		aq_vec_stop(self->aq_vec[i]);
 
 	return self->aq_hw_ops.hw_stop(self->aq_hw);
 }
 
 void aq_nic_deinit(struct aq_nic_s *self)
 {
-	struct aq_vec_s *aq_vec = NULL;
 	unsigned int i = 0U;
 
 	if (!self)
 		goto err_exit;
 
-	for (i = 0U, aq_vec = self->aq_vec[0];
-		self->aq_vecs > i; ++i, aq_vec = self->aq_vec[i])
-		aq_vec_deinit(aq_vec);
+	for (i = 0U; self->aq_vecs > i; ++i)
+		aq_vec_deinit(self->aq_vec[i]);
 
 	if (self->power_state == AQ_HW_POWER_STATE_D0) {
 		(void)self->aq_hw_ops.hw_deinit(self->aq_hw);
