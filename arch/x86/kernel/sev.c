@@ -704,11 +704,13 @@ static u64 __init get_jump_table_addr(void)
 static void early_set_pages_state(unsigned long vaddr, unsigned long paddr,
 				  unsigned long npages, enum psc_op op)
 {
-	unsigned long paddr_end;
+	unsigned long vaddr_begin, paddr_end;
 	u64 val;
 	int ret;
 
 	vaddr = vaddr & PAGE_MASK;
+
+	vaddr_begin = vaddr;
 
 	paddr = paddr & PAGE_MASK;
 	paddr_end = paddr + (npages << PAGE_SHIFT);
@@ -751,6 +753,13 @@ static void early_set_pages_state(unsigned long vaddr, unsigned long paddr,
 		vaddr += PAGE_SIZE;
 		paddr += PAGE_SIZE;
 	}
+
+	/*
+	 * If validating memory (making it private) and affected by the
+	 * cache-coherency vulnerability, perform the cache eviction mitigation.
+	 */
+	if (op == SNP_PAGE_STATE_PRIVATE && !cpu_feature_enabled(X86_FEATURE_COHERENCY_SFW_NO))
+		sev_evict_cache((void *)vaddr_begin, npages);
 
 	return;
 
