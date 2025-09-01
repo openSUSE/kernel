@@ -17,6 +17,8 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#define pr_fmt(fmt)	"UDC core: " fmt
+
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/device.h>
