@@ -1448,7 +1448,6 @@ struct kvm_arch {
 	bool x2apic_format;
 	bool x2apic_broadcast_quirk_disabled;
 
-	bool has_mapped_host_mmio;
 	bool guest_can_read_msr_platform_info;
 	bool exception_payload_enabled;
 
@@ -1456,6 +1455,9 @@ struct kvm_arch {
 
 	bool bus_lock_detection_enabled;
 	bool enable_pmu;
+#ifndef __GENKSYMS__
+	bool has_mapped_host_mmio;
+#endif
 
 	u32 notify_window;
 	u32 notify_vmexit_flags;
