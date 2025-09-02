@@ -74,6 +74,8 @@
 #include "vmx_onhyperv.h"
 #include "posted_intr.h"
 
+#include "mmu/spte.h"
+
 MODULE_AUTHOR("Qumranet");
 MODULE_DESCRIPTION("KVM support for VMX (Intel VT-x) extensions");
 MODULE_LICENSE("GPL");
@@ -959,6 +961,10 @@ unsigned int __vmx_vcpu_run_flags(struct vcpu_vmx *vmx)
 	 */
 	if (!msr_write_intercepted(vmx, MSR_IA32_SPEC_CTRL))
 		flags |= VMX_RUN_SAVE_SPEC_CTRL;
+
+	if (static_branch_unlikely(&cpu_buf_vm_clear) &&
+	    kvm_vcpu_can_access_host_mmio(&vmx->vcpu))
+		flags |= VMX_RUN_CLEAR_CPU_BUFFERS_FOR_MMIO;
 
 	return flags;
 }
@@ -7251,7 +7257,7 @@ static noinstr void vmx_vcpu_enter_exit(struct kvm_vcpu *vcpu,
 	if (static_branch_unlikely(&vmx_l1d_should_flush))
 		vmx_l1d_flush(vcpu);
 	else if (static_branch_unlikely(&cpu_buf_vm_clear) &&
-		 kvm_arch_has_assigned_device(vcpu->kvm))
+		 (flags & VMX_RUN_CLEAR_CPU_BUFFERS_FOR_MMIO))
 		mds_clear_cpu_buffers();
 
 	vmx_disable_fb_clear(vmx);
@@ -7284,8 +7290,9 @@ out:
 	guest_state_exit_irqoff();
 }
 
-fastpath_t vmx_vcpu_run(struct kvm_vcpu *vcpu, bool force_immediate_exit)
+fastpath_t vmx_vcpu_run(struct kvm_vcpu *vcpu, u64 run_flags)
 {
+	bool force_immediate_exit = run_flags & KVM_RUN_FORCE_IMMEDIATE_EXIT;
 	struct vcpu_vmx *vmx = to_vmx(vcpu);
 	unsigned long cr3, cr4;
 
