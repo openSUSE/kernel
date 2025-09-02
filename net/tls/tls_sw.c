@@ -1799,11 +1799,10 @@ int tls_sw_recvmsg(struct sock *sk,
 	if (err < 0) {
 		tls_err_abort(sk, err);
 		goto end;
-	} else {
-		copied = err;
 	}
 
-	if (len <= copied)
+	copied = err;
+	if (len <= copied || (copied && control != TLS_RECORD_TYPE_DATA))
 		goto recv_end;
 
 	target = sock_rcvlowat(sk, flags & MSG_WAITALL, len);
