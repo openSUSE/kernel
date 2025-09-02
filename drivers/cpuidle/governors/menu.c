@@ -225,8 +225,6 @@ static int menu_select(struct cpuidle_driver *drv, struct cpuidle_device *dev,
 		data->needs_update = 0;
 	}
 
-	nr_iowaiters = nr_iowait_cpu(dev->cpu);
-
 	/* Find the shortest expected idle interval. */
 	predicted_ns = get_typical_interval(data) * NSEC_PER_USEC;
 	if (predicted_ns > RESIDENCY_THRESHOLD_NS) {
@@ -274,8 +272,11 @@ static int menu_select(struct cpuidle_driver *drv, struct cpuidle_device *dev,
 		return 0;
 	}
 
-	if (!tick_nohz_tick_stopped() && latency_req > predicted_ns)
+	if (!tick_nohz_tick_stopped() && latency_req > predicted_ns) {
 		latency_req = predicted_ns;
+	}
+
+	nr_iowaiters = nr_iowait_cpu(dev->cpu);
 
 	/*
 	 * Find the idle state with the lowest power while satisfying
@@ -290,12 +291,6 @@ static int menu_select(struct cpuidle_driver *drv, struct cpuidle_device *dev,
 
 		if (idx == -1)
 			idx = i; /* first enabled state */
-
-		/* Use the first non-polling c-state if there are IO waiters. */
-		if (idx >= 0 && nr_iowaiters &&
-		    !(drv->states[idx].flags & CPUIDLE_FLAG_POLLING)) {
-			return idx;
-		}
 
 		if (s->target_residency_ns > predicted_ns) {
 			/*
@@ -330,13 +325,17 @@ static int menu_select(struct cpuidle_driver *drv, struct cpuidle_device *dev,
 			 * stuck in the shallow one for too long.
 			 */
 			if (drv->states[idx].target_residency_ns < TICK_NSEC &&
-			    s->target_residency_ns <= delta_tick) {
+			    s->target_residency_ns <= delta_tick)
 				idx = i;
-			}
 
 			return idx;
 		}
 		if (s->exit_latency_ns > latency_req)
+			break;
+
+		/* Use the first non-polling c-state if there are IO waiters. */
+		if (nr_iowaiters &&
+		    !(drv->states[idx].flags & CPUIDLE_FLAG_POLLING))
 			break;
 
 		idx = i;
@@ -352,12 +351,8 @@ static int menu_select(struct cpuidle_driver *drv, struct cpuidle_device *dev,
 	if (((drv->states[idx].flags & CPUIDLE_FLAG_POLLING) ||
 	     predicted_ns < TICK_NSEC)) {
 		*stop_tick = false;
-		int is_deepest;
 
-		if (drv->states[idx+1].enter == NULL)
-			is_deepest = 1;
-
-		if (idx > 0 && (is_deepest || drv->states[idx].target_residency_ns > delta_tick)) {
+		if (idx > 0 && drv->states[idx].target_residency_ns > delta_tick) {
 			/*
 			 * The tick is not going to be stopped and the target
 			 * residency of the state to be returned is not within
