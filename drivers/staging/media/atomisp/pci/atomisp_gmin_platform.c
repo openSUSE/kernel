@@ -1416,13 +1416,13 @@ static int gmin_get_config_var(struct device *maindev,
 					  (unsigned long *)out_len, out);
 	if (status == EFI_SUCCESS) {
 		dev_info(maindev, "found EFI entry for '%s'\n", var8);
-	} else if (is_gmin) {
-		dev_info(maindev, "Failed to find EFI gmin variable %s\n", var8);
-	} else {
-		dev_info(maindev, "Failed to find EFI variable %s\n", var8);
+		return 0;
 	}
-
-	return ret;
+	if (is_gmin)
+		dev_info(maindev, "Failed to find EFI gmin variable %s\n", var8);
+	else
+		dev_info(maindev, "Failed to find EFI variable %s\n", var8);
+	return -ENOENT;
 }
 
 int gmin_get_var_int(struct device *dev, bool is_gmin, const char *var, int def)
