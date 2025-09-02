@@ -581,6 +581,10 @@ int ufshcd_mcq_sq_cleanup(struct ufs_hba *hba, int task_tag)
 	if (err || rtc)
 		dev_err(hba->dev, "%s: failed. hwq=%d, tag=%d err=%d RTC=%d\n",
 			__func__, id, task_tag, err, rtc);
+	else
+		dev_info(hba->dev,
+			 "%s, hwq %d: cleanup return code (RTC) %ld\n",
+			 __func__, id, rtc);
 
 	if (ufshcd_mcq_sq_start(hba, hwq))
 		err = -ETIMEDOUT;
