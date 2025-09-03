@@ -15,9 +15,12 @@ extern struct resource crashk_res;
 extern struct resource crashk_low_res;
 extern struct range crashk_cma_ranges[];
 #if defined(CONFIG_CMA) && defined(CONFIG_ARCH_HAS_GENERIC_CRASHKERNEL_RESERVATION)
+#define CRASHKERNEL_CMA
+#define CRASHKERNEL_CMA_RANGES_MAX 4
 extern int crashk_cma_cnt;
 #else
 #define crashk_cma_cnt 0
+#define CRASHKERNEL_CMA_RANGES_MAX 0
 #endif
 
 
