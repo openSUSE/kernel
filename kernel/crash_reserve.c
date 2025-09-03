@@ -15,6 +15,7 @@
 #include <linux/memblock.h>
 #include <linux/kmemleak.h>
 #include <linux/cma.h>
+#include <linux/crash_reserve.h>
 
 #include <asm/page.h>
 #include <asm/sections.h>
@@ -176,10 +177,10 @@ static int __init parse_crashkernel_simple(char *cmdline,
 #define SUFFIX_CMA  2
 #define SUFFIX_NULL 3
 static __initdata char *suffix_tbl[] = {
-	[SUFFIX_HIGH]	= ",high",
-	[SUFFIX_LOW]	= ",low",
-	[SUFFIX_CMA]	= ",cma",
-	[SUFFIX_NULL]	= NULL,
+	[SUFFIX_HIGH] = ",high",
+	[SUFFIX_LOW]  = ",low",
+	[SUFFIX_CMA]  = ",cma",
+	[SUFFIX_NULL] = NULL,
 };
 
 /*
@@ -305,7 +306,7 @@ int __init parse_crashkernel(char *cmdline,
 			     bool *high)
 {
 	int ret;
-	unsigned long long cma_base;
+	unsigned long long __always_unused cma_base;
 
 	/* crashkernel=X[@offset] */
 	ret = __parse_crashkernel(cmdline, system_ram, crash_size,
@@ -338,9 +339,9 @@ int __init parse_crashkernel(char *cmdline,
 	}
 
 	/*
-	* optional CMA reservation
-	* cma_base is ignored
-	*/
+	 * optional CMA reservation
+	 * cma_base is ignored
+	 */
 	if (cma_size)
 		__parse_crashkernel(cmdline, 0, cma_size,
 			&cma_base, suffix_tbl[SUFFIX_CMA]);
@@ -471,16 +472,16 @@ retry:
 #endif
 }
 
-#ifdef CONFIG_CMA
-#define CRASHKERNEL_CMA_RANGES_MAX 4
-
 struct range crashk_cma_ranges[CRASHKERNEL_CMA_RANGES_MAX];
-int crashk_cma_cnt = 0;
-
+#ifdef CRASHKERNEL_CMA
+int crashk_cma_cnt;
 void __init reserve_crashkernel_cma(unsigned long long cma_size)
 {
 	unsigned long long request_size = roundup(cma_size, PAGE_SIZE);
 	unsigned long long reserved_size = 0;
+
+	if (!cma_size)
+		return;
 
 	while (cma_size > reserved_size &&
 	       crashk_cma_cnt < CRASHKERNEL_CMA_RANGES_MAX) {
@@ -513,12 +514,11 @@ void __init reserve_crashkernel_cma(unsigned long long cma_size)
 			reserved_size >> 20, crashk_cma_cnt);
 }
 
-#else /* CONFIG_CMA */
-struct range crashk_cma_ranges[0];
+#else /* CRASHKERNEL_CMA */
 void __init reserve_crashkernel_cma(unsigned long long cma_size)
 {
 	if (cma_size)
-		pr_warn("crashkernel CMA reservation failed: CMA disabled\n");
+		pr_warn("crashkernel CMA reservation not supported\n");
 }
 #endif
 
