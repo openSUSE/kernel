@@ -10,6 +10,8 @@
 #define _ISM_H
 
 #include <linux/workqueue.h>
+#include <linux/build_bug.h>
+#include <linux/stddef.h>
 
 struct ism_dmb {
 	u64 dmb_tok;
@@ -28,6 +30,9 @@ struct ism_dmb {
 
 struct ism_dev {
 	spinlock_t lock; /* protects the ism device */
+#ifndef __GENKSYMS__
+	spinlock_t cmd_lock; /* serializes cmds */
+#endif
 	struct list_head list;
 	struct pci_dev *pdev;
 
@@ -46,6 +51,16 @@ struct ism_dev {
 
 	struct ism_client *subs[MAX_CLIENTS];
 };
+
+struct ___ism_dev {
+	spinlock_t lock; /* protects the ism device */
+	struct list_head list;
+};
+
+static_assert(offsetof(struct ism_dev, lock) ==
+              offsetof(struct ___ism_dev, lock));
+static_assert(offsetof(struct ism_dev, list) ==
+              offsetof(struct ___ism_dev, list));
 
 struct ism_event {
 	u32 type;
