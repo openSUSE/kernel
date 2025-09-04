@@ -716,6 +716,9 @@ int mt7921_mac_sta_add(struct mt76_dev *mdev, struct ieee80211_vif *vif,
 	struct mt7921_vif *mvif = (struct mt7921_vif *)vif->drv_priv;
 	int ret, idx;
 
+	if (sta->aid > MT7921_MAX_AID)
+		return -ENOENT;
+
 	idx = mt76_wcid_alloc(dev->mt76.wcid_mask, MT7921_WTBL_STA - 1);
 	if (idx < 0)
 		return -ENOSPC;
@@ -755,6 +758,9 @@ void mt7921_mac_sta_assoc(struct mt76_dev *mdev, struct ieee80211_vif *vif,
 	struct mt7921_dev *dev = container_of(mdev, struct mt7921_dev, mt76);
 	struct mt7921_sta *msta = (struct mt7921_sta *)sta->drv_priv;
 	struct mt7921_vif *mvif = (struct mt7921_vif *)vif->drv_priv;
+
+	if (sta->aid > MT7921_MAX_AID)
+		return;
 
 	mt7921_mutex_acquire(dev);
 
