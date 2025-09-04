@@ -9720,9 +9720,37 @@ void nft_trans_gc_queue_sync_done(struct nft_trans_gc *trans)
 	call_rcu(&trans->rcu, nft_trans_gc_trans_free);
 }
 
-static struct nft_trans_gc *nft_trans_gc_catchall(struct nft_trans_gc *gc,
-						  unsigned int gc_seq,
-						  bool sync)
+struct nft_trans_gc *nft_trans_gc_catchall(struct nft_trans_gc *gc,
+					   unsigned int gc_seq)
+{
+	struct nft_set_elem_catchall *catchall;
+	const struct nft_set *set = gc->set;
+	struct nft_set_ext *ext;
+
+	list_for_each_entry_rcu(catchall, &set->catchall_list, list) {
+		ext = nft_set_elem_ext(set, catchall->elem);
+
+		if (!nft_set_elem_expired(ext))
+			continue;
+		if (nft_set_elem_is_dead(ext))
+			goto dead_elem;
+
+		nft_set_elem_dead(ext);
+dead_elem:
+		gc = nft_trans_gc_queue_async(gc, gc_seq, GFP_ATOMIC);
+
+		if (!gc)
+			return NULL;
+
+		nft_trans_gc_elem_add(gc, catchall->elem);
+	}
+
+	return gc;
+}
+
+static struct nft_trans_gc *__nft_trans_gc_catchall(struct nft_trans_gc *gc,
+						    unsigned int gc_seq,
+						    bool sync)
 {
 	struct nft_set_elem_catchall *catchall;
 	const struct nft_set *set = gc->set;
@@ -9755,12 +9783,12 @@ dead_elem:
 struct nft_trans_gc *nft_trans_gc_catchall_async(struct nft_trans_gc *gc,
 						 unsigned int gc_seq)
 {
-	return nft_trans_gc_catchall(gc, gc_seq, false);
+	return __nft_trans_gc_catchall(gc, gc_seq, false);
 }
 
 struct nft_trans_gc *nft_trans_gc_catchall_sync(struct nft_trans_gc *gc)
 {
-	return nft_trans_gc_catchall(gc, 0, true);
+	return __nft_trans_gc_catchall(gc, 0, true);
 }
 
 static void nf_tables_module_autoload_cleanup(struct net *net)
