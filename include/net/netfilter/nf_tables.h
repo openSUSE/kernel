@@ -442,9 +442,6 @@ struct nft_set_ext;
  *	@remove: remove element from set
  *	@walk: iterate over all set elements
  *	@get: get set elements
- *	@ksize: kernel set size
- * 	@usize: userspace set size
- *	@adjust_maxsize: delta to adjust maximum set size
  *	@commit: commit set elements
  *	@abort: abort set elements
  *	@privsize: function to return size of set private data
@@ -453,6 +450,9 @@ struct nft_set_ext;
  *	@destroy: destroy private data of set instance
  *	@gc_init: initialize garbage collection
  *	@elemsize: element private size
+ *	@ksize: kernel set size
+ * 	@usize: userspace set size
+ *	@adjust_maxsize: delta to adjust maximum set size
  *
  *	Operations lookup, update and delete have simpler interfaces, are faster
  *	and currently only used in the packet path. All the rest are slower,
@@ -498,9 +498,6 @@ struct nft_set_ops {
 					       const struct nft_set *set,
 					       const struct nft_set_elem *elem,
 					       unsigned int flags);
-	u32				(*ksize)(u32 size);
-	u32				(*usize)(u32 size);
-	u32				(*adjust_maxsize)(const struct nft_set *set);
 	void				(*commit)(struct nft_set *set);
 	void				(*abort)(const struct nft_set *set);
 	u64				(*privsize)(const struct nlattr * const nla[],
@@ -516,6 +513,11 @@ struct nft_set_ops {
 	void				(*gc_init)(const struct nft_set *set);
 
 	unsigned int			elemsize;
+#ifndef __GENKSYMS__
+	u32				(*ksize)(u32 size);
+	u32				(*usize)(u32 size);
+	u32				(*adjust_maxsize)(const struct nft_set *set);
+#endif
 };
 
 /**
