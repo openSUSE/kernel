@@ -30,7 +30,7 @@ struct ism_dmb {
 
 struct ism_dev {
 	spinlock_t lock; /* protects the ism device */
-#ifndef __GENKSYMS__
+#if defined(__s390x__) && !defined(__GENKSYMS__)
 	spinlock_t cmd_lock; /* serializes cmds */
 #endif
 	struct list_head list;
@@ -52,15 +52,17 @@ struct ism_dev {
 	struct ism_client *subs[MAX_CLIENTS];
 };
 
+#if defined(__s390x__)
 struct ___ism_dev {
 	spinlock_t lock; /* protects the ism device */
 	struct list_head list;
 };
 
 static_assert(offsetof(struct ism_dev, lock) ==
-              offsetof(struct ___ism_dev, lock));
+	      offsetof(struct ___ism_dev, lock));
 static_assert(offsetof(struct ism_dev, list) ==
-              offsetof(struct ___ism_dev, list));
+	      offsetof(struct ___ism_dev, list));
+#endif
 
 struct ism_event {
 	u32 type;
