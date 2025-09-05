@@ -81,21 +81,9 @@ struct static_key sched_feat_keys[__SCHED_FEAT_NR] = {
 
 #undef SCHED_FEAT
 
-static void sched_feat_disable(int i)
-{
-	static_key_disable_cpuslocked(&sched_feat_keys[i]);
-}
-
-static void sched_feat_enable(int i)
-{
-	static_key_enable_cpuslocked(&sched_feat_keys[i]);
-}
-#else
-static void sched_feat_disable(int i) { };
-static void sched_feat_enable(int i) { };
 #endif /* CONFIG_JUMP_LABEL */
 
-static int sched_feat_set(char *cmp)
+static int sched_feat_parse(char *cmp)
 {
 	int i;
 	int neg = 0;
@@ -109,14 +97,7 @@ static int sched_feat_set(char *cmp)
 	if (i < 0)
 		return i;
 
-	if (neg) {
-		sysctl_sched_features &= ~(1UL << i);
-		sched_feat_disable(i);
-	} else {
-		sysctl_sched_features |= (1UL << i);
-		sched_feat_enable(i);
-	}
-
+	sched_feat_set(i, !neg);
 	return 0;
 }
 
@@ -142,7 +123,7 @@ sched_feat_write(struct file *filp, const char __user *ubuf,
 	inode = file_inode(filp);
 	cpus_read_lock();
 	inode_lock(inode);
-	ret = sched_feat_set(cmp);
+	ret = sched_feat_parse(cmp);
 	inode_unlock(inode);
 	cpus_read_unlock();
 	if (ret < 0)

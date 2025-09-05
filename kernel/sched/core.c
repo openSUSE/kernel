@@ -4088,6 +4088,28 @@ static inline bool ttwu_queue_wakelist(struct task_struct *p, int cpu, int wake_
 
 #endif /* CONFIG_SMP */
 
+#if defined(CONFIG_PROC_SYSCTL) && defined(CONFIG_SCHED_DEBUG)
+static int sysctl_ttwu_queue(struct ctl_table *table, int write, void *buffer,
+		size_t *lenp, loff_t *ppos)
+{
+	struct ctl_table t;
+	int err;
+	int state = sched_feat(TTWU_QUEUE);
+
+	if (write && !capable(CAP_SYS_ADMIN))
+		return -EPERM;
+
+	t = *table;
+	t.data = &state;
+	err = proc_dointvec_minmax(&t, write, buffer, lenp, ppos);
+	if (err < 0)
+		return err;
+	if (write)
+		sched_feat_set(__SCHED_FEAT_TTWU_QUEUE, state);
+	return err;
+}
+#endif /* CONFIG_PROC_SYSCTL && CONFIG_SCHED_DEBUG */
+
 static void ttwu_queue(struct task_struct *p, int cpu, int wake_flags)
 {
 	struct rq *rq = cpu_rq(cpu);
@@ -4746,15 +4768,26 @@ static int sysctl_schedstats(struct ctl_table *table, int write, void *buffer,
 static struct ctl_table sched_core_sysctls[] = {
 #ifdef CONFIG_SCHEDSTATS
 	{
-		.procname       = "sched_schedstats",
-		.data           = NULL,
-		.maxlen         = sizeof(unsigned int),
-		.mode           = 0644,
-		.proc_handler   = sysctl_schedstats,
-		.extra1         = SYSCTL_ZERO,
-		.extra2         = SYSCTL_ONE,
+		.procname = "sched_schedstats",
+		.data = NULL,
+		.maxlen = sizeof(unsigned int),
+		.mode = 0644,
+		.proc_handler = sysctl_schedstats,
+		.extra1 = SYSCTL_ZERO,
+		.extra2 = SYSCTL_ONE,
 	},
 #endif /* CONFIG_SCHEDSTATS */
+#ifdef CONFIG_SCHED_DEBUG
+	{
+		.procname = "sched_ttwu_queue",
+		.data = NULL,
+		.maxlen = sizeof(unsigned int),
+		.mode = 0644,
+		.proc_handler = sysctl_ttwu_queue,
+		.extra1 = SYSCTL_ZERO,
+		.extra2 = SYSCTL_ONE,
+	},
+#endif	/* CONFIG_SCHED_DEBUG */
 #ifdef CONFIG_UCLAMP_TASK
 	{
 		.procname       = "sched_util_clamp_min",

@@ -2075,11 +2075,35 @@ static __always_inline bool static_branch_##name(struct static_key *key) \
 extern struct static_key sched_feat_keys[__SCHED_FEAT_NR];
 #define sched_feat(x) (static_branch_##x(&sched_feat_keys[__SCHED_FEAT_##x]))
 
+static inline void sched_feat_disable(int i)
+{
+	static_key_disable_cpuslocked(&sched_feat_keys[i]);
+}
+
+static inline void sched_feat_enable(int i)
+{
+	static_key_enable_cpuslocked(&sched_feat_keys[i]);
+}
+
 #else /* !CONFIG_JUMP_LABEL */
 
 #define sched_feat(x) (sysctl_sched_features & (1UL << __SCHED_FEAT_##x))
 
+static inline void sched_feat_disable(int i) { };
+static inline void sched_feat_enable(int i) { };
+
 #endif /* CONFIG_JUMP_LABEL */
+
+static inline void sched_feat_set(int i, bool val)
+{
+	if (val) {
+		sysctl_sched_features |= (1UL << i);
+		sched_feat_enable(i);
+	} else {
+		sysctl_sched_features &= ~(1UL << i);
+		sched_feat_disable(i);
+	}
+}
 
 #else /* !SCHED_DEBUG */
 
