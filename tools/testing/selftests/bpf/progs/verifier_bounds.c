@@ -2,7 +2,6 @@
 /* Converted from tools/testing/selftests/bpf/verifier/bounds.c */
 
 #include <linux/bpf.h>
-#include <../../../include/linux/filter.h>
 #include <bpf/bpf_helpers.h>
 #include "bpf_misc.h"
 
@@ -1208,13 +1207,13 @@ __retval(0) __flag(BPF_F_TEST_REG_INVARIANTS)
 __naked void jset_range_analysis(void)
 {
 	asm volatile ("			\
-	call %[bpf_get_netns_cookie];	\
+	call %[bpf_get_prandom_u32];	\
 	if r0 == 0 goto l0_%=;		\
 	if r0 & 0xffffffff goto +0; 	\
 l0_%=:	r0 = 0;				\
 	exit;				\
 "	:
-	: __imm(bpf_get_netns_cookie)
+	: __imm(bpf_get_prandom_u32)
 	: __clobber_all);
 }
 
