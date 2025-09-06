@@ -643,7 +643,7 @@ struct __orig_bpf_subprog_info {
 };
 /* struct bpf_subprog_info is embedded in struct bpf_verifier_env, make sure it
  * does not change in size. */
-static_assert(sizeof(struct bpf_subprog_info) ==
+suse_kabi_static_assert(sizeof(struct bpf_subprog_info) ==
               sizeof(struct __orig_bpf_subprog_info));
 
 
