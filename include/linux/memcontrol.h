@@ -21,7 +21,7 @@
 #include <linux/vmstat.h>
 #include <linux/writeback.h>
 #include <linux/page-flags.h>
-#include <linux/build_bug.h>  /* for static_assert() */
+#include <linux/build_bug.h>  /* for suse_kabi_static_assert() */
 #include <linux/stddef.h>     /* for offsetof() */
 
 struct mem_cgroup;
@@ -474,14 +474,10 @@ struct __orig_mem_cgroup {
 	struct mem_cgroup_per_node *nodeinfo[];
 };
 
-/* XXX: these macros are proxies for kernels w/out KABI verification, replace
- *      them with more direct and explicit KABI flag */
-#if !defined(CONFIG_ARM) && !defined(CONFIG_DEBUG_SPINLOCK)
-static_assert(offsetof(struct mem_cgroup, move_lock_flags) ==
+suse_kabi_static_assert(offsetof(struct mem_cgroup, move_lock_flags) ==
 	      offsetof(struct __orig_mem_cgroup, move_lock_flags));
-static_assert(offsetof(struct mem_cgroup, _pad1_) ==
+suse_kabi_static_assert(offsetof(struct mem_cgroup, _pad1_) ==
 	      offsetof(struct __orig_mem_cgroup, _pad1_));
-#endif
 /*
  * size of first charge trial.
  * TODO: maybe necessary to use big numbers in big irons or dynamic based of the
