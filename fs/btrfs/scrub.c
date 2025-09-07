@@ -3202,6 +3202,10 @@ static noinline_for_stack int scrub_stripe(struct scrub_ctx *sctx,
 	int extent_mirror_num;
 	int stop_loop = 0;
 
+	if (unlikely(!root || !csum_root)) {
+		btrfs_err(fs_info, "no valid extent root for scrub");
+		return -EUCLEAN;
+	}
 	physical = map->stripes[num].physical;
 	offset = 0;
 	nstripes = div64_u64(length, map->stripe_len);
