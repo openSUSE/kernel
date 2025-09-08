@@ -53,7 +53,6 @@ struct nf_flowtable_type {
 	struct list_head		list;
 	int				family;
 	int				(*init)(struct nf_flowtable *ft);
-	bool				(*gc)(const struct flow_offload *flow);
 	int				(*setup)(struct nf_flowtable *ft,
 						 struct net_device *dev,
 						 enum flow_block_command cmd);
@@ -64,6 +63,9 @@ struct nf_flowtable_type {
 	void				(*free)(struct nf_flowtable *ft);
 	nf_hookfn			*hook;
 	struct module			*owner;
+#ifndef __GENKSYMS__
+	bool				(*gc)(const struct flow_offload *flow);
+#endif
 };
 
 enum nf_flowtable_flags {
