@@ -89,6 +89,7 @@ config SUSE_AUXRELEASE
 config SUSE_HAVE_STABLE_KABI
 	bool "Stable KABI is defined"
 	default n
+	depends on SUSE_KERNEL_SUPPORTED
 	help
 	  This helper option (only) indicates whether the kernel provides a
 	  stable kABI. It assists in writing guards for kABI stability checks.
