@@ -1281,7 +1281,8 @@ static int btrfs_issue_discard(struct block_device *bdev, u64 start, u64 len,
 		}
 
 		if (size) {
-			ret = blkdev_issue_discard(bdev, start >> 9, size >> 9,
+			ret = blkdev_issue_discard(bdev, start >> SECTOR_SHIFT,
+						   size >> SECTOR_SHIFT,
 						   GFP_NOFS);
 			if (!ret)
 				*discarded_bytes += size;
@@ -1298,7 +1299,8 @@ static int btrfs_issue_discard(struct block_device *bdev, u64 start, u64 len,
 	}
 
 	if (bytes_left) {
-		ret = blkdev_issue_discard(bdev, start >> 9, bytes_left >> 9,
+		ret = blkdev_issue_discard(bdev, start >> SECTOR_SHIFT,
+					   bytes_left >> SECTOR_SHIFT,
 					   GFP_NOFS);
 		if (!ret)
 			*discarded_bytes += bytes_left;
