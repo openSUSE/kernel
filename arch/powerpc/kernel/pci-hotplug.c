@@ -111,6 +111,9 @@ void pci_hp_add_devices(struct pci_bus *bus)
 
 	eeh_add_device_tree_early(PCI_DN(dn));
 
+	if (!dn)
+		return;
+
 	phb = pci_bus_to_host(bus);
 
 	mode = PCI_PROBE_NORMAL;
