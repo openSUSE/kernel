@@ -3528,6 +3528,10 @@ cont:
 cont_skip:
 		(*idx)++;
 	}
+
+	if (reset && *idx)
+		audit_log_rule_reset(table, cb->seq, *idx);
+
 	return 0;
 }
 
@@ -3587,9 +3591,6 @@ static int nf_tables_dump_rules(struct sk_buff *skb,
 	}
 done:
 	rcu_read_unlock();
-
-	if (reset && idx > cb->args[0])
-		audit_log_rule_reset(table, cb->seq, idx - cb->args[0]);
 
 	cb->args[0] = idx;
 	return skb->len;
