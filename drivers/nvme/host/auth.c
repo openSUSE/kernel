@@ -132,12 +132,13 @@ static int nvme_auth_set_dhchap_negotiate_data(struct nvme_ctrl *ctrl,
 	data->auth_type = NVME_AUTH_COMMON_MESSAGES;
 	data->auth_id = NVME_AUTH_DHCHAP_MESSAGE_NEGOTIATE;
 	data->t_id = cpu_to_le16(chap->transaction);
-	if (!ctrl->opts->concat || chap->qid != 0)
+	if (ctrl->opts->concat && chap->qid == 0) {
+		if (ctrl->opts->tls_key)
+			data->sc_c = NVME_AUTH_SECP_REPLACETLSPSK;
+		else
+			data->sc_c = NVME_AUTH_SECP_NEWTLSPSK;
+	} else
 		data->sc_c = NVME_AUTH_SECP_NOSC;
-	else if (ctrl->opts->tls_key)
-		data->sc_c = NVME_AUTH_SECP_REPLACETLSPSK;
-	else
-		data->sc_c = NVME_AUTH_SECP_NEWTLSPSK;
 	data->napd = 1;
 	data->auth_protocol[0].dhchap.authid = NVME_AUTH_DHCHAP_AUTH_ID;
 	data->auth_protocol[0].dhchap.halen = 3;
@@ -742,7 +743,8 @@ static int nvme_auth_secure_concat(struct nvme_ctrl *ctrl,
 	};
 	dev_dbg(ctrl->device, "%s: generated digest %s\n",
 		 __func__, digest);
-	ret = nvme_auth_derive_tls_psk(chap->hash_id, psk, psk_len, digest, &tls_psk);
+	ret = nvme_auth_derive_tls_psk(chap->hash_id, psk, psk_len,
+				       digest, &tls_psk);
 	if (ret) {
 		dev_warn(ctrl->device,
 			 "%s: qid %d failed to derive TLS psk, error %d\n",
@@ -750,7 +752,8 @@ static int nvme_auth_secure_concat(struct nvme_ctrl *ctrl,
 		goto out_free_digest;
 	};
 
-	tls_key = nvme_tls_psk_refresh(ctrl->opts->keyring, ctrl->opts->host->nqn,
+	tls_key = nvme_tls_psk_refresh(ctrl->opts->keyring,
+				       ctrl->opts->host->nqn,
 				       ctrl->opts->subsysnqn, chap->hash_id,
 				       tls_psk, psk_len, digest);
 	if (IS_ERR(tls_key)) {
@@ -1015,8 +1018,7 @@ static void nvme_ctrl_auth_work(struct work_struct *work)
 		return;
 	}
 	/*
-	 * Only run authentication on the admin queue for
-	 * secure concatenation
+	 * Only run authentication on the admin queue for secure concatenation.
 	 */
 	if (ctrl->opts->concat)
 		return;
