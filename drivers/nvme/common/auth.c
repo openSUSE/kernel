@@ -485,30 +485,29 @@ EXPORT_SYMBOL_GPL(nvme_auth_generate_key);
  * @ret_psk: Pointer too the resulting generated PSK
  * @ret_len: length of @ret_psk
  *
- * Generate a PSK for TLS as specified in NVMe base specification, section 8.13.5.9:
- *    Generated PSK for TLS
+ * Generate a PSK for TLS as specified in NVMe base specification, section
+ * 8.13.5.9: Generated PSK for TLS
  *
- * The generated PSK for TLS shall be computed applying the HMAC function using the
- * hash function H( ) selected by the HashID parameter in the DH-HMAC-CHAP_Challenge
- * message with the session key KS as key to the concatenation of the two challenges
- * C1 and C2 (i.e., generated PSK = HMAC(KS, C1 || C2)).
+ * The generated PSK for TLS shall be computed applying the HMAC function
+ * using the hash function H( ) selected by the HashID parameter in the
+ * DH-HMAC-CHAP_Challenge message with the session key KS as key to the
+ * concatenation of the two challenges C1 and C2 (i.e., generated
+ * PSK = HMAC(KS, C1 || C2)).
  *
- * Returns 0 on success with a valid generated PSK pointer in @ret_psk and the length
- * of @ret_psk in @ret_len, or a negative error number otherwise.
+ * Returns 0 on success with a valid generated PSK pointer in @ret_psk and
+ * the length of @ret_psk in @ret_len, or a negative error number otherwise.
  */
 int nvme_auth_generate_psk(u8 hmac_id, u8 *skey, size_t skey_len,
-		u8 *c1, u8 *c2, size_t hash_len, u8 **ret_psk,size_t *ret_len)
+		u8 *c1, u8 *c2, size_t hash_len, u8 **ret_psk, size_t *ret_len)
 {
 	struct crypto_shash *tfm;
-	struct shash_desc *shash;
+	SHASH_DESC_ON_STACK(shash, tfm);
 	u8 *psk;
 	const char *hmac_name;
 	int ret, psk_len;
 
-	if (!c1 || !c2) {
-		pr_warn("%s: invalid parameter\n", __func__);
+	if (!c1 || !c2)
 		return -EINVAL;
-	}
 
 	hmac_name = nvme_auth_hmac_name(hmac_id);
 	if (!hmac_name) {
@@ -528,30 +527,22 @@ int nvme_auth_generate_psk(u8 hmac_id, u8 *skey, size_t skey_len,
 		goto out_free_tfm;
 	}
 
-	shash = kmalloc(sizeof(struct shash_desc) +
-			crypto_shash_descsize(tfm),
-			GFP_KERNEL);
-	if (!shash) {
-		ret = -ENOMEM;
-		goto out_free_psk;
-	}
-
 	shash->tfm = tfm;
 	ret = crypto_shash_setkey(tfm, skey, skey_len);
 	if (ret)
-		goto out_free_shash;
+		goto out_free_psk;
 
 	ret = crypto_shash_init(shash);
 	if (ret)
-		goto out_free_shash;
+		goto out_free_psk;
 
 	ret = crypto_shash_update(shash, c1, hash_len);
 	if (ret)
-		goto out_free_shash;
+		goto out_free_psk;
 
 	ret = crypto_shash_update(shash, c2, hash_len);
 	if (ret)
-		goto out_free_shash;
+		goto out_free_psk;
 
 	ret = crypto_shash_final(shash, psk);
 	if (!ret) {
@@ -559,8 +550,6 @@ int nvme_auth_generate_psk(u8 hmac_id, u8 *skey, size_t skey_len,
 		*ret_len = psk_len;
 	}
 
-out_free_shash:
-	kfree_sensitive(shash);
 out_free_psk:
 	if (ret)
 		kfree_sensitive(psk);
