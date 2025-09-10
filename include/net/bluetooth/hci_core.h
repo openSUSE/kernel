@@ -29,6 +29,7 @@
 #include <linux/idr.h>
 #include <linux/leds.h>
 #include <linux/rculist.h>
+#include <linux/spinlock.h>
 
 #include <net/bluetooth/hci.h>
 #include <net/bluetooth/hci_sync.h>
@@ -868,6 +869,9 @@ static inline void iso_recv(struct hci_conn *hcon, struct sk_buff *skb,
 #define INQUIRY_CACHE_AGE_MAX   (HZ*30)   /* 30 seconds */
 #define INQUIRY_ENTRY_AGE_MAX   (HZ*60)   /* 60 seconds */
 
+/* FIXME: global spinlock for kABI compatibility */
+extern spinlock_t __hci_dev_discovery_lock;
+
 static inline void discovery_init(struct hci_dev *hdev)
 {
 	hdev->discovery.state = DISCOVERY_STOPPED;
@@ -884,8 +888,12 @@ static inline void hci_discovery_filter_clear(struct hci_dev *hdev)
 	hdev->discovery.report_invalid_rssi = true;
 	hdev->discovery.rssi = HCI_RSSI_INVALID;
 	hdev->discovery.uuid_count = 0;
+
+	/* FIXME: global spinlock for kABI compatibility */
+	spin_lock(&__hci_dev_discovery_lock);
 	kfree(hdev->discovery.uuids);
 	hdev->discovery.uuids = NULL;
+	spin_unlock(&__hci_dev_discovery_lock);
 }
 
 bool hci_discovery_active(struct hci_dev *hdev);
