@@ -769,8 +769,13 @@ int nvme_auth_derive_tls_psk(int hmac_id, u8 *psk, size_t psk_len,
 	if (ret)
 		goto out_free_prk;
 
+	/*
+	 * 2 addtional bytes for the length field from HDKF-Expand-Label,
+	 * 2 addtional bytes for the HMAC ID, and one byte for the space
+	 * separator.
+	 */
 	info_len = strlen(psk_digest) + strlen(psk_prefix) + 5;
-	info = kzalloc(info_len, GFP_KERNEL);
+	info = kzalloc(info_len + 1, GFP_KERNEL);
 	if (!info) {
 		ret = -ENOMEM;
 		goto out_free_prk;
@@ -785,7 +790,7 @@ int nvme_auth_derive_tls_psk(int hmac_id, u8 *psk, size_t psk_len,
 		ret = -ENOMEM;
 		goto out_free_info;
 	}
-	ret = hkdf_expand(hmac_tfm, info, strlen(info), tls_key, psk_len);
+	ret = hkdf_expand(hmac_tfm, info, info_len, tls_key, psk_len);
 	if (ret) {
 		kfree(tls_key);
 		goto out_free_info;
