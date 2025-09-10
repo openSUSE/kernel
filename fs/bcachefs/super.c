@@ -1241,10 +1241,6 @@ err:
 		bch_err_msg(c, ret, "starting filesystem");
 	else
 		bch_verbose(c, "done starting filesystem");
-
-	pr_crit("Bcachefs may be removed from the kernel very soon. See:\n"
-	  "https://lore.kernel.org/all/CAHk-=wi+k8E4kWR8c-nREP0+EA4D+=rz5j0Hdk3N6cWgfE03-Q@mail.gmail.com/\n");
-
 	return ret;
 }
 
