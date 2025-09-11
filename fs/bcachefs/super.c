@@ -1242,8 +1242,9 @@ err:
 	else
 		bch_verbose(c, "done starting filesystem");
 
-	pr_crit("Bcachefs may be removed from the kernel very soon. See:\n"
-	  "https://lore.kernel.org/all/CAHk-=wi+k8E4kWR8c-nREP0+EA4D+=rz5j0Hdk3N6cWgfE03-Q@mail.gmail.com/\n");
+	pr_crit("bcachefs will be removed from the SUSE kernel in 6.18.\n"
+		"This kernel may be missing critical bcachefs fixes, due to its mainline transition to \"externally maintained\" status.\n"
+		"See also: https://bugzilla.opensuse.org/show_bug.cgi?id=1248109\n");
 
 	return ret;
 }
