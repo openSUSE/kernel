@@ -151,13 +151,13 @@ static inline bool pid_in_current_pidns(const struct pid *pid)
 static long pidfd_info(struct file *file, unsigned int cmd, unsigned long arg)
 {
 	struct pidfd_info __user *uinfo = (struct pidfd_info __user *)arg;
+	struct task_struct *task __free(put_task) = NULL;
 	struct inode *inode = file_inode(file);
 	struct pid *pid = pidfd_pid(file);
 	size_t usize = _IOC_SIZE(cmd);
 	struct pidfd_info kinfo = {};
 	struct pidfs_exit_info *exit_info;
 	struct user_namespace *user_ns;
-	struct task_struct *task;
 	const struct cred *c;
 	__u64 mask;
 
@@ -629,6 +629,8 @@ static int pidfs_init_fs_context(struct fs_context *fc)
 	if (!ctx)
 		return -ENOMEM;
 
+	fc->s_iflags |= SB_I_NOEXEC;
+	fc->s_iflags |= SB_I_NODEV;
 	ctx->ops = &pidfs_sops;
 	ctx->dops = &pidfs_dentry_operations;
 	fc->s_fs_info = (void *)&pidfs_stashed_ops;
