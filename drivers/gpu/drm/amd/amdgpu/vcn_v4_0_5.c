@@ -1171,11 +1171,11 @@ static int vcn_v4_0_5_start(struct amdgpu_device *adev)
 		tmp |= VCN_RB_ENABLE__RB1_EN_MASK;
 		WREG32_SOC15(VCN, i, regVCN_RB_ENABLE, tmp);
 		fw_shared->sq.queue_mode &= ~(FW_QUEUE_RING_RESET | FW_QUEUE_DPG_HOLD_OFF);
-	}
 
-	/* Keeping one read-back to ensure all register writes are done, otherwise
-	 * it may introduce race conditions */
-	RREG32_SOC15(VCN, i, regVCN_RB_ENABLE);
+		/* Keeping one read-back to ensure all register writes are done, otherwise
+		 * it may introduce race conditions */
+		RREG32_SOC15(VCN, i, regVCN_RB_ENABLE);
+	}
 
 	return 0;
 }
