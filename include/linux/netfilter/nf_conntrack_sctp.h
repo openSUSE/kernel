@@ -11,6 +11,9 @@ struct ip_ct_sctp {
 	__be32 vtag[IP_CT_DIR_MAX];
 	u8 last_dir;
 	u8 flags;
+#ifndef __GENKSYMS__
+	u8 init[IP_CT_DIR_MAX];
+#endif
 };
 
 #endif /* _NF_CONNTRACK_SCTP_H */
