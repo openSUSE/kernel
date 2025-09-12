@@ -337,13 +337,24 @@ crashkernel syntax
 
 4) crashkernel=size,cma
 
-   Reserves additional memory from CMA. A standard crashkernel reservation, as
-   described above, is still needed, but can be just small enough to hold the
-   kernel and initrd. All the memory the crash kernel needs for its runtime and
-   for running the kdump userspace processes can be provided by this CMA
-   reservation, re-using memory available to the production system's userspace.
-   Because of this re-using, the CMA reservation should not be used if it's
-   intended to dump userspce memory.
+	Reserve additional crash kernel memory from CMA. This reservation is
+	usable by the first system's userspace memory and kernel movable
+	allocations (memory balloon, zswap). Pages allocated from this memory
+	range will not be included in the vmcore so this should not be used if
+	dumping of userspace memory is intended and it has to be expected that
+	some movable kernel pages may be missing from the dump.
+
+	A standard crashkernel reservation, as described above, is still needed
+	to hold the crash kernel and initrd.
+
+	This option increases the risk of a kdump failure: DMA transfers
+	configured by the first kernel may end up corrupting the second
+	kernel's memory.
+
+	This reservation method is intended for systems that can't afford to
+	sacrifice enough memory for standard crashkernel reservation and where
+	less reliable and possibly incomplete kdump is preferable to no kdump at
+	all.
 
 Boot into System Kernel
 -----------------------
