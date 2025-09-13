@@ -119,7 +119,6 @@ struct cdc_ncm_ctx {
 	u32 timer_interval;
 	u32 max_ndp_size;
 	u8 is_ndp16;
-	u8 filtering_supported;
 	union {
 		struct usb_cdc_ncm_ndp16 *delayed_ndp16;
 		struct usb_cdc_ncm_ndp32 *delayed_ndp32;
@@ -151,6 +150,10 @@ struct cdc_ncm_ctx {
 	u64 tx_ntbs;
 	u64 rx_overhead;
 	u64 rx_ntbs;
+
+#ifndef __GENKSYMS__
+	u8 filtering_supported;
+#endif
 };
 
 u8 cdc_ncm_select_altsetting(struct usb_interface *intf);
