@@ -105,6 +105,10 @@ struct detailed_data_string {
 #define DRM_EDID_CVT_FLAGS_STANDARD_BLANKING (1 << 3)
 #define DRM_EDID_CVT_FLAGS_REDUCED_BLANKING  (1 << 4)
 
+enum drm_edid_quirk {
+	DRM_EDID_QUIRK_NUM,
+};
+
 struct detailed_data_monitor_range {
 	u8 min_vfreq;
 	u8 max_vfreq;
@@ -616,5 +620,6 @@ bool drm_edid_is_digital(const struct drm_edid *drm_edid);
 
 const u8 *drm_find_edid_extension(const struct drm_edid *drm_edid,
 				  int ext_id, int *ext_index);
+bool drm_edid_has_quirk(struct drm_connector *connector, enum drm_edid_quirk quirk);
 
 #endif /* __DRM_EDID_H__ */
