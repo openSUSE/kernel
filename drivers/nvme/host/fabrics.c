@@ -1056,6 +1056,14 @@ static int nvmf_parse_options(struct nvmf_ctrl_options *opts,
 				goto out;
 			}
 			opts->tls = true;
+			break;
+		case NVMF_OPT_CONCAT:
+			if (!IS_ENABLED(CONFIG_NVME_TCP_TLS)) {
+				pr_err("TLS is not supported\n");
+				ret = -EINVAL;
+				goto out;
+			}
+			opts->concat = true;
 			break;			
 		case NVMF_OPT_RECOVERY_DELAY:
 			if (match_int(args, &token)) {
@@ -1068,14 +1076,6 @@ static int nvmf_parse_options(struct nvmf_ctrl_options *opts,
 				goto out;
 			}
 			opts->recovery_delay = token;
-			break;
-		case NVMF_OPT_CONCAT:
-			if (!IS_ENABLED(CONFIG_NVME_TCP_TLS)) {
-				pr_err("TLS is not supported\n");
-				ret = -EINVAL;
-				goto out;
-			}
-			opts->concat = true;
 			break;
 		default:
 			pr_warn("unknown parameter or missing value '%s' in ctrl creation request\n",
