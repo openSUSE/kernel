@@ -201,7 +201,7 @@ static struct plt_entry *get_ftrace_plt(struct module *mod, unsigned long addr)
 	struct plt_entry *plt = NULL;
 
 	if (within_module_mem_type(addr, mod, MOD_INIT_TEXT))
-		plt = mod->arch.init_ftrace_trampolines;
+		plt = mod->arch_init_ftrace_trampolines;
 	else if (within_module_mem_type(addr, mod, MOD_TEXT))
 		plt = mod->arch.ftrace_trampolines;
 	else
