@@ -9,7 +9,9 @@
 #include <asm/alternative.h>
 #include <asm/cpufeatures.h>
 #include <asm/msr-index.h>
+#ifndef __GENKSYMS__
 #include <asm/percpu.h>
+#endif
 #include <asm/unwind_hints.h>
 
 /*
