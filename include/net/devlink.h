@@ -83,6 +83,9 @@ struct devlink_port_pci_sf_attrs {
  * @pci_pf: PCI PF port attributes
  * @pci_vf: PCI VF port attributes
  * @pci_sf: PCI SF port attributes
+ * @no_phys_port_name: skip automatic phys_port_name generation; for
+ *                     compatibility only, newly added driver/port instance
+ *                     should never set this.
  */
 struct devlink_port_attrs {
 	u8 split:1,
@@ -96,6 +99,9 @@ struct devlink_port_attrs {
 		struct devlink_port_pci_vf_attrs pci_vf;
 		struct devlink_port_pci_sf_attrs pci_sf;
 	};
+#ifndef __GENKSYMS__
+	u8 no_phys_port_name:1;
+#endif
 };
 
 struct devlink_rate {
