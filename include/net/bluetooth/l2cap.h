@@ -584,9 +584,6 @@ struct l2cap_chan {
 	__u16		tx_credits;
 	__u16		rx_credits;
 
-	/* estimated available receive buffer space or -1 if unknown */
-	ssize_t		rx_avail;
-
 	__u8		tx_state;
 	__u8		rx_state;
 
@@ -648,6 +645,10 @@ struct l2cap_chan {
 	void			*data;
 	const struct l2cap_ops	*ops;
 	struct mutex		lock;
+#ifndef __GENKSYMS__
+	/* estimated available receive buffer space or -1 if unknown */
+	ssize_t         rx_avail;
+#endif
 };
 
 struct l2cap_ops {
