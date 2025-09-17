@@ -1507,10 +1507,6 @@ int mptcp_subflow_create_socket(struct sock *sk, struct socket **new_sock)
 
 	lock_sock(sf->sk);
 
-	err = security_mptcp_add_subflow(sk, sf->sk);
-	if (err)
-		goto release_ssk;
-
 	/* the newly created socket has to be in the same cgroup as its parent */
 	mptcp_attach_cgroup(sk, sf->sk);
 
@@ -1523,8 +1519,6 @@ int mptcp_subflow_create_socket(struct sock *sk, struct socket **new_sock)
 	this_cpu_add(*net->core.sock_inuse, 1);
 #endif
 	err = tcp_set_ulp(sf->sk, "mptcp");
-
-release_ssk:
 	release_sock(sf->sk);
 
 	if (err) {

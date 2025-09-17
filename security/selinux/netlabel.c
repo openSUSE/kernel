@@ -153,12 +153,8 @@ void selinux_netlbl_err(struct sk_buff *skb, u16 family, int error, int gateway)
  */
 void selinux_netlbl_sk_security_free(struct sk_security_struct *sksec)
 {
-	if (!sksec->nlbl_secattr)
-		return;
-
-	netlbl_secattr_free(sksec->nlbl_secattr);
-	sksec->nlbl_secattr = NULL;
-	sksec->nlbl_state = NLBL_UNSET;
+	if (sksec->nlbl_secattr != NULL)
+		netlbl_secattr_free(sksec->nlbl_secattr);
 }
 
 /**
