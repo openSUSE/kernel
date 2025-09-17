@@ -2018,6 +2018,9 @@ struct vfsmount *clone_private_mount(const struct path *path)
 	if (!check_mnt(old_mnt))
 		goto invalid;
 
+	if (!ns_capable(old_mnt->mnt_ns->user_ns, CAP_SYS_ADMIN))
+		goto perm;
+
 	if (has_locked_children(old_mnt, path->dentry))
 		goto invalid;
 
@@ -2035,6 +2038,10 @@ struct vfsmount *clone_private_mount(const struct path *path)
 invalid:
 	up_read(&namespace_sem);
 	return ERR_PTR(-EINVAL);
+
+perm:
+	up_read(&namespace_sem);
+	return ERR_PTR(-EPERM);
 }
 EXPORT_SYMBOL_GPL(clone_private_mount);
 
@@ -3994,6 +4001,11 @@ static int can_idmap_mount(const struct mount_kattr *kattr, struct mount *mnt)
 
 	if (!kattr->mnt_idmap)
 		return 0;
+
+	/* Don't allow idmaps with no mapping defined */
+	if (kattr->mnt_userns->uid_map.nr_extents == 0 ||
+	    kattr->mnt_userns->gid_map.nr_extents == 0)
+		return -EINVAL;
 
 	/*
 	 * Creating an idmapped mount with the filesystem wide idmapping

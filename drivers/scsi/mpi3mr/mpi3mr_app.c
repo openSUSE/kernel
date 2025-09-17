@@ -2169,6 +2169,8 @@ static DEVICE_ATTR_RO(persistent_id);
  * @buf: the buffer returned
  *
  * A sysfs 'read-only' sdev attribute, only works with SATA devices
+ *
+ * Returns: the number of characters written to @buf
  */
 static ssize_t
 sas_ncq_prio_supported_show(struct device *dev,
@@ -2187,6 +2189,8 @@ static DEVICE_ATTR_RO(sas_ncq_prio_supported);
  * @buf: the buffer returned
  *
  * A sysfs 'read/write' sdev attribute, only works with SATA devices
+ *
+ * Returns: the number of characters written to @buf
  */
 static ssize_t
 sas_ncq_prio_enable_show(struct device *dev,
