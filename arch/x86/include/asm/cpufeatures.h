@@ -397,6 +397,7 @@
 #define X86_FEATURE_BHI_CTRL		X86_EXT_FEATURE(22*32+ 1) /* "" BHI_DIS_S HW control available */
 #define X86_FEATURE_CLEAR_BHB_HW	X86_EXT_FEATURE(22*32+ 2) /* "" BHI_DIS_S HW control enabled */
 #define X86_FEATURE_CLEAR_BHB_LOOP_ON_VMEXIT X86_EXT_FEATURE(22*32+ 3) /* "" Clear branch history at vmexit using SW loop */
+#define X86_FEATURE_IBPB_EXIT_TO_USER	X86_EXT_FEATURE(21*32+14) /* "" Use IBPB on exit-to-userspace, see VMSCAPE bug */
 
 /*
  * BUG word(s)
@@ -449,6 +450,7 @@
 #define X86_BUG_BHI			X86_EXT_BUG(1*32 + 2) /* CPU is affected by Branch History Injection */
 #define X86_BUG_ITS			X86_EXT_BUG(1*32 + 3) /* "its" CPU is affected by Indirect Target Selection */
 #define X86_BUG_ITS_NATIVE_ONLY		X86_EXT_BUG(1*32 + 4) /* "its_native_only" CPU is affected by ITS, VMX is not affected */
+#define X86_BUG_VMSCAPE		X86_EXT_BUG(1*32+ 5) /* "vmscape" CPU is affected by VMSCAPE attacks from guests */
 
 
 #endif /* _ASM_X86_CPUFEATURES_H */

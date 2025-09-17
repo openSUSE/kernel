@@ -9,6 +9,9 @@
 #include <asm/alternative.h>
 #include <asm/cpufeatures.h>
 #include <asm/msr-index.h>
+#ifndef __GENKSYMS__
+#include <asm/percpu.h>
+#endif
 #include <asm/unwind_hints.h>
 
 /*
@@ -407,6 +410,8 @@ void alternative_msr_write(unsigned int msr, u64 val, unsigned int feature)
 		    [feature] "i" (feature)
 		: "memory");
 }
+
+DECLARE_PER_CPU(bool, x86_ibpb_exit_to_user);
 
 extern u64 x86_pred_cmd;
 
