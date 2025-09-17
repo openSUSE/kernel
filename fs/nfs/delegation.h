@@ -21,6 +21,9 @@ struct nfs_delegation {
 	fmode_t type;
 	unsigned long pagemod_limit;
 	__u64 change_attr;
+#ifndef __GENKSYMS__
+	unsigned long test_gen;
+#endif
 	unsigned long flags;
 	refcount_t refcount;
 	spinlock_t lock;

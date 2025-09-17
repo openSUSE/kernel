@@ -259,6 +259,7 @@ struct nfs_server {
 	bool			has_sec_mnt_opts;
 #ifndef __GENKSYMS__
 	struct list_head	ss_src_copies;
+	unsigned long		delegation_gen;
 #endif
 };
 

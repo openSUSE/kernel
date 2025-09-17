@@ -2402,6 +2402,23 @@ void security_sctp_sk_clone(struct sctp_endpoint *ep, struct sock *sk,
 }
 EXPORT_SYMBOL(security_sctp_sk_clone);
 
+/**
+ * security_mptcp_add_subflow() - Inherit the LSM label from the MPTCP socket
+ * @sk: the owning MPTCP socket
+ * @ssk: the new subflow
+ *
+ * Update the labeling for the given MPTCP subflow, to match the one of the
+ * owning MPTCP socket. This hook has to be called after the socket creation and
+ * initialization via the security_socket_create() and
+ * security_socket_post_create() LSM hooks.
+ *
+ * Return: Returns 0 on success or a negative error code on failure.
+ */
+int security_mptcp_add_subflow(struct sock *sk, struct sock *ssk)
+{
+	return call_int_hook(mptcp_add_subflow, 0, sk, ssk);
+}
+
 #endif	/* CONFIG_SECURITY_NETWORK */
 
 #ifdef CONFIG_SECURITY_INFINIBAND
