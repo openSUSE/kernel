@@ -3578,7 +3578,7 @@ static int start_service_discovery(struct sock *sk, struct hci_dev *hdev,
 	u8 status;
 	int err;
 
-	bt_dev_dbg(hdev, "sock", sk);
+	bt_dev_dbg(hdev, "sock %p", sk);
 
 	hci_dev_lock(hdev);
 
@@ -3777,7 +3777,7 @@ static int block_device(struct sock *sk, struct hci_dev *hdev, void *data,
 	u8 status;
 	int err;
 
-	bt_dev_dbg(hdev, "sock", sk);
+	bt_dev_dbg(hdev, "sock %p", sk);
 
 	if (!bdaddr_type_is_valid(cp->addr.type))
 		return mgmt_cmd_complete(sk, hdev->id, MGMT_OP_BLOCK_DEVICE,
