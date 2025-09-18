@@ -1752,8 +1752,6 @@ retry:
 	if (qca_is_wcn399x(soc_type) ||
 	    qca_is_wcn6750(soc_type) ||
 	    qca_is_wcn6855(soc_type)) {
-		set_bit(HCI_QUIRK_USE_BDADDR_PROPERTY, &hdev->quirks);
-
 		qcadev = serdev_device_get_drvdata(hu->serdev);
 		if (qcadev->bdaddr_property_broken)
 			set_bit(HCI_QUIRK_BDADDR_PROPERTY_BROKEN, &hdev->quirks);
