@@ -40,6 +40,7 @@ xfs_trans_ijoin(
 	iip->ili_lock_flags = lock_flags;
 	ASSERT(!xfs_iflags_test(ip, XFS_ISTALE));
 
+	iip->ili_dirty_flags = 0;
 	/*
 	 * Get a log_item_desc to point at the new item.
 	 */
@@ -163,7 +164,7 @@ xfs_trans_log_inode(
 	 * dirty.
 	 */
 	spin_lock(&iip->ili_lock);
-	iip->ili_fsync_fields |= flags;
+	iip->ili_dirty_flags |= flags;
 
 	if (!iip->ili_item.li_buf) {
 		struct xfs_buf	*bp;

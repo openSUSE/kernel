@@ -2455,7 +2455,6 @@ retry:
 	spin_lock(&iip->ili_lock);
 	iip->ili_last_fields = iip->ili_fields;
 	iip->ili_fields = 0;
-	iip->ili_fsync_fields = 0;
 	spin_unlock(&iip->ili_lock);
 	ASSERT(iip->ili_last_fields);
 
@@ -2639,12 +2638,20 @@ static void
 xfs_iunpin(
 	struct xfs_inode	*ip)
 {
-	ASSERT(xfs_isilocked(ip, XFS_ILOCK_EXCL|XFS_ILOCK_SHARED));
+	struct xfs_inode_log_item *iip = ip->i_itemp;
+	xfs_csn_t		seq = 0;
 
 	trace_xfs_inode_unpin_nowait(ip, _RET_IP_);
+	ASSERT(xfs_isilocked(ip, XFS_ILOCK_EXCL|XFS_ILOCK_SHARED));
+
+	spin_lock(&iip->ili_lock);
+	seq = iip->ili_commit_seq;
+	spin_unlock(&iip->ili_lock);
+	if (!seq)
+		return;
 
 	/* Give the log a push to start the unpinning I/O */
-	xfs_log_force_seq(ip->i_mount, ip->i_itemp->ili_commit_seq, 0, NULL);
+	xfs_log_force_seq(ip->i_mount, seq, 0, NULL);
 
 }
 
@@ -3561,7 +3568,6 @@ flush_out:
 	spin_lock(&iip->ili_lock);
 	iip->ili_last_fields = iip->ili_fields;
 	iip->ili_fields = 0;
-	iip->ili_fsync_fields = 0;
 	spin_unlock(&iip->ili_lock);
 
 	/*
@@ -3707,12 +3713,15 @@ int
 xfs_log_force_inode(
 	struct xfs_inode	*ip)
 {
+	struct xfs_inode_log_item *iip = ip->i_itemp;
 	xfs_csn_t		seq = 0;
 
-	xfs_ilock(ip, XFS_ILOCK_SHARED);
-	if (xfs_ipincount(ip))
-		seq = ip->i_itemp->ili_commit_seq;
-	xfs_iunlock(ip, XFS_ILOCK_SHARED);
+	if (!iip)
+		return 0;
+
+	spin_lock(&iip->ili_lock);
+	seq = iip->ili_commit_seq;
+	spin_unlock(&iip->ili_lock);
 
 	if (!seq)
 		return 0;
