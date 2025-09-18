@@ -214,47 +214,52 @@ static void rzg2l_cru_set_slot_addr(struct rzg2l_cru_dev *cru,
 }
 
 /*
- * Moves a buffer from the queue to the HW slot. If no buffer is
- * available use the scratch buffer. The scratch buffer is never
- * returned to userspace, its only function is to enable the capture
- * loop to keep running.
+ * Move as many buffers as possible from the queue to HW slots If no buffer is
+ * available use the scratch buffer. The scratch buffer is never returned to
+ * userspace, its only function is to enable the capture loop to keep running.
+ *
+ * @cru: the CRU device
+ * @slot: the slot that has just completed
  */
 static void rzg2l_cru_fill_hw_slot(struct rzg2l_cru_dev *cru, int slot)
 {
-	struct vb2_v4l2_buffer *vbuf;
 	struct rzg2l_cru_buffer *buf;
+	struct vb2_v4l2_buffer *vbuf;
+	unsigned int next_slot;
 	dma_addr_t phys_addr;
 
-	/* A already populated slot shall never be overwritten. */
-	if (WARN_ON(cru->queue_buf[slot]))
-		return;
+	lockdep_assert_held(&cru->hw_lock);
 
-	dev_dbg(cru->dev, "Filling HW slot: %d\n", slot);
+	/* Find the next slot which hasn't a valid address programmed. */
+	for_each_cru_slot_from(cru, next_slot, slot) {
+		if (cru->queue_buf[next_slot])
+			continue;
 
-	guard(spinlock)(&cru->qlock);
+		scoped_guard(spinlock_irqsave, &cru->qlock) {
+			buf = list_first_entry_or_null(&cru->buf_list,
+						       struct rzg2l_cru_buffer, list);
+			if (buf)
+				list_del_init(&buf->list);
+		}
 
-	if (list_empty(&cru->buf_list)) {
-		cru->queue_buf[slot] = NULL;
-		phys_addr = cru->scratch_phys;
-	} else {
-		/* Keep track of buffer we give to HW */
-		buf = list_entry(cru->buf_list.next,
-				 struct rzg2l_cru_buffer, list);
+		if (!buf) {
+			/* Direct frames to the scratch buffer. */
+			phys_addr = cru->scratch_phys;
+			cru->queue_buf[next_slot] = NULL;
+			rzg2l_cru_set_slot_addr(cru, next_slot, phys_addr);
+			return;
+		}
+
 		vbuf = &buf->vb;
-		list_del_init(to_buf_list(vbuf));
-		cru->queue_buf[slot] = vbuf;
-
-		/* Setup DMA */
+		cru->queue_buf[next_slot] = vbuf;
 		phys_addr = vb2_dma_contig_plane_dma_addr(&vbuf->vb2_buf, 0);
+		rzg2l_cru_set_slot_addr(cru, next_slot, phys_addr);
 	}
-
-	rzg2l_cru_set_slot_addr(cru, slot, phys_addr);
 }
 
 static void rzg2l_cru_initialize_axi(struct rzg2l_cru_dev *cru)
 {
 	const struct rzg2l_cru_info *info = cru->info;
-	unsigned int slot;
 	u32 amnaxiattr;
 
 	/*
@@ -263,8 +268,14 @@ static void rzg2l_cru_initialize_axi(struct rzg2l_cru_dev *cru)
 	 */
 	rzg2l_cru_write(cru, AMnMBVALID, AMnMBVALID_MBVALID(cru->num_buf - 1));
 
-	for (slot = 0; slot < cru->num_buf; slot++)
-		rzg2l_cru_fill_hw_slot(cru, slot);
+	/*
+	 * Program slot#0 with the first available buffer, if any. Pass to the
+	 * function 'num_buf - 1' as rzg2l_cru_fill_hw_slot() calculates which
+	 * is the next slot to program.
+	 */
+	scoped_guard(spinlock_irq, &cru->hw_lock) {
+		rzg2l_cru_fill_hw_slot(cru, cru->num_buf - 1);
+	}
 
 	if (info->has_stride) {
 		u32 stride = cru->format.bytesperline;
@@ -695,7 +706,6 @@ irqreturn_t rzg3e_cru_irq(int irq, void *data)
 	cru->active_slot = rzg2l_cru_slot_next(cru, cru->active_slot);
 
 	dev_dbg(cru->dev, "Current written slot: %d\n", slot);
-	cru->buf_addr[slot] = 0;
 
 	/*
 	 * To hand buffers back in a known order to userspace start
