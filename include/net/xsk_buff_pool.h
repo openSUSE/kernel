@@ -9,7 +9,7 @@
 #include <linux/dma-mapping.h>
 #include <linux/bpf.h>
 #include <net/xdp.h>
-#include <linux/build_bug.h>  /* for static_assert() */
+#include <linux/build_bug.h>  /* for suse_kabi_static_assert() */
 #include <linux/stddef.h>     /* for offsetof() */
 
 struct xsk_buff_pool;
@@ -143,9 +143,9 @@ struct __orig_xsk_buff_pool {
 	spinlock_t cq_lock;
 	struct xdp_buff_xsk *free_heads[];
 };
-static_assert(offsetof(struct xsk_buff_pool, queue_id) ==
+suse_kabi_static_assert(offsetof(struct xsk_buff_pool, queue_id) ==
 	      offsetof(struct __orig_xsk_buff_pool, queue_id));
-static_assert(offsetof(struct xsk_buff_pool, fq) ==
+suse_kabi_static_assert(offsetof(struct xsk_buff_pool, fq) ==
 	      offsetof(struct __orig_xsk_buff_pool, fq));
 
 

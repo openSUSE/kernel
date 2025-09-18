@@ -444,15 +444,8 @@ struct mptcp_sock {
 #endif
 };
 
-/* Check that layout of previously existing members of struct mptcp_sock is
- * preserved. Perform the check only on supported kernels (This should be
- * replaced by CONFIG_SUSE_HAVE_STABLE_KABI once we have that config
- * option.)
- */
-#ifdef CONFIG_SUSE_KERNEL_SUPPORTED
-static_assert(offsetof(struct mptcp_sock, subflow_id) ==
+suse_kabi_static_assert(offsetof(struct mptcp_sock, subflow_id) ==
 	      offsetof(struct __orig_mptcp_sock, subflow_id));
-#endif
 
 #define mptcp_data_lock(sk) spin_lock_bh(&(sk)->sk_lock.slock)
 #define mptcp_data_unlock(sk) spin_unlock_bh(&(sk)->sk_lock.slock)
