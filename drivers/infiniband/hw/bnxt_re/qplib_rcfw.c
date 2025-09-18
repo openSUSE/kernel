@@ -178,7 +178,7 @@ static int __send_message(struct bnxt_qplib_rcfw *rcfw, struct cmdq_base *req,
 
 	rcfw->seq_num++;
 
-	cmdq_prod = cmdq->prod;
+	cmdq_prod = cmdq->prod & 0xFFFF;
 	if (test_bit(FIRMWARE_FIRST_FLAG, &rcfw->flags)) {
 		/* The very first doorbell write
 		 * is required to set this flag
