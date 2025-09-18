@@ -947,9 +947,17 @@ static int damon_commit_targets(
 			if (err)
 				return err;
 		} else {
+			struct damos *s;
+
 			if (damon_target_has_pid(dst))
 				put_pid(dst_target->pid);
 			damon_destroy_target(dst_target);
+			damon_for_each_scheme(s, dst) {
+				if (s->quota.charge_target_from == dst_target) {
+					s->quota.charge_target_from = NULL;
+					s->quota.charge_addr_from = 0;
+				}
+			}
 		}
 	}
 
@@ -1586,6 +1594,10 @@ static void damos_adjust_quota(struct damon_ctx *c, struct damos *s)
 
 	if (!quota->ms && !quota->sz && list_empty(&quota->goals))
 		return;
+
+	/* First charge window */
+	if (!quota->total_charged_sz && !quota->charged_from)
+		quota->charged_from = jiffies;
 
 	/* New charge window starts */
 	if (time_after_eq(jiffies, quota->charged_from +
