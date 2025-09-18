@@ -100,32 +100,22 @@ xfs_inode_item_precommit(
 	}
 
 	/*
-	 * Inode verifiers do not check that the extent size hint is an integer
-	 * multiple of the rt extent size on a directory with both rtinherit
-	 * and extszinherit flags set.  If we're logging a directory that is
-	 * misconfigured in this way, clear the hint.
+	 * Inode verifiers do not check that the extent size hints are an
+	 * integer multiple of the rt extent size on a directory with
+	 * rtinherit flags set.  If we're logging a directory that is
+	 * misconfigured in this way, clear the bad hints.
 	 */
-	if ((ip->i_diflags & XFS_DIFLAG_RTINHERIT) &&
-	    (ip->i_diflags & XFS_DIFLAG_EXTSZINHERIT) &&
-	    (ip->i_extsize % ip->i_mount->m_sb.sb_rextsize) > 0) {
-		ip->i_diflags &= ~(XFS_DIFLAG_EXTSIZE |
-				   XFS_DIFLAG_EXTSZINHERIT);
-		ip->i_extsize = 0;
-		flags |= XFS_ILOG_CORE;
-	}
+	if (ip->i_diflags & XFS_DIFLAG_RTINHERIT) {
+		if ((ip->i_diflags & XFS_DIFLAG_EXTSZINHERIT) &&
+           	    (ip->i_extsize % ip->i_mount->m_sb.sb_rextsize) > 0) {
+			ip->i_diflags &= ~(XFS_DIFLAG_EXTSIZE |
+					   XFS_DIFLAG_EXTSZINHERIT);
+			ip->i_extsize = 0;
+			flags |= XFS_ILOG_CORE;
+		}
+ 	}
 
-	/*
-	 * Record the specific change for fdatasync optimisation. This allows
-	 * fdatasync to skip log forces for inodes that are only timestamp
-	 * dirty. Once we've processed the XFS_ILOG_IVERSION flag, convert it
-	 * to XFS_ILOG_CORE so that the actual on-disk dirty tracking
-	 * (ili_fields) correctly tracks that the version has changed.
-	 */
 	spin_lock(&iip->ili_lock);
-	iip->ili_fsync_fields |= (flags & ~XFS_ILOG_IVERSION);
-	if (flags & XFS_ILOG_IVERSION)
-		flags = ((flags & ~XFS_ILOG_IVERSION) | XFS_ILOG_CORE);
-
 	if (!iip->ili_item.li_buf) {
 		struct xfs_buf	*bp;
 		int		error;
@@ -158,6 +148,17 @@ xfs_inode_item_precommit(
 		list_add_tail(&iip->ili_item.li_bio_list, &bp->b_li_list);
 		xfs_trans_brelse(tp, bp);
 	}
+
+	/*
+	 * Record the specific change for fdatasync optimisation. This allows
+	 * fdatasync to skip log forces for inodes that are only timestamp
+	 * dirty. Once we've processed the XFS_ILOG_IVERSION flag, convert it
+	 * to XFS_ILOG_CORE so that the actual on-disk dirty tracking
+	 * (ili_fields) correctly tracks that the version has changed.
+	 */
+	iip->ili_fsync_fields |= (flags & ~XFS_ILOG_IVERSION);
+	if (flags & XFS_ILOG_IVERSION)
+		flags = ((flags & ~XFS_ILOG_IVERSION) | XFS_ILOG_CORE);
 
 	/*
 	 * Always OR in the bits from the ili_last_fields field.  This is to
