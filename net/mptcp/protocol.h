@@ -428,19 +428,31 @@ struct mptcp_sock {
 		u64	rtt_us; /* last maximum rtt of subflows */
 	} rcvq_space;
 	u8		scaling_ratio;
+#ifndef __GENKSYMS__
+	bool		allow_subflows;
+#endif
 
 	u32		subflow_id;
 	u32		setsockopt_seq;
 	char		ca_name[TCP_CA_NAME_MAX];
 
 #ifndef __GENKSYMS__
-	spinlock_t	fallback_lock;	/* protects fallback and
-					 * allow_infinite_fallback
+	spinlock_t	fallback_lock;	/* protects fallback,
+					 * allow_infinite_fallback and
+					 * allow_join
 					 */
 #endif
 };
 
-static_assert(sizeof(struct mptcp_sock) == sizeof(struct __orig_mptcp_sock));
+/* Check that layout of previously existing members of struct mptcp_sock is
+ * preserved. Perform the check only on supported kernels (This should be
+ * replaced by CONFIG_SUSE_HAVE_STABLE_KABI once we have that config
+ * option.)
+ */
+#ifdef CONFIG_SUSE_KERNEL_SUPPORTED
+static_assert(offsetof(struct mptcp_sock, subflow_id) ==
+	      offsetof(struct __orig_mptcp_sock, subflow_id));
+#endif
 
 #define mptcp_data_lock(sk) spin_lock_bh(&(sk)->sk_lock.slock)
 #define mptcp_data_unlock(sk) spin_unlock_bh(&(sk)->sk_lock.slock)
@@ -1294,6 +1306,7 @@ static inline bool __mptcp_try_fallback(struct mptcp_sock *msk)
 		return false;
 	}
 
+	msk->allow_subflows = false;
 	set_bit(MPTCP_FALLBACK_DONE, &msk->flags);
 	spin_unlock_bh(&msk->fallback_lock);
 	return true;
