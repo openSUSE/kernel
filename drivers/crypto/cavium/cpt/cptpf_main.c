@@ -257,6 +257,7 @@ static int cpt_ucode_load_fw(struct cpt_device *cpt, const u8 *fw, bool is_ae)
 	const struct firmware *fw_entry;
 	struct device *dev = &cpt->pdev->dev;
 	struct ucode_header *ucode;
+	unsigned int code_length;
 	struct microcode *mcode;
 	int j, ret = 0;
 
@@ -267,9 +268,12 @@ static int cpt_ucode_load_fw(struct cpt_device *cpt, const u8 *fw, bool is_ae)
 	ucode = (struct ucode_header *)fw_entry->data;
 	mcode = &cpt->mcode[cpt->next_mc_idx];
 	memcpy(mcode->version, (u8 *)fw_entry->data, CPT_UCODE_VERSION_SZ);
-	mcode->code_size = ntohl(ucode->code_length) * 2;
-	if (!mcode->code_size)
-		return -EINVAL;
+	code_length = ntohl(ucode->code_length);
+	if (code_length == 0 || code_length >= INT_MAX / 2) {
+		ret = -EINVAL;
+		goto fw_release;
+	}
+	mcode->code_size = code_length * 2;
 
 	mcode->is_ae = is_ae;
 	mcode->core_mask = 0ULL;
@@ -280,7 +284,8 @@ static int cpt_ucode_load_fw(struct cpt_device *cpt, const u8 *fw, bool is_ae)
 					  &mcode->phys_base, GFP_KERNEL);
 	if (!mcode->code) {
 		dev_err(dev, "Unable to allocate space for microcode");
-		return -ENOMEM;
+		ret = -ENOMEM;
+		goto fw_release;
 	}
 
 	memcpy((void *)mcode->code, (void *)(fw_entry->data + sizeof(*ucode)),
@@ -302,12 +307,14 @@ static int cpt_ucode_load_fw(struct cpt_device *cpt, const u8 *fw, bool is_ae)
 	ret = do_cpt_init(cpt, mcode);
 	if (ret) {
 		dev_err(dev, "do_cpt_init failed with ret: %d\n", ret);
-		return ret;
+		goto fw_release;
 	}
 
 	dev_info(dev, "Microcode Loaded %s\n", mcode->version);
 	mcode->is_mc_valid = 1;
 	cpt->next_mc_idx++;
+
+fw_release:
 	release_firmware(fw_entry);
 
 	return ret;
