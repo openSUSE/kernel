@@ -262,6 +262,92 @@ struct mptcp_data_frag {
 	struct page *page;
 };
 
+/* original version of struct mptcp_sock */
+struct __orig_mptcp_sock {
+	/* inet_connection_sock must be the first member */
+	struct inet_connection_sock sk;
+	u64		local_key;		/* protected by the first subflow socket lock
+						 * lockless access read
+						 */
+	u64		remote_key;		/* same as above */
+	u64		write_seq;
+	u64		bytes_sent;
+	u64		snd_nxt;
+	u64		bytes_received;
+	u64		ack_seq;
+	atomic64_t	rcv_wnd_sent;
+	u64		rcv_data_fin_seq;
+	u64		bytes_retrans;
+	u64		bytes_consumed;
+	int		rmem_fwd_alloc;
+	int		snd_burst;
+	int		old_wspace;
+	u64		recovery_snd_nxt;	/* in recovery mode accept up to this seq;
+						 * recovery related fields are under data_lock
+						 * protection
+						 */
+	u64		bytes_acked;
+	u64		snd_una;
+	u64		wnd_end;
+	u32		last_data_sent;
+	u32		last_data_recv;
+	u32		last_ack_recv;
+	unsigned long	timer_ival;
+	u32		token;
+	int		rmem_released;
+	unsigned long	flags;
+	unsigned long	cb_flags;
+	bool		recovery;		/* closing subflow write queue reinjected */
+	bool		can_ack;
+	bool		fully_established;
+	bool		rcv_data_fin;
+	bool		snd_data_fin_enable;
+	bool		rcv_fastclose;
+	bool		use_64bit_ack; /* Set when we received a 64-bit DSN */
+	bool		csum_enabled;
+	bool		allow_infinite_fallback;
+	u8		pending_state; /* A subflow asked to set this sk_state,
+					* protected by the msk data lock
+					*/
+	u8		mpc_endpoint_id;
+	u8		recvmsg_inq:1,
+			cork:1,
+			nodelay:1,
+			fastopening:1,
+			in_accept_queue:1,
+			free_first:1,
+			rcvspace_init:1;
+	u32		notsent_lowat;
+	int		keepalive_cnt;
+	int		keepalive_idle;
+	int		keepalive_intvl;
+	struct work_struct work;
+	struct sk_buff  *ooo_last_skb;
+	struct rb_root  out_of_order_queue;
+	struct sk_buff_head receive_queue;
+	struct list_head conn_list;
+	struct list_head rtx_queue;
+	struct mptcp_data_frag *first_pending;
+	struct list_head join_list;
+	struct sock	*first; /* The mptcp ops can safely dereference, using suitable
+				 * ONCE annotation, the subflow outside the socket
+				 * lock as such sock is freed after close().
+				 */
+	struct mptcp_pm_data	pm;
+	struct mptcp_sched_ops	*sched;
+	struct {
+		u32	space;	/* bytes copied in last measurement window */
+		u32	copied; /* bytes copied in this measurement window */
+		u64	time;	/* start time of measurement window */
+		u64	rtt_us; /* last maximum rtt of subflows */
+	} rcvq_space;
+	u8		scaling_ratio;
+
+	u32		subflow_id;
+	u32		setsockopt_seq;
+	char		ca_name[TCP_CA_NAME_MAX];
+};
+
 /* MPTCP connection sock */
 struct mptcp_sock {
 	/* inet_connection_sock must be the first member */
@@ -342,7 +428,9 @@ struct mptcp_sock {
 		u64	rtt_us; /* last maximum rtt of subflows */
 	} rcvq_space;
 	u8		scaling_ratio;
+#ifndef __GENKSYMS__
 	bool		allow_subflows;
+#endif
 
 	u32		subflow_id;
 	u32		setsockopt_seq;
@@ -355,6 +443,16 @@ struct mptcp_sock {
 					 */
 #endif
 };
+
+/* Check that layout of previously existing members of struct mptcp_sock is
+ * preserved. Perform the check only on supported kernels (This should be
+ * replaced by CONFIG_SUSE_HAVE_STABLE_KABI once we have that config
+ * option.)
+ */
+#ifdef CONFIG_SUSE_KERNEL_SUPPORTED
+static_assert(offsetof(struct mptcp_sock, subflow_id) ==
+	      offsetof(struct __orig_mptcp_sock, subflow_id));
+#endif
 
 #define mptcp_data_lock(sk) spin_lock_bh(&(sk)->sk_lock.slock)
 #define mptcp_data_unlock(sk) spin_unlock_bh(&(sk)->sk_lock.slock)
