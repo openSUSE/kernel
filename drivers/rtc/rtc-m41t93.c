@@ -22,6 +22,14 @@
 #define M41T93_REG_DAY			5
 #define M41T93_REG_MON			6
 #define M41T93_REG_YEAR			7
+#define M41T93_REG_AL1_MONTH		0xa
+#define M41T93_REG_AL1_DATE		0xb
+#define M41T93_REG_AL1_HOUR		0xc
+#define M41T93_REG_AL1_MIN		0xd
+#define M41T93_REG_AL1_SEC		0xe
+#define M41T93_BIT_A1IE                 BIT(7)
+#define M41T93_BIT_ABE                  BIT(5)
+#define M41T93_FLAG_AF1                 BIT(6)
 
 
 #define M41T93_REG_ALM_HOUR_HT		0xc
@@ -153,10 +161,107 @@ static int m41t93_get_time(struct device *dev, struct rtc_time *tm)
 	return ret;
 }
 
+static int m41t93_set_alarm(struct device *dev, struct rtc_wkalrm *alrm)
+{
+	struct m41t93_data *m41t93 = dev_get_drvdata(dev);
+	int ret;
+	unsigned int val;
+	u8 alarm_vals[5] = {0};
+
+	ret = regmap_bulk_write(m41t93->regmap, M41T93_REG_AL1_DATE, alarm_vals, 4);
+	if (ret)
+		return ret;
+
+	/* Set alarm values */
+	alarm_vals[0] = bin2bcd(alrm->time.tm_mon + 1) & 0x1f;
+	alarm_vals[1] = bin2bcd(alrm->time.tm_mday) & 0x3f;
+	alarm_vals[2] = bin2bcd(alrm->time.tm_hour) & 0x3f;
+	alarm_vals[3] = bin2bcd(alrm->time.tm_min) & 0x7f;
+	alarm_vals[4] = bin2bcd(alrm->time.tm_sec) & 0x7f;
+
+	if (alrm->enabled) {
+		/* Enable alarm IRQ generation */
+		alarm_vals[0] |= M41T93_BIT_A1IE | M41T93_BIT_ABE;
+	}
+
+	/* Preserve SQWE bit */
+	ret = regmap_read(m41t93->regmap, M41T93_REG_AL1_MONTH, &val);
+	if (ret)
+		return ret;
+
+	alarm_vals[0] |= val & 0x40;
+
+	ret = regmap_bulk_write(m41t93->regmap, M41T93_REG_AL1_MONTH,
+				alarm_vals, sizeof(alarm_vals));
+	if (ret)
+		return ret;
+
+	/* Device address pointer is now at FLAG register, move it to other location
+	 * to finish setting alarm, as recommended by the datasheet.
+	 * We do read of AL1_MONTH register to achieve this.
+	 */
+	ret = regmap_read(m41t93->regmap, M41T93_REG_AL1_MONTH, &val);
+	if (ret)
+		return ret;
+
+	if (bcd2bin(val & 0x1f) == (alrm->time.tm_mon & 0x1f))
+		dev_notice(dev, "Alarm set successfully\n");
+
+	return 0;
+}
+
+static int m41t93_get_alarm(struct device *dev, struct rtc_wkalrm *alrm)
+{
+	struct m41t93_data *m41t93 = dev_get_drvdata(dev);
+	int ret;
+	unsigned int val;
+	u8 alarm_vals[5] = {0};
+
+	ret = regmap_bulk_read(m41t93->regmap, M41T93_REG_AL1_MONTH,
+			       alarm_vals, sizeof(alarm_vals));
+	if (ret)
+		return ret;
+
+	alrm->time.tm_mon = bcd2bin(alarm_vals[0] & 0x1f) - 1;
+	alrm->time.tm_mday = bcd2bin(alarm_vals[1] & 0x3f);
+	alrm->time.tm_hour = bcd2bin(alarm_vals[2] & 0x3f);
+	alrm->time.tm_min = bcd2bin(alarm_vals[3] & 0x7f);
+	alrm->time.tm_sec = bcd2bin(alarm_vals[4] & 0x7f);
+
+	alrm->enabled =  !!(alarm_vals[0] & M41T93_BIT_A1IE);
+
+	ret = regmap_read(m41t93->regmap, M41T93_REG_FLAGS, &val);
+	if (ret)
+		return ret;
+
+	alrm->pending = (val & M41T93_FLAG_AF1) && alrm->enabled;
+
+	return 0;
+}
+
+static int m41t93_alarm_irq_enable(struct device *dev, unsigned int enabled)
+{
+	struct m41t93_data *m41t93 = dev_get_drvdata(dev);
+	unsigned int val;
+	int ret;
+
+	val = enabled ? M41T93_BIT_A1IE | M41T93_BIT_ABE : 0;
+
+	ret = regmap_update_bits(m41t93->regmap, M41T93_REG_AL1_MONTH,
+				 M41T93_BIT_A1IE | M41T93_BIT_ABE, val);
+	if (ret)
+		return ret;
+
+	return 0;
+}
+
 
 static const struct rtc_class_ops m41t93_rtc_ops = {
 	.read_time	= m41t93_get_time,
 	.set_time	= m41t93_set_time,
+	.set_alarm	= m41t93_set_alarm,
+	.read_alarm	= m41t93_get_alarm,
+	.alarm_irq_enable = m41t93_alarm_irq_enable,
 };
 
 static struct spi_driver m41t93_driver;
