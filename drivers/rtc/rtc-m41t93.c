@@ -14,6 +14,7 @@
 #include <linux/spi/spi.h>
 #include <linux/regmap.h>
 #include <linux/clk-provider.h>
+#include <linux/watchdog.h>
 
 #define M41T93_REG_SSEC			0
 #define M41T93_REG_ST_SEC		1
@@ -36,6 +37,10 @@
 #define M41T93_SQW_RS_MASK		0xf0
 #define M41T93_SQW_RS_SHIFT		4
 #define M41T93_BIT_SQWE                 BIT(6)
+#define M41T93_REG_WATCHDOG		0x9
+#define M41T93_WDT_RB_MASK		0x3
+#define M41T93_WDT_BMB_MASK		0x7c
+#define M41T93_WDT_BMB_SHIFT		2
 
 #define M41T93_REG_ALM_HOUR_HT		0xc
 #define M41T93_REG_FLAGS		0xf
@@ -50,6 +55,9 @@ struct m41t93_data {
 	struct regmap *regmap;
 #ifdef CONFIG_COMMON_CLK
 	struct clk_hw clks;
+#endif
+#ifdef CONFIG_WATCHDOG
+	struct watchdog_device wdd;
 #endif
 };
 
@@ -412,6 +420,92 @@ static int rtc_m41t93_clks_register(struct device *dev, struct m41t93_data *m41t
 }
 #endif
 
+#ifdef CONFIG_WATCHDOG
+static int m41t93_wdt_ping(struct watchdog_device *wdd)
+{
+	u8 resolution, mult;
+	u8 val = 0;
+	int ret;
+	struct m41t93_data *m41t93 = watchdog_get_drvdata(wdd);
+
+	/*  Resolution supported by hardware
+	 *  0b00 : 1/16 seconds
+	 *  0b01 : 1/4 second
+	 *  0b10 : 1 second
+	 *  0b11 : 4 seconds
+	 */
+	resolution = 0x2; /* hardcode resolution to 1s */
+	mult = wdd->timeout;
+	val = resolution | (mult << M41T93_WDT_BMB_SHIFT &  M41T93_WDT_BMB_MASK);
+
+	ret = regmap_write_bits(m41t93->regmap, M41T93_REG_WATCHDOG,
+				M41T93_WDT_RB_MASK | M41T93_WDT_BMB_MASK, val);
+
+	return ret;
+}
+
+static int m41t93_wdt_start(struct watchdog_device *wdd)
+{
+	return m41t93_wdt_ping(wdd);
+}
+
+static int m41t93_wdt_stop(struct watchdog_device *wdd)
+{
+	struct m41t93_data *m41t93 = watchdog_get_drvdata(wdd);
+
+	/* Write 0 to watchdog register */
+	return regmap_write_bits(m41t93->regmap, M41T93_REG_WATCHDOG,
+				  M41T93_WDT_RB_MASK | M41T93_WDT_BMB_MASK, 0);
+}
+
+static int m41t93_wdt_set_timeout(struct watchdog_device *wdd,
+				  unsigned int new_timeout)
+{
+	wdd->timeout = new_timeout;
+
+	return 0;
+}
+
+static const struct watchdog_info m41t93_wdt_info = {
+	.identity = "m41t93 rtc Watchdog",
+	.options = WDIOF_ALARMONLY | WDIOF_SETTIMEOUT | WDIOF_KEEPALIVEPING,
+};
+
+static const struct watchdog_ops m41t93_watchdog_ops = {
+	.owner = THIS_MODULE,
+	.start = m41t93_wdt_start,
+	.stop = m41t93_wdt_stop,
+	.ping = m41t93_wdt_ping,
+	.set_timeout = m41t93_wdt_set_timeout,
+};
+
+static int m41t93_watchdog_register(struct device *dev, struct m41t93_data *m41t93)
+{
+	int ret;
+
+	m41t93->wdd.parent = dev;
+	m41t93->wdd.info = &m41t93_wdt_info;
+	m41t93->wdd.ops = &m41t93_watchdog_ops;
+	m41t93->wdd.min_timeout = 0;
+	m41t93->wdd.max_timeout = 10;
+	m41t93->wdd.timeout = 3; /* Default timeout is 3 sec */
+	m41t93->wdd.status = WATCHDOG_NOWAYOUT_INIT_STATUS;
+
+	watchdog_set_drvdata(&m41t93->wdd, m41t93);
+
+	ret = devm_watchdog_register_device(dev, &m41t93->wdd);
+	if (ret) {
+		dev_warn(dev, "Failed to register watchdog\n");
+		return ret;
+	}
+
+	/* Disable watchdog at start */
+	ret = m41t93_wdt_stop(&m41t93->wdd);
+
+	return ret;
+}
+#endif
+
 static struct spi_driver m41t93_driver;
 
 static const struct regmap_config regmap_config = {
@@ -464,6 +558,11 @@ static int m41t93_probe(struct spi_device *spi)
 	ret = rtc_m41t93_clks_register(&spi->dev, m41t93);
 	if (ret)
 		dev_warn(&spi->dev, "Unable to register clock\n");
+#endif
+#ifdef CONFIG_WATCHDOG
+	ret = m41t93_watchdog_register(&spi->dev, m41t93);
+	if (ret)
+		dev_warn(&spi->dev, "Unable to register watchdog\n");
 #endif
 
 	return 0;
