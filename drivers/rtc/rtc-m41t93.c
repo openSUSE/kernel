@@ -13,6 +13,7 @@
 #include <linux/rtc.h>
 #include <linux/spi/spi.h>
 #include <linux/regmap.h>
+#include <linux/clk-provider.h>
 
 #define M41T93_REG_SSEC			0
 #define M41T93_REG_ST_SEC		1
@@ -30,7 +31,11 @@
 #define M41T93_BIT_A1IE                 BIT(7)
 #define M41T93_BIT_ABE                  BIT(5)
 #define M41T93_FLAG_AF1                 BIT(6)
-
+#define M41T93_SRAM_BASE		0x19
+#define M41T93_REG_SQW			0x13
+#define M41T93_SQW_RS_MASK		0xf0
+#define M41T93_SQW_RS_SHIFT		4
+#define M41T93_BIT_SQWE                 BIT(6)
 
 #define M41T93_REG_ALM_HOUR_HT		0xc
 #define M41T93_REG_FLAGS		0xf
@@ -43,6 +48,9 @@
 struct m41t93_data {
 	struct rtc_device *rtc;
 	struct regmap *regmap;
+#ifdef CONFIG_COMMON_CLK
+	struct clk_hw clks;
+#endif
 };
 
 static int m41t93_set_time(struct device *dev, struct rtc_time *tm)
@@ -264,6 +272,146 @@ static const struct rtc_class_ops m41t93_rtc_ops = {
 	.alarm_irq_enable = m41t93_alarm_irq_enable,
 };
 
+#ifdef CONFIG_COMMON_CLK
+#define clk_sqw_to_m41t93_data(clk)	\
+	container_of(clk, struct m41t93_data, clks)
+
+/* m41t93 RTC clock output support */
+static unsigned long m41t93_clk_rates[] = {
+	0,
+	32768, /* RS3:RS0 = 0b0001 */
+	8192,
+	4096,
+	2048,
+	1024,
+	512,
+	256,
+	128,
+	64,
+	32,
+	16,
+	8,
+	4,
+	2,
+	1, /* RS3:RS0 = 0b1111 */
+};
+
+static unsigned long m41t93_clk_sqw_recalc_rate(struct clk_hw *hw,
+						unsigned long parent_rate)
+{
+	int ret;
+	unsigned int rate_id;
+	struct m41t93_data *m41t93 = clk_sqw_to_m41t93_data(hw);
+
+	ret = regmap_read(m41t93->regmap, M41T93_REG_SQW, &rate_id);
+	if (ret)
+		return ret;
+
+	rate_id &= M41T93_SQW_RS_MASK;
+	rate_id >>= M41T93_SQW_RS_SHIFT;
+
+	return m41t93_clk_rates[rate_id];
+}
+
+static int m41t93_clk_sqw_determine_rate(struct clk_hw *hw,
+					 struct clk_rate_request *req)
+{
+	int i;
+
+	for (i = 1; i < ARRAY_SIZE(m41t93_clk_rates); i++) {
+		if (req->rate >= m41t93_clk_rates[i]) {
+			req->rate = m41t93_clk_rates[i];
+			return 0;
+		}
+	}
+
+	return 0;
+}
+
+static int m41t93_clk_sqw_set_rate(struct clk_hw *hw, unsigned long rate,
+				   unsigned long parent_rate)
+{
+	int id, ret;
+	struct m41t93_data *m41t93 = clk_sqw_to_m41t93_data(hw);
+
+	for (id = 0; id < ARRAY_SIZE(m41t93_clk_rates); id++) {
+		if (m41t93_clk_rates[id] == rate)
+			break;
+	}
+
+	if (id >= ARRAY_SIZE(m41t93_clk_rates))
+		return -EINVAL;
+
+	ret = regmap_update_bits(m41t93->regmap, M41T93_REG_SQW,
+				 M41T93_SQW_RS_MASK, id << M41T93_SQW_RS_SHIFT);
+
+	return ret;
+}
+
+static int m41t93_clk_sqw_prepare(struct clk_hw *hw)
+{
+	int ret;
+	struct m41t93_data *m41t93 = clk_sqw_to_m41t93_data(hw);
+
+	ret = regmap_update_bits(m41t93->regmap, M41T93_REG_AL1_MONTH,
+				 M41T93_BIT_SQWE, M41T93_BIT_SQWE);
+
+	return ret;
+}
+
+static void m41t93_clk_sqw_unprepare(struct clk_hw *hw)
+{
+	struct m41t93_data *m41t93 = clk_sqw_to_m41t93_data(hw);
+
+	regmap_update_bits(m41t93->regmap, M41T93_REG_AL1_MONTH,
+			   M41T93_BIT_SQWE, 0);
+}
+
+static int m41t93_clk_sqw_is_prepared(struct clk_hw *hw)
+{
+	int ret;
+	struct m41t93_data *m41t93 = clk_sqw_to_m41t93_data(hw);
+	unsigned int status;
+
+	ret = regmap_read(m41t93->regmap, M41T93_REG_AL1_MONTH, &status);
+	if (ret)
+		return ret;
+
+	return !!(status & M41T93_BIT_SQWE);
+}
+
+static const struct clk_ops m41t93_clk_sqw_ops = {
+	.prepare = m41t93_clk_sqw_prepare,
+	.unprepare = m41t93_clk_sqw_unprepare,
+	.is_prepared = m41t93_clk_sqw_is_prepared,
+	.recalc_rate = m41t93_clk_sqw_recalc_rate,
+	.set_rate = m41t93_clk_sqw_set_rate,
+	.determine_rate = m41t93_clk_sqw_determine_rate,
+};
+
+static int rtc_m41t93_clks_register(struct device *dev, struct m41t93_data *m41t93)
+{
+	struct device_node *node = dev->of_node;
+	struct clk *clk;
+	struct clk_init_data init = {0};
+
+	init.name = "m41t93_clk_sqw";
+	init.ops = &m41t93_clk_sqw_ops;
+
+	m41t93->clks.init = &init;
+
+	/* Register the clock with CCF */
+	clk = devm_clk_register(dev, &m41t93->clks);
+	if (IS_ERR(clk))
+		return PTR_ERR(clk);
+
+	if (node)
+		of_clk_add_provider(node, of_clk_src_simple_get, clk);
+
+	return 0;
+}
+#endif
+
 static struct spi_driver m41t93_driver;
 
 static const struct regmap_config regmap_config = {
@@ -311,6 +459,12 @@ static int m41t93_probe(struct spi_device *spi)
 					       &m41t93_rtc_ops, THIS_MODULE);
 	if (IS_ERR(m41t93->rtc))
 		return PTR_ERR(m41t93->rtc);
+
+#ifdef CONFIG_COMMON_CLK
+	ret = rtc_m41t93_clks_register(&spi->dev, m41t93);
+	if (ret)
+		dev_warn(&spi->dev, "Unable to register clock\n");
+#endif
 
 	return 0;
 }
