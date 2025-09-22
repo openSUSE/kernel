@@ -9,7 +9,7 @@
 #include <linux/dma-mapping.h>
 #include <linux/bpf.h>
 #include <net/xdp.h>
-#include <linux/build_bug.h>  /* for static_assert() */
+#include <linux/build_bug.h>  /* for suse_kabi_static_assert() */
 #include <linux/stddef.h>     /* for offsetof() */
 
 struct xsk_buff_pool;
@@ -143,16 +143,10 @@ struct __orig_xsk_buff_pool {
 	spinlock_t cq_lock;
 	struct xdp_buff_xsk *free_heads[];
 };
-/* shung-hsi.yu: the following kABI check has been problematic for other that
- * build kernel with their own configuration that is different from our SUSE
- * default ones. Prevent these checks temporarily until we determined a
- * solution to signal kABI verification.
- *
- *	static_assert(offsetof(struct xsk_buff_pool, queue_id) ==
- *		      offsetof(struct __orig_xsk_buff_pool, queue_id));
- *	static_assert(offsetof(struct xsk_buff_pool, fq) ==
- *		      offsetof(struct __orig_xsk_buff_pool, fq));
- */
+suse_kabi_static_assert(offsetof(struct xsk_buff_pool, queue_id) ==
+	      offsetof(struct __orig_xsk_buff_pool, queue_id));
+suse_kabi_static_assert(offsetof(struct xsk_buff_pool, fq) ==
+	      offsetof(struct __orig_xsk_buff_pool, fq));
 
 
 /* Masks for xdp_umem_page flags.
