@@ -51,5 +51,6 @@ struct test_suite *arch_tests[] = {
 	&suite__x86_sample_parsing,
 	&suite__amd_ibs_via_core_pmu,
 	&suite__hybrid,
+	&suite__x86_topdown,
 	NULL,
 };
