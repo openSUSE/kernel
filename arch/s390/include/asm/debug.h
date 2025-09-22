@@ -83,6 +83,9 @@ typedef int (debug_input_proc_t) (debug_info_t *id,
 int debug_dflt_header_fn(debug_info_t *id, struct debug_view *view,
 			 int area, debug_entry_t *entry, char *out_buf);
 
+#define DEBUG_SPRINTF_MAX_ARGS 10
+int debug_sprintf_format_fn(debug_info_t *id, struct debug_view *view,
+			    char *out_buf, const char *inbuf);
 struct debug_view {
 	char name[DEBUG_MAX_NAME_LEN];
 	debug_prolog_proc_t *prolog_proc;
