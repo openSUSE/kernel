@@ -13,7 +13,7 @@
 #include <linux/mm.h>
 #include <linux/netdevice.h>
 #include <linux/rtnetlink.h>
-#include <linux/build_bug.h>  /* for BUILD_BUG_ON() */
+#include <linux/build_bug.h>  /* for suse_kabi_static_assert() */
 #include <linux/stddef.h>     /* for offsetof() */
 
 #include "xdp_umem.h"
@@ -359,9 +359,9 @@ static int xdp_umem_reg(struct xdp_umem *umem, struct xdp_umem_reg *mr)
 	spin_lock_init(&umem->xsk_list_lock);
 	spin_lock_init(&umem->rx_lock);
 
-	BUILD_BUG_ON(offsetof(struct xdp_umem, users) !=
+	suse_kabi_static_assert(offsetof(struct xdp_umem, users) ==
 		     offsetof(struct __orig_xdp_umem, users));
-	BUILD_BUG_ON(offsetof(struct xdp_umem, work) !=
+	suse_kabi_static_assert(offsetof(struct xdp_umem, work) ==
 		     offsetof(struct __orig_xdp_umem, work));
 
 	refcount_set(&umem->users, 1);
