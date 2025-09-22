@@ -8,7 +8,6 @@
 #include <linux/btf_ids.h>
 
 static DEFINE_SPINLOCK(cgroup_rstat_lock);
-static DEFINE_PER_CPU(raw_spinlock_t, cgroup_rstat_cpu_lock);
 static DEFINE_PER_CPU(struct llist_head, rstat_backlog_list);
 
 static void cgroup_base_stat_flush(struct cgroup *cgrp, int cpu);
@@ -185,26 +184,14 @@ next_level:
  */
 static struct cgroup *cgroup_rstat_updated_list(struct cgroup *root, int cpu)
 {
-	raw_spinlock_t *cpu_lock = per_cpu_ptr(&cgroup_rstat_cpu_lock, cpu);
 	struct cgroup_rstat_cpu *rstatc = cgroup_rstat_cpu(root, cpu);
 	struct cgroup *head = NULL, *parent, *child;
-	unsigned long flags;
-
-	/*
-	 * The _irqsave() is needed because cgroup_rstat_lock is
-	 * spinlock_t which is a sleeping lock on PREEMPT_RT. Acquiring
-	 * this lock with the _irq() suffix only disables interrupts on
-	 * a non-PREEMPT_RT kernel. The raw_spinlock_t below disables
-	 * interrupts on both configurations. The _irqsave() ensures
-	 * that interrupts are always disabled and later restored.
-	 */
-	raw_spin_lock_irqsave(cpu_lock, flags);
 
 	cgroup_process_update_tree(cpu);
 
 	/* Return NULL if this subtree is not on-list */
 	if (!rstatc->updated_next)
-		goto unlock_ret;
+		return NULL;
 
 	/*
 	 * Unlink @root from its parent. As the updated_children list is
@@ -236,8 +223,7 @@ static struct cgroup *cgroup_rstat_updated_list(struct cgroup *root, int cpu)
 	rstatc->updated_children = root;
 	if (child != root)
 		head = cgroup_rstat_push_children(head, child, cpu);
-unlock_ret:
-	raw_spin_unlock_irqrestore(cpu_lock, flags);
+
 	return head;
 }
 
@@ -394,10 +380,8 @@ void __init cgroup_rstat_boot(void)
 {
 	int cpu;
 
-	for_each_possible_cpu(cpu) {
-		raw_spin_lock_init(per_cpu_ptr(&cgroup_rstat_cpu_lock, cpu));
+	for_each_possible_cpu(cpu)
 		init_llist_head(per_cpu_ptr(&rstat_backlog_list, cpu));
-	}
 }
 
 /*
