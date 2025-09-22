@@ -354,6 +354,9 @@ struct cgroup_rstat_cpu {
 	 */
 	struct cgroup *updated_children;	/* terminated by self cgroup */
 	struct cgroup *updated_next;		/* NULL iff not on the list */
+
+	struct llist_node lnode;		/* lockless list for update */
+	struct cgroup *owner;			/* back pointer */
 };
 
 struct cgroup_freezer_state {

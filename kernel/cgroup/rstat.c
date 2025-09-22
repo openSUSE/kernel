@@ -9,6 +9,7 @@
 
 static DEFINE_SPINLOCK(cgroup_rstat_lock);
 static DEFINE_PER_CPU(raw_spinlock_t, cgroup_rstat_cpu_lock);
+static DEFINE_PER_CPU(struct llist_head, rstat_backlog_list);
 
 static void cgroup_base_stat_flush(struct cgroup *cgrp, int cpu);
 
@@ -322,7 +323,8 @@ int cgroup_rstat_init(struct cgroup *cgrp)
 	for_each_possible_cpu(cpu) {
 		struct cgroup_rstat_cpu *rstatc = cgroup_rstat_cpu(cgrp, cpu);
 
-		rstatc->updated_children = cgrp;
+		rstatc->owner = rstatc->updated_children = cgrp;
+		init_llist_node(&rstatc->lnode);
 		u64_stats_init(&rstatc->bsync);
 	}
 
@@ -352,8 +354,10 @@ void __init cgroup_rstat_boot(void)
 {
 	int cpu;
 
-	for_each_possible_cpu(cpu)
+	for_each_possible_cpu(cpu) {
 		raw_spin_lock_init(per_cpu_ptr(&cgroup_rstat_cpu_lock, cpu));
+		init_llist_head(per_cpu_ptr(&rstat_backlog_list, cpu));
+	}
 }
 
 /*
