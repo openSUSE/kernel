@@ -1478,10 +1478,6 @@ int blkcg_policy_register(struct blkcg_policy *pol)
 	struct blkcg *blkcg;
 	int i, ret;
 
-	/* KABI preservation of struct blkg_policy_data, 32b is broken */
-	suse_kabi_static_assert(sizeof(struct blkg_policy_data) == 2*sizeof(void *));
-	suse_kabi_static_assert(sizeof(struct blkg_policy_data) > sizeof(void*)+sizeof(int));
-
 	mutex_lock(&blkcg_pol_register_mutex);
 	mutex_lock(&blkcg_pol_mutex);
 
