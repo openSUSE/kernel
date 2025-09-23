@@ -5164,7 +5164,6 @@ static int mlx5_ib_get_hw_stats(struct ib_device *ibdev,
 	struct mlx5_ib_port *port = &dev->port[port_num - 1];
 	struct mlx5_core_dev *mdev;
 	int ret, num_counters;
-	u8 mdev_port_num;
 
 	if (!stats)
 		return -EINVAL;
@@ -5185,8 +5184,9 @@ static int mlx5_ib_get_hw_stats(struct ib_device *ibdev,
 	}
 
 	if (MLX5_CAP_GEN(dev->mdev, cc_query_allowed)) {
-		mdev = mlx5_ib_get_native_port_mdev(dev, port_num,
-						    &mdev_port_num);
+		if (!port_num)
+			port_num = 1;
+		mdev = mlx5_ib_get_native_port_mdev(dev, port_num, NULL);
 		if (!mdev) {
 			/* If port is not affiliated yet, its in down state
 			 * which doesn't have any counters yet, so it would be
