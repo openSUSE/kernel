@@ -2975,6 +2975,87 @@ static void tb_test_property_parse_dir_len_underflow(struct kunit *test)
 	tb_property_free_dir(dir);
 }
 
+static void tb_test_property_merge(struct kunit *test)
+{
+	struct tb_property_dir *dir1, *dir2, *dir3;
+	struct tb_property *p;
+	uuid_t uuid;
+	int ret;
+
+	dir1 = tb_property_create_dir(&network_dir_uuid);
+	KUNIT_ASSERT_NOT_NULL(test, dir1);
+	ret = tb_property_add_immediate(dir1, "prtcid", 1);
+	KUNIT_EXPECT_EQ(test, ret, 0);
+	ret = tb_property_add_immediate(dir1, "prtcvers", 1);
+	KUNIT_EXPECT_EQ(test, ret, 0);
+	ret = tb_property_add_immediate(dir1, "prtcrevs", 0);
+	KUNIT_EXPECT_EQ(test, ret, 0);
+	ret = tb_property_add_immediate(dir1, "prtcstns", 0);
+	KUNIT_EXPECT_EQ(test, ret, 0);
+
+	dir2 = tb_property_create_dir(&network_dir_uuid);
+	KUNIT_ASSERT_NOT_NULL(test, dir2);
+	ret = tb_property_add_text(dir2, "descr", "This is text");
+	KUNIT_EXPECT_EQ(test, ret, 0);
+	/* This replaces the value in dir1 */
+	ret = tb_property_add_immediate(dir2, "prtcvers", 0x1234);
+	KUNIT_EXPECT_EQ(test, ret, 0);
+
+	uuid_gen(&uuid);
+	dir3 = tb_property_create_dir(&uuid);
+	KUNIT_ASSERT_NOT_NULL(test, dir3);
+	ret = tb_property_add_immediate(dir3, "value0", 0);
+	KUNIT_EXPECT_EQ(test, ret, 0);
+	ret = tb_property_add_text(dir3, "value1", "Text value");
+	KUNIT_EXPECT_EQ(test, ret, 0);
+	ret = tb_property_add_dir(dir2, "my", dir3);
+	KUNIT_EXPECT_EQ(test, ret, 0);
+
+	ret = tb_property_merge_dir(dir1, dir2, true);
+	KUNIT_EXPECT_EQ(test, ret, 0);
+
+	p = tb_property_get_next(dir1, NULL);
+	KUNIT_ASSERT_NOT_NULL(test, p);
+	KUNIT_ASSERT_STREQ(test, &p->key[0], "prtcid");
+	KUNIT_ASSERT_EQ(test, p->type, TB_PROPERTY_TYPE_VALUE);
+	KUNIT_ASSERT_EQ(test, p->length, 1);
+	KUNIT_ASSERT_EQ(test, p->value.immediate, 1);
+	p = tb_property_get_next(dir1, p);
+	KUNIT_ASSERT_NOT_NULL(test, p);
+	KUNIT_ASSERT_STREQ(test, &p->key[0], "prtcvers");
+	KUNIT_ASSERT_EQ(test, p->type, TB_PROPERTY_TYPE_VALUE);
+	KUNIT_ASSERT_EQ(test, p->length, 1);
+	KUNIT_ASSERT_EQ(test, p->value.immediate, 0x1234);
+	p = tb_property_get_next(dir1, p);
+	KUNIT_ASSERT_NOT_NULL(test, p);
+	KUNIT_ASSERT_STREQ(test, &p->key[0], "prtcrevs");
+	KUNIT_ASSERT_EQ(test, p->type, TB_PROPERTY_TYPE_VALUE);
+	KUNIT_ASSERT_EQ(test, p->length, 1);
+	KUNIT_ASSERT_EQ(test, p->value.immediate, 0);
+	p = tb_property_get_next(dir1, p);
+	KUNIT_ASSERT_NOT_NULL(test, p);
+	KUNIT_ASSERT_STREQ(test, &p->key[0], "prtcstns");
+	KUNIT_ASSERT_EQ(test, p->type, TB_PROPERTY_TYPE_VALUE);
+	KUNIT_ASSERT_EQ(test, p->length, 1);
+	KUNIT_ASSERT_EQ(test, p->value.immediate, 0);
+	p = tb_property_get_next(dir1, p);
+	KUNIT_ASSERT_NOT_NULL(test, p);
+	KUNIT_ASSERT_STREQ(test, &p->key[0], "descr");
+	KUNIT_ASSERT_EQ(test, p->type, TB_PROPERTY_TYPE_TEXT);
+	KUNIT_ASSERT_EQ(test, p->length, 4);
+	KUNIT_ASSERT_STREQ(test, p->value.text, "This is text");
+	p = tb_property_get_next(dir1, p);
+	KUNIT_ASSERT_NOT_NULL(test, p);
+	KUNIT_ASSERT_STREQ(test, &p->key[0], "my");
+	KUNIT_ASSERT_EQ(test, p->type, TB_PROPERTY_TYPE_DIRECTORY);
+	compare_dirs(test, p->value.dir, dir3);
+	p = tb_property_get_next(dir1, p);
+	KUNIT_ASSERT_NULL(test, p);
+
+	tb_property_free_dir(dir2);
+	tb_property_free_dir(dir1);
+}
+
 static struct kunit_case tb_test_cases[] = {
 	KUNIT_CASE(tb_test_property_parse_u32_wrap),
 	KUNIT_CASE(tb_test_property_parse_recursion),
@@ -3018,6 +3099,7 @@ static struct kunit_case tb_test_cases[] = {
 	KUNIT_CASE(tb_test_property_parse),
 	KUNIT_CASE(tb_test_property_format),
 	KUNIT_CASE(tb_test_property_copy),
+	KUNIT_CASE(tb_test_property_merge),
 	{ }
 };
 
