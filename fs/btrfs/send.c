@@ -5546,9 +5546,7 @@ static int send_encoded_inline_extent(struct send_ctx *sctx,
 				      struct btrfs_path *path, u64 offset,
 				      u64 len)
 {
-	struct btrfs_root *root = sctx->send_root;
-	struct btrfs_fs_info *fs_info = root->fs_info;
-	struct inode *inode;
+	struct btrfs_fs_info *fs_info = sctx->send_root->fs_info;
 	struct fs_path *fspath;
 	struct extent_buffer *leaf = path->nodes[0];
 	struct btrfs_key key;
@@ -5556,10 +5554,6 @@ static int send_encoded_inline_extent(struct send_ctx *sctx,
 	u64 ram_bytes;
 	size_t inline_size;
 	int ret;
-
-	inode = btrfs_iget(sctx->cur_ino, root);
-	if (IS_ERR(inode))
-		return PTR_ERR(inode);
 
 	fspath = fs_path_alloc();
 	if (!fspath) {
@@ -5604,7 +5598,6 @@ static int send_encoded_inline_extent(struct send_ctx *sctx,
 tlv_put_failure:
 out:
 	fs_path_free(fspath);
-	iput(inode);
 	return ret;
 }
 
