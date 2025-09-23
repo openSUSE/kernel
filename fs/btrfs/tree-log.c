@@ -141,7 +141,7 @@ static void wait_log_commit(struct btrfs_root *root, int transid);
 static struct btrfs_inode *btrfs_iget_logging(u64 objectid, struct btrfs_root *root)
 {
 	unsigned int nofs_flag;
-	struct inode *inode;
+	struct btrfs_inode *inode;
 
 	/* Only meant to be called for subvolume roots and not for log roots. */
 	ASSERT(is_fstree(btrfs_root_id(root)));
@@ -157,10 +157,7 @@ static struct btrfs_inode *btrfs_iget_logging(u64 objectid, struct btrfs_root *r
 	inode = btrfs_iget(objectid, root);
 	memalloc_nofs_restore(nofs_flag);
 
-	if (IS_ERR(inode))
-		return ERR_CAST(inode);
-
-	return BTRFS_I(inode);
+	return inode;
 }
 
 /*

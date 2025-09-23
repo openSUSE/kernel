@@ -5190,14 +5190,14 @@ out:
 static int process_verity(struct send_ctx *sctx)
 {
 	int ret = 0;
-	struct inode *inode;
+	struct btrfs_inode *inode;
 	struct fs_path *p;
 
 	inode = btrfs_iget(sctx->cur_ino, sctx->send_root);
 	if (IS_ERR(inode))
 		return PTR_ERR(inode);
 
-	ret = btrfs_get_verity_descriptor(inode, NULL, 0);
+	ret = btrfs_get_verity_descriptor(&inode->vfs_inode, NULL, 0);
 	if (ret < 0)
 		goto iput;
 
@@ -5214,7 +5214,7 @@ static int process_verity(struct send_ctx *sctx)
 		}
 	}
 
-	ret = btrfs_get_verity_descriptor(inode, sctx->verity_descriptor, ret);
+	ret = btrfs_get_verity_descriptor(&inode->vfs_inode, sctx->verity_descriptor, ret);
 	if (ret < 0)
 		goto iput;
 
@@ -5234,7 +5234,7 @@ static int process_verity(struct send_ctx *sctx)
 free_path:
 	fs_path_free(p);
 iput:
-	iput(inode);
+	iput(&inode->vfs_inode);
 	return ret;
 }
 
@@ -5606,7 +5606,7 @@ static int send_encoded_extent(struct send_ctx *sctx, struct btrfs_path *path,
 {
 	struct btrfs_root *root = sctx->send_root;
 	struct btrfs_fs_info *fs_info = root->fs_info;
-	struct inode *inode;
+	struct btrfs_inode *inode;
 	struct fs_path *fspath;
 	struct extent_buffer *leaf = path->nodes[0];
 	struct btrfs_key key;
@@ -5676,7 +5676,7 @@ static int send_encoded_extent(struct send_ctx *sctx, struct btrfs_path *path,
 	 * Note that send_buf is a mapping of send_buf_pages, so this is really
 	 * reading into send_buf.
 	 */
-	ret = btrfs_encoded_read_regular_fill_pages(BTRFS_I(inode), offset,
+	ret = btrfs_encoded_read_regular_fill_pages(inode, offset,
 						    disk_bytenr, disk_num_bytes,
 						    sctx->send_buf_pages +
 						    (data_offset >> PAGE_SHIFT));
@@ -5702,7 +5702,7 @@ static int send_encoded_extent(struct send_ctx *sctx, struct btrfs_path *path,
 tlv_put_failure:
 out:
 	fs_path_free(fspath);
-	iput(inode);
+	iput(&inode->vfs_inode);
 	return ret;
 }
 
@@ -5744,15 +5744,14 @@ static int send_extent_data(struct send_ctx *sctx, struct btrfs_path *path,
 	}
 
 	if (sctx->cur_inode == NULL) {
+		struct btrfs_inode *btrfs_inode;
 		struct btrfs_root *root = sctx->send_root;
 
-		sctx->cur_inode = btrfs_iget(sctx->cur_ino, root);
-		if (IS_ERR(sctx->cur_inode)) {
-			int err = PTR_ERR(sctx->cur_inode);
+		btrfs_inode = btrfs_iget(sctx->cur_ino, root);
+		if (IS_ERR(btrfs_inode))
+			return PTR_ERR(btrfs_inode);
 
-			sctx->cur_inode = NULL;
-			return err;
-		}
+		sctx->cur_inode = &btrfs_inode->vfs_inode;
 		memset(&sctx->ra, 0, sizeof(struct file_ra_state));
 		file_ra_state_init(&sctx->ra, sctx->cur_inode->i_mapping);
 
