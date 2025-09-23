@@ -430,8 +430,10 @@ static int ext4_validate_block_bitmap(struct super_block *sb,
 		ext4_unlock_group(sb, block_group);
 		ext4_error(sb, "bg %u: block %llu: padding at end of block bitmap is not set",
 			   block_group, blk);
-		ext4_mark_group_bitmap_corrupted(sb, block_group,
-						 EXT4_GROUP_INFO_BBITMAP_CORRUPT);
+		if (!EXT4_MB_GRP_BBITMAP_CORRUPT(grp))
+			percpu_counter_sub(&sbi->s_freeclusters_counter,
+					   grp->bb_free);
+		set_bit(EXT4_GROUP_INFO_BBITMAP_CORRUPT_BIT, &grp->bb_state);
 		return -EFSCORRUPTED;
 	}
 	set_buffer_verified(bh);
