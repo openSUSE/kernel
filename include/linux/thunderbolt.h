@@ -397,6 +397,10 @@ void tb_unregister_protocol_handler(struct tb_protocol_handler *handler);
  * @prtcvers: Protocol version from the properties directory
  * @prtcrevs: Protocol software revision from the properties directory
  * @prtcstns: Protocol settings mask from the properties directory
+ * @lock: Protects this structure
+ * @local_properties: Properties owned by the service driver
+ * @remote_properties: Properties read from the remote service. These
+ *		       are read-only.
  * @debugfs_dir: Pointer to the service debugfs directory. Always created
  *		 when debugfs is enabled. Can be used by service drivers to
  *		 add their own entries under the service.
@@ -404,6 +408,9 @@ void tb_unregister_protocol_handler(struct tb_protocol_handler *handler);
  * Each domain exposes set of services it supports as collection of
  * properties. For each service there will be one corresponding
  * &struct tb_service. Service drivers are bound to these.
+ *
+ * Service drivers can add their own dynamic properties to
+ * @local_properties but whenever they do so @lock must be held.
  */
 struct tb_service {
 	struct device dev;
@@ -413,6 +420,9 @@ struct tb_service {
 	u32 prtcvers;
 	u32 prtcrevs;
 	u32 prtcstns;
+	struct mutex lock;
+	struct tb_property_dir *local_properties;
+	struct tb_property_dir *remote_properties;
 	struct dentry *debugfs_dir;
 };
 
@@ -480,6 +490,8 @@ static inline struct tb_xdomain *tb_service_parent(struct tb_service *svc)
 {
 	return tb_to_xdomain(svc->dev.parent);
 }
+
+void tb_service_properties_changed(struct tb_service *svc);
 
 /**
  * struct tb_nhi - thunderbolt native host interface

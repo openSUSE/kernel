@@ -640,6 +640,32 @@ void tb_unregister_protocol_handler(struct tb_protocol_handler *handler)
 }
 EXPORT_SYMBOL_GPL(tb_unregister_protocol_handler);
 
+static int update_service_properties(struct device *dev, void *data)
+{
+	struct tb_property_dir *root = data;
+	struct tb_service *svc;
+	struct tb_property *p;
+
+	svc = tb_to_service(dev);
+	if (!svc)
+		return 0;
+
+	guard(mutex)(&svc->lock);
+
+	/*
+	 * Replace the static service properties with the dynamic one.
+	 * Typically this is the same but service drivers can add their
+	 * own dynamic properties here too.
+	 */
+	p = tb_property_find(root, svc->key, TB_PROPERTY_TYPE_DIRECTORY);
+	if (!p)
+		return 0;
+	if (svc->local_properties)
+		return tb_property_merge_dir(p->value.dir,
+					     svc->local_properties, false);
+	return 0;
+}
+
 static void update_property_block(struct tb_xdomain *xd)
 {
 	mutex_lock(&xdomain_lock);
@@ -663,6 +689,9 @@ static void update_property_block(struct tb_xdomain *xd)
 		/* Fill in non-static properties now */
 		tb_property_add_text(dir, "deviceid", utsname()->nodename);
 		tb_property_add_immediate(dir, "maxhopid", xd->local_max_hopid);
+
+		/* Add service specific dynamic properties */
+		device_for_each_child(&xd->dev, dir, update_service_properties);
 
 		ret = tb_property_format_dir(dir, NULL, 0);
 		if (ret < 0) {
@@ -936,6 +965,40 @@ void tb_unregister_service_driver(struct tb_service_driver *drv)
 }
 EXPORT_SYMBOL_GPL(tb_unregister_service_driver);
 
+static int update_xdomain(struct device *dev, void *data)
+{
+	struct tb_xdomain *xd;
+
+	xd = tb_to_xdomain(dev);
+	if (xd) {
+		queue_delayed_work(xd->tb->wq, &xd->properties_changed_work,
+				   msecs_to_jiffies(50));
+	}
+
+	return 0;
+}
+
+/**
+ * tb_service_properties_changed() - Notify the other host about changes
+ * @svc: Service whose properties changed
+ *
+ * Notifies the other host that service properties may have been
+ * changed. This should be called whenever @svc->local_properties is
+ * updated.
+ */
+void tb_service_properties_changed(struct tb_service *svc)
+{
+	struct tb_xdomain *xd = tb_service_parent(svc);
+
+	if (xd->is_unplugged)
+		return;
+
+	scoped_guard(mutex, &xdomain_lock)
+		xdomain_property_block_gen++;
+	update_xdomain(&xd->dev, NULL);
+}
+EXPORT_SYMBOL_GPL(tb_service_properties_changed);
+
 static ssize_t key_show(struct device *dev, struct device_attribute *attr,
 			char *buf)
 {
@@ -1035,6 +1098,7 @@ static void tb_service_release(struct device *dev)
 	struct tb_service *svc = container_of(dev, struct tb_service, dev);
 	struct tb_xdomain *xd = tb_service_parent(svc);
 
+	tb_property_free_dir(svc->remote_properties);
 	ida_free(&xd->service_ids, svc->id);
 	kfree(svc->key);
 	kfree(svc);
@@ -1048,6 +1112,16 @@ const struct device_type tb_service_type = {
 	.release = tb_service_release,
 };
 EXPORT_SYMBOL_GPL(tb_service_type);
+
+static void update_service(struct tb_service *svc, struct tb_property *property)
+{
+	struct tb_property_dir *dir = property->value.dir;
+
+	guard(mutex)(&svc->lock);
+	tb_property_free_dir(svc->remote_properties);
+	svc->remote_properties = tb_property_copy_dir(dir);
+	kobject_uevent(&svc->dev.kobj, KOBJ_CHANGE);
+}
 
 static void __unregister_service(struct device *dev)
 {
@@ -1109,6 +1183,12 @@ static int populate_service(struct tb_service *svc,
 	if (!svc->key)
 		return -ENOMEM;
 
+	svc->remote_properties = tb_property_copy_dir(dir);
+	if (!svc->remote_properties) {
+		kfree(svc->key);
+		return -ENOMEM;
+	}
+
 	return 0;
 }
 
@@ -1133,6 +1213,7 @@ static void enumerate_services(struct tb_xdomain *xd)
 		/* If the service exists already we are fine */
 		dev = device_find_child(&xd->dev, p, find_service);
 		if (dev) {
+			update_service(tb_to_service(dev), p);
 			put_device(dev);
 			continue;
 		}
@@ -1156,6 +1237,7 @@ static void enumerate_services(struct tb_xdomain *xd)
 		svc->dev.bus = &tb_bus_type;
 		svc->dev.type = &tb_service_type;
 		svc->dev.parent = get_device(&xd->dev);
+		mutex_init(&svc->lock);
 		dev_set_name(&svc->dev, "%s.%d", dev_name(&xd->dev), svc->id);
 
 		tb_service_debugfs_init(svc);
@@ -2547,19 +2629,6 @@ bool tb_xdomain_handle_request(struct tb *tb, enum tb_cfg_pkg_type type,
 	mutex_unlock(&xdomain_lock);
 
 	return ret > 0;
-}
-
-static int update_xdomain(struct device *dev, void *data)
-{
-	struct tb_xdomain *xd;
-
-	xd = tb_to_xdomain(dev);
-	if (xd) {
-		queue_delayed_work(xd->tb->wq, &xd->properties_changed_work,
-				   msecs_to_jiffies(50));
-	}
-
-	return 0;
 }
 
 static void update_all_xdomains(void)
