@@ -8,7 +8,6 @@
 
 #include <linux/compiler_types.h>
 
-struct inode;
 struct btrfs_inode;
 struct btrfs_path;
 struct btrfs_trans_handle;
@@ -25,7 +24,7 @@ bool btrfs_ignore_prop(const struct btrfs_inode *inode, const char *name);
 int btrfs_load_inode_props(struct btrfs_inode *inode, struct btrfs_path *path);
 
 int btrfs_inode_inherit_props(struct btrfs_trans_handle *trans,
-			      struct inode *inode,
-			      const struct inode *dir);
+			      struct btrfs_inode *inode,
+			      const struct btrfs_inode *dir);
 
 #endif
