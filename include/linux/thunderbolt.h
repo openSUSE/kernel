@@ -153,6 +153,9 @@ struct tb_property_dir *tb_property_parse_dir(const u32 *block,
 ssize_t tb_property_format_dir(const struct tb_property_dir *dir, u32 *block,
 			       size_t block_len);
 struct tb_property_dir *tb_property_copy_dir(const struct tb_property_dir *dir);
+int tb_property_merge_dir(struct tb_property_dir *parent,
+			  const struct tb_property_dir *dir,
+			  bool replace);
 struct tb_property_dir *tb_property_create_dir(const uuid_t *uuid);
 void tb_property_free_dir(struct tb_property_dir *dir);
 int tb_property_add_immediate(struct tb_property_dir *parent, const char *key,
