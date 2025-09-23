@@ -13,6 +13,7 @@
  * 	              Nauman Rafique <nauman@google.com>
  */
 
+#include <linux/build_bug.h>  /* for suse_kabi_static_assert() */
 #include <linux/cgroup.h>
 #include <linux/percpu_counter.h>
 #include <linux/seq_file.h>
@@ -91,6 +92,15 @@ struct blkg_policy_data {
 	bool				online;
 #endif
 };
+
+struct __orig_blkg_policy_data {
+	/* the blkg and policy id this per-policy data belongs to */
+	struct blkcg_gq			*blkg;
+	int				plid;
+};
+
+/* KABI preservation of struct blkg_policy_data, 32b is broken */
+suse_kabi_static_assert(sizeof(struct blkg_policy_data) == sizeof(struct __orig_blkg_policy_data));
 
 /*
  * Policies that need to keep per-blkcg data which is independent from any
