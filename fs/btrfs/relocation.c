@@ -4695,6 +4695,37 @@ out:
 	return inode;
 }
 
+/*
+ * Mark start of chunk relocation that is cancellable. Check if the cancellation
+ * has been requested meanwhile and don't start in that case.
+ * NOTE: if this returns an error, reloc_chunk_end() must not be called.
+ *
+ * Return:
+ *   0             success
+ *   -EINPROGRESS  operation is already in progress, that's probably a bug
+ */
+static int reloc_chunk_start(struct btrfs_fs_info *fs_info)
+{
+	if (test_and_set_bit(BTRFS_FS_RELOC_RUNNING, &fs_info->flags)) {
+		/* This should not happen */
+		btrfs_err(fs_info, "reloc already running, cannot start");
+		return -EINPROGRESS;
+	}
+
+	return 0;
+}
+
+/*
+ * Mark end of chunk relocation that is cancellable and wake any waiters.
+ * NOTE: call only if a previous call to reloc_chunk_start() succeeded.
+ */
+static void reloc_chunk_end(struct btrfs_fs_info *fs_info)
+{
+	clear_bit(BTRFS_FS_RELOC_RUNNING, &fs_info->flags);
+	smp_mb__after_atomic();
+	wake_up_bit(&fs_info->flags, BTRFS_FS_RELOC_RUNNING);
+}
+
 static struct reloc_control *alloc_reloc_control(struct btrfs_fs_info *fs_info)
 {
 	struct reloc_control *rc;
@@ -4791,6 +4822,12 @@ int btrfs_relocate_block_group(struct btrfs_fs_info *fs_info, u64 group_start)
 	}
 	rw = 1;
 
+	ret = reloc_chunk_start(fs_info);
+	if (ret < 0) {
+		err = ret;
+		goto out_put_bg;
+	}
+
 	path = btrfs_alloc_path();
 	if (!path) {
 		err = -ENOMEM;
@@ -4873,6 +4910,8 @@ out:
 	if (err && rw)
 		btrfs_dec_block_group_ro(rc->block_group);
 	iput(rc->data_inode);
+	reloc_chunk_end(fs_info);
+out_put_bg:
 	btrfs_put_block_group(rc->block_group);
 	kfree(rc);
 	return err;
@@ -5005,6 +5044,12 @@ int btrfs_recover_relocation(struct btrfs_root *root)
 
 	set_reloc_control(rc);
 
+	ret = reloc_chunk_start(root->fs_info);
+	if (ret < 0) {
+		err = ret;
+		goto out_end;
+	}
+
 	trans = btrfs_join_transaction(rc->extent_root);
 	if (IS_ERR(trans)) {
 		err = PTR_ERR(trans);
@@ -5067,6 +5112,8 @@ out_clean:
 	if (ret < 0 && !err)
 		err = ret;
 out_unset:
+	reloc_chunk_end(root->fs_info);
+out_end:
 	unset_reloc_control(rc);
 	kfree(rc);
 out:
