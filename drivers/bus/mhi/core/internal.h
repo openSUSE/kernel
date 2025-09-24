@@ -299,6 +299,7 @@ enum mhi_cmd_type {
 
 #define MHI_TRE_GET_CMD_CHID(tre) (((tre)->dword[1] >> 24) & 0xFF)
 #define MHI_TRE_GET_CMD_TYPE(tre) (((tre)->dword[1] >> 16) & 0xFF)
+#define MHI_TRE_DATA_GET_CHAIN(tre)     ((tre)->dword[1] & 1)
 
 /* Event descriptor macros */
 #define MHI_TRE_EV_PTR(ptr) (ptr)
