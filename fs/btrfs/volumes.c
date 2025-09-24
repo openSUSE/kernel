@@ -3157,8 +3157,15 @@ static int btrfs_relocate_chunk(struct btrfs_fs_info *fs_info, u64 chunk_offset)
 	btrfs_scrub_pause(fs_info);
 	ret = btrfs_relocate_block_group(fs_info, chunk_offset);
 	btrfs_scrub_continue(fs_info);
-	if (ret)
+	if (ret) {
+		/*
+		 * If we had a transaction abort, stop all running scrubs.
+		 * See transaction.c:cleanup_transaction() why we do it here.
+		 */
+		if (test_bit(BTRFS_FS_STATE_ERROR, &fs_info->fs_state))
+			btrfs_scrub_cancel(fs_info);
 		return ret;
+	}
 
 	/*
 	 * We add the kobjects here (and after forcing data chunk creation)
