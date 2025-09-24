@@ -10,6 +10,7 @@
 #include <linux/module.h>
 #include <linux/i2c.h>
 #include <linux/interrupt.h>
+#include <linux/bitfield.h>
 #include <linux/gpio/consumer.h>
 #include <linux/usb/tcpci.h>
 #include <linux/usb/tcpm.h>

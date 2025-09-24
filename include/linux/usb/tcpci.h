@@ -10,6 +10,7 @@
 
 #include <linux/usb/typec.h>
 #include <linux/usb/tcpm.h>
+#include <linux/bitfield.h>
 
 #define TCPC_VENDOR_ID			0x0
 #define TCPC_PRODUCT_ID			0x2
