@@ -164,7 +164,7 @@ static struct cgroup *cgroup_rstat_updated_list(struct cgroup *root, int cpu)
 	head = tail = cgroup_rstat_cpu_pop_updated(NULL, root, cpu);
 	while (tail) {
 		next = cgroup_rstat_cpu_pop_updated(tail, root, cpu);
-		tail->rstat_flush_next = next;
+		cgroup_extra(tail)->rstat_flush_next = next;
 		tail = next;
 	}
 	raw_spin_unlock_irqrestore(cpu_lock, flags);
@@ -207,7 +207,7 @@ static void cgroup_rstat_flush_locked(struct cgroup *cgrp)
 	for_each_possible_cpu(cpu) {
 		struct cgroup *pos = cgroup_rstat_updated_list(cgrp, cpu);
 
-		for (; pos; pos = pos->rstat_flush_next) {
+		for (; pos; pos = cgroup_extra(pos)->rstat_flush_next) {
 			struct cgroup_subsys_state *css;
 
 			cgroup_base_stat_flush(pos, cpu);

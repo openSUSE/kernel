@@ -477,13 +477,6 @@ struct cgroup {
 	struct cgroup_rstat_cpu __percpu *rstat_cpu;
 	struct list_head rstat_css_list;
 
-	/*
-	 * A singly-linked list of cgroup structures to be rstat flushed.
-	 * This is a scratch field to be used exclusively by
-	 * cgroup_rstat_flush_locked() and protected by cgroup_rstat_lock.
-	 */
-	struct cgroup	*rstat_flush_next;
-
 	/* cgroup basic resource statistics */
 	struct cgroup_base_stat last_bstat;
 	struct cgroup_base_stat bstat;
@@ -520,6 +513,22 @@ struct cgroup {
 
 	/* All ancestors including self */
 	struct cgroup *ancestors[];
+};
+
+#define struct_cgroup_size(level) \
+	struct_size_t(struct cgroup, ancestors, (level) + 1)
+
+/* Extra fields added to struct cgroup, but moved to a separate
+ * struct to preserve kABI. These extra fields are allocated after
+ * the ancestors[] flexible array in struct cgroup.
+ */
+struct cgroup_extra {
+	/*
+	 * A singly-linked list of cgroup structures to be rstat flushed.
+	 * This is a scratch field to be used exclusively by
+	 * cgroup_rstat_flush_locked() and protected by cgroup_rstat_lock.
+	 */
+	struct cgroup	*rstat_flush_next;
 };
 
 /*
@@ -562,8 +571,17 @@ struct cgroup_root {
 	char name[MAX_CGROUP_ROOT_NAMELEN];
 #ifndef __GENKSYMS__
 	struct rcu_head rcu;
+	struct cgroup_extra extra;
 #endif
 };
+
+static inline struct cgroup_extra *cgroup_extra(struct cgroup *cgrp)
+{
+	if (!cgrp->level)
+		return &container_of(cgrp, struct cgroup_root, cgrp)->extra;
+	else
+		return (void *)&cgrp->ancestors[cgrp->level+1];
+}
 
 /*
  * struct cftype: handler definitions for cgroup control files
