@@ -25,6 +25,12 @@ static struct cgroup_rstat_cpu *cgroup_rstat_cpu(struct cgroup *cgrp, int cpu)
  * Atomically inserts the cgrp in the llist for the given cpu. This is
  * reentrant safe i.e. safe against softirq, hardirq and nmi. The llist
  * will be processed at the flush time to create the update tree.
+ *
+ * NOTE: if the user needs the guarantee that the updater either add itself in
+ * the lockless list or the concurrent flusher flushes its updated stats, a
+ * memory barrier is needed before the call to cgroup_rstat_updated() i.e. a
+ * barrier after updating the per-cpu stats and before calling
+ * cgroup_rstat_updated().
  */
 __bpf_kfunc void cgroup_rstat_updated(struct cgroup *cgrp, int cpu)
 {
@@ -44,7 +50,12 @@ __bpf_kfunc void cgroup_rstat_updated(struct cgroup *cgrp, int cpu)
 		return;
 
 	rstatc = cgroup_rstat_cpu(cgrp, cpu);
-	/* If already on list return. */
+	/*
+	 * If already on list return. This check is racy and smp_mb() is needed
+	 * to pair it with the smp_mb() in cgroup_process_update_tree() if the
+	 * guarantee that the updated stats are visible to concurrent flusher is
+	 * needed.
+	 */
 	if (llist_on_list(&rstatc->lnode))
 		return;
 
@@ -105,6 +116,21 @@ static void cgroup_process_update_tree(int cpu)
 
 	while ((lnode = llist_del_first_init(lhead))) {
 		struct cgroup_rstat_cpu *rstatc;
+
+		/*
+		 * smp_mb() is needed here (more specifically in between
+		 * init_llist_node() and per-cpu stats flushing) if the
+		 * guarantee is required by a rstat user where etiher the
+		 * updater should add itself on the lockless list or the
+		 * flusher flush the stats updated by the updater who have
+		 * observed that they are already on the list. The
+		 * corresponding barrier pair for this one should be before
+		 * css_rstat_updated() by the user.
+		 *
+		 * For now, there aren't any such user, so not adding the
+		 * barrier here but if such a use-case arise, please add
+		 * smp_mb() here.
+		 */
 
 		rstatc = container_of(lnode, struct cgroup_rstat_cpu, lnode);
 		__cgroup_process_update_tree(rstatc->owner, cpu);
