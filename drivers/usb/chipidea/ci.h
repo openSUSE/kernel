@@ -260,12 +260,14 @@ struct ci_hdrc {
 	bool				b_sess_valid_event;
 	bool				imx28_write_fix;
 	bool				has_portsc_pec_bug;
-	bool				has_short_pkt_limit;
 	bool				supports_runtime_pm;
 	bool				in_lpm;
 	bool				wakeup_int;
 	enum ci_revision		rev;
 	struct mutex                    mutex;
+#ifndef __GENKSYMS__
+	bool				has_short_pkt_limit;
+#endif
 };
 
 static inline struct ci_role_driver *ci_role(struct ci_hdrc *ci)
