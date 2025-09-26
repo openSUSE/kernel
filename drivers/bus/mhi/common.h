@@ -144,6 +144,7 @@
 #define MHI_TRE_GET_DWORD(tre, word)	le32_to_cpu((tre)->dword[(word)])
 #define MHI_TRE_GET_CMD_CHID(tre)	FIELD_GET(GENMASK(31, 24), MHI_TRE_GET_DWORD(tre, 1))
 #define MHI_TRE_GET_CMD_TYPE(tre)	FIELD_GET(GENMASK(23, 16), MHI_TRE_GET_DWORD(tre, 1))
+#define MHI_TRE_DATA_GET_CHAIN(tre)	(!!(FIELD_GET(BIT(0), MHI_TRE_GET_DWORD(tre, 1))))
 
 /* Event descriptor macros */
 #define MHI_TRE_EV_PTR(ptr)		cpu_to_le64(ptr)
