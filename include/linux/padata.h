@@ -101,6 +101,8 @@ struct parallel_data {
 	unsigned int			processed;
 	int				cpu;
 	struct padata_cpumask		cpumask;
+	struct work_struct              reorder_work;
+	spinlock_t                      ____cacheline_aligned lock;
 };
 
 /**
