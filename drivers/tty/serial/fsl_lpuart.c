@@ -1430,6 +1430,7 @@ static void lpuart_shutdown(struct uart_port *port)
 
 	if (sport->lpuart_dma_rx_use) {
 		lpuart_dma_rx_free(&sport->port);
+		sport->lpuart_dma_rx_use = false;
 	}
 
 	if (sport->lpuart_dma_tx_use) {
@@ -1438,6 +1439,7 @@ static void lpuart_shutdown(struct uart_port *port)
 			sport->dma_tx_in_progress = false;
 			dmaengine_terminate_all(sport->dma_tx_chan);
 		}
+		sport->lpuart_dma_tx_use = false;
 
 		lpuart_stop_tx(port);
 	}
