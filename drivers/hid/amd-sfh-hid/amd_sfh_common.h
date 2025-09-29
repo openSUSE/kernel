@@ -58,10 +58,12 @@ struct amd_mp2_dev {
 	u32 mp2_acs;
 	struct sfh_dev_status dev_en;
 	struct work_struct work;
-	/* mp2 to protect data */
-	struct mutex lock;
 	u8 init_done;
 	u8 rver;
+#ifndef __GENKSYMS__
+	/* mp2 to protect data */
+	struct mutex lock;
+#endif
 };
 
 struct amd_mp2_ops {
