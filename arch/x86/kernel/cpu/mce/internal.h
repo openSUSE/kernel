@@ -149,7 +149,10 @@ struct mce_vendor_flags {
 	 */
 	      smca		: 1,
 
-	      __reserved_0	: 61;
+	/* Zen IFU quirk */
+	zen_ifu_quirk		: 1,
+
+	      __reserved_0	: 60;
 };
 
 extern struct mce_vendor_flags mce_flags;
