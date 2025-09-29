@@ -86,6 +86,15 @@ config SUSE_AUXRELEASE
 	range 0 255
 	default 0
 
+config SUSE_HAVE_STABLE_KABI
+	bool "Stable KABI is defined"
+	default n
+	depends on SUSE_KERNEL_SUPPORTED
+	help
+	  This helper option (only) indicates whether the kernel provides a
+	  stable kABI. It assists in writing guards for kABI stability checks.
+	  The value should reflect presence of kABI references in the RPM build.
+
 config SUSE_KERNEL_SUPPORTED
 	bool "Enable enterprise support facility"
 	depends on SUSE_KERNEL

@@ -663,7 +663,7 @@ static void del_sw_hw_rule(struct fs_node *node)
 			BIT(MLX5_SET_FTE_MODIFY_ENABLE_MASK_ACTION) |
 			BIT(MLX5_SET_FTE_MODIFY_ENABLE_MASK_FLOW_COUNTERS);
 		fte->act_dests.action.action &= ~MLX5_FLOW_CONTEXT_ACTION_COUNT;
-		mlx5_fc_local_destroy(rule->dest_attr.counter);
+		mlx5_fc_local_put(rule->dest_attr.counter);
 		goto out;
 	}
 
@@ -3250,34 +3250,62 @@ static int
 init_rdma_transport_rx_root_ns_one(struct mlx5_flow_steering *steering,
 				   int vport_idx)
 {
+	struct mlx5_flow_root_namespace *root_ns;
 	struct fs_prio *prio;
+	int ret;
+	int i;
 
 	steering->rdma_transport_rx_root_ns[vport_idx] =
 		create_root_ns(steering, FS_FT_RDMA_TRANSPORT_RX);
 	if (!steering->rdma_transport_rx_root_ns[vport_idx])
 		return -ENOMEM;
 
-	/* create 1 prio*/
-	prio = fs_create_prio(&steering->rdma_transport_rx_root_ns[vport_idx]->ns,
-			      MLX5_RDMA_TRANSPORT_BYPASS_PRIO, 1);
-	return PTR_ERR_OR_ZERO(prio);
+	root_ns = steering->rdma_transport_rx_root_ns[vport_idx];
+
+	for (i = 0; i < MLX5_RDMA_TRANSPORT_BYPASS_PRIO; i++) {
+		prio = fs_create_prio(&root_ns->ns, i, 1);
+		if (IS_ERR(prio)) {
+			ret = PTR_ERR(prio);
+			goto err;
+		}
+	}
+	set_prio_attrs(root_ns);
+	return 0;
+
+err:
+	cleanup_root_ns(root_ns);
+	return ret;
 }
 
 static int
 init_rdma_transport_tx_root_ns_one(struct mlx5_flow_steering *steering,
 				   int vport_idx)
 {
+	struct mlx5_flow_root_namespace *root_ns;
 	struct fs_prio *prio;
+	int ret;
+	int i;
 
 	steering->rdma_transport_tx_root_ns[vport_idx] =
 		create_root_ns(steering, FS_FT_RDMA_TRANSPORT_TX);
 	if (!steering->rdma_transport_tx_root_ns[vport_idx])
 		return -ENOMEM;
 
-	/* create 1 prio*/
-	prio = fs_create_prio(&steering->rdma_transport_tx_root_ns[vport_idx]->ns,
-			      MLX5_RDMA_TRANSPORT_BYPASS_PRIO, 1);
-	return PTR_ERR_OR_ZERO(prio);
+	root_ns = steering->rdma_transport_tx_root_ns[vport_idx];
+
+	for (i = 0; i < MLX5_RDMA_TRANSPORT_BYPASS_PRIO; i++) {
+		prio = fs_create_prio(&root_ns->ns, i, 1);
+		if (IS_ERR(prio)) {
+			ret = PTR_ERR(prio);
+			goto err;
+		}
+	}
+	set_prio_attrs(root_ns);
+	return 0;
+
+err:
+	cleanup_root_ns(root_ns);
+	return ret;
 }
 
 static int init_rdma_transport_rx_root_ns(struct mlx5_flow_steering *steering)
@@ -3923,6 +3951,8 @@ int mlx5_fs_core_alloc(struct mlx5_core_dev *dev)
 
 	if (mlx5_fs_dr_is_supported(dev))
 		steering->mode = MLX5_FLOW_STEERING_MODE_SMFS;
+	else if (mlx5_fs_hws_is_supported(dev))
+		steering->mode = MLX5_FLOW_STEERING_MODE_HMFS;
 	else
 		steering->mode = MLX5_FLOW_STEERING_MODE_DMFS;
 

@@ -409,13 +409,6 @@ static inline int pte_special(pte_t pte)
 	return pte_val(pte) & _PAGE_SPECIAL;
 }
 
-#ifdef CONFIG_ARCH_HAS_PTE_DEVMAP
-static inline int pte_devmap(pte_t pte)
-{
-	return pte_val(pte) & _PAGE_DEVMAP;
-}
-#endif
-
 /* static inline pte_t pte_rdprotect(pte_t pte) */
 
 static inline pte_t pte_wrprotect(pte_t pte)
@@ -455,11 +448,6 @@ static inline pte_t pte_mkold(pte_t pte)
 static inline pte_t pte_mkspecial(pte_t pte)
 {
 	return __pte(pte_val(pte) | _PAGE_SPECIAL);
-}
-
-static inline pte_t pte_mkdevmap(pte_t pte)
-{
-	return __pte(pte_val(pte) | _PAGE_DEVMAP);
 }
 
 static inline pte_t pte_mkhuge(pte_t pte)
@@ -790,11 +778,6 @@ static inline pmd_t pmd_mkdirty(pmd_t pmd)
 	return pte_pmd(pte_mkdirty(pmd_pte(pmd)));
 }
 
-static inline pmd_t pmd_mkdevmap(pmd_t pmd)
-{
-	return pte_pmd(pte_mkdevmap(pmd_pte(pmd)));
-}
-
 #ifdef CONFIG_ARCH_SUPPORTS_PMD_PFNMAP
 static inline bool pmd_special(pmd_t pmd)
 {
@@ -946,11 +929,6 @@ static inline pud_t pud_mkhuge(pud_t pud)
 	return pud;
 }
 
-static inline pud_t pud_mkdevmap(pud_t pud)
-{
-	return pte_pud(pte_mkdevmap(pud_pte(pud)));
-}
-
 static inline int pudp_set_access_flags(struct vm_area_struct *vma,
 					unsigned long address, pud_t *pudp,
 					pud_t entry, int dirty)
@@ -962,6 +940,23 @@ static inline int pudp_test_and_clear_young(struct vm_area_struct *vma,
 					    unsigned long address, pud_t *pudp)
 {
 	return ptep_test_and_clear_young(vma, address, (pte_t *)pudp);
+}
+
+#define __HAVE_ARCH_PUDP_HUGE_GET_AND_CLEAR
+static inline pud_t pudp_huge_get_and_clear(struct mm_struct *mm,
+					    unsigned long address,  pud_t *pudp)
+{
+#ifdef CONFIG_SMP
+	pud_t pud = __pud(xchg(&pudp->pud, 0));
+#else
+	pud_t pud = *pudp;
+
+	pud_clear(pudp);
+#endif
+
+	page_table_check_pud_clear(mm, pud);
+
+	return pud;
 }
 
 static inline int pud_young(pud_t pud)
