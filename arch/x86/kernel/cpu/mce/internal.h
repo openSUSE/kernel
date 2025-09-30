@@ -162,10 +162,13 @@ struct mce_vendor_flags {
 	 */
 	smca			: 1,
 
+	/* Zen IFU quirk */
+	zen_ifu_quirk		: 1,
+
 	/* AMD-style error thresholding banks present. */
 	amd_threshold		: 1,
 
-	__reserved_0		: 60;
+	__reserved_0		: 59;
 };
 
 extern struct mce_vendor_flags mce_flags;
