@@ -881,6 +881,7 @@ static void super_written(struct bio *bio, int error)
 
 	if (atomic_dec_and_test(&mddev->pending_writes))
 		wake_up(&mddev->sb_wait);
+	rdev_dec_pending(rdev, mddev);
 	bio_put(bio);
 }
 
@@ -900,6 +901,8 @@ void md_super_write(mddev_t *mddev, mdk_rdev_t *rdev,
 		return;
 
 	bio = md_bio_alloc_sync(mddev);
+
+	atomic_inc(&rdev->nr_pending);
 
 	bio->bi_bdev = rdev->meta_bdev ? rdev->meta_bdev : rdev->bdev;
 	bio->bi_sector = sector;
