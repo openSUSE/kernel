@@ -182,7 +182,10 @@ struct mce_vendor_flags {
 	      /* Skylake, Cascade Lake, Cooper Lake REP;MOVS* quirk */
 	      skx_repmov_quirk        : 1,
 
-	      __reserved_0	: 60;
+	/* Zen IFU quirk */
+	zen_ifu_quirk		: 1,
+
+	      __reserved_0	: 59;
 };
 
 struct mca_msr_regs {
