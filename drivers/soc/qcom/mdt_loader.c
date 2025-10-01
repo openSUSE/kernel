@@ -25,6 +25,39 @@
 #include <linux/slab.h>
 #include <linux/soc/qcom/mdt_loader.h>
 
+static bool mdt_header_valid(const struct firmware *fw)
+{
+	const struct elf32_hdr *ehdr;
+	size_t phend;
+	size_t shend;
+
+	if (fw->size < sizeof(*ehdr))
+		return false;
+
+	ehdr = (struct elf32_hdr *)fw->data;
+
+	if (memcmp(ehdr->e_ident, ELFMAG, SELFMAG))
+		return false;
+
+	if (ehdr->e_phentsize != sizeof(struct elf32_phdr))
+		return false;
+
+	phend = size_add(size_mul(sizeof(struct elf32_phdr), ehdr->e_phnum), ehdr->e_phoff);
+	if (phend > fw->size)
+		return false;
+
+	if (ehdr->e_shentsize || ehdr->e_shnum) {
+		if (ehdr->e_shentsize != sizeof(struct elf32_shdr))
+			return false;
+
+		shend = size_add(size_mul(sizeof(struct elf32_shdr), ehdr->e_shnum), ehdr->e_shoff);
+		if (shend > fw->size)
+			return false;
+	}
+
+	return true;
+}
+
 static bool mdt_phdr_valid(const struct elf32_phdr *phdr)
 {
 	if (phdr->p_type != PT_LOAD)
@@ -53,6 +86,9 @@ ssize_t qcom_mdt_get_size(const struct firmware *fw)
 	phys_addr_t min_addr = (phys_addr_t)ULLONG_MAX;
 	phys_addr_t max_addr = 0;
 	int i;
+
+	if (!mdt_header_valid(fw))
+		return -EINVAL;
 
 	ehdr = (struct elf32_hdr *)fw->data;
 	phdrs = (struct elf32_phdr *)(ehdr + 1);
@@ -106,6 +142,9 @@ int qcom_mdt_load(struct device *dev, const struct firmware *fw,
 	int i;
 
 	if (!fw || !mem_region || !mem_phys || !mem_size)
+		return -EINVAL;
+
+	if (!mdt_header_valid(fw))
 		return -EINVAL;
 
 	ehdr = (struct elf32_hdr *)fw->data;
@@ -207,6 +246,5 @@ out:
 	return ret;
 }
 EXPORT_SYMBOL_GPL(qcom_mdt_load);
-
 MODULE_DESCRIPTION("Firmware parser for Qualcomm MDT format");
 MODULE_LICENSE("GPL v2");

@@ -53,12 +53,13 @@
 
 #include "hfc_pci.h"
 
+static void hfcpci_softirq(unsigned long arg);
 static const char *hfcpci_revision = "2.0";
 
 static int HFC_cnt;
 static uint debug;
 static uint poll, tics;
-static struct timer_list hfc_tl;
+static DEFINE_TIMER(hfc_tl, hfcpci_softirq, 0, 0);
 static unsigned long hfc_jiffies;
 
 MODULE_AUTHOR("Karsten Keil");
@@ -2290,9 +2291,9 @@ _hfcpci_softirq(struct device *dev, void *arg)
 }
 
 static void
-hfcpci_softirq(void *arg)
+hfcpci_softirq(unsigned long arg)
 {
-	WARN_ON_ONCE(driver_for_each_device(&hfc_driver.driver, NULL, arg,
+	WARN_ON_ONCE(driver_for_each_device(&hfc_driver.driver, NULL, (void *)arg,
 				      _hfcpci_softirq) != 0);
 
 	/* if next event would be in the past ... */
@@ -2300,8 +2301,7 @@ hfcpci_softirq(void *arg)
 		hfc_jiffies = jiffies + 1;
 	else
 		hfc_jiffies += tics;
-	hfc_tl.expires = hfc_jiffies;
-	add_timer(&hfc_tl);
+	mod_timer(&hfc_tl, hfc_jiffies);
 }
 
 static int __init
@@ -2327,12 +2327,8 @@ HFC_init(void)
 	if (poll != HFCPCI_BTRANS_THRESHOLD) {
 		printk(KERN_INFO "%s: Using alternative poll value of %d\n",
 		       __func__, poll);
-		hfc_tl.function = (void *)hfcpci_softirq;
-		hfc_tl.data = 0;
-		init_timer(&hfc_tl);
-		hfc_tl.expires = jiffies + tics;
-		hfc_jiffies = hfc_tl.expires;
-		add_timer(&hfc_tl);
+		hfc_jiffies = jiffies + tics;
+		mod_timer(&hfc_tl, hfc_jiffies);
 	} else
 		tics = 0; /* indicate the use of controller's timer */
 
