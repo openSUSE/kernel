@@ -177,7 +177,6 @@ struct l2tp_tunnel {
 	enum l2tp_encap_type	encap;
 	struct l2tp_stats	stats;
 
-	struct list_head	list;		/* Keep a list of all tunnels */
 	struct net		*l2tp_net;	/* the net we belong to */
 
 	atomic_t		ref_count;
