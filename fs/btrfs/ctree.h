@@ -545,17 +545,18 @@ bool btrfs_pinned_by_swapfile(struct btrfs_fs_info *fs_info, void *ptr);
 #define BTRFS_FS_BTREE_ERR			11
 #define BTRFS_FS_LOG1_ERR			12
 #define BTRFS_FS_LOG2_ERR			13
-/*
- * Indicate that relocation of a chunk has started, it's set per chunk
- * and is toggled between chunks.
- */
-#define	BTRFS_FS_RELOC_RUNNING                  14
 
 /*
  * Indicate that a whole-filesystem exclusive operation is running
  * (device replace, resize, device add/delete, balance)
  */
 #define BTRFS_FS_EXCL_OP			14
+
+/*
+ * Indicate that relocation of a chunk has started, it's set per chunk
+ * and is toggled between chunks.
+ */
+#define	BTRFS_FS_RELOC_RUNNING                  15
 
 /*
  * To info transaction_kthread we need an immediate commit so it doesn't

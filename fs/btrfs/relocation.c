@@ -4815,18 +4815,18 @@ int btrfs_relocate_block_group(struct btrfs_fs_info *fs_info, u64 group_start)
 	rc->extent_root = extent_root;
 	rc->block_group = bg;
 
+	ret = reloc_chunk_start(fs_info);
+	if (ret < 0) {
+		err = ret;
+		goto out_put_bg;
+	}
+
 	ret = btrfs_inc_block_group_ro(rc->block_group);
 	if (ret) {
 		err = ret;
 		goto out;
 	}
 	rw = 1;
-
-	ret = reloc_chunk_start(fs_info);
-	if (ret < 0) {
-		err = ret;
-		goto out_put_bg;
-	}
 
 	path = btrfs_alloc_path();
 	if (!path) {
