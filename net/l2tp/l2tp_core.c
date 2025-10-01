@@ -1580,12 +1580,12 @@ int l2tp_tunnel_register(struct l2tp_tunnel *tunnel, struct net *net,
 
 err_inval_sock:
 	write_unlock_bh(&sk->sk_callback_lock);
+	release_sock(sk);
 
 	if (tunnel->fd < 0)
 		sock_release(sock);
 	else
 		sockfd_put(sock);
-	release_sock(sk);
 err:
 	l2tp_tunnel_remove(net, tunnel);
 	return ret;
