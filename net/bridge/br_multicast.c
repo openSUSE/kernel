@@ -2348,6 +2348,22 @@ int br_multicast_set_mld_version(struct net_bridge *br, unsigned long val)
 }
 #endif
 
+void br_multicast_set_query_intvl(struct net_bridge *br,
+				  unsigned long val)
+{
+	unsigned long intvl_jiffies = clock_t_to_jiffies(val);
+
+	if (intvl_jiffies < BR_MULTICAST_QUERY_INTVL_MIN) {
+		br_info(br,
+			"trying to set multicast query interval below minimum, setting to %lu (%ums)\n",
+			jiffies_to_clock_t(BR_MULTICAST_QUERY_INTVL_MIN),
+			jiffies_to_msecs(BR_MULTICAST_QUERY_INTVL_MIN));
+		intvl_jiffies = BR_MULTICAST_QUERY_INTVL_MIN;
+	}
+
+	br->multicast_query_interval = intvl_jiffies;
+}
+
 /**
  * br_multicast_list_adjacent - Returns snooped multicast addresses
  * @dev:	The bridge port adjacent to which to retrieve addresses
