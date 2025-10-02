@@ -32,6 +32,7 @@
 
 #define BR_VERSION	"2.3"
 #define BR_MULTICAST_QUERY_INTVL_MIN msecs_to_jiffies(1000)
+#define BR_MULTICAST_STARTUP_QUERY_INTVL_MIN BR_MULTICAST_QUERY_INTVL_MIN
 
 /* Control of forwarding link local multicast */
 #define BR_GROUPFWD_DEFAULT	0
@@ -647,6 +648,8 @@ void br_multicast_get_stats(const struct net_bridge *br,
 			    struct br_mcast_stats *dest);
 void br_multicast_set_query_intvl(struct net_bridge *br,
 				  unsigned long val);
+void br_multicast_set_startup_query_intvl(struct net_bridge *br,
+					  unsigned long val);
 
 #define mlock_dereference(X, br) \
 	rcu_dereference_protected(X, lockdep_is_held(&br->multicast_lock))
