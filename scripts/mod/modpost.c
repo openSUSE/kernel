@@ -1822,7 +1822,7 @@ static void check_exports(struct module *mod)
 				 */
 				if (mod->is_livepatch &&
 				    strncmp(s->name, KLP_SYM_RELA, strlen(KLP_SYM_RELA)) == 0)
-					break;
+					continue;
 				modpost_log(!warn_unresolved,
 					    "\"%s\" [%s.ko] undefined!\n",
 					    s->name, mod->name);
