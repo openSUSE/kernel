@@ -2017,7 +2017,7 @@ static void check_exports(struct module *mod)
 				 */
 				if (mod->is_livepatch &&
 				    strncmp(s->name, KLP_SYM_RELA, strlen(KLP_SYM_RELA)) == 0)
-					break;
+					continue;
 				modpost_log(warn_unresolved ? LOG_WARN : LOG_ERROR,
 					    "\"%s\" [%s.ko] undefined!\n",
 					    s->name, mod->name);
