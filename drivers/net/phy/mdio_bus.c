@@ -757,6 +757,9 @@ int __mdiobus_read(struct mii_bus *bus, int addr, u32 regnum)
 
 	lockdep_assert_held_once(&bus->mdio_lock);
 
+	if (addr >= PHY_MAX_ADDR)
+		return -ENXIO;
+
 	retval = bus->read(bus, addr, regnum);
 
 	trace_mdio_access(bus, 1, addr, regnum, retval, retval);
@@ -782,6 +785,9 @@ int __mdiobus_write(struct mii_bus *bus, int addr, u32 regnum, u16 val)
 	int err;
 
 	lockdep_assert_held_once(&bus->mdio_lock);
+
+	if (addr >= PHY_MAX_ADDR)
+		return -ENXIO;
 
 	err = bus->write(bus, addr, regnum, val);
 
