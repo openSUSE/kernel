@@ -237,6 +237,8 @@ static bool __dead_end_function(struct objtool_file *file, struct symbol *func,
 		"x86_64_start_reservations",
 		"xen_cpu_bringup_again",
 		"xen_start_kernel",
+		"acpi_processor_ffh_play_dead",
+		"mwait_play_dead",
 	};
 
 	if (!func)
