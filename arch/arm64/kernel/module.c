@@ -579,6 +579,22 @@ static int module_init_ftrace_plt(const Elf_Ehdr *hdr,
 	__init_plt(&plts[FTRACE_PLT_IDX], FTRACE_ADDR);
 
 	mod->arch.ftrace_trampolines = plts;
+
+	mod->arch_init_ftrace_trampolines = NULL;
+
+	s = find_section(hdr, sechdrs, ".init.text.ftrace_trampoline");
+	if (!s) {
+		pr_warn("%s: module is missing the section .init.text.ftrace_trampoline. Please rebuild the module against the latest kernel sources\n",
+			module_name(mod));
+		return 0;
+	}
+
+	plts = (void *)s->sh_addr;
+
+	__init_plt(&plts[FTRACE_PLT_IDX], FTRACE_ADDR);
+
+	mod->arch_init_ftrace_trampolines = plts;
+
 #endif
 	return 0;
 }
