@@ -207,6 +207,9 @@ static struct plt_entry *get_ftrace_plt(struct module *mod, unsigned long addr)
 	else
 		return NULL;
 
+	if (!plt)
+		return NULL;
+
 	return &plt[FTRACE_PLT_IDX];
 #else
 	return NULL;
