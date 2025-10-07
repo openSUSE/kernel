@@ -604,7 +604,7 @@ struct module {
 #ifndef __GENKSYMS__
 	void *arch_init_ftrace_trampolines;
 #else
-	void *suse_kabi_padding;
+ 	void *suse_kabi_padding;
 #endif
 } ____cacheline_aligned __randomize_layout;
 #ifndef MODULE_ARCH_INIT
