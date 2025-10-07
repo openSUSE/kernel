@@ -696,7 +696,7 @@ enum bpf_type_flag_orig {
 	__ORIG_BPF_TYPE_LAST_FLAG		= BIT(16 + BPF_BASE_TYPE_BITS),
 	
 };
-static_assert(sizeof(enum bpf_type_flag) == sizeof(enum bpf_type_flag_orig));
+suse_kabi_static_assert(sizeof(enum bpf_type_flag) == sizeof(enum bpf_type_flag_orig));
 
 #define DYNPTR_TYPE_FLAG_MASK	(DYNPTR_TYPE_LOCAL | DYNPTR_TYPE_RINGBUF | DYNPTR_TYPE_SKB \
 				 | DYNPTR_TYPE_XDP)
@@ -1584,10 +1584,8 @@ struct bpf_link {
 #endif
 };
 
-#ifndef __GENKSYMS__
 /* Make sure the anonymous union above is not larger than before */
-static_assert(sizeof(struct rcu_head) <= sizeof(struct work_struct));
-#endif
+suse_kabi_static_assert(sizeof(struct rcu_head) <= sizeof(struct work_struct));
 
 struct bpf_link_ops {
 	void (*release)(struct bpf_link *link);

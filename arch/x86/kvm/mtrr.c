@@ -19,6 +19,7 @@
 #include <asm/mtrr.h>
 
 #include "cpuid.h"
+#include "x86.h"
 #include "mmu.h"
 
 #define IA32_MTRR_DEF_TYPE_E		(1ULL << 11)

@@ -590,8 +590,11 @@ struct module {
 #ifdef CONFIG_DYNAMIC_DEBUG_CORE
 	struct _ddebug_info dyndbg_info;
 #endif
-
-	void *suse_kabi_padding;
+#ifndef __GENKSYMS__
+	void *arch_init_ftrace_trampolines;
+#else
+ 	void *suse_kabi_padding;
+#endif
 } ____cacheline_aligned __randomize_layout;
 
 struct __orig_module {
@@ -787,8 +790,8 @@ struct __orig_module {
 	void *suse_kabi_padding;
 } ____cacheline_aligned __randomize_layout;
 
-static_assert(offsetof(struct module, init) == offsetof(struct __orig_module, init));
-static_assert(offsetof(struct module, mem) == offsetof(struct __orig_module, mem));
+suse_kabi_static_assert(offsetof(struct module, init) == offsetof(struct __orig_module, init));
+suse_kabi_static_assert(offsetof(struct module, mem) == offsetof(struct __orig_module, mem));
 
 #ifndef MODULE_ARCH_INIT
 #define MODULE_ARCH_INIT {}

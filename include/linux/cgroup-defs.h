@@ -354,6 +354,11 @@ struct cgroup_rstat_cpu {
 	 */
 	struct cgroup *updated_children;	/* terminated by self cgroup */
 	struct cgroup *updated_next;		/* NULL iff not on the list */
+
+#ifndef __GENKSYMS__
+	struct llist_node lnode;		/* lockless list for update */
+	struct cgroup *owner;			/* back pointer */
+#endif
 };
 
 struct cgroup_freezer_state {
@@ -515,6 +520,22 @@ struct cgroup {
 	struct cgroup *ancestors[];
 };
 
+#define struct_cgroup_size(level) \
+	struct_size_t(struct cgroup, ancestors, (level) + 1)
+
+/* Extra fields added to struct cgroup, but moved to a separate
+ * struct to preserve kABI. These extra fields are allocated after
+ * the ancestors[] flexible array in struct cgroup.
+ */
+struct cgroup_extra {
+	/*
+	 * A singly-linked list of cgroup structures to be rstat flushed.
+	 * This is a scratch field to be used exclusively by
+	 * cgroup_rstat_flush_locked() and protected by cgroup_rstat_lock.
+	 */
+	struct cgroup	*rstat_flush_next;
+};
+
 /*
  * A cgroup_root represents the root of a cgroup hierarchy, and may be
  * associated with a kernfs_root to form an active hierarchy.  This is
@@ -555,8 +576,17 @@ struct cgroup_root {
 	char name[MAX_CGROUP_ROOT_NAMELEN];
 #ifndef __GENKSYMS__
 	struct rcu_head rcu;
+	struct cgroup_extra extra;
 #endif
 };
+
+static inline struct cgroup_extra *cgroup_extra(struct cgroup *cgrp)
+{
+	if (!cgrp->level)
+		return &container_of(cgrp, struct cgroup_root, cgrp)->extra;
+	else
+		return (void *)&cgrp->ancestors[cgrp->level+1];
+}
 
 /*
  * struct cftype: handler definitions for cgroup control files
