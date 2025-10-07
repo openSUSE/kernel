@@ -1232,7 +1232,7 @@ reset_done:
 			 */
 			if (!(xhci->quirks & XHCI_NEC_HOST))
 				break;
-			if (time_is_before_jiffies(ep->stop_time + msecs_to_jiffies(100)))
+			if (time_is_before_jiffies(ep->suse_extension->stop_time + msecs_to_jiffies(100)))
 				break;
 			fallthrough;
 		case EP_STATE_RUNNING:

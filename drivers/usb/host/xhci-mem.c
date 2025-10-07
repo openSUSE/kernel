@@ -902,6 +902,8 @@ void xhci_free_virt_device(struct xhci_hcd *xhci, struct xhci_virt_device *dev,
 		dev->udev->slot_id = 0;
 	if (xhci->devs[slot_id] == dev)
 		xhci->devs[slot_id] = NULL;
+	for (i = 0 ; i < EP_CTX_PER_DEV; i++)
+		kfree(dev->eps[i].suse_extension);
 	kfree(dev);
 }
 
@@ -988,6 +990,14 @@ int xhci_alloc_virt_device(struct xhci_hcd *xhci, int slot_id,
 		INIT_LIST_HEAD(&dev->eps[i].bw_endpoint_list);
 	}
 
+	for (i = 0; i < EP_CTX_PER_DEV; i++) {
+		dev->eps[i].suse_extension = kzalloc(
+				sizeof(struct suse_xhci_virt_ep_extension),
+				flags);
+		if (!dev->eps[i].suse_extension)
+			goto fail;
+	}
+
 	/* Allocate endpoint 0 ring */
 	dev->eps[0].ring = xhci_ring_alloc(xhci, 2, 1, TYPE_CTRL, 0, flags);
 	if (!dev->eps[0].ring)
@@ -1008,7 +1018,8 @@ int xhci_alloc_virt_device(struct xhci_hcd *xhci, int slot_id,
 
 	return 1;
 fail:
-
+	for (i = 0; i < EP_CTX_PER_DEV; i++)
+		kfree(dev->eps[i].suse_extension);
 	if (dev->in_ctx)
 		xhci_free_container_ctx(xhci, dev->in_ctx);
 	if (dev->out_ctx)
