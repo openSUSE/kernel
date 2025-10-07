@@ -265,6 +265,9 @@ struct ci_hdrc {
 	bool				wakeup_int;
 	enum ci_revision		rev;
 	struct mutex                    mutex;
+#ifndef __GENKSYMS__
+	bool				has_short_pkt_limit;
+#endif
 };
 
 static inline struct ci_role_driver *ci_role(struct ci_hdrc *ci)
