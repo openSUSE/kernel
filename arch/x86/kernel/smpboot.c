@@ -93,6 +93,8 @@
 DEFINE_PER_CPU_READ_MOSTLY(cpumask_var_t, cpu_sibling_map);
 EXPORT_PER_CPU_SYMBOL(cpu_sibling_map);
 
+DEFINE_PER_CPU_READ_MOSTLY(cpumask_var_t, cpu_sibling_copy_map);
+
 /* representing HT and core siblings of each logical CPU */
 DEFINE_PER_CPU_READ_MOSTLY(cpumask_var_t, cpu_core_map);
 EXPORT_PER_CPU_SYMBOL(cpu_core_map);
@@ -664,6 +666,8 @@ void set_cpu_sibling_map(int cpu)
 		cpumask_set_cpu(cpu, topology_core_cpumask(cpu));
 		cpumask_set_cpu(cpu, topology_die_cpumask(cpu));
 		c->booted_cores = 1;
+		cpumask_copy(per_cpu(cpu_sibling_copy_map, cpu), topology_sibling_cpumask(cpu));
+
 		return;
 	}
 
@@ -686,6 +690,7 @@ void set_cpu_sibling_map(int cpu)
 			link_mask(topology_die_cpumask, cpu, i);
 	}
 
+	cpumask_copy(per_cpu(cpu_sibling_copy_map, cpu), topology_sibling_cpumask(cpu));
 	threads = cpumask_weight(topology_sibling_cpumask(cpu));
 	if (threads > __max_smt_threads)
 		__max_smt_threads = threads;
@@ -1424,6 +1429,7 @@ void __init smp_prepare_cpus_common(void)
 
 	for_each_possible_cpu(i) {
 		zalloc_cpumask_var(&per_cpu(cpu_sibling_map, i), GFP_KERNEL);
+		zalloc_cpumask_var(&per_cpu(cpu_sibling_copy_map, i), GFP_KERNEL);
 		zalloc_cpumask_var(&per_cpu(cpu_core_map, i), GFP_KERNEL);
 		zalloc_cpumask_var(&per_cpu(cpu_die_map, i), GFP_KERNEL);
 		zalloc_cpumask_var(&per_cpu(cpu_llc_shared_map, i), GFP_KERNEL);
@@ -1665,6 +1671,7 @@ static void remove_siblinginfo(int cpu)
 
 	for_each_cpu(sibling, topology_die_cpumask(cpu))
 		cpumask_clear_cpu(cpu, topology_die_cpumask(sibling));
+
 
 	for_each_cpu(sibling, topology_sibling_cpumask(cpu)) {
 		cpumask_clear_cpu(cpu, topology_sibling_cpumask(sibling));
