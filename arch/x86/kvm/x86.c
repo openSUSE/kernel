@@ -13366,7 +13366,7 @@ static bool kvm_can_deliver_async_pf(struct kvm_vcpu *vcpu)
 		return false;
 
 	if (vcpu->arch.apf.send_user_only &&
-	    static_call(kvm_x86_get_cpl)(vcpu) == 0)
+	    (vcpu->arch.guest_state_protected || !static_call(kvm_x86_get_cpl)(vcpu)))
 		return false;
 
 	if (is_guest_mode(vcpu)) {
