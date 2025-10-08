@@ -400,7 +400,6 @@ struct ice_vsi {
 	u16 req_rxq;			 /* User requested Rx queues */
 	u16 num_rx_desc;
 	u16 num_tx_desc;
-	u16 qset_handle[ICE_MAX_TRAFFIC_CLASS];
 	struct ice_tc_cfg tc_cfg;
 	struct bpf_prog *xdp_prog;
 	struct ice_tx_ring **xdp_rings;	 /* XDP ring array */
@@ -514,6 +513,7 @@ enum ice_pf_flags {
 	ICE_FLAG_LINK_LENIENT_MODE_ENA,
 	ICE_FLAG_PLUG_AUX_DEV,
 	ICE_FLAG_UNPLUG_AUX_DEV,
+	ICE_FLAG_AUX_DEV_CREATED,
 	ICE_FLAG_MTU_CHANGED,
 	ICE_FLAG_GNSS,			/* GNSS successfully initialized */
 	ICE_FLAG_DPLL,			/* SyncE/PTP dplls initialized */
@@ -559,7 +559,6 @@ struct ice_pf {
 	struct devlink_port devlink_port;
 
 	/* OS reserved IRQ details */
-	struct msix_entry *msix_entries;
 	struct ice_irq_tracker irq_tracker;
 	struct ice_virt_irq_tracker virt_irq_tracker;
 
@@ -594,7 +593,6 @@ struct ice_pf {
 	struct gnss_serial *gnss_serial;
 	struct gnss_device *gnss_dev;
 	u16 num_rdma_msix;		/* Total MSIX vectors for RDMA driver */
-	u16 rdma_base_vector;
 
 	/* spinlock to protect the AdminQ wait list */
 	spinlock_t aq_wait_lock;
@@ -627,14 +625,12 @@ struct ice_pf {
 	struct ice_hw_port_stats stats_prev;
 	struct ice_hw hw;
 	u8 stat_prev_loaded:1; /* has previous stats been loaded */
-	u8 rdma_mode;
 	u16 dcbx_cap;
 	u32 tx_timeout_count;
 	unsigned long tx_timeout_last_recovery;
 	u32 tx_timeout_recovery_level;
 	char int_name[ICE_INT_NAME_STR_LEN];
 	char int_name_ll_ts[ICE_INT_NAME_STR_LEN];
-	struct auxiliary_device *adev;
 	int aux_idx;
 	u32 sw_int_count;
 	/* count of tc_flower filters specific to channel (aka where filter
@@ -666,6 +662,7 @@ struct ice_pf {
 	struct ice_dplls dplls;
 	struct device *hwmon_dev;
 	struct ice_health health_reporters;
+	struct iidc_rdma_core_dev_info *cdev_info;
 
 	u8 num_quanta_prof_used;
 };

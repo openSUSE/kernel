@@ -5,9 +5,9 @@
 
 #include <linux/pci.h>
 #include <linux/bitfield.h>
-#include <linux/net/intel/iidc.h>
 #include <crypto/hash.h>
 #include <rdma/ib_verbs.h>
+#include <net/dscp.h>
 
 #define STATS_TIMER_DELAY	60000
 
