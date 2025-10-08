@@ -518,7 +518,7 @@ out_acc:
 		spin_unlock(&ubi->volumes_lock);
 	}
 out_free:
-	kfree(new_eba_tbl);
+	ubi_eba_destroy_table(new_eba_tbl);
 	return err;
 }
 
