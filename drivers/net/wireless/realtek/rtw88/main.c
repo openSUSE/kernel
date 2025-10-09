@@ -1165,9 +1165,11 @@ void rtw_core_deinit(struct rtw_dev *rtwdev)
 	if (fw->firmware)
 		release_firmware(fw->firmware);
 
+	timer_delete_sync(&rtwdev->tx_report.purge_timer);
 	spin_lock_irqsave(&rtwdev->tx_report.q_lock, flags);
 	skb_queue_purge(&rtwdev->tx_report.queue);
 	spin_unlock_irqrestore(&rtwdev->tx_report.q_lock, flags);
+	skb_queue_purge(&rtwdev->c2h_queue);
 
 	list_for_each_entry_safe(rsvd_pkt, tmp, &rtwdev->rsvd_page_list, list) {
 		list_del(&rsvd_pkt->list);
