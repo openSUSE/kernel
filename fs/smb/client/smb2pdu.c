@@ -2129,8 +2129,8 @@ SMB2_tcon(const unsigned int xid, struct cifs_ses *ses, const char *tree,
 
 	unc_path_len = cifs_strtoUTF16(unc_path, tree, strlen(tree), cp);
 	if (unc_path_len <= 0) {
-		kfree(unc_path);
-		return -EINVAL;
+		rc = -EINVAL;
+		goto free_unc_path;
 	}
 	unc_path_len *= 2;
 
@@ -2139,10 +2139,8 @@ SMB2_tcon(const unsigned int xid, struct cifs_ses *ses, const char *tree,
 	atomic_set(&tcon->num_remote_opens, 0);
 	rc = smb2_plain_req_init(SMB2_TREE_CONNECT, tcon, server,
 				 (void **) &req, &total_len);
-	if (rc) {
-		kfree(unc_path);
-		return rc;
-	}
+	if (rc)
+		goto free_unc_path;
 
 	if (smb3_encryption_required(tcon))
 		flags |= CIFS_TRANSFORM_REQ;
@@ -2233,6 +2231,7 @@ SMB2_tcon(const unsigned int xid, struct cifs_ses *ses, const char *tree,
 tcon_exit:
 
 	free_rsp_buf(resp_buftype, rsp);
+free_unc_path:
 	kfree(unc_path);
 	return rc;
 
