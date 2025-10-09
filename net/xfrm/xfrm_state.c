@@ -2070,6 +2070,8 @@ int xfrm_alloc_spi(struct xfrm_state *x, u32 low, u32 high)
 
 	for (h = 0; h < range; h++) {
 		u32 spi = (low == high) ? low : low + prandom_u32()%(high-low+1);
+		if (spi == 0)
+			goto next;
 		newspi = htonl(spi);
 
 		spin_lock_bh(&net->xfrm.xfrm_state_lock);
@@ -2085,6 +2087,7 @@ int xfrm_alloc_spi(struct xfrm_state *x, u32 low, u32 high)
 		xfrm_state_put(x0);
 		spin_unlock_bh(&net->xfrm.xfrm_state_lock);
 
+next:
 		if (signal_pending(current)) {
 			err = -ERESTARTSYS;
 			goto unlock;
