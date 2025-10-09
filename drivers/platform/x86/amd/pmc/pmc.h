@@ -22,8 +22,9 @@ struct amd_pmc_dev {
 	bool msg_port;
 	u32 base_addr;
 	u32 cpu_id;
-	u32 active_ips;
 	u32 dram_size;
+	u32 active_ips;
+	const struct amd_pmc_bit_map *ips_ptr;
 	u32 num_ips;
 	u32 s2d_msg_id;
 	u32 smu_msg;
