@@ -53,5 +53,6 @@ void amd_pmc_quirks_init(struct amd_pmc_dev *dev);
 #define AMD_CPU_ID_PS			0x14E8
 #define AMD_CPU_ID_SP			0x14A4
 #define PCI_DEVICE_ID_AMD_1AH_M20H_ROOT 0x1507
+#define PCI_DEVICE_ID_AMD_1AH_M60H_ROOT 0x1122
 
 #endif /* PMC_H */
