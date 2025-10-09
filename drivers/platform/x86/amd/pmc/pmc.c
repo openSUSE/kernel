@@ -11,6 +11,7 @@
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
 #include <linux/acpi.h>
+#include <linux/array_size.h>
 #include <linux/bitfield.h>
 #include <linux/bits.h>
 #include <linux/debugfs.h>
@@ -147,7 +148,6 @@ static const struct amd_pmc_bit_map soc15_ip_blk[] = {
 	{"IPU",		BIT(19)},
 	{"UMSCH",	BIT(20)},
 	{"VPE",		BIT(21)},
-	{}
 };
 
 static bool enable_stb;
@@ -361,7 +361,7 @@ static void amd_pmc_get_ip_info(struct amd_pmc_dev *dev)
 		break;
 	case PCI_DEVICE_ID_AMD_1AH_M20H_ROOT:
 	case PCI_DEVICE_ID_AMD_1AH_M60H_ROOT:
-		dev->num_ips = 22;
+		dev->num_ips = ARRAY_SIZE(soc15_ip_blk);
 		dev->s2d_msg_id = 0xDE;
 		dev->smu_msg = 0x938;
 		break;
