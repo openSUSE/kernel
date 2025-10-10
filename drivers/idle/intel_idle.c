@@ -56,6 +56,7 @@
 #include <asm/mwait.h>
 #include <asm/spec-ctrl.h>
 #include <asm/fpu/api.h>
+#include <asm/smp.h>
 
 #define INTEL_IDLE_VERSION "0.5.1"
 
@@ -223,6 +224,17 @@ static __cpuidle int intel_idle_s2idle(struct cpuidle_device *dev,
 		fpu_idle_fpregs();
 
 	mwait_idle_with_hints(eax, ecx);
+
+	return 0;
+}
+
+static int intel_idle_enter_dead(struct cpuidle_device *dev, int index)
+{
+	struct cpuidle_driver *drv = cpuidle_get_cpu_driver(dev);
+	struct cpuidle_state *state = &drv->states[index];
+	unsigned long eax = flg2MWAIT(state->flags);
+
+	mwait_play_dead(eax);
 
 	return 0;
 }
@@ -1799,6 +1811,7 @@ static void __init intel_idle_init_cstates_acpi(struct cpuidle_driver *drv)
 			state->flags |= CPUIDLE_FLAG_TIMER_STOP;
 
 		state->enter = intel_idle;
+		state->enter_dead = intel_idle_enter_dead;
 		state->enter_s2idle = intel_idle_s2idle;
 	}
 }
@@ -2147,6 +2160,9 @@ static void __init intel_idle_init_cstates_icpu(struct cpuidle_driver *drv)
 		if (!cpuidle_state_table[cstate].enter &&
 		    !cpuidle_state_table[cstate].enter_s2idle)
 			break;
+
+		if (!cpuidle_state_table[cstate].enter_dead)
+			cpuidle_state_table[cstate].enter_dead = intel_idle_enter_dead;
 
 		/* If marked as unusable, skip this state. */
 		if (cpuidle_state_table[cstate].flags & CPUIDLE_FLAG_UNUSABLE) {
