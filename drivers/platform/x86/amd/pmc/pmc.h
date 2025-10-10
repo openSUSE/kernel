@@ -22,10 +22,12 @@ struct amd_pmc_dev {
 	bool msg_port;
 	u32 base_addr;
 	u32 cpu_id;
-	u32 active_ips;
 	u32 dram_size;
+	u32 active_ips;
+	const struct amd_pmc_bit_map *ips_ptr;
 	u32 num_ips;
 	u32 s2d_msg_id;
+	u32 smu_msg;
 /* SMU version information */
 	u8 smu_program;
 	u8 major;
@@ -51,6 +53,8 @@ void amd_pmc_quirks_init(struct amd_pmc_dev *dev);
 #define AMD_CPU_ID_CB			0x14D8
 #define AMD_CPU_ID_PS			0x14E8
 #define AMD_CPU_ID_SP			0x14A4
+#define AMD_CPU_ID_SHP			0x153A
 #define PCI_DEVICE_ID_AMD_1AH_M20H_ROOT 0x1507
+#define PCI_DEVICE_ID_AMD_1AH_M60H_ROOT 0x1122
 
 #endif /* PMC_H */

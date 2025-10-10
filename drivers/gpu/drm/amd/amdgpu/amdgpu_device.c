@@ -4156,6 +4156,7 @@ int amdgpu_device_init(struct amdgpu_device *adev,
 	/* Initialize the mutex for cleaner shader isolation between GFX and compute processes */
 	mutex_init(&adev->enforce_isolation_mutex);
 	mutex_init(&adev->gfx.kfd_sch_mutex);
+	mutex_init(&adev->vcn.workload_profile_mutex);
 
 	amdgpu_device_init_apu_flags(adev);
 
