@@ -29,6 +29,17 @@ unsigned int __max_die_per_package __read_mostly = 1;
 EXPORT_SYMBOL(__max_die_per_package);
 
 #ifdef CONFIG_SMP
+
+int topology_get_primary_thread(unsigned int cpu)
+{
+	int i;
+	for_each_cpu(i, per_cpu(cpu_sibling_copy_map, cpu)) {
+		if (topology_is_primary_thread(i))
+			return i;
+	}
+
+	return -ENODEV;
+}
 /*
  * Check if given CPUID extended topology "leaf" is implemented
  */
