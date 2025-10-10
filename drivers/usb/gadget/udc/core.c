@@ -39,6 +39,8 @@ struct usb_udc {
 	struct device			dev;
 	struct list_head		list;
 	bool				vbus;
+	bool				allow_connect;
+	struct work_struct		vbus_work;
 };
 
 static struct class *udc_class;
@@ -673,7 +675,7 @@ int usb_gadget_connect(struct usb_gadget *gadget)
 		goto out;
 	}
 
-	if (gadget->deactivated) {
+	if (gadget->deactivated || !gadget->udc->allow_connect) {
 		/*
 		 * If gadget is deactivated we only save new state.
 		 * Gadget will be connected automatically after activation.
@@ -715,6 +717,9 @@ int usb_gadget_disconnect(struct usb_gadget *gadget)
 		goto out;
 	}
 
+	if (!gadget->connected)
+		goto out;
+
 	if (gadget->deactivated) {
 		/*
 		 * If gadget is deactivated we only save new state.
@@ -727,7 +732,10 @@ int usb_gadget_disconnect(struct usb_gadget *gadget)
 	ret = gadget->ops->pullup(gadget, 0);
 	if (!ret) {
 		gadget->connected = 0;
-		gadget->udc->driver->disconnect(gadget);
+		mutex_lock(&udc_lock);
+		if (gadget->udc->driver)
+			gadget->udc->driver->disconnect(gadget);
+		mutex_unlock(&udc_lock);
 	}
 
 out:
@@ -1027,6 +1035,13 @@ static void usb_udc_connect_control(struct usb_udc *udc)
 		usb_gadget_disconnect(udc->gadget);
 }
 
+static void vbus_event_work(struct work_struct *work)
+{
+	struct usb_udc *udc = container_of(work, struct usb_udc, vbus_work);
+
+	usb_udc_connect_control(udc);
+}
+
 /**
  * usb_udc_vbus_handler - updates the udc core vbus status, and try to
  * connect or disconnect gadget
@@ -1035,6 +1050,14 @@ static void usb_udc_connect_control(struct usb_udc *udc)
  *
  * The udc driver calls it when it wants to connect or disconnect gadget
  * according to vbus status.
+ *
+ * This function can be invoked from interrupt context by irq handlers of
+ * the gadget drivers, however, usb_udc_connect_control() has to run in
+ * non-atomic context due to the following:
+ * a. Some of the gadget driver implementations expect the ->pullup
+ * callback to be invoked in non-atomic context.
+ * b. usb_gadget_disconnect() acquires udc_lock which is a mutex.
+ * Hence offload invocation of usb_udc_connect_control() to workqueue.
  */
 void usb_udc_vbus_handler(struct usb_gadget *gadget, bool status)
 {
@@ -1042,7 +1065,7 @@ void usb_udc_vbus_handler(struct usb_gadget *gadget, bool status)
 
 	if (udc) {
 		udc->vbus = status;
-		usb_udc_connect_control(udc);
+		schedule_work(&udc->vbus_work);
 	}
 }
 EXPORT_SYMBOL_GPL(usb_udc_vbus_handler);
@@ -1233,6 +1256,7 @@ int usb_add_gadget_udc_release(struct device *parent, struct usb_gadget *gadget,
  err_unlist_udc:
 	list_del(&udc->list);
 	mutex_unlock(&udc_lock);
+	INIT_WORK(&udc->vbus_work, vbus_event_work);
 
 	device_del(&gadget->dev);
 
@@ -1300,6 +1324,7 @@ static void usb_gadget_remove_driver(struct usb_udc *udc)
 	udc->driver->unbind(udc->gadget);
 	usb_gadget_udc_stop(udc);
 
+	mutex_lock(&udc_lock);
 	udc->driver = NULL;
 	udc->gadget->dev.driver = NULL;
 }
@@ -1333,6 +1358,7 @@ void usb_del_gadget_udc(struct usb_gadget *gadget)
 
 	kobject_uevent(&udc->dev.kobj, KOBJ_REMOVE);
 	flush_work(&gadget->work);
+	cancel_work_sync(&udc->vbus_work);
 	device_unregister(&udc->dev);
 	device_unregister(&gadget->dev);
 	memset(&gadget->dev, 0x00, sizeof(gadget->dev));
@@ -1474,7 +1500,7 @@ static ssize_t soft_connect_store(struct device *dev,
 	struct usb_udc		*udc = container_of(dev, struct usb_udc, dev);
 	ssize_t			ret;
 
-	mutex_lock(&udc_lock);
+	device_lock(&udc->gadget->dev);
 	if (!udc->driver) {
 		dev_err(dev, "soft-connect without a gadget driver\n");
 		ret = -EOPNOTSUPP;
@@ -1495,7 +1521,7 @@ static ssize_t soft_connect_store(struct device *dev,
 
 	ret = n;
 out:
-	mutex_unlock(&udc_lock);
+	device_unlock(&udc->gadget->dev);
 	return ret;
 }
 static DEVICE_ATTR_WO(soft_connect);
@@ -1590,13 +1616,14 @@ static int usb_udc_uevent(struct device *dev, struct kobj_uevent_env *env)
 		return ret;
 	}
 
-	if (udc->driver) {
+	mutex_lock(&udc_lock);
+	if (udc->driver)
 		ret = add_uevent_var(env, "USB_UDC_DRIVER=%s",
 				udc->driver->function);
-		if (ret) {
-			dev_err(dev, "failed to add uevent USB_UDC_DRIVER\n");
-			return ret;
-		}
+	mutex_unlock(&udc_lock);
+	if (ret) {
+		dev_err(dev, "failed to add uevent USB_UDC_DRIVER\n");
+		return ret;
 	}
 
 	return 0;
