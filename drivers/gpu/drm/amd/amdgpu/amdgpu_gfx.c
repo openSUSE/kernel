@@ -1866,7 +1866,7 @@ void amdgpu_gfx_enforce_isolation_ring_begin_use(struct amdgpu_ring *ring)
 	mutex_unlock(&adev->enforce_isolation_mutex);
 
 	if (sched_work)
-		amdgpu_gfx_kfd_sch_ctrl(adev, idx, true);
+		amdgpu_gfx_kfd_sch_ctrl(adev, idx, false);
 }
 
 void amdgpu_gfx_enforce_isolation_ring_end_use(struct amdgpu_ring *ring)
@@ -1894,5 +1894,5 @@ void amdgpu_gfx_enforce_isolation_ring_end_use(struct amdgpu_ring *ring)
 	mutex_unlock(&adev->enforce_isolation_mutex);
 
 	if (sched_work)
-		amdgpu_gfx_kfd_sch_ctrl(adev, idx, false);
+		amdgpu_gfx_kfd_sch_ctrl(adev, idx, true);
 }
