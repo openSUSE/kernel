@@ -270,6 +270,9 @@ static int __init acpi_processor_driver_init(void)
 				  NULL, acpi_soft_cpu_dead);
 
 	acpi_processor_throttling_init();
+
+	acpi_idle_rescan_dead_smt_siblings();
+
 	return 0;
 err:
 	driver_unregister(&acpi_processor_driver);
