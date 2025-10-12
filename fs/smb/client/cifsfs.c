@@ -1876,7 +1876,6 @@ exit_cifs(void)
 	cifs_destroy_request_bufs();
 	destroy_mids();
 	cifs_destroy_inodecache();
-	destroy_workqueue(cfid_put_wq);
 	destroy_workqueue(deferredclose_wq);
 	destroy_workqueue(cifsoplockd_wq);
 	destroy_workqueue(decrypt_wq);
