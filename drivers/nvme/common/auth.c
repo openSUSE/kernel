@@ -485,30 +485,29 @@ EXPORT_SYMBOL_GPL(nvme_auth_generate_key);
  * @ret_psk: Pointer too the resulting generated PSK
  * @ret_len: length of @ret_psk
  *
- * Generate a PSK for TLS as specified in NVMe base specification, section 8.13.5.9:
- *    Generated PSK for TLS
+ * Generate a PSK for TLS as specified in NVMe base specification, section
+ * 8.13.5.9: Generated PSK for TLS
  *
- * The generated PSK for TLS shall be computed applying the HMAC function using the
- * hash function H( ) selected by the HashID parameter in the DH-HMAC-CHAP_Challenge
- * message with the session key KS as key to the concatenation of the two challenges
- * C1 and C2 (i.e., generated PSK = HMAC(KS, C1 || C2)).
+ * The generated PSK for TLS shall be computed applying the HMAC function
+ * using the hash function H( ) selected by the HashID parameter in the
+ * DH-HMAC-CHAP_Challenge message with the session key KS as key to the
+ * concatenation of the two challenges C1 and C2 (i.e., generated
+ * PSK = HMAC(KS, C1 || C2)).
  *
- * Returns 0 on success with a valid generated PSK pointer in @ret_psk and the length
- * of @ret_psk in @ret_len, or a negative error number otherwise.
+ * Returns 0 on success with a valid generated PSK pointer in @ret_psk and
+ * the length of @ret_psk in @ret_len, or a negative error number otherwise.
  */
 int nvme_auth_generate_psk(u8 hmac_id, u8 *skey, size_t skey_len,
-		u8 *c1, u8 *c2, size_t hash_len, u8 **ret_psk,size_t *ret_len)
+		u8 *c1, u8 *c2, size_t hash_len, u8 **ret_psk, size_t *ret_len)
 {
 	struct crypto_shash *tfm;
-	struct shash_desc *shash;
+	SHASH_DESC_ON_STACK(shash, tfm);
 	u8 *psk;
 	const char *hmac_name;
 	int ret, psk_len;
 
-	if (!c1 || !c2) {
-		pr_warn("%s: invalid parameter\n", __func__);
+	if (!c1 || !c2)
 		return -EINVAL;
-	}
 
 	hmac_name = nvme_auth_hmac_name(hmac_id);
 	if (!hmac_name) {
@@ -528,30 +527,22 @@ int nvme_auth_generate_psk(u8 hmac_id, u8 *skey, size_t skey_len,
 		goto out_free_tfm;
 	}
 
-	shash = kmalloc(sizeof(struct shash_desc) +
-			crypto_shash_descsize(tfm),
-			GFP_KERNEL);
-	if (!shash) {
-		ret = -ENOMEM;
-		goto out_free_psk;
-	}
-
 	shash->tfm = tfm;
 	ret = crypto_shash_setkey(tfm, skey, skey_len);
 	if (ret)
-		goto out_free_shash;
+		goto out_free_psk;
 
 	ret = crypto_shash_init(shash);
 	if (ret)
-		goto out_free_shash;
+		goto out_free_psk;
 
 	ret = crypto_shash_update(shash, c1, hash_len);
 	if (ret)
-		goto out_free_shash;
+		goto out_free_psk;
 
 	ret = crypto_shash_update(shash, c2, hash_len);
 	if (ret)
-		goto out_free_shash;
+		goto out_free_psk;
 
 	ret = crypto_shash_final(shash, psk);
 	if (!ret) {
@@ -559,8 +550,6 @@ int nvme_auth_generate_psk(u8 hmac_id, u8 *skey, size_t skey_len,
 		*ret_len = psk_len;
 	}
 
-out_free_shash:
-	kfree_sensitive(shash);
 out_free_psk:
 	if (ret)
 		kfree_sensitive(psk);
@@ -575,7 +564,7 @@ EXPORT_SYMBOL_GPL(nvme_auth_generate_psk);
  * nvme_auth_generate_digest - Generate TLS PSK digest
  * @hmac_id: Hash function identifier
  * @psk: Generated input PSK
- * @psk_len: Lenght of @psk
+ * @psk_len: Length of @psk
  * @subsysnqn: NQN of the subsystem
  * @hostnqn: NQN of the host
  * @ret_digest: Pointer to the returned digest
@@ -583,29 +572,34 @@ EXPORT_SYMBOL_GPL(nvme_auth_generate_psk);
  * Generate a TLS PSK digest as specified in TP8018 Section 3.6.1.3:
  *   TLS PSK and PSK identity Derivation
  *
- * The PSK digest shall be computed by encoding in Base64 (refer to RFC 4648)
- * the result of the application of the HMAC function using the hash function
- * specified in item 4 above (ie the hash function of the cipher suite associated
- * with the PSK identity) with the PSK as HMAC key to the concatenation of:
+ * The PSK digest shall be computed by encoding in Base64 (refer to RFC
+ * 4648) the result of the application of the HMAC function using the hash
+ * function specified in item 4 above (ie the hash function of the cipher
+ * suite associated with the PSK identity) with the PSK as HMAC key to the
+ * concatenation of:
  * - the NQN of the host (i.e., NQNh) not including the null terminator;
  * - a space character;
- * - the NQN of the NVM subsystem (i.e., NQNc) not including the null terminator;
+ * - the NQN of the NVM subsystem (i.e., NQNc) not including the null
+ *   terminator;
  * - a space character; and
  * - the seventeen ASCII characters "NVMe-over-Fabrics"
- * (i.e., <PSK digest> = Base64(HMAC(PSK, NQNh || " " || NQNc || " " || "NVMe-over-Fabrics"))).
+ * (i.e., <PSK digest> = Base64(HMAC(PSK, NQNh || " " || NQNc || " " ||
+ *  "NVMe-over-Fabrics"))).
  * The length of the PSK digest depends on the hash function used to compute
  * it as follows:
- * - If the SHA-256 hash function is used, the resulting PSK digest is 44 characters long; or
- * - If the SHA-384 hash function is used, the resulting PSK digest is 64 characters long.
+ * - If the SHA-256 hash function is used, the resulting PSK digest is 44
+ *   characters long; or
+ * - If the SHA-384 hash function is used, the resulting PSK digest is 64
+ *   characters long.
  *
- * Returns 0 on success with a valid digest pointer in @ret_digest, or a negative
- * error number on failure.
+ * Returns 0 on success with a valid digest pointer in @ret_digest, or a
+ * negative error number on failure.
  */
 int nvme_auth_generate_digest(u8 hmac_id, u8 *psk, size_t psk_len,
 		char *subsysnqn, char *hostnqn, u8 **ret_digest)
 {
 	struct crypto_shash *tfm;
-	struct shash_desc *shash;
+	SHASH_DESC_ON_STACK(shash, tfm);
 	u8 *digest, *enc;
 	const char *hmac_name;
 	size_t digest_len, hmac_len;
@@ -651,53 +645,43 @@ int nvme_auth_generate_digest(u8 hmac_id, u8 *psk, size_t psk_len,
 		goto out_free_tfm;
 	}
 
-	shash = kmalloc(sizeof(struct shash_desc) +
-			crypto_shash_descsize(tfm),
-			GFP_KERNEL);
-	if (!shash) {
-		ret = -ENOMEM;
-		goto out_free_digest;
-	}
-
 	shash->tfm = tfm;
 	ret = crypto_shash_setkey(tfm, psk, psk_len);
 	if (ret)
-		goto out_free_shash;
+		goto out_free_digest;
 
 	ret = crypto_shash_init(shash);
 	if (ret)
-		goto out_free_shash;
+		goto out_free_digest;
 
 	ret = crypto_shash_update(shash, hostnqn, strlen(hostnqn));
 	if (ret)
-		goto out_free_shash;
+		goto out_free_digest;
 
 	ret = crypto_shash_update(shash, " ", 1);
 	if (ret)
-		goto out_free_shash;
+		goto out_free_digest;
 
 	ret = crypto_shash_update(shash, subsysnqn, strlen(subsysnqn));
 	if (ret)
-		goto out_free_shash;
+		goto out_free_digest;
 
 	ret = crypto_shash_update(shash, " NVMe-over-Fabrics", 18);
 	if (ret)
-		goto out_free_shash;
+		goto out_free_digest;
 
 	ret = crypto_shash_final(shash, digest);
 	if (ret)
-		goto out_free_shash;
+		goto out_free_digest;
 
 	ret = base64_encode(digest, digest_len, enc);
-	if (ret < hmac_len)
+	if (ret < hmac_len) {
 		ret = -ENOKEY;
-	else {
-	    *ret_digest = enc;
-	    ret = 0;
+		goto out_free_digest;
 	}
+	*ret_digest = enc;
+	ret = 0;
 
-out_free_shash:
-	kfree_sensitive(shash);
 out_free_digest:
 	kfree_sensitive(digest);
 out_free_tfm:
@@ -785,8 +769,13 @@ int nvme_auth_derive_tls_psk(int hmac_id, u8 *psk, size_t psk_len,
 	if (ret)
 		goto out_free_prk;
 
+	/*
+	 * 2 addtional bytes for the length field from HDKF-Expand-Label,
+	 * 2 addtional bytes for the HMAC ID, and one byte for the space
+	 * separator.
+	 */
 	info_len = strlen(psk_digest) + strlen(psk_prefix) + 5;
-	info = kzalloc(info_len, GFP_KERNEL);
+	info = kzalloc(info_len + 1, GFP_KERNEL);
 	if (!info) {
 		ret = -ENOMEM;
 		goto out_free_prk;
@@ -801,7 +790,7 @@ int nvme_auth_derive_tls_psk(int hmac_id, u8 *psk, size_t psk_len,
 		ret = -ENOMEM;
 		goto out_free_info;
 	}
-	ret = hkdf_expand(hmac_tfm, info, strlen(info), tls_key, psk_len);
+	ret = hkdf_expand(hmac_tfm, info, info_len, tls_key, psk_len);
 	if (ret) {
 		kfree(tls_key);
 		goto out_free_info;

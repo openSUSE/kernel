@@ -31,6 +31,7 @@ struct nvme_dhchap_queue_context {
 	u32 s1;
 	u32 s2;
 	bool bi_directional;
+	bool authenticated;
 	u16 transaction;
 	u8 status;
 	u8 dhgroup_id;
@@ -132,12 +133,13 @@ static int nvme_auth_set_dhchap_negotiate_data(struct nvme_ctrl *ctrl,
 	data->auth_type = NVME_AUTH_COMMON_MESSAGES;
 	data->auth_id = NVME_AUTH_DHCHAP_MESSAGE_NEGOTIATE;
 	data->t_id = cpu_to_le16(chap->transaction);
-	if (!ctrl->opts->concat || chap->qid != 0)
+	if (ctrl->opts->concat && chap->qid == 0) {
+		if (ctrl->opts->tls_key)
+			data->sc_c = NVME_AUTH_SECP_REPLACETLSPSK;
+		else
+			data->sc_c = NVME_AUTH_SECP_NEWTLSPSK;
+	} else
 		data->sc_c = NVME_AUTH_SECP_NOSC;
-	else if (ctrl->opts->tls_key)
-		data->sc_c = NVME_AUTH_SECP_REPLACETLSPSK;
-	else
-		data->sc_c = NVME_AUTH_SECP_NEWTLSPSK;
 	data->napd = 1;
 	data->auth_protocol[0].dhchap.authid = NVME_AUTH_DHCHAP_AUTH_ID;
 	data->auth_protocol[0].dhchap.halen = 3;
@@ -681,6 +683,7 @@ static void nvme_auth_reset_dhchap(struct nvme_dhchap_queue_context *chap)
 static void nvme_auth_free_dhchap(struct nvme_dhchap_queue_context *chap)
 {
 	nvme_auth_reset_dhchap(chap);
+	chap->authenticated = false;
 	if (chap->shash_tfm)
 		crypto_free_shash(chap->shash_tfm);
 	if (chap->dh_tfm)
@@ -742,7 +745,8 @@ static int nvme_auth_secure_concat(struct nvme_ctrl *ctrl,
 	};
 	dev_dbg(ctrl->device, "%s: generated digest %s\n",
 		 __func__, digest);
-	ret = nvme_auth_derive_tls_psk(chap->hash_id, psk, psk_len, digest, &tls_psk);
+	ret = nvme_auth_derive_tls_psk(chap->hash_id, psk, psk_len,
+				       digest, &tls_psk);
 	if (ret) {
 		dev_warn(ctrl->device,
 			 "%s: qid %d failed to derive TLS psk, error %d\n",
@@ -750,7 +754,8 @@ static int nvme_auth_secure_concat(struct nvme_ctrl *ctrl,
 		goto out_free_digest;
 	};
 
-	tls_key = nvme_tls_psk_refresh(ctrl->opts->keyring, ctrl->opts->host->nqn,
+	tls_key = nvme_tls_psk_refresh(ctrl->opts->keyring,
+				       ctrl->opts->host->nqn,
 				       ctrl->opts->subsysnqn, chap->hash_id,
 				       tls_psk, psk_len, digest);
 	if (IS_ERR(tls_key)) {
@@ -928,12 +933,14 @@ static void nvme_queue_auth_work(struct work_struct *work)
 	}
 	if (!ret) {
 		chap->error = 0;
+		chap->authenticated = true;
 		if (ctrl->opts->concat &&
 		    (ret = nvme_auth_secure_concat(ctrl, chap))) {
 			dev_warn(ctrl->device,
 				 "%s: qid %d failed to enable secure concatenation\n",
 				 __func__, chap->qid);
 			chap->error = ret;
+			chap->authenticated = false;
 		}
 		return;
 	}
@@ -1015,20 +1022,22 @@ static void nvme_ctrl_auth_work(struct work_struct *work)
 		return;
 	}
 	/*
-	 * Only run authentication on the admin queue for
-	 * secure concatenation
+	 * Only run authentication on the admin queue for secure concatenation.
 	 */
 	if (ctrl->opts->concat)
 		return;
 
 	for (q = 1; q < ctrl->queue_count; q++) {
-		ret = nvme_auth_negotiate(ctrl, q);
-		if (ret) {
-			dev_warn(ctrl->device,
-				 "qid %d: error %d setting up authentication\n",
-				 q, ret);
-			break;
-		}
+		struct nvme_dhchap_queue_context *chap =
+			&ctrl->dhchap_ctxs[q];
+		/*
+		 * Skip re-authentication if the queue had
+		 * not been authenticated initially.
+		 */
+		if (!chap->authenticated)
+			continue;
+		cancel_work_sync(&chap->auth_work);
+		queue_work(nvme_auth_wq, &chap->auth_work);
 	}
 
 	/*
@@ -1036,7 +1045,13 @@ static void nvme_ctrl_auth_work(struct work_struct *work)
 	 * the controller terminates the connection.
 	 */
 	for (q = 1; q < ctrl->queue_count; q++) {
-		ret = nvme_auth_wait(ctrl, q);
+		struct nvme_dhchap_queue_context *chap =
+			&ctrl->dhchap_ctxs[q];
+		if (!chap->authenticated)
+			continue;
+		flush_work(&chap->auth_work);
+		ret = chap->error;
+		nvme_auth_reset_dhchap(chap);
 		if (ret)
 			dev_warn(ctrl->device,
 				 "qid %d: authentication failed\n", q);
@@ -1075,6 +1090,7 @@ int nvme_auth_init_ctrl(struct nvme_ctrl *ctrl)
 		chap = &ctrl->dhchap_ctxs[i];
 		chap->qid = i;
 		chap->ctrl = ctrl;
+		chap->authenticated = false;
 		INIT_WORK(&chap->auth_work, nvme_queue_auth_work);
 	}
 

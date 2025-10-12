@@ -520,6 +520,12 @@ static inline void show_rcu_tasks_gp_kthreads(void) {}
 #endif /* #else #ifdef CONFIG_TASKS_RCU_GENERIC */
 #endif /* #else #ifdef CONFIG_TINY_RCU */
 
+#ifdef CONFIG_TASKS_RCU_GENERIC
+void tasks_cblist_init_generic(void);
+#else /* #ifdef CONFIG_TASKS_RCU_GENERIC */
+static inline void tasks_cblist_init_generic(void) { }
+#endif /* #else #ifdef CONFIG_TASKS_RCU_GENERIC */
+
 #define RCU_SCHEDULER_INACTIVE	0
 #define RCU_SCHEDULER_INIT	1
 #define RCU_SCHEDULER_RUNNING	2

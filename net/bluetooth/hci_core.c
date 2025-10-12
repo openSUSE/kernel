@@ -66,6 +66,9 @@ static DEFINE_IDA(hci_index_ida);
 /* FIXME: global SRCU instead of hci_dev.srcu for kABI compatibility */
 DEFINE_STATIC_SRCU(__hci_dev_srcu);
 
+/* FIXME: global spinlock instead of discovery_state.lock for kABI */
+DEFINE_SPINLOCK(__hci_dev_discovery_lock);
+
 /* Get HCI device by index.
  * Device is held on return. */
 static struct hci_dev *__hci_dev_get(int index, int *srcu_index)

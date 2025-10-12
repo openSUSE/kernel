@@ -27,7 +27,10 @@
 #include "kallsyms_internal.h"
 #include "kexec_internal.h"
 
-#define CMA_DMA_TIMEOUT_MSEC 1000
+/* time to wait for possible DMA to finish before starting the kdump kernel
+ * when a CMA reservation is used
+ */
+#define CMA_DMA_TIMEOUT_SEC 10
 
 /* Per cpu memory for storing cpu states in case of system crash. */
 note_buf_t __percpu *crash_notes;
@@ -192,10 +195,10 @@ static int __init parse_crashkernel_simple(char *cmdline,
 #define SUFFIX_CMA  2
 #define SUFFIX_NULL 3
 static __initdata char *suffix_tbl[] = {
-	[SUFFIX_HIGH]	= ",high",
-	[SUFFIX_LOW]	= ",low",
-	[SUFFIX_CMA]	= ",cma",
-	[SUFFIX_NULL]	= NULL,
+	[SUFFIX_HIGH] = ",high",
+	[SUFFIX_LOW]  = ",low",
+	[SUFFIX_CMA]  = ",cma",
+	[SUFFIX_NULL] = NULL,
 };
 
 /*
@@ -321,6 +324,7 @@ int __init parse_crashkernel(char *cmdline,
 			     bool *high)
 {
 	int ret;
+	unsigned long long __always_unused cma_base;
 
 	/* crashkernel=X[@offset] */
 	ret = __parse_crashkernel(cmdline, system_ram, crash_size,
@@ -352,12 +356,13 @@ int __init parse_crashkernel(char *cmdline,
 		*high = true;
 	}
 
-	/* optional CMA reservation */
-	if (cma_size) {
-		unsigned long long cma_base;
+	/*
+	 * optional CMA reservation
+	 * cma_base is ignored
+	 */
+	if (cma_size)
 		__parse_crashkernel(cmdline, 0, cma_size,
 			&cma_base, suffix_tbl[SUFFIX_CMA]);
-	}
 #endif
 	if (!*crash_size)
 		ret = -EINVAL;
@@ -546,7 +551,7 @@ struct range crashk_cma_ranges[0];
 void __init reserve_crashkernel_cma(unsigned long long cma_size)
 {
 	if (cma_size)
-		pr_warn("crashkernel CMA reservation failed: CMA disabled\n");
+		pr_warn("crashkernel CMA reservation not supported\n");
 }
 #endif
 
@@ -555,7 +560,7 @@ void crash_cma_clear_pending_dma(void)
 	if (!crashk_cma_cnt)
 		return;
 
-	mdelay(CMA_DMA_TIMEOUT_MSEC);
+	mdelay(CMA_DMA_TIMEOUT_SEC * 1000);
 }
 
 int crash_prepare_elf64_headers(struct crash_mem *mem, int need_kernel_map,

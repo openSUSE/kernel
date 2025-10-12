@@ -118,6 +118,9 @@ enum audit_nfcfgop {
 	AUDIT_NFT_OP_FLOWTABLE_REGISTER,
 	AUDIT_NFT_OP_FLOWTABLE_UNREGISTER,
 	AUDIT_NFT_OP_INVALID,
+#ifndef __GENKSYMS__
+	AUDIT_NFT_OP_RULE_RESET,
+#endif
 };
 
 extern int __init audit_register_class(int class, unsigned *list);

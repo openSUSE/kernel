@@ -64,8 +64,8 @@ TRACE_EVENT(xe_bo_move,
 	    TP_fast_assign(
 		   __entry->bo      = bo;
 		   __entry->size = bo->size;
-		   __assign_str(new_placement_name, new_placement);
-		   __assign_str(old_placement_name, old_placement);
+		   __assign_str(new_placement_name, xe_mem_type_to_name[new_placement]);
+		   __assign_str(old_placement_name, xe_mem_type_to_name[old_placement]);
 		   __assign_str(device_id, __dev_name_bo(bo));
 		   __entry->move_lacks_source = move_lacks_source;
 		   ),

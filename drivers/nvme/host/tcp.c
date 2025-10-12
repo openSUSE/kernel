@@ -2389,24 +2389,20 @@ static void nvme_tcp_reconnect_or_remove(struct nvme_ctrl *ctrl,
 }
 
 /*
- * The TLS key is set by secure concatenation after negotiation
- * has been completed on the admin queue. We need to revoke the
- * key when:
- * - concatenation is enabled
- *   (otherwise it's a static key set by the user)
+ * The TLS key is set by secure concatenation after negotiation has been
+ * completed on the admin queue. We need to revoke the key when:
+ * - concatenation is enabled (otherwise it's a static key set by the user)
  * and
- * - the generated key is present in ctrl->tls_key
- *   (otherwise there's nothing to revoke)
+ * - the generated key is present in ctrl->tls_key (otherwise there's nothing
+ *   to revoke)
  * and
- * - a valid PSK key ID has been set in ctrl->tls_pskid
- *   (otherwise TLS negotiation has not run).
+ * - a valid PSK key ID has been set in ctrl->tls_pskid (otherwise TLS
+ *   negotiation has not run).
  *
- * We cannot always revoke the key, as we're calling
- * nvme_tcp_alloc_admin_queue() twice during secure
- * concatenation, once on a 'normal' connection to run
- * the DH-HMAC-CHAP negotiation (which generates the key,
- * so it _must not_ be set), and once after the negotiation
- * (which uses the key, so it _must_ be set).
+ * We cannot always revoke the key as nvme_tcp_alloc_admin_queue() is called
+ * twice during secure concatenation, once on a 'normal' connection to run the
+ * DH-HMAC-CHAP negotiation (which generates the key, so it _must not_ be set),
+ * and once after the negotiation (which uses the key, so it _must_ be set).
  */
 static bool nvme_tcp_key_revoke_needed(struct nvme_ctrl *ctrl)
 {
@@ -2429,7 +2425,7 @@ static int nvme_tcp_setup_ctrl(struct nvme_ctrl *ctrl, bool new)
 		nvme_tcp_teardown_admin_queue(ctrl, false);
 		ret = nvme_tcp_configure_admin_queue(ctrl, false);
 		if (ret)
-			return ret;
+			goto destroy_admin;
 	}
 
 	if (ctrl->icdoff) {
