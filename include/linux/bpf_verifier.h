@@ -385,11 +385,11 @@ struct bpf_jmp_history_entry {
 };
 
 /* Make sure "u32 prev_idx" location stays the same */
-static_assert(offsetof(struct bpf_jmp_history_entry, prev_idx) ==
+suse_kabi_static_assert(offsetof(struct bpf_jmp_history_entry, prev_idx) ==
 		offsetof(struct bpf_idx_pair, prev_idx));
 
 /* Make sure "u32 idx" location stays the same */
-static_assert(offsetof(struct bpf_jmp_history_entry, idx) ==
+suse_kabi_static_assert(offsetof(struct bpf_jmp_history_entry, idx) ==
 		offsetof(struct bpf_idx_pair, idx));
 
 /* Maximum number of register states that can exist at once */
@@ -530,11 +530,11 @@ struct __orig_bpf_verifier_state {
 };
 
 /* Make sure "bool used_as_loop_entry" field does not affect memory layout */
-static_assert(offsetof(struct bpf_verifier_state, first_insn_idx) ==
+suse_kabi_static_assert(offsetof(struct bpf_verifier_state, first_insn_idx) ==
 		offsetof(struct __orig_bpf_verifier_state, first_insn_idx));
 
 /* Make sure size of "struct bpf_verifier_state" stays the same */
-static_assert(sizeof(struct bpf_verifier_state) ==
+suse_kabi_static_assert(sizeof(struct bpf_verifier_state) ==
 		sizeof(struct __orig_bpf_verifier_state));
 
 #define bpf_get_spilled_reg(slot, frame)				\
@@ -716,7 +716,7 @@ struct __orig_bpf_subprog_info {
 };
 /* struct bpf_subprog_info is embedded in struct bpf_verifier_env, make sure it
  * does not change in size. */
-static_assert(sizeof(struct bpf_subprog_info) ==
+suse_kabi_static_assert(sizeof(struct bpf_subprog_info) ==
               sizeof(struct __orig_bpf_subprog_info));
 
 struct bpf_verifier_env;

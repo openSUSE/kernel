@@ -6,7 +6,7 @@
 #include <linux/cache.h>
 #include <linux/kernel.h>
 #include <asm/page.h>
-#include <linux/build_bug.h>  /* for static_assert() */
+#include <linux/build_bug.h>  /* for suse_kabi_static_assert() */
 #include <linux/stddef.h>     /* for offsetof() */
 
 struct page_counter {
@@ -75,9 +75,7 @@ struct __orig_page_counter {
 	struct page_counter *parent;
 } ____cacheline_internodealigned_in_smp;
 
-#ifndef CONFIG_ARM
-static_assert(sizeof(struct __orig_page_counter) == sizeof(struct page_counter));
-#endif
+suse_kabi_static_assert(sizeof(struct __orig_page_counter) == sizeof(struct page_counter));
 
 #if BITS_PER_LONG == 32
 #define PAGE_COUNTER_MAX LONG_MAX

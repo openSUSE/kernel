@@ -257,6 +257,75 @@ struct mptcp_data_frag {
 	struct page *page;
 };
 
+/* original version of struct mptcp_sock */
+struct __orig_mptcp_sock {
+	/* inet_connection_sock must be the first member */
+	struct inet_connection_sock sk;
+	u64		local_key;
+	u64		remote_key;
+	u64		write_seq;
+	u64		snd_nxt;
+	u64		ack_seq;
+	atomic64_t	rcv_wnd_sent;
+	u64		rcv_data_fin_seq;
+	int		rmem_fwd_alloc;
+	struct sock	*last_snd;
+	int		snd_burst;
+	int		old_wspace;
+	u64		recovery_snd_nxt;	/* in recovery mode accept up to this seq;
+						 * recovery related fields are under data_lock
+						 * protection
+						 */
+	u64		snd_una;
+	u64		wnd_end;
+	unsigned long	timer_ival;
+	u32		token;
+	int		rmem_released;
+	unsigned long	flags;
+	unsigned long	cb_flags;
+	unsigned long	push_pending;
+	bool		recovery;		/* closing subflow write queue reinjected */
+	bool		can_ack;
+	bool		fully_established;
+	bool		rcv_data_fin;
+	bool		snd_data_fin_enable;
+	bool		rcv_fastclose;
+	bool		use_64bit_ack; /* Set when we received a 64-bit DSN */
+	bool		csum_enabled;
+	bool		allow_infinite_fallback;
+	u8		mpc_endpoint_id;
+	u8		recvmsg_inq:1,
+			cork:1,
+			nodelay:1,
+			fastopening:1,
+			in_accept_queue:1;
+	struct work_struct work;
+	struct sk_buff  *ooo_last_skb;
+	struct rb_root  out_of_order_queue;
+	struct sk_buff_head receive_queue;
+	struct list_head conn_list;
+	struct list_head rtx_queue;
+	struct mptcp_data_frag *first_pending;
+	struct list_head join_list;
+	struct socket	*subflow; /* outgoing connect/listener/!mp_capable
+				   * The mptcp ops can safely dereference, using suitable
+				   * ONCE annotation, the subflow outside the socket
+				   * lock as such sock is freed after close().
+				   */
+	struct sock	*first;
+	struct mptcp_pm_data	pm;
+	struct {
+		u32	space;	/* bytes copied in last measurement window */
+		u32	copied; /* bytes copied in this measurement window */
+		u64	time;	/* start time of measurement window */
+		u64	rtt_us; /* last maximum rtt of subflows */
+	} rcvq_space;
+	u8		scaling_ratio;
+
+	u32 setsockopt_seq;
+	char		ca_name[TCP_CA_NAME_MAX];
+};
+
 /* MPTCP connection sock */
 struct mptcp_sock {
 	/* inet_connection_sock must be the first member */
@@ -269,6 +338,11 @@ struct mptcp_sock {
 	atomic64_t	rcv_wnd_sent;
 	u64		rcv_data_fin_seq;
 	int		rmem_fwd_alloc;
+#ifndef __GENKSYMS__
+	spinlock_t	fallback_lock;	/* protects fallback and
+					 * allow_infinite_fallback
+					 */
+#endif
 	struct sock	*last_snd;
 	int		snd_burst;
 	int		old_wspace;
@@ -329,11 +403,15 @@ struct mptcp_sock {
 
 	u32 setsockopt_seq;
 	char		ca_name[TCP_CA_NAME_MAX];
-
-	spinlock_t	fallback_lock;	/* protects fallback and
-					 * allow_infinite_fallback
-					 */
 };
+
+/* Check that layout of previously existing members of struct mptcp_sock is
+ * preserved. This check will fail on 32-bit architectures (armv7) but we
+ * don't have to preserve kABI there. And it also fails in some kernel-debug
+ * builds where we don't care about kABI either.
+suse_kabi_static_assert(sizeof(struct mptcp_sock) == sizeof(struct __orig_mptcp_sock));
+suse_kabi_static_assert(offsetof(struct mptcp_sock, last_snd) == offsetof(struct __orig_mptcp_sock, last_snd));
+ */
 
 #define mptcp_data_lock(sk) spin_lock_bh(&(sk)->sk_lock.slock)
 #define mptcp_data_unlock(sk) spin_unlock_bh(&(sk)->sk_lock.slock)

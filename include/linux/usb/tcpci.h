@@ -10,6 +10,7 @@
 
 #include <linux/usb/typec.h>
 #include <linux/usb/tcpm.h>
+#include <linux/bitfield.h>
 
 #define TCPC_VENDOR_ID			0x0
 #define TCPC_PRODUCT_ID			0x2
@@ -63,10 +64,8 @@
 #define TCPC_ROLE_CTRL_RP_VAL_DEF	0x0
 #define TCPC_ROLE_CTRL_RP_VAL_1_5	0x1
 #define TCPC_ROLE_CTRL_RP_VAL_3_0	0x2
-#define TCPC_ROLE_CTRL_CC2_SHIFT	2
-#define TCPC_ROLE_CTRL_CC2_MASK		0x3
-#define TCPC_ROLE_CTRL_CC1_SHIFT	0
-#define TCPC_ROLE_CTRL_CC1_MASK		0x3
+#define TCPC_ROLE_CTRL_CC2		GENMASK(3, 2)
+#define TCPC_ROLE_CTRL_CC1		GENMASK(1, 0)
 #define TCPC_ROLE_CTRL_CC_RA		0x0
 #define TCPC_ROLE_CTRL_CC_RP		0x1
 #define TCPC_ROLE_CTRL_CC_RD		0x2
@@ -170,8 +169,7 @@
 
 #define tcpc_presenting_rd(reg, cc) \
 	(!(TCPC_ROLE_CTRL_DRP & (reg)) && \
-	 (((reg) & (TCPC_ROLE_CTRL_## cc ##_MASK << TCPC_ROLE_CTRL_## cc ##_SHIFT)) == \
-	  (TCPC_ROLE_CTRL_CC_RD << TCPC_ROLE_CTRL_## cc ##_SHIFT)))
+	 FIELD_GET(TCPC_ROLE_CTRL_## cc, reg) == TCPC_ROLE_CTRL_CC_RD)
 
 struct tcpci;
 
