@@ -69,7 +69,8 @@ BOOTAFLAGS	:= -D__ASSEMBLY__ $(BOOTCFLAGS) -nostdinc
 
 BOOTARFLAGS	:= -crD
 
-BOOTCFLAGS	+= $(call cc-option,-mno-prefixed) \
+BOOTCFLAGS	+= -std=gnu11 \
+		   $(call cc-option,-mno-prefixed) \
 		   $(call cc-option,-mno-pcrel) \
 		   $(call cc-option,-mno-mma)
 
