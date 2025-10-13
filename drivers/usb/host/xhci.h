@@ -929,6 +929,10 @@ struct xhci_bw_info {
 #define HS_BW_RESERVED		20
 #define SS_BW_RESERVED		10
 
+struct suse_xhci_virt_ep_extension {
+	unsigned long		stop_time;
+};
+
 struct xhci_virt_ep {
 	struct xhci_virt_device		*vdev;	/* parent */
 	unsigned int			ep_index;
@@ -977,7 +981,11 @@ struct xhci_virt_ep {
 	int			next_frame_id;
 	/* Use new Isoch TRB layout needed for extended TBC support */
 	bool			use_extended_tbc;
+#ifdef __GENKSYMS__
 	void *suse_kabi_padding;
+#else
+	struct suse_xhci_virt_ep_extension *suse_extension;
+#endif
 };
 
 enum xhci_overhead_type {
@@ -2229,6 +2237,7 @@ void xhci_ring_doorbell_for_active_rings(struct xhci_hcd *xhci,
 void xhci_cleanup_command_queue(struct xhci_hcd *xhci);
 void inc_deq(struct xhci_hcd *xhci, struct xhci_ring *ring);
 unsigned int count_trbs(u64 addr, u64 len);
+void xhci_process_cancelled_tds(struct xhci_virt_ep *ep);
 
 /* xHCI roothub code */
 void xhci_set_link_state(struct xhci_hcd *xhci, struct xhci_port *port,
