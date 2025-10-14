@@ -1237,32 +1237,17 @@ static struct slave *bond_find_best_slave(struct bonding *bond)
 /* must be called in RCU critical section or with RTNL held */
 static bool bond_should_notify_peers(struct bonding *bond)
 {
-	struct bond_up_slave *usable;
-	struct slave *slave = NULL;
+	struct slave *slave = rcu_dereference_rtnl(bond->curr_active_slave);
 
-	if (!bond->send_peer_notif ||
+	if (!slave || !bond->send_peer_notif ||
 	    bond->send_peer_notif %
 	    max(1, bond->params.peer_notif_delay) != 0 ||
-	    !netif_carrier_ok(bond->dev))
+	    !netif_carrier_ok(bond->dev) ||
+	    test_bit(__LINK_STATE_LINKWATCH_PENDING, &slave->dev->state))
 		return false;
 
-	/* The send_peer_notif is set by active-backup or 8023ad
-	 * mode, and cleared in bond_close() when changing mode.
-	 * It is safe to only check bond mode here.
-	 */
-	if (BOND_MODE(bond) == BOND_MODE_8023AD) {
-		usable = rcu_dereference_rtnl(bond->usable_slaves);
-		if (!usable || !READ_ONCE(usable->count))
-			return false;
-	} else {
-		slave = rcu_dereference_rtnl(bond->curr_active_slave);
-		if (!slave || test_bit(__LINK_STATE_LINKWATCH_PENDING,
-				       &slave->dev->state))
-			return false;
-	}
-
 	netdev_dbg(bond->dev, "bond_should_notify_peers: slave %s\n",
-		   slave ? slave->dev->name : "all");
+		   slave ? slave->dev->name : "NULL");
 
 	return true;
 }
