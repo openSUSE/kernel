@@ -3323,15 +3323,34 @@ static int inet6_rtm_newroute(struct sk_buff *skb, struct nlmsghdr *nlh,
 
 static size_t rt6_nlmsg_size(struct rt6_info *rt)
 {
+	struct rt6_info *sibling, *next_sibling;
 	int nexthop_len = 0;
 
 	if (rt->rt6i_nsiblings) {
 		nexthop_len = nla_total_size(0)	 /* RTA_MULTIPATH */
 			    + NLA_ALIGN(sizeof(struct rtnexthop))
-			    + nla_total_size(16) /* RTA_GATEWAY */
-			    + lwtunnel_get_encap_size(rt->dst.lwtstate);
+			    + nla_total_size(16); /* RTA_GATEWAY */
 
-		nexthop_len *= rt->rt6i_nsiblings;
+		if (rt->dst.lwtstate) {
+			/* RTA_ENCAP_TYPE */
+			nexthop_len += lwtunnel_get_encap_size(rt->dst.lwtstate);
+			/* RTA_ENCAP */
+			nexthop_len += nla_total_size(2);
+		}
+
+		list_for_each_entry_safe(sibling, next_sibling,
+					 &rt->rt6i_siblings, rt6i_siblings) {
+			nexthop_len += nla_total_size(0)	/* RTA_MULTIPATH */
+				    + NLA_ALIGN(sizeof(struct rtnexthop))
+				    + nla_total_size(16);	/* RTA_GATEWAY */
+
+			if (sibling->dst.lwtstate) {
+				/* RTA_ENCAP_TYPE */
+				nexthop_len += lwtunnel_get_encap_size(sibling->dst.lwtstate);
+				/* RTA_ENCAP */
+				nexthop_len += nla_total_size(2);
+			}
+		}
 	}
 
 	return NLMSG_ALIGN(sizeof(struct rtmsg))
@@ -3347,7 +3366,6 @@ static size_t rt6_nlmsg_size(struct rt6_info *rt)
 	       + nla_total_size(sizeof(struct rta_cacheinfo))
 	       + nla_total_size(TCP_CA_NAME_MAX) /* RTAX_CC_ALGO */
 	       + nla_total_size(1) /* RTA_PREF */
-	       + lwtunnel_get_encap_size(rt->dst.lwtstate)
 	       + nexthop_len;
 }
 
