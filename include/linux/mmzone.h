@@ -226,17 +226,42 @@ enum node_stat_item {
 #endif
 #ifdef CONFIG_NUMA_BALANCING
 	PGPROMOTE_SUCCESS,	/* promote successfully */
-	PGPROMOTE_CANDIDATE,	/* candidate pages to promote */
+	/**
+	 * Candidate pages for promotion based on hint fault latency.  This
+	 * counter is used to control the promotion rate and adjust the hot
+	 * threshold.
+	 */
+	PGPROMOTE_CANDIDATE,
 #endif
 	/* PGDEMOTE_*: pages demoted */
 	PGDEMOTE_KSWAPD,
 	PGDEMOTE_DIRECT,
 	PGDEMOTE_KHUGEPAGED,
-	SUSE_KABI_NODE_STAT_PADDING1,
+
 #ifndef __GENKSYMS__
-	NR_VM_NODE_STAT_ITEMS_USED = SUSE_KABI_NODE_STAT_PADDING1,
-#endif
+
+#ifdef CONFIG_NUMA_BALANCING
+	/**
+	 * Not rate-limited (NRL) candidate pages for those can be promoted
+	 * without considering hot threshold because of enough free pages in
+	 * fast-tier node.  These promotions bypass the regular hotness checks
+	 * and do NOT influence the promotion rate-limiter or
+	 * threshold-adjustment logic.
+	 * This is for statistics/monitoring purposes.
+	 */
+	PGPROMOTE_CANDIDATE_NRL,
 	SUSE_KABI_NODE_STAT_PADDING2,
+	NR_VM_NODE_STAT_ITEMS_USED = SUSE_KABI_NODE_STAT_PADDING2,
+#else /* CONFIG_NUMA_BALANCING */
+	SUSE_KABI_NODE_STAT_PADDING1,
+	NR_VM_NODE_STAT_ITEMS_USED = SUSE_KABI_NODE_STAT_PADDING1,
+	SUSE_KABI_NODE_STAT_PADDING2,
+#endif /* CONFIG_NUMA_BALANCING */
+
+#else /* __GENKSYMS__ */
+	SUSE_KABI_NODE_STAT_PADDING1,
+	SUSE_KABI_NODE_STAT_PADDING2,
+#endif
 	SUSE_KABI_NODE_STAT_PADDING3,
 	SUSE_KABI_NODE_STAT_PADDING4,
 	SUSE_KABI_NODE_STAT_PADDING5,
