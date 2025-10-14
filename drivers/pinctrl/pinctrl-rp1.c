@@ -1440,7 +1440,7 @@ static int rp1_pinconf_set(struct pinctrl_dev *pctldev, unsigned int offset,
 			rp1_output_enable(pin, arg);
 			break;
 
-		case PIN_CONFIG_OUTPUT:
+		case PIN_CONFIG_LEVEL:
 			rp1_set_value(pin, arg);
 			rp1_set_dir(pin, RP1_DIR_OUTPUT);
 			rp1_set_fsel(pin, RP1_FSEL_GPIO);
@@ -1690,7 +1690,6 @@ static const struct regmap_config rp1_pinctrl_gpio_regmap_cfg = {
 	.reg_bits = 32,
 	.val_bits = 32,
 	.reg_stride = 4,
-	.fast_io = true,
 	.rd_table = &rp1_gpio_reg_table,
 	.name = "rp1-gpio",
 	.max_register = 0xb11c,
@@ -1700,7 +1699,6 @@ static const struct regmap_config rp1_pinctrl_rio_regmap_cfg = {
 	.reg_bits = 32,
 	.val_bits = 32,
 	.reg_stride = 4,
-	.fast_io = true,
 	.rd_table = &rp1_rio_reg_table,
 	.name = "rp1-rio",
 	.max_register = 0xb004,
@@ -1710,7 +1708,6 @@ static const struct regmap_config rp1_pinctrl_pads_regmap_cfg = {
 	.reg_bits = 32,
 	.val_bits = 32,
 	.reg_stride = 4,
-	.fast_io = true,
 	.rd_table = &rp1_pads_reg_table,
 	.name = "rp1-pads",
 	.max_register = 0x8050,
