@@ -409,9 +409,9 @@ struct mptcp_sock {
  * preserved. This check will fail on 32-bit architectures (armv7) but we
  * don't have to preserve kABI there. And it also fails in some kernel-debug
  * builds where we don't care about kABI either.
- */
 suse_kabi_static_assert(sizeof(struct mptcp_sock) == sizeof(struct __orig_mptcp_sock));
 suse_kabi_static_assert(offsetof(struct mptcp_sock, last_snd) == offsetof(struct __orig_mptcp_sock, last_snd));
+ */
 
 #define mptcp_data_lock(sk) spin_lock_bh(&(sk)->sk_lock.slock)
 #define mptcp_data_unlock(sk) spin_unlock_bh(&(sk)->sk_lock.slock)
