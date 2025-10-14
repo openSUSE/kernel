@@ -1087,6 +1087,9 @@ uint32_t amdgpu_kiq_rreg(struct amdgpu_device *adev, uint32_t reg, uint32_t xcc_
 
 	might_sleep();
 	while (r < 1 && cnt++ < MAX_KIQ_REG_TRY) {
+		if (amdgpu_in_reset(adev))
+			goto failed_kiq_read;
+
 		msleep(MAX_KIQ_REG_BAILOUT_INTERVAL);
 		r = amdgpu_fence_wait_polling(ring, seq, MAX_KIQ_REG_WAIT);
 	}
@@ -1156,6 +1159,8 @@ void amdgpu_kiq_wreg(struct amdgpu_device *adev, uint32_t reg, uint32_t v, uint3
 
 	might_sleep();
 	while (r < 1 && cnt++ < MAX_KIQ_REG_TRY) {
+		if (amdgpu_in_reset(adev))
+			goto failed_kiq_write;
 
 		msleep(MAX_KIQ_REG_BAILOUT_INTERVAL);
 		r = amdgpu_fence_wait_polling(ring, seq, MAX_KIQ_REG_WAIT);
@@ -1866,7 +1871,7 @@ void amdgpu_gfx_enforce_isolation_ring_begin_use(struct amdgpu_ring *ring)
 	mutex_unlock(&adev->enforce_isolation_mutex);
 
 	if (sched_work)
-		amdgpu_gfx_kfd_sch_ctrl(adev, idx, true);
+		amdgpu_gfx_kfd_sch_ctrl(adev, idx, false);
 }
 
 void amdgpu_gfx_enforce_isolation_ring_end_use(struct amdgpu_ring *ring)
@@ -1894,5 +1899,5 @@ void amdgpu_gfx_enforce_isolation_ring_end_use(struct amdgpu_ring *ring)
 	mutex_unlock(&adev->enforce_isolation_mutex);
 
 	if (sched_work)
-		amdgpu_gfx_kfd_sch_ctrl(adev, idx, false);
+		amdgpu_gfx_kfd_sch_ctrl(adev, idx, true);
 }

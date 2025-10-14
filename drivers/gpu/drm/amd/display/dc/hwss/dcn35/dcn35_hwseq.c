@@ -1021,14 +1021,17 @@ void dcn35_calc_blocks_to_gate(struct dc *dc, struct dc_state *context,
 
 		if (pipe_ctx->stream_res.dsc) {
 			update_state->pg_pipe_res_update[PG_DSC][pipe_ctx->stream_res.dsc->inst] = false;
-			update_state->pg_pipe_res_update[PG_HUBP][pipe_ctx->stream_res.dsc->inst] = false;
+			if (dc->caps.sequential_ono) {
+				update_state->pg_pipe_res_update[PG_HUBP][pipe_ctx->stream_res.dsc->inst] = false;
+				update_state->pg_pipe_res_update[PG_DPP][pipe_ctx->stream_res.dsc->inst] = false;
 
-			/* All HUBP/DPP instances must be powered if the DSC inst != HUBP inst */
-			if (!pipe_ctx->top_pipe && pipe_ctx->plane_res.hubp &&
-				pipe_ctx->plane_res.hubp->inst != pipe_ctx->stream_res.dsc->inst) {
-				for (j = 0; j < dc->res_pool->pipe_count; ++j) {
-					update_state->pg_pipe_res_update[PG_HUBP][j] = false;
-					update_state->pg_pipe_res_update[PG_DPP][j] = false;
+				/* All HUBP/DPP instances must be powered if the DSC inst != HUBP inst */
+				if (!pipe_ctx->top_pipe && pipe_ctx->plane_res.hubp &&
+				    pipe_ctx->plane_res.hubp->inst != pipe_ctx->stream_res.dsc->inst) {
+					for (j = 0; j < dc->res_pool->pipe_count; ++j) {
+						update_state->pg_pipe_res_update[PG_HUBP][j] = false;
+						update_state->pg_pipe_res_update[PG_DPP][j] = false;
+					}
 				}
 			}
 		}
