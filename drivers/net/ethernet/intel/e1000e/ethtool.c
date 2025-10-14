@@ -590,7 +590,7 @@ static int e1000_set_eeprom(struct net_device *netdev,
 
 	max_len = hw->nvm.word_size * 2;
 
-	if (check_add_overflow(eeprom->offset, eeprom->len, &total_len) ||
+	if (check_add_overflow((size_t)eeprom->offset, (size_t)eeprom->len, &total_len) ||
 	    total_len > max_len)
 		return -EFBIG;
 
