@@ -6552,6 +6552,7 @@ int register_ftrace_graph(trace_func_graph_ret_t retfunc,
 	ret = start_graph_tracing();
 	if (ret) {
 		ftrace_graph_active--;
+		unregister_pm_notifier(&ftrace_suspend_notifier);
 		goto out;
 	}
 
