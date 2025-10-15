@@ -3555,15 +3555,19 @@ ftrace_regex_open(struct ftrace_ops *ops, int flag,
 			iter->hash = alloc_ftrace_hash(size_bits);
 		else
 			iter->hash = alloc_and_copy_ftrace_hash(size_bits, hash);
+	} else {
+		if (hash)
+			iter->hash = alloc_and_copy_ftrace_hash(hash->size_bits, hash);
+		else
+			iter->hash = EMPTY_HASH;
+	}
 
-		if (!iter->hash) {
-			trace_parser_put(&iter->parser);
-			kfree(iter);
-			ret = -ENOMEM;
-			goto out_unlock;
-		}
-	} else
-		iter->hash = hash;
+	if (!iter->hash) {
+		trace_parser_put(&iter->parser);
+		kfree(iter);
+		ret = -ENOMEM;
+		goto out_unlock;
+	}
 
 	if (file->f_mode & FMODE_READ) {
 		iter->pg = ftrace_pages_start;
@@ -4813,9 +4817,6 @@ int ftrace_regex_release(struct inode *inode, struct file *file)
 		ret = ftrace_hash_move_and_update_ops(iter->ops, orig_hash,
 						      iter->hash, filter_hash);
 		mutex_unlock(&ftrace_lock);
-	} else {
-		/* For read only, the hash is the ops hash */
-		iter->hash = NULL;
 	}
 
 	mutex_unlock(&iter->ops->func_hash->regex_lock);
@@ -6552,6 +6553,7 @@ int register_ftrace_graph(trace_func_graph_ret_t retfunc,
 	ret = start_graph_tracing();
 	if (ret) {
 		ftrace_graph_active--;
+		unregister_pm_notifier(&ftrace_suspend_notifier);
 		goto out;
 	}
 
