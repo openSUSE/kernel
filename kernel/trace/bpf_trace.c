@@ -3294,6 +3294,9 @@ int bpf_uprobe_multi_link_attach(const union bpf_attr *attr, struct bpf_prog *pr
 	if (sizeof(u64) != sizeof(void *))
 		return -EOPNOTSUPP;
 
+	if (attr->link_create.flags)
+		return -EINVAL;
+
 	if (prog->expected_attach_type != BPF_TRACE_UPROBE_MULTI)
 		return -EINVAL;
 
