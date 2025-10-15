@@ -119,6 +119,7 @@ static int rockchip_lvds_poweron(struct rockchip_lvds *lvds)
 	ret = pm_runtime_get_sync(lvds->dev);
 	if (ret < 0) {
 		DRM_DEV_ERROR(lvds->dev, "failed to get pm runtime: %d\n", ret);
+		pm_runtime_put(lvds->dev);
 		clk_disable(lvds->pclk);
 		return ret;
 	}
