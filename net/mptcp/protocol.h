@@ -339,8 +339,9 @@ struct mptcp_sock {
 	u64		rcv_data_fin_seq;
 	int		rmem_fwd_alloc;
 #ifndef __GENKSYMS__
-	spinlock_t	fallback_lock;	/* protects fallback and
-					 * allow_infinite_fallback
+	spinlock_t	fallback_lock;	/* protects fallback,
+					 * allow_infinite_fallback and
+					 * allow_join
 					 */
 #endif
 	struct sock	*last_snd;
@@ -400,15 +401,14 @@ struct mptcp_sock {
 		u64	rtt_us; /* last maximum rtt of subflows */
 	} rcvq_space;
 	u8		scaling_ratio;
+	bool		allow_subflows;
 
 	u32 setsockopt_seq;
 	char		ca_name[TCP_CA_NAME_MAX];
 };
 
 /* Check that layout of previously existing members of struct mptcp_sock is
- * preserved. This check will fail on 32-bit architectures (armv7) but we
- * don't have to preserve kABI there. And it also fails in some kernel-debug
- * builds where we don't care about kABI either.
+ * preserved.
  */
 suse_kabi_static_assert(sizeof(struct mptcp_sock) == sizeof(struct __orig_mptcp_sock));
 suse_kabi_static_assert(offsetof(struct mptcp_sock, last_snd) == offsetof(struct __orig_mptcp_sock, last_snd));
@@ -1083,6 +1083,7 @@ static inline bool __mptcp_try_fallback(struct mptcp_sock *msk)
 		return false;
 	}
 
+	msk->allow_subflows = false;
 	set_bit(MPTCP_FALLBACK_DONE, &msk->flags);
 	spin_unlock_bh(&msk->fallback_lock);
 	return true;
