@@ -22,6 +22,9 @@
 #define IWL_BZ_A_FM_B_FW_PRE		"iwlwifi-bz-a0-fm-b0"
 #define IWL_BZ_A_FM_C_FW_PRE		"iwlwifi-bz-a0-fm-c0"
 #define IWL_BZ_A_FM4_B_FW_PRE		"iwlwifi-bz-a0-fm4-b0"
+#define IWL_BZ_B_FM_C_FW_PRE		"iwlwifi-bz-b0-fm-c0"
+#define IWL_BZ_B_GF_A_FW_PRE		"iwlwifi-bz-b0-gf-a0"
+#define IWL_BZ_B_HR_B_FW_PRE		"iwlwifi-bz-b0-hr-b0"
 #define IWL_GL_B_FM_B_FW_PRE		"iwlwifi-gl-b0-fm-b0"
 #define IWL_GL_C_FM_C_FW_PRE		"iwlwifi-gl-c0-fm-c0"
 
@@ -104,5 +107,9 @@ const struct iwl_mac_cfg iwl_gl_mac_cfg = {
 IWL_FW_AND_PNVM(IWL_BZ_A_FM_B_FW_PRE, IWL_BZ_UCODE_API_MAX);
 IWL_FW_AND_PNVM(IWL_BZ_A_FM_C_FW_PRE, IWL_BZ_UCODE_API_MAX);
 IWL_FW_AND_PNVM(IWL_BZ_A_FM4_B_FW_PRE, IWL_BZ_UCODE_API_MAX);
+IWL_FW_AND_PNVM(IWL_BZ_B_FM_C_FW_PRE, IWL_BZ_UCODE_CORE_MAX);
+IWL_FW_AND_PNVM(IWL_BZ_B_GF_A_FW_PRE, IWL_BZ_UCODE_CORE_MAX);
+IWL_FW_AND_PNVM(IWL_BZ_B_HR_B_FW_PRE, IWL_BZ_UCODE_CORE_MAX);
 IWL_FW_AND_PNVM(IWL_GL_B_FM_B_FW_PRE, IWL_BZ_UCODE_API_MAX);
 IWL_FW_AND_PNVM(IWL_GL_C_FM_C_FW_PRE, IWL_BZ_UCODE_API_MAX);
+
