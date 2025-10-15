@@ -401,7 +401,9 @@ struct mptcp_sock {
 		u64	rtt_us; /* last maximum rtt of subflows */
 	} rcvq_space;
 	u8		scaling_ratio;
+#ifndef __GENKSYMS__
 	bool		allow_subflows;
+#endif
 
 	u32 setsockopt_seq;
 	char		ca_name[TCP_CA_NAME_MAX];
@@ -412,6 +414,9 @@ struct mptcp_sock {
  */
 suse_kabi_static_assert(sizeof(struct mptcp_sock) == sizeof(struct __orig_mptcp_sock));
 suse_kabi_static_assert(offsetof(struct mptcp_sock, last_snd) == offsetof(struct __orig_mptcp_sock, last_snd));
+suse_kabi_static_assert(offsetof(struct mptcp_sock, setsockopt_seq) ==
+			offsetof(struct __orig_mptcp_sock, setsockopt_seq));
+
 
 #define mptcp_data_lock(sk) spin_lock_bh(&(sk)->sk_lock.slock)
 #define mptcp_data_unlock(sk) spin_unlock_bh(&(sk)->sk_lock.slock)
