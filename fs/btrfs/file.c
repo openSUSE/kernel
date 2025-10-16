@@ -928,7 +928,10 @@ next_slot:
 						new_key.objectid,
 						start - extent_offset);
 				ret = btrfs_inc_extent_ref(trans, root, &ref);
-				BUG_ON(ret); /* -ENOMEM */
+				if (ret) {
+					btrfs_abort_transaction(trans, ret);
+					break;
+				}
 			}
 			key.offset = start;
 		}
@@ -1015,7 +1018,10 @@ delete_extent_item:
 						key.objectid,
 						key.offset - extent_offset);
 				ret = btrfs_free_extent(trans, root, &ref);
-				BUG_ON(ret); /* -ENOMEM */
+				if (ret) {
+					btrfs_abort_transaction(trans, ret);
+					break;
+				}
 				inode_sub_bytes(inode,
 						extent_end - key.offset);
 			}
