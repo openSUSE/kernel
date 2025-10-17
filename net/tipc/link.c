@@ -1451,7 +1451,7 @@ static int tipc_link_proto_rcv(struct tipc_link *l, struct sk_buff *skb,
 	u16 peers_tol = msg_link_tolerance(hdr);
 	u16 peers_prio = msg_linkprio(hdr);
 	u16 rcv_nxt = l->rcv_nxt;
-	u32 dlen = msg_data_sz(hdr);
+	u32 dlen = msg_data_sz(hdr), msg_max;
 	int mtyp = msg_type(hdr);
 	bool reply = msg_probe(hdr);
 	void *data;
@@ -1482,6 +1482,9 @@ static int tipc_link_proto_rcv(struct tipc_link *l, struct sk_buff *skb,
 
 	case ACTIVATE_MSG:
 
+		msg_max = msg_max_pkt(hdr);
+		if (msg_max < tipc_bearer_min_mtu(l->net, l->bearer_id))
+			break;
 		/* Complete own link name with peer's interface name */
 		if_name =  strrchr(l->name, ':') + 1;
 		if (sizeof(l->name) - (if_name - l->name) <= TIPC_MAX_IF_NAME)
@@ -1510,8 +1513,8 @@ static int tipc_link_proto_rcv(struct tipc_link *l, struct sk_buff *skb,
 
 		l->peer_session = msg_session(hdr);
 		l->peer_bearer_id = msg_bearer_id(hdr);
-		if (l->mtu > msg_max_pkt(hdr))
-			l->mtu = msg_max_pkt(hdr);
+		if (l->mtu > msg_max)
+			l->mtu = msg_max;
 		break;
 
 	case STATE_MSG:
