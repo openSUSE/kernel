@@ -196,7 +196,6 @@ gendwarfksyms = $(objtree)/scripts/gendwarfksyms/gendwarfksyms	\
 genksyms = $(objtree)/scripts/genksyms/genksyms		\
 	$(if $(KBUILD_SYMTYPES), -T $(@:.o=.symtypes))	\
 	$(if $(KBUILD_PRESERVE), -p)			\
-	$(if $(KBUILD_OVERRIDE),-o)			\
 	$(addprefix -r , $(wildcard $(@:.o=.symref)))
 
 # These mirror gensymtypes_S and co below, keep them in synch.
