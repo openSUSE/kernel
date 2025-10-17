@@ -796,8 +796,6 @@ int __vma_adjust(struct vm_area_struct *vma, unsigned long start,
 		}
 	}
 again:
-	vma_adjust_trans_huge(orig_vma, start, end, adjust_next);
-
 	if (file) {
 		mapping = file->f_mapping;
 		root = &mapping->i_mmap;
@@ -835,6 +833,16 @@ again:
 		vma_interval_tree_remove(vma, root);
 		if (adjust_next)
 			vma_interval_tree_remove(next, root);
+	}
+
+	/*
+	 * Get rid of huge pages and shared page tables straddling the split
+	 * boundary.
+	 */
+	vma_adjust_trans_huge(orig_vma, start, end, adjust_next);
+	if (is_vm_hugetlb_page(orig_vma)) {
+		hugetlb_split(orig_vma, start);
+		hugetlb_split(orig_vma, end);
 	}
 
 	if (start != vma->vm_start) {
