@@ -314,3 +314,52 @@ void mgmt_pending_remove(struct mgmt_pending_cmd *cmd)
 	list_del(&cmd->list);
 	mgmt_pending_free(cmd);
 }
+
+DEFINE_MUTEX(hdev_mgmt_pending_lock); // FIXME: global mutex for easy backports
+
+bool __mgmt_pending_listed(struct hci_dev *hdev, struct mgmt_pending_cmd *cmd)
+{
+	struct mgmt_pending_cmd *tmp;
+
+	lockdep_assert_held(&hdev_mgmt_pending_lock);
+
+	if (!cmd)
+		return false;
+
+	list_for_each_entry(tmp, &hdev->mgmt_pending, list) {
+		if (cmd == tmp)
+			return true;
+	}
+
+	return false;
+}
+
+bool mgmt_pending_listed(struct hci_dev *hdev, struct mgmt_pending_cmd *cmd)
+{
+	bool listed;
+
+	mutex_lock(&hdev_mgmt_pending_lock);
+	listed = __mgmt_pending_listed(hdev, cmd);
+	mutex_unlock(&hdev_mgmt_pending_lock);
+
+	return listed;
+}
+
+bool mgmt_pending_valid(struct hci_dev *hdev, struct mgmt_pending_cmd *cmd)
+{
+	bool listed;
+
+	if (!cmd)
+		return false;
+
+	mutex_lock(&hdev_mgmt_pending_lock);
+
+	listed = __mgmt_pending_listed(hdev, cmd);
+	if (listed)
+		list_del(&cmd->list);
+
+	mutex_unlock(&hdev_mgmt_pending_lock);
+
+	return listed;
+}
+

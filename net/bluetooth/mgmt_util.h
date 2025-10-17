@@ -59,3 +59,8 @@ struct mgmt_pending_cmd *mgmt_pending_new(struct sock *sk, u16 opcode,
 					  void *data, u16 len);
 void mgmt_pending_free(struct mgmt_pending_cmd *cmd);
 void mgmt_pending_remove(struct mgmt_pending_cmd *cmd);
+bool __mgmt_pending_listed(struct hci_dev *hdev, struct mgmt_pending_cmd *cmd);
+bool mgmt_pending_listed(struct hci_dev *hdev, struct mgmt_pending_cmd *cmd);
+bool mgmt_pending_valid(struct hci_dev *hdev, struct mgmt_pending_cmd *cmd);
+
+extern struct mutex hdev_mgmt_pending_lock; // FIXME: global mutex for easy backports
