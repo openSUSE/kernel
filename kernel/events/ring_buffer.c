@@ -19,7 +19,7 @@
 
 static void perf_output_wakeup(struct perf_output_handle *handle)
 {
-	atomic_set(&handle->rb->poll, EPOLLIN);
+	atomic_set(&handle->rb->poll, EPOLLIN | EPOLLRDNORM);
 
 	handle->event->pending_wakeup = 1;
 	irq_work_queue(&handle->event->pending_irq);
@@ -435,7 +435,7 @@ void *perf_aux_output_begin(struct perf_output_handle *handle,
 		 * store that will be enabled on successful return
 		 */
 		if (!handle->size) { /* A, matches D */
-			event->pending_disable = smp_processor_id();
+			perf_event_disable_inatomic(handle->event);
 			perf_output_wakeup(handle);
 			WRITE_ONCE(rb->aux_nest, 0);
 			goto err_put;
@@ -520,7 +520,7 @@ void perf_aux_output_end(struct perf_output_handle *handle, unsigned long size)
 
 	if (wakeup) {
 		if (handle->aux_flags & PERF_AUX_FLAG_TRUNCATED)
-			handle->event->pending_disable = smp_processor_id();
+			perf_event_disable_inatomic(handle->event);
 		perf_output_wakeup(handle);
 	}
 
