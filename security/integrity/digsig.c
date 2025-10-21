@@ -106,6 +106,7 @@ int __init integrity_init_keyring(const unsigned int id)
 		pr_info("Can't allocate %s keyring (%d)\n",
 			keyring_name[id], err);
 		keyring[id] = NULL;
+		kfree(restriction);
 	}
 	return err;
 }
