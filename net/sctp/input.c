@@ -123,7 +123,7 @@ int sctp_rcv(struct sk_buff *skb)
 	 * it's better to just linearize it otherwise crc computing
 	 * takes longer.
 	 */
-	if ((!(skb_shinfo(skb)->gso_type & SKB_GSO_SCTP) &&
+	if (((!(skb_shinfo(skb)->gso_type & SKB_GSO_SCTP) || skb_cloned(skb)) &&
 	     skb_linearize(skb)) ||
 	    !pskb_may_pull(skb, sizeof(struct sctphdr)))
 		goto discard_it;
