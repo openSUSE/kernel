@@ -10769,6 +10769,7 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 		dm_request_for_irq_injection(vcpu) &&
 		kvm_cpu_accept_dm_intr(vcpu);
 	fastpath_t exit_fastpath;
+	u64 host_debugctl;
 
 	bool req_immediate_exit = false;
 
@@ -11028,7 +11029,9 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 		set_debugreg(0, 7);
 	}
 
-	vcpu->arch.host_debugctl = get_debugctlmsr();
+	host_debugctl = get_debugctlmsr();
+	vcpu->arch.host_debugctl_lo = host_debugctl;
+	vcpu->arch.host_debugctl_hi = host_debugctl >> 32;
 
 	guest_timing_enter_irqoff();
 
