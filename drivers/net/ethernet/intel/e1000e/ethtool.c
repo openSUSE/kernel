@@ -570,7 +570,8 @@ static int e1000_set_eeprom(struct net_device *netdev,
 {
 	struct e1000_adapter *adapter = netdev_priv(netdev);
 	struct e1000_hw *hw = &adapter->hw;
-	size_t total_len, max_len;
+	size_t max_len;
+	u32 total_len;
 	u16 *eeprom_buff;
 	int ret_val = 0;
 	int first_word;
@@ -590,7 +591,7 @@ static int e1000_set_eeprom(struct net_device *netdev,
 
 	max_len = hw->nvm.word_size * 2;
 
-	if (check_add_overflow((size_t)eeprom->offset, (size_t)eeprom->len, &total_len) ||
+	if (check_add_overflow(eeprom->offset, eeprom->len, &total_len) ||
 	    total_len > max_len)
 		return -EFBIG;
 
