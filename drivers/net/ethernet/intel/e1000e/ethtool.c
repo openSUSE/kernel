@@ -552,7 +552,8 @@ static int e1000_set_eeprom(struct net_device *netdev,
 {
 	struct e1000_adapter *adapter = netdev_priv(netdev);
 	struct e1000_hw *hw = &adapter->hw;
-	size_t total_len, max_len;
+	size_t max_len;
+	u32 total_len;
 	u16 *eeprom_buff;
 	int ret_val = 0;
 	int first_word;
