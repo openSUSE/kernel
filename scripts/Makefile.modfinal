@@ -69,7 +69,7 @@ targets += $(modules:%.o=%.ko) $(modules:%.o=%.mod.o) $(extmod_prefix).module-co
 # Livepatch
 # ---------------------------------------------------------------------------
 
-%.tmp.ko: %.o %.mod.o FORCE
+%.tmp.ko: %.o %.mod.o $(extmod_prefix).module-common.o FORCE
 	+$(call if_changed,ld_ko_o)
 
 quiet_cmd_klp_convert = KLP     $@
