@@ -9908,7 +9908,7 @@ static int __kvm_emulate_halt(struct kvm_vcpu *vcpu, int state, int reason)
 	 */
 	++vcpu->stat.halt_exits;
 	if (lapic_in_kernel(vcpu)) {
-		vcpu->arch.mp_state = state;
+		kvm_set_mp_state(vcpu, state);
 		return 1;
 	} else {
 		vcpu->run->exit_reason = reason;
@@ -11222,8 +11222,7 @@ static inline int vcpu_block(struct kvm_vcpu *vcpu)
 	case KVM_MP_STATE_HALTED:
 	case KVM_MP_STATE_AP_RESET_HOLD:
 		vcpu->arch.pv.pv_unhalted = false;
-		vcpu->arch.mp_state =
-			KVM_MP_STATE_RUNNABLE;
+		kvm_set_mp_state(vcpu, KVM_MP_STATE_RUNNABLE);
 		fallthrough;
 	case KVM_MP_STATE_RUNNABLE:
 		vcpu->arch.apf.halted = false;
@@ -11724,10 +11723,10 @@ int kvm_arch_vcpu_ioctl_set_mpstate(struct kvm_vcpu *vcpu,
 		goto out;
 
 	if (mp_state->mp_state == KVM_MP_STATE_SIPI_RECEIVED) {
-		vcpu->arch.mp_state = KVM_MP_STATE_INIT_RECEIVED;
+		kvm_set_mp_state(vcpu, KVM_MP_STATE_INIT_RECEIVED);
 		set_bit(KVM_APIC_SIPI, &vcpu->arch.apic->pending_events);
 	} else
-		vcpu->arch.mp_state = mp_state->mp_state;
+		kvm_set_mp_state(vcpu, mp_state->mp_state);
 	kvm_make_request(KVM_REQ_EVENT, vcpu);
 
 	ret = 0;
@@ -11851,7 +11850,7 @@ static int __set_sregs_common(struct kvm_vcpu *vcpu, struct kvm_sregs *sregs,
 	if (kvm_vcpu_is_bsp(vcpu) && kvm_rip_read(vcpu) == 0xfff0 &&
 	    sregs->cs.selector == 0xf000 && sregs->cs.base == 0xffff0000 &&
 	    !is_protmode(vcpu))
-		vcpu->arch.mp_state = KVM_MP_STATE_RUNNABLE;
+		kvm_set_mp_state(vcpu, KVM_MP_STATE_RUNNABLE);
 
 	return 0;
 }
@@ -12150,9 +12149,9 @@ int kvm_arch_vcpu_create(struct kvm_vcpu *vcpu)
 	kvm_gpc_init(&vcpu->arch.pv_time, vcpu->kvm, vcpu, KVM_HOST_USES_PFN);
 
 	if (!irqchip_in_kernel(vcpu->kvm) || kvm_vcpu_is_reset_bsp(vcpu))
-		vcpu->arch.mp_state = KVM_MP_STATE_RUNNABLE;
+		kvm_set_mp_state(vcpu, KVM_MP_STATE_RUNNABLE);
 	else
-		vcpu->arch.mp_state = KVM_MP_STATE_UNINITIALIZED;
+		kvm_set_mp_state(vcpu, KVM_MP_STATE_UNINITIALIZED);
 
 	r = kvm_mmu_create(vcpu);
 	if (r < 0)
@@ -13467,7 +13466,7 @@ void kvm_arch_async_page_present(struct kvm_vcpu *vcpu,
 	}
 
 	vcpu->arch.apf.halted = false;
-	vcpu->arch.mp_state = KVM_MP_STATE_RUNNABLE;
+	kvm_set_mp_state(vcpu, KVM_MP_STATE_RUNNABLE);
 }
 
 void kvm_arch_async_page_present_queued(struct kvm_vcpu *vcpu)
