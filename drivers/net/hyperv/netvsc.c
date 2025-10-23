@@ -1839,6 +1839,7 @@ struct netvsc_device *netvsc_device_add(struct hv_device *device,
 	/* Enable NAPI handler before init callbacks */
 	netif_napi_add(ndev, &net_device->chan_table[0].napi,
 		       netvsc_poll, NAPI_POLL_WEIGHT);
+	napi_enable(&net_device->chan_table[0].napi);
 
 	/* Open the channel */
 	device->channel->next_request_id_callback = vmbus_next_request_id;
@@ -1858,8 +1859,6 @@ struct netvsc_device *netvsc_device_add(struct hv_device *device,
 	/* Channel is opened */
 	netdev_dbg(ndev, "hv_netvsc channel opened successfully\n");
 
-	napi_enable(&net_device->chan_table[0].napi);
-
 	/* Connect with the NetVsp */
 	ret = netvsc_connect_vsp(device, net_device, device_info);
 	if (ret != 0) {
@@ -1877,12 +1876,12 @@ struct netvsc_device *netvsc_device_add(struct hv_device *device,
 
 close:
 	RCU_INIT_POINTER(net_device_ctx->nvdev, NULL);
-	napi_disable(&net_device->chan_table[0].napi);
 
 	/* Now, we can close the channel safely */
 	vmbus_close(device->channel);
 
 cleanup:
+	napi_disable(&net_device->chan_table[0].napi);
 	netif_napi_del(&net_device->chan_table[0].napi);
 
 cleanup2:
