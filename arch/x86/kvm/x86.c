@@ -3191,11 +3191,6 @@ static void kvm_setup_guest_pvclock(struct kvm_vcpu *v,
 	/* retain PVCLOCK_GUEST_STOPPED if set in guest copy */
 	vcpu->hv_clock.flags |= (guest_hv_clock->flags & PVCLOCK_GUEST_STOPPED);
 
-	if (vcpu->pvclock_set_guest_stopped_request) {
-		vcpu->hv_clock.flags |= PVCLOCK_GUEST_STOPPED;
-		vcpu->pvclock_set_guest_stopped_request = false;
-	}
-
 	memcpy(guest_hv_clock, &vcpu->hv_clock, sizeof(*guest_hv_clock));
 
 	if (force_tsc_unstable)
@@ -3309,6 +3304,18 @@ static int kvm_guest_time_update(struct kvm_vcpu *v)
 		pvclock_flags |= PVCLOCK_TSC_STABLE_BIT;
 
 	vcpu->hv_clock.flags = pvclock_flags;
+
+	if (vcpu->pv_time.active
+#ifdef CONFIG_KVM_XEN
+	 || vcpu->xen.vcpu_info_cache.active
+	 || vcpu->xen.vcpu_time_info_cache.active
+#endif
+	    ) {
+		if (vcpu->pvclock_set_guest_stopped_request) {
+			vcpu->hv_clock.flags |= PVCLOCK_GUEST_STOPPED;
+			vcpu->pvclock_set_guest_stopped_request = false;
+		}
+	}
 
 	if (vcpu->pv_time.active)
 		kvm_setup_guest_pvclock(v, &vcpu->pv_time, 0, false);
