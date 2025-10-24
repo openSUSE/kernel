@@ -41,6 +41,9 @@ from docutils.parsers.rst.directives.misc import Include
 
 __version__  = '1.0'
 
+def ErrorString(exc):  # Shamelessly stolen from docutils
+    return f'{exc.__class__.__name}: {exc}'
+
 # ==============================================================================
 def setup(app):
 # ==============================================================================
@@ -51,9 +54,6 @@ def setup(app):
         parallel_read_safe = True,
         parallel_write_safe = True
     )
-
-def ErrorString(exc):  # Shamelessly stolen from docutils
-    return f'{exc.__class__.__name}: {exc}'
 
 # ==============================================================================
 class KernelInclude(Include):
