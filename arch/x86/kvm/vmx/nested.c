@@ -3730,7 +3730,7 @@ static int nested_vmx_run(struct kvm_vcpu *vcpu, bool launch)
 		break;
 	case GUEST_ACTIVITY_WAIT_SIPI:
 		vmx->nested.nested_run_pending = 0;
-		vcpu->arch.mp_state = KVM_MP_STATE_INIT_RECEIVED;
+		kvm_set_mp_state(vcpu, KVM_MP_STATE_INIT_RECEIVED);
 		break;
 	default:
 		break;
@@ -4953,7 +4953,7 @@ void nested_vmx_vmexit(struct kvm_vcpu *vcpu, u32 vm_exit_reason,
 		vmx->nested.need_vmcs12_to_shadow_sync = true;
 
 	/* in case we halted in L2 */
-	vcpu->arch.mp_state = KVM_MP_STATE_RUNNABLE;
+	kvm_set_mp_state(vcpu, KVM_MP_STATE_RUNNABLE);
 
 	if (likely(!vmx->fail)) {
 		if ((u16)vm_exit_reason == EXIT_REASON_EXTERNAL_INTERRUPT &&
