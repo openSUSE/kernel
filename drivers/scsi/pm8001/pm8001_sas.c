@@ -101,6 +101,16 @@ int pm8001_tag_alloc(struct pm8001_hba_info *pm8001_ha, u32 *tag_out)
 	return 0;
 }
 
+u32 pm80xx_get_local_phy_id(struct domain_device *dev)
+{
+	struct pm8001_device *pm8001_dev = dev->lldd_dev;
+
+	if (dev_parent_is_expander(dev))
+		return dev->parent->ex_dev.ex_phy->phy_id;
+
+	return pm8001_dev->attached_phy;
+}
+
 /**
  * pm8001_mem_alloc - allocate memory for pm8001.
  * @pdev: pci device.
