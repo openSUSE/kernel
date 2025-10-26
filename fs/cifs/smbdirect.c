@@ -1092,8 +1092,10 @@ static int smbd_negotiate(struct smbd_connection *info)
 		"iov.lkey=0x%x\n",
 		rc, response->sge.addr,
 		response->sge.length, response->sge.lkey);
-	if (rc)
+	if (rc) {
+		put_receive_buffer(info, response);
 		return rc;
+	}
 
 	init_completion(&info->negotiate_completion);
 	info->negotiate_done = false;
