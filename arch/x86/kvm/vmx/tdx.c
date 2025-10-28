@@ -281,25 +281,6 @@ static inline void tdx_disassociate_vp(struct kvm_vcpu *vcpu)
 	vcpu->cpu = -1;
 }
 
-static void tdx_clear_page(struct page *page)
-{
-	const void *zero_page = (const void *) page_to_virt(ZERO_PAGE(0));
-	void *dest = page_to_virt(page);
-	unsigned long i;
-
-	/*
-	 * The page could have been poisoned.  MOVDIR64B also clears
-	 * the poison bit so the kernel can safely use the page again.
-	 */
-	for (i = 0; i < PAGE_SIZE; i += 64)
-		movdir64b(dest + i, zero_page);
-	/*
-	 * MOVDIR64B store uses WC buffer.  Prevent following memory reads
-	 * from seeing potentially poisoned cache.
-	 */
-	__mb();
-}
-
 static void tdx_no_vcpus_enter_start(struct kvm *kvm)
 {
 	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
@@ -345,7 +326,7 @@ static int tdx_reclaim_page(struct page *page)
 
 	r = __tdx_reclaim_page(page);
 	if (!r)
-		tdx_clear_page(page);
+		tdx_quirk_reset_page(page);
 	return r;
 }
 
@@ -593,7 +574,7 @@ static void tdx_reclaim_td_control_pages(struct kvm *kvm)
 		pr_tdx_error(TDH_PHYMEM_PAGE_WBINVD, err);
 		return;
 	}
-	tdx_clear_page(kvm_tdx->td.tdr_page);
+	tdx_quirk_reset_page(kvm_tdx->td.tdr_page);
 
 	__free_page(kvm_tdx->td.tdr_page);
 	kvm_tdx->td.tdr_page = NULL;
@@ -743,7 +724,7 @@ bool tdx_interrupt_allowed(struct kvm_vcpu *vcpu)
 	       !to_tdx(vcpu)->vp_enter_args.r12;
 }
 
-bool tdx_protected_apic_has_interrupt(struct kvm_vcpu *vcpu)
+static bool tdx_protected_apic_has_interrupt(struct kvm_vcpu *vcpu)
 {
 	u64 vcpu_state_details;
 
@@ -1638,8 +1619,8 @@ static int tdx_mem_page_record_premap_cnt(struct kvm *kvm, gfn_t gfn,
 	return 0;
 }
 
-int tdx_sept_set_private_spte(struct kvm *kvm, gfn_t gfn,
-			      enum pg_level level, kvm_pfn_t pfn)
+static int tdx_sept_set_private_spte(struct kvm *kvm, gfn_t gfn,
+				     enum pg_level level, kvm_pfn_t pfn)
 {
 	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
 	struct page *page = pfn_to_page(pfn);
@@ -1714,13 +1695,13 @@ static int tdx_sept_drop_private_spte(struct kvm *kvm, gfn_t gfn,
 		pr_tdx_error(TDH_PHYMEM_PAGE_WBINVD, err);
 		return -EIO;
 	}
-	tdx_clear_page(page);
+	tdx_quirk_reset_page(page);
 	tdx_unpin(kvm, page);
 	return 0;
 }
 
-int tdx_sept_link_private_spt(struct kvm *kvm, gfn_t gfn,
-			      enum pg_level level, void *private_spt)
+static int tdx_sept_link_private_spt(struct kvm *kvm, gfn_t gfn,
+				     enum pg_level level, void *private_spt)
 {
 	int tdx_level = pg_level_to_tdx_sept_level(level);
 	gpa_t gpa = gfn_to_gpa(gfn);
@@ -1855,8 +1836,8 @@ static void tdx_track(struct kvm *kvm)
 	kvm_make_all_cpus_request(kvm, KVM_REQ_OUTSIDE_GUEST_MODE);
 }
 
-int tdx_sept_free_private_spt(struct kvm *kvm, gfn_t gfn,
-			      enum pg_level level, void *private_spt)
+static int tdx_sept_free_private_spt(struct kvm *kvm, gfn_t gfn,
+				     enum pg_level level, void *private_spt)
 {
 	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
 
@@ -1878,8 +1859,8 @@ int tdx_sept_free_private_spt(struct kvm *kvm, gfn_t gfn,
 	return tdx_reclaim_page(virt_to_page(private_spt));
 }
 
-int tdx_sept_remove_private_spte(struct kvm *kvm, gfn_t gfn,
-				 enum pg_level level, kvm_pfn_t pfn)
+static int tdx_sept_remove_private_spte(struct kvm *kvm, gfn_t gfn,
+					enum pg_level level, kvm_pfn_t pfn)
 {
 	struct page *page = pfn_to_page(pfn);
 	int ret;
@@ -2480,7 +2461,7 @@ static int __tdx_td_init(struct kvm *kvm, struct td_params *td_params,
 	/* TDVPS = TDVPR(4K page) + TDCX(multiple 4K pages), -1 for TDVPR. */
 	kvm_tdx->td.tdcx_nr_pages = tdx_sysinfo->td_ctrl.tdvps_base_size / PAGE_SIZE - 1;
 	tdcs_pages = kcalloc(kvm_tdx->td.tdcs_nr_pages, sizeof(*kvm_tdx->td.tdcs_pages),
-			     GFP_KERNEL | __GFP_ZERO);
+			     GFP_KERNEL);
 	if (!tdcs_pages)
 		goto free_tdr;
 
@@ -3457,12 +3438,11 @@ static int __init __tdx_bringup(void)
 	if (r)
 		goto tdx_bringup_err;
 
+	r = -EINVAL;
 	/* Get TDX global information for later use */
 	tdx_sysinfo = tdx_get_sysinfo();
-	if (WARN_ON_ONCE(!tdx_sysinfo)) {
-		r = -EINVAL;
+	if (WARN_ON_ONCE(!tdx_sysinfo))
 		goto get_sysinfo_err;
-	}
 
 	/* Check TDX module and KVM capabilities */
 	if (!tdx_get_supported_attrs(&tdx_sysinfo->td_conf) ||
@@ -3505,14 +3485,11 @@ static int __init __tdx_bringup(void)
 	if (td_conf->max_vcpus_per_td < num_present_cpus()) {
 		pr_err("Disable TDX: MAX_VCPU_PER_TD (%u) smaller than number of logical CPUs (%u).\n",
 				td_conf->max_vcpus_per_td, num_present_cpus());
-		r = -EINVAL;
 		goto get_sysinfo_err;
 	}
 
-	if (misc_cg_set_capacity(MISC_CG_RES_TDX, tdx_get_nr_guest_keyids())) {
-		r = -EINVAL;
+	if (misc_cg_set_capacity(MISC_CG_RES_TDX, tdx_get_nr_guest_keyids()))
 		goto get_sysinfo_err;
-	}
 
 	/*
 	 * Leave hardware virtualization enabled after TDX is enabled
@@ -3603,10 +3580,14 @@ int __init tdx_bringup(void)
 	r = __tdx_bringup();
 	if (r) {
 		/*
-		 * Disable TDX only but don't fail to load module if
-		 * the TDX module could not be loaded.  No need to print
-		 * message saying "module is not loaded" because it was
-		 * printed when the first SEAMCALL failed.
+		 * Disable TDX only but don't fail to load module if the TDX
+		 * module could not be loaded.  No need to print message saying
+		 * "module is not loaded" because it was printed when the first
+		 * SEAMCALL failed.  Don't bother unwinding the S-EPT hooks or
+		 * vm_size, as kvm_x86_ops have already been finalized (and are
+		 * intentionally not exported).  The S-EPT code is unreachable,
+		 * and allocating a few more bytes per VM in a should-be-rare
+		 * failure scenario is a non-issue.
 		 */
 		if (r == -ENODEV)
 			goto success_disable_tdx;
@@ -3619,4 +3600,19 @@ int __init tdx_bringup(void)
 success_disable_tdx:
 	enable_tdx = 0;
 	return 0;
+}
+
+void __init tdx_hardware_setup(void)
+{
+	/*
+	 * Note, if the TDX module can't be loaded, KVM TDX support will be
+	 * disabled but KVM will continue loading (see tdx_bringup()).
+	 */
+	vt_x86_ops.vm_size = max_t(unsigned int, vt_x86_ops.vm_size, sizeof(struct kvm_tdx));
+
+	vt_x86_ops.link_external_spt = tdx_sept_link_private_spt;
+	vt_x86_ops.set_external_spte = tdx_sept_set_private_spte;
+	vt_x86_ops.free_external_spt = tdx_sept_free_private_spt;
+	vt_x86_ops.remove_external_spte = tdx_sept_remove_private_spte;
+	vt_x86_ops.protected_apic_has_interrupt = tdx_protected_apic_has_interrupt;
 }
