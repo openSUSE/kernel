@@ -158,14 +158,6 @@ static inline int performance_multiplier(unsigned int nr_iowaiters)
 
 static DEFINE_PER_CPU(struct menu_device, menu_devices);
 
-static void menu_update_intervals(struct menu_device *data, unsigned int interval_us)
-{
-	/* Update the repeating-pattern data. */
-	data->intervals[data->interval_ptr++] = interval_us;
-	if (data->interval_ptr >= INTERVALS)
-		data->interval_ptr = 0;
-}
-
 static void menu_update(struct cpuidle_driver *drv, struct cpuidle_device *dev);
 
 /*
@@ -296,14 +288,6 @@ static int menu_select(struct cpuidle_driver *drv, struct cpuidle_device *dev,
 	if (data->needs_update) {
 		menu_update(drv, dev);
 		data->needs_update = 0;
-	} else if (!dev->last_residency_ns) {
-		/*
-		 * This happens when the driver rejects the previously selected
-		 * idle state and returns an error, so update the recent
-		 * intervals table to prevent invalid information from being
-		 * used going forward.
-		 */
-		menu_update_intervals(data, UINT_MAX);
 	}
 
 	/* determine the expected residency time, round up */
@@ -558,7 +542,10 @@ static void menu_update(struct cpuidle_driver *drv, struct cpuidle_device *dev)
 
 	data->correction_factor[data->bucket] = new_factor;
 
-	menu_update_intervals(data, ktime_to_us(measured_ns));
+	/* update the repeating-pattern data */
+	data->intervals[data->interval_ptr++] = ktime_to_us(measured_ns);
+	if (data->interval_ptr >= INTERVALS)
+		data->interval_ptr = 0;
 }
 
 /**
