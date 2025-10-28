@@ -252,6 +252,9 @@ int cfg80211_mlme_auth(struct cfg80211_registered_device *rdev,
 	if (!req.bss)
 		return -ENOENT;
 
+	if (ether_addr_equal(req.bss->bssid, dev->dev_addr))
+		return -EINVAL;
+
 	err = rdev_auth(rdev, dev, &req);
 
 	cfg80211_put_bss(&rdev->wiphy, req.bss);
@@ -308,6 +311,9 @@ int cfg80211_mlme_assoc(struct cfg80211_registered_device *rdev,
 	    (!req->prev_bssid || !ether_addr_equal(wdev->current_bss->pub.bssid,
 						   req->prev_bssid)))
 		return -EALREADY;
+
+	if (req->bss && ether_addr_equal(req->bss->bssid, dev->dev_addr))
+		return -EINVAL;
 
 	cfg80211_oper_and_ht_capa(&req->ht_capa_mask,
 				  rdev->wiphy.ht_capa_mod_mask);
