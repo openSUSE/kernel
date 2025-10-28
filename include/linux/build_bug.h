@@ -77,4 +77,9 @@
 #define static_assert(expr, ...) __static_assert(expr, ##__VA_ARGS__, #expr)
 #define __static_assert(expr, msg, ...) _Static_assert(expr, msg)
 
+#ifdef CONFIG_SUSE_HAVE_STABLE_KABI
+#define suse_kabi_static_assert(...) static_assert(__VA_ARGS__)
+#else
+#define suse_kabi_static_assert(...) /* empty */
+#endif
 #endif	/* _LINUX_BUILD_BUG_H */
