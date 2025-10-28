@@ -7985,10 +7985,20 @@ static int status_resync(struct seq_file *seq, struct mddev *mddev)
 		if (test_bit(MD_RECOVERY_DONE, &mddev->recovery))
 			/* Still cleaning up */
 			resync = max_sectors;
-	} else if (resync > max_sectors)
+	} else if (resync > max_sectors) {
 		resync = max_sectors;
-	else
-		resync -= atomic_read(&mddev->recovery_active);
+	} else {
+		res = atomic_read(&mddev->recovery_active);
+		/*
+		 * Resync has started, but the subtraction has overflowed or
+		 * yielded one of the special values. Force it to active to
+		 * ensure the status reports an active resync.
+		 */
+		if (resync < res || resync - res < 3)
+			resync = 3;
+		else
+			resync -= res;
+	}
 
 	if (resync == 0) {
 		if (test_bit(MD_RESYNCING_REMOTE, &mddev->recovery)) {
