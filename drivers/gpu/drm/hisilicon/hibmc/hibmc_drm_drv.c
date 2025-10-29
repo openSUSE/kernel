@@ -303,11 +303,11 @@ static int hibmc_load(struct drm_device *dev)
 
 	ret = hibmc_hw_init(priv);
 	if (ret)
-		goto err;
+		return ret;
 
 	ret = hibmc_mm_init(priv);
 	if (ret)
-		goto err;
+		return ret;
 
 	ret = hibmc_kms_init(priv);
 	if (ret)
