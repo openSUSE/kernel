@@ -308,6 +308,9 @@ static void damon_test_ops_registration(struct kunit *test)
 	struct damon_ctx *c = damon_new_ctx();
 	struct damon_operations ops, bak;
 
+	if (!c)
+		kunit_skip(test, "ctx alloc fail");
+
 	/* DAMON_OPS_{V,P}ADDR are registered on subsys_initcall */
 	KUNIT_EXPECT_EQ(test, damon_select_ops(c, DAMON_OPS_VADDR), 0);
 	KUNIT_EXPECT_EQ(test, damon_select_ops(c, DAMON_OPS_PADDR), 0);
