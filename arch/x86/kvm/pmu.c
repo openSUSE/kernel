@@ -591,7 +591,7 @@ int kvm_pmu_rdpmc(struct kvm_vcpu *vcpu, unsigned idx, u64 *data)
 		return 1;
 
 	if (!kvm_is_cr4_bit_set(vcpu, X86_CR4_PCE) &&
-	    (static_call(kvm_x86_get_cpl)(vcpu) != 0) &&
+	    (kvm_x86_call(get_cpl)(vcpu) != 0) &&
 	    kvm_is_cr0_bit_set(vcpu, X86_CR0_PE))
 		return 1;
 
@@ -858,7 +858,8 @@ static inline bool cpl_is_matched(struct kvm_pmc *pmc)
 		select_user = config & 0x2;
 	}
 
-	return (static_call(kvm_x86_get_cpl)(pmc->vcpu) == 0) ? select_os : select_user;
+	return (kvm_x86_call(get_cpl)(pmc->vcpu) == 0) ? select_os :
+							 select_user;
 }
 
 void kvm_pmu_trigger_event(struct kvm_vcpu *vcpu, u64 perf_hw_id)
