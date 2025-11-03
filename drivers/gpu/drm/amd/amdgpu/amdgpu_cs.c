@@ -104,8 +104,9 @@ static int amdgpu_cs_parser_init(struct amdgpu_cs_parser *p, union drm_amdgpu_cs
 	struct amdgpu_vm *vm = &fpriv->vm;
 	uint64_t *chunk_array_user;
 	uint64_t *chunk_array;
-	unsigned size, num_ibs = 0;
+	unsigned num_ibs = 0;
 	uint32_t uf_offset = 0;
+	size_t size;
 	int i;
 	int ret;
 
