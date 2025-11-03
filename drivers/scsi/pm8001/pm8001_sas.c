@@ -101,6 +101,16 @@ int pm8001_tag_alloc(struct pm8001_hba_info *pm8001_ha, u32 *tag_out)
 	return 0;
 }
 
+u32 pm80xx_get_local_phy_id(struct domain_device *dev)
+{
+	struct pm8001_device *pm8001_dev = dev->lldd_dev;
+
+	if (dev_parent_is_expander(dev))
+		return dev->parent->ex_dev.ex_phy->phy_id;
+
+	return pm8001_dev->attached_phy;
+}
+
 /**
  * pm8001_mem_alloc - allocate memory for pm8001.
  * @pdev: pci device.
@@ -654,7 +664,7 @@ static int pm8001_dev_found_notify(struct domain_device *dev)
 	dev->lldd_dev = pm8001_device;
 	pm8001_device->dev_type = dev->dev_type;
 	pm8001_device->dcompletion = &completion;
-	if (parent_dev && dev_is_expander(parent_dev->dev_type)) {
+	if (dev_parent_is_expander(dev)) {
 		int phy_id;
 
 		phy_id = sas_find_attached_phy_id(&parent_dev->ex_dev, dev);
@@ -719,7 +729,13 @@ static void pm8001_dev_gone_notify(struct domain_device *dev)
 			spin_lock_irqsave(&pm8001_ha->lock, flags);
 		}
 		PM8001_CHIP_DISP->dereg_dev_req(pm8001_ha, device_id);
-		pm8001_ha->phy[pm8001_dev->attached_phy].phy_attached = 0;
+
+		/*
+		 * The phy array only contains local phys. Thus, we cannot clear
+		 * phy_attached for a device behind an expander.
+		 */
+		if (!dev_parent_is_expander(dev))
+			pm8001_ha->phy[pm8001_dev->attached_phy].phy_attached = 0;
 		pm8001_free_dev(pm8001_dev);
 	} else {
 		pm8001_dbg(pm8001_ha, DISC, "Found dev has gone.\n");
@@ -1001,7 +1017,7 @@ int pm8001_abort_task(struct sas_task *task)
 	struct pm8001_hba_info *pm8001_ha;
 	struct pm8001_device *pm8001_dev;
 	int rc = TMF_RESP_FUNC_FAILED, ret;
-	u32 phy_id, port_id;
+	u32 port_id;
 	struct sas_task_slow slow_task;
 
 	if (!task->lldd_task || !task->dev)
@@ -1010,7 +1026,6 @@ int pm8001_abort_task(struct sas_task *task)
 	dev = task->dev;
 	pm8001_dev = dev->lldd_dev;
 	pm8001_ha = pm8001_find_ha_by_dev(dev);
-	phy_id = pm8001_dev->attached_phy;
 
 	if (PM8001_CHIP_DISP->fatal_errors(pm8001_ha)) {
 		// If the controller is seeing fatal errors
@@ -1042,7 +1057,8 @@ int pm8001_abort_task(struct sas_task *task)
 		if (pm8001_ha->chip_id == chip_8006) {
 			DECLARE_COMPLETION_ONSTACK(completion_reset);
 			DECLARE_COMPLETION_ONSTACK(completion);
-			struct pm8001_phy *phy = pm8001_ha->phy + phy_id;
+			u32 phy_id = pm80xx_get_local_phy_id(dev);
+			struct pm8001_phy *phy = &pm8001_ha->phy[phy_id];
 			port_id = phy->port->port_id;
 
 			/* 1. Set Device state as Recovery */
