@@ -1207,6 +1207,9 @@ static int raid1_remove_disk(mddev_t *mddev, int number)
 	mdk_rdev_t *rdev;
 	mirror_info_t *p = conf->mirrors+ number;
 
+	if (unlikely(number >= conf->raid_disks))
+		goto abort;
+
 	print_conf(conf);
 	rdev = p->rdev;
 	if (rdev) {
