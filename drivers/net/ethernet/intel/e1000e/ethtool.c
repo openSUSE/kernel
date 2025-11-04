@@ -548,43 +548,17 @@ static int e1000_get_eeprom(struct net_device *netdev,
 	return ret_val;
 }
 
-/*
- * Manual picks from compiler.h / overflow.h to provide check_add_overflow
- * both the type-agnostic benefits of the macros while also being able to
- * enforce that the return value is, in fact, checked.
- *
- * Relevant parts copied from patches.fixes/IB-qib-Use-struct_size-helper.patch
- */
-
-static inline bool __must_check __must_check_overflow(bool overflow)
-{
-	return unlikely(overflow);
-}
-
-#define __unsigned_add_overflow(a, b, d) ({	\
-	typeof(a) __a = (a);			\
-	typeof(b) __b = (b);			\
-	typeof(d) __d = (d);			\
-	(void) (&__a == &__b);			\
-	(void) (&__a == __d);			\
-	*__d = __a + __b;			\
-	*__d < __a;				\
-})
-
-#define check_add_overflow(a, b, d)	__must_check_overflow(	\
-	        __unsigned_add_overflow(a, b, d))
-
 static int e1000_set_eeprom(struct net_device *netdev,
 			    struct ethtool_eeprom *eeprom, u8 *bytes)
 {
 	struct e1000_adapter *adapter = netdev_priv(netdev);
 	struct e1000_hw *hw = &adapter->hw;
-	size_t total_len, max_len;
 	u16 *eeprom_buff;
-	int ret_val = 0;
+	void *ptr;
+	int max_len;
 	int first_word;
 	int last_word;
-	void *ptr;
+	int ret_val = 0;
 	u16 i;
 
 	if (eeprom->len == 0)
@@ -598,10 +572,6 @@ static int e1000_set_eeprom(struct net_device *netdev,
 		return -EINVAL;
 
 	max_len = hw->nvm.word_size * 2;
-
-	if (check_add_overflow((size_t)eeprom->offset, (size_t)eeprom->len, &total_len) ||
-	    total_len > max_len)
-		return -EFBIG;
 
 	first_word = eeprom->offset >> 1;
 	last_word = (eeprom->offset + eeprom->len - 1) >> 1;
