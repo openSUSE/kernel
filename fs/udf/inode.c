@@ -2200,6 +2200,9 @@ int udf_current_aext(struct inode *inode, struct extent_position *epos,
 						sizeof(struct allocExtDesc);
 		if (alen < sizeof(struct allocExtDesc))
 			return -1;
+
+		if (alen > epos->bh->b_size)
+			return -1;
 	}
 
 	switch (iinfo->i_alloc_type) {
