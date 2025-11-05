@@ -2681,28 +2681,28 @@ static int setup_vmcs_config(struct vmcs_config *vmcs_conf,
 		_vmexit_control &= ~x_ctrl;
 	}
 
-    /*
-     * Some cpus support VM_{ENTRY,EXIT}_IA32_PERF_GLOBAL_CTRL but they
-     * can't be used due to an errata where VM Exit may incorrectly clear
-     * IA32_PERF_GLOBAL_CTRL[34:32].  Workaround the errata by using the
-     * MSR load mechanism to switch IA32_PERF_GLOBAL_CTRL.
-     */
-    if (boot_cpu_data.x86 == 0x6) {
-            switch (boot_cpu_data.x86_model) {
-            case INTEL_FAM6_NEHALEM_EP:     /* AAK155 */
-            case INTEL_FAM6_NEHALEM:        /* AAP115 */
-            case INTEL_FAM6_WESTMERE:       /* AAT100 */
-            case INTEL_FAM6_WESTMERE_EP:    /* BC86,AAY89,BD102 */
-            case INTEL_FAM6_NEHALEM_EX:     /* BA97 */
-                    _vmentry_control &= ~VM_ENTRY_LOAD_IA32_PERF_GLOBAL_CTRL;
-                    _vmexit_control &= ~VM_EXIT_LOAD_IA32_PERF_GLOBAL_CTRL;
-                    pr_warn_once("kvm: VM_EXIT_LOAD_IA32_PERF_GLOBAL_CTRL "
-                                    "does not work properly. Using workaround\n");
-                    break;
-            default:
-                    break;
-            }
-    }
+	/*
+	 * Some cpus support VM_{ENTRY,EXIT}_IA32_PERF_GLOBAL_CTRL but they
+	 * can't be used due to an errata where VM Exit may incorrectly clear
+	 * IA32_PERF_GLOBAL_CTRL[34:32].  Workaround the errata by using the
+	 * MSR load mechanism to switch IA32_PERF_GLOBAL_CTRL.
+	 */
+	if (boot_cpu_data.x86 == 0x6) {
+		switch (boot_cpu_data.x86_model) {
+		case INTEL_FAM6_NEHALEM_EP: /* AAK155 */
+		case INTEL_FAM6_NEHALEM: /* AAP115 */
+		case INTEL_FAM6_WESTMERE: /* AAT100 */
+		case INTEL_FAM6_WESTMERE_EP: /* BC86,AAY89,BD102 */
+		case INTEL_FAM6_NEHALEM_EX: /* BA97 */
+			_vmentry_control &= ~VM_ENTRY_LOAD_IA32_PERF_GLOBAL_CTRL;
+			_vmexit_control &= ~VM_EXIT_LOAD_IA32_PERF_GLOBAL_CTRL;
+			pr_warn_once("kvm: VM_EXIT_LOAD_IA32_PERF_GLOBAL_CTRL "
+				"does not work properly. Using workaround\n");
+			break;
+		default:
+			break;
+		}
+	}
 
 	rdmsr(MSR_IA32_VMX_BASIC, vmx_msr_low, vmx_msr_high);
 
