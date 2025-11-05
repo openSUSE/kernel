@@ -41,7 +41,8 @@ struct udf_inode_info {
 	unsigned		i_efe : 1;	/* extendedFileEntry */
 	unsigned		i_use : 1;	/* unallocSpaceEntry */
 	unsigned		i_strat4096 : 1;
-	unsigned		reserved : 26;
+	unsigned		i_hidden : 1;	/* hidden system inode */
+	unsigned		reserved : 25;
 	union {
 		struct short_ad	*i_sad;
 		struct long_ad		*i_lad;
