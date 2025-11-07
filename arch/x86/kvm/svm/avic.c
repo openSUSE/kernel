@@ -862,6 +862,12 @@ int avic_pi_update_irte(struct kvm_kernel_irqfd *irqfd, struct kvm *kvm,
 	    !irq_remapping_cap(IRQ_POSTING_CAP))
 		return 0;
 
+	/*
+	 * If the IRQ was affined to a different vCPU, remove the IRTE metadata
+	 * from the *previous* vCPU's list.
+	 */
+	svm_ir_list_del(irqfd);
+
 	pr_debug("SVM: %s: host_irq=%#x, guest_irq=%#x, set=%#x\n",
 		 __func__, host_irq, guest_irq, set);
 
@@ -883,8 +889,6 @@ int avic_pi_update_irte(struct kvm_kernel_irqfd *irqfd, struct kvm *kvm,
 			continue;
 
 		WARN_ON_ONCE(new && memcmp(e, new, sizeof(*new)));
-
-		svm_ir_list_del(irqfd);
 
 		/**
 		 * Here, we setup with legacy mode in the following cases:
