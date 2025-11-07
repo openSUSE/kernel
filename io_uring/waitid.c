@@ -285,9 +285,16 @@ static int io_waitid_wait(struct wait_queue_entry *wait, unsigned mode,
 int io_waitid_prep(struct io_kiocb *req, const struct io_uring_sqe *sqe)
 {
 	struct io_waitid *iw = io_kiocb_to_cmd(req, struct io_waitid);
+	struct io_waitid_async *iwa;
 
 	if (sqe->addr || sqe->buf_index || sqe->addr3 || sqe->waitid_flags)
 		return -EINVAL;
+
+	if (io_alloc_async_data(req))
+		return -ENOMEM;
+
+	iwa = req->async_data;
+	iwa->req = req;
 
 	iw->which = READ_ONCE(sqe->len);
 	iw->upid = READ_ONCE(sqe->fd);
@@ -299,15 +306,9 @@ int io_waitid_prep(struct io_kiocb *req, const struct io_uring_sqe *sqe)
 int io_waitid(struct io_kiocb *req, unsigned int issue_flags)
 {
 	struct io_waitid *iw = io_kiocb_to_cmd(req, struct io_waitid);
+	struct io_waitid_async *iwa = req->async_data;
 	struct io_ring_ctx *ctx = req->ctx;
-	struct io_waitid_async *iwa;
 	int ret;
-
-	if (io_alloc_async_data(req))
-		return -ENOMEM;
-
-	iwa = req->async_data;
-	iwa->req = req;
 
 	ret = kernel_waitid_prepare(&iwa->wo, iw->which, iw->upid, &iw->info,
 					iw->options, NULL);
