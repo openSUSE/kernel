@@ -1036,7 +1036,6 @@ static void init_amd_zen_common(void)
 
 static void init_amd_zen1(struct cpuinfo_x86 *c)
 {
-	init_amd_zen_common();
 	fix_erratum_1386(c);
 
 	/* Fix up CPUID bits, but only if not virtualised. */
@@ -1101,7 +1100,6 @@ static void zen2_zenbleed_check(struct cpuinfo_x86 *c)
 
 static void init_amd_zen2(struct cpuinfo_x86 *c)
 {
-	init_amd_zen_common();
 	init_spectral_chicken(c);
 	fix_erratum_1386(c);
 	zen2_zenbleed_check(c);
@@ -1116,8 +1114,6 @@ static void init_amd_zen2(struct cpuinfo_x86 *c)
 
 static void init_amd_zen3(struct cpuinfo_x86 *c)
 {
-	init_amd_zen_common();
-
 	if (!cpu_has(c, X86_FEATURE_HYPERVISOR)) {
 		/*
 		 * Zen3 (Fam19 model < 0x10) parts are not susceptible to
@@ -1131,8 +1127,6 @@ static void init_amd_zen3(struct cpuinfo_x86 *c)
 
 static void init_amd_zen4(struct cpuinfo_x86 *c)
 {
-	init_amd_zen_common();
-
 	if (!cpu_has(c, X86_FEATURE_HYPERVISOR))
 		msr_set_bit(MSR_ZEN4_BP_CFG, MSR_ZEN4_BP_CFG_SHARED_BTB_FIX_BIT);
 
@@ -1148,6 +1142,7 @@ static void init_amd_zen4(struct cpuinfo_x86 *c)
 	}
 }
 
+
 static const struct x86_cpu_desc zen5_rdseed_microcode[] = {
 	ZEN_MODEL_STEP_UCODE(0x1a, 0x02, 0x1, 0x0b00215a),
 	ZEN_MODEL_STEP_UCODE(0x1a, 0x11, 0x0, 0x0b101054),
@@ -1155,7 +1150,6 @@ static const struct x86_cpu_desc zen5_rdseed_microcode[] = {
 
 static void init_amd_zen5(struct cpuinfo_x86 *c)
 {
-	init_amd_zen_common();
 	if (!x86_cpu_has_min_microcode_rev(zen5_rdseed_microcode)) {
 		clear_cpu_cap(c, X86_FEATURE_RDSEED);
 		msr_clear_bit(MSR_AMD64_CPUID_FN_7, 18);
@@ -1199,6 +1193,13 @@ static void init_amd(struct cpuinfo_x86 *c)
 	case 0x15: init_amd_bd(c); break;
 	case 0x16: init_amd_jg(c); break;
 	}
+
+	/*
+	 * Save up on some future enablement work and do common Zen
+	 * settings.
+	 */
+	if (c->x86 >= 0x17)
+		init_amd_zen_common();
 
 	if (boot_cpu_has(X86_FEATURE_ZEN1))
 		init_amd_zen1(c);
