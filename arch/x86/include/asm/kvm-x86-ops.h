@@ -9,8 +9,7 @@ BUILD_BUG_ON(1)
  * "static_call_update()" calls.
  *
  * KVM_X86_OP_OPTIONAL() can be used for those functions that can have
- * a NULL definition, for example if "static_call_cond()" will be used
- * at the call sites.  KVM_X86_OP_OPTIONAL_RET0() can be used likewise
+ * a NULL definition.  KVM_X86_OP_OPTIONAL_RET0() can be used likewise
  * to make a definition optional, but in this case the default will
  * be __static_call_return0.
  */
@@ -35,6 +34,7 @@ KVM_X86_OP(set_msr)
 KVM_X86_OP(get_segment_base)
 KVM_X86_OP(get_segment)
 KVM_X86_OP(get_cpl)
+KVM_X86_OP(get_cpl_no_cache)
 KVM_X86_OP(set_segment)
 KVM_X86_OP(get_cs_db_l_bits)
 KVM_X86_OP(is_valid_cr0)

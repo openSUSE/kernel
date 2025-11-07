@@ -98,6 +98,13 @@ static inline bool kvm_vcpu_has_run(struct kvm_vcpu *vcpu)
 	return vcpu->arch.last_vmentry_cpu != -1;
 }
 
+static inline void kvm_set_mp_state(struct kvm_vcpu *vcpu, int mp_state)
+{
+	vcpu->arch.mp_state = mp_state;
+	if (mp_state == KVM_MP_STATE_RUNNABLE)
+		vcpu->arch.pv.pv_unhalted = false;
+}
+
 static inline bool kvm_is_exception_pending(struct kvm_vcpu *vcpu)
 {
 	return vcpu->arch.exception.pending ||
@@ -158,7 +165,7 @@ static inline bool is_64_bit_mode(struct kvm_vcpu *vcpu)
 
 	if (!is_long_mode(vcpu))
 		return false;
-	static_call(kvm_x86_get_cs_db_l_bits)(vcpu, &cs_db, &cs_l);
+	kvm_x86_call(get_cs_db_l_bits)(vcpu, &cs_db, &cs_l);
 	return cs_l;
 }
 
