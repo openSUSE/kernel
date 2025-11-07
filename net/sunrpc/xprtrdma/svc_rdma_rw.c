@@ -834,7 +834,7 @@ static int svc_rdma_copy_inline_range(struct svc_rdma_read_info *info,
 		offset += page_len;
 	}
 
-	return -EINVAL;
+	return 0;
 }
 
 /**
