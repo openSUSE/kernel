@@ -159,6 +159,10 @@ struct atm_dev {
 	struct atm_cirange ci_range;	/* VPI/VCI range */
 	struct k_atm_dev_stats stats;	/* statistics */
 	char		signal;		/* signal status (ATM_PHY_SIG_*) */
+#ifndef __GENKSYMS__
+	/* FIXME: extended ops for kABI compatibility */
+	unsigned char	ext_ops;
+#endif
 	int		link_rate;	/* link rate (default: OC3) */
 	refcount_t	refcnt;		/* reference count */
 	spinlock_t	lock;		/* protect internal members */
@@ -194,6 +198,10 @@ struct atmdev_ops { /* only send is required */
 	int (*change_qos)(struct atm_vcc *vcc,struct atm_qos *qos,int flags);
 	int (*proc_read)(struct atm_dev *dev,loff_t *pos,char *page);
 	struct module *owner;
+#ifndef __GENKSYMS__
+	/* extended ops; the driver must set dev->ext_ops flag */
+	int (*pre_send)(struct atm_vcc *vcc, struct sk_buff *skb);
+#endif
 };
 
 struct atmphy_ops {

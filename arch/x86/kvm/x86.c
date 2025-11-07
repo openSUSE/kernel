@@ -1254,7 +1254,7 @@ static inline u64 kvm_guest_supported_xfd(struct kvm_vcpu *vcpu)
 }
 #endif
 
-static int __kvm_set_xcr(struct kvm_vcpu *vcpu, u32 index, u64 xcr)
+int __kvm_set_xcr(struct kvm_vcpu *vcpu, u32 index, u64 xcr)
 {
 	u64 xcr0 = xcr;
 	u64 old_xcr0 = vcpu->arch.xcr0;
@@ -1298,6 +1298,7 @@ static int __kvm_set_xcr(struct kvm_vcpu *vcpu, u32 index, u64 xcr)
 		kvm_update_cpuid_runtime(vcpu);
 	return 0;
 }
+EXPORT_SYMBOL_GPL(__kvm_set_xcr);
 
 int kvm_emulate_xsetbv(struct kvm_vcpu *vcpu)
 {
@@ -3161,7 +3162,10 @@ static void kvm_setup_guest_pvclock(struct kvm_vcpu *v,
 {
 	struct kvm_vcpu_arch *vcpu = &v->arch;
 	struct pvclock_vcpu_time_info *guest_hv_clock;
+	struct pvclock_vcpu_time_info hv_clock;
 	unsigned long flags;
+
+	memcpy(&hv_clock, &vcpu->hv_clock, sizeof(hv_clock));
 
 	read_lock_irqsave(&gpc->lock, flags);
 	while (!kvm_gpc_check(gpc, offset + sizeof(*guest_hv_clock))) {
@@ -3182,30 +3186,25 @@ static void kvm_setup_guest_pvclock(struct kvm_vcpu *v,
 	 * it is consistent.
 	 */
 
-	guest_hv_clock->version = vcpu->hv_clock.version = (guest_hv_clock->version + 1) | 1;
+	guest_hv_clock->version = hv_clock.version = (guest_hv_clock->version + 1) | 1;
 	smp_wmb();
 
 	/* retain PVCLOCK_GUEST_STOPPED if set in guest copy */
-	vcpu->hv_clock.flags |= (guest_hv_clock->flags & PVCLOCK_GUEST_STOPPED);
+	hv_clock.flags |= (guest_hv_clock->flags & PVCLOCK_GUEST_STOPPED);
 
-	if (vcpu->pvclock_set_guest_stopped_request) {
-		vcpu->hv_clock.flags |= PVCLOCK_GUEST_STOPPED;
-		vcpu->pvclock_set_guest_stopped_request = false;
-	}
-
-	memcpy(guest_hv_clock, &vcpu->hv_clock, sizeof(*guest_hv_clock));
+	memcpy(guest_hv_clock, &hv_clock, sizeof(*guest_hv_clock));
 
 	if (force_tsc_unstable)
 		guest_hv_clock->flags &= ~PVCLOCK_TSC_STABLE_BIT;
 
 	smp_wmb();
 
-	guest_hv_clock->version = ++vcpu->hv_clock.version;
+	guest_hv_clock->version = ++hv_clock.version;
 
 	kvm_gpc_mark_dirty_in_slot(gpc);
 	read_unlock_irqrestore(&gpc->lock, flags);
 
-	trace_kvm_pvclock_update(v->vcpu_id, &vcpu->hv_clock);
+	trace_kvm_pvclock_update(v->vcpu_id, &hv_clock);
 }
 
 static int kvm_guest_time_update(struct kvm_vcpu *v)
@@ -3307,8 +3306,21 @@ static int kvm_guest_time_update(struct kvm_vcpu *v)
 
 	vcpu->hv_clock.flags = pvclock_flags;
 
-	if (vcpu->pv_time.active)
+	if (vcpu->pv_time.active) {
+		/*
+		 * GUEST_STOPPED is only supported by kvmclock, and KVM's
+		 * historic behavior is to only process the request if kvmclock
+		 * is active/enabled.
+		 */
+		if (vcpu->pvclock_set_guest_stopped_request) {
+			vcpu->hv_clock.flags |= PVCLOCK_GUEST_STOPPED;
+			vcpu->pvclock_set_guest_stopped_request = false;
+		}
 		kvm_setup_guest_pvclock(v, &vcpu->pv_time, 0, false);
+
+		vcpu->hv_clock.flags &= ~PVCLOCK_GUEST_STOPPED;
+	}
+
 #ifdef CONFIG_KVM_XEN
 	if (vcpu->xen.vcpu_info_cache.active)
 		kvm_setup_guest_pvclock(v, &vcpu->xen.vcpu_info_cache,
@@ -5100,7 +5112,13 @@ void kvm_arch_vcpu_put(struct kvm_vcpu *vcpu)
 	int idx;
 
 	if (vcpu->preempted) {
-		vcpu->arch.preempted_in_kernel = kvm_arch_vcpu_in_kernel(vcpu);
+		/*
+		 * Assume protected guests are in-kernel.  Inefficient yielding
+		 * due to false positives is preferable to never yielding due
+		 * to false negatives.
+		 */
+		vcpu->arch.preempted_in_kernel = vcpu->arch.guest_state_protected ||
+						 !kvm_x86_call(get_cpl_no_cache)(vcpu);
 
 		/*
 		 * Take the srcu lock as memslots will be accessed to check the gfn
@@ -10689,6 +10707,7 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 		dm_request_for_irq_injection(vcpu) &&
 		kvm_cpu_accept_dm_intr(vcpu);
 	fastpath_t exit_fastpath;
+	u64 host_debugctl;
 
 	bool req_immediate_exit = false;
 
@@ -10956,6 +10975,10 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 		set_debugreg(0, 7);
 	}
 
+	host_debugctl = get_debugctlmsr();
+	vcpu->arch.host_debugctl_lo = host_debugctl;
+	vcpu->arch.host_debugctl_hi = host_debugctl >> 32;
+
 	guest_timing_enter_irqoff();
 
 	for (;;) {
@@ -11215,9 +11238,7 @@ static inline int vcpu_block(struct kvm_vcpu *vcpu)
 	switch(vcpu->arch.mp_state) {
 	case KVM_MP_STATE_HALTED:
 	case KVM_MP_STATE_AP_RESET_HOLD:
-		vcpu->arch.pv.pv_unhalted = false;
-		vcpu->arch.mp_state =
-			KVM_MP_STATE_RUNNABLE;
+		kvm_set_mp_state(vcpu, KVM_MP_STATE_RUNNABLE);
 		fallthrough;
 	case KVM_MP_STATE_RUNNABLE:
 		vcpu->arch.apf.halted = false;
@@ -11296,7 +11317,7 @@ static int __kvm_emulate_halt(struct kvm_vcpu *vcpu, int state, int reason)
 		if (kvm_vcpu_has_events(vcpu))
 			vcpu->arch.pv.pv_unhalted = false;
 		else
-			vcpu->arch.mp_state = state;
+			kvm_set_mp_state(vcpu, state);
 		return 1;
 	} else {
 		vcpu->run->exit_reason = reason;
@@ -11817,10 +11838,10 @@ int kvm_arch_vcpu_ioctl_set_mpstate(struct kvm_vcpu *vcpu,
 		goto out;
 
 	if (mp_state->mp_state == KVM_MP_STATE_SIPI_RECEIVED) {
-		vcpu->arch.mp_state = KVM_MP_STATE_INIT_RECEIVED;
+		kvm_set_mp_state(vcpu, KVM_MP_STATE_INIT_RECEIVED);
 		set_bit(KVM_APIC_SIPI, &vcpu->arch.apic->pending_events);
 	} else
-		vcpu->arch.mp_state = mp_state->mp_state;
+		kvm_set_mp_state(vcpu, mp_state->mp_state);
 	kvm_make_request(KVM_REQ_EVENT, vcpu);
 
 	ret = 0;
@@ -11950,7 +11971,7 @@ static int __set_sregs_common(struct kvm_vcpu *vcpu, struct kvm_sregs *sregs,
 	if (kvm_vcpu_is_bsp(vcpu) && kvm_rip_read(vcpu) == 0xfff0 &&
 	    sregs->cs.selector == 0xf000 && sregs->cs.base == 0xffff0000 &&
 	    !is_protmode(vcpu))
-		vcpu->arch.mp_state = KVM_MP_STATE_RUNNABLE;
+		kvm_set_mp_state(vcpu, KVM_MP_STATE_RUNNABLE);
 
 	return 0;
 }
@@ -12253,9 +12274,9 @@ int kvm_arch_vcpu_create(struct kvm_vcpu *vcpu)
 	kvm_gpc_init(&vcpu->arch.pv_time, vcpu->kvm);
 
 	if (!irqchip_in_kernel(vcpu->kvm) || kvm_vcpu_is_reset_bsp(vcpu))
-		vcpu->arch.mp_state = KVM_MP_STATE_RUNNABLE;
+		kvm_set_mp_state(vcpu, KVM_MP_STATE_RUNNABLE);
 	else
-		vcpu->arch.mp_state = KVM_MP_STATE_UNINITIALIZED;
+		kvm_set_mp_state(vcpu, KVM_MP_STATE_UNINITIALIZED);
 
 	r = kvm_mmu_create(vcpu);
 	if (r < 0)
@@ -13373,7 +13394,7 @@ static bool kvm_can_deliver_async_pf(struct kvm_vcpu *vcpu)
 		return false;
 
 	if (vcpu->arch.apf.send_user_only &&
-	    kvm_x86_call(get_cpl)(vcpu) == 0)
+	    (vcpu->arch.guest_state_protected || !kvm_x86_call(get_cpl)(vcpu)))
 		return false;
 
 	if (is_guest_mode(vcpu)) {
@@ -13463,7 +13484,7 @@ void kvm_arch_async_page_present(struct kvm_vcpu *vcpu,
 	}
 
 	vcpu->arch.apf.halted = false;
-	vcpu->arch.mp_state = KVM_MP_STATE_RUNNABLE;
+	kvm_set_mp_state(vcpu, KVM_MP_STATE_RUNNABLE);
 }
 
 void kvm_arch_async_page_present_queued(struct kvm_vcpu *vcpu)
@@ -13543,14 +13564,21 @@ int kvm_arch_irq_bypass_add_producer(struct irq_bypass_consumer *cons,
 {
 	struct kvm_kernel_irqfd *irqfd =
 		container_of(cons, struct kvm_kernel_irqfd, consumer);
+	struct kvm *kvm = irqfd->kvm;
 	int ret;
 
-	irqfd->producer = prod;
 	kvm_arch_start_assignment(irqfd->kvm);
+
+	spin_lock_irq(&kvm->irqfds.lock);
+	irqfd->producer = prod;
+
 	ret = kvm_x86_call(pi_update_irte)(irqfd->kvm,
 					   prod->irq, irqfd->gsi, 1);
 	if (ret)
 		kvm_arch_end_assignment(irqfd->kvm);
+
+	spin_unlock_irq(&kvm->irqfds.lock);
+
 
 	return ret;
 }
@@ -13561,9 +13589,9 @@ void kvm_arch_irq_bypass_del_producer(struct irq_bypass_consumer *cons,
 	int ret;
 	struct kvm_kernel_irqfd *irqfd =
 		container_of(cons, struct kvm_kernel_irqfd, consumer);
+	struct kvm *kvm = irqfd->kvm;
 
 	WARN_ON(irqfd->producer != prod);
-	irqfd->producer = NULL;
 
 	/*
 	 * When producer of consumer is unregistered, we change back to
@@ -13571,11 +13599,17 @@ void kvm_arch_irq_bypass_del_producer(struct irq_bypass_consumer *cons,
 	 * when the irq is masked/disabled or the consumer side (KVM
 	 * int this case doesn't want to receive the interrupts.
 	*/
+	spin_lock_irq(&kvm->irqfds.lock);
+	irqfd->producer = NULL;
+
 	ret = kvm_x86_call(pi_update_irte)(irqfd->kvm,
 					   prod->irq, irqfd->gsi, 0);
 	if (ret)
 		printk(KERN_INFO "irq bypass consumer (token %p) unregistration"
 		       " fails: %d\n", irqfd->consumer.token, ret);
+
+	spin_unlock_irq(&kvm->irqfds.lock);
+
 
 	kvm_arch_end_assignment(irqfd->kvm);
 }

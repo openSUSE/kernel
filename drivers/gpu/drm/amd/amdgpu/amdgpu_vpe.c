@@ -426,6 +426,8 @@ static int vpe_hw_fini(void *handle)
 	struct amdgpu_device *adev = (struct amdgpu_device *)handle;
 	struct amdgpu_vpe *vpe = &adev->vpe;
 
+	cancel_delayed_work_sync(&adev->vpe.idle_work);
+
 	vpe_ring_stop(vpe);
 
 	/* Power off VPE */
@@ -437,8 +439,6 @@ static int vpe_hw_fini(void *handle)
 static int vpe_suspend(void *handle)
 {
 	struct amdgpu_device *adev = (struct amdgpu_device *)handle;
-
-	cancel_delayed_work_sync(&adev->vpe.idle_work);
 
 	return vpe_hw_fini(adev);
 }

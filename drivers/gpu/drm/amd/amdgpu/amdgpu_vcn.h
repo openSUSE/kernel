@@ -332,6 +332,9 @@ struct amdgpu_vcn {
 
 	/* IP reg dump */
 	uint32_t		*ip_dump;
+
+	bool			workload_profile_active;
+	struct mutex            workload_profile_mutex;
 };
 
 struct amdgpu_fw_shared_rb_ptrs_struct {

@@ -98,7 +98,7 @@ static inline unsigned long kvm_register_read_raw(struct kvm_vcpu *vcpu, int reg
 		return 0;
 
 	if (!kvm_register_is_available(vcpu, reg))
-		kvm_x86_call(cache_reg)(vcpu, reg);
+		static_call(kvm_x86_cache_reg)(vcpu, reg);
 
 	return vcpu->arch.regs[reg];
 }

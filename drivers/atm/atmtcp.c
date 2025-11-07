@@ -279,6 +279,19 @@ static struct atm_vcc *find_vcc(struct atm_dev *dev, short vpi, int vci)
         return NULL;
 }
 
+static int atmtcp_c_pre_send(struct atm_vcc *vcc, struct sk_buff *skb)
+{
+	struct atmtcp_hdr *hdr;
+
+	if (skb->len < sizeof(struct atmtcp_hdr))
+		return -EINVAL;
+
+	hdr = (struct atmtcp_hdr *)skb->data;
+	if (hdr->length == ATMTCP_HDR_MAGIC)
+		return -EINVAL;
+
+	return 0;
+}
 
 static int atmtcp_c_send(struct atm_vcc *vcc,struct sk_buff *skb)
 {
@@ -287,9 +300,6 @@ static int atmtcp_c_send(struct atm_vcc *vcc,struct sk_buff *skb)
 	struct atm_vcc *out_vcc;
 	struct sk_buff *new_skb;
 	int result = 0;
-
-	if (skb->len < sizeof(struct atmtcp_hdr))
-		goto done;
 
 	dev = vcc->dev_data;
 	hdr = (struct atmtcp_hdr *) skb->data;
@@ -347,6 +357,7 @@ static const struct atmdev_ops atmtcp_v_dev_ops = {
 
 static const struct atmdev_ops atmtcp_c_dev_ops = {
 	.close		= atmtcp_c_close,
+	.pre_send	= atmtcp_c_pre_send,
 	.send		= atmtcp_c_send
 };
 
@@ -373,6 +384,7 @@ static int atmtcp_create(int itf,int persist,struct atm_dev **result)
 		kfree(dev_data);
 		return itf == -1 ? -ENOMEM : -EBUSY;
 	}
+	dev->ext_ops = 1; /* FIXME: for kABI compatibility */
 	dev->ci_range.vpi_bits = MAX_VPI_BITS;
 	dev->ci_range.vci_bits = MAX_VCI_BITS;
 	dev->dev_data = dev_data;
