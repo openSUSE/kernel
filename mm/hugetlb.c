@@ -6431,7 +6431,7 @@ static void hugetlb_unshare_pmds(struct vm_area_struct *vma,
  */
 void hugetlb_unshare_all_pmds(struct vm_area_struct *vma)
 {
-	hugetlb_unshare_pmds(vma, ALIGN(vma->vm_start, PUD_SIZE),
+		hugetlb_unshare_pmds(vma, ALIGN(vma->vm_start, PUD_SIZE),
 			ALIGN_DOWN(vma->vm_end, PUD_SIZE),
 			/* take_locks = */ true);
 }
