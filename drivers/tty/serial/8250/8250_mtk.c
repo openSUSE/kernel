@@ -429,6 +429,7 @@ static int __maybe_unused mtk8250_runtime_suspend(struct device *dev)
 	if (data->clk_count == 0U) {
 		dev_dbg(dev, "%s clock count is 0\n", __func__);
 	} else {
+		clk_disable_unprepare(data->uart_clk);
 		clk_disable_unprepare(data->bus_clk);
 		data->clk_count--;
 	}
@@ -448,6 +449,12 @@ static int __maybe_unused mtk8250_runtime_resume(struct device *dev)
 		err = clk_prepare_enable(data->bus_clk);
 		if (err) {
 			dev_warn(dev, "Can't enable bus clock\n");
+			return err;
+		}
+		err = clk_prepare_enable(data->uart_clk);
+		if (err) {
+			dev_warn(dev, "Can't enable uart clock\n");
+			clk_disable_unprepare(data->bus_clk);
 			return err;
 		}
 		data->clk_count++;
@@ -484,13 +491,13 @@ static int mtk8250_probe_of(struct platform_device *pdev, struct uart_port *p,
 	int dmacnt;
 #endif
 
-	data->uart_clk = devm_clk_get(&pdev->dev, "baud");
+	data->uart_clk = devm_clk_get_enabled(&pdev->dev, "baud");
 	if (IS_ERR(data->uart_clk)) {
 		/*
 		 * For compatibility with older device trees try unnamed
 		 * clk when no baud clk can be found.
 		 */
-		data->uart_clk = devm_clk_get(&pdev->dev, NULL);
+		data->uart_clk = devm_clk_get_enabled(&pdev->dev, NULL);
 		if (IS_ERR(data->uart_clk)) {
 			dev_warn(&pdev->dev, "Can't get uart clock\n");
 			return PTR_ERR(data->uart_clk);
