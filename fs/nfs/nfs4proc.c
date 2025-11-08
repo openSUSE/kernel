@@ -105,7 +105,7 @@ static struct rpc_task *_nfs41_proc_sequence(struct nfs_client *clp,
 		bool is_privileged);
 static int nfs41_test_stateid(struct nfs_server *, nfs4_stateid *,
 		const struct cred *);
-static int nfs41_free_stateid(struct nfs_server *, const nfs4_stateid *,
+static int nfs41_free_stateid(struct nfs_server *, nfs4_stateid *,
 		const struct cred *, bool);
 #endif
 static void nfs4_bitmask_set(__u32 bitmask[NFS4_BITMASK_SZ],
@@ -2841,6 +2841,7 @@ static int nfs41_test_and_free_expired_stateid(struct nfs_server *server,
 		break;
 	case NFS4_INVALID_STATEID_TYPE:
 	case NFS4_SPECIAL_STATEID_TYPE:
+	case NFS4_FREED_STATEID_TYPE:
 		return -NFS4ERR_BAD_STATEID;
 	case NFS4_REVOKED_STATEID_TYPE:
 		goto out_free;
@@ -10303,7 +10304,7 @@ static const struct rpc_call_ops nfs41_free_stateid_ops = {
  * Note: this function is always asynchronous.
  */
 static int nfs41_free_stateid(struct nfs_server *server,
-		const nfs4_stateid *stateid,
+		nfs4_stateid *stateid,
 		const struct cred *cred,
 		bool privileged)
 {
@@ -10339,6 +10340,7 @@ static int nfs41_free_stateid(struct nfs_server *server,
 	if (IS_ERR(task))
 		return PTR_ERR(task);
 	rpc_put_task(task);
+	stateid->type = NFS4_FREED_STATEID_TYPE;
 	return 0;
 }
 

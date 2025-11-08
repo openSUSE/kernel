@@ -832,7 +832,6 @@ static int otx2_tc_add_flow(struct otx2_nic *nic,
 	if (rc) {
 		NL_SET_ERR_MSG_MOD(extack, "Failed to install MCAM flow entry");
 		mutex_unlock(&nic->mbox.lock);
-		kfree_rcu(new_node, rcu);
 		goto free_leaf;
 	}
 	mutex_unlock(&nic->mbox.lock);
@@ -842,7 +841,6 @@ static int otx2_tc_add_flow(struct otx2_nic *nic,
 				    nic->tc_info.flow_ht_params);
 	if (rc) {
 		otx2_del_mcam_flow_entry(nic, req->entry);
-		kfree_rcu(new_node, rcu);
 		goto free_leaf;
 	}
 
@@ -871,6 +869,7 @@ free_leaf:
 
 		mutex_unlock(&nic->mbox.lock);
 	}
+	kfree_rcu(new_node, rcu);
 
 	return rc;
 }

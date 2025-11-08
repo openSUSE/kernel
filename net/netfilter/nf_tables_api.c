@@ -2377,7 +2377,6 @@ static int nf_tables_updchain(struct nft_ctx *ctx, u8 genmask, u8 policy,
 	struct nft_base_chain *basechain;
 	struct nft_stats *stats = NULL;
 	struct nft_chain_hook hook;
-	struct nftables_pernet *nft_net;
 	struct nf_hook_ops *ops;
 	struct nft_trans *trans;
 	int err;
