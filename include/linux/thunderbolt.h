@@ -628,7 +628,15 @@ struct ring_frame {
 };
 
 /* Minimum size for ring_rx */
-#define TB_FRAME_SIZE		0x100
+#define TB_FRAME_SIZE		256
+#define TB_MAX_FRAME_SIZE	4096
+
+static inline size_t tb_ring_frame_size(const struct ring_frame *frame)
+{
+	if (frame->size)
+		return frame->size;
+	return TB_MAX_FRAME_SIZE;
+}
 
 struct tb_ring *tb_ring_alloc_tx(struct tb_nhi *nhi, int hop, int size,
 				 unsigned int flags);
