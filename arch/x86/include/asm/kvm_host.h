@@ -1722,6 +1722,9 @@ struct kvm_arch {
 
 	bool backwards_tsc_observed;
 	bool boot_vcpu_runs_old_kvmclock;
+#ifndef __GENKSYMS__
+	bool has_mapped_host_mmio;
+#endif
 	u32 bsp_vcpu_id;
 
 	u64 disabled_quirks;
@@ -1734,7 +1737,6 @@ struct kvm_arch {
 	bool x2apic_format;
 	bool x2apic_broadcast_quirk_disabled;
 
-	bool has_mapped_host_mmio;
 	bool guest_can_read_msr_platform_info;
 	bool exception_payload_enabled;
 
@@ -1848,6 +1850,247 @@ struct kvm_arch {
 
 	gfn_t gfn_shared_mask;
 };
+
+struct __orig_kvm_arch {
+	unsigned long vm_type;
+	unsigned long n_used_mmu_pages;
+	unsigned long n_requested_mmu_pages;
+	unsigned long n_max_mmu_pages;
+	unsigned int indirect_shadow_pages;
+	u8 mmu_valid_gen;
+	struct hlist_head mmu_page_hash[KVM_NUM_MMU_PAGES];
+	struct list_head active_mmu_pages;
+	struct list_head zapped_obsolete_pages;
+	/*
+	 * A list of kvm_mmu_page structs that, if zapped, could possibly be
+	 * replaced by an NX huge page.  A shadow page is on this list if its
+	 * existence disallows an NX huge page (nx_huge_page_disallowed is set)
+	 * and there are no other conditions that prevent a huge page, e.g.
+	 * the backing host page is huge, dirtly logging is not enabled for its
+	 * memslot, etc...  Note, zapping shadow pages on this list doesn't
+	 * guarantee an NX huge page will be created in its stead, e.g. if the
+	 * guest attempts to execute from the region then KVM obviously can't
+	 * create an NX huge page (without hanging the guest).
+	 */
+	struct list_head possible_nx_huge_pages;
+#ifdef CONFIG_KVM_EXTERNAL_WRITE_TRACKING
+	struct kvm_page_track_notifier_head track_notifier_head;
+#endif
+	/*
+	 * Protects marking pages unsync during page faults, as TDP MMU page
+	 * faults only take mmu_lock for read.  For simplicity, the unsync
+	 * pages lock is always taken when marking pages unsync regardless of
+	 * whether mmu_lock is held for read or write.
+	 */
+	spinlock_t mmu_unsync_pages_lock;
+
+	u64 shadow_mmio_value;
+
+	struct iommu_domain *iommu_domain;
+	bool iommu_noncoherent;
+#define __KVM_HAVE_ARCH_NONCOHERENT_DMA
+	atomic_t noncoherent_dma_count;
+#define __KVM_HAVE_ARCH_ASSIGNED_DEVICE
+	atomic_t assigned_device_count;
+	struct kvm_pic *vpic;
+	struct kvm_ioapic *vioapic;
+	struct kvm_pit *vpit;
+	atomic_t vapics_in_nmi_mode;
+	struct mutex apic_map_lock;
+	struct kvm_apic_map __rcu *apic_map;
+	atomic_t apic_map_dirty;
+
+	bool apic_access_memslot_enabled;
+	bool apic_access_memslot_inhibited;
+
+	/* Protects apicv_inhibit_reasons */
+	struct rw_semaphore apicv_update_lock;
+	unsigned long apicv_inhibit_reasons;
+
+	gpa_t wall_clock;
+
+	bool mwait_in_guest;
+	bool hlt_in_guest;
+	bool pause_in_guest;
+	bool cstate_in_guest;
+
+	unsigned long irq_sources_bitmap;
+	s64 kvmclock_offset;
+
+	/*
+	 * This also protects nr_vcpus_matched_tsc which is read from a
+	 * preemption-disabled region, so it must be a raw spinlock.
+	 */
+	raw_spinlock_t tsc_write_lock;
+	u64 last_tsc_nsec;
+	u64 last_tsc_write;
+	u32 last_tsc_khz;
+	u64 last_tsc_offset;
+	u64 cur_tsc_nsec;
+	u64 cur_tsc_write;
+	u64 cur_tsc_offset;
+	u64 cur_tsc_generation;
+	int nr_vcpus_matched_tsc;
+
+	u32 default_tsc_khz;
+	bool user_set_tsc;
+	u64 apic_bus_cycle_ns;
+	u64 apic_bus_frequency;
+
+	seqcount_raw_spinlock_t pvclock_sc;
+	bool use_master_clock;
+	u64 master_kernel_ns;
+	u64 master_cycle_now;
+	struct delayed_work kvmclock_update_work;
+	struct delayed_work kvmclock_sync_work;
+
+	struct kvm_xen_hvm_config xen_hvm_config;
+
+	/* reads protected by irq_srcu, writes by irq_lock */
+	struct hlist_head mask_notifier_list;
+
+#ifdef CONFIG_KVM_HYPERV
+	struct kvm_hv hyperv;
+#endif
+
+#ifdef CONFIG_KVM_XEN
+	struct kvm_xen xen;
+#endif
+
+	bool backwards_tsc_observed;
+	bool boot_vcpu_runs_old_kvmclock;
+	u32 bsp_vcpu_id;
+
+	u64 disabled_quirks;
+
+	enum kvm_irqchip_mode irqchip_mode;
+	u8 nr_reserved_ioapic_pins;
+
+	bool disabled_lapic_found;
+
+	bool x2apic_format;
+	bool x2apic_broadcast_quirk_disabled;
+
+	bool guest_can_read_msr_platform_info;
+	bool exception_payload_enabled;
+
+	bool triple_fault_event;
+
+	bool bus_lock_detection_enabled;
+	bool enable_pmu;
+
+	u32 notify_window;
+	u32 notify_vmexit_flags;
+	/*
+	 * If exit_on_emulation_error is set, and the in-kernel instruction
+	 * emulator fails to emulate an instruction, allow userspace
+	 * the opportunity to look at it.
+	 */
+	bool exit_on_emulation_error;
+
+	/* Deflect RDMSR and WRMSR to user space when they trigger a #GP */
+	u32 user_space_msr_mask;
+	struct kvm_x86_msr_filter __rcu *msr_filter;
+
+	u32 hypercall_exit_enabled;
+
+	/* Guest can access the SGX PROVISIONKEY. */
+	bool sgx_provisioning_allowed;
+
+	struct kvm_x86_pmu_event_filter __rcu *pmu_event_filter;
+	struct task_struct *nx_huge_page_recovery_thread;
+
+#ifdef CONFIG_X86_64
+	/* The number of TDP MMU pages across all roots. */
+	atomic64_t tdp_mmu_pages;
+
+	/*
+	 * List of struct kvm_mmu_pages being used as roots.
+	 * All struct kvm_mmu_pages in the list should have
+	 * tdp_mmu_page set.
+	 *
+	 * For reads, this list is protected by:
+	 *	the MMU lock in read mode + RCU or
+	 *	the MMU lock in write mode
+	 *
+	 * For writes, this list is protected by tdp_mmu_pages_lock; see
+	 * below for the details.
+	 *
+	 * Roots will remain in the list until their tdp_mmu_root_count
+	 * drops to zero, at which point the thread that decremented the
+	 * count to zero should removed the root from the list and clean
+	 * it up, freeing the root after an RCU grace period.
+	 */
+	struct list_head tdp_mmu_roots;
+
+	/*
+	 * Protects accesses to the following fields when the MMU lock
+	 * is held in read mode:
+	 *  - tdp_mmu_roots (above)
+	 *  - the link field of kvm_mmu_page structs used by the TDP MMU
+	 *  - possible_nx_huge_pages;
+	 *  - the possible_nx_huge_page_link field of kvm_mmu_page structs used
+	 *    by the TDP MMU
+	 * Because the lock is only taken within the MMU lock, strictly
+	 * speaking it is redundant to acquire this lock when the thread
+	 * holds the MMU lock in write mode.  However it often simplifies
+	 * the code to do so.
+	 */
+	spinlock_t tdp_mmu_pages_lock;
+#endif /* CONFIG_X86_64 */
+
+	/*
+	 * If set, at least one shadow root has been allocated. This flag
+	 * is used as one input when determining whether certain memslot
+	 * related allocations are necessary.
+	 */
+	bool shadow_root_allocated;
+
+#if IS_ENABLED(CONFIG_HYPERV)
+	hpa_t	hv_root_tdp;
+	spinlock_t hv_root_tdp_lock;
+	struct hv_partition_assist_pg *hv_pa_pg;
+#endif
+	/*
+	 * VM-scope maximum vCPU ID. Used to determine the size of structures
+	 * that increase along with the maximum vCPU ID, in which case, using
+	 * the global KVM_MAX_VCPU_IDS may lead to significant memory waste.
+	 */
+	u32 max_vcpu_ids;
+
+	bool disable_nx_huge_pages;
+
+	/*
+	 * Memory caches used to allocate shadow pages when performing eager
+	 * page splitting. No need for a shadowed_info_cache since eager page
+	 * splitting only allocates direct shadow pages.
+	 *
+	 * Protected by kvm->slots_lock.
+	 */
+	struct kvm_mmu_memory_cache split_shadow_page_cache;
+	struct kvm_mmu_memory_cache split_page_header_cache;
+
+	/*
+	 * Memory cache used to allocate pte_list_desc structs while splitting
+	 * huge pages. In the worst case, to split one huge page, 512
+	 * pte_list_desc structs are needed to add each lower level leaf sptep
+	 * to the rmap plus 1 to extend the parent_ptes rmap of the lower level
+	 * page table.
+	 *
+	 * Protected by kvm->slots_lock.
+	 */
+#define SPLIT_DESC_CACHE_MIN_NR_OBJECTS (SPTE_ENT_PER_PAGE + 1)
+	struct kvm_mmu_memory_cache split_desc_cache;
+
+	gfn_t gfn_shared_mask;
+};
+
+suse_kabi_static_assert(sizeof(struct kvm_arch) ==
+                        sizeof(struct __orig_kvm_arch));
+suse_kabi_static_assert(offsetof(struct kvm_arch, boot_vcpu_runs_old_kvmclock) ==
+                        offsetof(struct __orig_kvm_arch, boot_vcpu_runs_old_kvmclock));
+suse_kabi_static_assert(offsetof(struct kvm_arch, bsp_vcpu_id) ==
+                        offsetof(struct __orig_kvm_arch, bsp_vcpu_id));
 
 struct kvm_vm_stat {
 	struct kvm_vm_stat_generic generic;
