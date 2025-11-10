@@ -85,7 +85,7 @@ u64 make_mmio_spte(struct kvm_vcpu *vcpu, u64 gfn, unsigned int access)
 	return spte;
 }
 
-static bool kvm_is_mmio_pfn(kvm_pfn_t pfn)
+static bool __kvm_is_mmio_pfn(kvm_pfn_t pfn)
 {
 	if (pfn_valid(pfn))
 		return !is_zero_pfn(pfn) && PageReserved(pfn_to_page(pfn)) &&
@@ -104,6 +104,19 @@ static bool kvm_is_mmio_pfn(kvm_pfn_t pfn)
 	return !e820__mapped_raw_any(pfn_to_hpa(pfn),
 				     pfn_to_hpa(pfn + 1) - 1,
 				     E820_TYPE_RAM);
+}
+
+static bool kvm_is_mmio_pfn(kvm_pfn_t pfn, int *is_host_mmio)
+{
+	/*
+	 * Determining if a PFN is host MMIO is relative expensive.  Cache the
+	 * result locally (in the sole caller) to avoid doing the full query
+	 * multiple times when creating a single SPTE.
+	 */
+	if (*is_host_mmio < 0)
+		*is_host_mmio = __kvm_is_mmio_pfn(pfn);
+
+	return *is_host_mmio;
 }
 
 /*
@@ -142,6 +155,7 @@ bool make_spte(struct kvm_vcpu *vcpu, struct kvm_mmu_page *sp,
 {
 	int level = sp->role.level;
 	u64 spte = SPTE_MMU_PRESENT_MASK;
+	int is_host_mmio = -1;
 	bool wrprot = false;
 
 	WARN_ON_ONCE(!pte_access && !shadow_present_mask);
@@ -191,13 +205,13 @@ bool make_spte(struct kvm_vcpu *vcpu, struct kvm_mmu_page *sp,
 
 	if (shadow_memtype_mask)
 		spte |= kvm_x86_call(get_mt_mask)(vcpu, gfn,
-						  kvm_is_mmio_pfn(pfn));
+						  kvm_is_mmio_pfn(pfn, &is_host_mmio));
 	if (host_writable)
 		spte |= shadow_host_writable_mask;
 	else
 		pte_access &= ~ACC_WRITE_MASK;
 
-	if (shadow_me_value && !kvm_is_mmio_pfn(pfn))
+	if (shadow_me_value && !kvm_is_mmio_pfn(pfn, &is_host_mmio))
 		spte |= shadow_me_value;
 
 	spte |= (u64)pfn << PAGE_SHIFT;
