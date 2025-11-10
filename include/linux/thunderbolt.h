@@ -641,6 +641,11 @@ static inline size_t tb_ring_frame_size(const struct ring_frame *frame)
 	return TB_MAX_FRAME_SIZE;
 }
 
+static inline size_t tb_ring_size(const struct tb_ring *ring)
+{
+	return ring->size;
+}
+
 struct tb_ring *tb_ring_alloc_tx(struct tb_nhi *nhi, int hop, int size,
 				 unsigned int flags);
 struct tb_ring *tb_ring_alloc_rx(struct tb_nhi *nhi, int hop, int size,
