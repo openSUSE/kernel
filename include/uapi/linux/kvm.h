@@ -448,7 +448,6 @@ struct kvm_run {
 			__u64 gpa;
 			__u64 size;
 		} memory_fault;
-#ifndef __GENKSYMS__
 		/* KVM_EXIT_TDX */
 		struct {
 			__u64 flags;
@@ -474,7 +473,6 @@ struct kvm_run {
 				} setup_event_notify;
 			};
 		} tdx;
-#endif
 		/* Fix the size of the union. */
 		char padding[256];
 	};

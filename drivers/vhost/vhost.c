@@ -22,9 +22,7 @@
 #include <linux/slab.h>
 #include <linux/vmalloc.h>
 #include <linux/kthread.h>
-#ifndef __GENKSYMS__
 #include <linux/cgroup.h>
-#endif
 #include <linux/module.h>
 #include <linux/sort.h>
 #include <linux/sched/mm.h>

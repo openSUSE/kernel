@@ -232,15 +232,6 @@ enum node_stat_item {
 	 * threshold.
 	 */
 	PGPROMOTE_CANDIDATE,
-#endif
-	/* PGDEMOTE_*: pages demoted */
-	PGDEMOTE_KSWAPD,
-	PGDEMOTE_DIRECT,
-	PGDEMOTE_KHUGEPAGED,
-
-#ifndef __GENKSYMS__
-
-#ifdef CONFIG_NUMA_BALANCING
 	/**
 	 * Not rate-limited (NRL) candidate pages for those can be promoted
 	 * without considering hot threshold because of enough free pages in
@@ -250,18 +241,16 @@ enum node_stat_item {
 	 * This is for statistics/monitoring purposes.
 	 */
 	PGPROMOTE_CANDIDATE_NRL,
-	SUSE_KABI_NODE_STAT_PADDING2,
-	NR_VM_NODE_STAT_ITEMS_USED = SUSE_KABI_NODE_STAT_PADDING2,
-#else /* CONFIG_NUMA_BALANCING */
-	SUSE_KABI_NODE_STAT_PADDING1,
-	NR_VM_NODE_STAT_ITEMS_USED = SUSE_KABI_NODE_STAT_PADDING1,
-	SUSE_KABI_NODE_STAT_PADDING2,
-#endif /* CONFIG_NUMA_BALANCING */
-
-#else /* __GENKSYMS__ */
-	SUSE_KABI_NODE_STAT_PADDING1,
-	SUSE_KABI_NODE_STAT_PADDING2,
 #endif
+	/* PGDEMOTE_*: pages demoted */
+	PGDEMOTE_KSWAPD,
+	PGDEMOTE_DIRECT,
+	PGDEMOTE_KHUGEPAGED,
+	SUSE_KABI_NODE_STAT_PADDING1,
+#ifndef __GENKSYMS__
+	NR_VM_NODE_STAT_ITEMS_USED = SUSE_KABI_NODE_STAT_PADDING1,
+#endif
+	SUSE_KABI_NODE_STAT_PADDING2,
 	SUSE_KABI_NODE_STAT_PADDING3,
 	SUSE_KABI_NODE_STAT_PADDING4,
 	SUSE_KABI_NODE_STAT_PADDING5,

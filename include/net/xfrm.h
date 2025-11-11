@@ -231,11 +231,6 @@ struct xfrm_state {
 
 	/* Data for encapsulator */
 	struct xfrm_encap_tmpl	*encap;
-#ifdef __GENKSYMS__
-	struct sock __rcu	*encap_sk;
-#else
-	struct sock __rcu	*__unused_encap_sk;
-#endif
 
 	/* NAT keepalive */
 	u32			nat_keepalive_interval; /* seconds */

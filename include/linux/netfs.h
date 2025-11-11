@@ -150,9 +150,7 @@ struct netfs_io_stream {
 	bool			active;		/* T if stream is active */
 	bool			need_retry;	/* T if this stream needs retrying */
 	bool			failed;		/* T if this stream failed */
-#ifndef __GENKSYMS__
 	bool			transferred_valid; /* T is ->transferred is valid */
-#endif
 };
 
 /*

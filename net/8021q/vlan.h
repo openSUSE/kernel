@@ -33,27 +33,9 @@ struct vlan_info {
 	struct vlan_group	grp;
 	struct list_head	vid_list;
 	unsigned int		nr_vids;
-#ifndef __GENKSYMS__
 	bool			auto_vid0;
-#endif
 	struct rcu_head		rcu;
 };
-
-struct __orig_vlan_info {
-	struct net_device	*real_dev; /* The ethernet(like) device
-					    * the vlan is attached to.
-					    */
-	struct vlan_group	grp;
-	struct list_head	vid_list;
-	unsigned int		nr_vids;
-	struct rcu_head		rcu;
-};
-
-suse_kabi_static_assert(sizeof(struct vlan_info) == sizeof(struct __orig_vlan_info));
-suse_kabi_static_assert(offsetof(struct vlan_info, nr_vids) ==
-                        offsetof(struct __orig_vlan_info, nr_vids));
-suse_kabi_static_assert(offsetof(struct vlan_info, rcu) ==
-                        offsetof(struct __orig_vlan_info, rcu));
 
 static inline int vlan_proto_idx(__be16 proto)
 {

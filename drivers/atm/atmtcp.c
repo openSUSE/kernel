@@ -384,7 +384,6 @@ static int atmtcp_create(int itf,int persist,struct atm_dev **result)
 		kfree(dev_data);
 		return itf == -1 ? -ENOMEM : -EBUSY;
 	}
-	dev->ext_ops = 1; /* FIXME: for kABI compatibility */
 	dev->ci_range.vpi_bits = MAX_VPI_BITS;
 	dev->ci_range.vci_bits = MAX_VCI_BITS;
 	dev->dev_data = dev_data;

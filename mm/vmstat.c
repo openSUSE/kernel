@@ -1276,16 +1276,12 @@ const char * const vmstat_text[] = {
 #ifdef CONFIG_NUMA_BALANCING
 	"pgpromote_success",
 	"pgpromote_candidate",
+	"pgpromote_candidate_nrl",
 #endif
 	"pgdemote_kswapd",
 	"pgdemote_direct",
 	"pgdemote_khugepaged",
-
-#ifdef CONFIG_NUMA_BALANCING
-	"pgpromote_candidate_nrl",
-#else
 	vmstat_text_unused, /*SUSE_KABI_NODE_STAT_PADDING1*/
-#endif
 	vmstat_text_unused, /*SUSE_KABI_NODE_STAT_PADDING2*/
 	vmstat_text_unused, /*SUSE_KABI_NODE_STAT_PADDING3*/
 	vmstat_text_unused, /*SUSE_KABI_NODE_STAT_PADDING4*/

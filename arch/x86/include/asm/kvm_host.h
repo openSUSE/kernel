@@ -1449,6 +1449,7 @@ struct kvm_arch {
 	bool x2apic_format;
 	bool x2apic_broadcast_quirk_disabled;
 
+	bool has_mapped_host_mmio;
 	bool guest_can_read_msr_platform_info;
 	bool exception_payload_enabled;
 
@@ -1456,9 +1457,6 @@ struct kvm_arch {
 
 	bool bus_lock_detection_enabled;
 	bool enable_pmu;
-#ifndef __GENKSYMS__
-	bool has_mapped_host_mmio;
-#endif
 
 	u32 notify_window;
 	u32 notify_vmexit_flags;
@@ -1754,11 +1752,7 @@ struct kvm_x86_ops {
 
 	int (*vcpu_pre_run)(struct kvm_vcpu *vcpu);
 	enum exit_fastpath_completion (*vcpu_run)(struct kvm_vcpu *vcpu,
-#ifdef __GENKSYMS__
-						  bool force_immediate_exit);
-#else
 						  u64 run_flags);
-#endif
 	int (*handle_exit)(struct kvm_vcpu *vcpu,
 		enum exit_fastpath_completion exit_fastpath);
 	int (*skip_emulated_instruction)(struct kvm_vcpu *vcpu);

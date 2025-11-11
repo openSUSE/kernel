@@ -35,9 +35,7 @@
  */
 
 #include <linux/kref.h>
-#ifndef __GENKSYMS__
 #include <linux/dma-buf.h>
-#endif
 #include <linux/dma-resv.h>
 #include <linux/list.h>
 #include <linux/mutex.h>

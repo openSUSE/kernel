@@ -396,10 +396,8 @@ struct cgroup_rstat_cpu {
 	struct cgroup *updated_children;	/* terminated by self cgroup */
 	struct cgroup *updated_next;		/* NULL iff not on the list */
 
-#ifndef __GENKSYMS__
 	struct llist_node lnode;		/* lockless list for update */
 	struct cgroup *owner;			/* back pointer */
-#endif
 };
 
 struct cgroup_freezer_state {
@@ -723,6 +721,7 @@ struct cgroup_subsys {
 	void (*css_released)(struct cgroup_subsys_state *css);
 	void (*css_free)(struct cgroup_subsys_state *css);
 	void (*css_reset)(struct cgroup_subsys_state *css);
+	void (*css_killed)(struct cgroup_subsys_state *css);
 	void (*css_rstat_flush)(struct cgroup_subsys_state *css, int cpu);
 	int (*css_extra_stat_show)(struct seq_file *seq,
 				   struct cgroup_subsys_state *css);
@@ -802,9 +801,6 @@ struct cgroup_subsys {
 	 * specifies the mask of subsystems that this one depends on.
 	 */
 	unsigned int depends_on;
-#ifndef __GENKSYMS__
-	void (*css_killed)(struct cgroup_subsys_state *css);
-#endif
 };
 
 extern struct percpu_rw_semaphore cgroup_threadgroup_rwsem;

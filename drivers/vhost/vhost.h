@@ -37,6 +37,7 @@ struct vhost_worker_ops {
 };
 
 struct vhost_worker {
+	struct task_struct *kthread_task;
 	struct vhost_task	*vtsk;
 	struct vhost_dev	*dev;
 	/* Used to serialize device wide flushing with worker swapping. */
@@ -46,10 +47,7 @@ struct vhost_worker {
 	u32			id;
 	int			attachment_cnt;
 	bool			killed;
-#ifndef __GENKSYMS__
 	const struct vhost_worker_ops *ops;
-	struct task_struct *kthread_task;
-#endif
 };
 
 /* Poll a file (eventfd or socket) */
@@ -199,9 +197,7 @@ struct vhost_dev {
 	 * here we use true as default value.
 	 * The default value is set by fork_from_owner_default
 	 */
-#ifndef __GENKSYMS__
 	bool fork_owner;
-#endif
 	int (*msg_handler)(struct vhost_dev *dev, u32 asid,
 			   struct vhost_iotlb_msg *msg);
 };

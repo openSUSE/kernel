@@ -103,11 +103,7 @@ struct ap_tapq_hwinfo {
 			unsigned int accel :  1; /* A */
 			unsigned int ep11  :  1; /* X */
 			unsigned int apxa  :  1; /* APXA */
-#ifndef __GENKSYMS__
 			unsigned int slcf  :  1; /* Cmd filtering avail. */
-#else
-			unsigned int 	   :  1;
-#endif
 			unsigned int class :  8;
 			unsigned int bs	   :  2; /* SE bind/assoc */
 			unsigned int	   : 14;

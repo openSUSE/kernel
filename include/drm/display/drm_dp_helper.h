@@ -519,12 +519,10 @@ struct drm_dp_aux {
 	 */
 	bool powered_down;
 
-#ifndef __GENKSYMS__
 	/**
 	 * @dpcd_probe_disabled: If probing before a DPCD access is disabled.
 	 */
 	bool dpcd_probe_disabled;
-#endif
 
 	void *suse_kabi_padding;
 };

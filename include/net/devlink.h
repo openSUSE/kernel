@@ -84,9 +84,6 @@ struct devlink_port_pci_sf_attrs {
  * @pci_pf: PCI PF port attributes
  * @pci_vf: PCI VF port attributes
  * @pci_sf: PCI SF port attributes
- * @no_phys_port_name: skip automatic phys_port_name generation; for
- *                     compatibility only, newly added driver/port instance
- *                     should never set this.
  */
 struct devlink_port_attrs {
 	u8 split:1,
@@ -100,9 +97,6 @@ struct devlink_port_attrs {
 		struct devlink_port_pci_vf_attrs pci_vf;
 		struct devlink_port_pci_sf_attrs pci_sf;
 	};
-#ifndef __GENKSYMS__
-	u8 no_phys_port_name:1;
-#endif
 };
 
 struct devlink_rate {
@@ -426,29 +420,19 @@ typedef u64 devlink_resource_occ_get_t(void *priv);
 
 #define __DEVLINK_PARAM_MAX_STRING_VALUE 32
 enum devlink_param_type {
-#ifdef __GENKSYMS__
-	DEVLINK_PARAM_TYPE_U8,
-	DEVLINK_PARAM_TYPE_U16,
-	DEVLINK_PARAM_TYPE_U32,
-	DEVLINK_PARAM_TYPE_STRING,
-	DEVLINK_PARAM_TYPE_BOOL,
-#else
 	DEVLINK_PARAM_TYPE_U8 = DEVLINK_VAR_ATTR_TYPE_U8,
 	DEVLINK_PARAM_TYPE_U16 = DEVLINK_VAR_ATTR_TYPE_U16,
 	DEVLINK_PARAM_TYPE_U32 = DEVLINK_VAR_ATTR_TYPE_U32,
 	DEVLINK_PARAM_TYPE_U64 = DEVLINK_VAR_ATTR_TYPE_U64,
 	DEVLINK_PARAM_TYPE_STRING = DEVLINK_VAR_ATTR_TYPE_STRING,
 	DEVLINK_PARAM_TYPE_BOOL = DEVLINK_VAR_ATTR_TYPE_FLAG,
-#endif
 };
 
 union devlink_param_value {
 	u8 vu8;
 	u16 vu16;
 	u32 vu32;
-#ifndef __GENKSYMS__
 	u64 vu64;
-#endif
 	char vstr[__DEVLINK_PARAM_MAX_STRING_VALUE];
 	bool vbool;
 };

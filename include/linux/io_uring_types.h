@@ -649,16 +649,12 @@ struct io_kiocb {
 	atomic_t			refs;
 	bool				cancel_seq_set;
 	struct io_task_work		io_task_work;
-#ifndef __GENKSYMS__
 	union {
 		/* for polled requests, i.e. IORING_OP_POLL_ADD and async armed poll */
 		struct hlist_node	hash_node;
 		/* for private io_kiocb freeing */
 		struct rcu_head		rcu_head;
 	};
-#else
-	struct hlist_node		hash_node;
-#endif
 	/* internal polling, see IORING_FEAT_FAST_POLL */
 	struct async_poll		*apoll;
 	/* opcode allocated if it needs to store data for async defer */
