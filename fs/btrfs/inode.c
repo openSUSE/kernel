@@ -6621,6 +6621,7 @@ static int btrfs_link(struct dentry *old_dentry, struct inode *dir,
 		ret = btrfs_update_inode(trans, root, BTRFS_I(inode));
 		if (ret) {
 			btrfs_abort_transaction(trans, ret);
+			drop_inode = 1;
 			goto fail;
 		}
 		if (inode->i_nlink == 1) {
@@ -6631,6 +6632,7 @@ static int btrfs_link(struct dentry *old_dentry, struct inode *dir,
 			ret = btrfs_orphan_del(trans, BTRFS_I(inode));
 			if (ret) {
 				btrfs_abort_transaction(trans, ret);
+				drop_inode = 1;
 				goto fail;
 			}
 		}
