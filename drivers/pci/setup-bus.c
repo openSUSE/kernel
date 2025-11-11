@@ -241,7 +241,7 @@ static void reassign_resources_sorted(struct list_head *realloc_head,
 		if (!found_match) /* Just skip */
 			continue;
 
-		idx = res - &add_res->dev->resource[0];
+		idx = pci_resource_num(add_res->dev, res);
 		res_name = pci_resource_name(add_res->dev, idx);
 		add_size = add_res->add_size;
 		align = add_res->min_align;
@@ -284,7 +284,7 @@ static void assign_requested_resources_sorted(struct list_head *head,
 
 	list_for_each_entry(dev_res, head, list) {
 		res = dev_res->res;
-		idx = res - &dev_res->dev->resource[0];
+		idx = pci_resource_num(dev_res->dev, res);
 		if (resource_size(res) &&
 		    pci_assign_resource(dev_res->dev, idx)) {
 			if (fail_head) {
@@ -1070,6 +1070,7 @@ static int pbus_size_mem(struct pci_bus *bus, unsigned long mask,
 	resource_size_t children_add_size = 0;
 	resource_size_t children_add_align = 0;
 	resource_size_t add_align = 0;
+	resource_size_t relaxed_align;
 
 	if (!b_res)
 		return -ENOSPC;
@@ -1148,9 +1149,10 @@ static int pbus_size_mem(struct pci_bus *bus, unsigned long mask,
 
 	if (bus->self && size0 &&
 	    !pbus_upstream_space_available(bus, mask | IORESOURCE_PREFETCH, type,
-					   size0, add_align)) {
-		min_align = 1ULL << (max_order + __ffs(SZ_1M));
-		min_align = max(min_align, win_align);
+					   size0, min_align)) {
+		relaxed_align = 1ULL << (max_order + __ffs(SZ_1M));
+		relaxed_align = max(relaxed_align, win_align);
+		min_align = min(min_align, relaxed_align);
 		size0 = calculate_memsize(size, min_size, 0, 0, resource_size(b_res), win_align);
 		pci_info(bus->self, "bridge window %pR to %pR requires relaxed alignment rules\n",
 			 b_res, &bus->busn_res);
@@ -1164,8 +1166,9 @@ static int pbus_size_mem(struct pci_bus *bus, unsigned long mask,
 		if (bus->self && size1 &&
 		    !pbus_upstream_space_available(bus, mask | IORESOURCE_PREFETCH, type,
 						   size1, add_align)) {
-			min_align = 1ULL << (max_order + __ffs(SZ_1M));
-			min_align = max(min_align, win_align);
+			relaxed_align = 1ULL << (max_order + __ffs(SZ_1M));
+			relaxed_align = max(relaxed_align, win_align);
+			min_align = min(min_align, relaxed_align);
 			size1 = calculate_memsize(size, min_size, add_size, children_add_size,
 						  resource_size(b_res), win_align);
 			pci_info(bus->self,
@@ -2214,7 +2217,7 @@ again:
 		res->flags = fail_res->flags;
 
 		if (pci_is_bridge(fail_res->dev)) {
-			idx = res - &fail_res->dev->resource[0];
+			idx = pci_resource_num(fail_res->dev, res);
 			if (idx >= PCI_BRIDGE_RESOURCES &&
 			    idx <= PCI_BRIDGE_RESOURCE_END)
 				res->flags = 0;
@@ -2298,7 +2301,7 @@ again:
 		res->flags = fail_res->flags;
 
 		if (pci_is_bridge(fail_res->dev)) {
-			idx = res - &fail_res->dev->resource[0];
+			idx = pci_resource_num(fail_res->dev, res);
 			if (idx >= PCI_BRIDGE_RESOURCES &&
 			    idx <= PCI_BRIDGE_RESOURCE_END)
 				res->flags = 0;
@@ -2405,7 +2408,7 @@ cleanup:
 		struct resource *res = dev_res->res;
 
 		bridge = dev_res->dev;
-		i = res - bridge->resource;
+		i = pci_resource_num(bridge, res);
 
 		res->start = dev_res->start;
 		res->end = dev_res->end;
