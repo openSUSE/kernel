@@ -22,6 +22,7 @@
 #include <linux/auxiliary_bus.h>
 #include <linux/delay.h>
 #include <linux/intel_tpmi.h>
+#include <linux/intel_vsec.h>
 #include <linux/fs.h>
 #include <linux/io.h>
 #include <linux/kernel.h>
@@ -1446,7 +1447,7 @@ int tpmi_sst_dev_add(struct auxiliary_device *auxdev)
 {
 	struct tpmi_per_power_domain_info *pd_info;
 	bool read_blocked = 0, write_blocked = 0;
-	struct intel_tpmi_plat_info *plat_info;
+	struct oobmsm_plat_info *plat_info;
 	struct device *dev = &auxdev->dev;
 	struct tpmi_sst_struct *tpmi_sst;
 	u8 i, num_resources, io_die_cnt;
@@ -1598,7 +1599,7 @@ EXPORT_SYMBOL_NS_GPL(tpmi_sst_dev_add, INTEL_TPMI_SST);
 void tpmi_sst_dev_remove(struct auxiliary_device *auxdev)
 {
 	struct tpmi_sst_struct *tpmi_sst = auxiliary_get_drvdata(auxdev);
-	struct intel_tpmi_plat_info *plat_info;
+	struct oobmsm_plat_info *plat_info;
 
 	plat_info = tpmi_get_platform_data(auxdev);
 	if (!plat_info)
@@ -1620,7 +1621,7 @@ void tpmi_sst_dev_suspend(struct auxiliary_device *auxdev)
 {
 	struct tpmi_sst_struct *tpmi_sst = auxiliary_get_drvdata(auxdev);
 	struct tpmi_per_power_domain_info *power_domain_info;
-	struct intel_tpmi_plat_info *plat_info;
+	struct oobmsm_plat_info *plat_info;
 	void __iomem *cp_base;
 
 	plat_info = tpmi_get_platform_data(auxdev);
@@ -1648,7 +1649,7 @@ void tpmi_sst_dev_resume(struct auxiliary_device *auxdev)
 {
 	struct tpmi_sst_struct *tpmi_sst = auxiliary_get_drvdata(auxdev);
 	struct tpmi_per_power_domain_info *power_domain_info;
-	struct intel_tpmi_plat_info *plat_info;
+	struct oobmsm_plat_info *plat_info;
 	void __iomem *cp_base;
 
 	plat_info = tpmi_get_platform_data(auxdev);
