@@ -12,6 +12,7 @@
  * file, where their drivers can use them.
  */
 
+#include <linux/align.h>
 #include <linux/bitfield.h>
 #include <linux/types.h>
 #include <linux/kernel.h>
@@ -604,7 +605,7 @@ static void quirk_s3_64M(struct pci_dev *dev)
 {
 	struct resource *r = &dev->resource[0];
 
-	if ((r->start & 0x3ffffff) || r->end != r->start + 0x3ffffff) {
+	if (!IS_ALIGNED(r->start, SZ_64M) || resource_size(r) != SZ_64M) {
 		r->flags |= IORESOURCE_UNSET;
 		r->start = 0;
 		r->end = 0x3ffffff;
