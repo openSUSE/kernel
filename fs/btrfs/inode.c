@@ -174,8 +174,10 @@ static int data_reloc_print_warning_inode(u64 inum, u64 offset, u64 num_bytes,
 		return ret;
 	}
 	ret = paths_from_inode(inum, ipath);
-	if (ret < 0)
+	if (ret < 0) {
+		btrfs_put_root(local_root);
 		goto err;
+	}
 
 	/*
 	 * We deliberately ignore the bit ipath might have been too small to
@@ -6774,8 +6776,7 @@ static int btrfs_link(struct dentry *old_dentry, struct inode *dir,
 	struct btrfs_fs_info *fs_info = inode_to_fs_info(inode);
 	struct fscrypt_name fname;
 	u64 index;
-	int err;
-	int drop_inode = 0;
+	int ret;
 
 	/* do not allow sys_link's with other subvols of the same device */
 	if (btrfs_root_id(root) != btrfs_root_id(BTRFS_I(inode)->root))
@@ -6784,12 +6785,12 @@ static int btrfs_link(struct dentry *old_dentry, struct inode *dir,
 	if (inode->i_nlink >= BTRFS_LINK_MAX)
 		return -EMLINK;
 
-	err = fscrypt_setup_filename(dir, &dentry->d_name, 0, &fname);
-	if (err)
+	ret = fscrypt_setup_filename(dir, &dentry->d_name, 0, &fname);
+	if (ret)
 		goto fail;
 
-	err = btrfs_set_inode_index(BTRFS_I(dir), &index);
-	if (err)
+	ret = btrfs_set_inode_index(BTRFS_I(dir), &index);
+	if (ret)
 		goto fail;
 
 	/*
@@ -6800,53 +6801,52 @@ static int btrfs_link(struct dentry *old_dentry, struct inode *dir,
 	 */
 	trans = btrfs_start_transaction(root, inode->i_nlink ? 5 : 6);
 	if (IS_ERR(trans)) {
-		err = PTR_ERR(trans);
+		ret = PTR_ERR(trans);
 		trans = NULL;
 		goto fail;
 	}
 
 	/* There are several dir indexes for this inode, clear the cache. */
 	BTRFS_I(inode)->dir_index = 0ULL;
-	inc_nlink(inode);
 	inode_inc_iversion(inode);
 	inode_set_ctime_current(inode);
-	ihold(inode);
-	set_bit(BTRFS_INODE_COPY_EVERYTHING, &BTRFS_I(inode)->runtime_flags);
 
-	err = btrfs_add_link(trans, BTRFS_I(dir), BTRFS_I(inode),
+	ret = btrfs_add_link(trans, BTRFS_I(dir), BTRFS_I(inode),
 			     &fname.disk_name, 1, index);
+	if (ret)
+		goto fail;
 
-	if (err) {
-		drop_inode = 1;
-	} else {
-		struct dentry *parent = dentry->d_parent;
-
-		err = btrfs_update_inode(trans, BTRFS_I(inode));
-		if (err)
-			goto fail;
-		if (inode->i_nlink == 1) {
-			/*
-			 * If new hard link count is 1, it's a file created
-			 * with open(2) O_TMPFILE flag.
-			 */
-			err = btrfs_orphan_del(trans, BTRFS_I(inode));
-			if (err)
-				goto fail;
-		}
-		d_instantiate(dentry, inode);
-		btrfs_log_new_name(trans, old_dentry, NULL, 0, parent);
+	/* Link added now we update the inode item with the new link count. */
+	inc_nlink(inode);
+	ret = btrfs_update_inode(trans, BTRFS_I(inode));
+	if (ret) {
+		btrfs_abort_transaction(trans, ret);
+		goto fail;
 	}
+
+	if (inode->i_nlink == 1) {
+		/*
+		 * If the new hard link count is 1, it's a file created with the
+		 * open(2) O_TMPFILE flag.
+		 */
+		ret = btrfs_orphan_del(trans, BTRFS_I(inode));
+		if (ret) {
+			btrfs_abort_transaction(trans, ret);
+			goto fail;
+		}
+	}
+
+	/* Grab reference for the new dentry passed to d_instantiate(). */
+	ihold(inode);
+	d_instantiate(dentry, inode);
+	btrfs_log_new_name(trans, old_dentry, NULL, 0, dentry->d_parent);
 
 fail:
 	fscrypt_free_filename(&fname);
 	if (trans)
 		btrfs_end_transaction(trans);
-	if (drop_inode) {
-		inode_dec_link_count(inode);
-		iput(inode);
-	}
 	btrfs_btree_balance_dirty(fs_info);
-	return err;
+	return ret;
 }
 
 static int btrfs_mkdir(struct mnt_idmap *idmap, struct inode *dir,
