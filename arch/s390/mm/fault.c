@@ -275,6 +275,11 @@ static noinline void do_no_context(struct pt_regs *regs)
 	die(regs, "Oops");
 }
 
+static inline void handle_fault_error_nolock(struct pt_regs *regs)
+{
+	do_no_context(regs);
+}
+
 static noinline void do_low_address(struct pt_regs *regs)
 {
 	/* Low-address protection hit in kernel mode means
@@ -859,6 +864,8 @@ void do_secure_storage_access(struct pt_regs *regs)
 		}
 		fallthrough;
 	case USER_FAULT:
+		if (faulthandler_disabled())
+			return handle_fault_error_nolock(regs);
 		mm = current->mm;
 		mmap_read_lock(mm);
 		vma = find_vma(mm, addr);
