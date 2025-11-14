@@ -249,6 +249,16 @@ static inline struct kvm_mmu_page *root_to_sp(hpa_t root)
 	return spte_to_child_sp(root);
 }
 
+static inline bool kvm_vcpu_can_access_host_mmio(struct kvm_vcpu *vcpu)
+{
+	struct kvm_mmu_page *root = root_to_sp(vcpu->arch.mmu->root.hpa);
+
+	if (root)
+		return READ_ONCE(root->has_mapped_host_mmio);
+
+	return READ_ONCE(vcpu->kvm->arch.has_mapped_host_mmio);
+}
+
 static inline bool is_mmio_spte(u64 spte)
 {
 	return (spte & shadow_mmio_mask) == shadow_mmio_value &&
