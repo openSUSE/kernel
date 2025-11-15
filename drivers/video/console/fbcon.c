@@ -2428,13 +2428,13 @@ static int fbcon_copy_font(struct vc_data *vc, int con)
 static int fbcon_set_font(struct vc_data *vc, struct console_font *font, unsigned flags)
 {
 	struct fb_info *info = registered_fb[con2fb_map[vc->vc_num]];
-	unsigned charcount = font->charcount;
-	int w = font->width;
-	int h = font->height;
-	int size;
+	unsigned int charcount = font->charcount;
+	unsigned int w = font->width;
+	unsigned int h = font->height;
+	unsigned int size, alloc_size;
 	int i, csum;
 	u8 *new_data, *data = font->data;
-	int pitch = PITCH(font->width);
+	unsigned int pitch = PITCH(font->width);
 
 	/* Is there a reason why fbconsole couldn't handle any charcount >256?
 	 * If not this check should be changed to charcount < 256 */
@@ -2458,9 +2458,16 @@ static int fbcon_set_font(struct vc_data *vc, struct console_font *font, unsigne
 	if (fbcon_invalid_charcount(info, charcount))
 		return -EINVAL;
 
-	size = CALC_FONTSZ(h, pitch, charcount);
+	/* Check for integer overflow in font size calculation */
+	if (check_mul_overflow(h, pitch, &size) ||
+	    check_mul_overflow(size, charcount, &size))
+		return -EINVAL;
 
-	new_data = kmalloc(FONT_EXTRA_WORDS * sizeof(int) + size, GFP_USER);
+	/* Check for overflow in allocation size calculation */
+	if (check_add_overflow(FONT_EXTRA_WORDS * sizeof(int), size, &alloc_size))
+		return -EINVAL;
+
+	new_data = kmalloc(alloc_size, GFP_USER);
 
 	if (!new_data)
 		return -ENOMEM;
