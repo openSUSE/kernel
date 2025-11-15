@@ -88,8 +88,11 @@ smb2_compound_op(const unsigned int xid, struct cifs_tcon *tcon,
 	int len;
 
 	vars = kzalloc(sizeof(*vars), GFP_ATOMIC);
-	if (vars == NULL)
+	if (vars == NULL) {
+		if (cfile)
+			cifsFileInfo_put(cfile);
 		return -ENOMEM;
+	}
 	rqst = &vars->rqst[0];
 	rsp_iov = &vars->rsp_iov[0];
 
