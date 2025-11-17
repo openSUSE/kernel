@@ -777,6 +777,9 @@ struct kvm_hv {
 
 	/* How many vCPUs have VP index != vCPU index */
 	atomic_t num_mismatched_vp_indexes;
+#ifndef __GENKSYMS__
+	bool xsaves_xsavec_checked;
+#endif
 };
 
 enum kvm_irqchip_mode {
