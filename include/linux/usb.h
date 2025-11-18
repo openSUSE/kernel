@@ -728,7 +728,6 @@ struct usb_device {
 	unsigned reset_resume:1;
 	unsigned port_is_suspended:1;
 	enum usb_link_tunnel_mode tunnel_mode;
-	struct device_link *usb4_link;
 
 	int slot_id;
 	struct usb2_lpm_parameters l1_params;
@@ -738,8 +737,11 @@ struct usb_device {
 
 	u16 hub_delay;
 	unsigned use_generic_driver:1;
-
+#ifdef __GENKSYMS__
 	void *suse_kabi_padding;
+#else
+	struct device_link *usb4_link;
+#endif
 };
 
 #define to_usb_device(__dev)	container_of_const(__dev, struct usb_device, dev)
