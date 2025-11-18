@@ -704,10 +704,13 @@ smb2_close_cached_fid(struct kref *ref)
 					       refcount);
 
 	if (cfid->is_valid) {
+		int rc;
+
 		cifs_dbg(FYI, "clear cached root file handle\n");
-		SMB2_close(0, cfid->tcon, cfid->fid->persistent_fid,
-			   cfid->fid->volatile_fid);
-		atomic_dec(&cfid->tcon->num_remote_opens);
+		rc = SMB2_close(0, cfid->tcon, cfid->fid->persistent_fid,
+				cfid->fid->volatile_fid);
+		if (rc) /* should we retry on -EBUSY or -EAGAIN? */
+			cifs_dbg(VFS, "close cached dir rc %d\n", rc);
 	}
 
 	/*
