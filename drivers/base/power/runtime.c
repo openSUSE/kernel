@@ -1867,7 +1867,7 @@ void pm_runtime_init(struct device *dev)
 	dev->power.request_pending = false;
 	dev->power.request = RPM_REQ_NONE;
 	dev->power.deferred_resume = false;
-	dev->power.needs_force_resume = 0;
+	dev->power.needs_force_resume = false;
 	INIT_WORK(&dev->power.work, pm_runtime_work);
 
 	dev->power.timer_expires = 0;
@@ -2042,7 +2042,7 @@ int pm_runtime_force_suspend(struct device *dev)
 		pm_runtime_set_suspended(dev);
 	} else {
 		__update_runtime_status(dev, RPM_SUSPENDED);
-		dev->power.needs_force_resume = 1;
+		dev->power.needs_force_resume = true;
 	}
 
 	return 0;
@@ -2092,7 +2092,7 @@ int pm_runtime_force_resume(struct device *dev)
 
 	pm_runtime_mark_last_busy(dev);
 out:
-	dev->power.needs_force_resume = 0;
+	dev->power.needs_force_resume = false;
 	pm_runtime_enable(dev);
 	return ret;
 }
