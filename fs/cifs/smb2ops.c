@@ -24,6 +24,8 @@
 #include "cifs_ioctl.h"
 #include "smbdirect.h"
 
+static void smb2_close_cached_fid(struct kref *ref);
+
 /* Change credits for different ops and return the total number of credits */
 static int
 change_conf(struct TCP_Server_Info *server)
@@ -659,6 +661,7 @@ smb2_close_cached_fid(struct kref *ref)
 		cifs_dbg(FYI, "clear cached root file handle\n");
 		SMB2_close(0, cfid->tcon, cfid->fid->persistent_fid,
 			   cfid->fid->volatile_fid);
+		atomic_dec(&cfid->tcon->num_remote_opens);
 	}
 
 	/*
@@ -909,6 +912,15 @@ oshr_free:
 	free_rsp_buf(resp_buftype[1], rsp_iov[1].iov_base);
 	if (rc == 0) {
 		*cfid = &tcon->crfid;
+		if (!tcon->crfid.has_lease) {
+			/*
+			 * We are guaranteed to have two references at this point.
+			 * One for the caller and one for a potential lease.
+			 * Release the Lease-ref so that the directory will be closed
+			 * when the caller closes the cached handle.
+			 */
+			kref_put(&tcon->crfid.refcount, smb2_close_cached_fid);
+		}
 	} else {
 		if (is_open)
 			SMB2_close(0, tcon, tcon->crfid.fid->persistent_fid,
