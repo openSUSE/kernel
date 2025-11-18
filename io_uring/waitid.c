@@ -272,22 +272,30 @@ static int io_waitid_wait(struct wait_queue_entry *wait, unsigned mode,
 	if (!pid_child_should_wake(wo, p))
 		return 0;
 
+	list_del_init(&wait->entry);
+
 	/* cancel is in progress */
 	if (atomic_fetch_inc(&iw->refs) & IO_WAITID_REF_MASK)
 		return 1;
 
 	req->io_task_work.func = io_waitid_cb;
 	io_req_task_work_add(req);
-	list_del_init(&wait->entry);
 	return 1;
 }
 
 int io_waitid_prep(struct io_kiocb *req, const struct io_uring_sqe *sqe)
 {
 	struct io_waitid *iw = io_kiocb_to_cmd(req, struct io_waitid);
+	struct io_waitid_async *iwa;
 
 	if (sqe->addr || sqe->buf_index || sqe->addr3 || sqe->waitid_flags)
 		return -EINVAL;
+
+	if (io_alloc_async_data(req))
+		return -ENOMEM;
+
+	iwa = req->async_data;
+	iwa->req = req;
 
 	iw->which = READ_ONCE(sqe->len);
 	iw->upid = READ_ONCE(sqe->fd);
@@ -299,15 +307,9 @@ int io_waitid_prep(struct io_kiocb *req, const struct io_uring_sqe *sqe)
 int io_waitid(struct io_kiocb *req, unsigned int issue_flags)
 {
 	struct io_waitid *iw = io_kiocb_to_cmd(req, struct io_waitid);
+	struct io_waitid_async *iwa = req->async_data;
 	struct io_ring_ctx *ctx = req->ctx;
-	struct io_waitid_async *iwa;
 	int ret;
-
-	if (io_alloc_async_data(req))
-		return -ENOMEM;
-
-	iwa = req->async_data;
-	iwa->req = req;
 
 	ret = kernel_waitid_prepare(&iwa->wo, iw->which, iw->upid, &iw->info,
 					iw->options, NULL);
