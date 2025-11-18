@@ -458,7 +458,7 @@ static int mali_c55_media_frameworks_init(struct mali_c55 *mali_c55)
 	if (ret) {
 		dev_err(mali_c55->dev, "failed to register V4L2 device\n");
 		goto err_unregister_media_device;
-	};
+	}
 
 	mali_c55->notifier.ops = &mali_c55_notifier_ops;
 	v4l2_async_nf_init(&mali_c55->notifier, &mali_c55->v4l2_dev);
