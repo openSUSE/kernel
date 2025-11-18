@@ -5425,7 +5425,7 @@ nfsd4_encode_operation(struct nfsd4_compoundres *resp, struct nfsd4_op *op)
 		warn_on_nonidempotent_op(op);
 		xdr_truncate_encode(xdr, post_err_offset);
 	}
-	if (so) {
+	else if (so) {
 		int len = xdr->buf->len - post_err_offset;
 
 		so->so_replay.rp_status = op->status;
