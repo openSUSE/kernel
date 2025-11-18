@@ -2429,6 +2429,7 @@ static int fbcon_set_font(struct vc_data *vc, struct console_font *font, unsigne
 {
 	struct fb_info *info = registered_fb[con2fb_map[vc->vc_num]];
 	unsigned int charcount = font->charcount;
+	unsigned int extra_size = FONT_EXTRA_WORDS * sizeof(int);
 	unsigned int w = font->width;
 	unsigned int h = font->height;
 	unsigned int size, alloc_size;
@@ -2464,7 +2465,7 @@ static int fbcon_set_font(struct vc_data *vc, struct console_font *font, unsigne
 		return -EINVAL;
 
 	/* Check for overflow in allocation size calculation */
-	if (check_add_overflow(FONT_EXTRA_WORDS * sizeof(int), size, &alloc_size))
+	if (check_add_overflow(extra_size, size, &alloc_size))
 		return -EINVAL;
 
 	new_data = kmalloc(alloc_size, GFP_USER);
