@@ -14,10 +14,10 @@
 #define NUM_BRANCH_INSNS_RETIRED	(NUM_LOOPS)
 
 /*
- * Number of instructions in each loop. 1 CLFLUSH/CLFLUSHOPT/NOP, 1 MFENCE,
- * 1 LOOP.
+ * Number of instructions in each loop. 1 ENTER, 1 CLFLUSH/CLFLUSHOPT/NOP,
+ * 1 MFENCE, 1 LEAVE, 1 LOOP.
  */
-#define NUM_INSNS_PER_LOOP		3
+#define NUM_INSNS_PER_LOOP		5
 
 /*
  * Number of "extra" instructions that will be counted, i.e. the number of
@@ -160,8 +160,10 @@ do {										\
 	__asm__ __volatile__("wrmsr\n\t"					\
 			     " mov $" __stringify(NUM_LOOPS) ", %%ecx\n\t"	\
 			     "1:\n\t"						\
+			     FEP "enter $0, $0\n\t"				\
 			     clflush "\n\t"					\
 			     "mfence\n\t"					\
+			     FEP "leave\n\t"					\
 			     FEP "loop 1b\n\t"					\
 			     FEP "mov %%edi, %%ecx\n\t"				\
 			     FEP "xor %%eax, %%eax\n\t"				\
