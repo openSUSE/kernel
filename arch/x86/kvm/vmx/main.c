@@ -466,14 +466,6 @@ static void vt_set_gdt(struct kvm_vcpu *vcpu, struct desc_ptr *dt)
 	vmx_set_gdt(vcpu, dt);
 }
 
-static void vt_set_dr6(struct kvm_vcpu *vcpu, unsigned long val)
-{
-	if (is_td_vcpu(vcpu))
-		return;
-
-	vmx_set_dr6(vcpu, val);
-}
-
 static void vt_set_dr7(struct kvm_vcpu *vcpu, unsigned long val)
 {
 	if (is_td_vcpu(vcpu))
@@ -913,7 +905,6 @@ struct kvm_x86_ops vt_x86_ops __initdata = {
 	.set_idt = vt_set_idt,
 	.get_gdt = vt_get_gdt,
 	.set_gdt = vt_set_gdt,
-	.set_dr6 = vt_set_dr6,
 	.set_dr7 = vt_set_dr7,
 	.sync_dirty_debug_regs = vt_sync_dirty_debug_regs,
 	.cache_reg = vt_cache_reg,
