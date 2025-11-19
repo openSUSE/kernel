@@ -66,9 +66,7 @@ static inline bool queue_pm_work(struct work_struct *work)
 
 extern int pm_generic_runtime_suspend(struct device *dev);
 extern int pm_generic_runtime_resume(struct device *dev);
-extern bool pm_runtime_need_not_resume(struct device *dev);
 extern int pm_runtime_force_suspend(struct device *dev);
-extern int pm_runtime_force_resume(struct device *dev);
 
 extern int __pm_runtime_idle(struct device *dev, int rpmflags);
 extern int __pm_runtime_suspend(struct device *dev, int rpmflags);
@@ -78,8 +76,11 @@ extern int pm_runtime_get_if_in_use(struct device *dev);
 extern int pm_schedule_suspend(struct device *dev, unsigned int delay);
 extern int __pm_runtime_set_status(struct device *dev, unsigned int status);
 extern int pm_runtime_barrier(struct device *dev);
+extern bool pm_runtime_block_if_disabled(struct device *dev);
+extern void pm_runtime_unblock(struct device *dev);
 extern void pm_runtime_enable(struct device *dev);
 extern void __pm_runtime_disable(struct device *dev, bool check_resume);
+extern bool pm_runtime_blocked(struct device *dev);
 extern void pm_runtime_allow(struct device *dev);
 extern void pm_runtime_forbid(struct device *dev);
 extern void pm_runtime_no_callbacks(struct device *dev);
@@ -244,9 +245,7 @@ static inline bool queue_pm_work(struct work_struct *work) { return false; }
 
 static inline int pm_generic_runtime_suspend(struct device *dev) { return 0; }
 static inline int pm_generic_runtime_resume(struct device *dev) { return 0; }
-static inline bool pm_runtime_need_not_resume(struct device *dev) {return true; }
 static inline int pm_runtime_force_suspend(struct device *dev) { return 0; }
-static inline int pm_runtime_force_resume(struct device *dev) { return 0; }
 
 static inline int __pm_runtime_idle(struct device *dev, int rpmflags)
 {
@@ -275,8 +274,11 @@ static inline int pm_runtime_get_if_active(struct device *dev)
 static inline int __pm_runtime_set_status(struct device *dev,
 					    unsigned int status) { return 0; }
 static inline int pm_runtime_barrier(struct device *dev) { return 0; }
+static inline bool pm_runtime_block_if_disabled(struct device *dev) { return true; }
+static inline void pm_runtime_unblock(struct device *dev) {}
 static inline void pm_runtime_enable(struct device *dev) {}
 static inline void __pm_runtime_disable(struct device *dev, bool c) {}
+static inline bool pm_runtime_blocked(struct device *dev) { return true; }
 static inline void pm_runtime_allow(struct device *dev) {}
 static inline void pm_runtime_forbid(struct device *dev) {}
 
@@ -313,6 +315,18 @@ static inline void pm_runtime_drop_link(struct device_link *link) {}
 static inline void pm_runtime_release_supplier(struct device_link *link) {}
 
 #endif /* !CONFIG_PM */
+
+#ifdef CONFIG_PM_SLEEP
+
+bool pm_runtime_need_not_resume(struct device *dev);
+int pm_runtime_force_resume(struct device *dev);
+
+#else /* !CONFIG_PM_SLEEP */
+
+static inline bool pm_runtime_need_not_resume(struct device *dev) {return true; }
+static inline int pm_runtime_force_resume(struct device *dev) { return -ENXIO; }
+
+#endif /* CONFIG_PM_SLEEP */
 
 /**
  * pm_runtime_idle - Conditionally set up autosuspend of a device or suspend it.
