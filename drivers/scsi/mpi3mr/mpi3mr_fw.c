@@ -23,18 +23,18 @@ module_param(poll_queues, int, 0444);
 MODULE_PARM_DESC(poll_queues, "Number of queues for io_uring poll mode. (Range 1 - 126)");
 
 #if defined(writeq) && defined(CONFIG_64BIT)
-static inline void mpi3mr_writeq(__u64 b, volatile void __iomem *addr,
+static inline void mpi3mr_writeq(__u64 b, void __iomem *addr,
 	spinlock_t *write_queue_lock)
 {
 	writeq(b, addr);
 }
 #else
-static inline void mpi3mr_writeq(__u64 b, volatile void __iomem *addr,
+static inline void mpi3mr_writeq(__u64 b, void __iomem *addr,
 	spinlock_t *write_queue_lock)
 {
 	__u64 data_out = b;
 	unsigned long flags;
- 
+
 	spin_lock_irqsave(write_queue_lock, flags);
 	writel((u32)(data_out), addr);
 	writel((u32)(data_out >> 32), (addr + 4));
