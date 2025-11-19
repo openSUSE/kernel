@@ -885,6 +885,8 @@ struct kvm_x86_ops vt_x86_ops __initdata = {
 	.vcpu_load = vt_vcpu_load,
 	.vcpu_put = vt_vcpu_put,
 
+	.HOST_OWNED_DEBUGCTL = DEBUGCTLMSR_FREEZE_IN_SMM,
+
 	.update_exception_bitmap = vt_update_exception_bitmap,
 	.get_feature_msr = vmx_get_feature_msr,
 	.get_msr = vt_get_msr,
