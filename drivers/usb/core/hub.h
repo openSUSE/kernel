@@ -75,6 +75,9 @@ struct usb_hub {
 	struct timer_list	irq_urb_retry;
 	struct usb_port		**ports;
 	struct list_head        onboard_devs;
+#ifndef __GENKSYMS__
+	struct delayed_work	post_resume_work;
+#endif
 };
 
 /**
