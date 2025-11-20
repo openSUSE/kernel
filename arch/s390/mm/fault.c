@@ -246,7 +246,7 @@ static noinline void do_sigsegv(struct pt_regs *regs, int si_code)
 			(void __user *)(regs->int_parm_long & __FAIL_ADDR_MASK));
 }
 
-static noinline void do_no_context(struct pt_regs *regs, vm_fault_t fault)
+static noinline void do_no_context(struct pt_regs *regs)
 {
 	enum fault_type fault_type;
 	unsigned long address;
@@ -255,7 +255,7 @@ static noinline void do_no_context(struct pt_regs *regs, vm_fault_t fault)
 	if (fixup_exception(regs))
 		return;
 	fault_type = get_fault_type(regs);
-	if ((fault_type == KERNEL_FAULT) && (fault == VM_FAULT_BADCONTEXT)) {
+	if (fault_type == KERNEL_FAULT) {
 		address = get_fault_address(regs);
 		is_write = fault_is_write(regs);
 		if (kfence_handle_page_fault(address, is_write, regs))
@@ -275,6 +275,11 @@ static noinline void do_no_context(struct pt_regs *regs, vm_fault_t fault)
 	die(regs, "Oops");
 }
 
+static inline void handle_fault_error_nolock(struct pt_regs *regs)
+{
+	do_no_context(regs);
+}
+
 static noinline void do_low_address(struct pt_regs *regs)
 {
 	/* Low-address protection hit in kernel mode means
@@ -284,7 +289,7 @@ static noinline void do_low_address(struct pt_regs *regs)
 		die (regs, "Low-address protection");
 	}
 
-	do_no_context(regs, VM_FAULT_BADACCESS);
+	do_no_context(regs);
 }
 
 static noinline void do_sigbus(struct pt_regs *regs)
@@ -315,28 +320,28 @@ static noinline void do_fault_error(struct pt_regs *regs, vm_fault_t fault)
 		fallthrough;
 	case VM_FAULT_BADCONTEXT:
 	case VM_FAULT_PFAULT:
-		do_no_context(regs, fault);
+		do_no_context(regs);
 		break;
 	case VM_FAULT_SIGNAL:
 		if (!user_mode(regs))
-			do_no_context(regs, fault);
+			do_no_context(regs);
 		break;
 	default: /* fault & VM_FAULT_ERROR */
 		if (fault & VM_FAULT_OOM) {
 			if (!user_mode(regs))
-				do_no_context(regs, fault);
+				do_no_context(regs);
 			else
 				pagefault_out_of_memory();
 		} else if (fault & VM_FAULT_SIGSEGV) {
 			/* Kernel mode? Handle exceptions or die */
 			if (!user_mode(regs))
-				do_no_context(regs, fault);
+				do_no_context(regs);
 			else
 				do_sigsegv(regs, SEGV_MAPERR);
 		} else if (fault & VM_FAULT_SIGBUS) {
 			/* Kernel mode? Handle exceptions or die */
 			if (!user_mode(regs))
-				do_no_context(regs, fault);
+				do_no_context(regs);
 			else
 				do_sigbus(regs);
 		} else
@@ -859,6 +864,8 @@ void do_secure_storage_access(struct pt_regs *regs)
 		}
 		fallthrough;
 	case USER_FAULT:
+		if (faulthandler_disabled())
+			return handle_fault_error_nolock(regs);
 		mm = current->mm;
 		mmap_read_lock(mm);
 		vma = find_vma(mm, addr);
