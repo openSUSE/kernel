@@ -18,6 +18,7 @@
 #include <linux/sched/mm.h>
 #include <linux/list.h>
 #include <linux/slab.h>
+#include <linux/string_choices.h>
 #include <linux/kcov.h>
 #include <linux/ioctl.h>
 #include <linux/usb.h>
@@ -1523,7 +1524,7 @@ static int hub_configure(struct usb_hub *hub,
 
 	maxchild = hub->descriptor->bNbrPorts;
 	dev_info(hub_dev, "%d port%s detected\n", maxchild,
-			(maxchild == 1) ? "" : "s");
+			str_plural(maxchild));
 
 	hub->ports = kcalloc(maxchild, sizeof(struct usb_port *), GFP_KERNEL);
 	if (!hub->ports) {
@@ -4181,14 +4182,14 @@ static int usb_set_device_initiated_lpm(struct usb_device *udev,
 		break;
 	default:
 		dev_warn(&udev->dev, "%s: Can't %s non-U1 or U2 state.\n",
-				__func__, enable ? "enable" : "disable");
+				__func__, str_enable_disable(enable));
 		return -EINVAL;
 	}
 
 	if (udev->state != USB_STATE_CONFIGURED) {
 		dev_dbg(&udev->dev, "%s: Can't %s %s state "
 				"for unconfigured device.\n",
-				__func__, enable ? "enable" : "disable",
+				__func__, str_enable_disable(enable),
 				usb3_lpm_names[state]);
 		return 0;
 	}
@@ -4214,8 +4215,7 @@ static int usb_set_device_initiated_lpm(struct usb_device *udev,
 	}
 	if (ret < 0) {
 		dev_warn(&udev->dev, "%s of device-initiated %s failed.\n",
-				enable ? "Enable" : "Disable",
-				usb3_lpm_names[state]);
+			 str_enable_disable(enable), usb3_lpm_names[state]);
 		return -EBUSY;
 	}
 	return 0;
@@ -4265,9 +4265,9 @@ static int usb_set_lpm_timeout(struct usb_device *udev,
 }
 
 /*
- * Don't allow device intiated U1/U2 if the system exit latency + one bus
- * interval is greater than the minimum service interval of any active
- * periodic endpoint. See USB 3.2 section 9.4.9
+ * Don't allow device intiated U1/U2 if device isn't in the configured state,
+ * or the system exit latency + one bus interval is greater than the minimum
+ * service interval of any active periodic endpoint. See USB 3.2 section 9.4.9
  */
 static bool usb_device_may_initiate_lpm(struct usb_device *udev,
 					enum usb3_link_state state)
@@ -4275,7 +4275,7 @@ static bool usb_device_may_initiate_lpm(struct usb_device *udev,
 	unsigned int sel;		/* us */
 	int i, j;
 
-	if (!udev->lpm_devinit_allow)
+	if (!udev->lpm_devinit_allow || !udev->actconfig)
 		return false;
 
 	if (state == USB3_LPM_U1)
@@ -4372,11 +4372,11 @@ static void usb_enable_link_state(struct usb_hcd *hcd, struct usb_device *udev,
 		return;
 	}
 
-	/* Only a configured device will accept the Set Feature
-	 * U1/U2_ENABLE
+	/*
+	 * Enable device initiated U1/U2 with a SetFeature(U1/U2_ENABLE) request
+	 * if system exit latency is short enough and device is configured
 	 */
-	if (udev->actconfig &&
-	    usb_device_may_initiate_lpm(udev, state)) {
+	if (usb_device_may_initiate_lpm(udev, state)) {
 		if (usb_set_device_initiated_lpm(udev, state, true)) {
 			/*
 			 * Request to enable device initiated U1/U2 failed,
@@ -4424,8 +4424,6 @@ static int usb_disable_link_state(struct usb_hcd *hcd, struct usb_device *udev,
 	if (usb_set_lpm_timeout(udev, state, 0))
 		return -EBUSY;
 
-	usb_set_device_initiated_lpm(udev, state, false);
-
 	if (hcd->driver->disable_usb3_lpm_timeout(hcd, udev, state))
 		dev_warn(&udev->dev, "Could not disable xHCI %s timeout, "
 				"bus schedule bandwidth may be impacted.\n",
@@ -4455,6 +4453,7 @@ static int usb_disable_link_state(struct usb_hcd *hcd, struct usb_device *udev,
 int usb_disable_lpm(struct usb_device *udev)
 {
 	struct usb_hcd *hcd;
+	int err;
 
 	if (!udev || !udev->parent ||
 			udev->speed < USB_SPEED_SUPER ||
@@ -4472,14 +4471,19 @@ int usb_disable_lpm(struct usb_device *udev)
 
 	/* If LPM is enabled, attempt to disable it. */
 	if (usb_disable_link_state(hcd, udev, USB3_LPM_U1))
-		goto enable_lpm;
+		goto disable_failed;
 	if (usb_disable_link_state(hcd, udev, USB3_LPM_U2))
-		goto enable_lpm;
+		goto disable_failed;
+
+	err = usb_set_device_initiated_lpm(udev, USB3_LPM_U1, false);
+	if (!err)
+		usb_set_device_initiated_lpm(udev, USB3_LPM_U2, false);
 
 	return 0;
 
-enable_lpm:
-	usb_enable_lpm(udev);
+disable_failed:
+	udev->lpm_disable_count--;
+
 	return -EBUSY;
 }
 EXPORT_SYMBOL_GPL(usb_disable_lpm);
