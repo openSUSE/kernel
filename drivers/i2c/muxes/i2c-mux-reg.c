@@ -162,6 +162,19 @@ static int i2c_mux_reg_probe_dt(struct regmux *mux,
 }
 #endif
 
+/* Copy from 890cc39a87990 but don't export. Replace by proper version eventually. */
+static void __iomem *
+devm_platform_get_and_ioremap_resource(struct platform_device *pdev,
+                              unsigned int index, struct resource **res)
+{
+	struct resource *r;
+
+	r = platform_get_resource(pdev, IORESOURCE_MEM, index);
+	if (res)
+		*res = r;
+	return devm_ioremap_resource(&pdev->dev, r);
+}
+
 static int i2c_mux_reg_probe(struct platform_device *pdev)
 {
 	struct i2c_mux_core *muxc;
@@ -193,13 +206,12 @@ static int i2c_mux_reg_probe(struct platform_device *pdev)
 	if (!mux->data.reg) {
 		dev_info(&pdev->dev,
 			"Register not set, using platform resource\n");
-		res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-		mux->data.reg_size = resource_size(res);
-		mux->data.reg = devm_ioremap_resource(&pdev->dev, res);
+		mux->data.reg = devm_platform_get_and_ioremap_resource(pdev, 0, &res);
 		if (IS_ERR(mux->data.reg)) {
 			ret = PTR_ERR(mux->data.reg);
 			goto err_put_parent;
 		}
+		mux->data.reg_size = resource_size(res);
 	}
 
 	if (mux->data.reg_size != 4 && mux->data.reg_size != 2 &&
