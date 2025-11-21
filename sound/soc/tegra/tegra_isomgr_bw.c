@@ -75,7 +75,6 @@ int tegra_isomgr_adma_setbw(struct snd_pcm_substream *substream,
 	return icc_set_bw(adma_isomgr->icc_path_handle,
 			  adma_isomgr->current_bandwidth, adma_isomgr->max_bw);
 }
-EXPORT_SYMBOL(tegra_isomgr_adma_setbw);
 
 int tegra_isomgr_adma_register(struct device *dev)
 {
@@ -115,7 +114,6 @@ int tegra_isomgr_adma_register(struct device *dev)
 
 	return 0;
 }
-EXPORT_SYMBOL(tegra_isomgr_adma_register);
 
 void tegra_isomgr_adma_unregister(struct device *dev)
 {
@@ -126,7 +124,6 @@ void tegra_isomgr_adma_unregister(struct device *dev)
 
 	mutex_destroy(&admaif->adma_isomgr->mutex);
 }
-EXPORT_SYMBOL(tegra_isomgr_adma_unregister);
 
 MODULE_AUTHOR("Mohan Kumar <mkumard@nvidia.com>");
 MODULE_DESCRIPTION("Tegra ADMA Bandwidth Request driver");
