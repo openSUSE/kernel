@@ -1723,6 +1723,8 @@ struct dentry *d_alloc(struct dentry * parent, const struct qstr *name)
 	 */
 	dentry->d_parent = dget_dlock(parent);
 	hlist_add_head(&dentry->d_sib, &parent->d_children);
+	if (parent->d_flags & DCACHE_DISCONNECTED)
+		dentry->d_flags |= DCACHE_DISCONNECTED;
 	spin_unlock(&parent->d_lock);
 
 	return dentry;
