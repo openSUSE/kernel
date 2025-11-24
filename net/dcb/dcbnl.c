@@ -948,7 +948,7 @@ static int dcbnl_bcn_setcfg(struct net_device *netdev, struct nlmsghdr *nlh,
 		return -EOPNOTSUPP;
 
 	ret = nla_parse_nested(data, DCB_BCN_ATTR_MAX, tb[DCB_ATTR_BCN],
-			       dcbnl_pfc_up_nest, NULL);
+			       dcbnl_bcn_nest, NULL);
 	if (ret)
 		return ret;
 
