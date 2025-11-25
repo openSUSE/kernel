@@ -724,7 +724,7 @@ static void update_or_create_fnhe(struct fib_nh_common *nhc, __be32 daddr,
 		 */
 		rt = rcu_dereference(nhc->nhc_rth_input);
 		if (rt)
-			rt->dst.obsolete = DST_OBSOLETE_KILL;
+			WRITE_ONCE(rt->dst.obsolete, DST_OBSOLETE_KILL);
 
 		for_each_possible_cpu(i) {
 			struct rtable __rcu **prt;
@@ -732,7 +732,7 @@ static void update_or_create_fnhe(struct fib_nh_common *nhc, __be32 daddr,
 			prt = per_cpu_ptr(nhc->nhc_pcpu_rth_output, i);
 			rt = rcu_dereference(*prt);
 			if (rt)
-				rt->dst.obsolete = DST_OBSOLETE_KILL;
+				WRITE_ONCE(rt->dst.obsolete, DST_OBSOLETE_KILL);
 		}
 	}
 
@@ -804,7 +804,7 @@ static void __ip_do_redirect(struct rtable *rt, struct sk_buff *skb, struct flow
 						jiffies + ip_rt_gc_timeout);
 			}
 			if (kill_route)
-				rt->dst.obsolete = DST_OBSOLETE_KILL;
+				WRITE_ONCE(rt->dst.obsolete, DST_OBSOLETE_KILL);
 			call_netevent_notifiers(NETEVENT_NEIGH_UPDATE, n);
 		}
 		neigh_release(n);
@@ -849,7 +849,7 @@ static void ipv4_negative_advice(struct sock *sk,
 {
 	struct rtable *rt = (struct rtable *)dst;
 
-	if ((dst->obsolete > 0) ||
+	if ((READ_ONCE(dst->obsolete) > 0) ||
 	    (rt->rt_flags & RTCF_REDIRECTED) ||
 	    rt->dst.expires)
 		sk_dst_reset(sk);
@@ -1130,7 +1130,7 @@ void ipv4_sk_update_pmtu(struct sk_buff *skb, struct sock *sk, u32 mtu)
 	__build_flow_key(net, &fl4, sk, iph, 0, 0, 0, 0, 0);
 
 	rt = (struct rtable *)odst;
-	if (odst->obsolete && !odst->ops->check(odst, 0)) {
+	if (READ_ONCE(odst->obsolete) && !odst->ops->check(odst, 0)) {
 		rt = ip_route_output_flow(sock_net(sk), &fl4, sk);
 		if (IS_ERR(rt))
 			goto out;
@@ -1205,7 +1205,8 @@ INDIRECT_CALLABLE_SCOPE struct dst_entry *ipv4_dst_check(struct dst_entry *dst,
 	 * this is indicated by setting obsolete to DST_OBSOLETE_KILL or
 	 * DST_OBSOLETE_DEAD.
 	 */
-	if (dst->obsolete != DST_OBSOLETE_FORCE_CHK || rt_is_expired(rt))
+	if (READ_ONCE(dst->obsolete) != DST_OBSOLETE_FORCE_CHK ||
+	    rt_is_expired(rt))
 		return NULL;
 	return dst;
 }
@@ -1568,7 +1569,7 @@ void rt_flush_dev(struct net_device *dev)
 static bool rt_cache_valid(const struct rtable *rt)
 {
 	return	rt &&
-		rt->dst.obsolete == DST_OBSOLETE_FORCE_CHK &&
+		READ_ONCE(rt->dst.obsolete) == DST_OBSOLETE_FORCE_CHK &&
 		!rt_is_expired(rt);
 }
 
