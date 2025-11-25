@@ -816,6 +816,20 @@ static const struct dmi_system_id ath11k_pm_quirk_table[] = {
 	},
 	{
 		.driver_data = (void *)ATH11K_PM_WOW,
+		.matches = { /* T14s G3 AMD #1 */
+			DMI_MATCH(DMI_BOARD_VENDOR, "LENOVO"),
+			DMI_MATCH(DMI_PRODUCT_NAME, "21CQ"),
+		},
+	},
+	{
+		.driver_data = (void *)ATH11K_PM_WOW,
+		.matches = { /* T14s G3 AMD #2 */
+			DMI_MATCH(DMI_BOARD_VENDOR, "LENOVO"),
+			DMI_MATCH(DMI_PRODUCT_NAME, "21CR"),
+		},
+	},
+	{
+		.driver_data = (void *)ATH11K_PM_WOW,
 		.matches = { /* T14 G4 AMD #1 */
 			DMI_MATCH(DMI_BOARD_VENDOR, "LENOVO"),
 			DMI_MATCH(DMI_PRODUCT_NAME, "21K3"),
