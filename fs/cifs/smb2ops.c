@@ -26,6 +26,8 @@
 #include "smbdirect.h"
 #include "fs_context.h"
 
+static void smb2_close_cached_fid(struct kref *ref);
+
 /* Change credits for different ops and return the total number of credits */
 static int
 change_conf(struct TCP_Server_Info *server)
@@ -702,9 +704,13 @@ smb2_close_cached_fid(struct kref *ref)
 					       refcount);
 
 	if (cfid->is_valid) {
+		int rc;
+
 		cifs_dbg(FYI, "clear cached root file handle\n");
-		SMB2_close(0, cfid->tcon, cfid->fid->persistent_fid,
-			   cfid->fid->volatile_fid);
+		rc = SMB2_close(0, cfid->tcon, cfid->fid->persistent_fid,
+				cfid->fid->volatile_fid);
+		if (rc) /* should we retry on -EBUSY or -EAGAIN? */
+			cifs_dbg(VFS, "close cached dir rc %d\n", rc);
 	}
 
 	/*
@@ -776,6 +782,7 @@ int open_cached_dir(unsigned int xid, struct cifs_tcon *tcon,
 	u8 oplock = SMB2_OPLOCK_LEVEL_II;
 	struct cifs_fid *pfid;
 	struct dentry *dentry;
+	bool is_open = false;
 
 	if (tcon == NULL || tcon->nohandlecache ||
 	    is_smb1_server(tcon->ses->server))
@@ -905,29 +912,29 @@ int open_cached_dir(unsigned int xid, struct cifs_tcon *tcon,
 	}
 
 	/* Cached root is still invalid, continue normaly */
-
 	atomic_inc(&tcon->num_remote_opens);
+	is_open = true;
 
 	tcon->crfid.tcon = tcon;
-	tcon->crfid.is_valid = true;
 	tcon->crfid.dentry = dentry;
+	tcon->crfid.is_valid = true;
 	dget(dentry);
 	kref_init(&tcon->crfid.refcount);
 
-	/* BB TBD check to see if oplock level check can be removed below */
-	if (o_rsp->OplockLevel == SMB2_OPLOCK_LEVEL_LEASE) {
-		/*
-		 * See commit 2f94a3125b87. Increment the refcount when we
-		 * get a lease for root, release it if lease break occurs
-		 */
-		kref_get(&tcon->crfid.refcount);
-		tcon->crfid.has_lease = true;
-		smb2_parse_contexts(server, o_rsp,
-				&oparms.fid->epoch,
-				    oparms.fid->lease_key, &oplock,
-				    NULL, NULL);
-	} else
+	if (o_rsp->OplockLevel != SMB2_OPLOCK_LEVEL_LEASE) {
+		rc = -EINVAL;
 		goto oshr_exit;
+	}
+
+	smb2_parse_contexts(server, o_rsp,
+			    &oparms.fid->epoch,
+			    oparms.fid->lease_key, &oplock,
+			    NULL, NULL);
+
+	if (!(oplock & SMB2_LEASE_READ_CACHING_HE)) {
+		rc = -EINVAL;
+		goto oshr_exit;
+	}
 
 	qi_rsp = (struct smb2_query_info_rsp *)rsp_iov[1].iov_base;
 	if (le32_to_cpu(qi_rsp->OutputBufferLength) < sizeof(struct smb2_file_all_info))
@@ -939,7 +946,12 @@ int open_cached_dir(unsigned int xid, struct cifs_tcon *tcon,
 				(char *)&tcon->crfid.file_all_info))
 		tcon->crfid.file_all_info_is_valid = true;
 	tcon->crfid.time = jiffies;
-
+	tcon->crfid.has_lease = true;
+	/*
+	 * See commit 2f94a3125b87. Increment the refcount when we
+	 * get a lease for root, release it if lease break occurs
+	 */
+	kref_get(&tcon->crfid.refcount);
 
 oshr_exit:
 	mutex_unlock(&tcon->crfid.fid_mutex);
@@ -948,8 +960,28 @@ oshr_free:
 	SMB2_query_info_free(&rqst[1]);
 	free_rsp_buf(resp_buftype[0], rsp_iov[0].iov_base);
 	free_rsp_buf(resp_buftype[1], rsp_iov[1].iov_base);
-	if (rc == 0)
+	if (rc == 0) {
 		*cfid = &tcon->crfid;
+		if (!tcon->crfid.has_lease) {
+			/*
+			 * We are guaranteed to have two references at this point.
+			 * One for the caller and one for a potential lease.
+			 * Release the Lease-ref so that the directory will be closed
+			 * when the caller closes the cached handle.
+			 */
+			kref_put(&tcon->crfid.refcount, smb2_close_cached_fid);
+		}
+	} else {
+		if (is_open)
+			SMB2_close(0, tcon, tcon->crfid.fid->persistent_fid,
+				   tcon->crfid.fid->volatile_fid);
+		dput(tcon->crfid.dentry);
+		tcon->crfid.dentry = NULL;
+		tcon->crfid.tcon = NULL;
+		tcon->crfid.is_valid = false;
+		tcon->crfid.has_lease = false;
+		*cfid = NULL;
+	}
 	return rc;
 }
 
