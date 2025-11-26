@@ -2483,12 +2483,12 @@ static int fbcon_set_font(struct vc_data *vc, struct console_font *font,
 {
 	struct fb_info *info = fbcon_info_from_console(vc->vc_num);
 	unsigned charcount = font->charcount;
-	int w = font->width;
-	int h = font->height;
-	int size, alloc_size;
+	unsigned int w = font->width;
+	unsigned int h = font->height;
+	unsigned int size, alloc_size;
 	int i, csum;
 	u8 *new_data, *data = font->data;
-	int pitch = PITCH(font->width);
+	unsigned int pitch = PITCH(font->width);
 
 	/* Is there a reason why fbconsole couldn't handle any charcount >256?
 	 * If not this check should be changed to charcount < 256 */
