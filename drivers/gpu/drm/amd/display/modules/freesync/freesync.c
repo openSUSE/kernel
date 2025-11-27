@@ -1275,6 +1275,17 @@ void mod_freesync_handle_v_update(struct mod_freesync *mod_freesync,
 		update_v_total_for_static_ramp(
 				core_freesync, stream, in_out_vrr);
 	}
+
+	/*
+	 * If VRR is inactive, set vtotal min and max to nominal vtotal
+	 */
+	 if (in_out_vrr->state == VRR_STATE_INACTIVE) {
+		in_out_vrr->adjust.v_total_min =
+			mod_freesync_calc_v_total_from_refresh(stream,
+				in_out_vrr->max_refresh_in_uhz);
+		in_out_vrr->adjust.v_total_max = in_out_vrr->adjust.v_total_min;
+		return;
+	}
 }
 
 void mod_freesync_get_settings(struct mod_freesync *mod_freesync,

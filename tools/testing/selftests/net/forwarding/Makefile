@@ -41,6 +41,7 @@ TEST_PROGS = bridge_igmp.sh \
 	ipip_hier_gre_key.sh \
 	ipip_hier_gre_keys.sh \
 	ipip_hier_gre.sh \
+	lib_sh_test.sh \
 	local_termination.sh \
 	loopback.sh \
 	mirror_gre_bound.sh \
@@ -117,5 +118,8 @@ TEST_PROGS_EXTENDED := devlink_lib.sh \
 	sch_tbf_core.sh \
 	sch_tbf_etsprio.sh \
 	tc_common.sh
+
+TEST_INCLUDES := \
+	../lib.sh
 
 include ../../lib.mk

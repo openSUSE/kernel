@@ -533,7 +533,7 @@ static int j721e_pcie_probe(struct platform_device *pdev)
 
 	ret = j721e_pcie_ctrl_init(pcie);
 	if (ret < 0) {
-		dev_err(dev, "pm_runtime_get_sync failed\n");
+		dev_err(dev, "j721e_pcie_ctrl_init failed\n");
 		goto err_get_sync;
 	}
 

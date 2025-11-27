@@ -187,7 +187,6 @@ int pdsc_auxbus_dev_del(struct pdsc *cf, struct pdsc *pf)
 		pds_client_unregister(pf, padev->client_id);
 		auxiliary_device_delete(&padev->aux_dev);
 		auxiliary_device_uninit(&padev->aux_dev);
-		padev->client_id = 0;
 	}
 	pf->vfs[cf->vf_id].padev = NULL;
 

@@ -993,7 +993,7 @@ static void xhci_dbc_handle_events(struct work_struct *work)
 			msecs_to_jiffies(DBC_XFER_INACTIVITY_TIMEOUT);
 		if (!list_empty(&dbc->eps[BULK_OUT].list_pending) ||
 		    time_is_after_jiffies(busypoll_timelimit))
-			poll_interval = 1;
+			poll_interval = 0;
 		break;
 	case EVT_XFER_DONE:
 		dbc->xfer_timestamp = jiffies;
