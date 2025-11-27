@@ -5425,7 +5425,7 @@ nfsd4_encode_operation(struct nfsd4_compoundres *resp, struct nfsd4_op *op)
 		warn_on_nonidempotent_op(op);
 		xdr_truncate_encode(xdr, post_err_offset);
 	}
-	if (so) {
+	else if (so) {
 		int len = xdr->buf->len - post_err_offset;
 
 		so->so_replay.rp_status = op->status;
@@ -5482,6 +5482,7 @@ bool
 nfs4svc_decode_compoundargs(struct svc_rqst *rqstp, struct xdr_stream *xdr)
 {
 	struct nfsd4_compoundargs *args = rqstp->rq_argp;
+	bool ret = false;
 
 	/* svcxdr_tmp_alloc */
 	args->to_free = NULL;
@@ -5490,7 +5491,11 @@ nfs4svc_decode_compoundargs(struct svc_rqst *rqstp, struct xdr_stream *xdr)
 	args->ops = args->iops;
 	args->rqstp = rqstp;
 
-	return nfsd4_decode_compound(args);
+	clear_bit(RQ_USEDEFERRAL, &rqstp->rq_flags);
+	ret = nfsd4_decode_compound(args);
+	set_bit(RQ_USEDEFERRAL, &rqstp->rq_flags);
+
+	return ret;
 }
 
 bool
