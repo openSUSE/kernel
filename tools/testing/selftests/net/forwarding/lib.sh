@@ -2,44 +2,94 @@
 # SPDX-License-Identifier: GPL-2.0
 
 ##############################################################################
+# Topology description. p1 looped back to p2, p3 to p4 and so on.
+
+declare -A NETIFS=(
+    [p1]=veth0
+    [p2]=veth1
+    [p3]=veth2
+    [p4]=veth3
+    [p5]=veth4
+    [p6]=veth5
+    [p7]=veth6
+    [p8]=veth7
+    [p9]=veth8
+    [p10]=veth9
+)
+
+# Port that does not have a cable connected.
+: "${NETIF_NO_CABLE:=eth8}"
+
+##############################################################################
 # Defines
 
-# Kselftest framework requirement - SKIP code is 4.
-ksft_skip=4
+# Networking utilities.
+: "${PING:=ping}"
+: "${PING6:=ping6}"	# Some distros just use ping.
+: "${ARPING:=arping}"
+: "${TROUTE6:=traceroute6}"
 
-# Can be overridden by the configuration file.
-PING=${PING:=ping}
-PING6=${PING6:=ping6}
-MZ=${MZ:=mausezahn}
-ARPING=${ARPING:=arping}
-TEAMD=${TEAMD:=teamd}
-WAIT_TIME=${WAIT_TIME:=5}
-PAUSE_ON_FAIL=${PAUSE_ON_FAIL:=no}
-PAUSE_ON_CLEANUP=${PAUSE_ON_CLEANUP:=no}
-NETIF_TYPE=${NETIF_TYPE:=veth}
-NETIF_CREATE=${NETIF_CREATE:=yes}
-MCD=${MCD:=smcrouted}
-MC_CLI=${MC_CLI:=smcroutectl}
-PING_COUNT=${PING_COUNT:=10}
-PING_TIMEOUT=${PING_TIMEOUT:=5}
-WAIT_TIMEOUT=${WAIT_TIMEOUT:=20}
-INTERFACE_TIMEOUT=${INTERFACE_TIMEOUT:=600}
-LOW_AGEING_TIME=${LOW_AGEING_TIME:=1000}
-REQUIRE_JQ=${REQUIRE_JQ:=yes}
-REQUIRE_MZ=${REQUIRE_MZ:=yes}
-REQUIRE_MTOOLS=${REQUIRE_MTOOLS:=no}
-STABLE_MAC_ADDRS=${STABLE_MAC_ADDRS:=no}
-TCPDUMP_EXTRA_FLAGS=${TCPDUMP_EXTRA_FLAGS:=}
-TROUTE6=${TROUTE6:=traceroute6}
+# Packet generator.
+: "${MZ:=mausezahn}"	# Some distributions use 'mz'.
+: "${MZ_DELAY:=0}"
 
-relative_path="${BASH_SOURCE%/*}"
-if [[ "$relative_path" == "${BASH_SOURCE}" ]]; then
-	relative_path="."
+# Host configuration tools.
+: "${TEAMD:=teamd}"
+: "${MCD:=smcrouted}"
+: "${MC_CLI:=smcroutectl}"
+
+# Constants for netdevice bring-up:
+# Default time in seconds to wait for an interface to come up before giving up
+# and bailing out. Used during initial setup.
+: "${INTERFACE_TIMEOUT:=600}"
+# Like INTERFACE_TIMEOUT, but default for ad-hoc waiting in testing scripts.
+: "${WAIT_TIMEOUT:=20}"
+# Time to wait after interfaces participating in the test are all UP.
+: "${WAIT_TIME:=5}"
+
+# Whether to pause on, respectively, after a failure and before cleanup.
+: "${PAUSE_ON_CLEANUP:=no}"
+
+# Whether to create virtual interfaces, and what netdevice type they should be.
+: "${NETIF_CREATE:=yes}"
+: "${NETIF_TYPE:=veth}"
+
+# Constants for ping tests:
+# How many packets should be sent.
+: "${PING_COUNT:=10}"
+# Timeout (in seconds) before ping exits regardless of how many packets have
+# been sent or received
+: "${PING_TIMEOUT:=5}"
+
+# Minimum ageing_time (in centiseconds) supported by hardware
+: "${LOW_AGEING_TIME:=1000}"
+
+# Whether to check for availability of certain tools.
+: "${REQUIRE_JQ:=yes}"
+: "${REQUIRE_MZ:=yes}"
+: "${REQUIRE_MTOOLS:=no}"
+
+# Whether to override MAC addresses on interfaces participating in the test.
+: "${STABLE_MAC_ADDRS:=no}"
+
+# Flags for tcpdump
+: "${TCPDUMP_EXTRA_FLAGS:=}"
+
+# Flags for TC filters.
+: "${TC_FLAG:=skip_hw}"
+
+# Whether the machine is "slow" -- i.e. might be incapable of running tests
+# involving heavy traffic. This might be the case on a debug kernel, a VM, or
+# e.g. a low-power board.
+: "${KSFT_MACHINE_SLOW:=no}"
+
+net_forwarding_dir=$(dirname "$(readlink -e "${BASH_SOURCE[0]}")")
+
+if [[ -f $net_forwarding_dir/forwarding.config ]]; then
+	source "$net_forwarding_dir/forwarding.config"
 fi
 
-if [[ -f $relative_path/forwarding.config ]]; then
-	source "$relative_path/forwarding.config"
-fi
+source "$net_forwarding_dir/../lib.sh"
 
 ##############################################################################
 # Sanity checks
@@ -312,19 +362,20 @@ done
 ##############################################################################
 # Helpers
 
-# Exit status to return at the end. Set in case one of the tests fails.
-EXIT_STATUS=0
-# Per-test return value. Clear at the beginning of each test.
-RET=0
+# Whether FAILs should be interpreted as XFAILs. Internal.
+FAIL_TO_XFAIL=
 
 check_err()
 {
 	local err=$1
 	local msg=$2
 
-	if [[ $RET -eq 0 && $err -ne 0 ]]; then
-		RET=$err
-		retmsg=$msg
+	if ((err)); then
+		if [[ $FAIL_TO_XFAIL = yes ]]; then
+			ret_set_ksft_status $ksft_xfail "$msg"
+		else
+			ret_set_ksft_status $ksft_fail "$msg"
+		fi
 	fi
 }
 
@@ -333,10 +384,7 @@ check_fail()
 	local err=$1
 	local msg=$2
 
-	if [[ $RET -eq 0 && $err -eq 0 ]]; then
-		RET=1
-		retmsg=$msg
-	fi
+	check_err $((!err)) "$msg"
 }
 
 check_err_fail()
@@ -352,70 +400,13 @@ check_err_fail()
 	fi
 }
 
-log_test()
+xfail_on_slow()
 {
-	local test_name=$1
-	local opt_str=$2
-
-	if [[ $# -eq 2 ]]; then
-		opt_str="($opt_str)"
+	if [[ $KSFT_MACHINE_SLOW = yes ]]; then
+		FAIL_TO_XFAIL=yes "$@"
+	else
+		"$@"
 	fi
-
-	if [[ $RET -ne 0 ]]; then
-		EXIT_STATUS=1
-		printf "TEST: %-60s  [FAIL]\n" "$test_name $opt_str"
-		if [[ ! -z "$retmsg" ]]; then
-			printf "\t%s\n" "$retmsg"
-		fi
-		if [ "${PAUSE_ON_FAIL}" = "yes" ]; then
-			echo "Hit enter to continue, 'q' to quit"
-			read a
-			[ "$a" = "q" ] && exit 1
-		fi
-		return 1
-	fi
-
-	printf "TEST: %-60s  [ OK ]\n" "$test_name $opt_str"
-	return 0
-}
-
-log_test_skip()
-{
-	local test_name=$1
-	local opt_str=$2
-
-	printf "TEST: %-60s  [SKIP]\n" "$test_name $opt_str"
-	return 0
-}
-
-log_info()
-{
-	local msg=$1
-
-	echo "INFO: $msg"
-}
-
-busywait()
-{
-	local timeout=$1; shift
-
-	local start_time="$(date -u +%s%3N)"
-	while true
-	do
-		local out
-		out=$("$@")
-		local ret=$?
-		if ((!ret)); then
-			echo -n "$out"
-			return 0
-		fi
-
-		local current_time="$(date -u +%s%3N)"
-		if ((current_time - start_time > timeout)); then
-			echo -n "$out"
-			return 1
-		fi
-	done
 }
 
 not()
@@ -467,24 +458,6 @@ wait_for_offload()
 wait_for_trap()
 {
 	"$@" | grep -q trap
-}
-
-until_counter_is()
-{
-	local expr=$1; shift
-	local current=$("$@")
-
-	echo $((current))
-	((current $expr))
-}
-
-busywait_for_counter()
-{
-	local timeout=$1; shift
-	local delta=$1; shift
-
-	local base=$("$@")
-	busywait "$timeout" until_counter_is ">= $((base + delta))" "$@"
 }
 
 setup_wait_dev()
@@ -790,29 +763,6 @@ link_stats_tx_packets_get()
 link_stats_rx_errors_get()
 {
 	link_stats_get $1 rx errors
-}
-
-tc_rule_stats_get()
-{
-	local dev=$1; shift
-	local pref=$1; shift
-	local dir=$1; shift
-	local selector=${1:-.packets}; shift
-
-	tc -j -s filter show dev $dev ${dir:-ingress} pref $pref \
-	    | jq ".[1].options.actions[].stats$selector"
-}
-
-tc_rule_handle_stats_get()
-{
-	local id=$1; shift
-	local handle=$1; shift
-	local selector=${1:-.packets}; shift
-	local netns=${1:-""}; shift
-
-	tc $netns -j -s filter show $id \
-	    | jq ".[] | select(.options.handle == $handle) | \
-		  .options.actions[0].stats$selector"
 }
 
 ethtool_stats_get()
