@@ -12351,13 +12351,13 @@ static void sched_balance_domains(struct rq *rq, enum cpu_idle_type idle)
 
 		interval = get_sd_balance_interval(sd, busy);
 
-		if (time_after_eq(jiffies, sd->last_balance + interval)) {
-			need_serialize = sd->flags & SD_SERIALIZE;
-			if (need_serialize) {
-				if (atomic_cmpxchg_acquire(&sched_balance_running, 0, 1))
-					goto out;
-			}
+		need_serialize = sd->flags & SD_SERIALIZE;
+		if (need_serialize) {
+			if (atomic_cmpxchg_acquire(&sched_balance_running, 0, 1))
+				goto out;
+		}
 
+		if (time_after_eq(jiffies, sd->last_balance + interval)) {
 			if (sched_balance_rq(cpu, rq, sd, idle, &continue_balancing)) {
 				/*
 				 * The LBF_DST_PINNED logic could have changed
@@ -12369,9 +12369,9 @@ static void sched_balance_domains(struct rq *rq, enum cpu_idle_type idle)
 			}
 			sd->last_balance = jiffies;
 			interval = get_sd_balance_interval(sd, busy);
-			if (need_serialize)
-				atomic_set_release(&sched_balance_running, 0);
 		}
+		if (need_serialize)
+			atomic_set_release(&sched_balance_running, 0);
 out:
 		if (time_after(next_balance, sd->last_balance + interval)) {
 			next_balance = sd->last_balance + interval;
