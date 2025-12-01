@@ -894,8 +894,7 @@ static __always_inline u64 notrace bpf_prog_start_time(void)
 static u64 notrace __bpf_prog_enter_recur(struct bpf_prog *prog, struct bpf_tramp_run_ctx *run_ctx)
 	__acquires(RCU)
 {
-	rcu_read_lock();
-	migrate_disable();
+	rcu_read_lock_dont_migrate();
 
 	run_ctx->saved_run_ctx = bpf_set_run_ctx(&run_ctx->run_ctx);
 
@@ -944,8 +943,7 @@ static void notrace __bpf_prog_exit_recur(struct bpf_prog *prog, u64 start,
 
 	update_prog_stats(prog, start);
 	this_cpu_dec(*(prog->active));
-	migrate_enable();
-	rcu_read_unlock();
+	rcu_read_unlock_migrate();
 }
 
 static u64 notrace __bpf_prog_enter_lsm_cgroup(struct bpf_prog *prog,
@@ -955,8 +953,7 @@ static u64 notrace __bpf_prog_enter_lsm_cgroup(struct bpf_prog *prog,
 	/* Runtime stats are exported via actual BPF_LSM_CGROUP
 	 * programs, not the shims.
 	 */
-	rcu_read_lock();
-	migrate_disable();
+	rcu_read_lock_dont_migrate();
 
 	run_ctx->saved_run_ctx = bpf_set_run_ctx(&run_ctx->run_ctx);
 
@@ -969,8 +966,7 @@ static void notrace __bpf_prog_exit_lsm_cgroup(struct bpf_prog *prog, u64 start,
 {
 	bpf_reset_run_ctx(run_ctx->saved_run_ctx);
 
-	migrate_enable();
-	rcu_read_unlock();
+	rcu_read_unlock_migrate();
 }
 
 u64 notrace __bpf_prog_enter_sleepable_recur(struct bpf_prog *prog,
@@ -1028,8 +1024,7 @@ static u64 notrace __bpf_prog_enter(struct bpf_prog *prog,
 				    struct bpf_tramp_run_ctx *run_ctx)
 	__acquires(RCU)
 {
-	rcu_read_lock();
-	migrate_disable();
+	rcu_read_lock_dont_migrate();
 
 	run_ctx->saved_run_ctx = bpf_set_run_ctx(&run_ctx->run_ctx);
 
@@ -1043,8 +1038,7 @@ static void notrace __bpf_prog_exit(struct bpf_prog *prog, u64 start,
 	bpf_reset_run_ctx(run_ctx->saved_run_ctx);
 
 	update_prog_stats(prog, start);
-	migrate_enable();
-	rcu_read_unlock();
+	rcu_read_unlock_migrate();
 }
 
 void notrace __bpf_tramp_enter(struct bpf_tramp_image *tr)

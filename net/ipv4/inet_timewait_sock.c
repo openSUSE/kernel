@@ -15,7 +15,8 @@
 #include <net/inet_hashtables.h>
 #include <net/inet_timewait_sock.h>
 #include <net/ip.h>
-
+#include <net/tcp.h>
+#include <net/psp.h>
 
 /**
  *	inet_twsk_bind_unhash - unhash a timewait socket from bind hash
@@ -74,7 +75,8 @@ static void inet_twsk_kill(struct inet_timewait_sock *tw)
 void inet_twsk_free(struct inet_timewait_sock *tw)
 {
 	struct module *owner = tw->tw_prot->owner;
-	twsk_destructor((struct sock *)tw);
+
+	tcp_twsk_destructor((struct sock *)tw);
 	kmem_cache_free(tw->tw_prot->twsk_prot->twsk_slab, tw);
 	module_put(owner);
 }
@@ -211,6 +213,9 @@ struct inet_timewait_sock *inet_twsk_alloc(const struct sock *sk,
 		atomic64_set(&tw->tw_cookie, atomic64_read(&sk->sk_cookie));
 		twsk_net_set(tw, sock_net(sk));
 		timer_setup(&tw->tw_timer, tw_timer_handler, 0);
+#ifdef CONFIG_SOCK_VALIDATE_XMIT
+		tw->tw_validate_xmit_skb = NULL;
+#endif
 		/*
 		 * Because we use RCU lookups, we should not set tw_refcnt
 		 * to a non null value before everything is setup for this
@@ -219,6 +224,7 @@ struct inet_timewait_sock *inet_twsk_alloc(const struct sock *sk,
 		refcount_set(&tw->tw_refcnt, 0);
 
 		__module_get(tw->tw_prot->owner);
+		psp_twsk_init(tw, sk);
 	}
 
 	return tw;
@@ -330,13 +336,13 @@ restart:
 					     TCPF_NEW_SYN_RECV))
 				continue;
 
-			if (refcount_read(&sock_net(sk)->ns.count))
+			if (check_net(sock_net(sk)))
 				continue;
 
 			if (unlikely(!refcount_inc_not_zero(&sk->sk_refcnt)))
 				continue;
 
-			if (refcount_read(&sock_net(sk)->ns.count)) {
+			if (check_net(sock_net(sk))) {
 				sock_gen_put(sk);
 				goto restart;
 			}

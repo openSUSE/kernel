@@ -263,6 +263,14 @@ static void brcmstb_pmx_gpio_disable_free(struct pinctrl_dev *pctldev,
 	(void)brcmstb_pinctrl_fsel_set(pc, offset, pc->func_gpio);
 }
 
+static bool brcmstb_pmx_function_is_gpio(struct pinctrl_dev *pctldev,
+					 unsigned int selector)
+{
+	struct brcmstb_pinctrl *pc = pinctrl_dev_get_drvdata(pctldev);
+
+	return pc->func_gpio == selector;
+}
+
 static const struct pinmux_ops brcmstb_pmx_ops = {
 	.free = brcmstb_pmx_free,
 	.get_functions_count = brcmstb_pmx_get_functions_count,
@@ -271,6 +279,8 @@ static const struct pinmux_ops brcmstb_pmx_ops = {
 	.set_mux = brcmstb_pmx_set,
 	.gpio_request_enable = brcmstb_pmx_gpio_request_enable,
 	.gpio_disable_free = brcmstb_pmx_gpio_disable_free,
+	.function_is_gpio = brcmstb_pmx_function_is_gpio,
+	.strict = true,
 };
 
 static unsigned int brcmstb_pull_config_get(struct brcmstb_pinctrl *pc,

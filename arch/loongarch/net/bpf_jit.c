@@ -527,13 +527,11 @@ static int build_insn(const struct bpf_insn *insn, struct jit_ctx *ctx, bool ext
 			emit_zext_32(ctx, dst, is32);
 			break;
 		case 8:
-			move_reg(ctx, t1, src);
-			emit_insn(ctx, extwb, dst, t1);
+			emit_insn(ctx, extwb, dst, src);
 			emit_zext_32(ctx, dst, is32);
 			break;
 		case 16:
-			move_reg(ctx, t1, src);
-			emit_insn(ctx, extwh, dst, t1);
+			emit_insn(ctx, extwh, dst, src);
 			emit_zext_32(ctx, dst, is32);
 			break;
 		case 32:
@@ -1626,6 +1624,9 @@ static int __arch_prepare_bpf_trampoline(struct jit_ctx *ctx, struct bpf_tramp_i
 	/* Direct jump skips 5 NOP instructions */
 	else if (is_bpf_text_address((unsigned long)orig_call))
 		orig_call += LOONGARCH_BPF_FENTRY_NBYTES;
+	/* Module tracing not supported - cause kernel lockups */
+	else if (is_module_text_address((unsigned long)orig_call))
+		return -ENOTSUPP;
 
 	if (flags & BPF_TRAMP_F_CALL_ORIG) {
 		move_addr(ctx, LOONGARCH_GPR_A0, (const u64)im);
