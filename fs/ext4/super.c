@@ -3739,10 +3739,15 @@ static int ext4_fill_super(struct super_block *sb, void *data, int silent)
 	}
 
 	if (sbi->s_es->s_mount_opts[0]) {
-		char s_mount_opts[sizeof(sbi->s_es->s_mount_opts) + 1];
+		char s_mount_opts[sizeof(sbi->s_es->s_mount_opts)];
 
-		strscpy_pad(s_mount_opts, sbi->s_es->s_mount_opts,
-			    sizeof(s_mount_opts));
+		if (strscpy_pad(s_mount_opts, sbi->s_es->s_mount_opts,
+			    sizeof(s_mount_opts)) < 0) {
+			ext4_msg(sb, KERN_ERR,
+				 "failed to read options from superblock");
+			ret = -E2BIG;
+			goto failed_mount;
+		}
 
 		if (!parse_options(s_mount_opts, sb, &journal_devnum,
 				   &journal_ioprio, 0)) {
