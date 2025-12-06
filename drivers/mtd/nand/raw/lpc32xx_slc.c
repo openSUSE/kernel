@@ -939,6 +939,7 @@ unprepare_clk:
 	clk_disable_unprepare(host->clk);
 enable_wp:
 	lpc32xx_wp_enable(host);
+	gpiod_put(host->wp_gpio);
 
 	return res;
 }
@@ -965,6 +966,7 @@ static void lpc32xx_nand_remove(struct platform_device *pdev)
 
 	clk_disable_unprepare(host->clk);
 	lpc32xx_wp_enable(host);
+	gpiod_put(host->wp_gpio);
 }
 
 static int lpc32xx_nand_resume(struct platform_device *pdev)
