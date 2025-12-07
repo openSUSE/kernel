@@ -1716,6 +1716,7 @@ static int vmw_cmd_dma(struct vmw_private *dev_priv,
 		       SVGA3dCmdHeader *header)
 {
 	struct vmw_buffer_object *vmw_bo = NULL;
+	struct vmw_resource *res;
 	struct vmw_surface *srf = NULL;
 	struct vmw_dma_cmd {
 		SVGA3dCmdHeader header;
@@ -1761,8 +1762,13 @@ static int vmw_cmd_dma(struct vmw_private *dev_priv,
 		goto out_no_surface;
 	}
 
-	srf = vmw_res_to_srf(sw_context->res_cache[vmw_res_surface].res);
+	res = sw_context->res_cache[vmw_res_surface].res;
+	if (!res) {
+		DRM_DEBUG("Invalid DMA surface.\n");
+		return -EINVAL;
+	}
 
+	srf = vmw_res_to_srf(res);
 	vmw_kms_cursor_snoop(srf, sw_context->fp->tfile, &vmw_bo->base,
 			     header);
 
