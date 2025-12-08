@@ -102,6 +102,10 @@ int pcie_failed_link_retrain(struct pci_dev *dev)
 	    !pcie_cap_has_lnkctl2(dev) || !dev->link_active_reporting)
 		return ret;
 
+	speed_cap = pcie_get_speed_cap(dev);
+	if (speed_cap <= PCIE_SPEED_2_5GT)
+		return ret;
+
 	pcie_capability_read_word(dev, PCI_EXP_LNKSTA, &lnksta);
 	pcie_capability_read_word(dev, PCI_EXP_LNKCTL2, &oldlnkctl2);
 	if (!(lnksta & PCI_EXP_LNKSTA_DLLLA) && pcie_lbms_seen(dev, lnksta)) {
@@ -111,10 +115,8 @@ int pcie_failed_link_retrain(struct pci_dev *dev)
 			goto err;
 	}
 
-	speed_cap = pcie_get_speed_cap(dev);
 	pcie_capability_read_word(dev, PCI_EXP_LNKCTL2, &lnkctl2);
-	if ((lnkctl2 & PCI_EXP_LNKCTL2_TLS) == PCI_EXP_LNKCTL2_TLS_2_5GT &&
-	    speed_cap > PCIE_SPEED_2_5GT) {
+	if ((lnkctl2 & PCI_EXP_LNKCTL2_TLS) == PCI_EXP_LNKCTL2_TLS_2_5GT) {
 		pci_info(dev, "removing 2.5GT/s downstream link speed restriction\n");
 		ret = pcie_set_target_speed(dev, speed_cap, false);
 		if (ret)
