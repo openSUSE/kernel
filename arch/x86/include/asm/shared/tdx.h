@@ -7,8 +7,6 @@
 
 #define TDX_HYPERCALL_STANDARD  0
 
-#define TDX_HCALL_HAS_OUTPUT	BIT(0)
-
 #define TDX_CPUID_LEAF_ID	0x21
 #define TDX_IDENT		"IntelTDX    "
 
@@ -51,7 +49,8 @@ struct tdx_hypercall_args {
 };
 
 /* Used to request services from the VMM */
-u64 __tdx_hypercall(struct tdx_hypercall_args *args, unsigned long flags);
+u64 __tdx_hypercall(struct tdx_hypercall_args *args);
+u64 __tdx_hypercall_ret(struct tdx_hypercall_args *args);
 
 /*
  * Wrapper for standard use of __tdx_hypercall with no output aside from
@@ -68,7 +67,7 @@ static inline u64 _tdx_hypercall(u64 fn, u64 r12, u64 r13, u64 r14, u64 r15)
 		.r15 = r15,
 	};
 
-	return __tdx_hypercall(&args, 0);
+	return __tdx_hypercall(&args);
 }
 
 
