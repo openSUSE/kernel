@@ -217,6 +217,7 @@ SYM_FUNC_START(__tdx_hypercall)
 	xor %r10d, %r10d
 	xor %r11d, %r11d
 	xor %rdi,  %rdi
+	xor %rsi,  %rsi
 	xor %rdx,  %rdx
 
 	/* Remove TDX_HCALL_* flags from the stack */
