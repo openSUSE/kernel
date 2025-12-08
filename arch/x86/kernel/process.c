@@ -891,7 +891,7 @@ void select_idle_routine(const struct cpuinfo_x86 *c)
 		x86_idle = mwait_idle;
 	} else if (cpu_feature_enabled(X86_FEATURE_TDX_GUEST)) {
 		pr_info("using TDX aware idle routine\n");
-		x86_idle = tdx_safe_halt;
+		x86_idle = tdx_halt;
 	} else
 		x86_idle = default_idle;
 }
