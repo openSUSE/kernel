@@ -113,3 +113,8 @@ IWL_CORE_FW(IWL_BZ_B_HR_B_FW_PRE, IWL_BZ_UCODE_CORE_MAX);
 IWL_CORE_FW(IWL_GL_B_FM_B_FW_PRE, IWL_BZ_UCODE_CORE_MAX);
 IWL_CORE_FW(IWL_GL_C_FM_C_FW_PRE, IWL_BZ_UCODE_CORE_MAX);
 
+// FIXME: extra due to the missing firmware files
+MODULE_FIRMWARE("iwlwifi-bz-b0-fm-c0-98.ucode");
+MODULE_FIRMWARE("iwlwifi-bz-b0-gf-a0-98.ucode");
+MODULE_FIRMWARE("iwlwifi-bz-b0-hr-b0-98.ucode");
+MODULE_FIRMWARE("iwlwifi-gl-c0-fm-c0-98.ucode");
