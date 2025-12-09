@@ -89,6 +89,8 @@ TEST_PROGS += test_bridge_neigh_suppress.sh
 TEST_FILES := settings
 TEST_FILES += in_netns.sh lib.sh setup_loopback.sh setup_veth.sh
 
+TEST_INCLUDES := forwarding/lib.sh
+
 include ../lib.mk
 
 $(OUTPUT)/reuseport_bpf_numa: LDLIBS += -lnuma
