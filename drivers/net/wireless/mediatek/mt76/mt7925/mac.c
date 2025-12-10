@@ -395,11 +395,7 @@ mt7925_mac_fill_rx(struct mt792x_dev *dev, struct sk_buff *skb)
 
 	if (status->wcid) {
 		mlink = container_of(status->wcid, struct mt792x_link_sta, wcid);
-		spin_lock_bh(&dev->mt76.sta_poll_lock);
-		if (list_empty(&mlink->wcid.poll_list))
-			list_add_tail(&mlink->wcid.poll_list,
-				      &dev->mt76.sta_poll_list);
-		spin_unlock_bh(&dev->mt76.sta_poll_lock);
+		mt76_wcid_add_poll(&dev->mt76, &mlink->wcid);
 	}
 
 	mt792x_get_status_freq_info(status, chfreq);
@@ -1054,10 +1050,7 @@ void mt7925_mac_add_txs(struct mt792x_dev *dev, void *data)
 	if (!wcid->sta)
 		goto out;
 
-	spin_lock_bh(&dev->mt76.sta_poll_lock);
-	if (list_empty(&mlink->wcid.poll_list))
-		list_add_tail(&mlink->wcid.poll_list, &dev->mt76.sta_poll_list);
-	spin_unlock_bh(&dev->mt76.sta_poll_lock);
+	mt76_wcid_add_poll(&dev->mt76, &mlink->wcid);
 
 out:
 	rcu_read_unlock();
@@ -1135,11 +1128,7 @@ mt7925_mac_tx_free(struct mt792x_dev *dev, void *data, int len)
 				continue;
 
 			mlink = container_of(wcid, struct mt792x_link_sta, wcid);
-			spin_lock_bh(&mdev->sta_poll_lock);
-			if (list_empty(&mlink->wcid.poll_list))
-				list_add_tail(&mlink->wcid.poll_list,
-					      &mdev->sta_poll_list);
-			spin_unlock_bh(&mdev->sta_poll_lock);
+			mt76_wcid_add_poll(&dev->mt76, &mlink->wcid);
 			continue;
 		}
 
@@ -1339,6 +1328,10 @@ void mt7925_mac_reset_work(struct work_struct *work)
 					    IEEE80211_IFACE_ITER_RESUME_ALL,
 					    mt7925_vif_connect_iter, NULL);
 	mt76_connac_power_save_sched(&dev->mt76.phy, pm);
+
+	mt792x_mutex_acquire(dev);
+	mt7925_mcu_set_clc(dev, "00", ENVIRON_INDOOR);
+	mt792x_mutex_release(dev);
 }
 
 void mt7925_coredump_work(struct work_struct *work)
