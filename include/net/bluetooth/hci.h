@@ -432,7 +432,6 @@ enum {
 	HCI_USER_CHANNEL,
 	HCI_EXT_CONFIGURED,
 	HCI_LE_ADV,
-	HCI_LE_ADV_0,
 	HCI_LE_PER_ADV,
 	HCI_LE_SCAN,
 	HCI_SSP_ENABLED,
@@ -474,6 +473,11 @@ enum {
 	HCI_MESH_EXPERIMENTAL,
 	HCI_MESH,
 	HCI_MESH_SENDING,
+
+#ifndef __GENKSYMS__
+	/* FIXME: moved here for kABI compatibility */
+	HCI_LE_ADV_0,
+#endif
 
 	__HCI_NUM_FLAGS,
 };
