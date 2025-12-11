@@ -847,7 +847,11 @@ struct mgmt_cp_set_mesh {
 	__le16 window;
 	__le16 period;
 	__u8   num_ad_types;
-	__u8   ad_types[] __counted_by(num_ad_types);
+	__u8   ad_types[]
+#ifndef __GENKSYMS__
+		__counted_by(num_ad_types)
+#endif
+		;
 } __packed;
 #define MGMT_SET_MESH_RECEIVER_SIZE	6
 
