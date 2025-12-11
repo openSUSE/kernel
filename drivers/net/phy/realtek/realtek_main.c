@@ -13,6 +13,7 @@
 #include <linux/module.h>
 #include <linux/delay.h>
 #include <linux/clk.h>
+#include <linux/string_choices.h>
 
 #define RTL821x_PHYSR				0x11
 #define RTL821x_PHYSR_DUPLEX			BIT(13)
@@ -76,11 +77,7 @@
 /* RTL822X_VND2_XXXXX registers are only accessible when phydev->is_c45
  * is set, they cannot be accessed by C45-over-C22.
  */
-#define RTL822X_VND2_GBCR				0xa412
-
-#define RTL822X_VND2_GANLPAR				0xa414
-
-#define RTL822X_VND2_PHYSR				0xa434
+#define RTL822X_VND2_C22_REG(reg)		(0xa400 + 2 * (reg))
 
 #define RTL8366RB_POWER_SAVE			0x15
 #define RTL8366RB_POWER_SAVE_ON			BIT(12)
@@ -88,7 +85,22 @@
 #define RTL9000A_GINMR				0x14
 #define RTL9000A_GINMR_LINK_STATUS		BIT(4)
 
-#define RTLGEN_SPEED_MASK			0x0630
+#define RTL_VND2_PHYSR				0xa434
+#define RTL_VND2_PHYSR_DUPLEX			BIT(3)
+#define RTL_VND2_PHYSR_SPEEDL			GENMASK(5, 4)
+#define RTL_VND2_PHYSR_SPEEDH			GENMASK(10, 9)
+#define RTL_VND2_PHYSR_MASTER			BIT(11)
+#define RTL_VND2_PHYSR_SPEED_MASK		(RTL_VND2_PHYSR_SPEEDL | RTL_VND2_PHYSR_SPEEDH)
+
+#define	RTL_MDIO_PCS_EEE_ABLE			0xa5c4
+#define	RTL_MDIO_AN_EEE_ADV			0xa5d0
+#define	RTL_MDIO_AN_EEE_LPABLE			0xa5d2
+#define	RTL_MDIO_AN_10GBT_CTRL			0xa5d4
+#define	RTL_MDIO_AN_10GBT_STAT			0xa5d6
+#define	RTL_MDIO_PMA_SPEED			0xa616
+#define	RTL_MDIO_AN_EEE_LPABLE2			0xa6d0
+#define	RTL_MDIO_AN_EEE_ADV2			0xa6d4
+#define	RTL_MDIO_PCS_EEE_ABLE2			0xa6ec
 
 #define RTL_GENERIC_PHYID			0x001cc800
 #define RTL_8211FVD_PHYID			0x001cc878
@@ -417,11 +429,11 @@ static int rtl8211f_config_init(struct phy_device *phydev)
 	} else if (ret) {
 		dev_dbg(dev,
 			"%s 2ns TX delay (and changing the value from pin-strapping RXD1 or the bootloader)\n",
-			val_txdly ? "Enabling" : "Disabling");
+			str_enable_disable(val_txdly));
 	} else {
 		dev_dbg(dev,
 			"2ns TX delay was already %s (by pin-strapping RXD1 or bootloader configuration)\n",
-			val_txdly ? "enabled" : "disabled");
+			str_enabled_disabled(val_txdly));
 	}
 
 	ret = phy_modify_paged_changed(phydev, 0xd08, 0x15, RTL8211F_RX_DELAY,
@@ -432,11 +444,11 @@ static int rtl8211f_config_init(struct phy_device *phydev)
 	} else if (ret) {
 		dev_dbg(dev,
 			"%s 2ns RX delay (and changing the value from pin-strapping RXD0 or the bootloader)\n",
-			val_rxdly ? "Enabling" : "Disabling");
+			str_enable_disable(val_rxdly));
 	} else {
 		dev_dbg(dev,
 			"2ns RX delay was already %s (by pin-strapping RXD0 or bootloader configuration)\n",
-			val_rxdly ? "enabled" : "disabled");
+			str_enabled_disabled(val_rxdly));
 	}
 
 	if (priv->has_phycr2) {
@@ -661,9 +673,18 @@ static int rtl8366rb_config_init(struct phy_device *phydev)
 }
 
 /* get actual speed to cover the downshift case */
-static void rtlgen_decode_speed(struct phy_device *phydev, int val)
+static void rtlgen_decode_physr(struct phy_device *phydev, int val)
 {
-	switch (val & RTLGEN_SPEED_MASK) {
+	/* bit 3
+	 * 0: Half Duplex
+	 * 1: Full Duplex
+	 */
+	if (val & RTL_VND2_PHYSR_DUPLEX)
+		phydev->duplex = DUPLEX_FULL;
+	else
+		phydev->duplex = DUPLEX_HALF;
+
+	switch (val & RTL_VND2_PHYSR_SPEED_MASK) {
 	case 0x0000:
 		phydev->speed = SPEED_10;
 		break;
@@ -685,6 +706,19 @@ static void rtlgen_decode_speed(struct phy_device *phydev, int val)
 	default:
 		break;
 	}
+
+	/* bit 11
+	 * 0: Slave Mode
+	 * 1: Master Mode
+	 */
+	if (phydev->speed >= 1000) {
+		if (val & RTL_VND2_PHYSR_MASTER)
+			phydev->master_slave_state = MASTER_SLAVE_STATE_MASTER;
+		else
+			phydev->master_slave_state = MASTER_SLAVE_STATE_SLAVE;
+	} else {
+		phydev->master_slave_state = MASTER_SLAVE_STATE_UNSUPPORTED;
+	}
 }
 
 static int rtlgen_read_status(struct phy_device *phydev)
@@ -702,30 +736,36 @@ static int rtlgen_read_status(struct phy_device *phydev)
 	if (val < 0)
 		return val;
 
-	rtlgen_decode_speed(phydev, val);
+	rtlgen_decode_physr(phydev, val);
 
 	return 0;
+}
+
+static int rtlgen_read_vend2(struct phy_device *phydev, int regnum)
+{
+	return __mdiobus_c45_read(phydev->mdio.bus, 0, MDIO_MMD_VEND2, regnum);
+}
+
+static int rtlgen_write_vend2(struct phy_device *phydev, int regnum, u16 val)
+{
+	return __mdiobus_c45_write(phydev->mdio.bus, 0, MDIO_MMD_VEND2, regnum,
+				   val);
 }
 
 static int rtlgen_read_mmd(struct phy_device *phydev, int devnum, u16 regnum)
 {
 	int ret;
 
-	if (devnum == MDIO_MMD_PCS && regnum == MDIO_PCS_EEE_ABLE) {
-		rtl821x_write_page(phydev, 0xa5c);
-		ret = __phy_read(phydev, 0x12);
-		rtl821x_write_page(phydev, 0);
-	} else if (devnum == MDIO_MMD_AN && regnum == MDIO_AN_EEE_ADV) {
-		rtl821x_write_page(phydev, 0xa5d);
-		ret = __phy_read(phydev, 0x10);
-		rtl821x_write_page(phydev, 0);
-	} else if (devnum == MDIO_MMD_AN && regnum == MDIO_AN_EEE_LPABLE) {
-		rtl821x_write_page(phydev, 0xa5d);
-		ret = __phy_read(phydev, 0x11);
-		rtl821x_write_page(phydev, 0);
-	} else {
+	if (devnum == MDIO_MMD_VEND2)
+		ret = rtlgen_read_vend2(phydev, regnum);
+	else if (devnum == MDIO_MMD_PCS && regnum == MDIO_PCS_EEE_ABLE)
+		ret = rtlgen_read_vend2(phydev, RTL_MDIO_PCS_EEE_ABLE);
+	else if (devnum == MDIO_MMD_AN && regnum == MDIO_AN_EEE_ADV)
+		ret = rtlgen_read_vend2(phydev, RTL_MDIO_AN_EEE_ADV);
+	else if (devnum == MDIO_MMD_AN && regnum == MDIO_AN_EEE_LPABLE)
+		ret = rtlgen_read_vend2(phydev, RTL_MDIO_AN_EEE_LPABLE);
+	else
 		ret = -EOPNOTSUPP;
-	}
 
 	return ret;
 }
@@ -735,13 +775,12 @@ static int rtlgen_write_mmd(struct phy_device *phydev, int devnum, u16 regnum,
 {
 	int ret;
 
-	if (devnum == MDIO_MMD_AN && regnum == MDIO_AN_EEE_ADV) {
-		rtl821x_write_page(phydev, 0xa5d);
-		ret = __phy_write(phydev, 0x10, val);
-		rtl821x_write_page(phydev, 0);
-	} else {
+	if (devnum == MDIO_MMD_VEND2)
+		ret = rtlgen_write_vend2(phydev, regnum, val);
+	else if (devnum == MDIO_MMD_AN && regnum == MDIO_AN_EEE_ADV)
+		ret = rtlgen_write_vend2(phydev, regnum, RTL_MDIO_AN_EEE_ADV);
+	else
 		ret = -EOPNOTSUPP;
-	}
 
 	return ret;
 }
@@ -753,19 +792,12 @@ static int rtl822x_read_mmd(struct phy_device *phydev, int devnum, u16 regnum)
 	if (ret != -EOPNOTSUPP)
 		return ret;
 
-	if (devnum == MDIO_MMD_PCS && regnum == MDIO_PCS_EEE_ABLE2) {
-		rtl821x_write_page(phydev, 0xa6e);
-		ret = __phy_read(phydev, 0x16);
-		rtl821x_write_page(phydev, 0);
-	} else if (devnum == MDIO_MMD_AN && regnum == MDIO_AN_EEE_ADV2) {
-		rtl821x_write_page(phydev, 0xa6d);
-		ret = __phy_read(phydev, 0x12);
-		rtl821x_write_page(phydev, 0);
-	} else if (devnum == MDIO_MMD_AN && regnum == MDIO_AN_EEE_LPABLE2) {
-		rtl821x_write_page(phydev, 0xa6d);
-		ret = __phy_read(phydev, 0x10);
-		rtl821x_write_page(phydev, 0);
-	}
+	if (devnum == MDIO_MMD_PCS && regnum == MDIO_PCS_EEE_ABLE2)
+		ret = rtlgen_read_vend2(phydev, RTL_MDIO_PCS_EEE_ABLE2);
+	else if (devnum == MDIO_MMD_AN && regnum == MDIO_AN_EEE_ADV2)
+		ret = rtlgen_read_vend2(phydev, RTL_MDIO_AN_EEE_ADV2);
+	else if (devnum == MDIO_MMD_AN && regnum == MDIO_AN_EEE_LPABLE2)
+		ret = rtlgen_read_vend2(phydev, RTL_MDIO_AN_EEE_LPABLE2);
 
 	return ret;
 }
@@ -778,11 +810,8 @@ static int rtl822x_write_mmd(struct phy_device *phydev, int devnum, u16 regnum,
 	if (ret != -EOPNOTSUPP)
 		return ret;
 
-	if (devnum == MDIO_MMD_AN && regnum == MDIO_AN_EEE_ADV2) {
-		rtl821x_write_page(phydev, 0xa6d);
-		ret = __phy_write(phydev, 0x12, val);
-		rtl821x_write_page(phydev, 0);
-	}
+	if (devnum == MDIO_MMD_AN && regnum == MDIO_AN_EEE_ADV2)
+		ret = rtlgen_write_vend2(phydev, RTL_MDIO_AN_EEE_ADV2, val);
 
 	return ret;
 }
@@ -869,7 +898,7 @@ static int rtl822x_get_features(struct phy_device *phydev)
 {
 	int val;
 
-	val = phy_read_paged(phydev, 0xa61, 0x13);
+	val = phy_read_mmd(phydev, MDIO_MMD_VEND2, RTL_MDIO_PMA_SPEED);
 	if (val < 0)
 		return val;
 
@@ -890,10 +919,10 @@ static int rtl822x_config_aneg(struct phy_device *phydev)
 	if (phydev->autoneg == AUTONEG_ENABLE) {
 		u16 adv = linkmode_adv_to_mii_10gbt_adv_t(phydev->advertising);
 
-		ret = phy_modify_paged_changed(phydev, 0xa5d, 0x12,
-					       MDIO_AN_10GBT_CTRL_ADV2_5G |
-					       MDIO_AN_10GBT_CTRL_ADV5G,
-					       adv);
+		ret = phy_modify_mmd_changed(phydev, MDIO_MMD_VEND2,
+					     RTL_MDIO_AN_10GBT_CTRL,
+					     MDIO_AN_10GBT_CTRL_ADV2_5G |
+					     MDIO_AN_10GBT_CTRL_ADV5G, adv);
 		if (ret < 0)
 			return ret;
 	}
@@ -925,17 +954,25 @@ static void rtl822xb_update_interface(struct phy_device *phydev)
 
 static int rtl822x_read_status(struct phy_device *phydev)
 {
-	if (phydev->autoneg == AUTONEG_ENABLE) {
-		int lpadv = phy_read_paged(phydev, 0xa5d, 0x13);
+	int lpadv, ret;
 
-		if (lpadv < 0)
-			return lpadv;
+	mii_10gbt_stat_mod_linkmode_lpa_t(phydev->lp_advertising, 0);
 
-		mii_10gbt_stat_mod_linkmode_lpa_t(phydev->lp_advertising,
-						  lpadv);
-	}
+	ret = rtlgen_read_status(phydev);
+	if (ret < 0)
+		return ret;
 
-	return rtlgen_read_status(phydev);
+	if (phydev->autoneg == AUTONEG_DISABLE ||
+	    !phydev->autoneg_complete)
+		return 0;
+
+	lpadv = phy_read_mmd(phydev, MDIO_MMD_VEND2, RTL_MDIO_AN_10GBT_STAT);
+	if (lpadv < 0)
+		return lpadv;
+
+	mii_10gbt_stat_mod_linkmode_lpa_t(phydev->lp_advertising, lpadv);
+
+	return 0;
 }
 
 static int rtl822xb_read_status(struct phy_device *phydev)
@@ -976,7 +1013,8 @@ static int rtl822x_c45_config_aneg(struct phy_device *phydev)
 	val = linkmode_adv_to_mii_ctrl1000_t(phydev->advertising);
 
 	/* Vendor register as C45 has no standardized support for 1000BaseT */
-	ret = phy_modify_mmd_changed(phydev, MDIO_MMD_VEND2, RTL822X_VND2_GBCR,
+	ret = phy_modify_mmd_changed(phydev, MDIO_MMD_VEND2,
+				     RTL822X_VND2_C22_REG(MII_CTRL1000),
 				     ADVERTISE_1000FULL, val);
 	if (ret < 0)
 		return ret;
@@ -990,29 +1028,32 @@ static int rtl822x_c45_read_status(struct phy_device *phydev)
 {
 	int ret, val;
 
+	/* Vendor register as C45 has no standardized support for 1000BaseT */
+	if (phydev->autoneg == AUTONEG_ENABLE && genphy_c45_aneg_done(phydev)) {
+		val = phy_read_mmd(phydev, MDIO_MMD_VEND2,
+				   RTL822X_VND2_C22_REG(MII_STAT1000));
+		if (val < 0)
+			return val;
+	} else {
+		val = 0;
+	}
+	mii_stat1000_mod_linkmode_lpa_t(phydev->lp_advertising, val);
+
 	ret = genphy_c45_read_status(phydev);
 	if (ret < 0)
 		return ret;
 
-	/* Vendor register as C45 has no standardized support for 1000BaseT */
-	if (phydev->autoneg == AUTONEG_ENABLE) {
-		val = phy_read_mmd(phydev, MDIO_MMD_VEND2,
-				   RTL822X_VND2_GANLPAR);
-		if (val < 0)
-			return val;
-
-		mii_stat1000_mod_linkmode_lpa_t(phydev->lp_advertising, val);
+	if (!phydev->link) {
+		phydev->master_slave_state = MASTER_SLAVE_STATE_UNKNOWN;
+		return 0;
 	}
 
-	if (!phydev->link)
-		return 0;
-
 	/* Read actual speed from vendor register. */
-	val = phy_read_mmd(phydev, MDIO_MMD_VEND2, RTL822X_VND2_PHYSR);
+	val = phy_read_mmd(phydev, MDIO_MMD_VEND2, RTL_VND2_PHYSR);
 	if (val < 0)
 		return val;
 
-	rtlgen_decode_speed(phydev, val);
+	rtlgen_decode_physr(phydev, val);
 
 	return 0;
 }
