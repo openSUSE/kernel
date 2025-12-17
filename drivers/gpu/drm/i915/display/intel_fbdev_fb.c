@@ -13,6 +13,11 @@
 #include "intel_fb.h"
 #include "intel_fbdev_fb.h"
 
+u32 intel_fbdev_fb_pitch_align(u32 stride)
+{
+	return ALIGN(stride, 64);
+}
+
 struct intel_framebuffer *intel_fbdev_fb_alloc(struct drm_device *drm,
 					       struct drm_mode_fb_cmd2 *mode_cmd)
 {
