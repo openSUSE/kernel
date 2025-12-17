@@ -3591,7 +3591,6 @@ static int wcd939x_add_slave_components(struct wcd939x_priv *wcd939x,
 		return -ENODEV;
 	}
 
-	of_node_get(wcd939x->rxnode);
 	component_match_add_release(dev, matchptr, component_release_of,
 				    component_compare_of, wcd939x->rxnode);
 
@@ -3600,7 +3599,7 @@ static int wcd939x_add_slave_components(struct wcd939x_priv *wcd939x,
 		dev_err(dev, "%s: Tx-device node not defined\n", __func__);
 		return -ENODEV;
 	}
-	of_node_get(wcd939x->txnode);
+
 	component_match_add_release(dev, matchptr, component_release_of,
 				    component_compare_of, wcd939x->txnode);
 	return 0;
