@@ -531,7 +531,6 @@ void xfrm_state_free(struct xfrm_state *x)
 }
 EXPORT_SYMBOL(xfrm_state_free);
 
-static void xfrm_state_delete_tunnel(struct xfrm_state *x);
 static void ___xfrm_state_destroy(struct xfrm_state *x)
 {
 	hrtimer_cancel(&x->mtimer);
@@ -2847,7 +2846,7 @@ void xfrm_flush_gc(void)
 }
 EXPORT_SYMBOL(xfrm_flush_gc);
 
-static void xfrm_state_delete_tunnel(struct xfrm_state *x)
+void xfrm_state_delete_tunnel(struct xfrm_state *x)
 {
 	if (x->tunnel) {
 		struct xfrm_state *t = x->tunnel;
@@ -2858,6 +2857,7 @@ static void xfrm_state_delete_tunnel(struct xfrm_state *x)
 		x->tunnel = NULL;
 	}
 }
+EXPORT_SYMBOL(xfrm_state_delete_tunnel);
 
 u32 xfrm_state_mtu(struct xfrm_state *x, int mtu)
 {
