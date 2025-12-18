@@ -339,6 +339,8 @@ struct xfrm_state_afinfo {
 extern int xfrm_state_register_afinfo(struct xfrm_state_afinfo *afinfo);
 extern int xfrm_state_unregister_afinfo(struct xfrm_state_afinfo *afinfo);
 
+extern void xfrm_state_delete_tunnel(struct xfrm_state *x);
+
 struct xfrm_type {
 	char			*description;
 	struct module		*owner;

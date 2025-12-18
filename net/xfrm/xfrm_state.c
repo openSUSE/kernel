@@ -350,7 +350,6 @@ static void xfrm_put_mode(struct xfrm_mode *mode)
 	module_put(mode->owner);
 }
 
-static void xfrm_state_delete_tunnel(struct xfrm_state *x);
 static void xfrm_state_gc_destroy(struct xfrm_state *x)
 {
 	tasklet_hrtimer_cancel(&x->mtimer);
@@ -1893,7 +1892,7 @@ static void xfrm_state_put_afinfo(struct xfrm_state_afinfo *afinfo)
 	read_unlock(&xfrm_state_afinfo_lock);
 }
 
-static void xfrm_state_delete_tunnel(struct xfrm_state *x)
+void xfrm_state_delete_tunnel(struct xfrm_state *x)
 {
 	if (x->tunnel) {
 		struct xfrm_state *t = x->tunnel;
@@ -1904,6 +1903,7 @@ static void xfrm_state_delete_tunnel(struct xfrm_state *x)
 		x->tunnel = NULL;
 	}
 }
+EXPORT_SYMBOL(xfrm_state_delete_tunnel);
 
 int xfrm_state_mtu(struct xfrm_state *x, int mtu)
 {
