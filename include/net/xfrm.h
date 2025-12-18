@@ -369,6 +369,8 @@ struct xfrm_input_afinfo {
 int xfrm_input_register_afinfo(const struct xfrm_input_afinfo *afinfo);
 int xfrm_input_unregister_afinfo(const struct xfrm_input_afinfo *afinfo);
 
+void xfrm_state_delete_tunnel(struct xfrm_state *x);
+
 struct xfrm_type {
 	char			*description;
 	struct module		*owner;
