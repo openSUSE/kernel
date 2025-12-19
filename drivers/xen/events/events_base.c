@@ -1217,10 +1217,11 @@ int bind_interdomain_evtchn_to_irq_lateeoi(unsigned int remote_domain,
 }
 EXPORT_SYMBOL_GPL(bind_interdomain_evtchn_to_irq_lateeoi);
 
-static int find_virq(unsigned int virq, unsigned int cpu)
+static int find_virq(unsigned int virq, unsigned int cpu, bool percpu)
 {
 	struct evtchn_status status;
 	int port;
+	bool exists = false;
 
 	memset(&status, 0, sizeof(status));
 	for (port = 0; port < xen_evtchn_max_channels(); port++) {
@@ -1233,11 +1234,15 @@ static int find_virq(unsigned int virq, unsigned int cpu)
 			continue;
 		if (status.status != EVTCHNSTAT_virq)
 			continue;
-		if (status.u.virq == virq && status.vcpu == xen_vcpu_nr(cpu)) {
+		if (status.u.virq != virq)
+			continue;
+		if (status.vcpu == xen_vcpu_nr(cpu)) {
 			return port;
+		} else if (!percpu) {
+			exists = true;
 		}
 	}
-	return -ENOENT;
+	return exists ? -EEXIST : -ENOENT;
 }
 
 /**
@@ -1282,8 +1287,12 @@ int bind_virq_to_irq(unsigned int virq, unsigned int cpu, bool percpu)
 			evtchn = bind_virq.port;
 		else {
 			if (ret == -EEXIST)
-				ret = find_virq(virq, cpu);
-			BUG_ON(ret < 0);
+				ret = find_virq(virq, cpu, percpu);
+			if (ret < 0) {
+				__unbind_from_irq(irq);
+				irq = ret;
+				goto out;
+			}
 			evtchn = ret;
 		}
 
