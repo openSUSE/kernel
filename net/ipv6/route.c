@@ -430,7 +430,7 @@ static bool rt6_check_expired(const struct rt6_info *rt)
 		if (time_after(jiffies, rt->dst.expires))
 			return true;
 	} else if (rt->dst.from) {
-		return rt->dst.obsolete != DST_OBSOLETE_FORCE_CHK ||
+		return READ_ONCE(rt->dst.obsolete) != DST_OBSOLETE_FORCE_CHK ||
 		       rt6_check_expired((struct rt6_info *)rt->dst.from);
 	}
 	return false;
@@ -1302,11 +1302,10 @@ static struct dst_entry *rt6_check(struct rt6_info *rt, u32 cookie)
 static struct dst_entry *rt6_dst_from_check(struct rt6_info *rt, u32 cookie)
 {
 	if (!__rt6_check_expired(rt) &&
-	    rt->dst.obsolete == DST_OBSOLETE_FORCE_CHK &&
+	    READ_ONCE(rt->dst.obsolete) == DST_OBSOLETE_FORCE_CHK &&
 	    rt6_check((struct rt6_info *)(rt->dst.from), cookie))
 		return &rt->dst;
-	else
-		return NULL;
+	return NULL;
 }
 
 static struct dst_entry *ip6_dst_check(struct dst_entry *dst, u32 cookie)
@@ -1475,7 +1474,7 @@ void ip6_sk_update_pmtu(struct sk_buff *skb, struct sock *sk, __be32 mtu)
 	ip6_update_pmtu(skb, sock_net(sk), mtu, oif, sk->sk_mark, sk->sk_uid);
 
 	dst = __sk_dst_get(sk);
-	if (!dst || !dst->obsolete ||
+	if (!dst || !READ_ONCE(dst->obsolete) ||
 	    dst->ops->check(dst, inet6_sk(sk)->dst_cookie))
 		return;
 

@@ -477,7 +477,7 @@ static inline int dst_input(struct sk_buff *skb)
 
 static inline struct dst_entry *dst_check(struct dst_entry *dst, u32 cookie)
 {
-	if (dst->obsolete)
+	if (READ_ONCE(dst->obsolete))
 		dst = dst->ops->check(dst, cookie);
 	return dst;
 }
