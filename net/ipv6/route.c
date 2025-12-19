@@ -419,15 +419,14 @@ static void ip6_dst_ifdown(struct dst_entry *dst, struct net_device *dev,
 static bool __rt6_check_expired(const struct rt6_info *rt)
 {
 	if (rt->rt6i_flags & RTF_EXPIRES)
-		return time_after(jiffies, rt->dst.expires);
-	else
-		return false;
+		return time_after(jiffies, READ_ONCE(rt->dst.expires));
+	return false;
 }
 
 static bool rt6_check_expired(const struct rt6_info *rt)
 {
 	if (rt->rt6i_flags & RTF_EXPIRES) {
-		if (time_after(jiffies, rt->dst.expires))
+		if (time_after(jiffies, READ_ONCE(rt->dst.expires)))
 			return true;
 	} else if (rt->dst.from) {
 		return READ_ONCE(rt->dst.obsolete) != DST_OBSOLETE_FORCE_CHK ||
@@ -3564,7 +3563,7 @@ static int rt6_fill_node(struct net *net,
 			goto nla_put_failure;
 	}
 
-	expires = (rt->rt6i_flags & RTF_EXPIRES) ? rt->dst.expires - jiffies : 0;
+	expires = (rt->rt6i_flags & RTF_EXPIRES) ? READ_ONCE(rt->dst.expires) - jiffies : 0;
 
 	if (rtnl_put_cacheinfo(skb, &rt->dst, 0, expires, rt->dst.error) < 0)
 		goto nla_put_failure;
