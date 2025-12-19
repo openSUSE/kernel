@@ -1723,8 +1723,8 @@ static void ip_handle_martian_source(struct net_device *dev,
 static void set_lwt_redirect(struct rtable *rth)
 {
 	if (lwtunnel_output_redirect(rth->dst.lwtstate)) {
-		rth->dst.lwtstate->orig_output = rth->dst.output;
-		rth->dst.output = lwtunnel_output;
+		rth->dst.lwtstate->orig_output = READ_ONCE(rth->dst.output);
+		WRITE_ONCE(rth->dst.output, lwtunnel_output);
 	}
 
 	if (lwtunnel_input_redirect(rth->dst.lwtstate)) {
