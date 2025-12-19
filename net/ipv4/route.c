@@ -455,11 +455,13 @@ static struct neighbour *ipv4_neigh_lookup(const struct dst_entry *dst,
 					   struct sk_buff *skb,
 					   const void *daddr)
 {
-	struct net_device *dev = dst_dev(dst);
+	struct net_device *dev;
 	const __be32 *pkey = daddr;
 	const struct rtable *rt;
 	struct neighbour *n;
 
+	rcu_read_lock_bh();
+	dev = dst_dev_rcu(dst);
 	rt = (const struct rtable *) dst;
 	if (rt->rt_gateway)
 		pkey = (const __be32 *) &rt->rt_gateway;
@@ -467,9 +469,11 @@ static struct neighbour *ipv4_neigh_lookup(const struct dst_entry *dst,
 		pkey = &ip_hdr(skb)->daddr;
 
 	n = __ipv4_neigh_lookup(dev, *(__force u32 *)pkey);
-	if (n)
-		return n;
-	return neigh_create(&arp_tbl, pkey, dev);
+	if (!n)
+		n = neigh_create(&arp_tbl, pkey, dev);
+	rcu_read_unlock_bh();
+
+	return n;
 }
 
 static void ipv4_confirm_neigh(const struct dst_entry *dst, const void *daddr)

@@ -346,7 +346,8 @@ static bool icmpv4_xrlim_allow(struct net *net, struct rtable *rt,
 		return true;
 
 	/* No rate limit on loopback */
-	dev = dst_dev(dst);
+	rcu_read_lock();
+	dev = dst_dev_rcu(dst);
 	if (dev && (dev->flags & IFF_LOOPBACK))
 		goto out;
 
@@ -359,6 +360,7 @@ static bool icmpv4_xrlim_allow(struct net *net, struct rtable *rt,
 out:
  	if (rc)
 		icmp_global_consume();
+	rcu_read_unlock();
 	return rc;
 }
 
