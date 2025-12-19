@@ -33,10 +33,14 @@ struct sk_buff;
 struct dst_entry {
 	struct rcu_head		rcu_head;
 	struct dst_entry	*child;
+#ifdef __GENKSYMS__
+	struct net_device       *dev;
+#else
 	union {
 		struct net_device       *dev;
 		struct net_device __rcu *dev_rcu;
 	};
+#endif
 	struct  dst_ops	        *ops;
 	unsigned long		_metrics;
 	unsigned long           expires;
