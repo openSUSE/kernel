@@ -2519,7 +2519,7 @@ static unsigned int ipv4_blackhole_mtu(const struct dst_entry *dst)
 {
 	unsigned int mtu = dst_metric_raw(dst, RTAX_MTU);
 
-	return mtu ? : dst->dev->mtu;
+	return mtu ? : dst_dev(dst)->mtu;
 }
 
 static void ipv4_rt_blackhole_update_pmtu(struct dst_entry *dst, struct sock *sk,
