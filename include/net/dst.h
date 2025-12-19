@@ -258,13 +258,13 @@ static inline void dst_use(struct dst_entry *dst, unsigned long time)
 {
 	dst_hold(dst);
 	dst->__use++;
-	dst->lastuse = time;
+	WRITE_ONCE(dst->lastuse, time);
 }
 
 static inline void dst_use_noref(struct dst_entry *dst, unsigned long time)
 {
 	dst->__use++;
-	dst->lastuse = time;
+	WRITE_ONCE(dst->lastuse, time);
 }
 
 static inline struct dst_entry *dst_clone(struct dst_entry *dst)

@@ -1143,7 +1143,7 @@ redo_rt6_select:
 
 		struct rt6_info *pcpu_rt;
 
-		rt->dst.lastuse = jiffies;
+		WRITE_ONCE(rt->dst.lastuse, jiffies);
 		rt->dst.__use++;
 		pcpu_rt = rt6_get_pcpu_route(rt);
 
