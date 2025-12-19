@@ -474,7 +474,10 @@ static inline int dst_output(struct net *net, struct sock *sk, struct sk_buff *s
 /* Input packet from network to transport.  */
 static inline int dst_input(struct sk_buff *skb)
 {
-	return skb_dst(skb)->input(skb);
+	int (*skb_input)(struct sk_buff *);
+
+	skb_input = READ_ONCE(skb_dst(skb)->input);
+	return skb_input(skb);
 }
 
 static inline struct dst_entry *dst_check(struct dst_entry *dst, u32 cookie)

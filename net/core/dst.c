@@ -162,7 +162,7 @@ void dst_dev_put(struct dst_entry *dst)
 	WRITE_ONCE(dst->obsolete, DST_OBSOLETE_DEAD);
 	if (dst->ops->ifdown)
 		dst->ops->ifdown(dst, dev, true);
-	dst->input = dst_discard;
+	WRITE_ONCE(dst->input, dst_discard);
 	dst->output = dst_discard_out;
 	dst->dev = dev_net(dst->dev)->loopback_dev;
 	dev_hold(dst->dev);
