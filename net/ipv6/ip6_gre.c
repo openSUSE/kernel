@@ -510,6 +510,7 @@ static netdev_tx_t __gre6_xmit(struct sk_buff *skb,
 	struct ip6_tnl *tunnel = netdev_priv(dev);
 	struct dst_entry *dst = skb_dst(skb);
 	__be16 protocol;
+	__u32 mtu;
 
 	if (dev->type == ARPHRD_ETHER)
 		IPCB(skb)->flags = 0;
@@ -531,8 +532,9 @@ static netdev_tx_t __gre6_xmit(struct sk_buff *skb,
 			 protocol, tunnel->parms.o_key, htonl(tunnel->o_seqno));
 
 	/* TooBig packet may have updated dst->dev's mtu */
-	if (dst && dst_mtu(dst) > dst->dev->mtu)
-		dst->ops->update_pmtu(dst, NULL, skb, dst->dev->mtu);
+	mtu = READ_ONCE(dst_dev(dst)->mtu);
+	if (dst && dst_mtu(dst) > mtu)
+		dst->ops->update_pmtu(dst, NULL, skb, mtu);
 
 	return ip6_tnl_xmit(skb, dev, dsfield, fl6, encap_limit, pmtu,
 			    NEXTHDR_GRE);
