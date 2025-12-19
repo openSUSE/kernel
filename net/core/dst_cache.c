@@ -51,7 +51,8 @@ static struct dst_entry *dst_cache_per_cpu_get(struct dst_cache *dst_cache,
 	/* the cache already hold a dst reference; it can't go away */
 	dst_hold(dst);
 
-	if (unlikely(!time_after(idst->refresh_ts, dst_cache->reset_ts) ||
+	if (unlikely(!time_after(idst->refresh_ts,
+				 READ_ONCE(dst_cache->reset_ts)) ||
 		     (dst->obsolete && !dst->ops->check(dst, idst->cookie)))) {
 		dst_cache_per_cpu_dst_set(idst, NULL, 0);
 		dst_release(dst);
