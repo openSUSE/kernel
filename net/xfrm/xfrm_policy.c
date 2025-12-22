@@ -2672,7 +2672,7 @@ static struct dst_entry *xfrm_dst_check(struct dst_entry *dst, u32 cookie)
 	 * Both will force stable_bundle() to fail on any xdst bundle with
 	 * this dst linked in it.
 	 */
-	if (dst->obsolete < 0 && !stale_bundle(dst))
+	if (READ_ONCE(dst->obsolete) < 0 && !stale_bundle(dst))
 		return dst;
 
 	return NULL;
@@ -2701,7 +2701,7 @@ static void xfrm_link_failure(struct sk_buff *skb)
 static struct dst_entry *xfrm_negative_advice(struct dst_entry *dst)
 {
 	if (dst) {
-		if (dst->obsolete) {
+		if (READ_ONCE(dst->obsolete)) {
 			dst_release(dst);
 			dst = NULL;
 		}

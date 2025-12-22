@@ -350,13 +350,14 @@ static inline struct sock *__inet_lookup_skb(struct inet_hashinfo *hashinfo,
 					     bool *refcounted)
 {
 	struct sock *sk = skb_steal_sock(skb);
+	struct net *net = skb_dst_dev_net_rcu(skb);
 	const struct iphdr *iph = ip_hdr(skb);
 
 	*refcounted = true;
 	if (sk)
 		return sk;
 
-	return __inet_lookup(dev_net(skb_dst(skb)->dev), hashinfo, skb,
+	return __inet_lookup(net, hashinfo, skb,
 			     doff, iph->saddr, sport,
 			     iph->daddr, dport, inet_iif(skb),
 			     refcounted);

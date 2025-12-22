@@ -32,6 +32,9 @@
 #include <net/snmp.h>
 #include <net/flow.h>
 #include <net/flow_dissector.h>
+#ifndef __GENKSYMS__
+#include <net/lwtunnel.h>
+#endif
 
 #define IPV4_MAX_PMTU		65535U		/* RFC 2675, Section 5.1 */
 #define IPV4_MIN_MTU		68			/* RFC 791 */
@@ -355,31 +358,57 @@ static inline bool ip_sk_ignore_df(const struct sock *sk)
 static inline unsigned int ip_dst_mtu_maybe_forward(const struct dst_entry *dst,
 						    bool forwarding)
 {
+	const struct rtable *rt = container_of(dst, struct rtable, dst);
+	const struct net_device *dev;
+	unsigned int mtu, res;
 	struct net *net;
-	unsigned int mtu;
 
 	rcu_read_lock();
-	net = dev_net_rcu(dst->dev);
-	if (net->ipv4.sysctl_ip_fwd_use_pmtu ||
+
+	dev = dst_dev_rcu(dst);
+	net = dev_net_rcu(dev);
+	if (READ_ONCE(net->ipv4.sysctl_ip_fwd_use_pmtu) ||
 	    ip_mtu_locked(dst) ||
-	    !forwarding)
-		mtu = dst_mtu(dst);
-	else
-		mtu = min(READ_ONCE(dst->dev->mtu), IP_MAX_MTU);
+	    !forwarding) {
+		mtu = rt->rt_pmtu;
+		if (mtu && time_before(jiffies, READ_ONCE(rt->dst.expires)))
+			goto out;
+	}
+
+	/* 'forwarding = true' case should always honour route mtu */
+	mtu = dst_metric_raw(dst, RTAX_MTU);
+	if (mtu)
+		goto out;
+
+	mtu = READ_ONCE(dev->mtu);
+
+	if (unlikely(ip_mtu_locked(dst))) {
+		if (rt->rt_uses_gateway && mtu > 576)
+			mtu = 576;
+	}
+
+out:
+	mtu = min_t(unsigned int, mtu, IP_MAX_MTU);
+
+	res = mtu - lwtunnel_headroom(dst->lwtstate, mtu);
+
 	rcu_read_unlock();
-	return mtu;
+
+	return res;
 }
 
 static inline unsigned int ip_skb_dst_mtu(struct sock *sk,
 					  const struct sk_buff *skb)
 {
+	const struct dst_entry *dst = skb_dst(skb);
+
 	if (!sk || !sk_fullsock(sk) || ip_sk_use_pmtu(sk)) {
 		bool forwarding = IPCB(skb)->flags & IPSKB_FORWARDED;
 
-		return ip_dst_mtu_maybe_forward(skb_dst(skb), forwarding);
+		return ip_dst_mtu_maybe_forward(dst, forwarding);
 	}
 
-	return min(READ_ONCE(skb_dst(skb)->dev->mtu), IP_MAX_MTU);
+	return min(READ_ONCE(dst_dev(dst)->mtu), IP_MAX_MTU);
 }
 
 u32 ip_idents_reserve(u32 hash, int segs);

@@ -455,11 +455,13 @@ static struct neighbour *ipv4_neigh_lookup(const struct dst_entry *dst,
 					   struct sk_buff *skb,
 					   const void *daddr)
 {
-	struct net_device *dev = dst->dev;
+	struct net_device *dev;
 	const __be32 *pkey = daddr;
 	const struct rtable *rt;
 	struct neighbour *n;
 
+	rcu_read_lock_bh();
+	dev = dst_dev_rcu(dst);
 	rt = (const struct rtable *) dst;
 	if (rt->rt_gateway)
 		pkey = (const __be32 *) &rt->rt_gateway;
@@ -467,14 +469,16 @@ static struct neighbour *ipv4_neigh_lookup(const struct dst_entry *dst,
 		pkey = &ip_hdr(skb)->daddr;
 
 	n = __ipv4_neigh_lookup(dev, *(__force u32 *)pkey);
-	if (n)
-		return n;
-	return neigh_create(&arp_tbl, pkey, dev);
+	if (!n)
+		n = neigh_create(&arp_tbl, pkey, dev);
+	rcu_read_unlock_bh();
+
+	return n;
 }
 
 static void ipv4_confirm_neigh(const struct dst_entry *dst, const void *daddr)
 {
-	struct net_device *dev = dst->dev;
+	struct net_device *dev = dst_dev(dst);
 	const __be32 *pkey = daddr;
 	const struct rtable *rt;
 
@@ -747,14 +751,14 @@ static void update_or_create_fnhe(struct fib_nh *nh, __be32 daddr, __be32 gw,
 		 */
 		rt = rcu_dereference(nh->nh_rth_input);
 		if (rt)
-			rt->dst.obsolete = DST_OBSOLETE_KILL;
+			WRITE_ONCE(rt->dst.obsolete, DST_OBSOLETE_KILL);
 
 		for_each_possible_cpu(i) {
 			struct rtable __rcu **prt;
 			prt = per_cpu_ptr(nh->nh_pcpu_rth_output, i);
 			rt = rcu_dereference(*prt);
 			if (rt)
-				rt->dst.obsolete = DST_OBSOLETE_KILL;
+				WRITE_ONCE(rt->dst.obsolete, DST_OBSOLETE_KILL);
 		}
 	}
 
@@ -826,7 +830,7 @@ static void __ip_do_redirect(struct rtable *rt, struct sk_buff *skb, struct flow
 						jiffies + ip_rt_gc_timeout);
 			}
 			if (kill_route)
-				rt->dst.obsolete = DST_OBSOLETE_KILL;
+				WRITE_ONCE(rt->dst.obsolete, DST_OBSOLETE_KILL);
 			call_netevent_notifiers(NETEVENT_NEIGH_UPDATE, n);
 		}
 		neigh_release(n);
@@ -872,11 +876,11 @@ static struct dst_entry *ipv4_negative_advice(struct dst_entry *dst)
 	struct dst_entry *ret = dst;
 
 	if (rt) {
-		if (dst->obsolete > 0) {
+		if (READ_ONCE(dst->obsolete) > 0) {
 			ip_rt_put(rt);
 			ret = NULL;
 		} else if ((rt->rt_flags & RTCF_REDIRECTED) ||
-			   rt->dst.expires) {
+			   READ_ONCE(rt->dst.expires)) {
 			ip_rt_put(rt);
 			ret = NULL;
 		}
@@ -1035,10 +1039,10 @@ out:	kfree_skb(skb);
 static void __ip_rt_update_pmtu(struct rtable *rt, struct flowi4 *fl4, u32 mtu)
 {
 	struct dst_entry *dst = &rt->dst;
-	struct net *net;
 	u32 old_mtu = ipv4_mtu(dst);
 	struct fib_result res;
 	bool lock = false;
+	struct net *net;
 
 	if (ip_mtu_locked(dst))
 		return;
@@ -1046,17 +1050,18 @@ static void __ip_rt_update_pmtu(struct rtable *rt, struct flowi4 *fl4, u32 mtu)
 	if (old_mtu < mtu)
 		return;
 
+	rcu_read_lock();
+	net = dst_dev_net_rcu(dst);
 	if (mtu < ip_rt_min_pmtu) {
 		lock = true;
 		mtu = min(old_mtu, ip_rt_min_pmtu);
 	}
 
 	if (rt->rt_pmtu == mtu && !lock &&
-	    time_before(jiffies, dst->expires - ip_rt_mtu_expires / 2))
-		return;
+	    time_before(jiffies, READ_ONCE(dst->expires) -
+			ip_rt_mtu_expires / 2))
+		goto out;
 
-	rcu_read_lock();
-	net = dev_net_rcu(dst->dev);
 	if (fib_lookup(net, fl4, &res, 0) == 0) {
 		struct fib_nh *nh;
 
@@ -1065,7 +1070,7 @@ static void __ip_rt_update_pmtu(struct rtable *rt, struct flowi4 *fl4, u32 mtu)
 		update_or_create_fnhe(nh, fl4->daddr, 0, mtu, lock,
 				      jiffies + ip_rt_mtu_expires);
 	}
-
+out:
 	rcu_read_unlock();
 }
 
@@ -1141,7 +1146,7 @@ void ipv4_sk_update_pmtu(struct sk_buff *skb, struct sock *sk, u32 mtu)
 	__build_flow_key(net, &fl4, sk, iph, 0, 0, 0, 0, 0);
 
 	rt = (struct rtable *)odst;
-	if (odst->obsolete && !odst->ops->check(odst, 0)) {
+	if (READ_ONCE(odst->obsolete) && !odst->ops->check(odst, 0)) {
 		rt = ip_route_output_flow(sock_net(sk), &fl4, sk);
 		if (IS_ERR(rt))
 			goto out;
@@ -1216,7 +1221,8 @@ static struct dst_entry *ipv4_dst_check(struct dst_entry *dst, u32 cookie)
 	 * this is indicated by setting obsolete to DST_OBSOLETE_KILL or
 	 * DST_OBSOLETE_DEAD by dst_free().
 	 */
-	if (dst->obsolete != DST_OBSOLETE_FORCE_CHK || rt_is_expired(rt))
+	if (READ_ONCE(dst->obsolete) != DST_OBSOLETE_FORCE_CHK ||
+	    rt_is_expired(rt))
 		return NULL;
 	return dst;
 }
@@ -1335,25 +1341,7 @@ static unsigned int ipv4_default_advmss(const struct dst_entry *dst)
 
 static unsigned int ipv4_mtu(const struct dst_entry *dst)
 {
-	const struct rtable *rt = (const struct rtable *) dst;
-	unsigned int mtu = rt->rt_pmtu;
-
-	if (!mtu || time_after_eq(jiffies, rt->dst.expires))
-		mtu = dst_metric_raw(dst, RTAX_MTU);
-
-	if (mtu)
-		return mtu;
-
-	mtu = READ_ONCE(dst->dev->mtu);
-
-	if (unlikely(ip_mtu_locked(dst))) {
-		if (rt->rt_uses_gateway && mtu > 576)
-			mtu = 576;
-	}
-
-	mtu = min_t(unsigned int, mtu, IP_MAX_MTU);
-
-	return mtu - lwtunnel_headroom(dst->lwtstate, mtu);
+	return ip_dst_mtu_maybe_forward(dst, false);
 }
 
 static void ip_del_fnhe(struct fib_nh *nh, __be32 daddr)
@@ -1556,7 +1544,7 @@ void rt_flush_dev(struct net_device *dev)
 static bool rt_cache_valid(const struct rtable *rt)
 {
 	return	rt &&
-		rt->dst.obsolete == DST_OBSOLETE_FORCE_CHK &&
+		READ_ONCE(rt->dst.obsolete) == DST_OBSOLETE_FORCE_CHK &&
 		!rt_is_expired(rt);
 }
 
@@ -1739,13 +1727,13 @@ static void ip_handle_martian_source(struct net_device *dev,
 static void set_lwt_redirect(struct rtable *rth)
 {
 	if (lwtunnel_output_redirect(rth->dst.lwtstate)) {
-		rth->dst.lwtstate->orig_output = rth->dst.output;
-		rth->dst.output = lwtunnel_output;
+		rth->dst.lwtstate->orig_output = READ_ONCE(rth->dst.output);
+		WRITE_ONCE(rth->dst.output, lwtunnel_output);
 	}
 
 	if (lwtunnel_input_redirect(rth->dst.lwtstate)) {
-		rth->dst.lwtstate->orig_input = rth->dst.input;
-		rth->dst.input = lwtunnel_input;
+		rth->dst.lwtstate->orig_input = READ_ONCE(rth->dst.input);
+		WRITE_ONCE(rth->dst.input, lwtunnel_input);
 	}
 }
 
@@ -2535,7 +2523,7 @@ static unsigned int ipv4_blackhole_mtu(const struct dst_entry *dst)
 {
 	unsigned int mtu = dst_metric_raw(dst, RTAX_MTU);
 
-	return mtu ? : dst->dev->mtu;
+	return mtu ? : dst_dev(dst)->mtu;
 }
 
 static void ipv4_rt_blackhole_update_pmtu(struct dst_entry *dst, struct sock *sk,
@@ -2676,7 +2664,7 @@ static int rt_fill_info(struct net *net,  __be32 dst, __be32 src, u32 table_id,
 	    nla_put_in_addr(skb, RTA_GATEWAY, rt->rt_gateway))
 		goto nla_put_failure;
 
-	expires = rt->dst.expires;
+	expires = READ_ONCE(rt->dst.expires);
 	if (expires) {
 		unsigned long now = jiffies;
 

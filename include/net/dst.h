@@ -33,7 +33,14 @@ struct sk_buff;
 struct dst_entry {
 	struct rcu_head		rcu_head;
 	struct dst_entry	*child;
+#ifdef __GENKSYMS__
 	struct net_device       *dev;
+#else
+	union {
+		struct net_device       *dev;
+		struct net_device __rcu *dev_rcu;
+	};
+#endif
 	struct  dst_ops	        *ops;
 	unsigned long		_metrics;
 	unsigned long           expires;
@@ -258,13 +265,13 @@ static inline void dst_use(struct dst_entry *dst, unsigned long time)
 {
 	dst_hold(dst);
 	dst->__use++;
-	dst->lastuse = time;
+	WRITE_ONCE(dst->lastuse, time);
 }
 
 static inline void dst_use_noref(struct dst_entry *dst, unsigned long time)
 {
 	dst->__use++;
-	dst->lastuse = time;
+	WRITE_ONCE(dst->lastuse, time);
 }
 
 static inline struct dst_entry *dst_clone(struct dst_entry *dst)
@@ -454,30 +461,38 @@ static inline void dst_link_failure(struct sk_buff *skb)
 
 static inline void dst_set_expires(struct dst_entry *dst, int timeout)
 {
-	unsigned long expires = jiffies + timeout;
+	unsigned long old, expires = jiffies + timeout;
 
 	if (expires == 0)
 		expires = 1;
 
-	if (dst->expires == 0 || time_before(expires, dst->expires))
-		dst->expires = expires;
+	old = READ_ONCE(dst->expires);
+
+	if (!old || time_before(expires, old))
+		WRITE_ONCE(dst->expires, expires);
 }
 
 /* Output packet to network from transport.  */
 static inline int dst_output(struct net *net, struct sock *sk, struct sk_buff *skb)
 {
-	return skb_dst(skb)->output(net, sk, skb);
+	int (*skb_output)(struct net *net, struct sock *sk, struct sk_buff *skb);
+
+	skb_output = READ_ONCE(skb_dst(skb)->output);
+	return skb_output(net, sk, skb);
 }
 
 /* Input packet from network to transport.  */
 static inline int dst_input(struct sk_buff *skb)
 {
-	return skb_dst(skb)->input(skb);
+	int (*skb_input)(struct sk_buff *);
+
+	skb_input = READ_ONCE(skb_dst(skb)->input);
+	return skb_input(skb);
 }
 
 static inline struct dst_entry *dst_check(struct dst_entry *dst, u32 cookie)
 {
-	if (dst->obsolete)
+	if (READ_ONCE(dst->obsolete))
 		dst = dst->ops->check(dst, cookie);
 	return dst;
 }
@@ -546,6 +561,41 @@ static inline void skb_tunnel_check_pmtu(struct sk_buff *skb,
 
 	if (skb->len > encap_mtu - headroom)
 		skb_dst_update_pmtu(skb, encap_mtu - headroom);
+}
+
+static inline struct net_device *dst_dev(const struct dst_entry *dst)
+{
+	return READ_ONCE(dst->dev);
+}
+
+static inline struct net_device *dst_dev_rcu(const struct dst_entry *dst)
+{
+	return rcu_dereference(dst->dev_rcu);
+}
+
+static inline struct net *dst_dev_net_rcu(const struct dst_entry *dst)
+{
+	return dev_net_rcu(dst_dev_rcu(dst));
+}
+
+static inline struct net_device *skb_dst_dev(const struct sk_buff *skb)
+{
+	return dst_dev(skb_dst(skb));
+}
+
+static inline struct net_device *skb_dst_dev_rcu(const struct sk_buff *skb)
+{
+	return dst_dev_rcu(skb_dst(skb));
+}
+
+static inline struct net *skb_dst_dev_net(const struct sk_buff *skb)
+{
+	return dev_net(skb_dst_dev(skb));
+}
+
+static inline struct net *skb_dst_dev_net_rcu(const struct sk_buff *skb)
+{
+	return dev_net_rcu(skb_dst_dev_rcu(skb));
 }
 
 #endif /* _NET_DST_H */
