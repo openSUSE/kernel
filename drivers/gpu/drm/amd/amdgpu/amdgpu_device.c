@@ -4907,6 +4907,10 @@ int amdgpu_device_mode1_reset(struct amdgpu_device *adev)
 	if (ret)
 		dev_err(adev->dev, "GPU mode1 reset failed\n");
 
+	/* enable mmio access after mode 1 reset completed */
+	if (!ret)
+		adev->no_hw_access = false;
+
 	amdgpu_device_load_pci_state(adev->pdev);
 
 	/* wait for asic to come out of reset */
