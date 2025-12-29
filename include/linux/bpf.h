@@ -307,6 +307,7 @@ struct bpf_array_aux {
 		spinlock_t lock;
 		enum bpf_prog_type type;
 		bool jited;
+		enum bpf_attach_type expected_attach_type;
 	} owner;
 };
 
