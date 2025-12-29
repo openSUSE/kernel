@@ -16,6 +16,7 @@
 #include <linux/rbtree_latch.h>
 #include <linux/numa.h>
 #include <linux/wait.h>
+#include <linux/build_bug.h>
 
 struct bpf_verifier_env;
 struct perf_event;
@@ -75,6 +76,9 @@ struct bpf_map {
 	struct btf *btf;
 	bool unpriv_array;
 	/* 55 bytes hole */
+#ifndef __GENKSYMS__
+	enum bpf_attach_type owner_expected_attach_type;
+#endif
 
 	/* The 3rd and 4th cacheline with misc members to avoid false sharing
 	 * particularly with refcounting.
@@ -85,6 +89,41 @@ struct bpf_map {
 	struct work_struct work;
 	char name[BPF_OBJ_NAME_LEN];
 };
+
+struct __orig_bpf_map {
+	/* The first two cachelines with read-mostly members of which some
+	 * are also accessed in fast-path (e.g. ops, max_entries).
+	 */
+	const struct bpf_map_ops *ops ____cacheline_aligned;
+	struct bpf_map *inner_map_meta;
+#ifdef CONFIG_SECURITY
+	void *security;
+#endif
+	enum bpf_map_type map_type;
+	u32 key_size;
+	u32 value_size;
+	u32 max_entries;
+	u32 map_flags;
+	u32 pages;
+	u32 id;
+	int numa_node;
+	u32 btf_key_type_id;
+	u32 btf_value_type_id;
+	struct btf *btf;
+	bool unpriv_array;
+	/* 55 bytes hole */
+
+	/* The 3rd and 4th cacheline with misc members to avoid false sharing
+	 * particularly with refcounting.
+	 */
+	struct user_struct *user ____cacheline_aligned;
+	atomic_t refcnt;
+	atomic_t usercnt;
+	struct work_struct work;
+	char name[BPF_OBJ_NAME_LEN];
+};
+
+suse_kabi_static_assert(offsetof(struct bpf_map, user) == offsetof(struct __orig_bpf_map, user));
 
 struct bpf_offload_dev;
 struct bpf_offloaded_map;
@@ -307,7 +346,6 @@ struct bpf_array_aux {
 		spinlock_t lock;
 		enum bpf_prog_type type;
 		bool jited;
-		enum bpf_attach_type expected_attach_type;
 	} owner;
 };
 
