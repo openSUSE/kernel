@@ -1133,8 +1133,10 @@ struct ufs_hba {
 	struct pm_qos_request pm_qos_req;
 	bool pm_qos_enabled;
 
+#ifndef __GENKSYMS__
 	/* synchronizes PM QoS request and status updates */
 	struct mutex pm_qos_mutex;
+#endif
 };
 
 /**
