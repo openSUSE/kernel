@@ -299,6 +299,7 @@ struct bpf_map {
 		enum bpf_prog_type type;
 		bool jited;
 		bool xdp_has_frags;
+		enum bpf_attach_type expected_attach_type;
 	} owner;
 	bool bypass_spec_v1;
 	bool frozen; /* write-once; write-protected by freeze_mutex */
