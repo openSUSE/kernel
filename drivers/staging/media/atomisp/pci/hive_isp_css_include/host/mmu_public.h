@@ -11,49 +11,45 @@
 #include "device_access.h"
 #include "assert_support.h"
 
-/*
- *! Set the page table base index of MMU[ID]
+/**
+ * mmu_set_page_table_base_index() - Set the page table base index of MMU[ID]
+ * @ID:				MMU identifier
+ * @base_index:			page table base index
  *
- *\param	ID[in]				MMU identifier
- *\param	base_index[in]		page table base index
- *
- *\return none, MMU[ID].page_table_base_index = base_index
+ * Return: none, MMU[ID].page_table_base_index = base_index
  */
 void mmu_set_page_table_base_index(const mmu_ID_t ID, const hrt_data base_index);
 
-/*
- *! Get the page table base index of MMU[ID]
+/**
+ * mmu_get_page_table_base_index() - Get the page table base index of MMU[ID]
+ * @ID:				MMU identifier
  *
- *\param	ID[in]				MMU identifier
- *
- *\return MMU[ID].page_table_base_index
+ * Return: MMU[ID].page_table_base_index
  */
 hrt_data mmu_get_page_table_base_index(const mmu_ID_t ID);
 
-/*
- *! Invalidate the page table cache of MMU[ID]
+/**
+ * mmu_invalidate_cache() - nvalidate the page table cache of MMU[ID]
+ * @ID:				MMU identifier
  *
- *\param	ID[in]				MMU identifier
- *
- *\return none
+ * Return: none
  */
 void mmu_invalidate_cache(const mmu_ID_t ID);
 
-/*
- *! Invalidate the page table cache of all MMUs
+/**
+ * mmu_invalidate_cache_all() - Invalidate the page table cache of all MMUs
  *
- *\return none
+ * Return: none
  */
 void mmu_invalidate_cache_all(void);
 
-/*
- *! Write to a control register of MMU[ID]
+/**
+ * mmu_reg_store() - Write to a control register of MMU[ID]
+ * @ID:				MMU identifier
+ * @reg:			register index
+ * @value:			The data to be written
  *
- *\param	ID[in]				MMU identifier
- *\param	reg[in]				register index
- *\param value[in]			The data to be written
- *
- *\return none, MMU[ID].ctrl[reg] = value
+ * Return: none, MMU[ID].ctrl[reg] = value
  */
 static inline void mmu_reg_store(const mmu_ID_t ID, const unsigned int reg, const hrt_data value)
 {
@@ -62,13 +58,12 @@ static inline void mmu_reg_store(const mmu_ID_t ID, const unsigned int reg, cons
 	ia_css_device_store_uint32(MMU_BASE[ID] + reg * sizeof(hrt_data), value);
 }
 
-/*
- *! Read from a control register of MMU[ID]
+/**
+ * mmu_reg_load() - Read from a control register of MMU[ID]
+ * @ID:				MMU identifier
+ * @reg:			register index
  *
- *\param	ID[in]				MMU identifier
- *\param	reg[in]				register index
- *
- *\return MMU[ID].ctrl[reg]
+ * Return: MMU[ID].ctrl[reg]
  */
 static inline hrt_data mmu_reg_load(const mmu_ID_t ID, const unsigned int reg)
 {
