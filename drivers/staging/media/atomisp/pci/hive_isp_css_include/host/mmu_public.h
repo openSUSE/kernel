@@ -25,7 +25,6 @@ void mmu_set_page_table_base_index(const mmu_ID_t ID, const hrt_data base_index)
  *! Get the page table base index of MMU[ID]
  *
  *\param	ID[in]				MMU identifier
- *\param	base_index[in]		page table base index
  *
  *\return MMU[ID].page_table_base_index
  */
@@ -68,7 +67,6 @@ static inline void mmu_reg_store(const mmu_ID_t ID, const unsigned int reg, cons
  *
  *\param	ID[in]				MMU identifier
  *\param	reg[in]				register index
- *\param value[in]			The data to be written
  *
  *\return MMU[ID].ctrl[reg]
  */
