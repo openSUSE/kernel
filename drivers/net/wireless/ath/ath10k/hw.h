@@ -587,6 +587,8 @@ struct ath10k_hw_params {
 	/* target supporting retention restore on ddr */
 	bool rri_on_ddr;
 
+	bool delay_unmap_buffer;
+
 	/* Number of bytes to be the offset for each FFT sample */
 	int spectral_bin_offset;
 
