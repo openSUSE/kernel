@@ -285,9 +285,10 @@ int ip6_xmit(const struct sock *sk, struct sk_buff *skb, struct flowi6 *fl6,
 		/* hooks should never assume socket lock is held.
 		 * we promote our socket to non const
 		 */
-	ret = NF_HOOK(NFPROTO_IPV6, NF_INET_LOCAL_OUT,
-		      net, (struct sock *)sk, skb, NULL, dst->dev,
-		      dst_output);
+		ret = NF_HOOK(NFPROTO_IPV6, NF_INET_LOCAL_OUT,
+			      net, (struct sock *)sk, skb, NULL, dst->dev,
+			      dst_output);
+		goto unlock;
 	}
 
 	ret = -EMSGSIZE;
