@@ -102,22 +102,20 @@ static int reconn_set_ipaddr_from_hostname(struct TCP_Server_Info *server)
 
 static void smb2_query_server_interfaces(struct work_struct *work)
 {
+       int xid;
 	int rc;
 	struct cifs_tcon *tcon = container_of(work,
 					struct cifs_tcon,
 					query_interfaces.work);
-        struct TCP_Server_Info *server = tcon->ses->server;
 
-	if (!server->ops->query_server_interfaces)
-                return;
-
+       struct TCP_Server_Info *server = tcon->ses->server;
 	/*
 	 * query server network interfaces, in case they change
 	 */
-       int xid = get_xid();
-        rc = server->ops->query_server_interfaces(xid, tcon, false);
-       free_xid(xid);
 
+       xid = get_xid();
+       rc = server->ops->query_server_interfaces(xid, tcon, false);
+       free_xid(xid);
 	if (rc)
 		cifs_dbg(FYI, "%s: failed to query server interfaces: %d\n",
 				__func__, rc);

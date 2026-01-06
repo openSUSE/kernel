@@ -394,15 +394,15 @@ skip_sess_setup:
 	spin_unlock(&ses->ses_lock);
 
 	if (!rc &&
-	    (server->capabilities & SMB2_GLOBAL_CAP_MULTI_CHANNEL) &&
-	    server->ops->query_server_interfaces) {
+               (server->capabilities & SMB2_GLOBAL_CAP_MULTI_CHANNEL) &&
+               server->ops->query_server_interfaces) {
 		mutex_unlock(&ses->session_mutex);
 
 		/*
 		 * query server network interfaces, in case they change
 		 */
 		xid = get_xid();
-		rc = server->ops->query_server_interfaces(xid, tcon, false);
+               rc = server->ops->query_server_interfaces(xid, tcon, false);
 		free_xid(xid);
 
 		if (rc)
