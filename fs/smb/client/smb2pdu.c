@@ -292,6 +292,10 @@ again:
 		if (tcon->need_reconnect)
 			goto skip_sess_setup;
 
+		/* regardless of rc value, setup polling */
+		queue_delayed_work(cifsiod_wq, &tcon->query_interfaces,
+				   (SMB_INTERFACE_POLL_INTERVAL * HZ));
+
 		mutex_unlock(&ses->session_mutex);
 		goto out;
 	}
@@ -407,12 +411,8 @@ skip_sess_setup:
 
 		if (ses->chan_max > ses->chan_count &&
 		    !SERVER_IS_CHAN(server)) {
-                       if (ses->chan_count == 1) {
+                       if (ses->chan_count == 1)
 				cifs_server_dbg(VFS, "supports multichannel now\n");
-                               queue_delayed_work(cifsiod_wq, &tcon->query_interfaces,
-                                               (SMB_INTERFACE_POLL_INTERVAL * HZ));
-
-                               }
 
 			cifs_try_adding_channels(ses);
 		}
