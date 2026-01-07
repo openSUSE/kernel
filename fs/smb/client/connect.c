@@ -106,11 +106,18 @@ static void smb2_query_server_interfaces(struct work_struct *work)
 	struct cifs_tcon *tcon = container_of(work,
 					struct cifs_tcon,
 					query_interfaces.work);
+        struct TCP_Server_Info *server = tcon->ses->server;
+
+	if (!server->ops->query_server_interfaces)
+                return;
 
 	/*
 	 * query server network interfaces, in case they change
 	 */
-	rc = SMB3_request_interfaces(0, tcon, false);
+       int xid = get_xid();
+        rc = server->ops->query_server_interfaces(xid, tcon, false);
+       free_xid(xid);
+
 	if (rc) {
 		if (rc == -EOPNOTSUPP)
 			return;
