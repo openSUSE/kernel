@@ -1555,8 +1555,7 @@ struct btrfs_root *btrfs_read_fs_root(struct btrfs_root *tree_root,
 	if (IS_ERR(root))
 		return root;
 
-	if (root->root_key.objectid != BTRFS_TREE_LOG_OBJECTID &&
-	    is_fstree(root->root_key.objectid)) {
+	if (root->root_key.objectid != BTRFS_TREE_LOG_OBJECTID) {
 		set_bit(BTRFS_ROOT_REF_COWS, &root->state);
 		btrfs_check_and_init_root_item(&root->root_item);
 	}
