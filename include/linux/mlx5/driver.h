@@ -903,7 +903,7 @@ void mlx5_cmd_use_polling(struct mlx5_core_dev *dev);
 struct mlx5_async_ctx {
 	struct mlx5_core_dev *dev;
 	atomic_t num_inflight;
-	struct wait_queue_head wait;
+	struct completion inflight_done;
 };
 
 struct mlx5_async_work;
