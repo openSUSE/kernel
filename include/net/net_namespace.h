@@ -311,7 +311,11 @@ static inline int check_net(const struct net *net)
 
 typedef struct {
 #ifdef CONFIG_NET_NS
+#ifdef __GENKSYMS__
+	struct net *net;
+#else
 	struct net __rcu *net;
+#endif
 #endif
 } possible_net_t;
 
