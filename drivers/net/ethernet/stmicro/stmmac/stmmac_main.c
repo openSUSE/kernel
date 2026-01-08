@@ -3540,7 +3540,7 @@ static int stmmac_rx(struct stmmac_priv *priv, int limit, u32 queue)
 
 			skb->protocol = eth_type_trans(skb, priv->dev);
 
-			if (unlikely(!coe))
+			if (unlikely(!coe) || (status & csum_none))
 				skb_checksum_none_assert(skb);
 			else
 				skb->ip_summed = CHECKSUM_UNNECESSARY;
