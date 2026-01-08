@@ -86,7 +86,7 @@ static inline struct sock *__inet6_lookup_skb(struct inet_hashinfo *hashinfo,
 					      bool *refcounted)
 {
 	struct sock *sk = skb_steal_sock(skb, refcounted);
-	struct net *net = dev_net_rcu(skb_dst(skb)->dev);
+	struct net *net = skb_dst_dev_net_rcu(skb);
 
 	if (sk)
 		return sk;
