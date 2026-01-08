@@ -133,13 +133,9 @@ static u16 net_failover_select_queue(struct net_device *dev,
 						    sb_dev, fallback);
 		else
 			txq = fallback(primary_dev, skb, NULL);
-
-		qdisc_skb_cb(skb)->slave_dev_queue_mapping = skb->queue_mapping;
-
-		return txq;
+	} else {
+		txq = skb_rx_queue_recorded(skb) ? skb_get_rx_queue(skb) : 0;
 	}
-
-	txq = skb_rx_queue_recorded(skb) ? skb_get_rx_queue(skb) : 0;
 
 	/* Save the original txq to restore before passing to the driver */
 	qdisc_skb_cb(skb)->slave_dev_queue_mapping = skb->queue_mapping;
