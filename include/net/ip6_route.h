@@ -271,7 +271,7 @@ static inline unsigned int ip6_skb_dst_mtu(const struct sk_buff *skb)
 	unsigned int mtu;
 
 	if (np && np->pmtudisc >= IPV6_PMTUDISC_PROBE) {
-		mtu = READ_ONCE(dst->dev->mtu);
+		mtu = READ_ONCE(dst_dev(dst)->mtu);
 		mtu -= lwtunnel_headroom(dst->lwtstate, mtu);
 	} else {
 		mtu = dst_mtu(dst);
@@ -329,7 +329,7 @@ static inline unsigned int ip6_dst_mtu_forward(const struct dst_entry *dst)
 
 	mtu = IPV6_MIN_MTU;
 	rcu_read_lock();
-	idev = __in6_dev_get(dst->dev);
+	idev = __in6_dev_get(dst_dev(dst));
 	if (idev)
 		mtu = idev->cnf.mtu6;
 	rcu_read_unlock();
