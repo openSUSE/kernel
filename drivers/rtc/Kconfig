@@ -396,6 +396,15 @@ config RTC_DRV_MAX77686
 	  This driver can also be built as a module. If so, the module
 	  will be called rtc-max77686.
 
+config RTC_DRV_NVIDIA_VRS10
+	tristate "NVIDIA VRS10 RTC device"
+	help
+	  If you say yes here you will get support for the battery backed RTC device
+	  of NVIDIA VRS (Voltage Regulator Specification). The RTC is connected via
+	  I2C interface and supports alarm functionality.
+	  This driver can also be built as a module. If so, the module will be called
+	  rtc-nvidia-vrs10.
+
 config RTC_DRV_NCT3018Y
 	tristate "Nuvoton NCT3018Y"
 	depends on OF
