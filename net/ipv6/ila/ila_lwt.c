@@ -68,7 +68,7 @@ static int ila_output(struct net *net, struct sock *sk, struct sk_buff *skb)
 		 */
 
 		memset(&fl6, 0, sizeof(fl6));
-		fl6.flowi6_oif = orig_dst->dev->ifindex;
+		fl6.flowi6_oif = dst_dev(orig_dst)->ifindex;
 		fl6.flowi6_iif = LOOPBACK_IFINDEX;
 		fl6.daddr = *rt6_nexthop((struct rt6_info *)orig_dst,
 					 &ip6h->daddr);
