@@ -3780,6 +3780,8 @@ static int hugetlb_no_page(struct mm_struct *mm, struct vm_area_struct *vma,
 	struct page *page;
 	pte_t new_pte;
 	spinlock_t *ptl;
+	u32 hash = hugetlb_fault_mutex_hash(h, mm, vma, mapping,
+							idx, address);
 
 	/*
 	 * Currently, we are forced to kill the process in the event the
@@ -3789,7 +3791,7 @@ static int hugetlb_no_page(struct mm_struct *mm, struct vm_area_struct *vma,
 	if (is_vma_resv_set(vma, HPAGE_RESV_UNMAPPED)) {
 		pr_warn_ratelimited("PID %d killed due to inadequate hugepage pool\n",
 			   current->pid);
-		return ret;
+		goto out;
 	}
 
 	/*
@@ -3807,7 +3809,6 @@ retry:
 		 * Check for page in userfault range
 		 */
 		if (userfaultfd_missing(vma)) {
-			u32 hash;
 			struct vm_fault vmf = {
 				.vma = vma,
 				.address = address,
@@ -3826,12 +3827,9 @@ retry:
 			 * handling userfault.  Reacquire after handling
 			 * fault to make calling code simpler.
 			 */
-			hash = hugetlb_fault_mutex_hash(h, mm, vma, mapping,
-							idx, address);
 			mutex_unlock(&hugetlb_fault_mutex_table[hash]);
-			ret = handle_userfault(&vmf, VM_UFFD_MISSING);
-			mutex_lock(&hugetlb_fault_mutex_table[hash]);
-			goto out;
+			i_mmap_unlock_read(mapping);
+			return handle_userfault(&vmf, VM_UFFD_MISSING);
 		}
 
 		page = alloc_huge_page(vma, address, 0);
@@ -3918,6 +3916,8 @@ retry:
 	spin_unlock(ptl);
 	unlock_page(page);
 out:
+	mutex_unlock(&hugetlb_fault_mutex_table[hash]);
+	i_mmap_unlock_read(mapping);
 	return ret;
 
 backout:
