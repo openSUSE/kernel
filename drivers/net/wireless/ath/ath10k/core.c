@@ -554,6 +554,7 @@ static const struct ath10k_hw_params ath10k_hw_params_list[] = {
 		.shadow_reg_support = true,
 		.rri_on_ddr = true,
 		.hw_filter_reset_required = false,
+		.delay_unmap_buffer = true,
 	},
 };
 
