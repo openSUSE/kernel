@@ -367,6 +367,7 @@ static void xfrm_state_gc_destroy(struct xfrm_state *x)
 		xfrm_put_mode(x->inner_mode_iaf);
 	if (x->outer_mode)
 		xfrm_put_mode(x->outer_mode);
+	xfrm_state_delete_tunnel(x);
 	if (x->type) {
 		x->type->destructor(x);
 		xfrm_put_type(x->type);
@@ -543,6 +544,8 @@ int __xfrm_state_delete(struct xfrm_state *x)
 			hlist_del(&x->byspi);
 		net->xfrm.state_num--;
 		spin_unlock(&xfrm_state_lock);
+
+		xfrm_state_delete_tunnel(x);
 
 		/* All xfrm_state objects are created by xfrm_state_alloc.
 		 * The xfrm_state_alloc call gives a reference, and that
@@ -1889,15 +1892,13 @@ static void xfrm_state_put_afinfo(struct xfrm_state_afinfo *afinfo)
 	read_unlock(&xfrm_state_afinfo_lock);
 }
 
-/* Temporarily located here until net/xfrm/xfrm_tunnel.c is created */
 void xfrm_state_delete_tunnel(struct xfrm_state *x)
 {
 	if (x->tunnel) {
 		struct xfrm_state *t = x->tunnel;
 
-		if (atomic_read(&t->tunnel_users) == 2)
+		if (atomic_dec_return(&t->tunnel_users) == 1)
 			xfrm_state_delete(t);
-		atomic_dec(&t->tunnel_users);
 		xfrm_state_put(t);
 		x->tunnel = NULL;
 	}
