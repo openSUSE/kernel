@@ -423,7 +423,7 @@ skip_sess_setup:
 
 		mutex_unlock(&ses->session_mutex);
 
-		if (rc == -EOPNOTSUPP) {
+		if (rc == -EOPNOTSUPP && ses->chan_count > 1) {
 			/*
 			 * some servers like Azure SMB server do not advertise
 			 * that multichannel has been disabled with server
