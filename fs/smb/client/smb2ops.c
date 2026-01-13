@@ -615,7 +615,7 @@ parse_server_interfaces(struct network_interface_info_ioctl_rsp *buf,
 				 "multichannel not available\n"
 				 "Empty network interface list returned by server %s\n",
 				 ses->server->hostname);
-		rc = -EINVAL;
+		rc = -EOPNOTSUPP;
 		goto out;
 	}
 
@@ -747,12 +747,6 @@ next_iface:
 	    (bytes_left >= offsetof(struct network_interface_info_ioctl_rsp, Next)
 	     + sizeof(p->Next) && p->Next))
 		cifs_dbg(VFS, "%s: incomplete interface info\n", __func__);
-
-
-	if (!ses->iface_count) {
-		rc = -EINVAL;
-		goto out;
-	}
 
 out:
 	return rc;
