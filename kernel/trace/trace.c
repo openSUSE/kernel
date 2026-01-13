@@ -4971,45 +4971,61 @@ int tracing_open_generic_tr(struct inode *inode, struct file *filp)
  */
 int tracing_open_file_tr(struct inode *inode, struct file *filp)
 {
-	struct trace_event_file *file = inode->i_private;
+	struct trace_event_file *file;
 	int ret;
+
+	mutex_lock(&event_mutex);
+
+	file = inode->i_private;
+
+	/* Fail if the file was already removed by remove_event_file_dir(). */
+	if (file == NULL) {
+		ret = -ENODEV;
+		goto out;
+	}
 
 	ret = tracing_check_open_get_tr(file->tr);
 	if (ret)
-		return ret;
-
-	mutex_lock(&event_mutex);
+		goto out;
 
 	/* Fail if the file is marked for removal */
 	if (file->flags & EVENT_FILE_FL_FREED) {
 		trace_array_put(file->tr);
 		ret = -ENODEV;
-	} else {
-		event_file_get(file);
+		goto out;
 	}
 
+	event_file_get(file);
+	filp->private_data = file;
+
+out:
 	mutex_unlock(&event_mutex);
-	if (ret)
-		return ret;
 
-	filp->private_data = inode->i_private;
+	return ret;
+}
 
-	return 0;
+void tracing_release_event_file_tr(struct trace_event_file *file)
+{
+	trace_array_put(file->tr);
+	event_file_put(file);
 }
 
 int tracing_release_file_tr(struct inode *inode, struct file *filp)
 {
-	struct trace_event_file *file = inode->i_private;
+	struct trace_event_file *file = filp->private_data;
 
-	trace_array_put(file->tr);
-	event_file_put(file);
+	tracing_release_event_file_tr(file);
 
 	return 0;
 }
 
 int tracing_single_release_file_tr(struct inode *inode, struct file *filp)
 {
-	tracing_release_file_tr(inode, filp);
+	struct trace_event_file *file =
+		((struct seq_file *)filp->private_data)->private;
+
+	tracing_release_event_file_tr(file);
+
 	return single_release(inode, filp);
 }
 
