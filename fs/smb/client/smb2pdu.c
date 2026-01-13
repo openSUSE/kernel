@@ -449,7 +449,6 @@ skip_sess_setup:
 	} else {
 		mutex_unlock(&ses->session_mutex);
 	}
-skip_add_channels:
 
 skip_add_channels:
        spin_lock(&ses->ses_lock);
