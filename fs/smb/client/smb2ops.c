@@ -615,7 +615,7 @@ parse_server_interfaces(struct network_interface_info_ioctl_rsp *buf,
 				 "multichannel not available\n"
 				 "Empty network interface list returned by server %s\n",
 				 ses->server->hostname);
-		rc = -EINVAL;
+		rc = -EOPNOTSUPP;
 		goto out;
 	}
 
@@ -747,12 +747,6 @@ next_iface:
 	    (bytes_left >= offsetof(struct network_interface_info_ioctl_rsp, Next)
 	     + sizeof(p->Next) && p->Next))
 		cifs_dbg(VFS, "%s: incomplete interface info\n", __func__);
-
-
-	if (!ses->iface_count) {
-		rc = -EINVAL;
-		goto out;
-	}
 
 out:
 	return rc;
@@ -5302,6 +5296,7 @@ struct smb_version_operations smb30_operations = {
 	.tree_connect = SMB2_tcon,
 	.tree_disconnect = SMB2_tdis,
 	.qfs_tcon = smb3_qfs_tcon,
+	.query_server_interfaces = SMB3_request_interfaces,
 	.is_path_accessible = smb2_is_path_accessible,
 	.can_echo = smb2_can_echo,
 	.echo = SMB2_echo,
@@ -5417,6 +5412,7 @@ struct smb_version_operations smb311_operations = {
 	.tree_connect = SMB2_tcon,
 	.tree_disconnect = SMB2_tdis,
 	.qfs_tcon = smb3_qfs_tcon,
+	.query_server_interfaces = SMB3_request_interfaces,
 	.is_path_accessible = smb2_is_path_accessible,
 	.can_echo = smb2_can_echo,
 	.echo = SMB2_echo,
