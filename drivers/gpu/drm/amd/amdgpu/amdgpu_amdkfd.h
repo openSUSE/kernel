@@ -403,7 +403,7 @@ int kgd2kfd_post_reset(struct kfd_dev *kfd);
 void kgd2kfd_interrupt(struct kfd_dev *kfd, const void *ih_ring_entry);
 void kgd2kfd_set_sram_ecc_flag(struct kfd_dev *kfd);
 void kgd2kfd_smi_event_throttle(struct kfd_dev *kfd, uint64_t throttle_bitmask);
-int kgd2kfd_check_and_lock_kfd(void);
+int kgd2kfd_check_and_lock_kfd(struct kfd_dev *kfd);
 void kgd2kfd_unlock_kfd(void);
 #else
 static inline int kgd2kfd_init(void)
@@ -466,7 +466,7 @@ void kgd2kfd_smi_event_throttle(struct kfd_dev *kfd, uint64_t throttle_bitmask)
 {
 }
 
-static inline int kgd2kfd_check_and_lock_kfd(void)
+static inline int kgd2kfd_check_and_lock_kfd(struct kfd_dev *kfd)
 {
 	return 0;
 }
