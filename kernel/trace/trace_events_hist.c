@@ -5609,7 +5609,7 @@ static int hist_show(struct seq_file *m, void *v)
 
 	mutex_lock(&event_mutex);
 
-	event_file = event_file_data(m->private);
+	event_file = m->private;
 	if (unlikely(!event_file)) {
 		ret = -ENODEV;
 		goto out_unlock;
@@ -5628,17 +5628,20 @@ static int hist_show(struct seq_file *m, void *v)
 
 static int event_hist_open(struct inode *inode, struct file *file)
 {
+	struct trace_event_file *event_file;
 	int ret;
 
 	ret = tracing_open_file_tr(inode, file);
 	if (ret)
 		return ret;
 
+	event_file = file->private_data;
+
 	/* Clear private_data to avoid warning in single_open() */
 	file->private_data = NULL;
-	ret = single_open(file, hist_show, file);
+	ret = single_open(file, hist_show, event_file);
 	if (ret)
-		tracing_release_file_tr(inode, file);
+		tracing_release_event_file_tr(event_file);
 	return ret;
 }
 
@@ -5891,7 +5894,7 @@ static int hist_debug_show(struct seq_file *m, void *v)
 
 	mutex_lock(&event_mutex);
 
-	event_file = event_file_data(m->private);
+	event_file = m->private;
 	if (unlikely(!event_file)) {
 		ret = -ENODEV;
 		goto out_unlock;
@@ -5910,17 +5913,20 @@ static int hist_debug_show(struct seq_file *m, void *v)
 
 static int event_hist_debug_open(struct inode *inode, struct file *file)
 {
+	struct trace_event_file *event_file;
 	int ret;
 
 	ret = tracing_open_file_tr(inode, file);
 	if (ret)
 		return ret;
 
+	event_file = file->private_data;
+
 	/* Clear private_data to avoid warning in single_open() */
 	file->private_data = NULL;
-	ret = single_open(file, hist_debug_show, file);
+	ret = single_open(file, hist_debug_show, event_file);
 	if (ret)
-		tracing_release_file_tr(inode, file);
+		tracing_release_event_file_tr(event_file);
 	return ret;
 }
 

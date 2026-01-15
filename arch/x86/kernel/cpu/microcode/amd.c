@@ -23,14 +23,18 @@
 
 #include <linux/earlycpio.h>
 #include <linux/firmware.h>
+#include <linux/bsearch.h>
 #include <linux/uaccess.h>
 #include <linux/vmalloc.h>
 #include <linux/initrd.h>
 #include <linux/kernel.h>
 #include <linux/pci.h>
 
+#include <crypto/sha2.h>
+
 #include <asm/microcode.h>
 #include <asm/processor.h>
+#include <asm/cmdline.h>
 #include <asm/setup.h>
 #include <asm/cpu.h>
 #include <asm/msr.h>
@@ -146,6 +150,155 @@ ucode_path[] __maybe_unused = "kernel/x86/microcode/AuthenticAMD.bin";
  *    for.
  */
 static u32 bsp_cpuid_1_eax __ro_after_init;
+
+static bool sha_check = true;
+
+struct patch_digest {
+	u32 patch_id;
+	u8 sha256[SHA256_DIGEST_SIZE];
+};
+
+#include "amd_shas.c"
+
+static int cmp_id(const void *key, const void *elem)
+{
+	struct patch_digest *pd = (struct patch_digest *)elem;
+	u32 patch_id = *(u32 *)key;
+
+	if (patch_id == pd->patch_id)
+		return 0;
+	else if (patch_id < pd->patch_id)
+		return -1;
+	else
+		return 1;
+}
+
+static u32 cpuid_to_ucode_rev(unsigned int val)
+{
+	union zen_patch_rev p = {};
+	union cpuid_1_eax c;
+
+	c.full = val;
+
+	p.stepping  = c.stepping;
+	p.model     = c.model;
+	p.ext_model = c.ext_model;
+	p.ext_fam   = c.ext_fam;
+
+	return p.ucode_rev;
+}
+
+static u32 get_cutoff_revision(u32 rev)
+{
+	switch (rev >> 8) {
+	case 0x80012: return 0x8001277; break;
+	case 0x80082: return 0x800820f; break;
+	case 0x83010: return 0x830107c; break;
+	case 0x86001: return 0x860010e; break;
+	case 0x86081: return 0x8608108; break;
+	case 0x87010: return 0x8701034; break;
+	case 0x8a000: return 0x8a0000a; break;
+	case 0xa0010: return 0xa00107a; break;
+	case 0xa0011: return 0xa0011da; break;
+	case 0xa0012: return 0xa001243; break;
+	case 0xa0082: return 0xa00820e; break;
+	case 0xa1011: return 0xa101153; break;
+	case 0xa1012: return 0xa10124e; break;
+	case 0xa1081: return 0xa108109; break;
+	case 0xa2010: return 0xa20102f; break;
+	case 0xa2012: return 0xa201212; break;
+	case 0xa4041: return 0xa404109; break;
+	case 0xa5000: return 0xa500013; break;
+	case 0xa6012: return 0xa60120a; break;
+	case 0xa7041: return 0xa704109; break;
+	case 0xa7052: return 0xa705208; break;
+	case 0xa7080: return 0xa708009; break;
+	case 0xa70c0: return 0xa70C009; break;
+	case 0xaa001: return 0xaa00116; break;
+	case 0xaa002: return 0xaa00218; break;
+	case 0xb0021: return 0xb002146; break;
+	case 0xb1010: return 0xb101046; break;
+	case 0xb2040: return 0xb204031; break;
+	case 0xb4040: return 0xb404031; break;
+	case 0xb6000: return 0xb600031; break;
+	case 0xb7000: return 0xb700031; break;
+	default: break;
+
+	}
+	return 0;
+}
+
+static bool need_sha_check(u32 cur_rev)
+{
+	u32 cutoff;
+
+	if (!cur_rev) {
+		cur_rev = cpuid_to_ucode_rev(bsp_cpuid_1_eax);
+		pr_info_once("No current revision, generating the lowest one: 0x%x\n", cur_rev);
+	}
+
+	cutoff = get_cutoff_revision(cur_rev);
+	if (cutoff)
+		return cur_rev <= cutoff;
+
+	pr_info("You should not be seeing this. Please send the following couple of lines to x86-<at>-kernel.org\n");
+	pr_info("CPUID(1).EAX: 0x%x, current revision: 0x%x\n", bsp_cpuid_1_eax, cur_rev);
+	return true;
+}
+
+static bool cpu_has_entrysign(void)
+{
+	unsigned int fam   = x86_family(bsp_cpuid_1_eax);
+	unsigned int model = x86_model(bsp_cpuid_1_eax);
+
+	if (fam == 0x17 || fam == 0x19)
+		return true;
+
+	if (fam == 0x1a) {
+		if (model <= 0x2f ||
+		    (0x40 <= model && model <= 0x4f) ||
+		    (0x60 <= model && model <= 0x7f))
+			return true;
+	}
+
+	return false;
+}
+
+static bool verify_sha256_digest(u32 patch_id, u32 cur_rev, const u8 *data, unsigned int len)
+{
+	struct patch_digest *pd = NULL;
+	u8 digest[SHA256_DIGEST_SIZE];
+	int i;
+
+	if (!cpu_has_entrysign())
+		return true;
+
+	if (!need_sha_check(cur_rev))
+		return true;
+
+	if (!sha_check)
+		return true;
+
+	pd = bsearch(&patch_id, phashes, ARRAY_SIZE(phashes), sizeof(struct patch_digest), cmp_id);
+	if (!pd) {
+		pr_err("No sha256 digest for patch ID: 0x%x found\n", patch_id);
+		return false;
+	}
+
+	sha256(data, len, digest);
+
+	if (memcmp(digest, pd->sha256, sizeof(digest))) {
+		pr_err("Patch 0x%x SHA256 digest mismatch!\n", patch_id);
+
+		for (i = 0; i < SHA256_DIGEST_SIZE; i++)
+			pr_cont("0x%x ", digest[i]);
+		pr_info("\n");
+
+		return false;
+	}
+
+	return true;
+}
 
 static u32 get_patch_level(void)
 {
@@ -338,6 +491,7 @@ static int verify_patch(const u8 *buf, size_t buf_size, u32 *patch_size)
 {
 	u8 family = x86_family(bsp_cpuid_1_eax);
 	struct microcode_header_amd *mc_hdr;
+	u32 cur_rev, cutoff, patch_rev;
 	u32 sh_psize;
 	u16 proc_id;
 	u8 patch_fam;
@@ -378,6 +532,29 @@ static int verify_patch(const u8 *buf, size_t buf_size, u32 *patch_size)
 	patch_fam = 0xf + (proc_id >> 12);
 	if (patch_fam != family)
 		return 1;
+
+	cur_rev = get_patch_level();
+
+	/* No cutoff revision means old/unaffected by signing algorithm weakness => matches */
+	cutoff = get_cutoff_revision(cur_rev);
+	if (!cutoff)
+		goto ok;
+
+	patch_rev = mc_hdr->patch_id;
+
+	pr_debug("cur_rev: 0x%x, cutoff: 0x%x, patch_rev: 0x%x\n",
+		  cur_rev, cutoff, patch_rev);
+
+	if (cur_rev <= cutoff && patch_rev <= cutoff)
+		goto ok;
+
+	if (cur_rev > cutoff && patch_rev > cutoff)
+		goto ok;
+
+	return 1;
+
+ok:
+	pr_debug("Patch-ID 0x%08x: family: 0x%x\n", mc_hdr->patch_id, patch_fam);
 
 	return 0;
 }
@@ -501,6 +678,9 @@ static bool __apply_microcode_amd(struct microcode_amd *mc, u32 *cur_rev,
 {
 	unsigned long p_addr = (unsigned long)&mc->hdr.data_code;
 
+	if (!verify_sha256_digest(mc->hdr.patch_id, *cur_rev, (const u8 *)p_addr, psize))
+		return false;
+
 	native_wrmsrl(MSR_AMD64_PATCH_LOADER, p_addr);
 
 	if (x86_family(bsp_cpuid_1_eax) == 0x17) {
@@ -575,7 +755,16 @@ void __init load_ucode_amd_bsp(struct early_load_data *ed, unsigned int cpuid_1_
 	struct cont_desc desc = { };
 	struct microcode_amd *mc;
 	struct cpio_data cp = { };
+	char buf[4];
 	u32 rev;
+
+	if (cmdline_find_option(boot_command_line, "microcode.amd_sha_check", buf, 4)) {
+		if (!strncmp(buf, "off", 3)) {
+			sha_check = false;
+			pr_warn_once("It is a very very bad idea to disable the blobs SHA check!\n");
+			add_taint(TAINT_CPU_OUT_OF_SPEC, LOCKDEP_STILL_OK);
+		}
+	}
 
 	bsp_cpuid_1_eax = cpuid_1_eax;
 
@@ -905,8 +1094,7 @@ static int verify_and_add_patch(u8 family, u8 *fw, unsigned int leftover,
 }
 
 /* Scan the blob in @data and add microcode patches to the cache. */
-static enum ucode_state __load_microcode_amd(u8 family, const u8 *data,
-					     size_t size)
+static enum ucode_state __load_microcode_amd(u8 family, const u8 *data, size_t size)
 {
 	u8 *fw = (u8 *)data;
 	size_t offset;
@@ -1063,11 +1251,18 @@ static void microcode_fini_cpu_amd(int cpu)
 	uci->mc = NULL;
 }
 
+static void finalize_late_load_amd(int result)
+{
+	if (result)
+		cleanup();
+}
+
 static struct microcode_ops microcode_amd_ops = {
 	.request_microcode_fw	= request_microcode_amd,
 	.collect_cpu_info	= collect_cpu_info_amd,
 	.apply_microcode	= apply_microcode_amd,
 	.microcode_fini_cpu	= microcode_fini_cpu_amd,
+	.finalize_late_load	= finalize_late_load_amd,
 	.nmi_safe		= true,
 };
 

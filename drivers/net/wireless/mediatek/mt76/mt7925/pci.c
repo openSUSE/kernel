@@ -450,6 +450,9 @@ static int mt7925_pci_suspend(struct device *device)
 	if (err < 0)
 		goto restore_suspend;
 
+	wait_event_timeout(dev->wait,
+			   !dev->regd_in_progress, 5 * HZ);
+
 	/* always enable deep sleep during suspend to reduce
 	 * power consumption
 	 */
@@ -546,11 +549,14 @@ static int mt7925_pci_resume(struct device *device)
 	local_bh_enable();
 
 	err = mt76_connac_mcu_set_hif_suspend(mdev, false);
+	if (err < 0)
+		goto failed;
 
 	/* restore previous ds setting */
 	if (!pm->ds_enable)
 		mt7925_mcu_set_deep_sleep(dev, false);
 
+	mt7925_regd_update(dev);
 failed:
 	pm->suspended = false;
 

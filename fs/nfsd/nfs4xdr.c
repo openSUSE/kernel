@@ -5482,6 +5482,7 @@ bool
 nfs4svc_decode_compoundargs(struct svc_rqst *rqstp, struct xdr_stream *xdr)
 {
 	struct nfsd4_compoundargs *args = rqstp->rq_argp;
+	bool ret = false;
 
 	/* svcxdr_tmp_alloc */
 	args->to_free = NULL;
@@ -5490,7 +5491,11 @@ nfs4svc_decode_compoundargs(struct svc_rqst *rqstp, struct xdr_stream *xdr)
 	args->ops = args->iops;
 	args->rqstp = rqstp;
 
-	return nfsd4_decode_compound(args);
+	clear_bit(RQ_USEDEFERRAL, &rqstp->rq_flags);
+	ret = nfsd4_decode_compound(args);
+	set_bit(RQ_USEDEFERRAL, &rqstp->rq_flags);
+
+	return ret;
 }
 
 bool

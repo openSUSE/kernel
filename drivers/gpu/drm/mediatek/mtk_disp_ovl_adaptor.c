@@ -497,6 +497,13 @@ static int compare_of(struct device *dev, void *data)
 	return dev->of_node == data;
 }
 
+static void ovl_adaptor_put_device(void *_dev)
+{
+	struct device *dev = _dev;
+
+	put_device(dev);
+}
+
 static int ovl_adaptor_comp_init(struct device *dev, struct component_match **match)
 {
 	struct mtk_disp_ovl_adaptor *priv = dev_get_drvdata(dev);
@@ -531,6 +538,11 @@ static int ovl_adaptor_comp_init(struct device *dev, struct component_match **ma
 		comp_pdev = of_find_device_by_node(node);
 		if (!comp_pdev)
 			return -EPROBE_DEFER;
+
+		ret = devm_add_action_or_reset(dev, ovl_adaptor_put_device,
+					       &comp_pdev->dev);
+		if (ret)
+			return ret;
 
 		priv->ovl_adaptor_comp[id] = &comp_pdev->dev;
 
