@@ -350,6 +350,7 @@ static int configfs_create_dir(struct config_item *item, struct dentry *dentry,
 	return 0;
 
 out_remove:
+	configfs_put(dentry->d_fsdata);
 	configfs_remove_dirent(dentry);
 	return error;
 }
@@ -411,6 +412,7 @@ int configfs_create_link(struct configfs_symlink *sl,
 	return 0;
 
 out_remove:
+	configfs_put(dentry->d_fsdata);
 	configfs_remove_dirent(dentry);
 	return err;
 }
