@@ -833,7 +833,6 @@ static int mali_c55_probe(struct platform_device *pdev)
 	mali_c55->irqnum = platform_get_irq(pdev, 0);
 	if (mali_c55->irqnum < 0) {
 		ret = mali_c55->irqnum;
-		dev_err(dev, "failed to get interrupt\n");
 		goto err_deinit_media_frameworks;
 	}
 
