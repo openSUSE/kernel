@@ -2119,6 +2119,15 @@ config WATCHDOG_RTAS
 
 # RISC-V Architecture
 
+config ATCWDT200_WATCHDOG
+	tristate "Andes ATCWDT200 Watchdog support"
+	depends on ARCH_ANDES || COMPILE_TEST
+	help
+	  Driver for the Andes ATCWDT200 watchdog timer. It provides access to
+	  programmable reset and interrupt counters with clock-source dependent
+	  timing. The driver automatically detects the supported IntTime bit-width
+	  and is fully integrated with the Linux Watchdog Framework.
+
 config STARFIVE_WATCHDOG
 	tristate "StarFive Watchdog support"
 	depends on ARCH_STARFIVE || COMPILE_TEST
