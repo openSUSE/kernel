@@ -10358,3 +10358,28 @@ MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("MD RAID framework");
 MODULE_ALIAS("md");
 MODULE_ALIAS_BLOCKDEV_MAJOR(MD_MAJOR);
+
+/*
+ * KABI: md_wakeup_thread() is part of the SL-16.0 KABI, but it doesn't appear
+ * in any public header files, just drivers/md.h. It is unclear whether any
+ * 3rd party modules actually use it.
+ *
+ * Commit d7dbc78 ("md: fix rcu protection in md_wakeup_thread (CVE-2025-68374
+ * bsc#1255530).") converted md_wakeup_thread() into a macro.
+ *
+ * To avoid KABI breakage, export this function here. Note that RCU usage here
+ * is broken as explained in the commit message of d7dbc78. This introduces
+ * a tiny risk for a race when this function is called by an external module
+ * (but in kernel before 6.5, there was no RCU protection  of this variable at
+ * all, so the risk should be tiny indeed). Internally, the kernel won't use
+ * this function.
+ */
+#undef md_wakeup_thread
+void md_wakeup_thread(struct md_thread __rcu *thread);
+void md_wakeup_thread(struct md_thread __rcu *thread)
+{
+	rcu_read_lock();
+	__md_wakeup_thread(thread);
+	rcu_read_unlock();
+}
+EXPORT_SYMBOL(md_wakeup_thread);
