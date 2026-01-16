@@ -12,11 +12,11 @@
  * "bug" caps, but KVM doesn't use those.
  */
 enum kvm_only_cpuid_leafs {
-	CPUID_12_EAX	 = NCAPINTS,
+	CPUID_12_EAX	 = NCAPINTS + NEXTCAPINTS,
 	CPUID_7_2_EDX,
 	NR_KVM_CPU_CAPS,
 
-	NKVMCAPINTS = NR_KVM_CPU_CAPS - NCAPINTS,
+	NKVMCAPINTS = NR_KVM_CPU_CAPS - NCAPINTS - NEXTCAPINTS,
 };
 
 #define KVM_X86_FEATURE(w, f)		((w)*32 + (f))
