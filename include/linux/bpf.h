@@ -30,6 +30,7 @@
 #include <linux/rcupdate_trace.h>
 #include <linux/static_call.h>
 #include <linux/memcontrol.h>
+#include <linux/build_bug.h>
 
 struct bpf_verifier_env;
 struct bpf_verifier_log;
@@ -271,6 +272,9 @@ struct bpf_map {
 	struct obj_cgroup *objcg;
 #endif
 	char name[BPF_OBJ_NAME_LEN];
+#ifndef __GENKSYMS__
+	enum bpf_attach_type owner_expected_attach_type;
+#endif
 	/* The 3rd and 4th cacheline with misc members to avoid false sharing
 	 * particularly with refcounting.
 	 */
@@ -307,6 +311,71 @@ struct bpf_map {
 	void *suse_kabi_padding;
 #endif
 };
+
+struct __orig_bpf_map {
+	/* The first two cachelines with read-mostly members of which some
+	 * are also accessed in fast-path (e.g. ops, max_entries).
+	 */
+	const struct bpf_map_ops *ops ____cacheline_aligned;
+	struct bpf_map *inner_map_meta;
+#ifdef CONFIG_SECURITY
+	void *security;
+#endif
+	enum bpf_map_type map_type;
+	u32 key_size;
+	u32 value_size;
+	u32 max_entries;
+	u64 map_extra; /* any per-map-type extra fields */
+	u32 map_flags;
+	u32 id;
+	struct btf_record *record;
+	int numa_node;
+	u32 btf_key_type_id;
+	u32 btf_value_type_id;
+	u32 btf_vmlinux_value_type_id;
+	struct btf *btf;
+#ifdef CONFIG_MEMCG_KMEM
+	struct obj_cgroup *objcg;
+#endif
+	char name[BPF_OBJ_NAME_LEN];
+	/* The 3rd and 4th cacheline with misc members to avoid false sharing
+	 * particularly with refcounting.
+	 */
+	atomic64_t refcnt ____cacheline_aligned;
+	atomic64_t usercnt;
+	/* rcu is used before freeing and work is only used during freeing */
+	union {
+		struct work_struct work;
+		struct rcu_head rcu;
+	};
+	struct mutex freeze_mutex;
+	atomic64_t writecnt;
+	/* 'Ownership' of program-containing map is claimed by the first program
+	 * that is going to use this map or by the first program which FD is
+	 * stored in the map to make sure that all callers and callees have the
+	 * same prog type, JITed flag and xdp_has_frags flag.
+	 */
+	struct {
+		spinlock_t lock;
+		enum bpf_prog_type type;
+		bool jited;
+		bool xdp_has_frags;
+	} owner;
+	bool bypass_spec_v1;
+	bool frozen; /* write-once; write-protected by freeze_mutex */
+	bool free_after_mult_rcu_gp;
+	bool free_after_rcu_gp;
+	atomic64_t sleepable_refcnt;
+	s64 __percpu *elem_count;
+#ifndef __GENKSYMS__
+	/* Synchornized with struct owner.lock */
+	const struct btf_type *owner_attach_func_proto;
+#else
+	void *suse_kabi_padding;
+#endif
+};
+
+suse_kabi_static_assert(offsetof(struct bpf_map, refcnt) == offsetof(struct __orig_bpf_map, refcnt));
 
 static inline const char *btf_field_type_name(enum btf_field_type type)
 {

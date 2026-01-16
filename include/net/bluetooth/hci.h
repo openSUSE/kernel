@@ -449,6 +449,11 @@ enum {
 	HCI_MESH,
 	HCI_MESH_SENDING,
 
+#ifndef __GENKSYMS__
+	/* FIXME: moved here for kABI compatibility */
+	HCI_LE_ADV_0,
+#endif
+
 	__HCI_NUM_FLAGS,
 };
 
