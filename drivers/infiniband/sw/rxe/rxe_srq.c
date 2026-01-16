@@ -170,16 +170,11 @@ int rxe_srq_from_attr(struct rxe_dev *rxe, struct rxe_srq *srq,
 				       mi, &srq->rq.producer_lock,
 				       &srq->rq.consumer_lock);
 		if (err)
-			goto err2;
+			return err;
 	}
 
 	if (mask & IB_SRQ_LIMIT)
 		srq->limit = attr->srq_limit;
 
 	return 0;
-
-err2:
-	rxe_queue_cleanup(q);
-	srq->rq.queue = NULL;
-	return err;
 }
