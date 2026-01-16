@@ -301,7 +301,7 @@ struct bpf_map {
 		bool jited;
 		bool xdp_has_frags;
 #ifndef __GENKSYMS__
-		enum bpf_attach_type expected_attach_type;
+		unsigned char expected_attach_type;
 #endif
 	} owner;
 	bool bypass_spec_v1;
