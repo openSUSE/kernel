@@ -802,7 +802,10 @@ void bnxt_re_unlock_cqs(struct bnxt_re_qp *qp,
 int bnxt_re_destroy_qp(struct ib_qp *ib_qp)
 {
 	struct bnxt_re_qp *qp = container_of(ib_qp, struct bnxt_re_qp, ib_qp);
+	struct bnxt_qplib_qp *qplib_qp = &qp->qplib_qp;
 	struct bnxt_re_dev *rdev = qp->rdev;
+	struct bnxt_qplib_nq *scq_nq = NULL;
+	struct bnxt_qplib_nq *rcq_nq = NULL;
 	int rc;
 	unsigned int flags;
 
@@ -852,6 +855,15 @@ int bnxt_re_destroy_qp(struct ib_qp *ib_qp)
 		ib_umem_release(qp->rumem);
 	if (!IS_ERR_OR_NULL(qp->sumem))
 		ib_umem_release(qp->sumem);
+
+	/* Flush all the entries of notification queue associated with
+	 * given qp.
+	 */
+	scq_nq = qplib_qp->scq->nq;
+	rcq_nq = qplib_qp->rcq->nq;
+	bnxt_re_synchronize_nq(scq_nq);
+	if (scq_nq != rcq_nq)
+		bnxt_re_synchronize_nq(rcq_nq);
 
 	mutex_lock(&rdev->qp_lock);
 	list_del(&qp->list);
