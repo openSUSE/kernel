@@ -36,7 +36,6 @@
 #include <linux/string.h>
 #include <linux/sysrq.h>
 #include <linux/tty.h>
-#include <linux/vga_switcheroo.h>
 
 #include <drm/drm_crtc.h>
 #include <drm/drm_fb_helper.h>
@@ -337,7 +336,6 @@ static int intelfb_create(struct drm_fb_helper *helper,
 	ifbdev->vma_flags = flags;
 
 	intel_runtime_pm_put(&dev_priv->runtime_pm, wakeref);
-	vga_switcheroo_client_fb_set(pdev, info);
 	return 0;
 
 out_unpin:
