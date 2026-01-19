@@ -2147,7 +2147,6 @@ int btrfs_qgroup_trace_extent(struct btrfs_trans_handle *trans, u64 bytenr,
 	}
 
 	record->num_bytes = num_bytes;
-	record->old_roots = NULL;
 
 	ret = btrfs_qgroup_trace_extent_nolock(fs_info, delayed_refs, record, bytenr);
 	if (ret) {
