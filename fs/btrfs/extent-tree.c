@@ -1807,16 +1807,6 @@ select_delayed_ref(struct btrfs_delayed_ref_head *head)
 	return ref;
 }
 
-static void unselect_delayed_ref_head(struct btrfs_delayed_ref_root *delayed_refs,
-				      struct btrfs_delayed_ref_head *head)
-{
-	spin_lock(&delayed_refs->lock);
-	head->processing = false;
-	delayed_refs->num_heads_ready++;
-	spin_unlock(&delayed_refs->lock);
-	btrfs_delayed_ref_unlock(head);
-}
-
 static struct btrfs_delayed_extent_op *cleanup_extent_op(
 				struct btrfs_delayed_ref_head *head)
 {
@@ -1891,7 +1881,7 @@ static int cleanup_ref_head(struct btrfs_trans_handle *trans,
 
 	ret = run_and_cleanup_extent_op(trans, head);
 	if (ret < 0) {
-		unselect_delayed_ref_head(delayed_refs, head);
+		btrfs_unselect_ref_head(delayed_refs, head);
 		btrfs_debug(fs_info, "run_delayed_extent_op returned %d", ret);
 		return ret;
 	} else if (ret) {
@@ -1953,7 +1943,7 @@ static int btrfs_run_delayed_refs_for_head(struct btrfs_trans_handle *trans,
 		if (ref->seq &&
 		    btrfs_check_delayed_seq(fs_info, ref->seq)) {
 			spin_unlock(&locked_ref->lock);
-			unselect_delayed_ref_head(delayed_refs, locked_ref);
+			btrfs_unselect_ref_head(delayed_refs, locked_ref);
 			return -EAGAIN;
 		}
 
@@ -2001,7 +1991,7 @@ static int btrfs_run_delayed_refs_for_head(struct btrfs_trans_handle *trans,
 
 		btrfs_free_delayed_extent_op(extent_op);
 		if (ret) {
-			unselect_delayed_ref_head(delayed_refs, locked_ref);
+			btrfs_unselect_ref_head(delayed_refs, locked_ref);
 			btrfs_put_delayed_ref(ref);
 			return ret;
 		}
