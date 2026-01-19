@@ -78,7 +78,6 @@
 #include <asm/irq.h>
 
 #include "fbcon.h"
-#include "fbcon_switcheroo.h"
 #include "fb_internal.h"
 
 /*
@@ -2910,8 +2909,6 @@ void fbcon_fb_unregistered(struct fb_info *info)
 
 	console_lock();
 
-	fbcon_switcheroo_client_clear_fb(info);
-
 	fbcon_registered_fb[info->node] = NULL;
 	fbcon_num_registered_fb--;
 
@@ -3044,9 +3041,6 @@ static int do_fb_registered(struct fb_info *info)
 				set_con2fb_map(i, idx, 0);
 		}
 	}
-
-	/* Set the fb info for vga_switcheroo clients. Does nothing otherwise. */
-	fbcon_switcheroo_client_set_fb(info);
 
 	return ret;
 }
