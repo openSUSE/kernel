@@ -242,7 +242,7 @@ static int rpl_output(struct net *net, struct sock *sk, struct sk_buff *skb)
 	skb_dst_drop(skb);
 	skb_dst_set(skb, dst);
 
-	err = skb_cow_head(skb, LL_RESERVED_SPACE(dst->dev));
+	err = skb_cow_head(skb, LL_RESERVED_SPACE(dst_dev(dst)));
 	if (unlikely(err))
 		goto drop;
 
@@ -287,7 +287,7 @@ static int rpl_input(struct sk_buff *skb)
 		skb_dst_set(skb, dst);
 	}
 
-	err = skb_cow_head(skb, LL_RESERVED_SPACE(dst->dev));
+	err = skb_cow_head(skb, LL_RESERVED_SPACE(dst_dev(dst)));
 	if (unlikely(err))
 		return err;
 

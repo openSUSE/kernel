@@ -78,7 +78,6 @@ void __weak arch_cpu_idle_dead(void) { }
 void __weak arch_cpu_idle(void)
 {
 	cpu_idle_force_poll = 1;
-	raw_local_irq_enable();
 }
 
 /**
@@ -99,8 +98,7 @@ void __cpuidle default_idle_call(void)
 		 * arch_cpu_idle() is supposed to enable IRQs, however
 		 * we can't do that because of RCU and tracing.
 		 *
-		 * Trace IRQs enable here, then switch off RCU, and have
-		 * arch_cpu_idle() use raw_local_irq_enable(). Note that
+		 * Trace IRQs enable here, then switch off RCU. Note that
 		 * rcu_idle_enter() relies on lockdep IRQ state, so switch that
 		 * last -- this is very similar to the entry code.
 		 */
@@ -117,7 +115,6 @@ void __cpuidle default_idle_call(void)
 		 * will cause tracing, which needs RCU. Jump through hoops to
 		 * make it 'work'.
 		 */
-		raw_local_irq_disable();
 		lockdep_hardirqs_off(_THIS_IP_);
 		rcu_idle_exit();
 		lockdep_hardirqs_on(_THIS_IP_);
