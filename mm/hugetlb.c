@@ -3828,7 +3828,6 @@ retry:
 			 * fault to make calling code simpler.
 			 */
 			mutex_unlock(&hugetlb_fault_mutex_table[hash]);
-			i_mmap_unlock_read(mapping);
 			return handle_userfault(&vmf, VM_UFFD_MISSING);
 		}
 
@@ -3917,7 +3916,6 @@ retry:
 	unlock_page(page);
 out:
 	mutex_unlock(&hugetlb_fault_mutex_table[hash]);
-	i_mmap_unlock_read(mapping);
 	return ret;
 
 backout:
