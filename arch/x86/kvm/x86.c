@@ -578,7 +578,7 @@ static void kvm_on_user_return(struct user_return_notifier *urn)
 	for (slot = 0; slot < kvm_nr_uret_msrs; ++slot) {
 		values = &msrs->values[slot];
 		if (values->host != values->curr) {
-			wrmsrl(kvm_uret_msrs_list[slot], values->host);
+			wrmsrq(kvm_uret_msrs_list[slot], values->host);
 			values->curr = values->host;
 		}
 	}
@@ -1199,7 +1199,7 @@ void kvm_load_guest_xsave_state(struct kvm_vcpu *vcpu)
 
 		if (guest_cpu_cap_has(vcpu, X86_FEATURE_XSAVES) &&
 		    vcpu->arch.ia32_xss != kvm_host.xss)
-			wrmsrl(MSR_IA32_XSS, vcpu->arch.ia32_xss);
+			wrmsrq(MSR_IA32_XSS, vcpu->arch.ia32_xss);
 	}
 
 	if (cpu_feature_enabled(X86_FEATURE_PKU) &&
@@ -1230,7 +1230,7 @@ void kvm_load_host_xsave_state(struct kvm_vcpu *vcpu)
 
 		if (guest_cpu_cap_has(vcpu, X86_FEATURE_XSAVES) &&
 		    vcpu->arch.ia32_xss != kvm_host.xss)
-			wrmsrl(MSR_IA32_XSS, kvm_host.xss);
+			wrmsrq(MSR_IA32_XSS, kvm_host.xss);
 	}
 
 }
@@ -3843,7 +3843,7 @@ int kvm_set_msr_common(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 		if (!data)
 			break;
 
-		wrmsrl(MSR_IA32_PRED_CMD, data);
+		wrmsrq(MSR_IA32_PRED_CMD, data);
 		break;
 	}
 	case MSR_IA32_FLUSH_CMD:
@@ -3856,7 +3856,7 @@ int kvm_set_msr_common(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 		if (!data)
 			break;
 
-		wrmsrl(MSR_IA32_FLUSH_CMD, L1D_FLUSH);
+		wrmsrq(MSR_IA32_FLUSH_CMD, L1D_FLUSH);
 		break;
 	case MSR_EFER:
 		return set_efer(vcpu, msr_info);
@@ -11049,7 +11049,7 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 		switch_fpu_return();
 
 	if (vcpu->arch.guest_fpu.xfd_err)
-		wrmsrl(MSR_IA32_XFD_ERR, vcpu->arch.guest_fpu.xfd_err);
+		wrmsrq(MSR_IA32_XFD_ERR, vcpu->arch.guest_fpu.xfd_err);
 
 	if (unlikely(vcpu->arch.switch_db_regs &&
 		     !(vcpu->arch.switch_db_regs & KVM_DEBUGREG_AUTO_SWITCH))) {
@@ -11138,6 +11138,15 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 	smp_wmb();
 
 	/*
+	 * Mark this CPU as needing a branch predictor flush before running
+	 * userspace. Must be done before enabling preemption to ensure it gets
+	 * set for the CPU that actually ran the guest, and not the CPU that it
+	 * may migrate to.
+	 */
+	if (cpu_feature_enabled(X86_FEATURE_IBPB_EXIT_TO_USER))
+		this_cpu_write(x86_ibpb_exit_to_user, true);
+
+	/*
 	 * Sync xfd before calling handle_exit_irqoff() which may
 	 * rely on the fact that guest_fpu::xfd is up-to-date (e.g.
 	 * in #NM irqoff handler).
@@ -11148,16 +11157,7 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 	kvm_x86_call(handle_exit_irqoff)(vcpu);
 
 	if (vcpu->arch.guest_fpu.xfd_err)
-		wrmsrl(MSR_IA32_XFD_ERR, 0);
-
-	/*
-	 * Mark this CPU as needing a branch predictor flush before running
-	 * userspace. Must be done before enabling preemption to ensure it gets
-	 * set for the CPU that actually ran the guest, and not the CPU that it
-	 * may migrate to.
-	 */
-	if (cpu_feature_enabled(X86_FEATURE_IBPB_EXIT_TO_USER))
-		this_cpu_write(x86_ibpb_exit_to_user, true);
+		wrmsrq(MSR_IA32_XFD_ERR, 0);
 
 	/*
 	 * Consume any pending interrupts, including the possible source of
@@ -13786,7 +13786,7 @@ int kvm_spec_ctrl_test_value(u64 value)
 	else if (wrmsrl_safe(MSR_IA32_SPEC_CTRL, value))
 		ret = 1;
 	else
-		wrmsrl(MSR_IA32_SPEC_CTRL, saved_value);
+		wrmsrq(MSR_IA32_SPEC_CTRL, saved_value);
 
 	local_irq_restore(flags);
 

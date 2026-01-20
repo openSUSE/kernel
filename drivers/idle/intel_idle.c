@@ -2195,8 +2195,8 @@ static void __init intel_idle_init_cstates_icpu(struct cpuidle_driver *drv)
 	}
 
 	if (icpu->byt_auto_demotion_disable_flag) {
-		wrmsrl(MSR_CC6_DEMOTION_POLICY_CONFIG, 0);
-		wrmsrl(MSR_MC6_DEMOTION_POLICY_CONFIG, 0);
+		wrmsrq(MSR_CC6_DEMOTION_POLICY_CONFIG, 0);
+		wrmsrq(MSR_MC6_DEMOTION_POLICY_CONFIG, 0);
 	}
 }
 
@@ -2225,7 +2225,7 @@ static void auto_demotion_disable(void)
 
 	rdmsrq(MSR_PKG_CST_CONFIG_CONTROL, msr_bits);
 	msr_bits &= ~auto_demotion_disable_flags;
-	wrmsrl(MSR_PKG_CST_CONFIG_CONTROL, msr_bits);
+	wrmsrq(MSR_PKG_CST_CONFIG_CONTROL, msr_bits);
 }
 
 static void c1e_promotion_enable(void)
@@ -2234,7 +2234,7 @@ static void c1e_promotion_enable(void)
 
 	rdmsrq(MSR_IA32_POWER_CTL, msr_bits);
 	msr_bits |= 0x2;
-	wrmsrl(MSR_IA32_POWER_CTL, msr_bits);
+	wrmsrq(MSR_IA32_POWER_CTL, msr_bits);
 }
 
 static void c1e_promotion_disable(void)
@@ -2243,7 +2243,7 @@ static void c1e_promotion_disable(void)
 
 	rdmsrq(MSR_IA32_POWER_CTL, msr_bits);
 	msr_bits &= ~0x2;
-	wrmsrl(MSR_IA32_POWER_CTL, msr_bits);
+	wrmsrq(MSR_IA32_POWER_CTL, msr_bits);
 }
 
 /**

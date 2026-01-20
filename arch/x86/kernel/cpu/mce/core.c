@@ -1889,8 +1889,8 @@ static void __mcheck_cpu_init_clear_banks(void)
 
 		if (!b->init)
 			continue;
-		wrmsrl(mca_msr_reg(i, MCA_CTL), b->ctl);
-		wrmsrl(mca_msr_reg(i, MCA_STATUS), 0);
+		wrmsrq(mca_msr_reg(i, MCA_CTL), b->ctl);
+		wrmsrq(mca_msr_reg(i, MCA_STATUS), 0);
 	}
 }
 
@@ -2431,7 +2431,7 @@ static void mce_disable_error_reporting(void)
 		struct mce_bank *b = &mce_banks[i];
 
 		if (b->init)
-			wrmsrl(mca_msr_reg(i, MCA_CTL), 0);
+			wrmsrq(mca_msr_reg(i, MCA_CTL), 0);
 	}
 	return;
 }
@@ -2781,7 +2781,7 @@ static void mce_reenable_cpu(void)
 		struct mce_bank *b = &mce_banks[i];
 
 		if (b->init)
-			wrmsrl(mca_msr_reg(i, MCA_CTL), b->ctl);
+			wrmsrq(mca_msr_reg(i, MCA_CTL), b->ctl);
 	}
 }
 

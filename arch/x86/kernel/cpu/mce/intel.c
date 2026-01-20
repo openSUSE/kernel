@@ -142,7 +142,7 @@ static void cmci_set_threshold(int bank, int thresh)
 	raw_spin_lock_irqsave(&cmci_discover_lock, flags);
 	rdmsrq(MSR_IA32_MCx_CTL2(bank), val);
 	val &= ~MCI_CTL2_CMCI_THRESHOLD_MASK;
-	wrmsrl(MSR_IA32_MCx_CTL2(bank), val | thresh);
+	wrmsrq(MSR_IA32_MCx_CTL2(bank), val | thresh);
 	raw_spin_unlock_irqrestore(&cmci_discover_lock, flags);
 }
 
@@ -231,7 +231,7 @@ static void cmci_claim_bank(int bank, u64 val, int bios_zero_thresh, int *bios_w
 	struct mca_storm_desc *storm = this_cpu_ptr(&storm_desc);
 
 	val |= MCI_CTL2_CMCI_EN;
-	wrmsrl(MSR_IA32_MCx_CTL2(bank), val);
+	wrmsrq(MSR_IA32_MCx_CTL2(bank), val);
 	rdmsrq(MSR_IA32_MCx_CTL2(bank), val);
 
 	/* If the enable bit did not stick, this bank should be polled. */
@@ -325,7 +325,7 @@ static void __cmci_disable_bank(int bank)
 		return;
 	rdmsrq(MSR_IA32_MCx_CTL2(bank), val);
 	val &= ~MCI_CTL2_CMCI_EN;
-	wrmsrl(MSR_IA32_MCx_CTL2(bank), val);
+	wrmsrq(MSR_IA32_MCx_CTL2(bank), val);
 	__clear_bit(bank, this_cpu_ptr(mce_banks_owned));
 
 	if ((val & MCI_CTL2_CMCI_THRESHOLD_MASK) == CMCI_STORM_THRESHOLD)
@@ -432,7 +432,7 @@ void intel_init_lmce(void)
 	rdmsrq(MSR_IA32_MCG_EXT_CTL, val);
 
 	if (!(val & MCG_EXT_CTL_LMCE_EN))
-		wrmsrl(MSR_IA32_MCG_EXT_CTL, val | MCG_EXT_CTL_LMCE_EN);
+		wrmsrq(MSR_IA32_MCG_EXT_CTL, val | MCG_EXT_CTL_LMCE_EN);
 }
 
 void intel_clear_lmce(void)
@@ -444,7 +444,7 @@ void intel_clear_lmce(void)
 
 	rdmsrq(MSR_IA32_MCG_EXT_CTL, val);
 	val &= ~MCG_EXT_CTL_LMCE_EN;
-	wrmsrl(MSR_IA32_MCG_EXT_CTL, val);
+	wrmsrq(MSR_IA32_MCG_EXT_CTL, val);
 }
 
 /*

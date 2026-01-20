@@ -198,7 +198,7 @@ void fpu__init_cpu_xstate(void)
 	 * MSR_IA32_XSS sets supervisor states managed by XSAVES.
 	 */
 	if (boot_cpu_has(X86_FEATURE_XSAVES)) {
-		wrmsrl(MSR_IA32_XSS, xfeatures_mask_supervisor() |
+		wrmsrq(MSR_IA32_XSS, xfeatures_mask_supervisor() |
 				     xfeatures_mask_independent());
 	}
 }
@@ -650,7 +650,7 @@ static unsigned int __init get_xsave_compacted_size(void)
 		return get_compacted_size();
 
 	/* Disable independent features. */
-	wrmsrl(MSR_IA32_XSS, xfeatures_mask_supervisor());
+	wrmsrq(MSR_IA32_XSS, xfeatures_mask_supervisor());
 
 	/*
 	 * Ask the hardware what size is required of the buffer.
@@ -659,7 +659,7 @@ static unsigned int __init get_xsave_compacted_size(void)
 	size = get_compacted_size();
 
 	/* Re-enable independent features so XSAVES will work on them again. */
-	wrmsrl(MSR_IA32_XSS, xfeatures_mask_supervisor() | mask);
+	wrmsrq(MSR_IA32_XSS, xfeatures_mask_supervisor() | mask);
 
 	return size;
 }
@@ -920,12 +920,12 @@ void fpu__resume_cpu(void)
 	 * of XSAVES and MSR_IA32_XSS.
 	 */
 	if (cpu_feature_enabled(X86_FEATURE_XSAVES)) {
-		wrmsrl(MSR_IA32_XSS, xfeatures_mask_supervisor()  |
+		wrmsrq(MSR_IA32_XSS, xfeatures_mask_supervisor()  |
 				     xfeatures_mask_independent());
 	}
 
 	if (fpu_state_size_dynamic())
-		wrmsrl(MSR_IA32_XFD, current->thread.fpu.fpstate->xfd);
+		wrmsrq(MSR_IA32_XFD, current->thread.fpu.fpstate->xfd);
 }
 
 /*
