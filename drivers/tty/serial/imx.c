@@ -2079,6 +2079,7 @@ static int serial_imx_probe(struct platform_device *pdev)
 	struct imx_port *sport;
 	void __iomem *base;
 	int ret = 0, reg;
+	u32 ucr2;
 	struct resource *res;
 	int txirq, rxirq, rtsirq;
 
@@ -2188,6 +2189,11 @@ static int serial_imx_probe(struct platform_device *pdev)
 	}
 
 	clk_disable_unprepare(sport->clk_ipg);
+
+	/* Disable Ageing Timer interrupt */
+	ucr2 = readl(sport->port.membase + UCR2);
+	ucr2 &= ~UCR2_ATEN;
+	writel(ucr2, sport->port.membase + UCR2);
 
 	/*
 	 * Allocate the IRQ(s) i.MX1 has three interrupts whereas later
