@@ -1583,7 +1583,7 @@ static void mon_event_config_read(void *info)
 		pr_warn_once("Invalid event id %d\n", mon_info->evtid);
 		return;
 	}
-	rdmsrl(MSR_IA32_EVT_CFG_BASE + index, msrval);
+	rdmsrq(MSR_IA32_EVT_CFG_BASE + index, msrval);
 
 	/* Report only the valid event configuration bits */
 	mon_info->mon_config = msrval & MAX_EVT_CONFIG_BITS;

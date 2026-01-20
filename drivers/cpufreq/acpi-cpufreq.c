@@ -113,7 +113,7 @@ static int boost_set_msr(bool enable)
 		return -EINVAL;
 	}
 
-	rdmsrl(msr_addr, val);
+	rdmsrq(msr_addr, val);
 
 	if (enable)
 		val &= ~msr_mask;

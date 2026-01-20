@@ -1827,7 +1827,7 @@ static void __mcheck_cpu_cap_init(void)
 	u64 cap;
 	u8 b;
 
-	rdmsrl(MSR_IA32_MCG_CAP, cap);
+	rdmsrq(MSR_IA32_MCG_CAP, cap);
 
 	b = cap & MCG_BANKCNT_MASK;
 
@@ -1868,7 +1868,7 @@ static void __mcheck_cpu_init_generic(void)
 
 	cr4_set_bits(X86_CR4_MCE);
 
-	rdmsrl(MSR_IA32_MCG_CAP, cap);
+	rdmsrq(MSR_IA32_MCG_CAP, cap);
 	if (cap & MCG_CTL_P)
 		wrmsr(MSR_IA32_MCG_CTL, 0xffffffff, 0xffffffff);
 }
@@ -1910,7 +1910,7 @@ static void __mcheck_cpu_check_banks(void)
 		if (!b->init)
 			continue;
 
-		rdmsrl(mca_msr_reg(i, MCA_CTL), msrval);
+		rdmsrq(mca_msr_reg(i, MCA_CTL), msrval);
 		b->init = !!msrval;
 	}
 }

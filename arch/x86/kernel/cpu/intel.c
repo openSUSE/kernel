@@ -166,7 +166,7 @@ static void detect_tme_early(struct cpuinfo_x86 *c)
 	u64 tme_activate;
 	int keyid_bits;
 
-	rdmsrl(MSR_IA32_TME_ACTIVATE, tme_activate);
+	rdmsrq(MSR_IA32_TME_ACTIVATE, tme_activate);
 
 	if (!TME_ACTIVATE_LOCKED(tme_activate) || !TME_ACTIVATE_ENABLED(tme_activate)) {
 		pr_info_once("x86/tme: not enabled by BIOS\n");
@@ -302,7 +302,7 @@ static void early_init_intel(struct cpuinfo_x86 *c)
 	 * clear the fast string and enhanced fast string CPU capabilities.
 	 */
 	if (c->x86 > 6 || (c->x86 == 6 && c->x86_model >= 0xd)) {
-		rdmsrl(MSR_IA32_MISC_ENABLE, misc_enable);
+		rdmsrq(MSR_IA32_MISC_ENABLE, misc_enable);
 		if (!(misc_enable & MSR_IA32_MISC_ENABLE_FAST_STRING)) {
 			pr_info("Disabled fast string operations\n");
 			setup_clear_cpu_cap(X86_FEATURE_REP_GOOD);

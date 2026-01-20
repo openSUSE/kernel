@@ -241,7 +241,7 @@ void __init cpu_select_mitigations(void)
 	 * init code as it is not enumerated and depends on the family.
 	 */
 	if (cpu_feature_enabled(X86_FEATURE_MSR_SPEC_CTRL)) {
-		rdmsrl(MSR_IA32_SPEC_CTRL, x86_spec_ctrl_base);
+		rdmsrq(MSR_IA32_SPEC_CTRL, x86_spec_ctrl_base);
 
 		/*
 		 * Previously running kernel (kexec), may have some controls
@@ -904,7 +904,7 @@ void update_srbds_msr(void)
 	if (!boot_cpu_has(X86_FEATURE_SRBDS_CTRL))
 		return;
 
-	rdmsrl(MSR_IA32_MCU_OPT_CTRL, mcu_ctrl);
+	rdmsrq(MSR_IA32_MCU_OPT_CTRL, mcu_ctrl);
 
 	switch (srbds_mitigation) {
 	case SRBDS_MITIGATION_OFF:
@@ -1040,7 +1040,7 @@ void update_gds_msr(void)
 
 	switch (gds_mitigation) {
 	case GDS_MITIGATION_OFF:
-		rdmsrl(MSR_IA32_MCU_OPT_CTRL, mcu_ctrl);
+		rdmsrq(MSR_IA32_MCU_OPT_CTRL, mcu_ctrl);
 		mcu_ctrl |= GDS_MITG_DIS;
 		break;
 	case GDS_MITIGATION_FULL_LOCKED:
@@ -1050,7 +1050,7 @@ void update_gds_msr(void)
 		 * CPUs.
 		 */
 	case GDS_MITIGATION_FULL:
-		rdmsrl(MSR_IA32_MCU_OPT_CTRL, mcu_ctrl);
+		rdmsrq(MSR_IA32_MCU_OPT_CTRL, mcu_ctrl);
 		mcu_ctrl &= ~GDS_MITG_DIS;
 		break;
 	case GDS_MITIGATION_FORCE:
@@ -1067,7 +1067,7 @@ void update_gds_msr(void)
 	 * GDS_MITG_DIS will be ignored if this processor is locked but the boot
 	 * processor was not.
 	 */
-	rdmsrl(MSR_IA32_MCU_OPT_CTRL, mcu_ctrl_after);
+	rdmsrq(MSR_IA32_MCU_OPT_CTRL, mcu_ctrl_after);
 	WARN_ON_ONCE(mcu_ctrl != mcu_ctrl_after);
 }
 
@@ -1102,7 +1102,7 @@ static void __init gds_select_mitigation(void)
 	if (gds_mitigation == GDS_MITIGATION_FORCE)
 		gds_mitigation = GDS_MITIGATION_FULL;
 
-	rdmsrl(MSR_IA32_MCU_OPT_CTRL, mcu_ctrl);
+	rdmsrq(MSR_IA32_MCU_OPT_CTRL, mcu_ctrl);
 	if (mcu_ctrl & GDS_MITG_LOCKED) {
 		if (gds_mitigation == GDS_MITIGATION_OFF)
 			pr_warn("Mitigation locked. Disable failed.\n");

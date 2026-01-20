@@ -105,7 +105,7 @@ static void amd_uncore_read(struct perf_event *event)
 	 * read counts directly from the corresponding PERF_CTR.
 	 */
 	if (hwc->event_base_rdpmc < 0)
-		rdmsrl(hwc->event_base, new);
+		rdmsrq(hwc->event_base, new);
 	else
 		rdpmcl(hwc->event_base_rdpmc, new);
 
@@ -902,7 +902,7 @@ static void amd_uncore_umc_read(struct perf_event *event)
 	 * UMC counters do not have RDPMC assignments. Read counts directly
 	 * from the corresponding PERF_CTR.
 	 */
-	rdmsrl(hwc->event_base, new);
+	rdmsrq(hwc->event_base, new);
 
 	/*
 	 * Unlike the other uncore counters, UMC counters saturate and set the
