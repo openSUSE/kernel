@@ -29,7 +29,7 @@
 
 #include "cpu.h"
 
-static inline int rdmsrl_amd_safe(unsigned msr, u64 *p)
+static inline int rdmsrq_amd_safe(unsigned msr, u64 *p)
 {
 	u32 gprs[8] = { 0 };
 	int err;
@@ -696,7 +696,7 @@ static void init_amd_k8(struct cpuinfo_x86 *c)
 	 */
 	if (c->x86_model < 0x14 && cpu_has(c, X86_FEATURE_LAHF_LM)) {
 		clear_cpu_cap(c, X86_FEATURE_LAHF_LM);
-		if (!rdmsrl_amd_safe(0xc001100d, &value)) {
+		if (!rdmsrq_amd_safe(0xc001100d, &value)) {
 			value &= ~BIT_64(32);
 			wrmsrl_amd_safe(0xc001100d, value);
 		}
