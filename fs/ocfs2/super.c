@@ -1212,6 +1212,7 @@ read_super_error:
 	if (osb) {
 		atomic_set(&osb->vol_state, VOLUME_DISABLED);
 		wake_up(&osb->osb_mount_event);
+		ocfs2_free_replay_slots(osb);
 		ocfs2_dismount_volume(sb, 1);
 	}
 
@@ -1878,8 +1879,10 @@ static int ocfs2_mount_volume(struct super_block *sb)
 	}
 
 	status = ocfs2_truncate_log_init(osb);
-	if (status < 0)
+	if (status < 0) {
 		mlog_errno(status);
+		ocfs2_free_replay_slots(osb);
+	}
 
 leave:
 	if (unlock_super)
