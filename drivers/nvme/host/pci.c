@@ -392,7 +392,7 @@ static unsigned int nvme_pci_iod_alloc_size(struct nvme_dev *dev,
 static unsigned int nvme_pci_cmd_size(struct nvme_dev *dev, bool use_sgl)
 {
 	unsigned int alloc_size = nvme_pci_iod_alloc_size(dev,
-				    NVME_INT_BYTES(dev), NVME_INT_PAGES,
+				    NVME_INT_BYTES(dev) * 512, NVME_INT_PAGES,
 				    use_sgl);
 
 	return sizeof(struct nvme_iod) + alloc_size;
@@ -2546,7 +2546,7 @@ static int nvme_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	 * Double check that our mempool alloc size will cover the biggest
 	 * command we support.
 	 */
-	alloc_size = nvme_pci_iod_alloc_size(dev, NVME_MAX_KB_SZ,
+	alloc_size = nvme_pci_iod_alloc_size(dev, NVME_MAX_KB_SZ * 1024,
 						NVME_MAX_SEGS, true);
 	WARN_ON_ONCE(alloc_size > PAGE_SIZE);
 
