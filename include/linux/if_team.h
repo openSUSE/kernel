@@ -197,6 +197,9 @@ struct team {
 	bool queue_override_enabled;
 	struct list_head *qom_lists; /* array of queue override mapping lists */
 	bool port_mtu_change_allowed;
+#ifndef __GENKSYMS__
+	bool notifier_ctx;
+#endif
 	struct {
 		unsigned int count;
 		unsigned int interval; /* in ms */
@@ -214,6 +217,49 @@ struct team {
 	const struct header_ops *header_ops_cache;
 #endif
 };
+
+struct __orig_team {
+	struct net_device *dev; /* associated netdevice */
+	struct team_pcpu_stats __percpu *pcpu_stats;
+
+	struct mutex lock; /* used for overall locking, e.g. port lists write */
+
+	/*
+	 * List of enabled ports and their count
+	 */
+	int en_port_count;
+	struct hlist_head en_port_hlist[TEAM_PORT_HASHENTRIES];
+
+	struct list_head port_list; /* list of all ports */
+
+	struct list_head option_list;
+	struct list_head option_inst_list; /* list of option instances */
+
+	const struct team_mode *mode;
+	struct team_mode_ops ops;
+	bool user_carrier_enabled;
+	bool queue_override_enabled;
+	struct list_head *qom_lists; /* array of queue override mapping lists */
+	bool port_mtu_change_allowed;
+	struct {
+		unsigned int count;
+		unsigned int interval; /* in ms */
+		atomic_t count_pending;
+		struct delayed_work dw;
+	} notify_peers;
+	struct {
+		unsigned int count;
+		unsigned int interval; /* in ms */
+		atomic_t count_pending;
+		struct delayed_work dw;
+	} mcast_rejoin;
+	long mode_priv[TEAM_MODE_PRIV_LONGS];
+#ifndef __GENKSYMS__
+	const struct header_ops *header_ops_cache;
+#endif
+};
+
+suse_kabi_static_assert(offsetof(struct team, notify_peers) == offsetof(struct __orig_team, notify_peers));
 
 static inline int team_dev_queue_xmit(struct team *team, struct team_port *port,
 				      struct sk_buff *skb)

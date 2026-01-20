@@ -197,6 +197,9 @@ struct bonding {
 	struct   slave __rcu *primary_slave;
 	struct   bond_up_slave __rcu *slave_arr; /* Array of usable slaves */
 	bool     force_primary;
+#ifndef __GENKSYMS__
+	bool     notifier_ctx;
+#endif
 	u32      nest_level;
 	s32      slave_cnt; /* never change this value outside the attach/detach wrappers */
 	int     (*recv_probe)(const struct sk_buff *, struct bonding *,
@@ -234,6 +237,55 @@ struct bonding {
 #endif /* CONFIG_DEBUG_FS */
 	struct rtnl_link_stats64 bond_stats;
 };
+
+
+struct __orig_bonding {
+	struct   net_device *dev; /* first - useful for panic debug */
+	struct   slave __rcu *curr_active_slave;
+	struct   slave __rcu *current_arp_slave;
+	struct   slave __rcu *primary_slave;
+	struct   bond_up_slave __rcu *slave_arr; /* Array of usable slaves */
+	bool     force_primary;
+	u32      nest_level;
+	s32      slave_cnt; /* never change this value outside the attach/detach wrappers */
+	int     (*recv_probe)(const struct sk_buff *, struct bonding *,
+	                      struct slave *);
+	/* mode_lock is used for mode-specific locking needs, currently used by:
+	 * 3ad mode (4) - protect against running bond_3ad_unbind_slave() and
+	 *                bond_3ad_state_machine_handler() concurrently and also
+	 *                the access to the state machine shared variables.
+	 * TLB mode (5) - to sync the use and modifications of its hash table
+	 * ALB mode (6) - to sync the use and modifications of its hash table
+	 */
+	spinlock_t mode_lock;
+	spinlock_t stats_lock;
+	u8	 send_peer_notif;
+	u8       igmp_retrans;
+#ifdef CONFIG_PROC_FS
+	struct   proc_dir_entry *proc_entry;
+	char     proc_file_name[IFNAMSIZ];
+#endif /* CONFIG_PROC_FS */
+	struct   list_head bond_list;
+	u32      rr_tx_counter;
+	struct   ad_bond_info ad_info;
+	struct   alb_bond_info alb_info;
+	struct   bond_params params;
+	struct   workqueue_struct *wq;
+	struct   delayed_work mii_work;
+	struct   delayed_work arp_work;
+	struct   delayed_work alb_work;
+	struct   delayed_work ad_work;
+	struct   delayed_work mcast_work;
+	struct   delayed_work slave_arr_work;
+#ifdef CONFIG_DEBUG_FS
+	/* debugging support via debugfs */
+	struct	 dentry *debug_dir;
+#endif /* CONFIG_DEBUG_FS */
+	struct rtnl_link_stats64 bond_stats;
+};
+
+suse_kabi_static_assert(sizeof(struct bonding) == sizeof(struct __orig_bonding));
+suse_kabi_static_assert(offsetof(struct bonding, nest_level) == offsetof(struct __orig_bonding, nest_level));
 
 #define bond_slave_get_rcu(dev) \
 	((struct slave *) rcu_dereference(dev->rx_handler_data))
