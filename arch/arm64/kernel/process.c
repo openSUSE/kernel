@@ -227,7 +227,7 @@ void __show_regs(struct pt_regs *regs)
 	printk("sp : %016llx\n", sp);
 
 	if (system_uses_irq_prio_masking())
-		printk("pmr_save: %08llx\n", regs->pmr_save);
+		printk("pmr: %08x\n", regs->pmr);
 
 	i = top_reg;
 
@@ -443,6 +443,7 @@ int copy_thread(struct task_struct *p, const struct kernel_clone_args *args)
 		 */
 		memset(childregs, 0, sizeof(struct pt_regs));
 		childregs->pstate = PSR_MODE_EL1h | PSR_IL_BIT;
+		childregs->stackframe.type = FRAME_META_TYPE_FINAL;
 
 		p->thread.cpu_context.x19 = (unsigned long)args->fn;
 		p->thread.cpu_context.x20 = (unsigned long)args->fn_arg;
@@ -456,7 +457,7 @@ int copy_thread(struct task_struct *p, const struct kernel_clone_args *args)
 	 * For the benefit of the unwinder, set up childregs->stackframe
 	 * as the final frame for the new task.
 	 */
-	p->thread.cpu_context.fp = (unsigned long)childregs->stackframe;
+	p->thread.cpu_context.fp = (unsigned long)&childregs->stackframe;
 
 	ptrace_hw_copy_thread(p);
 
