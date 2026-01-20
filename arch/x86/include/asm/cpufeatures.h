@@ -484,4 +484,5 @@
 
 /* BUG word 2 */
 #define X86_BUG_DIV0                   X86_EXT_BUG(1*32 + 0) /* AMD DIV0 speculation bug */
+#define X86_BUG_VMSCAPE		X86_EXT_BUG( 1*32+10) /* "vmscape" CPU is affected by VMSCAPE attacks from guests */
 #endif /* _ASM_X86_CPUFEATURES_H */
