@@ -423,7 +423,7 @@ noinstr u64 mce_rdmsrl(u32 msr)
 	return EAX_EDX_VAL(val, low, high);
 }
 
-static noinstr void mce_wrmsrq(u32 msr, u64 v)
+noinstr void mce_wrmsrq(u32 msr, u64 v)
 {
 	u32 low, high;
 
@@ -690,6 +690,14 @@ static noinstr void mce_read_aux(struct mce_hw_err *err, int i)
 	}
 }
 
+static void clear_bank(struct mce *m)
+{
+	if (m->cpuvendor == X86_VENDOR_AMD)
+		return amd_clear_bank(m);
+
+	mce_wrmsrq(mca_msr_reg(m->bank, MCA_STATUS), 0);
+}
+
 DEFINE_PER_CPU(unsigned, mce_poll_count);
 
 /*
@@ -804,10 +812,7 @@ log_it:
 			mce_log(&err);
 
 clear_it:
-		/*
-		 * Clear state for this bank.
-		 */
-		mce_wrmsrq(mca_msr_reg(i, MCA_STATUS), 0);
+		clear_bank(m);
 	}
 
 	/*
@@ -818,6 +823,7 @@ clear_it:
 	sync_core();
 }
 EXPORT_SYMBOL_GPL(machine_check_poll);
+
 
 /*
  * During IFU recovery Sandy Bridge -EP4S processors set the RIPV and
