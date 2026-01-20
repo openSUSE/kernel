@@ -318,7 +318,7 @@ static __always_inline void pentium_machine_check(struct pt_regs *regs) {}
 static __always_inline void winchip_machine_check(struct pt_regs *regs) {}
 #endif
 
-noinstr u64 mce_rdmsrl(u32 msr);
+noinstr u64 mce_rdmsrq(u32 msr);
 noinstr void mce_wrmsrq(u32 msr, u64 v);
 
 static __always_inline u32 mca_msr_reg(int bank, enum mca_msr reg)
