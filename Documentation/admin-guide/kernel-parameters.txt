@@ -3028,6 +3028,7 @@
 					       no_uaccess_flush [PPC]
 					       mmio_stale_data=off [X86]
 					       retbleed=off [X86]
+					       vmscape=off [X86]
 
 				Exceptions:
 					       This does not have any effect on
@@ -6314,6 +6315,16 @@
 
 	vmpoff=		[KNL,S390] Perform z/VM CP command after power off.
 			Format: <command>
+
+	vmscape=	[X86] Controls mitigation for VMscape attacks.
+			VMscape attacks can leak information from a userspace
+			hypervisor to a guest via speculative side-channels.
+
+			off		- disable the mitigation
+			ibpb		- use Indirect Branch Prediction Barrier
+					  (IBPB) mitigation (default)
+			force		- force vulnerability detection even on
+					  unaffected processors
 
 	vsyscall=	[X86-64]
 			Controls the behavior of vsyscalls (i.e. calls to
