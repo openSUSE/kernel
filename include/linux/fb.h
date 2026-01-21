@@ -841,4 +841,6 @@ extern int fb_find_mode(struct fb_var_screeninfo *var,
 #define fb_dbg(fb_info, fmt, ...)					\
 	pr_debug("fb%d: " fmt, (fb_info)->node, ##__VA_ARGS__)
 
+extern void (*fbcon_delete_modelist)(struct list_head *head);
+
 #endif /* _LINUX_FB_H */

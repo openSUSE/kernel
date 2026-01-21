@@ -2765,6 +2765,26 @@ static int fbcon_mode_deleted(struct fb_info *info,
 	return found;
 }
 
+static void fbcon_delete_mode(struct fb_videomode *m)
+{
+	struct display *p;
+	int i;
+
+	for (i = first_fb_vc; i <= last_fb_vc; i++) {
+		p = &fb_display[i];
+		if (p->mode == m)
+			p->mode = NULL;
+	}
+}
+
+static void __fbcon_delete_modelist(struct list_head *head)
+{
+	struct fb_modelist *modelist;
+
+	list_for_each_entry(modelist, head, list)
+		fbcon_delete_mode(&modelist->mode);
+}
+
 #ifdef CONFIG_VT_HW_CONSOLE_BINDING
 static int fbcon_unbind(void)
 {
@@ -3384,6 +3404,7 @@ static int __init fb_console_init(void)
 	int i;
 
 	console_lock();
+	fbcon_delete_modelist = __fbcon_delete_modelist;
 	fb_register_client(&fbcon_event_notifier);
 	fbcon_device = device_create(fb_class, NULL, MKDEV(0, 0), NULL,
 				     "fbcon");
@@ -3424,6 +3445,7 @@ static void __exit fb_console_exit(void)
 {
 	console_lock();
 	fb_unregister_client(&fbcon_event_notifier);
+	fbcon_delete_modelist = NULL;
 	fbcon_deinit_device();
 	device_destroy(fb_class, MKDEV(0, 0));
 	fbcon_exit();
