@@ -182,7 +182,7 @@ search_again:
 
 	delayed_refs = &trans->transaction->delayed_refs;
 	spin_lock(&delayed_refs->lock);
-	head = btrfs_find_delayed_ref_head(delayed_refs, bytenr);
+	head = btrfs_find_delayed_ref_head(fs_info, delayed_refs, bytenr);
 	if (head) {
 		if (!mutex_trylock(&head->mutex)) {
 			refcount_inc(&head->refs);
@@ -1807,16 +1807,6 @@ select_delayed_ref(struct btrfs_delayed_ref_head *head)
 	return ref;
 }
 
-static void unselect_delayed_ref_head(struct btrfs_delayed_ref_root *delayed_refs,
-				      struct btrfs_delayed_ref_head *head)
-{
-	spin_lock(&delayed_refs->lock);
-	head->processing = false;
-	delayed_refs->num_heads_ready++;
-	spin_unlock(&delayed_refs->lock);
-	btrfs_delayed_ref_unlock(head);
-}
-
 static struct btrfs_delayed_extent_op *cleanup_extent_op(
 				struct btrfs_delayed_ref_head *head)
 {
@@ -1891,7 +1881,7 @@ static int cleanup_ref_head(struct btrfs_trans_handle *trans,
 
 	ret = run_and_cleanup_extent_op(trans, head);
 	if (ret < 0) {
-		unselect_delayed_ref_head(delayed_refs, head);
+		btrfs_unselect_ref_head(delayed_refs, head);
 		btrfs_debug(fs_info, "run_delayed_extent_op returned %d", ret);
 		return ret;
 	} else if (ret) {
@@ -1910,7 +1900,7 @@ static int cleanup_ref_head(struct btrfs_trans_handle *trans,
 		spin_unlock(&delayed_refs->lock);
 		return 1;
 	}
-	btrfs_delete_ref_head(delayed_refs, head);
+	btrfs_delete_ref_head(fs_info, delayed_refs, head);
 	spin_unlock(&head->lock);
 	spin_unlock(&delayed_refs->lock);
 
@@ -1933,39 +1923,6 @@ static int cleanup_ref_head(struct btrfs_trans_handle *trans,
 	return ret;
 }
 
-static struct btrfs_delayed_ref_head *btrfs_obtain_ref_head(
-					struct btrfs_trans_handle *trans)
-{
-	struct btrfs_delayed_ref_root *delayed_refs =
-		&trans->transaction->delayed_refs;
-	struct btrfs_delayed_ref_head *head = NULL;
-	int ret;
-
-	spin_lock(&delayed_refs->lock);
-	head = btrfs_select_ref_head(delayed_refs);
-	if (!head) {
-		spin_unlock(&delayed_refs->lock);
-		return head;
-	}
-
-	/*
-	 * Grab the lock that says we are going to process all the refs for
-	 * this head
-	 */
-	ret = btrfs_delayed_ref_lock(delayed_refs, head);
-	spin_unlock(&delayed_refs->lock);
-
-	/*
-	 * We may have dropped the spin lock to get the head mutex lock, and
-	 * that might have given someone else time to free the head.  If that's
-	 * true, it has been removed from our list and we can move on.
-	 */
-	if (ret == -EAGAIN)
-		head = ERR_PTR(-EAGAIN);
-
-	return head;
-}
-
 static int btrfs_run_delayed_refs_for_head(struct btrfs_trans_handle *trans,
 					   struct btrfs_delayed_ref_head *locked_ref,
 					   u64 *bytes_released)
@@ -1986,7 +1943,7 @@ static int btrfs_run_delayed_refs_for_head(struct btrfs_trans_handle *trans,
 		if (ref->seq &&
 		    btrfs_check_delayed_seq(fs_info, ref->seq)) {
 			spin_unlock(&locked_ref->lock);
-			unselect_delayed_ref_head(delayed_refs, locked_ref);
+			btrfs_unselect_ref_head(delayed_refs, locked_ref);
 			return -EAGAIN;
 		}
 
@@ -2009,7 +1966,6 @@ static int btrfs_run_delayed_refs_for_head(struct btrfs_trans_handle *trans,
 		default:
 			WARN_ON(1);
 		}
-		atomic_dec(&delayed_refs->num_entries);
 
 		/*
 		 * Record the must_insert_reserved flag before we drop the
@@ -2035,7 +1991,7 @@ static int btrfs_run_delayed_refs_for_head(struct btrfs_trans_handle *trans,
 
 		btrfs_free_delayed_extent_op(extent_op);
 		if (ret) {
-			unselect_delayed_ref_head(delayed_refs, locked_ref);
+			btrfs_unselect_ref_head(delayed_refs, locked_ref);
 			btrfs_put_delayed_ref(ref);
 			return ret;
 		}
@@ -2073,7 +2029,7 @@ static noinline int __btrfs_run_delayed_refs(struct btrfs_trans_handle *trans,
 
 	do {
 		if (!locked_ref) {
-			locked_ref = btrfs_obtain_ref_head(trans);
+			locked_ref = btrfs_select_ref_head(fs_info, delayed_refs);
 			if (IS_ERR_OR_NULL(locked_ref)) {
 				if (PTR_ERR(locked_ref) == -EAGAIN) {
 					continue;
@@ -2220,7 +2176,7 @@ again:
 		btrfs_create_pending_block_groups(trans);
 
 		spin_lock(&delayed_refs->lock);
-		if (RB_EMPTY_ROOT(&delayed_refs->href_root.rb_root)) {
+		if (xa_empty(&delayed_refs->head_refs)) {
 			spin_unlock(&delayed_refs->lock);
 			return 0;
 		}
@@ -2276,7 +2232,7 @@ static noinline int check_delayed_ref(struct btrfs_inode *inode,
 
 	delayed_refs = &cur_trans->delayed_refs;
 	spin_lock(&delayed_refs->lock);
-	head = btrfs_find_delayed_ref_head(delayed_refs, bytenr);
+	head = btrfs_find_delayed_ref_head(root->fs_info, delayed_refs, bytenr);
 	if (!head) {
 		spin_unlock(&delayed_refs->lock);
 		btrfs_put_transaction(cur_trans);
@@ -3438,13 +3394,14 @@ out:
 static noinline int check_ref_cleanup(struct btrfs_trans_handle *trans,
 				      u64 bytenr)
 {
+	struct btrfs_fs_info *fs_info = trans->fs_info;
 	struct btrfs_delayed_ref_head *head;
 	struct btrfs_delayed_ref_root *delayed_refs;
 	int ret = 0;
 
 	delayed_refs = &trans->transaction->delayed_refs;
 	spin_lock(&delayed_refs->lock);
-	head = btrfs_find_delayed_ref_head(delayed_refs, bytenr);
+	head = btrfs_find_delayed_ref_head(fs_info, delayed_refs, bytenr);
 	if (!head)
 		goto out_delayed_unlock;
 
@@ -3462,7 +3419,7 @@ static noinline int check_ref_cleanup(struct btrfs_trans_handle *trans,
 	if (!mutex_trylock(&head->mutex))
 		goto out;
 
-	btrfs_delete_ref_head(delayed_refs, head);
+	btrfs_delete_ref_head(fs_info, delayed_refs, head);
 	head->processing = false;
 
 	spin_unlock(&head->lock);
@@ -3472,7 +3429,7 @@ static noinline int check_ref_cleanup(struct btrfs_trans_handle *trans,
 	if (head->must_insert_reserved)
 		ret = 1;
 
-	btrfs_cleanup_ref_head_accounting(trans->fs_info, delayed_refs, head);
+	btrfs_cleanup_ref_head_accounting(fs_info, delayed_refs, head);
 	mutex_unlock(&head->mutex);
 	btrfs_put_delayed_ref_head(head);
 	return ret;
@@ -5580,7 +5537,7 @@ again:
 	 */
 	delayed_refs = &trans->transaction->delayed_refs;
 	spin_lock(&delayed_refs->lock);
-	head = btrfs_find_delayed_ref_head(delayed_refs, bytenr);
+	head = btrfs_find_delayed_ref_head(root->fs_info, delayed_refs, bytenr);
 	if (!head)
 		goto out;
 	if (!mutex_trylock(&head->mutex)) {
