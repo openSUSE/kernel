@@ -3851,6 +3851,7 @@ static vm_fault_t hugetlb_no_page(struct mm_struct *mm,
 	spinlock_t *ptl;
 	unsigned long haddr = address & huge_page_mask(h);
 	bool new_page = false;
+	u32 hash = hugetlb_fault_mutex_hash(h, mapping, idx);
 
 	/*
 	 * Currently, we are forced to kill the process in the event the
@@ -3860,7 +3861,7 @@ static vm_fault_t hugetlb_no_page(struct mm_struct *mm,
 	if (is_vma_resv_set(vma, HPAGE_RESV_UNMAPPED)) {
 		pr_warn_ratelimited("PID %d killed due to inadequate hugepage pool\n",
 			   current->pid);
-		return ret;
+		goto out;
 	}
 
 	/*
@@ -3897,11 +3898,8 @@ retry:
 			 * handling userfault.  Reacquire after handling
 			 * fault to make calling code simpler.
 			 */
-			hash = hugetlb_fault_mutex_hash(h, mapping, idx);
 			mutex_unlock(&hugetlb_fault_mutex_table[hash]);
-			ret = handle_userfault(&vmf, VM_UFFD_MISSING);
-			mutex_lock(&hugetlb_fault_mutex_table[hash]);
-			goto out;
+			return handle_userfault(&vmf, VM_UFFD_MISSING);
 		}
 
 		page = alloc_huge_page(vma, haddr, 0);
@@ -4012,6 +4010,7 @@ retry:
 
 	unlock_page(page);
 out:
+	mutex_unlock(&hugetlb_fault_mutex_table[hash]);
 	return ret;
 
 backout:
@@ -4091,10 +4090,8 @@ vm_fault_t hugetlb_fault(struct mm_struct *mm, struct vm_area_struct *vma,
 	mutex_lock(&hugetlb_fault_mutex_table[hash]);
 
 	entry = huge_ptep_get(ptep);
-	if (huge_pte_none(entry)) {
-		ret = hugetlb_no_page(mm, vma, mapping, idx, address, ptep, flags);
-		goto out_mutex;
-	}
+	if (huge_pte_none(entry))
+		return hugetlb_no_page(mm, vma, mapping, idx, address, ptep, flags);
 
 	ret = 0;
 
