@@ -66,7 +66,9 @@
 #include <linux/console.h>
 #include <linux/string.h>
 #include <linux/kd.h>
+#ifndef __GENKSYMS__
 #include <linux/pci.h>
+#endif
 #include <linux/slab.h>
 #include <linux/fb.h>
 #include <linux/vt_kern.h>
