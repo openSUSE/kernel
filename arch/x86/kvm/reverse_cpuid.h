@@ -12,11 +12,12 @@
  * "bug" caps, but KVM doesn't use those.
  */
 enum kvm_only_cpuid_leafs {
-	CPUID_12_EAX	 = NCAPINTS,
+	CPUID_12_EAX	 = NCAPINTS + NEXTCAPINTS,
 	CPUID_7_2_EDX,
+	CPUID_8000_0021_ECX,
 	NR_KVM_CPU_CAPS,
 
-	NKVMCAPINTS = NR_KVM_CPU_CAPS - NCAPINTS,
+	NKVMCAPINTS = NR_KVM_CPU_CAPS - NCAPINTS - NEXTCAPINTS,
 };
 
 #define KVM_X86_FEATURE(w, f)		((w)*32 + (f))
@@ -32,6 +33,10 @@ enum kvm_only_cpuid_leafs {
 #define KVM_X86_FEATURE_RRSBA_CTRL	KVM_X86_FEATURE(CPUID_7_2_EDX, 2)
 #define X86_FEATURE_DDPD_U		KVM_X86_FEATURE(CPUID_7_2_EDX, 3)
 #define X86_FEATURE_MCDT_NO		KVM_X86_FEATURE(CPUID_7_2_EDX, 5)
+
+/* CPUID level 0x80000021 (ECX) */
+#define KVM_X86_FEATURE_TSA_SQ_NO	KVM_X86_FEATURE(CPUID_8000_0021_ECX, 1)
+#define KVM_X86_FEATURE_TSA_L1_NO	KVM_X86_FEATURE(CPUID_8000_0021_ECX, 2)
 
 struct cpuid_reg {
 	u32 function;
@@ -59,6 +64,7 @@ static const struct cpuid_reg reverse_cpuid[] = {
 	[CPUID_8000_001F_EAX] = {0x8000001f, 0, CPUID_EAX},
 	[CPUID_8000_0021_EAX] = {0x80000021, 0, CPUID_EAX},
 	[CPUID_7_2_EDX]       = {         7, 2, CPUID_EDX},
+	[CPUID_8000_0021_ECX] = {0x80000021, 0, CPUID_ECX},
 };
 
 /*
@@ -94,6 +100,10 @@ static __always_inline u32 __feature_translate(int x86_feature)
 		return KVM_X86_FEATURE_RRSBA_CTRL;
 	else if (x86_feature == X86_FEATURE_BHI_CTRL)
 		return KVM_X86_FEATURE_BHI_CTRL;
+	else if (x86_feature == X86_FEATURE_TSA_SQ_NO)
+		return KVM_X86_FEATURE_TSA_SQ_NO;
+	else if (x86_feature == X86_FEATURE_TSA_L1_NO)
+		return KVM_X86_FEATURE_TSA_L1_NO;
 
 	return x86_feature;
 }

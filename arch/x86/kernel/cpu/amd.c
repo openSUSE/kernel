@@ -20,6 +20,7 @@
 #include <asm/delay.h>
 #include <asm/debugreg.h>
 #include <asm/resctrl.h>
+#include <asm/cpu_device_id.h>
 
 #ifdef CONFIG_X86_64
 # include <asm/mmconfig.h>
@@ -582,6 +583,53 @@ static void early_init_amd_mc(struct cpuinfo_x86 *c)
 #endif
 }
 
+
+
+#define ZEN_MODEL_STEP_UCODE(fam, model, step, ucode)  {	\
+	.x86_family		= fam,				\
+	.x86_vendor		= X86_VENDOR_AMD,		\
+	.x86_model		= (model),			\
+	.x86_stepping		= (step),			\
+	.x86_microcode_rev	= (ucode),			\
+}
+
+static const struct x86_cpu_desc amd_tsa_microcode[] = {
+	ZEN_MODEL_STEP_UCODE(0x19, 0x01, 0x1, 0x0a0011d7),
+	ZEN_MODEL_STEP_UCODE(0x19, 0x01, 0x2, 0x0a00123b),
+	ZEN_MODEL_STEP_UCODE(0x19, 0x08, 0x2, 0x0a00820d),
+	ZEN_MODEL_STEP_UCODE(0x19, 0x11, 0x1, 0x0a10114c),
+	ZEN_MODEL_STEP_UCODE(0x19, 0x11, 0x2, 0x0a10124c),
+	ZEN_MODEL_STEP_UCODE(0x19, 0x18, 0x1, 0x0a108109),
+	ZEN_MODEL_STEP_UCODE(0x19, 0x21, 0x0, 0x0a20102e),
+	ZEN_MODEL_STEP_UCODE(0x19, 0x21, 0x2, 0x0a201211),
+	ZEN_MODEL_STEP_UCODE(0x19, 0x44, 0x1, 0x0a404108),
+	ZEN_MODEL_STEP_UCODE(0x19, 0x50, 0x0, 0x0a500012),
+	ZEN_MODEL_STEP_UCODE(0x19, 0x61, 0x2, 0x0a60120a),
+	ZEN_MODEL_STEP_UCODE(0x19, 0x74, 0x1, 0x0a704108),
+	ZEN_MODEL_STEP_UCODE(0x19, 0x75, 0x2, 0x0a705208),
+	ZEN_MODEL_STEP_UCODE(0x19, 0x78, 0x0, 0x0a708008),
+	ZEN_MODEL_STEP_UCODE(0x19, 0x7c, 0x0, 0x0a70c008),
+	ZEN_MODEL_STEP_UCODE(0x19, 0xa0, 0x2, 0x0aa00216),
+	{},
+};
+
+static void tsa_init(struct cpuinfo_x86 *c)
+{
+	if (cpu_has(c, X86_FEATURE_HYPERVISOR))
+		return;
+
+	if (cpu_has(c, X86_FEATURE_ZEN3) ||
+	    cpu_has(c, X86_FEATURE_ZEN4)) {
+		if (x86_cpu_has_min_microcode_rev(amd_tsa_microcode))
+			setup_force_cpu_cap(X86_FEATURE_VERW_CLEAR);
+		else
+			pr_debug("%s: current revision: 0x%x\n", __func__, c->microcode);
+	} else {
+		setup_force_cpu_cap(X86_FEATURE_TSA_SQ_NO);
+		setup_force_cpu_cap(X86_FEATURE_TSA_L1_NO);
+	}
+}
+
 static void bsp_init_amd(struct cpuinfo_x86 *c)
 {
 	if (cpu_has(c, X86_FEATURE_CONSTANT_TSC)) {
@@ -648,7 +696,52 @@ static void bsp_init_amd(struct cpuinfo_x86 *c)
 		}
 	}
 
+	tsa_init(c);
+
 	resctrl_cpu_detect(c);
+
+	/* Figure out Zen generations: */
+	switch (c->x86) {
+	case 0x17: {
+		switch (c->x86_model) {
+		case 0x00 ... 0x2f:
+		case 0x50 ... 0x5f:
+			setup_force_cpu_cap(X86_FEATURE_ZEN);
+			break;
+		case 0x30 ... 0x4f:
+		case 0x60 ... 0x7f:
+		case 0x90 ... 0x91:
+		case 0xa0 ... 0xaf:
+			setup_force_cpu_cap(X86_FEATURE_ZEN2);
+			break;
+		default:
+			goto warn;
+		}
+		break;
+	}
+	case 0x19: {
+		switch (c->x86_model) {
+		case 0x00 ... 0x0f:
+		case 0x20 ... 0x5f:
+			setup_force_cpu_cap(X86_FEATURE_ZEN3);
+			break;
+		case 0x10 ... 0x1f:
+		case 0x60 ... 0xaf:
+			setup_force_cpu_cap(X86_FEATURE_ZEN4);
+			break;
+		default:
+			goto warn;
+		}
+		break;
+	}
+	default:
+		break;
+	}
+
+	return;
+
+warn:
+	WARN_ONCE(1, "Family 0x%x, model: 0x%x??\n", c->x86, c->x86_model);
 }
 
 static void early_detect_mem_encrypt(struct cpuinfo_x86 *c)
@@ -1002,8 +1095,6 @@ void init_spectral_chicken(struct cpuinfo_x86 *c)
 
 static void init_amd_zn(struct cpuinfo_x86 *c)
 {
-	set_cpu_cap(c, X86_FEATURE_ZEN);
-
 #ifdef CONFIG_NUMA
 	node_reclaim_distance = 32;
 #endif
@@ -1066,6 +1157,22 @@ static void zenbleed_check(struct cpuinfo_x86 *c)
 	}
 }
 
+static void init_amd_zen(struct cpuinfo_x86 *c)
+{
+}
+
+static void init_amd_zen2(struct cpuinfo_x86 *c)
+{
+}
+
+static void init_amd_zen3(struct cpuinfo_x86 *c)
+{
+}
+
+static void init_amd_zen4(struct cpuinfo_x86 *c)
+{
+}
+
 static void init_amd(struct cpuinfo_x86 *c)
 {
 	early_init_amd(c);
@@ -1099,6 +1206,15 @@ static void init_amd(struct cpuinfo_x86 *c)
 		   fallthrough;
 	case 0x19: init_amd_zn(c); break;
 	}
+
+	if (boot_cpu_has(X86_FEATURE_ZEN))
+		init_amd_zen(c);
+	else if (boot_cpu_has(X86_FEATURE_ZEN2))
+		init_amd_zen2(c);
+	else if (boot_cpu_has(X86_FEATURE_ZEN3))
+		init_amd_zen3(c);
+	else if (boot_cpu_has(X86_FEATURE_ZEN4))
+		init_amd_zen4(c);
 
 	/*
 	 * Enable workaround for FXSAVE leak on CPUs

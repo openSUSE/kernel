@@ -395,7 +395,11 @@ static void emit_indirect_jump(u8 **pprog, int reg, u8 *ip)
 {
 	u8 *prog = *pprog;
 
-	if (cpu_feature_enabled(X86_FEATURE_RETPOLINE_LFENCE)) {
+	if (IS_ENABLED(CONFIG_MITIGATION_ITS) &&
+	    cpu_feature_enabled(X86_FEATURE_INDIRECT_THUNK_ITS)) {
+		OPTIMIZER_HIDE_VAR(reg);
+		emit_jump(&prog, its_static_thunk(reg), ip);
+	} else if (cpu_feature_enabled(X86_FEATURE_RETPOLINE_LFENCE)) {
 		EMIT_LFENCE();
 		EMIT2(0xFF, 0xE0 + reg);
 	} else if (cpu_feature_enabled(X86_FEATURE_RETPOLINE)) {
@@ -411,7 +415,7 @@ static void emit_return(u8 **pprog, u8 *ip)
 {
 	u8 *prog = *pprog;
 
-	if (cpu_feature_enabled(X86_FEATURE_RETHUNK)) {
+	if (cpu_wants_rethunk()) {
 		emit_jump(&prog, x86_return_thunk, ip);
 	} else {
 		EMIT1(0xC3);		/* ret */
@@ -889,7 +893,7 @@ static int emit_spectre_bhb_barrier(u8 **pprog, u8 *ip,
 	u8 *prog = *pprog;
 	u8 *func;
 
-	if (cpu_feature_enabled(X86_FEATURE_CLEAR_BHB_LOOP)) {
+	if (boot_cpu_has(X86_FEATURE_CLEAR_BHB_LOOP)) {
 		/* The clearing sequence clobbers eax and ecx. */
 		EMIT1(0x50); /* push rax */
 		EMIT1(0x51); /* push rcx */
@@ -903,9 +907,9 @@ static int emit_spectre_bhb_barrier(u8 **pprog, u8 *ip,
 		EMIT1(0x58); /* pop rax */
 	}
 	/* Insert IBHF instruction */
-	if ((cpu_feature_enabled(X86_FEATURE_CLEAR_BHB_LOOP) &&
+	if ((boot_cpu_has(X86_FEATURE_CLEAR_BHB_LOOP) &&
 	     cpu_feature_enabled(X86_FEATURE_HYPERVISOR)) ||
-	    cpu_feature_enabled(X86_FEATURE_CLEAR_BHB_HW)) {
+	     boot_cpu_has(X86_FEATURE_CLEAR_BHB_HW)) {
 		/*
 		 * Add an Indirect Branch History Fence (IBHF). IBHF acts as a
 		 * fence preventing branch history from before the fence from
