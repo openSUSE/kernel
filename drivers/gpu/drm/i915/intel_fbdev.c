@@ -35,7 +35,6 @@
 #include <linux/sysrq.h>
 #include <linux/delay.h>
 #include <linux/init.h>
-#include <linux/vga_switcheroo.h>
 
 #include <drm/drmP.h>
 #include <drm/drm_crtc.h>
@@ -277,7 +276,6 @@ static int intelfb_create(struct drm_fb_helper *helper,
 
 	intel_runtime_pm_put(dev_priv);
 	mutex_unlock(&dev->struct_mutex);
-	vga_switcheroo_client_fb_set(pdev, info);
 	return 0;
 
 out_unpin:
