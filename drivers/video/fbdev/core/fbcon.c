@@ -64,6 +64,9 @@
 #include <linux/console.h>
 #include <linux/string.h>
 #include <linux/kd.h>
+#ifndef __GENKSYMS__
+#include <linux/pci.h>
+#endif
 #include <linux/slab.h>
 #include <linux/fb.h>
 #include <linux/fbcon.h>
@@ -75,10 +78,10 @@
 #include <linux/interrupt.h>
 #include <linux/crc32.h> /* For counting font checksums */
 #include <linux/uaccess.h>
+#include <linux/vga_switcheroo.h>
 #include <asm/irq.h>
 
 #include "fbcon.h"
-#include "fbcon_switcheroo.h"
 #include "fb_internal.h"
 
 /*
@@ -2910,7 +2913,8 @@ void fbcon_fb_unregistered(struct fb_info *info)
 
 	console_lock();
 
-	fbcon_switcheroo_client_clear_fb(info);
+	if (info->device && dev_is_pci(info->device))
+		vga_switcheroo_client_fb_set(to_pci_dev(info->device), NULL);
 
 	fbcon_registered_fb[info->node] = NULL;
 	fbcon_num_registered_fb--;
@@ -3046,7 +3050,8 @@ static int do_fb_registered(struct fb_info *info)
 	}
 
 	/* Set the fb info for vga_switcheroo clients. Does nothing otherwise. */
-	fbcon_switcheroo_client_set_fb(info);
+	if (info->device && dev_is_pci(info->device))
+		vga_switcheroo_client_fb_set(to_pci_dev(info->device), info);
 
 	return ret;
 }
