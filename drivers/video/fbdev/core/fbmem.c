@@ -36,6 +36,8 @@
 
 #include <asm/fb.h>
 
+void (*fbcon_delete_modelist)(struct list_head *head) = NULL;
+EXPORT_SYMBOL(fbcon_delete_modelist);
 
     /*
      *  Frame buffer device initialization and setup routines
@@ -1805,6 +1807,8 @@ static int do_unregister_framebuffer(struct fb_info *fb_info)
 	if (fb_info->pixmap.addr &&
 	    (fb_info->pixmap.flags & FB_PIXMAP_DEFAULT))
 		kfree(fb_info->pixmap.addr);
+	if (fbcon_delete_modelist)
+		fbcon_delete_modelist(&fb_info->modelist);
 	fb_destroy_modelist(&fb_info->modelist);
 	registered_fb[fb_info->node] = NULL;
 	num_registered_fb--;
