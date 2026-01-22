@@ -116,12 +116,33 @@ struct mrp_applicant {
 	struct timer_list	periodic_timer;
 
 	spinlock_t		lock;
+#ifndef __GENKSYMS__
+	bool			active;
+#endif
 	struct sk_buff_head	queue;
 	struct sk_buff		*pdu;
 	struct rb_root		mad;
 	struct rcu_head		rcu;
-	bool			active;
 };
+
+struct __orig_mrp_applicant {
+	struct mrp_application	*app;
+	struct net_device	*dev;
+	struct timer_list	join_timer;
+	struct timer_list	periodic_timer;
+
+	spinlock_t		lock;
+	struct sk_buff_head	queue;
+	struct sk_buff		*pdu;
+	struct rb_root		mad;
+	struct rcu_head		rcu;
+};
+suse_kabi_static_assert(offsetof(struct mrp_applicant, lock) ==
+			offsetof(struct __orig_mrp_applicant, lock));
+suse_kabi_static_assert(offsetof(struct mrp_applicant, queue) ==
+			offsetof(struct __orig_mrp_applicant, queue));
+suse_kabi_static_assert(sizeof(struct mrp_applicant) ==
+			sizeof(struct __orig_mrp_applicant));
 
 struct mrp_port {
 	struct mrp_applicant __rcu	*applicants[MRP_APPLICATION_MAX + 1];
