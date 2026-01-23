@@ -2287,6 +2287,10 @@ static int vfs_load_quota_inode(struct inode *inode, int type, int format_id,
 
 	if (!fmt)
 		return -ESRCH;
+	if (is_bad_inode(inode)) {
+		error = -EUCLEAN;
+		goto out_fmt;
+	}
 	if (!S_ISREG(inode->i_mode)) {
 		error = -EACCES;
 		goto out_fmt;
