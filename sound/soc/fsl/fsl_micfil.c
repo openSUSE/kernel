@@ -711,7 +711,7 @@ static int fsl_micfil_trigger(struct snd_pcm_substream *substream, int cmd,
 
 		/* Enable the module */
 		ret = regmap_set_bits(micfil->regmap, REG_MICFIL_CTRL1,
-				      MICFIL_CTRL1_PDMIEN);
+				      MICFIL_CTRL1_PDMIEN | MICFIL_CTRL1_ERREN);
 		if (ret)
 			return ret;
 
@@ -727,7 +727,7 @@ static int fsl_micfil_trigger(struct snd_pcm_substream *substream, int cmd,
 
 		/* Disable the module */
 		ret = regmap_clear_bits(micfil->regmap, REG_MICFIL_CTRL1,
-					MICFIL_CTRL1_PDMIEN);
+					MICFIL_CTRL1_PDMIEN | MICFIL_CTRL1_ERREN);
 		if (ret)
 			return ret;
 
@@ -1015,6 +1015,7 @@ static bool fsl_micfil_volatile_reg(struct device *dev, unsigned int reg)
 {
 	switch (reg) {
 	case REG_MICFIL_STAT:
+	case REG_MICFIL_FIFO_STAT:
 	case REG_MICFIL_DATACH0:
 	case REG_MICFIL_DATACH1:
 	case REG_MICFIL_DATACH2:
@@ -1023,6 +1024,7 @@ static bool fsl_micfil_volatile_reg(struct device *dev, unsigned int reg)
 	case REG_MICFIL_DATACH5:
 	case REG_MICFIL_DATACH6:
 	case REG_MICFIL_DATACH7:
+	case REG_MICFIL_OUT_STAT:
 	case REG_MICFIL_VERID:
 	case REG_MICFIL_PARAM:
 	case REG_MICFIL_VAD0_STAT:
@@ -1099,6 +1101,8 @@ static irqreturn_t micfil_err_isr(int irq, void *devid)
 {
 	struct fsl_micfil *micfil = (struct fsl_micfil *)devid;
 	struct platform_device *pdev = micfil->pdev;
+	u32 fifo_stat_reg;
+	u32 out_stat_reg;
 	u32 stat_reg;
 
 	regmap_read(micfil->regmap, REG_MICFIL_STAT, &stat_reg);
@@ -1114,6 +1118,14 @@ static irqreturn_t micfil_err_isr(int irq, void *devid)
 		regmap_write_bits(micfil->regmap, REG_MICFIL_STAT,
 				  MICFIL_STAT_LOWFREQF, MICFIL_STAT_LOWFREQF);
 	}
+
+	regmap_read(micfil->regmap, REG_MICFIL_FIFO_STAT, &fifo_stat_reg);
+	regmap_write_bits(micfil->regmap, REG_MICFIL_FIFO_STAT,
+			  fifo_stat_reg, fifo_stat_reg);
+
+	regmap_read(micfil->regmap, REG_MICFIL_OUT_STAT, &out_stat_reg);
+	regmap_write_bits(micfil->regmap, REG_MICFIL_OUT_STAT,
+			  out_stat_reg, out_stat_reg);
 
 	return IRQ_HANDLED;
 }
