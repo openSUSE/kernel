@@ -638,8 +638,6 @@ void btrfs_drop_extent_cache(struct btrfs_inode *inode, u64 start, u64 end,
 				break;
 			}
 			start = em->start + em->len;
-			if (testend)
-				len = start + len - (em->start + em->len);
 			free_extent_map(em);
 			write_unlock(&em_tree->lock);
 			continue;
@@ -684,10 +682,10 @@ void btrfs_drop_extent_cache(struct btrfs_inode *inode, u64 start, u64 end,
 			split2 = NULL;
 		}
 		if (testend && em->start + em->len > start + len) {
-			u64 diff = start + len - em->start;
+			u64 diff = end - em->start;
 
-			split->start = start + len;
-			split->len = em->start + em->len - (start + len);
+			split->start = end;
+			split->len = em->start + em->len - end;
 			split->bdev = em->bdev;
 			split->flags = flags;
 			split->compress_type = em->compress_type;
