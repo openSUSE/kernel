@@ -824,15 +824,15 @@ struct sdw_master_port_ops {
 struct sdw_msg;
 
 /**
- * struct sdw_defer - SDW deffered message
- * @length: message length
+ * struct sdw_defer - SDW deferred message
  * @complete: message completion
  * @msg: SDW message
+ * @length: message length
  */
 struct sdw_defer {
+	struct sdw_msg *msg;
 	int length;
 	struct completion complete;
-	struct sdw_msg *msg;
 };
 
 /**
@@ -1015,18 +1015,18 @@ struct sdw_stream_params {
  * @params: Stream parameters
  * @state: Current state of the stream
  * @type: Stream type PCM or PDM
+ * @m_rt_count: Count of Master runtime(s) in this stream
  * @master_list: List of Master runtime(s) in this stream.
  * master_list can contain only one m_rt per Master instance
  * for a stream
- * @m_rt_count: Count of Master runtime(s) in this stream
  */
 struct sdw_stream_runtime {
 	const char *name;
 	struct sdw_stream_params params;
 	enum sdw_stream_state state;
 	enum sdw_stream_type type;
-	struct list_head master_list;
 	int m_rt_count;
+	struct list_head master_list;
 	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
