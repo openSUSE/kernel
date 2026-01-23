@@ -1169,7 +1169,7 @@ static int snd_soc_add_pcm_runtime(struct snd_soc_card *card,
 	struct snd_soc_pcm_runtime *rtd;
 	struct snd_soc_dai_link_component *codec, *platform, *cpu;
 	struct snd_soc_component *component;
-	int i, ret;
+	int i, id, ret;
 
 	lockdep_assert_held(&client_mutex);
 
@@ -1227,6 +1227,28 @@ static int snd_soc_add_pcm_runtime(struct snd_soc_card *card,
 			snd_soc_rtd_add_component(rtd, component);
 		}
 	}
+
+	/*
+	 * Most drivers will register their PCMs using DAI link ordering but
+	 * topology based drivers can use the DAI link id field to set PCM
+	 * device number and then use rtd + a base offset of the BEs.
+	 *
+	 * FIXME
+	 *
+	 * This should be implemented by using "dai_link" feature instead of
+	 * "component" feature.
+	 */
+	id = rtd->id;
+	for_each_rtd_components(rtd, i, component) {
+		if (!component->driver->use_dai_pcm_id)
+			continue;
+
+		if (rtd->dai_link->no_pcm)
+			id += component->driver->be_pcm_base;
+		else
+			id = rtd->dai_link->id;
+	}
+	rtd->id = id;
 
 	return 0;
 
@@ -1460,8 +1482,7 @@ static int soc_init_pcm_runtime(struct snd_soc_card *card,
 {
 	struct snd_soc_dai_link *dai_link = rtd->dai_link;
 	struct snd_soc_dai *cpu_dai = snd_soc_rtd_to_cpu(rtd, 0);
-	struct snd_soc_component *component;
-	int ret, id, i;
+	int ret, id;
 
 	/* do machine specific initialization */
 	ret = snd_soc_link_init(rtd);
@@ -1477,21 +1498,6 @@ static int soc_init_pcm_runtime(struct snd_soc_card *card,
 	soc_dpcm_debugfs_add(rtd);
 
 	id = rtd->id;
-
-	/*
-	 * most drivers will register their PCMs using DAI link ordering but
-	 * topology based drivers can use the DAI link id field to set PCM
-	 * device number and then use rtd + a base offset of the BEs.
-	 */
-	for_each_rtd_components(rtd, i, component) {
-		if (!component->driver->use_dai_pcm_id)
-			continue;
-
-		if (rtd->dai_link->no_pcm)
-			id += component->driver->be_pcm_base;
-		else
-			id = rtd->dai_link->id;
-	}
 
 	/* create compress_device if possible */
 	ret = snd_soc_dai_compress_new(cpu_dai, rtd, id);
