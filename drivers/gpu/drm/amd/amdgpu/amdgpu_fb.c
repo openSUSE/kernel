@@ -36,8 +36,6 @@
 
 #include <drm/drm_fb_helper.h>
 
-#include <linux/vga_switcheroo.h>
-
 #include "amdgpu_display.h"
 
 /* object hierarchy -
@@ -278,7 +276,6 @@ static int amdgpufb_create(struct drm_fb_helper *helper,
 	DRM_INFO("fb depth is %d\n", fb->format->depth);
 	DRM_INFO("   pitch is %d\n", fb->pitches[0]);
 
-	vga_switcheroo_client_fb_set(adev->ddev->pdev, info);
 	return 0;
 
 out:

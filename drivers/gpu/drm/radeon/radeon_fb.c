@@ -35,8 +35,6 @@
 
 #include <drm/drm_fb_helper.h>
 
-#include <linux/vga_switcheroo.h>
-
 /* object hierarchy -
  * this contains a helper + a radeon fb
  * the helper contains a pointer to radeon framebuffer baseclass.
@@ -290,7 +288,6 @@ static int radeonfb_create(struct drm_fb_helper *helper,
 	DRM_INFO("fb depth is %d\n", fb->format->depth);
 	DRM_INFO("   pitch is %d\n", fb->pitches[0]);
 
-	vga_switcheroo_client_fb_set(rdev->ddev->pdev, info);
 	return 0;
 
 out:
