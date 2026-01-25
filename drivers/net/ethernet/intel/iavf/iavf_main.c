@@ -4446,6 +4446,7 @@ static int iavf_close(struct net_device *netdev)
 	netdev_lock(netdev);
 
 	adapter->aq_required |= aq_to_restore;
+	netdev_unlock(netdev);
 
 	return 0;
 }
