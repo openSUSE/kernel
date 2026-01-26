@@ -631,6 +631,14 @@ ssize_t tpm2_get_pcr_allocation(struct tpm_chip *chip)
 		goto out;
 	}
 
+	 chip->allocated_banks = kcalloc(nr_possible_banks,
+					 sizeof(*chip->allocated_banks),
+					 GFP_KERNEL);
+	 if (!chip->allocated_banks) {
+		rc = -ENOMEM;
+		goto out;
+	}
+
 	marker = &buf.data[TPM_HEADER_SIZE + 9];
 
 	rsp_len = be32_to_cpup((__be32 *)&buf.data[2]);
