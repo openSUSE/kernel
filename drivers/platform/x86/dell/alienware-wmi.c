@@ -626,14 +626,15 @@ static acpi_status alienware_wmax_command(void *in_args, size_t in_size,
  *	The HDMI mux sysfs node indicates the status of the HDMI input mux.
  *	It can toggle between standard system GPU output and HDMI input.
  */
-static ssize_t show_hdmi_cable(struct device *dev,
-			       struct device_attribute *attr, char *buf)
+static ssize_t cable_show(struct device *dev, struct device_attribute *attr,
+			  char *buf)
 {
-	acpi_status status;
-	u32 out_data;
 	struct wmax_basic_args in_args = {
 		.arg = 0,
 	};
+	acpi_status status;
+	u32 out_data;
+
 	status =
 	    alienware_wmax_command(&in_args, sizeof(in_args),
 				   WMAX_METHOD_HDMI_CABLE, &out_data);
@@ -647,14 +648,15 @@ static ssize_t show_hdmi_cable(struct device *dev,
 	return sysfs_emit(buf, "unconnected connected [unknown]\n");
 }
 
-static ssize_t show_hdmi_source(struct device *dev,
-				struct device_attribute *attr, char *buf)
+static ssize_t source_show(struct device *dev, struct device_attribute *attr,
+			   char *buf)
 {
-	acpi_status status;
-	u32 out_data;
 	struct wmax_basic_args in_args = {
 		.arg = 0,
 	};
+	acpi_status status;
+	u32 out_data;
+
 	status =
 	    alienware_wmax_command(&in_args, sizeof(in_args),
 				   WMAX_METHOD_HDMI_STATUS, &out_data);
@@ -669,12 +671,12 @@ static ssize_t show_hdmi_source(struct device *dev,
 	return sysfs_emit(buf, "input gpu [unknown]\n");
 }
 
-static ssize_t toggle_hdmi_source(struct device *dev,
-				  struct device_attribute *attr,
-				  const char *buf, size_t count)
+static ssize_t source_store(struct device *dev, struct device_attribute *attr,
+			    const char *buf, size_t count)
 {
-	acpi_status status;
 	struct wmax_basic_args args;
+	acpi_status status;
+
 	if (strcmp(buf, "gpu\n") == 0)
 		args.arg = 1;
 	else if (strcmp(buf, "input\n") == 0)
@@ -692,9 +694,8 @@ static ssize_t toggle_hdmi_source(struct device *dev,
 	return count;
 }
 
-static DEVICE_ATTR(cable, S_IRUGO, show_hdmi_cable, NULL);
-static DEVICE_ATTR(source, S_IRUGO | S_IWUSR, show_hdmi_source,
-		   toggle_hdmi_source);
+static DEVICE_ATTR_RO(cable);
+static DEVICE_ATTR_RW(source);
 
 static bool hdmi_group_visible(struct kobject *kobj)
 {
@@ -719,14 +720,15 @@ static const struct attribute_group hdmi_attribute_group = {
  * - Currently supports reading cable status
  * - Leaving expansion room to possibly support dock/undock events later
  */
-static ssize_t show_amplifier_status(struct device *dev,
-				     struct device_attribute *attr, char *buf)
+static ssize_t status_show(struct device *dev, struct device_attribute *attr,
+			   char *buf)
 {
-	acpi_status status;
-	u32 out_data;
 	struct wmax_basic_args in_args = {
 		.arg = 0,
 	};
+	acpi_status status;
+	u32 out_data;
+
 	status =
 	    alienware_wmax_command(&in_args, sizeof(in_args),
 				   WMAX_METHOD_AMPLIFIER_CABLE, &out_data);
@@ -740,7 +742,7 @@ static ssize_t show_amplifier_status(struct device *dev,
 	return sysfs_emit(buf, "unconnected connected [unknown]\n");
 }
 
-static DEVICE_ATTR(status, S_IRUGO, show_amplifier_status, NULL);
+static DEVICE_ATTR_RO(status);
 
 static bool amplifier_group_visible(struct kobject *kobj)
 {
@@ -763,14 +765,15 @@ static const struct attribute_group amplifier_attribute_group = {
  * Deep Sleep Control support
  * - Modifies BIOS setting for deep sleep control allowing extra wakeup events
  */
-static ssize_t show_deepsleep_status(struct device *dev,
-				     struct device_attribute *attr, char *buf)
+static ssize_t deepsleep_show(struct device *dev, struct device_attribute *attr,
+			      char *buf)
 {
-	acpi_status status;
-	u32 out_data;
 	struct wmax_basic_args in_args = {
 		.arg = 0,
 	};
+	acpi_status status;
+	u32 out_data;
+
 	status = alienware_wmax_command(&in_args, sizeof(in_args),
 					WMAX_METHOD_DEEP_SLEEP_STATUS, &out_data);
 	if (ACPI_SUCCESS(status)) {
@@ -785,12 +788,11 @@ static ssize_t show_deepsleep_status(struct device *dev,
 	return sysfs_emit(buf, "disabled s5 s5_s4 [unknown]\n");
 }
 
-static ssize_t toggle_deepsleep(struct device *dev,
-				struct device_attribute *attr,
-				const char *buf, size_t count)
+static ssize_t deepsleep_store(struct device *dev, struct device_attribute *attr,
+			       const char *buf, size_t count)
 {
-	acpi_status status;
 	struct wmax_basic_args args;
+	acpi_status status;
 
 	if (strcmp(buf, "disabled\n") == 0)
 		args.arg = 0;
@@ -809,7 +811,7 @@ static ssize_t toggle_deepsleep(struct device *dev,
 	return count;
 }
 
-static DEVICE_ATTR(deepsleep, S_IRUGO | S_IWUSR, show_deepsleep_status, toggle_deepsleep);
+static DEVICE_ATTR_RW(deepsleep);
 
 static bool deepsleep_group_visible(struct kobject *kobj)
 {
@@ -857,13 +859,13 @@ static bool is_wmax_thermal_code(u32 code)
 
 static int wmax_thermal_information(u8 operation, u8 arg, u32 *out_data)
 {
-	acpi_status status;
 	struct wmax_u32_args in_args = {
 		.operation = operation,
 		.arg1 = arg,
 		.arg2 = 0,
 		.arg3 = 0,
 	};
+	acpi_status status;
 
 	status = alienware_wmax_command(&in_args, sizeof(in_args),
 					WMAX_METHOD_THERMAL_INFORMATION,
@@ -880,13 +882,13 @@ static int wmax_thermal_information(u8 operation, u8 arg, u32 *out_data)
 
 static int wmax_thermal_control(u8 profile)
 {
-	acpi_status status;
 	struct wmax_u32_args in_args = {
 		.operation = WMAX_OPERATION_ACTIVATE_PROFILE,
 		.arg1 = profile,
 		.arg2 = 0,
 		.arg3 = 0,
 	};
+	acpi_status status;
 	u32 out_data;
 
 	status = alienware_wmax_command(&in_args, sizeof(in_args),
@@ -904,13 +906,13 @@ static int wmax_thermal_control(u8 profile)
 
 static int wmax_game_shift_status(u8 operation, u32 *out_data)
 {
-	acpi_status status;
 	struct wmax_u32_args in_args = {
 		.operation = operation,
 		.arg1 = 0,
 		.arg2 = 0,
 		.arg3 = 0,
 	};
+	acpi_status status;
 
 	status = alienware_wmax_command(&in_args, sizeof(in_args),
 					WMAX_METHOD_GAME_SHIFT_STATUS,
@@ -979,9 +981,9 @@ static int thermal_profile_set(struct platform_profile_handler *pprof,
 
 static int create_thermal_profile(struct platform_device *platform_device)
 {
-	u32 out_data;
-	enum wmax_thermal_mode mode;
 	enum platform_profile_option profile;
+	enum wmax_thermal_mode mode;
+	u32 out_data;
 	int ret;
 
 	for (u8 i = 0x2; i <= 0xD; i++) {
