@@ -1263,6 +1263,7 @@ struct soc_mixer_control {
 	int platform_max;
 	int reg, rreg;
 	unsigned int shift, rshift;
+	u32 num_channels;
 	unsigned int sign_bit;
 	unsigned int invert:1;
 	unsigned int autodisable:1;
