@@ -89,6 +89,7 @@ struct fsl_micfil_soc_data {
 	bool use_verid;
 	bool volume_sx;
 	u64  formats;
+	int  fifo_offset;
 };
 
 static struct fsl_micfil_soc_data fsl_micfil_imx8mm = {
@@ -98,6 +99,7 @@ static struct fsl_micfil_soc_data fsl_micfil_imx8mm = {
 	.dataline =  0xf,
 	.formats = SNDRV_PCM_FMTBIT_S16_LE,
 	.volume_sx = true,
+	.fifo_offset = 0,
 };
 
 static struct fsl_micfil_soc_data fsl_micfil_imx8mp = {
@@ -107,6 +109,7 @@ static struct fsl_micfil_soc_data fsl_micfil_imx8mp = {
 	.dataline =  0xf,
 	.formats = SNDRV_PCM_FMTBIT_S32_LE,
 	.volume_sx = false,
+	.fifo_offset = 0,
 };
 
 static struct fsl_micfil_soc_data fsl_micfil_imx93 = {
@@ -118,12 +121,26 @@ static struct fsl_micfil_soc_data fsl_micfil_imx93 = {
 	.use_edma = true,
 	.use_verid = true,
 	.volume_sx = false,
+	.fifo_offset = 0,
+};
+
+static struct fsl_micfil_soc_data fsl_micfil_imx943 = {
+	.imx = true,
+	.fifos = 8,
+	.fifo_depth = 32,
+	.dataline =  0xf,
+	.formats = SNDRV_PCM_FMTBIT_S32_LE,
+	.use_edma = true,
+	.use_verid = true,
+	.volume_sx = false,
+	.fifo_offset = -4,
 };
 
 static const struct of_device_id fsl_micfil_dt_ids[] = {
 	{ .compatible = "fsl,imx8mm-micfil", .data = &fsl_micfil_imx8mm },
 	{ .compatible = "fsl,imx8mp-micfil", .data = &fsl_micfil_imx8mp },
 	{ .compatible = "fsl,imx93-micfil", .data = &fsl_micfil_imx93 },
+	{ .compatible = "fsl,imx943-micfil", .data = &fsl_micfil_imx943 },
 	{}
 };
 MODULE_DEVICE_TABLE(of, fsl_micfil_dt_ids);
@@ -795,7 +812,7 @@ static int fsl_micfil_hw_params(struct snd_pcm_substream *substream,
 	ret = regmap_update_bits(micfil->regmap, REG_MICFIL_CTRL2,
 				 MICFIL_CTRL2_CLKDIV | MICFIL_CTRL2_CICOSR,
 				 FIELD_PREP(MICFIL_CTRL2_CLKDIV, clk_div) |
-				 FIELD_PREP(MICFIL_CTRL2_CICOSR, 16 - osr));
+				 FIELD_PREP(MICFIL_CTRL2_CICOSR, 32 - osr));
 
 	/* Configure CIC OSR in VADCICOSR */
 	regmap_update_bits(micfil->regmap, REG_MICFIL_VAD0_CTRL1,
@@ -934,9 +951,39 @@ static const struct reg_default fsl_micfil_reg_defaults[] = {
 	{REG_MICFIL_VAD0_ZCD,		0x00000004},
 };
 
+static const struct reg_default fsl_micfil_reg_defaults_v2[] = {
+	{REG_MICFIL_CTRL1,		0x00000000},
+	{REG_MICFIL_CTRL2,		0x00000000},
+	{REG_MICFIL_STAT,		0x00000000},
+	{REG_MICFIL_FIFO_CTRL,		0x0000001F},
+	{REG_MICFIL_FIFO_STAT,		0x00000000},
+	{REG_MICFIL_DATACH0 - 0x4,	0x00000000},
+	{REG_MICFIL_DATACH1 - 0x4,	0x00000000},
+	{REG_MICFIL_DATACH2 - 0x4,	0x00000000},
+	{REG_MICFIL_DATACH3 - 0x4,	0x00000000},
+	{REG_MICFIL_DATACH4 - 0x4,	0x00000000},
+	{REG_MICFIL_DATACH5 - 0x4,	0x00000000},
+	{REG_MICFIL_DATACH6 - 0x4,	0x00000000},
+	{REG_MICFIL_DATACH7 - 0x4,	0x00000000},
+	{REG_MICFIL_DC_CTRL,		0x00000000},
+	{REG_MICFIL_OUT_CTRL,		0x00000000},
+	{REG_MICFIL_OUT_STAT,		0x00000000},
+	{REG_MICFIL_VAD0_CTRL1,		0x00000000},
+	{REG_MICFIL_VAD0_CTRL2,		0x000A0000},
+	{REG_MICFIL_VAD0_STAT,		0x00000000},
+	{REG_MICFIL_VAD0_SCONFIG,	0x00000000},
+	{REG_MICFIL_VAD0_NCONFIG,	0x80000000},
+	{REG_MICFIL_VAD0_NDATA,		0x00000000},
+	{REG_MICFIL_VAD0_ZCD,		0x00000004},
+};
+
 static bool fsl_micfil_readable_reg(struct device *dev, unsigned int reg)
 {
 	struct fsl_micfil *micfil = dev_get_drvdata(dev);
+	int ofs = micfil->soc->fifo_offset;
+
+	if (reg >= (REG_MICFIL_DATACH0 + ofs) && reg <= (REG_MICFIL_DATACH7 + ofs))
+		return true;
 
 	switch (reg) {
 	case REG_MICFIL_CTRL1:
@@ -944,14 +991,6 @@ static bool fsl_micfil_readable_reg(struct device *dev, unsigned int reg)
 	case REG_MICFIL_STAT:
 	case REG_MICFIL_FIFO_CTRL:
 	case REG_MICFIL_FIFO_STAT:
-	case REG_MICFIL_DATACH0:
-	case REG_MICFIL_DATACH1:
-	case REG_MICFIL_DATACH2:
-	case REG_MICFIL_DATACH3:
-	case REG_MICFIL_DATACH4:
-	case REG_MICFIL_DATACH5:
-	case REG_MICFIL_DATACH6:
-	case REG_MICFIL_DATACH7:
 	case REG_MICFIL_DC_CTRL:
 	case REG_MICFIL_OUT_CTRL:
 	case REG_MICFIL_OUT_STAT:
@@ -1005,17 +1044,15 @@ static bool fsl_micfil_writeable_reg(struct device *dev, unsigned int reg)
 
 static bool fsl_micfil_volatile_reg(struct device *dev, unsigned int reg)
 {
+	struct fsl_micfil *micfil = dev_get_drvdata(dev);
+	int ofs = micfil->soc->fifo_offset;
+
+	if (reg >= (REG_MICFIL_DATACH0 + ofs) && reg <= (REG_MICFIL_DATACH7 + ofs))
+		return true;
+
 	switch (reg) {
 	case REG_MICFIL_STAT:
 	case REG_MICFIL_FIFO_STAT:
-	case REG_MICFIL_DATACH0:
-	case REG_MICFIL_DATACH1:
-	case REG_MICFIL_DATACH2:
-	case REG_MICFIL_DATACH3:
-	case REG_MICFIL_DATACH4:
-	case REG_MICFIL_DATACH5:
-	case REG_MICFIL_DATACH6:
-	case REG_MICFIL_DATACH7:
 	case REG_MICFIL_OUT_STAT:
 	case REG_MICFIL_VERID:
 	case REG_MICFIL_PARAM:
@@ -1035,6 +1072,20 @@ static const struct regmap_config fsl_micfil_regmap_config = {
 	.max_register = REG_MICFIL_VAD0_ZCD,
 	.reg_defaults = fsl_micfil_reg_defaults,
 	.num_reg_defaults = ARRAY_SIZE(fsl_micfil_reg_defaults),
+	.readable_reg = fsl_micfil_readable_reg,
+	.volatile_reg = fsl_micfil_volatile_reg,
+	.writeable_reg = fsl_micfil_writeable_reg,
+	.cache_type = REGCACHE_MAPLE,
+};
+
+static const struct regmap_config fsl_micfil_regmap_config_v2 = {
+	.reg_bits = 32,
+	.reg_stride = 4,
+	.val_bits = 32,
+
+	.max_register = REG_MICFIL_VAD0_ZCD,
+	.reg_defaults = fsl_micfil_reg_defaults_v2,
+	.num_reg_defaults = ARRAY_SIZE(fsl_micfil_reg_defaults_v2),
 	.readable_reg = fsl_micfil_readable_reg,
 	.volatile_reg = fsl_micfil_volatile_reg,
 	.writeable_reg = fsl_micfil_writeable_reg,
@@ -1245,9 +1296,14 @@ static int fsl_micfil_probe(struct platform_device *pdev)
 	if (IS_ERR(regs))
 		return PTR_ERR(regs);
 
-	micfil->regmap = devm_regmap_init_mmio(&pdev->dev,
-					       regs,
-					       &fsl_micfil_regmap_config);
+	if (of_device_is_compatible(np, "fsl,imx943-micfil"))
+		micfil->regmap = devm_regmap_init_mmio(&pdev->dev,
+						       regs,
+						       &fsl_micfil_regmap_config_v2);
+	else
+		micfil->regmap = devm_regmap_init_mmio(&pdev->dev,
+						       regs,
+						       &fsl_micfil_regmap_config);
 	if (IS_ERR(micfil->regmap)) {
 		dev_err(&pdev->dev, "failed to init MICFIL regmap: %ld\n",
 			PTR_ERR(micfil->regmap));
@@ -1316,7 +1372,7 @@ static int fsl_micfil_probe(struct platform_device *pdev)
 	}
 
 	micfil->dma_params_rx.chan_name = "rx";
-	micfil->dma_params_rx.addr = res->start + REG_MICFIL_DATACH0;
+	micfil->dma_params_rx.addr = res->start + REG_MICFIL_DATACH0 + micfil->soc->fifo_offset;
 	micfil->dma_params_rx.maxburst = MICFIL_DMA_MAXBURST_RX;
 
 	platform_set_drvdata(pdev, micfil);
