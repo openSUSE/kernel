@@ -13,7 +13,7 @@ fb-$(CONFIG_FB_DEVICE)            += fb_chrdev.o \
                                      fbsysfs.o
 
 ifeq ($(CONFIG_FRAMEBUFFER_CONSOLE),y)
-fb-y				  += fbcon.o fbcon_switcheroo.o bitblit.o softcursor.o
+fb-y				  += fbcon.o bitblit.o softcursor.o
 ifeq ($(CONFIG_FB_TILEBLITTING),y)
 fb-y				  += tileblit.o
 endif
