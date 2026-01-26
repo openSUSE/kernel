@@ -1435,3 +1435,22 @@ int tpm2_sessions_init(struct tpm_chip *chip)
 	return rc;
 }
 #endif /* CONFIG_TCG_TPM2_HMAC */
+
+/* for kABI compatibility */
+#undef tpm_buf_append_name
+void tpm_buf_append_name(struct tpm_chip *chip, struct tpm_buf *buf,
+			 u32 handle, u8 *name)
+{
+	_tpm_buf_append_name(chip, buf, handle, name);
+}
+EXPORT_SYMBOL_GPL(tpm_buf_append_name);
+
+#ifdef CONFIG_TCG_TPM2_HMAC
+#undef tpm_buf_fill_hmac_session
+void tpm_buf_fill_hmac_session(struct tpm_chip *chip, struct tpm_buf *buf)
+{
+	_tpm_buf_fill_hmac_session(chip, buf);
+}
+EXPORT_SYMBOL(tpm_buf_fill_hmac_session);
+#endif
+
