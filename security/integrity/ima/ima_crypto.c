@@ -669,7 +669,7 @@ int ima_calc_field_array_hash(struct ima_field_data *field_data,
 			       TPM_DIGEST_SIZE);
 #else
 			memset(entry->digests[i].digest, 0xfe,
-			       TPM_MAX_DIGEST_SIZE);
+			       TPM2_MAX_DIGEST_SIZE);
 #endif
 			continue;
 		}
