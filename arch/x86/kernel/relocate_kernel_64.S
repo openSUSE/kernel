@@ -77,6 +77,11 @@ SYM_CODE_START_NOALIGN(relocate_kernel)
 	/* Save CR4. Required to enable the right paging mode later. */
 	movq	%rax, %r13
 
+	/* Disable LASS before jumping to the identity mapped page. */
+	movq	%r13, %r12
+	andq	$(~X86_CR4_LASS), %r12
+	movq	%r12, %cr4
+
 	/* zero out flags, and disable interrupts */
 	pushq $0
 	popfq
