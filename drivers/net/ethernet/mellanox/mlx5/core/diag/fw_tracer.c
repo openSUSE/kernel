@@ -32,6 +32,7 @@
 #define CREATE_TRACE_POINTS
 #include "fw_tracer.h"
 #include "fw_tracer_tracepoint.h"
+#include <linux/ctype.h>
 
 static int mlx5_query_mtrc_caps(struct mlx5_fw_tracer *tracer)
 {
@@ -337,6 +338,43 @@ static const char *VAL_PARM		= "%llx";
 static const char *REPLACE_64_VAL_PARM	= "%x%x";
 static const char *PARAM_CHAR		= "%";
 
+static bool mlx5_is_valid_spec(const char *str)
+{
+	/* Parse format specifiers to find the actual type.
+	 * Structure: %[flags][width][.precision][length]type
+	 * Skip flags, width, precision & length.
+	 */
+	while (isdigit(*str) || *str == '#' || *str == '.' || *str == 'l')
+		str++;
+
+	/* Check if it's a valid integer/hex specifier:
+	 * Valid formats: %x, %d, %i, %u, etc.
+	 */
+	if (*str != 'x' && *str != 'X' && *str != 'd' && *str != 'i' &&
+	    *str != 'u' && *str != 'c')
+		return false;
+
+	return true;
+}
+
+static bool mlx5_tracer_validate_params(const char *str)
+{
+	const char *substr = str;
+
+	if (!str)
+		return false;
+
+	substr = strstr(substr, PARAM_CHAR);
+	while (substr) {
+		if (!mlx5_is_valid_spec(substr + 1))
+			return false;
+
+		substr = strstr(substr + 1, PARAM_CHAR);
+	}
+
+	return true;
+}
+
 static int mlx5_tracer_message_hash(u32 message_id)
 {
 	return jhash_1word(message_id, 0) & (MESSAGE_HASH_SIZE - 1);
@@ -395,6 +433,10 @@ static int mlx5_tracer_get_num_of_params(char *str)
 {
 	char *substr, *pstr = str;
 	int num_of_params = 0;
+
+	/* Validate that all parameters are valid before processing */
+	if (!mlx5_tracer_validate_params(str))
+		return -EINVAL;
 
 	/* replace %llx with %x%x */
 	substr = strstr(pstr, VAL_PARM);
@@ -528,20 +570,30 @@ void mlx5_tracer_print_trace(struct tracer_string_format *str_frmt,
 {
 	char	tmp[512];
 
-	snprintf(tmp, sizeof(tmp), str_frmt->string,
-		 str_frmt->params[0],
-		 str_frmt->params[1],
-		 str_frmt->params[2],
-		 str_frmt->params[3],
-		 str_frmt->params[4],
-		 str_frmt->params[5],
-		 str_frmt->params[6]);
+	if (str_frmt->invalid_string)
+		snprintf(tmp, sizeof(tmp), "BAD_FORMAT: %s", str_frmt->string);
+	else
+		snprintf(tmp, sizeof(tmp), str_frmt->string,
+			 str_frmt->params[0],
+			 str_frmt->params[1],
+			 str_frmt->params[2],
+			 str_frmt->params[3],
+			 str_frmt->params[4],
+			 str_frmt->params[5],
+			 str_frmt->params[6]);
 
 	trace_mlx5_fw(dev->tracer, trace_timestamp, str_frmt->lost,
 		      str_frmt->event_id, tmp);
 
 	/* remove it from hash */
 	mlx5_tracer_clean_message(str_frmt);
+}
+
+static void mlx5_tracer_handle_bad_format_string(struct mlx5_fw_tracer *tracer,
+						 struct tracer_string_format *cur_string)
+{
+	cur_string->invalid_string = true;
+	list_add_tail(&cur_string->list, &tracer->ready_strings_list);
 }
 
 static int mlx5_tracer_handle_string_trace(struct mlx5_fw_tracer *tracer,
@@ -554,12 +606,18 @@ static int mlx5_tracer_handle_string_trace(struct mlx5_fw_tracer *tracer,
 		if (!cur_string)
 			return -1;
 
-		cur_string->num_of_params = mlx5_tracer_get_num_of_params(cur_string->string);
-		cur_string->last_param_num = 0;
 		cur_string->event_id = tracer_event->event_id;
 		cur_string->tmsn = tracer_event->string_event.tmsn;
 		cur_string->timestamp = tracer_event->string_event.timestamp;
 		cur_string->lost = tracer_event->lost_event;
+		cur_string->last_param_num = 0;
+		cur_string->num_of_params = mlx5_tracer_get_num_of_params(cur_string->string);
+		if (cur_string->num_of_params < 0) {
+			pr_debug("%s Invalid format string parameters\n",
+				 __func__);
+			mlx5_tracer_handle_bad_format_string(tracer, cur_string);
+			return 0;
+		}
 		if (cur_string->num_of_params == 0) /* trace with no params */
 			list_add_tail(&cur_string->list, &tracer->ready_strings_list);
 	} else {
@@ -568,6 +626,11 @@ static int mlx5_tracer_handle_string_trace(struct mlx5_fw_tracer *tracer,
 			pr_debug("%s Got string event for unknown string tdsm: %d\n",
 				 __func__, tracer_event->string_event.tmsn);
 			return -1;
+		}
+		if (cur_string->num_of_params < 0) {
+			pr_debug("%s string parameter of invalid string, dumping\n",
+				 __func__);
+			return 0;
 		}
 		cur_string->last_param_num += 1;
 		if (cur_string->last_param_num > TRACER_MAX_PARAMS) {
