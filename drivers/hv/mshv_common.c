@@ -164,6 +164,7 @@ int mshv_do_pre_guest_mode_work(ulong th_flags)
 }
 EXPORT_SYMBOL_GPL(mshv_do_pre_guest_mode_work);
 
+#ifdef CONFIG_X86
 /*
  * Corresponding sleep states have to be initialized in order for a subsequent
  * HVCALL_ENTER_SLEEP_STATE call to succeed. Currently only S5 state as per
@@ -259,3 +260,4 @@ void hv_machine_power_off(void)
 	BUG();
 
 }
+#endif
