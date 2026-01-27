@@ -727,6 +727,11 @@ void __weak hv_para_set_synic_register(unsigned int reg, u64 val)
 }
 EXPORT_SYMBOL_GPL(hv_para_set_synic_register);
 
+void __weak hv_para_set_sint_proxy(bool enable)
+{
+}
+EXPORT_SYMBOL_GPL(hv_para_set_sint_proxy);
+
 void hv_identify_partition_type(void)
 {
 	/* Assume guest role */
