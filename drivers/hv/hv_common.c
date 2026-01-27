@@ -716,6 +716,17 @@ u64 __weak hv_tdx_hypercall(u64 control, u64 param1, u64 param2)
 }
 EXPORT_SYMBOL_GPL(hv_tdx_hypercall);
 
+u64 __weak hv_para_get_synic_register(unsigned int reg)
+{
+	return ~0ULL;
+}
+EXPORT_SYMBOL_GPL(hv_para_get_synic_register);
+
+void __weak hv_para_set_synic_register(unsigned int reg, u64 val)
+{
+}
+EXPORT_SYMBOL_GPL(hv_para_set_synic_register);
+
 void hv_identify_partition_type(void)
 {
 	/* Assume guest role */
