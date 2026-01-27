@@ -5799,7 +5799,7 @@ static int ca0132_alt_mic_boost_info(struct snd_kcontrol *kcontrol,
 	if (uinfo->value.enumerated.item >= MIC_BOOST_NUM_OF_STEPS)
 		uinfo->value.enumerated.item = MIC_BOOST_NUM_OF_STEPS - 1;
 	sprintf(namestr, "%d %s", (uinfo->value.enumerated.item * 10), sfx);
-	strcpy(uinfo->value.enumerated.name, namestr);
+	strscpy(uinfo->value.enumerated.name, namestr);
 	return 0;
 }
 
@@ -5853,7 +5853,7 @@ static int ae5_headphone_gain_info(struct snd_kcontrol *kcontrol,
 	sprintf(namestr, "%s %s",
 		ae5_headphone_gain_presets[uinfo->value.enumerated.item].name,
 		sfx);
-	strcpy(uinfo->value.enumerated.name, namestr);
+	strscpy(uinfo->value.enumerated.name, namestr);
 	return 0;
 }
 
@@ -5906,7 +5906,7 @@ static int ae5_sound_filter_info(struct snd_kcontrol *kcontrol,
 		uinfo->value.enumerated.item = AE5_SOUND_FILTER_MAX - 1;
 	sprintf(namestr, "%s",
 			ae5_filter_presets[uinfo->value.enumerated.item].name);
-	strcpy(uinfo->value.enumerated.name, namestr);
+	strscpy(uinfo->value.enumerated.name, namestr);
 	return 0;
 }
 
@@ -5955,7 +5955,7 @@ static int ca0132_alt_input_source_info(struct snd_kcontrol *kcontrol,
 	uinfo->value.enumerated.items = IN_SRC_NUM_OF_INPUTS;
 	if (uinfo->value.enumerated.item >= IN_SRC_NUM_OF_INPUTS)
 		uinfo->value.enumerated.item = IN_SRC_NUM_OF_INPUTS - 1;
-	strcpy(uinfo->value.enumerated.name,
+	strscpy(uinfo->value.enumerated.name,
 			in_src_str[uinfo->value.enumerated.item]);
 	return 0;
 }
@@ -6007,7 +6007,7 @@ static int ca0132_alt_output_select_get_info(struct snd_kcontrol *kcontrol,
 	uinfo->value.enumerated.items = NUM_OF_OUTPUTS;
 	if (uinfo->value.enumerated.item >= NUM_OF_OUTPUTS)
 		uinfo->value.enumerated.item = NUM_OF_OUTPUTS - 1;
-	strcpy(uinfo->value.enumerated.name,
+	strscpy(uinfo->value.enumerated.name,
 			out_type_str[uinfo->value.enumerated.item]);
 	return 0;
 }
@@ -6058,7 +6058,7 @@ static int ca0132_alt_speaker_channel_cfg_get_info(struct snd_kcontrol *kcontrol
 	uinfo->value.enumerated.items = items;
 	if (uinfo->value.enumerated.item >= items)
 		uinfo->value.enumerated.item = items - 1;
-	strcpy(uinfo->value.enumerated.name,
+	strscpy(uinfo->value.enumerated.name,
 			speaker_channel_cfgs[uinfo->value.enumerated.item].name);
 	return 0;
 }
@@ -6111,7 +6111,7 @@ static int ca0132_alt_svm_setting_info(struct snd_kcontrol *kcontrol,
 	uinfo->value.enumerated.items = NUM_OF_SVM_SETTINGS;
 	if (uinfo->value.enumerated.item >= NUM_OF_SVM_SETTINGS)
 		uinfo->value.enumerated.item = NUM_OF_SVM_SETTINGS - 1;
-	strcpy(uinfo->value.enumerated.name,
+	strscpy(uinfo->value.enumerated.name,
 			out_svm_set_enum_str[uinfo->value.enumerated.item]);
 	return 0;
 }
@@ -6175,7 +6175,7 @@ static int ca0132_alt_eq_preset_info(struct snd_kcontrol *kcontrol,
 	uinfo->value.enumerated.items = items;
 	if (uinfo->value.enumerated.item >= items)
 		uinfo->value.enumerated.item = items - 1;
-	strcpy(uinfo->value.enumerated.name,
+	strscpy(uinfo->value.enumerated.name,
 		ca0132_alt_eq_presets[uinfo->value.enumerated.item].name);
 	return 0;
 }
@@ -6232,7 +6232,7 @@ static int ca0132_voicefx_info(struct snd_kcontrol *kcontrol,
 	uinfo->value.enumerated.items = items;
 	if (uinfo->value.enumerated.item >= items)
 		uinfo->value.enumerated.item = items - 1;
-	strcpy(uinfo->value.enumerated.name,
+	strscpy(uinfo->value.enumerated.name,
 	       ca0132_voicefx_presets[uinfo->value.enumerated.item].name);
 	return 0;
 }
