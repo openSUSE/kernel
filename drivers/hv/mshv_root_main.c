@@ -1297,7 +1297,7 @@ mshv_map_user_memory(struct mshv_partition *partition,
 	long ret;
 
 	if (mem.flags & BIT(MSHV_SET_MEM_BIT_UNMAP) ||
-	    !access_ok((const void *)mem.userspace_addr, mem.size))
+	    !access_ok((const void __user *)mem.userspace_addr, mem.size))
 		return -EINVAL;
 
 	mmap_read_lock(current->mm);
