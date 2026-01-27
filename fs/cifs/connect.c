@@ -556,13 +556,17 @@ static int __reconnect_target_unlocked(struct TCP_Server_Info *server, const cha
 	if (server->hostname != target) {
 		hostname = extract_hostname(target);
 		if (!IS_ERR(hostname)) {
+			spin_lock(&server->srv_lock);
 			kfree(server->hostname);
 			server->hostname = hostname;
+			spin_unlock(&server->srv_lock);
 		} else {
 			cifs_dbg(FYI, "%s: couldn't extract hostname or address from dfs target: %ld\n",
 				 __func__, PTR_ERR(hostname));
+			spin_lock(&server->srv_lock);
 			cifs_dbg(FYI, "%s: default to last target server: %s\n", __func__,
 				 server->hostname);
+			spin_unlock(&server->srv_lock);
 		}
 		/* resolve the hostname again to make sure that IP address is up-to-date. */
 		rc = reconn_set_ipaddr_from_hostname(server);
@@ -717,9 +721,7 @@ cifs_echo_request(struct work_struct *work)
 		goto requeue_echo;
 
 	rc = server->ops->echo ? server->ops->echo(server) : -ENOSYS;
-	if (rc)
-		cifs_dbg(FYI, "Unable to send echo request to server: %s\n",
-			 server->hostname);
+	cifs_server_dbg(FYI, "send echo request: rc = %d\n", rc);
 
 requeue_echo:
 	queue_delayed_work(cifsiod_wq, &server->echo, server->echo_interval);
@@ -2714,6 +2716,8 @@ static int match_server(struct TCP_Server_Info *server, struct smb_vol *vol)
 {
 	struct sockaddr *addr = (struct sockaddr *)&vol->dstaddr;
 
+	lockdep_assert_held(&server->srv_lock);
+
 	if (vol->nosharesock)
 		return 0;
 
@@ -3071,7 +3075,9 @@ cifs_setup_ipc(struct cifs_ses *ses, struct smb_vol *volume_info)
 	if (tcon == NULL)
 		return -ENOMEM;
 
+	spin_lock(&server->srv_lock);
 	scnprintf(unc, sizeof(unc), "\\\\%s\\IPC$", server->hostname);
+	spin_unlock(&server->srv_lock);
 
 	/* cannot fail */
 	nls_codepage = load_nls_default();

@@ -580,10 +580,13 @@ static int cifs_stats_proc_show(struct seq_file *m, void *v)
 				server->fastest_cmd[j],
 				server->slowest_cmd[j]);
 		for (j = 0; j < NUMBER_OF_SMB2_COMMANDS; j++)
-			if (atomic_read(&server->smb2slowcmd[j]))
+			if (atomic_read(&server->smb2slowcmd[j])) {
+				spin_lock(&server->srv_lock);
 				seq_printf(m, "  %d slow responses from %s for command %d\n",
 					atomic_read(&server->smb2slowcmd[j]),
 					server->hostname, j);
+				spin_unlock(&server->srv_lock);
+			}
 #endif /* STATS2 */
 		list_for_each(tmp2, &server->smb_ses_list) {
 			ses = list_entry(tmp2, struct cifs_ses,
