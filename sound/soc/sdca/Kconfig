@@ -8,6 +8,17 @@ config SND_SOC_SDCA
 	  This option enables support for the MIPI SoundWire Device
 	  Class for Audio (SDCA).
 
+config SND_SOC_SDCA_HID
+	tristate "SDCA HID support"
+	depends on SND_SOC_SDCA && HID
+
+config SND_SOC_SDCA_IRQ
+	tristate
+	select REGMAP
+	select REGMAP_IRQ
+	help
+	  This option enables support for SDCA IRQs.
+
 config SND_SOC_SDCA_OPTIONAL
 	def_tristate SND_SOC_SDCA || !SND_SOC_SDCA
 
