@@ -1541,8 +1541,8 @@ EXPORT_SYMBOL_GPL(snd_soc_dapm_dai_free_widgets);
 /*
  * Handler for regulator supply widget.
  */
-int dapm_regulator_event(struct snd_soc_dapm_widget *w,
-		   struct snd_kcontrol *kcontrol, int event)
+int snd_soc_dapm_regulator_event(struct snd_soc_dapm_widget *w,
+				 struct snd_kcontrol *kcontrol, int event)
 {
 	int ret;
 
@@ -1570,13 +1570,13 @@ int dapm_regulator_event(struct snd_soc_dapm_widget *w,
 		return regulator_disable_deferred(w->regulator, w->shift);
 	}
 }
-EXPORT_SYMBOL_GPL(dapm_regulator_event);
+EXPORT_SYMBOL_GPL(snd_soc_dapm_regulator_event);
 
 /*
  * Handler for pinctrl widget.
  */
-int dapm_pinctrl_event(struct snd_soc_dapm_widget *w,
-		       struct snd_kcontrol *kcontrol, int event)
+int snd_soc_dapm_pinctrl_event(struct snd_soc_dapm_widget *w,
+			       struct snd_kcontrol *kcontrol, int event)
 {
 	struct snd_soc_dapm_pinctrl_priv *priv = w->priv;
 	struct pinctrl *p = w->pinctrl;
@@ -1595,13 +1595,13 @@ int dapm_pinctrl_event(struct snd_soc_dapm_widget *w,
 
 	return pinctrl_select_state(p, s);
 }
-EXPORT_SYMBOL_GPL(dapm_pinctrl_event);
+EXPORT_SYMBOL_GPL(snd_soc_dapm_pinctrl_event);
 
 /*
  * Handler for clock supply widget.
  */
-int dapm_clock_event(struct snd_soc_dapm_widget *w,
-		   struct snd_kcontrol *kcontrol, int event)
+int snd_soc_dapm_clock_event(struct snd_soc_dapm_widget *w,
+			     struct snd_kcontrol *kcontrol, int event)
 {
 	if (!w->clk)
 		return -EIO;
@@ -1617,7 +1617,7 @@ int dapm_clock_event(struct snd_soc_dapm_widget *w,
 
 	return 0;
 }
-EXPORT_SYMBOL_GPL(dapm_clock_event);
+EXPORT_SYMBOL_GPL(snd_soc_dapm_clock_event);
 
 static int dapm_widget_power_check(struct snd_soc_dapm_widget *w)
 {
@@ -3672,7 +3672,7 @@ snd_soc_dapm_new_control_unlocked(struct snd_soc_dapm_context *dapm,
 		}
 
 		/* set to sleep_state when initializing */
-		dapm_pinctrl_event(w, NULL, SND_SOC_DAPM_POST_PMD);
+		snd_soc_dapm_pinctrl_event(w, NULL, SND_SOC_DAPM_POST_PMD);
 		break;
 	case snd_soc_dapm_clock_supply:
 		w->clk = devm_clk_get(dapm->dev, widget->name);
