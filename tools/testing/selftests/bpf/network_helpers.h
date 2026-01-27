@@ -70,6 +70,8 @@ struct nstoken;
  */
 struct nstoken *open_netns(const char *name);
 void close_netns(struct nstoken *token);
+int make_netns(const char *name);
+int remove_netns(const char *name);
 
 struct tmonitor_ctx;
 
