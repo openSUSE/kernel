@@ -12,6 +12,7 @@
 #include <linux/types.h>
 #include <linux/kconfig.h>
 
+struct fwnode_handle;
 struct sdw_slave;
 
 #define SDCA_MAX_FUNCTION_COUNT 8
