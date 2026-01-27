@@ -431,6 +431,7 @@
 #define X86_FEATURE_SBPB		(20*32+27) /* "" Selective Branch Prediction Barrier */
 #define X86_FEATURE_IBPB_BRTYPE		(20*32+28) /* "" MSR_PRED_CMD[IBPB] flushes all branch type predictions */
 #define X86_FEATURE_SRSO_NO		(20*32+29) /* "" CPU is not affected by SRSO */
+#define X86_FEATURE_IBPB_EXIT_TO_USER	(21*32+14) /* Use IBPB on exit-to-userspace, see VMSCAPE bug */
 
 
 #define X86_EXT_FEATURE(x)		(NBUGINTS*32 + (x))
@@ -484,4 +485,5 @@
 
 /* BUG word 2 */
 #define X86_BUG_DIV0                   X86_EXT_BUG(1*32 + 0) /* AMD DIV0 speculation bug */
+#define X86_BUG_VMSCAPE		X86_EXT_BUG( 1*32+10) /* "vmscape" CPU is affected by VMSCAPE attacks from guests */
 #endif /* _ASM_X86_CPUFEATURES_H */
