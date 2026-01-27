@@ -300,7 +300,7 @@ retry:
 			ima_lsm_update_rules();
 			goto retry;
 		}
-		if (!rc)
+		if (rc <= 0)
 			return false;
 	}
 	return true;
