@@ -240,7 +240,7 @@ static inline const struct cpumask *cpu_smt_mask(int cpu)
 }
 #endif
 
-static inline const struct cpumask *cpu_cpu_mask(int cpu)
+static inline const struct cpumask *cpu_node_mask(int cpu)
 {
 	return cpumask_of_node(cpu_to_node(cpu));
 }
