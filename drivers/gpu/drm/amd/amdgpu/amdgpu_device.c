@@ -4920,6 +4920,9 @@ int amdgpu_device_mode1_reset(struct amdgpu_device *adev)
 	if (!ret)
 		adev->no_hw_access = false;
 
+	/* ensure no_hw_access is updated before we access hw */
+	smp_mb();
+
 	amdgpu_device_load_pci_state(adev->pdev);
 
 	/* wait for asic to come out of reset */
