@@ -383,6 +383,9 @@ struct hdac_bus {
 	/* factor used to derive STRIPE control value */
 	unsigned int sdo_limit;
 
+	/* address offset between host and hadc */
+	dma_addr_t addr_offset;
+
 	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
