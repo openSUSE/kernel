@@ -182,6 +182,8 @@ static struct power_supply_attr power_supply_attrs[] = {
 	POWER_SUPPLY_ATTR(CHARGE_CONTROL_START_THRESHOLD),
 	POWER_SUPPLY_ATTR(CHARGE_CONTROL_END_THRESHOLD),
 	POWER_SUPPLY_ENUM_ATTR(CHARGE_BEHAVIOUR),
+	/* Same enum value texts as "charge_type" without the 's' at the end */
+	_POWER_SUPPLY_ENUM_ATTR(CHARGE_TYPES, POWER_SUPPLY_CHARGE_TYPE_TEXT),
 	POWER_SUPPLY_ATTR(INPUT_CURRENT_LIMIT),
 	POWER_SUPPLY_ATTR(INPUT_VOLTAGE_LIMIT),
 	POWER_SUPPLY_ATTR(INPUT_POWER_LIMIT),
@@ -237,23 +239,52 @@ static enum power_supply_property dev_attr_psp(struct device_attribute *attr)
 	return  to_ps_attr(attr) - power_supply_attrs;
 }
 
+static void power_supply_escape_spaces(const char *str, char *buf, size_t bufsize)
+{
+	strscpy(buf, str, bufsize);
+	strreplace(buf, ' ', '_');
+}
+
+static int power_supply_match_string(const char * const *array, size_t n, const char *s)
+{
+	int ret;
+
+	/* First try an exact match */
+	ret = __sysfs_match_string(array, n, s);
+	if (ret >= 0)
+		return ret;
+
+	/* Second round, try matching with spaces replaced by '_' */
+	for (size_t i = 0; i < n; i++) {
+		char buf[32];
+
+		power_supply_escape_spaces(array[i], buf, sizeof(buf));
+		if (sysfs_streq(buf, s))
+			return i;
+	}
+
+	return -EINVAL;
+}
+
 static ssize_t power_supply_show_enum_with_available(
 			struct device *dev, const char * const labels[], int label_count,
 			unsigned int available_values, int value, char *buf)
 {
 	bool match = false, available, active;
+	char escaped_label[32];
 	ssize_t count = 0;
 	int i;
 
 	for (i = 0; i < label_count; i++) {
 		available = available_values & BIT(i);
 		active = i == value;
+		power_supply_escape_spaces(labels[i], escaped_label, sizeof(escaped_label));
 
 		if (available && active) {
-			count += sysfs_emit_at(buf, count, "[%s] ", labels[i]);
+			count += sysfs_emit_at(buf, count, "[%s] ", escaped_label);
 			match = true;
 		} else if (available) {
-			count += sysfs_emit_at(buf, count, "%s ", labels[i]);
+			count += sysfs_emit_at(buf, count, "%s ", escaped_label);
 		}
 	}
 
@@ -268,9 +299,11 @@ static ssize_t power_supply_show_enum_with_available(
 	return count;
 }
 
-static ssize_t power_supply_show_property(struct device *dev,
-					  struct device_attribute *attr,
-					  char *buf) {
+static ssize_t power_supply_format_property(struct device *dev,
+					    bool uevent,
+					    struct device_attribute *attr,
+					    char *buf)
+{
 	ssize_t ret;
 	struct power_supply *psy = dev_get_drvdata(dev);
 	struct power_supply_attr *ps_attr = to_ps_attr(attr);
@@ -303,13 +336,22 @@ static ssize_t power_supply_show_property(struct device *dev,
 				psy->desc->usb_types, value.intval, buf);
 		break;
 	case POWER_SUPPLY_PROP_CHARGE_BEHAVIOUR:
+		if (uevent) /* no possible values in uevents */
+			goto default_format;
 		ret = power_supply_charge_behaviour_show(dev, psy->desc->charge_behaviours,
 							 value.intval, buf);
+		break;
+	case POWER_SUPPLY_PROP_CHARGE_TYPES:
+		if (uevent) /* no possible values in uevents */
+			goto default_format;
+		ret = power_supply_charge_types_show(dev, psy->desc->charge_types,
+						     value.intval, buf);
 		break;
 	case POWER_SUPPLY_PROP_MODEL_NAME ... POWER_SUPPLY_PROP_SERIAL_NUMBER:
 		ret = sysfs_emit(buf, "%s\n", value.strval);
 		break;
 	default:
+default_format:
 		if (ps_attr->text_values_len > 0 &&
 				value.intval < ps_attr->text_values_len && value.intval >= 0) {
 			ret = sysfs_emit(buf, "%s\n", ps_attr->text_values[value.intval]);
@@ -319,6 +361,13 @@ static ssize_t power_supply_show_property(struct device *dev,
 	}
 
 	return ret;
+}
+
+static ssize_t power_supply_show_property(struct device *dev,
+					  struct device_attribute *attr,
+					  char *buf)
+{
+	return power_supply_format_property(dev, false, attr, buf);
 }
 
 static ssize_t power_supply_store_property(struct device *dev,
@@ -332,8 +381,8 @@ static ssize_t power_supply_store_property(struct device *dev,
 
 	ret = -EINVAL;
 	if (ps_attr->text_values_len > 0) {
-		ret = __sysfs_match_string(ps_attr->text_values,
-					   ps_attr->text_values_len, buf);
+		ret = power_supply_match_string(ps_attr->text_values,
+						ps_attr->text_values_len, buf);
 	}
 
 	/*
@@ -437,7 +486,7 @@ static int add_prop_uevent(const struct device *dev, struct kobj_uevent_env *env
 	pwr_attr = &power_supply_attrs[prop];
 	dev_attr = &pwr_attr->dev_attr;
 
-	ret = power_supply_show_property((struct device *)dev, dev_attr, prop_buf);
+	ret = power_supply_format_property((struct device *)dev, true, dev_attr, prop_buf);
 	if (ret == -ENODEV || ret == -ENODATA) {
 		/*
 		 * When a battery is absent, we expect -ENODEV. Don't abort;
@@ -542,3 +591,31 @@ int power_supply_charge_behaviour_parse(unsigned int available_behaviours, const
 	return -EINVAL;
 }
 EXPORT_SYMBOL_GPL(power_supply_charge_behaviour_parse);
+
+ssize_t power_supply_charge_types_show(struct device *dev,
+				       unsigned int available_types,
+				       enum power_supply_charge_type current_type,
+				       char *buf)
+{
+	return power_supply_show_enum_with_available(
+				dev, POWER_SUPPLY_CHARGE_TYPE_TEXT,
+				ARRAY_SIZE(POWER_SUPPLY_CHARGE_TYPE_TEXT),
+				available_types, current_type, buf);
+}
+EXPORT_SYMBOL_GPL(power_supply_charge_types_show);
+
+int power_supply_charge_types_parse(unsigned int available_types, const char *buf)
+{
+	int i = power_supply_match_string(POWER_SUPPLY_CHARGE_TYPE_TEXT,
+					  ARRAY_SIZE(POWER_SUPPLY_CHARGE_TYPE_TEXT),
+					  buf);
+
+	if (i < 0)
+		return i;
+
+	if (available_types & BIT(i))
+		return i;
+
+	return -EINVAL;
+}
+EXPORT_SYMBOL_GPL(power_supply_charge_types_parse);
