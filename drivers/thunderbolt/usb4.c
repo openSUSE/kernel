@@ -933,7 +933,15 @@ int usb4_switch_dealloc_dp_resource(struct tb_switch *sw, struct tb_port *in)
 	return status ? -EIO : 0;
 }
 
-static int usb4_port_idx(const struct tb_switch *sw, const struct tb_port *port)
+/**
+ * usb4_port_index() - Finds matching USB4 port index
+ * @sw: USB4 router
+ * @port: USB4 protocol or lane adapter
+ *
+ * Finds matching USB4 port index (starting from %0) that given @port goes
+ * through.
+ */
+int usb4_port_index(const struct tb_switch *sw, const struct tb_port *port)
 {
 	struct tb_port *p;
 	int usb4_idx = 0;
@@ -967,7 +975,7 @@ static int usb4_port_idx(const struct tb_switch *sw, const struct tb_port *port)
 struct tb_port *usb4_switch_map_pcie_down(struct tb_switch *sw,
 					  const struct tb_port *port)
 {
-	int usb4_idx = usb4_port_idx(sw, port);
+	int usb4_idx = usb4_port_index(sw, port);
 	struct tb_port *p;
 	int pcie_idx = 0;
 
@@ -998,7 +1006,7 @@ struct tb_port *usb4_switch_map_pcie_down(struct tb_switch *sw,
 struct tb_port *usb4_switch_map_usb3_down(struct tb_switch *sw,
 					  const struct tb_port *port)
 {
-	int usb4_idx = usb4_port_idx(sw, port);
+	int usb4_idx = usb4_port_index(sw, port);
 	struct tb_port *p;
 	int usb_idx = 0;
 
@@ -1653,14 +1661,15 @@ int usb4_port_margining_caps(struct tb_port *port, enum usb4_sb_target target,
  * @target: Sideband target
  * @index: Retimer index if taget is %USB4_SB_TARGET_RETIMER
  * @params: Parameters for USB4 hardware margining
- * @results: Array with at least two elements to hold the results
+ * @results: Array to hold the results
+ * @nresults: Number of elements in the results array
  *
  * Runs hardware lane margining on USB4 port and returns the result in
  * @results.
  */
 int usb4_port_hw_margin(struct tb_port *port, enum usb4_sb_target target,
 			u8 index, const struct usb4_port_margining_params *params,
-			u32 *results)
+			u32 *results, size_t nresults)
 {
 	u32 val;
 	int ret;
@@ -1689,7 +1698,7 @@ int usb4_port_hw_margin(struct tb_port *port, enum usb4_sb_target target,
 		return ret;
 
 	return usb4_port_sb_read(port, target, index, USB4_SB_DATA, results,
-				 sizeof(*results) * 2);
+				 sizeof(*results) * nresults);
 }
 
 /**
