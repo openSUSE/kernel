@@ -486,6 +486,8 @@ struct gdma_wqe {
 #define INLINE_OOB_SMALL_SIZE 8
 #define INLINE_OOB_LARGE_SIZE 24
 
+#define MANA_MAX_TX_WQE_SGL_ENTRIES 30
+
 #define MAX_TX_WQE_SIZE 512
 #define MAX_RX_WQE_SIZE 256
 
@@ -591,6 +593,9 @@ enum {
 /* Driver can self reset on FPGA Reconfig EQE notification */
 #define GDMA_DRV_CAP_FLAG_1_HANDLE_RECONFIG_EQE BIT(17)
 
+/* Driver supports linearizing the skb when num_sge exceeds hardware limit */
+#define GDMA_DRV_CAP_FLAG_1_SKB_LINEARIZE BIT(20)
+
 /* Driver can send HWC periodically to query stats */
 #define GDMA_DRV_CAP_FLAG_1_PERIODIC_STATS_QUERY BIT(21)
 
@@ -603,7 +608,8 @@ enum {
 	 GDMA_DRV_CAP_FLAG_1_DYNAMIC_IRQ_ALLOC_SUPPORT | \
 	 GDMA_DRV_CAP_FLAG_1_SELF_RESET_ON_EQE | \
 	 GDMA_DRV_CAP_FLAG_1_HANDLE_RECONFIG_EQE | \
-	 GDMA_DRV_CAP_FLAG_1_PERIODIC_STATS_QUERY)
+	 GDMA_DRV_CAP_FLAG_1_PERIODIC_STATS_QUERY | \
+	 GDMA_DRV_CAP_FLAG_1_SKB_LINEARIZE)
 
 #define GDMA_DRV_CAP_FLAGS2 0
 
