@@ -2371,6 +2371,13 @@ static struct iommu_device *amd_iommu_probe_device(struct device *dev)
 					     pci_max_pasids(to_pci_dev(dev)));
 	}
 
+	if (amd_iommu_pgtable == AMD_IOMMU_NONE) {
+		pr_warn_once("%s: DMA translation not supported by iommu.\n",
+			     __func__);
+		iommu_dev = ERR_PTR(-ENODEV);
+		goto out_err;
+	}
+
 out_err:
 
 	iommu_completion_wait(iommu);
@@ -2491,6 +2498,9 @@ struct protection_domain *protection_domain_alloc(unsigned int type, int nid)
 	case AMD_IOMMU_V2:
 		domain->pd_mode = PD_MODE_V2;
 		break;
+	case AMD_IOMMU_NONE:
+		WARN_ON_ONCE(1);
+		return -EPERM;
 	default:
 		goto err_id;
 	}
@@ -2511,7 +2521,7 @@ err_free:
 static inline u64 dma_max_address(void)
 {
 	if (amd_iommu_pgtable == AMD_IOMMU_V1)
-		return ~0ULL;
+		return PM_LEVEL_SIZE(amd_iommu_hpt_level);
 
 	/*
 	 * V2 with 4/5 level page table. Note that "2.2.6.5 AMD64 4-Kbyte Page
