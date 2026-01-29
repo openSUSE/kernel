@@ -300,7 +300,6 @@ static void radeon_fbdev_client_unregister(struct drm_client_dev *client)
 {
 	struct drm_fb_helper *fb_helper = drm_fb_helper_from_client(client);
 	struct drm_device *dev = fb_helper->dev;
-	struct radeon_device *rdev = dev->dev_private;
 
 	if (fb_helper->info) {
 		drm_helper_force_disable_all(dev);
@@ -324,7 +323,6 @@ static int radeon_fbdev_client_hotplug(struct drm_client_dev *client)
 {
 	struct drm_fb_helper *fb_helper = drm_fb_helper_from_client(client);
 	struct drm_device *dev = client->dev;
-	struct radeon_device *rdev = dev->dev_private;
 	int ret;
 
 	if (dev->fb_helper)

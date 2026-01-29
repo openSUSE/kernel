@@ -173,8 +173,8 @@ static int
 dpll_msg_add_clock_quality_level(struct sk_buff *msg, struct dpll_device *dpll,
 				 struct netlink_ext_ack *extack)
 {
+	DECLARE_BITMAP(qls, DPLL_CLOCK_QUALITY_LEVEL_MAX + 1) = { 0 };
 	const struct dpll_device_ops *ops = dpll_device_ops(dpll);
-	DECLARE_BITMAP(qls, DPLL_CLOCK_QUALITY_LEVEL_MAX) = { 0 };
 	enum dpll_clock_quality_level ql;
 	int ret;
 
@@ -183,7 +183,7 @@ dpll_msg_add_clock_quality_level(struct sk_buff *msg, struct dpll_device *dpll,
 	ret = ops->clock_quality_level_get(dpll, dpll_priv(dpll), qls, extack);
 	if (ret)
 		return ret;
-	for_each_set_bit(ql, qls, DPLL_CLOCK_QUALITY_LEVEL_MAX)
+	for_each_set_bit(ql, qls, DPLL_CLOCK_QUALITY_LEVEL_MAX + 1)
 		if (nla_put_u32(msg, DPLL_A_CLOCK_QUALITY_LEVEL, ql))
 			return -EMSGSIZE;
 
@@ -1318,16 +1318,18 @@ int dpll_nl_pin_id_get_doit(struct sk_buff *skb, struct genl_info *info)
 		return -EMSGSIZE;
 	}
 	pin = dpll_pin_find_from_nlattr(info);
-	if (!IS_ERR(pin)) {
-		if (!dpll_pin_available(pin)) {
-			nlmsg_free(msg);
-			return -ENODEV;
-		}
-		ret = dpll_msg_add_pin_handle(msg, pin);
-		if (ret) {
-			nlmsg_free(msg);
-			return ret;
-		}
+	if (IS_ERR(pin)) {
+		nlmsg_free(msg);
+		return PTR_ERR(pin);
+	}
+	if (!dpll_pin_available(pin)) {
+		nlmsg_free(msg);
+		return -ENODEV;
+	}
+	ret = dpll_msg_add_pin_handle(msg, pin);
+	if (ret) {
+		nlmsg_free(msg);
+		return ret;
 	}
 	genlmsg_end(msg, hdr);
 
@@ -1494,12 +1496,14 @@ int dpll_nl_device_id_get_doit(struct sk_buff *skb, struct genl_info *info)
 	}
 
 	dpll = dpll_device_find_from_nlattr(info);
-	if (!IS_ERR(dpll)) {
-		ret = dpll_msg_add_dev_handle(msg, dpll);
-		if (ret) {
-			nlmsg_free(msg);
-			return ret;
-		}
+	if (IS_ERR(dpll)) {
+		nlmsg_free(msg);
+		return PTR_ERR(dpll);
+	}
+	ret = dpll_msg_add_dev_handle(msg, dpll);
+	if (ret) {
+		nlmsg_free(msg);
+		return ret;
 	}
 	genlmsg_end(msg, hdr);
 
