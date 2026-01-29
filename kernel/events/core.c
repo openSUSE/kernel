@@ -11969,7 +11969,7 @@ static ssize_t nr_addr_filters_show(struct device *dev,
 {
 	struct pmu *pmu = dev_get_drvdata(dev);
 
-	return scnprintf(page, PAGE_SIZE - 1, "%d\n", pmu->nr_addr_filters);
+	return sysfs_emit(page, "%d\n", pmu->nr_addr_filters);
 }
 DEVICE_ATTR_RO(nr_addr_filters);
 
@@ -11980,7 +11980,7 @@ type_show(struct device *dev, struct device_attribute *attr, char *page)
 {
 	struct pmu *pmu = dev_get_drvdata(dev);
 
-	return scnprintf(page, PAGE_SIZE - 1, "%d\n", pmu->type);
+	return sysfs_emit(page, "%d\n", pmu->type);
 }
 static DEVICE_ATTR_RO(type);
 
@@ -11991,7 +11991,7 @@ perf_event_mux_interval_ms_show(struct device *dev,
 {
 	struct pmu *pmu = dev_get_drvdata(dev);
 
-	return scnprintf(page, PAGE_SIZE - 1, "%d\n", pmu->hrtimer_interval_ms);
+	return sysfs_emit(page, "%d\n", pmu->hrtimer_interval_ms);
 }
 
 static DEFINE_MUTEX(mux_interval_mutex);
