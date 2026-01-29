@@ -97,7 +97,7 @@ __ip_vs_dst_check(struct ip_vs_dest *dest)
 	if (!dest_dst)
 		return NULL;
 	dst = dest_dst->dst_cache;
-	if (dst->obsolete &&
+	if (READ_ONCE(dst->obsolete) &&
 	    dst->ops->check(dst, dest_dst->dst_cookie) == NULL)
 		return NULL;
 	return dest_dst;
@@ -420,6 +420,9 @@ err_put:
 	return -1;
 
 err_unreach:
+	if (!skb->dev)
+		skb->dev = skb_dst(skb)->dev;
+
 	dst_link_failure(skb);
 	return -1;
 }

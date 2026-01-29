@@ -2278,6 +2278,7 @@ static void free_module(struct module *mod)
 	module_memfree(mod->init_layout.base);
 	kfree(mod->args);
 	percpu_modfree(mod);
+	kfree(mod->ext);
 
 	/* Free lock-classes; relies on the preceding sync_rcu(). */
 	lockdep_free_key_range(mod->core_layout.base, mod->core_layout.size);
@@ -4143,17 +4144,21 @@ static int load_module(struct load_info *info, const char __user *uargs,
 
 	init_param_lock(mod);
 
+	mod->ext = kmalloc(sizeof(*mod->ext), GFP_KERNEL);
+	if (!mod->ext)
+		goto free_unload;
+
 	/*
 	 * Now we've got everything in the final locations, we can
 	 * find optional sections.
 	 */
 	err = find_module_sections(mod, info);
 	if (err)
-		goto free_unload;
+		goto free_modext;
 
 	err = check_module_license_and_versions(mod);
 	if (err)
-		goto free_unload;
+		goto free_modext;
 
 	/* Set up MODINFO_ATTR fields */
 	setup_modinfo(mod, info);
@@ -4254,6 +4259,8 @@ static int load_module(struct load_info *info, const char __user *uargs,
 	module_arch_cleanup(mod);
  free_modinfo:
 	free_modinfo(mod);
+ free_modext:
+	kfree(mod->ext);
  free_unload:
 	module_unload_free(mod);
  unlink_mod:

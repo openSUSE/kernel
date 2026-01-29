@@ -321,6 +321,13 @@ struct mod_tree_node {
 	struct latch_tree_node node;
 };
 
+struct module_ext {
+#ifdef CONFIG_MITIGATION_ITS
+	int its_num_pages;
+	void **its_page_array;
+#endif
+};
+
 struct module_layout {
 	/* The actual code + data. */
 	void *base;
@@ -538,7 +545,12 @@ struct module {
 	struct error_injection_entry *ei_funcs;
 	unsigned int num_ei_funcs;
 #endif
+
+#ifdef __GENKSYMS__
 	void *suse_kabi_padding;
+#else
+	struct module_ext *ext;
+#endif
 } ____cacheline_aligned __randomize_layout;
 #ifndef MODULE_ARCH_INIT
 #define MODULE_ARCH_INIT {}
