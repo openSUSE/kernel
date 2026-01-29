@@ -408,6 +408,22 @@ bool mptcp_syn_options(struct sock *sk, const struct sk_buff *skb,
 	 */
 	subflow->snd_isn = TCP_SKB_CB(skb)->end_seq;
 	if (subflow->request_mptcp) {
+		if (unlikely(subflow_simultaneous_connect(sk))) {
+			struct sock *parent = subflow->conn;
+			struct mptcp_sock *msk = mptcp_sk(parent);
+
+			mptcp_propagate_sndbuf(parent, sk);
+			WARN_ON_ONCE(!mptcp_try_fallback(sk));
+			mptcp_rcv_space_init(msk, sk);
+			pr_fallback(msk);
+
+			/* Ensure mptcp_finish_connect() will not process the
+			 * MPC handshake.
+			 */
+			subflow->request_mptcp = 0;
+			return false;
+		}
+
 		opts->suboptions = OPTION_MPTCP_MPC_SYN;
 		opts->csum_reqd = mptcp_is_checksum_enabled(sock_net(sk));
 		opts->allow_join_id0 = mptcp_allow_join_id0(sock_net(sk));
