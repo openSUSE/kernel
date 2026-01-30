@@ -7122,8 +7122,6 @@ static int perf_mmap(struct file *file, struct vm_area_struct *vma)
 				 * multiple times.
 				 */
 				ret = 0;
-				/* We need the rb to map pages. */
-				rb = event->rb;
 				perf_mmap_account(vma, user_extra, extra);
 				atomic_inc(&event->mmap_count);
 				goto unlock;
@@ -7141,8 +7139,6 @@ static int perf_mmap(struct file *file, struct vm_area_struct *vma)
 			ret = -EPERM;
 			goto unlock;
 		}
-
-		WARN_ON(!rb && event->rb);
 
 		if (vma->vm_flags & VM_WRITE)
 			flags |= RING_BUFFER_WRITABLE;
@@ -7196,7 +7192,7 @@ unlock:
 	 * full cleanup in this case and therefore does not invoke
 	 * vmops::close().
 	 */
-	ret = map_range(rb, vma);
+	ret = map_range(event->rb, vma);
 	if (ret)
 		perf_mmap_close(vma);
 
