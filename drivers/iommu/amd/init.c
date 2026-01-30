@@ -152,6 +152,8 @@ bool amd_iommu_dump;
 bool amd_iommu_irq_remap __read_mostly;
 
 enum io_pgtable_fmt amd_iommu_pgtable = AMD_IOMMU_V1;
+/* Host page table level */
+u8 amd_iommu_hpt_level;
 /* Guest page table level */
 int amd_iommu_gpt_level = PAGE_MODE_4_LEVEL;
 
@@ -167,6 +169,9 @@ static int amd_iommu_target_ivhd_type;
 /* Global EFR and EFR2 registers */
 u64 amd_iommu_efr;
 u64 amd_iommu_efr2;
+
+/* Host (v1) page table is not supported*/
+bool amd_iommu_hatdis;
 
 /* SNP is enabled on the system? */
 bool amd_iommu_snp_en;
@@ -1806,6 +1811,11 @@ static int __init init_iommu_one(struct amd_iommu *iommu, struct ivhd_header *h,
 		if (h->efr_reg & BIT(IOMMU_EFR_XTSUP_SHIFT))
 			amd_iommu_xt_mode = IRQ_REMAP_X2APIC_MODE;
 
+		if (h->efr_attr & BIT(IOMMU_IVHD_ATTR_HATDIS_SHIFT)) {
+			pr_warn_once("Host Address Translation is not supported.\n");
+			amd_iommu_hatdis = true;
+		}
+
 		early_iommu_features_init(iommu, h);
 
 		break;
@@ -2083,8 +2093,7 @@ static int __init iommu_init_pci(struct amd_iommu *iommu)
 	init_iommu_perf_ctr(iommu);
 
 	if (amd_iommu_pgtable == AMD_IOMMU_V2) {
-		if (!check_feature(FEATURE_GIOSUP) ||
-		    !check_feature(FEATURE_GT)) {
+		if (!amd_iommu_v2_pgtbl_supported()) {
 			pr_warn("Cannot enable v2 page table for DMA-API. Fallback to v1.\n");
 			amd_iommu_pgtable = AMD_IOMMU_V1;
 		}
@@ -2137,7 +2146,15 @@ static int __init iommu_init_pci(struct amd_iommu *iommu)
 			return ret;
 	}
 
-	iommu_device_register(&iommu->iommu, &amd_iommu_ops, NULL);
+	ret = iommu_device_register(&iommu->iommu, &amd_iommu_ops, NULL);
+	if (ret || amd_iommu_pgtable == AMD_IOMMU_NONE) {
+		/*
+		 * Remove sysfs if DMA translation is not supported by the
+		 * IOMMU. Do not return an error to enable IRQ remapping
+		 * in state_next(), DTE[V, TV] must eventually be set to 0.
+		 */
+		iommu_device_sysfs_remove(&iommu->iommu);
+	}
 
 	return pci_enable_device(iommu->dev);
 }
@@ -2595,7 +2612,7 @@ static void init_device_table_dma(struct amd_iommu_pci_seg *pci_seg)
 	u32 devid;
 	struct dev_table_entry *dev_table = pci_seg->dev_table;
 
-	if (dev_table == NULL)
+	if (!dev_table || amd_iommu_pgtable == AMD_IOMMU_NONE)
 		return;
 
 	for (devid = 0; devid <= pci_seg->last_bdf; ++devid) {
@@ -3063,6 +3080,7 @@ static int __init early_amd_iommu_init(void)
 	struct acpi_table_header *ivrs_base;
 	int ret;
 	acpi_status status;
+	u8 efr_hats;
 
 	if (!amd_iommu_detected)
 		return -ENODEV;
@@ -3120,6 +3138,30 @@ static int __init early_amd_iommu_init(void)
 	if (cpu_feature_enabled(X86_FEATURE_LA57) &&
 	    FIELD_GET(FEATURE_GATS, amd_iommu_efr) == GUEST_PGTABLE_5_LEVEL)
 		amd_iommu_gpt_level = PAGE_MODE_5_LEVEL;
+
+	efr_hats = FIELD_GET(FEATURE_HATS, amd_iommu_efr);
+	if (efr_hats != 0x3) {
+		/*
+		 * efr[HATS] bits specify the maximum host translation level
+		 * supported, with LEVEL 4 being initial max level.
+		 */
+		amd_iommu_hpt_level = efr_hats + PAGE_MODE_4_LEVEL;
+	} else {
+		pr_warn_once(FW_BUG "Disable host address translation due to invalid translation level (%#x).\n",
+			     efr_hats);
+		amd_iommu_hatdis = true;
+	}
+
+	if (amd_iommu_hatdis) {
+		/*
+		 * Host (v1) page table is not available. Attempt to use
+		 * Guest (v2) page table.
+		 */
+		if (amd_iommu_v2_pgtbl_supported())
+			amd_iommu_pgtable = AMD_IOMMU_V2;
+		else
+			amd_iommu_pgtable = AMD_IOMMU_NONE;
+	}
 
 	/* Disable any previously enabled IOMMUs */
 	if (!is_kdump_kernel() || amd_iommu_disabled)

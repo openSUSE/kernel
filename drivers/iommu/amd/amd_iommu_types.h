@@ -96,6 +96,7 @@
 #define FEATURE_GA		BIT_ULL(7)
 #define FEATURE_HE		BIT_ULL(8)
 #define FEATURE_PC		BIT_ULL(9)
+#define FEATURE_HATS		GENMASK_ULL(11, 10)
 #define FEATURE_GATS		GENMASK_ULL(13, 12)
 #define FEATURE_GLX		GENMASK_ULL(15, 14)
 #define FEATURE_GAM_VAPIC	BIT_ULL(21)
@@ -459,6 +460,9 @@
 
 /* IOMMU Feature Reporting Field (for IVHD type 10h */
 #define IOMMU_FEAT_GASUP_SHIFT	6
+
+/* IOMMU HATDIS for IVHD type 11h and 40h */
+#define IOMMU_IVHD_ATTR_HATDIS_SHIFT	0
 
 /* IOMMU Extended Feature Register (EFR) */
 #define IOMMU_EFR_XTSUP_SHIFT	2

@@ -42,7 +42,9 @@ int amd_iommu_enable_faulting(unsigned int cpu);
 extern int amd_iommu_guest_ir;
 extern enum io_pgtable_fmt amd_iommu_pgtable;
 extern int amd_iommu_gpt_level;
+extern u8 amd_iommu_hpt_level;
 extern unsigned long amd_iommu_pgsize_bitmap;
+extern bool amd_iommu_hatdis;
 
 /* Protection domain ops */
 struct protection_domain *protection_domain_alloc(unsigned int type, int nid);
@@ -117,9 +119,14 @@ static inline bool check_feature2(u64 mask)
 	return (amd_iommu_efr2 & mask);
 }
 
+static inline bool amd_iommu_v2_pgtbl_supported(void)
+{
+	return (check_feature(FEATURE_GIOSUP) && check_feature(FEATURE_GT));
+}
+
 static inline bool amd_iommu_gt_ppr_supported(void)
 {
-	return (check_feature(FEATURE_GT) &&
+	return (amd_iommu_v2_pgtbl_supported() &&
 		check_feature(FEATURE_PPR) &&
 		check_feature(FEATURE_EPHSUP));
 }
