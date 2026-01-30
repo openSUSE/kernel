@@ -2486,13 +2486,13 @@ __perf_remove_from_context(struct perf_event *event,
 	if (event->state > PERF_EVENT_STATE_OFF)
 		perf_cgroup_event_disable(event, ctx);
 
+	perf_event_set_state(event, min(event->state, state));
+
 	if (flags & DETACH_GROUP)
 		perf_group_detach(event);
 	if (flags & DETACH_CHILD)
 		perf_child_detach(event);
 	list_del_event(event, ctx);
-
-	event->state = min(event->state, state);
 
 	if (!pmu_ctx->nr_events) {
 		pmu_ctx->rotate_necessary = 0;
