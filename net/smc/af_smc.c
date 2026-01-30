@@ -57,8 +57,8 @@
 #include "smc_stats.h"
 #include "smc_tracepoint.h"
 #include "smc_sysctl.h"
-#include "smc_loopback.h"
 #include "smc_inet.h"
+#include "smc_hs_bpf.h"
 
 static DEFINE_MUTEX(smc_server_lgr_pending);	/* serialize link group
 						 * creation on server
@@ -1097,8 +1097,7 @@ static int smc_find_ism_v2_device_clnt(struct smc_sock *smc,
 }
 
 /* Check for VLAN ID and register it on ISM device just for CLC handshake */
-static int smc_connect_ism_vlan_setup(struct smc_sock *smc,
-				      struct smc_init_info *ini)
+static int smc_connect_ism_vlan_setup(struct smc_init_info *ini)
 {
 	if (ini->vlan_id && smc_ism_get_vlan(ini->ism_dev[0], ini->vlan_id))
 		return SMC_CLC_DECL_ISMVLANERR;
@@ -1113,7 +1112,7 @@ static int smc_find_proposal_devices(struct smc_sock *smc,
 	/* check if there is an ism device available */
 	if (!(ini->smcd_version & SMC_V1) ||
 	    smc_find_ism_device(smc, ini) ||
-	    smc_connect_ism_vlan_setup(smc, ini))
+	    smc_connect_ism_vlan_setup(ini))
 		ini->smcd_version &= ~SMC_V1;
 	/* else ISM V1 is supported for this connection */
 
@@ -1158,8 +1157,7 @@ static int smc_find_proposal_devices(struct smc_sock *smc,
 /* cleanup temporary VLAN ID registration used for CLC handshake. If ISM is
  * used, the VLAN ID will be registered again during the connection setup.
  */
-static int smc_connect_ism_vlan_cleanup(struct smc_sock *smc,
-					struct smc_init_info *ini)
+static int smc_connect_ism_vlan_cleanup(struct smc_init_info *ini)
 {
 	if (!smcd_indicated(ini->smc_type_v1))
 		return 0;
@@ -1582,13 +1580,13 @@ static int __smc_connect(struct smc_sock *smc)
 		goto vlan_cleanup;
 
 	SMC_STAT_CLNT_SUCC_INC(sock_net(smc->clcsock->sk), aclc);
-	smc_connect_ism_vlan_cleanup(smc, ini);
+	smc_connect_ism_vlan_cleanup(ini);
 	kfree(buf);
 	kfree(ini);
 	return 0;
 
 vlan_cleanup:
-	smc_connect_ism_vlan_cleanup(smc, ini);
+	smc_connect_ism_vlan_cleanup(ini);
 	kfree(buf);
 fallback:
 	kfree(ini);
@@ -2143,7 +2141,7 @@ static void smc_check_ism_v2_match(struct smc_init_info *ini,
 	}
 }
 
-static void smc_find_ism_store_rc(u32 rc, struct smc_init_info *ini)
+static void smc_init_info_store_rc(u32 rc, struct smc_init_info *ini)
 {
 	if (!ini->rc)
 		ini->rc = rc;
@@ -2206,7 +2204,7 @@ static void smc_find_ism_v2_device_serv(struct smc_sock *new_smc,
 	mutex_unlock(&smcd_dev_list.mutex);
 
 	if (!ini->ism_dev[0]) {
-		smc_find_ism_store_rc(SMC_CLC_DECL_NOSMCD2DEV, ini);
+		smc_init_info_store_rc(SMC_CLC_DECL_NOSMCD2DEV, ini);
 		goto not_found;
 	}
 
@@ -2223,7 +2221,7 @@ static void smc_find_ism_v2_device_serv(struct smc_sock *new_smc,
 		ini->ism_selected = i;
 		rc = smc_listen_ism_init(new_smc, ini);
 		if (rc) {
-			smc_find_ism_store_rc(rc, ini);
+			smc_init_info_store_rc(rc, ini);
 			/* try next active ISM device */
 			continue;
 		}
@@ -2263,7 +2261,7 @@ static void smc_find_ism_v1_device_serv(struct smc_sock *new_smc,
 		return;		/* V1 ISM device found */
 
 not_found:
-	smc_find_ism_store_rc(rc, ini);
+	smc_init_info_store_rc(rc, ini);
 	ini->smcd_version &= ~SMC_V1;
 	ini->ism_dev[0] = NULL;
 	ini->is_smcd = false;
@@ -2314,7 +2312,7 @@ static void smc_find_rdma_v2_device_serv(struct smc_sock *new_smc,
 	ini->smcrv2.daddr = smc_ib_gid_to_ipv4(smc_v2_ext->roce);
 	rc = smc_find_rdma_device(new_smc, ini);
 	if (rc) {
-		smc_find_ism_store_rc(rc, ini);
+		smc_init_info_store_rc(rc, ini);
 		goto not_found;
 	}
 	if (!ini->smcrv2.uses_gateway)
@@ -2331,7 +2329,7 @@ static void smc_find_rdma_v2_device_serv(struct smc_sock *new_smc,
 	if (!rc)
 		return;
 	ini->smcr_version = smcr_version;
-	smc_find_ism_store_rc(rc, ini);
+	smc_init_info_store_rc(rc, ini);
 
 not_found:
 	ini->smcr_version &= ~SMC_V2;
@@ -2378,7 +2376,7 @@ static int smc_listen_find_device(struct smc_sock *new_smc,
 	/* check for matching IP prefix and subnet length (V1) */
 	prfx_rc = smc_listen_prfx_check(new_smc, pclc);
 	if (prfx_rc)
-		smc_find_ism_store_rc(prfx_rc, ini);
+		smc_init_info_store_rc(prfx_rc, ini);
 
 	/* get vlan id from IP device */
 	if (smc_vlan_by_tcpsk(new_smc->clcsock, ini))
@@ -2405,7 +2403,7 @@ static int smc_listen_find_device(struct smc_sock *new_smc,
 		int rc;
 
 		rc = smc_find_rdma_v1_device_serv(new_smc, pclc, ini);
-		smc_find_ism_store_rc(rc, ini);
+		smc_init_info_store_rc(rc, ini);
 		return (!rc) ? 0 : ini->rc;
 	}
 	return prfx_rc;
@@ -2750,8 +2748,7 @@ int smc_accept(struct socket *sock, struct socket *new_sock,
 
 	if (lsmc->sockopt_defer_accept && !(arg->flags & O_NONBLOCK)) {
 		/* wait till data arrives on the socket */
-		timeo = msecs_to_jiffies(lsmc->sockopt_defer_accept *
-								MSEC_PER_SEC);
+		timeo = secs_to_jiffies(lsmc->sockopt_defer_accept);
 		if (smc_sk(nsk)->use_fallback) {
 			struct sock *clcsk = smc_sk(nsk)->clcsock->sk;
 
@@ -2761,7 +2758,7 @@ int smc_accept(struct socket *sock, struct socket *new_sock,
 			release_sock(clcsk);
 		} else if (!atomic_read(&smc_sk(nsk)->conn.bytes_to_rcv)) {
 			lock_sock(nsk);
-			smc_rx_wait(smc_sk(nsk), &timeo, smc_rx_data_available);
+			smc_rx_wait(smc_sk(nsk), &timeo, 0, smc_rx_data_available);
 			release_sock(nsk);
 		}
 	}
@@ -3594,28 +3591,28 @@ static int __init smc_init(void)
 		goto out_sock;
 	}
 
-	rc = smc_loopback_init();
-	if (rc) {
-		pr_err("%s: smc_loopback_init fails with %d\n", __func__, rc);
-		goto out_ib;
-	}
-
 	rc = tcp_register_ulp(&smc_ulp_ops);
 	if (rc) {
 		pr_err("%s: tcp_ulp_register fails with %d\n", __func__, rc);
-		goto out_lo;
+		goto out_ib;
 	}
 	rc = smc_inet_init();
 	if (rc) {
 		pr_err("%s: smc_inet_init fails with %d\n", __func__, rc);
 		goto out_ulp;
 	}
+	rc = bpf_smc_hs_ctrl_init();
+	if (rc) {
+		pr_err("%s: bpf_smc_hs_ctrl_init fails with %d\n", __func__,
+		       rc);
+		goto out_inet;
+	}
 	static_branch_enable(&tcp_have_smc);
 	return 0;
+out_inet:
+	smc_inet_exit();
 out_ulp:
 	tcp_unregister_ulp(&smc_ulp_ops);
-out_lo:
-	smc_loopback_exit();
 out_ib:
 	smc_ib_unregister_client();
 out_sock:
@@ -3654,7 +3651,6 @@ static void __exit smc_exit(void)
 	tcp_unregister_ulp(&smc_ulp_ops);
 	sock_unregister(PF_SMC);
 	smc_core_exit();
-	smc_loopback_exit();
 	smc_ib_unregister_client();
 	smc_ism_exit();
 	destroy_workqueue(smc_close_wq);
