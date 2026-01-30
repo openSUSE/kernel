@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-only
 #include <linux/ras.h>
 #include "amd64_edac.h"
-#include <asm/amd_nb.h>
-#include <asm/amd_node.h>
+#include <asm/amd/nb.h>
+#include <asm/amd/node.h>
 
 static struct edac_pci_ctl_info *pci_ctl;
 

@@ -318,7 +318,7 @@ static int __maybe_unused hda_dai_trigger(struct snd_pcm_substream *substream, i
 	case SNDRV_PCM_TRIGGER_STOP:
 	case SNDRV_PCM_TRIGGER_SUSPEND:
 		ret = hda_link_dma_cleanup(substream, hext_stream, dai,
-					   cmd == SNDRV_PCM_TRIGGER_STOP ? false : true);
+					   cmd != SNDRV_PCM_TRIGGER_STOP);
 		if (ret < 0) {
 			dev_err(sdev->dev, "%s: failed to clean up link DMA\n", __func__);
 			return ret;
@@ -671,6 +671,10 @@ static int hda_dai_suspend(struct hdac_bus *bus)
 			sdev = widget_to_sdev(w);
 			sdai = swidget->private;
 			ops = sdai->platform_private;
+
+			if (rtd->dpcm[hext_stream->link_substream->stream].state !=
+			    SND_SOC_DPCM_STATE_PAUSED)
+				continue;
 
 			/* for consistency with TRIGGER_SUSPEND  */
 			if (ops->post_trigger) {

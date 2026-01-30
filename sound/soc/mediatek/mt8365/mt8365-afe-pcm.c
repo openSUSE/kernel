@@ -1256,8 +1256,7 @@ static int mt8365_afe_cm2_io_input_mux_get(struct snd_kcontrol *kcontrol,
 static int mt8365_afe_cm2_io_input_mux_put(struct snd_kcontrol *kcontrol,
 					   struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_dapm_context *dapm =
-		snd_soc_dapm_kcontrol_dapm(kcontrol);
+	struct snd_soc_dapm_context *dapm = snd_soc_dapm_kcontrol_to_dapm(kcontrol);
 	struct snd_soc_component *comp = snd_soc_dapm_to_component(dapm);
 	struct mtk_base_afe *afe = snd_soc_component_get_drvdata(comp);
 	struct mt8365_afe_private *afe_priv = afe->platform_priv;
@@ -1957,7 +1956,7 @@ err_irq:
 	return IRQ_HANDLED;
 }
 
-static int __maybe_unused mt8365_afe_runtime_suspend(struct device *dev)
+static int mt8365_afe_runtime_suspend(struct device *dev)
 {
 	return 0;
 }
@@ -1967,7 +1966,7 @@ static int mt8365_afe_runtime_resume(struct device *dev)
 	return 0;
 }
 
-static int __maybe_unused mt8365_afe_suspend(struct device *dev)
+static int mt8365_afe_suspend(struct device *dev)
 {
 	struct mtk_base_afe *afe = dev_get_drvdata(dev);
 	struct regmap *regmap = afe->regmap;
@@ -1989,7 +1988,7 @@ static int __maybe_unused mt8365_afe_suspend(struct device *dev)
 	return 0;
 }
 
-static int __maybe_unused mt8365_afe_resume(struct device *dev)
+static int mt8365_afe_resume(struct device *dev)
 {
 	struct mtk_base_afe *afe = dev_get_drvdata(dev);
 	struct regmap *regmap = afe->regmap;
@@ -2009,7 +2008,7 @@ static int __maybe_unused mt8365_afe_resume(struct device *dev)
 	return 0;
 }
 
-static int __maybe_unused mt8365_afe_dev_runtime_suspend(struct device *dev)
+static int mt8365_afe_dev_runtime_suspend(struct device *dev)
 {
 	struct mtk_base_afe *afe = dev_get_drvdata(dev);
 
@@ -2021,7 +2020,7 @@ static int __maybe_unused mt8365_afe_dev_runtime_suspend(struct device *dev)
 	return 0;
 }
 
-static int __maybe_unused mt8365_afe_dev_runtime_resume(struct device *dev)
+static int mt8365_afe_dev_runtime_resume(struct device *dev)
 {
 	struct mtk_base_afe *afe = dev_get_drvdata(dev);
 
@@ -2249,17 +2248,16 @@ static const struct of_device_id mt8365_afe_pcm_dt_match[] = {
 MODULE_DEVICE_TABLE(of, mt8365_afe_pcm_dt_match);
 
 static const struct dev_pm_ops mt8365_afe_pm_ops = {
-	SET_RUNTIME_PM_OPS(mt8365_afe_dev_runtime_suspend,
-			   mt8365_afe_dev_runtime_resume, NULL)
-	SET_SYSTEM_SLEEP_PM_OPS(mt8365_afe_suspend,
-				mt8365_afe_resume)
+	RUNTIME_PM_OPS(mt8365_afe_dev_runtime_suspend,
+		       mt8365_afe_dev_runtime_resume, NULL)
+	SYSTEM_SLEEP_PM_OPS(mt8365_afe_suspend, mt8365_afe_resume)
 };
 
 static struct platform_driver mt8365_afe_pcm_driver = {
 	.driver = {
 		   .name = "mt8365-afe-pcm",
 		   .of_match_table = mt8365_afe_pcm_dt_match,
-		   .pm = &mt8365_afe_pm_ops,
+		   .pm = pm_ptr(&mt8365_afe_pm_ops),
 	},
 	.probe = mt8365_afe_pcm_dev_probe,
 	.remove = mt8365_afe_pcm_dev_remove,

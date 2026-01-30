@@ -187,8 +187,7 @@ static const struct snd_soc_dapm_route mt6660_component_dapm_routes[] = {
 static int mt6660_component_get_volsw(struct snd_kcontrol *kcontrol,
 				  struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *component =
-		snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
 	struct mt6660_chip *chip = (struct mt6660_chip *)
 		snd_soc_component_get_drvdata(component);
 
@@ -529,7 +528,7 @@ static void mt6660_i2c_remove(struct i2c_client *client)
 	mutex_destroy(&chip->io_lock);
 }
 
-static int __maybe_unused mt6660_i2c_runtime_suspend(struct device *dev)
+static int mt6660_i2c_runtime_suspend(struct device *dev)
 {
 	struct mt6660_chip *chip = dev_get_drvdata(dev);
 
@@ -538,7 +537,7 @@ static int __maybe_unused mt6660_i2c_runtime_suspend(struct device *dev)
 		MT6660_REG_SYSTEM_CTRL, 0x01, 0x01);
 }
 
-static int __maybe_unused mt6660_i2c_runtime_resume(struct device *dev)
+static int mt6660_i2c_runtime_resume(struct device *dev)
 {
 	struct mt6660_chip *chip = dev_get_drvdata(dev);
 
@@ -548,8 +547,7 @@ static int __maybe_unused mt6660_i2c_runtime_resume(struct device *dev)
 }
 
 static const struct dev_pm_ops mt6660_dev_pm_ops = {
-	SET_RUNTIME_PM_OPS(mt6660_i2c_runtime_suspend,
-			   mt6660_i2c_runtime_resume, NULL)
+	RUNTIME_PM_OPS(mt6660_i2c_runtime_suspend, mt6660_i2c_runtime_resume, NULL)
 };
 
 static const struct of_device_id __maybe_unused mt6660_of_id[] = {
@@ -568,7 +566,7 @@ static struct i2c_driver mt6660_i2c_driver = {
 	.driver = {
 		.name = "mt6660",
 		.of_match_table = of_match_ptr(mt6660_of_id),
-		.pm = &mt6660_dev_pm_ops,
+		.pm = pm_ptr(&mt6660_dev_pm_ops),
 	},
 	.probe = mt6660_i2c_probe,
 	.remove = mt6660_i2c_remove,

@@ -58,8 +58,8 @@ struct tse850_priv {
 static int tse850_get_mux1(struct snd_kcontrol *kctrl,
 			   struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_dapm_context *dapm = snd_soc_dapm_kcontrol_dapm(kctrl);
-	struct snd_soc_card *card = dapm->card;
+	struct snd_soc_dapm_context *dapm = snd_soc_dapm_kcontrol_to_dapm(kctrl);
+	struct snd_soc_card *card = snd_soc_dapm_to_card(dapm);
 	struct tse850_priv *tse850 = snd_soc_card_get_drvdata(card);
 
 	ucontrol->value.enumerated.item[0] = tse850->loop1_cache;
@@ -70,8 +70,8 @@ static int tse850_get_mux1(struct snd_kcontrol *kctrl,
 static int tse850_put_mux1(struct snd_kcontrol *kctrl,
 			   struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_dapm_context *dapm = snd_soc_dapm_kcontrol_dapm(kctrl);
-	struct snd_soc_card *card = dapm->card;
+	struct snd_soc_dapm_context *dapm = snd_soc_dapm_kcontrol_to_dapm(kctrl);
+	struct snd_soc_card *card = snd_soc_dapm_to_card(dapm);
 	struct tse850_priv *tse850 = snd_soc_card_get_drvdata(card);
 	struct soc_enum *e = (struct soc_enum *)kctrl->private_value;
 	unsigned int val = ucontrol->value.enumerated.item[0];
@@ -88,8 +88,8 @@ static int tse850_put_mux1(struct snd_kcontrol *kctrl,
 static int tse850_get_mux2(struct snd_kcontrol *kctrl,
 			   struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_dapm_context *dapm = snd_soc_dapm_kcontrol_dapm(kctrl);
-	struct snd_soc_card *card = dapm->card;
+	struct snd_soc_dapm_context *dapm = snd_soc_dapm_kcontrol_to_dapm(kctrl);
+	struct snd_soc_card *card = snd_soc_dapm_to_card(dapm);
 	struct tse850_priv *tse850 = snd_soc_card_get_drvdata(card);
 
 	ucontrol->value.enumerated.item[0] = tse850->loop2_cache;
@@ -100,8 +100,8 @@ static int tse850_get_mux2(struct snd_kcontrol *kctrl,
 static int tse850_put_mux2(struct snd_kcontrol *kctrl,
 			   struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_dapm_context *dapm = snd_soc_dapm_kcontrol_dapm(kctrl);
-	struct snd_soc_card *card = dapm->card;
+	struct snd_soc_dapm_context *dapm = snd_soc_dapm_kcontrol_to_dapm(kctrl);
+	struct snd_soc_card *card = snd_soc_dapm_to_card(dapm);
 	struct tse850_priv *tse850 = snd_soc_card_get_drvdata(card);
 	struct soc_enum *e = (struct soc_enum *)kctrl->private_value;
 	unsigned int val = ucontrol->value.enumerated.item[0];
@@ -118,8 +118,8 @@ static int tse850_put_mux2(struct snd_kcontrol *kctrl,
 static int tse850_get_mix(struct snd_kcontrol *kctrl,
 			  struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_dapm_context *dapm = snd_soc_dapm_kcontrol_dapm(kctrl);
-	struct snd_soc_card *card = dapm->card;
+	struct snd_soc_dapm_context *dapm = snd_soc_dapm_kcontrol_to_dapm(kctrl);
+	struct snd_soc_card *card = snd_soc_dapm_to_card(dapm);
 	struct tse850_priv *tse850 = snd_soc_card_get_drvdata(card);
 
 	ucontrol->value.enumerated.item[0] = tse850->add_cache;
@@ -130,8 +130,8 @@ static int tse850_get_mix(struct snd_kcontrol *kctrl,
 static int tse850_put_mix(struct snd_kcontrol *kctrl,
 			  struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_dapm_context *dapm = snd_soc_dapm_kcontrol_dapm(kctrl);
-	struct snd_soc_card *card = dapm->card;
+	struct snd_soc_dapm_context *dapm = snd_soc_dapm_kcontrol_to_dapm(kctrl);
+	struct snd_soc_card *card = snd_soc_dapm_to_card(dapm);
 	struct tse850_priv *tse850 = snd_soc_card_get_drvdata(card);
 	int connect = !!ucontrol->value.integer.value[0];
 
@@ -152,8 +152,8 @@ static int tse850_put_mix(struct snd_kcontrol *kctrl,
 static int tse850_get_ana(struct snd_kcontrol *kctrl,
 			  struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_dapm_context *dapm = snd_soc_dapm_kcontrol_dapm(kctrl);
-	struct snd_soc_card *card = dapm->card;
+	struct snd_soc_dapm_context *dapm = snd_soc_dapm_kcontrol_to_dapm(kctrl);
+	struct snd_soc_card *card = snd_soc_dapm_to_card(dapm);
 	struct tse850_priv *tse850 = snd_soc_card_get_drvdata(card);
 	int ret;
 
@@ -185,8 +185,8 @@ static int tse850_get_ana(struct snd_kcontrol *kctrl,
 static int tse850_put_ana(struct snd_kcontrol *kctrl,
 			  struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_dapm_context *dapm = snd_soc_dapm_kcontrol_dapm(kctrl);
-	struct snd_soc_card *card = dapm->card;
+	struct snd_soc_dapm_context *dapm = snd_soc_dapm_kcontrol_to_dapm(kctrl);
+	struct snd_soc_card *card = snd_soc_dapm_to_card(dapm);
 	struct tse850_priv *tse850 = snd_soc_card_get_drvdata(card);
 	struct soc_enum *e = (struct soc_enum *)kctrl->private_value;
 	unsigned int uV = ucontrol->value.enumerated.item[0];
@@ -227,16 +227,9 @@ static const struct snd_kcontrol_new mux1 =
 static const struct snd_kcontrol_new mux2 =
 	SOC_DAPM_ENUM_EXT("MUX2", mux_enum, tse850_get_mux2, tse850_put_mux2);
 
-#define TSE850_DAPM_SINGLE_EXT(xname, reg, shift, max, invert, xget, xput) \
-{	.iface = SNDRV_CTL_ELEM_IFACE_MIXER, .name = xname, \
-	.info = snd_soc_info_volsw, \
-	.get = xget, \
-	.put = xput, \
-	.private_value = SOC_SINGLE_VALUE(reg, shift, max, invert, 0) }
-
 static const struct snd_kcontrol_new mix[] = {
-	TSE850_DAPM_SINGLE_EXT("IN Switch", SND_SOC_NOPM, 0, 1, 0,
-			       tse850_get_mix, tse850_put_mix),
+	SOC_SINGLE_EXT("IN Switch", SND_SOC_NOPM, 0, 1, 0,
+		       tse850_get_mix, tse850_put_mix),
 };
 
 static const char * const ana_text[] = {

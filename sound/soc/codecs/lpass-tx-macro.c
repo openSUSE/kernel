@@ -208,7 +208,6 @@
 #define MCLK_FREQ		19200000
 
 enum {
-	TX_MACRO_AIF_INVALID = 0,
 	TX_MACRO_AIF1_CAP,
 	TX_MACRO_AIF2_CAP,
 	TX_MACRO_AIF3_CAP,
@@ -801,7 +800,7 @@ static void tx_macro_update_smic_sel_v9_2(struct snd_soc_component *component,
 static int tx_macro_put_dec_enum(struct snd_kcontrol *kcontrol,
 				 struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_dapm_widget *widget = snd_soc_dapm_kcontrol_widget(kcontrol);
+	struct snd_soc_dapm_widget *widget = snd_soc_dapm_kcontrol_to_widget(kcontrol);
 	struct snd_soc_component *component = snd_soc_dapm_to_component(widget->dapm);
 	struct soc_enum *e = (struct soc_enum *)kcontrol->private_value;
 	struct tx_macro *tx = snd_soc_component_get_drvdata(component);
@@ -860,7 +859,7 @@ static int tx_macro_put_dec_enum(struct snd_kcontrol *kcontrol,
 static int tx_macro_tx_mixer_get(struct snd_kcontrol *kcontrol,
 				 struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_dapm_widget *widget = snd_soc_dapm_kcontrol_widget(kcontrol);
+	struct snd_soc_dapm_widget *widget = snd_soc_dapm_kcontrol_to_widget(kcontrol);
 	struct snd_soc_component *component = snd_soc_dapm_to_component(widget->dapm);
 	struct soc_mixer_control *mc = (struct soc_mixer_control *)kcontrol->private_value;
 	u32 dai_id = widget->shift;
@@ -878,7 +877,7 @@ static int tx_macro_tx_mixer_get(struct snd_kcontrol *kcontrol,
 static int tx_macro_tx_mixer_put(struct snd_kcontrol *kcontrol,
 				 struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_dapm_widget *widget = snd_soc_dapm_kcontrol_widget(kcontrol);
+	struct snd_soc_dapm_widget *widget = snd_soc_dapm_kcontrol_to_widget(kcontrol);
 	struct snd_soc_component *component = snd_soc_dapm_to_component(widget->dapm);
 	struct snd_soc_dapm_update *update = NULL;
 	struct soc_mixer_control *mc = (struct soc_mixer_control *)kcontrol->private_value;
@@ -1071,7 +1070,7 @@ static int tx_macro_enable_dec(struct snd_soc_dapm_widget *w,
 static int tx_macro_dec_mode_get(struct snd_kcontrol *kcontrol,
 				 struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *component = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
 	struct tx_macro *tx = snd_soc_component_get_drvdata(component);
 	struct soc_enum *e = (struct soc_enum *)kcontrol->private_value;
 	int path = e->shift_l;
@@ -1084,7 +1083,7 @@ static int tx_macro_dec_mode_get(struct snd_kcontrol *kcontrol,
 static int tx_macro_dec_mode_put(struct snd_kcontrol *kcontrol,
 				 struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *component = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
 	int value = ucontrol->value.integer.value[0];
 	struct soc_enum *e = (struct soc_enum *)kcontrol->private_value;
 	int path = e->shift_l;
@@ -1101,7 +1100,7 @@ static int tx_macro_dec_mode_put(struct snd_kcontrol *kcontrol,
 static int tx_macro_get_bcs(struct snd_kcontrol *kcontrol,
 			    struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *component = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
 	struct tx_macro *tx = snd_soc_component_get_drvdata(component);
 
 	ucontrol->value.integer.value[0] = tx->bcs_enable;
@@ -1112,7 +1111,7 @@ static int tx_macro_get_bcs(struct snd_kcontrol *kcontrol,
 static int tx_macro_set_bcs(struct snd_kcontrol *kcontrol,
 			    struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *component = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
 	int value = ucontrol->value.integer.value[0];
 	struct tx_macro *tx = snd_soc_component_get_drvdata(component);
 
@@ -2082,7 +2081,7 @@ static const struct snd_kcontrol_new tx_macro_snd_controls[] = {
 
 static int tx_macro_component_extend(struct snd_soc_component *comp)
 {
-	struct snd_soc_dapm_context *dapm = snd_soc_component_get_dapm(comp);
+	struct snd_soc_dapm_context *dapm = snd_soc_component_to_dapm(comp);
 	struct tx_macro *tx = snd_soc_component_get_drvdata(comp);
 	int ret;
 
@@ -2400,7 +2399,7 @@ static void tx_macro_remove(struct platform_device *pdev)
 	lpass_macro_pds_exit(tx->pds);
 }
 
-static int __maybe_unused tx_macro_runtime_suspend(struct device *dev)
+static int tx_macro_runtime_suspend(struct device *dev)
 {
 	struct tx_macro *tx = dev_get_drvdata(dev);
 
@@ -2414,7 +2413,7 @@ static int __maybe_unused tx_macro_runtime_suspend(struct device *dev)
 	return 0;
 }
 
-static int __maybe_unused tx_macro_runtime_resume(struct device *dev)
+static int tx_macro_runtime_resume(struct device *dev)
 {
 	struct tx_macro *tx = dev_get_drvdata(dev);
 	int ret;
@@ -2450,7 +2449,7 @@ err_npl:
 }
 
 static const struct dev_pm_ops tx_macro_pm_ops = {
-	SET_RUNTIME_PM_OPS(tx_macro_runtime_suspend, tx_macro_runtime_resume, NULL)
+	RUNTIME_PM_OPS(tx_macro_runtime_suspend, tx_macro_runtime_resume, NULL)
 };
 
 static const struct tx_macro_data lpass_ver_9 = {
@@ -2532,7 +2531,7 @@ static struct platform_driver tx_macro_driver = {
 		.name = "tx_macro",
 		.of_match_table = tx_macro_dt_match,
 		.suppress_bind_attrs = true,
-		.pm = &tx_macro_pm_ops,
+		.pm = pm_ptr(&tx_macro_pm_ops),
 	},
 	.probe = tx_macro_probe,
 	.remove = tx_macro_remove,

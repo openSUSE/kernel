@@ -899,7 +899,7 @@ static const struct sdw_port_config wsa884x_pconfig[WSA884X_MAX_SWR_PORTS] = {
 	},
 };
 
-static struct reg_default wsa884x_defaults[] = {
+static const struct reg_default wsa884x_defaults[] = {
 	{ WSA884X_BG_CTRL,			0xa5 },
 	{ WSA884X_ADC_CTRL,			0x00 },
 	{ WSA884X_BOP1_PROG,			0x22 },
@@ -1587,7 +1587,7 @@ static const struct sdw_slave_ops wsa884x_slave_ops = {
 static int wsa884x_dev_mode_get(struct snd_kcontrol *kcontrol,
 				struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *component = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
 	struct wsa884x_priv *wsa884x = snd_soc_component_get_drvdata(component);
 
 	ucontrol->value.enumerated.item[0] = wsa884x->dev_mode;
@@ -1598,7 +1598,7 @@ static int wsa884x_dev_mode_get(struct snd_kcontrol *kcontrol,
 static int wsa884x_dev_mode_put(struct snd_kcontrol *kcontrol,
 				struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *component = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
 	struct wsa884x_priv *wsa884x = snd_soc_component_get_drvdata(component);
 
 	if (wsa884x->dev_mode == ucontrol->value.enumerated.item[0])
@@ -1612,7 +1612,7 @@ static int wsa884x_dev_mode_put(struct snd_kcontrol *kcontrol,
 static int wsa884x_get_swr_port(struct snd_kcontrol *kcontrol,
 				struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *comp = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *comp = snd_kcontrol_chip(kcontrol);
 	struct wsa884x_priv *wsa884x = snd_soc_component_get_drvdata(comp);
 	struct soc_mixer_control *mixer = (struct soc_mixer_control *)kcontrol->private_value;
 	int portidx = mixer->reg;
@@ -1625,7 +1625,7 @@ static int wsa884x_get_swr_port(struct snd_kcontrol *kcontrol,
 static int wsa884x_set_swr_port(struct snd_kcontrol *kcontrol,
 				struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *comp = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *comp = snd_kcontrol_chip(kcontrol);
 	struct wsa884x_priv *wsa884x = snd_soc_component_get_drvdata(comp);
 	struct soc_mixer_control *mixer = (struct soc_mixer_control *)kcontrol->private_value;
 	int portidx = mixer->reg;
@@ -1941,7 +1941,6 @@ static int wsa884x_get_temp(struct wsa884x_priv *wsa884x, long *temp)
 	}
 
 out:
-	pm_runtime_mark_last_busy(wsa884x->dev);
 	pm_runtime_put_autosuspend(wsa884x->dev);
 
 	return ret;
@@ -2085,7 +2084,7 @@ static int wsa884x_probe(struct sdw_slave *pdev,
 	wsa884x->sconfig.direction = SDW_DATA_DIR_RX;
 	wsa884x->sconfig.type = SDW_STREAM_PDM;
 
-	/**
+	/*
 	 * Port map index starts with 0, however the data port for this codec
 	 * are from index 1
 	 */
@@ -2135,7 +2134,7 @@ static int wsa884x_probe(struct sdw_slave *pdev,
 					       ARRAY_SIZE(wsa884x_dais));
 }
 
-static int __maybe_unused wsa884x_runtime_suspend(struct device *dev)
+static int wsa884x_runtime_suspend(struct device *dev)
 {
 	struct regmap *regmap = dev_get_regmap(dev, NULL);
 
@@ -2145,7 +2144,7 @@ static int __maybe_unused wsa884x_runtime_suspend(struct device *dev)
 	return 0;
 }
 
-static int __maybe_unused wsa884x_runtime_resume(struct device *dev)
+static int wsa884x_runtime_resume(struct device *dev)
 {
 	struct regmap *regmap = dev_get_regmap(dev, NULL);
 
@@ -2156,7 +2155,7 @@ static int __maybe_unused wsa884x_runtime_resume(struct device *dev)
 }
 
 static const struct dev_pm_ops wsa884x_pm_ops = {
-	SET_RUNTIME_PM_OPS(wsa884x_runtime_suspend, wsa884x_runtime_resume, NULL)
+	RUNTIME_PM_OPS(wsa884x_runtime_suspend, wsa884x_runtime_resume, NULL)
 };
 
 static const struct sdw_device_id wsa884x_swr_id[] = {
@@ -2168,7 +2167,7 @@ MODULE_DEVICE_TABLE(sdw, wsa884x_swr_id);
 static struct sdw_driver wsa884x_codec_driver = {
 	.driver = {
 		.name = "wsa884x-codec",
-		.pm = &wsa884x_pm_ops,
+		.pm = pm_ptr(&wsa884x_pm_ops),
 	},
 	.probe = wsa884x_probe,
 	.ops = &wsa884x_slave_ops,

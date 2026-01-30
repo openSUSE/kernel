@@ -1460,8 +1460,7 @@ static const unsigned int mt8195_afe_1x_en_sel_values[] = {
 static int mt8195_memif_1x_en_sel_put(struct snd_kcontrol *kcontrol,
 				      struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *component =
-		snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
 	struct mtk_base_afe *afe = snd_soc_component_get_drvdata(component);
 	struct mt8195_afe_private *afe_priv = afe->platform_priv;
 	struct mtk_dai_memif_priv *memif_priv;
@@ -1484,8 +1483,7 @@ static int mt8195_memif_1x_en_sel_put(struct snd_kcontrol *kcontrol,
 static int mt8195_asys_irq_1x_en_sel_put(struct snd_kcontrol *kcontrol,
 					 struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *component =
-		snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
 	struct mtk_base_afe *afe = snd_soc_component_get_drvdata(component);
 	struct mt8195_afe_private *afe_priv = afe->platform_priv;
 	unsigned int id = kcontrol->id.device;
@@ -3187,15 +3185,15 @@ static const struct of_device_id mt8195_afe_pcm_dt_match[] = {
 MODULE_DEVICE_TABLE(of, mt8195_afe_pcm_dt_match);
 
 static const struct dev_pm_ops mt8195_afe_pm_ops = {
-	SET_RUNTIME_PM_OPS(mt8195_afe_runtime_suspend,
-			   mt8195_afe_runtime_resume, NULL)
+	RUNTIME_PM_OPS(mt8195_afe_runtime_suspend,
+		       mt8195_afe_runtime_resume, NULL)
 };
 
 static struct platform_driver mt8195_afe_pcm_driver = {
 	.driver = {
 		   .name = "mt8195-audio",
 		   .of_match_table = mt8195_afe_pcm_dt_match,
-		   .pm = &mt8195_afe_pm_ops,
+		   .pm = pm_ptr(&mt8195_afe_pm_ops),
 	},
 	.probe = mt8195_afe_pcm_dev_probe,
 	.remove = mt8195_afe_pcm_dev_remove,

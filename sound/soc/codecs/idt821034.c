@@ -402,7 +402,7 @@ static int idt821034_kctrl_gain_get(struct snd_kcontrol *kcontrol,
 				    struct snd_ctl_elem_value *ucontrol)
 {
 	struct soc_mixer_control *mc = (struct soc_mixer_control *)kcontrol->private_value;
-	struct snd_soc_component *component = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
 	struct idt821034 *idt821034 = snd_soc_component_get_drvdata(component);
 	int min = mc->min;
 	int max = mc->max;
@@ -433,7 +433,7 @@ static int idt821034_kctrl_gain_put(struct snd_kcontrol *kcontrol,
 				    struct snd_ctl_elem_value *ucontrol)
 {
 	struct soc_mixer_control *mc = (struct soc_mixer_control *)kcontrol->private_value;
-	struct snd_soc_component *component = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
 	struct idt821034 *idt821034 = snd_soc_component_get_drvdata(component);
 	struct idt821034_amp *amp;
 	int min = mc->min;
@@ -487,7 +487,7 @@ end:
 static int idt821034_kctrl_mute_get(struct snd_kcontrol *kcontrol,
 				    struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *component = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
 	struct idt821034 *idt821034 = snd_soc_component_get_drvdata(component);
 	int id = kcontrol->private_value;
 	bool is_muted;
@@ -509,7 +509,7 @@ static int idt821034_kctrl_mute_get(struct snd_kcontrol *kcontrol,
 static int idt821034_kctrl_mute_put(struct snd_kcontrol *kcontrol,
 				    struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *component = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
 	struct idt821034 *idt821034 = snd_soc_component_get_drvdata(component);
 	int id = kcontrol->private_value;
 	struct idt821034_amp *amp;
@@ -957,7 +957,8 @@ static const struct snd_soc_component_driver idt821034_component_driver = {
 #define IDT821034_GPIO_OFFSET_TO_SLIC_CHANNEL(_offset) (((_offset) / 5) % 4)
 #define IDT821034_GPIO_OFFSET_TO_SLIC_MASK(_offset)    BIT((_offset) % 5)
 
-static void idt821034_chip_gpio_set(struct gpio_chip *c, unsigned int offset, int val)
+static int idt821034_chip_gpio_set(struct gpio_chip *c, unsigned int offset,
+				   int val)
 {
 	u8 ch = IDT821034_GPIO_OFFSET_TO_SLIC_CHANNEL(offset);
 	u8 mask = IDT821034_GPIO_OFFSET_TO_SLIC_MASK(offset);
@@ -973,12 +974,14 @@ static void idt821034_chip_gpio_set(struct gpio_chip *c, unsigned int offset, in
 	else
 		slic_raw &= ~mask;
 	ret = idt821034_write_slic_raw(idt821034, ch, slic_raw);
-	if (ret) {
-		dev_err(&idt821034->spi->dev, "set gpio %d (%u, 0x%x) failed (%d)\n",
-			offset, ch, mask, ret);
-	}
 
 	mutex_unlock(&idt821034->mutex);
+
+	if (ret)
+		dev_err(&idt821034->spi->dev, "set gpio %d (%u, 0x%x) failed (%d)\n",
+			offset, ch, mask, ret);
+
+	return ret;
 }
 
 static int idt821034_chip_gpio_get(struct gpio_chip *c, unsigned int offset)
@@ -1054,7 +1057,9 @@ static int idt821034_chip_direction_output(struct gpio_chip *c, unsigned int off
 	u8 slic_conf;
 	int ret;
 
-	idt821034_chip_gpio_set(c, offset, val);
+	ret = idt821034_chip_gpio_set(c, offset, val);
+	if (ret)
+		return ret;
 
 	mutex_lock(&idt821034->mutex);
 
@@ -1062,7 +1067,7 @@ static int idt821034_chip_direction_output(struct gpio_chip *c, unsigned int off
 
 	ret = idt821034_set_slic_conf(idt821034, ch, slic_conf);
 	if (ret) {
-		dev_err(&idt821034->spi->dev, "dir in gpio %d (%u, 0x%x) failed (%d)\n",
+		dev_err(&idt821034->spi->dev, "dir out gpio %d (%u, 0x%x) failed (%d)\n",
 			offset, ch, mask, ret);
 	}
 
@@ -1112,7 +1117,7 @@ static int idt821034_gpio_init(struct idt821034 *idt821034)
 	idt821034->gpio_chip.direction_input = idt821034_chip_direction_input;
 	idt821034->gpio_chip.direction_output = idt821034_chip_direction_output;
 	idt821034->gpio_chip.get = idt821034_chip_gpio_get;
-	idt821034->gpio_chip.set = idt821034_chip_gpio_set;
+	idt821034->gpio_chip.set_rv = idt821034_chip_gpio_set;
 	idt821034->gpio_chip.can_sleep = true;
 
 	return devm_gpiochip_add_data(&idt821034->spi->dev, &idt821034->gpio_chip,

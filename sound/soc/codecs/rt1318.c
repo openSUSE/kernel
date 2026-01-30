@@ -505,7 +505,7 @@ static int rt1318_dac_event(struct snd_soc_dapm_widget *w,
 static int rt1318_dvol_put(struct snd_kcontrol *kcontrol,
 		struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *component = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
 	struct rt1318_priv *rt1318 = snd_soc_component_get_drvdata(component);
 
 	rt1318->rt1318_dvol = ucontrol->value.integer.value[0];
@@ -528,7 +528,7 @@ static int rt1318_dvol_put(struct snd_kcontrol *kcontrol,
 static int rt1318_dvol_get(struct snd_kcontrol *kcontrol,
 		struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *component = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
 	struct rt1318_priv *rt1318 = snd_soc_component_get_drvdata(component);
 
 	ucontrol->value.integer.value[0] = rt1318->rt1318_dvol;
@@ -1147,14 +1147,14 @@ MODULE_DEVICE_TABLE(i2c, rt1318_i2c_id);
 
 static const struct of_device_id rt1318_of_match[] = {
 	{ .compatible = "realtek,rt1318", },
-	{},
+	{ }
 };
 MODULE_DEVICE_TABLE(of, rt1318_of_match);
 
 #ifdef CONFIG_ACPI
 static const struct acpi_device_id rt1318_acpi_match[] = {
-	{ "10EC1318", 0},
-	{ },
+	{ "10EC1318" },
+	{ }
 };
 MODULE_DEVICE_TABLE(acpi, rt1318_acpi_match);
 #endif

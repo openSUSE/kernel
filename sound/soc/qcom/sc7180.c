@@ -287,8 +287,9 @@ static int sc7180_qdsp_snd_startup(struct snd_pcm_substream *substream)
 static int dmic_get(struct snd_kcontrol *kcontrol,
 		    struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_dapm_context *dapm = snd_soc_dapm_kcontrol_dapm(kcontrol);
-	struct sc7180_snd_data *data = snd_soc_card_get_drvdata(dapm->card);
+	struct snd_soc_dapm_context *dapm = snd_soc_dapm_kcontrol_to_dapm(kcontrol);
+	struct snd_soc_card *card = snd_soc_dapm_to_card(dapm);
+	struct sc7180_snd_data *data = snd_soc_card_get_drvdata(card);
 
 	ucontrol->value.integer.value[0] = data->dmic_switch;
 	return 0;
@@ -297,8 +298,9 @@ static int dmic_get(struct snd_kcontrol *kcontrol,
 static int dmic_set(struct snd_kcontrol *kcontrol,
 		    struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_dapm_context *dapm = snd_soc_dapm_kcontrol_dapm(kcontrol);
-	struct sc7180_snd_data *data = snd_soc_card_get_drvdata(dapm->card);
+	struct snd_soc_dapm_context *dapm = snd_soc_dapm_kcontrol_to_dapm(kcontrol);
+	struct snd_soc_card *card = snd_soc_dapm_to_card(dapm);
+	struct sc7180_snd_data *data = snd_soc_card_get_drvdata(card);
 
 	data->dmic_switch = ucontrol->value.integer.value[0];
 	gpiod_set_value(data->dmic_sel, data->dmic_switch);
@@ -397,7 +399,7 @@ static int sc7180_adau7002_snd_startup(struct snd_pcm_substream *substream)
 	switch (cpu_dai->id) {
 	case MI2S_PRIMARY:
 		snd_soc_dai_set_fmt(codec_dai,
-				    SND_SOC_DAIFMT_CBS_CFS |
+				    SND_SOC_DAIFMT_CBC_CFC |
 				    SND_SOC_DAIFMT_NB_NF |
 				    SND_SOC_DAIFMT_I2S);
 		runtime->hw.formats = SNDRV_PCM_FMTBIT_S32_LE;
@@ -513,7 +515,7 @@ static int sc7180_snd_platform_probe(struct platform_device *pdev)
 	card->controls = sc7180_snd_controls;
 	card->num_controls = ARRAY_SIZE(sc7180_snd_controls);
 
-	if (of_property_read_bool(dev->of_node, "dmic-gpios")) {
+	if (of_property_present(dev->of_node, "dmic-gpios")) {
 		card->dapm_widgets = sc7180_snd_dual_mic_widgets,
 		card->num_dapm_widgets = ARRAY_SIZE(sc7180_snd_dual_mic_widgets),
 		card->controls = sc7180_snd_dual_mic_controls,

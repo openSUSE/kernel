@@ -20,6 +20,14 @@
 #include "hda.h"
 #include "mtl.h"
 
+/* Meteorlake ops */
+static struct snd_sof_dsp_ops sof_mtl_ops;
+
+static int sof_mtl_ops_init(struct snd_sof_dev *sdev)
+{
+	return sof_mtl_set_ops(sdev, &sof_mtl_ops);
+}
+
 static const struct sof_dev_desc mtl_desc = {
 	.use_acpi_target_states	= true,
 	.machines               = snd_soc_acpi_intel_mtl_machines,
@@ -39,7 +47,7 @@ static const struct sof_dev_desc mtl_desc = {
 		[SOF_IPC_TYPE_4] = "intel/sof-ipc4-lib/mtl",
 	},
 	.default_tplg_path = {
-		[SOF_IPC_TYPE_4] = "intel/sof-ace-tplg",
+		[SOF_IPC_TYPE_4] = "intel/sof-ipc4-tplg",
 	},
 	.default_fw_filename = {
 		[SOF_IPC_TYPE_4] = "sof-mtl.ri",
@@ -69,7 +77,7 @@ static const struct sof_dev_desc arl_desc = {
 		[SOF_IPC_TYPE_4] = "intel/sof-ipc4-lib/arl",
 	},
 	.default_tplg_path = {
-		[SOF_IPC_TYPE_4] = "intel/sof-ace-tplg",
+		[SOF_IPC_TYPE_4] = "intel/sof-ipc4-tplg",
 	},
 	.default_fw_filename = {
 		[SOF_IPC_TYPE_4] = "sof-arl.ri",
@@ -99,7 +107,7 @@ static const struct sof_dev_desc arl_s_desc = {
 		[SOF_IPC_TYPE_4] = "intel/sof-ipc4-lib/arl-s",
 	},
 	.default_tplg_path = {
-		[SOF_IPC_TYPE_4] = "intel/sof-ace-tplg",
+		[SOF_IPC_TYPE_4] = "intel/sof-ipc4-tplg",
 	},
 	.default_fw_filename = {
 		[SOF_IPC_TYPE_4] = "sof-arl-s.ri",
@@ -127,7 +135,7 @@ static struct pci_driver snd_sof_pci_intel_mtl_driver = {
 	.remove = sof_pci_remove,
 	.shutdown = sof_pci_shutdown,
 	.driver = {
-		.pm = &sof_pci_pm,
+		.pm = pm_ptr(&sof_pci_pm),
 	},
 };
 module_pci_driver(snd_sof_pci_intel_mtl_driver);

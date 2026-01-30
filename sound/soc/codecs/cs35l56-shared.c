@@ -6,11 +6,18 @@
 //                    Cirrus Logic International Semiconductor Ltd.
 
 #include <linux/array_size.h>
+#include <linux/cleanup.h>
+#include <linux/debugfs.h>
 #include <linux/firmware/cirrus/wmfw.h>
+#include <linux/fs.h>
 #include <linux/gpio/consumer.h>
+#include <linux/kstrtox.h>
 #include <linux/regmap.h>
 #include <linux/regulator/consumer.h>
 #include <linux/spi/spi.h>
+#include <linux/stddef.h>
+#include <linux/string.h>
+#include <linux/string_choices.h>
 #include <linux/types.h>
 #include <sound/cs-amp-lib.h>
 
@@ -38,17 +45,48 @@ static const struct reg_sequence cs35l56_patch[] = {
 	{ CS35L56_SWIRE_DP3_CH3_INPUT,		0x00000029 },
 	{ CS35L56_SWIRE_DP3_CH4_INPUT,		0x00000028 },
 	{ CS35L56_IRQ1_MASK_18,			0x1f7df0ff },
+};
 
+static const struct reg_sequence cs35l56_patch_fw[] = {
 	/* These are not reset by a soft-reset, so patch to defaults. */
 	{ CS35L56_MAIN_RENDER_USER_MUTE,	0x00000000 },
 	{ CS35L56_MAIN_RENDER_USER_VOLUME,	0x00000000 },
 	{ CS35L56_MAIN_POSTURE_NUMBER,		0x00000000 },
 };
 
+static const struct reg_sequence cs35l63_patch_fw[] = {
+	/* These are not reset by a soft-reset, so patch to defaults. */
+	{ CS35L63_MAIN_RENDER_USER_MUTE,	0x00000000 },
+	{ CS35L63_MAIN_RENDER_USER_VOLUME,	0x00000000 },
+	{ CS35L63_MAIN_POSTURE_NUMBER,		0x00000000 },
+};
+
 int cs35l56_set_patch(struct cs35l56_base *cs35l56_base)
 {
-	return regmap_register_patch(cs35l56_base->regmap, cs35l56_patch,
+	int ret;
+
+	ret = regmap_register_patch(cs35l56_base->regmap, cs35l56_patch,
 				     ARRAY_SIZE(cs35l56_patch));
+	if (ret)
+		return ret;
+
+
+	switch (cs35l56_base->type) {
+	case 0x54:
+	case 0x56:
+	case 0x57:
+		ret = regmap_register_patch(cs35l56_base->regmap, cs35l56_patch_fw,
+					    ARRAY_SIZE(cs35l56_patch_fw));
+		break;
+	case 0x63:
+		ret = regmap_register_patch(cs35l56_base->regmap, cs35l63_patch_fw,
+					    ARRAY_SIZE(cs35l63_patch_fw));
+		break;
+	default:
+		break;
+	}
+
+	return ret;
 }
 EXPORT_SYMBOL_NS_GPL(cs35l56_set_patch, SND_SOC_CS35L56_SHARED);
 
@@ -80,6 +118,36 @@ static const struct reg_default cs35l56_reg_defaults[] = {
 	{ CS35L56_MAIN_RENDER_USER_MUTE,	0x00000000 },
 	{ CS35L56_MAIN_RENDER_USER_VOLUME,	0x00000000 },
 	{ CS35L56_MAIN_POSTURE_NUMBER,		0x00000000 },
+};
+
+static const struct reg_default cs35l63_reg_defaults[] = {
+	/* no defaults for OTP_MEM - first read populates cache */
+
+	{ CS35L56_ASP1_ENABLES1,		0x00000000 },
+	{ CS35L56_ASP1_CONTROL1,		0x00000028 },
+	{ CS35L56_ASP1_CONTROL2,		0x18180200 },
+	{ CS35L56_ASP1_CONTROL3,		0x00000002 },
+	{ CS35L56_ASP1_FRAME_CONTROL1,		0x03020100 },
+	{ CS35L56_ASP1_FRAME_CONTROL5,		0x00020100 },
+	{ CS35L56_ASP1_DATA_CONTROL1,		0x00000018 },
+	{ CS35L56_ASP1_DATA_CONTROL5,		0x00000018 },
+	{ CS35L56_ASP1TX1_INPUT,		0x00000000 },
+	{ CS35L56_ASP1TX2_INPUT,		0x00000000 },
+	{ CS35L56_ASP1TX3_INPUT,		0x00000000 },
+	{ CS35L56_ASP1TX4_INPUT,		0x00000000 },
+	{ CS35L56_SWIRE_DP3_CH1_INPUT,		0x00000018 },
+	{ CS35L56_SWIRE_DP3_CH2_INPUT,		0x00000019 },
+	{ CS35L56_SWIRE_DP3_CH3_INPUT,		0x00000029 },
+	{ CS35L56_SWIRE_DP3_CH4_INPUT,		0x00000028 },
+	{ CS35L56_IRQ1_MASK_1,			0x8003ffff },
+	{ CS35L56_IRQ1_MASK_2,			0xffff7fff },
+	{ CS35L56_IRQ1_MASK_4,			0xe0ffffff },
+	{ CS35L56_IRQ1_MASK_8,			0x8c000fff },
+	{ CS35L56_IRQ1_MASK_18,			0x0760f000 },
+	{ CS35L56_IRQ1_MASK_20,			0x15c00000 },
+	{ CS35L63_MAIN_RENDER_USER_MUTE,	0x00000000 },
+	{ CS35L63_MAIN_RENDER_USER_VOLUME,	0x00000000 },
+	{ CS35L63_MAIN_POSTURE_NUMBER,		0x00000000 },
 };
 
 static bool cs35l56_is_dsp_memory(unsigned int reg)
@@ -145,6 +213,8 @@ static bool cs35l56_readable_reg(struct device *dev, unsigned int reg)
 	case CS35L56_IRQ1_MASK_8:
 	case CS35L56_IRQ1_MASK_18:
 	case CS35L56_IRQ1_MASK_20:
+	case CS35L56_MIXER_NGATE_CH1_CFG:
+	case CS35L56_MIXER_NGATE_CH2_CFG:
 	case CS35L56_DSP_VIRTUAL1_MBOX_1:
 	case CS35L56_DSP_VIRTUAL1_MBOX_2:
 	case CS35L56_DSP_VIRTUAL1_MBOX_3:
@@ -153,6 +223,8 @@ static bool cs35l56_readable_reg(struct device *dev, unsigned int reg)
 	case CS35L56_DSP_VIRTUAL1_MBOX_6:
 	case CS35L56_DSP_VIRTUAL1_MBOX_7:
 	case CS35L56_DSP_VIRTUAL1_MBOX_8:
+	case CS35L56_DIE_STS1:
+	case CS35L56_DIE_STS2:
 	case CS35L56_DSP_RESTRICT_STS1:
 	case CS35L56_DSP1_SYS_INFO_ID ... CS35L56_DSP1_SYS_INFO_END:
 	case CS35L56_DSP1_AHBM_WINDOW_DEBUG_0:
@@ -179,7 +251,7 @@ static bool cs35l56_precious_reg(struct device *dev, unsigned int reg)
 	}
 }
 
-static bool cs35l56_volatile_reg(struct device *dev, unsigned int reg)
+static bool cs35l56_common_volatile_reg(unsigned int reg)
 {
 	switch (reg) {
 	case CS35L56_DEVID:
@@ -200,6 +272,8 @@ static bool cs35l56_volatile_reg(struct device *dev, unsigned int reg)
 	case CS35L56_IRQ1_EINT_1 ... CS35L56_IRQ1_EINT_8:
 	case CS35L56_IRQ1_EINT_18:
 	case CS35L56_IRQ1_EINT_20:
+	case CS35L56_MIXER_NGATE_CH1_CFG:
+	case CS35L56_MIXER_NGATE_CH2_CFG:
 	case CS35L56_DSP_VIRTUAL1_MBOX_1:
 	case CS35L56_DSP_VIRTUAL1_MBOX_2:
 	case CS35L56_DSP_VIRTUAL1_MBOX_3:
@@ -217,12 +291,84 @@ static bool cs35l56_volatile_reg(struct device *dev, unsigned int reg)
 	case CS35L56_DSP1_SCRATCH3:
 	case CS35L56_DSP1_SCRATCH4:
 		return true;
+	default:
+		return cs35l56_is_dsp_memory(reg);
+	}
+}
+
+static bool cs35l56_volatile_reg(struct device *dev, unsigned int reg)
+{
+	switch (reg) {
 	case CS35L56_MAIN_RENDER_USER_MUTE:
 	case CS35L56_MAIN_RENDER_USER_VOLUME:
 	case CS35L56_MAIN_POSTURE_NUMBER:
 		return false;
 	default:
-		return cs35l56_is_dsp_memory(reg);
+		return cs35l56_common_volatile_reg(reg);
+	}
+}
+
+static bool cs35l63_volatile_reg(struct device *dev, unsigned int reg)
+{
+	switch (reg) {
+	case CS35L63_MAIN_RENDER_USER_MUTE:
+	case CS35L63_MAIN_RENDER_USER_VOLUME:
+	case CS35L63_MAIN_POSTURE_NUMBER:
+		return false;
+	default:
+		return cs35l56_common_volatile_reg(reg);
+	}
+}
+
+static const struct cs35l56_fw_reg cs35l56_fw_reg = {
+	.fw_ver = CS35L56_DSP1_FW_VER,
+	.halo_state = CS35L56_DSP1_HALO_STATE,
+	.pm_cur_stat = CS35L56_DSP1_PM_CUR_STATE,
+	.prot_sts = CS35L56_PROTECTION_STATUS,
+	.transducer_actual_ps = CS35L56_TRANSDUCER_ACTUAL_PS,
+	.user_mute = CS35L56_MAIN_RENDER_USER_MUTE,
+	.user_volume = CS35L56_MAIN_RENDER_USER_VOLUME,
+	.posture_number = CS35L56_MAIN_POSTURE_NUMBER,
+};
+
+static const struct cs35l56_fw_reg cs35l56_b2_fw_reg = {
+	.fw_ver = CS35L56_DSP1_FW_VER,
+	.halo_state = CS35L56_B2_DSP1_HALO_STATE,
+	.pm_cur_stat = CS35L56_B2_DSP1_PM_CUR_STATE,
+	.prot_sts = CS35L56_PROTECTION_STATUS,
+	.transducer_actual_ps = CS35L56_TRANSDUCER_ACTUAL_PS,
+	.user_mute = CS35L56_MAIN_RENDER_USER_MUTE,
+	.user_volume = CS35L56_MAIN_RENDER_USER_VOLUME,
+	.posture_number = CS35L56_MAIN_POSTURE_NUMBER,
+};
+
+static const struct cs35l56_fw_reg cs35l63_fw_reg = {
+	.fw_ver = CS35L63_DSP1_FW_VER,
+	.halo_state = CS35L63_DSP1_HALO_STATE,
+	.pm_cur_stat = CS35L63_DSP1_PM_CUR_STATE,
+	.prot_sts = CS35L63_PROTECTION_STATUS,
+	.transducer_actual_ps = CS35L63_TRANSDUCER_ACTUAL_PS,
+	.user_mute = CS35L63_MAIN_RENDER_USER_MUTE,
+	.user_volume = CS35L63_MAIN_RENDER_USER_VOLUME,
+	.posture_number = CS35L63_MAIN_POSTURE_NUMBER,
+};
+
+static void cs35l56_set_fw_reg_table(struct cs35l56_base *cs35l56_base)
+{
+	switch (cs35l56_base->type) {
+	default:
+		switch (cs35l56_base->rev) {
+		case 0xb0:
+			cs35l56_base->fw_reg = &cs35l56_fw_reg;
+			break;
+		default:
+			cs35l56_base->fw_reg = &cs35l56_b2_fw_reg;
+			break;
+		}
+		break;
+	case 0x63:
+		cs35l56_base->fw_reg = &cs35l63_fw_reg;
+		break;
 	}
 }
 
@@ -253,7 +399,8 @@ int cs35l56_firmware_shutdown(struct cs35l56_base *cs35l56_base)
 	if (ret)
 		return ret;
 
-	ret = regmap_read_poll_timeout(cs35l56_base->regmap,  CS35L56_DSP1_PM_CUR_STATE,
+	ret = regmap_read_poll_timeout(cs35l56_base->regmap,
+				       cs35l56_base->fw_reg->pm_cur_stat,
 				       val, (val == CS35L56_HALO_STATE_SHUTDOWN),
 				       CS35L56_HALO_STATE_POLL_US,
 				       CS35L56_HALO_STATE_TIMEOUT_US);
@@ -278,7 +425,9 @@ int cs35l56_wait_for_firmware_boot(struct cs35l56_base *cs35l56_base)
 				     CS35L56_HALO_STATE_POLL_US,
 				     CS35L56_HALO_STATE_TIMEOUT_US,
 				     false,
-				     cs35l56_base->regmap, CS35L56_DSP1_HALO_STATE, &val);
+				     cs35l56_base->regmap,
+				     cs35l56_base->fw_reg->halo_state,
+				     &val);
 
 	if (poll_ret) {
 		dev_err(cs35l56_base->dev, "Firmware boot timed out(%d): HALO_STATE=%#x\n",
@@ -382,6 +531,16 @@ static const struct reg_sequence cs35l56_system_reset_seq[] = {
 	REG_SEQ0(CS35L56_DSP_VIRTUAL1_MBOX_1, CS35L56_MBOX_CMD_SYSTEM_RESET),
 };
 
+static const struct reg_sequence cs35l56_b2_system_reset_seq[] = {
+	REG_SEQ0(CS35L56_B2_DSP1_HALO_STATE, 0),
+	REG_SEQ0(CS35L56_DSP_VIRTUAL1_MBOX_1, CS35L56_MBOX_CMD_SYSTEM_RESET),
+};
+
+static const struct reg_sequence cs35l63_system_reset_seq[] = {
+	REG_SEQ0(CS35L63_DSP1_HALO_STATE, 0),
+	REG_SEQ0(CS35L56_DSP_VIRTUAL1_MBOX_1, CS35L56_MBOX_CMD_SYSTEM_RESET),
+};
+
 void cs35l56_system_reset(struct cs35l56_base *cs35l56_base, bool is_soundwire)
 {
 	/*
@@ -395,9 +554,31 @@ void cs35l56_system_reset(struct cs35l56_base *cs35l56_base, bool is_soundwire)
 		return;
 	}
 
-	regmap_multi_reg_write_bypassed(cs35l56_base->regmap,
-					cs35l56_system_reset_seq,
-					ARRAY_SIZE(cs35l56_system_reset_seq));
+	switch (cs35l56_base->type) {
+	case 0x54:
+	case 0x56:
+	case 0x57:
+		switch (cs35l56_base->rev) {
+		case 0xb0:
+			regmap_multi_reg_write_bypassed(cs35l56_base->regmap,
+							cs35l56_system_reset_seq,
+							ARRAY_SIZE(cs35l56_system_reset_seq));
+			break;
+		default:
+			regmap_multi_reg_write_bypassed(cs35l56_base->regmap,
+							cs35l56_b2_system_reset_seq,
+							ARRAY_SIZE(cs35l56_b2_system_reset_seq));
+			break;
+		}
+		break;
+	case 0x63:
+		regmap_multi_reg_write_bypassed(cs35l56_base->regmap,
+						cs35l63_system_reset_seq,
+						ARRAY_SIZE(cs35l63_system_reset_seq));
+		break;
+	default:
+		break;
+	}
 
 	/* On SoundWire the registers won't be accessible until it re-enumerates. */
 	if (is_soundwire)
@@ -514,7 +695,9 @@ int cs35l56_is_fw_reload_needed(struct cs35l56_base *cs35l56_base)
 		return ret;
 	}
 
-	ret = regmap_read(cs35l56_base->regmap, CS35L56_PROTECTION_STATUS, &val);
+	ret = regmap_read(cs35l56_base->regmap,
+			  cs35l56_base->fw_reg->prot_sts,
+			  &val);
 	if (ret)
 		dev_err(cs35l56_base->dev, "Failed to read PROTECTION_STATUS: %d\n", ret);
 	else
@@ -552,22 +735,29 @@ static void cs35l56_issue_wake_event(struct cs35l56_base *cs35l56_base)
 	cs35l56_wait_control_port_ready();
 }
 
-int cs35l56_runtime_suspend_common(struct cs35l56_base *cs35l56_base)
+static int cs35l56_wait_for_ps3(struct cs35l56_base *cs35l56_base)
 {
 	unsigned int val;
 	int ret;
 
-	if (!cs35l56_base->init_done)
-		return 0;
-
-	/* Firmware must have entered a power-save state */
 	ret = regmap_read_poll_timeout(cs35l56_base->regmap,
-				       CS35L56_TRANSDUCER_ACTUAL_PS,
+				       cs35l56_base->fw_reg->transducer_actual_ps,
 				       val, (val >= CS35L56_PS3),
 				       CS35L56_PS3_POLL_US,
 				       CS35L56_PS3_TIMEOUT_US);
 	if (ret)
 		dev_warn(cs35l56_base->dev, "PS3 wait failed: %d\n", ret);
+
+	return ret;
+}
+
+int cs35l56_runtime_suspend_common(struct cs35l56_base *cs35l56_base)
+{
+	if (!cs35l56_base->init_done)
+		return 0;
+
+	/* Firmware must have entered a power-save state */
+	cs35l56_wait_for_ps3(cs35l56_base);
 
 	/* Clear BOOT_DONE so it can be used to detect a reboot */
 	regmap_write(cs35l56_base->regmap, CS35L56_IRQ1_EINT_4, CS35L56_OTP_BOOT_DONE_MASK);
@@ -667,6 +857,8 @@ void cs35l56_init_cs_dsp(struct cs35l56_base *cs35l56_base, struct cs_dsp *cs_ds
 	cs_dsp->mem = cs35l56_dsp1_regions;
 	cs_dsp->num_mems = ARRAY_SIZE(cs35l56_dsp1_regions);
 	cs_dsp->no_core_startstop = true;
+
+	cs35l56_base->dsp = cs_dsp;
 }
 EXPORT_SYMBOL_NS_GPL(cs35l56_init_cs_dsp, SND_SOC_CS35L56_SHARED);
 
@@ -681,7 +873,7 @@ struct cs35l56_pte {
 } __packed;
 static_assert((sizeof(struct cs35l56_pte) % sizeof(u32)) == 0);
 
-static int cs35l56_read_silicon_uid(struct cs35l56_base *cs35l56_base, u64 *uid)
+static int cs35l56_read_silicon_uid(struct cs35l56_base *cs35l56_base)
 {
 	struct cs35l56_pte pte;
 	u64 unique_id;
@@ -698,9 +890,28 @@ static int cs35l56_read_silicon_uid(struct cs35l56_base *cs35l56_base, u64 *uid)
 	unique_id |= (u32)pte.x | ((u32)pte.y << 8) | ((u32)pte.wafer_id << 16) |
 		     ((u32)pte.dvs << 24);
 
-	dev_dbg(cs35l56_base->dev, "UniqueID = %#llx\n", unique_id);
+	cs35l56_base->silicon_uid = unique_id;
 
-	*uid = unique_id;
+	return 0;
+}
+
+static int cs35l63_read_silicon_uid(struct cs35l56_base *cs35l56_base)
+{
+	u32 tmp[2];
+	u64 unique_id;
+	int ret;
+
+	ret = regmap_bulk_read(cs35l56_base->regmap, CS35L56_DIE_STS1, tmp, ARRAY_SIZE(tmp));
+	if (ret) {
+		dev_err(cs35l56_base->dev, "Cannot obtain CS35L56_DIE_STS: %d\n", ret);
+		return ret;
+	}
+
+	unique_id = tmp[1];
+	unique_id <<= 32;
+	unique_id |= tmp[0];
+
+	cs35l56_base->silicon_uid = unique_id;
 
 	return 0;
 }
@@ -716,20 +927,25 @@ const struct cirrus_amp_cal_controls cs35l56_calibration_controls = {
 };
 EXPORT_SYMBOL_NS_GPL(cs35l56_calibration_controls, SND_SOC_CS35L56_SHARED);
 
+static const struct cirrus_amp_cal_controls cs35l63_calibration_controls = {
+	.alg_id =	0xbf210,
+	.mem_region =	WMFW_ADSP2_YM,
+	.ambient =	"CAL_AMBIENT",
+	.calr =		"CAL_R",
+	.status =	"CAL_STATUS",
+	.checksum =	"CAL_CHECKSUM",
+};
+
 int cs35l56_get_calibration(struct cs35l56_base *cs35l56_base)
 {
-	u64 silicon_uid = 0;
 	int ret;
 
 	/* Driver can't apply calibration to a secured part, so skip */
 	if (cs35l56_base->secured)
 		return 0;
 
-	ret = cs35l56_read_silicon_uid(cs35l56_base, &silicon_uid);
-	if (ret < 0)
-		return ret;
-
-	ret = cs_amp_get_efi_calibration_data(cs35l56_base->dev, silicon_uid,
+	ret = cs_amp_get_efi_calibration_data(cs35l56_base->dev,
+					      cs35l56_base->silicon_uid,
 					      cs35l56_base->cal_index,
 					      &cs35l56_base->cal_data);
 
@@ -746,13 +962,363 @@ int cs35l56_get_calibration(struct cs35l56_base *cs35l56_base)
 }
 EXPORT_SYMBOL_NS_GPL(cs35l56_get_calibration, SND_SOC_CS35L56_SHARED);
 
+int cs35l56_stash_calibration(struct cs35l56_base *cs35l56_base,
+			      const struct cirrus_amp_cal_data *data)
+{
+
+	/* Ignore if it is empty */
+	if (!data->calTime[0] && !data->calTime[1])
+		return -ENODATA;
+
+	if (cs_amp_cal_target_u64(data) != cs35l56_base->silicon_uid) {
+		dev_err(cs35l56_base->dev, "cal_data not for this silicon ID\n");
+		return -EINVAL;
+	}
+
+	cs35l56_base->cal_data = *data;
+	cs35l56_base->cal_data_valid = true;
+
+	return 0;
+}
+EXPORT_SYMBOL_NS_GPL(cs35l56_stash_calibration, SND_SOC_CS35L56_SHARED);
+
+static int cs35l56_perform_calibration(struct cs35l56_base *cs35l56_base)
+{
+	const struct cirrus_amp_cal_controls *calibration_controls =
+		cs35l56_base->calibration_controls;
+	struct cs_dsp *dsp = cs35l56_base->dsp;
+	struct cirrus_amp_cal_data cal_data;
+	struct cs_dsp_coeff_ctl *ctl;
+	bool ngate_ch1_was_enabled = false;
+	bool ngate_ch2_was_enabled = false;
+	int cali_norm_en_alg_id, cali_norm_en_mem;
+	int ret;
+	__be32 val;
+
+	if (cs35l56_base->silicon_uid == 0) {
+		dev_err(cs35l56_base->dev, "Cannot calibrate: no silicon UID\n");
+		return -ENXIO;
+	}
+
+	switch (cs35l56_base->type) {
+	case 0x54:
+	case 0x56:
+	case 0x57:
+		if (cs35l56_base->rev < 0xb2) {
+			cali_norm_en_alg_id = 0x9f22f;
+			cali_norm_en_mem = WMFW_ADSP2_YM;
+		} else {
+			cali_norm_en_alg_id = 0x9f210;
+			cali_norm_en_mem = WMFW_ADSP2_XM;
+		}
+		break;
+	default:
+		cali_norm_en_alg_id = 0xbf210;
+		cali_norm_en_mem = WMFW_ADSP2_XM;
+		break;
+	}
+
+	ret = pm_runtime_resume_and_get(cs35l56_base->dev);
+	if (ret)
+		return ret;
+
+	ret = cs35l56_wait_for_ps3(cs35l56_base);
+	if (ret) {
+		ret = -EBUSY;
+		goto err_pm_put;
+	}
+
+	regmap_update_bits_check(cs35l56_base->regmap, CS35L56_MIXER_NGATE_CH1_CFG,
+				 CS35L56_AUX_NGATE_CHn_EN, 0, &ngate_ch1_was_enabled);
+	regmap_update_bits_check(cs35l56_base->regmap, CS35L56_MIXER_NGATE_CH2_CFG,
+				 CS35L56_AUX_NGATE_CHn_EN, 0, &ngate_ch2_was_enabled);
+
+	scoped_guard(mutex, &dsp->pwr_lock) {
+		ctl = cs_dsp_get_ctl(dsp,
+				     calibration_controls->status,
+				     calibration_controls->mem_region,
+				     calibration_controls->alg_id);
+		if (!ctl) {
+			dev_err(cs35l56_base->dev, "Could not get %s control\n",
+				calibration_controls->status);
+			ret = -EIO;
+			goto err;
+		}
+
+		val = cpu_to_be32(0);
+		ret = cs_dsp_coeff_write_ctrl(cs_dsp_get_ctl(dsp,
+					      "CALI_NORM_EN",
+					      cali_norm_en_mem,
+					      cali_norm_en_alg_id),
+					      0, &val, sizeof(val));
+		if (ret < 0) {
+			dev_err(cs35l56_base->dev, "Could not write %s: %d\n", "CALI_NORM_EN", ret);
+			ret = -EIO;
+			goto err;
+		}
+
+		ret = cs35l56_mbox_send(cs35l56_base, CS35L56_MBOX_CMD_AUDIO_CALIBRATION);
+		if (ret) {
+			ret = -EIO;
+			goto err;
+		}
+
+		if (read_poll_timeout(cs_dsp_coeff_read_ctrl, ret,
+				      (val == cpu_to_be32(1)),
+				      CS35L56_CALIBRATION_POLL_US,
+				      CS35L56_CALIBRATION_TIMEOUT_US,
+				      true,
+				      ctl, 0, &val, sizeof(val))) {
+			dev_err(cs35l56_base->dev, "Calibration timed out (CAL_STATUS: %u)\n",
+				be32_to_cpu(val));
+			switch (be32_to_cpu(val)) {
+			case CS35L56_CAL_STATUS_OUT_OF_RANGE:
+				ret = -ERANGE;
+				goto err;
+			default:
+				ret = -ETIMEDOUT;
+				goto err;
+			}
+		}
+	}
+
+	cs35l56_base->cal_data_valid = false;
+	memset(&cal_data, 0, sizeof(cal_data));
+	ret = cs_amp_read_cal_coeffs(dsp, calibration_controls, &cal_data);
+	if (ret) {
+		ret = -EIO;
+		goto err;
+	}
+
+	dev_info(cs35l56_base->dev, "Cal status:%d calR:%d ambient:%d\n",
+		 cal_data.calStatus, cal_data.calR, cal_data.calAmbient);
+
+	cal_data.calTarget[0] = (u32)cs35l56_base->silicon_uid;
+	cal_data.calTarget[1] = (u32)(cs35l56_base->silicon_uid >> 32);
+	cs35l56_base->cal_data = cal_data;
+	cs35l56_base->cal_data_valid = true;
+
+	ret = 0;
+
+err:
+	if (ngate_ch1_was_enabled) {
+		regmap_set_bits(cs35l56_base->regmap, CS35L56_MIXER_NGATE_CH1_CFG,
+				CS35L56_AUX_NGATE_CHn_EN);
+	}
+	if (ngate_ch2_was_enabled) {
+		regmap_set_bits(cs35l56_base->regmap, CS35L56_MIXER_NGATE_CH2_CFG,
+				CS35L56_AUX_NGATE_CHn_EN);
+	}
+err_pm_put:
+	pm_runtime_put(cs35l56_base->dev);
+
+	return ret;
+}
+
+ssize_t cs35l56_calibrate_debugfs_write(struct cs35l56_base *cs35l56_base,
+					const char __user *from, size_t count,
+					loff_t *ppos)
+{
+	static const char * const options[] = { "factory", "store_uefi" };
+	char buf[11] = { 0 };
+	int num_amps, ret;
+
+	if (!IS_ENABLED(CONFIG_SND_SOC_CS35L56_CAL_DEBUGFS_COMMON))
+		return -ENXIO;
+
+	if (*ppos)
+		return -EINVAL;
+
+	ret = simple_write_to_buffer(buf, sizeof(buf) - 1, ppos, from, count);
+	if (ret < 0)
+		return ret;
+
+	switch (sysfs_match_string(options, buf)) {
+	case 0:
+		ret = cs35l56_perform_calibration(cs35l56_base);
+		if (ret < 0)
+			return ret;
+		break;
+	case 1:
+		if (!cs35l56_base->cal_data_valid)
+			return -ENODATA;
+
+		num_amps = cs35l56_base->num_amps;
+		if (num_amps == 0)
+			num_amps = -1;
+
+		ret = cs_amp_set_efi_calibration_data(cs35l56_base->dev,
+						      cs35l56_base->cal_index,
+						      num_amps,
+						      &cs35l56_base->cal_data);
+		if (ret < 0)
+			return ret;
+		break;
+	default:
+		return -EOPNOTSUPP;
+	}
+
+	return count;
+}
+EXPORT_SYMBOL_NS_GPL(cs35l56_calibrate_debugfs_write, SND_SOC_CS35L56_SHARED);
+
+ssize_t cs35l56_cal_ambient_debugfs_write(struct cs35l56_base *cs35l56_base,
+					  const char __user *from, size_t count,
+					  loff_t *ppos)
+{
+	unsigned long val;
+	int ret;
+
+	if (!IS_ENABLED(CONFIG_SND_SOC_CS35L56_CAL_DEBUGFS_COMMON))
+		return -ENXIO;
+
+	if (*ppos)
+		return -EINVAL;
+
+	ret = pm_runtime_resume_and_get(cs35l56_base->dev);
+	if (ret)
+		return ret;
+
+	ret = kstrtoul_from_user(from, count, 10, &val);
+	if (ret < 0)
+		goto out;
+
+	ret = cs_amp_write_ambient_temp(cs35l56_base->dsp, cs35l56_base->calibration_controls, val);
+	if (ret)
+		ret = -EIO;
+out:
+	pm_runtime_put(cs35l56_base->dev);
+
+	if (ret < 0)
+		return ret;
+
+	return count;
+}
+EXPORT_SYMBOL_NS_GPL(cs35l56_cal_ambient_debugfs_write, SND_SOC_CS35L56_SHARED);
+
+ssize_t cs35l56_cal_data_debugfs_read(struct cs35l56_base *cs35l56_base,
+				      char __user *to, size_t count,
+				      loff_t *ppos)
+{
+	if (!IS_ENABLED(CONFIG_SND_SOC_CS35L56_CAL_DEBUGFS_COMMON))
+		return -ENXIO;
+
+	if (!cs35l56_base->cal_data_valid)
+		return 0;
+
+	return simple_read_from_buffer(to, count, ppos, &cs35l56_base->cal_data,
+				       sizeof(cs35l56_base->cal_data));
+}
+EXPORT_SYMBOL_NS_GPL(cs35l56_cal_data_debugfs_read, SND_SOC_CS35L56_SHARED);
+
+ssize_t cs35l56_cal_data_debugfs_write(struct cs35l56_base *cs35l56_base,
+				       const char __user *from, size_t count,
+				       loff_t *ppos)
+{
+	struct cirrus_amp_cal_data cal_data;
+	int ret;
+
+	if (!IS_ENABLED(CONFIG_SND_SOC_CS35L56_CAL_DEBUGFS_COMMON))
+		return -ENXIO;
+
+	/* Only allow a full blob to be written */
+	if (*ppos || (count != sizeof(cal_data)))
+		return -EMSGSIZE;
+
+	ret = simple_write_to_buffer(&cal_data, sizeof(cal_data), ppos, from, count);
+	if (ret)
+		return ret;
+
+	ret = cs35l56_stash_calibration(cs35l56_base, &cal_data);
+	if (ret)
+		return ret;
+
+	return count;
+}
+EXPORT_SYMBOL_NS_GPL(cs35l56_cal_data_debugfs_write, SND_SOC_CS35L56_SHARED);
+
+void cs35l56_create_cal_debugfs(struct cs35l56_base *cs35l56_base,
+				const struct cs35l56_cal_debugfs_fops *fops)
+{
+	if (!IS_ENABLED(CONFIG_SND_SOC_CS35L56_CAL_DEBUGFS_COMMON))
+		return;
+
+	cs35l56_base->debugfs = cs_amp_create_debugfs(cs35l56_base->dev);
+
+	debugfs_create_file("calibrate",
+			    0200, cs35l56_base->debugfs, cs35l56_base,
+			    &fops->calibrate);
+	debugfs_create_file("cal_temperature",
+			    0200, cs35l56_base->debugfs, cs35l56_base,
+			    &fops->cal_temperature);
+	debugfs_create_file("cal_data",
+			    0644, cs35l56_base->debugfs, cs35l56_base,
+			    &fops->cal_data);
+}
+EXPORT_SYMBOL_NS_GPL(cs35l56_create_cal_debugfs, SND_SOC_CS35L56_SHARED);
+
+void cs35l56_remove_cal_debugfs(struct cs35l56_base *cs35l56_base)
+{
+	debugfs_remove_recursive(cs35l56_base->debugfs);
+}
+EXPORT_SYMBOL_NS_GPL(cs35l56_remove_cal_debugfs, SND_SOC_CS35L56_SHARED);
+
+const char * const cs35l56_cal_set_status_text[] = {
+	"Unknown", "Default", "Set",
+};
+EXPORT_SYMBOL_NS_GPL(cs35l56_cal_set_status_text, SND_SOC_CS35L56_SHARED);
+
+int cs35l56_cal_set_status_get(struct cs35l56_base *cs35l56_base,
+			       struct snd_ctl_elem_value *uvalue)
+{
+	struct cs_dsp *dsp = cs35l56_base->dsp;
+	__be32 cal_set_status_be;
+	int alg_id;
+	int ret;
+
+	switch (cs35l56_base->type) {
+	case 0x54:
+	case 0x56:
+	case 0x57:
+		alg_id = 0x9f210;
+		break;
+	default:
+		alg_id = 0xbf210;
+		break;
+	}
+
+	scoped_guard(mutex, &dsp->pwr_lock) {
+		ret = cs_dsp_coeff_read_ctrl(cs_dsp_get_ctl(dsp,
+							    "CAL_SET_STATUS",
+							    WMFW_ADSP2_YM, alg_id),
+					      0, &cal_set_status_be,
+					      sizeof(cal_set_status_be));
+	}
+	if (ret) {
+		uvalue->value.enumerated.item[0] = CS35L56_CAL_SET_STATUS_UNKNOWN;
+		return 0;
+	}
+
+	switch (be32_to_cpu(cal_set_status_be)) {
+	case CS35L56_CAL_SET_STATUS_DEFAULT:
+	case CS35L56_CAL_SET_STATUS_SET:
+		uvalue->value.enumerated.item[0] = be32_to_cpu(cal_set_status_be);
+		return 0;
+	default:
+		uvalue->value.enumerated.item[0] = CS35L56_CAL_SET_STATUS_UNKNOWN;
+		return 0;
+	}
+}
+EXPORT_SYMBOL_NS_GPL(cs35l56_cal_set_status_get, SND_SOC_CS35L56_SHARED);
+
 int cs35l56_read_prot_status(struct cs35l56_base *cs35l56_base,
 			     bool *fw_missing, unsigned int *fw_version)
 {
 	unsigned int prot_status;
 	int ret;
 
-	ret = regmap_read(cs35l56_base->regmap, CS35L56_PROTECTION_STATUS, &prot_status);
+	ret = regmap_read(cs35l56_base->regmap,
+			  cs35l56_base->fw_reg->prot_sts, &prot_status);
 	if (ret) {
 		dev_err(cs35l56_base->dev, "Get PROTECTION_STATUS failed: %d\n", ret);
 		return ret;
@@ -760,7 +1326,8 @@ int cs35l56_read_prot_status(struct cs35l56_base *cs35l56_base,
 
 	*fw_missing = !!(prot_status & CS35L56_FIRMWARE_MISSING);
 
-	ret = regmap_read(cs35l56_base->regmap, CS35L56_DSP1_FW_VER, fw_version);
+	ret = regmap_read(cs35l56_base->regmap,
+			  cs35l56_base->fw_reg->fw_ver, fw_version);
 	if (ret) {
 		dev_err(cs35l56_base->dev, "Get FW VER failed: %d\n", ret);
 		return ret;
@@ -769,6 +1336,62 @@ int cs35l56_read_prot_status(struct cs35l56_base *cs35l56_base,
 	return 0;
 }
 EXPORT_SYMBOL_NS_GPL(cs35l56_read_prot_status, SND_SOC_CS35L56_SHARED);
+
+void cs35l56_warn_if_firmware_missing(struct cs35l56_base *cs35l56_base)
+{
+	unsigned int firmware_version;
+	bool firmware_missing;
+	int ret;
+
+	ret = cs35l56_read_prot_status(cs35l56_base, &firmware_missing, &firmware_version);
+	if (ret)
+		return;
+
+	if (!firmware_missing)
+		return;
+
+	dev_warn(cs35l56_base->dev, "FIRMWARE_MISSING\n");
+}
+EXPORT_SYMBOL_NS_GPL(cs35l56_warn_if_firmware_missing, SND_SOC_CS35L56_SHARED);
+
+void cs35l56_log_tuning(struct cs35l56_base *cs35l56_base, struct cs_dsp *cs_dsp)
+{
+	__be32 pid, sid, tid;
+	unsigned int alg_id;
+	int ret;
+
+	switch (cs35l56_base->type) {
+	case 0x54:
+	case 0x56:
+	case 0x57:
+		alg_id = 0x9f212;
+		break;
+	default:
+		alg_id = 0xbf212;
+		break;
+	}
+
+	scoped_guard(mutex, &cs_dsp->pwr_lock) {
+		ret = cs_dsp_coeff_read_ctrl(cs_dsp_get_ctl(cs_dsp, "AS_PRJCT_ID",
+							    WMFW_ADSP2_XM, alg_id),
+					     0, &pid, sizeof(pid));
+		if (!ret)
+			ret = cs_dsp_coeff_read_ctrl(cs_dsp_get_ctl(cs_dsp, "AS_CHNNL_ID",
+								    WMFW_ADSP2_XM, alg_id),
+						     0, &sid, sizeof(sid));
+		if (!ret)
+			ret = cs_dsp_coeff_read_ctrl(cs_dsp_get_ctl(cs_dsp, "AS_SNPSHT_ID",
+								    WMFW_ADSP2_XM, alg_id),
+						     0, &tid, sizeof(tid));
+	}
+
+	if (ret)
+		dev_warn(cs35l56_base->dev, "Can't read tuning IDs");
+	else
+		dev_info(cs35l56_base->dev, "Tuning PID: %#x, SID: %#x, TID: %#x\n",
+			 be32_to_cpu(pid), be32_to_cpu(sid), be32_to_cpu(tid));
+}
+EXPORT_SYMBOL_NS_GPL(cs35l56_log_tuning, SND_SOC_CS35L56_SHARED);
 
 int cs35l56_hw_init(struct cs35l56_base *cs35l56_base)
 {
@@ -792,6 +1415,7 @@ int cs35l56_hw_init(struct cs35l56_base *cs35l56_base)
 		return ret;
 	}
 	cs35l56_base->rev = revid & (CS35L56_AREVID_MASK | CS35L56_MTLREVID_MASK);
+	cs35l56_set_fw_reg_table(cs35l56_base);
 
 	ret = cs35l56_wait_for_firmware_boot(cs35l56_base);
 	if (ret)
@@ -808,6 +1432,11 @@ int cs35l56_hw_init(struct cs35l56_base *cs35l56_base)
 	case 0x35A54:
 	case 0x35A56:
 	case 0x35A57:
+		cs35l56_base->calibration_controls = &cs35l56_calibration_controls;
+		break;
+	case 0x35A630:
+		cs35l56_base->calibration_controls = &cs35l63_calibration_controls;
+		devid = devid >> 4;
 		break;
 	default:
 		dev_err(cs35l56_base->dev, "Unknown device %x\n", devid);
@@ -852,6 +1481,21 @@ int cs35l56_hw_init(struct cs35l56_base *cs35l56_base)
 			   CS35L56_TEMP_ERR_EINT1_MASK,
 			   0);
 
+	switch (cs35l56_base->type) {
+	case 0x54:
+	case 0x56:
+	case 0x57:
+		ret = cs35l56_read_silicon_uid(cs35l56_base);
+		break;
+	default:
+		ret = cs35l63_read_silicon_uid(cs35l56_base);
+		break;
+	}
+	if (ret)
+		return ret;
+
+	dev_dbg(cs35l56_base->dev, "SiliconID = %#llx\n", cs35l56_base->silicon_uid);
+
 	return 0;
 }
 EXPORT_SYMBOL_NS_GPL(cs35l56_hw_init, SND_SOC_CS35L56_SHARED);
@@ -862,7 +1506,17 @@ int cs35l56_get_speaker_id(struct cs35l56_base *cs35l56_base)
 	u32 speaker_id;
 	int i, ret;
 
-	/* Attempt to read the speaker type from a device property first */
+	/* Check for vendor-specific speaker ID method */
+	ret = cs_amp_get_vendor_spkid(cs35l56_base->dev);
+	if (ret >= 0) {
+		dev_dbg(cs35l56_base->dev, "Vendor Speaker ID = %d\n", ret);
+		return ret;
+	} else if (ret != -ENOENT) {
+		dev_err(cs35l56_base->dev, "Error getting vendor Speaker ID: %d\n", ret);
+		return ret;
+	}
+
+	/* Attempt to read the speaker type from a device property */
 	ret = device_property_read_u32(cs35l56_base->dev, "cirrus,speaker-id", &speaker_id);
 	if (!ret) {
 		dev_dbg(cs35l56_base->dev, "Speaker ID = %d\n", speaker_id);
@@ -1045,8 +1699,42 @@ const struct regmap_config cs35l56_regmap_sdw = {
 };
 EXPORT_SYMBOL_NS_GPL(cs35l56_regmap_sdw, SND_SOC_CS35L56_SHARED);
 
+const struct regmap_config cs35l63_regmap_i2c = {
+	.reg_bits = 32,
+	.val_bits = 32,
+	.reg_stride = 4,
+	.reg_base = 0x8000,
+	.reg_format_endian = REGMAP_ENDIAN_BIG,
+	.val_format_endian = REGMAP_ENDIAN_BIG,
+	.max_register = CS35L56_DSP1_PMEM_5114,
+	.reg_defaults = cs35l63_reg_defaults,
+	.num_reg_defaults = ARRAY_SIZE(cs35l63_reg_defaults),
+	.volatile_reg = cs35l63_volatile_reg,
+	.readable_reg = cs35l56_readable_reg,
+	.precious_reg = cs35l56_precious_reg,
+	.cache_type = REGCACHE_MAPLE,
+};
+EXPORT_SYMBOL_NS_GPL(cs35l63_regmap_i2c, SND_SOC_CS35L56_SHARED);
+
+const struct regmap_config cs35l63_regmap_sdw = {
+	.reg_bits = 32,
+	.val_bits = 32,
+	.reg_stride = 4,
+	.reg_format_endian = REGMAP_ENDIAN_LITTLE,
+	.val_format_endian = REGMAP_ENDIAN_BIG,
+	.max_register = CS35L56_DSP1_PMEM_5114,
+	.reg_defaults = cs35l63_reg_defaults,
+	.num_reg_defaults = ARRAY_SIZE(cs35l63_reg_defaults),
+	.volatile_reg = cs35l63_volatile_reg,
+	.readable_reg = cs35l56_readable_reg,
+	.precious_reg = cs35l56_precious_reg,
+	.cache_type = REGCACHE_MAPLE,
+};
+EXPORT_SYMBOL_NS_GPL(cs35l63_regmap_sdw, SND_SOC_CS35L56_SHARED);
+
 MODULE_DESCRIPTION("ASoC CS35L56 Shared");
 MODULE_AUTHOR("Richard Fitzgerald <rf@opensource.cirrus.com>");
 MODULE_AUTHOR("Simon Trimmer <simont@opensource.cirrus.com>");
 MODULE_LICENSE("GPL");
 MODULE_IMPORT_NS(SND_SOC_CS_AMP_LIB);
+MODULE_IMPORT_NS(FW_CS_DSP);

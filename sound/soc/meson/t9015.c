@@ -57,11 +57,11 @@ static int t9015_dai_set_fmt(struct snd_soc_dai *dai, unsigned int fmt)
 	unsigned int val;
 
 	switch (fmt & SND_SOC_DAIFMT_MASTER_MASK) {
-	case SND_SOC_DAIFMT_CBM_CFM:
+	case SND_SOC_DAIFMT_CBP_CFP:
 		val = I2S_MODE;
 		break;
 
-	case SND_SOC_DAIFMT_CBS_CFS:
+	case SND_SOC_DAIFMT_CBC_CFC:
 		val = 0;
 		break;
 
@@ -177,8 +177,8 @@ static int t9015_set_bias_level(struct snd_soc_component *component,
 				enum snd_soc_bias_level level)
 {
 	struct t9015 *priv = snd_soc_component_get_drvdata(component);
-	enum snd_soc_bias_level now =
-		snd_soc_component_get_bias_level(component);
+	struct snd_soc_dapm_context *dapm = snd_soc_component_to_dapm(component);
+	enum snd_soc_bias_level now = snd_soc_dapm_get_bias_level(dapm);
 	int ret;
 
 	switch (level) {

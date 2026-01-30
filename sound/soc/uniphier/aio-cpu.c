@@ -623,7 +623,7 @@ static int uniphier_aio_vol_info(struct snd_kcontrol *kcontrol,
 static int uniphier_aio_vol_get(struct snd_kcontrol *kcontrol,
 				struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *comp = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *comp = snd_kcontrol_chip(kcontrol);
 	struct uniphier_aio_chip *chip = snd_soc_component_get_drvdata(comp);
 	struct uniphier_aio_sub *sub;
 	int oport_hw = kcontrol->private_value;
@@ -640,7 +640,7 @@ static int uniphier_aio_vol_get(struct snd_kcontrol *kcontrol,
 static int uniphier_aio_vol_put(struct snd_kcontrol *kcontrol,
 				struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *comp = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *comp = snd_kcontrol_chip(kcontrol);
 	struct uniphier_aio_chip *chip = snd_soc_component_get_drvdata(comp);
 	struct uniphier_aio_sub *sub;
 	int oport_hw = kcontrol->private_value;
@@ -762,14 +762,10 @@ int uniphier_aio_probe(struct platform_device *pdev)
 		return -ENOMEM;
 
 	chip->num_plls = chip->chip_spec->num_plls;
-	chip->plls = devm_kcalloc(dev,
-				  chip->num_plls,
-				  sizeof(struct uniphier_aio_pll),
-				  GFP_KERNEL);
+	chip->plls = devm_kmemdup_array(dev, chip->chip_spec->plls, chip->num_plls,
+					sizeof(*chip->chip_spec->plls), GFP_KERNEL);
 	if (!chip->plls)
 		return -ENOMEM;
-	memcpy(chip->plls, chip->chip_spec->plls,
-	       sizeof(struct uniphier_aio_pll) * chip->num_plls);
 
 	for (i = 0; i < chip->num_aios; i++) {
 		struct uniphier_aio *aio = &chip->aios[i];

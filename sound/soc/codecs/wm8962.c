@@ -82,6 +82,7 @@ struct wm8962_priv {
 #endif
 
 	int irq;
+	bool master_flag;
 };
 
 /* We can't use the same notifier block for more than one supply and
@@ -1544,7 +1545,7 @@ static int wm8962_dsp2_ena_get(struct snd_kcontrol *kcontrol,
 			       struct snd_ctl_elem_value *ucontrol)
 {
 	int shift = kcontrol->private_value;
-	struct snd_soc_component *component = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
 	struct wm8962_priv *wm8962 = snd_soc_component_get_drvdata(component);
 
 	ucontrol->value.integer.value[0] = !!(wm8962->dsp2_ena & 1 << shift);
@@ -1556,7 +1557,7 @@ static int wm8962_dsp2_ena_put(struct snd_kcontrol *kcontrol,
 			       struct snd_ctl_elem_value *ucontrol)
 {
 	int shift = kcontrol->private_value;
-	struct snd_soc_component *component = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
 	struct wm8962_priv *wm8962 = snd_soc_component_get_drvdata(component);
 	int old = wm8962->dsp2_ena;
 	int ret = 0;
@@ -1594,7 +1595,7 @@ out:
 static int wm8962_put_hp_sw(struct snd_kcontrol *kcontrol,
 			    struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *component = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
 	int ret;
 
 	/* Apply the update (if any) */
@@ -1624,7 +1625,7 @@ static int wm8962_put_hp_sw(struct snd_kcontrol *kcontrol,
 static int wm8962_put_spk_sw(struct snd_kcontrol *kcontrol,
 			    struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *component = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
 	int ret;
 
 	/* Apply the update (if any) */
@@ -2418,7 +2419,7 @@ static int wm8962_add_widgets(struct snd_soc_component *component)
 {
 	struct wm8962_priv *wm8962 = snd_soc_component_get_drvdata(component);
 	struct wm8962_pdata *pdata = &wm8962->pdata;
-	struct snd_soc_dapm_context *dapm = snd_soc_component_get_dapm(component);
+	struct snd_soc_dapm_context *dapm = snd_soc_component_to_dapm(component);
 
 	snd_soc_add_component_controls(component, wm8962_snd_controls,
 			     ARRAY_SIZE(wm8962_snd_controls));
@@ -2465,6 +2466,7 @@ static const int sysclk_rates[] = {
 
 static void wm8962_configure_bclk(struct snd_soc_component *component)
 {
+	struct snd_soc_dapm_context *dapm = snd_soc_component_to_dapm(component);
 	struct wm8962_priv *wm8962 = snd_soc_component_get_drvdata(component);
 	int best, min_diff, diff;
 	int dspclk, i;
@@ -2504,7 +2506,7 @@ static void wm8962_configure_bclk(struct snd_soc_component *component)
 	 * So we here provisionally enable it and then disable it afterward
 	 * if current bias_level hasn't reached SND_SOC_BIAS_ON.
 	 */
-	if (snd_soc_component_get_bias_level(component) != SND_SOC_BIAS_ON)
+	if (snd_soc_dapm_get_bias_level(dapm) != SND_SOC_BIAS_ON)
 		snd_soc_component_update_bits(component, WM8962_CLOCKING2,
 				WM8962_SYSCLK_ENA_MASK, WM8962_SYSCLK_ENA);
 
@@ -2518,7 +2520,7 @@ static void wm8962_configure_bclk(struct snd_soc_component *component)
 	usleep_range(500, 1000);
 	dspclk = snd_soc_component_read(component, WM8962_CLOCKING1);
 
-	if (snd_soc_component_get_bias_level(component) != SND_SOC_BIAS_ON)
+	if (snd_soc_dapm_get_bias_level(dapm) != SND_SOC_BIAS_ON)
 		snd_soc_component_update_bits(component, WM8962_CLOCKING2,
 				WM8962_SYSCLK_ENA_MASK, 0);
 
@@ -2578,6 +2580,8 @@ static void wm8962_configure_bclk(struct snd_soc_component *component)
 static int wm8962_set_bias_level(struct snd_soc_component *component,
 				 enum snd_soc_bias_level level)
 {
+	struct snd_soc_dapm_context *dapm = snd_soc_component_to_dapm(component);
+
 	switch (level) {
 	case SND_SOC_BIAS_ON:
 		break;
@@ -2595,7 +2599,7 @@ static int wm8962_set_bias_level(struct snd_soc_component *component,
 		snd_soc_component_update_bits(component, WM8962_PWR_MGMT_1,
 				    WM8962_VMID_SEL_MASK, 0x100);
 
-		if (snd_soc_component_get_bias_level(component) == SND_SOC_BIAS_OFF)
+		if (snd_soc_dapm_get_bias_level(dapm) == SND_SOC_BIAS_OFF)
 			msleep(100);
 		break;
 
@@ -2628,6 +2632,7 @@ static int wm8962_hw_params(struct snd_pcm_substream *substream,
 			    struct snd_soc_dai *dai)
 {
 	struct snd_soc_component *component = dai->component;
+	struct snd_soc_dapm_context *dapm = snd_soc_component_to_dapm(component);
 	struct wm8962_priv *wm8962 = snd_soc_component_get_drvdata(component);
 	int i;
 	int aif0 = 0;
@@ -2678,7 +2683,7 @@ static int wm8962_hw_params(struct snd_pcm_substream *substream,
 	dev_dbg(component->dev, "hw_params set BCLK %dHz LRCLK %dHz\n",
 		wm8962->bclk, wm8962->lrclk);
 
-	if (snd_soc_component_get_bias_level(component) == SND_SOC_BIAS_ON)
+	if (snd_soc_dapm_get_bias_level(dapm) == SND_SOC_BIAS_ON)
 		wm8962_configure_bclk(component);
 
 	return 0;
@@ -2715,6 +2720,7 @@ static int wm8962_set_dai_sysclk(struct snd_soc_dai *dai, int clk_id,
 static int wm8962_set_dai_fmt(struct snd_soc_dai *dai, unsigned int fmt)
 {
 	struct snd_soc_component *component = dai->component;
+	struct wm8962_priv *wm8962 = snd_soc_component_get_drvdata(component);
 	int aif0 = 0;
 
 	switch (fmt & SND_SOC_DAIFMT_FORMAT_MASK) {
@@ -2761,11 +2767,13 @@ static int wm8962_set_dai_fmt(struct snd_soc_dai *dai, unsigned int fmt)
 		return -EINVAL;
 	}
 
+	wm8962->master_flag = false;
 	switch (fmt & SND_SOC_DAIFMT_MASTER_MASK) {
-	case SND_SOC_DAIFMT_CBM_CFM:
+	case SND_SOC_DAIFMT_CBP_CFP:
 		aif0 |= WM8962_MSTR;
+		wm8962->master_flag = true;
 		break;
-	case SND_SOC_DAIFMT_CBS_CFS:
+	case SND_SOC_DAIFMT_CBC_CFC:
 		break;
 	default:
 		return -EINVAL;
@@ -3189,7 +3197,7 @@ static irqreturn_t wm8962_irq(int irq, void *data)
 int wm8962_mic_detect(struct snd_soc_component *component, struct snd_soc_jack *jack)
 {
 	struct wm8962_priv *wm8962 = snd_soc_component_get_drvdata(component);
-	struct snd_soc_dapm_context *dapm = snd_soc_component_get_dapm(component);
+	struct snd_soc_dapm_context *dapm = snd_soc_component_to_dapm(component);
 	int irq_mask, enable;
 
 	wm8962->jack = jack;
@@ -3235,7 +3243,7 @@ static void wm8962_beep_work(struct work_struct *work)
 	struct wm8962_priv *wm8962 =
 		container_of(work, struct wm8962_priv, beep_work);
 	struct snd_soc_component *component = wm8962->component;
-	struct snd_soc_dapm_context *dapm = snd_soc_component_get_dapm(component);
+	struct snd_soc_dapm_context *dapm = snd_soc_component_to_dapm(component);
 	int i;
 	int reg = 0;
 	int best = 0;
@@ -3407,13 +3415,16 @@ static int wm8962_gpio_request(struct gpio_chip *chip, unsigned offset)
 	return 0;
 }
 
-static void wm8962_gpio_set(struct gpio_chip *chip, unsigned offset, int value)
+static int wm8962_gpio_set(struct gpio_chip *chip, unsigned int offset,
+			   int value)
 {
 	struct wm8962_priv *wm8962 = gpiochip_get_data(chip);
 	struct snd_soc_component *component = wm8962->component;
 
-	snd_soc_component_update_bits(component, WM8962_GPIO_BASE + offset,
-			    WM8962_GP2_LVL, !!value << WM8962_GP2_LVL_SHIFT);
+	return snd_soc_component_update_bits(component,
+					     WM8962_GPIO_BASE + offset,
+					     WM8962_GP2_LVL,
+					     !!value << WM8962_GP2_LVL_SHIFT);
 }
 
 static int wm8962_gpio_direction_out(struct gpio_chip *chip,
@@ -3439,7 +3450,7 @@ static const struct gpio_chip wm8962_template_chip = {
 	.owner			= THIS_MODULE,
 	.request		= wm8962_gpio_request,
 	.direction_output	= wm8962_gpio_direction_out,
-	.set			= wm8962_gpio_set,
+	.set_rv			= wm8962_gpio_set,
 	.can_sleep		= 1,
 };
 
@@ -3481,7 +3492,7 @@ static void wm8962_free_gpio(struct snd_soc_component *component)
 
 static int wm8962_probe(struct snd_soc_component *component)
 {
-	struct snd_soc_dapm_context *dapm = snd_soc_component_get_dapm(component);
+	struct snd_soc_dapm_context *dapm = snd_soc_component_to_dapm(component);
 	int ret;
 	struct wm8962_priv *wm8962 = snd_soc_component_get_drvdata(component);
 	int i;
@@ -3536,7 +3547,7 @@ static int wm8962_probe(struct snd_soc_component *component)
 	}
 	if (!dmicclk || !dmicdat) {
 		dev_dbg(component->dev, "DMIC not in use, disabling\n");
-		snd_soc_dapm_nc_pin(dapm, "DMICDAT");
+		snd_soc_dapm_disable_pin(dapm, "DMICDAT");
 	}
 	if (dmicclk != dmicdat)
 		dev_warn(component->dev, "DMIC GPIOs partially configured\n");
@@ -3850,7 +3861,6 @@ static void wm8962_i2c_remove(struct i2c_client *client)
 	pm_runtime_disable(&client->dev);
 }
 
-#ifdef CONFIG_PM
 static int wm8962_runtime_resume(struct device *dev)
 {
 	struct wm8962_priv *wm8962 = dev_get_drvdata(dev);
@@ -3901,6 +3911,9 @@ static int wm8962_runtime_resume(struct device *dev)
 			   WM8962_BIAS_ENA | WM8962_VMID_SEL_MASK,
 			   WM8962_BIAS_ENA | 0x180);
 
+	if (wm8962->master_flag)
+		regmap_update_bits(wm8962->regmap, WM8962_AUDIO_INTERFACE_0,
+				   WM8962_MSTR, WM8962_MSTR);
 	msleep(5);
 
 	return 0;
@@ -3913,6 +3926,10 @@ disable_clock:
 static int wm8962_runtime_suspend(struct device *dev)
 {
 	struct wm8962_priv *wm8962 = dev_get_drvdata(dev);
+
+	if (wm8962->master_flag)
+		regmap_update_bits(wm8962->regmap, WM8962_AUDIO_INTERFACE_0,
+				   WM8962_MSTR, 0);
 
 	regmap_update_bits(wm8962->regmap, WM8962_PWR_MGMT_1,
 			   WM8962_VMID_SEL_MASK | WM8962_BIAS_ENA, 0);
@@ -3930,11 +3947,10 @@ static int wm8962_runtime_suspend(struct device *dev)
 
 	return 0;
 }
-#endif
 
 static const struct dev_pm_ops wm8962_pm = {
-	SET_SYSTEM_SLEEP_PM_OPS(pm_runtime_force_suspend, pm_runtime_force_resume)
-	SET_RUNTIME_PM_OPS(wm8962_runtime_suspend, wm8962_runtime_resume, NULL)
+	SYSTEM_SLEEP_PM_OPS(pm_runtime_force_suspend, pm_runtime_force_resume)
+	RUNTIME_PM_OPS(wm8962_runtime_suspend, wm8962_runtime_resume, NULL)
 };
 
 static const struct i2c_device_id wm8962_i2c_id[] = {
@@ -3953,7 +3969,7 @@ static struct i2c_driver wm8962_i2c_driver = {
 	.driver = {
 		.name = "wm8962",
 		.of_match_table = wm8962_of_match,
-		.pm = &wm8962_pm,
+		.pm = pm_ptr(&wm8962_pm),
 	},
 	.probe =    wm8962_i2c_probe,
 	.remove =   wm8962_i2c_remove,

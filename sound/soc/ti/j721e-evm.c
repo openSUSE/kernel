@@ -37,7 +37,7 @@ enum j721e_audio_domain_id {
 
 #define J721E_DAI_FMT		(SND_SOC_DAIFMT_RIGHT_J | \
 				 SND_SOC_DAIFMT_NB_NF |   \
-				 SND_SOC_DAIFMT_CBS_CFS)
+				 SND_SOC_DAIFMT_CBC_CFC)
 
 enum j721e_board_type {
 	J721E_BOARD_CPB = 1,
@@ -444,7 +444,7 @@ static int j721e_audio_init(struct snd_soc_pcm_runtime *rtd)
 
 static int j721e_audio_init_ivi(struct snd_soc_pcm_runtime *rtd)
 {
-	struct snd_soc_dapm_context *dapm = &rtd->card->dapm;
+	struct snd_soc_dapm_context *dapm = snd_soc_card_to_dapm(rtd->card);
 
 	snd_soc_dapm_new_controls(dapm, j721e_ivi_codec_a_dapm_widgets,
 				  ARRAY_SIZE(j721e_ivi_codec_a_dapm_widgets));
@@ -915,8 +915,9 @@ static int j721e_soc_probe(struct platform_device *pdev)
 	mutex_init(&priv->mutex);
 	ret = devm_snd_soc_register_card(&pdev->dev, card);
 	if (ret)
-		dev_err(&pdev->dev, "devm_snd_soc_register_card() failed: %d\n",
-			ret);
+		dev_err_probe(&pdev->dev, ret,
+			      "devm_snd_soc_register_card() failed: %d\n",
+			      ret);
 
 	return ret;
 }

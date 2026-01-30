@@ -116,6 +116,7 @@ static const struct snd_soc_dapm_route rt5682_map[] = {
 static int acp_card_rt5682_init(struct snd_soc_pcm_runtime *rtd)
 {
 	struct snd_soc_card *card = rtd->card;
+	struct snd_soc_dapm_context *dapm = snd_soc_card_to_dapm(card);
 	struct acp_card_drvdata *drvdata = card->drvdata;
 	struct snd_soc_dai *codec_dai = snd_soc_rtd_to_codec(rtd, 0);
 	struct snd_soc_component *component = codec_dai->component;
@@ -129,7 +130,7 @@ static int acp_card_rt5682_init(struct snd_soc_pcm_runtime *rtd)
 	drvdata->wclk = clk_get(component->dev, "rt5682-dai-wclk");
 	drvdata->bclk = clk_get(component->dev, "rt5682-dai-bclk");
 
-	ret = snd_soc_dapm_new_controls(&card->dapm, rt5682_widgets,
+	ret = snd_soc_dapm_new_controls(dapm, rt5682_widgets,
 					ARRAY_SIZE(rt5682_widgets));
 	if (ret) {
 		dev_err(rtd->dev, "unable to add widget dapm controls, ret %d\n", ret);
@@ -166,7 +167,7 @@ static int acp_card_rt5682_init(struct snd_soc_pcm_runtime *rtd)
 		return ret;
 	}
 
-	return snd_soc_dapm_add_routes(&rtd->card->dapm, rt5682_map, ARRAY_SIZE(rt5682_map));
+	return snd_soc_dapm_add_routes(dapm, rt5682_map, ARRAY_SIZE(rt5682_map));
 }
 
 static int acp_card_hs_startup(struct snd_pcm_substream *substream)
@@ -357,6 +358,7 @@ static const struct snd_soc_dapm_route rt5682s_map[] = {
 static int acp_card_rt5682s_init(struct snd_soc_pcm_runtime *rtd)
 {
 	struct snd_soc_card *card = rtd->card;
+	struct snd_soc_dapm_context *dapm = snd_soc_card_to_dapm(card);
 	struct acp_card_drvdata *drvdata = card->drvdata;
 	struct snd_soc_dai *codec_dai = snd_soc_rtd_to_codec(rtd, 0);
 	struct snd_soc_component *component = codec_dai->component;
@@ -372,7 +374,7 @@ static int acp_card_rt5682s_init(struct snd_soc_pcm_runtime *rtd)
 		drvdata->bclk = clk_get(component->dev, "rt5682-dai-bclk");
 	}
 
-	ret = snd_soc_dapm_new_controls(&card->dapm, rt5682s_widgets,
+	ret = snd_soc_dapm_new_controls(dapm, rt5682s_widgets,
 					ARRAY_SIZE(rt5682s_widgets));
 	if (ret) {
 		dev_err(rtd->dev, "unable to add widget dapm controls, ret %d\n", ret);
@@ -409,7 +411,7 @@ static int acp_card_rt5682s_init(struct snd_soc_pcm_runtime *rtd)
 		return ret;
 	}
 
-	return snd_soc_dapm_add_routes(&rtd->card->dapm, rt5682s_map, ARRAY_SIZE(rt5682s_map));
+	return snd_soc_dapm_add_routes(dapm, rt5682s_map, ARRAY_SIZE(rt5682s_map));
 }
 
 static int acp_card_rt5682s_hw_params(struct snd_pcm_substream *substream,
@@ -581,13 +583,14 @@ static struct snd_soc_codec_conf rt1019_conf[] = {
 static int acp_card_rt1019_init(struct snd_soc_pcm_runtime *rtd)
 {
 	struct snd_soc_card *card = rtd->card;
+	struct snd_soc_dapm_context *dapm = snd_soc_card_to_dapm(card);
 	struct acp_card_drvdata *drvdata = card->drvdata;
 	int ret;
 
 	if (drvdata->amp_codec_id != RT1019)
 		return -EINVAL;
 
-	ret = snd_soc_dapm_new_controls(&card->dapm, rt1019_widgets,
+	ret = snd_soc_dapm_new_controls(dapm, rt1019_widgets,
 					ARRAY_SIZE(rt1019_widgets));
 	if (ret) {
 		dev_err(rtd->dev, "unable to add widget dapm controls, ret %d\n", ret);
@@ -601,7 +604,7 @@ static int acp_card_rt1019_init(struct snd_soc_pcm_runtime *rtd)
 		return ret;
 	}
 
-	return snd_soc_dapm_add_routes(&rtd->card->dapm, rt1019_map_lr,
+	return snd_soc_dapm_add_routes(dapm, rt1019_map_lr,
 				       ARRAY_SIZE(rt1019_map_lr));
 }
 
@@ -746,13 +749,14 @@ static const struct snd_soc_dapm_route max98360a_map[] = {
 static int acp_card_maxim_init(struct snd_soc_pcm_runtime *rtd)
 {
 	struct snd_soc_card *card = rtd->card;
+	struct snd_soc_dapm_context *dapm = snd_soc_card_to_dapm(card);
 	struct acp_card_drvdata *drvdata = card->drvdata;
 	int ret;
 
 	if (drvdata->amp_codec_id != MAX98360A)
 		return -EINVAL;
 
-	ret = snd_soc_dapm_new_controls(&card->dapm, max98360a_widgets,
+	ret = snd_soc_dapm_new_controls(dapm, max98360a_widgets,
 					ARRAY_SIZE(max98360a_widgets));
 	if (ret) {
 		dev_err(rtd->dev, "unable to add widget dapm controls, ret %d\n", ret);
@@ -766,7 +770,7 @@ static int acp_card_maxim_init(struct snd_soc_pcm_runtime *rtd)
 		return ret;
 	}
 
-	return snd_soc_dapm_add_routes(&rtd->card->dapm, max98360a_map,
+	return snd_soc_dapm_add_routes(dapm, max98360a_map,
 				       ARRAY_SIZE(max98360a_map));
 }
 
@@ -882,13 +886,14 @@ static int acp_card_max98388_startup(struct snd_pcm_substream *substream)
 static int acp_card_max98388_init(struct snd_soc_pcm_runtime *rtd)
 {
 	struct snd_soc_card *card = rtd->card;
+	struct snd_soc_dapm_context *dapm = snd_soc_card_to_dapm(card);
 	struct acp_card_drvdata *drvdata = card->drvdata;
 	int ret;
 
 	if (drvdata->amp_codec_id != MAX98388)
 		return -EINVAL;
 
-	ret = snd_soc_dapm_new_controls(&card->dapm, max98388_widgets,
+	ret = snd_soc_dapm_new_controls(dapm, max98388_widgets,
 					ARRAY_SIZE(max98388_widgets));
 
 	if (ret) {
@@ -904,7 +909,7 @@ static int acp_card_max98388_init(struct snd_soc_pcm_runtime *rtd)
 		return ret;
 	}
 
-	return snd_soc_dapm_add_routes(&rtd->card->dapm, max98388_map,
+	return snd_soc_dapm_add_routes(dapm, max98388_map,
 				       ARRAY_SIZE(max98388_map));
 }
 
@@ -919,7 +924,7 @@ static int acp_max98388_hw_params(struct snd_pcm_substream *substream,
 	int ret;
 
 	ret = snd_soc_dai_set_fmt(codec_dai,
-				  SND_SOC_DAIFMT_CBS_CFS | SND_SOC_DAIFMT_I2S |
+				  SND_SOC_DAIFMT_CBC_CFC | SND_SOC_DAIFMT_I2S |
 				  SND_SOC_DAIFMT_NB_NF);
 	if (ret < 0)
 		return ret;
@@ -966,6 +971,7 @@ static const struct snd_soc_dapm_route nau8825_map[] = {
 static int acp_card_nau8825_init(struct snd_soc_pcm_runtime *rtd)
 {
 	struct snd_soc_card *card = rtd->card;
+	struct snd_soc_dapm_context *dapm = snd_soc_card_to_dapm(card);
 	struct acp_card_drvdata *drvdata = card->drvdata;
 	struct snd_soc_dai *codec_dai = snd_soc_rtd_to_codec(rtd, 0);
 	struct snd_soc_component *component = codec_dai->component;
@@ -976,7 +982,7 @@ static int acp_card_nau8825_init(struct snd_soc_pcm_runtime *rtd)
 	if (drvdata->hs_codec_id != NAU8825)
 		return -EINVAL;
 
-	ret = snd_soc_dapm_new_controls(&card->dapm, nau8825_widgets,
+	ret = snd_soc_dapm_new_controls(dapm, nau8825_widgets,
 					ARRAY_SIZE(nau8825_widgets));
 	if (ret) {
 		dev_err(rtd->dev, "unable to add widget dapm controls, ret %d\n", ret);
@@ -1013,7 +1019,7 @@ static int acp_card_nau8825_init(struct snd_soc_pcm_runtime *rtd)
 		return ret;
 	}
 
-	return snd_soc_dapm_add_routes(&rtd->card->dapm, nau8825_map, ARRAY_SIZE(nau8825_map));
+	return snd_soc_dapm_add_routes(dapm, nau8825_map, ARRAY_SIZE(nau8825_map));
 }
 
 static int acp_nau8825_hw_params(struct snd_pcm_substream *substream,
@@ -1102,8 +1108,7 @@ static const struct snd_soc_ops acp_card_nau8825_ops = {
 static int platform_clock_control(struct snd_soc_dapm_widget *w,
 				  struct snd_kcontrol *k, int  event)
 {
-	struct snd_soc_dapm_context *dapm = w->dapm;
-	struct snd_soc_card *card = dapm->card;
+	struct snd_soc_card *card = snd_soc_dapm_to_card(w->dapm);
 	struct snd_soc_dai *codec_dai;
 	int ret = 0;
 
@@ -1181,13 +1186,14 @@ static struct snd_pcm_hw_constraint_list constraints_sample_bits = {
 static int acp_8821_init(struct snd_soc_pcm_runtime *rtd)
 {
 	struct snd_soc_card *card = rtd->card;
+	struct snd_soc_dapm_context *dapm = snd_soc_card_to_dapm(card);
 	struct snd_soc_dai *codec_dai = snd_soc_rtd_to_codec(rtd, 0);
 	struct snd_soc_component *component = codec_dai->component;
 	int ret;
 
 	dev_info(rtd->dev, "codec dai name = %s\n", codec_dai->name);
 
-	ret = snd_soc_dapm_new_controls(&card->dapm, nau8821_widgets,
+	ret = snd_soc_dapm_new_controls(dapm, nau8821_widgets,
 					ARRAY_SIZE(nau8821_widgets));
 	if (ret) {
 		dev_err(rtd->dev, "unable to add widget dapm controls, ret %d\n", ret);
@@ -1221,7 +1227,7 @@ static int acp_8821_init(struct snd_soc_pcm_runtime *rtd)
 
 	nau8821_enable_jack_detect(component, &nau8821_jack);
 
-	return snd_soc_dapm_add_routes(&rtd->card->dapm, nau8821_audio_route,
+	return snd_soc_dapm_add_routes(dapm, nau8821_audio_route,
 				       ARRAY_SIZE(nau8821_audio_route));
 }
 
@@ -1340,7 +1346,7 @@ static int acp_rtk_set_bias_level(struct snd_soc_card *card,
 				  struct snd_soc_dapm_context *dapm,
 				  enum snd_soc_bias_level level)
 {
-	struct snd_soc_component *component = dapm->component;
+	struct snd_soc_component *component = snd_soc_dapm_to_component(dapm);
 	struct acp_card_drvdata *drvdata = card->drvdata;
 	int ret = 0;
 
@@ -1407,8 +1413,6 @@ int acp_sofdsp_dai_links_create(struct snd_soc_card *card)
 		links[i].num_cpus = ARRAY_SIZE(sof_sp);
 		links[i].platforms = sof_component;
 		links[i].num_platforms = ARRAY_SIZE(sof_component);
-		links[i].dpcm_playback = 1;
-		links[i].dpcm_capture = 1;
 		links[i].nonatomic = true;
 		links[i].no_pcm = 1;
 		if (!drv_data->hs_codec_id) {
@@ -1444,8 +1448,6 @@ int acp_sofdsp_dai_links_create(struct snd_soc_card *card)
 		links[i].num_cpus = ARRAY_SIZE(sof_hs);
 		links[i].platforms = sof_component;
 		links[i].num_platforms = ARRAY_SIZE(sof_component);
-		links[i].dpcm_playback = 1;
-		links[i].dpcm_capture = 1;
 		links[i].nonatomic = true;
 		links[i].no_pcm = 1;
 		if (!drv_data->hs_codec_id) {
@@ -1471,7 +1473,7 @@ int acp_sofdsp_dai_links_create(struct snd_soc_card *card)
 	if (drv_data->amp_cpu_id == I2S_SP) {
 		links[i].name = "acp-amp-codec";
 		links[i].id = AMP_BE_ID;
-		if (drv_data->platform == RENOIR) {
+		if (drv_data->acp_rev == ACP_RN_PCI_ID) {
 			links[i].cpus = sof_sp;
 			links[i].num_cpus = ARRAY_SIZE(sof_sp);
 		} else {
@@ -1480,7 +1482,7 @@ int acp_sofdsp_dai_links_create(struct snd_soc_card *card)
 		}
 		links[i].platforms = sof_component;
 		links[i].num_platforms = ARRAY_SIZE(sof_component);
-		links[i].dpcm_playback = 1;
+		links[i].playback_only = 1;
 		links[i].nonatomic = true;
 		links[i].no_pcm = 1;
 		if (!drv_data->amp_codec_id) {
@@ -1512,7 +1514,7 @@ int acp_sofdsp_dai_links_create(struct snd_soc_card *card)
 		links[i].num_cpus = ARRAY_SIZE(sof_hs_virtual);
 		links[i].platforms = sof_component;
 		links[i].num_platforms = ARRAY_SIZE(sof_component);
-		links[i].dpcm_playback = 1;
+		links[i].playback_only = 1;
 		links[i].nonatomic = true;
 		links[i].no_pcm = 1;
 		if (!drv_data->amp_codec_id) {
@@ -1527,7 +1529,7 @@ int acp_sofdsp_dai_links_create(struct snd_soc_card *card)
 			links[i].init = acp_card_maxim_init;
 		}
 		if (drv_data->amp_codec_id == MAX98388) {
-			links[i].dpcm_capture = 1;
+			links[i].playback_only = 0;
 			links[i].codecs = max98388;
 			links[i].num_codecs = ARRAY_SIZE(max98388);
 			links[i].ops = &acp_max98388_ops;
@@ -1553,8 +1555,6 @@ int acp_sofdsp_dai_links_create(struct snd_soc_card *card)
 		links[i].num_cpus = ARRAY_SIZE(sof_bt);
 		links[i].platforms = sof_component;
 		links[i].num_platforms = ARRAY_SIZE(sof_component);
-		links[i].dpcm_playback = 1;
-		links[i].dpcm_capture = 1;
 		links[i].nonatomic = true;
 		links[i].no_pcm = 1;
 		if (!drv_data->bt_codec_id) {
@@ -1574,7 +1574,7 @@ int acp_sofdsp_dai_links_create(struct snd_soc_card *card)
 		links[i].num_cpus = ARRAY_SIZE(sof_dmic);
 		links[i].platforms = sof_component;
 		links[i].num_platforms = ARRAY_SIZE(sof_component);
-		links[i].dpcm_capture = 1;
+		links[i].capture_only = 1;
 		links[i].nonatomic = true;
 		links[i].no_pcm = 1;
 	}
@@ -1613,8 +1613,6 @@ int acp_legacy_dai_links_create(struct snd_soc_card *card)
 		links[i].num_cpus = ARRAY_SIZE(i2s_sp);
 		links[i].platforms = platform_component;
 		links[i].num_platforms = ARRAY_SIZE(platform_component);
-		links[i].dpcm_playback = 1;
-		links[i].dpcm_capture = 1;
 		if (!drv_data->hs_codec_id) {
 			/* Use dummy codec if codec id not specified */
 			links[i].codecs = &snd_soc_dummy_dlc;
@@ -1647,18 +1645,21 @@ int acp_legacy_dai_links_create(struct snd_soc_card *card)
 		links[i].id = HEADSET_BE_ID;
 		links[i].cpus = i2s_hs;
 		links[i].num_cpus = ARRAY_SIZE(i2s_hs);
-		if (drv_data->platform == REMBRANDT) {
+		switch (drv_data->acp_rev) {
+		case ACP_RMB_PCI_ID:
 			links[i].platforms = platform_rmb_component;
 			links[i].num_platforms = ARRAY_SIZE(platform_rmb_component);
-		} else if (drv_data->platform == ACP63) {
+			break;
+		case ACP63_PCI_ID:
 			links[i].platforms = platform_acp63_component;
 			links[i].num_platforms = ARRAY_SIZE(platform_acp63_component);
-		} else {
+			break;
+		default:
 			links[i].platforms = platform_component;
 			links[i].num_platforms = ARRAY_SIZE(platform_component);
+			break;
 		}
-		links[i].dpcm_playback = 1;
-		links[i].dpcm_capture = 1;
+
 		if (!drv_data->hs_codec_id) {
 			/* Use dummy codec if codec id not specified */
 			links[i].codecs = &snd_soc_dummy_dlc;
@@ -1686,7 +1687,7 @@ int acp_legacy_dai_links_create(struct snd_soc_card *card)
 		links[i].num_cpus = ARRAY_SIZE(i2s_sp);
 		links[i].platforms = platform_component;
 		links[i].num_platforms = ARRAY_SIZE(platform_component);
-		links[i].dpcm_playback = 1;
+		links[i].playback_only = 1;
 		if (!drv_data->amp_codec_id) {
 			/* Use dummy codec if codec id not specified */
 			links[i].codecs = &snd_soc_dummy_dlc;
@@ -1714,17 +1715,22 @@ int acp_legacy_dai_links_create(struct snd_soc_card *card)
 		links[i].id = AMP_BE_ID;
 		links[i].cpus = i2s_hs;
 		links[i].num_cpus = ARRAY_SIZE(i2s_hs);
-		if (drv_data->platform == REMBRANDT) {
+		switch (drv_data->acp_rev) {
+		case ACP_RMB_PCI_ID:
 			links[i].platforms = platform_rmb_component;
 			links[i].num_platforms = ARRAY_SIZE(platform_rmb_component);
-		} else if (drv_data->platform == ACP63) {
+			break;
+		case ACP63_PCI_ID:
 			links[i].platforms = platform_acp63_component;
 			links[i].num_platforms = ARRAY_SIZE(platform_acp63_component);
-		} else {
+			break;
+		default:
 			links[i].platforms = platform_component;
 			links[i].num_platforms = ARRAY_SIZE(platform_component);
+			break;
 		}
-		links[i].dpcm_playback = 1;
+
+		links[i].playback_only = 1;
 		if (!drv_data->amp_codec_id) {
 			/* Use dummy codec if codec id not specified */
 			links[i].codecs = &snd_soc_dummy_dlc;
@@ -1749,6 +1755,7 @@ int acp_legacy_dai_links_create(struct snd_soc_card *card)
 
 	if (drv_data->dmic_cpu_id == DMIC) {
 		links[i].name = "acp-dmic-codec";
+		links[i].stream_name = "DMIC capture";
 		links[i].id = DMIC_BE_ID;
 		if (drv_data->dmic_codec_id == DMIC) {
 			links[i].codecs = dmic_codec;
@@ -1760,21 +1767,28 @@ int acp_legacy_dai_links_create(struct snd_soc_card *card)
 		}
 		links[i].cpus = pdm_dmic;
 		links[i].num_cpus = ARRAY_SIZE(pdm_dmic);
-		if (drv_data->platform == REMBRANDT) {
+		switch (drv_data->acp_rev) {
+		case ACP_RMB_PCI_ID:
 			links[i].platforms = platform_rmb_component;
 			links[i].num_platforms = ARRAY_SIZE(platform_rmb_component);
-		} else if (drv_data->platform == ACP63) {
+			break;
+		case ACP63_PCI_ID:
 			links[i].platforms = platform_acp63_component;
 			links[i].num_platforms = ARRAY_SIZE(platform_acp63_component);
-		} else if ((drv_data->platform == ACP70) || (drv_data->platform == ACP71)) {
+			break;
+		case ACP70_PCI_ID:
+		case ACP71_PCI_ID:
+		case ACP72_PCI_ID:
 			links[i].platforms = platform_acp70_component;
 			links[i].num_platforms = ARRAY_SIZE(platform_acp70_component);
-		} else {
+			break;
+		default:
 			links[i].platforms = platform_component;
 			links[i].num_platforms = ARRAY_SIZE(platform_component);
+			break;
 		}
 		links[i].ops = &acp_card_dmic_ops;
-		links[i].dpcm_capture = 1;
+		links[i].capture_only = 1;
 	}
 
 	card->dai_link = links;

@@ -1139,8 +1139,7 @@ static int pcmdevice_info_profile(
 	struct snd_kcontrol *kcontrol,
 	struct snd_ctl_elem_info *uinfo)
 {
-	struct snd_soc_component *codec
-		= snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *codec = snd_kcontrol_chip(kcontrol);
 	struct pcmdevice_priv *pcm_dev =
 		snd_soc_component_get_drvdata(codec);
 
@@ -1156,8 +1155,7 @@ static int pcmdevice_get_profile_id(
 	struct snd_kcontrol *kcontrol,
 	struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *codec
-		= snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *codec = snd_kcontrol_chip(kcontrol);
 	struct pcmdevice_priv *pcm_dev =
 		snd_soc_component_get_drvdata(codec);
 
@@ -1170,8 +1168,7 @@ static int pcmdevice_set_profile_id(
 	struct snd_kcontrol *kcontrol,
 	struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *codec
-		= snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *codec = snd_kcontrol_chip(kcontrol);
 	struct pcmdevice_priv *pcm_dev =
 		snd_soc_component_get_drvdata(codec);
 	int nr_profile = ucontrol->value.integer.value[0];
@@ -1353,8 +1350,8 @@ static int pcmdev_gain_ctrl_add(struct pcmdevice_priv *pcm_dev,
 		return 0;
 	}
 
-	pcmdev_controls = devm_kzalloc(pcm_dev->dev,
-		nr_chn * sizeof(struct snd_kcontrol_new), GFP_KERNEL);
+	pcmdev_controls = devm_kcalloc(pcm_dev->dev, nr_chn,
+				       sizeof(struct snd_kcontrol_new), GFP_KERNEL);
 	if (!pcmdev_controls)
 		return -ENOMEM;
 
@@ -1642,8 +1639,7 @@ static int pcmdevice_comp_probe(struct snd_soc_component *comp)
 	}
 	ret = pcmdev_profile_ctrl_add(pcm_dev);
 out:
-	if (fw_entry)
-		release_firmware(fw_entry);
+	release_firmware(fw_entry);
 
 	mutex_unlock(&pcm_dev->codec_lock);
 	return ret;
@@ -2057,7 +2053,6 @@ static char *str_to_upper(char *str)
 
 static int pcmdevice_i2c_probe(struct i2c_client *i2c)
 {
-	const struct i2c_device_id *id = i2c_match_id(pcmdevice_i2c_id, i2c);
 	struct pcmdevice_priv *pcm_dev;
 	struct device_node *np;
 	unsigned int dev_addrs[PCMDEVICE_MAX_I2C_DEVICES];
@@ -2067,7 +2062,7 @@ static int pcmdevice_i2c_probe(struct i2c_client *i2c)
 	if (!pcm_dev)
 		return -ENOMEM;
 
-	pcm_dev->chip_id = (id != NULL) ? id->driver_data : 0;
+	pcm_dev->chip_id = (uintptr_t)i2c_get_match_data(i2c);
 
 	pcm_dev->dev = &i2c->dev;
 	pcm_dev->client = i2c;

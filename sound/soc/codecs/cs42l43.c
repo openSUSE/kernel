@@ -12,7 +12,7 @@
 #include <linux/device.h>
 #include <linux/err.h>
 #include <linux/errno.h>
-#include <linux/find.h>
+#include <linux/bitmap.h>
 #include <linux/gcd.h>
 #include <linux/irq.h>
 #include <linux/irqdomain.h>
@@ -154,7 +154,7 @@ static void cs42l43_hp_ilimit_clear_work(struct work_struct *work)
 {
 	struct cs42l43_codec *priv = container_of(work, struct cs42l43_codec,
 						  hp_ilimit_clear_work.work);
-	struct snd_soc_dapm_context *dapm = snd_soc_component_get_dapm(priv->component);
+	struct snd_soc_dapm_context *dapm = snd_soc_component_to_dapm(priv->component);
 
 	snd_soc_dapm_mutex_lock(dapm);
 
@@ -167,12 +167,13 @@ static void cs42l43_hp_ilimit_clear_work(struct work_struct *work)
 	snd_soc_dapm_mutex_unlock(dapm);
 }
 
-static void cs42l43_hp_ilimit_work(struct work_struct *work)
+static irqreturn_t cs42l43_hp_ilimit(int irq, void *data)
 {
-	struct cs42l43_codec *priv = container_of(work, struct cs42l43_codec,
-						  hp_ilimit_work);
-	struct snd_soc_dapm_context *dapm = snd_soc_component_get_dapm(priv->component);
+	struct cs42l43_codec *priv = data;
+	struct snd_soc_dapm_context *dapm = snd_soc_component_to_dapm(priv->component);
 	struct cs42l43 *cs42l43 = priv->core;
+
+	dev_dbg(priv->dev, "headphone ilimit IRQ\n");
 
 	snd_soc_dapm_mutex_lock(dapm);
 
@@ -183,7 +184,7 @@ static void cs42l43_hp_ilimit_work(struct work_struct *work)
 
 		priv->hp_ilimit_count++;
 		snd_soc_dapm_mutex_unlock(dapm);
-		return;
+		return IRQ_HANDLED;
 	}
 
 	dev_err(priv->dev, "Disabling headphone for %dmS, due to frequent current limit\n",
@@ -218,15 +219,6 @@ static void cs42l43_hp_ilimit_work(struct work_struct *work)
 	priv->hp_ilimited = false;
 
 	snd_soc_dapm_mutex_unlock(dapm);
-}
-
-static irqreturn_t cs42l43_hp_ilimit(int irq, void *data)
-{
-	struct cs42l43_codec *priv = data;
-
-	dev_dbg(priv->dev, "headphone ilimit IRQ\n");
-
-	queue_work(system_long_wq, &priv->hp_ilimit_work);
 
 	return IRQ_HANDLED;
 }
@@ -459,7 +451,7 @@ static int cs42l43_asp_hw_params(struct snd_pcm_substream *substream,
 static int cs42l43_asp_set_fmt(struct snd_soc_dai *dai, unsigned int fmt)
 {
 	struct snd_soc_component *component = dai->component;
-	struct snd_soc_dapm_context *dapm = snd_soc_component_get_dapm(component);
+	struct snd_soc_dapm_context *dapm = snd_soc_component_to_dapm(component);
 	struct cs42l43_codec *priv = snd_soc_component_get_drvdata(component);
 	struct cs42l43 *cs42l43 = priv->core;
 	int provider = regmap_test_bits(cs42l43->regmap, CS42L43_ASP_CLK_CONFIG2,
@@ -957,8 +949,8 @@ CS42L43_DECL_MIXER(amp4, CS42L43_AMP4MIX_INPUT1);
 static int cs42l43_dapm_get_volsw(struct snd_kcontrol *kcontrol,
 				  struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *component = snd_soc_kcontrol_component(kcontrol);
-	struct snd_soc_dapm_context *dapm = snd_soc_component_get_dapm(component);
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
+	struct snd_soc_dapm_context *dapm = snd_soc_component_to_dapm(component);
 	int ret;
 
 	snd_soc_dapm_mutex_lock(dapm);
@@ -971,8 +963,8 @@ static int cs42l43_dapm_get_volsw(struct snd_kcontrol *kcontrol,
 static int cs42l43_dapm_put_volsw(struct snd_kcontrol *kcontrol,
 				  struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *component = snd_soc_kcontrol_component(kcontrol);
-	struct snd_soc_dapm_context *dapm = snd_soc_component_get_dapm(component);
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
+	struct snd_soc_dapm_context *dapm = snd_soc_component_to_dapm(component);
 	int ret;
 
 	snd_soc_dapm_mutex_lock(dapm);
@@ -985,8 +977,8 @@ static int cs42l43_dapm_put_volsw(struct snd_kcontrol *kcontrol,
 static int cs42l43_dapm_get_enum(struct snd_kcontrol *kcontrol,
 				 struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *component = snd_soc_kcontrol_component(kcontrol);
-	struct snd_soc_dapm_context *dapm = snd_soc_component_get_dapm(component);
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
+	struct snd_soc_dapm_context *dapm = snd_soc_component_to_dapm(component);
 	int ret;
 
 	snd_soc_dapm_mutex_lock(dapm);
@@ -999,8 +991,8 @@ static int cs42l43_dapm_get_enum(struct snd_kcontrol *kcontrol,
 static int cs42l43_dapm_put_enum(struct snd_kcontrol *kcontrol,
 				 struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *component = snd_soc_kcontrol_component(kcontrol);
-	struct snd_soc_dapm_context *dapm = snd_soc_component_get_dapm(component);
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
+	struct snd_soc_dapm_context *dapm = snd_soc_component_to_dapm(component);
 	int ret;
 
 	snd_soc_dapm_mutex_lock(dapm);
@@ -1013,7 +1005,7 @@ static int cs42l43_dapm_put_enum(struct snd_kcontrol *kcontrol,
 static int cs42l43_eq_get(struct snd_kcontrol *kcontrol,
 			  struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *component = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
 	struct cs42l43_codec *priv = snd_soc_component_get_drvdata(component);
 
 	memcpy(ucontrol->value.integer.value, priv->eq_coeffs, sizeof(priv->eq_coeffs));
@@ -1024,8 +1016,8 @@ static int cs42l43_eq_get(struct snd_kcontrol *kcontrol,
 static int cs42l43_eq_put(struct snd_kcontrol *kcontrol,
 			  struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *component = snd_soc_kcontrol_component(kcontrol);
-	struct snd_soc_dapm_context *dapm = snd_soc_component_get_dapm(component);
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
+	struct snd_soc_dapm_context *dapm = snd_soc_component_to_dapm(component);
 	struct cs42l43_codec *priv = snd_soc_component_get_drvdata(component);
 
 	snd_soc_dapm_mutex_lock(dapm);
@@ -1088,7 +1080,6 @@ static int cs42l43_shutter_get(struct cs42l43_codec *priv, unsigned int shift)
 		ret ? "open" : "closed");
 
 error:
-	pm_runtime_mark_last_busy(priv->dev);
 	pm_runtime_put_autosuspend(priv->dev);
 
 	return ret;
@@ -1097,7 +1088,7 @@ error:
 static int cs42l43_decim_get(struct snd_kcontrol *kcontrol,
 			     struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *component = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
 	struct cs42l43_codec *priv = snd_soc_component_get_drvdata(component);
 	int ret;
 
@@ -1113,7 +1104,7 @@ static int cs42l43_decim_get(struct snd_kcontrol *kcontrol,
 static int cs42l43_spk_get(struct snd_kcontrol *kcontrol,
 			   struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *component = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
 	struct cs42l43_codec *priv = snd_soc_component_get_drvdata(component);
 	int ret;
 
@@ -1129,7 +1120,7 @@ static int cs42l43_spk_get(struct snd_kcontrol *kcontrol,
 static int cs42l43_spk_put(struct snd_kcontrol *kcontrol,
 			   struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *component = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
 	struct cs42l43_codec *priv = snd_soc_component_get_drvdata(component);
 	int ret;
 
@@ -2159,10 +2150,7 @@ static void cs42l43_component_remove(struct snd_soc_component *component)
 
 	cancel_delayed_work_sync(&priv->bias_sense_timeout);
 	cancel_delayed_work_sync(&priv->tip_sense_work);
-	cancel_delayed_work_sync(&priv->button_press_work);
-	cancel_work_sync(&priv->button_release_work);
 
-	cancel_work_sync(&priv->hp_ilimit_work);
 	cancel_delayed_work_sync(&priv->hp_ilimit_clear_work);
 
 	priv->component = NULL;
@@ -2222,13 +2210,12 @@ static const struct cs42l43_irq cs42l43_irqs[] = {
 };
 
 static int cs42l43_request_irq(struct cs42l43_codec *priv,
-			       struct irq_domain *dom, const char * const name,
-			       unsigned int irq, irq_handler_t handler,
-			       unsigned long flags)
+			       const char * const name, unsigned int irq,
+			       irq_handler_t handler, unsigned long flags)
 {
 	int ret;
 
-	ret = irq_create_mapping(dom, irq);
+	ret = irq_create_mapping(priv->dom, irq);
 	if (ret < 0)
 		return dev_err_probe(priv->dev, ret, "Failed to map IRQ %s\n", name);
 
@@ -2242,13 +2229,29 @@ static int cs42l43_request_irq(struct cs42l43_codec *priv,
 	return 0;
 }
 
-static int cs42l43_shutter_irq(struct cs42l43_codec *priv,
-			       struct irq_domain *dom, unsigned int shutter,
-			       const char * const open_name,
-			       const char * const close_name,
+static void cs42l43_disable_irq(struct cs42l43_codec *priv, unsigned int irq)
+{
+	int ret;
+
+	ret = irq_find_mapping(priv->dom, irq);
+	if (ret > 0)
+		disable_irq(ret);
+}
+
+static void cs42l43_enable_irq(struct cs42l43_codec *priv, unsigned int irq)
+{
+	int ret;
+
+	ret = irq_find_mapping(priv->dom, irq);
+	if (ret > 0)
+		enable_irq(ret);
+}
+
+static int cs42l43_shutter_irq(struct cs42l43_codec *priv, unsigned int shutter,
+			       const char * const open_name, unsigned int *open_irq,
+			       const char * const close_name, unsigned int *close_irq,
 			       irq_handler_t handler)
 {
-	unsigned int open_irq, close_irq;
 	int ret;
 
 	switch (shutter) {
@@ -2256,39 +2259,34 @@ static int cs42l43_shutter_irq(struct cs42l43_codec *priv,
 		dev_warn(priv->dev, "Manual shutters, notifications not available\n");
 		return 0;
 	case 0x2:
-		open_irq = CS42L43_GPIO1_RISE;
-		close_irq = CS42L43_GPIO1_FALL;
+		*open_irq = CS42L43_GPIO1_RISE;
+		*close_irq = CS42L43_GPIO1_FALL;
 		break;
 	case 0x4:
-		open_irq = CS42L43_GPIO2_RISE;
-		close_irq = CS42L43_GPIO2_FALL;
+		*open_irq = CS42L43_GPIO2_RISE;
+		*close_irq = CS42L43_GPIO2_FALL;
 		break;
 	case 0x8:
-		open_irq = CS42L43_GPIO3_RISE;
-		close_irq = CS42L43_GPIO3_FALL;
+		*open_irq = CS42L43_GPIO3_RISE;
+		*close_irq = CS42L43_GPIO3_FALL;
 		break;
 	default:
 		return 0;
 	}
 
-	ret = cs42l43_request_irq(priv, dom, close_name, close_irq, handler, IRQF_SHARED);
+	ret = cs42l43_request_irq(priv, close_name, *close_irq, handler, IRQF_SHARED);
 	if (ret)
 		return ret;
 
-	return cs42l43_request_irq(priv, dom, open_name, open_irq, handler, IRQF_SHARED);
+	return cs42l43_request_irq(priv, open_name, *open_irq, handler, IRQF_SHARED);
 }
 
 static int cs42l43_codec_probe(struct platform_device *pdev)
 {
 	struct cs42l43 *cs42l43 = dev_get_drvdata(pdev->dev.parent);
 	struct cs42l43_codec *priv;
-	struct irq_domain *dom;
 	unsigned int val;
 	int i, ret;
-
-	dom = irq_find_matching_fwnode(dev_fwnode(cs42l43->dev), DOMAIN_BUS_ANY);
-	if (!dom)
-		return -EPROBE_DEFER;
 
 	priv = devm_kzalloc(&pdev->dev, sizeof(*priv), GFP_KERNEL);
 	if (!priv)
@@ -2296,6 +2294,10 @@ static int cs42l43_codec_probe(struct platform_device *pdev)
 
 	priv->dev = &pdev->dev;
 	priv->core = cs42l43;
+
+	priv->dom = irq_find_matching_fwnode(dev_fwnode(cs42l43->dev), DOMAIN_BUS_ANY);
+	if (!priv->dom)
+		return -EPROBE_DEFER;
 
 	platform_set_drvdata(pdev, priv);
 
@@ -2314,10 +2316,7 @@ static int cs42l43_codec_probe(struct platform_device *pdev)
 
 	INIT_DELAYED_WORK(&priv->tip_sense_work, cs42l43_tip_sense_work);
 	INIT_DELAYED_WORK(&priv->bias_sense_timeout, cs42l43_bias_sense_timeout);
-	INIT_DELAYED_WORK(&priv->button_press_work, cs42l43_button_press_work);
 	INIT_DELAYED_WORK(&priv->hp_ilimit_clear_work, cs42l43_hp_ilimit_clear_work);
-	INIT_WORK(&priv->button_release_work, cs42l43_button_release_work);
-	INIT_WORK(&priv->hp_ilimit_work, cs42l43_hp_ilimit_work);
 
 	pm_runtime_set_autosuspend_delay(priv->dev, 100);
 	pm_runtime_use_autosuspend(priv->dev);
@@ -2329,7 +2328,7 @@ static int cs42l43_codec_probe(struct platform_device *pdev)
 		goto err_pm;
 
 	for (i = 0; i < ARRAY_SIZE(cs42l43_irqs); i++) {
-		ret = cs42l43_request_irq(priv, dom, cs42l43_irqs[i].name,
+		ret = cs42l43_request_irq(priv, cs42l43_irqs[i].name,
 					  cs42l43_irqs[i].irq,
 					  cs42l43_irqs[i].handler, 0);
 		if (ret)
@@ -2342,15 +2341,17 @@ static int cs42l43_codec_probe(struct platform_device *pdev)
 		goto err_pm;
 	}
 
-	ret = cs42l43_shutter_irq(priv, dom, val & CS42L43_MIC_SHUTTER_CFG_MASK,
-				  "mic shutter open", "mic shutter close",
+	ret = cs42l43_shutter_irq(priv, val & CS42L43_MIC_SHUTTER_CFG_MASK,
+				  "mic shutter open", &priv->shutter_irqs[0],
+				  "mic shutter close", &priv->shutter_irqs[1],
 				  cs42l43_mic_shutter);
 	if (ret)
 		goto err_pm;
 
-	ret = cs42l43_shutter_irq(priv, dom, (val & CS42L43_SPK_SHUTTER_CFG_MASK) >>
+	ret = cs42l43_shutter_irq(priv, (val & CS42L43_SPK_SHUTTER_CFG_MASK) >>
 				  CS42L43_SPK_SHUTTER_CFG_SHIFT,
-				  "spk shutter open", "spk shutter close",
+				  "spk shutter open", &priv->shutter_irqs[2],
+				  "spk shutter close", &priv->shutter_irqs[3],
 				  cs42l43_spk_shutter);
 	if (ret)
 		goto err_pm;
@@ -2370,7 +2371,6 @@ static int cs42l43_codec_probe(struct platform_device *pdev)
 		goto err_clk;
 	}
 
-	pm_runtime_mark_last_busy(priv->dev);
 	pm_runtime_put_autosuspend(priv->dev);
 
 	return 0;
@@ -2405,48 +2405,50 @@ static int cs42l43_codec_runtime_resume(struct device *dev)
 static int cs42l43_codec_suspend(struct device *dev)
 {
 	struct cs42l43_codec *priv = dev_get_drvdata(dev);
-	struct cs42l43 *cs42l43 = priv->core;
+	int i;
 
-	disable_irq(cs42l43->irq);
+	dev_dbg(priv->dev, "System suspend\n");
 
-	return 0;
-}
+	priv->suspend_jack_debounce = true;
 
-static int cs42l43_codec_suspend_noirq(struct device *dev)
-{
-	struct cs42l43_codec *priv = dev_get_drvdata(dev);
-	struct cs42l43 *cs42l43 = priv->core;
+	for (i = 0; i < ARRAY_SIZE(cs42l43_irqs); i++)
+		cs42l43_disable_irq(priv, cs42l43_irqs[i].irq);
 
-	enable_irq(cs42l43->irq);
+	for (i = 0; i < ARRAY_SIZE(priv->shutter_irqs); i++)
+		if (priv->shutter_irqs[i])
+			cs42l43_disable_irq(priv, priv->shutter_irqs[i]);
 
-	return 0;
+	cancel_delayed_work_sync(&priv->bias_sense_timeout);
+	cancel_delayed_work_sync(&priv->tip_sense_work);
+	cancel_delayed_work_sync(&priv->hp_ilimit_clear_work);
+
+	cs42l43_clear_jack(priv);
+
+	return pm_runtime_force_suspend(dev);
 }
 
 static int cs42l43_codec_resume(struct device *dev)
 {
 	struct cs42l43_codec *priv = dev_get_drvdata(dev);
-	struct cs42l43 *cs42l43 = priv->core;
+	int ret, i;
 
-	enable_irq(cs42l43->irq);
+	ret = pm_runtime_force_resume(dev);
+	if (ret)
+		return ret;
 
-	return 0;
-}
+	for (i = 0; i < ARRAY_SIZE(cs42l43_irqs); i++)
+		cs42l43_enable_irq(priv, cs42l43_irqs[i].irq);
 
-static int cs42l43_codec_resume_noirq(struct device *dev)
-{
-	struct cs42l43_codec *priv = dev_get_drvdata(dev);
-	struct cs42l43 *cs42l43 = priv->core;
-
-	disable_irq(cs42l43->irq);
+	for (i = 0; i < ARRAY_SIZE(priv->shutter_irqs); i++)
+		if (priv->shutter_irqs[i])
+			cs42l43_enable_irq(priv, priv->shutter_irqs[i]);
 
 	return 0;
 }
 
 static const struct dev_pm_ops cs42l43_codec_pm_ops = {
-	SYSTEM_SLEEP_PM_OPS(cs42l43_codec_suspend, cs42l43_codec_resume)
-	NOIRQ_SYSTEM_SLEEP_PM_OPS(cs42l43_codec_suspend_noirq, cs42l43_codec_resume_noirq)
 	RUNTIME_PM_OPS(NULL, cs42l43_codec_runtime_resume, NULL)
-	SET_SYSTEM_SLEEP_PM_OPS(pm_runtime_force_suspend, pm_runtime_force_resume)
+	SYSTEM_SLEEP_PM_OPS(cs42l43_codec_suspend, cs42l43_codec_resume)
 };
 
 static const struct platform_device_id cs42l43_codec_id_table[] = {

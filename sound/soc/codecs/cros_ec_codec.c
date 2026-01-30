@@ -18,9 +18,11 @@
 #include <linux/module.h>
 #include <linux/of.h>
 #include <linux/of_address.h>
+#include <linux/of_reserved_mem.h>
 #include <linux/platform_data/cros_ec_commands.h>
 #include <linux/platform_data/cros_ec_proto.h>
 #include <linux/platform_device.h>
+#include <linux/string_choices.h>
 #include <sound/pcm.h>
 #include <sound/pcm_params.h>
 #include <sound/soc.h>
@@ -106,8 +108,7 @@ error:
 static int dmic_get_gain(struct snd_kcontrol *kcontrol,
 			 struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *component =
-		snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
 	struct cros_ec_codec_priv *priv =
 		snd_soc_component_get_drvdata(component);
 	struct ec_param_ec_codec_dmic p;
@@ -138,8 +139,7 @@ static int dmic_get_gain(struct snd_kcontrol *kcontrol,
 static int dmic_put_gain(struct snd_kcontrol *kcontrol,
 			 struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *component =
-		snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
 	struct cros_ec_codec_priv *priv =
 		snd_soc_component_get_drvdata(component);
 	struct soc_mixer_control *control =
@@ -631,7 +631,7 @@ leave:
 static int wov_enable_get(struct snd_kcontrol *kcontrol,
 			  struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *c = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *c = snd_kcontrol_chip(kcontrol);
 	struct cros_ec_codec_priv *priv = snd_soc_component_get_drvdata(c);
 
 	ucontrol->value.integer.value[0] = priv->wov_enabled;
@@ -641,7 +641,7 @@ static int wov_enable_get(struct snd_kcontrol *kcontrol,
 static int wov_enable_put(struct snd_kcontrol *kcontrol,
 			  struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *c = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *c = snd_kcontrol_chip(kcontrol);
 	struct cros_ec_codec_priv *priv = snd_soc_component_get_drvdata(c);
 	int enabled = ucontrol->value.integer.value[0];
 	struct ec_param_ec_codec_wov p;
@@ -657,7 +657,7 @@ static int wov_enable_put(struct snd_kcontrol *kcontrol,
 					   (uint8_t *)&p, sizeof(p), NULL, 0);
 		if (ret) {
 			dev_err(priv->dev, "failed to %s wov\n",
-				enabled ? "enable" : "disable");
+				str_enable_disable(enabled));
 			return ret;
 		}
 
@@ -960,7 +960,6 @@ static int cros_ec_codec_platform_probe(struct platform_device *pdev)
 	struct ec_response_ec_codec_get_capabilities r;
 	int ret;
 #ifdef CONFIG_OF
-	struct device_node *node;
 	struct resource res;
 	u64 ec_shm_size;
 	const __be32 *regaddr_p;
@@ -980,22 +979,18 @@ static int cros_ec_codec_platform_probe(struct platform_device *pdev)
 			priv->ec_shm_addr, priv->ec_shm_len);
 	}
 
-	node = of_parse_phandle(dev->of_node, "memory-region", 0);
-	if (node) {
-		ret = of_address_to_resource(node, 0, &res);
-		if (!ret) {
-			priv->ap_shm_phys_addr = res.start;
-			priv->ap_shm_len = resource_size(&res);
-			priv->ap_shm_addr =
-				(uint64_t)(uintptr_t)devm_ioremap_wc(
-					dev, priv->ap_shm_phys_addr,
-					priv->ap_shm_len);
-			priv->ap_shm_last_alloc = priv->ap_shm_phys_addr;
+	ret = of_reserved_mem_region_to_resource(dev->of_node, 0, &res);
+	if (!ret) {
+		priv->ap_shm_phys_addr = res.start;
+		priv->ap_shm_len = resource_size(&res);
+		priv->ap_shm_addr =
+			(uint64_t)(uintptr_t)devm_ioremap_wc(
+				dev, priv->ap_shm_phys_addr,
+				priv->ap_shm_len);
+		priv->ap_shm_last_alloc = priv->ap_shm_phys_addr;
 
-			dev_dbg(dev, "ap_shm_phys_addr=%#llx len=%#x\n",
-				priv->ap_shm_phys_addr, priv->ap_shm_len);
-		}
-		of_node_put(node);
+		dev_dbg(dev, "ap_shm_phys_addr=%#llx len=%#x\n",
+			priv->ap_shm_phys_addr, priv->ap_shm_len);
 	}
 #endif
 

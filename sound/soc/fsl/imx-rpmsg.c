@@ -72,7 +72,7 @@ static int imx_rpmsg_late_probe(struct snd_soc_card *card)
 					of_property_read_string_index(data->card.dev->of_node,
 								      "ignore-suspend-widgets",
 								      i, &widgets);
-					dapm = snd_soc_component_get_dapm(codec_comp);
+					dapm = snd_soc_component_to_dapm(codec_comp);
 					snd_soc_dapm_ignore_suspend(dapm, widgets);
 				}
 			}
@@ -218,7 +218,7 @@ static int imx_rpmsg_probe(struct platform_device *pdev)
 	if (ret)
 		goto fail;
 
-	if (of_property_read_bool(np, "audio-routing")) {
+	if (of_property_present(np, "audio-routing")) {
 		ret = snd_soc_of_parse_audio_routing(&data->card, "audio-routing");
 		if (ret) {
 			dev_err(&pdev->dev, "failed to parse audio-routing: %d\n", ret);

@@ -16,12 +16,11 @@ static ssize_t fw_version_show(struct device *dev,
 	int ret;
 
 	ret = pm_runtime_resume_and_get(cdev->dev);
-	if (ret < 0 && ret != -EACCES)
+	if (ret)
 		return ret;
 
 	ret = catpt_ipc_get_fw_version(cdev, &version);
 
-	pm_runtime_mark_last_busy(cdev->dev);
 	pm_runtime_put_autosuspend(cdev->dev);
 
 	if (ret)

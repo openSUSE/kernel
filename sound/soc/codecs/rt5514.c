@@ -325,6 +325,7 @@ static int rt5514_dsp_voice_wake_up_put(struct snd_kcontrol *kcontrol,
 		struct snd_ctl_elem_value *ucontrol)
 {
 	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
+	struct snd_soc_dapm_context *dapm = snd_soc_component_to_dapm(component);
 	struct rt5514_priv *rt5514 = snd_soc_component_get_drvdata(component);
 	const struct firmware *fw = NULL;
 	u8 buf[8];
@@ -332,7 +333,7 @@ static int rt5514_dsp_voice_wake_up_put(struct snd_kcontrol *kcontrol,
 	if (ucontrol->value.integer.value[0] == rt5514->dsp_enabled)
 		return 0;
 
-	if (snd_soc_component_get_bias_level(component) == SND_SOC_BIAS_OFF) {
+	if (snd_soc_dapm_get_bias_level(dapm) == SND_SOC_BIAS_OFF) {
 		rt5514->dsp_enabled = ucontrol->value.integer.value[0];
 
 		if (rt5514->dsp_enabled) {
@@ -1050,11 +1051,12 @@ static int rt5514_set_bias_level(struct snd_soc_component *component,
 			enum snd_soc_bias_level level)
 {
 	struct rt5514_priv *rt5514 = snd_soc_component_get_drvdata(component);
+	struct snd_soc_dapm_context *dapm = snd_soc_component_to_dapm(component);
 	int ret;
 
 	switch (level) {
 	case SND_SOC_BIAS_PREPARE:
-		if (snd_soc_component_get_bias_level(component) == SND_SOC_BIAS_ON) {
+		if (snd_soc_dapm_get_bias_level(dapm) == SND_SOC_BIAS_ON) {
 			clk_disable_unprepare(rt5514->mclk);
 		} else {
 			ret = clk_prepare_enable(rt5514->mclk);
@@ -1064,7 +1066,7 @@ static int rt5514_set_bias_level(struct snd_soc_component *component,
 		break;
 
 	case SND_SOC_BIAS_STANDBY:
-		if (snd_soc_component_get_bias_level(component) == SND_SOC_BIAS_OFF) {
+		if (snd_soc_dapm_get_bias_level(dapm) == SND_SOC_BIAS_OFF) {
 			/*
 			 * If the DSP is enabled in start of recording, the DSP
 			 * should be disabled, and sync back to normal recording
@@ -1091,8 +1093,7 @@ static int rt5514_set_bias_level(struct snd_soc_component *component,
 static int rt5514_probe(struct snd_soc_component *component)
 {
 	struct rt5514_priv *rt5514 = snd_soc_component_get_drvdata(component);
-	struct platform_device *pdev = container_of(component->dev,
-						   struct platform_device, dev);
+	struct platform_device *pdev = to_platform_device(component->dev);
 
 	rt5514->mclk = devm_clk_get_optional(component->dev, "mclk");
 	if (IS_ERR(rt5514->mclk))
@@ -1207,15 +1208,15 @@ MODULE_DEVICE_TABLE(i2c, rt5514_i2c_id);
 #if defined(CONFIG_OF)
 static const struct of_device_id rt5514_of_match[] = {
 	{ .compatible = "realtek,rt5514", },
-	{},
+	{ }
 };
 MODULE_DEVICE_TABLE(of, rt5514_of_match);
 #endif
 
 #ifdef CONFIG_ACPI
 static const struct acpi_device_id rt5514_acpi_match[] = {
-	{ "10EC5514", 0},
-	{},
+	{ "10EC5514" },
+	{ }
 };
 MODULE_DEVICE_TABLE(acpi, rt5514_acpi_match);
 #endif
@@ -1232,7 +1233,7 @@ static int rt5514_parse_dp(struct rt5514_priv *rt5514, struct device *dev)
 	return 0;
 }
 
-static __maybe_unused int rt5514_i2c_resume(struct device *dev)
+static int rt5514_i2c_resume(struct device *dev)
 {
 	struct rt5514_priv *rt5514 = dev_get_drvdata(dev);
 	unsigned int val;
@@ -1314,7 +1315,7 @@ static int rt5514_i2c_probe(struct i2c_client *i2c)
 }
 
 static const struct dev_pm_ops rt5514_i2_pm_ops = {
-	SET_SYSTEM_SLEEP_PM_OPS(NULL, rt5514_i2c_resume)
+	SYSTEM_SLEEP_PM_OPS(NULL, rt5514_i2c_resume)
 };
 
 static struct i2c_driver rt5514_i2c_driver = {
@@ -1322,7 +1323,7 @@ static struct i2c_driver rt5514_i2c_driver = {
 		.name = "rt5514",
 		.acpi_match_table = ACPI_PTR(rt5514_acpi_match),
 		.of_match_table = of_match_ptr(rt5514_of_match),
-		.pm = &rt5514_i2_pm_ops,
+		.pm = pm_ptr(&rt5514_i2_pm_ops),
 	},
 	.probe = rt5514_i2c_probe,
 	.id_table = rt5514_i2c_id,

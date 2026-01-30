@@ -7,7 +7,6 @@
 #include <linux/gpio/consumer.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
-#include <linux/of_gpio.h>
 #include <linux/of.h>
 #include <linux/platform_device.h>
 #include <linux/pm_runtime.h>
@@ -22,13 +21,12 @@
 #include <sound/tlv.h>
 
 #include "wcd-clsh-v2.h"
+#include "wcd-common.h"
 #include "wcd-mbhc-v2.h"
 #include "wcd937x.h"
 
-enum {
-	CHIPID_WCD9370 = 0,
-	CHIPID_WCD9375 = 5,
-};
+#define CHIPID_WCD9370			0x0
+#define CHIPID_WCD9375			0x5
 
 /* Z value defined in milliohm */
 #define WCD937X_ZDET_VAL_32		(32000)
@@ -88,19 +86,14 @@ struct wcd937x_priv {
 	struct wcd_mbhc_config mbhc_cfg;
 	struct wcd_mbhc_intr intr_ids;
 	struct wcd_clsh_ctrl *clsh_info;
+	struct wcd_common common;
 	struct irq_domain *virq;
-	struct regmap_irq_chip *wcd_regmap_irq_chip;
 	struct regmap_irq_chip_data *irq_chip;
-	struct regulator_bulk_data supplies[WCD937X_MAX_BULK_SUPPLY];
-	struct snd_soc_jack *jack;
 	unsigned long status_mask;
 	s32 micb_ref[WCD937X_MAX_MICBIAS];
 	s32 pullup_ref[WCD937X_MAX_MICBIAS];
 	u32 hph_mode;
 	int ear_rx_path;
-	u32 micb1_mv;
-	u32 micb2_mv;
-	u32 micb3_mv;
 	int hphr_pdm_wd_int;
 	int hphl_pdm_wd_int;
 	int aux_pdm_wd_int;
@@ -112,6 +105,10 @@ struct wcd937x_priv {
 
 	atomic_t rx_clk_cnt;
 	atomic_t ana_clk_count;
+};
+
+static const char * const wcd937x_supplies[] = {
+	"vdd-rxtx", "vdd-px", "vdd-mic-bias", "vdd-buck",
 };
 
 static const SNDRV_CTL_TLVD_DECLARE_DB_MINMAX(ear_pa_gain, 600, -1800);
@@ -873,15 +870,6 @@ static int wcd937x_enable_rx3(struct snd_soc_dapm_widget *w,
 	return 0;
 }
 
-static int wcd937x_get_micb_vout_ctl_val(u32 micb_mv)
-{
-	if (micb_mv < 1000 || micb_mv > 2850) {
-		pr_err("Unsupported micbias voltage (%u mV)\n", micb_mv);
-		return -EINVAL;
-	}
-
-	return (micb_mv - 1000) / 50;
-}
 
 static int wcd937x_tx_swr_ctrl(struct snd_soc_dapm_widget *w,
 			       struct snd_kcontrol *kcontrol, int event)
@@ -1194,16 +1182,24 @@ static int wcd937x_codec_enable_micbias_pullup(struct snd_soc_dapm_widget *w,
 static int wcd937x_connect_port(struct wcd937x_sdw_priv *wcd, u8 port_idx, u8 ch_id, bool enable)
 {
 	struct sdw_port_config *port_config = &wcd->port_config[port_idx - 1];
-	const struct wcd937x_sdw_ch_info *ch_info = &wcd->ch_info[ch_id];
+	const struct wcd_sdw_ch_info *ch_info = &wcd->ch_info[ch_id];
 	u8 port_num = ch_info->port_num;
 	u8 ch_mask = ch_info->ch_mask;
+	u8 mstr_port_num, mstr_ch_mask;
+	struct sdw_slave *sdev = wcd->sdev;
 
 	port_config->num = port_num;
 
-	if (enable)
+	mstr_port_num = sdev->m_port_map[port_num];
+	mstr_ch_mask = ch_info->master_ch_mask;
+
+	if (enable) {
 		port_config->ch_mask |= ch_mask;
-	else
+		wcd->master_channel_map[mstr_port_num] |= mstr_ch_mask;
+	} else {
 		port_config->ch_mask &= ~ch_mask;
+		wcd->master_channel_map[mstr_port_num] &= ~mstr_ch_mask;
+	}
 
 	return 0;
 }
@@ -1211,7 +1207,7 @@ static int wcd937x_connect_port(struct wcd937x_sdw_priv *wcd, u8 port_idx, u8 ch
 static int wcd937x_rx_hph_mode_get(struct snd_kcontrol *kcontrol,
 				   struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *component = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
 	struct wcd937x_priv *wcd937x = snd_soc_component_get_drvdata(component);
 
 	ucontrol->value.integer.value[0] = wcd937x->hph_mode;
@@ -1221,8 +1217,7 @@ static int wcd937x_rx_hph_mode_get(struct snd_kcontrol *kcontrol,
 static int wcd937x_rx_hph_mode_put(struct snd_kcontrol *kcontrol,
 				   struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *component =
-				snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
 	struct wcd937x_priv *wcd937x = snd_soc_component_get_drvdata(component);
 	u32 mode_val;
 
@@ -1254,7 +1249,7 @@ static int wcd937x_rx_hph_mode_put(struct snd_kcontrol *kcontrol,
 static int wcd937x_get_compander(struct snd_kcontrol *kcontrol,
 				 struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *component = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
 	struct wcd937x_priv *wcd937x = snd_soc_component_get_drvdata(component);
 	struct soc_mixer_control *mc;
 	bool hphr;
@@ -1270,7 +1265,7 @@ static int wcd937x_get_compander(struct snd_kcontrol *kcontrol,
 static int wcd937x_set_compander(struct snd_kcontrol *kcontrol,
 				 struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *component = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
 	struct wcd937x_priv *wcd937x = snd_soc_component_get_drvdata(component);
 	struct wcd937x_sdw_priv *wcd = wcd937x->sdw_priv[AIF1_PB];
 	int value = ucontrol->value.integer.value[0];
@@ -1307,7 +1302,7 @@ static int wcd937x_get_swr_port(struct snd_kcontrol *kcontrol,
 				struct snd_ctl_elem_value *ucontrol)
 {
 	struct soc_mixer_control *mixer = (struct soc_mixer_control *)kcontrol->private_value;
-	struct snd_soc_component *comp = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *comp = snd_kcontrol_chip(kcontrol);
 	struct wcd937x_priv *wcd937x = snd_soc_component_get_drvdata(comp);
 	struct wcd937x_sdw_priv *wcd;
 	int dai_id = mixer->shift;
@@ -1326,7 +1321,7 @@ static int wcd937x_set_swr_port(struct snd_kcontrol *kcontrol,
 				struct snd_ctl_elem_value *ucontrol)
 {
 	struct soc_mixer_control *mixer = (struct soc_mixer_control *)kcontrol->private_value;
-	struct snd_soc_component *comp = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *comp = snd_kcontrol_chip(kcontrol);
 	struct wcd937x_priv *wcd937x = snd_soc_component_get_drvdata(comp);
 	struct wcd937x_sdw_priv *wcd;
 	int dai_id = mixer->shift;
@@ -1474,7 +1469,7 @@ static int wcd937x_mbhc_micb_adjust_voltage(struct snd_soc_component *component,
 	cur_vout_ctl = snd_soc_component_read_field(component, micb_reg,
 						    WCD937X_MICB_VOUT_MASK);
 
-	req_vout_ctl = wcd937x_get_micb_vout_ctl_val(req_volt);
+	req_vout_ctl = wcd_get_micb_vout_ctl_val(component->dev, req_volt);
 	if (req_vout_ctl < 0) {
 		ret = -EINVAL;
 		goto exit;
@@ -1522,10 +1517,10 @@ static int wcd937x_mbhc_micb_ctrl_threshold_mic(struct snd_soc_component *compon
 	 * voltage needed to detect threshold microphone, then do
 	 * not change the micbias, just return.
 	 */
-	if (wcd937x->micb2_mv >= WCD_MBHC_THR_HS_MICB_MV)
+	if (wcd937x->common.micb_mv[2] >= WCD_MBHC_THR_HS_MICB_MV)
 		return 0;
 
-	micb_mv = req_en ? WCD_MBHC_THR_HS_MICB_MV : wcd937x->micb2_mv;
+	micb_mv = req_en ? WCD_MBHC_THR_HS_MICB_MV : wcd937x->common.micb_mv[2];
 
 	return wcd937x_mbhc_micb_adjust_voltage(component, micb_mv, MIC_BIAS_2);
 }
@@ -1954,7 +1949,7 @@ static const struct wcd_mbhc_cb mbhc_cb = {
 static int wcd937x_get_hph_type(struct snd_kcontrol *kcontrol,
 				struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *component = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
 	struct wcd937x_priv *wcd937x = snd_soc_component_get_drvdata(component);
 
 	ucontrol->value.integer.value[0] = wcd_mbhc_get_hph_type(wcd937x->wcd_mbhc);
@@ -1968,8 +1963,7 @@ static int wcd937x_hph_impedance_get(struct snd_kcontrol *kcontrol,
 	u32 zl, zr;
 	bool hphr;
 	struct soc_mixer_control *mc;
-	struct snd_soc_component *component =
-					snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
 	struct wcd937x_priv *wcd937x = snd_soc_component_get_drvdata(component);
 
 	mc = (struct soc_mixer_control *)(kcontrol->private_value);
@@ -2429,22 +2423,14 @@ static const struct snd_soc_dapm_route wcd9375_audio_map[] = {
 	{ "DMIC6_MIXER", "Switch", "DMIC6" },
 };
 
-static int wcd937x_set_micbias_data(struct wcd937x_priv *wcd937x)
+static void wcd937x_set_micbias_data(struct device *dev, struct wcd937x_priv *wcd937x)
 {
-	int vout_ctl[3];
-
-	/* Set micbias voltage */
-	vout_ctl[0] = wcd937x_get_micb_vout_ctl_val(wcd937x->micb1_mv);
-	vout_ctl[1] = wcd937x_get_micb_vout_ctl_val(wcd937x->micb2_mv);
-	vout_ctl[2] = wcd937x_get_micb_vout_ctl_val(wcd937x->micb3_mv);
-	if ((vout_ctl[0] | vout_ctl[1] | vout_ctl[2]) < 0)
-		return -EINVAL;
-
-	regmap_update_bits(wcd937x->regmap, WCD937X_ANA_MICB1, WCD937X_ANA_MICB_VOUT, vout_ctl[0]);
-	regmap_update_bits(wcd937x->regmap, WCD937X_ANA_MICB2, WCD937X_ANA_MICB_VOUT, vout_ctl[1]);
-	regmap_update_bits(wcd937x->regmap, WCD937X_ANA_MICB3, WCD937X_ANA_MICB_VOUT, vout_ctl[2]);
-
-	return 0;
+	regmap_update_bits(wcd937x->regmap, WCD937X_ANA_MICB1, WCD937X_ANA_MICB_VOUT,
+			wcd937x->common.micb_vout[0]);
+	regmap_update_bits(wcd937x->regmap, WCD937X_ANA_MICB2, WCD937X_ANA_MICB_VOUT,
+			wcd937x->common.micb_vout[1]);
+	regmap_update_bits(wcd937x->regmap, WCD937X_ANA_MICB3, WCD937X_ANA_MICB_VOUT,
+			wcd937x->common.micb_vout[2]);
 }
 
 static irqreturn_t wcd937x_wd_handle_irq(int irq, void *data)
@@ -2472,7 +2458,7 @@ static const struct irq_domain_ops wcd_domain_ops = {
 
 static int wcd937x_irq_init(struct wcd937x_priv *wcd, struct device *dev)
 {
-	wcd->virq = irq_domain_add_linear(NULL, 1, &wcd_domain_ops, NULL);
+	wcd->virq = irq_domain_create_linear(NULL, 1, &wcd_domain_ops, NULL);
 	if (!(wcd->virq)) {
 		dev_err(dev, "%s: Failed to add IRQ domain\n", __func__);
 		return -EINVAL;
@@ -2486,7 +2472,7 @@ static int wcd937x_irq_init(struct wcd937x_priv *wcd, struct device *dev)
 
 static int wcd937x_soc_codec_probe(struct snd_soc_component *component)
 {
-	struct snd_soc_dapm_context *dapm = snd_soc_component_get_dapm(component);
+	struct snd_soc_dapm_context *dapm = snd_soc_component_to_dapm(component);
 	struct wcd937x_priv *wcd937x = snd_soc_component_get_drvdata(component);
 	struct sdw_slave *tx_sdw_dev = wcd937x->tx_sdw_dev;
 	struct device *dev = component->dev;
@@ -2623,32 +2609,7 @@ static const struct snd_soc_component_driver soc_codec_dev_wcd937x = {
 	.endianness = 1,
 };
 
-static void wcd937x_dt_parse_micbias_info(struct device *dev, struct wcd937x_priv *wcd)
-{
-	struct device_node *np = dev->of_node;
-	u32 prop_val = 0;
-	int ret = 0;
-
-	ret = of_property_read_u32(np, "qcom,micbias1-microvolt", &prop_val);
-	if (!ret)
-		wcd->micb1_mv = prop_val / 1000;
-	else
-		dev_warn(dev, "Micbias1 DT property not found\n");
-
-	ret = of_property_read_u32(np, "qcom,micbias2-microvolt", &prop_val);
-	if (!ret)
-		wcd->micb2_mv = prop_val / 1000;
-	else
-		dev_warn(dev, "Micbias2 DT property not found\n");
-
-	ret = of_property_read_u32(np, "qcom,micbias3-microvolt", &prop_val);
-	if (!ret)
-		wcd->micb3_mv = prop_val / 1000;
-	else
-		dev_warn(dev, "Micbias3 DT property not found\n");
-}
-
-static bool wcd937x_swap_gnd_mic(struct snd_soc_component *component, bool active)
+static bool wcd937x_swap_gnd_mic(struct snd_soc_component *component)
 {
 	int value;
 	struct wcd937x_priv *wcd937x;
@@ -2691,10 +2652,51 @@ static int wcd937x_codec_set_sdw_stream(struct snd_soc_dai *dai,
 	return 0;
 }
 
+static int wcd937x_get_channel_map(const struct snd_soc_dai *dai,
+				   unsigned int *tx_num, unsigned int *tx_slot,
+				   unsigned int *rx_num, unsigned int *rx_slot)
+{
+	struct wcd937x_priv *wcd937x = dev_get_drvdata(dai->dev);
+	struct wcd937x_sdw_priv *wcd = wcd937x->sdw_priv[dai->id];
+	int i;
+
+	switch (dai->id) {
+	case AIF1_PB:
+		if (!rx_slot || !rx_num) {
+			dev_err(dai->dev, "Invalid rx_slot %p or rx_num %p\n",
+				rx_slot, rx_num);
+			return -EINVAL;
+		}
+
+		for (i = 0; i < SDW_MAX_PORTS; i++)
+			rx_slot[i] = wcd->master_channel_map[i];
+
+		*rx_num = i;
+		break;
+	case AIF1_CAP:
+		if (!tx_slot || !tx_num) {
+			dev_err(dai->dev, "Invalid tx_slot %p or tx_num %p\n",
+				tx_slot, tx_num);
+			return -EINVAL;
+		}
+
+		for (i = 0; i < SDW_MAX_PORTS; i++)
+			tx_slot[i] = wcd->master_channel_map[i];
+
+		*tx_num = i;
+		break;
+	default:
+		break;
+	}
+
+	return 0;
+}
+
 static const struct snd_soc_dai_ops wcd937x_sdw_dai_ops = {
 	.hw_params = wcd937x_codec_hw_params,
 	.hw_free = wcd937x_codec_free,
 	.set_stream = wcd937x_codec_set_sdw_stream,
+	.get_channel_map = wcd937x_get_channel_map,
 };
 
 static struct snd_soc_dai_driver wcd937x_dais[] = {
@@ -2740,28 +2742,26 @@ static int wcd937x_bind(struct device *dev)
 		return ret;
 	}
 
-	wcd937x->rxdev = wcd937x_sdw_device_get(wcd937x->rxnode);
+	wcd937x->rxdev = of_sdw_find_device_by_node(wcd937x->rxnode);
 	if (!wcd937x->rxdev) {
 		dev_err(dev, "could not find slave with matching of node\n");
-		return -EINVAL;
+		ret = -EINVAL;
+		goto err_component_unbind;
 	}
 
 	wcd937x->sdw_priv[AIF1_PB] = dev_get_drvdata(wcd937x->rxdev);
 	wcd937x->sdw_priv[AIF1_PB]->wcd937x = wcd937x;
 
-	wcd937x->txdev = wcd937x_sdw_device_get(wcd937x->txnode);
+	wcd937x->txdev = of_sdw_find_device_by_node(wcd937x->txnode);
 	if (!wcd937x->txdev) {
 		dev_err(dev, "could not find txslave with matching of node\n");
-		return -EINVAL;
+		ret = -EINVAL;
+		goto err_put_rxdev;
 	}
 
 	wcd937x->sdw_priv[AIF1_CAP] = dev_get_drvdata(wcd937x->txdev);
 	wcd937x->sdw_priv[AIF1_CAP]->wcd937x = wcd937x;
 	wcd937x->tx_sdw_dev = dev_to_sdw_dev(wcd937x->txdev);
-	if (!wcd937x->tx_sdw_dev) {
-		dev_err(dev, "could not get txslave with matching of dev\n");
-		return -EINVAL;
-	}
 
 	/*
 	 * As TX is the main CSR reg interface, which should not be suspended first.
@@ -2770,47 +2770,63 @@ static int wcd937x_bind(struct device *dev)
 	if (!device_link_add(wcd937x->rxdev, wcd937x->txdev,
 			     DL_FLAG_STATELESS | DL_FLAG_PM_RUNTIME)) {
 		dev_err(dev, "Could not devlink TX and RX\n");
-		return -EINVAL;
+		ret = -EINVAL;
+		goto err_put_txdev;
 	}
 
 	if (!device_link_add(dev, wcd937x->txdev,
 			     DL_FLAG_STATELESS | DL_FLAG_PM_RUNTIME)) {
 		dev_err(dev, "Could not devlink WCD and TX\n");
-		return -EINVAL;
+		ret = -EINVAL;
+		goto err_remove_link1;
 	}
 
 	if (!device_link_add(dev, wcd937x->rxdev,
 			     DL_FLAG_STATELESS | DL_FLAG_PM_RUNTIME)) {
 		dev_err(dev, "Could not devlink WCD and RX\n");
-		return -EINVAL;
+		ret = -EINVAL;
+		goto err_remove_link2;
 	}
 
-	wcd937x->regmap = dev_get_regmap(&wcd937x->tx_sdw_dev->dev, NULL);
+	wcd937x->regmap = wcd937x->sdw_priv[AIF1_CAP]->regmap;
 	if (!wcd937x->regmap) {
 		dev_err(dev, "could not get TX device regmap\n");
-		return -EINVAL;
+		ret = -EINVAL;
+		goto err_remove_link3;
 	}
 
 	ret = wcd937x_irq_init(wcd937x, dev);
 	if (ret) {
 		dev_err(dev, "IRQ init failed: %d\n", ret);
-		return ret;
+		goto err_remove_link3;
 	}
 
 	wcd937x->sdw_priv[AIF1_PB]->slave_irq = wcd937x->virq;
 	wcd937x->sdw_priv[AIF1_CAP]->slave_irq = wcd937x->virq;
 
-	ret = wcd937x_set_micbias_data(wcd937x);
-	if (ret < 0) {
-		dev_err(dev, "Bad micbias pdata\n");
-		return ret;
-	}
+	wcd937x_set_micbias_data(dev, wcd937x);
 
 	ret = snd_soc_register_component(dev, &soc_codec_dev_wcd937x,
 					 wcd937x_dais, ARRAY_SIZE(wcd937x_dais));
-	if (ret)
+	if (ret) {
 		dev_err(dev, "Codec registration failed\n");
+		goto err_remove_link3;
+	}
 
+	return ret;
+
+err_remove_link3:
+	device_link_remove(dev, wcd937x->rxdev);
+err_remove_link2:
+	device_link_remove(dev, wcd937x->txdev);
+err_remove_link1:
+	device_link_remove(wcd937x->rxdev, wcd937x->txdev);
+err_put_txdev:
+	put_device(wcd937x->txdev);
+err_put_rxdev:
+	put_device(wcd937x->rxdev);
+err_component_unbind:
+	component_unbind_all(dev, wcd937x);
 	return ret;
 }
 
@@ -2824,6 +2840,8 @@ static void wcd937x_unbind(struct device *dev)
 	device_link_remove(wcd937x->rxdev, wcd937x->txdev);
 	component_unbind_all(dev, wcd937x);
 	mutex_destroy(&wcd937x->micb_lock);
+	put_device(wcd937x->txdev);
+	put_device(wcd937x->rxdev);
 }
 
 static const struct component_master_ops wcd937x_comp_ops = {
@@ -2872,6 +2890,8 @@ static int wcd937x_probe(struct platform_device *pdev)
 
 	dev_set_drvdata(dev, wcd937x);
 	mutex_init(&wcd937x->micb_lock);
+	wcd937x->common.dev = dev;
+	wcd937x->common.max_bias = 3;
 
 	wcd937x->reset_gpio = devm_gpiod_get(dev, "reset", GPIOD_OUT_LOW);
 	if (IS_ERR(wcd937x->reset_gpio))
@@ -2886,26 +2906,20 @@ static int wcd937x_probe(struct platform_device *pdev)
 	cfg = &wcd937x->mbhc_cfg;
 	cfg->swap_gnd_mic = wcd937x_swap_gnd_mic;
 
-	wcd937x->supplies[0].supply = "vdd-rxtx";
-	wcd937x->supplies[1].supply = "vdd-px";
-	wcd937x->supplies[2].supply = "vdd-mic-bias";
-	wcd937x->supplies[3].supply = "vdd-buck";
-
-	ret = devm_regulator_bulk_get(dev, WCD937X_MAX_BULK_SUPPLY, wcd937x->supplies);
+	ret = devm_regulator_bulk_get_enable(dev, ARRAY_SIZE(wcd937x_supplies),
+					     wcd937x_supplies);
 	if (ret)
-		return dev_err_probe(dev, ret, "Failed to get supplies\n");
+		return dev_err_probe(dev, ret, "Failed to get and enable supplies\n");
 
-	ret = regulator_bulk_enable(WCD937X_MAX_BULK_SUPPLY, wcd937x->supplies);
+	ret = wcd_dt_parse_micbias_info(&wcd937x->common);
 	if (ret)
-		return dev_err_probe(dev, ret, "Failed to enable supplies\n");
-
-	wcd937x_dt_parse_micbias_info(dev, wcd937x);
+		return dev_err_probe(dev, ret, "Failed to get micbias\n");
 
 	cfg->mbhc_micbias = MIC_BIAS_2;
 	cfg->anc_micbias = MIC_BIAS_2;
 	cfg->v_hs_max = WCD_MBHC_HS_V_MAX;
 	cfg->num_btn = WCD937X_MBHC_MAX_BUTTONS;
-	cfg->micb_mv = wcd937x->micb2_mv;
+	cfg->micb_mv = wcd937x->common.micb_mv[2];
 	cfg->linein_th = 5000;
 	cfg->hs_thr = 1700;
 	cfg->hph_thr = 50;
@@ -2914,13 +2928,13 @@ static int wcd937x_probe(struct platform_device *pdev)
 
 	ret = wcd937x_add_slave_components(wcd937x, dev, &match);
 	if (ret)
-		goto err_disable_regulators;
+		return ret;
 
 	wcd937x_reset(wcd937x);
 
 	ret = component_master_add_with_match(dev, &wcd937x_comp_ops, match);
 	if (ret)
-		goto err_disable_regulators;
+		return ret;
 
 	pm_runtime_set_autosuspend_delay(dev, 1000);
 	pm_runtime_use_autosuspend(dev);
@@ -2930,25 +2944,17 @@ static int wcd937x_probe(struct platform_device *pdev)
 	pm_runtime_idle(dev);
 
 	return 0;
-
-err_disable_regulators:
-	regulator_bulk_disable(WCD937X_MAX_BULK_SUPPLY, wcd937x->supplies);
-
-	return ret;
 }
 
 static void wcd937x_remove(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
-	struct wcd937x_priv *wcd937x = dev_get_drvdata(dev);
 
 	component_master_del(&pdev->dev, &wcd937x_comp_ops);
 
 	pm_runtime_disable(dev);
 	pm_runtime_set_suspended(dev);
 	pm_runtime_dont_use_autosuspend(dev);
-
-	regulator_bulk_disable(WCD937X_MAX_BULK_SUPPLY, wcd937x->supplies);
 }
 
 #if defined(CONFIG_OF)

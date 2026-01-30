@@ -19,6 +19,10 @@
 #include "sof-audio.h"
 #include "ops.h"
 
+static bool disable_function_topology;
+module_param(disable_function_topology, bool, 0444);
+MODULE_PARM_DESC(disable_function_topology, "Disable function topology loading");
+
 #define COMP_ID_UNASSIGNED		0xffffffff
 /*
  * Constants used in the computation of linear volume gain
@@ -407,6 +411,10 @@ static const struct sof_topology_token stream_tokens[] = {
 		offsetof(struct snd_sof_pcm, stream[0].d0i3_compatible)},
 	{SOF_TKN_STREAM_CAPTURE_COMPATIBLE_D0I3, SND_SOC_TPLG_TUPLE_TYPE_BOOL, get_token_u16,
 		offsetof(struct snd_sof_pcm, stream[1].d0i3_compatible)},
+	{SOF_TKN_STREAM_PLAYBACK_PAUSE_SUPPORTED, SND_SOC_TPLG_TUPLE_TYPE_BOOL, get_token_u16,
+		offsetof(struct snd_sof_pcm, stream[0].pause_supported)},
+	{SOF_TKN_STREAM_CAPTURE_PAUSE_SUPPORTED, SND_SOC_TPLG_TUPLE_TYPE_BOOL, get_token_u16,
+		offsetof(struct snd_sof_pcm, stream[1].pause_supported)},
 };
 
 /* Leds */
@@ -567,7 +575,11 @@ static int sof_copy_tuples(struct snd_sof_dev *sdev, struct snd_soc_tplg_vendor_
 						continue;
 
 					tuples[*num_copied_tuples].token = tokens[j].token;
-					tuples[*num_copied_tuples].value.s = elem->string;
+					tuples[*num_copied_tuples].value.s =
+						devm_kasprintf(sdev->dev, GFP_KERNEL,
+							       "%s", elem->string);
+					if (!tuples[*num_copied_tuples].value.s)
+						return -ENOMEM;
 				} else {
 					struct snd_soc_tplg_vendor_value_elem *elem;
 
@@ -2094,8 +2106,8 @@ static int sof_route_load(struct snd_soc_component *scomp, int index,
 	/* source component */
 	source_swidget = snd_sof_find_swidget(scomp, (char *)route->source);
 	if (!source_swidget) {
-		dev_err(scomp->dev, "error: source %s not found\n",
-			route->source);
+		dev_err(scomp->dev, "source %s for sink %s is not found\n",
+			route->source, route->sink);
 		ret = -EINVAL;
 		goto err;
 	}
@@ -2113,8 +2125,8 @@ static int sof_route_load(struct snd_soc_component *scomp, int index,
 	/* sink component */
 	sink_swidget = snd_sof_find_swidget(scomp, (char *)route->sink);
 	if (!sink_swidget) {
-		dev_err(scomp->dev, "error: sink %s not found\n",
-			route->sink);
+		dev_err(scomp->dev, "sink %s for source %s is not found\n",
+			route->sink, route->source);
 		ret = -EINVAL;
 		goto err;
 	}
@@ -2312,8 +2324,10 @@ static const struct snd_soc_tplg_ops sof_tplg_ops = {
 	.link_load	= sof_link_load,
 	.link_unload	= sof_link_unload,
 
-	/* completion - called at completion of firmware loading */
-	.complete	= sof_complete,
+	/*
+	 * No need to set the complete callback. sof_complete will be called explicitly after
+	 * topology loading is complete.
+	 */
 
 	/* manifest - optional to inform component of manifest */
 	.manifest	= sof_manifest,
@@ -2480,35 +2494,103 @@ static const struct snd_soc_tplg_ops sof_dspless_tplg_ops = {
 int snd_sof_load_topology(struct snd_soc_component *scomp, const char *file)
 {
 	struct snd_sof_dev *sdev = snd_soc_component_get_drvdata(scomp);
+	struct snd_sof_pdata *sof_pdata = sdev->pdata;
+	const char *tplg_filename_prefix = sof_pdata->tplg_filename_prefix;
 	const struct firmware *fw;
+	const char **tplg_files;
+	int tplg_cnt = 0;
 	int ret;
+	int i;
 
-	dev_dbg(scomp->dev, "loading topology:%s\n", file);
+	tplg_files = kcalloc(scomp->card->num_links, sizeof(char *), GFP_KERNEL);
+	if (!tplg_files)
+		return -ENOMEM;
 
-	ret = request_firmware(&fw, file, scomp->dev);
-	if (ret < 0) {
-		dev_err(scomp->dev, "error: tplg request firmware %s failed err: %d\n",
-			file, ret);
-		dev_err(scomp->dev,
-			"you may need to download the firmware from https://github.com/thesofproject/sof-bin/\n");
-		return ret;
+	/* Try to use function topologies if possible */
+	if (!sof_pdata->disable_function_topology && !disable_function_topology &&
+	    sof_pdata->machine && sof_pdata->machine->get_function_tplg_files) {
+		/*
+		 * When the topology name contains 'dummy' word, it means that
+		 * there is no fallback option to monolithic topology in case
+		 * any of the function topologies might be missing.
+		 * In this case we should use best effort to form the card,
+		 * ignoring functionalities that we are missing a fragment for.
+		 *
+		 * Note: monolithic topologies also ignore these possibly
+		 * missing functions, so the functionality of the card would be
+		 * identical to the case if there would be a fallback monolithic
+		 * topology created for the configuration.
+		 */
+		bool no_fallback = strstr(file, "dummy");
+
+		tplg_cnt = sof_pdata->machine->get_function_tplg_files(scomp->card,
+								       sof_pdata->machine,
+								       tplg_filename_prefix,
+								       &tplg_files,
+								       no_fallback);
+		if (tplg_cnt < 0) {
+			kfree(tplg_files);
+			return tplg_cnt;
+		}
 	}
 
-	if (sdev->dspless_mode_selected)
-		ret = snd_soc_tplg_component_load(scomp, &sof_dspless_tplg_ops, fw);
-	else
-		ret = snd_soc_tplg_component_load(scomp, &sof_tplg_ops, fw);
-
-	if (ret < 0) {
-		dev_err(scomp->dev, "error: tplg component load failed %d\n",
-			ret);
-		ret = -EINVAL;
+	/*
+	 * The monolithic topology will be used if there is no get_function_tplg_files
+	 * callback or the callback returns 0.
+	 */
+	if (!tplg_cnt) {
+		if (strstr(file, "dummy")) {
+			dev_err(scomp->dev,
+				"Function topology is required, please upgrade sof-firmware\n");
+			return -EINVAL;
+		}
+		tplg_files[0] = file;
+		tplg_cnt = 1;
+		dev_info(scomp->dev, "loading topology: %s\n", file);
+	} else {
+		dev_info(scomp->dev, "Using function topologies instead %s\n", file);
 	}
 
-	release_firmware(fw);
+	for (i = 0; i < tplg_cnt; i++) {
+		/* Only print the file names if the function topologies are used */
+		if (tplg_files[0] != file)
+			dev_info(scomp->dev, "loading topology %d: %s\n", i, tplg_files[i]);
 
+		ret = request_firmware(&fw, tplg_files[i], scomp->dev);
+		if (ret < 0) {
+			/*
+			 * snd_soc_tplg_component_remove(scomp) will be called
+			 * if snd_soc_tplg_component_load(scomp) failed and all
+			 * objects in the scomp will be removed. No need to call
+			 * snd_soc_tplg_component_remove(scomp) here.
+			 */
+			dev_err(scomp->dev, "tplg request firmware %s failed err: %d\n",
+				tplg_files[i], ret);
+			goto out;
+		}
+
+		if (sdev->dspless_mode_selected)
+			ret = snd_soc_tplg_component_load(scomp, &sof_dspless_tplg_ops, fw);
+		else
+			ret = snd_soc_tplg_component_load(scomp, &sof_tplg_ops, fw);
+
+		release_firmware(fw);
+
+		if (ret < 0) {
+			dev_err(scomp->dev, "tplg %s component load failed %d\n",
+				tplg_files[i], ret);
+			goto out;
+		}
+	}
+
+	/* call sof_complete when topologies are loaded successfully */
+	ret = sof_complete(scomp);
+
+out:
 	if (ret >= 0 && sdev->led_present)
 		ret = snd_ctl_led_request();
+
+	kfree(tplg_files);
 
 	return ret;
 }

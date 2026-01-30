@@ -11,7 +11,9 @@
 #include <linux/gpio/consumer.h>
 #include <linux/i2c.h>
 #include <linux/firmware.h>
+#include <linux/minmax.h>
 #include <linux/regmap.h>
+#include <linux/sort.h>
 #include <sound/soc.h>
 #include "aw88399.h"
 #include "aw88395/aw88395_device.h"
@@ -23,111 +25,6 @@ static const struct regmap_config aw88399_remap_config = {
 	.reg_format_endian = REGMAP_ENDIAN_LITTLE,
 	.val_format_endian = REGMAP_ENDIAN_BIG,
 };
-
-static int aw_dev_dsp_write_16bit(struct aw_device *aw_dev,
-		unsigned short dsp_addr, unsigned int dsp_data)
-{
-	int ret;
-
-	ret = regmap_write(aw_dev->regmap, AW88399_DSPMADD_REG, dsp_addr);
-	if (ret) {
-		dev_err(aw_dev->dev, "%s write addr error, ret=%d", __func__, ret);
-		return ret;
-	}
-
-	ret = regmap_write(aw_dev->regmap, AW88399_DSPMDAT_REG, (u16)dsp_data);
-	if (ret) {
-		dev_err(aw_dev->dev, "%s write data error, ret=%d", __func__, ret);
-		return ret;
-	}
-
-	return 0;
-}
-
-static int aw_dev_dsp_read_16bit(struct aw_device *aw_dev,
-		unsigned short dsp_addr, unsigned int *dsp_data)
-{
-	unsigned int temp_data;
-	int ret;
-
-	ret = regmap_write(aw_dev->regmap, AW88399_DSPMADD_REG, dsp_addr);
-	if (ret) {
-		dev_err(aw_dev->dev, "%s write error, ret=%d", __func__, ret);
-		return ret;
-	}
-
-	ret = regmap_read(aw_dev->regmap, AW88399_DSPMDAT_REG, &temp_data);
-	if (ret) {
-		dev_err(aw_dev->dev, "%s read error, ret=%d", __func__, ret);
-		return ret;
-	}
-	*dsp_data = temp_data;
-
-	return 0;
-}
-
-static int aw_dev_dsp_read_32bit(struct aw_device *aw_dev,
-		unsigned short dsp_addr, unsigned int *dsp_data)
-{
-	unsigned int temp_data;
-	int ret;
-
-	ret = regmap_write(aw_dev->regmap, AW88399_DSPMADD_REG, dsp_addr);
-	if (ret) {
-		dev_err(aw_dev->dev, "%s write error, ret=%d", __func__, ret);
-		return ret;
-	}
-
-	ret = regmap_read(aw_dev->regmap, AW88399_DSPMDAT_REG, &temp_data);
-	if (ret) {
-		dev_err(aw_dev->dev, "%s read error, ret=%d", __func__, ret);
-		return ret;
-	}
-	*dsp_data = temp_data;
-
-	ret = regmap_read(aw_dev->regmap, AW88399_DSPMDAT_REG, &temp_data);
-	if (ret) {
-		dev_err(aw_dev->dev, "%s read error, ret=%d", __func__, ret);
-		return ret;
-	}
-	*dsp_data |= (temp_data << 16);
-
-	return 0;
-}
-
-static int aw_dev_dsp_read(struct aw_device *aw_dev,
-		unsigned short dsp_addr, unsigned int *dsp_data, unsigned char data_type)
-{
-	u32 reg_value;
-	int ret;
-
-	mutex_lock(&aw_dev->dsp_lock);
-	switch (data_type) {
-	case AW88399_DSP_16_DATA:
-		ret = aw_dev_dsp_read_16bit(aw_dev, dsp_addr, dsp_data);
-		if (ret)
-			dev_err(aw_dev->dev, "read dsp_addr[0x%x] 16-bit dsp_data[0x%x] failed",
-					(u32)dsp_addr, *dsp_data);
-		break;
-	case AW88399_DSP_32_DATA:
-		ret = aw_dev_dsp_read_32bit(aw_dev, dsp_addr, dsp_data);
-		if (ret)
-			dev_err(aw_dev->dev, "read dsp_addr[0x%x] 32r-bit dsp_data[0x%x] failed",
-					(u32)dsp_addr, *dsp_data);
-		break;
-	default:
-		dev_err(aw_dev->dev, "data type[%d] unsupported", data_type);
-		ret = -EINVAL;
-		break;
-	}
-
-	/* clear dsp chip select state */
-	if (regmap_read(aw_dev->regmap, AW88399_ID_REG, &reg_value))
-		dev_err(aw_dev->dev, "%s fail to clear chip state. ret=%d\n", __func__, ret);
-	mutex_unlock(&aw_dev->dsp_lock);
-
-	return ret;
-}
 
 static void aw_dev_pwd(struct aw_device *aw_dev, bool pwd)
 {
@@ -451,18 +348,18 @@ static int aw_dev_set_vcalb(struct aw88399 *aw88399)
 	case AW88399_DEV_VDSEL_VSENSE:
 		ret = aw88399_dev_get_vcalk(aw88399, &vcalk);
 		vcal_k = vcalk * AW88399_VCABLK_FACTOR + AW88399_CABL_BASE_VALUE;
-		vcalb = AW88399_VCALB_ACCURACY * AW88399_VSCAL_FACTOR / AW88399_ISCAL_FACTOR /
+		vcalb = AW88399_VCALB_ACCURACY * AW88399_VSCAL_FACTOR / AW88399_ISCAL_FACTOR *
 			ical_k / vcal_k * aw88399->vcalb_init_val;
 		break;
 	case AW88399_DEV_VDSEL_DAC:
 		ret = aw88399_dev_get_internal_vcalk(aw88399, &vcalk);
 		vcal_k = vcalk * AW88399_VCABLK_DAC_FACTOR + AW88399_CABL_BASE_VALUE;
 		vcalb = AW88399_VCALB_ACCURACY * AW88399_VSCAL_DAC_FACTOR /
-					AW88399_ISCAL_DAC_FACTOR / ical_k /
+					AW88399_ISCAL_DAC_FACTOR * ical_k /
 					vcal_k * aw88399->vcalb_init_val;
 		break;
 	default:
-		dev_err(aw_dev->dev, "%s: unsupport vsense\n", __func__);
+		dev_err(aw_dev->dev, "%s: unsupported vsense\n", __func__);
 		ret = -EINVAL;
 		break;
 	}
@@ -866,29 +763,19 @@ static int aw_dev_dsp_update_container(struct aw_device *aw_dev,
 	u32 tmp_len;
 	int i, ret;
 
-	mutex_lock(&aw_dev->dsp_lock);
 	ret = regmap_write(aw_dev->regmap, AW88399_DSPMADD_REG, base);
 	if (ret)
-		goto error_operation;
+		return ret;
 
 	for (i = 0; i < len; i += AW88399_MAX_RAM_WRITE_BYTE_SIZE) {
-		if ((len - i) < AW88399_MAX_RAM_WRITE_BYTE_SIZE)
-			tmp_len = len - i;
-		else
-			tmp_len = AW88399_MAX_RAM_WRITE_BYTE_SIZE;
-
+		tmp_len = min(len - i, AW88399_MAX_RAM_WRITE_BYTE_SIZE);
 		ret = regmap_raw_write(aw_dev->regmap, AW88399_DSPMDAT_REG,
 					&data[i], tmp_len);
 		if (ret)
-			goto error_operation;
+			return ret;
 	}
-	mutex_unlock(&aw_dev->dsp_lock);
 
 	return 0;
-
-error_operation:
-	mutex_unlock(&aw_dev->dsp_lock);
-	return ret;
 }
 
 static int aw_dev_get_ra(struct aw_cali_desc *cali_desc)
@@ -899,7 +786,7 @@ static int aw_dev_get_ra(struct aw_cali_desc *cali_desc)
 	int ret;
 
 	ret = aw_dev_dsp_read(aw_dev, AW88399_DSP_REG_CFG_ADPZ_RA,
-				&dsp_ra, AW88399_DSP_32_DATA);
+				&dsp_ra, AW_DSP_32_DATA);
 	if (ret) {
 		dev_err(aw_dev->dev, "read ra error");
 		return ret;
@@ -956,29 +843,25 @@ static int aw_dev_check_sram(struct aw_device *aw_dev)
 {
 	unsigned int reg_val;
 
-	mutex_lock(&aw_dev->dsp_lock);
 	/* read dsp_rom_check_reg */
-	aw_dev_dsp_read_16bit(aw_dev, AW88399_DSP_ROM_CHECK_ADDR, &reg_val);
+	aw_dev_dsp_read(aw_dev, AW88399_DSP_ROM_CHECK_ADDR, &reg_val, AW_DSP_16_DATA);
 	if (reg_val != AW88399_DSP_ROM_CHECK_DATA) {
 		dev_err(aw_dev->dev, "check dsp rom failed, read[0x%x] != check[0x%x]",
 						reg_val, AW88399_DSP_ROM_CHECK_DATA);
-		goto error;
+		return -EPERM;
 	}
 
 	/* check dsp_cfg_base_addr */
-	aw_dev_dsp_write_16bit(aw_dev, AW88399_DSP_CFG_ADDR, AW88399_DSP_ODD_NUM_BIT_TEST);
-	aw_dev_dsp_read_16bit(aw_dev, AW88399_DSP_CFG_ADDR, &reg_val);
+	aw_dev_dsp_write(aw_dev, AW88399_DSP_CFG_ADDR,
+				AW88399_DSP_ODD_NUM_BIT_TEST, AW_DSP_16_DATA);
+	aw_dev_dsp_read(aw_dev, AW88399_DSP_CFG_ADDR, &reg_val, AW_DSP_16_DATA);
 	if (reg_val != AW88399_DSP_ODD_NUM_BIT_TEST) {
 		dev_err(aw_dev->dev, "check dsp cfg failed, read[0x%x] != write[0x%x]",
 						reg_val, AW88399_DSP_ODD_NUM_BIT_TEST);
-		goto error;
+		return -EPERM;
 	}
-	mutex_unlock(&aw_dev->dsp_lock);
 
 	return 0;
-error:
-	mutex_unlock(&aw_dev->dsp_lock);
-	return -EPERM;
 }
 
 static void aw_dev_select_memclk(struct aw_device *aw_dev, unsigned char flag)
@@ -1359,10 +1242,332 @@ static struct snd_soc_dai_driver aw88399_dai[] = {
 	},
 };
 
+static void aw_cali_svc_run_mute(struct aw_device *aw_dev, uint16_t cali_result)
+{
+	if (cali_result == CALI_RESULT_ERROR)
+		aw88399_dev_mute(aw_dev, true);
+	else if (cali_result == CALI_RESULT_NORMAL)
+		aw88399_dev_mute(aw_dev, false);
+}
+
+static int aw_cali_svc_get_cali_cfg(struct aw_device *aw_dev)
+{
+	struct cali_cfg *cali_cfg = &aw_dev->cali_desc.cali_cfg;
+	int ret;
+
+	ret = aw_dev_dsp_read(aw_dev, AW88399_DSP_REG_CFG_MBMEC_ACTAMPTH,
+					&cali_cfg->data[0], AW_DSP_32_DATA);
+	if (ret)
+		return ret;
+
+	ret = aw_dev_dsp_read(aw_dev, AW88399_DSP_REG_CFG_MBMEC_NOISEAMPTH,
+					&cali_cfg->data[1], AW_DSP_32_DATA);
+	if (ret)
+		return ret;
+
+	ret = aw_dev_dsp_read(aw_dev, AW88399_DSP_REG_CFG_ADPZ_USTEPN,
+					&cali_cfg->data[2], AW_DSP_16_DATA);
+	if (ret)
+		return ret;
+
+	ret = aw_dev_dsp_read(aw_dev, AW88399_DSP_REG_CFG_RE_ALPHA,
+					&cali_cfg->data[3], AW_DSP_16_DATA);
+
+	return ret;
+}
+
+static int aw_cali_svc_set_cali_cfg(struct aw_device *aw_dev,
+				struct cali_cfg cali_cfg)
+{
+	int ret;
+
+	ret = aw_dev_dsp_write(aw_dev, AW88399_DSP_REG_CFG_MBMEC_ACTAMPTH,
+					cali_cfg.data[0], AW_DSP_32_DATA);
+	if (ret)
+		return ret;
+
+	ret = aw_dev_dsp_write(aw_dev, AW88399_DSP_REG_CFG_MBMEC_NOISEAMPTH,
+					cali_cfg.data[1], AW_DSP_32_DATA);
+	if (ret)
+		return ret;
+
+	ret = aw_dev_dsp_write(aw_dev, AW88399_DSP_REG_CFG_ADPZ_USTEPN,
+					cali_cfg.data[2], AW_DSP_16_DATA);
+	if (ret)
+		return ret;
+
+	ret = aw_dev_dsp_write(aw_dev, AW88399_DSP_REG_CFG_RE_ALPHA,
+					cali_cfg.data[3], AW_DSP_16_DATA);
+
+	return ret;
+}
+
+static int aw_cali_svc_cali_en(struct aw_device *aw_dev, bool cali_en)
+{
+	struct cali_cfg set_cfg;
+	int ret;
+
+	aw_dev_dsp_enable(aw_dev, false);
+	if (cali_en) {
+		regmap_update_bits(aw_dev->regmap, AW88399_DBGCTRL_REG,
+				~AW883XX_DSP_NG_EN_MASK, AW883XX_DSP_NG_EN_DISABLE_VALUE);
+		aw_dev_dsp_write(aw_dev, AW88399_DSP_LOW_POWER_SWITCH_CFG_ADDR,
+				AW88399_DSP_LOW_POWER_SWITCH_DISABLE, AW_DSP_16_DATA);
+
+		ret = aw_cali_svc_get_cali_cfg(aw_dev);
+		if (ret) {
+			dev_err(aw_dev->dev, "get cali cfg failed\n");
+			aw_dev_dsp_enable(aw_dev, true);
+			return ret;
+		}
+		set_cfg.data[0] = 0;
+		set_cfg.data[1] = 0;
+		set_cfg.data[2] = -1;
+		set_cfg.data[3] = 1;
+
+		ret = aw_cali_svc_set_cali_cfg(aw_dev, set_cfg);
+		if (ret) {
+			dev_err(aw_dev->dev, "set cali cfg failed\n");
+			aw_cali_svc_set_cali_cfg(aw_dev, aw_dev->cali_desc.cali_cfg);
+			aw_dev_dsp_enable(aw_dev, true);
+			return ret;
+		}
+	} else {
+		aw_cali_svc_set_cali_cfg(aw_dev, aw_dev->cali_desc.cali_cfg);
+	}
+
+	aw_dev_dsp_enable(aw_dev, true);
+
+	return 0;
+}
+
+static int aw_cali_svc_cali_run_dsp_vol(struct aw_device *aw_dev, bool enable)
+{
+	unsigned int reg_val;
+	int ret;
+
+	if (enable) {
+		ret = regmap_read(aw_dev->regmap, AW88399_DSPCFG_REG, &reg_val);
+		if (ret) {
+			dev_err(aw_dev->dev, "read reg 0x%x failed\n", AW88399_DSPCFG_REG);
+			return ret;
+		}
+
+		aw_dev->cali_desc.store_vol = reg_val & (~AW88399_DSP_VOL_MASK);
+		ret = regmap_update_bits(aw_dev->regmap, AW88399_DSPCFG_REG,
+				~AW88399_DSP_VOL_MASK, AW88399_DSP_VOL_MUTE);
+	} else {
+		ret = regmap_update_bits(aw_dev->regmap, AW88399_DSPCFG_REG,
+				~AW88399_DSP_VOL_MASK, aw_dev->cali_desc.store_vol);
+	}
+
+	return ret;
+}
+
+static void aw_cali_svc_backup_info(struct aw_device *aw_dev)
+{
+	struct aw_cali_backup_desc *backup_desc = &aw_dev->cali_desc.backup_info;
+	unsigned int reg_val, dsp_val;
+
+	regmap_read(aw_dev->regmap, AW88399_DBGCTRL_REG, &reg_val);
+	backup_desc->dsp_ng_cfg = reg_val & (~AW883XX_DSP_NG_EN_MASK);
+
+	aw_dev_dsp_read(aw_dev, AW88399_DSP_LOW_POWER_SWITCH_CFG_ADDR, &dsp_val, AW_DSP_16_DATA);
+
+	backup_desc->dsp_lp_cfg = dsp_val;
+}
+
+static void aw_cali_svc_recover_info(struct aw_device *aw_dev)
+{
+	struct aw_cali_backup_desc *backup_desc = &aw_dev->cali_desc.backup_info;
+
+	regmap_update_bits(aw_dev->regmap, AW88399_DBGCTRL_REG,
+			~AW883XX_DSP_NG_EN_MASK, backup_desc->dsp_ng_cfg);
+
+	aw_dev_dsp_write(aw_dev, AW88399_DSP_LOW_POWER_SWITCH_CFG_ADDR,
+			backup_desc->dsp_lp_cfg, AW_DSP_16_DATA);
+}
+
+static int aw_cali_svc_cali_re_mode_enable(struct aw_device *aw_dev, bool is_enable)
+{
+	int ret;
+
+	if (is_enable) {
+		ret = aw_dev_check_syspll(aw_dev);
+		if (ret) {
+			dev_err(aw_dev->dev, "pll check failed cannot start\n");
+			return ret;
+		}
+
+		ret = aw_dev_get_dsp_status(aw_dev);
+		if (ret) {
+			dev_err(aw_dev->dev, "dsp status error\n");
+			return ret;
+		}
+
+		aw_cali_svc_backup_info(aw_dev);
+		ret = aw_cali_svc_cali_en(aw_dev, true);
+		if (ret) {
+			dev_err(aw_dev->dev, "aw_cali_svc_cali_en failed\n");
+			return ret;
+		}
+
+		ret = aw_cali_svc_cali_run_dsp_vol(aw_dev, true);
+		if (ret) {
+			aw_cali_svc_cali_en(aw_dev, false);
+			return ret;
+		}
+
+	} else {
+		aw_cali_svc_cali_run_dsp_vol(aw_dev, false);
+		aw_cali_svc_recover_info(aw_dev);
+		aw_cali_svc_cali_en(aw_dev, false);
+	}
+
+	return 0;
+}
+
+static int aw_cali_svc_get_dev_re(struct aw_device *aw_dev, uint32_t *re)
+{
+	uint32_t dsp_re, show_re;
+	int ret;
+
+	ret = aw_dev_dsp_read(aw_dev, AW88399_DSP_REG_CALRE, &dsp_re, AW_DSP_16_DATA);
+	if (ret)
+		return ret;
+
+	show_re = AW88399_DSP_RE_TO_SHOW_RE(dsp_re, AW88399_DSP_REG_CALRE_SHIFT);
+
+	*re = (uint32_t)(show_re - aw_dev->cali_desc.ra);
+
+	return 0;
+}
+
+static void aw_cali_svc_del_max_min_ave_algo(uint32_t *data, int data_size, uint32_t *dsp_re)
+{
+	int sum = 0, i;
+
+	for (i = 1; i < data_size - 1; i++)
+		sum += data[i];
+
+	*dsp_re = sum / (data_size - AW_CALI_DATA_SUM_RM);
+}
+
+static int aw_cali_svc_get_iv_st(struct aw_device *aw_dev)
+{
+	unsigned int reg_data;
+	int ret, i;
+
+	for (i = 0; i < AW_GET_IV_CNT_MAX; i++) {
+		ret = regmap_read(aw_dev->regmap, AW88399_ASR1_REG, &reg_data);
+		if (ret) {
+			dev_err(aw_dev->dev, "read 0x%x failed\n", AW88399_ASR1_REG);
+			return ret;
+		}
+
+		reg_data &= (~AW88399_REABS_MASK);
+		if (!reg_data)
+			return 0;
+		msleep(30);
+	}
+
+	dev_err(aw_dev->dev, "IV data abnormal, please check\n");
+
+	return -EINVAL;
+}
+
+static int compare_ints(const void *a, const void *b)
+{
+	return *(int *)a - *(int *)b;
+}
+
+static int aw_cali_svc_get_smooth_cali_re(struct aw_device *aw_dev)
+{
+	uint32_t re_temp[AW_CALI_READ_CNT_MAX];
+	uint32_t dsp_re;
+	int ret, i;
+
+	for (i = 0; i < AW_CALI_READ_CNT_MAX; i++) {
+		ret = aw_cali_svc_get_dev_re(aw_dev, &re_temp[i]);
+		if (ret)
+			goto cali_re_fail;
+		msleep(30);
+	}
+
+	sort(re_temp, AW_CALI_READ_CNT_MAX, sizeof(uint32_t), compare_ints, NULL);
+
+	aw_cali_svc_del_max_min_ave_algo(re_temp, AW_CALI_READ_CNT_MAX, &dsp_re);
+
+	ret = aw_cali_svc_get_iv_st(aw_dev);
+	if (ret) {
+		dev_err(aw_dev->dev, "get iv data failed");
+		goto cali_re_fail;
+	}
+
+	if (dsp_re < AW88399_CALI_RE_MIN || dsp_re > AW88399_CALI_RE_MAX) {
+		dev_err(aw_dev->dev, "out range re value: [%d]mohm\n", dsp_re);
+		aw_dev->cali_desc.cali_re = dsp_re;
+		aw_dev->cali_desc.cali_result = CALI_RESULT_ERROR;
+		aw_cali_svc_run_mute(aw_dev, aw_dev->cali_desc.cali_result);
+
+		return 0;
+	}
+
+	aw_dev->cali_desc.cali_result = CALI_RESULT_NORMAL;
+
+	aw_dev->cali_desc.cali_re = dsp_re;
+	dev_dbg(aw_dev->dev, "re[%d]mohm\n", aw_dev->cali_desc.cali_re);
+
+	aw_dev_dsp_enable(aw_dev, false);
+	aw_dev_update_cali_re(&aw_dev->cali_desc);
+	aw_dev_dsp_enable(aw_dev, true);
+
+	return 0;
+
+cali_re_fail:
+	aw_dev->cali_desc.cali_result = CALI_RESULT_ERROR;
+	aw_cali_svc_run_mute(aw_dev, aw_dev->cali_desc.cali_result);
+	return -EINVAL;
+}
+
+static int aw_cali_svc_dev_cali_re(struct aw88399 *aw88399)
+{
+	struct aw_device *aw_dev = aw88399->aw_pa;
+	struct aw_cali_desc *cali_desc = &aw_dev->cali_desc;
+	int ret;
+
+	if (cali_desc->cali_running) {
+		dev_err(aw_dev->dev, "calibration in progress\n");
+		return -EINVAL;
+	}
+
+	cali_desc->cali_running = true;
+	aw_cali_svc_run_mute(aw_dev, CALI_RESULT_NORMAL);
+
+	ret = aw_cali_svc_cali_re_mode_enable(aw_dev, true);
+	if (ret) {
+		dev_err(aw_dev->dev, "start cali re failed\n");
+		goto re_mode_err;
+	}
+
+	msleep(1000);
+
+	ret = aw_cali_svc_get_smooth_cali_re(aw_dev);
+	if (ret)
+		dev_err(aw_dev->dev, "get cali re failed\n");
+
+	aw_cali_svc_cali_re_mode_enable(aw_dev, false);
+
+re_mode_err:
+	cali_desc->cali_running = false;
+
+	return ret;
+}
+
 static int aw88399_get_fade_in_time(struct snd_kcontrol *kcontrol,
 	struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *component = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
 	struct aw88399 *aw88399 = snd_soc_component_get_drvdata(component);
 	struct aw_device *aw_dev = aw88399->aw_pa;
 
@@ -1374,7 +1579,7 @@ static int aw88399_get_fade_in_time(struct snd_kcontrol *kcontrol,
 static int aw88399_set_fade_in_time(struct snd_kcontrol *kcontrol,
 	struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *component = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
 	struct aw88399 *aw88399 = snd_soc_component_get_drvdata(component);
 	struct soc_mixer_control *mc =
 		(struct soc_mixer_control *)kcontrol->private_value;
@@ -1397,7 +1602,7 @@ static int aw88399_set_fade_in_time(struct snd_kcontrol *kcontrol,
 static int aw88399_get_fade_out_time(struct snd_kcontrol *kcontrol,
 	struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *component = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
 	struct aw88399 *aw88399 = snd_soc_component_get_drvdata(component);
 	struct aw_device *aw_dev = aw88399->aw_pa;
 
@@ -1409,7 +1614,7 @@ static int aw88399_get_fade_out_time(struct snd_kcontrol *kcontrol,
 static int aw88399_set_fade_out_time(struct snd_kcontrol *kcontrol,
 	struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *component = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
 	struct aw88399 *aw88399 = snd_soc_component_get_drvdata(component);
 	struct soc_mixer_control *mc =
 		(struct soc_mixer_control *)kcontrol->private_value;
@@ -1447,9 +1652,9 @@ static int aw88399_dev_set_profile_index(struct aw_device *aw_dev, int index)
 static int aw88399_profile_info(struct snd_kcontrol *kcontrol,
 			 struct snd_ctl_elem_info *uinfo)
 {
-	struct snd_soc_component *codec = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *codec = snd_kcontrol_chip(kcontrol);
 	struct aw88399 *aw88399 = snd_soc_component_get_drvdata(codec);
-	char *prof_name, *name;
+	char *prof_name;
 	int count, ret;
 
 	uinfo->type = SNDRV_CTL_ELEM_TYPE_ENUMERATED;
@@ -1466,17 +1671,15 @@ static int aw88399_profile_info(struct snd_kcontrol *kcontrol,
 	if (uinfo->value.enumerated.item >= count)
 		uinfo->value.enumerated.item = count - 1;
 
-	name = uinfo->value.enumerated.name;
 	count = uinfo->value.enumerated.item;
 
 	ret = aw88399_dev_get_prof_name(aw88399->aw_pa, count, &prof_name);
 	if (ret) {
-		strscpy(uinfo->value.enumerated.name, "null",
-						strlen("null") + 1);
+		strscpy(uinfo->value.enumerated.name, "null");
 		return 0;
 	}
 
-	strscpy(name, prof_name, sizeof(uinfo->value.enumerated.name));
+	strscpy(uinfo->value.enumerated.name, prof_name);
 
 	return 0;
 }
@@ -1484,7 +1687,7 @@ static int aw88399_profile_info(struct snd_kcontrol *kcontrol,
 static int aw88399_profile_get(struct snd_kcontrol *kcontrol,
 			struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *codec = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *codec = snd_kcontrol_chip(kcontrol);
 	struct aw88399 *aw88399 = snd_soc_component_get_drvdata(codec);
 
 	ucontrol->value.integer.value[0] = aw88399->aw_pa->prof_index;
@@ -1495,7 +1698,7 @@ static int aw88399_profile_get(struct snd_kcontrol *kcontrol,
 static int aw88399_profile_set(struct snd_kcontrol *kcontrol,
 		struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *codec = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *codec = snd_kcontrol_chip(kcontrol);
 	struct aw88399 *aw88399 = snd_soc_component_get_drvdata(codec);
 	int ret;
 
@@ -1520,7 +1723,7 @@ static int aw88399_profile_set(struct snd_kcontrol *kcontrol,
 static int aw88399_volume_get(struct snd_kcontrol *kcontrol,
 				struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *codec = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *codec = snd_kcontrol_chip(kcontrol);
 	struct aw88399 *aw88399 = snd_soc_component_get_drvdata(codec);
 	struct aw_volume_desc *vol_desc = &aw88399->aw_pa->volume_desc;
 
@@ -1532,7 +1735,7 @@ static int aw88399_volume_get(struct snd_kcontrol *kcontrol,
 static int aw88399_volume_set(struct snd_kcontrol *kcontrol,
 				struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *codec = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *codec = snd_kcontrol_chip(kcontrol);
 	struct aw88399 *aw88399 = snd_soc_component_get_drvdata(codec);
 	struct aw_volume_desc *vol_desc = &aw88399->aw_pa->volume_desc;
 	struct soc_mixer_control *mc =
@@ -1556,7 +1759,7 @@ static int aw88399_volume_set(struct snd_kcontrol *kcontrol,
 static int aw88399_get_fade_step(struct snd_kcontrol *kcontrol,
 				struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *codec = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *codec = snd_kcontrol_chip(kcontrol);
 	struct aw88399 *aw88399 = snd_soc_component_get_drvdata(codec);
 
 	ucontrol->value.integer.value[0] = aw88399->aw_pa->fade_step;
@@ -1567,7 +1770,7 @@ static int aw88399_get_fade_step(struct snd_kcontrol *kcontrol,
 static int aw88399_set_fade_step(struct snd_kcontrol *kcontrol,
 				struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *codec = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *codec = snd_kcontrol_chip(kcontrol);
 	struct aw88399 *aw88399 = snd_soc_component_get_drvdata(codec);
 	struct soc_mixer_control *mc =
 		(struct soc_mixer_control *)kcontrol->private_value;
@@ -1588,7 +1791,7 @@ static int aw88399_set_fade_step(struct snd_kcontrol *kcontrol,
 static int aw88399_re_get(struct snd_kcontrol *kcontrol,
 				struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *codec = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *codec = snd_kcontrol_chip(kcontrol);
 	struct aw88399 *aw88399 = snd_soc_component_get_drvdata(codec);
 	struct aw_device *aw_dev = aw88399->aw_pa;
 
@@ -1600,7 +1803,7 @@ static int aw88399_re_get(struct snd_kcontrol *kcontrol,
 static int aw88399_re_set(struct snd_kcontrol *kcontrol,
 				struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *codec = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *codec = snd_kcontrol_chip(kcontrol);
 	struct aw88399 *aw88399 = snd_soc_component_get_drvdata(codec);
 	struct soc_mixer_control *mc =
 		(struct soc_mixer_control *)kcontrol->private_value;
@@ -1615,6 +1818,53 @@ static int aw88399_re_set(struct snd_kcontrol *kcontrol,
 		aw_dev->cali_desc.cali_re = value;
 		return 1;
 	}
+
+	return 0;
+}
+
+static int aw88399_calib_switch_get(struct snd_kcontrol *kcontrol,
+				struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_soc_component *codec = snd_kcontrol_chip(kcontrol);
+	struct aw88399 *aw88399 = snd_soc_component_get_drvdata(codec);
+	struct aw_device *aw_dev = aw88399->aw_pa;
+
+	ucontrol->value.integer.value[0] = aw_dev->cali_desc.cali_switch;
+
+	return 0;
+}
+
+static int aw88399_calib_switch_set(struct snd_kcontrol *kcontrol,
+				struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_soc_component *codec = snd_kcontrol_chip(kcontrol);
+	struct aw88399 *aw88399 = snd_soc_component_get_drvdata(codec);
+	struct aw_device *aw_dev = aw88399->aw_pa;
+
+	if (aw_dev->cali_desc.cali_switch == ucontrol->value.integer.value[0])
+		return 0;
+
+	aw_dev->cali_desc.cali_switch = ucontrol->value.integer.value[0];
+
+	return 1;
+}
+
+static int aw88399_calib_get(struct snd_kcontrol *kcontrol,
+				struct snd_ctl_elem_value *ucontrol)
+{
+	/* do nothing */
+	return 0;
+}
+
+static int aw88399_calib_set(struct snd_kcontrol *kcontrol,
+				struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_soc_component *codec = snd_kcontrol_chip(kcontrol);
+	struct aw88399 *aw88399 = snd_soc_component_get_drvdata(codec);
+	struct aw_device *aw_dev = aw88399->aw_pa;
+
+	if (aw_dev->status && aw_dev->cali_desc.cali_switch)
+		aw_cali_svc_dev_cali_re(aw88399);
 
 	return 0;
 }
@@ -1711,6 +1961,10 @@ static const struct snd_kcontrol_new aw88399_controls[] = {
 		aw88399_get_fade_out_time, aw88399_set_fade_out_time),
 	SOC_SINGLE_EXT("Calib", 0, 0, AW88399_CALI_RE_MAX, 0,
 		aw88399_re_get, aw88399_re_set),
+	SOC_SINGLE_BOOL_EXT("Calib Switch", 0,
+		aw88399_calib_switch_get, aw88399_calib_switch_set),
+	SOC_SINGLE_EXT("Trigger Calib", SND_SOC_NOPM, 0, 1, 0,
+		aw88399_calib_get, aw88399_calib_set),
 	AW88399_PROFILE_EXT("AW88399 Profile Set", aw88399_profile_info,
 		aw88399_profile_get, aw88399_profile_set),
 };
@@ -1897,9 +2151,18 @@ static const struct i2c_device_id aw88399_i2c_id[] = {
 };
 MODULE_DEVICE_TABLE(i2c, aw88399_i2c_id);
 
+#ifdef CONFIG_ACPI
+static const struct acpi_device_id aw88399_acpi_match[] = {
+	{ "AWDZ8399", 0 },
+	{ },
+};
+MODULE_DEVICE_TABLE(acpi, aw88399_acpi_match);
+#endif
+
 static struct i2c_driver aw88399_i2c_driver = {
 	.driver = {
 		.name = AW88399_I2C_NAME,
+		.acpi_match_table = ACPI_PTR(aw88399_acpi_match),
 	},
 	.probe = aw88399_i2c_probe,
 	.id_table = aw88399_i2c_id,

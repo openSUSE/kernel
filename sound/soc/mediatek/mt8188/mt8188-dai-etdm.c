@@ -1061,8 +1061,7 @@ static int mt8188_etdm_clk_src_sel_put(struct snd_kcontrol *kcontrol,
 static int mt8188_etdm_clk_src_sel_get(struct snd_kcontrol *kcontrol,
 				       struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *component =
-		snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
 	struct mtk_base_afe *afe = snd_soc_component_get_drvdata(component);
 	unsigned int value;
 	unsigned int reg;
@@ -2422,7 +2421,6 @@ static int mtk_dai_hdmitx_dptx_hw_params(struct snd_pcm_substream *substream,
 	unsigned int channels = params_channels(params);
 	snd_pcm_format_t format = params_format(params);
 	int width = snd_pcm_format_physical_width(format);
-	int ret;
 
 	if (!is_valid_etdm_dai(dai->id))
 		return -EINVAL;
@@ -2450,9 +2448,7 @@ static int mtk_dai_hdmitx_dptx_hw_params(struct snd_pcm_substream *substream,
 		etdm_data->data_mode = MTK_DAI_ETDM_DATA_MULTI_PIN;
 	}
 
-	ret = mtk_dai_etdm_configure(afe, rate, channels, width, dai->id);
-
-	return ret;
+	return mtk_dai_etdm_configure(afe, rate, channels, width, dai->id);
 }
 
 static int mtk_dai_hdmitx_dptx_set_sysclk(struct snd_soc_dai *dai,

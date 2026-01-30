@@ -23,6 +23,7 @@ enum sof_intel_hw_ip_version {
 	SOF_INTEL_ACE_1_0,	/* MeteorLake */
 	SOF_INTEL_ACE_2_0,	/* LunarLake */
 	SOF_INTEL_ACE_3_0,	/* PantherLake */
+	SOF_INTEL_ACE_4_0,	/* NovaLake */
 };
 
 /*
@@ -186,6 +187,7 @@ struct sof_intel_dsp_desc {
 	u32 sdw_alh_base;
 	u32 d0i3_offset;
 	u32 quirks;
+	const char *platform;
 	enum sof_intel_hw_ip_version hw_ip_version;
 	int (*read_sdw_lcount)(struct snd_sof_dev *sdev);
 	void (*enable_sdw_irq)(struct snd_sof_dev *sdev, bool enable);
@@ -193,6 +195,8 @@ struct sof_intel_dsp_desc {
 	bool (*check_sdw_wakeen_irq)(struct snd_sof_dev *sdev);
 	void (*sdw_process_wakeen)(struct snd_sof_dev *sdev);
 	bool (*check_ipc_irq)(struct snd_sof_dev *sdev);
+	bool (*check_mic_privacy_irq)(struct snd_sof_dev *sdev, bool alt, int elid);
+	void (*process_mic_privacy)(struct snd_sof_dev *sdev, bool alt, int elid);
 	int (*power_down_dsp)(struct snd_sof_dev *sdev);
 	int (*disable_interrupts)(struct snd_sof_dev *sdev);
 	int (*cl_init)(struct snd_sof_dev *sdev, int stream_tag, bool imr_boot);

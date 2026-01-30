@@ -104,7 +104,7 @@ static struct snd_soc_dai_driver aw88395_dai[] = {
 static int aw88395_get_fade_in_time(struct snd_kcontrol *kcontrol,
 	struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *component = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
 	struct aw88395 *aw88395 = snd_soc_component_get_drvdata(component);
 	struct aw_device *aw_dev = aw88395->aw_pa;
 
@@ -116,7 +116,7 @@ static int aw88395_get_fade_in_time(struct snd_kcontrol *kcontrol,
 static int aw88395_set_fade_in_time(struct snd_kcontrol *kcontrol,
 	struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *component = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
 	struct aw88395 *aw88395 = snd_soc_component_get_drvdata(component);
 	struct soc_mixer_control *mc =
 		(struct soc_mixer_control *)kcontrol->private_value;
@@ -139,7 +139,7 @@ static int aw88395_set_fade_in_time(struct snd_kcontrol *kcontrol,
 static int aw88395_get_fade_out_time(struct snd_kcontrol *kcontrol,
 	struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *component = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
 	struct aw88395 *aw88395 = snd_soc_component_get_drvdata(component);
 	struct aw_device *aw_dev = aw88395->aw_pa;
 
@@ -151,7 +151,7 @@ static int aw88395_get_fade_out_time(struct snd_kcontrol *kcontrol,
 static int aw88395_set_fade_out_time(struct snd_kcontrol *kcontrol,
 	struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *component = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
 	struct aw88395 *aw88395 = snd_soc_component_get_drvdata(component);
 	struct soc_mixer_control *mc =
 		(struct soc_mixer_control *)kcontrol->private_value;
@@ -173,9 +173,9 @@ static int aw88395_set_fade_out_time(struct snd_kcontrol *kcontrol,
 static int aw88395_profile_info(struct snd_kcontrol *kcontrol,
 			 struct snd_ctl_elem_info *uinfo)
 {
-	struct snd_soc_component *codec = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *codec = snd_kcontrol_chip(kcontrol);
 	struct aw88395 *aw88395 = snd_soc_component_get_drvdata(codec);
-	char *prof_name, *name;
+	char *prof_name;
 	int count, ret;
 
 	uinfo->type = SNDRV_CTL_ELEM_TYPE_ENUMERATED;
@@ -192,17 +192,15 @@ static int aw88395_profile_info(struct snd_kcontrol *kcontrol,
 	if (uinfo->value.enumerated.item >= count)
 		uinfo->value.enumerated.item = count - 1;
 
-	name = uinfo->value.enumerated.name;
 	count = uinfo->value.enumerated.item;
 
 	ret = aw88395_dev_get_prof_name(aw88395->aw_pa, count, &prof_name);
 	if (ret) {
-		strscpy(uinfo->value.enumerated.name, "null",
-						strlen("null") + 1);
+		strscpy(uinfo->value.enumerated.name, "null");
 		return 0;
 	}
 
-	strscpy(name, prof_name, sizeof(uinfo->value.enumerated.name));
+	strscpy(uinfo->value.enumerated.name, prof_name);
 
 	return 0;
 }
@@ -210,7 +208,7 @@ static int aw88395_profile_info(struct snd_kcontrol *kcontrol,
 static int aw88395_profile_get(struct snd_kcontrol *kcontrol,
 			struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *codec = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *codec = snd_kcontrol_chip(kcontrol);
 	struct aw88395 *aw88395 = snd_soc_component_get_drvdata(codec);
 
 	ucontrol->value.integer.value[0] = aw88395_dev_get_profile_index(aw88395->aw_pa);
@@ -221,7 +219,7 @@ static int aw88395_profile_get(struct snd_kcontrol *kcontrol,
 static int aw88395_profile_set(struct snd_kcontrol *kcontrol,
 		struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *codec = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *codec = snd_kcontrol_chip(kcontrol);
 	struct aw88395 *aw88395 = snd_soc_component_get_drvdata(codec);
 	int ret;
 
@@ -247,7 +245,7 @@ static int aw88395_profile_set(struct snd_kcontrol *kcontrol,
 static int aw88395_volume_get(struct snd_kcontrol *kcontrol,
 				struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *codec = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *codec = snd_kcontrol_chip(kcontrol);
 	struct aw88395 *aw88395 = snd_soc_component_get_drvdata(codec);
 	struct aw_volume_desc *vol_desc = &aw88395->aw_pa->volume_desc;
 
@@ -259,7 +257,7 @@ static int aw88395_volume_get(struct snd_kcontrol *kcontrol,
 static int aw88395_volume_set(struct snd_kcontrol *kcontrol,
 				struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *codec = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *codec = snd_kcontrol_chip(kcontrol);
 	struct aw88395 *aw88395 = snd_soc_component_get_drvdata(codec);
 	struct aw_volume_desc *vol_desc = &aw88395->aw_pa->volume_desc;
 	struct soc_mixer_control *mc =
@@ -283,7 +281,7 @@ static int aw88395_volume_set(struct snd_kcontrol *kcontrol,
 static int aw88395_get_fade_step(struct snd_kcontrol *kcontrol,
 				struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *codec = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *codec = snd_kcontrol_chip(kcontrol);
 	struct aw88395 *aw88395 = snd_soc_component_get_drvdata(codec);
 
 	ucontrol->value.integer.value[0] = aw88395->aw_pa->fade_step;
@@ -294,7 +292,7 @@ static int aw88395_get_fade_step(struct snd_kcontrol *kcontrol,
 static int aw88395_set_fade_step(struct snd_kcontrol *kcontrol,
 				struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *codec = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *codec = snd_kcontrol_chip(kcontrol);
 	struct aw88395 *aw88395 = snd_soc_component_get_drvdata(codec);
 	struct soc_mixer_control *mc =
 		(struct soc_mixer_control *)kcontrol->private_value;
@@ -315,7 +313,7 @@ static int aw88395_set_fade_step(struct snd_kcontrol *kcontrol,
 static int aw88395_re_get(struct snd_kcontrol *kcontrol,
 				struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *codec = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *codec = snd_kcontrol_chip(kcontrol);
 	struct aw88395 *aw88395 = snd_soc_component_get_drvdata(codec);
 	struct aw_device *aw_dev = aw88395->aw_pa;
 
@@ -327,7 +325,7 @@ static int aw88395_re_get(struct snd_kcontrol *kcontrol,
 static int aw88395_re_set(struct snd_kcontrol *kcontrol,
 				struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *codec = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *codec = snd_kcontrol_chip(kcontrol);
 	struct aw88395 *aw88395 = snd_soc_component_get_drvdata(codec);
 	struct soc_mixer_control *mc =
 		(struct soc_mixer_control *)kcontrol->private_value;
@@ -403,7 +401,7 @@ static const struct snd_soc_dapm_route aw88395_audio_map[] = {
 
 static int aw88395_codec_probe(struct snd_soc_component *component)
 {
-	struct snd_soc_dapm_context *dapm = snd_soc_component_get_dapm(component);
+	struct snd_soc_dapm_context *dapm = snd_soc_component_to_dapm(component);
 	struct aw88395 *aw88395 = snd_soc_component_get_drvdata(component);
 	int ret;
 

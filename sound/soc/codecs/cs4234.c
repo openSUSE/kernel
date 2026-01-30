@@ -85,9 +85,9 @@ static SOC_ENUM_SINGLE_DECL(cs4234_max_delay, CS4234_VOLUME_MODE,
 static int cs4234_dac14_grp_delay_put(struct snd_kcontrol *kctrl,
 				      struct snd_ctl_elem_value *uctrl)
 {
-	struct snd_soc_component *component = snd_soc_kcontrol_component(kctrl);
+	struct snd_soc_component *component = snd_kcontrol_chip(kctrl);
 	struct cs4234 *cs4234 = snd_soc_component_get_drvdata(component);
-	struct snd_soc_dapm_context *dapm = snd_soc_component_get_dapm(component);
+	struct snd_soc_dapm_context *dapm = snd_soc_component_to_dapm(component);
 	unsigned int val = 0;
 	int ret = 0;
 
@@ -126,10 +126,11 @@ static int cs4234_set_bias_level(struct snd_soc_component *component,
 				 enum snd_soc_bias_level level)
 {
 	struct cs4234 *cs4234 = snd_soc_component_get_drvdata(component);
+	struct snd_soc_dapm_context *dapm = snd_soc_component_to_dapm(component);
 
 	switch (level) {
 	case SND_SOC_BIAS_PREPARE:
-		switch (snd_soc_component_get_bias_level(component)) {
+		switch (snd_soc_dapm_get_bias_level(dapm)) {
 		case SND_SOC_BIAS_STANDBY:
 			wait_for_completion(&cs4234->vq_ramp_complete);
 			break;
@@ -307,9 +308,9 @@ static int cs4234_dai_set_fmt(struct snd_soc_dai *codec_dai, unsigned int format
 	}
 
 	switch (format & SND_SOC_DAIFMT_MASTER_MASK) {
-	case SND_SOC_DAIFMT_CBS_CFS:
+	case SND_SOC_DAIFMT_CBC_CFC:
 		break;
-	case SND_SOC_DAIFMT_CBM_CFM:
+	case SND_SOC_DAIFMT_CBP_CFP:
 		if (cs4234->format == SND_SOC_DAIFMT_DSP_A) {
 			dev_err(component->dev, "Unsupported DSP A format in master mode\n");
 			return -EINVAL;
@@ -860,7 +861,7 @@ static void cs4234_i2c_remove(struct i2c_client *i2c_client)
 	cs4234_shutdown(cs4234);
 }
 
-static int __maybe_unused cs4234_runtime_resume(struct device *dev)
+static int cs4234_runtime_resume(struct device *dev)
 {
 	struct cs4234 *cs4234 = dev_get_drvdata(dev);
 	int ret;
@@ -881,7 +882,7 @@ static int __maybe_unused cs4234_runtime_resume(struct device *dev)
 	return 0;
 }
 
-static int __maybe_unused cs4234_runtime_suspend(struct device *dev)
+static int cs4234_runtime_suspend(struct device *dev)
 {
 	struct cs4234 *cs4234 = dev_get_drvdata(dev);
 
@@ -891,7 +892,7 @@ static int __maybe_unused cs4234_runtime_suspend(struct device *dev)
 }
 
 static const struct dev_pm_ops cs4234_pm = {
-	SET_RUNTIME_PM_OPS(cs4234_runtime_suspend, cs4234_runtime_resume, NULL)
+	RUNTIME_PM_OPS(cs4234_runtime_suspend, cs4234_runtime_resume, NULL)
 };
 
 static const struct of_device_id cs4234_of_match[] = {
@@ -903,7 +904,7 @@ MODULE_DEVICE_TABLE(of, cs4234_of_match);
 static struct i2c_driver cs4234_i2c_driver = {
 	.driver = {
 		.name = "cs4234",
-		.pm = &cs4234_pm,
+		.pm = pm_ptr(&cs4234_pm),
 		.of_match_table = cs4234_of_match,
 	},
 	.probe =	cs4234_i2c_probe,

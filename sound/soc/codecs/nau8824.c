@@ -368,13 +368,13 @@ static const struct snd_kcontrol_new nau8824_snd_controls[] = {
 	SOC_ENUM("DAC Oversampling Rate", nau8824_dac_oversampl_enum),
 
 	SOC_SINGLE_TLV("Speaker Right DACR Volume",
-		NAU8824_REG_CLASSD_GAIN_1, 8, 0x1f, 0, spk_vol_tlv),
+		NAU8824_REG_CLASSD_GAIN_1, 8, 0x19, 0, spk_vol_tlv),
 	SOC_SINGLE_TLV("Speaker Left DACL Volume",
-		NAU8824_REG_CLASSD_GAIN_2, 0, 0x1f, 0, spk_vol_tlv),
+		NAU8824_REG_CLASSD_GAIN_2, 0, 0x19, 0, spk_vol_tlv),
 	SOC_SINGLE_TLV("Speaker Left DACR Volume",
-		NAU8824_REG_CLASSD_GAIN_1, 0, 0x1f, 0, spk_vol_tlv),
+		NAU8824_REG_CLASSD_GAIN_1, 0, 0x19, 0, spk_vol_tlv),
 	SOC_SINGLE_TLV("Speaker Right DACL Volume",
-		NAU8824_REG_CLASSD_GAIN_2, 8, 0x1f, 0, spk_vol_tlv),
+		NAU8824_REG_CLASSD_GAIN_2, 8, 0x19, 0, spk_vol_tlv),
 
 	SOC_SINGLE_TLV("Headphone Right DACR Volume",
 		NAU8824_REG_ATT_PORT0, 8, 0x1f, 0, hp_vol_tlv),
@@ -876,7 +876,7 @@ static void nau8824_eject_jack(struct nau8824 *nau8824)
 		NAU8824_JD_SLEEP_MODE, NAU8824_JD_SLEEP_MODE);
 
 	/* Close clock for jack type detection at manual mode */
-	if (dapm->bias_level < SND_SOC_BIAS_PREPARE)
+	if (snd_soc_dapm_get_bias_level(dapm) < SND_SOC_BIAS_PREPARE)
 		nau8824_config_sysclk(nau8824, NAU8824_CLK_DIS, 0);
 }
 
@@ -931,7 +931,7 @@ static void nau8824_setup_auto_irq(struct nau8824 *nau8824)
 	regmap_update_bits(regmap, NAU8824_REG_INTERRUPT_SETTING,
 		NAU8824_IRQ_EJECT_DIS, 0);
 	/* Enable internal VCO needed for interruptions */
-	if (nau8824->dapm->bias_level < SND_SOC_BIAS_PREPARE)
+	if (snd_soc_dapm_get_bias_level(nau8824->dapm) < SND_SOC_BIAS_PREPARE)
 		nau8824_config_sysclk(nau8824, NAU8824_CLK_INTERNAL, 0);
 	regmap_update_bits(regmap, NAU8824_REG_ENA_CTRL,
 		NAU8824_JD_SLEEP_MODE, 0);
@@ -1159,10 +1159,10 @@ static int nau8824_set_fmt(struct snd_soc_dai *dai, unsigned int fmt)
 	unsigned int ctrl1_val = 0, ctrl2_val = 0;
 
 	switch (fmt & SND_SOC_DAIFMT_MASTER_MASK) {
-	case SND_SOC_DAIFMT_CBM_CFM:
+	case SND_SOC_DAIFMT_CBP_CFP:
 		ctrl2_val |= NAU8824_I2S_MS_MASTER;
 		break;
-	case SND_SOC_DAIFMT_CBS_CFS:
+	case SND_SOC_DAIFMT_CBC_CFC:
 		break;
 	default:
 		return -EINVAL;
@@ -1498,7 +1498,7 @@ static int nau8824_set_bias_level(struct snd_soc_component *component,
 		break;
 
 	case SND_SOC_BIAS_STANDBY:
-		if (snd_soc_component_get_bias_level(component) == SND_SOC_BIAS_OFF) {
+		if (snd_soc_dapm_get_bias_level(nau8824->dapm) == SND_SOC_BIAS_OFF) {
 			/* Setup codec configuration after resume */
 			nau8824_resume_setup(nau8824);
 		}
@@ -1519,7 +1519,7 @@ static int nau8824_set_bias_level(struct snd_soc_component *component,
 static int nau8824_component_probe(struct snd_soc_component *component)
 {
 	struct nau8824 *nau8824 = snd_soc_component_get_drvdata(component);
-	struct snd_soc_dapm_context *dapm = snd_soc_component_get_dapm(component);
+	struct snd_soc_dapm_context *dapm = snd_soc_component_to_dapm(component);
 
 	nau8824->dapm = dapm;
 
@@ -1532,7 +1532,7 @@ static int __maybe_unused nau8824_suspend(struct snd_soc_component *component)
 
 	if (nau8824->irq) {
 		disable_irq(nau8824->irq);
-		snd_soc_component_force_bias_level(component, SND_SOC_BIAS_OFF);
+		snd_soc_dapm_force_bias_level(nau8824->dapm, SND_SOC_BIAS_OFF);
 	}
 	regcache_cache_only(nau8824->regmap, true);
 	regcache_mark_dirty(nau8824->regmap);
