@@ -1343,7 +1343,7 @@ fail:
 	 * unprivileged users.
 	 */
 	if ((event->attr.sample_type & PERF_SAMPLE_RAW) &&
-	    perf_allow_kernel(&event->attr)) {
+	    perf_allow_kernel()) {
 		perf_ibs_phyaddr_clear(perf_ibs, &ibs_data);
 	}
 
@@ -1373,9 +1373,7 @@ fail:
 		hwc->sample_period = perf_ibs->min_period;
 
 out:
-	if (throttle) {
-		perf_ibs_stop(event, 0);
-	} else {
+	if (!throttle) {
 		if (perf_ibs == &perf_ibs_op) {
 			if (ibs_caps & IBS_CAPS_OPCNTEXT) {
 				new_config = period & IBS_OP_MAX_CNT_EXT_MASK;

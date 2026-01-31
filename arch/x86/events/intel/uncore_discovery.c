@@ -11,24 +11,6 @@
 static struct rb_root discovery_tables = RB_ROOT;
 static int num_discovered_types[UNCORE_ACCESS_MAX];
 
-static bool has_generic_discovery_table(void)
-{
-	struct pci_dev *dev;
-	int dvsec;
-
-	dev = pci_get_device(PCI_VENDOR_ID_INTEL, UNCORE_DISCOVERY_TABLE_DEVICE, NULL);
-	if (!dev)
-		return false;
-
-	/* A discovery table device has the unique capability ID. */
-	dvsec = pci_find_next_ext_capability(dev, 0, UNCORE_EXT_CAP_ID_DISCOVERY);
-	pci_dev_put(dev);
-	if (dvsec)
-		return true;
-
-	return false;
-}
-
 static int logical_die_id;
 
 static int get_device_die_id(struct pci_dev *dev)
@@ -51,7 +33,7 @@ static int get_device_die_id(struct pci_dev *dev)
 
 static inline int __type_cmp(const void *key, const struct rb_node *b)
 {
-	struct intel_uncore_discovery_type *type_b = __node_2_type(b);
+	const struct intel_uncore_discovery_type *type_b = __node_2_type(b);
 	const u16 *type_id = key;
 
 	if (type_b->type > *type_id)
@@ -114,7 +96,7 @@ get_uncore_discovery_type(struct uncore_unit_discovery *unit)
 
 static inline int pmu_idx_cmp(const void *key, const struct rb_node *b)
 {
-	struct intel_uncore_discovery_unit *unit;
+	const struct intel_uncore_discovery_unit *unit;
 	const unsigned int *id = key;
 
 	unit = rb_entry(b, struct intel_uncore_discovery_unit, node);
@@ -172,7 +154,7 @@ int intel_uncore_find_discovery_unit_id(struct rb_root *units, int die,
 
 static inline bool unit_less(struct rb_node *a, const struct rb_node *b)
 {
-	struct intel_uncore_discovery_unit *a_node, *b_node;
+	const struct intel_uncore_discovery_unit *a_node, *b_node;
 
 	a_node = rb_entry(a, struct intel_uncore_discovery_unit, node);
 	b_node = rb_entry(b, struct intel_uncore_discovery_unit, node);
@@ -258,47 +240,31 @@ uncore_insert_box_info(struct uncore_unit_discovery *unit,
 }
 
 static bool
-uncore_ignore_unit(struct uncore_unit_discovery *unit, int *ignore)
+uncore_ignore_unit(struct uncore_unit_discovery *unit,
+		   struct uncore_discovery_domain *domain)
 {
 	int i;
 
-	if (!ignore)
+	if (!domain || !domain->units_ignore)
 		return false;
 
-	for (i = 0; ignore[i] != UNCORE_IGNORE_END ; i++) {
-		if (unit->box_type == ignore[i])
+	for (i = 0; domain->units_ignore[i] != UNCORE_IGNORE_END ; i++) {
+		if (unit->box_type == domain->units_ignore[i])
 			return true;
 	}
 
 	return false;
 }
 
-static int parse_discovery_table(struct pci_dev *dev, int die,
-				 u32 bar_offset, bool *parsed,
-				 int *ignore)
+static int __parse_discovery_table(struct uncore_discovery_domain *domain,
+				   resource_size_t addr, int die, bool *parsed)
 {
 	struct uncore_global_discovery global;
 	struct uncore_unit_discovery unit;
 	void __iomem *io_addr;
-	resource_size_t addr;
 	unsigned long size;
-	u32 val;
 	int i;
 
-	pci_read_config_dword(dev, bar_offset, &val);
-
-	if (val & ~PCI_BASE_ADDRESS_MEM_MASK & ~PCI_BASE_ADDRESS_MEM_TYPE_64)
-		return -EINVAL;
-
-	addr = (resource_size_t)(val & PCI_BASE_ADDRESS_MEM_MASK);
-#ifdef CONFIG_PHYS_ADDR_T_64BIT
-	if ((val & PCI_BASE_ADDRESS_MEM_TYPE_MASK) == PCI_BASE_ADDRESS_MEM_TYPE_64) {
-		u32 val2;
-
-		pci_read_config_dword(dev, bar_offset + 4, &val2);
-		addr |= ((resource_size_t)val2) << 32;
-	}
-#endif
 	size = UNCORE_DISCOVERY_GLOBAL_MAP_SIZE;
 	io_addr = ioremap(addr, size);
 	if (!io_addr)
@@ -319,6 +285,9 @@ static int parse_discovery_table(struct pci_dev *dev, int die,
 	if (!io_addr)
 		return -ENOMEM;
 
+	if (domain->global_init && domain->global_init(global.ctl))
+		return -ENODEV;
+
 	/* Parsing Unit Discovery State */
 	for (i = 0; i < global.max_units; i++) {
 		memcpy_fromio(&unit, io_addr + (i + 1) * (global.stride * 8),
@@ -330,7 +299,7 @@ static int parse_discovery_table(struct pci_dev *dev, int die,
 		if (unit.access_type >= UNCORE_ACCESS_MAX)
 			continue;
 
-		if (uncore_ignore_unit(&unit, ignore))
+		if (uncore_ignore_unit(&unit, domain))
 			continue;
 
 		uncore_insert_box_info(&unit, die);
@@ -341,17 +310,39 @@ static int parse_discovery_table(struct pci_dev *dev, int die,
 	return 0;
 }
 
-bool intel_uncore_has_discovery_tables(int *ignore)
+static int parse_discovery_table(struct uncore_discovery_domain *domain,
+				 struct pci_dev *dev, int die,
+				 u32 bar_offset, bool *parsed)
+{
+	resource_size_t addr;
+	u32 val;
+
+	pci_read_config_dword(dev, bar_offset, &val);
+
+	if (val & ~PCI_BASE_ADDRESS_MEM_MASK & ~PCI_BASE_ADDRESS_MEM_TYPE_64)
+		return -EINVAL;
+
+	addr = (resource_size_t)(val & PCI_BASE_ADDRESS_MEM_MASK);
+#ifdef CONFIG_PHYS_ADDR_T_64BIT
+	if ((val & PCI_BASE_ADDRESS_MEM_TYPE_MASK) == PCI_BASE_ADDRESS_MEM_TYPE_64) {
+		u32 val2;
+
+		pci_read_config_dword(dev, bar_offset + 4, &val2);
+		addr |= ((resource_size_t)val2) << 32;
+	}
+#endif
+
+	return __parse_discovery_table(domain, addr, die, parsed);
+}
+
+static bool uncore_discovery_pci(struct uncore_discovery_domain *domain)
 {
 	u32 device, val, entry_id, bar_offset;
 	int die, dvsec = 0, ret = true;
 	struct pci_dev *dev = NULL;
 	bool parsed = false;
 
-	if (has_generic_discovery_table())
-		device = UNCORE_DISCOVERY_TABLE_DEVICE;
-	else
-		device = PCI_ANY_ID;
+	device = domain->discovery_base;
 
 	/*
 	 * Start a new search and iterates through the list of
@@ -377,7 +368,7 @@ bool intel_uncore_has_discovery_tables(int *ignore)
 			if (die < 0)
 				continue;
 
-			parse_discovery_table(dev, die, bar_offset, &parsed, ignore);
+			parse_discovery_table(domain, dev, die, bar_offset, &parsed);
 		}
 	}
 
@@ -386,6 +377,58 @@ bool intel_uncore_has_discovery_tables(int *ignore)
 		ret = false;
 err:
 	pci_dev_put(dev);
+
+	return ret;
+}
+
+static bool uncore_discovery_msr(struct uncore_discovery_domain *domain)
+{
+	unsigned long *die_mask;
+	bool parsed = false;
+	int cpu, die;
+	u64 base;
+
+	die_mask = kcalloc(BITS_TO_LONGS(uncore_max_dies()),
+			   sizeof(unsigned long), GFP_KERNEL);
+	if (!die_mask)
+		return false;
+
+	cpus_read_lock();
+	for_each_online_cpu(cpu) {
+		die = topology_logical_die_id(cpu);
+		if (__test_and_set_bit(die, die_mask))
+			continue;
+
+		if (rdmsrq_safe_on_cpu(cpu, domain->discovery_base, &base))
+			continue;
+
+		if (!base)
+			continue;
+
+		__parse_discovery_table(domain, base, die, &parsed);
+	}
+
+	cpus_read_unlock();
+
+	kfree(die_mask);
+	return parsed;
+}
+
+bool uncore_discovery(struct uncore_plat_init *init)
+{
+	struct uncore_discovery_domain *domain;
+	bool ret = false;
+	int i;
+
+	for (i = 0; i < UNCORE_DISCOVERY_DOMAINS; i++) {
+		domain = &init->domain[i];
+		if (domain->discovery_base) {
+			if (!domain->base_is_pci)
+				ret |= uncore_discovery_msr(domain);
+			else
+				ret |= uncore_discovery_pci(domain);
+		}
+	}
 
 	return ret;
 }
@@ -603,7 +646,7 @@ void intel_generic_uncore_mmio_init_box(struct intel_uncore_box *box)
 	}
 
 	addr = unit->addr;
-	box->io_addr = ioremap(addr, UNCORE_GENERIC_MMIO_SIZE);
+	box->io_addr = ioremap(addr, type->mmio_map_size);
 	if (!box->io_addr) {
 		pr_warn("Uncore type %d box %d: ioremap error for 0x%llx.\n",
 			type->type_id, unit->id, (unsigned long long)addr);

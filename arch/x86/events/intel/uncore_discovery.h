@@ -1,7 +1,16 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 
+/* Store the full address of the global discovery table */
+#define UNCORE_DISCOVERY_MSR			0x201e
+/* Base address of uncore perfmon discovery table for CBB domain */
+#define CBB_UNCORE_DISCOVERY_MSR		0x710
+/* Base address of uncore perfmon discovery table for the package */
+#define PACKAGE_UNCORE_DISCOVERY_MSR		0x711
+
 /* Generic device ID of a discovery table device */
 #define UNCORE_DISCOVERY_TABLE_DEVICE		0x09a7
+/* Device ID used on DMR */
+#define DMR_UNCORE_DISCOVERY_TABLE_DEVICE	0x09a1
 /* Capability ID for a discovery table device */
 #define UNCORE_EXT_CAP_ID_DISCOVERY		0x23
 /* First DVSEC offset */
@@ -133,7 +142,7 @@ struct intel_uncore_discovery_type {
 	u16		num_units;	/* number of units */
 };
 
-bool intel_uncore_has_discovery_tables(int *ignore);
+bool uncore_discovery(struct uncore_plat_init *init);
 void intel_uncore_clear_discovery_tables(void);
 void intel_uncore_generic_uncore_cpu_init(void);
 int intel_uncore_generic_uncore_pci_init(void);
@@ -168,3 +177,7 @@ bool intel_generic_uncore_assign_hw_event(struct perf_event *event,
 					  struct intel_uncore_box *box);
 void uncore_find_add_unit(struct intel_uncore_discovery_unit *node,
 			  struct rb_root *root, u16 *num_units);
+struct intel_uncore_type **
+uncore_get_uncores(enum uncore_access_type type_id, int num_extra,
+		   struct intel_uncore_type **extra, int max_num_types,
+		   struct intel_uncore_type **uncores);
