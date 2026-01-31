@@ -16,9 +16,11 @@
  * @refsel_mode: reference selection mode
  * @forced_ref: selected reference in forced reference lock mode
  * @check_count: periodic check counter
+ * @phase_monitor: is phase offset monitor enabled
  * @dpll_dev: pointer to registered DPLL device
  * @lock_status: last saved DPLL lock status
  * @pins: list of pins
+ * @change_work: device change notification work
  */
 struct zl3073x_dpll {
 	struct list_head		list;
@@ -27,9 +29,11 @@ struct zl3073x_dpll {
 	u8				refsel_mode;
 	u8				forced_ref;
 	u8				check_count;
+	bool				phase_monitor;
 	struct dpll_device		*dpll_dev;
 	enum dpll_lock_status		lock_status;
 	struct list_head		pins;
+	struct work_struct		change_work;
 };
 
 struct zl3073x_dpll *zl3073x_dpll_alloc(struct zl3073x_dev *zldev, u8 ch);
