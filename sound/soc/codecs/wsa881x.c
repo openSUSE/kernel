@@ -680,7 +680,6 @@ struct wsa881x_priv {
 	 * For backwards compatibility.
 	 */
 	unsigned int sd_n_val;
-	int version;
 	int active_ports;
 	bool hw_init;
 	bool port_prepared[WSA881X_MAX_SWR_PORTS];
@@ -695,7 +694,6 @@ static void wsa881x_init(struct wsa881x_priv *wsa881x)
 	if (wsa881x->hw_init)
 		return;
 
-	regmap_read(rm, WSA881X_CHIP_ID1, &wsa881x->version);
 	regmap_register_patch(wsa881x->regmap, wsa881x_rev_2_0,
 			      ARRAY_SIZE(wsa881x_rev_2_0));
 
