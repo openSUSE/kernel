@@ -212,7 +212,10 @@ eltree_insert(struct hfsc_class *cl)
 static inline void
 eltree_remove(struct hfsc_class *cl)
 {
-	rb_erase(&cl->el_node, &cl->sched->eligible);
+	if (!RB_EMPTY_NODE(&cl->el_node)) {
+		rb_erase(&cl->el_node, &cl->sched->eligible);
+		RB_CLEAR_NODE(&cl->el_node);
+	}
 }
 
 static inline void
@@ -1239,7 +1242,8 @@ hfsc_qlen_notify(struct Qdisc *sch, unsigned long arg)
 	struct hfsc_class *cl = (struct hfsc_class *)arg;
 
 	if (cl->qdisc->q.qlen == 0) {
-		update_vf(cl, 0, 0);
+		if (cl->cl_nactive)
+			update_vf(cl, 0, 0);
 		set_passive(cl);
 	}
 }
