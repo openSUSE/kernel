@@ -1273,12 +1273,6 @@ static int gfs2_fill_super(struct super_block *sb, struct fs_context *fc)
 
 	if (error) {
 		gfs2_freeze_unlock(&sdp->sd_freeze_gh);
-		if (sdp->sd_quotad_process)
-			kthread_stop(sdp->sd_quotad_process);
-		sdp->sd_quotad_process = NULL;
-		if (sdp->sd_logd_process)
-			kthread_stop(sdp->sd_logd_process);
-		sdp->sd_logd_process = NULL;
 		fs_err(sdp, "can't make FS RW: %d\n", error);
 		goto fail_per_node;
 	}
@@ -1288,6 +1282,12 @@ static int gfs2_fill_super(struct super_block *sb, struct fs_context *fc)
 
 fail_per_node:
 	init_per_node(sdp, UNDO);
+	if (sdp->sd_quotad_process)
+		kthread_stop(sdp->sd_quotad_process);
+	sdp->sd_quotad_process = NULL;
+	if (sdp->sd_logd_process)
+		kthread_stop(sdp->sd_logd_process);
+	sdp->sd_logd_process = NULL;
 fail_inodes:
 	init_inodes(sdp, UNDO);
 fail_sb:
