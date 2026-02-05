@@ -48,9 +48,7 @@ impl<E: FalconEngine> FalconHal<E> for Tu102<E> {
         Ok(0)
     }
 
-    fn program_brom(&self, _falcon: &Falcon<E>, _bar: &Bar0, _params: &FalconBromParams) -> Result {
-        Ok(())
-    }
+    fn program_brom(&self, _falcon: &Falcon<E>, _bar: &Bar0, _params: &FalconBromParams) {}
 
     fn is_riscv_active(&self, bar: &Bar0) -> bool {
         bar.read(regs::NV_PRISCV_RISCV_CORE_SWITCH_RISCV_STATUS::of::<E>())

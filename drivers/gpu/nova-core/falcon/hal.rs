@@ -46,7 +46,7 @@ pub(crate) trait FalconHal<E: FalconEngine>: Send + Sync {
     ) -> Result<u32>;
 
     /// Program the boot ROM registers prior to starting a secure firmware.
-    fn program_brom(&self, falcon: &Falcon<E>, bar: &Bar0, params: &FalconBromParams) -> Result;
+    fn program_brom(&self, falcon: &Falcon<E>, bar: &Bar0, params: &FalconBromParams);
 
     /// Check if the RISC-V core is active.
     /// Returns `true` if the RISC-V core is active, `false` otherwise.
