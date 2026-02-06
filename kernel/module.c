@@ -4139,7 +4139,7 @@ static int load_module(struct load_info *info, const char __user *uargs,
 
 	init_param_lock(mod);
 
-	mod->ext = kmalloc(sizeof(*mod->ext), GFP_KERNEL);
+	mod->ext = kmalloc(sizeof(*mod->ext), GFP_KERNEL | __GFP_ZERO);
 	if (!mod->ext)
 		goto free_unload;
 
