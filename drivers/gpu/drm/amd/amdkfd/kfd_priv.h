@@ -872,6 +872,8 @@ struct kfd_process_device {
 	bool has_reset_queue;
 
 	u32 pasid;
+	/* Indicates this process has requested PTL stay disabled */
+	bool ptl_disable_req;
 };
 
 #define qpd_to_pdd(x) container_of(x, struct kfd_process_device, qpd)
@@ -1602,6 +1604,12 @@ static inline bool kfd_is_first_node(struct kfd_node *node)
 {
 	return (node == node->kfd->nodes[0]);
 }
+
+/* PTL support */
+int kfd_ptl_disable_request(struct kfd_process_device *pdd,
+		struct kfd_process *p);
+int kfd_ptl_disable_release(struct kfd_process_device *pdd,
+		struct kfd_process *p);
 
 /* Debugfs */
 #if defined(CONFIG_DEBUG_FS)
