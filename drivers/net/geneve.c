@@ -840,6 +840,9 @@ static int geneve_xmit_skb(struct sk_buff *skb, struct net_device *dev,
 	__be16 df;
 	int err;
 
+	if (!skb_vlan_inet_prepare(skb, false))
+		return -EINVAL;
+
 	sport = udp_flow_src_port(geneve->net, skb, 1, USHRT_MAX, true);
 	rt = geneve_get_v4_rt(skb, dev, &fl4, info,
 			      geneve->info.key.tp_dst, sport);
@@ -882,6 +885,9 @@ static int geneve6_xmit_skb(struct sk_buff *skb, struct net_device *dev,
 	__u8 prio, ttl;
 	__be16 sport;
 	int err;
+
+	if (!skb_vlan_inet_prepare(skb, false))
+		return -EINVAL;
 
 	sport = udp_flow_src_port(geneve->net, skb, 1, USHRT_MAX, true);
 	dst = geneve_get_v6_dst(skb, dev, &fl6, info,
