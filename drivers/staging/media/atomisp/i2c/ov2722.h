@@ -566,8 +566,8 @@ static const struct ov2722_reg ov2722_VGA_30fps[] = {
 #endif
 
 static const struct ov2722_reg ov2722_1632_1092_30fps[] = {
-	{OV2722_8BIT, 0x3021, 0x03}, /* For stand wait for
-				a whole frame complete.(vblank) */
+	/* For stand wait for a whole frame complete.(vblank) */
+	{OV2722_8BIT, 0x3021, 0x03},
 	{OV2722_8BIT, 0x3718, 0x10},
 	{OV2722_8BIT, 0x3702, 0x24},
 	{OV2722_8BIT, 0x373a, 0x60},
@@ -668,8 +668,8 @@ static const struct ov2722_reg ov2722_1632_1092_30fps[] = {
 };
 
 static const struct ov2722_reg ov2722_1452_1092_30fps[] = {
-	{OV2722_8BIT, 0x3021, 0x03}, /* For stand wait for
-				a whole frame complete.(vblank) */
+	/* For stand wait for a whole frame complete.(vblank) */
+	{OV2722_8BIT, 0x3021, 0x03},
 	{OV2722_8BIT, 0x3718, 0x10},
 	{OV2722_8BIT, 0x3702, 0x24},
 	{OV2722_8BIT, 0x373a, 0x60},
@@ -878,8 +878,8 @@ static const struct ov2722_reg ov2722_1M3_30fps[] = {
 #endif
 
 static const struct ov2722_reg ov2722_1080p_30fps[] = {
-	{OV2722_8BIT, 0x3021, 0x03}, /* For stand wait for a whole
-					frame complete.(vblank) */
+	/* For stand wait for a whole frame complete.(vblank) */
+	{OV2722_8BIT, 0x3021, 0x03},
 	{OV2722_8BIT, 0x3718, 0x10},
 	{OV2722_8BIT, 0x3702, 0x24},
 	{OV2722_8BIT, 0x373a, 0x60},
