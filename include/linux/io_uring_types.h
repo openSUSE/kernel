@@ -298,6 +298,11 @@ struct io_ring_ctx {
 		 * ->uring_cmd() by io_uring_cmd_insert_cancelable()
 		 */
 		struct hlist_head	cancelable_uring_cmd;
+		/*
+		 * For Hybrid IOPOLL, runtime in hybrid polling, without
+		 * scheduling time
+		 */
+		u64					hybrid_poll_time;
 	} ____cacheline_aligned_in_smp;
 
 	struct {
@@ -449,6 +454,7 @@ enum {
 	REQ_F_LINK_TIMEOUT_BIT,
 	REQ_F_NEED_CLEANUP_BIT,
 	REQ_F_POLLED_BIT,
+	REQ_F_HYBRID_IOPOLL_STATE_BIT,
 	REQ_F_BUFFER_SELECTED_BIT,
 	REQ_F_BUFFER_RING_BIT,
 	REQ_F_REISSUE_BIT,
@@ -509,6 +515,8 @@ enum {
 	REQ_F_NEED_CLEANUP	= IO_REQ_FLAG(REQ_F_NEED_CLEANUP_BIT),
 	/* already went through poll handler */
 	REQ_F_POLLED		= IO_REQ_FLAG(REQ_F_POLLED_BIT),
+	/* every req only blocks once in hybrid poll */
+	REQ_F_IOPOLL_STATE        = IO_REQ_FLAG(REQ_F_HYBRID_IOPOLL_STATE_BIT),
 	/* buffer already selected */
 	REQ_F_BUFFER_SELECTED	= IO_REQ_FLAG(REQ_F_BUFFER_SELECTED_BIT),
 	/* buffer selected from ring, needs commit */
@@ -646,10 +654,15 @@ struct io_kiocb {
 	bool				cancel_seq_set;
 	struct io_task_work		io_task_work;
 	union {
-		/* for polled requests, i.e. IORING_OP_POLL_ADD and async armed poll */
+		/*
+		 * for polled requests, i.e. IORING_OP_POLL_ADD and async armed
+		 * poll
+		 */
 		struct hlist_node	hash_node;
+		/* For IOPOLL setup queues, with hybrid polling */
+		u64                     iopoll_start;
 		/* for private io_kiocb freeing */
-		struct rcu_head		rcu_head;
+		struct rcu_head         rcu_head;
 	};
 	/* internal polling, see IORING_FEAT_FAST_POLL */
 	struct async_poll		*apoll;
