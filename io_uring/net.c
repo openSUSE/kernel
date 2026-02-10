@@ -1233,7 +1233,6 @@ int io_send_zc_prep(struct io_kiocb *req, const struct io_uring_sqe *sqe)
 	struct io_sr_msg *zc = io_kiocb_to_cmd(req, struct io_sr_msg);
 	struct io_ring_ctx *ctx = req->ctx;
 	struct io_kiocb *notif;
-	int ret;
 
 	zc->done_io = 0;
 	req->flags |= REQ_F_POLL_NO_LAZY;
@@ -1288,16 +1287,7 @@ int io_send_zc_prep(struct io_kiocb *req, const struct io_uring_sqe *sqe)
 	if (req->ctx->compat)
 		zc->msg_flags |= MSG_CMSG_COMPAT;
 #endif
-	ret = io_sendmsg_prep_setup(req, req->opcode == IORING_OP_SENDMSG_ZC);
-	if (unlikely(ret))
-		return ret;
-
-	if (!(zc->flags & IORING_RECVSEND_FIXED_BUF)) {
-		struct io_async_msghdr *iomsg = req->async_data;
-
-		return io_notif_account_mem(zc->notif, iomsg->msg.msg_iter.count);
-	}
-	return 0;
+	return io_sendmsg_prep_setup(req, req->opcode == IORING_OP_SENDMSG_ZC);
 }
 
 static int io_sg_from_iter_iovec(struct sk_buff *skb,
