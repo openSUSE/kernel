@@ -477,8 +477,7 @@ int ia_css_binary_init_infos(void)
 	if (!all_binaries)
 		return -ENOMEM;
 
-	for (i = 0; i < num_of_isp_binaries; i++)
-	{
+	for (i = 0; i < num_of_isp_binaries; i++) {
 		int ret;
 		struct ia_css_binary_xinfo *binary = &all_binaries[i];
 		bool binary_found;
@@ -502,8 +501,7 @@ int ia_css_binary_uninit(void)
 	unsigned int i;
 	struct ia_css_binary_xinfo *b;
 
-	for (i = 0; i < IA_CSS_BINARY_NUM_MODES; i++)
-	{
+	for (i = 0; i < IA_CSS_BINARY_NUM_MODES; i++) {
 		for (b = binary_infos[i]; b; b = b->next) {
 			if (b->xmem_addr)
 				hmm_free(b->xmem_addr);
@@ -664,8 +662,7 @@ int ia_css_binary_fill_info(const struct ia_css_binary_xinfo *xinfo,
 	assert(binary);
 
 	binary->info = xinfo;
-	if (!accelerator)
-	{
+	if (!accelerator) {
 		/* binary->css_params has been filled by accelerator itself. */
 		err = ia_css_isp_param_allocate_isp_parameters(
 		    &binary->mem_params, &binary->css_params,
@@ -673,15 +670,13 @@ int ia_css_binary_fill_info(const struct ia_css_binary_xinfo *xinfo,
 		if (err)
 			return err;
 	}
-	for (i = 0; i < IA_CSS_BINARY_MAX_OUTPUT_PORTS; i++)
-	{
+	for (i = 0; i < IA_CSS_BINARY_MAX_OUTPUT_PORTS; i++) {
 		if (out_info[i] && (out_info[i]->res.width != 0)) {
 			bin_out_info = out_info[i];
 			break;
 		}
 	}
-	if (in_info && bin_out_info)
-	{
+	if (in_info && bin_out_info) {
 		need_scaling = (in_info->res.width != bin_out_info->res.width) ||
 			       (in_info->res.height != bin_out_info->res.height);
 	}
@@ -712,8 +707,7 @@ int ia_css_binary_fill_info(const struct ia_css_binary_xinfo *xinfo,
 	binary->internal_frame_info.res.height      = isp_internal_height;
 	binary->internal_frame_info.raw_bit_depth   = bits_per_pixel;
 
-	if (in_info)
-	{
+	if (in_info) {
 		binary->effective_in_frame_res.width = in_info->res.width;
 		binary->effective_in_frame_res.height = in_info->res.height;
 
@@ -741,15 +735,13 @@ int ia_css_binary_fill_info(const struct ia_css_binary_xinfo *xinfo,
 		binary->in_frame_info.crop_info = in_info->crop_info;
 	}
 
-	if (online)
-	{
+	if (online) {
 		bits_per_pixel = ia_css_util_input_format_bpp(
 				     stream_format, two_ppc);
 	}
 	binary->in_frame_info.raw_bit_depth = bits_per_pixel;
 
-	for (i = 0; i < IA_CSS_BINARY_MAX_OUTPUT_PORTS; i++)
-	{
+	for (i = 0; i < IA_CSS_BINARY_MAX_OUTPUT_PORTS; i++) {
 		if (out_info[i]) {
 			binary->out_frame_info[i].res.width     = out_info[i]->res.width;
 			binary->out_frame_info[i].res.height    = out_info[i]->res.height;
@@ -768,8 +760,7 @@ int ia_css_binary_fill_info(const struct ia_css_binary_xinfo *xinfo,
 		}
 	}
 
-	if (vf_info && (vf_info->res.width != 0))
-	{
+	if (vf_info && (vf_info->res.width != 0)) {
 		err = ia_css_vf_configure(binary, bin_out_info,
 					  (struct ia_css_frame_info *)vf_info, &vf_log_ds);
 		if (err) {
@@ -787,8 +778,7 @@ int ia_css_binary_fill_info(const struct ia_css_binary_xinfo *xinfo,
 	binary->input_format      = stream_format;
 
 	/* viewfinder output info */
-	if ((vf_info) && (vf_info->res.width != 0))
-	{
+	if ((vf_info) && (vf_info->res.width != 0)) {
 		unsigned int vf_out_vecs, vf_out_width, vf_out_height;
 
 		binary->vf_frame_info.format = vf_info->format;
@@ -820,23 +810,20 @@ int ia_css_binary_fill_info(const struct ia_css_binary_xinfo *xinfo,
 			binary->vf_frame_info.padded_width = vf_out_width;
 			binary->vf_frame_info.res.height   = vf_out_height;
 		}
-	} else
-	{
+	} else {
 		binary->vf_frame_info.res.width    = 0;
 		binary->vf_frame_info.padded_width = 0;
 		binary->vf_frame_info.res.height   = 0;
 	}
 
-	if (info->enable.ca_gdc)
-	{
+	if (info->enable.ca_gdc) {
 		binary->morph_tbl_width =
 		    _ISP_MORPH_TABLE_WIDTH(isp_internal_width);
 		binary->morph_tbl_aligned_width  =
 		    _ISP_MORPH_TABLE_ALIGNED_WIDTH(isp_internal_width);
 		binary->morph_tbl_height =
 		    _ISP_MORPH_TABLE_HEIGHT(isp_internal_height);
-	} else
-	{
+	} else {
 		binary->morph_tbl_width  = 0;
 		binary->morph_tbl_aligned_width  = 0;
 		binary->morph_tbl_height = 0;
@@ -846,8 +833,7 @@ int ia_css_binary_fill_info(const struct ia_css_binary_xinfo *xinfo,
 	sc_3a_dis_padded_width = binary->in_frame_info.padded_width;
 	sc_3a_dis_height = binary->in_frame_info.res.height;
 	if (bds_out_info && in_info &&
-	    bds_out_info->res.width != in_info->res.width)
-	{
+	    bds_out_info->res.width != in_info->res.width) {
 		/* TODO: Next, "internal_frame_info" should be derived from
 		 * bds_out. So this part will change once it is in place! */
 		sc_3a_dis_width = bds_out_info->res.width + info->pipeline.left_cropping;
@@ -857,18 +843,15 @@ int ia_css_binary_fill_info(const struct ia_css_binary_xinfo *xinfo,
 
 	s3a_isp_width = _ISP_S3A_ELEMS_ISP_WIDTH(sc_3a_dis_padded_width,
 			info->pipeline.left_cropping);
-	if (info->s3a.fixed_s3a_deci_log)
-	{
+	if (info->s3a.fixed_s3a_deci_log) {
 		s3a_log_deci = info->s3a.fixed_s3a_deci_log;
-	} else
-	{
+	} else {
 		s3a_log_deci = binary_grid_deci_factor_log2(s3a_isp_width,
 			       sc_3a_dis_height);
 	}
 	binary->deci_factor_log2  = s3a_log_deci;
 
-	if (info->enable.s3a)
-	{
+	if (info->enable.s3a) {
 		binary->s3atbl_width  =
 		    _ISP_S3ATBL_WIDTH(sc_3a_dis_width,
 				      s3a_log_deci);
@@ -881,21 +864,18 @@ int ia_css_binary_fill_info(const struct ia_css_binary_xinfo *xinfo,
 		binary->s3atbl_isp_height =
 		    _ISP_S3ATBL_ISP_HEIGHT(sc_3a_dis_height,
 					   s3a_log_deci);
-	} else
-	{
+	} else {
 		binary->s3atbl_width  = 0;
 		binary->s3atbl_height = 0;
 		binary->s3atbl_isp_width  = 0;
 		binary->s3atbl_isp_height = 0;
 	}
 
-	if (info->enable.sc)
-	{
+	if (info->enable.sc) {
 		binary->sctbl_width_per_color = _ISP_SCTBL_WIDTH_PER_COLOR(sc_3a_dis_padded_width, s3a_log_deci);
 		binary->sctbl_aligned_width_per_color = SH_CSS_MAX_SCTBL_ALIGNED_WIDTH_PER_COLOR;
 		binary->sctbl_height = _ISP_SCTBL_HEIGHT(sc_3a_dis_height, s3a_log_deci);
-	} else
-	{
+	} else {
 		binary->sctbl_width_per_color         = 0;
 		binary->sctbl_aligned_width_per_color = 0;
 		binary->sctbl_height                  = 0;

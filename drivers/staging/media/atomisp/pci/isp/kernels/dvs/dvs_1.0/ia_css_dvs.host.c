@@ -273,8 +273,7 @@ int store_dvs_6axis_config(const struct ia_css_dvs_6axis_config *dvs_6axis_confi
 					       binary,
 					       dvs_in_frame_info);
 
-	if (!me)
-	{
+	if (!me) {
 		IA_CSS_LEAVE_ERR_PRIVATE(-ENOMEM);
 		return -ENOMEM;
 	}
