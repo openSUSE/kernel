@@ -21,8 +21,8 @@ static const struct ia_css_raw_configuration default_config = {
 };
 
 /* MW: These areMIPI / ISYS properties, not camera function properties */
-static enum sh_stream_format
-css2isp_stream_format(enum atomisp_input_format from) {
+static enum sh_stream_format css2isp_stream_format(enum atomisp_input_format from)
+{
 	switch (from)
 	{
 	case ATOMISP_INPUT_FORMAT_YUV420_8_LEGACY:

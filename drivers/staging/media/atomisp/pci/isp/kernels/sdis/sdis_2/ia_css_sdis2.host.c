@@ -164,10 +164,9 @@ void ia_css_sdis2_clear_coefficients(
 	dvs2_coefs->ver_coefs.even_imag = NULL;
 }
 
-int
-ia_css_get_dvs2_statistics(
-    struct ia_css_dvs2_statistics          *host_stats,
-    const struct ia_css_isp_dvs_statistics *isp_stats) {
+int ia_css_get_dvs2_statistics(struct ia_css_dvs2_statistics *host_stats,
+			       const struct ia_css_isp_dvs_statistics *isp_stats)
+{
 	struct ia_css_isp_dvs_statistics_map *map;
 	int ret = 0;
 

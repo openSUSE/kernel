@@ -93,11 +93,10 @@ ia_css_init_memory_interface(
 	}
 }
 
-int
-ia_css_isp_param_allocate_isp_parameters(
-    struct ia_css_isp_param_host_segments *mem_params,
-    struct ia_css_isp_param_css_segments *css_params,
-    const struct ia_css_isp_param_isp_segments *mem_initializers) {
+int ia_css_isp_param_allocate_isp_parameters(struct ia_css_isp_param_host_segments *mem_params,
+					     struct ia_css_isp_param_css_segments *css_params,
+					     const struct ia_css_isp_param_isp_segments *mem_initializers)
+{
 	int err = 0;
 	unsigned int mem, pclass;
 
@@ -171,11 +170,10 @@ ia_css_isp_param_load_fw_params(
 	}
 }
 
-int
-ia_css_isp_param_copy_isp_mem_if_to_ddr(
-    struct ia_css_isp_param_css_segments *ddr,
-    const struct ia_css_isp_param_host_segments *host,
-    enum ia_css_param_class pclass) {
+int ia_css_isp_param_copy_isp_mem_if_to_ddr(struct ia_css_isp_param_css_segments *ddr,
+					    const struct ia_css_isp_param_host_segments *host,
+					    enum ia_css_param_class pclass)
+{
 	unsigned int mem;
 
 	for (mem = 0; mem < N_IA_CSS_ISP_MEMORIES; mem++)
