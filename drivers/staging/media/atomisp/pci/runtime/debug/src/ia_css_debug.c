@@ -1123,9 +1123,8 @@ ia_css_debug_pipe_graph_dump_prologue(void)
 
 void ia_css_debug_pipe_graph_dump_epilogue(void)
 {
-	if (strlen(ring_buffer) > 0) {
+	if (strlen(ring_buffer) > 0)
 		dtrace_dot(ring_buffer);
-	}
 
 	if (pg_inst.stream_format != N_ATOMISP_INPUT_FORMAT) {
 		/* An input stream format has been set so assume we have
@@ -1778,9 +1777,8 @@ static void debug_dump_one_trace(enum TRACE_CORE_ID proc_id)
 				* When tid value is 111b, the data will be interpreted differently:
 				* tid val is ignored, major field contains 2 bits (msb) for format type
 				*/
-				if (tid_val == FIELD_TID_SEL_FORMAT_PAT) {
+				if (tid_val == FIELD_TID_SEL_FORMAT_PAT)
 					dump_format = FIELD_FORMAT_UNPACK(trace_read_buf[j]);
-				}
 			}
 			switch (dump_format) {
 			case TRACE_DUMP_FORMAT_POINT:

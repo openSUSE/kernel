@@ -22,9 +22,8 @@ ia_css_anr2_vmem_encode(
 	for (i = 0; i < ANR_PARAM_SIZE; i++) {
 		unsigned int j;
 
-		for (j = 0; j < ISP_VEC_NELEMS; j++) {
+		for (j = 0; j < ISP_VEC_NELEMS; j++)
 			to->data[i][j] = from->data[i * ISP_VEC_NELEMS + j];
-		}
 	}
 }
 

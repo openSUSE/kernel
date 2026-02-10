@@ -84,9 +84,8 @@ static inline uint8_t ia_css_circbuf_desc_get_pos_at_offset(
 	OP___assert(cb_desc->size > 0);
 
 	/* step 1: adjust the offset  */
-	while (offset < 0) {
+	while (offset < 0)
 		offset += cb_desc->size;
-	}
 
 	/* step 2: shift and round by the upper limit */
 	dest = OP_std_modadd(base, offset, cb_desc->size);
