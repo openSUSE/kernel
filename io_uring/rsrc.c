@@ -13,7 +13,6 @@
 #include <uapi/linux/io_uring.h>
 
 #include "io_uring.h"
-#include "alloc_cache.h"
 #include "openclose.h"
 #include "rsrc.h"
 #include "memmap.h"
@@ -132,16 +131,12 @@ struct io_rsrc_node *io_rsrc_node_alloc(struct io_ring_ctx *ctx, int type)
 {
 	struct io_rsrc_node *node;
 
-	node = io_alloc_cache_get(&ctx->rsrc_node_cache);
-	if (!node) {
-		node = kzalloc(sizeof(*node), GFP_KERNEL);
-		if (!node)
-			return NULL;
+	node = kzalloc(sizeof(*node), GFP_KERNEL);
+	if (node) {
+		node->ctx = ctx;
+		node->refs = 1;
+		node->type = type;
 	}
-
-	node->ctx = ctx;
-	node->refs = 1;
-	node->type = type;
 	return node;
 }
 
@@ -490,8 +485,7 @@ void io_free_rsrc_node(struct io_rsrc_node *node)
 		break;
 	}
 
-	if (!io_alloc_cache_put(&ctx->rsrc_node_cache, node))
-		kfree(node);
+	kfree(node);
 }
 
 static void __io_sqe_files_unregister(struct io_ring_ctx *ctx)
@@ -843,10 +837,11 @@ static struct io_rsrc_node *io_sqe_buffer_register(struct io_ring_ctx *ctx,
 	if (coalesced)
 		imu->folio_shift = data.folio_shift;
 	refcount_set(&imu->refs, 1);
-	off = (unsigned long) iov->iov_base & ((1UL << imu->folio_shift) - 1);
+
 	off = (unsigned long)iov->iov_base & ~PAGE_MASK;
 	if (coalesced)
 		off += data.first_folio_page_idx << PAGE_SHIFT;
+
 	node->buf = imu;
 	ret = 0;
 
