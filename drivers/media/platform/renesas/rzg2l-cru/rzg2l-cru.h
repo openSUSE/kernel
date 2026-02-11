@@ -111,7 +111,6 @@ struct rzg2l_cru_info {
  * @v4l2_dev:		V4L2 device
  * @num_buf:		Holds the current number of buffers enabled
  * @svc_channel:	SVC0/1/2/3 to use for RZ/G3E
- * @buf_addr:		Memory addresses where current video data is written.
  * @notifier:		V4L2 asynchronous subdevs notifier
  *
  * @ip:			Image processing subdev info
@@ -119,6 +118,10 @@ struct rzg2l_cru_info {
  * @mdev:		media device
  * @mdev_lock:		protects the count, notifier and csi members
  * @pad:		media pad for the video device entity
+ *
+ * @hw_lock:		protects the slot counter, hardware programming of
+ *			slot addresses and the @buf_addr[] list
+ * @buf_addr:		Memory addresses where current video data is written
  *
  * @lock:		protects @queue
  * @queue:		vb2 buffers queue
@@ -149,8 +152,6 @@ struct rzg2l_cru_dev {
 	u8 num_buf;
 
 	u8 svc_channel;
-	dma_addr_t buf_addr[RZG2L_CRU_HW_BUFFER_DEFAULT];
-
 	struct v4l2_async_notifier notifier;
 
 	struct rzg2l_cru_ip ip;
@@ -158,6 +159,9 @@ struct rzg2l_cru_dev {
 	struct media_device mdev;
 	struct mutex mdev_lock;
 	struct media_pad pad;
+
+	spinlock_t hw_lock;
+	dma_addr_t buf_addr[RZG2L_CRU_HW_BUFFER_DEFAULT];
 
 	struct mutex lock;
 	struct vb2_queue queue;
