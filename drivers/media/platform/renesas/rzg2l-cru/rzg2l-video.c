@@ -111,19 +111,21 @@ static void return_unused_buffers(struct rzg2l_cru_dev *cru,
 	struct rzg2l_cru_buffer *buf, *node;
 	unsigned int i;
 
-	guard(spinlock_irq)(&cru->qlock);
-
-	for (i = 0; i < cru->num_buf; i++) {
-		if (cru->queue_buf[i]) {
-			vb2_buffer_done(&cru->queue_buf[i]->vb2_buf,
-					state);
-			cru->queue_buf[i] = NULL;
+	scoped_guard(spinlock_irq, &cru->hw_lock) {
+		for (i = 0; i < cru->num_buf; i++) {
+			if (cru->queue_buf[i]) {
+				vb2_buffer_done(&cru->queue_buf[i]->vb2_buf,
+						state);
+				cru->queue_buf[i] = NULL;
+			}
 		}
 	}
 
-	list_for_each_entry_safe(buf, node, &cru->buf_list, list) {
-		vb2_buffer_done(&buf->vb.vb2_buf, state);
-		list_del(&buf->list);
+	scoped_guard(spinlock_irq, &cru->qlock) {
+		list_for_each_entry_safe(buf, node, &cru->buf_list, list) {
+			vb2_buffer_done(&buf->vb.vb2_buf, state);
+			list_del(&buf->list);
+		}
 	}
 }
 
@@ -202,6 +204,8 @@ static void rzg2l_cru_fill_hw_slot(struct rzg2l_cru_dev *cru, int slot)
 		return;
 
 	dev_dbg(cru->dev, "Filling HW slot: %d\n", slot);
+
+	guard(spinlock)(&cru->qlock);
 
 	if (list_empty(&cru->buf_list)) {
 		cru->queue_buf[slot] = NULL;
@@ -341,7 +345,7 @@ void rzg2l_cru_stop_image_processing(struct rzg2l_cru_dev *cru)
 	unsigned int retries = 0;
 	u32 icnms;
 
-	scoped_guard(spinlock_irq, &cru->qlock) {
+	scoped_guard(spinlock_irq, &cru->hw_lock) {
 		/* Disable and clear the interrupt */
 		cru->info->disable_interrupts(cru);
 	}
@@ -559,7 +563,7 @@ irqreturn_t rzg2l_cru_irq(int irq, void *data)
 	u32 amnmbs;
 	int slot;
 
-	guard(spinlock_irqsave)(&cru->qlock);
+	guard(spinlock_irqsave)(&cru->hw_lock);
 
 	irq_status = rzg2l_cru_read(cru, CRUnINTS);
 	if (!irq_status)
@@ -661,7 +665,7 @@ irqreturn_t rzg3e_cru_irq(int irq, void *data)
 	u32 irq_status;
 	int slot;
 
-	guard(spinlock)(&cru->qlock);
+	guard(spinlock)(&cru->hw_lock);
 
 	irq_status = rzg2l_cru_read(cru, CRUnINTS2);
 	if (!irq_status)
