@@ -291,10 +291,9 @@ int io_waitid_prep(struct io_kiocb *req, const struct io_uring_sqe *sqe)
 	if (sqe->addr || sqe->buf_index || sqe->addr3 || sqe->waitid_flags)
 		return -EINVAL;
 
-	if (io_alloc_async_data(req))
+	iwa = io_uring_alloc_async_data_nocache(req);
+	if (!unlikely(iwa))
 		return -ENOMEM;
-
-	iwa = req->async_data;
 	iwa->req = req;
 
 	iw->which = READ_ONCE(sqe->len);
