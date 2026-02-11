@@ -9,7 +9,9 @@
 #define __RZG2L_CRU__
 
 #include <linux/irqreturn.h>
+#include <linux/mutex.h>
 #include <linux/reset.h>
+#include <linux/spinlock.h>
 
 #include <media/v4l2-async.h>
 #include <media/v4l2-dev.h>

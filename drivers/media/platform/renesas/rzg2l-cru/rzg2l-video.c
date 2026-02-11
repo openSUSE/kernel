@@ -110,10 +110,10 @@ static void return_unused_buffers(struct rzg2l_cru_dev *cru,
 				  enum vb2_buffer_state state)
 {
 	struct rzg2l_cru_buffer *buf, *node;
-	unsigned long flags;
 	unsigned int i;
 
-	spin_lock_irqsave(&cru->qlock, flags);
+	guard(spinlock_irqsave)(&cru->qlock);
+
 	for (i = 0; i < cru->num_buf; i++) {
 		if (cru->queue_buf[i]) {
 			vb2_buffer_done(&cru->queue_buf[i]->vb2_buf,
@@ -126,7 +126,6 @@ static void return_unused_buffers(struct rzg2l_cru_dev *cru,
 		vb2_buffer_done(&buf->vb.vb2_buf, state);
 		list_del(&buf->list);
 	}
-	spin_unlock_irqrestore(&cru->qlock, flags);
 }
 
 static int rzg2l_cru_queue_setup(struct vb2_queue *vq, unsigned int *nbuffers,
@@ -165,13 +164,9 @@ static void rzg2l_cru_buffer_queue(struct vb2_buffer *vb)
 {
 	struct vb2_v4l2_buffer *vbuf = to_vb2_v4l2_buffer(vb);
 	struct rzg2l_cru_dev *cru = vb2_get_drv_priv(vb->vb2_queue);
-	unsigned long flags;
 
-	spin_lock_irqsave(&cru->qlock, flags);
-
+	guard(spinlock_irqsave)(&cru->qlock);
 	list_add_tail(to_buf_list(vbuf), &cru->buf_list);
-
-	spin_unlock_irqrestore(&cru->qlock, flags);
 }
 
 static void rzg2l_cru_set_slot_addr(struct rzg2l_cru_dev *cru,
@@ -465,7 +460,6 @@ void rzg2l_cru_disable_interrupts(struct rzg2l_cru_dev *cru)
 int rzg2l_cru_start_image_processing(struct rzg2l_cru_dev *cru)
 {
 	struct v4l2_mbus_framefmt *fmt = rzg2l_cru_ip_get_src_fmt(cru);
-	unsigned long flags;
 	u8 csi_vc;
 	int ret;
 
@@ -475,7 +469,7 @@ int rzg2l_cru_start_image_processing(struct rzg2l_cru_dev *cru)
 	csi_vc = ret;
 	cru->svc_channel = csi_vc;
 
-	spin_lock_irqsave(&cru->qlock, flags);
+	guard(spinlock_irqsave)(&cru->qlock);
 
 	/* Select a video input */
 	rzg2l_cru_write(cru, CRUnCTRL, CRUnCTRL_VINSEL(0));
@@ -492,7 +486,6 @@ int rzg2l_cru_start_image_processing(struct rzg2l_cru_dev *cru)
 	/* Initialize image convert */
 	ret = rzg2l_cru_initialize_image_conv(cru, fmt, csi_vc);
 	if (ret) {
-		spin_unlock_irqrestore(&cru->qlock, flags);
 		return ret;
 	}
 
@@ -501,8 +494,6 @@ int rzg2l_cru_start_image_processing(struct rzg2l_cru_dev *cru)
 
 	/* Enable image processing reception */
 	rzg2l_cru_write(cru, ICnEN, ICnEN_ICEN);
-
-	spin_unlock_irqrestore(&cru->qlock, flags);
 
 	return 0;
 }
@@ -573,16 +564,15 @@ irqreturn_t rzg2l_cru_irq(int irq, void *data)
 {
 	struct rzg2l_cru_dev *cru = data;
 	unsigned int handled = 0;
-	unsigned long flags;
 	u32 irq_status;
 	u32 amnmbs;
 	int slot;
 
-	spin_lock_irqsave(&cru->qlock, flags);
+	guard(spinlock_irqsave)(&cru->qlock);
 
 	irq_status = rzg2l_cru_read(cru, CRUnINTS);
 	if (!irq_status)
-		goto done;
+		return IRQ_RETVAL(handled);
 
 	handled = 1;
 
@@ -591,14 +581,14 @@ irqreturn_t rzg2l_cru_irq(int irq, void *data)
 	/* Nothing to do if capture status is 'RZG2L_CRU_DMA_STOPPED' */
 	if (cru->state == RZG2L_CRU_DMA_STOPPED) {
 		dev_dbg(cru->dev, "IRQ while state stopped\n");
-		goto done;
+		return IRQ_RETVAL(handled);
 	}
 
 	/* Increase stop retries if capture status is 'RZG2L_CRU_DMA_STOPPING' */
 	if (cru->state == RZG2L_CRU_DMA_STOPPING) {
 		if (irq_status & CRUnINTS_SFS)
 			dev_dbg(cru->dev, "IRQ while state stopping\n");
-		goto done;
+		return IRQ_RETVAL(handled);
 	}
 
 	/* Prepare for capture and update state */
@@ -621,7 +611,7 @@ irqreturn_t rzg2l_cru_irq(int irq, void *data)
 	if (cru->state == RZG2L_CRU_DMA_STARTING) {
 		if (slot != 0) {
 			dev_dbg(cru->dev, "Starting sync slot: %d\n", slot);
-			goto done;
+			return IRQ_RETVAL(handled);
 		}
 
 		dev_dbg(cru->dev, "Capture start synced!\n");
@@ -645,9 +635,6 @@ irqreturn_t rzg2l_cru_irq(int irq, void *data)
 
 	/* Prepare for next frame */
 	rzg2l_cru_fill_hw_slot(cru, slot);
-
-done:
-	spin_unlock_irqrestore(&cru->qlock, flags);
 
 	return IRQ_RETVAL(handled);
 }
