@@ -398,8 +398,6 @@ void rzg2l_cru_stop_image_processing(struct rzg2l_cru_dev *cru)
 	if (icnms)
 		dev_err(cru->dev, "Failed stop HW, something is seriously broken\n");
 
-	cru->state = RZG2L_CRU_DMA_STOPPED;
-
 	/* Wait until the FIFO becomes empty */
 	for (retries = 5; retries > 0; retries--) {
 		if (cru->info->fifo_empty(cru))
@@ -587,8 +585,6 @@ pipe_line_stop:
 
 static void rzg2l_cru_stop_streaming(struct rzg2l_cru_dev *cru)
 {
-	cru->state = RZG2L_CRU_DMA_STOPPING;
-
 	rzg2l_cru_set_stream(cru, 0);
 }
 
@@ -600,8 +596,6 @@ irqreturn_t rzg2l_cru_irq(int irq, void *data)
 	u32 amnmbs;
 	int slot;
 
-	guard(spinlock_irqsave)(&cru->hw_lock);
-
 	irq_status = rzg2l_cru_read(cru, CRUnINTS);
 	if (!irq_status)
 		return IRQ_RETVAL(handled);
@@ -610,20 +604,9 @@ irqreturn_t rzg2l_cru_irq(int irq, void *data)
 
 	rzg2l_cru_write(cru, CRUnINTS, rzg2l_cru_read(cru, CRUnINTS));
 
-	/* Nothing to do if capture status is 'RZG2L_CRU_DMA_STOPPED' */
-	if (cru->state == RZG2L_CRU_DMA_STOPPED) {
-		dev_dbg(cru->dev, "IRQ while state stopped\n");
-		return IRQ_RETVAL(handled);
-	}
+	/* Calculate slot and prepare for new capture. */
+	guard(spinlock_irqsave)(&cru->hw_lock);
 
-	/* Increase stop retries if capture status is 'RZG2L_CRU_DMA_STOPPING' */
-	if (cru->state == RZG2L_CRU_DMA_STOPPING) {
-		if (irq_status & CRUnINTS_SFS)
-			dev_dbg(cru->dev, "IRQ while state stopping\n");
-		return IRQ_RETVAL(handled);
-	}
-
-	/* Prepare for capture and update state */
 	amnmbs = rzg2l_cru_read(cru, AMnMBS);
 	cru->active_slot = amnmbs & AMnMBS_MBSTS;
 
@@ -635,20 +618,6 @@ irqreturn_t rzg2l_cru_irq(int irq, void *data)
 		slot = cru->num_buf - 1;
 	else
 		slot = cru->active_slot - 1;
-
-	/*
-	 * To hand buffers back in a known order to userspace start
-	 * to capture first from slot 0.
-	 */
-	if (cru->state == RZG2L_CRU_DMA_STARTING) {
-		if (slot != 0) {
-			dev_dbg(cru->dev, "Starting sync slot: %d\n", slot);
-			return IRQ_RETVAL(handled);
-		}
-
-		dev_dbg(cru->dev, "Capture start synced!\n");
-		cru->state = RZG2L_CRU_DMA_RUNNING;
-	}
 
 	/* Capture frame */
 	if (cru->queue_buf[slot]) {
@@ -677,48 +646,17 @@ irqreturn_t rzg3e_cru_irq(int irq, void *data)
 	u32 irq_status;
 	int slot;
 
-	guard(spinlock)(&cru->hw_lock);
-
 	irq_status = rzg2l_cru_read(cru, CRUnINTS2);
 	if (!irq_status)
 		return IRQ_NONE;
 
-	dev_dbg(cru->dev, "CRUnINTS2 0x%x\n", irq_status);
-
 	rzg2l_cru_write(cru, CRUnINTS2, rzg2l_cru_read(cru, CRUnINTS2));
 
-	/* Nothing to do if capture status is 'RZG2L_CRU_DMA_STOPPED' */
-	if (cru->state == RZG2L_CRU_DMA_STOPPED) {
-		dev_dbg(cru->dev, "IRQ while state stopped\n");
-		return IRQ_HANDLED;
-	}
-
-	if (cru->state == RZG2L_CRU_DMA_STOPPING) {
-		if (irq_status & CRUnINTS2_FExS(0) ||
-		    irq_status & CRUnINTS2_FExS(1) ||
-		    irq_status & CRUnINTS2_FExS(2) ||
-		    irq_status & CRUnINTS2_FExS(3))
-			dev_dbg(cru->dev, "IRQ while state stopping\n");
-		return IRQ_HANDLED;
-	}
-
+	guard(spinlock)(&cru->hw_lock);
 	slot = cru->active_slot;
 	cru->active_slot = rzg2l_cru_slot_next(cru, cru->active_slot);
 
 	dev_dbg(cru->dev, "Current written slot: %d\n", slot);
-
-	/*
-	 * To hand buffers back in a known order to userspace start
-	 * to capture first from slot 0.
-	 */
-	if (cru->state == RZG2L_CRU_DMA_STARTING) {
-		if (slot != 0) {
-			dev_dbg(cru->dev, "Starting sync slot: %d\n", slot);
-			return IRQ_HANDLED;
-		}
-		dev_dbg(cru->dev, "Capture start synced!\n");
-		cru->state = RZG2L_CRU_DMA_RUNNING;
-	}
 
 	/* Capture frame */
 	if (cru->queue_buf[slot]) {
@@ -788,7 +726,6 @@ static int rzg2l_cru_start_streaming_vq(struct vb2_queue *vq, unsigned int count
 		goto out;
 	}
 
-	cru->state = RZG2L_CRU_DMA_STARTING;
 	dev_dbg(cru->dev, "Starting to capture\n");
 	return 0;
 
@@ -860,8 +797,6 @@ int rzg2l_cru_dma_register(struct rzg2l_cru_dev *cru)
 
 	spin_lock_init(&cru->hw_lock);
 	spin_lock_init(&cru->qlock);
-
-	cru->state = RZG2L_CRU_DMA_STOPPED;
 
 	for (i = 0; i < RZG2L_CRU_HW_BUFFER_MAX; i++)
 		cru->queue_buf[i] = NULL;

@@ -38,20 +38,6 @@ enum rzg2l_csi2_pads {
 
 struct rzg2l_cru_dev;
 
-/**
- * enum rzg2l_cru_dma_state - DMA states
- * @RZG2L_CRU_DMA_STOPPED:   No operation in progress
- * @RZG2L_CRU_DMA_STARTING:  Capture starting up
- * @RZG2L_CRU_DMA_RUNNING:   Operation in progress have buffers
- * @RZG2L_CRU_DMA_STOPPING:  Stopping operation
- */
-enum rzg2l_cru_dma_state {
-	RZG2L_CRU_DMA_STOPPED = 0,
-	RZG2L_CRU_DMA_STARTING,
-	RZG2L_CRU_DMA_RUNNING,
-	RZG2L_CRU_DMA_STOPPING,
-};
-
 struct rzg2l_cru_csi {
 	struct v4l2_async_connection *asd;
 	struct v4l2_subdev *subdev;
@@ -174,7 +160,6 @@ struct rzg2l_cru_dev {
 	struct vb2_v4l2_buffer *queue_buf[RZG2L_CRU_HW_BUFFER_MAX];
 	struct list_head buf_list;
 	unsigned int sequence;
-	enum rzg2l_cru_dma_state state;
 
 	struct v4l2_pix_format format;
 };
