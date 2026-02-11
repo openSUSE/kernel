@@ -119,9 +119,10 @@ struct rzg2l_cru_info {
  * @mdev_lock:		protects the count, notifier and csi members
  * @pad:		media pad for the video device entity
  *
- * @hw_lock:		protects the slot counter, hardware programming of
- *			slot addresses and the @buf_addr[] list
+ * @hw_lock:		protects the @active_slot counter, hardware programming
+ *			of slot addresses and the @buf_addr[] list
  * @buf_addr:		Memory addresses where current video data is written
+ * @active_slot:	The slot in use
  *
  * @lock:		protects @queue
  * @queue:		vb2 buffers queue
@@ -162,6 +163,7 @@ struct rzg2l_cru_dev {
 
 	spinlock_t hw_lock;
 	dma_addr_t buf_addr[RZG2L_CRU_HW_BUFFER_DEFAULT];
+	unsigned int active_slot;
 
 	struct mutex lock;
 	struct vb2_queue queue;
