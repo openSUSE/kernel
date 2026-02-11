@@ -650,7 +650,6 @@ int io_register_pbuf_ring(struct io_ring_ctx *ctx, void __user *arg)
 		/* if mapped buffer ring OR classic exists, don't allow */
 		if (bl->flags & IOBL_BUF_RING || !list_empty(&bl->buf_list))
 			return -EEXIST;
-	} else {
 		io_destroy_bl(ctx, bl);
 	}
 
@@ -658,7 +657,7 @@ int io_register_pbuf_ring(struct io_ring_ctx *ctx, void __user *arg)
 	if (!bl)
 		return -ENOMEM;
 
-	mmap_offset = reg.bgid << IORING_OFF_PBUF_SHIFT;
+	mmap_offset = (unsigned long)reg.bgid << IORING_OFF_PBUF_SHIFT;
 	ring_size = flex_array_size(br, bufs, reg.ring_entries);
 
 	memset(&rd, 0, sizeof(rd));
