@@ -378,7 +378,8 @@ struct io_ring_ctx_rings {
 	struct io_rings *rings;
 };
 
-static void io_register_free_rings(struct io_uring_params *p,
+static void io_register_free_rings(struct io_ring_ctx *ctx,
+				   struct io_uring_params *p,
 				   struct io_ring_ctx_rings *r)
 {
 	if (!(p->flags & IORING_SETUP_NO_MMAP)) {
@@ -466,7 +467,7 @@ static int io_register_resize_rings(struct io_ring_ctx *ctx, void __user *arg)
 	WRITE_ONCE(n.rings->cq_ring_entries, p.cq_entries);
 
 	if (copy_to_user(arg, &p, sizeof(p))) {
-		io_register_free_rings(&p, &n);
+		io_register_free_rings(ctx, &p, &n);
 		return -EFAULT;
 	}
 
@@ -475,7 +476,7 @@ static int io_register_resize_rings(struct io_ring_ctx *ctx, void __user *arg)
 	else
 		size = array_size(sizeof(struct io_uring_sqe), p.sq_entries);
 	if (size == SIZE_MAX) {
-		io_register_free_rings(&p, &n);
+		io_register_free_rings(ctx, &p, &n);
 		return -EOVERFLOW;
 	}
 
@@ -486,7 +487,7 @@ static int io_register_resize_rings(struct io_ring_ctx *ctx, void __user *arg)
 					p.sq_off.user_addr,
 					size);
 	if (IS_ERR(ptr)) {
-		io_register_free_rings(&p, &n);
+		io_register_free_rings(ctx, &p, &n);
 		return PTR_ERR(ptr);
 	}
 
@@ -578,7 +579,7 @@ overflow:
 out:
 	spin_unlock(&ctx->completion_lock);
 	mutex_unlock(&ctx->mmap_lock);
-	io_register_free_rings(&p, to_free);
+	io_register_free_rings(ctx, &p, to_free);
 
 	if (ctx->sq_data)
 		io_sq_thread_unpark(ctx->sq_data);
