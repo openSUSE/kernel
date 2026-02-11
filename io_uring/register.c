@@ -370,26 +370,19 @@ static int io_register_clock(struct io_ring_ctx *ctx,
  * either mapping or freeing.
  */
 struct io_ring_ctx_rings {
-	unsigned short n_ring_pages;
-	struct page **ring_pages;
 	struct io_rings *rings;
-
 	struct io_uring_sqe *sq_sqes;
+
 	struct io_mapped_region sq_region;
+	struct io_mapped_region ring_region;
 };
 
 static void io_register_free_rings(struct io_ring_ctx *ctx,
 				   struct io_uring_params *p,
 				   struct io_ring_ctx_rings *r)
 {
-	if (!(p->flags & IORING_SETUP_NO_MMAP)) {
-		io_pages_unmap(r->rings, &r->ring_pages, &r->n_ring_pages,
-				true);
-	} else {
-		io_pages_free(&r->ring_pages, r->n_ring_pages);
-		vunmap(r->rings);
-	}
 	io_free_region(ctx, &r->sq_region);
+	io_free_region(ctx, &r->ring_region);
 }
 
 #define swap_old(ctx, o, n, field)		\
@@ -442,13 +435,18 @@ static int io_register_resize_rings(struct io_ring_ctx *ctx, void __user *arg)
 	if (size == SIZE_MAX)
 		return -EOVERFLOW;
 
-	if (!(p.flags & IORING_SETUP_NO_MMAP))
-		n.rings = io_pages_map(&n.ring_pages, &n.n_ring_pages, size);
-	else
-		n.rings = __io_uaddr_map(&n.ring_pages, &n.n_ring_pages,
-						p.cq_off.user_addr, size);
-	if (IS_ERR(n.rings))
-		return PTR_ERR(n.rings);
+	memset(&rd, 0, sizeof(rd));
+	rd.size = PAGE_ALIGN(size);
+	if (p.flags & IORING_SETUP_NO_MMAP) {
+		rd.user_addr = p.cq_off.user_addr;
+		rd.flags |= IORING_MEM_REGION_TYPE_USER;
+	}
+	ret = io_create_region_mmap_safe(ctx, &n.ring_region, &rd, IORING_OFF_CQ_RING);
+	if (ret) {
+		io_register_free_rings(ctx, &p, &n);
+		return ret;
+	}
+	n.rings = io_region_get_ptr(&n.ring_region);
 
 	/*
 	 * At this point n.rings is shared with userspace, just like o.rings
@@ -568,8 +566,7 @@ overflow:
 
 	ctx->rings = n.rings;
 	ctx->sq_sqes = n.sq_sqes;
-	swap_old(ctx, o, n, n_ring_pages);
-	swap_old(ctx, o, n, ring_pages);
+	swap_old(ctx, o, n, ring_region);
 	swap_old(ctx, o, n, sq_region);
 	to_free = &o;
 	ret = 0;
