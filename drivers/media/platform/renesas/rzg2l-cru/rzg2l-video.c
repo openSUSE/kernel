@@ -42,6 +42,24 @@ struct rzg2l_cru_buffer {
 #define to_buf_list(vb2_buffer) \
 	(&container_of(vb2_buffer, struct rzg2l_cru_buffer, vb)->list)
 
+/*
+ * The CRU hardware cycles over its slots when transferring frames. All drivers
+ * structure that contains programming data for the slots, such as the memory
+ * destination addresses have to be iterated as they were circular buffers.
+ *
+ * Provide here utilities to iterate over slots and the associated data.
+ */
+static inline unsigned int rzg2l_cru_slot_next(struct rzg2l_cru_dev *cru,
+					       unsigned int slot)
+{
+	return (slot + 1) % cru->num_buf;
+}
+
+/* Start cycling on cru slots from the one after 'start'. */
+#define for_each_cru_slot_from(cru, slot, start)			\
+	for ((slot) = rzg2l_cru_slot_next((cru), (start));			\
+	     (slot) != (start); (slot) = rzg2l_cru_slot_next((cru), (slot)))
+
 /* -----------------------------------------------------------------------------
  * DMA operations
  */
@@ -105,27 +123,35 @@ __rzg2l_cru_read_constant(struct rzg2l_cru_dev *cru, u32 offset)
 	 __rzg2l_cru_read_constant(cru, offset) : \
 	 __rzg2l_cru_read(cru, offset))
 
-static void return_unused_buffers(struct rzg2l_cru_dev *cru,
-				  enum vb2_buffer_state state)
+static void rzg2l_cru_return_buffers(struct rzg2l_cru_dev *cru,
+				     enum vb2_buffer_state state)
 {
 	struct rzg2l_cru_buffer *buf, *node;
-	unsigned int i;
 
 	scoped_guard(spinlock_irq, &cru->hw_lock) {
-		for (i = 0; i < cru->num_buf; i++) {
-			if (cru->queue_buf[i]) {
-				vb2_buffer_done(&cru->queue_buf[i]->vb2_buf,
-						state);
-				cru->queue_buf[i] = NULL;
-			}
+		/* Return the buffer in progress first, if not completed yet. */
+		unsigned int slot = cru->active_slot;
+
+		if (cru->queue_buf[slot]) {
+			vb2_buffer_done(&cru->queue_buf[slot]->vb2_buf, state);
+			cru->queue_buf[slot] = NULL;
+		}
+
+		/* Return all the pending buffers after the active one. */
+		for_each_cru_slot_from(cru, slot, cru->active_slot) {
+			if (!cru->queue_buf[slot])
+				continue;
+
+			vb2_buffer_done(&cru->queue_buf[slot]->vb2_buf, state);
+			cru->queue_buf[slot] = NULL;
 		}
 	}
 
-	scoped_guard(spinlock_irq, &cru->qlock) {
-		list_for_each_entry_safe(buf, node, &cru->buf_list, list) {
-			vb2_buffer_done(&buf->vb.vb2_buf, state);
-			list_del(&buf->list);
-		}
+	guard(spinlock_irq)(&cru->qlock);
+
+	list_for_each_entry_safe(buf, node, &cru->buf_list, list) {
+		vb2_buffer_done(&buf->vb.vb2_buf, state);
+		list_del(&buf->list);
 	}
 }
 
@@ -588,16 +614,16 @@ irqreturn_t rzg2l_cru_irq(int irq, void *data)
 
 	/* Prepare for capture and update state */
 	amnmbs = rzg2l_cru_read(cru, AMnMBS);
-	slot = amnmbs & AMnMBS_MBSTS;
+	cru->active_slot = amnmbs & AMnMBS_MBSTS;
 
 	/*
 	 * AMnMBS.MBSTS indicates the destination of Memory Bank (MB).
 	 * Recalculate to get the current transfer complete MB.
 	 */
-	if (slot == 0)
+	if (cru->active_slot == 0)
 		slot = cru->num_buf - 1;
 	else
-		slot--;
+		slot = cru->active_slot - 1;
 
 	/*
 	 * To hand buffers back in a known order to userspace start
@@ -666,7 +692,7 @@ irqreturn_t rzg3e_cru_irq(int irq, void *data)
 	}
 
 	slot = cru->active_slot;
-	cru->active_slot = (cru->active_slot + 1) % cru->num_buf;
+	cru->active_slot = rzg2l_cru_slot_next(cru, cru->active_slot);
 
 	dev_dbg(cru->dev, "Current written slot: %d\n", slot);
 	cru->buf_addr[slot] = 0;
@@ -737,7 +763,7 @@ static int rzg2l_cru_start_streaming_vq(struct vb2_queue *vq, unsigned int count
 	cru->scratch = dma_alloc_coherent(cru->dev, cru->format.sizeimage,
 					  &cru->scratch_phys, GFP_KERNEL);
 	if (!cru->scratch) {
-		return_unused_buffers(cru, VB2_BUF_STATE_QUEUED);
+		rzg2l_cru_return_buffers(cru, VB2_BUF_STATE_QUEUED);
 		dev_err(cru->dev, "Failed to allocate scratch buffer\n");
 		ret = -ENOMEM;
 		goto assert_presetn;
@@ -748,7 +774,7 @@ static int rzg2l_cru_start_streaming_vq(struct vb2_queue *vq, unsigned int count
 
 	ret = rzg2l_cru_set_stream(cru, 1);
 	if (ret) {
-		return_unused_buffers(cru, VB2_BUF_STATE_QUEUED);
+		rzg2l_cru_return_buffers(cru, VB2_BUF_STATE_QUEUED);
 		goto out;
 	}
 
@@ -785,7 +811,7 @@ static void rzg2l_cru_stop_streaming_vq(struct vb2_queue *vq)
 	dma_free_coherent(cru->dev, cru->format.sizeimage,
 			  cru->scratch, cru->scratch_phys);
 
-	return_unused_buffers(cru, VB2_BUF_STATE_ERROR);
+	rzg2l_cru_return_buffers(cru, VB2_BUF_STATE_ERROR);
 
 	reset_control_assert(cru->presetn);
 	clk_disable_unprepare(cru->vclk);
