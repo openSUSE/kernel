@@ -112,7 +112,7 @@ static void return_unused_buffers(struct rzg2l_cru_dev *cru,
 	struct rzg2l_cru_buffer *buf, *node;
 	unsigned int i;
 
-	guard(spinlock_irqsave)(&cru->qlock);
+	guard(spinlock_irq)(&cru->qlock);
 
 	for (i = 0; i < cru->num_buf; i++) {
 		if (cru->queue_buf[i]) {
@@ -165,7 +165,7 @@ static void rzg2l_cru_buffer_queue(struct vb2_buffer *vb)
 	struct vb2_v4l2_buffer *vbuf = to_vb2_v4l2_buffer(vb);
 	struct rzg2l_cru_dev *cru = vb2_get_drv_priv(vb->vb2_queue);
 
-	guard(spinlock_irqsave)(&cru->qlock);
+	guard(spinlock_irq)(&cru->qlock);
 	list_add_tail(to_buf_list(vbuf), &cru->buf_list);
 }
 
