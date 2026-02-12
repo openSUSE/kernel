@@ -1505,9 +1505,9 @@ void rt_add_uncached_list(struct rtable *rt)
 
 void rt_del_uncached_list(struct rtable *rt)
 {
-	if (!list_empty(&rt->rt_uncached)) {
-		struct uncached_list *ul = rt->rt_uncached_list;
+	struct uncached_list *ul = rt->rt_uncached_list;
 
+	if (ul) {
 		spin_lock_bh(&ul->lock);
 		list_del(&rt->rt_uncached);
 		spin_unlock_bh(&ul->lock);
@@ -1625,6 +1625,7 @@ struct rtable *rt_dst_alloc(struct net_device *dev,
 		rt->rt_uses_gateway = 0;
 		rt->rt_table_id = 0;
 		INIT_LIST_HEAD(&rt->rt_uncached);
+		rt->rt_uncached_list = NULL;
 
 		rt->dst.output = ip_output;
 		if (flags & RTCF_LOCAL)
