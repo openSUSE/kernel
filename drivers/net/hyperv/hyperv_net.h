@@ -985,6 +985,7 @@ struct net_device_context {
 	u32 tx_table[VRSS_SEND_TAB_SIZE];
 
 	u16 rx_table[ITAB_NUM];
+	bool got_enough_num_recv_que;
 
 	/* Ethtool settings */
 	u8 duplex;

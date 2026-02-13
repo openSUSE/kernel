@@ -1467,6 +1467,7 @@ struct netvsc_device *rndis_filter_device_add(struct hv_device *dev,
 					&rsscap, &rsscap_size);
 	if (ret || rsscap.num_recv_que < 2)
 		goto out;
+	ndc->got_enough_num_recv_que = true;
 
 	/* This guarantees that num_possible_rss_qs <= num_online_cpus */
 	num_possible_rss_qs = min_t(u32, num_online_cpus(),
