@@ -835,7 +835,7 @@ static int __ip6_tnl_rcv(struct ip6_tnl *tunnel, struct sk_buff *skb,
 
 	skb_reset_network_header(skb);
 
-	if (skb_vlan_inet_prepare(skb, true)) {
+	if (!skb_vlan_inet_prepare(skb, true)) {
 		tunnel->dev->stats.rx_length_errors++;
 		tunnel->dev->stats.rx_errors++;
 		goto drop;
