@@ -12,6 +12,7 @@
  */
 
 #include <linux/delay.h>
+#include <linux/iopoll.h>
 
 #include <drm/drmP.h>
 #include <drm/drm_crtc_helper.h>
@@ -800,7 +801,7 @@ static void mga_g200wb_prepare(struct drm_crtc *crtc)
 {
 	struct mga_device *mdev = crtc->dev->dev_private;
 	u8 tmp;
-	int iter_max;
+	int ret;
 
 	/* 1- The first step is to warn the BMC of an upcoming mode change.
 	 * We are putting the misc<0> to output.*/
@@ -824,30 +825,24 @@ static void mga_g200wb_prepare(struct drm_crtc *crtc)
 	tmp |= 0x80;
 	WREG_DAC(MGA1064_SPAREREG, tmp);
 
-	/* 3a- the third step is to verifu if there is an active scan
-	 * We are searching for a 0 on remhsyncsts <XSPAREREG<0>)
+	/*
+	 * 3a- The third step is to verify if there is an active scan.
+	 * We are waiting for a 0 on remhsyncsts (<XSPAREREG<0>).
 	 */
-	iter_max = 300;
-	while (!(tmp & 0x1) && iter_max) {
-		WREG8(DAC_INDEX, MGA1064_SPAREREG);
-		tmp = RREG8(DAC_DATA);
-		udelay(1000);
-		iter_max--;
-	}
+	ret = read_poll_timeout(RREG_DAC, tmp, !(tmp & 0x1),
+				1000, 300000, false,
+				MGA1064_SPAREREG);
+	if (ret == -ETIMEDOUT)
+		return;
 
-	/* 3b- this step occurs only if the remove is actually scanning
-	 * we are waiting for the end of the frame which is a 1 on
-	 * remvsyncsts (XSPAREREG<1>)
+	/*
+	 * 3b- This step occurs only if the remote BMC is actually
+	 * scanning. We are waiting for the end of the frame which is
+	 * a 1 on remvsyncsts (XSPAREREG<1>)
 	 */
-	if (iter_max) {
-		iter_max = 300;
-		while ((tmp & 0x2) && iter_max) {
-			WREG8(DAC_INDEX, MGA1064_SPAREREG);
-			tmp = RREG8(DAC_DATA);
-			udelay(1000);
-			iter_max--;
-		}
-	}
+	(void)read_poll_timeout(RREG_DAC, tmp, (tmp & 0x2),
+				1000, 300000, false,
+				MGA1064_SPAREREG);
 }
 
 static void mga_g200wb_commit(struct drm_crtc *crtc)
