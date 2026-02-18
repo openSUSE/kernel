@@ -439,9 +439,8 @@ static int hash_accept_parent_nokey(void *private, struct sock *sk)
 	if (!ctx)
 		return -ENOMEM;
 
-	ctx->result = NULL;
+	memset(ctx, 0, len);
 	ctx->len = len;
-	ctx->more = 0;
 	af_alg_init_completion(&ctx->completion);
 
 	ask->private = ctx;
