@@ -317,7 +317,7 @@ static int io_sendmsg_copy_hdr(struct io_kiocb *req,
 	iomsg->msg.msg_iter.nr_segs = 0;
 
 #ifdef CONFIG_COMPAT
-	if (unlikely(req->ctx->compat)) {
+	if (io_is_compat(req->ctx)) {
 		struct compat_msghdr cmsg;
 
 		ret = io_compat_msg_copy_hdr(req, iomsg, &cmsg, ITER_SOURCE);
@@ -431,10 +431,9 @@ int io_sendmsg_prep(struct io_kiocb *req, const struct io_uring_sqe *sqe)
 		req->flags |= REQ_F_MULTISHOT;
 	}
 
-#ifdef CONFIG_COMPAT
-	if (req->ctx->compat)
+	if (io_is_compat(req->ctx))
 		sr->msg_flags |= MSG_CMSG_COMPAT;
-#endif
+
 	if (unlikely(!io_msg_alloc_async(req)))
 		return -ENOMEM;
 	if (req->opcode != IORING_OP_SENDMSG)
@@ -726,7 +725,7 @@ static int io_recvmsg_copy_hdr(struct io_kiocb *req,
 	iomsg->msg.msg_iter.nr_segs = 0;
 
 #ifdef CONFIG_COMPAT
-	if (unlikely(req->ctx->compat)) {
+	if (io_is_compat(req->ctx)) {
 		struct compat_msghdr cmsg;
 
 		ret = io_compat_msg_copy_hdr(req, iomsg, &cmsg, ITER_DEST);
@@ -838,10 +837,9 @@ int io_recvmsg_prep(struct io_kiocb *req, const struct io_uring_sqe *sqe)
 			return -EINVAL;
 	}
 
-#ifdef CONFIG_COMPAT
-	if (req->ctx->compat)
+	if (io_is_compat(req->ctx))
 		sr->msg_flags |= MSG_CMSG_COMPAT;
-#endif
+
 	sr->nr_multishot_loops = 0;
 	return io_recvmsg_prep_setup(req);
 }
@@ -1301,10 +1299,9 @@ int io_send_zc_prep(struct io_kiocb *req, const struct io_uring_sqe *sqe)
 	if (zc->msg_flags & MSG_DONTWAIT)
 		req->flags |= REQ_F_NOWAIT;
 
-#ifdef CONFIG_COMPAT
-	if (req->ctx->compat)
+	if (io_is_compat(req->ctx))
 		zc->msg_flags |= MSG_CMSG_COMPAT;
-#endif
+
 	if (unlikely(!io_msg_alloc_async(req)))
 		return -ENOMEM;
 	if (req->opcode != IORING_OP_SENDMSG_ZC)
