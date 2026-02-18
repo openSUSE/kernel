@@ -7,6 +7,7 @@
 #include <linux/rcupdate.h>
 #include <linux/smp.h>
 #include <linux/swap.h>
+#include <linux/hugetlb.h>
 
 #include <asm/pgalloc.h>
 #include <asm/tlb.h>
@@ -281,8 +282,37 @@ void tlb_gather_mmu(struct mmu_gather *tlb, struct mm_struct *mm,
 	tlb->page_size = 0;
 #endif
 
+	tlb->fully_unshared_tables = 0;
 	__tlb_reset_range(tlb);
 	inc_tlb_flush_pending(tlb->mm);
+}
+
+/**
+ * tlb_gather_mmu_vma - initialize an mmu_gather structure for operating on a
+ *			single VMA
+ * @tlb: the mmu_gather structure to initialize
+ * @vma: the vm_area_struct
+ * @start: start of the region that will be removed from the page-table
+ * @end: end of the region that will be removed from the page-table
+ *
+ * Called to initialize an (on-stack) mmu_gather structure for operating on
+ * a single VMA. In contrast to tlb_gather_mmu(), calling this function will
+ * not require another call to tlb_start_vma(). In contrast to tlb_start_vma(),
+ * this function will *not* call flush_cache_range().
+ *
+ * For hugetlb VMAs, this function will also initialize the mmu_gather
+ * page_size accordingly, not requiring a separate call to
+ * tlb_change_page_size().
+ *
+ */
+void tlb_gather_mmu_vma(struct mmu_gather *tlb, struct vm_area_struct *vma,
+		unsigned long start, unsigned long end)
+{
+	tlb_gather_mmu(tlb, vma->vm_mm, start, end);
+	tlb_update_vma_flags(tlb, vma);
+	if (is_vm_hugetlb_page(vma))
+		/* All entries have the same size. */
+		tlb_change_page_size(tlb, huge_page_size(hstate_vma(vma)));
 }
 
 /**
@@ -297,6 +327,12 @@ void tlb_gather_mmu(struct mmu_gather *tlb, struct mm_struct *mm,
 void tlb_finish_mmu(struct mmu_gather *tlb,
 		unsigned long start, unsigned long end)
 {
+	/*
+	 * We expect an earlier huge_pmd_unshare_flush() call to sort this out,
+	 * due to complicated locking requirements with page table unsharing.
+	 */
+	VM_WARN_ON_ONCE(tlb->fully_unshared_tables);
+
 	/*
 	 * If there are parallel threads are doing PTE changes on same range
 	 * under non-exclusive lock (e.g., mmap_lock read-side) but defer TLB
