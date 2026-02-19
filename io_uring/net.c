@@ -1620,7 +1620,6 @@ retry:
 		}
 		if (ret == -ERESTARTSYS)
 			ret = -EINTR;
-		req_set_fail(req);
 	} else if (!fixed) {
 		fd_install(fd, file);
 		ret = fd;
@@ -1633,14 +1632,8 @@ retry:
 	if (!arg.is_empty)
 		cflags |= IORING_CQE_F_SOCK_NONEMPTY;
 
-	if (!(req->flags & REQ_F_APOLL_MULTISHOT)) {
-		io_req_set_res(req, ret, cflags);
-		return IOU_OK;
-	}
-
-	if (ret < 0)
-		return ret;
-	if (io_req_post_cqe(req, ret, cflags | IORING_CQE_F_MORE)) {
+	if (ret >= 0 && (req->flags & REQ_F_APOLL_MULTISHOT) &&
+	    io_req_post_cqe(req, ret, cflags | IORING_CQE_F_MORE)) {
 		if (cflags & IORING_CQE_F_SOCK_NONEMPTY || arg.is_empty == -1)
 			goto retry;
 		if (issue_flags & IO_URING_F_MULTISHOT)
@@ -1649,6 +1642,8 @@ retry:
 	}
 
 	io_req_set_res(req, ret, cflags);
+	if (ret < 0)
+		req_set_fail(req);
 	if (!(issue_flags & IO_URING_F_MULTISHOT))
 		return IOU_OK;
 	return IOU_STOP_MULTISHOT;
