@@ -160,14 +160,7 @@ struct af_alg_ctx {
 	struct af_alg_completion completion;
 
 	size_t used;
-#ifdef __GENKSYMS__
-	size_t rcvused;
-#else
-	union {
-		atomic_t rcvused;
-		size_t rcvused_aligned;
-	};
-#endif
+	atomic_t rcvused;
 
 	bool more;
 	bool merge;
