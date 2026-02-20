@@ -149,6 +149,7 @@ struct af_alg_async_req {
  *			SG?
  * @enc:		Cryptographic operation to be performed when
  *			recvmsg is invoked.
+ * @write:		True if we are in the middle of a write.
  * @len:		Length of memory allocated for this data structure.
  */
 struct af_alg_ctx {
@@ -160,18 +161,12 @@ struct af_alg_ctx {
 	struct af_alg_completion completion;
 
 	size_t used;
-#ifdef __GENKSYMS__
-	size_t rcvused;
-#else
-	union {
-		atomic_t rcvused;
-		size_t rcvused_aligned;
-	};
-#endif
+	atomic_t rcvused;
 
-	bool more;
-	bool merge;
-	bool enc;
+	bool		more:1,
+			merge:1,
+			enc:1,
+			write:1;
 
 	unsigned int len;
 };
