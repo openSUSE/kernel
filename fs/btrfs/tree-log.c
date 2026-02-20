@@ -5269,7 +5269,6 @@ again:
 
 		if ((min_key.type == BTRFS_INODE_REF_KEY ||
 		     min_key.type == BTRFS_INODE_EXTREF_KEY) &&
-		    inode->generation == trans->transid &&
 		    !recursive_logging) {
 			u64 other_ino = 0;
 			u64 other_parent = 0;
