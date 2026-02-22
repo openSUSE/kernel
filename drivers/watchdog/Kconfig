@@ -2011,7 +2011,7 @@ config PIC32_WDT
 config PIC32_DMT
 	tristate "Microchip PIC32 Deadman Timer"
 	select WATCHDOG_CORE
-	depends on MACH_PIC32 || (MIPS && COMPILE_TEST)
+	depends on MACH_PIC32 || COMPILE_TEST
 	help
 	  Watchdog driver for PIC32 instruction fetch counting timer. This
 	  specific timer is typically be used in mission critical and safety
