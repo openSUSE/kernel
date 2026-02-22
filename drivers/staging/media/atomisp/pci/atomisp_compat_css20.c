@@ -1957,7 +1957,7 @@ static void __configure_capture_pp_input(struct atomisp_sub_device *asd,
 
 /*
  * For CSS2.1, preview pipe could support bayer downscaling, yuv decimation and
- * yuv downscaling, which needs addtional configurations.
+ * yuv downscaling, which needs additional configurations.
  */
 static void __configure_preview_pp_input(struct atomisp_sub_device *asd,
 	unsigned int width, unsigned int height,
@@ -2044,7 +2044,7 @@ static void __configure_preview_pp_input(struct atomisp_sub_device *asd,
 		}
 	}
 	/*
-	 * calculate YUV Decimation, YUV downscaling facor:
+	 * calculate YUV Decimation, YUV downscaling factor:
 	 * YUV Downscaling factor must not exceed 2.
 	 * YUV Decimation factor could be 2, 4.
 	 */
@@ -2085,7 +2085,7 @@ static void __configure_preview_pp_input(struct atomisp_sub_device *asd,
 
 /*
  * For CSS2.1, offline video pipe could support bayer decimation, and
- * yuv downscaling, which needs addtional configurations.
+ * yuv downscaling, which needs additional configurations.
  */
 static void __configure_video_pp_input(struct atomisp_sub_device *asd,
 				       unsigned int width, unsigned int height,
@@ -3002,7 +3002,7 @@ int atomisp_css_get_zoom_factor(struct atomisp_sub_device *asd,
 }
 
 /*
- * Function to set/get image stablization statistics
+ * Function to set/get image stabilization statistics
  */
 int atomisp_css_get_dis_stat(struct atomisp_sub_device *asd,
 			     struct atomisp_dis_statistics *stats)
