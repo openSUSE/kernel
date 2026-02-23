@@ -132,7 +132,6 @@ TEST_PROGS := test_kmod.sh \
 	test_tunnel.sh \
 	test_lwt_seg6local.sh \
 	test_lirc_mode2.sh \
-	test_flow_dissector.sh \
 	test_xdp_vlan_mode_generic.sh \
 	test_xdp_vlan_mode_native.sh \
 	test_lwt_ip_encap.sh \
@@ -152,10 +151,22 @@ TEST_PROGS_EXTENDED := with_addr.sh \
 
 # Compile but not part of 'make run_tests'
 TEST_GEN_PROGS_EXTENDED = \
-	flow_dissector_load test_flow_dissector	test_lirc_mode2_user xdping \
-	test_cpp runqslower bench bpf_testmod.ko xskxceiver xdp_redirect_multi \
-	xdp_synproxy veristat xdp_hw_metadata xdp_features bpf_test_no_cfi.ko \
-	bpf_test_modorder_x.ko bpf_test_modorder_y.ko
+	bench \
+	bpf_testmod.ko \
+	bpf_test_modorder_x.ko \
+	bpf_test_modorder_y.ko \
+	bpf_test_no_cfi.ko \
+	flow_dissector_load \
+	runqslower \
+	test_cpp \
+	test_lirc_mode2_user \
+	veristat \
+	xdp_features \
+	xdp_hw_metadata \
+	xdp_redirect_multi \
+	xdp_synproxy \
+	xdping \
+	xskxceiver 
 
 TEST_GEN_FILES += liburandom_read.so urandom_read sign-file uprobe_multi
 
