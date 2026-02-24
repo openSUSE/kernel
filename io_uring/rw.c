@@ -406,7 +406,14 @@ int io_read_mshot_prep(struct io_kiocb *req, const struct io_uring_sqe *sqe)
 
 void io_readv_writev_cleanup(struct io_kiocb *req)
 {
+	struct io_async_rw *rw = req->async_data;
+
 	lockdep_assert_held(&req->ctx->uring_lock);
+	if (rw->free_iovec) {
+		kfree(rw->free_iovec);
+		rw->free_iov_nr = 0;
+		rw->free_iovec = NULL;
+	}
 	io_rw_recycle(req, 0);
 }
 
