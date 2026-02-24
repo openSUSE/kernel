@@ -281,14 +281,15 @@ void aa_policy_destroy(struct aa_policy *policy);
  * @FN: fn to call for each profile transition. @P is set to the profile
  *
  * Returns: new label on success
+ *	    NULL if all callbacks decline to specify a transition
  *          ERR_PTR if build @FN fails
  *
- * @FN must return a label or ERR_PTR on failure. NULL is not allowed
+ * @FN must return a label or ERR_PTR on failure.
  */
 #define fn_label_build(L, P, GFP, FN)					\
 ({									\
 	__label__ __do_cleanup, __done;					\
-	struct aa_label *__new_;					\
+	struct aa_label *__new_ = NULL;					\
 									\
 	if ((L)->size > 1) {						\
 		/* TODO: add cache of transitions already done */	\
@@ -303,11 +304,15 @@ void aa_policy_destroy(struct aa_policy *policy);
 		__j = 0;						\
 		label_for_each(__i, (L), (P)) {				\
 			__new_ = (FN);					\
-			AA_BUG(!__new_);				\
+			if (!__new_)					\
+				continue;				\
 			if (IS_ERR(__new_))				\
 				goto __do_cleanup;			\
 			__lvec[__j++] = __new_;				\
 		}							\
+		if (__j == 0)						\
+			/* no components adding to build */		\
+			goto __do_cleanup;				\
 		for (__j = __count = 0; __j < (L)->size; __j++)		\
 			__count += __lvec[__j]->size;			\
 		if (!vec_setup(profile, __pvec, __count, (GFP))) {	\
@@ -331,12 +336,10 @@ __do_cleanup:								\
 	} else {							\
 		(P) = labels_profile(L);				\
 		__new_ = (FN);						\
-		AA_BUG(!__new_);					\
 	}								\
 __done:									\
 	if (PTR_ERR(__new_))						\
 		AA_DEBUG(DEBUG_LABEL, "label build failed\n");		\
-	AA_BUG(!__new_);						\
 	(__new_);							\
 })
 
