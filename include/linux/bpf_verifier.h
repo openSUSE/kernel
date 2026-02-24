@@ -315,9 +315,6 @@ struct bpf_func_state {
 	u32 callback_depth;
 
 	/* The following fields should be last. See copy_func_state() */
-	int acquired_refs;
-	int active_locks;
-	struct bpf_reference_state *refs;
 	/* The state of the stack. Each element of the array describes BPF_REG_SIZE
 	 * (i.e. 8) bytes worth of stack memory.
 	 * stack[0] represents bytes [*(r10-8)..*(r10-1)]
@@ -374,6 +371,8 @@ struct bpf_verifier_state {
 	/* call stack tracking */
 	struct bpf_func_state *frame[MAX_CALL_FRAMES];
 	struct bpf_verifier_state *parent;
+	/* Acquired reference states */
+	struct bpf_reference_state *refs;
 	/*
 	 * 'branches' field is the number of branches left to explore:
 	 * 0 - all possible paths from this state reached bpf_exit or
@@ -423,9 +422,12 @@ struct bpf_verifier_state {
 	u32 insn_idx;
 	u32 curframe;
 
-	bool speculative;
+	u32 acquired_refs;
+	u32 active_locks;
+	u32 active_preempt_locks;
 	bool active_rcu_lock;
-	u32 active_preempt_lock;
+
+	bool speculative;
 	bool in_sleepable;
 
 	/* first and last insn idx of this verifier state */
@@ -990,8 +992,9 @@ const char *dynptr_type_str(enum bpf_dynptr_type type);
 const char *iter_type_str(const struct btf *btf, u32 btf_id);
 const char *iter_state_str(enum bpf_iter_state state);
 
-void print_verifier_state(struct bpf_verifier_env *env,
-			  const struct bpf_func_state *state, bool print_all);
-void print_insn_state(struct bpf_verifier_env *env, const struct bpf_func_state *state);
+void print_verifier_state(struct bpf_verifier_env *env, const struct bpf_verifier_state *vstate,
+			  u32 frameno, bool print_all);
+void print_insn_state(struct bpf_verifier_env *env, const struct bpf_verifier_state *vstate,
+		      u32 frameno);
 
 #endif /* _LINUX_BPF_VERIFIER_H */
