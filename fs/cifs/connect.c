@@ -5439,6 +5439,7 @@ cifs_construct_tcon(struct cifs_sb_info *cifs_sb, kuid_t fsuid)
 out:
 	kfree(vol_info->username);
 	kzfree(vol_info->password);
+	kfree(vol_info->domainname);
 	kfree(vol_info);
 
 	return tcon;
