@@ -364,6 +364,9 @@ static long linehandle_ioctl(struct file *filep, unsigned int cmd,
 	struct gpiohandle_data ghd;
 	int i;
 
+	if (!lh->gdev->chip)
+		return -ENODEV;
+
 	if (cmd == GPIOHANDLE_GET_LINE_VALUES_IOCTL) {
 		int val;
 
@@ -607,6 +610,9 @@ static unsigned int lineevent_poll(struct file *filep,
 	struct lineevent_state *le = filep->private_data;
 	unsigned int events = 0;
 
+	if (!le->gdev->chip)
+		return POLLHUP | POLLERR;
+
 	poll_wait(filep, &le->wait, wait);
 
 	if (!kfifo_is_empty(&le->events))
@@ -624,6 +630,9 @@ static ssize_t lineevent_read(struct file *filep,
 	struct lineevent_state *le = filep->private_data;
 	unsigned int copied;
 	int ret;
+
+	if (!le->gdev->chip)
+		return -ENODEV;
 
 	if (count < sizeof(struct gpioevent_data))
 		return -EINVAL;
@@ -680,6 +689,9 @@ static long lineevent_ioctl(struct file *filep, unsigned int cmd,
 	struct lineevent_state *le = filep->private_data;
 	void __user *ip = (void __user *)arg;
 	struct gpiohandle_data ghd;
+
+	if (!le->gdev->chip)
+		return -ENODEV;
 
 	/*
 	 * We can get the value for an event line but not set it,
