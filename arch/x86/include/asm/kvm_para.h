@@ -78,7 +78,6 @@ struct kvm_vcpu_pv_apf_data {
 #ifdef __KERNEL__
 #include <asm/processor.h>
 
-extern void kvmclock_init(void);
 extern int kvm_register_clock(char *txt);
 
 
@@ -174,6 +173,8 @@ static inline unsigned int kvm_arch_para_features(void)
 }
 
 #ifdef CONFIG_KVM_GUEST
+void kvmclock_init(void);
+void kvmclock_disable(void);
 void __init kvm_guest_init(void);
 void kvm_async_pf_task_wait(u32 token);
 void kvm_async_pf_task_wake(u32 token);
