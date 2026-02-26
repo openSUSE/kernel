@@ -27,8 +27,8 @@
 #include <asm/reboot.h>
 
 static int kvmclock = 1;
-static int msr_kvm_system_time = MSR_KVM_SYSTEM_TIME;
-static int msr_kvm_wall_clock = MSR_KVM_WALL_CLOCK;
+static int msr_kvm_system_time;
+static int msr_kvm_wall_clock;
 
 static int parse_no_kvmclock(char *arg)
 {
@@ -173,10 +173,10 @@ static void kvm_crash_shutdown(struct pt_regs *regs)
 }
 #endif
 
-static void kvm_shutdown(void)
+void kvmclock_disable(void)
 {
-	native_write_msr(msr_kvm_system_time, 0, 0);
-	native_machine_shutdown();
+	if (msr_kvm_system_time)
+		native_write_msr(msr_kvm_system_time, 0, 0);
 }
 
 void __init kvmclock_init(void)
@@ -187,7 +187,10 @@ void __init kvmclock_init(void)
 	if (kvmclock && kvm_para_has_feature(KVM_FEATURE_CLOCKSOURCE2)) {
 		msr_kvm_system_time = MSR_KVM_SYSTEM_TIME_NEW;
 		msr_kvm_wall_clock = MSR_KVM_WALL_CLOCK_NEW;
-	} else if (!(kvmclock && kvm_para_has_feature(KVM_FEATURE_CLOCKSOURCE)))
+	} else if (kvmclock && kvm_para_has_feature(KVM_FEATURE_CLOCKSOURCE)) {
+		msr_kvm_system_time = MSR_KVM_SYSTEM_TIME;
+		msr_kvm_wall_clock = MSR_KVM_WALL_CLOCK;
+	} else
 		return;
 
 	printk(KERN_INFO "kvm-clock: Using msrs %x and %x",
@@ -203,7 +206,6 @@ void __init kvmclock_init(void)
 	x86_cpuinit.setup_percpu_clockev =
 		kvm_setup_secondary_clock;
 #endif
-	machine_ops.shutdown  = kvm_shutdown;
 #ifdef CONFIG_KEXEC
 	machine_ops.crash_shutdown  = kvm_crash_shutdown;
 #endif

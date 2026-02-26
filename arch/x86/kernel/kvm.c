@@ -524,6 +524,7 @@ static void kvm_guest_cpu_offline(void *dummy)
 {
 	kvm_pv_disable_apf(NULL);
 	apf_task_wake_all();
+	kvmclock_disable();
 }
 
 static int __cpuinit kvm_cpu_notify(struct notifier_block *self,
