@@ -215,6 +215,12 @@ static int video_check_format(struct camss_video *video)
 	if (ret < 0)
 		return ret;
 
+	dev_dbg(video->camss->dev,
+		"%s: format is (%ux%u %p4cc/%up field:%u), trying (%ux%u %p4cc/%up field:%u)",
+		 video->vdev.name, sd_pix->width, sd_pix->height, &sd_pix->pixelformat,
+		 sd_pix->num_planes, sd_pix->field, pix->width, pix->height, &pix->pixelformat,
+		 pix->num_planes, pix->field);
+
 	if (pix->pixelformat != sd_pix->pixelformat ||
 	    pix->height != sd_pix->height ||
 	    pix->width != sd_pix->width ||
