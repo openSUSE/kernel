@@ -188,6 +188,10 @@ static int teql_qdisc_init(struct Qdisc *sch, struct nlattr *opt)
 	if (m->dev == dev)
 		return -ELOOP;
 
+	/* teql can only be used as root (CVE-2026-23074 / bsc#1257749) */
+	if (sch->parent != TC_H_ROOT)
+		return -EOPNOTSUPP;
+
 	q->m = m;
 
 	skb_queue_head_init(&q->q);
