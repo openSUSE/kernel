@@ -34,6 +34,7 @@
 #define TBNET_RING_SIZE		256
 #define TBNET_LOGIN_RETRIES	60
 #define TBNET_LOGOUT_RETRIES	10
+#define TBNET_THROTTLING	128000
 #define TBNET_E2E		BIT(0)
 #define TBNET_MATCH_FRAGS_ID	BIT(1)
 #define TBNET_64K_FRAMES	BIT(2)
@@ -955,6 +956,9 @@ static int tbnet_open(struct net_device *dev)
 		return -ENOMEM;
 	}
 	net->rx_ring.ring = ring;
+
+	tb_ring_throttling(net->tx_ring.ring, TBNET_THROTTLING);
+	tb_ring_throttling(net->rx_ring.ring, TBNET_THROTTLING);
 
 	napi_enable(&net->napi);
 	start_login(net);

@@ -155,6 +155,8 @@ static int dma_test_start_rings(struct dma_test *dt)
 		dt->tx_ring = ring;
 		e2e_tx_hop = ring->hop;
 
+		tb_ring_throttling(ring, 128000);
+
 		ret = tb_xdomain_alloc_out_hopid(xd, -1);
 		if (ret < 0) {
 			dma_test_free_rings(dt);
@@ -162,6 +164,7 @@ static int dma_test_start_rings(struct dma_test *dt)
 		}
 
 		dt->tx_hopid = ret;
+
 	}
 
 	if (dt->packets_to_receive) {
@@ -179,6 +182,8 @@ static int dma_test_start_rings(struct dma_test *dt)
 		}
 
 		dt->rx_ring = ring;
+
+		tb_ring_throttling(ring, 128000);
 
 		ret = tb_xdomain_alloc_in_hopid(xd, -1);
 		if (ret < 0) {

@@ -554,6 +554,8 @@ struct tb_nhi {
  * @start_poll: Called when ring interrupt is triggered to start
  *		polling. Passing %NULL keeps the ring in interrupt mode.
  * @poll_data: Data passed to @start_poll
+ * @interval_nsec: Interval counter if interrupt throttling is to be
+ *		   used with this ring (in ns)
  */
 struct tb_ring {
 	spinlock_t lock;
@@ -577,6 +579,7 @@ struct tb_ring {
 	u16 eof_mask;
 	void (*start_poll)(void *data);
 	void *poll_data;
+	unsigned int interval_nsec;
 };
 
 /* Leave ring interrupt enabled on suspend */
@@ -696,6 +699,8 @@ static inline int tb_ring_tx(struct tb_ring *ring, struct ring_frame *frame)
 /* Used only when the ring is in polling mode */
 struct ring_frame *tb_ring_poll(struct tb_ring *ring);
 void tb_ring_poll_complete(struct tb_ring *ring);
+
+int tb_ring_throttling(struct tb_ring *ring, unsigned int interval_nsec);
 
 /**
  * tb_ring_dma_device() - Return device used for DMA mapping
