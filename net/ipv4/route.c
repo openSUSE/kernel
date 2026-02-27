@@ -2588,6 +2588,7 @@ struct dst_entry *ipv4_blackhole_route(struct net *net, struct dst_entry *dst_or
 		rt->rt_uses_gateway = ort->rt_uses_gateway;
 
 		INIT_LIST_HEAD(&rt->rt_uncached);
+		rt->rt_uncached_list = NULL;
 	}
 
 	dst_release(dst_orig);
