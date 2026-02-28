@@ -2,6 +2,7 @@
 dtb-$(CONFIG_ARCH_GEMINI) += \
 	gemini-dlink-dir-685.dtb \
 	gemini-dlink-dns-313.dtb \
+	gemini-nas4210b.dtb \
 	gemini-nas4220b.dtb \
 	gemini-ns2502.dtb \
 	gemini-rut1xx.dtb \
