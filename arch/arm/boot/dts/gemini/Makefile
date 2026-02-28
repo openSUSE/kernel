@@ -8,5 +8,6 @@ dtb-$(CONFIG_ARCH_GEMINI) += \
 	gemini-sl93512r.dtb \
 	gemini-sq201.dtb \
 	gemini-ssi1328.dtb \
+	gemini-verbatim-s08v1901-d1.dtb \
 	gemini-wbd111.dtb \
 	gemini-wbd222.dtb
