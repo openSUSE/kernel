@@ -2032,8 +2032,8 @@ static unsigned int long copy_from_compatible(void *to, const void *from,
 {
 	if (from_user)
 		return copy_from_user(to, (void __user *)from, n);
-	else
-		memcpy(to, from, n);
+
+	memcpy(to, from, n);
 	return 0;
 }
 
