@@ -4011,7 +4011,7 @@ static int css_input_resolution_changed(struct atomisp_sub_device *asd,
 	struct atomisp_metadata_buf *md_buf = NULL, *_md_buf;
 	unsigned int i;
 
-	dev_dbg(asd->isp->dev, "css_input_resolution_changed to %ux%u\n",
+	dev_dbg(asd->isp->dev, "%s: to %ux%u\n", __func__,
 		ffmt->width, ffmt->height);
 
 	if (IS_ISP2401)
