@@ -3780,6 +3780,10 @@ static bool thp_underused(struct folio *folio)
 	if (khugepaged_max_ptes_none == HPAGE_PMD_NR - 1)
 		return false;
 
+	if (folio_test_hwpoison(folio) ||
+	    (folio_test_large(folio) && folio_test_has_hwpoisoned(folio)))
+		return false;
+
 	for (i = 0; i < folio_nr_pages(folio); i++) {
 		kaddr = kmap_local_folio(folio, i * PAGE_SIZE);
 		if (!memchr_inv(kaddr, 0, PAGE_SIZE)) {
