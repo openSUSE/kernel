@@ -188,7 +188,7 @@ config SYSTEM_BLACKLIST_AUTH_UPDATE
 	  payload.  Blacklist keys cannot be removed.
 
 config OPENSSL_SUPPORTS_ML_DSA
-	def_bool $(success, openssl list -key-managers | grep -q ML-DSA-87)
+	def_bool $(success, $(OPENSSL) list -key-managers | grep -q ML-DSA-87)
 	help
 	  Support for ML-DSA-44/65/87 was added in openssl-3.5, so as long
 	  as older versions are supported, the key types may only be
