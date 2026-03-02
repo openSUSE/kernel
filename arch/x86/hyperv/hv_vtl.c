@@ -13,6 +13,7 @@
 #include <asm/fpu/types.h>
 #include <asm/i8259.h>
 #include <asm/mshyperv.h>
+#include <asm/msr.h>
 #include <asm/realmode.h>
 #include <asm/reboot.h>
 #include <asm/smap.h>

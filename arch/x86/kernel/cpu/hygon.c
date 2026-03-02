@@ -16,6 +16,7 @@
 #include <asm/spec-ctrl.h>
 #include <asm/delay.h>
 #include <asm/resctrl.h>
+#include <asm/msr.h>
 
 #include "cpu.h"
 

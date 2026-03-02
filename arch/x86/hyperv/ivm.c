@@ -25,6 +25,7 @@
 #include <asm/e820/api.h>
 #include <asm/desc.h>
 #include <asm/segment.h>
+#include <asm/msr.h>
 #include <uapi/asm/vmx.h>
 
 #ifdef CONFIG_AMD_MEM_ENCRYPT
