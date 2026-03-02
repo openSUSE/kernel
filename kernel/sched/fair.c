@@ -3997,14 +3997,7 @@ static void update_cfs_group(struct sched_entity *se)
 	if (!gcfs_rq || !gcfs_rq->load.weight)
 		return;
 
-	if (throttled_hierarchy(gcfs_rq))
-		return;
-
-#ifndef CONFIG_SMP
-	shares = READ_ONCE(gcfs_rq->tg->shares);
-#else
 	shares = calc_group_shares(gcfs_rq);
-#endif
 	if (unlikely(se->load.weight != shares))
 		reweight_entity(cfs_rq_of(se), se, shares);
 }
