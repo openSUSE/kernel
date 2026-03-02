@@ -101,7 +101,7 @@ static void __noreturn hv_panic_timeout_reboot(void)
 	}
 
 	if (panic_timeout)
-		__wrmsr(HV_X64_MSR_RESET, 1, 0);    /* get hyp to reboot */
+		native_wrmsrq(HV_X64_MSR_RESET, 1);    /* get hyp to reboot */
 
 	for (;;)
 		cpu_relax();
@@ -148,7 +148,7 @@ static asmlinkage void __noreturn hv_crash_c_entry(void)
 	asm volatile("movw %%ax, %%fs" : : "a"(ctxt->fs));
 	asm volatile("movw %%ax, %%gs" : : "a"(ctxt->gs));
 
-	__wrmsr(MSR_IA32_CR_PAT, ctxt->pat, 0);
+	native_wrmsrq(MSR_IA32_CR_PAT, ctxt->pat);
 	asm volatile("movq %0, %%cr0" : : "r"(ctxt->cr0));
 
 	asm volatile("movq %0, %%cr8" : : "r"(ctxt->cr8));
@@ -156,8 +156,8 @@ static asmlinkage void __noreturn hv_crash_c_entry(void)
 	asm volatile("movq %0, %%cr2" : : "r"(ctxt->cr4));
 
 	native_load_idt(&ctxt->idtr);
-	__wrmsr(MSR_GS_BASE, ctxt->gsbase, 0);
-	__wrmsr(MSR_EFER, ctxt->efer, 0);
+	native_wrmsrq(MSR_GS_BASE, ctxt->gsbase);
+	native_wrmsrq(MSR_EFER, ctxt->efer);
 
 	/* restore the original kernel CS now via far return */
 	asm volatile("movzwq %0, %%rax\n\t"
