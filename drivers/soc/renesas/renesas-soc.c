@@ -474,7 +474,7 @@ static int __init renesas_soc_init(void)
 	const char *soc_id;
 	int ret;
 
-	match = of_match_node(renesas_socs, of_root);
+	match = of_machine_get_match(renesas_socs);
 	if (!match)
 		return -ENODEV;
 
