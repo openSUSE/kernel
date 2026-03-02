@@ -3,8 +3,9 @@
 
 struct mcs_spinlock {
 	struct mcs_spinlock *next;
-	int locked; /* 1 if lock acquired */
-	int count;  /* nesting count, see qspinlock.c */
+	int locked;	 /* non-zero if lock acquired */
+	short count;	 /* nesting count, see qspinlock.c */
+	short prev_node; /* encoded previous node value */
 };
 
 /*
