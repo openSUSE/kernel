@@ -3451,10 +3451,11 @@ int mlx5r_ib_rate(struct mlx5_ib_dev *dev, u8 rate)
 {
 	u32 stat_rate_support;
 
-	if (rate == IB_RATE_PORT_CURRENT || rate == IB_RATE_800_GBPS)
+	if (rate == IB_RATE_PORT_CURRENT || rate == IB_RATE_800_GBPS ||
+	    rate == IB_RATE_1600_GBPS)
 		return 0;
 
-	if (rate < IB_RATE_2_5_GBPS || rate > IB_RATE_800_GBPS)
+	if (rate < IB_RATE_2_5_GBPS || rate > IB_RATE_1600_GBPS)
 		return -EINVAL;
 
 	stat_rate_support = MLX5_CAP_GEN(dev->mdev, stat_rate_support);
@@ -4360,6 +4361,11 @@ static int __mlx5_ib_modify_qp(struct ib_qp *ibqp,
 	op = optab[mlx5_cur][mlx5_new];
 	optpar |= ib_mask_to_mlx5_opt(attr_mask);
 	optpar &= opt_mask[mlx5_cur][mlx5_new][mlx5_st];
+
+	if (attr_mask & IB_QP_RATE_LIMIT && qp->type != IB_QPT_RAW_PACKET) {
+		err = -EOPNOTSUPP;
+		goto out;
+	}
 
 	if (qp->type == IB_QPT_RAW_PACKET ||
 	    qp->flags & IB_QP_CREATE_SOURCE_QPN) {
