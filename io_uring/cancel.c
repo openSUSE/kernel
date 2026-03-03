@@ -205,7 +205,7 @@ int io_async_cancel(struct io_kiocb *req, unsigned int issue_flags)
 		.opcode	= cancel->opcode,
 		.seq	= atomic_inc_return(&req->ctx->cancel_seq),
 	};
-	struct io_uring_task *tctx = req->task->io_uring;
+	struct io_uring_task *tctx = req->tctx;
 	int ret;
 
 	if (cd.flags & IORING_ASYNC_CANCEL_FD) {
@@ -232,16 +232,6 @@ done:
 	return IOU_OK;
 }
 
-void init_hash_table(struct io_hash_table *table, unsigned size)
-{
-	unsigned int i;
-
-	for (i = 0; i < size; i++) {
-		spin_lock_init(&table->hbs[i].lock);
-		INIT_HLIST_HEAD(&table->hbs[i].list);
-	}
-}
-
 static int __io_sync_cancel(struct io_uring_task *tctx,
 			    struct io_cancel_data *cd, int fd)
 {
@@ -250,10 +240,12 @@ static int __io_sync_cancel(struct io_uring_task *tctx,
 	/* fixed must be grabbed every time since we drop the uring_lock */
 	if ((cd->flags & IORING_ASYNC_CANCEL_FD) &&
 	    (cd->flags & IORING_ASYNC_CANCEL_FD_FIXED)) {
-		if (unlikely(fd >= ctx->nr_user_files))
+		struct io_rsrc_node *node;
+
+		node = io_rsrc_node_lookup(&ctx->file_table.data, fd);
+		if (unlikely(!node))
 			return -EBADF;
-		fd = array_index_nospec(fd, ctx->nr_user_files);
-		cd->file = io_file_from_index(&ctx->file_table, fd);
+		cd->file = io_slot_file(node);
 		if (!cd->file)
 			return -EBADF;
 	}
@@ -348,4 +340,46 @@ out:
 	if (file)
 		fput(file);
 	return ret;
+}
+
+bool io_cancel_remove_all(struct io_ring_ctx *ctx, struct io_uring_task *tctx,
+			  struct hlist_head *list, bool cancel_all,
+			  bool (*cancel)(struct io_kiocb *))
+{
+	struct hlist_node *tmp;
+	struct io_kiocb *req;
+	bool found = false;
+
+	lockdep_assert_held(&ctx->uring_lock);
+
+	hlist_for_each_entry_safe(req, tmp, list, hash_node) {
+		if (!io_match_task_safe(req, tctx, cancel_all))
+			continue;
+		hlist_del_init(&req->hash_node);
+		if (cancel(req))
+			found = true;
+	}
+
+	return found;
+}
+
+int io_cancel_remove(struct io_ring_ctx *ctx, struct io_cancel_data *cd,
+		     unsigned int issue_flags, struct hlist_head *list,
+		     bool (*cancel)(struct io_kiocb *))
+{
+	struct hlist_node *tmp;
+	struct io_kiocb *req;
+	int nr = 0;
+
+	io_ring_submit_lock(ctx, issue_flags);
+	hlist_for_each_entry_safe(req, tmp, list, hash_node) {
+		if (!io_cancel_req_match(req, cd))
+			continue;
+		if (cancel(req))
+			nr++;
+		if (!(cd->flags & IORING_ASYNC_CANCEL_ALL))
+			break;
+	}
+	io_ring_submit_unlock(ctx, issue_flags);
+	return nr ?: -ENOENT;
 }
