@@ -12963,6 +12963,7 @@ static int sched_balance_newidle(struct rq *this_rq, struct rq_flags *rf)
 	}
 	rcu_read_unlock();
 
+	rq_modified_clear(this_rq);
 	raw_spin_rq_unlock(this_rq);
 
 	t0 = sched_clock_cpu(this_cpu);
@@ -13033,8 +13034,8 @@ static int sched_balance_newidle(struct rq *this_rq, struct rq_flags *rf)
 	if (this_rq->cfs.h_nr_queued && !pulled_task)
 		pulled_task = 1;
 
-	/* Is there a task of a high priority class? */
-	if (this_rq->nr_running != this_rq->cfs.h_nr_queued)
+	/* If a higher prio class was modified, restart the pick */
+	if (rq_modified_above(this_rq, &fair_sched_class))
 		pulled_task = -1;
 
 out:
@@ -13930,6 +13931,8 @@ static unsigned int get_rr_interval_fair(struct rq *rq, struct task_struct *task
  * All the scheduling class methods:
  */
 DEFINE_SCHED_CLASS(fair) = {
+
+	.queue_mask		= 2,
 
 	.enqueue_task		= enqueue_task_fair,
 	.dequeue_task		= dequeue_task_fair,
