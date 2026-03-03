@@ -1991,6 +1991,7 @@ struct bpf_array {
  */
 enum {
 	BPF_MAX_LOOPS = 8 * 1024 * 1024,
+	BPF_MAX_TIMED_LOOPS = 0xffff,
 };
 
 #define BPF_F_ACCESS_MASK	(BPF_F_RDONLY |		\
