@@ -793,6 +793,9 @@ static int cma_acquire_dev_by_src_ip(struct rdma_id_private *id_priv)
 
 	mutex_lock(&lock);
 	list_for_each_entry(cma_dev, &dev_list, list) {
+		if (id_priv->restricted_node_type != RDMA_NODE_UNSPECIFIED &&
+		    id_priv->restricted_node_type != cma_dev->device->node_type)
+			continue;
 		rdma_for_each_port (cma_dev->device, port) {
 			gidp = rdma_protocol_roce(cma_dev->device, port) ?
 			       &iboe_gid : &gid;
@@ -1015,6 +1018,7 @@ __rdma_create_id(struct net *net, rdma_cm_event_handler event_handler,
 		return ERR_PTR(-ENOMEM);
 
 	id_priv->state = RDMA_CM_IDLE;
+	id_priv->restricted_node_type = RDMA_NODE_UNSPECIFIED;
 	id_priv->id.context = context;
 	id_priv->id.event_handler = event_handler;
 	id_priv->id.ps = ps;
@@ -2726,6 +2730,9 @@ static int cma_listen_on_dev(struct rdma_id_private *id_priv,
 	*to_destroy = NULL;
 	if (cma_family(id_priv) == AF_IB && !rdma_cap_ib_cm(cma_dev->device, 1))
 		return 0;
+	if (id_priv->restricted_node_type != RDMA_NODE_UNSPECIFIED &&
+	    id_priv->restricted_node_type != cma_dev->device->node_type)
+		return 0;
 
 	dev_id_priv =
 		__rdma_create_id(net, cma_listen_handler, id_priv,
@@ -2733,6 +2740,7 @@ static int cma_listen_on_dev(struct rdma_id_private *id_priv,
 	if (IS_ERR(dev_id_priv))
 		return PTR_ERR(dev_id_priv);
 
+	dev_id_priv->restricted_node_type = id_priv->restricted_node_type;
 	dev_id_priv->state = RDMA_CM_ADDR_BOUND;
 	memcpy(cma_src_addr(dev_id_priv), cma_src_addr(id_priv),
 	       rdma_addr_size(cma_src_addr(id_priv)));
@@ -4176,6 +4184,32 @@ err:
 	return ret;
 }
 EXPORT_SYMBOL(rdma_resolve_addr);
+
+int rdma_restrict_node_type(struct rdma_cm_id *id, u8 node_type)
+{
+	struct rdma_id_private *id_priv =
+		container_of(id, struct rdma_id_private, id);
+	int ret = 0;
+
+	switch (node_type) {
+	case RDMA_NODE_UNSPECIFIED:
+	case RDMA_NODE_IB_CA:
+	case RDMA_NODE_RNIC:
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	mutex_lock(&lock);
+	if (READ_ONCE(id_priv->state) != RDMA_CM_IDLE)
+		ret = -EALREADY;
+	else
+		id_priv->restricted_node_type = node_type;
+	mutex_unlock(&lock);
+
+	return ret;
+}
+EXPORT_SYMBOL(rdma_restrict_node_type);
 
 int rdma_bind_addr(struct rdma_cm_id *id, struct sockaddr *addr)
 {
