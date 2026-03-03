@@ -10000,15 +10000,11 @@ static unsigned long task_h_load(struct task_struct *p)
 }
 #endif
 
-static void sched_balance_update_blocked_averages(int cpu)
+static void __sched_balance_update_blocked_averages(struct rq *rq)
 {
 	bool decayed = false, done = true;
-	struct rq *rq = cpu_rq(cpu);
-	struct rq_flags rf;
 
-	rq_lock_irqsave(rq, &rf);
 	update_blocked_load_tick(rq);
-	update_rq_clock(rq);
 
 	decayed |= __update_blocked_others(rq, &done);
 	decayed |= __update_blocked_fair(rq, &done);
@@ -10016,7 +10012,15 @@ static void sched_balance_update_blocked_averages(int cpu)
 	update_blocked_load_status(rq, !done);
 	if (decayed)
 		cpufreq_update_util(rq, 0);
-	rq_unlock_irqrestore(rq, &rf);
+}
+
+static void sched_balance_update_blocked_averages(int cpu)
+{
+	struct rq *rq = cpu_rq(cpu);
+
+	guard(rq_lock_irqsave)(rq);
+	update_rq_clock(rq);
+	__sched_balance_update_blocked_averages(rq);
 }
 
 /********** Helpers for sched_balance_find_src_group ************************/
@@ -12963,11 +12967,16 @@ static int sched_balance_newidle(struct rq *this_rq, struct rq_flags *rf)
 	}
 	rcu_read_unlock();
 
+	/*
+	 * Include sched_balance_update_blocked_averages() in the cost
+	 * calculation because it can be quite costly -- this ensures we skip
+	 * it when avg_idle gets to be very low.
+	 */
+	t0 = sched_clock_cpu(this_cpu);
+	__sched_balance_update_blocked_averages(this_rq);
+
 	rq_modified_clear(this_rq);
 	raw_spin_rq_unlock(this_rq);
-
-	t0 = sched_clock_cpu(this_cpu);
-	sched_balance_update_blocked_averages(this_cpu);
 
 	rcu_read_lock();
 	for_each_domain(this_cpu, sd) {
