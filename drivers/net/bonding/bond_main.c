@@ -1470,6 +1470,12 @@ int bond_enslave(struct net_device *bond_dev, struct net_device *slave_dev,
 	 */
 	if (!bond_has_slaves(bond)) {
 		if (bond_dev->type != slave_dev->type) {
+			if (slave_dev->type != ARPHRD_ETHER &&
+			    BOND_MODE(bond) == BOND_MODE_8023AD) {
+				netdev_err(bond_dev,
+					   "8023AD mode requires Ethernet devices");
+				return -EINVAL;
+			}
 			netdev_dbg(bond_dev, "change device type from %d to %d\n",
 				   bond_dev->type, slave_dev->type);
 
