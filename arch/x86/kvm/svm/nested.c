@@ -589,10 +589,12 @@ static void nested_vmcb02_prepare_save(struct vcpu_svm *svm, struct vmcb *vmcb12
 		 */
 		svm_copy_lbrs(vmcb02, vmcb12);
 		vmcb02->save.dbgctl &= ~DEBUGCTL_RESERVED_BITS;
+		vmcb_mark_dirty(vmcb02, VMCB_LBR);
 		svm_update_lbrv(&svm->vcpu);
 
 	} else if (unlikely(vmcb01->control.virt_ext & LBR_CTL_ENABLE_MASK)) {
 		svm_copy_lbrs(vmcb02, vmcb01);
+		vmcb_mark_dirty(vmcb02, VMCB_LBR);
 	}
 }
 
@@ -1012,6 +1014,7 @@ int nested_svm_vmexit(struct vcpu_svm *svm)
 		svm_update_lbrv(vcpu);
 	} else if (unlikely(vmcb01->control.virt_ext & LBR_CTL_ENABLE_MASK)) {
 		svm_copy_lbrs(vmcb01, vmcb02);
+		vmcb_mark_dirty(vmcb01, VMCB_LBR);
 		svm_update_lbrv(vcpu);
 	}
 
