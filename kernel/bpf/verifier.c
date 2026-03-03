@@ -3914,6 +3914,10 @@ static void reg_set_min_max(struct bpf_reg_state *true_reg,
 		__mark_reg_known(false_reg, val);
 		break;
 	case BPF_JSET:
+		/* Forget the ranges before narrowing tnums, to avoid invariant
+		 * violations if we're on a dead branch.
+		 */
+		__mark_reg_unbounded(false_reg);
 		false_reg->var_off = tnum_and(false_reg->var_off,
 					      tnum_const(~val));
 		if (is_power_of_2(val))
@@ -3993,6 +3997,10 @@ static void reg_set_min_max_inv(struct bpf_reg_state *true_reg,
 		__mark_reg_known(false_reg, val);
 		break;
 	case BPF_JSET:
+		/* Forget the ranges before narrowing tnums, to avoid invariant
+		 * violations if we're on a dead branch.
+		 */
+		__mark_reg_unbounded(false_reg);
 		false_reg->var_off = tnum_and(false_reg->var_off,
 					      tnum_const(~val));
 		if (is_power_of_2(val))
