@@ -1648,9 +1648,7 @@ void dl_server_update(struct sched_dl_entity *dl_se, s64 delta_exec)
 {
 	/* 0 runtime = fair server disabled */
 	if (dl_se->dl_runtime) {
-#ifndef __GENKSYMS__
 		dl_se->dl_server_idle = 0;
-#endif
 		update_curr_dl_se(dl_se->rq, dl_se, delta_exec);
 	}
 }
@@ -1687,14 +1685,13 @@ static bool dl_server_stopped(struct sched_dl_entity *dl_se)
 {
 	if (!dl_se->dl_server_active)
 		return true;
-#ifndef __GENKSYMS__
+
 	if (dl_se->dl_server_idle) {
 		dl_server_stop(dl_se);
 		return true;
 	}
 
 	dl_se->dl_server_idle = 1;
-#endif
 	return false;
 }
 
