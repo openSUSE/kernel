@@ -547,12 +547,6 @@ struct sched_statistics {
 #endif /* CONFIG_SCHEDSTATS */
 } ____cacheline_aligned;
 
-#ifndef __GENKSYMS__
-#define se_vprot(s) s->vprot
-#else
-#define se_vprot(s) s->vlag
-#endif
-
 struct sched_entity {
 	/* For load-balancing: */
 	struct load_weight		load;
@@ -572,7 +566,6 @@ struct sched_entity {
 	u64				sum_exec_runtime;
 	u64				prev_sum_exec_runtime;
 	u64				vruntime;
-#ifndef __GENKSYMS__
 	union {
 		/*
 		 * When !@on_rq this field is vlag.
@@ -582,9 +575,6 @@ struct sched_entity {
 		s64                     vlag;
 		u64                     vprot;
 	};
-#else
-	s64				vlag;
-#endif /* __GENKSYMS */
 	u64				slice;
 
 	u64				nr_migrations;
