@@ -15811,6 +15811,16 @@ S:	Maintained
 F:	Documentation/devicetree/bindings/leds/backlight/mps,mp3309c.yaml
 F:	drivers/video/backlight/mp3309c.c
 
+MPAM DRIVER
+M:	James Morse <james.morse@arm.com>
+M:	Ben Horgan <ben.horgan@arm.com>
+R:	Reinette Chatre <reinette.chatre@intel.com>
+R:	Fenghua Yu <fenghuay@nvidia.com>
+S:	Maintained
+F:	drivers/resctrl/mpam_*
+F:	drivers/resctrl/test_mpam_*
+F:	include/linux/arm_mpam.h
+
 MPS MP2891 DRIVER
 M:	Noah Wang <noahwang.wang@outlook.com>
 L:	linux-hwmon@vger.kernel.org
