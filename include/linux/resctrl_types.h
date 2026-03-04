@@ -44,6 +44,9 @@ enum resctrl_res_level {
 	RDT_NUM_RESOURCES,
 };
 
+/* Number of memory transactions that an MBM event can be configured with */
+#define NUM_MBM_TRANSACTIONS		7
+
 /* Event IDs */
 enum resctrl_event_id {
 	/* Must match value of first event below */
