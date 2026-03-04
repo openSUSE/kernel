@@ -27,5 +27,7 @@ TRACE_EVENT(mon_llc_occupancy_limbo,
 
 #undef TRACE_INCLUDE_PATH
 #define TRACE_INCLUDE_PATH .
+
 #define TRACE_INCLUDE_FILE monitor_trace
+
 #include <trace/define_trace.h>
