@@ -699,7 +699,7 @@ static void ata_pio_sector(struct ata_queued_cmd *qc)
 	int do_write = (qc->tf.flags & ATA_TFLAG_WRITE);
 	struct ata_port *ap = qc->ap;
 	struct page *page;
-	unsigned int offset;
+	unsigned int offset, count;
 	unsigned char *buf;
 
 	if (qc->curbytes == qc->nbytes - qc->sect_size)
@@ -712,6 +712,9 @@ static void ata_pio_sector(struct ata_queued_cmd *qc)
 	page = nth_page(page, (offset >> PAGE_SHIFT));
 	offset %= PAGE_SIZE;
 
+	/* don't overrun current sg */
+	count = min(qc->cursg->length - qc->cursg_ofs, qc->sect_size);
+
 	DPRINTK("data %s\n", qc->tf.flags & ATA_TFLAG_WRITE ? "write" : "read");
 
 	if (PageHighMem(page)) {
@@ -722,22 +725,22 @@ static void ata_pio_sector(struct ata_queued_cmd *qc)
 		buf = kmap_atomic(page, KM_IRQ0);
 
 		/* do the actual data transfer */
-		ap->ops->sff_data_xfer(qc->dev, buf + offset, qc->sect_size,
+		ap->ops->sff_data_xfer(qc->dev, buf + offset, count,
 				       do_write);
 
 		kunmap_atomic(buf, KM_IRQ0);
 		local_irq_restore(flags);
 	} else {
 		buf = page_address(page);
-		ap->ops->sff_data_xfer(qc->dev, buf + offset, qc->sect_size,
+		ap->ops->sff_data_xfer(qc->dev, buf + offset, count,
 				       do_write);
 	}
 
 	if (!do_write && !PageSlab(page))
 		flush_dcache_page(page);
 
-	qc->curbytes += qc->sect_size;
-	qc->cursg_ofs += qc->sect_size;
+	qc->curbytes += count;
+	qc->cursg_ofs += count;
 
 	if (qc->cursg_ofs == qc->cursg->length) {
 		qc->cursg = sg_next(qc->cursg);
