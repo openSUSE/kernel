@@ -245,4 +245,6 @@ source "drivers/hte/Kconfig"
 
 source "drivers/cdx/Kconfig"
 
+source "drivers/resctrl/Kconfig"
+
 endmenu
