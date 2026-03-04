@@ -184,6 +184,7 @@ void __iomem *x86_acpi_os_ioremap(acpi_physical_address phys, acpi_size size);
 
 void acpi_setup_mp_wakeup_mailbox(u64 addr);
 struct acpi_madt_multiproc_wakeup_mailbox *acpi_get_mp_wakeup_mailbox(void);
+u64 acpi_get_mp_wakeup_mailbox_paddr(void);
 
 #else /* !CONFIG_ACPI */
 
@@ -208,6 +209,11 @@ static inline void acpi_setup_mp_wakeup_mailbox(u64 addr) { }
 static inline struct acpi_madt_multiproc_wakeup_mailbox *acpi_get_mp_wakeup_mailbox(void)
 {
 	return NULL;
+}
+
+static inline u64 acpi_get_mp_wakeup_mailbox_paddr(void)
+{
+	return 0;
 }
 
 #endif /* !CONFIG_ACPI */
