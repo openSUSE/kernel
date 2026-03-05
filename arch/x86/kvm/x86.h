@@ -754,6 +754,12 @@ static inline void kvm_prepare_emulated_mmio_exit(struct kvm_vcpu *vcpu,
 					 frag->data, vcpu->mmio_is_write);
 }
 
+static inline bool kvm_is_valid_map_gpa_range_ret(u64 hypercall_ret)
+{
+	return !hypercall_ret || hypercall_ret == EINVAL ||
+	       hypercall_ret == EAGAIN;
+}
+
 static inline bool user_exit_on_hypercall(struct kvm *kvm, unsigned long hc_nr)
 {
 	return kvm->arch.hypercall_exit_enabled & BIT(hc_nr);

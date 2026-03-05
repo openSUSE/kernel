@@ -1188,12 +1188,22 @@ static void __tdx_map_gpa(struct vcpu_tdx *tdx);
 
 static int tdx_complete_vmcall_map_gpa(struct kvm_vcpu *vcpu)
 {
+	u64 hypercall_ret = READ_ONCE(vcpu->run->hypercall.ret);
 	struct vcpu_tdx *tdx = to_tdx(vcpu);
+	long rc;
 
-	if (vcpu->run->hypercall.ret) {
-		tdvmcall_set_return_code(vcpu, TDVMCALL_STATUS_INVALID_OPERAND);
-		tdx->vp_enter_args.r11 = tdx->map_gpa_next;
-		return 1;
+	switch (hypercall_ret) {
+	case 0:
+		break;
+	case EAGAIN:
+		rc = TDVMCALL_STATUS_RETRY;
+		goto propagate_error;
+	case EINVAL:
+		rc = TDVMCALL_STATUS_INVALID_OPERAND;
+		goto propagate_error;
+	default:
+		WARN_ON_ONCE(kvm_is_valid_map_gpa_range_ret(hypercall_ret));
+		return -EINVAL;
 	}
 
 	tdx->map_gpa_next += TDX_MAP_GPA_MAX_LEN;
@@ -1206,13 +1216,17 @@ static int tdx_complete_vmcall_map_gpa(struct kvm_vcpu *vcpu)
 	 * TDVMCALL_MAP_GPA, see comments in tdx_protected_apic_has_interrupt().
 	 */
 	if (kvm_vcpu_has_events(vcpu)) {
-		tdvmcall_set_return_code(vcpu, TDVMCALL_STATUS_RETRY);
-		tdx->vp_enter_args.r11 = tdx->map_gpa_next;
-		return 1;
+		rc = TDVMCALL_STATUS_RETRY;
+		goto propagate_error;
 	}
 
 	__tdx_map_gpa(tdx);
 	return 0;
+
+propagate_error:
+	tdvmcall_set_return_code(vcpu, rc);
+	tdx->vp_enter_args.r11 = tdx->map_gpa_next;
+	return 1;
 }
 
 static void __tdx_map_gpa(struct vcpu_tdx *tdx)
