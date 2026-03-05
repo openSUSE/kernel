@@ -4413,6 +4413,8 @@ static void ieee80211_destroy_auth_data(struct ieee80211_sub_if_data *sdata,
 
 	lockdep_assert_wiphy(sdata->local->hw.wiphy);
 
+	sdata->u.mgd.auth_data = NULL;
+
 	if (!assoc) {
 		/*
 		 * we are not authenticated yet, the only timer that could be
@@ -4434,7 +4436,6 @@ static void ieee80211_destroy_auth_data(struct ieee80211_sub_if_data *sdata,
 
 	cfg80211_put_bss(sdata->local->hw.wiphy, auth_data->bss);
 	kfree(auth_data);
-	sdata->u.mgd.auth_data = NULL;
 }
 
 enum assoc_status {
@@ -4450,6 +4451,8 @@ static void ieee80211_destroy_assoc_data(struct ieee80211_sub_if_data *sdata,
 	struct ieee80211_mgd_assoc_data *assoc_data = sdata->u.mgd.assoc_data;
 
 	lockdep_assert_wiphy(sdata->local->hw.wiphy);
+
+	sdata->u.mgd.assoc_data = NULL;
 
 	if (status != ASSOC_SUCCESS) {
 		/*
@@ -4489,7 +4492,6 @@ static void ieee80211_destroy_assoc_data(struct ieee80211_sub_if_data *sdata,
 	}
 
 	kfree(assoc_data);
-	sdata->u.mgd.assoc_data = NULL;
 }
 
 static void ieee80211_auth_challenge(struct ieee80211_sub_if_data *sdata,
