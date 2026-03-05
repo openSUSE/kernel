@@ -1678,7 +1678,7 @@ static int ieee80211_stop_ap(struct wiphy *wiphy, struct net_device *dev,
 	link_conf->fils_discovery.max_interval = 0;
 	link_conf->unsol_bcast_probe_resp_interval = 0;
 
-	__sta_info_flush(sdata, true, link_id);
+	__sta_info_flush(sdata, true, link_id, NULL);
 
 	ieee80211_remove_link_keys(link, &keys);
 	if (!list_empty(&keys)) {
