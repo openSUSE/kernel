@@ -3104,7 +3104,7 @@ static int ieee80211_set_tx_power(struct wiphy *wiphy,
 			sdata->vif.bss_conf.txpower_type = txp_type;
 		}
 
-		ieee80211_recalc_txpower(sdata, update_txp_type);
+		ieee80211_recalc_txpower(&sdata->deflink, update_txp_type);
 
 		return 0;
 	}
@@ -3135,7 +3135,7 @@ static int ieee80211_set_tx_power(struct wiphy *wiphy,
 	list_for_each_entry(sdata, &local->interfaces, list) {
 		if (sdata->vif.type == NL80211_IFTYPE_MONITOR)
 			continue;
-		ieee80211_recalc_txpower(sdata, update_txp_type);
+		ieee80211_recalc_txpower(&sdata->deflink, update_txp_type);
 	}
 
 	if (has_monitor) {
@@ -3147,7 +3147,8 @@ static int ieee80211_set_tx_power(struct wiphy *wiphy,
 				update_txp_type = true;
 			sdata->vif.bss_conf.txpower_type = txp_type;
 
-			ieee80211_recalc_txpower(sdata, update_txp_type);
+			ieee80211_recalc_txpower(&sdata->deflink,
+						 update_txp_type);
 		}
 	}
 
