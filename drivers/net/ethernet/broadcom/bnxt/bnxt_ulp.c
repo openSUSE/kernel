@@ -141,7 +141,6 @@ int bnxt_register_dev(struct bnxt_en_dev *edev,
 	edev->ulp_tbl->msix_requested = bnxt_get_ulp_msix_num(bp);
 
 	bnxt_fill_msix_vecs(bp, bp->edev->msix_entries);
-	edev->flags |= BNXT_EN_FLAG_MSIX_REQUESTED;
 exit:
 	mutex_unlock(&edev->en_dev_lock);
 	rtnl_unlock();
@@ -158,8 +157,6 @@ void bnxt_unregister_dev(struct bnxt_en_dev *edev)
 	ulp = edev->ulp_tbl;
 	rtnl_lock();
 	mutex_lock(&edev->en_dev_lock);
-	if (ulp->msix_requested)
-		edev->flags &= ~BNXT_EN_FLAG_MSIX_REQUESTED;
 	edev->ulp_tbl->msix_requested = 0;
 
 	if (ulp->max_async_event_id)
@@ -297,7 +294,7 @@ void bnxt_ulp_irq_stop(struct bnxt *bp)
 	struct bnxt_ulp_ops *ops;
 	bool reset = false;
 
-	if (!edev || !(edev->flags & BNXT_EN_FLAG_MSIX_REQUESTED))
+	if (!edev)
 		return;
 
 	if (bnxt_ulp_registered(bp->edev)) {
@@ -320,7 +317,7 @@ void bnxt_ulp_irq_restart(struct bnxt *bp, int err)
 	struct bnxt_en_dev *edev = bp->edev;
 	struct bnxt_ulp_ops *ops;
 
-	if (!edev || !(edev->flags & BNXT_EN_FLAG_MSIX_REQUESTED))
+	if (!edev)
 		return;
 
 	if (bnxt_ulp_registered(bp->edev)) {
