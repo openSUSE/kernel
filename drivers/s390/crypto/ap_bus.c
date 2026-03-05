@@ -1500,6 +1500,7 @@ static int __verify_card_reservations(struct device_driver *drv, void *data)
 	int rc = 0;
 	struct ap_driver *ap_drv = to_ap_drv(drv);
 	unsigned long *newapm = (unsigned long *)data;
+	unsigned long aqm_any[BITS_TO_LONGS(AP_DOMAINS)];
 
 	/*
 	 * increase the driver's module refcounter to be sure it is not
@@ -1509,7 +1510,8 @@ static int __verify_card_reservations(struct device_driver *drv, void *data)
 		return 0;
 
 	if (ap_drv->in_use) {
-		rc = ap_drv->in_use(newapm, ap_perms.aqm);
+		bitmap_fill(aqm_any, AP_DOMAINS);
+		rc = ap_drv->in_use(newapm, aqm_any);
 		if (rc)
 			rc = -EBUSY;
 	}
@@ -1592,6 +1594,7 @@ static int __verify_queue_reservations(struct device_driver *drv, void *data)
 	int rc = 0;
 	struct ap_driver *ap_drv = to_ap_drv(drv);
 	unsigned long *newaqm = (unsigned long *)data;
+	unsigned long apm_any[BITS_TO_LONGS(AP_DEVICES)];
 
 	/*
 	 * increase the driver's module refcounter to be sure it is not
@@ -1601,7 +1604,8 @@ static int __verify_queue_reservations(struct device_driver *drv, void *data)
 		return 0;
 
 	if (ap_drv->in_use) {
-		rc = ap_drv->in_use(ap_perms.apm, newaqm);
+		bitmap_fill(apm_any, AP_DEVICES);
+		rc = ap_drv->in_use(apm_any, newaqm);
 		if (rc)
 			rc = -EBUSY;
 	}
