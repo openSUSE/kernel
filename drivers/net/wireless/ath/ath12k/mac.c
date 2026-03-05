@@ -10198,6 +10198,8 @@ int ath12k_mac_allocate(struct ath12k_base *ab)
 			goto err;
 		}
 
+		ah->dev = ab->dev;
+
 		ab->ah[i] = ah;
 	}
 
