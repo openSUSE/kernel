@@ -78,13 +78,11 @@ static void rzg3e_phy_usb2test_phy_init(void __iomem *base)
 	writel(val, base + USB3_TEST_UTMICTRL2);
 
 	val = readl(base + USB3_TEST_PRMCTRL5_R);
-	val &= ~USB3_TEST_PRMCTRL5_R_TXPREEMPAMPTUNE0_MASK;
-	val |= FIELD_PREP(USB3_TEST_PRMCTRL5_R_TXPREEMPAMPTUNE0_MASK, 2);
+	FIELD_MODIFY(USB3_TEST_PRMCTRL5_R_TXPREEMPAMPTUNE0_MASK, &val, 2);
 	writel(val, base + USB3_TEST_PRMCTRL5_R);
 
 	val = readl(base + USB3_TEST_PRMCTRL6_R);
-	val &= ~USB3_TEST_PRMCTRL6_R_OTGTUNE0_MASK;
-	val |= FIELD_PREP(USB3_TEST_PRMCTRL6_R_OTGTUNE0_MASK, 7);
+	FIELD_MODIFY(USB3_TEST_PRMCTRL6_R_OTGTUNE0_MASK, &val, 7);
 	writel(val, base + USB3_TEST_PRMCTRL6_R);
 
 	val = readl(base + USB3_TEST_RESET);
