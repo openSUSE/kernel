@@ -4980,7 +4980,7 @@ EXPORT_SYMBOL(__free_pages);
 
 /*
  * Can be called while holding raw_spin_lock or from IRQ and NMI for any
- * page type (not only those that came from try_alloc_pages)
+ * page type (not only those that came from alloc_pages_nolock)
  */
 void free_pages_nolock(struct page *page, unsigned int order)
 {
@@ -7225,20 +7225,21 @@ static bool __free_unaccepted(struct page *page)
 #endif /* CONFIG_UNACCEPTED_MEMORY */
 
 /**
- * try_alloc_pages - opportunistic reentrant allocation from any context
+ * alloc_pages_nolock - opportunistic reentrant allocation from any context
  * @nid: node to allocate from
  * @order: allocation order size
  *
  * Allocates pages of a given order from the given node. This is safe to
  * call from any context (from atomic, NMI, and also reentrant
- * allocator -> tracepoint -> try_alloc_pages_noprof).
+ * allocator -> tracepoint -> alloc_pages_nolock_noprof).
  * Allocation is best effort and to be expected to fail easily so nobody should
  * rely on the success. Failures are not reported via warn_alloc().
  * See always fail conditions below.
  *
- * Return: allocated page or NULL on failure.
+ * Return: allocated page or NULL on failure. NULL does not mean EBUSY or EAGAIN.
+ * It means ENOMEM. There is no reason to call it again and expect !NULL.
  */
-struct page *try_alloc_pages_noprof(int nid, unsigned int order)
+struct page *alloc_pages_nolock_noprof(int nid, unsigned int order)
 {
 	/*
 	 * Do not specify __GFP_DIRECT_RECLAIM, since direct claim is not allowed.
@@ -7247,7 +7248,7 @@ struct page *try_alloc_pages_noprof(int nid, unsigned int order)
 	 *
 	 * These two are the conditions for gfpflags_allow_spinning() being true.
 	 *
-	 * Specify __GFP_NOWARN since failing try_alloc_pages() is not a reason
+	 * Specify __GFP_NOWARN since failing alloc_pages_nolock() is not a reason
 	 * to warn. Also warn would trigger printk() which is unsafe from
 	 * various contexts. We cannot use printk_deferred_enter() to mitigate,
 	 * since the running context is unknown.
@@ -7257,7 +7258,7 @@ struct page *try_alloc_pages_noprof(int nid, unsigned int order)
 	 * BPF use cases.
 	 *
 	 * Though __GFP_NOMEMALLOC is not checked in the code path below,
-	 * specify it here to highlight that try_alloc_pages()
+	 * specify it here to highlight that alloc_pages_nolock()
 	 * doesn't want to deplete reserves.
 	 */
 	gfp_t alloc_gfp = __GFP_NOWARN | __GFP_ZERO | __GFP_NOMEMALLOC
