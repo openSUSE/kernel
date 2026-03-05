@@ -3252,6 +3252,7 @@ int bpf_prog_get_file_line(struct bpf_prog *prog, unsigned long ip, const char *
 	struct bpf_line_info *linfo;
 	void **jited_linfo;
 	struct btf *btf;
+	int nr_linfo;
 
 	btf = prog->aux->btf;
 	linfo = prog->aux->linfo;
@@ -3266,8 +3267,9 @@ int bpf_prog_get_file_line(struct bpf_prog *prog, unsigned long ip, const char *
 
 	insn_start = linfo[0].insn_off;
 	insn_end = insn_start + len;
+	nr_linfo = prog->aux->nr_linfo - prog->aux->linfo_idx;
 
-	for (int i = 0; i < prog->aux->nr_linfo &&
+	for (int i = 0; i < nr_linfo &&
 	     linfo[i].insn_off >= insn_start && linfo[i].insn_off < insn_end; i++) {
 		if (jited_linfo[i] >= (void *)ip)
 			break;
