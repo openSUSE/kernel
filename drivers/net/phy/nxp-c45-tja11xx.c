@@ -759,9 +759,6 @@ static int nxp_c45_perout_enable(struct nxp_c45_phy *priv,
 	struct phy_device *phydev = priv->phydev;
 	int pin;
 
-	if (perout->flags & ~PTP_PEROUT_PHASE)
-		return -EOPNOTSUPP;
-
 	pin = ptp_find_pin(priv->ptp_clock, PTP_PF_PEROUT, perout->index);
 	if (pin < 0)
 		return pin;
@@ -955,6 +952,7 @@ static int nxp_c45_init_ptp_clock(struct nxp_c45_phy *priv)
 		.supported_extts_flags = PTP_RISING_EDGE |
 					 PTP_FALLING_EDGE |
 					 PTP_STRICT_FLAGS,
+		.supported_perout_flags = PTP_PEROUT_PHASE,
 	};
 
 	priv->ptp_clock = ptp_clock_register(&priv->caps,
