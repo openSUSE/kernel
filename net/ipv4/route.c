@@ -1671,7 +1671,7 @@ struct rtable *rt_dst_clone(struct net_device *dev, struct rtable *rt)
 		else if (rt->rt_gw_family == AF_INET6)
 			new_rt->rt_gw6 = rt->rt_gw6;
 		INIT_LIST_HEAD(&new_rt->rt_uncached);
-		new_rt->rt_uncached_list;
+		new_rt->rt_uncached_list = NULL;
 
 		new_rt->dst.input = READ_ONCE(rt->dst.input);
 		new_rt->dst.output = READ_ONCE(rt->dst.output);
