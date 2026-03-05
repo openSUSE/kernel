@@ -318,8 +318,6 @@ static inline struct device *dvobj_to_dev(struct dvobj_priv *dvobj)
 	return &dvobj->intf_data.func->dev;
 }
 
-struct adapter *dvobj_get_port0_adapter(struct dvobj_priv *dvobj);
-
 enum {
 	DRIVER_NORMAL = 0,
 	DRIVER_DISAPPEAR = 1,
