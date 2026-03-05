@@ -51,6 +51,7 @@
 #include <asm/unwind.h>
 #include <asm/tdx.h>
 #include <asm/mmu_context.h>
+#include <asm/msr.h>
 #include <asm/shstk.h>
 
 #include "process.h"
@@ -832,7 +833,7 @@ void __noreturn stop_this_cpu(void *dummy)
 	mcheck_cpu_clear(c);
 
 	if (this_cpu_read(cache_state_incoherent))
-		native_wbinvd();
+		wbinvd();
 
 	/*
 	 * This brings a cache line back and dirties it, but
@@ -853,7 +854,7 @@ void __noreturn stop_this_cpu(void *dummy)
 		/*
 		 * Use native_halt() so that memory contents don't change
 		 * (stack usage and variables) after possibly issuing the
-		 * native_wbinvd() above.
+		 * wbinvd() above.
 		 */
 		native_halt();
 	}

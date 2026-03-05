@@ -45,6 +45,7 @@
 #include <asm/apic.h>
 #include <asm/cpuid.h>
 #include <asm/cmdline.h>
+#include <asm/msr.h>
 
 #define DR7_RESET_VALUE        0x400
 
@@ -278,7 +279,7 @@ static noinstr struct ghcb *__sev_get_ghcb(struct ghcb_state *state)
 
 static inline u64 sev_es_rd_ghcb_msr(void)
 {
-	return __rdmsr(MSR_AMD64_SEV_ES_GHCB);
+	return native_rdmsrq(MSR_AMD64_SEV_ES_GHCB);
 }
 
 static __always_inline void sev_es_wr_ghcb_msr(u64 val)

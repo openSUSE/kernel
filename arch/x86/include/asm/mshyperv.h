@@ -9,6 +9,7 @@
 #include <linux/static_call.h>
 #include <asm/nospec-branch.h>
 #include <asm/paravirt.h>
+#include <asm/msr.h>
 #include <hyperv/hvhdk.h>
 #include <asm/fpu/types.h>
 
@@ -234,7 +235,7 @@ void hv_set_non_nested_msr(unsigned int reg, u64 value);
 
 static __always_inline u64 hv_raw_get_msr(unsigned int reg)
 {
-	return __rdmsr(reg);
+	return native_rdmsrq(reg);
 }
 int hv_apicid_to_vp_index(u32 apic_id);
 
