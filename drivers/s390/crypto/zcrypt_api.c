@@ -739,7 +739,8 @@ out:
 		tr->last_qid = qid;
 	}
 	trace_s390_zcrypt_rep(mex, func_code, rc,
-			      AP_QID_CARD(qid), AP_QID_QUEUE(qid));
+			      AP_QID_CARD(qid), AP_QID_QUEUE(qid),
+			      ap_msg.psmid);
 	return rc;
 }
 
@@ -844,7 +845,8 @@ out:
 		tr->last_qid = qid;
 	}
 	trace_s390_zcrypt_rep(crt, func_code, rc,
-			      AP_QID_CARD(qid), AP_QID_QUEUE(qid));
+			      AP_QID_CARD(qid), AP_QID_QUEUE(qid),
+			      ap_msg.psmid);
 	return rc;
 }
 
@@ -979,7 +981,8 @@ out:
 		tr->last_qid = qid;
 	}
 	trace_s390_zcrypt_rep(xcrb, func_code, rc,
-			      AP_QID_CARD(qid), AP_QID_QUEUE(qid));
+			      AP_QID_CARD(qid), AP_QID_QUEUE(qid),
+			      ap_msg.psmid);
 	return rc;
 }
 
@@ -1181,7 +1184,8 @@ out:
 		tr->last_qid = qid;
 	}
 	trace_s390_zcrypt_rep(xcrb, func_code, rc,
-			      AP_QID_CARD(qid), AP_QID_QUEUE(qid));
+			      AP_QID_CARD(qid), AP_QID_QUEUE(qid),
+			      ap_msg.psmid);
 	return rc;
 }
 
@@ -1273,7 +1277,8 @@ static long zcrypt_rng(char *buffer)
 out:
 	ap_release_apmsg(&ap_msg);
 	trace_s390_zcrypt_rep(buffer, func_code, rc,
-			      AP_QID_CARD(qid), AP_QID_QUEUE(qid));
+			      AP_QID_CARD(qid), AP_QID_QUEUE(qid),
+			      ap_msg.psmid);
 	return rc;
 }
 
