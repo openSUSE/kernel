@@ -3036,39 +3036,15 @@ static void iwl_mvm_d3_disconnect_iter(void *data, u8 *mac,
 		ieee80211_resume_disconnect(vif);
 }
 
-static bool iwl_mvm_rt_status(struct iwl_trans *trans, u32 base, u32 *err_id)
-{
-	struct error_table_start {
-		/* cf. struct iwl_error_event_table */
-		u32 valid;
-		__le32 err_id;
-	} err_info = {};
-	int ret;
-
-	if (!base)
-		return false;
-
-	ret = iwl_trans_read_mem_bytes(trans, base,
-				       &err_info, sizeof(err_info));
-
-	if (ret)
-		return true;
-
-	if (err_info.valid && err_id)
-		*err_id = le32_to_cpu(err_info.err_id);
-
-	return !!err_info.valid;
-}
-
 static bool iwl_mvm_check_rt_status(struct iwl_mvm *mvm,
 				   struct ieee80211_vif *vif)
 {
 	u32 err_id;
 
 	/* check for lmac1 error */
-	if (iwl_mvm_rt_status(mvm->trans,
-			      mvm->trans->dbg.lmac_error_event_table[0],
-			      &err_id)) {
+	if (iwl_fwrt_read_err_table(mvm->trans,
+				    mvm->trans->dbg.lmac_error_event_table[0],
+				    &err_id)) {
 		if (err_id == RF_KILL_INDICATOR_FOR_WOWLAN && vif) {
 			struct cfg80211_wowlan_wakeup wakeup = {
 				.rfkill_release = true,
@@ -3080,13 +3056,15 @@ static bool iwl_mvm_check_rt_status(struct iwl_mvm *mvm,
 	}
 
 	/* check if we have lmac2 set and check for error */
-	if (iwl_mvm_rt_status(mvm->trans,
-			      mvm->trans->dbg.lmac_error_event_table[1], NULL))
+	if (iwl_fwrt_read_err_table(mvm->trans,
+				    mvm->trans->dbg.lmac_error_event_table[1],
+				    NULL))
 		return true;
 
 	/* check for umac error */
-	if (iwl_mvm_rt_status(mvm->trans,
-			      mvm->trans->dbg.umac_error_event_table, NULL))
+	if (iwl_fwrt_read_err_table(mvm->trans,
+				    mvm->trans->dbg.umac_error_event_table,
+				    NULL))
 		return true;
 
 	return false;
