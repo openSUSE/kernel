@@ -159,12 +159,12 @@ iwl_trans_determine_restart_mode(struct iwl_trans *trans)
 
 	if (trans->request_top_reset) {
 		trans->request_top_reset = 0;
-		if (trans->trans_cfg->device_family >= IWL_DEVICE_FAMILY_SC)
+		if (trans->mac_cfg->device_family >= IWL_DEVICE_FAMILY_SC)
 			return IWL_RESET_MODE_TOP_RESET;
 		return IWL_RESET_MODE_PROD_RESET;
 	}
 
-	if (trans->trans_cfg->device_family >= IWL_DEVICE_FAMILY_SC) {
+	if (trans->mac_cfg->device_family >= IWL_DEVICE_FAMILY_SC) {
 		escalation_list = escalation_list_sc;
 		escalation_list_size = ARRAY_SIZE(escalation_list_sc);
 	} else {
@@ -268,7 +268,7 @@ static void iwl_trans_restart_wk(struct work_struct *wk)
 
 struct iwl_trans *iwl_trans_alloc(unsigned int priv_size,
 				  struct device *dev,
-				  const struct iwl_cfg_trans_params *cfg_trans)
+				  const struct iwl_mac_cfg *mac_cfg)
 {
 	struct iwl_trans *trans;
 #ifdef CONFIG_LOCKDEP
@@ -279,7 +279,7 @@ struct iwl_trans *iwl_trans_alloc(unsigned int priv_size,
 	if (!trans)
 		return NULL;
 
-	trans->trans_cfg = cfg_trans;
+	trans->mac_cfg = mac_cfg;
 
 #ifdef CONFIG_LOCKDEP
 	lockdep_init_map(&trans->sync_cmd_lockdep_map, "sync_cmd_lockdep_map",
@@ -301,10 +301,10 @@ int iwl_trans_init(struct iwl_trans *trans)
 	if (WARN_ON(!trans->info.name || !trans->info.num_rxqs))
 		return -EINVAL;
 
-	if (!trans->trans_cfg->gen2) {
+	if (!trans->mac_cfg->gen2) {
 		txcmd_size = sizeof(struct iwl_tx_cmd);
 		txcmd_align = sizeof(void *);
-	} else if (trans->trans_cfg->device_family < IWL_DEVICE_FAMILY_AX210) {
+	} else if (trans->mac_cfg->device_family < IWL_DEVICE_FAMILY_AX210) {
 		txcmd_size = sizeof(struct iwl_tx_cmd_gen2);
 		txcmd_align = 64;
 	} else {
@@ -316,7 +316,7 @@ int iwl_trans_init(struct iwl_trans *trans)
 	txcmd_size += 36; /* biggest possible 802.11 header */
 
 	/* Ensure device TX cmd cannot reach/cross a page boundary in gen2 */
-	if (WARN_ON(trans->trans_cfg->gen2 && txcmd_size >= txcmd_align))
+	if (WARN_ON(trans->mac_cfg->gen2 && txcmd_size >= txcmd_align))
 		return -EINVAL;
 
 	snprintf(trans->dev_cmd_pool_name, sizeof(trans->dev_cmd_pool_name),
@@ -608,7 +608,7 @@ void iwl_trans_fw_alive(struct iwl_trans *trans)
 
 	trans->state = IWL_TRANS_FW_ALIVE;
 
-	if (trans->trans_cfg->gen2)
+	if (trans->mac_cfg->gen2)
 		iwl_trans_pcie_gen2_fw_alive(trans);
 	else
 		iwl_trans_pcie_fw_alive(trans);
@@ -629,7 +629,7 @@ int iwl_trans_start_fw(struct iwl_trans *trans, const struct iwl_fw *fw,
 
 	clear_bit(STATUS_FW_ERROR, &trans->status);
 
-	if (trans->trans_cfg->gen2)
+	if (trans->mac_cfg->gen2)
 		ret = iwl_trans_pcie_gen2_start_fw(trans, fw, img,
 						   run_in_rfkill);
 	else
@@ -675,7 +675,7 @@ void iwl_trans_stop_device(struct iwl_trans *trans)
 		iwl_op_mode_dump_error(trans->op_mode, &mode);
 	}
 
-	if (trans->trans_cfg->gen2)
+	if (trans->mac_cfg->gen2)
 		iwl_trans_pcie_gen2_stop_device(trans);
 	else
 		iwl_trans_pcie_stop_device(trans);
@@ -694,7 +694,7 @@ int iwl_trans_tx(struct iwl_trans *trans, struct sk_buff *skb,
 		      "bad state = %d\n", trans->state))
 		return -EIO;
 
-	if (trans->trans_cfg->gen2)
+	if (trans->mac_cfg->gen2)
 		return iwl_txq_gen2_tx(trans, skb, dev_cmd, queue);
 
 	return iwl_trans_pcie_tx(trans, skb, dev_cmd, queue);
