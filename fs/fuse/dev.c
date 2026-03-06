@@ -1605,7 +1605,6 @@ static ssize_t fuse_dev_do_read(struct fuse_dev *fud, struct file *file,
 	if (!fpq->connected) {
 		req->out.h.error = err = -ECONNABORTED;
 		goto out_end;
-
 	}
 	list_add(&req->list, &fpq->io);
 	spin_unlock(&fpq->lock);
