@@ -113,6 +113,7 @@ mt7925_regd_channel_update(struct wiphy *wiphy, struct mt792x_dev *dev)
 #define MT7925_UNII_59G_IS_VALID	0x1
 #define MT7925_UNII_6G_IS_VALID	0x1e
 	struct ieee80211_supported_band *sband;
+	struct mt76_dev *mdev = &dev->mt76;
 	struct ieee80211_channel *ch;
 	u32 mtcl_conf = mt792x_acpi_get_mtcl_conf(&dev->phy, mdev->alpha2);
 	int i;
