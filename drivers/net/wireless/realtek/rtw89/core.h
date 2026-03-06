@@ -3863,7 +3863,7 @@ struct rtw89_scan_option {
 	u16 slow_pd;
 	u16 norm_cy;
 	u8 opch_end;
-	u16 delay;
+	u16 delay; /* in unit of ms */
 	u64 prohib_chan;
 	enum rtw89_phy_idx band;
 	enum rtw89_scan_be_operation operation;
@@ -5559,6 +5559,7 @@ struct rtw89_hw_scan_info {
 	struct rtw89_hw_scan_extra_op extra_op;
 	bool connected;
 	bool abort;
+	u16 delay; /* in unit of ms */
 };
 
 enum rtw89_phy_bb_gain_band {
