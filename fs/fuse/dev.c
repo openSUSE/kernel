@@ -1372,24 +1372,21 @@ static int request_pending(struct fuse_iqueue *fiq)
  *
  * Called with fiq->lock held, releases it
  */
-static int fuse_read_interrupt(struct fuse_iqueue *fiq,
-			       struct fuse_copy_state *cs,
-			       struct fuse_req *req)
+static int fuse_read_interrupt(struct fuse_iqueue *fiq, struct fuse_copy_state *cs)
 __releases(fiq->lock)
 {
-	struct fuse_in_header ih;
-	struct fuse_interrupt_in arg;
-	unsigned reqsize = sizeof(ih) + sizeof(arg);
+	struct fuse_req *req = list_first_entry(&fiq->interrupts, struct fuse_req, intr_entry);
+	struct fuse_interrupt_in arg = {
+		.unique = req->in.h.unique,
+	};
+	struct fuse_in_header ih = {
+		.opcode = FUSE_INTERRUPT,
+		.unique = (req->in.h.unique | FUSE_INT_REQ_BIT),
+		.len = sizeof(ih) + sizeof(arg),
+	};
 	int err;
 
 	list_del_init(&req->intr_entry);
-	memset(&ih, 0, sizeof(ih));
-	memset(&arg, 0, sizeof(arg));
-	ih.len = reqsize;
-	ih.opcode = FUSE_INTERRUPT;
-	ih.unique = (req->in.h.unique | FUSE_INT_REQ_BIT);
-	arg.unique = req->in.h.unique;
-
 	spin_unlock(&fiq->lock);
 
 	err = fuse_copy_one(cs, &ih, sizeof(ih));
@@ -1397,7 +1394,7 @@ __releases(fiq->lock)
 		err = fuse_copy_one(cs, &arg, sizeof(arg));
 	fuse_copy_finish(cs);
 
-	return err ? err : reqsize;
+	return err ? err : ih.len;
 }
 
 static struct fuse_forget_link *fuse_dequeue_forget(struct fuse_iqueue *fiq,
@@ -1566,11 +1563,8 @@ static ssize_t fuse_dev_do_read(struct fuse_dev *fud, struct file *file,
 		goto err_unlock;
 	}
 
-	if (!list_empty(&fiq->interrupts)) {
-		req = list_entry(fiq->interrupts.next, struct fuse_req,
-				 intr_entry);
-		return fuse_read_interrupt(fiq, cs, req);
-	}
+	if (!list_empty(&fiq->interrupts))
+		return fuse_read_interrupt(fiq, cs);
 
 	if (forget_pending(fiq)) {
 		if (list_empty(&fiq->pending) || fiq->forget_batch-- > 0)
