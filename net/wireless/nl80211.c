@@ -19774,7 +19774,7 @@ void cfg80211_conn_failed(struct net_device *dev, const u8 *mac_addr,
 EXPORT_SYMBOL(cfg80211_conn_failed);
 
 static bool __nl80211_unexpected_frame(struct net_device *dev, u8 cmd,
-				       const u8 *addr, gfp_t gfp)
+				       const u8 *addr, int link_id, gfp_t gfp)
 {
 	struct wireless_dev *wdev = dev->ieee80211_ptr;
 	struct cfg80211_registered_device *rdev = wiphy_to_rdev(wdev->wiphy);
@@ -19797,7 +19797,9 @@ static bool __nl80211_unexpected_frame(struct net_device *dev, u8 cmd,
 
 	if (nla_put_u32(msg, NL80211_ATTR_WIPHY, rdev->wiphy_idx) ||
 	    nla_put_u32(msg, NL80211_ATTR_IFINDEX, dev->ifindex) ||
-	    nla_put(msg, NL80211_ATTR_MAC, ETH_ALEN, addr))
+	    nla_put(msg, NL80211_ATTR_MAC, ETH_ALEN, addr) ||
+	    (link_id >= 0 &&
+	     nla_put_u8(msg, NL80211_ATTR_MLO_LINK_ID, link_id)))
 		goto nla_put_failure;
 
 	genlmsg_end(msg, hdr);
@@ -19809,13 +19811,13 @@ static bool __nl80211_unexpected_frame(struct net_device *dev, u8 cmd,
 	return true;
 }
 
-bool cfg80211_rx_spurious_frame(struct net_device *dev,
-				const u8 *addr, gfp_t gfp)
+bool cfg80211_rx_spurious_frame(struct net_device *dev, const u8 *addr,
+				int link_id, gfp_t gfp)
 {
 	struct wireless_dev *wdev = dev->ieee80211_ptr;
 	bool ret;
 
-	trace_cfg80211_rx_spurious_frame(dev, addr);
+	trace_cfg80211_rx_spurious_frame(dev, addr, link_id);
 
 	if (WARN_ON(wdev->iftype != NL80211_IFTYPE_AP &&
 		    wdev->iftype != NL80211_IFTYPE_P2P_GO)) {
@@ -19823,19 +19825,19 @@ bool cfg80211_rx_spurious_frame(struct net_device *dev,
 		return false;
 	}
 	ret = __nl80211_unexpected_frame(dev, NL80211_CMD_UNEXPECTED_FRAME,
-					 addr, gfp);
+					 addr, link_id, gfp);
 	trace_cfg80211_return_bool(ret);
 	return ret;
 }
 EXPORT_SYMBOL(cfg80211_rx_spurious_frame);
 
-bool cfg80211_rx_unexpected_4addr_frame(struct net_device *dev,
-					const u8 *addr, gfp_t gfp)
+bool cfg80211_rx_unexpected_4addr_frame(struct net_device *dev, const u8 *addr,
+					int link_id, gfp_t gfp)
 {
 	struct wireless_dev *wdev = dev->ieee80211_ptr;
 	bool ret;
 
-	trace_cfg80211_rx_unexpected_4addr_frame(dev, addr);
+	trace_cfg80211_rx_unexpected_4addr_frame(dev, addr, link_id);
 
 	if (WARN_ON(wdev->iftype != NL80211_IFTYPE_AP &&
 		    wdev->iftype != NL80211_IFTYPE_P2P_GO &&
@@ -19845,7 +19847,7 @@ bool cfg80211_rx_unexpected_4addr_frame(struct net_device *dev,
 	}
 	ret = __nl80211_unexpected_frame(dev,
 					 NL80211_CMD_UNEXPECTED_4ADDR_FRAME,
-					 addr, gfp);
+					 addr, link_id, gfp);
 	trace_cfg80211_return_bool(ret);
 	return ret;
 }
