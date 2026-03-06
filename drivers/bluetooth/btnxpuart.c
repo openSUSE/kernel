@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 /*
  *  NXP Bluetooth driver
- *  Copyright 2023 NXP
+ *  Copyright 2023-2025 NXP
  */
 
 #include <linux/module.h>
@@ -31,6 +31,7 @@
 #define BTNXPUART_SERDEV_OPEN		4
 #define BTNXPUART_IR_IN_PROGRESS	5
 #define BTNXPUART_FW_DOWNLOAD_ABORT	6
+#define BTNXPUART_FW_DUMP_IN_PROGRESS	7
 
 /* NXP HW err codes */
 #define BTNXPUART_IR_HW_ERR		0xb0
@@ -98,14 +99,19 @@
 #define PS_STATE_AWAKE          0
 #define PS_STATE_SLEEP          1
 
-/* Bluetooth vendor command : Sleep mode */
+/* NXP Vendor Commands. Refer user manual UM11628 on nxp.com */
+/* Set custom BD Address */
+#define HCI_NXP_SET_BD_ADDR	0xfc22
+/* Set Auto-Sleep mode */
 #define HCI_NXP_AUTO_SLEEP_MODE	0xfc23
-/* Bluetooth vendor command : Wakeup method */
+/* Set Wakeup method */
 #define HCI_NXP_WAKEUP_METHOD	0xfc53
-/* Bluetooth vendor command : Set operational baudrate */
+/* Set operational baudrate */
 #define HCI_NXP_SET_OPER_SPEED	0xfc09
-/* Bluetooth vendor command: Independent Reset */
+/* Independent Reset (Soft Reset) */
 #define HCI_NXP_IND_RESET	0xfcfc
+/* Bluetooth vendor command: Trigger FW dump */
+#define HCI_NXP_TRIGGER_DUMP	0xfe91
 
 /* Bluetooth Power State : Vendor cmd params */
 #define BT_PS_ENABLE			0x02
@@ -318,6 +324,25 @@ union nxp_v3_rx_timeout_nak_u {
 	u8 buf[6];
 };
 
+/* FW dump */
+#define NXP_FW_DUMP_SIZE	(1024 * 1000)
+
+struct nxp_fw_dump_hdr {
+	__le16 seq_num;
+	__le16 reserved;
+	__le16 buf_type;
+	__le16 buf_len;
+};
+
+union nxp_set_bd_addr_payload {
+	struct {
+		u8 param_id;
+		u8 param_len;
+		u8 param[6];
+	} __packed data;
+	u8 buf[8];
+};
+
 struct nxp_v3_crc_nak {
 	u8 nak;
 	u8 crc;
@@ -465,8 +490,14 @@ static int ps_setup(struct hci_dev *hdev)
 		return PTR_ERR(psdata->h2c_ps_gpio);
 	}
 
-	if (!psdata->h2c_ps_gpio)
+	if (device_property_read_u8(&serdev->dev, "nxp,wakein-pin", &psdata->h2c_wakeup_gpio)) {
+		psdata->h2c_wakeup_gpio = 0xff; /* 0xff: use default pin/gpio */
+	} else if (!psdata->h2c_ps_gpio) {
+		bt_dev_warn(hdev, "nxp,wakein-pin property without device-wakeup GPIO");
 		psdata->h2c_wakeup_gpio = 0xff;
+	}
+
+	device_property_read_u8(&serdev->dev, "nxp,wakeout-pin", &psdata->c2h_wakeup_gpio);
 
 	psdata->hdev = hdev;
 	INIT_WORK(&psdata->work, ps_work_func);
@@ -558,9 +589,11 @@ static int send_wakeup_method_cmd(struct hci_dev *hdev, void *data)
 
 	pcmd.c2h_wakeupmode = psdata->c2h_wakeupmode;
 	pcmd.c2h_wakeup_gpio = psdata->c2h_wakeup_gpio;
+	pcmd.h2c_wakeup_gpio = 0xff;
 	switch (psdata->h2c_wakeupmode) {
 	case WAKEUP_METHOD_GPIO:
 		pcmd.h2c_wakeupmode = BT_CTRL_WAKEUP_METHOD_GPIO;
+		pcmd.h2c_wakeup_gpio = psdata->h2c_wakeup_gpio;
 		break;
 	case WAKEUP_METHOD_DTR:
 		pcmd.h2c_wakeupmode = BT_CTRL_WAKEUP_METHOD_DSR;
@@ -570,7 +603,6 @@ static int send_wakeup_method_cmd(struct hci_dev *hdev, void *data)
 		pcmd.h2c_wakeupmode = BT_CTRL_WAKEUP_METHOD_BREAK;
 		break;
 	}
-	pcmd.h2c_wakeup_gpio = 0xff;
 
 	skb = nxp_drv_send_cmd(hdev, HCI_NXP_WAKEUP_METHOD, sizeof(pcmd), &pcmd);
 	if (IS_ERR(skb)) {
@@ -604,8 +636,13 @@ static void ps_init(struct hci_dev *hdev)
 	usleep_range(5000, 10000);
 
 	psdata->ps_state = PS_STATE_AWAKE;
-	psdata->c2h_wakeupmode = BT_HOST_WAKEUP_METHOD_NONE;
-	psdata->c2h_wakeup_gpio = 0xff;
+
+	if (psdata->c2h_wakeup_gpio) {
+		psdata->c2h_wakeupmode = BT_HOST_WAKEUP_METHOD_GPIO;
+	} else {
+		psdata->c2h_wakeupmode = BT_HOST_WAKEUP_METHOD_NONE;
+		psdata->c2h_wakeup_gpio = 0xff;
+	}
 
 	psdata->cur_h2c_wakeupmode = WAKEUP_METHOD_INVALID;
 	if (psdata->h2c_ps_gpio)
@@ -636,11 +673,6 @@ static void ps_init(struct hci_dev *hdev)
 
 	psdata->cur_psmode = PS_MODE_DISABLE;
 	psdata->target_ps_mode = DEFAULT_PS_MODE;
-
-	if (psdata->cur_h2c_wakeupmode != psdata->h2c_wakeupmode)
-		hci_cmd_sync_queue(hdev, send_wakeup_method_cmd, NULL, NULL);
-	if (psdata->cur_psmode != psdata->target_ps_mode)
-		hci_cmd_sync_queue(hdev, send_ps_cmd, NULL, NULL);
 }
 
 /* NXP Firmware Download Feature */
@@ -785,6 +817,16 @@ static u32 nxp_get_data_len(const u8 *buf)
 static bool is_fw_downloading(struct btnxpuart_dev *nxpdev)
 {
 	return test_bit(BTNXPUART_FW_DOWNLOADING, &nxpdev->tx_state);
+}
+
+static bool ind_reset_in_progress(struct btnxpuart_dev *nxpdev)
+{
+	return test_bit(BTNXPUART_IR_IN_PROGRESS, &nxpdev->tx_state);
+}
+
+static bool fw_dump_in_progress(struct btnxpuart_dev *nxpdev)
+{
+	return test_bit(BTNXPUART_FW_DUMP_IN_PROGRESS, &nxpdev->tx_state);
 }
 
 static bool process_boot_signature(struct btnxpuart_dev *nxpdev)
@@ -1208,7 +1250,7 @@ static int nxp_set_baudrate_cmd(struct hci_dev *hdev, void *data)
 static int nxp_check_boot_sign(struct btnxpuart_dev *nxpdev)
 {
 	serdev_device_set_baudrate(nxpdev->serdev, HCI_NXP_PRI_BAUDRATE);
-	if (test_bit(BTNXPUART_IR_IN_PROGRESS, &nxpdev->tx_state))
+	if (ind_reset_in_progress(nxpdev))
 		serdev_device_set_flow_control(nxpdev->serdev, false);
 	else
 		serdev_device_set_flow_control(nxpdev->serdev, true);
@@ -1237,6 +1279,104 @@ static int nxp_set_ind_reset(struct hci_dev *hdev, void *data)
 	return hci_recv_frame(hdev, skb);
 }
 
+/* Firmware dump */
+static void nxp_coredump(struct hci_dev *hdev)
+{
+	struct sk_buff *skb;
+	u8 pcmd = 2;
+
+	skb = nxp_drv_send_cmd(hdev, HCI_NXP_TRIGGER_DUMP, 1, &pcmd);
+	if (IS_ERR(skb))
+		bt_dev_err(hdev, "Failed to trigger FW Dump. (%ld)", PTR_ERR(skb));
+	else
+		kfree_skb(skb);
+}
+
+static void nxp_coredump_hdr(struct hci_dev *hdev, struct sk_buff *skb)
+{
+	/* Nothing to be added in FW dump header */
+}
+
+static int nxp_process_fw_dump(struct hci_dev *hdev, struct sk_buff *skb)
+{
+	struct hci_acl_hdr *acl_hdr = (struct hci_acl_hdr *)skb_pull_data(skb,
+									  sizeof(*acl_hdr));
+	struct nxp_fw_dump_hdr *fw_dump_hdr = (struct nxp_fw_dump_hdr *)skb->data;
+	struct btnxpuart_dev *nxpdev = hci_get_drvdata(hdev);
+	__u16 seq_num = __le16_to_cpu(fw_dump_hdr->seq_num);
+	__u16 buf_len = __le16_to_cpu(fw_dump_hdr->buf_len);
+	int err;
+
+	if (seq_num == 0x0001) {
+		if (test_and_set_bit(BTNXPUART_FW_DUMP_IN_PROGRESS, &nxpdev->tx_state)) {
+			bt_dev_err(hdev, "FW dump already in progress");
+			goto free_skb;
+		}
+		bt_dev_warn(hdev, "==== Start FW dump ===");
+		err = hci_devcd_init(hdev, NXP_FW_DUMP_SIZE);
+		if (err < 0)
+			goto free_skb;
+
+		schedule_delayed_work(&hdev->dump.dump_timeout,
+				      msecs_to_jiffies(20000));
+	}
+
+	err = hci_devcd_append(hdev, skb_clone(skb, GFP_ATOMIC));
+	if (err < 0)
+		goto free_skb;
+
+	if (buf_len == 0) {
+		bt_dev_warn(hdev, "==== FW dump complete ===");
+		clear_bit(BTNXPUART_FW_DUMP_IN_PROGRESS, &nxpdev->tx_state);
+		hci_devcd_complete(hdev);
+		nxp_set_ind_reset(hdev, NULL);
+	}
+
+free_skb:
+	kfree_skb(skb);
+	return 0;
+}
+
+static int nxp_recv_acl_pkt(struct hci_dev *hdev, struct sk_buff *skb)
+{
+	__u16 handle = __le16_to_cpu(hci_acl_hdr(skb)->handle);
+
+	/* FW dump chunks are ACL packets with conn handle 0xfff */
+	if ((handle & 0x0FFF) == 0xFFF)
+		return nxp_process_fw_dump(hdev, skb);
+	else
+		return hci_recv_frame(hdev, skb);
+}
+
+static int nxp_set_bdaddr(struct hci_dev *hdev, const bdaddr_t *bdaddr)
+{
+	union nxp_set_bd_addr_payload pcmd;
+	int err;
+
+	pcmd.data.param_id = 0xfe;
+	pcmd.data.param_len = 6;
+	memcpy(pcmd.data.param, bdaddr, 6);
+
+	/* BD address can be assigned only after first reset command. */
+	err = __hci_cmd_sync_status(hdev, HCI_OP_RESET, 0, NULL,
+				    HCI_INIT_TIMEOUT);
+	if (err) {
+		bt_dev_err(hdev,
+			   "Reset before setting local-bd-addr failed (%d)",
+			   err);
+		return err;
+	}
+
+	err = __hci_cmd_sync_status(hdev, HCI_NXP_SET_BD_ADDR, sizeof(pcmd),
+			     pcmd.buf, HCI_CMD_TIMEOUT);
+	if (err) {
+		bt_dev_err(hdev, "Changing device address failed (%d)", err);
+		return err;
+	}
+
+	return 0;
+}
+
 /* NXP protocol */
 static int nxp_setup(struct hci_dev *hdev)
 {
@@ -1256,16 +1396,27 @@ static int nxp_setup(struct hci_dev *hdev)
 	serdev_device_set_baudrate(nxpdev->serdev, nxpdev->fw_init_baudrate);
 	nxpdev->current_baudrate = nxpdev->fw_init_baudrate;
 
-	if (nxpdev->current_baudrate != HCI_NXP_SEC_BAUDRATE) {
-		nxpdev->new_baudrate = HCI_NXP_SEC_BAUDRATE;
-		hci_cmd_sync_queue(hdev, nxp_set_baudrate_cmd, NULL, NULL);
-	}
-
 	ps_init(hdev);
 
 	if (test_and_clear_bit(BTNXPUART_IR_IN_PROGRESS, &nxpdev->tx_state))
 		hci_dev_clear_flag(hdev, HCI_SETUP);
 
+	return 0;
+}
+
+static int nxp_post_init(struct hci_dev *hdev)
+{
+	struct btnxpuart_dev *nxpdev = hci_get_drvdata(hdev);
+	struct ps_data *psdata = &nxpdev->psdata;
+
+	if (nxpdev->current_baudrate != HCI_NXP_SEC_BAUDRATE) {
+		nxpdev->new_baudrate = HCI_NXP_SEC_BAUDRATE;
+		nxp_set_baudrate_cmd(hdev, NULL);
+	}
+	if (psdata->cur_h2c_wakeupmode != psdata->h2c_wakeupmode)
+		send_wakeup_method_cmd(hdev, NULL);
+	if (psdata->cur_psmode != psdata->target_ps_mode)
+		send_ps_cmd(hdev, NULL);
 	return 0;
 }
 
@@ -1287,23 +1438,39 @@ static int nxp_shutdown(struct hci_dev *hdev)
 {
 	struct btnxpuart_dev *nxpdev = hci_get_drvdata(hdev);
 	struct sk_buff *skb;
-	u8 *status;
 	u8 pcmd = 0;
 
-	if (test_bit(BTNXPUART_IR_IN_PROGRESS, &nxpdev->tx_state)) {
+	if (ind_reset_in_progress(nxpdev)) {
 		skb = nxp_drv_send_cmd(hdev, HCI_NXP_IND_RESET, 1, &pcmd);
-		if (IS_ERR(skb))
-			return PTR_ERR(skb);
-
-		status = skb_pull_data(skb, 1);
-		if (status) {
-			serdev_device_set_flow_control(nxpdev->serdev, false);
-			set_bit(BTNXPUART_FW_DOWNLOADING, &nxpdev->tx_state);
-		}
-		kfree_skb(skb);
+		serdev_device_set_flow_control(nxpdev->serdev, false);
+		set_bit(BTNXPUART_FW_DOWNLOADING, &nxpdev->tx_state);
+		/* HCI_NXP_IND_RESET command may not returns any response */
+		if (!IS_ERR(skb))
+			kfree_skb(skb);
 	}
 
 	return 0;
+}
+
+static bool nxp_wakeup(struct hci_dev *hdev)
+{
+	struct btnxpuart_dev *nxpdev = hci_get_drvdata(hdev);
+	struct ps_data *psdata = &nxpdev->psdata;
+
+	if (psdata->c2h_wakeupmode != BT_HOST_WAKEUP_METHOD_NONE)
+		return true;
+
+	return false;
+}
+
+static void nxp_reset(struct hci_dev *hdev)
+{
+	struct btnxpuart_dev *nxpdev = hci_get_drvdata(hdev);
+
+	if (!ind_reset_in_progress(nxpdev) && !fw_dump_in_progress(nxpdev)) {
+		bt_dev_dbg(hdev, "CMD Timeout detected. Resetting.");
+		nxp_set_ind_reset(hdev, NULL);
+	}
 }
 
 static int btnxpuart_queue_skb(struct hci_dev *hdev, struct sk_buff *skb)
@@ -1325,6 +1492,9 @@ static int nxp_enqueue(struct hci_dev *hdev, struct sk_buff *skb)
 	struct psmode_cmd_payload ps_parm;
 	struct wakeup_cmd_payload wakeup_parm;
 	__le32 baudrate_parm;
+
+	if (fw_dump_in_progress(nxpdev))
+		return -EBUSY;
 
 	/* if vendor commands are received from user space (e.g. hcitool), update
 	 * driver flags accordingly and ask driver to re-send the command to FW.
@@ -1494,7 +1664,7 @@ static int btnxpuart_flush(struct hci_dev *hdev)
 }
 
 static const struct h4_recv_pkt nxp_recv_pkts[] = {
-	{ H4_RECV_ACL,          .recv = hci_recv_frame },
+	{ H4_RECV_ACL,          .recv = nxp_recv_acl_pkt },
 	{ H4_RECV_SCO,          .recv = hci_recv_frame },
 	{ H4_RECV_EVENT,        .recv = hci_recv_frame },
 	{ H4_RECV_ISO,		.recv = hci_recv_frame },
@@ -1516,11 +1686,13 @@ static size_t btnxpuart_receive_buf(struct serdev_device *serdev,
 	if (IS_ERR(nxpdev->rx_skb)) {
 		int err = PTR_ERR(nxpdev->rx_skb);
 		/* Safe to ignore out-of-sync bootloader signatures */
-		if (!is_fw_downloading(nxpdev))
+		if (!is_fw_downloading(nxpdev) &&
+		    !ind_reset_in_progress(nxpdev))
 			bt_dev_err(nxpdev->hdev, "Frame reassembly failed (%d)", err);
 		return count;
 	}
-	if (!is_fw_downloading(nxpdev))
+	if (!is_fw_downloading(nxpdev) &&
+	    !ind_reset_in_progress(nxpdev))
 		nxpdev->hdev->stat.byte_rx += count;
 	return count;
 }
@@ -1539,6 +1711,7 @@ static int nxp_serdev_probe(struct serdev_device *serdev)
 {
 	struct hci_dev *hdev;
 	struct btnxpuart_dev *nxpdev;
+	bdaddr_t ba = {0};
 
 	nxpdev = devm_kzalloc(&serdev->dev, sizeof(*nxpdev), GFP_KERNEL);
 	if (!nxpdev)
@@ -1583,10 +1756,20 @@ static int nxp_serdev_probe(struct serdev_device *serdev)
 	hdev->close = btnxpuart_close;
 	hdev->flush = btnxpuart_flush;
 	hdev->setup = nxp_setup;
+	hdev->post_init = nxp_post_init;
 	hdev->send  = nxp_enqueue;
 	hdev->hw_error = nxp_hw_err;
 	hdev->shutdown = nxp_shutdown;
+	hdev->wakeup = nxp_wakeup;
+	hdev->reset = nxp_reset;
+	hdev->set_bdaddr = nxp_set_bdaddr;
 	SET_HCIDEV_DEV(hdev, &serdev->dev);
+
+	device_property_read_u8_array(&nxpdev->serdev->dev,
+				      "local-bd-address",
+				      (u8 *)&ba, sizeof(ba));
+	if (bacmp(&ba, BDADDR_ANY))
+		set_bit(HCI_QUIRK_USE_BDADDR_PROPERTY, &hdev->quirks);
 
 	if (hci_register_dev(hdev) < 0) {
 		dev_err(&serdev->dev, "Can't register HCI device\n");
@@ -1595,6 +1778,8 @@ static int nxp_serdev_probe(struct serdev_device *serdev)
 
 	if (ps_setup(hdev))
 		goto probe_fail;
+
+	hci_devcd_register(hdev, nxp_coredump, nxp_coredump_hdr, NULL);
 
 	return 0;
 
@@ -1623,6 +1808,7 @@ static void nxp_serdev_remove(struct serdev_device *serdev)
 			nxp_set_baudrate_cmd(hdev, NULL);
 		}
 	}
+
 	ps_cleanup(nxpdev);
 	hci_unregister_dev(hdev);
 	hci_free_dev(hdev);
@@ -1645,6 +1831,17 @@ static int nxp_serdev_resume(struct device *dev)
 
 	ps_control(psdata->hdev, PS_STATE_AWAKE);
 	return 0;
+}
+#endif
+
+#ifdef CONFIG_DEV_COREDUMP
+static void nxp_serdev_coredump(struct device *dev)
+{
+	struct btnxpuart_dev *nxpdev = dev_get_drvdata(dev);
+	struct hci_dev  *hdev = nxpdev->hdev;
+
+	if (hdev->dump.coredump)
+		hdev->dump.coredump(hdev);
 }
 #endif
 
@@ -1678,6 +1875,9 @@ static struct serdev_device_driver nxp_serdev_driver = {
 		.name = "btnxpuart",
 		.of_match_table = of_match_ptr(nxpuart_of_match_table),
 		.pm = &nxp_pm_ops,
+#ifdef CONFIG_DEV_COREDUMP
+		.coredump = nxp_serdev_coredump,
+#endif
 	},
 };
 
