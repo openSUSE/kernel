@@ -528,7 +528,7 @@ static void tty3270_update(struct timer_list *t)
 	u8 cmd = TC_WRITE;
 	int rc, len;
 
-	wrq = xchg(&tp->write, 0);
+	wrq = xchg(&tp->write, NULL);
 	if (!wrq) {
 		tty3270_set_timer(tp, 1);
 		return;
@@ -746,7 +746,7 @@ static void tty3270_issue_read(struct tty3270 *tp, int lock)
 	struct raw3270_request *rrq;
 	int rc;
 
-	rrq = xchg(&tp->read, 0);
+	rrq = xchg(&tp->read, NULL);
 	if (!rrq)
 		/* Read already scheduled. */
 		return;
@@ -1656,7 +1656,7 @@ static void tty3270_escape_sequence(struct tty3270 *tp, u8 ch)
 		else if (tp->esc_par[0] == 6) {	/* Cursor report. */
 			char buf[40];
 
-			sprintf(buf, "\033[%d;%dR", tp->cy + 1, tp->cx + 1);
+			scnprintf(buf, sizeof(buf), "\033[%d;%dR", tp->cy + 1, tp->cx + 1);
 			kbd_puts_queue(&tp->port, buf);
 		}
 		return;

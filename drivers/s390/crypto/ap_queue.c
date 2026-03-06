@@ -13,8 +13,14 @@
 #include <linux/slab.h>
 #include <asm/facility.h>
 
+#define CREATE_TRACE_POINTS
+#include <asm/trace/ap.h>
+
 #include "ap_bus.h"
 #include "ap_debug.h"
+
+EXPORT_TRACEPOINT_SYMBOL(s390_ap_nqap);
+EXPORT_TRACEPOINT_SYMBOL(s390_ap_dqap);
 
 static void __ap_flush_queue(struct ap_queue *aq);
 
@@ -97,9 +103,17 @@ static inline struct ap_queue_status
 __ap_send(ap_qid_t qid, unsigned long psmid, void *msg, size_t msglen,
 	  int special)
 {
+	struct ap_queue_status status;
+
 	if (special)
 		qid |= 0x400000UL;
-	return ap_nqap(qid, psmid, msg, msglen);
+
+	status = ap_nqap(qid, psmid, msg, msglen);
+
+	trace_s390_ap_nqap(AP_QID_CARD(qid), AP_QID_QUEUE(qid),
+			   status.value, psmid);
+
+	return status;
 }
 
 /* State machine definitions and helpers */
@@ -138,6 +152,9 @@ static struct ap_queue_status ap_sm_recv(struct ap_queue *aq)
 				 &aq->reply->len, &reslen, &resgr0);
 		parts++;
 	} while (status.response_code == 0xFF && resgr0 != 0);
+
+	trace_s390_ap_dqap(AP_QID_CARD(aq->qid), AP_QID_QUEUE(aq->qid),
+			   status.value, aq->reply->psmid);
 
 	switch (status.response_code) {
 	case AP_RESPONSE_NORMAL:
@@ -268,7 +285,7 @@ static enum ap_sm_wait ap_sm_write(struct ap_queue *aq)
 		list_move_tail(&ap_msg->list, &aq->pendingq);
 		aq->requestq_count--;
 		aq->pendingq_count++;
-		if (aq->queue_count < aq->card->hwinfo.qd) {
+		if (aq->queue_count < aq->card->hwinfo.qd + 1) {
 			aq->sm_state = AP_SM_STATE_WORKING;
 			return AP_SM_WAIT_AGAIN;
 		}
@@ -737,13 +754,30 @@ static ssize_t driver_override_store(struct device *dev,
 {
 	struct ap_queue *aq = to_ap_queue(dev);
 	struct ap_device *ap_dev = &aq->ap_dev;
-	int rc;
+	int rc = -EINVAL;
+	bool old_value;
 
+	if (mutex_lock_interruptible(&ap_attr_mutex))
+		return -ERESTARTSYS;
+
+	/* Do not allow driver override if apmask/aqmask is in use */
+	if (ap_apmask_aqmask_in_use)
+		goto out;
+
+	old_value = ap_dev->driver_override ? true : false;
 	rc = driver_set_override(dev, &ap_dev->driver_override, buf, count);
 	if (rc)
-		return rc;
+		goto out;
+	if (old_value && !ap_dev->driver_override)
+		--ap_driver_override_ctr;
+	else if (!old_value && ap_dev->driver_override)
+		++ap_driver_override_ctr;
 
-	return count;
+	rc = count;
+
+out:
+	mutex_unlock(&ap_attr_mutex);
+	return rc;
 }
 
 static DEVICE_ATTR_RW(driver_override);

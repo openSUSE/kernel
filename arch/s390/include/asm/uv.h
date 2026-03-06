@@ -17,6 +17,7 @@
 #include <linux/sched.h>
 #include <asm/page.h>
 #include <asm/gmap.h>
+#include <asm/asm.h>
 
 #define UVC_CC_OK	0
 #define UVC_CC_ERROR	1
@@ -436,13 +437,12 @@ static inline int __uv_call(unsigned long r1, unsigned long r2)
 	int cc;
 
 	asm volatile(
-		"	.insn rrf,0xB9A40000,%[r1],%[r2],0,0\n"
-		"	ipm	%[cc]\n"
-		"	srl	%[cc],28\n"
-		: [cc] "=d" (cc)
+		"	.insn	 rrf,0xb9a40000,%[r1],%[r2],0,0\n"
+		CC_IPM(cc)
+		: CC_OUT(cc, cc)
 		: [r1] "a" (r1), [r2] "a" (r2)
-		: "memory", "cc");
-	return cc;
+		: CC_CLOBBER_LIST("memory"));
+	return CC_TRANSFORM(cc);
 }
 
 static inline int uv_call(unsigned long r1, unsigned long r2)
@@ -616,8 +616,9 @@ static inline int uv_remove_shared(unsigned long addr)
 	return share(addr, UVC_CMD_REMOVE_SHARED_ACCESS);
 }
 
-int uv_get_secret_metadata(const u8 secret_id[UV_SECRET_ID_LEN],
-			   struct uv_secret_list_item_hdr *secret);
+int uv_find_secret(const u8 secret_id[UV_SECRET_ID_LEN],
+		   struct uv_secret_list *list,
+		   struct uv_secret_list_item_hdr *secret);
 int uv_retrieve_secret(u16 secret_idx, u8 *buf, size_t buf_size);
 
 extern int prot_virt_host;

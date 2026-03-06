@@ -2295,8 +2295,8 @@ static ssize_t vfio_ap_mdev_ioctl(struct vfio_device *vdev,
 		ret = vfio_ap_mdev_reset_queues(matrix_mdev);
 		break;
 	case VFIO_DEVICE_GET_IRQ_INFO:
-			ret = vfio_ap_get_irq_info(arg);
-			break;
+		ret = vfio_ap_get_irq_info(arg);
+		break;
 	case VFIO_DEVICE_SET_IRQS:
 		ret = vfio_ap_set_irqs(matrix_mdev, arg);
 		break;
@@ -2415,10 +2415,10 @@ int vfio_ap_mdev_register(void)
 
 	matrix_dev->mdev_type.sysfs_name = VFIO_AP_MDEV_TYPE_HWVIRT;
 	matrix_dev->mdev_type.pretty_name = VFIO_AP_MDEV_NAME_HWVIRT;
-	matrix_dev->mdev_types[0] = &matrix_dev->mdev_type;
+	matrix_dev->mdev_types = &matrix_dev->mdev_type;
 	ret = mdev_register_parent(&matrix_dev->parent, &matrix_dev->device,
 				   &vfio_ap_matrix_driver,
-				   matrix_dev->mdev_types, 1);
+				   &matrix_dev->mdev_types, 1);
 	if (ret)
 		goto err_driver;
 	return 0;

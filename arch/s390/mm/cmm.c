@@ -204,7 +204,7 @@ static void cmm_set_timer(void)
 			del_timer(&cmm_timer);
 		return;
 	}
-	mod_timer(&cmm_timer, jiffies + msecs_to_jiffies(cmm_timeout_seconds * MSEC_PER_SEC));
+	mod_timer(&cmm_timer, jiffies + secs_to_jiffies(cmm_timeout_seconds));
 }
 
 static void cmm_timer_fn(struct timer_list *unused)
@@ -321,8 +321,8 @@ static int cmm_timeout_handler(const struct ctl_table *ctl, int write,
 		cmm_set_timeout(nr, seconds);
 		*ppos += *lenp;
 	} else {
-		len = sprintf(buf, "%ld %ld\n",
-			      cmm_timeout_pages, cmm_timeout_seconds);
+		len = scnprintf(buf, sizeof(buf), "%ld %ld\n",
+				cmm_timeout_pages, cmm_timeout_seconds);
 		if (len > *lenp)
 			len = *lenp;
 		memcpy(buffer, buf, len);

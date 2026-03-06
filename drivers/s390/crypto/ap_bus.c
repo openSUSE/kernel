@@ -40,6 +40,7 @@
 #include <linux/module.h>
 #include <asm/uv.h>
 #include <asm/chsc.h>
+#include <linux/mempool.h>
 
 #include "ap_bus.h"
 #include "ap_debug.h"
@@ -50,24 +51,24 @@ MODULE_LICENSE("GPL");
 
 int ap_domain_index = -1;	/* Adjunct Processor Domain Index */
 static DEFINE_SPINLOCK(ap_domain_lock);
-module_param_named(domain, ap_domain_index, int, 0440);
+module_param_named(domain, ap_domain_index, int, 0444);
 MODULE_PARM_DESC(domain, "domain index for ap devices");
 EXPORT_SYMBOL(ap_domain_index);
 
 static int ap_thread_flag;
-module_param_named(poll_thread, ap_thread_flag, int, 0440);
+module_param_named(poll_thread, ap_thread_flag, int, 0444);
 MODULE_PARM_DESC(poll_thread, "Turn on/off poll thread, default is 0 (off).");
 
 static char *apm_str;
-module_param_named(apmask, apm_str, charp, 0440);
+module_param_named(apmask, apm_str, charp, 0444);
 MODULE_PARM_DESC(apmask, "AP bus adapter mask.");
 
 static char *aqm_str;
-module_param_named(aqmask, aqm_str, charp, 0440);
+module_param_named(aqmask, aqm_str, charp, 0444);
 MODULE_PARM_DESC(aqmask, "AP bus domain mask.");
 
 static int ap_useirq = 1;
-module_param_named(useirq, ap_useirq, int, 0440);
+module_param_named(useirq, ap_useirq, int, 0444);
 MODULE_PARM_DESC(useirq, "Use interrupt if available, default is 1 (on).");
 
 atomic_t ap_max_msg_size = ATOMIC_INIT(AP_DEFAULT_MAX_MSG_SIZE);
@@ -83,8 +84,13 @@ DEFINE_SPINLOCK(ap_queues_lock);
 /* Default permissions (ioctl, card and domain masking) */
 struct ap_perms ap_perms;
 EXPORT_SYMBOL(ap_perms);
+/* true if apmask and/or aqmask are NOT default */
+bool ap_apmask_aqmask_in_use;
+/* counter for how many driver_overrides are currently active */
+int ap_driver_override_ctr;
 /*
- * Mutex for consistent read and write of the ap_perms struct
+ * Mutex for consistent read and write of the ap_perms struct,
+ * ap_apmask_aqmask_in_use, ap_driver_override_ctr
  * and the ap bus sysfs attributes apmask and aqmask.
  */
 DEFINE_MUTEX(ap_attr_mutex);
@@ -104,6 +110,27 @@ static struct ap_config_info *const ap_qci_info_old = &qci[1];
  * AP bus related debug feature things.
  */
 debug_info_t *ap_dbf_info;
+
+/*
+ * There is a need for a do-not-allocate-memory path through the AP bus
+ * layer. The pkey layer may be triggered via the in-kernel interface from
+ * a protected key crypto algorithm (namely PAES) to convert a secure key
+ * into a protected key. This happens in a workqueue context, so sleeping
+ * is allowed but memory allocations causing IO operations are not permitted.
+ * To accomplish this, an AP message memory pool with pre-allocated space
+ * is established. When ap_init_apmsg() with use_mempool set to true is
+ * called, instead of kmalloc() the ap message buffer is allocated from
+ * the ap_msg_pool. This pool only holds a limited amount of buffers:
+ * ap_msg_pool_min_items with the item size AP_DEFAULT_MAX_MSG_SIZE and
+ * exactly one of these items (if available) is returned if ap_init_apmsg()
+ * with the use_mempool arg set to true is called. When this pool is exhausted
+ * and use_mempool is set true, ap_init_apmsg() returns -ENOMEM without
+ * any attempt to allocate memory and the caller has to deal with that.
+ */
+static mempool_t *ap_msg_pool;
+static unsigned int ap_msg_pool_min_items = 8;
+module_param_named(msgpool_min_items, ap_msg_pool_min_items, uint, 0400);
+MODULE_PARM_DESC(msgpool_min_items, "AP message pool minimal items");
 
 /*
  * AP bus rescan related things.
@@ -457,7 +484,7 @@ static void ap_tasklet_fn(unsigned long dummy)
 	 * important that no requests on any AP get lost.
 	 */
 	if (ap_irq_flag)
-		xchg(ap_airq.lsi_ptr, 0);
+		WRITE_ONCE(*ap_airq.lsi_ptr, 0);
 
 	spin_lock_bh(&ap_queues_lock);
 	hash_for_each(ap_queues, bkt, aq, hnode) {
@@ -549,6 +576,48 @@ static void ap_poll_thread_stop(void)
 
 #define is_card_dev(x) ((x)->parent == ap_root_device)
 #define is_queue_dev(x) ((x)->parent != ap_root_device)
+
+/*
+ * ap_init_apmsg() - Initialize ap_message.
+ */
+int ap_init_apmsg(struct ap_message *ap_msg, u32 flags)
+{
+	unsigned int maxmsgsize;
+
+	memset(ap_msg, 0, sizeof(*ap_msg));
+	ap_msg->flags = flags;
+
+	if (flags & AP_MSG_FLAG_MEMPOOL) {
+		ap_msg->msg = mempool_alloc_preallocated(ap_msg_pool);
+		if (!ap_msg->msg)
+			return -ENOMEM;
+		ap_msg->bufsize = AP_DEFAULT_MAX_MSG_SIZE;
+		return 0;
+	}
+
+	maxmsgsize = atomic_read(&ap_max_msg_size);
+	ap_msg->msg = kmalloc(maxmsgsize, GFP_KERNEL);
+	if (!ap_msg->msg)
+		return -ENOMEM;
+	ap_msg->bufsize = maxmsgsize;
+
+	return 0;
+}
+EXPORT_SYMBOL(ap_init_apmsg);
+
+/*
+ * ap_release_apmsg() - Release ap_message.
+ */
+void ap_release_apmsg(struct ap_message *ap_msg)
+{
+	if (ap_msg->flags & AP_MSG_FLAG_MEMPOOL) {
+		memzero_explicit(ap_msg->msg, ap_msg->bufsize);
+		mempool_free(ap_msg->msg, ap_msg_pool);
+	} else {
+		kfree_sensitive(ap_msg->msg);
+	}
+}
+EXPORT_SYMBOL(ap_release_apmsg);
 
 /**
  * ap_bus_match()
@@ -1436,6 +1505,7 @@ static int __verify_card_reservations(struct device_driver *drv, void *data)
 	int rc = 0;
 	struct ap_driver *ap_drv = to_ap_drv(drv);
 	unsigned long *newapm = (unsigned long *)data;
+	unsigned long aqm_any[BITS_TO_LONGS(AP_DOMAINS)];
 
 	/*
 	 * increase the driver's module refcounter to be sure it is not
@@ -1445,7 +1515,8 @@ static int __verify_card_reservations(struct device_driver *drv, void *data)
 		return 0;
 
 	if (ap_drv->in_use) {
-		rc = ap_drv->in_use(newapm, ap_perms.aqm);
+		bitmap_fill(aqm_any, AP_DOMAINS);
+		rc = ap_drv->in_use(newapm, aqm_any);
 		if (rc)
 			rc = -EBUSY;
 	}
@@ -1474,17 +1545,30 @@ static int apmask_commit(unsigned long *newapm)
 
 	memcpy(ap_perms.apm, newapm, APMASKSIZE);
 
+	/*
+	 * Update ap_apmask_aqmask_in_use. Note that the
+	 * ap_attr_mutex has to be obtained here.
+	 */
+	ap_apmask_aqmask_in_use =
+		bitmap_full(ap_perms.apm, AP_DEVICES) &&
+		bitmap_full(ap_perms.aqm, AP_DOMAINS) ?
+		false : true;
+
 	return 0;
 }
 
 static ssize_t apmask_store(const struct bus_type *bus, const char *buf,
 			    size_t count)
 {
-	int rc, changes = 0;
 	DECLARE_BITMAP(newapm, AP_DEVICES);
+	int rc = -EINVAL, changes = 0;
 
 	if (mutex_lock_interruptible(&ap_attr_mutex))
 		return -ERESTARTSYS;
+
+	/* Do not allow apmask/aqmask if driver override is active */
+	if (ap_driver_override_ctr)
+		goto done;
 
 	rc = ap_parse_bitmap_str(buf, ap_perms.apm, AP_DEVICES, newapm);
 	if (rc)
@@ -1528,6 +1612,7 @@ static int __verify_queue_reservations(struct device_driver *drv, void *data)
 	int rc = 0;
 	struct ap_driver *ap_drv = to_ap_drv(drv);
 	unsigned long *newaqm = (unsigned long *)data;
+	unsigned long apm_any[BITS_TO_LONGS(AP_DEVICES)];
 
 	/*
 	 * increase the driver's module refcounter to be sure it is not
@@ -1537,7 +1622,8 @@ static int __verify_queue_reservations(struct device_driver *drv, void *data)
 		return 0;
 
 	if (ap_drv->in_use) {
-		rc = ap_drv->in_use(ap_perms.apm, newaqm);
+		bitmap_fill(apm_any, AP_DEVICES);
+		rc = ap_drv->in_use(apm_any, newaqm);
 		if (rc)
 			rc = -EBUSY;
 	}
@@ -1566,17 +1652,30 @@ static int aqmask_commit(unsigned long *newaqm)
 
 	memcpy(ap_perms.aqm, newaqm, AQMASKSIZE);
 
+	/*
+	 * Update ap_apmask_aqmask_in_use. Note that the
+	 * ap_attr_mutex has to be obtained here.
+	 */
+	ap_apmask_aqmask_in_use =
+		bitmap_full(ap_perms.apm, AP_DEVICES) &&
+		bitmap_full(ap_perms.aqm, AP_DOMAINS) ?
+		false : true;
+
 	return 0;
 }
 
 static ssize_t aqmask_store(const struct bus_type *bus, const char *buf,
 			    size_t count)
 {
-	int rc, changes = 0;
 	DECLARE_BITMAP(newaqm, AP_DOMAINS);
+	int rc = -EINVAL, changes = 0;
 
 	if (mutex_lock_interruptible(&ap_attr_mutex))
 		return -ERESTARTSYS;
+
+	/* Do not allow apmask/aqmask if driver override is active */
+	if (ap_driver_override_ctr)
+		goto done;
 
 	rc = ap_parse_bitmap_str(buf, ap_perms.aqm, AP_DOMAINS, newaqm);
 	if (rc)
@@ -1634,6 +1733,15 @@ static ssize_t bindings_show(const struct bus_type *bus, char *buf)
 
 static BUS_ATTR_RO(bindings);
 
+static ssize_t bindings_complete_count_show(const struct bus_type *bus,
+					    char *buf)
+{
+	return sysfs_emit(buf, "%llu\n",
+			  atomic64_read(&ap_bindings_complete_count));
+}
+
+static BUS_ATTR_RO(bindings_complete_count);
+
 static ssize_t features_show(const struct bus_type *bus, char *buf)
 {
 	int n = 0;
@@ -1674,6 +1782,7 @@ static struct attribute *ap_bus_attrs[] = {
 	&bus_attr_aqmask.attr,
 	&bus_attr_scans.attr,
 	&bus_attr_bindings.attr,
+	&bus_attr_bindings_complete_count.attr,
 	&bus_attr_features.attr,
 	NULL,
 };
@@ -2469,17 +2578,25 @@ static int __init ap_module_init(void)
 {
 	int rc;
 
-	rc = ap_debug_init();
-	if (rc)
-		return rc;
-
 	if (!ap_instructions_available()) {
 		pr_warn("The hardware system does not support AP instructions\n");
 		return -ENODEV;
 	}
 
+	rc = ap_debug_init();
+	if (rc)
+		return rc;
+
 	/* init ap_queue hashtable */
 	hash_init(ap_queues);
+
+	/* create ap msg buffer memory pool */
+	ap_msg_pool = mempool_create_kmalloc_pool(ap_msg_pool_min_items,
+						  AP_DEFAULT_MAX_MSG_SIZE);
+	if (!ap_msg_pool) {
+		rc = -ENOMEM;
+		goto out;
+	}
 
 	/* set up the AP permissions (ioctls, ap and aq masks) */
 	ap_perms_init();
@@ -2527,6 +2644,7 @@ out_device:
 out_bus:
 	bus_unregister(&ap_bus_type);
 out:
+	mempool_destroy(ap_msg_pool);
 	ap_debug_exit();
 	return rc;
 }
@@ -2537,6 +2655,7 @@ static void __exit ap_module_exit(void)
 	ap_irq_exit();
 	root_device_unregister(ap_root_device);
 	bus_unregister(&ap_bus_type);
+	mempool_destroy(ap_msg_pool);
 	ap_debug_exit();
 }
 
