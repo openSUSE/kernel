@@ -2091,7 +2091,7 @@ static void rtw89_cancel_6ghz_probe_work(struct wiphy *wiphy, struct wiphy_work 
 	struct list_head *pkt_list = rtwdev->scan_info.pkt_list;
 	struct rtw89_pktofld_info *info;
 
-	mutex_lock(&rtwdev->mutex);
+	lockdep_assert_wiphy(wiphy);
 
 	if (!rtwdev->scanning)
 		goto out;
@@ -2109,7 +2109,6 @@ static void rtw89_cancel_6ghz_probe_work(struct wiphy *wiphy, struct wiphy_work 
 	}
 
 out:
-	mutex_unlock(&rtwdev->mutex);
 }
 
 static void rtw89_core_cancel_6ghz_probe_tx(struct rtw89_dev *rtwdev,
@@ -3169,9 +3168,8 @@ static void rtw89_ips_work(struct wiphy *wiphy, struct wiphy_work *work)
 {
 	struct rtw89_dev *rtwdev = container_of(work, struct rtw89_dev,
 						ips_work);
-	mutex_lock(&rtwdev->mutex);
+	lockdep_assert_wiphy(wiphy);
 	rtw89_enter_ips_by_hwflags(rtwdev);
-	mutex_unlock(&rtwdev->mutex);
 }
 
 static void rtw89_core_txq_work(struct work_struct *w)
@@ -3323,7 +3321,7 @@ void rtw89_roc_start(struct rtw89_dev *rtwdev, struct rtw89_vif *rtwvif)
 	u32 reg;
 	int ret;
 
-	lockdep_assert_held(&rtwdev->mutex);
+	lockdep_assert_wiphy(hw->wiphy);
 
 	rtw89_leave_ips_by_hwflags(rtwdev);
 	rtw89_leave_lps(rtwdev);
@@ -3377,7 +3375,7 @@ void rtw89_roc_end(struct rtw89_dev *rtwdev, struct rtw89_vif *rtwvif)
 	u32 reg;
 	int ret;
 
-	lockdep_assert_held(&rtwdev->mutex);
+	lockdep_assert_wiphy(hw->wiphy);
 
 	ieee80211_remain_on_channel_expired(hw);
 
@@ -3420,7 +3418,7 @@ void rtw89_roc_work(struct wiphy *wiphy, struct wiphy_work *work)
 	struct rtw89_dev *rtwdev = rtwvif->rtwdev;
 	struct rtw89_roc *roc = &rtwvif->roc;
 
-	mutex_lock(&rtwdev->mutex);
+	lockdep_assert_wiphy(wiphy);
 
 	switch (roc->state) {
 	case RTW89_ROC_IDLE:
@@ -3433,8 +3431,6 @@ void rtw89_roc_work(struct wiphy *wiphy, struct wiphy_work *work)
 	default:
 		break;
 	}
-
-	mutex_unlock(&rtwdev->mutex);
 }
 
 static enum rtw89_tfc_lv rtw89_get_traffic_level(struct rtw89_dev *rtwdev,
@@ -3574,7 +3570,7 @@ static void rtw89_track_work(struct wiphy *wiphy, struct wiphy_work *work)
 	if (test_bit(RTW89_FLAG_FORBIDDEN_TRACK_WROK, rtwdev->flags))
 		return;
 
-	mutex_lock(&rtwdev->mutex);
+	lockdep_assert_wiphy(wiphy);
 
 	if (!test_bit(RTW89_FLAG_RUNNING, rtwdev->flags))
 		goto out;
@@ -3611,7 +3607,6 @@ static void rtw89_track_work(struct wiphy *wiphy, struct wiphy_work *work)
 		rtw89_enter_lps_track(rtwdev);
 
 out:
-	mutex_unlock(&rtwdev->mutex);
 }
 
 u8 rtw89_core_acquire_bit_map(unsigned long *addr, unsigned long size)
@@ -3645,7 +3640,7 @@ int rtw89_core_acquire_sta_ba_entry(struct rtw89_dev *rtwdev,
 	u8 idx;
 	int i;
 
-	lockdep_assert_held(&rtwdev->mutex);
+	lockdep_assert_wiphy(rtwdev->hw->wiphy);
 
 	idx = rtw89_core_acquire_bit_map(cam_info->ba_cam_map, chip->bacam_num);
 	if (idx == chip->bacam_num) {
@@ -3689,7 +3684,7 @@ int rtw89_core_release_sta_ba_entry(struct rtw89_dev *rtwdev,
 	struct rtw89_ba_cam_entry *entry = NULL, *tmp;
 	u8 idx;
 
-	lockdep_assert_held(&rtwdev->mutex);
+	lockdep_assert_wiphy(rtwdev->hw->wiphy);
 
 	list_for_each_entry_safe(entry, tmp, &rtwsta_link->ba_cam_list, list) {
 		if (entry->tid != tid)
@@ -4481,9 +4476,8 @@ void rtw89_core_update_beacon_work(struct wiphy *wiphy, struct wiphy_work *work)
 
 	rtwdev = rtwvif_link->rtwvif->rtwdev;
 
-	mutex_lock(&rtwdev->mutex);
+	lockdep_assert_wiphy(wiphy);
 	rtw89_chip_h2c_update_beacon(rtwdev, rtwvif_link);
-	mutex_unlock(&rtwdev->mutex);
 }
 
 int rtw89_wait_for_cond(struct rtw89_wait_info *wait, unsigned int cond)
@@ -4663,7 +4657,7 @@ void rtw89_core_stop(struct rtw89_dev *rtwdev)
 
 	clear_bit(RTW89_FLAG_RUNNING, rtwdev->flags);
 
-	mutex_unlock(&rtwdev->mutex);
+	lockdep_assert_wiphy(wiphy);
 
 	wiphy_work_cancel(wiphy, &rtwdev->c2h_work);
 	wiphy_work_cancel(wiphy, &rtwdev->cancel_6ghz_probe_work);
@@ -4681,8 +4675,6 @@ void rtw89_core_stop(struct rtw89_dev *rtwdev)
 	wiphy_delayed_work_cancel(wiphy, &rtwdev->cfo_track_work);
 	cancel_delayed_work_sync(&rtwdev->forbid_ba_work);
 	wiphy_delayed_work_cancel(wiphy, &rtwdev->antdiv_work);
-
-	mutex_lock(&rtwdev->mutex);
 
 	rtw89_btc_ntfy_poweroff(rtwdev);
 	rtw89_hci_flush_queues(rtwdev, BIT(rtwdev->hw->queues) - 1, true);
