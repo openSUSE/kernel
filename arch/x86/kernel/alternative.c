@@ -3,7 +3,6 @@
 
 #include <linux/module.h>
 #include <linux/sched.h>
-#include <linux/cfi_types.h>
 #include <linux/perf_event.h>
 #include <linux/mutex.h>
 #include <linux/list.h>
@@ -1226,17 +1225,6 @@ enum cfi_mode cfi_mode __ro_after_init = __CFI_DEFAULT;
 bool cfi_bhi __ro_after_init = false;
 
 #ifdef CONFIG_CFI_CLANG
-struct bpf_insn;
-
-/* Must match bpf_func_t / DEFINE_BPF_PROG_RUN() */
-extern unsigned int __bpf_prog_runX(const void *ctx,
-				    const struct bpf_insn *insn);
-DEFINE_CFI_TYPE(cfi_bpf_hash, __bpf_prog_runX);
-
-/* Must match bpf_callback_t */
-extern u64 __bpf_callback_fn(u64, u64, u64, u64, u64);
-DEFINE_CFI_TYPE(cfi_bpf_subprog_hash, __bpf_callback_fn);
-
 u32 cfi_get_func_hash(void *func)
 {
 	u32 hash;
