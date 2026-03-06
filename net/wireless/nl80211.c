@@ -2779,6 +2779,7 @@ static int nl80211_send_wiphy(struct cfg80211_registered_device *rdev,
 			CMD(update_ft_ies, UPDATE_FT_IES);
 			if (rdev->wiphy.sar_capa)
 				CMD(set_sar_specs, SET_SAR_SPECS);
+			CMD(assoc_ml_reconf, ASSOC_MLO_RECONF);
 		}
 #undef CMD
 
