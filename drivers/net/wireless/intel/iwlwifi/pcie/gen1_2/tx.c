@@ -469,7 +469,7 @@ static void iwl_pcie_txq_free(struct iwl_trans *trans, int txq_id)
 	kfree(txq->entries);
 	txq->entries = NULL;
 
-	del_timer_sync(&txq->stuck_timer);
+	timer_delete_sync(&txq->stuck_timer);
 
 	/* 0-fill queue descriptor structure */
 	memset(txq, 0, sizeof(*txq));
@@ -1053,7 +1053,7 @@ static void iwl_txq_progress(struct iwl_txq *txq)
 	 * since we're making progress on this queue
 	 */
 	if (txq->read_ptr == txq->write_ptr)
-		del_timer(&txq->stuck_timer);
+		timer_delete(&txq->stuck_timer);
 	else
 		mod_timer(&txq->stuck_timer, jiffies + txq->wd_timeout);
 }
@@ -2101,10 +2101,10 @@ static void iwl_txq_gen1_update_byte_cnt_tbl(struct iwl_trans *trans,
 
 	bc_ent = cpu_to_le16(len | (sta_id << 12));
 
-	scd_bc_tbl[txq_id * TFD_QUEUE_BC_SIZE + write_ptr].tfd_offset = bc_ent;
+	scd_bc_tbl[txq_id * BC_TABLE_SIZE + write_ptr].tfd_offset = bc_ent;
 
 	if (write_ptr < TFD_QUEUE_SIZE_BC_DUP)
-		scd_bc_tbl[txq_id * TFD_QUEUE_BC_SIZE + TFD_QUEUE_SIZE_MAX + write_ptr].tfd_offset =
+		scd_bc_tbl[txq_id * BC_TABLE_SIZE + TFD_QUEUE_SIZE_MAX + write_ptr].tfd_offset =
 			bc_ent;
 }
 
@@ -2328,10 +2328,10 @@ static void iwl_txq_gen1_inval_byte_cnt_tbl(struct iwl_trans *trans,
 
 	bc_ent = cpu_to_le16(1 | (sta_id << 12));
 
-	scd_bc_tbl[txq_id * TFD_QUEUE_BC_SIZE + read_ptr].tfd_offset = bc_ent;
+	scd_bc_tbl[txq_id * BC_TABLE_SIZE + read_ptr].tfd_offset = bc_ent;
 
 	if (read_ptr < TFD_QUEUE_SIZE_BC_DUP)
-		scd_bc_tbl[txq_id * TFD_QUEUE_BC_SIZE + TFD_QUEUE_SIZE_MAX + read_ptr].tfd_offset =
+		scd_bc_tbl[txq_id * BC_TABLE_SIZE + TFD_QUEUE_SIZE_MAX + read_ptr].tfd_offset =
 			bc_ent;
 }
 
@@ -2532,7 +2532,7 @@ void iwl_pcie_freeze_txq_timer(struct iwl_trans *trans,
 			/* remember how long until the timer fires */
 			txq->frozen_expiry_remainder =
 				txq->stuck_timer.expires - now;
-			del_timer(&txq->stuck_timer);
+			timer_delete(&txq->stuck_timer);
 			goto next_queue;
 		}
 

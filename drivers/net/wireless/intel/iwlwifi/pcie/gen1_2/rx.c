@@ -12,7 +12,7 @@
 #include "iwl-io.h"
 #include "internal.h"
 #include "iwl-op-mode.h"
-#include "iwl-context-info-v2.h"
+#include "pcie/iwl-context-info-v2.h"
 #include "fw/dbg.h"
 
 /******************************************************************************
@@ -1697,7 +1697,7 @@ static void iwl_pcie_irq_handle_error(struct iwl_trans *trans)
 	for (i = 0; i < trans->mac_cfg->base->num_of_queues; i++) {
 		if (!trans_pcie->txqs.txq[i])
 			continue;
-		del_timer(&trans_pcie->txqs.txq[i]->stuck_timer);
+		timer_delete(&trans_pcie->txqs.txq[i]->stuck_timer);
 	}
 
 	/* The STATUS_FW_ERROR bit is set in this function. This must happen
