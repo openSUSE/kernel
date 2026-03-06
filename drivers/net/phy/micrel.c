@@ -2758,9 +2758,9 @@ static void lan8814_flush_fifo(struct phy_device *phydev, bool egress)
 	lanphy_read_page_reg(phydev, LAN8814_PAGE_PORT_REGS, PTP_TSU_INT_STS);
 }
 
-static int lan8814_hwtstamp(struct mii_timestamper *mii_ts,
-			    struct kernel_hwtstamp_config *config,
-			    struct netlink_ext_ack *extack)
+static int lan8814_hwtstamp_set(struct mii_timestamper *mii_ts,
+				struct kernel_hwtstamp_config *config,
+				struct netlink_ext_ack *extack)
 {
 	struct kszphy_ptp_priv *ptp_priv =
 			  container_of(mii_ts, struct kszphy_ptp_priv, mii_ts);
@@ -3332,10 +3332,6 @@ static int lan8814_ptp_perout(struct ptp_clock_info *ptpci,
 	int pulse_width;
 	int pin, event;
 
-	/* Reject requests with unsupported flags */
-	if (rq->perout.flags & ~PTP_PEROUT_DUTY_CYCLE)
-		return -EOPNOTSUPP;
-
 	mutex_lock(&shared->shared_lock);
 	event = rq->perout.index;
 	pin = ptp_find_pin(shared->ptp_clock, PTP_PF_PEROUT, event);
@@ -3504,11 +3500,6 @@ static int lan8814_ptp_extts(struct ptp_clock_info *ptpci,
 							  ptp_clock_info);
 	struct phy_device *phydev = shared->phydev;
 	int pin;
-
-	if (rq->extts.flags & ~(PTP_ENABLE_FEATURE |
-				PTP_EXTTS_EDGES |
-				PTP_STRICT_FLAGS))
-		return -EOPNOTSUPP;
 
 	pin = ptp_find_pin(shared->ptp_clock, PTP_PF_EXTTS,
 			   rq->extts.index);
@@ -3992,7 +3983,7 @@ static void lan8814_ptp_init(struct phy_device *phydev)
 
 	ptp_priv->mii_ts.rxtstamp = lan8814_rxtstamp;
 	ptp_priv->mii_ts.txtstamp = lan8814_txtstamp;
-	ptp_priv->mii_ts.hwtstamp = lan8814_hwtstamp;
+	ptp_priv->mii_ts.hwtstamp_set = lan8814_hwtstamp_set;
 	ptp_priv->mii_ts.ts_info  = lan8814_ts_info;
 
 	phydev->mii_ts = &ptp_priv->mii_ts;
@@ -4034,6 +4025,10 @@ static int lan8814_ptp_probe_once(struct phy_device *phydev)
 	shared->ptp_clock_info.n_ext_ts = LAN8814_PTP_EXTTS_NUM;
 	shared->ptp_clock_info.n_pins = LAN8814_PTP_GPIO_NUM;
 	shared->ptp_clock_info.pps = 0;
+	shared->ptp_clock_info.supported_extts_flags = PTP_RISING_EDGE |
+						       PTP_FALLING_EDGE |
+						       PTP_STRICT_FLAGS;
+	shared->ptp_clock_info.supported_perout_flags = PTP_PEROUT_DUTY_CYCLE;
 	shared->ptp_clock_info.pin_config = shared->pin_config;
 	shared->ptp_clock_info.n_per_out = LAN8814_PTP_PEROUT_NUM;
 	shared->ptp_clock_info.adjfine = lan8814_ptpci_adjfine;
@@ -4607,9 +4602,9 @@ static void lan8841_ptp_enable_processing(struct kszphy_ptp_priv *ptp_priv,
 #define LAN8841_PTP_TX_TIMESTAMP_EN		443
 #define LAN8841_PTP_TX_MOD			445
 
-static int lan8841_hwtstamp(struct mii_timestamper *mii_ts,
-			    struct kernel_hwtstamp_config *config,
-			    struct netlink_ext_ack *extack)
+static int lan8841_hwtstamp_set(struct mii_timestamper *mii_ts,
+				struct kernel_hwtstamp_config *config,
+				struct netlink_ext_ack *extack)
 {
 	struct kszphy_ptp_priv *ptp_priv = container_of(mii_ts, struct kszphy_ptp_priv, mii_ts);
 	struct phy_device *phydev = ptp_priv->phydev;
@@ -5182,9 +5177,6 @@ static int lan8841_ptp_perout(struct ptp_clock_info *ptp,
 	int pin;
 	int ret;
 
-	if (rq->perout.flags & ~PTP_PEROUT_DUTY_CYCLE)
-		return -EOPNOTSUPP;
-
 	pin = ptp_find_pin(ptp_priv->ptp_clock, PTP_PF_PEROUT, rq->perout.index);
 	if (pin == -1 || pin >= LAN8841_PTP_GPIO_NUM)
 		return -EINVAL;
@@ -5428,6 +5420,7 @@ static struct ptp_clock_info lan8841_ptp_clock_info = {
 	.n_per_out      = LAN8841_PTP_GPIO_NUM,
 	.n_ext_ts       = LAN8841_PTP_GPIO_NUM,
 	.n_pins         = LAN8841_PTP_GPIO_NUM,
+	.supported_perout_flags = PTP_PEROUT_DUTY_CYCLE,
 };
 
 #define LAN8841_OPERATION_MODE_STRAP_LOW_REGISTER 3
@@ -5491,7 +5484,7 @@ static int lan8841_probe(struct phy_device *phydev)
 
 	ptp_priv->mii_ts.rxtstamp = lan8841_rxtstamp;
 	ptp_priv->mii_ts.txtstamp = lan8814_txtstamp;
-	ptp_priv->mii_ts.hwtstamp = lan8841_hwtstamp;
+	ptp_priv->mii_ts.hwtstamp_set = lan8841_hwtstamp_set;
 	ptp_priv->mii_ts.ts_info = lan8841_ts_info;
 
 	phydev->mii_ts = &ptp_priv->mii_ts;

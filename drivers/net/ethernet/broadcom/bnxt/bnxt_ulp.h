@@ -10,9 +10,6 @@
 #ifndef BNXT_ULP_H
 #define BNXT_ULP_H
 
-#define BNXT_ROCE_ULP	0
-#define BNXT_MAX_ULP	1
-
 #define BNXT_MIN_ROCE_CP_RINGS	2
 #define BNXT_MIN_ROCE_STAT_CTXS	1
 
@@ -50,7 +47,6 @@ struct bnxt_ulp {
 	unsigned long	*async_events_bmap;
 	u16		max_async_event_id;
 	u16		msix_requested;
-	atomic_t	ref_count;
 };
 
 struct bnxt_en_dev {
@@ -62,7 +58,6 @@ struct bnxt_en_dev {
 	#define BNXT_EN_FLAG_ROCEV2_CAP		0x2
 	#define BNXT_EN_FLAG_ROCE_CAP		(BNXT_EN_FLAG_ROCEV1_CAP | \
 						 BNXT_EN_FLAG_ROCEV2_CAP)
-	#define BNXT_EN_FLAG_MSIX_REQUESTED	0x4
 	#define BNXT_EN_FLAG_ULP_STOPPED	0x8
 	#define BNXT_EN_FLAG_VF			0x10
 #define BNXT_EN_VF(edev)	((edev)->flags & BNXT_EN_FLAG_VF)

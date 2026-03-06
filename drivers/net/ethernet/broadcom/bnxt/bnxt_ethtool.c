@@ -26,7 +26,7 @@
 #include <linux/timecounter.h>
 #include <net/netdev_queues.h>
 #include <net/netlink.h>
-#include "bnxt_hsi.h"
+#include <linux/bnxt/hsi.h>
 #include "bnxt.h"
 #include "bnxt_hwrm.h"
 #include "bnxt_ulp.h"
@@ -688,16 +688,22 @@ skip_ring_stats:
 				buf[j] = *(rx_port_stats_ext + n);
 			}
 			for (i = 0; i < 8; i++, j++) {
-				long n = bnxt_tx_bytes_pri_arr[i].base_off +
-					 bp->pri2cos_idx[i];
+				u8 cos_idx = bp->pri2cos_idx[i];
+				long n;
 
+				n = bnxt_tx_bytes_pri_arr[i].base_off + cos_idx;
 				buf[j] = *(tx_port_stats_ext + n);
+				if (bp->cos0_cos1_shared && !cos_idx)
+					buf[j] += *(tx_port_stats_ext + n + 1);
 			}
 			for (i = 0; i < 8; i++, j++) {
-				long n = bnxt_tx_pkts_pri_arr[i].base_off +
-					 bp->pri2cos_idx[i];
+				u8 cos_idx = bp->pri2cos_idx[i];
+				long n;
 
+				n = bnxt_tx_pkts_pri_arr[i].base_off + cos_idx;
 				buf[j] = *(tx_port_stats_ext + n);
+				if (bp->cos0_cos1_shared && !cos_idx)
+					buf[j] += *(tx_port_stats_ext + n + 1);
 			}
 		}
 	}
@@ -2049,38 +2055,52 @@ static void bnxt_get_drvinfo(struct net_device *dev,
 static int bnxt_get_regs_len(struct net_device *dev)
 {
 	struct bnxt *bp = netdev_priv(dev);
-	int reg_len;
 
 	if (!BNXT_PF(bp))
 		return -EOPNOTSUPP;
 
-	reg_len = BNXT_PXP_REG_LEN;
+	return BNXT_PXP_REG_LEN + bp->pcie_stat_len;
+}
 
-	if (bp->fw_cap & BNXT_FW_CAP_PCIE_STATS_SUPPORTED)
-		reg_len += sizeof(struct pcie_ctx_hw_stats);
+static void *
+__bnxt_hwrm_pcie_qstats(struct bnxt *bp, struct hwrm_pcie_qstats_input *req)
+{
+	struct pcie_ctx_hw_stats_v2 *hw_pcie_stats;
+	dma_addr_t hw_pcie_stats_addr;
+	int rc;
 
-	return reg_len;
+	hw_pcie_stats = hwrm_req_dma_slice(bp, req, sizeof(*hw_pcie_stats),
+					   &hw_pcie_stats_addr);
+	if (!hw_pcie_stats)
+		return NULL;
+
+	req->pcie_stat_size = cpu_to_le16(sizeof(*hw_pcie_stats));
+	req->pcie_stat_host_addr = cpu_to_le64(hw_pcie_stats_addr);
+	rc = hwrm_req_send(bp, req);
+
+	return rc ? NULL : hw_pcie_stats;
 }
 
 #define BNXT_PCIE_32B_ENTRY(start, end)			\
-	 { offsetof(struct pcie_ctx_hw_stats, start),	\
-	   offsetof(struct pcie_ctx_hw_stats, end) }
+	 { offsetof(struct pcie_ctx_hw_stats_v2, start),\
+	   offsetof(struct pcie_ctx_hw_stats_v2, end) }
 
 static const struct {
 	u16 start;
 	u16 end;
 } bnxt_pcie_32b_entries[] = {
 	BNXT_PCIE_32B_ENTRY(pcie_ltssm_histogram[0], pcie_ltssm_histogram[3]),
+	BNXT_PCIE_32B_ENTRY(pcie_tl_credit_nph_histogram[0], unused_1),
+	BNXT_PCIE_32B_ENTRY(pcie_rd_latency_histogram[0], unused_2),
 };
 
 static void bnxt_get_regs(struct net_device *dev, struct ethtool_regs *regs,
 			  void *_p)
 {
-	struct pcie_ctx_hw_stats *hw_pcie_stats;
+	struct hwrm_pcie_qstats_output *resp;
 	struct hwrm_pcie_qstats_input *req;
 	struct bnxt *bp = netdev_priv(dev);
-	dma_addr_t hw_pcie_stats_addr;
-	int rc;
+	u8 *src;
 
 	regs->version = 0;
 	if (!(bp->fw_dbg_cap & DBG_QCAPS_RESP_FLAGS_REG_ACCESS_RESTRICTED))
@@ -2092,24 +2112,21 @@ static void bnxt_get_regs(struct net_device *dev, struct ethtool_regs *regs,
 	if (hwrm_req_init(bp, req, HWRM_PCIE_QSTATS))
 		return;
 
-	hw_pcie_stats = hwrm_req_dma_slice(bp, req, sizeof(*hw_pcie_stats),
-					   &hw_pcie_stats_addr);
-	if (!hw_pcie_stats) {
-		hwrm_req_drop(bp, req);
-		return;
-	}
-
-	regs->version = 1;
-	hwrm_req_hold(bp, req); /* hold on to slice */
-	req->pcie_stat_size = cpu_to_le16(sizeof(*hw_pcie_stats));
-	req->pcie_stat_host_addr = cpu_to_le64(hw_pcie_stats_addr);
-	rc = hwrm_req_send(bp, req);
-	if (!rc) {
+	resp = hwrm_req_hold(bp, req);
+	src = __bnxt_hwrm_pcie_qstats(bp, req);
+	if (src) {
 		u8 *dst = (u8 *)(_p + BNXT_PXP_REG_LEN);
-		u8 *src = (u8 *)hw_pcie_stats;
-		int i, j;
+		int i, j, len;
 
-		for (i = 0, j = 0; i < sizeof(*hw_pcie_stats); ) {
+		len = min(bp->pcie_stat_len, le16_to_cpu(resp->pcie_stat_size));
+		if (len <= sizeof(struct pcie_ctx_hw_stats))
+			regs->version = 1;
+		else if (len < sizeof(struct pcie_ctx_hw_stats_v2))
+			regs->version = 2;
+		else
+			regs->version = 3;
+
+		for (i = 0, j = 0; i < len; ) {
 			if (i >= bnxt_pcie_32b_entries[j].start &&
 			    i <= bnxt_pcie_32b_entries[j].end) {
 				u32 *dst32 = (u32 *)(dst + i);
@@ -4550,6 +4567,11 @@ static int bnxt_get_module_status(struct bnxt *bp, struct netlink_ext_ack *extac
 	    PORT_PHY_QCFG_RESP_MODULE_STATUS_WARNINGMSG)
 		return 0;
 
+	if (bp->link_info.phy_type == PORT_PHY_QCFG_RESP_PHY_TYPE_BASET ||
+	    bp->link_info.phy_type == PORT_PHY_QCFG_RESP_PHY_TYPE_BASETE){
+		NL_SET_ERR_MSG_MOD(extack, "Operation not supported as PHY type is Base-T");
+		return -EOPNOTSUPP;
+	}
 	switch (bp->link_info.module_status) {
 	case PORT_PHY_QCFG_RESP_MODULE_STATUS_PWRDOWN:
 		NL_SET_ERR_MSG_MOD(extack, "Transceiver module is powering down");
@@ -4567,16 +4589,16 @@ static int bnxt_get_module_status(struct bnxt *bp, struct netlink_ext_ack *extac
 	return -EINVAL;
 }
 
-static int bnxt_get_module_eeprom_by_page(struct net_device *dev,
-					  const struct ethtool_module_eeprom *page_data,
-					  struct netlink_ext_ack *extack)
+static int
+bnxt_mod_eeprom_by_page_precheck(struct bnxt *bp,
+				 const struct ethtool_module_eeprom *page_data,
+				 struct netlink_ext_ack *extack)
 {
-	struct bnxt *bp = netdev_priv(dev);
 	int rc;
 
 	if (BNXT_VF(bp) && !BNXT_VF_IS_TRUSTED(bp)) {
 		NL_SET_ERR_MSG_MOD(extack,
-				   "Module read not permitted on untrusted VF");
+				   "Module read/write not permitted on untrusted VF");
 		return -EPERM;
 	}
 
@@ -4593,6 +4615,19 @@ static int bnxt_get_module_eeprom_by_page(struct net_device *dev,
 		NL_SET_ERR_MSG_MOD(extack, "Firmware not capable for bank selection");
 		return -EINVAL;
 	}
+	return 0;
+}
+
+static int bnxt_get_module_eeprom_by_page(struct net_device *dev,
+					  const struct ethtool_module_eeprom *page_data,
+					  struct netlink_ext_ack *extack)
+{
+	struct bnxt *bp = netdev_priv(dev);
+	int rc;
+
+	rc = bnxt_mod_eeprom_by_page_precheck(bp, page_data, extack);
+	if (rc)
+		return rc;
 
 	rc = bnxt_read_sfp_module_eeprom_info(bp, page_data->i2c_address << 1,
 					      page_data->page, page_data->bank,
@@ -4601,6 +4636,62 @@ static int bnxt_get_module_eeprom_by_page(struct net_device *dev,
 					      page_data->data);
 	if (rc) {
 		NL_SET_ERR_MSG_MOD(extack, "Module`s eeprom read failed");
+		return rc;
+	}
+	return page_data->length;
+}
+
+static int bnxt_write_sfp_module_eeprom_info(struct bnxt *bp,
+					     const struct ethtool_module_eeprom *page)
+{
+	struct hwrm_port_phy_i2c_write_input *req;
+	int bytes_written = 0;
+	int rc;
+
+	rc = hwrm_req_init(bp, req, HWRM_PORT_PHY_I2C_WRITE);
+	if (rc)
+		return rc;
+
+	hwrm_req_hold(bp, req);
+	req->i2c_slave_addr = page->i2c_address << 1;
+	req->page_number = cpu_to_le16(page->page);
+	req->bank_number = page->bank;
+	req->port_id = cpu_to_le16(bp->pf.port_id);
+	req->enables = cpu_to_le32(PORT_PHY_I2C_WRITE_REQ_ENABLES_PAGE_OFFSET |
+				   PORT_PHY_I2C_WRITE_REQ_ENABLES_BANK_NUMBER);
+
+	while (bytes_written < page->length) {
+		u16 xfer_size;
+
+		xfer_size = min_t(u16, page->length - bytes_written,
+				  BNXT_MAX_PHY_I2C_RESP_SIZE);
+		req->page_offset = cpu_to_le16(page->offset + bytes_written);
+		req->data_length = xfer_size;
+		memcpy(req->data, page->data + bytes_written, xfer_size);
+		rc = hwrm_req_send(bp, req);
+		if (rc)
+			break;
+		bytes_written += xfer_size;
+	}
+
+	hwrm_req_drop(bp, req);
+	return rc;
+}
+
+static int bnxt_set_module_eeprom_by_page(struct net_device *dev,
+					  const struct ethtool_module_eeprom *page_data,
+					  struct netlink_ext_ack *extack)
+{
+	struct bnxt *bp = netdev_priv(dev);
+	int rc;
+
+	rc = bnxt_mod_eeprom_by_page_precheck(bp, page_data, extack);
+	if (rc)
+		return rc;
+
+	rc = bnxt_write_sfp_module_eeprom_info(bp, page_data);
+	if (rc) {
+		NL_SET_ERR_MSG_MOD(extack, "Module`s eeprom write failed");
 		return rc;
 	}
 	return page_data->length;
@@ -5184,6 +5275,26 @@ static int bnxt_get_ts_info(struct net_device *dev,
 	return 0;
 }
 
+static void bnxt_hwrm_pcie_qstats(struct bnxt *bp)
+{
+	struct hwrm_pcie_qstats_output *resp;
+	struct hwrm_pcie_qstats_input *req;
+
+	bp->pcie_stat_len = 0;
+	if (!(bp->fw_cap & BNXT_FW_CAP_PCIE_STATS_SUPPORTED))
+		return;
+
+	if (hwrm_req_init(bp, req, HWRM_PCIE_QSTATS))
+		return;
+
+	resp = hwrm_req_hold(bp, req);
+	if (__bnxt_hwrm_pcie_qstats(bp, req))
+		bp->pcie_stat_len = min_t(u16,
+					  le16_to_cpu(resp->pcie_stat_size),
+					  sizeof(struct pcie_ctx_hw_stats_v2));
+	hwrm_req_drop(bp, req);
+}
+
 void bnxt_ethtool_init(struct bnxt *bp)
 {
 	struct hwrm_selftest_qlist_output *resp;
@@ -5192,6 +5303,7 @@ void bnxt_ethtool_init(struct bnxt *bp)
 	struct net_device *dev = bp->dev;
 	int i, rc;
 
+	bnxt_hwrm_pcie_qstats(bp);
 	if (!(bp->fw_cap & BNXT_FW_CAP_PKG_VER))
 		bnxt_get_pkgver(dev);
 
@@ -5467,6 +5579,7 @@ const struct ethtool_ops bnxt_ethtool_ops = {
 	.get_module_info	= bnxt_get_module_info,
 	.get_module_eeprom	= bnxt_get_module_eeprom,
 	.get_module_eeprom_by_page = bnxt_get_module_eeprom_by_page,
+	.set_module_eeprom_by_page = bnxt_set_module_eeprom_by_page,
 	.nway_reset		= bnxt_nway_reset,
 	.set_phys_id		= bnxt_set_phys_id,
 	.self_test		= bnxt_self_test,

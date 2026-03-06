@@ -41,9 +41,18 @@
 #include <linux/uaccess.h>
 #include <linux/unistd.h>
 
+#include "phylib-internal.h"
+
 MODULE_DESCRIPTION("PHY library");
 MODULE_AUTHOR("Andy Fleming");
 MODULE_LICENSE("GPL");
+
+static struct phy_driver genphy_c45_driver = {
+	.phy_id         = 0xffffffff,
+	.phy_id_mask    = 0xffffffff,
+	.name           = "Generic Clause 45 PHY",
+	.read_status    = genphy_c45_read_status,
+};
 
 __ETHTOOL_DECLARE_LINK_MODE_MASK(phy_basic_features) __ro_after_init;
 EXPORT_SYMBOL_GPL(phy_basic_features);
@@ -725,8 +734,8 @@ struct phy_device *phy_device_create(struct mii_bus *bus, int addr, u32 phy_id,
 
 	dev->speed = SPEED_UNKNOWN;
 	dev->duplex = DUPLEX_UNKNOWN;
-	dev->pause = 0;
-	dev->asym_pause = 0;
+	dev->pause = false;
+	dev->asym_pause = false;
 	dev->link = 0;
 	dev->port = PORT_TP;
 	dev->interface = PHY_INTERFACE_MODE_GMII;
@@ -2152,9 +2161,9 @@ int phy_loopback(struct phy_device *phydev, bool enable)
 	}
 
 	if (phydev->drv->set_loopback)
-		ret = phydev->drv->set_loopback(phydev, enable);
+		ret = phydev->drv->set_loopback(phydev, enable, 0);
 	else
-		ret = genphy_loopback(phydev, enable);
+		ret = genphy_loopback(phydev, enable, 0);
 
 	if (ret)
 		goto out;
@@ -2314,8 +2323,8 @@ int genphy_setup_forced(struct phy_device *phydev)
 {
 	u16 ctl;
 
-	phydev->pause = 0;
-	phydev->asym_pause = 0;
+	phydev->pause = false;
+	phydev->asym_pause = false;
 
 	ctl = mii_bmcr_encode_fixed(phydev->speed, phydev->duplex);
 
@@ -2721,8 +2730,8 @@ int genphy_read_status(struct phy_device *phydev)
 	phydev->master_slave_state = MASTER_SLAVE_STATE_UNSUPPORTED;
 	phydev->speed = SPEED_UNKNOWN;
 	phydev->duplex = DUPLEX_UNKNOWN;
-	phydev->pause = 0;
-	phydev->asym_pause = 0;
+	phydev->pause = false;
+	phydev->asym_pause = false;
 
 	if (phydev->is_gigabit_capable) {
 		err = genphy_read_master_slave(phydev);
@@ -2775,8 +2784,8 @@ int genphy_c37_read_status(struct phy_device *phydev, bool *changed)
 	/* Signal link has changed */
 	*changed = true;
 	phydev->duplex = DUPLEX_UNKNOWN;
-	phydev->pause = 0;
-	phydev->asym_pause = 0;
+	phydev->pause = false;
+	phydev->asym_pause = false;
 
 	if (phydev->autoneg == AUTONEG_ENABLE && phydev->autoneg_complete) {
 		lpa = phy_read(phydev, MII_LPA);
@@ -2946,11 +2955,17 @@ int genphy_resume(struct phy_device *phydev)
 }
 EXPORT_SYMBOL(genphy_resume);
 
-int genphy_loopback(struct phy_device *phydev, bool enable)
+int genphy_loopback(struct phy_device *phydev, bool enable, int speed)
 {
 	if (enable) {
 		u16 ctl = BMCR_LOOPBACK;
 		int ret, val;
+
+		if (speed == SPEED_10 || speed == SPEED_100 ||
+		    speed == SPEED_1000)
+			phydev->speed = speed;
+		else if (speed)
+			return -EINVAL;
 
 		ctl |= mii_bmcr_encode_fixed(phydev->speed, phydev->duplex);
 
@@ -3648,6 +3663,9 @@ static int phy_probe(struct device *dev)
 	 * the PHY stop advertising these mode later on
 	 */
 	of_set_phy_eee_broken(phydev);
+
+	/* Get master/slave strap overrides */
+	of_set_phy_timing_role(phydev);
 
 	/* The Pause Frame bits indicate that the PHY can support passing
 	 * pause frames. During autonegotiation, the PHYs will determine if

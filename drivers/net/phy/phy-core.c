@@ -6,6 +6,8 @@
 #include <linux/phy.h>
 #include <linux/of.h>
 
+#include "phylib-internal.h"
+
 /**
  * phy_speed_to_str - Return a string representing the PHY link speed
  *
@@ -433,6 +435,39 @@ void of_set_phy_eee_broken(struct phy_device *phydev)
 }
 
 /**
+ * of_set_phy_timing_role - Set the master/slave mode of the PHY
+ *
+ * @phydev: The phy_device struct
+ *
+ * Set master/slave configuration of the PHY based on the device tree.
+ */
+void of_set_phy_timing_role(struct phy_device *phydev)
+{
+	struct device_node *node = phydev->mdio.dev.of_node;
+	const char *master;
+
+	if (!IS_ENABLED(CONFIG_OF_MDIO))
+		return;
+
+	if (!node)
+		return;
+
+	if (of_property_read_string(node, "timing-role", &master))
+		return;
+
+	if (strcmp(master, "forced-master") == 0)
+		phydev->master_slave_set = MASTER_SLAVE_CFG_MASTER_FORCE;
+	else if (strcmp(master, "forced-slave") == 0)
+		phydev->master_slave_set = MASTER_SLAVE_CFG_SLAVE_FORCE;
+	else if (strcmp(master, "preferred-master") == 0)
+		phydev->master_slave_set = MASTER_SLAVE_CFG_MASTER_PREFERRED;
+	else if (strcmp(master, "preferred-slave") == 0)
+		phydev->master_slave_set = MASTER_SLAVE_CFG_SLAVE_PREFERRED;
+	else
+		phydev_warn(phydev, "Unknown master-slave mode %s\n", master);
+}
+
+/**
  * phy_resolve_aneg_pause - Determine pause autoneg results
  *
  * @phydev: The phy_device struct
@@ -516,7 +551,6 @@ void phy_check_downshift(struct phy_device *phydev)
 
 	phydev->downshifted_rate = 1;
 }
-EXPORT_SYMBOL_GPL(phy_check_downshift);
 
 static int phy_resolve_min_speed(struct phy_device *phydev, bool fdx_only)
 {
