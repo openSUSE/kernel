@@ -488,7 +488,9 @@ static void ser_reset_trx_st_hdl(struct rtw89_ser *ser, u8 evt)
 
 	switch (evt) {
 	case SER_EV_STATE_IN:
-		cancel_delayed_work_sync(&rtwdev->track_work);
+		wiphy_lock(wiphy);
+		wiphy_delayed_work_cancel(wiphy, &rtwdev->track_work);
+		wiphy_unlock(wiphy);
 		drv_stop_tx(ser);
 
 		if (hal_stop_dma(ser)) {
@@ -521,8 +523,8 @@ static void ser_reset_trx_st_hdl(struct rtw89_ser *ser, u8 evt)
 		hal_enable_dma(ser);
 		drv_resume_rx(ser);
 		drv_resume_tx(ser);
-		ieee80211_queue_delayed_work(rtwdev->hw, &rtwdev->track_work,
-					     RTW89_TRACK_WORK_PERIOD);
+		wiphy_delayed_work_queue(wiphy, &rtwdev->track_work,
+					 RTW89_TRACK_WORK_PERIOD);
 		break;
 
 	default:
