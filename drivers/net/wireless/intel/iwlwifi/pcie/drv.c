@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause
 /*
- * Copyright (C) 2005-2014, 2018-2024 Intel Corporation
+ * Copyright (C) 2005-2014, 2018-2025 Intel Corporation
  * Copyright (C) 2013-2015 Intel Mobile Communications GmbH
  * Copyright (C) 2016-2017 Intel Deutschland GmbH
  */
@@ -1299,7 +1299,7 @@ out:
 VISIBLE_IF_IWLWIFI_KUNIT const struct iwl_dev_info *
 iwl_pci_find_dev_info(u16 device, u16 subsystem_device,
 		      u16 mac_type, u8 mac_step, u16 rf_type, u8 cdb,
-		      u8 jacket, u8 rf_id, u8 no_160, u8 cores, u8 rf_step)
+		      u8 jacket, u8 rf_id, u8 bw_limit, u8 cores, u8 rf_step)
 {
 	int num_devices = ARRAY_SIZE(iwl_dev_info_table);
 	int i;
@@ -1342,8 +1342,15 @@ iwl_pci_find_dev_info(u16 device, u16 subsystem_device,
 		    dev_info->rf_id != rf_id)
 			continue;
 
-		if (dev_info->no_160 != (u8)IWL_CFG_ANY &&
-		    dev_info->no_160 != no_160)
+		/*
+		 * Check that bw_limit have the same "boolean" value since
+		 * IWL_SUBDEVICE_BW_LIM can only return a boolean value and
+		 * dev_info->bw_limit encodes a non-boolean value.
+		 * dev_info->bw_limit == IWL_CFG_BW_NO_LIM must be equal to
+		 * !bw_limit to have a match.
+		 */
+		if (dev_info->bw_limit != IWL_CFG_BW_ANY &&
+		    (dev_info->bw_limit == IWL_CFG_BW_NO_LIM) == !!bw_limit)
 			continue;
 
 		if (dev_info->cores != (u8)IWL_CFG_ANY &&
@@ -1481,13 +1488,13 @@ static int iwl_pci_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 					 CSR_HW_RFID_IS_CDB(iwl_trans->hw_rf_id),
 					 CSR_HW_RFID_IS_JACKET(iwl_trans->hw_rf_id),
 					 IWL_SUBDEVICE_RF_ID(pdev->subsystem_device),
-					 IWL_SUBDEVICE_NO_160(pdev->subsystem_device),
+					 IWL_SUBDEVICE_BW_LIM(pdev->subsystem_device),
 					 IWL_SUBDEVICE_CORES(pdev->subsystem_device),
 					 CSR_HW_RFID_STEP(iwl_trans->hw_rf_id));
 	if (dev_info) {
 		iwl_trans->cfg = dev_info->cfg;
 		iwl_trans->name = dev_info->name;
-		iwl_trans->no_160 = dev_info->no_160 == IWL_CFG_NO_160;
+		iwl_trans->bw_limit = dev_info->bw_limit;
 	}
 
 #if IS_ENABLED(CONFIG_IWLMVM)
