@@ -4779,7 +4779,6 @@ struct rtw89_hal {
 	enum rtw89_entity_mode entity_mode;
 	struct rtw89_entity_mgnt entity_mgnt;
 
-	struct rtw89_edcca_bak edcca_bak;
 	u32 disabled_dm_bitmap; /* bitmap of enum rtw89_dm_type */
 
 	u8 thermal_prot_th;
@@ -5697,7 +5696,6 @@ struct rtw89_dev {
 	struct rtw89_power_trim_info pwr_trim;
 
 	struct rtw89_cfo_tracking_info cfo_tracking;
-	struct rtw89_phy_ch_info ch_info;
 	union {
 		struct rtw89_phy_bb_gain_info ax;
 		struct rtw89_phy_bb_gain_info_be be;
@@ -5711,6 +5709,7 @@ struct rtw89_dev {
 		struct rtw89_env_monitor_info env_monitor;
 		struct rtw89_dig_info dig;
 		struct rtw89_phy_ch_info ch_info;
+		struct rtw89_edcca_bak edcca_bak;
 	} bbs[RTW89_PHY_NUM];
 
 	struct delayed_work track_work;
