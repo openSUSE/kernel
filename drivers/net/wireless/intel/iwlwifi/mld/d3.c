@@ -1349,7 +1349,6 @@ int iwl_mld_no_wowlan_suspend(struct iwl_mld *mld)
 	} else {
 		/* Async notification might send hcmds, which is not allowed in suspend */
 		iwl_mld_cancel_async_notifications(mld);
-		mld->trans->system_pm_mode = IWL_PLAT_PM_MODE_D3;
 		mld->fw_status.in_d3 = true;
 	}
 
@@ -1374,7 +1373,6 @@ int iwl_mld_no_wowlan_resume(struct iwl_mld *mld)
 
 	IWL_DEBUG_WOWLAN(mld, "Starting the no wowlan resume flow\n");
 
-	mld->trans->system_pm_mode = IWL_PLAT_PM_MODE_DISABLED;
 	mld->fw_status.in_d3 = false;
 	iwl_fw_dbg_read_d3_debug_data(&mld->fwrt);
 
@@ -1905,7 +1903,6 @@ int iwl_mld_wowlan_resume(struct iwl_mld *mld)
 
 	IWL_DEBUG_WOWLAN(mld, "Starting the wowlan resume flow\n");
 
-	mld->trans->system_pm_mode = IWL_PLAT_PM_MODE_DISABLED;
 	if (!mld->fw_status.in_d3) {
 		IWL_DEBUG_WOWLAN(mld,
 				 "Device_powered_off() was called during wowlan\n");
