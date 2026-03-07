@@ -23,6 +23,7 @@ Linux Tracing Technologies
    histogram
    histogram-design
    boottime-trace
+   debugging
    hwlat_detector
    osnoise-tracer
    timerlat-tracer
