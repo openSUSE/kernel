@@ -1339,8 +1339,6 @@ static bool kprobe_prog_is_valid_access(int off, int size, enum bpf_access_type 
 {
 	if (off < 0 || off >= sizeof(struct pt_regs))
 		return false;
-	if (type != BPF_READ)
-		return false;
 	if (off % size != 0)
 		return false;
 	/*
@@ -1349,6 +1347,9 @@ static bool kprobe_prog_is_valid_access(int off, int size, enum bpf_access_type 
 	 */
 	if (off + size > sizeof(struct pt_regs))
 		return false;
+
+	if (type == BPF_WRITE)
+		prog->aux->kprobe_write_ctx = true;
 
 	return true;
 }
@@ -2734,6 +2735,10 @@ int bpf_kprobe_multi_link_attach(const union bpf_attr *attr, struct bpf_prog *pr
 		return -EINVAL;
 
 	if (!is_kprobe_multi(prog))
+		return -EINVAL;
+
+	/* Writing to context is not allowed for kprobes. */
+	if (prog->aux->kprobe_write_ctx)
 		return -EINVAL;
 
 	flags = attr->link_create.kprobe_multi.flags;
