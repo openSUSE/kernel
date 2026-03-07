@@ -280,6 +280,9 @@ struct mt7996_hif {
 	struct device *dev;
 	void __iomem *regs;
 	int irq;
+
+	enum pci_bus_speed speed;
+	enum pcie_link_width width;
 };
 
 #define WED_RRO_ADDR_SIGNATURE_MASK	GENMASK(31, 24)
