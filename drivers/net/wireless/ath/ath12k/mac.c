@@ -4917,7 +4917,7 @@ static int ath12k_mac_op_get_txpower(struct ieee80211_hw *hw,
 					 ar->last_tx_power_update))
 		goto send_tx_power;
 
-	params.pdev_id = ar->pdev->pdev_id;
+	params.pdev_id = ath12k_mac_get_target_pdev_id(ar);
 	params.vdev_id = arvif->vdev_id;
 	params.stats_id = WMI_REQUEST_PDEV_STAT;
 	ret = ath12k_mac_get_fw_stats(ar, &params);
@@ -12702,7 +12702,7 @@ static void ath12k_mac_op_sta_statistics(struct ieee80211_hw *hw,
 	/* TODO: Use real NF instead of default one. */
 	signal = arsta->rssi_comb;
 
-	params.pdev_id = ar->pdev->pdev_id;
+	params.pdev_id = ath12k_mac_get_target_pdev_id(ar);
 	params.vdev_id = 0;
 	params.stats_id = WMI_REQUEST_VDEV_STAT;
 
@@ -12793,7 +12793,7 @@ static void ath12k_mac_op_link_sta_statistics(struct ieee80211_hw *hw,
 	/* TODO: Use real NF instead of default one. */
 	signal = arsta->rssi_comb;
 
-	params.pdev_id = ar->pdev->pdev_id;
+	params.pdev_id = ath12k_mac_get_target_pdev_id(ar);
 	params.vdev_id = 0;
 	params.stats_id = WMI_REQUEST_VDEV_STAT;
 
