@@ -6759,6 +6759,9 @@ struct wireless_dev {
 		struct {
 			struct cfg80211_chan_def chandef;
 		} ocb;
+		struct {
+			u8 cluster_id[ETH_ALEN] __aligned(2);
+		} nan;
 	} u;
 
 	struct {
