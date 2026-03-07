@@ -13793,7 +13793,9 @@ static int nl80211_register_mgmt(struct sk_buff *skb, struct genl_info *info)
 		break;
 	case NL80211_IFTYPE_NAN:
 		if (!wiphy_ext_feature_isset(wdev->wiphy,
-					     NL80211_EXT_FEATURE_SECURE_NAN))
+					     NL80211_EXT_FEATURE_SECURE_NAN) &&
+		    !(wdev->wiphy->nan_capa.flags &
+		      WIPHY_NAN_FLAGS_USERSPACE_DE))
 			return -EOPNOTSUPP;
 		break;
 	default:
@@ -13854,7 +13856,9 @@ static int nl80211_tx_mgmt(struct sk_buff *skb, struct genl_info *info)
 		break;
 	case NL80211_IFTYPE_NAN:
 		if (!wiphy_ext_feature_isset(wdev->wiphy,
-					     NL80211_EXT_FEATURE_SECURE_NAN))
+					     NL80211_EXT_FEATURE_SECURE_NAN) &&
+		    !(wdev->wiphy->nan_capa.flags &
+		      WIPHY_NAN_FLAGS_USERSPACE_DE))
 			return -EOPNOTSUPP;
 		break;
 	default:
