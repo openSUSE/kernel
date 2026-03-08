@@ -44,7 +44,6 @@
 #include <linux/seqlock_types.h>
 #include <linux/kcsan.h>
 #include <linux/rv.h>
-#include <linux/livepatch_sched.h>
 #include <linux/uidgid_types.h>
 #include <asm/kmap_size.h>
 #ifndef COMPILE_OFFSETS
@@ -2066,9 +2065,6 @@ extern int __cond_resched(void);
 
 #if defined(CONFIG_PREEMPT_DYNAMIC) && defined(CONFIG_HAVE_PREEMPT_DYNAMIC_CALL)
 
-void sched_dynamic_klp_enable(void);
-void sched_dynamic_klp_disable(void);
-
 DECLARE_STATIC_CALL(cond_resched, __cond_resched);
 
 static __always_inline int _cond_resched(void)
@@ -2089,7 +2085,6 @@ static __always_inline int _cond_resched(void)
 
 static inline int _cond_resched(void)
 {
-	klp_sched_try_switch();
 	return __cond_resched();
 }
 
@@ -2099,7 +2094,6 @@ static inline int _cond_resched(void)
 
 static inline int _cond_resched(void)
 {
-	klp_sched_try_switch();
 	return 0;
 }
 
