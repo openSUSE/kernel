@@ -3743,7 +3743,8 @@ static __always_inline bool cid_on_task(unsigned int cid)
 
 static __always_inline void mm_drop_cid(struct mm_struct *mm, unsigned int cid)
 {
-	clear_bit(cid, mm_cidmask(mm));
+	if (!WARN_ON_ONCE(cid >= num_possible_cpus()))
+		clear_bit(cid, mm_cidmask(mm));
 }
 
 static __always_inline void mm_unset_cid_on_task(struct task_struct *t)
@@ -3912,7 +3913,13 @@ static __always_inline void mm_cid_schedout(struct task_struct *prev)
 		return;
 
 	mode = READ_ONCE(mm->mm_cid.mode);
+
+	/*
+	 * Needs to clear both TRANSIT and ONCPU to make the range comparison
+	 * and mm_drop_cid() work correctly.
+	 */
 	cid = cid_from_transit_cid(prev->mm_cid.cid);
+	cid = cpu_cid_to_cid(cid);
 
 	/*
 	 * If transition mode is done, transfer ownership when the CID is
@@ -3928,6 +3935,11 @@ static __always_inline void mm_cid_schedout(struct task_struct *prev)
 	} else {
 		mm_drop_cid(mm, cid);
 		prev->mm_cid.cid = MM_CID_UNSET;
+		/*
+		 * Invalidate the per CPU CID so that the next mm_cid_schedin()
+		 * can't observe MM_CID_ONCPU on the per CPU CID.
+		 */
+		mm_cid_update_pcpu_cid(mm, 0);
 	}
 }
 

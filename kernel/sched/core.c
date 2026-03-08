@@ -10532,6 +10532,11 @@ static void mm_cid_fixup_cpus_to_tasks(struct mm_struct *mm)
 
 		/* Remote access to mm::mm_cid::pcpu requires rq_lock */
 		guard(rq_lock_irq)(rq);
+
+		/* If the transit bit is set already, nothing to do anymore.  */
+		if (cid_in_transit(pcp->cid))
+			continue;
+
 		/* Is the CID still owned by the CPU? */
 		if (cid_on_cpu(pcp->cid)) {
 			/*
@@ -10546,12 +10551,9 @@ static void mm_cid_fixup_cpus_to_tasks(struct mm_struct *mm)
 		} else if (rq->curr->mm == mm && rq->curr->mm_cid.active) {
 			unsigned int cid = rq->curr->mm_cid.cid;
 
-			/* Ensure it has the transition bit set */
-			if (!cid_in_transit(cid)) {
-				cid = cid_to_transit_cid(cid);
-				rq->curr->mm_cid.cid = cid;
-				pcp->cid = cid;
-			}
+			cid = cid_to_transit_cid(cid);
+			rq->curr->mm_cid.cid = cid;
+			pcp->cid = cid;
 		}
 	}
 	mm_cid_complete_transit(mm, 0);
@@ -10681,11 +10683,30 @@ void sched_mm_cid_fork(struct task_struct *t)
 static bool sched_mm_cid_remove_user(struct task_struct *t)
 {
 	t->mm_cid.active = 0;
-	scoped_guard(preempt) {
-		/* Clear the transition bit */
+	/*
+	 * If @t is current and the CID is in transition mode, then this has to
+	 * handle both the task and the per CPU storage.
+	 *
+	 * If the CID has TRANSIT and ONCPU set, then mm_unset_cid_on_task()
+	 * won't drop the CID. As @t has already mm_cid::active cleared
+	 * mm_cid_schedout() won't drop it either.
+	 *
+	 * A failed fork cleanup can't have the transit bit set because the task
+	 * never showed up in the task list or got on a CPU.
+	 */
+	if (t == current) {
+		/* Invalidate the per CPU CID */
+		this_cpu_ptr(t->mm->mm_cid.pcpu)->cid = 0;
+		/*
+		 * Clear TRANSIT and ONCPU, so the CID gets actually dropped
+		 * below.
+		 */
 		t->mm_cid.cid = cid_from_transit_cid(t->mm_cid.cid);
-		mm_unset_cid_on_task(t);
+		t->mm_cid.cid = cpu_cid_to_cid(t->mm_cid.cid);
 	}
+
+	mm_unset_cid_on_task(t);
+
 	t->mm->mm_cid.users--;
 	return mm_update_max_cids(t->mm);
 }
