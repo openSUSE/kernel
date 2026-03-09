@@ -1265,6 +1265,7 @@ static void raid10_read_request(struct mddev *mddev, struct bio *bio,
 	md_io_acct(mddev, bio_data_dir(bio), bio_sectors(bio));
 
 	read_bio = bio_clone_fast(bio, gfp, mddev->bio_set);
+	read_bio->bi_opf &= ~REQ_NOWAIT;
 
 	r10_bio->devs[slot].bio = read_bio;
 	r10_bio->devs[slot].rdev = rdev;
@@ -1309,6 +1310,7 @@ static void raid10_write_one_disk(struct mddev *mddev, struct r10bio *r10_bio,
 		rdev = conf->mirrors[devnum].rdev;
 
 	mbio = bio_clone_fast(bio, GFP_NOIO, mddev->bio_set);
+	mbio->bi_opf &= ~REQ_NOWAIT;
 	if (replacement)
 		r10_bio->devs[n_copy].repl_bio = mbio;
 	else

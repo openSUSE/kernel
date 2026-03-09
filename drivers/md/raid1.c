@@ -1344,6 +1344,7 @@ static void raid1_read_request(struct mddev *mddev, struct bio *bio,
 
 	read_bio = bio_clone_fast(bio, gfp, mddev->bio_set);
 
+	read_bio->bi_opf &= ~REQ_NOWAIT;
 	r1_bio->bios[rdisk] = read_bio;
 
 	read_bio->bi_iter.bi_sector = r1_bio->sector +
@@ -1560,6 +1561,7 @@ static void raid1_write_request(struct mddev *mddev, struct bio *bio,
 				atomic_inc(&r1_bio->behind_remaining);
 		}
 
+		mbio->bi_opf &= ~REQ_NOWAIT;
 		r1_bio->bios[i] = mbio;
 
 		mbio->bi_iter.bi_sector	= (r1_bio->sector +
