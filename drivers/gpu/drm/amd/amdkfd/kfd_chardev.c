@@ -1019,14 +1019,15 @@ static int kfd_ioctl_create_event(struct file *filp, struct kfd_process *p,
 			err = -EINVAL;
 			goto out_unlock;
 		}
-		mutex_unlock(&p->mutex);
 
 		err = kfd->kfd2kgd->map_gtt_bo_to_kernel(kfd->kgd,
 						mem, &kern_addr, &size);
 		if (err) {
 			pr_err("Failed to map event page to kernel\n");
-			return err;
+			goto out_unlock;
 		}
+
+		mutex_unlock(&p->mutex);
 
 		err = kfd_event_page_set(p, kern_addr, size);
 		if (err) {
@@ -1407,13 +1408,13 @@ static int kfd_ioctl_map_memory_to_gpu(struct file *filep,
 		args->n_success = i+1;
 	}
 
-	mutex_unlock(&p->mutex);
-
 	err = dev->kfd2kgd->sync_memory(dev->kgd, (struct kgd_mem *) mem, true);
 	if (err) {
 		pr_debug("Sync memory failed, wait interrupted by user signal\n");
 		goto sync_memory_failed;
 	}
+
+	mutex_unlock(&p->mutex);
 
 	/* Flush TLBs after waiting for the page table updates to complete */
 	for (i = 0; i < args->n_devices; i++) {
@@ -1433,9 +1434,9 @@ static int kfd_ioctl_map_memory_to_gpu(struct file *filep,
 bind_process_to_device_failed:
 get_mem_obj_from_handle_failed:
 map_memory_to_gpu_failed:
+sync_memory_failed:
 	mutex_unlock(&p->mutex);
 copy_from_user_failed:
-sync_memory_failed:
 	kfree(devices_arr);
 
 	return err;
