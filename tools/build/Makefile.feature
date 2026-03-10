@@ -47,7 +47,6 @@ FEATURE_TESTS_BASIC :=                  \
         libperl                         \
         libpython                       \
         libslang                        \
-        libslang-include-subdir         \
         libtraceevent                   \
         libtracefs                      \
         libcrypto                       \
