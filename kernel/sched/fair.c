@@ -5823,6 +5823,11 @@ static inline int throttled_hierarchy(struct cfs_rq *cfs_rq)
 	return cfs_bandwidth_used() && cfs_rq->throttle_count;
 }
 
+static inline int lb_throttled_hierarchy(struct task_struct *p, int dst_cpu)
+{
+	return throttled_hierarchy(task_group(p)->cfs_rq[dst_cpu]);
+}
+
 static inline bool task_is_throttled(struct task_struct *p)
 {
 	return cfs_bandwidth_used() && p->throttled;
@@ -6826,6 +6831,11 @@ static inline bool cfs_rq_pelt_clock_throttled(struct cfs_rq *cfs_rq)
 }
 
 static inline int throttled_hierarchy(struct cfs_rq *cfs_rq)
+{
+	return 0;
+}
+
+static inline int lb_throttled_hierarchy(struct task_struct *p, int dst_cpu)
 {
 	return 0;
 }
@@ -9578,11 +9588,15 @@ int can_migrate_task(struct task_struct *p, struct lb_env *env)
 	/*
 	 * We do not migrate tasks that are:
 	 * 1) delayed dequeued unless we migrate load, or
-	 * 2) cannot be migrated to this CPU due to cpus_ptr, or
-	 * 3) running (obviously), or
-	 * 4) are cache-hot on their current CPU.
+	 * 2) target cfs_rq is in throttled hierarchy, or
+	 * 3) cannot be migrated to this CPU due to cpus_ptr, or
+	 * 4) running (obviously), or
+	 * 5) are cache-hot on their current CPU.
 	 */
 	if ((p->se.sched_delayed) && (env->migration_type != migrate_load))
+		return 0;
+
+	if (lb_throttled_hierarchy(p, env->dst_cpu))
 		return 0;
 
 	/*
