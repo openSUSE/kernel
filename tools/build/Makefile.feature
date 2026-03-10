@@ -50,7 +50,6 @@ FEATURE_TESTS_BASIC :=                  \
         libslang                        \
         libtraceevent                   \
         libtracefs                      \
-        libcrypto                       \
         pthread-attr-setaffinity-np     \
         pthread-barrier     		\
         reallocarray                    \
@@ -117,7 +116,6 @@ FEATURE_DISPLAY ?=              \
          numa_num_possible_cpus \
          libperl                \
          libpython              \
-         libcrypto              \
          libcapstone            \
          llvm-perf              \
          zlib                   \
