@@ -23,25 +23,47 @@ void arch_evsel__set_sample_weight(struct evsel *evsel)
 bool evsel__sys_has_perf_metrics(const struct evsel *evsel)
 {
 	struct perf_pmu *pmu;
-
-	if (!topdown_sys_has_perf_metrics())
-		return false;
+	u32 type = evsel->core.attr.type;
 
 	/*
-	 * The PERF_TYPE_RAW type is the core PMU type, e.g., "cpu" PMU on a
-	 * non-hybrid machine, "cpu_core" PMU on a hybrid machine.  The
-	 * topdown_sys_has_perf_metrics checks the slots event is only available
-	 * for the core PMU, which supports the perf metrics feature. Checking
-	 * both the PERF_TYPE_RAW type and the slots event should be good enough
-	 * to detect the perf metrics feature.
+	 * The PERF_TYPE_RAW type is the core PMU type, e.g., "cpu" PMU
+	 * on a non-hybrid machine, "cpu_core" PMU on a hybrid machine.
+	 * The slots event is only available for the core PMU, which
+	 * supports the perf metrics feature.
+	 * Checking both the PERF_TYPE_RAW type and the slots event
+	 * should be good enough to detect the perf metrics feature.
 	 */
-	pmu = evsel__find_pmu(evsel);
-	return pmu && pmu->type == PERF_TYPE_RAW;
+again:
+	switch (type) {
+	case PERF_TYPE_HARDWARE:
+	case PERF_TYPE_HW_CACHE:
+		type = evsel->core.attr.config >> PERF_PMU_TYPE_SHIFT;
+		if (type)
+			goto again;
+		break;
+	case PERF_TYPE_RAW:
+		break;
+	default:
+		return false;
+	}
+
+	pmu = evsel->pmu;
+	if (pmu && perf_pmu__is_fake(pmu))
+		pmu = NULL;
+
+	if (!pmu) {
+		while ((pmu = perf_pmus__scan_core(pmu)) != NULL) {
+			if (pmu->type == PERF_TYPE_RAW)
+				break;
+		}
+	}
+	return pmu && perf_pmu__have_event(pmu, "slots");
 }
 
 bool arch_evsel__must_be_in_group(const struct evsel *evsel)
 {
-	if (!evsel__sys_has_perf_metrics(evsel))
+	if (!evsel__sys_has_perf_metrics(evsel) || !evsel->name ||
+	    strcasestr(evsel->name, "uops_retired.slots"))
 		return false;
 
 	return arch_is_topdown_metrics(evsel) || arch_is_topdown_slots(evsel);

@@ -454,17 +454,6 @@ static const struct midr_range common_ds_encoding_cpus[] = {
 	MIDR_ALL_VERSIONS(MIDR_NEOVERSE_N2),
 	MIDR_ALL_VERSIONS(MIDR_NEOVERSE_V1),
 	MIDR_ALL_VERSIONS(MIDR_NEOVERSE_V2),
-	MIDR_ALL_VERSIONS(MIDR_NVIDIA_OLYMPUS),
-	{},
-};
-
-static const struct midr_range ampereone_ds_encoding_cpus[] = {
-	MIDR_ALL_VERSIONS(MIDR_AMPERE1A),
-	{},
-};
-
-static const struct midr_range hisi_hip_ds_encoding_cpus[] = {
-	MIDR_ALL_VERSIONS(MIDR_HISI_HIP12),
 	{},
 };
 
@@ -557,138 +546,8 @@ static void arm_spe__synth_data_source_common(const struct arm_spe_record *recor
 	}
 }
 
-/*
- * Source is IMPDEF. Here we convert the source code used on AmpereOne cores
- * to the common (Neoverse, Cortex) to avoid duplicating the decoding code.
- */
-static void arm_spe__synth_data_source_ampereone(const struct arm_spe_record *record,
-						 union perf_mem_data_src *data_src)
-{
-	struct arm_spe_record common_record;
-
-	switch (record->source) {
-	case ARM_SPE_AMPEREONE_LOCAL_CHIP_CACHE_OR_DEVICE:
-		common_record.source = ARM_SPE_COMMON_DS_PEER_CORE;
-		break;
-	case ARM_SPE_AMPEREONE_SLC:
-		common_record.source = ARM_SPE_COMMON_DS_SYS_CACHE;
-		break;
-	case ARM_SPE_AMPEREONE_REMOTE_CHIP_CACHE:
-		common_record.source = ARM_SPE_COMMON_DS_REMOTE;
-		break;
-	case ARM_SPE_AMPEREONE_DDR:
-		common_record.source = ARM_SPE_COMMON_DS_DRAM;
-		break;
-	case ARM_SPE_AMPEREONE_L1D:
-		common_record.source = ARM_SPE_COMMON_DS_L1D;
-		break;
-	case ARM_SPE_AMPEREONE_L2D:
-		common_record.source = ARM_SPE_COMMON_DS_L2;
-		break;
-	default:
-		pr_warning_once("AmpereOne: Unknown data source (0x%x)\n",
-				record->source);
-		return;
-	}
-
-	common_record.op = record->op;
-	arm_spe__synth_data_source_common(&common_record, data_src);
-}
-
-static void arm_spe__synth_data_source_hisi_hip(const struct arm_spe_record *record,
-						union perf_mem_data_src *data_src)
-{
-	/* Use common synthesis method to handle store operations */
-	if (record->op & ARM_SPE_OP_ST) {
-		arm_spe__synth_data_source_common(record, data_src);
-		return;
-	}
-
-	switch (record->source) {
-	case ARM_SPE_HISI_HIP_PEER_CPU:
-		data_src->mem_lvl = PERF_MEM_LVL_L2 | PERF_MEM_LVL_HIT;
-		data_src->mem_lvl_num = PERF_MEM_LVLNUM_L2;
-		data_src->mem_snoopx = PERF_MEM_SNOOPX_PEER;
-		break;
-	case ARM_SPE_HISI_HIP_PEER_CPU_HITM:
-		data_src->mem_lvl = PERF_MEM_LVL_L2 | PERF_MEM_LVL_HIT;
-		data_src->mem_lvl_num = PERF_MEM_LVLNUM_L2;
-		data_src->mem_snoop = PERF_MEM_SNOOP_HITM;
-		data_src->mem_snoopx = PERF_MEM_SNOOPX_PEER;
-		break;
-	case ARM_SPE_HISI_HIP_L3:
-		data_src->mem_lvl = PERF_MEM_LVL_L3 | PERF_MEM_LVL_HIT;
-		data_src->mem_lvl_num = PERF_MEM_LVLNUM_L3;
-		data_src->mem_snoop = PERF_MEM_SNOOP_HIT;
-		break;
-	case ARM_SPE_HISI_HIP_L3_HITM:
-		data_src->mem_lvl = PERF_MEM_LVL_L3 | PERF_MEM_LVL_HIT;
-		data_src->mem_lvl_num = PERF_MEM_LVLNUM_L3;
-		data_src->mem_snoop = PERF_MEM_SNOOP_HITM;
-		break;
-	case ARM_SPE_HISI_HIP_PEER_CLUSTER:
-		data_src->mem_lvl = PERF_MEM_LVL_REM_CCE1 | PERF_MEM_LVL_HIT;
-		data_src->mem_lvl_num = PERF_MEM_LVLNUM_L3;
-		data_src->mem_snoopx = PERF_MEM_SNOOPX_PEER;
-		break;
-	case ARM_SPE_HISI_HIP_PEER_CLUSTER_HITM:
-		data_src->mem_lvl = PERF_MEM_LVL_REM_CCE1 | PERF_MEM_LVL_HIT;
-		data_src->mem_lvl_num = PERF_MEM_LVLNUM_L3;
-		data_src->mem_snoop = PERF_MEM_SNOOP_HITM;
-		data_src->mem_snoopx = PERF_MEM_SNOOPX_PEER;
-		break;
-	case ARM_SPE_HISI_HIP_REMOTE_SOCKET:
-		data_src->mem_lvl = PERF_MEM_LVL_REM_CCE2;
-		data_src->mem_lvl_num = PERF_MEM_LVLNUM_ANY_CACHE;
-		data_src->mem_remote = PERF_MEM_REMOTE_REMOTE;
-		data_src->mem_snoopx = PERF_MEM_SNOOPX_PEER;
-		break;
-	case ARM_SPE_HISI_HIP_REMOTE_SOCKET_HITM:
-		data_src->mem_lvl = PERF_MEM_LVL_REM_CCE2;
-		data_src->mem_lvl_num = PERF_MEM_LVLNUM_ANY_CACHE;
-		data_src->mem_snoop = PERF_MEM_SNOOP_HITM;
-		data_src->mem_remote = PERF_MEM_REMOTE_REMOTE;
-		data_src->mem_snoopx = PERF_MEM_SNOOPX_PEER;
-		break;
-	case ARM_SPE_HISI_HIP_LOCAL_MEM:
-		data_src->mem_lvl = PERF_MEM_LVL_LOC_RAM | PERF_MEM_LVL_HIT;
-		data_src->mem_lvl_num = PERF_MEM_LVLNUM_RAM;
-		data_src->mem_snoop = PERF_MEM_SNOOP_NONE;
-		break;
-	case ARM_SPE_HISI_HIP_REMOTE_MEM:
-		data_src->mem_lvl = PERF_MEM_LVL_REM_RAM1 | PERF_MEM_LVL_HIT;
-		data_src->mem_lvl_num = PERF_MEM_LVLNUM_RAM;
-		data_src->mem_remote = PERF_MEM_REMOTE_REMOTE;
-		break;
-	case ARM_SPE_HISI_HIP_NC_DEV:
-		data_src->mem_lvl = PERF_MEM_LVL_IO | PERF_MEM_LVL_HIT;
-		data_src->mem_lvl_num = PERF_MEM_LVLNUM_IO;
-		data_src->mem_snoop = PERF_MEM_SNOOP_NONE;
-		break;
-	case ARM_SPE_HISI_HIP_L2:
-		data_src->mem_lvl = PERF_MEM_LVL_L2 | PERF_MEM_LVL_HIT;
-		data_src->mem_lvl_num = PERF_MEM_LVLNUM_L2;
-		data_src->mem_snoop = PERF_MEM_SNOOP_NONE;
-		break;
-	case ARM_SPE_HISI_HIP_L2_HITM:
-		data_src->mem_lvl = PERF_MEM_LVL_L2 | PERF_MEM_LVL_HIT;
-		data_src->mem_lvl_num = PERF_MEM_LVLNUM_L2;
-		data_src->mem_snoop = PERF_MEM_SNOOP_HITM;
-		break;
-	case ARM_SPE_HISI_HIP_L1:
-		data_src->mem_lvl = PERF_MEM_LVL_L1 | PERF_MEM_LVL_HIT;
-		data_src->mem_lvl_num = PERF_MEM_LVLNUM_L1;
-		data_src->mem_snoop = PERF_MEM_SNOOP_NONE;
-		break;
-	default:
-		break;
-	}
-}
-
 static const struct data_source_handle data_source_handles[] = {
 	DS(common_ds_encoding_cpus, data_source_common),
-	DS(ampereone_ds_encoding_cpus, data_source_ampereone),
-	DS(hisi_hip_ds_encoding_cpus, data_source_hisi_hip),
 };
 
 static void arm_spe__synth_memory_level(const struct arm_spe_record *record,

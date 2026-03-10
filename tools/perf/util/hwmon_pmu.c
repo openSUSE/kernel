@@ -353,7 +353,7 @@ err_out:
 
 struct perf_pmu *hwmon_pmu__new(struct list_head *pmus, int hwmon_dir, const char *sysfs_name, const char *name)
 {
-	char buf[64];
+	char buf[32];
 	struct hwmon_pmu *hwm;
 
 	hwm = zalloc(sizeof(*hwm));
@@ -738,7 +738,8 @@ int perf_pmus__read_hwmon_pmus(struct list_head *pmus)
 			continue;
 		}
 		io__init(&io, name_fd, buf, sizeof(buf));
-		if (io__getline(&io, &line, &line_len) > 0 && line[line_len - 1] == '\n')
+		io__getline(&io, &line, &line_len);
+		if (line_len > 0 && line[line_len - 1] == '\n')
 			line[line_len - 1] = '\0';
 		hwmon_pmu__new(pmus, hwmon_dir, class_hwmon_ent->d_name, line);
 		close(name_fd);

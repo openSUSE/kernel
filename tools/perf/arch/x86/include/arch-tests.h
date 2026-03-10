@@ -2,8 +2,6 @@
 #ifndef ARCH_TESTS_H
 #define ARCH_TESTS_H
 
-#include "tests/tests.h"
-
 struct test_suite;
 
 /* Tests */
@@ -17,8 +15,6 @@ int test__bp_modify(struct test_suite *test, int subtest);
 int test__x86_sample_parsing(struct test_suite *test, int subtest);
 int test__amd_ibs_via_core_pmu(struct test_suite *test, int subtest);
 int test__hybrid(struct test_suite *test, int subtest);
-
-DECLARE_SUITE(x86_topdown);
 
 extern struct test_suite *arch_tests[];
 

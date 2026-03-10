@@ -1,8 +1,6 @@
 [
     {
-        "ArchStdEvent": "LD_RETIRED",
-        "Errata": "Errata AC04_CPU_21",
-        "BriefDescription": "Instruction architecturally executed, condition code check pass, load. Impacted by errata -"
+        "ArchStdEvent": "LD_RETIRED"
     },
     {
         "ArchStdEvent": "MEM_ACCESS_RD"
