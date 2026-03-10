@@ -3742,7 +3742,7 @@ static int cgroup_stat_show(struct seq_file *seq, void *v)
 		    (cgroup_subsys[ssid]->root !=  &cgrp_dfl_root))
 			continue;
 		css = rcu_dereference_raw(cgroup->subsys[ssid]);
-		dying_cnt[ssid] = cgroup->nr_dying_subsys[ssid];
+		dying_cnt[ssid] = cgroup_extra(cgroup)->nr_dying_subsys[ssid];
 		seq_printf(seq, "nr_subsys_%s %d\n", cgroup_subsys[ssid]->name,
 			   css ? (css->nr_descendants + 1) : 0);
 	}
@@ -5510,7 +5510,7 @@ static void css_release_work_fn(struct work_struct *work)
 		if (ss->css_released)
 			ss->css_released(css);
 
-		cgrp->nr_dying_subsys[ss->id]--;
+		cgroup_extra(cgrp)->nr_dying_subsys[ss->id]--;
 		/*
 		 * When a css is released and ready to be freed, its
 		 * nr_descendants must be zero. However, the corresponding
@@ -5521,7 +5521,7 @@ static void css_release_work_fn(struct work_struct *work)
 		WARN_ON_ONCE(css->nr_descendants);
 		parent_cgrp = cgroup_parent(cgrp);
 		while (parent_cgrp) {
-			parent_cgrp->nr_dying_subsys[ss->id]--;
+			cgroup_extra(parent_cgrp)->nr_dying_subsys[ss->id]--;
 			parent_cgrp = cgroup_parent(parent_cgrp);
 		}
 	} else {
@@ -5635,14 +5635,14 @@ static void offline_css(struct cgroup_subsys_state *css)
 
 	wake_up_all(&css->cgroup->offline_waitq);
 
-	css->cgroup->nr_dying_subsys[ss->id]++;
+	cgroup_extra(css->cgroup)->nr_dying_subsys[ss->id]++;
 	/*
 	 * Parent css and cgroup cannot be freed until after the freeing
 	 * of child css, see css_free_rwork_fn().
 	 */
 	while ((css = css->parent)) {
 		css->nr_descendants--;
-		css->cgroup->nr_dying_subsys[ss->id]++;
+		cgroup_extra(css->cgroup)->nr_dying_subsys[ss->id]++;
 	}
 }
 
