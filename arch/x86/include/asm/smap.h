@@ -20,10 +20,10 @@
 #ifdef __ASSEMBLY__
 
 #define ASM_CLAC \
-	ALTERNATIVE __stringify(ANNOTATE_IGNORE_ALTERNATIVE), __ASM_CLAC, X86_FEATURE_SMAP
+	ALTERNATIVE "", __ASM_CLAC, X86_FEATURE_SMAP
 
 #define ASM_STAC \
-	ALTERNATIVE __stringify(ANNOTATE_IGNORE_ALTERNATIVE), __ASM_STAC, X86_FEATURE_SMAP
+	ALTERNATIVE "", __ASM_STAC, X86_FEATURE_SMAP
 
 #else /* __ASSEMBLY__ */
 
@@ -42,12 +42,12 @@
  */
 static __always_inline void clac(void)
 {
-	alternative(ANNOTATE_IGNORE_ALTERNATIVE "", __ASM_CLAC, X86_FEATURE_SMAP);
+	alternative("", __ASM_CLAC, X86_FEATURE_SMAP);
 }
 
 static __always_inline void stac(void)
 {
-	alternative(ANNOTATE_IGNORE_ALTERNATIVE "", __ASM_STAC, X86_FEATURE_SMAP);
+	alternative("", __ASM_STAC, X86_FEATURE_SMAP);
 }
 
 /*
@@ -76,6 +76,7 @@ static __always_inline void lass_stac(void)
 }
 
 
+
 static __always_inline unsigned long smap_save(void)
 {
 	unsigned long flags;
@@ -99,9 +100,9 @@ static __always_inline void smap_restore(unsigned long flags)
 
 /* These macros can be used in asm() statements */
 #define ASM_CLAC \
-	ALTERNATIVE(ANNOTATE_IGNORE_ALTERNATIVE "", __ASM_CLAC, X86_FEATURE_SMAP)
+	ALTERNATIVE("", __ASM_CLAC, X86_FEATURE_SMAP)
 #define ASM_STAC \
-	ALTERNATIVE(ANNOTATE_IGNORE_ALTERNATIVE "", __ASM_STAC, X86_FEATURE_SMAP)
+	ALTERNATIVE("", __ASM_STAC, X86_FEATURE_SMAP)
 
 #define ASM_CLAC_UNSAFE \
 	ALTERNATIVE("", ANNOTATE_IGNORE_ALTERNATIVE __ASM_CLAC, X86_FEATURE_SMAP)
