@@ -343,7 +343,7 @@ int iwl_mld_load_fw(struct iwl_mld *mld)
 
 	ret = iwl_trans_start_hw(mld->trans);
 	if (ret)
-		goto err;
+		return ret;
 
 	ret = iwl_mld_run_fw_init_sequence(mld);
 	if (ret)

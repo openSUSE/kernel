@@ -305,14 +305,6 @@ __iwl_mvm_mld_assign_vif_chanctx(struct iwl_mvm *mvm,
 			goto out;
 	}
 
-	/* then activate */
-	ret = iwl_mvm_link_changed(mvm, vif, link_conf,
-				   LINK_CONTEXT_MODIFY_ACTIVE |
-				   LINK_CONTEXT_MODIFY_RATES_INFO,
-				   true);
-	if (ret)
-		goto out;
-
 	if (vif->type == NL80211_IFTYPE_STATION)
 		iwl_mvm_send_ap_tx_power_constraint_cmd(mvm, vif,
 							link_conf,
