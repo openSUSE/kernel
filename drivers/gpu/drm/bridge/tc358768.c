@@ -1091,7 +1091,8 @@ static void tc358768_bridge_atomic_pre_enable(struct drm_bridge *bridge,
 	/* Configure DSI_Control register */
 	val = (dsi_dev->lanes - 1) << 1;
 
-	val |= TC358768_DSI_CONTROL_TXMD;
+	if (!(dsi_dev->mode_flags & MIPI_DSI_MODE_LPM))
+		val |= TC358768_DSI_CONTROL_TXMD;
 
 	if (!(dsi_dev->mode_flags & MIPI_DSI_CLOCK_NON_CONTINUOUS))
 		val |= TC358768_DSI_CONTROL_HSCKMD;
@@ -1122,6 +1123,11 @@ static void tc358768_bridge_atomic_enable(struct drm_bridge *bridge,
 		dev_err(priv->dev, "Bridge is not enabled\n");
 		return;
 	}
+
+	/* Enable HS mode for video TX */
+	tc358768_confw_update_bits(priv, TC358768_DSI_CONTROL,
+				   TC358768_DSI_CONTROL_TXMD,
+				   TC358768_DSI_CONTROL_TXMD);
 
 	/* clear FrmStop and RstPtr */
 	tc358768_update_bits(priv, TC358768_PP_MISC, 0x3 << 14, 0);
