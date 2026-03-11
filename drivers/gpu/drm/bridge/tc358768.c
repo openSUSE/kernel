@@ -123,7 +123,7 @@
 /* TC358768_DSI_CONFW (0x0500) register */
 #define TC358768_DSI_CONFW_MODE_SET	(5 << 29)
 #define TC358768_DSI_CONFW_MODE_CLR	(6 << 29)
-#define TC358768_DSI_CONFW_ADDR_DSI_CONTROL	(0x3 << 24)
+#define TC358768_DSI_CONFW_ADDR(x)	((x) << 24)
 
 /* TC358768_DSICMD_TX (0x0600) register */
 #define TC358768_DSI_CMDTX_DC_START	BIT(0)
@@ -230,6 +230,36 @@ static void tc358768_update_bits(struct tc358768_priv *priv, u32 reg, u32 mask,
 	tmp |= val & mask;
 	if (tmp != orig)
 		tc358768_write(priv, reg, tmp);
+}
+
+static void tc358768_confw_update_bits(struct tc358768_priv *priv, u16 reg,
+				       u16 mask, u16 val)
+{
+	u8 confw_addr;
+	u32 confw_val;
+
+	switch (reg) {
+	case TC358768_DSI_CONTROL:
+		confw_addr = 0x3;
+		break;
+	default:
+		priv->error = -EINVAL;
+		return;
+	}
+
+	if (mask != val) {
+		confw_val = TC358768_DSI_CONFW_MODE_CLR |
+			TC358768_DSI_CONFW_ADDR(confw_addr) |
+			mask;
+		tc358768_write(priv, TC358768_DSI_CONFW, confw_val);
+	}
+
+	if (val & mask) {
+		confw_val = TC358768_DSI_CONFW_MODE_SET |
+			TC358768_DSI_CONFW_ADDR(confw_addr) |
+			(val & mask);
+		tc358768_write(priv, TC358768_DSI_CONFW, confw_val);
+	}
 }
 
 static void tc358768_dsicmd_tx(struct tc358768_priv *priv)
@@ -693,7 +723,7 @@ static void tc358768_bridge_atomic_pre_enable(struct drm_bridge *bridge,
 	struct tc358768_priv *priv = bridge_to_tc358768(bridge);
 	struct mipi_dsi_device *dsi_dev = priv->output.dev;
 	unsigned long mode_flags = dsi_dev->mode_flags;
-	u32 val, val2, lptxcnt, hact, data_type;
+	u32 val, mask, val2, lptxcnt, hact, data_type;
 	s32 raw_val;
 	struct drm_crtc_state *crtc_state;
 	struct drm_connector_state *conn_state;
@@ -1065,13 +1095,7 @@ static void tc358768_bridge_atomic_pre_enable(struct drm_bridge *bridge,
 	tc358768_write(priv, TC358768_DSI_START, 0x1);
 
 	/* Configure DSI_Control register */
-	val = TC358768_DSI_CONFW_MODE_CLR | TC358768_DSI_CONFW_ADDR_DSI_CONTROL;
-	val |= TC358768_DSI_CONTROL_TXMD | TC358768_DSI_CONTROL_HSCKMD |
-	       0x3 << 1 | TC358768_DSI_CONTROL_EOTDIS;
-	tc358768_write(priv, TC358768_DSI_CONFW, val);
-
-	val = TC358768_DSI_CONFW_MODE_SET | TC358768_DSI_CONFW_ADDR_DSI_CONTROL;
-	val |= (dsi_dev->lanes - 1) << 1;
+	val = (dsi_dev->lanes - 1) << 1;
 
 	val |= TC358768_DSI_CONTROL_TXMD;
 
@@ -1081,11 +1105,13 @@ static void tc358768_bridge_atomic_pre_enable(struct drm_bridge *bridge,
 	if (dsi_dev->mode_flags & MIPI_DSI_MODE_NO_EOT_PACKET)
 		val |= TC358768_DSI_CONTROL_EOTDIS;
 
-	tc358768_write(priv, TC358768_DSI_CONFW, val);
+	mask = TC358768_DSI_CONTROL_TXMD | TC358768_DSI_CONTROL_HSCKMD |
+	       0x3 << 1 | TC358768_DSI_CONTROL_EOTDIS;
 
-	val = TC358768_DSI_CONFW_MODE_CLR | TC358768_DSI_CONFW_ADDR_DSI_CONTROL;
-	val |= TC358768_DSI_CONTROL_DSI_MODE;
-	tc358768_write(priv, TC358768_DSI_CONFW, val);
+	tc358768_confw_update_bits(priv, TC358768_DSI_CONTROL, mask, val);
+
+	tc358768_confw_update_bits(priv, TC358768_DSI_CONTROL,
+				   TC358768_DSI_CONTROL_DSI_MODE, 0);
 
 	ret = tc358768_clear_error(priv);
 	if (ret)
