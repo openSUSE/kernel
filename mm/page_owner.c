@@ -168,6 +168,9 @@ static void add_stack_record_to_list(struct stack_record *stack_record,
 	unsigned long flags;
 	struct stack *stack;
 
+	if (!gfpflags_allow_spinning(gfp_mask))
+		return;
+
 	set_current_in_page_owner();
 	stack = kmalloc(sizeof(*stack), gfp_nested_mask(gfp_mask));
 	if (!stack) {
@@ -294,7 +297,13 @@ void __reset_page_owner(struct page *page, unsigned short order)
 	page_owner = get_page_owner(page_ext);
 	alloc_handle = page_owner->handle;
 
-	handle = save_stack(GFP_NOWAIT | __GFP_NOWARN);
+	/*
+	 * Do not specify GFP_NOWAIT to make gfpflags_allow_spinning() == false
+	 * to prevent issues in stack_depot_save().
+	 * This is similar to alloc_pages_nolock() gfp flags, but only used
+	 * to signal stack_depot to avoid spin_locks.
+	 */
+	handle = save_stack(__GFP_NOWARN);
 	__update_page_owner_free_handle(page_ext, handle, order, current->pid,
 					current->tgid, free_ts_nsec);
 	page_ext_put(page_ext);

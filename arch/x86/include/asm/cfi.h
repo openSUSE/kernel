@@ -71,12 +71,10 @@
  *
  * __cfi_foo:
  *   endbr64
- *   subl 0x12345678, %r10d
- *   jz   foo
- *   ud2
- *   nop
+ *   subl 0x12345678, %eax
+ *   jne.32,pn foo+3
  * foo:
- *   osp nop3			# was endbr64
+ *   nopl -42(%rax)		# was endbr64
  *   ... code here ...
  *   ret
  *
@@ -86,9 +84,9 @@
  * indirect caller:
  *   lea foo(%rip), %r11
  *   ...
- *   movl $0x12345678, %r10d
- *   subl $16, %r11
- *   nop4
+ *   movl $0x12345678, %eax
+ *   lea  -0x10(%r11), %r11
+ *   nop5
  *   call *%r11
  *
  */
@@ -111,8 +109,6 @@ struct pt_regs;
 #ifdef CONFIG_CFI_CLANG
 enum bug_trap_type handle_cfi_failure(struct pt_regs *regs);
 #define __bpfcall
-extern u32 cfi_bpf_hash;
-extern u32 cfi_bpf_subprog_hash;
 
 static inline int cfi_get_offset(void)
 {
@@ -130,6 +126,8 @@ static inline int cfi_get_offset(void)
 #define cfi_get_offset cfi_get_offset
 
 extern u32 cfi_get_func_hash(void *func);
+#define cfi_get_func_hash cfi_get_func_hash
+
 extern int cfi_get_func_arity(void *func);
 
 #ifdef CONFIG_FINEIBT
@@ -147,12 +145,6 @@ decode_fineibt_insn(struct pt_regs *regs, unsigned long *target, u32 *type)
 static inline enum bug_trap_type handle_cfi_failure(struct pt_regs *regs)
 {
 	return BUG_TRAP_TYPE_NONE;
-}
-#define cfi_bpf_hash 0U
-#define cfi_bpf_subprog_hash 0U
-static inline u32 cfi_get_func_hash(void *func)
-{
-	return 0;
 }
 static inline int cfi_get_func_arity(void *func)
 {

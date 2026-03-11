@@ -24,8 +24,25 @@
 extern "C" {
 #endif
 
+/**
+ * @brief **libbpf_major_version()** provides the major version of libbpf.
+ * @return An integer, the major version number
+ */
 LIBBPF_API __u32 libbpf_major_version(void);
+
+/**
+ * @brief **libbpf_minor_version()** provides the minor version of libbpf.
+ * @return An integer, the minor version number
+ */
 LIBBPF_API __u32 libbpf_minor_version(void);
+
+/**
+ * @brief **libbpf_version_string()** provides the version of libbpf in a
+ * human-readable form, e.g., "v1.7".
+ * @return Pointer to a static string containing the version
+ *
+ * The format is *not* a part of a stable API and may change in the future.
+ */
 LIBBPF_API const char *libbpf_version_string(void);
 
 enum libbpf_errno {
@@ -49,6 +66,14 @@ enum libbpf_errno {
 	__LIBBPF_ERRNO__END,
 };
 
+/**
+ * @brief **libbpf_strerror()** converts the provided error code into a
+ * human-readable string.
+ * @param err The error code to convert
+ * @param buf Pointer to a buffer where the error message will be stored
+ * @param size The number of bytes in the buffer
+ * @return 0, on success; negative error code, otherwise
+ */
 LIBBPF_API int libbpf_strerror(int err, char *buf, size_t size);
 
 /**
@@ -240,6 +265,19 @@ bpf_object__open_file(const char *path, const struct bpf_object_open_opts *opts)
 LIBBPF_API struct bpf_object *
 bpf_object__open_mem(const void *obj_buf, size_t obj_buf_sz,
 		     const struct bpf_object_open_opts *opts);
+
+/**
+ * @brief **bpf_object__prepare()** prepares BPF object for loading:
+ * performs ELF processing, relocations, prepares final state of BPF program
+ * instructions (accessible with bpf_program__insns()), creates and
+ * (potentially) pins maps. Leaves BPF object in the state ready for program
+ * loading.
+ * @param obj Pointer to a valid BPF object instance returned by
+ * **bpf_object__open*()** API
+ * @return 0, on success; negative error code, otherwise, error code is
+ * stored in errno
+ */
+LIBBPF_API int bpf_object__prepare(struct bpf_object *obj);
 
 /**
  * @brief **bpf_object__load()** loads BPF object into kernel.
@@ -486,9 +524,11 @@ struct bpf_perf_event_opts {
 	__u64 bpf_cookie;
 	/* don't use BPF link when attach BPF program */
 	bool force_ioctl_attach;
+	/* don't automatically enable the event */
+	bool dont_enable;
 	size_t :0;
 };
-#define bpf_perf_event_opts__last_field force_ioctl_attach
+#define bpf_perf_event_opts__last_field dont_enable
 
 LIBBPF_API struct bpf_link *
 bpf_program__attach_perf_event(const struct bpf_program *prog, int pfd);
@@ -552,10 +592,12 @@ struct bpf_kprobe_multi_opts {
 	bool retprobe;
 	/* create session kprobes */
 	bool session;
+	/* enforce unique match */
+	bool unique_match;
 	size_t :0;
 };
 
-#define bpf_kprobe_multi_opts__last_field session
+#define bpf_kprobe_multi_opts__last_field unique_match
 
 LIBBPF_API struct bpf_link *
 bpf_program__attach_kprobe_multi_opts(const struct bpf_program *prog,
@@ -862,6 +904,21 @@ LIBBPF_API struct bpf_link *
 bpf_program__attach_netkit(const struct bpf_program *prog, int ifindex,
 			   const struct bpf_netkit_opts *opts);
 
+struct bpf_cgroup_opts {
+	/* size of this struct, for forward/backward compatibility */
+	size_t sz;
+	__u32 flags;
+	__u32 relative_fd;
+	__u32 relative_id;
+	__u64 expected_revision;
+	size_t :0;
+};
+#define bpf_cgroup_opts__last_field expected_revision
+
+LIBBPF_API struct bpf_link *
+bpf_program__attach_cgroup_opts(const struct bpf_program *prog, int cgroup_fd,
+				const struct bpf_cgroup_opts *opts);
+
 struct bpf_map;
 
 LIBBPF_API struct bpf_link *bpf_map__attach_struct_ops(const struct bpf_map *map);
@@ -924,6 +981,12 @@ LIBBPF_API __u32 bpf_program__log_level(const struct bpf_program *prog);
 LIBBPF_API int bpf_program__set_log_level(struct bpf_program *prog, __u32 log_level);
 LIBBPF_API const char *bpf_program__log_buf(const struct bpf_program *prog, size_t *log_size);
 LIBBPF_API int bpf_program__set_log_buf(struct bpf_program *prog, char *log_buf, size_t log_size);
+
+LIBBPF_API struct bpf_func_info *bpf_program__func_info(const struct bpf_program *prog);
+LIBBPF_API __u32 bpf_program__func_info_cnt(const struct bpf_program *prog);
+
+LIBBPF_API struct bpf_line_info *bpf_program__line_info(const struct bpf_program *prog);
+LIBBPF_API __u32 bpf_program__line_info_cnt(const struct bpf_program *prog);
 
 /**
  * @brief **bpf_program__set_attach_target()** sets BTF-based attach target
@@ -1796,9 +1859,14 @@ struct bpf_linker_file_opts {
 struct bpf_linker;
 
 LIBBPF_API struct bpf_linker *bpf_linker__new(const char *filename, struct bpf_linker_opts *opts);
+LIBBPF_API struct bpf_linker *bpf_linker__new_fd(int fd, struct bpf_linker_opts *opts);
 LIBBPF_API int bpf_linker__add_file(struct bpf_linker *linker,
 				    const char *filename,
 				    const struct bpf_linker_file_opts *opts);
+LIBBPF_API int bpf_linker__add_fd(struct bpf_linker *linker, int fd,
+				  const struct bpf_linker_file_opts *opts);
+LIBBPF_API int bpf_linker__add_buf(struct bpf_linker *linker, void *buf, size_t buf_sz,
+				   const struct bpf_linker_file_opts *opts);
 LIBBPF_API int bpf_linker__finalize(struct bpf_linker *linker);
 LIBBPF_API void bpf_linker__free(struct bpf_linker *linker);
 

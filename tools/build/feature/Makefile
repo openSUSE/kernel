@@ -335,27 +335,6 @@ $(OUTPUT)test-bpf.bin:
 $(OUTPUT)test-libbpf.bin:
 	$(BUILD) -lbpf
 
-$(OUTPUT)test-libbpf-btf__load_from_kernel_by_id.bin:
-	$(BUILD) -lbpf
-
-$(OUTPUT)test-libbpf-bpf_prog_load.bin:
-	$(BUILD) -lbpf
-
-$(OUTPUT)test-libbpf-bpf_map_create.bin:
-	$(BUILD) -lbpf
-
-$(OUTPUT)test-libbpf-bpf_object__next_program.bin:
-	$(BUILD) -lbpf
-
-$(OUTPUT)test-libbpf-bpf_object__next_map.bin:
-	$(BUILD) -lbpf
-
-$(OUTPUT)test-libbpf-bpf_program__set_insns.bin:
-	$(BUILD) -lbpf
-
-$(OUTPUT)test-libbpf-btf__raw_data.bin:
-	$(BUILD) -lbpf
-
 $(OUTPUT)test-sdt.bin:
 	$(BUILD)
 
@@ -414,6 +393,9 @@ $(OUTPUT)test-file-handle.bin:
 $(OUTPUT)test-libpfm4.bin:
 	$(BUILD) -lpfm
 
+$(OUTPUT)test-bpftool-skeletons.bin:
+	$(SYSTEM_BPFTOOL) version | grep '^features:.*skeletons' \
+		> $(@:.bin=.make.output) 2>&1
 ###############################
 
 clean:
