@@ -275,12 +275,13 @@ static int intel_bts_synth_branch_sample(struct intel_bts_queue *btsq,
 	int ret;
 	struct intel_bts *bts = btsq->bts;
 	union perf_event event;
-	struct perf_sample sample = { .ip = 0, };
+	struct perf_sample sample;
 
 	if (bts->synth_opts.initial_skip &&
 	    bts->num_events++ <= bts->synth_opts.initial_skip)
 		return 0;
 
+	perf_sample__init(&sample, /*all=*/true);
 	sample.ip = le64_to_cpu(branch->from);
 	sample.cpumode = intel_bts_cpumode(bts, sample.ip);
 	sample.pid = btsq->pid;
@@ -312,6 +313,7 @@ static int intel_bts_synth_branch_sample(struct intel_bts_queue *btsq,
 		pr_err("Intel BTS: failed to deliver branch event, error %d\n",
 		       ret);
 
+	perf_sample__exit(&sample);
 	return ret;
 }
 
@@ -775,9 +777,7 @@ static int intel_bts_synth_events(struct intel_bts *bts,
 	attr.sample_id_all = evsel->core.attr.sample_id_all;
 	attr.read_format = evsel->core.attr.read_format;
 
-	id = evsel->core.id[0] + 1000000000;
-	if (!id)
-		id = 1;
+	id = auxtrace_synth_id_range_start(evsel);
 
 	if (bts->synth_opts.branches) {
 		attr.config = PERF_COUNT_HW_BRANCH_INSTRUCTIONS;

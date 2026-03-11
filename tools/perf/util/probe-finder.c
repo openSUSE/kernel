@@ -35,6 +35,19 @@
 /* Kprobe tracer basic type is up to u64 */
 #define MAX_BASIC_TYPE_BITS	64
 
+bool is_known_C_lang(int lang)
+{
+	switch (lang) {
+	case DW_LANG_C89:
+	case DW_LANG_C:
+	case DW_LANG_C99:
+	case DW_LANG_C11:
+		return true;
+	default:
+		return false;
+	}
+}
+
 /*
  * Probe finder related functions
  */
@@ -835,7 +848,6 @@ static int probe_point_lazy_walker(const char *fname, int lineno,
 /* Find probe points from lazy pattern  */
 static int find_probe_point_lazy(Dwarf_Die *sp_die, struct probe_finder *pf)
 {
-	struct build_id bid;
 	char sbuild_id[SBUILD_ID_SIZE] = "";
 	int ret = 0;
 	char *fpath;
@@ -845,8 +857,10 @@ static int find_probe_point_lazy(Dwarf_Die *sp_die, struct probe_finder *pf)
 
 		comp_dir = cu_get_comp_dir(&pf->cu_die);
 		if (pf->dbg->build_id) {
+			struct build_id bid;
+
 			build_id__init(&bid, pf->dbg->build_id, BUILD_ID_SIZE);
-			build_id__sprintf(&bid, sbuild_id);
+			build_id__snprintf(&bid, sbuild_id, sizeof(sbuild_id));
 		}
 		ret = find_source_path(pf->fname, sbuild_id, comp_dir, &fpath);
 		if (ret < 0) {
@@ -960,6 +974,7 @@ static int probe_point_search_cb(Dwarf_Die *sp_die, void *data)
 	pr_debug("Matched function: %s [%lx]\n", dwarf_diename(sp_die),
 		 (unsigned long)dwarf_dieoffset(sp_die));
 	pf->fname = fname;
+	pf->abstrace_dieoffset = dwarf_dieoffset(sp_die);
 	if (pp->line) { /* Function relative line */
 		dwarf_decl_line(sp_die, &pf->lno);
 		pf->lno += pp->line;
@@ -1166,6 +1181,8 @@ static int copy_variables_cb(Dwarf_Die *die_mem, void *data)
 	struct local_vars_finder *vf = data;
 	struct probe_finder *pf = vf->pf;
 	int tag;
+	Dwarf_Attribute attr;
+	Dwarf_Die var_die;
 
 	tag = dwarf_tag(die_mem);
 	if (tag == DW_TAG_formal_parameter ||
@@ -1183,10 +1200,22 @@ static int copy_variables_cb(Dwarf_Die *die_mem, void *data)
 		}
 	}
 
-	if (dwarf_haspc(die_mem, vf->pf->addr))
+	if (dwarf_haspc(die_mem, vf->pf->addr)) {
+		/*
+		 * when DW_AT_entry_pc contains instruction address,
+		 * also check if the DW_AT_abstract_origin of die_mem
+		 * points to correct die.
+		 */
+		if (dwarf_attr(die_mem, DW_AT_abstract_origin, &attr)) {
+			dwarf_formref_die(&attr, &var_die);
+			if (pf->abstrace_dieoffset != dwarf_dieoffset(&var_die))
+				goto out;
+		}
 		return DIE_FIND_CB_CONTINUE;
-	else
-		return DIE_FIND_CB_SIBLING;
+	}
+
+out:
+	return DIE_FIND_CB_SIBLING;
 }
 
 static int expand_probe_args(Dwarf_Die *sc_die, struct probe_finder *pf,
@@ -1269,6 +1298,8 @@ static int add_probe_trace_event(Dwarf_Die *sc_die, struct probe_finder *pf)
 		ret = -ENOMEM;
 		goto end;
 	}
+
+	tev->lang = dwarf_srclang(dwarf_diecu(sc_die, &pf->cu_die, NULL, NULL));
 
 	pr_debug("Probe point found: %s+%lu\n", tev->point.symbol,
 		 tev->point.offset);

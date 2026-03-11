@@ -1020,12 +1020,12 @@ static int process_base_stream(struct data__file *data_base,
 			continue;
 
 		es_base = evsel_streams__entry(data_base->evlist_streams,
-					       evsel_base->core.idx);
+					       evsel_base);
 		if (!es_base)
 			return -1;
 
 		es_pair = evsel_streams__entry(data_pair->evlist_streams,
-					       evsel_pair->core.idx);
+					       evsel_pair);
 		if (!es_pair)
 			return -1;
 
@@ -2003,7 +2003,7 @@ int cmd_diff(int argc, const char **argv)
 		sort__mode = SORT_MODE__DIFF;
 	}
 
-	if (setup_sorting(NULL) < 0)
+	if (setup_sorting(/*evlist=*/NULL, perf_session__env(data__files[0].session)) < 0)
 		usage_with_options(diff_usage, options);
 
 	setup_pager();

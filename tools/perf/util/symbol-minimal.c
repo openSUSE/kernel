@@ -42,7 +42,7 @@ static int read_build_id(void *note_data, size_t note_len, struct build_id *bid,
 	void *ptr;
 
 	ptr = note_data;
-	while (ptr < (note_data + note_len)) {
+	while ((ptr + sizeof(*nhdr)) < (note_data + note_len)) {
 		const char *name;
 		size_t namesz, descsz;
 
@@ -101,6 +101,13 @@ int filename__read_build_id(const char *filename, struct build_id *bid)
 	} hdrs;
 	void *phdr, *buf = NULL;
 	ssize_t phdr_size, ehdr_size, buf_size = 0;
+
+	if (!filename)
+		return -EFAULT;
+
+	errno = 0;
+	if (!is_regular_file(filename))
+		return errno == 0 ? -EWOULDBLOCK : -errno;
 
 	fd = open(filename, O_RDONLY);
 	if (fd < 0)
@@ -316,7 +323,7 @@ int dso__load_sym(struct dso *dso, struct map *map __maybe_unused,
 		  struct symsrc *runtime_ss __maybe_unused,
 		  int kmodule __maybe_unused)
 {
-	struct build_id bid;
+	struct build_id bid = { .size = 0, };
 	int ret;
 
 	ret = fd__is_64_bit(ss->fd);
@@ -352,13 +359,6 @@ int kcore_copy(const char *from_dir __maybe_unused,
 
 void symbol__elf_init(void)
 {
-}
-
-char *dso__demangle_sym(struct dso *dso __maybe_unused,
-			int kmodule __maybe_unused,
-			const char *elf_name __maybe_unused)
-{
-	return NULL;
 }
 
 bool filename__has_section(const char *filename __maybe_unused, const char *sec __maybe_unused)

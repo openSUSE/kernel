@@ -34,6 +34,7 @@ enum type_state_kind {
 	TSR_KIND_TYPE,
 	TSR_KIND_PERCPU_BASE,
 	TSR_KIND_CONST,
+	TSR_KIND_PERCPU_POINTER,
 	TSR_KIND_POINTER,
 	TSR_KIND_CANARY,
 };
@@ -173,6 +174,12 @@ extern struct annotated_data_stat ann_data_stat;
 struct type_state_reg {
 	Dwarf_Die type;
 	u32 imm_value;
+	/*
+	 * The offset within the struct that the register points to.
+	 * A value of 0 means the register points to the beginning.
+	 * type_offset = op->offset + reg->offset
+	 */
+	s32 offset;
 	bool ok;
 	bool caller_saved;
 	u8 kind;
@@ -184,17 +191,22 @@ struct type_state_stack {
 	struct list_head list;
 	Dwarf_Die type;
 	int offset;
+	/* pointer offset, saves tsr->offset on the stack state */
+	int ptr_offset;
 	int size;
 	bool compound;
 	u8 kind;
 };
 
-/* FIXME: This should be arch-dependent */
-#ifdef __powerpc__
+/*
+ * Maximum number of registers tracked in type_state.
+ *
+ * This limit must cover all supported architectures, since perf
+ * may analyze perf.data files generated on systems with a different
+ * register set. Use 32 as a safe upper bound instead of relying on
+ * build-arch specific values.
+ */
 #define TYPE_STATE_MAX_REGS  32
-#else
-#define TYPE_STATE_MAX_REGS  16
-#endif
 
 /*
  * State table to maintain type info in each register and stack location.
@@ -227,14 +239,20 @@ void annotated_data_type__tree_delete(struct rb_root *root);
 /* Release all global variable information in the tree */
 void global_var_type__tree_delete(struct rb_root *root);
 
+/* Print data type annotation (including members) on stdout */
 int hist_entry__annotate_data_tty(struct hist_entry *he, struct evsel *evsel);
+
+/* Get name of member field at the given offset in the data type */
+int annotated_data_type__get_member_name(struct annotated_data_type *adt,
+					 char *buf, size_t sz, int member_offset);
 
 bool has_reg_type(struct type_state *state, int reg);
 struct type_state_stack *findnew_stack_state(struct type_state *state,
 						int offset, u8 kind,
-						Dwarf_Die *type_die);
+						Dwarf_Die *type_die,
+						int ptr_offset);
 void set_stack_state(struct type_state_stack *stack, int offset, u8 kind,
-				Dwarf_Die *type_die);
+				Dwarf_Die *type_die, int ptr_offset);
 struct type_state_stack *find_stack_state(struct type_state *state,
 						int offset);
 bool get_global_var_type(Dwarf_Die *cu_die, struct data_loc_info *dloc,
@@ -272,6 +290,14 @@ static inline void global_var_type__tree_delete(struct rb_root *root __maybe_unu
 
 static inline int hist_entry__annotate_data_tty(struct hist_entry *he __maybe_unused,
 						struct evsel *evsel __maybe_unused)
+{
+	return -1;
+}
+
+static inline int annotated_data_type__get_member_name(struct annotated_data_type *adt __maybe_unused,
+						       char *buf __maybe_unused,
+						       size_t sz __maybe_unused,
+						       int member_offset __maybe_unused)
 {
 	return -1;
 }

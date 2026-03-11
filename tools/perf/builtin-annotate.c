@@ -313,7 +313,8 @@ out_put:
 	return ret;
 }
 
-static int process_feature_event(struct perf_session *session,
+static int process_feature_event(const struct perf_tool *tool __maybe_unused,
+				 struct perf_session *session,
 				 union perf_event *event)
 {
 	if (event->feat.feat_id < HEADER_LAST_FEATURE)
@@ -321,14 +322,14 @@ static int process_feature_event(struct perf_session *session,
 	return 0;
 }
 
-static int hist_entry__tty_annotate(struct hist_entry *he,
+static int hist_entry__stdio_annotate(struct hist_entry *he,
 				    struct evsel *evsel,
 				    struct perf_annotate *ann)
 {
-	if (!ann->use_stdio2)
-		return symbol__tty_annotate(&he->ms, evsel);
+	if (ann->use_stdio2)
+		return hist_entry__tty_annotate2(he, evsel);
 
-	return symbol__tty_annotate2(&he->ms, evsel);
+	return hist_entry__tty_annotate(he, evsel);
 }
 
 static void print_annotate_data_stat(struct annotated_data_stat *s)
@@ -519,7 +520,7 @@ find_next:
 			/* skip missing symbols */
 			nd = rb_next(nd);
 		} else if (use_browser == 1) {
-			key = hist_entry__tui_annotate(he, evsel, NULL);
+			key = hist_entry__tui_annotate(he, evsel, NULL, NO_ADDR);
 
 			switch (key) {
 			case -1:
@@ -541,7 +542,7 @@ find_next:
 			if (next != NULL)
 				nd = next;
 		} else {
-			hist_entry__tty_annotate(he, evsel, ann);
+			hist_entry__stdio_annotate(he, evsel, ann);
 			nd = rb_next(nd);
 		}
 	}
@@ -562,7 +563,7 @@ static int __cmd_annotate(struct perf_annotate *ann)
 	}
 
 	if (!annotate_opts.objdump_path) {
-		ret = perf_env__lookup_objdump(&session->header.env,
+		ret = perf_env__lookup_objdump(perf_session__env(session),
 					       &annotate_opts.objdump_path);
 		if (ret)
 			goto out;
@@ -788,6 +789,8 @@ int cmd_annotate(int argc, const char **argv)
 		    "Show instruction stats for the data type annotation"),
 	OPT_BOOLEAN(0, "skip-empty", &symbol_conf.skip_empty,
 		    "Do not display empty (or dummy) events in the output"),
+	OPT_BOOLEAN(0, "code-with-type", &annotate_opts.code_with_type,
+		    "Show data type info in code annotation (memory instructions only)"),
 	OPT_END()
 	};
 	int ret;
@@ -894,7 +897,7 @@ int cmd_annotate(int argc, const char **argv)
 
 	symbol_conf.try_vmlinux_path = true;
 
-	ret = symbol__init(&annotate.session->header.env);
+	ret = symbol__init(perf_session__env(annotate.session));
 	if (ret < 0)
 		goto out_delete;
 
@@ -913,6 +916,8 @@ int cmd_annotate(int argc, const char **argv)
 		annotate_opts.annotate_src = false;
 		symbol_conf.annotate_data_member = true;
 		symbol_conf.annotate_data_sample = true;
+	} else if (annotate_opts.code_with_type) {
+		symbol_conf.annotate_data_member = true;
 	}
 
 	setup_browser(true);
@@ -938,7 +943,7 @@ int cmd_annotate(int argc, const char **argv)
 			annotate_opts.show_br_cntr = true;
 	}
 
-	if (setup_sorting(NULL) < 0)
+	if (setup_sorting(/*evlist=*/NULL, perf_session__env(annotate.session)) < 0)
 		usage_with_options(annotate_usage, options);
 
 	ret = __cmd_annotate(&annotate);

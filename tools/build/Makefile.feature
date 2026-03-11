@@ -38,20 +38,17 @@ FEATURE_TESTS_BASIC :=                  \
         glibc                           \
         libbfd                          \
         libbfd-buildid			\
-        libcap                          \
         libelf                          \
         libelf-getphdrnum               \
         libelf-gelf_getnote             \
         libelf-getshdrstrndx            \
+        libelf-zstd                     \
         libnuma                         \
         numa_num_possible_cpus          \
-        libperl                         \
         libpython                       \
         libslang                        \
-        libslang-include-subdir         \
         libtraceevent                   \
         libtracefs                      \
-        libcrypto                       \
         pthread-attr-setaffinity-np     \
         pthread-barrier     		\
         reallocarray                    \
@@ -87,6 +84,7 @@ FEATURE_TESTS_EXTRA :=                  \
          libbfd-liberty                 \
          libbfd-liberty-z               \
          libopencsd                     \
+         libperl                        \
          cxx                            \
          llvm                           \
          clang                          \
@@ -108,13 +106,10 @@ FEATURE_DISPLAY ?=              \
          glibc                  \
          libbfd                 \
          libbfd-buildid		\
-         libcap                 \
          libelf                 \
          libnuma                \
          numa_num_possible_cpus \
-         libperl                \
          libpython              \
-         libcrypto              \
          libcapstone            \
          llvm-perf              \
          zlib                   \

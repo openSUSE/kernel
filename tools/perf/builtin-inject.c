@@ -197,18 +197,20 @@ static int perf_event__drop_oe(const struct perf_tool *tool __maybe_unused,
 }
 #endif
 
-static int perf_event__repipe_op2_synth(struct perf_session *session,
+static int perf_event__repipe_op2_synth(const struct perf_tool *tool,
+					struct perf_session *session __maybe_unused,
 					union perf_event *event)
 {
-	return perf_event__repipe_synth(session->tool, event);
+	return perf_event__repipe_synth(tool, event);
 }
 
-static int perf_event__repipe_op4_synth(struct perf_session *session,
+static int perf_event__repipe_op4_synth(const struct perf_tool *tool,
+					struct perf_session *session __maybe_unused,
 					union perf_event *event,
 					u64 data __maybe_unused,
 					const char *str __maybe_unused)
 {
-	return perf_event__repipe_synth(session->tool, event);
+	return perf_event__repipe_synth(tool, event);
 }
 
 static int perf_event__repipe_attr(const struct perf_tool *tool,
@@ -237,8 +239,6 @@ static int perf_event__repipe_event_update(const struct perf_tool *tool,
 	return perf_event__repipe_synth(tool, event);
 }
 
-#ifdef HAVE_AUXTRACE_SUPPORT
-
 static int copy_bytes(struct perf_inject *inject, struct perf_data *data, off_t size)
 {
 	char buf[4096];
@@ -258,12 +258,11 @@ static int copy_bytes(struct perf_inject *inject, struct perf_data *data, off_t 
 	return 0;
 }
 
-static s64 perf_event__repipe_auxtrace(struct perf_session *session,
+static s64 perf_event__repipe_auxtrace(const struct perf_tool *tool,
+				       struct perf_session *session,
 				       union perf_event *event)
 {
-	const struct perf_tool *tool = session->tool;
-	struct perf_inject *inject = container_of(tool, struct perf_inject,
-						  tool);
+	struct perf_inject *inject = container_of(tool, struct perf_inject, tool);
 	int ret;
 
 	inject->have_auxtrace = true;
@@ -295,18 +294,6 @@ static s64 perf_event__repipe_auxtrace(struct perf_session *session,
 
 	return event->auxtrace.size;
 }
-
-#else
-
-static s64
-perf_event__repipe_auxtrace(struct perf_session *session __maybe_unused,
-			    union perf_event *event __maybe_unused)
-{
-	pr_err("AUX area tracing not supported\n");
-	return -EINVAL;
-}
-
-#endif
 
 static int perf_event__repipe(const struct perf_tool *tool,
 			      union perf_event *event,
@@ -587,15 +574,17 @@ static int perf_event__repipe_mmap2(const struct perf_tool *tool,
 				struct perf_sample *sample,
 				struct machine *machine)
 {
-	struct dso_id id;
-	struct dso_id *dso_id = NULL;
+	struct dso_id id = dso_id_empty;
 
-	if (!(event->header.misc & PERF_RECORD_MISC_MMAP_BUILD_ID)) {
+	if (event->header.misc & PERF_RECORD_MISC_MMAP_BUILD_ID) {
+		build_id__init(&id.build_id, event->mmap2.build_id, event->mmap2.build_id_size);
+	} else {
 		id.maj = event->mmap2.maj;
 		id.min = event->mmap2.min;
 		id.ino = event->mmap2.ino;
 		id.ino_generation = event->mmap2.ino_generation;
-		dso_id = &id;
+		id.mmap2_valid = true;
+		id.mmap2_ino_generation_valid = true;
 	}
 
 	return perf_event__repipe_common_mmap(
@@ -603,7 +592,7 @@ static int perf_event__repipe_mmap2(const struct perf_tool *tool,
 		event->mmap2.pid, event->mmap2.tid,
 		event->mmap2.start, event->mmap2.len, event->mmap2.pgoff,
 		event->mmap2.flags, event->mmap2.prot,
-		event->mmap2.filename, dso_id,
+		event->mmap2.filename, &id,
 		perf_event__process_mmap2);
 }
 
@@ -659,31 +648,33 @@ static int perf_event__repipe_exit(const struct perf_tool *tool,
 }
 
 #ifdef HAVE_LIBTRACEEVENT
-static int perf_event__repipe_tracing_data(struct perf_session *session,
+static int perf_event__repipe_tracing_data(const struct perf_tool *tool,
+					   struct perf_session *session,
 					   union perf_event *event)
 {
-	perf_event__repipe_synth(session->tool, event);
+	perf_event__repipe_synth(tool, event);
 
-	return perf_event__process_tracing_data(session, event);
+	return perf_event__process_tracing_data(tool, session, event);
 }
 #endif
 
 static int dso__read_build_id(struct dso *dso)
 {
 	struct nscookie nsc;
+	struct build_id bid = { .size = 0, };
 
 	if (dso__has_build_id(dso))
 		return 0;
 
 	mutex_lock(dso__lock(dso));
 	nsinfo__mountns_enter(dso__nsinfo(dso), &nsc);
-	if (filename__read_build_id(dso__long_name(dso), dso__bid(dso)) > 0)
-		dso__set_has_build_id(dso);
+	if (filename__read_build_id(dso__long_name(dso), &bid) > 0)
+		dso__set_build_id(dso, &bid);
 	else if (dso__nsinfo(dso)) {
 		char *new_name = dso__filename_with_chroot(dso, dso__long_name(dso));
 
-		if (new_name && filename__read_build_id(new_name, dso__bid(dso)) > 0)
-			dso__set_has_build_id(dso);
+		if (new_name && filename__read_build_id(new_name, &bid) > 0)
+			dso__set_build_id(dso, &bid);
 		free(new_name);
 	}
 	nsinfo__mountns_exit(&nsc);
@@ -732,23 +723,26 @@ static bool perf_inject__lookup_known_build_id(struct perf_inject *inject,
 					       struct dso *dso)
 {
 	struct str_node *pos;
-	int bid_len;
 
 	strlist__for_each_entry(pos, inject->known_build_ids) {
+		struct build_id bid;
 		const char *build_id, *dso_name;
+		size_t bid_len;
 
 		build_id = skip_spaces(pos->s);
 		dso_name = strchr(build_id, ' ');
 		bid_len = dso_name - pos->s;
+		if (bid_len > sizeof(bid.data))
+			bid_len = sizeof(bid.data);
 		dso_name = skip_spaces(dso_name);
 		if (strcmp(dso__long_name(dso), dso_name))
 			continue;
-		for (int ix = 0; 2 * ix + 1 < bid_len; ++ix) {
-			dso__bid(dso)->data[ix] = (hex(build_id[2 * ix]) << 4 |
-						  hex(build_id[2 * ix + 1]));
+		for (size_t ix = 0; 2 * ix + 1 < bid_len; ++ix) {
+			bid.data[ix] = (hex(build_id[2 * ix]) << 4 |
+					hex(build_id[2 * ix + 1]));
 		}
-		dso__bid(dso)->size = bid_len / 2;
-		dso__set_has_build_id(dso);
+		bid.size = bid_len / 2;
+		dso__set_build_id(dso, &bid);
 		return true;
 	}
 	return false;
@@ -1342,7 +1336,7 @@ static int process_build_id(const struct perf_tool *tool,
 {
 	struct perf_inject *inject = container_of(tool, struct perf_inject, tool);
 
-	return perf_event__process_build_id(inject->session, event);
+	return perf_event__process_build_id(tool, inject->session, event);
 }
 
 static int synthesize_build_id(struct perf_inject *inject, struct dso *dso, pid_t machine_pid)
@@ -1774,9 +1768,10 @@ static int host__repipe(const struct perf_tool *tool,
 	return perf_event__repipe(tool, event, sample, machine);
 }
 
-static int host__finished_init(struct perf_session *session, union perf_event *event)
+static int host__finished_init(const struct perf_tool *tool, struct perf_session *session,
+			       union perf_event *event)
 {
-	struct perf_inject *inject = container_of(session->tool, struct perf_inject, tool);
+	struct perf_inject *inject = container_of(tool, struct perf_inject, tool);
 	struct guest_session *gs = &inject->guest_session;
 	int ret;
 
@@ -1823,7 +1818,7 @@ static int host__finished_init(struct perf_session *session, union perf_event *e
 	if (ret)
 		return ret;
 
-	return perf_event__repipe_op2_synth(session, event);
+	return perf_event__repipe_op2_synth(tool, session, event);
 }
 
 /*
@@ -2530,9 +2525,11 @@ int cmd_inject(int argc, const char **argv)
 	inject.tool.finished_init	= perf_event__repipe_op2_synth;
 	inject.tool.compressed		= perf_event__repipe_op4_synth;
 	inject.tool.auxtrace		= perf_event__repipe_auxtrace;
+	inject.tool.bpf_metadata	= perf_event__repipe_op2_synth;
 	inject.tool.dont_split_sample_group = true;
 	inject.session = __perf_session__new(&data, &inject.tool,
-					     /*trace_event_repipe=*/inject.output.is_pipe);
+					     /*trace_event_repipe=*/inject.output.is_pipe,
+					     /*host_env=*/NULL);
 
 	if (IS_ERR(inject.session)) {
 		ret = PTR_ERR(inject.session);
@@ -2601,7 +2598,7 @@ int cmd_inject(int argc, const char **argv)
 		inject.tool.finished_round = perf_event__drop_oe;
 	}
 #endif
-	ret = symbol__init(&inject.session->header.env);
+	ret = symbol__init(perf_session__env(inject.session));
 	if (ret < 0)
 		goto out_delete;
 

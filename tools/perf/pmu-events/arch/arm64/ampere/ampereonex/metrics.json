@@ -113,7 +113,7 @@
     {
         "MetricName": "load_store_spec_rate",
         "MetricExpr": "LDST_SPEC / INST_SPEC",
-        "BriefDescription": "The rate of load or store instructions speculatively executed to overall instructions speclatively executed",
+        "BriefDescription": "The rate of load or store instructions speculatively executed to overall instructions speculatively executed",
         "MetricGroup": "Operation_Mix",
         "ScaleUnit": "100percent of operations"
     },
@@ -132,7 +132,7 @@
     {
         "MetricName": "pc_write_spec_rate",
         "MetricExpr": "PC_WRITE_SPEC / INST_SPEC",
-        "BriefDescription": "The rate of software change of the PC speculatively executed to overall instructions speclatively executed",
+        "BriefDescription": "The rate of software change of the PC speculatively executed to overall instructions speculatively executed",
         "MetricGroup": "Operation_Mix",
         "ScaleUnit": "100percent of operations"
     },
@@ -195,14 +195,14 @@
     {
         "MetricName": "stall_frontend_cache_rate",
         "MetricExpr": "STALL_FRONTEND_CACHE / CPU_CYCLES",
-        "BriefDescription": "Proportion of cycles stalled and no ops delivered from frontend and cache miss",
+        "BriefDescription": "Proportion of cycles stalled and no operations delivered from frontend and cache miss",
         "MetricGroup": "Stall",
         "ScaleUnit": "100percent of cycles"
     },
     {
         "MetricName": "stall_frontend_tlb_rate",
         "MetricExpr": "STALL_FRONTEND_TLB / CPU_CYCLES",
-        "BriefDescription": "Proportion of cycles stalled and no ops delivered from frontend and TLB miss",
+        "BriefDescription": "Proportion of cycles stalled and no operations delivered from frontend and TLB miss",
         "MetricGroup": "Stall",
         "ScaleUnit": "100percent of cycles"
     },
@@ -388,55 +388,55 @@
         "MetricExpr": "L1D_CACHE_RW / L1D_CACHE",
         "BriefDescription": "L1D cache access - demand",
         "MetricGroup": "Cache",
-        "ScaleUnit": "100percent of cache acceses"
+        "ScaleUnit": "100percent of cache accesses"
     },
     {
-        "MetricName": "l1d_cache_access_prefetces",
+        "MetricName": "l1d_cache_access_prefetches",
         "MetricExpr": "L1D_CACHE_PRFM / L1D_CACHE",
         "BriefDescription": "L1D cache access - prefetch",
         "MetricGroup": "Cache",
-        "ScaleUnit": "100percent of cache acceses"
+        "ScaleUnit": "100percent of cache accesses"
     },
     {
         "MetricName": "l1d_cache_demand_misses",
         "MetricExpr": "L1D_CACHE_REFILL_RW / L1D_CACHE",
         "BriefDescription": "L1D cache demand misses",
         "MetricGroup": "Cache",
-        "ScaleUnit": "100percent of cache acceses"
+        "ScaleUnit": "100percent of cache accesses"
     },
     {
         "MetricName": "l1d_cache_demand_misses_read",
         "MetricExpr": "L1D_CACHE_REFILL_RD / L1D_CACHE",
         "BriefDescription": "L1D cache demand misses - read",
         "MetricGroup": "Cache",
-        "ScaleUnit": "100percent of cache acceses"
+        "ScaleUnit": "100percent of cache accesses"
     },
     {
         "MetricName": "l1d_cache_demand_misses_write",
         "MetricExpr": "L1D_CACHE_REFILL_WR / L1D_CACHE",
         "BriefDescription": "L1D cache demand misses - write",
         "MetricGroup": "Cache",
-        "ScaleUnit": "100percent of cache acceses"
+        "ScaleUnit": "100percent of cache accesses"
     },
     {
         "MetricName": "l1d_cache_prefetch_misses",
         "MetricExpr": "L1D_CACHE_REFILL_PRFM / L1D_CACHE",
         "BriefDescription": "L1D cache prefetch misses",
         "MetricGroup": "Cache",
-        "ScaleUnit": "100percent of cache acceses"
+        "ScaleUnit": "100percent of cache accesses"
     },
     {
         "MetricName": "ase_scalar_mix",
         "MetricExpr": "ASE_SCALAR_SPEC / OP_SPEC",
         "BriefDescription": "Proportion of advanced SIMD data processing operations (excluding DP_SPEC/LD_SPEC) scalar operations",
         "MetricGroup": "Instructions",
-        "ScaleUnit": "100percent of cache acceses"
+        "ScaleUnit": "100percent of cache accesses"
     },
     {
         "MetricName": "ase_vector_mix",
         "MetricExpr": "ASE_VECTOR_SPEC / OP_SPEC",
         "BriefDescription": "Proportion of advanced SIMD data processing operations (excluding DP_SPEC/LD_SPEC) vector operations",
         "MetricGroup": "Instructions",
-        "ScaleUnit": "100percent of cache acceses"
+        "ScaleUnit": "100percent of cache accesses"
     }
 ]
