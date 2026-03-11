@@ -722,7 +722,6 @@ static void tc358768_bridge_atomic_pre_enable(struct drm_bridge *bridge,
 {
 	struct tc358768_priv *priv = bridge_to_tc358768(bridge);
 	struct mipi_dsi_device *dsi_dev = priv->output.dev;
-	unsigned long mode_flags = dsi_dev->mode_flags;
 	u32 val, mask, val2, lptxcnt, hact, data_type;
 	s32 raw_val;
 	struct drm_crtc_state *crtc_state;
@@ -743,11 +742,6 @@ static void tc358768_bridge_atomic_pre_enable(struct drm_bridge *bridge,
 	/* In hsbyteclk units */
 	u32 dsi_vsdly;
 	const u32 internal_dly = 40;
-
-	if (mode_flags & MIPI_DSI_CLOCK_NON_CONTINUOUS) {
-		dev_warn_once(dev, "Non-continuous mode unimplemented, falling back to continuous\n");
-		mode_flags &= ~MIPI_DSI_CLOCK_NON_CONTINUOUS;
-	}
 
 	tc358768_hw_enable(priv);
 
@@ -1032,7 +1026,7 @@ static void tc358768_bridge_atomic_pre_enable(struct drm_bridge *bridge,
 	tc358768_write(priv, TC358768_HSTXVREGEN, val);
 
 	tc358768_write(priv, TC358768_TXOPTIONCNTRL,
-		       (mode_flags & MIPI_DSI_CLOCK_NON_CONTINUOUS) ? 0 : BIT(0));
+		       (dsi_dev->mode_flags & MIPI_DSI_CLOCK_NON_CONTINUOUS) ? 0 : BIT(0));
 
 	/* TXTAGOCNT[26:16] RXTASURECNT[10:0] */
 	val = tc358768_ps_to_ns((lptxcnt + 1) * hsbyteclk_ps * 4);
@@ -1099,7 +1093,7 @@ static void tc358768_bridge_atomic_pre_enable(struct drm_bridge *bridge,
 
 	val |= TC358768_DSI_CONTROL_TXMD;
 
-	if (!(mode_flags & MIPI_DSI_CLOCK_NON_CONTINUOUS))
+	if (!(dsi_dev->mode_flags & MIPI_DSI_CLOCK_NON_CONTINUOUS))
 		val |= TC358768_DSI_CONTROL_HSCKMD;
 
 	if (dsi_dev->mode_flags & MIPI_DSI_MODE_NO_EOT_PACKET)
