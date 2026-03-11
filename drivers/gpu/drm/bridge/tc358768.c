@@ -45,6 +45,9 @@
 
 /* Debug (16-bit addressable) */
 #define TC358768_VBUFCTRL		0x00E0
+#define TC358768_VBUFCTRL_VBUF_EN	BIT(15)
+#define TC358768_VBUFCTRL_TX_EN		BIT(14)
+#define TC358768_VBUFCTRL_MASK		BIT(13)
 #define TC358768_DBG_WIDTH		0x00E2
 #define TC358768_DBG_VBLANK		0x00E4
 #define TC358768_DBG_DATA		0x00E8
@@ -537,9 +540,21 @@ static ssize_t tc358768_dsi_host_transfer(struct mipi_dsi_host *host,
 		return -ENOTSUPP;
 	}
 
+	if (msg->tx_len > 1024) {
+		dev_warn(priv->dev, "Maximum 1024 byte MIPI tx is supported\n");
+		return -EINVAL;
+	}
+
 	if (msg->tx_len > 8) {
-		dev_warn(priv->dev, "Maximum 8 byte MIPI tx is supported\n");
-		return -ENOTSUPP;
+		u32 confctl;
+
+		tc358768_read(priv, TC358768_CONFCTL, &confctl);
+
+		if (confctl & BIT(6)) {
+			dev_warn(priv->dev,
+				 "Video is currently active. Unable to transmit long command\n");
+			return -EBUSY;
+		}
 	}
 
 	ret = mipi_dsi_create_packet(&packet, msg);
@@ -552,23 +567,66 @@ static ssize_t tc358768_dsi_host_transfer(struct mipi_dsi_host *host,
 		tc358768_write(priv, TC358768_DSICMD_WC, 0);
 		tc358768_write(priv, TC358768_DSICMD_WD0,
 			       (packet.header[2] << 8) | packet.header[1]);
-	} else {
-		int i;
-
+		tc358768_dsicmd_tx(priv);
+	} else if (packet.payload_length <= 8) {
 		tc358768_write(priv, TC358768_DSICMD_TYPE,
 			       (0x40 << 8) | (packet.header[0] & 0x3f));
 		tc358768_write(priv, TC358768_DSICMD_WC, packet.payload_length);
-		for (i = 0; i < packet.payload_length; i += 2) {
+
+		for (int i = 0; i < packet.payload_length; i += 2) {
 			u16 val = packet.payload[i];
 
 			if (i + 1 < packet.payload_length)
 				val |= packet.payload[i + 1] << 8;
-
 			tc358768_write(priv, TC358768_DSICMD_WD0 + i, val);
 		}
-	}
 
-	tc358768_dsicmd_tx(priv);
+		tc358768_dsicmd_tx(priv);
+	} else {
+		unsigned long tx_sleep_us;
+		size_t len;
+
+		/* For packets over 8 bytes we need to use the video buffer */
+		tc358768_write(priv, TC358768_DATAFMT, BIT(0));	/* txdt_en */
+		tc358768_write(priv, TC358768_DSITX_DT, packet.header[0] & 0x3f);
+		tc358768_write(priv, TC358768_CMDBYTE, packet.payload_length);
+		tc358768_write(priv, TC358768_VBUFCTRL, TC358768_VBUFCTRL_VBUF_EN);
+
+		/*
+		 * Write the payload in 2-byte chunks, and pad with zeroes to
+		 * align to 4 bytes.
+		 */
+		len = ALIGN(packet.payload_length, 4);
+
+		for (int i = 0; i < len; i += 2) {
+			u16 val = 0;
+
+			if (i < packet.payload_length)
+				val |= packet.payload[i];
+			if (i + 1 < packet.payload_length)
+				val |= packet.payload[i + 1] << 8;
+
+			tc358768_write(priv, TC358768_DBG_DATA, val);
+		}
+
+		/* Start transmission */
+		tc358768_write(priv, TC358768_VBUFCTRL,
+			       TC358768_VBUFCTRL_VBUF_EN |
+			       TC358768_VBUFCTRL_TX_EN |
+			       TC358768_VBUFCTRL_MASK);
+
+		/*
+		 * The TC358768 spec says to wait until the transmission has
+		 * been finished, estimating the sleep time based on the payload
+		 * and clock rates. We use a simple safe estimate of 2us per
+		 * byte (LP mode transmission).
+		 */
+		tx_sleep_us = packet.payload_length * 2;
+		usleep_range(tx_sleep_us, tx_sleep_us * 2);
+
+		tc358768_write(priv, TC358768_VBUFCTRL, TC358768_VBUFCTRL_MASK);
+		tc358768_write(priv, TC358768_VBUFCTRL, 0); /* Stop transmission */
+	}
 
 	ret = tc358768_clear_error(priv);
 	if (ret)
@@ -751,6 +809,9 @@ static void tc358768_bridge_atomic_pre_enable(struct drm_bridge *bridge,
 		tc358768_hw_disable(priv);
 		return;
 	}
+
+	/* Release RstPtr so that the video buffer can be used for DSI commands */
+	tc358768_update_bits(priv, TC358768_PP_MISC, BIT(14), 0);
 
 	connector = drm_atomic_get_new_connector_for_encoder(state, bridge->encoder);
 	conn_state = drm_atomic_get_new_connector_state(state, connector);
