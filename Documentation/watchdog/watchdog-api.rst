@@ -268,4 +268,13 @@ The following options are available:
 	WDIOS_TEMPPANIC		Kernel panic on temperature trip
 	=================	================================
 
-[FIXME -- better explanations]
+The WDIOS_DISABLECARD option allows you to stop the watchdog timer via
+software. Note that this will only work if the "nowayout" module parameter
+(or CONFIG_WATCHDOG_NOWAYOUT) is not set.
+
+The WDIOS_ENABLECARD option turns on the watchdog timer.
+
+The WDIOS_TEMPPANIC option is used by some drivers (like the pcwd driver)
+to trigger a system halt (typically a kernel panic or power off) when the
+temperature trip point is reached. This ensures that the system is halted
+immediately in case of an overheat condition.
