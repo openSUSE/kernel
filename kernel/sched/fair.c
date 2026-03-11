@@ -399,7 +399,7 @@ static inline void list_del_leaf_cfs_rq(struct cfs_rq *cfs_rq)
 
 static inline void assert_list_leaf_cfs_rq(struct rq *rq)
 {
-	SCHED_WARN_ON(rq->tmp_alone_branch != &rq->leaf_cfs_rq_list);
+	WARN_ON_ONCE(rq->tmp_alone_branch != &rq->leaf_cfs_rq_list);
 }
 
 /* Iterate through all leaf cfs_rq's on a runqueue */
@@ -3387,7 +3387,7 @@ static void task_numa_work(struct callback_head *work)
 	bool vma_pids_skipped;
 	bool vma_pids_forced = false;
 
-	SCHED_WARN_ON(p != container_of(work, struct task_struct, numa_work));
+	WARN_ON_ONCE(p != container_of(work, struct task_struct, numa_work));
 
 	work->next = work;
 	/*
@@ -4107,7 +4107,7 @@ static inline bool load_avg_is_decayed(struct sched_avg *sa)
 	 * Make sure that rounding and/or propagation of PELT values never
 	 * break this.
 	 */
-	SCHED_WARN_ON(sa->load_avg ||
+	WARN_ON_ONCE(sa->load_avg ||
 		      sa->util_avg ||
 		      sa->runnable_avg);
 
@@ -5478,7 +5478,7 @@ dequeue_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 	clear_buddies(cfs_rq, se);
 
 	if (flags & DEQUEUE_DELAYED) {
-		SCHED_WARN_ON(!se->sched_delayed);
+		WARN_ON_ONCE(!se->sched_delayed);
 	} else {
 		bool delay = sleep;
 		/*
@@ -5571,7 +5571,7 @@ set_next_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, bool first)
 	}
 
 	update_stats_curr_start(cfs_rq, se);
-	SCHED_WARN_ON(cfs_rq->curr);
+	WARN_ON_ONCE(cfs_rq->curr);
 	cfs_rq->curr = se;
 
 	/*
@@ -5638,7 +5638,7 @@ static void put_prev_entity(struct cfs_rq *cfs_rq, struct sched_entity *prev)
 		/* in !on_rq case, update occurred at dequeue */
 		update_load_avg(cfs_rq, prev, 0);
 	}
-	SCHED_WARN_ON(cfs_rq->curr != prev);
+	WARN_ON_ONCE(cfs_rq->curr != prev);
 	cfs_rq->curr = NULL;
 }
 
@@ -6219,7 +6219,7 @@ static inline void __unthrottle_cfs_rq_async(struct cfs_rq *cfs_rq)
 	}
 
 	/* Already enqueued */
-	if (SCHED_WARN_ON(!list_empty(&cfs_rq->throttled_csd_list)))
+	if (WARN_ON_ONCE(!list_empty(&cfs_rq->throttled_csd_list)))
 		return;
 
 	first = list_empty(&rq->cfsb_csd_list);
@@ -6238,7 +6238,7 @@ static void unthrottle_cfs_rq_async(struct cfs_rq *cfs_rq)
 {
 	lockdep_assert_rq_held(rq_of(cfs_rq));
 
-	if (SCHED_WARN_ON(!cfs_rq_throttled(cfs_rq) ||
+	if (WARN_ON_ONCE(!cfs_rq_throttled(cfs_rq) ||
 	    cfs_rq->runtime_remaining <= 0))
 		return;
 
@@ -6274,7 +6274,7 @@ static bool distribute_cfs_runtime(struct cfs_bandwidth *cfs_b)
 			goto next;
 
 		/* By the above checks, this should never be true */
-		SCHED_WARN_ON(cfs_rq->runtime_remaining > 0);
+		WARN_ON_ONCE(cfs_rq->runtime_remaining > 0);
 
 		raw_spin_lock(&cfs_b->lock);
 		runtime = -cfs_rq->runtime_remaining + 1;
@@ -6295,7 +6295,7 @@ static bool distribute_cfs_runtime(struct cfs_bandwidth *cfs_b)
 				 * We currently only expect to be unthrottling
 				 * a single cfs_rq locally.
 				 */
-				SCHED_WARN_ON(!list_empty(&local_unthrottle));
+				WARN_ON_ONCE(!list_empty(&local_unthrottle));
 				list_add_tail(&cfs_rq->throttled_csd_list,
 					      &local_unthrottle);
 			}
@@ -6320,7 +6320,7 @@ next:
 
 		rq_unlock_irqrestore(rq, &rf);
 	}
-	SCHED_WARN_ON(!list_empty(&local_unthrottle));
+	WARN_ON_ONCE(!list_empty(&local_unthrottle));
 
 	rcu_read_unlock();
 
@@ -6892,7 +6892,7 @@ static void hrtick_start_fair(struct rq *rq, struct task_struct *p)
 {
 	struct sched_entity *se = &p->se;
 
-	SCHED_WARN_ON(task_rq(p) != rq);
+	WARN_ON_ONCE(task_rq(p) != rq);
 
 	if (rq->cfs.h_nr_queued > 1) {
 		u64 ran = se->sum_exec_runtime - se->prev_sum_exec_runtime;
@@ -7003,8 +7003,8 @@ requeue_delayed_entity(struct sched_entity *se)
 	 * Because a delayed entity is one that is still on
 	 * the runqueue competing until elegibility.
 	 */
-	SCHED_WARN_ON(!se->sched_delayed);
-	SCHED_WARN_ON(!se->on_rq);
+	WARN_ON_ONCE(!se->sched_delayed);
+	WARN_ON_ONCE(!se->on_rq);
 
 	if (sched_feat(DELAY_ZERO)) {
 		update_entity_lag(cfs_rq, se);
@@ -7249,8 +7249,8 @@ static int dequeue_entities(struct rq *rq, struct sched_entity *se, int flags)
 		rq->next_balance = jiffies;
 
 	if (p && task_delayed) {
-		SCHED_WARN_ON(!task_sleep);
-		SCHED_WARN_ON(p->on_rq != 1);
+		WARN_ON_ONCE(!task_sleep);
+		WARN_ON_ONCE(p->on_rq != 1);
 
 		/* Fix-up what dequeue_task_fair() skipped */
 		hrtick_update(rq);
@@ -8839,7 +8839,7 @@ static inline void set_task_max_allowed_capacity(struct task_struct *p) {}
 static void set_next_buddy(struct sched_entity *se)
 {
 	for_each_sched_entity(se) {
-		if (SCHED_WARN_ON(!se->on_rq))
+		if (WARN_ON_ONCE(!se->on_rq))
 			return;
 		if (se_is_idle(se))
 			return;
@@ -12724,7 +12724,7 @@ unlock:
 
 void nohz_balance_exit_idle(struct rq *rq)
 {
-	SCHED_WARN_ON(rq != this_rq());
+	WARN_ON_ONCE(rq != this_rq());
 
 	if (likely(!rq->nohz_tick_stopped))
 		return;
@@ -12759,7 +12759,7 @@ void nohz_balance_enter_idle(int cpu)
 {
 	struct rq *rq = cpu_rq(cpu);
 
-	SCHED_WARN_ON(cpu != smp_processor_id());
+	WARN_ON_ONCE(cpu != smp_processor_id());
 
 	/* If this CPU is going down, then nothing needs to be done: */
 	if (!cpu_active(cpu))
@@ -12841,7 +12841,7 @@ static void _nohz_idle_balance(struct rq *this_rq, unsigned int flags)
 	int balance_cpu;
 	struct rq *rq;
 
-	SCHED_WARN_ON((flags & NOHZ_KICK_MASK) == NOHZ_BALANCE_KICK);
+	WARN_ON_ONCE((flags & NOHZ_KICK_MASK) == NOHZ_BALANCE_KICK);
 
 	/*
 	 * We assume there will be no idle load after this update and clear
@@ -13465,7 +13465,7 @@ bool cfs_prio_less(const struct task_struct *a, const struct task_struct *b,
 	struct cfs_rq *cfs_rqb;
 	s64 delta;
 
-	SCHED_WARN_ON(task_rq(b)->core != rq->core);
+	WARN_ON_ONCE(task_rq(b)->core != rq->core);
 
 #ifdef CONFIG_FAIR_GROUP_SCHED
 	/*
@@ -13676,7 +13676,7 @@ static void switched_from_fair(struct rq *rq, struct task_struct *p)
 
 static void switched_to_fair(struct rq *rq, struct task_struct *p)
 {
-	SCHED_WARN_ON(p->se.sched_delayed);
+	WARN_ON_ONCE(p->se.sched_delayed);
 
 	attach_task_cfs_rq(p);
 
@@ -13711,7 +13711,7 @@ static void __set_next_task_fair(struct rq *rq, struct task_struct *p, bool firs
 	if (!first)
 		return;
 
-	SCHED_WARN_ON(se->sched_delayed);
+	WARN_ON_ONCE(se->sched_delayed);
 
 	if (hrtick_enabled_fair(rq))
 		hrtick_start_fair(rq, p);
