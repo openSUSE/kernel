@@ -722,7 +722,7 @@ static void tc358768_bridge_atomic_pre_enable(struct drm_bridge *bridge,
 {
 	struct tc358768_priv *priv = bridge_to_tc358768(bridge);
 	struct mipi_dsi_device *dsi_dev = priv->output.dev;
-	u32 val, mask, val2, lptxcnt, hact, data_type;
+	u32 val, mask, val2, lptxcnt, hact;
 	s32 raw_val;
 	struct drm_crtc_state *crtc_state;
 	struct drm_connector_state *conn_state;
@@ -768,30 +768,20 @@ static void tc358768_bridge_atomic_pre_enable(struct drm_bridge *bridge,
 	dsiclk = priv->dsiclk;
 	hsbyteclk = dsiclk / 4;
 
-	/* Data Format Control Register */
-	val = BIT(2) | BIT(1) | BIT(0); /* rdswap_en | dsitx_en | txdt_en */
 	switch (dsi_dev->format) {
 	case MIPI_DSI_FMT_RGB888:
-		val |= (0x3 << 4);
 		hact = vm.hactive * 3;
-		data_type = MIPI_DSI_PACKED_PIXEL_STREAM_24;
 		break;
 	case MIPI_DSI_FMT_RGB666:
-		val |= (0x4 << 4);
 		hact = vm.hactive * 3;
-		data_type = MIPI_DSI_PACKED_PIXEL_STREAM_18;
 		break;
 
 	case MIPI_DSI_FMT_RGB666_PACKED:
-		val |= (0x4 << 4) | BIT(3);
 		hact = vm.hactive * 18 / 8;
-		data_type = MIPI_DSI_PIXEL_STREAM_3BYTE_18;
 		break;
 
 	case MIPI_DSI_FMT_RGB565:
-		val |= (0x5 << 4);
 		hact = vm.hactive * 2;
-		data_type = MIPI_DSI_PACKED_PIXEL_STREAM_16;
 		break;
 	default:
 		dev_err(dev, "Invalid data format (%u)\n",
@@ -946,9 +936,6 @@ static void tc358768_bridge_atomic_pre_enable(struct drm_bridge *bridge,
 
 	/* VSDly[9:0] */
 	tc358768_write(priv, TC358768_VSDLY, dsi_vsdly - internal_dly);
-
-	tc358768_write(priv, TC358768_DATAFMT, val);
-	tc358768_write(priv, TC358768_DSITX_DT, data_type);
 
 	/* Enable D-PHY (HiZ->LP11) */
 	tc358768_write(priv, TC358768_CLW_CNTRL, 0x0000);
@@ -1113,6 +1100,39 @@ static void tc358768_bridge_atomic_pre_enable(struct drm_bridge *bridge,
 		dev_err(dev, "Bridge pre_enable failed: %d\n", ret);
 }
 
+static void tc358768_config_video_format(struct tc358768_priv *priv)
+{
+	struct mipi_dsi_device *dsi_dev = priv->output.dev;
+	u32 val, data_type;
+
+	/* Data Format Control Register */
+	val = BIT(2) | BIT(1) | BIT(0); /* rdswap_en | dsitx_en | txdt_en */
+	switch (dsi_dev->format) {
+	case MIPI_DSI_FMT_RGB888:
+		val |= (0x3 << 4);
+		data_type = MIPI_DSI_PACKED_PIXEL_STREAM_24;
+		break;
+	case MIPI_DSI_FMT_RGB666:
+		val |= (0x4 << 4);
+		data_type = MIPI_DSI_PACKED_PIXEL_STREAM_18;
+		break;
+	case MIPI_DSI_FMT_RGB666_PACKED:
+		val |= (0x4 << 4) | BIT(3);
+		data_type = MIPI_DSI_PIXEL_STREAM_3BYTE_18;
+		break;
+	case MIPI_DSI_FMT_RGB565:
+		val |= (0x5 << 4);
+		data_type = MIPI_DSI_PACKED_PIXEL_STREAM_16;
+		break;
+	default:
+		dev_err(priv->dev, "Invalid data format (%u)\n", dsi_dev->format);
+		return;
+	}
+
+	tc358768_write(priv, TC358768_DATAFMT, val);
+	tc358768_write(priv, TC358768_DSITX_DT, data_type);
+}
+
 static void tc358768_bridge_atomic_enable(struct drm_bridge *bridge,
 					  struct drm_atomic_state *state)
 {
@@ -1123,6 +1143,9 @@ static void tc358768_bridge_atomic_enable(struct drm_bridge *bridge,
 		dev_err(priv->dev, "Bridge is not enabled\n");
 		return;
 	}
+
+	/* Configure video format registers */
+	tc358768_config_video_format(priv);
 
 	/* Enable HS mode for video TX */
 	tc358768_confw_update_bits(priv, TC358768_DSI_CONTROL,
