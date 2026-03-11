@@ -38,56 +38,21 @@ extern const struct sd_flag_debug sd_flag_debug[];
 struct sched_domain_topology_level;
 
 #ifdef CONFIG_SCHED_SMT
-static inline int cpu_smt_flags(void)
-{
-	return SD_SHARE_CPUCAPACITY | SD_SHARE_LLC;
-}
-
-static inline const
-struct cpumask *tl_smt_mask(struct sched_domain_topology_level *tl, int cpu)
-{
-	return cpu_smt_mask(cpu);
-}
+extern int cpu_smt_flags(void);
+extern const struct cpumask *tl_smt_mask(struct sched_domain_topology_level *tl, int cpu);
 #endif
 
 #ifdef CONFIG_SCHED_CLUSTER
-static inline int cpu_cluster_flags(void)
-{
-	return SD_CLUSTER | SD_SHARE_LLC;
-}
-
-static inline const
-struct cpumask *tl_cls_mask(struct sched_domain_topology_level *tl, int cpu)
-{
-	return cpu_clustergroup_mask(cpu);
-}
+extern int cpu_cluster_flags(void);
+extern const struct cpumask *tl_cls_mask(struct sched_domain_topology_level *tl, int cpu);
 #endif
 
 #ifdef CONFIG_SCHED_MC
-static inline int cpu_core_flags(void)
-{
-	return SD_SHARE_LLC;
-}
-
-static inline const
-struct cpumask *tl_mc_mask(struct sched_domain_topology_level *tl, int cpu)
-{
-	return cpu_coregroup_mask(cpu);
-}
+extern int cpu_core_flags(void);
+extern const struct cpumask *tl_mc_mask(struct sched_domain_topology_level *tl, int cpu);
 #endif
 
-static inline const
-struct cpumask *tl_pkg_mask(struct sched_domain_topology_level *tl, int cpu)
-{
-	return cpu_node_mask(cpu);
-}
-
-#ifdef CONFIG_NUMA
-static inline int cpu_numa_flags(void)
-{
-	return SD_NUMA;
-}
-#endif
+extern const struct cpumask *tl_pkg_mask(struct sched_domain_topology_level *tl, int cpu);
 
 extern int arch_asym_cpu_priority(int cpu);
 
@@ -209,8 +174,6 @@ bool cpus_share_resources(int this_cpu, int that_cpu);
 typedef const struct cpumask *(*sched_domain_mask_f)(struct sched_domain_topology_level *tl, int cpu);
 typedef int (*sched_domain_flags_f)(void);
 
-#define SDTL_OVERLAP	0x01
-
 struct sd_data {
 	struct sched_domain *__percpu *sd;
 	struct sched_domain_shared *__percpu *sds;
@@ -221,7 +184,6 @@ struct sd_data {
 struct sched_domain_topology_level {
 	sched_domain_mask_f mask;
 	sched_domain_flags_f sd_flags;
-	int		    flags;
 	int		    numa_level;
 	struct sd_data      data;
 	char                *name;

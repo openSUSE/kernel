@@ -70,6 +70,7 @@
 #include <linux/wait_bit.h>
 #include <linux/workqueue_api.h>
 #include <linux/delayacct.h>
+#include <linux/mmu_context.h>
 
 #include <trace/events/power.h>
 #include <trace/events/sched.h>
@@ -371,9 +372,6 @@ extern s64 dl_scaled_delta_exec(struct rq *rq, struct sched_dl_entity *dl_se, s6
  *
  *   dl_se::rq -- runqueue we belong to.
  *
- *   dl_se::server_has_tasks() -- used on bandwidth enforcement; we 'stop' the
- *                                server when it runs out of tasks to run.
- *
  *   dl_se::server_pick() -- nested pick_next_task(); we yield the period if this
  *                           returns NULL.
  *
@@ -389,7 +387,6 @@ extern void dl_server_update(struct sched_dl_entity *dl_se, s64 delta_exec);
 extern void dl_server_start(struct sched_dl_entity *dl_se);
 extern void dl_server_stop(struct sched_dl_entity *dl_se);
 extern void dl_server_init(struct sched_dl_entity *dl_se, struct rq *rq,
-		    dl_server_has_tasks_f has_tasks,
 		    dl_server_pick_f pick_task);
 extern void sched_init_dl_servers(void);
 
@@ -657,13 +654,13 @@ struct cfs_rq {
 	unsigned int		h_nr_runnable;     /* SCHED_{NORMAL,BATCH,IDLE} */
 	unsigned int		h_nr_idle; /* SCHED_IDLE */
 
-	s64			avg_vruntime;
-	u64			avg_load;
+	s64			sum_w_vruntime;
+	u64			sum_weight;
 
-	u64			min_vruntime;
+	u64			zero_vruntime;
 #ifdef CONFIG_SCHED_CORE
 	unsigned int		forceidle_seq;
-	u64			min_vruntime_fi;
+	u64			zero_vruntime_fi;
 #endif
 
 	struct rb_root_cached	tasks_timeline;
@@ -740,10 +737,12 @@ struct cfs_rq {
 	u64			throttled_clock_pelt_time;
 	u64			throttled_clock_self;
 	u64			throttled_clock_self_time;
-	int			throttled;
+	bool			throttled:1;
+	bool			pelt_clock_throttled:1;
 	int			throttle_count;
 	struct list_head	throttled_list;
 	struct list_head	throttled_csd_list;
+	struct list_head        throttled_limbo_list;
 #endif /* CONFIG_CFS_BANDWIDTH */
 #endif /* CONFIG_FAIR_GROUP_SCHED */
 };
@@ -819,15 +818,17 @@ struct rt_rq {
 
 #ifdef CONFIG_RT_GROUP_SCHED
 	int			rt_throttled;
-	u64			rt_time;
-	u64			rt_runtime;
+	u64			rt_time; /* consumed RT time, goes up in update_curr_rt */
+	u64			rt_runtime; /* allotted RT time, "slice" from rt_bandwidth, RT sharing/balancing */
 	/* Nests inside the rq lock: */
 	raw_spinlock_t		rt_runtime_lock;
 
 	unsigned int		rt_nr_boosted;
 
-	struct rq		*rq;
-	struct task_group	*tg;
+	struct rq		*rq; /* this is always top-level rq, cache? */
+#endif
+#ifdef CONFIG_CGROUP_SCHED
+	struct task_group	*tg; /* this tg has "this" rt_rq on given CPU for runnable entities */
 #endif
 };
 
@@ -1104,6 +1105,8 @@ struct rq {
 	/* runqueue lock: */
 	raw_spinlock_t		__lock;
 
+	/* Per class runqueue modification mask; bits in class order. */
+	unsigned int		queue_mask;
 	unsigned int		nr_running;
 #ifdef CONFIG_NUMA_BALANCING
 	unsigned int		nr_numa_running;
@@ -1153,12 +1156,17 @@ struct rq {
 	 * one CPU and if it got migrated afterwards it may decrease
 	 * it on another CPU. Always updated under the runqueue lock:
 	 */
-	unsigned int		nr_uninterruptible;
+	unsigned long		nr_uninterruptible;
 
+#ifdef CONFIG_SCHED_PROXY_EXEC
+	struct task_struct __rcu	*donor;  /* Scheduling context */
+	struct task_struct __rcu	*curr;   /* Execution context */
+#else
 	union {
 		struct task_struct __rcu *donor; /* Scheduler context */
 		struct task_struct __rcu *curr;  /* Execution context */
 	};
+#endif
 	struct sched_dl_entity	*dl_server;
 	struct task_struct	*idle;
 	struct task_struct	*stop;
@@ -1361,10 +1369,17 @@ static inline u32 sched_rng(void)
 #define cpu_curr(cpu)		(cpu_rq(cpu)->curr)
 #define raw_rq()		raw_cpu_ptr(&runqueues)
 
+#ifdef CONFIG_SCHED_PROXY_EXEC
+static inline void rq_set_donor(struct rq *rq, struct task_struct *t)
+{
+	rcu_assign_pointer(rq->donor, t);
+}
+#else
 static inline void rq_set_donor(struct rq *rq, struct task_struct *t)
 {
 	/* Do nothing */
 }
+#endif
 
 #ifdef CONFIG_SCHED_CORE
 static inline struct cpumask *sched_group_span(struct sched_group *sg);
@@ -1430,6 +1445,9 @@ static inline bool sched_core_cookie_match(struct rq *rq, struct task_struct *p)
 	if (!sched_core_enabled(rq))
 		return true;
 
+	if (rq->core->core_cookie == p->core_cookie)
+		return true;
+
 	for_each_cpu(cpu, cpu_smt_mask(cpu_of(rq))) {
 		if (!available_idle_cpu(cpu)) {
 			idle_core = false;
@@ -1441,7 +1459,7 @@ static inline bool sched_core_cookie_match(struct rq *rq, struct task_struct *p)
 	 * A CPU in an idle core is always the best choice for tasks with
 	 * cookies.
 	 */
-	return idle_core || rq->core->core_cookie == p->core_cookie;
+	return idle_core;
 }
 
 static inline bool sched_group_cookie_match(struct rq *rq,
@@ -1512,6 +1530,23 @@ static inline bool sched_group_cookie_match(struct rq *rq,
 }
 
 #endif /* !CONFIG_SCHED_CORE */
+#ifdef CONFIG_RT_GROUP_SCHED
+# ifdef CONFIG_RT_GROUP_SCHED_DEFAULT_DISABLED
+DECLARE_STATIC_KEY_FALSE(rt_group_sched);
+static inline bool rt_group_sched_enabled(void)
+{
+	return static_branch_unlikely(&rt_group_sched);
+}
+# else
+DECLARE_STATIC_KEY_TRUE(rt_group_sched);
+static inline bool rt_group_sched_enabled(void)
+{
+	return static_branch_likely(&rt_group_sched);
+}
+# endif /* CONFIG_RT_GROUP_SCHED_DEFAULT_DISABLED */
+#else
+# define rt_group_sched_enabled()	false
+#endif /* CONFIG_RT_GROUP_SCHED */
 
 static inline void lockdep_assert_rq_held(struct rq *rq)
 {
@@ -1953,7 +1988,7 @@ queue_balance_callback(struct rq *rq,
 	rq->balance_callback = head;
 }
 
-#define rcu_dereference_check_sched_domain(p) \
+#define rcu_dereference_sched_domain(p) \
 	rcu_dereference_check((p), lockdep_is_held(&sched_domains_mutex))
 
 /*
@@ -1964,7 +1999,7 @@ queue_balance_callback(struct rq *rq,
  * preempt-disabled sections.
  */
 #define for_each_domain(cpu, __sd) \
-	for (__sd = rcu_dereference_check_sched_domain(cpu_rq(cpu)->sd); \
+	for (__sd = rcu_dereference_sched_domain(cpu_rq(cpu)->sd); \
 			__sd; __sd = __sd->parent)
 
 /* A mask of all the SD flags that have the SDF_SHARED_CHILD metaflag */
@@ -2142,6 +2177,13 @@ static inline void set_task_rq(struct task_struct *p, unsigned int cpu)
 #endif
 
 #ifdef CONFIG_RT_GROUP_SCHED
+	/*
+	 * p->rt.rt_rq is NULL initially and it is easier to assign
+	 * root_task_group's rt_rq than switching in rt_rq_of_se()
+	 * Clobbers tg(!)
+	 */
+	if (!rt_group_sched_enabled())
+		tg = &root_task_group;
 	p->rt.rt_rq  = tg->rt_rq[cpu];
 	p->rt.parent = tg->rt_se[cpu];
 #endif
@@ -2354,6 +2396,7 @@ extern const u32		sched_prio_to_wmult[40];
 #define DEQUEUE_SPECIAL		0x10
 #define DEQUEUE_MIGRATING	0x100 /* Matches ENQUEUE_MIGRATING */
 #define DEQUEUE_DELAYED		0x200 /* Matches ENQUEUE_DELAYED */
+#define DEQUEUE_THROTTLE	0x800
 
 #define ENQUEUE_WAKEUP		0x01
 #define ENQUEUE_RESTORE		0x02
@@ -2387,6 +2430,15 @@ struct sched_class {
 #ifdef CONFIG_UCLAMP_TASK
 	int uclamp_enabled;
 #endif
+	/*
+	 * idle:  0
+	 * ext:   1
+	 * fair:  2
+	 * rt:    4
+	 * dl:    8
+	 * stop: 16
+	 */
+	unsigned int queue_mask;
 
 	void (*enqueue_task) (struct rq *rq, struct task_struct *p, int flags);
 	bool (*dequeue_task) (struct rq *rq, struct task_struct *p, int flags);
@@ -2456,6 +2508,20 @@ struct sched_class {
 	int (*task_is_throttled)(struct task_struct *p, int cpu);
 #endif
 };
+
+/*
+ * Does not nest; only used around sched_class::pick_task() rq-lock-breaks.
+ */
+static inline void rq_modified_clear(struct rq *rq)
+{
+	rq->queue_mask = 0;
+}
+
+static inline bool rq_modified_above(struct rq *rq, const struct sched_class * class)
+{
+	unsigned int mask = class->queue_mask;
+	return rq->queue_mask & ~((mask << 1) - 1);
+}
 
 static inline void put_prev_task(struct rq *rq, struct task_struct *prev)
 {
@@ -2710,6 +2776,8 @@ extern void init_rt_bandwidth(struct rt_bandwidth *rt_b, u64 period, u64 runtime
 extern bool sched_rt_bandwidth_account(struct rt_rq *rt_rq);
 
 extern void init_dl_entity(struct sched_dl_entity *dl_se);
+
+extern void init_cfs_throttle_work(struct task_struct *p);
 
 #define BW_SHIFT		20
 #define BW_UNIT			(1 << BW_SHIFT)
@@ -3246,11 +3314,11 @@ struct irqtime {
 };
 
 DECLARE_PER_CPU(struct irqtime, cpu_irqtime);
-extern int sched_clock_irqtime;
+DECLARE_STATIC_KEY_FALSE(sched_clock_irqtime);
 
 static inline int irqtime_enabled(void)
 {
-	return sched_clock_irqtime;
+	return static_branch_likely(&sched_clock_irqtime);
 }
 
 /*
@@ -3381,6 +3449,31 @@ static inline bool update_other_load_avgs(struct rq *rq) { return false; }
 
 unsigned long uclamp_eff_value(struct task_struct *p, enum uclamp_id clamp_id);
 
+/*
+ * When uclamp is compiled in, the aggregation at rq level is 'turned off'
+ * by default in the fast path and only gets turned on once userspace performs
+ * an operation that requires it.
+ *
+ * Returns true if userspace opted-in to use uclamp and aggregation at rq level
+ * hence is active.
+ */
+static inline bool uclamp_is_used(void)
+{
+	return static_branch_likely(&sched_uclamp_used);
+}
+
+/*
+ * Enabling static branches would get the cpus_read_lock(),
+ * check whether uclamp_is_used before enable it to avoid always
+ * calling cpus_read_lock(). Because we never disable this
+ * static key once enable it.
+ */
+static inline void sched_uclamp_enable(void)
+{
+	if (!uclamp_is_used())
+		static_branch_enable(&sched_uclamp_used);
+}
+
 static inline unsigned long uclamp_rq_get(struct rq *rq,
 					  enum uclamp_id clamp_id)
 {
@@ -3404,26 +3497,13 @@ static inline bool uclamp_rq_is_capped(struct rq *rq)
 	unsigned long rq_util;
 	unsigned long max_util;
 
-	if (!static_branch_likely(&sched_uclamp_used))
+	if (!uclamp_is_used())
 		return false;
 
 	rq_util = cpu_util_cfs(cpu_of(rq)) + cpu_util_rt(rq);
 	max_util = READ_ONCE(rq->uclamp[UCLAMP_MAX].value);
 
 	return max_util != SCHED_CAPACITY_SCALE && rq_util >= max_util;
-}
-
-/*
- * When uclamp is compiled in, the aggregation at rq level is 'turned off'
- * by default in the fast path and only gets turned on once userspace performs
- * an operation that requires it.
- *
- * Returns true if userspace opted-in to use uclamp and aggregation at rq level
- * hence is active.
- */
-static inline bool uclamp_is_used(void)
-{
-	return static_branch_likely(&sched_uclamp_used);
 }
 
 #define for_each_clamp_id(clamp_id) \
@@ -3472,6 +3552,8 @@ static inline bool uclamp_is_used(void)
 {
 	return false;
 }
+
+static inline void sched_uclamp_enable(void) {}
 
 static inline unsigned long
 uclamp_rq_get(struct rq *rq, enum uclamp_id clamp_id)
@@ -3811,11 +3893,9 @@ static inline int mm_cid_get(struct rq *rq, struct task_struct *t,
 			     struct mm_struct *mm)
 {
 	struct mm_cid __percpu *pcpu_cid = mm->pcpu_cid;
-	struct cpumask *cpumask;
 	int cid;
 
 	lockdep_assert_rq_held(rq);
-	cpumask = mm_cidmask(mm);
 	cid = __this_cpu_read(pcpu_cid->cid);
 	if (mm_cid_is_valid(cid)) {
 		mm_cid_snapshot_time(rq, mm);

@@ -6011,7 +6011,6 @@ bool workqueue_congested(int cpu, struct workqueue_struct *wq)
 	struct pool_workqueue *pwq;
 	bool ret;
 
-	rcu_read_lock();
 	preempt_disable();
 
 	if (cpu == WORK_CPU_UNBOUND)
@@ -6021,7 +6020,6 @@ bool workqueue_congested(int cpu, struct workqueue_struct *wq)
 	ret = !list_empty(&pwq->inactive_works);
 
 	preempt_enable();
-	rcu_read_unlock();
 
 	return ret;
 }
@@ -7536,8 +7534,6 @@ static void wq_watchdog_timer_fn(struct timer_list *unused)
 	if (!thresh)
 		return;
 
-	rcu_read_lock();
-
 	for_each_pool(pool, pi) {
 		unsigned long pool_ts, touched, ts;
 
@@ -7578,8 +7574,6 @@ static void wq_watchdog_timer_fn(struct timer_list *unused)
 
 
 	}
-
-	rcu_read_unlock();
 
 	if (lockup_detected)
 		show_all_workqueues();

@@ -2,12 +2,17 @@
 /*
  * Simple CPU accounting cgroup controller
  */
+#include <linux/sched/cputime.h>
+#include <linux/tsacct_kern.h>
+#include "sched.h"
 
 #ifdef CONFIG_VIRT_CPU_ACCOUNTING_NATIVE
  #include <asm/cputime.h>
 #endif
 
 #ifdef CONFIG_IRQ_TIME_ACCOUNTING
+
+DEFINE_STATIC_KEY_FALSE(sched_clock_irqtime);
 
 /*
  * There are no locks covering percpu hardirq/softirq time.
@@ -22,16 +27,15 @@
  */
 DEFINE_PER_CPU(struct irqtime, cpu_irqtime);
 
-int sched_clock_irqtime;
-
 void enable_sched_clock_irqtime(void)
 {
-	sched_clock_irqtime = 1;
+	static_branch_enable(&sched_clock_irqtime);
 }
 
 void disable_sched_clock_irqtime(void)
 {
-	sched_clock_irqtime = 0;
+	if (irqtime_enabled())
+		static_branch_disable(&sched_clock_irqtime);
 }
 
 static void irqtime_account_delta(struct irqtime *irqtime, u64 delta,
