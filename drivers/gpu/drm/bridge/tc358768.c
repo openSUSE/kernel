@@ -115,7 +115,7 @@
 #define TC358768_DSI_HACT		0x062C
 
 /* TC358768_DSI_CONTROL (0x040C) register */
-#define TC358768_DSI_CONTROL_DIS_MODE	BIT(15)
+#define TC358768_DSI_CONTROL_DSI_MODE	BIT(15)
 #define TC358768_DSI_CONTROL_TXMD	BIT(7)
 #define TC358768_DSI_CONTROL_HSCKMD	BIT(5)
 #define TC358768_DSI_CONTROL_EOTDIS	BIT(0)
@@ -1082,7 +1082,7 @@ static void tc358768_bridge_atomic_pre_enable(struct drm_bridge *bridge,
 	tc358768_write(priv, TC358768_DSI_CONFW, val);
 
 	val = TC358768_DSI_CONFW_MODE_CLR | TC358768_DSI_CONFW_ADDR_DSI_CONTROL;
-	val |= TC358768_DSI_CONTROL_DIS_MODE; /* DSI mode */
+	val |= TC358768_DSI_CONTROL_DSI_MODE;
 	tc358768_write(priv, TC358768_DSI_CONFW, val);
 
 	ret = tc358768_clear_error(priv);
