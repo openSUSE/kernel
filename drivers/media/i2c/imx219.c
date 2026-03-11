@@ -837,11 +837,9 @@ static int imx219_set_pad_format(struct v4l2_subdev *sd,
 	struct v4l2_mbus_framefmt *format;
 	struct v4l2_rect *crop;
 	u8 bin_h, bin_v, binning;
-	u32 prev_line_len;
 	int ret;
 
 	format = v4l2_subdev_state_get_format(state, 0);
-	prev_line_len = format->width + imx219->hblank->val;
 
 	/*
 	 * Adjust the requested format to match the closest mode. The Bayer
@@ -882,7 +880,7 @@ static int imx219_set_pad_format(struct v4l2_subdev *sd,
 	if (fmt->which == V4L2_SUBDEV_FORMAT_ACTIVE) {
 		int exposure_max;
 		int exposure_def;
-		int hblank, llp_min;
+		int llp_min;
 		int pixel_rate;
 
 		/* Update limits and set FPS to default */
@@ -924,15 +922,8 @@ static int imx219_set_pad_format(struct v4l2_subdev *sd,
 					       llp_min - mode->width);
 		if (ret)
 			return ret;
-		/*
-		 * Retain PPL setting from previous mode so that the
-		 * line time does not change on a mode change.
-		 * Limits have to be recomputed as the controls define
-		 * the blanking only, so PPL values need to have the
-		 * mode width subtracted.
-		 */
-		hblank = prev_line_len - mode->width;
-		ret = __v4l2_ctrl_s_ctrl(imx219->hblank, hblank);
+
+		ret = __v4l2_ctrl_s_ctrl(imx219->hblank, llp_min - mode->width);
 		if (ret)
 			return ret;
 
