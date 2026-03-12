@@ -526,21 +526,7 @@ _bpftool()
                     esac
                     ;;
                 tracelog)
-                    case $prev in
-                        $command)
-                            COMPREPLY+=( $( compgen -W "stdout stderr" -- \
-                                "$cur" ) )
-                            return 0
-                            ;;
-                        stdout|stderr)
-                            COMPREPLY=( $( compgen -W "$PROG_TYPE" -- \
-                                "$cur" ) )
-                            return 0
-                            ;;
-                        *)
-                            return 0
-                            ;;
-                    esac
+                    return 0
                     ;;
                 profile)
                     case $cword in

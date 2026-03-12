@@ -1563,37 +1563,6 @@ struct btf_mod_pair {
 
 struct bpf_kfunc_desc_tab;
 
-enum bpf_stream_id {
-	BPF_STDOUT = 1,
-	BPF_STDERR = 2,
-};
-
-struct bpf_stream_elem {
-	struct llist_node node;
-	int total_len;
-	int consumed_len;
-	char str[];
-};
-
-enum {
-	/* 100k bytes */
-	BPF_STREAM_MAX_CAPACITY = 100000ULL,
-};
-
-struct bpf_stream {
-	atomic_t capacity;
-	struct llist_head log;	/* list of in-flight stream elements in LIFO order */
-
-	struct mutex lock;  /* lock protecting backlog_{head,tail} */
-	struct llist_node *backlog_head; /* list of in-flight stream elements in FIFO order */
-	struct llist_node *backlog_tail; /* tail of the list above */
-};
-
-struct bpf_stream_stage {
-	struct llist_head log;
-	int len;
-};
-
 struct bpf_prog_aux {
 	atomic64_t refcnt;
 	u32 used_map_cnt;
@@ -1644,7 +1613,6 @@ struct bpf_prog_aux {
 	/* function name for valid attach_btf_id */
 	const char *attach_func_name;
 	struct bpf_prog **func;
-	struct bpf_prog_aux *main_prog_aux;
 	void *jit_data; /* JIT specific data. arch dependent */
 	struct bpf_jit_poke_descriptor *poke_tab;
 	struct bpf_kfunc_desc_tab *kfunc_tab;
@@ -1704,7 +1672,6 @@ struct bpf_prog_aux {
 		struct work_struct work;
 		struct rcu_head	rcu;
 	};
-	struct bpf_stream stream[2];
 	void *suse_kabi_padding;
 };
 
@@ -1736,12 +1703,12 @@ struct bpf_prog {
 					    const struct bpf_insn *insn);
 	struct bpf_prog_aux	*aux;		/* Auxiliary fields */
 	struct sock_fprog_kern	*orig_prog;	/* Original BPF program */
+	void			*suse_kabi_padding;
 	/* Instructions for interpreter */
 	union {
 		DECLARE_FLEX_ARRAY(struct sock_filter, insns);
 		DECLARE_FLEX_ARRAY(struct bpf_insn, insnsi);
 	};
-	void *suse_kabi_padding;
 };
 
 struct bpf_array_aux {
@@ -2487,8 +2454,7 @@ int  generic_map_delete_batch(struct bpf_map *map,
 struct bpf_map *bpf_map_get_curr_or_next(u32 *id);
 struct bpf_prog *bpf_prog_get_curr_or_next(u32 *id);
 
-
-int bpf_map_alloc_pages(const struct bpf_map *map, int nid,
+int bpf_map_alloc_pages(const struct bpf_map *map, gfp_t gfp, int nid,
 			unsigned long nr_pages, struct page **page_array);
 #ifdef CONFIG_MEMCG
 void *bpf_map_kmalloc_node(const struct bpf_map *map, size_t size, gfp_t flags,
@@ -2895,7 +2861,6 @@ void bpf_dynptr_init(struct bpf_dynptr_kern *ptr, void *data,
 		     enum bpf_dynptr_type type, u32 offset, u32 size);
 void bpf_dynptr_set_null(struct bpf_dynptr_kern *ptr);
 void bpf_dynptr_set_rdonly(struct bpf_dynptr_kern *ptr);
-void bpf_prog_report_arena_violation(bool write, unsigned long addr, unsigned long fault_ip);
 
 #else /* !CONFIG_BPF_SYSCALL */
 static inline struct bpf_prog *bpf_prog_get(u32 ufd)
@@ -3181,11 +3146,6 @@ static inline void bpf_dynptr_set_null(struct bpf_dynptr_kern *ptr)
 }
 
 static inline void bpf_dynptr_set_rdonly(struct bpf_dynptr_kern *ptr)
-{
-}
-
-static inline void bpf_prog_report_arena_violation(bool write, unsigned long addr,
-						   unsigned long fault_ip)
 {
 }
 #endif /* CONFIG_BPF_SYSCALL */
@@ -3702,27 +3662,6 @@ void bpf_bprintf_cleanup(struct bpf_bprintf_data *data);
 int bpf_try_get_buffers(struct bpf_bprintf_buffers **bufs);
 void bpf_put_buffers(void);
 
-void bpf_prog_stream_init(struct bpf_prog *prog);
-void bpf_prog_stream_free(struct bpf_prog *prog);
-int bpf_prog_stream_read(struct bpf_prog *prog, enum bpf_stream_id stream_id, void __user *buf, int len);
-void bpf_stream_stage_init(struct bpf_stream_stage *ss);
-void bpf_stream_stage_free(struct bpf_stream_stage *ss);
-__printf(2, 3)
-int bpf_stream_stage_printk(struct bpf_stream_stage *ss, const char *fmt, ...);
-int bpf_stream_stage_commit(struct bpf_stream_stage *ss, struct bpf_prog *prog,
-			    enum bpf_stream_id stream_id);
-int bpf_stream_stage_dump_stack(struct bpf_stream_stage *ss);
-
-#define bpf_stream_printk(ss, ...) bpf_stream_stage_printk(&ss, __VA_ARGS__)
-#define bpf_stream_dump_stack(ss) bpf_stream_stage_dump_stack(&ss)
-
-#define bpf_stream_stage(ss, prog, stream_id, expr)            \
-	({                                                     \
-		bpf_stream_stage_init(&ss);                    \
-		(expr);                                        \
-		bpf_stream_stage_commit(&ss, prog, stream_id); \
-		bpf_stream_stage_free(&ss);                    \
-	})
 
 #ifdef CONFIG_BPF_LSM
 void bpf_cgroup_atype_get(u32 attach_btf_id, int cgroup_atype);
@@ -3757,9 +3696,5 @@ static inline bool bpf_is_subprog(const struct bpf_prog *prog)
 {
 	return prog->aux->func_idx != 0;
 }
-
-int bpf_prog_get_file_line(struct bpf_prog *prog, unsigned long ip, const char **filep,
-			   const char **linep, int *nump);
-struct bpf_prog *bpf_prog_find_from_stack(void);
 
 #endif /* _LINUX_BPF_H */
