@@ -1855,8 +1855,14 @@ static int mana_gd_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 	if (err)
 		goto cleanup_gd;
 
+	err = mana_rdma_probe(&gc->mana_ib);
+	if (err)
+		goto cleanup_mana;
+
 	return 0;
 
+cleanup_mana:
+	mana_remove(&gc->mana, false);
 cleanup_gd:
 	mana_gd_cleanup(pdev);
 unmap_bar:
@@ -1885,6 +1891,7 @@ static void mana_gd_remove(struct pci_dev *pdev)
 {
 	struct gdma_context *gc = pci_get_drvdata(pdev);
 
+	mana_rdma_remove(&gc->mana_ib);
 	mana_remove(&gc->mana, false);
 
 	mana_gd_cleanup(pdev);
@@ -1910,6 +1917,7 @@ static int mana_gd_suspend(struct pci_dev *pdev, pm_message_t state)
 {
 	struct gdma_context *gc = pci_get_drvdata(pdev);
 
+	mana_rdma_remove(&gc->mana_ib);
 	mana_remove(&gc->mana, true);
 
 	mana_gd_cleanup(pdev);
@@ -1934,6 +1942,10 @@ static int mana_gd_resume(struct pci_dev *pdev)
 	if (err)
 		return err;
 
+	err = mana_rdma_probe(&gc->mana_ib);
+	if (err)
+		return err;
+
 	return 0;
 }
 
@@ -1944,6 +1956,7 @@ static void mana_gd_shutdown(struct pci_dev *pdev)
 
 	dev_info(&pdev->dev, "Shutdown was called\n");
 
+	mana_rdma_remove(&gc->mana_ib);
 	mana_remove(&gc->mana, true);
 
 	mana_gd_cleanup(pdev);
