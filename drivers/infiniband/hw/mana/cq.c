@@ -14,14 +14,12 @@ int mana_ib_create_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr,
 	struct ib_device *ibdev = ibcq->device;
 	struct mana_ib_create_cq ucmd = {};
 	struct mana_ib_dev *mdev;
-	struct gdma_context *gc;
 	bool is_rnic_cq;
 	u32 doorbell;
 	u32 buf_size;
 	int err;
 
 	mdev = container_of(ibdev, struct mana_ib_dev, ib_dev);
-	gc = mdev_to_gc(mdev);
 
 	cq->comp_vector = attr->comp_vector % ibdev->num_comp_vectors;
 	cq->cq_handle = INVALID_MANA_HANDLE;
@@ -64,7 +62,7 @@ int mana_ib_create_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr,
 			ibdev_dbg(ibdev, "Failed to create kernel queue for create cq, %d\n", err);
 			return err;
 		}
-		doorbell = gc->mana_ib.doorbell;
+		doorbell = mdev->gdma_dev->doorbell;
 	}
 
 	if (is_rnic_cq) {
