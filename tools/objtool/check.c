@@ -3962,6 +3962,26 @@ static bool is_ubsan_insn(struct instruction *insn)
 			"__ubsan_handle_builtin_unreachable"));
 }
 
+static bool should_ignore_livepatch_funcs(struct symbol *func) {
+
+      static const char *ignored_funcs[] = {
+              "hv_crash_nmi_local",
+              "fred_sysvec_reboot",
+              "sysvec_reboot",
+      };
+
+      if (!func)
+              return false;
+
+      for (int i = 0; i < ARRAY_SIZE(ignored_funcs); i++) {
+              if (!strcmp(func->name, ignored_funcs[i]))
+                      return true;
+      }
+
+      return false;
+}
+
+
 static bool ignore_unreachable_insn(struct objtool_file *file, struct instruction *insn)
 {
 	struct symbol *func = insn_func(insn);
@@ -3971,6 +3991,8 @@ static bool ignore_unreachable_insn(struct objtool_file *file, struct instructio
 	if (insn->type == INSN_NOP || insn->type == INSN_TRAP || (func && func->ignore))
 		return true;
 
+	if (should_ignore_livepatch_funcs(func))
+		return true;
 	/*
 	 * Ignore alternative replacement instructions.  This can happen
 	 * when a whitelisted function uses one of the ALTERNATIVE macros.
