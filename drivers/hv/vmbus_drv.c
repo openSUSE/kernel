@@ -1602,7 +1602,7 @@ static ssize_t target_cpu_store(struct vmbus_channel *channel,
 	if (vmbus_proto_version < VERSION_WIN10_V4_1)
 		return -EIO;
 
-	if (sscanf(buf, "%uu", &target_cpu) != 1)
+	if (sscanf(buf, "%u", &target_cpu) != 1)
 		return -EIO;
 
 	/* Validate target_cpu for the cpumask_test_cpu() operation below. */
