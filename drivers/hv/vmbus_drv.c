@@ -1930,7 +1930,7 @@ int vmbus_device_register(struct hv_device *child_device_obj)
 	ret = vmbus_add_channel_kobj(child_device_obj,
 				     child_device_obj->channel);
 	if (ret) {
-		pr_err("Unable to register primary channeln");
+		pr_err("Unable to register primary channel\n");
 		goto err_kset_unregister;
 	}
 	hv_debug_add_dev_dir(child_device_obj);
