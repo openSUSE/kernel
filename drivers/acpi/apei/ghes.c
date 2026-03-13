@@ -1019,7 +1019,7 @@ ghes_estatus_cache_add(struct acpi_hest_generic *generic,
 	}
 }
 
-static void __ghes_panic(struct ghes *ghes,
+__noreturn static void __ghes_panic(struct ghes *ghes,
 			 struct acpi_hest_generic_status *estatus,
 			 u64 buf_paddr, enum fixed_addresses fixmap_idx)
 {

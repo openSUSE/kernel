@@ -75,12 +75,15 @@ static __always_inline void lass_stac(void)
 	alternative("", "stac", X86_FEATURE_LASS);
 }
 
+
+
 static __always_inline unsigned long smap_save(void)
 {
 	unsigned long flags;
 
 	asm volatile ("# smap_save\n\t"
-		      ALTERNATIVE("", "pushf; pop %0; " __ASM_CLAC "\n\t",
+		      ALTERNATIVE(ANNOTATE_IGNORE_ALTERNATIVE
+				  "", "pushf; pop %0; " __ASM_CLAC "\n\t",
 				  X86_FEATURE_SMAP)
 		      : "=rm" (flags) : : "memory", "cc");
 
@@ -90,7 +93,7 @@ static __always_inline unsigned long smap_save(void)
 static __always_inline void smap_restore(unsigned long flags)
 {
 	asm volatile ("# smap_restore\n\t"
-		      ALTERNATIVE("", "push %0; popf\n\t",
+		      ALTERNATIVE(ANNOTATE_IGNORE_ALTERNATIVE "", "push %0; popf\n\t",
 				  X86_FEATURE_SMAP)
 		      : : "g" (flags) : "memory", "cc");
 }
@@ -100,6 +103,11 @@ static __always_inline void smap_restore(unsigned long flags)
 	ALTERNATIVE("", __ASM_CLAC, X86_FEATURE_SMAP)
 #define ASM_STAC \
 	ALTERNATIVE("", __ASM_STAC, X86_FEATURE_SMAP)
+
+#define ASM_CLAC_UNSAFE \
+	ALTERNATIVE("", ANNOTATE_IGNORE_ALTERNATIVE __ASM_CLAC, X86_FEATURE_SMAP)
+#define ASM_STAC_UNSAFE \
+	ALTERNATIVE("", ANNOTATE_IGNORE_ALTERNATIVE __ASM_STAC, X86_FEATURE_SMAP)
 
 #endif /* __ASSEMBLY__ */
 
