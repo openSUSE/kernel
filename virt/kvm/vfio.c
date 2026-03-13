@@ -174,6 +174,17 @@ static int kvm_vfio_file_add(struct kvm_device *dev, unsigned int fd)
 	return 0;
 }
 
+static void kvm_vfio_file_free(struct kvm_device *dev, struct kvm_vfio_file *kvf)
+{
+#ifdef CONFIG_SPAPR_TCE_IOMMU
+	kvm_spapr_tce_release_vfio_group(dev->kvm, kvf);
+#endif
+	kvm_vfio_file_set_kvm(kvf->file, NULL);
+	fput(kvf->file);
+	list_del(&kvf->node);
+	kfree(kvf);
+}
+
 static int kvm_vfio_file_del(struct kvm_device *dev, unsigned int fd)
 {
 	struct kvm_vfio *kv = dev->private;
@@ -189,18 +200,11 @@ static int kvm_vfio_file_del(struct kvm_device *dev, unsigned int fd)
 	mutex_lock(&kv->lock);
 
 	list_for_each_entry(kvf, &kv->file_list, node) {
-		if (kvf->file != fd_file(f))
-			continue;
-
-		list_del(&kvf->node);
-#ifdef CONFIG_SPAPR_TCE_IOMMU
-		kvm_spapr_tce_release_vfio_group(dev->kvm, kvf);
-#endif
-		kvm_vfio_file_set_kvm(kvf->file, NULL);
-		fput(kvf->file);
-		kfree(kvf);
-		ret = 0;
-		break;
+		if (kvf->file == fd_file(f)) {
+			kvm_vfio_file_free(dev, kvf);
+			ret = 0;
+			break;
+		}
 	}
 
 	kvm_vfio_update_coherency(dev);
@@ -307,15 +311,8 @@ static void kvm_vfio_release(struct kvm_device *dev)
 	struct kvm_vfio *kv = dev->private;
 	struct kvm_vfio_file *kvf, *tmp;
 
-	list_for_each_entry_safe(kvf, tmp, &kv->file_list, node) {
-#ifdef CONFIG_SPAPR_TCE_IOMMU
-		kvm_spapr_tce_release_vfio_group(dev->kvm, kvf);
-#endif
-		kvm_vfio_file_set_kvm(kvf->file, NULL);
-		fput(kvf->file);
-		list_del(&kvf->node);
-		kfree(kvf);
-	}
+	list_for_each_entry_safe(kvf, tmp, &kv->file_list, node)
+		kvm_vfio_file_free(dev, kvf);
 
 	kvm_vfio_update_coherency(dev);
 
