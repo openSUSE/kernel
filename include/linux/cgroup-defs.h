@@ -191,6 +191,16 @@ struct cgroup_subsys_state {
 	 */
 	atomic_t online_cnt;
 
+#ifndef __GENKSYMS__
+	/*
+	 * Keep track of total numbers of visible descendant CSSes.
+	 * The total number of dying CSSes is tracked in
+	 * css->cgroup->nr_dying_subsys[ssid].
+	 * Protected by cgroup_mutex.
+	 */
+	int nr_descendants;
+#endif
+
 	/* percpu_ref killing and RCU release */
 	struct work_struct destroy_work;
 	struct rcu_work destroy_rwork;
@@ -201,6 +211,59 @@ struct cgroup_subsys_state {
 	 */
 	struct cgroup_subsys_state *parent;
 };
+
+struct __orig_cgroup_subsys_state {
+	/* PI: the cgroup that this css is attached to */
+	struct cgroup *cgroup;
+
+	/* PI: the cgroup subsystem that this css is attached to */
+	struct cgroup_subsys *ss;
+
+	/* reference count - access via css_[try]get() and css_put() */
+	struct percpu_ref refcnt;
+
+	/* siblings list anchored at the parent's ->children */
+	struct list_head sibling;
+	struct list_head children;
+
+	/* flush target list anchored at cgrp->rstat_css_list */
+	struct list_head rstat_css_node;
+
+	/*
+	 * PI: Subsys-unique ID.  0 is unused and root is always 1.  The
+	 * matching css can be looked up using css_from_id().
+	 */
+	int id;
+
+	unsigned int flags;
+
+	/*
+	 * Monotonically increasing unique serial number which defines a
+	 * uniform order among all csses.  It's guaranteed that all
+	 * ->children lists are in the ascending order of ->serial_nr and
+	 * used to allow interrupting and resuming iterations.
+	 */
+	u64 serial_nr;
+
+	/*
+	 * Incremented by online self and children.  Used to guarantee that
+	 * parents are not offlined before their children.
+	 */
+	atomic_t online_cnt;
+
+	/* percpu_ref killing and RCU release */
+	struct work_struct destroy_work;
+	struct rcu_work destroy_rwork;
+
+	/*
+	 * PI: the parent css.	Placed here for cache proximity to following
+	 * fields of the containing structure.
+	 */
+	struct cgroup_subsys_state *parent;
+};
+
+suse_kabi_static_assert(offsetof(struct cgroup_subsys_state, destroy_work) ==
+			offsetof(struct __orig_cgroup_subsys_state, destroy_work));
 
 /*
  * A css_set is a structure holding pointers to a set of
@@ -534,6 +597,12 @@ struct cgroup_extra {
 	 * cgroup_rstat_flush_locked() and protected by cgroup_rstat_lock.
 	 */
 	struct cgroup	*rstat_flush_next;
+
+	/*
+	 * Keep track of total number of dying CSSes at and below this cgroup.
+	 * Protected by cgroup_mutex.
+	 */
+	int nr_dying_subsys[CGROUP_SUBSYS_COUNT];
 };
 
 /*
