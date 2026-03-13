@@ -751,7 +751,17 @@ static int unpack_pdb(struct aa_ext *e, struct aa_policydb *policy,
 		if (!aa_unpack_u32(e, &policy->start[AA_CLASS_FILE], "dfa_start")) {
 			/* default start state for xmatch and file dfa */
 			policy->start[AA_CLASS_FILE] = DFA_START;
-		}	/* setup class index */
+		}
+
+		size_t state_count = policy->dfa->tables[YYTD_ID_BASE]->td_lolen;
+
+		if (policy->start[0] >= state_count ||
+		    policy->start[AA_CLASS_FILE] >= state_count) {
+			*info = "invalid dfa start state";
+			goto fail;
+		}
+
+		/* setup class index */
 		for (i = AA_CLASS_FILE + 1; i <= AA_CLASS_LAST; i++) {
 			policy->start[i] = aa_dfa_next(policy->dfa, policy->start[0],
 						       i);
