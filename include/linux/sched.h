@@ -1773,12 +1773,8 @@ extern struct pid *cad_pid;
 
 static __always_inline bool is_percpu_thread(void)
 {
-#ifdef CONFIG_SMP
 	return (current->flags & PF_NO_SETAFFINITY) &&
 		(current->nr_cpus_allowed  == 1);
-#else
-	return true;
-#endif
 }
 
 static __always_inline bool is_user_task(struct task_struct *task)
@@ -1999,7 +1995,6 @@ extern char *__get_task_comm(char *to, size_t len, struct task_struct *tsk);
 	__get_task_comm(buf, sizeof(buf), tsk);		\
 })
 
-#ifdef CONFIG_SMP
 static __always_inline void scheduler_ipi(void)
 {
 	/*
@@ -2009,9 +2004,6 @@ static __always_inline void scheduler_ipi(void)
 	 */
 	preempt_fold_need_resched();
 }
-#else
-static inline void scheduler_ipi(void) { }
-#endif
 
 extern unsigned long wait_task_inactive(struct task_struct *, unsigned int match_state);
 
