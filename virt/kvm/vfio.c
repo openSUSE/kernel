@@ -216,7 +216,6 @@ static int kvm_vfio_file_set_spapr_tce(struct kvm_device *dev,
 	struct kvm_vfio_spapr_tce param;
 	struct kvm_vfio *kv = dev->private;
 	struct kvm_vfio_file *kvf;
-	int ret;
 
 	if (copy_from_user(&param, arg, sizeof(struct kvm_vfio_spapr_tce)))
 		return -EFAULT;
@@ -225,9 +224,7 @@ static int kvm_vfio_file_set_spapr_tce(struct kvm_device *dev,
 	if (fd_empty(f))
 		return -EBADF;
 
-	ret = -ENOENT;
-
-	mutex_lock(&kv->lock);
+	guard(mutex)(&kv->lock);
 
 	list_for_each_entry(kvf, &kv->file_list, node) {
 		if (kvf->file != fd_file(f))
@@ -235,20 +232,15 @@ static int kvm_vfio_file_set_spapr_tce(struct kvm_device *dev,
 
 		if (!kvf->iommu_group) {
 			kvf->iommu_group = kvm_vfio_file_iommu_group(kvf->file);
-			if (WARN_ON_ONCE(!kvf->iommu_group)) {
-				ret = -EIO;
-				goto err_fdput;
-			}
+			if (WARN_ON_ONCE(!kvf->iommu_group))
+				return -EIO;
 		}
 
-		ret = kvm_spapr_tce_attach_iommu_group(dev->kvm, param.tablefd,
-						       kvf->iommu_group);
-		break;
+		return kvm_spapr_tce_attach_iommu_group(dev->kvm, param.tablefd,
+							kvf->iommu_group);
 	}
 
-err_fdput:
-	mutex_unlock(&kv->lock);
-	return ret;
+	return -ENOENT;
 }
 #endif
 
