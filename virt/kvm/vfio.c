@@ -190,27 +190,21 @@ static int kvm_vfio_file_del(struct kvm_device *dev, unsigned int fd)
 	struct kvm_vfio *kv = dev->private;
 	struct kvm_vfio_file *kvf;
 	CLASS(fd, f)(fd);
-	int ret;
 
 	if (fd_empty(f))
 		return -EBADF;
 
-	ret = -ENOENT;
-
-	mutex_lock(&kv->lock);
+	guard(mutex)(&kv->lock);
 
 	list_for_each_entry(kvf, &kv->file_list, node) {
 		if (kvf->file == fd_file(f)) {
 			kvm_vfio_file_free(dev, kvf);
-			ret = 0;
-			break;
+			kvm_vfio_update_coherency(dev);
+			return 0;
 		}
 	}
 
-	kvm_vfio_update_coherency(dev);
-
-	mutex_unlock(&kv->lock);
-	return ret;
+	return -ENOENT;
 }
 
 #ifdef CONFIG_SPAPR_TCE_IOMMU
