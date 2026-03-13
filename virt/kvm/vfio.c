@@ -144,33 +144,26 @@ static int kvm_vfio_file_add(struct kvm_device *dev, unsigned int fd)
 {
 	struct kvm_vfio *kv = dev->private;
 	struct kvm_vfio_file *kvf;
-	struct file *filp;
-	int ret = 0;
+	struct file *filp __free(fput) = NULL;
 
 	filp = fget(fd);
 	if (!filp)
 		return -EBADF;
 
 	/* Ensure the FD is a vfio FD. */
-	if (!kvm_vfio_file_is_valid(filp)) {
-		ret = -EINVAL;
-		goto out_fput;
-	}
+	if (!kvm_vfio_file_is_valid(filp))
+		return -EINVAL;
 
-	mutex_lock(&kv->lock);
+	guard(mutex)(&kv->lock);
 
 	list_for_each_entry(kvf, &kv->file_list, node) {
-		if (kvf->file == filp) {
-			ret = -EEXIST;
-			goto out_unlock;
-		}
+		if (kvf->file == filp)
+			return -EEXIST;
 	}
 
 	kvf = kzalloc_obj(*kvf, GFP_KERNEL_ACCOUNT);
-	if (!kvf) {
-		ret = -ENOMEM;
-		goto out_unlock;
-	}
+	if (!kvf)
+		return -ENOMEM;
 
 	kvf->file = get_file(filp);
 	list_add_tail(&kvf->node, &kv->file_list);
@@ -178,11 +171,7 @@ static int kvm_vfio_file_add(struct kvm_device *dev, unsigned int fd)
 	kvm_vfio_file_set_kvm(kvf->file, dev->kvm);
 	kvm_vfio_update_coherency(dev);
 
-out_unlock:
-	mutex_unlock(&kv->lock);
-out_fput:
-	fput(filp);
-	return ret;
+	return 0;
 }
 
 static int kvm_vfio_file_del(struct kvm_device *dev, unsigned int fd)
