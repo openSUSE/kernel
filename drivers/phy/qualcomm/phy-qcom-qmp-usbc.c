@@ -351,20 +351,20 @@ static const struct qmp_phy_init_tbl qmp_v2_dp_serdes_tbl_hbr2[] = {
 };
 
 static const struct qmp_phy_init_tbl qmp_v2_dp_tx_tbl[] = {
-	QMP_PHY_INIT_CFG(QSERDES_V2_TX_TRANSCEIVER_BIAS_EN, 0x1a),
-	QMP_PHY_INIT_CFG(QSERDES_V2_TX_VMODE_CTRL1, 0x40),
-	QMP_PHY_INIT_CFG(QSERDES_V2_TX_PRE_STALL_LDO_BOOST_EN, 0x30),
-	QMP_PHY_INIT_CFG(QSERDES_V2_TX_INTERFACE_SELECT, 0x3d),
-	QMP_PHY_INIT_CFG(QSERDES_V2_TX_CLKBUF_ENABLE, 0x0f),
-	QMP_PHY_INIT_CFG(QSERDES_V2_TX_RESET_TSYNC_EN, 0x03),
-	QMP_PHY_INIT_CFG(QSERDES_V2_TX_TRAN_DRVR_EMP_EN, 0x03),
-	QMP_PHY_INIT_CFG(QSERDES_V2_TX_PARRATE_REC_DETECT_IDLE_EN, 0x00),
-	QMP_PHY_INIT_CFG(QSERDES_V2_TX_TX_INTERFACE_MODE, 0x00),
-	QMP_PHY_INIT_CFG(QSERDES_V2_TX_TX_EMP_POST1_LVL, 0x2b),
-	QMP_PHY_INIT_CFG(QSERDES_V2_TX_TX_DRV_LVL, 0x2f),
-	QMP_PHY_INIT_CFG(QSERDES_V2_TX_TX_BAND, 0x4),
-	QMP_PHY_INIT_CFG(QSERDES_V2_TX_RES_CODE_LANE_OFFSET_TX, 0x12),
-	QMP_PHY_INIT_CFG(QSERDES_V2_TX_RES_CODE_LANE_OFFSET_RX, 0x12),
+	QMP_PHY_INIT_CFG(QSERDES_V3_TX_TRANSCEIVER_BIAS_EN, 0x1a),
+	QMP_PHY_INIT_CFG(QSERDES_V3_TX_VMODE_CTRL1, 0x40),
+	QMP_PHY_INIT_CFG(QSERDES_V3_TX_PRE_STALL_LDO_BOOST_EN, 0x30),
+	QMP_PHY_INIT_CFG(QSERDES_V3_TX_INTERFACE_SELECT, 0x3d),
+	QMP_PHY_INIT_CFG(QSERDES_V3_TX_CLKBUF_ENABLE, 0x0f),
+	QMP_PHY_INIT_CFG(QSERDES_V3_TX_RESET_TSYNC_EN, 0x03),
+	QMP_PHY_INIT_CFG(QSERDES_V3_TX_TRAN_DRVR_EMP_EN, 0x03),
+	QMP_PHY_INIT_CFG(QSERDES_V3_TX_PARRATE_REC_DETECT_IDLE_EN, 0x00),
+	QMP_PHY_INIT_CFG(QSERDES_V3_TX_TX_INTERFACE_MODE, 0x00),
+	QMP_PHY_INIT_CFG(QSERDES_V3_TX_TX_EMP_POST1_LVL, 0x2b),
+	QMP_PHY_INIT_CFG(QSERDES_V3_TX_TX_DRV_LVL, 0x2f),
+	QMP_PHY_INIT_CFG(QSERDES_V3_TX_TX_BAND, 0x4),
+	QMP_PHY_INIT_CFG(QSERDES_V3_TX_RES_CODE_LANE_OFFSET_TX, 0x12),
+	QMP_PHY_INIT_CFG(QSERDES_V3_TX_RES_CODE_LANE_OFFSET_RX, 0x12),
 };
 
 struct qmp_usbc_offsets {
@@ -809,10 +809,10 @@ static int qmp_v2_configure_dp_swing(struct qmp_usbc *qmp)
 	if (voltage_swing_cfg == 0xff && pre_emphasis_cfg == 0xff)
 		return -EINVAL;
 
-	writel(voltage_swing_cfg, tx + QSERDES_V2_TX_TX_DRV_LVL);
-	writel(pre_emphasis_cfg, tx + QSERDES_V2_TX_TX_EMP_POST1_LVL);
-	writel(voltage_swing_cfg, tx2 + QSERDES_V2_TX_TX_DRV_LVL);
-	writel(pre_emphasis_cfg, tx2 + QSERDES_V2_TX_TX_EMP_POST1_LVL);
+	writel(voltage_swing_cfg, tx + QSERDES_V3_TX_TX_DRV_LVL);
+	writel(pre_emphasis_cfg, tx + QSERDES_V3_TX_TX_EMP_POST1_LVL);
+	writel(voltage_swing_cfg, tx2 + QSERDES_V3_TX_TX_DRV_LVL);
+	writel(pre_emphasis_cfg, tx2 + QSERDES_V3_TX_TX_EMP_POST1_LVL);
 
 	return 0;
 }
@@ -871,17 +871,17 @@ static void qmp_v2_configure_dp_tx(struct qmp_usbc *qmp)
 	void __iomem *tx2 = qmp->dp_tx2;
 
 	/* program default setting first */
-	writel(0x2a, tx + QSERDES_V2_TX_TX_DRV_LVL);
-	writel(0x20, tx + QSERDES_V2_TX_TX_EMP_POST1_LVL);
-	writel(0x2a, tx2 + QSERDES_V2_TX_TX_DRV_LVL);
-	writel(0x20, tx2 + QSERDES_V2_TX_TX_EMP_POST1_LVL);
+	writel(0x2a, tx + QSERDES_V3_TX_TX_DRV_LVL);
+	writel(0x20, tx + QSERDES_V3_TX_TX_EMP_POST1_LVL);
+	writel(0x2a, tx2 + QSERDES_V3_TX_TX_DRV_LVL);
+	writel(0x20, tx2 + QSERDES_V3_TX_TX_EMP_POST1_LVL);
 
 	if (dp_opts->link_rate >= 2700) {
-		writel(0xc4, tx + QSERDES_V2_TX_LANE_MODE_1);
-		writel(0xc4, tx2 + QSERDES_V2_TX_LANE_MODE_1);
+		writel(0xc4, tx + QSERDES_V3_TX_LANE_MODE_1);
+		writel(0xc4, tx2 + QSERDES_V3_TX_LANE_MODE_1);
 	} else {
-		writel(0xc6, tx + QSERDES_V2_TX_LANE_MODE_1);
-		writel(0xc6, tx2 + QSERDES_V2_TX_LANE_MODE_1);
+		writel(0xc6, tx + QSERDES_V3_TX_LANE_MODE_1);
+		writel(0xc6, tx2 + QSERDES_V3_TX_LANE_MODE_1);
 	}
 
 	qmp_v2_configure_dp_swing(qmp);
@@ -955,12 +955,12 @@ static int qmp_v2_configure_dp_phy(struct qmp_usbc *qmp)
 		return -ETIMEDOUT;
 	}
 
-	writel(0x3f, qmp->dp_tx + QSERDES_V2_TX_TRANSCEIVER_BIAS_EN);
-	writel(0x10, qmp->dp_tx + QSERDES_V2_TX_HIGHZ_DRVR_EN);
-	writel(0x0a, qmp->dp_tx + QSERDES_V2_TX_TX_POL_INV);
-	writel(0x3f, qmp->dp_tx2 + QSERDES_V2_TX_TRANSCEIVER_BIAS_EN);
-	writel(0x10, qmp->dp_tx2 + QSERDES_V2_TX_HIGHZ_DRVR_EN);
-	writel(0x0a, qmp->dp_tx2 + QSERDES_V2_TX_TX_POL_INV);
+	writel(0x3f, qmp->dp_tx + QSERDES_V3_TX_TRANSCEIVER_BIAS_EN);
+	writel(0x10, qmp->dp_tx + QSERDES_V3_TX_HIGHZ_DRVR_EN);
+	writel(0x0a, qmp->dp_tx + QSERDES_V3_TX_TX_POL_INV);
+	writel(0x3f, qmp->dp_tx2 + QSERDES_V3_TX_TRANSCEIVER_BIAS_EN);
+	writel(0x10, qmp->dp_tx2 + QSERDES_V3_TX_HIGHZ_DRVR_EN);
+	writel(0x0a, qmp->dp_tx2 + QSERDES_V3_TX_TX_POL_INV);
 
 	writel(0x18, qmp->dp_dp_phy + QSERDES_DP_PHY_CFG);
 	writel(0x19, qmp->dp_dp_phy + QSERDES_DP_PHY_CFG);
