@@ -55,15 +55,15 @@
 #include "dcn20/dcn20_optc.h"
 #include "dcn30/dcn30_cm_common.h"
 
-#define DC_LOGGER_INIT(logger)
+#define DC_LOGGER_INIT(logger) \
+	struct dal_logger *dc_logger = logger
 
 #define CTX \
 	hws->ctx
 #define REG(reg)\
 	hws->regs->reg
 #define DC_LOGGER \
-	stream->ctx->logger
-
+	dc_logger
 
 #undef FN
 #define FN(reg_name, field_name) \
@@ -75,6 +75,8 @@ static void update_dsc_on_stream(struct pipe_ctx *pipe_ctx, bool enable)
 	struct dc_stream_state *stream = pipe_ctx->stream;
 	struct pipe_ctx *odm_pipe;
 	int opp_cnt = 1;
+
+	DC_LOGGER_INIT(stream->ctx->logger);
 
 	ASSERT(dsc);
 	for (odm_pipe = pipe_ctx->next_odm_pipe; odm_pipe; odm_pipe = odm_pipe->next_odm_pipe)
@@ -529,74 +531,31 @@ void dcn314_disable_link_output(struct dc_link *link,
 	apply_symclk_on_tx_off_wa(link);
 }
 
-/**
- * dcn314_dpp_pg_control - DPP power gate control.
- *
- * @hws: dce_hwseq reference.
- * @dpp_inst: DPP instance reference.
- * @power_on: true if we want to enable power gate, false otherwise.
- *
- * Enable or disable power gate in the specific DPP instance.
- * If power gating is disabled, will force disable cursor in the DPP instance.
- */
-void dcn314_dpp_pg_control(
-		struct dce_hwseq *hws,
-		unsigned int dpp_inst,
-		bool power_on)
+
+void dcn314_plane_atomic_power_down(struct dc *dc,
+		struct dpp *dpp,
+		struct hubp *hubp)
 {
-	uint32_t power_gate = power_on ? 0 : 1;
-	uint32_t pwr_status = power_on ? 0 : 2;
+	struct dce_hwseq *hws = dc->hwseq;
+	DC_LOGGER_INIT(dc->ctx->logger);
 
+	if (REG(DC_IP_REQUEST_CNTL)) {
+		REG_SET(DC_IP_REQUEST_CNTL, 0, IP_REQUEST_EN, 1);
 
-	if (hws->ctx->dc->debug.disable_dpp_power_gate) {
-		/* Workaround for DCN314 with disabled power gating */
-		if (!power_on) {
-
-			/* Force disable cursor if power gating is disabled */
-			struct dpp *dpp = hws->ctx->dc->res_pool->dpps[dpp_inst];
-			if (dpp && dpp->funcs->dpp_force_disable_cursor)
-				dpp->funcs->dpp_force_disable_cursor(dpp);
+		if (hws->funcs.dpp_pg_control) {
+			hws->funcs.dpp_pg_control(hws, dpp->inst, false);
+			dpp->funcs->dpp_reset(dpp);
 		}
-		return;
+
+		if (hws->funcs.hubp_pg_control) {
+			hws->funcs.hubp_pg_control(hws, hubp->inst, false);
+			hubp->funcs->hubp_reset(hubp);
+		}
+
+		REG_SET(DC_IP_REQUEST_CNTL, 0, IP_REQUEST_EN, 0);
+		DC_LOG_DEBUG("Power gated front end %d\n", hubp->inst);
 	}
-	if (REG(DOMAIN1_PG_CONFIG) == 0)
-		return;
 
-	switch (dpp_inst) {
-	case 0: /* DPP0 */
-		REG_UPDATE(DOMAIN1_PG_CONFIG,
-				DOMAIN1_POWER_GATE, power_gate);
-
-		REG_WAIT(DOMAIN1_PG_STATUS,
-				DOMAIN1_PGFSM_PWR_STATUS, pwr_status,
-				1, 1000);
-		break;
-	case 1: /* DPP1 */
-		REG_UPDATE(DOMAIN3_PG_CONFIG,
-				DOMAIN3_POWER_GATE, power_gate);
-
-		REG_WAIT(DOMAIN3_PG_STATUS,
-				DOMAIN3_PGFSM_PWR_STATUS, pwr_status,
-				1, 1000);
-		break;
-	case 2: /* DPP2 */
-		REG_UPDATE(DOMAIN5_PG_CONFIG,
-				DOMAIN5_POWER_GATE, power_gate);
-
-		REG_WAIT(DOMAIN5_PG_STATUS,
-				DOMAIN5_PGFSM_PWR_STATUS, pwr_status,
-				1, 1000);
-		break;
-	case 3: /* DPP3 */
-		REG_UPDATE(DOMAIN7_PG_CONFIG,
-				DOMAIN7_POWER_GATE, power_gate);
-
-		REG_WAIT(DOMAIN7_PG_STATUS,
-				DOMAIN7_PGFSM_PWR_STATUS, pwr_status,
-				1, 1000);
-		break;
-	default:
-		BREAK_TO_DEBUGGER();
-		break;
-	}
+	if (hws->funcs.dpp_root_clock_control)
+		hws->funcs.dpp_root_clock_control(hws, dpp->inst, false);
 }
