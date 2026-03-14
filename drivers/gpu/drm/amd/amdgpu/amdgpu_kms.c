@@ -402,7 +402,7 @@ static int amdgpu_hw_ip_info(struct amdgpu_device *adev,
 	uint32_t ib_size_alignment = 0;
 	enum amd_ip_block_type type;
 	unsigned int num_rings = 0;
-	uint32_t num_hqds = 0;
+	uint32_t num_slots = 0;
 	unsigned int i, j;
 
 	if (info->query_hw_ip.ip_instance >= AMDGPU_HW_IP_INSTANCE_MAX_COUNT)
@@ -418,7 +418,7 @@ static int amdgpu_hw_ip_info(struct amdgpu_device *adev,
 
 		if (!adev->gfx.disable_uq) {
 			for (i = 0; i < AMDGPU_MES_MAX_GFX_PIPES; i++)
-				num_hqds += hweight32(adev->mes.gfx_hqd_mask[i]);
+				num_slots += hweight32(adev->mes.gfx_hqd_mask[i]);
 		}
 
 		ib_start_alignment = 32;
@@ -433,7 +433,7 @@ static int amdgpu_hw_ip_info(struct amdgpu_device *adev,
 
 		if (!adev->sdma.disable_uq) {
 			for (i = 0; i < AMDGPU_MES_MAX_COMPUTE_PIPES; i++)
-				num_hqds += hweight32(adev->mes.compute_hqd_mask[i]);
+				num_slots += hweight32(adev->mes.compute_hqd_mask[i]);
 		}
 
 		ib_start_alignment = 32;
@@ -448,7 +448,7 @@ static int amdgpu_hw_ip_info(struct amdgpu_device *adev,
 
 		if (!adev->gfx.disable_uq) {
 			for (i = 0; i < AMDGPU_MES_MAX_SDMA_PIPES; i++)
-				num_hqds += hweight32(adev->mes.sdma_hqd_mask[i]);
+				num_slots += hweight32(adev->mes.sdma_hqd_mask[i]);
 		}
 
 		ib_start_alignment = 256;
@@ -592,7 +592,7 @@ static int amdgpu_hw_ip_info(struct amdgpu_device *adev,
 	}
 	result->capabilities_flags = 0;
 	result->available_rings = (1 << num_rings) - 1;
-	result->userq_num_hqds = num_hqds;
+	result->userq_num_slots = num_slots;
 	result->ib_start_alignment = ib_start_alignment;
 	result->ib_size_alignment = ib_size_alignment;
 	return 0;
