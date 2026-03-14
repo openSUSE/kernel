@@ -47,6 +47,7 @@
 #include "xe_memirq.h"
 #include "xe_mmio.h"
 #include "xe_module.h"
+#include "xe_nvm.h"
 #include "xe_oa.h"
 #include "xe_observation.h"
 #include "xe_pat.h"
@@ -883,6 +884,8 @@ int xe_device_probe(struct xe_device *xe)
 			return err;
 	}
 
+	xe_nvm_init(xe);
+
 	err = xe_heci_gsc_init(xe);
 	if (err)
 		return err;
@@ -939,6 +942,8 @@ err_unregister_display:
 void xe_device_remove(struct xe_device *xe)
 {
 	xe_display_unregister(xe);
+
+	xe_nvm_fini(xe);
 
 	drm_dev_unplug(&xe->drm);
 
