@@ -57,6 +57,7 @@ struct xe_device_desc {
 
 	u8 dma_mask_size;
 	u8 max_remote_tiles:2;
+	u8 max_gt_per_tile:2;
 
 	u8 require_force_probe:1;
 	u8 is_dgfx:1;
@@ -207,6 +208,7 @@ static const struct xe_device_desc tgl_desc = {
 	.dma_mask_size = 39,
 	.has_display = true,
 	.has_llc = true,
+	.max_gt_per_tile = 1,
 	.require_force_probe = true,
 };
 
@@ -217,6 +219,7 @@ static const struct xe_device_desc rkl_desc = {
 	.dma_mask_size = 39,
 	.has_display = true,
 	.has_llc = true,
+	.max_gt_per_tile = 1,
 	.require_force_probe = true,
 };
 
@@ -229,6 +232,7 @@ static const struct xe_device_desc adl_s_desc = {
 	.dma_mask_size = 39,
 	.has_display = true,
 	.has_llc = true,
+	.max_gt_per_tile = 1,
 	.require_force_probe = true,
 	.subplatforms = (const struct xe_subplatform_desc[]) {
 		{ XE_SUBPLATFORM_ALDERLAKE_S_RPLS, "RPLS", adls_rpls_ids },
@@ -245,6 +249,7 @@ static const struct xe_device_desc adl_p_desc = {
 	.dma_mask_size = 39,
 	.has_display = true,
 	.has_llc = true,
+	.max_gt_per_tile = 1,
 	.require_force_probe = true,
 	.subplatforms = (const struct xe_subplatform_desc[]) {
 		{ XE_SUBPLATFORM_ALDERLAKE_P_RPLU, "RPLU", adlp_rplu_ids },
@@ -259,6 +264,7 @@ static const struct xe_device_desc adl_n_desc = {
 	.dma_mask_size = 39,
 	.has_display = true,
 	.has_llc = true,
+	.max_gt_per_tile = 1,
 	.require_force_probe = true,
 };
 
@@ -274,6 +280,7 @@ static const struct xe_device_desc dg1_desc = {
 	.has_display = true,
 	.has_gsc_nvm = 1,
 	.has_heci_gscfi = 1,
+	.max_gt_per_tile = 1,
 	.require_force_probe = true,
 };
 
@@ -297,6 +304,7 @@ static const struct xe_device_desc ats_m_desc = {
 	.pre_gmdid_graphics_ip = &graphics_ip_xehpg,
 	.pre_gmdid_media_ip = &media_ip_xehpm,
 	.dma_mask_size = 46,
+	.max_gt_per_tile = 1,
 	.require_force_probe = true,
 
 	DG2_FEATURES,
@@ -307,6 +315,7 @@ static const struct xe_device_desc dg2_desc = {
 	.pre_gmdid_graphics_ip = &graphics_ip_xehpg,
 	.pre_gmdid_media_ip = &media_ip_xehpm,
 	.dma_mask_size = 46,
+	.max_gt_per_tile = 1,
 	.require_force_probe = true,
 
 	DG2_FEATURES,
@@ -323,6 +332,7 @@ static const __maybe_unused struct xe_device_desc pvc_desc = {
 	.has_display = false,
 	.has_gsc_nvm = 1,
 	.has_heci_gscfi = 1,
+	.max_gt_per_tile = 1,
 	.max_remote_tiles = 1,
 	.require_force_probe = true,
 	.has_mbx_power_limits = false,
@@ -335,6 +345,7 @@ static const struct xe_device_desc mtl_desc = {
 	.dma_mask_size = 46,
 	.has_display = true,
 	.has_pxp = true,
+	.max_gt_per_tile = 2,
 };
 
 static const struct xe_device_desc lnl_desc = {
@@ -342,6 +353,7 @@ static const struct xe_device_desc lnl_desc = {
 	.dma_mask_size = 46,
 	.has_display = true,
 	.has_pxp = true,
+	.max_gt_per_tile = 2,
 	.needs_scratch = true,
 };
 
@@ -354,6 +366,7 @@ static const struct xe_device_desc bmg_desc = {
 	.has_mbx_power_limits = true,
 	.has_gsc_nvm = 1,
 	.has_heci_cscfi = 1,
+	.max_gt_per_tile = 2,
 	.needs_scratch = true,
 };
 
@@ -362,6 +375,7 @@ static const struct xe_device_desc ptl_desc = {
 	.dma_mask_size = 46,
 	.has_display = true,
 	.has_sriov = true,
+	.max_gt_per_tile = 2,
 	.require_force_probe = true,
 	.needs_scratch = true,
 };
@@ -610,6 +624,10 @@ static int xe_info_init_early(struct xe_device *xe,
 	xe->info.probe_display = IS_ENABLED(CONFIG_DRM_XE_DISPLAY) &&
 				 xe_modparam.probe_display &&
 				 desc->has_display;
+
+	xe_assert(xe, desc->max_gt_per_tile > 0);
+	xe_assert(xe, desc->max_gt_per_tile <= XE_MAX_GT_PER_TILE);
+	xe->info.max_gt_per_tile = desc->max_gt_per_tile;
 	xe->info.tile_count = 1 + desc->max_remote_tiles;
 
 	err = xe_tile_init_early(xe_device_get_root_tile(xe), xe, 0);
