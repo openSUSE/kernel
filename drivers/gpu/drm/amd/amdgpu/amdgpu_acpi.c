@@ -1547,7 +1547,7 @@ static int isp_match_acpi_device_ids(struct device *dev, const void *data)
 	return acpi_match_device(data, dev) ? 1 : 0;
 }
 
-int amdgpu_acpi_get_isp4_dev_hid(u8 (*hid)[ACPI_ID_LEN])
+int amdgpu_acpi_get_isp4_dev(struct acpi_device **dev)
 {
 	struct device *pdev __free(put_device) = NULL;
 	struct acpi_device *acpi_pdev;
@@ -1561,7 +1561,7 @@ int amdgpu_acpi_get_isp4_dev_hid(u8 (*hid)[ACPI_ID_LEN])
 	if (!acpi_pdev)
 		return -ENODEV;
 
-	strscpy(*hid, acpi_device_hid(acpi_pdev));
+	*dev = acpi_pdev;
 
 	return 0;
 }
