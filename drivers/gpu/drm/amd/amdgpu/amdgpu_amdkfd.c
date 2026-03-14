@@ -754,7 +754,7 @@ int amdgpu_amdkfd_check_and_lock_kfd(struct amdgpu_device *adev)
 
 void amdgpu_amdkfd_unlock_kfd(struct amdgpu_device *adev)
 {
-	kgd2kfd_unlock_kfd();
+	kgd2kfd_unlock_kfd(adev->kfd.dev);
 }
 
 
