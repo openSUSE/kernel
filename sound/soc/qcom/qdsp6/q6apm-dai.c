@@ -844,6 +844,7 @@ static const struct snd_soc_component_driver q6apm_fe_dai_component = {
 	.trigger	= q6apm_dai_trigger,
 	.compress_ops	= &q6apm_dai_compress_ops,
 	.use_dai_pcm_id = true,
+	.remove_order   = SND_SOC_COMP_ORDER_EARLY,
 };
 
 static int q6apm_dai_probe(struct platform_device *pdev)
