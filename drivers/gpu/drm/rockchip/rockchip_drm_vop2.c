@@ -2422,6 +2422,10 @@ static int vop2_create_crtcs(struct vop2 *vop2)
 				break;
 			}
 		}
+
+		if (!vp->primary_plane)
+			return dev_err_probe(drm->dev, -ENOENT,
+					     "no primary plane for vp %d\n", i);
 	}
 
 	/* Register all unused window as overlay plane */
@@ -2461,10 +2465,6 @@ static int vop2_create_crtcs(struct vop2 *vop2)
 
 		if (!vp->crtc.port)
 			continue;
-
-		if (!vp->primary_plane)
-			return dev_err_probe(drm->dev, -ENOENT,
-					     "no primary plane for vp %d\n", i);
 
 		plane = &vp->primary_plane->base;
 
