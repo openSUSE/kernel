@@ -1115,7 +1115,7 @@ guc_exec_queue_timedout_job(struct drm_sched_job *drm_job)
 		xe_sched_add_pending_job(sched, job);
 		xe_sched_submission_start(sched);
 
-		return DRM_GPU_SCHED_STAT_NOMINAL;
+		return DRM_GPU_SCHED_STAT_RESET;
 	}
 
 	/* Kill the run_job entry point */
@@ -1285,7 +1285,7 @@ trigger_reset:
 	/* Start fence signaling */
 	xe_hw_fence_irq_start(q->fence_irq);
 
-	return DRM_GPU_SCHED_STAT_NOMINAL;
+	return DRM_GPU_SCHED_STAT_RESET;
 
 sched_enable:
 	enable_scheduling(q);
@@ -1298,7 +1298,7 @@ rearm:
 	xe_sched_add_pending_job(sched, job);
 	xe_sched_submission_start(sched);
 
-	return DRM_GPU_SCHED_STAT_NOMINAL;
+	return DRM_GPU_SCHED_STAT_RESET;
 }
 
 static void __guc_exec_queue_fini_async(struct work_struct *w)
