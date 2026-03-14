@@ -3890,8 +3890,7 @@ vmw_execbuf_copy_fence_user(struct vmw_private *dev_priv,
 
 		fence_rep.handle = fence_handle;
 		fence_rep.seqno = fence->base.seqno;
-		vmw_update_seqno(dev_priv);
-		fence_rep.passed_seqno = dev_priv->last_read_seqno;
+		fence_rep.passed_seqno = vmw_fences_update(dev_priv->fman);
 	}
 
 	/*
