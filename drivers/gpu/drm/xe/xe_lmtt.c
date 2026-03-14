@@ -80,7 +80,7 @@ static struct xe_lmtt_pt *lmtt_pt_alloc(struct xe_lmtt *lmtt, unsigned int level
 	lmtt_assert(lmtt, xe_bo_is_vram(bo));
 	lmtt_debug(lmtt, "level=%u addr=%#llx\n", level, (u64)xe_bo_main_addr(bo, XE_PAGE_SIZE));
 
-	xe_map_memset(lmtt_to_xe(lmtt), &bo->vmap, 0, 0, bo->size);
+	xe_map_memset(lmtt_to_xe(lmtt), &bo->vmap, 0, 0, xe_bo_size(bo));
 
 	pt->level = level;
 	pt->bo = bo;
