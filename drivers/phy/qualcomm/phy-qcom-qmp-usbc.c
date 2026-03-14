@@ -290,7 +290,7 @@ static const struct qmp_phy_init_tbl qcm2290_usb3_pcs_tbl[] = {
 	QMP_PHY_INIT_CFG(QPHY_V3_PCS_RX_SIGDET_LVL, 0x88),
 };
 
-static const struct qmp_phy_init_tbl qmp_v2_dp_serdes_tbl[] = {
+static const struct qmp_phy_init_tbl qcs615_dp_serdes_tbl[] = {
 	QMP_PHY_INIT_CFG(QSERDES_V2_COM_SVS_MODE_CLK_SEL, 0x01),
 	QMP_PHY_INIT_CFG(QSERDES_V2_COM_SYSCLK_EN_SEL, 0x37),
 	QMP_PHY_INIT_CFG(QSERDES_V2_COM_CLK_SELECT, 0x00),
@@ -317,7 +317,7 @@ static const struct qmp_phy_init_tbl qmp_v2_dp_serdes_tbl[] = {
 	QMP_PHY_INIT_CFG(QSERDES_V2_COM_CMN_CONFIG, 0x02),
 };
 
-static const struct qmp_phy_init_tbl qmp_v2_dp_serdes_tbl_rbr[] = {
+static const struct qmp_phy_init_tbl qcs615_dp_serdes_tbl_rbr[] = {
 	QMP_PHY_INIT_CFG(QSERDES_V2_COM_HSCLK_SEL, 0x2c),
 	QMP_PHY_INIT_CFG(QSERDES_V2_COM_DEC_START_MODE0, 0x69),
 	QMP_PHY_INIT_CFG(QSERDES_V2_COM_DIV_FRAC_START1_MODE0, 0x00),
@@ -328,7 +328,7 @@ static const struct qmp_phy_init_tbl qmp_v2_dp_serdes_tbl_rbr[] = {
 	QMP_PHY_INIT_CFG(QSERDES_V2_COM_LOCK_CMP3_MODE0, 0x00),
 };
 
-static const struct qmp_phy_init_tbl qmp_v2_dp_serdes_tbl_hbr[] = {
+static const struct qmp_phy_init_tbl qcs615_dp_serdes_tbl_hbr[] = {
 	QMP_PHY_INIT_CFG(QSERDES_V2_COM_HSCLK_SEL, 0x24),
 	QMP_PHY_INIT_CFG(QSERDES_V2_COM_DEC_START_MODE0, 0x69),
 	QMP_PHY_INIT_CFG(QSERDES_V2_COM_DIV_FRAC_START1_MODE0, 0x00),
@@ -339,7 +339,7 @@ static const struct qmp_phy_init_tbl qmp_v2_dp_serdes_tbl_hbr[] = {
 	QMP_PHY_INIT_CFG(QSERDES_V2_COM_LOCK_CMP3_MODE0, 0x00),
 };
 
-static const struct qmp_phy_init_tbl qmp_v2_dp_serdes_tbl_hbr2[] = {
+static const struct qmp_phy_init_tbl qcs615_dp_serdes_tbl_hbr2[] = {
 	QMP_PHY_INIT_CFG(QSERDES_V2_COM_HSCLK_SEL, 0x20),
 	QMP_PHY_INIT_CFG(QSERDES_V2_COM_DEC_START_MODE0, 0x8c),
 	QMP_PHY_INIT_CFG(QSERDES_V2_COM_DIV_FRAC_START1_MODE0, 0x00),
@@ -350,7 +350,7 @@ static const struct qmp_phy_init_tbl qmp_v2_dp_serdes_tbl_hbr2[] = {
 	QMP_PHY_INIT_CFG(QSERDES_V2_COM_LOCK_CMP3_MODE0, 0x00),
 };
 
-static const struct qmp_phy_init_tbl qmp_v2_dp_tx_tbl[] = {
+static const struct qmp_phy_init_tbl qcs615_dp_tx_tbl[] = {
 	QMP_PHY_INIT_CFG(QSERDES_V3_TX_TRANSCEIVER_BIAS_EN, 0x1a),
 	QMP_PHY_INIT_CFG(QSERDES_V3_TX_VMODE_CTRL1, 0x40),
 	QMP_PHY_INIT_CFG(QSERDES_V3_TX_PRE_STALL_LDO_BOOST_EN, 0x30),
@@ -555,14 +555,14 @@ static const struct qmp_usbc_offsets qmp_usbc_usb3dp_offsets_qcs615 = {
 	.dp_dp_phy	= 0x1000,
 };
 
-static const u8 qmp_v2_dp_pre_emphasis_hbr2_rbr[4][4] = {
+static const u8 qcs615_dp_pre_emphasis_hbr2_rbr[4][4] = {
 	{0x00, 0x0b, 0x12, 0xff},
 	{0x00, 0x0a, 0x12, 0xff},
 	{0x00, 0x0c, 0xff, 0xff},
 	{0xff, 0xff, 0xff, 0xff}
 };
 
-static const u8 qmp_v2_dp_voltage_swing_hbr2_rbr[4][4] = {
+static const u8 qcs615_dp_voltage_swing_hbr2_rbr[4][4] = {
 	{0x07, 0x0f, 0x14, 0xff},
 	{0x11, 0x1d, 0x1f, 0xff},
 	{0x18, 0x1f, 0xff, 0xff},
@@ -641,10 +641,10 @@ static const struct qmp_phy_cfg qcs615_usb3phy_cfg = {
 	.regs			= qmp_v3_usb3phy_regs_layout_qcm2290,
 };
 
-static void qmp_v2_dp_aux_init(struct qmp_usbc *qmp);
-static void qmp_v2_configure_dp_tx(struct qmp_usbc *qmp);
-static int qmp_v2_configure_dp_phy(struct qmp_usbc *qmp);
-static int qmp_v2_calibrate_dp_phy(struct qmp_usbc *qmp);
+static void qcs615_qmp_dp_aux_init(struct qmp_usbc *qmp);
+static void qcs615_qmp_configure_dp_tx(struct qmp_usbc *qmp);
+static int qcs615_qmp_configure_dp_phy(struct qmp_usbc *qmp);
+static int qcs615_qmp_calibrate_dp_phy(struct qmp_usbc *qmp);
 
 static const struct qmp_phy_cfg qcs615_usb3dp_phy_cfg = {
 	.offsets		= &qmp_usbc_usb3dp_offsets_qcs615,
@@ -660,25 +660,25 @@ static const struct qmp_phy_cfg qcs615_usb3dp_phy_cfg = {
 
 	.regs			= qmp_v3_usb3phy_regs_layout_qcm2290,
 
-	.dp_serdes_tbl		= qmp_v2_dp_serdes_tbl,
-	.dp_serdes_tbl_num	= ARRAY_SIZE(qmp_v2_dp_serdes_tbl),
-	.dp_tx_tbl		= qmp_v2_dp_tx_tbl,
-	.dp_tx_tbl_num		= ARRAY_SIZE(qmp_v2_dp_tx_tbl),
+	.dp_serdes_tbl		= qcs615_dp_serdes_tbl,
+	.dp_serdes_tbl_num	= ARRAY_SIZE(qcs615_dp_serdes_tbl),
+	.dp_tx_tbl		= qcs615_dp_tx_tbl,
+	.dp_tx_tbl_num		= ARRAY_SIZE(qcs615_dp_tx_tbl),
 
-	.serdes_tbl_rbr		= qmp_v2_dp_serdes_tbl_rbr,
-	.serdes_tbl_rbr_num	= ARRAY_SIZE(qmp_v2_dp_serdes_tbl_rbr),
-	.serdes_tbl_hbr		= qmp_v2_dp_serdes_tbl_hbr,
-	.serdes_tbl_hbr_num	= ARRAY_SIZE(qmp_v2_dp_serdes_tbl_hbr),
-	.serdes_tbl_hbr2	= qmp_v2_dp_serdes_tbl_hbr2,
-	.serdes_tbl_hbr2_num	= ARRAY_SIZE(qmp_v2_dp_serdes_tbl_hbr2),
+	.serdes_tbl_rbr		= qcs615_dp_serdes_tbl_rbr,
+	.serdes_tbl_rbr_num	= ARRAY_SIZE(qcs615_dp_serdes_tbl_rbr),
+	.serdes_tbl_hbr		= qcs615_dp_serdes_tbl_hbr,
+	.serdes_tbl_hbr_num	= ARRAY_SIZE(qcs615_dp_serdes_tbl_hbr),
+	.serdes_tbl_hbr2	= qcs615_dp_serdes_tbl_hbr2,
+	.serdes_tbl_hbr2_num	= ARRAY_SIZE(qcs615_dp_serdes_tbl_hbr2),
 
-	.swing_tbl		= &qmp_v2_dp_voltage_swing_hbr2_rbr,
-	.pre_emphasis_tbl	= &qmp_v2_dp_pre_emphasis_hbr2_rbr,
+	.swing_tbl		= &qcs615_dp_voltage_swing_hbr2_rbr,
+	.pre_emphasis_tbl	= &qcs615_dp_pre_emphasis_hbr2_rbr,
 
-	.dp_aux_init		= qmp_v2_dp_aux_init,
-	.configure_dp_tx	= qmp_v2_configure_dp_tx,
-	.configure_dp_phy	= qmp_v2_configure_dp_phy,
-	.calibrate_dp_phy	= qmp_v2_calibrate_dp_phy,
+	.dp_aux_init		= qcs615_qmp_dp_aux_init,
+	.configure_dp_tx	= qcs615_qmp_configure_dp_tx,
+	.configure_dp_phy	= qcs615_qmp_configure_dp_phy,
+	.calibrate_dp_phy	= qcs615_qmp_calibrate_dp_phy,
 
 	.reset_list		= usb3dpphy_reset_l,
 	.num_resets		= ARRAY_SIZE(usb3dpphy_reset_l),
@@ -744,7 +744,7 @@ static int qmp_usbc_com_exit(struct phy *phy)
 	return 0;
 }
 
-static void qmp_v2_dp_aux_init(struct qmp_usbc *qmp)
+static void qcs615_qmp_dp_aux_init(struct qmp_usbc *qmp)
 {
 	writel(DP_PHY_PD_CTL_AUX_PWRDN |
 	       DP_PHY_PD_CTL_LANE_0_1_PWRDN | DP_PHY_PD_CTL_LANE_2_3_PWRDN |
@@ -774,7 +774,7 @@ static void qmp_v2_dp_aux_init(struct qmp_usbc *qmp)
 	       qmp->dp_dp_phy + QSERDES_V2_DP_PHY_AUX_INTERRUPT_MASK);
 }
 
-static int qmp_v2_configure_dp_swing(struct qmp_usbc *qmp)
+static int qcs615_qmp_configure_dp_swing(struct qmp_usbc *qmp)
 {
 	const struct qmp_phy_cfg *cfg = qmp->cfg;
 	const struct phy_configure_opts_dp *dp_opts = &qmp->dp_opts;
@@ -864,7 +864,7 @@ static int qmp_usbc_configure_dp_clocks(struct qmp_usbc *qmp)
 	return 0;
 }
 
-static void qmp_v2_configure_dp_tx(struct qmp_usbc *qmp)
+static void qcs615_qmp_configure_dp_tx(struct qmp_usbc *qmp)
 {
 	const struct phy_configure_opts_dp *dp_opts = &qmp->dp_opts;
 	void __iomem *tx = qmp->dp_tx;
@@ -884,10 +884,10 @@ static void qmp_v2_configure_dp_tx(struct qmp_usbc *qmp)
 		writel(0xc6, tx2 + QSERDES_V3_TX_LANE_MODE_1);
 	}
 
-	qmp_v2_configure_dp_swing(qmp);
+	qcs615_qmp_configure_dp_swing(qmp);
 }
 
-static int qmp_v2_configure_dp_phy(struct qmp_usbc *qmp)
+static int qcs615_qmp_configure_dp_phy(struct qmp_usbc *qmp)
 {
 	u32 status;
 	int ret;
@@ -977,7 +977,7 @@ static int qmp_v2_configure_dp_phy(struct qmp_usbc *qmp)
 	return 0;
 }
 
-static int qmp_v2_calibrate_dp_phy(struct qmp_usbc *qmp)
+static int qcs615_qmp_calibrate_dp_phy(struct qmp_usbc *qmp)
 {
 	static const u8 cfg1_settings[] = {0x13, 0x23, 0x1d};
 	u8 val;
