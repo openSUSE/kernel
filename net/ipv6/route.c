@@ -146,10 +146,10 @@ void rt6_uncached_list_add(struct rt6_info *rt)
 
 void rt6_uncached_list_del(struct rt6_info *rt)
 {
-	if (!list_empty(&rt->rt6i_uncached)) {
-		struct uncached_list *ul = rt->rt6i_uncached_list;
-		struct net *net = dev_net(rt->dst.dev);
+	struct uncached_list *ul = rt->rt6i_uncached_list;
 
+	if (ul) {
+		struct net *net = dev_net(rt->dst.dev);
 		spin_lock_bh(&ul->lock);
 		list_del(&rt->rt6i_uncached);
 		atomic_dec(&net->ipv6.rt6_stats->fib_rt_uncache);
@@ -349,6 +349,7 @@ static void rt6_info_init(struct rt6_info *rt)
 
 	memset(dst + 1, 0, sizeof(*rt) - sizeof(*dst));
 	INIT_LIST_HEAD(&rt->rt6i_uncached);
+	rt->rt6i_uncached_list = NULL;
 }
 
 /* allocate dst with ip6_dst_ops */
@@ -6280,6 +6281,7 @@ static int __net_init ip6_route_net_init(struct net *net)
 	dst_init_metrics(&net->ipv6.ip6_null_entry->dst,
 			 ip6_template_metrics, true);
 	INIT_LIST_HEAD(&net->ipv6.ip6_null_entry->rt6i_uncached);
+	net->ipv6.ip6_null_entry->rt6i_uncached_list = NULL;
 
 #ifdef CONFIG_IPV6_MULTIPLE_TABLES
 	net->ipv6.fib6_has_custom_rules = false;
@@ -6292,6 +6294,7 @@ static int __net_init ip6_route_net_init(struct net *net)
 	dst_init_metrics(&net->ipv6.ip6_prohibit_entry->dst,
 			 ip6_template_metrics, true);
 	INIT_LIST_HEAD(&net->ipv6.ip6_prohibit_entry->rt6i_uncached);
+	net->ipv6.ip6_prohibit_entry->rt6i_uncached_list = NULL;
 
 	net->ipv6.ip6_blk_hole_entry = kmemdup(&ip6_blk_hole_entry_template,
 					       sizeof(*net->ipv6.ip6_blk_hole_entry),
@@ -6302,6 +6305,7 @@ static int __net_init ip6_route_net_init(struct net *net)
 	dst_init_metrics(&net->ipv6.ip6_blk_hole_entry->dst,
 			 ip6_template_metrics, true);
 	INIT_LIST_HEAD(&net->ipv6.ip6_blk_hole_entry->rt6i_uncached);
+	net->ipv6.ip6_blk_hole_entry->rt6i_uncached_list = NULL;
 #ifdef CONFIG_IPV6_SUBTREES
 	net->ipv6.fib6_routes_require_src = 0;
 #endif

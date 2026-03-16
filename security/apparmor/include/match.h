@@ -181,5 +181,6 @@ static inline void aa_put_dfa(struct aa_dfa *dfa)
 
 #define MATCH_FLAG_DIFF_ENCODE 0x80000000
 #define MARK_DIFF_ENCODE 0x40000000
+#define MARK_DIFF_ENCODE_VERIFIED 0x10000000
 
 #endif /* __AA_MATCH_H */
