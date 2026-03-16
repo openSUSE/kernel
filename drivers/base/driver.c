@@ -203,13 +203,13 @@ void driver_remove_file(const struct device_driver *drv,
 EXPORT_SYMBOL_GPL(driver_remove_file);
 
 int driver_add_groups(const struct device_driver *drv,
-		      const struct attribute_group **groups)
+		      const struct attribute_group *const *groups)
 {
 	return sysfs_create_groups(&drv->p->kobj, groups);
 }
 
 void driver_remove_groups(const struct device_driver *drv,
-			  const struct attribute_group **groups)
+			  const struct attribute_group *const *groups)
 {
 	sysfs_remove_groups(&drv->p->kobj, groups);
 }
