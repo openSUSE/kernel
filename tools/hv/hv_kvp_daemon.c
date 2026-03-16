@@ -77,7 +77,14 @@ enum {
 	DNS
 };
 
+enum {
+	IPV4 = 1,
+	IPV6,
+	IP_TYPE_MAX
+};
+
 static int in_hand_shake;
+static int debug;
 
 static char *os_name = "";
 static char *os_major = "";
@@ -103,6 +110,11 @@ static struct utsname uts_buf;
 
 #define MAX_FILE_NAME 100
 #define ENTRIES_PER_BLOCK 50
+/*
+ * Change this entry if the number of addresses increases in future
+ */
+#define MAX_IP_ENTRIES 64
+#define OUTSTR_BUF_SIZE ((INET6_ADDRSTRLEN + 1) * MAX_IP_ENTRIES)
 
 struct kvp_record {
 	char key[HV_KVP_EXCHANGE_MAX_KEY_SIZE];
@@ -171,6 +183,20 @@ static void kvp_update_file(int pool)
 	}
 
 	kvp_release_lock(pool);
+}
+
+static void kvp_dump_initial_pools(int pool)
+{
+	int i;
+
+	syslog(LOG_DEBUG, "===Start dumping the contents of pool %d ===\n",
+	       pool);
+
+	for (i = 0; i < kvp_file_info[pool].num_records; i++)
+		syslog(LOG_DEBUG, "pool: %d, %d/%d key=%s val=%s\n",
+		       pool, i + 1, kvp_file_info[pool].num_records,
+		       kvp_file_info[pool].records[i].key,
+		       kvp_file_info[pool].records[i].value);
 }
 
 static void kvp_update_mem_state(int pool)
@@ -260,6 +286,8 @@ static int kvp_file_init(void)
 			return 1;
 		kvp_file_info[i].num_records = 0;
 		kvp_update_mem_state(i);
+		if (debug)
+			kvp_dump_initial_pools(i);
 	}
 
 	return 0;
@@ -287,6 +315,9 @@ static int kvp_key_delete(int pool, const __u8 *key, int key_size)
 		 * Found a match; just move the remaining
 		 * entries up.
 		 */
+		if (debug)
+			syslog(LOG_DEBUG, "%s: deleting the KVP: pool=%d key=%s val=%s",
+			       __func__, pool, record[i].key, record[i].value);
 		if (i == (num_records - 1)) {
 			kvp_file_info[pool].num_records--;
 			kvp_update_file(pool);
@@ -305,20 +336,36 @@ static int kvp_key_delete(int pool, const __u8 *key, int key_size)
 		kvp_update_file(pool);
 		return 0;
 	}
+
+	if (debug)
+		syslog(LOG_DEBUG, "%s: could not delete KVP: pool=%d key=%s. Record not found",
+		       __func__, pool, key);
+
 	return 1;
 }
 
 static int kvp_key_add_or_modify(int pool, const __u8 *key, int key_size,
 				 const __u8 *value, int value_size)
 {
-	int i;
-	int num_records;
 	struct kvp_record *record;
+	int num_records;
 	int num_blocks;
+	int i;
+
+	if (debug)
+		syslog(LOG_DEBUG, "%s: got a KVP: pool=%d key=%s val=%s",
+		       __func__, pool, key, value);
 
 	if ((key_size > HV_KVP_EXCHANGE_MAX_KEY_SIZE) ||
-		(value_size > HV_KVP_EXCHANGE_MAX_VALUE_SIZE))
+		(value_size > HV_KVP_EXCHANGE_MAX_VALUE_SIZE)) {
+		syslog(LOG_ERR, "%s: Too long key or value: key=%s, val=%s",
+		       __func__, key, value);
+
+		if (debug)
+			syslog(LOG_DEBUG, "%s: Too long key or value: pool=%d, key=%s, val=%s",
+			       __func__, pool, key, value);
 		return 1;
+	}
 
 	/*
 	 * First update the in-memory state.
@@ -338,6 +385,9 @@ static int kvp_key_add_or_modify(int pool, const __u8 *key, int key_size,
 		 */
 		memcpy(record[i].value, value, value_size);
 		kvp_update_file(pool);
+		if (debug)
+			syslog(LOG_DEBUG, "%s: updated: pool=%d key=%s val=%s",
+			       __func__, pool, key, value);
 		return 0;
 	}
 
@@ -349,8 +399,10 @@ static int kvp_key_add_or_modify(int pool, const __u8 *key, int key_size,
 		record = realloc(record, sizeof(struct kvp_record) *
 			 ENTRIES_PER_BLOCK * (num_blocks + 1));
 
-		if (record == NULL)
+		if (!record) {
+			syslog(LOG_ERR, "%s: Memory alloc failure", __func__);
 			return 1;
+		}
 		kvp_file_info[pool].num_blocks++;
 
 	}
@@ -358,6 +410,11 @@ static int kvp_key_add_or_modify(int pool, const __u8 *key, int key_size,
 	memcpy(record[i].key, key, key_size);
 	kvp_file_info[pool].records = record;
 	kvp_file_info[pool].num_records++;
+
+	if (debug)
+		syslog(LOG_DEBUG, "%s: added: pool=%d key=%s val=%s",
+		       __func__, pool, key, value);
+
 	kvp_update_file(pool);
 	return 0;
 }
@@ -774,7 +831,7 @@ static void kvp_get_ipconfig_info(char *if_name,
 	 * .
 	 */
 
-	sprintf(cmd, KVP_SCRIPTS_PATH "%s",  "hv_get_dns_info");
+	sprintf(cmd, "exec %s %s", KVP_SCRIPTS_PATH "hv_get_dns_info", if_name);
 
 	/*
 	 * Execute the command to gather DNS info.
@@ -791,7 +848,7 @@ static void kvp_get_ipconfig_info(char *if_name,
 	 * Enabled: DHCP enabled.
 	 */
 
-	sprintf(cmd, KVP_SCRIPTS_PATH "%s %s", "hv_get_dhcp_info", if_name);
+	sprintf(cmd, "exec %s %s", KVP_SCRIPTS_PATH "hv_get_dhcp_info", if_name);
 
 	file = popen(cmd, "r");
 	if (file == NULL)
@@ -1231,6 +1288,18 @@ static int process_ip_string(FILE *f, char *ip_string, int type)
 	return 0;
 }
 
+int ip_version_check(const char *input_addr)
+{
+	struct in6_addr addr;
+
+	if (inet_pton(AF_INET, input_addr, &addr))
+		return IPV4;
+	else if (inet_pton(AF_INET6, input_addr, &addr))
+		return IPV6;
+
+	return -EINVAL;
+}
+
 /*
  * Only IPv4 subnet strings needs to be converted to plen
  * For IPv6 the subnet is already privided in plen format
@@ -1257,14 +1326,75 @@ static int kvp_subnet_to_plen(char *subnet_addr_str)
 	return plen;
 }
 
+static int process_dns_gateway_nm(FILE *f, char *ip_string, int type,
+				  int ip_sec)
+{
+	char addr[INET6_ADDRSTRLEN], *output_str;
+	int ip_offset = 0, error = 0, ip_ver;
+	char *param_name;
+
+	if (type == DNS)
+		param_name = "dns";
+	else if (type == GATEWAY)
+		param_name = "gateway";
+	else
+		return -EINVAL;
+
+	output_str = (char *)calloc(OUTSTR_BUF_SIZE, sizeof(char));
+	if (!output_str)
+		return -ENOMEM;
+
+	while (1) {
+		memset(addr, 0, sizeof(addr));
+
+		if (!parse_ip_val_buffer(ip_string, &ip_offset, addr,
+					 (MAX_IP_ADDR_SIZE * 2)))
+			break;
+
+		ip_ver = ip_version_check(addr);
+		if (ip_ver < 0)
+			continue;
+
+		if ((ip_ver == IPV4 && ip_sec == IPV4) ||
+		    (ip_ver == IPV6 && ip_sec == IPV6)) {
+			/*
+			 * do a bound check to avoid out-of bound writes
+			 */
+			if ((OUTSTR_BUF_SIZE - strlen(output_str)) >
+			    (strlen(addr) + 1)) {
+				strncat(output_str, addr,
+					OUTSTR_BUF_SIZE -
+					strlen(output_str) - 1);
+				strncat(output_str, ",",
+					OUTSTR_BUF_SIZE -
+					strlen(output_str) - 1);
+			}
+		} else {
+			continue;
+		}
+	}
+
+	if (strlen(output_str)) {
+		/*
+		 * This is to get rid of that extra comma character
+		 * in the end of the string
+		 */
+		output_str[strlen(output_str) - 1] = '\0';
+		error = fprintf(f, "%s=%s\n", param_name, output_str);
+	}
+
+	free(output_str);
+	return error;
+}
+
 static int process_ip_string_nm(FILE *f, char *ip_string, char *subnet,
-				int is_ipv6)
+				int ip_sec)
 {
 	char addr[INET6_ADDRSTRLEN];
 	char subnet_addr[INET6_ADDRSTRLEN];
-	int error, i = 0;
+	int error = 0, i = 0;
 	int ip_offset = 0, subnet_offset = 0;
-	int plen;
+	int plen, ip_ver;
 
 	memset(addr, 0, sizeof(addr));
 	memset(subnet_addr, 0, sizeof(subnet_addr));
@@ -1276,10 +1406,16 @@ static int process_ip_string_nm(FILE *f, char *ip_string, char *subnet,
 						       subnet_addr,
 						       (MAX_IP_ADDR_SIZE *
 							2))) {
-		if (!is_ipv6)
+		ip_ver = ip_version_check(addr);
+		if (ip_ver < 0)
+			continue;
+
+		if (ip_ver == IPV4 && ip_sec == IPV4)
 			plen = kvp_subnet_to_plen((char *)subnet_addr);
-		else
+		else if (ip_ver == IPV6 && ip_sec == IPV6)
 			plen = atoi(subnet_addr);
+		else
+			continue;
 
 		if (plen < 0)
 			return plen;
@@ -1293,17 +1429,16 @@ static int process_ip_string_nm(FILE *f, char *ip_string, char *subnet,
 		memset(subnet_addr, 0, sizeof(subnet_addr));
 	}
 
-	return 0;
+	return error;
 }
 
 static int kvp_set_ip_info(char *if_name, struct hv_kvp_ipaddr_value *new_val)
 {
-	int error = 0;
+	int error = 0, ip_ver;
 	char if_filename[PATH_MAX];
 	char nm_filename[PATH_MAX];
 	FILE *ifcfg_file, *nmfile;
 	char cmd[PATH_MAX];
-	int is_ipv6 = 0;
 	char *mac_addr;
 	int str_len;
 
@@ -1481,52 +1616,94 @@ static int kvp_set_ip_info(char *if_name, struct hv_kvp_ipaddr_value *new_val)
 	if (error)
 		goto setval_error;
 
-	if (new_val->addr_family & ADDR_FAMILY_IPV6) {
-		error = fprintf(nmfile, "\n[ipv6]\n");
-		if (error < 0)
-			goto setval_error;
-		is_ipv6 = 1;
-	} else {
-		error = fprintf(nmfile, "\n[ipv4]\n");
-		if (error < 0)
-			goto setval_error;
-	}
-
 	/*
 	 * Now we populate the keyfile format
+	 *
+	 * The keyfile format expects the IPv6 and IPv4 configuration in
+	 * different sections. Therefore we iterate through the list twice,
+	 * once to populate the IPv4 section and the next time for IPv6
 	 */
+	ip_ver = IPV4;
+	do {
+		if (ip_ver == IPV4) {
+			error = fprintf(nmfile, "\n[ipv4]\n");
+			if (error < 0)
+				goto setval_error;
+		} else {
+			error = fprintf(nmfile, "\n[ipv6]\n");
+			if (error < 0)
+				goto setval_error;
+		}
 
-	if (new_val->dhcp_enabled) {
-		error = kvp_write_file(nmfile, "method", "", "auto");
+		/*
+		 * Write the configuration for ipaddress, netmask, gateway and
+		 * name services
+		 */
+		error = process_ip_string_nm(nmfile, (char *)new_val->ip_addr,
+					     (char *)new_val->sub_net,
+					     ip_ver);
 		if (error < 0)
 			goto setval_error;
-	} else {
-		error = kvp_write_file(nmfile, "method", "", "manual");
+
+		/*
+		 * As dhcp_enabled is only valid for ipv4, we do not set dhcp
+		 * methods for ipv6 based on dhcp_enabled flag.
+		 *
+		 * For ipv4, set method to manual only when dhcp_enabled is
+		 * false and specific ipv4 addresses are configured. If neither
+		 * dhcp_enabled is true and no ipv4 addresses are configured,
+		 * set method to 'disabled'.
+		 *
+		 * For ipv6, set method to manual when we configure ipv6
+		 * addresses. Otherwise set method to 'auto' so that SLAAC from
+		 * RA may be used.
+		 */
+		if (ip_ver == IPV4) {
+			if (new_val->dhcp_enabled) {
+				error = kvp_write_file(nmfile, "method", "",
+						       "auto");
+				if (error < 0)
+					goto setval_error;
+			} else if (error) {
+				error = kvp_write_file(nmfile, "method", "",
+						       "manual");
+				if (error < 0)
+					goto setval_error;
+			} else {
+				error = kvp_write_file(nmfile, "method", "",
+						       "disabled");
+				if (error < 0)
+					goto setval_error;
+			}
+		} else if (ip_ver == IPV6) {
+			if (error) {
+				error = kvp_write_file(nmfile, "method", "",
+						       "manual");
+				if (error < 0)
+					goto setval_error;
+			} else {
+				error = kvp_write_file(nmfile, "method", "",
+						       "auto");
+				if (error < 0)
+					goto setval_error;
+			}
+		}
+
+		error = process_dns_gateway_nm(nmfile,
+					       (char *)new_val->gate_way,
+					       GATEWAY, ip_ver);
 		if (error < 0)
 			goto setval_error;
-	}
 
-	/*
-	 * Write the configuration for ipaddress, netmask, gateway and
-	 * name services
-	 */
-	error = process_ip_string_nm(nmfile, (char *)new_val->ip_addr,
-				     (char *)new_val->sub_net, is_ipv6);
-	if (error < 0)
-		goto setval_error;
-
-	/* we do not want ipv4 addresses in ipv6 section and vice versa */
-	if (is_ipv6 != is_ipv4((char *)new_val->gate_way)) {
-		error = fprintf(nmfile, "gateway=%s\n", (char *)new_val->gate_way);
+		error = process_dns_gateway_nm(nmfile,
+					       (char *)new_val->dns_addr, DNS,
+					       ip_ver);
 		if (error < 0)
 			goto setval_error;
-	}
 
-	if (is_ipv6 != is_ipv4((char *)new_val->dns_addr)) {
-		error = fprintf(nmfile, "dns=%s\n", (char *)new_val->dns_addr);
-		if (error < 0)
-			goto setval_error;
-	}
+		ip_ver++;
+	} while (ip_ver < IP_TYPE_MAX);
+
 	fclose(nmfile);
 	fclose(ifcfg_file);
 
@@ -1535,8 +1712,9 @@ static int kvp_set_ip_info(char *if_name, struct hv_kvp_ipaddr_value *new_val)
 	 * invoke the external script to do its magic.
 	 */
 
-	str_len = snprintf(cmd, sizeof(cmd), KVP_SCRIPTS_PATH "%s %s %s",
-			   "hv_set_ifconfig", if_filename, nm_filename);
+	str_len = snprintf(cmd, sizeof(cmd), "exec %s %s %s",
+			   KVP_SCRIPTS_PATH "hv_set_ifconfig",
+			   if_filename, nm_filename);
 	/*
 	 * This is a little overcautious, but it's necessary to suppress some
 	 * false warnings from gcc 8.0.1.
@@ -1590,6 +1768,7 @@ void print_usage(char *argv[])
 	fprintf(stderr, "Usage: %s [options]\n"
 		"Options are:\n"
 		"  -n, --no-daemon        stay in foreground, don't daemonize\n"
+		"  -d, --debug            Enable debug logs(syslog debug by default)\n"
 		"  -h, --help             print this help\n", argv[0]);
 }
 
@@ -1611,10 +1790,11 @@ int main(int argc, char *argv[])
 	static struct option long_options[] = {
 		{"help",	no_argument,	   0,  'h' },
 		{"no-daemon",	no_argument,	   0,  'n' },
+		{"debug",	no_argument,	   0,  'd' },
 		{0,		0,		   0,  0   }
 	};
 
-	while ((opt = getopt_long(argc, argv, "hn", long_options,
+	while ((opt = getopt_long(argc, argv, "hnd", long_options,
 				  &long_index)) != -1) {
 		switch (opt) {
 		case 'n':
@@ -1623,6 +1803,9 @@ int main(int argc, char *argv[])
 		case 'h':
 			print_usage(argv);
 			exit(0);
+		case 'd':
+			debug = 1;
+			break;
 		default:
 			print_usage(argv);
 			exit(EXIT_FAILURE);
@@ -1644,6 +1827,9 @@ int main(int argc, char *argv[])
 	 * unpredictable amount of time to finish.
 	 */
 	kvp_get_domain_name(full_domain_name, sizeof(full_domain_name));
+
+	if (debug)
+		syslog(LOG_INFO, "Logging debug info in syslog(debug)");
 
 	if (kvp_file_init()) {
 		syslog(LOG_ERR, "Failed to initialize the pools");
