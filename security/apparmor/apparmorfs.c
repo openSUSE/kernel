@@ -115,7 +115,8 @@ static struct aa_loaddata *aa_simple_write_to_buffer(const char __user *userbuf,
 }
 
 static ssize_t policy_update(int binop, const char __user *buf, size_t size,
-			     loff_t *pos, struct aa_ns *ns)
+			     loff_t *pos, struct aa_ns *ns,
+			     const struct cred *ocred)
 {
 	ssize_t error;
 	struct aa_loaddata *data;
@@ -124,7 +125,7 @@ static ssize_t policy_update(int binop, const char __user *buf, size_t size,
 	/* high level check about policy management - fine grained in
 	 * below after unpack
 	 */
-	error = aa_may_manage_policy(profile, ns, op);
+	error = aa_may_manage_policy(profile, ns, ocred, op);
 	if (error)
 		return error;
 
@@ -144,7 +145,7 @@ static ssize_t profile_load(struct file *f, const char __user *buf, size_t size,
 			    loff_t *pos)
 {
 	struct aa_ns *ns = aa_get_ns(f->f_inode->i_private);
-	int error = policy_update(PROF_ADD, buf, size, pos, ns);
+	int error = policy_update(PROF_ADD, buf, size, pos, ns, f->f_cred);
 
 	aa_put_ns(ns);
 
@@ -161,7 +162,7 @@ static ssize_t profile_replace(struct file *f, const char __user *buf,
 			       size_t size, loff_t *pos)
 {
 	struct aa_ns *ns = aa_get_ns(f->f_inode->i_private);
-	int error = policy_update(PROF_REPLACE, buf, size, pos, ns);
+	int error = policy_update(PROF_REPLACE, buf, size, pos, ns, f->f_cred);
 
 	aa_put_ns(ns);
 
@@ -186,7 +187,7 @@ static ssize_t profile_remove(struct file *f, const char __user *buf,
 	/* high level check about policy management - fine grained in
 	 * below after unpack
 	 */
-	error = aa_may_manage_policy(profile, ns, OP_PROF_RM);
+	error = aa_may_manage_policy(profile, ns, f->f_cred, OP_PROF_RM);
 	if (error)
 		goto out;
 

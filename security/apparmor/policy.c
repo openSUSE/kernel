@@ -708,20 +708,49 @@ bool policy_admin_capable(struct aa_ns *ns)
 	return policy_view_capable(ns) && capable && !aa_g_lock_policy;
 }
 
+static bool is_subset_of_obj_privilege(const struct cred *cred,
+				       const struct cred *ocred)
+{
+	if (cred == ocred)
+		return true;
+
+	/* don't allow crossing userns for now */
+	if (cred->user_ns != ocred->user_ns)
+		return false;
+	if (!cap_issubset(cred->cap_inheritable, ocred->cap_inheritable))
+		return false;
+	if (!cap_issubset(cred->cap_permitted, ocred->cap_permitted))
+		return false;
+	if (!cap_issubset(cred->cap_effective, ocred->cap_effective))
+		return false;
+	if (!cap_issubset(cred->cap_bset, ocred->cap_bset))
+		return false;
+	if (!cap_issubset(cred->cap_ambient, ocred->cap_ambient))
+		return false;
+	return true;
+}
+
+
 /**
  * aa_may_manage_policy - can the current task manage policy
  * @profile: profile to check if it can manage policy
+ * @ocred: object cred if request is coming from an open object
  * @op: the policy manipulation operation being done
  *
  * Returns: 0 if the task is allowed to manipulate policy else error
  */
 int aa_may_manage_policy(struct aa_profile *profile, struct aa_ns *ns,
-			 const char *op)
+			 const struct cred *ocred, const char *op)
 {
 	/* check if loading policy is locked out */
 	if (aa_g_lock_policy)
 		return audit_policy(profile, op, NULL, NULL,
 			     "policy_locked", -EACCES);
+
+	if (ocred && !is_subset_of_obj_privilege(current_cred(), ocred))
+		return audit_policy(profile, op, NULL, NULL,
+				    "not privileged for target profile",
+				    -EACCES);
 
 	if (!policy_admin_capable(ns))
 		return audit_policy(profile, op, NULL, NULL,
