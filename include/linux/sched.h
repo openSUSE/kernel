@@ -383,15 +383,10 @@ enum uclamp_id {
 	UCLAMP_CNT
 };
 
-#ifdef CONFIG_SMP
 extern struct root_domain def_root_domain;
 extern struct mutex sched_domains_mutex;
 extern void sched_domains_mutex_lock(void);
 extern void sched_domains_mutex_unlock(void);
-#else
-static inline void sched_domains_mutex_lock(void) { }
-static inline void sched_domains_mutex_unlock(void) { }
-#endif
 
 struct sched_param {
 	int sched_priority;
@@ -670,20 +665,22 @@ struct sched_dl_entity {
 	 *
 	 * @dl_server tells if this is a server entity.
 	 *
-	 * @dl_defer tells if this is a deferred or regular server. For
-	 * now only defer server exists.
-	 *
-	 * @dl_defer_armed tells if the deferrable server is waiting
-	 * for the replenishment timer to activate it.
-	 *
 	 * @dl_server_active tells if the dlserver is active(started).
 	 * dlserver is started on first cfs enqueue on an idle runqueue
 	 * and is stopped when a dequeue results in 0 cfs tasks on the
 	 * runqueue. In other words, dlserver is active only when cpu's
 	 * runqueue has atleast one cfs task.
 	 *
+	 * @dl_defer tells if this is a deferred or regular server. For
+	 * now only defer server exists.
+	 *
+	 * @dl_defer_armed tells if the deferrable server is waiting
+	 * for the replenishment timer to activate it.
+	 *
 	 * @dl_defer_running tells if the deferrable server is actually
 	 * running, skipping the defer phase.
+	 *
+	 * @dl_defer_idle tracks idle state
 	 */
 	unsigned int			dl_throttled      : 1;
 	unsigned int			dl_yielded        : 1;
@@ -694,7 +691,7 @@ struct sched_dl_entity {
 	unsigned int			dl_defer	  : 1;
 	unsigned int			dl_defer_armed	  : 1;
 	unsigned int			dl_defer_running  : 1;
-	unsigned int			dl_server_idle    : 1;
+	unsigned int			dl_defer_idle     : 1;
 
 	/*
 	 * Bandwidth enforcement timer. Each -deadline task has its
@@ -1778,12 +1775,8 @@ extern struct pid *cad_pid;
 
 static __always_inline bool is_percpu_thread(void)
 {
-#ifdef CONFIG_SMP
 	return (current->flags & PF_NO_SETAFFINITY) &&
 		(current->nr_cpus_allowed  == 1);
-#else
-	return true;
-#endif
 }
 
 static __always_inline bool is_user_task(struct task_struct *task)
@@ -2004,7 +1997,6 @@ extern char *__get_task_comm(char *to, size_t len, struct task_struct *tsk);
 	__get_task_comm(buf, sizeof(buf), tsk);		\
 })
 
-#ifdef CONFIG_SMP
 static __always_inline void scheduler_ipi(void)
 {
 	/*
@@ -2014,9 +2006,6 @@ static __always_inline void scheduler_ipi(void)
 	 */
 	preempt_fold_need_resched();
 }
-#else
-static inline void scheduler_ipi(void) { }
-#endif
 
 extern unsigned long wait_task_inactive(struct task_struct *, unsigned int match_state);
 
