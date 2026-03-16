@@ -133,6 +133,13 @@ static int uvc_ioctl_xu_ctrl_map(struct uvc_video_chain *chain,
 		return -EINVAL;
 	}
 
+	if (uvc_ctrl_is_privacy_control(xmap->entity, xmap->selector) &&
+	    !uvc_allow_privacy_override_param) {
+		dev_warn_once(&chain->dev->intf->dev,
+			      "Privacy related controls can only be mapped if module parameter allow_privacy_override is true\n");
+		return -EACCES;
+	}
+
 	map = kzalloc_obj(*map);
 	if (map == NULL)
 		return -ENOMEM;

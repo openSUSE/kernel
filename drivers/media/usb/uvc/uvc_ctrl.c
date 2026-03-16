@@ -3001,6 +3001,35 @@ static int uvc_ctrl_init_xu_ctrl(struct uvc_device *dev,
 	return ret;
 }
 
+bool uvc_ctrl_is_privacy_control(u8 entity[16], u8 selector)
+{
+	/*
+	 * This list is not exhaustive, it is a best effort to block access to
+	 * non documented controls that can affect user's privacy.
+	 */
+	struct privacy_control {
+		u8 entity[16];
+		u8 selector;
+	} privacy_control[] = {
+		{
+			.entity = UVC_GUID_LOGITECH_USER_HW_CONTROL_V1,
+			.selector = 1,
+		},
+		{
+			.entity = UVC_GUID_LOGITECH_PERIPHERAL,
+			.selector = 9,
+		},
+	};
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(privacy_control); i++)
+		if (!memcmp(entity, privacy_control[i].entity, 16) &&
+		    selector == privacy_control[i].selector)
+			return true;
+
+	return false;
+}
+
 int uvc_xu_ctrl_query(struct uvc_video_chain *chain,
 	struct uvc_xu_control_query *xqry)
 {
@@ -3043,6 +3072,15 @@ int uvc_xu_ctrl_query(struct uvc_video_chain *chain,
 		uvc_dbg(chain->dev, CONTROL, "Control %pUl/%u not found\n",
 			entity->guid, xqry->selector);
 		return -ENOENT;
+	}
+
+	if (uvc_ctrl_is_privacy_control(entity->guid, xqry->selector) &&
+	    !uvc_allow_privacy_override_param) {
+		dev_warn_once(&chain->dev->intf->dev,
+			      "Privacy related controls can only be accessed if module parameter allow_privacy_override is true\n");
+		uvc_dbg(chain->dev, CONTROL, "Blocking access to privacy related Control %pUl/%u\n",
+			entity->guid, xqry->selector);
+		return -EACCES;
 	}
 
 	if (mutex_lock_interruptible(&chain->ctrl_mutex))
