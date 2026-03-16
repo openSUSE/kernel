@@ -649,6 +649,13 @@ int xe_device_probe(struct xe_device *xe)
 		err = xe_gt_init_early(gt);
 		if (err)
 			return err;
+
+		/*
+		 * Only after this point can GT-specific MMIO operations
+		 * (including things like communication with the GuC)
+		 * be performed.
+		 */
+		xe_gt_mmio_init(gt);
 	}
 
 	for_each_tile(tile, xe, id) {
@@ -784,6 +791,7 @@ err:
 static void xe_device_remove_display(struct xe_device *xe)
 {
 	xe_display_unregister(xe);
+	drm_dev_unregister(&xe->drm);
 
 	drm_dev_unplug(&xe->drm);
 	xe_display_driver_remove(xe);

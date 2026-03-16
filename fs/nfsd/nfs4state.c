@@ -1716,16 +1716,29 @@ static struct nfs4_stid *find_sb_stid(struct nfs4_client *clp,
 	return stid;
 }
 
-void nfsd4_revoke_states(struct net *net, struct super_block *sb)
+/**
+ * nfsd4_revoke_states - revoke all nfsv4 states associated with given filesystem
+ * @nn:   used to identify instance of nfsd (there is one per net namespace)
+ * @sb:   super_block used to identify target filesystem
+ *
+ * All nfs4 states (open, lock, delegation, layout) held by the server instance
+ * and associated with a file on the given filesystem will be revoked resulting
+ * in any files being closed and so all references from nfsd to the filesystem
+ * being released.  Thus nfsd will no longer prevent the filesystem from being
+ * unmounted.
+ *
+ * The clients which own the states will subsequently being notified that the
+ * states have been "admin-revoked".
+ */
+void nfsd4_revoke_states(struct nfsd_net *nn, struct super_block *sb)
 {
-	struct nfsd_net *nn = net_generic(net, nfsd_net_id);
 	unsigned int idhashval;
 	unsigned short sc_types;
 
 	sc_types = NFS4_OPEN_STID | NFS4_LOCK_STID | NFS4_DELEG_STID;
 
 	spin_lock(&nn->client_lock);
-	for (idhashval = 0; idhashval < CLIENT_HASH_MASK; idhashval++) {
+	for (idhashval = 0; idhashval < CLIENT_HASH_SIZE; idhashval++) {
 		struct list_head *head = &nn->conf_id_hashtbl[idhashval];
 		struct nfs4_client *clp;
 	retry:

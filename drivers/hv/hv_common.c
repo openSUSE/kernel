@@ -31,6 +31,9 @@
 #include <hyperv/hvhdk.h>
 #include <asm/mshyperv.h>
 
+u64 hv_current_partition_id = HV_PARTITION_ID_SELF;
+EXPORT_SYMBOL_GPL(hv_current_partition_id);
+
 /*
  * hv_root_partition, ms_hyperv and hv_nested are defined here with other
  * Hyper-V specific globals so they are shared across all architectures and are
@@ -219,13 +222,15 @@ static void hv_kmsg_dump(struct kmsg_dumper *dumper,
 
 	/*
 	 * Write dump contents to the page. No need to synchronize; panic should
-	 * be single-threaded.
+	 * be single-threaded. Ignore failures from kmsg_dump_get_buffer() since
+	 * panic notification should be done even if there is no message data.
+	 * Don't assume bytes_written is set in case of failure, so initialize it.
 	 */
 	kmsg_dump_rewind(&iter);
-	kmsg_dump_get_buffer(&iter, false, hv_panic_page, HV_HYP_PAGE_SIZE,
+	bytes_written = 0;
+	(void)kmsg_dump_get_buffer(&iter, false, hv_panic_page, HV_HYP_PAGE_SIZE,
 			     &bytes_written);
-	if (!bytes_written)
-		return;
+
 	/*
 	 * P3 to contain the physical address of the panic page & P4 to
 	 * contain the size of the panic data in that page. Rest of the
@@ -234,7 +239,7 @@ static void hv_kmsg_dump(struct kmsg_dumper *dumper,
 	hv_set_msr(HV_MSR_CRASH_P0, 0);
 	hv_set_msr(HV_MSR_CRASH_P1, 0);
 	hv_set_msr(HV_MSR_CRASH_P2, 0);
-	hv_set_msr(HV_MSR_CRASH_P3, virt_to_phys(hv_panic_page));
+	hv_set_msr(HV_MSR_CRASH_P3, bytes_written ? virt_to_phys(hv_panic_page) : 0);
 	hv_set_msr(HV_MSR_CRASH_P4, bytes_written);
 
 	/*
@@ -257,7 +262,7 @@ static void hv_kmsg_dump_unregister(void)
 	atomic_notifier_chain_unregister(&panic_notifier_list,
 					 &hyperv_panic_report_block);
 
-	hv_free_hyperv_page(hv_panic_page);
+	kfree(hv_panic_page);
 	hv_panic_page = NULL;
 }
 
@@ -265,7 +270,7 @@ static void hv_kmsg_dump_register(void)
 {
 	int ret;
 
-	hv_panic_page = hv_alloc_hyperv_zeroed_page();
+	hv_panic_page = kzalloc(HV_HYP_PAGE_SIZE, GFP_KERNEL);
 	if (!hv_panic_page) {
 		pr_err("Hyper-V: panic message page memory allocation failed\n");
 		return;
@@ -274,7 +279,7 @@ static void hv_kmsg_dump_register(void)
 	ret = kmsg_dump_register(&hv_kmsg_dumper);
 	if (ret) {
 		pr_err("Hyper-V: kmsg dump register error 0x%x\n", ret);
-		hv_free_hyperv_page(hv_panic_page);
+		kfree(hv_panic_page);
 		hv_panic_page = NULL;
 	}
 }
@@ -284,14 +289,33 @@ static inline bool hv_output_page_exists(void)
 	return hv_root_partition || IS_ENABLED(CONFIG_HYPERV_VTL_MODE);
 }
 
+void __init hv_get_partition_id(void)
+{
+	struct hv_output_get_partition_id *output;
+	unsigned long flags;
+	u64 status, pt_id;
+
+	local_irq_save(flags);
+	output = *this_cpu_ptr(hyperv_pcpu_input_arg);
+	status = hv_do_hypercall(HVCALL_GET_PARTITION_ID, NULL, output);
+	pt_id = output->partition_id;
+	local_irq_restore(flags);
+
+	if (hv_result_success(status))
+		hv_current_partition_id = pt_id;
+	else
+		pr_err("Hyper-V: failed to get partition ID: %#x\n",
+		       hv_result(status));
+}
+
 int __init hv_common_init(void)
 {
 	int i;
 	union hv_hypervisor_version_info version;
 
-	/* Get information about the Hyper-V host version */
+	/* Get information about the Microsoft Hypervisor version */
 	if (!hv_get_hypervisor_version(&version))
-		pr_info("Hyper-V: Host Build %d.%d.%d.%d-%d-%d\n",
+		pr_info("Hyper-V: Hypervisor Build %d.%d.%d.%d-%d-%d\n",
 			version.major_version, version.minor_version,
 			version.build_number, version.service_number,
 			version.service_pack, version.service_branch);
@@ -455,7 +479,7 @@ int hv_common_cpu_init(unsigned int cpu)
 	 * allocated if this CPU was previously online and then taken offline
 	 */
 	if (!*inputarg) {
-		mem = kmalloc(pgcount * HV_HYP_PAGE_SIZE, flags);
+		mem = kmalloc_array(pgcount, HV_HYP_PAGE_SIZE, flags);
 		if (!mem)
 			return -ENOMEM;
 
@@ -662,3 +686,37 @@ u64 __weak hv_tdx_hypercall(u64 control, u64 param1, u64 param2)
 	return HV_STATUS_INVALID_PARAMETER;
 }
 EXPORT_SYMBOL_GPL(hv_tdx_hypercall);
+
+/* Convert a hypercall result into a linux-friendly error code. */
+int hv_result_to_errno(u64 status)
+{
+	/* hv_do_hypercall() may return U64_MAX, hypercalls aren't possible */
+	if (unlikely(status == U64_MAX))
+		return -EOPNOTSUPP;
+	/*
+	 * A failed hypercall is usually only recoverable (or loggable) near
+	 * the call site where the HV_STATUS_* code is known. So the errno
+	 * it gets converted to is not too useful further up the stack.
+	 * Provide a few mappings that could be useful, and revert to -EIO
+	 * as a fallback.
+	 */
+	switch (hv_result(status)) {
+	case HV_STATUS_SUCCESS:
+		return 0;
+	case HV_STATUS_INVALID_HYPERCALL_CODE:
+	case HV_STATUS_INVALID_HYPERCALL_INPUT:
+	case HV_STATUS_INVALID_PARAMETER:
+	case HV_STATUS_INVALID_PARTITION_ID:
+	case HV_STATUS_INVALID_VP_INDEX:
+	case HV_STATUS_INVALID_PORT_ID:
+	case HV_STATUS_INVALID_CONNECTION_ID:
+	case HV_STATUS_INVALID_LP_INDEX:
+	case HV_STATUS_INVALID_REGISTER_VALUE:
+		return -EINVAL;
+	case HV_STATUS_INSUFFICIENT_MEMORY:
+		return -ENOMEM;
+	default:
+		break;
+	}
+	return -EIO;
+}

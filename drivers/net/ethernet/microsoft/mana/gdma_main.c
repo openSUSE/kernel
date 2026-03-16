@@ -600,6 +600,7 @@ static void mana_gd_process_eqe(struct gdma_queue *eq)
 	case GDMA_EQE_HWC_INIT_DONE:
 	case GDMA_EQE_HWC_SOC_SERVICE:
 	case GDMA_EQE_RNIC_QP_FATAL:
+	case GDMA_EQE_HWC_SOC_RECONFIG_DATA:
 		if (!eq->eq.callback)
 			break;
 
@@ -1945,7 +1946,10 @@ static void mana_gd_cleanup(struct pci_dev *pdev)
 
 	mana_gd_remove_irqs(pdev);
 
-	destroy_workqueue(gc->service_wq);
+	if (gc->service_wq) {
+		destroy_workqueue(gc->service_wq);
+		gc->service_wq = NULL;
+	}
 	dev_dbg(&pdev->dev, "mana gdma cleanup successful\n");
 }
 

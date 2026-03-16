@@ -2634,10 +2634,13 @@ static void __mptcp_retrans(struct sock *sk)
 
 	/*
 	 * make the whole retrans decision, xmit, disallow
-	 * fallback atomic
+	 * fallback atomic, note that we can't retrans even
+	 * when an infinite fallback is in progress, i.e. new
+	 * subflows are disallowed.
 	 */
 	spin_lock_bh(&msk->fallback_lock);
-	if (__mptcp_check_fallback(msk)) {
+	if (__mptcp_check_fallback(msk) ||
+	    !msk->allow_subflows) {
 		spin_unlock_bh(&msk->fallback_lock);
 		release_sock(ssk);
 		return;
@@ -3153,7 +3156,15 @@ static int mptcp_disconnect(struct sock *sk, int flags)
 	 */
 	mptcp_destroy_common(msk, MPTCP_CF_FASTCLOSE);
 	msk->last_snd = NULL;
+	/* The first subflow is already in TCP_CLOSE status, the following
+	 * can't overlap with a fallback anymore
+	 */
+	spin_lock_bh(&msk->fallback_lock);
+	msk->allow_subflows = true;
+	msk->allow_infinite_fallback = true;
 	WRITE_ONCE(msk->flags, 0);
+	spin_unlock_bh(&msk->fallback_lock);
+
 	msk->cb_flags = 0;
 	msk->push_pending = 0;
 	msk->recovery = false;
