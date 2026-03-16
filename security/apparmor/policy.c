@@ -895,6 +895,7 @@ ssize_t aa_replace_profiles(struct aa_ns *view, struct aa_profile *profile,
 				goto fail;
 			}
 			ns_name = ent->ns_name;
+			ent->ns_name = NULL;
 		} else
 			count++;
 	}
