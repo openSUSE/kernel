@@ -112,11 +112,14 @@ out:
 static void mana_hwc_init_event_handler(void *ctx, struct gdma_queue *q_self,
 					struct gdma_event *event)
 {
+	union hwc_init_soc_service_type service_data;
 	struct hw_channel_context *hwc = ctx;
 	struct gdma_dev *gd = hwc->gdma_dev;
 	union hwc_init_type_data type_data;
 	union hwc_init_eq_id_db eq_db;
+	struct mana_context *ac;
 	u32 type, val;
+	int ret;
 
 	switch (event->type) {
 	case GDMA_EQE_HWC_INIT_EQ_ID_DB:
@@ -193,13 +196,41 @@ static void mana_hwc_init_event_handler(void *ctx, struct gdma_queue *q_self,
 			hwc->hwc_timeout = val;
 			break;
 
+		case HWC_DATA_HW_LINK_CONNECT:
+		case HWC_DATA_HW_LINK_DISCONNECT:
+			ac = gd->gdma_context->mana.driver_data;
+			if (!ac)
+				break;
+
+			WRITE_ONCE(ac->link_event, type);
+			schedule_work(&ac->link_change_work);
+
+			break;
+
 		default:
 			dev_warn(hwc->dev, "Received unknown reconfig type %u\n", type);
 			break;
 		}
 
 		break;
+	case GDMA_EQE_HWC_SOC_SERVICE:
+		service_data.as_uint32 = event->details[0];
+		type = service_data.type;
 
+		switch (type) {
+		case GDMA_SERVICE_TYPE_RDMA_SUSPEND:
+		case GDMA_SERVICE_TYPE_RDMA_RESUME:
+			ret = mana_rdma_service_event(gd->gdma_context, type);
+			if (ret)
+				dev_err(hwc->dev, "Failed to schedule adev service event: %d\n",
+					ret);
+			break;
+		default:
+			dev_warn(hwc->dev, "Received unknown SOC service type %u\n", type);
+			break;
+		}
+
+		break;
 	default:
 		dev_warn(hwc->dev, "Received unknown gdma event %u\n", event->type);
 		/* Ignore unknown events, which should never happen. */
@@ -860,7 +891,14 @@ int mana_hwc_send_request(struct hw_channel_context *hwc, u32 req_len,
 
 	if (!wait_for_completion_timeout(&ctx->comp_event,
 					 (msecs_to_jiffies(hwc->hwc_timeout)))) {
-		dev_err(hwc->dev, "HWC: Request timed out!\n");
+		if (hwc->hwc_timeout != 0)
+			dev_err(hwc->dev, "HWC: Request timed out: %u ms\n",
+				hwc->hwc_timeout);
+
+		/* Reduce further waiting if HWC no response */
+		if (hwc->hwc_timeout > 1)
+			hwc->hwc_timeout = 1;
+
 		err = -ETIMEDOUT;
 		goto out;
 	}
@@ -871,6 +909,10 @@ int mana_hwc_send_request(struct hw_channel_context *hwc, u32 req_len,
 	}
 
 	if (ctx->status_code && ctx->status_code != GDMA_STATUS_MORE_ENTRIES) {
+		if (ctx->status_code == GDMA_STATUS_CMD_UNSUPPORTED) {
+			err = -EOPNOTSUPP;
+			goto out;
+		}
 		if (req_msg->req.msg_type != MANA_QUERY_PHY_STAT)
 			dev_err(hwc->dev, "HWC: Failed hw_channel req: 0x%x\n",
 				ctx->status_code);
