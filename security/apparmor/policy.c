@@ -149,15 +149,39 @@ static void __list_remove_profile(struct aa_profile *profile)
 }
 
 /**
- * __remove_profile - remove old profile, and children
- * @profile: profile to be replaced  (NOT NULL)
+ * __remove_profile - remove profile, and children
+ * @profile: profile to be removed  (NOT NULL)
  *
  * Requires: namespace list lock be held, or list not be shared
  */
 static void __remove_profile(struct aa_profile *profile)
 {
+	struct aa_profile *curr, *to_remove;
+
 	/* release any children lists first */
-	__aa_profile_list_release(&profile->base.profiles);
+	if (!list_empty(&profile->base.profiles)) {
+		curr = list_first_entry(&profile->base.profiles, struct aa_profile, base.list);
+
+		while (curr != profile) {
+
+			while (!list_empty(&curr->base.profiles))
+				curr = list_first_entry(&curr->base.profiles,
+							struct aa_profile, base.list);
+
+			to_remove = curr;
+			if (!list_is_last(&to_remove->base.list,
+					  &aa_deref_parent(curr)->base.profiles))
+				curr = list_next_entry(to_remove, base.list);
+			else
+				curr = aa_deref_parent(curr);
+
+			/* released by free_profile */
+			__aa_update_proxy(to_remove, to_remove->ns->unconfined);
+			__aa_fs_profile_rmdir(to_remove);
+			__list_remove_profile(to_remove);
+		}
+	}
+
 	/* released by free_profile */
 	__aa_update_proxy(profile, profile->ns->unconfined);
 	__aa_fs_profile_rmdir(profile);
@@ -684,20 +708,49 @@ bool policy_admin_capable(struct aa_ns *ns)
 	return policy_view_capable(ns) && capable && !aa_g_lock_policy;
 }
 
+static bool is_subset_of_obj_privilege(const struct cred *cred,
+				       const struct cred *ocred)
+{
+	if (cred == ocred)
+		return true;
+
+	/* don't allow crossing userns for now */
+	if (cred->user_ns != ocred->user_ns)
+		return false;
+	if (!cap_issubset(cred->cap_inheritable, ocred->cap_inheritable))
+		return false;
+	if (!cap_issubset(cred->cap_permitted, ocred->cap_permitted))
+		return false;
+	if (!cap_issubset(cred->cap_effective, ocred->cap_effective))
+		return false;
+	if (!cap_issubset(cred->cap_bset, ocred->cap_bset))
+		return false;
+	if (!cap_issubset(cred->cap_ambient, ocred->cap_ambient))
+		return false;
+	return true;
+}
+
+
 /**
  * aa_may_manage_policy - can the current task manage policy
  * @profile: profile to check if it can manage policy
+ * @ocred: object cred if request is coming from an open object
  * @op: the policy manipulation operation being done
  *
  * Returns: 0 if the task is allowed to manipulate policy else error
  */
 int aa_may_manage_policy(struct aa_profile *profile, struct aa_ns *ns,
-			 const char *op)
+			 const struct cred *ocred, const char *op)
 {
 	/* check if loading policy is locked out */
 	if (aa_g_lock_policy)
 		return audit_policy(profile, op, NULL, NULL,
 			     "policy_locked", -EACCES);
+
+	if (ocred && !is_subset_of_obj_privilege(current_cred(), ocred))
+		return audit_policy(profile, op, NULL, NULL,
+				    "not privileged for target profile",
+				    -EACCES);
 
 	if (!policy_admin_capable(ns))
 		return audit_policy(profile, op, NULL, NULL,
@@ -871,6 +924,7 @@ ssize_t aa_replace_profiles(struct aa_ns *view, struct aa_profile *profile,
 				goto fail;
 			}
 			ns_name = ent->ns_name;
+			ent->ns_name = NULL;
 		} else
 			count++;
 	}
