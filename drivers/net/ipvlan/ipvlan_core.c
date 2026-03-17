@@ -91,20 +91,18 @@ void ipvlan_ht_addr_del(struct ipvl_addr *addr)
 struct ipvl_addr *ipvlan_find_addr(const struct ipvl_dev *ipvlan,
 				   const void *iaddr, bool is_v6)
 {
-	struct ipvl_addr *addr, *ret = NULL;
+	struct ipvl_addr *addr;
 
-	rcu_read_lock();
+	assert_spin_locked(&ipvlan->port->addrs_lock);
+
 	list_for_each_entry_rcu(addr, &ipvlan->addrs, anode) {
 		if ((is_v6 && addr->atype == IPVL_IPV6 &&
 		    ipv6_addr_equal(&addr->ip6addr, iaddr)) ||
 		    (!is_v6 && addr->atype == IPVL_IPV4 &&
-		    addr->ip4addr.s_addr == ((struct in_addr *)iaddr)->s_addr)) {
-			ret = addr;
-			break;
-		}
+		    addr->ip4addr.s_addr == ((struct in_addr *)iaddr)->s_addr))
+			return addr;
 	}
-	rcu_read_unlock();
-	return ret;
+	return NULL;
 }
 
 bool ipvlan_addr_busy(struct ipvl_port *port, void *iaddr, bool is_v6)
