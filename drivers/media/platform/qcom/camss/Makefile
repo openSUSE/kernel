@@ -16,6 +16,7 @@ qcom-camss-objs += \
 		camss-format.o \
 		camss-ispif.o \
 		camss-tpg.o \
+		camss-tpg-gen1.o \
 		camss-vfe.o \
 		camss-vfe-4-1.o \
 		camss-vfe-4-7.o \
