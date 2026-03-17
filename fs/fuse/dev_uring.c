@@ -90,7 +90,7 @@ static void fuse_uring_req_end(struct fuse_ring_ent *ent, struct fuse_req *req,
 	if (test_bit(FR_BACKGROUND, &req->flags)) {
 		queue->active_background--;
 		spin_lock(&fc->chan->bg_lock);
-		fuse_request_bg_finish(fc, req);
+		fuse_request_bg_finish(fc->chan, req);
 		fuse_uring_flush_bg(queue);
 		spin_unlock(&fc->chan->bg_lock);
 	}
@@ -244,7 +244,7 @@ static struct fuse_ring *fuse_uring_create(struct fuse_conn *fc)
 	max_payload_size = max(max_payload_size, fc->max_pages * PAGE_SIZE);
 
 	spin_lock(&fc->lock);
-	if (!fc->connected) {
+	if (!fc->chan->connected) {
 		spin_unlock(&fc->lock);
 		goto out_err;
 	}
@@ -917,7 +917,7 @@ static int fuse_uring_commit_fetch(struct io_uring_cmd *cmd, int issue_flags,
 		return err;
 	fpq = &queue->fpq;
 
-	if (!READ_ONCE(fc->connected))
+	if (!READ_ONCE(fc->chan->connected))
 		return err;
 
 	spin_lock(&queue->lock);
@@ -1010,7 +1010,7 @@ static int fuse_uring_do_register(struct fuse_ring_ent *ent,
 
 	spin_lock(&fc->lock);
 	/* abort teardown path is running or has run */
-	if (!fc->connected) {
+	if (!fc->chan->connected) {
 		spin_unlock(&fc->lock);
 		if (atomic_dec_and_test(&ring->queue_refs))
 			wake_up_all(&ring->stop_waitq);
@@ -1032,7 +1032,7 @@ static int fuse_uring_do_register(struct fuse_ring_ent *ent,
 		if (ready) {
 			WRITE_ONCE(fiq->ops, &fuse_io_uring_ops);
 			smp_store_release(&ring->ready, true);
-			wake_up_all(&fc->blocked_waitq);
+			wake_up_all(&fc->chan->blocked_waitq);
 		}
 	}
 	return 0;
@@ -1190,14 +1190,14 @@ int fuse_uring_cmd(struct io_uring_cmd *cmd, unsigned int issue_flags)
 
 	if (fc->aborted)
 		return -ECONNABORTED;
-	if (!fc->connected)
+	if (!fc->chan->connected)
 		return -ENOTCONN;
 
 	/*
 	 * fuse_uring_register() needs the ring to be initialized,
 	 * we need to know the max payload size
 	 */
-	if (!fc->initialized)
+	if (!fc->chan->initialized)
 		return -EAGAIN;
 
 	switch (cmd_op) {
@@ -1207,7 +1207,7 @@ int fuse_uring_cmd(struct io_uring_cmd *cmd, unsigned int issue_flags)
 			pr_info_once("FUSE_IO_URING_CMD_REGISTER failed err=%d\n",
 				     err);
 			fc->io_uring = 0;
-			wake_up_all(&fc->blocked_waitq);
+			wake_up_all(&fc->chan->blocked_waitq);
 			return err;
 		}
 		break;
@@ -1373,7 +1373,7 @@ bool fuse_uring_queue_bq_req(struct fuse_req *req)
 	spin_lock(&fc->chan->bg_lock);
 	fc->chan->num_background++;
 	if (fc->chan->num_background == fc->chan->max_background)
-		fc->blocked = 1;
+		fc->chan->blocked = 1;
 	fuse_uring_flush_bg(queue);
 	spin_unlock(&fc->chan->bg_lock);
 

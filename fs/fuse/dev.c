@@ -74,26 +74,26 @@ void fuse_set_initialized(struct fuse_conn *fc)
 {
 	/* Make sure stores before this are seen on another CPU */
 	smp_wmb();
-	fc->initialized = 1;
+	fc->chan->initialized = 1;
 }
 
 static bool fuse_block_alloc(struct fuse_conn *fc, bool for_background)
 {
-	return !fc->initialized || (for_background && fc->blocked) ||
-	       (fc->io_uring && fc->connected && !fuse_uring_ready(fc));
+	return !fc->chan->initialized || (for_background && fc->chan->blocked) ||
+	       (fc->io_uring && fc->chan->connected && !fuse_uring_ready(fc));
 }
 
 static void fuse_drop_waiting(struct fuse_conn *fc)
 {
 	/*
-	 * lockess check of fc->connected is okay, because atomic_dec_and_test()
+	 * lockess check of fc->chan->connected is okay, because atomic_dec_and_test()
 	 * provides a memory barrier matched with the one in fuse_wait_aborted()
 	 * to ensure no wake-up is missed.
 	 */
-	if (atomic_dec_and_test(&fc->num_waiting) &&
-	    !READ_ONCE(fc->connected)) {
+	if (atomic_dec_and_test(&fc->chan->num_waiting) &&
+	    !READ_ONCE(fc->chan->connected)) {
 		/* wake up aborters */
-		wake_up_all(&fc->blocked_waitq);
+		wake_up_all(&fc->chan->blocked_waitq);
 	}
 }
 
@@ -110,11 +110,11 @@ static struct fuse_req *fuse_get_req(struct mnt_idmap *idmap,
 	kgid_t fsgid;
 	int err;
 
-	atomic_inc(&fc->num_waiting);
+	atomic_inc(&fc->chan->num_waiting);
 
 	if (fuse_block_alloc(fc, for_background)) {
 		err = -EINTR;
-		if (wait_event_state_exclusive(fc->blocked_waitq,
+		if (wait_event_state_exclusive(fc->chan->blocked_waitq,
 				!fuse_block_alloc(fc, for_background),
 				(TASK_KILLABLE | TASK_FREEZABLE)))
 			goto out;
@@ -123,7 +123,7 @@ static struct fuse_req *fuse_get_req(struct mnt_idmap *idmap,
 	smp_rmb();
 
 	err = -ENOTCONN;
-	if (!fc->connected)
+	if (!fc->chan->connected)
 		goto out;
 
 	err = -ECONNREFUSED;
@@ -134,7 +134,7 @@ static struct fuse_req *fuse_get_req(struct mnt_idmap *idmap,
 	err = -ENOMEM;
 	if (!req) {
 		if (for_background)
-			wake_up(&fc->blocked_waitq);
+			wake_up(&fc->chan->blocked_waitq);
 		goto out;
 	}
 
@@ -182,8 +182,8 @@ static void fuse_put_request(struct fuse_req *req)
 			 * request was allocated but not sent
 			 */
 			spin_lock(&fc->chan->bg_lock);
-			if (!fc->blocked)
-				wake_up(&fc->blocked_waitq);
+			if (!fc->chan->blocked)
+				wake_up(&fc->chan->blocked_waitq);
 			spin_unlock(&fc->chan->bg_lock);
 		}
 
@@ -357,7 +357,12 @@ struct fuse_chan *fuse_chan_new(void)
 	INIT_LIST_HEAD(&fch->devices);
 	spin_lock_init(&fch->bg_lock);
 	INIT_LIST_HEAD(&fch->bg_queue);
+	init_waitqueue_head(&fch->blocked_waitq);
+	atomic_set(&fch->num_waiting, 0);
 	fch->max_background = FUSE_DEFAULT_MAX_BACKGROUND;
+	fch->initialized = 0;
+	fch->blocked = 0;
+	fch->connected = 1;
 
 	return fch;
 }
@@ -426,7 +431,7 @@ void fuse_dev_install(struct fuse_dev *fud, struct fuse_conn *fc)
 		 *  - it was already set to a different fc
 		 *  - it was set to disconneted
 		 */
-		fc->connected = 0;
+		fc->chan->connected = 0;
 	} else {
 		list_add_tail(&fud->entry, &fc->chan->devices);
 		fuse_conn_get(fc);
@@ -503,27 +508,27 @@ static void flush_bg_queue(struct fuse_conn *fc)
 	}
 }
 
-void fuse_request_bg_finish(struct fuse_conn *fc, struct fuse_req *req)
+void fuse_request_bg_finish(struct fuse_chan *fch, struct fuse_req *req)
 {
-	lockdep_assert_held(&fc->chan->bg_lock);
+	lockdep_assert_held(&fch->bg_lock);
 
 	clear_bit(FR_BACKGROUND, &req->flags);
-	if (fc->chan->num_background == fc->chan->max_background) {
-		fc->blocked = 0;
-		wake_up(&fc->blocked_waitq);
-	} else if (!fc->blocked) {
+	if (fch->num_background == fch->max_background) {
+		fch->blocked = 0;
+		wake_up(&fch->blocked_waitq);
+	} else if (!fch->blocked) {
 		/*
 		 * Wake up next waiter, if any.  It's okay to use
 		 * waitqueue_active(), as we've already synced up
-		 * fc->blocked with waiters with the wake_up() call
+		 * fch->blocked with waiters with the wake_up() call
 		 * above.
 		 */
-		if (waitqueue_active(&fc->blocked_waitq))
-			wake_up(&fc->blocked_waitq);
+		if (waitqueue_active(&fch->blocked_waitq))
+			wake_up(&fch->blocked_waitq);
 	}
 
-	fc->chan->num_background--;
-	fc->chan->active_background--;
+	fch->num_background--;
+	fch->active_background--;
 }
 
 /*
@@ -558,7 +563,7 @@ void fuse_request_end(struct fuse_req *req)
 	WARN_ON(test_bit(FR_SENT, &req->flags));
 	if (test_bit(FR_BACKGROUND, &req->flags)) {
 		spin_lock(&fc->chan->bg_lock);
-		fuse_request_bg_finish(fc, req);
+		fuse_request_bg_finish(fc->chan, req);
 		flush_bg_queue(fc);
 		spin_unlock(&fc->chan->bg_lock);
 	} else {
@@ -737,7 +742,7 @@ ssize_t __fuse_simple_request(struct mnt_idmap *idmap,
 	ssize_t ret;
 
 	if (args->force) {
-		atomic_inc(&fc->num_waiting);
+		atomic_inc(&fc->chan->num_waiting);
 		req = fuse_request_alloc(fm, GFP_KERNEL | __GFP_NOFAIL);
 
 		if (!args->nocreds)
@@ -797,7 +802,7 @@ static int fuse_request_queue_background(struct fuse_req *req)
 	WARN_ON(!test_bit(FR_BACKGROUND, &req->flags));
 	if (!test_bit(FR_WAITING, &req->flags)) {
 		__set_bit(FR_WAITING, &req->flags);
-		atomic_inc(&fc->num_waiting);
+		atomic_inc(&fc->chan->num_waiting);
 	}
 	__set_bit(FR_ISREPLY, &req->flags);
 
@@ -807,10 +812,10 @@ static int fuse_request_queue_background(struct fuse_req *req)
 #endif
 
 	spin_lock(&fc->chan->bg_lock);
-	if (likely(fc->connected)) {
+	if (likely(fc->chan->connected)) {
 		fc->chan->num_background++;
 		if (fc->chan->num_background == fc->chan->max_background)
-			fc->blocked = 1;
+			fc->chan->blocked = 1;
 		list_add_tail(&req->list, &fc->chan->bg_queue);
 		flush_bg_queue(fc);
 		queued = true;
@@ -2056,7 +2061,7 @@ static void fuse_resend(struct fuse_conn *fc)
 	unsigned int i;
 
 	spin_lock(&fc->lock);
-	if (!fc->connected) {
+	if (!fc->chan->connected) {
 		spin_unlock(&fc->lock);
 		return;
 	}
@@ -2162,7 +2167,7 @@ static int fuse_notify(struct fuse_conn *fc, enum fuse_notify_code code,
 	 * Only allow notifications during while the connection is in an
 	 * initialized and connected state
 	 */
-	if (!fc->initialized || !fc->connected)
+	if (!fc->chan->initialized || !fc->chan->connected)
 		return -EINVAL;
 
 	/* Don't try to move folios (yet) */
@@ -2527,7 +2532,7 @@ void fuse_abort_conn(struct fuse_conn *fc)
 	struct fuse_iqueue *fiq = &fc->chan->iq;
 
 	spin_lock(&fc->lock);
-	if (fc->connected) {
+	if (fc->chan->connected) {
 		struct fuse_dev *fud;
 		struct fuse_req *req, *next;
 		LIST_HEAD(to_end);
@@ -2536,9 +2541,9 @@ void fuse_abort_conn(struct fuse_conn *fc)
 		if (fc->timeout.req_timeout)
 			cancel_delayed_work(&fc->timeout.work);
 
-		/* Background queuing checks fc->connected under bg_lock */
+		/* Background queuing checks fc->chan->connected under bg_lock */
 		spin_lock(&fc->chan->bg_lock);
-		fc->connected = 0;
+		fc->chan->connected = 0;
 		spin_unlock(&fc->chan->bg_lock);
 
 		fuse_set_initialized(fc);
@@ -2564,7 +2569,7 @@ void fuse_abort_conn(struct fuse_conn *fc)
 			spin_unlock(&fpq->lock);
 		}
 		spin_lock(&fc->chan->bg_lock);
-		fc->blocked = 0;
+		fc->chan->blocked = 0;
 		fc->chan->max_background = UINT_MAX;
 		flush_bg_queue(fc);
 		spin_unlock(&fc->chan->bg_lock);
@@ -2580,7 +2585,7 @@ void fuse_abort_conn(struct fuse_conn *fc)
 		spin_unlock(&fiq->lock);
 		kill_fasync(&fiq->fasync, SIGIO, POLL_IN);
 		end_polls(fc);
-		wake_up_all(&fc->blocked_waitq);
+		wake_up_all(&fc->chan->blocked_waitq);
 		spin_unlock(&fc->lock);
 
 		fuse_dev_end_requests(&to_end);
@@ -2600,7 +2605,7 @@ void fuse_wait_aborted(struct fuse_conn *fc)
 {
 	/* matches implicit memory barrier in fuse_drop_waiting() */
 	smp_mb();
-	wait_event(fc->blocked_waitq, atomic_read(&fc->num_waiting) == 0);
+	wait_event(fc->chan->blocked_waitq, atomic_read(&fc->chan->num_waiting) == 0);
 
 	fuse_uring_wait_stopped_queues(fc);
 }

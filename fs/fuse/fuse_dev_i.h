@@ -108,6 +108,25 @@ struct fuse_chan {
 
 	/** Protects: max_background, num_background, active_background, bg_queue, blocked */
 	spinlock_t bg_lock;
+
+	/** Flag indicating that INIT reply has been received. Allocating
+	 * any fuse request will be suspended until the flag is set */
+	int initialized;
+
+	/** Flag indicating if connection is blocked.  This will be
+	    the case before the INIT reply is received, and if there
+	    are too many outstading backgrounds requests */
+	int blocked;
+
+	/** waitq for blocked connection */
+	wait_queue_head_t blocked_waitq;
+
+	/** Connection established, cleared on umount, connection
+	    abort and device release */
+	unsigned connected;
+
+	/** The number of requests waiting for completion */
+	atomic_t num_waiting;
 };
 
 #define FUSE_PQ_HASH_BITS 8
@@ -205,7 +224,7 @@ unsigned int fuse_req_hash(u64 unique);
 struct fuse_req *fuse_request_find(struct fuse_pqueue *fpq, u64 unique);
 
 void fuse_dev_end_requests(struct list_head *head);
-void fuse_request_bg_finish(struct fuse_conn *fc, struct fuse_req *req);
+void fuse_request_bg_finish(struct fuse_chan *fch, struct fuse_req *req);
 
 void fuse_copy_init(struct fuse_copy_state *cs, bool write,
 			   struct iov_iter *iter);
