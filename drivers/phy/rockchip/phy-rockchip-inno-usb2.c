@@ -1339,7 +1339,7 @@ next_child:
 		if (ret) {
 			dev_err(rphy->dev,
 				"failed to request usb2phy irq handle\n");
-			goto put_child;
+			return ret;
 		}
 	}
 
