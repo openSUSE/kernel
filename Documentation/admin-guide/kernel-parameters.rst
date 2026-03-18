@@ -170,6 +170,7 @@ is applicable::
 	TPM	TPM drivers are enabled.
 	UMS	USB Mass Storage support is enabled.
 	USB	USB support is enabled.
+	NVME    NVMe support is enabled
 	USBHID	USB Human Interface Device support is enabled.
 	V4L	Video For Linux support is enabled.
 	VGA	The VGA console has been enabled.
