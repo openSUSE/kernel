@@ -238,7 +238,7 @@ int bpf_prog_load(enum bpf_prog_type prog_type,
 		  const struct bpf_insn *insns, size_t insn_cnt,
 		  struct bpf_prog_load_opts *opts)
 {
-	const size_t attr_sz = offsetofend(union bpf_attr, prog_token_fd);
+	const size_t attr_sz = offsetofend(union bpf_attr, fd_array_cnt);
 	void *finfo = NULL, *linfo = NULL;
 	const char *func_info, *line_info;
 	__u32 log_size, log_level, attach_prog_fd, attach_btf_obj_fd;
@@ -311,6 +311,7 @@ int bpf_prog_load(enum bpf_prog_type prog_type,
 	attr.line_info_cnt = OPTS_GET(opts, line_info_cnt, 0);
 
 	attr.fd_array = ptr_to_u64(OPTS_GET(opts, fd_array, NULL));
+	attr.fd_array_cnt = OPTS_GET(opts, fd_array_cnt, 0);
 
 	if (log_level) {
 		attr.log_buf = ptr_to_u64(log_buf);
@@ -836,6 +837,50 @@ int bpf_link_create(int prog_fd, int target_fd,
 		if (!OPTS_ZEROED(opts, netkit))
 			return libbpf_err(-EINVAL);
 		break;
+	case BPF_CGROUP_INET_INGRESS:
+	case BPF_CGROUP_INET_EGRESS:
+	case BPF_CGROUP_INET_SOCK_CREATE:
+	case BPF_CGROUP_INET_SOCK_RELEASE:
+	case BPF_CGROUP_INET4_BIND:
+	case BPF_CGROUP_INET6_BIND:
+	case BPF_CGROUP_INET4_POST_BIND:
+	case BPF_CGROUP_INET6_POST_BIND:
+	case BPF_CGROUP_INET4_CONNECT:
+	case BPF_CGROUP_INET6_CONNECT:
+	case BPF_CGROUP_UNIX_CONNECT:
+	case BPF_CGROUP_INET4_GETPEERNAME:
+	case BPF_CGROUP_INET6_GETPEERNAME:
+	case BPF_CGROUP_UNIX_GETPEERNAME:
+	case BPF_CGROUP_INET4_GETSOCKNAME:
+	case BPF_CGROUP_INET6_GETSOCKNAME:
+	case BPF_CGROUP_UNIX_GETSOCKNAME:
+	case BPF_CGROUP_UDP4_SENDMSG:
+	case BPF_CGROUP_UDP6_SENDMSG:
+	case BPF_CGROUP_UNIX_SENDMSG:
+	case BPF_CGROUP_UDP4_RECVMSG:
+	case BPF_CGROUP_UDP6_RECVMSG:
+	case BPF_CGROUP_UNIX_RECVMSG:
+	case BPF_CGROUP_SOCK_OPS:
+	case BPF_CGROUP_DEVICE:
+	case BPF_CGROUP_SYSCTL:
+	case BPF_CGROUP_GETSOCKOPT:
+	case BPF_CGROUP_SETSOCKOPT:
+	case BPF_LSM_CGROUP:
+		relative_fd = OPTS_GET(opts, cgroup.relative_fd, 0);
+		relative_id = OPTS_GET(opts, cgroup.relative_id, 0);
+		if (relative_fd && relative_id)
+			return libbpf_err(-EINVAL);
+		if (relative_id) {
+			attr.link_create.cgroup.relative_id = relative_id;
+			attr.link_create.flags |= BPF_F_ID;
+		} else {
+			attr.link_create.cgroup.relative_fd = relative_fd;
+		}
+		attr.link_create.cgroup.expected_revision =
+			OPTS_GET(opts, cgroup.expected_revision, 0);
+		if (!OPTS_ZEROED(opts, cgroup))
+			return libbpf_err(-EINVAL);
+		break;
 	default:
 		if (!OPTS_ZEROED(opts, flags))
 			return libbpf_err(-EINVAL);
@@ -1096,7 +1141,7 @@ int bpf_map_get_fd_by_id(__u32 id)
 int bpf_btf_get_fd_by_id_opts(__u32 id,
 			      const struct bpf_get_fd_by_id_opts *opts)
 {
-	const size_t attr_sz = offsetofend(union bpf_attr, open_flags);
+	const size_t attr_sz = offsetofend(union bpf_attr, fd_by_id_token_fd);
 	union bpf_attr attr;
 	int fd;
 
@@ -1106,6 +1151,7 @@ int bpf_btf_get_fd_by_id_opts(__u32 id,
 	memset(&attr, 0, attr_sz);
 	attr.btf_id = id;
 	attr.open_flags = OPTS_GET(opts, open_flags, 0);
+	attr.fd_by_id_token_fd = OPTS_GET(opts, token_fd, 0);
 
 	fd = sys_bpf_fd(BPF_BTF_GET_FD_BY_ID, &attr, attr_sz);
 	return libbpf_err_errno(fd);

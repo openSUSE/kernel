@@ -15,6 +15,7 @@
 
 #include <bpf/hashmap.h>
 #include <bpf/libbpf.h>
+#include <bpf/bpf.h>
 
 #include "json_writer.h"
 
@@ -140,8 +141,10 @@ void get_prog_full_name(const struct bpf_prog_info *prog_info, int prog_fd,
 int get_fd_type(int fd);
 const char *get_fd_type_name(enum bpf_obj_type type);
 char *get_fdinfo(int fd, const char *key);
-int open_obj_pinned(const char *path, bool quiet);
-int open_obj_pinned_any(const char *path, enum bpf_obj_type exp_type);
+int open_obj_pinned(const char *path, bool quiet,
+		    const struct bpf_obj_get_opts *opts);
+int open_obj_pinned_any(const char *path, enum bpf_obj_type exp_type,
+			const struct bpf_obj_get_opts *opts);
 int mount_bpffs_for_file(const char *file_name);
 int create_and_mount_bpffs_dir(const char *dir_name);
 int do_pin_any(int argc, char **argv, int (*get_fd_by_id)(int *, char ***));
@@ -163,14 +166,15 @@ int do_tracelog(int argc, char **arg) __weak;
 int do_feature(int argc, char **argv) __weak;
 int do_struct_ops(int argc, char **argv) __weak;
 int do_iter(int argc, char **argv) __weak;
+int do_token(int argc, char **argv) __weak;
 
 int parse_u32_arg(int *argc, char ***argv, __u32 *val, const char *what);
 int prog_parse_fd(int *argc, char ***argv);
 int prog_parse_fds(int *argc, char ***argv, int **fds);
-int map_parse_fd(int *argc, char ***argv);
-int map_parse_fds(int *argc, char ***argv, int **fds);
+int map_parse_fd(int *argc, char ***argv, __u32 open_flags);
+int map_parse_fds(int *argc, char ***argv, int **fds, __u32 open_flags);
 int map_parse_fd_and_info(int *argc, char ***argv, struct bpf_map_info *info,
-			  __u32 *info_len);
+			  __u32 *info_len, __u32 open_flags);
 
 struct bpf_prog_linfo;
 #if defined(HAVE_LLVM_SUPPORT) || defined(HAVE_LIBBFD_SUPPORT)
@@ -271,4 +275,13 @@ int pathname_concat(char *buf, int buf_sz, const char *path,
 /* print netfilter bpf_link info */
 void netfilter_dump_plain(const struct bpf_link_info *info);
 void netfilter_dump_json(const struct bpf_link_info *info, json_writer_t *wtr);
+
+struct kernel_config_option {
+	const char *name;
+	bool macro_dump;
+};
+
+int read_kernel_config(const struct kernel_config_option *requested_options,
+		       size_t num_options, char **out_values,
+		       const char *define_prefix);
 #endif

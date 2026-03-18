@@ -78,11 +78,14 @@ struct ctl_table_header;
 /* unused opcode to mark special atomic instruction */
 #define BPF_PROBE_ATOMIC 0xe0
 
+/* unused opcode to mark special ldsx instruction. Same as BPF_NOSPEC */
+#define BPF_PROBE_MEM32SX 0xc0
+
 /* unused opcode to mark call to interpreter with arguments */
 #define BPF_CALL_ARGS	0xe0
 
 /* unused opcode to mark speculation barrier for mitigating
- * Speculative Store Bypass
+ * Spectre v1 and v4
  */
 #define BPF_NOSPEC	0xc0
 
@@ -364,6 +367,8 @@ static inline bool insn_is_cast_user(const struct bpf_insn *insn)
  *   BPF_XOR | BPF_FETCH      src_reg = atomic_fetch_xor(dst_reg + off16, src_reg);
  *   BPF_XCHG                 src_reg = atomic_xchg(dst_reg + off16, src_reg)
  *   BPF_CMPXCHG              r0 = atomic_cmpxchg(dst_reg + off16, r0, src_reg)
+ *   BPF_LOAD_ACQ             dst_reg = smp_load_acquire(src_reg + off16)
+ *   BPF_STORE_REL            smp_store_release(dst_reg + off16, src_reg)
  */
 
 #define BPF_ATOMIC_OP(SIZE, OP, DST, SRC, OFF)			\
@@ -468,6 +473,16 @@ static inline bool insn_is_cast_user(const struct bpf_insn *insn)
 		.src_reg = 0,					\
 		.off   = 0,					\
 		.imm   = BPF_CALL_IMM(FUNC) })
+
+/* Kfunc call */
+
+#define BPF_CALL_KFUNC(OFF, IMM)				\
+	((struct bpf_insn) {					\
+		.code  = BPF_JMP | BPF_CALL,			\
+		.dst_reg = 0,					\
+		.src_reg = BPF_PSEUDO_KFUNC_CALL,		\
+		.off   = OFF,					\
+		.imm   = IMM })
 
 /* Raw code statement block */
 
@@ -658,6 +673,11 @@ struct bpf_prog_stats {
 	u64_stats_t misses;
 	struct u64_stats_sync syncp;
 } __aligned(2 * sizeof(u64));
+
+struct bpf_timed_may_goto {
+	u64 count;
+	u64 timestamp;
+};
 
 struct sk_filter {
 	refcount_t	refcnt;
@@ -1142,8 +1162,11 @@ bool bpf_jit_supports_ptr_xchg(void);
 bool bpf_jit_supports_arena(void);
 bool bpf_jit_supports_insn(struct bpf_insn *insn, bool in_arena);
 bool bpf_jit_supports_private_stack(void);
+bool bpf_jit_supports_timed_may_goto(void);
 u64 bpf_arch_uaddress_limit(void);
 void arch_bpf_stack_walk(bool (*consume_fn)(void *cookie, u64 ip, u64 sp, u64 bp), void *cookie);
+u64 arch_bpf_timed_may_goto(void);
+u64 bpf_check_timed_may_goto(struct bpf_timed_may_goto *);
 bool bpf_helper_changes_pkt_data(enum bpf_func_id func_id);
 
 static inline bool bpf_dump_raw_ok(const struct cred *cred)
@@ -1280,13 +1303,15 @@ int bpf_jit_get_func_addr(const struct bpf_prog *prog,
 			  const struct bpf_insn *insn, bool extra_pass,
 			  u64 *func_addr, bool *func_addr_fixed);
 
+const char *bpf_jit_get_prog_name(struct bpf_prog *prog);
+
 struct bpf_prog *bpf_jit_blind_constants(struct bpf_prog *fp);
 void bpf_jit_prog_release_other(struct bpf_prog *fp, struct bpf_prog *fp_other);
 
 static inline void bpf_jit_dump(unsigned int flen, unsigned int proglen,
 				u32 pass, void *image)
 {
-	pr_err("flen=%u proglen=%u pass=%u image=%pK from=%s pid=%d\n", flen,
+	pr_err("flen=%u proglen=%u pass=%u image=%p from=%s pid=%d\n", flen,
 	       proglen, pass, image, current->comm, task_pid_nr(current));
 
 	if (image)

@@ -264,7 +264,7 @@ static int mesh_plink_frame_tx(struct ieee80211_sub_if_data *sdata,
 
 	if (action != WLAN_SP_MESH_PEERING_CLOSE) {
 		struct ieee80211_supported_band *sband;
-		u32 rate_flags, basic_rates;
+		u32 basic_rates;
 
 		sband = ieee80211_get_sband(sdata);
 		if (!sband) {
@@ -280,16 +280,12 @@ static int mesh_plink_frame_tx(struct ieee80211_sub_if_data *sdata,
 			put_unaligned_le16(sta->sta.aid, pos);
 		}
 
-		rate_flags =
-			ieee80211_chandef_rate_flags(&sdata->vif.bss_conf.chanreq.oper);
 		basic_rates = sdata->vif.bss_conf.basic_rates;
 
 		if (ieee80211_put_srates_elem(skb, sband, basic_rates,
-					      rate_flags, 0,
-					      WLAN_EID_SUPP_RATES) ||
+					      0, WLAN_EID_SUPP_RATES) ||
 		    ieee80211_put_srates_elem(skb, sband, basic_rates,
-					      rate_flags, 0,
-					      WLAN_EID_EXT_SUPP_RATES) ||
+					      0, WLAN_EID_EXT_SUPP_RATES) ||
 		    mesh_add_rsn_ie(sdata, skb) ||
 		    mesh_add_meshid_ie(sdata, skb) ||
 		    mesh_add_meshconf_ie(sdata, skb))
@@ -432,15 +428,14 @@ static void mesh_sta_info_init(struct ieee80211_sub_if_data *sdata,
 {
 	struct ieee80211_local *local = sdata->local;
 	struct ieee80211_supported_band *sband;
-	u32 rates, basic_rates = 0, changed = 0;
+	u32 rates, changed = 0;
 	enum ieee80211_sta_rx_bandwidth bw = sta->sta.deflink.bandwidth;
 
 	sband = ieee80211_get_sband(sdata);
 	if (!sband)
 		return;
 
-	rates = ieee80211_sta_get_rates(sdata, elems, sband->band,
-					&basic_rates);
+	rates = ieee80211_sta_get_rates(sdata, elems, sband->band, NULL);
 
 	spin_lock_bh(&sta->mesh->plink_lock);
 	sta->deflink.rx_stats.last_rx = jiffies;
@@ -486,10 +481,11 @@ static void mesh_sta_info_init(struct ieee80211_sub_if_data *sdata,
 		sta->sta.deflink.bandwidth = IEEE80211_STA_RX_BW_20;
 	}
 
+	/* FIXME: this check is wrong without SW rate control */
 	if (!test_sta_flag(sta, WLAN_STA_RATE_CONTROL))
-		rate_control_rate_init(sta);
+		rate_control_rate_init(&sta->deflink);
 	else
-		rate_control_rate_update(local, sband, sta, 0, changed);
+		rate_control_rate_update(local, sband, &sta->deflink, changed);
 out:
 	spin_unlock_bh(&sta->mesh->plink_lock);
 }

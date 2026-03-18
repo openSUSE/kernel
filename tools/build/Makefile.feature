@@ -38,20 +38,17 @@ FEATURE_TESTS_BASIC :=                  \
         glibc                           \
         libbfd                          \
         libbfd-buildid			\
-        libcap                          \
         libelf                          \
         libelf-getphdrnum               \
         libelf-gelf_getnote             \
         libelf-getshdrstrndx            \
+        libelf-zstd                     \
         libnuma                         \
         numa_num_possible_cpus          \
-        libperl                         \
         libpython                       \
         libslang                        \
-        libslang-include-subdir         \
         libtraceevent                   \
         libtracefs                      \
-        libcrypto                       \
         pthread-attr-setaffinity-np     \
         pthread-barrier     		\
         reallocarray                    \
@@ -87,19 +84,15 @@ FEATURE_TESTS_EXTRA :=                  \
          libbfd-liberty                 \
          libbfd-liberty-z               \
          libopencsd                     \
+         libperl                        \
          cxx                            \
          llvm                           \
          clang                          \
          libbpf                         \
-         libbpf-btf__load_from_kernel_by_id \
-         libbpf-bpf_prog_load           \
-         libbpf-bpf_object__next_program \
-         libbpf-bpf_object__next_map    \
-         libbpf-bpf_program__set_insns  \
-         libbpf-bpf_create_map		\
          libpfm4                        \
          libdebuginfod			\
-         clang-bpf-co-re
+         clang-bpf-co-re		\
+         bpftool-skeletons
 
 
 FEATURE_TESTS ?= $(FEATURE_TESTS_BASIC)
@@ -113,13 +106,10 @@ FEATURE_DISPLAY ?=              \
          glibc                  \
          libbfd                 \
          libbfd-buildid		\
-         libcap                 \
          libelf                 \
          libnuma                \
          numa_num_possible_cpus \
-         libperl                \
          libpython              \
-         libcrypto              \
          libcapstone            \
          llvm-perf              \
          zlib                   \

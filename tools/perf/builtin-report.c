@@ -112,6 +112,8 @@ struct report {
 	u64			nr_entries;
 	u64			queue_size;
 	u64			total_cycles;
+	u64			total_samples;
+	u64			singlethreaded_samples;
 	int			socket_filter;
 	DECLARE_BITMAP(cpu_bitmap, MAX_NR_CPUS);
 	struct branch_type_stat	brtype_stat;
@@ -238,10 +240,11 @@ static void setup_forced_leader(struct report *report,
 		evlist__force_leader(evlist);
 }
 
-static int process_feature_event(struct perf_session *session,
+static int process_feature_event(const struct perf_tool *tool,
+				 struct perf_session *session,
 				 union perf_event *event)
 {
-	struct report *rep = container_of(session->tool, struct report, tool);
+	struct report *rep = container_of(tool, struct report, tool);
 
 	if (event->feat.feat_id < HEADER_LAST_FEATURE)
 		return perf_event__process_feature(session, event);
@@ -331,6 +334,10 @@ static int process_sample_event(const struct perf_tool *tool,
 				     &rep->total_cycles, evsel);
 	}
 
+	rep->total_samples++;
+	if (al.parallelism == 1)
+		rep->singlethreaded_samples++;
+
 	ret = hist_entry_iter__add(&iter, &al, rep->max_stack, rep);
 	if (ret < 0)
 		pr_debug("problem adding hist entry, skipping event\n");
@@ -348,11 +355,9 @@ static int process_read_event(const struct perf_tool *tool,
 	struct report *rep = container_of(tool, struct report, tool);
 
 	if (rep->show_threads) {
-		const char *name = evsel__name(evsel);
 		int err = perf_read_values_add_value(&rep->show_threads_values,
 					   event->read.pid, event->read.tid,
-					   evsel->core.idx,
-					   name,
+					   evsel,
 					   event->read.value);
 
 		if (err)
@@ -409,7 +414,7 @@ static int report__setup_sample_type(struct report *rep)
 		/* Silently ignore if callchain is missing */
 		if (!(sample_type & PERF_SAMPLE_CALLCHAIN)) {
 			symbol_conf.cumulate_callchain = false;
-			perf_hpp__cancel_cumulate();
+			perf_hpp__cancel_cumulate(session->evlist);
 		}
 	}
 
@@ -443,7 +448,7 @@ static int report__setup_sample_type(struct report *rep)
 		}
 	}
 
-	callchain_param_setup(sample_type, perf_env__arch(&rep->session->header.env));
+	callchain_param_setup(sample_type, perf_env__arch(perf_session__env(rep->session)));
 
 	if (rep->stitch_lbr && (callchain_param.record_mode != CALLCHAIN_LBR)) {
 		ui__warning("Can't find LBR callchain. Switch off --stitch-lbr.\n"
@@ -525,7 +530,10 @@ static size_t hists__fprintf_nr_sample_events(struct hists *hists, struct report
 
 	if (rep->mem_mode) {
 		ret += fprintf(fp, "\n# Total weight : %" PRIu64, nr_events);
-		ret += fprintf(fp, "\n# Sort order   : %s", sort_order ? : default_mem_sort_order);
+		if (sort_order || !field_order) {
+			ret += fprintf(fp, "\n# Sort order   : %s",
+				       sort_order ? : default_mem_sort_order);
+		}
 	} else
 		ret += fprintf(fp, "\n# Event count (approx.): %" PRIu64, nr_events);
 
@@ -543,7 +551,7 @@ static int evlist__tui_block_hists_browse(struct evlist *evlist, struct report *
 	evlist__for_each_entry(evlist, pos) {
 		ret = report__browse_block_hists(&rep->block_reports[i++].hist,
 						 rep->min_percent, pos,
-						 &rep->session->header.env);
+						 perf_session__env(rep->session));
 		if (ret != 0)
 			return ret;
 	}
@@ -678,7 +686,7 @@ static int report__browse_hists(struct report *rep)
 		}
 
 		ret = evlist__tui_browse_hists(evlist, help, NULL, rep->min_percent,
-					       &session->header.env, true);
+					       perf_session__env(session), true);
 		/*
 		 * Usually "ret" is the last pressed key, and we only
 		 * care if the key notifies us to switch data file.
@@ -854,17 +862,24 @@ static int maps__fprintf_task_cb(struct map *map, void *data)
 	struct maps__fprintf_task_args *args = data;
 	const struct dso *dso = map__dso(map);
 	u32 prot = map__prot(map);
+	const struct dso_id *dso_id = dso__id_const(dso);
 	int ret;
+	char buf[SBUILD_ID_SIZE];
+
+	if (dso_id->mmap2_valid)
+		snprintf(buf, sizeof(buf), "%" PRIu64, dso_id->ino);
+	else
+		build_id__snprintf(&dso_id->build_id, buf, sizeof(buf));
 
 	ret = fprintf(args->fp,
-		"%*s  %" PRIx64 "-%" PRIx64 " %c%c%c%c %08" PRIx64 " %" PRIu64 " %s\n",
+		"%*s  %" PRIx64 "-%" PRIx64 " %c%c%c%c %08" PRIx64 " %s %s\n",
 		args->indent, "", map__start(map), map__end(map),
 		prot & PROT_READ ? 'r' : '-',
 		prot & PROT_WRITE ? 'w' : '-',
 		prot & PROT_EXEC ? 'x' : '-',
 		map__flags(map) ? 's' : 'p',
 		map__pgoff(map),
-		dso__id_const(dso)->ino, dso__name(dso));
+		buf, dso__name(dso));
 
 	if (ret < 0)
 		return ret;
@@ -1081,6 +1096,11 @@ static int __cmd_report(struct report *rep)
 		return ret;
 	}
 
+	/* Don't show Latency column for non-parallel profiles by default. */
+	if (!symbol_conf.prefer_latency && rep->total_samples &&
+		rep->singlethreaded_samples * 100 / rep->total_samples >= 99)
+		perf_hpp__cancel_latency(session->evlist);
+
 	evlist__check_mem_load_aux(session->evlist);
 
 	if (rep->stats_mode)
@@ -1255,6 +1275,8 @@ static int process_attr(const struct perf_tool *tool __maybe_unused,
 			union perf_event *event,
 			struct evlist **pevlist)
 {
+	struct perf_session *session;
+	struct perf_env *env;
 	u64 sample_type;
 	int err;
 
@@ -1267,7 +1289,9 @@ static int process_attr(const struct perf_tool *tool __maybe_unused,
 	 * on events sample_type.
 	 */
 	sample_type = evlist__combined_sample_type(*pevlist);
-	callchain_param_setup(sample_type, perf_env__arch((*pevlist)->env));
+	session = (*pevlist)->session;
+	env = perf_session__env(session);
+	callchain_param_setup(sample_type, perf_env__arch(env));
 	return 0;
 }
 
@@ -1392,6 +1416,8 @@ int cmd_report(int argc, const char **argv)
 		     symbol__config_symfs),
 	OPT_STRING('C', "cpu", &report.cpu_list, "cpu",
 		   "list of cpus to profile"),
+	OPT_STRING(0, "parallelism", &symbol_conf.parallelism_list_str, "parallelism",
+		   "only consider these parallelism levels (cpu set format)"),
 	OPT_BOOLEAN('I', "show-info", &report.show_full_info,
 		    "Display extended information about perf.data file"),
 	OPT_BOOLEAN(0, "source", &annotate_opts.annotate_src,
@@ -1468,6 +1494,10 @@ int cmd_report(int argc, const char **argv)
 		    "Disable raw trace ordering"),
 	OPT_BOOLEAN(0, "skip-empty", &report.skip_empty,
 		    "Do not display empty (or dummy) events in the output"),
+	OPT_BOOLEAN(0, "latency", &symbol_conf.prefer_latency,
+		    "Show latency-centric profile rather than the default\n"
+		    "\t\t\t  CPU-consumption-centric profile\n"
+		    "\t\t\t  (requires perf record --latency flag)."),
 	OPT_END()
 	};
 	struct perf_data data = {
@@ -1570,6 +1600,7 @@ repeat:
 	report.tool.cgroup		 = perf_event__process_cgroup;
 	report.tool.exit		 = perf_event__process_exit;
 	report.tool.fork		 = perf_event__process_fork;
+	report.tool.context_switch	 = perf_event__process_switch;
 	report.tool.lost		 = perf_event__process_lost;
 	report.tool.read		 = process_read_event;
 	report.tool.attr		 = process_attr;
@@ -1656,16 +1687,10 @@ repeat:
 	}
 
 	if (symbol_conf.report_hierarchy) {
-		/* disable incompatible options */
-		symbol_conf.cumulate_callchain = false;
-
-		if (field_order) {
-			pr_err("Error: --hierarchy and --fields options cannot be used together\n");
-			parse_options_usage(report_usage, options, "F", 1);
-			parse_options_usage(NULL, options, "hierarchy", 0);
-			goto error;
-		}
-
+		/*
+		 * The hist entries in hierarchy are added during the collpase
+		 * phase.  Let's enable it even if no sort keys require it.
+		 */
 		perf_hpp_list.need_collapse = true;
 	}
 
@@ -1705,6 +1730,9 @@ repeat:
 		report.data_type = true;
 		annotate_opts.annotate_src = false;
 
+		/* disable incompatible options */
+		symbol_conf.cumulate_callchain = false;
+
 #ifndef HAVE_LIBDW_SUPPORT
 		pr_err("Error: Data type profiling is disabled due to missing DWARF support\n");
 		goto error;
@@ -1719,6 +1747,27 @@ repeat:
 	if (report.data_type && use_browser == 1) {
 		symbol_conf.annotate_data_member = true;
 		symbol_conf.annotate_data_sample = true;
+	}
+
+	symbol_conf.enable_latency = true;
+	if (report.disable_order || !perf_session__has_switch_events(session)) {
+		if (symbol_conf.parallelism_list_str ||
+			symbol_conf.prefer_latency ||
+			(sort_order && (strstr(sort_order, "latency") ||
+				strstr(sort_order, "parallelism"))) ||
+			(field_order && (strstr(field_order, "latency") ||
+				strstr(field_order, "parallelism")))) {
+			if (report.disable_order)
+				ui__error("Use of latency profile or parallelism is incompatible with --disable-order.\n");
+			else
+				ui__error("Use of latency profile or parallelism requires --latency flag during record.\n");
+			return -1;
+		}
+		/*
+		 * If user did not ask for anything related to
+		 * latency/parallelism explicitly, just don't show it.
+		 */
+		symbol_conf.enable_latency = false;
 	}
 
 	if (last_key != K_SWITCH_INPUT_DATA) {
@@ -1742,7 +1791,7 @@ repeat:
 	}
 
 	if ((last_key != K_SWITCH_INPUT_DATA && last_key != K_RELOAD) &&
-	    (setup_sorting(session->evlist) < 0)) {
+	    (setup_sorting(session->evlist, perf_session__env(session)) < 0)) {
 		if (sort_order)
 			parse_options_usage(report_usage, options, "s", 1);
 		if (field_order)
@@ -1798,7 +1847,7 @@ repeat:
 		annotation_config__init();
 	}
 
-	if (symbol__init(&session->header.env) < 0)
+	if (symbol__init(perf_session__env(session)) < 0)
 		goto error;
 
 	if (report.time_str) {
@@ -1830,6 +1879,11 @@ repeat:
 	if (ret == K_SWITCH_INPUT_DATA || ret == K_RELOAD) {
 		perf_session__delete(session);
 		last_key = K_SWITCH_INPUT_DATA;
+		/*
+		 * To support switching between data with and without callchains.
+		 * report__setup_sample_type() will update it properly.
+		 */
+		symbol_conf.use_callchain = false;
 		goto repeat;
 	} else
 		ret = 0;

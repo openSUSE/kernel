@@ -5893,6 +5893,17 @@ static void register_ftrace_direct_cb(struct rcu_head *rhp)
 	free_ftrace_hash(fhp);
 }
 
+static void reset_direct(struct ftrace_ops *ops, unsigned long addr)
+{
+	struct ftrace_hash *hash = ops->func_hash->filter_hash;
+
+	remove_direct_functions_hash(hash, addr);
+
+	/* cleanup for possible another register call */
+	ops->func = NULL;
+	ops->trampoline = 0;
+}
+
 /**
  * register_ftrace_direct - Call a custom trampoline directly
  * for multiple functions registered in @ops
@@ -5988,6 +5999,8 @@ int register_ftrace_direct(struct ftrace_ops *ops, unsigned long addr)
 	ops->direct_call = addr;
 
 	err = register_ftrace_function_nolock(ops);
+	if (err)
+		reset_direct(ops, addr);
 
  out_unlock:
 	mutex_unlock(&direct_mutex);
@@ -6020,7 +6033,6 @@ EXPORT_SYMBOL_GPL(register_ftrace_direct);
 int unregister_ftrace_direct(struct ftrace_ops *ops, unsigned long addr,
 			     bool free_filters)
 {
-	struct ftrace_hash *hash = ops->func_hash->filter_hash;
 	int err;
 
 	if (check_direct_multi(ops))
@@ -6030,12 +6042,8 @@ int unregister_ftrace_direct(struct ftrace_ops *ops, unsigned long addr,
 
 	mutex_lock(&direct_mutex);
 	err = unregister_ftrace_function(ops);
-	remove_direct_functions_hash(hash, addr);
+	reset_direct(ops, addr);
 	mutex_unlock(&direct_mutex);
-
-	/* cleanup for possible another register call */
-	ops->func = NULL;
-	ops->trampoline = 0;
 
 	if (free_filters)
 		ftrace_free_filter(ops);
@@ -7398,6 +7406,8 @@ void ftrace_module_enable(struct module *mod)
 		 */
 		if (!within_module(rec->ip, mod))
 			break;
+
+		cond_resched();
 
 		/* Weak functions should still be ignored */
 		if (!test_for_valid_rec(rec)) {

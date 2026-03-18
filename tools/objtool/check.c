@@ -25,7 +25,6 @@
 struct alternative {
 	struct alternative *next;
 	struct instruction *insn;
-	bool skip_orig;
 };
 
 static unsigned long nr_cfi, nr_cfi_reused, nr_cfi_cache;
@@ -972,7 +971,6 @@ static int create_direct_call_sections(struct objtool_file *file)
  */
 static void add_ignores(struct objtool_file *file)
 {
-	struct instruction *insn;
 	struct section *rsec;
 	struct symbol *func;
 	struct reloc *reloc;
@@ -999,8 +997,9 @@ static void add_ignores(struct objtool_file *file)
 			continue;
 		}
 
-		func_for_each_insn(file, func, insn)
-			insn->ignore = true;
+		func->ignore = true;
+		if (func->cfunc)
+			func->cfunc->ignore = true;
 	}
 }
 
@@ -1616,6 +1615,7 @@ static int add_call_destinations(struct objtool_file *file)
 	struct reloc *reloc;
 
 	for_each_insn(file, insn) {
+		struct symbol *func = insn_func(insn);
 		if (insn->type != INSN_CALL)
 			continue;
 
@@ -1626,7 +1626,7 @@ static int add_call_destinations(struct objtool_file *file)
 
 			add_call_dest(file, insn, dest, false);
 
-			if (insn->ignore)
+			if (func && func->ignore)
 				continue;
 
 			if (!insn_call_dest(insn)) {
@@ -1634,7 +1634,7 @@ static int add_call_destinations(struct objtool_file *file)
 				return -1;
 			}
 
-			if (insn_func(insn) && insn_call_dest(insn)->type != STT_FUNC) {
+			if (func && insn_call_dest(insn)->type != STT_FUNC) {
 				WARN_INSN(insn, "unsupported call to non-function");
 				return -1;
 			}
@@ -1701,6 +1701,7 @@ static int handle_group_alt(struct objtool_file *file,
 		orig_alt_group->first_insn = orig_insn;
 		orig_alt_group->last_insn = last_orig_insn;
 		orig_alt_group->nop = NULL;
+		orig_alt_group->ignore = orig_insn->ignore_alts;
 	} else {
 		if (orig_alt_group->last_insn->offset + orig_alt_group->last_insn->len -
 		    orig_alt_group->first_insn->offset != special_alt->orig_len) {
@@ -1740,7 +1741,6 @@ static int handle_group_alt(struct objtool_file *file,
 		nop->type = INSN_NOP;
 		nop->sym = orig_insn->sym;
 		nop->alt_group = new_alt_group;
-		nop->ignore = orig_insn->ignore_alts;
 	}
 
 	if (!special_alt->new_len) {
@@ -1757,7 +1757,6 @@ static int handle_group_alt(struct objtool_file *file,
 
 		last_new_insn = insn;
 
-		insn->ignore = orig_insn->ignore_alts;
 		insn->sym = orig_insn->sym;
 		insn->alt_group = new_alt_group;
 
@@ -1804,6 +1803,7 @@ end:
 	new_alt_group->first_insn = *new_insn;
 	new_alt_group->last_insn = last_new_insn;
 	new_alt_group->nop = nop;
+	new_alt_group->ignore = (*new_insn)->ignore_alts;
 	new_alt_group->cfi = orig_alt_group->cfi;
 	return 0;
 }
@@ -1921,8 +1921,6 @@ static int add_special_section_alts(struct objtool_file *file)
 		}
 
 		alt->insn = new_insn;
-		alt->skip_orig = special_alt->skip_orig;
-		orig_insn->ignore_alts |= special_alt->skip_alt;
 		alt->next = orig_insn->alts;
 		orig_insn->alts = alt;
 
@@ -2300,6 +2298,8 @@ static int read_annotate(struct objtool_file *file,
 static int __annotate_early(struct objtool_file *file, int type, struct instruction *insn)
 {
 	switch (type) {
+
+	/* Must be before add_special_section_alts() */
 	case ANNOTYPE_IGNORE_ALTS:
 		insn->ignore_alts = true;
 		break;
@@ -3459,6 +3459,37 @@ next_orig:
 	return next_insn_same_sec(file, alt_group->orig_group->last_insn);
 }
 
+static bool skip_alt_group(struct instruction *insn)
+{
+	struct instruction *alt_insn = insn->alts ? insn->alts->insn : NULL;
+
+	if (!insn->alt_group)
+		return false;
+
+	/* ANNOTATE_IGNORE_ALTERNATIVE */
+	if (insn->alt_group->ignore)
+		return true;
+
+	/*
+	 * For NOP patched with CLAC/STAC, only follow the latter to avoid
+	 * impossible code paths combining patched CLAC with unpatched STAC
+	 * or vice versa.
+	 *
+	 * ANNOTATE_IGNORE_ALTERNATIVE could have been used here, but Linus
+	 * requested not to do that to avoid hurting .s file readability
+	 * around CLAC/STAC alternative sites.
+	 */
+
+	if (!alt_insn)
+		return false;
+
+	/* Don't override ASM_{CLAC,STAC}_UNSAFE */
+	if (alt_insn->alt_group && alt_insn->alt_group->ignore)
+		return false;
+
+	return alt_insn->type == INSN_CLAC || alt_insn->type == INSN_STAC;
+}
+
 /*
  * Follow the branch starting at the given instruction, and recursively follow
  * any other branches (jumps).  Meanwhile, track the frame pointer state at
@@ -3473,6 +3504,9 @@ static int validate_branch(struct objtool_file *file, struct symbol *func,
 	struct section *sec;
 	u8 visited;
 	int ret;
+
+	if (func && func->ignore)
+		return 0;
 
 	sec = insn->sec;
 
@@ -3490,11 +3524,6 @@ static int validate_branch(struct objtool_file *file, struct symbol *func,
 
 			WARN("%s() falls through to next function %s()",
 			     func->name, insn_func(insn)->name);
-			return 1;
-		}
-
-		if (func && insn->ignore) {
-			WARN_INSN(insn, "BUG: why am I validating an ignored function?");
 			return 1;
 		}
 
@@ -3569,23 +3598,18 @@ static int validate_branch(struct objtool_file *file, struct symbol *func,
 		if (propagate_alt_cfi(file, insn))
 			return 1;
 
-		if (!insn->ignore_alts && insn->alts) {
-			bool skip_orig = false;
-
+		if (insn->alts) {
 			for (alt = insn->alts; alt; alt = alt->next) {
-				if (alt->skip_orig)
-					skip_orig = true;
-
 				ret = validate_branch(file, func, alt->insn, state);
 				if (ret) {
 					BT_INSN(insn, "(alt)");
 					return ret;
 				}
 			}
-
-			if (skip_orig)
-				return 0;
 		}
+
+		if (skip_alt_group(insn))
+			return 0;
 
 		if (handle_insn_ops(insn, next_insn, &state))
 			return 1;
@@ -3731,7 +3755,7 @@ static int validate_unwind_hint(struct objtool_file *file,
 				  struct instruction *insn,
 				  struct insn_state *state)
 {
-	if (insn->hint && !insn->visited && !insn->ignore) {
+	if (insn->hint && !insn->visited) {
 		int ret = validate_branch(file, insn_func(insn), insn, *state);
 		if (ret)
 			BT_INSN(insn, "<=== (hint)");
@@ -3782,23 +3806,15 @@ static int validate_unret(struct objtool_file *file, struct instruction *insn)
 
 		insn->visited |= VISITED_UNRET;
 
-		if (!insn->ignore_alts && insn->alts) {
+		if (insn->alts) {
 			struct alternative *alt;
-			bool skip_orig = false;
-
 			for (alt = insn->alts; alt; alt = alt->next) {
-				if (alt->skip_orig)
-					skip_orig = true;
-
 				ret = validate_unret(file, alt->insn);
 				if (ret) {
 					BT_INSN(insn, "(alt)");
 					return ret;
 				}
 			}
-
-			if (skip_orig)
-				return 0;
 		}
 
 		switch (insn->type) {
@@ -3951,14 +3967,37 @@ static bool is_ubsan_insn(struct instruction *insn)
 			"__ubsan_handle_builtin_unreachable"));
 }
 
+static bool should_ignore_livepatch_funcs(struct symbol *func) {
+
+      static const char *ignored_funcs[] = {
+              "hv_crash_nmi_local",
+              "fred_sysvec_reboot",
+              "sysvec_reboot",
+      };
+
+      if (!func)
+              return false;
+
+      for (int i = 0; i < ARRAY_SIZE(ignored_funcs); i++) {
+              if (!strcmp(func->name, ignored_funcs[i]))
+                      return true;
+      }
+
+      return false;
+}
+
+
 static bool ignore_unreachable_insn(struct objtool_file *file, struct instruction *insn)
 {
-	int i;
+	struct symbol *func = insn_func(insn);
 	struct instruction *prev_insn;
+	int i;
 
-	if (insn->ignore || insn->type == INSN_NOP || insn->type == INSN_TRAP)
+	if (insn->type == INSN_NOP || insn->type == INSN_TRAP || (func && func->ignore))
 		return true;
 
+	if (should_ignore_livepatch_funcs(func))
+		return true;
 	/*
 	 * Ignore alternative replacement instructions.  This can happen
 	 * when a whitelisted function uses one of the ALTERNATIVE macros.
@@ -3975,7 +4014,7 @@ static bool ignore_unreachable_insn(struct objtool_file *file, struct instructio
 	 * In this case we'll find a piece of code (whole function) that is not
 	 * covered by a !section symbol. Ignore them.
 	 */
-	if (opts.link && !insn_func(insn)) {
+	if (opts.link && !func) {
 		int size = find_symbol_hole_containing(insn->sec, insn->offset);
 		unsigned long end = insn->offset + size;
 
@@ -4001,19 +4040,17 @@ static bool ignore_unreachable_insn(struct objtool_file *file, struct instructio
 			 */
 			if (insn->jump_dest && insn_func(insn->jump_dest) &&
 			    strstr(insn_func(insn->jump_dest)->name, ".cold")) {
-				struct instruction *dest = insn->jump_dest;
-				func_for_each_insn(file, insn_func(dest), dest)
-					dest->ignore = true;
+				insn_func(insn->jump_dest)->ignore = true;
 			}
 		}
 
 		return false;
 	}
 
-	if (!insn_func(insn))
+	if (!func)
 		return false;
 
-	if (insn_func(insn)->static_call_tramp)
+	if (func->static_call_tramp)
 		return true;
 
 	/*
@@ -4044,7 +4081,7 @@ static bool ignore_unreachable_insn(struct objtool_file *file, struct instructio
 
 		if (insn->type == INSN_JUMP_UNCONDITIONAL) {
 			if (insn->jump_dest &&
-			    insn_func(insn->jump_dest) == insn_func(insn)) {
+			    insn_func(insn->jump_dest) == func) {
 				insn = insn->jump_dest;
 				continue;
 			}
@@ -4052,7 +4089,7 @@ static bool ignore_unreachable_insn(struct objtool_file *file, struct instructio
 			break;
 		}
 
-		if (insn->offset + insn->len >= insn_func(insn)->offset + insn_func(insn)->len)
+		if (insn->offset + insn->len >= func->offset + func->len)
 			break;
 
 		insn = next_insn_same_sec(file, insn);
@@ -4144,7 +4181,7 @@ static int validate_symbol(struct objtool_file *file, struct section *sec,
 		return 0;
 
 	insn = find_insn(file, sec, sym->offset);
-	if (!insn || insn->ignore || insn->visited)
+	if (!insn || insn->visited)
 		return 0;
 
 	if (opts.uaccess)

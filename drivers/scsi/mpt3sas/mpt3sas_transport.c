@@ -166,6 +166,9 @@ _transport_convert_phy_link_rate(u8 link_rate)
 	case MPI25_SAS_NEG_LINK_RATE_12_0:
 		rc = SAS_LINK_RATE_12_0_GBPS;
 		break;
+	case MPI26_SAS_NEG_LINK_RATE_22_5:
+		rc = SAS_LINK_RATE_22_5_GBPS;
+		break;
 	case MPI2_SAS_NEG_LINK_RATE_PHY_DISABLED:
 		rc = SAS_PHY_DISABLED;
 		break;
@@ -328,10 +331,10 @@ struct rep_manu_reply {
 	u8 reserved0[2];
 	u8 sas_format;
 	u8 reserved2[3];
-	u8 vendor_id[SAS_EXPANDER_VENDOR_ID_LEN];
-	u8 product_id[SAS_EXPANDER_PRODUCT_ID_LEN];
-	u8 product_rev[SAS_EXPANDER_PRODUCT_REV_LEN];
-	u8 component_vendor_id[SAS_EXPANDER_COMPONENT_VENDOR_ID_LEN];
+	u8 vendor_id[SAS_EXPANDER_VENDOR_ID_LEN] __nonstring;
+	u8 product_id[SAS_EXPANDER_PRODUCT_ID_LEN] __nonstring;
+	u8 product_rev[SAS_EXPANDER_PRODUCT_REV_LEN] __nonstring;
+	u8 component_vendor_id[SAS_EXPANDER_COMPONENT_VENDOR_ID_LEN] __nonstring;
 	u16 component_id;
 	u8 component_revision_id;
 	u8 reserved3;

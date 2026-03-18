@@ -4232,6 +4232,8 @@ F:	include/uapi/linux/filter.h
 F:	kernel/bpf/
 F:	kernel/trace/bpf_trace.c
 F:	lib/buildid.c
+F:	arch/*/include/asm/rqspinlock.h
+F:	include/asm-generic/rqspinlock.h
 F:	lib/test_bpf.c
 F:	net/bpf/
 F:	net/core/filter.c
@@ -4296,6 +4298,7 @@ BPF [NETWORKING] (tcx & tc BPF, sock_addr)
 M:	Martin KaFai Lau <martin.lau@linux.dev>
 M:	Daniel Borkmann <daniel@iogearbox.net>
 R:	John Fastabend <john.fastabend@gmail.com>
+R:	Stanislav Fomichev <sdf@fomichev.me>
 L:	bpf@vger.kernel.org
 L:	netdev@vger.kernel.org
 S:	Maintained
@@ -4325,7 +4328,6 @@ F:	security/bpf/
 BPF [SELFTESTS] (Test Runners & Infrastructure)
 M:	Andrii Nakryiko <andrii@kernel.org>
 M:	Eduard Zingerman <eddyz87@gmail.com>
-R:	Mykola Lysenko <mykolal@fb.com>
 L:	bpf@vger.kernel.org
 S:	Maintained
 F:	tools/testing/selftests/bpf/
@@ -12723,6 +12725,15 @@ L:	keyrings@vger.kernel.org
 S:	Supported
 F:	include/keys/trusted_dcp.h
 F:	security/keys/trusted-keys/trusted_dcp.c
+
+KEYS-TRUSTED-PLPKS
+M:	Srish Srinivasan <ssrish@linux.ibm.com>
+M:	Nayna Jain <nayna@linux.ibm.com>
+L:	linux-integrity@vger.kernel.org
+L:	keyrings@vger.kernel.org
+S:	Supported
+F:	include/keys/trusted_pkwm.h
+F:	security/keys/trusted-keys/trusted_pkwm.c
 
 KEYS-TRUSTED-TEE
 M:	Sumit Garg <sumit.garg@linaro.org>
@@ -22071,11 +22082,6 @@ S:	Maintained
 W:	http://wiki.laptop.org/go/DCON
 F:	drivers/staging/olpc_dcon/
 
-STAGING - REALTEK RTL8712U DRIVERS
-M:	Florian Schilhabel <florian.c.schilhabel@googlemail.com>.
-S:	Odd Fixes
-F:	drivers/staging/rtl8712/
-
 STAGING - SEPS525 LCD CONTROLLER DRIVERS
 M:	Michael Hennerich <michael.hennerich@analog.com>
 L:	linux-fbdev@vger.kernel.org
@@ -22090,11 +22096,6 @@ M:	Sudip Mukherjee <sudip.mukherjee@codethink.co.uk>
 L:	linux-fbdev@vger.kernel.org
 S:	Maintained
 F:	drivers/staging/sm750fb/
-
-STAGING - VIA VT665X DRIVERS
-M:	Philipp Hortmann <philipp.g.hortmann@gmail.com>
-S:	Odd Fixes
-F:	drivers/staging/vt665?/
 
 STAGING SUBSYSTEM
 M:	Greg Kroah-Hartman <gregkh@linuxfoundation.org>
@@ -25382,6 +25383,7 @@ M:	David S. Miller <davem@davemloft.net>
 M:	Jakub Kicinski <kuba@kernel.org>
 M:	Jesper Dangaard Brouer <hawk@kernel.org>
 M:	John Fastabend <john.fastabend@gmail.com>
+R:	Stanislav Fomichev <sdf@fomichev.me>
 L:	netdev@vger.kernel.org
 L:	bpf@vger.kernel.org
 S:	Supported
@@ -25403,6 +25405,7 @@ M:	Björn Töpel <bjorn@kernel.org>
 M:	Magnus Karlsson <magnus.karlsson@intel.com>
 M:	Maciej Fijalkowski <maciej.fijalkowski@intel.com>
 R:	Jonathan Lemon <jonathan.lemon@gmail.com>
+R:	Stanislav Fomichev <sdf@fomichev.me>
 L:	netdev@vger.kernel.org
 L:	bpf@vger.kernel.org
 S:	Maintained

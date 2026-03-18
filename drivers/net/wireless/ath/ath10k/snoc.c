@@ -13,7 +13,7 @@
 #include <linux/property.h>
 #include <linux/regulator/consumer.h>
 #include <linux/remoteproc/qcom_rproc.h>
-#include <linux/of_address.h>
+#include <linux/of_reserved_mem.h>
 #include <linux/iommu.h>
 
 #include "ce.h"
@@ -1558,19 +1558,11 @@ static void ath10k_modem_deinit(struct ath10k *ar)
 static int ath10k_setup_msa_resources(struct ath10k *ar, u32 msa_size)
 {
 	struct device *dev = ar->dev;
-	struct device_node *node;
 	struct resource r;
 	int ret;
 
-	node = of_parse_phandle(dev->of_node, "memory-region", 0);
-	if (node) {
-		ret = of_address_to_resource(node, 0, &r);
-		of_node_put(node);
-		if (ret) {
-			dev_err(dev, "failed to resolve msa fixed region\n");
-			return ret;
-		}
-
+	ret = of_reserved_mem_region_to_resource(dev->of_node, 0, &r);
+	if (!ret) {
 		ar->msa.paddr = r.start;
 		ar->msa.mem_size = resource_size(&r);
 		ar->msa.vaddr = devm_memremap(dev, ar->msa.paddr,
@@ -1887,11 +1879,11 @@ static void ath10k_snoc_shutdown(struct platform_device *pdev)
 }
 
 static struct platform_driver ath10k_snoc_driver = {
-	.probe  = ath10k_snoc_probe,
-	.remove_new = ath10k_snoc_remove,
+	.probe = ath10k_snoc_probe,
+	.remove = ath10k_snoc_remove,
 	.shutdown = ath10k_snoc_shutdown,
 	.driver = {
-		.name   = "ath10k_snoc",
+		.name = "ath10k_snoc",
 		.of_match_table = ath10k_snoc_dt_match,
 	},
 };

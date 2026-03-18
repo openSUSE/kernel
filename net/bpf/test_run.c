@@ -524,27 +524,27 @@ __bpf_kfunc int bpf_fentry_test1(int a)
 }
 EXPORT_SYMBOL_GPL(bpf_fentry_test1);
 
-int noinline bpf_fentry_test2(int a, u64 b)
+noinline int bpf_fentry_test2(int a, u64 b)
 {
 	return a + b;
 }
 
-int noinline bpf_fentry_test3(char a, int b, u64 c)
+noinline int bpf_fentry_test3(char a, int b, u64 c)
 {
 	return a + b + c;
 }
 
-int noinline bpf_fentry_test4(void *a, char b, int c, u64 d)
+noinline int bpf_fentry_test4(void *a, char b, int c, u64 d)
 {
 	return (long)a + b + c + d;
 }
 
-int noinline bpf_fentry_test5(u64 a, void *b, short c, int d, u64 e)
+noinline int bpf_fentry_test5(u64 a, void *b, short c, int d, u64 e)
 {
 	return a + (long)b + c + d + e;
 }
 
-int noinline bpf_fentry_test6(u64 a, void *b, short c, int d, void *e, u64 f)
+noinline int bpf_fentry_test6(u64 a, void *b, short c, int d, void *e, u64 f)
 {
 	return a + (long)b + c + d + (long)e + f;
 }
@@ -553,13 +553,13 @@ struct bpf_fentry_test_t {
 	struct bpf_fentry_test_t *a;
 };
 
-int noinline bpf_fentry_test7(struct bpf_fentry_test_t *arg)
+noinline int bpf_fentry_test7(struct bpf_fentry_test_t *arg)
 {
-	asm volatile ("": "+r"(arg));
+	asm volatile ("" : "+r"(arg));
 	return (long)arg;
 }
 
-int noinline bpf_fentry_test8(struct bpf_fentry_test_t *arg)
+noinline int bpf_fentry_test8(struct bpf_fentry_test_t *arg)
 {
 	return (long)arg->a;
 }
@@ -569,7 +569,12 @@ __bpf_kfunc u32 bpf_fentry_test9(u32 *a)
 	return *a;
 }
 
-void noinline bpf_fentry_test_sinfo(struct skb_shared_info *sinfo)
+noinline int bpf_fentry_test10(const void *a)
+{
+	return (long)a;
+}
+
+noinline void bpf_fentry_test_sinfo(struct skb_shared_info *sinfo)
 {
 }
 
@@ -593,7 +598,7 @@ __bpf_kfunc int bpf_modify_return_test_tp(int nonce)
 	return nonce;
 }
 
-int noinline bpf_fentry_shadow_test(int a)
+noinline int bpf_fentry_shadow_test(int a)
 {
 	return a + 1;
 }
@@ -699,7 +704,8 @@ int bpf_prog_test_run_tracing(struct bpf_prog *prog,
 		    bpf_fentry_test6(16, (void *)17, 18, 19, (void *)20, 21) != 111 ||
 		    bpf_fentry_test7((struct bpf_fentry_test_t *)0) != 0 ||
 		    bpf_fentry_test8(&arg) != 0 ||
-		    bpf_fentry_test9(&retval) != 0)
+		    bpf_fentry_test9(&retval) != 0 ||
+		    bpf_fentry_test10((void *)0) != 0)
 			goto out;
 		break;
 	case BPF_MODIFY_RETURN:
@@ -1020,6 +1026,7 @@ int bpf_prog_test_run_skb(struct bpf_prog *prog, const union bpf_attr *kattr,
 	case BPF_PROG_TYPE_LWT_IN:
 	case BPF_PROG_TYPE_LWT_OUT:
 	case BPF_PROG_TYPE_LWT_XMIT:
+	case BPF_PROG_TYPE_CGROUP_SKB:
 		is_direct_pkt_access = true;
 		break;
 	default:
@@ -1253,7 +1260,7 @@ int bpf_prog_test_run_xdp(struct bpf_prog *prog, const union bpf_attr *kattr,
 		headroom -= ctx->data;
 	}
 
-	max_data_sz = 4096 - headroom - tailroom;
+	max_data_sz = PAGE_SIZE - headroom - tailroom;
 	if (size > max_data_sz) {
 		/* disallow live data mode for jumbo frames */
 		if (do_live)

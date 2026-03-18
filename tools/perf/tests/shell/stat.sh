@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 # perf stat tests
 # SPDX-License-Identifier: GPL-2.0
 
@@ -16,9 +16,46 @@ test_default_stat() {
   echo "Basic stat command test [Success]"
 }
 
+test_null_stat() {
+  echo "Null stat command test"
+  if ! perf stat --null true 2>&1 | grep -E -q "Performance counter stats for 'true':"
+  then
+    echo "Null stat command test [Failed]"
+    err=1
+    return
+  fi
+  echo "Null stat command test [Success]"
+}
+
+find_offline_cpu() {
+  for i in $(seq 1 4096)
+  do
+    if [[ ! -f /sys/devices/system/cpu/cpu$i/online || \
+          $(cat /sys/devices/system/cpu/cpu$i/online) == "0" ]]
+    then
+      echo $i
+      return
+    fi
+  done
+  echo "Failed to find offline CPU"
+  exit 1
+}
+
+test_offline_cpu_stat() {
+  cpu=$(find_offline_cpu)
+  echo "Offline CPU stat command test (cpu $cpu)"
+  if ! perf stat "-C$cpu" -e cycles true 2>&1 | grep -E -q "No supported events found."
+  then
+    echo "Offline CPU stat command test [Failed]"
+    err=1
+    return
+  fi
+  echo "Offline CPU stat command test [Success]"
+}
+
 test_stat_record_report() {
   echo "stat record and report test"
-  if ! perf stat record -o - true | perf stat report -i - 2>&1 | \
+  if ! perf stat record -e task-clock -o - true | perf stat report -i - 2>&1 | \
     grep -E -q "Performance counter stats for 'pipe':"
   then
     echo "stat record and report test [Failed]"
@@ -30,7 +67,7 @@ test_stat_record_report() {
 
 test_stat_record_script() {
   echo "stat record and script test"
-  if ! perf stat record -o - true | perf script -i - 2>&1 | \
+  if ! perf stat record -e task-clock -o - true | perf script -i - 2>&1 | \
     grep -E -q "CPU[[:space:]]+THREAD[[:space:]]+VAL[[:space:]]+ENA[[:space:]]+RUN[[:space:]]+TIME[[:space:]]+EVENT"
   then
     echo "stat record and script test [Failed]"
@@ -67,43 +104,54 @@ test_topdown_groups() {
     echo "Topdown event group test [Skipped event parsing failed]"
     return
   fi
-  if perf stat -e '{slots,topdown-retiring}' true 2>&1 | grep -E -q "<not supported>"
+  td_err=0
+  do_topdown_group_test() {
+    events=$1
+    failure=$2
+    if perf stat -e "$events" true 2>&1 | grep -E -q "<not supported>"
+    then
+      echo "Topdown event group test [Failed $failure for '$events']"
+      td_err=1
+      return
+    fi
+  }
+  do_topdown_group_test "{slots,topdown-retiring}" "events not supported"
+  do_topdown_group_test "{instructions,r400,r8000}" "raw format slots not reordered first"
+  filler_events=("instructions" "cycles"
+                 "context-switches" "faults")
+  for ((i = 0; i < ${#filler_events[@]}; i+=2))
+  do
+    filler1=${filler_events[i]}
+    filler2=${filler_events[i+1]}
+    do_topdown_group_test "$filler1,topdown-retiring,slots" \
+      "slots not reordered first in no-group case"
+    do_topdown_group_test "slots,$filler1,topdown-retiring" \
+      "topdown metrics event not reordered in no-group case"
+    do_topdown_group_test "{$filler1,topdown-retiring,slots}" \
+      "slots not reordered first in single group case"
+    do_topdown_group_test "{$filler1,slots},topdown-retiring" \
+      "topdown metrics event not move into slots group"
+    do_topdown_group_test "topdown-retiring,{$filler1,slots}" \
+      "topdown metrics event not move into slots group last"
+    do_topdown_group_test "{$filler1,slots},{topdown-retiring}" \
+      "topdown metrics group not merge into slots group"
+    do_topdown_group_test "{topdown-retiring},{$filler1,slots}" \
+      "topdown metrics group not merge into slots group last"
+    do_topdown_group_test "{$filler1,slots},$filler2,topdown-retiring" \
+      "non-adjacent topdown metrics group not move into slots group"
+    do_topdown_group_test "$filler2,topdown-retiring,{$filler1,slots}" \
+      "non-adjacent topdown metrics group not move into slots group last"
+    do_topdown_group_test "{$filler1,slots},{$filler2,topdown-retiring}" \
+      "metrics group not merge into slots group"
+    do_topdown_group_test "{$filler1,topdown-retiring},{$filler2,slots}" \
+      "metrics group not merge into slots group last"
+  done
+  if test "$td_err" -eq 0
   then
-    echo "Topdown event group test [Failed events not supported]"
-    err=1
-    return
+    echo "Topdown event group test [Success]"
+  else
+    err="$td_err"
   fi
-  if perf stat -e 'instructions,topdown-retiring,slots' true 2>&1 | grep -E -q "<not supported>"
-  then
-    echo "Topdown event group test [Failed slots not reordered first in no-group case]"
-    err=1
-    return
-  fi
-  if perf stat -e '{instructions,topdown-retiring,slots}' true 2>&1 | grep -E -q "<not supported>"
-  then
-    echo "Topdown event group test [Failed slots not reordered first in single group case]"
-    err=1
-    return
-  fi
-  if perf stat -e '{instructions,slots},topdown-retiring' true 2>&1 | grep -E -q "<not supported>"
-  then
-    echo "Topdown event group test [Failed topdown metrics event not move into slots group]"
-    err=1
-    return
-  fi
-  if perf stat -e '{instructions,slots},{topdown-retiring}' true 2>&1 | grep -E -q "<not supported>"
-  then
-    echo "Topdown event group test [Failed topdown metrics group not merge into slots group]"
-    err=1
-    return
-  fi
-  if perf stat -e '{instructions,r400,r8000}' true 2>&1 | grep -E -q "<not supported>"
-  then
-    echo "Topdown event group test [Failed raw format slots not reordered first]"
-    err=1
-    return
-  fi
-  echo "Topdown event group test [Success]"
 }
 
 test_topdown_weak_groups() {
@@ -185,7 +233,7 @@ test_hybrid() {
   fi
 
   # Run default Perf stat
-  cycles_events=$(perf stat -- true 2>&1 | grep -E "/cycles/[uH]*|  cycles[:uH]*  " -c)
+  cycles_events=$(perf stat -a -- sleep 0.1 2>&1 | grep -E "/cpu-cycles/[uH]*|  cpu-cycles[:uH]*  " -c)
 
   # The expectation is that default output will have a cycles events on each
   # hybrid PMU. In situations with no cycles PMU events, like virtualized, this
@@ -201,6 +249,8 @@ test_hybrid() {
 }
 
 test_default_stat
+test_null_stat
+test_offline_cpu_stat
 test_stat_record_report
 test_stat_record_script
 test_stat_repeat_weak_groups

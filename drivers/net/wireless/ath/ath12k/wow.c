@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BSD-3-Clause-Clear
 /*
  * Copyright (c) 2020 The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2025 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/delay.h>
@@ -135,6 +135,9 @@ static int ath12k_wow_cleanup(struct ath12k *ar)
 	lockdep_assert_wiphy(ath12k_ar_to_hw(ar)->wiphy);
 
 	list_for_each_entry(arvif, &ar->arvifs, list) {
+		if (arvif != &arvif->ahvif->deflink)
+			continue;
+
 		ret = ath12k_wow_vif_cleanup(arvif);
 		if (ret) {
 			ath12k_warn(ar->ab, "failed to clean wow wakeups on vdev %i: %d\n",
@@ -479,8 +482,12 @@ static int ath12k_wow_set_wakeups(struct ath12k *ar,
 	lockdep_assert_wiphy(ath12k_ar_to_hw(ar)->wiphy);
 
 	list_for_each_entry(arvif, &ar->arvifs, list) {
+		if (arvif != &arvif->ahvif->deflink)
+			continue;
+
 		if (ath12k_wow_is_p2p_vdev(arvif->ahvif))
 			continue;
+
 		ret = ath12k_wow_vif_set_wakeups(arvif, wowlan);
 		if (ret) {
 			ath12k_warn(ar->ab, "failed to set wow wakeups on vdev %i: %d\n",
@@ -538,6 +545,9 @@ static int ath12k_wow_nlo_cleanup(struct ath12k *ar)
 	lockdep_assert_wiphy(ath12k_ar_to_hw(ar)->wiphy);
 
 	list_for_each_entry(arvif, &ar->arvifs, list) {
+		if (arvif != &arvif->ahvif->deflink)
+			continue;
+
 		if (ath12k_wow_is_p2p_vdev(arvif->ahvif))
 			continue;
 
@@ -745,6 +755,9 @@ static int ath12k_wow_arp_ns_offload(struct ath12k *ar, bool enable)
 	list_for_each_entry(arvif, &ar->arvifs, list) {
 		ahvif = arvif->ahvif;
 
+		if (arvif != &ahvif->deflink)
+			continue;
+
 		if (ahvif->vdev_type != WMI_VDEV_TYPE_STA)
 			continue;
 
@@ -776,6 +789,9 @@ static int ath12k_gtk_rekey_offload(struct ath12k *ar, bool enable)
 	lockdep_assert_wiphy(ath12k_ar_to_hw(ar)->wiphy);
 
 	list_for_each_entry(arvif, &ar->arvifs, list) {
+		if (arvif != &arvif->ahvif->deflink)
+			continue;
+
 		if (arvif->ahvif->vdev_type != WMI_VDEV_TYPE_STA ||
 		    !arvif->is_up ||
 		    !arvif->rekey_data.enable_offload)
@@ -991,6 +1007,7 @@ exit:
 		case ATH12K_HW_STATE_RESTARTING:
 		case ATH12K_HW_STATE_RESTARTED:
 		case ATH12K_HW_STATE_WEDGED:
+		case ATH12K_HW_STATE_TM:
 			ath12k_warn(ar->ab, "encountered unexpected device state %d on resume, cannot recover\n",
 				    ah->state);
 			ret = -EIO;

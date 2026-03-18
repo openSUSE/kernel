@@ -2,6 +2,7 @@
 /*
  * /proc/schedstat implementation
  */
+#include "sched.h"
 
 void __update_stats_wait_start(struct rq *rq, struct task_struct *p,
 			       struct sched_statistics *stats)
@@ -163,7 +164,7 @@ static int show_schedstat(struct seq_file *seq, void *v)
 			    sd->ttwu_move_balance);
 		}
 		rcu_read_unlock();
-#endif
+#endif /* CONFIG_SMP */
 	}
 	return 0;
 }

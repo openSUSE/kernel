@@ -4,6 +4,7 @@
 #include "hwmon_pmu.h"
 #include "parse-events.h"
 #include "tests.h"
+#include <errno.h>
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <linux/compiler.h>
@@ -93,9 +94,10 @@ static struct perf_pmu *test_pmu_get(char *dir, size_t sz)
 		pr_err("Failed to mkdir hwmon directory\n");
 		goto err_out;
 	}
-	hwmon_dirfd = openat(test_dirfd, "hwmon1234", O_DIRECTORY);
+	strncat(dir, "/hwmon1234", sz - strlen(dir));
+	hwmon_dirfd = open(dir, O_PATH|O_DIRECTORY);
 	if (hwmon_dirfd < 0) {
-		pr_err("Failed to open test hwmon directory \"%s/hwmon1234\"\n", dir);
+		pr_err("Failed to open test hwmon directory \"%s\"\n", dir);
 		goto err_out;
 	}
 	file = openat(hwmon_dirfd, "name", O_WRONLY | O_CREAT, 0600);
@@ -130,18 +132,18 @@ static struct perf_pmu *test_pmu_get(char *dir, size_t sz)
 	}
 
 	/* Make the PMU reading the files created above. */
-	hwm = perf_pmus__add_test_hwmon_pmu(hwmon_dirfd, "hwmon1234", test_hwmon_name);
+	hwm = perf_pmus__add_test_hwmon_pmu(dir, "hwmon1234", test_hwmon_name);
 	if (!hwm)
 		pr_err("Test hwmon creation failed\n");
 
 err_out:
 	if (!hwm) {
 		test_pmu_put(dir, hwm);
-		if (hwmon_dirfd >= 0)
-			close(hwmon_dirfd);
 	}
 	if (test_dirfd >= 0)
 		close(test_dirfd);
+	if (hwmon_dirfd >= 0)
+		close(hwmon_dirfd);
 	return hwm;
 }
 

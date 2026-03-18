@@ -2,7 +2,6 @@
 /* Copyright (c) 2022 Meta Platforms, Inc. and affiliates. */
 #include <linux/capability.h>
 #include <stdlib.h>
-#include <regex.h>
 #include <test_progs.h>
 #include <bpf/btf.h>
 
@@ -20,10 +19,12 @@
 #define TEST_TAG_EXPECT_FAILURE "comment:test_expect_failure"
 #define TEST_TAG_EXPECT_SUCCESS "comment:test_expect_success"
 #define TEST_TAG_EXPECT_MSG_PFX "comment:test_expect_msg="
+#define TEST_TAG_EXPECT_NOT_MSG_PFX "comment:test_expect_not_msg="
 #define TEST_TAG_EXPECT_XLATED_PFX "comment:test_expect_xlated="
 #define TEST_TAG_EXPECT_FAILURE_UNPRIV "comment:test_expect_failure_unpriv"
 #define TEST_TAG_EXPECT_SUCCESS_UNPRIV "comment:test_expect_success_unpriv"
 #define TEST_TAG_EXPECT_MSG_PFX_UNPRIV "comment:test_expect_msg_unpriv="
+#define TEST_TAG_EXPECT_NOT_MSG_PFX_UNPRIV "comment:test_expect_not_msg_unpriv="
 #define TEST_TAG_EXPECT_XLATED_PFX_UNPRIV "comment:test_expect_xlated_unpriv="
 #define TEST_TAG_LOG_LEVEL_PFX "comment:test_log_level="
 #define TEST_TAG_PROG_FLAGS_PFX "comment:test_prog_flags="
@@ -40,7 +41,7 @@
 #define TEST_TAG_LOAD_MODE_PFX "comment:load_mode="
 
 /* Warning: duplicated in bpf_misc.h */
-#define POINTER_VALUE	0xcafe4all
+#define POINTER_VALUE	0xbadcafe
 #define TEST_DATA_LEN	64
 
 #ifdef CONFIG_HAVE_EFFICIENT_UNALIGNED_ACCESS
@@ -59,18 +60,6 @@ enum mode {
 enum load_mode {
 	JITED		= 1 << 0,
 	NO_JITED	= 1 << 1,
-};
-
-struct expect_msg {
-	const char *substr; /* substring match */
-	regex_t regex;
-	bool is_regex;
-	bool on_next_line;
-};
-
-struct expected_msgs {
-	struct expect_msg *patterns;
-	size_t cnt;
 };
 
 struct test_subspec {
@@ -206,7 +195,8 @@ static int compile_regex(const char *pattern, regex_t *regex)
 	return 0;
 }
 
-static int __push_msg(const char *pattern, bool on_next_line, struct expected_msgs *msgs)
+static int __push_msg(const char *pattern, bool on_next_line, bool negative,
+		      struct expected_msgs *msgs)
 {
 	struct expect_msg *msg;
 	void *tmp;
@@ -222,6 +212,7 @@ static int __push_msg(const char *pattern, bool on_next_line, struct expected_ms
 	msg = &msgs->patterns[msgs->cnt];
 	msg->on_next_line = on_next_line;
 	msg->substr = pattern;
+	msg->negative = negative;
 	msg->is_regex = false;
 	if (strstr(pattern, "{{")) {
 		err = compile_regex(pattern, &msg->regex);
@@ -240,16 +231,16 @@ static int clone_msgs(struct expected_msgs *from, struct expected_msgs *to)
 
 	for (i = 0; i < from->cnt; i++) {
 		msg = &from->patterns[i];
-		err = __push_msg(msg->substr, msg->on_next_line, to);
+		err = __push_msg(msg->substr, msg->on_next_line, msg->negative, to);
 		if (err)
 			return err;
 	}
 	return 0;
 }
 
-static int push_msg(const char *substr, struct expected_msgs *msgs)
+static int push_msg(const char *substr, bool negative, struct expected_msgs *msgs)
 {
-	return __push_msg(substr, false, msgs);
+	return __push_msg(substr, false, negative, msgs);
 }
 
 static int push_disasm_msg(const char *regex_str, bool *on_next_line, struct expected_msgs *msgs)
@@ -260,7 +251,7 @@ static int push_disasm_msg(const char *regex_str, bool *on_next_line, struct exp
 		*on_next_line = false;
 		return 0;
 	}
-	err = __push_msg(regex_str, *on_next_line, msgs);
+	err = __push_msg(regex_str, *on_next_line, false, msgs);
 	if (err)
 		return err;
 	*on_next_line = true;
@@ -318,20 +309,14 @@ static int parse_caps(const char *str, __u64 *val, const char *name)
 
 static int parse_retval(const char *str, int *val, const char *name)
 {
-	struct {
-		char *name;
-		int val;
-	} named_values[] = {
-		{ "INT_MIN"      , INT_MIN },
-		{ "POINTER_VALUE", POINTER_VALUE },
-		{ "TEST_DATA_LEN", TEST_DATA_LEN },
-	};
-	int i;
-
-	for (i = 0; i < ARRAY_SIZE(named_values); ++i) {
-		if (strcmp(str, named_values[i].name) != 0)
-			continue;
-		*val = named_values[i].val;
+	/*
+	 * INT_MIN is defined as (-INT_MAX -1), i.e. it doesn't expand to a
+	 * single int and cannot be parsed with strtol, so we handle it
+	 * separately here. In addition, it expands to different expressions in
+	 * different compilers so we use a prefixed _INT_MIN instead.
+	 */
+	if (strcmp(str, "_INT_MIN") == 0) {
+		*val = INT_MIN;
 		return 0;
 	}
 
@@ -380,6 +365,7 @@ enum arch {
 	ARCH_X86_64	= 0x2,
 	ARCH_ARM64	= 0x4,
 	ARCH_RISCV64	= 0x8,
+	ARCH_S390X	= 0x10,
 };
 
 static int get_current_arch(void)
@@ -390,6 +376,8 @@ static int get_current_arch(void)
 	return ARCH_ARM64;
 #elif defined(__riscv) && __riscv_xlen == 64
 	return ARCH_RISCV64;
+#elif defined(__s390x__)
+	return ARCH_S390X;
 #endif
 	return ARCH_UNKNOWN;
 }
@@ -471,12 +459,22 @@ static int parse_test_spec(struct test_loader *tester,
 			spec->auxiliary = true;
 			spec->mode_mask |= UNPRIV;
 		} else if ((msg = skip_dynamic_pfx(s, TEST_TAG_EXPECT_MSG_PFX))) {
-			err = push_msg(msg, &spec->priv.expect_msgs);
+			err = push_msg(msg, false, &spec->priv.expect_msgs);
+			if (err)
+				goto cleanup;
+			spec->mode_mask |= PRIV;
+		} else if ((msg = skip_dynamic_pfx(s, TEST_TAG_EXPECT_NOT_MSG_PFX))) {
+			err = push_msg(msg, true, &spec->priv.expect_msgs);
 			if (err)
 				goto cleanup;
 			spec->mode_mask |= PRIV;
 		} else if ((msg = skip_dynamic_pfx(s, TEST_TAG_EXPECT_MSG_PFX_UNPRIV))) {
-			err = push_msg(msg, &spec->unpriv.expect_msgs);
+			err = push_msg(msg, false, &spec->unpriv.expect_msgs);
+			if (err)
+				goto cleanup;
+			spec->mode_mask |= UNPRIV;
+		} else if ((msg = skip_dynamic_pfx(s, TEST_TAG_EXPECT_NOT_MSG_PFX_UNPRIV))) {
+			err = push_msg(msg, true, &spec->unpriv.expect_msgs);
 			if (err)
 				goto cleanup;
 			spec->mode_mask |= UNPRIV;
@@ -571,8 +569,10 @@ static int parse_test_spec(struct test_loader *tester,
 				arch = ARCH_ARM64;
 			} else if (strcmp(val, "RISCV64") == 0) {
 				arch = ARCH_RISCV64;
+			} else if (strcmp(val, "s390x") == 0) {
+				arch = ARCH_S390X;
 			} else {
-				PRINT_FAIL("bad arch spec: '%s'", val);
+				PRINT_FAIL("bad arch spec: '%s'\n", val);
 				err = -EINVAL;
 				goto cleanup;
 			}
@@ -713,44 +713,141 @@ static void emit_jited(const char *jited, bool force)
 	fprintf(stdout, "JITED:\n=============\n%s=============\n", jited);
 }
 
-static void validate_msgs(char *log_buf, struct expected_msgs *msgs,
-			  void (*emit_fn)(const char *buf, bool force))
+static const char *match_msg(struct expect_msg *msg, const char **log)
 {
-	const char *log = log_buf, *prev_match;
+	const char *match = NULL;
 	regmatch_t reg_match[1];
-	int prev_match_line;
-	int match_line;
-	int i, j, err;
+	int err;
 
-	prev_match_line = -1;
-	match_line = 0;
+	if (!msg->is_regex) {
+		match = strstr(*log, msg->substr);
+		if (match)
+			*log = match + strlen(msg->substr);
+	} else {
+		err = regexec(&msg->regex, *log, 1, reg_match, 0);
+		if (err == 0) {
+			match = *log + reg_match[0].rm_so;
+			*log += reg_match[0].rm_eo;
+		}
+	}
+	return match;
+}
+
+static int count_lines(const char *start, const char *end)
+{
+	const char *tmp;
+	int n = 0;
+
+	for (tmp = start; tmp < end; ++tmp)
+		if (*tmp == '\n')
+			n++;
+	return n;
+}
+
+struct match {
+	const char *start;
+	const char *end;
+	int line;
+};
+
+/*
+ * Positive messages are matched sequentially, each next message
+ * is looked for starting from the end of a previous matched one.
+ */
+static void match_positive_msgs(const char *log, struct expected_msgs *msgs, struct match *matches)
+{
+	const char *prev_match;
+	int i, line;
+
 	prev_match = log;
+	line = 0;
 	for (i = 0; i < msgs->cnt; i++) {
 		struct expect_msg *msg = &msgs->patterns[i];
-		const char *match = NULL, *pat_status;
-		bool wrong_line = false;
+		const char *match = NULL;
 
-		if (!msg->is_regex) {
-			match = strstr(log, msg->substr);
-			if (match)
-				log = match + strlen(msg->substr);
-		} else {
-			err = regexec(&msg->regex, log, 1, reg_match, 0);
-			if (err == 0) {
-				match = log + reg_match[0].rm_so;
-				log += reg_match[0].rm_eo;
+		if (msg->negative)
+			continue;
+
+		match = match_msg(msg, &log);
+		if (match) {
+			line += count_lines(prev_match, match);
+			matches[i].start = match;
+			matches[i].end   = log;
+			matches[i].line  = line;
+			prev_match = match;
+		}
+	}
+}
+
+/*
+ * Each negative messages N located between positive messages P1 and P2
+ * is matched in the span P1.end .. P2.start. Consequently, negative messages
+ * are unordered within the span.
+ */
+static void match_negative_msgs(const char *log, struct expected_msgs *msgs, struct match *matches)
+{
+	const char *start = log, *end, *next, *match;
+	const char *log_end = log + strlen(log);
+	int i, j, next_positive;
+
+	for (i = 0; i < msgs->cnt; i++) {
+		struct expect_msg *msg = &msgs->patterns[i];
+
+		/* positive message bumps span start */
+		if (!msg->negative) {
+			start = matches[i].end ?: start;
+			continue;
+		}
+
+		/* count stride of negative patterns and adjust span end */
+		end = log_end;
+		for (next_positive = i + 1; next_positive < msgs->cnt; next_positive++) {
+			if (!msgs->patterns[next_positive].negative) {
+				end = matches[next_positive].start;
+				break;
 			}
 		}
 
-		if (match) {
-			for (; prev_match < match; ++prev_match)
-				if (*prev_match == '\n')
-					++match_line;
-			wrong_line = msg->on_next_line && prev_match_line >= 0 &&
-				     prev_match_line + 1 != match_line;
+		/* try matching negative messages within identified span */
+		for (j = i; j < next_positive; j++) {
+			next = start;
+			match = match_msg(msg, &next);
+			if (match && next <= end) {
+				matches[j].start = match;
+				matches[j].end = next;
+			}
 		}
 
-		if (!match || wrong_line) {
+		/* -1 to account for i++ */
+		i = next_positive - 1;
+	}
+}
+
+void validate_msgs(const char *log_buf, struct expected_msgs *msgs,
+		   void (*emit_fn)(const char *buf, bool force))
+{
+	struct match matches[msgs->cnt];
+	struct match *prev_match = NULL;
+	int i, j;
+
+	memset(matches, 0, sizeof(*matches) * msgs->cnt);
+	match_positive_msgs(log_buf, msgs, matches);
+	match_negative_msgs(log_buf, msgs, matches);
+
+	for (i = 0; i < msgs->cnt; i++) {
+		struct expect_msg *msg = &msgs->patterns[i];
+		struct match *match = &matches[i];
+		const char *pat_status;
+		bool unexpected;
+		bool wrong_line;
+		bool no_match;
+
+		no_match   = !msg->negative && !match->start;
+		wrong_line = !msg->negative &&
+			     msg->on_next_line &&
+			     prev_match && prev_match->line + 1 != match->line;
+		unexpected = msg->negative && match->start;
+		if (no_match || wrong_line || unexpected) {
 			PRINT_FAIL("expect_msg\n");
 			if (env.verbosity == VERBOSE_NONE)
 				emit_fn(log_buf, true /*force*/);
@@ -760,8 +857,10 @@ static void validate_msgs(char *log_buf, struct expected_msgs *msgs,
 					pat_status = "MATCHED   ";
 				else if (wrong_line)
 					pat_status = "WRONG LINE";
-				else
+				else if (no_match)
 					pat_status = "EXPECTED  ";
+				else
+					pat_status = "UNEXPECTED";
 				msg = &msgs->patterns[j];
 				fprintf(stderr, "%s %s: '%s'\n",
 					pat_status,
@@ -771,12 +870,13 @@ static void validate_msgs(char *log_buf, struct expected_msgs *msgs,
 			if (wrong_line) {
 				fprintf(stderr,
 					"expecting match at line %d, actual match is at line %d\n",
-					prev_match_line + 1, match_line);
+					prev_match->line + 1, match->line);
 			}
 			break;
 		}
 
-		prev_match_line = match_line;
+		if (!msg->negative)
+			prev_match = match;
 	}
 }
 
@@ -793,7 +893,7 @@ static int drop_capabilities(struct cap_state *caps)
 
 	err = cap_disable_effective(caps_to_drop, &caps->old_caps);
 	if (err) {
-		PRINT_FAIL("failed to drop capabilities: %i, %s\n", err, strerror(err));
+		PRINT_FAIL("failed to drop capabilities: %i, %s\n", err, strerror(-err));
 		return err;
 	}
 
@@ -810,7 +910,7 @@ static int restore_capabilities(struct cap_state *caps)
 
 	err = cap_enable_effective(caps->old_caps, NULL);
 	if (err)
-		PRINT_FAIL("failed to restore capabilities: %i, %s\n", err, strerror(err));
+		PRINT_FAIL("failed to restore capabilities: %i, %s\n", err, strerror(-err));
 	caps->initialized = false;
 	return err;
 }
@@ -985,7 +1085,7 @@ void run_subtest(struct test_loader *tester,
 		if (subspec->caps) {
 			err = cap_enable_effective(subspec->caps, NULL);
 			if (err) {
-				PRINT_FAIL("failed to set capabilities: %i, %s\n", err, strerror(err));
+				PRINT_FAIL("failed to set capabilities: %i, %s\n", err, strerror(-err));
 				goto subtest_cleanup;
 			}
 		}
@@ -1089,7 +1189,7 @@ void run_subtest(struct test_loader *tester,
 			link = bpf_map__attach_struct_ops(map);
 			if (!link) {
 				PRINT_FAIL("bpf_map__attach_struct_ops failed for map %s: err=%d\n",
-					   bpf_map__name(map), err);
+					   bpf_map__name(map), -errno);
 				goto tobj_cleanup;
 			}
 			links[links_cnt++] = link;
@@ -1103,9 +1203,9 @@ void run_subtest(struct test_loader *tester,
 			}
 		}
 
-		do_prog_test_run(bpf_program__fd(tprog), &retval,
-				 bpf_program__type(tprog) == BPF_PROG_TYPE_SYSCALL ? true : false);
-		if (retval != subspec->retval && subspec->retval != POINTER_VALUE) {
+		err = do_prog_test_run(bpf_program__fd(tprog), &retval,
+				       bpf_program__type(tprog) == BPF_PROG_TYPE_SYSCALL ? true : false);
+		if (!err && retval != subspec->retval && subspec->retval != POINTER_VALUE) {
 			PRINT_FAIL("Unexpected retval: %d != %d\n", retval, subspec->retval);
 			goto tobj_cleanup;
 		}

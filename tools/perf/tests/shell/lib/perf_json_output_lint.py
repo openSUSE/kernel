@@ -19,6 +19,7 @@ ap.add_argument('--per-cluster', action='store_true')
 ap.add_argument('--per-die', action='store_true')
 ap.add_argument('--per-node', action='store_true')
 ap.add_argument('--per-socket', action='store_true')
+ap.add_argument('--metric-only', action='store_true')
 ap.add_argument('--file', type=argparse.FileType('r'), default=sys.stdin)
 args = ap.parse_args()
 
@@ -42,9 +43,12 @@ def isint(num):
 def is_counter_value(num):
   return isfloat(num) or num == '<not counted>' or num == '<not supported>'
 
+def is_metric_value(num):
+  return isfloat(num) or num == 'none'
+
 def check_json_output(expected_items):
   checks = {
-      'aggregate-number': lambda x: isfloat(x),
+      'counters': lambda x: isfloat(x),
       'core': lambda x: True,
       'counter-value': lambda x: is_counter_value(x),
       'cgroup': lambda x: True,
@@ -56,7 +60,7 @@ def check_json_output(expected_items):
       'event-runtime': lambda x: isfloat(x),
       'interval': lambda x: isfloat(x),
       'metric-unit': lambda x: True,
-      'metric-value': lambda x: isfloat(x),
+      'metric-value': lambda x: is_metric_value(x),
       'metric-threshold': lambda x: x in ['unknown', 'good', 'less good', 'nearly bad', 'bad'],
       'metricgroup': lambda x: True,
       'node': lambda x: True,
@@ -72,17 +76,21 @@ def check_json_output(expected_items):
       if count not in expected_items and count >= 1 and count <= 7 and 'metric-value' in item:
         # Events that generate >1 metric may have isolated metric
         # values and possibly other prefixes like interval, core,
-        # aggregate-number, or event-runtime/pcnt-running from multiplexing.
+        # counters, or event-runtime/pcnt-running from multiplexing.
         pass
       elif count not in expected_items and count >= 1 and count <= 5 and 'metricgroup' in item:
         pass
       elif count - 1 in expected_items and 'metric-threshold' in item:
+          pass
+      elif count in expected_items and 'insn per cycle' in item:
           pass
       elif count not in expected_items:
         raise RuntimeError(f'wrong number of fields. counted {count} expected {expected_items}'
                            f' in \'{item}\'')
     for key, value in item.items():
       if key not in checks:
+        if args.metric_only:
+          continue
         raise RuntimeError(f'Unexpected key: key={key} value={value}')
       if not checks[key](value):
         raise RuntimeError(f'Check failed for: key={key} value={value}')
@@ -95,6 +103,8 @@ try:
     expected_items = [6, 8]
   elif args.per_core or args.per_socket or args.per_node or args.per_die or args.per_cluster or args.per_cache:
     expected_items = [7, 9]
+  elif args.metric_only:
+    expected_items = [1, 2]
   else:
     # If no option is specified, don't check the number of items.
     expected_items = -1

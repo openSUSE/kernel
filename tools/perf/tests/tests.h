@@ -3,6 +3,7 @@
 #define TESTS_H
 
 #include <stdbool.h>
+#include "util/debug.h"
 
 enum {
 	TEST_OK   =  0,
@@ -71,9 +72,28 @@ struct test_suite {
 		.exclusive = true,			\
 	}
 
+#define TEST_CASE_REASON_EXCLUSIVE(description, _name, _reason)	\
+	{						\
+		.name = #_name,				\
+		.desc = description,			\
+		.run_case = test__##_name,		\
+		.skip_reason = _reason,			\
+		.exclusive = true,			\
+	}
+
 #define DEFINE_SUITE(description, _name)		\
 	struct test_case tests__##_name[] = {           \
 		TEST_CASE(description, _name),		\
+		{	.name = NULL, }			\
+	};						\
+	struct test_suite suite__##_name = {		\
+		.desc = description,			\
+		.test_cases = tests__##_name,		\
+	}
+
+#define DEFINE_SUITE_EXCLUSIVE(description, _name)	\
+	struct test_case tests__##_name[] = {           \
+		TEST_CASE_EXCLUSIVE(description, _name),\
 		{	.name = NULL, }			\
 	};						\
 	struct test_suite suite__##_name = {		\
@@ -100,7 +120,6 @@ DECLARE_SUITE(dso_data_cache);
 DECLARE_SUITE(dso_data_reopen);
 DECLARE_SUITE(parse_events);
 DECLARE_SUITE(hists_link);
-DECLARE_SUITE(python_use);
 DECLARE_SUITE(bp_signal);
 DECLARE_SUITE(bp_signal_overflow);
 DECLARE_SUITE(bp_accounting);
@@ -141,12 +160,13 @@ DECLARE_SUITE(bitmap_print);
 DECLARE_SUITE(perf_hooks);
 DECLARE_SUITE(unit_number__scnprint);
 DECLARE_SUITE(mem2node);
-DECLARE_SUITE(maps__merge_in);
+DECLARE_SUITE(maps);
 DECLARE_SUITE(time_utils);
 DECLARE_SUITE(jit_write_elf);
 DECLARE_SUITE(api_io);
 DECLARE_SUITE(demangle_java);
 DECLARE_SUITE(demangle_ocaml);
+DECLARE_SUITE(demangle_rust);
 DECLARE_SUITE(pfm);
 DECLARE_SUITE(parse_metric);
 DECLARE_SUITE(pe_file_parsing);
@@ -157,6 +177,8 @@ DECLARE_SUITE(sigtrap);
 DECLARE_SUITE(event_groups);
 DECLARE_SUITE(symbols);
 DECLARE_SUITE(util);
+DECLARE_SUITE(subcmd_help);
+DECLARE_SUITE(kallsyms_split);
 
 /*
  * PowerPC and S390 do not support creation of instruction breakpoints using the
@@ -217,6 +239,7 @@ DECLARE_WORKLOAD(sqrtloop);
 DECLARE_WORKLOAD(brstack);
 DECLARE_WORKLOAD(datasym);
 DECLARE_WORKLOAD(landlock);
+DECLARE_WORKLOAD(traploop);
 
 extern const char *dso_to_test;
 extern const char *test_objdump_path;

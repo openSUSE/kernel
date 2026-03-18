@@ -419,12 +419,12 @@ static void emit_fineibt(u8 **pprog, u8 *ip, u32 hash, int arity)
 	u8 *prog = *pprog;
 
 	EMIT_ENDBR();
-	EMIT3_off32(0x41, 0x81, 0xea, hash);		/* subl $hash, %r10d	*/
+	EMIT1_off32(0x2d, hash);			/* subl $hash, %eax	*/
 	if (cfi_bhi) {
+		EMIT2(0x2e, 0x2e);			/* cs cs */
 		emit_call(&prog, __bhi_args[arity], ip + 11);
 	} else {
-		EMIT2(0x75, 0xf9);			/* jne.d8 .-7		*/
-		EMIT3(0x0f, 0x1f, 0x00);		/* nop3			*/
+		EMIT3_off32(0x2e, 0x0f, 0x85, 3);	/* jne.d32,pn 3		*/
 	}
 	EMIT_ENDBR_POISON();
 
@@ -631,7 +631,7 @@ static int __bpf_arch_text_poke(void *ip, enum bpf_text_poke_type t,
 		goto out;
 	ret = 1;
 	if (memcmp(ip, new_insn, X86_PATCH_SIZE)) {
-		text_poke_bp(ip, new_insn, X86_PATCH_SIZE, NULL);
+		smp_text_poke_single(ip, new_insn, X86_PATCH_SIZE, NULL);
 		ret = 0;
 	}
 out:
@@ -1151,9 +1151,36 @@ static void emit_ldx_index(u8 **pprog, u32 size, u32 dst_reg, u32 src_reg, u32 i
 	*pprog = prog;
 }
 
+static void emit_ldsx_index(u8 **pprog, u32 size, u32 dst_reg, u32 src_reg, u32 index_reg, int off)
+{
+	u8 *prog = *pprog;
+
+	switch (size) {
+	case BPF_B:
+		/* movsx rax, byte ptr [rax + r12 + off] */
+		EMIT3(add_3mod(0x48, src_reg, dst_reg, index_reg), 0x0F, 0xBE);
+		break;
+	case BPF_H:
+		/* movsx rax, word ptr [rax + r12 + off] */
+		EMIT3(add_3mod(0x48, src_reg, dst_reg, index_reg), 0x0F, 0xBF);
+		break;
+	case BPF_W:
+		/* movsx rax, dword ptr [rax + r12 + off] */
+		EMIT2(add_3mod(0x48, src_reg, dst_reg, index_reg), 0x63);
+		break;
+	}
+	emit_insn_suffix_SIB(&prog, src_reg, dst_reg, index_reg, off);
+	*pprog = prog;
+}
+
 static void emit_ldx_r12(u8 **pprog, u32 size, u32 dst_reg, u32 src_reg, int off)
 {
 	emit_ldx_index(pprog, size, dst_reg, src_reg, X86_REG_R12, off);
+}
+
+static void emit_ldsx_r12(u8 **prog, u32 size, u32 dst_reg, u32 src_reg, int off)
+{
+	emit_ldsx_index(prog, size, dst_reg, src_reg, X86_REG_R12, off);
 }
 
 /* STX: *(u8*)(dst_reg + off) = src_reg */
@@ -1255,8 +1282,8 @@ static void emit_st_r12(u8 **pprog, u32 size, u32 dst_reg, int off, int imm)
 	emit_st_index(pprog, size, dst_reg, X86_REG_R12, off, imm);
 }
 
-static int emit_atomic(u8 **pprog, u8 atomic_op,
-		       u32 dst_reg, u32 src_reg, s16 off, u8 bpf_size)
+static int emit_atomic_rmw(u8 **pprog, u32 atomic_op,
+			   u32 dst_reg, u32 src_reg, s16 off, u8 bpf_size)
 {
 	u8 *prog = *pprog;
 
@@ -1296,8 +1323,9 @@ static int emit_atomic(u8 **pprog, u8 atomic_op,
 	return 0;
 }
 
-static int emit_atomic_index(u8 **pprog, u8 atomic_op, u32 size,
-			     u32 dst_reg, u32 src_reg, u32 index_reg, int off)
+static int emit_atomic_rmw_index(u8 **pprog, u32 atomic_op, u32 size,
+				 u32 dst_reg, u32 src_reg, u32 index_reg,
+				 int off)
 {
 	u8 *prog = *pprog;
 
@@ -1310,7 +1338,7 @@ static int emit_atomic_index(u8 **pprog, u8 atomic_op, u32 size,
 		EMIT1(add_3mod(0x48, dst_reg, src_reg, index_reg));
 		break;
 	default:
-		pr_err("bpf_jit: 1 and 2 byte atomics are not supported\n");
+		pr_err("bpf_jit: 1- and 2-byte RMW atomics are not supported\n");
 		return -EFAULT;
 	}
 
@@ -1341,6 +1369,49 @@ static int emit_atomic_index(u8 **pprog, u8 atomic_op, u32 size,
 	}
 	emit_insn_suffix_SIB(&prog, dst_reg, src_reg, index_reg, off);
 	*pprog = prog;
+	return 0;
+}
+
+static int emit_atomic_ld_st(u8 **pprog, u32 atomic_op, u32 dst_reg,
+			     u32 src_reg, s16 off, u8 bpf_size)
+{
+	switch (atomic_op) {
+	case BPF_LOAD_ACQ:
+		/* dst_reg = smp_load_acquire(src_reg + off16) */
+		emit_ldx(pprog, bpf_size, dst_reg, src_reg, off);
+		break;
+	case BPF_STORE_REL:
+		/* smp_store_release(dst_reg + off16, src_reg) */
+		emit_stx(pprog, bpf_size, dst_reg, src_reg, off);
+		break;
+	default:
+		pr_err("bpf_jit: unknown atomic load/store opcode %02x\n",
+		       atomic_op);
+		return -EFAULT;
+	}
+
+	return 0;
+}
+
+static int emit_atomic_ld_st_index(u8 **pprog, u32 atomic_op, u32 size,
+				   u32 dst_reg, u32 src_reg, u32 index_reg,
+				   int off)
+{
+	switch (atomic_op) {
+	case BPF_LOAD_ACQ:
+		/* dst_reg = smp_load_acquire(src_reg + idx_reg + off16) */
+		emit_ldx_index(pprog, size, dst_reg, src_reg, index_reg, off);
+		break;
+	case BPF_STORE_REL:
+		/* smp_store_release(dst_reg + idx_reg + off16, src_reg) */
+		emit_stx_index(pprog, size, dst_reg, src_reg, index_reg, off);
+		break;
+	default:
+		pr_err("bpf_jit: unknown atomic load/store opcode %02x\n",
+		       atomic_op);
+		return -EFAULT;
+	}
+
 	return 0;
 }
 
@@ -2013,15 +2084,22 @@ st:			if (is_imm8(insn->off))
 		case BPF_LDX | BPF_PROBE_MEM32 | BPF_H:
 		case BPF_LDX | BPF_PROBE_MEM32 | BPF_W:
 		case BPF_LDX | BPF_PROBE_MEM32 | BPF_DW:
+		case BPF_LDX | BPF_PROBE_MEM32SX | BPF_B:
+		case BPF_LDX | BPF_PROBE_MEM32SX | BPF_H:
+		case BPF_LDX | BPF_PROBE_MEM32SX | BPF_W:
 		case BPF_STX | BPF_PROBE_MEM32 | BPF_B:
 		case BPF_STX | BPF_PROBE_MEM32 | BPF_H:
 		case BPF_STX | BPF_PROBE_MEM32 | BPF_W:
 		case BPF_STX | BPF_PROBE_MEM32 | BPF_DW:
 			start_of_ldx = prog;
-			if (BPF_CLASS(insn->code) == BPF_LDX)
-				emit_ldx_r12(&prog, BPF_SIZE(insn->code), dst_reg, src_reg, insn->off);
-			else
+			if (BPF_CLASS(insn->code) == BPF_LDX) {
+				if (BPF_MODE(insn->code) == BPF_PROBE_MEM32SX)
+					emit_ldsx_r12(&prog, BPF_SIZE(insn->code), dst_reg, src_reg, insn->off);
+				else
+					emit_ldx_r12(&prog, BPF_SIZE(insn->code), dst_reg, src_reg, insn->off);
+			} else {
 				emit_stx_r12(&prog, BPF_SIZE(insn->code), dst_reg, src_reg, insn->off);
+			}
 populate_extable:
 			{
 				struct exception_table_entry *ex;
@@ -2168,6 +2246,13 @@ populate_extable:
 			}
 			break;
 
+		case BPF_STX | BPF_ATOMIC | BPF_B:
+		case BPF_STX | BPF_ATOMIC | BPF_H:
+			if (!bpf_atomic_is_load_store(insn)) {
+				pr_err("bpf_jit: 1- and 2-byte RMW atomics are not supported\n");
+				return -EFAULT;
+			}
+			fallthrough;
 		case BPF_STX | BPF_ATOMIC | BPF_W:
 		case BPF_STX | BPF_ATOMIC | BPF_DW:
 			if (insn->imm == (BPF_AND | BPF_FETCH) ||
@@ -2203,10 +2288,10 @@ populate_extable:
 				EMIT2(simple_alu_opcodes[BPF_OP(insn->imm)],
 				      add_2reg(0xC0, AUX_REG, real_src_reg));
 				/* Attempt to swap in new value */
-				err = emit_atomic(&prog, BPF_CMPXCHG,
-						  real_dst_reg, AUX_REG,
-						  insn->off,
-						  BPF_SIZE(insn->code));
+				err = emit_atomic_rmw(&prog, BPF_CMPXCHG,
+						      real_dst_reg, AUX_REG,
+						      insn->off,
+						      BPF_SIZE(insn->code));
 				if (WARN_ON(err))
 					return err;
 				/*
@@ -2221,17 +2306,35 @@ populate_extable:
 				break;
 			}
 
-			err = emit_atomic(&prog, insn->imm, dst_reg, src_reg,
-					  insn->off, BPF_SIZE(insn->code));
+			if (bpf_atomic_is_load_store(insn))
+				err = emit_atomic_ld_st(&prog, insn->imm, dst_reg, src_reg,
+							insn->off, BPF_SIZE(insn->code));
+			else
+				err = emit_atomic_rmw(&prog, insn->imm, dst_reg, src_reg,
+						      insn->off, BPF_SIZE(insn->code));
 			if (err)
 				return err;
 			break;
 
+		case BPF_STX | BPF_PROBE_ATOMIC | BPF_B:
+		case BPF_STX | BPF_PROBE_ATOMIC | BPF_H:
+			if (!bpf_atomic_is_load_store(insn)) {
+				pr_err("bpf_jit: 1- and 2-byte RMW atomics are not supported\n");
+				return -EFAULT;
+			}
+			fallthrough;
 		case BPF_STX | BPF_PROBE_ATOMIC | BPF_W:
 		case BPF_STX | BPF_PROBE_ATOMIC | BPF_DW:
 			start_of_ldx = prog;
-			err = emit_atomic_index(&prog, insn->imm, BPF_SIZE(insn->code),
-						dst_reg, src_reg, X86_REG_R12, insn->off);
+
+			if (bpf_atomic_is_load_store(insn))
+				err = emit_atomic_ld_st_index(&prog, insn->imm,
+							      BPF_SIZE(insn->code), dst_reg,
+							      src_reg, X86_REG_R12, insn->off);
+			else
+				err = emit_atomic_rmw_index(&prog, insn->imm, BPF_SIZE(insn->code),
+							    dst_reg, src_reg, X86_REG_R12,
+							    insn->off);
 			if (err)
 				return err;
 			goto populate_extable;
@@ -2523,7 +2626,7 @@ emit_jmp:
 			/* Update cleanup_addr */
 			ctx->cleanup_addr = proglen;
 			if (bpf_prog_was_classic(bpf_prog) &&
-			    !capable(CAP_SYS_ADMIN)) {
+			    !ns_capable_noaudit(&init_user_ns, CAP_SYS_ADMIN)) {
 				u8 *ip = image + addrs[i - 1];
 
 				if (emit_spectre_bhb_barrier(&prog, ip, bpf_prog))
@@ -3432,13 +3535,6 @@ int arch_prepare_bpf_dispatcher(void *image, void *buf, s64 *funcs, int num_func
 	return emit_bpf_dispatcher(&prog, 0, num_funcs - 1, funcs, image, buf);
 }
 
-static const char *bpf_get_prog_name(struct bpf_prog *prog)
-{
-	if (prog->aux->ksym.prog)
-		return prog->aux->ksym.name;
-	return prog->aux->name;
-}
-
 static void priv_stack_init_guard(void __percpu *priv_stack_ptr, int alloc_size)
 {
 	int cpu, underflow_idx = (alloc_size - PRIV_STACK_GUARD_SZ) >> 3;
@@ -3462,7 +3558,7 @@ static void priv_stack_check_guard(void __percpu *priv_stack_ptr, int alloc_size
 		if (stack_ptr[0] != PRIV_STACK_GUARD_VAL ||
 		    stack_ptr[underflow_idx] != PRIV_STACK_GUARD_VAL) {
 			pr_err("BPF private stack overflow/underflow detected for prog %sx\n",
-			       bpf_get_prog_name(prog));
+			       bpf_jit_get_prog_name(prog));
 			break;
 		}
 	}
@@ -3854,4 +3950,9 @@ bool bpf_jit_supports_ptr_xchg(void)
 u64 bpf_arch_uaddress_limit(void)
 {
 	return 0;
+}
+
+bool bpf_jit_supports_timed_may_goto(void)
+{
+	return true;
 }

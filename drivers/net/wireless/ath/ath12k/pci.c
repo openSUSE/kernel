@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BSD-3-Clause-Clear
 /*
  * Copyright (c) 2019-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include <linux/module.h>
@@ -17,7 +17,7 @@
 #include "debug.h"
 
 #define ATH12K_PCI_BAR_NUM		0
-#define ATH12K_PCI_DMA_MASK		32
+#define ATH12K_PCI_DMA_MASK		36
 
 #define ATH12K_PCI_IRQ_CE0_OFFSET		3
 
@@ -48,7 +48,7 @@
 static const struct pci_device_id ath12k_pci_id_table[] = {
 	{ PCI_VDEVICE(QCOM, QCN9274_DEVICE_ID) },
 	{ PCI_VDEVICE(QCOM, WCN7850_DEVICE_ID) },
-	{0}
+	{}
 };
 
 MODULE_DEVICE_TABLE(pci, ath12k_pci_id_table);
@@ -218,6 +218,19 @@ static inline bool ath12k_pci_is_offset_within_mhi_region(u32 offset)
 	return (offset >= PCI_MHIREGLEN_REG && offset <= PCI_MHI_REGION_END);
 }
 
+static void ath12k_pci_restore_window(struct ath12k_base *ab)
+{
+	struct ath12k_pci *ab_pci = ath12k_pci_priv(ab);
+
+	spin_lock_bh(&ab_pci->window_lock);
+
+	iowrite32(WINDOW_ENABLE_BIT | ab_pci->register_window,
+		  ab->mem + WINDOW_REG_ADDRESS);
+	ioread32(ab->mem + WINDOW_REG_ADDRESS);
+
+	spin_unlock_bh(&ab_pci->window_lock);
+}
+
 static void ath12k_pci_soc_global_reset(struct ath12k_base *ab)
 {
 	u32 val, delay;
@@ -242,6 +255,11 @@ static void ath12k_pci_soc_global_reset(struct ath12k_base *ab)
 	val = ath12k_pci_read32(ab, PCIE_SOC_GLOBAL_RESET);
 	if (val == 0xffffffff)
 		ath12k_warn(ab, "link down error during global reset\n");
+
+	/* Restore window register as its content is cleared during
+	 * hardware global reset, such that it aligns with host cache.
+	 */
+	ath12k_pci_restore_window(ab);
 }
 
 static void ath12k_pci_clear_dbg_registers(struct ath12k_base *ab)
@@ -600,7 +618,8 @@ static int ath12k_pci_ext_irq_config(struct ath12k_base *ab)
 		    ab->hw_params->ring_mask->rx_wbm_rel[i] ||
 		    ab->hw_params->ring_mask->reo_status[i] ||
 		    ab->hw_params->ring_mask->host2rxdma[i] ||
-		    ab->hw_params->ring_mask->rx_mon_dest[i]) {
+		    ab->hw_params->ring_mask->rx_mon_dest[i] ||
+		    ab->hw_params->ring_mask->rx_mon_status[i]) {
 			num_irq = 1;
 		}
 
@@ -649,7 +668,7 @@ static int ath12k_pci_set_irq_affinity_hint(struct ath12k_pci *ab_pci,
 	if (test_bit(ATH12K_PCI_FLAG_MULTI_MSI_VECTORS, &ab_pci->flags))
 		return 0;
 
-	return irq_set_affinity_hint(ab_pci->pdev->irq, m);
+	return irq_set_affinity_and_hint(ab_pci->pdev->irq, m);
 }
 
 static int ath12k_pci_config_irq(struct ath12k_base *ab)
@@ -718,7 +737,7 @@ static void ath12k_pci_init_qmi_ce_config(struct ath12k_base *ab)
 	cfg->svc_to_ce_map_len = ab->hw_params->svc_to_ce_map_len;
 	ab->qmi.service_ins_id = ab->hw_params->qmi_service_ins_id;
 
-	if (test_bit(ATH12K_FW_FEATURE_MULTI_QRTR_ID, ab->fw.fw_features)) {
+	if (ath12k_fw_feature_supported(ab, ATH12K_FW_FEATURE_MULTI_QRTR_ID)) {
 		ab_pci->qmi_instance =
 			u32_encode_bits(pci_domain_nr(bus), DOMAIN_NUMBER_MASK) |
 			u32_encode_bits(bus->number, BUS_NUMBER_MASK);
@@ -877,13 +896,9 @@ static int ath12k_pci_claim(struct ath12k_pci *ab_pci, struct pci_dev *pdev)
 		goto disable_device;
 	}
 
-	ret = dma_set_mask_and_coherent(&pdev->dev,
-					DMA_BIT_MASK(ATH12K_PCI_DMA_MASK));
-	if (ret) {
-		ath12k_err(ab, "failed to set pci dma mask to %d: %d\n",
-			   ATH12K_PCI_DMA_MASK, ret);
-		goto release_region;
-	}
+	ab_pci->dma_mask = DMA_BIT_MASK(ATH12K_PCI_DMA_MASK);
+	dma_set_mask(&pdev->dev, ab_pci->dma_mask);
+	dma_set_coherent_mask(&pdev->dev, DMA_BIT_MASK(32));
 
 	pci_set_master(pdev);
 
@@ -1130,6 +1145,9 @@ void ath12k_pci_ext_irq_enable(struct ath12k_base *ab)
 
 void ath12k_pci_ext_irq_disable(struct ath12k_base *ab)
 {
+	if (!test_bit(ATH12K_FLAG_EXT_IRQ_ENABLED, &ab->dev_flags))
+		return;
+
 	__ath12k_pci_ext_irq_disable(ab);
 	ath12k_pci_sync_ext_irqs(ab);
 }
@@ -1154,6 +1172,11 @@ int ath12k_pci_hif_resume(struct ath12k_base *ab)
 
 void ath12k_pci_stop(struct ath12k_base *ab)
 {
+	struct ath12k_pci *ab_pci = ath12k_pci_priv(ab);
+
+	if (!test_bit(ATH12K_PCI_FLAG_INIT_DONE, &ab_pci->flags))
+		return;
+
 	ath12k_pci_ce_irq_disable_sync(ab);
 	ath12k_ce_cleanup_pipes(ab);
 }
@@ -1348,7 +1371,7 @@ static void ath12k_pci_coredump_download(struct ath12k_base *ab)
 	struct ath12k_tlv_dump_data *dump_tlv;
 	size_t hdr_len = sizeof(*file_data);
 	void *buf;
-	u32 dump_seg_sz[FW_CRASH_DUMP_TYPE_MAX] = { 0 };
+	u32 dump_seg_sz[FW_CRASH_DUMP_TYPE_MAX] = {};
 
 	ath12k_mhi_coredump(mhi_ctrl, false);
 
@@ -1464,7 +1487,7 @@ int ath12k_pci_power_up(struct ath12k_base *ab)
 
 	ath12k_pci_msi_enable(ab_pci);
 
-	if (test_bit(ATH12K_FW_FEATURE_MULTI_QRTR_ID, ab->fw.fw_features))
+	if (ath12k_fw_feature_supported(ab, ATH12K_FW_FEATURE_MULTI_QRTR_ID))
 		ath12k_pci_update_qrtr_node_id(ab);
 
 	ret = ath12k_mhi_start(ab_pci);
@@ -1563,6 +1586,7 @@ static int ath12k_pci_probe(struct pci_dev *pdev,
 	ab_pci->ab = ab;
 	ab_pci->pdev = pdev;
 	ab->hif.ops = &ath12k_pci_hif_ops;
+	ab->fw_mode = ATH12K_FIRMWARE_MODE_NORMAL;
 	pci_set_drvdata(pdev, ab);
 	spin_lock_init(&ab_pci->window_lock);
 
@@ -1589,6 +1613,7 @@ static int ath12k_pci_probe(struct pci_dev *pdev,
 		ab->hal_rx_ops = &hal_rx_qcn9274_ops;
 		ath12k_pci_read_hw_version(ab, &soc_hw_version_major,
 					   &soc_hw_version_minor);
+		ab->target_mem_mode = ath12k_core_get_memory_mode(ab);
 		switch (soc_hw_version_major) {
 		case ATH12K_PCI_SOC_HW_VERSION_2:
 			ab->hw_rev = ATH12K_HW_QCN9274_HW20;
@@ -1612,6 +1637,7 @@ static int ath12k_pci_probe(struct pci_dev *pdev,
 		ab->hal_rx_ops = &hal_rx_wcn7850_ops;
 		ath12k_pci_read_hw_version(ab, &soc_hw_version_major,
 					   &soc_hw_version_minor);
+		ab->target_mem_mode = ATH12K_QMI_MEMORY_MODE_DEFAULT;
 		switch (soc_hw_version_major) {
 		case ATH12K_PCI_SOC_HW_VERSION_2:
 			ab->hw_rev = ATH12K_HW_WCN7850_HW20;
@@ -1728,7 +1754,6 @@ static void ath12k_pci_remove(struct pci_dev *pdev)
 
 	if (test_bit(ATH12K_FLAG_QMI_FAIL, &ab->dev_flags)) {
 		ath12k_pci_power_down(ab, false);
-		ath12k_qmi_deinit_service(ab);
 		goto qmi_fail;
 	}
 
@@ -1736,9 +1761,10 @@ static void ath12k_pci_remove(struct pci_dev *pdev)
 
 	cancel_work_sync(&ab->reset_work);
 	cancel_work_sync(&ab->dump_work);
-	ath12k_core_deinit(ab);
+	ath12k_core_hw_group_cleanup(ab->ag);
 
 qmi_fail:
+	ath12k_core_deinit(ab);
 	ath12k_fw_unmap(ab);
 	ath12k_mhi_unregister(ab_pci);
 
@@ -1751,13 +1777,34 @@ qmi_fail:
 	ath12k_core_free(ab);
 }
 
+static void ath12k_pci_hw_group_power_down(struct ath12k_hw_group *ag)
+{
+	struct ath12k_base *ab;
+	int i;
+
+	if (!ag)
+		return;
+
+	mutex_lock(&ag->mutex);
+
+	for (i = 0; i < ag->num_devices; i++) {
+		ab = ag->ab[i];
+		if (!ab)
+			continue;
+
+		ath12k_pci_power_down(ab, false);
+	}
+
+	mutex_unlock(&ag->mutex);
+}
+
 static void ath12k_pci_shutdown(struct pci_dev *pdev)
 {
 	struct ath12k_base *ab = pci_get_drvdata(pdev);
 	struct ath12k_pci *ab_pci = ath12k_pci_priv(ab);
 
 	ath12k_pci_set_irq_affinity_hint(ab_pci, NULL);
-	ath12k_pci_power_down(ab, false);
+	ath12k_pci_hw_group_power_down(ab->ag);
 }
 
 static __maybe_unused int ath12k_pci_pm_suspend(struct device *dev)
@@ -1824,7 +1871,7 @@ static struct pci_driver ath12k_pci_driver = {
 	.driver.pm = &ath12k_pci_pm_ops,
 };
 
-static int ath12k_pci_init(void)
+int ath12k_pci_init(void)
 {
 	int ret;
 
@@ -1837,17 +1884,11 @@ static int ath12k_pci_init(void)
 
 	return 0;
 }
-module_init(ath12k_pci_init);
 
-static void ath12k_pci_exit(void)
+void ath12k_pci_exit(void)
 {
 	pci_unregister_driver(&ath12k_pci_driver);
 }
-
-module_exit(ath12k_pci_exit);
-
-MODULE_DESCRIPTION("Driver support for Qualcomm Technologies PCIe 802.11be WLAN devices");
-MODULE_LICENSE("Dual BSD/GPL");
 
 /* firmware files */
 MODULE_FIRMWARE(ATH12K_FW_DIR "/QCN9274/hw2.0/*");

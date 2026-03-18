@@ -174,7 +174,7 @@ SYSCALL_DEFINE1(nice, int, increment)
 	return 0;
 }
 
-#endif
+#endif /* __ARCH_WANT_SYS_NICE */
 
 /**
  * task_prio - return the priority value of a given task.
@@ -255,8 +255,7 @@ int sched_core_idle_cpu(int cpu)
 
 	return idle_cpu(cpu);
 }
-
-#endif
+#endif /* CONFIG_SCHED_CORE */
 
 /**
  * find_process_by_pid - find a process with a matching PID value.
@@ -368,7 +367,7 @@ static int uclamp_validate(struct task_struct *p,
 	 * blocking operation which obviously cannot be done while holding
 	 * scheduler locks.
 	 */
-	static_branch_enable(&sched_uclamp_used);
+	sched_uclamp_enable();
 
 	return 0;
 }
@@ -448,7 +447,7 @@ static inline int uclamp_validate(struct task_struct *p,
 }
 static void __setscheduler_uclamp(struct task_struct *p,
 				  const struct sched_attr *attr) { }
-#endif
+#endif /* !CONFIG_UCLAMP_TASK */
 
 /*
  * Allow unprivileged RT tasks to decrease priority.
@@ -634,13 +633,14 @@ change:
 		 * Do not allow real-time tasks into groups that have no runtime
 		 * assigned.
 		 */
-		if (rt_bandwidth_enabled() && rt_policy(policy) &&
+		if (rt_group_sched_enabled() &&
+				rt_bandwidth_enabled() && rt_policy(policy) &&
 				task_group(p)->rt_bandwidth.rt_runtime == 0 &&
 				!task_group_is_autogroup(task_group(p))) {
 			retval = -EPERM;
 			goto unlock;
 		}
-#endif
+#endif /* CONFIG_RT_GROUP_SCHED */
 #ifdef CONFIG_SMP
 		if (dl_bandwidth_enabled() && dl_policy(policy) &&
 				!(attr->sched_flags & SCHED_FLAG_SUGOV)) {
@@ -657,7 +657,7 @@ change:
 				goto unlock;
 			}
 		}
-#endif
+#endif /* CONFIG_SMP */
 	}
 
 	/* Re-check policy now with rq lock held: */

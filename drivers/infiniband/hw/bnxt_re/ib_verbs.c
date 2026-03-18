@@ -1050,6 +1050,8 @@ static u8 __from_ib_qp_type(enum ib_qp_type type)
 		return CMDQ_CREATE_QP_TYPE_RC;
 	case IB_QPT_UD:
 		return CMDQ_CREATE_QP_TYPE_UD;
+	case IB_QPT_RAW_PACKET:
+		return CMDQ_CREATE_QP_TYPE_RAW_ETHERTYPE;
 	default:
 		return IB_QPT_MAX;
 	}
@@ -4465,6 +4467,93 @@ void bnxt_re_dealloc_ucontext(struct ib_ucontext *ib_uctx)
 		bnxt_qplib_dealloc_dpi(&rdev->qplib_res, &uctx->dpi);
 		uctx->dpi.dbr = NULL;
 	}
+}
+
+static int bnxt_re_setup_vnic(struct bnxt_re_dev *rdev, struct bnxt_re_qp *qp)
+{
+	int rc;
+
+	rc = bnxt_re_hwrm_alloc_vnic(rdev);
+	if (rc)
+		return rc;
+
+	rc = bnxt_re_hwrm_cfg_vnic(rdev, qp->qplib_qp.id);
+	if (rc)
+		goto out_free_vnic;
+
+	return 0;
+out_free_vnic:
+	bnxt_re_hwrm_free_vnic(rdev);
+	return rc;
+}
+
+struct ib_flow *bnxt_re_create_flow(struct ib_qp *ib_qp,
+				    struct ib_flow_attr *attr,
+				    struct ib_udata *udata)
+{
+	struct bnxt_re_qp *qp = container_of(ib_qp, struct bnxt_re_qp, ib_qp);
+	struct bnxt_re_dev *rdev = qp->rdev;
+	struct bnxt_re_flow *flow;
+	int rc;
+
+	if (attr->type != IB_FLOW_ATTR_SNIFFER ||
+	    !rdev->rcfw.roce_mirror)
+		return ERR_PTR(-EOPNOTSUPP);
+
+	mutex_lock(&rdev->qp_lock);
+	if (rdev->sniffer_flow_created) {
+		ibdev_err(&rdev->ibdev, "RoCE Mirroring is already Configured\n");
+		mutex_unlock(&rdev->qp_lock);
+		return ERR_PTR(-EBUSY);
+	}
+
+	flow = kzalloc(sizeof(*flow), GFP_KERNEL);
+	if (!flow) {
+		mutex_unlock(&rdev->qp_lock);
+		return ERR_PTR(-ENOMEM);
+	}
+
+	flow->rdev = rdev;
+
+	rc = bnxt_re_setup_vnic(rdev, qp);
+	if (rc)
+		goto out_free_flow;
+
+	rc = bnxt_qplib_create_flow(&rdev->qplib_res);
+	if (rc)
+		goto out_free_vnic;
+
+	rdev->sniffer_flow_created = 1;
+	mutex_unlock(&rdev->qp_lock);
+
+	return &flow->ib_flow;
+
+out_free_vnic:
+	bnxt_re_hwrm_free_vnic(rdev);
+out_free_flow:
+	mutex_unlock(&rdev->qp_lock);
+	kfree(flow);
+	return ERR_PTR(rc);
+}
+
+int bnxt_re_destroy_flow(struct ib_flow *flow_id)
+{
+	struct bnxt_re_flow *flow =
+		container_of(flow_id, struct bnxt_re_flow, ib_flow);
+	struct bnxt_re_dev *rdev = flow->rdev;
+	int rc;
+
+	mutex_lock(&rdev->qp_lock);
+	rc = bnxt_qplib_destroy_flow(&rdev->qplib_res);
+	if (rc)
+		ibdev_dbg(&rdev->ibdev, "failed to destroy_flow rc = %d\n", rc);
+	rdev->sniffer_flow_created = 0;
+
+	bnxt_re_hwrm_free_vnic(rdev);
+	mutex_unlock(&rdev->qp_lock);
+	kfree(flow);
+
+	return rc;
 }
 
 static struct bnxt_re_cq *bnxt_re_search_for_cq(struct bnxt_re_dev *rdev, u32 cq_id)

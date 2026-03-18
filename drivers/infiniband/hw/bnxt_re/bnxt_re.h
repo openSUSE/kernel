@@ -232,6 +232,7 @@ struct bnxt_re_dev {
 	u16 mirror_vnic_id;
 	union ib_gid ugid;
 	u32 ugid_index;
+	u8 sniffer_flow_created : 1;
 };
 
 #define to_bnxt_re_dev(ptr, member)	\
@@ -247,6 +248,10 @@ void bnxt_re_pacing_alert(struct bnxt_re_dev *rdev);
 int bnxt_re_assign_pma_port_counters(struct bnxt_re_dev *rdev, struct ib_mad *out_mad);
 int bnxt_re_assign_pma_port_ext_counters(struct bnxt_re_dev *rdev,
 					 struct ib_mad *out_mad);
+
+void bnxt_re_hwrm_free_vnic(struct bnxt_re_dev *rdev);
+int bnxt_re_hwrm_alloc_vnic(struct bnxt_re_dev *rdev);
+int bnxt_re_hwrm_cfg_vnic(struct bnxt_re_dev *rdev, u32 qp_id);
 
 static inline struct device *rdev_to_dev(struct bnxt_re_dev *rdev)
 {
@@ -280,5 +285,8 @@ static inline int bnxt_re_read_context_allowed(struct bnxt_re_dev *rdev)
 #define BNXT_RE_CONTEXT_TYPE_CQ_SIZE_P7		192
 #define BNXT_RE_CONTEXT_TYPE_MRW_SIZE_P7	192
 #define BNXT_RE_CONTEXT_TYPE_SRQ_SIZE_P7	192
+
+#define BNXT_RE_HWRM_CMD_TIMEOUT(rdev)		\
+		((rdev)->chip_ctx->hwrm_cmd_max_timeout * 1000)
 
 #endif

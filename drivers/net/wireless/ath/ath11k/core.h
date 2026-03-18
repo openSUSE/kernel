@@ -17,6 +17,7 @@
 #include <linux/average.h>
 #include <linux/firmware.h>
 #include <linux/suspend.h>
+#include <linux/of.h>
 
 #include "qmi.h"
 #include "htc.h"
@@ -33,6 +34,7 @@
 #include "spectral.h"
 #include "wow.h"
 #include "fw.h"
+#include "coredump.h"
 
 #define SM(_v, _f) (((_v) << _f##_LSB) & _f##_MASK)
 
@@ -149,6 +151,7 @@ enum ath11k_hw_rev {
 	ATH11K_HW_WCN6750_HW10,
 	ATH11K_HW_IPQ5018_HW10,
 	ATH11K_HW_QCA2066_HW21,
+	ATH11K_HW_QCA6698AQ_HW21,
 };
 
 enum ath11k_firmware_mode {
@@ -369,7 +372,6 @@ struct ath11k_vif {
 	struct ath11k *ar;
 	struct ieee80211_vif *vif;
 
-	u16 tx_seq_no;
 	struct wmi_wmm_params_all_arg wmm_params;
 	struct wmi_wmm_params_all_arg muedca_params;
 	struct list_head list;
@@ -914,6 +916,10 @@ struct ath11k_base {
 	/* HW channel counters frequency value in hertz common to all MACs */
 	u32 cc_freq_hz;
 
+	struct ath11k_dump_file_data *dump_data;
+	size_t ath11k_coredump_len;
+	struct work_struct dump_work;
+
 	struct ath11k_htc htc;
 
 	struct ath11k_dp dp;
@@ -1269,6 +1275,7 @@ bool ath11k_core_coldboot_cal_support(struct ath11k_base *ab);
 
 const struct firmware *ath11k_core_firmware_request(struct ath11k_base *ab,
 						    const char *filename);
+const char *ath11k_core_get_usecase_firmware(struct ath11k_base *ab);
 
 static inline const char *ath11k_scan_state_str(enum ath11k_scan_state state)
 {
@@ -1319,8 +1326,19 @@ static inline void ath11k_core_create_firmware_path(struct ath11k_base *ab,
 						    const char *filename,
 						    void *buf, size_t buf_len)
 {
-	snprintf(buf, buf_len, "%s/%s/%s", ATH11K_FW_DIR,
-		 ab->hw_params.fw.dir, filename);
+	const char *fw_name = NULL;
+
+	of_property_read_string(ab->dev->of_node, "firmware-name", &fw_name);
+
+	if (!fw_name)
+		fw_name = ath11k_core_get_usecase_firmware(ab);
+
+	if (fw_name && strncmp(filename, "board", 5))
+		snprintf(buf, buf_len, "%s/%s/%s/%s", ATH11K_FW_DIR,
+			 ab->hw_params.fw.dir, fw_name, filename);
+	else
+		snprintf(buf, buf_len, "%s/%s/%s", ATH11K_FW_DIR,
+			 ab->hw_params.fw.dir, filename);
 }
 
 static inline const char *ath11k_bus_str(enum ath11k_bus bus)

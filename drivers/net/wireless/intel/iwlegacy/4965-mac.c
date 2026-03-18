@@ -1382,7 +1382,7 @@ il4965_hdl_stats(struct il_priv *il, struct il_rx_buf *rxb)
 	 * we get a thermal update even if the uCode doesn't give us one
 	 */
 	mod_timer(&il->stats_periodic,
-		  jiffies + msecs_to_jiffies(recalib_seconds * 1000));
+		  jiffies + secs_to_jiffies(recalib_seconds));
 
 	if (unlikely(!test_bit(S_SCANNING, &il->status)) &&
 	    (pkt->hdr.cmd == N_STATS)) {
@@ -4606,7 +4606,9 @@ il4965_store_tx_power(struct device *d, struct device_attribute *attr,
 	if (ret)
 		IL_INFO("%s is not in decimal form.\n", buf);
 	else {
+		mutex_lock(&il->mutex);
 		ret = il_set_tx_power(il, val, false);
+		mutex_unlock(&il->mutex);
 		if (ret)
 			IL_ERR("failed setting tx power (0x%08x).\n", ret);
 		else
