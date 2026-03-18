@@ -1624,9 +1624,10 @@ continue_unlock:
 	return last_page;
 }
 
-static int __write_node_page(struct page *page, bool atomic, bool *submitted,
-				struct writeback_control *wbc, bool do_balance,
-				enum iostat_type io_type, unsigned int *seq_id)
+static int __write_node_page(struct page *page, bool atomic, bool do_fsync,
+				bool *submitted, struct writeback_control *wbc,
+				bool do_balance, enum iostat_type io_type,
+				unsigned int *seq_id)
 {
 	struct f2fs_sb_info *sbi = F2FS_P_SB(page);
 	nid_t nid;
@@ -1695,6 +1696,8 @@ static int __write_node_page(struct page *page, bool atomic, bool *submitted,
 	if (atomic && !test_opt(sbi, NOBARRIER) && !f2fs_sb_has_blkzoned(sbi))
 		fio.op_flags |= REQ_PREFLUSH | REQ_FUA;
 
+	set_dentry_mark(page, false);
+	set_fsync_mark(page, do_fsync);
 	if (IS_INODE(page) && (atomic || is_fsync_dnode(page)))
 		set_dentry_mark(page,
 				f2fs_need_dentry_mark(sbi, ino_of_node(page)));
@@ -1758,7 +1761,7 @@ int f2fs_move_node_page(struct page *node_page, int gc_type)
 			goto out_page;
 		}
 
-		if (__write_node_page(node_page, false, NULL,
+		if (__write_node_page(node_page, false, false, NULL,
 					&wbc, false, FS_GC_NODE_IO, NULL)) {
 			err = -EAGAIN;
 			unlock_page(node_page);
@@ -1779,7 +1782,7 @@ release_page:
 static int f2fs_write_node_page(struct page *page,
 				struct writeback_control *wbc)
 {
-	return __write_node_page(page, false, NULL, wbc, false,
+	return __write_node_page(page, false, false, NULL, wbc, false,
 						FS_NODE_IO, NULL);
 }
 
@@ -1812,6 +1815,7 @@ retry:
 		for (i = 0; i < nr_pages; i++) {
 			struct page *page = pvec.pages[i];
 			bool submitted = false;
+			bool do_fsync = false;
 
 			if (unlikely(f2fs_cp_error(sbi))) {
 				f2fs_put_page(last_page, 0);
@@ -1842,11 +1846,8 @@ continue_unlock:
 
 			f2fs_wait_on_page_writeback(page, NODE, true, true);
 
-			set_fsync_mark(page, 0);
-			set_dentry_mark(page, 0);
-
 			if (!atomic || page == last_page) {
-				set_fsync_mark(page, 1);
+				do_fsync = true;
 				percpu_counter_inc(&sbi->rf_node_block_count);
 				if (IS_INODE(page)) {
 					if (is_inode_flag_set(inode,
@@ -1863,8 +1864,9 @@ continue_unlock:
 
 			ret = __write_node_page(page, atomic &&
 						page == last_page,
-						&submitted, wbc, true,
-						FS_NODE_IO, seq_id);
+						do_fsync, &submitted,
+						wbc, true, FS_NODE_IO,
+						seq_id);
 			if (ret) {
 				unlock_page(page);
 				f2fs_put_page(last_page, 0);
@@ -2069,10 +2071,7 @@ write_node:
 			if (!clear_page_dirty_for_io(page))
 				goto continue_unlock;
 
-			set_fsync_mark(page, 0);
-			set_dentry_mark(page, 0);
-
-			ret = __write_node_page(page, false, &submitted,
+			ret = __write_node_page(page, false, false, &submitted,
 						wbc, do_balance, io_type, NULL);
 			if (ret)
 				unlock_page(page);
