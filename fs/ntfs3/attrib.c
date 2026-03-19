@@ -1048,6 +1048,22 @@ int attr_data_get_block(struct ntfs_inode *ni, CLST vcn, CLST clen, CLST *lcn,
 			if (err)
 				goto out;
 		}
+
+		if (vcn0 < svcn || evcn1 <= vcn0) {
+			struct ATTRIB *attr2;
+			struct ATTR_LIST_ENTRY *le2 = le_b;
+			struct mft_inode *mi2;
+
+			attr2 = ni_find_attr(ni, attr_b, &le2, ATTR_DATA, NULL,
+					     0, &vcn0, &mi2);
+			if (!attr2) {
+				err = -EINVAL;
+				goto out;
+			}
+			err = attr_load_runs(attr2, ni, run, NULL);
+			if (err)
+				goto out;
+		}
 	}
 
 	if (vcn + to_alloc > asize)
