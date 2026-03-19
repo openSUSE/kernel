@@ -94,7 +94,6 @@ struct ipvl_port {
 	struct net_device	*dev;
 	possible_net_t		pnet;
 	struct hlist_head	hlhead[IPVLAN_HASH_SIZE];
-	spinlock_t		addrs_lock; /* guards hash-table and addrs */
 	struct list_head	ipvlans;
 	u16			mode;
 	u16			dev_id_start;
@@ -102,6 +101,9 @@ struct ipvl_port {
 	struct sk_buff_head	backlog;
 	int			count;
 	struct ida		ida;
+#ifndef __GENKSYMS__
+	spinlock_t		addrs_lock; /* guards hash-table and addrs */
+#endif
 };
 
 struct ipvl_skb_cb {
