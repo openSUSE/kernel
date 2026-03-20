@@ -5573,6 +5573,8 @@ static bool skb_tstamp_tx_report_so_timestamping(struct sk_buff *skb,
 						    SKBTX_SW_TSTAMP);
 	case SCM_TSTAMP_ACK:
 		return TCP_SKB_CB(skb)->txstamp_ack;
+	case SCM_TSTAMP_COMPLETION:
+		return skb_shinfo(skb)->tx_flags & SKBTX_COMPLETION_TSTAMP;
 	}
 
 	return false;
