@@ -4422,6 +4422,7 @@ static void hci_num_comp_pkts_evt(struct hci_dev *hdev, void *data,
 		struct hci_comp_pkts_info *info = &ev->handles[i];
 		struct hci_conn *conn;
 		__u16  handle, count;
+		unsigned int i;
 
 		handle = __le16_to_cpu(info->handle);
 		count  = __le16_to_cpu(info->count);
@@ -4441,6 +4442,9 @@ static void hci_num_comp_pkts_evt(struct hci_dev *hdev, void *data,
 				    conn, conn->sent, count);
 			conn->sent = 0;
 		}
+
+		for (i = 0; i < count; ++i)
+			hci_conn_tx_dequeue(conn);
 
 		switch (conn->type) {
 		case ACL_LINK:
