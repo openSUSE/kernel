@@ -55,7 +55,7 @@ bool io_kbuf_commit(struct io_kiocb *req,
 		buf_len -= this_len;
 		if (buf_len) {
 			buf->addr += this_len;
-			buf->len += buf_len;
+			buf->len = buf_len;
 			return false;
 		}
 		buf->len = 0;
