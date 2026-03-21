@@ -249,6 +249,12 @@
 
 #define CR(x)					((x) * 4)
 
+#define LYNX_28G_LANE_HALT_SLEEP_US		100
+#define LYNX_28G_LANE_HALT_TIMEOUT_US		1000000
+
+#define LYNX_28G_LANE_RESET_SLEEP_US		100
+#define LYNX_28G_LANE_RESET_TIMEOUT_US		1000000
+
 enum lynx_28g_eq_type {
 	EQ_TYPE_NO_EQ = 0,
 	EQ_TYPE_2TAP = 1,
@@ -600,10 +606,29 @@ static void lynx_28g_lane_set_pll(struct lynx_28g_lane *lane,
 	}
 }
 
+static bool lynx_28g_lane_halt_done(struct lynx_28g_lane *lane)
+{
+	u32 trstctl = lynx_28g_lane_read(lane, LNaTRSTCTL);
+	u32 rrstctl = lynx_28g_lane_read(lane, LNaRRSTCTL);
+
+	return !(trstctl & LNaTRSTCTL_HLT_REQ) &&
+	       !(rrstctl & LNaRRSTCTL_HLT_REQ);
+}
+
+static bool lynx_28g_lane_reset_done(struct lynx_28g_lane *lane)
+{
+	u32 trstctl = lynx_28g_lane_read(lane, LNaTRSTCTL);
+	u32 rrstctl = lynx_28g_lane_read(lane, LNaRRSTCTL);
+
+	return (trstctl & LNaTRSTCTL_RST_DONE) &&
+	       (rrstctl & LNaRRSTCTL_RST_DONE);
+}
+
 static int lynx_28g_power_off(struct phy *phy)
 {
 	struct lynx_28g_lane *lane = phy_get_drvdata(phy);
-	u32 trstctl, rrstctl;
+	bool done;
+	int err;
 
 	if (!lane->powered_up)
 		return 0;
@@ -615,11 +640,14 @@ static int lynx_28g_power_off(struct phy *phy)
 			  LNaRRSTCTL_HLT_REQ);
 
 	/* Wait until the halting process is complete */
-	do {
-		trstctl = lynx_28g_lane_read(lane, LNaTRSTCTL);
-		rrstctl = lynx_28g_lane_read(lane, LNaRRSTCTL);
-	} while ((trstctl & LNaTRSTCTL_HLT_REQ) ||
-		 (rrstctl & LNaRRSTCTL_HLT_REQ));
+	err = read_poll_timeout(lynx_28g_lane_halt_done, done, done,
+				LYNX_28G_LANE_HALT_SLEEP_US,
+				LYNX_28G_LANE_HALT_TIMEOUT_US,
+				false, lane);
+	if (err) {
+		dev_err(&phy->dev, "Lane %c halt failed: %pe\n",
+			'A' + lane->id, ERR_PTR(err));
+	}
 
 	lane->powered_up = false;
 
@@ -629,7 +657,8 @@ static int lynx_28g_power_off(struct phy *phy)
 static int lynx_28g_power_on(struct phy *phy)
 {
 	struct lynx_28g_lane *lane = phy_get_drvdata(phy);
-	u32 trstctl, rrstctl;
+	bool done;
+	int err;
 
 	if (lane->powered_up)
 		return 0;
@@ -641,11 +670,14 @@ static int lynx_28g_power_on(struct phy *phy)
 			  LNaRRSTCTL_RST_REQ);
 
 	/* Wait until the reset sequence is completed */
-	do {
-		trstctl = lynx_28g_lane_read(lane, LNaTRSTCTL);
-		rrstctl = lynx_28g_lane_read(lane, LNaRRSTCTL);
-	} while (!(trstctl & LNaTRSTCTL_RST_DONE) ||
-		 !(rrstctl & LNaRRSTCTL_RST_DONE));
+	err = read_poll_timeout(lynx_28g_lane_reset_done, done, done,
+				LYNX_28G_LANE_RESET_SLEEP_US,
+				LYNX_28G_LANE_RESET_TIMEOUT_US,
+				false, lane);
+	if (err) {
+		dev_err(&phy->dev, "Lane %c reset failed: %pe\n",
+			'A' + lane->id, ERR_PTR(err));
+	}
 
 	lane->powered_up = true;
 
@@ -1065,7 +1097,7 @@ static void lynx_28g_cdr_lock_check(struct work_struct *work)
 	struct lynx_28g_priv *priv = work_to_lynx(work);
 	struct lynx_28g_lane *lane;
 	u32 rrstctl;
-	int i;
+	int err, i;
 
 	for (i = 0; i < LYNX_28G_NUM_LANE; i++) {
 		lane = &priv->lane[i];
@@ -1083,9 +1115,17 @@ static void lynx_28g_cdr_lock_check(struct work_struct *work)
 		if (!(rrstctl & LNaRRSTCTL_CDR_LOCK)) {
 			lynx_28g_lane_rmw(lane, LNaRRSTCTL, LNaRRSTCTL_RST_REQ,
 					  LNaRRSTCTL_RST_REQ);
-			do {
-				rrstctl = lynx_28g_lane_read(lane, LNaRRSTCTL);
-			} while (!(rrstctl & LNaRRSTCTL_RST_DONE));
+
+			err = read_poll_timeout(lynx_28g_lane_read, rrstctl,
+						!!(rrstctl & LNaRRSTCTL_RST_DONE),
+						LYNX_28G_LANE_RESET_SLEEP_US,
+						LYNX_28G_LANE_RESET_TIMEOUT_US,
+						false, lane, LNaRRSTCTL);
+			if (err) {
+				dev_warn_once(&lane->phy->dev,
+					      "Lane %c receiver reset failed: %pe\n",
+					      'A' + lane->id, ERR_PTR(err));
+			}
 		}
 
 		mutex_unlock(&lane->phy->mutex);
