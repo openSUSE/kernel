@@ -699,9 +699,8 @@ static struct aa_profile *unpack_profile(struct aa_ext *e, char **ns_name)
 			/* default start state */
 			profile->policy.start[0] = DFA_START;
 
-		size_t state_count = profile->policy.dfa->tables[YYTD_ID_BASE]->td_lolen;
-
-		if (profile->policy.start[0] >= state_count) {
+		if (profile->policy.start[0] >=
+		    profile->policy.dfa->tables[YYTD_ID_BASE]->td_lolen) {
 			error = -EPROTO;
 			goto fail;
 		}
