@@ -88,22 +88,6 @@ char *strcpy(char *dest, const char *src)
 EXPORT_SYMBOL(strcpy);
 #endif
 
-#ifndef __HAVE_ARCH_STRNCPY
-char *strncpy(char *dest, const char *src, size_t count)
-{
-	char *tmp = dest;
-
-	while (count) {
-		if ((*tmp = *src) != 0)
-			src++;
-		tmp++;
-		count--;
-	}
-	return dest;
-}
-EXPORT_SYMBOL(strncpy);
-#endif
-
 #ifdef __BIG_ENDIAN
 # define ALLBUTLAST_BYTE_MASK (~255ul)
 #else
