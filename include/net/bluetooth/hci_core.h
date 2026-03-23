@@ -266,6 +266,12 @@ struct adv_info {
 	struct delayed_work	rpa_expired_cb;
 };
 
+struct tx_queue {
+	struct sk_buff_head queue;
+	unsigned int extra;
+	unsigned int tracked;
+};
+
 #define HCI_MAX_ADV_INSTANCES		5
 #define HCI_DEFAULT_ADV_DURATION	2
 
@@ -741,6 +747,8 @@ struct hci_conn {
 	struct sk_buff_head data_q;
 	struct list_head chan_list;
 
+	struct tx_queue tx_q;
+
 	struct delayed_work disc_work;
 	struct delayed_work auto_accept_work;
 	struct delayed_work idle_work;
@@ -1000,7 +1008,8 @@ static inline void hci_conn_hash_add(struct hci_dev *hdev, struct hci_conn *c)
 	case ESCO_LINK:
 		h->sco_num++;
 		break;
-	case ISO_LINK:
+	case CIS_LINK:
+	case BIS_LINK:
 		h->iso_num++;
 		break;
 	}
@@ -1026,7 +1035,8 @@ static inline void hci_conn_hash_del(struct hci_dev *hdev, struct hci_conn *c)
 	case ESCO_LINK:
 		h->sco_num--;
 		break;
-	case ISO_LINK:
+	case CIS_LINK:
+	case BIS_LINK:
 		h->iso_num--;
 		break;
 	}
@@ -1043,7 +1053,8 @@ static inline unsigned int hci_conn_num(struct hci_dev *hdev, __u8 type)
 	case SCO_LINK:
 	case ESCO_LINK:
 		return h->sco_num;
-	case ISO_LINK:
+	case CIS_LINK:
+	case BIS_LINK:
 		return h->iso_num;
 	default:
 		return 0;
@@ -1104,7 +1115,7 @@ static inline struct hci_conn *hci_conn_hash_lookup_bis(struct hci_dev *hdev,
 	rcu_read_lock();
 
 	list_for_each_entry_rcu(c, &h->list, list) {
-		if (bacmp(&c->dst, ba) || c->type != ISO_LINK)
+		if (bacmp(&c->dst, ba) || c->type != BIS_LINK)
 			continue;
 
 		if (c->iso_qos.bcast.bis == bis) {
@@ -1126,7 +1137,7 @@ hci_conn_hash_lookup_create_pa_sync(struct hci_dev *hdev)
 	rcu_read_lock();
 
 	list_for_each_entry_rcu(c, &h->list, list) {
-		if (c->type != ISO_LINK)
+		if (c->type != BIS_LINK)
 			continue;
 
 		if (!test_bit(HCI_CONN_CREATE_PA_SYNC, &c->flags))
@@ -1152,8 +1163,8 @@ hci_conn_hash_lookup_per_adv_bis(struct hci_dev *hdev,
 	rcu_read_lock();
 
 	list_for_each_entry_rcu(c, &h->list, list) {
-		if (bacmp(&c->dst, ba) || c->type != ISO_LINK ||
-			!test_bit(HCI_CONN_PER_ADV, &c->flags))
+		if (bacmp(&c->dst, ba) || c->type != BIS_LINK ||
+		    !test_bit(HCI_CONN_PER_ADV, &c->flags))
 			continue;
 
 		if (c->iso_qos.bcast.big == big &&
@@ -1263,7 +1274,7 @@ static inline struct hci_conn *hci_conn_hash_lookup_cis(struct hci_dev *hdev,
 	rcu_read_lock();
 
 	list_for_each_entry_rcu(c, &h->list, list) {
-		if (c->type != ISO_LINK || !bacmp(&c->dst, BDADDR_ANY))
+		if (c->type != CIS_LINK)
 			continue;
 
 		/* Match CIG ID if set */
@@ -1295,7 +1306,7 @@ static inline struct hci_conn *hci_conn_hash_lookup_cig(struct hci_dev *hdev,
 	rcu_read_lock();
 
 	list_for_each_entry_rcu(c, &h->list, list) {
-		if (c->type != ISO_LINK || !bacmp(&c->dst, BDADDR_ANY))
+		if (c->type != CIS_LINK)
 			continue;
 
 		if (handle == c->iso_qos.ucast.cig) {
@@ -1318,17 +1329,7 @@ static inline struct hci_conn *hci_conn_hash_lookup_big(struct hci_dev *hdev,
 	rcu_read_lock();
 
 	list_for_each_entry_rcu(c, &h->list, list) {
-		if (c->type != ISO_LINK)
-			continue;
-
-		/* An ISO_LINK hcon with BDADDR_ANY as destination
-		 * address is a Broadcast connection. A Broadcast
-		 * slave connection is associated with a PA train,
-		 * so the sync_handle can be used to differentiate
-		 * from unicast.
-		 */
-		if (bacmp(&c->dst, BDADDR_ANY) &&
-		    c->sync_handle == HCI_SYNC_HANDLE_INVALID)
+		if (c->type != BIS_LINK)
 			continue;
 
 		if (handle == c->iso_qos.bcast.big) {
@@ -1352,7 +1353,7 @@ hci_conn_hash_lookup_big_sync_pend(struct hci_dev *hdev,
 	rcu_read_lock();
 
 	list_for_each_entry_rcu(c, &h->list, list) {
-		if (c->type != ISO_LINK)
+		if (c->type != BIS_LINK)
 			continue;
 
 		if (handle == c->iso_qos.bcast.big && num_bis == c->num_bis) {
@@ -1375,8 +1376,7 @@ hci_conn_hash_lookup_big_state(struct hci_dev *hdev, __u8 handle,  __u16 state)
 	rcu_read_lock();
 
 	list_for_each_entry_rcu(c, &h->list, list) {
-		if (bacmp(&c->dst, BDADDR_ANY) || c->type != ISO_LINK ||
-			c->state != state)
+		if (c->type != BIS_LINK || c->state != state)
 			continue;
 
 		if (handle == c->iso_qos.bcast.big) {
@@ -1399,8 +1399,8 @@ hci_conn_hash_lookup_pa_sync_big_handle(struct hci_dev *hdev, __u8 big)
 	rcu_read_lock();
 
 	list_for_each_entry_rcu(c, &h->list, list) {
-		if (c->type != ISO_LINK ||
-			!test_bit(HCI_CONN_PA_SYNC, &c->flags))
+		if (c->type != BIS_LINK ||
+		    !test_bit(HCI_CONN_PA_SYNC, &c->flags))
 			continue;
 
 		if (c->iso_qos.bcast.big == big) {
@@ -1422,7 +1422,7 @@ hci_conn_hash_lookup_pa_sync_handle(struct hci_dev *hdev, __u16 sync_handle)
 	rcu_read_lock();
 
 	list_for_each_entry_rcu(c, &h->list, list) {
-		if (c->type != ISO_LINK)
+		if (c->type != BIS_LINK)
 			continue;
 
 		/* Ignore the listen hcon, we are looking
@@ -1602,6 +1602,18 @@ void hci_conn_enter_active_mode(struct hci_conn *conn, __u8 force_active);
 
 void hci_conn_failed(struct hci_conn *conn, u8 status);
 u8 hci_conn_set_handle(struct hci_conn *conn, u16 handle);
+
+void hci_conn_tx_queue(struct hci_conn *conn, struct sk_buff *skb);
+void hci_conn_tx_dequeue(struct hci_conn *conn);
+void hci_setup_tx_timestamp(struct sk_buff *skb, size_t key_offset,
+			    const struct sockcm_cookie *sockc);
+
+static inline void hci_sockcm_init(struct sockcm_cookie *sockc, struct sock *sk)
+{
+	*sockc = (struct sockcm_cookie) {
+		.tsflags = READ_ONCE(sk->sk_tsflags),
+	};
+}
 
 /*
  * hci_conn_get() and hci_conn_put() are used to control the life-time of an
@@ -2036,7 +2048,8 @@ static inline int hci_proto_connect_ind(struct hci_dev *hdev, bdaddr_t *bdaddr,
 	case ESCO_LINK:
 		return sco_connect_ind(hdev, bdaddr, flags);
 
-	case ISO_LINK:
+	case CIS_LINK:
+	case BIS_LINK:
 		return iso_connect_ind(hdev, bdaddr, flags);
 
 	default:
