@@ -55,7 +55,7 @@ static void *allocinfo_start(struct seq_file *m, loff_t *pos)
 	loff_t node = *pos;
 
 	priv = (struct allocinfo_private *)m->private;
-	codetag_lock_module_list(alloc_tag_cttype, true);
+	codetag_lock_module_list(alloc_tag_cttype);
 	if (node == 0) {
 		priv->print_header = true;
 		priv->iter = codetag_get_ct_iter(alloc_tag_cttype);
@@ -82,7 +82,7 @@ static void *allocinfo_next(struct seq_file *m, void *arg, loff_t *pos)
 
 static void allocinfo_stop(struct seq_file *m, void *arg)
 {
-	codetag_lock_module_list(alloc_tag_cttype, false);
+	codetag_unlock_module_list(alloc_tag_cttype);
 }
 
 static void print_allocinfo_header(struct seq_buf *buf)
@@ -141,7 +141,7 @@ size_t alloc_tag_top_users(struct codetag_bytes *tags, size_t count, bool can_sl
 		return 0;
 
 	if (can_sleep)
-		codetag_lock_module_list(alloc_tag_cttype, true);
+		codetag_lock_module_list(alloc_tag_cttype);
 	else if (!codetag_trylock_module_list(alloc_tag_cttype))
 		return 0;
 
@@ -166,7 +166,7 @@ size_t alloc_tag_top_users(struct codetag_bytes *tags, size_t count, bool can_sl
 		}
 	}
 
-	codetag_lock_module_list(alloc_tag_cttype, false);
+	codetag_unlock_module_list(alloc_tag_cttype);
 
 	return nr;
 }
