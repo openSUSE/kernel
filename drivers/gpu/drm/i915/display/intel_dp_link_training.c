@@ -1631,7 +1631,8 @@ void intel_dp_start_link_train(struct intel_atomic_state *state,
 		lt_dbg(intel_dp, DP_PHY_DPRX, "Forcing link training failure\n");
 	} else if (passed) {
 		intel_dp->link.seq_train_failures = 0;
-		intel_encoder_link_check_queue_work(encoder, 2000);
+		if (!display->params.no_recheck_dp_link_state)
+			intel_encoder_link_check_queue_work(encoder, 2000);
 		return;
 	}
 
