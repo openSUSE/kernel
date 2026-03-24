@@ -373,30 +373,6 @@ struct cxl_decoder {
 };
 
 /*
- * CXL_DECODER_DEAD prevents endpoints from being reattached to regions
- * while cxld_unregister() is running
- */
-enum cxl_decoder_mode {
-	CXL_DECODER_NONE,
-	CXL_DECODER_RAM,
-	CXL_DECODER_PMEM,
-	CXL_DECODER_DEAD,
-};
-
-static inline const char *cxl_decoder_mode_name(enum cxl_decoder_mode mode)
-{
-	static const char * const names[] = {
-		[CXL_DECODER_NONE] = "none",
-		[CXL_DECODER_RAM] = "ram",
-		[CXL_DECODER_PMEM] = "pmem",
-	};
-
-	if (mode >= CXL_DECODER_NONE && mode < CXL_DECODER_DEAD)
-		return names[mode];
-	return "mixed";
-}
-
-/*
  * Track whether this decoder is reserved for region autodiscovery, or
  * free for userspace provisioning.
  */
@@ -410,16 +386,16 @@ enum cxl_decoder_state {
  * @cxld: base cxl_decoder_object
  * @dpa_res: actively claimed DPA span of this decoder
  * @skip: offset into @dpa_res where @cxld.hpa_range maps
- * @mode: which memory type / access-mode-partition this decoder targets
  * @state: autodiscovery state
+ * @part: partition index this decoder maps
  * @pos: interleave position in @cxld.region
  */
 struct cxl_endpoint_decoder {
 	struct cxl_decoder cxld;
 	struct resource *dpa_res;
 	resource_size_t skip;
-	enum cxl_decoder_mode mode;
 	enum cxl_decoder_state state;
+	int part;
 	int pos;
 };
 
@@ -506,6 +482,11 @@ struct cxl_region_params {
 	resource_size_t cache_size;
 };
 
+enum cxl_partition_mode {
+	CXL_PARTMODE_RAM,
+	CXL_PARTMODE_PMEM,
+};
+
 /*
  * Indicate whether this region has been assembled by autodetection or
  * userspace assembly. Prevent endpoint decoders outside of automatic
@@ -525,7 +506,7 @@ struct cxl_region_params {
  * struct cxl_region - CXL region
  * @dev: This region's device
  * @id: This region's id. Id is globally unique across all regions
- * @mode: Endpoint decoder allocation / access mode
+ * @mode: Operational mode of the mapped capacity
  * @type: Endpoint decoder target type
  * @cxl_nvb: nvdimm bridge for coordinating @cxlr_pmem setup / shutdown
  * @cxlr_pmem: (for pmem regions) cached copy of the nvdimm bridge
@@ -538,7 +519,7 @@ struct cxl_region_params {
 struct cxl_region {
 	struct device dev;
 	int id;
-	enum cxl_decoder_mode mode;
+	enum cxl_partition_mode mode;
 	enum cxl_decoder_type type;
 	struct cxl_nvdimm_bridge *cxl_nvb;
 	struct cxl_pmem_region *cxlr_pmem;
