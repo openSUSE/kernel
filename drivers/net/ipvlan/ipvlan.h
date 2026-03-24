@@ -74,9 +74,6 @@ struct ipvl_dev {
 	DECLARE_BITMAP(mac_filters, IPVLAN_MAC_FILTER_SIZE);
 	netdev_features_t	sfeatures;
 	u32			msg_enable;
-#ifndef __GENKSYMS__
-	spinlock_t              addrs_lock;
-#endif
 };
 
 struct ipvl_addr {
@@ -104,6 +101,9 @@ struct ipvl_port {
 	struct sk_buff_head	backlog;
 	int			count;
 	struct ida		ida;
+#ifndef __GENKSYMS__
+	spinlock_t		addrs_lock; /* guards hash-table and addrs */
+#endif
 };
 
 struct ipvl_skb_cb {
