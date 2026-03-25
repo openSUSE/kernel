@@ -10,6 +10,7 @@
 /**
  * DOC: cxl features
  *
+ * CXL Features:
  * A CXL device that includes a mailbox supports commands that allows
  * listing, getting, and setting of optionally defined features such
  * as memory sparing or post package sparing. Vendors may define custom
