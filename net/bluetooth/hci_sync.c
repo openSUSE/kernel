@@ -1386,10 +1386,12 @@ int hci_setup_ext_adv_instance_sync(struct hci_dev *hdev, u8 instance)
 		hci_cpu_to_le24(adv->min_interval, cp.min_interval);
 		hci_cpu_to_le24(adv->max_interval, cp.max_interval);
 		cp.tx_power = adv->tx_power;
+		cp.sid = adv->sid;
 	} else {
 		hci_cpu_to_le24(hdev->le_adv_min_interval, cp.min_interval);
 		hci_cpu_to_le24(hdev->le_adv_max_interval, cp.max_interval);
 		cp.tx_power = HCI_ADV_TX_POWER_NO_PREFERENCE;
+		cp.sid = 0x00;
 	}
 
 	secondary_adv = (flags & MGMT_ADV_FLAG_SEC_MASK);
@@ -1723,8 +1725,8 @@ static int hci_adv_bcast_annoucement(struct hci_dev *hdev, struct adv_info *adv)
 	return hci_update_adv_data_sync(hdev, adv->instance);
 }
 
-int hci_start_per_adv_sync(struct hci_dev *hdev, u8 instance, u8 data_len,
-			   u8 *data, u32 flags, u16 min_interval,
+int hci_start_per_adv_sync(struct hci_dev *hdev, u8 instance, u8 sid,
+			   u8 data_len, u8 *data, u32 flags, u16 min_interval,
 			   u16 max_interval, u16 sync_interval)
 {
 	struct adv_info *adv = NULL;
@@ -1736,6 +1738,18 @@ int hci_start_per_adv_sync(struct hci_dev *hdev, u8 instance, u8 data_len,
 	if (instance) {
 		adv = hci_find_adv_instance(hdev, instance);
 		if (adv) {
+			if (sid != HCI_SID_INVALID && adv->sid != sid) {
+				/* If the SID don't match attempt to find by
+				 * SID.
+				 */
+				adv = hci_find_adv_sid(hdev, sid);
+				if (!adv) {
+					bt_dev_err(hdev,
+						   "Unable to find adv_info");
+					return -EINVAL;
+				}
+			}
+
 			/* Turn it into periodic advertising */
 			adv->periodic = true;
 			adv->per_adv_data_len = data_len;
@@ -1744,7 +1758,7 @@ int hci_start_per_adv_sync(struct hci_dev *hdev, u8 instance, u8 data_len,
 			adv->flags = flags;
 		} else if (!adv) {
 			/* Create an instance if that could not be found */
-			adv = hci_add_per_instance(hdev, instance, flags,
+			adv = hci_add_per_instance(hdev, instance, sid, flags,
 						   data_len, data,
 						   sync_interval,
 						   sync_interval);
@@ -2929,7 +2943,7 @@ static int hci_le_set_ext_scan_param_sync(struct hci_dev *hdev, u8 type,
 		if (sent) {
 			struct hci_conn *conn;
 
-			conn = hci_conn_hash_lookup_ba(hdev, BIS_LINK,
+			conn = hci_conn_hash_lookup_ba(hdev, PA_LINK,
 						       &sent->bdaddr);
 			if (conn) {
 				struct bt_iso_qos *qos = &conn->iso_qos;
@@ -4388,6 +4402,7 @@ static int hci_le_set_event_mask_sync(struct hci_dev *hdev)
 	if (bis_capable(hdev)) {
 		events[1] |= 0x20;	/* LE PA Report */
 		events[1] |= 0x40;	/* LE PA Sync Established */
+		events[1] |= 0x80;	/* LE PA Sync Lost */
 		events[3] |= 0x04;	/* LE Create BIG Complete */
 		events[3] |= 0x08;	/* LE Terminate BIG Complete */
 		events[3] |= 0x10;	/* LE BIG Sync Established */
@@ -4395,6 +4410,17 @@ static int hci_le_set_event_mask_sync(struct hci_dev *hdev)
 		events[4] |= 0x02;	/* LE BIG Info Advertising Report */
 	}
 
+	if (le_cs_capable(hdev)) {
+		/* Channel Sounding events */
+		events[5] |= 0x08;	/* LE CS Read Remote Supported Cap Complete event */
+		events[5] |= 0x10;	/* LE CS Read Remote FAE Table Complete event */
+		events[5] |= 0x20;	/* LE CS Security Enable Complete event */
+		events[5] |= 0x40;	/* LE CS Config Complete event */
+		events[5] |= 0x80;	/* LE CS Procedure Enable Complete event */
+		events[6] |= 0x01;	/* LE CS Subevent Result event */
+		events[6] |= 0x02;	/* LE CS Subevent Result Continue event */
+		events[6] |= 0x04;	/* LE CS Test End Complete event */
+	}
 	return __hci_cmd_sync_status(hdev, HCI_OP_LE_SET_EVENT_MASK,
 				     sizeof(events), events, HCI_CMD_TIMEOUT);
 }
@@ -4527,21 +4553,41 @@ static int hci_set_le_support_sync(struct hci_dev *hdev)
 }
 
 /* LE Set Host Feature */
-static int hci_le_set_host_feature_sync(struct hci_dev *hdev)
+static int hci_le_set_host_feature_sync(struct hci_dev *hdev, u8 bit, u8 value)
 {
 	struct hci_cp_le_set_host_feature cp;
-
-	if (!iso_capable(hdev))
-		return 0;
 
 	memset(&cp, 0, sizeof(cp));
 
 	/* Connected Isochronous Channels (Host Support) */
-	cp.bit_number = 32;
-	cp.bit_value = iso_enabled(hdev) ? 0x01 : 0x00;
+	cp.bit_number = bit;
+	cp.bit_value = value;
 
 	return __hci_cmd_sync_status(hdev, HCI_OP_LE_SET_HOST_FEATURE,
 				     sizeof(cp), &cp, HCI_CMD_TIMEOUT);
+}
+
+/* Set Host Features, each feature needs to be sent separately since
+ * HCI_OP_LE_SET_HOST_FEATURE doesn't support setting all of them at once.
+ */
+static int hci_le_set_host_features_sync(struct hci_dev *hdev)
+{
+	int err;
+
+	if (cis_capable(hdev)) {
+		/* Connected Isochronous Channels (Host Support) */
+		err = hci_le_set_host_feature_sync(hdev, 32,
+						   (iso_enabled(hdev) ? 0x01 :
+						    0x00));
+		if (err)
+			return err;
+	}
+
+	if (le_cs_capable(hdev))
+		/* Channel Sounding (Host Support) */
+		err = hci_le_set_host_feature_sync(hdev, 47, 0x01);
+
+	return err;
 }
 
 /* LE Controller init stage 3 command sequence */
@@ -4571,7 +4617,7 @@ static const struct hci_init_stage le_init3[] = {
 	/* HCI_OP_WRITE_LE_HOST_SUPPORTED */
 	HCI_INIT(hci_set_le_support_sync),
 	/* HCI_OP_LE_SET_HOST_FEATURE */
-	HCI_INIT(hci_le_set_host_feature_sync),
+	HCI_INIT(hci_le_set_host_features_sync),
 	{}
 };
 
@@ -5493,7 +5539,7 @@ static int hci_disconnect_sync(struct hci_dev *hdev, struct hci_conn *conn,
 {
 	struct hci_cp_disconnect cp;
 
-	if (conn->type == BIS_LINK) {
+	if (conn->type == BIS_LINK || conn->type == PA_LINK) {
 		/* This is a BIS connection, hci_conn_del will
 		 * do the necessary cleanup.
 		 */
@@ -5562,7 +5608,7 @@ static int hci_connect_cancel_sync(struct hci_dev *hdev, struct hci_conn *conn,
 		return HCI_ERROR_LOCAL_HOST_TERM;
 	}
 
-	if (conn->type == BIS_LINK) {
+	if (conn->type == BIS_LINK || conn->type == PA_LINK) {
 		/* There is no way to cancel a BIS without terminating the BIG
 		 * which is done later on connection cleanup.
 		 */
@@ -5627,7 +5673,7 @@ static int hci_reject_conn_sync(struct hci_dev *hdev, struct hci_conn *conn,
 	if (conn->type == CIS_LINK)
 		return hci_le_reject_cis_sync(hdev, conn, reason);
 
-	if (conn->type == BIS_LINK)
+	if (conn->type == BIS_LINK || conn->type == PA_LINK)
 		return -EINVAL;
 
 	if (conn->type == SCO_LINK || conn->type == ESCO_LINK)
@@ -5677,7 +5723,7 @@ int hci_abort_conn_sync(struct hci_dev *hdev, struct hci_conn *conn, u8 reason)
 	}
 
 	/* Cleanup hci_conn object if it cannot be cancelled as it
-	 * likelly means the controller and host stack are out of sync
+	 * likely means the controller and host stack are out of sync
 	 * or in case of LE it was still scanning so it can be cleanup
 	 * safely.
 	 */
@@ -6117,7 +6163,7 @@ static int hci_update_event_filter_sync(struct hci_dev *hdev)
 						 &b->bdaddr,
 						 HCI_CONN_SETUP_AUTO_ON);
 		if (err)
-			bt_dev_dbg(hdev, "Failed to set event filter for %pMR",
+			bt_dev_err(hdev, "Failed to set event filter for %pMR",
 				   &b->bdaddr);
 		else
 			scan = SCAN_PAGE;
@@ -6984,14 +7030,14 @@ static void create_pa_complete(struct hci_dev *hdev, void *data, int err)
 
 	hci_dev_lock(hdev);
 
-	if (!hci_conn_valid(hdev, conn))
+	if (hci_conn_valid(hdev, conn))
 		clear_bit(HCI_CONN_CREATE_PA_SYNC, &conn->flags);
 
 	if (!err)
 		goto unlock;
 
 	/* Add connection to indicate PA sync error */
-	pa_sync = hci_conn_add_unset(hdev, BIS_LINK, BDADDR_ANY,
+	pa_sync = hci_conn_add_unset(hdev, PA_LINK, BDADDR_ANY,
 				     HCI_ROLE_SLAVE);
 
 	if (IS_ERR(pa_sync))

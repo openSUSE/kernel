@@ -4475,6 +4475,7 @@ static void hci_num_comp_pkts_evt(struct hci_dev *hdev, void *data,
 
 		case CIS_LINK:
 		case BIS_LINK:
+		case PA_LINK:
 			if (hdev->iso_pkts) {
 				hdev->iso_cnt += count;
 				if (hdev->iso_cnt > hdev->iso_pkts)
@@ -5772,7 +5773,7 @@ static void le_conn_complete_evt(struct hci_dev *hdev, u8 status,
 	conn->state = BT_CONFIG;
 
 	/* Store current advertising instance as connection advertising instance
-	 * when sotfware rotation is in use so it can be re-enabled when
+	 * when software rotation is in use so it can be re-enabled when
 	 * disconnected.
 	 */
 	if (!ext_adv_capable(hdev))
@@ -5851,6 +5852,29 @@ static void hci_le_enh_conn_complete_evt(struct hci_dev *hdev, void *data,
 			     le16_to_cpu(ev->interval),
 			     le16_to_cpu(ev->latency),
 			     le16_to_cpu(ev->supervision_timeout));
+}
+
+static void hci_le_pa_sync_lost_evt(struct hci_dev *hdev, void *data,
+				    struct sk_buff *skb)
+{
+	struct hci_ev_le_pa_sync_lost *ev = data;
+	u16 handle = le16_to_cpu(ev->handle);
+	struct hci_conn *conn;
+
+	bt_dev_dbg(hdev, "sync handle 0x%4.4x", handle);
+
+	hci_dev_lock(hdev);
+
+	/* Delete the pa sync connection */
+	conn = hci_conn_hash_lookup_pa_sync_handle(hdev, handle);
+	if (conn) {
+		clear_bit(HCI_CONN_BIG_SYNC, &conn->flags);
+		clear_bit(HCI_CONN_PA_SYNC, &conn->flags);
+		hci_disconn_cfm(conn, HCI_ERROR_REMOTE_USER_TERM);
+		hci_conn_del(conn);
+	}
+
+	hci_dev_unlock(hdev);
 }
 
 static void hci_le_ext_adv_term_evt(struct hci_dev *hdev, void *data,
@@ -6409,8 +6433,8 @@ static int hci_le_pa_term_sync(struct hci_dev *hdev, __le16 handle)
 	return hci_send_cmd(hdev, HCI_OP_LE_PA_TERM_SYNC, sizeof(cp), &cp);
 }
 
-static void hci_le_pa_sync_estabilished_evt(struct hci_dev *hdev, void *data,
-					    struct sk_buff *skb)
+static void hci_le_pa_sync_established_evt(struct hci_dev *hdev, void *data,
+					   struct sk_buff *skb)
 {
 	struct hci_ev_le_pa_sync_established *ev = data;
 	int mask = hdev->link_mode;
@@ -6436,7 +6460,7 @@ static void hci_le_pa_sync_estabilished_evt(struct hci_dev *hdev, void *data,
 	conn->sync_handle = le16_to_cpu(ev->handle);
 	conn->sid = HCI_SID_INVALID;
 
-	mask |= hci_proto_connect_ind(hdev, &ev->bdaddr, BIS_LINK,
+	mask |= hci_proto_connect_ind(hdev, &ev->bdaddr, PA_LINK,
 				      &flags);
 	if (!(mask & HCI_LM_ACCEPT)) {
 		hci_le_pa_term_sync(hdev, ev->handle);
@@ -6447,7 +6471,7 @@ static void hci_le_pa_sync_estabilished_evt(struct hci_dev *hdev, void *data,
 		goto unlock;
 
 	/* Add connection to indicate PA sync event */
-	pa_sync = hci_conn_add_unset(hdev, BIS_LINK, BDADDR_ANY,
+	pa_sync = hci_conn_add_unset(hdev, PA_LINK, BDADDR_ANY,
 				     HCI_ROLE_SLAVE);
 
 	if (IS_ERR(pa_sync))
@@ -6478,7 +6502,7 @@ static void hci_le_per_adv_report_evt(struct hci_dev *hdev, void *data,
 
 	hci_dev_lock(hdev);
 
-	mask |= hci_proto_connect_ind(hdev, BDADDR_ANY, BIS_LINK, &flags);
+	mask |= hci_proto_connect_ind(hdev, BDADDR_ANY, PA_LINK, &flags);
 	if (!(mask & HCI_LM_ACCEPT))
 		goto unlock;
 
@@ -6740,8 +6764,8 @@ unlock:
 	hci_dev_unlock(hdev);
 }
 
-static void hci_le_cis_estabilished_evt(struct hci_dev *hdev, void *data,
-					struct sk_buff *skb)
+static void hci_le_cis_established_evt(struct hci_dev *hdev, void *data,
+				       struct sk_buff *skb)
 {
 	struct hci_evt_le_cis_established *ev = data;
 	struct hci_conn *conn;
@@ -6935,7 +6959,8 @@ static void hci_le_create_big_complete_evt(struct hci_dev *hdev, void *data,
 
 	/* Connect all BISes that are bound to the BIG */
 	while ((conn = hci_conn_hash_lookup_big_state(hdev, ev->handle,
-						      BT_BOUND))) {
+						      BT_BOUND,
+						      HCI_ROLE_MASTER))) {
 		if (ev->status) {
 			hci_connect_cfm(conn, ev->status);
 			hci_conn_del(conn);
@@ -6968,7 +6993,7 @@ static void hci_le_create_big_complete_evt(struct hci_dev *hdev, void *data,
 static void hci_le_big_sync_established_evt(struct hci_dev *hdev, void *data,
 					    struct sk_buff *skb)
 {
-	struct hci_evt_le_big_sync_estabilished *ev = data;
+	struct hci_evt_le_big_sync_established *ev = data;
 	struct hci_conn *bis, *conn;
 	int i;
 
@@ -7051,6 +7076,37 @@ unlock:
 	hci_dev_unlock(hdev);
 }
 
+static void hci_le_big_sync_lost_evt(struct hci_dev *hdev, void *data,
+				     struct sk_buff *skb)
+{
+	struct hci_evt_le_big_sync_lost *ev = data;
+	struct hci_conn *bis;
+	bool mgmt_conn = false;
+
+	bt_dev_dbg(hdev, "big handle 0x%2.2x", ev->handle);
+
+	hci_dev_lock(hdev);
+
+	/* Delete each bis connection */
+	while ((bis = hci_conn_hash_lookup_big_state(hdev, ev->handle,
+						     BT_CONNECTED,
+						     HCI_ROLE_SLAVE))) {
+		if (!mgmt_conn) {
+			mgmt_conn = test_and_clear_bit(HCI_CONN_MGMT_CONNECTED,
+						       &bis->flags);
+			mgmt_device_disconnected(hdev, &bis->dst, bis->type,
+						 bis->dst_type, ev->reason,
+						 mgmt_conn);
+		}
+
+		clear_bit(HCI_CONN_BIG_SYNC, &bis->flags);
+		hci_disconn_cfm(bis, ev->reason);
+		hci_conn_del(bis);
+	}
+
+	hci_dev_unlock(hdev);
+}
+
 static void hci_le_big_info_adv_report_evt(struct hci_dev *hdev, void *data,
 					   struct sk_buff *skb)
 {
@@ -7102,7 +7158,7 @@ unlock:
 /* Entries in this table shall have their position according to the subevent
  * opcode they handle so the use of the macros above is recommend since it does
  * attempt to initialize at its proper index using Designated Initializers that
- * way events without a callback function can be ommited.
+ * way events without a callback function can be omitted.
  */
 static const struct hci_le_ev {
 	void (*func)(struct hci_dev *hdev, void *data, struct sk_buff *skb);
@@ -7148,18 +7204,21 @@ static const struct hci_le_ev {
 		     HCI_MAX_EVENT_SIZE),
 	/* [0x0e = HCI_EV_LE_PA_SYNC_ESTABLISHED] */
 	HCI_LE_EV(HCI_EV_LE_PA_SYNC_ESTABLISHED,
-		  hci_le_pa_sync_estabilished_evt,
+		  hci_le_pa_sync_established_evt,
 		  sizeof(struct hci_ev_le_pa_sync_established)),
 	/* [0x0f = HCI_EV_LE_PER_ADV_REPORT] */
 	HCI_LE_EV_VL(HCI_EV_LE_PER_ADV_REPORT,
 				 hci_le_per_adv_report_evt,
 				 sizeof(struct hci_ev_le_per_adv_report),
 				 HCI_MAX_EVENT_SIZE),
+	/* [0x10 = HCI_EV_LE_PA_SYNC_LOST] */
+	HCI_LE_EV(HCI_EV_LE_PA_SYNC_LOST, hci_le_pa_sync_lost_evt,
+		  sizeof(struct hci_ev_le_pa_sync_lost)),
 	/* [0x12 = HCI_EV_LE_EXT_ADV_SET_TERM] */
 	HCI_LE_EV(HCI_EV_LE_EXT_ADV_SET_TERM, hci_le_ext_adv_term_evt,
 		  sizeof(struct hci_evt_le_ext_adv_set_term)),
 	/* [0x19 = HCI_EVT_LE_CIS_ESTABLISHED] */
-	HCI_LE_EV(HCI_EVT_LE_CIS_ESTABLISHED, hci_le_cis_estabilished_evt,
+	HCI_LE_EV(HCI_EVT_LE_CIS_ESTABLISHED, hci_le_cis_established_evt,
 		  sizeof(struct hci_evt_le_cis_established)),
 	/* [0x1a = HCI_EVT_LE_CIS_REQ] */
 	HCI_LE_EV(HCI_EVT_LE_CIS_REQ, hci_le_cis_req_evt,
@@ -7172,7 +7231,12 @@ static const struct hci_le_ev {
 	/* [0x1d = HCI_EV_LE_BIG_SYNC_ESTABLISHED] */
 	HCI_LE_EV_VL(HCI_EVT_LE_BIG_SYNC_ESTABLISHED,
 		     hci_le_big_sync_established_evt,
-		     sizeof(struct hci_evt_le_big_sync_estabilished),
+		     sizeof(struct hci_evt_le_big_sync_established),
+		     HCI_MAX_EVENT_SIZE),
+	/* [0x1e = HCI_EVT_LE_BIG_SYNC_LOST] */
+	HCI_LE_EV_VL(HCI_EVT_LE_BIG_SYNC_LOST,
+		     hci_le_big_sync_lost_evt,
+		     sizeof(struct hci_evt_le_big_sync_lost),
 		     HCI_MAX_EVENT_SIZE),
 	/* [0x22 = HCI_EVT_LE_BIG_INFO_ADV_REPORT] */
 	HCI_LE_EV_VL(HCI_EVT_LE_BIG_INFO_ADV_REPORT,
@@ -7458,7 +7522,7 @@ static const struct hci_ev {
 	/* [0x2c = HCI_EV_SYNC_CONN_COMPLETE] */
 	HCI_EV(HCI_EV_SYNC_CONN_COMPLETE, hci_sync_conn_complete_evt,
 	       sizeof(struct hci_ev_sync_conn_complete)),
-	/* [0x2d = HCI_EV_EXTENDED_INQUIRY_RESULT] */
+	/* [0x2f = HCI_EV_EXTENDED_INQUIRY_RESULT] */
 	HCI_EV_VL(HCI_EV_EXTENDED_INQUIRY_RESULT,
 		  hci_extended_inquiry_result_evt,
 		  sizeof(struct hci_ev_ext_inquiry_result), HCI_MAX_EVENT_SIZE),

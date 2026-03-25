@@ -129,7 +129,9 @@ struct hci_conn_hash {
 	struct list_head list;
 	unsigned int     acl_num;
 	unsigned int     sco_num;
-	unsigned int     iso_num;
+	unsigned int     cis_num;
+	unsigned int     bis_num;
+	unsigned int     pa_num;
 	unsigned int     le_num;
 	unsigned int     le_num_peripheral;
 };
@@ -246,6 +248,7 @@ struct adv_info {
 	__u8	mesh;
 	__u8	instance;
 	__u8	handle;
+	__u8	sid;
 	__u32	flags;
 	__u16	timeout;
 	__u16	remaining_time;
@@ -1009,8 +1012,13 @@ static inline void hci_conn_hash_add(struct hci_dev *hdev, struct hci_conn *c)
 		h->sco_num++;
 		break;
 	case CIS_LINK:
+		h->cis_num++;
+		break;
 	case BIS_LINK:
-		h->iso_num++;
+		h->bis_num++;
+		break;
+	case PA_LINK:
+		h->pa_num++;
 		break;
 	}
 }
@@ -1036,8 +1044,13 @@ static inline void hci_conn_hash_del(struct hci_dev *hdev, struct hci_conn *c)
 		h->sco_num--;
 		break;
 	case CIS_LINK:
+		h->cis_num--;
+		break;
 	case BIS_LINK:
-		h->iso_num--;
+		h->bis_num--;
+		break;
+	case PA_LINK:
+		h->pa_num--;
 		break;
 	}
 }
@@ -1054,8 +1067,11 @@ static inline unsigned int hci_conn_num(struct hci_dev *hdev, __u8 type)
 	case ESCO_LINK:
 		return h->sco_num;
 	case CIS_LINK:
+		return h->cis_num;
 	case BIS_LINK:
-		return h->iso_num;
+		return h->bis_num;
+	case PA_LINK:
+		return h->pa_num;
 	default:
 		return 0;
 	}
@@ -1065,7 +1081,15 @@ static inline unsigned int hci_conn_count(struct hci_dev *hdev)
 {
 	struct hci_conn_hash *c = &hdev->conn_hash;
 
-	return c->acl_num + c->sco_num + c->le_num + c->iso_num;
+	return c->acl_num + c->sco_num + c->le_num + c->cis_num + c->bis_num +
+		c->pa_num;
+}
+
+static inline unsigned int hci_iso_count(struct hci_dev *hdev)
+{
+	struct hci_conn_hash *c = &hdev->conn_hash;
+
+	return c->cis_num + c->bis_num;
 }
 
 static inline bool hci_conn_valid(struct hci_dev *hdev, struct hci_conn *conn)
@@ -1137,7 +1161,7 @@ hci_conn_hash_lookup_create_pa_sync(struct hci_dev *hdev)
 	rcu_read_lock();
 
 	list_for_each_entry_rcu(c, &h->list, list) {
-		if (c->type != BIS_LINK)
+		if (c->type != PA_LINK)
 			continue;
 
 		if (!test_bit(HCI_CONN_CREATE_PA_SYNC, &c->flags))
@@ -1353,7 +1377,7 @@ hci_conn_hash_lookup_big_sync_pend(struct hci_dev *hdev,
 	rcu_read_lock();
 
 	list_for_each_entry_rcu(c, &h->list, list) {
-		if (c->type != BIS_LINK)
+		if (c->type != PA_LINK)
 			continue;
 
 		if (handle == c->iso_qos.bcast.big && num_bis == c->num_bis) {
@@ -1368,7 +1392,8 @@ hci_conn_hash_lookup_big_sync_pend(struct hci_dev *hdev,
 }
 
 static inline struct hci_conn *
-hci_conn_hash_lookup_big_state(struct hci_dev *hdev, __u8 handle,  __u16 state)
+hci_conn_hash_lookup_big_state(struct hci_dev *hdev, __u8 handle, __u16 state,
+			       __u8 role)
 {
 	struct hci_conn_hash *h = &hdev->conn_hash;
 	struct hci_conn  *c;
@@ -1376,7 +1401,7 @@ hci_conn_hash_lookup_big_state(struct hci_dev *hdev, __u8 handle,  __u16 state)
 	rcu_read_lock();
 
 	list_for_each_entry_rcu(c, &h->list, list) {
-		if (c->type != BIS_LINK || c->state != state)
+		if (c->type != BIS_LINK || c->state != state || c->role != role)
 			continue;
 
 		if (handle == c->iso_qos.bcast.big) {
@@ -1422,7 +1447,7 @@ hci_conn_hash_lookup_pa_sync_handle(struct hci_dev *hdev, __u16 sync_handle)
 	rcu_read_lock();
 
 	list_for_each_entry_rcu(c, &h->list, list) {
-		if (c->type != BIS_LINK)
+		if (c->type != PA_LINK)
 			continue;
 
 		/* Ignore the listen hcon, we are looking
@@ -1437,26 +1462,6 @@ hci_conn_hash_lookup_pa_sync_handle(struct hci_dev *hdev, __u16 sync_handle)
 			return c;
 		}
 	}
-	rcu_read_unlock();
-
-	return NULL;
-}
-
-static inline struct hci_conn *hci_conn_hash_lookup_state(struct hci_dev *hdev,
-							__u8 type, __u16 state)
-{
-	struct hci_conn_hash *h = &hdev->conn_hash;
-	struct hci_conn  *c;
-
-	rcu_read_lock();
-
-	list_for_each_entry_rcu(c, &h->list, list) {
-		if (c->type == type && c->state == state) {
-			rcu_read_unlock();
-			return c;
-		}
-	}
-
 	rcu_read_unlock();
 
 	return NULL;
@@ -1579,13 +1584,14 @@ struct hci_conn *hci_connect_sco(struct hci_dev *hdev, int type, bdaddr_t *dst,
 				 u16 timeout);
 struct hci_conn *hci_bind_cis(struct hci_dev *hdev, bdaddr_t *dst,
 			      __u8 dst_type, struct bt_iso_qos *qos);
-struct hci_conn *hci_bind_bis(struct hci_dev *hdev, bdaddr_t *dst,
+struct hci_conn *hci_bind_bis(struct hci_dev *hdev, bdaddr_t *dst, __u8 sid,
 			      struct bt_iso_qos *qos,
 			      __u8 base_len, __u8 *base);
 struct hci_conn *hci_connect_cis(struct hci_dev *hdev, bdaddr_t *dst,
 				 __u8 dst_type, struct bt_iso_qos *qos);
 struct hci_conn *hci_connect_bis(struct hci_dev *hdev, bdaddr_t *dst,
-				 __u8 dst_type, struct bt_iso_qos *qos,
+				 __u8 dst_type, __u8 sid,
+				 struct bt_iso_qos *qos,
 				 __u8 data_len, __u8 *data);
 struct hci_conn *hci_pa_create_sync(struct hci_dev *hdev, bdaddr_t *dst,
 		       __u8 dst_type, __u8 sid, struct bt_iso_qos *qos);
@@ -1860,6 +1866,7 @@ int hci_remove_remote_oob_data(struct hci_dev *hdev, bdaddr_t *bdaddr,
 
 void hci_adv_instances_clear(struct hci_dev *hdev);
 struct adv_info *hci_find_adv_instance(struct hci_dev *hdev, u8 instance);
+struct adv_info *hci_find_adv_sid(struct hci_dev *hdev, u8 sid);
 struct adv_info *hci_get_next_instance(struct hci_dev *hdev, u8 instance);
 struct adv_info *hci_add_adv_instance(struct hci_dev *hdev, u8 instance,
 				      u32 flags, u16 adv_data_len, u8 *adv_data,
@@ -1867,7 +1874,7 @@ struct adv_info *hci_add_adv_instance(struct hci_dev *hdev, u8 instance,
 				      u16 timeout, u16 duration, s8 tx_power,
 				      u32 min_interval, u32 max_interval,
 				      u8 mesh_handle);
-struct adv_info *hci_add_per_instance(struct hci_dev *hdev, u8 instance,
+struct adv_info *hci_add_per_instance(struct hci_dev *hdev, u8 instance, u8 sid,
 				      u32 flags, u8 data_len, u8 *data,
 				      u32 min_interval, u32 max_interval);
 int hci_set_adv_instance_data(struct hci_dev *hdev, u8 instance,
@@ -1964,6 +1971,7 @@ void hci_conn_del_sysfs(struct hci_conn *conn);
 			 ((dev)->le_rx_def_phys & HCI_LE_SET_PHY_CODED))
 
 #define ll_privacy_capable(dev) ((dev)->le_features[0] & HCI_LE_LL_PRIVACY)
+#define ll_privacy_enabled(dev) (le_enabled(dev) && ll_privacy_capable(dev))
 
 #define privacy_mode_capable(dev) (ll_privacy_capable(dev) && \
 				   ((dev)->commands[39] & 0x04))
@@ -2031,6 +2039,12 @@ void hci_conn_del_sysfs(struct hci_conn *conn);
 	((dev)->le_features[3] & HCI_LE_ISO_SYNC_RECEIVER)
 #define sync_recv_enabled(dev) (le_enabled(dev) && sync_recv_capable(dev))
 
+/* Channel sounding support */
+#define le_cs_capable(dev) \
+	((dev)->le_features[5] & HCI_LE_CS)
+#define le_cs_host_capable(dev) \
+	((dev)->le_features[5] & HCI_LE_CS_HOST)
+
 #define mws_transport_config_capable(dev) (((dev)->commands[30] & 0x08) && \
 	(!test_bit(HCI_QUIRK_BROKEN_MWS_TRANSPORT_CONFIG, &(dev)->quirks)))
 
@@ -2050,6 +2064,7 @@ static inline int hci_proto_connect_ind(struct hci_dev *hdev, bdaddr_t *bdaddr,
 
 	case CIS_LINK:
 	case BIS_LINK:
+	case PA_LINK:
 		return iso_connect_ind(hdev, bdaddr, flags);
 
 	default:
