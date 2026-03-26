@@ -243,9 +243,118 @@ dtb-$(CONFIG_ARCH_MXC) += imx8mp-data-modul-edm-sbc.dtb
 dtb-$(CONFIG_ARCH_MXC) += imx8mp-debix-model-a.dtb
 dtb-$(CONFIG_ARCH_MXC) += imx8mp-debix-som-a-bmb-08.dtb
 dtb-$(CONFIG_ARCH_MXC) += imx8mp-dhcom-drc02.dtb
-dtb-$(CONFIG_ARCH_MXC) += imx8mp-dhcom-pdk2.dtb
-dtb-$(CONFIG_ARCH_MXC) += imx8mp-dhcom-pdk3.dtb
-dtb-$(CONFIG_ARCH_MXC) += imx8mp-dhcom-picoitx.dtb
+
+imx8mp-dhcom-pdk2-overlay-505-200-x12-ch101olhlwh-dtbs := \
+	imx8mp-dhcom-pdk2.dtb \
+	imx8mp-dhcom-pdk2-overlay-505-200-x12-ch101olhlwh.dtbo
+
+imx8mp-dhcom-pdk2-overlay-531-100-x21-dtbs := \
+	imx8mp-dhcom-pdk2.dtb \
+	imx8mp-dhcom-pdk2-overlay-531-100-x21.dtbo
+
+imx8mp-dhcom-pdk2-overlay-531-100-x22-dtbs := \
+	imx8mp-dhcom-pdk2.dtb \
+	imx8mp-dhcom-pdk2-overlay-531-100-x22.dtbo
+
+imx8mp-dhcom-pdk2-overlay-560-300-x12-dtbs := \
+	imx8mp-dhcom-pdk2.dtb \
+	imx8mp-dhcom-pdk2-overlay-560-300-x12.dtbo
+
+imx8mp-dhcom-pdk2-overlay-eth1xfast-dtbs := \
+	imx8mp-dhcom-pdk2.dtb \
+	imx8mp-dhcom-som-overlay-eth1xfast.dtbo
+
+imx8mp-dhcom-pdk2-overlay-eth2xfast-dtbs := \
+	imx8mp-dhcom-pdk2.dtb \
+	imx8mp-dhcom-som-overlay-eth2xfast.dtbo \
+	imx8mp-dhcom-pdk-overlay-eth2xfast.dtbo
+
+imx8mp-dhcom-pdk3-overlay-505-200-x36-ch101olhlwh-dtbs := \
+	imx8mp-dhcom-pdk3.dtb \
+	imx8mp-dhcom-pdk3-overlay-505-200-x36-ch101olhlwh.dtbo
+
+imx8mp-dhcom-pdk3-overlay-531-100-x40-dtbs := \
+	imx8mp-dhcom-pdk3.dtb \
+	imx8mp-dhcom-pdk3-overlay-531-100-x40.dtbo
+
+imx8mp-dhcom-pdk3-overlay-531-100-x41-dtbs := \
+	imx8mp-dhcom-pdk3.dtb \
+	imx8mp-dhcom-pdk3-overlay-531-100-x41.dtbo
+
+imx8mp-dhcom-pdk3-overlay-560-300-x36-dtbs := \
+	imx8mp-dhcom-pdk3.dtb \
+	imx8mp-dhcom-pdk3-overlay-560-300-x36.dtbo
+
+imx8mp-dhcom-pdk3-overlay-732-100-x36-dtbs := \
+	imx8mp-dhcom-pdk3.dtb \
+	imx8mp-dhcom-pdk3-overlay-732-100-x36.dtbo
+
+imx8mp-dhcom-pdk3-overlay-ea-murata-2ae-x20-dtbs := \
+	imx8mp-dhcom-pdk3.dtb \
+	imx8mp-dhcom-pdk3-overlay-ea-murata-2ae-x20.dtbo
+
+imx8mp-dhcom-pdk3-overlay-eth1xfast-dtbs := \
+	imx8mp-dhcom-pdk3.dtb \
+	imx8mp-dhcom-som-overlay-eth1xfast.dtbo
+
+imx8mp-dhcom-pdk3-overlay-eth2xfast-dtbs := \
+	imx8mp-dhcom-pdk3.dtb \
+	imx8mp-dhcom-som-overlay-eth2xfast.dtbo \
+	imx8mp-dhcom-pdk-overlay-eth2xfast.dtbo
+
+imx8mp-dhcom-pdk3-overlay-nxp-spf-29853-c1-ov5640-x29-dtbs := \
+	imx8mp-dhcom-pdk3.dtb \
+	imx8mp-dhcom-pdk3-overlay-nxp-spf-29853-c1-ov5640-x29.dtbo
+
+imx8mp-dhcom-pdk3-overlay-nxp-spf-29853-c1-ov5640-x31-dtbs := \
+	imx8mp-dhcom-pdk3.dtb \
+	imx8mp-dhcom-pdk3-overlay-nxp-spf-29853-c1-ov5640-x31.dtbo
+
+dtb-$(CONFIG_ARCH_MXC) += imx8mp-dhcom-som-overlay-eth1xfast.dtbo \
+			  imx8mp-dhcom-som-overlay-eth2xfast.dtbo
+
+dtb-$(CONFIG_ARCH_MXC) += imx8mp-dhcom-pdk-overlay-eth2xfast.dtbo
+
+dtb-$(CONFIG_ARCH_MXC) += imx8mp-dhcom-pdk2.dtb \
+			  imx8mp-dhcom-pdk2-overlay-505-200-x12-ch101olhlwh.dtb \
+			  imx8mp-dhcom-pdk2-overlay-505-200-x12-ch101olhlwh.dtbo \
+			  imx8mp-dhcom-pdk2-overlay-531-100-x21.dtb \
+			  imx8mp-dhcom-pdk2-overlay-531-100-x21.dtbo \
+			  imx8mp-dhcom-pdk2-overlay-531-100-x22.dtb \
+			  imx8mp-dhcom-pdk2-overlay-531-100-x22.dtbo \
+			  imx8mp-dhcom-pdk2-overlay-560-300-x12.dtb \
+			  imx8mp-dhcom-pdk2-overlay-560-300-x12.dtbo \
+			  imx8mp-dhcom-pdk2-overlay-eth1xfast.dtb \
+			  imx8mp-dhcom-pdk2-overlay-eth2xfast.dtb
+
+dtb-$(CONFIG_ARCH_MXC) += imx8mp-dhcom-pdk3.dtb \
+			  imx8mp-dhcom-pdk3-overlay-505-200-x36-ch101olhlwh.dtb \
+			  imx8mp-dhcom-pdk3-overlay-505-200-x36-ch101olhlwh.dtbo \
+			  imx8mp-dhcom-pdk3-overlay-531-100-x40.dtb \
+			  imx8mp-dhcom-pdk3-overlay-531-100-x40.dtbo \
+			  imx8mp-dhcom-pdk3-overlay-531-100-x41.dtb \
+			  imx8mp-dhcom-pdk3-overlay-531-100-x41.dtbo \
+			  imx8mp-dhcom-pdk3-overlay-560-300-x36.dtb \
+			  imx8mp-dhcom-pdk3-overlay-560-300-x36.dtbo \
+			  imx8mp-dhcom-pdk3-overlay-732-100-x36.dtb \
+			  imx8mp-dhcom-pdk3-overlay-732-100-x36.dtbo \
+			  imx8mp-dhcom-pdk3-overlay-ea-murata-2ae-x20.dtb \
+			  imx8mp-dhcom-pdk3-overlay-ea-murata-2ae-x20.dtbo \
+			  imx8mp-dhcom-pdk3-overlay-eth1xfast.dtb \
+			  imx8mp-dhcom-pdk3-overlay-eth2xfast.dtb \
+			  imx8mp-dhcom-pdk3-overlay-nxp-spf-29853-c1-ov5640-x29.dtb \
+			  imx8mp-dhcom-pdk3-overlay-nxp-spf-29853-c1-ov5640-x29.dtbo \
+			  imx8mp-dhcom-pdk3-overlay-nxp-spf-29853-c1-ov5640-x31.dtb \
+			  imx8mp-dhcom-pdk3-overlay-nxp-spf-29853-c1-ov5640-x31.dtbo
+
+imx8mp-dhcom-picoitx-overlay-626-100-x2-ch101olhlwh-dtbs := \
+	imx8mp-dhcom-picoitx.dtb \
+	imx8mp-dhcom-picoitx-overlay-626-100-x2-ch101olhlwh.dtbo
+
+dtb-$(CONFIG_ARCH_MXC) += imx8mp-dhcom-picoitx.dtb \
+			  imx8mp-dhcom-picoitx-overlay-626-100-x2-ch101olhlwh.dtb \
+			  imx8mp-dhcom-picoitx-overlay-626-100-x2-ch101olhlwh.dtbo
+
 dtb-$(CONFIG_ARCH_MXC) += imx8mp-edm-g-wb.dtb
 dtb-$(CONFIG_ARCH_MXC) += imx8mp-evk.dtb
 dtb-$(CONFIG_ARCH_MXC) += imx8mp-frdm.dtb
