@@ -133,6 +133,11 @@ void exynos_drm_gem_destroy(struct exynos_drm_gem *exynos_gem)
 	kfree(exynos_gem);
 }
 
+static void exynos_drm_gem_free_object(struct drm_gem_object *obj)
+{
+	exynos_drm_gem_destroy(to_exynos_gem(obj));
+}
+
 static const struct vm_operations_struct exynos_drm_gem_vm_ops = {
 	.open = drm_gem_vm_open,
 	.close = drm_gem_vm_close,
@@ -316,11 +321,6 @@ int exynos_drm_gem_get_ioctl(struct drm_device *dev, void *data,
 	drm_gem_object_put(obj);
 
 	return 0;
-}
-
-void exynos_drm_gem_free_object(struct drm_gem_object *obj)
-{
-	exynos_drm_gem_destroy(to_exynos_gem(obj));
 }
 
 int exynos_drm_gem_dumb_create(struct drm_file *file_priv,
