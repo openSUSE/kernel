@@ -19,7 +19,6 @@
 
 #define MAX_CRTC	3
 #define MAX_PLANE	5
-#define MAX_FB_BUFFER	4
 
 #define DEFAULT_WIN	0
 
