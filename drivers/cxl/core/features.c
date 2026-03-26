@@ -341,3 +341,21 @@ int cxl_set_feature(struct cxl_mailbox *cxl_mbox,
 		}
 	} while (true);
 }
+ 
+struct cxl_feat_entry *
+cxl_feature_info(struct cxl_features_state *cxlfs,
+		 const uuid_t *uuid)
+{
+	struct cxl_feat_entry *feat;
+
+	if (!cxlfs || !cxlfs->entries)
+		return ERR_PTR(-EOPNOTSUPP);
+
+	for (int i = 0; i < cxlfs->entries->num_features; i++) {
+		feat = &cxlfs->entries->ent[i];
+		if (uuid_equal(uuid, &feat->uuid))
+			return feat;
+	}
+
+	return ERR_PTR(-EINVAL);
+}
