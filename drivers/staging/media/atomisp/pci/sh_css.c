@@ -8196,26 +8196,25 @@ static void ia_css_stream_destroy_isp2401(struct ia_css_stream *stream)
 		unsigned int sp_thread_id;
 		struct sh_css_sp_pipeline_terminal *terminal;
 
-		assert(entry);
-		if (entry) {
-			if (!ia_css_pipeline_get_sp_thread_id(
+		if (!entry)
+			continue;
+
+		if (!ia_css_pipeline_get_sp_thread_id(
 				ia_css_pipe_get_pipe_num(entry), &sp_thread_id))
-				return;
+			continue;
 
-			terminal = &sh_css_sp_group.pipe_io[sp_thread_id].input;
+		terminal = &sh_css_sp_group.pipe_io[sp_thread_id].input;
 
-			for (j = 0; j < IA_CSS_STREAM_MAX_ISYS_STREAM_PER_CH; j++) {
-				ia_css_isys_stream_h isys_stream =
-					&terminal->context.virtual_input_system_stream[j];
-				if (stream->config.isys_config[j].valid && isys_stream->valid)
-					ia_css_isys_stream_destroy(isys_stream);
-			}
+		for (j = 0; j < IA_CSS_STREAM_MAX_ISYS_STREAM_PER_CH; j++) {
+			ia_css_isys_stream_h isys_stream =
+				&terminal->context.virtual_input_system_stream[j];
+			if (stream->config.isys_config[j].valid && isys_stream->valid)
+				ia_css_isys_stream_destroy(isys_stream);
 		}
 	}
 
 	if (stream->config.mode == IA_CSS_INPUT_MODE_BUFFERED_SENSOR) {
 		for (i = 0; i < stream->num_pipes; i++) {
-			struct ia_css_pipe *entry = stream->pipes[i];
 			/*
 			 * free any mipi frames that are remaining:
 			 * some test stream create-destroy cycles do
@@ -8223,8 +8222,8 @@ static void ia_css_stream_destroy_isp2401(struct ia_css_stream *stream)
 			 * and the mipi buffer is not freed in the
 			 * deque function
 			 */
-			if (entry)
-				free_mipi_frames(entry);
+			if (stream->pipes[i])
+				free_mipi_frames(stream->pipes[i]);
 		}
 	}
 	stream_unregister_with_csi_rx(stream);
