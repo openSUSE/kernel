@@ -70,12 +70,6 @@ static void quirk_no_pps_backlight_power_hook(struct intel_display *display)
 	drm_info(display->drm, "Applying no pps backlight power quirk\n");
 }
 
-static void quirk_no_recheck_dp_link_state(struct intel_display *display)
-{
-	intel_set_quirk(display, QUIRK_NO_RECHECK_DP_LINK_STATE);
-	drm_info(display->drm, "Applying no recheck dp link state quirk\n");
-}
-
 static void quirk_fw_sync_len(struct intel_dp *intel_dp)
 {
 	struct intel_display *display = to_intel_display(intel_dp);
@@ -124,12 +118,6 @@ static int intel_dmi_no_pps_backlight(const struct dmi_system_id *id)
 	return 1;
 }
 
-static int intel_dmi_no_recheck_dp_link_state(const struct dmi_system_id *id)
-{
-	DRM_INFO("No recheck dp link state on %s\n", id->ident);
-	return 1;
-}
-
 static const struct intel_dmi_quirk intel_dmi_quirks[] = {
 	{
 		.dmi_id_list = &(const struct dmi_system_id[]) {
@@ -175,20 +163,6 @@ static const struct intel_dmi_quirk intel_dmi_quirks[] = {
 			{ }
 		},
 		.hook = quirk_no_pps_backlight_power_hook,
-	},
-	{
-		.dmi_id_list = &(const struct dmi_system_id[]) {
-			{
-				.callback = intel_dmi_no_recheck_dp_link_state,
-				.ident = "Nodka TPC6000-C152",
-				.matches = {DMI_EXACT_MATCH(DMI_BOARD_VENDOR, "To be filled by O.E.M."),
-					    DMI_EXACT_MATCH(DMI_BOARD_NAME, "JDNPDTJ1900"),
-					    DMI_EXACT_MATCH(DMI_PRODUCT_NAME, "JDNPDTJ1900"),
-					    DMI_EXACT_MATCH(DMI_PRODUCT_SKU, "To be filled by O.E.M."),
-				},
-			},
-		},
-		.hook = quirk_no_recheck_dp_link_state,
 	},
 };
 
