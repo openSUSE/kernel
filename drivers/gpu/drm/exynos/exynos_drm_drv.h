@@ -198,7 +198,6 @@ struct drm_exynos_file_private {
  */
 struct exynos_drm_private {
 	struct device *g2d_dev;
-	struct device *dma_dev;
 	struct device *vidi_dev;
 	void *mapping;
 
@@ -207,13 +206,6 @@ struct exynos_drm_private {
 	spinlock_t		lock;
 	wait_queue_head_t	wait;
 };
-
-static inline struct device *to_dma_dev(struct drm_device *dev)
-{
-	struct exynos_drm_private *priv = dev->dev_private;
-
-	return priv->dma_dev;
-}
 
 static inline bool is_drm_iommu_supported(struct drm_device *drm_dev)
 {
