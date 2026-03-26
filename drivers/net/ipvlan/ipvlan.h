@@ -69,7 +69,7 @@ struct ipvl_dev {
 	DECLARE_BITMAP(mac_filters, IPVLAN_MAC_FILTER_SIZE);
 	netdev_features_t	sfeatures;
 	u32			msg_enable;
-	spinlock_t		addrs_lock;
+	spinlock_t		addrs_lock; /* unused since backport of d3ba32162488 ("ipvlan: Make the addrs_lock be per port") */
 };
 
 struct ipvl_addr {
@@ -98,6 +98,9 @@ struct ipvl_port {
 	struct sk_buff_head	backlog;
 	int			count;
 	struct ida		ida;
+#ifndef __GENKSYMS__
+	spinlock_t		addrs_lock; /* guards hash-table and addrs */
+#endif
 };
 
 struct ipvl_skb_cb {
