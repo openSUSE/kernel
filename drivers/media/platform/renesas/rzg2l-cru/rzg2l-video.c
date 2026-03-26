@@ -591,16 +591,13 @@ static void rzg2l_cru_stop_streaming(struct rzg2l_cru_dev *cru)
 irqreturn_t rzg2l_cru_irq(int irq, void *data)
 {
 	struct rzg2l_cru_dev *cru = data;
-	unsigned int handled = 0;
 	u32 irq_status;
 	u32 amnmbs;
 	int slot;
 
 	irq_status = rzg2l_cru_read(cru, CRUnINTS);
 	if (!irq_status)
-		return IRQ_RETVAL(handled);
-
-	handled = 1;
+		return IRQ_NONE;
 
 	rzg2l_cru_write(cru, CRUnINTS, rzg2l_cru_read(cru, CRUnINTS));
 
@@ -634,7 +631,7 @@ irqreturn_t rzg2l_cru_irq(int irq, void *data)
 	/* Prepare for next frame */
 	rzg2l_cru_fill_hw_slot(cru, slot);
 
-	return IRQ_RETVAL(handled);
+	return IRQ_HANDLED;
 }
 
 irqreturn_t rzg3e_cru_irq(int irq, void *data)
