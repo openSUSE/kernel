@@ -22,8 +22,6 @@
  *	- a new handle to this gem object would be created
  *	by drm_gem_handle_create().
  * @flags: indicate memory type to allocated buffer and cache attruibute.
- * @size: size requested from user, in bytes and this size is aligned
- *	in page unit.
  * @cookie: cookie returned by dma_alloc_attrs
  * @kvaddr: kernel virtual address to allocated memory region (for fbdev)
  * @dma_addr: bus address(accessed by dma) to allocated memory region.
@@ -38,7 +36,6 @@
 struct exynos_drm_gem {
 	struct drm_gem_object	base;
 	unsigned int		flags;
-	unsigned long		size;
 	void			*cookie;
 	void			*kvaddr;
 	dma_addr_t		dma_addr;

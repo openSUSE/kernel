@@ -119,7 +119,7 @@ exynos_user_fb_create(struct drm_device *dev, struct drm_file *file_priv,
 			goto err;
 		}
 
-		if (size > exynos_gem[i]->size) {
+		if (size > exynos_gem[i]->base.size) {
 			i++;
 			ret = -EINVAL;
 			goto err;

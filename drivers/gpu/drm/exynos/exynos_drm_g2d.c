@@ -720,7 +720,7 @@ static int g2d_map_cmdlist_gem(struct g2d_data *g2d,
 			}
 
 			if (!g2d_check_buf_desc_is_valid(g2d, buf_desc,
-							 reg_type, exynos_gem->size)) {
+							 reg_type, exynos_gem->base.size)) {
 				exynos_drm_gem_put(exynos_gem);
 				ret = -EFAULT;
 				goto err;
