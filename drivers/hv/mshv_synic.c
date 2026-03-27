@@ -12,10 +12,15 @@
 #include <linux/mm.h>
 #include <linux/io.h>
 #include <linux/random.h>
+#include <linux/cpuhotplug.h>
+#include <linux/reboot.h>
 #include <asm/mshyperv.h>
 
 #include "mshv_eventfd.h"
 #include "mshv.h"
+
+static int synic_cpuhp_online;
+static struct hv_synic_pages __percpu *synic_pages;
 
 static u32 synic_event_ring_get_queued_port(u32 sint_index)
 {
@@ -26,7 +31,7 @@ static u32 synic_event_ring_get_queued_port(u32 sint_index)
 	u32 message;
 	u8 tail;
 
-	spages = this_cpu_ptr(mshv_root.synic_pages);
+	spages = this_cpu_ptr(synic_pages);
 	event_ring_page = &spages->synic_event_ring_page;
 	synic_eventring_tail = (u8 **)this_cpu_ptr(hv_synic_eventring_tail);
 
@@ -393,7 +398,7 @@ unlock_out:
 
 void mshv_isr(void)
 {
-	struct hv_synic_pages *spages = this_cpu_ptr(mshv_root.synic_pages);
+	struct hv_synic_pages *spages = this_cpu_ptr(synic_pages);
 	struct hv_message_page **msg_page = &spages->hyp_synic_message_page;
 	struct hv_message *msg;
 	bool handled;
@@ -446,7 +451,7 @@ void mshv_isr(void)
 	}
 }
 
-int mshv_synic_init(unsigned int cpu)
+static int mshv_synic_cpu_init(unsigned int cpu)
 {
 	union hv_synic_simp simp;
 	union hv_synic_siefp siefp;
@@ -455,7 +460,7 @@ int mshv_synic_init(unsigned int cpu)
 	union hv_synic_sint sint;
 #endif
 	union hv_synic_scontrol sctrl;
-	struct hv_synic_pages *spages = this_cpu_ptr(mshv_root.synic_pages);
+	struct hv_synic_pages *spages = this_cpu_ptr(synic_pages);
 	struct hv_message_page **msg_page = &spages->hyp_synic_message_page;
 	struct hv_synic_event_flags_page **event_flags_page =
 			&spages->synic_event_flags_page;
@@ -542,14 +547,14 @@ cleanup:
 	return -EFAULT;
 }
 
-int mshv_synic_cleanup(unsigned int cpu)
+static int mshv_synic_cpu_exit(unsigned int cpu)
 {
 	union hv_synic_sint sint;
 	union hv_synic_simp simp;
 	union hv_synic_siefp siefp;
 	union hv_synic_sirbp sirbp;
 	union hv_synic_scontrol sctrl;
-	struct hv_synic_pages *spages = this_cpu_ptr(mshv_root.synic_pages);
+	struct hv_synic_pages *spages = this_cpu_ptr(synic_pages);
 	struct hv_message_page **msg_page = &spages->hyp_synic_message_page;
 	struct hv_synic_event_flags_page **event_flags_page =
 		&spages->synic_event_flags_page;
@@ -662,4 +667,58 @@ mshv_unregister_doorbell(u64 partition_id, int doorbell_portid)
 	hv_call_delete_port(hv_current_partition_id, port_id);
 
 	mshv_portid_free(doorbell_portid);
+}
+
+static int mshv_synic_reboot_notify(struct notifier_block *nb,
+			      unsigned long code, void *unused)
+{
+	if (!hv_root_partition())
+		return 0;
+
+	cpuhp_remove_state(synic_cpuhp_online);
+	return 0;
+}
+
+static struct notifier_block mshv_synic_reboot_nb = {
+	.notifier_call = mshv_synic_reboot_notify,
+};
+
+int __init mshv_synic_init(struct device *dev)
+{
+	int ret = 0;
+
+	synic_pages = alloc_percpu(struct hv_synic_pages);
+	if (!synic_pages) {
+		dev_err(dev, "Failed to allocate percpu synic page\n");
+		return -ENOMEM;
+	}
+
+	ret = cpuhp_setup_state(CPUHP_AP_ONLINE_DYN, "mshv_synic",
+				mshv_synic_cpu_init,
+				mshv_synic_cpu_exit);
+	if (ret < 0) {
+		dev_err(dev, "Failed to setup cpu hotplug state: %i\n", ret);
+		goto free_synic_pages;
+	}
+
+	synic_cpuhp_online = ret;
+
+	ret = register_reboot_notifier(&mshv_synic_reboot_nb);
+	if (ret)
+		goto remove_cpuhp_state;
+
+	return 0;
+
+remove_cpuhp_state:
+	cpuhp_remove_state(synic_cpuhp_online);
+free_synic_pages:
+	free_percpu(synic_pages);
+	return ret;
+}
+
+void mshv_synic_exit(void)
+{
+	unregister_reboot_notifier(&mshv_synic_reboot_nb);
+	cpuhp_remove_state(synic_cpuhp_online);
+	free_percpu(synic_pages);
 }

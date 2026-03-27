@@ -2099,7 +2099,6 @@ mshv_dev_release(struct inode *inode, struct file *filp)
 	return 0;
 }
 
-static int mshv_cpuhp_online;
 static int mshv_root_sched_online;
 
 static const char *scheduler_type_to_string(enum hv_scheduler_type type)
@@ -2284,27 +2283,6 @@ root_scheduler_deinit(void)
 	free_percpu(root_scheduler_output);
 }
 
-static int mshv_reboot_notify(struct notifier_block *nb,
-			      unsigned long code, void *unused)
-{
-	cpuhp_remove_state(mshv_cpuhp_online);
-	return 0;
-}
-
-struct notifier_block mshv_reboot_nb = {
-	.notifier_call = mshv_reboot_notify,
-};
-
-static void mshv_root_partition_exit(void)
-{
-	unregister_reboot_notifier(&mshv_reboot_nb);
-}
-
-static int __init mshv_root_partition_init(struct device *dev)
-{
-	return register_reboot_notifier(&mshv_reboot_nb);
-}
-
 static int __init mshv_init_vmm_caps(struct device *dev)
 {
 	int ret;
@@ -2349,39 +2327,21 @@ static int __init mshv_parent_partition_init(void)
 			MSHV_HV_MAX_VERSION);
 	}
 
-	mshv_root.synic_pages = alloc_percpu(struct hv_synic_pages);
-	if (!mshv_root.synic_pages) {
-		dev_err(dev, "Failed to allocate percpu synic page\n");
-		ret = -ENOMEM;
+	ret = mshv_synic_init(dev);
+	if (ret)
 		goto device_deregister;
-	}
-
-	ret = cpuhp_setup_state(CPUHP_AP_ONLINE_DYN, "mshv_synic",
-				mshv_synic_init,
-				mshv_synic_cleanup);
-	if (ret < 0) {
-		dev_err(dev, "Failed to setup cpu hotplug state: %i\n", ret);
-		goto free_synic_pages;
-	}
-
-	mshv_cpuhp_online = ret;
 
 	ret = mshv_init_vmm_caps(dev);
 	if (ret)
-		goto remove_cpu_state;
+		goto synic_cleanup;
 
 	ret = mshv_retrieve_scheduler_type(dev);
 	if (ret)
-		goto remove_cpu_state;
-
-	if (hv_root_partition())
-		ret = mshv_root_partition_init(dev);
-	if (ret)
-		goto remove_cpu_state;
+		goto synic_cleanup;
 
 	ret = root_scheduler_init(dev);
 	if (ret)
-		goto exit_partition;
+		goto synic_cleanup;
 
 	ret = mshv_debugfs_init();
 	if (ret)
@@ -2402,13 +2362,8 @@ exit_debugfs:
 	mshv_debugfs_exit();
 deinit_root_scheduler:
 	root_scheduler_deinit();
-exit_partition:
-	if (hv_root_partition())
-		mshv_root_partition_exit();
-remove_cpu_state:
-	cpuhp_remove_state(mshv_cpuhp_online);
-free_synic_pages:
-	free_percpu(mshv_root.synic_pages);
+synic_cleanup:
+	mshv_synic_exit();
 device_deregister:
 	misc_deregister(&mshv_dev);
 	return ret;
@@ -2422,10 +2377,7 @@ static void __exit mshv_parent_partition_exit(void)
 	misc_deregister(&mshv_dev);
 	mshv_irqfd_wq_cleanup();
 	root_scheduler_deinit();
-	if (hv_root_partition())
-		mshv_root_partition_exit();
-	cpuhp_remove_state(mshv_cpuhp_online);
-	free_percpu(mshv_root.synic_pages);
+	mshv_synic_exit();
 }
 
 module_init(mshv_parent_partition_init);
