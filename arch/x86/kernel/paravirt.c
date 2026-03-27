@@ -24,6 +24,7 @@
 #include <asm/time.h>
 #include <asm/pgalloc.h>
 #include <asm/irq.h>
+#include <asm/cpuid/api.h>
 #include <asm/delay.h>
 #include <asm/fixmap.h>
 #include <asm/apic.h>
