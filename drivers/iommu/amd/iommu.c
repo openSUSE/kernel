@@ -1266,9 +1266,8 @@ static void build_inv_dte(struct iommu_cmd *cmd, u16 devid)
  * Builds an invalidation address which is suitable for one page or multiple
  * pages. Sets the size bit (S) as needed is more than one page is flushed.
  */
-static inline u64 build_inv_address(u64 address, size_t size)
+static inline u64 build_inv_address(u64 address, u64 last)
 {
-	u64 last = address + size - 1;
 	unsigned int sz_lg2;
 
 	address &= GENMASK_U64(63, 12);
@@ -1303,10 +1302,10 @@ static inline u64 build_inv_address(u64 address, size_t size)
 }
 
 static void build_inv_iommu_pages(struct iommu_cmd *cmd, u64 address,
-				  size_t size, u16 domid,
+				  u64 last, u16 domid,
 				  ioasid_t pasid, bool gn)
 {
-	u64 inv_address = build_inv_address(address, size);
+	u64 inv_address = build_inv_address(address, last);
 
 	memset(cmd, 0, sizeof(*cmd));
 
@@ -1323,10 +1322,10 @@ static void build_inv_iommu_pages(struct iommu_cmd *cmd, u64 address,
 }
 
 static void build_inv_iotlb_pages(struct iommu_cmd *cmd, u16 devid, int qdep,
-				  u64 address, size_t size,
+				  u64 address, u64 last,
 				  ioasid_t pasid, bool gn)
 {
-	u64 inv_address = build_inv_address(address, size);
+	u64 inv_address = build_inv_address(address, last);
 
 	memset(cmd, 0, sizeof(*cmd));
 
@@ -1524,7 +1523,7 @@ static void amd_iommu_flush_tlb_all(struct amd_iommu *iommu)
 
 	for (dom_id = 0; dom_id <= last_bdf; ++dom_id) {
 		struct iommu_cmd cmd;
-		build_inv_iommu_pages(&cmd, 0, CMD_INV_IOMMU_ALL_PAGES_ADDRESS,
+		build_inv_iommu_pages(&cmd, 0, U64_MAX,
 				      dom_id, IOMMU_NO_PASID, false);
 		iommu_queue_command(iommu, &cmd);
 	}
@@ -1536,14 +1535,14 @@ static void amd_iommu_flush_tlb_domid(struct amd_iommu *iommu, u32 dom_id)
 {
 	struct iommu_cmd cmd;
 
-	build_inv_iommu_pages(&cmd, 0, CMD_INV_IOMMU_ALL_PAGES_ADDRESS,
+	build_inv_iommu_pages(&cmd, 0, U64_MAX,
 			      dom_id, IOMMU_NO_PASID, false);
 	iommu_queue_command(iommu, &cmd);
 
 	iommu_completion_wait(iommu);
 }
 
-static int iommu_flush_pages_v1_hdom_ids(struct protection_domain *pdom, u64 address, size_t size)
+static int iommu_flush_pages_v1_hdom_ids(struct protection_domain *pdom, u64 address, u64 last)
 {
 	int ret = 0;
 	struct amd_iommu_viommu *aviommu;
@@ -1560,7 +1559,7 @@ static int iommu_flush_pages_v1_hdom_ids(struct protection_domain *pdom, u64 add
 
 			pr_debug("%s: iommu=%#x, hdom_id=%#x\n", __func__,
 				 iommu->devid, gdom_info->hdom_id);
-			build_inv_iommu_pages(&cmd, address, size, gdom_info->hdom_id,
+			build_inv_iommu_pages(&cmd, address, last, gdom_info->hdom_id,
 					      IOMMU_NO_PASID, false);
 			ret |= iommu_queue_command(iommu, &cmd);
 		}
@@ -1617,14 +1616,14 @@ void amd_iommu_flush_all_caches(struct amd_iommu *iommu)
  * Command send function for flushing on-device TLB
  */
 static int device_flush_iotlb(struct iommu_dev_data *dev_data, u64 address,
-			      size_t size, ioasid_t pasid, bool gn)
+			      u64 last, ioasid_t pasid, bool gn)
 {
 	struct amd_iommu *iommu = get_amd_iommu_from_dev_data(dev_data);
 	struct iommu_cmd cmd;
 	int qdep = dev_data->ats_qdep;
 
 	build_inv_iotlb_pages(&cmd, dev_data->devid, qdep, address,
-			      size, pasid, gn);
+			      last, pasid, gn);
 
 	return iommu_queue_command(iommu, &cmd);
 }
@@ -1668,7 +1667,7 @@ static int device_flush_dte(struct iommu_dev_data *dev_data)
 
 	if (dev_data->ats_enabled) {
 		/* Invalidate the entire contents of an IOTLB */
-		ret = device_flush_iotlb(dev_data, 0, ~0UL,
+		ret = device_flush_iotlb(dev_data, 0, U64_MAX,
 					 IOMMU_NO_PASID, false);
 	}
 
@@ -1676,7 +1675,7 @@ static int device_flush_dte(struct iommu_dev_data *dev_data)
 }
 
 static int domain_flush_pages_v2(struct protection_domain *pdom,
-				 u64 address, size_t size)
+				 u64 address, u64 last)
 {
 	struct iommu_dev_data *dev_data;
 	struct iommu_cmd cmd;
@@ -1687,7 +1686,7 @@ static int domain_flush_pages_v2(struct protection_domain *pdom,
 		struct amd_iommu *iommu = get_amd_iommu_from_dev(dev_data->dev);
 		u16 domid = dev_data->gcr3_info.domid;
 
-		build_inv_iommu_pages(&cmd, address, size,
+		build_inv_iommu_pages(&cmd, address, last,
 				      domid, IOMMU_NO_PASID, true);
 
 		ret |= iommu_queue_command(iommu, &cmd);
@@ -1697,7 +1696,7 @@ static int domain_flush_pages_v2(struct protection_domain *pdom,
 }
 
 static int domain_flush_pages_v1(struct protection_domain *pdom,
-				 u64 address, size_t size)
+				 u64 address, u64 last)
 {
 	struct pdom_iommu_info *pdom_iommu_info;
 	struct iommu_cmd cmd;
@@ -1706,7 +1705,7 @@ static int domain_flush_pages_v1(struct protection_domain *pdom,
 
 	lockdep_assert_held(&pdom->lock);
 
-	build_inv_iommu_pages(&cmd, address, size,
+	build_inv_iommu_pages(&cmd, address, last,
 			      pdom->id, IOMMU_NO_PASID, false);
 
 	xa_for_each(&pdom->iommu_array, i, pdom_iommu_info) {
@@ -1726,7 +1725,7 @@ static int domain_flush_pages_v1(struct protection_domain *pdom,
 	 * See drivers/iommu/amd/nested.c: amd_iommu_alloc_domain_nested()
 	 */
 	if (!list_empty(&pdom->viommu_list))
-		ret |= iommu_flush_pages_v1_hdom_ids(pdom, address, size);
+		ret |= iommu_flush_pages_v1_hdom_ids(pdom, address, last);
 
 	return ret;
 }
@@ -1736,7 +1735,7 @@ static int domain_flush_pages_v1(struct protection_domain *pdom,
  * It flushes range of PTEs of the domain.
  */
 static void __domain_flush_pages(struct protection_domain *domain,
-				 u64 address, size_t size)
+				 u64 address, u64 last)
 {
 	struct iommu_dev_data *dev_data;
 	int ret = 0;
@@ -1747,9 +1746,9 @@ static void __domain_flush_pages(struct protection_domain *domain,
 
 	if (pdom_is_v2_pgtbl_mode(domain)) {
 		gn = true;
-		ret = domain_flush_pages_v2(domain, address, size);
+		ret = domain_flush_pages_v2(domain, address, last);
 	} else {
-		ret = domain_flush_pages_v1(domain, address, size);
+		ret = domain_flush_pages_v1(domain, address, last);
 	}
 
 	list_for_each_entry(dev_data, &domain->dev_list, list) {
@@ -1757,7 +1756,7 @@ static void __domain_flush_pages(struct protection_domain *domain,
 		if (!dev_data->ats_enabled)
 			continue;
 
-		ret |= device_flush_iotlb(dev_data, address, size, pasid, gn);
+		ret |= device_flush_iotlb(dev_data, address, last, pasid, gn);
 	}
 
 	WARN_ON(ret);
@@ -1770,7 +1769,7 @@ void amd_iommu_domain_flush_pages(struct protection_domain *domain,
 
 	if (likely(!amd_iommu_np_cache) ||
 		size >= (1ULL<<52)) {
-		__domain_flush_pages(domain, address, size);
+		__domain_flush_pages(domain, address, address + size - 1);
 
 		/* Wait until IOMMU TLB and all device IOTLB flushes are complete */
 		domain_flush_complete(domain);
@@ -1807,7 +1806,7 @@ void amd_iommu_domain_flush_pages(struct protection_domain *domain,
 
 		flush_size = 1ul << min_alignment;
 
-		__domain_flush_pages(domain, address, flush_size);
+		__domain_flush_pages(domain, address, address + flush_size - 1);
 		address += flush_size;
 		size -= flush_size;
 	}
@@ -1824,17 +1823,17 @@ static void amd_iommu_domain_flush_all(struct protection_domain *domain)
 }
 
 void amd_iommu_dev_flush_pasid_pages(struct iommu_dev_data *dev_data,
-				     ioasid_t pasid, u64 address, size_t size)
+				     ioasid_t pasid, u64 address, u64 last)
 {
 	struct iommu_cmd cmd;
 	struct amd_iommu *iommu = get_amd_iommu_from_dev(dev_data->dev);
 
-	build_inv_iommu_pages(&cmd, address, size,
+	build_inv_iommu_pages(&cmd, address, last,
 			      dev_data->gcr3_info.domid, pasid, true);
 	iommu_queue_command(iommu, &cmd);
 
 	if (dev_data->ats_enabled)
-		device_flush_iotlb(dev_data, address, size, pasid, true);
+		device_flush_iotlb(dev_data, address, last, pasid, true);
 
 	iommu_completion_wait(iommu);
 }
@@ -1842,8 +1841,7 @@ void amd_iommu_dev_flush_pasid_pages(struct iommu_dev_data *dev_data,
 static void dev_flush_pasid_all(struct iommu_dev_data *dev_data,
 				ioasid_t pasid)
 {
-	amd_iommu_dev_flush_pasid_pages(dev_data, pasid, 0,
-					CMD_INV_IOMMU_ALL_PAGES_ADDRESS);
+	amd_iommu_dev_flush_pasid_pages(dev_data, pasid, 0, U64_MAX);
 }
 
 int amd_iommu_complete_ppr(struct device *dev, u32 pasid, int status, int tag)
