@@ -37,8 +37,13 @@
 
 /* Intel Bluetooth PCIe device id table */
 static const struct pci_device_id btintel_pcie_table[] = {
+	/* BlazarI, Wildcat Lake */
 	{ BTINTEL_PCI_DEVICE(0x4D76, PCI_ANY_ID) },
+	/* BlazarI, Lunar Lake */
 	{ BTINTEL_PCI_DEVICE(0xA876, PCI_ANY_ID) },
+	/* Scorpious, Panther Lake-H484 */
+	{ BTINTEL_PCI_DEVICE(0xE376, PCI_ANY_ID) },
+	 /* Scorpious, Panther Lake-H404 */
 	{ BTINTEL_PCI_DEVICE(0xE476, PCI_ANY_ID) },
 	{ 0 }
 };
@@ -2084,6 +2089,7 @@ static int btintel_pcie_setup_internal(struct hci_dev *hdev)
 	switch (INTEL_HW_VARIANT(ver_tlv.cnvi_bt)) {
 	case 0x1e:	/* BzrI */
 	case 0x1f:	/* ScP  */
+	case 0x22:	/* BzrIW */
 		/* Display version information of TLV type */
 		btintel_version_info_tlv(hdev, &ver_tlv);
 
@@ -2164,6 +2170,7 @@ btintel_pcie_get_recovery(struct pci_dev *pdev, struct device *dev)
 {
 	struct btintel_pcie_dev_recovery *tmp, *data = NULL;
 	const char *name = pci_name(pdev);
+	const size_t name_len = strlen(name) + 1;
 	struct hci_dev *hdev = to_hci_dev(dev);
 
 	spin_lock(&btintel_pcie_recovery_lock);
@@ -2180,11 +2187,11 @@ btintel_pcie_get_recovery(struct pci_dev *pdev, struct device *dev)
 		return data;
 	}
 
-	data = kzalloc(struct_size(data, name, strlen(name) + 1), GFP_ATOMIC);
+	data = kzalloc(struct_size(data, name, name_len), GFP_ATOMIC);
 	if (!data)
 		return NULL;
 
-	strscpy_pad(data->name, name, strlen(name) + 1);
+	strscpy(data->name, name, name_len);
 	spin_lock(&btintel_pcie_recovery_lock);
 	list_add_tail(&data->list, &btintel_pcie_recovery_list);
 	spin_unlock(&btintel_pcie_recovery_lock);
@@ -2337,6 +2344,13 @@ static void btintel_pcie_hw_error(struct hci_dev *hdev, u8 code)
 	btintel_pcie_reset(hdev);
 }
 
+static bool btintel_pcie_wakeup(struct hci_dev *hdev)
+{
+	struct btintel_pcie_data *data = hci_get_drvdata(hdev);
+
+	return device_may_wakeup(&data->pdev->dev);
+}
+
 static const struct {
 	u16 opcode;
 	const char *desc;
@@ -2419,6 +2433,7 @@ static int btintel_pcie_setup_hdev(struct btintel_pcie_data *data)
 	hdev->set_diag = btintel_set_diag;
 	hdev->set_bdaddr = btintel_set_bdaddr;
 	hdev->reset = btintel_pcie_reset;
+	hdev->wakeup = btintel_pcie_wakeup;
 	hdev->hci_drv = &btintel_pcie_hci_drv;
 
 	err = hci_register_dev(hdev);
@@ -2558,11 +2573,100 @@ static void btintel_pcie_coredump(struct device *dev)
 }
 #endif
 
+static int btintel_pcie_suspend_late(struct device *dev, pm_message_t mesg)
+{
+	struct pci_dev *pdev = to_pci_dev(dev);
+	struct btintel_pcie_data *data;
+	ktime_t start;
+	u32 dxstate;
+	int err;
+
+	data = pci_get_drvdata(pdev);
+
+	dxstate = (mesg.event == PM_EVENT_SUSPEND ?
+		   BTINTEL_PCIE_STATE_D3_HOT : BTINTEL_PCIE_STATE_D3_COLD);
+
+	data->gp0_received = false;
+
+	start = ktime_get();
+
+	/* Refer: 6.4.11.7 -> Platform power management */
+	btintel_pcie_wr_sleep_cntrl(data, dxstate);
+	err = wait_event_timeout(data->gp0_wait_q, data->gp0_received,
+				 msecs_to_jiffies(BTINTEL_DEFAULT_INTR_TIMEOUT_MS));
+	if (err == 0) {
+		bt_dev_err(data->hdev,
+			   "Timeout (%u ms) on alive interrupt for D3 entry",
+			   BTINTEL_DEFAULT_INTR_TIMEOUT_MS);
+		return -EBUSY;
+	}
+
+	bt_dev_dbg(data->hdev,
+		   "device entered into d3 state from d0 in %lld us",
+		   ktime_to_us(ktime_get() - start));
+
+	return 0;
+}
+
+static int btintel_pcie_suspend(struct device *dev)
+{
+	return btintel_pcie_suspend_late(dev, PMSG_SUSPEND);
+}
+
+static int btintel_pcie_hibernate(struct device *dev)
+{
+	return btintel_pcie_suspend_late(dev, PMSG_HIBERNATE);
+}
+
+static int btintel_pcie_freeze(struct device *dev)
+{
+	return btintel_pcie_suspend_late(dev, PMSG_FREEZE);
+}
+
+static int btintel_pcie_resume(struct device *dev)
+{
+	struct pci_dev *pdev = to_pci_dev(dev);
+	struct btintel_pcie_data *data;
+	ktime_t start;
+	int err;
+
+	data = pci_get_drvdata(pdev);
+	data->gp0_received = false;
+
+	start = ktime_get();
+
+	/* Refer: 6.4.11.7 -> Platform power management */
+	btintel_pcie_wr_sleep_cntrl(data, BTINTEL_PCIE_STATE_D0);
+	err = wait_event_timeout(data->gp0_wait_q, data->gp0_received,
+				 msecs_to_jiffies(BTINTEL_DEFAULT_INTR_TIMEOUT_MS));
+	if (err == 0) {
+		bt_dev_err(data->hdev,
+			   "Timeout (%u ms) on alive interrupt for D0 entry",
+			   BTINTEL_DEFAULT_INTR_TIMEOUT_MS);
+		return -EBUSY;
+	}
+
+	bt_dev_dbg(data->hdev,
+		    "device entered into d0 state from d3 in %lld us",
+		     ktime_to_us(ktime_get() - start));
+	return 0;
+}
+
+static const struct dev_pm_ops btintel_pcie_pm_ops = {
+	.suspend = btintel_pcie_suspend,
+	.resume = btintel_pcie_resume,
+	.freeze = btintel_pcie_freeze,
+	.thaw = btintel_pcie_resume,
+	.poweroff = btintel_pcie_hibernate,
+	.restore = btintel_pcie_resume,
+};
+
 static struct pci_driver btintel_pcie_driver = {
 	.name = KBUILD_MODNAME,
 	.id_table = btintel_pcie_table,
 	.probe = btintel_pcie_probe,
 	.remove = btintel_pcie_remove,
+	.driver.pm = pm_sleep_ptr(&btintel_pcie_pm_ops),
 #ifdef CONFIG_DEV_COREDUMP
 	.driver.coredump = btintel_pcie_coredump
 #endif
