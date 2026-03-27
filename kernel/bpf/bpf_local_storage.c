@@ -182,16 +182,28 @@ static void bpf_local_storage_free(struct bpf_local_storage *local_storage,
 		call_rcu(&local_storage->rcu, bpf_local_storage_free_rcu);
 }
 
+/* rcu callback for bpf_ma == false */
+static void __bpf_selem_free_rcu(struct rcu_head *rcu)
+{
+	struct bpf_local_storage_elem *selem;
+	struct bpf_local_storage_map *smap;
+
+	selem = container_of(rcu, struct bpf_local_storage_elem, rcu);
+	/* smap may have already cleared and freed fields. */
+	smap = rcu_dereference_check(SDATA(selem)->smap, 1);
+
+	if (smap)
+		bpf_obj_free_fields(smap->map.record, SDATA(selem)->data);
+	kfree(selem);
+}
+
 /* rcu tasks trace callback for bpf_ma == false */
 static void __bpf_selem_free_trace_rcu(struct rcu_head *rcu)
 {
-	struct bpf_local_storage_elem *selem;
-
-	selem = container_of(rcu, struct bpf_local_storage_elem, rcu);
 	if (rcu_trace_implies_rcu_gp())
-		kfree(selem);
+		__bpf_selem_free_rcu(rcu);
 	else
-		kfree_rcu(selem, rcu);
+		call_rcu(rcu, __bpf_selem_free_rcu);
 }
 
 /* Handle bpf_ma == false */
@@ -199,7 +211,7 @@ static void __bpf_selem_free(struct bpf_local_storage_elem *selem,
 			     bool vanilla_rcu)
 {
 	if (vanilla_rcu)
-		kfree_rcu(selem, rcu);
+		call_rcu(&selem->rcu, __bpf_selem_free_rcu);
 	else
 		call_rcu_tasks_trace(&selem->rcu, __bpf_selem_free_trace_rcu);
 }
@@ -213,9 +225,8 @@ static void bpf_selem_free_rcu(struct rcu_head *rcu)
 	/* The bpf_local_storage_map_free will wait for rcu_barrier */
 	smap = rcu_dereference_check(SDATA(selem)->smap, 1);
 
-	migrate_disable();
-	bpf_obj_free_fields(smap->map.record, SDATA(selem)->data);
-	migrate_enable();
+	if (smap)
+		bpf_obj_free_fields(smap->map.record, SDATA(selem)->data);
 	bpf_mem_cache_raw_free(selem);
 }
 
@@ -237,7 +248,6 @@ void bpf_selem_free(struct bpf_local_storage_elem *selem,
 		 * for task storage, so this bpf_obj_free_fields() won't unpin
 		 * any uptr.
 		 */
-		bpf_obj_free_fields(smap->map.record, SDATA(selem)->data);
 		__bpf_selem_free(selem, reuse_now);
 		return;
 	}
@@ -912,10 +922,10 @@ void bpf_local_storage_map_free(struct bpf_map *map,
 	 */
 	synchronize_rcu();
 
+	/* smap remains in use regardless of bpf_ma, so wait unconditionally. */
+	rcu_barrier_tasks_trace();
+	rcu_barrier();
 	if (smap->bpf_ma) {
-		rcu_barrier_tasks_trace();
-		if (!rcu_trace_implies_rcu_gp())
-			rcu_barrier();
 		bpf_mem_alloc_destroy(&smap->selem_ma);
 		bpf_mem_alloc_destroy(&smap->storage_ma);
 	}
