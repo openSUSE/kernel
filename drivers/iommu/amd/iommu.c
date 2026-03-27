@@ -1268,39 +1268,37 @@ static void build_inv_dte(struct iommu_cmd *cmd, u16 devid)
  */
 static inline u64 build_inv_address(u64 address, size_t size)
 {
-	u64 pages, end, msb_diff;
+	u64 last = address + size - 1;
+	unsigned int sz_lg2;
 
-	pages = iommu_num_pages(address, size, PAGE_SIZE);
-
-	if (pages == 1)
-		return address & PAGE_MASK;
-
-	end = address + size - 1;
-
-	/*
-	 * msb_diff would hold the index of the most significant bit that
-	 * flipped between the start and end.
-	 */
-	msb_diff = fls64(end ^ address) - 1;
+	address &= GENMASK_U64(63, 12);
+	sz_lg2 = fls64(address ^ last);
+	if (sz_lg2 <= 12)
+		return address;
 
 	/*
-	 * Bits 63:52 are sign extended. If for some reason bit 51 is different
-	 * between the start and the end, invalidate everything.
+	 * Encode sz_lg2 according to Table 14: Example Page Size Encodings
+	 *
+	 * See "Note *":
+	 *   Address bits 51:32 can be used to encode page sizes greater
+	 *   that 4 Gbytes.
+	 * Which we take to mean that the highest page size has bit
+	 *  [51]=0, [50:12]=1
+	 * and that coding happens when sz_lg2 is 52. Fall back to full
+	 * invalidation if the size is too big.
+	 *
 	 */
-	if (unlikely(msb_diff > 51)) {
-		address = CMD_INV_IOMMU_ALL_PAGES_ADDRESS;
-	} else {
-		/*
-		 * The msb-bit must be clear on the address. Just set all the
-		 * lower bits.
-		 */
-		address |= (1ull << msb_diff) - 1;
-	}
+	if (unlikely(sz_lg2 > 52))
+		return (CMD_INV_IOMMU_ALL_PAGES_ADDRESS & PAGE_MASK) |
+		       CMD_INV_IOMMU_PAGES_SIZE_MASK;
 
-	/* Clear bits 11:0 */
-	address &= PAGE_MASK;
-
-	/* Set the size bit - we flush more than one 4kb page */
+	/*
+	 * The sz_lg2 calculation with fls() ensures that:
+	 *   address & BIT(sz_lg2 - 1) == 0
+	 * Therefore only the 1's need to be added. 8KB requires no 1's
+	 */
+	if (sz_lg2 > 13)
+		address |= GENMASK_U64(sz_lg2 - 2, 12);
 	return address | CMD_INV_IOMMU_PAGES_SIZE_MASK;
 }
 
