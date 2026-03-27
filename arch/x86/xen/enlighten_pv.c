@@ -1429,6 +1429,7 @@ asmlinkage __visible void __init xen_start_kernel(struct start_info *si)
 	xen_build_dynamic_phys_to_machine();
 
 	/* Work out if we support NX */
+	cpuid_scan_cpu(&boot_cpu_data);
 	get_cpu_cap(&boot_cpu_data);
 	x86_configure_nx();
 

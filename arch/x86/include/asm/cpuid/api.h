@@ -7,6 +7,7 @@
 #include <linux/build_bug.h>
 #include <linux/types.h>
 
+#include <asm/processor.h>
 #include <asm/string.h>
 
 /*
@@ -526,5 +527,13 @@ static inline bool cpuid_amd_hygon_has_l3_cache(void)
 	__cpuid_assert_subleaf_range(_cpuinfo, _leaf);				\
 	__cpuid_table_nr_filled_subleaves(&(_cpuinfo)->cpuid, _leaf, n);	\
 })
+
+/*
+ * CPUID parser exported APIs:
+ */
+
+void cpuid_scan_cpu(struct cpuinfo_x86 *c);
+void cpuid_refresh_leaf(struct cpuinfo_x86 *c, u32 leaf);
+void cpuid_refresh_range(struct cpuinfo_x86 *c, u32 start, u32 end);
 
 #endif /* _ASM_X86_CPUID_API_H */
