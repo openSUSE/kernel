@@ -76,6 +76,7 @@ void spmi_device_remove(struct spmi_device *sdev);
  * @cmd:	sends a non-data command sequence on the SPMI bus.
  * @read_cmd:	sends a register read command sequence on the SPMI bus.
  * @write_cmd:	sends a register write command sequence on the SPMI bus.
+ * @priv:	array of private data.
  */
 struct spmi_controller {
 	struct device		dev;
@@ -85,6 +86,7 @@ struct spmi_controller {
 			    u8 sid, u16 addr, u8 *buf, size_t len);
 	int	(*write_cmd)(struct spmi_controller *ctrl, u8 opcode,
 			     u8 sid, u16 addr, const u8 *buf, size_t len);
+	u8	priv[];
 };
 
 static inline struct spmi_controller *to_spmi_controller(struct device *d)
