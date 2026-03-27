@@ -37,6 +37,8 @@
 
 #define DRIVER_NAME "timberdale"
 
+#define GPIO_NR_PINS	16
+
 struct timberdale_device {
 	resource_size_t		ctl_mapbase;
 	unsigned char __iomem   *ctl_membase;
