@@ -1288,7 +1288,7 @@ static inline u64 build_inv_address(u64 address, u64 last)
 	 *
 	 */
 	if (unlikely(sz_lg2 > 52))
-		return (CMD_INV_IOMMU_ALL_PAGES_ADDRESS & PAGE_MASK) |
+		return CMD_INV_IOMMU_ALL_PAGES_ADDRESS |
 		       CMD_INV_IOMMU_PAGES_SIZE_MASK;
 
 	/*
