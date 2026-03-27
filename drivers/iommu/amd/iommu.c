@@ -1763,13 +1763,13 @@ static void __domain_flush_pages(struct protection_domain *domain,
 }
 
 void amd_iommu_domain_flush_pages(struct protection_domain *domain,
-				  u64 address, size_t size)
+				  u64 address, u64 last)
 {
 	lockdep_assert_held(&domain->lock);
 
 	if (likely(!amd_iommu_np_cache) ||
-		size >= (1ULL<<52)) {
-		__domain_flush_pages(domain, address, address + size - 1);
+	    unlikely(address == 0 && last == U64_MAX)) {
+		__domain_flush_pages(domain, address, last);
 
 		/* Wait until IOMMU TLB and all device IOTLB flushes are complete */
 		domain_flush_complete(domain);
@@ -1787,28 +1787,17 @@ void amd_iommu_domain_flush_pages(struct protection_domain *domain,
 	 * between the natural alignment of the address that we flush and the
 	 * greatest naturally aligned region that fits in the range.
 	 */
-	while (size != 0) {
-		int addr_alignment = __ffs(address);
-		int size_alignment = __fls(size);
-		int min_alignment;
-		size_t flush_size;
+	while (address <= last) {
+		unsigned int sz_lg2 = ilog2(last - address + 1);
+		u64 flush_last;
 
-		/*
-		 * size is always non-zero, but address might be zero, causing
-		 * addr_alignment to be negative. As the casting of the
-		 * argument in __ffs(address) to long might trim the high bits
-		 * of the address on x86-32, cast to long when doing the check.
-		 */
-		if (likely((unsigned long)address != 0))
-			min_alignment = min(addr_alignment, size_alignment);
-		else
-			min_alignment = size_alignment;
+		if (likely(address))
+			sz_lg2 = min_t(unsigned int, sz_lg2, __ffs64(address));
 
-		flush_size = 1ul << min_alignment;
-
-		__domain_flush_pages(domain, address, address + flush_size - 1);
-		address += flush_size;
-		size -= flush_size;
+		flush_last = address + (1ULL << sz_lg2) - 1;
+		__domain_flush_pages(domain, address, flush_last);
+		if (check_add_overflow(flush_last, 1, &address))
+			break;
 	}
 
 	/* Wait until IOMMU TLB and all device IOTLB flushes are complete */
@@ -1818,8 +1807,7 @@ void amd_iommu_domain_flush_pages(struct protection_domain *domain,
 /* Flush the whole IO/TLB for a given protection domain - including PDE */
 static void amd_iommu_domain_flush_all(struct protection_domain *domain)
 {
-	amd_iommu_domain_flush_pages(domain, 0,
-				     CMD_INV_IOMMU_ALL_PAGES_ADDRESS);
+	amd_iommu_domain_flush_pages(domain, 0, U64_MAX);
 }
 
 void amd_iommu_dev_flush_pasid_pages(struct iommu_dev_data *dev_data,
@@ -2620,7 +2608,7 @@ static int amd_iommu_iotlb_sync_map(struct iommu_domain *dom,
 		return 0;
 
 	spin_lock_irqsave(&domain->lock, flags);
-	amd_iommu_domain_flush_pages(domain, iova, size);
+	amd_iommu_domain_flush_pages(domain, iova, iova + size - 1);
 	spin_unlock_irqrestore(&domain->lock, flags);
 	return 0;
 }
@@ -2642,8 +2630,7 @@ static void amd_iommu_iotlb_sync(struct iommu_domain *domain,
 	unsigned long flags;
 
 	spin_lock_irqsave(&dom->lock, flags);
-	amd_iommu_domain_flush_pages(dom, gather->start,
-				     gather->end - gather->start + 1);
+	amd_iommu_domain_flush_pages(dom, gather->start, gather->end);
 	spin_unlock_irqrestore(&dom->lock, flags);
 	iommu_put_pages_list(&gather->freelist);
 }
