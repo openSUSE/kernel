@@ -704,6 +704,9 @@ static int tls_init(struct sock *sk)
 	struct tls_context *ctx;
 	int rc = 0;
 
+	pr_warn_once("TLS disabled due to security issues\n");
+	return -ENOTSUPP;
+
 	if (tls_hw_prot(sk))
 		goto out;
 
