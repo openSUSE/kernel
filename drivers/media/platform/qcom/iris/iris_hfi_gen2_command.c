@@ -1315,21 +1315,7 @@ static const struct iris_hfi_session_ops iris_hfi_gen2_session_ops = {
 	.session_close = iris_hfi_gen2_session_close,
 };
 
-static const struct iris_hfi_sys_ops iris_hfi_gen2_sys_ops = {
-	.sys_init = iris_hfi_gen2_sys_init,
-	.sys_image_version = iris_hfi_gen2_sys_image_version,
-	.sys_interframe_powercollapse = iris_hfi_gen2_sys_interframe_powercollapse,
-	.sys_pc_prep = iris_hfi_gen2_sys_pc_prep,
-
-	.sys_hfi_response_handler = iris_hfi_gen2_response_handler,
-};
-
-void iris_hfi_gen2_sys_ops_init(struct iris_core *core)
-{
-	core->hfi_sys_ops = &iris_hfi_gen2_sys_ops;
-}
-
-struct iris_inst *iris_hfi_gen2_get_instance(void)
+static struct iris_inst *iris_hfi_gen2_get_instance(void)
 {
 	struct iris_inst_hfi_gen2 *out;
 
@@ -1341,4 +1327,20 @@ struct iris_inst *iris_hfi_gen2_get_instance(void)
 	out->inst.hfi_session_ops = &iris_hfi_gen2_session_ops;
 
 	return &out->inst;
+}
+
+static const struct iris_hfi_sys_ops iris_hfi_gen2_sys_ops = {
+	.sys_init = iris_hfi_gen2_sys_init,
+	.sys_image_version = iris_hfi_gen2_sys_image_version,
+	.sys_interframe_powercollapse = iris_hfi_gen2_sys_interframe_powercollapse,
+	.sys_pc_prep = iris_hfi_gen2_sys_pc_prep,
+
+	.sys_hfi_response_handler = iris_hfi_gen2_response_handler,
+
+	.sys_get_instance = iris_hfi_gen2_get_instance,
+};
+
+void iris_hfi_gen2_sys_ops_init(struct iris_core *core)
+{
+	core->hfi_sys_ops = &iris_hfi_gen2_sys_ops;
 }
