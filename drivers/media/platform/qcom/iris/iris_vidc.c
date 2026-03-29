@@ -224,7 +224,7 @@ fail_v4l2_fh_deinit:
 
 static void iris_session_close(struct iris_inst *inst)
 {
-	const struct iris_hfi_command_ops *hfi_ops = inst->core->hfi_ops;
+	const struct iris_hfi_session_ops *hfi_ops = inst->hfi_session_ops;
 	bool wait_for_response = true;
 	int ret;
 
