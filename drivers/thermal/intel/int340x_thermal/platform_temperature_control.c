@@ -138,7 +138,7 @@ static void ptc_mmio_write(struct pci_dev *pdev, u32 offset, int index, u32 valu
 
 	reg_val = readq((void __iomem *) (proc_priv->mmio_base + offset));
 	reg_val &= ~mask;
-	reg_val |= (value << ptc_mmio_regs[index].shift);
+	reg_val |= ((u64)value << ptc_mmio_regs[index].shift);
 	writeq(reg_val, (void __iomem *) (proc_priv->mmio_base + offset));
 }
 
