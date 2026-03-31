@@ -52,10 +52,10 @@ static struct fuse_ring_ent *uring_cmd_to_ring_ent(struct io_uring_cmd *cmd)
 static void fuse_uring_flush_bg(struct fuse_ring_queue *queue)
 {
 	struct fuse_ring *ring = queue->ring;
-	struct fuse_conn *fc = ring->fc;
+	struct fuse_chan *fch = ring->chan;
 
 	lockdep_assert_held(&queue->lock);
-	lockdep_assert_held(&fc->chan->bg_lock);
+	lockdep_assert_held(&fch->bg_lock);
 
 	/*
 	 * Allow one bg request per queue, ignoring global fc limits.
@@ -63,14 +63,14 @@ static void fuse_uring_flush_bg(struct fuse_ring_queue *queue)
 	 * eliminates the need for remote queue wake-ups when global
 	 * limits are met but this queue has no more waiting requests.
 	 */
-	while ((fc->chan->active_background < fc->chan->max_background ||
+	while ((fch->active_background < fch->max_background ||
 		!queue->active_background) &&
 	       (!list_empty(&queue->fuse_req_bg_queue))) {
 		struct fuse_req *req;
 
 		req = list_first_entry(&queue->fuse_req_bg_queue,
 				       struct fuse_req, list);
-		fc->chan->active_background++;
+		fch->active_background++;
 		queue->active_background++;
 
 		list_move_tail(&req->list, &queue->fuse_req_queue);
@@ -82,7 +82,7 @@ static void fuse_uring_req_end(struct fuse_ring_ent *ent, struct fuse_req *req,
 {
 	struct fuse_ring_queue *queue = ent->queue;
 	struct fuse_ring *ring = queue->ring;
-	struct fuse_conn *fc = ring->fc;
+	struct fuse_chan *fch = ring->chan;
 
 	lockdep_assert_not_held(&queue->lock);
 	spin_lock(&queue->lock);
@@ -90,10 +90,10 @@ static void fuse_uring_req_end(struct fuse_ring_ent *ent, struct fuse_req *req,
 	list_del_init(&req->list);
 	if (test_bit(FR_BACKGROUND, &req->flags)) {
 		queue->active_background--;
-		spin_lock(&fc->chan->bg_lock);
-		fuse_request_bg_finish(fc->chan, req);
+		spin_lock(&fch->bg_lock);
+		fuse_request_bg_finish(fch, req);
 		fuse_uring_flush_bg(queue);
-		spin_unlock(&fc->chan->bg_lock);
+		spin_unlock(&fch->bg_lock);
 	}
 
 	spin_unlock(&queue->lock);
@@ -125,19 +125,19 @@ void fuse_uring_abort_end_requests(struct fuse_ring *ring)
 {
 	int qid;
 	struct fuse_ring_queue *queue;
-	struct fuse_conn *fc = ring->fc;
+	struct fuse_chan *fch = ring->chan;
 
 	for (qid = 0; qid < ring->nr_queues; qid++) {
 		queue = READ_ONCE(ring->queues[qid]);
 		if (!queue)
 			continue;
 
-		WARN_ON_ONCE(ring->fc->chan->max_background != UINT_MAX);
+		WARN_ON_ONCE(fch->max_background != UINT_MAX);
 		spin_lock(&queue->lock);
 		queue->stopped = true;
-		spin_lock(&fc->chan->bg_lock);
+		spin_lock(&fch->bg_lock);
 		fuse_uring_flush_bg(queue);
-		spin_unlock(&fc->chan->bg_lock);
+		spin_unlock(&fch->bg_lock);
 		spin_unlock(&queue->lock);
 		fuse_uring_abort_end_queue_requests(queue);
 	}
@@ -259,7 +259,7 @@ static struct fuse_ring *fuse_uring_create(struct fuse_chan *fch)
 	init_waitqueue_head(&ring->stop_waitq);
 
 	ring->nr_queues = nr_queues;
-	ring->fc = fch->conn;
+	ring->chan = fch;
 	ring->max_payload_sz = max_payload_size;
 	smp_store_release(&fch->ring, ring);
 
@@ -275,7 +275,7 @@ out_err:
 static struct fuse_ring_queue *fuse_uring_create_queue(struct fuse_ring *ring,
 						       int qid)
 {
-	struct fuse_conn *fc = ring->fc;
+	struct fuse_chan *fch = ring->chan;
 	struct fuse_ring_queue *queue;
 	struct list_head *pq;
 
@@ -303,9 +303,9 @@ static struct fuse_ring_queue *fuse_uring_create_queue(struct fuse_ring *ring,
 	queue->fpq.processing = pq;
 	fuse_pqueue_init(&queue->fpq);
 
-	spin_lock(&fc->chan->lock);
+	spin_lock(&fch->lock);
 	if (ring->queues[qid]) {
-		spin_unlock(&fc->chan->lock);
+		spin_unlock(&fch->lock);
 		kfree(queue->fpq.processing);
 		kfree(queue);
 		return ring->queues[qid];
@@ -315,7 +315,7 @@ static struct fuse_ring_queue *fuse_uring_create_queue(struct fuse_ring *ring,
 	 * write_once and lock as the caller mostly doesn't take the lock at all
 	 */
 	WRITE_ONCE(ring->queues[qid], queue);
-	spin_unlock(&fc->chan->lock);
+	spin_unlock(&fch->lock);
 
 	return queue;
 }
@@ -471,7 +471,7 @@ static void fuse_uring_async_stop_queues(struct work_struct *work)
 				      FUSE_URING_TEARDOWN_INTERVAL);
 	} else {
 		wake_up_all(&ring->stop_waitq);
-		fuse_conn_put(ring->fc);
+		fuse_conn_put(ring->chan->conn);
 	}
 }
 
@@ -483,7 +483,7 @@ void fuse_uring_stop_queues(struct fuse_ring *ring)
 	fuse_uring_teardown_all_queues(ring);
 
 	if (atomic_read(&ring->queue_refs) > 0) {
-		fuse_conn_get(ring->fc);
+		fuse_conn_get(ring->chan->conn);
 		ring->teardown_time = jiffies;
 		INIT_DELAYED_WORK(&ring->async_teardown_work,
 				  fuse_uring_async_stop_queues);
@@ -540,8 +540,7 @@ static void fuse_uring_prepare_cancel(struct io_uring_cmd *cmd, int issue_flags,
  * Checks for errors and stores it into the request
  */
 static int fuse_uring_out_header_has_err(struct fuse_out_header *oh,
-					 struct fuse_req *req,
-					 struct fuse_conn *fc)
+					 struct fuse_req *req)
 {
 	int err;
 
@@ -835,14 +834,13 @@ static void fuse_uring_commit(struct fuse_ring_ent *ent, struct fuse_req *req,
 			      unsigned int issue_flags)
 {
 	struct fuse_ring *ring = ent->queue->ring;
-	struct fuse_conn *fc = ring->fc;
 	ssize_t err = -EFAULT;
 
 	if (copy_from_user(&req->out.h, &ent->headers->in_out,
 			   sizeof(req->out.h)))
 		goto out;
 
-	err = fuse_uring_out_header_has_err(&req->out.h, req, fc);
+	err = fuse_uring_out_header_has_err(&req->out.h, req);
 	if (err) {
 		/* req->out.h.error already set */
 		goto out;
@@ -1006,19 +1004,19 @@ static int fuse_uring_do_register(struct fuse_ring_ent *ent,
 {
 	struct fuse_ring_queue *queue = ent->queue;
 	struct fuse_ring *ring = queue->ring;
-	struct fuse_conn *fc = ring->fc;
-	struct fuse_iqueue *fiq = &fc->chan->iq;
+	struct fuse_chan *fch = ring->chan;
+	struct fuse_iqueue *fiq = &fch->iq;
 
-	spin_lock(&fc->chan->lock);
+	spin_lock(&fch->lock);
 	/* abort teardown path is running or has run */
-	if (!fc->chan->connected) {
-		spin_unlock(&fc->chan->lock);
+	if (!fch->connected) {
+		spin_unlock(&fch->lock);
 		if (atomic_dec_and_test(&ring->queue_refs))
 			wake_up_all(&ring->stop_waitq);
 		kfree(ent);
 		return -ECONNABORTED;
 	}
-	spin_unlock(&fc->chan->lock);
+	spin_unlock(&fch->lock);
 
 	fuse_uring_prepare_cancel(cmd, issue_flags, ent);
 
@@ -1033,7 +1031,7 @@ static int fuse_uring_do_register(struct fuse_ring_ent *ent,
 		if (ready) {
 			WRITE_ONCE(fiq->ops, &fuse_io_uring_ops);
 			smp_store_release(&ring->ready, true);
-			wake_up_all(&fc->chan->blocked_waitq);
+			wake_up_all(&fch->blocked_waitq);
 		}
 	}
 	return 0;
