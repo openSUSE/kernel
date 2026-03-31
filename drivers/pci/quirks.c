@@ -31,6 +31,7 @@
 #include <linux/nvme.h>
 #include <linux/platform_data/x86/apple.h>
 #include <linux/pm_runtime.h>
+#include <linux/sizes.h>
 #include <linux/suspend.h>
 #include <linux/switchtec.h>
 #include "pci.h"
@@ -588,8 +589,7 @@ static void quirk_extend_bar_to_page(struct pci_dev *dev)
 		const char *r_name = pci_resource_name(dev, i);
 
 		if (r->flags & IORESOURCE_MEM && resource_size(r) < PAGE_SIZE) {
-			r->end = PAGE_SIZE - 1;
-			r->start = 0;
+			resource_set_range(r, 0, PAGE_SIZE);
 			r->flags |= IORESOURCE_UNSET;
 			pci_info(dev, "%s %pR: expanded to page size\n",
 				 r_name, r);
@@ -608,8 +608,7 @@ static void quirk_s3_64M(struct pci_dev *dev)
 
 	if (!IS_ALIGNED(r->start, SZ_64M) || resource_size(r) != SZ_64M) {
 		r->flags |= IORESOURCE_UNSET;
-		r->start = 0;
-		r->end = 0x3ffffff;
+		resource_set_range(r, 0, SZ_64M);
 	}
 }
 DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_S3,	PCI_DEVICE_ID_S3_868,		quirk_s3_64M);
@@ -620,7 +619,7 @@ static void quirk_io(struct pci_dev *dev, int pos, unsigned int size,
 {
 	u32 region;
 	struct pci_bus_region bus_region;
-	struct resource *res = dev->resource + pos;
+	struct resource *res = pci_resource_n(dev, pos);
 	const char *res_name = pci_resource_name(dev, pos);
 
 	pci_read_config_dword(dev, PCI_BASE_ADDRESS_0 + (pos << 2), &region);
@@ -670,7 +669,7 @@ static void quirk_io_region(struct pci_dev *dev, int port,
 {
 	u16 region;
 	struct pci_bus_region bus_region;
-	struct resource *res = dev->resource + nr;
+	struct resource *res = pci_resource_n(dev, nr);
 
 	pci_read_config_word(dev, port, &region);
 	region &= ~(size - 1);
@@ -1344,8 +1343,7 @@ static void quirk_dunord(struct pci_dev *dev)
 	struct resource *r = &dev->resource[1];
 
 	r->flags |= IORESOURCE_UNSET;
-	r->start = 0;
-	r->end = 0xffffff;
+	resource_set_range(r, 0, SZ_16M);
 }
 DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_DUNORD,	PCI_DEVICE_ID_DUNORD_I3000,	quirk_dunord);
 
@@ -2342,8 +2340,7 @@ static void quirk_tc86c001_ide(struct pci_dev *dev)
 
 	if (r->start & 0x8) {
 		r->flags |= IORESOURCE_UNSET;
-		r->start = 0;
-		r->end = 0xf;
+		resource_set_range(r, 0, SZ_16);
 	}
 }
 DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_TOSHIBA_2,
@@ -2371,8 +2368,7 @@ static void quirk_plx_pci9050(struct pci_dev *dev)
 			pci_info(dev, "Re-allocating PLX PCI 9050 BAR %u to length 256 to avoid bit 7 bug\n",
 				 bar);
 			r->flags |= IORESOURCE_UNSET;
-			r->start = 0;
-			r->end = 0xff;
+			resource_set_range(r, 0, SZ_256);
 		}
 }
 DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_PLX, PCI_DEVICE_ID_PLX_9050,
@@ -3525,13 +3521,13 @@ static void quirk_intel_ntb(struct pci_dev *dev)
 	if (rc)
 		return;
 
-	dev->resource[2].end = dev->resource[2].start + ((u64) 1 << val) - 1;
+	resource_set_size(&dev->resource[2], (resource_size_t)1 << val);
 
 	rc = pci_read_config_byte(dev, 0x00D1, &val);
 	if (rc)
 		return;
 
-	dev->resource[4].end = dev->resource[4].start + ((u64) 1 << val) - 1;
+	resource_set_size(&dev->resource[4], (resource_size_t)1 << val);
 }
 DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x0e08, quirk_intel_ntb);
 DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x0e0d, quirk_intel_ntb);

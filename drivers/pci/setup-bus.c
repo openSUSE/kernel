@@ -246,8 +246,7 @@ static void reassign_resources_sorted(struct list_head *realloc_head,
 		add_size = add_res->add_size;
 		align = add_res->min_align;
 		if (!resource_size(res)) {
-			res->start = align;
-			res->end = res->start + add_size - 1;
+			resource_set_range(res, align, add_size);
 			if (pci_assign_resource(add_res->dev, idx))
 				reset_resource(res);
 		} else {
@@ -941,8 +940,7 @@ static void pbus_size_io(struct pci_bus *bus, resource_size_t min_size,
 		return;
 	}
 
-	b_res->start = min_align;
-	b_res->end = b_res->start + size0 - 1;
+	resource_set_range(b_res, min_align, size0);
 	b_res->flags |= IORESOURCE_STARTALIGN;
 	if (bus->self && size1 > size0 && realloc_head) {
 		add_to_list(realloc_head, bus->self, b_res, size1-size0,
@@ -1097,17 +1095,16 @@ static int pbus_size_mem(struct pci_bus *bus, unsigned long mask,
 			     (r->flags & mask) != type3))
 				continue;
 			r_size = resource_size(r);
-#ifdef CONFIG_PCI_IOV
+
 			/* Put SRIOV requested res to the optional list */
-			if (realloc_head && i >= PCI_IOV_RESOURCES &&
-					i <= PCI_IOV_RESOURCE_END) {
+			if (realloc_head && pci_resource_is_iov(i)) {
 				add_align = max(pci_resource_alignment(dev, r), add_align);
 				r->end = r->start - 1;
 				add_to_list(realloc_head, dev, r, r_size, 0 /* Don't care */);
 				children_add_size += r_size;
 				continue;
 			}
-#endif
+
 			/*
 			 * aligns[0] is for 1MB (since bridge memory
 			 * windows are always at least 1MB aligned), so
@@ -1221,8 +1218,7 @@ static void pci_bus_size_cardbus(struct pci_bus *bus,
 	 * Reserve some resources for CardBus.  We reserve a fixed amount
 	 * of bus space for CardBus bridges.
 	 */
-	b_res->start = pci_cardbus_io_size;
-	b_res->end = b_res->start + pci_cardbus_io_size - 1;
+	resource_set_range(b_res, pci_cardbus_io_size, pci_cardbus_io_size);
 	b_res->flags |= IORESOURCE_IO | IORESOURCE_STARTALIGN;
 	if (realloc_head) {
 		b_res->end -= pci_cardbus_io_size;
@@ -1234,8 +1230,7 @@ handle_b_res_1:
 	b_res = &bridge->resource[PCI_CB_BRIDGE_IO_1_WINDOW];
 	if (b_res->parent)
 		goto handle_b_res_2;
-	b_res->start = pci_cardbus_io_size;
-	b_res->end = b_res->start + pci_cardbus_io_size - 1;
+	resource_set_range(b_res, pci_cardbus_io_size, pci_cardbus_io_size);
 	b_res->flags |= IORESOURCE_IO | IORESOURCE_STARTALIGN;
 	if (realloc_head) {
 		b_res->end -= pci_cardbus_io_size;
@@ -1268,8 +1263,8 @@ handle_b_res_2:
 	 * Otherwise, allocate one region of twice the size.
 	 */
 	if (ctrl & PCI_CB_BRIDGE_CTL_PREFETCH_MEM0) {
-		b_res->start = pci_cardbus_mem_size;
-		b_res->end = b_res->start + pci_cardbus_mem_size - 1;
+		resource_set_range(b_res, pci_cardbus_mem_size,
+				   pci_cardbus_mem_size);
 		b_res->flags |= IORESOURCE_MEM | IORESOURCE_PREFETCH |
 				    IORESOURCE_STARTALIGN;
 		if (realloc_head) {
@@ -1286,8 +1281,7 @@ handle_b_res_3:
 	b_res = &bridge->resource[PCI_CB_BRIDGE_MEM_1_WINDOW];
 	if (b_res->parent)
 		goto handle_done;
-	b_res->start = pci_cardbus_mem_size;
-	b_res->end = b_res->start + b_res_3_size - 1;
+	resource_set_range(b_res, pci_cardbus_mem_size, b_res_3_size);
 	b_res->flags |= IORESOURCE_MEM | IORESOURCE_STARTALIGN;
 	if (realloc_head) {
 		b_res->end -= b_res_3_size;
@@ -1798,7 +1792,8 @@ static int iov_resources_unassigned(struct pci_dev *dev, void *data)
 	bool *unassigned = data;
 
 	for (i = 0; i < PCI_SRIOV_NUM_BARS; i++) {
-		struct resource *r = &dev->resource[i + PCI_IOV_RESOURCES];
+		int idx = pci_resource_num_from_vf_bar(i);
+		struct resource *r = &dev->resource[idx];
 		struct pci_bus_region region;
 
 		/* Not assigned or rejected by kernel? */
@@ -1866,7 +1861,7 @@ static void adjust_bridge_window(struct pci_dev *bridge, struct resource *res,
 		return;
 	}
 
-	res->end = res->start + new_size - 1;
+	resource_set_size(res, new_size);
 
 	/* If the resource is part of the add_list, remove it now */
 	if (add_list)
@@ -2029,8 +2024,8 @@ static void pci_bus_distribute_available_resources(struct pci_bus *bus,
 		 * what is available).
 		 */
 		align = pci_resource_alignment(dev, res);
-		io.end = align ? io.start + ALIGN_DOWN(io_per_b, align) - 1
-			       : io.start + io_per_b - 1;
+		resource_set_size(&io, align ? ALIGN_DOWN(io_per_b, align)
+					     : io_per_b);
 
 		/*
 		 * The x_per_b holds the extra resource space that can be
@@ -2042,15 +2037,15 @@ static void pci_bus_distribute_available_resources(struct pci_bus *bus,
 
 		res = &dev->resource[PCI_BRIDGE_MEM_WINDOW];
 		align = pci_resource_alignment(dev, res);
-		mmio.end = align ? mmio.start + ALIGN_DOWN(mmio_per_b, align) - 1
-				 : mmio.start + mmio_per_b - 1;
+		resource_set_size(&mmio, align ? ALIGN_DOWN(mmio_per_b, align)
+					       : mmio_per_b);
 		mmio.start -= resource_size(res);
 
 		res = &dev->resource[PCI_BRIDGE_PREF_MEM_WINDOW];
 		align = pci_resource_alignment(dev, res);
-		mmio_pref.end = align ? mmio_pref.start +
-					ALIGN_DOWN(mmio_pref_per_b, align) - 1
-				      : mmio_pref.start + mmio_pref_per_b - 1;
+		resource_set_size(&mmio_pref,
+				  align ? ALIGN_DOWN(mmio_pref_per_b, align)
+					: mmio_pref_per_b);
 		mmio_pref.start -= resource_size(res);
 
 		pci_bus_distribute_available_resources(b, add_list, io, mmio,

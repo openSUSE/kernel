@@ -380,7 +380,8 @@ struct kfd_dev {
 	/* bitmap for dynamic doorbell allocation from doorbell object */
 	unsigned long *doorbell_bitmap;
 
-	atomic_t kfd_processes_count;
+	/* for dynamic partitioning */
+	int kfd_dev_lock;
 };
 
 enum kfd_mempool {
@@ -1545,7 +1546,7 @@ static inline bool kfd_flush_tlb_after_unmap(struct kfd_dev *dev)
 int kfd_send_exception_to_runtime(struct kfd_process *p,
 				unsigned int queue_id,
 				uint64_t error_reason);
-bool kfd_is_locked(void);
+bool kfd_is_locked(struct kfd_dev *kfd);
 
 /* Compute profile */
 void kfd_inc_compute_active(struct kfd_node *dev);

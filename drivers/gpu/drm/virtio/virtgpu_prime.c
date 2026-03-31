@@ -333,6 +333,7 @@ struct drm_gem_object *virtgpu_gem_prime_import(struct drm_device *dev,
 
 	obj->import_attach = attach;
 	get_dma_buf(buf);
+	bo->dma_buf = buf;
 
 	ret = virtgpu_dma_buf_init_obj(dev, bo, attach);
 	if (ret < 0)
