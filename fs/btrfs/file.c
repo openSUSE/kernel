@@ -1223,8 +1223,11 @@ static int copy_one_range(struct btrfs_inode *inode, struct iov_iter *iter,
 		return ret;
 	reserved_len = ret;
 	/* Write range must be inside the reserved range. */
-	ASSERT(reserved_start <= start);
-	ASSERT(start + write_bytes <= reserved_start + reserved_len);
+	ASSERT(reserved_start <= start, "reserved_start=%llu start=%llu",
+	       reserved_start, start);
+	ASSERT(start + write_bytes <= reserved_start + reserved_len,
+	       "start=%llu write_bytes=%zu reserved_start=%llu reserved_len=%llu",
+	       start, write_bytes, reserved_start, reserved_len);
 
 again:
 	ret = balance_dirty_pages_ratelimited_flags(inode->vfs_inode.i_mapping,

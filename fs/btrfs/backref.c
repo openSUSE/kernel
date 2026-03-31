@@ -2367,7 +2367,7 @@ int tree_backref_for_extent(unsigned long *ptr, struct extent_buffer *eb,
 		info = (struct btrfs_tree_block_info *)(ei + 1);
 		*out_level = btrfs_tree_block_level(eb, info);
 	} else {
-		ASSERT(key->type == BTRFS_METADATA_ITEM_KEY);
+		ASSERT(key->type == BTRFS_METADATA_ITEM_KEY, "key->type=%hhu", key->type);
 		*out_level = (u8)key->offset;
 	}
 
@@ -3199,7 +3199,7 @@ static int handle_direct_tree_backref(struct btrfs_backref_cache *cache,
 	struct btrfs_backref_node *upper;
 	struct rb_node *rb_node;
 
-	ASSERT(ref_key->type == BTRFS_SHARED_BLOCK_REF_KEY);
+	ASSERT(ref_key->type == BTRFS_SHARED_BLOCK_REF_KEY, "ref_key->type=%hhu", ref_key->type);
 
 	/* Only reloc root uses backref pointing to itself */
 	if (ref_key->objectid == ref_key->offset) {

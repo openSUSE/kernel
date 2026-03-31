@@ -69,7 +69,8 @@ static int copy_inline_to_page(struct btrfs_inode *inode,
 	struct address_space *mapping = inode->vfs_inode.i_mapping;
 	int ret;
 
-	ASSERT(IS_ALIGNED(file_offset, block_size));
+	ASSERT(IS_ALIGNED(file_offset, block_size), "file_offset=%llu block_size=%u",
+	       file_offset, block_size);
 
 	/*
 	 * We have flushed and locked the ranges of the source and destination
@@ -458,7 +459,7 @@ process_slot:
 		    key.objectid != btrfs_ino(BTRFS_I(src)))
 			break;
 
-		ASSERT(key.type == BTRFS_EXTENT_DATA_KEY);
+		ASSERT(key.type == BTRFS_EXTENT_DATA_KEY, "key.type=%u", key.type);
 
 		extent = btrfs_item_ptr(leaf, slot,
 					struct btrfs_file_extent_item);
