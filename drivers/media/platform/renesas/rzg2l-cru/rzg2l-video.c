@@ -627,9 +627,6 @@ irqreturn_t rzg2l_cru_irq(int irq, void *data)
 		vb2_buffer_done(&cru->queue_buf[slot]->vb2_buf,
 				VB2_BUF_STATE_DONE);
 		cru->queue_buf[slot] = NULL;
-	} else {
-		/* Scratch buffer was used, dropping frame. */
-		dev_dbg(cru->dev, "Dropping frame %u\n", cru->sequence);
 	}
 
 	cru->sequence++;
@@ -656,8 +653,6 @@ irqreturn_t rzg3e_cru_irq(int irq, void *data)
 	slot = cru->active_slot;
 	cru->active_slot = rzg2l_cru_slot_next(cru, cru->active_slot);
 
-	dev_dbg(cru->dev, "Current written slot: %d\n", slot);
-
 	/* Capture frame */
 	if (cru->queue_buf[slot]) {
 		struct vb2_v4l2_buffer *buf = cru->queue_buf[slot];
@@ -667,9 +662,6 @@ irqreturn_t rzg3e_cru_irq(int irq, void *data)
 		buf->vb2_buf.timestamp = ktime_get_ns();
 		vb2_buffer_done(&buf->vb2_buf, VB2_BUF_STATE_DONE);
 		cru->queue_buf[slot] = NULL;
-	} else {
-		/* Scratch buffer was used, dropping frame. */
-		dev_dbg(cru->dev, "Dropping frame %u\n", cru->sequence);
 	}
 
 	cru->sequence++;
