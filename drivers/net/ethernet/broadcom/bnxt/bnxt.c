@@ -7874,6 +7874,7 @@ static void bnxt_get_total_resources(struct bnxt *bp, struct bnxt_hw_rings *hwr)
 	hwr->rx = bp->rx_nr_rings;
 	hwr->grp = hwr->rx;
 	hwr->vnic = bnxt_get_total_vnics(bp, hwr->rx);
+	hwr->rss_ctx = bnxt_get_total_rss_ctxs(bp, hwr);
 	if (bp->flags & BNXT_FLAG_AGG_RINGS)
 		hwr->rx <<= 1;
 	hwr->stat = bnxt_get_func_stat_ctxs(bp);
@@ -7903,6 +7904,7 @@ static bool bnxt_need_reserve_rings(struct bnxt *bp)
 	if (hw_resc->resv_rx_rings != hwr.rx ||
 	    hw_resc->resv_vnics != hwr.vnic ||
 	    hw_resc->resv_stat_ctxs != hwr.stat ||
+	    hw_resc->resv_rsscos_ctxs != hwr.rss_ctx ||
 	    (hw_resc->resv_hw_ring_grps != hwr.grp &&
 	     !(bp->flags & BNXT_FLAG_CHIP_P5_PLUS)))
 		return true;
