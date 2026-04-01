@@ -233,6 +233,8 @@ static inline char *nvme_quirk_name(enum nvme_quirks q)
 		return "broken_msi";
 	case NVME_QUIRK_DMAPOOL_ALIGN_512:
 		return "dmapool_align_512";
+	case NVME_QUIRK_PARTIAL_NID:
+		return "partial_nid";
 	}
 
 	return "unknown";
