@@ -10293,9 +10293,57 @@ static __maybe_unused enum llc_mig can_migrate_llc_task(int src_cpu, int dst_cpu
 			       task_util(p), to_pref);
 }
 
+/*
+ * Check if active load balance breaks LLC locality in
+ * terms of cache aware load balance. The load level and
+ * imbalance do not warrant breaking LLC preference per
+ * the can_migrate_llc() policy. Here, the benefit of
+ * LLC locality outweighs the power efficiency gained from
+ * migrating the only runnable task away.
+ */
+static inline bool
+alb_break_llc(struct lb_env *env)
+{
+	if (!sched_cache_enabled())
+		return false;
+
+	if (cpus_share_cache(env->src_cpu, env->dst_cpu))
+		return false;
+	/*
+	 * All tasks prefer to stay on their current CPU.
+	 * Do not pull a task from its preferred CPU if:
+	 * 1. It is the only task running there(not too imbalance); OR
+	 * 2. Migrating it away from its preferred LLC would violate
+	 *    the cache-aware scheduling policy.
+	 */
+	if (env->src_rq->nr_pref_llc_running &&
+	    env->src_rq->nr_pref_llc_running == env->src_rq->cfs.h_nr_runnable) {
+		unsigned long util = 0;
+		struct task_struct *cur;
+
+		if (env->src_rq->nr_running <= 1)
+			return true;
+
+		cur = rcu_dereference_all(env->src_rq->curr);
+		if (cur)
+			util = task_util(cur);
+
+		if (can_migrate_llc(env->src_cpu, env->dst_cpu,
+				    util, false) == mig_forbid)
+			return true;
+	}
+
+	return false;
+}
 #else
 static inline bool get_llc_stats(int cpu, unsigned long *util,
 				 unsigned long *cap)
+{
+	return false;
+}
+
+static inline bool
+alb_break_llc(struct lb_env *env)
 {
 	return false;
 }
@@ -12698,6 +12746,9 @@ static int need_active_balance(struct lb_env *env)
 {
 	struct sched_domain *sd = env->sd;
 
+	if (alb_break_llc(env))
+		return 0;
+
 	if (asym_active_balance(env))
 		return 1;
 
@@ -12717,7 +12768,8 @@ static int need_active_balance(struct lb_env *env)
 			return 1;
 	}
 
-	if (env->migration_type == migrate_misfit)
+	if (env->migration_type == migrate_misfit ||
+	    env->migration_type == migrate_llc_task)
 		return 1;
 
 	return 0;
