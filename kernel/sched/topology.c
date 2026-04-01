@@ -19,8 +19,10 @@ void sched_domains_mutex_unlock(void)
 }
 
 /* Protected by sched_domains_mutex: */
+static cpumask_var_t sched_domains_llc_id_allocmask;
 static cpumask_var_t sched_domains_tmpmask;
 static cpumask_var_t sched_domains_tmpmask2;
+int max_lid;
 
 static int __init sched_debug_setup(char *str)
 {
@@ -663,7 +665,7 @@ static void destroy_sched_domains(struct sched_domain *sd)
  */
 DEFINE_PER_CPU(struct sched_domain __rcu *, sd_llc);
 DEFINE_PER_CPU(int, sd_llc_size);
-DEFINE_PER_CPU(int, sd_llc_id);
+DEFINE_PER_CPU(int, sd_llc_id) = -1;
 DEFINE_PER_CPU(int, sd_share_id);
 DEFINE_PER_CPU(struct sched_domain_shared __rcu *, sd_llc_shared);
 DEFINE_PER_CPU(struct sched_domain __rcu *, sd_numa);
@@ -692,7 +694,6 @@ static void update_top_cache_domain(int cpu)
 
 	rcu_assign_pointer(per_cpu(sd_llc, cpu), sd);
 	per_cpu(sd_llc_size, cpu) = size;
-	per_cpu(sd_llc_id, cpu) = id;
 	rcu_assign_pointer(per_cpu(sd_llc_shared, cpu), sds);
 
 	sd = lowest_flag_domain(cpu, SD_CLUSTER);
@@ -1790,6 +1791,11 @@ const struct cpumask *tl_mc_mask(struct sched_domain_topology_level *tl, int cpu
 {
 	return cpu_coregroup_mask(cpu);
 }
+
+#define llc_mask(cpu) cpu_coregroup_mask(cpu)
+
+#else
+#define llc_mask(cpu) cpumask_of(cpu)
 #endif
 
 const struct cpumask *tl_pkg_mask(struct sched_domain_topology_level *tl, int cpu)
@@ -2650,6 +2656,61 @@ static void adjust_numa_imbalance(struct sched_domain *sd_llc)
 	}
 }
 
+static int __sched_domains_alloc_llc_id(void)
+{
+	int lid, max;
+
+	lockdep_assert_held(&sched_domains_mutex);
+
+	lid = cpumask_first_zero(sched_domains_llc_id_allocmask);
+	/*
+	 * llc_id space should never grow larger than the
+	 * possible number of CPUs in the system.
+	 */
+	if (lid >= nr_cpu_ids)
+		return -1;
+
+	__cpumask_set_cpu(lid, sched_domains_llc_id_allocmask);
+	max = cpumask_last(sched_domains_llc_id_allocmask);
+	if (max > max_lid)
+		max_lid = max;
+
+	return lid;
+}
+
+static void __sched_domains_free_llc_id(int cpu)
+{
+	int i, lid, max;
+
+	lockdep_assert_held(&sched_domains_mutex);
+
+	lid = per_cpu(sd_llc_id, cpu);
+	if (lid == -1 || lid >= nr_cpu_ids)
+		return;
+
+	per_cpu(sd_llc_id, cpu) = -1;
+
+	for_each_cpu(i, llc_mask(cpu)) {
+		/* An online CPU owns the llc_id. */
+		if (per_cpu(sd_llc_id, i) == lid)
+			return;
+	}
+
+	__cpumask_clear_cpu(lid, sched_domains_llc_id_allocmask);
+
+	max = cpumask_last(sched_domains_llc_id_allocmask);
+	/* shrink max lid to save memory */
+	if (max < max_lid)
+		max_lid = max;
+}
+
+void sched_domains_free_llc_id(int cpu)
+{
+	sched_domains_mutex_lock();
+	__sched_domains_free_llc_id(cpu);
+	sched_domains_mutex_unlock();
+}
+
 /*
  * Build sched domains for a given set of CPUs and attach the sched domains
  * to the individual CPUs
@@ -2675,6 +2736,7 @@ build_sched_domains(const struct cpumask *cpu_map, struct sched_domain_attr *att
 	/* Set up domains for CPUs specified by the cpu_map: */
 	for_each_cpu(i, cpu_map) {
 		struct sched_domain_topology_level *tl;
+		int lid;
 
 		sd = NULL;
 		for_each_sd_topology(tl) {
@@ -2687,6 +2749,29 @@ build_sched_domains(const struct cpumask *cpu_map, struct sched_domain_attr *att
 				*per_cpu_ptr(d.sd, i) = sd;
 			if (cpumask_equal(cpu_map, sched_domain_span(sd)))
 				break;
+		}
+
+		lid = per_cpu(sd_llc_id, i);
+		if (lid == -1) {
+			/* try to reuse the llc_id of its siblings */
+			for (int j = cpumask_first(llc_mask(i));
+			     j < nr_cpu_ids;
+			     j = cpumask_next(j, llc_mask(i))) {
+				if (i == j)
+					continue;
+
+				lid = per_cpu(sd_llc_id, j);
+
+				if (lid != -1) {
+					per_cpu(sd_llc_id, i) = lid;
+
+					break;
+				}
+			}
+
+			/* a new LLC is detected */
+			if (lid == -1)
+				per_cpu(sd_llc_id, i) = __sched_domains_alloc_llc_id();
 		}
 	}
 
@@ -2831,6 +2916,7 @@ int __init sched_init_domains(const struct cpumask *cpu_map)
 {
 	int err;
 
+	zalloc_cpumask_var(&sched_domains_llc_id_allocmask, GFP_KERNEL);
 	zalloc_cpumask_var(&sched_domains_tmpmask, GFP_KERNEL);
 	zalloc_cpumask_var(&sched_domains_tmpmask2, GFP_KERNEL);
 	zalloc_cpumask_var(&fallback_doms, GFP_KERNEL);
