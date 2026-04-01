@@ -1459,11 +1459,43 @@ static unsigned long fraction_mm_sched(struct rq *rq,
 	return div64_u64(NICE_0_LOAD * pcpu_sched->runtime, rq->cpu_runtime + 1);
 }
 
+static int get_pref_llc(struct task_struct *p, struct mm_struct *mm)
+{
+	int mm_sched_llc = -1;
+
+	if (!mm)
+		return -1;
+
+	if (mm->sc_stat.cpu != -1) {
+		mm_sched_llc = llc_id(mm->sc_stat.cpu);
+
+#ifdef CONFIG_NUMA_BALANCING
+		/*
+		 * Don't assign preferred LLC if it
+		 * conflicts with NUMA balancing.
+		 * This can happen when sched_setnuma() gets
+		 * called, however it is not much of an issue
+		 * because we expect account_mm_sched() to get
+		 * called fairly regularly -- at a higher rate
+		 * than sched_setnuma() at least -- and thus the
+		 * conflict only exists for a short period of time.
+		 */
+		if (static_branch_likely(&sched_numa_balancing) &&
+		    p->numa_preferred_nid >= 0 &&
+		    cpu_to_node(mm->sc_stat.cpu) != p->numa_preferred_nid)
+			mm_sched_llc = -1;
+#endif
+	}
+
+	return mm_sched_llc;
+}
+
 static inline
 void account_mm_sched(struct rq *rq, struct task_struct *p, s64 delta_exec)
 {
 	struct sched_cache_time *pcpu_sched;
 	struct mm_struct *mm = p->mm;
+	int mm_sched_llc = -1;
 	unsigned long epoch;
 
 	if (!sched_cache_enabled())
@@ -1495,6 +1527,11 @@ void account_mm_sched(struct rq *rq, struct task_struct *p, s64 delta_exec)
 		if (mm->sc_stat.cpu != -1)
 			mm->sc_stat.cpu = -1;
 	}
+
+	mm_sched_llc = get_pref_llc(p, mm);
+
+	if (READ_ONCE(p->preferred_llc) != mm_sched_llc)
+		WRITE_ONCE(p->preferred_llc, mm_sched_llc);
 }
 
 static void task_tick_cache(struct rq *rq, struct task_struct *p)
@@ -1670,6 +1707,12 @@ static inline void account_mm_sched(struct rq *rq, struct task_struct *p,
 void init_sched_mm(struct task_struct *p) { }
 
 static void task_tick_cache(struct rq *rq, struct task_struct *p) { }
+
+static inline int get_pref_llc(struct task_struct *p,
+			       struct mm_struct *mm)
+{
+	return -1;
+}
 
 #endif /* CONFIG_SCHED_CACHE */
 
