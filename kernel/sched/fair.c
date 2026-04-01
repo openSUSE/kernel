@@ -9955,6 +9955,7 @@ enum migration_type {
 #define LBF_DST_PINNED  0x04
 #define LBF_SOME_PINNED	0x08
 #define LBF_ACTIVE_LB	0x10
+#define LBF_LLC_PINNED	0x20
 
 struct lb_env {
 	struct sched_domain	*sd;
@@ -10267,8 +10268,8 @@ static enum llc_mig can_migrate_llc(int src_cpu, int dst_cpu,
  * Check if task p can migrate from source LLC to
  * destination LLC in terms of cache aware load balance.
  */
-static __maybe_unused enum llc_mig can_migrate_llc_task(int src_cpu, int dst_cpu,
-							struct task_struct *p)
+static enum llc_mig can_migrate_llc_task(int src_cpu, int dst_cpu,
+					 struct task_struct *p)
 {
 	struct mm_struct *mm;
 	bool to_pref;
@@ -10335,6 +10336,46 @@ alb_break_llc(struct lb_env *env)
 
 	return false;
 }
+
+/*
+ * Check if migrating task p from env->src_cpu to
+ * env->dst_cpu breaks LLC localiy.
+ */
+static bool migrate_degrades_llc(struct task_struct *p, struct lb_env *env)
+{
+	if (!sched_cache_enabled())
+		return false;
+
+	if (task_has_sched_core(p))
+		return false;
+	/*
+	 * Skip over tasks that would degrade LLC locality;
+	 * only when nr_balanced_failed is sufficiently high do we
+	 * ignore this constraint.
+	 *
+	 * Threshold of cache_nice_tries is set to 1 higher
+	 * than nr_balance_failed to avoid excessive task
+	 * migration at the same time.
+	 */
+	if (env->sd->nr_balance_failed >= env->sd->cache_nice_tries + 1)
+		return false;
+
+	/*
+	 * We know the env->src_cpu has some tasks prefer to
+	 * run on env->dst_cpu, skip the tasks do not prefer
+	 * env->dst_cpu, and find the one that prefers.
+	 */
+	if (env->migration_type == migrate_llc_task &&
+	    READ_ONCE(p->preferred_llc) != llc_id(env->dst_cpu))
+		return true;
+
+	if (can_migrate_llc_task(env->src_cpu,
+				 env->dst_cpu, p) != mig_forbid)
+		return false;
+
+	return true;
+}
+
 #else
 static inline bool get_llc_stats(int cpu, unsigned long *util,
 				 unsigned long *cap)
@@ -10344,6 +10385,12 @@ static inline bool get_llc_stats(int cpu, unsigned long *util,
 
 static inline bool
 alb_break_llc(struct lb_env *env)
+{
+	return false;
+}
+
+static inline bool
+migrate_degrades_llc(struct task_struct *p, struct lb_env *env)
 {
 	return false;
 }
@@ -10444,10 +10491,29 @@ int can_migrate_task(struct task_struct *p, struct lb_env *env)
 		return 1;
 
 	degrades = migrate_degrades_locality(p, env);
-	if (!degrades)
+	if (!degrades) {
+		/*
+		 * If the NUMA locality is not broken,
+		 * further check if migration would hurt
+		 * LLC locality.
+		 */
+		if (migrate_degrades_llc(p, env)) {
+			/*
+			 * If regular load balancing fails to pull a task
+			 * due to LLC locality, this is expected behavior
+			 * and we set LBF_LLC_PINNED so we don't increase
+			 * nr_balance_failed unecessarily.
+			 */
+			if (env->migration_type != migrate_llc_task)
+				env->flags |= LBF_LLC_PINNED;
+
+			return 0;
+		}
+
 		hot = task_hot(p, env);
-	else
+	} else {
 		hot = degrades > 0;
+	}
 
 	if (!hot || env->sd->nr_balance_failed > env->sd->cache_nice_tries) {
 		if (hot)
@@ -13067,9 +13133,16 @@ more_balance:
 		 *
 		 * Similarly for migration_misfit which is not related to
 		 * load/util migration, don't pollute nr_balance_failed.
+		 *
+		 * The same for cache aware scheduling's allowance for
+		 * load imbalance. If regular load balance does not
+		 * migrate task due to LLC locality, it is a expected
+		 * behavior and don't pollute nr_balance_failed.
+		 * See can_migrate_task().
 		 */
 		if (idle != CPU_NEWLY_IDLE &&
-		    env.migration_type != migrate_misfit)
+		    env.migration_type != migrate_misfit &&
+		    !(env.flags & LBF_LLC_PINNED))
 			sd->nr_balance_failed++;
 
 		if (need_active_balance(&env)) {
