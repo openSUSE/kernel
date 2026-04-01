@@ -624,7 +624,6 @@ static void nft_map_catchall_deactivate(const struct nft_ctx *ctx,
 		nft_set_elem_change_active(ctx->net, set, ext);
 		elem.priv = catchall->elem;
 		nft_setelem_data_deactivate(ctx->net, set, &elem);
-		break;
 	}
 }
 
@@ -5488,7 +5487,6 @@ static void nft_map_catchall_activate(const struct nft_ctx *ctx,
 		nft_clear(ctx->net, ext);
 		elem.priv = catchall->elem;
 		nft_setelem_data_activate(ctx->net, set, &elem);
-		break;
 	}
 }
 
