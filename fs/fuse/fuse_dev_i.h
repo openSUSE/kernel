@@ -364,6 +364,11 @@ void fuse_request_bg_finish(struct fuse_chan *fch, struct fuse_req *req);
 
 void fuse_copy_init(struct fuse_copy_state *cs, bool write,
 			   struct iov_iter *iter);
+/**
+ * Return the number of bytes in an arguments list
+ */
+unsigned int fuse_len_args(unsigned int numargs, struct fuse_arg *args);
+
 int fuse_copy_args(struct fuse_copy_state *cs, unsigned int numargs,
 		   unsigned int argpages, struct fuse_arg *args,
 		   int zeroing);
@@ -388,6 +393,8 @@ u64 fuse_get_unique(struct fuse_iqueue *fiq);
 
 struct fuse_dev *fuse_dev_alloc_install(struct fuse_chan *fch);
 struct fuse_dev *fuse_dev_alloc(void);
+
+int fuse_dev_release(struct inode *inode, struct file *file);
 
 /**
  * Initialize the fuse processing queue
