@@ -821,6 +821,7 @@ enum s_alloc {
 };
 
 #ifdef CONFIG_SCHED_CACHE
+DEFINE_STATIC_KEY_FALSE(sched_cache_present);
 static bool alloc_sd_llc(const struct cpumask *cpu_map,
 			 struct s_data *d)
 {
@@ -2777,6 +2778,7 @@ static int
 build_sched_domains(const struct cpumask *cpu_map, struct sched_domain_attr *attr)
 {
 	enum s_alloc alloc_state = sa_none;
+	bool has_multi_llcs = false;
 	struct sched_domain *sd;
 	struct s_data d;
 	struct rq *rq = NULL;
@@ -2870,8 +2872,11 @@ build_sched_domains(const struct cpumask *cpu_map, struct sched_domain_attr *att
 			 * In presence of higher domains, adjust the
 			 * NUMA imbalance stats for the hierarchy.
 			 */
-			if (IS_ENABLED(CONFIG_NUMA) && sd->parent)
-				adjust_numa_imbalance(sd);
+			if (sd->parent) {
+			    if (IS_ENABLED(CONFIG_NUMA))
+				    adjust_numa_imbalance(sd);
+			    has_multi_llcs = true;
+			}
 		}
 	}
 
@@ -2912,6 +2917,16 @@ build_sched_domains(const struct cpumask *cpu_map, struct sched_domain_attr *att
 
 	ret = 0;
 error:
+#ifdef CONFIG_SCHED_CACHE
+	/*
+	 * TBD: check before writing to it. sched domain rebuild
+	 * is not in the critical path, leave as-is for now.
+	 */
+	if (!ret && has_multi_llcs)
+		static_branch_enable_cpuslocked(&sched_cache_present);
+	else
+		static_branch_disable_cpuslocked(&sched_cache_present);
+#endif
 	__free_domain_allocs(&d, alloc_state, cpu_map);
 
 	return ret;
