@@ -11385,14 +11385,16 @@ static inline void update_sg_lb_stats(struct lb_env *env,
 
 	sgs->group_weight = group->group_weight;
 
-	/* Check if dst CPU is idle and preferred to this group */
-	if (!local_group && env->idle && sgs->sum_h_nr_running &&
-	    sched_group_asym(env, sgs, group))
-		sgs->group_asym_packing = 1;
+	if (!local_group) {
+		/* Check if dst CPU is idle and preferred to this group */
+		if (env->idle && sgs->sum_h_nr_running &&
+		    sched_group_asym(env, sgs, group))
+			sgs->group_asym_packing = 1;
 
-	/* Check for loaded SMT group to be balanced to dst CPU */
-	if (!local_group && smt_balance(env, sgs, group))
-		sgs->group_smt_balance = 1;
+		/* Check for loaded SMT group to be balanced to dst CPU */
+		if (smt_balance(env, sgs, group))
+			sgs->group_smt_balance = 1;
+	}
 
 	sgs->group_type = group_classify(env->sd->imbalance_pct, group, sgs);
 
