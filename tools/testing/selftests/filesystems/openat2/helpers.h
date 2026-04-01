@@ -2,6 +2,7 @@
 /*
  * Author: Aleksa Sarai <cyphar@cyphar.com>
  * Copyright (C) 2018-2019 SUSE LLC.
+ * Copyright (C) 2026 Amutable GmbH
  */
 
 #ifndef __RESOLVEAT_H__
@@ -11,18 +12,13 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <errno.h>
+#include <limits.h>
 #include <linux/types.h>
+#include <linux/unistd.h>
 #include "kselftest.h"
 
 #define ARRAY_LEN(X) (sizeof (X) / sizeof (*(X)))
 #define BUILD_BUG_ON(e) ((void)(sizeof(struct { int:(-!!(e)); })))
-
-#ifndef SYS_openat2
-#ifndef __NR_openat2
-#define __NR_openat2 437
-#endif /* __NR_openat2 */
-#define SYS_openat2 __NR_openat2
-#endif /* SYS_openat2 */
 
 /*
  * Arguments for how openat2(2) should open the target path. If @resolve is
@@ -44,8 +40,6 @@ struct open_how {
 
 #define OPEN_HOW_SIZE_VER0	24 /* sizeof first published struct */
 #define OPEN_HOW_SIZE_LATEST	OPEN_HOW_SIZE_VER0
-
-bool needs_openat2(const struct open_how *how);
 
 #ifndef RESOLVE_IN_ROOT
 /* how->resolve flags for openat2(2). */
@@ -93,16 +87,111 @@ bool needs_openat2(const struct open_how *how);
 					   __FILE__, __LINE__, #expr, ##__VA_ARGS__); \
 	} while (0)
 
-int raw_openat2(int dfd, const char *path, void *how, size_t size);
-int sys_openat2(int dfd, const char *path, struct open_how *how);
-int sys_openat(int dfd, const char *path, struct open_how *how);
-int sys_renameat2(int olddirfd, const char *oldpath,
-		  int newdirfd, const char *newpath, unsigned int flags);
+__maybe_unused
+static bool needs_openat2(const struct open_how *how)
+{
+	return how->resolve != 0;
+}
 
-int touchat(int dfd, const char *path);
-char *fdreadlink(int fd);
-bool fdequal(int fd, int dfd, const char *path);
+__maybe_unused
+static int raw_openat2(int dfd, const char *path, void *how, size_t size)
+{
+	int ret = syscall(__NR_openat2, dfd, path, how, size);
 
-extern bool openat2_supported;
+	return ret >= 0 ? ret : -errno;
+}
+
+__maybe_unused
+static int sys_openat2(int dfd, const char *path, struct open_how *how)
+{
+	return raw_openat2(dfd, path, how, sizeof(*how));
+}
+
+__maybe_unused
+static int sys_openat(int dfd, const char *path, struct open_how *how)
+{
+	int ret = openat(dfd, path, how->flags, how->mode);
+
+	return ret >= 0 ? ret : -errno;
+}
+
+__maybe_unused
+static int sys_renameat2(int olddirfd, const char *oldpath,
+			 int newdirfd, const char *newpath, unsigned int flags)
+{
+	int ret = syscall(__NR_renameat2, olddirfd, oldpath,
+					  newdirfd, newpath, flags);
+
+	return ret >= 0 ? ret : -errno;
+}
+
+__maybe_unused
+static int touchat(int dfd, const char *path)
+{
+	int fd = openat(dfd, path, O_CREAT, 0700);
+
+	if (fd >= 0)
+		close(fd);
+	return fd;
+}
+
+__maybe_unused
+static char *fdreadlink(int fd)
+{
+	char *target, *tmp;
+
+	E_asprintf(&tmp, "/proc/self/fd/%d", fd);
+
+	target = malloc(PATH_MAX);
+	if (!target)
+		ksft_exit_fail_msg("fdreadlink: malloc failed\n");
+	memset(target, 0, PATH_MAX);
+
+	E_readlink(tmp, target, PATH_MAX);
+	free(tmp);
+	return target;
+}
+
+__maybe_unused
+static bool fdequal(int fd, int dfd, const char *path)
+{
+	char *fdpath, *dfdpath, *other;
+	bool cmp;
+
+	fdpath = fdreadlink(fd);
+	dfdpath = fdreadlink(dfd);
+
+	if (!path)
+		E_asprintf(&other, "%s", dfdpath);
+	else if (*path == '/')
+		E_asprintf(&other, "%s", path);
+	else
+		E_asprintf(&other, "%s/%s", dfdpath, path);
+
+	cmp = !strcmp(fdpath, other);
+
+	free(fdpath);
+	free(dfdpath);
+	free(other);
+	return cmp;
+}
+
+static bool openat2_supported = false;
+
+__attribute__((constructor))
+static void __detect_openat2_supported(void)
+{
+	struct open_how how = {};
+	int fd;
+
+	BUILD_BUG_ON(sizeof(struct open_how) != OPEN_HOW_SIZE_VER0);
+
+	/* Check openat2(2) support. */
+	fd = sys_openat2(AT_FDCWD, ".", &how);
+	openat2_supported = (fd >= 0);
+
+	if (fd >= 0)
+		close(fd);
+}
 
 #endif /* __RESOLVEAT_H__ */
