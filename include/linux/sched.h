@@ -1407,6 +1407,10 @@ struct task_struct {
 	unsigned long			numa_pages_migrated;
 #endif /* CONFIG_NUMA_BALANCING */
 
+#ifdef CONFIG_SCHED_CACHE
+	struct callback_head		cache_work;
+#endif
+
 	struct rseq_data		rseq;
 	struct sched_mm_cid		mm_cid;
 
@@ -2405,6 +2409,26 @@ static __always_inline int task_mm_cid(struct task_struct *t)
 	 */
 	return task_cpu(t);
 }
+#endif
+
+#ifdef CONFIG_SCHED_CACHE
+
+struct sched_cache_time {
+	u64 runtime;
+	unsigned long epoch;
+};
+
+struct sched_cache_stat {
+	struct sched_cache_time __percpu *pcpu_sched;
+	raw_spinlock_t lock;
+	unsigned long epoch;
+	int cpu;
+} ____cacheline_aligned_in_smp;
+
+#else
+
+struct sched_cache_stat { };
+
 #endif
 
 #ifndef MODULE
