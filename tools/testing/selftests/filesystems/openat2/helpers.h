@@ -15,7 +15,7 @@
 #include <limits.h>
 #include <linux/types.h>
 #include <linux/unistd.h>
-#include "kselftest.h"
+#include "kselftest_harness.h"
 
 #define BUILD_BUG_ON(e) ((void)(sizeof(struct { int:(-!!(e)); })))
 
@@ -55,36 +55,6 @@ struct open_how {
 					be scoped inside the dirfd
 					(similar to chroot(2)). */
 #endif /* RESOLVE_IN_ROOT */
-
-#define E_func(func, ...)						      \
-	do {								      \
-		errno = 0;						      \
-		if (func(__VA_ARGS__) < 0)				      \
-			ksft_exit_fail_msg("%s:%d %s failed - errno:%d\n",    \
-					   __FILE__, __LINE__, #func, errno); \
-	} while (0)
-
-#define E_asprintf(...)		E_func(asprintf,	__VA_ARGS__)
-#define E_chmod(...)		E_func(chmod,		__VA_ARGS__)
-#define E_dup2(...)		E_func(dup2,		__VA_ARGS__)
-#define E_fchdir(...)		E_func(fchdir,		__VA_ARGS__)
-#define E_fstatat(...)		E_func(fstatat,		__VA_ARGS__)
-#define E_kill(...)		E_func(kill,		__VA_ARGS__)
-#define E_mkdirat(...)		E_func(mkdirat,		__VA_ARGS__)
-#define E_mount(...)		E_func(mount,		__VA_ARGS__)
-#define E_prctl(...)		E_func(prctl,		__VA_ARGS__)
-#define E_readlink(...)		E_func(readlink,	__VA_ARGS__)
-#define E_setresuid(...)	E_func(setresuid,	__VA_ARGS__)
-#define E_symlinkat(...)	E_func(symlinkat,	__VA_ARGS__)
-#define E_touchat(...)		E_func(touchat,		__VA_ARGS__)
-#define E_unshare(...)		E_func(unshare,		__VA_ARGS__)
-
-#define E_assert(expr, msg, ...)					\
-	do {								\
-		if (!(expr))						\
-			ksft_exit_fail_msg("ASSERT(%s:%d) failed (%s): " msg "\n", \
-					   __FILE__, __LINE__, #expr, ##__VA_ARGS__); \
-	} while (0)
 
 __maybe_unused
 static bool needs_openat2(const struct open_how *how)
@@ -135,37 +105,39 @@ static int touchat(int dfd, const char *path)
 }
 
 __maybe_unused
-static char *fdreadlink(int fd)
+static char *fdreadlink(struct __test_metadata *_metadata, int fd)
 {
 	char *target, *tmp;
 
-	E_asprintf(&tmp, "/proc/self/fd/%d", fd);
+	ASSERT_GT(asprintf(&tmp, "/proc/self/fd/%d", fd), 0);
 
 	target = malloc(PATH_MAX);
-	if (!target)
-		ksft_exit_fail_msg("fdreadlink: malloc failed\n");
+	ASSERT_NE(target, NULL);
 	memset(target, 0, PATH_MAX);
 
-	E_readlink(tmp, target, PATH_MAX);
+	ASSERT_GT(readlink(tmp, target, PATH_MAX), 0);
+
 	free(tmp);
 	return target;
 }
 
 __maybe_unused
-static bool fdequal(int fd, int dfd, const char *path)
+static bool fdequal(struct __test_metadata *_metadata, int fd,
+		    int dfd, const char *path)
 {
 	char *fdpath, *dfdpath, *other;
 	bool cmp;
 
-	fdpath = fdreadlink(fd);
-	dfdpath = fdreadlink(dfd);
+	fdpath = fdreadlink(_metadata, fd);
+	dfdpath = fdreadlink(_metadata, dfd);
 
-	if (!path)
-		E_asprintf(&other, "%s", dfdpath);
-	else if (*path == '/')
-		E_asprintf(&other, "%s", path);
-	else
-		E_asprintf(&other, "%s/%s", dfdpath, path);
+	if (!path) {
+		ASSERT_GT(asprintf(&other, "%s", dfdpath), 0);
+	} else if (*path == '/') {
+		ASSERT_GT(asprintf(&other, "%s", path), 0);
+	} else {
+		ASSERT_GT(asprintf(&other, "%s/%s", dfdpath, path), 0);
+	}
 
 	cmp = !strcmp(fdpath, other);
 
