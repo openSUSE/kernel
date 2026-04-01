@@ -9946,7 +9946,8 @@ enum migration_type {
 	migrate_load = 0,
 	migrate_util,
 	migrate_task,
-	migrate_misfit
+	migrate_misfit,
+	migrate_llc_task
 };
 
 #define LBF_ALL_PINNED	0x01
@@ -10559,6 +10560,10 @@ static int detach_tasks(struct lb_env *env)
 				goto next;
 
 			env->imbalance = 0;
+			break;
+
+		case migrate_llc_task:
+			env->imbalance--;
 			break;
 		}
 
@@ -12179,6 +12184,15 @@ static inline void calculate_imbalance(struct lb_env *env, struct sd_lb_stats *s
 		return;
 	}
 
+#ifdef CONFIG_SCHED_CACHE
+	if (busiest->group_type == group_llc_balance) {
+		/* Move a task that prefer local LLC */
+		env->migration_type = migrate_llc_task;
+		env->imbalance = 1;
+		return;
+	}
+#endif
+
 	if (busiest->group_type == group_imbalanced) {
 		/*
 		 * In the group_imb case we cannot rely on group-wide averages
@@ -12485,7 +12499,10 @@ static struct rq *sched_balance_find_src_rq(struct lb_env *env,
 {
 	struct rq *busiest = NULL, *rq;
 	unsigned long busiest_util = 0, busiest_load = 0, busiest_capacity = 1;
+	unsigned int __maybe_unused busiest_pref_llc = 0;
+	struct sched_domain __maybe_unused *sd_tmp;
 	unsigned int busiest_nr = 0;
+	int __maybe_unused dst_llc;
 	int i;
 
 	for_each_cpu_and(i, sched_group_span(group), env->cpus) {
@@ -12611,6 +12628,23 @@ static struct rq *sched_balance_find_src_rq(struct lb_env *env,
 				busiest = rq;
 			}
 
+			break;
+
+		case migrate_llc_task:
+#ifdef CONFIG_SCHED_CACHE
+			sd_tmp = rcu_dereference_all(rq->sd);
+			dst_llc = llc_id(env->dst_cpu);
+
+			if (sd_tmp && (unsigned)dst_llc < sd_tmp->llc_max) {
+				unsigned int this_pref_llc =
+					sd_tmp->llc_counts[dst_llc];
+
+				if (busiest_pref_llc < this_pref_llc) {
+					busiest_pref_llc = this_pref_llc;
+					busiest = rq;
+				}
+			}
+#endif
 			break;
 
 		}
@@ -12775,6 +12809,8 @@ static void update_lb_imbalance_stat(struct lb_env *env, struct sched_domain *sd
 		break;
 	case migrate_misfit:
 		__schedstat_add(sd->lb_imbalance_misfit[idle], env->imbalance);
+		break;
+	case migrate_llc_task:
 		break;
 	}
 }
