@@ -1123,8 +1123,11 @@ struct bnxt_rx_sw_stats {
 	u64			rx_l4_csum_errors;
 	u64			rx_resets;
 	u64			rx_buf_errors;
+	/* end of ethtool -S stats */
 	u64			rx_oom_discards;
 	u64			rx_netpoll_discards;
+	u64			rx_hw_gro_packets;
+	u64			rx_hw_gro_wire_packets;
 };
 
 struct bnxt_tx_sw_stats {
@@ -1151,6 +1154,9 @@ struct bnxt_total_ring_err_stats {
 	u64			tx_total_resets;
 	u64			tx_total_ring_discards;
 	u64			total_missed_irqs;
+	/* end of ethtool -S stats */
+	u64			rx_total_hw_gro_packets;
+	u64			rx_total_hw_gro_wire_packets;
 };
 
 struct bnxt_stats_mem {
@@ -1366,6 +1372,8 @@ struct bnxt_hw_resc {
 	u32	max_rx_wm_flows;
 };
 
+#define BNXT_LARGE_RSS_TO_VNIC_RATIO	7
+
 #if defined(CONFIG_BNXT_SRIOV)
 struct bnxt_vf_info {
 	u16	fw_fid;
@@ -1550,6 +1558,7 @@ struct bnxt_link_info {
 #define BNXT_LINK_STATE_DOWN	1
 #define BNXT_LINK_STATE_UP	2
 #define BNXT_LINK_IS_UP(bp)	((bp)->link_info.link_state == BNXT_LINK_STATE_UP)
+	u8			link_down_reason;
 	u8			active_lanes;
 	u8			duplex;
 #define BNXT_LINK_DUPLEX_HALF	PORT_PHY_QCFG_RESP_DUPLEX_STATE_HALF
@@ -2134,7 +2143,7 @@ enum board_idx {
 };
 
 #define BNXT_TRACE_BUF_MAGIC_BYTE ((u8)0xbc)
-#define BNXT_TRACE_MAX 11
+#define BNXT_TRACE_MAX (DBG_LOG_BUFFER_FLUSH_REQ_TYPE_ERR_QPC_TRACE + 1)
 
 struct bnxt_bs_trace_info {
 	u8 *magic_byte;
@@ -2408,6 +2417,7 @@ struct bnxt {
 #define BNXT_RSS_CAP_ESP_V4_RSS_CAP		BIT(6)
 #define BNXT_RSS_CAP_ESP_V6_RSS_CAP		BIT(7)
 #define BNXT_RSS_CAP_MULTI_RSS_CTX		BIT(8)
+#define BNXT_RSS_CAP_LARGE_RSS_CTX		BIT(10)
 
 	u8			rss_hash_key[HW_HASH_KEY_SIZE];
 	u8			rss_hash_key_valid:1;
@@ -2512,6 +2522,7 @@ struct bnxt {
 	#define BNXT_FW_CAP_SW_MAX_RESOURCE_LIMITS	BIT_ULL(41)
 	#define BNXT_FW_CAP_NPAR_1_2			BIT_ULL(42)
 	#define BNXT_FW_CAP_MIRROR_ON_ROCE		BIT_ULL(43)
+	#define BNXT_FW_CAP_PTP_PTM			BIT_ULL(44)
 
 	u32			fw_dbg_cap;
 

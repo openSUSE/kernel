@@ -515,9 +515,6 @@ static netdev_tx_t bnxt_start_xmit(struct sk_buff *skb, struct net_device *dev)
 			return NETDEV_TX_BUSY;
 	}
 
-	if (unlikely(ipv6_hopopt_jumbo_remove(skb)))
-		goto tx_free;
-
 	length = skb->len;
 	len = skb_headlen(skb);
 	last_frag = skb_shinfo(skb)->nr_frags;
@@ -1763,7 +1760,8 @@ static inline struct sk_buff *bnxt_gro_skb(struct bnxt *bp,
 					   struct bnxt_tpa_info *tpa_info,
 					   struct rx_tpa_end_cmp *tpa_end,
 					   struct rx_tpa_end_cmp_ext *tpa_end1,
-					   struct sk_buff *skb)
+					   struct sk_buff *skb,
+					   struct bnxt_rx_sw_stats *rx_stats)
 {
 #ifdef CONFIG_INET
 	int payload_off;
@@ -1772,6 +1770,9 @@ static inline struct sk_buff *bnxt_gro_skb(struct bnxt *bp,
 	segs = TPA_END_TPA_SEGS(tpa_end);
 	if (segs == 1)
 		return skb;
+
+	rx_stats->rx_hw_gro_packets++;
+	rx_stats->rx_hw_gro_wire_packets += segs;
 
 	NAPI_GRO_CB(skb)->count = segs;
 	skb_shinfo(skb)->gso_size =
@@ -1945,7 +1946,8 @@ static inline struct sk_buff *bnxt_tpa_end(struct bnxt *bp,
 	}
 
 	if (gro)
-		skb = bnxt_gro_skb(bp, tpa_info, tpa_end, tpa_end1, skb);
+		skb = bnxt_gro_skb(bp, tpa_info, tpa_end, tpa_end1, skb,
+				   &cpr->sw_stats->rx);
 
 	return skb;
 }
@@ -2884,6 +2886,8 @@ static int bnxt_async_event_process(struct bnxt *bp,
 		u16 type = (u16)BNXT_EVENT_BUF_PRODUCER_TYPE(data1);
 		u32 offset =  BNXT_EVENT_BUF_PRODUCER_OFFSET(data2);
 
+		if (type >= ARRAY_SIZE(bp->bs_trace))
+			goto async_event_process_exit;
 		bnxt_bs_trace_check_wrap(&bp->bs_trace[type], offset);
 		goto async_event_process_exit;
 	}
@@ -6156,6 +6160,9 @@ int bnxt_hwrm_cfa_ntuple_filter_free(struct bnxt *bp,
 	int rc;
 
 	set_bit(BNXT_FLTR_FW_DELETED, &fltr->base.state);
+	if (!test_bit(BNXT_STATE_OPEN, &bp->state))
+		return 0;
+
 	rc = hwrm_req_init(bp, req, HWRM_CFA_NTUPLE_FILTER_FREE);
 	if (rc)
 		return rc;
@@ -6511,6 +6518,9 @@ int bnxt_get_nr_rss_ctxs(struct bnxt *bp, int rx_rings)
 	if (bp->flags & BNXT_FLAG_CHIP_P5_PLUS) {
 		if (!rx_rings)
 			return 0;
+		if (bp->rss_cap & BNXT_RSS_CAP_LARGE_RSS_CTX)
+			return BNXT_RSS_TABLE_MAX_TBL_P5;
+
 		return bnxt_calc_nr_ring_pages(rx_rings - 1,
 					       BNXT_RSS_TABLE_ENTRIES_P5);
 	}
@@ -7859,13 +7869,28 @@ static int bnxt_get_total_vnics(struct bnxt *bp, int rx_rings)
 	return 1;
 }
 
+static void bnxt_get_total_resources(struct bnxt *bp, struct bnxt_hw_rings *hwr)
+{
+	hwr->cp = bnxt_nq_rings_in_use(bp);
+	hwr->cp_p5 = 0;
+	if (bp->flags & BNXT_FLAG_CHIP_P5_PLUS)
+		hwr->cp_p5 = bnxt_cp_rings_in_use(bp);
+	hwr->tx = bp->tx_nr_rings;
+	hwr->rx = bp->rx_nr_rings;
+	hwr->grp = hwr->rx;
+	hwr->vnic = bnxt_get_total_vnics(bp, hwr->rx);
+	hwr->rss_ctx = bnxt_get_total_rss_ctxs(bp, hwr);
+	if (bp->flags & BNXT_FLAG_AGG_RINGS)
+		hwr->rx <<= 1;
+	hwr->stat = bnxt_get_func_stat_ctxs(bp);
+}
+
 static bool bnxt_need_reserve_rings(struct bnxt *bp)
 {
 	struct bnxt_hw_resc *hw_resc = &bp->hw_resc;
-	int cp = bnxt_cp_rings_in_use(bp);
-	int nq = bnxt_nq_rings_in_use(bp);
-	int rx = bp->rx_nr_rings, stat;
-	int vnic, grp = rx;
+	struct bnxt_hw_rings hwr;
+
+	bnxt_get_total_resources(bp, &hwr);
 
 	/* Old firmware does not need RX ring reservations but we still
 	 * need to setup a default RSS map when needed.  With new firmware
@@ -7875,25 +7900,27 @@ static bool bnxt_need_reserve_rings(struct bnxt *bp)
 	if (!BNXT_NEW_RM(bp))
 		bnxt_check_rss_tbl_no_rmgr(bp);
 
-	if (hw_resc->resv_tx_rings != bp->tx_nr_rings &&
-	    bp->hwrm_spec_code >= 0x10601)
+	if (hw_resc->resv_tx_rings != hwr.tx && bp->hwrm_spec_code >= 0x10601)
 		return true;
 
 	if (!BNXT_NEW_RM(bp))
 		return false;
 
-	vnic = bnxt_get_total_vnics(bp, rx);
-
-	if (bp->flags & BNXT_FLAG_AGG_RINGS)
-		rx <<= 1;
-	stat = bnxt_get_func_stat_ctxs(bp);
-	if (hw_resc->resv_rx_rings != rx || hw_resc->resv_cp_rings != cp ||
-	    hw_resc->resv_vnics != vnic || hw_resc->resv_stat_ctxs != stat ||
-	    (hw_resc->resv_hw_ring_grps != grp &&
+	if (hw_resc->resv_rx_rings != hwr.rx ||
+	    hw_resc->resv_vnics != hwr.vnic ||
+	    hw_resc->resv_stat_ctxs != hwr.stat ||
+	    hw_resc->resv_rsscos_ctxs != hwr.rss_ctx ||
+	    (hw_resc->resv_hw_ring_grps != hwr.grp &&
 	     !(bp->flags & BNXT_FLAG_CHIP_P5_PLUS)))
 		return true;
+	if (bp->flags & BNXT_FLAG_CHIP_P5_PLUS) {
+		if (hw_resc->resv_cp_rings != hwr.cp_p5)
+			return true;
+	} else if (hw_resc->resv_cp_rings != hwr.cp) {
+		return true;
+	}
 	if ((bp->flags & BNXT_FLAG_CHIP_P5_PLUS) && BNXT_PF(bp) &&
-	    hw_resc->resv_irqs != nq)
+	    hw_resc->resv_irqs != hwr.cp)
 		return true;
 	return false;
 }
@@ -8018,6 +8045,11 @@ static int __bnxt_reserve_rings(struct bnxt *bp)
 	}
 	bp->rx_nr_rings = rx_rings;
 	bp->cp_nr_rings = hwr.cp;
+
+	/* Fall back if we cannot reserve enough HW RSS contexts */
+	if ((bp->rss_cap & BNXT_RSS_CAP_LARGE_RSS_CTX) &&
+	    hwr.rss_ctx < bnxt_get_total_rss_ctxs(bp, &hwr))
+		bp->rss_cap &= ~BNXT_RSS_CAP_LARGE_RSS_CTX;
 
 	if (!bnxt_rings_ok(bp, &hwr))
 		return -ENOMEM;
@@ -9509,6 +9541,10 @@ int bnxt_hwrm_func_resc_qcaps(struct bnxt *bp, bool all)
 	hw_resc->min_stat_ctxs = le16_to_cpu(resp->min_stat_ctx);
 	hw_resc->max_stat_ctxs = le16_to_cpu(resp->max_stat_ctx);
 
+	if (hw_resc->max_rsscos_ctxs >=
+	    hw_resc->max_vnics * BNXT_LARGE_RSS_TO_VNIC_RATIO)
+		bp->rss_cap |= BNXT_RSS_CAP_LARGE_RSS_CTX;
+
 	if (bp->flags & BNXT_FLAG_CHIP_P5_PLUS) {
 		u16 max_msix = le16_to_cpu(resp->max_msix);
 
@@ -9642,6 +9678,8 @@ static int __bnxt_hwrm_func_qcaps(struct bnxt *bp)
 		bp->fw_cap |= BNXT_FW_CAP_EXT_HW_STATS_SUPPORTED;
 	if (BNXT_PF(bp) && (flags_ext & FUNC_QCAPS_RESP_FLAGS_EXT_PTP_PPS_SUPPORTED))
 		bp->fw_cap |= BNXT_FW_CAP_PTP_PPS;
+	if (flags_ext & FUNC_QCAPS_RESP_FLAGS_EXT_PTP_PTM_SUPPORTED)
+		bp->fw_cap |= BNXT_FW_CAP_PTP_PTM;
 	if (flags_ext & FUNC_QCAPS_RESP_FLAGS_EXT_PTP_64BIT_RTC_SUPPORTED)
 		bp->fw_cap |= BNXT_FW_CAP_PTP_RTC;
 	if (BNXT_PF(bp) && (flags_ext & FUNC_QCAPS_RESP_FLAGS_EXT_HOT_RESET_IF_SUPPORT))
@@ -10769,12 +10807,10 @@ void bnxt_del_one_rss_ctx(struct bnxt *bp, struct bnxt_rss_ctx *rss_ctx,
 	struct bnxt_ntuple_filter *ntp_fltr;
 	int i;
 
-	if (netif_running(bp->dev)) {
-		bnxt_hwrm_vnic_free_one(bp, &rss_ctx->vnic);
-		for (i = 0; i < BNXT_MAX_CTX_PER_VNIC; i++) {
-			if (vnic->fw_rss_cos_lb_ctx[i] != INVALID_HW_RING_ID)
-				bnxt_hwrm_vnic_ctx_free_one(bp, vnic, i);
-		}
+	bnxt_hwrm_vnic_free_one(bp, &rss_ctx->vnic);
+	for (i = 0; i < BNXT_MAX_CTX_PER_VNIC; i++) {
+		if (vnic->fw_rss_cos_lb_ctx[i] != INVALID_HW_RING_ID)
+			bnxt_hwrm_vnic_ctx_free_one(bp, vnic, i);
 	}
 	if (!all)
 		return;
@@ -11843,6 +11879,26 @@ static char *bnxt_report_fec(struct bnxt_link_info *link_info)
 	}
 }
 
+static char *bnxt_link_down_reason(struct bnxt_link_info *link_info)
+{
+	u8 reason = link_info->link_down_reason;
+
+	/* Multiple bits can be set, we report 1 bit only in order of
+	 * priority.
+	 */
+	if (reason & PORT_PHY_QCFG_RESP_LINK_DOWN_REASON_RF)
+		return "(Remote fault)";
+	if (reason & PORT_PHY_QCFG_RESP_LINK_DOWN_REASON_OTP_SPEED_VIOLATION)
+		return "(OTP Speed limit violation)";
+	if (reason & PORT_PHY_QCFG_RESP_LINK_DOWN_REASON_CABLE_REMOVED)
+		return "(Cable removed)";
+	if (reason & PORT_PHY_QCFG_RESP_LINK_DOWN_REASON_MODULE_FAULT)
+		return "(Module fault)";
+	if (reason & PORT_PHY_QCFG_RESP_LINK_DOWN_REASON_BMC_REQUEST)
+		return "(BMC request down)";
+	return "";
+}
+
 void bnxt_report_link(struct bnxt *bp)
 {
 	if (BNXT_LINK_IS_UP(bp)) {
@@ -11900,8 +11956,10 @@ void bnxt_report_link(struct bnxt *bp)
 				    (fec & BNXT_FEC_AUTONEG) ? "on" : "off",
 				    bnxt_report_fec(&bp->link_info));
 	} else {
+		char *str = bnxt_link_down_reason(&bp->link_info);
+
 		netif_carrier_off(bp->dev);
-		netdev_err(bp->dev, "NIC Link is Down\n");
+		netdev_err(bp->dev, "NIC Link is Down %s\n", str);
 	}
 }
 
@@ -12101,6 +12159,7 @@ int bnxt_update_link(struct bnxt *bp, bool chng_link_state)
 	link_info->phy_addr = resp->eee_config_phy_addr &
 			      PORT_PHY_QCFG_RESP_PHY_ADDR_MASK;
 	link_info->module_status = resp->module_status;
+	link_info->link_down_reason = resp->link_down_reason;
 
 	if (bp->phy_flags & BNXT_PHY_FL_EEE_CAP) {
 		struct ethtool_keee *eee = &bp->eee;
@@ -13368,6 +13427,8 @@ static void bnxt_get_one_ring_err_stats(struct bnxt *bp,
 	stats->rx_total_netpoll_discards += sw_stats->rx.rx_netpoll_discards;
 	stats->rx_total_ring_discards +=
 		BNXT_GET_RING_STATS64(hw_stats, rx_discard_pkts);
+	stats->rx_total_hw_gro_packets += sw_stats->rx.rx_hw_gro_packets;
+	stats->rx_total_hw_gro_wire_packets += sw_stats->rx.rx_hw_gro_wire_packets;
 	stats->tx_total_resets += sw_stats->tx.tx_resets;
 	stats->tx_total_ring_discards +=
 		BNXT_GET_RING_STATS64(hw_stats, tx_discard_pkts);
@@ -13757,7 +13818,6 @@ static bool bnxt_exthdr_check(struct bnxt *bp, struct sk_buff *skb, int nw_off,
 			      u8 **nextp)
 {
 	struct ipv6hdr *ip6h = (struct ipv6hdr *)(skb->data + nw_off);
-	struct hop_jumbo_hdr *jhdr;
 	int hdr_count = 0;
 	u8 *nexthdr;
 	int start;
@@ -13786,24 +13846,7 @@ static bool bnxt_exthdr_check(struct bnxt *bp, struct sk_buff *skb, int nw_off,
 		if (hdrlen > 64)
 			return false;
 
-		/* The ext header may be a hop-by-hop header inserted for
-		 * big TCP purposes. This will be removed before sending
-		 * from NIC, so do not count it.
-		 */
-		if (*nexthdr == NEXTHDR_HOP) {
-			if (likely(skb->len <= GRO_LEGACY_MAX_SIZE))
-				goto increment_hdr;
-
-			jhdr = (struct hop_jumbo_hdr *)hp;
-			if (jhdr->tlv_type != IPV6_TLV_JUMBO || jhdr->hdrlen != 0 ||
-			    jhdr->nexthdr != IPPROTO_TCP)
-				goto increment_hdr;
-
-			goto next_hdr;
-		}
-increment_hdr:
 		hdr_count++;
-next_hdr:
 		nexthdr = &hp->nexthdr;
 		start += hdrlen;
 	}
@@ -15788,6 +15831,8 @@ static void bnxt_get_queue_stats_rx(struct net_device *dev, int i,
 	stats->bytes += BNXT_GET_RING_STATS64(sw, rx_bcast_bytes);
 
 	stats->alloc_fail = cpr->sw_stats->rx.rx_oom_discards;
+	stats->hw_gro_packets = cpr->sw_stats->rx.rx_hw_gro_packets;
+	stats->hw_gro_wire_packets = cpr->sw_stats->rx.rx_hw_gro_wire_packets;
 }
 
 static void bnxt_get_queue_stats_tx(struct net_device *dev, int i,
@@ -15823,6 +15868,8 @@ static void bnxt_get_base_stats(struct net_device *dev,
 	rx->packets = bp->net_stats_prev.rx_packets;
 	rx->bytes = bp->net_stats_prev.rx_bytes;
 	rx->alloc_fail = bp->ring_err_stats_prev.rx_total_oom_discards;
+	rx->hw_gro_packets = bp->ring_err_stats_prev.rx_total_hw_gro_packets;
+	rx->hw_gro_wire_packets = bp->ring_err_stats_prev.rx_total_hw_gro_wire_packets;
 
 	tx->packets = bp->net_stats_prev.tx_packets;
 	tx->bytes = bp->net_stats_prev.tx_bytes;
