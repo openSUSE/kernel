@@ -34,7 +34,6 @@
 #include "intel_encoder.h"
 #include "intel_hotplug.h"
 #include "intel_panel.h"
-#include "intel_quirks.h"
 
 #define LT_MSG_PREFIX			"[CONNECTOR:%d:%s][ENCODER:%d:%s][%s] "
 #define LT_MSG_ARGS(_intel_dp, _dp_phy)	(_intel_dp)->attached_connector->base.base.id, \
@@ -1146,7 +1145,7 @@ void intel_dp_stop_link_train(struct intel_dp *intel_dp,
 	    intel_dp->link.seq_train_failures < MAX_SEQ_TRAIN_FAILURES) {
 		int delay_ms = intel_dp->link.seq_train_failures ? 0 : 2000;
 
-		if (!intel_has_quirk(display, QUIRK_NO_RECHECK_DP_LINK_STATE))
+		if (!display->params.no_recheck_dp_link_state)
 			intel_encoder_link_check_queue_work(encoder, delay_ms);
 	}
 }
