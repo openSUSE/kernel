@@ -821,7 +821,16 @@ enum s_alloc {
 };
 
 #ifdef CONFIG_SCHED_CACHE
+/* hardware support for cache aware scheduling */
 DEFINE_STATIC_KEY_FALSE(sched_cache_present);
+/*
+ * Indicator of whether cache aware scheduling
+ * is active, used by the scheduler.
+ */
+DEFINE_STATIC_KEY_FALSE(sched_cache_active);
+/* user wants cache aware scheduling [0 or 1] */
+int sysctl_sched_cache_user = 1;
+
 static bool alloc_sd_llc(const struct cpumask *cpu_map,
 			 struct s_data *d)
 {
@@ -855,6 +864,60 @@ err:
 	}
 
 	return false;
+}
+
+static void _sched_cache_active_set(bool enable, bool locked)
+{
+	if (enable) {
+		if (locked)
+			static_branch_enable_cpuslocked(&sched_cache_active);
+		else
+			static_branch_enable(&sched_cache_active);
+	} else {
+		if (locked)
+			static_branch_disable_cpuslocked(&sched_cache_active);
+		else
+			static_branch_disable(&sched_cache_active);
+	}
+}
+
+/*
+ * Enable/disable cache aware scheduling according to
+ * user input and the presence of hardware support.
+ */
+static void sched_cache_active_set(bool locked)
+{
+	/* hardware does not support */
+	if (!static_branch_likely(&sched_cache_present)) {
+		_sched_cache_active_set(false, locked);
+		return;
+	}
+
+	/*
+	 * user wants it or not ?
+	 * TBD: read before writing the static key.
+	 * It is not in the critical path, leave as-is
+	 * for now.
+	 */
+	if (sysctl_sched_cache_user) {
+		_sched_cache_active_set(true, locked);
+		if (sched_debug())
+			pr_info("%s: enabling cache aware scheduling\n", __func__);
+	} else {
+		_sched_cache_active_set(false, locked);
+		if (sched_debug())
+			pr_info("%s: disabling cache aware scheduling\n", __func__);
+	}
+}
+
+static void sched_cache_active_set_locked(void)
+{
+	return sched_cache_active_set(true);
+}
+
+void sched_cache_active_set_unlocked(void)
+{
+	return sched_cache_active_set(false);
 }
 #else
 static bool alloc_sd_llc(const struct cpumask *cpu_map,
@@ -2926,6 +2989,8 @@ error:
 		static_branch_enable_cpuslocked(&sched_cache_present);
 	else
 		static_branch_disable_cpuslocked(&sched_cache_present);
+
+	sched_cache_active_set_locked();
 #endif
 	__free_domain_allocs(&d, alloc_state, cpu_map);
 

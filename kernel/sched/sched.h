@@ -4070,11 +4070,16 @@ static inline void mm_cid_switch_to(struct task_struct *prev, struct task_struct
 
 #ifdef CONFIG_SCHED_CACHE
 DECLARE_STATIC_KEY_FALSE(sched_cache_present);
+DECLARE_STATIC_KEY_FALSE(sched_cache_active);
+extern int sysctl_sched_cache_user;
 
 static inline bool sched_cache_enabled(void)
 {
-	return static_branch_unlikely(&sched_cache_present);
+	return static_branch_unlikely(&sched_cache_active);
 }
+
+extern void sched_cache_active_set_unlocked(void);
+
 #endif
 
 void sched_domains_free_llc_id(int cpu);
