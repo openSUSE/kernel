@@ -1386,6 +1386,7 @@ static int llc_id(int cpu)
 
 static void account_llc_enqueue(struct rq *rq, struct task_struct *p)
 {
+	struct sched_domain *sd;
 	int pref_llc;
 
 	pref_llc = p->preferred_llc;
@@ -1394,10 +1395,15 @@ static void account_llc_enqueue(struct rq *rq, struct task_struct *p)
 
 	rq->nr_llc_running++;
 	rq->nr_pref_llc_running += (pref_llc == task_llc(p));
+
+	sd = rcu_dereference_all(rq->sd);
+	if (sd && (unsigned int)pref_llc < sd->llc_max)
+		sd->llc_counts[pref_llc]++;
 }
 
 static void account_llc_dequeue(struct rq *rq, struct task_struct *p)
 {
+	struct sched_domain *sd;
 	int pref_llc;
 
 	pref_llc = p->preferred_llc;
@@ -1406,6 +1412,24 @@ static void account_llc_dequeue(struct rq *rq, struct task_struct *p)
 
 	rq->nr_llc_running--;
 	rq->nr_pref_llc_running -= (pref_llc == task_llc(p));
+
+	sd = rcu_dereference_all(rq->sd);
+	if (sd && (unsigned int)pref_llc < sd->llc_max) {
+		/*
+		 * There is a race condition between dequeue
+		 * and CPU hotplug. After a task has been enqueued
+		 * on CPUx, a CPU hotplug event occurs, and all online
+		 * CPUs (including CPUx) rebuild their sched_domains
+		 * and reset statistics to zero(including sd->llc_counts).
+		 * This can cause temporary undercount and we have to
+		 * check for such underflow in sd->llc_counts.
+		 *
+		 * This undercount is temporary and accurate accounting
+		 * will resume once the rq has a chance to be idle.
+		 */
+		if (sd->llc_counts[pref_llc])
+			sd->llc_counts[pref_llc]--;
+	}
 }
 
 void mm_init_sched(struct mm_struct *mm,
