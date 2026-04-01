@@ -9993,6 +9993,38 @@ static inline int task_is_ineligible_on_dst_cpu(struct task_struct *p, int dest_
 }
 
 #ifdef CONFIG_SCHED_CACHE
+/*
+ * The margin used when comparing LLC utilization with CPU capacity.
+ * It determines the LLC load level where active LLC aggregation is
+ * done.
+ * Derived from fits_capacity().
+ *
+ * (default: ~50%, tunable via debugfs)
+ */
+static bool fits_llc_capacity(unsigned long util, unsigned long max)
+{
+	u32 aggr_pct = 50;
+
+	/*
+	 * For single core systems, raise the aggregation
+	 * threshold to accommodate more tasks.
+	 */
+	if (cpu_smt_num_threads == 1)
+		aggr_pct = (aggr_pct * 3 / 2);
+
+	return util * 100 < max * aggr_pct;
+}
+
+/*
+ * The margin used when comparing utilization.
+ * is 'util1' noticeably greater than 'util2'
+ * Derived from capacity_greater().
+ * Bias is in perentage.
+ */
+/* Allows dst util to be bigger than src util by up to bias percent */
+#define util_greater(util1, util2) \
+	((util1) * 100 > (util2) * 120)
+
 static __maybe_unused bool get_llc_stats(int cpu, unsigned long *util,
 					 unsigned long *cap)
 {
@@ -10007,6 +10039,141 @@ static __maybe_unused bool get_llc_stats(int cpu, unsigned long *util,
 
 	return true;
 }
+
+/*
+ * Decision matrix according to the LLC utilization. To
+ * decide whether we can do task aggregation across LLC.
+ *
+ * By default, 50% is the threshold for treating the LLC
+ * as busy. The reason for choosing 50% is to avoid saturation
+ * of SMT-2, and it is also a safe cutoff for other SMT-n
+ * platforms. SMT-1 has higher threshold because it is
+ * supposed to accommodate more tasks, see fits_llc_capacity().
+ *
+ * 20% is the utilization imbalance percentage to decide
+ * if the preferred LLC is busier than the non-preferred LLC.
+ * 20 is a little higher than the LLC domain's imbalance_pct
+ * 17. The hysteresis is used to avoid task bouncing between the
+ * preferred LLC and the non-preferred LLC, and it will
+ * be turned into tunable debugfs.
+ *
+ * 1. moving towards the preferred LLC, dst is the preferred
+ *    LLC, src is not.
+ *
+ * src \ dst      30%  40%  50%  60%
+ * 30%            Y    Y    Y    N
+ * 40%            Y    Y    Y    Y
+ * 50%            Y    Y    G    G
+ * 60%            Y    Y    G    G
+ *
+ * 2. moving out of the preferred LLC, src is the preferred
+ *    LLC, dst is not:
+ *
+ * src \ dst      30%  40%  50%  60%
+ * 30%            N    N    N    N
+ * 40%            N    N    N    N
+ * 50%            N    N    G    G
+ * 60%            Y    N    G    G
+ *
+ * src :      src_util
+ * dst :      dst_util
+ * Y :        Yes, migrate
+ * N :        No, do not migrate
+ * G :        let the Generic load balance to even the load.
+ *
+ * The intention is that if both LLCs are quite busy, cache aware
+ * load balance should not be performed, and generic load balance
+ * should take effect. However, if one is busy and the other is not,
+ * the preferred LLC capacity(50%) and imbalance criteria(20%) should
+ * be considered to determine whether LLC aggregation should be
+ * performed to bias the load towards the preferred LLC.
+ */
+
+/* migration decision, 3 states are orthogonal. */
+enum llc_mig {
+	mig_forbid = 0,		/* N: Don't migrate task, respect LLC preference */
+	mig_llc,		/* Y: Do LLC preference based migration */
+	mig_unrestricted	/* G: Don't restrict generic load balance migration */
+};
+
+/*
+ * Check if task can be moved from the source LLC to the
+ * destination LLC without breaking cache aware preferrence.
+ * src_cpu and dst_cpu are arbitrary CPUs within the source
+ * and destination LLCs, respectively.
+ */
+static enum llc_mig can_migrate_llc(int src_cpu, int dst_cpu,
+				    unsigned long tsk_util,
+				    bool to_pref)
+{
+	unsigned long src_util, dst_util, src_cap, dst_cap;
+
+	if (!get_llc_stats(src_cpu, &src_util, &src_cap) ||
+	    !get_llc_stats(dst_cpu, &dst_util, &dst_cap))
+		return mig_unrestricted;
+
+	src_util = src_util < tsk_util ? 0 : src_util - tsk_util;
+	dst_util = dst_util + tsk_util;
+
+	if (!fits_llc_capacity(dst_util, dst_cap) &&
+	    !fits_llc_capacity(src_util, src_cap))
+		return mig_unrestricted;
+
+	if (to_pref) {
+		/*
+		 * Don't migrate if we will get preferred LLC too
+		 * heavily loaded and if the dest is much busier
+		 * than the src, in which case migration will
+		 * increase the imbalance too much.
+		 */
+		if (!fits_llc_capacity(dst_util, dst_cap) &&
+		    util_greater(dst_util, src_util))
+			return mig_forbid;
+	} else {
+		/*
+		 * Don't migrate if we will leave preferred LLC
+		 * too idle, or if this migration leads to the
+		 * non-preferred LLC falls within sysctl_aggr_imb percent
+		 * of preferred LLC, leading to migration again
+		 * back to preferred LLC.
+		 */
+		if (fits_llc_capacity(src_util, src_cap) ||
+		    !util_greater(src_util, dst_util))
+			return mig_forbid;
+	}
+	return mig_llc;
+}
+
+/*
+ * Check if task p can migrate from source LLC to
+ * destination LLC in terms of cache aware load balance.
+ */
+static __maybe_unused enum llc_mig can_migrate_llc_task(int src_cpu, int dst_cpu,
+							struct task_struct *p)
+{
+	struct mm_struct *mm;
+	bool to_pref;
+	int cpu;
+
+	mm = p->mm;
+	if (!mm)
+		return mig_unrestricted;
+
+	cpu = mm->sc_stat.cpu;
+	if (cpu < 0 || cpus_share_cache(src_cpu, dst_cpu))
+		return mig_unrestricted;
+
+	if (cpus_share_cache(dst_cpu, cpu))
+		to_pref = true;
+	else if (cpus_share_cache(src_cpu, cpu))
+		to_pref = false;
+	else
+		return mig_unrestricted;
+
+	return can_migrate_llc(src_cpu, dst_cpu,
+			       task_util(p), to_pref);
+}
+
 #else
 static inline bool get_llc_stats(int cpu, unsigned long *util,
 				 unsigned long *cap)
