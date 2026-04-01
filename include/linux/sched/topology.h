@@ -103,6 +103,11 @@ struct sched_domain {
 	u64 max_newidle_lb_cost;
 	unsigned long last_decay_max_lb_cost;
 
+#ifdef CONFIG_SCHED_CACHE
+	unsigned int llc_max;
+	unsigned int *llc_counts __counted_by_ptr(llc_max);
+#endif
+
 #ifdef CONFIG_SCHEDSTATS
 	/* sched_balance_rq() stats */
 	unsigned int lb_count[CPU_MAX_IDLE_TYPES];
