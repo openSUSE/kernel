@@ -312,7 +312,7 @@ static int uvc_status_start(struct uvc_device *dev, gfp_t flags)
 {
 	lockdep_assert_held(&dev->status_lock);
 
-	if (dev->int_urb == NULL)
+	if (!dev->int_urb)
 		return 0;
 
 	return usb_submit_urb(dev->int_urb, flags);
@@ -323,6 +323,9 @@ static void uvc_status_stop(struct uvc_device *dev)
 	struct uvc_ctrl_work *w = &dev->async_ctrl;
 
 	lockdep_assert_held(&dev->status_lock);
+
+	if (!dev->int_urb)
+		return;
 
 	/*
 	 * Prevent the asynchronous control handler from requeing the URB. The
