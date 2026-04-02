@@ -897,14 +897,6 @@ static int imx274_regulators_get(struct device *dev, struct stimx274 *imx274)
 					imx274->supplies);
 }
 
-/**
- * imx274_s_ctrl - This is used to set the imx274 V4L2 controls
- * @ctrl: V4L2 control to be set
- *
- * This function is used to set the V4L2 controls for the imx274 sensor.
- *
- * Return: 0 on success, errors otherwise
- */
 static int imx274_s_ctrl(struct v4l2_ctrl *ctrl)
 {
 	struct v4l2_subdev *sd = ctrl_to_sd(ctrl);
@@ -1059,16 +1051,6 @@ static int __imx274_change_compose(struct stimx274 *imx274,
 	return 0;
 }
 
-/**
- * imx274_get_fmt - Get the pad format
- * @sd: Pointer to V4L2 Sub device structure
- * @sd_state: Pointer to sub device state structure
- * @fmt: Pointer to pad level media bus format
- *
- * This function is used to get the pad format information.
- *
- * Return: 0 on success
- */
 static int imx274_get_fmt(struct v4l2_subdev *sd,
 			  struct v4l2_subdev_state *sd_state,
 			  struct v4l2_subdev_format *fmt)
@@ -1081,16 +1063,6 @@ static int imx274_get_fmt(struct v4l2_subdev *sd,
 	return 0;
 }
 
-/**
- * imx274_set_fmt - This is used to set the pad format
- * @sd: Pointer to V4L2 Sub device structure
- * @sd_state: Pointer to sub device state information structure
- * @format: Pointer to pad level media bus format
- *
- * This function is used to set the pad format.
- *
- * Return: 0 on success
- */
 static int imx274_set_fmt(struct v4l2_subdev *sd,
 			  struct v4l2_subdev_state *sd_state,
 			  struct v4l2_subdev_format *format)
@@ -1423,16 +1395,6 @@ static void imx274_load_default(struct stimx274 *priv)
 	priv->ctrls.test_pattern->val = TEST_PATTERN_DISABLED;
 }
 
-/**
- * imx274_s_stream - It is used to start/stop the streaming.
- * @sd: V4L2 Sub device
- * @on: Flag (True / False)
- *
- * This function controls the start or stop of streaming for the
- * imx274 sensor.
- *
- * Return: 0 on success, errors otherwise
- */
 static int imx274_s_stream(struct v4l2_subdev *sd, int on)
 {
 	struct stimx274 *imx274 = to_imx274(sd);
