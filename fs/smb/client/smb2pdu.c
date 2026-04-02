@@ -4138,7 +4138,9 @@ void smb2_reconnect_server(struct work_struct *work)
 
 		list_for_each_entry(tcon, &ses->tcon_list, tcon_list) {
 			if (tcon->need_reconnect || tcon->need_reopen_files) {
+                                spin_lock(&tcon->tc_lock);
 				tcon->tc_count++;
+                                spin_unlock(&tcon->tc_lock);
 				list_add_tail(&tcon->rlist, &tmp_list);
 				tcon_selected = tcon_exist = true;
 			}

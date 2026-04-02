@@ -2911,8 +2911,11 @@ smb2_get_dfs_refer(const unsigned int xid, struct cifs_ses *ses,
 		tcon = list_first_entry_or_null(&ses->tcon_list,
 						struct cifs_tcon,
 						tcon_list);
-		if (tcon)
+		if (tcon) {
+                        spin_lock(&tcon->tc_lock);
 			tcon->tc_count++;
+                        spin_unlock(&tcon->tc_lock);
+                }
 		spin_unlock(&cifs_tcp_ses_lock);
 	}
 
@@ -2972,11 +2975,7 @@ smb2_get_dfs_refer(const unsigned int xid, struct cifs_ses *ses,
  out:
 	if (tcon && !tcon->ipc) {
 		/* ipc tcons are not refcounted */
-		spin_lock(&cifs_tcp_ses_lock);
-		tcon->tc_count--;
-		/* tc_count can never go negative */
-		WARN_ON(tcon->tc_count < 0);
-		spin_unlock(&cifs_tcp_ses_lock);
+                cifs_put_tcon(tcon);
 	}
 	kfree(utf16_path);
 	kfree(dfs_req);
