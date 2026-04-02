@@ -46,6 +46,13 @@ enum {
 
 	/* Used to prevent recursion recording from recursing. */
 	TRACE_RECORD_RECURSION_BIT,
+
+	/* Internal event use recursion bits */
+	TRACE_INTERNAL_EVENT_BIT,
+	TRACE_INTERNAL_EVENT_NMI_BIT,
+	TRACE_INTERNAL_EVENT_IRQ_BIT,
+	TRACE_INTERNAL_EVENT_SIRQ_BIT,
+	TRACE_INTERNAL_EVENT_TRANSITION_BIT,
 };
 
 #define trace_recursion_set(bit)	do { (current)->trace_recursion |= (1<<(bit)); } while (0)
@@ -57,6 +64,8 @@ enum {
 #define TRACE_FTRACE_START	TRACE_FTRACE_BIT
 
 #define TRACE_LIST_START	TRACE_INTERNAL_BIT
+
+#define TRACE_EVENT_START	TRACE_INTERNAL_EVENT_BIT
 
 #define TRACE_CONTEXT_MASK	((1 << (TRACE_LIST_START + TRACE_CONTEXT_BITS)) - 1)
 
