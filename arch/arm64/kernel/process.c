@@ -50,6 +50,7 @@
 #include <asm/exec.h>
 #include <asm/fpsimd.h>
 #include <asm/mmu_context.h>
+#include <asm/mpam.h>
 #include <asm/mte.h>
 #include <asm/processor.h>
 #include <asm/pointer_auth.h>
@@ -642,6 +643,12 @@ struct task_struct *__switch_to(struct task_struct *prev,
 	/* avoid expensive SCTLR_EL1 accesses if no change */
 	if (prev->thread.sctlr_user != next->thread.sctlr_user)
 		update_sctlr_el1(next->thread.sctlr_user);
+
+	/*
+	 * MPAM thread switch happens after the DSB to ensure prev's accesses
+	 * use prev's MPAM settings.
+	 */
+	mpam_thread_switch(next);
 
 	/* the actual thread switch */
 	last = cpu_switch_to(prev, next);
