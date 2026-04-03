@@ -4,6 +4,7 @@
  */
 
 #include <linux/sched/isolation.h>
+#include <linux/sched/clock.h>
 #include <linux/bsearch.h>
 #include "sched.h"
 
@@ -1658,6 +1659,7 @@ sd_init(struct sched_domain_topology_level *tl,
 	struct sched_domain *sd = *per_cpu_ptr(sdd->sd, cpu);
 	int sd_id, sd_weight, sd_flags = 0;
 	struct cpumask *sd_span;
+	u64 now = sched_clock();
 
 	sd_weight = cpumask_weight(tl->mask(tl, cpu));
 
@@ -1695,6 +1697,7 @@ sd_init(struct sched_domain_topology_level *tl,
 		.newidle_call		= 512,
 		.newidle_success	= 256,
 		.newidle_ratio		= 512,
+		.newidle_stamp		= now,
 
 		.max_newidle_lb_cost	= 0,
 		.last_decay_max_lb_cost	= jiffies,

@@ -12365,7 +12365,30 @@ static inline void update_newidle_stats(struct sched_domain *sd, unsigned int su
 	sd->newidle_success += success;
 
 	if (sd->newidle_call >= 1024) {
-		sd->newidle_ratio = sd->newidle_success;
+		u64 now = sched_clock();
+		s64 delta = now - sd->newidle_stamp;
+		sd->newidle_stamp = now;
+		int ratio = 0;
+
+		if (delta < 0)
+			delta = 0;
+
+		if (sched_feat(NI_RATE)) {
+			/*
+			 * ratio  delta   freq
+			 *
+			 * 1024 -  4  s -  128 Hz
+			 *  512 -  2  s -  256 Hz
+			 *  256 -  1  s -  512 Hz
+			 *  128 - .5  s - 1024 Hz
+			 *   64 - .25 s - 2048 Hz
+			 */
+			ratio = delta >> 22;
+		}
+
+		ratio += sd->newidle_success;
+
+		sd->newidle_ratio = min(1024, ratio);
 		sd->newidle_call /= 2;
 		sd->newidle_success /= 2;
 	}
@@ -13071,7 +13094,7 @@ static int sched_balance_newidle(struct rq *this_rq, struct rq_flags *rf)
 		if (sd->flags & SD_BALANCE_NEWIDLE) {
 			unsigned int weight = 1;
 
-			if (sched_feat(NI_RANDOM)) {
+			if (sched_feat(NI_RANDOM) && sd->newidle_ratio < 1024) {
 				/*
 				 * Throw a 1k sided dice; and only run
 				 * newidle_balance according to the success
