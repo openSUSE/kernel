@@ -794,9 +794,6 @@ static int configure_isp_from_args(const struct sh_css_sp_pipeline *pipeline,
 	ret = ia_css_copy_output_configure(binary, args->copy_output);
 	if (ret)
 		return ret;
-	ret = ia_css_output0_configure(binary, ia_css_frame_get_info(args->out_frame[0]));
-	if (ret)
-		return ret;
 	ret = ia_css_iterator_configure(binary, ia_css_frame_get_info(args->in_frame));
 	if (ret)
 		return ret;
