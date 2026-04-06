@@ -935,6 +935,16 @@ static void max17042_enable_soc_alerts(struct max17042_chip *chip)
 	max17042_set_soc_threshold(chip, 1);
 }
 
+static void max17042_suspend_soc_alerts(struct max17042_chip *chip)
+{
+	if (chip->chip_type != MAXIM_DEVICE_TYPE_MAX17055)
+		return;
+
+	regmap_update_bits(chip->regmap, MAX17055_Config2,
+			   CFG2_DSOCI_BIT_ENBL, 0);
+	max17042_set_critical_soc_threshold(chip);
+}
+
 static irqreturn_t max17042_thread_handler(int id, void *dev)
 {
 	struct max17042_chip *chip = dev;
@@ -1310,6 +1320,7 @@ static int max17042_suspend(struct device *dev)
 	 */
 	if (chip->irq) {
 		disable_irq(chip->irq);
+		max17042_suspend_soc_alerts(chip);
 		enable_irq_wake(chip->irq);
 	}
 
@@ -1323,8 +1334,8 @@ static int max17042_resume(struct device *dev)
 	if (chip->irq) {
 		disable_irq_wake(chip->irq);
 		enable_irq(chip->irq);
-		/* re-program the SOC thresholds to 1% change */
-		max17042_set_soc_threshold(chip, 1);
+		/* re-arm runtime SOC alerts */
+		max17042_enable_soc_alerts(chip);
 	}
 
 	return 0;
