@@ -27,6 +27,7 @@
 /* Status register bits */
 #define STATUS_POR_BIT         (1 << 1)
 #define STATUS_BST_BIT         (1 << 3)
+#define STATUS_DSOCI_BIT       (1 << 7)
 #define STATUS_VMN_BIT         (1 << 8)
 #define STATUS_TMN_BIT         (1 << 9)
 #define STATUS_SMN_BIT         (1 << 10)
@@ -38,6 +39,7 @@
 
 /* Interrupt mask bits */
 #define CFG_ALRT_BIT_ENBL	(1 << 2)
+#define CFG2_DSOCI_BIT_ENBL	(1 << 7)
 
 #define VFSOC0_LOCK		0x0000
 #define VFSOC0_UNLOCK		0x0080
@@ -51,6 +53,8 @@
 #define dP_ACC_200	0x3200
 
 #define MAX17042_VMAX_TOLERANCE		50 /* 50 mV */
+
+#define MAX17042_CRITICAL_SOC		0x03
 
 #define MAX17042_CURRENT_LSB		1562500ll /* 1.5625µV/Rsense */
 #define MAX17042_CAPACITY_LSB		5000000ll /* 5.0µVH/Rsense */
@@ -903,6 +907,34 @@ static void max17042_set_soc_threshold(struct max17042_chip *chip, u16 off)
 	regmap_write(map, MAX17042_SALRT_Th, soc_tr);
 }
 
+static void max17042_set_critical_soc_threshold(struct max17042_chip *chip)
+{
+	struct regmap *map = chip->regmap;
+	u32 soc;
+
+	if (chip->pdata->enable_current_sense)
+		regmap_read(map, MAX17042_RepSOC, &soc);
+	else
+		regmap_read(map, MAX17042_VFSOC, &soc);
+
+	regmap_write(map, MAX17042_SALRT_Th,
+		     ((soc >> 8) >= MAX17042_CRITICAL_SOC) ?
+		     0xff00 + MAX17042_CRITICAL_SOC : 0xff00);
+}
+
+static void max17042_enable_soc_alerts(struct max17042_chip *chip)
+{
+	if (chip->chip_type == MAXIM_DEVICE_TYPE_MAX17055) {
+		regmap_update_bits(chip->regmap, MAX17055_Config2,
+				   CFG2_DSOCI_BIT_ENBL,
+				   CFG2_DSOCI_BIT_ENBL);
+		max17042_set_critical_soc_threshold(chip);
+		return;
+	}
+
+	max17042_set_soc_threshold(chip, 1);
+}
+
 static irqreturn_t max17042_thread_handler(int id, void *dev)
 {
 	struct max17042_chip *chip = dev;
@@ -913,9 +945,10 @@ static irqreturn_t max17042_thread_handler(int id, void *dev)
 	if (ret)
 		return IRQ_HANDLED;
 
-	if ((val & STATUS_SMN_BIT) || (val & STATUS_SMX_BIT)) {
+	if ((val & STATUS_SMN_BIT) || (val & STATUS_SMX_BIT) ||
+	    (val & STATUS_DSOCI_BIT)) {
 		dev_dbg(chip->dev, "SOC threshold INTR\n");
-		max17042_set_soc_threshold(chip, 1);
+		max17042_enable_soc_alerts(chip);
 	}
 
 	/* we implicitly handle all alerts via power_supply_changed */
@@ -1201,7 +1234,7 @@ static int max17042_probe(struct i2c_client *client, struct device *dev, int irq
 			regmap_update_bits(chip->regmap, MAX17042_CONFIG,
 					CFG_ALRT_BIT_ENBL,
 					CFG_ALRT_BIT_ENBL);
-			max17042_set_soc_threshold(chip, 1);
+			max17042_enable_soc_alerts(chip);
 		} else {
 			irq = 0;
 			if (ret != -EBUSY)
