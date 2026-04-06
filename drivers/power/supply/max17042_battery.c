@@ -52,6 +52,13 @@
 
 #define MAX17042_VMAX_TOLERANCE		50 /* 50 mV */
 
+#define MAX17042_CURRENT_LSB		1562500ll /* 1.5625µV/Rsense */
+#define MAX17042_CAPACITY_LSB		5000000ll /* 5.0µVH/Rsense */
+#define MAX17042_TIME_LSB		5625 / 1000 /* s */
+#define MAX17042_VOLTAGE_LSB		625 / 8 /* µV */
+#define MAX17042_RESISTANCE_LSB		1 / 4096 /* Ω */
+#define MAX17042_TEMPERATURE_LSB	1 / 256 /* °C */
+
 struct max17042_chip {
 	struct device *dev;
 	struct regmap *regmap;
@@ -107,8 +114,7 @@ static int max17042_get_temperature(struct max17042_chip *chip, int *temp)
 
 	*temp = sign_extend32(data, 15);
 	/* The value is converted into deci-centigrade scale */
-	/* Units of LSB = 1 / 256 degree Celsius */
-	*temp = *temp * 10 / 256;
+	*temp = *temp * 10 * MAX17042_TEMPERATURE_LSB;
 	return 0;
 }
 
@@ -185,7 +191,7 @@ static int max17042_get_battery_health(struct max17042_chip *chip, int *health)
 		goto health_error;
 
 	/* bits [0-3] unused */
-	vavg = val * 625 / 8;
+	vavg = val * MAX17042_VOLTAGE_LSB;
 	/* Convert to millivolts */
 	vavg /= 1000;
 
@@ -194,7 +200,7 @@ static int max17042_get_battery_health(struct max17042_chip *chip, int *health)
 		goto health_error;
 
 	/* bits [0-3] unused */
-	vbatt = val * 625 / 8;
+	vbatt = val * MAX17042_VOLTAGE_LSB;
 	/* Convert to millivolts */
 	vbatt /= 1000;
 
@@ -301,21 +307,21 @@ static int max17042_get_property(struct power_supply *psy,
 		if (ret < 0)
 			return ret;
 
-		val->intval = data * 625 / 8;
+		val->intval = data * MAX17042_VOLTAGE_LSB;
 		break;
 	case POWER_SUPPLY_PROP_VOLTAGE_AVG:
 		ret = regmap_read(map, MAX17042_AvgVCELL, &data);
 		if (ret < 0)
 			return ret;
 
-		val->intval = data * 625 / 8;
+		val->intval = data * MAX17042_VOLTAGE_LSB;
 		break;
 	case POWER_SUPPLY_PROP_VOLTAGE_OCV:
 		ret = regmap_read(map, MAX17042_OCVInternal, &data);
 		if (ret < 0)
 			return ret;
 
-		val->intval = data * 625 / 8;
+		val->intval = data * MAX17042_VOLTAGE_LSB;
 		break;
 	case POWER_SUPPLY_PROP_CAPACITY:
 		if (chip->pdata->enable_current_sense)
@@ -332,7 +338,7 @@ static int max17042_get_property(struct power_supply *psy,
 		if (ret < 0)
 			return ret;
 
-		data64 = data * 5000000ll;
+		data64 = data * MAX17042_CAPACITY_LSB;
 		data64 *= chip->task_period;
 		do_div(data64, MAX17042_DEFAULT_TASK_PERIOD);
 		do_div(data64, chip->pdata->r_sns);
@@ -343,7 +349,7 @@ static int max17042_get_property(struct power_supply *psy,
 		if (ret < 0)
 			return ret;
 
-		data64 = data * 5000000ll;
+		data64 = data * MAX17042_CAPACITY_LSB;
 		data64 *= chip->task_period;
 		do_div(data64, MAX17042_DEFAULT_TASK_PERIOD);
 		do_div(data64, chip->pdata->r_sns);
@@ -354,7 +360,7 @@ static int max17042_get_property(struct power_supply *psy,
 		if (ret < 0)
 			return ret;
 
-		data64 = data * 5000000ll;
+		data64 = data * MAX17042_CAPACITY_LSB;
 		data64 *= chip->task_period;
 		do_div(data64, MAX17042_DEFAULT_TASK_PERIOD);
 		do_div(data64, chip->pdata->r_sns);
@@ -365,7 +371,7 @@ static int max17042_get_property(struct power_supply *psy,
 		if (ret < 0)
 			return ret;
 
-		data64 = sign_extend64(data, 15) * 5000000ll;
+		data64 = sign_extend64(data, 15) * MAX17042_CAPACITY_LSB;
 		data64 *= chip->task_period;
 		data64 = div_s64(data64, MAX17042_DEFAULT_TASK_PERIOD);
 		val->intval = div_s64(data64, chip->pdata->r_sns);
@@ -409,7 +415,7 @@ static int max17042_get_property(struct power_supply *psy,
 			if (ret < 0)
 				return ret;
 
-			data64 = sign_extend64(data, 15) * 1562500ll;
+			data64 = sign_extend64(data, 15) * MAX17042_CURRENT_LSB;
 			val->intval = div_s64(data64, chip->pdata->r_sns);
 		} else {
 			return -EINVAL;
@@ -421,7 +427,7 @@ static int max17042_get_property(struct power_supply *psy,
 			if (ret < 0)
 				return ret;
 
-			data64 = sign_extend64(data, 15) * 1562500ll;
+			data64 = sign_extend64(data, 15) * MAX17042_CURRENT_LSB;
 			val->intval = div_s64(data64, chip->pdata->r_sns);
 		} else {
 			return -EINVAL;
@@ -432,7 +438,7 @@ static int max17042_get_property(struct power_supply *psy,
 		if (ret < 0)
 			return ret;
 
-		data64 = data * 1562500ll;
+		data64 = data * MAX17042_CURRENT_LSB;
 		val->intval = div_s64(data64, chip->pdata->r_sns);
 		break;
 	case POWER_SUPPLY_PROP_TIME_TO_EMPTY_NOW:
@@ -444,7 +450,7 @@ static int max17042_get_property(struct power_supply *psy,
 		if (data == U16_MAX)
 			return -ENODATA;
 
-		val->intval = data * 5625 / 1000;
+		val->intval = data * MAX17042_TIME_LSB;
 		break;
 	case POWER_SUPPLY_PROP_TIME_TO_FULL_NOW:
 		if (chip->chip_type != MAXIM_DEVICE_TYPE_MAX17055 &&
@@ -459,7 +465,7 @@ static int max17042_get_property(struct power_supply *psy,
 		if (data == U16_MAX)
 			return -ENODATA;
 
-		val->intval = data * 5625 / 1000;
+		val->intval = data * MAX17042_TIME_LSB;
 		break;
 	default:
 		return -EINVAL;
