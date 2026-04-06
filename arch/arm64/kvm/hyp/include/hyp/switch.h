@@ -79,7 +79,7 @@ static inline void __activate_traps_fpsimd32(struct kvm_vcpu *vcpu)
 		switch(reg) {						\
 		case HFGRTR_EL2:					\
 		case HFGWTR_EL2:					\
-			id = HFGxTR_GROUP;				\
+			id = HFGRTR_GROUP;				\
 			break;						\
 		case HFGITR_EL2:					\
 			id = HFGITR_GROUP;				\
@@ -166,7 +166,7 @@ static inline void __activate_traps_hfgxtr(struct kvm_vcpu *vcpu)
 	update_fgt_traps(hctxt, vcpu, kvm, HFGRTR_EL2);
 	update_fgt_traps_cs(hctxt, vcpu, kvm, HFGWTR_EL2, 0,
 			    cpus_have_final_cap(ARM64_WORKAROUND_AMPERE_AC03_CPU_38) ?
-			    HFGxTR_EL2_TCR_EL1_MASK : 0);
+			    HFGWTR_EL2_TCR_EL1_MASK : 0);
 	update_fgt_traps(hctxt, vcpu, kvm, HFGITR_EL2);
 	update_fgt_traps(hctxt, vcpu, kvm, HDFGRTR_EL2);
 	update_fgt_traps(hctxt, vcpu, kvm, HDFGWTR_EL2);
@@ -235,6 +235,8 @@ static inline void __deactivate_traps_mpam(void)
 
 static inline void __activate_traps_common(struct kvm_vcpu *vcpu)
 {
+	struct kvm_cpu_context *hctxt = host_data_ptr(host_ctxt);
+
 	/* Trap on AArch32 cp15 c15 (impdef sysregs) accesses (EL1 or EL0) */
 	write_sysreg(1 << 15, hstr_el2);
 
@@ -245,11 +247,8 @@ static inline void __activate_traps_common(struct kvm_vcpu *vcpu)
 	 * EL1 instead of being trapped to EL2.
 	 */
 	if (kvm_arm_support_pmu_v3()) {
-		struct kvm_cpu_context *hctxt;
-
 		write_sysreg(0, pmselr_el0);
 
-		hctxt = host_data_ptr(host_ctxt);
 		ctxt_sys_reg(hctxt, PMUSERENR_EL0) = read_sysreg(pmuserenr_el0);
 		write_sysreg(ARMV8_PMU_USERENR_MASK, pmuserenr_el0);
 		vcpu_set_flag(vcpu, PMUSERENR_ON_CPU);
@@ -269,6 +268,7 @@ static inline void __activate_traps_common(struct kvm_vcpu *vcpu)
 			hcrx &= ~clr;
 		}
 
+		ctxt_sys_reg(hctxt, HCRX_EL2) = read_sysreg_s(SYS_HCRX_EL2);
 		write_sysreg_s(hcrx, SYS_HCRX_EL2);
 	}
 
@@ -278,19 +278,18 @@ static inline void __activate_traps_common(struct kvm_vcpu *vcpu)
 
 static inline void __deactivate_traps_common(struct kvm_vcpu *vcpu)
 {
+	struct kvm_cpu_context *hctxt = host_data_ptr(host_ctxt);
+
 	write_sysreg(*host_data_ptr(host_debug_state.mdcr_el2), mdcr_el2);
 
 	write_sysreg(0, hstr_el2);
 	if (kvm_arm_support_pmu_v3()) {
-		struct kvm_cpu_context *hctxt;
-
-		hctxt = host_data_ptr(host_ctxt);
 		write_sysreg(ctxt_sys_reg(hctxt, PMUSERENR_EL0), pmuserenr_el0);
 		vcpu_clear_flag(vcpu, PMUSERENR_ON_CPU);
 	}
 
 	if (cpus_have_final_cap(ARM64_HAS_HCX))
-		write_sysreg_s(HCRX_HOST_FLAGS, SYS_HCRX_EL2);
+		write_sysreg_s(ctxt_sys_reg(hctxt, HCRX_EL2), SYS_HCRX_EL2);
 
 	__deactivate_traps_hfgxtr(vcpu);
 	__deactivate_traps_mpam();
