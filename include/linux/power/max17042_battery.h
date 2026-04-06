@@ -24,6 +24,8 @@
 
 #define MAX17042_CHARACTERIZATION_DATA_SIZE 48
 
+#define MAX17055_MODELCFG_REFRESH_BIT	BIT(15)
+
 enum max17042_register {
 	MAX17042_STATUS		= 0x00,
 	MAX17042_VALRT_Th	= 0x01,
@@ -219,6 +221,7 @@ struct max17042_config_data {
 	u16	full_soc_thresh;	/* 0x13 */
 	u16	design_cap;	/* 0x18 */
 	u16	ichgt_term;	/* 0x1E */
+	u16	model_cfg;	/* 0xDB */
 
 	/* MG3 config */
 	u16	at_rate;	/* 0x04 */

@@ -843,6 +843,9 @@ static inline void max17042_override_por_values(struct max17042_chip *chip)
 	    (chip->chip_type == MAXIM_DEVICE_TYPE_MAX77759)) {
 		max17042_override_por(map, MAX17047_V_empty, config->vempty);
 	}
+
+	if (chip->chip_type == MAXIM_DEVICE_TYPE_MAX17055)
+		max17042_override_por(map, MAX17055_ModelCfg, config->model_cfg);
 }
 
 static int max17042_init_chip(struct max17042_chip *chip)
@@ -851,44 +854,53 @@ static int max17042_init_chip(struct max17042_chip *chip)
 	int ret;
 
 	max17042_override_por_values(chip);
+
+	if (chip->chip_type == MAXIM_DEVICE_TYPE_MAX17055) {
+		regmap_write_bits(map, MAX17055_ModelCfg,
+				  MAX17055_MODELCFG_REFRESH_BIT,
+				  MAX17055_MODELCFG_REFRESH_BIT);
+	}
+
 	/* After Power up, the MAX17042 requires 500mS in order
 	 * to perform signal debouncing and initial SOC reporting
 	 */
 	msleep(500);
 
-	/* Initialize configuration */
-	max17042_write_config_regs(chip);
+	if (chip->chip_type != MAXIM_DEVICE_TYPE_MAX17055) {
+		/* Initialize configuration */
+		max17042_write_config_regs(chip);
 
-	/* write cell characterization data */
-	ret = max17042_init_model(chip);
-	if (ret) {
-		dev_err(chip->dev, "%s init failed\n",
-			__func__);
-		return -EIO;
+		/* write cell characterization data */
+		ret = max17042_init_model(chip);
+		if (ret) {
+			dev_err(chip->dev, "%s init failed\n",
+				__func__);
+			return -EIO;
+		}
+
+		ret = max17042_verify_model_lock(chip);
+		if (ret) {
+			dev_err(chip->dev, "%s lock verify failed\n",
+				__func__);
+			return -EIO;
+		}
+		/* write custom parameters */
+		max17042_write_custom_regs(chip);
+
+		/* update capacity params */
+		max17042_update_capacity_regs(chip);
+
+		/* delay must be atleast 350mS to allow VFSOC
+		 * to be calculated from the new configuration
+		 */
+		msleep(350);
+
+		/* reset vfsoc0 reg */
+		max17042_reset_vfsoc0_reg(chip);
+
+		/* load new capacity params */
+		max17042_load_new_capacity_params(chip);
 	}
-
-	ret = max17042_verify_model_lock(chip);
-	if (ret) {
-		dev_err(chip->dev, "%s lock verify failed\n",
-			__func__);
-		return -EIO;
-	}
-	/* write custom parameters */
-	max17042_write_custom_regs(chip);
-
-	/* update capacity params */
-	max17042_update_capacity_regs(chip);
-
-	/* delay must be atleast 350mS to allow VFSOC
-	 * to be calculated from the new configuration
-	 */
-	msleep(350);
-
-	/* reset vfsoc0 reg */
-	max17042_reset_vfsoc0_reg(chip);
-
-	/* load new capacity params */
-	max17042_load_new_capacity_params(chip);
 
 	/* Init complete, Clear the POR bit */
 	regmap_update_bits(map, MAX17042_STATUS, STATUS_POR_BIT, 0x0);
