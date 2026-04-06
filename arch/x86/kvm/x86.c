@@ -3667,7 +3667,6 @@ static int kvm_pv_enable_async_pf(struct kvm_vcpu *vcpu, u64 data)
 	}
 
 	vcpu->arch.apf.send_always = (data & KVM_ASYNC_PF_SEND_ALWAYS);
-	vcpu->arch.apf.delivery_as_pf_vmexit = data & KVM_ASYNC_PF_DELIVERY_AS_PF_VMEXIT;
 
 	kvm_async_pf_wakeup_all(vcpu);
 
@@ -14018,7 +14017,7 @@ static bool kvm_can_deliver_async_pf(struct kvm_vcpu *vcpu)
 		 * L1 needs to opt into the special #PF vmexits that are
 		 * used to deliver async page faults.
 		 */
-		return vcpu->arch.apf.delivery_as_pf_vmexit;
+		return vcpu->arch.apf.msr_en_val & KVM_ASYNC_PF_DELIVERY_AS_PF_VMEXIT;
 	} else {
 		/*
 		 * Play it safe in case the guest temporarily disables paging.
