@@ -198,16 +198,6 @@ enum max170xx_chip_type {
 	MAXIM_DEVICE_TYPE_NUM
 };
 
-/*
- * used for setting a register to a desired value
- * addr : address for a register
- * data : setting value for the register
- */
-struct max17042_reg_data {
-	u8 addr;
-	u16 data;
-};
-
 struct max17042_config_data {
 	/* External current sense resistor value in milli-ohms */
 	u32	cur_sense_val;
@@ -264,24 +254,5 @@ struct max17042_config_data {
 	u16	kempty0;	/* 0x3B */
 	u16	cell_char_tbl[MAX17042_CHARACTERIZATION_DATA_SIZE];
 } __packed;
-
-struct max17042_platform_data {
-	struct max17042_reg_data *init_data;
-	struct max17042_config_data *config_data;
-	int num_init_data; /* Number of enties in init_data array */
-	bool enable_current_sense;
-	bool enable_por_init; /* Use POR init from Maxim appnote */
-
-	/*
-	 * R_sns in micro-ohms.
-	 * default 10000 (if r_sns = 0) as it is the recommended value by
-	 * the datasheet although it can be changed by board designers.
-	 */
-	unsigned int r_sns;
-	int         vmin;	/* in millivolts */
-	int         vmax;	/* in millivolts */
-	int         temp_min;	/* in tenths of degree Celsius */
-	int         temp_max;	/* in tenths of degree Celsius */
-};
 
 #endif /* __MAX17042_BATTERY_H_ */
