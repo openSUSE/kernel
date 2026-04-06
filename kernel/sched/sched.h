@@ -681,18 +681,19 @@ struct balance_callback {
 	void (*func)(struct rq *rq);
 };
 
-/* CFS-related fields in a runqueue */
+/* Fair scheduling SCHED_{NORMAL,BATCH,IDLE} related fields in a runqueue: */
 struct cfs_rq {
 	struct load_weight	load;
 	unsigned int		nr_queued;
-	unsigned int		h_nr_queued;       /* SCHED_{NORMAL,BATCH,IDLE} */
-	unsigned int		h_nr_runnable;     /* SCHED_{NORMAL,BATCH,IDLE} */
-	unsigned int		h_nr_idle; /* SCHED_IDLE */
+	unsigned int		h_nr_queued;		/* SCHED_{NORMAL,BATCH,IDLE} */
+	unsigned int		h_nr_runnable;		/* SCHED_{NORMAL,BATCH,IDLE} */
+	unsigned int		h_nr_idle;		/* SCHED_IDLE */
 
 	s64			sum_w_vruntime;
 	u64			sum_weight;
-
 	u64			zero_vruntime;
+	unsigned int		sum_shift;
+
 #ifdef CONFIG_SCHED_CORE
 	unsigned int		forceidle_seq;
 	u64			zero_vruntime_fi;
@@ -701,7 +702,7 @@ struct cfs_rq {
 	struct rb_root_cached	tasks_timeline;
 
 	/*
-	 * 'curr' points to currently running entity on this cfs_rq.
+	 * 'curr' points to the currently running entity on this cfs_rq.
 	 * It is set to NULL otherwise (i.e when none are currently running).
 	 */
 	struct sched_entity	*curr;
@@ -754,7 +755,7 @@ struct cfs_rq {
 	 */
 	int			on_list;
 	struct list_head	leaf_cfs_rq_list;
-	struct task_group	*tg;	/* group that "owns" this runqueue */
+	struct task_group	*tg;	/* Group that "owns" this runqueue */
 
 	/* Locally cached copy of our task_group's idle value */
 	int			idle;
@@ -1690,6 +1691,7 @@ static inline struct cfs_rq *group_cfs_rq(struct sched_entity *grp)
 
 #endif /* !CONFIG_FAIR_GROUP_SCHED */
 
+extern void update_rq_avg_idle(struct rq *rq);
 extern void update_rq_clock(struct rq *rq);
 
 /*
