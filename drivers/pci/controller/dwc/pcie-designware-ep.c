@@ -661,6 +661,7 @@ int dw_pcie_ep_init_complete(struct dw_pcie_ep *ep)
 
 	dw_pcie_iatu_detect(pci);
 
+	ret = -ENOMEM;
 	if (!ep->ib_window_map) {
 		ep->ib_window_map = devm_bitmap_zalloc(dev, pci->num_ib_windows,
 						       GFP_KERNEL);
