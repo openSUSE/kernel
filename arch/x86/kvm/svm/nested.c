@@ -731,9 +731,6 @@ static void nested_vmcb02_prepare_save(struct vcpu_svm *svm)
 	struct vmcb *vmcb02 = svm->nested.vmcb02.ptr;
 	struct kvm_vcpu *vcpu = &svm->vcpu;
 
-	nested_vmcb02_compute_g_pat(svm);
-	vmcb_mark_dirty(vmcb02, VMCB_NPT);
-
 	/* Load the nested guest state */
 	if (svm->nested.vmcb12_gpa != svm->nested.last_vmcb12_gpa) {
 		new_vmcb12 = true;
@@ -762,6 +759,13 @@ static void nested_vmcb02_prepare_save(struct vcpu_svm *svm)
 		vmcb02->save.isst_addr = save->isst_addr;
 		vmcb02->save.ssp = save->ssp;
 		vmcb_mark_dirty(vmcb02, VMCB_CET);
+	}
+
+	if (l2_has_separate_pat(vcpu)) {
+		if (unlikely(new_vmcb12 || vmcb12_is_dirty(control, VMCB_NPT)))
+			vmcb_set_gpat(vmcb02, svm->nested.save.g_pat);
+	} else if (npt_enabled) {
+		vmcb_set_gpat(vmcb02, vcpu->arch.pat);
 	}
 
 	kvm_set_rflags(vcpu, save->rflags | X86_EFLAGS_FIXED);
