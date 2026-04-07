@@ -176,6 +176,12 @@ TEST(listns_partial_fault_with_ns_cleanup)
 	ASSERT_EQ(ret, iter_pid);
 	close(iter_pidfd);
 
+	/* If listns() is not supported the iterator exits cleanly via ENOSYS */
+	if (WIFEXITED(status) && WEXITSTATUS(status) == PIDFD_SKIP) {
+		munmap(map, page_size);
+		SKIP(return, "listns() not supported");
+	}
+
 	/* Should have been killed */
 	ASSERT_TRUE(WIFSIGNALED(status));
 	ASSERT_EQ(WTERMSIG(status), SIGKILL);
@@ -386,6 +392,12 @@ TEST(listns_late_fault_with_ns_cleanup)
 	ASSERT_EQ(ret, iter_pid);
 	close(iter_pidfd);
 
+	/* If listns() is not supported the iterator exits cleanly via ENOSYS */
+	if (WIFEXITED(status) && WEXITSTATUS(status) == PIDFD_SKIP) {
+		munmap(map, page_size);
+		SKIP(return, "listns() not supported");
+	}
+
 	/* Should have been killed */
 	ASSERT_TRUE(WIFSIGNALED(status));
 	ASSERT_EQ(WTERMSIG(status), SIGKILL);
@@ -521,6 +533,12 @@ TEST(listns_mnt_ns_cleanup_on_fault)
 	ret = waitpid(iter_pid, &status, 0);
 	ASSERT_EQ(ret, iter_pid);
 	close(iter_pidfd);
+
+	/* If listns() is not supported the iterator exits cleanly via ENOSYS */
+	if (WIFEXITED(status) && WEXITSTATUS(status) == PIDFD_SKIP) {
+		munmap(map, page_size);
+		SKIP(return, "listns() not supported");
+	}
 
 	/* Should have been killed */
 	ASSERT_TRUE(WIFSIGNALED(status));
