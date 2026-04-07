@@ -358,6 +358,8 @@ struct drm_device {
 	 * Root directory for debugfs files.
 	 */
 	struct dentry *debugfs_root;
+
+	void *suse_kabi_padding;
 };
 
 void drm_dev_set_dma_dev(struct drm_device *dev, struct device *dma_dev);

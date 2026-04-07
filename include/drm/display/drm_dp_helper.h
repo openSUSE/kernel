@@ -528,6 +528,8 @@ struct drm_dp_aux {
 	 * @dpcd_probe_disabled: If probing before a DPCD access is disabled.
 	 */
 	bool dpcd_probe_disabled;
+
+	void *suse_kabi_padding;
 };
 
 int drm_dp_dpcd_probe(struct drm_dp_aux *aux, unsigned int offset);

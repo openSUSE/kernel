@@ -822,6 +822,8 @@ struct drm_dp_mst_topology_mgr {
 	 */
 	struct mutex topology_ref_history_lock;
 #endif
+
+	void *suse_kabi_padding;
 };
 
 int drm_dp_mst_topology_mgr_init(struct drm_dp_mst_topology_mgr *mgr,
