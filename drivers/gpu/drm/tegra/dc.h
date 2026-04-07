@@ -103,6 +103,9 @@ struct tegra_dc {
 	const struct tegra_dc_soc_info *soc;
 
 	bool has_opp_table;
+
+	u64 *cmu_output_lut;
+	dma_addr_t cmu_output_lut_phys;
 };
 
 static inline struct tegra_dc *
@@ -447,6 +450,7 @@ int tegra_dc_rgb_exit(struct tegra_dc *dc);
 #define BASE_COLOR_SIZE_888    (  8 << 0)
 #define BASE_COLOR_SIZE_101010 ( 10 << 0)
 #define BASE_COLOR_SIZE_121212 ( 12 << 0)
+#define CMU_ENABLE_ENABLE      (1 << 20)
 
 #define DC_DISP_SHIFT_CLOCK_OPTIONS		0x431
 #define  SC1_H_QUALIFIER_NONE	(1 << 16)
@@ -731,6 +735,15 @@ int tegra_dc_rgb_exit(struct tegra_dc *dc);
 #define DC_DISP_CORE_SOR_SET_CONTROL(x)		(0x403 + (x))
 #define PROTOCOL_MASK (0xf << 8)
 #define PROTOCOL_SINGLE_TMDS_A (0x1 << 8)
+
+#define DC_DISP_CORE_HEAD_SET_CONTROL_OUTPUT_LUT	0x431
+#define  OUTPUT_LUT_MODE_MASK        (3 << 5)
+#define  OUTPUT_LUT_MODE_INTERPOLATE (1 << 5)
+#define  OUTPUT_LUT_SIZE_MASK        (3 << 1)
+#define  OUTPUT_LUT_SIZE_SIZE_1025   (2 << 1)
+
+#define DC_DISP_COREPVT_HEAD_SET_OUTPUT_LUT_BASE	0x432
+#define DC_DISP_COREPVT_HEAD_SET_OUTPUT_LUT_BASE_HI	0x433
 
 #define DC_DISP_PCALC_HEAD_SET_CROPPED_POINT_IN_CURSOR	0x442
 #define DC_DISP_PCALC_HEAD_SET_CROPPED_SIZE_IN_CURSOR	0x446

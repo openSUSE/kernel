@@ -2558,6 +2558,17 @@ static void tegra_sor_hdmi_enable(struct drm_encoder *encoder)
 	value = tegra_dc_readl(dc, DC_DISP_DISP_COLOR_CONTROL);
 	value &= ~DITHER_CONTROL_MASK;
 	value &= ~BASE_COLOR_SIZE_MASK;
+	if (dc->soc->has_nvdisplay) {
+		tegra_dc_writel(dc, lower_32_bits(dc->cmu_output_lut_phys),
+				DC_DISP_COREPVT_HEAD_SET_OUTPUT_LUT_BASE);
+		tegra_dc_writel(dc, upper_32_bits(dc->cmu_output_lut_phys),
+				DC_DISP_COREPVT_HEAD_SET_OUTPUT_LUT_BASE_HI);
+
+		tegra_dc_writel(dc, OUTPUT_LUT_MODE_INTERPOLATE | OUTPUT_LUT_SIZE_SIZE_1025,
+				DC_DISP_CORE_HEAD_SET_CONTROL_OUTPUT_LUT);
+
+		value |= CMU_ENABLE_ENABLE;
+	}
 
 	switch (state->bpc) {
 	case 6:
@@ -2921,6 +2932,20 @@ static void tegra_sor_dp_enable(struct drm_encoder *encoder)
 	err = tegra_sor_attach(sor);
 	if (err < 0)
 		dev_err(sor->dev, "failed to attach SOR: %d\n", err);
+
+	if (dc->soc->has_nvdisplay) {
+		value = tegra_dc_readl(dc, DC_DISP_DISP_COLOR_CONTROL);
+		tegra_dc_writel(dc, lower_32_bits(dc->cmu_output_lut_phys),
+				DC_DISP_COREPVT_HEAD_SET_OUTPUT_LUT_BASE);
+		tegra_dc_writel(dc, upper_32_bits(dc->cmu_output_lut_phys),
+				DC_DISP_COREPVT_HEAD_SET_OUTPUT_LUT_BASE_HI);
+
+		tegra_dc_writel(dc, OUTPUT_LUT_MODE_INTERPOLATE | OUTPUT_LUT_SIZE_SIZE_1025,
+				DC_DISP_CORE_HEAD_SET_CONTROL_OUTPUT_LUT);
+
+		value |= CMU_ENABLE_ENABLE;
+		tegra_dc_writel(dc, value, DC_DISP_DISP_COLOR_CONTROL);
+	}
 
 	value = tegra_dc_readl(dc, DC_DISP_DISP_WIN_OPTIONS);
 	value |= SOR_ENABLE(sor->index);
