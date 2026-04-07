@@ -87,24 +87,10 @@ static inline int copy_safe_from_sockptr(void *dst, size_t ksize,
 static inline int copy_struct_from_sockptr(void *dst, size_t ksize,
 		sockptr_t src, size_t usize)
 {
-	size_t size = min(ksize, usize);
-	size_t rest = max(ksize, usize) - size;
-
 	if (!sockptr_is_kernel(src))
 		return copy_struct_from_user(dst, ksize, src.user, usize);
 
-	if (usize < ksize) {
-		memset(dst + size, 0, rest);
-	} else if (usize > ksize) {
-		char *p = src.kernel;
-
-		while (rest--) {
-			if (*p++)
-				return -E2BIG;
-		}
-	}
-	memcpy(dst, src.kernel, size);
-	return 0;
+	return copy_struct_from_bounce_buffer(dst, ksize, src.kernel, usize);
 }
 
 static inline int copy_to_sockptr_offset(sockptr_t dst, size_t offset,
