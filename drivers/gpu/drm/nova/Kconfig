@@ -4,6 +4,7 @@ config DRM_NOVA
 	depends on DRM=y
 	depends on PCI
 	depends on RUST
+	depends on !CPU_BIG_ENDIAN
 	select AUXILIARY_BUS
 	select NOVA_CORE
 	default n

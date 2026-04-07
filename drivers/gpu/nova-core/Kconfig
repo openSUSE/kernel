@@ -3,6 +3,7 @@ config NOVA_CORE
 	depends on 64BIT
 	depends on PCI
 	depends on RUST
+	depends on !CPU_BIG_ENDIAN
 	select AUXILIARY_BUS
 	select RUST_FW_LOADER_ABSTRACTIONS
 	default n
