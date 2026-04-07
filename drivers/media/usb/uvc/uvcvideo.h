@@ -634,10 +634,6 @@ struct uvc_fh {
 	unsigned int pending_async_ctrls;
 };
 
-struct uvc_driver {
-	struct usb_driver driver;
-};
-
 /* ------------------------------------------------------------------------
  * Debugging, printing and logging
  */
@@ -687,9 +683,6 @@ do {									\
 /* --------------------------------------------------------------------------
  * Internal functions.
  */
-
-/* Core driver */
-extern struct uvc_driver uvc_driver;
 
 struct uvc_entity *uvc_entity_by_id(struct uvc_device *dev, int id);
 
