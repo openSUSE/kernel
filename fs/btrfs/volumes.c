@@ -8209,8 +8209,8 @@ static int btrfs_device_init_dev_stats(struct btrfs_device *device,
 
 	for (i = 0; i < BTRFS_DEV_STAT_VALUES_MAX; i++) {
 		if (item_size >= (1 + i) * sizeof(__le64))
-			btrfs_dev_stat_set(device, i,
-					   btrfs_dev_stats_value(eb, ptr, i));
+			atomic_set(device->dev_stat_values + i,
+				   btrfs_dev_stats_value(eb, ptr, i));
 		else
 			btrfs_dev_stat_set(device, i, 0);
 	}
