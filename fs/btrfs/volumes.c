@@ -2927,6 +2927,12 @@ int btrfs_init_new_device(struct btrfs_fs_info *fs_info, const char *device_path
 	device->commit_total_bytes = device->total_bytes;
 	set_bit(BTRFS_DEV_STATE_IN_FS_METADATA, &device->dev_state);
 	clear_bit(BTRFS_DEV_STATE_REPLACE_TGT, &device->dev_state);
+
+	/*
+	 * Increase dev_stats_ccnt so that corresponding DEV_STATS item can be
+	 * created at the next transaction commit.
+	 */
+	atomic_inc(&device->dev_stats_ccnt);
 	device->dev_stats_valid = 1;
 	set_blocksize(device->bdev_file, BTRFS_BDEV_BLOCKSIZE);
 
