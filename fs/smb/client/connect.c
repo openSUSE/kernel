@@ -1913,6 +1913,10 @@ static int match_session(struct cifs_ses *ses,
 	case Kerberos:
 		if (!uid_eq(ctx->cred_uid, ses->cred_uid))
 			return 0;
+                if (strncmp(ses->user_name ?: "",
+                            ctx->username ?: "",
+                            CIFS_MAX_USERNAME_LEN))
+                        return 0;
 		break;
 	default:
 		/* NULL username means anonymous session */
@@ -3993,8 +3997,14 @@ cifs_setup_session(const unsigned int xid, struct cifs_ses *ses,
 	is_binding = !CIFS_ALL_CHANS_NEED_RECONNECT(ses);
 	spin_unlock(&ses->chan_lock);
 
-	if (!is_binding)
+	if (!is_binding) {
 		ses->ses_status = SES_IN_SETUP;
+
+		/* force iface_list refresh */
+                spin_lock(&ses->iface_lock);
+		ses->iface_last_update = 0;
+                spin_unlock(&ses->iface_lock);
+	}
 	spin_unlock(&ses->ses_lock);
 
 	/* update ses ip_addr only for primary chan */
