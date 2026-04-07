@@ -2286,6 +2286,38 @@ void btrfs_scratch_superblocks(struct btrfs_fs_info *fs_info, struct btrfs_devic
 	update_dev_time(rcu_dereference_raw(device->name));
 }
 
+int btrfs_remove_dev_stat_item(struct btrfs_trans_handle *trans, u64 devid)
+{
+	BTRFS_PATH_AUTO_RELEASE(path);
+	struct btrfs_fs_info *fs_info = trans->fs_info;
+	struct btrfs_root *dev_root = fs_info->dev_root;
+	struct btrfs_key key;
+	int ret;
+
+	key.objectid = BTRFS_DEV_STATS_OBJECTID;
+	key.type = BTRFS_PERSISTENT_ITEM_KEY;
+	key.offset = devid;
+
+	ret = btrfs_search_slot(trans, dev_root, &key, &path, -1, 1);
+	if (ret < 0) {
+		btrfs_warn(fs_info,
+			   "error %d while searching for dev_stats item for devid %llu",
+			   ret, devid);
+		return ret;
+	}
+	/* The dev stats item does not exist, nothing to bother. */
+	if (ret > 0)
+		return 0;
+	ret = btrfs_del_item(trans, dev_root, &path);
+	if (ret < 0) {
+		btrfs_warn(fs_info,
+			   "error %d while deleting dev_stats item for devid %llu",
+			   ret, devid);
+		return ret;
+	}
+	return 0;
+}
+
 int btrfs_rm_device(struct btrfs_fs_info *fs_info,
 		    struct btrfs_dev_lookup_args *args,
 		    struct file **bdev_file)
