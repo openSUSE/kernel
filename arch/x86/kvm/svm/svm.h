@@ -24,6 +24,7 @@
 
 #include "cpuid.h"
 #include "kvm_cache_regs.h"
+#include "x86.h"
 
 /*
  * Helpers to convert to/from physical addresses for pages whose address is
@@ -639,6 +640,16 @@ static inline bool gif_set(struct vcpu_svm *svm)
 static inline bool nested_npt_enabled(struct vcpu_svm *svm)
 {
 	return svm->nested.ctl.misc_ctl & SVM_MISC_ENABLE_NP;
+}
+
+static inline bool l2_has_separate_pat(struct kvm_vcpu *vcpu)
+{
+	/*
+	 * If KVM_X86_QUIRK_NESTED_SVM_SHARED_PAT is disabled while a vCPU
+	 * is running, the L2 IA32_PAT semantics for that vCPU are undefined.
+	 */
+	return nested_npt_enabled(to_svm(vcpu)) &&
+	       !kvm_check_has_quirk(vcpu->kvm, KVM_X86_QUIRK_NESTED_SVM_SHARED_PAT);
 }
 
 static inline bool nested_vnmi_enabled(struct vcpu_svm *svm)
