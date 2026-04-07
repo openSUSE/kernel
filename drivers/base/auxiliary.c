@@ -389,6 +389,7 @@ static void auxiliary_device_release(struct device *dev)
 {
 	struct auxiliary_device *auxdev = to_auxiliary_dev(dev);
 
+	of_node_put(dev->of_node);
 	kfree(auxdev);
 }
 
@@ -425,6 +426,7 @@ struct auxiliary_device *auxiliary_device_create(struct device *dev,
 
 	ret = auxiliary_device_init(auxdev);
 	if (ret) {
+		of_node_put(auxdev->dev.of_node);
 		kfree(auxdev);
 		return NULL;
 	}
