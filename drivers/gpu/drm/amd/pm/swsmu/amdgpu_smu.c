@@ -81,6 +81,10 @@ static int smu_od_edit_dpm_table(void *handle,
 				 enum PP_OD_DPM_TABLE_COMMAND type,
 				 long *input, uint32_t size);
 
+static int smu_od_edit_dpm_table(void *handle,
+				 enum PP_OD_DPM_TABLE_COMMAND type,
+				 long *input, uint32_t size);
+
 static int smu_sys_get_pp_feature_mask(void *handle,
 				       char *buf)
 {
@@ -2239,6 +2243,12 @@ static int smu_resume(struct amdgpu_ip_block *ip_block)
 	if (smu->current_power_limit) {
 		ret = smu_set_power_limit(smu, smu->current_power_limit);
 		if (ret && ret != -EOPNOTSUPP)
+			return ret;
+	}
+
+	if (smu_dpm_ctx->dpm_level == AMD_DPM_FORCED_LEVEL_MANUAL) {
+		ret = smu_od_edit_dpm_table(smu, PP_OD_COMMIT_DPM_TABLE, NULL, 0);
+		if (ret)
 			return ret;
 	}
 
