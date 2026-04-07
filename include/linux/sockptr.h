@@ -107,6 +107,16 @@ static inline int copy_to_sockptr(sockptr_t dst, const void *src, size_t size)
 	return copy_to_sockptr_offset(dst, 0, src, size);
 }
 
+static inline int
+copy_struct_to_sockptr(sockptr_t dst, size_t usize, const void *src,
+		       size_t ksize, bool *ignored_trailing)
+{
+	if (!sockptr_is_kernel(dst))
+		return copy_struct_to_user(dst.user, usize, src, ksize, ignored_trailing);
+
+	return copy_struct_to_bounce_buffer(dst.kernel, usize, src, ksize, ignored_trailing);
+}
+
 static inline void *memdup_sockptr_noprof(sockptr_t src, size_t len)
 {
 	void *p = kmalloc_track_caller_noprof(len, GFP_USER | __GFP_NOWARN);
