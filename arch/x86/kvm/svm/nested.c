@@ -489,10 +489,13 @@ void __nested_copy_vmcb_control_to_cache(struct kvm_vcpu *vcpu,
 	nested_svm_sanitize_intercept(vcpu, to, SKINIT);
 	nested_svm_sanitize_intercept(vcpu, to, RDPRU);
 
-	/* Always clear SVM_MISC_ENABLE_NP if the guest cannot use NPTs */
+	/* Always clear misc_ctl bits that the guest cannot use */
 	to->misc_ctl = from->misc_ctl;
 	if (!guest_cpu_cap_has(vcpu, X86_FEATURE_NPT))
 		to->misc_ctl &= ~SVM_MISC_ENABLE_NP;
+
+	if (!gmet_enabled || !guest_cpu_cap_has(vcpu, X86_FEATURE_GMET))
+		to->misc_ctl &= ~SVM_MISC_ENABLE_GMET;
 
 	to->iopm_base_pa        = from->iopm_base_pa & PAGE_MASK;
 	to->msrpm_base_pa       = from->msrpm_base_pa & PAGE_MASK;
@@ -898,6 +901,7 @@ static void nested_vmcb02_prepare_control(struct vcpu_svm *svm)
 	/* Use vmcb01 MMU and format if guest does not use nNPT */
 	if (nested_npt_enabled(svm)) {
 		vmcb02->control.misc_ctl &= ~SVM_MISC_ENABLE_GMET;
+		vmcb02->control.misc_ctl |= (svm->nested.ctl.misc_ctl & SVM_MISC_ENABLE_GMET);
 
 		nested_svm_init_mmu_context(vcpu);
 	}
