@@ -29,6 +29,13 @@ static ssize_t show_domain_id(struct kobject *kobj, struct kobj_attribute *attr,
 	return sysfs_emit(buf, "%u\n", data->domain_id);
 }
 
+static ssize_t show_instance_id(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
+{
+	struct uncore_data *data = container_of(attr, struct uncore_data, instance_id_kobj_attr);
+
+	return sysfs_emit(buf, "%u\n", data->instance_id);
+}
+
 static ssize_t show_fabric_cluster_id(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
 {
 	struct uncore_data *data = container_of(attr, struct uncore_data, fabric_cluster_id_kobj_attr);
@@ -200,6 +207,9 @@ static int create_attr_group(struct uncore_data *data, char *name)
 	if (data->domain_id != UNCORE_DOMAIN_ID_INVALID) {
 		init_attribute_root_ro(domain_id);
 		data->uncore_attrs[index++] = &data->domain_id_kobj_attr.attr;
+		init_attribute_root_ro(instance_id);
+		data->uncore_attrs[index++] = &data->instance_id_kobj_attr.attr;
+
 		init_attribute_root_ro(fabric_cluster_id);
 		data->uncore_attrs[index++] = &data->fabric_cluster_id_kobj_attr.attr;
 		init_attribute_root_ro(package_id);

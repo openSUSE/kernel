@@ -36,6 +36,7 @@
  * @domain_id:		Power domain id for this instance
  * @cluster_id:		cluster id in a domain
  * @seqnum_id:		Unique sequential id to append to directory name
+ * @instance_id:	Die indices or feature instances for a single TPMI device
  * @name:		Sysfs entry name for this instance
  * @agent_type_mask:	Bit mask of all hardware agents for this domain
  * @uncore_attr_group:	Attribute group storage
@@ -56,6 +57,7 @@
  * @elc_floor_freq_khz_kobj_attr: Storage for kobject attribute elc_floor_freq_khz
  * @agent_types_kobj_attr: Storage for kobject attribute agent_type
  * @die_id_kobj_attr:	Attribute storage for die_id information
+ * @instance_id_kobj_attr: Attribute storage for instance_id value
  * @uncore_attrs:	Attribute storage for group creation
  *
  * This structure is used to encapsulate all data related to uncore sysfs
@@ -72,6 +74,7 @@ struct uncore_data {
 	int domain_id;
 	int cluster_id;
 	int seqnum_id;
+	int instance_id;
 	char name[32];
 	u16  agent_type_mask;
 
@@ -90,7 +93,8 @@ struct uncore_data {
 	struct kobj_attribute elc_floor_freq_khz_kobj_attr;
 	struct kobj_attribute agent_types_kobj_attr;
 	struct kobj_attribute die_id_kobj_attr;
-	struct attribute *uncore_attrs[15];
+	struct kobj_attribute instance_id_kobj_attr;
+	struct attribute *uncore_attrs[16];
 };
 
 #define UNCORE_DOMAIN_ID_INVALID	-1
