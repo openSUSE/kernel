@@ -39,10 +39,8 @@
 	ALTERNATIVE_2 "", \
 		"jmp 800f", X86_FEATURE_MSR_SPEC_CTRL, \
 		"", X86_FEATURE_V_SPEC_CTRL
-801:
 .endm
-.macro RESTORE_GUEST_SPEC_CTRL_BODY
-800:
+.macro RESTORE_GUEST_SPEC_CTRL_BODY guest_spec_ctrl:req, label:req
 	/*
 	 * SPEC_CTRL handling: if the guest's SPEC_CTRL value differs from the
 	 * host's, write the MSR.  This is kept out-of-line so that the common
@@ -53,24 +51,23 @@
 	 * and vmentry.
 	 */
 #ifdef CONFIG_X86_64
-	mov SVM_spec_ctrl(%rdi), %rdx
+	mov \guest_spec_ctrl, %rdx
 	cmp PER_CPU_VAR(x86_spec_ctrl_current), %rdx
-	je 801b
+	je \label
 	movl %edx, %eax
 	shr $32, %rdx
 #else
-	mov SVM_spec_ctrl(%edi), %eax
+	mov \guest_spec_ctrl, %eax
 	mov PER_CPU_VAR(x86_spec_ctrl_current), %ecx
 	xor %eax, %ecx
-	mov SVM_spec_ctrl + 4(%edi), %edx
+	mov 4 + \guest_spec_ctrl, %edx
 	mov PER_CPU_VAR(x86_spec_ctrl_current + 4), %esi
 	xor %edx, %esi
 	or %esi, %ecx
-	je 801b
+	je \label
 #endif
 	mov $MSR_IA32_SPEC_CTRL, %ecx
 	wrmsr
-	jmp 801b
 .endm
 
 .macro RESTORE_HOST_SPEC_CTRL
@@ -78,10 +75,8 @@
 	ALTERNATIVE_2 "", \
 		"jmp 900f", X86_FEATURE_MSR_SPEC_CTRL, \
 		"", X86_FEATURE_V_SPEC_CTRL
-901:
 .endm
-.macro RESTORE_HOST_SPEC_CTRL_BODY spec_ctrl_intercepted:req
-900:
+.macro RESTORE_HOST_SPEC_CTRL_BODY guest_spec_ctrl:req, spec_ctrl_intercepted:req, label:req
 	/* Same for after vmexit.  */
 	mov $MSR_IA32_SPEC_CTRL, %ecx
 
@@ -92,28 +87,27 @@
 	cmpb $0, \spec_ctrl_intercepted
 	jnz 998f
 	rdmsr
-	movl %eax, SVM_spec_ctrl(%_ASM_DI)
-	movl %edx, SVM_spec_ctrl + 4(%_ASM_DI)
+	movl %eax, \guest_spec_ctrl
+	movl %edx, 4 + \guest_spec_ctrl
 998:
 	/* Now restore the host value of the MSR if different from the guest's.  */
 #ifdef CONFIG_X86_64
 	mov PER_CPU_VAR(x86_spec_ctrl_current), %rdx
-	cmp SVM_spec_ctrl(%rdi), %rdx
-	je 901b
+	cmp \guest_spec_ctrl, %rdx
+	je \label
 	movl %edx, %eax
 	shr $32, %rdx
 #else
 	mov PER_CPU_VAR(x86_spec_ctrl_current), %eax
-	mov SVM_spec_ctrl(%edi), %esi
+	mov \guest_spec_ctrl, %esi
 	xor %eax, %esi
 	mov PER_CPU_VAR(x86_spec_ctrl_current + 4), %edx
-	mov SVM_spec_ctrl + 4(%edi), %edi
+	mov 4 + \guest_spec_ctrl, %edi
 	xor %edx, %edi
 	or %edi, %esi
-	je 901b
+	je \label
 #endif
 	wrmsr
-	jmp 901b
 .endm
 
 #define SVM_CLEAR_CPU_BUFFERS \
@@ -162,6 +156,7 @@ SYM_FUNC_START(__svm_vcpu_run)
 
 	/* Clobbers RAX, RCX, RDX (and ESI on 32-bit), consumes RDI (@svm). */
 	RESTORE_GUEST_SPEC_CTRL
+801:
 
 	/*
 	 * Use a single vmcb (vmcb01 because it's always valid) for
@@ -242,6 +237,7 @@ SYM_FUNC_START(__svm_vcpu_run)
 	 * and RSP (pointer to @spec_ctrl_intercepted).
 	 */
 	RESTORE_HOST_SPEC_CTRL
+901:
 
 	/*
 	 * Mitigate RETBleed for AMD/Hygon Zen uarch. RET should be
@@ -295,8 +291,12 @@ SYM_FUNC_START(__svm_vcpu_run)
 	pop %_ASM_BP
 	RET
 
-	RESTORE_GUEST_SPEC_CTRL_BODY
-	RESTORE_HOST_SPEC_CTRL_BODY (%_ASM_SP)
+800:
+	RESTORE_GUEST_SPEC_CTRL_BODY SVM_spec_ctrl(%_ASM_DI), 801b
+	jmp 801b
+900:
+	RESTORE_HOST_SPEC_CTRL_BODY SVM_spec_ctrl(%_ASM_DI), (%_ASM_SP), 901b
+	jmp 901b
 
 10:	cmpb $0, _ASM_RIP(virt_rebooting)
 	jne 2b
@@ -362,6 +362,7 @@ SYM_FUNC_START(__svm_sev_es_vcpu_run)
 
 	/* Clobbers RAX, RCX, and RDX (@hostsa), consumes RDI (@svm). */
 	RESTORE_GUEST_SPEC_CTRL
+801:
 
 	/* Get svm->current_vmcb->pa into RAX. */
 	mov SVM_current_vmcb(%rdi), %rax
@@ -378,6 +379,7 @@ SYM_FUNC_START(__svm_sev_es_vcpu_run)
 
 	/* Clobbers RAX, RCX, RDX, consumes RDI (@svm) and RSI (@spec_ctrl_intercepted). */
 	RESTORE_HOST_SPEC_CTRL
+901:
 
 	/*
 	 * Mitigate RETBleed for AMD/Hygon Zen uarch. RET should be
@@ -391,8 +393,12 @@ SYM_FUNC_START(__svm_sev_es_vcpu_run)
 	FRAME_END
 	RET
 
-	RESTORE_GUEST_SPEC_CTRL_BODY
-	RESTORE_HOST_SPEC_CTRL_BODY %sil
+800:
+	RESTORE_GUEST_SPEC_CTRL_BODY SVM_spec_ctrl(%_ASM_DI), 801b
+	jmp 801b
+900:
+	RESTORE_HOST_SPEC_CTRL_BODY SVM_spec_ctrl(%_ASM_DI), %sil, 901b
+	jmp 901b
 
 3:	cmpb $0, virt_rebooting(%rip)
 	jne 2b
