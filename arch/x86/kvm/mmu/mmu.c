@@ -2033,7 +2033,7 @@ static bool kvm_sync_page_check(struct kvm_vcpu *vcpu, struct kvm_mmu_page *sp)
 	 */
 	const union kvm_mmu_page_role sync_role_ign = {
 		.level = 0xf,
-		.access = 0x7,
+		.access = ACC_ALL,
 		.quadrant = 0x3,
 		.passthrough = 0x1,
 	};
@@ -5539,7 +5539,7 @@ reset_ept_shadow_zero_bits_mask(struct kvm_mmu *context, bool execonly)
  * update_permission_bitmask() builds what is effectively a
  * two-dimensional array of bools.  The second dimension is
  * provided by individual bits of permissions[pfec >> 1], and
- * logical &, | and ~ operations operate on all the 8 possible
+ * logical &, | and ~ operations operate on all the 16 possible
  * combinations of ACC_* bits.
  */
 #define ACC_BITS_MASK(access) \
@@ -5549,15 +5549,23 @@ reset_ept_shadow_zero_bits_mask(struct kvm_mmu *context, bool execonly)
 	 (4 & (access) ? 1 << 4 : 0) | \
 	 (5 & (access) ? 1 << 5 : 0) | \
 	 (6 & (access) ? 1 << 6 : 0) | \
-	 (7 & (access) ? 1 << 7 : 0))
+	 (7 & (access) ? 1 << 7 : 0) | \
+	 (8 & (access) ? 1 << 8 : 0) | \
+	 (9 & (access) ? 1 << 9 : 0) | \
+	 (10 & (access) ? 1 << 10 : 0) | \
+	 (11 & (access) ? 1 << 11 : 0) | \
+	 (12 & (access) ? 1 << 12 : 0) | \
+	 (13 & (access) ? 1 << 13 : 0) | \
+	 (14 & (access) ? 1 << 14 : 0) | \
+	 (15 & (access) ? 1 << 15 : 0))
 
 static void update_permission_bitmask(struct kvm_mmu *mmu, bool ept)
 {
 	unsigned index;
 
-	const u8 x = ACC_BITS_MASK(ACC_EXEC_MASK);
-	const u8 w = ACC_BITS_MASK(ACC_WRITE_MASK);
-	const u8 u = ACC_BITS_MASK(ACC_USER_MASK);
+	const u16 x = ACC_BITS_MASK(ACC_EXEC_MASK);
+	const u16 w = ACC_BITS_MASK(ACC_WRITE_MASK);
+	const u16 r = ACC_BITS_MASK(ACC_READ_MASK);
 
 	bool cr4_smep = is_cr4_smep(mmu);
 	bool cr4_smap = is_cr4_smap(mmu);
@@ -5580,32 +5588,33 @@ static void update_permission_bitmask(struct kvm_mmu *mmu, bool ept)
 		unsigned pfec = index << 1;
 
 		/*
-		 * Each "*f" variable has a 1 bit for each UWX value
+		 * Each "*f" variable has a 1 bit for each ACC_* combo
 		 * that causes a fault with the given PFEC.
 		 */
 
 		/* Faults from reads to non-readable pages */
-		u8 rf = 0;
+		u16 rf = (pfec & (PFERR_WRITE_MASK|PFERR_FETCH_MASK)) ? 0 : (u16)~r;
 		/* Faults from writes to non-writable pages */
-		u8 wf = (pfec & PFERR_WRITE_MASK) ? (u8)~w : 0;
+		u16 wf = (pfec & PFERR_WRITE_MASK) ? (u16)~w : 0;
 		/* Faults from user mode accesses to supervisor pages */
-		u8 uf = 0;
+		u16 uf = 0;
 		/* Faults from fetches of non-executable pages */
-		u8 ff = 0;
+		u16 ff = 0;
 		/* Faults from kernel mode accesses of user pages */
-		u8 smapf = 0;
+		u16 smapf = 0;
 
 		if (ept) {
-			rf = (pfec & PFERR_USER_MASK) ? (u8)~u : 0;
-			ff = (pfec & PFERR_FETCH_MASK) ? (u8)~x : 0;
+			ff = (pfec & PFERR_FETCH_MASK) ? (u16)~x : 0;
 		} else {
-			/* Faults from kernel mode accesses to user pages */
-			u8 kf = (pfec & PFERR_USER_MASK) ? 0 : u;
+			const u16 u = ACC_BITS_MASK(ACC_USER_MASK);
 
-			uf = (pfec & PFERR_USER_MASK) ? (u8)~u : 0;
+			/* Faults from kernel mode accesses to user pages */
+			u16 kf = (pfec & PFERR_USER_MASK) ? 0 : u;
+
+			uf = (pfec & PFERR_USER_MASK) ? (u16)~u : 0;
 
 			if (efer_nx)
-				ff |= (pfec & PFERR_FETCH_MASK) ? (u8)~x : 0;
+				ff |= (pfec & PFERR_FETCH_MASK) ? (u16)~x : 0;
 
 			/* Allow supervisor writes if !cr0.wp */
 			if (!cr0_wp)

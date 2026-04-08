@@ -25,7 +25,8 @@
 #define KVM_MMU_PAGE_PRINTK() ({				        \
 	const char *saved_ptr = trace_seq_buffer_ptr(p);		\
 	static const char *access_str[] = {			        \
-		"---", "--x", "w--", "w-x", "-u-", "-ux", "wu-", "wux"  \
+		"----", "r---", "-w--", "rw--", "--u-", "r-u-", "-wu-", "rwu-", \
+		"---x", "r--x", "-w-x", "rw-x", "--ux", "r-ux", "-wux", "rwux"	\
 	};							        \
 	union kvm_mmu_page_role role;				        \
 								        \

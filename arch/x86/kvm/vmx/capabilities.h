@@ -300,11 +300,6 @@ static inline bool cpu_has_vmx_flexpriority(void)
 		cpu_has_vmx_virtualize_apic_accesses();
 }
 
-static inline bool cpu_has_vmx_ept_execute_only(void)
-{
-	return vmx_capability.ept & VMX_EPT_EXECUTE_ONLY_BIT;
-}
-
 static inline bool cpu_has_vmx_ept_4levels(void)
 {
 	return vmx_capability.ept & VMX_EPT_PAGE_WALK_4_BIT;
