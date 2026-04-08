@@ -1392,12 +1392,13 @@ out:
  * finds empty index and adds new leaf.
  * if no free index is found, then it requests in-depth growing.
  */
-static struct ext4_ext_path *
-ext4_ext_create_new_leaf(handle_t *handle, struct inode *inode,
-			 unsigned int mb_flags, unsigned int gb_flags,
-			 struct ext4_ext_path *path,
-			 struct ext4_extent *newext)
+static int ext4_ext_create_new_leaf(handle_t *handle, struct inode *inode,
+				    unsigned int mb_flags,
+				    unsigned int gb_flags,
+				    struct ext4_ext_path **ppath,
+				    struct ext4_extent *newext)
 {
+	struct ext4_ext_path *path = *ppath;
 	struct ext4_ext_path *curp;
 	int depth, i, err = 0;
 
@@ -1418,25 +1419,28 @@ repeat:
 		 * entry: create all needed subtree and add new leaf */
 		err = ext4_ext_split(handle, inode, mb_flags, path, newext, i);
 		if (err)
-			goto errout;
+			goto out;
 
 		/* refill path */
 		path = ext4_find_extent(inode,
 				    (ext4_lblk_t)le32_to_cpu(newext->ee_block),
 				    path, gb_flags);
-		return path;
+		if (IS_ERR(path))
+			err = PTR_ERR(path);
 	} else {
 		/* tree is full, time to grow in depth */
 		err = ext4_ext_grow_indepth(handle, inode, mb_flags);
 		if (err)
-			goto errout;
+			goto out;
 
 		/* refill path */
 		path = ext4_find_extent(inode,
 				   (ext4_lblk_t)le32_to_cpu(newext->ee_block),
 				    path, gb_flags);
-		if (IS_ERR(path))
-			return path;
+		if (IS_ERR(path)) {
+			err = PTR_ERR(path);
+			goto out;
+		}
 
 		/*
 		 * only first (depth 0 -> 1) produces free space;
@@ -1448,11 +1452,9 @@ repeat:
 			goto repeat;
 		}
 	}
-	return path;
-
-errout:
-	ext4_free_ext_path(path);
-	return ERR_PTR(err);
+out:
+	*ppath = IS_ERR(path) ? NULL : path;
+	return err;
 }
 
 /*
@@ -2095,14 +2097,11 @@ prepend:
 	 */
 	if (gb_flags & EXT4_GET_BLOCKS_METADATA_NOFAIL)
 		mb_flags |= EXT4_MB_USE_RESERVED;
-	path = ext4_ext_create_new_leaf(handle, inode, mb_flags, gb_flags,
-					path, newext);
-	if (IS_ERR(path)) {
-		*ppath = NULL;
-		err = PTR_ERR(path);
+	err = ext4_ext_create_new_leaf(handle, inode, mb_flags, gb_flags,
+				       ppath, newext);
+	if (err)
 		goto cleanup;
-	}
-	*ppath = path;
+	path = *ppath;
 	depth = ext_depth(inode);
 	eh = path[depth].p_hdr;
 
