@@ -2790,6 +2790,16 @@ static int setup_vmcs_config(struct vmcs_config *vmcs_conf,
 		vmx_cap->vpid = 0;
 	}
 
+	/*
+	 * Virtualizing MBEC requires advanced vmexit information in order to
+	 * distinguish supervisor and user accesses.  For simplicity and clarity
+	 * disable MBEC entirely if advanced vmexit information is not available,
+	 * this way mbec=1 in the kvm_intel module parameters implies availability
+	 * to nested guests as well.
+	 */
+	if (!(vmx_cap->ept & VMX_EPT_ADVANCED_VMEXIT_INFO_BIT))
+		_cpu_based_2nd_exec_control &= ~SECONDARY_EXEC_MODE_BASED_EPT_EXEC;
+
 	if (!cpu_has_sgx())
 		_cpu_based_2nd_exec_control &= ~SECONDARY_EXEC_ENCLS_EXITING;
 
