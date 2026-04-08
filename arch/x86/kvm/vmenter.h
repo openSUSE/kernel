@@ -55,7 +55,12 @@
 #ifdef CONFIG_X86_64
 	mov PER_CPU_VAR(x86_spec_ctrl_current), %rdx
 	cmp \guest_spec_ctrl, %rdx
-	je \label
+	/*
+	 * For legacy IBRS, the IBRS bit always needs to be written after
+	 * transitioning from a less privileged predictor mode, regardless of
+	 * whether the guest/host values differ.
+	 */
+	ALTERNATIVE __stringify(je \label), "", X86_FEATURE_KERNEL_IBRS
 	movl %edx, %eax
 	shr $32, %rdx
 #else
@@ -66,7 +71,7 @@
 	mov 4 + \guest_spec_ctrl, %edi
 	xor %edx, %edi
 	or %edi, %esi
-	je \label
+	ALTERNATIVE __stringify(je \label), "", X86_FEATURE_KERNEL_IBRS
 #endif
 	wrmsr
 .endm
