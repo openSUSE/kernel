@@ -377,7 +377,7 @@ retry_walk:
 
 		real_gpa = kvm_translate_gpa(vcpu, mmu, gfn_to_gpa(table_gfn),
 					     nested_access | PFERR_GUEST_PAGE_MASK,
-					     &walker->fault);
+					     &walker->fault, 0);
 
 		/*
 		 * FIXME: This can happen if emulation (for of an INS/OUTS
@@ -447,7 +447,7 @@ retry_walk:
 
 	real_gpa = kvm_translate_gpa(vcpu, mmu, gfn_to_gpa(gfn),
 				     access | PFERR_GUEST_FINAL_MASK,
-				     &walker->fault);
+				     &walker->fault, walker->pte_access);
 	if (real_gpa == INVALID_GPA)
 		return 0;
 
