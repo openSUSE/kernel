@@ -195,7 +195,7 @@ pinctrl_generic_to_map(struct pinctrl_dev *pctldev, struct device_node *parent,
 		       unsigned int *num_maps, unsigned int *num_reserved_maps,
 		       const char **group_name, unsigned int ngroups,
 		       const char **functions, unsigned int *pins,
-		       void *function_data)
+		       unsigned int npins)
 {
 	return -ENOTSUPP;
 }
