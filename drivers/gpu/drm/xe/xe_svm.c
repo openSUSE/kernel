@@ -859,7 +859,17 @@ retry:
 				drm_dbg(&vm->xe->drm,
 					"VRAM allocation failed, falling back to retrying fault, asid=%u, errno=%pe\n",
 					vm->usm.asid, ERR_PTR(err));
-				goto retry;
+
+				/*
+				 * In the devmem-only case, mixed mappings may
+				 * be found. The get_pages function will fix
+				 * these up to a single location, allowing the
+				 * page fault handler to make forward progress.
+				 */
+				if (ctx.devmem_only)
+					goto get_pages;
+				else
+					goto retry;
 			} else {
 				drm_err(&vm->xe->drm,
 					"VRAM allocation failed, retry count exceeded, asid=%u, errno=%pe\n",
@@ -869,6 +879,7 @@ retry:
 		}
 	}
 
+get_pages:
 	range_debug(range, "GET PAGES");
 	err = xe_svm_range_get_pages(vm, range, &ctx);
 	/* Corner where CPU mappings have changed */
