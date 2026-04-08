@@ -101,35 +101,12 @@ SYM_FUNC_START(__vmx_vcpu_run)
 	/* Reload @vmx, _ASM_ARG1 may be modified by vmx_update_host_rsp().  */
 	mov WORD_SIZE(%_ASM_SP), %_ASM_DI
 
-	ALTERNATIVE "jmp .Lspec_ctrl_done", "", X86_FEATURE_MSR_SPEC_CTRL
-
 	/*
-	 * SPEC_CTRL handling: if the guest's SPEC_CTRL value differs from the
-	 * host's, write the MSR.
-	 *
-	 * IMPORTANT: To avoid RSB underflow attacks and any other nastiness,
-	 * there must not be any returns or indirect branches between this code
-	 * and vmentry.
+	 * Unlike AMD there's no V_SPEC_CTRL here, so do not leave the body
+	 * out of line.  Clobbers RAX, RCX, RDX, RSI.
 	 */
-#ifdef CONFIG_X86_64
-	mov VMX_spec_ctrl(%rdi), %rdx
-	cmp PER_CPU_VAR(x86_spec_ctrl_current), %rdx
-	je .Lspec_ctrl_done
-	movl %edx, %eax
-	shr $32, %rdx
-#else
-	mov VMX_spec_ctrl(%edi), %eax
-	mov PER_CPU_VAR(x86_spec_ctrl_current), %ecx
-	xor %eax, %ecx
-	mov VMX_spec_ctrl + 4(%edi), %edx
-	mov PER_CPU_VAR(x86_spec_ctrl_current + 4), %esi
-	xor %edx, %esi
-	or %esi, %ecx
-	je .Lspec_ctrl_done
-#endif
-	mov $MSR_IA32_SPEC_CTRL, %ecx
-	wrmsr
-
+	ALTERNATIVE "jmp .Lspec_ctrl_done", "", X86_FEATURE_MSR_SPEC_CTRL
+	RESTORE_GUEST_SPEC_CTRL_BODY VMX_spec_ctrl(%_ASM_DI), .Lspec_ctrl_done
 .Lspec_ctrl_done:
 
 	/*
