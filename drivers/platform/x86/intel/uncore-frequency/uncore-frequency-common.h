@@ -35,7 +35,7 @@
  * @die_id:		Die id for this instance
  * @domain_id:		Power domain id for this instance
  * @cluster_id:		cluster id in a domain
- * @instance_id:	Unique instance id to append to directory name
+ * @seqnum_id:		Unique sequential id to append to directory name
  * @name:		Sysfs entry name for this instance
  * @agent_type_mask:	Bit mask of all hardware agents for this domain
  * @uncore_attr_group:	Attribute group storage
@@ -71,7 +71,7 @@ struct uncore_data {
 	int die_id;
 	int domain_id;
 	int cluster_id;
-	int instance_id;
+	int seqnum_id;
 	char name[32];
 	u16  agent_type_mask;
 
