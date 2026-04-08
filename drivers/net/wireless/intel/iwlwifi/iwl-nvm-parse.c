@@ -18,7 +18,6 @@
 #include "iwl-prph.h"
 #include "iwl-io.h"
 #include "iwl-csr.h"
-#include "fw/acpi.h"
 #include "fw/api/nvm-reg.h"
 #include "fw/api/commands.h"
 #include "fw/api/cmdhdr.h"

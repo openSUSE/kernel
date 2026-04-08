@@ -8,10 +8,8 @@
 #include <linux/bsearch.h>
 #include <linux/list.h>
 
-#include "fw/api/tx.h"
 #include "iwl-trans.h"
 #include "iwl-drv.h"
-#include "iwl-fh.h"
 #include <linux/dmapool.h>
 #include "fw/api/commands.h"
 #include "pcie/gen1_2/internal.h"
