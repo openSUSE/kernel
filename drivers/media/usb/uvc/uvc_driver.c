@@ -2325,7 +2325,12 @@ static int uvc_probe(struct usb_interface *intf,
 		goto error;
 	}
 
-	uvc_meta_init(dev);
+	ret = uvc_meta_init(dev);
+	if (ret < 0) {
+		dev_err(&dev->udev->dev,
+			"Error initializing the metadata formats (%d)\n", ret);
+		goto error;
+	}
 
 	if (dev->quirks & UVC_QUIRK_NO_RESET_RESUME)
 		udev->quirks &= ~USB_QUIRK_RESET_RESUME;
