@@ -517,10 +517,12 @@ void kvm_mmu_set_ept_masks(bool has_ad_bits)
 	 * host's MBEC setting does not matter.  On hardware without MBEC
 	 * the XU bit is reserved-as-ignored, and setting it does no harm.
 	 *
-	 * For nested EPT MBEC is not supported, but bit 10 of the gPTE has
-	 * no effect because (a) is_present_gpte() does not treat it as a
-	 * present bit, and (b) permission_fault() uses an mmu->permissions[]
-	 * array that effectively ignores ACC_USER_EXEC_MASK.
+	 * For nested EPT, when MBEC is disabled by L1, correctness relies
+	 * on (a) ignoring bit 10 of the gPTE in is_present_gpte(), rather
+	 * than treating it as a present bit, and (b) permission_fault()
+	 * using an mmu->permissions[] array that effectively ignores
+	 * ACC_USER_EXEC_MASK.  Bit 10 of the gPTE does end up mirrored
+	 * in the sPTEs but is ignored because L2 runs with MBEC disabled.
 	 */
 	shadow_xu_mask		= VMX_EPT_USER_EXECUTABLE_MASK;
 	shadow_present_mask	= VMX_EPT_SUPPRESS_VE_BIT;
