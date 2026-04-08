@@ -11,24 +11,24 @@
 
 #define WORD_SIZE (BITS_PER_LONG / 8)
 
-#define VCPU_RAX	__VCPU_REGS_RAX * WORD_SIZE
-#define VCPU_RCX	__VCPU_REGS_RCX * WORD_SIZE
-#define VCPU_RDX	__VCPU_REGS_RDX * WORD_SIZE
-#define VCPU_RBX	__VCPU_REGS_RBX * WORD_SIZE
+#define VCPU_RAX	(VMX_vcpu_arch_regs + __VCPU_REGS_RAX * WORD_SIZE)
+#define VCPU_RCX	(VMX_vcpu_arch_regs + __VCPU_REGS_RCX * WORD_SIZE)
+#define VCPU_RDX	(VMX_vcpu_arch_regs + __VCPU_REGS_RDX * WORD_SIZE)
+#define VCPU_RBX	(VMX_vcpu_arch_regs + __VCPU_REGS_RBX * WORD_SIZE)
 /* Intentionally omit RSP as it's context switched by hardware */
-#define VCPU_RBP	__VCPU_REGS_RBP * WORD_SIZE
-#define VCPU_RSI	__VCPU_REGS_RSI * WORD_SIZE
-#define VCPU_RDI	__VCPU_REGS_RDI * WORD_SIZE
+#define VCPU_RBP	(VMX_vcpu_arch_regs + __VCPU_REGS_RBP * WORD_SIZE)
+#define VCPU_RSI	(VMX_vcpu_arch_regs + __VCPU_REGS_RSI * WORD_SIZE)
+#define VCPU_RDI	(VMX_vcpu_arch_regs + __VCPU_REGS_RDI * WORD_SIZE)
 
 #ifdef CONFIG_X86_64
-#define VCPU_R8		__VCPU_REGS_R8  * WORD_SIZE
-#define VCPU_R9		__VCPU_REGS_R9  * WORD_SIZE
-#define VCPU_R10	__VCPU_REGS_R10 * WORD_SIZE
-#define VCPU_R11	__VCPU_REGS_R11 * WORD_SIZE
-#define VCPU_R12	__VCPU_REGS_R12 * WORD_SIZE
-#define VCPU_R13	__VCPU_REGS_R13 * WORD_SIZE
-#define VCPU_R14	__VCPU_REGS_R14 * WORD_SIZE
-#define VCPU_R15	__VCPU_REGS_R15 * WORD_SIZE
+#define VCPU_R8		(VMX_vcpu_arch_regs + __VCPU_REGS_R8  * WORD_SIZE)
+#define VCPU_R9		(VMX_vcpu_arch_regs + __VCPU_REGS_R9  * WORD_SIZE)
+#define VCPU_R10	(VMX_vcpu_arch_regs + __VCPU_REGS_R10 * WORD_SIZE)
+#define VCPU_R11	(VMX_vcpu_arch_regs + __VCPU_REGS_R11 * WORD_SIZE)
+#define VCPU_R12	(VMX_vcpu_arch_regs + __VCPU_REGS_R12 * WORD_SIZE)
+#define VCPU_R13	(VMX_vcpu_arch_regs + __VCPU_REGS_R13 * WORD_SIZE)
+#define VCPU_R14	(VMX_vcpu_arch_regs + __VCPU_REGS_R14 * WORD_SIZE)
+#define VCPU_R15	(VMX_vcpu_arch_regs + __VCPU_REGS_R15 * WORD_SIZE)
 #endif
 
 .macro VMX_DO_EVENT_IRQOFF call_insn call_target
@@ -68,7 +68,6 @@
 /**
  * __vmx_vcpu_run - Run a vCPU via a transition to VMX guest mode
  * @vmx:	struct vcpu_vmx *
- * @regs:	unsigned long * (to guest registers)
  * @flags:	VMX_RUN_VMRESUME:	use VMRESUME instead of VMLAUNCH
  *		VMX_RUN_SAVE_SPEC_CTRL: save guest SPEC_CTRL into vmx->spec_ctrl
  *		VMX_RUN_CLEAR_CPU_BUFFERS_FOR_MMIO: vCPU can access host MMIO
@@ -94,18 +93,15 @@ SYM_FUNC_START(__vmx_vcpu_run)
 	push %_ASM_ARG1
 
 	/* Save @flags (used for VMLAUNCH vs. VMRESUME and mitigations). */
-	push %_ASM_ARG3
-
-	/*
-	 * Save @regs, _ASM_ARG2 may be modified by vmx_update_host_rsp() and
-	 * @regs is needed after VM-Exit to save the guest's register values.
-	 */
 	push %_ASM_ARG2
 
 	lea (%_ASM_SP), %_ASM_ARG2
 	call vmx_update_host_rsp
 
 	ALTERNATIVE "jmp .Lspec_ctrl_done", "", X86_FEATURE_MSR_SPEC_CTRL
+
+	/* Reload @vmx, _ASM_ARG1 may be modified by vmx_update_host_rsp().  */
+	mov WORD_SIZE(%_ASM_SP), %_ASM_DI
 
 	/*
 	 * SPEC_CTRL handling: if the guest's SPEC_CTRL value differs from the
@@ -115,7 +111,6 @@ SYM_FUNC_START(__vmx_vcpu_run)
 	 * there must not be any returns or indirect branches between this code
 	 * and vmentry.
 	 */
-	mov 2*WORD_SIZE(%_ASM_SP), %_ASM_DI
 #ifdef CONFIG_X86_64
 	mov VMX_spec_ctrl(%rdi), %rdx
 	cmp PER_CPU_VAR(x86_spec_ctrl_current), %rdx
@@ -142,8 +137,8 @@ SYM_FUNC_START(__vmx_vcpu_run)
 	 * an LFENCE to stop speculation from skipping the wrmsr.
 	 */
 
-	/* Load @regs to RAX. */
-	mov (%_ASM_SP), %_ASM_AX
+	/* Load @vmx to RAX. */
+	mov WORD_SIZE(%_ASM_SP), %_ASM_AX
 
 	/* Load guest registers.  Don't clobber flags. */
 	mov VCPU_RCX(%_ASM_AX), %_ASM_CX
@@ -162,7 +157,7 @@ SYM_FUNC_START(__vmx_vcpu_run)
 	mov VCPU_R14(%_ASM_AX), %r14
 	mov VCPU_R15(%_ASM_AX), %r15
 #endif
-	/* Load guest RAX.  This kills the @regs pointer! */
+	/* Load guest RAX.  This kills the @vmx pointer! */
 	mov VCPU_RAX(%_ASM_AX), %_ASM_AX
 
 	/*
@@ -172,7 +167,7 @@ SYM_FUNC_START(__vmx_vcpu_run)
 	 * do VERW.  Else, do nothing (no mitigations needed/enabled).
 	 */
 	ALTERNATIVE_2 "",									  \
-		      __stringify(testl $VMX_RUN_CLEAR_CPU_BUFFERS_FOR_MMIO, WORD_SIZE(%_ASM_SP); \
+		      __stringify(testl $VMX_RUN_CLEAR_CPU_BUFFERS_FOR_MMIO, (%_ASM_SP);	  \
 				  jz .Lskip_mmio_verw;						  \
 				  VERW;								  \
 				  .Lskip_mmio_verw:),					  	  \
@@ -180,7 +175,7 @@ SYM_FUNC_START(__vmx_vcpu_run)
 		      __stringify(VERW), X86_FEATURE_CLEAR_CPU_BUF_VM
 
 	/* Check @flags to see if VMLAUNCH or VMRESUME is needed. */
-	testl $VMX_RUN_VMRESUME, WORD_SIZE(%_ASM_SP)
+	testl $VMX_RUN_VMRESUME, (%_ASM_SP)
 	jz .Lvmlaunch
 
 	/*
@@ -215,8 +210,8 @@ SYM_INNER_LABEL_ALIGN(vmx_vmexit, SYM_L_GLOBAL)
 	/* Temporarily save guest's RAX. */
 	push %_ASM_AX
 
-	/* Reload @regs to RAX. */
-	mov WORD_SIZE(%_ASM_SP), %_ASM_AX
+	/* Reload @vmx to RAX. */
+	mov 2*WORD_SIZE(%_ASM_SP), %_ASM_AX
 
 	/* Save all guest registers, including RAX from the stack */
 	pop           VCPU_RAX(%_ASM_AX)
@@ -241,9 +236,6 @@ SYM_INNER_LABEL_ALIGN(vmx_vmexit, SYM_L_GLOBAL)
 	xor %ebx, %ebx
 
 .Lclear_regs:
-	/* Discard @regs.  The register is irrelevant, it just can't be RBX. */
-	pop %_ASM_AX
-
 	/*
 	 * Clear all general purpose registers except RSP and RBX to prevent
 	 * speculative use of the guest's values, even those that are reloaded
