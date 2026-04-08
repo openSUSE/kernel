@@ -1960,15 +1960,16 @@ out:
  * inserts requested extent as new one into the tree,
  * creating new leaf in the no-space case.
  */
-struct ext4_ext_path *
-ext4_ext_insert_extent(handle_t *handle, struct inode *inode,
-		       struct ext4_ext_path *path,
-		       struct ext4_extent *newext, int gb_flags)
+int ext4_ext_insert_extent(handle_t *handle, struct inode *inode,
+				struct ext4_ext_path **ppath,
+				struct ext4_extent *newext, int gb_flags)
 {
+	struct ext4_ext_path *path = *ppath;
 	struct ext4_extent_header *eh;
 	struct ext4_extent *ex, *fex;
 	struct ext4_extent *nearex; /* nearest extent */
-	int depth, len, err = 0;
+	struct ext4_ext_path *npath = NULL;
+	int depth, len, err;
 	ext4_lblk_t next;
 	int mb_flags = 0, unwritten;
 
@@ -1976,16 +1977,14 @@ ext4_ext_insert_extent(handle_t *handle, struct inode *inode,
 		mb_flags |= EXT4_MB_DELALLOC_RESERVED;
 	if (unlikely(ext4_ext_get_actual_len(newext) == 0)) {
 		EXT4_ERROR_INODE(inode, "ext4_ext_get_actual_len(newext) == 0");
-		err = -EFSCORRUPTED;
-		goto errout;
+		return -EFSCORRUPTED;
 	}
 	depth = ext_depth(inode);
 	ex = path[depth].p_ext;
 	eh = path[depth].p_hdr;
 	if (unlikely(path[depth].p_hdr == NULL)) {
 		EXT4_ERROR_INODE(inode, "path[%d].p_hdr == NULL", depth);
-		err = -EFSCORRUPTED;
-		goto errout;
+		return -EFSCORRUPTED;
 	}
 
 	/* try to insert block into found extent and return */
@@ -2023,7 +2022,7 @@ ext4_ext_insert_extent(handle_t *handle, struct inode *inode,
 			err = ext4_ext_get_access(handle, inode,
 						  path + depth);
 			if (err)
-				goto errout;
+				return err;
 			unwritten = ext4_ext_is_unwritten(ex);
 			ex->ee_len = cpu_to_le16(ext4_ext_get_actual_len(ex)
 					+ ext4_ext_get_actual_len(newext));
@@ -2048,7 +2047,7 @@ prepend:
 			err = ext4_ext_get_access(handle, inode,
 						  path + depth);
 			if (err)
-				goto errout;
+				return err;
 
 			unwritten = ext4_ext_is_unwritten(ex);
 			ex->ee_block = newext->ee_block;
@@ -2073,26 +2072,21 @@ prepend:
 	if (le32_to_cpu(newext->ee_block) > le32_to_cpu(fex->ee_block))
 		next = ext4_ext_next_leaf_block(path);
 	if (next != EXT_MAX_BLOCKS) {
-		struct ext4_ext_path *npath;
-
 		ext_debug(inode, "next leaf block - %u\n", next);
+		BUG_ON(npath != NULL);
 		npath = ext4_find_extent(inode, next, NULL, gb_flags);
-		if (IS_ERR(npath)) {
-			err = PTR_ERR(npath);
-			goto errout;
-		}
+		if (IS_ERR(npath))
+			return PTR_ERR(npath);
 		BUG_ON(npath->p_depth != path->p_depth);
 		eh = npath[depth].p_hdr;
 		if (le16_to_cpu(eh->eh_entries) < le16_to_cpu(eh->eh_max)) {
 			ext_debug(inode, "next leaf isn't full(%d)\n",
 				  le16_to_cpu(eh->eh_entries));
-			ext4_free_ext_path(path);
 			path = npath;
 			goto has_space;
 		}
 		ext_debug(inode, "next leaf has no free space(%d,%d)\n",
 			  le16_to_cpu(eh->eh_entries), le16_to_cpu(eh->eh_max));
-		ext4_free_ext_path(npath);
 	}
 
 	/*
@@ -2103,8 +2097,12 @@ prepend:
 		mb_flags |= EXT4_MB_USE_RESERVED;
 	path = ext4_ext_create_new_leaf(handle, inode, mb_flags, gb_flags,
 					path, newext);
-	if (IS_ERR(path))
-		return path;
+	if (IS_ERR(path)) {
+		*ppath = NULL;
+		err = PTR_ERR(path);
+		goto cleanup;
+	}
+	*ppath = path;
 	depth = ext_depth(inode);
 	eh = path[depth].p_hdr;
 
@@ -2113,7 +2111,7 @@ has_space:
 
 	err = ext4_ext_get_access(handle, inode, path + depth);
 	if (err)
-		goto errout;
+		goto cleanup;
 
 	if (!nearex) {
 		/* there is no extent in this leaf, create first one */
@@ -2171,20 +2169,17 @@ merge:
 	if (!(gb_flags & EXT4_GET_BLOCKS_PRE_IO))
 		ext4_ext_try_to_merge(handle, inode, path, nearex);
 
+
 	/* time to correct all indexes above */
 	err = ext4_ext_correct_indexes(handle, inode, path);
 	if (err)
-		goto errout;
+		goto cleanup;
 
 	err = ext4_ext_dirty(handle, inode, path + path->p_depth);
-	if (err)
-		goto errout;
 
-	return path;
-
-errout:
-	ext4_free_ext_path(path);
-	return ERR_PTR(err);
+cleanup:
+	ext4_free_ext_path(npath);
+	return err;
 }
 
 static int ext4_fill_es_cache_info(struct inode *inode,
@@ -3237,29 +3232,24 @@ static int ext4_split_extent_at(handle_t *handle,
 	if (split_flag & EXT4_EXT_MARK_UNWRIT2)
 		ext4_ext_mark_unwritten(ex2);
 
-	path = ext4_ext_insert_extent(handle, inode, path, &newex, flags);
-	if (!IS_ERR(path)) {
-		*ppath = path;
-		goto out;
-	}
-	*ppath = NULL;
-	err = PTR_ERR(path);
+	err = ext4_ext_insert_extent(handle, inode, ppath, &newex, flags);
 	if (err != -ENOSPC && err != -EDQUOT && err != -ENOMEM)
-		return err;
+		goto out;
 
 	/*
-	 * Get a new path to try to zeroout or fix the extent length.
-	 * Using EXT4_EX_NOFAIL guarantees that ext4_find_extent()
-	 * will not return -ENOMEM, otherwise -ENOMEM will cause a
-	 * retry in do_writepages(), and a WARN_ON may be triggered
-	 * in ext4_da_update_reserve_space() due to an incorrect
-	 * ee_len causing the i_reserved_data_blocks exception.
+	 * Update path is required because previous ext4_ext_insert_extent()
+	 * may have freed or reallocated the path. Using EXT4_EX_NOFAIL
+	 * guarantees that ext4_find_extent() will not return -ENOMEM,
+	 * otherwise -ENOMEM will cause a retry in do_writepages(), and a
+	 * WARN_ON may be triggered in ext4_da_update_reserve_space() due to
+	 * an incorrect ee_len causing the i_reserved_data_blocks exception.
 	 */
-	path = ext4_find_extent(inode, ee_block, NULL,
+	path = ext4_find_extent(inode, ee_block, *ppath,
 				flags | EXT4_EX_NOFAIL);
 	if (IS_ERR(path)) {
 		EXT4_ERROR_INODE(inode, "Failed split extent on %u, err %ld",
 				 split, PTR_ERR(path));
+		*ppath = NULL;
 		return PTR_ERR(path);
 	}
 	depth = ext_depth(inode);
@@ -3318,7 +3308,7 @@ fix_extent_len:
 	ext4_ext_dirty(handle, inode, path + path->p_depth);
 	return err;
 out:
-	ext4_ext_show_leaf(inode, path);
+	ext4_ext_show_leaf(inode, *ppath);
 	return err;
 }
 
@@ -4309,7 +4299,6 @@ int ext4_ext_map_blocks(handle_t *handle, struct inode *inode,
 	    get_implied_cluster_alloc(inode->i_sb, map, &ex2, path)) {
 		ar.len = allocated = map->m_len;
 		newblock = map->m_pblk;
-		err = 0;
 		goto got_allocated_blocks;
 	}
 
@@ -4382,9 +4371,8 @@ got_allocated_blocks:
 		map->m_flags |= EXT4_MAP_UNWRITTEN;
 	}
 
-	path = ext4_ext_insert_extent(handle, inode, path, &newex, flags);
-	if (IS_ERR(path)) {
-		err = PTR_ERR(path);
+	err = ext4_ext_insert_extent(handle, inode, &path, &newex, flags);
+	if (err) {
 		if (allocated_clusters) {
 			int fb_flags = 0;
 
