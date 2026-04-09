@@ -106,7 +106,7 @@ static __always_inline bool kvm_register_test_and_mark_available(struct kvm_vcpu
 }
 
 static __always_inline void kvm_clear_available_registers(struct kvm_vcpu *vcpu,
-							  u32 clear_mask)
+							  unsigned long clear_mask)
 {
 	/*
 	 * Note the bitwise-AND!  In practice, a straight write would also work
