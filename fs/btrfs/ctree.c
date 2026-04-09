@@ -1497,17 +1497,11 @@ read_block_for_search(struct btrfs_root *root, struct btrfs_path *p,
 		if (p->reada == READA_FORWARD_ALWAYS)
 			reada_for_search(fs_info, p, parent_level, slot, key->objectid);
 
-		/* first we do an atomic uptodate check */
-		if (btrfs_buffer_uptodate(tmp, check.transid, NULL) > 0) {
-			/*
-			 * Do extra check for first_key, eb can be stale due to
-			 * being cached, read from scrub, or have multiple
-			 * parents (shared tree blocks).
-			 */
-			if (unlikely(btrfs_verify_level_key(tmp, &check))) {
-				ret = -EUCLEAN;
-				goto out;
-			}
+		/* Check if the cached eb is uptodate. */
+		ret = btrfs_buffer_uptodate(tmp, check.transid, &check);
+		if (unlikely(ret < 0))
+			goto out;
+		if (ret > 0) {
 			*eb_ret = tmp;
 			tmp = NULL;
 			ret = 0;

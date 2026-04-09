@@ -5781,16 +5781,21 @@ static int check_next_block_uptodate(struct btrfs_trans_handle *trans,
 
 	generation = btrfs_node_ptr_generation(path->nodes[level], path->slots[level]);
 
-	if (btrfs_buffer_uptodate(next, generation, NULL))
-		return 0;
-
 	check.level = level - 1;
 	check.transid = generation;
 	check.owner_root = btrfs_root_id(root);
 	check.has_first_key = true;
 	btrfs_node_key_to_cpu(path->nodes[level], &check.first_key, path->slots[level]);
 
+	ret = btrfs_buffer_uptodate(next, generation, &check);
+	if (ret > 0)
+		return 0;
 	btrfs_tree_unlock(next);
+	if (ret < 0) {
+		free_extent_buffer(next);
+		return ret;
+	}
+
 	if (level == 1)
 		reada_walk_down(trans, root, wc, path);
 	ret = btrfs_read_extent_buffer(next, &check);

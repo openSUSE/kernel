@@ -4660,7 +4660,7 @@ void btrfs_readahead_tree_block(struct btrfs_fs_info *fs_info,
 	if (IS_ERR(eb))
 		return;
 
-	if (btrfs_buffer_uptodate(eb, gen, NULL)) {
+	if (btrfs_buffer_uptodate(eb, gen, &check)) {
 		free_extent_buffer(eb);
 		return;
 	}
