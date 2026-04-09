@@ -114,7 +114,6 @@ impl<T: DriverGpuVm> GpuVmBo<T> {
     /// For the duration of `'a`, the pointer must reference a valid `drm_gpuvm_bo` associated with
     /// a [`GpuVm<T>`]. The BO must also be present in the GEM list.
     #[inline]
-    #[expect(dead_code)]
     pub(crate) unsafe fn from_raw<'a>(ptr: *mut bindings::drm_gpuvm_bo) -> &'a Self {
         // SAFETY: `drm_gpuvm_bo` is first field and `repr(C)`.
         unsafe { &*ptr.cast() }

@@ -11,7 +11,10 @@
 //! C header: [`include/drm/drm_gpuvm.h`](srctree/include/drm/drm_gpuvm.h)
 
 use kernel::{
-    alloc::AllocError,
+    alloc::{
+        AllocError,
+        Flags as AllocFlags, //
+    },
     bindings,
     drm,
     drm::gem::IntoGEMObject,
@@ -25,9 +28,13 @@ use kernel::{
 
 use core::{
     cell::UnsafeCell,
-    mem::ManuallyDrop,
+    mem::{
+        ManuallyDrop,
+        MaybeUninit, //
+    },
     ops::{
         Deref,
+        DerefMut,
         Range, //
     },
     ptr::{
@@ -35,6 +42,9 @@ use core::{
         NonNull, //
     }, //
 };
+
+mod va;
+pub use self::va::*;
 
 mod vm_bo;
 pub use self::vm_bo::*;
@@ -48,7 +58,7 @@ pub use self::vm_bo::*;
 ///
 /// * Stored in an allocation managed by the refcount in `self.vm`.
 /// * Access to `data` and the gpuvm interval tree is controlled via the [`UniqueRefGpuVm`] type.
-/// * Does not contain any sparse `GpuVa` instances.
+/// * Does not contain any sparse [`GpuVa<T>`] instances.
 #[pin_data]
 pub struct GpuVm<T: DriverGpuVm> {
     #[pin]
@@ -241,6 +251,9 @@ pub trait DriverGpuVm: Sized + Send {
 
     /// The kind of GEM object stored in this GPUVM.
     type Object: IntoGEMObject;
+
+    /// Data stored with each [`struct drm_gpuva`](struct@GpuVa).
+    type VaData;
 
     /// Data stored with each [`struct drm_gpuvm_bo`](struct@GpuVmBo).
     type VmBoData;
