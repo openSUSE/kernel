@@ -19,7 +19,7 @@
  *
  * @fw_status: FW status
  * @quirk_probe: device exclusion quirk
- * @kind: MEI head kind
+ * @get_kind: MEI head kind helper
  * @dma_size: device DMA buffers size
  * @fw_ver_supported: is fw version retrievable from FW
  * @hw_trc_supported: does the hw support trc register
@@ -27,7 +27,7 @@
 struct mei_cfg {
 	const struct mei_fw_status fw_status;
 	bool (*quirk_probe)(const struct pci_dev *pdev);
-	const char *kind;
+	enum mei_dev_kind (*get_kind)(const struct device *parent);
 	size_t dma_size[DMA_DSCR_NUM];
 	u32 fw_ver_supported:1;
 	u32 hw_trc_supported:1;

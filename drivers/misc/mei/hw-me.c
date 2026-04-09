@@ -1584,17 +1584,40 @@ static bool mei_me_fw_type_sps_ign(const struct pci_dev *pdev)
 	       fw_type == PCI_CFG_HFS_3_FW_SKU_SPS;
 }
 
-#define MEI_CFG_KIND_ITOUCH                     \
-	.kind = "itouch"
-
-#define MEI_CFG_TYPE_GSC                        \
-	.kind = "gsc"
-
-#define MEI_CFG_TYPE_GSCFI                      \
-	.kind = "gscfi"
-
 #define MEI_CFG_FW_SPS_IGN                      \
 	.quirk_probe = mei_me_fw_type_sps_ign
+
+static enum mei_dev_kind mei_cfg_kind_mei(const struct device *parent)
+{
+	return MEI_DEV_KIND_MEI;
+}
+
+#define MEI_CFG_KIND_MEI                     \
+	.get_kind = mei_cfg_kind_mei
+
+static enum mei_dev_kind mei_cfg_kind_itouch(const struct device *parent)
+{
+	return MEI_DEV_KIND_ITOUCH;
+}
+
+#define MEI_CFG_KIND_ITOUCH                  \
+	.get_kind = mei_cfg_kind_itouch
+
+static enum mei_dev_kind mei_cfg_kind_gsc(const struct device *parent)
+{
+	return MEI_DEV_KIND_GSC;
+}
+
+#define MEI_CFG_KIND_GSC                     \
+	.get_kind = mei_cfg_kind_gsc
+
+static enum mei_dev_kind mei_cfg_kind_gscfi(const struct device *parent)
+{
+	return MEI_DEV_KIND_GSCFI;
+}
+
+#define MEI_CFG_KIND_GSCFI                   \
+	.get_kind = mei_cfg_kind_gscfi
 
 #define MEI_CFG_FW_VER_SUPP                     \
 	.fw_ver_supported = 1
@@ -1630,27 +1653,32 @@ static bool mei_me_fw_type_sps_ign(const struct pci_dev *pdev)
 
 /* ICH Legacy devices */
 static const struct mei_cfg mei_me_ich_cfg = {
+	MEI_CFG_KIND_MEI,
 	MEI_CFG_ICH_HFS,
 };
 
 /* ICH devices */
 static const struct mei_cfg mei_me_ich10_cfg = {
+	MEI_CFG_KIND_MEI,
 	MEI_CFG_ICH10_HFS,
 };
 
 /* PCH6 devices */
 static const struct mei_cfg mei_me_pch6_cfg = {
+	MEI_CFG_KIND_MEI,
 	MEI_CFG_PCH_HFS,
 };
 
 /* PCH7 devices */
 static const struct mei_cfg mei_me_pch7_cfg = {
+	MEI_CFG_KIND_MEI,
 	MEI_CFG_PCH_HFS,
 	MEI_CFG_FW_VER_SUPP,
 };
 
 /* PCH Cougar Point and Patsburg with quirk for Node Manager exclusion */
 static const struct mei_cfg mei_me_pch_cpt_pbg_cfg = {
+	MEI_CFG_KIND_MEI,
 	MEI_CFG_PCH_HFS,
 	MEI_CFG_FW_VER_SUPP,
 	MEI_CFG_FW_NM,
@@ -1658,6 +1686,7 @@ static const struct mei_cfg mei_me_pch_cpt_pbg_cfg = {
 
 /* PCH8 Lynx Point and newer devices */
 static const struct mei_cfg mei_me_pch8_cfg = {
+	MEI_CFG_KIND_MEI,
 	MEI_CFG_PCH8_HFS,
 	MEI_CFG_FW_VER_SUPP,
 };
@@ -1671,6 +1700,7 @@ static const struct mei_cfg mei_me_pch8_itouch_cfg = {
 
 /* PCH8 Lynx Point with quirk for SPS Firmware exclusion */
 static const struct mei_cfg mei_me_pch8_sps_4_cfg = {
+	MEI_CFG_KIND_MEI,
 	MEI_CFG_PCH8_HFS,
 	MEI_CFG_FW_VER_SUPP,
 	MEI_CFG_FW_SPS_4,
@@ -1678,6 +1708,7 @@ static const struct mei_cfg mei_me_pch8_sps_4_cfg = {
 
 /* LBG with quirk for SPS (4.0) Firmware exclusion */
 static const struct mei_cfg mei_me_pch12_sps_4_cfg = {
+	MEI_CFG_KIND_MEI,
 	MEI_CFG_PCH8_HFS,
 	MEI_CFG_FW_VER_SUPP,
 	MEI_CFG_FW_SPS_4,
@@ -1685,6 +1716,7 @@ static const struct mei_cfg mei_me_pch12_sps_4_cfg = {
 
 /* Cannon Lake and newer devices */
 static const struct mei_cfg mei_me_pch12_cfg = {
+	MEI_CFG_KIND_MEI,
 	MEI_CFG_PCH8_HFS,
 	MEI_CFG_FW_VER_SUPP,
 	MEI_CFG_DMA_128,
@@ -1692,6 +1724,7 @@ static const struct mei_cfg mei_me_pch12_cfg = {
 
 /* Cannon Lake with quirk for SPS 5.0 and newer Firmware exclusion */
 static const struct mei_cfg mei_me_pch12_sps_cfg = {
+	MEI_CFG_KIND_MEI,
 	MEI_CFG_PCH8_HFS,
 	MEI_CFG_FW_VER_SUPP,
 	MEI_CFG_DMA_128,
@@ -1710,6 +1743,7 @@ static const struct mei_cfg mei_me_pch12_itouch_sps_cfg = {
 
 /* Tiger Lake and newer devices */
 static const struct mei_cfg mei_me_pch15_cfg = {
+	MEI_CFG_KIND_MEI,
 	MEI_CFG_PCH8_HFS,
 	MEI_CFG_FW_VER_SUPP,
 	MEI_CFG_DMA_128,
@@ -1718,6 +1752,7 @@ static const struct mei_cfg mei_me_pch15_cfg = {
 
 /* Tiger Lake with quirk for SPS 5.0 and newer Firmware exclusion */
 static const struct mei_cfg mei_me_pch15_sps_cfg = {
+	MEI_CFG_KIND_MEI,
 	MEI_CFG_PCH8_HFS,
 	MEI_CFG_FW_VER_SUPP,
 	MEI_CFG_DMA_128,
@@ -1727,21 +1762,21 @@ static const struct mei_cfg mei_me_pch15_sps_cfg = {
 
 /* Graphics System Controller */
 static const struct mei_cfg mei_me_gsc_cfg = {
-	MEI_CFG_TYPE_GSC,
+	MEI_CFG_KIND_GSC,
 	MEI_CFG_PCH8_HFS,
 	MEI_CFG_FW_VER_SUPP,
 };
 
 /* Graphics System Controller Firmware Interface */
 static const struct mei_cfg mei_me_gscfi_cfg = {
-	MEI_CFG_TYPE_GSCFI,
+	MEI_CFG_KIND_GSCFI,
 	MEI_CFG_PCH8_HFS,
 	MEI_CFG_FW_VER_SUPP,
 };
 
 /* Chassis System Controller Firmware Interface */
 static const struct mei_cfg mei_me_csc_cfg = {
-	MEI_CFG_TYPE_GSCFI,
+	MEI_CFG_KIND_GSCFI,
 	MEI_CFG_PCH8_HFS,
 	MEI_CFG_FW_VER_SUPP,
 };
@@ -1812,7 +1847,7 @@ struct mei_device *mei_me_dev_init(struct device *parent,
 
 	dev->fw_f_fw_ver_supported = cfg->fw_ver_supported;
 
-	dev->kind = cfg->kind;
+	dev->kind = cfg->get_kind(parent);
 
 	return dev;
 }
