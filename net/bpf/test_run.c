@@ -1175,8 +1175,6 @@ int bpf_prog_test_run_xdp(struct bpf_prog *prog, const union bpf_attr *kattr,
 			batch_size = NAPI_POLL_WEIGHT;
 		else if (batch_size > TEST_XDP_MAX_BATCH)
 			return -E2BIG;
-
-		headroom += sizeof(struct xdp_page_head);
 	} else if (batch_size) {
 		return -EINVAL;
 	}
@@ -1189,12 +1187,23 @@ int bpf_prog_test_run_xdp(struct bpf_prog *prog, const union bpf_attr *kattr,
 		/* There can't be user provided data before the meta data */
 		if (ctx->data_meta || ctx->data_end != size ||
 		    ctx->data > ctx->data_end ||
-		    unlikely(xdp_metalen_invalid(ctx->data)) ||
 		    (do_live && (kattr->test.data_out || kattr->test.ctx_out)))
 			goto free_ctx;
+
+		if (xdp_metalen_invalid(ctx->data) || ctx->data > headroom - sizeof(struct xdp_frame))
+			goto free_ctx;
+
 		/* Meta data is allocated from the headroom */
 		headroom -= ctx->data;
 	}
+
+	/* The xdp_page_head structure takes up space in each page, limiting the
+	 * size of the packet data; add the extra size to headroom here to make
+	 * sure it's accounted in the length checks below, but not in the
+	 * metadata size check above.
+	 */
+	if (do_live)
+		headroom += sizeof(struct xdp_page_head);
 
 	max_data_sz = 4096 - headroom - tailroom;
 	if (size > max_data_sz) {

@@ -321,7 +321,7 @@ static ssize_t out_read_index_show(struct device *dev,
 					  &outbound);
 	if (ret < 0)
 		return ret;
-	return sprintf(buf, "%d\n", outbound.current_read_index);
+	return sprintf(buf, "%u\n", outbound.current_read_index);
 }
 static DEVICE_ATTR_RO(out_read_index);
 
@@ -340,7 +340,7 @@ static ssize_t out_write_index_show(struct device *dev,
 					  &outbound);
 	if (ret < 0)
 		return ret;
-	return sprintf(buf, "%d\n", outbound.current_write_index);
+	return sprintf(buf, "%u\n", outbound.current_write_index);
 }
 static DEVICE_ATTR_RO(out_write_index);
 
@@ -1602,7 +1602,7 @@ static ssize_t target_cpu_store(struct vmbus_channel *channel,
 	if (vmbus_proto_version < VERSION_WIN10_V4_1)
 		return -EIO;
 
-	if (sscanf(buf, "%uu", &target_cpu) != 1)
+	if (sscanf(buf, "%u", &target_cpu) != 1)
 		return -EIO;
 
 	/* Validate target_cpu for the cpumask_test_cpu() operation below. */
@@ -1930,7 +1930,7 @@ int vmbus_device_register(struct hv_device *child_device_obj)
 	ret = vmbus_add_channel_kobj(child_device_obj,
 				     child_device_obj->channel);
 	if (ret) {
-		pr_err("Unable to register primary channeln");
+		pr_err("Unable to register primary channel\n");
 		goto err_kset_unregister;
 	}
 	hv_debug_add_dev_dir(child_device_obj);
