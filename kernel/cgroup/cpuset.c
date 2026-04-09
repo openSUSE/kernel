@@ -1612,8 +1612,8 @@ static bool partition_xcpus_del(int old_prs, struct cpuset *parent,
 		partition_xcpus_newstate(old_prs, parent->partition_root_state,
 					 xcpus);
 
-	cpumask_and(xcpus, xcpus, cpu_active_mask);
 	cpumask_or(parent->effective_cpus, parent->effective_cpus, xcpus);
+	cpumask_or(parent->effective_cpus, parent->effective_cpus, cpu_active_mask);
 	return isolcpus_updated;
 }
 
@@ -2456,7 +2456,7 @@ get_css:
 		WARN_ON(!is_in_v2_mode() &&
 			!cpumask_equal(cp->cpus_allowed, cp->effective_cpus));
 
-		update_tasks_cpumask(cp, cp->effective_cpus);
+		update_tasks_cpumask(cp, tmp->new_cpus);
 
 		/*
 		 * On default hierarchy, inherit the CS_SCHED_LOAD_BALANCE
