@@ -1,6 +1,7 @@
 TEST_GEN_PROGS := hashchk_test
 
 include ../../lib.mk
+include ../flags.mk
 
 $(OUTPUT)/hashchk_test: CFLAGS += -fno-pie -no-pie $(call cc-option,-mno-rop-protect)
 
