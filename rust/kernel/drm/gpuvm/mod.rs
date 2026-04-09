@@ -108,7 +108,7 @@ impl<T: DriverGpuVm> GpuVm<T> {
             vm_bo_alloc: GpuVmBo::<T>::ALLOC_FN,
             vm_bo_free: GpuVmBo::<T>::FREE_FN,
             vm_bo_validate: None,
-            sm_step_map: None,
+            sm_step_map: Some(Self::sm_step_map),
             sm_step_unmap: Some(Self::sm_step_unmap),
             sm_step_remap: Some(Self::sm_step_remap),
         }
@@ -265,6 +265,13 @@ pub trait DriverGpuVm: Sized + Send {
 
     /// The private data passed to callbacks.
     type SmContext<'ctx>;
+
+    /// Indicates that a new mapping should be created.
+    fn sm_step_map<'op, 'ctx>(
+        &mut self,
+        op: OpMap<'op, Self>,
+        context: &mut Self::SmContext<'ctx>,
+    ) -> Result<OpMapped<'op, Self>, Error>;
 
     /// Indicates that an existing mapping should be removed.
     fn sm_step_unmap<'op, 'ctx>(
