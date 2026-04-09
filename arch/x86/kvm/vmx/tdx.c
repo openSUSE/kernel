@@ -1013,8 +1013,8 @@ static fastpath_t tdx_exit_handlers_fastpath(struct kvm_vcpu *vcpu)
 	return EXIT_FASTPATH_NONE;
 }
 
-#define TDX_REGS_AVAIL_SET	(BIT_ULL(VCPU_EXREG_EXIT_INFO_1) | \
-				 BIT_ULL(VCPU_EXREG_EXIT_INFO_2) | \
+#define TDX_REGS_AVAIL_SET	(BIT_ULL(VCPU_REG_EXIT_INFO_1) | \
+				 BIT_ULL(VCPU_REG_EXIT_INFO_2) | \
 				 BIT_ULL(VCPU_REGS_RAX) | \
 				 BIT_ULL(VCPU_REGS_RBX) | \
 				 BIT_ULL(VCPU_REGS_RCX) | \
