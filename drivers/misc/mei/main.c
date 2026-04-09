@@ -1171,6 +1171,7 @@ static const char * const mei_kind_names[] = {
 	"gsc",
 	"gscfi",
 	"ivsc",
+	"ioe",
 };
 static_assert(ARRAY_SIZE(mei_kind_names) == MEI_DEV_KIND_MAX);
 

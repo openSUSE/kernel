@@ -477,6 +477,7 @@ struct mei_dev_timeouts {
  * @MEI_DEV_KIND_GSC: discete graphics content protection
  * @MEI_DEV_KIND_GSCFI: discete graphics chassis controller
  * @MEI_DEV_KIND_IVSC: visual sensing controller
+ * @MEI_DEV_KIND_IOE: IO extender
  * @MEI_DEV_KIND_MAX: sentinel
  */
 enum mei_dev_kind {
@@ -485,6 +486,7 @@ enum mei_dev_kind {
 	MEI_DEV_KIND_GSC,
 	MEI_DEV_KIND_GSCFI,
 	MEI_DEV_KIND_IVSC,
+	MEI_DEV_KIND_IOE,
 	MEI_DEV_KIND_MAX
 };
 
