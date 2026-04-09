@@ -128,7 +128,7 @@ enum mei_cfg_idx {
 	MEI_ME_GSCFI_CFG,
 	MEI_ME_CSC_CFG,
 	MEI_ME_PCH22_IOE_CFG,
-	MEI_ME_NUM_CFG,
+	MEI_ME_NUM_CFG
 };
 
 const struct mei_cfg *mei_me_get_cfg(kernel_ulong_t idx);
