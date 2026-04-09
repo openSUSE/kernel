@@ -694,5 +694,7 @@
 	vdd-3.3-ch0-supply = <&vreg_l25a_3p3>;
 	vdd-3.3-ch1-supply = <&vreg_l23a_3p3>;
 
+	qcom,snoc-host-cap-skip-quirk;
+
 	status = "okay";
 };
