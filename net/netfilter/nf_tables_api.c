@@ -5440,7 +5440,6 @@ err_element_clash:
 	kfree(trans);
 err_set_size:
 	atomic_dec(&set->nelems);
-err_trans:
 	if (obj)
 		obj->use--;
 
