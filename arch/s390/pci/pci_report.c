@@ -51,7 +51,8 @@ static const char *zpci_state_str(pci_channel_state_t state)
 }
 
 static int debug_log_header_fn(debug_info_t *id, struct debug_view *view,
-			       int area, debug_entry_t *entry, char *out_buf)
+			       int area, debug_entry_t *entry, char *out_buf,
+			       size_t out_buf_size)
 {
 	unsigned long sec, usec;
 	unsigned int level;
@@ -66,16 +67,16 @@ static int debug_log_header_fn(debug_info_t *id, struct debug_view *view,
 		except_str = "*";
 	else
 		except_str = "-";
-	rc += sprintf(out_buf, "%011ld:%06lu %1u %1s %04u  ",
+	rc += scnprintf(out_buf, out_buf_size, "%011ld:%06lu %1u %1s %04u  ",
 			sec, usec, level, except_str,
 			entry->cpu);
 	return rc;
 }
 
 static int debug_prolog_header(debug_info_t *id, struct debug_view *view,
-			       char *out_buf)
+			       char *out_buf, size_t out_buf_size)
 {
-	return sprintf(out_buf, "sec:usec level except cpu  msg\n");
+	return scnprintf(out_buf, out_buf_size, "sec:usec level except cpu  msg\n");
 }
 
 static struct debug_view debug_log_view = {
