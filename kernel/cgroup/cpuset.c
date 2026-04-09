@@ -1612,8 +1612,8 @@ static bool partition_xcpus_del(int old_prs, struct cpuset *parent,
 		partition_xcpus_newstate(old_prs, parent->partition_root_state,
 					 xcpus);
 
-	cpumask_and(xcpus, xcpus, cpu_active_mask);
 	cpumask_or(parent->effective_cpus, parent->effective_cpus, xcpus);
+	cpumask_or(parent->effective_cpus, parent->effective_cpus, cpu_active_mask);
 	return isolcpus_updated;
 }
 
