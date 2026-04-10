@@ -543,11 +543,11 @@ uart_get_baud_rate(struct uart_port *port, struct ktermios *termios,
 		 */
 		if (!hung_up) {
 			if (baud <= min)
-				tty_termios_encode_baud_rate(termios,
-							min + 1, min + 1);
+				baud = min + 1;
 			else
-				tty_termios_encode_baud_rate(termios,
-							max - 1, max - 1);
+				baud = max - 1;
+
+			tty_termios_encode_baud_rate(termios, baud, baud);
 		}
 	}
 	return 0;
