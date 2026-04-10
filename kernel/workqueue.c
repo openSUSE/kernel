@@ -3367,11 +3367,29 @@ bool flush_rcu_work(struct rcu_work *rwork)
 }
 EXPORT_SYMBOL(flush_rcu_work);
 
+/*
+ * offqd->disable might be initialized to max on 32-bit systems when
+ * an out-of-tree module was compiled with "linux/workqueues.h" before
+ * the 16 bits were taken for WORK_OFFQ_DISABLE_BITS,
+ * see WORK_STRUCT_NO_POOL and WORK_DATA_*INIT definitions.
+ *
+ * Make sure that WORK_OFFQ_POOL_BITS are either not shrunken (64-bits long int)
+ * or they were shrunken even before (32-bits long int). Anything in-between
+ * would mean that offqd->disable might be only partially initialized which is
+ * not supported by the kABI workaround in work_offqd_disable()/enable().
+ */
+static_assert(WORK_OFFQ_POOL_BITS == 31 ||
+	      WORK_OFFQ_POOL_BITS <= 31 - WORK_OFFQ_DISABLE_BITS);
+
 static void work_offqd_disable(struct work_offq_data *offqd)
 {
 	const unsigned long max = (1lu << WORK_OFFQ_DISABLE_BITS) - 1;
 
-	if (likely(offqd->disable < max))
+	/* kABI workaround, see the static_assert() above. */
+	if ((WORK_OFFQ_POOL_BITS < 31) && unlikely(offqd->disable == max))
+		offqd->disable = 0;
+
+	if (likely(offqd->disable < max - 1))
 		offqd->disable++;
 	else
 		WARN_ONCE(true, "workqueue: work disable count overflowed\n");
@@ -3379,6 +3397,12 @@ static void work_offqd_disable(struct work_offq_data *offqd)
 
 static void work_offqd_enable(struct work_offq_data *offqd)
 {
+	const unsigned long max = (1lu << WORK_OFFQ_DISABLE_BITS) - 1;
+
+	/* kABI workaround, see the static_assert() above. */
+	if ((WORK_OFFQ_POOL_BITS < 31) && unlikely(offqd->disable == max))
+		offqd->disable = 0;
+
 	if (likely(offqd->disable > 0))
 		offqd->disable--;
 	else
