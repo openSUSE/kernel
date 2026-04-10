@@ -1399,6 +1399,12 @@ void evsel__set_config_if_unset(struct evsel *evsel, const char *config_name,
 	perf_pmu__format_pack(format->bits, val, vp, /*zero=*/true);
 }
 
+bool evsel__config_exists(const struct evsel *evsel, const char *config_name)
+{
+	struct perf_pmu_format *format = pmu_find_format(&evsel->pmu->format, config_name);
+
+	return format && !bitmap_empty(format->bits, PERF_PMU_FORMAT_BITS);
+}
 
 int evsel__get_config_val(const struct evsel *evsel, const char *config_name,
 			  u64 *val)
