@@ -848,8 +848,7 @@ static void udp6_csum_zero_error(struct sk_buff *skb)
  */
 static int __udp6_lib_mcast_deliver(struct net *net, struct sk_buff *skb,
 				    const struct in6_addr *saddr,
-				    const struct in6_addr *daddr,
-				    int proto)
+				    const struct in6_addr *daddr)
 {
 	struct udp_table *udptable = net->ipv4.udp_table;
 	const struct udphdr *uh = udp_hdr(skb);
@@ -945,7 +944,7 @@ static int udp6_unicast_rcv_skb(struct sock *sk, struct sk_buff *skb,
 	return 0;
 }
 
-static int __udp6_lib_rcv(struct sk_buff *skb, int proto)
+INDIRECT_CALLABLE_SCOPE int udpv6_rcv(struct sk_buff *skb)
 {
 	enum skb_drop_reason reason = SKB_DROP_REASON_NOT_SPECIFIED;
 	const struct in6_addr *saddr, *daddr;
@@ -1013,7 +1012,7 @@ static int __udp6_lib_rcv(struct sk_buff *skb, int proto)
 	 *	Multicast receive code
 	 */
 	if (ipv6_addr_is_multicast(daddr))
-		return __udp6_lib_mcast_deliver(net, skb, saddr, daddr, proto);
+		return __udp6_lib_mcast_deliver(net, skb, saddr, daddr);
 
 	/* Unicast */
 	sk = __udp6_lib_lookup_skb(skb, uh->source, uh->dest);
@@ -1044,8 +1043,7 @@ no_sk:
 short_packet:
 	if (reason == SKB_DROP_REASON_NOT_SPECIFIED)
 		reason = SKB_DROP_REASON_PKT_TOO_SMALL;
-	net_dbg_ratelimited("UDP%sv6: short packet: From [%pI6c]:%u %d/%d to [%pI6c]:%u\n",
-			    proto == IPPROTO_UDPLITE ? "-Lite" : "",
+	net_dbg_ratelimited("UDPv6: short packet: From [%pI6c]:%u %d/%d to [%pI6c]:%u\n",
 			    saddr, ntohs(uh->source),
 			    ulen, skb->len,
 			    daddr, ntohs(uh->dest));
@@ -1131,11 +1129,6 @@ void udp_v6_early_demux(struct sk_buff *skb)
 		 */
 		skb_dst_set_noref(skb, dst);
 	}
-}
-
-INDIRECT_CALLABLE_SCOPE int udpv6_rcv(struct sk_buff *skb)
-{
-	return __udp6_lib_rcv(skb, IPPROTO_UDP);
 }
 
 /*
