@@ -440,18 +440,6 @@ static int snmp_seq_show_tcp_udp(struct seq_file *seq, void *v)
 	for (i = 0; snmp4_udp_list[i].name; i++)
 		seq_printf(seq, " %lu", buff[i]);
 
-	memset(buff, 0, TCPUDP_MIB_MAX * sizeof(unsigned long));
-
-	/* the UDP and UDP-Lite MIBs are the same */
-	seq_puts(seq, "\nUdpLite:");
-	snmp_get_cpu_field_batch(buff, snmp4_udp_list,
-				 net->mib.udplite_statistics);
-	for (i = 0; snmp4_udp_list[i].name; i++)
-		seq_printf(seq, " %s", snmp4_udp_list[i].name);
-	seq_puts(seq, "\nUdpLite:");
-	for (i = 0; snmp4_udp_list[i].name; i++)
-		seq_printf(seq, " %lu", buff[i]);
-
 	seq_putc(seq, '\n');
 	return 0;
 }
