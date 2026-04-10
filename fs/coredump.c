@@ -1488,7 +1488,8 @@ static int proc_dostring_coredump(const struct ctl_table *table, int write,
 		return -EINVAL;
 	}
 
-	validate_coredump_safety();
+	if (strncmp(old_core_pattern, core_pattern, CORENAME_MAX_SIZE))
+		validate_coredump_safety();
 	return error;
 }
 
