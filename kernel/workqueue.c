@@ -373,6 +373,12 @@ static struct workqueue_attrs *unbound_std_wq_attrs[NR_STD_WORKER_POOLS];
 /* I: attributes used when instantiating ordered pools on demand */
 static struct workqueue_attrs *ordered_wq_attrs[NR_STD_WORKER_POOLS];
 
+/*
+ * Used to synchronize multiple cancel_sync attempts on the same work item. See
+ * work_grab_pending() and __cancel_work_sync().
+ */
+static DECLARE_WAIT_QUEUE_HEAD(wq_cancel_waitq);
+
 struct workqueue_struct *system_wq __read_mostly;
 EXPORT_SYMBOL(system_wq);
 struct workqueue_struct *system_highpri_wq __read_mostly;
@@ -629,10 +635,9 @@ static int work_next_color(int color)
  * contain the pointer to the queued pwq.  Once execution starts, the flag
  * is cleared and the high bits contain OFFQ flags and pool ID.
  *
- * set_work_pwq(), set_work_pool_and_clear_pending(), mark_work_canceling()
- * and clear_work_data() can be used to set the pwq, pool or clear
- * work->data.  These functions should only be called while the work is
- * owned - ie. while the PENDING bit is set.
+ * set_work_pwq(), set_work_pool_and_clear_pending() and mark_work_canceling()
+ * can be used to set the pwq, pool or clear work->data. These functions should
+ * only be called while the work is owned - ie. while the PENDING bit is set.
  *
  * get_work_pool() and get_work_pwq() can be used to obtain the pool or pwq
  * corresponding to a work.  Pool is available once the work has been
@@ -705,12 +710,6 @@ static void set_work_pool_and_clear_pending(struct work_struct *work,
 	 * before actual STORE.
 	 */
 	smp_mb();
-}
-
-static void clear_work_data(struct work_struct *work)
-{
-	smp_wmb();	/* see set_work_pool_and_clear_pending() */
-	set_work_data(work, WORK_STRUCT_NO_POOL, 0);
 }
 
 static inline struct pool_workqueue *work_struct_pwq(unsigned long data)
@@ -1352,6 +1351,75 @@ fail:
 		return -ENOENT;
 	cpu_relax();
 	return -EAGAIN;
+}
+
+struct cwt_wait {
+	wait_queue_entry_t	wait;
+	struct work_struct	*work;
+};
+
+static int cwt_wakefn(wait_queue_entry_t *wait, unsigned mode, int sync, void *key)
+{
+	struct cwt_wait *cwait = container_of(wait, struct cwt_wait, wait);
+
+	if (cwait->work != key)
+		return 0;
+	return autoremove_wake_function(wait, mode, sync, key);
+}
+
+/**
+ * work_grab_pending - steal work item from worklist and disable irq
+ * @work: work item to steal
+ * @cflags: %WORK_CANCEL_ flags
+ * @irq_flags: place to store IRQ state
+ *
+ * Grab PENDING bit of @work. @work can be in any stable state - idle, on timer
+ * or on worklist.
+ *
+ * Must be called in process context. IRQ is disabled on return with IRQ state
+ * stored in *@irq_flags. The caller is responsible for re-enabling it using
+ * local_irq_restore().
+ *
+ * Returns %true if @work was pending. %false if idle.
+ */
+static bool work_grab_pending(struct work_struct *work, u32 cflags,
+			      unsigned long *irq_flags)
+{
+	struct cwt_wait cwait;
+	int ret;
+
+	might_sleep();
+repeat:
+	ret = try_to_grab_pending(work, cflags, irq_flags);
+	if (likely(ret >= 0))
+		return ret;
+	if (ret != -ENOENT)
+		goto repeat;
+
+	/*
+	 * Someone is already canceling. Wait for it to finish. flush_work()
+	 * doesn't work for PREEMPT_NONE because we may get woken up between
+	 * @work's completion and the other canceling task resuming and clearing
+	 * CANCELING - flush_work() will return false immediately as @work is no
+	 * longer busy, try_to_grab_pending() will return -ENOENT as @work is
+	 * still being canceled and the other canceling task won't be able to
+	 * clear CANCELING as we're hogging the CPU.
+	 *
+	 * Let's wait for completion using a waitqueue. As this may lead to the
+	 * thundering herd problem, use a custom wake function which matches
+	 * @work along with exclusive wait and wakeup.
+	 */
+	init_wait(&cwait.wait);
+	cwait.wait.func = cwt_wakefn;
+	cwait.work = work;
+
+	prepare_to_wait_exclusive(&wq_cancel_waitq, &cwait.wait,
+				  TASK_UNINTERRUPTIBLE);
+	if (work_is_canceling(work))
+		schedule();
+	finish_wait(&wq_cancel_waitq, &cwait.wait);
+
+	goto repeat;
 }
 
 /**
@@ -3289,60 +3357,13 @@ static bool __cancel_work(struct work_struct *work, u32 cflags)
 	return ret;
 }
 
-struct cwt_wait {
-	wait_queue_entry_t		wait;
-	struct work_struct	*work;
-};
-
-static int cwt_wakefn(wait_queue_entry_t *wait, unsigned mode, int sync, void *key)
-{
-	struct cwt_wait *cwait = container_of(wait, struct cwt_wait, wait);
-
-	if (cwait->work != key)
-		return 0;
-	return autoremove_wake_function(wait, mode, sync, key);
-}
-
 static bool __cancel_work_sync(struct work_struct *work, u32 cflags)
 {
-	static DECLARE_WAIT_QUEUE_HEAD(cancel_waitq);
 	unsigned long flags;
-	int ret;
+	bool ret;
 
-	do {
-		ret = try_to_grab_pending(work, cflags, &flags);
-		/*
-		 * If someone else is already canceling, wait for it to
-		 * finish.  flush_work() doesn't work for PREEMPT_NONE
-		 * because we may get scheduled between @work's completion
-		 * and the other canceling task resuming and clearing
-		 * CANCELING - flush_work() will return false immediately
-		 * as @work is no longer busy, try_to_grab_pending() will
-		 * return -ENOENT as @work is still being canceled and the
-		 * other canceling task won't be able to clear CANCELING as
-		 * we're hogging the CPU.
-		 *
-		 * Let's wait for completion using a waitqueue.  As this
-		 * may lead to the thundering herd problem, use a custom
-		 * wake function which matches @work along with exclusive
-		 * wait and wakeup.
-		 */
-		if (unlikely(ret == -ENOENT)) {
-			struct cwt_wait cwait;
-
-			init_wait(&cwait.wait);
-			cwait.wait.func = cwt_wakefn;
-			cwait.work = work;
-
-			prepare_to_wait_exclusive(&cancel_waitq, &cwait.wait,
-						  TASK_UNINTERRUPTIBLE);
-			if (work_is_canceling(work))
-				schedule();
-			finish_wait(&cancel_waitq, &cwait.wait);
-		}
-	} while (unlikely(ret < 0));
-
-	/* tell other tasks trying to grab @work to back off */
+	/* claim @work and tell other tasks trying to grab @work to back off */
+	ret = work_grab_pending(work, cflags, &flags);
 	mark_work_canceling(work);
 	local_irq_restore(flags);
 
@@ -3353,16 +3374,15 @@ static bool __cancel_work_sync(struct work_struct *work, u32 cflags)
 	if (wq_online)
 		__flush_work(work, true);
 
-	clear_work_data(work);
-
 	/*
-	 * Paired with prepare_to_wait() above so that either
-	 * waitqueue_active() is visible here or !work_is_canceling() is
-	 * visible there.
+	 * smp_mb() at the end of set_work_pool_and_clear_pending() is paired
+	 * with prepare_to_wait() above so that either waitqueue_active() is
+	 * visible here or !work_is_canceling() is visible there.
 	 */
-	smp_mb();
-	if (waitqueue_active(&cancel_waitq))
-		__wake_up(&cancel_waitq, TASK_NORMAL, 1, work);
+	set_work_pool_and_clear_pending(work, WORK_OFFQ_POOL_NONE);
+
+	if (waitqueue_active(&wq_cancel_waitq))
+		__wake_up(&wq_cancel_waitq, TASK_NORMAL, 1, work);
 
 	return ret;
 }
