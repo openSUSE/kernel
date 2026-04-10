@@ -6,8 +6,6 @@
 #include <net/udp.h>
 #include <net/inet_common.h>
 
-#include "udp_impl.h"
-
 static struct proto *udpv6_prot_saved __read_mostly;
 
 static int sk_udp_recvmsg(struct sock *sk, struct msghdr *msg, size_t len,

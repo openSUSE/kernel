@@ -103,7 +103,6 @@
 #include <net/gso.h>
 #include <net/tcp.h>
 #include <net/udp.h>
-#include <net/udplite.h>
 #include <net/ping.h>
 #include <linux/skbuff.h>
 #include <net/sock.h>
@@ -868,8 +867,6 @@ void inet_splice_eof(struct socket *sock)
 }
 EXPORT_SYMBOL_GPL(inet_splice_eof);
 
-INDIRECT_CALLABLE_DECLARE(int udp_recvmsg(struct sock *, struct msghdr *,
-					  size_t, int, int *));
 int inet_recvmsg(struct socket *sock, struct msghdr *msg, size_t size,
 		 int flags)
 {
@@ -1989,9 +1986,6 @@ static int __init inet_init(void)
 
 	/* Setup UDP memory threshold */
 	udp_init();
-
-	/* Add UDP-Lite (RFC 3828) */
-	udplite4_register();
 
 	raw_init();
 
