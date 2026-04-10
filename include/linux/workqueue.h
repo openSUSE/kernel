@@ -27,7 +27,7 @@ void delayed_work_timer_fn(struct timer_list *t);
  */
 #define work_data_bits(work) ((unsigned long *)(&(work)->data))
 
-enum {
+enum work_bits {
 	WORK_STRUCT_PENDING_BIT	= 0,	/* work item is pending execution */
 	WORK_STRUCT_INACTIVE_BIT= 1,	/* work item is inactive */
 	WORK_STRUCT_PWQ_BIT	= 2,	/* data points to pwq */
@@ -40,21 +40,6 @@ enum {
 #endif
 
 	WORK_STRUCT_COLOR_BITS	= 4,
-
-	WORK_STRUCT_PENDING	= 1 << WORK_STRUCT_PENDING_BIT,
-	WORK_STRUCT_INACTIVE	= 1 << WORK_STRUCT_INACTIVE_BIT,
-	WORK_STRUCT_PWQ		= 1 << WORK_STRUCT_PWQ_BIT,
-	WORK_STRUCT_LINKED	= 1 << WORK_STRUCT_LINKED_BIT,
-#ifdef CONFIG_DEBUG_OBJECTS_WORK
-	WORK_STRUCT_STATIC	= 1 << WORK_STRUCT_STATIC_BIT,
-#else
-	WORK_STRUCT_STATIC	= 0,
-#endif
-
-	WORK_NR_COLORS		= (1 << WORK_STRUCT_COLOR_BITS),
-
-	/* not bound to any CPU, prefer the local CPU */
-	WORK_CPU_UNBOUND	= NR_CPUS,
 
 	/*
 	 * Reserve 8 bits off of pwq pointer w/ debugobjects turned off.
@@ -78,6 +63,26 @@ enum {
 	WORK_OFFQ_POOL_SHIFT	= WORK_OFFQ_FLAG_BASE + WORK_OFFQ_FLAG_BITS,
 	WORK_OFFQ_LEFT		= BITS_PER_LONG - WORK_OFFQ_POOL_SHIFT,
 	WORK_OFFQ_POOL_BITS	= WORK_OFFQ_LEFT <= 31 ? WORK_OFFQ_LEFT : 31,
+
+};
+
+enum work_flags {
+	WORK_STRUCT_PENDING	= 1 << WORK_STRUCT_PENDING_BIT,
+	WORK_STRUCT_INACTIVE	= 1 << WORK_STRUCT_INACTIVE_BIT,
+	WORK_STRUCT_PWQ		= 1 << WORK_STRUCT_PWQ_BIT,
+	WORK_STRUCT_LINKED	= 1 << WORK_STRUCT_LINKED_BIT,
+#ifdef CONFIG_DEBUG_OBJECTS_WORK
+	WORK_STRUCT_STATIC	= 1 << WORK_STRUCT_STATIC_BIT,
+#else
+	WORK_STRUCT_STATIC	= 0,
+#endif
+};
+
+enum wq_misc_consts {
+	WORK_NR_COLORS		= (1 << WORK_STRUCT_COLOR_BITS),
+
+	/* not bound to any CPU, prefer the local CPU */
+	WORK_CPU_UNBOUND	= NR_CPUS,
 
 	/* bit mask for work_busy() return values */
 	WORK_BUSY_PENDING	= 1 << 0,
@@ -309,7 +314,7 @@ static inline unsigned int work_static(struct work_struct *work) { return 0; }
  * Workqueue flags and constants.  For details, please refer to
  * Documentation/core-api/workqueue.rst.
  */
-enum {
+enum wq_flags {
 	WQ_UNBOUND		= 1 << 1, /* not bound to any cpu */
 	WQ_FREEZABLE		= 1 << 2, /* freeze during suspend */
 	WQ_MEM_RECLAIM		= 1 << 3, /* may be used for memory reclaim */
@@ -349,7 +354,9 @@ enum {
 	__WQ_ORDERED		= 1 << 17, /* internal: workqueue is ordered */
 	__WQ_LEGACY		= 1 << 18, /* internal: create*_workqueue() */
 	__WQ_ORDERED_EXPLICIT	= 1 << 19, /* internal: alloc_ordered_workqueue() */
+};
 
+enum wq_consts {
 	WQ_MAX_ACTIVE		= 512,	  /* I like 512, better ideas? */
 	WQ_MAX_UNBOUND_PER_CPU	= 4,	  /* 4 * #cpus for unbound wq */
 	WQ_DFL_ACTIVE		= WQ_MAX_ACTIVE / 2,
