@@ -462,11 +462,10 @@ EXPORT_SYMBOL(uart_update_timeout);
  *
  * Decode the termios structure into a numeric baud rate, taking account of the
  * magic 38400 baud rate (with spd_* flags), and mapping the %B0 rate to 9600
- * baud.
+ * baud or min argument, whichever is greater.
  *
  * If the new baud rate is invalid, try the @old termios setting. If it's still
  * invalid, clip to the nearest chip supported rate.
- * If that is also invalid 0 is returned.
  *
  * The @termios structure is updated to reflect the baud rate we're actually
  * going to be using. Don't do this for the case where B0 is requested ("hang
@@ -481,7 +480,6 @@ uart_get_baud_rate(struct uart_port *port, struct ktermios *termios,
 	unsigned int try;
 	unsigned int baud;
 	unsigned int altbaud;
-	int hung_up = 0;
 	upf_t flags = port->flags & UPF_SPD_MASK;
 
 	switch (flags) {
@@ -515,10 +513,8 @@ uart_get_baud_rate(struct uart_port *port, struct ktermios *termios,
 		/*
 		 * Special case: B0 rate.
 		 */
-		if (baud == 0) {
-			hung_up = 1;
-			baud = 9600;
-		}
+		if (baud == 0)
+			return max(min, 9600);
 
 		if (baud >= min && baud <= max)
 			return baud;
@@ -530,9 +526,7 @@ uart_get_baud_rate(struct uart_port *port, struct ktermios *termios,
 		termios->c_cflag &= ~CBAUD;
 		if (old) {
 			baud = tty_termios_baud_rate(old);
-			if (!hung_up)
-				tty_termios_encode_baud_rate(termios,
-								baud, baud);
+			tty_termios_encode_baud_rate(termios, baud, baud);
 			old = NULL;
 			continue;
 		}
@@ -541,15 +535,16 @@ uart_get_baud_rate(struct uart_port *port, struct ktermios *termios,
 		 * As a last resort, if the range cannot be met then clip to
 		 * the nearest chip supported rate.
 		 */
-		if (!hung_up) {
-			if (baud <= min)
-				baud = min + 1;
-			else
-				baud = max - 1;
+		if (baud <= min)
+			baud = min + 1;
+		else
+			baud = max - 1;
 
-			tty_termios_encode_baud_rate(termios, baud, baud);
-		}
+		tty_termios_encode_baud_rate(termios, baud, baud);
 	}
+
+	/* Should never happen */
+	WARN_ON(1);
 	return 0;
 }
 EXPORT_SYMBOL(uart_get_baud_rate);
