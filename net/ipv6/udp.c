@@ -56,7 +56,7 @@
 #include <linux/proc_fs.h>
 #include <linux/seq_file.h>
 #include <trace/events/skb.h>
-#include "udp_impl.h"
+#include <net/udplite.h>
 
 static void udpv6_destruct_sock(struct sock *sk)
 {
@@ -64,7 +64,7 @@ static void udpv6_destruct_sock(struct sock *sk)
 	inet6_sock_destruct(sk);
 }
 
-int udpv6_init_sock(struct sock *sk)
+static int udpv6_init_sock(struct sock *sk)
 {
 	udp_lib_init_sock(sk);
 	sk->sk_destruct = udpv6_destruct_sock;
@@ -93,7 +93,7 @@ u32 udp6_ehashfn(const struct net *net,
 			       udp6_ehash_secret + net_hash_mix(net));
 }
 
-int udp_v6_get_port(struct sock *sk, unsigned short snum)
+static int udp_v6_get_port(struct sock *sk, unsigned short snum)
 {
 	unsigned int hash2_nulladdr =
 		ipv6_portaddr_hash(sock_net(sk), &in6addr_any, snum);
@@ -105,7 +105,7 @@ int udp_v6_get_port(struct sock *sk, unsigned short snum)
 	return udp_lib_get_port(sk, snum, hash2_nulladdr);
 }
 
-void udp_v6_rehash(struct sock *sk)
+static void udp_v6_rehash(struct sock *sk)
 {
 	u16 new_hash = ipv6_portaddr_hash(sock_net(sk),
 					  &sk->sk_v6_rcv_saddr,
@@ -378,6 +378,7 @@ static int udp6_skb_len(struct sk_buff *skb)
  *	return it, otherwise we block.
  */
 
+INDIRECT_CALLABLE_SCOPE
 int udpv6_recvmsg(struct sock *sk, struct msghdr *msg, size_t len,
 		  int flags, int *addr_len)
 {
@@ -614,9 +615,9 @@ out:
 	return sk;
 }
 
-int __udp6_lib_err(struct sk_buff *skb, struct inet6_skb_parm *opt,
-		   u8 type, u8 code, int offset, __be32 info,
-		   struct udp_table *udptable)
+static int __udp6_lib_err(struct sk_buff *skb, struct inet6_skb_parm *opt,
+			  u8 type, u8 code, int offset, __be32 info,
+			  struct udp_table *udptable)
 {
 	struct ipv6_pinfo *np;
 	const struct ipv6hdr *hdr = (const struct ipv6hdr *)skb->data;
@@ -983,8 +984,8 @@ static int udp6_unicast_rcv_skb(struct sock *sk, struct sk_buff *skb,
 	return 0;
 }
 
-int __udp6_lib_rcv(struct sk_buff *skb, struct udp_table *udptable,
-		   int proto)
+static int __udp6_lib_rcv(struct sk_buff *skb, struct udp_table *udptable,
+			  int proto)
 {
 	enum skb_drop_reason reason = SKB_DROP_REASON_NOT_SPECIFIED;
 	const struct in6_addr *saddr, *daddr;
@@ -1717,7 +1718,7 @@ static void udpv6_splice_eof(struct socket *sock)
 	release_sock(sk);
 }
 
-void udpv6_destroy_sock(struct sock *sk)
+static void udpv6_destroy_sock(struct sock *sk)
 {
 	struct udp_sock *up = udp_sk(sk);
 	lock_sock(sk);
@@ -1744,8 +1745,8 @@ void udpv6_destroy_sock(struct sock *sk)
 /*
  *	Socket option code for UDP
  */
-int udpv6_setsockopt(struct sock *sk, int level, int optname, sockptr_t optval,
-		     unsigned int optlen)
+static int udpv6_setsockopt(struct sock *sk, int level, int optname,
+			    sockptr_t optval, unsigned int optlen)
 {
 	if (level == SOL_UDP  ||  level == SOL_UDPLITE || level == SOL_SOCKET)
 		return udp_lib_setsockopt(sk, level, optname,
@@ -1754,8 +1755,8 @@ int udpv6_setsockopt(struct sock *sk, int level, int optname, sockptr_t optval,
 	return ipv6_setsockopt(sk, level, optname, optval, optlen);
 }
 
-int udpv6_getsockopt(struct sock *sk, int level, int optname,
-		     char __user *optval, int __user *optlen)
+static int udpv6_getsockopt(struct sock *sk, int level, int optname,
+			    char __user *optval, int __user *optlen)
 {
 	if (level == SOL_UDP  ||  level == SOL_UDPLITE)
 		return udp_lib_getsockopt(sk, level, optname, optval, optlen);
@@ -1780,7 +1781,7 @@ static int udp6_seq_show(struct seq_file *seq, void *v)
 	return 0;
 }
 
-const struct seq_operations udp6_seq_ops = {
+static const struct seq_operations udp6_seq_ops = {
 	.start		= udp_seq_start,
 	.next		= udp_seq_next,
 	.stop		= udp_seq_stop,
