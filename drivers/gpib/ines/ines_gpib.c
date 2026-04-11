@@ -350,6 +350,7 @@ out:
 }
 
 static int ines_pci_attach(struct gpib_board *board, const struct gpib_board_config *config);
+static int ines_pci_xl_attach(struct gpib_board *board, const struct gpib_board_config *config);
 static int ines_pci_accel_attach(struct gpib_board *board, const struct gpib_board_config *config);
 static int ines_isa_attach(struct gpib_board *board, const struct gpib_board_config *config);
 
@@ -928,6 +929,24 @@ static int ines_pci_attach(struct gpib_board *board, const struct gpib_board_con
 
 	ines_priv = board->private_data;
 	ines_online(ines_priv, board, 0);
+
+	return 0;
+}
+
+static int ines_pci_xl_attach(struct gpib_board *board, const struct gpib_board_config *config)
+{
+	struct ines_priv *ines_priv;
+	struct nec7210_priv *nec_priv;
+	int retval;
+
+	retval = ines_common_pci_attach(board, config);
+	if (retval < 0)
+		return retval;
+
+	ines_priv = board->private_data;
+	ines_priv->pci_chip_type = PCI_CHIP_INES_72130;
+	nec_priv = &ines_priv->nec7210_priv;
+	nec7210_board_online(nec_priv, board);
 
 	return 0;
 }
