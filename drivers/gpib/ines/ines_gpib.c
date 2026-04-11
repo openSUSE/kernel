@@ -1500,6 +1500,12 @@ static int __init ines_init_module(void)
 		goto err_pci_unaccel;
 	}
 
+	ret = gpib_register_driver(&ines_pci_xl_interface, THIS_MODULE);
+	if (ret) {
+		pr_err("gpib_register_driver failed: error = %d\n", ret);
+		goto err_pci_xl;
+	}
+
 	ret = gpib_register_driver(&ines_pci_accel_interface, THIS_MODULE);
 	if (ret) {
 		pr_err("gpib_register_driver failed: error = %d\n", ret);
@@ -1554,6 +1560,8 @@ err_isa:
 	gpib_unregister_driver(&ines_pci_accel_interface);
 err_pci_accel:
 	gpib_unregister_driver(&ines_pci_unaccel_interface);
+err_pci_xl:
+	gpib_unregister_driver(&ines_pci_xl_interface);
 err_pci_unaccel:
 	gpib_unregister_driver(&ines_pci_interface);
 err_pci:
@@ -1566,6 +1574,7 @@ static void __exit ines_exit_module(void)
 {
 	gpib_unregister_driver(&ines_pci_interface);
 	gpib_unregister_driver(&ines_pci_unaccel_interface);
+	gpib_unregister_driver(&ines_pci_xl_interface);
 	gpib_unregister_driver(&ines_pci_accel_interface);
 	gpib_unregister_driver(&ines_isa_interface);
 #ifdef CONFIG_GPIB_PCMCIA
