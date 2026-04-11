@@ -1211,14 +1211,15 @@ EXPORT_SYMBOL(d_prune_aliases);
 
 static inline void shrink_kill(struct dentry *victim)
 {
-	do {
+	while (lock_for_kill(victim)) {
 		rcu_read_unlock();
 		victim = __dentry_kill(victim);
+		if (!victim)
+			return;
 		rcu_read_lock();
-	} while (victim && lock_for_kill(victim));
+	}
+	spin_unlock(&victim->d_lock);
 	rcu_read_unlock();
-	if (victim)
-		spin_unlock(&victim->d_lock);
 }
 
 void shrink_dentry_list(struct list_head *list)
@@ -1235,12 +1236,7 @@ void shrink_dentry_list(struct list_head *list)
 			continue;
 		}
 		rcu_read_lock();
-		if (!lock_for_kill(dentry)) {
-			spin_unlock(&dentry->d_lock);
-			rcu_read_unlock();
-		} else {
-			shrink_kill(dentry);
-		}
+		shrink_kill(dentry);
 	}
 }
 EXPORT_SYMBOL(shrink_dentry_list);
@@ -1688,12 +1684,7 @@ static void shrink_dcache_tree(struct dentry *parent, bool for_umount)
 				wait_for_completion(&wait.completion);
 				continue;
 			}
-			if (!lock_for_kill(v)) {
-				spin_unlock(&v->d_lock);
-				rcu_read_unlock();
-			} else {
-				shrink_kill(v);
-			}
+			shrink_kill(v);
 		}
 		if (!list_empty(&data.dispose))
 			shrink_dentry_list(&data.dispose);
