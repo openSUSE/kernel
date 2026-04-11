@@ -160,6 +160,7 @@ bounded_enum! {
     }
 }
 
+#[derive(Clone, Copy)]
 pub(crate) struct Revision {
     major: Bounded<u8, 4>,
     minor: Bounded<u8, 4>,
@@ -181,6 +182,7 @@ impl fmt::Display for Revision {
 }
 
 /// Structure holding a basic description of the GPU: `Chipset` and `Revision`.
+#[derive(Clone, Copy)]
 pub(crate) struct Spec {
     chipset: Chipset,
     revision: Revision,
