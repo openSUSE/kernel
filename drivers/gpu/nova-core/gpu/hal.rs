@@ -10,6 +10,7 @@ use crate::{
     },
 };
 
+mod gh100;
 mod tu102;
 
 pub(crate) trait GpuHal {
@@ -19,11 +20,9 @@ pub(crate) trait GpuHal {
 
 pub(super) fn gpu_hal(chipset: Chipset) -> &'static dyn GpuHal {
     match chipset.arch() {
-        Architecture::Turing
-        | Architecture::Ampere
-        | Architecture::Ada
-        | Architecture::Hopper
-        | Architecture::BlackwellGB10x
-        | Architecture::BlackwellGB20x => tu102::TU102_HAL,
+        Architecture::Turing | Architecture::Ampere | Architecture::Ada => tu102::TU102_HAL,
+        Architecture::Hopper | Architecture::BlackwellGB10x | Architecture::BlackwellGB20x => {
+            gh100::GH100_HAL
+        }
     }
 }
