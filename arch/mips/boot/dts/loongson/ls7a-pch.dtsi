@@ -19,6 +19,15 @@
 			#interrupt-cells = <2>;
 		};
 
+		lpc: interrupt-controller@10002000 {
+			compatible = "loongson,ls7a-lpc";
+			reg = <0 0x10002000 0 0x1000>;
+			interrupt-controller;
+			interrupt-parent = <&pic>;
+			interrupts = <19 IRQ_TYPE_LEVEL_HIGH>;
+			#interrupt-cells = <2>;
+		};
+
 		ls7a_uart0: serial@10080000 {
 			compatible = "ns16550a";
 			reg = <0 0x10080000 0 0x100>;
