@@ -31,7 +31,10 @@ use crate::{
         gsp::GspFirmware,
         FIRMWARE_VERSION, //
     },
-    gpu::Chipset,
+    gpu::{
+        Architecture,
+        Chipset, //
+    },
     gsp::{
         commands,
         sequencer::{
@@ -146,6 +149,14 @@ impl super::Gsp {
         gsp_falcon: &Falcon<Gsp>,
         sec2_falcon: &Falcon<Sec2>,
     ) -> Result {
+        // The FSP boot process of Hopper+ is not supported for now.
+        if matches!(
+            chipset.arch(),
+            Architecture::Hopper | Architecture::BlackwellGB10x | Architecture::BlackwellGB20x
+        ) {
+            return Err(ENOTSUPP);
+        }
+
         let dev = pdev.as_ref();
 
         let bios = Vbios::new(dev, bar)?;

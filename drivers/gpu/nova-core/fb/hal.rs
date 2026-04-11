@@ -39,6 +39,9 @@ pub(super) fn fb_hal(chipset: Chipset) -> &'static dyn FbHal {
         Architecture::Turing => tu102::TU102_HAL,
         Architecture::Ampere if chipset == Chipset::GA100 => ga100::GA100_HAL,
         Architecture::Ampere => ga102::GA102_HAL,
-        Architecture::Ada => ga102::GA102_HAL,
+        Architecture::Ada
+        | Architecture::Hopper
+        | Architecture::BlackwellGB10x
+        | Architecture::BlackwellGB20x => ga102::GA102_HAL,
     }
 }

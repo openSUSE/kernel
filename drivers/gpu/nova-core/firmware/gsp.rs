@@ -72,6 +72,9 @@ impl GspFirmware {
             Architecture::Ampere if chipset == Chipset::GA100 => ".fwsignature_ga100",
             Architecture::Ampere => ".fwsignature_ga10x",
             Architecture::Ada => ".fwsignature_ad10x",
+            Architecture::Hopper => ".fwsignature_gh10x",
+            Architecture::BlackwellGB10x => ".fwsignature_gb10x",
+            Architecture::BlackwellGB20x => ".fwsignature_gb20x",
         }
     }
 

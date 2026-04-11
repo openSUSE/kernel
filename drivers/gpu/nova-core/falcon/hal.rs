@@ -85,7 +85,11 @@ pub(super) fn falcon_hal<E: FalconEngine + 'static>(
         Architecture::Ampere if chipset == Chipset::GA100 => {
             KBox::new(tu102::Tu102::<E>::new(), GFP_KERNEL)? as KBox<dyn FalconHal<E>>
         }
-        Architecture::Ampere | Architecture::Ada => {
+        Architecture::Ampere
+        | Architecture::Ada
+        | Architecture::Hopper
+        | Architecture::BlackwellGB10x
+        | Architecture::BlackwellGB20x => {
             KBox::new(ga102::Ga102::<E>::new(), GFP_KERNEL)? as KBox<dyn FalconHal<E>>
         }
     };
