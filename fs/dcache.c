@@ -752,6 +752,44 @@ static bool lock_for_kill(struct dentry *dentry)
 	return false;
 }
 
+/**
+ * dentry_kill - evict a dentry
+ * @dentry:	dentry to be evicted
+ *
+ * All dentry evictions are done by this function.  The reference we are
+ * passed does not contribute to the refcount; the caller had either
+ * already decremented the refcount or it had never held one in the
+ * first place.  @dentry->d_lock is held by the caller and dropped
+ * by dentry_kill(@dentry).
+ *
+ * We are guaranteed that nobody had called dentry_free(@dentry)
+ * prior to the beginning of RCU read-side critical area we are in.
+ *
+ * Caller must not access @dentry after the call.
+ *
+ * If eviction of @dentry drops the last reference to its parent,
+ * the reference to parent is returned to caller.  In that case
+ * it is guaranteed to satisfy the requirements for dentry_kill()
+ * argument - its ->d_lock is held and we are guaranteed that nobody
+ * had passed it to dentry_free() prior to acquisition of its ->d_lock.
+ * Otherwise %NULL is returned.
+ *
+ * If @dentry is idle and remains such after we assemble the full
+ * locking environment for eviction (see lock_for_kill() for details)
+ * we mark it doomed (->d_lockref.count < 0) and proceed to detaching
+ * it from any filesystem objects.  Otherwise we drop ->d_lock and
+ * return %NULL.
+ *
+ * Once @dentry is detached from the filesystem objects, we complete
+ * detaching it from dentry tree. The parent, if any, gets locked
+ * and its refcount is decremented; dentry is carefully removed from
+ * the tree (see dentry_unlist() for details) and marked killed
+ * (%DCACHE_DENTRY_KILLED set in ->d_flags).  At that point it's just
+ * an inert chunk of memory, accessible only via RCU references
+ * and possibly via a shrink list.  If it is not on any shrink lists,
+ * we call dentry_free(), which schedules actual freeing of memory.
+ * Othewise freeing is left to the owner of the shrink list in question.
+ */
 static struct dentry *dentry_kill(struct dentry *dentry)
 {
 	struct dentry *parent = NULL;
