@@ -779,6 +779,17 @@ static bool lock_for_kill(struct dentry *dentry)
 	return false;
 }
 
+static struct dentry *dentry_kill(struct dentry *dentry)
+{
+	if (unlikely(!lock_for_kill(dentry))) {
+		spin_unlock(&dentry->d_lock);
+		rcu_read_unlock();
+		return NULL;
+	}
+	rcu_read_unlock();
+	return __dentry_kill(dentry);
+}
+
 /*
  * Decide if dentry is worth retaining.  Usually this is called with dentry
  * locked; if not locked, we are more limited and might not be able to tell
@@ -922,19 +933,13 @@ static void finish_dput(struct dentry *dentry)
 	__releases(dentry->d_lock)
 	__releases(RCU)
 {
-	while (lock_for_kill(dentry)) {
-		rcu_read_unlock();
-		dentry = __dentry_kill(dentry);
-		if (!dentry)
-			return;
+	while ((dentry = dentry_kill(dentry)) != NULL) {
 		if (retain_dentry(dentry, true)) {
 			spin_unlock(&dentry->d_lock);
 			return;
 		}
 		rcu_read_lock();
 	}
-	rcu_read_unlock();
-	spin_unlock(&dentry->d_lock);
 }
 
 /* 
@@ -1211,15 +1216,8 @@ EXPORT_SYMBOL(d_prune_aliases);
 
 static inline void shrink_kill(struct dentry *victim)
 {
-	while (lock_for_kill(victim)) {
-		rcu_read_unlock();
-		victim = __dentry_kill(victim);
-		if (!victim)
-			return;
+	while ((victim = dentry_kill(victim)) != NULL)
 		rcu_read_lock();
-	}
-	spin_unlock(&victim->d_lock);
-	rcu_read_unlock();
 }
 
 void shrink_dentry_list(struct list_head *list)
