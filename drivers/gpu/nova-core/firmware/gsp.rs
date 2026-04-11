@@ -63,6 +63,18 @@ pub(crate) struct GspFirmware {
 }
 
 impl GspFirmware {
+    fn find_gsp_sigs_section(chipset: Chipset) -> &'static str {
+        match chipset.arch() {
+            Architecture::Turing if matches!(chipset, Chipset::TU116 | Chipset::TU117) => {
+                ".fwsignature_tu11x"
+            }
+            Architecture::Turing => ".fwsignature_tu10x",
+            Architecture::Ampere if chipset == Chipset::GA100 => ".fwsignature_ga100",
+            Architecture::Ampere => ".fwsignature_ga10x",
+            Architecture::Ada => ".fwsignature_ad10x",
+        }
+    }
+
     /// Loads the GSP firmware binaries, map them into `dev`'s address-space, and creates the page
     /// tables expected by the GSP bootloader to load it.
     pub(crate) fn new<'a>(
@@ -131,17 +143,7 @@ impl GspFirmware {
                 },
                 size,
                 signatures: {
-                    let sigs_section = match chipset.arch() {
-                        Architecture::Turing
-                            if matches!(chipset, Chipset::TU116 | Chipset::TU117) =>
-                        {
-                            ".fwsignature_tu11x"
-                        }
-                        Architecture::Turing => ".fwsignature_tu10x",
-                        Architecture::Ampere if chipset == Chipset::GA100 => ".fwsignature_ga100",
-                        Architecture::Ampere => ".fwsignature_ga10x",
-                        Architecture::Ada => ".fwsignature_ad10x",
-                    };
+                    let sigs_section = Self::find_gsp_sigs_section(chipset);
 
                     elf::elf64_section(firmware.data(), sigs_section)
                         .ok_or(EINVAL)
