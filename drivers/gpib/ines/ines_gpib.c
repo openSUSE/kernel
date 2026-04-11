@@ -57,6 +57,34 @@ static int ines_line_status(const struct gpib_board *board)
 	return status;
 }
 
+static int ines72130_line_status(const struct gpib_board *board)
+{
+	int status = VALID_ALL;
+	int bsr_bits;
+	struct ines_priv *ines_priv = board->private_data;
+
+	bsr_bits = ines_inb(ines_priv, BUS_STATUS_REG);
+
+	if (bsr_bits & BSR_REN_BIT)
+		status |= BUS_REN;
+	if (bsr_bits & BSR_IFC_BIT)
+		status |= BUS_IFC;
+	if (bsr_bits & BSR_SRQ_BIT)
+		status |= BUS_SRQ;
+	if (bsr_bits & BSR_EOI_BIT)
+		status |= BUS_EOI;
+	if (bsr_bits & BSR_NRFD_BIT)
+		status |= BUS_NRFD;
+	if (bsr_bits & BSR_NDAC_BIT)
+		status |= BUS_NDAC;
+	if (bsr_bits & BSR_DAV_BIT)
+		status |= BUS_DAV;
+	if (bsr_bits & BSR_ATN_BIT)
+		status |= BUS_ATN;
+
+	return status;
+}
+
 static void ines_set_xfer_counter(struct ines_priv *priv, unsigned int count)
 {
 	if (count > 0xffff) {
