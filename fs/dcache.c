@@ -1228,19 +1228,19 @@ void shrink_dentry_list(struct list_head *list)
 
 		dentry = list_entry(list->prev, struct dentry, d_lru);
 		spin_lock(&dentry->d_lock);
-		rcu_read_lock();
-		if (!lock_for_kill(dentry)) {
-			bool can_free;
-			rcu_read_unlock();
-			d_shrink_del(dentry);
-			can_free = dentry->d_flags & DCACHE_DENTRY_KILLED;
+		d_shrink_del(dentry);
+		if (unlikely(dentry->d_flags & DCACHE_DENTRY_KILLED)) {
 			spin_unlock(&dentry->d_lock);
-			if (can_free)
-				dentry_free(dentry);
+			dentry_free(dentry);
 			continue;
 		}
-		d_shrink_del(dentry);
-		shrink_kill(dentry);
+		rcu_read_lock();
+		if (!lock_for_kill(dentry)) {
+			spin_unlock(&dentry->d_lock);
+			rcu_read_unlock();
+		} else {
+			shrink_kill(dentry);
+		}
 	}
 }
 EXPORT_SYMBOL(shrink_dentry_list);
