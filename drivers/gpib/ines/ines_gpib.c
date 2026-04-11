@@ -103,6 +103,9 @@ static int ines_t1_delay(struct gpib_board *board, unsigned int nano_sec)
 
 	retval = nec7210_t1_delay(board, nec_priv, nano_sec);
 
+	if (ines_priv->pci_chip_type == PCI_CHIP_INES_72130)
+		return retval;
+
 	if (nano_sec <= 250) {
 		write_byte(nec_priv, INES_AUXD | INES_FOLLOWING_T1_250ns |
 			   INES_INITIAL_T1_2000ns, AUXMR);
@@ -322,6 +325,8 @@ static irqreturn_t ines_interrupt(struct gpib_board *board)
 	spin_lock_irqsave(&board->spinlock, flags);
 
 	nec7210_interrupt(board, nec_priv);
+	if (priv->pci_chip_type == PCI_CHIP_INES_72130)
+		goto out;
 	isr3_bits = ines_inb(priv, ISR3);
 	isr4_bits = ines_inb(priv, ISR4);
 	if (isr3_bits & IFC_ACTIVE_BIT)	{
@@ -339,6 +344,7 @@ static irqreturn_t ines_interrupt(struct gpib_board *board)
 
 	if (wake)
 		wake_up_interruptible(&board->wait);
+out:
 	spin_unlock_irqrestore(&board->spinlock, flags);
 	return IRQ_HANDLED;
 }
