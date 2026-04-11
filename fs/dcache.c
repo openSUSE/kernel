@@ -691,10 +691,74 @@ static inline void dentry_unlist(struct dentry *dentry)
 	}
 }
 
-static struct dentry *__dentry_kill(struct dentry *dentry)
+/*
+ * Prepare locking environment for killing a dentry.
+ * Called under dentry->d_lock.  To proceed with eviction of a positive dentry
+ * we need to get ->i_lock of the inode of that dentry as well.
+ * However, ->i_lock nests outside of ->d_lock, so if trylock fails we might
+ * have to drop and regain the latter.  Dentry state can change while its
+ * ->d_lock is not held - it might end up getting killed, becoming busy,
+ * negative, etc., so we need to be careful.
+ *
+ * For NORCU dentries memory safety relies upon having only one call of
+ * lock_for_kill() in the entire lifetime of dentry and dentry_free() being
+ * called only by the caller of lock_for_kill().  That this is NORCU-specific;
+ * the crucial part is that refcounts of NORCU dentries never grow once having
+ * dropped to zero.
+ *
+ * For normal dentries we can not assume that there won't be concurrent calls
+ * of dentry_free() - dentry might end up being evicted by another thread
+ * while we are dropping/retaking locks on the slow path.  Memory safety is
+ * provided by keeping the RCU read-side critical area contiguous with
+ * an explicit rcu_read_lock() scope bridging over the break in spinlock scopes.
+ *
+ * If dentry is busy (or busy dying, or already dead), unlock dentry
+ * and return false.  Otherwise, return true and have that dentry's
+ * inode (if any) locked in addition to dentry itself.
+ */
+static bool lock_for_kill(struct dentry *dentry)
+{
+	struct inode *inode = dentry->d_inode;
+
+	if (unlikely(dentry->d_lockref.count)) {
+		spin_unlock(&dentry->d_lock);
+		return false;
+	}
+
+	if (!inode || likely(spin_trylock(&inode->i_lock)))
+		return true;
+
+	// Too bad - we need to drop ->d_lock and take locks in correct order.
+	// To avoid breaking RCU read-side critical area when we drop ->d_lock,
+	// take an explicit rcu_read_lock() while we are switching locks.
+	rcu_read_lock();
+	do {
+		spin_unlock(&dentry->d_lock);
+		spin_lock(&inode->i_lock);
+		spin_lock(&dentry->d_lock);
+		// make sure we'd locked the right inode - ->d_inode might've
+		// changed while we were not holding ->d_lock
+		if (likely(inode == dentry->d_inode))
+			break;
+		spin_unlock(&inode->i_lock);
+		inode = dentry->d_inode;
+	} while (inode);
+	rcu_read_unlock();
+	if (likely(!dentry->d_lockref.count))
+		return true;
+	if (inode)
+		spin_unlock(&inode->i_lock);
+	spin_unlock(&dentry->d_lock);
+	return false;
+}
+
+static struct dentry *dentry_kill(struct dentry *dentry)
 {
 	struct dentry *parent = NULL;
 	bool can_free = true;
+
+	if (unlikely(!lock_for_kill(dentry)))
+		return NULL;
 
 	/*
 	 * The dentry is now unrecoverably dead to the world.
@@ -740,74 +804,6 @@ static struct dentry *__dentry_kill(struct dentry *dentry)
 		return NULL;
 	}
 	return parent;
-}
-
-/*
- * Prepare locking environment for killing a dentry.
- * Called under dentry->d_lock.  To proceed with eviction of a positive dentry
- * we need to get ->i_lock of the inode of that dentry as well.
- * However, ->i_lock nests outside of ->d_lock, so if trylock fails we might
- * have to drop and regain the latter.  Dentry state can change while its
- * ->d_lock is not held - it might end up getting killed, becoming busy,
- * negative, etc., so we need to be careful.
- *
- * For NORCU dentries memory safety relies upon having only one call of
- * lock_for_kill() in the entire lifetime of dentry and dentry_free() being
- * called only by the caller of lock_for_kill().  That this is NORCU-specific;
- * the crucial part is that refcounts of NORCU dentries never grow once having
- * dropped to zero.
- *
- * For normal dentries we can not assume that there won't be concurrent calls
- * of dentry_free() - dentry might end up being evicted by another thread
- * while we are dropping/retaking locks on the slow path.  Memory safety is
- * provided by keeping the RCU read-side critical area contiguous with
- * an explicit rcu_read_lock() scope bridging over the break in spinlock scopes.
- *
- * Return false if dentry is busy (or busy dying, or already dead).  Otherwise,
- * return true and have that dentry's inode (if any) locked in addition to
- * dentry itself.
- */
-
-static bool lock_for_kill(struct dentry *dentry)
-{
-	struct inode *inode = dentry->d_inode;
-
-	if (unlikely(dentry->d_lockref.count))
-		return false;
-
-	if (!inode || likely(spin_trylock(&inode->i_lock)))
-		return true;
-
-	// Too bad - we need to drop ->d_lock and take locks in correct order.
-	// To avoid breaking RCU read-side critical area when we drop ->d_lock,
-	// take an explicit rcu_read_lock() while we are switching locks.
-	rcu_read_lock();
-	do {
-		spin_unlock(&dentry->d_lock);
-		spin_lock(&inode->i_lock);
-		spin_lock(&dentry->d_lock);
-		// make sure we'd locked the right inode - ->d_inode might've
-		// changed while we were not holding ->d_lock
-		if (likely(inode == dentry->d_inode))
-			break;
-		spin_unlock(&inode->i_lock);
-		inode = dentry->d_inode;
-	} while (inode);
-	rcu_read_unlock();
-	if (likely(!dentry->d_lockref.count))
-		return true;
-	if (inode)
-		spin_unlock(&inode->i_lock);
-	return false;
-}
-
-static struct dentry *dentry_kill(struct dentry *dentry)
-{
-	if (unlikely(!lock_for_kill(dentry))) {
-		spin_unlock(&dentry->d_lock);
-		return NULL;
-	}
-	return __dentry_kill(dentry);
 }
 
 /*
