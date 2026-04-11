@@ -743,14 +743,29 @@ static struct dentry *__dentry_kill(struct dentry *dentry)
 }
 
 /*
- * Lock a dentry for feeding it to __dentry_kill().
- * Called under rcu_read_lock() and dentry->d_lock; the former
- * guarantees that nothing we access will be freed under us.
- * Note that dentry is *not* protected from concurrent dentry_kill(),
- * d_delete(), etc.
+ * Prepare locking environment for killing a dentry.
+ * Called under dentry->d_lock.  To proceed with eviction of a positive dentry
+ * we need to get ->i_lock of the inode of that dentry as well.
+ * However, ->i_lock nests outside of ->d_lock, so if trylock fails we might
+ * have to drop and regain the latter.  Dentry state can change while its
+ * ->d_lock is not held - it might end up getting killed, becoming busy,
+ * negative, etc., so we need to be careful.
  *
- * Return false if dentry is busy.  Otherwise, return true and have
- * that dentry's inode locked.
+ * For NORCU dentries memory safety relies upon having only one call of
+ * lock_for_kill() in the entire lifetime of dentry and dentry_free() being
+ * called only by the caller of lock_for_kill().  That this is NORCU-specific;
+ * the crucial part is that refcounts of NORCU dentries never grow once having
+ * dropped to zero.
+ *
+ * For normal dentries we can not assume that there won't be concurrent calls
+ * of dentry_free() - dentry might end up being evicted by another thread
+ * while we are dropping/retaking locks on the slow path.  Memory safety is
+ * provided by keeping the RCU read-side critical area contiguous with
+ * an explicit rcu_read_lock() scope bridging over the break in spinlock scopes.
+ *
+ * Return false if dentry is busy (or busy dying, or already dead).  Otherwise,
+ * return true and have that dentry's inode (if any) locked in addition to
+ * dentry itself.
  */
 
 static bool lock_for_kill(struct dentry *dentry)
@@ -763,15 +778,22 @@ static bool lock_for_kill(struct dentry *dentry)
 	if (!inode || likely(spin_trylock(&inode->i_lock)))
 		return true;
 
+	// Too bad - we need to drop ->d_lock and take locks in correct order.
+	// To avoid breaking RCU read-side critical area when we drop ->d_lock,
+	// take an explicit rcu_read_lock() while we are switching locks.
+	rcu_read_lock();
 	do {
 		spin_unlock(&dentry->d_lock);
 		spin_lock(&inode->i_lock);
 		spin_lock(&dentry->d_lock);
+		// make sure we'd locked the right inode - ->d_inode might've
+		// changed while we were not holding ->d_lock
 		if (likely(inode == dentry->d_inode))
 			break;
 		spin_unlock(&inode->i_lock);
 		inode = dentry->d_inode;
 	} while (inode);
+	rcu_read_unlock();
 	if (likely(!dentry->d_lockref.count))
 		return true;
 	if (inode)
@@ -783,10 +805,8 @@ static struct dentry *dentry_kill(struct dentry *dentry)
 {
 	if (unlikely(!lock_for_kill(dentry))) {
 		spin_unlock(&dentry->d_lock);
-		rcu_read_unlock();
 		return NULL;
 	}
-	rcu_read_unlock();
 	return __dentry_kill(dentry);
 }
 
@@ -931,14 +951,12 @@ locked:
 
 static void finish_dput(struct dentry *dentry)
 	__releases(dentry->d_lock)
-	__releases(RCU)
 {
 	while ((dentry = dentry_kill(dentry)) != NULL) {
 		if (retain_dentry(dentry, true)) {
 			spin_unlock(&dentry->d_lock);
 			return;
 		}
-		rcu_read_lock();
 	}
 }
 
@@ -978,6 +996,7 @@ void dput(struct dentry *dentry)
 		rcu_read_unlock();
 		return;
 	}
+	rcu_read_unlock();
 	finish_dput(dentry);
 }
 EXPORT_SYMBOL(dput);
@@ -988,7 +1007,6 @@ void d_make_discardable(struct dentry *dentry)
 	WARN_ON(!(dentry->d_flags & DCACHE_PERSISTENT));
 	dentry->d_flags &= ~DCACHE_PERSISTENT;
 	dentry->d_lockref.count--;
-	rcu_read_lock();
 	finish_dput(dentry);
 }
 EXPORT_SYMBOL(d_make_discardable);
@@ -1217,7 +1235,7 @@ EXPORT_SYMBOL(d_prune_aliases);
 static inline void shrink_kill(struct dentry *victim)
 {
 	while ((victim = dentry_kill(victim)) != NULL)
-		rcu_read_lock();
+		;
 }
 
 void shrink_dentry_list(struct list_head *list)
@@ -1233,7 +1251,6 @@ void shrink_dentry_list(struct list_head *list)
 			dentry_free(dentry);
 			continue;
 		}
-		rcu_read_lock();
 		shrink_kill(dentry);
 	}
 }
@@ -1669,6 +1686,7 @@ static void shrink_dcache_tree(struct dentry *parent, bool for_umount)
 			struct dentry *v = data.victim;
 
 			spin_lock(&v->d_lock);
+			rcu_read_unlock();
 			if (v->d_lockref.count < 0 &&
 			    !(v->d_flags & DCACHE_DENTRY_KILLED)) {
 				struct completion_list wait;
@@ -1676,7 +1694,6 @@ static void shrink_dcache_tree(struct dentry *parent, bool for_umount)
 				// it becomes invisible to d_walk().
 				d_add_waiter(v, &wait);
 				spin_unlock(&v->d_lock);
-				rcu_read_unlock();
 				if (!list_empty(&data.dispose))
 					shrink_dentry_list(&data.dispose);
 				wait_for_completion(&wait.completion);
