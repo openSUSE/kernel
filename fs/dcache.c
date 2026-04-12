@@ -1589,9 +1589,7 @@ static enum d_walk_ret select_collect(void *_data, struct dentry *dentry)
 	if (data->start == dentry)
 		goto out;
 
-	if (dentry->d_flags & DCACHE_SHRINK_LIST) {
-		data->found++;
-	} else if (!dentry->d_lockref.count) {
+	if (!dentry->d_lockref.count) {
 		to_shrink_list(dentry, &data->dispose);
 		data->found++;
 	} else if (dentry->d_lockref.count < 0) {
