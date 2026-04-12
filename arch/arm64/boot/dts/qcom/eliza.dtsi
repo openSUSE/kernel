@@ -411,12 +411,12 @@
 		};
 
 		cpusys_vm_mem: cpusys-vm-mem@80e00000 {
-			reg = <0x0 0x80e00000 0x0 0x40000>;
+			reg = <0x0 0x80e00000 0x0 0x400000>;
 			no-map;
 		};
 
 		cpucp_mem: cpucp@81200000 {
-			reg = <0x0 0x81200000 0x0 0x200000>;
+			reg = <0x0 0x81200000 0x0 0x100000>;
 			no-map;
 		};
 
@@ -450,7 +450,7 @@
 			no-map;
 		};
 
-		cpucp_scandump_mem: cpucp-scandump@82000000 {
+		cpucp_scandump_mem: cpucp-scandump@82200000 {
 			reg = <0x0 0x82200000 0x0 0x180000>;
 			no-map;
 		};
