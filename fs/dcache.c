@@ -988,14 +988,17 @@ void d_make_discardable(struct dentry *dentry)
 }
 EXPORT_SYMBOL(d_make_discardable);
 
-static void to_shrink_list(struct dentry *dentry, struct list_head *list)
+static bool to_shrink_list(struct dentry *dentry, struct list_head *list)
 __must_hold(&dentry->d_lock)
 {
-	if (!(dentry->d_flags & DCACHE_SHRINK_LIST)) {
+	if (likely(!dentry->d_lockref.count &&
+	    !(dentry->d_flags & DCACHE_SHRINK_LIST))) {
 		if (dentry->d_flags & DCACHE_LRU_LIST)
 			d_lru_del(dentry);
 		d_shrink_add(dentry, list);
+		return true;
 	}
+	return false;
 }
 
 void dput_to_list(struct dentry *dentry, struct list_head *list)
@@ -1180,8 +1183,7 @@ struct dentry *d_find_alias_rcu(struct inode *inode)
 void d_dispose_if_unused(struct dentry *dentry, struct list_head *dispose)
 {
 	spin_lock(&dentry->d_lock);
-	if (!dentry->d_lockref.count)
-		to_shrink_list(dentry, dispose);
+	to_shrink_list(dentry, dispose);
 	spin_unlock(&dentry->d_lock);
 }
 EXPORT_SYMBOL(d_dispose_if_unused);
@@ -1589,10 +1591,8 @@ static enum d_walk_ret select_collect(void *_data, struct dentry *dentry)
 	if (data->start == dentry)
 		goto out;
 
-	if (!dentry->d_lockref.count) {
+	if (dentry->d_lockref.count <= 0) {
 		to_shrink_list(dentry, &data->dispose);
-		data->found++;
-	} else if (dentry->d_lockref.count < 0) {
 		data->found++;
 	}
 	/*
@@ -1623,17 +1623,12 @@ static enum d_walk_ret select_collect2(void *_data, struct dentry *dentry)
 	if (data->start == dentry)
 		goto out;
 
-	if (!dentry->d_lockref.count) {
-		if (dentry->d_flags & DCACHE_SHRINK_LIST) {
+	if (dentry->d_lockref.count <= 0) {
+		if (!to_shrink_list(dentry, &data->dispose)) {
 			rcu_read_lock();
 			data->victim = dentry;
 			return D_WALK_QUIT;
 		}
-		to_shrink_list(dentry, &data->dispose);
-	} else if (dentry->d_lockref.count < 0) {
-		rcu_read_lock();
-		data->victim = dentry;
-		return D_WALK_QUIT;
 	}
 	/*
 	 * We can return to the caller if we have found some (this
