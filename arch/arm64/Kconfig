@@ -2079,8 +2079,8 @@ config ARM64_TLB_RANGE
 
 config ARM64_MPAM
 	bool "Enable support for MPAM"
-	select ARM64_MPAM_DRIVER if EXPERT	# does nothing yet
-	select ACPI_MPAM if ACPI
+	select ARM64_MPAM_DRIVER
+	select ARCH_HAS_CPU_RESCTRL
 	help
 	  Memory System Resource Partitioning and Monitoring (MPAM) is an
 	  optional extension to the Arm architecture that allows each
@@ -2101,6 +2101,8 @@ config ARM64_MPAM
 	  of where the MSCs are in the address space.
 
 	  MPAM is exposed to user-space via the resctrl pseudo filesystem.
+
+	  This option enables the extra context switch code.
 
 endmenu # "ARMv8.4 architectural features"
 
