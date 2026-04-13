@@ -1149,10 +1149,6 @@ static int pt_init_common(struct pt_common *common)
 	if (PT_WARN_ON(top_range.top_level > PT_MAX_TOP_LEVEL))
 		return -EINVAL;
 
-	if (top_range.top_level == PT_MAX_TOP_LEVEL ||
-	    common->max_vasz_lg2 == top_range.max_vasz_lg2)
-		common->features &= ~BIT(PT_FEAT_DYNAMIC_TOP);
-
 	if (top_range.max_vasz_lg2 == PT_VADDR_MAX_LG2)
 		common->features |= BIT(PT_FEAT_FULL_VA);
 
