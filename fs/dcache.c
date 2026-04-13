@@ -988,7 +988,24 @@ void d_make_discardable(struct dentry *dentry)
 }
 EXPORT_SYMBOL(d_make_discardable);
 
-static bool to_shrink_list(struct dentry *dentry, struct list_head *list)
+/**
+ * __move_to_shrink_list - try to place a dentry into a shrink list
+ * @dentry:	dentry to try putting into shrink list
+ * @list:	the list to put @dentry into.
+ * Returns:	true @dentry had been placed into @list, false otherwise
+ *
+ * If @dentry is idle and not already include into a shrink list, move
+ * it into @list and return %true; otherwise do nothing and return %false.
+ *
+ * Caller must be holding @dentry->d_lock.  There must have been no calls of
+ * dentry_free(@dentry) prior to the beginning of the RCU read-side critical
+ * area in which __move_to_shrink_list(@dentry, @list) is called.
+ *
+ * @list should be thread-private and eventually emptied by passing it to
+ * shrink_dentry_list().
+ */
+
+bool __move_to_shrink_list(struct dentry *dentry, struct list_head *list)
 __must_hold(&dentry->d_lock)
 {
 	if (likely(!dentry->d_lockref.count &&
@@ -1000,6 +1017,7 @@ __must_hold(&dentry->d_lock)
 	}
 	return false;
 }
+EXPORT_SYMBOL(__move_to_shrink_list);
 
 void dput_to_list(struct dentry *dentry, struct list_head *list)
 {
@@ -1009,7 +1027,7 @@ void dput_to_list(struct dentry *dentry, struct list_head *list)
 		return;
 	}
 	rcu_read_unlock();
-	to_shrink_list(dentry, list);
+	__move_to_shrink_list(dentry, list);
 	spin_unlock(&dentry->d_lock);
 }
 
@@ -1170,24 +1188,6 @@ struct dentry *d_find_alias_rcu(struct inode *inode)
 	return de;
 }
 
-/**
- * d_dispose_if_unused - move unreferenced dentries to shrink list
- * @dentry: dentry in question
- * @dispose: head of shrink list
- *
- * If dentry has no external references, move it to shrink list.
- *
- * NOTE!!! The caller is responsible for preventing eviction of the dentry by
- * holding dentry->d_inode->i_lock or equivalent.
- */
-void d_dispose_if_unused(struct dentry *dentry, struct list_head *dispose)
-{
-	spin_lock(&dentry->d_lock);
-	to_shrink_list(dentry, dispose);
-	spin_unlock(&dentry->d_lock);
-}
-EXPORT_SYMBOL(d_dispose_if_unused);
-
 /*
  *	Try to kill dentries associated with this inode.
  * WARNING: you must own a reference to inode.
@@ -1198,8 +1198,11 @@ void d_prune_aliases(struct inode *inode)
 	struct dentry *dentry;
 
 	spin_lock(&inode->i_lock);
-	for_each_alias(dentry, inode)
-		d_dispose_if_unused(dentry, &dispose);
+	for_each_alias(dentry, inode) {
+		spin_lock(&dentry->d_lock);
+		__move_to_shrink_list(dentry, &dispose);
+		spin_unlock(&dentry->d_lock);
+	}
 	spin_unlock(&inode->i_lock);
 	shrink_dentry_list(&dispose);
 }
@@ -1592,7 +1595,7 @@ static enum d_walk_ret select_collect(void *_data, struct dentry *dentry)
 		goto out;
 
 	if (dentry->d_lockref.count <= 0) {
-		to_shrink_list(dentry, &data->dispose);
+		__move_to_shrink_list(dentry, &data->dispose);
 		data->found++;
 	}
 	/*
@@ -1624,7 +1627,7 @@ static enum d_walk_ret select_collect2(void *_data, struct dentry *dentry)
 		goto out;
 
 	if (dentry->d_lockref.count <= 0) {
-		if (!to_shrink_list(dentry, &data->dispose)) {
+		if (!__move_to_shrink_list(dentry, &data->dispose)) {
 			rcu_read_lock();
 			data->victim = dentry;
 			return D_WALK_QUIT;

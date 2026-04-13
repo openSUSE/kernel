@@ -1391,3 +1391,14 @@ either form of manual loop.
 **mandatory**
 
 d_alloc_parallel() no longer requires a waitqueue_head.
+
+---
+
+**mandatory**
+
+d_dispose_if_unused() is gone; use __move_to_shrink_list() if you really
+need that functionality, but watch out for memory safety issues - just
+as with d_dispose_if_unused() these are not trivial; with this variant
+of API it's more explicit, since grabbing ->d_lock is caller-side, but
+d_dispose_if_unused() had all the same issues.  It's a low-level primitive;
+use only if you have no alternative.
