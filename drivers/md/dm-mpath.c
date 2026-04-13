@@ -160,7 +160,7 @@ static bool mpath_double_check_test_bit(int MPATHF_bit, struct multipath *m)
  */
 static struct pgpath *alloc_pgpath(void)
 {
-	struct pgpath *pgpath = kzalloc(sizeof(*pgpath), GFP_KERNEL);
+	struct pgpath *pgpath = kzalloc_obj(*pgpath);
 
 	if (!pgpath)
 		return NULL;
@@ -179,7 +179,7 @@ static struct priority_group *alloc_priority_group(void)
 {
 	struct priority_group *pg;
 
-	pg = kzalloc(sizeof(*pg), GFP_KERNEL);
+	pg = kzalloc_obj(*pg);
 
 	if (pg)
 		INIT_LIST_HEAD(&pg->pgpaths);
@@ -216,7 +216,7 @@ static struct multipath *alloc_multipath(struct dm_target *ti)
 {
 	struct multipath *m;
 
-	m = kzalloc(sizeof(*m), GFP_KERNEL);
+	m = kzalloc_obj(*m);
 	if (m) {
 		INIT_LIST_HEAD(&m->priority_groups);
 		spin_lock_init(&m->lock);
@@ -2328,7 +2328,8 @@ static int __init dm_multipath_init(void)
 {
 	int r = -ENOMEM;
 
-	kmultipathd = alloc_workqueue("kmpathd", WQ_MEM_RECLAIM, 0);
+	kmultipathd = alloc_workqueue("kmpathd", WQ_MEM_RECLAIM | WQ_PERCPU,
+				      0);
 	if (!kmultipathd) {
 		DMERR("failed to create workqueue kmpathd");
 		goto bad_alloc_kmultipathd;
@@ -2347,7 +2348,7 @@ static int __init dm_multipath_init(void)
 		goto bad_alloc_kmpath_handlerd;
 	}
 
-	dm_mpath_wq = alloc_workqueue("dm_mpath_wq", 0, 0);
+	dm_mpath_wq = alloc_workqueue("dm_mpath_wq", WQ_PERCPU, 0);
 	if (!dm_mpath_wq) {
 		DMERR("failed to create workqueue dm_mpath_wq");
 		goto bad_alloc_dm_mpath_wq;

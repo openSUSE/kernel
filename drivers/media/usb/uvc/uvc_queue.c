@@ -341,7 +341,7 @@ struct uvc_buffer *uvc_queue_get_current_buffer(struct uvc_video_queue *queue)
  * the device has been disconnected.
  */
 static void uvc_queue_buffer_requeue(struct uvc_video_queue *queue,
-		struct uvc_buffer *buf)
+				     struct uvc_buffer *buf)
 {
 	buf->error = 0;
 	buf->state = UVC_BUF_STATE_QUEUED;

@@ -234,7 +234,7 @@ static struct fib6_table *fib6_alloc_table(struct net *net, u32 id)
 {
 	struct fib6_table *table;
 
-	table = kzalloc(sizeof(*table), GFP_ATOMIC);
+	table = kzalloc_obj(*table, GFP_ATOMIC);
 	if (table) {
 		table->tb6_id = id;
 		rcu_assign_pointer(table->tb6_root.leaf,
@@ -494,7 +494,7 @@ int fib6_tables_dump(struct net *net, struct notifier_block *nb,
 	unsigned int h;
 	int err = 0;
 
-	w = kzalloc(sizeof(*w), GFP_ATOMIC);
+	w = kzalloc_obj(*w, GFP_ATOMIC);
 	if (!w)
 		return -ENOMEM;
 
@@ -659,7 +659,7 @@ static int inet6_dump_fib(struct sk_buff *skb, struct netlink_callback *cb)
 		 *
 		 * 1. allocate and initialize walker.
 		 */
-		w = kzalloc(sizeof(*w), GFP_ATOMIC);
+		w = kzalloc_obj(*w, GFP_ATOMIC);
 		if (!w) {
 			err = -ENOMEM;
 			goto unlock;
@@ -727,20 +727,28 @@ unlock:
 
 void fib6_metric_set(struct fib6_info *f6i, int metric, u32 val)
 {
+	struct dst_metrics *m;
+
 	if (!f6i)
 		return;
 
-	if (f6i->fib6_metrics == &dst_default_metrics) {
-		struct dst_metrics *p = kzalloc(sizeof(*p), GFP_ATOMIC);
+	if (READ_ONCE(f6i->fib6_metrics) == &dst_default_metrics) {
+		struct dst_metrics *dflt = (struct dst_metrics *)&dst_default_metrics;
+		struct dst_metrics *p = kzalloc_obj(*p, GFP_ATOMIC);
 
 		if (!p)
 			return;
 
+		p->metrics[metric - 1] = val;
 		refcount_set(&p->refcnt, 1);
-		f6i->fib6_metrics = p;
+		if (cmpxchg(&f6i->fib6_metrics, dflt, p) != dflt)
+			kfree(p);
+		else
+			return;
 	}
 
-	f6i->fib6_metrics->metrics[metric - 1] = val;
+	m = READ_ONCE(f6i->fib6_metrics);
+	WRITE_ONCE(m->metrics[metric - 1], val);
 }
 
 /*
@@ -1375,14 +1383,14 @@ static void fib6_start_gc(struct net *net, struct fib6_info *rt)
 	if (!timer_pending(&net->ipv6.ip6_fib_timer) &&
 	    (rt->fib6_flags & RTF_EXPIRES))
 		mod_timer(&net->ipv6.ip6_fib_timer,
-			  jiffies + net->ipv6.sysctl.ip6_rt_gc_interval);
+			  jiffies + READ_ONCE(net->ipv6.sysctl.ip6_rt_gc_interval));
 }
 
 void fib6_force_start_gc(struct net *net)
 {
 	if (!timer_pending(&net->ipv6.ip6_fib_timer))
 		mod_timer(&net->ipv6.ip6_fib_timer,
-			  jiffies + net->ipv6.sysctl.ip6_rt_gc_interval);
+			  jiffies + READ_ONCE(net->ipv6.sysctl.ip6_rt_gc_interval));
 }
 
 static void __fib6_update_sernum_upto_root(struct fib6_info *rt,
@@ -2425,6 +2433,7 @@ static void fib6_gc_all(struct net *net, struct fib6_gc_args *gc_args)
 void fib6_run_gc(unsigned long expires, struct net *net, bool force)
 {
 	struct fib6_gc_args gc_args;
+	int ip6_rt_gc_interval;
 	unsigned long now;
 
 	if (force) {
@@ -2433,8 +2442,8 @@ void fib6_run_gc(unsigned long expires, struct net *net, bool force)
 		mod_timer(&net->ipv6.ip6_fib_timer, jiffies + HZ);
 		return;
 	}
-	gc_args.timeout = expires ? (int)expires :
-			  net->ipv6.sysctl.ip6_rt_gc_interval;
+	ip6_rt_gc_interval = READ_ONCE(net->ipv6.sysctl.ip6_rt_gc_interval);
+	gc_args.timeout = expires ? (int)expires : ip6_rt_gc_interval;
 	gc_args.more = 0;
 
 	fib6_gc_all(net, &gc_args);
@@ -2443,8 +2452,7 @@ void fib6_run_gc(unsigned long expires, struct net *net, bool force)
 
 	if (gc_args.more)
 		mod_timer(&net->ipv6.ip6_fib_timer,
-			  round_jiffies(now
-					+ net->ipv6.sysctl.ip6_rt_gc_interval));
+			  round_jiffies(now + ip6_rt_gc_interval));
 	else
 		timer_delete(&net->ipv6.ip6_fib_timer);
 	spin_unlock_bh(&net->ipv6.fib6_gc_lock);
@@ -2475,7 +2483,7 @@ static int __net_init fib6_net_init(struct net *net)
 	INIT_LIST_HEAD(&net->ipv6.fib6_walkers);
 	timer_setup(&net->ipv6.ip6_fib_timer, fib6_gc_timer_cb, 0);
 
-	net->ipv6.rt6_stats = kzalloc(sizeof(*net->ipv6.rt6_stats), GFP_KERNEL);
+	net->ipv6.rt6_stats = kzalloc_obj(*net->ipv6.rt6_stats);
 	if (!net->ipv6.rt6_stats)
 		goto out_notifier;
 
@@ -2488,8 +2496,7 @@ static int __net_init fib6_net_init(struct net *net)
 
 	spin_lock_init(&net->ipv6.fib_table_hash_lock);
 
-	net->ipv6.fib6_main_tbl = kzalloc(sizeof(*net->ipv6.fib6_main_tbl),
-					  GFP_KERNEL);
+	net->ipv6.fib6_main_tbl = kzalloc_obj(*net->ipv6.fib6_main_tbl);
 	if (!net->ipv6.fib6_main_tbl)
 		goto out_fib_table_hash;
 
@@ -2502,8 +2509,7 @@ static int __net_init fib6_net_init(struct net *net)
 	INIT_HLIST_HEAD(&net->ipv6.fib6_main_tbl->tb6_gc_hlist);
 
 #ifdef CONFIG_IPV6_MULTIPLE_TABLES
-	net->ipv6.fib6_local_tbl = kzalloc(sizeof(*net->ipv6.fib6_local_tbl),
-					   GFP_KERNEL);
+	net->ipv6.fib6_local_tbl = kzalloc_obj(*net->ipv6.fib6_local_tbl);
 	if (!net->ipv6.fib6_local_tbl)
 		goto out_fib6_main_tbl;
 	net->ipv6.fib6_local_tbl->tb6_id = RT6_TABLE_LOCAL;

@@ -66,8 +66,7 @@ static void erofs_fileio_rq_submit(struct erofs_fileio_rq *rq)
 
 static struct erofs_fileio_rq *erofs_fileio_rq_alloc(struct erofs_map_dev *mdev)
 {
-	struct erofs_fileio_rq *rq = kzalloc(sizeof(*rq),
-					     GFP_KERNEL | __GFP_NOFAIL);
+	struct erofs_fileio_rq *rq = kzalloc_obj(*rq, GFP_KERNEL | __GFP_NOFAIL);
 
 	bio_init(&rq->bio, NULL, rq->bvecs, ARRAY_SIZE(rq->bvecs), REQ_OP_READ);
 	rq->iocb.ki_filp = mdev->m_dif->file;
@@ -87,9 +86,9 @@ void erofs_fileio_submit_bio(struct bio *bio)
 						   bio));
 }
 
-static int erofs_fileio_scan_folio(struct erofs_fileio *io, struct folio *folio)
+static int erofs_fileio_scan_folio(struct erofs_fileio *io,
+				   struct inode *inode, struct folio *folio)
 {
-	struct inode *inode = folio_inode(folio);
 	struct erofs_map_blocks *map = &io->map;
 	unsigned int cur = 0, end = folio_size(folio), len, attached = 0;
 	loff_t pos = folio_pos(folio), ofs;
@@ -157,31 +156,38 @@ io_retry:
 
 static int erofs_fileio_read_folio(struct file *file, struct folio *folio)
 {
+	bool need_iput;
+	struct inode *realinode = erofs_real_inode(folio_inode(folio), &need_iput);
 	struct erofs_fileio io = {};
 	int err;
 
-	trace_erofs_read_folio(folio, true);
-	err = erofs_fileio_scan_folio(&io, folio);
+	trace_erofs_read_folio(realinode, folio, true);
+	err = erofs_fileio_scan_folio(&io, realinode, folio);
 	erofs_fileio_rq_submit(io.rq);
+	if (need_iput)
+		iput(realinode);
 	return err;
 }
 
 static void erofs_fileio_readahead(struct readahead_control *rac)
 {
-	struct inode *inode = rac->mapping->host;
+	bool need_iput;
+	struct inode *realinode = erofs_real_inode(rac->mapping->host, &need_iput);
 	struct erofs_fileio io = {};
 	struct folio *folio;
 	int err;
 
-	trace_erofs_readahead(inode, readahead_index(rac),
+	trace_erofs_readahead(realinode, readahead_index(rac),
 			      readahead_count(rac), true);
 	while ((folio = readahead_folio(rac))) {
-		err = erofs_fileio_scan_folio(&io, folio);
+		err = erofs_fileio_scan_folio(&io, realinode, folio);
 		if (err && err != -EINTR)
-			erofs_err(inode->i_sb, "readahead error at folio %lu @ nid %llu",
-				  folio->index, EROFS_I(inode)->nid);
+			erofs_err(realinode->i_sb, "readahead error at folio %lu @ nid %llu",
+				  folio->index, EROFS_I(realinode)->nid);
 	}
 	erofs_fileio_rq_submit(io.rq);
+	if (need_iput)
+		iput(realinode);
 }
 
 const struct address_space_operations erofs_fileio_aops = {

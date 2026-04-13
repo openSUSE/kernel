@@ -50,7 +50,7 @@ struct drm_gem_object *ethosu_gem_create_object(struct drm_device *ddev, size_t 
 {
 	struct ethosu_gem_object *obj;
 
-	obj = kzalloc(sizeof(*obj), GFP_KERNEL);
+	obj = kzalloc_obj(*obj);
 	if (!obj)
 		return ERR_PTR(-ENOMEM);
 
@@ -245,10 +245,13 @@ static int calc_sizes(struct drm_device *ddev,
 			((st->ifm.stride_kernel >> 1) & 0x1) + 1;
 		u32 stride_x = ((st->ifm.stride_kernel >> 5) & 0x2) +
 			(st->ifm.stride_kernel & 0x1) + 1;
-		u32 ifm_height = st->ofm.height[2] * stride_y +
+		s32 ifm_height = st->ofm.height[2] * stride_y +
 			st->ifm.height[2] - (st->ifm.pad_top + st->ifm.pad_bottom);
-		u32 ifm_width  = st->ofm.width * stride_x +
+		s32 ifm_width = st->ofm.width * stride_x +
 			st->ifm.width - (st->ifm.pad_left + st->ifm.pad_right);
+
+		if (ifm_height < 0 || ifm_width < 0)
+			return -EINVAL;
 
 		len = feat_matrix_length(info, &st->ifm, ifm_width,
 					 ifm_height, st->ifm.depth);
@@ -352,7 +355,7 @@ static int ethosu_gem_cmdstream_copy_and_validate(struct drm_device *ddev,
 						  struct ethosu_gem_object *bo,
 						  u32 size)
 {
-	struct ethosu_validated_cmdstream_info __free(kfree) *info = kzalloc(sizeof(*info), GFP_KERNEL);
+	struct ethosu_validated_cmdstream_info __free(kfree) *info = kzalloc_obj(*info);
 	struct ethosu_device *edev = to_ethosu_device(ddev);
 	u32 *bocmds = bo->base.vaddr;
 	struct cmd_state st;

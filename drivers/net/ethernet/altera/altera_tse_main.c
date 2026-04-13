@@ -258,14 +258,12 @@ static int alloc_init_skbufs(struct altera_tse_private *priv)
 	int i;
 
 	/* Create Rx ring buffer */
-	priv->rx_ring = kcalloc(rx_descs, sizeof(struct tse_buffer),
-				GFP_KERNEL);
+	priv->rx_ring = kzalloc_objs(struct tse_buffer, rx_descs);
 	if (!priv->rx_ring)
 		goto err_rx_ring;
 
 	/* Create Tx ring buffer */
-	priv->tx_ring = kcalloc(tx_descs, sizeof(struct tse_buffer),
-				GFP_KERNEL);
+	priv->tx_ring = kzalloc_objs(struct tse_buffer, tx_descs);
 	if (!priv->tx_ring)
 		goto err_tx_ring;
 
@@ -572,6 +570,7 @@ static netdev_tx_t tse_start_xmit(struct sk_buff *skb, struct net_device *dev)
 				  DMA_TO_DEVICE);
 	if (dma_mapping_error(priv->device, dma_addr)) {
 		netdev_err(priv->dev, "%s: DMA mapping error\n", __func__);
+		dev_kfree_skb_any(skb);
 		ret = NETDEV_TX_OK;
 		goto out;
 	}

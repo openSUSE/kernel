@@ -3,7 +3,7 @@
  * Copyright (c) 2020-2024 Oracle.  All Rights Reserved.
  * Author: Darrick J. Wong <djwong@kernel.org>
  */
-#include "xfs.h"
+#include "xfs_platform.h"
 #include "xfs_fs.h"
 #include "xfs_shared.h"
 #include "xfs_format.h"
@@ -86,7 +86,7 @@ xchk_setup_quotacheck(
 
 	xchk_fsgates_enable(sc, XCHK_FSGATES_QUOTA);
 
-	sc->buf = kzalloc(sizeof(struct xqcheck), XCHK_GFP_FLAGS);
+	sc->buf = kzalloc_obj(struct xqcheck, XCHK_GFP_FLAGS);
 	if (!sc->buf)
 		return -ENOMEM;
 
@@ -256,7 +256,7 @@ xqcheck_mod_live_ino_dqtrx(
 	dqa = rhashtable_lookup_fast(&xqc->shadow_dquot_acct, &p->tx_id,
 			xqcheck_dqacct_hash_params);
 	if (!dqa) {
-		dqa = kzalloc(sizeof(struct xqcheck_dqacct), XCHK_GFP_FLAGS);
+		dqa = kzalloc_obj(struct xqcheck_dqacct, XCHK_GFP_FLAGS);
 		if (!dqa)
 			goto out_abort;
 

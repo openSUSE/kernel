@@ -19,15 +19,6 @@
 #define IWL_BZ_SMEM_OFFSET		0x400000
 #define IWL_BZ_SMEM_LEN			0xD0000
 
-#define IWL_BZ_A_FM_B_FW_PRE		"iwlwifi-bz-a0-fm-b0"
-#define IWL_BZ_A_FM_C_FW_PRE		"iwlwifi-bz-a0-fm-c0"
-#define IWL_BZ_A_FM4_B_FW_PRE		"iwlwifi-bz-a0-fm4-b0"
-#define IWL_BZ_B_FM_C_FW_PRE		"iwlwifi-bz-b0-fm-c0"
-#define IWL_BZ_B_GF_A_FW_PRE		"iwlwifi-bz-b0-gf-a0"
-#define IWL_BZ_B_HR_B_FW_PRE		"iwlwifi-bz-b0-hr-b0"
-#define IWL_GL_B_FM_B_FW_PRE		"iwlwifi-gl-b0-fm-b0"
-#define IWL_GL_C_FM_C_FW_PRE		"iwlwifi-gl-c0-fm-c0"
-
 static const struct iwl_family_base_params iwl_bz_base = {
 	.num_of_queues = 512,
 	.max_tfd_queue_size = 65536,
@@ -103,18 +94,3 @@ const struct iwl_mac_cfg iwl_gl_mac_cfg = {
 	.xtal_latency = 12000,
 	.low_latency_xtal = true,
 };
-
-IWL_CORE_FW(IWL_BZ_A_FM_B_FW_PRE, IWL_BZ_UCODE_CORE_MAX);
-IWL_CORE_FW(IWL_BZ_A_FM_C_FW_PRE, IWL_BZ_UCODE_CORE_MAX);
-IWL_CORE_FW(IWL_BZ_A_FM4_B_FW_PRE, IWL_BZ_UCODE_CORE_MAX);
-IWL_CORE_FW(IWL_BZ_B_FM_C_FW_PRE, IWL_BZ_UCODE_CORE_MAX);
-IWL_CORE_FW(IWL_BZ_B_GF_A_FW_PRE, 100); // FIXME: no 101 ucode released
-IWL_CORE_FW(IWL_BZ_B_HR_B_FW_PRE, 100); // FIXME: no 101 ucode released
-IWL_CORE_FW(IWL_GL_B_FM_B_FW_PRE, IWL_BZ_UCODE_CORE_MAX);
-IWL_CORE_FW(IWL_GL_C_FM_C_FW_PRE, IWL_BZ_UCODE_CORE_MAX);
-
-// FIXME: extra due to the missing firmware files
-MODULE_FIRMWARE("iwlwifi-bz-b0-fm-c0-98.ucode");
-MODULE_FIRMWARE("iwlwifi-bz-b0-gf-a0-98.ucode");
-MODULE_FIRMWARE("iwlwifi-bz-b0-hr-b0-98.ucode");
-MODULE_FIRMWARE("iwlwifi-gl-c0-fm-c0-98.ucode");

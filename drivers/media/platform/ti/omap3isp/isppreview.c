@@ -1791,7 +1791,7 @@ static void preview_try_format(struct isp_prev_device *prev,
 		fmt->width = crop->width;
 		fmt->height = crop->height;
 
-		fmt->colorspace = V4L2_COLORSPACE_JPEG;
+		fmt->colorspace = V4L2_COLORSPACE_SRGB;
 		break;
 	}
 
@@ -2272,7 +2272,7 @@ static int preview_init_entities(struct isp_prev_device *prev)
 	strscpy(sd->name, "OMAP3 ISP preview", sizeof(sd->name));
 	sd->grp_id = 1 << 16;	/* group ID for isp subdevs */
 	v4l2_set_subdevdata(sd, prev);
-	sd->flags |= V4L2_SUBDEV_FL_HAS_DEVNODE;
+	sd->flags |= V4L2_SUBDEV_FL_HAS_EVENTS | V4L2_SUBDEV_FL_HAS_DEVNODE;
 
 	v4l2_ctrl_handler_init(&prev->ctrls, 2);
 	v4l2_ctrl_new_std(&prev->ctrls, &preview_ctrl_ops, V4L2_CID_BRIGHTNESS,
@@ -2289,6 +2289,7 @@ static int preview_init_entities(struct isp_prev_device *prev)
 	pads[PREV_PAD_SOURCE].flags = MEDIA_PAD_FL_SOURCE;
 
 	me->ops = &preview_media_ops;
+	me->function = MEDIA_ENT_F_PROC_VIDEO_PIXEL_FORMATTER;
 	ret = media_entity_pads_init(me, PREV_PADS_NUM, pads);
 	if (ret < 0)
 		goto error_handler_free;

@@ -84,7 +84,7 @@ static struct gpio_shared_ref *gpio_shared_make_ref(struct fwnode_handle *fwnode
 {
 	char *con_id_cpy __free(kfree) = NULL;
 
-	struct gpio_shared_ref *ref __free(kfree) = kzalloc(sizeof(*ref), GFP_KERNEL);
+	struct gpio_shared_ref *ref __free(kfree) = kzalloc_obj(*ref);
 	if (!ref)
 		return NULL;
 
@@ -227,7 +227,7 @@ static int gpio_shared_of_traverse(struct device_node *curr)
 
 			entry = gpio_shared_find_entry(fwnode, offset);
 			if (!entry) {
-				entry = kzalloc(sizeof(*entry), GFP_KERNEL);
+				entry = kzalloc_obj(*entry);
 				if (!entry)
 					return -ENOMEM;
 
@@ -455,12 +455,7 @@ int gpio_shared_add_proxy_lookup(struct device *consumer, struct fwnode_handle *
 		list_for_each_entry(ref, &entry->refs, list) {
 			guard(mutex)(&ref->lock);
 
-			/*
-			 * FIXME: use device_is_compatible() once the reset-gpio
-			 * drivers gains a compatible string which it currently
-			 * does not have.
-			 */
-			if (!ref->fwnode && strstarts(dev_name(consumer), "reset.gpio.")) {
+			if (!ref->fwnode && device_is_compatible(consumer, "reset-gpio")) {
 				if (!gpio_shared_dev_is_reset_gpio(consumer, entry, ref))
 					continue;
 			} else if (fwnode != ref->fwnode) {
@@ -482,7 +477,7 @@ int gpio_shared_add_proxy_lookup(struct device *consumer, struct fwnode_handle *
 			if (!key)
 				return -ENOMEM;
 
-			lookup = kzalloc(struct_size(lookup, table, 2), GFP_KERNEL);
+			lookup = kzalloc_flex(*lookup, table, 2);
 			if (!lookup)
 				return -ENOMEM;
 
@@ -656,7 +651,7 @@ gpiod_shared_desc_create(struct gpio_shared_entry *entry)
 
 	lockdep_assert_held(&entry->lock);
 
-	shared_desc = kzalloc(sizeof(*shared_desc), GFP_KERNEL);
+	shared_desc = kzalloc_obj(*shared_desc);
 	if (!shared_desc)
 		return ERR_PTR(-ENOMEM);
 

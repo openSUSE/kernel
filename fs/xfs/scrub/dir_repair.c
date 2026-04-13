@@ -3,7 +3,7 @@
  * Copyright (c) 2020-2024 Oracle.  All Rights Reserved.
  * Author: Darrick J. Wong <djwong@kernel.org>
  */
-#include "xfs.h"
+#include "xfs_platform.h"
 #include "xfs_fs.h"
 #include "xfs_shared.h"
 #include "xfs_format.h"
@@ -198,7 +198,7 @@ xrep_setup_directory(
 	if (error)
 		return error;
 
-	rd = kvzalloc(sizeof(struct xrep_dir), XCHK_GFP_FLAGS);
+	rd = kvzalloc_obj(struct xrep_dir, XCHK_GFP_FLAGS);
 	if (!rd)
 		return -ENOMEM;
 	rd->sc = sc;

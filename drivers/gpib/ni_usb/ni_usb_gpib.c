@@ -1659,11 +1659,10 @@ static int ni_usb_allocate_private(struct gpib_board *board)
 {
 	struct ni_usb_priv *ni_priv;
 
-	board->private_data = kmalloc(sizeof(struct ni_usb_priv), GFP_KERNEL);
+	board->private_data = kzalloc_obj(struct ni_usb_priv);
 	if (!board->private_data)
 		return -ENOMEM;
 	ni_priv = board->private_data;
-	memset(ni_priv, 0, sizeof(struct ni_usb_priv));
 	mutex_init(&ni_priv->bulk_transfer_lock);
 	mutex_init(&ni_priv->control_transfer_lock);
 	mutex_init(&ni_priv->interrupt_transfer_lock);
@@ -1794,7 +1793,7 @@ static int ni_usb_init(struct gpib_board *board)
 	unsigned int ibsta;
 	int writes_len;
 
-	writes = kmalloc_array(NUM_INIT_WRITES, sizeof(*writes), GFP_KERNEL);
+	writes = kmalloc_objs(*writes, NUM_INIT_WRITES);
 	if (!writes)
 		return -ENOMEM;
 
@@ -2235,7 +2234,7 @@ static int ni_usb_attach(struct gpib_board *board, const struct gpib_board_confi
 
 	mutex_lock(&ni_usb_hotplug_lock);
 	retval = ni_usb_allocate_private(board);
-	if (retval < 0)		{
+	if (retval) {
 		mutex_unlock(&ni_usb_hotplug_lock);
 		return retval;
 	}

@@ -496,14 +496,19 @@ static int e1000_set_eeprom(struct net_device *netdev,
 		 */
 		ret_val = e1000_read_eeprom(hw, first_word, 1,
 					    &eeprom_buff[0]);
+		if (ret_val)
+			goto out;
+
 		ptr++;
 	}
-	if (((eeprom->offset + eeprom->len) & 1) && (ret_val == 0)) {
+	if ((eeprom->offset + eeprom->len) & 1) {
 		/* need read/modify/write of last changed EEPROM word
 		 * only the first byte of the word is being modified
 		 */
 		ret_val = e1000_read_eeprom(hw, last_word, 1,
 					    &eeprom_buff[last_word - first_word]);
+		if (ret_val)
+			goto out;
 	}
 
 	/* Device's eeprom is always little-endian, word addressable */
@@ -522,6 +527,7 @@ static int e1000_set_eeprom(struct net_device *netdev,
 	if ((ret_val == 0) && (first_word <= EEPROM_CHECKSUM_REG))
 		e1000_update_eeprom_checksum(hw);
 
+out:
 	kfree(eeprom_buff);
 	return ret_val;
 }
@@ -582,13 +588,11 @@ static int e1000_set_ringparam(struct net_device *netdev,
 	rx_old = adapter->rx_ring;
 
 	err = -ENOMEM;
-	txdr = kcalloc(adapter->num_tx_queues, sizeof(struct e1000_tx_ring),
-		       GFP_KERNEL);
+	txdr = kzalloc_objs(struct e1000_tx_ring, adapter->num_tx_queues);
 	if (!txdr)
 		goto err_alloc_tx;
 
-	rxdr = kcalloc(adapter->num_rx_queues, sizeof(struct e1000_rx_ring),
-		       GFP_KERNEL);
+	rxdr = kzalloc_objs(struct e1000_rx_ring, adapter->num_rx_queues);
 	if (!rxdr)
 		goto err_alloc_rx;
 
@@ -984,8 +988,7 @@ static int e1000_setup_desc_rings(struct e1000_adapter *adapter)
 	if (!txdr->count)
 		txdr->count = E1000_DEFAULT_TXD;
 
-	txdr->buffer_info = kcalloc(txdr->count, sizeof(struct e1000_tx_buffer),
-				    GFP_KERNEL);
+	txdr->buffer_info = kzalloc_objs(struct e1000_tx_buffer, txdr->count);
 	if (!txdr->buffer_info) {
 		ret_val = 1;
 		goto err_nomem;
@@ -1043,8 +1046,7 @@ static int e1000_setup_desc_rings(struct e1000_adapter *adapter)
 	if (!rxdr->count)
 		rxdr->count = E1000_DEFAULT_RXD;
 
-	rxdr->buffer_info = kcalloc(rxdr->count, sizeof(struct e1000_rx_buffer),
-				    GFP_KERNEL);
+	rxdr->buffer_info = kzalloc_objs(struct e1000_rx_buffer, rxdr->count);
 	if (!rxdr->buffer_info) {
 		ret_val = 5;
 		goto err_nomem;

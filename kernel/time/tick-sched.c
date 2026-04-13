@@ -344,6 +344,9 @@ static bool check_tick_dependency(atomic_t *dep)
 {
 	int val = atomic_read(dep);
 
+	if (likely(!tracepoint_enabled(tick_stop)))
+		return !!val;
+
 	if (val & TICK_DEP_MASK_POSIX_TIMER) {
 		trace_tick_stop(0, TICK_DEP_MASK_POSIX_TIMER);
 		return true;
@@ -693,7 +696,7 @@ void __init tick_nohz_init(void)
  * NO HZ enabled ?
  */
 bool tick_nohz_enabled __read_mostly  = true;
-unsigned long tick_nohz_active  __read_mostly;
+static unsigned long tick_nohz_active  __read_mostly;
 /*
  * Enable / Disable tickless mode
  */
@@ -703,6 +706,12 @@ static int __init setup_tick_nohz(char *str)
 }
 
 __setup("nohz=", setup_tick_nohz);
+
+bool tick_nohz_is_active(void)
+{
+	return tick_nohz_active;
+}
+EXPORT_SYMBOL_GPL(tick_nohz_is_active);
 
 bool tick_nohz_tick_stopped(void)
 {
@@ -1504,6 +1513,7 @@ static void tick_nohz_lowres_handler(struct clock_event_device *dev)
 	struct tick_sched *ts = this_cpu_ptr(&tick_cpu_sched);
 
 	dev->next_event = KTIME_MAX;
+	dev->next_event_forced = 0;
 
 	if (likely(tick_nohz_handler(&ts->sched_timer) == HRTIMER_RESTART))
 		tick_program_event(hrtimer_get_expires(&ts->sched_timer), 1);

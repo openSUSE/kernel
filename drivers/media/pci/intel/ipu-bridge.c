@@ -652,7 +652,7 @@ int ipu_bridge_instantiate_vcm(struct device *sensor)
 		return 0;
 	}
 
-	data = kzalloc(sizeof(*data), GFP_KERNEL);
+	data = kzalloc_obj(*data);
 	if (!data) {
 		fwnode_handle_put(vcm_fwnode);
 		return -ENOMEM;
@@ -865,7 +865,7 @@ int ipu_bridge_init(struct device *dev,
 		return dev_err_probe(dev, -EPROBE_DEFER,
 				     "waiting for IVSC to become ready\n");
 
-	bridge = kzalloc(sizeof(*bridge), GFP_KERNEL);
+	bridge = kzalloc_obj(*bridge);
 	if (!bridge)
 		return -ENOMEM;
 

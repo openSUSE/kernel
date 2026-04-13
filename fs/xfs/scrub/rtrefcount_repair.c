@@ -3,7 +3,7 @@
  * Copyright (c) 2021-2024 Oracle.  All Rights Reserved.
  * Author: Darrick J. Wong <djwong@kernel.org>
  */
-#include "xfs.h"
+#include "xfs_platform.h"
 #include "xfs_fs.h"
 #include "xfs_shared.h"
 #include "xfs_format.h"
@@ -709,7 +709,7 @@ xrep_rtrefcountbt(
 	if (error)
 		return error;
 
-	rr = kzalloc(sizeof(struct xrep_rtrefc), XCHK_GFP_FLAGS);
+	rr = kzalloc_obj(struct xrep_rtrefc, XCHK_GFP_FLAGS);
 	if (!rr)
 		return -ENOMEM;
 	rr->sc = sc;

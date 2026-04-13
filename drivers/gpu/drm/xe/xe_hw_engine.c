@@ -33,7 +33,6 @@
 #include "xe_hw_fence.h"
 #include "xe_irq.h"
 #include "xe_lrc.h"
-#include "xe_macros.h"
 #include "xe_mmio.h"
 #include "xe_reg_sr.h"
 #include "xe_reg_whitelist.h"
@@ -596,9 +595,8 @@ static void adjust_idledly(struct xe_hw_engine *hwe)
 		maxcnt *= maxcnt_units_ns;
 
 		if (xe_gt_WARN_ON(gt, idledly >= maxcnt || inhibit_switch)) {
-			idledly = DIV_ROUND_CLOSEST(((maxcnt - 1) * maxcnt_units_ns),
+			idledly = DIV_ROUND_CLOSEST(((maxcnt - 1) * 1000),
 						    idledly_units_ps);
-			idledly = DIV_ROUND_CLOSEST(idledly, 1000);
 			xe_mmio_write32(&gt->mmio, RING_IDLEDLY(hwe->mmio_base), idledly);
 		}
 	}
@@ -928,7 +926,7 @@ xe_hw_engine_snapshot_capture(struct xe_hw_engine *hwe, struct xe_exec_queue *q)
 	if (!xe_hw_engine_is_valid(hwe))
 		return NULL;
 
-	snapshot = kzalloc(sizeof(*snapshot), GFP_ATOMIC);
+	snapshot = kzalloc_obj(*snapshot, GFP_ATOMIC);
 
 	if (!snapshot)
 		return NULL;

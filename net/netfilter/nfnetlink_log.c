@@ -179,7 +179,7 @@ instance_create(struct net *net, u_int16_t group_num,
 		goto out_unlock;
 	}
 
-	inst = kzalloc(sizeof(*inst), GFP_ATOMIC);
+	inst = kzalloc_obj(*inst, GFP_ATOMIC);
 	if (!inst) {
 		err = -ENOMEM;
 		goto out_unlock;
@@ -361,10 +361,10 @@ static void
 __nfulnl_send(struct nfulnl_instance *inst)
 {
 	if (inst->qlen > 1) {
-		struct nlmsghdr *nlh = nlmsg_put(inst->skb, 0, 0,
-						 NLMSG_DONE,
-						 sizeof(struct nfgenmsg),
-						 0);
+		struct nlmsghdr *nlh = nfnl_msg_put(inst->skb, 0, 0,
+						    NLMSG_DONE, 0,
+						    AF_UNSPEC, NFNETLINK_V0,
+						    htons(inst->group_num));
 		if (WARN_ONCE(!nlh, "bad nlskb size: %u, tailroom %d\n",
 			      inst->skb->len, skb_tailroom(inst->skb))) {
 			kfree_skb(inst->skb);

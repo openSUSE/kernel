@@ -1517,7 +1517,7 @@ static int count_multiio_pins(struct hda_codec *codec, hda_nid_t reference_pin)
 /*
  * multi-io helper
  *
- * When hardwired is set, try to fill ony hardwired pins, and returns
+ * When hardwired is set, try to fill only hardwired pins, and returns
  * zero if any pins are filled, non-zero if nothing found.
  * When hardwired is off, try to fill possible input pins, and returns
  * the badness value.
@@ -1991,7 +1991,7 @@ static int parse_output_paths(struct hda_codec *codec)
 	bool best_wired = true, best_mio = true;
 	bool hp_spk_swapped = false;
 	struct auto_pin_cfg *best_cfg __free(kfree) =
-		kmalloc(sizeof(*best_cfg), GFP_KERNEL);
+		kmalloc_obj(*best_cfg);
 
 	if (!best_cfg)
 		return -ENOMEM;
@@ -4889,7 +4889,7 @@ static int check_auto_mic_availability(struct hda_codec *codec)
  * snd_hda_gen_path_power_filter - power_filter hook to make inactive widgets
  * into power down
  * @codec: the HDA codec
- * @nid: NID to evalute
+ * @nid: NID to evaluate
  * @power_state: target power state
  */
 unsigned int snd_hda_gen_path_power_filter(struct hda_codec *codec,
@@ -6095,7 +6095,7 @@ static int snd_hda_gen_probe(struct hda_codec *codec,
 	struct hda_gen_spec *spec;
 	int err;
 
-	spec = kzalloc(sizeof(*spec), GFP_KERNEL);
+	spec = kzalloc_obj(*spec);
 	if (!spec)
 		return -ENOMEM;
 	snd_hda_gen_spec_init(spec);

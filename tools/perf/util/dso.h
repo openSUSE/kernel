@@ -160,12 +160,11 @@ enum dso_load_errno {
 	__DSO_LOAD_ERRNO__END,
 };
 
-#define DSO__SWAP(dso, type, val)				\
+#define DSO_SWAP_TYPE__SWAP(swap_type, type, val)		\
 ({								\
 	type ____r = val;					\
-	enum dso_swap_type ___dst = dso__needs_swap(dso);	\
-	BUG_ON(___dst == DSO_SWAP__UNSET);			\
-	if (___dst == DSO_SWAP__YES) {				\
+	BUG_ON(swap_type == DSO_SWAP__UNSET);			\
+	if (swap_type == DSO_SWAP__YES) {			\
 		switch (sizeof(____r)) {			\
 		case 2:						\
 			____r = bswap_16(val);			\
@@ -182,6 +181,8 @@ enum dso_load_errno {
 	}							\
 	____r;							\
 })
+
+#define DSO__SWAP(dso, type, val) DSO_SWAP_TYPE__SWAP(dso__needs_swap(dso), type, val)
 
 #define DSO__DATA_CACHE_SIZE 4096
 #define DSO__DATA_CACHE_MASK ~(DSO__DATA_CACHE_SIZE - 1)
@@ -268,10 +269,8 @@ DECLARE_RC_STRUCT(dso) {
 	const char	 *short_name;
 	const char	 *long_name;
 	void		 *a2l;
+	void		 *libdw;
 	char		 *symsrc_filename;
-#if defined(__powerpc__)
-	void		*dwfl;			/* DWARF debug info */
-#endif
 	struct nsinfo	*nsinfo;
 	struct auxtrace_cache *auxtrace_cache;
 	union { /* Tool specific area */
@@ -333,6 +332,26 @@ static inline void dso__set_a2l(struct dso *dso, void *val)
 {
 	RC_CHK_ACCESS(dso)->a2l = val;
 }
+
+static inline void *dso__libdw(const struct dso *dso)
+{
+	return RC_CHK_ACCESS(dso)->libdw;
+}
+
+static inline void dso__set_libdw(struct dso *dso, void *val)
+{
+	RC_CHK_ACCESS(dso)->libdw = val;
+}
+
+struct Dwfl;
+#ifdef HAVE_LIBDW_SUPPORT
+struct Dwfl *dso__libdw_dwfl(struct dso *dso);
+#else
+static inline struct Dwfl *dso__libdw_dwfl(struct dso *dso __maybe_unused)
+{
+	return NULL;
+}
+#endif
 
 static inline unsigned int dso__a2l_fails(const struct dso *dso)
 {
@@ -847,7 +866,8 @@ int dso__data_file_size(struct dso *dso, struct machine *machine);
 off_t dso__data_size(struct dso *dso, struct machine *machine);
 ssize_t dso__data_read_offset(struct dso *dso, struct machine *machine,
 			      u64 offset, u8 *data, ssize_t size);
-uint16_t dso__e_machine(struct dso *dso, struct machine *machine);
+uint16_t dso__read_e_machine(struct dso *optional_dso, int fd, uint32_t *e_flags);
+uint16_t dso__e_machine(struct dso *dso, struct machine *machine, uint32_t *e_flags);
 ssize_t dso__data_read_addr(struct dso *dso, struct map *map,
 			    struct machine *machine, u64 addr,
 			    u8 *data, ssize_t size);

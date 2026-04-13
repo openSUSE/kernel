@@ -152,12 +152,6 @@ MODULE_FIRMWARE(FIRMWARE_DCN_36_DMUB);
 #define FIRMWARE_DCN_401_DMUB "amdgpu/dcn_4_0_1_dmcub.bin"
 MODULE_FIRMWARE(FIRMWARE_DCN_401_DMUB);
 
-/* Number of bytes in PSP header for firmware. */
-#define PSP_HEADER_BYTES 0x100
-
-/* Number of bytes in PSP footer for firmware. */
-#define PSP_FOOTER_BYTES 0x100
-
 /**
  * DOC: overview
  *
@@ -551,13 +545,15 @@ static void schedule_dc_vmin_vmax(struct amdgpu_device *adev,
 	struct dc_stream_state *stream,
 	struct dc_crtc_timing_adjust *adjust)
 {
-	struct vupdate_offload_work *offload_work = kzalloc(sizeof(*offload_work), GFP_NOWAIT);
+	struct vupdate_offload_work *offload_work = kzalloc_obj(*offload_work,
+								GFP_NOWAIT);
 	if (!offload_work) {
 		drm_dbg_driver(adev_to_drm(adev), "Failed to allocate vupdate_offload_work\n");
 		return;
 	}
 
-	struct dc_crtc_timing_adjust *adjust_copy = kzalloc(sizeof(*adjust_copy), GFP_NOWAIT);
+	struct dc_crtc_timing_adjust *adjust_copy = kzalloc_obj(*adjust_copy,
+								GFP_NOWAIT);
 	if (!adjust_copy) {
 		drm_dbg_driver(adev_to_drm(adev), "Failed to allocate adjust_copy\n");
 		kfree(offload_work);
@@ -1029,7 +1025,8 @@ static void dm_dmub_outbox1_low_irq(void *interrupt_params)
 				continue;
 			}
 			if (dm->dmub_thread_offload[notify.type] == true) {
-				dmub_hpd_wrk = kzalloc(sizeof(*dmub_hpd_wrk), GFP_ATOMIC);
+				dmub_hpd_wrk = kzalloc_obj(*dmub_hpd_wrk,
+							   GFP_ATOMIC);
 				if (!dmub_hpd_wrk) {
 					drm_err(adev_to_drm(adev), "Failed to allocate dmub_hpd_wrk");
 					return;
@@ -1143,7 +1140,7 @@ static int amdgpu_dm_audio_component_get_eld(struct device *kdev, int port,
 
 	mutex_unlock(&adev->dm.audio_lock);
 
-	DRM_DEBUG_KMS("Get ELD : idx=%d ret=%d en=%d\n", port, ret, *enabled);
+	drm_dbg_kms(adev_to_drm(adev), "Get ELD : idx=%d ret=%d en=%d\n", port, ret, *enabled);
 
 	return ret;
 }
@@ -1237,7 +1234,7 @@ static  void amdgpu_dm_audio_eld_notify(struct amdgpu_device *adev, int pin)
 	struct drm_audio_component *acomp = adev->dm.audio_component;
 
 	if (acomp && acomp->audio_ops && acomp->audio_ops->pin_eld_notify) {
-		DRM_DEBUG_KMS("Notify ELD: %d\n", pin);
+		drm_dbg_kms(adev_to_drm(adev), "Notify ELD: %d\n", pin);
 
 		acomp->audio_ops->pin_eld_notify(acomp->audio_ops->audio_ptr,
 						 pin, -1);
@@ -1250,6 +1247,7 @@ static int dm_dmub_hw_init(struct amdgpu_device *adev)
 	struct dmub_srv *dmub_srv = adev->dm.dmub_srv;
 	struct dmub_srv_fb_info *fb_info = adev->dm.dmub_fb_info;
 	const struct firmware *dmub_fw = adev->dm.dmub_fw;
+	struct dc *dc = adev->dm.dc;
 	struct dmcu *dmcu = adev->dm.dc->res_pool->dmcu;
 	struct abm *abm = adev->dm.dc->res_pool->abm;
 	struct dc_context *ctx = adev->dm.dc->ctx;
@@ -1298,15 +1296,14 @@ static int dm_dmub_hw_init(struct amdgpu_device *adev)
 
 	fw_inst_const = dmub_fw->data +
 			le32_to_cpu(hdr->header.ucode_array_offset_bytes) +
-			PSP_HEADER_BYTES;
+			PSP_HEADER_BYTES_256;
 
 	fw_bss_data = dmub_fw->data +
 		      le32_to_cpu(hdr->header.ucode_array_offset_bytes) +
 		      le32_to_cpu(hdr->inst_const_bytes);
 
 	/* Copy firmware and bios info into FB memory. */
-	fw_inst_const_size = le32_to_cpu(hdr->inst_const_bytes) -
-			     PSP_HEADER_BYTES - PSP_FOOTER_BYTES;
+	fw_inst_const_size = adev->dm.fw_inst_size;
 
 	fw_bss_data_size = le32_to_cpu(hdr->bss_data_bytes);
 
@@ -1343,8 +1340,8 @@ static int dm_dmub_hw_init(struct amdgpu_device *adev)
 
 	/* Initialize hardware. */
 	memset(&hw_params, 0, sizeof(hw_params));
-	hw_params.fb_base = adev->gmc.fb_start;
-	hw_params.fb_offset = adev->vm_manager.vram_base_offset;
+	hw_params.soc_fb_info.fb_base = adev->gmc.fb_start;
+	hw_params.soc_fb_info.fb_offset = adev->vm_manager.vram_base_offset;
 
 	/* backdoor load firmware and trigger dmub running */
 	if (adev->firmware.load_type != AMDGPU_FW_LOAD_PSP)
@@ -1356,18 +1353,15 @@ static int dm_dmub_hw_init(struct amdgpu_device *adev)
 	for (i = 0; i < fb_info->num_fb; ++i)
 		hw_params.fb[i] = &fb_info->fb[i];
 
-	switch (amdgpu_ip_version(adev, DCE_HWIP, 0)) {
-	case IP_VERSION(3, 1, 3):
-	case IP_VERSION(3, 1, 4):
-	case IP_VERSION(3, 5, 0):
-	case IP_VERSION(3, 5, 1):
-	case IP_VERSION(3, 6, 0):
-	case IP_VERSION(4, 0, 1):
+	/* Enable usb4 dpia in the FW APU */
+	if (dc->caps.is_apu &&
+		dc->res_pool->usb4_dpia_count != 0 &&
+		!dc->debug.dpia_debug.bits.disable_dpia) {
 		hw_params.dpia_supported = true;
-		hw_params.disable_dpia = adev->dm.dc->debug.dpia_debug.bits.disable_dpia;
-		break;
-	default:
-		break;
+		hw_params.disable_dpia = dc->debug.dpia_debug.bits.disable_dpia;
+		hw_params.dpia_hpd_int_enable_supported = false;
+		hw_params.enable_non_transparent_setconfig = dc->config.consolidated_dpia_dp_lt;
+		hw_params.disable_dpia_bw_allocation = !dc->config.usb4_bw_alloc_support;
 	}
 
 	switch (amdgpu_ip_version(adev, DCE_HWIP, 0)) {
@@ -1656,7 +1650,7 @@ static struct hpd_rx_irq_offload_work_queue *hpd_rx_irq_create_workqueue(struct 
 	int i = 0;
 	struct hpd_rx_irq_offload_work_queue *hpd_rx_offload_wq = NULL;
 
-	hpd_rx_offload_wq = kcalloc(max_caps, sizeof(*hpd_rx_offload_wq), GFP_KERNEL);
+	hpd_rx_offload_wq = kzalloc_objs(*hpd_rx_offload_wq, max_caps);
 
 	if (!hpd_rx_offload_wq)
 		return NULL;
@@ -1729,7 +1723,7 @@ dm_allocate_gpu_mem(
 		AMDGPU_GEM_DOMAIN_GTT : AMDGPU_GEM_DOMAIN_VRAM;
 	int ret;
 
-	da = kzalloc(sizeof(struct dal_allocation), GFP_KERNEL);
+	da = kzalloc_obj(struct dal_allocation);
 	if (!da)
 		return NULL;
 
@@ -2105,7 +2099,7 @@ static int amdgpu_dm_init(struct amdgpu_device *adev)
 		drm_err(adev_to_drm(adev),
 		"failed to initialize freesync_module.\n");
 	} else
-		drm_dbg_driver(adev_to_drm(adev), "amdgpu: freesync_module init done %p.\n",
+		drm_dbg_driver(adev_to_drm(adev), "freesync_module init done %p.\n",
 				adev->dm.freesync_module);
 
 	amdgpu_dm_init_color_mod();
@@ -2127,13 +2121,15 @@ static int amdgpu_dm_init(struct amdgpu_device *adev)
 		if (!adev->dm.hdcp_workqueue)
 			drm_err(adev_to_drm(adev), "failed to initialize hdcp_workqueue.\n");
 		else
-			drm_dbg_driver(adev_to_drm(adev), "amdgpu: hdcp_workqueue init done %p.\n", adev->dm.hdcp_workqueue);
+			drm_dbg_driver(adev_to_drm(adev),
+				       "hdcp_workqueue init done %p.\n",
+				       adev->dm.hdcp_workqueue);
 
 		dc_init_callbacks(adev->dm.dc, &init_params);
 	}
 	if (dc_is_dmub_outbox_supported(adev->dm.dc)) {
 		init_completion(&adev->dm.dmub_aux_transfer_done);
-		adev->dm.dmub_notify = kzalloc(sizeof(struct dmub_notification), GFP_KERNEL);
+		adev->dm.dmub_notify = kzalloc_obj(struct dmub_notification);
 		if (!adev->dm.dmub_notify) {
 			drm_info(adev_to_drm(adev), "fail to allocate adev->dm.dmub_notify");
 			goto error;
@@ -2382,7 +2378,7 @@ static int load_dmcu_fw(struct amdgpu_device *adev)
 	}
 
 	if (adev->firmware.load_type != AMDGPU_FW_LOAD_PSP) {
-		DRM_DEBUG_KMS("dm: DMCU firmware not supported on direct or SMU loading\n");
+		drm_dbg_kms(adev_to_drm(adev), "dm: DMCU firmware not supported on direct or SMU loading\n");
 		return 0;
 	}
 
@@ -2390,7 +2386,7 @@ static int load_dmcu_fw(struct amdgpu_device *adev)
 				 "%s", fw_name_dmcu);
 	if (r == -ENODEV) {
 		/* DMCU firmware is not necessary, so don't raise a fuss if it's missing */
-		DRM_DEBUG_KMS("dm: DMCU firmware not found\n");
+		drm_dbg_kms(adev_to_drm(adev), "dm: DMCU firmware not found\n");
 		adev->dm.fw_dmcu = NULL;
 		return 0;
 	}
@@ -2414,7 +2410,7 @@ static int load_dmcu_fw(struct amdgpu_device *adev)
 
 	adev->dm.dmcu_fw_version = le32_to_cpu(hdr->header.ucode_version);
 
-	DRM_DEBUG_KMS("PSP loading DMCU firmware\n");
+	drm_dbg_kms(adev_to_drm(adev), "PSP loading DMCU firmware\n");
 
 	return 0;
 }
@@ -2437,9 +2433,11 @@ static void amdgpu_dm_dmub_reg_write(void *ctx, uint32_t address,
 static int dm_dmub_sw_init(struct amdgpu_device *adev)
 {
 	struct dmub_srv_create_params create_params;
+	struct dmub_srv_fw_meta_info_params fw_meta_info_params;
 	struct dmub_srv_region_params region_params;
 	struct dmub_srv_region_info region_info;
 	struct dmub_srv_memory_params memory_params;
+	struct dmub_fw_meta_info fw_info;
 	struct dmub_srv_fb_info *fb_info;
 	struct dmub_srv *dmub_srv;
 	const struct dmcub_firmware_header_v1_0 *hdr;
@@ -2526,7 +2524,7 @@ static int dm_dmub_sw_init(struct amdgpu_device *adev)
 	}
 
 
-	adev->dm.dmub_srv = kzalloc(sizeof(*adev->dm.dmub_srv), GFP_KERNEL);
+	adev->dm.dmub_srv = kzalloc_obj(*adev->dm.dmub_srv);
 	dmub_srv = adev->dm.dmub_srv;
 
 	if (!dmub_srv) {
@@ -2547,22 +2545,37 @@ static int dm_dmub_sw_init(struct amdgpu_device *adev)
 		return -EINVAL;
 	}
 
+	/* Extract the FW meta info. */
+	memset(&fw_meta_info_params, 0, sizeof(fw_meta_info_params));
+
+	fw_meta_info_params.inst_const_size = le32_to_cpu(hdr->inst_const_bytes) -
+					      PSP_HEADER_BYTES_256;
+	fw_meta_info_params.bss_data_size = le32_to_cpu(hdr->bss_data_bytes);
+	fw_meta_info_params.fw_inst_const = adev->dm.dmub_fw->data +
+					    le32_to_cpu(hdr->header.ucode_array_offset_bytes) +
+					    PSP_HEADER_BYTES_256;
+	fw_meta_info_params.fw_bss_data = fw_meta_info_params.bss_data_size ? adev->dm.dmub_fw->data +
+					  le32_to_cpu(hdr->header.ucode_array_offset_bytes) +
+					  le32_to_cpu(hdr->inst_const_bytes) : NULL;
+	fw_meta_info_params.custom_psp_footer_size = 0;
+
+	status = dmub_srv_get_fw_meta_info_from_raw_fw(&fw_meta_info_params, &fw_info);
+	if (status != DMUB_STATUS_OK) {
+		/* Skip returning early, just log the error. */
+		drm_err(adev_to_drm(adev), "Error getting DMUB FW meta info: %d\n", status);
+		// return -EINVAL;
+	}
+
 	/* Calculate the size of all the regions for the DMUB service. */
 	memset(&region_params, 0, sizeof(region_params));
 
-	region_params.inst_const_size = le32_to_cpu(hdr->inst_const_bytes) -
-					PSP_HEADER_BYTES - PSP_FOOTER_BYTES;
-	region_params.bss_data_size = le32_to_cpu(hdr->bss_data_bytes);
+	region_params.inst_const_size = fw_meta_info_params.inst_const_size;
+	region_params.bss_data_size = fw_meta_info_params.bss_data_size;
 	region_params.vbios_size = adev->bios_size;
-	region_params.fw_bss_data = region_params.bss_data_size ?
-		adev->dm.dmub_fw->data +
-		le32_to_cpu(hdr->header.ucode_array_offset_bytes) +
-		le32_to_cpu(hdr->inst_const_bytes) : NULL;
-	region_params.fw_inst_const =
-		adev->dm.dmub_fw->data +
-		le32_to_cpu(hdr->header.ucode_array_offset_bytes) +
-		PSP_HEADER_BYTES;
+	region_params.fw_bss_data = fw_meta_info_params.fw_bss_data;
+	region_params.fw_inst_const = fw_meta_info_params.fw_inst_const;
 	region_params.window_memory_type = window_memory_type;
+	region_params.fw_info = (status == DMUB_STATUS_OK) ? &fw_info : NULL;
 
 	status = dmub_srv_calc_region_info(dmub_srv, &region_params,
 					   &region_info);
@@ -2592,8 +2605,7 @@ static int dm_dmub_sw_init(struct amdgpu_device *adev)
 	memory_params.region_info = &region_info;
 	memory_params.window_memory_type = window_memory_type;
 
-	adev->dm.dmub_fb_info =
-		kzalloc(sizeof(*adev->dm.dmub_fb_info), GFP_KERNEL);
+	adev->dm.dmub_fb_info = kzalloc_obj(*adev->dm.dmub_fb_info);
 	fb_info = adev->dm.dmub_fb_info;
 
 	if (!fb_info) {
@@ -2609,6 +2621,7 @@ static int dm_dmub_sw_init(struct amdgpu_device *adev)
 	}
 
 	adev->dm.bb_from_dmub = dm_dmub_get_vbios_bounding_box(adev);
+	adev->dm.fw_inst_size = fw_meta_info_params.inst_const_size;
 
 	return 0;
 }
@@ -3348,7 +3361,7 @@ static void dm_gpureset_commit_state(struct dc_state *dc_state,
 	} *bundle __free(kfree);
 	int k, m;
 
-	bundle = kzalloc(sizeof(*bundle), GFP_KERNEL);
+	bundle = kzalloc_obj(*bundle);
 
 	if (!bundle) {
 		drm_err(dm->ddev, "Failed to allocate update bundle\n");
@@ -3601,6 +3614,11 @@ static int dm_resume(struct amdgpu_ip_block *ip_block)
 		 * MST connectors, should be skipped
 		 */
 		if (aconnector->mst_root)
+			continue;
+
+		/* Skip eDP detection, when there is no sink present */
+		if (aconnector->dc_link->connector_signal == SIGNAL_TYPE_EDP &&
+		    !aconnector->dc_link->edp_sink_present)
 			continue;
 
 		guard(mutex)(&aconnector->hpd_lock);
@@ -3912,7 +3930,7 @@ void amdgpu_dm_update_connector_after_detect(
 
 		if (!aconnector->timing_requested) {
 			aconnector->timing_requested =
-				kzalloc(sizeof(struct dc_crtc_timing), GFP_KERNEL);
+				kzalloc_obj(struct dc_crtc_timing);
 			if (!aconnector->timing_requested)
 				drm_err(dev,
 					"failed to create aconnector->requested_timing\n");
@@ -4141,8 +4159,7 @@ static void handle_hpd_irq(void *param)
 static void schedule_hpd_rx_offload_work(struct amdgpu_device *adev, struct hpd_rx_irq_offload_work_queue *offload_wq,
 							union hpd_irq_data hpd_irq_data)
 {
-	struct hpd_rx_irq_offload_work *offload_work =
-				kzalloc(sizeof(*offload_work), GFP_KERNEL);
+	struct hpd_rx_irq_offload_work *offload_work = kzalloc_obj(*offload_work);
 
 	if (!offload_work) {
 		drm_err(adev_to_drm(adev), "Failed to allocate hpd_rx_irq_offload_work.\n");
@@ -4155,7 +4172,7 @@ static void schedule_hpd_rx_offload_work(struct amdgpu_device *adev, struct hpd_
 	offload_work->adev = adev;
 
 	queue_work(offload_wq->wq, &offload_work->work);
-	DRM_DEBUG_KMS("queue work to handle hpd_rx offload work");
+	drm_dbg_kms(adev_to_drm(adev), "queue work to handle hpd_rx offload work");
 }
 
 static void handle_hpd_rx_irq(void *param)
@@ -4863,7 +4880,7 @@ dm_atomic_duplicate_state(struct drm_private_obj *obj)
 {
 	struct dm_atomic_state *old_state, *new_state;
 
-	new_state = kzalloc(sizeof(*new_state), GFP_KERNEL);
+	new_state = kzalloc_obj(*new_state);
 	if (!new_state)
 		return NULL;
 
@@ -4920,7 +4937,7 @@ static int amdgpu_dm_mode_config_init(struct amdgpu_device *adev)
 	/* indicates support for immediate flip */
 	adev_to_drm(adev)->mode_config.async_page_flip = true;
 
-	state = kzalloc(sizeof(*state), GFP_KERNEL);
+	state = kzalloc_obj(*state);
 	if (!state)
 		return -ENOMEM;
 
@@ -4984,7 +5001,7 @@ static void amdgpu_dm_update_backlight_caps(struct amdgpu_display_manager *dm,
 		    caps->min_input_signal < 0 ||
 		    spread > AMDGPU_DM_DEFAULT_MAX_BACKLIGHT ||
 		    spread < AMDGPU_DM_MIN_SPREAD) {
-			DRM_DEBUG_KMS("DM: Invalid backlight caps: min=%d, max=%d\n",
+			drm_dbg_kms(adev_to_drm(dm->adev), "DM: Invalid backlight caps: min=%d, max=%d\n",
 				      caps->min_input_signal, caps->max_input_signal);
 			caps->caps_valid = false;
 		}
@@ -5348,7 +5365,7 @@ static int initialize_plane(struct amdgpu_display_manager *dm,
 	unsigned long possible_crtcs;
 	int ret = 0;
 
-	plane = kzalloc(sizeof(struct drm_plane), GFP_KERNEL);
+	plane = kzalloc_obj(struct drm_plane);
 	if (!plane) {
 		drm_err(adev_to_drm(dm->adev), "KMS: Failed to allocate plane\n");
 		return -ENOMEM;
@@ -5529,7 +5546,7 @@ static int amdgpu_dm_initialize_drm_device(struct amdgpu_device *adev)
 		}
 		break;
 	default:
-		DRM_DEBUG_KMS("Unsupported DCN IP version for outbox: 0x%X\n",
+		drm_dbg_kms(adev_to_drm(adev), "Unsupported DCN IP version for outbox: 0x%X\n",
 			      amdgpu_ip_version(adev, DCE_HWIP, 0));
 	}
 
@@ -5587,7 +5604,7 @@ static int amdgpu_dm_initialize_drm_device(struct amdgpu_device *adev)
 		link = dc_get_link_at_index(dm->dc, i);
 
 		if (link->connector_signal == SIGNAL_TYPE_VIRTUAL) {
-			struct amdgpu_dm_wb_connector *wbcon = kzalloc(sizeof(*wbcon), GFP_KERNEL);
+			struct amdgpu_dm_wb_connector *wbcon = kzalloc_obj(*wbcon);
 
 			if (!wbcon) {
 				drm_err(adev_to_drm(adev), "KMS: Failed to allocate writeback connector\n");
@@ -5606,11 +5623,11 @@ static int amdgpu_dm_initialize_drm_device(struct amdgpu_device *adev)
 			continue;
 		}
 
-		aconnector = kzalloc(sizeof(*aconnector), GFP_KERNEL);
+		aconnector = kzalloc_obj(*aconnector);
 		if (!aconnector)
 			goto fail;
 
-		aencoder = kzalloc(sizeof(*aencoder), GFP_KERNEL);
+		aencoder = kzalloc_obj(*aencoder);
 		if (!aencoder)
 			goto fail;
 
@@ -6432,7 +6449,8 @@ ffu:
 			   &flip_addrs->dirty_rect_count, true);
 }
 
-static void update_stream_scaling_settings(const struct drm_display_mode *mode,
+static void update_stream_scaling_settings(struct drm_device *dev,
+					   const struct drm_display_mode *mode,
 					   const struct dm_connector_state *dm_state,
 					   struct dc_stream_state *stream)
 {
@@ -6482,8 +6500,8 @@ static void update_stream_scaling_settings(const struct drm_display_mode *mode,
 	stream->src = src;
 	stream->dst = dst;
 
-	DRM_DEBUG_KMS("Destination Rectangle x:%d  y:%d  width:%d  height:%d\n",
-		      dst.x, dst.y, dst.width, dst.height);
+	drm_dbg_kms(dev, "Destination Rectangle x:%d  y:%d  width:%d  height:%d\n",
+		    dst.x, dst.y, dst.width, dst.height);
 
 }
 
@@ -7371,7 +7389,7 @@ create_stream_for_sink(struct drm_connector *connector,
 		apply_dsc_policy_for_stream(aconnector, sink, stream, &dsc_caps);
 #endif
 
-	update_stream_scaling_settings(&mode, dm_state, stream);
+	update_stream_scaling_settings(dev, &mode, dm_state, stream);
 
 	fill_audio_info(
 		&stream->audio_info,
@@ -7803,7 +7821,7 @@ void amdgpu_dm_connector_funcs_reset(struct drm_connector *connector)
 
 	kfree(state);
 
-	state = kzalloc(sizeof(*state), GFP_KERNEL);
+	state = kzalloc_obj(*state);
 
 	if (state) {
 		state->scaling = RMX_OFF;
@@ -8108,7 +8126,7 @@ create_validate_stream_for_sink(struct drm_connector *connector,
 			dc_result = dm_validate_stream_and_context(adev->dm.dc, stream);
 
 		if (dc_result != DC_OK) {
-			DRM_DEBUG_KMS("Pruned mode %d x %d (clk %d) %s %s -- %s\n",
+			drm_dbg_kms(connector->dev, "Pruned mode %d x %d (clk %d) %s %s -- %s\n",
 				      drm_mode->hdisplay,
 				      drm_mode->vdisplay,
 				      drm_mode->clock,
@@ -8460,7 +8478,7 @@ static int dm_encoder_helper_atomic_check(struct drm_encoder *encoder,
 		drm_dp_atomic_find_time_slots(state, mst_mgr, mst_port,
 					      dm_new_connector_state->pbn);
 	if (dm_new_connector_state->vcpi_slots < 0) {
-		DRM_DEBUG_ATOMIC("failed finding vcpi slots: %d\n", (int)dm_new_connector_state->vcpi_slots);
+		drm_dbg_atomic(connector->dev, "failed finding vcpi slots: %d\n", (int)dm_new_connector_state->vcpi_slots);
 		return dm_new_connector_state->vcpi_slots;
 	}
 	return 0;
@@ -9078,7 +9096,7 @@ static int amdgpu_dm_i2c_xfer(struct i2c_adapter *i2c_adap,
 	if (!ddc_service->ddc_pin)
 		return result;
 
-	cmd.payloads = kcalloc(num, sizeof(struct i2c_payload), GFP_KERNEL);
+	cmd.payloads = kzalloc_objs(struct i2c_payload, num);
 
 	if (!cmd.payloads)
 		return result;
@@ -9127,7 +9145,7 @@ create_i2c(struct ddc_service *ddc_service, bool oem)
 	struct amdgpu_device *adev = ddc_service->ctx->driver_context;
 	struct amdgpu_i2c_adapter *i2c;
 
-	i2c = kzalloc(sizeof(struct amdgpu_i2c_adapter), GFP_KERNEL);
+	i2c = kzalloc_obj(struct amdgpu_i2c_adapter);
 	if (!i2c)
 		return NULL;
 	i2c->base.owner = THIS_MODULE;
@@ -9653,7 +9671,7 @@ static void update_freesync_state_on_stream(
 	new_stream->allow_freesync = mod_freesync_get_freesync_enabled(&vrr_params);
 
 	if (new_crtc_state->freesync_vrr_info_changed)
-		DRM_DEBUG_KMS("VRR packet update: crtc=%u enabled=%d state=%d",
+		drm_dbg_kms(adev_to_drm(adev), "VRR packet update: crtc=%u enabled=%d state=%d",
 			      new_crtc_state->base.crtc->base.id,
 			      (int)new_crtc_state->base.vrr_enabled,
 			      (int)vrr_params.state);
@@ -9928,7 +9946,7 @@ static void amdgpu_dm_commit_planes(struct drm_atomic_state *state,
 		struct dc_stream_update stream_update;
 	} *bundle;
 
-	bundle = kzalloc(sizeof(*bundle), GFP_KERNEL);
+	bundle = kzalloc_obj(*bundle);
 
 	if (!bundle) {
 		drm_err(dev, "Failed to allocate update bundle\n");
@@ -10603,7 +10621,7 @@ static void dm_set_writeback(struct amdgpu_display_manager *dm,
 	struct amdgpu_framebuffer *afb;
 	int i = 0;
 
-	wb_info = kzalloc(sizeof(*wb_info), GFP_KERNEL);
+	wb_info = kzalloc_obj(*wb_info);
 	if (!wb_info) {
 		drm_err(adev_to_drm(adev), "Failed to allocate wb_info\n");
 		return;
@@ -10919,7 +10937,7 @@ static void amdgpu_dm_atomic_commit_tail(struct drm_atomic_state *state)
 
 		stream_update.stream = dm_new_crtc_state->stream;
 		if (scaling_changed) {
-			update_stream_scaling_settings(&dm_new_con_state->base.crtc->mode,
+			update_stream_scaling_settings(dev, &dm_new_con_state->base.crtc->mode,
 					dm_new_con_state, dm_new_crtc_state->stream);
 
 			stream_update.src = dm_new_crtc_state->stream->src;
@@ -11599,7 +11617,7 @@ static int dm_update_crtc_state(struct amdgpu_display_manager *dm,
 
 			dc_stream_retain(new_stream);
 
-			DRM_DEBUG_ATOMIC("Enabling DRM crtc: %d\n",
+			drm_dbg_atomic(adev_to_drm(adev), "Enabling DRM crtc: %d\n",
 					 crtc->base.id);
 
 			if (dc_state_add_stream(
@@ -11638,7 +11656,7 @@ skip_modeset:
 	/* Scaling or underscan settings */
 	if (is_scaling_state_different(dm_old_conn_state, dm_new_conn_state) ||
 				drm_atomic_crtc_needs_modeset(new_crtc_state))
-		update_stream_scaling_settings(
+		update_stream_scaling_settings(adev_to_drm(adev),
 			&new_crtc_state->mode, dm_new_conn_state, dm_new_crtc_state->stream);
 
 	/* ABM settings */
@@ -11840,14 +11858,14 @@ static int dm_check_cursor_fb(struct amdgpu_crtc *new_acrtc,
 
 	if (fb->width > new_acrtc->max_cursor_width ||
 	    fb->height > new_acrtc->max_cursor_height) {
-		DRM_DEBUG_ATOMIC("Bad cursor FB size %dx%d\n",
+		drm_dbg_atomic(adev_to_drm(adev), "Bad cursor FB size %dx%d\n",
 				 new_plane_state->fb->width,
 				 new_plane_state->fb->height);
 		return -EINVAL;
 	}
 	if (new_plane_state->src_w != fb->width << 16 ||
 	    new_plane_state->src_h != fb->height << 16) {
-		DRM_DEBUG_ATOMIC("Cropping not supported for cursor plane\n");
+		drm_dbg_atomic(adev_to_drm(adev), "Cropping not supported for cursor plane\n");
 		return -EINVAL;
 	}
 
@@ -11855,7 +11873,7 @@ static int dm_check_cursor_fb(struct amdgpu_crtc *new_acrtc,
 	pitch = fb->pitches[0] / fb->format->cpp[0];
 
 	if (fb->width != pitch) {
-		DRM_DEBUG_ATOMIC("Cursor FB width %d doesn't match pitch %d",
+		drm_dbg_atomic(adev_to_drm(adev), "Cursor FB width %d doesn't match pitch %d",
 				 fb->width, pitch);
 		return -EINVAL;
 	}
@@ -11867,7 +11885,7 @@ static int dm_check_cursor_fb(struct amdgpu_crtc *new_acrtc,
 		/* FB pitch is supported by cursor plane */
 		break;
 	default:
-		DRM_DEBUG_ATOMIC("Bad cursor FB pitch %d px\n", pitch);
+		drm_dbg_atomic(adev_to_drm(adev), "Bad cursor FB pitch %d px\n", pitch);
 		return -EINVAL;
 	}
 
@@ -11885,7 +11903,7 @@ static int dm_check_cursor_fb(struct amdgpu_crtc *new_acrtc,
 				 AMDGPU_TILING_GET(afb->tiling_flags, MICRO_TILE_MODE) == 0;
 		}
 		if (!linear) {
-			DRM_DEBUG_ATOMIC("Cursor FB not linear");
+			drm_dbg_atomic(adev_to_drm(adev), "Cursor FB not linear");
 			return -EINVAL;
 		}
 	}
@@ -11912,7 +11930,7 @@ static int dm_check_native_cursor_state(struct drm_crtc *new_plane_crtc,
 	new_acrtc = to_amdgpu_crtc(new_plane_crtc);
 
 	if (new_plane_state->src_x != 0 || new_plane_state->src_y != 0) {
-		DRM_DEBUG_ATOMIC("Cropping not supported for cursor plane\n");
+		drm_dbg_atomic(new_plane_crtc->dev, "Cropping not supported for cursor plane\n");
 		return -EINVAL;
 	}
 
@@ -12011,7 +12029,7 @@ static int dm_update_plane_state(struct dc *dc,
 		if (!dm_old_crtc_state->stream)
 			return 0;
 
-		DRM_DEBUG_ATOMIC("Disabling DRM plane: %d on DRM crtc %d\n",
+		drm_dbg_atomic(old_plane_crtc->dev, "Disabling DRM plane: %d on DRM crtc %d\n",
 				plane->base.id, old_plane_crtc->base.id);
 
 		ret = dm_atomic_get_state(state, &dm_state);
@@ -12064,7 +12082,7 @@ static int dm_update_plane_state(struct dc *dc,
 			goto out;
 		}
 
-		DRM_DEBUG_ATOMIC("Enabling DRM plane: %d on DRM crtc %d\n",
+		drm_dbg_atomic(new_plane_crtc->dev, "Enabling DRM plane: %d on DRM crtc %d\n",
 				 plane->base.id, new_plane_crtc->base.id);
 
 		ret = fill_dc_plane_attributes(
@@ -13147,6 +13165,7 @@ static int parse_amd_vsdb(struct amdgpu_dm_connector *aconnector,
 	u8 *edid_ext = NULL;
 	int i;
 	int j = 0;
+	int total_ext_block_len;
 
 	if (edid == NULL || edid->extensions == 0)
 		return -ENODEV;
@@ -13158,15 +13177,31 @@ static int parse_amd_vsdb(struct amdgpu_dm_connector *aconnector,
 			break;
 	}
 
-	while (j < EDID_LENGTH - sizeof(struct amd_vsdb_block)) {
+	total_ext_block_len = EDID_LENGTH * edid->extensions;
+	while (j < total_ext_block_len - sizeof(struct amd_vsdb_block)) {
 		struct amd_vsdb_block *amd_vsdb = (struct amd_vsdb_block *)&edid_ext[j];
 		unsigned int ieeeId = (amd_vsdb->ieee_id[2] << 16) | (amd_vsdb->ieee_id[1] << 8) | (amd_vsdb->ieee_id[0]);
 
 		if (ieeeId == HDMI_AMD_VENDOR_SPECIFIC_DATA_BLOCK_IEEE_REGISTRATION_ID &&
 				amd_vsdb->version == HDMI_AMD_VENDOR_SPECIFIC_DATA_BLOCK_VERSION_3) {
+			u8 panel_type;
 			vsdb_info->replay_mode = (amd_vsdb->feature_caps & AMD_VSDB_VERSION_3_FEATURECAP_REPLAYMODE) ? true : false;
 			vsdb_info->amd_vsdb_version = HDMI_AMD_VENDOR_SPECIFIC_DATA_BLOCK_VERSION_3;
-			DRM_DEBUG_KMS("Panel supports Replay Mode: %d\n", vsdb_info->replay_mode);
+			drm_dbg_kms(aconnector->base.dev, "Panel supports Replay Mode: %d\n", vsdb_info->replay_mode);
+			panel_type = (amd_vsdb->color_space_eotf_support & AMD_VDSB_VERSION_3_PANEL_TYPE_MASK) >> AMD_VDSB_VERSION_3_PANEL_TYPE_SHIFT;
+			switch (panel_type) {
+			case AMD_VSDB_PANEL_TYPE_OLED:
+				aconnector->dc_link->panel_type = PANEL_TYPE_OLED;
+				break;
+			case AMD_VSDB_PANEL_TYPE_MINILED:
+				aconnector->dc_link->panel_type = PANEL_TYPE_MINILED;
+				break;
+			default:
+				aconnector->dc_link->panel_type = PANEL_TYPE_NONE;
+				break;
+			}
+			drm_dbg_kms(aconnector->base.dev, "Panel type: %d\n",
+				    aconnector->dc_link->panel_type);
 
 			return true;
 		}

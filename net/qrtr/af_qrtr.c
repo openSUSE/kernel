@@ -268,7 +268,7 @@ static int qrtr_tx_wait(struct qrtr_node *node, int dest_node, int dest_port,
 	mutex_lock(&node->qrtr_tx_lock);
 	flow = xa_load(&node->qrtr_tx_flow, key);
 	if (!flow) {
-		flow = kzalloc(sizeof(*flow), GFP_KERNEL);
+		flow = kzalloc_obj(*flow);
 		if (flow) {
 			init_waitqueue_head(&flow->resume_tx);
 			if (xa_err(xa_store(&node->qrtr_tx_flow, key, flow,
@@ -585,7 +585,7 @@ int qrtr_endpoint_register(struct qrtr_endpoint *ep, unsigned int nid)
 	if (!ep || !ep->xmit)
 		return -EINVAL;
 
-	node = kzalloc(sizeof(*node), GFP_KERNEL);
+	node = kzalloc_obj(*node);
 	if (!node)
 		return -ENOMEM;
 

@@ -604,6 +604,14 @@ bool amd_filter_mce(struct mce *m)
 	enum smca_bank_types bank_type = smca_get_bank_type(m->extcpu, m->bank);
 	struct cpuinfo_x86 *c = &boot_cpu_data;
 
+	/* Bogus hw errors on Cezanne A0. */
+	if (c->x86 == 0x19 &&
+	    c->x86_model == 0x50 &&
+	    c->x86_stepping == 0x0) {
+		if (!(m->status & MCI_STATUS_EN))
+			return true;
+	}
+
 	/* See Family 17h Models 10h-2Fh Erratum #1114. */
 	if (c->x86 == 0x17 &&
 	    c->x86_model >= 0x10 && c->x86_model <= 0x2F &&
@@ -1093,7 +1101,7 @@ static int allocate_threshold_blocks(unsigned int cpu, struct threshold_bank *tb
 	     (high & MASK_LOCKED_HI))
 		goto recurse;
 
-	b = kzalloc(sizeof(struct threshold_block), GFP_KERNEL);
+	b = kzalloc_obj(struct threshold_block);
 	if (!b)
 		return -ENOMEM;
 
@@ -1152,7 +1160,7 @@ static int threshold_create_bank(struct threshold_bank **bp, unsigned int cpu,
 	if (!dev)
 		return -ENODEV;
 
-	b = kzalloc(sizeof(struct threshold_bank), GFP_KERNEL);
+	b = kzalloc_obj(struct threshold_bank);
 	if (!b) {
 		err = -ENOMEM;
 		goto out;
@@ -1255,7 +1263,7 @@ void mce_threshold_create_device(unsigned int cpu)
 		return;
 
 	numbanks = this_cpu_read(mce_num_banks);
-	bp = kcalloc(numbanks, sizeof(*bp), GFP_KERNEL);
+	bp = kzalloc_objs(*bp, numbanks);
 	if (!bp)
 		return;
 

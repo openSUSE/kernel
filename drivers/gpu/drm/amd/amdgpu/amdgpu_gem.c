@@ -232,6 +232,7 @@ static int amdgpu_gem_object_open(struct drm_gem_object *obj,
 	struct amdgpu_vm *vm = &fpriv->vm;
 	struct amdgpu_bo_va *bo_va;
 	struct mm_struct *mm;
+	struct drm_exec exec;
 	int r;
 
 	mm = amdgpu_ttm_tt_get_usermm(abo->tbo.ttm);
@@ -242,9 +243,18 @@ static int amdgpu_gem_object_open(struct drm_gem_object *obj,
 	    !amdgpu_vm_is_bo_always_valid(vm, abo))
 		return -EPERM;
 
-	r = amdgpu_bo_reserve(abo, false);
-	if (r)
-		return r;
+	drm_exec_init(&exec, DRM_EXEC_IGNORE_DUPLICATES, 0);
+	drm_exec_until_all_locked(&exec) {
+		r = drm_exec_prepare_obj(&exec, &abo->tbo.base, 1);
+		drm_exec_retry_on_contention(&exec);
+		if (unlikely(r))
+			goto out_unlock;
+
+		r = amdgpu_vm_lock_pd(vm, &exec, 0);
+		drm_exec_retry_on_contention(&exec);
+		if (unlikely(r))
+			goto out_unlock;
+	}
 
 	amdgpu_vm_bo_update_shared(abo);
 	bo_va = amdgpu_vm_bo_find(vm, abo);
@@ -260,8 +270,7 @@ static int amdgpu_gem_object_open(struct drm_gem_object *obj,
 		amdgpu_bo_unreserve(abo);
 		return r;
 	}
-
-	amdgpu_bo_unreserve(abo);
+	drm_exec_fini(&exec);
 
 	/* Validate and add eviction fence to DMABuf imports with dynamic
 	 * attachment in compute VMs. Re-validation will be done by
@@ -294,7 +303,10 @@ static int amdgpu_gem_object_open(struct drm_gem_object *obj,
 		}
 	}
 	mutex_unlock(&vm->process_info->lock);
+	return r;
 
+out_unlock:
+	drm_exec_fini(&exec);
 	return r;
 }
 
@@ -337,7 +349,7 @@ static void amdgpu_gem_object_close(struct drm_gem_object *obj,
 		goto out_unlock;
 
 	r = amdgpu_vm_clear_freed(adev, vm, &fence);
-	if (unlikely(r < 0))
+	if (unlikely(r < 0) && !drm_dev_is_unplugged(adev_to_drm(adev)))
 		dev_err(adev->dev, "failed to clear page "
 			"tables on GEM object close (%ld)\n", r);
 	if (r || !fence)
@@ -347,7 +359,7 @@ static void amdgpu_gem_object_close(struct drm_gem_object *obj,
 	dma_fence_put(fence);
 
 out_unlock:
-	if (r)
+	if (r && !drm_dev_is_unplugged(adev_to_drm(adev)))
 		dev_err(adev->dev, "leaking bo va (%ld)\n", r);
 	drm_exec_fini(&exec);
 }
@@ -674,6 +686,15 @@ int amdgpu_gem_metadata_ioctl(struct drm_device *dev, void *data,
 	r = amdgpu_bo_reserve(robj, false);
 	if (unlikely(r != 0))
 		goto out;
+
+	/* Reject MMIO_REMAP BOs at IOCTL level: metadata/tiling does not apply. */
+	if (robj->tbo.resource &&
+	    robj->tbo.resource->mem_type == AMDGPU_PL_MMIO_REMAP) {
+		DRM_WARN("metadata ioctl on MMIO_REMAP BO (handle %d)\n",
+			 args->handle);
+		r = -EINVAL;
+		goto unreserve;
+	}
 
 	if (args->op == AMDGPU_GEM_METADATA_OP_GET_METADATA) {
 		amdgpu_bo_get_tiling_flags(robj, &args->data.tiling_info);
@@ -1162,7 +1183,7 @@ int amdgpu_gem_list_handles_ioctl(struct drm_device *dev, void *data,
 		return 0;
 	}
 
-	bo_entries = kvcalloc(num_bos, sizeof(*bo_entries), GFP_KERNEL);
+	bo_entries = kvzalloc_objs(*bo_entries, num_bos);
 	if (!bo_entries)
 		return -ENOMEM;
 

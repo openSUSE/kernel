@@ -295,6 +295,7 @@ static ssize_t write_unlock_fs(struct file *file, char *buf, size_t size)
 	 * 2.  Is that directory a mount point, or
 	 * 3.  Is that directory the root of an exported file system?
 	 */
+	nfsd4_cancel_copy_by_sb(netns(file), path.dentry->d_sb);
 	error = nlmsvc_unlock_all_by_sb(path.dentry->d_sb);
 	mutex_lock(&nfsd_mutex);
 	nn = net_generic(netns(file), nfsd_net_id);
@@ -386,15 +387,15 @@ static ssize_t write_filehandle(struct file *file, char *buf, size_t size)
 }
 
 /*
- * write_threads - Start NFSD, or report the current number of running threads
+ * write_threads - Start NFSD, or report the configured number of threads
  *
  * Input:
  *			buf:		ignored
  *			size:		zero
  * Output:
  *	On success:	passed-in buffer filled with '\n'-terminated C
- *			string numeric value representing the number of
- *			running NFSD threads;
+ *			string numeric value representing the configured
+ *			number of NFSD threads;
  *			return code is the size in bytes of the string
  *	On error:	return code is zero
  *
@@ -408,8 +409,8 @@ static ssize_t write_filehandle(struct file *file, char *buf, size_t size)
  * Output:
  *	On success:	NFS service is started;
  *			passed-in buffer filled with '\n'-terminated C
- *			string numeric value representing the number of
- *			running NFSD threads;
+ *			string numeric value representing the configured
+ *			number of NFSD threads;
  *			return code is the size in bytes of the string
  *	On error:	return code is zero or a negative errno value
  */
@@ -439,7 +440,7 @@ static ssize_t write_threads(struct file *file, char *buf, size_t size)
 }
 
 /*
- * write_pool_threads - Set or report the current number of threads per pool
+ * write_pool_threads - Set or report the configured number of threads per pool
  *
  * Input:
  *			buf:		ignored
@@ -456,7 +457,7 @@ static ssize_t write_threads(struct file *file, char *buf, size_t size)
  * Output:
  *	On success:	passed-in buffer filled with '\n'-terminated C
  *			string containing integer values representing the
- *			number of NFSD threads in each pool;
+ *			configured number of NFSD threads in each pool;
  *			return code is the size in bytes of the string
  *	On error:	return code is zero or a negative errno value
  */
@@ -486,7 +487,7 @@ static ssize_t write_pool_threads(struct file *file, char *buf, size_t size)
 		return strlen(buf);
 	}
 
-	nthreads = kcalloc(npools, sizeof(int), GFP_KERNEL);
+	nthreads = kzalloc_objs(int, npools);
 	rv = -ENOMEM;
 	if (nthreads == NULL)
 		goto out_free;
@@ -1605,7 +1606,7 @@ int nfsd_nl_threads_set_doit(struct sk_buff *skb, struct genl_info *info)
 
 	mutex_lock(&nfsd_mutex);
 
-	nthreads = kcalloc(nrpools, sizeof(int), GFP_KERNEL);
+	nthreads = kzalloc_objs(int, nrpools);
 	if (!nthreads) {
 		ret = -ENOMEM;
 		goto out_unlock;
@@ -1652,6 +1653,10 @@ int nfsd_nl_threads_set_doit(struct sk_buff *skb, struct genl_info *info)
 			scope = nla_data(attr);
 	}
 
+	attr = info->attrs[NFSD_A_SERVER_MIN_THREADS];
+	if (attr)
+		nn->min_threads = nla_get_u32(attr);
+
 	ret = nfsd_svc(nrpools, nthreads, net, current_cred(), scope);
 	if (ret > 0)
 		ret = 0;
@@ -1662,7 +1667,7 @@ out_unlock:
 }
 
 /**
- * nfsd_nl_threads_get_doit - get the number of running threads
+ * nfsd_nl_threads_get_doit - get the maximum number of running threads
  * @skb: reply buffer
  * @info: netlink metadata and command arguments
  *
@@ -1691,6 +1696,8 @@ int nfsd_nl_threads_get_doit(struct sk_buff *skb, struct genl_info *info)
 			  nn->nfsd4_grace) ||
 	      nla_put_u32(skb, NFSD_A_SERVER_LEASETIME,
 			  nn->nfsd4_lease) ||
+	      nla_put_u32(skb, NFSD_A_SERVER_MIN_THREADS,
+			  nn->min_threads) ||
 	      nla_put_string(skb, NFSD_A_SERVER_SCOPE,
 			  nn->nfsd_name);
 	if (err)
@@ -1703,7 +1710,7 @@ int nfsd_nl_threads_get_doit(struct sk_buff *skb, struct genl_info *info)
 			struct svc_pool *sp = &nn->nfsd_serv->sv_pools[i];
 
 			err = nla_put_u32(skb, NFSD_A_SERVER_THREADS,
-					  sp->sp_nrthreads);
+					  sp->sp_nrthrmax);
 			if (err)
 				goto err_unlock;
 		}

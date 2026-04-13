@@ -165,6 +165,7 @@ static void dw_pcie_ep_clear_ib_maps(struct dw_pcie_ep *ep, u8 func_no, enum pci
 		dw_pcie_disable_atu(pci, PCIE_ATU_REGION_DIR_IB, atu_index);
 		clear_bit(atu_index, ep->ib_window_map);
 		ep_func->bar_to_atu[bar] = 0;
+		return;
 	}
 
 	/* Tear down all Address Match Mode mappings, if any. */
@@ -1202,6 +1203,18 @@ int dw_pcie_ep_init_registers(struct dw_pcie_ep *ep)
 	if (ep->ops->init)
 		ep->ops->init(ep);
 
+	/*
+	 * PCIe r6.0, section 7.9.15 states that for endpoints that support
+	 * PTM, this capability structure is required in exactly one
+	 * function, which controls the PTM behavior of all PTM capable
+	 * functions. This indicates the PTM capability structure
+	 * represents controller-level registers rather than per-function
+	 * registers.
+	 *
+	 * Therefore, PTM capability registers are configured using the
+	 * standard DBI accessors, instead of func_no indexed per-function
+	 * accessors.
+	 */
 	ptm_cap_base = dw_pcie_find_ext_capability(pci, PCI_EXT_CAP_ID_PTM);
 
 	/*

@@ -678,7 +678,7 @@ static int add_module_usage(struct module *a, struct module *b)
 	struct module_use *use;
 
 	pr_debug("Allocating new usage for %s.\n", a->name);
-	use = kmalloc(sizeof(*use), GFP_ATOMIC);
+	use = kmalloc_obj(*use, GFP_ATOMIC);
 	if (!use)
 		return -ENOMEM;
 
@@ -3077,7 +3077,7 @@ static noinline int do_init_module(struct module *mod)
 	}
 #endif
 
-	freeinit = kmalloc(sizeof(*freeinit), GFP_KERNEL);
+	freeinit = kmalloc_obj(*freeinit);
 	if (!freeinit) {
 		ret = -ENOMEM;
 		goto fail;

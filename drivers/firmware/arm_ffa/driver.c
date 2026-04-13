@@ -246,6 +246,11 @@ static int ffa_features(u32 func_feat_id, u32 input_props,
 }
 
 #define PARTITION_INFO_GET_RETURN_COUNT_ONLY	BIT(0)
+#define FFA_SUPPORTS_GET_COUNT_ONLY(version)	((version) > FFA_VERSION_1_0)
+#define FFA_PART_INFO_HAS_SIZE_IN_RESP(version)	((version) > FFA_VERSION_1_0)
+#define FFA_PART_INFO_HAS_UUID_IN_RESP(version)	((version) > FFA_VERSION_1_0)
+#define FFA_PART_INFO_HAS_EXEC_STATE_IN_RESP(version)	\
+	((version) > FFA_VERSION_1_0)
 
 /* buffer must be sizeof(struct ffa_partition_info) * num_partitions */
 static int
@@ -255,7 +260,7 @@ __ffa_partition_info_get(u32 uuid0, u32 uuid1, u32 uuid2, u32 uuid3,
 	int idx, count, flags = 0, sz, buf_sz;
 	ffa_value_t partition_info;
 
-	if (drv_info->version > FFA_VERSION_1_0 &&
+	if (FFA_SUPPORTS_GET_COUNT_ONLY(drv_info->version) &&
 	    (!buffer || !num_partitions)) /* Just get the count for now */
 		flags = PARTITION_INFO_GET_RETURN_COUNT_ONLY;
 
@@ -273,12 +278,11 @@ __ffa_partition_info_get(u32 uuid0, u32 uuid1, u32 uuid2, u32 uuid3,
 
 	count = partition_info.a2;
 
-	if (drv_info->version > FFA_VERSION_1_0) {
+	if (FFA_PART_INFO_HAS_SIZE_IN_RESP(drv_info->version)) {
 		buf_sz = sz = partition_info.a3;
 		if (sz > sizeof(*buffer))
 			buf_sz = sizeof(*buffer);
 	} else {
-		/* FFA_VERSION_1_0 lacks size in the response */
 		buf_sz = sz = 8;
 	}
 
@@ -406,7 +410,7 @@ ffa_partition_probe(const uuid_t *uuid, struct ffa_partition_info **buffer)
 	if (count <= 0)
 		return count;
 
-	pbuf = kcalloc(count, sizeof(*pbuf), GFP_KERNEL);
+	pbuf = kzalloc_objs(*pbuf, count);
 	if (!pbuf)
 		return -ENOMEM;
 
@@ -1372,7 +1376,7 @@ static int __ffa_notify_request(struct ffa_device *dev, bool is_per_vcpu,
 	if (notify_id >= FFA_MAX_NOTIFICATIONS)
 		return -EINVAL;
 
-	cb_info = kzalloc(sizeof(*cb_info), GFP_KERNEL);
+	cb_info = kzalloc_obj(*cb_info);
 	if (!cb_info)
 		return -ENOMEM;
 
@@ -1643,7 +1647,7 @@ static int ffa_xa_add_partition_info(struct ffa_device *dev)
 		}
 	}
 
-	info = kzalloc(sizeof(*info), GFP_KERNEL);
+	info = kzalloc_obj(*info);
 	if (!info)
 		return ret;
 
@@ -1651,7 +1655,7 @@ static int ffa_xa_add_partition_info(struct ffa_device *dev)
 	info->dev = dev;
 
 	if (!phead) {
-		phead = kzalloc(sizeof(*phead), GFP_KERNEL);
+		phead = kzalloc_obj(*phead);
 		if (!phead)
 			goto free_out;
 
@@ -1731,7 +1735,7 @@ static int ffa_setup_partitions(void)
 	struct ffa_device *ffa_dev;
 	struct ffa_partition_info *pbuf, *tpbuf;
 
-	if (drv_info->version == FFA_VERSION_1_0) {
+	if (!FFA_PART_INFO_HAS_UUID_IN_RESP(drv_info->version)) {
 		ret = bus_register_notifier(&ffa_bus_type, &ffa_bus_nb);
 		if (ret)
 			pr_err("Failed to register FF-A bus notifiers\n");
@@ -1758,7 +1762,7 @@ static int ffa_setup_partitions(void)
 			continue;
 		}
 
-		if (drv_info->version > FFA_VERSION_1_0 &&
+		if (FFA_PART_INFO_HAS_EXEC_STATE_IN_RESP(drv_info->version) &&
 		    !(tpbuf->properties & FFA_PARTITION_AARCH64_EXEC))
 			ffa_mode_32bit_set(ffa_dev);
 
@@ -2035,7 +2039,7 @@ static int __init ffa_init(void)
 	if (ret)
 		return ret;
 
-	drv_info = kzalloc(sizeof(*drv_info), GFP_KERNEL);
+	drv_info = kzalloc_obj(*drv_info);
 	if (!drv_info)
 		return -ENOMEM;
 

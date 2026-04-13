@@ -352,7 +352,6 @@ struct rxe_mr {
 	int			access;
 	atomic_t		num_mw;
 
-	unsigned int		page_offset;
 	unsigned int		page_shift;
 	u64			page_mask;
 

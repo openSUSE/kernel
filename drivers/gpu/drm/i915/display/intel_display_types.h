@@ -510,6 +510,12 @@ struct intel_hdcp {
 	bool force_hdcp14;
 };
 
+enum intel_panel_replay_dsc_support {
+	INTEL_DP_PANEL_REPLAY_DSC_NOT_SUPPORTED,
+	INTEL_DP_PANEL_REPLAY_DSC_FULL_FRAME_ONLY,
+	INTEL_DP_PANEL_REPLAY_DSC_SELECTIVE_UPDATE,
+};
+
 struct intel_connector {
 	struct drm_connector base;
 	/*
@@ -562,6 +568,30 @@ struct intel_connector {
 			} overall_throughput;
 			int max_line_width;
 		} dsc_branch_caps;
+
+		struct {
+			u8 dpcd[DP_PANEL_REPLAY_CAP_SIZE];
+#define INTEL_PR_DPCD_INDEX(pr_dpcd_register)	((pr_dpcd_register) - DP_PANEL_REPLAY_CAP_SUPPORT)
+
+			bool support;
+			bool su_support;
+			enum intel_panel_replay_dsc_support dsc_support;
+
+			u16 su_w_granularity;
+			u16 su_y_granularity;
+		} panel_replay_caps;
+
+		struct {
+			u8 dpcd[EDP_PSR_RECEIVER_CAP_SIZE];
+
+			bool support;
+			bool su_support;
+
+			u16 su_w_granularity;
+			u16 su_y_granularity;
+
+			u8 sync_latency;
+		} psr_caps;
 	} dp;
 
 	struct {
@@ -956,12 +986,6 @@ struct intel_csc_matrix {
 	u16 postoff[3];
 };
 
-enum intel_panel_replay_dsc_support {
-	INTEL_DP_PANEL_REPLAY_DSC_NOT_SUPPORTED,
-	INTEL_DP_PANEL_REPLAY_DSC_FULL_FRAME_ONLY,
-	INTEL_DP_PANEL_REPLAY_DSC_SELECTIVE_UPDATE,
-};
-
 struct scaler_filter_coeff {
 	u16 sign;
 	u16 exp;
@@ -1153,6 +1177,8 @@ struct intel_crtc_state {
 	bool enable_psr2_su_region_et;
 	bool req_psr2_sdp_prior_scanline;
 	bool has_panel_replay;
+	bool link_off_after_as_sdp_when_pr_active;
+	bool disable_as_sdp_when_pr_active;
 	bool wm_level_disabled;
 	bool pkg_c_latency_used;
 	/* Only used for state verification. */
@@ -1360,6 +1386,13 @@ struct intel_crtc_state {
 		u8 pipeline_full;
 		u16 flipline, vmin, vmax, guardband;
 		u32 vsync_end, vsync_start;
+		struct {
+			bool enable;
+			u16 vmin, vmax;
+			u16 guardband, slope;
+			u16 max_increase, max_decrease;
+			u16 vblank_target;
+		} dc_balance;
 	} vrr;
 
 	/* Content Match Refresh Rate state */
@@ -1499,6 +1532,10 @@ struct intel_crtc {
 		enum transcoder cpu_transcoder;
 		struct intel_link_m_n m_n, m2_n2;
 	} drrs;
+
+	struct {
+		u64 flip_count;
+	} dc_balance;
 
 	int scanline_offset;
 
@@ -1664,7 +1701,7 @@ struct intel_pps {
 	unsigned long last_power_on;
 	unsigned long last_backlight_off;
 	ktime_t panel_power_off_time;
-	intel_wakeref_t vdd_wakeref;
+	struct ref_tracker *vdd_wakeref;
 
 	union {
 		/*
@@ -1718,14 +1755,12 @@ struct intel_psr {
 	bool active;
 	struct work_struct work;
 	unsigned int busy_frontbuffer_bits;
-	bool sink_psr2_support;
 	bool link_standby;
 	bool sel_update_enabled;
 	bool psr2_sel_fetch_enabled;
 	bool psr2_sel_fetch_cff_enabled;
 	bool su_region_et_enabled;
 	bool req_psr2_sdp_prior_scanline;
-	u8 sink_sync_latency;
 	ktime_t last_entry_attempt;
 	ktime_t last_exit;
 	bool sink_not_reliable;
@@ -1734,8 +1769,6 @@ struct intel_psr {
 	u16 su_y_granularity;
 	bool source_panel_replay_support;
 	bool sink_panel_replay_support;
-	bool sink_panel_replay_su_support;
-	enum intel_panel_replay_dsc_support sink_panel_replay_dsc_support;
 	bool panel_replay_enabled;
 	u32 dc3co_exitline;
 	u32 dc3co_exit_delay;
@@ -1762,9 +1795,6 @@ struct intel_dp {
 	bool needs_modeset_retry;
 	bool use_max_params;
 	u8 dpcd[DP_RECEIVER_CAP_SIZE];
-	u8 psr_dpcd[EDP_PSR_RECEIVER_CAP_SIZE];
-	u8 pr_dpcd[DP_PANEL_REPLAY_CAP_SIZE];
-#define INTEL_PR_DPCD_INDEX(pr_dpcd_register)	((pr_dpcd_register) - DP_PANEL_REPLAY_CAP_SUPPORT)
 
 	u8 downstream_ports[DP_MAX_DOWNSTREAM_PORTS];
 	u8 edp_dpcd[EDP_DISPLAY_CTL_CAP_SIZE];
@@ -1942,12 +1972,13 @@ struct intel_digital_port {
 	bool lane_reversal;
 	bool ddi_a_4_lanes;
 	bool release_cl2_override;
+	bool dedicated_external;
 	u8 max_lanes;
 	/* Used for DP and ICL+ TypeC/DP and TypeC/HDMI ports. */
 	enum aux_ch aux_ch;
 	enum intel_display_power_domain ddi_io_power_domain;
-	intel_wakeref_t ddi_io_wakeref;
-	intel_wakeref_t aux_wakeref;
+	struct ref_tracker *ddi_io_wakeref;
+	struct ref_tracker *aux_wakeref;
 
 	struct intel_tc_port *tc;
 

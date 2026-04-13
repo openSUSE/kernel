@@ -959,6 +959,8 @@ static void update_curr_scx(struct rq *rq)
 		if (!curr->scx.slice)
 			touch_core_sched(rq, curr);
 	}
+
+	dl_server_update(&rq->ext_server, delta_exec);
 }
 
 static bool scx_dsq_priq_less(struct rb_node *node_a,
@@ -974,8 +976,12 @@ static bool scx_dsq_priq_less(struct rb_node *node_a,
 
 static void dsq_mod_nr(struct scx_dispatch_q *dsq, s32 delta)
 {
-	/* scx_bpf_dsq_nr_queued() reads ->nr without locking, use WRITE_ONCE() */
-	WRITE_ONCE(dsq->nr, dsq->nr + delta);
+	/*
+	 * scx_bpf_dsq_nr_queued() reads ->nr without locking. Use READ_ONCE()
+	 * on the read side and WRITE_ONCE() on the write side to properly
+	 * annotate the concurrent lockless access and avoid KCSAN warnings.
+	 */
+	WRITE_ONCE(dsq->nr, READ_ONCE(dsq->nr) + delta);
 }
 
 static void refill_task_slice_dfl(struct scx_sched *sch, struct task_struct *p)
@@ -1516,6 +1522,10 @@ static void enqueue_task_scx(struct rq *rq, struct task_struct *p, int core_enq_
 
 	if (enq_flags & SCX_ENQ_WAKEUP)
 		touch_core_sched(rq, p);
+
+	/* Start dl_server if this is the first task being enqueued */
+	if (rq->scx.nr_running == 1)
+		dl_server_start(&rq->ext_server);
 
 	do_enqueue_task(rq, p, enq_flags, sticky_cpu);
 out:
@@ -2514,7 +2524,7 @@ do_pick_task_scx(struct rq *rq, struct rq_flags *rf, bool force_scx)
 	/* see kick_sync_wait_bal_cb() */
 	smp_store_release(&rq->scx.kick_sync, rq->scx.kick_sync + 1);
 
-	rq_modified_clear(rq);
+	rq_modified_begin(rq, &ext_sched_class);
 
 	rq_unpin_lock(rq, rf);
 	balance_one(rq, prev);
@@ -2582,6 +2592,33 @@ do_pick_task_scx(struct rq *rq, struct rq_flags *rf, bool force_scx)
 static struct task_struct *pick_task_scx(struct rq *rq, struct rq_flags *rf)
 {
 	return do_pick_task_scx(rq, rf, false);
+}
+
+/*
+ * Select the next task to run from the ext scheduling class.
+ *
+ * Use do_pick_task_scx() directly with @force_scx enabled, since the
+ * dl_server must always select a sched_ext task.
+ */
+static struct task_struct *
+ext_server_pick_task(struct sched_dl_entity *dl_se, struct rq_flags *rf)
+{
+	if (!scx_enabled())
+		return NULL;
+
+	return do_pick_task_scx(dl_se->rq, rf, true);
+}
+
+/*
+ * Initialize the ext server deadline entity.
+ */
+void ext_server_init(struct rq *rq)
+{
+	struct sched_dl_entity *dl_se = &rq->ext_server;
+
+	init_dl_entity(dl_se);
+
+	dl_server_init(dl_se, rq, ext_server_pick_task);
 }
 
 #ifdef CONFIG_SCHED_CORE
@@ -2773,7 +2810,7 @@ static bool check_rq_for_timeouts(struct rq *rq)
 		unsigned long last_runnable = p->scx.runnable_at;
 
 		if (unlikely(time_after(jiffies,
-					last_runnable + scx_watchdog_timeout))) {
+					last_runnable + READ_ONCE(scx_watchdog_timeout)))) {
 			u32 dur_ms = jiffies_to_msecs(jiffies - last_runnable);
 
 			scx_exit(sch, SCX_EXIT_ERROR_STALL, 0,
@@ -2801,7 +2838,7 @@ static void scx_watchdog_workfn(struct work_struct *work)
 		cond_resched();
 	}
 	queue_delayed_work(system_unbound_wq, to_delayed_work(work),
-			   scx_watchdog_timeout / 2);
+			   READ_ONCE(scx_watchdog_timeout) / 2);
 }
 
 void scx_tick(struct rq *rq)
@@ -3214,7 +3251,8 @@ static void switched_from_scx(struct rq *rq, struct task_struct *p)
 	scx_disable_task(p);
 }
 
-static void wakeup_preempt_scx(struct rq *rq, struct task_struct *p,int wake_flags) {}
+static void wakeup_preempt_scx(struct rq *rq, struct task_struct *p, int wake_flags) {}
+
 static void switched_to_scx(struct rq *rq, struct task_struct *p) {}
 
 int scx_check_setscheduler(struct task_struct *p, int policy)
@@ -3475,8 +3513,6 @@ static void scx_cgroup_unlock(void) {}
  *   their current sched_class. Call them directly from sched core instead.
  */
 DEFINE_SCHED_CLASS(ext) = {
-	.queue_mask		= 1,
-
 	.enqueue_task		= enqueue_task_scx,
 	.dequeue_task		= dequeue_task_scx,
 	.yield_task		= yield_task_scx,
@@ -3561,8 +3597,8 @@ static void destroy_dsq(struct scx_sched *sch, u64 dsq_id)
 	 * operations inside scheduler locks.
 	 */
 	dsq->id = SCX_DSQ_INVALID;
-	llist_add(&dsq->free_node, &dsqs_to_free);
-	irq_work_queue(&free_dsq_irq_work);
+	if (llist_add(&dsq->free_node, &dsqs_to_free))
+		irq_work_queue(&free_dsq_irq_work);
 
 out_unlock_dsq:
 	raw_spin_unlock_irqrestore(&dsq->lock, flags);
@@ -3748,7 +3784,9 @@ static void scx_kobj_release(struct kobject *kobj)
 static ssize_t scx_attr_ops_show(struct kobject *kobj,
 				 struct kobj_attribute *ka, char *buf)
 {
-	return sysfs_emit(buf, "%s\n", scx_root->ops.name);
+	struct scx_sched *sch = container_of(kobj, struct scx_sched, kobj);
+
+	return sysfs_emit(buf, "%s\n", sch->ops.name);
 }
 SCX_ATTR(ops);
 
@@ -3792,7 +3830,9 @@ static const struct kobj_type scx_ktype = {
 
 static int scx_uevent(const struct kobject *kobj, struct kobj_uevent_env *env)
 {
-	return add_uevent_var(env, "SCXOPS=%s", scx_root->ops.name);
+	const struct scx_sched *sch = container_of(kobj, struct scx_sched, kobj);
+
+	return add_uevent_var(env, "SCXOPS=%s", sch->ops.name);
 }
 
 static const struct kset_uevent_ops scx_uevent_ops = {
@@ -3941,8 +3981,8 @@ static u32 bypass_lb_cpu(struct scx_sched *sch, struct rq *rq,
 	 * consider offloading iff the total queued duration is over the
 	 * threshold.
 	 */
-	min_delta_us = scx_bypass_lb_intv_us / SCX_BYPASS_LB_MIN_DELTA_DIV;
-	if (delta < DIV_ROUND_UP(min_delta_us, scx_slice_bypass_us))
+	min_delta_us = READ_ONCE(scx_bypass_lb_intv_us) / SCX_BYPASS_LB_MIN_DELTA_DIV;
+	if (delta < DIV_ROUND_UP(min_delta_us, READ_ONCE(scx_slice_bypass_us)))
 		return 0;
 
 	raw_spin_rq_lock_irq(rq);
@@ -4170,7 +4210,7 @@ static void scx_bypass(bool bypass)
 		WARN_ON_ONCE(scx_bypass_depth <= 0);
 		if (scx_bypass_depth != 1)
 			goto unlock;
-		WRITE_ONCE(scx_slice_dfl, scx_slice_bypass_us * NSEC_PER_USEC);
+		WRITE_ONCE(scx_slice_dfl, READ_ONCE(scx_slice_bypass_us) * NSEC_PER_USEC);
 		bypass_timestamp = ktime_get_ns();
 		if (sch)
 			scx_add_event(sch, SCX_EV_BYPASS_ACTIVATE, 1);
@@ -4263,11 +4303,11 @@ static struct scx_exit_info *alloc_exit_info(size_t exit_dump_len)
 {
 	struct scx_exit_info *ei;
 
-	ei = kzalloc(sizeof(*ei), GFP_KERNEL);
+	ei = kzalloc_obj(*ei);
 	if (!ei)
 		return NULL;
 
-	ei->bt = kcalloc(SCX_EXIT_BT_LEN, sizeof(ei->bt[0]), GFP_KERNEL);
+	ei->bt = kzalloc_objs(ei->bt[0], SCX_EXIT_BT_LEN);
 	ei->msg = kzalloc(SCX_EXIT_MSG_LEN, GFP_KERNEL);
 	ei->dump = kvzalloc(exit_dump_len, GFP_KERNEL);
 
@@ -4879,7 +4919,7 @@ static struct scx_sched *scx_alloc_and_add_sched(struct sched_ext_ops *ops)
 	struct scx_sched *sch;
 	int node, ret;
 
-	sch = kzalloc(sizeof(*sch), GFP_KERNEL);
+	sch = kzalloc_obj(*sch);
 	if (!sch)
 		return ERR_PTR(-ENOMEM);
 
@@ -4893,8 +4933,7 @@ static struct scx_sched *scx_alloc_and_add_sched(struct sched_ext_ops *ops)
 	if (ret < 0)
 		goto err_free_ei;
 
-	sch->global_dsqs = kcalloc(nr_node_ids, sizeof(sch->global_dsqs[0]),
-				   GFP_KERNEL);
+	sch->global_dsqs = kzalloc_objs(sch->global_dsqs[0], nr_node_ids);
 	if (!sch->global_dsqs) {
 		ret = -ENOMEM;
 		goto err_free_hash;
@@ -5126,7 +5165,7 @@ static void scx_enable_workfn(struct kthread_work *work)
 	WRITE_ONCE(scx_watchdog_timeout, timeout);
 	WRITE_ONCE(scx_watchdog_timestamp, jiffies);
 	queue_delayed_work(system_unbound_wq, &scx_watchdog_work,
-			   scx_watchdog_timeout / 2);
+			   READ_ONCE(scx_watchdog_timeout) / 2);
 
 	/*
 	 * Once __scx_enabled is set, %current can be switched to SCX anytime.
@@ -7398,9 +7437,9 @@ BTF_ID_FLAGS(func, scx_bpf_dsq_peek, KF_RCU_PROTECTED | KF_RET_NULL)
 BTF_ID_FLAGS(func, bpf_iter_scx_dsq_new, KF_ITER_NEW | KF_RCU_PROTECTED)
 BTF_ID_FLAGS(func, bpf_iter_scx_dsq_next, KF_ITER_NEXT | KF_RET_NULL)
 BTF_ID_FLAGS(func, bpf_iter_scx_dsq_destroy, KF_ITER_DESTROY)
-BTF_ID_FLAGS(func, scx_bpf_exit_bstr, KF_TRUSTED_ARGS)
-BTF_ID_FLAGS(func, scx_bpf_error_bstr, KF_TRUSTED_ARGS)
-BTF_ID_FLAGS(func, scx_bpf_dump_bstr, KF_TRUSTED_ARGS)
+BTF_ID_FLAGS(func, scx_bpf_exit_bstr)
+BTF_ID_FLAGS(func, scx_bpf_error_bstr)
+BTF_ID_FLAGS(func, scx_bpf_dump_bstr)
 BTF_ID_FLAGS(func, scx_bpf_reenqueue_local___v2)
 BTF_ID_FLAGS(func, scx_bpf_cpuperf_cap)
 BTF_ID_FLAGS(func, scx_bpf_cpuperf_cur)
@@ -7419,7 +7458,7 @@ BTF_ID_FLAGS(func, scx_bpf_cpu_curr, KF_RET_NULL | KF_RCU_PROTECTED)
 BTF_ID_FLAGS(func, scx_bpf_task_cgroup, KF_RCU | KF_ACQUIRE)
 #endif
 BTF_ID_FLAGS(func, scx_bpf_now)
-BTF_ID_FLAGS(func, scx_bpf_events, KF_TRUSTED_ARGS)
+BTF_ID_FLAGS(func, scx_bpf_events)
 BTF_KFUNCS_END(scx_kfunc_ids_any)
 
 static const struct btf_kfunc_id_set scx_kfunc_set_any = {

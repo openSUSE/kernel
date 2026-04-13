@@ -364,7 +364,7 @@ static struct kobject *create_xe_sriov_kobj(struct xe_device *xe, unsigned int v
 
 	xe_sriov_pf_assert_vfid(xe, vfid);
 
-	vkobj = kzalloc(sizeof(*vkobj), GFP_KERNEL);
+	vkobj = kzalloc_obj(*vkobj);
 	if (!vkobj)
 		return ERR_PTR(-ENOMEM);
 
@@ -404,16 +404,12 @@ static ssize_t xe_sriov_dev_attr_store(struct kobject *kobj, struct attribute *a
 	struct xe_sriov_dev_attr *vattr = to_xe_sriov_dev_attr(attr);
 	struct xe_sriov_kobj *vkobj = to_xe_sriov_kobj(kobj);
 	struct xe_device *xe = vkobj->xe;
-	ssize_t ret;
 
 	if (!vattr->store)
 		return -EPERM;
 
-	xe_pm_runtime_get(xe);
-	ret = xe_sriov_pf_wait_ready(xe) ?: vattr->store(xe, buf, count);
-	xe_pm_runtime_put(xe);
-
-	return ret;
+	guard(xe_pm_runtime)(xe);
+	return xe_sriov_pf_wait_ready(xe) ?: vattr->store(xe, buf, count);
 }
 
 static ssize_t xe_sriov_vf_attr_show(struct kobject *kobj, struct attribute *attr, char *buf)
@@ -438,18 +434,14 @@ static ssize_t xe_sriov_vf_attr_store(struct kobject *kobj, struct attribute *at
 	struct xe_sriov_kobj *vkobj = to_xe_sriov_kobj(kobj);
 	struct xe_device *xe = vkobj->xe;
 	unsigned int vfid = vkobj->vfid;
-	ssize_t ret;
 
 	xe_sriov_pf_assert_vfid(xe, vfid);
 
 	if (!vattr->store)
 		return -EPERM;
 
-	xe_pm_runtime_get(xe);
-	ret = xe_sriov_pf_wait_ready(xe) ?: vattr->store(xe, vfid, buf, count);
-	xe_pm_runtime_get(xe);
-
-	return ret;
+	guard(xe_pm_runtime)(xe);
+	return xe_sriov_pf_wait_ready(xe) ?: vattr->store(xe, vfid, buf, count);
 }
 
 static const struct sysfs_ops xe_sriov_dev_sysfs_ops = {

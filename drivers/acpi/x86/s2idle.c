@@ -129,9 +129,8 @@ static void lpi_device_get_constraints_amd(void)
 				goto free_acpi_buffer;
 			}
 
-			lpi_constraints_table = kcalloc(package->package.count,
-							sizeof(*lpi_constraints_table),
-							GFP_KERNEL);
+			lpi_constraints_table = kzalloc_objs(*lpi_constraints_table,
+							     package->package.count);
 
 			if (!lpi_constraints_table)
 				goto free_acpi_buffer;
@@ -209,9 +208,8 @@ static void lpi_device_get_constraints(void)
 	if (!out_obj)
 		return;
 
-	lpi_constraints_table = kcalloc(out_obj->package.count,
-					sizeof(*lpi_constraints_table),
-					GFP_KERNEL);
+	lpi_constraints_table = kzalloc_objs(*lpi_constraints_table,
+					     out_obj->package.count);
 	if (!lpi_constraints_table)
 		goto free_acpi_buffer;
 
@@ -466,9 +464,6 @@ static int lps0_device_attach(struct acpi_device *adev,
 			lps0_dsm_func_mask = (lps0_dsm_func_mask << 1) | 0x1;
 			acpi_handle_debug(adev->handle, "_DSM UUID %s: Adjusted function mask: 0x%x\n",
 					  ACPI_LPS0_DSM_UUID_AMD, lps0_dsm_func_mask);
-		} else if (lps0_dsm_func_mask_microsoft > 0 && rev_id) {
-			lps0_dsm_func_mask_microsoft = -EINVAL;
-			acpi_handle_debug(adev->handle, "_DSM Using AMD method\n");
 		}
 	} else {
 		rev_id = 1;

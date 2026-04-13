@@ -9,6 +9,7 @@
 
 #include <linux/delay.h>
 #include <linux/init.h>
+#include <linux/iommu.h>
 #include <linux/irqdomain.h>
 #include <linux/pci.h>
 #include <linux/msi.h>
@@ -836,12 +837,7 @@ bool shpchp_is_native(struct pci_dev *bridge)
  */
 static void pci_acpi_wake_bus(struct acpi_device_wakeup_context *context)
 {
-	struct acpi_device *adev;
-	struct acpi_pci_root *root;
-
-	adev = container_of(context, struct acpi_device, wakeup.context);
-	root = acpi_driver_data(adev);
-	pci_pme_wakeup_bus(root->bus);
+	pci_pme_wakeup_bus(to_pci_host_bridge(context->dev)->bus);
 }
 
 /**
@@ -874,12 +870,14 @@ static void pci_acpi_wake_dev(struct acpi_device_wakeup_context *context)
 }
 
 /**
- * pci_acpi_add_bus_pm_notifier - Register PM notifier for root PCI bus.
+ * pci_acpi_add_root_pm_notifier - Register PM notifier for root PCI bus.
  * @dev: PCI root bridge ACPI device.
+ * @root: PCI root corresponding to @dev.
  */
-acpi_status pci_acpi_add_bus_pm_notifier(struct acpi_device *dev)
+acpi_status pci_acpi_add_root_pm_notifier(struct acpi_device *dev,
+					  struct acpi_pci_root *root)
 {
-	return acpi_add_pm_notifier(dev, NULL, pci_acpi_wake_bus);
+	return acpi_add_pm_notifier(dev, root->bus->bridge, pci_acpi_wake_bus);
 }
 
 /**
@@ -960,6 +958,7 @@ void pci_set_acpi_fwnode(struct pci_dev *dev)
 int pci_dev_acpi_reset(struct pci_dev *dev, bool probe)
 {
 	acpi_handle handle = ACPI_HANDLE(&dev->dev);
+	int ret;
 
 	if (!handle || !acpi_has_method(handle, "_RST"))
 		return -ENOTTY;
@@ -967,12 +966,19 @@ int pci_dev_acpi_reset(struct pci_dev *dev, bool probe)
 	if (probe)
 		return 0;
 
-	if (ACPI_FAILURE(acpi_evaluate_object(handle, "_RST", NULL, NULL))) {
-		pci_warn(dev, "ACPI _RST failed\n");
-		return -ENOTTY;
+	ret = pci_dev_reset_iommu_prepare(dev);
+	if (ret) {
+		pci_err(dev, "failed to stop IOMMU for a PCI reset: %d\n", ret);
+		return ret;
 	}
 
-	return 0;
+	if (ACPI_FAILURE(acpi_evaluate_object(handle, "_RST", NULL, NULL))) {
+		pci_warn(dev, "ACPI _RST failed\n");
+		ret = -ENOTTY;
+	}
+
+	pci_dev_reset_iommu_done(dev);
+	return ret;
 }
 
 bool acpi_pci_power_manageable(struct pci_dev *dev)
@@ -1657,11 +1663,11 @@ struct pci_bus *pci_acpi_scan_root(struct acpi_pci_root *root)
 	struct acpi_pci_root_ops *root_ops;
 	struct pci_host_bridge *host;
 
-	ri = kzalloc(sizeof(*ri), GFP_KERNEL);
+	ri = kzalloc_obj(*ri);
 	if (!ri)
 		return NULL;
 
-	root_ops = kzalloc(sizeof(*root_ops), GFP_KERNEL);
+	root_ops = kzalloc_obj(*root_ops);
 	if (!root_ops) {
 		kfree(ri);
 		return NULL;

@@ -3,7 +3,7 @@
  * Copyright (c) 2021-2024 Oracle.  All Rights Reserved.
  * Author: Darrick J. Wong <djwong@kernel.org>
  */
-#include "xfs.h"
+#include "xfs_platform.h"
 #include "xfs_fs.h"
 #include "xfs_shared.h"
 #include "xfs_format.h"
@@ -58,7 +58,7 @@ xchk_setup_nlinks(
 			return error;
 	}
 
-	xnc = kvzalloc(sizeof(struct xchk_nlink_ctrs), XCHK_GFP_FLAGS);
+	xnc = kvzalloc_obj(struct xchk_nlink_ctrs, XCHK_GFP_FLAGS);
 	if (!xnc)
 		return -ENOMEM;
 	xnc->xname.name = xnc->namebuf;

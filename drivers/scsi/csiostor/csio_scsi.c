@@ -1775,8 +1775,8 @@ csio_scsi_cbfn(struct csio_hw *hw, struct csio_ioreq *req)
  *	- Kicks off the SCSI state machine for this IO.
  *	- Returns busy status on error.
  */
-static int
-csio_queuecommand(struct Scsi_Host *host, struct scsi_cmnd *cmnd)
+static enum scsi_qc_status csio_queuecommand(struct Scsi_Host *host,
+					     struct scsi_cmnd *cmnd)
 {
 	struct csio_lnode *ln = shost_priv(host);
 	struct csio_hw *hw = csio_lnode_to_hw(ln);
@@ -2341,7 +2341,7 @@ csio_scsi_alloc_ddp_bufs(struct csio_scsim *scm, struct csio_hw *hw,
 	for (n = 0; n < num_buf; n++) {
 		/* Set unit size to request size */
 		unit_size = buf_size;
-		ddp_desc = kzalloc(sizeof(struct csio_dma_buf), GFP_KERNEL);
+		ddp_desc = kzalloc_obj(struct csio_dma_buf);
 		if (!ddp_desc) {
 			csio_err(hw,
 				 "Failed to allocate ddp descriptors,"
@@ -2435,7 +2435,7 @@ csio_scsim_init(struct csio_scsim *scm, struct csio_hw *hw)
 	INIT_LIST_HEAD(&scm->ioreq_freelist);
 	for (i = 0; i < csio_scsi_ioreqs; i++) {
 
-		ioreq = kzalloc(sizeof(struct csio_ioreq), GFP_KERNEL);
+		ioreq = kzalloc_obj(struct csio_ioreq);
 		if (!ioreq) {
 			csio_err(hw,
 				 "I/O request element allocation failed, "

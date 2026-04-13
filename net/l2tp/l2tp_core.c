@@ -487,7 +487,7 @@ static int l2tp_session_collision_add(struct l2tp_net *pn,
 		/* First collision. Allocate list to manage the collided sessions
 		 * and add the existing session to the list.
 		 */
-		clist = kmalloc(sizeof(*clist), GFP_ATOMIC);
+		clist = kmalloc_obj(*clist, GFP_ATOMIC);
 		if (!clist)
 			return -ENOMEM;
 
@@ -1290,6 +1290,11 @@ static int l2tp_xmit_core(struct l2tp_session *session, struct sk_buff *skb, uns
 		uh->source = inet->inet_sport;
 		uh->dest = inet->inet_dport;
 		udp_len = uhlen + session->hdr_len + data_len;
+		if (udp_len > U16_MAX) {
+			kfree_skb(skb);
+			ret = NET_XMIT_DROP;
+			goto out_unlock;
+		}
 		uh->len = htons(udp_len);
 
 		/* Calculate UDP checksum if configured to do so */
@@ -1572,7 +1577,7 @@ int l2tp_tunnel_create(int fd, int version, u32 tunnel_id, u32 peer_tunnel_id,
 	if (cfg)
 		encap = cfg->encap;
 
-	tunnel = kzalloc(sizeof(*tunnel), GFP_KERNEL);
+	tunnel = kzalloc_obj(*tunnel);
 	if (!tunnel) {
 		err = -ENOMEM;
 		goto err;

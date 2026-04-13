@@ -3,7 +3,7 @@
  * Copyright (c) 2022-2024 Oracle.  All Rights Reserved.
  * Author: Darrick J. Wong <djwong@kernel.org>
  */
-#include "xfs.h"
+#include "xfs_platform.h"
 #include "xfs_fs.h"
 #include "xfs_shared.h"
 #include "xfs_format.h"
@@ -98,7 +98,7 @@ xfs_rtgroup_alloc(
 	struct xfs_rtgroup	*rtg;
 	int			error;
 
-	rtg = kzalloc(sizeof(struct xfs_rtgroup), GFP_KERNEL);
+	rtg = kzalloc_obj(struct xfs_rtgroup);
 	if (!rtg)
 		return -ENOMEM;
 

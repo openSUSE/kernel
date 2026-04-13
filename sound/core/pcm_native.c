@@ -244,7 +244,7 @@ int snd_pcm_info_user(struct snd_pcm_substream *substream,
 {
 	int err;
 	struct snd_pcm_info *info __free(kfree) =
-		kmalloc(sizeof(*info), GFP_KERNEL);
+		kmalloc_obj(*info);
 
 	if (! info)
 		return -ENOMEM;
@@ -2825,7 +2825,7 @@ static int snd_pcm_open_file(struct file *file,
 	if (err < 0)
 		return err;
 
-	pcm_file = kzalloc(sizeof(*pcm_file), GFP_KERNEL);
+	pcm_file = kzalloc_obj(*pcm_file);
 	if (pcm_file == NULL) {
 		snd_pcm_release_substream(substream);
 		return -ENOMEM;
@@ -4124,7 +4124,7 @@ static int snd_pcm_hw_refine_old_user(struct snd_pcm_substream *substream,
 	int err;
 
 	struct snd_pcm_hw_params *params __free(kfree) =
-		kmalloc(sizeof(*params), GFP_KERNEL);
+		kmalloc_obj(*params);
 	if (!params)
 		return -ENOMEM;
 
@@ -4153,7 +4153,7 @@ static int snd_pcm_hw_params_old_user(struct snd_pcm_substream *substream,
 	int err;
 
 	struct snd_pcm_hw_params *params __free(kfree) =
-		kmalloc(sizeof(*params), GFP_KERNEL);
+		kmalloc_obj(*params);
 	if (!params)
 		return -ENOMEM;
 

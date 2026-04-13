@@ -37,6 +37,7 @@
 #include <net/netns/smc.h>
 #include <net/netns/bpf.h>
 #include <net/netns/mctp.h>
+#include <net/netns/vsock.h>
 #include <net/net_trackers.h>
 #include <linux/ns_common.h>
 #include <linux/idr.h>
@@ -120,6 +121,7 @@ struct net {
 	 * it is critical that it is on a read_mostly cache line.
 	 */
 	u32			hash_mix;
+	bool			is_dying;
 
 	struct net_device       *loopback_dev;          /* The loopback */
 
@@ -196,6 +198,9 @@ struct net {
 	/* Move to a better place when the config guard is removed. */
 	struct mutex		rtnl_mutex;
 #endif
+#if IS_ENABLED(CONFIG_VSOCKETS)
+	struct netns_vsock	vsock;
+#endif
 } __randomize_layout;
 
 #include <linux/seq_file_net.h>
@@ -259,13 +264,13 @@ void ipx_unregister_sysctl(void);
 #define ipx_unregister_sysctl()
 #endif
 
-#ifdef CONFIG_NET_NS
-void __put_net(struct net *net);
-
 static inline struct net *to_net_ns(struct ns_common *ns)
 {
 	return container_of(ns, struct net, ns);
 }
+
+#ifdef CONFIG_NET_NS
+void __put_net(struct net *net);
 
 /* Try using get_net_track() instead */
 static inline struct net *get_net(struct net *net)
@@ -304,7 +309,7 @@ static inline int check_net(const struct net *net)
 	return ns_ref_read(net) != 0;
 }
 
-void net_drop_ns(void *);
+void net_drop_ns(struct ns_common *);
 void net_passive_dec(struct net *net);
 
 #else

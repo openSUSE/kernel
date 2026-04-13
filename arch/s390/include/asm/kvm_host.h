@@ -27,6 +27,7 @@
 #include <asm/isc.h>
 #include <asm/guarded_storage.h>
 
+#define KVM_HAVE_MMU_RWLOCK
 #define KVM_MAX_VCPUS 255
 
 #define KVM_INTERNAL_MEM_SLOTS 1
@@ -441,6 +442,7 @@ struct kvm_vcpu_arch {
 	bool acrs_loaded;
 	struct kvm_s390_pv_vcpu pv;
 	union diag318_info diag318_info;
+	struct kvm_s390_mmu_cache *mc;
 };
 
 struct kvm_vm_stat {
@@ -630,7 +632,11 @@ struct kvm_s390_pv {
 	void *set_aside;
 	struct list_head need_cleanup;
 	struct mmu_notifier mmu_notifier;
+	/* Protects against concurrent import-like operations */
+	struct mutex import_lock;
 };
+
+struct kvm_s390_mmu_cache;
 
 struct kvm_arch {
 	struct esca_block *sca;
@@ -671,6 +677,7 @@ struct kvm_arch {
 	struct kvm_s390_pv pv;
 	struct list_head kzdev_list;
 	spinlock_t kzdev_list_lock;
+	struct kvm_s390_mmu_cache *mc;
 };
 
 #define KVM_HVA_ERR_BAD		(-1UL)
@@ -702,6 +709,9 @@ static inline void kvm_arch_async_page_present_queued(struct kvm_vcpu *vcpu) {}
 void kvm_arch_crypto_clear_masks(struct kvm *kvm);
 void kvm_arch_crypto_set_masks(struct kvm *kvm, unsigned long *apm,
 			       unsigned long *aqm, unsigned long *adm);
+
+#define SIE64_RETURN_NORMAL	0
+#define SIE64_RETURN_MCCK	1
 
 int __sie64a(phys_addr_t sie_block_phys, struct kvm_s390_sie_block *sie_block, u64 *rsa,
 	     unsigned long gasce);

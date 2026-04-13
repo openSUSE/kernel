@@ -67,8 +67,10 @@ const char *f2fs_fault_name[FAULT_MAX] = {
 	[FAULT_BLKADDR_CONSISTENCE]	= "inconsistent blkaddr",
 	[FAULT_NO_SEGMENT]		= "no free segment",
 	[FAULT_INCONSISTENT_FOOTER]	= "inconsistent footer",
-	[FAULT_TIMEOUT]			= "timeout",
+	[FAULT_ATOMIC_TIMEOUT]		= "atomic timeout",
 	[FAULT_VMALLOC]			= "vmalloc",
+	[FAULT_LOCK_TIMEOUT]		= "lock timeout",
+	[FAULT_SKIP_WRITE]		= "skip write",
 };
 
 int f2fs_build_fault_attr(struct f2fs_sb_info *sbi, unsigned long rate,
@@ -96,7 +98,56 @@ int f2fs_build_fault_attr(struct f2fs_sb_info *sbi, unsigned long rate,
 		f2fs_info(sbi, "build fault injection type: 0x%lx", type);
 	}
 
+	if (fo & FAULT_TIMEOUT) {
+		if (type >= TIMEOUT_TYPE_MAX)
+			return -EINVAL;
+		ffi->inject_lock_timeout = (unsigned int)type;
+		f2fs_info(sbi, "build fault timeout injection type: 0x%lx", type);
+	}
+
 	return 0;
+}
+
+static void inject_timeout(struct f2fs_sb_info *sbi)
+{
+	struct f2fs_fault_info *ffi = &F2FS_OPTION(sbi).fault_info;
+	enum f2fs_timeout_type type = ffi->inject_lock_timeout;
+	unsigned long start_time = jiffies;
+	unsigned long timeout = HZ;
+
+	switch (type) {
+	case TIMEOUT_TYPE_RUNNING:
+		while (!time_after(jiffies, start_time + timeout)) {
+			if (fatal_signal_pending(current))
+				return;
+			;
+		}
+		break;
+	case TIMEOUT_TYPE_IO_SLEEP:
+		f2fs_schedule_timeout_killable(timeout, true);
+		break;
+	case TIMEOUT_TYPE_NONIO_SLEEP:
+		f2fs_schedule_timeout_killable(timeout, false);
+		break;
+	case TIMEOUT_TYPE_RUNNABLE:
+		while (!time_after(jiffies, start_time + timeout)) {
+			if (fatal_signal_pending(current))
+				return;
+			schedule();
+		}
+		break;
+	default:
+		return;
+	}
+}
+
+void f2fs_simulate_lock_timeout(struct f2fs_sb_info *sbi)
+{
+	struct f2fs_lock_context lc;
+
+	f2fs_lock_op(sbi, &lc);
+	inject_timeout(sbi);
+	f2fs_unlock_op(sbi, &lc);
 }
 #endif
 
@@ -503,9 +554,6 @@ static void init_once(void *foo)
 	inode_init_once(&fi->vfs_inode);
 #ifdef CONFIG_FS_ENCRYPTION
 	fi->i_crypt_info = NULL;
-#endif
-#ifdef CONFIG_FS_VERITY
-	fi->i_verity_info = NULL;
 #endif
 }
 
@@ -2559,6 +2607,7 @@ static int f2fs_disable_checkpoint(struct f2fs_sb_info *sbi)
 {
 	unsigned int s_flags = sbi->sb->s_flags;
 	struct cp_control cpc;
+	struct f2fs_lock_context lc;
 	unsigned int gc_mode = sbi->gc_mode;
 	int err = 0;
 	int ret;
@@ -2588,7 +2637,7 @@ static int f2fs_disable_checkpoint(struct f2fs_sb_info *sbi)
 			.no_bg_gc = true,
 			.nr_free_secs = 1 };
 
-		f2fs_down_write(&sbi->gc_lock);
+		f2fs_down_write_trace(&sbi->gc_lock, &gc_control.lc);
 		stat_inc_gc_call_count(sbi, FOREGROUND);
 		err = f2fs_gc(sbi, &gc_control);
 		if (err == -ENODATA) {
@@ -2612,7 +2661,7 @@ static int f2fs_disable_checkpoint(struct f2fs_sb_info *sbi)
 	}
 
 skip_gc:
-	f2fs_down_write(&sbi->gc_lock);
+	f2fs_down_write_trace(&sbi->gc_lock, &lc);
 	cpc.reason = CP_PAUSE;
 	set_sbi_flag(sbi, SBI_CP_DISABLED);
 	stat_inc_cp_call_count(sbi, TOTAL_CALL);
@@ -2625,7 +2674,7 @@ skip_gc:
 	spin_unlock(&sbi->stat_lock);
 
 out_unlock:
-	f2fs_up_write(&sbi->gc_lock);
+	f2fs_up_write_trace(&sbi->gc_lock, &lc);
 restore_flag:
 	sbi->gc_mode = gc_mode;
 	sbi->sb->s_flags = s_flags;	/* Restore SB_RDONLY status */
@@ -2635,41 +2684,65 @@ restore_flag:
 
 static int f2fs_enable_checkpoint(struct f2fs_sb_info *sbi)
 {
-	unsigned int nr_pages = get_pages(sbi, F2FS_DIRTY_DATA) / 16;
+	int retry = MAX_FLUSH_RETRY_COUNT;
 	long long start, writeback, end;
 	int ret;
+	struct f2fs_lock_context lc;
+	long long skipped_write, dirty_data;
 
 	f2fs_info(sbi, "f2fs_enable_checkpoint() starts, meta: %lld, node: %lld, data: %lld",
 					get_pages(sbi, F2FS_DIRTY_META),
 					get_pages(sbi, F2FS_DIRTY_NODES),
 					get_pages(sbi, F2FS_DIRTY_DATA));
 
-	f2fs_update_time(sbi, ENABLE_TIME);
-
 	start = ktime_get();
 
+	set_sbi_flag(sbi, SBI_ENABLE_CHECKPOINT);
+
 	/* we should flush all the data to keep data consistency */
-	while (get_pages(sbi, F2FS_DIRTY_DATA)) {
-		writeback_inodes_sb_nr(sbi->sb, nr_pages, WB_REASON_SYNC);
+	do {
+		skipped_write = get_pages(sbi, F2FS_SKIPPED_WRITE);
+		dirty_data = get_pages(sbi, F2FS_DIRTY_DATA);
+
+		sync_inodes_sb(sbi->sb);
 		f2fs_io_schedule_timeout(DEFAULT_SCHEDULE_TIMEOUT);
 
-		if (f2fs_time_over(sbi, ENABLE_TIME))
+		f2fs_info(sbi, "sync_inode_sb done, dirty_data: %lld, %lld, "
+				"skipped write: %lld, %lld, retry: %d",
+				get_pages(sbi, F2FS_DIRTY_DATA),
+				dirty_data,
+				get_pages(sbi, F2FS_SKIPPED_WRITE),
+				skipped_write, retry);
+
+		/*
+		 * sync_inodes_sb() has retry logic, so let's check dirty_data
+		 * in prior to skipped_write in case there is no dirty data.
+		 */
+		if (!get_pages(sbi, F2FS_DIRTY_DATA))
 			break;
-	}
+		if (get_pages(sbi, F2FS_SKIPPED_WRITE) == skipped_write)
+			break;
+	} while (retry--);
+
+	clear_sbi_flag(sbi, SBI_ENABLE_CHECKPOINT);
+
 	writeback = ktime_get();
 
-	sync_inodes_sb(sbi->sb);
+	if (unlikely(get_pages(sbi, F2FS_DIRTY_DATA) ||
+			get_pages(sbi, F2FS_SKIPPED_WRITE)))
+		f2fs_warn(sbi, "checkpoint=enable unwritten data: %lld, skipped data: %lld, retry: %d",
+				get_pages(sbi, F2FS_DIRTY_DATA),
+				get_pages(sbi, F2FS_SKIPPED_WRITE), retry);
 
-	if (unlikely(get_pages(sbi, F2FS_DIRTY_DATA)))
-		f2fs_warn(sbi, "checkpoint=enable has some unwritten data: %lld",
-					get_pages(sbi, F2FS_DIRTY_DATA));
+	if (get_pages(sbi, F2FS_SKIPPED_WRITE))
+		atomic_set(&sbi->nr_pages[F2FS_SKIPPED_WRITE], 0);
 
-	f2fs_down_write(&sbi->gc_lock);
+	f2fs_down_write_trace(&sbi->gc_lock, &lc);
 	f2fs_dirty_to_prefree(sbi);
 
 	clear_sbi_flag(sbi, SBI_CP_DISABLED);
 	set_sbi_flag(sbi, SBI_IS_DIRTY);
-	f2fs_up_write(&sbi->gc_lock);
+	f2fs_up_write_trace(&sbi->gc_lock, &lc);
 
 	ret = f2fs_sync_fs(sbi->sb, 1);
 	if (ret)
@@ -3201,18 +3274,11 @@ int f2fs_enable_quota_files(struct f2fs_sb_info *sbi, bool rdonly)
 }
 
 static int f2fs_quota_enable(struct super_block *sb, int type, int format_id,
-			     unsigned int flags)
+			     unsigned int flags, unsigned long qf_inum)
 {
 	struct inode *qf_inode;
-	unsigned long qf_inum;
 	unsigned long qf_flag = F2FS_QUOTA_DEFAULT_FL;
 	int err;
-
-	BUG_ON(!f2fs_sb_has_quota_ino(F2FS_SB(sb)));
-
-	qf_inum = f2fs_qf_ino(sb, type);
-	if (!qf_inum)
-		return -EPERM;
 
 	qf_inode = f2fs_iget(sb, qf_inum);
 	if (IS_ERR(qf_inode)) {
@@ -3246,7 +3312,7 @@ static int f2fs_enable_quotas(struct super_block *sb)
 		test_opt(sbi, PRJQUOTA),
 	};
 
-	if (is_set_ckpt_flags(F2FS_SB(sb), CP_QUOTA_NEED_FSCK_FLAG)) {
+	if (is_set_ckpt_flags(sbi, CP_QUOTA_NEED_FSCK_FLAG)) {
 		f2fs_err(sbi, "quota file may be corrupted, skip loading it");
 		return 0;
 	}
@@ -3258,14 +3324,13 @@ static int f2fs_enable_quotas(struct super_block *sb)
 		if (qf_inum) {
 			err = f2fs_quota_enable(sb, type, QFMT_VFS_V1,
 				DQUOT_USAGE_ENABLED |
-				(quota_mopt[type] ? DQUOT_LIMITS_ENABLED : 0));
+				(quota_mopt[type] ? DQUOT_LIMITS_ENABLED : 0), qf_inum);
 			if (err) {
 				f2fs_err(sbi, "Failed to enable quota tracking (type=%d, err=%d). Please run fsck to fix.",
 					 type, err);
 				for (type--; type >= 0; type--)
 					dquot_quota_off(sb, type);
-				set_sbi_flag(F2FS_SB(sb),
-						SBI_QUOTA_NEED_REPAIR);
+				set_sbi_flag(sbi, SBI_QUOTA_NEED_REPAIR);
 				return err;
 			}
 		}
@@ -3312,6 +3377,7 @@ int f2fs_do_quota_sync(struct super_block *sb, int type)
 	 * that userspace sees the changes.
 	 */
 	for (cnt = 0; cnt < MAXQUOTAS; cnt++) {
+		struct f2fs_lock_context lc;
 
 		if (type != -1 && cnt != type)
 			continue;
@@ -3331,13 +3397,13 @@ int f2fs_do_quota_sync(struct super_block *sb, int type)
 		 *			      block_operation
 		 *			      f2fs_down_read(quota_sem)
 		 */
-		f2fs_lock_op(sbi);
+		f2fs_lock_op(sbi, &lc);
 		f2fs_down_read(&sbi->quota_sem);
 
 		ret = f2fs_quota_sync_file(sbi, cnt);
 
 		f2fs_up_read(&sbi->quota_sem);
-		f2fs_unlock_op(sbi);
+		f2fs_unlock_op(sbi, &lc);
 
 		if (!f2fs_sb_has_quota_ino(sbi))
 			inode_unlock(dqopt->files[cnt]);
@@ -3659,7 +3725,7 @@ static struct block_device **f2fs_get_devices(struct super_block *sb,
 	if (!f2fs_is_multi_device(sbi))
 		return NULL;
 
-	devs = kmalloc_array(sbi->s_ndevs, sizeof(*devs), GFP_KERNEL);
+	devs = kmalloc_objs(*devs, sbi->s_ndevs);
 	if (!devs)
 		return ERR_PTR(-ENOMEM);
 
@@ -4268,6 +4334,10 @@ static void init_sb_info(struct f2fs_sb_info *sbi)
 	sbi->max_fragment_hole = DEF_FRAGMENT_SIZE;
 	spin_lock_init(&sbi->gc_remaining_trials_lock);
 	atomic64_set(&sbi->current_atomic_write, 0);
+	sbi->max_lock_elapsed_time = MAX_LOCK_ELAPSED_TIME;
+	sbi->adjust_lock_priority = 0;
+	sbi->lock_duration_priority = F2FS_DEFAULT_TASK_PRIORITY;
+	sbi->critical_task_priority = F2FS_CRITICAL_TASK_PRIORITY;
 
 	sbi->sum_blocksize = f2fs_sb_has_packed_ssa(sbi) ?
 		4096 : sbi->blocksize;
@@ -4287,7 +4357,6 @@ static void init_sb_info(struct f2fs_sb_info *sbi)
 	sbi->interval_time[DISCARD_TIME] = DEF_IDLE_INTERVAL;
 	sbi->interval_time[GC_TIME] = DEF_IDLE_INTERVAL;
 	sbi->interval_time[DISABLE_TIME] = DEF_DISABLE_INTERVAL;
-	sbi->interval_time[ENABLE_TIME] = DEF_ENABLE_INTERVAL;
 	sbi->interval_time[UMOUNT_DISCARD_TIMEOUT] =
 				DEF_UMOUNT_DISCARD_TIMEOUT;
 	clear_sbi_flag(sbi, SBI_NEED_FSCK);
@@ -4432,7 +4501,7 @@ static int read_raw_super_block(struct f2fs_sb_info *sbi,
 	struct f2fs_super_block *super;
 	int err = 0;
 
-	super = kzalloc(sizeof(struct f2fs_super_block), GFP_KERNEL);
+	super = kzalloc_obj(struct f2fs_super_block);
 	if (!super)
 		return -ENOMEM;
 
@@ -4869,20 +4938,20 @@ try_onemore:
 	recovery = 0;
 
 	/* allocate memory for f2fs-specific super block info */
-	sbi = kzalloc(sizeof(struct f2fs_sb_info), GFP_KERNEL);
+	sbi = kzalloc_obj(struct f2fs_sb_info);
 	if (!sbi)
 		return -ENOMEM;
 
 	sbi->sb = sb;
 
 	/* initialize locks within allocated memory */
-	init_f2fs_rwsem(&sbi->gc_lock);
+	init_f2fs_rwsem_trace(&sbi->gc_lock, sbi, LOCK_NAME_GC_LOCK);
 	mutex_init(&sbi->writepages);
-	init_f2fs_rwsem(&sbi->cp_global_sem);
-	init_f2fs_rwsem(&sbi->node_write);
-	init_f2fs_rwsem(&sbi->node_change);
+	init_f2fs_rwsem_trace(&sbi->cp_global_sem, sbi, LOCK_NAME_CP_GLOBAL);
+	init_f2fs_rwsem_trace(&sbi->node_write, sbi, LOCK_NAME_NODE_WRITE);
+	init_f2fs_rwsem_trace(&sbi->node_change, sbi, LOCK_NAME_NODE_CHANGE);
 	spin_lock_init(&sbi->stat_lock);
-	init_f2fs_rwsem(&sbi->cp_rwsem);
+	init_f2fs_rwsem_trace(&sbi->cp_rwsem, sbi, LOCK_NAME_CP_RWSEM);
 	init_f2fs_rwsem(&sbi->quota_sem);
 	init_waitqueue_head(&sbi->cp_wait);
 	spin_lock_init(&sbi->error_lock);
@@ -5440,7 +5509,7 @@ static int f2fs_init_fs_context(struct fs_context *fc)
 {
 	struct f2fs_fs_context *ctx;
 
-	ctx = kzalloc(sizeof(struct f2fs_fs_context), GFP_KERNEL);
+	ctx = kzalloc_obj(struct f2fs_fs_context);
 	if (!ctx)
 		return -ENOMEM;
 

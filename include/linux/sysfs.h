@@ -396,13 +396,13 @@ struct sysfs_ops {
 
 #ifdef CONFIG_SYSFS
 
-int __must_check sysfs_create_dir_ns(struct kobject *kobj, const void *ns);
+int __must_check sysfs_create_dir_ns(struct kobject *kobj, const struct ns_common *ns);
 void sysfs_remove_dir(struct kobject *kobj);
 int __must_check sysfs_rename_dir_ns(struct kobject *kobj, const char *new_name,
-				     const void *new_ns);
+				     const struct ns_common *new_ns);
 int __must_check sysfs_move_dir_ns(struct kobject *kobj,
 				   struct kobject *new_parent_kobj,
-				   const void *new_ns);
+				   const struct ns_common *new_ns);
 int __must_check sysfs_create_mount_point(struct kobject *parent_kobj,
 					  const char *name);
 void sysfs_remove_mount_point(struct kobject *parent_kobj,
@@ -410,7 +410,7 @@ void sysfs_remove_mount_point(struct kobject *parent_kobj,
 
 int __must_check sysfs_create_file_ns(struct kobject *kobj,
 				      const struct attribute *attr,
-				      const void *ns);
+				      const struct ns_common *ns);
 int __must_check sysfs_create_files(struct kobject *kobj,
 				   const struct attribute * const *attr);
 int __must_check sysfs_chmod_file(struct kobject *kobj,
@@ -419,7 +419,7 @@ struct kernfs_node *sysfs_break_active_protection(struct kobject *kobj,
 						  const struct attribute *attr);
 void sysfs_unbreak_active_protection(struct kernfs_node *kn);
 void sysfs_remove_file_ns(struct kobject *kobj, const struct attribute *attr,
-			  const void *ns);
+			  const struct ns_common *ns);
 bool sysfs_remove_file_self(struct kobject *kobj, const struct attribute *attr);
 void sysfs_remove_files(struct kobject *kobj, const struct attribute * const *attr);
 
@@ -437,7 +437,7 @@ void sysfs_remove_link(struct kobject *kobj, const char *name);
 
 int sysfs_rename_link_ns(struct kobject *kobj, struct kobject *target,
 			 const char *old_name, const char *new_name,
-			 const void *new_ns);
+			 const struct ns_common *new_ns);
 
 void sysfs_delete_link(struct kobject *dir, struct kobject *targ,
 			const char *name);
@@ -502,7 +502,7 @@ ssize_t sysfs_bin_attr_simple_read(struct file *file, struct kobject *kobj,
 
 #else /* CONFIG_SYSFS */
 
-static inline int sysfs_create_dir_ns(struct kobject *kobj, const void *ns)
+static inline int sysfs_create_dir_ns(struct kobject *kobj, const struct ns_common *ns)
 {
 	return 0;
 }
@@ -512,14 +512,14 @@ static inline void sysfs_remove_dir(struct kobject *kobj)
 }
 
 static inline int sysfs_rename_dir_ns(struct kobject *kobj,
-				      const char *new_name, const void *new_ns)
+				      const char *new_name, const struct ns_common *new_ns)
 {
 	return 0;
 }
 
 static inline int sysfs_move_dir_ns(struct kobject *kobj,
 				    struct kobject *new_parent_kobj,
-				    const void *new_ns)
+				    const struct ns_common *new_ns)
 {
 	return 0;
 }
@@ -537,7 +537,7 @@ static inline void sysfs_remove_mount_point(struct kobject *parent_kobj,
 
 static inline int sysfs_create_file_ns(struct kobject *kobj,
 				       const struct attribute *attr,
-				       const void *ns)
+				       const struct ns_common *ns)
 {
 	return 0;
 }
@@ -567,7 +567,7 @@ static inline void sysfs_unbreak_active_protection(struct kernfs_node *kn)
 
 static inline void sysfs_remove_file_ns(struct kobject *kobj,
 					const struct attribute *attr,
-					const void *ns)
+					const struct ns_common *ns)
 {
 }
 
@@ -612,7 +612,7 @@ static inline void sysfs_remove_link(struct kobject *kobj, const char *name)
 
 static inline int sysfs_rename_link_ns(struct kobject *k, struct kobject *t,
 				       const char *old_name,
-				       const char *new_name, const void *ns)
+				       const char *new_name, const struct ns_common *ns)
 {
 	return 0;
 }
@@ -807,5 +807,18 @@ static inline void sysfs_put(struct kernfs_node *kn)
 {
 	kernfs_put(kn);
 }
+
+/* Permissions on a sysfs file: you didn't miss the 0 prefix did you? */
+#define VERIFY_OCTAL_PERMISSIONS(perms)						\
+	(BUILD_BUG_ON_ZERO((perms) < 0) +					\
+	 BUILD_BUG_ON_ZERO((perms) > 0777) +					\
+	 /* USER_READABLE >= GROUP_READABLE >= OTHER_READABLE */		\
+	 BUILD_BUG_ON_ZERO((((perms) >> 6) & 4) < (((perms) >> 3) & 4)) +	\
+	 BUILD_BUG_ON_ZERO((((perms) >> 3) & 4) < ((perms) & 4)) +		\
+	 /* USER_WRITABLE >= GROUP_WRITABLE */					\
+	 BUILD_BUG_ON_ZERO((((perms) >> 6) & 2) < (((perms) >> 3) & 2)) +	\
+	 /* OTHER_WRITABLE?  Generally considered a bad idea. */		\
+	 BUILD_BUG_ON_ZERO((perms) & 2) +					\
+	 (perms))
 
 #endif /* _SYSFS_H_ */

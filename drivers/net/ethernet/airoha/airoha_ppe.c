@@ -780,7 +780,7 @@ airoha_ppe_foe_commit_subflow_entry(struct airoha_ppe *ppe,
 	if (!hwe_p)
 		return -EINVAL;
 
-	f = kzalloc(sizeof(*f), GFP_ATOMIC);
+	f = kzalloc_obj(*f, GFP_ATOMIC);
 	if (!f)
 		return -ENOMEM;
 
@@ -1175,7 +1175,7 @@ static int airoha_ppe_flow_offload_replace(struct airoha_eth *eth,
 			return err;
 	}
 
-	e = kzalloc(sizeof(*e), GFP_KERNEL);
+	e = kzalloc_obj(*e);
 	if (!e)
 		return -ENOMEM;
 
@@ -1367,6 +1367,13 @@ int airoha_ppe_setup_tc_block_cb(struct airoha_ppe_dev *dev, void *type_data)
 	struct airoha_ppe *ppe = dev->priv;
 	struct airoha_eth *eth = ppe->eth;
 	int err = 0;
+
+	/* Netfilter flowtable can try to offload flower rules while not all
+	 * the net_devices are registered or initialized. Delay offloading
+	 * until all net_devices are registered in the system.
+	 */
+	if (!test_bit(DEV_STATE_REGISTERED, &eth->state))
+		return -EBUSY;
 
 	mutex_lock(&flow_offload_mutex);
 

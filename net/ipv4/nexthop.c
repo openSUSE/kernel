@@ -116,7 +116,7 @@ static int nh_notifier_single_info_init(struct nh_notifier_info *info,
 	struct nh_info *nhi = rtnl_dereference(nh->nh_info);
 
 	info->type = NH_NOTIFIER_INFO_TYPE_SINGLE;
-	info->nh = kzalloc(sizeof(*info->nh), GFP_KERNEL);
+	info->nh = kzalloc_obj(*info->nh);
 	if (!info->nh)
 		return -ENOMEM;
 
@@ -137,8 +137,7 @@ static int nh_notifier_mpath_info_init(struct nh_notifier_info *info,
 	int i;
 
 	info->type = NH_NOTIFIER_INFO_TYPE_GRP;
-	info->nh_grp = kzalloc(struct_size(info->nh_grp, nh_entries, num_nh),
-			       GFP_KERNEL);
+	info->nh_grp = kzalloc_flex(*info->nh_grp, nh_entries, num_nh);
 	if (!info->nh_grp)
 		return -ENOMEM;
 
@@ -318,8 +317,7 @@ static int nh_notifier_res_bucket_info_init(struct nh_notifier_info *info,
 		return err;
 
 	info->type = NH_NOTIFIER_INFO_TYPE_RES_BUCKET;
-	info->nh_res_bucket = kzalloc(sizeof(*info->nh_res_bucket),
-				      GFP_KERNEL);
+	info->nh_res_bucket = kzalloc_obj(*info->nh_res_bucket);
 	if (!info->nh_res_bucket)
 		return -ENOMEM;
 
@@ -535,7 +533,7 @@ static struct nexthop *nexthop_alloc(void)
 {
 	struct nexthop *nh;
 
-	nh = kzalloc(sizeof(struct nexthop), GFP_KERNEL);
+	nh = kzalloc_obj(struct nexthop);
 	if (nh) {
 		INIT_LIST_HEAD(&nh->fi_list);
 		INIT_LIST_HEAD(&nh->f6i_list);
@@ -550,7 +548,7 @@ static struct nh_group *nexthop_grp_alloc(u16 num_nh)
 {
 	struct nh_group *nhg;
 
-	nhg = kzalloc(struct_size(nhg, nh_entries, num_nh), GFP_KERNEL);
+	nhg = kzalloc_flex(*nhg, nh_entries, num_nh);
 	if (nhg)
 		nhg->num_nh = num_nh;
 
@@ -715,9 +713,8 @@ static int nh_notifier_grp_hw_stats_init(struct nh_notifier_info *info,
 
 	info->id = nh->id;
 	info->type = NH_NOTIFIER_INFO_TYPE_GRP_HW_STATS;
-	info->nh_grp_hw_stats = kzalloc(struct_size(info->nh_grp_hw_stats,
-						    stats, nhg->num_nh),
-					GFP_KERNEL);
+	info->nh_grp_hw_stats = kzalloc_flex(*info->nh_grp_hw_stats, stats,
+					     nhg->num_nh);
 	if (!info->nh_grp_hw_stats)
 		return -ENOMEM;
 
@@ -905,8 +902,7 @@ static int nla_put_nh_group(struct sk_buff *skb, struct nexthop *nh,
 		goto nla_put_failure;
 
 	if (op_flags & NHA_OP_FLAG_DUMP_STATS &&
-	    (nla_put_u32(skb, NHA_HW_STATS_ENABLE, nhg->hw_stats) ||
-	     nla_put_nh_group_stats(skb, nh, op_flags)))
+	    nla_put_nh_group_stats(skb, nh, op_flags))
 		goto nla_put_failure;
 
 	return 0;
@@ -1007,15 +1003,31 @@ static size_t nh_nlmsg_size_grp_res(struct nh_group *nhg)
 		nla_total_size_64bit(8);/* NHA_RES_GROUP_UNBALANCED_TIME */
 }
 
-static size_t nh_nlmsg_size_grp(struct nexthop *nh)
+static size_t nh_nlmsg_size_grp(struct nexthop *nh, u32 op_flags)
 {
 	struct nh_group *nhg = rtnl_dereference(nh->nh_grp);
 	size_t sz = sizeof(struct nexthop_grp) * nhg->num_nh;
 	size_t tot = nla_total_size(sz) +
-		nla_total_size(2); /* NHA_GROUP_TYPE */
+		nla_total_size(2) +	/* NHA_GROUP_TYPE */
+		nla_total_size(0);	/* NHA_FDB */
 
 	if (nhg->resilient)
 		tot += nh_nlmsg_size_grp_res(nhg);
+
+	if (op_flags & NHA_OP_FLAG_DUMP_STATS) {
+		tot += nla_total_size(0) +	  /* NHA_GROUP_STATS */
+		       nla_total_size(4);	  /* NHA_HW_STATS_ENABLE */
+		tot += nhg->num_nh *
+		       (nla_total_size(0) +	  /* NHA_GROUP_STATS_ENTRY */
+			nla_total_size(4) +	  /* NHA_GROUP_STATS_ENTRY_ID */
+			nla_total_size_64bit(8)); /* NHA_GROUP_STATS_ENTRY_PACKETS */
+
+		if (op_flags & NHA_OP_FLAG_DUMP_HW_STATS) {
+			tot += nhg->num_nh *
+			       nla_total_size_64bit(8); /* NHA_GROUP_STATS_ENTRY_PACKETS_HW */
+			tot += nla_total_size(4);	/* NHA_HW_STATS_USED */
+		}
+	}
 
 	return tot;
 }
@@ -1051,14 +1063,14 @@ static size_t nh_nlmsg_size_single(struct nexthop *nh)
 	return sz;
 }
 
-static size_t nh_nlmsg_size(struct nexthop *nh)
+static size_t nh_nlmsg_size(struct nexthop *nh, u32 op_flags)
 {
 	size_t sz = NLMSG_ALIGN(sizeof(struct nhmsg));
 
 	sz += nla_total_size(4); /* NHA_ID */
 
 	if (nh->is_group)
-		sz += nh_nlmsg_size_grp(nh) +
+		sz += nh_nlmsg_size_grp(nh, op_flags) +
 		      nla_total_size(4) +	/* NHA_OP_FLAGS */
 		      0;
 	else
@@ -1074,7 +1086,7 @@ static void nexthop_notify(int event, struct nexthop *nh, struct nl_info *info)
 	struct sk_buff *skb;
 	int err = -ENOBUFS;
 
-	skb = nlmsg_new(nh_nlmsg_size(nh), gfp_any());
+	skb = nlmsg_new(nh_nlmsg_size(nh, 0), gfp_any());
 	if (!skb)
 		goto errout;
 
@@ -2905,7 +2917,7 @@ static struct nexthop *nexthop_create(struct net *net, struct nh_config *cfg,
 	if (!nh)
 		return ERR_PTR(-ENOMEM);
 
-	nhi = kzalloc(sizeof(*nhi), GFP_KERNEL);
+	nhi = kzalloc_obj(*nhi);
 	if (!nhi) {
 		kfree(nh);
 		return ERR_PTR(-ENOMEM);
@@ -3380,15 +3392,15 @@ static int rtm_get_nexthop(struct sk_buff *in_skb, struct nlmsghdr *nlh,
 	if (err)
 		return err;
 
-	err = -ENOBUFS;
-	skb = alloc_skb(NLMSG_GOODSIZE, GFP_KERNEL);
-	if (!skb)
-		goto out;
-
 	err = -ENOENT;
 	nh = nexthop_find_by_id(net, id);
 	if (!nh)
-		goto errout_free;
+		goto out;
+
+	err = -ENOBUFS;
+	skb = nlmsg_new(nh_nlmsg_size(nh, op_flags), GFP_KERNEL);
+	if (!skb)
+		goto out;
 
 	err = nh_fill_node(skb, nh, RTM_NEWNEXTHOP, NETLINK_CB(in_skb).portid,
 			   nlh->nlmsg_seq, 0, op_flags);

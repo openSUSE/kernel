@@ -42,9 +42,16 @@ static uint64_t mqd_stride_v9(struct mqd_manager *mm,
 				struct queue_properties *q)
 {
 	if (mm->dev->kfd->cwsr_enabled &&
-	    q->type == KFD_QUEUE_TYPE_COMPUTE)
-		return ALIGN(q->ctl_stack_size, PAGE_SIZE) +
-			ALIGN(sizeof(struct v9_mqd), PAGE_SIZE);
+	    q->type == KFD_QUEUE_TYPE_COMPUTE) {
+
+		/* On gfxv9, the MQD resides in the first 4K page,
+		 * followed by the control stack. Align both to
+		 * AMDGPU_GPU_PAGE_SIZE to maintain the required 4K boundary.
+		 */
+
+		return ALIGN(ALIGN(q->ctl_stack_size, AMDGPU_GPU_PAGE_SIZE) +
+			ALIGN(sizeof(struct v9_mqd), AMDGPU_GPU_PAGE_SIZE), PAGE_SIZE);
+	}
 
 	return mm->mqd_size;
 }
@@ -106,13 +113,28 @@ static void update_cu_mask(struct mqd_manager *mm, void *mqd,
 static void set_priority(struct v9_mqd *m, struct queue_properties *q)
 {
 	m->cp_hqd_pipe_priority = pipe_priority_map[q->priority];
-	m->cp_hqd_queue_priority = q->priority;
+	/* m->cp_hqd_queue_priority = q->priority; */
 }
 
-static struct kfd_mem_obj *allocate_mqd(struct kfd_node *node,
+static bool mqd_on_vram(struct amdgpu_device *adev)
+{
+	if (adev->apu_prefer_gtt)
+		return false;
+
+	switch (amdgpu_ip_version(adev, GC_HWIP, 0)) {
+	case IP_VERSION(9, 4, 3):
+	case IP_VERSION(9, 5, 0):
+		return true;
+	default:
+		return false;
+	}
+}
+
+static struct kfd_mem_obj *allocate_mqd(struct mqd_manager *mm,
 		struct queue_properties *q)
 {
 	int retval;
+	struct kfd_node *node = mm->dev;
 	struct kfd_mem_obj *mqd_mem_obj = NULL;
 
 	/* For V9 only, due to a HW bug, the control stack of a user mode
@@ -132,14 +154,16 @@ static struct kfd_mem_obj *allocate_mqd(struct kfd_node *node,
 	 * amdgpu memory functions to do so.
 	 */
 	if (node->kfd->cwsr_enabled && (q->type == KFD_QUEUE_TYPE_COMPUTE)) {
-		mqd_mem_obj = kzalloc(sizeof(struct kfd_mem_obj), GFP_KERNEL);
+		mqd_mem_obj = kzalloc_obj(struct kfd_mem_obj);
 		if (!mqd_mem_obj)
 			return NULL;
-		retval = amdgpu_amdkfd_alloc_gtt_mem(node->adev,
-			(ALIGN(q->ctl_stack_size, PAGE_SIZE) +
-			ALIGN(sizeof(struct v9_mqd), PAGE_SIZE)) *
+		retval = amdgpu_amdkfd_alloc_kernel_mem(node->adev,
+			(ALIGN(ALIGN(q->ctl_stack_size, AMDGPU_GPU_PAGE_SIZE) +
+			ALIGN(sizeof(struct v9_mqd), AMDGPU_GPU_PAGE_SIZE), PAGE_SIZE)) *
 			NUM_XCC(node->xcc_mask),
-			&(mqd_mem_obj->gtt_mem),
+			mqd_on_vram(node->adev) ? AMDGPU_GEM_DOMAIN_VRAM :
+						  AMDGPU_GEM_DOMAIN_GTT,
+			&(mqd_mem_obj->mem),
 			&(mqd_mem_obj->gpu_addr),
 			(void *)&(mqd_mem_obj->cpu_ptr), true);
 
@@ -343,7 +367,7 @@ static int get_wave_state(struct mqd_manager *mm, void *mqd,
 	struct kfd_context_save_area_header header;
 
 	/* Control stack is located one page after MQD. */
-	void *mqd_ctl_stack = (void *)((uintptr_t)mqd + PAGE_SIZE);
+	void *mqd_ctl_stack = (void *)((uintptr_t)mqd + AMDGPU_GPU_PAGE_SIZE);
 
 	m = get_mqd(mqd);
 
@@ -380,7 +404,7 @@ static void checkpoint_mqd(struct mqd_manager *mm, void *mqd, void *mqd_dst, voi
 {
 	struct v9_mqd *m;
 	/* Control stack is located one page after MQD. */
-	void *ctl_stack = (void *)((uintptr_t)mqd + PAGE_SIZE);
+	void *ctl_stack = (void *)((uintptr_t)mqd + AMDGPU_GPU_PAGE_SIZE);
 
 	m = get_mqd(mqd);
 
@@ -426,7 +450,7 @@ static void restore_mqd(struct mqd_manager *mm, void **mqd,
 		*gart_addr = addr;
 
 	/* Control stack is located one page after MQD. */
-	ctl_stack = (void *)((uintptr_t)*mqd + PAGE_SIZE);
+	ctl_stack = (void *)((uintptr_t)*mqd + AMDGPU_GPU_PAGE_SIZE);
 	memcpy(ctl_stack, ctl_stack_src, ctl_stack_size);
 
 	m->cp_hqd_pq_doorbell_control =
@@ -596,7 +620,7 @@ static int hiq_load_mqd_kiq_v9_4_3(struct mqd_manager *mm, void *mqd,
 			struct queue_properties *p, struct mm_struct *mms)
 {
 	uint32_t xcc_mask = mm->dev->xcc_mask;
-	int xcc_id, err, inst = 0;
+	int xcc_id, err = 0, inst = 0;
 	void *xcc_mqd;
 	uint64_t hiq_mqd_size = kfd_hiq_mqd_stride(mm->dev);
 
@@ -620,7 +644,7 @@ static int destroy_hiq_mqd_v9_4_3(struct mqd_manager *mm, void *mqd,
 			uint32_t pipe_id, uint32_t queue_id)
 {
 	uint32_t xcc_mask = mm->dev->xcc_mask;
-	int xcc_id, err, inst = 0;
+	int xcc_id, err = 0, inst = 0;
 	uint64_t hiq_mqd_size = kfd_hiq_mqd_stride(mm->dev);
 	struct v9_mqd *m;
 	u32 doorbell_off;
@@ -665,8 +689,8 @@ static void get_xcc_mqd(struct kfd_mem_obj *mqd_mem_obj,
 			       struct kfd_mem_obj *xcc_mqd_mem_obj,
 			       uint64_t offset)
 {
-	xcc_mqd_mem_obj->gtt_mem = (offset == 0) ?
-					mqd_mem_obj->gtt_mem : NULL;
+	xcc_mqd_mem_obj->mem = (offset == 0) ?
+					mqd_mem_obj->mem : NULL;
 	xcc_mqd_mem_obj->gpu_addr = mqd_mem_obj->gpu_addr + offset;
 	xcc_mqd_mem_obj->cpu_ptr = (uint32_t *)((uintptr_t)mqd_mem_obj->cpu_ptr
 						+ offset);
@@ -738,6 +762,9 @@ static void init_mqd_v9_4_3(struct mqd_manager *mm, void **mqd,
 			*gart_addr = xcc_gart_addr;
 		}
 	}
+
+	if (mqd_on_vram(mm->dev->adev))
+		amdgpu_device_flush_hdp(mm->dev->adev, NULL);
 }
 
 static void update_mqd_v9_4_3(struct mqd_manager *mm, void *mqd,
@@ -774,6 +801,9 @@ static void update_mqd_v9_4_3(struct mqd_manager *mm, void *mqd,
 			m->pm4_target_xcc_in_xcp = q->pm4_target_xcc;
 		}
 	}
+
+	if (mqd_on_vram(mm->dev->adev))
+		amdgpu_device_flush_hdp(mm->dev->adev, NULL);
 }
 
 static void restore_mqd_v9_4_3(struct mqd_manager *mm, void **mqd,
@@ -812,13 +842,16 @@ static void restore_mqd_v9_4_3(struct mqd_manager *mm, void **mqd,
 					(uint8_t *)ctl_stack_src + xcc *  mqd_ctl_stack_size,
 					mqd_ctl_stack_size);
 	}
+
+	if (mqd_on_vram(mm->dev->adev))
+		amdgpu_device_flush_hdp(mm->dev->adev, NULL);
 }
 static int destroy_mqd_v9_4_3(struct mqd_manager *mm, void *mqd,
 		   enum kfd_preempt_type type, unsigned int timeout,
 		   uint32_t pipe_id, uint32_t queue_id)
 {
 	uint32_t xcc_mask = mm->dev->xcc_mask;
-	int xcc_id, err, inst = 0;
+	int xcc_id, err = 0, inst = 0;
 	void *xcc_mqd;
 	struct v9_mqd *m;
 	uint64_t mqd_offset;
@@ -848,7 +881,7 @@ static int load_mqd_v9_4_3(struct mqd_manager *mm, void *mqd,
 	/* AQL write pointer counts in 64B packets, PM4/CP counts in dwords. */
 	uint32_t wptr_shift = (p->format == KFD_QUEUE_FORMAT_AQL ? 4 : 0);
 	uint32_t xcc_mask = mm->dev->xcc_mask;
-	int xcc_id, err, inst = 0;
+	int xcc_id, err = 0, inst = 0;
 	void *xcc_mqd;
 	uint64_t mqd_stride_size = mm->mqd_stride(mm, p);
 
@@ -934,7 +967,7 @@ struct mqd_manager *mqd_manager_init_v9(enum KFD_MQD_TYPE type,
 	if (WARN_ON(type >= KFD_MQD_TYPE_MAX))
 		return NULL;
 
-	mqd = kzalloc(sizeof(*mqd), GFP_KERNEL);
+	mqd = kzalloc_obj(*mqd);
 	if (!mqd)
 		return NULL;
 

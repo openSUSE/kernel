@@ -448,7 +448,7 @@ static int alloc_empty_pages(struct vm_area_struct *vma, int numpgs)
 	int rc;
 	struct page **pages;
 
-	pages = kvcalloc(numpgs, sizeof(pages[0]), GFP_KERNEL);
+	pages = kvzalloc_objs(pages[0], numpgs);
 	if (pages == NULL)
 		return -ENOMEM;
 
@@ -668,7 +668,7 @@ static long privcmd_ioctl_dm_op(struct file *file, void __user *udata)
 	if (kdata.num > privcmd_dm_op_max_num)
 		return -E2BIG;
 
-	kbufs = kcalloc(kdata.num, sizeof(*kbufs), GFP_KERNEL);
+	kbufs = kzalloc_objs(*kbufs, kdata.num);
 	if (!kbufs)
 		return -ENOMEM;
 
@@ -695,13 +695,13 @@ static long privcmd_ioctl_dm_op(struct file *file, void __user *udata)
 			PAGE_SIZE);
 	}
 
-	pages = kcalloc(nr_pages, sizeof(*pages), GFP_KERNEL);
+	pages = kzalloc_objs(*pages, nr_pages);
 	if (!pages) {
 		rc = -ENOMEM;
 		goto out;
 	}
 
-	xbufs = kcalloc(kdata.num, sizeof(*xbufs), GFP_KERNEL);
+	xbufs = kzalloc_objs(*xbufs, kdata.num);
 	if (!xbufs) {
 		rc = -ENOMEM;
 		goto out;
@@ -788,7 +788,7 @@ static long privcmd_ioctl_mmap_resource(struct file *file,
 		goto out;
 	}
 
-	pfns = kcalloc(kdata.num, sizeof(*pfns), GFP_KERNEL | __GFP_NOWARN);
+	pfns = kzalloc_objs(*pfns, kdata.num, GFP_KERNEL | __GFP_NOWARN);
 	if (!pfns) {
 		rc = -ENOMEM;
 		goto out;
@@ -1106,7 +1106,8 @@ static long privcmd_ioctl_irqfd(struct file *file, void __user *udata)
 
 static int privcmd_irqfd_init(void)
 {
-	irqfd_cleanup_wq = alloc_workqueue("privcmd-irqfd-cleanup", 0, 0);
+	irqfd_cleanup_wq = alloc_workqueue("privcmd-irqfd-cleanup", WQ_PERCPU,
+					   0);
 	if (!irqfd_cleanup_wq)
 		return -ENOMEM;
 
@@ -1369,7 +1370,7 @@ static int privcmd_ioeventfd_assign(struct privcmd_ioeventfd *ioeventfd)
 	if (!ioeventfd->vcpus || ioeventfd->vcpus > 4096)
 		return -EINVAL;
 
-	kioeventfd = kzalloc(sizeof(*kioeventfd), GFP_KERNEL);
+	kioeventfd = kzalloc_obj(*kioeventfd);
 	if (!kioeventfd)
 		return -ENOMEM;
 
@@ -1582,7 +1583,7 @@ static int privcmd_open(struct inode *ino, struct file *file)
 	if (wait_event_interruptible(restrict_wait_wq, !restrict_wait) < 0)
 		return -EINTR;
 
-	data = kzalloc(sizeof(*data), GFP_KERNEL);
+	data = kzalloc_obj(*data);
 	if (!data)
 		return -ENOMEM;
 

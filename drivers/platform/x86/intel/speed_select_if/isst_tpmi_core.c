@@ -36,7 +36,7 @@
 
 /* Supported SST hardware version by this driver */
 #define ISST_MAJOR_VERSION	0
-#define ISST_MINOR_VERSION	2
+#define ISST_MINOR_VERSION	3
 
 /*
  * Used to indicate if value read from MMIO needs to get multiplied
@@ -615,7 +615,7 @@ static long isst_if_core_power_state(void __user *argp)
 		return -EINVAL;
 
 	if (core_power.get_set) {
-		if (power_domain_info->write_blocked)
+		if (power_domain_info->write_blocked || !capable(CAP_SYS_ADMIN))
 			return -EPERM;
 
 		_write_cp_info("cp_enable", core_power.enable, SST_CP_CONTROL_OFFSET,
@@ -662,7 +662,7 @@ static long isst_if_clos_param(void __user *argp)
 		return -EINVAL;
 
 	if (clos_param.get_set) {
-		if (power_domain_info->write_blocked)
+		if (power_domain_info->write_blocked || !capable(CAP_SYS_ADMIN))
 			return -EPERM;
 
 		_write_cp_info("clos.min_freq", clos_param.min_freq_mhz,
@@ -754,7 +754,8 @@ static long isst_if_clos_assoc(void __user *argp)
 
 		power_domain_info = &sst_inst->power_domain_info[part][punit_id];
 
-		if (assoc_cmds.get_set && power_domain_info->write_blocked)
+		if (assoc_cmds.get_set && (power_domain_info->write_blocked ||
+					   !capable(CAP_SYS_ADMIN)))
 			return -EPERM;
 
 		offset = SST_CLOS_ASSOC_0_OFFSET +
@@ -931,7 +932,7 @@ static int isst_if_set_perf_level(void __user *argp)
 	if (!power_domain_info)
 		return -EINVAL;
 
-	if (power_domain_info->write_blocked)
+	if (power_domain_info->write_blocked || !capable(CAP_SYS_ADMIN))
 		return -EPERM;
 
 	if (!(power_domain_info->pp_header.allowed_level_mask & BIT(perf_level.level)))
@@ -991,7 +992,7 @@ static int isst_if_set_perf_feature(void __user *argp)
 	if (!power_domain_info)
 		return -EINVAL;
 
-	if (power_domain_info->write_blocked)
+	if (power_domain_info->write_blocked || !capable(CAP_SYS_ADMIN))
 		return -EPERM;
 
 	_write_pp_info("perf_feature", perf_feature.feature, SST_PP_CONTROL_OFFSET,
@@ -1460,6 +1461,8 @@ static int isst_if_get_turbo_freq_info(void __user *argp)
 					    SST_MUL_FACTOR_FREQ)
 	}
 
+	memset(turbo_freq.bucket_core_counts, 0, sizeof(turbo_freq.bucket_core_counts));
+
 	if (feature_rev >= 2) {
 		bool has_tf_info_8 = false;
 
@@ -1605,7 +1608,7 @@ int tpmi_sst_dev_add(struct auxiliary_device *auxdev)
 		 * devm_* allocation here as each partition is a
 		 * different device, which can be unbound.
 		 */
-		tpmi_sst = kzalloc(sizeof(*tpmi_sst), GFP_KERNEL);
+		tpmi_sst = kzalloc_obj(*tpmi_sst);
 		if (!tpmi_sst) {
 			ret = -ENOMEM;
 			goto unlock_exit;
@@ -1723,6 +1726,9 @@ void tpmi_sst_dev_remove(struct auxiliary_device *auxdev)
 }
 EXPORT_SYMBOL_NS_GPL(tpmi_sst_dev_remove, "INTEL_TPMI_SST");
 
+#define SST_PP_CAP_CP_ENABLE	BIT(0)
+#define SST_PP_CAP_PP_ENABLE	BIT(1)
+
 void tpmi_sst_dev_suspend(struct auxiliary_device *auxdev)
 {
 	struct tpmi_sst_struct *tpmi_sst = auxiliary_get_drvdata(auxdev);
@@ -1743,12 +1749,19 @@ void tpmi_sst_dev_suspend(struct auxiliary_device *auxdev)
 		if (!pd_info || !pd_info->sst_base)
 			continue;
 
+		if (!(pd_info->sst_header.cap_mask & SST_PP_CAP_CP_ENABLE))
+			goto process_pp_suspend;
+
 		cp_base = pd_info->sst_base + pd_info->sst_header.cp_offset;
 		pd_info->saved_sst_cp_control = readq(cp_base + SST_CP_CONTROL_OFFSET);
 		memcpy_fromio(pd_info->saved_clos_configs, cp_base + SST_CLOS_CONFIG_0_OFFSET,
 			      sizeof(pd_info->saved_clos_configs));
 		memcpy_fromio(pd_info->saved_clos_assocs, cp_base + SST_CLOS_ASSOC_0_OFFSET,
 			      sizeof(pd_info->saved_clos_assocs));
+
+process_pp_suspend:
+		if (!(pd_info->sst_header.cap_mask & SST_PP_CAP_PP_ENABLE))
+			continue;
 
 		pd_info->saved_pp_control = readq(pd_info->sst_base +
 						  pd_info->sst_header.pp_offset +
@@ -1777,12 +1790,19 @@ void tpmi_sst_dev_resume(struct auxiliary_device *auxdev)
 		if (!pd_info || !pd_info->sst_base)
 			continue;
 
+		if (!(pd_info->sst_header.cap_mask & SST_PP_CAP_CP_ENABLE))
+			goto process_pp_resume;
+
 		cp_base = pd_info->sst_base + pd_info->sst_header.cp_offset;
 		writeq(pd_info->saved_sst_cp_control, cp_base + SST_CP_CONTROL_OFFSET);
 		memcpy_toio(cp_base + SST_CLOS_CONFIG_0_OFFSET, pd_info->saved_clos_configs,
 			    sizeof(pd_info->saved_clos_configs));
 		memcpy_toio(cp_base + SST_CLOS_ASSOC_0_OFFSET, pd_info->saved_clos_assocs,
 			    sizeof(pd_info->saved_clos_assocs));
+
+process_pp_resume:
+		if (!(pd_info->sst_header.cap_mask & SST_PP_CAP_PP_ENABLE))
+			continue;
 
 		writeq(pd_info->saved_pp_control, power_domain_info->sst_base +
 		       pd_info->sst_header.pp_offset + SST_PP_CONTROL_OFFSET);
@@ -1804,9 +1824,8 @@ int tpmi_sst_init(void)
 		goto init_done;
 	}
 
-	isst_common.sst_inst = kcalloc(topology_max_packages(),
-				       sizeof(*isst_common.sst_inst),
-				       GFP_KERNEL);
+	isst_common.sst_inst = kzalloc_objs(*isst_common.sst_inst,
+					    topology_max_packages());
 	if (!isst_common.sst_inst) {
 		ret = -ENOMEM;
 		goto init_done;

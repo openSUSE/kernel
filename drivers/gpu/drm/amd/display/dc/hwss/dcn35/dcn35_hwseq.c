@@ -32,6 +32,7 @@
 #include "dce/dce_hwseq.h"
 #include "clk_mgr.h"
 #include "reg_helper.h"
+#include "dcn10/dcn10_hubbub.h"
 #include "abm.h"
 #include "hubp.h"
 #include "dchubbub.h"
@@ -52,6 +53,7 @@
 #include "dcn30/dcn30_vpg.h"
 #include "dce/dce_i2c_hw.h"
 #include "dsc.h"
+#include "dio/dcn10/dcn10_dio.h"
 #include "dcn20/dcn20_optc.h"
 #include "dcn30/dcn30_cm_common.h"
 #include "dcn31/dcn31_hwseq.h"
@@ -271,12 +273,9 @@ void dcn35_init_hw(struct dc *dc)
 		}
 	}
 
-	/* power AFMT HDMI memory TODO: may move to dis/en output save power*/
-	REG_WRITE(DIO_MEM_PWR_CTRL, 0);
-
-	// Set i2c to light sleep until engine is setup
-	if (dc->debug.enable_mem_low_power.bits.i2c)
-		REG_UPDATE(DIO_MEM_PWR_CTRL, I2C_LIGHT_SLEEP_FORCE, 0);
+	/* Power on DIO memory (AFMT HDMI) and optionally disable I2C light sleep */
+	if (dc->res_pool->dio && dc->res_pool->dio->funcs->mem_pwr_ctrl)
+		dc->res_pool->dio->funcs->mem_pwr_ctrl(dc->res_pool->dio, !dc->debug.enable_mem_low_power.bits.i2c);
 
 	if (hws->funcs.setup_hpo_hw_control)
 		hws->funcs.setup_hpo_hw_control(hws, false);
@@ -287,7 +286,8 @@ void dcn35_init_hw(struct dc *dc)
 	}
 
 	if (dc->debug.disable_mem_low_power) {
-		REG_UPDATE(DC_MEM_GLOBAL_PWR_REQ_CNTL, DC_MEM_GLOBAL_PWR_REQ_DIS, 1);
+		if (dc->res_pool->dccg && dc->res_pool->dccg->funcs && dc->res_pool->dccg->funcs->enable_memory_low_power)
+			dc->res_pool->dccg->funcs->enable_memory_low_power(dc->res_pool->dccg, false);
 	}
 	if (!dcb->funcs->is_accelerated_mode(dcb) && dc->res_pool->hubbub->funcs->init_watermarks)
 		dc->res_pool->hubbub->funcs->init_watermarks(dc->res_pool->hubbub);
@@ -1631,6 +1631,7 @@ void dcn35_begin_cursor_offload_update(struct dc *dc, const struct pipe_ctx *pip
 	payload_idx = write_idx % ARRAY_SIZE(cs->offload_streams[stream_idx].payloads);
 
 	cs->offload_streams[stream_idx].payloads[payload_idx].write_idx_start = write_idx;
+	cs->offload_streams[stream_idx].payloads[payload_idx].pipe_mask = 0;
 
 	if (pipe->plane_res.hubp)
 		pipe->plane_res.hubp->cursor_offload = true;

@@ -11,10 +11,10 @@
 #include <linux/clk.h>
 #include <linux/delay.h>
 #include <linux/dmi.h>
-#include <linux/init.h>
 #include <linux/i2c.h>
-#include <linux/module.h>
+#include <linux/init.h>
 #include <linux/math64.h>
+#include <linux/module.h>
 #include <linux/regmap.h>
 #include <linux/slab.h>
 #include <sound/core.h>
@@ -24,6 +24,7 @@
 #include <sound/pcm_params.h>
 #include <sound/soc.h>
 #include <sound/tlv.h>
+
 #include "nau8821.h"
 
 #define NAU8821_QUIRK_JD_ACTIVE_HIGH			BIT(0)
@@ -806,16 +807,20 @@ nau8821_get_osr(struct nau8821 *nau8821, int stream)
 	if (stream == SNDRV_PCM_STREAM_PLAYBACK) {
 		regmap_read(nau8821->regmap, NAU8821_R2C_DAC_CTRL1, &osr);
 		osr &= NAU8821_DAC_OVERSAMPLE_MASK;
+
 		if (osr >= ARRAY_SIZE(osr_dac_sel))
 			return NULL;
+
 		return &osr_dac_sel[osr];
-	} else {
-		regmap_read(nau8821->regmap, NAU8821_R2B_ADC_RATE, &osr);
-		osr &= NAU8821_ADC_SYNC_DOWN_MASK;
-		if (osr >= ARRAY_SIZE(osr_adc_sel))
-			return NULL;
-		return &osr_adc_sel[osr];
 	}
+
+	regmap_read(nau8821->regmap, NAU8821_R2B_ADC_RATE, &osr);
+	osr &= NAU8821_ADC_SYNC_DOWN_MASK;
+
+	if (osr >= ARRAY_SIZE(osr_adc_sel))
+		return NULL;
+
+	return &osr_adc_sel[osr];
 }
 
 static int nau8821_dai_startup(struct snd_pcm_substream *substream,
@@ -868,15 +873,16 @@ static int nau8821_hw_params(struct snd_pcm_substream *substream,
 	if (ctrl_val & NAU8821_I2S_MS_MASTER) {
 		/* get the bclk and fs ratio */
 		bclk_fs = snd_soc_params_to_bclk(params) / nau8821->fs;
+
 		if (bclk_fs <= 32)
 			clk_div = 3;
 		else if (bclk_fs <= 64)
 			clk_div = 2;
 		else if (bclk_fs <= 128)
 			clk_div = 1;
-		else {
+		else
 			return -EINVAL;
-		}
+
 		regmap_update_bits(nau8821->regmap, NAU8821_R1D_I2S_PCM_CTRL2,
 			NAU8821_I2S_LRC_DIV_MASK | NAU8821_I2S_BLK_DIV_MASK,
 			(clk_div << NAU8821_I2S_LRC_DIV_SFT) | clk_div);
@@ -1679,11 +1685,9 @@ int nau8821_enable_jack_detect(struct snd_soc_component *component,
 	ret = devm_request_threaded_irq(nau8821->dev, nau8821->irq, NULL,
 		nau8821_interrupt, IRQF_TRIGGER_LOW | IRQF_ONESHOT,
 		"nau8821", nau8821);
-	if (ret) {
+	if (ret)
 		dev_err(nau8821->dev, "Cannot request irq %d (%d)\n",
 			nau8821->irq, ret);
-		return ret;
-	}
 
 	return ret;
 }

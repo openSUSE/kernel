@@ -84,7 +84,7 @@ int amdgpu_userq_fence_driver_alloc(struct amdgpu_device *adev,
 	unsigned long flags;
 	int r;
 
-	fence_drv = kzalloc(sizeof(*fence_drv), GFP_KERNEL);
+	fence_drv = kzalloc_obj(*fence_drv);
 	if (!fence_drv)
 		return -ENOMEM;
 
@@ -268,9 +268,8 @@ static int amdgpu_userq_fence_create(struct amdgpu_usermode_queue *userq,
 			count++;
 
 		userq_fence->fence_drv_array =
-			kvmalloc_array(count,
-				       sizeof(struct amdgpu_userq_fence_driver *),
-				       GFP_ATOMIC);
+			kvmalloc_objs(struct amdgpu_userq_fence_driver *, count,
+				      GFP_ATOMIC);
 
 		if (userq_fence->fence_drv_array) {
 			xa_for_each(&userq->fence_drv_xa, index, stored_fence_drv) {
@@ -356,6 +355,7 @@ static const struct dma_fence_ops amdgpu_userq_fence_ops = {
 /**
  * amdgpu_userq_fence_read_wptr - Read the userq wptr value
  *
+ * @adev: amdgpu_device pointer
  * @queue: user mode queue structure pointer
  * @wptr: write pointer value
  *
@@ -365,7 +365,8 @@ static const struct dma_fence_ops amdgpu_userq_fence_ops = {
  *
  * Returns wptr value on success, error on failure.
  */
-static int amdgpu_userq_fence_read_wptr(struct amdgpu_usermode_queue *queue,
+static int amdgpu_userq_fence_read_wptr(struct amdgpu_device *adev,
+					struct amdgpu_usermode_queue *queue,
 					u64 *wptr)
 {
 	struct amdgpu_bo_va_mapping *mapping;
@@ -459,12 +460,13 @@ amdgpu_userq_fence_driver_force_completion(struct amdgpu_usermode_queue *userq)
 int amdgpu_userq_signal_ioctl(struct drm_device *dev, void *data,
 			      struct drm_file *filp)
 {
+	struct amdgpu_device *adev = drm_to_adev(dev);
 	struct amdgpu_fpriv *fpriv = filp->driver_priv;
 	struct amdgpu_userq_mgr *userq_mgr = &fpriv->userq_mgr;
 	struct drm_amdgpu_userq_signal *args = data;
 	struct drm_gem_object **gobj_write = NULL;
 	struct drm_gem_object **gobj_read = NULL;
-	struct amdgpu_usermode_queue *queue;
+	struct amdgpu_usermode_queue *queue = NULL;
 	struct amdgpu_userq_fence *userq_fence;
 	struct drm_syncobj **syncobj = NULL;
 	u32 *bo_handles_write, num_write_bo_handles;
@@ -551,13 +553,13 @@ int amdgpu_userq_signal_ioctl(struct drm_device *dev, void *data,
 	}
 
 	/* Retrieve the user queue */
-	queue = xa_load(&userq_mgr->userq_mgr_xa, args->queue_id);
+	queue = amdgpu_userq_get(userq_mgr, args->queue_id);
 	if (!queue) {
 		r = -ENOENT;
 		goto put_gobj_write;
 	}
 
-	r = amdgpu_userq_fence_read_wptr(queue, &wptr);
+	r = amdgpu_userq_fence_read_wptr(adev, queue, &wptr);
 	if (r)
 		goto put_gobj_write;
 
@@ -578,6 +580,7 @@ int amdgpu_userq_signal_ioctl(struct drm_device *dev, void *data,
 
 	dma_fence_put(queue->last_fence);
 	queue->last_fence = dma_fence_get(fence);
+	amdgpu_userq_start_hang_detect_work(queue);
 	mutex_unlock(&userq_mgr->userq_mutex);
 
 	drm_exec_init(&exec, DRM_EXEC_INTERRUPTIBLE_WAIT,
@@ -645,6 +648,9 @@ free_syncobj:
 free_syncobj_handles:
 	kfree(syncobj_handles);
 
+	if (queue)
+		amdgpu_userq_put(queue);
+
 	return r;
 }
 
@@ -657,7 +663,7 @@ int amdgpu_userq_wait_ioctl(struct drm_device *dev, void *data,
 	struct drm_amdgpu_userq_wait *wait_info = data;
 	struct amdgpu_fpriv *fpriv = filp->driver_priv;
 	struct amdgpu_userq_mgr *userq_mgr = &fpriv->userq_mgr;
-	struct amdgpu_usermode_queue *waitq;
+	struct amdgpu_usermode_queue *waitq = NULL;
 	struct drm_gem_object **gobj_write;
 	struct drm_gem_object **gobj_read;
 	struct dma_fence **fences = NULL;
@@ -923,7 +929,7 @@ int amdgpu_userq_wait_ioctl(struct drm_device *dev, void *data,
 		 */
 		num_fences = dma_fence_dedup_array(fences, num_fences);
 
-		waitq = xa_load(&userq_mgr->userq_mgr_xa, wait_info->waitq_id);
+		waitq = amdgpu_userq_get(userq_mgr, wait_info->waitq_id);
 		if (!waitq) {
 			r = -EINVAL;
 			goto free_fences;
@@ -980,32 +986,14 @@ int amdgpu_userq_wait_ioctl(struct drm_device *dev, void *data,
 			r = -EFAULT;
 			goto free_fences;
 		}
-
-		kfree(fences);
-		kfree(fence_info);
 	}
 
-	drm_exec_fini(&exec);
-	for (i = 0; i < num_read_bo_handles; i++)
-		drm_gem_object_put(gobj_read[i]);
-	kfree(gobj_read);
-
-	for (i = 0; i < num_write_bo_handles; i++)
-		drm_gem_object_put(gobj_write[i]);
-	kfree(gobj_write);
-
-	kfree(timeline_points);
-	kfree(timeline_handles);
-	kfree(syncobj_handles);
-	kfree(bo_handles_write);
-	kfree(bo_handles_read);
-
-	return 0;
-
 free_fences:
-	while (num_fences-- > 0)
-		dma_fence_put(fences[num_fences]);
-	kfree(fences);
+	if (fences) {
+		while (num_fences-- > 0)
+			dma_fence_put(fences[num_fences]);
+		kfree(fences);
+	}
 free_fence_info:
 	kfree(fence_info);
 exec_fini:
@@ -1028,6 +1016,9 @@ free_bo_handles_write:
 	kfree(bo_handles_write);
 free_bo_handles_read:
 	kfree(bo_handles_read);
+
+	if (waitq)
+		amdgpu_userq_put(waitq);
 
 	return r;
 }

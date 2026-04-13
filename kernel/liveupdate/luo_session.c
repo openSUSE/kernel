@@ -119,7 +119,7 @@ static struct luo_session_global luo_session_global = {
 
 static struct luo_session *luo_session_alloc(const char *name)
 {
-	struct luo_session *session = kzalloc(sizeof(*session), GFP_KERNEL);
+	struct luo_session *session = kzalloc_obj(*session);
 
 	if (!session)
 		return ERR_PTR(-ENOMEM);
@@ -558,8 +558,13 @@ int luo_session_deserialize(void)
 		}
 
 		scoped_guard(mutex, &session->mutex) {
-			luo_file_deserialize(&session->file_set,
-					     &sh->ser[i].file_set_ser);
+			err = luo_file_deserialize(&session->file_set,
+						   &sh->ser[i].file_set_ser);
+		}
+		if (err) {
+			pr_warn("Failed to deserialize files for session [%s] %pe\n",
+				session->name, ERR_PTR(err));
+			return err;
 		}
 	}
 

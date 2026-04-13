@@ -6,6 +6,7 @@
 #include <linux/kobject.h>
 #include <linux/sunrpc/addr.h>
 #include <linux/sunrpc/xprtsock.h>
+#include <net/net_namespace.h>
 
 #include "sysfs.h"
 
@@ -48,7 +49,7 @@ static struct kobject *rpc_sysfs_object_alloc(const char *name,
 {
 	struct kobject *kobj;
 
-	kobj = kzalloc(sizeof(*kobj), GFP_KERNEL);
+	kobj = kzalloc_obj(*kobj);
 	if (kobj) {
 		kobj->kset = kset;
 		if (kobject_init_and_add(kobj, &rpc_sysfs_object_type,
@@ -397,7 +398,7 @@ static ssize_t rpc_sysfs_xprt_dstaddr_store(struct kobject *kobj,
 	dst_addr = kstrndup(buf, buf_len, GFP_KERNEL);
 	if (!dst_addr)
 		goto out_err;
-	saved_addr = kzalloc(sizeof(*saved_addr), GFP_KERNEL);
+	saved_addr = kzalloc_obj(*saved_addr);
 	if (!saved_addr)
 		goto out_err_free;
 	saved_addr->addr =
@@ -553,20 +554,22 @@ static void rpc_sysfs_xprt_release(struct kobject *kobj)
 	kfree(xprt);
 }
 
-static const void *rpc_sysfs_client_namespace(const struct kobject *kobj)
+static const struct ns_common *rpc_sysfs_client_namespace(const struct kobject *kobj)
 {
-	return container_of(kobj, struct rpc_sysfs_client, kobject)->net;
+	return to_ns_common(container_of(kobj, struct rpc_sysfs_client,
+					 kobject)->net);
 }
 
-static const void *rpc_sysfs_xprt_switch_namespace(const struct kobject *kobj)
+static const struct ns_common *rpc_sysfs_xprt_switch_namespace(const struct kobject *kobj)
 {
-	return container_of(kobj, struct rpc_sysfs_xprt_switch, kobject)->net;
+	return to_ns_common(container_of(kobj, struct rpc_sysfs_xprt_switch,
+					 kobject)->net);
 }
 
-static const void *rpc_sysfs_xprt_namespace(const struct kobject *kobj)
+static const struct ns_common *rpc_sysfs_xprt_namespace(const struct kobject *kobj)
 {
-	return container_of(kobj, struct rpc_sysfs_xprt,
-			    kobject)->xprt->xprt_net;
+	return to_ns_common(container_of(kobj, struct rpc_sysfs_xprt,
+					 kobject)->xprt->xprt_net);
 }
 
 static struct kobj_attribute rpc_sysfs_clnt_version = __ATTR(rpc_version,
@@ -663,7 +666,7 @@ static struct rpc_sysfs_client *rpc_sysfs_client_alloc(struct kobject *parent,
 {
 	struct rpc_sysfs_client *p;
 
-	p = kzalloc(sizeof(*p), GFP_KERNEL);
+	p = kzalloc_obj(*p);
 	if (p) {
 		p->net = net;
 		p->kobject.kset = rpc_sunrpc_kset;
@@ -683,7 +686,7 @@ rpc_sysfs_xprt_switch_alloc(struct kobject *parent,
 {
 	struct rpc_sysfs_xprt_switch *p;
 
-	p = kzalloc(sizeof(*p), gfp_flags);
+	p = kzalloc_obj(*p, gfp_flags);
 	if (p) {
 		p->net = net;
 		p->kobject.kset = rpc_sunrpc_kset;
@@ -703,7 +706,7 @@ static struct rpc_sysfs_xprt *rpc_sysfs_xprt_alloc(struct kobject *parent,
 {
 	struct rpc_sysfs_xprt *p;
 
-	p = kzalloc(sizeof(*p), gfp_flags);
+	p = kzalloc_obj(*p, gfp_flags);
 	if (!p)
 		goto out;
 	p->kobject.kset = rpc_sunrpc_kset;

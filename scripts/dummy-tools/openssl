@@ -1,0 +1,8 @@
+#!/bin/sh
+
+# called from certs/Kconfig via scripts/openssl_supports_ml_dsa.sh
+if [ x"$1" = x"list" -a x"$2" = x"-key-managers" ]; then
+   echo "ML-DSA-87"
+   exit 0
+fi
+exit 1

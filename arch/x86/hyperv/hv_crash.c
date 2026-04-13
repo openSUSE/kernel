@@ -199,20 +199,20 @@ static void hv_hvcrash_ctxt_save(void)
 {
 	struct hv_crash_ctxt *ctxt = &hv_crash_ctxt;
 
-	asm volatile("movq %%rsp,%0" : "=m"(ctxt->rsp));
+	ctxt->rsp = current_stack_pointer;
 
 	ctxt->cr0 = native_read_cr0();
 	ctxt->cr4 = native_read_cr4();
 
-	asm volatile("movq %%cr2, %0" : "=a"(ctxt->cr2));
-	asm volatile("movq %%cr8, %0" : "=a"(ctxt->cr8));
+	asm volatile("movq %%cr2, %0" : "=r"(ctxt->cr2));
+	asm volatile("movq %%cr8, %0" : "=r"(ctxt->cr8));
 
-	asm volatile("movl %%cs, %%eax" : "=a"(ctxt->cs));
-	asm volatile("movl %%ss, %%eax" : "=a"(ctxt->ss));
-	asm volatile("movl %%ds, %%eax" : "=a"(ctxt->ds));
-	asm volatile("movl %%es, %%eax" : "=a"(ctxt->es));
-	asm volatile("movl %%fs, %%eax" : "=a"(ctxt->fs));
-	asm volatile("movl %%gs, %%eax" : "=a"(ctxt->gs));
+	asm volatile("movw %%cs, %0" : "=m"(ctxt->cs));
+	asm volatile("movw %%ss, %0" : "=m"(ctxt->ss));
+	asm volatile("movw %%ds, %0" : "=m"(ctxt->ds));
+	asm volatile("movw %%es, %0" : "=m"(ctxt->es));
+	asm volatile("movw %%fs, %0" : "=m"(ctxt->fs));
+	asm volatile("movw %%gs, %0" : "=m"(ctxt->gs));
 
 	native_store_gdt(&ctxt->gdtr);
 	store_idt(&ctxt->idtr);
@@ -283,7 +283,6 @@ static void hv_notify_prepare_hyp(void)
 static noinline __noclone void crash_nmi_callback(struct pt_regs *regs)
 {
 	struct hv_input_disable_hyp_ex *input;
-	u64 status;
 	int msecs = 1000, ccpu = smp_processor_id();
 
 	if (ccpu == 0) {
@@ -317,7 +316,7 @@ static noinline __noclone void crash_nmi_callback(struct pt_regs *regs)
 	input->rip = trampoline_pa;
 	input->arg = devirt_arg;
 
-	status = hv_do_hypercall(HVCALL_DISABLE_HYP_EX, input, NULL);
+	(void)hv_do_hypercall(HVCALL_DISABLE_HYP_EX, input, NULL);
 
 	hv_panic_timeout_reboot();
 }

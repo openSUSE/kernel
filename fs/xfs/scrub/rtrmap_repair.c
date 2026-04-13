@@ -3,7 +3,7 @@
  * Copyright (c) 2020-2024 Oracle.  All Rights Reserved.
  * Author: Darrick J. Wong <djwong@kernel.org>
  */
-#include "xfs.h"
+#include "xfs_platform.h"
 #include "xfs_fs.h"
 #include "xfs_shared.h"
 #include "xfs_format.h"
@@ -111,7 +111,7 @@ xrep_setup_rtrmapbt(
 	if (error)
 		return error;
 
-	rr = kzalloc(sizeof(struct xrep_rtrmap), XCHK_GFP_FLAGS);
+	rr = kzalloc_obj(struct xrep_rtrmap, XCHK_GFP_FLAGS);
 	if (!rr)
 		return -ENOMEM;
 

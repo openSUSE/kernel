@@ -3,7 +3,7 @@
  * Copyright (C) 2018-2023 Oracle.  All Rights Reserved.
  * Author: Darrick J. Wong <djwong@kernel.org>
  */
-#include "xfs.h"
+#include "xfs_platform.h"
 #include "xfs_fs.h"
 #include "xfs_shared.h"
 #include "xfs_format.h"
@@ -933,7 +933,7 @@ xrep_bmap(
 	if (error)
 		return error;
 
-	rb = kzalloc(sizeof(struct xrep_bmap), XCHK_GFP_FLAGS);
+	rb = kzalloc_obj(struct xrep_bmap, XCHK_GFP_FLAGS);
 	if (!rb)
 		return -ENOMEM;
 	rb->sc = sc;

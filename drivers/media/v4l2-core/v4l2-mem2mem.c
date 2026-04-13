@@ -1037,8 +1037,6 @@ static int v4l2_m2m_register_entity(struct media_device *mdev,
 {
 	struct media_entity *entity;
 	struct media_pad *pads;
-	char *name;
-	unsigned int len;
 	int num_pads;
 	int ret;
 
@@ -1071,12 +1069,10 @@ static int v4l2_m2m_register_entity(struct media_device *mdev,
 		entity->info.dev.major = VIDEO_MAJOR;
 		entity->info.dev.minor = vdev->minor;
 	}
-	len = strlen(vdev->name) + 2 + strlen(m2m_entity_name[type]);
-	name = kmalloc(len, GFP_KERNEL);
-	if (!name)
+	entity->name = kasprintf(GFP_KERNEL, "%s-%s", vdev->name,
+				 m2m_entity_name[type]);
+	if (!entity->name)
 		return -ENOMEM;
-	snprintf(name, len, "%s-%s", vdev->name, m2m_entity_name[type]);
-	entity->name = name;
 	entity->function = function;
 
 	ret = media_entity_pads_init(entity, num_pads, pads);
@@ -1194,7 +1190,7 @@ struct v4l2_m2m_dev *v4l2_m2m_init(const struct v4l2_m2m_ops *m2m_ops)
 	if (!m2m_ops || WARN_ON(!m2m_ops->device_run))
 		return ERR_PTR(-EINVAL);
 
-	m2m_dev = kzalloc(sizeof *m2m_dev, GFP_KERNEL);
+	m2m_dev = kzalloc_obj(*m2m_dev);
 	if (!m2m_dev)
 		return ERR_PTR(-ENOMEM);
 
@@ -1242,7 +1238,7 @@ struct v4l2_m2m_ctx *v4l2_m2m_ctx_init(struct v4l2_m2m_dev *m2m_dev,
 	struct v4l2_m2m_queue_ctx *out_q_ctx, *cap_q_ctx;
 	int ret;
 
-	m2m_ctx = kzalloc(sizeof *m2m_ctx, GFP_KERNEL);
+	m2m_ctx = kzalloc_obj(*m2m_ctx);
 	if (!m2m_ctx)
 		return ERR_PTR(-ENOMEM);
 

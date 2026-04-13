@@ -473,8 +473,8 @@ static int fuse_dentry_init(struct dentry *dentry)
 {
 	struct fuse_dentry *fd;
 
-	fd = kzalloc(sizeof(struct fuse_dentry),
-			  GFP_KERNEL_ACCOUNT | __GFP_RECLAIMABLE);
+	fd = kzalloc_obj(struct fuse_dentry,
+			 GFP_KERNEL_ACCOUNT | __GFP_RECLAIMABLE);
 	if (!fd)
 		return -ENOMEM;
 
@@ -2429,7 +2429,6 @@ static const struct file_operations fuse_dir_operations = {
 	.fsync		= fuse_dir_fsync,
 	.unlocked_ioctl	= fuse_dir_ioctl,
 	.compat_ioctl	= fuse_dir_compat_ioctl,
-	.setlease	= simple_nosetlease,
 };
 
 static const struct inode_operations fuse_common_inode_operations = {

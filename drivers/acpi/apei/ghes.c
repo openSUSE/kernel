@@ -272,7 +272,7 @@ static struct ghes *ghes_new(struct acpi_hest_generic *generic)
 	unsigned int error_block_length;
 	int rc;
 
-	ghes = kzalloc(sizeof(*ghes), GFP_KERNEL);
+	ghes = kzalloc_obj(*ghes);
 	if (!ghes)
 		return ERR_PTR(-ENOMEM);
 
@@ -739,7 +739,6 @@ static void cxl_cper_post_prot_err(struct cxl_cper_sec_prot_err *prot_err,
 {
 #ifdef CONFIG_ACPI_APEI_PCIEAER
 	struct cxl_cper_prot_err_work_data wd;
-	u8 *dvsec_start, *cap_start;
 
 	if (cxl_cper_sec_prot_err_valid(prot_err))
 		return;
@@ -749,27 +748,8 @@ static void cxl_cper_post_prot_err(struct cxl_cper_sec_prot_err *prot_err,
 	if (!cxl_cper_prot_err_work)
 		return;
 
-	switch (prot_err->agent_type) {
-	case RCD:
-	case DEVICE:
-	case LD:
-	case FMLD:
-	case RP:
-	case DSP:
-	case USP:
-		memcpy(&wd.prot_err, prot_err, sizeof(wd.prot_err));
-
-		dvsec_start = (u8 *)(prot_err + 1);
-		cap_start = dvsec_start + prot_err->dvsec_len;
-
-		memcpy(&wd.ras_cap, cap_start, sizeof(wd.ras_cap));
-		wd.severity = cper_severity_to_aer(severity);
-		break;
-	default:
-		pr_err_ratelimited("CXL CPER invalid agent type: %d\n",
-				   prot_err->agent_type);
+	if (cxl_cper_setup_prot_err_work_data(&wd, prot_err, severity))
 		return;
-	}
 
 	if (!kfifo_put(&cxl_cper_prot_err_fifo, wd)) {
 		pr_err_ratelimited("CXL CPER kfifo overflow\n");
@@ -1418,6 +1398,71 @@ static int ghes_in_nmi_spool_from_list(struct list_head *rcu_list,
 	return ret;
 }
 
+/**
+ * ghes_has_active_errors - Check if there are active errors in error sources
+ * @ghes_list: List of GHES entries to check for active errors
+ *
+ * This function iterates through all GHES entries in the given list and
+ * checks if any of them has active error status by reading the error
+ * status register.
+ *
+ * Return: true if at least one source has active error, false otherwise.
+ */
+static bool __maybe_unused ghes_has_active_errors(struct list_head *ghes_list)
+{
+	struct ghes *ghes;
+
+	guard(rcu)();
+	list_for_each_entry_rcu(ghes, ghes_list, list) {
+		if (ghes->error_status_vaddr &&
+		    readl(ghes->error_status_vaddr))
+			return true;
+	}
+
+	return false;
+}
+
+/**
+ * ghes_map_error_status - Map error status address to virtual address
+ * @ghes: pointer to GHES structure
+ *
+ * Reads the error status address from ACPI HEST table and maps it to a virtual
+ * address that can be accessed by the kernel.
+ *
+ * Return: 0 on success, error code on failure.
+ */
+static int __maybe_unused ghes_map_error_status(struct ghes *ghes)
+{
+	struct acpi_hest_generic *g = ghes->generic;
+	u64 paddr;
+	int rc;
+
+	rc = apei_read(&paddr, &g->error_status_address);
+	if (rc)
+		return rc;
+
+	ghes->error_status_vaddr =
+		acpi_os_ioremap(paddr, sizeof(ghes->estatus->block_status));
+	if (!ghes->error_status_vaddr)
+		return -EINVAL;
+
+	return 0;
+}
+
+/**
+ * ghes_unmap_error_status - Unmap error status virtual address
+ * @ghes: pointer to GHES structure
+ *
+ * Unmaps the error status address if it was previously mapped.
+ */
+static void __maybe_unused ghes_unmap_error_status(struct ghes *ghes)
+{
+	if (ghes->error_status_vaddr) {
+		iounmap(ghes->error_status_vaddr);
+		ghes->error_status_vaddr = NULL;
+	}
+}
+
 #ifdef CONFIG_ACPI_APEI_SEA
 static LIST_HEAD(ghes_sea);
 
@@ -1430,6 +1475,9 @@ int ghes_notify_sea(void)
 	static DEFINE_RAW_SPINLOCK(ghes_notify_lock_sea);
 	int rv;
 
+	if (!ghes_has_active_errors(&ghes_sea))
+		return -ENOENT;
+
 	raw_spin_lock(&ghes_notify_lock_sea);
 	rv = ghes_in_nmi_spool_from_list(&ghes_sea, FIX_APEI_GHES_SEA);
 	raw_spin_unlock(&ghes_notify_lock_sea);
@@ -1437,11 +1485,19 @@ int ghes_notify_sea(void)
 	return rv;
 }
 
-static void ghes_sea_add(struct ghes *ghes)
+static int ghes_sea_add(struct ghes *ghes)
 {
+	int rc;
+
+	rc = ghes_map_error_status(ghes);
+	if (rc)
+		return rc;
+
 	mutex_lock(&ghes_list_mutex);
 	list_add_rcu(&ghes->list, &ghes_sea);
 	mutex_unlock(&ghes_list_mutex);
+
+	return 0;
 }
 
 static void ghes_sea_remove(struct ghes *ghes)
@@ -1449,10 +1505,11 @@ static void ghes_sea_remove(struct ghes *ghes)
 	mutex_lock(&ghes_list_mutex);
 	list_del_rcu(&ghes->list);
 	mutex_unlock(&ghes_list_mutex);
+	ghes_unmap_error_status(ghes);
 	synchronize_rcu();
 }
 #else /* CONFIG_ACPI_APEI_SEA */
-static inline void ghes_sea_add(struct ghes *ghes) { }
+static inline int ghes_sea_add(struct ghes *ghes) { return -EINVAL; }
 static inline void ghes_sea_remove(struct ghes *ghes) { }
 #endif /* CONFIG_ACPI_APEI_SEA */
 
@@ -1470,6 +1527,9 @@ static int ghes_notify_nmi(unsigned int cmd, struct pt_regs *regs)
 	static DEFINE_RAW_SPINLOCK(ghes_notify_lock_nmi);
 	int ret = NMI_DONE;
 
+	if (!ghes_has_active_errors(&ghes_nmi))
+		return ret;
+
 	if (!atomic_add_unless(&ghes_in_nmi, 1, 1))
 		return ret;
 
@@ -1482,13 +1542,21 @@ static int ghes_notify_nmi(unsigned int cmd, struct pt_regs *regs)
 	return ret;
 }
 
-static void ghes_nmi_add(struct ghes *ghes)
+static int ghes_nmi_add(struct ghes *ghes)
 {
+	int rc;
+
+	rc = ghes_map_error_status(ghes);
+	if (rc)
+		return rc;
+
 	mutex_lock(&ghes_list_mutex);
 	if (list_empty(&ghes_nmi))
 		register_nmi_handler(NMI_LOCAL, ghes_notify_nmi, 0, "ghes");
 	list_add_rcu(&ghes->list, &ghes_nmi);
 	mutex_unlock(&ghes_list_mutex);
+
+	return 0;
 }
 
 static void ghes_nmi_remove(struct ghes *ghes)
@@ -1498,6 +1566,9 @@ static void ghes_nmi_remove(struct ghes *ghes)
 	if (list_empty(&ghes_nmi))
 		unregister_nmi_handler(NMI_LOCAL, "ghes");
 	mutex_unlock(&ghes_list_mutex);
+
+	ghes_unmap_error_status(ghes);
+
 	/*
 	 * To synchronize with NMI handler, ghes can only be
 	 * freed after NMI handler finishes.
@@ -1505,7 +1576,7 @@ static void ghes_nmi_remove(struct ghes *ghes)
 	synchronize_rcu();
 }
 #else /* CONFIG_HAVE_ACPI_APEI_NMI */
-static inline void ghes_nmi_add(struct ghes *ghes) { }
+static inline int ghes_nmi_add(struct ghes *ghes) { return -EINVAL; }
 static inline void ghes_nmi_remove(struct ghes *ghes) { }
 #endif /* CONFIG_HAVE_ACPI_APEI_NMI */
 
@@ -1670,10 +1741,14 @@ static int ghes_probe(struct platform_device *ghes_dev)
 		break;
 
 	case ACPI_HEST_NOTIFY_SEA:
-		ghes_sea_add(ghes);
+		rc = ghes_sea_add(ghes);
+		if (rc)
+			goto err;
 		break;
 	case ACPI_HEST_NOTIFY_NMI:
-		ghes_nmi_add(ghes);
+		rc = ghes_nmi_add(ghes);
+		if (rc)
+			goto err;
 		break;
 	case ACPI_HEST_NOTIFY_SOFTWARE_DELEGATED:
 		rc = apei_sdei_register_ghes(ghes);
@@ -1822,6 +1897,8 @@ void __init acpi_ghes_init(void)
  */
 static struct acpi_platform_list plat_list[] = {
 	{"HPE   ", "Server  ", 0, ACPI_SIG_FADT, all_versions},
+	{"__ZX__", "EDK2    ", 3, ACPI_SIG_FADT, greater_than_or_equal},
+	{"_BYO_ ", "BYOSOFT ", 3, ACPI_SIG_FADT, greater_than_or_equal},
 	{ } /* End */
 };
 

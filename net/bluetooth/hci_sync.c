@@ -25,11 +25,11 @@ static void hci_cmd_sync_complete(struct hci_dev *hdev, u8 result, u16 opcode,
 {
 	bt_dev_dbg(hdev, "result 0x%2.2x", result);
 
-	if (hdev->req_status != HCI_REQ_PEND)
+	if (READ_ONCE(hdev->req_status) != HCI_REQ_PEND)
 		return;
 
 	hdev->req_result = result;
-	hdev->req_status = HCI_REQ_DONE;
+	WRITE_ONCE(hdev->req_status, HCI_REQ_DONE);
 
 	/* Free the request command so it is not used as response */
 	kfree_skb(hdev->req_skb);
@@ -167,20 +167,20 @@ struct sk_buff *__hci_cmd_sync_sk(struct hci_dev *hdev, u16 opcode, u32 plen,
 
 	hci_cmd_sync_add(&req, opcode, plen, param, event, sk);
 
-	hdev->req_status = HCI_REQ_PEND;
+	WRITE_ONCE(hdev->req_status, HCI_REQ_PEND);
 
 	err = hci_req_sync_run(&req);
 	if (err < 0)
 		return ERR_PTR(err);
 
 	err = wait_event_interruptible_timeout(hdev->req_wait_q,
-					       hdev->req_status != HCI_REQ_PEND,
+					       READ_ONCE(hdev->req_status) != HCI_REQ_PEND,
 					       timeout);
 
 	if (err == -ERESTARTSYS)
 		return ERR_PTR(-EINTR);
 
-	switch (hdev->req_status) {
+	switch (READ_ONCE(hdev->req_status)) {
 	case HCI_REQ_DONE:
 		err = -bt_to_errno(hdev->req_result);
 		break;
@@ -194,7 +194,7 @@ struct sk_buff *__hci_cmd_sync_sk(struct hci_dev *hdev, u16 opcode, u32 plen,
 		break;
 	}
 
-	hdev->req_status = 0;
+	WRITE_ONCE(hdev->req_status, 0);
 	hdev->req_result = 0;
 	skb = hdev->req_rsp;
 	hdev->req_rsp = NULL;
@@ -665,9 +665,9 @@ void hci_cmd_sync_cancel(struct hci_dev *hdev, int err)
 {
 	bt_dev_dbg(hdev, "err 0x%2.2x", err);
 
-	if (hdev->req_status == HCI_REQ_PEND) {
+	if (READ_ONCE(hdev->req_status) == HCI_REQ_PEND) {
 		hdev->req_result = err;
-		hdev->req_status = HCI_REQ_CANCELED;
+		WRITE_ONCE(hdev->req_status, HCI_REQ_CANCELED);
 
 		queue_work(hdev->workqueue, &hdev->cmd_sync_cancel_work);
 	}
@@ -683,12 +683,12 @@ void hci_cmd_sync_cancel_sync(struct hci_dev *hdev, int err)
 {
 	bt_dev_dbg(hdev, "err 0x%2.2x", err);
 
-	if (hdev->req_status == HCI_REQ_PEND) {
+	if (READ_ONCE(hdev->req_status) == HCI_REQ_PEND) {
 		/* req_result is __u32 so error must be positive to be properly
 		 * propagated.
 		 */
 		hdev->req_result = err < 0 ? -err : err;
-		hdev->req_status = HCI_REQ_CANCELED;
+		WRITE_ONCE(hdev->req_status, HCI_REQ_CANCELED);
 
 		wake_up_interruptible(&hdev->req_wait_q);
 	}
@@ -711,7 +711,7 @@ int hci_cmd_sync_submit(struct hci_dev *hdev, hci_cmd_sync_work_func_t func,
 		goto unlock;
 	}
 
-	entry = kmalloc(sizeof(*entry), GFP_KERNEL);
+	entry = kmalloc_obj(*entry);
 	if (!entry) {
 		err = -ENOMEM;
 		goto unlock;
@@ -2692,7 +2692,7 @@ static struct conn_params *conn_params_copy(struct list_head *list, size_t *n)
 
 	rcu_read_unlock();
 
-	p = kvcalloc(*n, sizeof(struct conn_params), GFP_KERNEL);
+	p = kvzalloc_objs(struct conn_params, *n);
 	if (!p)
 		return NULL;
 
@@ -2955,8 +2955,8 @@ static int hci_le_set_ext_scan_param_sync(struct hci_dev *hdev, u8 type,
 			if (conn) {
 				struct bt_iso_qos *qos = &conn->iso_qos;
 
-				if (qos->bcast.in.phy & BT_ISO_PHY_1M ||
-				    qos->bcast.in.phy & BT_ISO_PHY_2M) {
+				if (qos->bcast.in.phys & BT_ISO_PHY_1M ||
+				    qos->bcast.in.phys & BT_ISO_PHY_2M) {
 					cp->scanning_phys |= LE_SCAN_PHY_1M;
 					hci_le_scan_phy_params(phy, type,
 							       interval,
@@ -2965,7 +2965,7 @@ static int hci_le_set_ext_scan_param_sync(struct hci_dev *hdev, u8 type,
 					phy++;
 				}
 
-				if (qos->bcast.in.phy & BT_ISO_PHY_CODED) {
+				if (qos->bcast.in.phys & BT_ISO_PHY_CODED) {
 					cp->scanning_phys |= LE_SCAN_PHY_CODED;
 					hci_le_scan_phy_params(phy, type,
 							       interval * 3,
@@ -4438,6 +4438,17 @@ static int hci_le_set_event_mask_sync(struct hci_dev *hdev)
 		events[4] |= 0x02;	/* LE BIG Info Advertising Report */
 	}
 
+	if (le_cs_capable(hdev)) {
+		/* Channel Sounding events */
+		events[5] |= 0x08;	/* LE CS Read Remote Supported Cap Complete event */
+		events[5] |= 0x10;	/* LE CS Read Remote FAE Table Complete event */
+		events[5] |= 0x20;	/* LE CS Security Enable Complete event */
+		events[5] |= 0x40;	/* LE CS Config Complete event */
+		events[5] |= 0x80;	/* LE CS Procedure Enable Complete event */
+		events[6] |= 0x01;	/* LE CS Subevent Result event */
+		events[6] |= 0x02;	/* LE CS Subevent Result Continue event */
+		events[6] |= 0x04;	/* LE CS Test End Complete event */
+	}
 	return __hci_cmd_sync_status(hdev, HCI_OP_LE_SET_EVENT_MASK,
 				     sizeof(events), events, HCI_CMD_TIMEOUT);
 }
@@ -4570,21 +4581,41 @@ static int hci_set_le_support_sync(struct hci_dev *hdev)
 }
 
 /* LE Set Host Feature */
-static int hci_le_set_host_feature_sync(struct hci_dev *hdev)
+static int hci_le_set_host_feature_sync(struct hci_dev *hdev, u8 bit, u8 value)
 {
 	struct hci_cp_le_set_host_feature cp;
-
-	if (!cis_capable(hdev))
-		return 0;
 
 	memset(&cp, 0, sizeof(cp));
 
 	/* Connected Isochronous Channels (Host Support) */
-	cp.bit_number = 32;
-	cp.bit_value = iso_enabled(hdev) ? 0x01 : 0x00;
+	cp.bit_number = bit;
+	cp.bit_value = value;
 
 	return __hci_cmd_sync_status(hdev, HCI_OP_LE_SET_HOST_FEATURE,
 				     sizeof(cp), &cp, HCI_CMD_TIMEOUT);
+}
+
+/* Set Host Features, each feature needs to be sent separately since
+ * HCI_OP_LE_SET_HOST_FEATURE doesn't support setting all of them at once.
+ */
+static int hci_le_set_host_features_sync(struct hci_dev *hdev)
+{
+	int err;
+
+	if (cis_capable(hdev)) {
+		/* Connected Isochronous Channels (Host Support) */
+		err = hci_le_set_host_feature_sync(hdev, 32,
+						   (iso_enabled(hdev) ? 0x01 :
+						    0x00));
+		if (err)
+			return err;
+	}
+
+	if (le_cs_capable(hdev))
+		/* Channel Sounding (Host Support) */
+		err = hci_le_set_host_feature_sync(hdev, 47, 0x01);
+
+	return err;
 }
 
 /* LE Controller init stage 3 command sequence */
@@ -4614,7 +4645,7 @@ static const struct hci_init_stage le_init3[] = {
 	/* HCI_OP_WRITE_LE_HOST_SUPPORTED */
 	HCI_INIT(hci_set_le_support_sync),
 	/* HCI_OP_LE_SET_HOST_FEATURE */
-	HCI_INIT(hci_le_set_host_feature_sync),
+	HCI_INIT(hci_le_set_host_features_sync),
 	{}
 };
 
@@ -7333,7 +7364,7 @@ int hci_past_sync(struct hci_conn *conn, struct hci_conn *le)
 	if (!past_sender_capable(conn->hdev))
 		return -EOPNOTSUPP;
 
-	data = kmalloc(sizeof(*data), GFP_KERNEL);
+	data = kmalloc_obj(*data);
 	if (!data)
 		return -ENOMEM;
 
@@ -7469,7 +7500,7 @@ int hci_acl_change_pkt_type(struct hci_conn *conn, u16 pkt_type)
 	struct hci_cp_change_conn_ptype *cp;
 	int err;
 
-	cp = kmalloc(sizeof(*cp), GFP_KERNEL);
+	cp = kmalloc_obj(*cp);
 	if (!cp)
 		return -ENOMEM;
 
@@ -7509,7 +7540,7 @@ int hci_le_set_phy(struct hci_conn *conn, u8 tx_phys, u8 rx_phys)
 	struct hci_cp_le_set_phy *cp;
 	int err;
 
-	cp = kmalloc(sizeof(*cp), GFP_KERNEL);
+	cp = kmalloc_obj(*cp);
 	if (!cp)
 		return -ENOMEM;
 

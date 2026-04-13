@@ -97,7 +97,13 @@ static struct btrfs_bio *btrfs_split_bio(struct btrfs_fs_info *fs_info,
 		bbio->orig_logical = orig_bbio->orig_logical;
 		orig_bbio->orig_logical += map_length;
 	}
+
 	bbio->csum_search_commit_root = orig_bbio->csum_search_commit_root;
+	bbio->can_use_append = orig_bbio->can_use_append;
+	bbio->is_scrub = orig_bbio->is_scrub;
+	bbio->is_remap = orig_bbio->is_remap;
+	bbio->async_csum = orig_bbio->async_csum;
+
 	atomic_inc(&orig_bbio->pending_ios);
 	return bbio;
 }
@@ -665,11 +671,6 @@ static bool should_async_write(struct btrfs_bio *bbio)
 	bool auto_csum_mode = true;
 
 #ifdef CONFIG_BTRFS_EXPERIMENTAL
-	struct btrfs_fs_devices *fs_devices = fs_info->fs_devices;
-	enum btrfs_offload_csum_mode csum_mode = READ_ONCE(fs_devices->offload_csum_mode);
-
-	if (csum_mode == BTRFS_OFFLOAD_CSUM_FORCE_ON)
-		return true;
 	/*
 	 * Write bios will calculate checksum and submit bio at the same time.
 	 * Unless explicitly required don't offload serial csum calculate and bio
@@ -708,7 +709,7 @@ static bool btrfs_wq_submit_bio(struct btrfs_bio *bbio,
 	struct btrfs_fs_info *fs_info = bbio->inode->root->fs_info;
 	struct async_submit_bio *async;
 
-	async = kmalloc(sizeof(*async), GFP_NOFS);
+	async = kmalloc_obj(*async, GFP_NOFS);
 	if (!async)
 		return false;
 
@@ -826,7 +827,7 @@ static bool btrfs_submit_chunk(struct btrfs_bio *bbio, int mirror_num)
 		 */
 		if (!(inode->flags & BTRFS_INODE_NODATASUM) &&
 		    !test_bit(BTRFS_FS_STATE_NO_DATA_CSUMS, &fs_info->fs_state) &&
-		    !btrfs_is_data_reloc_root(inode->root)) {
+		    !btrfs_is_data_reloc_root(inode->root) && !bbio->is_remap) {
 			if (should_async_write(bbio) &&
 			    btrfs_wq_submit_bio(bbio, bioc, &smap, mirror_num))
 				goto done;
@@ -836,8 +837,7 @@ static bool btrfs_submit_chunk(struct btrfs_bio *bbio, int mirror_num)
 			if (status)
 				goto fail;
 		} else if (bbio->can_use_append ||
-			   (btrfs_is_zoned(fs_info) && inode &&
-			    inode->flags & BTRFS_INODE_NODATASUM)) {
+			   (btrfs_is_zoned(fs_info) && inode->flags & BTRFS_INODE_NODATASUM)) {
 			ret = btrfs_alloc_dummy_sum(bbio);
 			status = errno_to_blk_status(ret);
 			if (status)

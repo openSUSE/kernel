@@ -65,15 +65,15 @@ void gfs2_pin(struct gfs2_sbd *sdp, struct buffer_head *bh)
 
 static bool buffer_is_rgrp(const struct gfs2_bufdata *bd)
 {
-	return bd->bd_gl->gl_name.ln_type == LM_TYPE_RGRP;
+	return glock_type(bd->bd_gl) == LM_TYPE_RGRP;
 }
 
 static void maybe_release_space(struct gfs2_bufdata *bd)
 {
 	struct gfs2_glock *gl = bd->bd_gl;
-	struct gfs2_sbd *sdp = gl->gl_name.ln_sbd;
+	struct gfs2_sbd *sdp = glock_sbd(gl);
 	struct gfs2_rgrpd *rgd = gfs2_glock2rgrp(gl);
-	unsigned int index = bd->bd_bh->b_blocknr - gl->gl_name.ln_number;
+	unsigned int index = bd->bd_bh->b_blocknr - glock_number(gl);
 	struct gfs2_bitmap *bi = rgd->rd_bits + index;
 
 	rgrp_lock_local(rgd);
@@ -277,7 +277,7 @@ static struct bio *gfs2_log_alloc_bio(struct gfs2_sbd *sdp, u64 blkno,
  * @sdp: The super block
  * @blkno: The device block number we want to write to
  * @biop: The bio to get or allocate
- * @op: REQ_OP
+ * @opf: REQ_OP | op_flags
  * @end_io: The bi_end_io callback
  * @flush: Always flush the current bio and allocate a new one?
  *
@@ -290,7 +290,7 @@ static struct bio *gfs2_log_alloc_bio(struct gfs2_sbd *sdp, u64 blkno,
  */
 
 static struct bio *gfs2_log_get_bio(struct gfs2_sbd *sdp, u64 blkno,
-				    struct bio **biop, enum req_op op,
+				    struct bio **biop, blk_opf_t opf,
 				    bio_end_io_t *end_io, bool flush)
 {
 	struct bio *bio = *biop;
@@ -305,7 +305,7 @@ static struct bio *gfs2_log_get_bio(struct gfs2_sbd *sdp, u64 blkno,
 		gfs2_log_submit_write(biop);
 	}
 
-	*biop = gfs2_log_alloc_bio(sdp, blkno, end_io, op);
+	*biop = gfs2_log_alloc_bio(sdp, blkno, end_io, opf);
 	return *biop;
 }
 
@@ -479,13 +479,13 @@ static void gfs2_jhead_process_page(struct gfs2_jdesc *jd, unsigned long index,
 }
 
 static struct bio *gfs2_chain_bio(struct bio *prev, unsigned int nr_iovecs,
-				  blk_opf_t opf)
+				  sector_t sector, blk_opf_t opf)
 {
 	struct bio *new;
 
 	new = bio_alloc(prev->bi_bdev, nr_iovecs, opf, GFP_NOIO);
 	bio_clone_blkg_association(new, prev);
-	new->bi_iter.bi_sector = bio_end_sector(prev);
+	new->bi_iter.bi_sector = sector;
 	bio_chain(new, prev);
 	submit_bio(prev);
 	return new;
@@ -548,7 +548,7 @@ int gfs2_find_jhead(struct gfs2_jdesc *jd, struct gfs2_log_header_host *head)
 					unsigned int blocks =
 						(PAGE_SIZE - off) >> bsize_shift;
 
-					bio = gfs2_chain_bio(bio, blocks,
+					bio = gfs2_chain_bio(bio, blocks, sector,
 							     REQ_OP_READ);
 					goto add_block_to_new_bio;
 				}

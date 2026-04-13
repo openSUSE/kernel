@@ -2310,6 +2310,9 @@ static const char * const fc_ineligible_reasons[] = {
 	[EXT4_FC_REASON_FALLOC_RANGE] = "Falloc range op",
 	[EXT4_FC_REASON_INODE_JOURNAL_DATA] = "Data journalling",
 	[EXT4_FC_REASON_ENCRYPTED_FILENAME] = "Encrypted filename",
+	[EXT4_FC_REASON_MIGRATE] = "Inode format migration",
+	[EXT4_FC_REASON_VERITY] = "fs-verity enable",
+	[EXT4_FC_REASON_MOVE_EXT] = "Move extents",
 };
 
 int ext4_fc_info_show(struct seq_file *seq, void *v)

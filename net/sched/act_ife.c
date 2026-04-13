@@ -299,7 +299,7 @@ static int __add_metainfo(const struct tcf_meta_ops *ops,
 	struct tcf_meta_info *mi = NULL;
 	int ret = 0;
 
-	mi = kzalloc(sizeof(*mi), atomic ? GFP_ATOMIC : GFP_KERNEL);
+	mi = kzalloc_obj(*mi, atomic ? GFP_ATOMIC : GFP_KERNEL);
 	if (!mi)
 		return -ENOMEM;
 
@@ -517,7 +517,7 @@ static int tcf_ife_init(struct net *net, struct nlattr *nla,
 	if (parm->flags & ~IFE_ENCODE)
 		return -EINVAL;
 
-	p = kzalloc(sizeof(*p), GFP_KERNEL);
+	p = kzalloc_obj(*p);
 	if (!p)
 		return -ENOMEM;
 	INIT_LIST_HEAD(&p->metalist);

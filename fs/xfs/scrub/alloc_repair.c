@@ -3,7 +3,7 @@
  * Copyright (C) 2018-2023 Oracle.  All Rights Reserved.
  * Author: Darrick J. Wong <djwong@kernel.org>
  */
-#include "xfs.h"
+#include "xfs_platform.h"
 #include "xfs_fs.h"
 #include "xfs_shared.h"
 #include "xfs_format.h"
@@ -856,7 +856,7 @@ xrep_allocbt(
 	if (!xfs_has_rmapbt(mp))
 		return -EOPNOTSUPP;
 
-	ra = kzalloc(sizeof(struct xrep_abt), XCHK_GFP_FLAGS);
+	ra = kzalloc_obj(struct xrep_abt, XCHK_GFP_FLAGS);
 	if (!ra)
 		return -ENOMEM;
 	ra->sc = sc;

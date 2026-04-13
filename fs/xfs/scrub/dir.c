@@ -3,7 +3,7 @@
  * Copyright (C) 2017-2023 Oracle.  All Rights Reserved.
  * Author: Darrick J. Wong <djwong@kernel.org>
  */
-#include "xfs.h"
+#include "xfs_platform.h"
 #include "xfs_fs.h"
 #include "xfs_shared.h"
 #include "xfs_format.h"
@@ -1095,7 +1095,7 @@ xchk_directory(
 	if (sc->sm->sm_flags & XFS_SCRUB_OFLAG_CORRUPT)
 		return 0;
 
-	sd = kvzalloc(sizeof(struct xchk_dir), XCHK_GFP_FLAGS);
+	sd = kvzalloc_obj(struct xchk_dir, XCHK_GFP_FLAGS);
 	if (!sd)
 		return -ENOMEM;
 	sd->sc = sc;

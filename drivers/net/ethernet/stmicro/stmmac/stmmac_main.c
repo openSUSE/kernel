@@ -127,6 +127,22 @@ static unsigned int chain_mode;
 module_param(chain_mode, int, 0444);
 MODULE_PARM_DESC(chain_mode, "To use chain instead of ring mode");
 
+static const char *stmmac_dwmac_actphyif[8] = {
+	[PHY_INTF_SEL_GMII_MII]	= "GMII/MII",
+	[PHY_INTF_SEL_RGMII]	= "RGMII",
+	[PHY_INTF_SEL_SGMII]	= "SGMII",
+	[PHY_INTF_SEL_TBI]	= "TBI",
+	[PHY_INTF_SEL_RMII]	= "RMII",
+	[PHY_INTF_SEL_RTBI]	= "RTBI",
+	[PHY_INTF_SEL_SMII]	= "SMII",
+	[PHY_INTF_SEL_REVMII]	= "REVMII",
+};
+
+static const char *stmmac_dwxgmac_phyif[4] = {
+	[PHY_INTF_GMII]		= "GMII",
+	[PHY_INTF_RGMII]	= "RGMII",
+};
+
 static irqreturn_t stmmac_interrupt(int irq, void *dev_id);
 /* For MSI interrupts handling */
 static irqreturn_t stmmac_mac_interrupt(int irq, void *dev_id);
@@ -838,6 +854,7 @@ static int stmmac_init_timestamping(struct stmmac_priv *priv)
 		netdev_info(priv->dev,
 			    "IEEE 1588-2008 Advanced Timestamp supported\n");
 
+	memset(&priv->tstamp_config, 0, sizeof(priv->tstamp_config));
 	priv->hwts_tx_en = 0;
 	priv->hwts_rx_en = 0;
 
@@ -867,6 +884,30 @@ static void stmmac_release_ptp(struct stmmac_priv *priv)
 	clk_disable_unprepare(priv->plat->clk_ptp_ref);
 }
 
+static void stmmac_legacy_serdes_power_down(struct stmmac_priv *priv)
+{
+	if (priv->plat->serdes_powerdown && priv->legacy_serdes_is_powered)
+		priv->plat->serdes_powerdown(priv->dev, priv->plat->bsp_priv);
+
+	priv->legacy_serdes_is_powered = false;
+}
+
+static int stmmac_legacy_serdes_power_up(struct stmmac_priv *priv)
+{
+	int ret;
+
+	if (!priv->plat->serdes_powerup)
+		return 0;
+
+	ret = priv->plat->serdes_powerup(priv->dev, priv->plat->bsp_priv);
+	if (ret < 0)
+		netdev_err(priv->dev, "SerDes powerup failed\n");
+	else
+		priv->legacy_serdes_is_powered = true;
+
+	return ret;
+}
+
 /**
  *  stmmac_mac_flow_ctrl - Configure flow control in all queues
  *  @priv: driver private structure
@@ -890,6 +931,9 @@ static unsigned long stmmac_mac_get_caps(struct phylink_config *config,
 
 	/* Refresh the MAC-specific capabilities */
 	stmmac_mac_update_caps(priv);
+
+	if (priv->hw_cap_support && !priv->dma_cap.half_duplex)
+		priv->hw->link.caps &= ~(MAC_1000HD | MAC_100HD | MAC_10HD);
 
 	config->mac_capabilities = priv->hw->link.caps;
 
@@ -963,9 +1007,8 @@ static void stmmac_mac_link_up(struct phylink_config *config,
 	u32 old_ctrl, ctrl;
 	int ret;
 
-	if ((priv->plat->flags & STMMAC_FLAG_SERDES_UP_AFTER_PHY_LINKUP) &&
-	    priv->plat->serdes_powerup)
-		priv->plat->serdes_powerup(priv->dev, priv->plat->bsp_priv);
+	if (priv->plat->flags & STMMAC_FLAG_SERDES_UP_AFTER_PHY_LINKUP)
+		stmmac_legacy_serdes_power_up(priv);
 
 	old_ctrl = readl(priv->ioaddr + MAC_CTRL_REG);
 	ctrl = old_ctrl & ~priv->hw->link.speed_mask;
@@ -1115,7 +1158,7 @@ static int stmmac_mac_enable_tx_lpi(struct phylink_config *config, u32 timer,
 	stmmac_set_eee_timer(priv, priv->hw, STMMAC_DEFAULT_LIT_LS,
 			     STMMAC_DEFAULT_TWT_LS);
 
-	/* Try to cnfigure the hardware timer. */
+	/* Try to configure the hardware timer. */
 	ret = stmmac_set_lpi_mode(priv, priv->hw, STMMAC_LPI_TIMER,
 				  priv->tx_lpi_clk_stop, priv->tx_lpi_timer);
 
@@ -1207,6 +1250,7 @@ static int stmmac_init_phy(struct net_device *dev)
 	struct fwnode_handle *phy_fwnode;
 	struct fwnode_handle *fwnode;
 	struct ethtool_keee eee;
+	u32 dev_flags = 0;
 	int ret;
 
 	if (!phylink_expects_phy(priv->phylink))
@@ -1224,6 +1268,9 @@ static int stmmac_init_phy(struct net_device *dev)
 		phy_fwnode = fwnode_get_phy_node(fwnode);
 	else
 		phy_fwnode = NULL;
+
+	if (priv->plat->flags & STMMAC_FLAG_KEEP_PREAMBLE_BEFORE_SFD)
+		dev_flags |= PHY_F_KEEP_PREAMBLE_BEFORE_SFD;
 
 	/* Some DT bindings do not set-up the PHY handle. Let's try to
 	 * manually parse it
@@ -1243,10 +1290,12 @@ static int stmmac_init_phy(struct net_device *dev)
 			return -ENODEV;
 		}
 
+		phydev->dev_flags |= dev_flags;
+
 		ret = phylink_connect_phy(priv->phylink, phydev);
 	} else {
 		fwnode_handle_put(phy_fwnode);
-		ret = phylink_fwnode_phy_connect(priv->phylink, fwnode, 0);
+		ret = phylink_fwnode_phy_connect(priv->phylink, fwnode, dev_flags);
 	}
 
 	if (ret) {
@@ -2165,9 +2214,7 @@ static int __alloc_dma_rx_desc_resources(struct stmmac_priv *priv,
 		return ret;
 	}
 
-	rx_q->buf_pool = kcalloc(dma_conf->dma_rx_size,
-				 sizeof(*rx_q->buf_pool),
-				 GFP_KERNEL);
+	rx_q->buf_pool = kzalloc_objs(*rx_q->buf_pool, dma_conf->dma_rx_size);
 	if (!rx_q->buf_pool)
 		return -ENOMEM;
 
@@ -2250,15 +2297,12 @@ static int __alloc_dma_tx_desc_resources(struct stmmac_priv *priv,
 	tx_q->queue_index = queue;
 	tx_q->priv_data = priv;
 
-	tx_q->tx_skbuff_dma = kcalloc(dma_conf->dma_tx_size,
-				      sizeof(*tx_q->tx_skbuff_dma),
-				      GFP_KERNEL);
+	tx_q->tx_skbuff_dma = kzalloc_objs(*tx_q->tx_skbuff_dma,
+					   dma_conf->dma_tx_size);
 	if (!tx_q->tx_skbuff_dma)
 		return -ENOMEM;
 
-	tx_q->tx_skbuff = kcalloc(dma_conf->dma_tx_size,
-				  sizeof(struct sk_buff *),
-				  GFP_KERNEL);
+	tx_q->tx_skbuff = kzalloc_objs(struct sk_buff *, dma_conf->dma_tx_size);
 	if (!tx_q->tx_skbuff)
 		return -ENOMEM;
 
@@ -3135,8 +3179,6 @@ int stmmac_get_phy_intf_sel(phy_interface_t interface)
 		phy_intf_sel = PHY_INTF_SEL_GMII_MII;
 	else if (phy_interface_mode_is_rgmii(interface))
 		phy_intf_sel = PHY_INTF_SEL_RGMII;
-	else if (interface == PHY_INTERFACE_MODE_SGMII)
-		phy_intf_sel = PHY_INTF_SEL_SGMII;
 	else if (interface == PHY_INTERFACE_MODE_RMII)
 		phy_intf_sel = PHY_INTF_SEL_RMII;
 	else if (interface == PHY_INTERFACE_MODE_REVMII)
@@ -3150,13 +3192,24 @@ static int stmmac_prereset_configure(struct stmmac_priv *priv)
 {
 	struct plat_stmmacenet_data *plat_dat = priv->plat;
 	phy_interface_t interface;
+	struct phylink_pcs *pcs;
 	int phy_intf_sel, ret;
 
 	if (!plat_dat->set_phy_intf_sel)
 		return 0;
 
 	interface = plat_dat->phy_interface;
-	phy_intf_sel = stmmac_get_phy_intf_sel(interface);
+
+	/* Check whether this mode uses a PCS */
+	pcs = stmmac_mac_select_pcs(&priv->phylink_config, interface);
+	if (priv->integrated_pcs && pcs == &priv->integrated_pcs->pcs) {
+		/* Request the phy_intf_sel from the integrated PCS */
+		phy_intf_sel = stmmac_integrated_pcs_get_phy_intf_sel(pcs,
+								    interface);
+	} else {
+		phy_intf_sel = stmmac_get_phy_intf_sel(interface);
+	}
+
 	if (phy_intf_sel < 0) {
 		netdev_err(priv->dev,
 			   "failed to get phy_intf_sel for %s: %pe\n",
@@ -3490,7 +3543,7 @@ static void stmmac_mac_config_rss(struct stmmac_priv *priv)
 /**
  *  stmmac_mtl_configuration - Configure MTL
  *  @priv: driver private structure
- *  Description: It is used for configurring MTL
+ *  Description: It is used for configuring MTL
  */
 static void stmmac_mtl_configuration(struct stmmac_priv *priv)
 {
@@ -3960,7 +4013,7 @@ stmmac_setup_dma_desc(struct stmmac_priv *priv, unsigned int mtu)
 	struct stmmac_dma_conf *dma_conf;
 	int chan, bfsize, ret;
 
-	dma_conf = kzalloc(sizeof(*dma_conf), GFP_KERNEL);
+	dma_conf = kzalloc_obj(*dma_conf);
 	if (!dma_conf) {
 		netdev_err(priv->dev, "%s: DMA conf allocation failed\n",
 			   __func__);
@@ -4043,16 +4096,6 @@ static int __stmmac_open(struct net_device *dev,
 
 	stmmac_reset_queues_param(priv);
 
-	if (!(priv->plat->flags & STMMAC_FLAG_SERDES_UP_AFTER_PHY_LINKUP) &&
-	    priv->plat->serdes_powerup) {
-		ret = priv->plat->serdes_powerup(dev, priv->plat->bsp_priv);
-		if (ret < 0) {
-			netdev_err(priv->dev, "%s: Serdes powerup failed\n",
-				   __func__);
-			goto init_error;
-		}
-	}
-
 	ret = stmmac_hw_setup(dev);
 	if (ret < 0) {
 		netdev_err(priv->dev, "%s: Hw setup failed\n", __func__);
@@ -4110,9 +4153,15 @@ static int stmmac_open(struct net_device *dev)
 	if (ret)
 		goto err_runtime_pm;
 
+	if (!(priv->plat->flags & STMMAC_FLAG_SERDES_UP_AFTER_PHY_LINKUP)) {
+		ret = stmmac_legacy_serdes_power_up(priv);
+		if (ret < 0)
+			goto err_disconnect_phy;
+	}
+
 	ret = __stmmac_open(dev, dma_conf);
 	if (ret)
-		goto err_disconnect_phy;
+		goto err_serdes;
 
 	kfree(dma_conf);
 
@@ -4121,6 +4170,8 @@ static int stmmac_open(struct net_device *dev)
 
 	return ret;
 
+err_serdes:
+	stmmac_legacy_serdes_power_down(priv);
 err_disconnect_phy:
 	phylink_disconnect_phy(priv->phylink);
 err_runtime_pm:
@@ -4155,10 +4206,6 @@ static void __stmmac_release(struct net_device *dev)
 	/* Release and free the Rx/Tx resources */
 	free_dma_desc_resources(priv, &priv->dma_conf);
 
-	/* Powerdown Serdes if there is */
-	if (priv->plat->serdes_powerdown)
-		priv->plat->serdes_powerdown(dev, priv->plat->bsp_priv);
-
 	stmmac_release_ptp(priv);
 
 	if (stmmac_fpe_supported(priv))
@@ -4184,6 +4231,7 @@ static int stmmac_release(struct net_device *dev)
 
 	__stmmac_release(dev);
 
+	stmmac_legacy_serdes_power_down(priv);
 	phylink_disconnect_phy(priv->phylink);
 	pm_runtime_put(priv->device);
 
@@ -4335,7 +4383,7 @@ static netdev_tx_t stmmac_tso_xmit(struct sk_buff *skb, struct net_device *dev)
 
 	/* Always insert VLAN tag to SKB payload for TSO frames.
 	 *
-	 * Never insert VLAN tag by HW, since segments splited by
+	 * Never insert VLAN tag by HW, since segments split by
 	 * TSO engine will be un-tagged by mistake.
 	 */
 	if (skb_vlan_tag_present(skb)) {
@@ -5922,7 +5970,7 @@ static int stmmac_napi_poll_rxtx(struct napi_struct *napi, int budget)
 		unsigned long flags;
 
 		spin_lock_irqsave(&ch->lock, flags);
-		/* Both RX and TX work done are compelte,
+		/* Both RX and TX work done are complete,
 		 * so enable both RX & TX IRQs.
 		 */
 		stmmac_enable_dma_irq(priv, priv->ioaddr, chan, 1, 1);
@@ -6125,7 +6173,7 @@ static void stmmac_common_interrupt(struct stmmac_priv *priv)
 
 	/* To handle GMAC own interrupts */
 	if (priv->plat->core_type == DWMAC_CORE_GMAC || xmac) {
-		int status = stmmac_host_irq_status(priv, priv->hw, &priv->xstats);
+		int status = stmmac_host_irq_status(priv, &priv->xstats);
 
 		if (unlikely(status)) {
 			/* For LPI we need to save the tx status */
@@ -6254,7 +6302,7 @@ static irqreturn_t stmmac_msi_intr_rx(int irq, void *data)
 /**
  *  stmmac_ioctl - Entry point for the Ioctl
  *  @dev: Device pointer.
- *  @rq: An IOCTL specefic structure, that can contain a pointer to
+ *  @rq: An IOCTL specific structure, that can contain a pointer to
  *  a proprietary structure used to pass information to the driver.
  *  @cmd: IOCTL command
  *  Description:
@@ -7278,6 +7326,40 @@ static void stmmac_service_task(struct work_struct *work)
 	clear_bit(STMMAC_SERVICE_SCHED, &priv->state);
 }
 
+static void stmmac_print_actphyif(struct stmmac_priv *priv)
+{
+	const char **phyif_table;
+	const char *actphyif_str;
+	size_t phyif_table_size;
+
+	switch (priv->plat->core_type) {
+	case DWMAC_CORE_MAC100:
+		return;
+
+	case DWMAC_CORE_GMAC:
+	case DWMAC_CORE_GMAC4:
+		phyif_table = stmmac_dwmac_actphyif;
+		phyif_table_size = ARRAY_SIZE(stmmac_dwmac_actphyif);
+		break;
+
+	case DWMAC_CORE_XGMAC:
+		phyif_table = stmmac_dwxgmac_phyif;
+		phyif_table_size = ARRAY_SIZE(stmmac_dwxgmac_phyif);
+		break;
+	}
+
+	if (priv->dma_cap.actphyif < phyif_table_size)
+		actphyif_str = phyif_table[priv->dma_cap.actphyif];
+	else
+		actphyif_str = NULL;
+
+	if (!actphyif_str)
+		actphyif_str = "unknown";
+
+	dev_info(priv->device, "Active PHY interface: %s (%u)\n",
+		 actphyif_str, priv->dma_cap.actphyif);
+}
+
 /**
  *  stmmac_hw_init - Init the MAC device
  *  @priv: driver private structure
@@ -7334,6 +7416,7 @@ static int stmmac_hw_init(struct stmmac_priv *priv)
 		else if (priv->dma_cap.rx_coe_type1)
 			priv->plat->rx_coe = STMMAC_RX_COE_TYPE1;
 
+		stmmac_print_actphyif(priv);
 	} else {
 		dev_info(priv->device, "No HW DMA feature register supported\n");
 	}
@@ -8074,8 +8157,7 @@ int stmmac_suspend(struct device *dev)
 	/* Stop TX/RX DMA */
 	stmmac_stop_all_dma(priv);
 
-	if (priv->plat->serdes_powerdown)
-		priv->plat->serdes_powerdown(ndev, priv->plat->bsp_priv);
+	stmmac_legacy_serdes_power_down(priv);
 
 	/* Enable Power down mode by programming the PMT regs */
 	if (priv->wolopts) {
@@ -8178,11 +8260,8 @@ int stmmac_resume(struct device *dev)
 			stmmac_mdio_reset(priv->mii);
 	}
 
-	if (!(priv->plat->flags & STMMAC_FLAG_SERDES_UP_AFTER_PHY_LINKUP) &&
-	    priv->plat->serdes_powerup) {
-		ret = priv->plat->serdes_powerup(ndev,
-						 priv->plat->bsp_priv);
-
+	if (!(priv->plat->flags & STMMAC_FLAG_SERDES_UP_AFTER_PHY_LINKUP)) {
+		ret = stmmac_legacy_serdes_power_up(priv);
 		if (ret < 0)
 			return ret;
 	}
@@ -8204,6 +8283,7 @@ int stmmac_resume(struct device *dev)
 	ret = stmmac_hw_setup(ndev);
 	if (ret < 0) {
 		netdev_err(priv->dev, "%s: Hw setup failed\n", __func__);
+		stmmac_legacy_serdes_power_down(priv);
 		mutex_unlock(&priv->lock);
 		rtnl_unlock();
 		return ret;

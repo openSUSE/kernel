@@ -3,7 +3,7 @@
  * Copyright (c) 2018-2024 Oracle.  All Rights Reserved.
  * Author: Darrick J. Wong <djwong@kernel.org>
  */
-#include "xfs.h"
+#include "xfs_platform.h"
 #include "xfs_fs.h"
 #include "xfs_shared.h"
 #include "xfs_format.h"
@@ -1534,7 +1534,7 @@ xrep_xattr_setup_scan(
 	int			max_len;
 	int			error;
 
-	rx = kzalloc(sizeof(struct xrep_xattr), XCHK_GFP_FLAGS);
+	rx = kzalloc_obj(struct xrep_xattr, XCHK_GFP_FLAGS);
 	if (!rx)
 		return -ENOMEM;
 	rx->sc = sc;

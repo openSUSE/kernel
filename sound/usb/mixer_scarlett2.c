@@ -3195,7 +3195,7 @@ static int scarlett2_add_new_ctl(struct usb_mixer_interface *mixer,
 	struct usb_mixer_elem_info *elem;
 	int err;
 
-	elem = kzalloc(sizeof(*elem), GFP_KERNEL);
+	elem = kzalloc_obj(*elem);
 	if (!elem)
 		return -ENOMEM;
 
@@ -8270,7 +8270,7 @@ static int scarlett2_init_private(struct usb_mixer_interface *mixer,
 				  const struct scarlett2_device_entry *entry)
 {
 	struct scarlett2_data *private =
-		kzalloc(sizeof(struct scarlett2_data), GFP_KERNEL);
+		kzalloc_obj(struct scarlett2_data);
 
 	if (!private)
 		return -ENOMEM;

@@ -502,6 +502,15 @@ do {									\
 	___locked;							\
 })
 
+#define raw_spin_trylock_irqsave_rcu_node(p, flags)			\
+({									\
+	bool ___locked = raw_spin_trylock_irqsave(&ACCESS_PRIVATE(p, lock), flags); \
+									\
+	if (___locked)							\
+		smp_mb__after_unlock_lock();				\
+	___locked;							\
+})
+
 #define raw_lockdep_assert_held_rcu_node(p)				\
 	lockdep_assert_held(&ACCESS_PRIVATE(p, lock))
 
@@ -543,10 +552,6 @@ void rcu_tasks_get_gp_data(int *flags, unsigned long *gp_seq);
 struct task_struct *get_rcu_tasks_rude_gp_kthread(void);
 void rcu_tasks_rude_get_gp_data(int *flags, unsigned long *gp_seq);
 #endif // # ifdef CONFIG_TASKS_RUDE_RCU
-
-#ifdef CONFIG_TASKS_TRACE_RCU
-void rcu_tasks_trace_get_gp_data(int *flags, unsigned long *gp_seq);
-#endif
 
 #ifdef CONFIG_TASKS_RCU_GENERIC
 void tasks_cblist_init_generic(void);
@@ -672,11 +677,6 @@ static inline void show_rcu_tasks_classic_gp_kthread(void) {}
 void show_rcu_tasks_rude_gp_kthread(void);
 #else
 static inline void show_rcu_tasks_rude_gp_kthread(void) {}
-#endif
-#if !defined(CONFIG_TINY_RCU) && defined(CONFIG_TASKS_TRACE_RCU)
-void show_rcu_tasks_trace_gp_kthread(void);
-#else
-static inline void show_rcu_tasks_trace_gp_kthread(void) {}
 #endif
 
 #ifdef CONFIG_TINY_RCU

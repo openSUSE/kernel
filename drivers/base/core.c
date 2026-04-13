@@ -76,7 +76,7 @@ static int __fwnode_link_add(struct fwnode_handle *con,
 			return 0;
 		}
 
-	link = kzalloc(sizeof(*link), GFP_KERNEL);
+	link = kzalloc_obj(*link);
 	if (!link)
 		return -ENOMEM;
 
@@ -844,7 +844,7 @@ struct device_link *device_link_add(struct device *consumer,
 		goto out;
 	}
 
-	link = kzalloc(sizeof(*link), GFP_KERNEL);
+	link = kzalloc_obj(*link);
 	if (!link)
 		goto out;
 
@@ -2570,15 +2570,14 @@ static void device_release(struct kobject *kobj)
 	kfree(p);
 }
 
-static const void *device_namespace(const struct kobject *kobj)
+static const struct ns_common *device_namespace(const struct kobject *kobj)
 {
 	const struct device *dev = kobj_to_dev(kobj);
-	const void *ns = NULL;
 
 	if (dev->class && dev->class->namespace)
-		ns = dev->class->namespace(dev);
+		return dev->class->namespace(dev);
 
-	return ns;
+	return NULL;
 }
 
 static void device_get_ownership(const struct kobject *kobj, kuid_t *uid, kgid_t *gid)
@@ -2749,7 +2748,7 @@ static ssize_t uevent_show(struct device *dev, struct device_attribute *attr,
 		if (!kset->uevent_ops->filter(&dev->kobj))
 			goto out;
 
-	env = kzalloc(sizeof(struct kobj_uevent_env), GFP_KERNEL);
+	env = kzalloc_obj(struct kobj_uevent_env);
 	if (!env)
 		return -ENOMEM;
 
@@ -3222,7 +3221,7 @@ static struct kobject *class_dir_create_and_add(struct subsys_private *sp,
 	struct class_dir *dir;
 	int retval;
 
-	dir = kzalloc(sizeof(*dir), GFP_KERNEL);
+	dir = kzalloc_obj(*dir);
 	if (!dir)
 		return ERR_PTR(-ENOMEM);
 
@@ -3533,7 +3532,7 @@ static void device_remove_sys_dev_entry(struct device *dev)
 
 static int device_private_init(struct device *dev)
 {
-	dev->p = kzalloc(sizeof(*dev->p), GFP_KERNEL);
+	dev->p = kzalloc_obj(*dev->p);
 	if (!dev->p)
 		return -ENOMEM;
 	dev->p->device = dev;
@@ -4280,7 +4279,7 @@ struct device *__root_device_register(const char *name, struct module *owner)
 	struct root_device *root;
 	int err = -ENOMEM;
 
-	root = kzalloc(sizeof(struct root_device), GFP_KERNEL);
+	root = kzalloc_obj(struct root_device);
 	if (!root)
 		return ERR_PTR(err);
 
@@ -4352,7 +4351,7 @@ device_create_groups_vargs(const struct class *class, struct device *parent,
 	if (IS_ERR_OR_NULL(class))
 		goto error;
 
-	dev = kzalloc(sizeof(*dev), GFP_KERNEL);
+	dev = kzalloc_obj(*dev);
 	if (!dev) {
 		retval = -ENOMEM;
 		goto error;
@@ -4783,7 +4782,6 @@ out:
 	put_device(dev);
 	return error;
 }
-EXPORT_SYMBOL_GPL(device_change_owner);
 
 /**
  * device_shutdown - call ->shutdown() on each device to shutdown.

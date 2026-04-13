@@ -272,7 +272,7 @@ static int fw_change(struct net *net, struct sk_buff *in_skb,
 		if (f->id != handle && handle)
 			return -EINVAL;
 
-		fnew = kzalloc(sizeof(struct fw_filter), GFP_KERNEL);
+		fnew = kzalloc_obj(struct fw_filter);
 		if (!fnew)
 			return -ENOBUFS;
 
@@ -318,7 +318,7 @@ static int fw_change(struct net *net, struct sk_buff *in_skb,
 		if (tb[TCA_FW_MASK])
 			mask = nla_get_u32(tb[TCA_FW_MASK]);
 
-		head = kzalloc(sizeof(*head), GFP_KERNEL);
+		head = kzalloc_obj(*head);
 		if (!head)
 			return -ENOBUFS;
 		head->mask = mask;
@@ -326,7 +326,7 @@ static int fw_change(struct net *net, struct sk_buff *in_skb,
 		rcu_assign_pointer(tp->root, head);
 	}
 
-	f = kzalloc(sizeof(struct fw_filter), GFP_KERNEL);
+	f = kzalloc_obj(struct fw_filter);
 	if (f == NULL)
 		return -ENOBUFS;
 

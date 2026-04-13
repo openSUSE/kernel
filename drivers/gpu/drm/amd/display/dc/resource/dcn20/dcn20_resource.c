@@ -55,7 +55,7 @@
 #include "dce/dce_clock_source.h"
 #include "dce/dce_audio.h"
 #include "dce/dce_hwseq.h"
-#include "virtual/virtual_stream_encoder.h"
+#include "dio/virtual/virtual_stream_encoder.h"
 #include "dce110/dce110_resource.h"
 #include "dml/display_mode_vba.h"
 #include "dcn20/dcn20_dccg.h"
@@ -82,6 +82,7 @@
 #include "dce/dce_dmcu.h"
 #include "dce/dce_aux.h"
 #include "dce/dce_i2c.h"
+#include "dio/dcn10/dcn10_dio.h"
 #include "vm_helper.h"
 
 #include "link_enc_cfg.h"
@@ -550,6 +551,33 @@ static const struct dcn_hubbub_mask hubbub_mask = {
 		HUBBUB_MASK_SH_LIST_DCN20(_MASK)
 };
 
+static const struct dcn_dio_registers dio_regs = {
+		DIO_REG_LIST_DCN10()
+};
+
+#define DIO_MASK_SH_LIST(mask_sh)\
+		HWS_SF(, DIO_MEM_PWR_CTRL, I2C_LIGHT_SLEEP_FORCE, mask_sh)
+
+static const struct dcn_dio_shift dio_shift = {
+		DIO_MASK_SH_LIST(__SHIFT)
+};
+
+static const struct dcn_dio_mask dio_mask = {
+		DIO_MASK_SH_LIST(_MASK)
+};
+
+static struct dio *dcn20_dio_create(struct dc_context *ctx)
+{
+	struct dcn10_dio *dio10 = kzalloc_obj(struct dcn10_dio);
+
+	if (!dio10)
+		return NULL;
+
+	dcn10_dio_construct(dio10, ctx, &dio_regs, &dio_shift, &dio_mask);
+
+	return &dio10->base;
+}
+
 #define vmid_regs(id)\
 [id] = {\
 		DCN20_VMID_REG_LIST(id)\
@@ -736,7 +764,7 @@ struct dpp *dcn20_dpp_create(
 	uint32_t inst)
 {
 	struct dcn20_dpp *dpp =
-		kzalloc(sizeof(struct dcn20_dpp), GFP_KERNEL);
+		kzalloc_obj(struct dcn20_dpp);
 
 	if (!dpp)
 		return NULL;
@@ -754,7 +782,7 @@ struct input_pixel_processor *dcn20_ipp_create(
 	struct dc_context *ctx, uint32_t inst)
 {
 	struct dcn10_ipp *ipp =
-		kzalloc(sizeof(struct dcn10_ipp), GFP_KERNEL);
+		kzalloc_obj(struct dcn10_ipp);
 
 	if (!ipp) {
 		BREAK_TO_DEBUGGER();
@@ -771,7 +799,7 @@ struct output_pixel_processor *dcn20_opp_create(
 	struct dc_context *ctx, uint32_t inst)
 {
 	struct dcn20_opp *opp =
-		kzalloc(sizeof(struct dcn20_opp), GFP_KERNEL);
+		kzalloc_obj(struct dcn20_opp);
 
 	if (!opp) {
 		BREAK_TO_DEBUGGER();
@@ -788,7 +816,7 @@ struct dce_aux *dcn20_aux_engine_create(
 	uint32_t inst)
 {
 	struct aux_engine_dce110 *aux_engine =
-		kzalloc(sizeof(struct aux_engine_dce110), GFP_KERNEL);
+		kzalloc_obj(struct aux_engine_dce110);
 
 	if (!aux_engine)
 		return NULL;
@@ -826,7 +854,7 @@ struct dce_i2c_hw *dcn20_i2c_hw_create(
 	uint32_t inst)
 {
 	struct dce_i2c_hw *dce_i2c_hw =
-		kzalloc(sizeof(struct dce_i2c_hw), GFP_KERNEL);
+		kzalloc_obj(struct dce_i2c_hw);
 
 	if (!dce_i2c_hw)
 		return NULL;
@@ -838,7 +866,7 @@ struct dce_i2c_hw *dcn20_i2c_hw_create(
 }
 struct mpc *dcn20_mpc_create(struct dc_context *ctx)
 {
-	struct dcn20_mpc *mpc20 = kzalloc(sizeof(struct dcn20_mpc), GFP_KERNEL);
+	struct dcn20_mpc *mpc20 = kzalloc_obj(struct dcn20_mpc);
 
 	if (!mpc20)
 		return NULL;
@@ -855,7 +883,7 @@ struct mpc *dcn20_mpc_create(struct dc_context *ctx)
 struct hubbub *dcn20_hubbub_create(struct dc_context *ctx)
 {
 	int i;
-	struct dcn20_hubbub *hubbub = kzalloc(sizeof(struct dcn20_hubbub), GFP_KERNEL);
+	struct dcn20_hubbub *hubbub = kzalloc_obj(struct dcn20_hubbub);
 
 	if (!hubbub)
 		return NULL;
@@ -883,7 +911,7 @@ struct timing_generator *dcn20_timing_generator_create(
 		uint32_t instance)
 {
 	struct optc *tgn10 =
-		kzalloc(sizeof(struct optc), GFP_KERNEL);
+		kzalloc_obj(struct optc);
 
 	if (!tgn10)
 		return NULL;
@@ -917,7 +945,7 @@ struct link_encoder *dcn20_link_encoder_create(
 	const struct encoder_init_data *enc_init_data)
 {
 	struct dcn20_link_encoder *enc20 =
-		kzalloc(sizeof(struct dcn20_link_encoder), GFP_KERNEL);
+		kzalloc_obj(struct dcn20_link_encoder);
 	int link_regs_id;
 
 	if (!enc20 || enc_init_data->hpd_source >= ARRAY_SIZE(link_enc_hpd_regs))
@@ -941,7 +969,7 @@ struct link_encoder *dcn20_link_encoder_create(
 static struct panel_cntl *dcn20_panel_cntl_create(const struct panel_cntl_init_data *init_data)
 {
 	struct dce_panel_cntl *panel_cntl =
-		kzalloc(sizeof(struct dce_panel_cntl), GFP_KERNEL);
+		kzalloc_obj(struct dce_panel_cntl);
 
 	if (!panel_cntl)
 		return NULL;
@@ -963,7 +991,7 @@ static struct clock_source *dcn20_clock_source_create(
 	bool dp_clk_src)
 {
 	struct dce110_clk_src *clk_src =
-		kzalloc(sizeof(struct dce110_clk_src), GFP_KERNEL);
+		kzalloc_obj(struct dce110_clk_src);
 
 	if (!clk_src)
 		return NULL;
@@ -999,7 +1027,7 @@ struct stream_encoder *dcn20_stream_encoder_create(
 	struct dc_context *ctx)
 {
 	struct dcn10_stream_encoder *enc1 =
-		kzalloc(sizeof(struct dcn10_stream_encoder), GFP_KERNEL);
+		kzalloc_obj(struct dcn10_stream_encoder);
 
 	if (!enc1)
 		return NULL;
@@ -1031,7 +1059,7 @@ static const struct dce_hwseq_mask hwseq_mask = {
 struct dce_hwseq *dcn20_hwseq_create(
 	struct dc_context *ctx)
 {
-	struct dce_hwseq *hws = kzalloc(sizeof(struct dce_hwseq), GFP_KERNEL);
+	struct dce_hwseq *hws = kzalloc_obj(struct dce_hwseq);
 
 	if (hws) {
 		hws->ctx = ctx;
@@ -1062,7 +1090,7 @@ struct display_stream_compressor *dcn20_dsc_create(
 	struct dc_context *ctx, uint32_t inst)
 {
 	struct dcn20_dsc *dsc =
-		kzalloc(sizeof(struct dcn20_dsc), GFP_KERNEL);
+		kzalloc_obj(struct dcn20_dsc);
 
 	if (!dsc) {
 		BREAK_TO_DEBUGGER();
@@ -1104,6 +1132,12 @@ static void dcn20_resource_destruct(struct dcn20_resource_pool *pool)
 		kfree(pool->base.hubbub);
 		pool->base.hubbub = NULL;
 	}
+
+	if (pool->base.dio != NULL) {
+		kfree(TO_DCN10_DIO(pool->base.dio));
+		pool->base.dio = NULL;
+	}
+
 	for (i = 0; i < pool->base.pipe_count; i++) {
 		if (pool->base.dpps[i] != NULL)
 			dcn20_dpp_destroy(&pool->base.dpps[i]);
@@ -1199,7 +1233,7 @@ struct hubp *dcn20_hubp_create(
 	uint32_t inst)
 {
 	struct dcn20_hubp *hubp2 =
-		kzalloc(sizeof(struct dcn20_hubp), GFP_KERNEL);
+		kzalloc_obj(struct dcn20_hubp);
 
 	if (!hubp2)
 		return NULL;
@@ -2022,9 +2056,7 @@ bool dcn20_fast_validate_bw(
 
 	dcn20_merge_pipes_for_validate(dc, context);
 
-	DC_FP_START();
 	pipe_cnt = dc->res_pool->funcs->populate_dml_pipes(dc, context, pipes, validate_mode);
-	DC_FP_END();
 
 	*pipe_cnt_out = pipe_cnt;
 
@@ -2132,7 +2164,8 @@ enum dc_status dcn20_validate_bandwidth(struct dc *dc, struct dc_state *context,
 	bool voltage_supported;
 	display_e2e_pipe_params_st *pipes;
 
-	pipes = kcalloc(dc->res_pool->pipe_count, sizeof(display_e2e_pipe_params_st), GFP_KERNEL);
+	pipes = kzalloc_objs(display_e2e_pipe_params_st,
+			     dc->res_pool->pipe_count);
 	if (!pipes)
 		return DC_FAIL_BANDWIDTH_VALIDATE;
 
@@ -2242,8 +2275,7 @@ bool dcn20_dwbc_create(struct dc_context *ctx, struct resource_pool *pool)
 	uint32_t pipe_count = pool->res_cap->num_dwb;
 
 	for (i = 0; i < pipe_count; i++) {
-		struct dcn20_dwbc *dwbc20 = kzalloc(sizeof(struct dcn20_dwbc),
-						    GFP_KERNEL);
+		struct dcn20_dwbc *dwbc20 = kzalloc_obj(struct dcn20_dwbc);
 
 		if (!dwbc20) {
 			dm_error("DC: failed to create dwbc20!\n");
@@ -2267,8 +2299,7 @@ bool dcn20_mmhubbub_create(struct dc_context *ctx, struct resource_pool *pool)
 	ASSERT(pipe_count > 0);
 
 	for (i = 0; i < pipe_count; i++) {
-		struct dcn20_mmhubbub *mcif_wb20 = kzalloc(sizeof(struct dcn20_mmhubbub),
-						    GFP_KERNEL);
+		struct dcn20_mmhubbub *mcif_wb20 = kzalloc_obj(struct dcn20_mmhubbub);
 
 		if (!mcif_wb20) {
 			dm_error("DC: failed to create mcif_wb20!\n");
@@ -2288,7 +2319,7 @@ bool dcn20_mmhubbub_create(struct dc_context *ctx, struct resource_pool *pool)
 
 static struct pp_smu_funcs *dcn20_pp_smu_create(struct dc_context *ctx)
 {
-	struct pp_smu_funcs *pp_smu = kzalloc(sizeof(*pp_smu), GFP_KERNEL);
+	struct pp_smu_funcs *pp_smu = kzalloc_obj(*pp_smu);
 
 	if (!pp_smu)
 		return pp_smu;
@@ -2695,6 +2726,14 @@ static bool dcn20_resource_construct(
 		goto create_fail;
 	}
 
+	/* DIO */
+	pool->base.dio = dcn20_dio_create(ctx);
+	if (pool->base.dio == NULL) {
+		BREAK_TO_DEBUGGER();
+		dm_error("DC: failed to create dio!\n");
+		goto create_fail;
+	}
+
 	for (i = 0; i < pool->base.res_cap->num_dsc; i++) {
 		pool->base.dscs[i] = dcn20_dsc_create(ctx, i);
 		if (pool->base.dscs[i] == NULL) {
@@ -2768,7 +2807,7 @@ struct resource_pool *dcn20_create_resource_pool(
 		struct dc *dc)
 {
 	struct dcn20_resource_pool *pool =
-		kzalloc(sizeof(struct dcn20_resource_pool), GFP_KERNEL);
+		kzalloc_obj(struct dcn20_resource_pool);
 
 	if (!pool)
 		return NULL;

@@ -14,6 +14,7 @@
 #include <linux/rhashtable.h>
 #include <linux/audit.h>
 #include <linux/netfilter.h>
+#include <linux/netfilter_ipv4.h>
 #include <linux/netfilter/nfnetlink.h>
 #include <linux/netfilter/nf_tables.h>
 #include <net/netfilter/nf_flow_table.h>
@@ -1107,7 +1108,7 @@ __printf(2, 3) int nft_request_module(struct net *net, const char *fmt,
 		}
 	}
 
-	req = kmalloc(sizeof(*req), GFP_KERNEL);
+	req = kmalloc_obj(*req);
 	if (!req)
 		return -ENOMEM;
 
@@ -1627,7 +1628,7 @@ static int nf_tables_newtable(struct sk_buff *skb, const struct nfnl_info *info,
 	}
 
 	err = -ENOMEM;
-	table = kzalloc(sizeof(*table), GFP_KERNEL_ACCOUNT);
+	table = kzalloc_obj(*table, GFP_KERNEL_ACCOUNT);
 	if (table == NULL)
 		goto err_kzalloc;
 
@@ -2351,7 +2352,7 @@ static struct nft_hook *nft_netdev_hook_alloc(struct net *net,
 	struct nft_hook *hook;
 	int err;
 
-	hook = kzalloc(sizeof(struct nft_hook), GFP_KERNEL_ACCOUNT);
+	hook = kzalloc_obj(struct nft_hook, GFP_KERNEL_ACCOUNT);
 	if (!hook)
 		return ERR_PTR(-ENOMEM);
 
@@ -2372,7 +2373,7 @@ static struct nft_hook *nft_netdev_hook_alloc(struct net *net,
 		if (strncmp(dev->name, hook->ifname, hook->ifnamelen))
 			continue;
 
-		ops = kzalloc(sizeof(struct nf_hook_ops), GFP_KERNEL_ACCOUNT);
+		ops = kzalloc_obj(struct nf_hook_ops, GFP_KERNEL_ACCOUNT);
 		if (!ops) {
 			err = -ENOMEM;
 			goto err_hook_free;
@@ -2719,7 +2720,7 @@ static int nf_tables_addchain(struct nft_ctx *ctx, u8 family, u8 policy,
 		if (err < 0)
 			return err;
 
-		basechain = kzalloc(sizeof(*basechain), GFP_KERNEL_ACCOUNT);
+		basechain = kzalloc_obj(*basechain, GFP_KERNEL_ACCOUNT);
 		if (basechain == NULL) {
 			nft_chain_release_hook(&hook);
 			return -ENOMEM;
@@ -2751,7 +2752,7 @@ static int nf_tables_addchain(struct nft_ctx *ctx, u8 family, u8 policy,
 		if (flags & NFT_CHAIN_HW_OFFLOAD)
 			return -EOPNOTSUPP;
 
-		chain = kzalloc(sizeof(*chain), GFP_KERNEL_ACCOUNT);
+		chain = kzalloc_obj(*chain, GFP_KERNEL_ACCOUNT);
 		if (chain == NULL)
 			return -ENOMEM;
 
@@ -4318,9 +4319,8 @@ static int nf_tables_newrule(struct sk_buff *skb, const struct nfnl_info *info,
 	n = 0;
 	size = 0;
 	if (nla[NFTA_RULE_EXPRESSIONS]) {
-		expr_info = kvmalloc_array(NFT_RULE_MAXEXPRS,
-					   sizeof(struct nft_expr_info),
-					   GFP_KERNEL);
+		expr_info = kvmalloc_objs(struct nft_expr_info,
+					  NFT_RULE_MAXEXPRS);
 		if (!expr_info)
 			return -ENOMEM;
 
@@ -6931,7 +6931,7 @@ static int nft_setelem_catchall_insert(const struct net *net,
 		}
 	}
 
-	catchall = kmalloc(sizeof(*catchall), GFP_KERNEL_ACCOUNT);
+	catchall = kmalloc_obj(*catchall, GFP_KERNEL_ACCOUNT);
 	if (!catchall)
 		return -ENOMEM;
 
@@ -8070,7 +8070,7 @@ static struct nft_object *nft_obj_init(const struct nft_ctx *ctx,
 	struct nft_object *obj;
 	int err = -ENOMEM;
 
-	tb = kmalloc_array(type->maxattr + 1, sizeof(*tb), GFP_KERNEL);
+	tb = kmalloc_objs(*tb, type->maxattr + 1);
 	if (!tb)
 		goto err1;
 
@@ -9139,7 +9139,7 @@ static int nf_tables_newflowtable(struct sk_buff *skb,
 	if (!nft_use_inc(&table->use))
 		return -EMFILE;
 
-	flowtable = kzalloc(sizeof(*flowtable), GFP_KERNEL_ACCOUNT);
+	flowtable = kzalloc_obj(*flowtable, GFP_KERNEL_ACCOUNT);
 	if (!flowtable) {
 		err = -ENOMEM;
 		goto flowtable_alloc;
@@ -9460,7 +9460,7 @@ static int nf_tables_dump_flowtable_start(struct netlink_callback *cb)
 	struct nft_flowtable_filter *filter = NULL;
 
 	if (nla[NFTA_FLOWTABLE_TABLE]) {
-		filter = kzalloc(sizeof(*filter), GFP_ATOMIC);
+		filter = kzalloc_obj(*filter, GFP_ATOMIC);
 		if (!filter)
 			return -ENOMEM;
 
@@ -9677,8 +9677,8 @@ static int nft_flowtable_event(unsigned long event, struct net_device *dev,
 			if (!match || ops)
 				continue;
 
-			ops = kzalloc(sizeof(struct nf_hook_ops),
-				      GFP_KERNEL_ACCOUNT);
+			ops = kzalloc_obj(struct nf_hook_ops,
+					  GFP_KERNEL_ACCOUNT);
 			if (!ops)
 				return 1;
 
@@ -10448,7 +10448,7 @@ struct nft_trans_gc *nft_trans_gc_alloc(struct nft_set *set,
 	struct net *net = read_pnet(&set->net);
 	struct nft_trans_gc *trans;
 
-	trans = kzalloc(sizeof(*trans), gfp);
+	trans = kzalloc_obj(*trans, gfp);
 	if (!trans)
 		return NULL;
 
@@ -10679,7 +10679,7 @@ static int nf_tables_commit_audit_alloc(struct list_head *adl,
 		if (adp->table == table)
 			return 0;
 	}
-	adp = kzalloc(sizeof(*adp), GFP_KERNEL);
+	adp = kzalloc_obj(*adp);
 	if (!adp)
 		return -ENOMEM;
 	adp->table = table;

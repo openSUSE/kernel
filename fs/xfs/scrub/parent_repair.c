@@ -3,7 +3,7 @@
  * Copyright (c) 2020-2024 Oracle.  All Rights Reserved.
  * Author: Darrick J. Wong <djwong@kernel.org>
  */
-#include "xfs.h"
+#include "xfs_platform.h"
 #include "xfs_fs.h"
 #include "xfs_shared.h"
 #include "xfs_format.h"
@@ -217,7 +217,7 @@ xrep_setup_parent(
 
 	xchk_fsgates_enable(sc, XCHK_FSGATES_DIRENTS);
 
-	rp = kvzalloc(sizeof(struct xrep_parent), XCHK_GFP_FLAGS);
+	rp = kvzalloc_obj(struct xrep_parent, XCHK_GFP_FLAGS);
 	if (!rp)
 		return -ENOMEM;
 	rp->sc = sc;

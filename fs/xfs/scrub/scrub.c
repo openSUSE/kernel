@@ -3,7 +3,7 @@
  * Copyright (C) 2017-2023 Oracle.  All Rights Reserved.
  * Author: Darrick J. Wong <djwong@kernel.org>
  */
-#include "xfs.h"
+#include "xfs_platform.h"
 #include "xfs_fs.h"
 #include "xfs_shared.h"
 #include "xfs_format.h"
@@ -632,7 +632,7 @@ xchk_scrub_create_subord(
 {
 	struct xfs_scrub_subord	*sub;
 
-	sub = kzalloc(sizeof(*sub), XCHK_GFP_FLAGS);
+	sub = kzalloc_obj(*sub, XCHK_GFP_FLAGS);
 	if (!sub)
 		return NULL;
 
@@ -680,7 +680,7 @@ xfs_scrub_metadata(
 	if (error)
 		goto out;
 
-	sc = kzalloc(sizeof(struct xfs_scrub), XCHK_GFP_FLAGS);
+	sc = kzalloc_obj(struct xfs_scrub, XCHK_GFP_FLAGS);
 	if (!sc) {
 		error = -ENOMEM;
 		goto out;

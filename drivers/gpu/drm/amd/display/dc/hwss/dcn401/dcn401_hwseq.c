@@ -39,6 +39,7 @@
 #include "dc_state_priv.h"
 #include "link_enc_cfg.h"
 #include "../hw_sequencer.h"
+#include "dio/dcn10/dcn10_dio.h"
 
 #define DC_LOGGER_INIT(logger)
 
@@ -325,13 +326,13 @@ void dcn401_init_hw(struct dc *dc)
 	}
 
 	/* power AFMT HDMI memory TODO: may move to dis/en output save power*/
-	REG_WRITE(DIO_MEM_PWR_CTRL, 0);
+	if (dc->res_pool->dio && dc->res_pool->dio->funcs->mem_pwr_ctrl)
+		dc->res_pool->dio->funcs->mem_pwr_ctrl(dc->res_pool->dio, false);
 
 	if (!dc->debug.disable_clock_gate) {
 		/* enable all DCN clock gating */
-		REG_WRITE(DCCG_GATE_DISABLE_CNTL, 0);
-
-		REG_WRITE(DCCG_GATE_DISABLE_CNTL2, 0);
+		if (dc->res_pool->dccg && dc->res_pool->dccg->funcs && dc->res_pool->dccg->funcs->allow_clock_gating)
+			dc->res_pool->dccg->funcs->allow_clock_gating(dc->res_pool->dccg, true);
 
 		REG_UPDATE(DCFCLK_CNTL, DCFCLK_GATE_DIS, 0);
 	}
@@ -959,7 +960,7 @@ void dcn401_enable_stream(struct pipe_ctx *pipe_ctx)
 	const struct link_hwss *link_hwss = get_link_hwss(link, &pipe_ctx->link_res);
 	struct dc *dc = pipe_ctx->stream->ctx->dc;
 	struct dccg *dccg = dc->res_pool->dccg;
-	enum phyd32clk_clock_source phyd32clk;
+	enum phyd32clk_clock_source phyd32clk = PHYD32CLKA;
 	int dp_hpo_inst = 0;
 	unsigned int tmds_div = PIXEL_RATE_DIV_NA;
 	unsigned int unused_div = PIXEL_RATE_DIV_NA;
@@ -1523,14 +1524,15 @@ void dcn401_dmub_hw_control_lock_fast(union block_sequence_params *params)
 
 void dcn401_fams2_update_config(struct dc *dc, struct dc_state *context, bool enable)
 {
-	bool fams2_required;
+	bool fams2_info_required;
 
 	if (!dc->ctx || !dc->ctx->dmub_srv || !dc->debug.fams2_config.bits.enable)
 		return;
 
-	fams2_required = context->bw_ctx.bw.dcn.fams2_global_config.features.bits.enable;
+	fams2_info_required = context->bw_ctx.bw.dcn.fams2_global_config.features.bits.enable;
+	fams2_info_required |= context->bw_ctx.bw.dcn.fams2_global_config.features.bits.legacy_method_no_fams2;
 
-	dc_dmub_srv_fams2_update_config(dc, context, enable && fams2_required);
+	dc_dmub_srv_fams2_update_config(dc, context, enable && fams2_info_required);
 }
 
 static void update_dsc_for_odm_change(struct dc *dc, struct dc_state *context,

@@ -245,9 +245,8 @@ static int read_domain_devices(struct acpi_power_meter_resource *resource)
 	if (!pss->package.count)
 		goto end;
 
-	resource->domain_devices = kcalloc(pss->package.count,
-					   sizeof(struct acpi_device *),
-					   GFP_KERNEL);
+	resource->domain_devices = kzalloc_objs(struct acpi_device *,
+						pss->package.count);
 	if (!resource->domain_devices) {
 		res = -ENOMEM;
 		goto end;
@@ -893,15 +892,15 @@ static int acpi_power_meter_add(struct acpi_device *device)
 	if (!device)
 		return -EINVAL;
 
-	resource = kzalloc(sizeof(*resource), GFP_KERNEL);
+	resource = kzalloc_obj(*resource);
 	if (!resource)
 		return -ENOMEM;
 
 	resource->sensors_valid = 0;
 	resource->acpi_dev = device;
 	mutex_init(&resource->lock);
-	strcpy(acpi_device_name(device), ACPI_POWER_METER_DEVICE_NAME);
-	strcpy(acpi_device_class(device), ACPI_POWER_METER_CLASS);
+	strscpy(acpi_device_name(device), ACPI_POWER_METER_DEVICE_NAME);
+	strscpy(acpi_device_class(device), ACPI_POWER_METER_CLASS);
 	device->driver_data = resource;
 
 #if IS_REACHABLE(CONFIG_ACPI_IPMI)

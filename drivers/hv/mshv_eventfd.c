@@ -129,8 +129,8 @@ static int mshv_vp_irq_try_set_vector(struct mshv_vp *vp, u32 vector)
 
 	new_iv.vector[new_iv.vector_count++] = vector;
 
-	if (cmpxchg(&vp->vp_register_page->interrupt_vectors.as_uint64,
-		    iv.as_uint64, new_iv.as_uint64) != iv.as_uint64)
+	if (!try_cmpxchg(&vp->vp_register_page->interrupt_vectors.as_uint64,
+			 &iv.as_uint64, new_iv.as_uint64))
 		return -EAGAIN;
 
 	return 0;
@@ -297,13 +297,13 @@ static int mshv_irqfd_wakeup(wait_queue_entry_t *wait, unsigned int mode,
 {
 	struct mshv_irqfd *irqfd = container_of(wait, struct mshv_irqfd,
 						irqfd_wait);
-	unsigned long flags = (unsigned long)key;
+	__poll_t flags = key_to_poll(key);
 	int idx;
 	unsigned int seq;
 	struct mshv_partition *pt = irqfd->irqfd_partn;
 	int ret = 0;
 
-	if (flags & POLLIN) {
+	if (flags & EPOLLIN) {
 		u64 cnt;
 
 		eventfd_ctx_do_read(irqfd->irqfd_eventfd_ctx, &cnt);
@@ -322,7 +322,7 @@ static int mshv_irqfd_wakeup(wait_queue_entry_t *wait, unsigned int mode,
 		ret = 1;
 	}
 
-	if (flags & POLLHUP) {
+	if (flags & EPOLLHUP) {
 		/* The eventfd is closing, detach from the partition */
 		unsigned long flags;
 
@@ -394,7 +394,7 @@ static int mshv_irqfd_assign(struct mshv_partition *pt,
 
 	CLASS(fd, f)(args->fd);
 
-	irqfd = kzalloc(sizeof(*irqfd), GFP_KERNEL);
+	irqfd = kzalloc_obj(*irqfd);
 	if (!irqfd)
 		return -ENOMEM;
 
@@ -439,7 +439,7 @@ static int mshv_irqfd_assign(struct mshv_partition *pt,
 		}
 
 		if (!irqfd->irqfd_resampler) {
-			rp = kzalloc(sizeof(*rp), GFP_KERNEL_ACCOUNT);
+			rp = kzalloc_obj(*rp, GFP_KERNEL_ACCOUNT);
 			if (!rp) {
 				ret = -ENOMEM;
 				mutex_unlock(&pt->irqfds_resampler_lock);
@@ -506,7 +506,7 @@ static int mshv_irqfd_assign(struct mshv_partition *pt,
 	 */
 	events = vfs_poll(fd_file(f), &irqfd->irqfd_polltbl);
 
-	if (events & POLLIN)
+	if (events & EPOLLIN)
 		mshv_assert_irq_slow(irqfd);
 
 	srcu_read_unlock(&pt->pt_irq_srcu, idx);
@@ -707,7 +707,7 @@ static int mshv_assign_ioeventfd(struct mshv_partition *pt,
 	if (IS_ERR(eventfd))
 		return PTR_ERR(eventfd);
 
-	p = kzalloc(sizeof(*p), GFP_KERNEL);
+	p = kzalloc_obj(*p);
 	if (!p) {
 		ret = -ENOMEM;
 		goto fail;

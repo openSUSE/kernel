@@ -357,8 +357,9 @@ int kfd_dbg_set_mes_debug_mode(struct kfd_process_device *pdd, bool sq_trap_en)
 		return 0;
 
 	if (!pdd->proc_ctx_cpu_ptr) {
-		r = amdgpu_amdkfd_alloc_gtt_mem(adev,
+		r = amdgpu_amdkfd_alloc_kernel_mem(adev,
 			AMDGPU_MES_PROC_CTX_SIZE,
+			AMDGPU_GEM_DOMAIN_GTT,
 			&pdd->proc_ctx_bo,
 			&pdd->proc_ctx_gpu_addr,
 			&pdd->proc_ctx_cpu_ptr,
@@ -371,8 +372,10 @@ int kfd_dbg_set_mes_debug_mode(struct kfd_process_device *pdd, bool sq_trap_en)
 		memset(pdd->proc_ctx_cpu_ptr, 0, AMDGPU_MES_PROC_CTX_SIZE);
 	}
 
-	return amdgpu_mes_set_shader_debugger(pdd->dev->adev, pdd->proc_ctx_gpu_addr, spi_dbg_cntl,
-						pdd->watch_points, flags, sq_trap_en);
+	return amdgpu_mes_set_shader_debugger(pdd->dev->adev,
+					pdd->proc_ctx_gpu_addr, spi_dbg_cntl,
+					pdd->watch_points, flags, sq_trap_en,
+					ffs(pdd->dev->xcc_mask) - 1);
 }
 
 #define KFD_DEBUGGER_INVALID_WATCH_POINT_ID -1
@@ -520,9 +523,15 @@ int kfd_dbg_trap_set_flags(struct kfd_process *target, uint32_t *flags)
 	int i, r = 0, rewind_count = 0;
 
 	for (i = 0; i < target->n_pdds; i++) {
+		uint32_t caps;
+		uint32_t caps2;
 		struct kfd_topology_device *topo_dev =
-				kfd_topology_device_by_id(target->pdds[i]->dev->id);
-		uint32_t caps = topo_dev->node_props.capability;
+			kfd_topology_device_by_id(target->pdds[i]->dev->id);
+		if (!topo_dev)
+			return -EINVAL;
+
+		caps = topo_dev->node_props.capability;
+		caps2 = topo_dev->node_props.capability2;
 
 		if (!(caps & HSA_CAP_TRAP_DEBUG_PRECISE_MEMORY_OPERATIONS_SUPPORTED) &&
 			(*flags & KFD_DBG_TRAP_FLAG_SINGLE_MEM_OP)) {
@@ -532,6 +541,12 @@ int kfd_dbg_trap_set_flags(struct kfd_process *target, uint32_t *flags)
 
 		if (!(caps & HSA_CAP_TRAP_DEBUG_PRECISE_ALU_OPERATIONS_SUPPORTED) &&
 		    (*flags & KFD_DBG_TRAP_FLAG_SINGLE_ALU_OP)) {
+			*flags = prev_flags;
+			return -EACCES;
+		}
+
+		if (!(caps2 & HSA_CAP2_TRAP_DEBUG_LDS_OUT_OF_ADDR_RANGE_SUPPORTED) &&
+		    (*flags & KFD_DBG_TRAP_FLAG_LDS_OUT_OF_ADDR_RANGE)) {
 			*flags = prev_flags;
 			return -EACCES;
 		}
@@ -569,9 +584,9 @@ int kfd_dbg_trap_set_flags(struct kfd_process *target, uint32_t *flags)
 				continue;
 
 			if (!pdd->dev->kfd->shared_resources.enable_mes)
-				debug_refresh_runlist(pdd->dev->dqm);
+				(void)debug_refresh_runlist(pdd->dev->dqm);
 			else
-				kfd_dbg_set_mes_debug_mode(pdd, true);
+				(void)kfd_dbg_set_mes_debug_mode(pdd, true);
 		}
 	}
 
@@ -631,9 +646,10 @@ void kfd_dbg_trap_deactivate(struct kfd_process *target, bool unwind, int unwind
 			pr_err("Failed to release debug vmid on [%i]\n", pdd->dev->id);
 
 		if (!pdd->dev->kfd->shared_resources.enable_mes)
-			debug_refresh_runlist(pdd->dev->dqm);
+			(void)debug_refresh_runlist(pdd->dev->dqm);
 		else
-			kfd_dbg_set_mes_debug_mode(pdd, !kfd_dbg_has_cwsr_workaround(pdd->dev));
+			(void)kfd_dbg_set_mes_debug_mode(pdd,
+							 !kfd_dbg_has_cwsr_workaround(pdd->dev));
 	}
 
 	kfd_dbg_set_workaround(target, false);
@@ -1075,6 +1091,10 @@ int kfd_dbg_trap_device_snapshot(struct kfd_process *target,
 	for (i = 0; i < tmp_num_devices; i++) {
 		struct kfd_process_device *pdd = target->pdds[i];
 		struct kfd_topology_device *topo_dev = kfd_topology_device_by_id(pdd->dev->id);
+		if (!topo_dev) {
+			r = -EINVAL;
+			break;
+		}
 
 		device_info.gpu_id = pdd->dev->id;
 		device_info.exception_status = pdd->exception_status;
@@ -1102,6 +1122,7 @@ int kfd_dbg_trap_device_snapshot(struct kfd_process *target,
 		device_info.num_xcc = NUM_XCC(pdd->dev->xcc_mask);
 		device_info.capability = topo_dev->node_props.capability;
 		device_info.debug_prop = topo_dev->node_props.debug_prop;
+		device_info.capability2 = topo_dev->node_props.capability2;
 
 		if (exception_clear_mask)
 			pdd->exception_status &= ~exception_clear_mask;

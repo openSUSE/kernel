@@ -220,7 +220,7 @@ static int seq_ump_group_init(struct seq_ump_client *client, int group_index)
 		return 0;
 
 	struct snd_seq_port_info *port __free(kfree) =
-		kzalloc(sizeof(*port), GFP_KERNEL);
+		kzalloc_obj(*port);
 	if (!port)
 		return -ENOMEM;
 
@@ -246,9 +246,9 @@ static void update_port_infos(struct seq_ump_client *client)
 	int i, err;
 
 	struct snd_seq_port_info *old __free(kfree) =
-		kzalloc(sizeof(*old), GFP_KERNEL);
+		kzalloc_obj(*old);
 	struct snd_seq_port_info *new __free(kfree) =
-		kzalloc(sizeof(*new), GFP_KERNEL);
+		kzalloc_obj(*new);
 	if (!old || !new)
 		return;
 
@@ -283,7 +283,7 @@ static int create_ump_endpoint_port(struct seq_ump_client *client)
 	int err;
 
 	struct snd_seq_port_info *port __free(kfree) =
-		kzalloc(sizeof(*port), GFP_KERNEL);
+		kzalloc_obj(*port);
 	if (!port)
 		return -ENOMEM;
 
@@ -452,9 +452,8 @@ static const struct snd_seq_ump_ops seq_ump_ops = {
 };
 
 /* create a sequencer client and ports for the given UMP endpoint */
-static int snd_seq_ump_probe(struct device *_dev)
+static int snd_seq_ump_probe(struct snd_seq_device *dev)
 {
-	struct snd_seq_device *dev = to_seq_dev(_dev);
 	struct snd_ump_endpoint *ump = dev->private_data;
 	struct snd_card *card = dev->card;
 	struct seq_ump_client *client;
@@ -462,7 +461,7 @@ static int snd_seq_ump_probe(struct device *_dev)
 	struct snd_seq_client *cptr;
 	int p, err;
 
-	client = kzalloc(sizeof(*client), GFP_KERNEL);
+	client = kzalloc_obj(*client);
 	if (!client)
 		return -ENOMEM;
 
@@ -513,21 +512,19 @@ static int snd_seq_ump_probe(struct device *_dev)
 }
 
 /* remove a sequencer client */
-static int snd_seq_ump_remove(struct device *_dev)
+static void snd_seq_ump_remove(struct snd_seq_device *dev)
 {
-	struct snd_seq_device *dev = to_seq_dev(_dev);
 	struct snd_ump_endpoint *ump = dev->private_data;
 
 	if (ump->seq_client)
 		seq_ump_client_free(ump->seq_client);
-	return 0;
 }
 
 static struct snd_seq_driver seq_ump_driver = {
+	.probe = snd_seq_ump_probe,
+	.remove = snd_seq_ump_remove,
 	.driver = {
 		.name = KBUILD_MODNAME,
-		.probe = snd_seq_ump_probe,
-		.remove = snd_seq_ump_remove,
 	},
 	.id = SNDRV_SEQ_DEV_ID_UMP,
 	.argsize = 0,

@@ -27,7 +27,7 @@ pub(crate) use fw::{
 use crate::{
     gsp::cmdq::Cmdq,
     gsp::fw::{
-        GspArgumentsCached,
+        GspArgumentsPadded,
         LibosMemoryRegionInitArgument, //
     },
     num,
@@ -47,16 +47,12 @@ struct PteArray<const NUM_ENTRIES: usize>([u64; NUM_ENTRIES]);
 unsafe impl<const NUM_ENTRIES: usize> AsBytes for PteArray<NUM_ENTRIES> {}
 
 impl<const NUM_PAGES: usize> PteArray<NUM_PAGES> {
-    /// Creates a new page table array mapping `NUM_PAGES` GSP pages starting at address `start`.
-    fn new(start: DmaAddress) -> Result<Self> {
-        let mut ptes = [0u64; NUM_PAGES];
-        for (i, pte) in ptes.iter_mut().enumerate() {
-            *pte = start
-                .checked_add(num::usize_as_u64(i) << GSP_PAGE_SHIFT)
-                .ok_or(EOVERFLOW)?;
-        }
-
-        Ok(Self(ptes))
+    /// Returns the page table entry for `index`, for a mapping starting at `start`.
+    // TODO: Replace with `IoView` projection once available.
+    fn entry(start: DmaAddress, index: usize) -> Result<u64> {
+        start
+            .checked_add(num::usize_as_u64(index) << GSP_PAGE_SHIFT)
+            .ok_or(EOVERFLOW)
     }
 }
 
@@ -86,15 +82,21 @@ impl LogBuffer {
             NUM_PAGES * GSP_PAGE_SIZE,
             GFP_KERNEL | __GFP_ZERO,
         )?);
-        let ptes = PteArray::<NUM_PAGES>::new(obj.0.dma_handle())?;
+
+        let start_addr = obj.0.dma_handle();
 
         // SAFETY: `obj` has just been created and we are its sole user.
-        unsafe {
-            // Copy the self-mapping PTE at the expected location.
+        let pte_region = unsafe {
             obj.0
-                .as_slice_mut(size_of::<u64>(), size_of_val(&ptes))?
-                .copy_from_slice(ptes.as_bytes())
+                .as_slice_mut(size_of::<u64>(), NUM_PAGES * size_of::<u64>())?
         };
+
+        // Write values one by one to avoid an on-stack instance of `PteArray`.
+        for (i, chunk) in pte_region.chunks_exact_mut(size_of::<u64>()).enumerate() {
+            let pte_value = PteArray::<0>::entry(start_addr, i)?;
+
+            chunk.copy_from_slice(&pte_value.to_ne_bytes());
+        }
 
         Ok(obj)
     }
@@ -114,48 +116,45 @@ pub(crate) struct Gsp {
     /// Command queue.
     pub(crate) cmdq: Cmdq,
     /// RM arguments.
-    rmargs: CoherentAllocation<GspArgumentsCached>,
+    rmargs: CoherentAllocation<GspArgumentsPadded>,
 }
 
 impl Gsp {
     // Creates an in-place initializer for a `Gsp` manager for `pdev`.
-    pub(crate) fn new(pdev: &pci::Device<device::Bound>) -> Result<impl PinInit<Self, Error>> {
-        let dev = pdev.as_ref();
-        let libos = CoherentAllocation::<LibosMemoryRegionInitArgument>::alloc_coherent(
-            dev,
-            GSP_PAGE_SIZE / size_of::<LibosMemoryRegionInitArgument>(),
-            GFP_KERNEL | __GFP_ZERO,
-        )?;
+    pub(crate) fn new(pdev: &pci::Device<device::Bound>) -> impl PinInit<Self, Error> + '_ {
+        pin_init::pin_init_scope(move || {
+            let dev = pdev.as_ref();
 
-        // Initialise the logging structures. The OpenRM equivalents are in:
-        // _kgspInitLibosLoggingStructures (allocates memory for buffers)
-        // kgspSetupLibosInitArgs_IMPL (creates pLibosInitArgs[] array)
-        let loginit = LogBuffer::new(dev)?;
-        dma_write!(libos[0] = LibosMemoryRegionInitArgument::new("LOGINIT", &loginit.0))?;
-
-        let logintr = LogBuffer::new(dev)?;
-        dma_write!(libos[1] = LibosMemoryRegionInitArgument::new("LOGINTR", &logintr.0))?;
-
-        let logrm = LogBuffer::new(dev)?;
-        dma_write!(libos[2] = LibosMemoryRegionInitArgument::new("LOGRM", &logrm.0))?;
-
-        let cmdq = Cmdq::new(dev)?;
-
-        let rmargs = CoherentAllocation::<GspArgumentsCached>::alloc_coherent(
-            dev,
-            1,
-            GFP_KERNEL | __GFP_ZERO,
-        )?;
-        dma_write!(rmargs[0] = fw::GspArgumentsCached::new(&cmdq))?;
-        dma_write!(libos[3] = LibosMemoryRegionInitArgument::new("RMARGS", &rmargs))?;
-
-        Ok(try_pin_init!(Self {
-            libos,
-            loginit,
-            logintr,
-            logrm,
-            rmargs,
-            cmdq,
-        }))
+            Ok(try_pin_init!(Self {
+                libos: CoherentAllocation::<LibosMemoryRegionInitArgument>::alloc_coherent(
+                    dev,
+                    GSP_PAGE_SIZE / size_of::<LibosMemoryRegionInitArgument>(),
+                    GFP_KERNEL | __GFP_ZERO,
+                )?,
+                loginit: LogBuffer::new(dev)?,
+                logintr: LogBuffer::new(dev)?,
+                logrm: LogBuffer::new(dev)?,
+                cmdq: Cmdq::new(dev)?,
+                rmargs: CoherentAllocation::<GspArgumentsPadded>::alloc_coherent(
+                    dev,
+                    1,
+                    GFP_KERNEL | __GFP_ZERO,
+                )?,
+                _: {
+                    // Initialise the logging structures. The OpenRM equivalents are in:
+                    // _kgspInitLibosLoggingStructures (allocates memory for buffers)
+                    // kgspSetupLibosInitArgs_IMPL (creates pLibosInitArgs[] array)
+                    dma_write!(
+                        libos, [0]?, LibosMemoryRegionInitArgument::new("LOGINIT", &loginit.0)
+                    );
+                    dma_write!(
+                        libos, [1]?, LibosMemoryRegionInitArgument::new("LOGINTR", &logintr.0)
+                    );
+                    dma_write!(libos, [2]?, LibosMemoryRegionInitArgument::new("LOGRM", &logrm.0));
+                    dma_write!(rmargs, [0]?.inner, fw::GspArgumentsCached::new(cmdq));
+                    dma_write!(libos, [3]?, LibosMemoryRegionInitArgument::new("RMARGS", rmargs));
+                },
+            }))
+        })
     }
 }
