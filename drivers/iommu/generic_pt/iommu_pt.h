@@ -1102,8 +1102,12 @@ static void NS(get_info)(struct pt_iommu *iommu_table,
 			pgsize_bitmap |= pt_possible_sizes(&pts);
 	}
 
-	/* Hide page sizes larger than the maximum OA */
-	info->pgsize_bitmap = oalog2_mod(pgsize_bitmap, common->max_oasz_lg2);
+	/*
+	 * Hide page sizes larger than the maximum. -1 because a whole table
+	 * pgsize is not allowed
+	 */
+	info->pgsize_bitmap = log2_mod(pgsize_bitmap, common->max_vasz_lg2 - 1);
+	info->pgsize_bitmap = oalog2_mod(info->pgsize_bitmap, common->max_oasz_lg2);
 }
 
 static void NS(deinit)(struct pt_iommu *iommu_table)
