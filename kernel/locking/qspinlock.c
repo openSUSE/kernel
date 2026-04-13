@@ -250,7 +250,6 @@ pv_queue:
 
 	node->locked = 0;
 	node->next = NULL;
-	node->prev_node = 0;
 	pv_init_node(node);
 
 	/*
@@ -277,13 +276,6 @@ pv_queue:
 	 */
 	old = xchg_tail(lock, tail);
 	next = NULL;
-
-	/*
-	 * The prev_node value is saved for crash dump analysis purpose only,
-	 * it is not used within the qspinlock code. The encoded node value
-	 * may be truncated if there are 16k or more CPUs in the system.
-	 */
-	node->prev_node = old >> _Q_TAIL_IDX_OFFSET;
 
 	/*
 	 * if there was a previous node; link it and wait until reaching the
