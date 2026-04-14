@@ -590,7 +590,7 @@ static struct btrfs_root *create_reloc_root(struct btrfs_trans_handle *trans,
 	struct btrfs_key root_key;
 	int ret = 0;
 
-	root_item = kmalloc(sizeof(*root_item), GFP_NOFS);
+	root_item = kmalloc_obj(*root_item, GFP_NOFS);
 	if (!root_item)
 		return ERR_PTR(-ENOMEM);
 
@@ -2944,7 +2944,7 @@ static int relocate_file_extent_cluster(struct reloc_control *rc)
 	if (!cluster->nr)
 		return 0;
 
-	ra = kzalloc(sizeof(*ra), GFP_NOFS);
+	ra = kzalloc_obj(*ra, GFP_NOFS);
 	if (!ra)
 		return -ENOMEM;
 
@@ -3863,7 +3863,7 @@ static int add_remap_tree_entries(struct btrfs_trans_handle *trans, struct btrfs
 
 	max_items = BTRFS_LEAF_DATA_SIZE(trans->fs_info) / sizeof(struct btrfs_item);
 
-	data_sizes = kzalloc(sizeof(u32) * min_t(u32, num_entries, max_items), GFP_NOFS);
+	data_sizes = kzalloc_objs(u32, min_t(u32, num_entries, max_items), GFP_NOFS);
 	if (!data_sizes)
 		return -ENOMEM;
 
@@ -4454,7 +4454,7 @@ static int create_remap_tree_entries(struct btrfs_trans_handle *trans,
 
 	btrfs_release_path(path);
 
-	space_runs = kmalloc(sizeof(*space_runs) * extent_count, GFP_NOFS);
+	space_runs = kmalloc_objs(*space_runs, extent_count, GFP_NOFS);
 	if (!space_runs) {
 		mutex_unlock(&bg->free_space_lock);
 		return -ENOMEM;
@@ -4543,7 +4543,7 @@ static int create_remap_tree_entries(struct btrfs_trans_handle *trans,
 	mutex_unlock(&bg->free_space_lock);
 
 	max_entries = extent_count + 2;
-	entries = kmalloc(sizeof(*entries) * max_entries, GFP_NOFS);
+	entries = kmalloc_objs(*entries, max_entries, GFP_NOFS);
 	if (!entries) {
 		ret = -ENOMEM;
 		goto out;
