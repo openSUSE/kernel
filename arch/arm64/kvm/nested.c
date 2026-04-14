@@ -378,9 +378,12 @@ static int walk_nested_s2_pgd(struct kvm_vcpu *vcpu, phys_addr_t ipa,
 	return 0;
 }
 
-static void vtcr_to_walk_info(u64 vtcr, struct s2_walk_info *wi)
+static void setup_s2_walk(struct kvm_vcpu *vcpu, struct s2_walk_info *wi)
 {
-	wi->t0sz = vtcr & TCR_EL2_T0SZ_MASK;
+	u64 vtcr = vcpu_read_sys_reg(vcpu, VTCR_EL2);
+
+	wi->baddr = vcpu_read_sys_reg(vcpu, VTTBR_EL2);
+	wi->t0sz = vtcr & VTCR_EL2_T0SZ_MASK;
 
 	switch (FIELD_GET(VTCR_EL2_TG0_MASK, vtcr)) {
 	case VTCR_EL2_TG0_4K:
@@ -398,12 +401,12 @@ static void vtcr_to_walk_info(u64 vtcr, struct s2_walk_info *wi)
 			      ps_to_output_size(FIELD_GET(VTCR_EL2_PS_MASK, vtcr), false));
 
 	wi->ha = vtcr & VTCR_EL2_HA;
+	wi->be = vcpu_read_sys_reg(vcpu, SCTLR_EL2) & SCTLR_ELx_EE;
 }
 
 int kvm_walk_nested_s2(struct kvm_vcpu *vcpu, phys_addr_t gipa,
 		       struct kvm_s2_trans *result)
 {
-	u64 vtcr = vcpu_read_sys_reg(vcpu, VTCR_EL2);
 	struct s2_walk_info wi;
 	int ret;
 
@@ -412,11 +415,7 @@ int kvm_walk_nested_s2(struct kvm_vcpu *vcpu, phys_addr_t gipa,
 	if (!vcpu_has_nv(vcpu))
 		return 0;
 
-	wi.baddr = vcpu_read_sys_reg(vcpu, VTTBR_EL2);
-
-	vtcr_to_walk_info(vtcr, &wi);
-
-	wi.be = vcpu_read_sys_reg(vcpu, SCTLR_EL2) & SCTLR_ELx_EE;
+	setup_s2_walk(vcpu, &wi);
 
 	ret = walk_nested_s2_pgd(vcpu, gipa, &wi, result);
 	if (ret)
