@@ -201,6 +201,14 @@
 		enable-active-high;
 		regulator-always-on;
 	};
+
+	/* system wide 4.2V power rail */
+	reg_vsys: regulator-vsys {
+		compatible = "regulator-fixed";
+		regulator-name = "vsys";
+		regulator-always-on;
+		regulator-boot-on;
+	};
 };
 
 &adsp {
@@ -1238,6 +1246,11 @@
 		compatible = "mediatek,mt6315-regulator";
 		reg = <0x6 SPMI_USID>;
 
+		pvdd1-supply = <&reg_vsys>;
+		pvdd2-supply = <&reg_vsys>;
+		pvdd3-supply = <&reg_vsys>;
+		pvdd4-supply = <&reg_vsys>;
+
 		regulators {
 			mt6315_6_vbuck1: vbuck1 {
 				regulator-name = "Vbcpu";
@@ -1253,6 +1266,11 @@
 	mt6315_7: pmic@7 {
 		compatible = "mediatek,mt6315-regulator";
 		reg = <0x7 SPMI_USID>;
+
+		pvdd1-supply = <&reg_vsys>;
+		pvdd2-supply = <&reg_vsys>;
+		pvdd3-supply = <&reg_vsys>;
+		pvdd4-supply = <&reg_vsys>;
 
 		regulators {
 			mt6315_7_vbuck1: vbuck1 {
