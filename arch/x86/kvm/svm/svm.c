@@ -1357,7 +1357,7 @@ static void init_vmcb(struct kvm_vcpu *vcpu)
 				     guest_has_spec_ctrl_msr(vcpu),
 				     guest_has_spec_ctrl_msr(vcpu));
 
-	if (kvm_vcpu_apicv_active(vcpu))
+	if (enable_apicv && irqchip_in_kernel(vcpu->kvm))
 		avic_init_vmcb(svm, vmcb);
 
 	if (vnmi)
