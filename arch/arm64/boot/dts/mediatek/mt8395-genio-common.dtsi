@@ -209,6 +209,14 @@
 		regulator-always-on;
 		regulator-boot-on;
 	};
+
+	reg_vsys_buck: regulator-vsys-buck {
+		compatible = "regulator-fixed";
+		regulator-name = "vsys_buck";
+		regulator-always-on;
+		regulator-boot-on;
+		vin-supply = <&reg_vsys>;
+	};
 };
 
 &adsp {
@@ -486,7 +494,11 @@
 
 		regulator {
 			compatible = "mediatek,mt6360-regulator";
-			LDO_VIN3-supply = <&mt6360_buck2>;
+			BUCK1_VIN-supply = <&reg_vsys>;
+			BUCK2_VIN-supply = <&reg_vsys>;
+			LDO_VIN1-supply = <&reg_vsys_buck>;
+			LDO_VIN2-supply = <&reg_vsys_buck>;
+			LDO_VIN3-supply = <&reg_vsys>;
 
 			mt6360_buck1: buck1 {
 				regulator-name = "emi_vdd2";
