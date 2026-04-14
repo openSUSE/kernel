@@ -378,28 +378,33 @@ static int walk_nested_s2_pgd(struct kvm_vcpu *vcpu, phys_addr_t ipa,
 	return 0;
 }
 
+
+static unsigned int vtcr_to_tg0_pgshift(u64 vtcr)
+{
+	u64 tg0 = FIELD_GET(VTCR_EL2_TG0_MASK, vtcr);
+
+	switch (tg0) {
+	case VTCR_EL2_TG0_4K:
+		return 12;
+	case VTCR_EL2_TG0_16K:
+		return 14;
+	case VTCR_EL2_TG0_64K:
+	default:	/* IMPDEF: treat any other value as 64k */
+		return 16;
+	}
+}
+
 static void setup_s2_walk(struct kvm_vcpu *vcpu, struct s2_walk_info *wi)
 {
 	u64 vtcr = vcpu_read_sys_reg(vcpu, VTCR_EL2);
 
 	wi->baddr = vcpu_read_sys_reg(vcpu, VTTBR_EL2);
 	wi->t0sz = vtcr & VTCR_EL2_T0SZ_MASK;
-
-	switch (FIELD_GET(VTCR_EL2_TG0_MASK, vtcr)) {
-	case VTCR_EL2_TG0_4K:
-		wi->pgshift = 12;	 break;
-	case VTCR_EL2_TG0_16K:
-		wi->pgshift = 14;	 break;
-	case VTCR_EL2_TG0_64K:
-	default:	    /* IMPDEF: treat any other value as 64k */
-		wi->pgshift = 16;	 break;
-	}
-
+	wi->pgshift = vtcr_to_tg0_pgshift(vtcr);
 	wi->sl = FIELD_GET(VTCR_EL2_SL0_MASK, vtcr);
 	/* Global limit for now, should eventually be per-VM */
 	wi->max_oa_bits = min(get_kvm_ipa_limit(),
 			      ps_to_output_size(FIELD_GET(VTCR_EL2_PS_MASK, vtcr), false));
-
 	wi->ha = vtcr & VTCR_EL2_HA;
 	wi->be = vcpu_read_sys_reg(vcpu, SCTLR_EL2) & SCTLR_ELx_EE;
 }
