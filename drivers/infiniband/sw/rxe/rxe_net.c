@@ -600,7 +600,7 @@ const char *rxe_parent_name(struct rxe_dev *rxe, unsigned int port_num)
 	struct net_device *ndev;
 	char *ndev_name;
 
-	ndev = rxe_ib_device_get_netdev(&rxe->ib_dev);
+	ndev = ib_device_get_netdev(&rxe->ib_dev, 1);
 	if (!ndev)
 		return NULL;
 	ndev_name = ndev->name;
@@ -644,12 +644,11 @@ static void rxe_sock_put(struct sock *sk,
 
 void rxe_net_del(struct ib_device *dev)
 {
-	struct rxe_dev *rxe = container_of(dev, struct rxe_dev, ib_dev);
 	struct net_device *ndev;
 	struct sock *sk;
 	struct net *net;
 
-	ndev = rxe_ib_device_get_netdev(&rxe->ib_dev);
+	ndev = ib_device_get_netdev(dev, 1);
 	if (!ndev)
 		return;
 
@@ -697,7 +696,7 @@ void rxe_set_port_state(struct rxe_dev *rxe)
 {
 	struct net_device *ndev;
 
-	ndev = rxe_ib_device_get_netdev(&rxe->ib_dev);
+	ndev = ib_device_get_netdev(&rxe->ib_dev, 1);
 	if (!ndev)
 		return;
 
