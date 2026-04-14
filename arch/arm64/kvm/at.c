@@ -136,6 +136,30 @@ static void compute_s1poe(struct kvm_vcpu *vcpu, struct s1_walk_info *wi)
 	wi->e0poe = (wi->regime != TR_EL2) && (val & TCR2_EL1_E0POE);
 }
 
+#define _has_tgran(__r, __sz)					\
+	({							\
+		u64 _s1, _mmfr0 = __r;				\
+								\
+		_s1 = SYS_FIELD_GET(ID_AA64MMFR0_EL1,		\
+				    TGRAN##__sz, _mmfr0);	\
+								\
+		_s1 != ID_AA64MMFR0_EL1_TGRAN##__sz##_NI;	\
+	})
+
+static bool has_tgran(u64 mmfr0, unsigned int shift)
+{
+	switch (shift) {
+	case 12:
+		return _has_tgran(mmfr0, 4);
+	case 14:
+		return _has_tgran(mmfr0, 16);
+	case 16:
+		return _has_tgran(mmfr0, 64);
+	default:
+		BUG();
+	}
+}
+
 static unsigned int tcr_to_tg0_pgshift(u64 tcr)
 {
 	u64 tg0 = tcr & TCR_TG0_MASK;
@@ -166,8 +190,23 @@ static unsigned int tcr_to_tg1_pgshift(u64 tcr)
 	}
 }
 
-static unsigned int tcr_tg_pgshift(u64 tcr, bool upper_range)
+static unsigned int fallback_tgran_shift(u64 mmfr0)
 {
+	if (has_tgran(mmfr0, PAGE_SHIFT))
+		return PAGE_SHIFT;
+	else if (has_tgran(mmfr0, 12))
+		return 12;
+	else if (has_tgran(mmfr0, 14))
+		return 14;
+	else if (has_tgran(mmfr0, 16))
+		return 16;
+	else			/* Should be unreacheable */
+		return PAGE_SHIFT;
+}
+
+static unsigned int tcr_tg_pgshift(struct kvm *kvm, u64 tcr, bool upper_range)
+{
+	u64 mmfr0 = kvm_read_vm_id_reg(kvm, SYS_ID_AA64MMFR0_EL1);
 	unsigned int shift;
 
 	/* Someone was silly enough to encode TG0/TG1 differently */
@@ -175,6 +214,15 @@ static unsigned int tcr_tg_pgshift(u64 tcr, bool upper_range)
 		shift = tcr_to_tg1_pgshift(tcr);
 	else
 		shift = tcr_to_tg0_pgshift(tcr);
+
+	/*
+	 * If TGx is programmed to an unimplemented value (not advertised in
+	 * ID_AA64MMFR0_EL1), we should treat it as if an implemented value is
+	 * written, as per the architecture. Choose an available one while
+	 * prioritizing PAGE_SIZE.
+	 */
+	if (!has_tgran(mmfr0, shift))
+		return fallback_tgran_shift(mmfr0);
 
 	return shift;
 }
@@ -223,7 +271,7 @@ static int setup_s1_walk(struct kvm_vcpu *vcpu, struct s1_walk_info *wi,
 	else
 		wi->txsz = FIELD_GET(TCR_T0SZ_MASK, tcr);
 
-	wi->pgshift = tcr_tg_pgshift(tcr, upper_range);
+	wi->pgshift = tcr_tg_pgshift(vcpu->kvm, tcr, upper_range);
 	wi->pa52bit = has_52bit_pa(vcpu, wi, tcr);
 
 	ia_bits = get_ia_size(wi);
