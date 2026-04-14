@@ -128,15 +128,6 @@ struct btrfs_inode {
 	/* which subvolume this inode belongs to */
 	struct btrfs_root *root;
 
-#if BITS_PER_LONG == 32
-	/*
-	 * The objectid of the corresponding BTRFS_INODE_ITEM_KEY.
-	 * On 64 bits platforms we can get it from vfs_inode.i_ino, which is an
-	 * unsigned long and therefore 64 bits on such platforms.
-	 */
-	u64 objectid;
-#endif
-
 	/* Cached value of inode property 'compression'. */
 	u8 prop_compress;
 
@@ -372,29 +363,10 @@ static inline unsigned long btrfs_inode_hash(u64 objectid,
 	return (unsigned long)h;
 }
 
-#if BITS_PER_LONG == 32
-
-/*
- * On 32 bit systems the i_ino of struct inode is 32 bits (unsigned long), so
- * we use the inode's location objectid which is a u64 to avoid truncation.
- */
-static inline u64 btrfs_ino(const struct btrfs_inode *inode)
-{
-	u64 ino = inode->objectid;
-
-	if (test_bit(BTRFS_INODE_ROOT_STUB, &inode->runtime_flags))
-		ino = inode->vfs_inode.i_ino;
-	return ino;
-}
-
-#else
-
 static inline u64 btrfs_ino(const struct btrfs_inode *inode)
 {
 	return inode->vfs_inode.i_ino;
 }
-
-#endif
 
 static inline void btrfs_get_inode_key(const struct btrfs_inode *inode,
 				       struct btrfs_key *key)
@@ -406,9 +378,6 @@ static inline void btrfs_get_inode_key(const struct btrfs_inode *inode,
 
 static inline void btrfs_set_inode_number(struct btrfs_inode *inode, u64 ino)
 {
-#if BITS_PER_LONG == 32
-	inode->objectid = ino;
-#endif
 	inode->vfs_inode.i_ino = ino;
 }
 
