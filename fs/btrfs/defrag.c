@@ -1179,7 +1179,6 @@ static int defrag_one_locked_target(struct btrfs_inode *inode,
 		if (start >= folio_next_pos(folio) ||
 		    start + len <= folio_pos(folio))
 			continue;
-		btrfs_folio_clamp_clear_checked(fs_info, folio, start, len);
 		btrfs_folio_clamp_set_dirty(fs_info, folio, start, len);
 	}
 	btrfs_delalloc_release_extents(inode, len);

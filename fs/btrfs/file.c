@@ -49,14 +49,6 @@ static void btrfs_drop_folio(struct btrfs_fs_info *fs_info, struct folio *folio,
 	u64 block_len = round_up(pos + copied, fs_info->sectorsize) - block_start;
 
 	ASSERT(block_len <= U32_MAX);
-	/*
-	 * Folio checked is some magic around finding folios that have been
-	 * modified without going through btrfs_dirty_folio().  Clear it here.
-	 * There should be no need to mark the pages accessed as
-	 * prepare_one_folio() should have marked them accessed in
-	 * prepare_one_folio() via find_or_create_page()
-	 */
-	btrfs_folio_clamp_clear_checked(fs_info, folio, block_start, block_len);
 	folio_unlock(folio);
 	folio_put(folio);
 }
@@ -65,7 +57,7 @@ static void btrfs_drop_folio(struct btrfs_fs_info *fs_info, struct folio *folio,
  * After copy_folio_from_iter_atomic(), update the following things for delalloc:
  * - Mark newly dirtied folio as DELALLOC in the io tree.
  *   Used to advise which range is to be written back.
- * - Mark modified folio as Uptodate/Dirty and not needing COW fixup
+ * - Mark modified folio as Uptodate/Dirty
  * - Update inode size for past EOF write
  */
 int btrfs_dirty_folio(struct btrfs_inode *inode, struct folio *folio, loff_t pos,
@@ -107,7 +99,6 @@ int btrfs_dirty_folio(struct btrfs_inode *inode, struct folio *folio, loff_t pos
 		return ret;
 
 	btrfs_folio_clamp_set_uptodate(fs_info, folio, start_pos, num_bytes);
-	btrfs_folio_clamp_clear_checked(fs_info, folio, start_pos, num_bytes);
 	btrfs_folio_clamp_set_dirty(fs_info, folio, start_pos, num_bytes);
 
 	/*
@@ -1992,7 +1983,6 @@ again:
 	if (zero_start != fsize)
 		folio_zero_range(folio, zero_start, folio_size(folio) - zero_start);
 
-	btrfs_folio_clear_checked(fs_info, folio, page_start, fsize);
 	btrfs_folio_set_dirty(fs_info, folio, page_start, end + 1 - page_start);
 	btrfs_folio_set_uptodate(fs_info, folio, page_start, end + 1 - page_start);
 

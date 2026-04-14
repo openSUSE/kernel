@@ -41,11 +41,9 @@ enum {
 	btrfs_bitmap_nr_writeback,
 
 	/*
-	 * The ordered and checked flags are for COW fixup, already marked
-	 * deprecated, and will be removed eventually.
+	 * The ordered flags shows if the range has an ordered extent.
 	 */
 	btrfs_bitmap_nr_ordered,
-	btrfs_bitmap_nr_checked,
 
 	/*
 	 * The locked bit is for async delalloc range (compression), currently
@@ -182,7 +180,6 @@ DECLARE_BTRFS_SUBPAGE_OPS(uptodate);
 DECLARE_BTRFS_SUBPAGE_OPS(dirty);
 DECLARE_BTRFS_SUBPAGE_OPS(writeback);
 DECLARE_BTRFS_SUBPAGE_OPS(ordered);
-DECLARE_BTRFS_SUBPAGE_OPS(checked);
 
 /*
  * Helper for error cleanup, where a folio will have its dirty flag cleared,
