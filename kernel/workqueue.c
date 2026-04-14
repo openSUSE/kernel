@@ -55,6 +55,14 @@
 
 #include "workqueue_internal.h"
 
+/* SL-specific kABI tracking */
+#define EXPORT_ENUM_VALUE(name) \
+	char (*const __kabi_enum_##name)[name]; \
+	EXPORT_SYMBOL_GPL(__kabi_enum_##name)
+
+EXPORT_ENUM_VALUE(WORK_OFFQ_POOL_SHIFT);
+EXPORT_ENUM_VALUE(WORK_OFFQ_POOL_BITS);
+
 enum worker_pool_flags {
 	/*
 	 * worker_pool flags
