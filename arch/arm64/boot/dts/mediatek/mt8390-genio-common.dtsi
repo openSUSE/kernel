@@ -285,6 +285,30 @@
 	status = "okay";
 };
 
+&cpu0 {
+	cpu-supply = <&mt6359_vcore_buck_reg>;
+};
+
+&cpu1 {
+	cpu-supply = <&mt6359_vcore_buck_reg>;
+};
+
+&cpu2 {
+	cpu-supply = <&mt6359_vcore_buck_reg>;
+};
+
+&cpu3 {
+	cpu-supply = <&mt6359_vcore_buck_reg>;
+};
+
+&cpu6 {
+	cpu-supply = <&mt6319_vbuck1>;
+};
+
+&cpu7 {
+	cpu-supply = <&mt6319_vbuck1>;
+};
+
 &disp_dsi0 {
 	#address-cells = <1>;
 	#size-cells = <0>;
