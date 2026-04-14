@@ -2605,8 +2605,7 @@ void btrfs_set_delalloc_extent(struct btrfs_inode *inode, struct extent_state *s
 
 	lockdep_assert_held(&inode->io_tree.lock);
 
-	if ((bits & EXTENT_DEFRAG) && !(bits & EXTENT_DELALLOC))
-		WARN_ON(1);
+	WARN_ON((bits & EXTENT_DEFRAG) && !(bits & EXTENT_DELALLOC));
 	/*
 	 * set_bit and clear bit hooks normally require _irqsave/restore
 	 * but in this case, we are only testing for the DELALLOC
