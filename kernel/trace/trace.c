@@ -55,6 +55,30 @@
 #include "trace.h"
 #include "trace_output.h"
 
+/* SL-specific kABI tracking */
+#define EXPORT_ENUM_VALUE(name) \
+        char (*const __kabi_enum_##name)[name]; \
+        EXPORT_SYMBOL_GPL(__kabi_enum_##name)
+
+EXPORT_ENUM_VALUE(TRACE_FTRACE_BIT);
+EXPORT_ENUM_VALUE(TRACE_FTRACE_NMI_BIT);
+EXPORT_ENUM_VALUE(TRACE_FTRACE_IRQ_BIT);
+EXPORT_ENUM_VALUE(TRACE_FTRACE_SIRQ_BIT);
+EXPORT_ENUM_VALUE(TRACE_FTRACE_TRANSITION_BIT);
+EXPORT_ENUM_VALUE(TRACE_INTERNAL_BIT);
+EXPORT_ENUM_VALUE(TRACE_INTERNAL_NMI_BIT);
+EXPORT_ENUM_VALUE(TRACE_INTERNAL_IRQ_BIT);
+EXPORT_ENUM_VALUE(TRACE_INTERNAL_SIRQ_BIT);
+EXPORT_ENUM_VALUE(TRACE_INTERNAL_TRANSITION_BIT);
+EXPORT_ENUM_VALUE(TRACE_INTERNAL_EVENT_BIT);
+EXPORT_ENUM_VALUE(TRACE_INTERNAL_EVENT_NMI_BIT);
+EXPORT_ENUM_VALUE(TRACE_INTERNAL_EVENT_IRQ_BIT);
+EXPORT_ENUM_VALUE(TRACE_INTERNAL_EVENT_SIRQ_BIT);
+EXPORT_ENUM_VALUE(TRACE_INTERNAL_EVENT_TRANSITION_BIT);
+EXPORT_ENUM_VALUE(TRACE_BRANCH_BIT);
+EXPORT_ENUM_VALUE(TRACE_IRQ_BIT);
+EXPORT_ENUM_VALUE(TRACE_RECORD_RECURSION_BIT);
+
 #ifdef CONFIG_FTRACE_STARTUP_TEST
 /*
  * We need to change this state when a selftest is running.
@@ -2925,6 +2949,11 @@ static void __ftrace_trace_stack(struct trace_array *tr,
 	struct ftrace_stack *fstack;
 	struct stack_entry *entry;
 	int stackidx;
+	int bit;
+
+	bit = trace_test_and_set_recursion(_THIS_IP_, _RET_IP_, TRACE_EVENT_START);
+	if (bit < 0)
+		return;
 
 	/*
 	 * Add one, for this function and the call to save_stack_trace()
@@ -2994,7 +3023,7 @@ static void __ftrace_trace_stack(struct trace_array *tr,
 	barrier();
 	__this_cpu_dec(ftrace_stack_reserve);
 	preempt_enable_notrace();
-
+	trace_clear_recursion(bit);
 }
 
 static inline void ftrace_trace_stack(struct trace_array *tr,

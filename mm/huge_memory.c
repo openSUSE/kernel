@@ -41,6 +41,7 @@
 #include <linux/compat.h>
 #include <linux/pgalloc_tag.h>
 #include <linux/pagewalk.h>
+#include <linux/secretmem.h>
 
 #include <asm/tlb.h>
 #include <asm/pgalloc.h>
@@ -95,6 +96,12 @@ static inline bool file_thp_enabled(struct vm_area_struct *vma)
 		return false;
 
 	inode = file_inode(vma->vm_file);
+
+	if (secretmem_mapping(inode->i_mapping))
+		return false;
+
+	if (mapping_inaccessible(inode->i_mapping))
+		return false;
 
 	return !inode_is_open_for_write(inode) && S_ISREG(inode->i_mode);
 }
