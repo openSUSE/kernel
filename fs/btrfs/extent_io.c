@@ -1738,18 +1738,17 @@ static noinline_for_stack int extent_writepage_io(struct btrfs_inode *inode,
 	ASSERT(end <= folio_end, "start=%llu len=%u folio_start=%llu folio_size=%zu",
 	       start, len, folio_start, folio_size(folio));
 
-	ret = btrfs_writepage_cow_fixup(folio);
-	if (ret == -EAGAIN) {
-		/* Fixup worker will requeue */
-		folio_redirty_for_writepage(bio_ctrl->wbc, folio);
-		folio_unlock(folio);
-		return 1;
-	}
-	if (ret < 0) {
+	if (unlikely(!folio_test_ordered(folio))) {
+		DEBUG_WARN();
+		btrfs_err_rl(fs_info,
+	"root %lld ino %llu folio %llu is marked dirty without notifying the fs",
+			     btrfs_root_id(inode->root),
+			     btrfs_ino(inode),
+			     folio_pos(folio));
 		btrfs_folio_clear_dirty(fs_info, folio, start, len);
 		btrfs_folio_set_writeback(fs_info, folio, start, len);
 		btrfs_folio_clear_writeback(fs_info, folio, start, len);
-		return ret;
+		return -EUCLEAN;
 	}
 
 	bitmap_set(&range_bitmap, (start - folio_pos(folio)) >> fs_info->sectorsize_bits,
@@ -1867,12 +1866,8 @@ static int extent_writepage(struct folio *folio, struct btrfs_bio_ctrl *bio_ctrl
 	 *
 	 * So here we check if the page has private set to rule out such
 	 * case.
-	 * But we also have a long history of relying on the COW fixup,
-	 * so here we only enable this check for experimental builds until
-	 * we're sure it's safe.
 	 */
-	if (IS_ENABLED(CONFIG_BTRFS_EXPERIMENTAL) &&
-	    unlikely(!folio_test_private(folio))) {
+	if (unlikely(!folio_test_private(folio))) {
 		WARN_ON(IS_ENABLED(CONFIG_BTRFS_DEBUG));
 		btrfs_err_rl(fs_info,
 	"root %lld ino %llu folio %llu is marked dirty without notifying the fs",
