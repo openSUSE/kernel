@@ -893,8 +893,7 @@ free_cache:
 	goto out;
 }
 
-static int copy_free_space_cache(struct btrfs_block_group *block_group,
-				 struct btrfs_free_space_ctl *ctl)
+static int copy_free_space_cache(struct btrfs_free_space_ctl *ctl)
 {
 	struct btrfs_free_space *info;
 	struct rb_node *n;
@@ -909,7 +908,7 @@ static int copy_free_space_cache(struct btrfs_block_group *block_group,
 			unlink_free_space(ctl, info, true);
 			spin_unlock(&ctl->tree_lock);
 			kmem_cache_free(btrfs_free_space_cachep, info);
-			ret = btrfs_add_free_space(block_group, offset, bytes);
+			ret = btrfs_add_free_space(ctl->block_group, offset, bytes);
 			spin_lock(&ctl->tree_lock);
 		} else {
 			u64 offset = info->offset;
@@ -919,7 +918,7 @@ static int copy_free_space_cache(struct btrfs_block_group *block_group,
 			if (ret == 0) {
 				bitmap_clear_bits(ctl, info, offset, bytes, true);
 				spin_unlock(&ctl->tree_lock);
-				ret = btrfs_add_free_space(block_group, offset,
+				ret = btrfs_add_free_space(ctl->block_group, offset,
 							   bytes);
 				spin_lock(&ctl->tree_lock);
 			} else {
@@ -1022,7 +1021,7 @@ int load_free_space_cache(struct btrfs_block_group *block_group)
 
 	if (matched) {
 		spin_lock(&tmp_ctl.tree_lock);
-		ret = copy_free_space_cache(block_group, &tmp_ctl);
+		ret = copy_free_space_cache(&tmp_ctl);
 		spin_unlock(&tmp_ctl.tree_lock);
 		/*
 		 * ret == 1 means we successfully loaded the free space cache,
