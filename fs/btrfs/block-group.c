@@ -23,6 +23,7 @@
 #include "extent-tree.h"
 
 static struct kmem_cache *block_group_cache;
+static struct kmem_cache *free_space_ctl_cache;
 
 int __init btrfs_init_block_group(void)
 {
@@ -31,12 +32,22 @@ int __init btrfs_init_block_group(void)
 					      0, 0, NULL);
 	if (!block_group_cache)
 		return -ENOMEM;
+
+	free_space_ctl_cache = kmem_cache_create("btrfs_free_space_ctl",
+						 sizeof(struct btrfs_free_space_ctl),
+						 0, 0, NULL);
+	if (!free_space_ctl_cache) {
+		kmem_cache_destroy(block_group_cache);
+		return -ENOMEM;
+	}
+
 	return 0;
 }
 
 void __cold btrfs_exit_block_group(void)
 {
 	kmem_cache_destroy(block_group_cache);
+	kmem_cache_destroy(free_space_ctl_cache);
 }
 
 #ifdef CONFIG_BTRFS_DEBUG
@@ -197,7 +208,7 @@ void btrfs_put_block_group(struct btrfs_block_group *cache)
 			btrfs_discard_cancel_work(&cache->fs_info->discard_ctl,
 						  cache);
 
-		kfree(cache->free_space_ctl);
+		kmem_cache_free(free_space_ctl_cache, cache->free_space_ctl);
 		btrfs_free_chunk_map(cache->physical_map);
 		kmem_cache_free(block_group_cache, cache);
 	}
@@ -2392,7 +2403,7 @@ static struct btrfs_block_group *btrfs_create_block_group(
 	if (!cache)
 		return NULL;
 
-	cache->free_space_ctl = kzalloc_obj(*cache->free_space_ctl, GFP_NOFS);
+	cache->free_space_ctl = kmem_cache_zalloc(free_space_ctl_cache, GFP_NOFS);
 	if (!cache->free_space_ctl) {
 		kmem_cache_free(block_group_cache, cache);
 		return NULL;
