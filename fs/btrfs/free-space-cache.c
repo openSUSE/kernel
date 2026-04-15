@@ -1568,10 +1568,10 @@ static inline u64 offset_to_bitmap(struct btrfs_free_space_ctl *ctl,
 	u64 bytes_per_bitmap;
 
 	bytes_per_bitmap = BITS_PER_BITMAP * ctl->unit;
-	bitmap_start = offset - ctl->start;
+	bitmap_start = offset - ctl->block_group->start;
 	bitmap_start = div64_u64(bitmap_start, bytes_per_bitmap);
 	bitmap_start *= bytes_per_bitmap;
-	bitmap_start += ctl->start;
+	bitmap_start += ctl->block_group->start;
 
 	return bitmap_start;
 }
@@ -2050,9 +2050,9 @@ again:
 		 * to match our requested alignment
 		 */
 		if (*bytes >= align) {
-			tmp = entry->offset - ctl->start + align - 1;
+			tmp = entry->offset - ctl->block_group->start + align - 1;
 			tmp = div64_u64(tmp, align);
-			tmp = tmp * align + ctl->start;
+			tmp = tmp * align + ctl->block_group->start;
 			align_off = tmp - entry->offset;
 		} else {
 			align_off = 0;
@@ -2947,7 +2947,6 @@ void btrfs_init_free_space_ctl(struct btrfs_block_group *block_group,
 
 	spin_lock_init(&ctl->tree_lock);
 	ctl->unit = fs_info->sectorsize;
-	ctl->start = block_group->start;
 	ctl->block_group = block_group;
 	ctl->op = &free_space_op;
 	ctl->free_space_bytes = RB_ROOT_CACHED;
