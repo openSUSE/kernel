@@ -752,7 +752,7 @@ EXPORT_SYMBOL_GPL(kstrdup_and_replace);
  * kasprintf_strarray - allocate and fill array of sequential strings
  * @gfp: flags for the slab allocator
  * @prefix: prefix to be used
- * @n: amount of lines to be allocated and filled
+ * @n: number of strings to be allocated and filled
  *
  * Allocates and fills @n strings using pattern "%s-%zu", where prefix
  * is provided by caller. The caller is responsible to free them with
@@ -765,7 +765,7 @@ char **kasprintf_strarray(gfp_t gfp, const char *prefix, size_t n)
 	char **names;
 	size_t i;
 
-	names = kcalloc(n + 1, sizeof(char *), gfp);
+	names = kcalloc(n, sizeof(char *), gfp);
 	if (!names)
 		return NULL;
 
