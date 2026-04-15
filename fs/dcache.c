@@ -455,14 +455,10 @@ static void dentry_unlink_inode(struct dentry * dentry)
 
 	raw_write_seqcount_begin(&dentry->d_seq);
 	__d_clear_type_and_inode(dentry);
-	hlist_del_init(&dentry->d_alias);
+	__hlist_del(&dentry->d_alias);
 	/*
 	 * dentry becomes negative, so the space occupied by ->d_alias
-	 * belongs to ->waiters now; we could use __hlist_del() instead
-	 * of hlist_del_init(), if not for the stunt pulled by nfs
-	 * dummy root dentries - positive dentry *not* included into
-	 * the alias list of its inode.  Open-coding hlist_del_init()
-	 * and removing zeroing would be too clumsy...
+	 * belongs to ->waiters now.
 	 */
 	dentry->waiters = NULL;
 	raw_write_seqcount_end(&dentry->d_seq);
