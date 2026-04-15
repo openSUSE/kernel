@@ -107,6 +107,7 @@ struct dw_mci_dma_slave {
  * @ciu_clk: Pointer to card interface unit clock instance.
  * @fifo_depth: depth of FIFO.
  * @data_addr_override: override fifo reg offset with this value.
+ * @dma_threshold: data threshold value in bytes to carry out a DMA transfer.
  * @wm_aligned: force fifo watermark equal with data length in PIO mode.
  *	Set as true if alignment is needed.
  * @data_shift: log2 of FIFO item size.
@@ -163,6 +164,7 @@ struct dw_mci {
 	void __iomem		*regs;
 	void __iomem		*fifo_reg;
 	u32			data_addr_override;
+	u32			dma_threshold;
 	bool			wm_aligned;
 
 	struct scatterlist	*sg;
