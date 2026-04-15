@@ -88,6 +88,7 @@ enum {
 struct tx_work {
 	struct delayed_work work;
 	struct sock *sk;
+	bool disabled;
 };
 
 struct tls_sw_context_tx {
