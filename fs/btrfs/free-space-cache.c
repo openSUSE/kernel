@@ -686,11 +686,12 @@ static int io_ctl_read_bitmap(struct btrfs_io_ctl *io_ctl,
 static void recalculate_thresholds(struct btrfs_free_space_ctl *ctl)
 {
 	struct btrfs_block_group *block_group = ctl->block_group;
+	const int unit = block_group->fs_info->sectorsize;
 	u64 max_bytes;
 	u64 bitmap_bytes;
 	u64 extent_bytes;
 	u64 size = block_group->length;
-	u64 bytes_per_bg = BITS_PER_BITMAP * ctl->unit;
+	u64 bytes_per_bg = BITS_PER_BITMAP * unit;
 	u64 max_bitmaps = div64_u64(size + bytes_per_bg - 1, bytes_per_bg);
 
 	max_bitmaps = max_t(u64, max_bitmaps, 1);
@@ -699,7 +700,7 @@ static void recalculate_thresholds(struct btrfs_free_space_ctl *ctl)
 		btrfs_err(block_group->fs_info,
 "invalid free space control: bg start=%llu len=%llu total_bitmaps=%u unit=%u max_bitmaps=%llu bytes_per_bg=%llu",
 			  block_group->start, block_group->length,
-			  ctl->total_bitmaps, ctl->unit, max_bitmaps,
+			  ctl->total_bitmaps, unit, max_bitmaps,
 			  bytes_per_bg);
 	ASSERT(ctl->total_bitmaps <= max_bitmaps);
 
@@ -714,7 +715,7 @@ static void recalculate_thresholds(struct btrfs_free_space_ctl *ctl)
 	else
 		max_bytes = MAX_CACHE_BYTES_PER_GIG * div_u64(size, SZ_1G);
 
-	bitmap_bytes = ctl->total_bitmaps * ctl->unit;
+	bitmap_bytes = ctl->total_bitmaps * unit;
 
 	/*
 	 * we want the extent entry threshold to always be at most 1/2 the max
@@ -912,7 +913,7 @@ static int copy_free_space_cache(struct btrfs_block_group *block_group,
 			spin_lock(&ctl->tree_lock);
 		} else {
 			u64 offset = info->offset;
-			u64 bytes = ctl->unit;
+			u64 bytes = ctl->block_group->fs_info->sectorsize;
 
 			ret = search_bitmap(ctl, info, &offset, &bytes, false);
 			if (ret == 0) {
@@ -1567,7 +1568,7 @@ static inline u64 offset_to_bitmap(struct btrfs_free_space_ctl *ctl,
 	u64 bitmap_start;
 	u64 bytes_per_bitmap;
 
-	bytes_per_bitmap = BITS_PER_BITMAP * ctl->unit;
+	bytes_per_bitmap = BITS_PER_BITMAP * ctl->block_group->fs_info->sectorsize;
 	bitmap_start = offset - ctl->block_group->start;
 	bitmap_start = div64_u64(bitmap_start, bytes_per_bitmap);
 	bitmap_start *= bytes_per_bitmap;
@@ -1698,6 +1699,7 @@ tree_search_offset(struct btrfs_free_space_ctl *ctl,
 {
 	struct rb_node *n = ctl->free_space_offset.rb_node;
 	struct btrfs_free_space *entry = NULL, *prev = NULL;
+	const int unit = ctl->block_group->fs_info->sectorsize;
 
 	lockdep_assert_held(&ctl->tree_lock);
 
@@ -1781,7 +1783,7 @@ tree_search_offset(struct btrfs_free_space_ctl *ctl,
 			    prev->offset + prev->bytes > offset)
 				return prev;
 		}
-		if (entry->offset + BITS_PER_BITMAP * ctl->unit > offset)
+		if (entry->offset + BITS_PER_BITMAP * unit > offset)
 			return entry;
 	} else if (entry->offset + entry->bytes > offset)
 		return entry;
@@ -1795,8 +1797,7 @@ tree_search_offset(struct btrfs_free_space_ctl *ctl,
 			return NULL;
 		entry = rb_entry(n, struct btrfs_free_space, offset_index);
 		if (entry->bitmap) {
-			if (entry->offset + BITS_PER_BITMAP *
-			    ctl->unit > offset)
+			if (entry->offset + BITS_PER_BITMAP * unit > offset)
 				break;
 		} else {
 			if (entry->offset + entry->bytes > offset)
@@ -1871,18 +1872,19 @@ static inline void bitmap_clear_bits(struct btrfs_free_space_ctl *ctl,
 				     struct btrfs_free_space *info,
 				     u64 offset, u64 bytes, bool update_stat)
 {
+	const int unit = ctl->block_group->fs_info->sectorsize;
 	unsigned long start, count, end;
 	int extent_delta = -1;
 
-	start = offset_to_bit(info->offset, ctl->unit, offset);
-	count = bytes_to_bits(bytes, ctl->unit);
+	start = offset_to_bit(info->offset, unit, offset);
+	count = bytes_to_bits(bytes, unit);
 	end = start + count;
 	ASSERT(end <= BITS_PER_BITMAP);
 
 	bitmap_clear(info->bitmap, start, count);
 
 	info->bytes -= bytes;
-	if (info->max_extent_size > ctl->unit)
+	if (info->max_extent_size > unit)
 		info->max_extent_size = 0;
 
 	relink_bitmap_entry(ctl, info);
@@ -1907,11 +1909,12 @@ static void btrfs_bitmap_set_bits(struct btrfs_free_space_ctl *ctl,
 				  struct btrfs_free_space *info, u64 offset,
 				  u64 bytes)
 {
+	const int unit = ctl->block_group->fs_info->sectorsize;
 	unsigned long start, count, end;
 	int extent_delta = 1;
 
-	start = offset_to_bit(info->offset, ctl->unit, offset);
-	count = bytes_to_bits(bytes, ctl->unit);
+	start = offset_to_bit(info->offset, unit, offset);
+	count = bytes_to_bits(bytes, unit);
 	end = start + count;
 	ASSERT(end <= BITS_PER_BITMAP);
 
@@ -1948,6 +1951,7 @@ static int search_bitmap(struct btrfs_free_space_ctl *ctl,
 			 struct btrfs_free_space *bitmap_info, u64 *offset,
 			 u64 *bytes, bool for_alloc)
 {
+	const int unit = ctl->block_group->fs_info->sectorsize;
 	unsigned long found_bits = 0;
 	unsigned long max_bits = 0;
 	unsigned long bits, i;
@@ -1965,9 +1969,9 @@ static int search_bitmap(struct btrfs_free_space_ctl *ctl,
 		return -1;
 	}
 
-	i = offset_to_bit(bitmap_info->offset, ctl->unit,
+	i = offset_to_bit(bitmap_info->offset, unit,
 			  max_t(u64, *offset, bitmap_info->offset));
-	bits = bytes_to_bits(*bytes, ctl->unit);
+	bits = bytes_to_bits(*bytes, unit);
 
 	for_each_set_bit_from(i, bitmap_info->bitmap, BITS_PER_BITMAP) {
 		if (for_alloc && bits == 1) {
@@ -1987,12 +1991,12 @@ static int search_bitmap(struct btrfs_free_space_ctl *ctl,
 	}
 
 	if (found_bits) {
-		*offset = (u64)(i * ctl->unit) + bitmap_info->offset;
-		*bytes = (u64)(found_bits) * ctl->unit;
+		*offset = (u64)(i * unit) + bitmap_info->offset;
+		*bytes = (u64)(found_bits) * unit;
 		return 0;
 	}
 
-	*bytes = (u64)(max_bits) * ctl->unit;
+	*bytes = (u64)(max_bits) * unit;
 	bitmap_info->max_extent_size = *bytes;
 	relink_bitmap_entry(ctl, bitmap_info);
 	return -1;
@@ -2144,12 +2148,13 @@ static noinline int remove_from_bitmap(struct btrfs_free_space_ctl *ctl,
 			      struct btrfs_free_space *bitmap_info,
 			      u64 *offset, u64 *bytes)
 {
+	const int unit = ctl->block_group->fs_info->sectorsize;
 	u64 end;
 	u64 search_start, search_bytes;
 	int ret;
 
 again:
-	end = bitmap_info->offset + (u64)(BITS_PER_BITMAP * ctl->unit) - 1;
+	end = bitmap_info->offset + (u64)(BITS_PER_BITMAP * unit) - 1;
 
 	/*
 	 * We need to search for bits in this bitmap.  We could only cover some
@@ -2158,7 +2163,7 @@ again:
 	 * go searching for the next bit.
 	 */
 	search_start = *offset;
-	search_bytes = ctl->unit;
+	search_bytes = unit;
 	search_bytes = min(search_bytes, end - search_start + 1);
 	ret = search_bitmap(ctl, bitmap_info, &search_start, &search_bytes,
 			    false);
@@ -2204,7 +2209,7 @@ again:
 		 * everything over again.
 		 */
 		search_start = *offset;
-		search_bytes = ctl->unit;
+		search_bytes = unit;
 		ret = search_bitmap(ctl, bitmap_info, &search_start,
 				    &search_bytes, false);
 		if (ret < 0 || search_start != *offset)
@@ -2221,6 +2226,7 @@ static u64 add_bytes_to_bitmap(struct btrfs_free_space_ctl *ctl,
 			       struct btrfs_free_space *info, u64 offset,
 			       u64 bytes, enum btrfs_trim_state trim_state)
 {
+	const int unit = ctl->block_group->fs_info->sectorsize;
 	u64 bytes_to_set = 0;
 	u64 end;
 
@@ -2237,7 +2243,7 @@ static u64 add_bytes_to_bitmap(struct btrfs_free_space_ctl *ctl,
 		info->trim_state = BTRFS_TRIM_STATE_UNTRIMMED;
 	}
 
-	end = info->offset + (u64)(BITS_PER_BITMAP * ctl->unit);
+	end = info->offset + (u64)(BITS_PER_BITMAP * unit);
 
 	bytes_to_set = min(end - offset, bytes);
 
@@ -2291,7 +2297,7 @@ static bool use_bitmap(struct btrfs_free_space_ctl *ctl,
 	 * so allow those block groups to still be allowed to have a bitmap
 	 * entry.
 	 */
-	if (((BITS_PER_BITMAP * ctl->unit) >> 1) > block_group->length)
+	if (((BITS_PER_BITMAP * fs_info->sectorsize) >> 1) > block_group->length)
 		return false;
 
 	return true;
@@ -2490,6 +2496,7 @@ static bool steal_from_bitmap_to_end(struct btrfs_free_space_ctl *ctl,
 				     struct btrfs_free_space *info,
 				     bool update_stat)
 {
+	const int unit = ctl->block_group->fs_info->sectorsize;
 	struct btrfs_free_space *bitmap;
 	unsigned long i;
 	unsigned long j;
@@ -2501,11 +2508,11 @@ static bool steal_from_bitmap_to_end(struct btrfs_free_space_ctl *ctl,
 	if (!bitmap)
 		return false;
 
-	i = offset_to_bit(bitmap->offset, ctl->unit, end);
+	i = offset_to_bit(bitmap->offset, unit, end);
 	j = find_next_zero_bit(bitmap->bitmap, BITS_PER_BITMAP, i);
 	if (j == i)
 		return false;
-	bytes = (j - i) * ctl->unit;
+	bytes = (j - i) * unit;
 	info->bytes += bytes;
 
 	/* See try_merge_free_space() comment. */
@@ -2524,6 +2531,7 @@ static bool steal_from_bitmap_to_front(struct btrfs_free_space_ctl *ctl,
 				       struct btrfs_free_space *info,
 				       bool update_stat)
 {
+	const int unit = ctl->block_group->fs_info->sectorsize;
 	struct btrfs_free_space *bitmap;
 	u64 bitmap_offset;
 	unsigned long i;
@@ -2543,7 +2551,7 @@ static bool steal_from_bitmap_to_front(struct btrfs_free_space_ctl *ctl,
 	if (!bitmap)
 		return false;
 
-	i = offset_to_bit(bitmap->offset, ctl->unit, info->offset) - 1;
+	i = offset_to_bit(bitmap->offset, unit, info->offset) - 1;
 	j = 0;
 	prev_j = (unsigned long)-1;
 	for_each_clear_bit_from(j, bitmap->bitmap, BITS_PER_BITMAP) {
@@ -2555,9 +2563,9 @@ static bool steal_from_bitmap_to_front(struct btrfs_free_space_ctl *ctl,
 		return false;
 
 	if (prev_j == (unsigned long)-1)
-		bytes = (i + 1) * ctl->unit;
+		bytes = (i + 1) * unit;
 	else
-		bytes = (i - prev_j) * ctl->unit;
+		bytes = (i - prev_j) * unit;
 
 	info->offset -= bytes;
 	info->bytes += bytes;
@@ -2943,10 +2951,7 @@ void btrfs_dump_free_space(struct btrfs_block_group *block_group,
 void btrfs_init_free_space_ctl(struct btrfs_block_group *block_group,
 			       struct btrfs_free_space_ctl *ctl)
 {
-	struct btrfs_fs_info *fs_info = block_group->fs_info;
-
 	spin_lock_init(&ctl->tree_lock);
-	ctl->unit = fs_info->sectorsize;
 	ctl->block_group = block_group;
 	ctl->op = &free_space_op;
 	ctl->free_space_bytes = RB_ROOT_CACHED;
@@ -3322,6 +3327,7 @@ static int btrfs_bitmap_cluster(struct btrfs_block_group *block_group,
 				u64 cont1_bytes, u64 min_bytes)
 {
 	struct btrfs_free_space_ctl *ctl = block_group->free_space_ctl;
+	const int unit = block_group->fs_info->sectorsize;
 	unsigned long next_zero;
 	unsigned long i;
 	unsigned long want_bits;
@@ -3334,10 +3340,10 @@ static int btrfs_bitmap_cluster(struct btrfs_block_group *block_group,
 
 	lockdep_assert_held(&ctl->tree_lock);
 
-	i = offset_to_bit(entry->offset, ctl->unit,
+	i = offset_to_bit(entry->offset, unit,
 			  max_t(u64, offset, entry->offset));
-	want_bits = bytes_to_bits(bytes, ctl->unit);
-	min_bits = bytes_to_bits(min_bytes, ctl->unit);
+	want_bits = bytes_to_bits(bytes, unit);
+	min_bits = bytes_to_bits(min_bytes, unit);
 
 	/*
 	 * Don't bother looking for a cluster in this bitmap if it's heavily
@@ -3363,7 +3369,7 @@ again:
 	}
 
 	if (!found_bits) {
-		entry->max_extent_size = (u64)max_bits * ctl->unit;
+		entry->max_extent_size = (u64)max_bits * unit;
 		return -ENOSPC;
 	}
 
@@ -3374,15 +3380,15 @@ again:
 
 	total_found += found_bits;
 
-	if (cluster->max_size < found_bits * ctl->unit)
-		cluster->max_size = found_bits * ctl->unit;
+	if (cluster->max_size < found_bits * unit)
+		cluster->max_size = found_bits * unit;
 
 	if (total_found < want_bits || cluster->max_size < cont1_bytes) {
 		i = next_zero + 1;
 		goto again;
 	}
 
-	cluster->window_start = start * ctl->unit + entry->offset;
+	cluster->window_start = start * unit + entry->offset;
 	rb_erase(&entry->offset_index, &ctl->free_space_offset);
 	rb_erase_cached(&entry->bytes_index, &ctl->free_space_bytes);
 
@@ -3398,8 +3404,7 @@ again:
 	ret = tree_insert_offset(ctl, cluster, entry);
 	ASSERT(!ret); /* -EEXIST; Logic error */
 
-	trace_btrfs_setup_cluster(block_group, cluster,
-				  total_found * ctl->unit, 1);
+	trace_btrfs_setup_cluster(block_group, cluster, total_found * unit, 1);
 	return 0;
 }
 
@@ -4039,7 +4044,9 @@ static int trim_bitmaps(struct btrfs_block_group *block_group,
 		}
 next:
 		if (next_bitmap) {
-			offset += BITS_PER_BITMAP * ctl->unit;
+			const int unit = block_group->fs_info->sectorsize;
+
+			offset += BITS_PER_BITMAP * unit;
 			start = offset;
 		} else {
 			start += bytes;
@@ -4066,6 +4073,7 @@ int btrfs_trim_block_group(struct btrfs_block_group *block_group,
 			   u64 *trimmed, u64 start, u64 end, u64 minlen)
 {
 	struct btrfs_free_space_ctl *ctl = block_group->free_space_ctl;
+	const int unit = block_group->fs_info->sectorsize;
 	int ret;
 	u64 rem = 0;
 
@@ -4086,7 +4094,7 @@ int btrfs_trim_block_group(struct btrfs_block_group *block_group,
 		goto out;
 
 	ret = trim_bitmaps(block_group, trimmed, start, end, minlen, 0, false);
-	div64_u64_rem(end, BITS_PER_BITMAP * ctl->unit, &rem);
+	div64_u64_rem(end, BITS_PER_BITMAP * unit, &rem);
 	/* If we ended in the middle of a bitmap, reset the trimming flag */
 	if (rem)
 		reset_trimming_bitmap(ctl, offset_to_bitmap(ctl, end));
@@ -4305,6 +4313,7 @@ int test_check_exists(struct btrfs_block_group *cache,
 		      u64 offset, u64 bytes)
 {
 	struct btrfs_free_space_ctl *ctl = cache->free_space_ctl;
+	const int unit = cache->fs_info->sectorsize;
 	struct btrfs_free_space *info;
 	int ret = 0;
 
@@ -4324,7 +4333,7 @@ have_info:
 		struct btrfs_free_space *tmp;
 
 		bit_off = offset;
-		bit_bytes = ctl->unit;
+		bit_bytes = unit;
 		ret = search_bitmap(ctl, info, &bit_off, &bit_bytes, false);
 		if (!ret) {
 			if (bit_off == offset) {

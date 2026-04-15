@@ -81,7 +81,6 @@ struct btrfs_free_space_ctl {
 	int extents_thresh;
 	int free_extents;
 	int total_bitmaps;
-	int unit;
 	s32 discardable_extents[BTRFS_STAT_NR_ENTRIES];
 	s64 discardable_bytes[BTRFS_STAT_NR_ENTRIES];
 	const struct btrfs_free_space_op *op;
