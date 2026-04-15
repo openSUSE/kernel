@@ -2604,6 +2604,9 @@ static const struct init_sequence mod_init_seq[] = {
 		.init_func = btrfs_init_compress,
 		.exit_func = btrfs_exit_compress,
 	}, {
+		.init_func = btrfs_init_block_group,
+		.exit_func = btrfs_exit_block_group,
+	}, {
 		.init_func = btrfs_init_cachep,
 		.exit_func = btrfs_destroy_cachep,
 	}, {

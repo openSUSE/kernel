@@ -320,6 +320,9 @@ static inline u64 btrfs_block_group_available_space(const struct btrfs_block_gro
 int btrfs_should_fragment_free_space(const struct btrfs_block_group *block_group);
 #endif
 
+int __init btrfs_init_block_group(void);
+void __cold btrfs_exit_block_group(void);
+
 struct btrfs_block_group *btrfs_lookup_first_block_group(
 		struct btrfs_fs_info *info, u64 bytenr);
 struct btrfs_block_group *btrfs_lookup_block_group(

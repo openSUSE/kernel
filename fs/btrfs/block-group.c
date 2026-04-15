@@ -22,6 +22,23 @@
 #include "accessors.h"
 #include "extent-tree.h"
 
+static struct kmem_cache *block_group_cache;
+
+int __init btrfs_init_block_group(void)
+{
+	block_group_cache = kmem_cache_create("btrfs_block_group",
+					      sizeof(struct btrfs_block_group),
+					      0, 0, NULL);
+	if (!block_group_cache)
+		return -ENOMEM;
+	return 0;
+}
+
+void __cold btrfs_exit_block_group(void)
+{
+	kmem_cache_destroy(block_group_cache);
+}
+
 #ifdef CONFIG_BTRFS_DEBUG
 int btrfs_should_fragment_free_space(const struct btrfs_block_group *block_group)
 {
@@ -182,7 +199,7 @@ void btrfs_put_block_group(struct btrfs_block_group *cache)
 
 		kfree(cache->free_space_ctl);
 		btrfs_free_chunk_map(cache->physical_map);
-		kfree(cache);
+		kmem_cache_free(block_group_cache, cache);
 	}
 }
 
@@ -2371,13 +2388,13 @@ static struct btrfs_block_group *btrfs_create_block_group(
 {
 	struct btrfs_block_group *cache;
 
-	cache = kzalloc_obj(*cache, GFP_NOFS);
+	cache = kmem_cache_zalloc(block_group_cache, GFP_NOFS);
 	if (!cache)
 		return NULL;
 
 	cache->free_space_ctl = kzalloc_obj(*cache->free_space_ctl, GFP_NOFS);
 	if (!cache->free_space_ctl) {
-		kfree(cache);
+		kmem_cache_free(block_group_cache, cache);
 		return NULL;
 	}
 
