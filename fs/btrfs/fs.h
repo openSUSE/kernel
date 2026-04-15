@@ -486,6 +486,9 @@ struct btrfs_delayed_root {
 	wait_queue_head_t wait;
 };
 
+struct btrfs_free_space_ctl;
+struct btrfs_free_space;
+
 struct btrfs_fs_info {
 	u8 chunk_tree_uuid[BTRFS_UUID_SIZE];
 	unsigned long flags;
@@ -951,6 +954,10 @@ struct btrfs_fs_info {
 	spinlock_t eb_leak_lock;
 	struct list_head allocated_ebs;
 #endif
+
+	/* Used by self tests only. */
+	bool (*use_bitmap)(struct btrfs_free_space_ctl *ctl,
+			   struct btrfs_free_space *info);
 };
 
 #define folio_to_inode(_folio)	(BTRFS_I(_Generic((_folio),			\

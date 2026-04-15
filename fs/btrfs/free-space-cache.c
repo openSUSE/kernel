@@ -2253,7 +2253,8 @@ static u64 add_bytes_to_bitmap(struct btrfs_free_space_ctl *ctl,
 
 }
 
-static bool use_bitmap(struct btrfs_free_space_ctl *ctl,
+EXPORT_FOR_TESTS
+bool btrfs_use_bitmap(struct btrfs_free_space_ctl *ctl,
 		      struct btrfs_free_space *info)
 {
 	struct btrfs_block_group *block_group = ctl->block_group;
@@ -2303,15 +2304,11 @@ static bool use_bitmap(struct btrfs_free_space_ctl *ctl,
 	return true;
 }
 
-static const struct btrfs_free_space_op free_space_op = {
-	.use_bitmap		= use_bitmap,
-};
-
 static int insert_into_bitmap(struct btrfs_free_space_ctl *ctl,
 			      struct btrfs_free_space *info)
 {
 	struct btrfs_free_space *bitmap_info;
-	struct btrfs_block_group *block_group = NULL;
+	struct btrfs_block_group *block_group = ctl->block_group;
 	int added = 0;
 	u64 bytes, offset, bytes_added;
 	enum btrfs_trim_state trim_state;
@@ -2321,18 +2318,20 @@ static int insert_into_bitmap(struct btrfs_free_space_ctl *ctl,
 	offset = info->offset;
 	trim_state = info->trim_state;
 
-	if (!ctl->op->use_bitmap(ctl, info))
-		return 0;
-
-	if (ctl->op == &free_space_op)
-		block_group = ctl->block_group;
+	if (btrfs_is_testing(block_group->fs_info)) {
+		if (!block_group->fs_info->use_bitmap(ctl, info))
+			return 0;
+	} else {
+		if (!btrfs_use_bitmap(ctl, info))
+			return 0;
+	}
 again:
 	/*
 	 * Since we link bitmaps right into the cluster we need to see if we
 	 * have a cluster here, and if so and it has our bitmap we need to add
 	 * the free space to that bitmap.
 	 */
-	if (block_group && !list_empty(&block_group->cluster_list)) {
+	if (!list_empty(&block_group->cluster_list)) {
 		struct btrfs_free_cluster *cluster;
 		struct rb_node *node;
 		struct btrfs_free_space *entry;
@@ -2953,7 +2952,6 @@ void btrfs_init_free_space_ctl(struct btrfs_block_group *block_group,
 {
 	spin_lock_init(&ctl->tree_lock);
 	ctl->block_group = block_group;
-	ctl->op = &free_space_op;
 	ctl->free_space_bytes = RB_ROOT_CACHED;
 	INIT_LIST_HEAD(&ctl->trimming_ranges);
 	mutex_init(&ctl->cache_writeout_mutex);

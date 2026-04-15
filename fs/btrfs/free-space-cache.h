@@ -83,15 +83,9 @@ struct btrfs_free_space_ctl {
 	u64 free_space;
 	s32 discardable_extents[BTRFS_STAT_NR_ENTRIES];
 	s64 discardable_bytes[BTRFS_STAT_NR_ENTRIES];
-	const struct btrfs_free_space_op *op;
 	struct btrfs_block_group *block_group;
 	struct mutex cache_writeout_mutex;
 	struct list_head trimming_ranges;
-};
-
-struct btrfs_free_space_op {
-	bool (*use_bitmap)(struct btrfs_free_space_ctl *ctl,
-			   struct btrfs_free_space *info);
 };
 
 struct btrfs_io_ctl {
@@ -170,6 +164,8 @@ bool btrfs_free_space_cache_v1_active(struct btrfs_fs_info *fs_info);
 int btrfs_set_free_space_cache_v1_active(struct btrfs_fs_info *fs_info, bool active);
 /* Support functions for running our sanity tests */
 #ifdef CONFIG_BTRFS_FS_RUN_SANITY_TESTS
+bool btrfs_use_bitmap(struct btrfs_free_space_ctl *ctl,
+		      struct btrfs_free_space *info);
 int test_add_free_space_entry(struct btrfs_block_group *cache,
 			      u64 offset, u64 bytes, bool bitmap);
 int test_check_exists(struct btrfs_block_group *cache, u64 offset, u64 bytes);
