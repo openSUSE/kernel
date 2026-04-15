@@ -73,6 +73,7 @@
 #include "x86_ops.h"
 #include "smm.h"
 #include "vmx_onhyperv.h"
+#include "vmenter.h"
 #include "posted_intr.h"
 
 #include "mmu/spte.h"
@@ -964,12 +965,12 @@ static bool msr_write_intercepted(struct vcpu_vmx *vmx, u32 msr)
 	return vmx_test_msr_bitmap_write(vmx->loaded_vmcs->msr_bitmap, msr);
 }
 
-unsigned int __vmx_vcpu_run_flags(struct vcpu_vmx *vmx)
+unsigned int __vmx_vcpu_enter_flags(struct vcpu_vmx *vmx)
 {
 	unsigned int flags = 0;
 
 	if (vmx->loaded_vmcs->launched)
-		flags |= VMX_RUN_VMRESUME;
+		flags |= KVM_ENTER_VMRESUME;
 
 	/*
 	 * If writes to the SPEC_CTRL MSR aren't intercepted, the guest is free
@@ -977,11 +978,11 @@ unsigned int __vmx_vcpu_run_flags(struct vcpu_vmx *vmx)
 	 * it after vmexit and store it in vmx->spec_ctrl.
 	 */
 	if (!msr_write_intercepted(vmx, MSR_IA32_SPEC_CTRL))
-		flags |= VMX_RUN_SAVE_SPEC_CTRL;
+		flags |= KVM_ENTER_SAVE_SPEC_CTRL;
 
 	if (cpu_feature_enabled(X86_FEATURE_CLEAR_CPU_BUF_VM_MMIO) &&
 	    kvm_vcpu_can_access_host_mmio(&vmx->vcpu))
-		flags |= VMX_RUN_CLEAR_CPU_BUFFERS_FOR_MMIO;
+		flags |= KVM_ENTER_CLEAR_CPU_BUFFERS_FOR_MMIO;
 
 	return flags;
 }
@@ -7395,7 +7396,7 @@ void noinstr vmx_spec_ctrl_restore_host(struct vcpu_vmx *vmx,
 	if (!cpu_feature_enabled(X86_FEATURE_MSR_SPEC_CTRL))
 		return;
 
-	if (flags & VMX_RUN_SAVE_SPEC_CTRL)
+	if (flags & KVM_ENTER_SAVE_SPEC_CTRL)
 		vmx->spec_ctrl = native_rdmsrq(MSR_IA32_SPEC_CTRL);
 
 	/*
@@ -7586,7 +7587,7 @@ fastpath_t vmx_vcpu_run(struct kvm_vcpu *vcpu, u64 run_flags)
 	kvm_wait_lapic_expire(vcpu);
 
 	/* The actual VMENTER/EXIT is in the .noinstr.text section. */
-	vmx_vcpu_enter_exit(vcpu, __vmx_vcpu_run_flags(vmx));
+	vmx_vcpu_enter_exit(vcpu, __vmx_vcpu_enter_flags(vmx));
 
 	/* All fields are clean at this point */
 	if (kvm_is_using_evmcs()) {

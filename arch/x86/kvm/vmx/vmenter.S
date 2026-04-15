@@ -7,7 +7,7 @@
 #include <asm/percpu.h>
 #include <asm/segment.h>
 #include "kvm-asm-offsets.h"
-#include "run_flags.h"
+#include "vmenter.h"
 
 #define WORD_SIZE (BITS_PER_LONG / 8)
 
@@ -68,9 +68,9 @@
 /**
  * __vmx_vcpu_run - Run a vCPU via a transition to VMX guest mode
  * @vmx:	struct vcpu_vmx *
- * @flags:	VMX_RUN_VMRESUME:	use VMRESUME instead of VMLAUNCH
- *		VMX_RUN_SAVE_SPEC_CTRL: save guest SPEC_CTRL into vmx->spec_ctrl
- *		VMX_RUN_CLEAR_CPU_BUFFERS_FOR_MMIO: vCPU can access host MMIO
+ * @flags:	KVM_ENTER_VMRESUME:	use VMRESUME instead of VMLAUNCH
+ *		KVM_ENTER_SAVE_SPEC_CTRL: save guest SPEC_CTRL into vmx->spec_ctrl
+ *		KVM_ENTER_CLEAR_CPU_BUFFERS_FOR_MMIO: vCPU can access host MMIO
  *
  * Returns:
  *	0 on VM-Exit, 1 on VM-Fail
@@ -164,7 +164,7 @@ SYM_FUNC_START(__vmx_vcpu_run)
 	 * do VERW.  Else, do nothing (no mitigations needed/enabled).
 	 */
 	ALTERNATIVE_2 "",									  \
-		      __stringify(testl $VMX_RUN_CLEAR_CPU_BUFFERS_FOR_MMIO, (%_ASM_SP);	  \
+		      __stringify(testl $KVM_ENTER_CLEAR_CPU_BUFFERS_FOR_MMIO, (%_ASM_SP);	  \
 				  jz .Lskip_mmio_verw;						  \
 				  VERW;								  \
 				  .Lskip_mmio_verw:),					  	  \
@@ -172,7 +172,7 @@ SYM_FUNC_START(__vmx_vcpu_run)
 		      __stringify(VERW), X86_FEATURE_CLEAR_CPU_BUF_VM
 
 	/* Check @flags to see if VMLAUNCH or VMRESUME is needed. */
-	testl $VMX_RUN_VMRESUME, (%_ASM_SP)
+	testl $KVM_ENTER_VMRESUME, (%_ASM_SP)
 	jz .Lvmlaunch
 
 	/*

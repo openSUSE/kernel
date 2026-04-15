@@ -1,0 +1,9 @@
+/* SPDX-License-Identifier: GPL-2.0 */
+#ifndef __KVM_X86_VMENTER_H
+#define __KVM_X86_VMENTER_H
+
+#define KVM_ENTER_VMRESUME			BIT(0)
+#define KVM_ENTER_SAVE_SPEC_CTRL		BIT(1)
+#define KVM_ENTER_CLEAR_CPU_BUFFERS_FOR_MMIO	BIT(2)
+
+#endif /* __KVM_X86_VMENTER_H */

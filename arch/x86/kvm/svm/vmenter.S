@@ -7,6 +7,7 @@
 #include <asm/kvm_vcpu_regs.h>
 #include <asm/nospec-branch.h>
 #include "kvm-asm-offsets.h"
+#include "vmenter.h"
 
 #define WORD_SIZE (BITS_PER_LONG / 8)
 
@@ -76,7 +77,7 @@
 		"jmp 900f", X86_FEATURE_MSR_SPEC_CTRL, \
 		"", X86_FEATURE_V_SPEC_CTRL
 .endm
-.macro RESTORE_HOST_SPEC_CTRL_BODY guest_spec_ctrl:req, spec_ctrl_intercepted:req, label:req
+.macro RESTORE_HOST_SPEC_CTRL_BODY guest_spec_ctrl:req, enter_flags:req, label:req
 	/* Same for after vmexit.  */
 	mov $MSR_IA32_SPEC_CTRL, %ecx
 
@@ -84,8 +85,8 @@
 	 * Load the value that the guest had written into MSR_IA32_SPEC_CTRL,
 	 * if it was not intercepted during guest execution.
 	 */
-	cmpb $0, \spec_ctrl_intercepted
-	jnz 998f
+	testl $KVM_ENTER_SAVE_SPEC_CTRL, \enter_flags
+	jz 998f
 	rdmsr
 	movl %eax, \guest_spec_ctrl
 	movl %edx, 4 + \guest_spec_ctrl
@@ -115,8 +116,8 @@
 
 /**
  * __svm_vcpu_run - Run a vCPU via a transition to SVM guest mode
- * @svm:	struct vcpu_svm *
- * @spec_ctrl_intercepted: bool
+ * @svm:	 struct vcpu_svm *
+ * @enter_flags: u32
  */
 SYM_FUNC_START(__svm_vcpu_run)
 	push %_ASM_BP
@@ -274,7 +275,7 @@ SYM_FUNC_START(__svm_vcpu_run)
 	xor %r15d, %r15d
 #endif
 
-	/* "Pop" @spec_ctrl_intercepted.  */
+	/* "Pop" @enter_flags.  */
 	pop %_ASM_BX
 
 	pop %_ASM_BX
@@ -335,8 +336,8 @@ SYM_FUNC_END(__svm_vcpu_run)
 
 /**
  * __svm_sev_es_vcpu_run - Run a SEV-ES vCPU via a transition to SVM guest mode
- * @svm:	struct vcpu_svm *
- * @spec_ctrl_intercepted: bool
+ * @svm:	 struct vcpu_svm *
+ * @enter_flags: u32
  */
 SYM_FUNC_START(__svm_sev_es_vcpu_run)
 	FRAME_BEGIN
@@ -355,7 +356,7 @@ SYM_FUNC_START(__svm_sev_es_vcpu_run)
 
 	/*
 	 * Save volatile registers that hold arguments that are needed after
-	 * #VMEXIT (RDI=@svm and RSI=@spec_ctrl_intercepted).
+	 * #VMEXIT (RDI=@svm and RSI=@enter_flags).
 	 */
 	mov %rdi, SEV_ES_RDI (%rdx)
 	mov %rsi, SEV_ES_RSI (%rdx)
@@ -377,7 +378,7 @@ SYM_FUNC_START(__svm_sev_es_vcpu_run)
 	/* IMPORTANT: Stuff the RSB immediately after VM-Exit, before RET! */
 	FILL_RETURN_BUFFER %rax, RSB_CLEAR_LOOPS, X86_FEATURE_RSB_VMEXIT
 
-	/* Clobbers RAX, RCX, RDX, consumes RDI (@svm) and RSI (@spec_ctrl_intercepted). */
+	/* Clobbers RAX, RCX, RDX, consumes RDI (@svm) and RSI (@enter_flags). */
 	RESTORE_HOST_SPEC_CTRL
 901:
 
@@ -397,7 +398,7 @@ SYM_FUNC_START(__svm_sev_es_vcpu_run)
 	RESTORE_GUEST_SPEC_CTRL_BODY SVM_spec_ctrl(%_ASM_DI), 801b
 	jmp 801b
 900:
-	RESTORE_HOST_SPEC_CTRL_BODY SVM_spec_ctrl(%_ASM_DI), %sil, 901b
+	RESTORE_HOST_SPEC_CTRL_BODY SVM_spec_ctrl(%_ASM_DI), %esi, 901b
 	jmp 901b
 
 3:	cmpb $0, virt_rebooting(%rip)
