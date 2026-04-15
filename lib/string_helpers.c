@@ -805,7 +805,7 @@ void kfree_strarray(char **array, size_t n)
 EXPORT_SYMBOL_GPL(kfree_strarray);
 
 struct strarray {
-	char **array;
+	char **array __counted_by_ptr(n);
 	size_t n;
 };
 
@@ -824,13 +824,13 @@ char **devm_kasprintf_strarray(struct device *dev, const char *prefix, size_t n)
 	if (!ptr)
 		return ERR_PTR(-ENOMEM);
 
+	ptr->n = n;
 	ptr->array = kasprintf_strarray(GFP_KERNEL, prefix, n);
 	if (!ptr->array) {
 		devres_free(ptr);
 		return ERR_PTR(-ENOMEM);
 	}
 
-	ptr->n = n;
 	devres_add(dev, ptr);
 
 	return ptr->array;
