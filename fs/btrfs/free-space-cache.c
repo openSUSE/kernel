@@ -1064,12 +1064,12 @@ out:
 
 static noinline_for_stack
 int write_cache_extent_entries(struct btrfs_io_ctl *io_ctl,
-			      struct btrfs_free_space_ctl *ctl,
 			      struct btrfs_block_group *block_group,
 			      int *entries, int *bitmaps,
 			      struct list_head *bitmap_list)
 {
 	int ret;
+	struct btrfs_free_space_ctl *ctl = block_group->free_space_ctl;
 	struct btrfs_free_cluster *cluster = NULL;
 	struct btrfs_free_cluster *cluster_locked = NULL;
 	struct rb_node *node = rb_first(&ctl->free_space_offset);
@@ -1412,8 +1412,7 @@ static int __btrfs_write_out_cache(struct inode *inode,
 	mutex_lock(&ctl->cache_writeout_mutex);
 	/* Write out the extent entries in the free space cache */
 	spin_lock(&ctl->tree_lock);
-	ret = write_cache_extent_entries(io_ctl, ctl,
-					 block_group, &entries, &bitmaps,
+	ret = write_cache_extent_entries(io_ctl, block_group, &entries, &bitmaps,
 					 &bitmap_list);
 	if (ret)
 		goto out_nospc_locked;
