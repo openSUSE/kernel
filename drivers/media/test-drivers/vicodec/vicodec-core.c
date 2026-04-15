@@ -1842,7 +1842,6 @@ static int vicodec_open(struct file *file)
 		ctx->is_stateless = true;
 
 	v4l2_fh_init(&ctx->fh, video_devdata(file));
-	file->private_data = &ctx->fh;
 	ctx->dev = dev;
 	hdl = &ctx->hdl;
 	v4l2_ctrl_handler_init(hdl, 5);
@@ -1921,7 +1920,7 @@ static int vicodec_open(struct file *file)
 		goto open_unlock;
 	}
 
-	v4l2_fh_add(&ctx->fh);
+	v4l2_fh_add(&ctx->fh, file);
 
 open_unlock:
 	mutex_unlock(vfd->lock);
