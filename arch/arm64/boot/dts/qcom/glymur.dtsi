@@ -3972,6 +3972,8 @@
 			snps,dis_u2_susphy_quirk;
 			snps,dis_enblslpm_quirk;
 
+			usb-role-switch;
+
 			status = "disabled";
 
 			ports {
@@ -4044,6 +4046,8 @@
 			tx-fifo-resize;
 			snps,dis_u2_susphy_quirk;
 			snps,dis_enblslpm_quirk;
+
+			usb-role-switch;
 
 			status = "disabled";
 
