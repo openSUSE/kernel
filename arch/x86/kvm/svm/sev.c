@@ -3050,6 +3050,11 @@ out:
 	return initialized;
 }
 
+static const char * __init sev_str_feature_state(bool is_supported, bool is_usable)
+{
+	return is_supported ? is_usable ? "enabled" : "unusable" : "disabled";
+}
+
 void __init sev_hardware_setup(void)
 {
 	unsigned int eax, ebx, ecx, edx, sev_asid_count, sev_es_asid_count;
@@ -3199,19 +3204,15 @@ out:
 
 	if (boot_cpu_has(X86_FEATURE_SEV))
 		pr_info("SEV %s (ASIDs %u - %u)\n",
-			sev_supported ? min_sev_asid <= max_sev_asid ? "enabled" :
-								       "unusable" :
-								       "disabled",
+			sev_str_feature_state(sev_supported, min_sev_asid <= max_sev_asid),
 			min_sev_asid, max_sev_asid);
 	if (boot_cpu_has(X86_FEATURE_SEV_ES))
 		pr_info("SEV-ES %s (ASIDs %u - %u)\n",
-			sev_es_supported ? min_sev_es_asid <= max_sev_es_asid ? "enabled" :
-										"unusable" :
-										"disabled",
+			sev_str_feature_state(sev_es_supported, min_sev_es_asid <= max_sev_es_asid),
 			min_sev_es_asid, max_sev_es_asid);
 	if (boot_cpu_has(X86_FEATURE_SEV_SNP))
 		pr_info("SEV-SNP %s (ASIDs %u - %u)\n",
-			str_enabled_disabled(sev_snp_supported),
+			sev_str_feature_state(sev_snp_supported, true),
 			min_snp_asid, max_snp_asid);
 
 	sev_enabled = sev_supported;
