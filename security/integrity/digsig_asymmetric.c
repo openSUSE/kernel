@@ -79,17 +79,24 @@ static struct key *request_asymmetric_key(struct key *keyring, uint32_t keyid)
 	return key;
 }
 
-int asymmetric_verify(struct key *keyring, const char *sig,
-		      int siglen, const char *data, int datalen)
+/**
+ * asymmetric_verify_common -- sigv2 and sigv3 common verify function
+ * @key: The key to use for signature verification; caller must free it
+ * @pk: The associated public key; must not be NULL
+ * @sig: The xattr signature
+ * @siglen: The length of the xattr signature; must be at least
+ *          sizeof(struct signature_v2_hdr)
+ * @data: The data to verify the signature on
+ * @datalen: Length of @data
+ */
+static int asymmetric_verify_common(const struct key *key,
+				    const struct public_key *pk,
+				    const char *sig, int siglen,
+				    const char *data, int datalen)
 {
-	struct public_key_signature pks;
 	struct signature_v2_hdr *hdr = (struct signature_v2_hdr *)sig;
-	const struct public_key *pk;
-	struct key *key;
+	struct public_key_signature pks;
 	int ret;
-
-	if (siglen <= sizeof(*hdr))
-		return -EBADMSG;
 
 	siglen -= sizeof(*hdr);
 
@@ -99,19 +106,9 @@ int asymmetric_verify(struct key *keyring, const char *sig,
 	if (hdr->hash_algo >= HASH_ALGO__LAST)
 		return -ENOPKG;
 
-	key = request_asymmetric_key(keyring, be32_to_cpu(hdr->keyid));
-	if (IS_ERR(key))
-		return PTR_ERR(key);
-
 	memset(&pks, 0, sizeof(pks));
 
 	pks.hash_algo = hash_algo_name[hdr->hash_algo];
-
-	pk = asymmetric_key_public_key(key);
-	if (!pk) {
-		ret = -ENOKEY;
-		goto out;
-	}
 	pks.pkey_algo = pk->pkey_algo;
 	if (!strcmp(pk->pkey_algo, "rsa")) {
 		pks.encoding = "pkcs1";
@@ -131,8 +128,35 @@ int asymmetric_verify(struct key *keyring, const char *sig,
 	pks.s_size = siglen;
 	ret = verify_signature(key, &pks);
 out:
-	key_put(key);
 	pr_debug("%s() = %d\n", __func__, ret);
+	return ret;
+}
+
+int asymmetric_verify(struct key *keyring, const char *sig,
+		      int siglen, const char *data, int datalen)
+{
+	struct signature_v2_hdr *hdr = (struct signature_v2_hdr *)sig;
+	const struct public_key *pk;
+	struct key *key;
+	int ret;
+
+	if (siglen <= sizeof(*hdr))
+		return -EBADMSG;
+
+	key = request_asymmetric_key(keyring, be32_to_cpu(hdr->keyid));
+	if (IS_ERR(key))
+		return PTR_ERR(key);
+	pk = asymmetric_key_public_key(key);
+	if (!pk) {
+		ret = -ENOKEY;
+		goto out;
+	}
+
+	ret = asymmetric_verify_common(key, pk, sig, siglen, data, datalen);
+
+out:
+	key_put(key);
+
 	return ret;
 }
 
