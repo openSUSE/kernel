@@ -630,12 +630,14 @@ struct completion_list {
  *  Use ->waiters for a single-linked list of struct completion_list of
  *  waiters.
  */
-static inline void d_add_waiter(struct dentry *dentry, struct completion_list *p)
+static inline bool d_add_waiter(struct dentry *dentry, struct completion_list *p)
 {
-	struct completion_list *v = dentry->waiters;
+	if (unlikely(dentry->d_flags & DCACHE_DENTRY_KILLED))
+		return false;
 	init_completion(&p->completion);
-	p->next = v;
+	p->next = dentry->waiters;
 	dentry->waiters = p;
+	return true;
 }
 
 static inline void d_complete_waiters(struct dentry *dentry)
@@ -1705,7 +1707,9 @@ out:
 static void shrink_dcache_tree(struct dentry *parent, bool for_umount)
 {
 	for (;;) {
-		struct select_data data = {.start = parent};
+		struct completion_list wait;
+		bool need_wait = false;
+		struct select_data data = { .start = parent };
 
 		INIT_LIST_HEAD(&data.dispose);
 		d_walk(parent, &data,
@@ -1737,22 +1741,18 @@ static void shrink_dcache_tree(struct dentry *parent, bool for_umount)
 			spin_lock(&v->d_lock);
 			rcu_read_unlock();
 
-			if (v->d_lockref.count < 0 &&
-			    !(v->d_flags & DCACHE_DENTRY_KILLED)) {
-				struct completion_list wait;
-				// It's busy dying; have it notify us once
-				// it becomes invisible to d_walk().
-				d_add_waiter(v, &wait);
+			if (unlikely(v->d_lockref.count < 0)) {
+				// It's doomed; if it isn't dead yet, notify us
+				// once it becomes invisible to d_walk().
+				need_wait = d_add_waiter(v, &wait);
 				spin_unlock(&v->d_lock);
-				if (!list_empty(&data.dispose))
-					shrink_dentry_list(&data.dispose);
-				wait_for_completion(&wait.completion);
-				continue;
+			} else {
+				shrink_kill(v);
 			}
-			shrink_kill(v);
 		}
-		if (!list_empty(&data.dispose))
-			shrink_dentry_list(&data.dispose);
+		shrink_dentry_list(&data.dispose);
+		if (unlikely(need_wait))
+			wait_for_completion(&wait.completion);
 	}
 }
 
