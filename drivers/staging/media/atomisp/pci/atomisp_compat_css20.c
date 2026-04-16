@@ -1117,8 +1117,11 @@ int atomisp_css_allocate_stat_buffers(struct atomisp_sub_device   *asd,
 					dvs_grid_info);
 		if (!dis_buf->dis_data) {
 			dev_err(isp->dev, "dvs buf allocation failed.\n");
-			if (s3a_buf)
+			if (s3a_buf) {
+				hmm_vunmap(s3a_buf->s3a_data->data_ptr);
+				ia_css_isp_3a_statistics_map_free(s3a_buf->s3a_map);
 				ia_css_isp_3a_statistics_free(s3a_buf->s3a_data);
+			}
 			return -EINVAL;
 		}
 
@@ -1132,10 +1135,16 @@ int atomisp_css_allocate_stat_buffers(struct atomisp_sub_device   *asd,
 		md_buf->metadata = ia_css_metadata_allocate(
 				       &asd->stream_env[stream_id].stream_info.metadata_info);
 		if (!md_buf->metadata) {
-			if (s3a_buf)
+			if (s3a_buf) {
+				hmm_vunmap(s3a_buf->s3a_data->data_ptr);
+				ia_css_isp_3a_statistics_map_free(s3a_buf->s3a_map);
 				ia_css_isp_3a_statistics_free(s3a_buf->s3a_data);
-			if (dis_buf)
+			}
+			if (dis_buf) {
+				hmm_vunmap(dis_buf->dis_data->data_ptr);
+				ia_css_isp_dvs_statistics_map_free(dis_buf->dvs_map);
 				ia_css_isp_dvs2_statistics_free(dis_buf->dis_data);
+			}
 			dev_err(isp->dev, "metadata buf allocation failed.\n");
 			return -EINVAL;
 		}
