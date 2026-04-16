@@ -1988,7 +1988,7 @@ static void igmp6_send(struct in6_addr *addr, struct net_device *dev, int type)
 	payload_len = len + sizeof(ra);
 	full_len = sizeof(struct ipv6hdr) + payload_len;
 
-	skb = alloc_skb(hlen + tlen + full_len, GFP_KERNEL);
+	skb = alloc_skb(hlen + tlen + full_len, GFP_ATOMIC);
 
 	rcu_read_lock();
 	net = dev_net_rcu(dev);
