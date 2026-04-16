@@ -136,6 +136,7 @@ unsigned int nf_queue_nf_hook_drop(struct net *net)
 
 	return count;
 }
+EXPORT_SYMBOL_GPL(nf_queue_nf_hook_drop);
 
 static int __nf_queue(struct sk_buff *skb, const struct nf_hook_state *state,
 		      struct nf_hook_entry *hook_entry, unsigned int queuenum)
