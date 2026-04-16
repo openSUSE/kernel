@@ -7205,7 +7205,6 @@ static DEFINE_PER_CPU(cpumask_var_t, should_we_balance_tmpmask);
 
 static struct {
 	cpumask_var_t idle_cpus_mask;
-	atomic_t nr_cpus;
 	int has_blocked;		/* Idle CPUS has blocked load */
 	int needs_update;		/* Newly idle CPUs need their next_balance collated */
 	unsigned long next_balance;     /* in jiffy units */
@@ -12492,19 +12491,28 @@ static void nohz_balancer_kick(struct rq *rq)
 	 */
 	nohz_balance_exit_idle(rq);
 
-	/*
-	 * None are in tickless mode and hence no need for NOHZ idle load
-	 * balancing:
-	 */
-	if (likely(!atomic_read(&nohz.nr_cpus)))
-		return;
-
 	if (READ_ONCE(nohz.has_blocked) &&
 	    time_after(now, READ_ONCE(nohz.next_blocked)))
 		flags = NOHZ_STATS_KICK;
 
+	/*
+	 * Most of the time system is not 100% busy. i.e nohz.nr_cpus > 0
+	 * Skip the read if time is not due.
+	 *
+	 * If none are in tickless mode, there maybe a narrow window
+	 * (28 jiffies, HZ=1000) where flags maybe set and kick_ilb called.
+	 * But idle load balancing is not done as find_new_ilb fails.
+	 * That's very rare. So read nohz.nr_cpus only if time is due.
+	 */
 	if (time_before(now, nohz.next_balance))
 		goto out;
+
+	/*
+	 * None are in tickless mode and hence no need for NOHZ idle load
+	 * balancing
+	 */
+	if (unlikely(cpumask_empty(nohz.idle_cpus_mask)))
+		return;
 
 	if (rq->nr_running >= 2) {
 		flags = NOHZ_STATS_KICK | NOHZ_BALANCE_KICK;
@@ -12616,7 +12624,6 @@ void nohz_balance_exit_idle(struct rq *rq)
 
 	rq->nohz_tick_stopped = 0;
 	cpumask_clear_cpu(rq->cpu, nohz.idle_cpus_mask);
-	atomic_dec(&nohz.nr_cpus);
 
 	set_cpu_sd_state_busy(rq->cpu);
 }
@@ -12674,7 +12681,6 @@ void nohz_balance_enter_idle(int cpu)
 	rq->nohz_tick_stopped = 1;
 
 	cpumask_set_cpu(cpu, nohz.idle_cpus_mask);
-	atomic_inc(&nohz.nr_cpus);
 
 	/*
 	 * Ensures that if nohz_idle_balance() fails to observe our
