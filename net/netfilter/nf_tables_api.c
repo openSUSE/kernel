@@ -308,7 +308,7 @@ static void nft_netdev_unregister_hooks(struct net *net,
 	list_for_each_entry_safe(hook, next, hook_list, list) {
 		nf_unregister_net_hook(net, &hook->ops);
 		if (release_netdev) {
-			list_del(&hook->list);
+			list_del_rcu(&hook->list);
 			kfree_rcu(hook, rcu);
 		}
 	}
@@ -8101,7 +8101,7 @@ static void __nft_unregister_flowtable_net_hooks(struct net *net,
 		flowtable->data.type->setup(&flowtable->data, hook->ops.dev,
 					    FLOW_BLOCK_UNBIND);
 		if (release_netdev) {
-			list_del(&hook->list);
+			list_del_rcu(&hook->list);
 			kfree_rcu(hook, rcu);
 		}
 	}
