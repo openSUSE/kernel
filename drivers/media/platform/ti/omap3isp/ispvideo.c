@@ -1345,7 +1345,7 @@ static int isp_video_open(struct file *file)
 
 done:
 	if (ret < 0) {
-		v4l2_fh_del(&handle->vfh);
+		v4l2_fh_del(&handle->vfh, file);
 		v4l2_fh_exit(&handle->vfh);
 		kfree(handle);
 	}
@@ -1369,10 +1369,9 @@ static int isp_video_release(struct file *file)
 	v4l2_pipeline_pm_put(&video->video.entity);
 
 	/* Release the file handle. */
-	v4l2_fh_del(vfh);
+	v4l2_fh_del(vfh, file);
 	v4l2_fh_exit(vfh);
 	kfree(handle);
-	file->private_data = NULL;
 
 	omap3isp_put(video->isp);
 
