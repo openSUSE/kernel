@@ -56,6 +56,7 @@
 #include "uuid-tree.h"
 #include "ioctl.h"
 #include "file.h"
+#include "file-item.h"
 #include "scrub.h"
 #include "super.h"
 
@@ -5060,6 +5061,342 @@ static int btrfs_ioctl_shutdown(struct btrfs_fs_info *fs_info, unsigned long arg
 	return ret;
 }
 
+#define GET_CSUMS_BUF_MAX	SZ_16M
+
+static int copy_csums_to_user(struct btrfs_fs_info *fs_info, u64 disk_bytenr,
+			      u64 len, u8 __user *buf)
+{
+	struct btrfs_root *csum_root;
+	struct btrfs_ordered_sum *sums;
+	LIST_HEAD(list);
+	const u32 csum_size = fs_info->csum_size;
+	int ret;
+
+	csum_root = btrfs_csum_root(fs_info, disk_bytenr);
+	if (unlikely(!csum_root)) {
+		btrfs_err(fs_info, "missing csum root for extent at bytenr %llu", disk_bytenr);
+		return -EUCLEAN;
+	}
+
+	ret = btrfs_lookup_csums_list(csum_root, disk_bytenr,
+				      disk_bytenr + len - 1, &list, false);
+	if (ret < 0)
+		return ret;
+
+	ret = 0;
+	while (!list_empty(&list)) {
+		u64 offset;
+		size_t copy_size;
+
+		sums = list_first_entry(&list, struct btrfs_ordered_sum, list);
+		list_del(&sums->list);
+
+		offset = ((sums->logical - disk_bytenr) >> fs_info->sectorsize_bits) * csum_size;
+		copy_size = (sums->len >> fs_info->sectorsize_bits) * csum_size;
+
+		if (copy_to_user(buf + offset, sums->sums, copy_size)) {
+			kfree(sums);
+			ret = -EFAULT;
+			goto out;
+		}
+
+		kfree(sums);
+	}
+
+out:
+	while (!list_empty(&list)) {
+		sums = list_first_entry(&list, struct btrfs_ordered_sum, list);
+		list_del(&sums->list);
+		kfree(sums);
+	}
+	return ret;
+}
+
+static int btrfs_ioctl_get_csums(struct file *file, void __user *argp)
+{
+	struct inode *vfs_inode = file_inode(file);
+	struct btrfs_inode *inode = BTRFS_I(vfs_inode);
+	struct btrfs_fs_info *fs_info = inode->root->fs_info;
+	struct btrfs_root *root = inode->root;
+	struct btrfs_ioctl_get_csums_args args;
+	BTRFS_PATH_AUTO_FREE(path);
+	const u64 ino = btrfs_ino(inode);
+	const u32 csum_size = fs_info->csum_size;
+	u8 __user *ubuf;
+	u64 buf_limit;
+	u64 buf_used = 0;
+	u64 cur_offset;
+	u64 end_offset;
+	u64 prev_extent_end;
+	struct btrfs_key key;
+	int ret;
+
+	if (!(file->f_mode & FMODE_READ))
+		return -EBADF;
+
+	if (!S_ISREG(vfs_inode->i_mode))
+		return -EINVAL;
+
+	if (copy_from_user(&args, argp, sizeof(args)))
+		return -EFAULT;
+
+	if (!IS_ALIGNED(args.offset, fs_info->sectorsize) ||
+	    !IS_ALIGNED(args.length, fs_info->sectorsize))
+		return -EINVAL;
+	if (args.length == 0)
+		return -EINVAL;
+	if (args.offset + args.length < args.offset)
+		return -EOVERFLOW;
+	if (args.flags != 0)
+		return -EINVAL;
+	if (args.buf_size < sizeof(struct btrfs_ioctl_get_csums_entry))
+		return -EINVAL;
+
+	buf_limit = min_t(u64, args.buf_size, GET_CSUMS_BUF_MAX);
+	ubuf = (u8 __user *)(argp + offsetof(struct btrfs_ioctl_get_csums_args, buf));
+
+	if (clear_user(ubuf, buf_limit))
+		return -EFAULT;
+
+	cur_offset = args.offset;
+	end_offset = args.offset + args.length;
+
+	path = btrfs_alloc_path();
+	if (!path)
+		return -ENOMEM;
+
+	ret = btrfs_wait_ordered_range(inode, cur_offset, args.length);
+	if (ret)
+		return ret;
+
+	ret = down_read_interruptible(&vfs_inode->i_rwsem);
+	if (ret)
+		return ret;
+
+	ret = btrfs_wait_ordered_range(inode, cur_offset, args.length);
+	if (ret)
+		goto out_unlock;
+
+	/* NODATASUM early exit. */
+	if (inode->flags & BTRFS_INODE_NODATASUM) {
+		struct btrfs_ioctl_get_csums_entry entry = {
+			.offset = cur_offset,
+			.length = end_offset - cur_offset,
+			.type = BTRFS_GET_CSUMS_NODATASUM,
+		};
+
+		if (copy_to_user(ubuf, &entry, sizeof(entry))) {
+			ret = -EFAULT;
+			goto out_unlock;
+		}
+
+		buf_used = sizeof(entry);
+		cur_offset = end_offset;
+		goto done;
+	}
+
+	prev_extent_end = cur_offset;
+
+	while (cur_offset < end_offset) {
+		struct btrfs_file_extent_item *ei;
+		struct extent_buffer *leaf;
+		struct btrfs_ioctl_get_csums_entry entry = { 0 };
+		u64 extent_end;
+		u64 disk_bytenr = 0;
+		u64 extent_offset = 0;
+		u64 range_start, range_len;
+		u64 entry_csum_size;
+		u64 key_offset;
+		int extent_type;
+		u8 compression;
+		u8 encryption;
+
+		/* Search for the extent at or before cur_offset. */
+		key.objectid = ino;
+		key.type = BTRFS_EXTENT_DATA_KEY;
+		key.offset = cur_offset;
+
+		ret = btrfs_search_slot(NULL, root, &key, path, 0, 0);
+		if (ret < 0)
+			goto out_unlock;
+
+		if (ret > 0 && path->slots[0] > 0) {
+			btrfs_item_key_to_cpu(path->nodes[0], &key,
+					      path->slots[0] - 1);
+			if (key.objectid == ino && key.type == BTRFS_EXTENT_DATA_KEY) {
+				path->slots[0]--;
+				if (btrfs_file_extent_end(path) <= cur_offset)
+					path->slots[0]++;
+			}
+		}
+
+		if (path->slots[0] >= btrfs_header_nritems(path->nodes[0])) {
+			ret = btrfs_next_leaf(root, path);
+			if (ret < 0)
+				goto out_unlock;
+			if (ret > 0) {
+				ret = 0;
+				btrfs_release_path(path);
+				break;
+			}
+		}
+
+		leaf = path->nodes[0];
+
+		btrfs_item_key_to_cpu(leaf, &key, path->slots[0]);
+		if (key.objectid != ino || key.type != BTRFS_EXTENT_DATA_KEY) {
+			btrfs_release_path(path);
+			break;
+		}
+
+		extent_end = btrfs_file_extent_end(path);
+		key_offset = key.offset;
+
+		/* Read extent fields before releasing the path. */
+		ei = btrfs_item_ptr(leaf, path->slots[0], struct btrfs_file_extent_item);
+		extent_type = btrfs_file_extent_type(leaf, ei);
+		compression = btrfs_file_extent_compression(leaf, ei);
+		encryption = btrfs_file_extent_encryption(leaf, ei);
+
+		if (extent_type != BTRFS_FILE_EXTENT_INLINE) {
+			disk_bytenr = btrfs_file_extent_disk_bytenr(leaf, ei);
+			if (disk_bytenr && compression == BTRFS_COMPRESS_NONE)
+				extent_offset = btrfs_file_extent_offset(leaf, ei);
+		}
+
+		btrfs_release_path(path);
+
+		/* Implicit hole (NO_HOLES feature). */
+		if (prev_extent_end < key_offset) {
+			u64 hole_end = min(key_offset, end_offset);
+			u64 hole_len = hole_end - prev_extent_end;
+
+			if (prev_extent_end >= cur_offset) {
+				entry.offset = prev_extent_end;
+				entry.length = hole_len;
+				entry.type = BTRFS_GET_CSUMS_ZEROED;
+
+				if (buf_used + sizeof(entry) > buf_limit)
+					goto done;
+				if (copy_to_user(ubuf + buf_used, &entry, sizeof(entry))) {
+					ret = -EFAULT;
+					goto out_unlock;
+				}
+				buf_used += sizeof(entry);
+				cur_offset = hole_end;
+			}
+
+			if (key_offset >= end_offset) {
+				cur_offset = end_offset;
+				break;
+			}
+		}
+
+		/* Clamp to our query range. */
+		range_start = max(cur_offset, key_offset);
+		range_len = min(extent_end, end_offset) - range_start;
+
+		entry.offset = range_start;
+		entry.length = range_len;
+
+		if (extent_type == BTRFS_FILE_EXTENT_INLINE) {
+			entry.type = BTRFS_GET_CSUMS_INLINE;
+			if (compression != BTRFS_COMPRESS_NONE)
+				entry.type |= BTRFS_GET_CSUMS_COMPRESSED;
+			if (encryption != 0)
+				entry.type |= BTRFS_GET_CSUMS_ENCRYPTED;
+			entry_csum_size = 0;
+		} else if (extent_type == BTRFS_FILE_EXTENT_PREALLOC) {
+			entry.type = BTRFS_GET_CSUMS_ZEROED;
+			entry_csum_size = 0;
+		} else {
+			/* BTRFS_FILE_EXTENT_REG */
+			if (disk_bytenr == 0) {
+				/* Explicit hole. */
+				entry.type = BTRFS_GET_CSUMS_ZEROED;
+				entry_csum_size = 0;
+			} else if (encryption != 0 || compression != BTRFS_COMPRESS_NONE) {
+				entry.type = 0;
+				if (encryption != 0)
+					entry.type |= BTRFS_GET_CSUMS_ENCRYPTED;
+				if (compression != BTRFS_COMPRESS_NONE)
+					entry.type |= BTRFS_GET_CSUMS_COMPRESSED;
+				entry_csum_size = 0;
+			} else {
+				entry.type = BTRFS_GET_CSUMS_HAS_CSUMS;
+				entry_csum_size = (range_len >> fs_info->sectorsize_bits) * csum_size;
+			}
+		}
+
+		/* Check if this entry (+ csum data) fits in the buffer. */
+		if (buf_used + sizeof(entry) + entry_csum_size > buf_limit) {
+			if (buf_used == 0) {
+				ret = -EOVERFLOW;
+				goto out_unlock;
+			}
+			goto done;
+		}
+
+		if (copy_to_user(ubuf + buf_used, &entry, sizeof(entry))) {
+			ret = -EFAULT;
+			goto out_unlock;
+		}
+		buf_used += sizeof(entry);
+
+		if (entry.type == BTRFS_GET_CSUMS_HAS_CSUMS) {
+			ret = copy_csums_to_user(fs_info,
+				disk_bytenr + extent_offset + (range_start - key_offset),
+				range_len, ubuf + buf_used);
+			if (ret)
+				goto out_unlock;
+			buf_used += entry_csum_size;
+		}
+
+		cur_offset = range_start + range_len;
+		prev_extent_end = extent_end;
+
+		if (fatal_signal_pending(current)) {
+			if (buf_used == 0) {
+				ret = -EINTR;
+				goto out_unlock;
+			}
+			goto done;
+		}
+
+		cond_resched();
+	}
+
+	/* Handle trailing implicit hole. */
+	if (cur_offset < end_offset) {
+		struct btrfs_ioctl_get_csums_entry entry = {
+			.offset = prev_extent_end,
+			.length = end_offset - prev_extent_end,
+			.type = BTRFS_GET_CSUMS_ZEROED,
+		};
+
+		if (buf_used + sizeof(entry) <= buf_limit) {
+			if (copy_to_user(ubuf + buf_used, &entry, sizeof(entry))) {
+				ret = -EFAULT;
+				goto out_unlock;
+			}
+			buf_used += sizeof(entry);
+			cur_offset = end_offset;
+		}
+	}
+
+done:
+	args.offset = cur_offset;
+	args.length = (cur_offset < end_offset) ? end_offset - cur_offset : 0;
+	args.buf_size = buf_used;
+
+	if (copy_to_user(argp, &args, sizeof(args)))
+		ret = -EFAULT;
+
+out_unlock:
+	up_read(&vfs_inode->i_rwsem);
+	return ret;
+}
+
 long btrfs_ioctl(struct file *file, unsigned int
 		cmd, unsigned long arg)
 {
@@ -5217,6 +5554,8 @@ long btrfs_ioctl(struct file *file, unsigned int
 		return btrfs_ioctl_subvol_sync(fs_info, argp);
 	case BTRFS_IOC_SHUTDOWN:
 		return btrfs_ioctl_shutdown(fs_info, arg);
+	case BTRFS_IOC_GET_CSUMS:
+		return btrfs_ioctl_get_csums(file, argp);
 	}
 
 	return -ENOTTY;
