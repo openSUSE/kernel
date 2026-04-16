@@ -3202,6 +3202,7 @@ out:
 		vm_types |= BIT(KVM_X86_SEV_ES_VM);
 	if (sev_snp_supported)
 		vm_types |= BIT(KVM_X86_SNP_VM);
+	vm_types &= sev_firmware_supported_vm_types();
 
 	kvm_caps.supported_vm_types |= vm_types;
 
