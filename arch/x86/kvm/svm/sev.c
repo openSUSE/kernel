@@ -3062,6 +3062,7 @@ void __init sev_hardware_setup(void)
 	bool sev_snp_supported = false;
 	bool sev_es_supported = false;
 	bool sev_supported = false;
+	u32 vm_types = 0;
 
 	if (!sev_enabled || !npt_enabled || !nrips)
 		goto out;
@@ -3195,24 +3196,26 @@ out:
 		}
 	}
 
-	if (sev_supported)
-		kvm_caps.supported_vm_types |= BIT(KVM_X86_SEV_VM);
-	if (sev_es_supported)
-		kvm_caps.supported_vm_types |= BIT(KVM_X86_SEV_ES_VM);
+	if (sev_supported && min_sev_asid <= max_sev_asid)
+		vm_types |= BIT(KVM_X86_SEV_VM);
+	if (sev_es_supported && min_sev_es_asid <= max_sev_es_asid)
+		vm_types |= BIT(KVM_X86_SEV_ES_VM);
 	if (sev_snp_supported)
-		kvm_caps.supported_vm_types |= BIT(KVM_X86_SNP_VM);
+		vm_types |= BIT(KVM_X86_SNP_VM);
+
+	kvm_caps.supported_vm_types |= vm_types;
 
 	if (boot_cpu_has(X86_FEATURE_SEV))
 		pr_info("SEV %s (ASIDs %u - %u)\n",
-			sev_str_feature_state(sev_supported, min_sev_asid <= max_sev_asid),
+			sev_str_feature_state(sev_supported, vm_types & BIT(KVM_X86_SEV_VM)),
 			min_sev_asid, max_sev_asid);
 	if (boot_cpu_has(X86_FEATURE_SEV_ES))
 		pr_info("SEV-ES %s (ASIDs %u - %u)\n",
-			sev_str_feature_state(sev_es_supported, min_sev_es_asid <= max_sev_es_asid),
+			sev_str_feature_state(sev_es_supported, vm_types & BIT(KVM_X86_SEV_ES_VM)),
 			min_sev_es_asid, max_sev_es_asid);
 	if (boot_cpu_has(X86_FEATURE_SEV_SNP))
 		pr_info("SEV-SNP %s (ASIDs %u - %u)\n",
-			sev_str_feature_state(sev_snp_supported, true),
+			sev_str_feature_state(sev_snp_supported, vm_types & BIT(KVM_X86_SNP_VM)),
 			min_snp_asid, max_snp_asid);
 
 	sev_enabled = sev_supported;
