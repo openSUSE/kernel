@@ -109,7 +109,7 @@ struct spmi_controller *spmi_controller_alloc(struct device *parent,
 
 /**
  * spmi_controller_put() - decrement controller refcount
- * @ctrl	SPMI controller.
+ * @ctrl:	SPMI controller.
  */
 static inline void spmi_controller_put(struct spmi_controller *ctrl)
 {
@@ -129,6 +129,7 @@ int devm_spmi_controller_add(struct device *parent, struct spmi_controller *ctrl
  *		this structure.
  * @probe:	binds this driver to a SPMI device.
  * @remove:	unbinds this driver from the SPMI device.
+ * @shutdown:	shuts down this driver.
  *
  * If PM runtime support is desired for a slave, a device driver can call
  * pm_runtime_put() from their probe() routine (and a balancing
