@@ -440,6 +440,25 @@ static void tcf_ife_cleanup(struct tc_action *a)
 		kfree_rcu(p, rcu);
 }
 
+static int load_metalist(struct nlattr **tb, bool rtnl_held)
+{
+	int i;
+
+	for (i = 1; i < max_metacnt; i++) {
+		if (tb[i]) {
+			void *val = nla_data(tb[i]);
+			int len = nla_len(tb[i]);
+			int rc;
+
+			rc = load_metaops_and_vet(i, val, len, rtnl_held);
+			if (rc != 0)
+				return rc;
+		}
+	}
+
+	return 0;
+}
+
 static int populate_metalist(struct tcf_ife_info *ife, struct nlattr **tb,
 			     bool exists, bool rtnl_held)
 {
@@ -452,10 +471,6 @@ static int populate_metalist(struct tcf_ife_info *ife, struct nlattr **tb,
 		if (tb[i]) {
 			val = nla_data(tb[i]);
 			len = nla_len(tb[i]);
-
-			rc = load_metaops_and_vet(i, val, len, rtnl_held);
-			if (rc != 0)
-				return rc;
 
 			rc = add_metainfo(ife, i, val, len, exists);
 			if (rc)
@@ -506,6 +521,20 @@ static int tcf_ife_init(struct net *net, struct nlattr *nla,
 	p = kzalloc(sizeof(*p), GFP_KERNEL);
 	if (!p)
 		return -ENOMEM;
+
+	if (tb[TCA_IFE_METALST]) {
+		err = nla_parse_nested(tb2, IFE_META_MAX, tb[TCA_IFE_METALST],
+				       NULL, NULL);
+		if (err) {
+			kfree(p);
+			return err;
+		}
+		err = load_metalist(tb2, rtnl_held);
+		if (err) {
+			kfree(p);
+			return err;
+		}
+	}
 
 	err = tcf_idr_check_alloc(tn, &parm->index, a, bind);
 	if (err < 0) {
@@ -564,15 +593,6 @@ static int tcf_ife_init(struct net *net, struct nlattr *nla,
 		INIT_LIST_HEAD(&ife->metalist);
 
 	if (tb[TCA_IFE_METALST]) {
-		err = nla_parse_nested(tb2, IFE_META_MAX, tb[TCA_IFE_METALST],
-				       NULL, NULL);
-		if (err) {
-metadata_parse_err:
-			tcf_idr_release(*a, bind);
-			kfree(p);
-			return err;
-		}
-
 		err = populate_metalist(ife, tb2, exists, rtnl_held);
 		if (err)
 			goto metadata_parse_err;
@@ -585,6 +605,7 @@ metadata_parse_err:
 		 */
 		err = use_all_metadata(ife, exists);
 		if (err) {
+metadata_parse_err:
 			tcf_idr_release(*a, bind);
 			kfree(p);
 			return err;
