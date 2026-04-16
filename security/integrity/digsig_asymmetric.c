@@ -139,7 +139,7 @@ out:
 /*
  * calc_file_id_hash - calculate the hash of the ima_file_id struct data
  * @type: xattr type [enum evm_ima_xattr_type]
- * @algo: hash algorithm [enum hash_algo]
+ * @algo: hash algorithm [enum hash_algo]; caller must ensure valid value
  * @digest: pointer to the digest to be hashed
  * @hash: (out) pointer to the hash
  *
@@ -186,6 +186,9 @@ int asymmetric_verify_v3(struct key *keyring, const char *sig, int siglen,
 	struct signature_v2_hdr *hdr = (struct signature_v2_hdr *)sig;
 	struct ima_max_digest_data hash;
 	int rc;
+
+	if (algo >= HASH_ALGO__LAST)
+		return -ENOPKG;
 
 	rc = calc_file_id_hash(hdr->type, algo, data, &hash);
 	if (rc)
