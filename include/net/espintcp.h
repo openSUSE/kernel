@@ -28,6 +28,7 @@ struct espintcp_ctx {
 	void (*saved_destruct)(struct sock *sk);
 	struct work_struct work;
 	bool tx_running;
+	bool work_disabled;
 };
 
 static inline struct espintcp_ctx *espintcp_getctx(const struct sock *sk)
