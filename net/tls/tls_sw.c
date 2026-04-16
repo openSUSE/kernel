@@ -513,7 +513,8 @@ static void tls_encrypt_done(void *data, int err)
 		if (rec == first_rec) {
 			/* Schedule the transmission */
 			if (!test_and_set_bit(BIT_TX_SCHEDULED,
-					      &ctx->tx_bitmask))
+					      &ctx->tx_bitmask) &&
+			    !ctx->tx_work.disabled)
 				schedule_delayed_work(&ctx->tx_work.work, 1);
 		}
 	}
@@ -2473,6 +2474,8 @@ void tls_sw_cancel_work_tx(struct tls_context *tls_ctx)
 
 	set_bit(BIT_TX_CLOSING, &ctx->tx_bitmask);
 	set_bit(BIT_TX_SCHEDULED, &ctx->tx_bitmask);
+	/* disable queueing, workaround for missing disable_ */
+	ctx->tx_work.disabled = true;
 	cancel_delayed_work_sync(&ctx->tx_work.work);
 }
 
@@ -2585,7 +2588,8 @@ static void tx_work_handler(struct work_struct *work)
 		tls_tx_records(sk, -1);
 		release_sock(sk);
 		mutex_unlock(&tls_ctx->tx_lock);
-	} else if (!test_and_set_bit(BIT_TX_SCHEDULED, &ctx->tx_bitmask)) {
+	} else if (!test_and_set_bit(BIT_TX_SCHEDULED, &ctx->tx_bitmask) &&
+		   !ctx->tx_work.disabled) {
 		/* Someone is holding the tx_lock, they will likely run Tx
 		 * and cancel the work on their way out of the lock section.
 		 * Schedule a long delay just in case.
@@ -2611,7 +2615,8 @@ void tls_sw_write_space(struct sock *sk, struct tls_context *ctx)
 
 	/* Schedule the transmission if tx list is ready */
 	if (tls_is_tx_ready(tx_ctx) &&
-	    !test_and_set_bit(BIT_TX_SCHEDULED, &tx_ctx->tx_bitmask))
+	    !test_and_set_bit(BIT_TX_SCHEDULED, &tx_ctx->tx_bitmask) &&
+	    !tx_ctx->tx_work.disabled)
 		schedule_delayed_work(&tx_ctx->tx_work.work, 0);
 }
 
@@ -2648,6 +2653,7 @@ static struct tls_sw_context_tx *init_ctx_tx(struct tls_context *ctx, struct soc
 	crypto_init_wait(&sw_ctx_tx->async_wait);
 	atomic_set(&sw_ctx_tx->encrypt_pending, 1);
 	INIT_LIST_HEAD(&sw_ctx_tx->tx_list);
+	sw_ctx_tx->tx_work.disabled = false;
 	INIT_DELAYED_WORK(&sw_ctx_tx->tx_work.work, tx_work_handler);
 	sw_ctx_tx->tx_work.sk = sk;
 

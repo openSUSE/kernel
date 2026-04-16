@@ -427,7 +427,8 @@ static void espintcp_write_space(struct sock *sk)
 {
 	struct espintcp_ctx *ctx = espintcp_getctx(sk);
 
-	schedule_work(&ctx->work);
+	if (!ctx->work_disabled)
+		schedule_work(&ctx->work);
 	ctx->saved_write_space(sk);
 }
 
@@ -496,6 +497,7 @@ static int espintcp_init_sk(struct sock *sk)
 	sk->sk_write_space = espintcp_write_space;
 	sk->sk_destruct = espintcp_destruct;
 	rcu_assign_pointer(icsk->icsk_ulp_data, ctx);
+	ctx->work_disabled = false;
 	INIT_WORK(&ctx->work, espintcp_tx_work);
 
 	/* avoid using task_frag */
@@ -534,6 +536,8 @@ static void espintcp_close(struct sock *sk, long timeout)
 	sk->sk_prot = &tcp_prot;
 	barrier();
 
+	/* disable scheduling, workaround for missing disable_ */
+	ctx->work_disabled = true;
 	cancel_work_sync(&ctx->work);
 	strp_done(&ctx->strp);
 
