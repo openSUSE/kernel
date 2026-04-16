@@ -3282,8 +3282,8 @@ static int spi_controller_id_alloc(struct spi_controller *ctlr, int start, int e
  * device identification, boards need configuration tables telling which
  * chip is at which address.
  *
- * This must be called from context that can sleep.  It returns zero on
- * success, else a negative error code (dropping the controller's refcount).
+ * This must be called from context that can sleep.
+ *
  * After a successful return, the caller is responsible for calling
  * spi_unregister_controller().
  *
@@ -3418,7 +3418,8 @@ static void devm_spi_unregister(struct device *dev, void *res)
  * Context: can sleep
  *
  * Register a SPI device as with spi_register_controller() which will
- * automatically be unregistered and freed.
+ * automatically be unregistered (and freed unless it has been allocated using
+ * devm_spi_alloc_host/target()).
  *
  * Return: zero on success, else a negative error code.
  */
@@ -3460,7 +3461,8 @@ static int __unregister(struct device *dev, void *null)
  *
  * This must be called from context that can sleep.
  *
- * Note that this function also drops a reference to the controller.
+ * Note that this function also drops a reference to the controller unless it
+ * has been allocated using devm_spi_alloc_host/target().
  */
 void spi_unregister_controller(struct spi_controller *ctlr)
 {
