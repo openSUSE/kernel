@@ -241,12 +241,12 @@
 #define MAX310X_WRITE_BIT		0x80
 
 /* Port startup definitions */
-#define MAX310X_PORT_STARTUP_WAIT_RETRIES	20 /* Number of retries */
-#define MAX310X_PORT_STARTUP_WAIT_DELAY_MS	10 /* Delay between retries */
+#define MAX310X_PORT_STARTUP_SLEEP_US	10000  /* Delay between retries */
+#define MAX310X_PORT_STARTUP_TIMEOUT_US	(20 * MAX310X_PORT_STARTUP_SLEEP_US) /* Total timeout */
 
 /* Crystal-related definitions */
-#define MAX310X_XTAL_WAIT_RETRIES	20 /* Number of retries */
-#define MAX310X_XTAL_WAIT_DELAY_MS	10 /* Delay between retries */
+#define MAX310X_XTAL_SLEEP_US		10000  /* Delay between retries */
+#define MAX310X_XTAL_TIMEOUT_US		(20 * MAX310X_XTAL_SLEEP_US) /* Total timeout */
 
 /* MAX3107 specific */
 #define MAX3107_REV_ID			(0xa0)
@@ -587,7 +587,7 @@ static u8 max310x_pll_mult_to_id(u8 pll_mult)
 static int max310x_set_ref_clk(struct device *dev, struct max310x_port *s,
 			       unsigned int freq, unsigned int *fref, bool xtal)
 {
-	unsigned int div, fdiv, clksrc;
+	unsigned int div, fdiv, clksrc, val;
 	struct max310x_clk_config_t cfg;
 
 	cfg.err = UINT_MAX;
@@ -629,18 +629,13 @@ static int max310x_set_ref_clk(struct device *dev, struct max310x_port *s,
 
 	/* Wait for crystal */
 	if (xtal) {
-		bool stable = false;
-		unsigned int try = 0, val = 0;
+		int ret;
 
-		do {
-			msleep(MAX310X_XTAL_WAIT_DELAY_MS);
-			regmap_read(s->regmap, MAX310X_STS_IRQSTS_REG, &val);
-
-			if (val & MAX310X_STS_CLKREADY_BIT)
-				stable = true;
-		} while (!stable && (++try < MAX310X_XTAL_WAIT_RETRIES));
-
-		if (!stable)
+		ret = regmap_read_poll_timeout(s->regmap, MAX310X_STS_IRQSTS_REG,
+					       val, val & MAX310X_STS_CLKREADY_BIT,
+					       MAX310X_XTAL_SLEEP_US,
+					       MAX310X_XTAL_TIMEOUT_US);
+		if (ret)
 			return dev_err_probe(dev, -EAGAIN,
 					     "clock is not stable\n");
 	}
@@ -1346,8 +1341,7 @@ static int max310x_probe(struct device *dev, const struct max310x_devtype *devty
 		goto out_clk;
 
 	for (i = 0; i < devtype->nr; i++) {
-		bool started = false;
-		unsigned int try = 0, val = 0;
+		unsigned int val;
 
 		/* Reset port */
 		regmap_write(regmaps[i], MAX310X_MODE2_REG,
@@ -1356,15 +1350,11 @@ static int max310x_probe(struct device *dev, const struct max310x_devtype *devty
 		regmap_write(regmaps[i], MAX310X_MODE2_REG, 0);
 
 		/* Wait for port startup */
-		do {
-			msleep(MAX310X_PORT_STARTUP_WAIT_DELAY_MS);
-			regmap_read(regmaps[i], MAX310X_BRGDIVLSB_REG, &val);
-
-			if (val == 0x01)
-				started = true;
-		} while (!started && (++try < MAX310X_PORT_STARTUP_WAIT_RETRIES));
-
-		if (!started) {
+		ret = regmap_read_poll_timeout(regmaps[i], MAX310X_BRGDIVLSB_REG,
+					       val, val == 0x01,
+					       MAX310X_PORT_STARTUP_SLEEP_US,
+					       MAX310X_PORT_STARTUP_TIMEOUT_US);
+		if (ret) {
 			ret = dev_err_probe(dev, -EAGAIN, "port reset failed\n");
 			goto out_uart;
 		}
