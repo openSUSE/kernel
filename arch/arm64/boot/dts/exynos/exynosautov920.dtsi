@@ -1426,6 +1426,12 @@
 				      "ethernet";
 		};
 
+		syscon_hsi2: syscon@16c00000 {
+			compatible = "samsung,exynosautov920-hsi2-sysreg",
+				     "syscon";
+			reg = <0x16c00000 0x800>;
+		};
+
 		pinctrl_hsi2: pinctrl@16c10000 {
 			compatible = "samsung,exynosautov920-pinctrl";
 			reg = <0x16c10000 0x10000>;
