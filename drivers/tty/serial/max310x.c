@@ -761,8 +761,6 @@ static void max310x_handle_rx(struct uart_port *port, unsigned int rxlen)
 static void max310x_handle_tx(struct uart_port *port)
 {
 	struct tty_port *tport = &port->state->port;
-	unsigned int txlen, to_send;
-	unsigned char *tail;
 
 	if (unlikely(port->x_char)) {
 		max310x_port_write(port, MAX310X_THR_REG, port->x_char);
@@ -779,6 +777,9 @@ static void max310x_handle_tx(struct uart_port *port)
 	 * We could do that in one SPI transaction, but meh.
 	 */
 	while (!kfifo_is_empty(&tport->xmit_fifo)) {
+		unsigned int txlen, to_send;
+		unsigned char *tail;
+
 		/* Limit to space available in TX FIFO */
 		txlen = max310x_port_read(port, MAX310X_TXFIFOLVL_REG);
 		txlen = port->fifosize - txlen;
