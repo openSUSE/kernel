@@ -1661,10 +1661,11 @@ static void pipapo_gc_scan(const struct nft_set *_set, struct nft_pipapo_match *
 
 /**
  * pipapo_gc_queue() - Free expired elements
- * @set:	nftables API set representation
+ * @_set:	nftables API set representation
  */
-static void pipapo_gc_queue(struct nft_set *set)
+static void pipapo_gc_queue(const struct nft_set *_set)
 {
+	struct nft_set *set = (struct nft_set *) _set;
 	struct nft_pipapo *priv = nft_set_priv(set);
 	struct nft_trans_gc *gc, *next;
 
