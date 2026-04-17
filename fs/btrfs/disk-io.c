@@ -4285,7 +4285,6 @@ static void warn_about_uncommitted_trans(struct btrfs_fs_info *fs_info)
 		list_del_init(&trans->list);
 
 		btrfs_put_transaction(trans);
-		trace_btrfs_transaction_commit(fs_info);
 	}
 	ASSERT(!found);
 }
