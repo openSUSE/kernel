@@ -66,6 +66,12 @@ impl FbHal for Ga100 {
     fn vidmem_size(&self, bar: &Bar0) -> u64 {
         super::tu102::vidmem_size_gp102(bar)
     }
+
+    // GA100 is a special case where its FRTS region exists, but is empty.  We
+    // return a size of 0 because we still need to record where the region starts.
+    fn frts_size(&self) -> u64 {
+        0
+    }
 }
 
 const GA100: Ga100 = Ga100;

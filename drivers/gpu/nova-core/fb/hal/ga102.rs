@@ -35,6 +35,10 @@ impl FbHal for Ga102 {
     fn vidmem_size(&self, bar: &Bar0) -> u64 {
         vidmem_size_ga102(bar)
     }
+
+    fn frts_size(&self) -> u64 {
+        super::tu102::frts_size_tu102()
+    }
 }
 
 const GA102: Ga102 = Ga102;

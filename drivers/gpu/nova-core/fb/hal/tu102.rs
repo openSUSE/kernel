@@ -2,7 +2,8 @@
 
 use kernel::{
     io::Io,
-    prelude::*, //
+    prelude::*,
+    sizes::*, //
 };
 
 use crate::{
@@ -38,6 +39,10 @@ pub(super) fn vidmem_size_gp102(bar: &Bar0) -> u64 {
         .usable_fb_size()
 }
 
+pub(super) const fn frts_size_tu102() -> u64 {
+    u64::SZ_1M
+}
+
 struct Tu102;
 
 impl FbHal for Tu102 {
@@ -55,6 +60,10 @@ impl FbHal for Tu102 {
 
     fn vidmem_size(&self, bar: &Bar0) -> u64 {
         vidmem_size_gp102(bar)
+    }
+
+    fn frts_size(&self) -> u64 {
+        frts_size_tu102()
     }
 }
 
