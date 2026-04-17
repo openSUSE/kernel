@@ -188,17 +188,13 @@ TRACE_EVENT(btrfs_transaction_commit,
 
 	TP_STRUCT__entry_btrfs(
 		__field(	u64,  generation		)
-		__field(	u64,  root_objectid		)
 	),
 
 	TP_fast_assign_btrfs(fs_info,
 		__entry->generation	= fs_info->generation;
-		__entry->root_objectid	= BTRFS_ROOT_TREE_OBJECTID;
 	),
 
-	TP_printk_btrfs("root=%llu(%s) gen=%llu",
-		  show_root_type(__entry->root_objectid),
-		  __entry->generation)
+	TP_printk_btrfs("gen=%llu", __entry->generation)
 );
 
 DECLARE_EVENT_CLASS(btrfs__inode,
