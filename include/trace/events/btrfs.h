@@ -670,7 +670,7 @@ TRACE_EVENT(btrfs_finish_ordered_extent,
 	TP_printk_btrfs("root=%llu(%s) ino=%llu start=%llu len=%llu uptodate=%d",
 		  show_root_type(__entry->root_objectid),
 		  __entry->ino, __entry->start,
-		  __entry->len, !!__entry->uptodate)
+		  __entry->len, __entry->uptodate)
 );
 
 DECLARE_EVENT_CLASS(btrfs__writepage,
