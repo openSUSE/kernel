@@ -9,6 +9,7 @@
  *  Based on max3107.c, by Aavamobile
  */
 
+#include <linux/bitfield.h>
 #include <linux/bitops.h>
 #include <linux/clk.h>
 #include <linux/delay.h>
@@ -621,7 +622,9 @@ static int max310x_set_ref_clk(struct device *dev, struct max310x_port *s,
 		u8 pll_id = max310x_pll_mult_to_id(cfg.pll_mult);
 
 		clksrc |= MAX310X_CLKSRC_PLL_BIT;
-		regmap_write(s->regmap, MAX310X_PLLCFG_REG, (pll_id << 6) | cfg.prediv);
+		val = FIELD_PREP(MAX310X_PLLCFG_PLLFACTOR_MASK, pll_id) |
+			FIELD_PREP(MAX310X_PLLCFG_PREDIV_MASK, cfg.prediv);
+		regmap_write(s->regmap, MAX310X_PLLCFG_REG, val);
 	} else
 		clksrc |= MAX310X_CLKSRC_PLLBYP_BIT;
 
