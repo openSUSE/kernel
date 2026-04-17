@@ -547,7 +547,7 @@ static int max310x_set_baud(struct uart_port *port, int baud)
 
 static int max310x_update_best_err(unsigned int f, unsigned int *besterr)
 {
-	/* Use baudrate 115200 for calculate error */
+	/* Use high-enough baudrate to calculate error */
 	unsigned int err = f % (460800 * 16);
 
 	if (*besterr > err) {
