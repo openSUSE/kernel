@@ -545,7 +545,7 @@ static int max310x_set_baud(struct uart_port *port, int baud)
 	return (16*port->uartclk) / (c*(16*div + frac));
 }
 
-static int max310x_update_best_err(unsigned long f, long *besterr)
+static int max310x_update_best_err(unsigned int f, long *besterr)
 {
 	/* Use baudrate 115200 for calculate error */
 	long err = f % (460800 * 16);
@@ -559,11 +559,11 @@ static int max310x_update_best_err(unsigned long f, long *besterr)
 }
 
 static s32 max310x_set_ref_clk(struct device *dev, struct max310x_port *s,
-			       unsigned long freq, bool xtal)
+			       unsigned int freq, bool xtal)
 {
 	unsigned int div, clksrc, pllcfg = 0;
 	long besterr = -1;
-	unsigned long fdiv, fmul, bestfreq = freq;
+	unsigned int fdiv, fmul, bestfreq = freq;
 
 	/* First, update error without PLL */
 	max310x_update_best_err(freq, &besterr);
@@ -1268,7 +1268,8 @@ static int max310x_probe(struct device *dev, const struct max310x_devtype *devty
 			 const struct max310x_if_cfg *if_cfg,
 			 struct regmap *regmaps[], int irq)
 {
-	int i, ret, fmin, fmax, freq;
+	unsigned int fmin, fmax, freq;
+	int i, ret;
 	struct max310x_port *s;
 	s32 uartclk = 0;
 	bool xtal;
