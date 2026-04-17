@@ -1704,7 +1704,6 @@ static void uvc_video_complete(struct urb *urb)
 	struct vb2_queue *vb2_qmeta = stream->meta.queue.vdev.queue;
 	struct uvc_buffer *buf = NULL;
 	struct uvc_buffer *buf_meta = NULL;
-	unsigned long flags;
 	int ret;
 
 	switch (urb->status) {
@@ -1730,13 +1729,8 @@ static void uvc_video_complete(struct urb *urb)
 
 	buf = uvc_queue_get_current_buffer(queue);
 
-	if (vb2_qmeta) {
-		spin_lock_irqsave(&qmeta->irqlock, flags);
-		if (!list_empty(&qmeta->irqqueue))
-			buf_meta = list_first_entry(&qmeta->irqqueue,
-						    struct uvc_buffer, queue);
-		spin_unlock_irqrestore(&qmeta->irqlock, flags);
-	}
+	if (vb2_qmeta)
+		buf_meta = uvc_queue_get_current_buffer(qmeta);
 
 	/* Re-initialise the URB async work. */
 	uvc_urb->async_operations = 0;
