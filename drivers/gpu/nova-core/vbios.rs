@@ -12,6 +12,8 @@ use kernel::{
         Alignable,
         Alignment, //
     },
+    register,
+    sizes::SZ_4K,
     sync::aref::ARef,
     transmute::FromBytes,
 };
@@ -89,13 +91,94 @@ struct VbiosIterator<'a> {
     last_found: bool,
 }
 
+// IFR Header in VBIOS.
+
+register! {
+    pub(crate) NV_PBUS_IFR_FMT_FIXED0(u32) @ 0x300000 {
+        31:0    signature;
+    }
+}
+
+register! {
+    pub(crate) NV_PBUS_IFR_FMT_FIXED1(u32) @ 0x300004 {
+        30:16   fixed_data_size;
+        15:8    version => u8;
+    }
+}
+
+register! {
+    pub(crate) NV_PBUS_IFR_FMT_FIXED2(u32) @ 0x300008 {
+        19:0 total_data_size;
+    }
+}
+
+/// Return the byte offset where the PCI Expansion ROM images begin in the GPU's ROM.
+///
+/// The GPU's ROM may begin with an Init-from-ROM (IFR) header that precedes
+/// the PCI Expansion ROM images (VBIOS).  When present, the PROM shadow
+/// method must parse this header to determine the offset where the PCI ROM
+/// images actually begin, and adjust all subsequent reads accordingly.
+///
+/// On most GPUs this is not needed because the IFR microcode has already
+/// applied the ROM offset so that PROM reads transparently skip the header.
+/// On GA100, for some reason, the IFR offset is not applied to PROM
+/// reads.  Therefore, the search for the PCI expansion must skip the IFR
+/// header, if found.
+fn vbios_rom_offset(dev: &device::Device, bar0: &Bar0) -> Result<usize> {
+    /// IFR signature.
+    const NV_PBUS_IFR_FMT_FIXED0_SIGNATURE_VALUE: u32 = u32::from_le_bytes(*b"NVGI");
+    /// ROM directory signature.
+    const NV_ROM_DIRECTORY_IDENTIFIER: u32 = u32::from_le_bytes(*b"RFRD");
+    /// Offset of the NV_PMGR_ROM_ADDR_OFFSET register in IFR Extended section.
+    const IFR_SW_EXT_ROM_ADDR_OFFSET: usize = 4;
+    /// Size of Redundant Firmware Flash Status section.
+    const RFW_FLASH_STATUS_SIZE: usize = SZ_4K;
+    /// Offset in the ROM Directory of the PCI Option ROM offset
+    const PCI_OPTION_ROM_OFFSET: usize = 8;
+
+    let signature = bar0.read(NV_PBUS_IFR_FMT_FIXED0).signature();
+
+    if signature == NV_PBUS_IFR_FMT_FIXED0_SIGNATURE_VALUE {
+        let fixed1 = bar0.read(NV_PBUS_IFR_FMT_FIXED1);
+
+        match fixed1.version() {
+            1 | 2 => {
+                let fixed_data_size = usize::from(fixed1.fixed_data_size());
+                let pmgr_rom_addr_offset = fixed_data_size + IFR_SW_EXT_ROM_ADDR_OFFSET;
+                bar0.try_read32(ROM_OFFSET + pmgr_rom_addr_offset)
+                    .map(usize::from_safe_cast)
+            }
+            3 => {
+                let fixed2 = bar0.read(NV_PBUS_IFR_FMT_FIXED2);
+                let total_data_size = usize::from(fixed2.total_data_size());
+                let flash_status_offset =
+                    usize::from_safe_cast(bar0.try_read32(ROM_OFFSET + total_data_size)?);
+                let dir_offset = flash_status_offset + RFW_FLASH_STATUS_SIZE;
+                let dir_sig = bar0.try_read32(ROM_OFFSET + dir_offset)?;
+                if dir_sig != NV_ROM_DIRECTORY_IDENTIFIER {
+                    dev_err!(dev, "could not find IFR ROM directory\n");
+                    return Err(EINVAL);
+                }
+                bar0.try_read32(ROM_OFFSET + dir_offset + PCI_OPTION_ROM_OFFSET)
+                    .map(usize::from_safe_cast)
+            }
+            _ => {
+                dev_err!(dev, "unsupported IFR header version {}\n", fixed1.version());
+                Err(EINVAL)
+            }
+        }
+    } else {
+        Ok(0)
+    }
+}
+
 impl<'a> VbiosIterator<'a> {
     fn new(dev: &'a device::Device, bar0: &'a Bar0) -> Result<Self> {
         Ok(Self {
             dev,
             bar0,
             data: KVec::new(),
-            current_offset: 0,
+            current_offset: vbios_rom_offset(dev, bar0)?,
             last_found: false,
         })
     }
