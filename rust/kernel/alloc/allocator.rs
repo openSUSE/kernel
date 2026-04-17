@@ -265,6 +265,7 @@ unsafe impl Allocator for KVmalloc {
     }
 }
 
+#[cfg(CONFIG_RUST_ALLOCATOR_KUNIT_TEST)]
 #[macros::kunit_tests(rust_allocator)]
 mod tests {
     use super::*;

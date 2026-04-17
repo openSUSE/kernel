@@ -154,6 +154,7 @@ unsafe impl super::AtomicAdd<usize> for usize {
     }
 }
 
+#[cfg(CONFIG_RUST_ATOMICS_KUNIT_TEST)]
 #[macros::kunit_tests(rust_atomics)]
 mod tests {
     use super::super::*;

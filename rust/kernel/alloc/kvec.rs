@@ -1508,6 +1508,7 @@ impl<'vec, T> Drop for DrainAll<'vec, T> {
     }
 }
 
+#[cfg(CONFIG_RUST_KVEC_KUNIT_TEST)]
 #[macros::kunit_tests(rust_kvec)]
 mod tests {
     use super::*;
