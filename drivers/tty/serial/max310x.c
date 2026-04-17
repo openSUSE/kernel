@@ -558,8 +558,8 @@ static int max310x_update_best_err(unsigned int f, unsigned int *besterr)
 	return 1;
 }
 
-static s32 max310x_set_ref_clk(struct device *dev, struct max310x_port *s,
-			       unsigned int freq, bool xtal)
+static int max310x_set_ref_clk(struct device *dev, struct max310x_port *s,
+			       unsigned int freq, unsigned int *fref, bool xtal)
 {
 	unsigned int div, clksrc, pllcfg = 0;
 	unsigned int besterr = UINT_MAX;
@@ -632,7 +632,9 @@ static s32 max310x_set_ref_clk(struct device *dev, struct max310x_port *s,
 					     "clock is not stable\n");
 	}
 
-	return bestfreq;
+	*fref = bestfreq;
+
+	return 0;
 }
 
 static void max310x_batch_write(struct uart_port *port, u8 *txbuf, unsigned int len)
@@ -1271,7 +1273,7 @@ static int max310x_probe(struct device *dev, const struct max310x_devtype *devty
 	unsigned int fmin, fmax, freq;
 	int i, ret;
 	struct max310x_port *s;
-	s32 uartclk = 0;
+	unsigned int uartclk = 0;
 	bool xtal;
 
 	for (i = 0; i < devtype->nr; i++)
@@ -1357,11 +1359,9 @@ static int max310x_probe(struct device *dev, const struct max310x_devtype *devty
 		regmap_write(regmaps[i], MAX310X_MODE1_REG, devtype->mode1);
 	}
 
-	uartclk = max310x_set_ref_clk(dev, s, freq, xtal);
-	if (uartclk < 0) {
-		ret = uartclk;
+	ret = max310x_set_ref_clk(dev, s, freq, &uartclk, xtal);
+	if (ret < 0)
 		goto out_uart;
-	}
 
 	dev_dbg(dev, "Reference clock set to %i Hz\n", uartclk);
 
