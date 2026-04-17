@@ -2114,7 +2114,7 @@ static void cleanup_transaction(struct btrfs_trans_handle *trans, int err)
 	btrfs_put_transaction(cur_trans);
 	btrfs_put_transaction(cur_trans);
 
-	trace_btrfs_transaction_commit(fs_info);
+	trace_btrfs_transaction_commit(trans);
 
 	if (current->journal_info == trans)
 		current->journal_info = NULL;
@@ -2632,7 +2632,7 @@ int btrfs_commit_transaction(struct btrfs_trans_handle *trans)
 	if (trans->type & __TRANS_FREEZABLE)
 		sb_end_intwrite(fs_info->sb);
 
-	trace_btrfs_transaction_commit(fs_info);
+	trace_btrfs_transaction_commit(trans);
 
 	btrfs_scrub_continue(fs_info);
 
