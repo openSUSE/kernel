@@ -189,13 +189,16 @@ TRACE_EVENT(btrfs_transaction_commit,
 
 	TP_STRUCT__entry_btrfs(
 		__field(	u64,  generation		)
+		__field(	bool, in_fsync			)
 	),
 
 	TP_fast_assign_btrfs(trans->fs_info,
 		__entry->generation	= trans->transid;
+		__entry->in_fsync	= trans->in_fsync;
 	),
 
-	TP_printk_btrfs("gen=%llu", __entry->generation)
+	TP_printk_btrfs("gen=%llu in_fsync=%d", __entry->generation,
+			__entry->in_fsync)
 );
 
 DECLARE_EVENT_CLASS(btrfs__inode,
