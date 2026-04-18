@@ -43,8 +43,8 @@
  *   - i_dentry, d_alias, d_inode of aliases
  * dcache_hash_bucket lock protects:
  *   - the dcache hash table
- * s_roots bl list spinlock protects:
- *   - the s_roots list (see __d_drop)
+ * s_roots_lock protects:
+ *   - the s_roots list (see __d_move()/dentry_unlist()/d_obtain_root())
  * dentry->d_sb->s_dentry_lru_lock protects:
  *   - the dcache lru lists and counters
  * d_lock protects:
@@ -562,16 +562,7 @@ static void d_lru_shrink_move(struct list_lru_one *lru, struct dentry *dentry,
 
 static void ___d_drop(struct dentry *dentry)
 {
-	struct hlist_bl_head *b;
-	/*
-	 * Hashed dentries are normally on the dentry hashtable,
-	 * with the exception of those newly allocated by
-	 * d_obtain_root, which are always IS_ROOT:
-	 */
-	if (unlikely(IS_ROOT(dentry)))
-		b = &dentry->d_sb->s_roots;
-	else
-		b = d_hash(dentry->d_name.hash);
+	struct hlist_bl_head *b = d_hash(dentry->d_name.hash);
 
 	hlist_bl_lock(b);
 	__hlist_bl_del(&dentry->d_hash);
@@ -654,6 +645,13 @@ static inline void d_complete_waiters(struct dentry *dentry)
 	}
 }
 
+static void unlink_secondary_root(struct dentry *dentry)
+{
+	spin_lock(&dentry->d_sb->s_roots_lock);
+	hlist_del_init(&dentry->d_sib);
+	spin_unlock(&dentry->d_sb->s_roots_lock);
+}
+
 static inline void dentry_unlist(struct dentry *dentry)
 {
 	struct dentry *next;
@@ -665,6 +663,10 @@ static inline void dentry_unlist(struct dentry *dentry)
 	d_complete_waiters(dentry);
 	if (unlikely(hlist_unhashed(&dentry->d_sib)))
 		return;
+	if (unlikely(IS_ROOT(dentry))) {
+		unlink_secondary_root(dentry); // secondary root goes away
+		return;
+	}
 	__hlist_del(&dentry->d_sib);
 	/*
 	 * Cursors can move around the list of children.  While we'd been
@@ -1805,9 +1807,30 @@ void shrink_dcache_for_umount(struct super_block *sb)
 	sb->s_root = NULL;
 	do_one_tree(dentry);
 
-	while (!hlist_bl_empty(&sb->s_roots)) {
-		dentry = dget(hlist_bl_entry(hlist_bl_first(&sb->s_roots), struct dentry, d_hash));
-		do_one_tree(dentry);
+	for (;;) {
+		spin_lock(&sb->s_roots_lock);
+		dentry = hlist_entry_safe(sb->s_roots.first,
+					  struct dentry, d_sib);
+		if (!dentry) {
+			spin_unlock(&sb->s_roots_lock);
+			break;
+		}
+		rcu_read_lock();
+		spin_unlock(&sb->s_roots_lock);
+		spin_lock(&dentry->d_lock);
+		rcu_read_unlock();
+		if (unlikely(dentry->d_lockref.count < 0)) {
+			struct completion_list wait;
+			bool need_wait = d_add_waiter(dentry, &wait);
+
+			spin_unlock(&dentry->d_lock);
+			if (need_wait)
+				wait_for_completion(&wait.completion);
+		} else {
+			dget_dlock(dentry);
+			spin_unlock(&dentry->d_lock);
+			do_one_tree(dentry);
+		}
 	}
 }
 
@@ -2224,9 +2247,9 @@ static struct dentry *__d_obtain_alias(struct inode *inode, bool disconnected)
 		__d_set_inode_and_type(new, inode, add_flags);
 		hlist_add_head(&new->d_alias, &inode->i_dentry);
 		if (!disconnected) {
-			hlist_bl_lock(&sb->s_roots);
-			hlist_bl_add_head(&new->d_hash, &sb->s_roots);
-			hlist_bl_unlock(&sb->s_roots);
+			spin_lock(&sb->s_roots_lock);
+			hlist_add_head(&new->d_sib, &sb->s_roots);
+			spin_unlock(&sb->s_roots_lock);
 		}
 		spin_unlock(&new->d_lock);
 		spin_unlock(&inode->i_lock);
@@ -3238,6 +3261,12 @@ struct dentry *d_splice_alias_ops(struct inode *inode, struct dentry *dentry,
 				}
 				dput(old_parent);
 			} else {
+				if (unlikely(!hlist_unhashed(&new->d_sib))) {
+					// secondary root getting spliced
+					spin_lock(&new->d_lock);
+					unlink_secondary_root(new);
+					spin_unlock(&new->d_lock);
+				}
 				__d_move(new, dentry, false);
 				write_sequnlock(&rename_lock);
 			}
