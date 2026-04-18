@@ -1357,7 +1357,8 @@ __nfs_revalidate_inode(struct nfs_server *server, struct inode *inode)
 		status = pnfs_sync_inode(inode, false);
 		if (status)
 			goto out;
-	} else if (nfs_have_directory_delegation(inode)) {
+	} else if (nfs_have_directory_delegation(inode) &&
+		   !(NFS_I(inode)->cache_validity & NFS_INO_INVALID_ATTR)) {
 		status = 0;
 		goto out;
 	}
