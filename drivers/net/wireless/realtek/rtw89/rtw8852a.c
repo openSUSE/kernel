@@ -2337,6 +2337,7 @@ const struct rtw89_chip_info rtw8852a_chip_info = {
 	.rsvd_ple_ofst		= 0x6f800,
 	.hfc_param_ini		= {rtw8852a_hfc_param_ini_pcie,
 				   rtw8852a_hfc_param_ini_usb,
+				   rtw8852a_hfc_param_ini_usb,
 				   NULL},
 	.dle_mem		= {rtw8852a_dle_mem_pcie,
 				   rtw8852a_dle_mem_usb,
