@@ -803,6 +803,17 @@ static void rtw89_usb_rx_agg_cfg_v2(struct rtw89_dev *rtwdev)
 	rtw89_write32(rtwdev, R_AX_RXAGG_1_V1, 0x1F);
 }
 
+static void rtw89_usb_rx_agg_cfg_v3(struct rtw89_dev *rtwdev)
+{
+	const u32 rxagg_0 = FIELD_PREP_CONST(B_BE_RXAGG_0_EN, 1) |
+			    FIELD_PREP_CONST(B_BE_RXAGG_0_NUM_TH, 255) |
+			    FIELD_PREP_CONST(B_BE_RXAGG_0_TIME_32US_TH, 32) |
+			    FIELD_PREP_CONST(B_BE_RXAGG_0_BUF_SZ_1K, 20);
+
+	rtw89_write32(rtwdev, R_BE_RXAGG_0_V1, rxagg_0);
+	rtw89_write32(rtwdev, R_BE_RXAGG_1_V1, 0x1F);
+}
+
 static void rtw89_usb_rx_agg_cfg(struct rtw89_dev *rtwdev)
 {
 	switch (rtwdev->chip->chip_id) {
@@ -813,6 +824,9 @@ static void rtw89_usb_rx_agg_cfg(struct rtw89_dev *rtwdev)
 		break;
 	case RTL8852C:
 		rtw89_usb_rx_agg_cfg_v2(rtwdev);
+		break;
+	case RTL8922A:
+		rtw89_usb_rx_agg_cfg_v3(rtwdev);
 		break;
 	default:
 		rtw89_warn(rtwdev, "%s: USB RX agg not support\n", __func__);

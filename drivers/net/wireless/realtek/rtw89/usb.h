@@ -29,6 +29,14 @@
 
 #define R_AX_RXAGG_1_V1			0x6004
 
+#define R_BE_RXAGG_0_V1			0x6000
+#define B_BE_RXAGG_0_EN			BIT(31)
+#define B_BE_RXAGG_0_NUM_TH		GENMASK(23, 16)
+#define B_BE_RXAGG_0_TIME_32US_TH	GENMASK(15, 8)
+#define B_BE_RXAGG_0_BUF_SZ_1K		GENMASK(7, 0)
+
+#define R_BE_RXAGG_1_V1			0x6004
+
 #define R_AX_RXAGG_0			0x8900
 #define B_AX_RXAGG_0_BUF_SZ_4K		GENMASK(7, 0)
 
