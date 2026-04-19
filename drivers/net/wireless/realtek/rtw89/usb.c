@@ -756,6 +756,9 @@ static int rtw89_usb_ops_mac_pre_init(struct rtw89_dev *rtwdev)
 	const struct rtw89_usb_info *info = rtwusb->info;
 	u32 val32;
 
+	if (rtwdev->chip->chip_id == RTL8922A)
+		return 0;
+
 	rtw89_write32_set(rtwdev, info->usb_host_request_2,
 			  B_AX_R_USBIO_MODE);
 
