@@ -301,6 +301,15 @@ attribute-sets:
         type: u32
         enum: cache-type
         enum-as-flags: true
+  -
+    name: unlock-ip
+    attributes:
+      -
+        name: address
+        type: binary
+        doc: struct sockaddr_in or struct sockaddr_in6.
+        checks:
+          min-len: 16
 
 operations:
   list:
@@ -455,6 +464,15 @@ operations:
         request:
           attributes:
             - mask
+    -
+      name: unlock-ip
+      doc: release NLM locks held by an IP address
+      attribute-set: unlock-ip
+      flags: [admin-perm]
+      do:
+        request:
+          attributes:
+            - address
 
 mcast-groups:
   list:
