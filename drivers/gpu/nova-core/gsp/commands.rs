@@ -18,7 +18,6 @@ use kernel::{
 };
 
 use crate::{
-    driver::Bar0,
     gsp::{
         cmdq::{
             Cmdq,
@@ -176,7 +175,7 @@ pub(crate) fn wait_gsp_init_done(cmdq: &Cmdq) -> Result {
 }
 
 /// The `GetGspStaticInfo` command.
-struct GetGspStaticInfo;
+pub(crate) struct GetGspStaticInfo;
 
 impl CommandToGsp for GetGspStaticInfo {
     const FUNCTION: MsgFunction = MsgFunction::GetGspStaticInfo;
@@ -231,9 +230,4 @@ impl GetGspStaticInfoReply {
             .to_str()
             .map_err(GpuNameError::InvalidUtf8)
     }
-}
-
-/// Send the [`GetGspInfo`] command and awaits for its reply.
-pub(crate) fn get_gsp_info(cmdq: &Cmdq, bar: &Bar0) -> Result<GetGspStaticInfoReply> {
-    cmdq.send_command(bar, GetGspStaticInfo)
 }
