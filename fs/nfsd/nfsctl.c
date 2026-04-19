@@ -2389,9 +2389,10 @@ int nfsd_nl_unlock_export_doit(struct sk_buff *skb, struct genl_info *info)
 		return error;
 
 	mutex_lock(&nfsd_mutex);
-	if (nn->nfsd_serv)
+	if (nn->nfsd_serv) {
+		nfsd_file_close_export(net, &path);
 		nfsd4_revoke_export_states(nn, &path);
-	else
+	} else
 		error = -EINVAL;
 	mutex_unlock(&nfsd_mutex);
 
