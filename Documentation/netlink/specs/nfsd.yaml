@@ -317,6 +317,19 @@ attribute-sets:
         name: path
         type: string
         doc: Filesystem path whose state should be released.
+  -
+    name: unlock-export
+    attributes:
+      -
+        name: path
+        type: string
+        doc: >-
+          Export path whose NFSv4 state should be revoked.
+          All state (opens, locks, delegations, layouts) acquired
+          through any export of this path is revoked, regardless
+          of which client holds the state. Intended for use after
+          all clients have been unexported from a given path,
+          enabling the underlying filesystem to be unmounted.
 
 operations:
   list:
@@ -484,6 +497,20 @@ operations:
       name: unlock-filesystem
       doc: revoke NFS state under a filesystem path
       attribute-set: unlock-filesystem
+      flags: [admin-perm]
+      do:
+        request:
+          attributes:
+            - path
+    -
+      name: unlock-export
+      doc: >-
+        Revoke NFSv4 state acquired through exports of a given path.
+        Unlike unlock-filesystem, which operates at superblock granularity,
+        this command targets only state associated with a specific export
+        path. Userspace (exportfs -u) sends this after removing the last
+        client for a path so the underlying filesystem can be unmounted.
+      attribute-set: unlock-export
       flags: [admin-perm]
       do:
         request:

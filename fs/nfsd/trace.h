@@ -2021,6 +2021,25 @@ TRACE_EVENT(nfsd_ctl_unlock_fs,
 	)
 );
 
+TRACE_EVENT(nfsd_ctl_unlock_export,
+	TP_PROTO(
+		const struct net *net,
+		const char *path
+	),
+	TP_ARGS(net, path),
+	TP_STRUCT__entry(
+		__field(unsigned int, netns_ino)
+		__string(path, path)
+	),
+	TP_fast_assign(
+		__entry->netns_ino = net->ns.inum;
+		__assign_str(path);
+	),
+	TP_printk("path=%s",
+		__get_str(path)
+	)
+);
+
 TRACE_EVENT(nfsd_ctl_filehandle,
 	TP_PROTO(
 		const struct net *net,

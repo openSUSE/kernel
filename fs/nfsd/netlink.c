@@ -113,6 +113,11 @@ static const struct nla_policy nfsd_unlock_filesystem_nl_policy[NFSD_A_UNLOCK_FI
 	[NFSD_A_UNLOCK_FILESYSTEM_PATH] = { .type = NLA_NUL_STRING, },
 };
 
+/* NFSD_CMD_UNLOCK_EXPORT - do */
+static const struct nla_policy nfsd_unlock_export_nl_policy[NFSD_A_UNLOCK_EXPORT_PATH + 1] = {
+	[NFSD_A_UNLOCK_EXPORT_PATH] = { .type = NLA_NUL_STRING, },
+};
+
 /* Ops table for nfsd */
 static const struct genl_split_ops nfsd_nl_ops[] = {
 	{
@@ -211,6 +216,13 @@ static const struct genl_split_ops nfsd_nl_ops[] = {
 		.doit		= nfsd_nl_unlock_filesystem_doit,
 		.policy		= nfsd_unlock_filesystem_nl_policy,
 		.maxattr	= NFSD_A_UNLOCK_FILESYSTEM_PATH,
+		.flags		= GENL_ADMIN_PERM | GENL_CMD_CAP_DO,
+	},
+	{
+		.cmd		= NFSD_CMD_UNLOCK_EXPORT,
+		.doit		= nfsd_nl_unlock_export_doit,
+		.policy		= nfsd_unlock_export_nl_policy,
+		.maxattr	= NFSD_A_UNLOCK_EXPORT_PATH,
 		.flags		= GENL_ADMIN_PERM | GENL_CMD_CAP_DO,
 	},
 };
