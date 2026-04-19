@@ -1938,7 +1938,7 @@ static int pic32_pinconf_set(struct pinctrl_dev *pctldev, unsigned int pin,
 		switch (param) {
 		case PIN_CONFIG_BIAS_PULL_UP:
 			dev_dbg(pctl->dev, "   pullup\n");
-			writel(mask, bank->reg_base +PIC32_SET(CNPU_REG));
+			writel(mask, bank->reg_base + PIC32_SET(CNPU_REG));
 			break;
 		case PIN_CONFIG_BIAS_PULL_DOWN:
 			dev_dbg(pctl->dev, "   pulldown\n");
