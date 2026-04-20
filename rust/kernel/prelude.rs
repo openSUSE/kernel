@@ -22,6 +22,7 @@ pub use core::{
     pin::Pin, //
 };
 
+#[doc(no_inline)]
 pub use ::ffi::{
     c_char,
     c_int,
@@ -47,6 +48,7 @@ pub use macros::{
     vtable, //
 };
 
+#[doc(no_inline)]
 pub use pin_init::{
     init,
     pin_data,
@@ -58,6 +60,7 @@ pub use pin_init::{
     Zeroable, //
 };
 
+#[doc(no_inline)]
 pub use super::{
     alloc::{
         flags::*,
