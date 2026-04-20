@@ -4347,6 +4347,7 @@ static const struct rtw89_disabled_dm_info {
 	DM_INFO(THERMAL_PROTECT),
 	DM_INFO(TAS),
 	DM_INFO(MLO),
+	DM_INFO(HW_SCAN),
 };
 
 static ssize_t

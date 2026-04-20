@@ -1241,12 +1241,19 @@ static int rtw89_ops_hw_scan(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
 	struct rtw89_dev *rtwdev = hw->priv;
 	struct rtw89_vif *rtwvif = vif_to_rtwvif(vif);
 	struct rtw89_vif_link *rtwvif_link;
+	struct rtw89_hal *hal = &rtwdev->hal;
 	int ret;
 
 	lockdep_assert_wiphy(hw->wiphy);
 
 	if (!RTW89_CHK_FW_FEATURE(SCAN_OFFLOAD, &rtwdev->fw))
 		return 1;
+
+	if (hal->disabled_dm_bitmap & BIT(RTW89_DM_HW_SCAN)) {
+		rtw89_debug(rtwdev, RTW89_DBG_HW_SCAN,
+			    "reject hw scan due to disabled_dm\n");
+		return -EBUSY;
+	}
 
 	if (rtwdev->scanning || rtwvif->offchan)
 		return -EBUSY;
