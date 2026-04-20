@@ -2332,11 +2332,15 @@ static void rtw8922d_rfk_tssi(struct rtw89_dev *rtwdev,
 static void rtw8922d_rfk_channel(struct rtw89_dev *rtwdev,
 				 struct rtw89_vif_link *rtwvif_link)
 {
+	struct ieee80211_vif *vif = rtwvif_to_vif(rtwvif_link->rtwvif);
 	enum rtw89_chanctx_idx chanctx_idx = rtwvif_link->chanctx_idx;
 	const struct rtw89_chan *chan = rtw89_chan_get(rtwdev, chanctx_idx);
 	enum rtw89_phy_idx phy_idx = rtwvif_link->phy_idx;
 	u8 phy_map = rtw89_btc_phymap(rtwdev, phy_idx, RF_AB, chanctx_idx);
 	u32 tx_en;
+
+	if (ieee80211_vif_is_mld(vif))
+		rtw8922d_chlk_ktbl_ctl_mld(rtwdev, phy_idx, true);
 
 	rtw89_btc_ntfy_wl_rfk(rtwdev, phy_map, BTC_WRFKT_CHLK, BTC_WRFK_START);
 	rtw89_chip_stop_sch_tx(rtwdev, phy_idx, &tx_en, RTW89_SCH_TX_SEL_ALL);
@@ -2353,6 +2357,9 @@ static void rtw8922d_rfk_channel(struct rtw89_dev *rtwdev,
 
 	rtw89_chip_resume_sch_tx(rtwdev, phy_idx, tx_en);
 	rtw89_btc_ntfy_wl_rfk(rtwdev, phy_map, BTC_WRFKT_CHLK, BTC_WRFK_STOP);
+
+	if (ieee80211_vif_is_mld(vif))
+		rtw8922d_chlk_ktbl_ctl_mld(rtwdev, phy_idx, false);
 }
 
 static void rtw8922d_rfk_band_changed(struct rtw89_dev *rtwdev,
