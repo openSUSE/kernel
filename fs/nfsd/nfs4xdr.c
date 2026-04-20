@@ -1567,8 +1567,12 @@ static bool seqid_mutating_err(__be32 err)
 		stateowner->so_replay.rp_status = nfserr;   	\
 		stateowner->so_replay.rp_buflen = 		\
 			  (((char *)(resp)->p - (char *)save)); \
-		memcpy(stateowner->so_replay.rp_buf, save,      \
- 			stateowner->so_replay.rp_buflen); 	\
+		if (stateowner->so_replay.rp_buflen <= NFSD4_REPLAY_ISIZE) { \
+			memcpy(stateowner->so_replay.rp_buf, save,      \
+				stateowner->so_replay.rp_buflen); 	\
+		} else {						\
+			stateowner->so_replay.rp_buflen = 0;		\
+		}							\
 	} } while (0);
 
 /* Encode as an array of strings the string given with components
