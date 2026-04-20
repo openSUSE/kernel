@@ -639,6 +639,19 @@ static ssize_t fuse_get_res_by_io(struct fuse_io_priv *io)
 	return io->bytes < 0 ? io->size : io->bytes;
 }
 
+static void fuse_aio_invalidate_worker(struct work_struct *work)
+{
+	struct fuse_io_priv *io = container_of(work, struct fuse_io_priv, work);
+	struct address_space *mapping = io->iocb->ki_filp->f_mapping;
+	ssize_t res = fuse_get_res_by_io(io);
+	pgoff_t start = io->offset >> PAGE_SHIFT;
+	pgoff_t end = (io->offset + res - 1) >> PAGE_SHIFT;
+
+	invalidate_inode_pages2_range(mapping, start, end);
+	io->iocb->ki_complete(io->iocb, res);
+	kref_put(&io->refcnt, fuse_io_release);
+}
+
 /*
  * In case of short read, the caller sets 'pos' to the position of
  * actual end of fuse request in IO request. Otherwise, if bytes_requested
@@ -671,16 +684,28 @@ static void fuse_aio_complete(struct fuse_io_priv *io, int err, ssize_t pos)
 	spin_unlock(&io->lock);
 
 	if (!left && !io->blocking) {
+		struct inode *inode = file_inode(io->iocb->ki_filp);
+		struct address_space *mapping = io->iocb->ki_filp->f_mapping;
 		ssize_t res = fuse_get_res_by_io(io);
 
 		if (res >= 0) {
-			struct inode *inode = file_inode(io->iocb->ki_filp);
 			struct fuse_conn *fc = get_fuse_conn(inode);
 			struct fuse_inode *fi = get_fuse_inode(inode);
 
 			spin_lock(&fi->lock);
 			fi->attr_version = atomic64_inc_return(&fc->attr_version);
 			spin_unlock(&fi->lock);
+		}
+
+		if (io->write && res > 0 && mapping->nrpages) {
+			/*
+			 * As in generic_file_direct_write(), invalidate after the
+			 * write, to invalidate read-ahead cache that may have competed
+			 * with the write.
+			 */
+			INIT_WORK(&io->work, fuse_aio_invalidate_worker);
+			queue_work(inode->i_sb->s_dio_done_wq, &io->work);
+			return;
 		}
 
 		io->iocb->ki_complete(io->iocb, res);
@@ -1745,15 +1770,6 @@ ssize_t fuse_direct_io(struct fuse_io_priv *io, struct iov_iter *iter,
 	if (res > 0)
 		*ppos = pos;
 
-	if (res > 0 && write && fopen_direct_io) {
-		/*
-		 * As in generic_file_direct_write(), invalidate after the
-		 * write, to invalidate read-ahead cache that may have competed
-		 * with the write.
-		 */
-		invalidate_inode_pages2_range(mapping, idx_from, idx_to);
-	}
-
 	return res > 0 ? res : err;
 }
 EXPORT_SYMBOL_GPL(fuse_direct_io);
@@ -1792,6 +1808,8 @@ static ssize_t fuse_direct_read_iter(struct kiocb *iocb, struct iov_iter *to)
 static ssize_t fuse_direct_write_iter(struct kiocb *iocb, struct iov_iter *from)
 {
 	struct inode *inode = file_inode(iocb->ki_filp);
+	struct address_space *mapping = inode->i_mapping;
+	loff_t pos = iocb->ki_pos;
 	ssize_t res;
 	bool exclusive;
 
@@ -1807,6 +1825,16 @@ static ssize_t fuse_direct_write_iter(struct kiocb *iocb, struct iov_iter *from)
 			res = fuse_direct_io(&io, from, &iocb->ki_pos,
 					     FUSE_DIO_WRITE);
 			fuse_write_update_attr(inode, iocb->ki_pos, res);
+		}
+		if (res > 0 && mapping->nrpages) {
+			/*
+			 * As in generic_file_direct_write(), invalidate after
+			 * write, to invalidate read-ahead cache that may have
+			 * with the write.
+			 */
+			invalidate_inode_pages2_range(mapping,
+				pos >> PAGE_SHIFT,
+				(pos + res - 1) >> PAGE_SHIFT);
 		}
 	}
 	fuse_dio_unlock(iocb, exclusive);
@@ -2714,6 +2742,7 @@ fuse_direct_IO(struct kiocb *iocb, struct iov_iter *iter)
 	size_t count = iov_iter_count(iter), shortened = 0;
 	loff_t offset = iocb->ki_pos;
 	struct fuse_io_priv *io;
+	bool async = ff->fm->fc->async_dio;
 
 	pos = offset;
 	inode = file->f_mapping->host;
@@ -2721,6 +2750,12 @@ fuse_direct_IO(struct kiocb *iocb, struct iov_iter *iter)
 
 	if ((iov_iter_rw(iter) == READ) && (offset >= i_size))
 		return 0;
+
+	if ((iov_iter_rw(iter) == WRITE) && async && !inode->i_sb->s_dio_done_wq) {
+		ret = sb_init_dio_done_wq(inode->i_sb);
+		if (ret < 0)
+			return ret;
+	}
 
 	io = kmalloc_obj(struct fuse_io_priv);
 	if (!io)
@@ -2737,7 +2772,7 @@ fuse_direct_IO(struct kiocb *iocb, struct iov_iter *iter)
 	 * By default, we want to optimize all I/Os with async request
 	 * submission to the client filesystem if supported.
 	 */
-	io->async = ff->fm->fc->async_dio;
+	io->async = async;
 	io->iocb = iocb;
 	io->blocking = is_sync_kiocb(iocb);
 
