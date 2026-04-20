@@ -6847,10 +6847,14 @@ static void rtw89_phy_dig_update_rssi_info(struct rtw89_dev *rtwdev,
 static void rtw89_phy_dig_update_para(struct rtw89_dev *rtwdev,
 				      struct rtw89_bb_ctx *bb)
 {
-	const struct rtw89_chan *chan = rtw89_mgnt_chan_get(rtwdev, bb->phy_idx);
 	struct rtw89_dig_info *dig = &bb->dig;
 	bool is_linked = rtwdev->total_sta_assoc > 0;
+	struct rtw89_entity_conf conf;
+	const struct rtw89_chan *chan;
 	const u16 *fa_th_src = NULL;
+
+	rtw89_entity_get_conf(rtwdev, &conf);
+	chan = conf.chans[bb->phy_idx];
 
 	switch (chan->band_type) {
 	case RTW89_BAND_2G:
@@ -7181,13 +7185,17 @@ static void rtw89_phy_dig_dyn_pd_th(struct rtw89_dev *rtwdev,
 				    struct rtw89_bb_ctx *bb,
 				    u8 rssi, bool enable)
 {
-	const struct rtw89_chan *chan = rtw89_mgnt_chan_get(rtwdev, bb->phy_idx);
 	const struct rtw89_dig_regs *dig_regs = rtwdev->chip->dig_regs;
 	struct rtw89_dig_info *dig = &bb->dig;
 	struct rtw89_hal *hal = &rtwdev->hal;
 	u8 final_rssi, under_region = dig->pd_low_th_ofst;
+	struct rtw89_entity_conf conf;
+	const struct rtw89_chan *chan;
 	s8 cck_cca_th;
 	u32 pd_val;
+
+	rtw89_entity_get_conf(rtwdev, &conf);
+	chan = conf.chans[bb->phy_idx];
 
 	if (hal->disabled_dm_bitmap & BIT(RTW89_DM_DIG_PD)) {
 		pd_val = hal->fixed_dig_pd_th;

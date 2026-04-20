@@ -1943,10 +1943,19 @@ static void rtw8922d_set_digital_pwr_comp(struct rtw89_dev *rtwdev,
 static void rtw8922d_digital_pwr_comp(struct rtw89_dev *rtwdev,
 				      enum rtw89_phy_idx phy_idx)
 {
-	const struct rtw89_chan *chan0 = rtw89_mgnt_chan_get(rtwdev, 0);
-	const struct rtw89_chan *chan1 = rtw89_mgnt_chan_get(rtwdev, 1);
+	const struct rtw89_chan *chan0, *chan1;
+	struct rtw89_entity_conf conf;
 
-	if (rtwdev->mlo_dbcc_mode == MLO_1_PLUS_1_1RF) {
+	rtw89_entity_get_conf(rtwdev, &conf);
+	chan0 = conf.chans[0];
+	chan1 = conf.chans[1];
+
+	if (conf.en_emlsr) {
+		rtw8922d_set_digital_pwr_comp(rtwdev, chan0, 1, RF_PATH_A, RTW89_PHY_0);
+		rtw8922d_set_digital_pwr_comp(rtwdev, chan0, 1, RF_PATH_B, RTW89_PHY_0);
+		rtw8922d_set_digital_pwr_comp(rtwdev, chan1, 1, RF_PATH_A, RTW89_PHY_1);
+		rtw8922d_set_digital_pwr_comp(rtwdev, chan1, 1, RF_PATH_B, RTW89_PHY_1);
+	} else if (rtwdev->mlo_dbcc_mode == MLO_1_PLUS_1_1RF) {
 		rtw8922d_set_digital_pwr_comp(rtwdev, chan0, 0, RF_PATH_A, RTW89_PHY_0);
 		rtw8922d_set_digital_pwr_comp(rtwdev, chan1, 0, RF_PATH_B, RTW89_PHY_1);
 	} else {
@@ -1958,7 +1967,6 @@ static void rtw8922d_digital_pwr_comp(struct rtw89_dev *rtwdev,
 static int rtw8922d_ctrl_mlo(struct rtw89_dev *rtwdev, enum rtw89_mlo_dbcc_mode mode,
 			     bool pwr_comp)
 {
-	const struct rtw89_chan *chan1;
 	u32 reg0, reg1;
 	u8 cck_phy_idx;
 
@@ -2016,8 +2024,10 @@ static int rtw8922d_ctrl_mlo(struct rtw89_dev *rtwdev, enum rtw89_mlo_dbcc_mode 
 		rtw89_write32_mask(rtwdev, reg0, B_BBWRAP_ELMSR_EN_BE4, 0);
 		rtw89_write32_mask(rtwdev, reg1, B_BBWRAP_ELMSR_EN_BE4, 0);
 	} else if ((mode == MLO_1_PLUS_1_1RF) || (mode == DBCC_LEGACY)) {
-		chan1 = rtw89_mgnt_chan_get(rtwdev, 1);
-		cck_phy_idx = chan1->band_type == RTW89_BAND_2G ?
+		struct rtw89_entity_conf conf;
+
+		rtw89_entity_get_conf(rtwdev, &conf);
+		cck_phy_idx = conf.chans[1]->band_type == RTW89_BAND_2G ?
 			      RTW89_PHY_1 : RTW89_PHY_0;
 
 		rtw89_phy_write32_mask(rtwdev, R_SYS_DBCC_BE4,
@@ -2475,9 +2485,11 @@ static void rtw8922d_set_txpwr(struct rtw89_dev *rtwdev,
 static void rtw8922d_set_txpwr_ctrl(struct rtw89_dev *rtwdev,
 				    enum rtw89_phy_idx phy_idx)
 {
-	const struct rtw89_chan *chan = rtw89_mgnt_chan_get(rtwdev, phy_idx);
+	struct rtw89_entity_conf conf;
 
-	rtw8922d_set_txpwr_ref(rtwdev, chan, phy_idx);
+	rtw89_entity_get_conf(rtwdev, &conf);
+
+	rtw8922d_set_txpwr_ref(rtwdev, conf.chans[phy_idx], phy_idx);
 }
 
 static void rtw8922d_ctrl_trx_path(struct rtw89_dev *rtwdev,

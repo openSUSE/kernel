@@ -865,6 +865,7 @@ static void rtw89_phy_bb_wrap_tx_rfsi_ctrl_init(struct rtw89_dev *rtwdev,
 {
 	enum rtw89_phy_idx phy_idx = mac_idx != RTW89_MAC_0 ? RTW89_PHY_1 : RTW89_PHY_0;
 	enum rtw89_core_chip_id chip_id = rtwdev->chip->chip_id;
+	struct rtw89_entity_conf conf;
 	const struct rtw89_chan *chan;
 
 	if (chip_id != RTL8922D)
@@ -879,9 +880,10 @@ static void rtw89_phy_bb_wrap_tx_rfsi_ctrl_init(struct rtw89_dev *rtwdev,
 
 	rtw89_phy_bb_wrap_set_rfsi_ct_opt(rtwdev, phy_idx);
 
-	chan = rtw89_mgnt_chan_get(rtwdev, phy_idx);
-	if (chan)
-		rtw89_phy_bb_wrap_set_rfsi_bandedge_ch(rtwdev, chan, phy_idx);
+	rtw89_entity_get_conf(rtwdev, &conf);
+	chan = conf.chans[phy_idx];
+
+	rtw89_phy_bb_wrap_set_rfsi_bandedge_ch(rtwdev, chan, phy_idx);
 }
 
 static void rtw89_phy_bb_wrap_ul_pwr(struct rtw89_dev *rtwdev)
