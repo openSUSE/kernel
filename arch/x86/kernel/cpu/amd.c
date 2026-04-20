@@ -81,6 +81,10 @@ static const int amd_erratum_1485[] =
 	AMD_LEGACY_ERRATUM(AMD_MODEL_RANGE(0x19, 0x10, 0x0, 0x1f, 0xf),
 			   AMD_MODEL_RANGE(0x19, 0x60, 0x0, 0xaf, 0xf));
 
+static const int amd_fpdss[] =
+	AMD_LEGACY_ERRATUM(AMD_MODEL_RANGE(0x17, 0x00, 0x0, 0x2f, 0xf),
+			   AMD_MODEL_RANGE(0x17, 0x50, 0x0, 0x5f, 0xf));
+
 static bool cpu_has_amd_erratum(struct cpuinfo_x86 *cpu, const int *erratum)
 {
 	int osvw_id = *erratum++;
@@ -1010,6 +1014,7 @@ static void init_amd_zn(struct cpuinfo_x86 *c)
 		if (c->x86 == 0x19 && !cpu_has(c, X86_FEATURE_BTC_NO))
 			set_cpu_cap(c, X86_FEATURE_BTC_NO);
 	}
+
 }
 
 static bool cpu_has_zenbleed_microcode(void)
@@ -1165,6 +1170,11 @@ static void init_amd(struct cpuinfo_x86 *c)
 	if (cpu_has_amd_erratum(c, amd_div0)) {
 		pr_notice_once("AMD Zen1 DIV0 bug detected. Disable SMT for full protection.\n");
 		setup_force_cpu_bug(X86_BUG_DIV0);
+	}
+
+	if (cpu_has_amd_erratum(c, amd_fpdss)) {
+		pr_notice_once("AMD Zen1 FPDSS bug detected, enabling mitigation.\n");
+		msr_set_bit(MSR_AMD64_FP_CFG, MSR_AMD64_FP_CFG_ZEN1_DENORM_FIX_BIT);
 	}
 
 	if (!cpu_has(c, X86_FEATURE_HYPERVISOR) &&
