@@ -1376,10 +1376,8 @@ zl3073x_dpll_output_pin_phase_adjust_get(const struct dpll_pin *dpll_pin,
 	if (rc)
 		return rc;
 
-	/* Convert value to ps and reverse two's complement negation applied
-	 * during 'set'
-	 */
-	*phase_adjust = -phase_comp * pin->phase_gran;
+	/* The value in the register is expressed in half synth clock cycles. */
+	*phase_adjust = phase_comp * pin->phase_gran;
 
 	return rc;
 }
@@ -1398,10 +1396,8 @@ zl3073x_dpll_output_pin_phase_adjust_set(const struct dpll_pin *dpll_pin,
 	u8 out;
 	int rc;
 
-	/* The value in the register is stored as two's complement negation
-	 * of requested value and expressed in half synth clock cycles.
-	 */
-	phase_adjust = -phase_adjust / pin->phase_gran;
+	/* The value in the register is expressed in half synth clock cycles. */
+	phase_adjust = phase_adjust / pin->phase_gran;
 
 	guard(mutex)(&zldev->multiop_lock);
 
