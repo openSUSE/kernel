@@ -5442,16 +5442,19 @@ rtw89_mac_c2h_bcn_fltr_rpt(struct rtw89_dev *rtwdev, struct sk_buff *c2h,
 }
 
 static void
-rtw89_mac_c2h_rec_ack(struct rtw89_dev *rtwdev, struct sk_buff *c2h, u32 len)
+rtw89_mac_c2h_rec_ack(struct rtw89_dev *rtwdev, struct sk_buff *skb_c2h, u32 len)
 {
 	/* N.B. This will run in interrupt context. */
+	const struct rtw89_c2h_rev_ack *c2h = (const void *)skb_c2h->data;
+
+	u8 h2c_cat = le32_get_bits(c2h->w2, RTW89_C2H_REV_ACK_W2_CAT);
+	u8 h2c_class = le32_get_bits(c2h->w2, RTW89_C2H_REV_ACK_W2_CLASS);
+	u8 h2c_func = le32_get_bits(c2h->w2, RTW89_C2H_REV_ACK_W2_FUNC);
+	u8 h2c_seq = le32_get_bits(c2h->w2, RTW89_C2H_REV_ACK_W2_H2C_SEQ);
 
 	rtw89_debug(rtwdev, RTW89_DBG_FW,
 		    "C2H rev ack recv, cat: %d, class: %d, func: %d, seq : %d\n",
-		    RTW89_GET_MAC_C2H_REV_ACK_CAT(c2h->data),
-		    RTW89_GET_MAC_C2H_REV_ACK_CLASS(c2h->data),
-		    RTW89_GET_MAC_C2H_REV_ACK_FUNC(c2h->data),
-		    RTW89_GET_MAC_C2H_REV_ACK_H2C_SEQ(c2h->data));
+		    h2c_cat, h2c_class, h2c_func, h2c_seq);
 }
 
 static void
