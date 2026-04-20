@@ -45,11 +45,10 @@ bool nfsd_support_version(int vers);
 
 /*
  * Default and maximum payload size (NFS READ or WRITE), in bytes.
- * The default is historical, and the maximum is an implementation
- * limit.
+ * The maximum is an implementation limit.
  */
 enum {
-	NFSSVC_DEFBLKSIZE       = 1 * 1024 * 1024,
+	NFSSVC_DEFBLKSIZE       = 4 * 1024 * 1024,
 	NFSSVC_MAXBLKSIZE       = RPCSVC_MAXPAYLOAD,
 };
 
