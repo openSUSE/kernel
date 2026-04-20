@@ -2381,7 +2381,7 @@ int btrfs_replace_file_extents(struct btrfs_inode *inode,
 	struct btrfs_drop_extents_args drop_args = { 0 };
 	struct btrfs_root *root = inode->root;
 	struct btrfs_fs_info *fs_info = root->fs_info;
-	u64 min_size = btrfs_calc_insert_metadata_size(fs_info, 1);
+	const u64 min_size = btrfs_calc_insert_metadata_size(fs_info, 1);
 	u64 ino_size = round_up(inode->vfs_inode.i_size, fs_info->sectorsize);
 	struct btrfs_trans_handle *trans = NULL;
 	struct btrfs_block_rsv rsv;
@@ -2394,7 +2394,7 @@ int btrfs_replace_file_extents(struct btrfs_inode *inode,
 		return -EINVAL;
 
 	btrfs_init_metadata_block_rsv(fs_info, &rsv, BTRFS_BLOCK_RSV_TEMP);
-	rsv.size = btrfs_calc_insert_metadata_size(fs_info, 1);
+	rsv.size = min_size;
 	rsv.failfast = true;
 
 	/*
