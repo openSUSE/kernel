@@ -87,6 +87,7 @@ struct rtw89_debugfs {
 	struct rtw89_debugfs_priv phy_info;
 	struct rtw89_debugfs_priv stations;
 	struct rtw89_debugfs_priv disable_dm;
+	struct rtw89_debugfs_priv static_pd_th;
 	struct rtw89_debugfs_priv mlo_mode;
 	struct rtw89_debugfs_priv beacon_info;
 	struct rtw89_debugfs_priv diag_mac;
@@ -4349,6 +4350,7 @@ static const struct rtw89_disabled_dm_info {
 	DM_INFO(MLO),
 	DM_INFO(HW_SCAN),
 	DM_INFO(INACTIVE_PS),
+	DM_INFO(DIG_PD),
 };
 
 static ssize_t
@@ -4390,6 +4392,96 @@ rtw89_debug_priv_disable_dm_set(struct rtw89_dev *rtwdev,
 		return -EINVAL;
 
 	rtw89_core_dm_disable_cfg(rtwdev, conf);
+
+	return count;
+}
+
+#define RTW89_DIG_PD_TH_MIN_DBM		-102
+#define RTW89_DIG_PD_TH_MAX_DBM		-40
+#define RTW89_DIG_PD_TH_STEP		2
+
+static s8 rtw89_dig_pd_th_to_dbm(u8 reg_val)
+{
+	return RTW89_DIG_PD_TH_MIN_DBM + RTW89_DIG_PD_TH_STEP * reg_val;
+}
+
+static u8 rtw89_dig_pd_th_dbm_to_reg(s8 dbm)
+{
+	return (dbm - RTW89_DIG_PD_TH_MIN_DBM) / RTW89_DIG_PD_TH_STEP;
+}
+
+static ssize_t
+rtw89_debug_priv_static_pd_th_get(struct rtw89_dev *rtwdev,
+				  struct rtw89_debugfs_priv *debugfs_priv,
+				  char *buf, size_t bufsz)
+{
+	struct rtw89_hal *hal = &rtwdev->hal;
+	char *p = buf, *end = buf + bufsz;
+	bool disabled;
+	s8 pd_th_dbm;
+	s8 cck_pd_th;
+
+	disabled = hal->disabled_dm_bitmap & BIT(RTW89_DM_DIG_PD);
+
+	if (disabled) {
+		pd_th_dbm = rtw89_dig_pd_th_to_dbm(hal->fixed_dig_pd_th);
+		cck_pd_th = hal->fixed_dig_cck_pd_th;
+
+		p += scnprintf(p, end - p, "DIG: static\n");
+		p += scnprintf(p, end - p, "OFDM PD threshold: %d dBm\n", pd_th_dbm);
+		p += scnprintf(p, end - p, "CCK PD threshold: %d dBm\n", cck_pd_th);
+	} else {
+		p += scnprintf(p, end - p, "DIG: dynamic\n");
+	}
+
+	p += scnprintf(p, end - p, "\nUsage: echo <mode> [pd_th] > static_pd_th\n");
+	p += scnprintf(p, end - p, "  mode: 0 = dynamic, 1 = static\n");
+	p += scnprintf(p, end - p, "  pd_th: PD threshold in dBm (-102 ~ -40)\n");
+
+	return p - buf;
+}
+
+static ssize_t
+rtw89_debug_priv_static_pd_th_set(struct rtw89_dev *rtwdev,
+				  struct rtw89_debugfs_priv *debugfs_priv,
+				  const char *buf, size_t count)
+{
+	struct rtw89_hal *hal = &rtwdev->hal;
+	int ret;
+	u32 mode;
+	s32 pd_th_dbm;
+
+	ret = sscanf(buf, "%u %d", &mode, &pd_th_dbm);
+	if (ret < 1)
+		return -EINVAL;
+
+	if (mode > 1)
+		return -EINVAL;
+
+	if (mode == 0) {
+		rtw89_core_dm_disable_clr(rtwdev, RTW89_DM_DIG_PD);
+		hal->fixed_dig_pd_th = 0;
+		hal->fixed_dig_cck_pd_th = 0;
+
+		rtw89_debug(rtwdev, RTW89_DBG_DIG,
+			    "DIG static mode disabled\n");
+	} else {
+		if (ret < 2 || pd_th_dbm < RTW89_DIG_PD_TH_MIN_DBM ||
+		    pd_th_dbm > RTW89_DIG_PD_TH_MAX_DBM)
+			return -EINVAL;
+
+		rtw89_core_dm_disable_set(rtwdev, RTW89_DM_DIG_PD);
+		hal->fixed_dig_pd_th = clamp(rtw89_dig_pd_th_dbm_to_reg(pd_th_dbm),
+					     0, 0x1f);
+		/* CCK uses dBm directly */
+		hal->fixed_dig_cck_pd_th = pd_th_dbm;
+
+		rtw89_debug(rtwdev, RTW89_DBG_DIG,
+			    "DIG static mode: PD=0x%02x (%d dBm), CCK=%d dBm\n",
+			    hal->fixed_dig_pd_th,
+			    rtw89_dig_pd_th_to_dbm(hal->fixed_dig_pd_th),
+			    hal->fixed_dig_cck_pd_th);
+	}
 
 	return count;
 }
@@ -4882,6 +4974,7 @@ static const struct rtw89_debugfs rtw89_debugfs_templ = {
 	.phy_info = rtw89_debug_priv_get(phy_info),
 	.stations = rtw89_debug_priv_get(stations, RLOCK),
 	.disable_dm = rtw89_debug_priv_set_and_get(disable_dm, RWLOCK),
+	.static_pd_th = rtw89_debug_priv_set_and_get(static_pd_th, RWLOCK),
 	.mlo_mode = rtw89_debug_priv_set_and_get(mlo_mode, RWLOCK),
 	.beacon_info = rtw89_debug_priv_get(beacon_info),
 	.diag_mac = rtw89_debug_priv_get(diag_mac, RSIZE_16K, RLOCK),
@@ -4930,6 +5023,7 @@ void rtw89_debugfs_add_sec1(struct rtw89_dev *rtwdev, struct dentry *debugfs_top
 	rtw89_debugfs_add_r(phy_info);
 	rtw89_debugfs_add_r(stations);
 	rtw89_debugfs_add_rw(disable_dm);
+	rtw89_debugfs_add_rw(static_pd_th);
 	rtw89_debugfs_add_rw(mlo_mode);
 	rtw89_debugfs_add_r(beacon_info);
 	rtw89_debugfs_add_r(diag_mac);

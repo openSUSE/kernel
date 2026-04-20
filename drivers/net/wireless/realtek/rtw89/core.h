@@ -5180,6 +5180,7 @@ enum rtw89_dm_type {
 	RTW89_DM_MLO,
 	RTW89_DM_HW_SCAN,
 	RTW89_DM_INACTIVE_PS,
+	RTW89_DM_DIG_PD,
 };
 
 #define RTW89_THERMAL_PROT_LV_MAX 5
@@ -5221,6 +5222,9 @@ struct rtw89_hal {
 
 	u8 thermal_prot_th;
 	u8 thermal_prot_lv; /* 0 ~ RTW89_THERMAL_PROT_LV_MAX */
+
+	u8 fixed_dig_pd_th; /* v = (X(dBm) + 102)/2 */
+	s8 fixed_dig_cck_pd_th; /* dBm */
 };
 
 #define RTW89_MAX_MAC_ID_NUM 128

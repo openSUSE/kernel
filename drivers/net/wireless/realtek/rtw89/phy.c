@@ -7170,11 +7170,19 @@ static void rtw89_phy_dig_dyn_pd_th(struct rtw89_dev *rtwdev,
 	const struct rtw89_chan *chan = rtw89_mgnt_chan_get(rtwdev, bb->phy_idx);
 	const struct rtw89_dig_regs *dig_regs = rtwdev->chip->dig_regs;
 	struct rtw89_dig_info *dig = &bb->dig;
+	struct rtw89_hal *hal = &rtwdev->hal;
 	u8 final_rssi, under_region = dig->pd_low_th_ofst;
 	s8 cck_cca_th;
 	u32 pd_val;
 
-	pd_val = __rtw89_phy_dig_dyn_pd_th(rtwdev, bb, rssi, enable, chan);
+	if (hal->disabled_dm_bitmap & BIT(RTW89_DM_DIG_PD)) {
+		pd_val = hal->fixed_dig_pd_th;
+
+		rtw89_debug(rtwdev, RTW89_DBG_DIG,
+			    "Fixed DIG: PD_low=%d\n", pd_val);
+	} else {
+		pd_val = __rtw89_phy_dig_dyn_pd_th(rtwdev, bb, rssi, enable, chan);
+	}
 	dig->bak_dig = pd_val;
 
 	rtw89_phy_write32_idx(rtwdev, dig_regs->seg0_pd_reg,
@@ -7182,17 +7190,24 @@ static void rtw89_phy_dig_dyn_pd_th(struct rtw89_dev *rtwdev,
 	rtw89_phy_write32_idx(rtwdev, dig_regs->seg0_pd_reg,
 			      dig_regs->pd_spatial_reuse_en, enable, bb->phy_idx);
 
-	if (!rtwdev->hal.support_cckpd)
+	if (!hal->support_cckpd)
 		return;
 
-	final_rssi = min_t(u8, rssi, dig->igi_rssi);
-	under_region = rtw89_phy_dig_cal_under_region(rtwdev, bb, chan);
-	cck_cca_th = max_t(s8, final_rssi - under_region, CCKPD_TH_MIN_RSSI);
-	pd_val = (u32)(cck_cca_th - IGI_RSSI_MAX);
+	if (hal->disabled_dm_bitmap & BIT(RTW89_DM_DIG_PD)) {
+		pd_val = hal->fixed_dig_cck_pd_th;
 
-	rtw89_debug(rtwdev, RTW89_DBG_DIG,
-		    "igi=%d, cck_ccaTH=%d, backoff=%d, cck_PD_low=((%d))dB\n",
-		    final_rssi, cck_cca_th, under_region, pd_val);
+		rtw89_debug(rtwdev, RTW89_DBG_DIG,
+			    "Fixed DIG: cck_PD_low=((%d))dB\n", pd_val);
+	} else {
+		final_rssi = min_t(u8, rssi, dig->igi_rssi);
+		under_region = rtw89_phy_dig_cal_under_region(rtwdev, bb, chan);
+		cck_cca_th = max_t(s8, final_rssi - under_region, CCKPD_TH_MIN_RSSI);
+		pd_val = (u32)(cck_cca_th - IGI_RSSI_MAX);
+
+		rtw89_debug(rtwdev, RTW89_DBG_DIG,
+			    "igi=%d, cck_ccaTH=%d, backoff=%d, cck_PD_low=((%d))dB\n",
+			    final_rssi, cck_cca_th, under_region, pd_val);
+	}
 
 	rtw89_phy_write32_idx(rtwdev, dig_regs->bmode_pd_reg,
 			      dig_regs->bmode_cca_rssi_limit_en, enable, bb->phy_idx);
@@ -7323,6 +7338,7 @@ static void rtw89_phy_dig_ctrl(struct rtw89_dev *rtwdev, struct rtw89_bb_ctx *bb
 {
 	const struct rtw89_dig_regs *dig_regs = rtwdev->chip->dig_regs;
 	struct rtw89_dig_info *dig = &bb->dig;
+	struct rtw89_hal *hal = &rtwdev->hal;
 	bool en_dig;
 	u32 pd_val;
 
@@ -7331,10 +7347,16 @@ static void rtw89_phy_dig_ctrl(struct rtw89_dev *rtwdev, struct rtw89_bb_ctx *bb
 
 	if (pause_dig) {
 		en_dig = false;
-		pd_val = 0;
+		if (hal->disabled_dm_bitmap & BIT(RTW89_DM_DIG_PD))
+			pd_val = hal->fixed_dig_pd_th;
+		else
+			pd_val = 0;
 	} else {
 		en_dig = rtwdev->total_sta_assoc > 0;
-		pd_val = restore ? dig->bak_dig : 0;
+		if (hal->disabled_dm_bitmap & BIT(RTW89_DM_DIG_PD))
+			pd_val = hal->fixed_dig_pd_th;
+		else
+			pd_val = restore ? dig->bak_dig : 0;
 	}
 
 	rtw89_debug(rtwdev, RTW89_DBG_DIG, "%s <%s> PD_low=%d", __func__,
