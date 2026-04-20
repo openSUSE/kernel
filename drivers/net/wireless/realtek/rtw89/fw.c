@@ -11344,3 +11344,350 @@ rtw89_load_rfe_data_from_fw(struct rtw89_dev *rtwdev,
 
 	return parms;
 }
+
+static int rtw89_fw_cmd_ofld_pack(struct rtw89_dev *rtwdev)
+{
+	struct rtw89_fw_cmd_ofld_info *info = rtwdev->fw_cmd_ofld_info;
+
+	lockdep_assert_wiphy(rtwdev->hw->wiphy);
+
+	info->pack_level++;
+
+	return 0;
+}
+
+static void rtw89_fw_cmd_ofld_flush(struct rtw89_dev *rtwdev)
+{
+	struct rtw89_fw_cmd_ofld_info *info = rtwdev->fw_cmd_ofld_info;
+	struct sk_buff *skb;
+	int ret;
+	u32 len;
+
+	len = info->cnt * sizeof(info->cmds[0]);
+	skb = rtw89_fw_h2c_alloc_skb_with_hdr(rtwdev, len);
+	if (!skb) {
+		rtw89_err(rtwdev, "alloc skb fail\n");
+		return;
+	}
+
+	skb_put_data(skb, info->cmds, len);
+
+	rtw89_h2c_pkt_set_hdr(rtwdev, skb, FWCMD_TYPE_H2C,
+			      H2C_CAT_MAC,
+			      H2C_CL_MAC_FW_OFLD,
+			      H2C_FUNC_CMD_OFLD_PKT, 0, 0,
+			      len);
+
+	ret = rtw89_h2c_tx(rtwdev, skb, false);
+	if (ret) {
+		rtw89_err(rtwdev, "failed to send cmd ofld\n");
+		dev_kfree_skb_any(skb);
+		return;
+	}
+
+	if (info->accu_delay)
+		fsleep(info->accu_delay);
+
+	info->cnt = 0;
+	info->accu_delay = 0;
+}
+
+static int rtw89_fw_cmd_ofld_unpack(struct rtw89_dev *rtwdev)
+{
+	struct rtw89_fw_cmd_ofld_info *info = rtwdev->fw_cmd_ofld_info;
+
+	lockdep_assert_wiphy(rtwdev->hw->wiphy);
+
+	if (info->pack_level == 0)
+		return -EFAULT;
+
+	if (--info->pack_level != 0)
+		return 0;
+
+	if (info->cnt == 0)
+		return 0;
+
+	rtw89_fw_cmd_ofld_flush(rtwdev);
+
+	return 0;
+}
+
+static int rtw89_fw_cmd_ofld_enqueue(struct rtw89_dev *rtwdev,
+				     const struct rtw89_fw_cmd_ofld_arg *cmd)
+{
+	struct rtw89_fw_cmd_ofld_info *info = rtwdev->fw_cmd_ofld_info;
+	struct rtw89_h2c_cmd_ofld *h2c;
+	u32 base_off;
+
+	lockdep_assert_wiphy(rtwdev->hw->wiphy);
+
+	if (info->pack_level == 0)
+		return 1;
+
+	if (!test_bit(RTW89_FLAG_FW_RDY, rtwdev->flags))
+		return -EBUSY;
+
+	if (cmd->type != RTW89_FW_CMD_OFLD_DELAY &&
+	    cmd->src != RTW89_FW_CMD_OFLD_SRC_RF &&
+	    cmd->src != RTW89_FW_CMD_OFLD_SRC_RF_DDIE &&
+	    !IS_ALIGNED(cmd->offset, 4))
+		return -EFAULT;
+
+	if (info->cnt >= ARRAY_SIZE(info->cmds))
+		rtw89_fw_cmd_ofld_flush(rtwdev);
+
+	h2c = &info->cmds[info->cnt++];
+
+	h2c->w0 = le32_encode_bits(cmd->src, RTW89_H2C_CMD_OFLD_W0_SRC) |
+		  le32_encode_bits(cmd->type, RTW89_H2C_CMD_OFLD_W0_TYPE) |
+		  le32_encode_bits(cmd->rf_path, RTW89_H2C_CMD_OFLD_W0_PATH) |
+		  le32_encode_bits(info->cnt, RTW89_H2C_CMD_OFLD_W0_CMD_NUM) |
+		  le32_encode_bits(cmd->offset, RTW89_H2C_CMD_OFLD_W0_OFFSET);
+
+	if (cmd->src == RTW89_FW_CMD_OFLD_SRC_RF_DDIE)
+		base_off = 1;
+	else if (cmd->src == RTW89_FW_CMD_OFLD_SRC_RF)
+		base_off = 0;
+	else
+		base_off = cmd->offset >> 16;
+
+	h2c->w1 = le32_encode_bits(cmd->id, RTW89_H2C_CMD_OFLD_W1_ID) |
+		  le32_encode_bits(base_off, RTW89_H2C_CMD_OFLD_W1_BASE_OFFSET);
+	h2c->w2 = le32_encode_bits(cmd->value, RTW89_H2C_CMD_OFLD_W2_VALUE);
+	h2c->w3 = le32_encode_bits(cmd->mask, RTW89_H2C_CMD_OFLD_W3_MASK);
+
+	if (cmd->type == RTW89_FW_CMD_OFLD_DELAY)
+		info->accu_delay += cmd->value;
+
+	return 0;
+}
+
+static const struct rtw89_io_ops rtw89_raw_io = {
+	.pack = NULL,
+	.unpack = NULL,
+	.write8 = rtw89_raw_write8,
+	.write16 = rtw89_raw_write16,
+	.write32 = rtw89_raw_write32,
+	.phy_write8 = rtw89_raw_phy_write8,
+	.phy_write16 = rtw89_raw_phy_write16,
+	.phy_write32 = rtw89_raw_phy_write32,
+	.write_rf = rtw89_raw_write_rf,
+};
+
+static
+void rtw89_fw_cmd_ofld_phy_write8(struct rtw89_dev *rtwdev, u32 addr, u8 data)
+{
+	struct rtw89_fw_cmd_ofld_arg cmd = {
+		.src = RTW89_FW_CMD_OFLD_SRC_BB,
+		.type = RTW89_FW_CMD_OFLD_WRITE,
+		.offset = ALIGN_DOWN(addr, 4),
+		.mask = RTW89_W8_MASK_OF_ALIGNED_ADDR(addr),
+		.value = data,
+	};
+	int ret;
+
+	ret = rtw89_fw_cmd_ofld_enqueue(rtwdev, &cmd);
+	if (ret)
+		rtw89_raw_io.phy_write8(rtwdev, addr, data);
+}
+
+static
+void rtw89_fw_cmd_ofld_phy_write16(struct rtw89_dev *rtwdev, u32 addr, u16 data)
+{
+	struct rtw89_fw_cmd_ofld_arg cmd = {
+		.src = RTW89_FW_CMD_OFLD_SRC_BB,
+		.type = RTW89_FW_CMD_OFLD_WRITE,
+		.offset = ALIGN_DOWN(addr, 2),
+		.mask = RTW89_W16_MASK_OF_ALIGNED_ADDR(addr),
+		.value = data,
+	};
+	int ret;
+
+	ret = rtw89_fw_cmd_ofld_enqueue(rtwdev, &cmd);
+	if (ret)
+		rtw89_raw_io.phy_write16(rtwdev, addr, data);
+}
+
+static
+void rtw89_fw_cmd_ofld_phy_write32(struct rtw89_dev *rtwdev, u32 addr, u32 data)
+{
+	struct rtw89_fw_cmd_ofld_arg cmd = {
+		.src = RTW89_FW_CMD_OFLD_SRC_BB,
+		.type = RTW89_FW_CMD_OFLD_WRITE,
+		.offset = addr,
+		.mask = MASKDWORD,
+		.value = data,
+	};
+	int ret;
+
+	ret = rtw89_fw_cmd_ofld_enqueue(rtwdev, &cmd);
+	if (ret)
+		rtw89_raw_io.phy_write32(rtwdev, addr, data);
+}
+
+static
+void rtw89_fw_cmd_ofld_write8(struct rtw89_dev *rtwdev, u32 addr, u8 data)
+{
+	struct rtw89_fw_cmd_ofld_arg cmd = {
+		.src = RTW89_FW_CMD_OFLD_SRC_MAC,
+		.type = RTW89_FW_CMD_OFLD_WRITE,
+		.offset = ALIGN_DOWN(addr, 4),
+		.mask = RTW89_W8_MASK_OF_ALIGNED_ADDR(addr),
+		.value = data,
+	};
+	int ret;
+
+	ret = rtw89_fw_cmd_ofld_enqueue(rtwdev, &cmd);
+	if (ret)
+		rtw89_raw_io.write8(rtwdev, addr, data);
+}
+
+static
+void rtw89_fw_cmd_ofld_write16(struct rtw89_dev *rtwdev, u32 addr, u16 data)
+{
+	struct rtw89_fw_cmd_ofld_arg cmd = {
+		.src = RTW89_FW_CMD_OFLD_SRC_MAC,
+		.type = RTW89_FW_CMD_OFLD_WRITE,
+		.offset = ALIGN_DOWN(addr, 2),
+		.mask = RTW89_W16_MASK_OF_ALIGNED_ADDR(addr),
+		.value = data,
+	};
+	int ret;
+
+	ret = rtw89_fw_cmd_ofld_enqueue(rtwdev, &cmd);
+	if (ret)
+		rtw89_raw_io.write16(rtwdev, addr, data);
+}
+
+static
+void rtw89_fw_cmd_ofld_write32(struct rtw89_dev *rtwdev, u32 addr, u32 data)
+{
+	struct rtw89_fw_cmd_ofld_arg cmd = {
+		.src = RTW89_FW_CMD_OFLD_SRC_MAC,
+		.type = RTW89_FW_CMD_OFLD_WRITE,
+		.offset = addr,
+		.mask = MASKDWORD,
+		.value = data,
+	};
+	int ret;
+
+	ret = rtw89_fw_cmd_ofld_enqueue(rtwdev, &cmd);
+	if (ret)
+		rtw89_raw_io.write32(rtwdev, addr, data);
+}
+
+static void rtw89_fw_cmd_ofld_write_rf_ddv(struct rtw89_dev *rtwdev,
+					   struct rtw89_fw_cmd_ofld_arg *cmd,
+					   enum rtw89_rf_path rf_path, u32 addr, u32 mask,
+					   u32 data)
+{
+	const struct rtw89_chip_info *chip = rtwdev->chip;
+
+	*cmd = (typeof(*cmd)){
+		.src = RTW89_FW_CMD_OFLD_SRC_BB,
+		.type = RTW89_FW_CMD_OFLD_WRITE,
+		.rf_path = 0, /* Set rf_path to zero in rf_ddv */
+		.offset = chip->rf_base_addr[rf_path] + ((addr & 0xff) << 2),
+		.mask = mask,
+		.value = data,
+	};
+}
+
+static void rtw89_fw_cmd_ofld_write_rf_dav(struct rtw89_dev *rtwdev,
+					   struct rtw89_fw_cmd_ofld_arg *cmd,
+					   enum rtw89_rf_path rf_path, u32 addr, u32 mask,
+					   u32 data)
+{
+	*cmd = (typeof(*cmd)){
+		.src = RTW89_FW_CMD_OFLD_SRC_RF,
+		.type = RTW89_FW_CMD_OFLD_WRITE,
+		.rf_path = rf_path,
+		.offset = addr,
+		.mask = mask,
+		.value = data,
+	};
+}
+
+static void rtw89_fw_cmd_ofld_write_rf(struct rtw89_dev *rtwdev,
+				       enum rtw89_rf_path rf_path, u32 addr, u32 mask,
+				       u32 data)
+{
+	const struct rtw89_chip_info *chip = rtwdev->chip;
+	bool ad_sel = u32_get_bits(addr, RTW89_RF_ADDR_ADSEL_MASK);
+	struct rtw89_fw_cmd_ofld_arg cmd;
+	int ret;
+
+	if (unlikely(rf_path >= chip->rf_path_num)) {
+		rtw89_warn(rtwdev, "unsupported rf path (%d) in fw offload\n", rf_path);
+		return;
+	}
+
+	if (ad_sel)
+		rtw89_fw_cmd_ofld_write_rf_ddv(rtwdev, &cmd, rf_path, addr, mask, data);
+	else
+		rtw89_fw_cmd_ofld_write_rf_dav(rtwdev, &cmd, rf_path, addr, mask, data);
+
+	ret = rtw89_fw_cmd_ofld_enqueue(rtwdev, &cmd);
+	if (ret)
+		rtw89_raw_io.write_rf(rtwdev, rf_path, addr, mask, data);
+}
+
+static void rtw89_fw_cmd_ofld_udelay(struct rtw89_dev *rtwdev, u32 us)
+{
+	struct rtw89_fw_cmd_ofld_arg cmd = {
+		.src = RTW89_FW_CMD_OFLD_SRC_OTHER,
+		.type = RTW89_FW_CMD_OFLD_DELAY,
+		.value = us,
+	};
+	int ret;
+
+	ret = rtw89_fw_cmd_ofld_enqueue(rtwdev, &cmd);
+	if (ret)
+		udelay(us);
+}
+
+static void rtw89_fw_cmd_ofld_mdelay(struct rtw89_dev *rtwdev, u32 ms)
+{
+	struct rtw89_fw_cmd_ofld_arg cmd = {
+		.src = RTW89_FW_CMD_OFLD_SRC_OTHER,
+		.type = RTW89_FW_CMD_OFLD_DELAY,
+		.value = ms * 1000,
+	};
+	int ret;
+
+	ret = rtw89_fw_cmd_ofld_enqueue(rtwdev, &cmd);
+	if (ret)
+		mdelay(ms);
+}
+
+static const struct rtw89_io_ops rtw89_fw_cmd_ofld_io = {
+	.pack = rtw89_fw_cmd_ofld_pack,
+	.unpack = rtw89_fw_cmd_ofld_unpack,
+	.do_udelay = rtw89_fw_cmd_ofld_udelay,
+	.do_mdelay = rtw89_fw_cmd_ofld_mdelay,
+	.write8 = rtw89_fw_cmd_ofld_write8,
+	.write16 = rtw89_fw_cmd_ofld_write16,
+	.write32 = rtw89_fw_cmd_ofld_write32,
+	.phy_write8 = rtw89_fw_cmd_ofld_phy_write8,
+	.phy_write16 = rtw89_fw_cmd_ofld_phy_write16,
+	.phy_write32 = rtw89_fw_cmd_ofld_phy_write32,
+	.write_rf = rtw89_fw_cmd_ofld_write_rf,
+};
+
+const struct rtw89_io_ops *
+rtw89_fw_cmd_ofld_alloc_and_get_io_ops(struct rtw89_dev *rtwdev)
+{
+	const struct rtw89_chip_info *chip = rtwdev->chip;
+	struct rtw89_fw_cmd_ofld_info *info;
+
+	if (!(rtwdev->hci.type == RTW89_HCI_TYPE_USB && chip->support_fw_cmd_ofld))
+		return &rtw89_raw_io;
+
+	info = devm_kzalloc(rtwdev->dev, sizeof(*info), GFP_KERNEL);
+	if (!info)
+		return &rtw89_raw_io;
+
+	rtwdev->fw_cmd_ofld_info = info;
+
+	return &rtw89_fw_cmd_ofld_io;
+}

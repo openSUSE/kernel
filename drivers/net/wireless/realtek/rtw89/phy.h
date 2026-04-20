@@ -576,28 +576,46 @@ extern const struct rtw89_phy_gen_def rtw89_phy_gen_ax;
 extern const struct rtw89_phy_gen_def rtw89_phy_gen_be;
 extern const struct rtw89_phy_gen_def rtw89_phy_gen_be_v1;
 
-static inline void rtw89_phy_write8(struct rtw89_dev *rtwdev,
-				    u32 addr, u8 data)
+static inline void rtw89_raw_phy_write8(struct rtw89_dev *rtwdev,
+					u32 addr, u8 data)
 {
 	const struct rtw89_phy_gen_def *phy = rtwdev->chip->phy_def;
 
 	rtw89_write8(rtwdev, addr + phy->cr_base, data);
 }
 
-static inline void rtw89_phy_write16(struct rtw89_dev *rtwdev,
-				     u32 addr, u16 data)
+static inline void rtw89_raw_phy_write16(struct rtw89_dev *rtwdev,
+					 u32 addr, u16 data)
 {
 	const struct rtw89_phy_gen_def *phy = rtwdev->chip->phy_def;
 
 	rtw89_write16(rtwdev, addr + phy->cr_base, data);
 }
 
-static inline void rtw89_phy_write32(struct rtw89_dev *rtwdev,
-				     u32 addr, u32 data)
+static inline void rtw89_raw_phy_write32(struct rtw89_dev *rtwdev,
+					 u32 addr, u32 data)
 {
 	const struct rtw89_phy_gen_def *phy = rtwdev->chip->phy_def;
 
 	rtw89_write32(rtwdev, addr + phy->cr_base, data);
+}
+
+static inline void rtw89_phy_write8(struct rtw89_dev *rtwdev,
+				    u32 addr, u8 data)
+{
+	rtwdev->io->phy_write8(rtwdev, addr, data);
+}
+
+static inline void rtw89_phy_write16(struct rtw89_dev *rtwdev,
+				     u32 addr, u16 data)
+{
+	rtwdev->io->phy_write16(rtwdev, addr, data);
+}
+
+static inline void rtw89_phy_write32(struct rtw89_dev *rtwdev,
+				     u32 addr, u32 data)
+{
+	rtwdev->io->phy_write32(rtwdev, addr, data);
 }
 
 static inline void rtw89_phy_write32_set(struct rtw89_dev *rtwdev,

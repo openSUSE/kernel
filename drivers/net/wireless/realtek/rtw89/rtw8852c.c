@@ -3170,6 +3170,7 @@ const struct rtw89_chip_info rtw8852c_chip_info = {
 	.support_tas		= true,
 	.support_sar_by_ant	= true,
 	.support_noise		= false,
+	.support_fw_cmd_ofld	= true,
 	.ul_tb_waveform_ctrl	= false,
 	.ul_tb_pwr_diff		= true,
 	.rx_freq_from_ie	= false,

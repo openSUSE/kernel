@@ -27,6 +27,7 @@ struct rtw89_phy_calc_efuse_gain;
 struct rtw89_debugfs;
 struct rtw89_regd_data;
 struct rtw89_wow_cam_info;
+struct rtw89_fw_cmd_ofld_info;
 
 extern const struct ieee80211_ops rtw89_ops;
 
@@ -4569,6 +4570,7 @@ struct rtw89_chip_info {
 	bool support_tas;
 	bool support_sar_by_ant;
 	bool support_noise;
+	bool support_fw_cmd_ofld;
 	bool ul_tb_waveform_ctrl;
 	bool ul_tb_pwr_diff;
 	bool rx_freq_from_ie;
@@ -6202,10 +6204,26 @@ struct rtw89_tid_stats {
 	bool started;
 };
 
+struct rtw89_io_ops {
+	int (*pack)(struct rtw89_dev *rtwdev);
+	int (*unpack)(struct rtw89_dev *rtwdev);
+	void (*do_udelay)(struct rtw89_dev *rtwdev, u32 us);
+	void (*do_mdelay)(struct rtw89_dev *rtwdev, u32 ms);
+	void (*write8)(struct rtw89_dev *rtwdev, u32 addr, u8 data);
+	void (*write16)(struct rtw89_dev *rtwdev, u32 addr, u16 data);
+	void (*write32)(struct rtw89_dev *rtwdev, u32 addr, u32 data);
+	void (*phy_write8)(struct rtw89_dev *rtwdev, u32 addr, u8 data);
+	void (*phy_write16)(struct rtw89_dev *rtwdev, u32 addr, u16 data);
+	void (*phy_write32)(struct rtw89_dev *rtwdev, u32 addr, u32 data);
+	void (*write_rf)(struct rtw89_dev *rtwdev, enum rtw89_rf_path rf_path,
+			 u32 addr, u32 mask, u32 data);
+};
+
 struct rtw89_dev {
 	struct ieee80211_hw *hw;
 	struct device *dev;
 	const struct ieee80211_ops *ops;
+	const struct rtw89_io_ops *io;
 
 	bool dbcc_en;
 	bool support_mlo;
@@ -6226,6 +6244,8 @@ struct rtw89_dev {
 	struct rtw89_traffic_stats stats;
 	struct rtw89_rfe_data *rfe_data;
 	enum rtw89_custid custid;
+
+	struct rtw89_fw_cmd_ofld_info *fw_cmd_ofld_info;
 
 	struct rtw89_sta_link __rcu *assoc_link_on_macid[RTW89_MAX_MAC_ID_NUM];
 	refcount_t refcount_ap_info;
@@ -6688,6 +6708,38 @@ struct rtw89_tx_skb_data *RTW89_TX_SKB_CB(struct sk_buff *skb)
 	return (struct rtw89_tx_skb_data *)info->driver_data;
 }
 
+static inline int rtw89_io_pack(struct rtw89_dev *rtwdev)
+{
+	if (rtwdev->io->pack)
+		return rtwdev->io->pack(rtwdev);
+
+	return 0;
+}
+
+static inline int rtw89_io_unpack(struct rtw89_dev *rtwdev)
+{
+	if (rtwdev->io->unpack)
+		return rtwdev->io->unpack(rtwdev);
+
+	return 0;
+}
+
+static inline void rtw89_io_udelay(struct rtw89_dev *rtwdev, u32 us)
+{
+	if (rtwdev->io->do_udelay)
+		rtwdev->io->do_udelay(rtwdev, us);
+	else
+		udelay(us);
+}
+
+static inline void rtw89_io_mdelay(struct rtw89_dev *rtwdev, u32 ms)
+{
+	if (rtwdev->io->do_mdelay)
+		rtwdev->io->do_mdelay(rtwdev, ms);
+	else
+		mdelay(ms);
+}
+
 static inline u8 rtw89_read8(struct rtw89_dev *rtwdev, u32 addr)
 {
 	return rtwdev->hci.ops->read8(rtwdev, addr);
@@ -6703,19 +6755,34 @@ static inline u32 rtw89_read32(struct rtw89_dev *rtwdev, u32 addr)
 	return rtwdev->hci.ops->read32(rtwdev, addr);
 }
 
-static inline void rtw89_write8(struct rtw89_dev *rtwdev, u32 addr, u8 data)
+static inline void rtw89_raw_write8(struct rtw89_dev *rtwdev, u32 addr, u8 data)
 {
 	rtwdev->hci.ops->write8(rtwdev, addr, data);
 }
 
-static inline void rtw89_write16(struct rtw89_dev *rtwdev, u32 addr, u16 data)
+static inline void rtw89_raw_write16(struct rtw89_dev *rtwdev, u32 addr, u16 data)
 {
 	rtwdev->hci.ops->write16(rtwdev, addr, data);
 }
 
-static inline void rtw89_write32(struct rtw89_dev *rtwdev, u32 addr, u32 data)
+static inline void rtw89_raw_write32(struct rtw89_dev *rtwdev, u32 addr, u32 data)
 {
 	rtwdev->hci.ops->write32(rtwdev, addr, data);
+}
+
+static inline void rtw89_write8(struct rtw89_dev *rtwdev, u32 addr, u8 data)
+{
+	rtwdev->io->write8(rtwdev, addr, data);
+}
+
+static inline void rtw89_write16(struct rtw89_dev *rtwdev, u32 addr, u16 data)
+{
+	rtwdev->io->write16(rtwdev, addr, data);
+}
+
+static inline void rtw89_write32(struct rtw89_dev *rtwdev, u32 addr, u32 data)
+{
+	rtwdev->io->write32(rtwdev, addr, data);
 }
 
 static inline void
@@ -6863,12 +6930,19 @@ rtw89_read_rf(struct rtw89_dev *rtwdev, enum rtw89_rf_path rf_path,
 }
 
 static inline void
+rtw89_raw_write_rf(struct rtw89_dev *rtwdev, enum rtw89_rf_path rf_path,
+		   u32 addr, u32 mask, u32 data)
+{
+	rtwdev->chip->ops->write_rf(rtwdev, rf_path, addr, mask, data);
+}
+
+static inline void
 rtw89_write_rf(struct rtw89_dev *rtwdev, enum rtw89_rf_path rf_path,
 	       u32 addr, u32 mask, u32 data)
 {
 	lockdep_assert_wiphy(rtwdev->hw->wiphy);
 
-	rtwdev->chip->ops->write_rf(rtwdev, rf_path, addr, mask, data);
+	rtwdev->io->write_rf(rtwdev, rf_path, addr, mask, data);
 }
 
 static inline u32 rtw89_read32_pci_cfg(struct rtw89_dev *rtwdev, u32 addr)

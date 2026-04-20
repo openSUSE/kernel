@@ -3115,6 +3115,59 @@ struct rtw89_h2c_trx_protect {
 #define RTW89_H2C_TRX_PROTECT_W1_CHINFO_EN BIT(0)
 #define RTW89_H2C_TRX_PROTECT_W1_DFS_EN BIT(1)
 
+enum rtw89_fw_cmd_ofld_arg_src {
+	RTW89_FW_CMD_OFLD_SRC_BB,
+	RTW89_FW_CMD_OFLD_SRC_RF,
+	RTW89_FW_CMD_OFLD_SRC_MAC,
+	RTW89_FW_CMD_OFLD_SRC_RF_DDIE,
+	RTW89_FW_CMD_OFLD_SRC_OTHER,
+};
+
+enum rtw89_fw_cmd_ofld_arg_type {
+	RTW89_FW_CMD_OFLD_WRITE,
+	RTW89_FW_CMD_OFLD_COMPARE,
+	RTW89_FW_CMD_OFLD_DELAY,
+	RTW89_FW_CMD_OFLD_MOVE,
+};
+
+struct rtw89_fw_cmd_ofld_arg {
+	enum rtw89_fw_cmd_ofld_arg_src src;
+	enum rtw89_fw_cmd_ofld_arg_type type;
+	enum rtw89_rf_path rf_path;
+	u32 value;
+	u32 mask;
+	u32 offset;
+	u16 id;
+};
+
+struct rtw89_h2c_cmd_ofld {
+	__le32 w0;
+	__le32 w1;
+	__le32 w2;
+	__le32 w3;
+} __packed;
+
+#define RTW89_H2C_CMD_OFLD_W0_SRC GENMASK(1, 0)
+#define RTW89_H2C_CMD_OFLD_W0_TYPE GENMASK(3, 2)
+#define RTW89_H2C_CMD_OFLD_W0_LC BIT(4)
+#define RTW89_H2C_CMD_OFLD_W0_PATH GENMASK(6, 5)
+#define RTW89_H2C_CMD_OFLD_W0_CMD_NUM GENMASK(14, 8)
+#define RTW89_H2C_CMD_OFLD_W0_OFFSET GENMASK(31, 16)
+#define RTW89_H2C_CMD_OFLD_W1_ID GENMASK(15, 0)
+#define RTW89_H2C_CMD_OFLD_W1_BASE_OFFSET GENMASK(31, 16)
+#define RTW89_H2C_CMD_OFLD_W2_VALUE GENMASK(31, 0)
+#define RTW89_H2C_CMD_OFLD_W3_MASK GENMASK(31, 0)
+#define RTW89_W8_MASK_OF_ALIGNED_ADDR(offset) (0xff << (((offset) & 0x3) << 3))
+#define RTW89_W16_MASK_OF_ALIGNED_ADDR(offset) (0xffff << (((offset) & 0x2) * 8))
+
+#define RTW89_FW_CMD_OFLD_NR 125
+struct rtw89_fw_cmd_ofld_info {
+	unsigned int pack_level;
+	u32 cnt;
+	u32 accu_delay;
+	struct rtw89_h2c_cmd_ofld cmds[RTW89_FW_CMD_OFLD_NR];
+};
+
 struct rtw89_h2c_fwips {
 	__le32 w0;
 } __packed;
@@ -4606,6 +4659,7 @@ enum rtw89_fw_ofld_h2c_func {
 	H2C_FUNC_MAC_MACID_PAUSE	= 0x8,
 	H2C_FUNC_USR_EDCA		= 0xF,
 	H2C_FUNC_TSF32_TOGL		= 0x10,
+	H2C_FUNC_CMD_OFLD_PKT		= 0x13,
 	H2C_FUNC_OFLD_CFG		= 0x14,
 	H2C_FUNC_ADD_SCANOFLD_CH	= 0x16,
 	H2C_FUNC_SCANOFLD		= 0x17,
@@ -5736,5 +5790,8 @@ enum rtw89_wow_wakeup_ver {
 	RTW89_WOW_REASON_V1,
 	RTW89_WOW_REASON_NUM,
 };
+
+const struct rtw89_io_ops *
+rtw89_fw_cmd_ofld_alloc_and_get_io_ops(struct rtw89_dev *rtwdev);
 
 #endif
