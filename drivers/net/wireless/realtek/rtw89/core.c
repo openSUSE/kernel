@@ -341,10 +341,26 @@ static const struct rtw89_hw_rate_def {
 	},
 };
 
+static void rtw89_core_tx_skb_proto_stats(struct rtw89_traffic_stats *stats,
+					  struct sk_buff *skb)
+{
+	switch (ip_hdr(skb)->protocol) {
+	case IPPROTO_TCP:
+		stats->tcp++;
+		break;
+	case IPPROTO_UDP:
+		stats->udp++;
+		break;
+	default:
+		break;
+	}
+}
+
 static void __rtw89_traffic_stats_accu(struct rtw89_traffic_stats *stats,
 				       struct sk_buff *skb, bool tx)
 {
 	if (tx) {
+		rtw89_core_tx_skb_proto_stats(stats, skb);
 		stats->tx_cnt++;
 		stats->tx_unicast += skb->len;
 	} else {
@@ -2902,6 +2918,23 @@ static void rtw89_core_bcn_track_reset(struct rtw89_dev *rtwdev)
 	memset(&rtwdev->bcn_track, 0, sizeof(rtwdev->bcn_track));
 }
 
+static bool rtw89_core_proto_stats_can_lps(struct rtw89_dev *rtwdev,
+					   struct rtw89_vif *rtwvif,
+					   enum rtw89_tfc_interval interval)
+{
+	if (rtwdev->chip->chip_id != RTL8852A)
+		return true;
+
+	if (rtwvif->burst_active)
+		return false;
+
+	if (interval == RTW89_TFC_INTERVAL_100MS &&
+	    hweight8(rtwvif->stats_ps.active_histogram) < 3)
+		return false;
+
+	return true;
+}
+
 static void rtw89_vif_rx_bcn_stat(struct rtw89_dev *rtwdev, struct sk_buff *skb)
 {
 #define RTW89_APPEND_TSF_2GHZ 384
@@ -4540,9 +4573,42 @@ static enum rtw89_tfc_lv rtw89_get_traffic_level(struct rtw89_dev *rtwdev,
 	return RTW89_TFC_ULTRA_LOW;
 }
 
+static void rtw89_calc_vif_active_histogram(struct rtw89_dev *rtwdev,
+					    struct rtw89_traffic_stats *stats,
+					    enum rtw89_tfc_interval interval)
+{
+	struct rtw89_vif *rtwvif;
+
+	stats->udp_ratio = stats->tx_cnt ?
+			   DIV_ROUND_DOWN_ULL(stats->udp * 100, stats->tx_cnt) : 0;
+	stats->active_histogram <<= 1;
+
+	switch (interval) {
+	case RTW89_TFC_INTERVAL_2SEC:
+		rtwvif = container_of(stats, struct rtw89_vif, stats);
+
+		if (stats->tcp >= RTW89_TCP_TH && stats->tx_cnt >= stats->rx_cnt)
+			stats->active_histogram |= BIT(0);
+
+		if (stats->active_histogram & RTW89_RECENT_ACTIVE_HIST)
+			rtwvif->burst_active = true;
+		else
+			rtwvif->burst_active = false;
+
+		break;
+	case RTW89_TFC_INTERVAL_100MS:
+		if (stats->udp_ratio >= RTW89_UDP_RATIO_TH)
+			stats->active_histogram |= BIT(0);
+		break;
+	}
+
+	stats->tcp = 0;
+	stats->udp = 0;
+}
+
 static bool rtw89_traffic_stats_calc(struct rtw89_dev *rtwdev,
 				     struct rtw89_traffic_stats *stats,
-				     enum rtw89_tfc_interval interval)
+				     enum rtw89_tfc_interval interval, bool by_vif)
 {
 	enum rtw89_tfc_lv tx_tfc_lv = stats->tx_tfc_lv;
 	enum rtw89_tfc_lv rx_tfc_lv = stats->rx_tfc_lv;
@@ -4563,6 +4629,9 @@ static bool rtw89_traffic_stats_calc(struct rtw89_dev *rtwdev,
 			    DIV_ROUND_DOWN_ULL(stats->tx_unicast, stats->tx_cnt) : 0;
 	stats->rx_avg_len = stats->rx_cnt ?
 			    DIV_ROUND_DOWN_ULL(stats->rx_unicast, stats->rx_cnt) : 0;
+
+	if (by_vif)
+		rtw89_calc_vif_active_histogram(rtwdev, stats, interval);
 
 	stats->tx_unicast = 0;
 	stats->rx_unicast = 0;
@@ -4585,11 +4654,11 @@ static bool rtw89_traffic_stats_track(struct rtw89_dev *rtwdev)
 	bool tfc_changed;
 
 	tfc_changed = rtw89_traffic_stats_calc(rtwdev, &rtwdev->stats,
-					       RTW89_TFC_INTERVAL_2SEC);
+					       RTW89_TFC_INTERVAL_2SEC, false);
 
 	rtw89_for_each_rtwvif(rtwdev, rtwvif) {
 		rtw89_traffic_stats_calc(rtwdev, &rtwvif->stats,
-					 RTW89_TFC_INTERVAL_2SEC);
+					 RTW89_TFC_INTERVAL_2SEC, true);
 
 		rtw89_vif_for_each_link(rtwvif, rtwvif_link, link_id)
 			rtw89_fw_h2c_tp_offload(rtwdev, rtwvif_link);
@@ -4598,7 +4667,8 @@ static bool rtw89_traffic_stats_track(struct rtw89_dev *rtwdev)
 	return tfc_changed;
 }
 
-static void rtw89_enter_lps_track(struct rtw89_dev *rtwdev)
+static void rtw89_enter_lps_track(struct rtw89_dev *rtwdev,
+				  enum rtw89_tfc_interval interval)
 {
 	struct ieee80211_vif *vif;
 	struct rtw89_vif *rtwvif;
@@ -4620,6 +4690,9 @@ static void rtw89_enter_lps_track(struct rtw89_dev *rtwdev)
 			continue;
 
 		if (!rtw89_core_bcn_track_can_lps(rtwdev))
+			continue;
+
+		if (!rtw89_core_proto_stats_can_lps(rtwdev, rtwvif, interval))
 			continue;
 
 		rtw89_enter_lps(rtwdev, rtwvif, true);
@@ -4771,13 +4844,13 @@ static void rtw89_track_ps_work(struct wiphy *wiphy, struct wiphy_work *work)
 
 	rtw89_for_each_rtwvif(rtwdev, rtwvif)
 		rtw89_traffic_stats_calc(rtwdev, &rtwvif->stats_ps,
-					 RTW89_TFC_INTERVAL_100MS);
+					 RTW89_TFC_INTERVAL_100MS, true);
 
 	if (rtwdev->scanning)
 		return;
 
 	if (rtwdev->lps_enabled && !rtwdev->btc.lps)
-		rtw89_enter_lps_track(rtwdev);
+		rtw89_enter_lps_track(rtwdev, RTW89_TFC_INTERVAL_100MS);
 }
 
 static void rtw89_track_work(struct wiphy *wiphy, struct wiphy_work *work)
@@ -4825,7 +4898,7 @@ static void rtw89_track_work(struct wiphy *wiphy, struct wiphy_work *work)
 	rtw89_core_mlo_track(rtwdev);
 
 	if (rtwdev->lps_enabled && !rtwdev->btc.lps)
-		rtw89_enter_lps_track(rtwdev);
+		rtw89_enter_lps_track(rtwdev, RTW89_TFC_INTERVAL_2SEC);
 }
 
 void rtw89_core_dm_disable_cfg(struct rtw89_dev *rtwdev, u32 new)
