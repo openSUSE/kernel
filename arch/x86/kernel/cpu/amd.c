@@ -896,6 +896,7 @@ static void early_init_amd(struct cpuinfo_x86 *c)
 			setup_force_cpu_cap(X86_FEATURE_SBPB);
 		}
 	}
+
 }
 
 static void init_amd_k8(struct cpuinfo_x86 *c)
@@ -1159,6 +1160,8 @@ static void zenbleed_check(struct cpuinfo_x86 *c)
 
 static void init_amd_zen(struct cpuinfo_x86 *c)
 {
+	pr_notice_once("AMD Zen1 FPDSS bug detected, enabling mitigation.\n");
+	msr_set_bit(MSR_AMD64_FP_CFG, MSR_AMD64_FP_CFG_ZEN1_DENORM_FIX_BIT);
 }
 
 static void init_amd_zen2(struct cpuinfo_x86 *c)
