@@ -1506,6 +1506,7 @@ static int indx_add_allocate(struct ntfs_index *indx, struct ntfs_inode *ni,
 
 	if (bit != MINUS_ONE_T) {
 		bmp = NULL;
+		bmp_size = bmp_size_v = 0;
 	} else {
 		if (bmp->non_res) {
 			bmp_size = le64_to_cpu(bmp->nres.data_size);
