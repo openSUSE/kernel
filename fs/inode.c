@@ -518,15 +518,6 @@ static void init_once(void *foo)
 	inode_init_once(inode);
 }
 
-/*
- * get additional reference to inode; caller must already hold one.
- */
-void ihold(struct inode *inode)
-{
-	WARN_ON(atomic_inc_return(&inode->i_count) < 2);
-}
-EXPORT_SYMBOL(ihold);
-
 struct wait_queue_head *inode_bit_waitqueue(struct wait_bit_queue_entry *wqe,
 					    struct inode *inode, u32 bit)
 {
@@ -1571,6 +1562,17 @@ ino_t iunique(struct super_block *sb, ino_t max_reserved)
 	return res;
 }
 EXPORT_SYMBOL(iunique);
+
+/**
+ * ihold - get a reference on the inode, provided you already have one
+ * @inode:	inode to operate on
+ */
+void ihold(struct inode *inode)
+{
+	VFS_BUG_ON_INODE(icount_read_once(inode) < 1, inode);
+	WARN_ON(atomic_inc_return(&inode->i_count) < 2);
+}
+EXPORT_SYMBOL(ihold);
 
 struct inode *igrab(struct inode *inode)
 {
