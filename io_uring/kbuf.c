@@ -50,7 +50,7 @@ bool io_kbuf_commit(struct io_kiocb *req,
 
 		buf = io_ring_head_to_buf(bl->buf_ring, bl->head, bl->mask);
 		buf_len = READ_ONCE(buf->len);
-		if (WARN_ON_ONCE(len > buf_len))
+		if (len > buf_len)
 			this_len = buf_len;
 		buf_len -= this_len;
 		if (buf_len) {
