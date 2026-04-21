@@ -27,10 +27,13 @@
 #include "kallsyms_internal.h"
 #include "kexec_internal.h"
 
-#define CMA_DMA_TIMEOUT_MSEC 1000
-
 /* Per cpu memory for storing cpu states in case of system crash. */
 note_buf_t __percpu *crash_notes;
+
+/* time to wait for possible DMA to finish before starting the kdump kernel
+ * when a CMA reservation is used
+ */
+#define CMA_DMA_TIMEOUT_SEC 10
 
 /* vmcoreinfo stuff */
 unsigned char *vmcoreinfo_data;
@@ -555,7 +558,7 @@ void crash_cma_clear_pending_dma(void)
 	if (!crashk_cma_cnt)
 		return;
 
-	mdelay(CMA_DMA_TIMEOUT_MSEC);
+	mdelay(CMA_DMA_TIMEOUT_SEC * 1000);
 }
 
 int crash_prepare_elf64_headers(struct crash_mem *mem, int need_kernel_map,
