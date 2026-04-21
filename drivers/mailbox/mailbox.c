@@ -258,6 +258,10 @@ EXPORT_SYMBOL_GPL(mbox_chan_tx_slots_available);
  * over the chan, i.e, tx_done() is made.
  * This function could be called from atomic context as it simply
  * queues the data and returns a token against the request.
+ *  In blocking mode, it is caller's responsibility to serialize threads'
+ * access to a channel if multi-threads are to send messages through the
+ * same channel, i.e. caller should not call this function until any
+ * previous call returns.
  *
  * Return: Non-negative integer for successful submission (non-blocking mode)
  *	or transmission over chan (blocking mode).
