@@ -865,7 +865,7 @@ bool update_entity_lag(struct cfs_rq *cfs_rq, struct sched_entity *se)
 		if (sched_feat(DELAY_ZERO))
 			vlag = min(vlag, 0);
 	}
-	ret = (vlag == se->vlag);
+	ret = (vlag != se->vlag);
 	se->vlag = vlag;
 
 	return ret;
