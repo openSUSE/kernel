@@ -1491,14 +1491,15 @@ resume:
 	/*
 	 * All done at this level ... ascend and resume the search.
 	 */
-	rcu_read_lock();
 ascend:
 	if (this_parent != parent) {
 		dentry = this_parent;
 		this_parent = dentry->d_parent;
 
+		rcu_read_lock();
 		spin_unlock(&dentry->d_lock);
 		spin_lock(&this_parent->d_lock);
+		rcu_read_unlock();
 
 		/* might go back up the wrong parent if we have had a rename. */
 		if (need_seqretry(&rename_lock, seq))
@@ -1506,7 +1507,6 @@ ascend:
 		/* go into the first sibling still alive */
 		hlist_for_each_entry_continue(dentry, d_sib) {
 			if (likely(!(dentry->d_flags & DCACHE_DENTRY_KILLED))) {
-				rcu_read_unlock();
 				goto resume;
 			}
 		}
@@ -1514,7 +1514,6 @@ ascend:
 	}
 	if (need_seqretry(&rename_lock, seq))
 		goto rename_retry;
-	rcu_read_unlock();
 
 out_unlock:
 	spin_unlock(&this_parent->d_lock);
@@ -1523,7 +1522,6 @@ out_unlock:
 
 rename_retry:
 	spin_unlock(&this_parent->d_lock);
-	rcu_read_unlock();
 	BUG_ON(seq & 1);
 	if (!retry)
 		return;
