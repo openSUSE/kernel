@@ -74,31 +74,29 @@ int tegra_fbdev_driver_fbdev_probe(struct drm_fb_helper *helper,
 	struct drm_device *drm = helper->dev;
 	struct drm_mode_fb_cmd2 cmd = { 0 };
 	struct fb_info *info = helper->info;
-	unsigned int bytes_per_pixel;
+	u32 fourcc, pitch;
+	u64 size;
+	const struct drm_format_info *format;
 	struct drm_framebuffer *fb;
 	struct tegra_bo *bo;
-	size_t size;
 	int err;
 
-	bytes_per_pixel = DIV_ROUND_UP(sizes->surface_bpp, 8);
-
-	cmd.width = sizes->surface_width;
-	cmd.height = sizes->surface_height;
-	cmd.pitches[0] = round_up(sizes->surface_width * bytes_per_pixel,
-				  tegra->pitch_align);
-
-	cmd.pixel_format = drm_mode_legacy_fb_format(sizes->surface_bpp,
-						     sizes->surface_depth);
-
-	size = cmd.pitches[0] * cmd.height;
+	fourcc = drm_mode_legacy_fb_format(sizes->surface_bpp, sizes->surface_depth);
+	format = drm_get_format_info(drm, fourcc, DRM_FORMAT_MOD_LINEAR);
+	pitch = round_up(drm_format_info_min_pitch(format, 0, sizes->surface_width),
+			 tegra->pitch_align);
+	size = ALIGN(pitch * sizes->surface_height, PAGE_SIZE);
 
 	bo = tegra_bo_create(drm, size, 0);
 	if (IS_ERR(bo))
 		return PTR_ERR(bo);
 
-	fb = tegra_fb_alloc(drm,
-			    drm_get_format_info(drm, cmd.pixel_format, cmd.modifier[0]),
-			    &cmd, &bo, 1);
+	cmd.pixel_format = fourcc;
+	cmd.width = sizes->surface_width;
+	cmd.height = sizes->surface_height;
+	cmd.pitches[0] = pitch;
+
+	fb = tegra_fb_alloc(drm, format, &cmd, &bo, 1);
 	if (IS_ERR(fb)) {
 		err = PTR_ERR(fb);
 		dev_err(drm->dev, "failed to allocate DRM framebuffer: %d\n",
@@ -126,9 +124,9 @@ int tegra_fbdev_driver_fbdev_probe(struct drm_fb_helper *helper,
 
 	info->flags |= FBINFO_VIRTFB;
 	info->screen_buffer = bo->vaddr;
-	info->screen_size = size;
+	info->screen_size = bo->gem.size;
 	info->fix.smem_start = (unsigned long)(bo->iova);
-	info->fix.smem_len = size;
+	info->fix.smem_len = bo->gem.size;
 
 	return 0;
 
