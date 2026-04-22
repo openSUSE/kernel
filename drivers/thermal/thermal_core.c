@@ -118,59 +118,28 @@ static int thermal_set_governor(struct thermal_zone_device *tz,
 
 int thermal_register_governor(struct thermal_governor *governor)
 {
-	int err;
-	const char *name;
-	struct thermal_zone_device *pos;
 
 	if (!governor)
 		return -EINVAL;
 
 	guard(mutex)(&thermal_governor_lock);
 
-	err = -EBUSY;
-	if (!__find_governor(governor->name)) {
-		bool match_default;
+	if (__find_governor(governor->name))
+		return -EBUSY;
 
-		err = 0;
-		list_add(&governor->governor_list, &thermal_governor_list);
-		match_default = !strncmp(governor->name,
-					 DEFAULT_THERMAL_GOVERNOR,
-					 THERMAL_NAME_LENGTH);
+	list_add(&governor->governor_list, &thermal_governor_list);
 
-		if (!def_governor && match_default)
-			def_governor = governor;
-	}
+	if (strncmp(governor->name, DEFAULT_THERMAL_GOVERNOR, THERMAL_NAME_LENGTH))
+		return 0;
 
-	guard(mutex)(&thermal_list_lock);
+	if (!def_governor)
+		def_governor = governor;
 
-	list_for_each_entry(pos, &thermal_tz_list, node) {
-		/*
-		 * only thermal zones with specified tz->tzp->governor_name
-		 * may run with tz->govenor unset
-		 */
-		if (pos->governor)
-			continue;
-
-		name = pos->tzp->governor_name;
-
-		if (!strncasecmp(name, governor->name, THERMAL_NAME_LENGTH)) {
-			int ret;
-
-			ret = thermal_set_governor(pos, governor);
-			if (ret)
-				dev_err(&pos->device,
-					"Failed to set governor %s for thermal zone %s: %d\n",
-					governor->name, pos->type, ret);
-		}
-	}
-
-	return err;
+	return 0;
 }
 
 void thermal_unregister_governor(struct thermal_governor *governor)
 {
-	struct thermal_zone_device *pos;
-
 	if (!governor)
 		return;
 
@@ -180,14 +149,6 @@ void thermal_unregister_governor(struct thermal_governor *governor)
 		return;
 
 	list_del(&governor->governor_list);
-
-	guard(mutex)(&thermal_list_lock);
-
-	list_for_each_entry(pos, &thermal_tz_list, node) {
-		if (!strncasecmp(pos->governor->name, governor->name,
-				 THERMAL_NAME_LENGTH))
-			thermal_set_governor(pos, NULL);
-	}
 }
 
 int thermal_zone_device_set_policy(struct thermal_zone_device *tz,
