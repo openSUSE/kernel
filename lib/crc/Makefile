@@ -39,8 +39,11 @@ crc64-y := crc64-main.o
 ifeq ($(CONFIG_CRC64_ARCH),y)
 CFLAGS_crc64-main.o += -I$(src)/$(SRCARCH)
 
+crc64-cflags-$(CONFIG_ARM) += -march=armv8-a -mfpu=crypto-neon-fp-armv8
+crc64-cflags-$(CONFIG_ARM64) += -march=armv8-a+crypto
 CFLAGS_REMOVE_crc64-neon.o += $(CC_FLAGS_NO_FPU)
-CFLAGS_crc64-neon.o += $(CC_FLAGS_FPU) -I$(src)/$(SRCARCH) -march=armv8-a+crypto
+CFLAGS_crc64-neon.o += $(CC_FLAGS_FPU) -I$(src)/$(SRCARCH) $(crc64-cflags-y)
+crc64-$(CONFIG_ARM) += crc64-neon.o
 crc64-$(CONFIG_ARM64) += crc64-neon.o
 
 crc64-$(CONFIG_RISCV) += riscv/crc64_lsb.o riscv/crc64_msb.o
