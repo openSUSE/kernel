@@ -1112,7 +1112,7 @@ static noinline int __btrfs_ioctl_snap_create(struct file *file,
 				struct btrfs_qgroup_inherit *inherit)
 {
 	int ret;
-	struct qstr qname = QSTR_INIT(name, strlen(name));
+	struct qstr qname = QSTR(name);
 
 	if (!S_ISDIR(file_inode(file)->i_mode))
 		return -ENOTDIR;
