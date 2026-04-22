@@ -138,7 +138,7 @@ bool xe_display_bo_fbdev_prefer_stolen(struct xe_device *xe, unsigned int size)
 	 * important and we should probably use that space with FBC or other
 	 * features.
 	 */
-	return stolen->size >= size * 2;
+	return stolen->size >= (size * 2) >> PAGE_SHIFT;
 }
 
 static struct drm_gem_object *xe_display_bo_fbdev_create(struct drm_device *drm, int size)
