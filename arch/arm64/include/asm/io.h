@@ -269,10 +269,23 @@ __iowrite64_copy_inlined(void __iomem *to, const void *from, size_t count)
 
  void __iomem *__ioremap_prot(phys_addr_t phys, size_t size, unsigned long prot);
 
-#define ioremap_prot __ioremap_prot
+static inline void __iomem *ioremap_prot(phys_addr_t phys, size_t size,
+					 unsigned long user_prot)
+{
+	pgprot_t prot;
+	pteval_t user_prot_val = pgprot_val(__pgprot(user_prot));
 
-#define _PAGE_IOREMAP PROT_DEVICE_nGnRE
+	if (WARN_ON_ONCE(!(user_prot_val & PTE_USER)))
+		return NULL;
 
+	prot = __pgprot_modify(PAGE_KERNEL, PTE_ATTRINDX_MASK,
+			       user_prot_val & PTE_ATTRINDX_MASK);
+	return __ioremap_prot(phys, size, pgprot_val(prot));
+}
+#define ioremap_prot ioremap_prot
+
+#define ioremap(addr, size)	\
+	__ioremap_prot((addr), (size), PROT_DEVICE_nGnRE)
 #define ioremap_wc(addr, size)	\
 	__ioremap_prot((addr), (size), PROT_NORMAL_NC)
 #define ioremap_np(addr, size)	\
