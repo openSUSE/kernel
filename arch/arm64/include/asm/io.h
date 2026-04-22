@@ -276,14 +276,16 @@ typedef int (*ioremap_prot_hook_t)(phys_addr_t phys_addr, size_t size,
 				   pgprot_t *prot);
 int arm64_ioremap_prot_hook_register(const ioremap_prot_hook_t hook);
 
-#define ioremap_prot ioremap_prot
+void __iomem *__ioremap_prot(phys_addr_t phys, size_t size, unsigned long prot);
+
+#define ioremap_prot __ioremap_prot
 
 #define _PAGE_IOREMAP PROT_DEVICE_nGnRE
 
 #define ioremap_wc(addr, size)	\
-	ioremap_prot((addr), (size), PROT_NORMAL_NC)
+	__ioremap_prot((addr), (size), PROT_NORMAL_NC)
 #define ioremap_np(addr, size)	\
-	ioremap_prot((addr), (size), PROT_DEVICE_nGnRnE)
+	__ioremap_prot((addr), (size), PROT_DEVICE_nGnRnE)
 
 /*
  * io{read,write}{16,32,64}be() macros
@@ -304,7 +306,7 @@ static inline void __iomem *ioremap_cache(phys_addr_t addr, size_t size)
 	if (pfn_is_map_memory(__phys_to_pfn(addr)))
 		return (void __iomem *)__phys_to_virt(addr);
 
-	return ioremap_prot(addr, size, PROT_NORMAL);
+	return __ioremap_prot(addr, size, PROT_NORMAL);
 }
 
 /*
