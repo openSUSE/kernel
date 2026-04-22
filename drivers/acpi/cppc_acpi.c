@@ -865,6 +865,16 @@ int acpi_cppc_processor_probe(struct acpi_processor *pr)
 	per_cpu(cpu_pcc_subspace_idx, pr->id) = pcc_subspace_id;
 
 	/*
+	 * In CPPC v1, DESIRED_PERF is mandatory. In CPPC v2, it is optional
+	 * only when AUTO_SEL_ENABLE is supported.
+	 */
+	if (!CPC_SUPPORTED(&cpc_ptr->cpc_regs[DESIRED_PERF]) &&
+	    (!osc_sb_cppc2_support_acked ||
+	     !CPC_SUPPORTED(&cpc_ptr->cpc_regs[AUTO_SEL_ENABLE])))
+		pr_warn("Desired perf. register is mandatory if CPPC v2 is not supported "
+			"or autonomous selection is disabled\n");
+
+	/*
 	 * Initialize the remaining cpc_regs as unsupported.
 	 * Example: In case FW exposes CPPC v2, the below loop will initialize
 	 * LOWEST_FREQ and NOMINAL_FREQ regs as unsupported
@@ -1392,39 +1402,56 @@ int cppc_get_perf_caps(int cpunum, struct cppc_perf_caps *perf_caps)
 		}
 	}
 
-	cpc_read(cpunum, highest_reg, &high);
+	ret = cpc_read(cpunum, highest_reg, &high);
+	if (ret)
+		goto out_err;
 	perf_caps->highest_perf = high;
 
-	cpc_read(cpunum, lowest_reg, &low);
+	ret = cpc_read(cpunum, lowest_reg, &low);
+	if (ret)
+		goto out_err;
 	perf_caps->lowest_perf = low;
 
-	cpc_read(cpunum, nominal_reg, &nom);
+	ret = cpc_read(cpunum, nominal_reg, &nom);
+	if (ret)
+		goto out_err;
 	perf_caps->nominal_perf = nom;
 
 	if (guaranteed_reg->type != ACPI_TYPE_BUFFER  ||
 	    IS_NULL_REG(&guaranteed_reg->cpc_entry.reg)) {
 		perf_caps->guaranteed_perf = 0;
 	} else {
-		cpc_read(cpunum, guaranteed_reg, &guaranteed);
+		ret = cpc_read(cpunum, guaranteed_reg, &guaranteed);
+		if (ret)
+			goto out_err;
 		perf_caps->guaranteed_perf = guaranteed;
 	}
 
-	cpc_read(cpunum, lowest_non_linear_reg, &min_nonlinear);
+	ret = cpc_read(cpunum, lowest_non_linear_reg, &min_nonlinear);
+	if (ret)
+		goto out_err;
 	perf_caps->lowest_nonlinear_perf = min_nonlinear;
 
-	if (!high || !low || !nom || !min_nonlinear)
+	if (!high || !low || !nom || !min_nonlinear) {
 		ret = -EFAULT;
+		goto out_err;
+	}
 
 	/* Read optional lowest and nominal frequencies if present */
-	if (CPC_SUPPORTED(low_freq_reg))
-		cpc_read(cpunum, low_freq_reg, &low_f);
+	if (CPC_SUPPORTED(low_freq_reg)) {
+		ret = cpc_read(cpunum, low_freq_reg, &low_f);
+		if (ret)
+			goto out_err;
+	}
 
-	if (CPC_SUPPORTED(nom_freq_reg))
-		cpc_read(cpunum, nom_freq_reg, &nom_f);
+	if (CPC_SUPPORTED(nom_freq_reg)) {
+		ret = cpc_read(cpunum, nom_freq_reg, &nom_f);
+		if (ret)
+			goto out_err;
+	}
 
 	perf_caps->lowest_freq = low_f;
 	perf_caps->nominal_freq = nom_f;
-
 
 out_err:
 	if (regs_in_pcc)
@@ -1526,18 +1553,26 @@ int cppc_get_perf_ctrs(int cpunum, struct cppc_perf_fb_ctrs *perf_fb_ctrs)
 		}
 	}
 
-	cpc_read(cpunum, delivered_reg, &delivered);
-	cpc_read(cpunum, reference_reg, &reference);
-	cpc_read(cpunum, ref_perf_reg, &ref_perf);
-
+	ret = cpc_read(cpunum, delivered_reg, &delivered);
+	if (ret)
+		goto out_err;
+	ret = cpc_read(cpunum, reference_reg, &reference);
+	if (ret)
+		goto out_err;
+	ret = cpc_read(cpunum, ref_perf_reg, &ref_perf);
+	if (ret)
+		goto out_err;
 	/*
 	 * Per spec, if ctr_wrap_time optional register is unsupported, then the
 	 * performance counters are assumed to never wrap during the lifetime of
 	 * platform
 	 */
 	ctr_wrap_time = (u64)(~((u64)0));
-	if (CPC_SUPPORTED(ctr_wrap_reg))
-		cpc_read(cpunum, ctr_wrap_reg, &ctr_wrap_time);
+	if (CPC_SUPPORTED(ctr_wrap_reg)) {
+		ret = cpc_read(cpunum, ctr_wrap_reg, &ctr_wrap_time);
+		if (ret)
+			goto out_err;
+	}
 
 	if (!delivered || !reference ||	!ref_perf) {
 		ret = -EFAULT;
@@ -1566,6 +1601,8 @@ int cppc_set_epp_perf(int cpu, struct cppc_perf_ctrls *perf_ctrls, bool enable)
 	struct cpc_register_resource *auto_sel_reg;
 	struct cpc_desc *cpc_desc = per_cpu(cpc_desc_ptr, cpu);
 	struct cppc_pcc_data *pcc_ss_data = NULL;
+	bool autosel_ffh_sysmem;
+	bool epp_ffh_sysmem;
 	int ret;
 
 	if (!cpc_desc) {
@@ -1575,6 +1612,11 @@ int cppc_set_epp_perf(int cpu, struct cppc_perf_ctrls *perf_ctrls, bool enable)
 
 	auto_sel_reg = &cpc_desc->cpc_regs[AUTO_SEL_ENABLE];
 	epp_set_reg = &cpc_desc->cpc_regs[ENERGY_PERF];
+
+	epp_ffh_sysmem = CPC_SUPPORTED(epp_set_reg) &&
+		(CPC_IN_FFH(epp_set_reg) || CPC_IN_SYSTEM_MEMORY(epp_set_reg));
+	autosel_ffh_sysmem = CPC_SUPPORTED(auto_sel_reg) &&
+		(CPC_IN_FFH(auto_sel_reg) || CPC_IN_SYSTEM_MEMORY(auto_sel_reg));
 
 	if (CPC_IN_PCC(epp_set_reg) || CPC_IN_PCC(auto_sel_reg)) {
 		if (pcc_ss_id < 0) {
@@ -1601,11 +1643,22 @@ int cppc_set_epp_perf(int cpu, struct cppc_perf_ctrls *perf_ctrls, bool enable)
 		ret = send_pcc_cmd(pcc_ss_id, CMD_WRITE);
 		up_write(&pcc_ss_data->pcc_lock);
 	} else if (osc_cpc_flexible_adr_space_confirmed &&
-		   CPC_SUPPORTED(epp_set_reg) && CPC_IN_FFH(epp_set_reg)) {
-		ret = cpc_write(cpu, epp_set_reg, perf_ctrls->energy_perf);
+		   (epp_ffh_sysmem || autosel_ffh_sysmem)) {
+		if (autosel_ffh_sysmem) {
+			ret = cpc_write(cpu, auto_sel_reg, enable);
+			if (ret)
+				return ret;
+		}
+
+		if (epp_ffh_sysmem) {
+			ret = cpc_write(cpu, epp_set_reg,
+					perf_ctrls->energy_perf);
+			if (ret)
+				return ret;
+		}
 	} else {
 		ret = -ENOTSUPP;
-		pr_debug("_CPC in PCC and _CPC in FFH are not supported\n");
+		pr_debug("_CPC in PCC/FFH/SystemMemory are not supported\n");
 	}
 
 	return ret;
@@ -1619,7 +1672,7 @@ EXPORT_SYMBOL_GPL(cppc_set_epp_perf);
  */
 int cppc_set_epp(int cpu, u64 epp_val)
 {
-	if (epp_val > CPPC_ENERGY_PERF_MAX)
+	if (epp_val > CPPC_EPP_ENERGY_EFFICIENCY_PREF)
 		return -EINVAL;
 
 	return cppc_set_reg_val(cpu, ENERGY_PERF, epp_val);
@@ -1742,6 +1795,101 @@ int cppc_set_enable(int cpu, bool enable)
 	return cppc_set_reg_val(cpu, ENABLE, enable);
 }
 EXPORT_SYMBOL_GPL(cppc_set_enable);
+
+/**
+ * cppc_get_perf - Get a CPU's performance controls.
+ * @cpu: CPU for which to get performance controls.
+ * @perf_ctrls: ptr to cppc_perf_ctrls. See cppc_acpi.h
+ *
+ * Return: 0 for success with perf_ctrls, -ERRNO otherwise.
+ */
+int cppc_get_perf(int cpu, struct cppc_perf_ctrls *perf_ctrls)
+{
+	struct cpc_desc *cpc_desc = per_cpu(cpc_desc_ptr, cpu);
+	struct cpc_register_resource *desired_perf_reg,
+				     *min_perf_reg, *max_perf_reg,
+				     *energy_perf_reg, *auto_sel_reg;
+	u64 desired_perf = 0, min = 0, max = 0, energy_perf = 0, auto_sel = 0;
+	int pcc_ss_id = per_cpu(cpu_pcc_subspace_idx, cpu);
+	struct cppc_pcc_data *pcc_ss_data = NULL;
+	int ret = 0, regs_in_pcc = 0;
+
+	if (!cpc_desc) {
+		pr_debug("No CPC descriptor for CPU:%d\n", cpu);
+		return -ENODEV;
+	}
+
+	if (!perf_ctrls) {
+		pr_debug("Invalid perf_ctrls pointer\n");
+		return -EINVAL;
+	}
+
+	desired_perf_reg = &cpc_desc->cpc_regs[DESIRED_PERF];
+	min_perf_reg = &cpc_desc->cpc_regs[MIN_PERF];
+	max_perf_reg = &cpc_desc->cpc_regs[MAX_PERF];
+	energy_perf_reg = &cpc_desc->cpc_regs[ENERGY_PERF];
+	auto_sel_reg = &cpc_desc->cpc_regs[AUTO_SEL_ENABLE];
+
+	/* Are any of the regs PCC ?*/
+	if (CPC_IN_PCC(desired_perf_reg) || CPC_IN_PCC(min_perf_reg) ||
+	    CPC_IN_PCC(max_perf_reg) || CPC_IN_PCC(energy_perf_reg) ||
+	    CPC_IN_PCC(auto_sel_reg)) {
+		if (pcc_ss_id < 0) {
+			pr_debug("Invalid pcc_ss_id for CPU:%d\n", cpu);
+			return -ENODEV;
+		}
+		pcc_ss_data = pcc_data[pcc_ss_id];
+		regs_in_pcc = 1;
+		down_write(&pcc_ss_data->pcc_lock);
+		/* Ring doorbell once to update PCC subspace */
+		if (send_pcc_cmd(pcc_ss_id, CMD_READ) < 0) {
+			ret = -EIO;
+			goto out_err;
+		}
+	}
+
+	/* Read optional elements if present */
+	if (CPC_SUPPORTED(max_perf_reg)) {
+		ret = cpc_read(cpu, max_perf_reg, &max);
+		if (ret)
+			goto out_err;
+	}
+	perf_ctrls->max_perf = max;
+
+	if (CPC_SUPPORTED(min_perf_reg)) {
+		ret = cpc_read(cpu, min_perf_reg, &min);
+		if (ret)
+			goto out_err;
+	}
+	perf_ctrls->min_perf = min;
+
+	if (CPC_SUPPORTED(desired_perf_reg)) {
+		ret = cpc_read(cpu, desired_perf_reg, &desired_perf);
+		if (ret)
+			goto out_err;
+	}
+	perf_ctrls->desired_perf = desired_perf;
+
+	if (CPC_SUPPORTED(energy_perf_reg)) {
+		ret = cpc_read(cpu, energy_perf_reg, &energy_perf);
+		if (ret)
+			goto out_err;
+	}
+	perf_ctrls->energy_perf = energy_perf;
+
+	if (CPC_SUPPORTED(auto_sel_reg)) {
+		ret = cpc_read(cpu, auto_sel_reg, &auto_sel);
+		if (ret)
+			goto out_err;
+	}
+	perf_ctrls->auto_sel = (bool)auto_sel;
+
+out_err:
+	if (regs_in_pcc)
+		up_write(&pcc_ss_data->pcc_lock);
+	return ret;
+}
+EXPORT_SYMBOL_GPL(cppc_get_perf);
 
 /**
  * cppc_set_perf - Set a CPU's performance controls.
@@ -1874,6 +2022,62 @@ int cppc_set_perf(int cpu, struct cppc_perf_ctrls *perf_ctrls)
 	return ret;
 }
 EXPORT_SYMBOL_GPL(cppc_set_perf);
+
+/**
+ * cppc_get_perf_limited - Get the Performance Limited register value.
+ * @cpu: CPU from which to get Performance Limited register.
+ * @perf_limited: Pointer to store the Performance Limited value.
+ *
+ * The returned value contains sticky status bits indicating platform-imposed
+ * performance limitations.
+ *
+ * Return: 0 for success, -EIO on failure, -EOPNOTSUPP if not supported.
+ */
+int cppc_get_perf_limited(int cpu, u64 *perf_limited)
+{
+	return cppc_get_reg_val(cpu, PERF_LIMITED, perf_limited);
+}
+EXPORT_SYMBOL_GPL(cppc_get_perf_limited);
+
+/**
+ * cppc_set_perf_limited() - Clear bits in the Performance Limited register.
+ * @cpu: CPU on which to write register.
+ * @bits_to_clear: Bitmask of bits to clear in the perf_limited register.
+ *
+ * The Performance Limited register contains two sticky bits set by platform:
+ *   - Bit 0 (Desired_Excursion): Set when delivered performance is constrained
+ *     below desired performance. Not used when Autonomous Selection is enabled.
+ *   - Bit 1 (Minimum_Excursion): Set when delivered performance is constrained
+ *     below minimum performance.
+ *
+ * These bits are sticky and remain set until OSPM explicitly clears them.
+ * This function only allows clearing bits (the platform sets them).
+ *
+ * Return: 0 for success, -EINVAL for invalid bits, -EIO on register
+ *         access failure, -EOPNOTSUPP if not supported.
+ */
+int cppc_set_perf_limited(int cpu, u64 bits_to_clear)
+{
+	u64 current_val, new_val;
+	int ret;
+
+	/* Only bits 0 and 1 are valid */
+	if (bits_to_clear & ~CPPC_PERF_LIMITED_MASK)
+		return -EINVAL;
+
+	if (!bits_to_clear)
+		return 0;
+
+	ret = cppc_get_perf_limited(cpu, &current_val);
+	if (ret)
+		return ret;
+
+	/* Clear the specified bits */
+	new_val = current_val & ~bits_to_clear;
+
+	return cppc_set_reg_val(cpu, PERF_LIMITED, new_val);
+}
+EXPORT_SYMBOL_GPL(cppc_set_perf_limited);
 
 /**
  * cppc_get_transition_latency - returns frequency transition latency in ns
