@@ -116,13 +116,11 @@ static int thermal_set_governor(struct thermal_zone_device *tz,
 	return ret;
 }
 
-int thermal_register_governor(struct thermal_governor *governor)
+static int __init thermal_register_governor(struct thermal_governor *governor)
 {
 
 	if (!governor)
 		return -EINVAL;
-
-	guard(mutex)(&thermal_governor_lock);
 
 	if (__find_governor(governor->name))
 		return -EBUSY;
@@ -136,19 +134,6 @@ int thermal_register_governor(struct thermal_governor *governor)
 		def_governor = governor;
 
 	return 0;
-}
-
-void thermal_unregister_governor(struct thermal_governor *governor)
-{
-	if (!governor)
-		return;
-
-	guard(mutex)(&thermal_governor_lock);
-
-	if (!__find_governor(governor->name))
-		return;
-
-	list_del(&governor->governor_list);
 }
 
 int thermal_zone_device_set_policy(struct thermal_zone_device *tz,
@@ -186,40 +171,34 @@ int thermal_build_list_of_policies(char *buf)
 
 static void __init thermal_unregister_governors(void)
 {
-	struct thermal_governor **governor;
+	struct thermal_governor *gov, *pos;
 
-	for_each_governor_table(governor)
-		thermal_unregister_governor(*governor);
+	guard(mutex)(&thermal_governor_lock);
+
+	list_for_each_entry_safe(gov, pos, &thermal_governor_list, governor_list)
+		list_del(&gov->governor_list);
 }
 
 static int __init thermal_register_governors(void)
 {
-	int ret = 0;
 	struct thermal_governor **governor;
 
+	guard(mutex)(&thermal_governor_lock);
+
 	for_each_governor_table(governor) {
+		int ret;
+
 		ret = thermal_register_governor(*governor);
 		if (ret) {
 			pr_err("Failed to register governor: '%s'",
 			       (*governor)->name);
-			break;
+			return ret;
 		}
 
-		pr_info("Registered thermal governor '%s'",
-			(*governor)->name);
+		pr_info("Registered thermal governor '%s'", (*governor)->name);
 	}
 
-	if (ret) {
-		struct thermal_governor **gov;
-
-		for_each_governor_table(gov) {
-			if (gov == governor)
-				break;
-			thermal_unregister_governor(*gov);
-		}
-	}
-
-	return ret;
+	return 0;
 }
 
 static int __thermal_zone_device_set_mode(struct thermal_zone_device *tz,
@@ -1858,7 +1837,7 @@ static int __init thermal_init(void)
 
 	result = thermal_register_governors();
 	if (result)
-		goto destroy_workqueue;
+		goto unregister_governors;
 
 	result = class_register(&thermal_class);
 	if (result)
@@ -1870,7 +1849,6 @@ static int __init thermal_init(void)
 
 unregister_governors:
 	thermal_unregister_governors();
-destroy_workqueue:
 	destroy_workqueue(thermal_wq);
 unregister_netlink:
 	thermal_netlink_exit();
