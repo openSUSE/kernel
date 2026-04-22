@@ -35,6 +35,7 @@
  * @prio: pin priority <0, 14>
  * @selectable: pin is selectable in automatic mode
  * @esync_control: embedded sync is controllable
+ * @phase_gran: phase adjustment granularity
  * @pin_state: last saved pin state
  * @phase_offset: last saved pin phase offset
  * @freq_offset: last saved fractional frequency offset
@@ -49,6 +50,7 @@ struct zl3073x_dpll_pin {
 	u8			prio;
 	bool			selectable;
 	bool			esync_control;
+	s32			phase_gran;
 	enum dpll_pin_state	pin_state;
 	s64			phase_offset;
 	s64			freq_offset;
@@ -554,6 +556,102 @@ zl3073x_dpll_input_pin_phase_offset_get(const struct dpll_pin *dpll_pin,
 	*phase_offset = pin->phase_offset * DPLL_PHASE_OFFSET_DIVIDER;
 
 	return rc;
+}
+
+static int
+zl3073x_dpll_input_pin_phase_adjust_get(const struct dpll_pin *dpll_pin,
+					void *pin_priv,
+					const struct dpll_device *dpll,
+					void *dpll_priv,
+					s32 *phase_adjust,
+					struct netlink_ext_ack *extack)
+{
+	struct zl3073x_dpll *zldpll = dpll_priv;
+	struct zl3073x_dev *zldev = zldpll->dev;
+	struct zl3073x_dpll_pin *pin = pin_priv;
+	s64 phase_comp;
+	u8 ref;
+	int rc;
+
+	guard(mutex)(&zldev->multiop_lock);
+
+	/* Read reference configuration */
+	ref = zl3073x_input_pin_ref_get(pin->id);
+	rc = zl3073x_mb_op(zldev, ZL_REG_REF_MB_SEM, ZL_REF_MB_SEM_RD,
+			   ZL_REG_REF_MB_MASK, BIT(ref));
+	if (rc)
+		return rc;
+
+	/* Read current phase offset compensation */
+	if (zl3073x_dev_is_ref_phase_comp_32bit(zldev)) {
+		u32 val;
+
+		rc = zl3073x_read_u32(zldev, ZL_REG_REF_PHASE_OFFSET_COMP_32,
+				      &val);
+		phase_comp = val;
+	} else {
+		rc = zl3073x_read_u48(zldev, ZL_REG_REF_PHASE_OFFSET_COMP,
+				      &phase_comp);
+	}
+	if (rc)
+		return rc;
+
+	/* Perform sign extension based on register width */
+	if (zl3073x_dev_is_ref_phase_comp_32bit(zldev))
+		phase_comp = sign_extend64(phase_comp, 31);
+	else
+		phase_comp = sign_extend64(phase_comp, 47);
+
+	/* Reverse two's complement negation applied during set and convert
+	 * to 32bit signed int
+	 */
+	*phase_adjust = (s32)-phase_comp;
+
+	return rc;
+}
+
+static int
+zl3073x_dpll_input_pin_phase_adjust_set(const struct dpll_pin *dpll_pin,
+					void *pin_priv,
+					const struct dpll_device *dpll,
+					void *dpll_priv,
+					s32 phase_adjust,
+					struct netlink_ext_ack *extack)
+{
+	struct zl3073x_dpll *zldpll = dpll_priv;
+	struct zl3073x_dev *zldev = zldpll->dev;
+	struct zl3073x_dpll_pin *pin = pin_priv;
+	s64 phase_comp;
+	u8 ref;
+	int rc;
+
+	/* The value in the register is stored as two's complement negation
+	 * of requested value.
+	 */
+	phase_comp = -phase_adjust;
+
+	guard(mutex)(&zldev->multiop_lock);
+
+	/* Read reference configuration */
+	ref = zl3073x_input_pin_ref_get(pin->id);
+	rc = zl3073x_mb_op(zldev, ZL_REG_REF_MB_SEM, ZL_REF_MB_SEM_RD,
+			   ZL_REG_REF_MB_MASK, BIT(ref));
+	if (rc)
+		return rc;
+
+	/* Write the requested value into the compensation register */
+	if (zl3073x_dev_is_ref_phase_comp_32bit(zldev))
+		rc = zl3073x_write_u32(zldev, ZL_REG_REF_PHASE_OFFSET_COMP_32,
+				       phase_comp);
+	else
+		rc = zl3073x_write_u48(zldev, ZL_REG_REF_PHASE_OFFSET_COMP,
+				       phase_comp);
+	if (rc)
+		return rc;
+
+	/* Commit reference configuration */
+	return zl3073x_mb_op(zldev, ZL_REG_REF_MB_SEM, ZL_REF_MB_SEM_WR,
+			     ZL_REG_REF_MB_MASK, BIT(ref));
 }
 
 /**
@@ -1267,6 +1365,77 @@ zl3073x_dpll_output_pin_frequency_set(const struct dpll_pin *dpll_pin,
 }
 
 static int
+zl3073x_dpll_output_pin_phase_adjust_get(const struct dpll_pin *dpll_pin,
+					 void *pin_priv,
+					 const struct dpll_device *dpll,
+					 void *dpll_priv,
+					 s32 *phase_adjust,
+					 struct netlink_ext_ack *extack)
+{
+	struct zl3073x_dpll *zldpll = dpll_priv;
+	struct zl3073x_dev *zldev = zldpll->dev;
+	struct zl3073x_dpll_pin *pin = pin_priv;
+	s32 phase_comp;
+	u8 out;
+	int rc;
+
+	guard(mutex)(&zldev->multiop_lock);
+
+	/* Read output configuration */
+	out = zl3073x_output_pin_out_get(pin->id);
+	rc = zl3073x_mb_op(zldev, ZL_REG_OUTPUT_MB_SEM, ZL_OUTPUT_MB_SEM_RD,
+			   ZL_REG_OUTPUT_MB_MASK, BIT(out));
+	if (rc)
+		return rc;
+
+	/* Read current output phase compensation */
+	rc = zl3073x_read_u32(zldev, ZL_REG_OUTPUT_PHASE_COMP, &phase_comp);
+	if (rc)
+		return rc;
+
+	/* The value in the register is expressed in half synth clock cycles. */
+	*phase_adjust = phase_comp * pin->phase_gran;
+
+	return rc;
+}
+
+static int
+zl3073x_dpll_output_pin_phase_adjust_set(const struct dpll_pin *dpll_pin,
+					 void *pin_priv,
+					 const struct dpll_device *dpll,
+					 void *dpll_priv,
+					 s32 phase_adjust,
+					 struct netlink_ext_ack *extack)
+{
+	struct zl3073x_dpll *zldpll = dpll_priv;
+	struct zl3073x_dev *zldev = zldpll->dev;
+	struct zl3073x_dpll_pin *pin = pin_priv;
+	u8 out;
+	int rc;
+
+	/* The value in the register is expressed in half synth clock cycles. */
+	phase_adjust = phase_adjust / pin->phase_gran;
+
+	guard(mutex)(&zldev->multiop_lock);
+
+	/* Read output configuration */
+	out = zl3073x_output_pin_out_get(pin->id);
+	rc = zl3073x_mb_op(zldev, ZL_REG_OUTPUT_MB_SEM, ZL_OUTPUT_MB_SEM_RD,
+			   ZL_REG_OUTPUT_MB_MASK, BIT(out));
+	if (rc)
+		return rc;
+
+	/* Write the requested value into the compensation register */
+	rc = zl3073x_write_u32(zldev, ZL_REG_OUTPUT_PHASE_COMP, phase_adjust);
+	if (rc)
+		return rc;
+
+	/* Update output configuration from mailbox */
+	return zl3073x_mb_op(zldev, ZL_REG_OUTPUT_MB_SEM, ZL_OUTPUT_MB_SEM_WR,
+			     ZL_REG_OUTPUT_MB_MASK, BIT(out));
+}
+
+static int
 zl3073x_dpll_output_pin_state_on_dpll_get(const struct dpll_pin *dpll_pin,
 					  void *pin_priv,
 					  const struct dpll_device *dpll,
@@ -1365,6 +1534,8 @@ static const struct dpll_pin_ops zl3073x_dpll_input_pin_ops = {
 	.frequency_get = zl3073x_dpll_input_pin_frequency_get,
 	.frequency_set = zl3073x_dpll_input_pin_frequency_set,
 	.phase_offset_get = zl3073x_dpll_input_pin_phase_offset_get,
+	.phase_adjust_get = zl3073x_dpll_input_pin_phase_adjust_get,
+	.phase_adjust_set = zl3073x_dpll_input_pin_phase_adjust_set,
 	.prio_get = zl3073x_dpll_input_pin_prio_get,
 	.prio_set = zl3073x_dpll_input_pin_prio_set,
 	.state_on_dpll_get = zl3073x_dpll_input_pin_state_on_dpll_get,
@@ -1377,6 +1548,8 @@ static const struct dpll_pin_ops zl3073x_dpll_output_pin_ops = {
 	.esync_set = zl3073x_dpll_output_pin_esync_set,
 	.frequency_get = zl3073x_dpll_output_pin_frequency_get,
 	.frequency_set = zl3073x_dpll_output_pin_frequency_set,
+	.phase_adjust_get = zl3073x_dpll_output_pin_phase_adjust_get,
+	.phase_adjust_set = zl3073x_dpll_output_pin_phase_adjust_set,
 	.state_on_dpll_get = zl3073x_dpll_output_pin_state_on_dpll_get,
 };
 
@@ -1449,9 +1622,21 @@ zl3073x_dpll_pin_register(struct zl3073x_dpll_pin *pin, u32 index)
 	if (IS_ERR(props))
 		return PTR_ERR(props);
 
-	/* Save package label & esync capability */
+	/* Save package label, esync capability and phase adjust granularity */
 	strscpy(pin->label, props->package_label);
 	pin->esync_control = props->esync_control;
+	if (pin->dir != DPLL_PIN_DIRECTION_INPUT) {
+		u8 out, synth;
+		u32 f;
+
+		/* The output pin phase adjustment granularity equals half of
+		 * the synth frequency count.
+		 */
+		out = zl3073x_output_pin_out_get(index);
+		synth = zl3073x_out_synth_get(zldpll->dev, out);
+		f = 2 * zl3073x_synth_freq_get(zldpll->dev, synth);
+		pin->phase_gran = f ? div_u64(PSEC_PER_SEC, f) : 1;
+	}
 
 	if (zl3073x_dpll_is_input_pin(pin)) {
 		rc = zl3073x_dpll_ref_prio_get(pin, &pin->prio);
@@ -1595,7 +1780,7 @@ zl3073x_dpll_pin_is_registrable(struct zl3073x_dpll *zldpll,
 		}
 
 		is_diff = zl3073x_out_is_diff(zldev, out);
-		is_enabled = zl3073x_out_is_enabled(zldev, out);
+		is_enabled = zl3073x_output_pin_is_enabled(zldev, index);
 	}
 
 	/* Skip N-pin if the corresponding input/output is differential */
