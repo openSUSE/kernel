@@ -1311,6 +1311,7 @@ static int rxkad_verify_response(struct rxrpc_connection *conn,
 
 	kfree(ticket);
 	kfree(response);
+	key_put(server_key);
 	_leave(" = 0");
 	return 0;
 
