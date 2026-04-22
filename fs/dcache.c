@@ -426,9 +426,16 @@ static inline void __d_clear_type_and_inode(struct dentry *dentry)
 		this_cpu_inc(nr_dentry_negative);
 }
 
+#define DENTRY_WARN_ONCE(condition, dentry) \
+	WARN_ONCE((condition), "dentry=%p d_flags=0x%x\n", (dentry), (dentry)->d_flags)
+#define D_FLAG_VERIFY(dentry, x) \
+	DENTRY_WARN_ONCE(((dentry)->d_flags & (DCACHE_LRU_LIST | DCACHE_SHRINK_LIST)) != (x), (dentry))
+
 static void dentry_free(struct dentry *dentry)
 {
-	WARN_ON(d_really_is_positive(dentry));
+	DENTRY_WARN_ONCE(d_really_is_positive(dentry), dentry);
+	DENTRY_WARN_ONCE(dentry->d_lockref.count >= 0, dentry);
+	D_FLAG_VERIFY(dentry, 0);
 	if (unlikely(dname_external(dentry))) {
 		struct external_name *p = external_name(dentry);
 		if (likely(atomic_dec_and_test(&p->count))) {
@@ -495,7 +502,6 @@ static void dentry_unlink_inode(struct dentry * dentry)
  * These helper functions make sure we always follow the
  * rules. d_lock must be held by the caller.
  */
-#define D_FLAG_VERIFY(dentry,x) WARN_ON_ONCE(((dentry)->d_flags & (DCACHE_LRU_LIST | DCACHE_SHRINK_LIST)) != (x))
 static void d_lru_add(struct dentry *dentry)
 {
 	D_FLAG_VERIFY(dentry, 0);
