@@ -285,6 +285,34 @@ static void rxrpc_call_is_secure(struct rxrpc_call *call)
 	}
 }
 
+static int rxrpc_verify_response(struct rxrpc_connection *conn,
+				 struct sk_buff *skb,
+				 u32 *_abort_code)
+{
+	int ret;
+
+	if (skb_cloned(skb)) {
+		/* Copy the packet if shared so that we can do in-place
+		 * decryption.
+		 */
+		struct sk_buff *nskb = skb_copy(skb, GFP_NOFS);
+
+		if (nskb) {
+			rxrpc_new_skb(nskb, rxrpc_skb_unshared);
+			ret = conn->security->verify_response(conn, nskb, _abort_code);
+			rxrpc_free_skb(nskb, rxrpc_skb_freed);
+		} else {
+			/* OOM - Drop the packet. */
+			rxrpc_see_skb(skb, rxrpc_skb_unshared_nomem);
+			ret = -ENOMEM;
+		}
+	} else {
+		ret = conn->security->verify_response(conn, skb, _abort_code);
+	}
+
+	return ret;
+}
+
 /*
  * connection-level Rx packet processor
  */
@@ -345,7 +373,7 @@ static int rxrpc_process_event(struct rxrpc_connection *conn,
 		}
 		spin_unlock_bh(&conn->state_lock);
 
-		ret = conn->security->verify_response(conn, skb, _abort_code);
+		ret = rxrpc_verify_response(conn, skb, _abort_code);
 		if (ret < 0)
 			return ret;
 
