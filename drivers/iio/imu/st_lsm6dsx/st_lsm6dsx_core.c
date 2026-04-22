@@ -1815,12 +1815,11 @@ static int st_lsm6dsx_read_raw(struct iio_dev *iio_dev,
 
 	switch (mask) {
 	case IIO_CHAN_INFO_RAW:
-		ret = iio_device_claim_direct_mode(iio_dev);
-		if (ret)
-			break;
+		if (!iio_device_claim_direct(iio_dev))
+			return -EBUSY;
 
 		ret = st_lsm6dsx_read_oneshot(sensor, ch->address, val);
-		iio_device_release_direct_mode(iio_dev);
+		iio_device_release_direct(iio_dev);
 		break;
 	case IIO_CHAN_INFO_SAMP_FREQ:
 		*val = sensor->odr / 1000;
@@ -1845,11 +1844,10 @@ static int st_lsm6dsx_write_raw(struct iio_dev *iio_dev,
 				int val, int val2, long mask)
 {
 	struct st_lsm6dsx_sensor *sensor = iio_priv(iio_dev);
-	int err;
+	int err = 0;
 
-	err = iio_device_claim_direct_mode(iio_dev);
-	if (err)
-		return err;
+	if (!iio_device_claim_direct(iio_dev))
+		return -EBUSY;
 
 	switch (mask) {
 	case IIO_CHAN_INFO_SCALE:
@@ -1871,7 +1869,7 @@ static int st_lsm6dsx_write_raw(struct iio_dev *iio_dev,
 		break;
 	}
 
-	iio_device_release_direct_mode(iio_dev);
+	iio_device_release_direct(iio_dev);
 
 	return err;
 }
