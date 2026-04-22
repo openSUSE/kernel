@@ -882,7 +882,7 @@ config TEGRA_WATCHDOG
 	  module will be called tegra_wdt.
 
 config QCOM_WDT
-	tristate "QCOM watchdog"
+	tristate "Qualcomm watchdog"
 	depends on HAS_IOMEM
 	depends on ARCH_QCOM || COMPILE_TEST
 	select WATCHDOG_CORE
@@ -1093,7 +1093,7 @@ config SPRD_WATCHDOG
 	  by Spreadtrum system.
 
 config PM8916_WATCHDOG
-	tristate "QCOM PM8916 pmic watchdog"
+	tristate "Qualcomm PM8916 pmic watchdog"
 	depends on OF && MFD_SPMI_PMIC
 	select WATCHDOG_CORE
 	help
