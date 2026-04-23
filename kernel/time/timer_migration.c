@@ -417,7 +417,7 @@
 
 static DEFINE_MUTEX(tmigr_mutex);
 
-static struct tmigr_hierarchy *hierarchy;
+static LIST_HEAD(tmigr_hierarchy_list);
 
 static unsigned int tmigr_hierarchy_levels __read_mostly;
 static unsigned int tmigr_crossnode_level __read_mostly;
@@ -1889,6 +1889,12 @@ static int tmigr_setup_groups(struct tmigr_hierarchy *hier, unsigned int cpu,
 			data.childmask = start->groupmask;
 			__walk_groups_from(tmigr_active_up, &data, start, start->parent);
 		}
+	} else if (start) {
+		union tmigr_state state;
+
+		/* Remote activation assumes the whole target's hierarchy is inactive */
+		state.state = atomic_read(&start->migr_state);
+		WARN_ON_ONCE(state.active);
 	}
 
 	/* Root update */
@@ -1907,32 +1913,76 @@ out:
 	return err;
 }
 
-static struct tmigr_hierarchy *tmigr_get_hierarchy(void)
+static struct tmigr_hierarchy *tmigr_get_hierarchy(unsigned int capacity)
 {
-	if (hierarchy)
-		return hierarchy;
+	struct tmigr_hierarchy *hier = NULL, *iter;
 
-	hierarchy = kzalloc(sizeof(*hierarchy), GFP_KERNEL);
-	if (!hierarchy)
+	list_for_each_entry(iter, &tmigr_hierarchy_list, node) {
+		if (iter->capacity == capacity)
+			hier = iter;
+	}
+
+	if (hier)
+		return hier;
+
+	hier = kzalloc(sizeof(*hier), GFP_KERNEL);
+	if (!hier)
 		return ERR_PTR(-ENOMEM);
 
-	hierarchy->cpumask = kzalloc(cpumask_size(), GFP_KERNEL);
-	if (!hierarchy->cpumask)
+	hier->cpumask = kzalloc(cpumask_size(), GFP_KERNEL);
+	if (!hier->cpumask)
 		goto err;
 
-	hierarchy->level_list = kzalloc_objs(struct list_head, tmigr_hierarchy_levels);
-	if (!hierarchy->level_list)
+	hier->level_list = kzalloc_objs(struct list_head, tmigr_hierarchy_levels);
+	if (!hier->level_list)
 		goto err;
 
 	for (int i = 0; i < tmigr_hierarchy_levels; i++)
-		INIT_LIST_HEAD(&hierarchy->level_list[i]);
+		INIT_LIST_HEAD(&hier->level_list[i]);
 
-	return hierarchy;
+	hier->capacity = capacity;
+	list_add_tail(&hier->node, &tmigr_hierarchy_list);
+
+	return hier;
 err:
-	kfree(hierarchy->cpumask);
-	kfree(hierarchy);
-	hierarchy = NULL;
+	kfree(hier->cpumask);
+	kfree(hier);
 	return ERR_PTR(-ENOMEM);
+}
+
+static int tmigr_connect_old_root(struct tmigr_hierarchy *hier, int cpu,
+				  struct tmigr_group *old_root,	bool activate)
+{
+	/*
+	 * The target CPU must never do the prepare work, except
+	 * on early boot when the boot CPU is the target. Otherwise
+	 * it may spuriously activate the old top level group inside
+	 * the new one (nevertheless whether old top level group is
+	 * active or not) and/or release an uninitialized childmask.
+	 */
+	WARN_ON_ONCE(cpu == smp_processor_id());
+	if (activate) {
+		/*
+		 * The current CPU is expected to be online in the hierarchy,
+		 * otherwise the old root may not be active as expected.
+		 */
+		WARN_ON_ONCE(!__this_cpu_read(tmigr_cpu.available));
+	}
+
+	return tmigr_setup_groups(hier, -1, old_root->numa_node, old_root, activate);
+}
+
+static long connect_old_root_work(void *arg)
+{
+	struct tmigr_group *old_root = arg;
+	struct tmigr_hierarchy *hier;
+	int cpu = smp_processor_id();
+
+	hier = tmigr_get_hierarchy(arch_scale_cpu_capacity(cpu));
+	if (IS_ERR(hier))
+		return PTR_ERR(hier);
+
+	return tmigr_connect_old_root(hier, cpu, old_root, true);
 }
 
 static int tmigr_add_cpu(unsigned int cpu)
@@ -1944,7 +1994,7 @@ static int tmigr_add_cpu(unsigned int cpu)
 
 	guard(mutex)(&tmigr_mutex);
 
-	hier = tmigr_get_hierarchy();
+	hier = tmigr_get_hierarchy(arch_scale_cpu_capacity(cpu));
 	if (IS_ERR(hier))
 		return PTR_ERR(hier);
 
@@ -1957,20 +2007,33 @@ static int tmigr_add_cpu(unsigned int cpu)
 
 	/* Root has changed? Connect the old one to the new */
 	if (old_root && old_root != hier->root) {
-		/*
-		 * The target CPU must never do the prepare work, except
-		 * on early boot when the boot CPU is the target. Otherwise
-		 * it may spuriously activate the old top level group inside
-		 * the new one (nevertheless whether old top level group is
-		 * active or not) and/or release an uninitialized childmask.
-		 */
-		WARN_ON_ONCE(cpu == raw_smp_processor_id());
-		/*
-		 * The (likely) current CPU is expected to be online in the hierarchy,
-		 * otherwise the old root may not be active as expected.
-		 */
-		WARN_ON_ONCE(!per_cpu_ptr(&tmigr_cpu, raw_smp_processor_id())->available);
-		ret = tmigr_setup_groups(hier, -1, old_root->numa_node, old_root, true);
+		guard(migrate)();
+
+		if (cpumask_test_cpu(smp_processor_id(), hier->cpumask)) {
+			/*
+			 * If the target belong to the same hierarchy, the old root is expected
+			 * to be active. Link and propagate to the new root.
+			 */
+			ret = tmigr_connect_old_root(hier, cpu, old_root, true);
+		} else {
+			int target = cpumask_first_and(hier->cpumask, tmigr_available_cpumask);
+
+			if (target < nr_cpu_ids) {
+				/*
+				 * If the target doesn't belong to the same hierarchy as the current
+				 * CPU, activate from a relevant one to make sure the old root is
+				 * active.
+				 */
+				ret = work_on_cpu(target, connect_old_root_work, old_root);
+			} else {
+				/*
+				 * No other available CPUs in the remote hierarchy. Link the
+				 * old root remotely but don't propagate activation since the
+				 * old root is not expected to be active.
+				 */
+				ret = tmigr_connect_old_root(hier, cpu, old_root, false);
+			}
+		}
 	}
 
 	if (ret >= 0)
