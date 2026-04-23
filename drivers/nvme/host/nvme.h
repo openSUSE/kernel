@@ -503,7 +503,7 @@ struct nvme_subsystem {
 	u8			cmic;
 	enum nvme_subsys_type	subtype;
 	u16			vendor_id;
-	u16			awupf;	/* 0's based awupf value. */
+	u16			awupf; /* 0's based value. */
 	struct ida		ns_ida;
 #ifdef CONFIG_NVME_MULTIPATH
 	enum nvme_iopolicy	iopolicy;
@@ -766,6 +766,12 @@ static inline sector_t nvme_lba_to_sect(struct nvme_ns_head *head, u64 lba)
 static inline u32 nvme_bytes_to_numd(size_t len)
 {
 	return (len >> 2) - 1;
+}
+
+/* Decode a 2-byte "0's based"/"0-based" field */
+static inline u32 from0based(__le16 value)
+{
+	return (u32)le16_to_cpu(value) + 1;
 }
 
 static inline bool nvme_is_ana_error(u16 status)
