@@ -105,6 +105,15 @@ struct btrfs_transaction;
 	EM( COMMIT_TRANS,		"COMMIT_TRANS")			\
 	EMe(RESET_ZONES,		"RESET_ZONES")
 
+#define TRANSACTION_STATES							\
+	EM( TRANS_STATE_RUNNING,		"TRANS_STATE_RUNNING")		\
+	EM( TRANS_STATE_COMMIT_PREP,		"TRANS_STATE_COMMIT_PREP")	\
+	EM( TRANS_STATE_COMMIT_START,		"TRANS_STATE_COMMIT_START")	\
+	EM( TRANS_STATE_COMMIT_DOING,		"TRANS_STATE_COMMIT_DOING")	\
+	EM( TRANS_STATE_UNBLOCKED,		"TRANS_STATE_UNBLOCKED")	\
+	EM( TRANS_STATE_SUPER_COMMITTED,	"TRANS_STATE_SUPER_COMMITTED")	\
+	EMe(TRANS_STATE_COMPLETED,		"TRANS_STATE_COMPLETED")
+
 /*
  * First define the enums in the above macros to be exported to userspace via
  * TRACE_DEFINE_ENUM().
@@ -120,6 +129,7 @@ FI_TYPES
 QGROUP_RSV_TYPES
 IO_TREE_OWNER
 FLUSH_STATES
+TRANSACTION_STATES
 
 /*
  * Now redefine the EM and EMe macros to map the enums to the strings that will
@@ -208,15 +218,18 @@ TRACE_EVENT(btrfs_transaction_commit,
 	TP_STRUCT__entry_btrfs(
 		__field(	u64,  generation		)
 		__field(	bool, in_fsync			)
+		__field(	int,  state			)
 	),
 
 	TP_fast_assign_btrfs(trans->fs_info,
 		__entry->generation	= trans->transid;
 		__entry->in_fsync	= trans->in_fsync;
+		__entry->state		= trans->transaction->state;
 	),
 
-	TP_printk_btrfs("gen=%llu in_fsync=%d", __entry->generation,
-			__entry->in_fsync)
+	TP_printk_btrfs("gen=%llu in_fsync=%d state=%d(%s)", __entry->generation,
+			__entry->in_fsync, __entry->state,
+			__print_symbolic(__entry->state, TRANSACTION_STATES))
 );
 
 TRACE_EVENT(btrfs_transaction_abort,

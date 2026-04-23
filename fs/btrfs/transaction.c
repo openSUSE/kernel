@@ -2321,6 +2321,7 @@ int btrfs_commit_transaction(struct btrfs_trans_handle *trans)
 	}
 
 	cur_trans->state = TRANS_STATE_COMMIT_PREP;
+	trace_btrfs_transaction_commit(trans);
 	wake_up(&fs_info->transaction_blocked_wait);
 	btrfs_trans_state_lockdep_release(fs_info, BTRFS_LOCKDEP_TRANS_COMMIT_PREP);
 
@@ -2359,6 +2360,7 @@ int btrfs_commit_transaction(struct btrfs_trans_handle *trans)
 	}
 
 	cur_trans->state = TRANS_STATE_COMMIT_START;
+	trace_btrfs_transaction_commit(trans);
 	wake_up(&fs_info->transaction_blocked_wait);
 	spin_unlock(&fs_info->trans_lock);
 
@@ -2414,6 +2416,7 @@ int btrfs_commit_transaction(struct btrfs_trans_handle *trans)
 	spin_lock(&fs_info->trans_lock);
 	add_pending_snapshot(trans);
 	cur_trans->state = TRANS_STATE_COMMIT_DOING;
+	trace_btrfs_transaction_commit(trans);
 	spin_unlock(&fs_info->trans_lock);
 
 	/*
@@ -2562,6 +2565,7 @@ int btrfs_commit_transaction(struct btrfs_trans_handle *trans)
 
 	spin_lock(&fs_info->trans_lock);
 	cur_trans->state = TRANS_STATE_UNBLOCKED;
+	trace_btrfs_transaction_commit(trans);
 	fs_info->running_transaction = NULL;
 	spin_unlock(&fs_info->trans_lock);
 	mutex_unlock(&fs_info->reloc_mutex);
@@ -2604,6 +2608,7 @@ int btrfs_commit_transaction(struct btrfs_trans_handle *trans)
 	 * which can change it.
 	 */
 	cur_trans->state = TRANS_STATE_SUPER_COMMITTED;
+	trace_btrfs_transaction_commit(trans);
 	wake_up(&cur_trans->commit_wait);
 	btrfs_trans_state_lockdep_release(fs_info, BTRFS_LOCKDEP_TRANS_SUPER_COMMITTED);
 
@@ -2620,6 +2625,7 @@ int btrfs_commit_transaction(struct btrfs_trans_handle *trans)
 	 * which can change it.
 	 */
 	cur_trans->state = TRANS_STATE_COMPLETED;
+	trace_btrfs_transaction_commit(trans);
 	wake_up(&cur_trans->commit_wait);
 	btrfs_trans_state_lockdep_release(fs_info, BTRFS_LOCKDEP_TRANS_COMPLETED);
 
@@ -2632,8 +2638,6 @@ int btrfs_commit_transaction(struct btrfs_trans_handle *trans)
 
 	if (trans->type & __TRANS_FREEZABLE)
 		sb_end_intwrite(fs_info->sb);
-
-	trace_btrfs_transaction_commit(trans);
 
 	btrfs_scrub_continue(fs_info);
 
