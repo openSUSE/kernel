@@ -346,7 +346,7 @@ static inline struct extent_state *tree_search(struct extent_io_tree *tree, u64 
 	return tree_search_for_insert(tree, offset, NULL, NULL);
 }
 
-static void extent_io_tree_panic(const struct extent_io_tree *tree,
+static void __noreturn extent_io_tree_panic(const struct extent_io_tree *tree,
 				 const struct extent_state *state,
 				 const char *opname,
 				 int err)

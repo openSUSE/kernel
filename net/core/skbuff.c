@@ -200,7 +200,7 @@ EXPORT_SYMBOL_GPL(drop_reasons_unregister_subsys);
  *	Keep out of line to prevent kernel bloat.
  *	__builtin_return_address is not used because it is not always reliable.
  */
-static void skb_panic(struct sk_buff *skb, unsigned int sz, void *addr,
+static void __noreturn skb_panic(struct sk_buff *skb, unsigned int sz, void *addr,
 		      const char msg[])
 {
 	pr_emerg("%s: text:%px len:%d put:%d head:%px data:%px tail:%#lx end:%#lx dev:%s\n",
