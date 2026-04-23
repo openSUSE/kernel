@@ -112,6 +112,21 @@ check_with_osnoise_options() {
 	NO_RESET_OSNOISE=1 check "$arg1" "$arg2" "$arg3"
 }
 
+check_top_hist() {
+	# Test one command with both "top" and "hist" tools, replacing "TOOL" in
+	# command with either "top" or "hist" respectively, and prefixing the test
+	# names with "top " and "hist ".
+	check "top $1" "$(echo "$2" | sed 's/TOOL/top/g')" "${@:3}"
+	check "hist $1" "$(echo "$2" | sed 's/TOOL/hist/g')" "${@:3}"
+}
+
+check_top_q_hist() {
+	# Same as above, but pass "-q" to top so that strings printed in main
+	# loop are on their own line for top too, not only for hist.
+	check "top $1" "$(echo "$2" | sed 's/TOOL/top -q/g')" "${@:3}"
+	check "hist $1" "$(echo "$2" | sed 's/TOOL/hist/g')" "${@:3}"
+}
+
 set_timeout() {
 	TIMEOUT="timeout -v -k 15s $1"
 }
