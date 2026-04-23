@@ -16,10 +16,24 @@ check_top_q_hist "verify the --stop/-s param" \
 	"osnoise TOOL -s 30 -T 1" 2 "osnoise hit stop tracing"
 check_top_q_hist "verify the --trace param" \
 	"osnoise TOOL -s 30 -T 1 -t" 2 "Saving trace to osnoise_trace.txt"
-check "verify the --entries/-E param" \
-	"osnoise hist -P F:1 -c 0 -r 900000 -d 10s -b 10 -E 25"
 check_top_q_hist "verify the -c/--cpus param" \
 	"osnoise TOOL -P F:1 -c 0 -r 900000 -d 10s -S 1 --on-threshold shell,command=tests/scripts/check-cpus.sh" 2 "^Affinity of threads: 0$"
+
+# Histogram tests
+check "hist with -b/--bucket-size" \
+	"osnoise hist -b 1 -d 1s"
+check "hist with -E/--entries" \
+	"osnoise hist -E 10 -d 1s"
+check "hist with -E/--entries out of range" \
+	"osnoise hist -E 1 -d 1s" 1 "^Entries must be > 10 and < 9999999$"
+check "hist with --no-header" \
+	"osnoise hist --no-header -d 1s" 0 "" "RTLA osnoise histogram"
+check "hist with --with-zeros" \
+	"osnoise hist --with-zeros -b 100000 -E 21 -d 1s" 0 '^2000000\s+0\s+'
+check "hist with --no-index" \
+	"osnoise hist --no-index --with-zeros -d 1s" 0 "" "^count:"
+check "hist with --no-summary" \
+	"osnoise hist --no-summary -d 1s" 0 "" "^count:"
 
 # Test setting default period by putting an absurdly high period
 # and stopping on threshold.
