@@ -2743,38 +2743,33 @@ struct dentry *d_alloc_parallel(struct dentry *parent,
 	spin_unlock(&parent->d_lock);
 
 retry:
-	rcu_read_lock();
 	seq = smp_load_acquire(&parent->d_inode->i_dir_seq);
 	r_seq = read_seqbegin(&rename_lock);
+	rcu_read_lock();
 	dentry = __d_lookup_rcu(parent, name, &d_seq);
 	if (unlikely(dentry)) {
 		if (!lockref_get_not_dead(&dentry->d_lockref)) {
 			rcu_read_unlock();
 			goto retry;
 		}
+		rcu_read_unlock();
 		if (read_seqcount_retry(&dentry->d_seq, d_seq)) {
-			rcu_read_unlock();
 			dput(dentry);
 			goto retry;
 		}
-		rcu_read_unlock();
 		dput(new);
 		return dentry;
 	}
-	if (unlikely(read_seqretry(&rename_lock, r_seq))) {
-		rcu_read_unlock();
+	rcu_read_unlock();
+	if (unlikely(read_seqretry(&rename_lock, r_seq)))
 		goto retry;
-	}
 
-	if (unlikely(seq & 1)) {
-		rcu_read_unlock();
+	if (unlikely(seq & 1))
 		goto retry;
-	}
 
 	hlist_bl_lock(b);
 	if (unlikely(READ_ONCE(parent->d_inode->i_dir_seq) != seq)) {
 		hlist_bl_unlock(b);
-		rcu_read_unlock();
 		goto retry;
 	}
 	/*
@@ -2791,19 +2786,20 @@ retry:
 			continue;
 		if (!d_same_name(dentry, parent, name))
 			continue;
+		rcu_read_lock();
 		hlist_bl_unlock(b);
+		spin_lock(&dentry->d_lock);
+		rcu_read_unlock();
 		/* now we can try to grab a reference */
-		if (!lockref_get_not_dead(&dentry->d_lockref)) {
-			rcu_read_unlock();
+		if (unlikely(dentry->d_lockref.count < 0)) {
+			spin_unlock(&dentry->d_lock);
 			goto retry;
 		}
-
-		rcu_read_unlock();
 		/*
 		 * somebody is likely to be still doing lookup for it;
-		 * wait for them to finish
+		 * pin it and wait for them to finish
 		 */
-		spin_lock(&dentry->d_lock);
+		dget_dlock(dentry);
 		d_wait_lookup(dentry);
 		/*
 		 * it's not in-lookup anymore; in principle we should repeat
@@ -2824,7 +2820,6 @@ retry:
 		dput(new);
 		return dentry;
 	}
-	rcu_read_unlock();
 	hlist_bl_add_head(&new->d_in_lookup_hash, b);
 	hlist_bl_unlock(b);
 	return new;
