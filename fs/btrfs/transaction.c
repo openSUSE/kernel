@@ -394,6 +394,7 @@ loop:
 	cur_trans->transid = fs_info->generation;
 	fs_info->running_transaction = cur_trans;
 	cur_trans->aborted = 0;
+	trace_btrfs_transaction_start(cur_trans);
 	spin_unlock(&fs_info->trans_lock);
 
 	return 0;

@@ -32,6 +32,7 @@ struct btrfs_raid_bio;
 struct raid56_bio_trace_info;
 struct find_free_extent_ctl;
 struct btrfs_trans_handle;
+struct btrfs_transaction;
 
 #define show_ref_type(type)						\
 	__print_symbolic(type,						\
@@ -180,6 +181,23 @@ FLUSH_STATES
 		args)
 #define TP_printk_btrfs(fmt, args...) \
 	TP_printk("%pU: " fmt, __entry->fsid, args)
+
+TRACE_EVENT(btrfs_transaction_start,
+
+	TP_PROTO(const struct btrfs_transaction *trans),
+
+	TP_ARGS(trans),
+
+	TP_STRUCT__entry_btrfs(
+		__field(	u64,  generation		)
+	),
+
+	TP_fast_assign_btrfs(trans->fs_info,
+		__entry->generation	= trans->transid;
+	),
+
+	TP_printk_btrfs("gen=%llu", __entry->generation)
+);
 
 TRACE_EVENT(btrfs_transaction_commit,
 
