@@ -35,8 +35,10 @@ check_top_hist "set the automatic trace mode" \
 	"timerlat TOOL -a 5" 2 "analyzing it"
 check_top_hist "dump tasks" \
 	"timerlat TOOL -a 5 --dump-tasks" 2 "Printing CPU tasks"
-check "print the auto-analysis if hits the stop tracing condition" \
-	"timerlat top --aa-only 5" 2
+check "verify --aa-only stop on threshold" \
+	"timerlat top --aa-only 5" 2 "analyzing it" "Timer Latency"
+check "verify --aa-only max latency" \
+	"timerlat top --aa-only 2000000 -d 1s" 0 "^  Max latency was" "Timer Latency"
 check_top_hist "disable auto-analysis" \
 	"timerlat TOOL -s 3 -T 10 -t --no-aa" 2 "" "analyzing it"
 check_top_q_hist "verify -c/--cpus" \
