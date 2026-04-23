@@ -6081,7 +6081,7 @@ struct btrfs_block_group *btrfs_create_chunk(struct btrfs_trans_handle *trans,
 
 	lockdep_assert_held(&info->chunk_mutex);
 
-	if (!alloc_profile_is_valid(type, 0)) {
+	if (unlikely(!alloc_profile_is_valid(type, 0))) {
 		DEBUG_WARN("invalid alloc profile for type %llu", type);
 		return ERR_PTR(-EINVAL);
 	}
@@ -6092,7 +6092,7 @@ struct btrfs_block_group *btrfs_create_chunk(struct btrfs_trans_handle *trans,
 		return ERR_PTR(-ENOSPC);
 	}
 
-	if (!(type & BTRFS_BLOCK_GROUP_TYPE_MASK)) {
+	if (unlikely(!(type & BTRFS_BLOCK_GROUP_TYPE_MASK))) {
 		btrfs_err(info, "invalid chunk type 0x%llx requested", type);
 		DEBUG_WARN();
 		return ERR_PTR(-EINVAL);
@@ -6262,7 +6262,7 @@ static noinline int init_first_rw_device(struct btrfs_trans_handle *trans)
 
 	alloc_profile = btrfs_metadata_alloc_profile(fs_info);
 	meta_space_info = btrfs_find_space_info(fs_info, alloc_profile);
-	if (!meta_space_info) {
+	if (unlikely(!meta_space_info)) {
 		DEBUG_WARN();
 		return -EINVAL;
 	}
@@ -6272,7 +6272,7 @@ static noinline int init_first_rw_device(struct btrfs_trans_handle *trans)
 
 	alloc_profile = btrfs_system_alloc_profile(fs_info);
 	sys_space_info = btrfs_find_space_info(fs_info, alloc_profile);
-	if (!sys_space_info) {
+	if (unlikely(!sys_space_info)) {
 		DEBUG_WARN();
 		return -EINVAL;
 	}

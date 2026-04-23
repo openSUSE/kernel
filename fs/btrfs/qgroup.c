@@ -1858,9 +1858,9 @@ int btrfs_remove_qgroup(struct btrfs_trans_handle *trans, u64 qgroupid)
 	 * Thus its reserved space should all be zero, no matter if qgroup
 	 * is consistent or the mode.
 	 */
-	if (qgroup->rsv.values[BTRFS_QGROUP_RSV_DATA] ||
-	    qgroup->rsv.values[BTRFS_QGROUP_RSV_META_PREALLOC] ||
-	    qgroup->rsv.values[BTRFS_QGROUP_RSV_META_PERTRANS]) {
+	if (unlikely(qgroup->rsv.values[BTRFS_QGROUP_RSV_DATA] ||
+		     qgroup->rsv.values[BTRFS_QGROUP_RSV_META_PREALLOC] ||
+		     qgroup->rsv.values[BTRFS_QGROUP_RSV_META_PERTRANS])) {
 		DEBUG_WARN();
 		btrfs_warn_rl(fs_info,
 "to be deleted qgroup %u/%llu has non-zero numbers, data %llu meta prealloc %llu meta pertrans %llu",
@@ -1879,8 +1879,8 @@ int btrfs_remove_qgroup(struct btrfs_trans_handle *trans, u64 qgroupid)
 	 */
 	if (btrfs_qgroup_mode(fs_info) == BTRFS_QGROUP_MODE_FULL &&
 	    !(fs_info->qgroup_flags & BTRFS_QGROUP_STATUS_FLAG_INCONSISTENT)) {
-		if (qgroup->rfer || qgroup->excl ||
-		    qgroup->rfer_cmpr || qgroup->excl_cmpr) {
+		if (unlikely(qgroup->rfer || qgroup->excl ||
+			     qgroup->rfer_cmpr || qgroup->excl_cmpr)) {
 			DEBUG_WARN();
 			qgroup_mark_inconsistent(fs_info,
 				"to be deleted qgroup %u/%llu has non-zero numbers, rfer %llu rfer_cmpr %llu excl %llu excl_cmpr %llu",
@@ -4822,9 +4822,9 @@ int btrfs_qgroup_add_swapped_blocks(struct btrfs_root *subvol_root,
 
 		entry = rb_entry(node, struct btrfs_qgroup_swapped_block, node);
 
-		if (entry->subvol_generation != block->subvol_generation ||
-		    entry->reloc_bytenr != block->reloc_bytenr ||
-		    entry->reloc_generation != block->reloc_generation) {
+		if (unlikely(entry->subvol_generation != block->subvol_generation ||
+			     entry->reloc_bytenr != block->reloc_bytenr ||
+			     entry->reloc_generation != block->reloc_generation)) {
 			/*
 			 * Duplicated but mismatch entry found.  Shouldn't happen.
 			 * Marking qgroup inconsistent should be enough for end

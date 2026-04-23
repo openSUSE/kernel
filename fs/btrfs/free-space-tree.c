@@ -109,7 +109,7 @@ struct btrfs_free_space_info *btrfs_search_free_space_info(
 	ret = btrfs_search_slot(trans, root, &key, path, 0, cow);
 	if (ret < 0)
 		return ERR_PTR(ret);
-	if (ret != 0) {
+	if (unlikely(ret != 0)) {
 		btrfs_warn(fs_info, "missing free space info for %llu",
 			   block_group->start);
 		DEBUG_WARN();

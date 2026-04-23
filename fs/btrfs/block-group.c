@@ -4117,7 +4117,7 @@ int btrfs_force_chunk_alloc(struct btrfs_trans_handle *trans, u64 type)
 	struct btrfs_space_info *space_info;
 
 	space_info = btrfs_find_space_info(trans->fs_info, type);
-	if (!space_info) {
+	if (unlikely(!space_info)) {
 		DEBUG_WARN();
 		return -EINVAL;
 	}
