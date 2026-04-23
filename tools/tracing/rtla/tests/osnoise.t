@@ -18,6 +18,8 @@ check_top_q_hist "verify the --trace param" \
 	"osnoise TOOL -s 30 -T 1 -t" 2 "Saving trace to osnoise_trace.txt"
 check "verify the --entries/-E param" \
 	"osnoise hist -P F:1 -c 0 -r 900000 -d 10s -b 10 -E 25"
+check_top_q_hist "verify the -c/--cpus param" \
+	"osnoise TOOL -P F:1 -c 0 -r 900000 -d 10s -S 1 --on-threshold shell,command=tests/scripts/check-cpus.sh" 2 "^Affinity of threads: 0$"
 
 # Test setting default period by putting an absurdly high period
 # and stopping on threshold.

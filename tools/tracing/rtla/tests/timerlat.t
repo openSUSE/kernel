@@ -39,8 +39,8 @@ check "print the auto-analysis if hits the stop tracing condition" \
 	"timerlat top --aa-only 5" 2
 check_top_hist "disable auto-analysis" \
 	"timerlat TOOL -s 3 -T 10 -t --no-aa" 2
-check_top_hist "verify -c/--cpus" \
-	"timerlat TOOL -c 0 -d 10s"
+check_top_q_hist "verify -c/--cpus" \
+	"timerlat TOOL -c 0 -d 10s -T 1 --on-threshold shell,command=tests/scripts/check-cpus.sh" 2 "^Affinity of threads: 0$"
 
 # Actions tests
 check_top_q_hist "trace output through -t" \
