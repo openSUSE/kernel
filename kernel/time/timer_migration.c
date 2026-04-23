@@ -1752,7 +1752,7 @@ static void tmigr_connect_child_parent(struct tmigr_hierarchy *hier, struct tmig
 	 */
 	smp_store_release(&child->parent, parent);
 
-	trace_tmigr_connect_child_parent(child);
+	trace_tmigr_connect_child_parent(hier, child);
 }
 
 static int tmigr_setup_groups(struct tmigr_hierarchy *hier, unsigned int cpu,
@@ -1827,7 +1827,7 @@ static int tmigr_setup_groups(struct tmigr_hierarchy *hier, unsigned int cpu,
 
 			tmigr_init_root(hier, group, activate);
 
-			trace_tmigr_connect_cpu_parent(tmc);
+			trace_tmigr_connect_cpu_parent(hier, tmc);
 
 			/* There are no children that need to be connected */
 			continue;
