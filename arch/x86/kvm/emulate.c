@@ -3603,10 +3603,10 @@ static int em_cpuid(struct x86_emulate_ctxt *ctxt)
 	u64 msr = 0;
 
 	ctxt->ops->get_msr(ctxt, MSR_MISC_FEATURES_ENABLES, &msr);
-	if (msr & MSR_MISC_FEATURES_ENABLES_CPUID_FAULT &&
-	    ctxt->ops->cpl(ctxt)) {
+	if (!ctxt->ops->is_smm(ctxt) &&
+	    (msr & MSR_MISC_FEATURES_ENABLES_CPUID_FAULT) &&
+	    ctxt->ops->cpl(ctxt))
 		return emulate_gp(ctxt, 0);
-	}
 
 	eax = reg_read(ctxt, VCPU_REGS_RAX);
 	ecx = reg_read(ctxt, VCPU_REGS_RCX);
@@ -3894,8 +3894,7 @@ static int check_svme_pa(struct x86_emulate_ctxt *ctxt)
 {
 	u64 rax = reg_read(ctxt, VCPU_REGS_RAX);
 
-	/* Valid physical address? */
-	if (rax & 0xffff000000000000ULL)
+	if (!ctxt->ops->page_address_valid(ctxt, rax))
 		return emulate_gp(ctxt, 0);
 
 	return check_svme(ctxt);
