@@ -6,6 +6,16 @@
 #define TMIGR_CHILDREN_PER_GROUP 8
 
 /**
+ * struct tmigr_hierarchy - a hierarchy associated to a given CPU capacity.
+ * @level_list:	Per level lists of tmigr groups
+ * @root:	The current root of the hierarchy
+ */
+struct tmigr_hierarchy {
+	struct list_head	*level_list;
+	struct tmigr_group	*root;
+};
+
+/**
  * struct tmigr_event - a timer event associated to a CPU
  * @nextevt:	The node to enqueue an event in the parent group queue
  * @cpu:	The CPU to which this event belongs
