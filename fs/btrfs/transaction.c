@@ -2731,6 +2731,7 @@ void __cold __btrfs_abort_transaction(struct btrfs_trans_handle *trans,
 
 	WRITE_ONCE(trans->aborted, error);
 	WRITE_ONCE(trans->transaction->aborted, error);
+	trace_btrfs_transaction_abort(trans);
 	if (first_hit) {
 		btrfs_err(fs_info, "Transaction %llu aborted (error %d)",
 			  trans->transid, error);
