@@ -10,7 +10,7 @@ check "verify help page" \
 check_top_hist "verify help page" \
 	"osnoise TOOL --help" 0 "rtla osnoise"
 check_top_q_hist "verify the --priority/-P param" \
-	"osnoise TOOL -P F:1 -c 0 -r 900000 -d 10s -S 1 --on-threshold shell,command=\"tests/scripts/check-priority.sh osnoise/ SCHED_FIFO 1\"" \
+	"osnoise TOOL -P F:1 -c 0 -r 900000 -d 10s -S 1 --on-threshold shell,command=\"tests/scripts/check-priority.sh SCHED_FIFO 1\"" \
 	2 "Priorities are set correctly"
 check_top_q_hist "verify the --stop/-s param" \
 	"osnoise TOOL -s 30 -T 1" 2 "osnoise hit stop tracing"

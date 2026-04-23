@@ -27,7 +27,7 @@ check_top_hist "verify help page" \
 check_top_hist "verify -s/--stack" \
 	"timerlat TOOL -s 3 -T 10 -t" 2 "Blocking thread stack trace"
 check_top_hist "verify -P/--priority" \
-	"timerlat TOOL -P F:1 -c 0 -d 10s -T 1 --on-threshold shell,command=\"tests/scripts/check-priority.sh timerlatu/ SCHED_FIFO 1\"" \
+	"timerlat TOOL -P F:1 -c 0 -d 10s -T 1 --on-threshold shell,command=\"tests/scripts/check-priority.sh SCHED_FIFO 1\"" \
 	2 "Priorities are set correctly"
 check_top_hist "test in nanoseconds" \
 	"timerlat TOOL -i 2 -c 0 -n -d 10s" 2 "ns"
