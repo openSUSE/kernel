@@ -8,10 +8,12 @@
 /**
  * struct tmigr_hierarchy - a hierarchy associated to a given CPU capacity.
  * @level_list:	Per level lists of tmigr groups
+ * @cpumask:	CPUs belonging to this hierarchy
  * @root:	The current root of the hierarchy
  */
 struct tmigr_hierarchy {
 	struct list_head	*level_list;
+	struct cpumask		*cpumask;
 	struct tmigr_group	*root;
 };
 

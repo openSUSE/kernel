@@ -1916,17 +1916,23 @@ static struct tmigr_hierarchy *tmigr_get_hierarchy(void)
 	if (!hierarchy)
 		return ERR_PTR(-ENOMEM);
 
+	hierarchy->cpumask = kzalloc(cpumask_size(), GFP_KERNEL);
+	if (!hierarchy->cpumask)
+		goto err;
+
 	hierarchy->level_list = kzalloc_objs(struct list_head, tmigr_hierarchy_levels);
-	if (!hierarchy->level_list) {
-		kfree(hierarchy);
-		hierarchy = NULL;
-		return ERR_PTR(-ENOMEM);
-	}
+	if (!hierarchy->level_list)
+		goto err;
 
 	for (int i = 0; i < tmigr_hierarchy_levels; i++)
 		INIT_LIST_HEAD(&hierarchy->level_list[i]);
 
 	return hierarchy;
+err:
+	kfree(hierarchy->cpumask);
+	kfree(hierarchy);
+	hierarchy = NULL;
+	return ERR_PTR(-ENOMEM);
 }
 
 static int tmigr_add_cpu(unsigned int cpu)
@@ -1946,8 +1952,11 @@ static int tmigr_add_cpu(unsigned int cpu)
 
 	ret = tmigr_setup_groups(hier, cpu, node, NULL, false);
 
+	if (ret < 0)
+		return ret;
+
 	/* Root has changed? Connect the old one to the new */
-	if (ret >= 0 && old_root && old_root != hier->root) {
+	if (old_root && old_root != hier->root) {
 		/*
 		 * The target CPU must never do the prepare work, except
 		 * on early boot when the boot CPU is the target. Otherwise
@@ -1963,6 +1972,9 @@ static int tmigr_add_cpu(unsigned int cpu)
 		WARN_ON_ONCE(!per_cpu_ptr(&tmigr_cpu, raw_smp_processor_id())->available);
 		ret = tmigr_setup_groups(hier, -1, old_root->numa_node, old_root, true);
 	}
+
+	if (ret >= 0)
+		cpumask_set_cpu(cpu, hier->cpumask);
 
 	return ret;
 }
