@@ -328,8 +328,6 @@ static const struct vb2_ops tegra_qops = {
 	.buf_request_complete = tegra_buf_request_complete,
 	.start_streaming = tegra_start_streaming,
 	.stop_streaming = tegra_stop_streaming,
-	.wait_prepare = vb2_ops_wait_prepare,
-	.wait_finish = vb2_ops_wait_finish,
 };
 
 static int tegra_queue_init(void *priv,
@@ -834,14 +832,13 @@ static int tegra_open(struct file *file)
 		goto free_ctrls;
 	}
 
-	file->private_data = &ctx->fh;
-	v4l2_fh_add(&ctx->fh);
+	v4l2_fh_add(&ctx->fh, file);
 
 	tegra_reset_coded_fmt(ctx);
-	tegra_try_coded_fmt(file, file->private_data, &ctx->coded_fmt);
+	tegra_try_coded_fmt(file, &ctx->fh, &ctx->coded_fmt);
 
 	tegra_reset_decoded_fmt(ctx);
-	tegra_try_decoded_fmt(file, file->private_data, &ctx->decoded_fmt);
+	tegra_try_decoded_fmt(file, &ctx->fh, &ctx->decoded_fmt);
 
 	return 0;
 
@@ -855,11 +852,11 @@ free_ctx:
 
 static int tegra_release(struct file *file)
 {
-	struct v4l2_fh *fh = file->private_data;
+	struct v4l2_fh *fh = file_to_v4l2_fh(file);
 	struct tegra_ctx *ctx = fh_to_tegra_ctx(fh);
 	struct tegra_vde *vde = ctx->vde;
 
-	v4l2_fh_del(fh);
+	v4l2_fh_del(fh, file);
 	v4l2_m2m_ctx_release(fh->m2m_ctx);
 	v4l2_ctrl_handler_free(&ctx->hdl);
 	v4l2_fh_exit(fh);

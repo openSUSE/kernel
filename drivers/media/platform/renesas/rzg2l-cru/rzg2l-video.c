@@ -712,8 +712,6 @@ static const struct vb2_ops rzg2l_cru_qops = {
 	.buf_queue		= rzg2l_cru_buffer_queue,
 	.start_streaming	= rzg2l_cru_start_streaming_vq,
 	.stop_streaming		= rzg2l_cru_stop_streaming_vq,
-	.wait_prepare		= vb2_ops_wait_prepare,
-	.wait_finish		= vb2_ops_wait_finish,
 };
 
 void rzg2l_cru_dma_unregister(struct rzg2l_cru_dev *cru)
@@ -944,7 +942,6 @@ static int rzg2l_cru_open(struct file *file)
 	if (ret)
 		return ret;
 
-	file->private_data = cru;
 	ret = v4l2_fh_open(file);
 	if (ret)
 		goto err_unlock;

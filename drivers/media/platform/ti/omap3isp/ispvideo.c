@@ -1298,7 +1298,7 @@ static int isp_video_open(struct file *file)
 		return -ENOMEM;
 
 	v4l2_fh_init(&handle->vfh, &video->video);
-	v4l2_fh_add(&handle->vfh);
+	v4l2_fh_add(&handle->vfh, file);
 
 	/* If this is the first user, initialise the pipeline. */
 	if (omap3isp_get(video->isp) == NULL) {
@@ -1321,6 +1321,7 @@ static int isp_video_open(struct file *file)
 	queue->buf_struct_size = sizeof(struct isp_buffer);
 	queue->timestamp_flags = V4L2_BUF_FLAG_TIMESTAMP_MONOTONIC;
 	queue->dev = video->isp->dev;
+	queue->lock = &video->queue_lock;
 
 	ret = vb2_queue_init(&handle->queue);
 	if (ret < 0) {
@@ -1341,11 +1342,10 @@ static int isp_video_open(struct file *file)
 	handle->timeperframe.denominator = 1;
 
 	handle->video = video;
-	file->private_data = &handle->vfh;
 
 done:
 	if (ret < 0) {
-		v4l2_fh_del(&handle->vfh);
+		v4l2_fh_del(&handle->vfh, file);
 		v4l2_fh_exit(&handle->vfh);
 		kfree(handle);
 	}
@@ -1356,7 +1356,7 @@ done:
 static int isp_video_release(struct file *file)
 {
 	struct isp_video *video = video_drvdata(file);
-	struct v4l2_fh *vfh = file->private_data;
+	struct v4l2_fh *vfh = file_to_v4l2_fh(file);
 	struct isp_video_fh *handle = to_isp_video_fh(vfh);
 
 	/* Disable streaming and free the buffers queue resources. */
@@ -1369,10 +1369,9 @@ static int isp_video_release(struct file *file)
 	v4l2_pipeline_pm_put(&video->video.entity);
 
 	/* Release the file handle. */
-	v4l2_fh_del(vfh);
+	v4l2_fh_del(vfh, file);
 	v4l2_fh_exit(vfh);
 	kfree(handle);
-	file->private_data = NULL;
 
 	omap3isp_put(video->isp);
 
@@ -1381,7 +1380,7 @@ static int isp_video_release(struct file *file)
 
 static __poll_t isp_video_poll(struct file *file, poll_table *wait)
 {
-	struct isp_video_fh *vfh = to_isp_video_fh(file->private_data);
+	struct isp_video_fh *vfh = file_to_isp_video_fh(file);
 	struct isp_video *video = video_drvdata(file);
 	__poll_t ret;
 
@@ -1394,7 +1393,7 @@ static __poll_t isp_video_poll(struct file *file, poll_table *wait)
 
 static int isp_video_mmap(struct file *file, struct vm_area_struct *vma)
 {
-	struct isp_video_fh *vfh = to_isp_video_fh(file->private_data);
+	struct isp_video_fh *vfh = file_to_isp_video_fh(file);
 
 	return vb2_mmap(&vfh->queue, vma);
 }

@@ -142,7 +142,7 @@ static const struct v4l2_event vicodec_eos_event = {
 
 static inline struct vicodec_ctx *file2ctx(struct file *file)
 {
-	return container_of(file->private_data, struct vicodec_ctx, fh);
+	return container_of(file_to_v4l2_fh(file), struct vicodec_ctx, fh);
 }
 
 static struct vicodec_q_data *get_q_data(struct vicodec_ctx *ctx,
@@ -1688,8 +1688,6 @@ static const struct vb2_ops vicodec_qops = {
 	.buf_request_complete	= vicodec_buf_request_complete,
 	.start_streaming	= vicodec_start_streaming,
 	.stop_streaming		= vicodec_stop_streaming,
-	.wait_prepare		= vb2_ops_wait_prepare,
-	.wait_finish		= vb2_ops_wait_finish,
 };
 
 static int queue_init(void *priv, struct vb2_queue *src_vq,
@@ -1844,7 +1842,6 @@ static int vicodec_open(struct file *file)
 		ctx->is_stateless = true;
 
 	v4l2_fh_init(&ctx->fh, video_devdata(file));
-	file->private_data = &ctx->fh;
 	ctx->dev = dev;
 	hdl = &ctx->hdl;
 	v4l2_ctrl_handler_init(hdl, 5);
@@ -1923,7 +1920,7 @@ static int vicodec_open(struct file *file)
 		goto open_unlock;
 	}
 
-	v4l2_fh_add(&ctx->fh);
+	v4l2_fh_add(&ctx->fh, file);
 
 open_unlock:
 	mutex_unlock(vfd->lock);
@@ -1938,7 +1935,7 @@ static int vicodec_release(struct file *file)
 	mutex_lock(vfd->lock);
 	v4l2_m2m_ctx_release(ctx->fh.m2m_ctx);
 	mutex_unlock(vfd->lock);
-	v4l2_fh_del(&ctx->fh);
+	v4l2_fh_del(&ctx->fh, file);
 	v4l2_fh_exit(&ctx->fh);
 	v4l2_ctrl_handler_free(&ctx->hdl);
 	kvfree(ctx->state.compressed_frame);

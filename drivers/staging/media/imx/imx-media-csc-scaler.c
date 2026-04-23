@@ -66,6 +66,11 @@ struct ipu_csc_scaler_ctx {
 	unsigned int			sequence;
 };
 
+static inline struct ipu_csc_scaler_ctx *file_to_ctx(struct file *filp)
+{
+	return fh_to_ctx(file_to_v4l2_fh(filp));
+}
+
 static struct ipu_csc_scaler_q_data *get_q_data(struct ipu_csc_scaler_ctx *ctx,
 						enum v4l2_buf_type type)
 {
@@ -572,8 +577,6 @@ static const struct vb2_ops ipu_csc_scaler_qops = {
 	.queue_setup		= ipu_csc_scaler_queue_setup,
 	.buf_prepare		= ipu_csc_scaler_buf_prepare,
 	.buf_queue		= ipu_csc_scaler_buf_queue,
-	.wait_prepare		= vb2_ops_wait_prepare,
-	.wait_finish		= vb2_ops_wait_finish,
 	.start_streaming	= ipu_csc_scaler_start_streaming,
 	.stop_streaming		= ipu_csc_scaler_stop_streaming,
 };
@@ -762,8 +765,7 @@ static int ipu_csc_scaler_open(struct file *file)
 	ctx->rot_mode = IPU_ROTATE_NONE;
 
 	v4l2_fh_init(&ctx->fh, video_devdata(file));
-	file->private_data = &ctx->fh;
-	v4l2_fh_add(&ctx->fh);
+	v4l2_fh_add(&ctx->fh, file);
 	ctx->priv = priv;
 
 	ctx->fh.m2m_ctx = v4l2_m2m_ctx_init(priv->m2m_dev, ctx,
@@ -790,7 +792,7 @@ static int ipu_csc_scaler_open(struct file *file)
 err_ctrls:
 	v4l2_m2m_ctx_release(ctx->fh.m2m_ctx);
 err_ctx:
-	v4l2_fh_del(&ctx->fh);
+	v4l2_fh_del(&ctx->fh, file);
 	v4l2_fh_exit(&ctx->fh);
 	kfree(ctx);
 	return ret;
@@ -799,13 +801,13 @@ err_ctx:
 static int ipu_csc_scaler_release(struct file *file)
 {
 	struct ipu_csc_scaler_priv *priv = video_drvdata(file);
-	struct ipu_csc_scaler_ctx *ctx = fh_to_ctx(file->private_data);
+	struct ipu_csc_scaler_ctx *ctx = file_to_ctx(file);
 
 	dev_dbg(priv->dev, "Releasing instance %p\n", ctx);
 
 	v4l2_ctrl_handler_free(&ctx->ctrl_hdlr);
 	v4l2_m2m_ctx_release(ctx->fh.m2m_ctx);
-	v4l2_fh_del(&ctx->fh);
+	v4l2_fh_del(&ctx->fh, file);
 	v4l2_fh_exit(&ctx->fh);
 	kfree(ctx);
 

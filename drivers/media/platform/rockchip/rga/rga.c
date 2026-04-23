@@ -395,8 +395,7 @@ static int rga_open(struct file *file)
 		return ret;
 	}
 	v4l2_fh_init(&ctx->fh, video_devdata(file));
-	file->private_data = &ctx->fh;
-	v4l2_fh_add(&ctx->fh);
+	v4l2_fh_add(&ctx->fh, file);
 
 	rga_setup_ctrls(ctx);
 
@@ -411,8 +410,7 @@ static int rga_open(struct file *file)
 
 static int rga_release(struct file *file)
 {
-	struct rga_ctx *ctx =
-		container_of(file->private_data, struct rga_ctx, fh);
+	struct rga_ctx *ctx = file_to_rga_ctx(file);
 	struct rockchip_rga *rga = ctx->rga;
 
 	mutex_lock(&rga->mutex);
@@ -420,7 +418,7 @@ static int rga_release(struct file *file)
 	v4l2_m2m_ctx_release(ctx->fh.m2m_ctx);
 
 	v4l2_ctrl_handler_free(&ctx->ctrl_handler);
-	v4l2_fh_del(&ctx->fh);
+	v4l2_fh_del(&ctx->fh, file);
 	v4l2_fh_exit(&ctx->fh);
 	kfree(ctx);
 

@@ -525,8 +525,6 @@ static const struct vb2_ops s3c_camif_qops = {
 	.queue_setup	 = queue_setup,
 	.buf_prepare	 = buffer_prepare,
 	.buf_queue	 = buffer_queue,
-	.wait_prepare	 = vb2_ops_wait_prepare,
-	.wait_finish	 = vb2_ops_wait_finish,
 	.start_streaming = start_streaming,
 	.stop_streaming	 = stop_streaming,
 };
@@ -574,7 +572,7 @@ static int s3c_camif_close(struct file *file)
 
 	mutex_lock(&camif->lock);
 
-	if (vp->owner == file->private_data) {
+	if (vp->owner == file_to_v4l2_fh(file)) {
 		camif_stop_capture(vp);
 		vb2_queue_release(&vp->vb_queue);
 		vp->owner = NULL;
@@ -597,7 +595,7 @@ static __poll_t s3c_camif_poll(struct file *file,
 	__poll_t ret;
 
 	mutex_lock(&camif->lock);
-	if (vp->owner && vp->owner != file->private_data)
+	if (vp->owner && vp->owner != file_to_v4l2_fh(file))
 		ret = EPOLLERR;
 	else
 		ret = vb2_poll(&vp->vb_queue, file, wait);
@@ -611,7 +609,7 @@ static int s3c_camif_mmap(struct file *file, struct vm_area_struct *vma)
 	struct camif_vp *vp = video_drvdata(file);
 	int ret;
 
-	if (vp->owner && vp->owner != file->private_data)
+	if (vp->owner && vp->owner != file_to_v4l2_fh(file))
 		ret = -EBUSY;
 	else
 		ret = vb2_mmap(&vp->vb_queue, vma);

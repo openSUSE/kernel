@@ -27,29 +27,6 @@
 /* CSID hardware can demultiplex up to 4 outputs */
 #define MSM_CSID_MAX_SRC_STREAMS	4
 
-#define DATA_TYPE_EMBEDDED_DATA_8BIT	0x12
-#define DATA_TYPE_YUV420_8BIT		0x18
-#define DATA_TYPE_YUV420_10BIT		0x19
-#define DATA_TYPE_YUV420_8BIT_LEGACY	0x1a
-#define DATA_TYPE_YUV420_8BIT_SHIFTED	0x1c /* Chroma Shifted Pixel Sampling */
-#define DATA_TYPE_YUV420_10BIT_SHIFTED	0x1d /* Chroma Shifted Pixel Sampling */
-#define DATA_TYPE_YUV422_8BIT		0x1e
-#define DATA_TYPE_YUV422_10BIT		0x1f
-#define DATA_TYPE_RGB444		0x20
-#define DATA_TYPE_RGB555		0x21
-#define DATA_TYPE_RGB565		0x22
-#define DATA_TYPE_RGB666		0x23
-#define DATA_TYPE_RGB888		0x24
-#define DATA_TYPE_RAW_24BIT		0x27
-#define DATA_TYPE_RAW_6BIT		0x28
-#define DATA_TYPE_RAW_7BIT		0x29
-#define DATA_TYPE_RAW_8BIT		0x2a
-#define DATA_TYPE_RAW_10BIT		0x2b
-#define DATA_TYPE_RAW_12BIT		0x2c
-#define DATA_TYPE_RAW_14BIT		0x2d
-#define DATA_TYPE_RAW_16BIT		0x2e
-#define DATA_TYPE_RAW_20BIT		0x2f
-
 #define CSID_RESET_TIMEOUT_MS 500
 
 enum csid_testgen_mode {
@@ -236,5 +213,26 @@ extern const struct csid_hw_ops csid_ops_gen2;
  * Return whether CSID is CSID lite
  */
 bool csid_is_lite(struct csid_device *csid);
+
+/*
+ * csid_hw_version - CSID hardware version query
+ * @csid: CSID device
+ *
+ * Return HW version or error
+ */
+u32 csid_hw_version(struct csid_device *csid);
+
+/*
+ * csid_src_pad_code - Pick an output/src format based on the input/sink format
+ * @csid: CSID device
+ * @sink_code: The sink format of the input
+ * @match_format_idx: Request preferred index, as defined by subdevice csid
+ *                    format. Set @match_code to 0 if used.
+ * @match_code: Request preferred code, set @match_format_idx to 0 if used
+ *
+ * Return 0 on failure or src format code otherwise
+ */
+u32 csid_src_pad_code(struct csid_device *csid, u32 sink_code,
+		      unsigned int match_format_idx, u32 match_code);
 
 #endif /* QC_MSM_CAMSS_CSID_H */

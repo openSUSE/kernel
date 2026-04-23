@@ -45,7 +45,10 @@
  *   whole of a destination image with a pixel format conversion.
  */
 
-#define fh2ctx(__fh) container_of(__fh, struct dma2d_ctx, fh)
+static inline struct dma2d_ctx *file2ctx(struct file *filp)
+{
+	return container_of(file_to_v4l2_fh(filp), struct dma2d_ctx, fh);
+}
 
 static const struct dma2d_fmt formats[] = {
 	{
@@ -186,8 +189,6 @@ static const struct vb2_ops dma2d_qops = {
 	.buf_queue	= dma2d_buf_queue,
 	.start_streaming = dma2d_start_streaming,
 	.stop_streaming  = dma2d_stop_streaming,
-	.wait_prepare	= vb2_ops_wait_prepare,
-	.wait_finish	= vb2_ops_wait_finish,
 };
 
 static int queue_init(void *priv, struct vb2_queue *src_vq,
@@ -303,8 +304,7 @@ static int dma2d_open(struct file *file)
 	}
 
 	v4l2_fh_init(&ctx->fh, video_devdata(file));
-	file->private_data = &ctx->fh;
-	v4l2_fh_add(&ctx->fh);
+	v4l2_fh_add(&ctx->fh, file);
 
 	dma2d_setup_ctrls(ctx);
 
@@ -320,13 +320,13 @@ static int dma2d_open(struct file *file)
 static int dma2d_release(struct file *file)
 {
 	struct dma2d_dev *dev = video_drvdata(file);
-	struct dma2d_ctx *ctx = fh2ctx(file->private_data);
+	struct dma2d_ctx *ctx = file2ctx(file);
 
 	mutex_lock(&dev->mutex);
 	v4l2_m2m_ctx_release(ctx->fh.m2m_ctx);
 	mutex_unlock(&dev->mutex);
 	v4l2_ctrl_handler_free(&ctx->ctrl_handler);
-	v4l2_fh_del(&ctx->fh);
+	v4l2_fh_del(&ctx->fh, file);
 	v4l2_fh_exit(&ctx->fh);
 	kfree(ctx);
 

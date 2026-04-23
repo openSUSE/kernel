@@ -302,6 +302,11 @@ struct allegro_channel {
 	unsigned int error;
 };
 
+static inline struct allegro_channel *file_to_channel(struct file *filp)
+{
+	return container_of(file_to_v4l2_fh(filp), struct allegro_channel, fh);
+}
+
 static inline int
 allegro_channel_get_i_frame_qp(struct allegro_channel *channel)
 {
@@ -2897,8 +2902,6 @@ static const struct vb2_ops allegro_queue_ops = {
 	.buf_queue = allegro_buf_queue,
 	.start_streaming = allegro_start_streaming,
 	.stop_streaming = allegro_stop_streaming,
-	.wait_prepare = vb2_ops_wait_prepare,
-	.wait_finish = vb2_ops_wait_finish,
 };
 
 static int allegro_queue_init(void *priv,
@@ -3216,8 +3219,7 @@ static int allegro_open(struct file *file)
 	}
 
 	list_add(&channel->list, &dev->channels);
-	file->private_data = &channel->fh;
-	v4l2_fh_add(&channel->fh);
+	v4l2_fh_add(&channel->fh, file);
 
 	allegro_channel_adjust(channel);
 
@@ -3231,7 +3233,7 @@ error:
 
 static int allegro_release(struct file *file)
 {
-	struct allegro_channel *channel = fh_to_channel(file->private_data);
+	struct allegro_channel *channel = file_to_channel(file);
 
 	v4l2_m2m_ctx_release(channel->fh.m2m_ctx);
 
@@ -3239,7 +3241,7 @@ static int allegro_release(struct file *file)
 
 	v4l2_ctrl_handler_free(&channel->ctrl_handler);
 
-	v4l2_fh_del(&channel->fh);
+	v4l2_fh_del(&channel->fh, file);
 	v4l2_fh_exit(&channel->fh);
 
 	kfree(channel);
@@ -3485,7 +3487,7 @@ static int allegro_enum_framesizes(struct file *file, void *fh,
 static int allegro_ioctl_streamon(struct file *file, void *priv,
 				  enum v4l2_buf_type type)
 {
-	struct v4l2_fh *fh = file->private_data;
+	struct v4l2_fh *fh = file_to_v4l2_fh(file);
 	struct allegro_channel *channel = fh_to_channel(fh);
 	int err;
 
