@@ -3994,8 +3994,8 @@ static bool report_eb_range(const struct extent_buffer *eb, unsigned long start,
  *
  * Caller should not touch the dst/src memory if this function returns error.
  */
-static inline int check_eb_range(const struct extent_buffer *eb,
-				 unsigned long start, unsigned long len)
+static inline bool check_eb_range(const struct extent_buffer *eb,
+				  unsigned long start, unsigned long len)
 {
 	unsigned long offset;
 
