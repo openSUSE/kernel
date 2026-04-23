@@ -3967,25 +3967,38 @@ static bool is_ubsan_insn(struct instruction *insn)
 			"__ubsan_handle_builtin_unreachable"));
 }
 
-static bool should_ignore_livepatch_funcs(struct symbol *func) {
+static bool should_ignore_livepatch_funcs(struct symbol *func)
+{
+	static const char *ignored_funcs[] = {
+		"hv_crash_nmi_local",
+		"fred_sysvec_reboot",
+		"sysvec_reboot",
+		"_remove_from_waiters.cold",
+		"revert_lock.cold",
+		"_grant_lock.cold",
+		"grant_lock.cold",
+		"validate_unlock_args.cold",
+		"_receive_unlock_reply.cold",
+		"_unlock_lock.cold",
+		"do_convert.cold",
+		"purge_dead_list.cold",
+		"_receive_message.cold",
+		"purge_mstcpy_list.isra.0.cold",
+		"dlm_recover_waiters_pre.cold",
+		"dlm_recover_waiters_post.cold",
+	};
 
-      static const char *ignored_funcs[] = {
-              "hv_crash_nmi_local",
-              "fred_sysvec_reboot",
-              "sysvec_reboot",
-      };
+	if (!func)
+		return false;
 
-      if (!func)
-              return false;
+	for (int i = 0; i < ARRAY_SIZE(ignored_funcs); i++) {
+		if (!strcmp(func->name, ignored_funcs[i])) {
+			return true;
+		}
+	}
 
-      for (int i = 0; i < ARRAY_SIZE(ignored_funcs); i++) {
-              if (!strcmp(func->name, ignored_funcs[i]))
-                      return true;
-      }
-
-      return false;
+	return false;
 }
-
 
 static bool ignore_unreachable_insn(struct objtool_file *file, struct instruction *insn)
 {
