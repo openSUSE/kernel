@@ -26,9 +26,6 @@ check_top_hist "verify help page" \
 	"timerlat TOOL --help" 0 "rtla timerlat"
 check_top_hist "verify -s/--stack" \
 	"timerlat TOOL -s 3 -T 10 -t" 2 "Blocking thread stack trace"
-check_top_hist "verify -P/--priority" \
-	"timerlat TOOL -P F:1 -c 0 -d 10s -T 1 --on-threshold shell,command=\"tests/scripts/check-priority.sh SCHED_FIFO 1\"" \
-	2 "Priorities are set correctly"
 check_top_hist "test in nanoseconds" \
 	"timerlat TOOL -i 2 -c 0 -n -d 10s" 2 "ns"
 check_top_hist "set the automatic trace mode" \
@@ -41,10 +38,19 @@ check "verify --aa-only max latency" \
 	"timerlat top --aa-only 2000000 -d 1s" 0 "^  Max latency was" "Timer Latency"
 check_top_hist "disable auto-analysis" \
 	"timerlat TOOL -s 3 -T 10 -t --no-aa" 2 "" "analyzing it"
+
+# Thread tests
+check_top_hist "verify -P/--priority" \
+	"timerlat TOOL -P F:1 -c 0 -d 10s -T 1 --on-threshold shell,command=\"tests/scripts/check-priority.sh SCHED_FIFO 1\"" \
+	2 "Priorities are set correctly"
 check_top_q_hist "verify -c/--cpus" \
 	"timerlat TOOL -c 0 -d 10s -T 1 --on-threshold shell,command=tests/scripts/check-cpus.sh" 2 "^Affinity of threads: 0$"
 check_top_q_hist "verify -H/--house-keeping" \
 	"timerlat TOOL -H 0 -d 10s -T 1 --on-threshold shell,command=tests/scripts/check-housekeeping-cpus.sh" 2 "^Affinity of threads: 0$"
+check_top_q_hist "verify -k/--kernel-threads" \
+	"timerlat TOOL -k -c 0 -d 10s -T 1 --on-threshold shell,command=tests/scripts/check-user-kernel-threads.sh" 2 "1 kernel threads, 0 user threads"
+check_top_q_hist "verify -u/--user-threads" \
+	"timerlat TOOL -u -c 0 -d 10s -T 1 --on-threshold shell,command=tests/scripts/check-user-kernel-threads.sh" 2 "0 kernel threads, 1 user threads"
 
 # Histogram tests
 check "hist with -b/--bucket-size" \
