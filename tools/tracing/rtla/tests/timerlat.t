@@ -43,6 +43,9 @@ check_top_hist "disable auto-analysis" \
 check_top_hist "verify -P/--priority" \
 	"timerlat TOOL -P F:1 -c 0 -d 10s -T 1 --on-threshold shell,command=\"tests/scripts/check-priority.sh SCHED_FIFO 1\"" \
 	2 "Priorities are set correctly"
+check_top_hist "verify -C/--cgroup" \
+	"timerlat TOOL -k -C -c 0 -d 10s -T 1 --on-threshold shell,command=\"tests/scripts/check-cgroup-match.sh\"" \
+	2 "cgroup matches for all workload PIDs"
 check_top_q_hist "verify -c/--cpus" \
 	"timerlat TOOL -c 0 -d 10s -T 1 --on-threshold shell,command=tests/scripts/check-cpus.sh" 2 "^Affinity of threads: 0$"
 check_top_q_hist "verify -H/--house-keeping" \

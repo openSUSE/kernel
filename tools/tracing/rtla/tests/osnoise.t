@@ -18,6 +18,9 @@ check_top_q_hist "verify the --trace param" \
 check_top_q_hist "verify the --priority/-P param" \
 	"osnoise TOOL -P F:1 -c 0 -r 900000 -d 10s -S 1 --on-threshold shell,command=\"tests/scripts/check-priority.sh SCHED_FIFO 1\"" \
 	2 "Priorities are set correctly"
+check_top_q_hist "verify the -C/--cgroup param" \
+	"osnoise TOOL -C -c 0 -r 900000 -d 10s -S 1 --on-threshold shell,command=\"tests/scripts/check-cgroup-match.sh\"" \
+	2 "cgroup matches for all workload PIDs"
 check_top_q_hist "verify the -c/--cpus param" \
 	"osnoise TOOL -P F:1 -c 0 -r 900000 -d 10s -S 1 --on-threshold shell,command=tests/scripts/check-cpus.sh" 2 "^Affinity of threads: 0$"
 check_top_q_hist "verify the -H/--house-keeping param" \
