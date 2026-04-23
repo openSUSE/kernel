@@ -3663,14 +3663,6 @@ static int svm_handle_exit(struct kvm_vcpu *vcpu, fastpath_t exit_fastpath)
 	struct vcpu_svm *svm = to_svm(vcpu);
 	struct kvm_run *kvm_run = vcpu->run;
 
-	/* SEV-ES guests must use the CR write traps to track CR registers. */
-	if (!is_sev_es_guest(vcpu)) {
-		if (!svm_is_intercept(svm, INTERCEPT_CR0_WRITE))
-			vcpu->arch.cr0 = svm->vmcb->save.cr0;
-		if (npt_enabled)
-			vcpu->arch.cr3 = svm->vmcb->save.cr3;
-	}
-
 	if (unlikely(exit_fastpath == EXIT_FASTPATH_EXIT_USERSPACE))
 		return 0;
 
@@ -4527,11 +4519,17 @@ static __no_kcsan fastpath_t svm_vcpu_run(struct kvm_vcpu *vcpu, u64 run_flags)
 	if (!static_cpu_has(X86_FEATURE_V_SPEC_CTRL))
 		x86_spec_ctrl_restore_host(svm->virt_spec_ctrl);
 
+	/* SEV-ES guests must use the CR write traps to track CR registers. */
 	if (!is_sev_es_guest(vcpu)) {
 		vcpu->arch.cr2 = svm->vmcb->save.cr2;
 		vcpu->arch.regs[VCPU_REGS_RAX] = svm->vmcb->save.rax;
 		vcpu->arch.regs[VCPU_REGS_RSP] = svm->vmcb->save.rsp;
 		vcpu->arch.rip = svm->vmcb->save.rip;
+
+		if (!svm_is_intercept(svm, INTERCEPT_CR0_WRITE))
+			vcpu->arch.cr0 = svm->vmcb->save.cr0;
+		if (npt_enabled)
+			vcpu->arch.cr3 = svm->vmcb->save.cr3;
 	}
 	kvm_reset_dirty_registers(vcpu);
 
