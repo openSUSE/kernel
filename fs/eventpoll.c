@@ -1105,62 +1105,77 @@ static void ep_remove(struct eventpoll *ep, struct epitem *epi)
 }
 
 /*
- * Removal path B (see "Removal paths" in the top-of-file banner):
- * close of the epoll fd itself, reached via ep_eventpoll_release().
- *
- * Under ep->mtx we walk the rbtree twice:
- *
- *   Pass 1 drains each epi's pwqlist via ep_unregister_pollwait().
- *          This takes each watched waitqueue head's lock and so
- *          synchronizes with any in-flight ep_poll_callback(), so
- *          after the pass ends no callback can still be holding or
- *          about to dereference any epi on this ep.
- *
- *   Pass 2 runs ep_remove() on each epi. The per-epi pwqlist is
- *          already empty, but the rest of ep_remove() still runs
- *          (epi_fget() pin, f_ep clear under f_lock, rbtree erase,
- *          rdllist unlink, kfree_rcu).
- *
- * Pass 1 must strictly precede Pass 2: fusing them would let a
- * callback queued on epi_i still fire after epi_{i+k} was freed.
- *
- * A concurrent eventpoll_release_file() (path C) serializes against
- * us on ep->mtx; in Pass 2, ep_remove() transparently hands off any
- * epi whose watched file is in __fput() by bailing when epi_fget()
- * returns NULL, and C will clean that epi up on its side.
- *
- * ep->refcount is held > 0 throughout by the ep file's own share;
- * we drop that share after the walk and free the eventpoll if we
- * were last.
+ * Pass 1 of ep_clear_and_put(): drain every epi's pwqlist.
+ * ep_unregister_pollwait() takes each watched wait-queue head's lock,
+ * which synchronizes with any in-flight ep_poll_callback(); after
+ * this returns no callback can still be about to dereference an epi
+ * on this ep. Must strictly precede ep_drain_tree() -- fusing the
+ * two walks would let a callback queued on epi_i still fire after
+ * epi_{i+k} had already been freed.
  */
-static void ep_clear_and_put(struct eventpoll *ep)
+static void ep_drain_pollwaits(struct eventpoll *ep)
 {
-	struct rb_node *rbp, *next;
+	struct rb_node *rbp;
 	struct epitem *epi;
 
-	/* Release any threads blocked in poll-on-ep. */
-	if (waitqueue_active(&ep->poll_wait))
-		ep_poll_safewake(ep, NULL, 0);
+	lockdep_assert_held(&ep->mtx);
 
-	mutex_lock(&ep->mtx);
-
-	/* Pass 1: drain pwqlists; synchronizes with in-flight callbacks. */
 	for (rbp = rb_first_cached(&ep->rbr); rbp; rbp = rb_next(rbp)) {
 		epi = rb_entry(rbp, struct epitem, rbn);
 
 		ep_unregister_pollwait(ep, epi);
 		cond_resched();
 	}
+}
 
-	/* Pass 2: remove each epi. rb_next() is captured before erase. */
+/*
+ * Pass 2 of ep_clear_and_put(): ep_remove() every epi. The per-epi
+ * pwqlist is already empty (ep_drain_pollwaits ran), but the rest of
+ * ep_remove() still runs: epi_fget() pin, f_ep clear under f_lock,
+ * rbtree erase, rdllist unlink, kfree_rcu(epi). rb_next() is captured
+ * before each erase so the iteration is stable.
+ *
+ * A concurrent eventpoll_release_file() (removal path C) on a watched
+ * file serializes with us via ep->mtx; ep_remove() transparently
+ * hands off any epi whose file is in __fput() by bailing when
+ * epi_fget() returns NULL, and path C will clean that epi up.
+ */
+static void ep_drain_tree(struct eventpoll *ep)
+{
+	struct rb_node *rbp, *next;
+	struct epitem *epi;
+
+	lockdep_assert_held(&ep->mtx);
+
 	for (rbp = rb_first_cached(&ep->rbr); rbp; rbp = next) {
 		next = rb_next(rbp);
 		epi = rb_entry(rbp, struct epitem, rbn);
 		ep_remove(ep, epi);
 		cond_resched();
 	}
+}
 
+/*
+ * Removal path B (see "Removal paths" in the top-of-file banner):
+ * close of the epoll fd itself, reached via ep_eventpoll_release().
+ *
+ * Two passes under ep->mtx: first ep_drain_pollwaits() quiesces
+ * in-flight callbacks, then ep_drain_tree() frees the epis. The
+ * ep->refcount is kept > 0 across the walk by the ep file's own
+ * share, which we drop below; ep_free() runs iff we were the last
+ * holder after the tree drained.
+ */
+static void ep_clear_and_put(struct eventpoll *ep)
+{
+	/* Release any threads blocked in poll-on-ep. */
+	if (waitqueue_active(&ep->poll_wait))
+		ep_poll_safewake(ep, NULL, 0);
+
+	mutex_lock(&ep->mtx);
+	ep_drain_pollwaits(ep);
+	ep_drain_tree(ep);
 	mutex_unlock(&ep->mtx);
+
 	if (ep_put(ep))
 		ep_free(ep);
 }
