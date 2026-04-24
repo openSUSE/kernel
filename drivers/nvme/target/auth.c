@@ -485,7 +485,7 @@ int nvmet_auth_ctrl_hash(struct nvmet_req *req, u8 *response,
 	ret = crypto_shash_update(shash, buf, 2);
 	if (ret)
 		goto out;
-	memset(buf, 0, 4);
+	*buf = req->sq->sc_c;
 	ret = crypto_shash_update(shash, buf, 1);
 	if (ret)
 		goto out;
@@ -496,6 +496,7 @@ int nvmet_auth_ctrl_hash(struct nvmet_req *req, u8 *response,
 			    strlen(ctrl->subsysnqn));
 	if (ret)
 		goto out;
+	memset(buf, 0, 4);
 	ret = crypto_shash_update(shash, buf, 1);
 	if (ret)
 		goto out;
