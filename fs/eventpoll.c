@@ -828,10 +828,15 @@ static void ep_remove_wait_queue(struct eppoll_entry *pwq)
 
 	rcu_read_lock();
 	/*
-	 * If it is cleared by POLLFREE, it should be rcu-safe.
-	 * If we read NULL we need a barrier paired with
-	 * smp_store_release() in ep_poll_callback(), otherwise
-	 * we rely on whead->lock.
+	 * POLLFREE handshake, acquire side; see "POLLFREE handshake"
+	 * at the top of this file.
+	 *
+	 * A NULL load is paired with the smp_store_release(&whead, NULL)
+	 * in ep_poll_callback()'s POLLFREE branch: the teardown is
+	 * complete and we must not touch whead again. On a non-NULL load
+	 * rcu_read_lock() keeps the waitqueue memory alive (POLLFREE
+	 * firers RCU-defer the free) and whead->lock inside
+	 * remove_wait_queue() serializes us against the store side.
 	 */
 	whead = smp_load_acquire(&pwq->whead);
 	if (whead)
@@ -1505,17 +1510,24 @@ out_unlock:
 
 	if (pollflags & POLLFREE) {
 		/*
-		 * If we race with ep_remove_wait_queue() it can miss
-		 * ->whead = NULL and do another remove_wait_queue() after
-		 * us, so we can't use __remove_wait_queue().
+		 * POLLFREE handshake, release side; see "POLLFREE handshake"
+		 * at the top of this file.
+		 *
+		 * Unlink our wait entry with list_del_init rather than
+		 * __remove_wait_queue: a concurrent ep_remove_wait_queue()
+		 * that already loaded a non-NULL whead may still call
+		 * remove_wait_queue() after us, and list_del_init() tolerates
+		 * the second delete.
+		 *
+		 * smp_store_release(&whead, NULL) publishes the teardown to
+		 * ep_remove_wait_queue()'s smp_load_acquire(). Before this
+		 * store, a racing ep_clear_and_put() / ep_remove() reaches
+		 * ep_remove_wait_queue() which sees whead != NULL and takes
+		 * whead->lock -- the same lock held by our caller, so it
+		 * serializes behind us. Once whead is zeroed, nothing else
+		 * protects ep / epi / wait.
 		 */
 		list_del_init(&wait->entry);
-		/*
-		 * ->whead != NULL protects us from the race with
-		 * ep_clear_and_put() or ep_remove(), ep_remove_wait_queue()
-		 * takes whead->lock held by the caller. Once we nullify it,
-		 * nothing protects ep/epi or even wait.
-		 */
 		smp_store_release(&ep_pwq_from_wait(wait)->whead, NULL);
 	}
 
