@@ -505,7 +505,7 @@ static void __init epoll_sysctls_init(void)
 
 static const struct file_operations eventpoll_fops;
 
-static inline int is_file_epoll(struct file *f)
+static inline bool is_file_epoll(struct file *f)
 {
 	return f->f_op == &eventpoll_fops;
 }
@@ -526,8 +526,8 @@ static inline int ep_cmp_ffd(struct epoll_filefd *p1,
 	        (p1->file < p2->file ? -1 : p1->fd - p2->fd));
 }
 
-/* Tells us if the item is currently linked */
-static inline int ep_is_linked(struct epitem *epi)
+/* True iff @epi is on its owning ep's ready list. */
+static inline bool ep_is_linked(struct epitem *epi)
 {
 	return !list_empty(&epi->rdllink);
 }
@@ -580,15 +580,8 @@ static inline void epi_clear_ovflist(struct epitem *epi)
 	epi->ovflist_next = EP_UNACTIVE_PTR;
 }
 
-/**
- * ep_events_available - Checks if ready events might be available.
- *
- * @ep: Pointer to the eventpoll context.
- *
- * Return: a value different than %zero if ready events are available,
- *          or %zero otherwise.
- */
-static inline int ep_events_available(struct eventpoll *ep)
+/* True iff @ep has ready events that epoll_wait() might harvest. */
+static inline bool ep_events_available(struct eventpoll *ep)
 {
 	return !list_empty_careful(&ep->rdllist) || ep_is_scanning(ep);
 }
@@ -2218,7 +2211,8 @@ static int ep_schedule_timeout(ktime_t *to)
 static int ep_poll(struct eventpoll *ep, struct epoll_event __user *events,
 		   int maxevents, struct timespec64 *timeout)
 {
-	int res, eavail, timed_out = 0;
+	int res, timed_out = 0;
+	bool eavail;
 	u64 slack = 0;
 	wait_queue_entry_t wait;
 	ktime_t expires, *to = NULL;
@@ -2316,7 +2310,7 @@ static int ep_poll(struct eventpoll *ep, struct epoll_event __user *events,
 		 * If timed out and still on the wait queue, recheck eavail
 		 * carefully under lock, below.
 		 */
-		eavail = 1;
+		eavail = true;
 
 		if (!list_empty_careful(&wait.entry)) {
 			spin_lock_irq(&ep->lock);
