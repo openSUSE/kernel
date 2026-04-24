@@ -372,12 +372,54 @@ struct ep_pqueue {
 /* Maximum number of epoll watched descriptors, per user */
 static long max_user_watches __read_mostly;
 
-/* Used for cycles detection */
+/*
+ * Cycle and path-length checks at EPOLL_CTL_ADD
+ * ---------------------------------------------
+ *
+ * When EPOLL_CTL_ADD creates a link that either targets an eventpoll
+ * file or extends an existing chain of eventpolls, two checks run:
+ *
+ *   1. no cycle is being formed -- ep_loop_check() walks downward
+ *      from the candidate target, and ep_get_upwards_depth_proc()
+ *      walks upward from the outer ep, both bounded by EP_MAX_NESTS.
+ *   2. no file accumulates more than path_limits[depth] wakeup paths
+ *      of a given length -- reverse_path_check().
+ *
+ * Both need a global view of the epoll topology and must be atomic
+ * with the insertion, so the scratch state below is all serialized by
+ * one global mutex, epnested_mutex. Non-nested inserts skip this
+ * machinery entirely and take only ep->mtx.
+ *
+ *   epnested_mutex     Serializes the whole check; also protects every
+ *                      other variable in this block plus path_count[]
+ *                      (declared with the path-check code further
+ *                      down).
+ *   loop_check_gen     Monotonic stamp, bumped once at the start of a
+ *                      check and once at the end. ep->gen caches the
+ *                      value under which ep was last visited by
+ *                      ep_loop_check_proc() or
+ *                      ep_get_upwards_depth_proc(); the post-check
+ *                      bump ensures those cached stamps can no longer
+ *                      equal loop_check_gen, so the
+ *                      "ep->gen == loop_check_gen" trigger in
+ *                      do_epoll_ctl() only fires while another check
+ *                      is in flight.
+ *   inserting_into     Outer eventpoll pointer for the lifetime of one
+ *                      ep_loop_check(); ep_loop_check_proc() fails
+ *                      with -ELOOP if the downward walk reaches it.
+ *   tfile_check_list   Singly-linked list of epitems_head objects
+ *                      collected by ep_loop_check_proc() during the
+ *                      walk, consumed by reverse_path_check()
+ *                      afterwards. Sentinel EP_UNACTIVE_PTR means no
+ *                      check is in flight.
+ *
+ * Commits fdcfce93073d ("eventpoll: Fix integer overflow in
+ * ep_loop_check_proc()") and f2e467a48287 ("eventpoll: Fix
+ * semi-unbounded recursion") hardened the walk; any refactor must
+ * preserve both bail-outs.
+ */
 static DEFINE_MUTEX(epnested_mutex);
-
 static u64 loop_check_gen = 0;
-
-/* Used to check for epoll file descriptor inclusion loops */
 static struct eventpoll *inserting_into;
 
 /* Slab cache used to allocate "struct epitem" */
@@ -387,8 +429,10 @@ static struct kmem_cache *epi_cache __ro_after_init;
 static struct kmem_cache *pwq_cache __ro_after_init;
 
 /*
- * List of files with newly added links, where we may need to limit the number
- * of emanating paths. Protected by the epnested_mutex.
+ * Wrapper anchor for file->f_ep when the watched file is not itself an
+ * eventpoll; for the epoll-watches-epoll case, file->f_ep points at
+ * &watched_ep->refs directly. The ->next field threads
+ * tfile_check_list during one EPOLL_CTL_ADD path check.
  */
 struct epitems_head {
 	struct hlist_head epitems;
