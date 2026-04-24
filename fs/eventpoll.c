@@ -2432,16 +2432,13 @@ static inline void ep_take_care_of_epollwakeup(struct epoll_event *epev)
 }
 #endif
 
-static inline int epoll_mutex_lock(struct mutex *mutex, int depth,
-				   bool nonblock)
+static inline int epoll_mutex_lock(struct mutex *mutex, bool nonblock)
 {
 	if (!nonblock) {
-		mutex_lock_nested(mutex, depth);
+		mutex_lock(mutex);
 		return 0;
 	}
-	if (mutex_trylock(mutex))
-		return 0;
-	return -EAGAIN;
+	return mutex_trylock(mutex) ? 0 : -EAGAIN;
 }
 
 int do_epoll_ctl(int epfd, int op, int fd, struct epoll_event *epds,
@@ -2513,14 +2510,14 @@ int do_epoll_ctl(int epfd, int op, int fd, struct epoll_event *epds,
 	 * deep wakeup paths from forming in parallel through multiple
 	 * EPOLL_CTL_ADD operations.
 	 */
-	error = epoll_mutex_lock(&ep->mtx, 0, nonblock);
+	error = epoll_mutex_lock(&ep->mtx, nonblock);
 	if (error)
 		goto error_tgt_fput;
 	if (op == EPOLL_CTL_ADD) {
 		if (READ_ONCE(fd_file(f)->f_ep) || ep->gen == loop_check_gen ||
 		    is_file_epoll(fd_file(tf))) {
 			mutex_unlock(&ep->mtx);
-			error = epoll_mutex_lock(&epnested_mutex, 0, nonblock);
+			error = epoll_mutex_lock(&epnested_mutex, nonblock);
 			if (error)
 				goto error_tgt_fput;
 			loop_check_gen++;
@@ -2531,7 +2528,7 @@ int do_epoll_ctl(int epfd, int op, int fd, struct epoll_event *epds,
 				if (ep_loop_check(ep, tep) != 0)
 					goto error_tgt_fput;
 			}
-			error = epoll_mutex_lock(&ep->mtx, 0, nonblock);
+			error = epoll_mutex_lock(&ep->mtx, nonblock);
 			if (error)
 				goto error_tgt_fput;
 		}
