@@ -859,23 +859,6 @@ again:
 	if (IS_ERR(folio))
 		return folio;
 
-	/*
-	 * Since we can defragment files opened read-only, we can encounter
-	 * transparent huge pages here (see CONFIG_READ_ONLY_THP_FOR_FS).
-	 *
-	 * The IO for such large folios is not fully tested, thus return
-	 * an error to reject such folios unless it's an experimental build.
-	 *
-	 * Filesystem transparent huge pages are typically only used for
-	 * executables that explicitly enable them, so this isn't very
-	 * restrictive.
-	 */
-	if (!IS_ENABLED(CONFIG_BTRFS_EXPERIMENTAL) && folio_test_large(folio)) {
-		folio_unlock(folio);
-		folio_put(folio);
-		return ERR_PTR(-ETXTBSY);
-	}
-
 	ret = set_folio_extent_mapped(folio);
 	if (ret < 0) {
 		folio_unlock(folio);
