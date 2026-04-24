@@ -118,6 +118,8 @@ void ufshcd_print_tx_eq_params(struct ufs_hba *hba);
 bool ufshcd_is_txeq_presets_used(struct ufs_hba *hba);
 bool ufshcd_is_txeq_preset_selected(u8 preshoot, u8 deemphasis);
 int ufshcd_retrain_tx_eq(struct ufs_hba *hba, u32 gear);
+void ufshcd_retrieve_tx_eq_settings(struct ufs_hba *hba);
+void ufshcd_store_tx_eq_settings(struct ufs_hba *hba);
 
 /* Wrapper functions for safely calling variant operations */
 static inline const char *ufshcd_get_var_name(struct ufs_hba *hba)

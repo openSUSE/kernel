@@ -9128,6 +9128,8 @@ static int ufshcd_device_params_init(struct ufs_hba *hba)
 		dev_err(hba->dev,
 			"%s: Failed getting max supported power mode\n",
 			__func__);
+
+	ufshcd_retrieve_tx_eq_settings(hba);
 out:
 	return ret;
 }
@@ -10748,6 +10750,9 @@ static void ufshcd_wl_shutdown(struct scsi_device *sdev)
 
 	/* Turn on everything while shutting down */
 	ufshcd_rpm_get_sync(hba);
+
+	ufshcd_store_tx_eq_settings(hba);
+
 	scsi_device_quiesce(sdev);
 	shost_for_each_device(sdev, hba->host) {
 		if (sdev == hba->ufs_device_wlun)
