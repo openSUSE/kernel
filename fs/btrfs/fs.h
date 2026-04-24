@@ -50,18 +50,8 @@ struct btrfs_subpage_info;
 struct btrfs_stripe_hash_table;
 struct btrfs_space_info;
 
-/*
- * Minimum data and metadata block size.
- *
- * Normally it's 4K, but for testing subpage block size on 4K page systems, we
- * allow DEBUG builds to accept 2K page size.
- */
-#ifdef CONFIG_BTRFS_DEBUG
-#define BTRFS_MIN_BLOCKSIZE	(SZ_2K)
-#else
+/* Minimum data and metadata block size. */
 #define BTRFS_MIN_BLOCKSIZE	(SZ_4K)
-#endif
-
 #define BTRFS_MAX_BLOCKSIZE	(SZ_64K)
 
 #define BTRFS_MAX_EXTENT_SIZE SZ_128M
