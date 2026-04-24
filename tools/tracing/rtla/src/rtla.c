@@ -61,6 +61,9 @@ ran:
 	return 1;
 }
 
+/* Set main as weak to allow overriding it for building unit test binary */
+#pragma weak main
+
 int main(int argc, char *argv[])
 {
 	int retval;
