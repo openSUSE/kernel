@@ -28,14 +28,7 @@ static struct {
 	{ .name = "SGI GR2/GR3", .id = 0x7f },
 };
 
-static void gio_bus_release(struct device *dev)
-{
-}
-
-static struct device gio_bus = {
-	.init_name = "gio",
-	.release = &gio_bus_release,
-};
+static struct device *gio_bus;
 
 /**
  * gio_match_device - Tell if an of_device structure has a matching
@@ -99,7 +92,7 @@ EXPORT_SYMBOL_GPL(gio_release_dev);
 int gio_device_register(struct gio_device *giodev)
 {
 	giodev->dev.bus = &gio_bus_type;
-	giodev->dev.parent = &gio_bus;
+	giodev->dev.parent = gio_bus;
 	giodev->dev.release = gio_release_dev;
 
 	return device_register(&giodev->dev);
@@ -397,11 +390,9 @@ static int __init ip22_gio_init(void)
 	unsigned int pbdma __maybe_unused;
 	int ret;
 
-	ret = device_register(&gio_bus);
-	if (ret) {
-		put_device(&gio_bus);
-		return ret;
-	}
+	gio_bus = root_device_register("gio");
+	if (IS_ERR(gio_bus))
+		return PTR_ERR(gio_bus);
 
 	ret = bus_register(&gio_bus_type);
 	if (!ret) {
@@ -420,8 +411,9 @@ static int __init ip22_gio_init(void)
 			ip22_check_gio(1, GIO_SLOT_EXP0_BASE, SGI_GIOEXP0_IRQ);
 			ip22_check_gio(2, GIO_SLOT_EXP1_BASE, SGI_GIOEXP1_IRQ);
 		}
-	} else
-		device_unregister(&gio_bus);
+	} else {
+		root_device_unregister(gio_bus);
+	}
 
 	return ret;
 }
