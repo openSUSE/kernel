@@ -1103,20 +1103,47 @@ static void ep_remove(struct eventpoll *ep, struct epitem *epi)
 	WARN_ON_ONCE(ep_refcount_dec_and_test(ep));
 }
 
+/*
+ * Removal path B (see "Removal paths" in the top-of-file banner):
+ * close of the epoll fd itself, reached via ep_eventpoll_release().
+ *
+ * Under ep->mtx we walk the rbtree twice:
+ *
+ *   Pass 1 drains each epi's pwqlist via ep_unregister_pollwait().
+ *          This takes each watched waitqueue head's lock and so
+ *          synchronizes with any in-flight ep_poll_callback(), so
+ *          after the pass ends no callback can still be holding or
+ *          about to dereference any epi on this ep.
+ *
+ *   Pass 2 runs ep_remove() on each epi. The per-epi pwqlist is
+ *          already empty, but the rest of ep_remove() still runs
+ *          (epi_fget() pin, f_ep clear under f_lock, rbtree erase,
+ *          rdllist unlink, kfree_rcu).
+ *
+ * Pass 1 must strictly precede Pass 2: fusing them would let a
+ * callback queued on epi_i still fire after epi_{i+k} was freed.
+ *
+ * A concurrent eventpoll_release_file() (path C) serializes against
+ * us on ep->mtx; in Pass 2, ep_remove() transparently hands off any
+ * epi whose watched file is in __fput() by bailing when epi_fget()
+ * returns NULL, and C will clean that epi up on its side.
+ *
+ * ep->refcount is held > 0 throughout by the ep file's own share;
+ * we drop that share after the walk and free the eventpoll if we
+ * were last.
+ */
 static void ep_clear_and_put(struct eventpoll *ep)
 {
 	struct rb_node *rbp, *next;
 	struct epitem *epi;
 
-	/* We need to release all tasks waiting for these file */
+	/* Release any threads blocked in poll-on-ep. */
 	if (waitqueue_active(&ep->poll_wait))
 		ep_poll_safewake(ep, NULL, 0);
 
 	mutex_lock(&ep->mtx);
 
-	/*
-	 * Walks through the whole tree by unregistering poll callbacks.
-	 */
+	/* Pass 1: drain pwqlists; synchronizes with in-flight callbacks. */
 	for (rbp = rb_first_cached(&ep->rbr); rbp; rbp = rb_next(rbp)) {
 		epi = rb_entry(rbp, struct epitem, rbn);
 
@@ -1124,14 +1151,7 @@ static void ep_clear_and_put(struct eventpoll *ep)
 		cond_resched();
 	}
 
-	/*
-	 * Walks through the whole tree and try to free each "struct epitem".
-	 * Note that ep_remove() will not remove the epitem in case of a
-	 * racing eventpoll_release_file(); the latter will do the removal.
-	 * At this point we are sure no poll callbacks will be lingering around.
-	 * Since we still own a reference to the eventpoll struct, the loop can't
-	 * dispose it.
-	 */
+	/* Pass 2: remove each epi. rb_next() is captured before erase. */
 	for (rbp = rb_first_cached(&ep->rbr); rbp; rbp = next) {
 		next = rb_next(rbp);
 		epi = rb_entry(rbp, struct epitem, rbn);
