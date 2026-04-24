@@ -9988,6 +9988,38 @@ nfs4_layoutcommit_done(struct rpc_task *task, void *calldata)
 	case -NFS4ERR_GRACE:	    /* loca_recalim always false */
 		task->tk_status = 0;
 		break;
+	case -NFS4ERR_OLD_STATEID: {
+		u32 old_seqid = be32_to_cpu(data->args.stateid.seqid);
+		struct pnfs_layout_range range = {
+			.iomode = IOMODE_ANY,
+			.offset = 0,
+			.length = NFS4_MAX_UINT64,
+		};
+
+		if (nfs4_layout_refresh_old_stateid(&data->args.stateid,
+						    &range,
+						    data->args.inode)) {
+			struct pnfs_layout_hdr *lo;
+
+			spin_lock(&data->args.inode->i_lock);
+			lo = NFS_I(data->args.inode)->layout;
+			if (lo && pnfs_layout_is_valid(lo) &&
+			    nfs4_stateid_match_other(&data->args.stateid,
+						     &lo->plh_stateid))
+				pnfs_set_layout_stateid(lo, &data->args.stateid,
+							NULL, false);
+			spin_unlock(&data->args.inode->i_lock);
+
+			dprintk("%s: refreshed OLD_STATEID inode %llu seq %u->%u\n",
+				__func__, data->args.inode->i_ino,
+				old_seqid,
+				be32_to_cpu(data->args.stateid.seqid));
+
+			rpc_restart_call_prepare(task);
+			return;
+		}
+		fallthrough;
+	}
 	case 0:
 		break;
 	default:
