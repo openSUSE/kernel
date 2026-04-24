@@ -969,9 +969,10 @@ static void ep_get(struct eventpoll *ep)
 }
 
 /*
- * Returns true if the event poll can be disposed
+ * Drop a reference to @ep; returns true iff it was the last, in which
+ * case the caller is responsible for ep_free().
  */
-static bool ep_refcount_dec_and_test(struct eventpoll *ep)
+static bool ep_put(struct eventpoll *ep)
 {
 	if (!refcount_dec_and_test(&ep->refcount))
 		return false;
@@ -1100,7 +1101,7 @@ static void ep_remove(struct eventpoll *ep, struct epitem *epi)
 
 	ep_remove_file(ep, epi, file);
 	ep_remove_epi(ep, epi);
-	WARN_ON_ONCE(ep_refcount_dec_and_test(ep));
+	WARN_ON_ONCE(ep_put(ep));
 }
 
 /*
@@ -1160,7 +1161,7 @@ static void ep_clear_and_put(struct eventpoll *ep)
 	}
 
 	mutex_unlock(&ep->mtx);
-	if (ep_refcount_dec_and_test(ep))
+	if (ep_put(ep))
 		ep_free(ep);
 }
 
@@ -1339,7 +1340,7 @@ again:
 
 		mutex_unlock(&ep->mtx);
 
-		if (ep_refcount_dec_and_test(ep))
+		if (ep_put(ep))
 			ep_free(ep);
 		goto again;
 	}
