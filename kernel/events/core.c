@@ -463,11 +463,18 @@ static struct kmem_cache *perf_event_cache;
  *   0 - disallow raw tracepoint access for unpriv
  *   1 - disallow cpu events for unpriv
  *   2 - disallow kernel profiling for unpriv
+ *   3 - disallow all unpriv perf event use
  */
 int sysctl_perf_event_paranoid __read_mostly = 2;
 
 /* Minimum for 512 kiB + 1 user control page. 'free' kiB per user. */
 static int sysctl_perf_event_mlock __read_mostly = 512 + (PAGE_SIZE / 1024);
+
+// SUSE: jsc#PED-14990 Harden performance tracing further
+static inline bool perf_disallow_unpriv(void)
+{
+	return sysctl_perf_event_paranoid > 2 && !perfmon_capable();
+}
 
 /*
  * max perf event sample rate
@@ -13436,6 +13443,10 @@ SYSCALL_DEFINE5(perf_event_open,
 	err = perf_copy_attr(attr_uptr, &attr);
 	if (err)
 		return err;
+
+	// SUSE: jsc#PED-14990 Harden performance tracing further
+	if (perf_disallow_unpriv())
+		return -EACCES;
 
 	/* Do we allow access to perf_event_open(2) ? */
 	err = security_perf_event_open(PERF_SECURITY_OPEN);

@@ -3852,6 +3852,7 @@ int evsel__open_strerror(struct evsel *evsel, struct target *target,
 		 ">= 0: Disallow raw and ftrace function tracepoint access\n"
 		 ">= 1: Disallow CPU event access\n"
 		 ">= 2: Disallow kernel profiling\n"
+		 ">= 3: Disallow user profiling\n"
 		 "To make the adjusted perf_event_paranoid setting permanent preserve it\n"
 		 "in /etc/sysctl.conf (e.g. kernel.perf_event_paranoid = <setting>)",
 		 perf_event_paranoid());
