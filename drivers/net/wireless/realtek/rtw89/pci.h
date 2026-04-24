@@ -33,6 +33,8 @@
 #define RAC_REG_REV2			0x1B
 #define BAC_CMU_EN_DLY_MASK		GENMASK(15, 12)
 #define PCIE_DPHY_DLY_25US		0x1
+#define RAC_ANA14			0x14
+#define EIEOS_L1SS_WAIT_CLKRDY		BIT(2)
 #define RAC_ANA19			0x19
 #define B_PCIE_BIT_RD_SEL		BIT(2)
 #define RAC_REG_FLD_0			0x1D
