@@ -80,14 +80,13 @@ EXPORT_SYMBOL_GPL(gio_dev_put);
  * Will be called only by the device core when all users of this gio device are
  * done.
  */
-void gio_release_dev(struct device *dev)
+static void gio_release_dev(struct device *dev)
 {
 	struct gio_device *giodev;
 
 	giodev = to_gio_device(dev);
 	kfree(giodev);
 }
-EXPORT_SYMBOL_GPL(gio_release_dev);
 
 int gio_device_register(struct gio_device *giodev)
 {
