@@ -33,9 +33,7 @@ static const struct bus_type genpd_provider_bus_type = {
 };
 
 /* The parent for genpd_provider devices. */
-static struct device genpd_provider_bus = {
-	.init_name = "genpd_provider",
-};
+static struct device *genpd_provider_bus;
 
 #define GENPD_RETRY_MAX_MS	250		/* Approximate */
 
@@ -2325,7 +2323,7 @@ static int genpd_alloc_data(struct generic_pm_domain *genpd)
 	device_initialize(&genpd->dev);
 	genpd->dev.release = genpd_provider_release;
 	genpd->dev.bus = &genpd_provider_bus_type;
-	genpd->dev.parent = &genpd_provider_bus;
+	genpd->dev.parent = genpd_provider_bus;
 
 	if (!genpd_is_dev_name_fw(genpd)) {
 		dev_set_name(&genpd->dev, "%s", genpd->name);
@@ -3742,11 +3740,9 @@ static int __init genpd_bus_init(void)
 {
 	int ret;
 
-	ret = device_register(&genpd_provider_bus);
-	if (ret) {
-		put_device(&genpd_provider_bus);
-		return ret;
-	}
+	genpd_provider_bus = root_device_register("genpd_provider");
+	if (IS_ERR(genpd_provider_bus))
+		return PTR_ERR(genpd_provider_bus);
 
 	ret = bus_register(&genpd_provider_bus_type);
 	if (ret)
@@ -3768,7 +3764,7 @@ err_bus:
 err_prov_bus:
 	bus_unregister(&genpd_provider_bus_type);
 err_dev:
-	device_unregister(&genpd_provider_bus);
+	root_device_unregister(genpd_provider_bus);
 	return ret;
 }
 core_initcall(genpd_bus_init);
