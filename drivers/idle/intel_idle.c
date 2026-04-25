@@ -2130,6 +2130,53 @@ static void __init spr_idle_state_table_update(void)
 }
 
 /**
+ * drop_pc6_redundant_cstates() - Drop C-states redundant when PC6 is disabled.
+ * @states: Idle states table to modify.
+ *
+ * When PC6 is disabled in BIOS, C-states that exist solely to enable PC6
+ * entry (such as C6P or C6SP) become identical to shallower C-states like
+ * C6, and are therefore redundant. Should be called only on systems with
+ * multiple C6 flavors.
+ */
+static void __init drop_pc6_redundant_cstates(struct cpuidle_state *states)
+{
+	int count;
+
+	if (!skx_is_pc6_disabled())
+		/* PC6 is not disabled, nothing to do */
+		return;
+
+	for (count = 0; states[count].enter; count++)
+		continue;
+
+	if (count < 2) {
+		pr_debug("Too few idle states to drop PC6-redundant states\n");
+		return;
+	}
+
+	/*
+	 * Sanity check: At this point all platforms with multiple C6 flavors
+	 * use the CPUIDLE_FLAG_PARTIAL_HINT_MATCH flag. And the last state in
+	 * the table is the one that becomes redundant when PC6 is disabled.
+	 */
+	if (!(states[count - 1].flags & CPUIDLE_FLAG_PARTIAL_HINT_MATCH)) {
+		pr_debug("Can't drop PC6-redundant states: unexpected flags\n");
+		return;
+	}
+
+	/*
+	 * On all current platforms with multiple C6 flavors, there is only one
+	 * C-state that becomes redundant when PC6 is disabled. This state is
+	 * the last one in the table. Drop it by marking it with
+	 * CPUIDLE_FLAG_UNUSABLE so that cpuidle excludes it when registering
+	 * idle states.
+	 */
+	pr_info("Dropping idle state %s because PC6 is disabled\n",
+		states[count - 1].name);
+	states[count - 1].flags |= CPUIDLE_FLAG_UNUSABLE;
+}
+
+/**
  * byt_cht_auto_demotion_disable - Disable Bay/Cherry Trail auto-demotion.
  */
 static void __init byt_cht_auto_demotion_disable(void)
@@ -2217,6 +2264,12 @@ static void __init intel_idle_init_cstates_icpu(struct cpuidle_driver *drv)
 	case INTEL_ATOM_SILVERMONT:
 	case INTEL_ATOM_AIRMONT:
 		byt_cht_auto_demotion_disable();
+		break;
+	case INTEL_GRANITERAPIDS_D:
+	case INTEL_GRANITERAPIDS_X:
+	case INTEL_ATOM_CRESTMONT_X:
+	case INTEL_ATOM_DARKMONT_X:
+		drop_pc6_redundant_cstates(cpuidle_state_table);
 		break;
 	}
 
