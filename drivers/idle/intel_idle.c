@@ -2079,12 +2079,13 @@ static void __init sklh_idle_state_table_update(void)
 }
 
 /**
- * skx_idle_state_table_update - Adjust the Sky Lake/Cascade Lake
- * idle states table.
+ * skx_is_pc6_disabled() - Check if PC6 is disabled in BIOS.
+ *
+ * Return: %true if PC6 is disabled, %false otherwise.
  */
-static void __init skx_idle_state_table_update(void)
+static bool __init skx_is_pc6_disabled(void)
 {
-	unsigned long long msr;
+	u64 msr;
 
 	rdmsrq(MSR_PKG_CST_CONFIG_CONTROL, msr);
 
@@ -2095,35 +2096,34 @@ static void __init skx_idle_state_table_update(void)
 	 * 011b: C6 (retention)
 	 * 111b: No Package C state limits.
 	 */
-	if ((msr & SKX_PKG_CST_LIMIT_MASK) < SKX_PKG_CST_LIMIT_PC6) {
-		/*
-		 * Uses the CC6 + PC0 latency and 3 times of
-		 * latency for target_residency if the PC6
-		 * is disabled in BIOS. This is consistent
-		 * with how intel_idle driver uses _CST
-		 * to set the target_residency.
-		 */
+	return (msr & SKX_PKG_CST_LIMIT_MASK) < SKX_PKG_CST_LIMIT_PC6;
+}
+
+/**
+ * skx_idle_state_table_update - Adjust the SKX/CLX idle states table.
+ *
+ * Adjust Sky Lake or Cascade Lake Xeon idle states if PC6 is disabled in BIOS.
+ * Use the CC6 + PC0 latency and 3 times of that latency for target_residency.
+ * This is consistent with how the intel_idle driver uses _CST to set the
+ * target_residency.
+ */
+static void __init skx_idle_state_table_update(void)
+{
+	if (skx_is_pc6_disabled()) {
 		skx_cstates[2].exit_latency = 92;
 		skx_cstates[2].target_residency = 276;
 	}
 }
 
 /**
- * spr_idle_state_table_update - Adjust Sapphire Rapids idle states table.
+ * spr_idle_state_table_update - Adjust Sapphire Rapids Xeon idle states table.
+ *
+ * By default, the C6 state assumes the worst-case scenario of package C6.
+ * However, if PC6 is disabled in BIOS, update the numbers to match core C6.
  */
 static void __init spr_idle_state_table_update(void)
 {
-	unsigned long long msr;
-
-	/*
-	 * By default, the C6 state assumes the worst-case scenario of package
-	 * C6. However, if PC6 is disabled, we update the numbers to match
-	 * core C6.
-	 */
-	rdmsrq(MSR_PKG_CST_CONFIG_CONTROL, msr);
-
-	/* Limit value 2 and above allow for PC6. */
-	if ((msr & SKX_PKG_CST_LIMIT_MASK) < SKX_PKG_CST_LIMIT_PC6) {
+	if (skx_is_pc6_disabled()) {
 		spr_cstates[2].exit_latency = 190;
 		spr_cstates[2].target_residency = 600;
 	}
