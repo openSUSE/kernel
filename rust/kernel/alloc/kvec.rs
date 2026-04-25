@@ -849,6 +849,24 @@ impl<T> Vec<T, KVmalloc> {
 
 impl<T: Clone, A: Allocator> Vec<T, A> {
     /// Extend the vector by `n` clones of `value`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let mut v = KVec::new();
+    /// v.push(1, GFP_KERNEL)?;
+    ///
+    /// v.extend_with(3, 5, GFP_KERNEL)?;
+    /// assert_eq!(&v, &[1, 5, 5, 5]);
+    ///
+    /// v.extend_with(2, 8, GFP_KERNEL)?;
+    /// assert_eq!(&v, &[1, 5, 5, 5, 8, 8]);
+    ///
+    /// v.extend_with(0, 3, GFP_KERNEL)?;
+    /// assert_eq!(&v, &[1, 5, 5, 5, 8, 8]);
+    ///
+    /// # Ok::<(), Error>(())
+    /// ```
     pub fn extend_with(&mut self, n: usize, value: T, flags: Flags) -> Result<(), AllocError> {
         if n == 0 {
             return Ok(());
