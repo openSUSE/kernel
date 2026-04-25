@@ -81,6 +81,11 @@ static bool ibrs_off __read_mostly;
 /* Maximum allowed C-state target residency */
 #define MAX_CMDLINE_RESIDENCY_US (100 * USEC_PER_MSEC)
 
+/* The Package C-State Limit bits in MSR_PKG_CST_CONFIG_CONTROL */
+#define SKX_PKG_CST_LIMIT_MASK GENMASK(2, 0)
+/* PC6 is enabled when Package C-State Limit >= this value */
+#define SKX_PKG_CST_LIMIT_PC6 2
+
 static char cmdline_table_str[MAX_CMDLINE_TABLE_LEN] __read_mostly;
 
 static struct cpuidle_device __percpu *intel_idle_cpuidle_devices;
@@ -2090,7 +2095,7 @@ static void __init skx_idle_state_table_update(void)
 	 * 011b: C6 (retention)
 	 * 111b: No Package C state limits.
 	 */
-	if ((msr & 0x7) < 2) {
+	if ((msr & SKX_PKG_CST_LIMIT_MASK) < SKX_PKG_CST_LIMIT_PC6) {
 		/*
 		 * Uses the CC6 + PC0 latency and 3 times of
 		 * latency for target_residency if the PC6
@@ -2118,7 +2123,7 @@ static void __init spr_idle_state_table_update(void)
 	rdmsrq(MSR_PKG_CST_CONFIG_CONTROL, msr);
 
 	/* Limit value 2 and above allow for PC6. */
-	if ((msr & 0x7) < 2) {
+	if ((msr & SKX_PKG_CST_LIMIT_MASK) < SKX_PKG_CST_LIMIT_PC6) {
 		spr_cstates[2].exit_latency = 190;
 		spr_cstates[2].target_residency = 600;
 	}
