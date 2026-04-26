@@ -83,6 +83,10 @@ int arch_crash_hotplug_support(struct kimage *image, unsigned long kexec_flags);
 
 unsigned int arch_crash_get_elfcorehdr_size(void);
 #define crash_get_elfcorehdr_size arch_crash_get_elfcorehdr_size
+
+int machine_kexec_post_load(struct kimage *image);
+#define machine_kexec_post_load machine_kexec_post_load
+
 #endif /* CONFIG_CRASH_HOTPLUG */
 
 extern int crashing_cpu;
@@ -101,6 +105,8 @@ int __init overlaps_crashkernel(unsigned long start, unsigned long size);
 extern void reserve_crashkernel(void);
 extern void machine_kexec_mask_interrupts(void);
 
+extern void sync_backup_region_phdr(struct kimage *image, Elf64_Ehdr *ehdr,
+				    bool phdr_to_kimage);
 static inline bool kdump_in_progress(void)
 {
 	return crashing_cpu >= 0;
@@ -120,11 +126,9 @@ void crash_free_reserved_phys_range(unsigned long begin, unsigned long end);
 #endif /* CONFIG_PPC_RTAS */
 #endif /* CONFIG_CRASH_DUMP */
 
-#ifdef CONFIG_KEXEC_FILE
-extern const struct kexec_file_ops kexec_elf64_ops;
 
+#if defined(CONFIG_KEXEC_FILE) || defined(CONFIG_CRASH_DUMP)
 #define ARCH_HAS_KIMAGE_ARCH
-
 struct kimage_arch {
 	struct crash_mem *exclude_ranges;
 
@@ -132,6 +136,10 @@ struct kimage_arch {
 	void *backup_buf;
 	void *fdt;
 };
+#endif
+
+#ifdef CONFIG_KEXEC_FILE
+extern const struct kexec_file_ops kexec_elf64_ops;
 
 char *setup_kdump_cmdline(struct kimage *image, char *cmdline,
 			  unsigned long cmdline_len);
