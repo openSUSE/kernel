@@ -1049,15 +1049,6 @@ config CAVIUM_OCTEON_SOC
 
 endchoice
 
-config FIT_IMAGE_FDT_EPM5
-	bool "Include FDT for Mobileye EyeQ5 development platforms"
-	depends on MACH_EYEQ5
-	default n
-	help
-	  Enable this to include the FDT for the EyeQ5 development platforms
-	  from Mobileye in the FIT kernel image.
-	  This requires u-boot on the platform.
-
 source "arch/mips/alchemy/Kconfig"
 source "arch/mips/ath25/Kconfig"
 source "arch/mips/ath79/Kconfig"
