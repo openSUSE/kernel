@@ -2117,6 +2117,10 @@ static struct damos_sysfs_action_name damos_sysfs_action_names[] = {
 		.name = "nohugepage",
 	},
 	{
+		.action = DAMOS_COLLAPSE,
+		.name = "collapse",
+	},
+	{
 		.action = DAMOS_LRU_PRIO,
 		.name = "lru_prio",
 	},
