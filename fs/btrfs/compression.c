@@ -358,12 +358,9 @@ struct compressed_bio *btrfs_alloc_compressed_write(struct btrfs_inode *inode,
  * Add extra pages in the same compressed file extent so that we don't need to
  * re-read the same extent again and again.
  *
- * NOTE: this won't work well for subpage, as for subpage read, we lock the
- * full page then submit bio for each compressed/regular extents.
- *
- * This means, if we have several sectors in the same page points to the same
- * on-disk compressed data, we will re-read the same extent many times and
- * this function can only help for the next page.
+ * If in the same page, we have several non-contiguous blocks which are pointing
+ * to the same on-disk compressed data, we will re-read the same extent many
+ * times, as this function can only help cross page situations.
  */
 static noinline int add_ra_bio_pages(struct inode *inode,
 				     u64 compressed_end,
@@ -389,16 +386,6 @@ static noinline int add_ra_bio_pages(struct inode *inode,
 	tree = &BTRFS_I(inode)->io_tree;
 
 	if (isize == 0)
-		return 0;
-
-	/*
-	 * For current subpage support, we only support 64K page size,
-	 * which means maximum compressed extent size (128K) is just 2x page
-	 * size.
-	 * This makes readahead less effective, so here disable readahead for
-	 * subpage for now, until full compressed write is supported.
-	 */
-	if (fs_info->sectorsize < PAGE_SIZE)
 		return 0;
 
 	/* For bs > ps cases, we don't support readahead for compressed folios for now. */
@@ -438,8 +425,8 @@ static noinline int add_ra_bio_pages(struct inode *inode,
 				break;
 
 			/*
-			 * Jump to next page start as we already have page for
-			 * current offset.
+			 * Jump to the next folio as we already have a folio for
+			 * the current offset.
 			 */
 			cur += (folio_sz - offset);
 			continue;
@@ -457,7 +444,7 @@ static noinline int add_ra_bio_pages(struct inode *inode,
 			break;
 
 		if (filemap_add_folio(mapping, folio, pg_index, cache_gfp)) {
-			/* There is already a page, skip to page end */
+			/* There is already a folio, skip to folio end. */
 			cur += folio_size(folio);
 			folio_put(folio);
 			continue;
@@ -482,7 +469,7 @@ static noinline int add_ra_bio_pages(struct inode *inode,
 		read_unlock(&em_tree->lock);
 
 		/*
-		 * At this point, we have a locked page in the page cache for
+		 * At this point, we have a locked folio in the page cache for
 		 * these bytes in the file.  But, we have to make sure they map
 		 * to this compressed extent on disk.
 		 */
@@ -516,13 +503,7 @@ static noinline int add_ra_bio_pages(struct inode *inode,
 			folio_put(folio);
 			break;
 		}
-		/*
-		 * If it's subpage, we also need to increase its
-		 * subpage::readers number, as at endio we will decrease
-		 * subpage::readers and to unlock the page.
-		 */
-		if (fs_info->sectorsize < PAGE_SIZE)
-			btrfs_folio_set_lock(fs_info, folio, cur, add_size);
+		btrfs_folio_set_lock(fs_info, folio, cur, add_size);
 		folio_put(folio);
 		cur += add_size;
 	}
