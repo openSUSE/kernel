@@ -355,18 +355,16 @@ struct compressed_bio *btrfs_alloc_compressed_write(struct btrfs_inode *inode,
 }
 
 /*
- * Add extra pages in the same compressed file extent so that we don't need to
+ * Add extra folios in the same compressed file extent so that we don't need to
  * re-read the same extent again and again.
  *
- * If in the same page, we have several non-contiguous blocks which are pointing
+ * If in the same folio, we have several non-contiguous blocks which are pointing
  * to the same on-disk compressed data, we will re-read the same extent many
- * times, as this function can only help cross page situations.
+ * times, as this function can only help cross folio situations.
  */
-static noinline int add_ra_bio_pages(struct inode *inode,
-				     u64 compressed_end,
-				     struct compressed_bio *cb,
-				     int *memstall, unsigned long *pflags,
-				     bool direct_reclaim)
+static noinline int add_ra_bio_folios(struct inode *inode, u64 compressed_end,
+				      struct compressed_bio *cb, int *memstall,
+				      unsigned long *pflags, bool direct_reclaim)
 {
 	struct btrfs_fs_info *fs_info = inode_to_fs_info(inode);
 	pgoff_t end_index;
@@ -403,7 +401,7 @@ static noinline int add_ra_bio_pages(struct inode *inode,
 	}
 
 	while (cur < compressed_end) {
-		pgoff_t page_end;
+		u64 folio_end;
 		pgoff_t pg_index = cur >> PAGE_SHIFT;
 		gfp_t masked_constraint_gfp;
 		u32 add_size;
@@ -444,8 +442,8 @@ static noinline int add_ra_bio_pages(struct inode *inode,
 			break;
 
 		if (filemap_add_folio(mapping, folio, pg_index, cache_gfp)) {
-			/* There is already a folio, skip to folio end. */
-			cur += folio_size(folio);
+			/* There is already a folio, skip to the folio end. */
+			cur += folio_size(folio) - offset_in_folio(folio, cur);
 			folio_put(folio);
 			continue;
 		}
@@ -462,10 +460,10 @@ static noinline int add_ra_bio_pages(struct inode *inode,
 			break;
 		}
 
-		page_end = (pg_index << PAGE_SHIFT) + folio_size(folio) - 1;
-		btrfs_lock_extent(tree, cur, page_end, NULL);
+		folio_end = folio_next_pos(folio) - 1;
+		btrfs_lock_extent(tree, cur, folio_end, NULL);
 		read_lock(&em_tree->lock);
-		em = btrfs_lookup_extent_mapping(em_tree, cur, page_end + 1 - cur);
+		em = btrfs_lookup_extent_mapping(em_tree, cur, folio_end + 1 - cur);
 		read_unlock(&em_tree->lock);
 
 		/*
@@ -478,14 +476,14 @@ static noinline int add_ra_bio_pages(struct inode *inode,
 		    (btrfs_extent_map_block_start(em) >> SECTOR_SHIFT) !=
 		    orig_bio->bi_iter.bi_sector) {
 			btrfs_free_extent_map(em);
-			btrfs_unlock_extent(tree, cur, page_end, NULL);
+			btrfs_unlock_extent(tree, cur, folio_end, NULL);
 			folio_unlock(folio);
 			folio_put(folio);
 			break;
 		}
-		add_size = min(btrfs_extent_map_end(em), page_end + 1) - cur;
+		add_size = min(btrfs_extent_map_end(em), folio_end + 1) - cur;
 		btrfs_free_extent_map(em);
-		btrfs_unlock_extent(tree, cur, page_end, NULL);
+		btrfs_unlock_extent(tree, cur, folio_end, NULL);
 
 		if (folio_contains(folio, end_index)) {
 			size_t zero_offset = offset_in_folio(folio, isize);
@@ -594,8 +592,8 @@ void btrfs_submit_compressed_read(struct btrfs_bio *bbio)
 	}
 	ASSERT(cb->bbio.bio.bi_iter.bi_size == compressed_len);
 
-	add_ra_bio_pages(&inode->vfs_inode, em_start + em_len, cb, &memstall,
-			 &pflags, !(bbio->bio.bi_opf & REQ_RAHEAD));
+	add_ra_bio_folios(&inode->vfs_inode, em_start + em_len, cb, &memstall,
+			  &pflags, !(bbio->bio.bi_opf & REQ_RAHEAD));
 
 	cb->len = bbio->bio.bi_iter.bi_size;
 	cb->bbio.bio.bi_iter.bi_sector = bbio->bio.bi_iter.bi_sector;
