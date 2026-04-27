@@ -14,7 +14,7 @@ int arm64_ioremap_prot_hook_register(ioremap_prot_hook_t hook)
 	return 0;
 }
 
-void __iomem *ioremap_prot(phys_addr_t phys_addr, size_t size,
+void __iomem *__ioremap_prot(phys_addr_t phys_addr, size_t size,
 			   unsigned long prot)
 {
 	unsigned long last_addr = phys_addr + size - 1;
@@ -38,6 +38,21 @@ void __iomem *ioremap_prot(phys_addr_t phys_addr, size_t size,
 	}
 
 	return generic_ioremap_prot(phys_addr, size, pgprot);
+}
+EXPORT_SYMBOL(__ioremap_prot);
+
+void __iomem *ioremap_prot(phys_addr_t phys, size_t size,
+			   unsigned long user_prot)
+{
+	pgprot_t prot;
+	pteval_t user_prot_val = pgprot_val(__pgprot(user_prot));
+
+	if (WARN_ON_ONCE(!(user_prot_val & PTE_USER)))
+		return NULL;
+
+	prot = __pgprot_modify(PAGE_KERNEL, PTE_ATTRINDX_MASK,
+			       user_prot_val & PTE_ATTRINDX_MASK);
+	return __ioremap_prot(phys, size, pgprot_val(prot));
 }
 EXPORT_SYMBOL(ioremap_prot);
 
