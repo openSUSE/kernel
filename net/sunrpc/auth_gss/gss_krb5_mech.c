@@ -46,8 +46,6 @@ static const struct gss_krb5_enctype supported_gss_krb5_enctypes[] = {
 	  .encrypt = gss_krb5_aead_encrypt,
 	  .decrypt = gss_krb5_aead_decrypt,
 
-	  .get_mic = gss_krb5_get_mic_v2,
-	  .verify_mic = gss_krb5_verify_mic_v2,
 	  .wrap = gss_krb5_wrap_v2,
 	  .unwrap = gss_krb5_unwrap_v2,
 
@@ -75,8 +73,6 @@ static const struct gss_krb5_enctype supported_gss_krb5_enctypes[] = {
 	  .encrypt = gss_krb5_aead_encrypt,
 	  .decrypt = gss_krb5_aead_decrypt,
 
-	  .get_mic = gss_krb5_get_mic_v2,
-	  .verify_mic = gss_krb5_verify_mic_v2,
 	  .wrap = gss_krb5_wrap_v2,
 	  .unwrap = gss_krb5_unwrap_v2,
 
@@ -114,8 +110,6 @@ static const struct gss_krb5_enctype supported_gss_krb5_enctypes[] = {
 		.encrypt	= gss_krb5_aead_encrypt,
 		.decrypt	= gss_krb5_aead_decrypt,
 
-		.get_mic	= gss_krb5_get_mic_v2,
-		.verify_mic	= gss_krb5_verify_mic_v2,
 		.wrap		= gss_krb5_wrap_v2,
 		.unwrap		= gss_krb5_unwrap_v2,
 	},
@@ -140,8 +134,6 @@ static const struct gss_krb5_enctype supported_gss_krb5_enctypes[] = {
 		.encrypt	= gss_krb5_aead_encrypt,
 		.decrypt	= gss_krb5_aead_decrypt,
 
-		.get_mic	= gss_krb5_get_mic_v2,
-		.verify_mic	= gss_krb5_verify_mic_v2,
 		.wrap		= gss_krb5_wrap_v2,
 		.unwrap		= gss_krb5_unwrap_v2,
 	},
@@ -169,8 +161,6 @@ static const struct gss_krb5_enctype supported_gss_krb5_enctypes[] = {
 		.encrypt	= gss_krb5_aead_encrypt,
 		.decrypt	= gss_krb5_aead_decrypt,
 
-		.get_mic	= gss_krb5_get_mic_v2,
-		.verify_mic	= gss_krb5_verify_mic_v2,
 		.wrap		= gss_krb5_wrap_v2,
 		.unwrap		= gss_krb5_unwrap_v2,
 	},
@@ -195,8 +185,6 @@ static const struct gss_krb5_enctype supported_gss_krb5_enctypes[] = {
 		.encrypt	= gss_krb5_aead_encrypt,
 		.decrypt	= gss_krb5_aead_decrypt,
 
-		.get_mic	= gss_krb5_get_mic_v2,
-		.verify_mic	= gss_krb5_verify_mic_v2,
 		.wrap		= gss_krb5_wrap_v2,
 		.unwrap		= gss_krb5_unwrap_v2,
 	},
@@ -601,7 +589,7 @@ static u32 gss_krb5_get_mic(struct gss_ctx *gctx, struct xdr_buf *text,
 {
 	struct krb5_ctx *kctx = gctx->internal_ctx_id;
 
-	return kctx->gk5e->get_mic(kctx, text, token);
+	return gss_krb5_get_mic_v2(kctx, text, token);
 }
 
 /**
@@ -623,7 +611,7 @@ static u32 gss_krb5_verify_mic(struct gss_ctx *gctx,
 {
 	struct krb5_ctx *kctx = gctx->internal_ctx_id;
 
-	return kctx->gk5e->verify_mic(kctx, message_buffer, read_token);
+	return gss_krb5_verify_mic_v2(kctx, message_buffer, read_token);
 }
 
 /**

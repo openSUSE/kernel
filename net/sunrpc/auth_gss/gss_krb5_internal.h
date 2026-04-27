@@ -44,10 +44,6 @@ struct gss_krb5_enctype {
 		       struct xdr_buf *buf, struct page **pages);
 	u32 (*decrypt)(struct krb5_ctx *kctx, u32 offset, u32 len,
 		       struct xdr_buf *buf, u32 *headskip, u32 *tailskip);
-	u32 (*get_mic)(struct krb5_ctx *kctx, struct xdr_buf *text,
-		       struct xdr_netobj *token);
-	u32 (*verify_mic)(struct krb5_ctx *kctx, struct xdr_buf *message_buffer,
-			  struct xdr_netobj *read_token);
 	u32 (*wrap)(struct krb5_ctx *kctx, int offset,
 		    struct xdr_buf *buf, struct page **pages);
 	u32 (*unwrap)(struct krb5_ctx *kctx, int offset, int len,
