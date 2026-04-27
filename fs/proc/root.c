@@ -275,6 +275,9 @@ static int proc_fill_super(struct super_block *s, struct fs_context *fc)
 	s->s_time_gran = 1;
 	s->s_fs_info = fs_info;
 
+	if (fs_info->pidonly == PROC_PIDONLY_ON)
+		s->s_iflags |= SB_I_RESTRICTED_VARIANT;
+
 	/*
 	 * procfs isn't actually a stacking filesystem; however, there is
 	 * too much magic going on inside it to permit stacking things on

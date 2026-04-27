@@ -6353,10 +6353,18 @@ static bool mnt_already_visible(struct mnt_namespace *ns,
 
 	guard(namespace_shared)();
 	hlist_for_each_entry(mnt, &ns->mnt_visible_mounts, mnt_ns_visible) {
+		const struct super_block *sb_visible = mnt->mnt.mnt_sb;
 		struct mount *child;
 		int mnt_flags;
 
-		if (mnt->mnt.mnt_sb->s_type != sb->s_type)
+		if (sb_visible->s_type != sb->s_type)
+			continue;
+
+		/*
+		 * Restricted variants are not compatible with anything, even
+		 * other restricted variants.
+		 */
+		if (sb_visible->s_iflags & SB_I_RESTRICTED_VARIANT)
 			continue;
 
 		/* A local view of the mount flags */
@@ -6417,6 +6425,13 @@ static bool mount_too_revealing(const struct super_block *sb, int *new_mnt_flags
 			  required_iflags);
 		return true;
 	}
+
+	/*
+	 * Restricted variants don't need an already visible mount because they
+	 * don't expose the full filesystem view.
+	 */
+	if (s_iflags & SB_I_RESTRICTED_VARIANT)
+		return false;
 
 	return !mnt_already_visible(ns, sb, new_mnt_flags);
 }
