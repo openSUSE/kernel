@@ -478,6 +478,7 @@ static enum ap_sm_wait ap_sm_assoc_wait(struct ap_queue *aq)
 		pr_debug("queue 0x%02x.%04x associated with %u\n",
 			 AP_QID_CARD(aq->qid),
 			 AP_QID_QUEUE(aq->qid), aq->assoc_idx);
+		ap_send_se_assoc_uevent(&aq->ap_dev, aq->assoc_idx);
 		return AP_SM_WAIT_NONE;
 	case AP_BS_Q_USABLE_NO_SECURE_KEY:
 		/* association still pending */
@@ -1023,6 +1024,7 @@ static ssize_t se_bind_store(struct device *dev,
 	/* SE bind was successful */
 	AP_DBF_INFO("%s bapq(0x%02x.%04x) success\n", __func__,
 		    AP_QID_CARD(aq->qid), AP_QID_QUEUE(aq->qid));
+	ap_send_se_bind_uevent(&aq->ap_dev);
 	rc = count;
 
 out:
