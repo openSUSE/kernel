@@ -356,6 +356,7 @@ int dlm_midcomms_addr(int nodeid, struct sockaddr_storage *addr)
 	if (!node)
 		return -ENOMEM;
 
+	node->debugfs = dlm_create_debug_comms_file(nodeid, node);
 	node->nodeid = nodeid;
 	spin_lock_init(&node->state_lock);
 	spin_lock_init(&node->send_queue_lock);
@@ -369,7 +370,6 @@ int dlm_midcomms_addr(int nodeid, struct sockaddr_storage *addr)
 	hlist_add_head_rcu(&node->hlist, &node_hash[r]);
 	spin_unlock_bh(&nodes_lock);
 
-	node->debugfs = dlm_create_debug_comms_file(nodeid, node);
 	return 0;
 }
 
