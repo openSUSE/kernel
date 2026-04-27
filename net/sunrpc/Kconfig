@@ -22,8 +22,6 @@ config RPCSEC_GSS_KRB5
 	default y
 	select SUNRPC_GSS
 	select CRYPTO_KRB5
-	select CRYPTO_SKCIPHER
-	select CRYPTO_HASH
 	help
 	  Choose Y here to enable Secure RPC using the Kerberos version 5
 	  GSS-API mechanism (RFC 1964).
