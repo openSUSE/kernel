@@ -1810,10 +1810,11 @@ out:
 	free_extent_buffer(ctx.scratch_eb);
 	ASSERT(list_empty(&ctx.list));
 	ASSERT(list_empty(&ctx.conflict_inodes));
+	ASSERT(ret <= 0, "ret=%d", ret);
 	err = file_check_and_advance_wb_err(file);
 	if (!ret)
 		ret = err;
-	return ret > 0 ? -EIO : ret;
+	return ret;
 
 out_release_extents:
 	btrfs_release_log_ctx_extents(&ctx);
