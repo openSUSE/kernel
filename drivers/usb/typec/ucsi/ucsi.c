@@ -804,16 +804,17 @@ void ucsi_unregister_ppm(struct ucsi *ucsi)
 
 	mutex_unlock(&ucsi->ppm_lock);
 
+	/* Check if reserved bit set. This is out of spec but happens in buggy FW */
+	if (ucsi->cap.num_connectors & 0x80) {
+		dev_warn(ucsi->dev, "UCSI: Invalid num_connectors %d. Likely buggy FW\n",
+			ucsi->cap.num_connectors);
+		ucsi->cap.num_connectors &= 0x7f; // clear bit and carry on
+	}
+
 	for (i = 0; i < ucsi->cap.num_connectors; i++) {
 		cancel_work_sync(&ucsi->connector[i].work);
 		ucsi_unregister_partner(&ucsi->connector[i]);
 		typec_unregister_port(ucsi->connector[i].port);
-	}
-	/* Check if reserved bit set. This is out of spec but happens in buggy FW */
-	if (ucsi->cap.num_connectors & 0x80) {
-		dev_warn(ucsi->dev, "UCSI: Invalid num_connectors %d. Likely buggy FW\n",
-			 ucsi->cap.num_connectors);
-		ucsi->cap.num_connectors &= 0x7f; // clear bit and carry on
 	}
 
 	ucsi_reset_ppm(ucsi);
