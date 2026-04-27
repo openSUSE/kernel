@@ -61,8 +61,6 @@
 #include <linux/types.h>
 #include <linux/jiffies.h>
 #include <linux/sunrpc/gss_krb5.h>
-#include <linux/random.h>
-#include <linux/crypto.h>
 #include <linux/atomic.h>
 #include <linux/scatterlist.h>
 #include <linux/slab.h>

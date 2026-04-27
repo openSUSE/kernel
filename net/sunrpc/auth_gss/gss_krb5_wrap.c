@@ -28,7 +28,6 @@
  * SUCH DAMAGES.
  */
 
-#include <crypto/skcipher.h>
 #include <linux/types.h>
 #include <linux/jiffies.h>
 #include <linux/sunrpc/gss_krb5.h>

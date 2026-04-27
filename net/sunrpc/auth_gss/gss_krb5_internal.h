@@ -26,7 +26,6 @@ struct krb5_ctx {
 	struct crypto_shash	*initiator_sign_shash;
 	struct crypto_shash	*acceptor_sign_shash;
 	u8			Ksess[GSS_KRB5_MAX_KEYLEN]; /* session key */
-	u8			cksum[GSS_KRB5_MAX_KEYLEN];
 	atomic64_t		seq_send64;
 	time64_t		endtime;
 	struct xdr_netobj	mech_used;
