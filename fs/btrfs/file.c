@@ -1688,14 +1688,6 @@ int btrfs_sync_file(struct file *file, loff_t start, loff_t end, int datasync)
 		 * reason, it's no longer relevant.
 		 */
 		clear_bit(BTRFS_INODE_NEEDS_FULL_SYNC, &inode->runtime_flags);
-		/*
-		 * An ordered extent might have started before and completed
-		 * already with io errors, in which case the inode was not
-		 * updated and we end up here. So check the inode's mapping
-		 * for any errors that might have happened since we last
-		 * checked called fsync.
-		 */
-		ret = filemap_check_wb_err(inode->vfs_inode.i_mapping, file->f_wb_err);
 		goto out_release_extents;
 	}
 
@@ -1811,6 +1803,10 @@ out:
 	ASSERT(list_empty(&ctx.list));
 	ASSERT(list_empty(&ctx.conflict_inodes));
 	ASSERT(ret <= 0, "ret=%d", ret);
+	/*
+	 * Ordered extents might have started and completed before this fsync,
+	 * so check for any io errors and advance the writeback error sequence.
+	 */
 	err = file_check_and_advance_wb_err(file);
 	if (!ret)
 		ret = err;
