@@ -2381,7 +2381,7 @@ config MFD_ACER_A500_EC
 	  customized for the specific needs of the Acer A500 hardware.
 
 config MFD_QCOM_PM8008
-	tristate "QCOM PM8008 Power Management IC"
+	tristate "Qualcomm PM8008 Power Management IC"
 	depends on I2C && OF
 	select MFD_CORE
 	select REGMAP_I2C
