@@ -114,7 +114,10 @@ config ISCSI_IBFT
 
 config RASPBERRYPI_FIRMWARE
 	tristate "Raspberry Pi Firmware Driver"
-	depends on BCM2835_MBOX
+	depends on ARCH_BCM2835 || COMPILE_TEST
+	depends on ARM || ARM64
+	depends on MAILBOX
+	default ARCH_BCM2835
 	help
 	  This option enables support for communicating with the firmware on the
 	  Raspberry Pi.
