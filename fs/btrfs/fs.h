@@ -798,6 +798,7 @@ struct btrfs_fs_info {
 	u32 csum_size;
 	u32 csums_per_leaf;
 	u32 stripesize;
+	u32 writeback_bio_size;
 
 	/*
 	 * Maximum size of an extent. BTRFS_MAX_EXTENT_SIZE on regular
