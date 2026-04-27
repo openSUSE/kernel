@@ -9,8 +9,6 @@
  *  J. Bruce Fields <bfields@umich.edu>
  */
 
-#include <crypto/hash.h>
-#include <crypto/skcipher.h>
 #include <linux/err.h>
 #include <linux/module.h>
 #include <linux/init.h>
@@ -225,120 +223,14 @@ const struct gss_krb5_enctype *gss_krb5_lookup_enctype(u32 etype)
 }
 EXPORT_SYMBOL_IF_KUNIT(gss_krb5_lookup_enctype);
 
-static struct crypto_sync_skcipher *
-gss_krb5_alloc_cipher_v2(const char *cname, const struct xdr_netobj *key)
-{
-	struct crypto_sync_skcipher *tfm;
-
-	tfm = crypto_alloc_sync_skcipher(cname, 0, 0);
-	if (IS_ERR(tfm))
-		return NULL;
-	if (crypto_sync_skcipher_setkey(tfm, key->data, key->len)) {
-		crypto_free_sync_skcipher(tfm);
-		return NULL;
-	}
-	return tfm;
-}
-
-static struct crypto_ahash *
-gss_krb5_alloc_hash_v2(struct krb5_ctx *kctx, const struct xdr_netobj *key)
-{
-	struct crypto_ahash *tfm;
-
-	tfm = crypto_alloc_ahash(kctx->gk5e->cksum_name, 0, CRYPTO_ALG_ASYNC);
-	if (IS_ERR(tfm))
-		return NULL;
-	if (crypto_ahash_setkey(tfm, key->data, key->len)) {
-		crypto_free_ahash(tfm);
-		return NULL;
-	}
-	return tfm;
-}
-
 static int
 gss_krb5_import_ctx_v2(struct krb5_ctx *ctx, gfp_t gfp_mask)
 {
-	struct xdr_netobj keyin = {
-		.len	= ctx->gk5e->keylength,
-		.data	= ctx->Ksess,
-	};
 	struct krb5_buffer TK = {
 		.len	= ctx->gk5e->keylength,
 		.data	= ctx->Ksess,
 	};
-	struct xdr_netobj keyout;
-	int ret = -EINVAL;
-
-	keyout.data = kmalloc(GSS_KRB5_MAX_KEYLEN, gfp_mask);
-	if (!keyout.data)
-		return -ENOMEM;
-
-	/* initiator seal encryption */
-	keyout.len = ctx->gk5e->Ke_length;
-	if (krb5_derive_key(ctx, &keyin, &keyout, KG_USAGE_INITIATOR_SEAL,
-			    KEY_USAGE_SEED_ENCRYPTION, gfp_mask))
-		goto out;
-	ctx->initiator_enc = gss_krb5_alloc_cipher_v2(ctx->gk5e->encrypt_name,
-						      &keyout);
-	if (ctx->initiator_enc == NULL)
-		goto out;
-	if (ctx->gk5e->aux_cipher) {
-		ctx->initiator_enc_aux =
-			gss_krb5_alloc_cipher_v2(ctx->gk5e->aux_cipher,
-						 &keyout);
-		if (ctx->initiator_enc_aux == NULL)
-			goto out_free;
-	}
-
-	/* acceptor seal encryption */
-	if (krb5_derive_key(ctx, &keyin, &keyout, KG_USAGE_ACCEPTOR_SEAL,
-			    KEY_USAGE_SEED_ENCRYPTION, gfp_mask))
-		goto out_free;
-	ctx->acceptor_enc = gss_krb5_alloc_cipher_v2(ctx->gk5e->encrypt_name,
-						     &keyout);
-	if (ctx->acceptor_enc == NULL)
-		goto out_free;
-	if (ctx->gk5e->aux_cipher) {
-		ctx->acceptor_enc_aux =
-			gss_krb5_alloc_cipher_v2(ctx->gk5e->aux_cipher,
-						 &keyout);
-		if (ctx->acceptor_enc_aux == NULL)
-			goto out_free;
-	}
-
-	/* initiator sign checksum */
-	keyout.len = ctx->gk5e->Kc_length;
-	if (krb5_derive_key(ctx, &keyin, &keyout, KG_USAGE_INITIATOR_SIGN,
-			    KEY_USAGE_SEED_CHECKSUM, gfp_mask))
-		goto out_free;
-	ctx->initiator_sign = gss_krb5_alloc_hash_v2(ctx, &keyout);
-	if (ctx->initiator_sign == NULL)
-		goto out_free;
-
-	/* acceptor sign checksum */
-	if (krb5_derive_key(ctx, &keyin, &keyout, KG_USAGE_ACCEPTOR_SIGN,
-			    KEY_USAGE_SEED_CHECKSUM, gfp_mask))
-		goto out_free;
-	ctx->acceptor_sign = gss_krb5_alloc_hash_v2(ctx, &keyout);
-	if (ctx->acceptor_sign == NULL)
-		goto out_free;
-
-	/* initiator seal integrity */
-	keyout.len = ctx->gk5e->Ki_length;
-	if (krb5_derive_key(ctx, &keyin, &keyout, KG_USAGE_INITIATOR_SEAL,
-			    KEY_USAGE_SEED_INTEGRITY, gfp_mask))
-		goto out_free;
-	ctx->initiator_integ = gss_krb5_alloc_hash_v2(ctx, &keyout);
-	if (ctx->initiator_integ == NULL)
-		goto out_free;
-
-	/* acceptor seal integrity */
-	if (krb5_derive_key(ctx, &keyin, &keyout, KG_USAGE_ACCEPTOR_SEAL,
-			    KEY_USAGE_SEED_INTEGRITY, gfp_mask))
-		goto out_free;
-	ctx->acceptor_integ = gss_krb5_alloc_hash_v2(ctx, &keyout);
-	if (ctx->acceptor_integ == NULL)
-		goto out_free;
+	int ret;
 
 	ctx->initiator_enc_aead =
 		crypto_krb5_prepare_encryption(ctx->krb5e, &TK,
@@ -373,25 +265,14 @@ gss_krb5_import_ctx_v2(struct krb5_ctx *ctx, gfp_t gfp_mask)
 		goto out_free;
 	}
 
-	ret = 0;
-out:
-	kfree_sensitive(keyout.data);
-	return ret;
+	return 0;
 
 out_free:
 	crypto_free_shash(ctx->acceptor_sign_shash);
 	crypto_free_shash(ctx->initiator_sign_shash);
 	crypto_free_aead(ctx->acceptor_enc_aead);
 	crypto_free_aead(ctx->initiator_enc_aead);
-	crypto_free_ahash(ctx->acceptor_integ);
-	crypto_free_ahash(ctx->initiator_integ);
-	crypto_free_ahash(ctx->acceptor_sign);
-	crypto_free_ahash(ctx->initiator_sign);
-	crypto_free_sync_skcipher(ctx->acceptor_enc_aux);
-	crypto_free_sync_skcipher(ctx->acceptor_enc);
-	crypto_free_sync_skcipher(ctx->initiator_enc_aux);
-	crypto_free_sync_skcipher(ctx->initiator_enc);
-	goto out;
+	return ret;
 }
 
 static int
@@ -509,16 +390,6 @@ gss_krb5_delete_sec_context(void *internal_ctx)
 	crypto_free_shash(kctx->initiator_sign_shash);
 	crypto_free_aead(kctx->acceptor_enc_aead);
 	crypto_free_aead(kctx->initiator_enc_aead);
-	crypto_free_sync_skcipher(kctx->seq);
-	crypto_free_sync_skcipher(kctx->enc);
-	crypto_free_sync_skcipher(kctx->acceptor_enc);
-	crypto_free_sync_skcipher(kctx->initiator_enc);
-	crypto_free_sync_skcipher(kctx->acceptor_enc_aux);
-	crypto_free_sync_skcipher(kctx->initiator_enc_aux);
-	crypto_free_ahash(kctx->acceptor_sign);
-	crypto_free_ahash(kctx->initiator_sign);
-	crypto_free_ahash(kctx->acceptor_integ);
-	crypto_free_ahash(kctx->initiator_integ);
 	kfree(kctx->mech_used.data);
 	kfree(kctx);
 }

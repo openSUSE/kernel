@@ -56,16 +56,6 @@ struct krb5_ctx {
 	struct crypto_aead	*acceptor_enc_aead;
 	struct crypto_shash	*initiator_sign_shash;
 	struct crypto_shash	*acceptor_sign_shash;
-	struct crypto_sync_skcipher *enc;
-	struct crypto_sync_skcipher *seq;
-	struct crypto_sync_skcipher *acceptor_enc;
-	struct crypto_sync_skcipher *initiator_enc;
-	struct crypto_sync_skcipher *acceptor_enc_aux;
-	struct crypto_sync_skcipher *initiator_enc_aux;
-	struct crypto_ahash	*acceptor_sign;
-	struct crypto_ahash	*initiator_sign;
-	struct crypto_ahash	*initiator_integ;
-	struct crypto_ahash	*acceptor_integ;
 	u8			Ksess[GSS_KRB5_MAX_KEYLEN]; /* session key */
 	u8			cksum[GSS_KRB5_MAX_KEYLEN];
 	atomic_t		seq_send;
@@ -115,38 +105,6 @@ int krb5_kdf_feedback_cmac(const struct gss_krb5_enctype *gk5e,
 			   const struct xdr_netobj *in_constant,
 			   gfp_t gfp_mask);
 
-/**
- * krb5_derive_key - Derive a subkey from a protocol key
- * @kctx: Kerberos 5 context
- * @inkey: base protocol key
- * @outkey: OUT: derived key
- * @usage: key usage value
- * @seed: key usage seed (one octet)
- * @gfp_mask: memory allocation control flags
- *
- * Caller sets @outkey->len to the desired length of the derived key.
- *
- * On success, returns 0 and fills in @outkey. A negative errno value
- * is returned on failure.
- */
-static inline int krb5_derive_key(struct krb5_ctx *kctx,
-				  const struct xdr_netobj *inkey,
-				  struct xdr_netobj *outkey,
-				  u32 usage, u8 seed, gfp_t gfp_mask)
-{
-	const struct gss_krb5_enctype *gk5e = kctx->gk5e;
-	u8 label_data[GSS_KRB5_K5CLENGTH];
-	struct xdr_netobj label = {
-		.len	= sizeof(label_data),
-		.data	= label_data,
-	};
-	__be32 *p = (__be32 *)label_data;
-
-	*p = cpu_to_be32(usage);
-	label_data[4] = seed;
-	return gk5e->derive_key(gk5e, inkey, outkey, &label, gfp_mask);
-}
-
 void krb5_make_confounder(u8 *p, int conflen);
 
 u32 gss_krb5_checksum(struct crypto_ahash *tfm, char *header, int hdrlen,
@@ -158,18 +116,6 @@ u32 krb5_encrypt(struct crypto_sync_skcipher *key, void *iv, void *in,
 
 int xdr_extend_head(struct xdr_buf *buf, unsigned int base,
 		    unsigned int shiftlen);
-
-u32 gss_krb5_aes_encrypt(struct krb5_ctx *kctx, u32 offset,
-			 struct xdr_buf *buf, struct page **pages);
-
-u32 gss_krb5_aes_decrypt(struct krb5_ctx *kctx, u32 offset, u32 len,
-			 struct xdr_buf *buf, u32 *plainoffset, u32 *plainlen);
-
-u32 krb5_etm_encrypt(struct krb5_ctx *kctx, u32 offset, struct xdr_buf *buf,
-		     struct page **pages);
-
-u32 krb5_etm_decrypt(struct krb5_ctx *kctx, u32 offset, u32 len,
-		     struct xdr_buf *buf, u32 *headskip, u32 *tailskip);
 
 u32 gss_krb5_errno_to_status(int err);
 
