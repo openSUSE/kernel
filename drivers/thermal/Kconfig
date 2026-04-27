@@ -473,6 +473,8 @@ endmenu
 
 source "drivers/thermal/renesas/Kconfig"
 
+source "drivers/thermal/spacemit/Kconfig"
+
 source "drivers/thermal/tegra/Kconfig"
 
 config GENERIC_ADC_THERMAL
