@@ -18804,7 +18804,9 @@ process_bpf_exit_full:
 				 * function, for which reference_state must
 				 * match caller reference state when it exits.
 				 */
-				err = check_resource_leak(env, exception_exit, !env->cur_state->curframe,
+				err = check_resource_leak(env, exception_exit,
+							  exception_exit || !env->cur_state->curframe,
+							  exception_exit ? "bpf_throw" :
 							  "BPF_EXIT instruction");
 				if (err)
 					return err;
