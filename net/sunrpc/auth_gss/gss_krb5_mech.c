@@ -17,7 +17,6 @@
 #include <linux/sunrpc/auth.h>
 #include <linux/sunrpc/gss_krb5.h>
 #include <linux/sunrpc/xdr.h>
-#include <kunit/visibility.h>
 
 #include "auth_gss_internal.h"
 #include "gss_krb5_internal.h"
@@ -27,141 +26,6 @@
 #endif
 
 static struct gss_api_mech gss_kerberos_mech;
-
-static const struct gss_krb5_enctype supported_gss_krb5_enctypes[] = {
-#if defined(CONFIG_RPCSEC_GSS_KRB5_ENCTYPES_AES_SHA1)
-	/*
-	 * AES-128 with SHA-1 (RFC 3962)
-	 */
-	{
-	  .etype = ENCTYPE_AES128_CTS_HMAC_SHA1_96,
-	  .ctype = CKSUMTYPE_HMAC_SHA1_96_AES128,
-	  .name = "aes128-cts",
-	  .encrypt_name = "cts(cbc(aes))",
-	  .aux_cipher = "cbc(aes)",
-	  .cksum_name = "hmac(sha1)",
-	  .derive_key = krb5_derive_key_v2,
-
-	  .signalg = -1,
-	  .sealalg = -1,
-	  .keybytes = 16,
-	  .keylength = BITS2OCTETS(128),
-	  .Kc_length = BITS2OCTETS(128),
-	  .Ke_length = BITS2OCTETS(128),
-	  .Ki_length = BITS2OCTETS(128),
-	  .cksumlength = BITS2OCTETS(96),
-	  .keyed_cksum = 1,
-	},
-	/*
-	 * AES-256 with SHA-1 (RFC 3962)
-	 */
-	{
-	  .etype = ENCTYPE_AES256_CTS_HMAC_SHA1_96,
-	  .ctype = CKSUMTYPE_HMAC_SHA1_96_AES256,
-	  .name = "aes256-cts",
-	  .encrypt_name = "cts(cbc(aes))",
-	  .aux_cipher = "cbc(aes)",
-	  .cksum_name = "hmac(sha1)",
-	  .derive_key = krb5_derive_key_v2,
-
-	  .signalg = -1,
-	  .sealalg = -1,
-	  .keybytes = 32,
-	  .keylength = BITS2OCTETS(256),
-	  .Kc_length = BITS2OCTETS(256),
-	  .Ke_length = BITS2OCTETS(256),
-	  .Ki_length = BITS2OCTETS(256),
-	  .cksumlength = BITS2OCTETS(96),
-	  .keyed_cksum = 1,
-	},
-#endif
-
-#if defined(CONFIG_RPCSEC_GSS_KRB5_ENCTYPES_CAMELLIA)
-	/*
-	 * Camellia-128 with CMAC (RFC 6803)
-	 */
-	{
-		.etype		= ENCTYPE_CAMELLIA128_CTS_CMAC,
-		.ctype		= CKSUMTYPE_CMAC_CAMELLIA128,
-		.name		= "camellia128-cts-cmac",
-		.encrypt_name	= "cts(cbc(camellia))",
-		.aux_cipher	= "cbc(camellia)",
-		.cksum_name	= "cmac(camellia)",
-		.cksumlength	= BITS2OCTETS(128),
-		.keyed_cksum	= 1,
-		.keylength	= BITS2OCTETS(128),
-		.Kc_length	= BITS2OCTETS(128),
-		.Ke_length	= BITS2OCTETS(128),
-		.Ki_length	= BITS2OCTETS(128),
-
-		.derive_key	= krb5_kdf_feedback_cmac,
-
-	},
-	/*
-	 * Camellia-256 with CMAC (RFC 6803)
-	 */
-	{
-		.etype		= ENCTYPE_CAMELLIA256_CTS_CMAC,
-		.ctype		= CKSUMTYPE_CMAC_CAMELLIA256,
-		.name		= "camellia256-cts-cmac",
-		.encrypt_name	= "cts(cbc(camellia))",
-		.aux_cipher	= "cbc(camellia)",
-		.cksum_name	= "cmac(camellia)",
-		.cksumlength	= BITS2OCTETS(128),
-		.keyed_cksum	= 1,
-		.keylength	= BITS2OCTETS(256),
-		.Kc_length	= BITS2OCTETS(256),
-		.Ke_length	= BITS2OCTETS(256),
-		.Ki_length	= BITS2OCTETS(256),
-
-		.derive_key	= krb5_kdf_feedback_cmac,
-
-	},
-#endif
-
-#if defined(CONFIG_RPCSEC_GSS_KRB5_ENCTYPES_AES_SHA2)
-	/*
-	 * AES-128 with SHA-256 (RFC 8009)
-	 */
-	{
-		.etype		= ENCTYPE_AES128_CTS_HMAC_SHA256_128,
-		.ctype		= CKSUMTYPE_HMAC_SHA256_128_AES128,
-		.name		= "aes128-cts-hmac-sha256-128",
-		.encrypt_name	= "cts(cbc(aes))",
-		.aux_cipher	= "cbc(aes)",
-		.cksum_name	= "hmac(sha256)",
-		.cksumlength	= BITS2OCTETS(128),
-		.keyed_cksum	= 1,
-		.keylength	= BITS2OCTETS(128),
-		.Kc_length	= BITS2OCTETS(128),
-		.Ke_length	= BITS2OCTETS(128),
-		.Ki_length	= BITS2OCTETS(128),
-
-		.derive_key	= krb5_kdf_hmac_sha2,
-
-	},
-	/*
-	 * AES-256 with SHA-384 (RFC 8009)
-	 */
-	{
-		.etype		= ENCTYPE_AES256_CTS_HMAC_SHA384_192,
-		.ctype		= CKSUMTYPE_HMAC_SHA384_192_AES256,
-		.name		= "aes256-cts-hmac-sha384-192",
-		.encrypt_name	= "cts(cbc(aes))",
-		.aux_cipher	= "cbc(aes)",
-		.cksum_name	= "hmac(sha384)",
-		.cksumlength	= BITS2OCTETS(192),
-		.keyed_cksum	= 1,
-		.keylength	= BITS2OCTETS(256),
-		.Kc_length	= BITS2OCTETS(192),
-		.Ke_length	= BITS2OCTETS(256),
-		.Ki_length	= BITS2OCTETS(192),
-
-		.derive_key	= krb5_kdf_hmac_sha2,
-
-	},
-#endif
-};
 
 /*
  * The list of advertised enctypes is specified in order of most
@@ -204,30 +68,11 @@ static void gss_krb5_prepare_enctype_priority_list(void)
 	}
 }
 
-/**
- * gss_krb5_lookup_enctype - Retrieve profile information for a given enctype
- * @etype: ENCTYPE value
- *
- * Returns a pointer to a gss_krb5_enctype structure, or NULL if no
- * matching etype is found.
- */
-VISIBLE_IF_KUNIT
-const struct gss_krb5_enctype *gss_krb5_lookup_enctype(u32 etype)
-{
-	size_t i;
-
-	for (i = 0; i < ARRAY_SIZE(supported_gss_krb5_enctypes); i++)
-		if (supported_gss_krb5_enctypes[i].etype == etype)
-			return &supported_gss_krb5_enctypes[i];
-	return NULL;
-}
-EXPORT_SYMBOL_IF_KUNIT(gss_krb5_lookup_enctype);
-
 static int
 gss_krb5_import_ctx_v2(struct krb5_ctx *ctx, gfp_t gfp_mask)
 {
 	struct krb5_buffer TK = {
-		.len	= ctx->gk5e->keylength,
+		.len	= ctx->krb5e->key_len,
 		.data	= ctx->Ksess,
 	};
 	int ret;
@@ -298,32 +143,17 @@ gss_import_v2_context(const void *p, const void *end, struct krb5_ctx *ctx,
 	if (IS_ERR(p))
 		goto out_err;
 	atomic64_set(&ctx->seq_send64, seq_send64);
-	/* set seq_send for use by "older" enctypes */
-	atomic_set(&ctx->seq_send, seq_send64);
-	if (seq_send64 != atomic_read(&ctx->seq_send)) {
-		dprintk("%s: seq_send64 %llx, seq_send %x overflow?\n", __func__,
-			seq_send64, atomic_read(&ctx->seq_send));
-		p = ERR_PTR(-EINVAL);
-		goto out_err;
-	}
 	p = simple_get_bytes(p, end, &ctx->enctype, sizeof(ctx->enctype));
 	if (IS_ERR(p))
 		goto out_err;
-	ctx->gk5e = gss_krb5_lookup_enctype(ctx->enctype);
-	if (ctx->gk5e == NULL) {
+	ctx->krb5e = crypto_krb5_find_enctype(ctx->enctype);
+	if (!ctx->krb5e) {
 		dprintk("gss_kerberos_mech: unsupported krb5 enctype %u\n",
 			ctx->enctype);
 		p = ERR_PTR(-EINVAL);
 		goto out_err;
 	}
-	ctx->krb5e = crypto_krb5_find_enctype(ctx->enctype);
-	if (!ctx->krb5e) {
-		dprintk("gss_kerberos_mech: crypto/krb5 missing enctype %u\n",
-			ctx->enctype);
-		p = ERR_PTR(-EINVAL);
-		goto out_err;
-	}
-	keylen = ctx->gk5e->keylength;
+	keylen = ctx->krb5e->key_len;
 
 	p = simple_get_bytes(p, end, ctx->Ksess, keylen);
 	if (IS_ERR(p))
