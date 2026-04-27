@@ -44,11 +44,6 @@ struct gss_krb5_enctype {
 		       struct xdr_buf *buf, struct page **pages);
 	u32 (*decrypt)(struct krb5_ctx *kctx, u32 offset, u32 len,
 		       struct xdr_buf *buf, u32 *headskip, u32 *tailskip);
-	u32 (*wrap)(struct krb5_ctx *kctx, int offset,
-		    struct xdr_buf *buf, struct page **pages);
-	u32 (*unwrap)(struct krb5_ctx *kctx, int offset, int len,
-		      struct xdr_buf *buf, unsigned int *slack,
-		      unsigned int *align);
 };
 
 /* krb5_ctx flags definitions */

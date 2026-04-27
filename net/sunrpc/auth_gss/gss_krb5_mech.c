@@ -46,9 +46,6 @@ static const struct gss_krb5_enctype supported_gss_krb5_enctypes[] = {
 	  .encrypt = gss_krb5_aead_encrypt,
 	  .decrypt = gss_krb5_aead_decrypt,
 
-	  .wrap = gss_krb5_wrap_v2,
-	  .unwrap = gss_krb5_unwrap_v2,
-
 	  .signalg = -1,
 	  .sealalg = -1,
 	  .keybytes = 16,
@@ -72,9 +69,6 @@ static const struct gss_krb5_enctype supported_gss_krb5_enctypes[] = {
 	  .derive_key = krb5_derive_key_v2,
 	  .encrypt = gss_krb5_aead_encrypt,
 	  .decrypt = gss_krb5_aead_decrypt,
-
-	  .wrap = gss_krb5_wrap_v2,
-	  .unwrap = gss_krb5_unwrap_v2,
 
 	  .signalg = -1,
 	  .sealalg = -1,
@@ -110,8 +104,6 @@ static const struct gss_krb5_enctype supported_gss_krb5_enctypes[] = {
 		.encrypt	= gss_krb5_aead_encrypt,
 		.decrypt	= gss_krb5_aead_decrypt,
 
-		.wrap		= gss_krb5_wrap_v2,
-		.unwrap		= gss_krb5_unwrap_v2,
 	},
 	/*
 	 * Camellia-256 with CMAC (RFC 6803)
@@ -134,8 +126,6 @@ static const struct gss_krb5_enctype supported_gss_krb5_enctypes[] = {
 		.encrypt	= gss_krb5_aead_encrypt,
 		.decrypt	= gss_krb5_aead_decrypt,
 
-		.wrap		= gss_krb5_wrap_v2,
-		.unwrap		= gss_krb5_unwrap_v2,
 	},
 #endif
 
@@ -161,8 +151,6 @@ static const struct gss_krb5_enctype supported_gss_krb5_enctypes[] = {
 		.encrypt	= gss_krb5_aead_encrypt,
 		.decrypt	= gss_krb5_aead_decrypt,
 
-		.wrap		= gss_krb5_wrap_v2,
-		.unwrap		= gss_krb5_unwrap_v2,
 	},
 	/*
 	 * AES-256 with SHA-384 (RFC 8009)
@@ -185,8 +173,6 @@ static const struct gss_krb5_enctype supported_gss_krb5_enctypes[] = {
 		.encrypt	= gss_krb5_aead_encrypt,
 		.decrypt	= gss_krb5_aead_decrypt,
 
-		.wrap		= gss_krb5_wrap_v2,
-		.unwrap		= gss_krb5_unwrap_v2,
 	},
 #endif
 };
@@ -631,7 +617,7 @@ static u32 gss_krb5_wrap(struct gss_ctx *gctx, int offset,
 {
 	struct krb5_ctx	*kctx = gctx->internal_ctx_id;
 
-	return kctx->gk5e->wrap(kctx, offset, buf, pages);
+	return gss_krb5_wrap_v2(kctx, offset, buf, pages);
 }
 
 /**
@@ -653,7 +639,7 @@ static u32 gss_krb5_unwrap(struct gss_ctx *gctx, int offset,
 {
 	struct krb5_ctx	*kctx = gctx->internal_ctx_id;
 
-	return kctx->gk5e->unwrap(kctx, offset, len, buf,
+	return gss_krb5_unwrap_v2(kctx, offset, len, buf,
 				  &gctx->slack, &gctx->align);
 }
 
