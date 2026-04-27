@@ -40,10 +40,6 @@ struct gss_krb5_enctype {
 			  struct xdr_netobj *out,
 			  const struct xdr_netobj *label,
 			  gfp_t gfp_mask);
-	u32 (*encrypt)(struct krb5_ctx *kctx, u32 offset,
-		       struct xdr_buf *buf, struct page **pages);
-	u32 (*decrypt)(struct krb5_ctx *kctx, u32 offset, u32 len,
-		       struct xdr_buf *buf, u32 *headskip, u32 *tailskip);
 };
 
 /* krb5_ctx flags definitions */

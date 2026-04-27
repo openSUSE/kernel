@@ -43,8 +43,6 @@ static const struct gss_krb5_enctype supported_gss_krb5_enctypes[] = {
 	  .aux_cipher = "cbc(aes)",
 	  .cksum_name = "hmac(sha1)",
 	  .derive_key = krb5_derive_key_v2,
-	  .encrypt = gss_krb5_aead_encrypt,
-	  .decrypt = gss_krb5_aead_decrypt,
 
 	  .signalg = -1,
 	  .sealalg = -1,
@@ -67,8 +65,6 @@ static const struct gss_krb5_enctype supported_gss_krb5_enctypes[] = {
 	  .aux_cipher = "cbc(aes)",
 	  .cksum_name = "hmac(sha1)",
 	  .derive_key = krb5_derive_key_v2,
-	  .encrypt = gss_krb5_aead_encrypt,
-	  .decrypt = gss_krb5_aead_decrypt,
 
 	  .signalg = -1,
 	  .sealalg = -1,
@@ -101,8 +97,6 @@ static const struct gss_krb5_enctype supported_gss_krb5_enctypes[] = {
 		.Ki_length	= BITS2OCTETS(128),
 
 		.derive_key	= krb5_kdf_feedback_cmac,
-		.encrypt	= gss_krb5_aead_encrypt,
-		.decrypt	= gss_krb5_aead_decrypt,
 
 	},
 	/*
@@ -123,8 +117,6 @@ static const struct gss_krb5_enctype supported_gss_krb5_enctypes[] = {
 		.Ki_length	= BITS2OCTETS(256),
 
 		.derive_key	= krb5_kdf_feedback_cmac,
-		.encrypt	= gss_krb5_aead_encrypt,
-		.decrypt	= gss_krb5_aead_decrypt,
 
 	},
 #endif
@@ -148,8 +140,6 @@ static const struct gss_krb5_enctype supported_gss_krb5_enctypes[] = {
 		.Ki_length	= BITS2OCTETS(128),
 
 		.derive_key	= krb5_kdf_hmac_sha2,
-		.encrypt	= gss_krb5_aead_encrypt,
-		.decrypt	= gss_krb5_aead_decrypt,
 
 	},
 	/*
@@ -170,8 +160,6 @@ static const struct gss_krb5_enctype supported_gss_krb5_enctypes[] = {
 		.Ki_length	= BITS2OCTETS(192),
 
 		.derive_key	= krb5_kdf_hmac_sha2,
-		.encrypt	= gss_krb5_aead_encrypt,
-		.decrypt	= gss_krb5_aead_decrypt,
 
 	},
 #endif
