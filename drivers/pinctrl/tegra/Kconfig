@@ -37,6 +37,16 @@ config PINCTRL_TEGRA234
 	bool "NVIDIA Tegra234 pin controller" if COMPILE_TEST && !ARCH_TEGRA
 	select PINCTRL_TEGRA
 
+config PINCTRL_TEGRA238
+	tristate "NVIDIA Tegra238 pinctrl driver"
+	default m if ARCH_TEGRA_238_SOC
+	select PINCTRL_TEGRA
+	help
+	  Say Y or M here to enable support for the pinctrl driver for
+	  NVIDIA Tegra238 SoC. This driver controls the pin multiplexing
+	  and configuration for the MAIN and AON pin controllers found
+	  on Tegra238.
+
 config PINCTRL_TEGRA_XUSB
 	bool "NVIDIA Tegra XUSB pin controller" if COMPILE_TEST && !ARCH_TEGRA
 	default y if ARCH_TEGRA
