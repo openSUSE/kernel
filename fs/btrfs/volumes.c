@@ -7615,6 +7615,37 @@ out:
 	return ret;
 }
 
+int btrfs_init_writeback_bio_size(struct btrfs_fs_info *fs_info)
+{
+	struct btrfs_fs_devices *fs_devices = fs_info->fs_devices;
+	struct btrfs_device *device;
+	u32 writeback_bio_size = fs_info->sectorsize;
+
+	mutex_lock(&fs_devices->device_list_mutex);
+	/*
+	 * Let's take maximum over optimal request sizes for all devices. For
+	 * RAID profiles writeback will submit stripe (64k) sized bios anyway
+	 * so our value doesn't matter and for simple profiles this is a good
+	 * approximation of sensible IO chunking.
+	 */
+	list_for_each_entry(device, &fs_devices->devices, dev_list) {
+		struct request_queue *queue;
+		unsigned int io_opt;
+
+		if (!device->bdev || test_bit(BTRFS_DEV_STATE_MISSING, &device->dev_state))
+			continue;
+		queue = bdev_get_queue(device->bdev);
+		io_opt = queue_io_opt(queue) ? :
+				queue_max_sectors(queue) << SECTOR_SHIFT;
+		writeback_bio_size = max(writeback_bio_size, io_opt);
+	}
+	mutex_unlock(&fs_devices->device_list_mutex);
+
+	fs_info->writeback_bio_size = writeback_bio_size;
+
+	return 0;
+}
+
 static int update_dev_stat_item(struct btrfs_trans_handle *trans,
 				struct btrfs_device *device)
 {
