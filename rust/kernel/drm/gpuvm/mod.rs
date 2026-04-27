@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0 OR MIT
 
-#![cfg(CONFIG_DRM_GPUVM = "y")]
+#![cfg(CONFIG_RUST_DRM_GPUVM)]
 
 //! DRM GPUVM in immediate mode
 //!
