@@ -112,7 +112,7 @@ static const struct gss_krb5_enctype supported_gss_krb5_enctypes[] = {
 
 		.derive_key	= krb5_kdf_feedback_cmac,
 		.encrypt	= gss_krb5_aead_encrypt,
-		.decrypt	= gss_krb5_aes_decrypt,
+		.decrypt	= gss_krb5_aead_decrypt,
 
 		.get_mic	= gss_krb5_get_mic_v2,
 		.verify_mic	= gss_krb5_verify_mic_v2,
@@ -138,7 +138,7 @@ static const struct gss_krb5_enctype supported_gss_krb5_enctypes[] = {
 
 		.derive_key	= krb5_kdf_feedback_cmac,
 		.encrypt	= gss_krb5_aead_encrypt,
-		.decrypt	= gss_krb5_aes_decrypt,
+		.decrypt	= gss_krb5_aead_decrypt,
 
 		.get_mic	= gss_krb5_get_mic_v2,
 		.verify_mic	= gss_krb5_verify_mic_v2,
