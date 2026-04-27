@@ -142,6 +142,7 @@ struct br_cfm_peer_mep {
 	struct br_cfm_cc_peer_status	cc_status;
 	u32				ccm_rx_count_miss;
 	struct rcu_head			rcu;
+	bool				ccm_rx_dwork_disabled;
 };
 
 #endif /* _BR_PRIVATE_CFM_H_ */
