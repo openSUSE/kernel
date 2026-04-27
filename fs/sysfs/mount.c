@@ -23,18 +23,6 @@
 static struct kernfs_root *sysfs_root;
 struct kernfs_node *sysfs_root_kn;
 
-static int sysfs_get_tree(struct fs_context *fc)
-{
-	struct kernfs_fs_context *kfc = fc->fs_private;
-	int ret;
-
-	ret = kernfs_get_tree(fc);
-	if (ret)
-		return ret;
-
-	return 0;
-}
-
 static void sysfs_fs_context_free(struct fs_context *fc)
 {
 	struct kernfs_fs_context *kfc = fc->fs_private;
@@ -47,7 +35,7 @@ static void sysfs_fs_context_free(struct fs_context *fc)
 
 static const struct fs_context_operations sysfs_fs_context_ops = {
 	.free		= sysfs_fs_context_free,
-	.get_tree	= sysfs_get_tree,
+	.get_tree	= kernfs_get_tree,
 };
 
 static int sysfs_init_fs_context(struct fs_context *fc)
