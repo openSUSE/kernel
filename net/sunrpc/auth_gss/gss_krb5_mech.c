@@ -28,27 +28,23 @@
 static struct gss_api_mech gss_kerberos_mech;
 
 /*
- * The list of advertised enctypes is specified in order of most
- * preferred to least.
+ * Candidate enctypes in order of most preferred to least.
+ * Each is probed against crypto/krb5 at module init; only
+ * enctypes that crypto/krb5 supports are advertised.
  */
+static const u32 gss_krb5_enctypes[] = {
+	ENCTYPE_AES256_CTS_HMAC_SHA384_192,
+	ENCTYPE_AES128_CTS_HMAC_SHA256_128,
+	ENCTYPE_CAMELLIA256_CTS_CMAC,
+	ENCTYPE_CAMELLIA128_CTS_CMAC,
+	ENCTYPE_AES256_CTS_HMAC_SHA1_96,
+	ENCTYPE_AES128_CTS_HMAC_SHA1_96,
+};
+
 static char gss_krb5_enctype_priority_list[64];
 
 static void gss_krb5_prepare_enctype_priority_list(void)
 {
-	static const u32 gss_krb5_enctypes[] = {
-#if defined(CONFIG_RPCSEC_GSS_KRB5_ENCTYPES_AES_SHA2)
-		ENCTYPE_AES256_CTS_HMAC_SHA384_192,
-		ENCTYPE_AES128_CTS_HMAC_SHA256_128,
-#endif
-#if defined(CONFIG_RPCSEC_GSS_KRB5_ENCTYPES_CAMELLIA)
-		ENCTYPE_CAMELLIA256_CTS_CMAC,
-		ENCTYPE_CAMELLIA128_CTS_CMAC,
-#endif
-#if defined(CONFIG_RPCSEC_GSS_KRB5_ENCTYPES_AES_SHA1)
-		ENCTYPE_AES256_CTS_HMAC_SHA1_96,
-		ENCTYPE_AES128_CTS_HMAC_SHA1_96,
-#endif
-	};
 	size_t total, i;
 	char buf[16];
 	char *sep;
@@ -57,6 +53,8 @@ static void gss_krb5_prepare_enctype_priority_list(void)
 	sep = "";
 	gss_krb5_enctype_priority_list[0] = '\0';
 	for (total = 0, i = 0; i < ARRAY_SIZE(gss_krb5_enctypes); i++) {
+		if (!crypto_krb5_find_enctype(gss_krb5_enctypes[i]))
+			continue;
 		n = sprintf(buf, "%s%u", sep, gss_krb5_enctypes[i]);
 		if (n < 0)
 			break;
