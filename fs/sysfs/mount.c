@@ -32,8 +32,6 @@ static int sysfs_get_tree(struct fs_context *fc)
 	if (ret)
 		return ret;
 
-	if (kfc->new_sb_created)
-		fc->root->d_sb->s_iflags |= SB_I_USERNS_VISIBLE;
 	return 0;
 }
 
@@ -93,7 +91,7 @@ static struct file_system_type sysfs_fs_type = {
 	.name			= "sysfs",
 	.init_fs_context	= sysfs_init_fs_context,
 	.kill_sb		= sysfs_kill_sb,
-	.fs_flags		= FS_USERNS_MOUNT,
+	.fs_flags		= FS_USERNS_MOUNT | FS_USERNS_MOUNT_RESTRICTED,
 };
 
 int __init sysfs_init(void)
