@@ -575,6 +575,7 @@ extern const struct bench bench_lpm_trie_insert;
 extern const struct bench bench_lpm_trie_update;
 extern const struct bench bench_lpm_trie_delete;
 extern const struct bench bench_lpm_trie_free;
+extern const struct bench bench_bpf_nop;
 
 static const struct bench *benchs[] = {
 	&bench_count_global,
@@ -653,6 +654,7 @@ static const struct bench *benchs[] = {
 	&bench_lpm_trie_update,
 	&bench_lpm_trie_delete,
 	&bench_lpm_trie_free,
+	&bench_bpf_nop,
 };
 
 static void find_benchmark(void)
