@@ -845,6 +845,16 @@ static void submit_extent_folio(struct btrfs_bio_ctrl *bio_ctrl,
 		/* Ordered extent boundary: move on to a new bio. */
 		if (bio_ctrl->len_to_oe_boundary == 0)
 			submit_one_bio(bio_ctrl);
+		/*
+		 * If we have accumulated decent amount of IO, send it to the
+		 * block layer so that IO can run while we are accumulating
+		 * more folios to write.
+		 */
+		else if (bio_ctrl->wbc &&
+			 bio_ctrl->bbio->bio.bi_iter.bi_size >=
+			    inode->root->fs_info->writeback_bio_size)
+			submit_one_bio(bio_ctrl);
+
 	} while (size);
 }
 
