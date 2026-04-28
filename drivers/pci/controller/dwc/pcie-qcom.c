@@ -276,6 +276,7 @@ struct qcom_pcie_perst {
 struct qcom_pcie_port {
 	struct list_head list;
 	struct phy *phy;
+	u32 l1ss_t_power_on;
 	struct list_head perst;
 };
 
@@ -1349,6 +1350,14 @@ static int qcom_pcie_phy_power_on(struct qcom_pcie *pcie)
 	return 0;
 }
 
+static void qcom_pcie_configure_ports(struct qcom_pcie *pcie)
+{
+	struct qcom_pcie_port *port;
+
+	list_for_each_entry(port, &pcie->ports, list)
+		dw_pcie_program_t_power_on(pcie->pci, port->l1ss_t_power_on);
+}
+
 static int qcom_pcie_host_init(struct dw_pcie_rp *pp)
 {
 	struct dw_pcie *pci = to_dw_pcie_from_pp(pp);
@@ -1386,6 +1395,8 @@ static int qcom_pcie_host_init(struct dw_pcie_rp *pp)
 	qcom_pcie_clear_aspm_l0s(pcie->pci);
 	dw_pcie_remove_capability(pcie->pci, PCI_CAP_ID_MSIX);
 	dw_pcie_remove_ext_capability(pcie->pci, PCI_EXT_CAP_ID_DPC);
+
+	qcom_pcie_configure_ports(pcie);
 
 	qcom_pcie_perst_deassert(pcie);
 
@@ -1867,6 +1878,9 @@ static int qcom_pcie_parse_port(struct qcom_pcie *pcie, struct device_node *node
 	ret = qcom_pcie_parse_perst(pcie, port, node);
 	if (ret)
 		return ret;
+
+	/* TODO: Move to DWC core after multi Root Port support is added */
+	of_property_read_u32(node, "t-power-on-us", &port->l1ss_t_power_on);
 
 	port->phy = phy;
 	INIT_LIST_HEAD(&port->list);
