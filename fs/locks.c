@@ -1583,29 +1583,63 @@ trace:
 }
 
 static bool
-any_leases_conflict(struct inode *inode, struct file_lease *breaker)
+ignore_dir_deleg_break(struct file_lease *fl, unsigned int flags)
 {
-	struct file_lock_context *ctx = inode->i_flctx;
-	struct file_lock_core *flc;
+	if ((flags & LEASE_BREAK_DIR_CREATE) && (fl->c.flc_flags & FL_IGN_DIR_CREATE))
+		return true;
+	if ((flags & LEASE_BREAK_DIR_DELETE) && (fl->c.flc_flags & FL_IGN_DIR_DELETE))
+		return true;
+	if ((flags & LEASE_BREAK_DIR_RENAME) && (fl->c.flc_flags & FL_IGN_DIR_RENAME))
+		return true;
 
-	lockdep_assert_held(&ctx->flc_lock);
-
-	list_for_each_entry(flc, &ctx->flc_lease, flc_list) {
-		if (leases_conflict(flc, &breaker->c))
-			return true;
-	}
 	return false;
 }
 
+static unsigned int
+break_lease_flags_to_type(unsigned int flags)
+{
+	if (flags & LEASE_BREAK_LEASE)
+		return FL_LEASE;
+	else if (flags & LEASE_BREAK_DELEG)
+		return FL_DELEG;
+	else if (flags & LEASE_BREAK_LAYOUT)
+		return FL_LAYOUT;
+	else
+		return 0;
+
+}
+
+static struct file_lease *
+first_visible_lease(struct inode *inode, struct file_lease *new_fl, unsigned int flags)
+{
+	struct file_lock_context *ctx = locks_inode_context(inode);
+	struct file_lease *fl;
+
+	lockdep_assert_held(&ctx->flc_lock);
+
+	list_for_each_entry(fl, &ctx->flc_lease, c.flc_list) {
+		if (!leases_conflict(&fl->c, &new_fl->c))
+			continue;
+		if (S_ISDIR(inode->i_mode) && ignore_dir_deleg_break(fl, flags))
+			continue;
+		return fl;
+	}
+	return NULL;
+}
+
+
 /**
- *	__break_lease	-	revoke all outstanding leases on file
- *	@inode: the inode of the file to return
- *	@flags: LEASE_BREAK_* flags
+ * __break_lease	-	revoke all outstanding leases on file
+ * @inode: the inode of the file to return
+ * @flags: LEASE_BREAK_* flags
  *
- *	break_lease (inlined for speed) has checked there already is at least
- *	some kind of lock (maybe a lease) on this file.  Leases are broken on
- *	a call to open() or truncate().  This function can block waiting for the
- *	lease break unless you specify LEASE_BREAK_NONBLOCK.
+ * break_lease (inlined for speed) has checked there already is at least
+ * some kind of lock (maybe a lease) on this file. Leases and Delegations
+ * are broken on a call to open() or truncate(). Delegations are also
+ * broken on any event that would change the ctime. Directory delegations
+ * are broken whenever the directory changes (unless the delegation is set
+ * up to ignore the event). This function can block waiting for the lease
+ * break unless you specify LEASE_BREAK_NONBLOCK.
  */
 int __break_lease(struct inode *inode, unsigned int flags)
 {
@@ -1617,13 +1651,8 @@ int __break_lease(struct inode *inode, unsigned int flags)
 	bool want_write = !(flags & LEASE_BREAK_OPEN_RDONLY);
 	int error = 0;
 
-	if (flags & LEASE_BREAK_LEASE)
-		type = FL_LEASE;
-	else if (flags & LEASE_BREAK_DELEG)
-		type = FL_DELEG;
-	else if (flags & LEASE_BREAK_LAYOUT)
-		type = FL_LAYOUT;
-	else
+	type = break_lease_flags_to_type(flags);
+	if (!type)
 		return -EINVAL;
 
 	new_fl = lease_alloc(NULL, type, want_write ? F_WRLCK : F_RDLCK);
@@ -1642,7 +1671,7 @@ int __break_lease(struct inode *inode, unsigned int flags)
 
 	time_out_leases(inode, &dispose);
 
-	if (!any_leases_conflict(inode, new_fl))
+	if (!first_visible_lease(inode, new_fl, flags))
 		goto out;
 
 	break_time = 0;
@@ -1654,6 +1683,8 @@ int __break_lease(struct inode *inode, unsigned int flags)
 
 	list_for_each_entry_safe(fl, tmp, &ctx->flc_lease, c.flc_list) {
 		if (!leases_conflict(&fl->c, &new_fl->c))
+			continue;
+		if (S_ISDIR(inode->i_mode) && ignore_dir_deleg_break(fl, flags))
 			continue;
 		if (want_write) {
 			if (fl->c.flc_flags & FL_UNLOCK_PENDING)
@@ -1670,7 +1701,8 @@ int __break_lease(struct inode *inode, unsigned int flags)
 			locks_delete_lock_ctx(&fl->c, &dispose);
 	}
 
-	if (list_empty(&ctx->flc_lease))
+	fl = first_visible_lease(inode, new_fl, flags);
+	if (!fl)
 		goto out;
 
 	if (flags & LEASE_BREAK_NONBLOCK) {
@@ -1680,7 +1712,6 @@ int __break_lease(struct inode *inode, unsigned int flags)
 	}
 
 restart:
-	fl = list_first_entry(&ctx->flc_lease, struct file_lease, c.flc_list);
 	break_time = fl->fl_break_time;
 	if (break_time != 0) {
 		if (time_after(jiffies, break_time)) {
@@ -1711,7 +1742,8 @@ restart:
 		 */
 		if (error == 0)
 			time_out_leases(inode, &dispose);
-		if (any_leases_conflict(inode, new_fl))
+		fl = first_visible_lease(inode, new_fl, flags);
+		if (fl)
 			goto restart;
 		error = 0;
 	}
