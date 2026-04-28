@@ -808,7 +808,7 @@ TRACE_EVENT(btrfs_writepage_end_io_hook,
 		  __entry->end, __entry->uptodate)
 );
 
-TRACE_EVENT(btrfs_sync_file,
+TRACE_EVENT(btrfs_sync_file_enter,
 
 	TP_PROTO(const struct file *file, int datasync),
 
@@ -838,6 +838,32 @@ TRACE_EVENT(btrfs_sync_file,
 		  __entry->ino,
 		  __entry->parent,
 		  __entry->datasync)
+);
+
+TRACE_EVENT(btrfs_sync_file_exit,
+
+	TP_PROTO(const struct file *file, int ret),
+
+	TP_ARGS(file, ret),
+
+	TP_STRUCT__entry_btrfs(
+		__field(	u64,	ino		)
+		__field(	int,    ret		)
+		__field(	u64,    root_objectid	)
+	),
+
+	TP_fast_assign(
+		struct btrfs_inode *inode = BTRFS_I(file_inode(file));
+
+		TP_fast_assign_fsid(inode->root->fs_info);
+		__entry->root_objectid	= btrfs_root_id(inode->root);
+		__entry->ino		= btrfs_ino(inode);
+		__entry->ret		= ret;
+	),
+
+	TP_printk_btrfs("root=%llu(%s) ino=%llu ret=%d",
+			show_root_type(__entry->root_objectid),
+			__entry->ino, __entry->ret)
 );
 
 TRACE_EVENT(btrfs_sync_fs,

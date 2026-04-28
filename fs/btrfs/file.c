@@ -1564,7 +1564,7 @@ int btrfs_sync_file(struct file *file, loff_t start, loff_t end, int datasync)
 		btrfs_assert_inode_locked(inode);
 	}
 
-	trace_btrfs_sync_file(file, datasync);
+	trace_btrfs_sync_file_enter(file, datasync);
 
 	btrfs_init_log_ctx(&ctx, inode);
 
@@ -1810,6 +1810,8 @@ out:
 	err = file_check_and_advance_wb_err(file);
 	if (!ret)
 		ret = err;
+	trace_btrfs_sync_file_exit(file, ret);
+
 	return ret;
 
 out_release_extents:
