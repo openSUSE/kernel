@@ -1651,6 +1651,8 @@ int __break_lease(struct inode *inode, unsigned int flags)
 	bool want_write = !(flags & LEASE_BREAK_OPEN_RDONLY);
 	int error = 0;
 
+	trace_break_lease(inode, flags);
+
 	type = break_lease_flags_to_type(flags);
 	if (!type)
 		return -EINVAL;
