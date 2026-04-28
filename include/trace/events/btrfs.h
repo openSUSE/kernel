@@ -34,6 +34,16 @@ struct find_free_extent_ctl;
 struct btrfs_trans_handle;
 struct btrfs_transaction;
 
+#define show_inode_type(mode)					\
+	__print_symbolic((mode) & S_IFMT,			\
+		 { S_IFDIR,  "DIR" },	          		\
+		 { S_IFREG,  "REG" },	          		\
+		 { S_IFLNK,  "LNK" },	          		\
+		 { S_IFIFO,  "FIFO" },	          		\
+		 { S_IFCHR,  "CHR" },		  		\
+		 { S_IFBLK,  "BLK" },	          		\
+		 { S_IFSOCK, "SOCK" })
+
 #define show_ref_type(type)						\
 	__print_symbolic(type,						\
 		{ BTRFS_TREE_BLOCK_REF_KEY, 	"TREE_BLOCK_REF" },	\
@@ -864,6 +874,81 @@ TRACE_EVENT(btrfs_sync_file_exit,
 	TP_printk_btrfs("root=%llu(%s) ino=%llu ret=%d",
 			show_root_type(__entry->root_objectid),
 			__entry->ino, __entry->ret)
+);
+
+TRACE_EVENT(btrfs_log_inode_parent_enter,
+
+	TP_PROTO(const struct btrfs_trans_handle *trans, struct btrfs_inode *inode),
+
+	TP_ARGS(trans, inode),
+
+	TP_STRUCT__entry_btrfs(
+		__field(	u64,     	root_objectid		)
+		__field(	u64,	 	ino			)
+		__field(	umode_t,	mode			)
+		__field(	u64,		transid			)
+		__field(	u64,		generation		)
+		__field(	u64,		logged_trans		)
+		__field(	u64,		last_unlink_trans	)
+		__field(	int,		last_sub_trans		)
+		__field(	int,		inode_last_log_commit	)
+		__field(	int,		root_last_log_commit	)
+	),
+
+	TP_fast_assign(
+		struct btrfs_root *root = inode->root;
+
+		TP_fast_assign_fsid(root->fs_info);
+		__entry->root_objectid		= btrfs_root_id(root);
+		__entry->ino			= btrfs_ino(inode);
+		__entry->mode			= inode->vfs_inode.i_mode;
+		__entry->transid		= trans->transid;
+		__entry->generation		= inode->generation;
+		spin_lock(&inode->lock);
+		__entry->logged_trans		= inode->logged_trans;
+		__entry->last_unlink_trans	= inode->last_unlink_trans;
+		__entry->last_sub_trans		= inode->last_sub_trans;
+		__entry->inode_last_log_commit	= inode->last_log_commit;
+		spin_unlock(&inode->lock);
+		__entry->root_last_log_commit	= btrfs_get_root_last_log_commit(root);
+	),
+
+	TP_printk_btrfs("root=%llu(%s) ino=%llu type=%s transid=%llu gen=%llu"
+			" logged_trans=%llu last_unlink_trans=%llu last_sub_trans=%d"
+			" inode_last_log_commit=%d root_last_log_commit=%d",
+			show_root_type(__entry->root_objectid), __entry->ino,
+			show_inode_type(__entry->mode), __entry->transid,
+			__entry->generation, __entry->logged_trans,
+			__entry->last_unlink_trans, __entry->last_sub_trans,
+			__entry->inode_last_log_commit, __entry->root_last_log_commit)
+);
+
+TRACE_EVENT(btrfs_log_inode_parent_exit,
+
+	TP_PROTO(const struct btrfs_trans_handle *trans,
+		 const struct btrfs_inode *inode,
+		 int ret),
+
+	TP_ARGS(trans, inode, ret),
+
+	TP_STRUCT__entry_btrfs(
+		__field(	u64,     	root_objectid	)
+		__field(	u64,	 	ino		)
+		__field(	u64,		transid		)
+		__field(	int,		ret		)
+	),
+
+	TP_fast_assign(
+		TP_fast_assign_fsid(inode->root->fs_info);
+		__entry->root_objectid		= btrfs_root_id(inode->root);
+		__entry->ino			= btrfs_ino(inode);
+		__entry->transid		= trans->transid;
+		__entry->ret			= ret;
+	),
+
+	TP_printk_btrfs("root=%llu(%s) ino=%llu transid=%llu ret=%d",
+			show_root_type(__entry->root_objectid), __entry->ino,
+			__entry->transid, __entry->ret)
 );
 
 TRACE_EVENT(btrfs_sync_fs,

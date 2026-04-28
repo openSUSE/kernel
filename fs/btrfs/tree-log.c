@@ -7541,27 +7541,37 @@ static int btrfs_log_inode_parent(struct btrfs_trans_handle *trans,
 	int ret = 0;
 	bool log_dentries;
 
-	if (btrfs_test_opt(fs_info, NOTREELOG))
-		return BTRFS_LOG_FORCE_COMMIT;
+	trace_btrfs_log_inode_parent_enter(trans, inode);
 
-	if (btrfs_root_refs(&root->root_item) == 0)
-		return BTRFS_LOG_FORCE_COMMIT;
+	if (btrfs_test_opt(fs_info, NOTREELOG)) {
+		ret = BTRFS_LOG_FORCE_COMMIT;
+		goto out;
+	}
+
+	if (btrfs_root_refs(&root->root_item) == 0) {
+		ret = BTRFS_LOG_FORCE_COMMIT;
+		goto out;
+	}
 
 	/*
 	 * If we're logging an inode from a subvolume created in the current
 	 * transaction we must force a commit since the root is not persisted.
 	 */
-	if (btrfs_root_generation(&root->root_item) == trans->transid)
-		return BTRFS_LOG_FORCE_COMMIT;
+	if (btrfs_root_generation(&root->root_item) == trans->transid) {
+		ret = BTRFS_LOG_FORCE_COMMIT;
+		goto out;
+	}
 
 	/* Skip already logged inodes and without new extents. */
 	if (btrfs_inode_in_log(inode, trans->transid) &&
-	    list_empty(&ctx->ordered_extents))
-		return BTRFS_NO_LOG_SYNC;
+	    list_empty(&ctx->ordered_extents)) {
+		ret = BTRFS_NO_LOG_SYNC;
+		goto out;
+	}
 
 	ret = start_log_trans(trans, root, ctx);
 	if (ret)
-		return ret;
+		goto out;
 
 	ret = btrfs_log_inode(trans, inode, inode_only, ctx);
 	if (ret)
@@ -7648,6 +7658,9 @@ end_trans:
 	if (ret)
 		btrfs_remove_log_ctx(root, ctx);
 	btrfs_end_log_trans(root);
+
+out:
+	trace_btrfs_log_inode_parent_exit(trans, inode, ret);
 
 	return ret;
 }
