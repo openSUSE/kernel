@@ -117,6 +117,11 @@ static int virtio_gpu_getparam_ioctl(struct drm_device *dev, void *data,
 	case VIRTGPU_PARAM_EXPLICIT_DEBUG_NAME:
 		value = vgdev->has_context_init ? 1 : 0;
 		break;
+	case VIRTGPU_PARAM_BLOB_ALIGNMENT:
+		if (!vgdev->has_blob_alignment)
+			return -ENOENT;
+		value = vgdev->blob_alignment;
+		break;
 	default:
 		return -EINVAL;
 	}
