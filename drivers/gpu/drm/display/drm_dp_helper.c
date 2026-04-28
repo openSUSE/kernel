@@ -3512,6 +3512,7 @@ void drm_dp_as_sdp_log(struct drm_printer *p, const struct drm_dp_as_sdp *as_sdp
 	drm_printf(p, "    duration increase ms: %d\n", as_sdp->duration_incr_ms);
 	drm_printf(p, "    duration decrease ms: %d\n", as_sdp->duration_decr_ms);
 	drm_printf(p, "    operation mode: %d\n", as_sdp->mode);
+	drm_printf(p, "    coasting vtotal: %d\n", as_sdp->coasting_vtotal);
 }
 EXPORT_SYMBOL(drm_dp_as_sdp_log);
 
