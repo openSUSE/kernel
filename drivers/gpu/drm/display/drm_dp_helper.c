@@ -3519,15 +3519,16 @@ void drm_dp_vsc_sdp_log(struct drm_printer *p, const struct drm_dp_vsc_sdp *vsc)
 {
 	drm_printf(p, "DP SDP: %s, revision %u, length %u\n",
 		   dp_sdp_type_get_name(vsc->sdp_type), vsc->revision, vsc->length);
-	drm_printf(p, "    pixelformat: %s\n",
-		   dp_pixelformat_get_name(vsc->pixelformat));
-	drm_printf(p, "    colorimetry: %s\n",
-		   dp_colorimetry_get_name(vsc->pixelformat, vsc->colorimetry));
-	drm_printf(p, "    bpc: %u\n", vsc->bpc);
-	drm_printf(p, "    dynamic range: %s\n",
-		   dp_dynamic_range_get_name(vsc->dynamic_range));
-	drm_printf(p, "    content type: %s\n",
-		   dp_content_type_get_name(vsc->content_type));
+
+	drm_printf_indent(p, 1, "pixelformat: %s\n",
+			  dp_pixelformat_get_name(vsc->pixelformat));
+	drm_printf_indent(p, 1, "colorimetry: %s\n",
+			  dp_colorimetry_get_name(vsc->pixelformat, vsc->colorimetry));
+	drm_printf_indent(p, 1, "bpc: %u\n", vsc->bpc);
+	drm_printf_indent(p, 1, "dynamic range: %s\n",
+			  dp_dynamic_range_get_name(vsc->dynamic_range));
+	drm_printf_indent(p, 1, "content type: %s\n",
+			  dp_content_type_get_name(vsc->content_type));
 }
 EXPORT_SYMBOL(drm_dp_vsc_sdp_log);
 
@@ -3535,14 +3536,15 @@ void drm_dp_as_sdp_log(struct drm_printer *p, const struct drm_dp_as_sdp *as_sdp
 {
 	drm_printf(p, "DP SDP: %s, revision %u, length %u\n",
 		   dp_sdp_type_get_name(as_sdp->sdp_type), as_sdp->revision, as_sdp->length);
-	drm_printf(p, "    vtotal: %d\n", as_sdp->vtotal);
-	drm_printf(p, "    target rr: %d\n", as_sdp->target_rr);
-	drm_printf(p, "    duration increase ms: %d\n", as_sdp->duration_incr_ms);
-	drm_printf(p, "    duration decrease ms: %d\n", as_sdp->duration_decr_ms);
-	drm_printf(p, "    operation mode: %d\n", as_sdp->mode);
-	drm_printf(p, "    target rr divider: %s\n",
-		   as_sdp->target_rr_divider ? "1.001" : "1.000");
-	drm_printf(p, "    coasting vtotal: %d\n", as_sdp->coasting_vtotal);
+
+	drm_printf_indent(p, 1, "vtotal: %d\n", as_sdp->vtotal);
+	drm_printf_indent(p, 1, "target rr: %d\n", as_sdp->target_rr);
+	drm_printf_indent(p, 1, "duration increase ms: %d\n", as_sdp->duration_incr_ms);
+	drm_printf_indent(p, 1, "duration decrease ms: %d\n", as_sdp->duration_decr_ms);
+	drm_printf_indent(p, 1, "operation mode: %d\n", as_sdp->mode);
+	drm_printf_indent(p, 1, "target rr divider: %s\n",
+			  as_sdp->target_rr_divider ? "1.001" : "1.000");
+	drm_printf_indent(p, 1, "coasting vtotal: %d\n", as_sdp->coasting_vtotal);
 }
 EXPORT_SYMBOL(drm_dp_as_sdp_log);
 
