@@ -1691,7 +1691,7 @@ restart:
 	} else
 		break_time++;
 	locks_insert_block(&fl->c, &new_fl->c, leases_conflict);
-	trace_break_lease_block(inode, new_fl);
+	trace_break_lease_block(inode, fl);
 	spin_unlock(&ctx->flc_lock);
 	percpu_up_read(&file_rwsem);
 
@@ -1702,7 +1702,7 @@ restart:
 
 	percpu_down_read(&file_rwsem);
 	spin_lock(&ctx->flc_lock);
-	trace_break_lease_unblock(inode, new_fl);
+	trace_break_lease_unblock(inode, NULL);
 	__locks_delete_block(&new_fl->c);
 	if (error >= 0) {
 		/*
