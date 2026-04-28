@@ -85,7 +85,7 @@ pub(crate) fn pin_data(
 
     for (pinned, field) in &fields {
         if !pinned && is_phantom_pinned(&field.ty) {
-            dcx.error(
+            dcx.warn(
                 field,
                 format!(
                     "The field `{}` of type `PhantomPinned` only has an effect \
