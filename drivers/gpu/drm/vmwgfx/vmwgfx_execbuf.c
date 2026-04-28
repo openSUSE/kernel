@@ -1765,7 +1765,8 @@ static int vmw_cmd_dma(struct vmw_private *dev_priv,
 	res = sw_context->res_cache[vmw_res_surface].res;
 	if (!res) {
 		DRM_DEBUG("Invalid DMA surface.\n");
-		return -EINVAL;
+		ret = -EINVAL;
+		goto out_no_surface;
 	}
 
 	srf = vmw_res_to_srf(res);
