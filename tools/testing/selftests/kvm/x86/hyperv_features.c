@@ -457,7 +457,7 @@ static void guest_test_msrs_access(void)
 			msr->fault_expected = true;
 			break;
 		case 45:
-			/* MSR is vailable when CPUID feature bit is set */
+			/* MSR is available when CPUID feature bit is set */
 			if (!has_invtsc)
 				goto next_stage;
 			vcpu_set_cpuid_feature(vcpu, HV_ACCESS_TSC_INVARIANT);
