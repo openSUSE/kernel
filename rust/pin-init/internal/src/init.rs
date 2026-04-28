@@ -172,14 +172,7 @@ pub(crate) fn expand(
             init(slot).map(|__InitOk| ())
         };
         // SAFETY: TODO
-        let init = unsafe { ::pin_init::#init_from_closure::<_, #error>(init) };
-        // FIXME: this let binding is required to avoid a compiler error (cycle when computing the
-        // opaque type returned by this function) before Rust 1.81. Remove after MSRV bump.
-        #[allow(
-            clippy::let_and_return,
-            reason = "some clippy versions warn about the let binding"
-        )]
-        init
+        unsafe { ::pin_init::#init_from_closure::<_, #error>(init) }
     }})
 }
 

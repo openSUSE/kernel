@@ -1139,14 +1139,7 @@ pub const unsafe fn init_from_closure<T: ?Sized, E>(
 pub const unsafe fn cast_pin_init<T, U, E>(init: impl PinInit<T, E>) -> impl PinInit<U, E> {
     // SAFETY: initialization delegated to a valid initializer. Cast is valid by function safety
     // requirements.
-    let res = unsafe { pin_init_from_closure(|ptr: *mut U| init.__pinned_init(ptr.cast::<T>())) };
-    // FIXME: this let binding is required to avoid a compiler error (cycle when computing the opaque
-    // type returned by this function) before Rust 1.81. Remove after MSRV bump.
-    #[allow(
-        clippy::let_and_return,
-        reason = "some clippy versions warn about the let binding"
-    )]
-    res
+    unsafe { pin_init_from_closure(|ptr: *mut U| init.__pinned_init(ptr.cast::<T>())) }
 }
 
 /// Changes the to be initialized type.
@@ -1158,14 +1151,7 @@ pub const unsafe fn cast_pin_init<T, U, E>(init: impl PinInit<T, E>) -> impl Pin
 pub const unsafe fn cast_init<T, U, E>(init: impl Init<T, E>) -> impl Init<U, E> {
     // SAFETY: initialization delegated to a valid initializer. Cast is valid by function safety
     // requirements.
-    let res = unsafe { init_from_closure(|ptr: *mut U| init.__init(ptr.cast::<T>())) };
-    // FIXME: this let binding is required to avoid a compiler error (cycle when computing the opaque
-    // type returned by this function) before Rust 1.81. Remove after MSRV bump.
-    #[allow(
-        clippy::let_and_return,
-        reason = "some clippy versions warn about the let binding"
-    )]
-    res
+    unsafe { init_from_closure(|ptr: *mut U| init.__init(ptr.cast::<T>())) }
 }
 
 /// An initializer that leaves the memory uninitialized.
