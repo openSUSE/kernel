@@ -7632,6 +7632,8 @@ int btrfs_init_writeback_bio_size(struct btrfs_fs_info *fs_info)
 		struct request_queue *queue;
 		unsigned int io_opt;
 
+		if (!device->bdev || test_bit(BTRFS_DEV_STATE_MISSING, &device->dev_state))
+			continue;
 		queue = bdev_get_queue(device->bdev);
 		io_opt = queue_io_opt(queue) ? :
 				queue_max_sectors(queue) << SECTOR_SHIFT;
