@@ -284,16 +284,6 @@ ixp4xx_wdt:
 
 -------------------------------------------------
 
-machzwd:
-    nowayout:
-	Watchdog cannot be stopped once started
-	(default=kernel config parameter)
-    action:
-	after watchdog resets, generate:
-	0 = RESET(*)  1 = SMI  2 = NMI  3 = SCI
-
--------------------------------------------------
-
 max63xx_wdt:
     heartbeat:
 	Watchdog heartbeat period in seconds from 1 to 60, default 60

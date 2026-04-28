@@ -1712,19 +1712,6 @@ config W83977F_WDT
 	  To compile this driver as a module, choose M here: the
 	  module will be called w83977f_wdt.
 
-config MACHZ_WDT
-	tristate "ZF MachZ Watchdog"
-	depends on (X86 || COMPILE_TEST) && HAS_IOPORT
-	help
-	  If you are using a ZF Micro MachZ processor, say Y here, otherwise
-	  N.  This is the driver for the watchdog timer built-in on that
-	  processor using ZF-Logic interface.  This watchdog simply watches
-	  your kernel to make sure it doesn't freeze, and if it does, it
-	  reboots your computer after a certain amount of time.
-
-	  To compile this driver as a module, choose M here: the
-	  module will be called machzwd.
-
 config SBC_EPX_C3_WATCHDOG
 	tristate "Winsystems SBC EPX-C3 watchdog"
 	depends on (X86 || COMPILE_TEST) && HAS_IOPORT
