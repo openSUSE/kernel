@@ -258,8 +258,6 @@ fn generate_projections(
                 ..
             },
         )| {
-            let mut attrs = attrs.clone();
-            attrs.retain(|a| !a.path().is_ident("pin"));
             let mut no_doc_attrs = attrs.clone();
             no_doc_attrs.retain(|a| !a.path().is_ident("doc"));
             let ident = ident
@@ -360,8 +358,6 @@ fn generate_the_pin_data(
         struct_ident: &Ident,
         pinned: bool,
     ) -> TokenStream {
-        let mut attrs = attrs.clone();
-        attrs.retain(|a| !a.path().is_ident("pin"));
         let ident = ident
             .as_ref()
             .expect("only structs with named fields are supported");
