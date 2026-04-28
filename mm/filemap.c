@@ -3937,6 +3937,7 @@ vm_fault_t filemap_map_pages(struct vm_fault *vmf,
 		 * we can stop read-ahead.
 		 */
 		if ((map_ret & VM_FAULT_NOPAGE) &&
+		    !(vmf->flags & FAULT_FLAG_TRIED) &&
 		    !folio_test_workingset(folio)) {
 			unsigned short mmap_miss;
 
