@@ -304,7 +304,9 @@ fn generate_projections(
         #[doc = #docs]
         #[allow(dead_code)]
         #[doc(hidden)]
-        #vis struct #projection #generics_with_pin_lt {
+        #vis struct #projection #generics_with_pin_lt
+            #whr
+        {
             #(#fields_decl)*
             ___pin_phantom_data: ::core::marker::PhantomData<&'__pin mut ()>,
         }
