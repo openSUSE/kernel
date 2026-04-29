@@ -5844,6 +5844,196 @@ static void rtw89_phy_stat_init(struct rtw89_dev *rtwdev)
 	rtwdev->hal.thermal_prot_lv = 0;
 }
 
+static void rtw89_phy_pmac_stat_reset(struct rtw89_dev *rtwdev,
+				      struct rtw89_bb_ctx *bb, bool cck)
+{
+	const struct rtw89_pmac_regs *regs = rtwdev->chip->pmac_regs;
+
+	if (cck) {
+		rtw89_phy_write32_clr(rtwdev, regs->r1b_rx_rpt_rst.addr,
+				      regs->r1b_rx_rpt_rst.mask);
+		rtw89_phy_write32_set(rtwdev, regs->r1b_rx_rpt_rst.addr,
+				      regs->r1b_rx_rpt_rst.mask);
+	}
+
+	rtw89_phy_write32_idx_set(rtwdev, regs->enable_all_cnt.addr,
+				  regs->enable_all_cnt.mask, bb->phy_idx);
+	rtw89_phy_write32_idx_set(rtwdev, regs->rst_all_cnt.addr,
+				  regs->rst_all_cnt.mask, bb->phy_idx);
+	rtw89_phy_write32_idx_clr(rtwdev, regs->rst_all_cnt.addr,
+				  regs->rst_all_cnt.mask, bb->phy_idx);
+}
+
+static void rtw89_phy_pmac_stat_cck(struct rtw89_dev *rtwdev,
+				    struct rtw89_bb_ctx *bb)
+{
+	const struct rtw89_pmac_regs *regs = rtwdev->chip->pmac_regs;
+	struct rtw89_pmac_stat_info *pmac = &bb->pmac_stat;
+	const struct rtw89_chip_info *chip = rtwdev->chip;
+	u32 val;
+
+	pmac->cck_phy_txon =
+		rtw89_phy_read32_mask(rtwdev, regs->cck_txon.addr, regs->cck_txon.mask);
+	pmac->cck_mac_txen =
+		rtw89_phy_read32_mask(rtwdev, regs->cck_txen.addr, regs->cck_txen.mask);
+
+	if (chip->chip_id == RTL8852A || rtw89_is_rtl885xb(rtwdev))
+		rtw89_phy_write32_mask(rtwdev, regs->r1b_rr_sel.addr,
+				       regs->r1b_rr_sel.mask, 0x2);
+
+	if (bb->phy_idx == RTW89_PHY_1)
+		pmac->cnt_cck_cca =
+			rtw89_phy_read32_mask(rtwdev, regs->cck_cca.addr + 8,
+					      regs->cck_cca.mask);
+	else
+		pmac->cnt_cck_cca =
+			rtw89_phy_read32_mask(rtwdev, regs->cck_cca.addr,
+					      regs->cck_cca.mask);
+
+	if (chip->chip_id == RTL8852A || rtw89_is_rtl885xb(rtwdev))
+		rtw89_phy_write32_mask(rtwdev, regs->r1b_rr_sel.addr,
+				       regs->r1b_rr_sel.mask, 0x1);
+
+	if (bb->phy_idx == RTW89_PHY_1)
+		val = rtw89_phy_read32(rtwdev, regs->cck_crc32 + 8);
+	else
+		val = rtw89_phy_read32(rtwdev, regs->cck_crc32);
+	pmac->cnt_cck_crc32_ok = field_get(regs->cck_crc32_ok_mask, val);
+	pmac->cnt_cck_crc32_error = field_get(regs->cck_crc32_fail_mask, val);
+
+	pmac->cnt_sfd_gg =
+		rtw89_phy_read32_idx(rtwdev, regs->cck_sfd_gg.addr,
+				     regs->cck_sfd_gg.mask, bb->phy_idx);
+	pmac->cnt_sig_gg =
+		rtw89_phy_read32_idx(rtwdev, regs->cck_sig_gg.addr,
+				     regs->cck_sig_gg.mask, bb->phy_idx);
+	pmac->cnt_cck_spoofing =
+		rtw89_phy_read32_idx(rtwdev, regs->cck_spoofing.addr,
+				     regs->cck_spoofing.mask, bb->phy_idx);
+
+	if (chip->chip_id == RTL8852A || rtw89_is_rtl885xb(rtwdev))
+		pmac->cnt_cck_fail =
+			pmac->cnt_cck_cca - pmac->cnt_cck_crc32_ok -
+			pmac->cnt_cck_crc32_error - pmac->cnt_cck_spoofing;
+	else
+		pmac->cnt_cck_fail =
+			rtw89_phy_read32_idx(rtwdev, regs->cck_brk.addr,
+					     regs->cck_brk.mask, bb->phy_idx);
+}
+
+static void rtw89_phy_pmac_stat_ofdm(struct rtw89_dev *rtwdev,
+				     struct rtw89_bb_ctx *bb)
+{
+	const struct rtw89_pmac_regs *regs = rtwdev->chip->pmac_regs;
+	struct rtw89_pmac_stat_info *pmac = &bb->pmac_stat;
+	const struct rtw89_chip_info *chip = rtwdev->chip;
+	u32 val;
+
+	val = rtw89_phy_read32_idx(rtwdev, regs->ofdm_txon, MASKDWORD, bb->phy_idx);
+	pmac->ofdm_phy_txon = field_get(regs->ofdm_txon_mask, val);
+	pmac->ofdm_mac_txen = field_get(regs->ofdm_txen_mask, val);
+
+	val = rtw89_phy_read32_idx(rtwdev, regs->l_crc, MASKDWORD, bb->phy_idx);
+	pmac->cnt_ofdm_crc32_ok = field_get(regs->l_crc_ok_mask, val);
+	pmac->cnt_ofdm_crc32_error = field_get(regs->l_crc_err_mask, val);
+
+	val = rtw89_phy_read32_idx(rtwdev, regs->ht_crc, MASKDWORD, bb->phy_idx);
+	pmac->cnt_ht_crc32_ok = field_get(regs->ht_crc_ok_mask, val);
+	pmac->cnt_ht_crc32_error = field_get(regs->ht_crc_err_mask, val);
+
+	val = rtw89_phy_read32_idx(rtwdev, regs->vht_crc, MASKDWORD, bb->phy_idx);
+	pmac->cnt_vht_crc32_ok = field_get(regs->vht_crc_ok_mask, val);
+	pmac->cnt_vht_crc32_error = field_get(regs->vht_crc_err_mask, val);
+
+	val = rtw89_phy_read32_idx(rtwdev, regs->he_crc, MASKDWORD, bb->phy_idx);
+	pmac->cnt_he_crc32_ok = field_get(regs->he_crc_ok_mask, val);
+	pmac->cnt_he_crc32_error = field_get(regs->he_crc_err_mask, val);
+
+	if (chip->chip_gen == RTW89_CHIP_BE) {
+		val = rtw89_phy_read32_idx(rtwdev, regs->eht_crc,
+					   MASKDWORD, bb->phy_idx);
+		pmac->cnt_eht_crc32_ok = field_get(regs->eht_crc_ok_mask, val);
+		pmac->cnt_eht_crc32_error = field_get(regs->eht_crc_err_mask, val);
+	}
+
+	val = rtw89_phy_read32_idx(rtwdev, regs->ampdu_crc, MASKDWORD, bb->phy_idx);
+	pmac->cnt_ampdu_crc_ok = field_get(regs->ampdu_crc_ok_mask, val);
+	pmac->cnt_ampdu_crc_error = field_get(regs->ampdu_crc_err_mask, val);
+
+	val = rtw89_phy_read32_idx(rtwdev, regs->brk.addr, regs->brk.mask, bb->phy_idx);
+	if (chip->chip_id == RTL8852C &&
+	    rtw89_phy_read32_idx(rtwdev, regs->brk_option.addr,
+				 regs->brk_option.mask, bb->phy_idx) == 1) {
+		u32 tmp = pmac->ofdm_phy_txon + pmac->cck_phy_txon;
+
+		val = (val > tmp) ? (val - tmp) : 0;
+	}
+	pmac->cnt_ofdm_fail = val;
+
+	pmac->cnt_sb_search_fail =
+		rtw89_phy_read32_idx(rtwdev, regs->search_fail.addr,
+				     regs->search_fail.mask, bb->phy_idx);
+	pmac->cnt_lsig_brk_s_th =
+		rtw89_phy_read32_idx(rtwdev, regs->lsig_brk_s_th.addr,
+				     regs->lsig_brk_s_th.mask, bb->phy_idx);
+	pmac->cnt_lsig_brk_l_th =
+		rtw89_phy_read32_idx(rtwdev, regs->lsig_brk_l_th.addr,
+				     regs->lsig_brk_l_th.mask, bb->phy_idx);
+	pmac->cnt_parity_fail =
+		rtw89_phy_read32_idx(rtwdev, regs->rxl_err_parity.addr,
+				     regs->rxl_err_parity.mask, bb->phy_idx);
+	pmac->cnt_rate_illegal =
+		rtw89_phy_read32_idx(rtwdev, regs->rxl_err_rate.addr,
+				     regs->rxl_err_rate.mask, bb->phy_idx);
+	pmac->cnt_ofdm_cca =
+		rtw89_phy_read32_idx(rtwdev, regs->ofdm_cca.addr,
+				     regs->ofdm_cca.mask, bb->phy_idx);
+	pmac->cnt_ofdm_spoofing =
+		rtw89_phy_read32_idx(rtwdev, regs->cca_spoofing.addr,
+				     regs->cca_spoofing.mask, bb->phy_idx);
+	pmac->cnt_ampdu_miss =
+		rtw89_phy_read32_idx(rtwdev, regs->ampdu_miss.addr,
+				     regs->ampdu_miss.mask, bb->phy_idx);
+}
+
+static void rtw89_phy_pmac_stat_update(struct rtw89_dev *rtwdev,
+				       struct rtw89_bb_ctx *bb)
+{
+	struct rtw89_pmac_stat_info *pmac = &bb->pmac_stat;
+	const struct rtw89_chip_info *chip = rtwdev->chip;
+	struct rtw89_entity_conf conf;
+	const struct rtw89_chan *chan;
+	bool cck;
+
+	rtw89_entity_get_conf(rtwdev, &conf);
+	chan = conf.chans[bb->phy_idx];
+	cck = chan->band_type == RTW89_BAND_2G;
+
+	if (cck)
+		rtw89_phy_pmac_stat_cck(rtwdev, bb);
+
+	rtw89_phy_pmac_stat_ofdm(rtwdev, bb);
+
+	pmac->cnt_crc32_error_all = pmac->cnt_he_crc32_error +
+				    pmac->cnt_vht_crc32_error +
+				    pmac->cnt_ht_crc32_error +
+				    pmac->cnt_ofdm_crc32_error +
+				    pmac->cnt_cck_crc32_error;
+
+	pmac->cnt_crc32_ok_all = pmac->cnt_he_crc32_ok +
+				 pmac->cnt_vht_crc32_ok +
+				 pmac->cnt_ht_crc32_ok +
+				 pmac->cnt_ofdm_crc32_ok +
+				 pmac->cnt_cck_crc32_ok;
+
+	if (chip->chip_gen == RTW89_CHIP_BE) {
+		pmac->cnt_crc32_error_all += pmac->cnt_eht_crc32_error;
+		pmac->cnt_crc32_ok_all += pmac->cnt_eht_crc32_ok;
+	}
+
+	rtw89_phy_pmac_stat_reset(rtwdev, bb, cck);
+}
+
 static void rtw89_phy_trigger_tx_count(struct rtw89_dev *rtwdev)
 {
 	if (RTW89_CHK_FW_FEATURE(TX_HISTORY_V1, &rtwdev->fw))
@@ -5854,10 +6044,15 @@ static void rtw89_phy_trigger_tx_count(struct rtw89_dev *rtwdev)
 
 static void rtw89_phy_stat_update(struct rtw89_dev *rtwdev)
 {
+	struct rtw89_bb_ctx *bb;
+
 	if (!rtwdev->phy_info.bb_stat_cfg.enable)
 		return;
 
 	rtw89_phy_trigger_tx_count(rtwdev);
+
+	rtw89_for_each_active_bb(rtwdev, bb)
+		rtw89_phy_pmac_stat_update(rtwdev, bb);
 }
 
 void rtw89_phy_stat_track(struct rtw89_dev *rtwdev)

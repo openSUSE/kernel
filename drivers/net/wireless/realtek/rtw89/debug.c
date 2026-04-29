@@ -4141,9 +4141,42 @@ static ssize_t rtw89_debug_priv_phy_info_get(struct rtw89_dev *rtwdev,
 static int rtw89_get_bb_stat(struct rtw89_dev *rtwdev, struct rtw89_bb_ctx *bb,
 			     char *buf, size_t bufsz)
 {
+	struct rtw89_pmac_stat_info *pmac = &bb->pmac_stat;
 	char *p = buf, *end = buf + bufsz;
 
 	p += scnprintf(p, end - p, "\n[PHY %u]\n", bb->phy_idx);
+
+	p += scnprintf(p, end - p, "== PMAC\n");
+	p += scnprintf(p, end - p,
+		       "TX [CCK_TXEN, CCK_TXON, OFDM_TXEN, OFDM_TXON]: [%d, %d, %d, %d]\n",
+		       pmac->cck_mac_txen, pmac->cck_phy_txon,
+		       pmac->ofdm_mac_txen, pmac->ofdm_phy_txon);
+	p += scnprintf(p, end - p, "CRC  [CCK, OFDM, HT, VHT, HE, EHT, ALL, MPDU]\n");
+	p += scnprintf(p, end - p, " ok: [%d, %d, %d, %d, %d, %d, %d, %d]\n",
+		       pmac->cnt_cck_crc32_ok, pmac->cnt_ofdm_crc32_ok,
+		       pmac->cnt_ht_crc32_ok, pmac->cnt_vht_crc32_ok,
+		       pmac->cnt_he_crc32_ok, pmac->cnt_eht_crc32_ok,
+		       pmac->cnt_crc32_ok_all, pmac->cnt_ampdu_crc_ok);
+	p += scnprintf(p, end - p, "err: [%d, %d, %d, %d, %d, %d, %d, %d]\n",
+		       pmac->cnt_cck_crc32_error, pmac->cnt_ofdm_crc32_error,
+		       pmac->cnt_ht_crc32_error, pmac->cnt_vht_crc32_error,
+		       pmac->cnt_he_crc32_error, pmac->cnt_eht_crc32_error,
+		       pmac->cnt_crc32_error_all, pmac->cnt_ampdu_crc_error);
+	p += scnprintf(p, end - p, "CCA [CCK, OFDM]: [%d, %d]\n",
+		       pmac->cnt_cck_cca, pmac->cnt_ofdm_cca);
+	p += scnprintf(p, end - p, "FA  [CCK, OFDM]: [%d, %d]\n",
+		       pmac->cnt_cck_fail, pmac->cnt_ofdm_fail);
+
+	p += scnprintf(p, end - p, "CCA spoofing [CCK, OFDM]: [%d, %d]\n",
+		       pmac->cnt_cck_spoofing, pmac->cnt_ofdm_spoofing);
+	p += scnprintf(p, end - p, "CCK SFD: %d, SIG_GG: %d\n",
+		       pmac->cnt_sfd_gg, pmac->cnt_sig_gg);
+	p += scnprintf(p, end - p,
+		       "OFDM Parity: %d, Rate: %d, LSIG_BRK_S: %d, LSIG_BRK_L: %d, SBD: %d\n",
+		       pmac->cnt_parity_fail, pmac->cnt_rate_illegal,
+		       pmac->cnt_lsig_brk_s_th, pmac->cnt_lsig_brk_l_th,
+		       pmac->cnt_sb_search_fail);
+	p += scnprintf(p, end - p, "AMPDU miss: %d\n\n", pmac->cnt_ampdu_miss);
 
 	p += scnprintf(p, end - p, "== RSSI/RX Rate\n");
 	p += rtw89_get_rx_pkt_stat(rtwdev, bb, p, end - p);

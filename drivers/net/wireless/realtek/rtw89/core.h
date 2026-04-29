@@ -4487,6 +4487,54 @@ struct rtw89_edcca_regs {
 	u32 tx_collision_t2r_st_mask;
 };
 
+struct rtw89_pmac_regs {
+	struct rtw89_reg_def cck_txon;
+	struct rtw89_reg_def cck_txen;
+	struct rtw89_reg_def cck_cca;
+	struct rtw89_reg_def cck_sfd_gg;
+	struct rtw89_reg_def cck_sig_gg;
+	struct rtw89_reg_def cck_spoofing;
+	struct rtw89_reg_def cck_brk;
+	struct rtw89_reg_def brk;
+	struct rtw89_reg_def brk_option;
+	struct rtw89_reg_def search_fail;
+	struct rtw89_reg_def lsig_brk_s_th;
+	struct rtw89_reg_def lsig_brk_l_th;
+	struct rtw89_reg_def rxl_err_parity;
+	struct rtw89_reg_def rxl_err_rate;
+	struct rtw89_reg_def ofdm_cca;
+	struct rtw89_reg_def cca_spoofing;
+	struct rtw89_reg_def ampdu_miss;
+	struct rtw89_reg_def r1b_rx_rpt_rst;
+	struct rtw89_reg_def r1b_rr_sel;
+	struct rtw89_reg_def enable_all_cnt;
+	struct rtw89_reg_def rst_all_cnt;
+	u32 cck_crc32;
+	u32 cck_crc32_ok_mask;
+	u32 cck_crc32_fail_mask;
+	u32 ofdm_txon;
+	u32 ofdm_txon_mask;
+	u32 ofdm_txen_mask;
+	u32 l_crc;
+	u32 l_crc_ok_mask;
+	u32 l_crc_err_mask;
+	u32 ht_crc;
+	u32 ht_crc_ok_mask;
+	u32 ht_crc_err_mask;
+	u32 vht_crc;
+	u32 vht_crc_ok_mask;
+	u32 vht_crc_err_mask;
+	u32 he_crc;
+	u32 he_crc_ok_mask;
+	u32 he_crc_err_mask;
+	u32 eht_crc;
+	u32 eht_crc_ok_mask;
+	u32 eht_crc_err_mask;
+	u32 ampdu_crc;
+	u32 ampdu_crc_ok_mask;
+	u32 ampdu_crc_err_mask;
+};
+
 struct rtw89_phy_ul_tb_info {
 	bool dyn_tb_tri_en;
 	u8 def_if_bandedge;
@@ -4682,6 +4730,7 @@ struct rtw89_chip_info {
 	struct rtw89_sb_regs btc_sb;
 	u32 dma_ch_mask;
 	const struct rtw89_edcca_regs *edcca_regs;
+	const struct rtw89_pmac_regs *pmac_regs;
 	const struct wiphy_wowlan_support *wowlan_stub;
 	const struct rtw89_xtal_info *xtal_info;
 	unsigned long default_quirks; /* bitmap of rtw89_quirks */
@@ -5503,6 +5552,43 @@ struct rtw89_phy_ch_info {
 	u8 rxsc_20;
 	u8 rxsc_l;
 	u8 is_noisy;
+};
+
+struct rtw89_pmac_stat_info {
+	u32 cck_phy_txon;
+	u32 cck_mac_txen;
+	u32 ofdm_mac_txen;
+	u32 ofdm_phy_txon;
+	u32 cnt_ofdm_cca;
+	u32 cnt_cck_cca;
+	u32 cnt_cck_spoofing;
+	u32 cnt_ofdm_spoofing;
+	u32 cnt_ampdu_miss;
+	u32 cnt_ampdu_crc_error;
+	u32 cnt_ampdu_crc_ok;
+	u32 cnt_cck_crc32_error;
+	u32 cnt_cck_crc32_ok;
+	u32 cnt_ofdm_crc32_error;
+	u32 cnt_ofdm_crc32_ok;
+	u32 cnt_ht_crc32_error;
+	u32 cnt_ht_crc32_ok;
+	u32 cnt_vht_crc32_error;
+	u32 cnt_vht_crc32_ok;
+	u32 cnt_he_crc32_ok;
+	u32 cnt_he_crc32_error;
+	u32 cnt_eht_crc32_ok;
+	u32 cnt_eht_crc32_error;
+	u32 cnt_crc32_error_all;
+	u32 cnt_crc32_ok_all;
+	u32 cnt_sfd_gg;
+	u32 cnt_sig_gg;
+	u32 cnt_cck_fail;
+	u32 cnt_ofdm_fail;
+	u32 cnt_lsig_brk_s_th;
+	u32 cnt_lsig_brk_l_th;
+	u32 cnt_parity_fail;
+	u32 cnt_rate_illegal;
+	u32 cnt_sb_search_fail;
 };
 
 struct rtw89_agc_gaincode_set {
@@ -6331,6 +6417,7 @@ struct rtw89_dev {
 		struct ewma_rssi bcn_rssi;
 		struct rtw89_pkt_stat cur_pkt_stat;
 		struct rtw89_pkt_stat last_pkt_stat;
+		struct rtw89_pmac_stat_info pmac_stat;
 	} bbs[RTW89_PHY_NUM];
 
 	struct wiphy_delayed_work track_work;
