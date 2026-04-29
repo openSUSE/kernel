@@ -12,6 +12,7 @@
 #include <linux/irqflags.h>
 #include <linux/kthread.h>
 #include <linux/minmax.h>
+#include <linux/panic.h>
 #include <linux/percpu.h>
 #include <linux/preempt.h>
 #include <linux/slab.h>
@@ -116,6 +117,9 @@
  * context. The new owner is supposed to reprint the entire interrupted record
  * from scratch.
  */
+
+/* Counter of active nbcon emergency contexts. */
+static atomic_t nbcon_cpu_emergency_cnt = ATOMIC_INIT(0);
 
 /**
  * nbcon_state_set - Helper function to set the console state
@@ -254,7 +258,7 @@ static int nbcon_context_try_acquire_direct(struct nbcon_context *ctxt,
 		 * opportunity to perform any necessary cleanup if they were
 		 * interrupted by the panic CPU while printing.
 		 */
-		if (other_cpu_in_panic() &&
+		if (panic_on_other_cpu() &&
 		    (!is_reacquire || cur->unsafe_takeover)) {
 			return -EPERM;
 		}
@@ -309,7 +313,7 @@ static bool nbcon_waiter_matches(struct nbcon_state *cur, int expected_prio)
 	 * Event #2 implies the new context is PANIC.
 	 * Event #3 occurs when panic() has flushed the console.
 	 * Event #4 occurs when a non-panic CPU reacquires.
-	 * Event #5 is not possible due to the other_cpu_in_panic() check
+	 * Event #5 is not possible due to the panic_on_other_cpu() check
 	 *          in nbcon_context_try_acquire_handover().
 	 */
 
@@ -348,7 +352,7 @@ static int nbcon_context_try_acquire_requested(struct nbcon_context *ctxt,
 	struct nbcon_state new;
 
 	/* Note that the caller must still remove the request! */
-	if (other_cpu_in_panic())
+	if (panic_on_other_cpu())
 		return -EPERM;
 
 	/*
@@ -446,7 +450,7 @@ static int nbcon_context_try_acquire_handover(struct nbcon_context *ctxt,
 	 * nbcon_waiter_matches(). In particular, the assumption that
 	 * lower priorities are ignored during panic.
 	 */
-	if (other_cpu_in_panic())
+	if (panic_on_other_cpu())
 		return -EPERM;
 
 	/* Handover is not possible on the same CPU. */
@@ -589,7 +593,6 @@ static struct printk_buffers panic_nbcon_pbufs;
  */
 static bool nbcon_context_try_acquire(struct nbcon_context *ctxt, bool is_reacquire)
 {
-	unsigned int cpu = smp_processor_id();
 	struct console *con = ctxt->console;
 	struct nbcon_state cur;
 	int err;
@@ -614,7 +617,7 @@ out:
 	/* Acquire succeeded. */
 
 	/* Assign the appropriate buffer for this context. */
-	if (atomic_read(&panic_cpu) == cpu)
+	if (panic_on_this_cpu())
 		ctxt->pbufs = &panic_nbcon_pbufs;
 	else
 		ctxt->pbufs = con->pbufs;
@@ -1163,6 +1166,17 @@ static bool nbcon_kthread_should_wakeup(struct console *con, struct nbcon_contex
 	if (kthread_should_stop())
 		return true;
 
+	/*
+	 * Block the kthread when the system is in an emergency or panic mode.
+	 * It increases the chance that these contexts would be able to show
+	 * the messages directly. And it reduces the risk of interrupted writes
+	 * where the context with a higher priority takes over the nbcon console
+	 * ownership in the middle of a message.
+	 */
+	if (unlikely(atomic_read(&nbcon_cpu_emergency_cnt)) ||
+	    unlikely(panic_in_progress()))
+		return false;
+
 	cookie = console_srcu_read_lock();
 
 	flags = console_srcu_read_flags(con);
@@ -1213,6 +1227,14 @@ wait_for_event:
 	do {
 		if (kthread_should_stop())
 			return 0;
+
+		/*
+		 * Block the kthread when the system is in an emergency or panic
+		 * mode. See nbcon_kthread_should_wakeup() for more details.
+		 */
+		if (unlikely(atomic_read(&nbcon_cpu_emergency_cnt)) ||
+		    unlikely(panic_in_progress()))
+			goto wait_for_event;
 
 		backlog = false;
 
@@ -1274,6 +1296,13 @@ void nbcon_kthreads_wake(void)
 	int cookie;
 
 	if (!printk_kthreads_running)
+		return;
+
+	/*
+	 * It is not allowed to call this function when console irq_work
+	 * is blocked.
+	 */
+	if (WARN_ON_ONCE(console_irqwork_blocked))
 		return;
 
 	cookie = console_srcu_read_lock();
@@ -1394,7 +1423,7 @@ enum nbcon_prio nbcon_get_default_prio(void)
 {
 	unsigned int *cpu_emergency_nesting;
 
-	if (this_cpu_in_panic())
+	if (panic_on_this_cpu())
 		return NBCON_PRIO_PANIC;
 
 	cpu_emergency_nesting = nbcon_get_cpu_emergency_nesting();
@@ -1505,17 +1534,28 @@ static int __nbcon_atomic_flush_pending_con(struct console *con, u64 stop_seq,
 	ctxt->prio			= nbcon_get_default_prio();
 	ctxt->allow_unsafe_takeover	= allow_unsafe_takeover;
 
-	if (!nbcon_context_try_acquire(ctxt, false))
-		return -EPERM;
-
 	while (nbcon_seq_read(con) < stop_seq) {
 		/*
-		 * nbcon_emit_next_record() returns false when the console was
-		 * handed over or taken over. In both cases the context is no
-		 * longer valid.
+		 * Atomic flushing does not use console driver synchronization
+		 * (i.e. it does not hold the port lock for uart consoles).
+		 * Therefore IRQs must be disabled to avoid being interrupted
+		 * and then calling into a driver that will deadlock trying
+		 * to acquire console ownership.
 		 */
-		if (!nbcon_emit_next_record(&wctxt, true))
-			return -EAGAIN;
+		scoped_guard(irqsave) {
+			if (!nbcon_context_try_acquire(ctxt, false))
+				return -EPERM;
+
+			/*
+			 * nbcon_emit_next_record() returns false when
+			 * the console was handed over or taken over.
+			 * In both cases the context is no longer valid.
+			 */
+			if (!nbcon_emit_next_record(&wctxt, true))
+				return -EAGAIN;
+
+			nbcon_context_release(ctxt);
+		}
 
 		if (!ctxt->backlog) {
 			/* Are there reserved but not yet finalized records? */
@@ -1525,7 +1565,6 @@ static int __nbcon_atomic_flush_pending_con(struct console *con, u64 stop_seq,
 		}
 	}
 
-	nbcon_context_release(ctxt);
 	return err;
 }
 
@@ -1545,21 +1584,10 @@ static void nbcon_atomic_flush_pending_con(struct console *con, u64 stop_seq,
 					   bool allow_unsafe_takeover)
 {
 	struct console_flush_type ft;
-	unsigned long flags;
 	int err;
 
 again:
-	/*
-	 * Atomic flushing does not use console driver synchronization (i.e.
-	 * it does not hold the port lock for uart consoles). Therefore IRQs
-	 * must be disabled to avoid being interrupted and then calling into
-	 * a driver that will deadlock trying to acquire console ownership.
-	 */
-	local_irq_save(flags);
-
 	err = __nbcon_atomic_flush_pending_con(con, stop_seq, allow_unsafe_takeover);
-
-	local_irq_restore(flags);
 
 	/*
 	 * If there was a new owner (-EPERM, -EAGAIN), that context is
@@ -1655,6 +1683,8 @@ void nbcon_cpu_emergency_enter(void)
 
 	preempt_disable();
 
+	atomic_inc(&nbcon_cpu_emergency_cnt);
+
 	cpu_emergency_nesting = nbcon_get_cpu_emergency_nesting();
 	(*cpu_emergency_nesting)++;
 }
@@ -1669,9 +1699,23 @@ void nbcon_cpu_emergency_exit(void)
 	unsigned int *cpu_emergency_nesting;
 
 	cpu_emergency_nesting = nbcon_get_cpu_emergency_nesting();
-
 	if (!WARN_ON_ONCE(*cpu_emergency_nesting == 0))
 		(*cpu_emergency_nesting)--;
+
+	/*
+	 * Wake up kthreads because there might be some pending messages
+	 * added by other CPUs with normal priority since the last flush
+	 * in the emergency context.
+	 */
+	if (!WARN_ON_ONCE(atomic_read(&nbcon_cpu_emergency_cnt) == 0)) {
+		if (atomic_dec_return(&nbcon_cpu_emergency_cnt) == 0) {
+			struct console_flush_type ft;
+
+			printk_get_console_flush_type(&ft);
+			if (ft.nbcon_offload)
+				nbcon_kthreads_wake();
+		}
+	}
 
 	preempt_enable();
 }
@@ -1689,6 +1733,9 @@ void nbcon_cpu_emergency_exit(void)
 bool nbcon_alloc(struct console *con)
 {
 	struct nbcon_state state = { };
+
+	/* Synchronize the kthread start. */
+	lockdep_assert_console_list_lock_held();
 
 	/* The write_thread() callback is mandatory. */
 	if (WARN_ON(!con->write_thread))
@@ -1720,12 +1767,15 @@ bool nbcon_alloc(struct console *con)
 			return false;
 		}
 
-		if (printk_kthreads_running) {
+		if (printk_kthreads_ready && !have_boot_console) {
 			if (!nbcon_kthread_create(con)) {
 				kfree(con->pbufs);
 				con->pbufs = NULL;
 				return false;
 			}
+
+			/* Might be the first kthread. */
+			printk_kthreads_running = true;
 		}
 	}
 
@@ -1735,13 +1785,29 @@ bool nbcon_alloc(struct console *con)
 /**
  * nbcon_free - Free and cleanup the nbcon console specific data
  * @con:	Console to free/cleanup nbcon data
+ *
+ * Important: @have_nbcon_console must be updated before calling
+ *	this function. In particular, it can be set only when there
+ *	is still another nbcon console registered.
  */
 void nbcon_free(struct console *con)
 {
 	struct nbcon_state state = { };
 
-	if (printk_kthreads_running)
+	/* Synchronize the kthread stop. */
+	lockdep_assert_console_list_lock_held();
+
+	if (printk_kthreads_running) {
 		nbcon_kthread_stop(con);
+
+		/* Might be the last nbcon console.
+		 *
+		 * Do not rely on printk_kthreads_check_locked(). It is not
+		 * called in some code paths, see nbcon_free() callers.
+		 */
+		if (!have_nbcon_console)
+			printk_kthreads_running = false;
+	}
 
 	nbcon_state_set(con, &state);
 
@@ -1827,7 +1893,7 @@ void nbcon_device_release(struct console *con)
 			if (console_trylock())
 				console_unlock();
 		} else if (ft.legacy_offload) {
-			printk_trigger_flush();
+			defer_console_output();
 		}
 	}
 	console_srcu_read_unlock(cookie);
