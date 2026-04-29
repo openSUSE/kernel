@@ -2731,8 +2731,12 @@ void __cold __btrfs_abort_transaction(struct btrfs_trans_handle *trans,
 
 	WRITE_ONCE(trans->aborted, error);
 	WRITE_ONCE(trans->transaction->aborted, error);
-	if (first_hit && error == -ENOSPC)
-		btrfs_dump_space_info_for_trans_abort(fs_info);
+	if (first_hit) {
+		btrfs_err(fs_info, "Transaction %llu aborted (error %d)",
+			  trans->transid, error);
+		if (error == -ENOSPC)
+			btrfs_dump_space_info_for_trans_abort(fs_info);
+	}
 	/* Wake up anybody who may be waiting on this transaction */
 	wake_up(&fs_info->transaction_wait);
 	wake_up(&fs_info->transaction_blocked_wait);

@@ -253,16 +253,7 @@ do {								\
 	if (!test_and_set_bit(BTRFS_FS_STATE_TRANS_ABORTED,	\
 			&((trans)->fs_info->fs_state))) {	\
 		__first = true;					\
-		if (WARN(btrfs_abort_should_print_stack(error),	\
-			KERN_ERR				\
-			"BTRFS: Transaction aborted (error %d)\n",	\
-			(error))) {					\
-			/* Stack trace printed. */			\
-		} else {						\
-			btrfs_err((trans)->fs_info,			\
-				  "Transaction aborted (error %d)",	\
-				  (error));			\
-		}						\
+		WARN_ON(btrfs_abort_should_print_stack(error));	\
 	}							\
 	__btrfs_abort_transaction((trans), __func__,		\
 				  __LINE__, (error), __first);	\
