@@ -151,7 +151,9 @@ struct uart_8250_port {
 	u16			lsr_saved_flags;
 	u16			lsr_save_mask;
 #define MSR_SAVE_FLAGS UART_MSR_ANY_DELTA
+	bool			console_line_ended; /* FIXME: kABI placeholder*/
 	unsigned char		msr_saved_flags;
+	struct irq_work		modem_status_work; /* FIXME: kABI placeholder*/
 
 	struct uart_8250_dma	*dma;
 	const struct uart_8250_ops *ops;
