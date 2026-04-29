@@ -39,6 +39,13 @@
  * current implementation, we only need one wakelock, so only
  * DMC_WAKELOCK1_CTL is used.  The other definitions are here for
  * potential future use.
+ *
+ * This is available starting with Xe2_LPD (display version 20) as an
+ * experimental feature and on Xe3_LPD (display version 30) as the
+ * first display release with official support.  That means that we
+ * only enable the feature by default on the latter and using it on
+ * the former requires explicitly using the enable_dmc_wl module
+ * parameter.
  */
 
 /*
@@ -286,7 +293,7 @@ static void intel_dmc_wl_sanitize_param(struct intel_display *display)
 {
 	const char *desc;
 
-	if (!HAS_DMC_WAKELOCK(display)) {
+	if (DISPLAY_VER(display) < 20) {
 		display->params.enable_dmc_wl = ENABLE_DMC_WL_DISABLED;
 	} else if (display->params.enable_dmc_wl < 0) {
 		if (DISPLAY_VER(display) >= 30)
