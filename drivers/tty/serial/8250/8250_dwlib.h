@@ -6,6 +6,7 @@
 
 #include <linux/bitfield.h>
 #include <linux/bits.h>
+#include <linux/build_bug.h>
 #include <linux/io.h>
 #include <linux/types.h>
 
@@ -68,8 +69,13 @@
 #define DW_UART_CPR_DMA_EXTRA		BIT(13)
 #define DW_UART_CPR_FIFO_MODE		GENMASK(23, 16)
 
-/* Helper for FIFO size calculation */
+/* Helpers for FIFO size calculation */
 #define DW_UART_CPR_FIFO_SIZE(a)	(FIELD_GET(DW_UART_CPR_FIFO_MODE, (a)) * 16)
+#define DW_UART_CPR_FIFO_MODE_FROM_SIZE(size)			\
+	(FIELD_PREP_CONST(DW_UART_CPR_FIFO_MODE,		\
+			  BUILD_BUG_ON_ZERO((size) > 2048) +	\
+			  BUILD_BUG_ON_ZERO((size) % 16) +	\
+			  ((size) / 16)))
 
 struct dw8250_port_data {
 	/* Port properties */
