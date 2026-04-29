@@ -119,10 +119,20 @@ static const struct devlink_param devlink_param_generic[] = {
 	},
 };
 
+/* SL-specific kABI tracking */
+#define EXPORT_ENUM_VALUE(name) \
+	char (*const __kabi_enum_##name)[name]; \
+	EXPORT_SYMBOL_GPL(__kabi_enum_##name)
+
+EXPORT_ENUM_VALUE(DEVLINK_PARAM_GENERIC_ID_MAX);
+
+#define INTERNAL_DEVLINK_PARAM_GENERIC_ID_MAX	\
+	(ARRAY_SIZE(devlink_param_generic) - 1)
+
 static int devlink_param_generic_verify(const struct devlink_param *param)
 {
 	/* verify it match generic parameter by id and name */
-	if (param->id > DEVLINK_PARAM_GENERIC_ID_MAX)
+	if (param->id > INTERNAL_DEVLINK_PARAM_GENERIC_ID_MAX)
 		return -EINVAL;
 	if (strcmp(param->name, devlink_param_generic[param->id].name))
 		return -ENOENT;
@@ -139,7 +149,7 @@ static int devlink_param_driver_verify(const struct devlink_param *param)
 	if (param->id <= DEVLINK_PARAM_GENERIC_ID_MAX)
 		return -EINVAL;
 	/* verify no such name in generic params */
-	for (i = 0; i <= DEVLINK_PARAM_GENERIC_ID_MAX; i++)
+	for (i = 0; i <= INTERNAL_DEVLINK_PARAM_GENERIC_ID_MAX; i++)
 		if (!strcmp(param->name, devlink_param_generic[i].name))
 			return -EEXIST;
 
