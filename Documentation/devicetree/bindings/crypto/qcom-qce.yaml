@@ -49,6 +49,7 @@ properties:
               - qcom,glymur-qce
               - qcom,kaanapali-qce
               - qcom,milos-qce
+              - qcom,nord-qce
               - qcom,qcs615-qce
               - qcom,qcs8300-qce
               - qcom,sa8775p-qce
