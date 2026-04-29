@@ -1140,10 +1140,11 @@ thermal_of_cooling_device_register(struct device_node *np,
 }
 EXPORT_SYMBOL_GPL(thermal_of_cooling_device_register);
 
-static void thermal_cooling_device_release(struct device *dev, void *res)
+static void thermal_cooling_device_release(void *data)
 {
-	thermal_cooling_device_unregister(
-				*(struct thermal_cooling_device **)res);
+	struct thermal_cooling_device *cdev = data;
+
+	thermal_cooling_device_unregister(cdev);
 }
 
 /**
@@ -1169,23 +1170,18 @@ devm_thermal_of_cooling_device_register(struct device *dev,
 				const char *type, void *devdata,
 				const struct thermal_cooling_device_ops *ops)
 {
-	struct thermal_cooling_device **ptr, *tcd;
+	struct thermal_cooling_device *cdev;
+	int ret;
 
-	ptr = devres_alloc(thermal_cooling_device_release, sizeof(*ptr),
-			   GFP_KERNEL);
-	if (!ptr)
-		return ERR_PTR(-ENOMEM);
+	cdev = __thermal_cooling_device_register(np, type, devdata, ops);
+	if (IS_ERR(cdev))
+		return cdev;
 
-	tcd = __thermal_cooling_device_register(np, type, devdata, ops);
-	if (IS_ERR(tcd)) {
-		devres_free(ptr);
-		return tcd;
-	}
+	ret = devm_add_action_or_reset(dev, thermal_cooling_device_release, cdev);
+	if (ret)
+		return ERR_PTR(ret);
 
-	*ptr = tcd;
-	devres_add(dev, ptr);
-
-	return tcd;
+	return cdev;
 }
 EXPORT_SYMBOL_GPL(devm_thermal_of_cooling_device_register);
 
