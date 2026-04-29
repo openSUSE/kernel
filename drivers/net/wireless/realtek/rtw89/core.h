@@ -855,8 +855,10 @@ struct rtw89_rx_phy_ppdu {
 	} ofdm;
 	bool has_data;
 	bool has_bcn;
+	bool su;
 	bool ldpc;
 	bool stbc;
+	bool bf;
 	bool to_self;
 	bool valid;
 	bool hdr_2_en;
@@ -5378,6 +5380,14 @@ struct rtw89_pkt_stat {
 	u8 beacon_rate;
 	u32 beacon_len;
 	u32 rx_rate_cnt[RTW89_HW_RATE_NR];
+	struct {
+		u32 ldpc;
+		u32 bcc;
+		u32 stbc;
+		u32 su_bf;
+		u32 su_non_bf;
+		u32 mu;
+	} rx;
 };
 
 #define RTW89_BCN_TRACK_STAT_NR 32

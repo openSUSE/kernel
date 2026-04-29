@@ -4303,6 +4303,7 @@ static int rtw89_get_bb_stat(struct rtw89_dev *rtwdev, struct rtw89_bb_ctx *bb,
 			     char *buf, size_t bufsz)
 {
 	const struct rtw89_phy_gen_def *phy = rtwdev->chip->phy_def;
+	struct rtw89_pkt_stat *pkt_stat = &bb->last_pkt_stat;
 	const struct rtw89_physts_regs *physts = phy->physts;
 	struct rtw89_pmac_stat_info *pmac = &bb->pmac_stat;
 	struct rtw89_tx_stat_info *tx_stat = &bb->tx_stat;
@@ -4383,6 +4384,13 @@ static int rtw89_get_bb_stat(struct rtw89_dev *rtwdev, struct rtw89_bb_ctx *bb,
 		p += scnprintf(p, end - p, "0x%08x%s",
 			       tx_stat->common_ctrl[i], (i < reg_nr - 1) ? ", " : "");
 	p += scnprintf(p, end - p, "]\n\n");
+
+	p += scnprintf(p, end - p, "== RX General\n");
+	p += scnprintf(p, end - p,
+		       "LDPC: %d, BCC: %d, STBC: %d, SU_NON_BF: %d, SU_BF: %d, MU: %d\n\n",
+		       pkt_stat->rx.ldpc, pkt_stat->rx.bcc,
+		       pkt_stat->rx.stbc, pkt_stat->rx.su_non_bf,
+		       pkt_stat->rx.su_bf, pkt_stat->rx.mu);
 
 	p += scnprintf(p, end - p, "== RSSI/RX Rate\n");
 	p += rtw89_get_rx_pkt_stat(rtwdev, bb, p, end - p);
