@@ -9941,6 +9941,7 @@ static void amdgpu_dm_handle_vrr_transition(struct amdgpu_display_manager *dm,
 				 __func__, new_state->base.crtc->base.id);
 
 		scoped_guard(mutex, &dm->dc_lock) {
+			dc_exit_ips_for_hw_access(dm->dc);
 			amdgpu_dm_psr_set_event(dm, new_state->stream, true,
 				psr_event_vrr_transition, true);
 			amdgpu_dm_replay_set_event(dm, new_state->stream, true,
@@ -9956,6 +9957,7 @@ static void amdgpu_dm_handle_vrr_transition(struct amdgpu_display_manager *dm,
 				 __func__, new_state->base.crtc->base.id);
 
 		scoped_guard(mutex, &dm->dc_lock) {
+			dc_exit_ips_for_hw_access(dm->dc);
 			amdgpu_dm_psr_set_event(dm, new_state->stream, false,
 				psr_event_vrr_transition, false);
 			amdgpu_dm_replay_set_event(dm, new_state->stream, false,
@@ -10257,6 +10259,7 @@ static void amdgpu_dm_commit_planes(struct drm_atomic_commit *state,
 				mutex_lock(&dm->dc_lock);
 				acrtc_state->stream->link->psr_settings.psr_dirty_rects_change_timestamp_ns =
 				timestamp_ns;
+				dc_exit_ips_for_hw_access(dm->dc);
 				amdgpu_dm_psr_set_event(dm, acrtc_state->stream, true,
 					psr_event_hw_programming, true);
 				mutex_unlock(&dm->dc_lock);
@@ -10614,6 +10617,7 @@ static void amdgpu_dm_mod_power_update_streams(struct drm_atomic_commit *state,
 		 */
 		if (old_crtc_state->active) {
 			scoped_guard(mutex, &dm->dc_lock) {
+				dc_exit_ips_for_hw_access(dm->dc);
 				amdgpu_dm_psr_set_event(dm, dm_old_crtc_state->stream, true,
 					psr_event_hw_programming, true);
 				amdgpu_dm_replay_set_event(dm, dm_old_crtc_state->stream, true,
