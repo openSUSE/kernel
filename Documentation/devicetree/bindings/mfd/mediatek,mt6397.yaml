@@ -44,6 +44,10 @@ properties:
           - enum:
               - mediatek,mt6366
           - const: mediatek,mt6358
+      - items:
+          - enum:
+              - mediatek,mt6365
+          - const: mediatek,mt6359
 
   interrupts:
     maxItems: 1
@@ -71,6 +75,7 @@ properties:
           - items:
               - enum:
                   - mediatek,mt6359-rtc
+                  - mediatek,mt6365-rtc
                   - mediatek,mt6366-rtc
               - const: mediatek,mt6358-rtc
 
@@ -99,6 +104,10 @@ properties:
               - enum:
                   - mediatek,mt6366-regulator
               - const: mediatek,mt6358-regulator
+          - items:
+              - enum:
+                  - mediatek,mt6365-regulator
+              - const: mediatek,mt6359-regulator
 
     required:
       - compatible
@@ -125,6 +134,10 @@ properties:
               - enum:
                   - mediatek,mt6366-sound
               - const: mediatek,mt6358-sound
+          - items:
+              - enum:
+                  - mediatek,mt6365-codec
+              - const: mediatek,mt6359-codec
 
     required:
       - compatible
