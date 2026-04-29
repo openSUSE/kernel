@@ -70,6 +70,7 @@ properties:
               - mediatek,mt6397-rtc
           - items:
               - enum:
+                  - mediatek,mt6359-rtc
                   - mediatek,mt6366-rtc
               - const: mediatek,mt6358-rtc
 
