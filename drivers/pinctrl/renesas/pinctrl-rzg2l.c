@@ -1124,7 +1124,7 @@ static int rzg2l_pin_to_oen_bit(struct rzg2l_pinctrl *pctrl, unsigned int _pin)
 	u64 caps = FIELD_GET(PIN_CFG_MASK, *pin_data);
 	u8 pin = RZG2L_PIN_ID_TO_PIN(_pin);
 
-	if (pin > pctrl->data->hwcfg->oen_max_pin)
+	if (pin != pctrl->data->hwcfg->oen_max_pin)
 		return -EINVAL;
 
 	/*
