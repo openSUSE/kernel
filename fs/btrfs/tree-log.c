@@ -7240,9 +7240,13 @@ static int btrfs_log_all_parents(struct btrfs_trans_handle *trans,
 	struct btrfs_root *root = inode->root;
 	const u64 ino = btrfs_ino(inode);
 
+	trace_btrfs_log_all_parents_enter(trans, inode);
+
 	path = btrfs_alloc_path();
-	if (!path)
-		return -ENOMEM;
+	if (!path) {
+		ret = -ENOMEM;
+		goto out;
+	}
 	path->skip_locking = true;
 	path->search_commit_root = true;
 
@@ -7251,7 +7255,7 @@ static int btrfs_log_all_parents(struct btrfs_trans_handle *trans,
 	key.offset = 0;
 	ret = btrfs_search_slot(NULL, root, &key, path, 0, 0);
 	if (ret < 0)
-		return ret;
+		goto out;
 
 	while (true) {
 		struct extent_buffer *leaf = path->nodes[0];
@@ -7263,9 +7267,11 @@ static int btrfs_log_all_parents(struct btrfs_trans_handle *trans,
 		if (slot >= btrfs_header_nritems(leaf)) {
 			ret = btrfs_next_leaf(root, path);
 			if (ret < 0)
-				return ret;
-			if (ret > 0)
+				goto out;
+			if (ret > 0) {
+				ret = 0;
 				break;
+			}
 			continue;
 		}
 
@@ -7318,8 +7324,10 @@ static int btrfs_log_all_parents(struct btrfs_trans_handle *trans,
 			 * at both parents and the old parent B would still
 			 * exist.
 			 */
-			if (IS_ERR(dir_inode))
-				return PTR_ERR(dir_inode);
+			if (IS_ERR(dir_inode)) {
+				ret = PTR_ERR(dir_inode);
+				goto out;
+			}
 
 			if (!need_log_inode(trans, dir_inode)) {
 				btrfs_add_delayed_iput(dir_inode);
@@ -7332,11 +7340,14 @@ static int btrfs_log_all_parents(struct btrfs_trans_handle *trans,
 				ret = log_new_dir_dentries(trans, dir_inode, ctx);
 			btrfs_add_delayed_iput(dir_inode);
 			if (ret)
-				return ret;
+				goto out;
 		}
 		path->slots[0]++;
 	}
-	return 0;
+out:
+	trace_btrfs_log_all_parents_exit(trans, inode, ret);
+
+	return ret;
 }
 
 static int log_new_ancestors(struct btrfs_trans_handle *trans,
