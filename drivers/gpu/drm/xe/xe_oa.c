@@ -2251,6 +2251,10 @@ static bool xe_oa_is_valid_mux_addr(struct xe_oa *oa, u32 addr)
 
 static bool xe_oa_is_valid_config_reg(struct xe_oa *oa, u32 addr, u32 val)
 {
+	if (XE_DEVICE_WA(oa->xe, 14026779378) &&
+	    addr == SYS_MEM_LAT_MEASURE.addr && val & SYS_MEM_LAT_MEASURE_EN)
+		return false;
+
 	return xe_oa_is_valid_flex_addr(oa, addr) ||
 		xe_oa_is_valid_b_counter_addr(oa, addr) ||
 		xe_oa_is_valid_mux_addr(oa, addr);
