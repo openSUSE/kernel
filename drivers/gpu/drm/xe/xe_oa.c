@@ -1942,9 +1942,12 @@ static bool oa_unit_supports_oa_format(struct xe_oa *oa, struct xe_oa_open_param
 	case DRM_XE_OA_UNIT_TYPE_OAG:
 		return f->type == DRM_XE_OA_FMT_TYPE_OAG || f->type == DRM_XE_OA_FMT_TYPE_OAR ||
 			f->type == DRM_XE_OA_FMT_TYPE_OAC || f->type == DRM_XE_OA_FMT_TYPE_PEC;
+	case DRM_XE_OA_UNIT_TYPE_MERT:
+		if (XE_DEVICE_WA(oa->xe, 14026746987))
+			return param->oa_format == XE_OAM_FORMAT_MPEC8u32_B8_C8;
+		fallthrough;
 	case DRM_XE_OA_UNIT_TYPE_OAM:
 	case DRM_XE_OA_UNIT_TYPE_OAM_SAG:
-	case DRM_XE_OA_UNIT_TYPE_MERT:
 		return f->type == DRM_XE_OA_FMT_TYPE_OAM || f->type == DRM_XE_OA_FMT_TYPE_OAM_MPEC;
 	default:
 		return false;
