@@ -285,7 +285,7 @@ static int __xe_pin_fb_vma_ggtt(struct drm_gem_object *obj,
 	 */
 	guard(xe_pm_runtime_noresume)(xe);
 
-	align = XE_PAGE_SIZE;
+	align = max(XE_PAGE_SIZE, pin_params->alignment);
 	if (xe_bo_is_vram(bo) && xe->info.vram_flags & XE_VRAM_FLAGS_NEED64K)
 		align = max(align, SZ_64K);
 
