@@ -1571,7 +1571,6 @@ intel_dp_mode_valid(struct drm_connector *_connector,
 	struct intel_connector *connector = to_intel_connector(_connector);
 	const struct drm_display_info *info = &connector->base.display_info;
 	struct intel_dp *intel_dp = intel_attached_dp(connector);
-	const struct drm_display_mode *fixed_mode;
 	int target_clock = mode->clock;
 	enum drm_mode_status status;
 
@@ -1588,13 +1587,10 @@ intel_dp_mode_valid(struct drm_connector *_connector,
 	if (intel_dp_hdisplay_bad(display, mode->hdisplay))
 		return MODE_H_ILLEGAL;
 
-	fixed_mode = intel_panel_fixed_mode(connector, mode);
-	if (intel_dp_is_edp(intel_dp) && fixed_mode) {
-		status = intel_panel_mode_valid(connector, mode);
+	if (intel_dp_is_edp(intel_dp)) {
+		status = intel_panel_mode_valid(connector, mode, &target_clock);
 		if (status != MODE_OK)
 			return status;
-
-		target_clock = fixed_mode->clock;
 	}
 
 	/*

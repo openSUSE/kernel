@@ -223,8 +223,6 @@ intel_dvo_mode_valid(struct drm_connector *_connector,
 	struct intel_display *display = to_intel_display(_connector->dev);
 	struct intel_connector *connector = to_intel_connector(_connector);
 	struct intel_dvo *intel_dvo = intel_attached_dvo(connector);
-	const struct drm_display_mode *fixed_mode =
-		intel_panel_fixed_mode(connector, mode);
 	int max_dotclk = display->cdclk.max_dotclk_freq;
 	int target_clock = mode->clock;
 	enum drm_mode_status status;
@@ -234,16 +232,9 @@ intel_dvo_mode_valid(struct drm_connector *_connector,
 		return status;
 
 	/* XXX: Validate clock range */
-
-	if (fixed_mode) {
-		enum drm_mode_status status;
-
-		status = intel_panel_mode_valid(connector, mode);
-		if (status != MODE_OK)
-			return status;
-
-		target_clock = fixed_mode->clock;
-	}
+	status = intel_panel_mode_valid(connector, mode, &target_clock);
+	if (status != MODE_OK)
+		return status;
 
 	if (target_clock > max_dotclk)
 		return MODE_CLOCK_HIGH;

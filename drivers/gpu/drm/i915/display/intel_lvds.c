@@ -395,20 +395,19 @@ intel_lvds_mode_valid(struct drm_connector *_connector,
 {
 	struct intel_display *display = to_intel_display(_connector->dev);
 	struct intel_connector *connector = to_intel_connector(_connector);
-	const struct drm_display_mode *fixed_mode =
-		intel_panel_fixed_mode(connector, mode);
 	int max_pixclk = display->cdclk.max_dotclk_freq;
 	enum drm_mode_status status;
+	int target_clock;
 
 	status = intel_cpu_transcoder_mode_valid(display, mode);
 	if (status != MODE_OK)
 		return status;
 
-	status = intel_panel_mode_valid(connector, mode);
+	status = intel_panel_mode_valid(connector, mode, &target_clock);
 	if (status != MODE_OK)
 		return status;
 
-	if (fixed_mode->clock > max_pixclk)
+	if (target_clock > max_pixclk)
 		return MODE_CLOCK_HIGH;
 
 	return MODE_OK;
