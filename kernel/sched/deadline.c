@@ -1515,8 +1515,12 @@ throttle:
 
 		if (unlikely(is_dl_boosted(dl_se) || !start_dl_timer(dl_se))) {
 			if (dl_server(dl_se)) {
-				replenish_dl_new_period(dl_se, rq);
-				start_dl_timer(dl_se);
+				if (dl_se->dl_defer) {
+					replenish_dl_new_period(dl_se, rq);
+					start_dl_timer(dl_se);
+				} else {
+					enqueue_dl_entity(dl_se, ENQUEUE_REPLENISH);
+				}
 			} else {
 				enqueue_task_dl(rq, dl_task_of(dl_se), ENQUEUE_REPLENISH);
 			}
