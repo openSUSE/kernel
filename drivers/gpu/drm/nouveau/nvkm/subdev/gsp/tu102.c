@@ -392,9 +392,12 @@ tu102_gsp_oneinit(struct nvkm_gsp *gsp)
 	if (ret)
 		return ret;
 
-	ret = nvkm_gsp_fwsec_frts(gsp);
-	if (WARN_ON(ret))
-		return ret;
+	/* Only boot FWSEC-FRTS if it actually exists */
+	if (gsp->fb.wpr2.frts.size) {
+		ret = nvkm_gsp_fwsec_frts(gsp);
+		if (WARN_ON(ret))
+			return ret;
+	}
 
 	/* Reset GSP into RISC-V mode. */
 	ret = gsp->func->reset(gsp);
