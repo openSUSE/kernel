@@ -226,9 +226,8 @@ static int xhci_create_usb3x_bos_desc(struct xhci_hcd *xhci, char *buf,
 					   USB_SSP_SUBLINK_SPEED_ST_SYM_RX);
 			ssp_cap->bmSublinkSpeedAttr[offset++] = cpu_to_le32(attr);
 
-			attr &= ~USB_SSP_SUBLINK_SPEED_ST;
-			attr |= FIELD_PREP(USB_SSP_SUBLINK_SPEED_ST,
-					   USB_SSP_SUBLINK_SPEED_ST_SYM_TX);
+			FIELD_MODIFY(USB_SSP_SUBLINK_SPEED_ST, &attr,
+				     USB_SSP_SUBLINK_SPEED_ST_SYM_TX);
 			ssp_cap->bmSublinkSpeedAttr[offset++] = cpu_to_le32(attr);
 			break;
 		case PLT_ASYM_RX:
