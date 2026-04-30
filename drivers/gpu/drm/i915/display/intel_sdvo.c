@@ -1967,10 +1967,16 @@ intel_sdvo_mode_valid(struct drm_connector *connector,
 
 	if (IS_LVDS(intel_sdvo_connector)) {
 		enum drm_mode_status status;
+		const struct drm_display_mode *fixed_mode;
 
 		status = intel_panel_mode_valid(&intel_sdvo_connector->base, mode);
 		if (status != MODE_OK)
 			return status;
+
+		fixed_mode = intel_panel_fixed_mode(&intel_sdvo_connector->base, mode);
+
+		if (fixed_mode && fixed_mode->clock > max_dotclk)
+			return MODE_CLOCK_HIGH;
 	}
 
 	return MODE_OK;
