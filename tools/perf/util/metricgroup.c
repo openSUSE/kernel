@@ -415,14 +415,9 @@ static int metricgroup__sys_event_iter(const struct pmu_metric *pm,
 	if (!pm->metric_expr || !pm->compat)
 		return 0;
 
-	while ((pmu = perf_pmus__scan(pmu))) {
-
-		if (!pmu->id || !pmu_uncore_identifier_match(pm->compat, pmu->id))
-			continue;
-
-		return d->fn(pm, table, d->data);
-	}
-	return 0;
+	/* Only process with the iterator if there is a a PMU that matches the ID. */
+	pmu = perf_pmus__scan_for_uncore_id(pmu, pm->compat);
+	return pmu ? d->fn(pm, table, d->data) : 0;
 }
 
 int metricgroup__for_each_metric(const struct pmu_metrics_table *table, pmu_metric_iter_fn fn,
