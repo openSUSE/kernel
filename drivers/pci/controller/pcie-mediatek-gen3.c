@@ -494,8 +494,7 @@ static int mtk_pcie_startup_port(struct mtk_gen3_pcie *pcie)
 	/* Set Link Control 2 (LNKCTL2) speed restriction, if any */
 	if (pcie->max_link_speed) {
 		val = readl_relaxed(pcie->base + PCIE_CONF_LINK2_CTL_STS);
-		val &= ~PCIE_CONF_LINK2_LCR2_LINK_SPEED;
-		val |= FIELD_PREP(PCIE_CONF_LINK2_LCR2_LINK_SPEED, pcie->max_link_speed);
+		FIELD_MODIFY(PCIE_CONF_LINK2_LCR2_LINK_SPEED, &val, pcie->max_link_speed);
 		writel_relaxed(val, pcie->base + PCIE_CONF_LINK2_CTL_STS);
 	}
 

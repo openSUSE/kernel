@@ -253,8 +253,7 @@ int pci_cardbus_scan_bridge_extend(struct pci_bus *bus, struct pci_dev *dev,
 	 * yenta.c forces a secondary latency timer of 176.
 	 * Copy that behaviour here.
 	 */
-	buses &= ~PCI_SEC_LATENCY_TIMER_MASK;
-	buses |= FIELD_PREP(PCI_SEC_LATENCY_TIMER_MASK, CARDBUS_LATENCY_TIMER);
+	FIELD_MODIFY(PCI_SEC_LATENCY_TIMER_MASK, &buses, CARDBUS_LATENCY_TIMER);
 
 	/* We need to blast all three values with a single write */
 	pci_write_config_dword(dev, PCI_PRIMARY_BUS, buses);
