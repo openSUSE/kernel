@@ -63,9 +63,17 @@
 #define PIN_CFG_SMT			BIT(16)	/* Schmitt-trigger input control */
 #define PIN_CFG_ELC			BIT(17)
 #define PIN_CFG_IOLH_RZV2H		BIT(18)
+#define PIN_CFG_PVDD1833_OTH_AWO_POC	BIT(19) /* known on RZ/G3L only */
+#define PIN_CFG_PVDD1833_OTH_ISO_POC	BIT(20) /* known on RZ/G3L only */
+#define PIN_CFG_WDTOVF_N_POC		BIT(21) /* known on RZ/G3L only */
 
 #define RZG2L_SINGLE_PIN		BIT_ULL(63)	/* Dedicated pin */
 #define RZG2L_VARIABLE_CFG		BIT_ULL(62)	/* Variable cfg for port pins */
+
+#define PIN_CFG_OTHER_POC_MASK	\
+					(PIN_CFG_PVDD1833_OTH_AWO_POC | \
+					 PIN_CFG_PVDD1833_OTH_ISO_POC | \
+					 PIN_CFG_WDTOVF_N_POC)
 
 #define RZG2L_MPXED_COMMON_PIN_FUNCS(group) \
 					(PIN_CFG_IOLH_##group | \
@@ -146,6 +154,7 @@
 #define SD_CH(off, ch)		((off) + (ch) * 4)
 #define ETH_POC(off, ch)	((off) + (ch) * 4)
 #define QSPI			(0x3008) /* known on RZ/{G2L,G2LC,G2UL,Five} only */
+#define OTHER_POC		(0x3028) /* known on RZ/G3L only */
 
 #define PVDD_2500		2	/* I/O domain voltage 2.5V */
 #define PVDD_1800		1	/* I/O domain voltage <= 1.8V */
@@ -900,7 +909,8 @@ static void rzg2l_rmw_pin_config(struct rzg2l_pinctrl *pctrl, u32 offset,
 	raw_spin_unlock_irqrestore(&pctrl->lock, flags);
 }
 
-static int rzg2l_caps_to_pwr_reg(const struct rzg2l_register_offsets *regs, u32 caps)
+static int rzg2l_caps_to_pwr_reg(const struct rzg2l_register_offsets *regs,
+				 u32 caps, u8 *mask)
 {
 	if (caps & PIN_CFG_IO_VMC_SD0)
 		return SD_CH(regs->sd_ch, 0);
@@ -912,6 +922,16 @@ static int rzg2l_caps_to_pwr_reg(const struct rzg2l_register_offsets *regs, u32 
 		return ETH_POC(regs->eth_poc, 1);
 	if (caps & PIN_CFG_IO_VMC_QSPI)
 		return QSPI;
+	if (caps & PIN_CFG_OTHER_POC_MASK) {
+		if (caps & PIN_CFG_PVDD1833_OTH_AWO_POC)
+			*mask = BIT(0);
+		else if (caps & PIN_CFG_PVDD1833_OTH_ISO_POC)
+			*mask = BIT(1);
+		else
+			*mask = BIT(2);
+
+		return OTHER_POC;
+	}
 
 	return -EINVAL;
 }
@@ -920,17 +940,20 @@ static int rzg2l_get_power_source(struct rzg2l_pinctrl *pctrl, u32 pin, u32 caps
 {
 	const struct rzg2l_hwcfg *hwcfg = pctrl->data->hwcfg;
 	const struct rzg2l_register_offsets *regs = &hwcfg->regs;
+	u8 val, mask;
 	int pwr_reg;
-	u8 val;
 
 	if (caps & PIN_CFG_SOFT_PS)
 		return pctrl->settings[pin].power_source;
 
-	pwr_reg = rzg2l_caps_to_pwr_reg(regs, caps);
+	pwr_reg = rzg2l_caps_to_pwr_reg(regs, caps, &mask);
 	if (pwr_reg < 0)
 		return pwr_reg;
 
 	val = readb(pctrl->base + pwr_reg);
+	if (pwr_reg == OTHER_POC)
+		val = field_get(mask, val);
+
 	switch (val) {
 	case PVDD_1800:
 		return 1800;
@@ -948,8 +971,8 @@ static int rzg2l_set_power_source(struct rzg2l_pinctrl *pctrl, u32 pin, u32 caps
 {
 	const struct rzg2l_hwcfg *hwcfg = pctrl->data->hwcfg;
 	const struct rzg2l_register_offsets *regs = &hwcfg->regs;
+	u8 poc_val, val, mask;
 	int pwr_reg;
-	u8 val;
 
 	if (caps & PIN_CFG_SOFT_PS) {
 		pctrl->settings[pin].power_source = ps;
@@ -958,25 +981,37 @@ static int rzg2l_set_power_source(struct rzg2l_pinctrl *pctrl, u32 pin, u32 caps
 
 	switch (ps) {
 	case 1800:
-		val = PVDD_1800;
+		poc_val = PVDD_1800;
 		break;
 	case 2500:
 		if (!(caps & (PIN_CFG_IO_VMC_ETH0 | PIN_CFG_IO_VMC_ETH1)))
 			return -EINVAL;
-		val = PVDD_2500;
+		poc_val = PVDD_2500;
 		break;
 	case 3300:
-		val = PVDD_3300;
+		poc_val = PVDD_3300;
 		break;
 	default:
 		return -EINVAL;
 	}
 
-	pwr_reg = rzg2l_caps_to_pwr_reg(regs, caps);
+	pwr_reg = rzg2l_caps_to_pwr_reg(regs, caps, &mask);
 	if (pwr_reg < 0)
 		return pwr_reg;
 
-	writeb(val, pctrl->base + pwr_reg);
+	if (pwr_reg == OTHER_POC) {
+		scoped_guard(raw_spinlock, &pctrl->lock) {
+			val = readb(pctrl->base + pwr_reg);
+			if (poc_val)
+				val |= mask;
+			else
+				val &= ~mask;
+			writeb(val, pctrl->base + pwr_reg);
+		}
+	} else {
+		writeb(poc_val, pctrl->base + pwr_reg);
+	}
+
 	pctrl->settings[pin].power_source = ps;
 
 	return 0;
