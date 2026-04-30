@@ -157,7 +157,7 @@ static int _aead_recvmsg(struct socket *sock, struct msghdr *msg,
 	 * SG entries from the global TX SGL.
 	 */
 	processed = used + ctx->aead_assoclen;
-	areq->tsgl_entries = af_alg_count_tsgl(sk, processed);
+	areq->tsgl_entries = af_alg_count_tsgl(sk, processed, 0);
 	if (!areq->tsgl_entries)
 		areq->tsgl_entries = 1;
 	areq->tsgl = sock_kmalloc(sk, array_size(sizeof(*areq->tsgl),
@@ -168,7 +168,7 @@ static int _aead_recvmsg(struct socket *sock, struct msghdr *msg,
 		goto free;
 	}
 	sg_init_table(areq->tsgl, areq->tsgl_entries);
-	af_alg_pull_tsgl(sk, processed, areq->tsgl);
+	af_alg_pull_tsgl(sk, processed, areq->tsgl, 0);
 	tsgl_src = areq->tsgl;
 
 	/*
@@ -388,7 +388,7 @@ static void aead_sock_destruct(struct sock *sk)
 	struct crypto_aead *tfm = pask->private;
 	unsigned int ivlen = crypto_aead_ivsize(tfm);
 
-	af_alg_pull_tsgl(sk, ctx->used, NULL);
+	af_alg_pull_tsgl(sk, ctx->used, NULL, 0);
 	sock_kzfree_s(sk, ctx->iv, ivlen);
 	sock_kfree_s(sk, ctx, ctx->len);
 	af_alg_release_parent(sk);
