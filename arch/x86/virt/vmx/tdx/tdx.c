@@ -710,7 +710,7 @@ err:
  * to normal kernel memory. Systems with the X86_BUG_TDX_PW_MCE erratum need to
  * do the conversion explicitly via MOVDIR64B.
  */
-static void tdx_quirk_reset_paddr(unsigned long base, unsigned long size)
+void tdx_quirk_reset_paddr(unsigned long base, unsigned long size)
 {
 	const void *zero_page = (const void *)page_address(ZERO_PAGE(0));
 	unsigned long phys, end;
@@ -729,6 +729,7 @@ static void tdx_quirk_reset_paddr(unsigned long base, unsigned long size)
 	 */
 	mb();
 }
+EXPORT_SYMBOL_FOR_KVM(tdx_quirk_reset_paddr);
 
 void tdx_quirk_reset_page(struct page *page)
 {
@@ -1920,17 +1921,17 @@ u64 tdh_phymem_page_wbinvd_tdr(struct tdx_td *td)
 {
 	struct tdx_module_args args = {};
 
-	args.rcx = mk_keyed_paddr(tdx_global_keyid, td->tdr_page);
+	args.rcx = mk_keyed_paddr(tdx_global_keyid, page_to_pfn(td->tdr_page));
 
 	return seamcall(TDH_PHYMEM_PAGE_WBINVD, &args);
 }
 EXPORT_SYMBOL_FOR_KVM(tdh_phymem_page_wbinvd_tdr);
 
-u64 tdh_phymem_page_wbinvd_hkid(u64 hkid, struct page *page)
+u64 tdh_phymem_page_wbinvd_hkid(u64 hkid, kvm_pfn_t pfn)
 {
 	struct tdx_module_args args = {};
 
-	args.rcx = mk_keyed_paddr(hkid, page);
+	args.rcx = mk_keyed_paddr(hkid, pfn);
 
 	return seamcall(TDH_PHYMEM_PAGE_WBINVD, &args);
 }
