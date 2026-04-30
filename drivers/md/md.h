@@ -39,6 +39,8 @@
 struct serial_in_rdev {
 	struct rb_root_cached serial_rb;
 	spinlock_t serial_lock;
+	/* Unused, retained for KABI compatibility */
+	wait_queue_head_t serial_io_wait;
 };
 
 /*
@@ -292,6 +294,11 @@ struct serial_info {
 	sector_t last;		/* end sector of rb node */
 	sector_t wnode_start; /* address of waiting nodes on the same list */
 	sector_t _subtree_last; /* highest sector in subtree of rb node */
+	/*
+	 * KABI: these three fields were added by 808cec74601c.
+	 * struct serial_info is only used internally, therefore they are not
+	 * hidden from genksyms.
+	 */
 	struct list_head	list_node;
 	struct list_head	waiters;
 	struct completion	ready;
