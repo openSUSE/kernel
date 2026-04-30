@@ -334,13 +334,11 @@ static int cv1800_pinconf_compute_config(struct sophgo_pinctrl *pctrl,
 
 		switch (param) {
 		case PIN_CONFIG_BIAS_PULL_DOWN:
-			v &= ~PIN_IO_PULLDOWN;
-			v |= FIELD_PREP(PIN_IO_PULLDOWN, arg);
+			FIELD_MODIFY(PIN_IO_PULLDOWN, &v, arg);
 			m |= PIN_IO_PULLDOWN;
 			break;
 		case PIN_CONFIG_BIAS_PULL_UP:
-			v &= ~PIN_IO_PULLUP;
-			v |= FIELD_PREP(PIN_IO_PULLUP, arg);
+			FIELD_MODIFY(PIN_IO_PULLUP, &v, arg);
 			m |= PIN_IO_PULLUP;
 			break;
 		case PIN_CONFIG_DRIVE_STRENGTH_UA:
@@ -348,8 +346,7 @@ static int cv1800_pinconf_compute_config(struct sophgo_pinctrl *pctrl,
 						    priv->power_cfg, arg);
 			if (ret < 0)
 				return ret;
-			v &= ~PIN_IO_DRIVE;
-			v |= FIELD_PREP(PIN_IO_DRIVE, ret);
+			FIELD_MODIFY(PIN_IO_DRIVE, &v, ret);
 			m |= PIN_IO_DRIVE;
 			break;
 		case PIN_CONFIG_INPUT_SCHMITT_UV:
@@ -357,21 +354,18 @@ static int cv1800_pinconf_compute_config(struct sophgo_pinctrl *pctrl,
 							 priv->power_cfg, arg);
 			if (ret < 0)
 				return ret;
-			v &= ~PIN_IO_SCHMITT;
-			v |= FIELD_PREP(PIN_IO_SCHMITT, ret);
+			FIELD_MODIFY(PIN_IO_SCHMITT, &v, ret);
 			m |= PIN_IO_SCHMITT;
 			break;
 		case PIN_CONFIG_POWER_SOURCE:
 			/* Ignore power source as it is always fixed */
 			break;
 		case PIN_CONFIG_SLEW_RATE:
-			v &= ~PIN_IO_OUT_FAST_SLEW;
-			v |= FIELD_PREP(PIN_IO_OUT_FAST_SLEW, arg);
+			FIELD_MODIFY(PIN_IO_OUT_FAST_SLEW, &v, arg);
 			m |= PIN_IO_OUT_FAST_SLEW;
 			break;
 		case PIN_CONFIG_BIAS_BUS_HOLD:
-			v &= ~PIN_IO_BUS_HOLD;
-			v |= FIELD_PREP(PIN_IO_BUS_HOLD, arg);
+			FIELD_MODIFY(PIN_IO_BUS_HOLD, &v, arg);
 			m |= PIN_IO_BUS_HOLD;
 			break;
 		default:
