@@ -273,8 +273,8 @@ static int init_pmd(pmd_t *pmdp, unsigned long addr, unsigned long end,
 			if (ret)
 				return ret;
 
-			BUG_ON(pmd_val(old_pmd) != 0 &&
-			       pmd_val(old_pmd) != READ_ONCE(pmd_val(*pmdp)));
+			VM_WARN_ON_ONCE(pmd_val(old_pmd) != 0 &&
+					pmd_val(old_pmd) != READ_ONCE(pmd_val(*pmdp)));
 		}
 		phys += next - addr;
 	} while (pmdp++, addr = next, addr != end);
@@ -394,8 +394,8 @@ static int alloc_init_pud(p4d_t *p4dp, unsigned long addr, unsigned long end,
 			if (ret)
 				goto out;
 
-			BUG_ON(pud_val(old_pud) != 0 &&
-			       pud_val(old_pud) != READ_ONCE(pud_val(*pudp)));
+			VM_WARN_ON_ONCE(pud_val(old_pud) != 0 &&
+					pud_val(old_pud) != READ_ONCE(pud_val(*pudp)));
 		}
 		phys += next - addr;
 	} while (pudp++, addr = next, addr != end);
@@ -445,8 +445,8 @@ static int alloc_init_p4d(pgd_t *pgdp, unsigned long addr, unsigned long end,
 		if (ret)
 			goto out;
 
-		BUG_ON(p4d_val(old_p4d) != 0 &&
-		       p4d_val(old_p4d) != READ_ONCE(p4d_val(*p4dp)));
+		VM_WARN_ON_ONCE(p4d_val(old_p4d) != 0 &&
+				p4d_val(old_p4d) != READ_ONCE(p4d_val(*p4dp)));
 
 		phys += next - addr;
 	} while (p4dp++, addr = next, addr != end);
