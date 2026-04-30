@@ -246,7 +246,7 @@ tu102_gsp_wpr_meta_init(struct nvkm_gsp *gsp)
 	meta->bootBinOffset = gsp->fb.wpr2.boot.addr;
 	meta->frtsOffset = gsp->fb.wpr2.frts.addr;
 	meta->frtsSize = gsp->fb.wpr2.frts.size;
-	meta->gspFwWprEnd = ALIGN_DOWN(gsp->fb.bios.vga_workspace.addr, 0x20000);
+	meta->gspFwWprEnd = ALIGN_DOWN(gsp->fb.bios.addr, 0x20000);
 	meta->fbSize = gsp->fb.size;
 	meta->vgaWorkspaceOffset = gsp->fb.bios.vga_workspace.addr;
 	meta->vgaWorkspaceSize = gsp->fb.bios.vga_workspace.size;
