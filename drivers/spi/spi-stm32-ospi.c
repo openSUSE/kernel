@@ -470,10 +470,9 @@ static int stm32_ospi_send(struct spi_device *spi, const struct spi_mem_op *op)
 	u8 cs = spi->chip_select[ffs(spi->cs_index_mask) - 1];
 
 	cr = readl_relaxed(ospi->regs_base + OSPI_CR);
-	cr &= ~CR_CSSEL;
-	cr |= FIELD_PREP(CR_CSSEL, cs);
-	cr &= ~CR_FMODE_MASK;
-	cr |= FIELD_PREP(CR_FMODE_MASK, ospi->fmode);
+	FIELD_MODIFY(CR_CSSEL, &cr, cs);
+
+	FIELD_MODIFY(CR_FMODE_MASK, &cr, ospi->fmode);
 	writel_relaxed(cr, regs_base + OSPI_CR);
 
 	if (op->data.nbytes)
