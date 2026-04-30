@@ -6884,7 +6884,7 @@ static int btrfs_log_inode(struct btrfs_trans_handle *trans,
 			   struct btrfs_log_ctx *ctx)
 {
 	struct btrfs_path *path;
-	struct btrfs_path *dst_path;
+	struct btrfs_path *dst_path = NULL;
 	struct btrfs_key min_key;
 	struct btrfs_key max_key;
 	struct btrfs_root *log = inode->root->log_root;
@@ -6900,13 +6900,17 @@ static int btrfs_log_inode(struct btrfs_trans_handle *trans,
 	LIST_HEAD(delayed_ins_list);
 	LIST_HEAD(delayed_del_list);
 
+	trace_btrfs_log_inode_enter(trans, inode, ctx, log_mode);
+
 	path = btrfs_alloc_path();
-	if (!path)
-		return -ENOMEM;
+	if (!path) {
+		ret = -ENOMEM;
+		goto out;
+	}
 	dst_path = btrfs_alloc_path();
 	if (!dst_path) {
-		btrfs_free_path(path);
-		return -ENOMEM;
+		ret = -ENOMEM;
+		goto out;
 	}
 
 	min_key.objectid = ino;
@@ -7220,6 +7224,8 @@ out:
 		btrfs_log_put_delayed_items(inode, &delayed_ins_list,
 					    &delayed_del_list);
 	}
+
+	trace_btrfs_log_inode_exit(trans, inode, ret);
 
 	return ret;
 }

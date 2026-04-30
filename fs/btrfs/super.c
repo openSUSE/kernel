@@ -60,6 +60,7 @@
 #include "verity.h"
 #include "super.h"
 #include "extent-tree.h"
+#include "tree-log.h"
 #define CREATE_TRACE_POINTS
 #include <trace/events/btrfs.h>
 
