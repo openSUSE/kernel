@@ -2249,7 +2249,7 @@ static bool xe_oa_is_valid_mux_addr(struct xe_oa *oa, u32 addr)
 		return xe_oa_reg_in_range_table(addr, gen12_oa_mux_regs);
 }
 
-static bool xe_oa_is_valid_config_reg_addr(struct xe_oa *oa, u32 addr)
+static bool xe_oa_is_valid_config_reg(struct xe_oa *oa, u32 addr, u32 val)
 {
 	return xe_oa_is_valid_flex_addr(oa, addr) ||
 		xe_oa_is_valid_b_counter_addr(oa, addr) ||
@@ -2257,7 +2257,7 @@ static bool xe_oa_is_valid_config_reg_addr(struct xe_oa *oa, u32 addr)
 }
 
 static struct xe_oa_reg *
-xe_oa_alloc_regs(struct xe_oa *oa, bool (*is_valid)(struct xe_oa *oa, u32 addr),
+xe_oa_alloc_regs(struct xe_oa *oa, bool (*is_valid)(struct xe_oa *oa, u32 addr, u32 val),
 		 u32 __user *regs, u32 n_regs)
 {
 	struct xe_oa_reg *oa_regs;
@@ -2275,15 +2275,15 @@ xe_oa_alloc_regs(struct xe_oa *oa, bool (*is_valid)(struct xe_oa *oa, u32 addr),
 		if (err)
 			goto addr_err;
 
-		if (!is_valid(oa, addr)) {
-			drm_dbg(&oa->xe->drm, "Invalid oa_reg address: %X\n", addr);
-			err = -EINVAL;
-			goto addr_err;
-		}
-
 		err = get_user(value, regs + 1);
 		if (err)
 			goto addr_err;
+
+		if (!is_valid(oa, addr, value)) {
+			drm_dbg(&oa->xe->drm, "Invalid oa_reg addr/value: %#x %#x\n", addr, value);
+			err = -EINVAL;
+			goto addr_err;
+		}
 
 		oa_regs[i].addr = XE_REG(addr);
 		oa_regs[i].value = value;
@@ -2383,7 +2383,7 @@ int xe_oa_add_config_ioctl(struct drm_device *dev, u64 data, struct drm_file *fi
 	memcpy(oa_config->uuid, arg->uuid, sizeof(arg->uuid));
 
 	oa_config->regs_len = arg->n_regs;
-	regs = xe_oa_alloc_regs(oa, xe_oa_is_valid_config_reg_addr,
+	regs = xe_oa_alloc_regs(oa, xe_oa_is_valid_config_reg,
 				u64_to_user_ptr(arg->regs_ptr),
 				arg->n_regs);
 	if (IS_ERR(regs)) {
