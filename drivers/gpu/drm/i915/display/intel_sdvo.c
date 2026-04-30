@@ -1395,14 +1395,15 @@ static int intel_sdvo_compute_config(struct intel_encoder *encoder,
 							   adjusted_mode);
 		pipe_config->sdvo_tv_clock = true;
 	} else if (IS_LVDS(intel_sdvo_connector)) {
-		const struct drm_display_mode *fixed_mode =
-			intel_panel_fixed_mode(&intel_sdvo_connector->base, mode);
+		const struct drm_display_mode *fixed_mode;
 		int ret;
 
 		ret = intel_panel_compute_config(&intel_sdvo_connector->base,
 						 adjusted_mode);
 		if (ret)
 			return ret;
+
+		fixed_mode = &pipe_config->hw.adjusted_mode;
 
 		if (!intel_sdvo_set_output_timings_from_mode(intel_sdvo,
 							     intel_sdvo_connector,
