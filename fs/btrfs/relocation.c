@@ -416,7 +416,7 @@ static noinline_for_stack struct btrfs_backref_node *build_backref_tree(
 	struct btrfs_backref_edge *edge;
 	int ret;
 
-	iter = btrfs_backref_iter_alloc(rc->extent_root->fs_info);
+	iter = btrfs_backref_iter_alloc();
 	if (!iter)
 		return ERR_PTR(-ENOMEM);
 	path = btrfs_alloc_path();

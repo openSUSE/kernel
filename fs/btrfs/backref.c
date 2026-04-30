@@ -2814,7 +2814,7 @@ struct inode_fs_paths *init_ipath(s32 total_bytes, struct btrfs_root *fs_root,
 	return ifp;
 }
 
-struct btrfs_backref_iter *btrfs_backref_iter_alloc(struct btrfs_fs_info *fs_info)
+struct btrfs_backref_iter *btrfs_backref_iter_alloc(void)
 {
 	struct btrfs_backref_iter *ret;
 
@@ -2831,7 +2831,6 @@ struct btrfs_backref_iter *btrfs_backref_iter_alloc(struct btrfs_fs_info *fs_inf
 	/* Current backref iterator only supports iteration in commit root */
 	ret->path->search_commit_root = true;
 	ret->path->skip_locking = true;
-	ret->fs_info = fs_info;
 
 	return ret;
 }
@@ -2846,9 +2845,8 @@ static void btrfs_backref_iter_release(struct btrfs_backref_iter *iter)
 	memset(&iter->cur_key, 0, sizeof(iter->cur_key));
 }
 
-int btrfs_backref_iter_start(struct btrfs_backref_iter *iter, u64 bytenr)
+int btrfs_backref_iter_start(struct btrfs_fs_info *fs_info, struct btrfs_backref_iter *iter, u64 bytenr)
 {
-	struct btrfs_fs_info *fs_info = iter->fs_info;
 	struct btrfs_root *extent_root = btrfs_extent_root(fs_info, bytenr);
 	struct btrfs_path *path = iter->path;
 	struct btrfs_extent_item *ei;
@@ -2963,7 +2961,7 @@ static bool btrfs_backref_iter_is_inline_ref(struct btrfs_backref_iter *iter)
  * Return >0 if there is no extra backref for this bytenr.
  * Return <0 if there is something wrong happened.
  */
-int btrfs_backref_iter_next(struct btrfs_backref_iter *iter)
+int btrfs_backref_iter_next(struct btrfs_fs_info *fs_info, struct btrfs_backref_iter *iter)
 {
 	struct extent_buffer *eb = iter->path->nodes[0];
 	struct btrfs_root *extent_root;
@@ -2997,10 +2995,9 @@ int btrfs_backref_iter_next(struct btrfs_backref_iter *iter)
 	}
 
 	/* We're at keyed items, there is no inline item, go to the next one */
-	extent_root = btrfs_extent_root(iter->fs_info, iter->bytenr);
+	extent_root = btrfs_extent_root(fs_info, iter->bytenr);
 	if (unlikely(!extent_root)) {
-		btrfs_err(iter->fs_info,
-			  "missing extent root for extent at bytenr %llu",
+		btrfs_err(fs_info, "missing extent root for extent at bytenr %llu",
 			  iter->bytenr);
 		return -EUCLEAN;
 	}
@@ -3454,7 +3451,7 @@ int btrfs_backref_add_tree_node(struct btrfs_trans_handle *trans,
 	struct btrfs_backref_node *exist;
 	int ret;
 
-	ret = btrfs_backref_iter_start(iter, cur->bytenr);
+	ret = btrfs_backref_iter_start(trans->fs_info, iter, cur->bytenr);
 	if (ret < 0)
 		return ret;
 	/*
@@ -3462,7 +3459,7 @@ int btrfs_backref_add_tree_node(struct btrfs_trans_handle *trans,
 	 * stored in it, but fetch it from the tree block
 	 */
 	if (btrfs_backref_has_tree_block_info(iter)) {
-		ret = btrfs_backref_iter_next(iter);
+		ret = btrfs_backref_iter_next(trans->fs_info, iter);
 		if (ret < 0)
 			goto out;
 		/* No extra backref? This means the tree block is corrupted */
@@ -3492,7 +3489,7 @@ int btrfs_backref_add_tree_node(struct btrfs_trans_handle *trans,
 		exist = NULL;
 	}
 
-	for (; ret == 0; ret = btrfs_backref_iter_next(iter)) {
+	for (; ret == 0; ret = btrfs_backref_iter_next(trans->fs_info, iter)) {
 		struct extent_buffer *eb;
 		struct btrfs_key key;
 		int type;
