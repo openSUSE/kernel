@@ -153,7 +153,6 @@ int tdx_guest_keyid_alloc(void);
 u32 tdx_get_nr_guest_keyids(void);
 void tdx_guest_keyid_free(unsigned int keyid);
 
-void tdx_quirk_reset_page(struct page *page);
 void tdx_quirk_reset_paddr(unsigned long base, unsigned long size);
 
 struct tdx_td {

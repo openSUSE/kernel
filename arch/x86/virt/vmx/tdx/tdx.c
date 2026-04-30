@@ -731,12 +731,6 @@ void tdx_quirk_reset_paddr(unsigned long base, unsigned long size)
 }
 EXPORT_SYMBOL_FOR_KVM(tdx_quirk_reset_paddr);
 
-void tdx_quirk_reset_page(struct page *page)
-{
-	tdx_quirk_reset_paddr(page_to_phys(page), PAGE_SIZE);
-}
-EXPORT_SYMBOL_FOR_KVM(tdx_quirk_reset_page);
-
 static __init void tdmr_quirk_reset_pamt(struct tdmr_info *tdmr)
 
 {
