@@ -1934,16 +1934,18 @@ static u64 oa_exponent_to_ns(struct xe_gt *gt, int exponent)
 	return div_u64(nom + den - 1, den);
 }
 
-static bool oa_unit_supports_oa_format(struct xe_oa_open_param *param, int type)
+static bool oa_unit_supports_oa_format(struct xe_oa *oa, struct xe_oa_open_param *param)
 {
+	const struct xe_oa_format *f = &oa->oa_formats[param->oa_format];
+
 	switch (param->oa_unit->type) {
 	case DRM_XE_OA_UNIT_TYPE_OAG:
-		return type == DRM_XE_OA_FMT_TYPE_OAG || type == DRM_XE_OA_FMT_TYPE_OAR ||
-			type == DRM_XE_OA_FMT_TYPE_OAC || type == DRM_XE_OA_FMT_TYPE_PEC;
+		return f->type == DRM_XE_OA_FMT_TYPE_OAG || f->type == DRM_XE_OA_FMT_TYPE_OAR ||
+			f->type == DRM_XE_OA_FMT_TYPE_OAC || f->type == DRM_XE_OA_FMT_TYPE_PEC;
 	case DRM_XE_OA_UNIT_TYPE_OAM:
 	case DRM_XE_OA_UNIT_TYPE_OAM_SAG:
 	case DRM_XE_OA_UNIT_TYPE_MERT:
-		return type == DRM_XE_OA_FMT_TYPE_OAM || type == DRM_XE_OA_FMT_TYPE_OAM_MPEC;
+		return f->type == DRM_XE_OA_FMT_TYPE_OAM || f->type == DRM_XE_OA_FMT_TYPE_OAM_MPEC;
 	default:
 		return false;
 	}
@@ -2083,8 +2085,7 @@ int xe_oa_stream_open_ioctl(struct drm_device *dev, u64 data, struct drm_file *f
 		goto err_exec_q;
 
 	f = &oa->oa_formats[param.oa_format];
-	if (!param.oa_format || !f->size ||
-	    !oa_unit_supports_oa_format(&param, f->type)) {
+	if (!param.oa_format || !f->size || !oa_unit_supports_oa_format(oa, &param)) {
 		drm_dbg(&oa->xe->drm, "Invalid OA format %d type %d size %d for class %d\n",
 			param.oa_format, f->type, f->size, param.hwe->class);
 		ret = -EINVAL;
