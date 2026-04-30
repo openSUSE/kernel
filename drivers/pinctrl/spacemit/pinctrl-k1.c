@@ -622,9 +622,8 @@ static int spacemit_pinconf_generate_config(struct spacemit_pinctrl *pctrl,
 				return -EINVAL;
 			}
 		} else {
-			v &= ~PAD_SLEW_RATE;
 			slew_rate = slew_rate > 1 ? (slew_rate - 2) : 0;
-			v |= FIELD_PREP(PAD_SLEW_RATE, slew_rate);
+			FIELD_MODIFY(PAD_SLEW_RATE, &v, slew_rate);
 		}
 	}
 
