@@ -3,6 +3,7 @@
 // Copyright 2016 Freescale Semiconductor, Inc.
 // Copyright 2025 NXP
 
+#include <linux/bitfield.h>
 #include <linux/clk.h>
 #include <linux/err.h>
 #include <linux/io.h>
@@ -30,6 +31,9 @@
 #define TMU_VER1		0x1
 #define TMU_VER2		0x2
 
+/* errata ID info define */
+#define TMU_ERR052243	BIT(0)
+
 #define REGS_TMR	0x000	/* Mode Register */
 #define TMR_DISABLE	0x0
 #define TMR_ME		0x80000000
@@ -45,6 +49,15 @@
 #define REGS_TIER	0x020	/* Interrupt Enable Register */
 #define TIER_DISABLE	0x0
 
+#define REGS_TIDR	0x24
+#define TEMP_RATE_IRQ_MASK	GENMASK(25, 24)
+#define TMRTRCTR	0x70
+#define TMRTRCTR_EN	BIT(31)
+#define TMRTRCTR_TEMP_MASK	GENMASK(7, 0)
+#define TMFTRCTR	0x74
+#define TMFTRCTR_EN	BIT(31)
+#define TMFTRCTR_TEMP_MASK	GENMASK(7, 0)
+#define TEMP_RATE_THR_LVL	0x7
 
 #define REGS_TTCFGR	0x080	/* Temperature Configuration Register */
 #define REGS_TSCFGR	0x084	/* Sensor Configuration Register */
@@ -77,6 +90,7 @@ struct qoriq_sensor {
 
 struct tmu_drvdata {
 	u32 teumr0;
+	u32 tmu_errata;
 };
 
 struct qoriq_tmu_data {
@@ -88,6 +102,12 @@ struct qoriq_tmu_data {
 	const struct tmu_drvdata *drvdata;
 };
 
+static inline bool qoriq_tmu_has_errata(const struct tmu_drvdata *drvdata,
+					u32 flag)
+{
+	return drvdata->tmu_errata & flag;
+}
+
 static struct qoriq_tmu_data *qoriq_sensor_to_data(struct qoriq_sensor *s)
 {
 	return container_of(s, struct qoriq_tmu_data, sensor[s->id]);
@@ -97,7 +117,7 @@ static int tmu_get_temp(struct thermal_zone_device *tz, int *temp)
 {
 	struct qoriq_sensor *qsensor = thermal_zone_device_priv(tz);
 	struct qoriq_tmu_data *qdata = qoriq_sensor_to_data(qsensor);
-	u32 val;
+	u32 val, tidr;
 	/*
 	 * REGS_TRITSR(id) has the following layout:
 	 *
@@ -129,6 +149,15 @@ static int tmu_get_temp(struct thermal_zone_device *tz, int *temp)
 				     USEC_PER_MSEC,
 				     10 * USEC_PER_MSEC))
 		return -ENODATA;
+
+	/*ERR052243: If a raising or falling edge happens, try later */
+	if (qoriq_tmu_has_errata(qdata->drvdata, TMU_ERR052243)) {
+		regmap_read(qdata->regmap, REGS_TIDR, &tidr);
+		if (tidr & TEMP_RATE_IRQ_MASK) {
+			regmap_write(qdata->regmap, REGS_TIDR, TEMP_RATE_IRQ_MASK);
+			return -EAGAIN;
+		}
+	}
 
 	if (qdata->ver == TMU_VER1) {
 		*temp = (val & GENMASK(7, 0)) * MILLIDEGREE_PER_DEGREE;
@@ -245,6 +274,14 @@ static void qoriq_tmu_init_device(struct qoriq_tmu_data *data)
 			     data->drvdata->teumr0);
 	}
 
+	/* ERR052243: Set the raising & falling edge monitor */
+	if (qoriq_tmu_has_errata(data->drvdata, TMU_ERR052243)) {
+		regmap_write(data->regmap, TMRTRCTR, TMRTRCTR_EN |
+			     FIELD_PREP(TMRTRCTR_TEMP_MASK, TEMP_RATE_THR_LVL));
+		regmap_write(data->regmap, TMFTRCTR, TMFTRCTR_EN |
+			     FIELD_PREP(TMFTRCTR_TEMP_MASK, TEMP_RATE_THR_LVL));
+
+	}
 	/* Disable monitoring */
 	regmap_write(data->regmap, REGS_TMR, TMR_DISABLE);
 }
@@ -398,6 +435,7 @@ static const struct tmu_drvdata imx8mq_tmu_data = {
 
 static const struct tmu_drvdata imx93_data = {
 	.teumr0 = TEUMR0_V21,
+	.tmu_errata = TMU_ERR052243,
 };
 
 static const struct of_device_id qoriq_tmu_match[] = {
