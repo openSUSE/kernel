@@ -1197,27 +1197,25 @@ static int rzg3l_cpg_pll_clk_endisable(struct clk_hw *hw, bool enable)
 {
 	struct pll_clk *pll_clk = to_pll(hw);
 	struct rzg2l_cpg_priv *priv = pll_clk->priv;
+	u32 mon_mask = RZG3L_PLL_MON_RESETB | RZG3L_PLL_MON_LOCK;
+	u32 val = RZG3L_PLL_STBY_RESETB_WEN;
 	u32 stby_offset, mon_offset;
-	u32 val, mon_val;
+	u32 mon_val = 0;
 	int ret;
 
 	stby_offset = RZG3L_PLL_STBY_OFFSET(pll_clk->conf);
 	mon_offset = RZG3L_PLL_MON_OFFSET(pll_clk->conf);
 
 	if (enable) {
-		val = RZG3L_PLL_STBY_RESETB_WEN | RZG3L_PLL_STBY_RESETB;
-		mon_val = RZG3L_PLL_MON_RESETB | RZG3L_PLL_MON_LOCK;
-	} else {
-		val = RZG3L_PLL_STBY_RESETB_WEN;
-		mon_val = 0;
+		val |= RZG3L_PLL_STBY_RESETB;
+		mon_val = mon_mask;
 	}
 
 	writel(val, priv->base + stby_offset);
 
 	/* ensure PLL is in normal/standby mode */
-	ret = readl_poll_timeout_atomic(priv->base + mon_offset, val, mon_val ==
-					(val & (RZG3L_PLL_MON_RESETB | RZG3L_PLL_MON_LOCK)),
-					10, 100);
+	ret = readl_poll_timeout_atomic(priv->base + mon_offset, val,
+					mon_val == (val & mon_mask), 10, 100);
 	if (ret)
 		dev_err(priv->dev, "Failed to %s PLL 0x%x/%pC\n", enable ?
 			"enable" : "disable", stby_offset, hw->clk);
