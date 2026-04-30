@@ -46,12 +46,13 @@ __noinline long global_dead(void)
 }
 
 SEC("?raw_tp")
-__success __log_level(2)
+__success __log_level(6)
 /* main prog is validated completely first */
 __msg("('global_calls_good_only') is global and assumed valid.")
 /* eventually global_good() is transitively validated as well */
 __msg("Validating global_good() func")
 __msg("('global_good') is safe for any args that match its prototype")
+__msg("insns processed {{[0-9]+\\+[0-9]+\\+[0-9]+$}}")
 int chained_global_func_calls_success(void)
 {
 	int sum = 0;
