@@ -2814,25 +2814,17 @@ struct inode_fs_paths *init_ipath(s32 total_bytes, struct btrfs_root *fs_root,
 	return ifp;
 }
 
-struct btrfs_backref_iter *btrfs_backref_iter_alloc(void)
+int btrfs_backref_iter_init(struct btrfs_backref_iter *iter)
 {
-	struct btrfs_backref_iter *ret;
-
-	ret = kzalloc_obj(*ret, GFP_NOFS);
-	if (!ret)
-		return NULL;
-
-	ret->path = btrfs_alloc_path();
-	if (!ret->path) {
-		kfree(ret);
-		return NULL;
-	}
+	iter->path = btrfs_alloc_path();
+	if (!iter->path)
+		return -ENOMEM;
 
 	/* Current backref iterator only supports iteration in commit root */
-	ret->path->search_commit_root = true;
-	ret->path->skip_locking = true;
+	iter->path->search_commit_root = true;
+	iter->path->skip_locking = true;
 
-	return ret;
+	return 0;
 }
 
 static void btrfs_backref_iter_release(struct btrfs_backref_iter *iter)

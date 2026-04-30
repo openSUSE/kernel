@@ -407,7 +407,7 @@ static noinline_for_stack struct btrfs_backref_node *build_backref_tree(
 			struct reloc_control *rc, struct btrfs_key *node_key,
 			int level, u64 bytenr)
 {
-	struct btrfs_backref_iter *iter;
+	struct btrfs_backref_iter iter;
 	struct btrfs_backref_cache *cache = &rc->backref_cache;
 	/* For searching parent of TREE_BLOCK_REF */
 	struct btrfs_path *path;
@@ -416,9 +416,9 @@ static noinline_for_stack struct btrfs_backref_node *build_backref_tree(
 	struct btrfs_backref_edge *edge;
 	int ret;
 
-	iter = btrfs_backref_iter_alloc();
-	if (!iter)
-		return ERR_PTR(-ENOMEM);
+	ret = btrfs_backref_iter_init(&iter);
+	if (ret < 0)
+		return ERR_PTR(ret);
 	path = btrfs_alloc_path();
 	if (!path) {
 		ret = -ENOMEM;
@@ -435,7 +435,7 @@ static noinline_for_stack struct btrfs_backref_node *build_backref_tree(
 
 	/* Breadth-first search to build backref cache */
 	do {
-		ret = btrfs_backref_add_tree_node(trans, cache, path, iter,
+		ret = btrfs_backref_add_tree_node(trans, cache, path, &iter,
 						  node_key, cur);
 		if (ret < 0)
 			goto out;
@@ -460,8 +460,7 @@ static noinline_for_stack struct btrfs_backref_node *build_backref_tree(
 	if (handle_useless_nodes(rc, node))
 		node = NULL;
 out:
-	btrfs_free_path(iter->path);
-	kfree(iter);
+	btrfs_free_path(iter.path);
 	btrfs_free_path(path);
 	if (ret) {
 		btrfs_backref_error_cleanup(cache, node);

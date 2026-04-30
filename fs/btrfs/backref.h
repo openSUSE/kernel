@@ -284,8 +284,6 @@ struct btrfs_backref_iter {
 	u32 end_ptr;
 };
 
-struct btrfs_backref_iter *btrfs_backref_iter_alloc(void);
-
 /*
  * For metadata with EXTENT_ITEM key (non-skinny) case, the first inline data
  * is btrfs_tree_block_info, without a btrfs_extent_inline_ref header.
@@ -300,6 +298,8 @@ static inline bool btrfs_backref_has_tree_block_info(
 		return true;
 	return false;
 }
+
+int btrfs_backref_iter_init(struct btrfs_backref_iter *iter);
 
 int btrfs_backref_iter_start(struct btrfs_fs_info *fs_info, struct btrfs_backref_iter *iter, u64 bytenr);
 
