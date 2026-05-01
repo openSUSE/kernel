@@ -1253,32 +1253,14 @@ static int sev_issue_dbg_cmd(struct kvm *kvm, unsigned long src_pa,
 	return sev_issue_cmd(kvm, cmd, &data, error);
 }
 
-static struct page *sev_alloc_dbg_buffer(void **buf)
+static void *sev_dbg_crypt_slow_alloc(struct page *page, unsigned long __va,
+				      unsigned int len, unsigned long *pa,
+				      unsigned int *nr_bytes)
 {
-	struct page *buf_p;
-
-	buf_p = alloc_page(GFP_KERNEL);
-	if (!buf_p)
-		return NULL;
-
-	*buf = kmap_local_page(buf_p);
-	return buf_p;
-}
-
-static void sev_free_dbg_buffer(struct page *buf_p, void *buf)
-{
-	kunmap_local(buf);
-	__free_page(buf_p);
-}
-
-static unsigned int sev_dbg_crypt_slow_addr_and_size(struct page *page,
-						     unsigned long __va,
-						     unsigned int len,
-						     unsigned long *pa)
-{
-	/* The number of bytes to {de,en}crypt must be 16-byte aligned. */
-	unsigned int nr_bytes = round_up(len, 16);
 	unsigned long va = ALIGN_DOWN(__va, 16);
+
+	/* The number of bytes to {de,en}crypt must be 16-byte aligned. */
+	*nr_bytes = round_up(len, 16);
 
 	/*
 	 * Increase the number of bytes to {de,en}crypt by one chunk (16 bytes)
@@ -1286,20 +1268,19 @@ static unsigned int sev_dbg_crypt_slow_addr_and_size(struct page *page,
 	 * e.g. if the address is unaligned _and_ the access will split a chunk
 	 * at the tail.
 	 */
-	if (va + nr_bytes < __va + len)
-		nr_bytes += 16;
+	if (va + *nr_bytes < __va + len)
+		*nr_bytes += 16;
 
 	*pa = __sme_page_pa(page) + (va & ~PAGE_MASK);
 
 	/*
 	 * Sanity check that the new access won't split a page.  This should
-	 * never happen; just squash the access and let the firmware command
-	 * fail.
+	 * never happen; just pretend the allocation failed.
 	 */
-	if (WARN_ON_ONCE((*pa & PAGE_MASK) != ((*pa + nr_bytes - 1) & PAGE_MASK)))
-		return 0;
+	if (WARN_ON_ONCE((*pa & PAGE_MASK) != ((*pa + *nr_bytes - 1) & PAGE_MASK)))
+		return NULL;
 
-	return nr_bytes;
+	return kmalloc(*nr_bytes, GFP_KERNEL);
 }
 
 static int sev_dbg_decrypt_slow(struct kvm *kvm, unsigned long src,
@@ -1308,17 +1289,14 @@ static int sev_dbg_decrypt_slow(struct kvm *kvm, unsigned long src,
 {
 	unsigned int nr_bytes;
 	unsigned long src_pa;
-	struct page *buf_p;
 	void *buf;
 	int r;
 
-	buf_p = sev_alloc_dbg_buffer(&buf);
-	if (!buf_p)
+	buf = sev_dbg_crypt_slow_alloc(src_p, src, len, &src_pa, &nr_bytes);
+	if (!buf)
 		return -ENOMEM;
 
-	nr_bytes = sev_dbg_crypt_slow_addr_and_size(src_p, src, len, &src_pa);
-
-	r = sev_issue_dbg_cmd(kvm, src_pa, __sme_page_pa(buf_p),
+	r = sev_issue_dbg_cmd(kvm, src_pa, __sme_set(__pa(buf)),
 			      nr_bytes, KVM_SEV_DBG_DECRYPT, err);
 	if (r)
 		goto out;
@@ -1326,7 +1304,7 @@ static int sev_dbg_decrypt_slow(struct kvm *kvm, unsigned long src,
 	if (copy_to_user((void __user *)dst, buf + (src & 15), len))
 		r = -EFAULT;
 out:
-	sev_free_dbg_buffer(buf_p, buf);
+	kfree(buf);
 	return r;
 }
 
@@ -1336,18 +1314,15 @@ static int sev_dbg_encrypt_slow(struct kvm *kvm, unsigned long src,
 {
 	unsigned int nr_bytes;
 	unsigned long dst_pa;
-	struct page *buf_p;
 	void *buf;
 	int r;
 
-	buf_p = sev_alloc_dbg_buffer(&buf);
-	if (!buf_p)
+	/* Decrypt the _destination_ to do a RMW on plaintext. */
+	buf = sev_dbg_crypt_slow_alloc(dst_p, dst, len, &dst_pa, &nr_bytes);
+	if (!buf)
 		return -ENOMEM;
 
-	/* Decrypt the _destination_ to do a RMW on plaintext. */
-	nr_bytes = sev_dbg_crypt_slow_addr_and_size(dst_p, dst, len, &dst_pa);
-
-	r = sev_issue_dbg_cmd(kvm, dst_pa, __sme_page_pa(buf_p),
+	r = sev_issue_dbg_cmd(kvm, dst_pa, __sme_set(__pa(buf)),
 			      nr_bytes, KVM_SEV_DBG_DECRYPT, err);
 	if (r)
 		goto out;
@@ -1359,10 +1334,10 @@ static int sev_dbg_encrypt_slow(struct kvm *kvm, unsigned long src,
 	if (copy_from_user(buf + (dst & 15), (void __user *)src, len))
 		r = -EFAULT;
 	else
-		r = sev_issue_dbg_cmd(kvm, __sme_page_pa(buf_p), dst_pa,
+		r = sev_issue_dbg_cmd(kvm, __sme_set(__pa(buf)), dst_pa,
 				      nr_bytes, KVM_SEV_DBG_ENCRYPT, err);
 out:
-	sev_free_dbg_buffer(buf_p, buf);
+	kfree(buf);
 	return r;
 }
 
