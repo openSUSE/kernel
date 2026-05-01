@@ -859,7 +859,7 @@ static const struct file_operations transaction_ops = {
 /*
  * payload - write methods
  * If the method has a response, the response should be put in buf,
- * and the length returned.  Otherwise return 0 or and -error.
+ * and the length returned.  Otherwise return 0 or -error.
  */
 
 static ssize_t sel_write_access(struct file *file, char *buf, size_t size)
