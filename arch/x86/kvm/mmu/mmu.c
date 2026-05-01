@@ -5584,24 +5584,28 @@ static void update_permission_bitmask(struct kvm_mmu *mmu, bool ept)
 		 * that causes a fault with the given PFEC.
 		 */
 
+		/* Faults from reads to non-readable pages */
+		u8 rf = 0;
 		/* Faults from writes to non-writable pages */
 		u8 wf = (pfec & PFERR_WRITE_MASK) ? (u8)~w : 0;
 		/* Faults from user mode accesses to supervisor pages */
-		u8 uf = (pfec & PFERR_USER_MASK) ? (u8)~u : 0;
-		/* Faults from fetches of non-executable pages*/
-		u8 ff = (pfec & PFERR_FETCH_MASK) ? (u8)~x : 0;
-		/* Faults from kernel mode fetches of user pages */
-		u8 smepf = 0;
+		u8 uf = 0;
+		/* Faults from fetches of non-executable pages */
+		u8 ff = 0;
 		/* Faults from kernel mode accesses of user pages */
 		u8 smapf = 0;
 
-		if (!ept) {
+		if (ept) {
+			rf = (pfec & PFERR_USER_MASK) ? (u8)~u : 0;
+			ff = (pfec & PFERR_FETCH_MASK) ? (u8)~x : 0;
+		} else {
 			/* Faults from kernel mode accesses to user pages */
 			u8 kf = (pfec & PFERR_USER_MASK) ? 0 : u;
 
-			/* Not really needed: !nx will cause pte.nx to fault */
-			if (!efer_nx)
-				ff = 0;
+			uf = (pfec & PFERR_USER_MASK) ? (u8)~u : 0;
+
+			if (efer_nx)
+				ff |= (pfec & PFERR_FETCH_MASK) ? (u8)~x : 0;
 
 			/* Allow supervisor writes if !cr0.wp */
 			if (!cr0_wp)
@@ -5609,7 +5613,7 @@ static void update_permission_bitmask(struct kvm_mmu *mmu, bool ept)
 
 			/* Disallow supervisor fetches of user code if cr4.smep */
 			if (cr4_smep)
-				smepf = (pfec & PFERR_FETCH_MASK) ? kf : 0;
+				ff |= (pfec & PFERR_FETCH_MASK) ? kf : 0;
 
 			/*
 			 * SMAP:kernel-mode data accesses from user-mode
@@ -5630,7 +5634,7 @@ static void update_permission_bitmask(struct kvm_mmu *mmu, bool ept)
 				smapf = (pfec & (PFERR_RSVD_MASK|PFERR_FETCH_MASK)) ? 0 : kf;
 		}
 
-		mmu->permissions[index] = ff | uf | wf | smepf | smapf;
+		mmu->permissions[index] = ff | uf | wf | rf | smapf;
 	}
 }
 
