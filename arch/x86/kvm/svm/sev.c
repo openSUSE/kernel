@@ -1357,9 +1357,11 @@ static int sev_dbg_crypt(struct kvm *kvm, struct kvm_sev_cmd *argp, bool dec)
 	if (copy_from_user(&debug, u64_to_user_ptr(argp->data), sizeof(debug)))
 		return -EFAULT;
 
-	if (!debug.len || debug.src_uaddr + debug.len < debug.src_uaddr)
+	if (!debug.len || !debug.src_uaddr || !debug.dst_uaddr)
 		return -EINVAL;
-	if (!debug.dst_uaddr)
+
+	if (debug.src_uaddr + debug.len < debug.src_uaddr ||
+	    debug.dst_uaddr + debug.len < debug.dst_uaddr)
 		return -EINVAL;
 
 	vaddr = debug.src_uaddr;
