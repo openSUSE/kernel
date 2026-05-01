@@ -1074,6 +1074,29 @@ static void check_unmap(struct dma_debug_entry *ref)
 			   type2name[entry->type]);
 	}
 
+	/*
+	 * This may be no bug in reality - but DMA API still expects
+	 * that entry is unmapped with same attributes as it was mapped.
+	 *
+	 * DMA_ATTR_UNMAP_VALID lists the attributes that must be identical
+	 * between map and unmap. Any attribute outside this set (e.g.
+	 * DMA_ATTR_NO_WARN, DMA_ATTR_SKIP_CPU_SYNC) is allowed to differ.
+	 */
+#define DMA_ATTR_UNMAP_VALID                                               \
+	(DMA_ATTR_NO_KERNEL_MAPPING | DMA_ATTR_FORCE_CONTIGUOUS |          \
+	 DMA_ATTR_MMIO | DMA_ATTR_REQUIRE_COHERENT | DMA_ATTR_PRIVILEGED | \
+	 DMA_ATTR_CC_SHARED)
+	if ((ref->attrs & DMA_ATTR_UNMAP_VALID) !=
+	    (entry->attrs & DMA_ATTR_UNMAP_VALID)) {
+		err_printk(ref->dev, entry,
+			   "device driver frees "
+			   "DMA memory with different attributes "
+			   "[device address=0x%016llx] [size=%llu bytes] "
+			   "[mapped with 0x%lx] [unmapped with 0x%lx]\n",
+			   ref->dev_addr, ref->size, entry->attrs, ref->attrs);
+	}
+#undef DMA_ATTR_UNMAP_VALID
+
 	hash_bucket_del(entry);
 	put_hash_bucket(bucket, flags);
 
