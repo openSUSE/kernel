@@ -885,7 +885,9 @@ static int ufshcd_setup_tx_eqtr_adapt_length(struct ufs_hba *hba,
 		if (adapt_l0l1l2l3_cap_local > ADAPT_L0L1L2L3_LENGTH_MAX) {
 			dev_err(hba->dev, "local RX_HS_G%u_ADAPT_INITIAL_L0L1L2L3_CAP (0x%x) exceeds MAX\n",
 				gear, adapt_l0l1l2l3_cap_local);
-			return -EINVAL;
+
+			if (!(hba->quirks & UFSHCD_QUIRK_EXTENDED_TX_EQTR_ADAPT_LENGTH_L0L1L2L3))
+				return -EINVAL;
 		}
 
 		ret = ufshcd_dme_get(hba, UIC_ARG_MIB(PA_PEERRXHSG6ADAPTINITIALL0L1L2L3),
@@ -896,7 +898,9 @@ static int ufshcd_setup_tx_eqtr_adapt_length(struct ufs_hba *hba,
 		if (adapt_l0l1l2l3_cap_peer > ADAPT_L0L1L2L3_LENGTH_MAX) {
 			dev_err(hba->dev, "peer RX_HS_G%u_ADAPT_INITIAL_L0L1L2L3_CAP (0x%x) exceeds MAX\n",
 				gear, adapt_l0l1l2l3_cap_peer);
-			return -EINVAL;
+
+			if (!(hba->quirks & UFSHCD_QUIRK_EXTENDED_TX_EQTR_ADAPT_LENGTH_L0L1L2L3))
+				return -EINVAL;
 		}
 
 		t_adapt_l0l1l2l3_local = adapt_cap_to_t_adapt_l0l1l2l3(adapt_l0l1l2l3_cap_local);
