@@ -247,17 +247,17 @@ fn generate_projections(
     let projection = format_ident!("{ident}Projection");
     let this = format_ident!("this");
 
-    let (fields_decl, fields_proj) = collect_tuple(fields.iter().map(
-        |(
-            pinned,
-            Field {
+    let (fields_decl, fields_proj): (Vec<_>, Vec<_>) = fields
+        .iter()
+        .map(|(pinned, field)| {
+            let Field {
                 vis,
                 ident,
                 ty,
                 attrs,
                 ..
-            },
-        )| {
+            } = field;
+
             let mut no_doc_attrs = attrs.clone();
             no_doc_attrs.retain(|a| !a.path().is_ident("doc"));
             let ident = ident
@@ -287,8 +287,8 @@ fn generate_projections(
                     ),
                 )
             }
-        },
-    ));
+        })
+        .collect();
     let structurally_pinned_fields_docs = fields
         .iter()
         .filter_map(|(pinned, field)| pinned.then_some(field))
@@ -497,15 +497,4 @@ impl VisitMut for SelfReplacer {
     fn visit_item_mut(&mut self, _: &mut Item) {
         // Do not descend into items, since items reset/change what `Self` refers to.
     }
-}
-
-// replace with `.collect()` once MSRV is above 1.79
-fn collect_tuple<A, B>(iter: impl Iterator<Item = (A, B)>) -> (Vec<A>, Vec<B>) {
-    let mut res_a = vec![];
-    let mut res_b = vec![];
-    for (a, b) in iter {
-        res_a.push(a);
-        res_b.push(b);
-    }
-    (res_a, res_b)
 }
