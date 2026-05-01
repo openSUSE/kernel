@@ -1567,8 +1567,7 @@ void debug_dma_sync_sg_for_device(struct device *dev, struct scatterlist *sg,
 
 void debug_dma_alloc_pages(struct device *dev, struct page *page,
 			   size_t size, int direction,
-			   dma_addr_t dma_addr,
-			   unsigned long attrs)
+			   dma_addr_t dma_addr)
 {
 	struct dma_debug_entry *entry;
 
@@ -1586,7 +1585,7 @@ void debug_dma_alloc_pages(struct device *dev, struct page *page,
 	entry->dev_addr  = dma_addr;
 	entry->direction = direction;
 
-	add_dma_entry(entry, attrs);
+	add_dma_entry(entry, 0);
 }
 
 void debug_dma_free_pages(struct device *dev, struct page *page,

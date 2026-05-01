@@ -47,8 +47,7 @@ extern void debug_dma_sync_sg_for_device(struct device *dev,
 					 int nelems, int direction);
 extern void debug_dma_alloc_pages(struct device *dev, struct page *page,
 				  size_t size, int direction,
-				  dma_addr_t dma_addr,
-				  unsigned long attrs);
+				  dma_addr_t dma_addr);
 extern void debug_dma_free_pages(struct device *dev, struct page *page,
 				 size_t size, int direction,
 				 dma_addr_t dma_addr);
@@ -113,8 +112,7 @@ static inline void debug_dma_sync_sg_for_device(struct device *dev,
 
 static inline void debug_dma_alloc_pages(struct device *dev, struct page *page,
 					 size_t size, int direction,
-					 dma_addr_t dma_addr,
-					 unsigned long attrs)
+					 dma_addr_t dma_addr)
 {
 }
 
