@@ -623,7 +623,38 @@ do { 						\
 static int perf_event__hdr_attr_swap(union perf_event *event,
 				     bool sample_id_all __maybe_unused)
 {
+	u32 attr_size, payload_size;
 	size_t size;
+
+	/*
+	 * Validate attr.size (still foreign-endian) before calling
+	 * perf_event__attr_swap(), which uses it via bswap_safe()
+	 * to decide which fields to swap.  A crafted attr.size
+	 * larger than the event payload would swap past the event
+	 * boundary and corrupt adjacent memory.
+	 *
+	 * header.size alignment is already validated by
+	 * perf_session__process_event().  The min_size table
+	 * guarantees header.size >= sizeof(header) +
+	 * PERF_ATTR_SIZE_VER0, so attr.size is safe to access.
+	 */
+	attr_size = bswap_32(event->attr.attr.size);
+	/*
+	 * ABI0: size field not set.  This only happens in pipe/inject
+	 * mode where HEADER_ATTR events carry their own attr.  For
+	 * regular perf.data files, read_attr() uses f_header.attr_size
+	 * from the file header instead.  Assume PERF_ATTR_SIZE_VER0.
+	 */
+	if (!attr_size)
+		attr_size = PERF_ATTR_SIZE_VER0;
+	payload_size = event->header.size - sizeof(event->header);
+
+	if (attr_size < PERF_ATTR_SIZE_VER0 || attr_size % sizeof(u64) ||
+	    attr_size > payload_size) {
+		pr_err("PERF_RECORD_HEADER_ATTR: invalid attr.size %u (min: %d, max: %u, 8-byte aligned)\n",
+		       attr_size, PERF_ATTR_SIZE_VER0, payload_size);
+		return -1;
+	}
 
 	perf_event__attr_swap(&event->attr.attr);
 

@@ -4770,9 +4770,15 @@ static int read_attr(int fd, struct perf_header *ph,
 	if (sz == 0) {
 		/* assume ABI0 */
 		sz =  PERF_ATTR_SIZE_VER0;
+	} else if (sz < PERF_ATTR_SIZE_VER0) {
+		pr_debug("bad attr size %zu, expected at least %d\n",
+			 sz, PERF_ATTR_SIZE_VER0);
+		errno = EINVAL;
+		return -1;
 	} else if (sz > our_sz) {
 		pr_debug("file uses a more recent and unsupported ABI"
 			 " (%zu bytes extra)\n", sz - our_sz);
+		errno = EINVAL;
 		return -1;
 	}
 	/* what we have not yet read and that we know about */
@@ -4782,11 +4788,21 @@ static int read_attr(int fd, struct perf_header *ph,
 		ptr += PERF_ATTR_SIZE_VER0;
 
 		ret = readn(fd, ptr, left);
+		if (ret <= 0) {
+			if (ret == 0)
+				errno = EIO;
+			return -1;
+		}
 	}
 	/* read perf_file_section, ids are read in caller */
 	ret = readn(fd, &f_attr->ids, sizeof(f_attr->ids));
+	if (ret <= 0) {
+		if (ret == 0)
+			errno = EIO;
+		return -1;
+	}
 
-	return ret <= 0 ? -1 : 0;
+	return 0;
 }
 
 #ifdef HAVE_LIBTRACEEVENT
@@ -5094,10 +5110,41 @@ int perf_event__process_attr(const struct perf_tool *tool __maybe_unused,
 			     union perf_event *event,
 			     struct evlist **pevlist)
 {
-	u32 i, n_ids;
+	struct perf_event_attr attr;
+	u32 i, n_ids, raw_attr_size;
 	u64 *ids;
+	size_t attr_size, copy_size;
 	struct evsel *evsel;
 	struct evlist *evlist = *pevlist;
+
+	/*
+	 * HEADER_ATTR event layout (pipe/inject mode):
+	 *
+	 *   [header (8 bytes)] [attr (attr_size bytes)] [id0 id1 ... idN]
+	 *   |<------------------ header.size --------------------------->|
+	 *
+	 * attr_size varies across perf versions: VER0 = 64 bytes,
+	 * current sizeof(struct perf_event_attr) = larger.  A newer
+	 * producer may emit a larger attr than we understand.
+	 *
+	 * attr.size == 0 (ABI0) means the producer didn't set it
+	 * (e.g., bench/inject-buildid, older perf).  Treat as VER0.
+	 *
+	 * Require 8-byte alignment so the u64 ID array is aligned
+	 * and attr.size fits cleanly within the payload.
+	 *
+	 * Read attr.size once — the event may be on a shared mmap
+	 * and re-reading could yield a different value.
+	 */
+	raw_attr_size = event->attr.attr.size;
+	if (event->header.size < sizeof(event->header) + PERF_ATTR_SIZE_VER0 ||
+	    (raw_attr_size && (raw_attr_size < PERF_ATTR_SIZE_VER0 ||
+			      raw_attr_size % sizeof(u64) ||
+			      raw_attr_size > event->header.size - sizeof(event->header)))) {
+		pr_err("PERF_RECORD_HEADER_ATTR: invalid attr.size %u (event size %u, min %d)\n",
+		       raw_attr_size, event->header.size, PERF_ATTR_SIZE_VER0);
+		return -EINVAL;
+	}
 
 	if (dump_trace)
 		perf_event__fprintf_attr(event, stdout);
@@ -5108,13 +5155,46 @@ int perf_event__process_attr(const struct perf_tool *tool __maybe_unused,
 			return -ENOMEM;
 	}
 
-	evsel = evsel__new(&event->attr.attr);
+	/*
+	 * attr_size = footprint of the attr in the event — determines
+	 * where the ID array starts.  For ABI0, assume VER0 (64 bytes).
+	 *
+	 * copy_size = how much we copy into our local struct, capped at
+	 * sizeof(attr) so a newer producer's larger attr doesn't
+	 * overflow.  Fields beyond copy_size are zeroed.
+	 *
+	 * Do NOT write attr_size back to the event — native-endian
+	 * files use MAP_SHARED (read-only), writing would SIGSEGV.
+	 * The swap path handles ABI0 in perf_event__attr_swap()
+	 * which writes to the writable MAP_PRIVATE copy instead.
+	 */
+	attr_size = raw_attr_size ?: PERF_ATTR_SIZE_VER0;
+	copy_size = min(attr_size, sizeof(attr));
+	memcpy(&attr, &event->attr.attr, copy_size);
+	if (copy_size < sizeof(attr))
+		memset((void *)&attr + copy_size, 0, sizeof(attr) - copy_size);
+
+	/*
+	 * Normalize ABI0: the swap path sets attr.size = VER0 on the
+	 * event, but the native path leaves it as 0.  Set it on the
+	 * local copy so perf inject re-synthesizes with consistent
+	 * layout regardless of endianness.
+	 */
+	attr.size = attr_size;
+
+	evsel = evsel__new(&attr);
 	if (evsel == NULL)
 		return -ENOMEM;
 
 	evlist__add(evlist, evsel);
 
-	n_ids = event->header.size - sizeof(event->header) - event->attr.attr.size;
+	/*
+	 * IDs occupy the remainder after header + attr.  Use attr_size
+	 * (not copy_size) — even if the producer's attr is larger than
+	 * our struct, the IDs start after attr_size bytes in the event.
+	 * Validation above guarantees attr_size <= payload size.
+	 */
+	n_ids = event->header.size - sizeof(event->header) - attr_size;
 	n_ids = n_ids / sizeof(u64);
 	/*
 	 * We don't have the cpu and thread maps on the header, so
@@ -5124,7 +5204,13 @@ int perf_event__process_attr(const struct perf_tool *tool __maybe_unused,
 	if (perf_evsel__alloc_id(&evsel->core, 1, n_ids))
 		return -ENOMEM;
 
-	ids = perf_record_header_attr_id(event);
+	/*
+	 * Locate IDs at attr_size bytes past the attr start in the
+	 * event.  Cannot use perf_record_header_attr_id() — that
+	 * macro reads event->attr.attr.size, which is 0 for ABI0
+	 * on the native-endian path (no swap handler to fix it up).
+	 */
+	ids = (void *)&event->attr.attr + attr_size;
 	for (i = 0; i < n_ids; i++) {
 		perf_evlist__id_add(&evlist->core, &evsel->core, 0, i, ids[i]);
 	}

@@ -229,6 +229,7 @@ static int perf_event__repipe_attr(const struct perf_tool *tool,
 	struct perf_inject *inject = container_of(tool, struct perf_inject,
 						  tool);
 	struct perf_event_attr attr;
+	u32 raw_attr_size, attr_size;
 	size_t n_ids;
 	u64 *ids;
 	int ret;
@@ -244,24 +245,34 @@ static int perf_event__repipe_attr(const struct perf_tool *tool,
 	if (!inject->itrace_synth_opts.set)
 		return perf_event__repipe_synth(tool, event);
 
-	if (event->header.size < sizeof(struct perf_event_header) + sizeof(u64)) {
+	if (event->header.size < sizeof(struct perf_event_header) + PERF_ATTR_SIZE_VER0) {
 		pr_err("Attribute event size %u is too small\n", event->header.size);
 		return -EINVAL;
 	}
 
-	if (event->header.size - sizeof(event->header) < event->attr.attr.size) {
+	/*
+	 * ABI0 pipe/inject events have attr.size == 0; default to
+	 * PERF_ATTR_SIZE_VER0 (the ABI0 footprint) for the bounded
+	 * copy and ID array position.  Same pattern as
+	 * perf_event__process_attr() in header.c.
+	 */
+	raw_attr_size = event->attr.attr.size;
+	attr_size = raw_attr_size ?: PERF_ATTR_SIZE_VER0;
+
+	if (raw_attr_size && (raw_attr_size < PERF_ATTR_SIZE_VER0 ||
+			      raw_attr_size > event->header.size - sizeof(event->header))) {
 		pr_err("Attribute event size %u is too small for attr.size %u\n",
-		       event->header.size, event->attr.attr.size);
+		       event->header.size, raw_attr_size);
 		return -EINVAL;
 	}
 
 	memset(&attr, 0, sizeof(attr));
 	memcpy(&attr, &event->attr.attr,
-	       min_t(size_t, sizeof(attr), (size_t)event->attr.attr.size));
+	       min_t(size_t, sizeof(attr), attr_size));
 
-	n_ids = event->header.size - sizeof(event->header) - event->attr.attr.size;
+	n_ids = event->header.size - sizeof(event->header) - attr_size;
 	n_ids /= sizeof(u64);
-	ids = perf_record_header_attr_id(event);
+	ids = (void *)&event->attr.attr + attr_size;
 
 	attr.size = sizeof(struct perf_event_attr);
 	attr.sample_type &= ~PERF_SAMPLE_AUX;
