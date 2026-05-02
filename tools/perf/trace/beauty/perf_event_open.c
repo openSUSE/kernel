@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: LGPL-2.1
+#include <string.h>
 #include "trace/beauty/beauty.h"
 #include "util/evsel_fprintf.h"
 #include <linux/perf_event.h>
@@ -80,7 +81,27 @@ static size_t perf_event_attr___scnprintf(struct perf_event_attr *attr, char *bf
 
 static size_t syscall_arg__scnprintf_augmented_perf_event_attr(struct syscall_arg *arg, char *bf, size_t size)
 {
-	return perf_event_attr___scnprintf((void *)arg->augmented.args->value, bf, size,
+	struct perf_event_attr *attr = (void *)arg->augmented.args->value;
+	struct perf_event_attr local_attr;
+
+	/*
+	 * augmented_raw_syscalls.bpf.c (shipped with perf) copies
+	 * PERF_ATTR_SIZE_VER0 bytes when the tracee passes size=0,
+	 * but leaves the size field as 0.  The payload size is
+	 * guaranteed by perf's own BPF program, not externally
+	 * controllable.  Copy to a local so we can fix up size
+	 * without writing to the potentially read-only augmented
+	 * args buffer.
+	 */
+	if (!attr->size) {
+		memcpy(&local_attr, attr, PERF_ATTR_SIZE_VER0);
+		memset((void *)&local_attr + PERF_ATTR_SIZE_VER0, 0,
+		       sizeof(local_attr) - PERF_ATTR_SIZE_VER0);
+		local_attr.size = PERF_ATTR_SIZE_VER0;
+		attr = &local_attr;
+	}
+
+	return perf_event_attr___scnprintf(attr, bf, size,
 					   trace__show_zeros(arg->trace));
 }
 
