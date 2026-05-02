@@ -64,6 +64,25 @@
 #include <event-parse.h>
 #endif
 
+/*
+ * nr_ids * sizeof(struct perf_sample_id) must not overflow
+ * size_t on 32-bit; the struct is ~104 bytes (32-bit) or
+ * ~184 bytes (64-bit), so 1<<24 (16M) keeps the product
+ * under 2 GB on 32-bit.
+ *
+ * This is a per-attribute cap only — the total across all
+ * attributes is not capped because legitimate high-core-count
+ * workloads (e.g. 5000 tracepoints × 4096 CPUs) can exceed
+ * a single-attribute limit.
+ */
+#define MAX_IDS_PER_ATTR	(1 << 24)
+/*
+ * Cap nr_attrs to prevent resource exhaustion from crafted
+ * files.  65536 is well beyond any real workload (perf stat
+ * typically uses < 100 events) but prevents u64-to-int
+ * truncation on the attr count.
+ */
+#define MAX_NR_ATTRS		(1 << 16)
 #define MAX_BPF_DATA_LEN	(256 * 1024 * 1024)
 #define MAX_BPF_PROGS		131072
 #define MAX_CACHE_ENTRIES	32768
@@ -4468,8 +4487,13 @@ int perf_session__inject_header(struct perf_session *session,
 static int perf_header__getbuffer64(struct perf_header *header,
 				    int fd, void *buf, size_t size)
 {
-	if (readn(fd, buf, size) <= 0)
+	ssize_t n = readn(fd, buf, size);
+
+	if (n <= 0) {
+		if (n == 0)
+			errno = EIO;
 		return -1;
+	}
 
 	if (header->needs_swap)
 		mem_bswap_64(buf, size);
@@ -4803,6 +4827,8 @@ static int read_attr(int fd, struct perf_header *ph,
 	if (ret <= 0) {
 		pr_debug("cannot read %d bytes of header attr\n",
 			 PERF_ATTR_SIZE_VER0);
+		if (ret == 0)
+			errno = EIO;
 		return -1;
 	}
 
@@ -4903,6 +4929,7 @@ int perf_session__read_header(struct perf_session *session)
 	struct perf_file_header	f_header;
 	struct perf_file_attr	f_attr;
 	u64			f_id;
+	struct stat		input_stat;
 	int nr_attrs, nr_ids, i, j, err = -ENOMEM;
 	int fd = perf_data__fd(data);
 
@@ -4951,6 +4978,15 @@ int perf_session__read_header(struct perf_session *session)
 		return -EINVAL;
 	}
 
+	if (fstat(fd, &input_stat) < 0)
+		return -errno;
+
+	/* Check before assigning to int to avoid u64-to-int truncation */
+	if (f_header.attrs.size / f_header.attr_size > MAX_NR_ATTRS) {
+		pr_err("Too many attributes: %" PRIu64 " (max %d)\n",
+		       f_header.attrs.size / f_header.attr_size, MAX_NR_ATTRS);
+		return -EINVAL;
+	}
 	nr_attrs = f_header.attrs.size / f_header.attr_size;
 	lseek(fd, f_header.attrs.offset, SEEK_SET);
 
@@ -4965,6 +5001,45 @@ int perf_session__read_header(struct perf_session *session)
 			f_attr.ids.size   = bswap_64(f_attr.ids.size);
 			f_attr.ids.offset = bswap_64(f_attr.ids.offset);
 			perf_event__attr_swap(&f_attr.attr);
+		}
+
+		/*
+		 * Validate ids section: must be aligned to u64, and
+		 * the count must fit in an int to avoid truncation in
+		 * nr_ids and size_t overflow in perf_evsel__alloc_id()
+		 * on 32-bit architectures.
+		 */
+		if (f_attr.ids.size % sizeof(u64)) {
+			pr_err("Invalid ids section size %" PRIu64 " for attr %d, not aligned to u64\n",
+			       f_attr.ids.size, i);
+			err = -EINVAL;
+			goto out_delete_evlist;
+		}
+
+		/*
+		 * Cap the ID count to avoid int truncation of nr_ids
+		 * on 64-bit and size_t overflow in the allocation
+		 * paths (nr_ids * sizeof(u64), nr_ids *
+		 * sizeof(struct perf_sample_id)) on 32-bit.
+		 */
+		if (f_attr.ids.size / sizeof(u64) > MAX_IDS_PER_ATTR) {
+			pr_err("Invalid ids section size %" PRIu64 " for attr %d, too many IDs\n",
+			       f_attr.ids.size, i);
+			err = -EINVAL;
+			goto out_delete_evlist;
+		}
+
+		/*
+		 * FIXME: see perf_header__process_sections() — block
+		 * devices bypass this check because st_size is 0.
+		 */
+		if (S_ISREG(input_stat.st_mode) &&
+		    (f_attr.ids.offset > (u64)input_stat.st_size ||
+		     f_attr.ids.size > (u64)input_stat.st_size - f_attr.ids.offset)) {
+			pr_err("Invalid ids section for attr %d: offset=%" PRIu64 " size=%" PRIu64 " exceeds file size %" PRIu64 "\n",
+			       i, f_attr.ids.offset, f_attr.ids.size, (u64)input_stat.st_size);
+			err = -EINVAL;
+			goto out_delete_evlist;
 		}
 
 		tmp = lseek(fd, 0, SEEK_CUR);
