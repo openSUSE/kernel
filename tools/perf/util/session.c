@@ -2110,13 +2110,99 @@ static int perf_session__deliver_event(struct perf_session *session,
 				       const char *file_path)
 {
 	struct perf_sample sample;
+	struct evsel *evsel;
 	int ret;
 
 	perf_sample__init(&sample, /*all=*/false);
-	ret = evlist__parse_sample(session->evlist, event, &sample);
+	evsel = evlist__event2evsel(session->evlist, event);
+	if (!evsel) {
+		pr_err("No evsel found for event type %u\n",
+		       event->header.type);
+		ret = -EFAULT;
+		goto out;
+	}
+	ret = evsel__parse_sample(evsel, event, &sample);
 	if (ret) {
 		pr_err("Can't parse sample, err = %d\n", ret);
 		goto out;
+	}
+	/*
+	 * evsel__parse_sample() doesn't populate machine_pid/vcpu,
+	 * which are needed by machines__find_for_cpumode() to
+	 * attribute samples to guest VMs.  The SID table maps
+	 * sample IDs to the guest that owns the event.
+	 */
+	if (perf_guest && sample.id) {
+		struct perf_sample_id *sid = evlist__id2sid(session->evlist, sample.id);
+
+		if (sid) {
+			sample.machine_pid = sid->machine_pid;
+			sample.vcpu = sid->vcpu.cpu;
+		}
+	}
+
+	/*
+	 * Validate sample.cpu before any callback can use it as an
+	 * array index (kwork cpus_runtime, timechart cpus_cstate_*,
+	 * sched cpu_last_switched).
+	 *
+	 * When PERF_SAMPLE_CPU is absent, evsel__parse_sample() leaves
+	 * sample.cpu as (u32)-1 — a sentinel that downstream tools
+	 * (script, inject) check to identify events without CPU info.
+	 * Only check when sample.cpu was actually populated from event
+	 * data: PERF_RECORD_SAMPLE always has it when PERF_SAMPLE_CPU
+	 * is set; non-sample events only have it when sample_id_all is
+	 * enabled.  Otherwise sample.cpu is the (u32)-1 sentinel from
+	 * evsel__parse_sample() and must not be validated or clamped.
+	 */
+	if ((evsel->core.attr.sample_type & PERF_SAMPLE_CPU) &&
+	    (event->header.type == PERF_RECORD_SAMPLE ||
+	     evsel->core.attr.sample_id_all)) {
+		int nr_cpus_avail = perf_session__env(session)->nr_cpus_avail;
+
+		/*
+		 * For perf.data files the MAX_NR_CPUS fallback in
+		 * perf_session__read_header() guarantees this is set.
+		 * For pipe mode, HEADER_NRCPUS may arrive late or not
+		 * at all (pre-2017 perf, third-party tools).  Fall
+		 * back to MAX_NR_CPUS so the bounds check still works
+		 * against fixed-size downstream arrays.
+		 *
+		 * Do NOT write back to env: this function runs during
+		 * recording (synthesized events) when nr_cpus_avail is
+		 * legitimately 0.  Writing MAX_NR_CPUS would cause
+		 * write_cpu_topology() to emit 4096 core_id/socket_id
+		 * pairs instead of the real CPU count, corrupting the
+		 * topology section in the generated perf.data.
+		 */
+		if (nr_cpus_avail <= 0)
+			nr_cpus_avail = MAX_NR_CPUS;
+		/*
+		 * Cap at MAX_NR_CPUS for the bounds check — downstream
+		 * consumers use fixed-size arrays of that size.  Keep
+		 * the true nr_cpus_avail in env for header parsing
+		 * (e.g. process_cpu_topology) which needs the real count.
+		 */
+		if (nr_cpus_avail > MAX_NR_CPUS)
+			nr_cpus_avail = MAX_NR_CPUS;
+		if (sample.cpu >= (u32)nr_cpus_avail &&
+		    sample.cpu != (u32)-1) {
+			/*
+			 * Warn rather than abort: synthesized events
+			 * (MMAP, COMM) lack sample_id_all data, so
+			 * parse_id_sample reads garbage from the event
+			 * payload.  Clamping to 0 protects downstream
+			 * array indexing while keeping the session alive.
+			 *
+			 * Preserve (u32)-1: perf script and perf inject
+			 * use it as a sentinel for "CPU not applicable."
+			 * Downstream array users (timechart, kwork) have
+			 * their own per-callback bounds checks.
+			 */
+			pr_warning_once("WARNING: sample CPU %u >= nr_cpus_avail %u, clamping to 0\n",
+					sample.cpu, nr_cpus_avail);
+			sample.cpu = 0;
+		}
 	}
 
 	ret = auxtrace__process_event(session, event, &sample, tool);

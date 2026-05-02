@@ -48,6 +48,7 @@
 #include <api/io_dir.h>
 #include "asm/bug.h"
 #include "tool.h"
+#include "../perf.h"
 #include "time-utils.h"
 #include "units.h"
 #include "util/util.h" // perf_exe()
@@ -2895,6 +2896,17 @@ static int process_nrcpus(struct feat_fd *ff, void *data __maybe_unused)
 	if (ret)
 		return ret;
 
+	/*
+	 * Cap at 1M CPUs — generous for any real system but prevents
+	 * stack overflow from VLA allocations sized by nr_cpus_avail
+	 * (e.g. DECLARE_BITMAP in builtin-c2c.c node_entry()).
+	 */
+	if (nr_cpus_avail > (1U << 20)) {
+		pr_err("Invalid HEADER_NRCPUS: nr_cpus_avail (%u) exceeds maximum (%u)\n",
+		       nr_cpus_avail, 1U << 20);
+		return -1;
+	}
+
 	if (nr_cpus_online > nr_cpus_avail) {
 		pr_err("Invalid HEADER_NRCPUS: nr_cpus_online (%u) > nr_cpus_avail (%u)\n",
 		       nr_cpus_online, nr_cpus_avail);
@@ -5248,6 +5260,24 @@ int perf_session__read_header(struct perf_session *session)
 		if (err < 0)
 			goto out_delete_evlist;
 #endif
+	}
+
+	/*
+	 * Without nr_cpus_avail the sample CPU bounds check in
+	 * perf_session__deliver_event() is bypassed, allowing crafted
+	 * CPU IDs to reach downstream consumers that index fixed-size
+	 * arrays (timechart, kwork, sched — all sized MAX_NR_CPUS).
+	 *
+	 * This can happen with truncated files (interrupted recording
+	 * loses all feature sections), very old files that predate
+	 * HEADER_NRCPUS, or crafted files that omit it.  Fall back to
+	 * MAX_NR_CPUS so the bounds check is still effective — any
+	 * CPU ID below that limit is safe for all downstream arrays.
+	 */
+	if (header->env.nr_cpus_avail == 0) {
+		header->env.nr_cpus_avail = MAX_NR_CPUS;
+		pr_warning("WARNING: perf.data is missing HEADER_NRCPUS, using MAX_NR_CPUS (%d) as CPU bound\n",
+			   MAX_NR_CPUS);
 	}
 
 	return 0;
