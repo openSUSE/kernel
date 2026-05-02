@@ -148,6 +148,7 @@ Hardware Monitoring Kernel Drivers
    ltc4260
    ltc4261
    ltc4282
+   ltc4283
    ltc4286
    lx1308
    macsmc-hwmon
