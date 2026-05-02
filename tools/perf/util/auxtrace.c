@@ -1774,7 +1774,7 @@ static const char * const auxtrace_error_type_name[] = {
 	[PERF_AUXTRACE_ERROR_ITRACE] = "instruction trace",
 };
 
-static const char *auxtrace_error_name(int type)
+static const char *auxtrace_error_name(unsigned int type)
 {
 	const char *error_type_name = NULL;
 
@@ -1790,6 +1790,7 @@ size_t perf_event__fprintf_auxtrace_error(union perf_event *event, FILE *fp)
 	struct perf_record_auxtrace_error *e = &event->auxtrace_error;
 	unsigned long long nsecs = e->time;
 	const char *msg = e->msg;
+	int msg_max;
 	int ret;
 
 	ret = fprintf(fp, " %s error type %u",
@@ -1807,11 +1808,26 @@ size_t perf_event__fprintf_auxtrace_error(union perf_event *event, FILE *fp)
 	if (!e->fmt)
 		msg = (const char *)&e->time;
 
-	if (e->fmt >= 2 && e->machine_pid)
+	/* Bound msg to the bytes actually within the event, capped at the array size */
+	msg_max = (int)((void *)event + event->header.size - (void *)msg);
+	if (msg_max < 0)
+		msg_max = 0;
+	if (msg_max > (int)sizeof(e->msg))
+		msg_max = sizeof(e->msg);
+
+	/*
+	 * Unlike the swap path which downgrades fmt in place,
+	 * native-endian events are mmap'd read-only — check size
+	 * instead to avoid accessing machine_pid/vcpu OOB.
+	 */
+	if (e->fmt >= 2 &&
+	    event->header.size >= offsetof(typeof(event->auxtrace_error), vcpu) +
+				  sizeof(event->auxtrace_error.vcpu) &&
+	    e->machine_pid)
 		ret += fprintf(fp, " machine_pid %d vcpu %d", e->machine_pid, e->vcpu);
 
-	ret += fprintf(fp, " cpu %d pid %d tid %d ip %#"PRI_lx64" code %u: %s\n",
-		       e->cpu, e->pid, e->tid, e->ip, e->code, msg);
+	ret += fprintf(fp, " cpu %d pid %d tid %d ip %#"PRI_lx64" code %u: %.*s\n",
+		       e->cpu, e->pid, e->tid, e->ip, e->code, msg_max, msg);
 	return ret;
 }
 

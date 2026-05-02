@@ -766,8 +766,22 @@ static int perf_event__auxtrace_error_swap(union perf_event *event,
 	if (event->auxtrace_error.fmt)
 		event->auxtrace_error.time = bswap_64(event->auxtrace_error.time);
 	if (event->auxtrace_error.fmt >= 2) {
-		event->auxtrace_error.machine_pid = bswap_32(event->auxtrace_error.machine_pid);
-		event->auxtrace_error.vcpu = bswap_32(event->auxtrace_error.vcpu);
+		/*
+		 * fmt >= 2 adds machine_pid and vcpu after msg[64].
+		 * Older files may have fmt >= 2 but an event size
+		 * that doesn't include these fields — downgrade to
+		 * avoid swapping out of bounds.
+		 */
+		if (event->header.size < offsetof(typeof(event->auxtrace_error), vcpu) +
+					 sizeof(event->auxtrace_error.vcpu)) {
+			pr_warning("WARNING: PERF_RECORD_AUXTRACE_ERROR: fmt %u but event too small for machine_pid/vcpu (%u bytes), downgrading fmt\n",
+				   event->auxtrace_error.fmt,
+				   event->header.size);
+			event->auxtrace_error.fmt = 1;
+		} else {
+			event->auxtrace_error.machine_pid = bswap_32(event->auxtrace_error.machine_pid);
+			event->auxtrace_error.vcpu = bswap_32(event->auxtrace_error.vcpu);
+		}
 	}
 	return 0;
 }

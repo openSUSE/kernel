@@ -1607,6 +1607,9 @@ static void python_process_auxtrace_error(struct perf_session *session __maybe_u
 	const char *handler_name = "auxtrace_error";
 	unsigned long long tm = e->time;
 	const char *msg = e->msg;
+	s32 machine_pid = 0, vcpu = 0;
+	char msg_buf[MAX_AUXTRACE_ERROR_MSG + 1];
+	int msg_max;
 	PyObject *handler, *t;
 
 	handler = get_handler(handler_name);
@@ -1618,6 +1621,25 @@ static void python_process_auxtrace_error(struct perf_session *session __maybe_u
 		msg = (const char *)&e->time;
 	}
 
+	/* Bound msg to the bytes within the event, ensure NUL-termination */
+	msg_max = (int)((void *)event + event->header.size - (void *)msg);
+	if (msg_max <= 0) {
+		msg_buf[0] = '\0';
+	} else {
+		if (msg_max > (int)sizeof(msg_buf) - 1)
+			msg_max = sizeof(msg_buf) - 1;
+		memcpy(msg_buf, msg, msg_max);
+		msg_buf[msg_max] = '\0';
+	}
+
+	/* Only access fmt >= 2 fields if the event is large enough */
+	if (e->fmt >= 2 &&
+	    event->header.size >= offsetof(typeof(event->auxtrace_error), vcpu) +
+				  sizeof(event->auxtrace_error.vcpu)) {
+		machine_pid = e->machine_pid;
+		vcpu = e->vcpu;
+	}
+
 	t = tuple_new(11);
 
 	tuple_set_u32(t, 0, e->type);
@@ -1627,10 +1649,10 @@ static void python_process_auxtrace_error(struct perf_session *session __maybe_u
 	tuple_set_s32(t, 4, e->tid);
 	tuple_set_u64(t, 5, e->ip);
 	tuple_set_u64(t, 6, tm);
-	tuple_set_string(t, 7, msg);
+	tuple_set_string(t, 7, msg_buf);
 	tuple_set_u32(t, 8, cpumode);
-	tuple_set_s32(t, 9, e->machine_pid);
-	tuple_set_s32(t, 10, e->vcpu);
+	tuple_set_s32(t, 9, machine_pid);
+	tuple_set_s32(t, 10, vcpu);
 
 	call_object(handler, t, handler_name);
 
