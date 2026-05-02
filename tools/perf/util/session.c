@@ -961,6 +961,48 @@ static int perf_event__time_conv_swap(union perf_event *event,
 	return 0;
 }
 
+static int perf_event__bpf_metadata_swap(union perf_event *event,
+					 bool sample_id_all __maybe_unused)
+{
+	u64 i, nr, max_nr;
+
+	/* Fixed header must fit before accessing nr_entries or prog_name */
+	if (event->header.size < sizeof(event->bpf_metadata))
+		return -1;
+
+	event->bpf_metadata.nr_entries = bswap_64(event->bpf_metadata.nr_entries);
+
+	/*
+	 * Ensure NUL-termination on the cross-endian path where the
+	 * mapping is writable (MAP_PRIVATE + PROT_WRITE).  Fixing
+	 * the string in place is preferred over rejecting because it
+	 * preserves the event for downstream processing — only the
+	 * last byte is lost.
+	 *
+	 * The native-endian path (MAP_SHARED + PROT_READ) cannot
+	 * write, so it validates and skips unterminated events in
+	 * perf_session__process_user_event() instead.  The two
+	 * strategies produce different outcomes for the same
+	 * malformed input (fix vs skip), which is inherent in the
+	 * writable-vs-read-only mapping model.
+	 */
+	event->bpf_metadata.prog_name[BPF_PROG_NAME_LEN - 1] = '\0';
+
+	nr = event->bpf_metadata.nr_entries;
+	max_nr = (event->header.size - sizeof(event->bpf_metadata)) /
+		 sizeof(event->bpf_metadata.entries[0]);
+	if (nr > max_nr) {
+		/* Persist clamped value so the native path processes entries, not skips */
+		nr = max_nr;
+		event->bpf_metadata.nr_entries = nr;
+	}
+
+	for (i = 0; i < nr; i++) {
+		event->bpf_metadata.entries[i].key[BPF_METADATA_KEY_LEN - 1] = '\0';
+		event->bpf_metadata.entries[i].value[BPF_METADATA_VALUE_LEN - 1] = '\0';
+	}
+	return 0;
+}
 static int
 perf_event__schedstat_cpu_swap(union perf_event *event __maybe_unused,
 			       bool sample_id_all __maybe_unused)
@@ -1060,6 +1102,7 @@ static perf_event__swap_op perf_event__swap_ops[] = {
 	[PERF_RECORD_STAT_ROUND]	  = perf_event__stat_round_swap,
 	[PERF_RECORD_EVENT_UPDATE]	  = perf_event__event_update_swap,
 	[PERF_RECORD_TIME_CONV]		  = perf_event__time_conv_swap,
+	[PERF_RECORD_BPF_METADATA]	  = perf_event__bpf_metadata_swap,
 	[PERF_RECORD_SCHEDSTAT_CPU]	  = perf_event__schedstat_cpu_swap,
 	[PERF_RECORD_SCHEDSTAT_DOMAIN]	  = perf_event__schedstat_domain_swap,
 	[PERF_RECORD_HEADER_MAX]	  = NULL,
@@ -2203,9 +2246,53 @@ static s64 perf_session__process_user_event(struct perf_session *session,
 	case PERF_RECORD_FINISHED_INIT:
 		err = tool->finished_init(tool, session, event);
 		break;
-	case PERF_RECORD_BPF_METADATA:
+	case PERF_RECORD_BPF_METADATA: {
+		u64 nr_entries, max_entries;
+		u32 hdr_size = READ_ONCE(event->header.size);
+
+		if (hdr_size < sizeof(event->bpf_metadata)) {
+			pr_warning("WARNING: PERF_RECORD_BPF_METADATA: header.size (%u) too small, skipping\n",
+				   hdr_size);
+			err = 0;
+			break;
+		}
+
+		/*
+		 * Native-endian files are mmap'd read-only — validate
+		 * NUL-termination instead of writing.
+		 */
+		if (strnlen(event->bpf_metadata.prog_name,
+			    BPF_PROG_NAME_LEN) == BPF_PROG_NAME_LEN) {
+			pr_warning("WARNING: PERF_RECORD_BPF_METADATA: prog_name not null-terminated, skipping\n");
+			err = 0;
+			break;
+		}
+
+		/* Snapshot — event is mmap'd and could change between reads */
+		nr_entries = READ_ONCE(event->bpf_metadata.nr_entries);
+		max_entries = (hdr_size - sizeof(event->bpf_metadata)) /
+			      sizeof(event->bpf_metadata.entries[0]);
+		if (nr_entries > max_entries) {
+			pr_warning("WARNING: PERF_RECORD_BPF_METADATA: nr_entries %" PRIu64 " exceeds max %" PRIu64 ", skipping\n",
+				   nr_entries, max_entries);
+			err = 0;
+			break;
+		}
+
+		for (u64 i = 0; i < nr_entries; i++) {
+			if (strnlen(event->bpf_metadata.entries[i].key,
+				    BPF_METADATA_KEY_LEN) == BPF_METADATA_KEY_LEN ||
+			    strnlen(event->bpf_metadata.entries[i].value,
+				    BPF_METADATA_VALUE_LEN) == BPF_METADATA_VALUE_LEN) {
+				pr_warning("WARNING: PERF_RECORD_BPF_METADATA: entry %" PRIu64 " key/value not null-terminated, skipping\n", i);
+				err = 0;
+				goto out;
+			}
+		}
+
 		err = tool->bpf_metadata(tool, session, event);
 		break;
+	}
 	case PERF_RECORD_SCHEDSTAT_CPU:
 		err = tool->schedstat_cpu(tool, session, event);
 		break;
