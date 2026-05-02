@@ -3861,6 +3861,23 @@ static int process_compressed(struct feat_fd *ff,
 	if (do_read_u32(ff, &(env->comp_mmap_len)))
 		return -1;
 
+	/*
+	 * FIXME: perf.data should record the recording system's page
+	 * size — it affects mmap buffer alignment, sample addresses,
+	 * and data_page_size/code_page_size interpretation.  Without
+	 * it we assume 4K (the smallest Linux page size) as a safe
+	 * minimum alignment for comp_mmap_len validation.
+	 *
+	 * No upper-bound cap: perf_session__process_compressed_event()
+	 * checks decomp_len + sizeof(struct decomp) against SIZE_MAX
+	 * before allocating, which handles 32-bit safety.
+	 */
+	if (env->comp_mmap_len < 4096 || env->comp_mmap_len % 4096) {
+		pr_err("Invalid HEADER_COMPRESSED: comp_mmap_len (%u) must be a 4K-aligned value >= 4096\n",
+		       env->comp_mmap_len);
+		return -1;
+	}
+
 	return 0;
 }
 
