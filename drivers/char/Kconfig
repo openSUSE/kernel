@@ -199,17 +199,6 @@ config NWFLASH
 
 source "drivers/char/hw_random/Kconfig"
 
-config DTLK
-	tristate "Double Talk PC internal speech card support"
-	depends on ISA
-	help
-	  This driver is for the DoubleTalk PC, a speech synthesizer
-	  manufactured by RC Systems (<https://www.rcsys.com/>).  It is also
-	  called the `internal DoubleTalk'.
-
-	  To compile this driver as a module, choose M here: the
-	  module will be called dtlk.
-
 config XILINX_HWICAP
 	tristate "Xilinx HWICAP Support"
 	depends on MICROBLAZE

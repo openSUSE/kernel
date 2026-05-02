@@ -7726,13 +7726,6 @@ T:	git git://linuxtv.org/media.git
 F:	Documentation/devicetree/bindings/media/i2c/dongwoon,dw9807-vcm.yaml
 F:	drivers/media/i2c/dw9807-vcm.c
 
-DOUBLETALK DRIVER
-M:	"James R. Van Zandt" <jrv@vanzandt.mv.com>
-L:	blinux-list@redhat.com
-S:	Maintained
-F:	drivers/char/dtlk.c
-F:	include/linux/dtlk.h
-
 DPAA2 DATAPATH I/O (DPIO) DRIVER
 M:	Roy Pledge <Roy.Pledge@nxp.com>
 L:	linux-kernel@vger.kernel.org
