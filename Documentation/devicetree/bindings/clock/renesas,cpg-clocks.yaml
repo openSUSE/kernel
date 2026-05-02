@@ -90,6 +90,8 @@ allOf:
             - const: zx
             - const: zs
             - const: hp
+            - const: ztr
+            - const: zt
 
   - if:
       properties:
