@@ -488,6 +488,37 @@ static bool btree_release_folio(struct folio *folio, gfp_t gfp_flags)
 	return try_release_extent_buffer(folio);
 }
 
+/*
+ * Basic invalidate_folio code, this waits on any locked or writeback
+ * ranges corresponding to the folio.
+ */
+static int extent_invalidate_folio(struct extent_io_tree *tree,
+				   struct folio *folio, size_t offset)
+{
+	struct extent_state *cached_state = NULL;
+	u64 start = folio_pos(folio);
+	u64 end = start + folio_size(folio) - 1;
+	size_t blocksize = folio_to_fs_info(folio)->sectorsize;
+
+	/* This function is only called for the btree inode */
+	ASSERT(tree->owner == IO_TREE_BTREE_INODE_IO);
+
+	start += ALIGN(offset, blocksize);
+	if (start > end)
+		return 0;
+
+	btrfs_lock_extent(tree, start, end, &cached_state);
+	folio_wait_writeback(folio);
+
+	/*
+	 * Currently for btree io tree, only EXTENT_LOCKED is utilized,
+	 * so here we only need to unlock the extent range to free any
+	 * existing extent state.
+	 */
+	btrfs_unlock_extent(tree, start, end, &cached_state);
+	return 0;
+}
+
 static void btree_invalidate_folio(struct folio *folio, size_t offset,
 				 size_t length)
 {

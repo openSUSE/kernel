@@ -387,8 +387,6 @@ void extent_clear_unlock_delalloc(struct btrfs_inode *inode, u64 start, u64 end,
 				  const struct folio *locked_folio,
 				  struct extent_state **cached,
 				  u32 bits_to_clear, unsigned long page_ops);
-int extent_invalidate_folio(struct extent_io_tree *tree,
-			    struct folio *folio, size_t offset);
 void btrfs_clear_buffer_dirty(struct btrfs_trans_handle *trans,
 			      struct extent_buffer *buf);
 
