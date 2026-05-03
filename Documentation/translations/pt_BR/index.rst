@@ -67,6 +67,7 @@ kernel e sobre como ver seu trabalho integrado.
    :maxdepth: 1
 
    Introdução <process/1.Intro>
+   Regras de licenciamento <process/license-rules>
    Como começar <process/howto>
    Requisitos mínimos <process/changes>
    Conclave (Continuidade do projeto) <process/conclave>
