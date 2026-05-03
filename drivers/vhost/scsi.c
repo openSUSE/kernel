@@ -1287,7 +1287,8 @@ vhost_scsi_set_endpoint(struct vhost_scsi *vs,
 		ret = 0;
 	} else {
 		ret = -ENODEV;
-		goto free_tpg;
+		kfree(vs_tpg);
+		goto out;
 	}
 
 	/*
@@ -1297,8 +1298,6 @@ vhost_scsi_set_endpoint(struct vhost_scsi *vs,
 	vhost_scsi_flush(vs);
 	vs->vs_tpg = vs_tpg;
 
-free_tpg:
-	kfree(vs_tpg);
 out:
 	mutex_unlock(&vs->dev.mutex);
 	mutex_unlock(&vhost_scsi_mutex);
