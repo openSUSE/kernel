@@ -271,7 +271,7 @@ exercised:
 
 The following command runs the stressor::
 
-  stress-ng --netdev 1 -t 60 --metrics command.
+  stress-ng --netdev 1 -t 60 --metrics
 
 We can use the perf record command to record the events and information
 associated with a process. This command records the profiling data in the
@@ -281,7 +281,7 @@ Using the following commands you can record the events associated with the
 netdev stressor, view the generated report perf.data and annotate the output
 to view the statistics of each instruction of the program::
 
-  perf record stress-ng --netdev 1 -t 60 --metrics command.
+  perf record -- stress-ng --netdev 1 -t 60 --metrics
   perf report
   perf annotate
 
