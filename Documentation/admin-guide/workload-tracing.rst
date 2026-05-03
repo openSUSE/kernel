@@ -243,13 +243,21 @@ which can help mitigate performance regressions. It also acts as a common
 benchmarking framework, enabling developers to easily create test cases,
 integrate transparently, and use performance-rich tooling.
 
-"perf bench all" command runs the following benchmarks:
+"perf bench all" runs all available benchmarks in the perf bench
+framework. The exact set of benchmarks depends on the perf version and on
+the features enabled when perf was built.
 
- * sched/messaging
- * sched/pipe
- * syscall/basic
- * mem/memcpy
- * mem/memset
+To list the benchmark collections available on the current system, run::
+
+  perf bench
+
+To list benchmarks in a collection, run::
+
+  perf bench <collection>
+
+For example, to list the benchmarks in the mem collection, run::
+
+  perf bench mem
 
 What is stress-ng and how do we use it?
 =======================================
