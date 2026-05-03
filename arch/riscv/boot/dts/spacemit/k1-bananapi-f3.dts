@@ -14,6 +14,7 @@
 		ethernet0 = &eth0;
 		ethernet1 = &eth1;
 		serial0 = &uart0;
+		spi3 = &spi3;
 		i2c2 = &i2c2;
 		i2c8 = &i2c8;
 	};
@@ -332,6 +333,12 @@
 
 &pcie2 {
 	vpcie3v3-supply = <&pcie_vcc_3v3>;
+	status = "okay";
+};
+
+&spi3 {
+	pinctrl-0 = <&ssp3_0_cfg>;
+	pinctrl-names = "default";
 	status = "okay";
 };
 
