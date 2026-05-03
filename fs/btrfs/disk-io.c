@@ -488,24 +488,26 @@ static bool btree_release_folio(struct folio *folio, gfp_t gfp_flags)
 	return try_release_extent_buffer(folio);
 }
 
-/*
- * Basic invalidate_folio code, this waits on any locked or writeback
- * ranges corresponding to the folio.
- */
-static int extent_invalidate_folio(struct extent_io_tree *tree,
-				   struct folio *folio, size_t offset)
+static void btree_invalidate_folio(struct folio *folio, size_t offset,
+				 size_t length)
 {
+	struct extent_io_tree *tree = &folio_to_inode(folio)->io_tree;
 	struct extent_state *cached_state = NULL;
-	u64 start = folio_pos(folio);
-	u64 end = start + folio_size(folio) - 1;
-	size_t blocksize = folio_to_fs_info(folio)->sectorsize;
+	const u64 start = folio_pos(folio);
+	const u64 end = folio_next_pos(folio) - 1;
+
+	/*
+	 * The range must cover the full @folio.
+	 * Btree inode is never exposed to regular file operations, thus there
+	 * is no partial truncation.
+	 * The folio is only invalidated when the btree inode is evicted.
+	 */
+	ASSERT(offset == 0, "folio=%llu offset=%zu", folio_pos(folio), offset);
+	ASSERT(length == folio_size(folio), "folio=%llu folio_size=%zu length=%zu",
+	       folio_pos(folio), folio_size(folio), length);
 
 	/* This function is only called for the btree inode */
 	ASSERT(tree->owner == IO_TREE_BTREE_INODE_IO);
-
-	start += ALIGN(offset, blocksize);
-	if (start > end)
-		return 0;
 
 	btrfs_lock_extent(tree, start, end, &cached_state);
 	folio_wait_writeback(folio);
@@ -516,16 +518,7 @@ static int extent_invalidate_folio(struct extent_io_tree *tree,
 	 * existing extent state.
 	 */
 	btrfs_unlock_extent(tree, start, end, &cached_state);
-	return 0;
-}
 
-static void btree_invalidate_folio(struct folio *folio, size_t offset,
-				 size_t length)
-{
-	struct extent_io_tree *tree;
-
-	tree = &folio_to_inode(folio)->io_tree;
-	extent_invalidate_folio(tree, folio, offset);
 	btree_release_folio(folio, GFP_NOFS);
 	if (folio_get_private(folio)) {
 		btrfs_warn(folio_to_fs_info(folio),
