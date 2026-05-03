@@ -2637,6 +2637,21 @@ static inline int dev_recursion_level(void)
 	return this_cpu_read(xmit_recursion);
 }
 
+static inline bool dev_xmit_recursion(void)
+{
+	return unlikely(__this_cpu_read(xmit_recursion) > XMIT_RECURSION_LIMIT);
+}
+
+static inline void dev_xmit_recursion_inc(void)
+{
+	__this_cpu_inc(xmit_recursion);
+}
+
+static inline void dev_xmit_recursion_dec(void)
+{
+	__this_cpu_dec(xmit_recursion);
+}
+
 struct net_device *dev_get_by_index(struct net *net, int ifindex);
 struct net_device *__dev_get_by_index(struct net *net, int ifindex);
 struct net_device *dev_get_by_index_rcu(struct net *net, int ifindex);
