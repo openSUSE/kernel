@@ -202,6 +202,15 @@ database. To get out of this mode press ctrl+d. -p option is used to
 specify the number of file path components to display. -p10 is optimal
 for browsing kernel sources.
 
+Alternatively, the kernel build system can generate the cscope database::
+
+  make cscope
+
+To exclude directories from the generated database, pass IGNORE_DIRS to
+the cscope target. For example, to exclude Documentation/, run::
+
+  make IGNORE_DIRS="Documentation" cscope
+
 What is perf and how do we use it?
 ==================================
 
