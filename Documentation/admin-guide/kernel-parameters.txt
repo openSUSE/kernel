@@ -2100,6 +2100,10 @@ Kernel parameters
 			Format: nn[KMGTPE] or (node format)
 				<node>:nn[KMGTPE][,<node>:nn[KMGTPE]]
 
+			The size must be a multiple of the gigantic page size.
+			When using node format, this applies to each per-node size.
+			Missaligned values are dropped with a warning.
+
 			Reserve a CMA area of given size and allocate gigantic
 			hugepages using the CMA allocator. If enabled, the
 			boot-time allocation of gigantic hugepages is skipped.
