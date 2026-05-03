@@ -1164,7 +1164,7 @@ config RELOCATABLE
 
 config RANDOMIZE_BASE
         bool "Randomize the address of the kernel image"
-        select RELOCATABLE
+        depends on RELOCATABLE
         depends on MMU && 64BIT
         help
           Randomizes the virtual address at which the kernel image is
