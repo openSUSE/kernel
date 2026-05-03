@@ -278,8 +278,8 @@ associated with a process. This command records the profiling data in the
 perf.data file in the same directory.
 
 Using the following commands you can record the events associated with the
-netdev stressor, view the generated report perf.data and annotate the to
-view the statistics of each instruction of the program::
+netdev stressor, view the generated report perf.data and annotate the output
+to view the statistics of each instruction of the program::
 
   perf record stress-ng --netdev 1 -t 60 --metrics command.
   perf report
@@ -349,13 +349,13 @@ times each system call is invoked, and the corresponding Linux subsystem.
 +-------------------+-----------+-----------------+-------------------------+
 | geteuid           | 1         | Process Mgmt.   | sys_geteuid()           |
 +-------------------+-----------+-----------------+-------------------------+
-| getegid           | 1         | Process Mgmt.   | sys_getegid             |
+| getegid           | 1         | Process Mgmt.   | sys_getegid()           |
 +-------------------+-----------+-----------------+-------------------------+
 | close             | 49951     | Filesystem      | sys_close()             |
 +-------------------+-----------+-----------------+-------------------------+
 | pipe              | 604       | Filesystem      | sys_pipe()              |
 +-------------------+-----------+-----------------+-------------------------+
-| openat            | 48560     | Filesystem      | sys_opennat()           |
+| openat            | 48560     | Filesystem      | sys_openat()            |
 +-------------------+-----------+-----------------+-------------------------+
 | fstat             | 8338      | Filesystem      | sys_fstat()             |
 +-------------------+-----------+-----------------+-------------------------+
