@@ -835,8 +835,8 @@ static void cptvf_shutdown(struct pci_dev *pdev)
 
 /* Supported devices */
 static const struct pci_device_id cptvf_id_table[] = {
-	{PCI_VDEVICE(CAVIUM, CPT_81XX_PCI_VF_DEVICE_ID), 0},
-	{ 0, }  /* end of table */
+	{ PCI_VDEVICE(CAVIUM, CPT_81XX_PCI_VF_DEVICE_ID) },
+	{ }  /* end of table */
 };
 
 static struct pci_driver cptvf_pci_driver = {

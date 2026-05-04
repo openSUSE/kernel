@@ -460,9 +460,9 @@ static void otx2_cptvf_remove(struct pci_dev *pdev)
 
 /* Supported devices */
 static const struct pci_device_id otx2_cptvf_id_table[] = {
-	{PCI_VDEVICE(CAVIUM, OTX2_CPT_PCI_VF_DEVICE_ID), 0},
-	{PCI_VDEVICE(CAVIUM, CN10K_CPT_PCI_VF_DEVICE_ID), 0},
-	{ 0, }  /* end of table */
+	{ PCI_VDEVICE(CAVIUM, OTX2_CPT_PCI_VF_DEVICE_ID) },
+	{ PCI_VDEVICE(CAVIUM, CN10K_CPT_PCI_VF_DEVICE_ID) },
+	{ }  /* end of table */
 };
 
 static struct pci_driver otx2_cptvf_pci_driver = {
