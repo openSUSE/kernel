@@ -775,7 +775,7 @@ int jent_entropy_init(unsigned int osr, unsigned int flags,
 		 * delta even when called shortly after each other -- this
 		 * implies that we also have a high resolution timer
 		 */
-		if (!delta || (end_time == start_time)) {
+		if (!delta) {
 			ret = JENT_ECOARSETIME;
 			goto out;
 		}
