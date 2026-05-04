@@ -59,7 +59,7 @@
 
 /* Disable pointer hashing if requested */
 bool no_hash_pointers __ro_after_init;
-EXPORT_SYMBOL_GPL(no_hash_pointers);
+EXPORT_SYMBOL_FOR_MODULES(no_hash_pointers, "printf_kunit");
 
 /*
  * Hashed pointers policy selected by "hash_pointers=..." boot param
