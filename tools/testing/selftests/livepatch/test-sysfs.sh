@@ -9,6 +9,7 @@ MOD_LIVEPATCH2=test_klp_callbacks_demo
 MOD_LIVEPATCH3=test_klp_syscall
 
 HAS_PATCH_ATTR=0
+HAS_REPLACE_ATTR=0
 
 setup_config
 
@@ -22,7 +23,6 @@ check_sysfs_rights "$MOD_LIVEPATCH" "" "drwxr-xr-x"
 check_sysfs_rights "$MOD_LIVEPATCH" "enabled" "-rw-r--r--"
 check_sysfs_value  "$MOD_LIVEPATCH" "enabled" "1"
 check_sysfs_rights "$MOD_LIVEPATCH" "force" "--w-------"
-check_sysfs_rights "$MOD_LIVEPATCH" "replace" "-r--r--r--"
 check_sysfs_rights "$MOD_LIVEPATCH" "stack_order" "-r--r--r--"
 check_sysfs_value  "$MOD_LIVEPATCH" "stack_order" "1"
 check_sysfs_rights "$MOD_LIVEPATCH" "transition" "-r--r--r--"
@@ -32,6 +32,11 @@ if does_sysfs_exist "$MOD_LIVEPATCH/vmlinux" "patched"; then
 	check_sysfs_rights "$MOD_LIVEPATCH" "vmlinux/patched" "-r--r--r--"
 	check_sysfs_value  "$MOD_LIVEPATCH" "vmlinux/patched" "1"
 	HAS_PATCH_ATTR=1
+fi
+
+if does_sysfs_exist "$MOD_LIVEPATCH" "replace"; then
+	check_sysfs_rights "$MOD_LIVEPATCH" "replace" "-r--r--r--"
+	HAS_REPLACE_ATTR=1
 fi
 
 disable_lp $MOD_LIVEPATCH
@@ -95,52 +100,54 @@ livepatch: '$MOD_LIVEPATCH2': unpatching complete
 % rmmod $MOD_LIVEPATCH2"
 fi
 
-start_test "sysfs test replace enabled"
+if [[ "$HAS_REPLACE_ATTR" == "1" ]]; then
+	start_test "sysfs test replace enabled"
 
-MOD_LIVEPATCH=test_klp_atomic_replace
-load_lp $MOD_LIVEPATCH replace=1
+	MOD_ATOMIC_REPLACE=test_klp_atomic_replace
+	load_lp $MOD_ATOMIC_REPLACE replace=1
 
-check_sysfs_rights "$MOD_LIVEPATCH" "replace" "-r--r--r--"
-check_sysfs_value  "$MOD_LIVEPATCH" "replace" "1"
+	check_sysfs_rights "$MOD_ATOMIC_REPLACE" "replace" "-r--r--r--"
+	check_sysfs_value  "$MOD_ATOMIC_REPLACE" "replace" "1"
 
-disable_lp $MOD_LIVEPATCH
-unload_lp $MOD_LIVEPATCH
+	disable_lp $MOD_ATOMIC_REPLACE
+	unload_lp $MOD_ATOMIC_REPLACE
 
-check_result "% insmod test_modules/$MOD_LIVEPATCH.ko replace=1
-livepatch: enabling patch '$MOD_LIVEPATCH'
-livepatch: '$MOD_LIVEPATCH': initializing patching transition
-livepatch: '$MOD_LIVEPATCH': starting patching transition
-livepatch: '$MOD_LIVEPATCH': completing patching transition
-livepatch: '$MOD_LIVEPATCH': patching complete
-% echo 0 > $SYSFS_KLP_DIR/$MOD_LIVEPATCH/enabled
-livepatch: '$MOD_LIVEPATCH': initializing unpatching transition
-livepatch: '$MOD_LIVEPATCH': starting unpatching transition
-livepatch: '$MOD_LIVEPATCH': completing unpatching transition
-livepatch: '$MOD_LIVEPATCH': unpatching complete
-% rmmod $MOD_LIVEPATCH"
+	check_result "% insmod test_modules/$MOD_ATOMIC_REPLACE.ko replace=1
+livepatch: enabling patch '$MOD_ATOMIC_REPLACE'
+livepatch: '$MOD_ATOMIC_REPLACE': initializing patching transition
+livepatch: '$MOD_ATOMIC_REPLACE': starting patching transition
+livepatch: '$MOD_ATOMIC_REPLACE': completing patching transition
+livepatch: '$MOD_ATOMIC_REPLACE': patching complete
+% echo 0 > $SYSFS_KLP_DIR/$MOD_ATOMIC_REPLACE/enabled
+livepatch: '$MOD_ATOMIC_REPLACE': initializing unpatching transition
+livepatch: '$MOD_ATOMIC_REPLACE': starting unpatching transition
+livepatch: '$MOD_ATOMIC_REPLACE': completing unpatching transition
+livepatch: '$MOD_ATOMIC_REPLACE': unpatching complete
+% rmmod $MOD_ATOMIC_REPLACE"
 
-start_test "sysfs test replace disabled"
+	start_test "sysfs test replace disabled"
 
-load_lp $MOD_LIVEPATCH replace=0
+	load_lp $MOD_ATOMIC_REPLACE replace=0
 
-check_sysfs_rights "$MOD_LIVEPATCH" "replace" "-r--r--r--"
-check_sysfs_value  "$MOD_LIVEPATCH" "replace" "0"
+	check_sysfs_rights "$MOD_ATOMIC_REPLACE" "replace" "-r--r--r--"
+	check_sysfs_value  "$MOD_ATOMIC_REPLACE" "replace" "0"
 
-disable_lp $MOD_LIVEPATCH
-unload_lp $MOD_LIVEPATCH
+	disable_lp $MOD_ATOMIC_REPLACE
+	unload_lp $MOD_ATOMIC_REPLACE
 
-check_result "% insmod test_modules/$MOD_LIVEPATCH.ko replace=0
-livepatch: enabling patch '$MOD_LIVEPATCH'
-livepatch: '$MOD_LIVEPATCH': initializing patching transition
-livepatch: '$MOD_LIVEPATCH': starting patching transition
-livepatch: '$MOD_LIVEPATCH': completing patching transition
-livepatch: '$MOD_LIVEPATCH': patching complete
-% echo 0 > $SYSFS_KLP_DIR/$MOD_LIVEPATCH/enabled
-livepatch: '$MOD_LIVEPATCH': initializing unpatching transition
-livepatch: '$MOD_LIVEPATCH': starting unpatching transition
-livepatch: '$MOD_LIVEPATCH': completing unpatching transition
-livepatch: '$MOD_LIVEPATCH': unpatching complete
-% rmmod $MOD_LIVEPATCH"
+	check_result "% insmod test_modules/$MOD_ATOMIC_REPLACE.ko replace=0
+livepatch: enabling patch '$MOD_ATOMIC_REPLACE'
+livepatch: '$MOD_ATOMIC_REPLACE': initializing patching transition
+livepatch: '$MOD_ATOMIC_REPLACE': starting patching transition
+livepatch: '$MOD_ATOMIC_REPLACE': completing patching transition
+livepatch: '$MOD_ATOMIC_REPLACE': patching complete
+% echo 0 > $SYSFS_KLP_DIR/$MOD_ATOMIC_REPLACE/enabled
+livepatch: '$MOD_ATOMIC_REPLACE': initializing unpatching transition
+livepatch: '$MOD_ATOMIC_REPLACE': starting unpatching transition
+livepatch: '$MOD_ATOMIC_REPLACE': completing unpatching transition
+livepatch: '$MOD_ATOMIC_REPLACE': unpatching complete
+% rmmod $MOD_ATOMIC_REPLACE"
+fi
 
 start_test "sysfs test stack_order value"
 
