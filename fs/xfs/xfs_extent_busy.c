@@ -659,9 +659,9 @@ xfs_extent_busy_ag_cmp(
 		container_of(l2, struct xfs_extent_busy, list);
 	s32 diff;
 
-	diff = pag_agno(b1->pag) - pag_agno(b2->pag);
+	diff = cmp_int(pag_agno(b1->pag), pag_agno(b2->pag));
 	if (!diff)
-		diff = b1->bno - b2->bno;
+		diff = cmp_int(b1->bno, b2->bno);
 	return diff;
 }
 
