@@ -5527,6 +5527,8 @@ static void mlx5e_get_queue_stats_tx(struct net_device *dev, int i,
 	stats->hw_gso_packets =
 		sq_stats->tso_packets + sq_stats->tso_inner_packets;
 	stats->hw_gso_bytes = sq_stats->tso_bytes + sq_stats->tso_inner_bytes;
+
+	stats->csum_none = sq_stats->csum_none;
 }
 
 static void mlx5e_get_base_stats(struct net_device *dev,
@@ -5577,6 +5579,7 @@ static void mlx5e_get_base_stats(struct net_device *dev,
 	tx->bytes = 0;
 	tx->hw_gso_packets = 0;
 	tx->hw_gso_bytes = 0;
+	tx->csum_none = 0;
 
 	for (i = 0; i < priv->stats_nch; i++) {
 		struct mlx5e_channel_stats *channel_stats = priv->channel_stats[i];
@@ -5607,6 +5610,7 @@ static void mlx5e_get_base_stats(struct net_device *dev,
 					      sq_stats->tso_inner_packets;
 			tx->hw_gso_bytes += sq_stats->tso_bytes +
 					    sq_stats->tso_inner_bytes;
+			tx->csum_none += sq_stats->csum_none;
 		}
 	}
 
@@ -5629,6 +5633,7 @@ static void mlx5e_get_base_stats(struct net_device *dev,
 					      sq_stats->tso_inner_packets;
 			tx->hw_gso_bytes += sq_stats->tso_bytes +
 					    sq_stats->tso_inner_bytes;
+			tx->csum_none += sq_stats->csum_none;
 		}
 	}
 }
