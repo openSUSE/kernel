@@ -133,9 +133,14 @@ int io_validate_user_buf_range(u64 uaddr, u64 ulen)
 	unsigned long tmp, base = (unsigned long)uaddr;
 	unsigned long acct_len = (unsigned long)PAGE_ALIGN(ulen);
 
-	/* arbitrary limit, but we need something */
-	if (ulen > SZ_1G || !ulen)
+	if (!ulen)
 		return -EFAULT;
+	/* 32-bit sanity checking */
+	if (ulen > ULONG_MAX || uaddr > ULONG_MAX)
+		return -EFAULT;
+	/* cap to 1TB for 64-bit */
+	if (ulen > SZ_1T)
+		return -EINVAL;
 	if (check_add_overflow(base, acct_len, &tmp))
 		return -EOVERFLOW;
 	return 0;
