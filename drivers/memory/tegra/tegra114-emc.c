@@ -1233,9 +1233,8 @@ static int tegra114_emc_interconnect_init(struct tegra_emc *emc)
 
 remove_nodes:
 	icc_nodes_remove(&emc->provider);
-	dev_err(emc->dev, "failed to initialize ICC: %d\n", err);
 
-	return err;
+	return dev_err_probe(emc->dev, err, "failed to initialize ICC");
 }
 
 static void devm_tegra114_emc_unset_callback(void *data)
