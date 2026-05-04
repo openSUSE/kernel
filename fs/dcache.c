@@ -1200,7 +1200,8 @@ void d_prune_aliases(struct inode *inode)
 	spin_lock(&inode->i_lock);
 	for_each_alias(dentry, inode) {
 		spin_lock(&dentry->d_lock);
-		__move_to_shrink_list(dentry, &dispose);
+		if (likely(!(dentry->d_flags & DCACHE_NORCU)))
+			__move_to_shrink_list(dentry, &dispose);
 		spin_unlock(&dentry->d_lock);
 	}
 	spin_unlock(&inode->i_lock);
