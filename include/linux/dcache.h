@@ -365,6 +365,24 @@ static inline struct dentry *dget(struct dentry *dentry)
 	return dentry;
 }
 
+/* dentry->d_inode->i_lock must be held by caller */
+static inline bool dget_alias_ilocked(struct dentry *dentry)
+{
+	if (likely(!(READ_ONCE(dentry->d_flags) & DCACHE_NORCU))) {
+		lockref_get(&dentry->d_lockref);
+		return true;
+	}
+	// NORCU dentries with zero refcount MUST NOT be grabbed
+	spin_lock(&dentry->d_lock);
+	if (dentry->d_lockref.count > 0) {
+		dget_dlock(dentry);
+		spin_unlock(&dentry->d_lock);
+		return true;
+	}
+	spin_unlock(&dentry->d_lock);
+	return false;
+}
+
 extern struct dentry *dget_parent(struct dentry *dentry);
 
 /**

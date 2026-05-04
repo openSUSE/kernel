@@ -1052,7 +1052,10 @@ repeat:
 }
 EXPORT_SYMBOL(dget_parent);
 
-static struct dentry * __d_find_any_alias(struct inode *inode)
+/*
+ * inode is a directory, inode->i_lock is held by the caller
+ */
+static struct dentry * __d_find_dir_alias(struct inode *inode)
 {
 	struct dentry *alias;
 
@@ -1061,6 +1064,18 @@ static struct dentry * __d_find_any_alias(struct inode *inode)
 	alias = hlist_entry(inode->i_dentry.first, struct dentry, d_alias);
 	lockref_get(&alias->d_lockref);
 	return alias;
+}
+
+static struct dentry * __d_find_any_alias(struct inode *inode)
+{
+	struct dentry *alias;
+
+	if (hlist_empty(&inode->i_dentry))
+		return NULL;
+	for_each_alias(alias, inode)
+		if (dget_alias_ilocked(alias))
+			return alias;
+	return NULL;
 }
 
 /**
@@ -1086,7 +1101,7 @@ static struct dentry *__d_find_alias(struct inode *inode)
 	struct dentry *alias;
 
 	if (S_ISDIR(inode->i_mode))
-		return __d_find_any_alias(inode);
+		return __d_find_dir_alias(inode);
 
 	for_each_alias(alias, inode) {
 		spin_lock(&alias->d_lock);
@@ -3150,7 +3165,7 @@ struct dentry *d_splice_alias_ops(struct inode *inode, struct dentry *dentry,
 	security_d_instantiate(dentry, inode);
 	spin_lock(&inode->i_lock);
 	if (S_ISDIR(inode->i_mode)) {
-		struct dentry *new = __d_find_any_alias(inode);
+		struct dentry *new = __d_find_dir_alias(inode);
 		if (unlikely(new)) {
 			/* The reference to new ensures it remains an alias */
 			spin_unlock(&inode->i_lock);
