@@ -29,8 +29,6 @@ int hw_sm750_map(struct sm750_dev *sm750_dev, struct pci_dev *pdev)
 {
 	int ret;
 
-	ret = 0;
-
 	sm750_dev->vidreg_start = pci_resource_start(pdev, 1);
 	sm750_dev->vidreg_size = SZ_2M;
 
@@ -243,7 +241,6 @@ int hw_sm750_crtc_set_mode(struct lynxfb_crtc *crtc,
 	struct sm750_dev *sm750_dev;
 	struct lynxfb_par *par;
 
-	ret = 0;
 	par = container_of(crtc, struct lynxfb_par, crtc);
 	sm750_dev = par->dev;
 
