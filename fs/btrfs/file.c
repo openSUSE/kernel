@@ -2072,6 +2072,10 @@ static int fill_holes(struct btrfs_trans_handle *trans,
 	struct btrfs_file_extent_item *fi;
 	struct extent_map *hole_em;
 	struct btrfs_key key;
+	int modify_slot = -1;
+	int del_slot = -1;
+	bool update_offset = false;
+	u64 num_bytes = 0;
 	int ret;
 
 	if (btrfs_fs_incompat(fs_info, NO_HOLES))
@@ -2081,7 +2085,7 @@ static int fill_holes(struct btrfs_trans_handle *trans,
 	key.type = BTRFS_EXTENT_DATA_KEY;
 	key.offset = offset;
 
-	ret = btrfs_search_slot(trans, root, &key, path, 0, 1);
+	ret = btrfs_search_slot(trans, root, &key, path, -1, 1);
 	if (ret <= 0) {
 		/*
 		 * We should have dropped this offset, so if we find it then
@@ -2094,33 +2098,44 @@ static int fill_holes(struct btrfs_trans_handle *trans,
 
 	leaf = path->nodes[0];
 	if (hole_mergeable(inode, leaf, path->slots[0] - 1, offset, end)) {
-		u64 num_bytes;
-
-		path->slots[0]--;
-		fi = btrfs_item_ptr(leaf, path->slots[0],
+		fi = btrfs_item_ptr(leaf, path->slots[0] - 1,
 				    struct btrfs_file_extent_item);
 		num_bytes = btrfs_file_extent_num_bytes(leaf, fi) +
 			end - offset;
-		btrfs_set_file_extent_num_bytes(leaf, fi, num_bytes);
-		btrfs_set_file_extent_ram_bytes(leaf, fi, num_bytes);
-		btrfs_set_file_extent_offset(leaf, fi, 0);
-		btrfs_set_file_extent_generation(leaf, fi, trans->transid);
-		goto out;
+		modify_slot = path->slots[0] - 1;
 	}
-
 	if (hole_mergeable(inode, leaf, path->slots[0], offset, end)) {
-		u64 num_bytes;
-
-		key.offset = offset;
-		btrfs_set_item_key_safe(trans, path, &key);
 		fi = btrfs_item_ptr(leaf, path->slots[0],
 				    struct btrfs_file_extent_item);
-		num_bytes = btrfs_file_extent_num_bytes(leaf, fi) + end -
-			offset;
+		if (modify_slot != -1) {
+			num_bytes += btrfs_file_extent_num_bytes(leaf, fi);
+			del_slot = path->slots[0];
+		} else {
+			num_bytes = btrfs_file_extent_num_bytes(leaf, fi) +
+				end - offset;
+			modify_slot = path->slots[0];
+			update_offset = true;
+		}
+	}
+	if (modify_slot >= 0) {
+		fi = btrfs_item_ptr(leaf, modify_slot,
+				    struct btrfs_file_extent_item);
 		btrfs_set_file_extent_num_bytes(leaf, fi, num_bytes);
 		btrfs_set_file_extent_ram_bytes(leaf, fi, num_bytes);
+		if (update_offset) {
+			key.offset = offset;
+			btrfs_set_item_key_safe(trans, path, &key);
+		}
 		btrfs_set_file_extent_offset(leaf, fi, 0);
 		btrfs_set_file_extent_generation(leaf, fi, trans->transid);
+		if (del_slot >= 0) {
+			ret = btrfs_del_items(trans, root, path, del_slot, 1);
+			if (ret) {
+				btrfs_abort_transaction(trans, ret);
+				btrfs_release_path(path);
+				return ret;
+			}
+		}
 		goto out;
 	}
 	btrfs_release_path(path);
