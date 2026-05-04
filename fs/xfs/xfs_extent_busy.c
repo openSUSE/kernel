@@ -542,7 +542,6 @@ xfs_extent_busy_clear_one(
  */
 void
 xfs_extent_busy_clear(
-	struct xfs_mount	*mp,
 	struct list_head	*list,
 	bool			do_discard)
 {
