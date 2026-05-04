@@ -1407,8 +1407,7 @@ ktime_t tick_nohz_get_sleep_length(ktime_t *delta_next)
 	 * If the next highres timer to expire is earlier than 'next_event', the
 	 * idle governor needs to know that.
 	 */
-	next_event = min_t(u64, next_event,
-			   hrtimer_next_event_without(&ts->sched_timer));
+	next_event = min(next_event, hrtimer_next_event_without(&ts->sched_timer));
 
 	return ktime_sub(next_event, now);
 }

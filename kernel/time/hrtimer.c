@@ -1783,10 +1783,10 @@ EXPORT_SYMBOL_GPL(__hrtimer_get_remaining);
  *
  * Returns the next expiry time or KTIME_MAX if no timer is pending.
  */
-u64 hrtimer_get_next_event(void)
+ktime_t hrtimer_get_next_event(void)
 {
 	struct hrtimer_cpu_base *cpu_base = this_cpu_ptr(&hrtimer_bases);
-	u64 expires = KTIME_MAX;
+	ktime_t expires = KTIME_MAX;
 
 	guard(raw_spinlock_irqsave)(&cpu_base->lock);
 	if (!hrtimer_hres_active(cpu_base))
@@ -1802,10 +1802,10 @@ u64 hrtimer_get_next_event(void)
  * Returns the next expiry time over all timers except for the @exclude one or
  * KTIME_MAX if none of them is pending.
  */
-u64 hrtimer_next_event_without(const struct hrtimer *exclude)
+ktime_t hrtimer_next_event_without(const struct hrtimer *exclude)
 {
 	struct hrtimer_cpu_base *cpu_base = this_cpu_ptr(&hrtimer_bases);
-	u64 expires = KTIME_MAX;
+	ktime_t expires = KTIME_MAX;
 	unsigned int active;
 
 	guard(raw_spinlock_irqsave)(&cpu_base->lock);
