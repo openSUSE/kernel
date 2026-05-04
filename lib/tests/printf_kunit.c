@@ -319,7 +319,27 @@ symbol_ptr(struct kunit *kunittest)
 static void
 kernel_ptr(struct kunit *kunittest)
 {
-	/* We can't test this without access to kptr_restrict. */
+	switch (kptr_restrict) {
+	case 0:
+		if (no_hash_pointers) {
+			test(PTR_STR, "%pK", PTR);
+		} else {
+			char buf[PLAIN_BUF_SIZE];
+
+			plain_hash_to_buffer(kunittest, PTR, buf, PLAIN_BUF_SIZE);
+			/* %pK behaves the same as hashing */
+			test(buf, "%pK", PTR);
+		}
+		break;
+	case 1:
+		/* The KUnit kthread has all capabilities, including CAP_SYSLOG */
+		test(PTR_STR, "%pK", PTR);
+		break;
+	case 2:
+	default:
+		test(ZEROS "00000000", "%pK", PTR);
+		break;
+	}
 }
 
 static void
