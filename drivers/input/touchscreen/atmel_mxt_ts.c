@@ -2834,14 +2834,12 @@ static ssize_t mxt_object_show(struct device *dev,
 	int count = 0;
 	int i, j;
 	int error;
-	u8 *obuf;
 
 	/* Pre-allocate buffer large enough to hold max sized object. */
-	obuf = kmalloc(256, GFP_KERNEL);
+	u8 *obuf __free(kfree) = kmalloc(256, GFP_KERNEL);
 	if (!obuf)
 		return -ENOMEM;
 
-	error = 0;
 	for (i = 0; i < data->info->object_num; i++) {
 		object = data->object_table + i;
 
@@ -2856,15 +2854,13 @@ static ssize_t mxt_object_show(struct device *dev,
 
 			error = __mxt_read_reg(data->client, addr, size, obuf);
 			if (error)
-				goto done;
+				return error;
 
 			count = mxt_show_instance(buf, count, object, j, obuf);
 		}
 	}
 
-done:
-	kfree(obuf);
-	return error ?: count;
+	return count;
 }
 
 static int mxt_check_firmware_format(struct device *dev,
