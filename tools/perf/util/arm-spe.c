@@ -2002,7 +2002,7 @@ int arm_spe_process_auxtrace_info(union perf_event *event,
 	spe->tc.time_mult = tc->time_mult;
 	spe->tc.time_zero = tc->time_zero;
 
-	if (event_contains(*tc, time_cycles)) {
+	if (event_contains(*tc, cap_user_time_short)) {
 		spe->tc.time_cycles = tc->time_cycles;
 		spe->tc.time_mask = tc->time_mask;
 		spe->tc.cap_user_time_zero = tc->cap_user_time_zero;

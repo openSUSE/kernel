@@ -409,7 +409,7 @@ static uint64_t convert_timestamp(struct jit_buf_desc *jd, uint64_t timestamp)
 	 * checks the event size and assigns these extended fields if these
 	 * fields are contained in the event.
 	 */
-	if (event_contains(*time_conv, time_cycles)) {
+	if (event_contains(*time_conv, cap_user_time_short)) {
 		tc.time_cycles	       = time_conv->time_cycles;
 		tc.time_mask	       = time_conv->time_mask;
 		tc.cap_user_time_zero  = time_conv->cap_user_time_zero;
