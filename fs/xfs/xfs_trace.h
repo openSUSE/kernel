@@ -182,7 +182,7 @@ TRACE_EVENT(xlog_intent_recovery_failed,
 );
 
 DECLARE_EVENT_CLASS(xfs_perag_class,
-	TP_PROTO(struct xfs_perag *pag, unsigned long caller_ip),
+	TP_PROTO(const struct xfs_perag *pag, unsigned long caller_ip),
 	TP_ARGS(pag, caller_ip),
 	TP_STRUCT__entry(
 		__field(dev_t, dev)
@@ -208,7 +208,7 @@ DECLARE_EVENT_CLASS(xfs_perag_class,
 
 #define DEFINE_PERAG_REF_EVENT(name)	\
 DEFINE_EVENT(xfs_perag_class, name,	\
-	TP_PROTO(struct xfs_perag *pag, unsigned long caller_ip), \
+	TP_PROTO(const struct xfs_perag *pag, unsigned long caller_ip), \
 	TP_ARGS(pag, caller_ip))
 DEFINE_PERAG_REF_EVENT(xfs_perag_get);
 DEFINE_PERAG_REF_EVENT(xfs_perag_hold);
@@ -663,7 +663,7 @@ DEFINE_BUF_ITEM_EVENT(xfs_trans_bhold_release);
 DEFINE_BUF_ITEM_EVENT(xfs_trans_binval);
 
 DECLARE_EVENT_CLASS(xfs_filestream_class,
-	TP_PROTO(struct xfs_perag *pag, xfs_ino_t ino),
+	TP_PROTO(const struct xfs_perag *pag, xfs_ino_t ino),
 	TP_ARGS(pag, ino),
 	TP_STRUCT__entry(
 		__field(dev_t, dev)
@@ -685,14 +685,14 @@ DECLARE_EVENT_CLASS(xfs_filestream_class,
 )
 #define DEFINE_FILESTREAM_EVENT(name) \
 DEFINE_EVENT(xfs_filestream_class, name, \
-	TP_PROTO(struct xfs_perag *pag, xfs_ino_t ino), \
+	TP_PROTO(const struct xfs_perag *pag, xfs_ino_t ino), \
 	TP_ARGS(pag, ino))
 DEFINE_FILESTREAM_EVENT(xfs_filestream_free);
 DEFINE_FILESTREAM_EVENT(xfs_filestream_lookup);
 DEFINE_FILESTREAM_EVENT(xfs_filestream_scan);
 
 TRACE_EVENT(xfs_filestream_pick,
-	TP_PROTO(struct xfs_perag *pag, xfs_ino_t ino),
+	TP_PROTO(const struct xfs_perag *pag, xfs_ino_t ino),
 	TP_ARGS(pag, ino),
 	TP_STRUCT__entry(
 		__field(dev_t, dev)
@@ -1759,8 +1759,9 @@ DEFINE_AGF_EVENT(xfs_agf);
 DEFINE_AGF_EVENT(xfs_agfl_reset);
 
 TRACE_EVENT(xfs_free_extent,
-	TP_PROTO(struct xfs_perag *pag, xfs_agblock_t agbno, xfs_extlen_t len,
-		 enum xfs_ag_resv_type resv, int haveleft, int haveright),
+	TP_PROTO(const struct xfs_perag *pag, xfs_agblock_t agbno,
+		 xfs_extlen_t len, enum xfs_ag_resv_type resv, int haveleft,
+		 int haveright),
 	TP_ARGS(pag, agbno, len, resv, haveleft, haveright),
 	TP_STRUCT__entry(
 		__field(dev_t, dev)
@@ -4603,7 +4604,7 @@ TRACE_EVENT(xfs_force_shutdown,
 
 #ifdef CONFIG_XFS_DRAIN_INTENTS
 DECLARE_EVENT_CLASS(xfs_perag_intents_class,
-	TP_PROTO(struct xfs_perag *pag, void *caller_ip),
+	TP_PROTO(const struct xfs_perag *pag, void *caller_ip),
 	TP_ARGS(pag, caller_ip),
 	TP_STRUCT__entry(
 		__field(dev_t, dev)
@@ -4626,7 +4627,7 @@ DECLARE_EVENT_CLASS(xfs_perag_intents_class,
 
 #define DEFINE_PERAG_INTENTS_EVENT(name)	\
 DEFINE_EVENT(xfs_perag_intents_class, name,					\
-	TP_PROTO(struct xfs_perag *pag, void *caller_ip), \
+	TP_PROTO(const struct xfs_perag *pag, void *caller_ip), \
 	TP_ARGS(pag, caller_ip))
 DEFINE_PERAG_INTENTS_EVENT(xfs_perag_intent_hold);
 DEFINE_PERAG_INTENTS_EVENT(xfs_perag_intent_rele);
