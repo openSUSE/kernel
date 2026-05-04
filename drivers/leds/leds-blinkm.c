@@ -356,7 +356,8 @@ static int blinkm_transfer_hw(struct i2c_client *client, int cmd)
 	struct blinkm_data *data = i2c_get_clientdata(client);
 
 	/* We start hardware transfers which are not to be
-	 * mixed with other commands. Aquire a lock now. */
+	 * mixed with other commands. Acquire a lock now.
+	 */
 	if (mutex_lock_interruptible(&data->update_lock) < 0)
 		return -EAGAIN;
 
