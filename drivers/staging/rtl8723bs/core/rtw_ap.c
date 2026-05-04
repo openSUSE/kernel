@@ -56,7 +56,7 @@ static void update_BCNTIM(struct adapter *padapter)
 	/* update TIM IE */
 	u8 *p, *dst_ie, *premainder_ie = NULL, *pbackup_remainder_ie = NULL;
 	__le16 tim_bitmap_le;
-	uint offset, tmp_len, tim_ielen, tim_ie_offset, remainder_ielen;
+	unsigned int offset, tmp_len, tim_ielen, tim_ie_offset, remainder_ielen;
 
 	tim_bitmap_le = cpu_to_le16(pstapriv->tim_bitmap);
 
@@ -152,7 +152,7 @@ static void update_BCNTIM(struct adapter *padapter)
 		kfree(pbackup_remainder_ie);
 	}
 
-	offset =  (uint)(dst_ie - pie);
+	offset =  (unsigned int)(dst_ie - pie);
 	pnetwork_mlmeext->ie_length = offset + remainder_ielen;
 }
 
@@ -757,7 +757,7 @@ int rtw_check_beacon_data(struct adapter *padapter, u8 *pbuf,  int len)
 	u8 *ht_info_ie = NULL;
 	struct sta_info *psta = NULL;
 	u16 cap, ht_cap = false;
-	uint ie_len = 0;
+	unsigned int ie_len = 0;
 	int group_cipher, pairwise_cipher;
 	u8 channel, network_type, support_rate[NDIS_802_11_LENGTH_RATES_EX];
 	int support_rate_num = 0;
@@ -1351,7 +1351,7 @@ static void update_bcn_wps_ie(struct adapter *padapter)
 	u8 *premainder_ie;
 	u8 *pbackup_remainder_ie = NULL;
 
-	uint wps_ielen = 0, wps_offset, remainder_ielen;
+	unsigned int wps_ielen = 0, wps_offset, remainder_ielen;
 	struct mlme_priv *pmlmepriv = &padapter->mlmepriv;
 	struct mlme_ext_priv *pmlmeext = &padapter->mlmeextpriv;
 	struct mlme_ext_info *pmlmeinfo = &pmlmeext->mlmext_info;
@@ -1371,7 +1371,7 @@ static void update_bcn_wps_ie(struct adapter *padapter)
 	if (!pwps_ie_src)
 		return;
 
-	wps_offset = (uint)(pwps_ie - ie);
+	wps_offset = (unsigned int)(pwps_ie - ie);
 
 	premainder_ie = pwps_ie + wps_ielen;
 
@@ -1380,7 +1380,7 @@ static void update_bcn_wps_ie(struct adapter *padapter)
 	if (remainder_ielen)
 		pbackup_remainder_ie = kmemdup(premainder_ie, remainder_ielen, GFP_ATOMIC);
 
-	wps_ielen = (uint)pwps_ie_src[1];/* to get ie data len */
+	wps_ielen = (unsigned int)pwps_ie_src[1];/* to get ie data len */
 	if ((wps_offset + wps_ielen + 2 + remainder_ielen) <= MAX_IE_SZ) {
 		memcpy(pwps_ie, pwps_ie_src, wps_ielen + 2);
 		pwps_ie += (wps_ielen + 2);
