@@ -105,6 +105,11 @@ struct xfs_groups {
 	 */
 	uint64_t		blkmask;
 
+	/*
+	 * Maximum length of an atomic write for files stored in this
+	 * collection of allocation groups, in fsblocks.
+	 */
+	xfs_extlen_t		awu_max;
 };
 
 /*
