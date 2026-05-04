@@ -34,14 +34,14 @@ enum {
 
 struct io_mapped_ubuf {
 	u64		ubuf;
-	unsigned int	len;
+	size_t		len;
 	unsigned int	nr_bvecs;
 	unsigned int    folio_shift;
 	refcount_t	refs;
-	void		(*release)(void *);
-	void		*priv;
 	u8		flags;
 	u8		dir;
+	void		(*release)(void *);
+	void		*priv;
 	struct bio_vec	bvec[] __counted_by(nr_bvecs);
 };
 
