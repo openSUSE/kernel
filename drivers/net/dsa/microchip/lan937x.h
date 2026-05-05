@@ -8,5 +8,6 @@
 
 extern const struct ksz_dev_ops lan937x_dev_ops;
 extern const struct phylink_mac_ops lan937x_phylink_mac_ops;
+extern const struct dsa_switch_ops lan937x_switch_ops;
 
 #endif

@@ -93,5 +93,6 @@ void ksz9477_phylink_mac_link_up(struct phylink_config *config,
 
 extern const struct ksz_dev_ops ksz9477_dev_ops;
 extern const struct phylink_mac_ops ksz9477_phylink_mac_ops;
+extern const struct dsa_switch_ops ksz9477_switch_ops;
 
 #endif
