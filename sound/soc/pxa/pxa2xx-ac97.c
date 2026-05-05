@@ -246,8 +246,7 @@ static int pxa2xx_ac97_dev_probe(struct platform_device *pdev)
 	}
 
 	ctrl = snd_ac97_controller_register(&pxa2xx_ac97_ops, &pdev->dev,
-					    AC97_SLOTS_AVAILABLE_ALL,
-					    NULL);
+					    AC97_SLOTS_AVAILABLE_ALL);
 	if (IS_ERR(ctrl))
 		return PTR_ERR(ctrl);
 
