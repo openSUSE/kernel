@@ -3603,7 +3603,6 @@ int path_pts(struct path *path)
 	 */
 	struct dentry *parent = dget_parent(path->dentry);
 	struct dentry *child;
-	struct qstr this = QSTR_INIT("pts", 3);
 
 	if (unlikely(!path_connected(path->mnt, parent))) {
 		dput(parent);
@@ -3611,7 +3610,7 @@ int path_pts(struct path *path)
 	}
 	dput(path->dentry);
 	path->dentry = parent;
-	child = d_hash_and_lookup(parent, &this);
+	child = d_hash_and_lookup(parent, &QSTR("pts"));
 	if (IS_ERR_OR_NULL(child))
 		return -ENOENT;
 
