@@ -7462,16 +7462,22 @@ static int log_all_new_ancestors(struct btrfs_trans_handle *trans,
 	struct btrfs_key search_key;
 	int ret;
 
+	trace_btrfs_log_all_new_ancestors_enter(trans, inode);
+
 	/*
 	 * For a single hard link case, go through a fast path that does not
 	 * need to iterate the fs/subvolume tree.
 	 */
-	if (inode->vfs_inode.i_nlink < 2)
-		return log_new_ancestors_fast(trans, inode, parent, ctx);
+	if (inode->vfs_inode.i_nlink < 2) {
+		ret = log_new_ancestors_fast(trans, inode, parent, ctx);
+		goto out;
+	}
 
 	path = btrfs_alloc_path();
-	if (!path)
-		return -ENOMEM;
+	if (!path) {
+		ret = -ENOMEM;
+		goto out;
+	}
 
 	search_key.objectid = ino;
 	search_key.type = BTRFS_INODE_REF_KEY;
@@ -7479,7 +7485,7 @@ static int log_all_new_ancestors(struct btrfs_trans_handle *trans,
 again:
 	ret = btrfs_search_slot(NULL, root, &search_key, path, 0, 0);
 	if (ret < 0)
-		return ret;
+		goto out;
 	if (ret == 0)
 		path->slots[0]++;
 
@@ -7491,9 +7497,11 @@ again:
 		if (slot >= btrfs_header_nritems(leaf)) {
 			ret = btrfs_next_leaf(root, path);
 			if (ret < 0)
-				return ret;
-			if (ret > 0)
+				goto out;
+			if (ret > 0) {
+				ret = 0;
 				break;
+			}
 			continue;
 		}
 
@@ -7509,8 +7517,10 @@ again:
 		 * this loop, etc). So just return some error to fallback to
 		 * a transaction commit.
 		 */
-		if (found_key.type == BTRFS_INODE_EXTREF_KEY)
-			return -EMLINK;
+		if (found_key.type == BTRFS_INODE_EXTREF_KEY) {
+			ret = -EMLINK;
+			goto out;
+		}
 
 		/*
 		 * Logging ancestors needs to do more searches on the fs/subvol
@@ -7522,11 +7532,13 @@ again:
 
 		ret = log_new_ancestors(trans, root, path, ctx);
 		if (ret)
-			return ret;
+			goto out;
 		btrfs_release_path(path);
 		goto again;
 	}
-	return 0;
+out:
+	trace_btrfs_log_all_new_ancestors_exit(trans, inode, ret);
+	return ret;
 }
 
 /*
