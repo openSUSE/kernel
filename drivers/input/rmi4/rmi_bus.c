@@ -242,9 +242,7 @@ struct rmi_function *rmi_alloc_function(struct rmi_device *rmi_dev, u8 id)
 	struct rmi_driver_data *data = dev_get_drvdata(&rmi_dev->dev);
 	struct rmi_function *fn;
 
-	fn = kzalloc(sizeof(*fn) +
-			BITS_TO_LONGS(data->irq_count) * sizeof(unsigned long),
-		     GFP_KERNEL);
+	fn = kzalloc_flex(*fn, irq_mask, BITS_TO_LONGS(data->irq_count));
 	if (!fn)
 		return NULL;
 
