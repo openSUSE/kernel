@@ -70,7 +70,7 @@ struct intel_lvds_encoder {
 	struct intel_encoder base;
 
 	bool is_dual_link;
-	i915_reg_t reg;
+	intel_reg_t reg;
 	u32 a3_power;
 
 	struct intel_lvds_pps init_pps;
@@ -85,7 +85,7 @@ static struct intel_lvds_encoder *to_lvds_encoder(struct intel_encoder *encoder)
 }
 
 bool intel_lvds_port_enabled(struct intel_display *display,
-			     i915_reg_t lvds_reg, enum pipe *pipe)
+			     intel_reg_t lvds_reg, enum pipe *pipe)
 {
 	u32 val;
 
@@ -845,7 +845,7 @@ void intel_lvds_init(struct intel_display *display)
 	struct intel_connector *connector;
 	const struct drm_edid *drm_edid;
 	struct intel_encoder *encoder;
-	i915_reg_t lvds_reg;
+	intel_reg_t lvds_reg;
 	u32 lvds;
 	u8 ddc_pin;
 

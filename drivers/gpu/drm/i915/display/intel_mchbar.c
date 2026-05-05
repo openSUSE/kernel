@@ -41,7 +41,7 @@ static u32 mchbar_mirror_len(struct intel_display *display)
 	return mchbar_mirror_end(display) - mchbar_mirror_base(display) + 1;
 }
 
-static bool is_mchbar_reg(struct intel_display *display, i915_reg_t reg)
+static bool is_mchbar_reg(struct intel_display *display, intel_reg_t reg)
 {
 	return has_mchbar_mirror(display) &&
 		in_range32(i915_mmio_reg_offset(reg),
@@ -49,28 +49,28 @@ static bool is_mchbar_reg(struct intel_display *display, i915_reg_t reg)
 			   mchbar_mirror_len(display));
 }
 
-static void assert_is_mchbar_reg(struct intel_display *display, i915_reg_t reg)
+static void assert_is_mchbar_reg(struct intel_display *display, intel_reg_t reg)
 {
 	drm_WARN(display->drm, !is_mchbar_reg(display, reg),
 		 "Reading non-MCHBAR register 0x%x\n",
 		 i915_mmio_reg_offset(reg));
 }
 
-u16 intel_mchbar_read16(struct intel_display *display, i915_reg_t reg)
+u16 intel_mchbar_read16(struct intel_display *display, intel_reg_t reg)
 {
 	assert_is_mchbar_reg(display, reg);
 
 	return intel_de_read16(display, reg);
 }
 
-u32 intel_mchbar_read(struct intel_display *display, i915_reg_t reg)
+u32 intel_mchbar_read(struct intel_display *display, intel_reg_t reg)
 {
 	assert_is_mchbar_reg(display, reg);
 
 	return intel_de_read(display, reg);
 }
 
-u64 intel_mchbar_read64_2x32(struct intel_display *display, i915_reg_t reg)
+u64 intel_mchbar_read64_2x32(struct intel_display *display, intel_reg_t reg)
 {
 	assert_is_mchbar_reg(display, reg);
 

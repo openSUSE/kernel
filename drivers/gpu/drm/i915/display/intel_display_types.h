@@ -1662,7 +1662,7 @@ struct intel_plane {
 	container_of_const((fb), struct intel_framebuffer, base)
 
 struct intel_hdmi {
-	i915_reg_t hdmi_reg;
+	intel_reg_t hdmi_reg;
 	struct {
 		enum drm_dp_dual_mode_type type;
 		int max_tmds_clock;
@@ -1792,7 +1792,7 @@ struct intel_psr {
 };
 
 struct intel_dp {
-	i915_reg_t output_reg;
+	intel_reg_t output_reg;
 	u32 DP;
 	int link_rate;
 	u8 lane_count;
@@ -1889,8 +1889,8 @@ struct intel_dp {
 	u32 (*get_aux_send_ctl)(struct intel_dp *dp, int send_bytes,
 				u32 aux_clock_divider);
 
-	i915_reg_t (*aux_ch_ctl_reg)(struct intel_dp *dp);
-	i915_reg_t (*aux_ch_data_reg)(struct intel_dp *dp, int index);
+	intel_reg_t (*aux_ch_ctl_reg)(struct intel_dp *dp);
+	intel_reg_t (*aux_ch_data_reg)(struct intel_dp *dp, int index);
 
 	/* This is called before a link training is starterd */
 	void (*prepare_link_retrain)(struct intel_dp *intel_dp,

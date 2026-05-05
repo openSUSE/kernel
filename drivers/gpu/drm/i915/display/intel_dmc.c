@@ -71,7 +71,7 @@ struct intel_dmc {
 	} dc6_allowed;
 	struct dmc_fw_info {
 		u32 mmio_count;
-		i915_reg_t mmioaddr[20];
+		intel_reg_t mmioaddr[20];
 		u32 mmiodata[20];
 		u32 dmc_offset;
 		u32 start_mmioaddr;
@@ -434,7 +434,7 @@ static void gen9_set_dc_state_debugmask(struct intel_display *display)
 }
 
 static void disable_event_handler(struct intel_display *display,
-				  i915_reg_t ctl_reg, i915_reg_t htp_reg)
+				  intel_reg_t ctl_reg, intel_reg_t htp_reg)
 {
 	intel_de_write(display, ctl_reg,
 		       REG_FIELD_PREP(DMC_EVT_CTL_TYPE_MASK,
@@ -538,7 +538,7 @@ static u32 dmc_evt_ctl_disable(u32 dmc_evt_ctl)
 }
 
 static bool is_dmc_evt_ctl_reg(struct intel_display *display,
-			       enum intel_dmc_id dmc_id, i915_reg_t reg)
+			       enum intel_dmc_id dmc_id, intel_reg_t reg)
 {
 	u32 offset = i915_mmio_reg_offset(reg);
 	u32 start = i915_mmio_reg_offset(DMC_EVT_CTL(display, dmc_id, 0));
@@ -548,7 +548,7 @@ static bool is_dmc_evt_ctl_reg(struct intel_display *display,
 }
 
 static bool is_dmc_evt_htp_reg(struct intel_display *display,
-			       enum intel_dmc_id dmc_id, i915_reg_t reg)
+			       enum intel_dmc_id dmc_id, intel_reg_t reg)
 {
 	u32 offset = i915_mmio_reg_offset(reg);
 	u32 start = i915_mmio_reg_offset(DMC_EVT_HTP(display, dmc_id, 0));
@@ -560,7 +560,7 @@ static bool is_dmc_evt_htp_reg(struct intel_display *display,
 static bool is_event_handler(struct intel_display *display,
 			     enum intel_dmc_id dmc_id,
 			     unsigned int event_id,
-			     i915_reg_t reg, u32 data)
+			     intel_reg_t reg, u32 data)
 {
 	return is_dmc_evt_ctl_reg(display, dmc_id, reg) &&
 		REG_FIELD_GET(DMC_EVT_CTL_EVENT_ID_MASK, data) == event_id;
@@ -568,8 +568,8 @@ static bool is_event_handler(struct intel_display *display,
 
 static bool fixup_dmc_evt(struct intel_display *display,
 			  enum intel_dmc_id dmc_id,
-			  i915_reg_t reg_ctl, u32 *data_ctl,
-			  i915_reg_t reg_htp, u32 *data_htp)
+			  intel_reg_t reg_ctl, u32 *data_ctl,
+			  intel_reg_t reg_htp, u32 *data_htp)
 {
 	if (!is_dmc_evt_ctl_reg(display, dmc_id, reg_ctl))
 		return false;
@@ -613,7 +613,7 @@ static bool fixup_dmc_evt(struct intel_display *display,
 
 static bool disable_dmc_evt(struct intel_display *display,
 			    enum intel_dmc_id dmc_id,
-			    i915_reg_t reg, u32 data)
+			    intel_reg_t reg, u32 data)
 {
 	if (!is_dmc_evt_ctl_reg(display, dmc_id, reg))
 		return false;
@@ -696,7 +696,7 @@ static void assert_dmc_loaded(struct intel_display *display,
 		 dmc_id, expected, found);
 
 	for (i = 0; i < dmc->dmc_info[dmc_id].mmio_count; i++) {
-		i915_reg_t reg = dmc->dmc_info[dmc_id].mmioaddr[i];
+		intel_reg_t reg = dmc->dmc_info[dmc_id].mmioaddr[i];
 
 		found = intel_de_read(display, reg);
 		expected = dmc_mmiodata(display, dmc, dmc_id, i);
@@ -847,7 +847,7 @@ static void dmc_configure_event(struct intel_display *display,
 	int i;
 
 	for (i = 0; i < dmc->dmc_info[dmc_id].mmio_count; i++) {
-		i915_reg_t reg = dmc->dmc_info[dmc_id].mmioaddr[i];
+		intel_reg_t reg = dmc->dmc_info[dmc_id].mmioaddr[i];
 		u32 data = dmc->dmc_info[dmc_id].mmiodata[i];
 
 		if (!is_event_handler(display, dmc_id, event_id, reg, data))
@@ -1618,7 +1618,7 @@ static int intel_dmc_debugfs_status_show(struct seq_file *m, void *unused)
 	struct intel_display *display = m->private;
 	struct intel_dmc *dmc = display_to_dmc(display);
 	struct ref_tracker *wakeref;
-	i915_reg_t dc5_reg, dc6_reg = INVALID_MMIO_REG;
+	intel_reg_t dc5_reg, dc6_reg = INVALID_MMIO_REG;
 	u32 dc6_allowed_count;
 
 	if (!HAS_DMC(display))
@@ -1647,7 +1647,7 @@ static int intel_dmc_debugfs_status_show(struct seq_file *m, void *unused)
 		   DMC_VERSION_MINOR(dmc->version));
 
 	if (DISPLAY_VER(display) >= 12) {
-		i915_reg_t dc3co_reg;
+		intel_reg_t dc3co_reg;
 
 		if (display->platform.dgfx || DISPLAY_VER(display) >= 14) {
 			dc3co_reg = DG1_DMC_DEBUG3;

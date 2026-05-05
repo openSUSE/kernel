@@ -8,6 +8,8 @@
 
 #include "i915_reg_defs.h"
 
+typedef i915_reg_t intel_reg_t;
+
 #define VLV_DISPLAY_BASE		0x180000
 
 /*

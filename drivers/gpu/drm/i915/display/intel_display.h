@@ -27,7 +27,7 @@
 
 #include <drm/drm_util.h>
 
-#include "i915_reg_defs.h"
+#include "intel_display_reg_defs.h"
 #include "intel_display_limits.h"
 
 struct drm_atomic_state;
@@ -426,12 +426,12 @@ bool intel_fuzzy_clock_check(int clock1, int clock2);
 void intel_zero_m_n(struct intel_link_m_n *m_n);
 void intel_set_m_n(struct intel_display *display,
 		   const struct intel_link_m_n *m_n,
-		   i915_reg_t data_m_reg, i915_reg_t data_n_reg,
-		   i915_reg_t link_m_reg, i915_reg_t link_n_reg);
+		   intel_reg_t data_m_reg, intel_reg_t data_n_reg,
+		   intel_reg_t link_m_reg, intel_reg_t link_n_reg);
 void intel_get_m_n(struct intel_display *display,
 		   struct intel_link_m_n *m_n,
-		   i915_reg_t data_m_reg, i915_reg_t data_n_reg,
-		   i915_reg_t link_m_reg, i915_reg_t link_n_reg);
+		   intel_reg_t data_m_reg, intel_reg_t data_n_reg,
+		   intel_reg_t link_m_reg, intel_reg_t link_n_reg);
 bool intel_cpu_transcoder_has_m2_n2(struct intel_display *display,
 				    enum transcoder transcoder);
 void intel_cpu_transcoder_set_m1_n1(struct intel_crtc *crtc,

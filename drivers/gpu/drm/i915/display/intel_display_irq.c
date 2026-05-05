@@ -47,7 +47,7 @@ static void irq_reset(struct intel_display *display, struct i915_irq_regs regs)
 /*
  * We should clear IMR at preinstall/uninstall, and just check at postinstall.
  */
-static void assert_iir_is_zero(struct intel_display *display, i915_reg_t reg)
+static void assert_iir_is_zero(struct intel_display *display, intel_reg_t reg)
 {
 	u32 val = intel_de_read(display, reg);
 
@@ -343,7 +343,7 @@ out:
 void i915_enable_pipestat(struct intel_display *display,
 			  enum pipe pipe, u32 status_mask)
 {
-	i915_reg_t reg = PIPESTAT(display, pipe);
+	intel_reg_t reg = PIPESTAT(display, pipe);
 	u32 enable_mask;
 
 	drm_WARN_ONCE(display->drm, status_mask & ~PIPESTAT_INT_STATUS_MASK,
@@ -366,7 +366,7 @@ void i915_enable_pipestat(struct intel_display *display,
 void i915_disable_pipestat(struct intel_display *display,
 			   enum pipe pipe, u32 status_mask)
 {
-	i915_reg_t reg = PIPESTAT(display, pipe);
+	intel_reg_t reg = PIPESTAT(display, pipe);
 	u32 enable_mask;
 
 	drm_WARN_ONCE(display->drm, status_mask & ~PIPESTAT_INT_STATUS_MASK,
@@ -543,7 +543,7 @@ void i9xx_pipestat_irq_ack(struct intel_display *display,
 	}
 
 	for_each_pipe(display, pipe) {
-		i915_reg_t reg;
+		intel_reg_t reg;
 		u32 status_mask, enable_mask, iir_bit = 0;
 
 		/*
@@ -1284,7 +1284,7 @@ gen8_de_misc_irq_handler(struct intel_display *display, u32 iir)
 	if (iir & GEN8_DE_EDP_PSR) {
 		struct intel_encoder *encoder;
 		u32 psr_iir;
-		i915_reg_t iir_reg;
+		intel_reg_t iir_reg;
 
 		for_each_intel_encoder_with_psr(display->drm, encoder) {
 			struct intel_dp *intel_dp = enc_to_intel_dp(encoder);

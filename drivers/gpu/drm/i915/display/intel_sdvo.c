@@ -101,7 +101,7 @@ struct intel_sdvo {
 	struct intel_sdvo_ddc ddc[3];
 
 	/* Register for the SDVO device: SDVOB or SDVOC */
-	i915_reg_t sdvo_reg;
+	intel_reg_t sdvo_reg;
 
 	/*
 	 * Capabilities of the SDVO device returned by
@@ -1666,7 +1666,7 @@ static bool intel_sdvo_connector_get_hw_state(struct intel_connector *connector)
 }
 
 bool intel_sdvo_port_enabled(struct intel_display *display,
-			     i915_reg_t sdvo_reg, enum pipe *pipe)
+			     intel_reg_t sdvo_reg, enum pipe *pipe)
 {
 	u32 val;
 
@@ -3382,7 +3382,7 @@ static bool assert_sdvo_port_valid(struct intel_display *display, enum port port
 }
 
 bool intel_sdvo_init(struct intel_display *display,
-		     i915_reg_t sdvo_reg, enum port port)
+		     intel_reg_t sdvo_reg, enum port port)
 {
 	struct intel_encoder *intel_encoder;
 	struct intel_sdvo *intel_sdvo;

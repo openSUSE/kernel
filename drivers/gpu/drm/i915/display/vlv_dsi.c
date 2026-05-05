@@ -99,7 +99,7 @@ void vlv_dsi_wait_for_fifo_empty(struct intel_dsi *intel_dsi, enum port port)
 }
 
 static void write_data(struct intel_display *display,
-		       i915_reg_t reg,
+		       intel_reg_t reg,
 		       const u8 *data, u32 len)
 {
 	u32 i, j;
@@ -115,7 +115,7 @@ static void write_data(struct intel_display *display,
 }
 
 static void read_data(struct intel_display *display,
-		      i915_reg_t reg,
+		      intel_reg_t reg,
 		      u8 *data, u32 len)
 {
 	u32 i, j;
@@ -138,7 +138,7 @@ static ssize_t intel_dsi_host_transfer(struct mipi_dsi_host *host,
 	struct mipi_dsi_packet packet;
 	ssize_t ret;
 	const u8 *header;
-	i915_reg_t data_reg, ctrl_reg;
+	intel_reg_t data_reg, ctrl_reg;
 	u32 data_mask, ctrl_mask;
 
 	ret = mipi_dsi_create_packet(&packet, msg);
@@ -559,7 +559,7 @@ static void glk_dsi_clear_device_ready(struct intel_encoder *encoder)
 	glk_dsi_disable_mipi_io(encoder);
 }
 
-static i915_reg_t port_ctrl_reg(struct intel_display *display, enum port port)
+static intel_reg_t port_ctrl_reg(struct intel_display *display, enum port port)
 {
 	return display->platform.geminilake || display->platform.broxton ?
 		BXT_MIPI_PORT_CTRL(port) : VLV_MIPI_PORT_CTRL(port);
@@ -574,7 +574,7 @@ static void vlv_dsi_clear_device_ready(struct intel_encoder *encoder)
 	drm_dbg_kms(display->drm, "\n");
 	for_each_dsi_port(port, intel_dsi->ports) {
 		/* Common bit for both MIPI Port A & MIPI Port C on VLV/CHV */
-		i915_reg_t port_ctrl = display->platform.broxton ?
+		intel_reg_t port_ctrl = display->platform.broxton ?
 			BXT_MIPI_PORT_CTRL(port) : VLV_MIPI_PORT_CTRL(PORT_A);
 
 		intel_de_write(display, MIPI_DEVICE_READY(display, port),
@@ -631,7 +631,7 @@ static void intel_dsi_port_enable(struct intel_encoder *encoder,
 	}
 
 	for_each_dsi_port(port, intel_dsi->ports) {
-		i915_reg_t port_ctrl = port_ctrl_reg(display, port);
+		intel_reg_t port_ctrl = port_ctrl_reg(display, port);
 		u32 temp;
 
 		temp = intel_de_read(display, port_ctrl);
@@ -666,7 +666,7 @@ static void intel_dsi_port_disable(struct intel_encoder *encoder)
 	enum port port;
 
 	for_each_dsi_port(port, intel_dsi->ports) {
-		i915_reg_t port_ctrl = port_ctrl_reg(display, port);
+		intel_reg_t port_ctrl = port_ctrl_reg(display, port);
 
 		/* de-assert ip_tg_enable signal */
 		intel_de_rmw(display, port_ctrl, DPI_ENABLE, 0);
@@ -957,7 +957,7 @@ static bool intel_dsi_get_hw_state(struct intel_encoder *encoder,
 
 	/* XXX: this only works for one DSI output */
 	for_each_dsi_port(port, intel_dsi->ports) {
-		i915_reg_t port_ctrl = port_ctrl_reg(display, port);
+		intel_reg_t port_ctrl = port_ctrl_reg(display, port);
 		bool enabled = intel_de_read(display, port_ctrl) & DPI_ENABLE;
 
 		/*

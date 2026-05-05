@@ -188,7 +188,7 @@ static void hsw_prepare_hdmi_ddi_buffers(struct intel_encoder *encoder,
 		       trans->entries[level].hsw.trans2);
 }
 
-static i915_reg_t intel_ddi_buf_status_reg(struct intel_display *display, enum port port)
+static intel_reg_t intel_ddi_buf_status_reg(struct intel_display *display, enum port port)
 {
 	if (DISPLAY_VER(display) >= 14)
 		return XELPDP_PORT_BUF_CTL1(display, port);
@@ -1556,7 +1556,7 @@ hsw_set_signal_levels(struct intel_encoder *encoder,
 	intel_de_posting_read(display, DDI_BUF_CTL(port));
 }
 
-static void _icl_ddi_enable_clock(struct intel_display *display, i915_reg_t reg,
+static void _icl_ddi_enable_clock(struct intel_display *display, intel_reg_t reg,
 				  u32 clk_sel_mask, u32 clk_sel, u32 clk_off)
 {
 	mutex_lock(&display->dpll.lock);
@@ -1572,7 +1572,7 @@ static void _icl_ddi_enable_clock(struct intel_display *display, i915_reg_t reg,
 	mutex_unlock(&display->dpll.lock);
 }
 
-static void _icl_ddi_disable_clock(struct intel_display *display, i915_reg_t reg,
+static void _icl_ddi_disable_clock(struct intel_display *display, intel_reg_t reg,
 				   u32 clk_off)
 {
 	mutex_lock(&display->dpll.lock);
@@ -1582,14 +1582,14 @@ static void _icl_ddi_disable_clock(struct intel_display *display, i915_reg_t reg
 	mutex_unlock(&display->dpll.lock);
 }
 
-static bool _icl_ddi_is_clock_enabled(struct intel_display *display, i915_reg_t reg,
+static bool _icl_ddi_is_clock_enabled(struct intel_display *display, intel_reg_t reg,
 				      u32 clk_off)
 {
 	return !(intel_de_read(display, reg) & clk_off);
 }
 
 static struct intel_dpll *
-_icl_ddi_get_pll(struct intel_display *display, i915_reg_t reg,
+_icl_ddi_get_pll(struct intel_display *display, intel_reg_t reg,
 		 u32 clk_sel_mask, u32 clk_sel_shift)
 {
 	enum intel_dpll_id id;
@@ -2270,8 +2270,8 @@ tgl_dp_tp_transcoder(const struct intel_crtc_state *crtc_state)
 		return crtc_state->cpu_transcoder;
 }
 
-i915_reg_t dp_tp_ctl_reg(struct intel_encoder *encoder,
-			 const struct intel_crtc_state *crtc_state)
+intel_reg_t dp_tp_ctl_reg(struct intel_encoder *encoder,
+			  const struct intel_crtc_state *crtc_state)
 {
 	struct intel_display *display = to_intel_display(encoder);
 
@@ -2282,8 +2282,8 @@ i915_reg_t dp_tp_ctl_reg(struct intel_encoder *encoder,
 		return DP_TP_CTL(encoder->port);
 }
 
-static i915_reg_t dp_tp_status_reg(struct intel_encoder *encoder,
-				   const struct intel_crtc_state *crtc_state)
+static intel_reg_t dp_tp_status_reg(struct intel_encoder *encoder,
+				    const struct intel_crtc_state *crtc_state)
 {
 	struct intel_display *display = to_intel_display(encoder);
 
@@ -2559,7 +2559,7 @@ mtl_ddi_enable_d2d(struct intel_encoder *encoder)
 {
 	struct intel_display *display = to_intel_display(encoder);
 	enum port port = encoder->port;
-	i915_reg_t reg;
+	intel_reg_t reg;
 	u32 set_bits, wait_bits;
 	int ret;
 
@@ -3059,7 +3059,7 @@ mtl_ddi_disable_d2d(struct intel_encoder *encoder)
 {
 	struct intel_display *display = to_intel_display(encoder);
 	enum port port = encoder->port;
-	i915_reg_t reg;
+	intel_reg_t reg;
 	u32 clr_bits, wait_bits;
 	int ret;
 
@@ -3386,7 +3386,7 @@ static void intel_ddi_enable_dp(struct intel_atomic_state *state,
 	trans_port_sync_stop_link_train(state, encoder, crtc_state);
 }
 
-static i915_reg_t
+static intel_reg_t
 gen9_chicken_trans_reg_by_port(struct intel_display *display, enum port port)
 {
 	static const enum transcoder trans[] = {
@@ -3439,7 +3439,7 @@ static void intel_ddi_enable_hdmi(struct intel_atomic_state *state,
 		 * the bits affect a specific DDI port rather than
 		 * a specific transcoder.
 		 */
-		i915_reg_t reg = gen9_chicken_trans_reg_by_port(display, port);
+		intel_reg_t reg = gen9_chicken_trans_reg_by_port(display, port);
 		u32 val;
 
 		val = intel_de_read(display, reg);

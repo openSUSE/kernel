@@ -77,7 +77,7 @@
 struct intel_crt {
 	struct intel_encoder base;
 	bool force_hotplug_required;
-	i915_reg_t adpa_reg;
+	intel_reg_t adpa_reg;
 };
 
 static struct intel_crt *intel_encoder_to_crt(struct intel_encoder *encoder)
@@ -91,7 +91,7 @@ static struct intel_crt *intel_attached_crt(struct intel_connector *connector)
 }
 
 bool intel_crt_port_enabled(struct intel_display *display,
-			    i915_reg_t adpa_reg, enum pipe *pipe)
+			    intel_reg_t adpa_reg, enum pipe *pipe)
 {
 	u32 val;
 
@@ -1011,7 +1011,7 @@ void intel_crt_init(struct intel_display *display)
 {
 	struct intel_connector *connector;
 	struct intel_crt *crt;
-	i915_reg_t adpa_reg;
+	intel_reg_t adpa_reg;
 	u8 ddc_pin;
 	u32 adpa;
 

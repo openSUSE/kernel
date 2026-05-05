@@ -46,7 +46,7 @@ intel_hdcp_adjust_hdcp_line_rekeying(struct intel_encoder *encoder,
 				     bool enable)
 {
 	struct intel_display *display = to_intel_display(encoder);
-	i915_reg_t rekey_reg;
+	intel_reg_t rekey_reg;
 	u32 rekey_bit = 0;
 
 	/* Here we assume HDMI is in TMDS mode of operation */

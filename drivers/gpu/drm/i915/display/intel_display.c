@@ -2579,8 +2579,8 @@ void intel_zero_m_n(struct intel_link_m_n *m_n)
 
 void intel_set_m_n(struct intel_display *display,
 		   const struct intel_link_m_n *m_n,
-		   i915_reg_t data_m_reg, i915_reg_t data_n_reg,
-		   i915_reg_t link_m_reg, i915_reg_t link_n_reg)
+		   intel_reg_t data_m_reg, intel_reg_t data_n_reg,
+		   intel_reg_t link_m_reg, intel_reg_t link_n_reg)
 {
 	intel_de_write(display, data_m_reg, TU_SIZE(m_n->tu) | m_n->data_m);
 	intel_de_write(display, data_n_reg, m_n->data_n);
@@ -3342,8 +3342,8 @@ int ilk_get_lanes_required(int target_clock, int link_bw, int bpp)
 
 void intel_get_m_n(struct intel_display *display,
 		   struct intel_link_m_n *m_n,
-		   i915_reg_t data_m_reg, i915_reg_t data_n_reg,
-		   i915_reg_t link_m_reg, i915_reg_t link_n_reg)
+		   intel_reg_t data_m_reg, intel_reg_t data_n_reg,
+		   intel_reg_t link_m_reg, intel_reg_t link_n_reg)
 {
 	m_n->link_m = intel_de_read(display, link_m_reg) & DATA_LINK_M_N_MASK;
 	m_n->link_n = intel_de_read(display, link_n_reg) & DATA_LINK_M_N_MASK;

@@ -173,7 +173,7 @@ static u32 hsw_infoframe_enable(unsigned int type)
 	}
 }
 
-static i915_reg_t
+static intel_reg_t
 hsw_dip_data_reg(struct intel_display *display,
 		 enum transcoder cpu_transcoder,
 		 unsigned int type,
@@ -298,7 +298,7 @@ static void ibx_write_infoframe(struct intel_encoder *encoder,
 	struct intel_display *display = to_intel_display(encoder);
 	const u32 *data = frame;
 	struct intel_crtc *crtc = to_intel_crtc(crtc_state->uapi.crtc);
-	i915_reg_t reg = TVIDEO_DIP_CTL(crtc->pipe);
+	intel_reg_t reg = TVIDEO_DIP_CTL(crtc->pipe);
 	u32 val = intel_de_read(display, reg);
 	int i;
 
@@ -351,7 +351,7 @@ static u32 ibx_infoframes_enabled(struct intel_encoder *encoder,
 {
 	struct intel_display *display = to_intel_display(encoder);
 	enum pipe pipe = to_intel_crtc(pipe_config->uapi.crtc)->pipe;
-	i915_reg_t reg = TVIDEO_DIP_CTL(pipe);
+	intel_reg_t reg = TVIDEO_DIP_CTL(pipe);
 	u32 val = intel_de_read(display, reg);
 
 	if ((val & VIDEO_DIP_ENABLE) == 0)
@@ -373,7 +373,7 @@ static void cpt_write_infoframe(struct intel_encoder *encoder,
 	struct intel_display *display = to_intel_display(encoder);
 	const u32 *data = frame;
 	struct intel_crtc *crtc = to_intel_crtc(crtc_state->uapi.crtc);
-	i915_reg_t reg = TVIDEO_DIP_CTL(crtc->pipe);
+	intel_reg_t reg = TVIDEO_DIP_CTL(crtc->pipe);
 	u32 val = intel_de_read(display, reg);
 	int i;
 
@@ -447,7 +447,7 @@ static void vlv_write_infoframe(struct intel_encoder *encoder,
 	struct intel_display *display = to_intel_display(encoder);
 	const u32 *data = frame;
 	struct intel_crtc *crtc = to_intel_crtc(crtc_state->uapi.crtc);
-	i915_reg_t reg = VLV_TVIDEO_DIP_CTL(crtc->pipe);
+	intel_reg_t reg = VLV_TVIDEO_DIP_CTL(crtc->pipe);
 	u32 val = intel_de_read(display, reg);
 	int i;
 
@@ -523,7 +523,7 @@ void hsw_write_infoframe(struct intel_encoder *encoder,
 	struct intel_display *display = to_intel_display(encoder);
 	const u32 *data = frame;
 	enum transcoder cpu_transcoder = crtc_state->cpu_transcoder;
-	i915_reg_t ctl_reg = HSW_TVIDEO_DIP_CTL(display, cpu_transcoder);
+	intel_reg_t ctl_reg = HSW_TVIDEO_DIP_CTL(display, cpu_transcoder);
 	int data_size;
 	int i;
 	u32 val = intel_de_read(display, ctl_reg);
@@ -884,7 +884,7 @@ static void g4x_set_infoframes(struct intel_encoder *encoder,
 	struct intel_display *display = to_intel_display(encoder);
 	struct intel_digital_port *dig_port = enc_to_dig_port(encoder);
 	struct intel_hdmi *intel_hdmi = &dig_port->hdmi;
-	i915_reg_t reg = VIDEO_DIP_CTL;
+	intel_reg_t reg = VIDEO_DIP_CTL;
 	u32 val = intel_de_read(display, reg);
 	u32 port = VIDEO_DIP_PORT(encoder->port);
 
@@ -995,7 +995,7 @@ static bool intel_hdmi_set_gcp_infoframe(struct intel_encoder *encoder,
 {
 	struct intel_display *display = to_intel_display(encoder);
 	struct intel_crtc *crtc = to_intel_crtc(crtc_state->uapi.crtc);
-	i915_reg_t reg;
+	intel_reg_t reg;
 
 	if ((crtc_state->infoframes.enable &
 	     intel_hdmi_infoframe_enable(HDMI_PACKET_TYPE_GENERAL_CONTROL)) == 0)
@@ -1020,7 +1020,7 @@ void intel_hdmi_read_gcp_infoframe(struct intel_encoder *encoder,
 {
 	struct intel_display *display = to_intel_display(encoder);
 	struct intel_crtc *crtc = to_intel_crtc(crtc_state->uapi.crtc);
-	i915_reg_t reg;
+	intel_reg_t reg;
 
 	if ((crtc_state->infoframes.enable &
 	     intel_hdmi_infoframe_enable(HDMI_PACKET_TYPE_GENERAL_CONTROL)) == 0)
@@ -1069,7 +1069,7 @@ static void ibx_set_infoframes(struct intel_encoder *encoder,
 	struct intel_crtc *crtc = to_intel_crtc(crtc_state->uapi.crtc);
 	struct intel_digital_port *dig_port = enc_to_dig_port(encoder);
 	struct intel_hdmi *intel_hdmi = &dig_port->hdmi;
-	i915_reg_t reg = TVIDEO_DIP_CTL(crtc->pipe);
+	intel_reg_t reg = TVIDEO_DIP_CTL(crtc->pipe);
 	u32 val = intel_de_read(display, reg);
 	u32 port = VIDEO_DIP_PORT(encoder->port);
 
@@ -1127,7 +1127,7 @@ static void cpt_set_infoframes(struct intel_encoder *encoder,
 	struct intel_display *display = to_intel_display(encoder);
 	struct intel_crtc *crtc = to_intel_crtc(crtc_state->uapi.crtc);
 	struct intel_hdmi *intel_hdmi = enc_to_intel_hdmi(encoder);
-	i915_reg_t reg = TVIDEO_DIP_CTL(crtc->pipe);
+	intel_reg_t reg = TVIDEO_DIP_CTL(crtc->pipe);
 	u32 val = intel_de_read(display, reg);
 
 	assert_hdmi_port_disabled(intel_hdmi);
@@ -1176,7 +1176,7 @@ static void vlv_set_infoframes(struct intel_encoder *encoder,
 	struct intel_display *display = to_intel_display(encoder);
 	struct intel_crtc *crtc = to_intel_crtc(crtc_state->uapi.crtc);
 	struct intel_hdmi *intel_hdmi = enc_to_intel_hdmi(encoder);
-	i915_reg_t reg = VLV_TVIDEO_DIP_CTL(crtc->pipe);
+	intel_reg_t reg = VLV_TVIDEO_DIP_CTL(crtc->pipe);
 	u32 val = intel_de_read(display, reg);
 	u32 port = VIDEO_DIP_PORT(encoder->port);
 
@@ -1231,7 +1231,7 @@ void intel_hdmi_fastset_infoframes(struct intel_encoder *encoder,
 				   const struct drm_connector_state *conn_state)
 {
 	struct intel_display *display = to_intel_display(encoder);
-	i915_reg_t reg = HSW_TVIDEO_DIP_CTL(display,
+	intel_reg_t reg = HSW_TVIDEO_DIP_CTL(display,
 					    crtc_state->cpu_transcoder);
 	u32 val = intel_de_read(display, reg);
 
@@ -1256,7 +1256,7 @@ static void hsw_set_infoframes(struct intel_encoder *encoder,
 			       const struct drm_connector_state *conn_state)
 {
 	struct intel_display *display = to_intel_display(encoder);
-	i915_reg_t reg = HSW_TVIDEO_DIP_CTL(display,
+	intel_reg_t reg = HSW_TVIDEO_DIP_CTL(display,
 					    crtc_state->cpu_transcoder);
 	u32 val = intel_de_read(display, reg);
 
