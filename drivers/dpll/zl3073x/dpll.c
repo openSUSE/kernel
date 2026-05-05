@@ -583,12 +583,24 @@ zl3073x_dpll_input_pin_phase_adjust_get(const struct dpll_pin *dpll_pin,
 		return rc;
 
 	/* Read current phase offset compensation */
-	rc = zl3073x_read_u48(zldev, ZL_REG_REF_PHASE_OFFSET_COMP, &phase_comp);
+	if (zl3073x_dev_is_ref_phase_comp_32bit(zldev)) {
+		u32 val;
+
+		rc = zl3073x_read_u32(zldev, ZL_REG_REF_PHASE_OFFSET_COMP_32,
+				      &val);
+		phase_comp = val;
+	} else {
+		rc = zl3073x_read_u48(zldev, ZL_REG_REF_PHASE_OFFSET_COMP,
+				      &phase_comp);
+	}
 	if (rc)
 		return rc;
 
-	/* Perform sign extension for 48bit signed value */
-	phase_comp = sign_extend64(phase_comp, 47);
+	/* Perform sign extension based on register width */
+	if (zl3073x_dev_is_ref_phase_comp_32bit(zldev))
+		phase_comp = sign_extend64(phase_comp, 31);
+	else
+		phase_comp = sign_extend64(phase_comp, 47);
 
 	/* Reverse two's complement negation applied during set and convert
 	 * to 32bit signed int
@@ -628,7 +640,12 @@ zl3073x_dpll_input_pin_phase_adjust_set(const struct dpll_pin *dpll_pin,
 		return rc;
 
 	/* Write the requested value into the compensation register */
-	rc = zl3073x_write_u48(zldev, ZL_REG_REF_PHASE_OFFSET_COMP, phase_comp);
+	if (zl3073x_dev_is_ref_phase_comp_32bit(zldev))
+		rc = zl3073x_write_u32(zldev, ZL_REG_REF_PHASE_OFFSET_COMP_32,
+				       phase_comp);
+	else
+		rc = zl3073x_write_u48(zldev, ZL_REG_REF_PHASE_OFFSET_COMP,
+				       phase_comp);
 	if (rc)
 		return rc;
 
