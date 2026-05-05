@@ -19,6 +19,7 @@ use crate::ffi::c_void;
 use crate::fmt;
 use crate::init::InPlaceInit;
 use crate::page::AsPageIter;
+use crate::prelude::*;
 use crate::types::ForeignOwnable;
 use pin_init::{InPlaceWrite, Init, PinInit, ZeroableOption};
 
@@ -254,6 +255,27 @@ where
         // INVARIANT: `ptr` is either a dangling pointer or points to memory allocated with `A`,
         // which is sufficient in size and alignment for storing a `T`.
         Ok(Box(ptr.cast(), PhantomData))
+    }
+
+    /// Creates a new zero-initialized `Box<T, A>`.
+    ///
+    /// New memory is allocated with `A` and the [`__GFP_ZERO`] flag. The allocation may fail, in
+    /// which case an error is returned. For ZSTs no memory is allocated.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let b = KBox::<[u8; 128]>::zeroed(GFP_KERNEL)?;
+    /// assert_eq!(*b, [0; 128]);
+    /// # Ok::<(), Error>(())
+    /// ```
+    pub fn zeroed(flags: Flags) -> Result<Self, AllocError>
+    where
+        T: Zeroable,
+    {
+        // SAFETY: `__GFP_ZERO` guarantees the memory is zeroed; `T: Zeroable` guarantees that
+        // all-zeroes is a valid bit pattern for `T`.
+        Ok(unsafe { Self::new_uninit(flags | __GFP_ZERO)?.assume_init() })
     }
 
     /// Constructs a new `Pin<Box<T, A>>`. If `T` does not implement [`Unpin`], then `x` will be
