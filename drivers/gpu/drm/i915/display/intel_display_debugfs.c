@@ -572,6 +572,12 @@ static void intel_crtc_info(struct seq_file *m, struct intel_crtc *crtc)
 
 	intel_scaler_info(m, crtc);
 
+	if (DISPLAY_VER(display) >= 9) {
+		u32 background = crtc_state->hw.background_color;
+
+		seq_printf(m, "\tbackground color (10bpc XRGB2101010): %08x\n", background);
+	}
+
 	if (crtc_state->joiner_pipes)
 		seq_printf(m, "\tLinked to 0x%x pipes as a %s\n",
 			   crtc_state->joiner_pipes,

@@ -7,6 +7,7 @@
 #include <linux/slab.h>
 
 #include <drm/drm_atomic_helper.h>
+#include <drm/drm_blend.h>
 #include <drm/drm_fourcc.h>
 #include <drm/drm_plane.h>
 #include <drm/drm_print.h>
@@ -404,6 +405,9 @@ static int __intel_crtc_init(struct intel_display *display, enum pipe pipe)
 		drm_crtc_create_scaling_filter_property(&crtc->base,
 						BIT(DRM_SCALING_FILTER_DEFAULT) |
 						BIT(DRM_SCALING_FILTER_NEAREST_NEIGHBOR));
+
+	if (DISPLAY_VER(display) >= 9)
+		drm_crtc_attach_background_color_property(&crtc->base);
 
 	intel_color_crtc_init(crtc);
 	intel_drrs_crtc_init(crtc);

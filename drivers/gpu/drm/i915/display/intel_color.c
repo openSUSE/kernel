@@ -1102,19 +1102,37 @@ static void skl_get_config(struct intel_crtc_state *crtc_state)
 {
 	struct intel_display *display = to_intel_display(crtc_state);
 	struct intel_crtc *crtc = to_intel_crtc(crtc_state->uapi.crtc);
+	u32 color;
 
 	crtc_state->gamma_mode = hsw_read_gamma_mode(crtc);
 	crtc_state->csc_mode = ilk_read_csc_mode(crtc);
 
+	color = intel_de_read(display, SKL_BOTTOM_COLOR(crtc->pipe));
 	if (DISPLAY_VER(display) < 35) {
-		u32 tmp = intel_de_read(display, SKL_BOTTOM_COLOR(crtc->pipe));
-
-		if (tmp & SKL_BOTTOM_COLOR_GAMMA_ENABLE)
+		if (color & SKL_BOTTOM_COLOR_GAMMA_ENABLE)
 			crtc_state->gamma_enable = true;
 
-		if (tmp & SKL_BOTTOM_COLOR_CSC_ENABLE)
+		if (color & SKL_BOTTOM_COLOR_CSC_ENABLE)
 			crtc_state->csc_enable = true;
 	}
+
+	crtc_state->hw.background_color = color & GENMASK(29, 0);
+}
+
+u32 intel_color_background_color_drm_to_hw(u64 drm_background_color)
+{
+	return (DRM_ARGB64_GETR_BPC(drm_background_color, 10) << 20) |
+	       (DRM_ARGB64_GETG_BPC(drm_background_color, 10) << 10) |
+	       (DRM_ARGB64_GETB_BPC(drm_background_color, 10));
+}
+
+u64 intel_color_background_color_hw_to_drm(u32 hw_background_color)
+{
+	u16 r = (hw_background_color >> 20) & 0x3ff;
+	u16 g = (hw_background_color >> 10) & 0x3ff;
+	u16 b = hw_background_color & 0x3ff;
+
+	return DRM_ARGB64_PREP_BPC(0x3ff, r, g, b, 10);
 }
 
 static void skl_color_commit_arm(struct intel_dsb *dsb,
@@ -1123,16 +1141,11 @@ static void skl_color_commit_arm(struct intel_dsb *dsb,
 	struct intel_display *display = to_intel_display(crtc_state);
 	struct intel_crtc *crtc = to_intel_crtc(crtc_state->uapi.crtc);
 	enum pipe pipe = crtc->pipe;
-	u32 val = 0;
+	u32 val = crtc_state->hw.background_color;
 
 	if (crtc_state->has_psr)
 		ilk_load_csc_matrix(dsb, crtc_state);
 
-	/*
-	 * We don't (yet) allow userspace to control the pipe background color,
-	 * so force it to black, but apply pipe gamma and CSC appropriately
-	 * so that its handling will match how we program our planes.
-	 */
 	if (crtc_state->gamma_enable)
 		val |= SKL_BOTTOM_COLOR_GAMMA_ENABLE;
 	if (crtc_state->csc_enable)
@@ -1151,11 +1164,7 @@ static void icl_color_commit_arm(struct intel_dsb *dsb,
 	struct intel_crtc *crtc = to_intel_crtc(crtc_state->uapi.crtc);
 	enum pipe pipe = crtc->pipe;
 
-	/*
-	 * We don't (yet) allow userspace to control the pipe background color,
-	 * so force it to black.
-	 */
-	intel_de_write_dsb(display, dsb, SKL_BOTTOM_COLOR(pipe), 0);
+	intel_de_write_dsb(display, dsb, SKL_BOTTOM_COLOR(pipe), crtc_state->hw.background_color);
 
 	intel_de_write_dsb(display, dsb, GAMMA_MODE(crtc->pipe), crtc_state->gamma_mode);
 
@@ -2107,8 +2116,14 @@ int intel_color_check(struct intel_atomic_state *state,
 	 * May need to update pipe gamma enable bits
 	 * when C8 planes are getting enabled/disabled.
 	 */
-	if (!old_crtc_state->c8_planes != !new_crtc_state->c8_planes)
+	if (!old_crtc_state->c8_planes != !new_crtc_state->c8_planes ||
+	    old_crtc_state->hw.background_color != new_crtc_state->hw.background_color)
 		new_crtc_state->uapi.color_mgmt_changed = true;
+
+	if (DRM_ARGB64_GETA(new_crtc_state->uapi.background_color) != 0xffff) {
+		drm_dbg_kms(display->drm, "New background not completely opaque\n");
+		return -EINVAL;
+	}
 
 	if (!intel_crtc_needs_color_update(new_crtc_state))
 		return 0;

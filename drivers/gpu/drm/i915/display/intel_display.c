@@ -4505,6 +4505,8 @@ intel_crtc_copy_uapi_to_hw_state_nomodeset(struct intel_atomic_state *state,
 				  crtc_state->uapi.gamma_lut);
 	drm_property_replace_blob(&crtc_state->hw.ctm,
 				  crtc_state->uapi.ctm);
+	crtc_state->hw.background_color =
+		intel_color_background_color_drm_to_hw(crtc_state->uapi.background_color);
 }
 
 static void
@@ -4544,6 +4546,7 @@ copy_joiner_crtc_state_nomodeset(struct intel_atomic_state *state,
 				  primary_crtc_state->hw.gamma_lut);
 	drm_property_replace_blob(&secondary_crtc_state->hw.ctm,
 				  primary_crtc_state->hw.ctm);
+	secondary_crtc_state->hw.background_color = primary_crtc_state->hw.background_color;
 
 	secondary_crtc_state->uapi.color_mgmt_changed = primary_crtc_state->uapi.color_mgmt_changed;
 }
@@ -5360,6 +5363,8 @@ intel_pipe_config_compare(const struct intel_crtc_state *current_config,
 		else
 			PIPE_CONF_CHECK_X(csc_mode);
 		PIPE_CONF_CHECK_BOOL(gamma_enable);
+
+		PIPE_CONF_CHECK_X(hw.background_color);
 		PIPE_CONF_CHECK_BOOL(csc_enable);
 		PIPE_CONF_CHECK_BOOL(wgc_enable);
 
