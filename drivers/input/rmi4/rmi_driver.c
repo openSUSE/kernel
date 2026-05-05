@@ -610,15 +610,16 @@ static int rmi_parse_register_desc_item(struct rmi_register_desc_item *item,
 int rmi_read_register_desc(struct rmi_device *d, u16 addr,
 			   struct rmi_register_descriptor *rdesc)
 {
-	int ret;
+	DECLARE_BITMAP(presence_map, RMI_REG_DESC_PRESENCE_BITS);
+	u8 buf[RMI_REG_DESC_PRESENCE_REGS_MAX];
 	u8 size_presence_reg;
-	u8 buf[35];
 	unsigned int presence_offset;
 	unsigned int map_offset;
 	unsigned int offset;
 	unsigned int reg;
 	int i;
 	int b;
+	int ret;
 
 	/*
 	 * The first register of the register descriptor is the size of
@@ -629,7 +630,7 @@ int rmi_read_register_desc(struct rmi_device *d, u16 addr,
 		return ret;
 	++addr;
 
-	if (size_presence_reg < 1 || size_presence_reg > 35)
+	if (size_presence_reg < 1 || size_presence_reg > RMI_REG_DESC_PRESENCE_REGS_MAX)
 		return -EIO;
 
 	memset(buf, 0, sizeof(buf));
@@ -654,20 +655,21 @@ int rmi_read_register_desc(struct rmi_device *d, u16 addr,
 		rdesc->struct_size = buf[0];
 	}
 
+	memset(presence_map, 0, sizeof(presence_map));
 	map_offset = 0;
 	for (i = presence_offset; i < size_presence_reg; i++) {
 		for (b = 0; b < 8; b++) {
 			if (buf[i] & BIT(b)) {
-				if (map_offset >= RMI_REG_DESC_PRESENSE_BITS)
+				if (map_offset >= RMI_REG_DESC_PRESENCE_BITS)
 					return -EIO;
-				bitmap_set(rdesc->presense_map, map_offset, 1);
+				bitmap_set(presence_map, map_offset, 1);
 			}
 			++map_offset;
 		}
 	}
 
-	rdesc->num_registers = bitmap_weight(rdesc->presense_map,
-						RMI_REG_DESC_PRESENSE_BITS);
+	rdesc->num_registers = bitmap_weight(presence_map,
+						RMI_REG_DESC_PRESENCE_BITS);
 
 	rdesc->registers = devm_kcalloc(&d->dev,
 					rdesc->num_registers,
@@ -695,7 +697,7 @@ int rmi_read_register_desc(struct rmi_device *d, u16 addr,
 	if (ret)
 		return ret;
 
-	reg = find_first_bit(rdesc->presense_map, RMI_REG_DESC_PRESENSE_BITS);
+	reg = find_first_bit(presence_map, RMI_REG_DESC_PRESENCE_BITS);
 	offset = 0;
 	for (i = 0; i < rdesc->num_registers; i++) {
 		struct rmi_register_desc_item *item = &rdesc->registers[i];
@@ -714,8 +716,8 @@ int rmi_read_register_desc(struct rmi_device *d, u16 addr,
 			"%s: reg: %d reg size: %ld subpackets: %d\n", __func__,
 			item->reg, item->reg_size, item->num_subpackets);
 
-		reg = find_next_bit(rdesc->presense_map,
-				    RMI_REG_DESC_PRESENSE_BITS, reg + 1);
+		reg = find_next_bit(presence_map,
+				    RMI_REG_DESC_PRESENCE_BITS, reg + 1);
 	}
 
 	return 0;
