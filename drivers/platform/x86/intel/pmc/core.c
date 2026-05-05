@@ -1099,6 +1099,16 @@ static int pmc_core_pkgc_ltr_blocker_show(struct seq_file *s, void *unused)
 }
 DEFINE_SHOW_ATTRIBUTE(pmc_core_pkgc_ltr_blocker);
 
+static int pmc_core_pkgc_blocker_residency_show(struct seq_file *s, void *unused)
+{
+	struct pmc_dev *pmcdev = s->private;
+
+	return pmc_core_pkgc_counters_show(s, pmcdev->pc_ep,
+					   pmcdev->pkgc_blocker_offset,
+					   pmcdev->pkgc_blocker_counters);
+}
+DEFINE_SHOW_ATTRIBUTE(pmc_core_pkgc_blocker_residency);
+
 static int pmc_core_lpm_latch_mode_show(struct seq_file *s, void *unused)
 {
 	struct pmc_dev *pmcdev = s->private;
@@ -1386,6 +1396,8 @@ void pmc_core_punit_pmt_init(struct pmc_dev *pmcdev, struct pmc_dev_info *pmc_de
 		pmcdev->pc_ep = ep;
 		pmcdev->pkgc_ltr_blocker_counters = pmc_dev_info->pkgc_ltr_blocker_counters;
 		pmcdev->pkgc_ltr_blocker_offset = pmc_dev_info->pkgc_ltr_blocker_offset;
+		pmcdev->pkgc_blocker_counters = pmc_dev_info->pkgc_blocker_counters;
+		pmcdev->pkgc_blocker_offset = pmc_dev_info->pkgc_blocker_offset;
 	}
 }
 
@@ -1515,6 +1527,9 @@ static void pmc_core_dbgfs_register(struct pmc_dev *pmcdev, struct pmc_dev_info 
 		debugfs_create_file("pkgc_ltr_blocker_show", 0444,
 				    pmcdev->dbgfs_dir, pmcdev,
 				    &pmc_core_pkgc_ltr_blocker_fops);
+		debugfs_create_file("pkgc_blocker_residency_show", 0444,
+				    pmcdev->dbgfs_dir, pmcdev,
+				    &pmc_core_pkgc_blocker_residency_fops);
 	}
 
 }

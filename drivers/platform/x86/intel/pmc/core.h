@@ -455,6 +455,8 @@ struct pmc {
  *
  * @pkgc_ltr_blocker_counters: Array of PKGC LTR blocker counters
  * @pkgc_ltr_blocker_offset: Offset to PKGC LTR blockers in telemetry region
+ * @pkgc_blocker_counters: Array of PKGC blocker counters
+ * @pkgc_blocker_offset: Offset to PKGC blocker in telemetry region
  *
  * pmc_dev contains info about power management controller device.
  */
@@ -480,6 +482,8 @@ struct pmc_dev {
 
 	const char **pkgc_ltr_blocker_counters;
 	u32 pkgc_ltr_blocker_offset;
+	const char **pkgc_blocker_counters;
+	u32 pkgc_blocker_offset;
 };
 
 enum pmc_index {
@@ -495,6 +499,7 @@ enum pmc_index {
  * @dmu_guids:		List of Die Management Unit GUID
  * @pc_guid:		GUID for telemetry region to read PKGC blocker info
  * @pkgc_ltr_blocker_offset: Offset to PKGC LTR blockers in telemetry region
+ * @pkgc_blocker_offset:Offset to PKGC blocker in telemetry region
  * @regmap_list:	Pointer to a list of pmc_info structure that could be
  *			available for the platform. When set, this field implies
  *			SSRAM support.
@@ -502,6 +507,7 @@ enum pmc_index {
  *			specific attributes of the primary PMC
  * @sub_req_show:	File operations to show substate requirements
  * @pkgc_ltr_blocker_counters: Array of PKGC LTR blocker counters
+ * @pkgc_blocker_counters: Array of PKGC blocker counters
  * @suspend:		Function to perform platform specific suspend
  * @resume:		Function to perform platform specific resume
  * @init:		Function to perform platform specific init action
@@ -512,10 +518,12 @@ struct pmc_dev_info {
 	u32 *dmu_guids;
 	u32 pc_guid;
 	u32 pkgc_ltr_blocker_offset;
+	u32 pkgc_blocker_offset;
 	struct pmc_info *regmap_list;
 	const struct pmc_reg_map *map;
 	const struct file_operations *sub_req_show;
 	const char **pkgc_ltr_blocker_counters;
+	const char **pkgc_blocker_counters;
 	void (*suspend)(struct pmc_dev *pmcdev);
 	int (*resume)(struct pmc_dev *pmcdev);
 	int (*init)(struct pmc_dev *pmcdev, struct pmc_dev_info *pmc_dev_info);
