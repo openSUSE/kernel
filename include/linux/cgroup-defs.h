@@ -262,6 +262,9 @@ struct cgroup_subsys_state {
 	int nr_populated_csets;
 	int nr_populated_children;
 
+	/* deferred kill_css_finish() queued by css_update_populated() */
+	struct work_struct kill_finish_work;
+
 	/*
 	 * A singly-linked list of css structures to be rstat flushed.
 	 * This is a scratch field to be used exclusively by
@@ -614,9 +617,6 @@ struct cgroup {
 
 	/* used to wait for offlining of csses */
 	wait_queue_head_t offline_waitq;
-
-	/* defers killing csses after removal until cgroup is depopulated */
-	struct work_struct finish_destroy_work;
 
 	/* used to schedule release agent */
 	struct work_struct release_agent_work;

@@ -264,7 +264,6 @@ static void cgroup_finalize_control(struct cgroup *cgrp, int ret);
 static void css_task_iter_skip(struct css_task_iter *it,
 			       struct task_struct *task);
 static int cgroup_destroy_locked(struct cgroup *cgrp);
-static void cgroup_finish_destroy(struct cgroup *cgrp);
 static void kill_css_sync(struct cgroup_subsys_state *css);
 static void kill_css_finish(struct cgroup_subsys_state *css);
 static struct cgroup_subsys_state *css_create(struct cgroup *cgrp,
@@ -801,13 +800,19 @@ static void css_update_populated(struct cgroup_subsys_state *css, bool populated
 			break;
 
 		/*
-		 * Subtree just emptied below an offlined cgrp. Fire deferred
-		 * destroy. The transition is one-shot.
+		 * Pair with smp_mb() in kill_css_sync(). Either we observe
+		 * CSS_DYING and queue, or the caller observes our decrement
+		 * and fires synchronously.
 		 */
-		if (cgrp && was_populated && !css_is_online(css)) {
-			cgroup_get(cgrp);
-			WARN_ON_ONCE(!queue_work(cgroup_offline_wq,
-						 &cgrp->finish_destroy_work));
+		smp_mb();
+
+		/*
+		 * Subtree just emptied below a dying css. Fire deferred kill.
+		 * The transition is one-shot for a dying css.
+		 */
+		if (was_populated && css_is_dying(css)) {
+			css_get(css);
+			WARN_ON_ONCE(!queue_work(cgroup_offline_wq, &css->kill_finish_work));
 		}
 
 		if (cgrp) {
@@ -2064,16 +2069,6 @@ static int cgroup_reconfigure(struct fs_context *fc)
 	return 0;
 }
 
-static void cgroup_finish_destroy_work_fn(struct work_struct *work)
-{
-	struct cgroup *cgrp = container_of(work, struct cgroup, finish_destroy_work);
-
-	cgroup_lock();
-	cgroup_finish_destroy(cgrp);
-	cgroup_unlock();
-	cgroup_put(cgrp);
-}
-
 static void init_cgroup_housekeeping(struct cgroup *cgrp)
 {
 	struct cgroup_subsys *ss;
@@ -2100,7 +2095,6 @@ static void init_cgroup_housekeeping(struct cgroup *cgrp)
 #endif
 
 	init_waitqueue_head(&cgrp->offline_waitq);
-	INIT_WORK(&cgrp->finish_destroy_work, cgroup_finish_destroy_work_fn);
 	INIT_WORK(&cgrp->release_agent_work, cgroup1_release_agent);
 }
 
@@ -5695,6 +5689,22 @@ static void css_release(struct percpu_ref *ref)
 	queue_work(cgroup_release_wq, &css->destroy_work);
 }
 
+/*
+ * Deferred kill_css_finish() fired from css_update_populated() once a dying
+ * css's hierarchical populated state drops to zero. Pinned by css_get() at the
+ * queue site; matched by css_put() here.
+ */
+static void kill_css_finish_work_fn(struct work_struct *work)
+{
+	struct cgroup_subsys_state *css =
+		container_of(work, struct cgroup_subsys_state, kill_finish_work);
+
+	cgroup_lock();
+	kill_css_finish(css);
+	cgroup_unlock();
+	css_put(css);
+}
+
 static void init_and_link_css(struct cgroup_subsys_state *css,
 			      struct cgroup_subsys *ss, struct cgroup *cgrp)
 {
@@ -5708,6 +5718,7 @@ static void init_and_link_css(struct cgroup_subsys_state *css,
 	css->id = -1;
 	INIT_LIST_HEAD(&css->sibling);
 	INIT_LIST_HEAD(&css->children);
+	INIT_WORK(&css->kill_finish_work, kill_css_finish_work_fn);
 	css->serial_nr = css_serial_nr_next++;
 	atomic_set(&css->online_cnt, 0);
 
@@ -6084,6 +6095,13 @@ static void kill_css_sync(struct cgroup_subsys_state *css)
 	css->flags |= CSS_DYING;
 
 	/*
+	 * Pair with smp_mb() in css_update_populated(). Either our
+	 * caller observes the walker's decrement and fires
+	 * synchronously, or the walker observes CSS_DYING and queues.
+	 */
+	smp_mb();
+
+	/*
 	 * This must happen before css is disassociated with its cgroup.
 	 * See seq_css() for details.
 	 */
@@ -6158,9 +6176,9 @@ static void kill_css_finish(struct cgroup_subsys_state *css)
  * - This function: synchronous user-visible state teardown plus kill_css_sync()
  *   on each subsystem css.
  *
- * - cgroup_finish_destroy(): kicks the percpu_ref kill via kill_css_finish() on
- *   each subsystem css. Fires once @cgrp's subtree is fully drained, either
- *   inline here or from css_update_populated().
+ * - For each subsys css: fire kill_css_finish() synchronously if the subtree is
+ *   already drained, otherwise rely on css_update_populated() to queue
+ *   kill_finish_work when the last populated cset under the css empties.
  *
  * - The percpu_ref kill chain: css_killed_ref_fn -> css_killed_work_fn ->
  *   ->css_offline() -> release/free.
@@ -6238,28 +6256,13 @@ static int cgroup_destroy_locked(struct cgroup *cgrp)
 	/* put the base reference */
 	percpu_ref_kill(&cgrp->self.refcnt);
 
-	if (!cgroup_is_populated(cgrp))
-		cgroup_finish_destroy(cgrp);
+	for_each_css(css, ssid, cgrp) {
+		if (!css_is_populated(css))
+			kill_css_finish(css);
+	}
 
 	return 0;
 };
-
-/**
- * cgroup_finish_destroy - deferred half of @cgrp destruction
- * @cgrp: cgroup whose subtree just became empty
- *
- * See cgroup_destroy_locked() for the rationale.
- */
-static void cgroup_finish_destroy(struct cgroup *cgrp)
-{
-	struct cgroup_subsys_state *css;
-	int ssid;
-
-	lockdep_assert_held(&cgroup_mutex);
-
-	for_each_css(css, ssid, cgrp)
-		kill_css_finish(css);
-}
 
 int cgroup_rmdir(struct kernfs_node *kn)
 {
