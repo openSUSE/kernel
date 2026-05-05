@@ -166,9 +166,9 @@ static int rmi_f12_read_sensor_tuning(struct f12_data *f12)
 						RMI_F12_QUERY_RESOLUTION);
 		query_dpm_addr = fn->fd.query_base_addr	+ offset;
 		ret = rmi_read(fn->rmi_dev, query_dpm_addr, buf);
-		if (ret < 0) {
+		if (ret) {
 			dev_err(&fn->dev, "Failed to read DPM value: %d\n", ret);
-			return -ENODEV;
+			return ret;
 		}
 		dpm_resolution = buf[0];
 
