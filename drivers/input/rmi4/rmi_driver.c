@@ -872,9 +872,7 @@ static int rmi_create_function(struct rmi_device *rmi_dev,
 	rmi_dbg(RMI_DEBUG_CORE, dev, "Initializing F%02X.\n",
 			pdt->function_number);
 
-	fn = kzalloc(sizeof(struct rmi_function) +
-			BITS_TO_LONGS(data->irq_count) * sizeof(unsigned long),
-		     GFP_KERNEL);
+	fn = rmi_alloc_function(rmi_dev, pdt->function_number);
 	if (!fn) {
 		dev_err(dev, "Failed to allocate memory for F%02X\n",
 			pdt->function_number);
@@ -884,8 +882,6 @@ static int rmi_create_function(struct rmi_device *rmi_dev,
 	INIT_LIST_HEAD(&fn->node);
 	rmi_driver_copy_pdt_to_fd(pdt, &fn->fd);
 
-	fn->rmi_dev = rmi_dev;
-
 	fn->num_of_irqs = pdt->interrupt_source_count;
 	fn->irq_pos = *current_irq_count;
 	*current_irq_count += fn->num_of_irqs;
@@ -894,8 +890,10 @@ static int rmi_create_function(struct rmi_device *rmi_dev,
 		set_bit(fn->irq_pos + i, fn->irq_mask);
 
 	error = rmi_register_function(fn);
-	if (error)
+	if (error) {
+		put_device(&fn->dev);
 		return error;
+	}
 
 	if (pdt->function_number == 0x01)
 		data->f01_container = fn;
