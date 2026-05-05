@@ -56,7 +56,7 @@ intel_de_read64_2x32_volatile(struct intel_display *display,
 static inline u64
 intel_de_read64_2x32(struct intel_display *display, intel_reg_t reg)
 {
-	intel_reg_t upper_reg = _MMIO(i915_mmio_reg_offset(reg) + 4);
+	intel_reg_t upper_reg = _MMIO(intel_reg_offset(reg) + 4);
 	u32 lower, upper;
 
 	lower = intel_de_read(display, reg);

@@ -2117,7 +2117,7 @@ static inline bool intel_encoder_is_dp(struct intel_encoder *encoder)
 		return true;
 	case INTEL_OUTPUT_DDI:
 		/* Skip pure HDMI/DVI DDI encoders */
-		return i915_mmio_reg_valid(enc_to_intel_dp(encoder)->output_reg);
+		return intel_reg_valid(enc_to_intel_dp(encoder)->output_reg);
 	default:
 		return false;
 	}
@@ -2130,7 +2130,7 @@ static inline bool intel_encoder_is_hdmi(struct intel_encoder *encoder)
 		return true;
 	case INTEL_OUTPUT_DDI:
 		/* See if the HDMI encoder is valid. */
-		return i915_mmio_reg_valid(enc_to_intel_hdmi(encoder)->hdmi_reg);
+		return intel_reg_valid(enc_to_intel_hdmi(encoder)->hdmi_reg);
 	default:
 		return false;
 	}

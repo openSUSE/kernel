@@ -10,6 +10,21 @@
 
 typedef i915_reg_t intel_reg_t;
 
+static inline u32 intel_reg_offset(intel_reg_t r)
+{
+	return r.reg;
+}
+
+static inline bool intel_reg_equal(intel_reg_t a, intel_reg_t b)
+{
+	return intel_reg_offset(a) == intel_reg_offset(b);
+}
+
+static inline bool intel_reg_valid(intel_reg_t r)
+{
+	return !intel_reg_equal(r, INVALID_MMIO_REG);
+}
+
 /* A triplet for IMR/IER/IIR registers. */
 struct intel_irq_regs {
 	intel_reg_t imr;

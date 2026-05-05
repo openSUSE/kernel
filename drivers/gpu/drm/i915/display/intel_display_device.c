@@ -1525,7 +1525,7 @@ probe_gmdid_display(struct intel_display *display, struct intel_display_ip_ver *
 	u32 val;
 	int i;
 
-	addr = pci_iomap_range(pdev, 0, i915_mmio_reg_offset(GMD_ID_DISPLAY), sizeof(u32));
+	addr = pci_iomap_range(pdev, 0, intel_reg_offset(GMD_ID_DISPLAY), sizeof(u32));
 	if (!addr) {
 		drm_err(display->drm,
 			"Cannot map MMIO BAR to read display GMD_ID\n");

@@ -3842,9 +3842,9 @@ static void icl_dpll_write(struct intel_display *display,
 	intel_de_write(display, cfgcr0_reg, hw_state->cfgcr0);
 	intel_de_write(display, cfgcr1_reg, hw_state->cfgcr1);
 	drm_WARN_ON_ONCE(display->drm, display->vbt.override_afc_startup &&
-			 !i915_mmio_reg_valid(div0_reg));
+			 !intel_reg_valid(div0_reg));
 	if (display->vbt.override_afc_startup &&
-	    i915_mmio_reg_valid(div0_reg))
+	    intel_reg_valid(div0_reg))
 		intel_de_rmw(display, div0_reg,
 			     TGL_DPLL0_DIV0_AFC_STARTUP_MASK, hw_state->div0);
 	intel_de_posting_read(display, cfgcr1_reg);

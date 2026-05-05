@@ -56,7 +56,7 @@ static void assert_iir_is_zero(struct intel_display *display, intel_reg_t reg)
 
 	drm_WARN(display->drm, 1,
 		 "Interrupt register 0x%x is not zero: 0x%08x\n",
-		 i915_mmio_reg_offset(reg), val);
+		 intel_reg_offset(reg), val);
 	intel_de_write(display, reg, 0xffffffff);
 	intel_de_posting_read(display, reg);
 	intel_de_write(display, reg, 0xffffffff);

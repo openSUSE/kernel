@@ -227,7 +227,7 @@ static void __intel_dmc_wl_take(struct intel_display *display)
 static bool intel_dmc_wl_reg_in_range(intel_reg_t reg,
 				      const struct intel_dmc_wl_range ranges[])
 {
-	u32 offset = i915_mmio_reg_offset(reg);
+	u32 offset = intel_reg_offset(reg);
 
 	for (int i = 0; ranges[i].start; i++) {
 		u32 end = ranges[i].end ?: ranges[i].start;
@@ -441,7 +441,7 @@ void intel_dmc_wl_get(struct intel_display *display, intel_reg_t reg)
 
 	spin_lock_irqsave(&wl->lock, flags);
 
-	if (i915_mmio_reg_valid(reg) &&
+	if (intel_reg_valid(reg) &&
 	    !intel_dmc_wl_check_range(display, reg, wl->dc_state))
 		goto out_unlock;
 
@@ -474,7 +474,7 @@ void intel_dmc_wl_put(struct intel_display *display, intel_reg_t reg)
 
 	spin_lock_irqsave(&wl->lock, flags);
 
-	if (i915_mmio_reg_valid(reg) &&
+	if (intel_reg_valid(reg) &&
 	    !intel_dmc_wl_check_range(display, reg, wl->dc_state))
 		goto out_unlock;
 
