@@ -639,16 +639,29 @@ static inline bool task_under_cgroup_hierarchy(struct task_struct *task,
 	return cgroup_is_descendant(cset->dfl_cgrp, ancestor);
 }
 
+/*
+ * Populated counters: writes happen under css_set_lock. The accessors below
+ * may read unlocked. What an unpopulated result means depends on context:
+ *
+ * - No lock held. Just a snapshot. May race with concurrent updates and is
+ *   useful only as a hint.
+ *
+ * - cgroup_mutex held. Migration into the cgroup is blocked, so an observed
+ *   !populated stays !populated until cgroup_mutex is dropped.
+ *
+ * - CSS_DYING set. The css can no longer be repopulated, so !populated is
+ *   sticky once observed.
+ */
 static inline bool cgroup_has_tasks(struct cgroup *cgrp)
 {
-	return cgrp->nr_populated_csets;
+	return READ_ONCE(cgrp->nr_populated_csets);
 }
 
-/* no synchronization, the result can only be used as a hint */
 static inline bool cgroup_is_populated(struct cgroup *cgrp)
 {
-	return cgrp->nr_populated_csets + cgrp->nr_populated_domain_children +
-		cgrp->nr_populated_threaded_children;
+	return READ_ONCE(cgrp->nr_populated_csets) +
+		READ_ONCE(cgrp->nr_populated_domain_children) +
+		READ_ONCE(cgrp->nr_populated_threaded_children);
 }
 
 /* returns ino associated with a cgroup */

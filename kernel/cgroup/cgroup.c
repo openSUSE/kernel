@@ -404,7 +404,7 @@ static bool cgroup_can_be_thread_root(struct cgroup *cgrp)
 		return false;
 
 	/* can only have either domain or threaded children */
-	if (cgrp->nr_populated_domain_children)
+	if (READ_ONCE(cgrp->nr_populated_domain_children))
 		return false;
 
 	/* and no domain controllers can be enabled */
@@ -783,12 +783,15 @@ static void cgroup_update_populated(struct cgroup *cgrp, bool populated)
 		bool was_populated = cgroup_is_populated(cgrp);
 
 		if (!child) {
-			cgrp->nr_populated_csets += adj;
+			WRITE_ONCE(cgrp->nr_populated_csets,
+				   cgrp->nr_populated_csets + adj);
 		} else {
 			if (cgroup_is_threaded(child))
-				cgrp->nr_populated_threaded_children += adj;
+				WRITE_ONCE(cgrp->nr_populated_threaded_children,
+					   cgrp->nr_populated_threaded_children + adj);
 			else
-				cgrp->nr_populated_domain_children += adj;
+				WRITE_ONCE(cgrp->nr_populated_domain_children,
+					   cgrp->nr_populated_domain_children + adj);
 		}
 
 		if (was_populated == cgroup_is_populated(cgrp))
