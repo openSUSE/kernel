@@ -137,7 +137,7 @@ static const struct pmc_bit_map *ext_ptl_pcdp_pfear_map[] = {
 	NULL
 };
 
-static const struct pmc_bit_map ptl_pcdp_ltr_show_map[] = {
+const struct pmc_bit_map ptl_pcdp_ltr_show_map[] = {
 	{"SOUTHPORT_A",		CNP_PMC_LTR_SPA},
 	{"SOUTHPORT_B",		CNP_PMC_LTR_SPB},
 	{"SATA",		CNP_PMC_LTR_SATA},
