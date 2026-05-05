@@ -74,6 +74,7 @@ config MSHV_ROOT
 	# no particular order, making it impossible to reassemble larger pages
 	depends on PAGE_SIZE_4KB
 	select EVENTFD
+	select VIRT_XFER_TO_GUEST_WORK
 	select HMM_MIRROR
 	select MMU_NOTIFIER
 	default n
