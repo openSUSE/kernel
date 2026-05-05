@@ -882,9 +882,12 @@ no_dma:
 	qspi->current_cs = -1;
 
 	ret = spi_register_controller(host);
-	if (!ret)
-		return 0;
+	if (ret)
+		goto err_free_dma;
 
+	return 0;
+
+err_free_dma:
 	ti_qspi_dma_cleanup(qspi);
 
 	pm_runtime_disable(&pdev->dev);
