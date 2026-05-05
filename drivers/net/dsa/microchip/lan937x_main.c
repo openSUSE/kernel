@@ -667,6 +667,13 @@ static void lan937x_switch_exit(struct ksz_device *dev)
 	lan937x_reset_switch(dev);
 }
 
+static enum dsa_tag_protocol lan937x_get_tag_protocol(struct dsa_switch *ds,
+						      int port,
+						      enum dsa_tag_protocol mp)
+{
+	return DSA_TAG_PROTO_LAN937X;
+}
+
 const struct phylink_mac_ops lan937x_phylink_mac_ops = {
 	.mac_config	= ksz_phylink_mac_config,
 	.mac_link_down	= ksz_phylink_mac_link_down,
@@ -714,7 +721,7 @@ const struct ksz_dev_ops lan937x_dev_ops = {
 };
 
 const struct dsa_switch_ops lan937x_switch_ops = {
-	.get_tag_protocol	= ksz_get_tag_protocol,
+	.get_tag_protocol	= lan937x_get_tag_protocol,
 	.connect_tag_protocol   = ksz_connect_tag_protocol,
 	.get_phy_flags		= ksz_get_phy_flags,
 	.setup			= ksz_setup,

@@ -473,9 +473,6 @@ void ksz_teardown(struct dsa_switch *ds);
 int ksz_port_setup(struct dsa_switch *ds, int port);
 void ksz_port_teardown(struct dsa_switch *ds, int port);
 
-enum dsa_tag_protocol ksz_get_tag_protocol(struct dsa_switch *ds,
-					   int port,
-					   enum dsa_tag_protocol mp);
 int ksz_connect_tag_protocol(struct dsa_switch *ds,
 			     enum dsa_tag_protocol proto);
 void ksz_init_mib_timer(struct ksz_device *dev);

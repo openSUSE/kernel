@@ -3304,37 +3304,6 @@ int ksz_port_bridge_flags(struct dsa_switch *ds, int port,
 	return 0;
 }
 
-enum dsa_tag_protocol ksz_get_tag_protocol(struct dsa_switch *ds,
-					   int port,
-					   enum dsa_tag_protocol mp)
-{
-	struct ksz_device *dev = ds->priv;
-	enum dsa_tag_protocol proto = DSA_TAG_PROTO_NONE;
-
-	if (ksz_is_ksz87xx(dev) || ksz_is_8895_family(dev))
-		proto = DSA_TAG_PROTO_KSZ8795;
-
-	if (dev->chip_id == KSZ88X3_CHIP_ID ||
-	    dev->chip_id == KSZ8463_CHIP_ID ||
-	    dev->chip_id == KSZ8563_CHIP_ID ||
-	    dev->chip_id == KSZ9893_CHIP_ID ||
-	    dev->chip_id == KSZ9563_CHIP_ID)
-		proto = DSA_TAG_PROTO_KSZ9893;
-
-	if (dev->chip_id == KSZ8567_CHIP_ID ||
-	    dev->chip_id == KSZ9477_CHIP_ID ||
-	    dev->chip_id == KSZ9896_CHIP_ID ||
-	    dev->chip_id == KSZ9897_CHIP_ID ||
-	    dev->chip_id == KSZ9567_CHIP_ID ||
-	    dev->chip_id == LAN9646_CHIP_ID)
-		proto = DSA_TAG_PROTO_KSZ9477;
-
-	if (is_lan937x(dev))
-		proto = DSA_TAG_PROTO_LAN937X;
-
-	return proto;
-}
-
 int ksz_connect_tag_protocol(struct dsa_switch *ds,
 			     enum dsa_tag_protocol proto)
 {
