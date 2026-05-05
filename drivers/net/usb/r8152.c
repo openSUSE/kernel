@@ -4663,10 +4663,11 @@ static bool rtl8152_is_fw_phy_speed_up_ok(struct r8152 *tp, struct fw_phy_speed_
 	case RTL_VER_11:
 	case RTL_VER_12:
 	case RTL_VER_14:
-	case RTL_VER_16:
 		goto out;
 	case RTL_VER_13:
 	case RTL_VER_15:
+	case RTL_VER_16:
+	case RTL_VER_17:
 	default:
 		break;
 	}
@@ -7982,12 +7983,14 @@ static void r8157_hw_phy_cfg(struct r8152 *tp)
 	data = r8153_phy_status(tp, 0);
 	switch (data) {
 	case PHY_STAT_EXT_INIT:
+		rtl8152_apply_firmware(tp, true);
 		ocp_reg_clr_bits(tp, 0xa466, BIT(0));
 		ocp_reg_clr_bits(tp, 0xa468, BIT(3) | BIT(1));
 		break;
 	case PHY_STAT_LAN_ON:
 	case PHY_STAT_PWRDN:
 	default:
+		rtl8152_apply_firmware(tp, false);
 		break;
 	}
 
@@ -9926,6 +9929,8 @@ static int rtl_ops_init(struct r8152 *tp)
 #define FIRMWARE_8153C_1	"rtl_nic/rtl8153c-1.fw"
 #define FIRMWARE_8156A_2	"rtl_nic/rtl8156a-2.fw"
 #define FIRMWARE_8156B_2	"rtl_nic/rtl8156b-2.fw"
+#define FIRMWARE_8157_1		"rtl_nic/rtl8157-1.fw"
+#define FIRMWARE_8159_1		"rtl_nic/rtl8159-1.fw"
 
 MODULE_FIRMWARE(FIRMWARE_8153A_2);
 MODULE_FIRMWARE(FIRMWARE_8153A_3);
@@ -9934,6 +9939,8 @@ MODULE_FIRMWARE(FIRMWARE_8153B_2);
 MODULE_FIRMWARE(FIRMWARE_8153C_1);
 MODULE_FIRMWARE(FIRMWARE_8156A_2);
 MODULE_FIRMWARE(FIRMWARE_8156B_2);
+MODULE_FIRMWARE(FIRMWARE_8157_1);
+MODULE_FIRMWARE(FIRMWARE_8159_1);
 
 static int rtl_fw_init(struct r8152 *tp)
 {
@@ -9971,6 +9978,12 @@ static int rtl_fw_init(struct r8152 *tp)
 		rtl_fw->fw_name		= FIRMWARE_8153C_1;
 		rtl_fw->pre_fw		= r8153b_pre_firmware_1;
 		rtl_fw->post_fw		= r8153c_post_firmware_1;
+		break;
+	case RTL_VER_16:
+		rtl_fw->fw_name		= FIRMWARE_8157_1;
+		break;
+	case RTL_VER_17:
+		rtl_fw->fw_name		= FIRMWARE_8159_1;
 		break;
 	default:
 		break;
