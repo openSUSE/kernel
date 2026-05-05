@@ -460,7 +460,9 @@ struct ksz_dev_ops {
 	int (*pcs_create)(struct ksz_device *dev);
 };
 
-struct ksz_device *ksz_switch_alloc(struct device *base, void *priv);
+struct ksz_device *ksz_switch_alloc(struct device *base,
+				    const struct ksz_chip_data *chip,
+				    void *priv);
 int ksz_switch_register(struct ksz_device *dev);
 void ksz_switch_remove(struct ksz_device *dev);
 int ksz_switch_suspend(struct device *dev);
