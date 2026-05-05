@@ -1325,16 +1325,15 @@ static struct telem_endpoint *pmc_core_register_endpoint(struct pci_dev *pcidev,
 void pmc_core_punit_pmt_init(struct pmc_dev *pmcdev, u32 *guids)
 {
 	struct telem_endpoint *ep;
-	struct pci_dev *pcidev;
 
-	pcidev = pci_get_domain_bus_and_slot(0, 0, PCI_DEVFN(10, 0));
+	struct pci_dev *pcidev __free(pci_dev_put) = pci_get_domain_bus_and_slot(0, 0,
+										 PCI_DEVFN(10, 0));
 	if (!pcidev) {
 		dev_err(&pmcdev->pdev->dev, "PUNIT PMT device not found.");
 		return;
 	}
 
 	ep = pmc_core_register_endpoint(pcidev, guids);
-	pci_dev_put(pcidev);
 	if (IS_ERR(ep)) {
 		dev_err(&pmcdev->pdev->dev,
 			"pmc_core: couldn't get DMU telem endpoint %ld",
