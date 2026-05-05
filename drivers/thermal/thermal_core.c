@@ -963,6 +963,101 @@ static void thermal_cdev_release(struct device *dev)
 	kfree(cdev);
 }
 
+static struct thermal_cooling_device *
+thermal_cooling_device_alloc(const char *type, const struct thermal_cooling_device_ops *ops)
+{
+	struct thermal_cooling_device *cdev;
+	int ret;
+
+	if (!ops || !ops->get_max_state || !ops->get_cur_state ||
+	    !ops->set_cur_state)
+		return ERR_PTR(-EINVAL);
+
+	if (!thermal_class)
+		return ERR_PTR(-ENODEV);
+
+	cdev = kzalloc_obj(*cdev);
+	if (!cdev)
+		return ERR_PTR(-ENOMEM);
+
+	cdev->ops = ops;
+
+	ret = ida_alloc(&thermal_cdev_ida, GFP_KERNEL);
+	if (ret < 0)
+		goto out_kfree_cdev;
+	cdev->id = ret;
+
+	cdev->type = kstrdup_const(type ? type : "", GFP_KERNEL);
+	if (!cdev->type) {
+		ret = -ENOMEM;
+		goto out_ida_remove;
+	}
+
+	return cdev;
+
+out_ida_remove:
+	ida_free(&thermal_cdev_ida, cdev->id);
+out_kfree_cdev:
+	kfree(cdev);
+	return ERR_PTR(ret);
+}
+
+static int thermal_cooling_device_add(struct thermal_cooling_device *cdev, void *devdata)
+{
+	unsigned long current_state;
+	int ret;
+
+	mutex_init(&cdev->lock);
+	INIT_LIST_HEAD(&cdev->thermal_instances);
+	cdev->updated = false;
+	cdev->device.class = thermal_class;
+	cdev->device.release = thermal_cdev_release;
+	device_initialize(&cdev->device);
+	cdev->devdata = devdata;
+
+	thermal_cooling_device_setup_sysfs(cdev);
+
+	ret = dev_set_name(&cdev->device, "cooling_device%d", cdev->id);
+	if (ret)
+		goto out_put_device;
+
+	ret = cdev->ops->get_max_state(cdev, &cdev->max_state);
+	if (ret)
+		goto out_put_device;
+
+	/*
+	 * The cooling device's current state is only needed for debug
+	 * initialization below, so a failure to get it does not cause
+	 * the entire cooling device initialization to fail.  However,
+	 * the debug will not work for the device if its initial state
+	 * cannot be determined and drivers are responsible for ensuring
+	 * that this will not happen.
+	 */
+	ret = cdev->ops->get_cur_state(cdev, &current_state);
+	if (ret)
+		current_state = ULONG_MAX;
+
+	ret = device_add(&cdev->device);
+	if (ret)
+		goto out_put_device;
+
+	if (current_state <= cdev->max_state)
+		thermal_debug_cdev_add(cdev, current_state);
+
+	thermal_cooling_device_init_complete(cdev);
+
+	return 0;
+
+out_put_device:
+	/*
+	 * The device core will release the memory via
+	 * thermal_release() after put_device() is called in the error
+	 * path
+	 */
+	put_device(&cdev->device);
+	return ret;
+}
+
 /**
  * __thermal_cooling_device_register() - register a new thermal cooling device
  * @np:		a pointer to a device tree node.
@@ -985,85 +1080,19 @@ __thermal_cooling_device_register(struct device_node *np,
 				  const struct thermal_cooling_device_ops *ops)
 {
 	struct thermal_cooling_device *cdev;
-	unsigned long current_state;
 	int ret;
 
-	if (!ops || !ops->get_max_state || !ops->get_cur_state ||
-	    !ops->set_cur_state)
-		return ERR_PTR(-EINVAL);
+	cdev = thermal_cooling_device_alloc(type, ops);
+	if (IS_ERR(cdev))
+		return cdev;
 
-	if (!thermal_class)
-		return ERR_PTR(-ENODEV);
-
-	cdev = kzalloc_obj(*cdev);
-	if (!cdev)
-		return ERR_PTR(-ENOMEM);
-
-	ret = ida_alloc(&thermal_cdev_ida, GFP_KERNEL);
-	if (ret < 0)
-		goto out_kfree_cdev;
-	cdev->id = ret;
-
-	cdev->type = kstrdup_const(type ? type : "", GFP_KERNEL);
-	if (!cdev->type) {
-		ret = -ENOMEM;
-		goto out_ida_remove;
-	}
-
-	mutex_init(&cdev->lock);
-	INIT_LIST_HEAD(&cdev->thermal_instances);
 	cdev->np = np;
-	cdev->ops = ops;
-	cdev->updated = false;
-	cdev->device.class = thermal_class;
-	cdev->device.release = thermal_cdev_release;
-	cdev->devdata = devdata;
 
-	ret = cdev->ops->get_max_state(cdev, &cdev->max_state);
+	ret = thermal_cooling_device_add(cdev, devdata);
 	if (ret)
-		goto out_cdev_type;
-
-	/*
-	 * The cooling device's current state is only needed for debug
-	 * initialization below, so a failure to get it does not cause
-	 * the entire cooling device initialization to fail.  However,
-	 * the debug will not work for the device if its initial state
-	 * cannot be determined and drivers are responsible for ensuring
-	 * that this will not happen.
-	 */
-	ret = cdev->ops->get_cur_state(cdev, &current_state);
-	if (ret)
-		current_state = ULONG_MAX;
-
-	thermal_cooling_device_setup_sysfs(cdev);
-
-	ret = dev_set_name(&cdev->device, "cooling_device%d", cdev->id);
-	if (ret)
-		goto out_cooling_dev;
-
-	ret = device_register(&cdev->device);
-	if (ret) {
-		/* thermal_release() handles rest of the cleanup */
-		put_device(&cdev->device);
 		return ERR_PTR(ret);
-	}
-
-	if (current_state <= cdev->max_state)
-		thermal_debug_cdev_add(cdev, current_state);
-
-	thermal_cooling_device_init_complete(cdev);
 
 	return cdev;
-
-out_cooling_dev:
-	thermal_cooling_device_destroy_sysfs(cdev);
-out_cdev_type:
-	kfree_const(cdev->type);
-out_ida_remove:
-	ida_free(&thermal_cdev_ida, cdev->id);
-out_kfree_cdev:
-	kfree(cdev);
-	return ERR_PTR(ret);
 }
 
 /**
