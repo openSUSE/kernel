@@ -1734,16 +1734,17 @@ static int pmc_core_pmc_add(struct pmc_dev *pmcdev, unsigned int pmc_idx)
 	return 0;
 }
 
-static int pmc_core_ssram_get_reg_base(struct pmc_dev *pmcdev)
+static int pmc_core_ssram_get_reg_base(struct pmc_dev *pmcdev, u8 num_pmcs, const u8 *pmc_list)
 {
+	unsigned int i;
 	int ret;
 
-	ret = pmc_core_pmc_add(pmcdev, PMC_IDX_MAIN);
-	if (ret)
-		return ret;
-
-	pmc_core_pmc_add(pmcdev, PMC_IDX_IOE);
-	pmc_core_pmc_add(pmcdev, PMC_IDX_PCH);
+	for (i = 0; i < num_pmcs; ++i) {
+		/* Non-MAIN PMCs are allowed to fail */
+		ret = pmc_core_pmc_add(pmcdev, pmc_list[i]);
+		if (ret && (pmc_list[i] == PMC_IDX_MAIN))
+			return ret;
+	}
 
 	return 0;
 }
@@ -1765,7 +1766,9 @@ int generic_core_init(struct pmc_dev *pmcdev, struct pmc_dev_info *pmc_dev_info)
 	ssram = pmc_dev_info->regmap_list != NULL;
 	if (ssram) {
 		pmcdev->regmap_list = pmc_dev_info->regmap_list;
-		ret = pmc_core_ssram_get_reg_base(pmcdev);
+		ret = pmc_core_ssram_get_reg_base(pmcdev,
+						  pmc_dev_info->num_pmcs,
+						  pmc_dev_info->pmc_list);
 		/*
 		 * EAGAIN error code indicates Intel PMC SSRAM Telemetry driver
 		 * has not finished probe and PMC info is not available yet. Try
