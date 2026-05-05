@@ -1171,14 +1171,10 @@ static void rspi_remove(struct platform_device *pdev)
 {
 	struct rspi_data *rspi = platform_get_drvdata(pdev);
 
-	spi_controller_get(rspi->ctlr);
-
 	spi_unregister_controller(rspi->ctlr);
 
 	rspi_release_dma(rspi->ctlr);
 	pm_runtime_disable(&pdev->dev);
-
-	spi_controller_put(rspi->ctlr);
 }
 
 static const struct spi_ops rspi_ops = {
@@ -1294,7 +1290,7 @@ static int rspi_probe(struct platform_device *pdev)
 	const struct spi_ops *ops;
 	unsigned long clksrc;
 
-	ctlr = spi_alloc_host(&pdev->dev, sizeof(struct rspi_data));
+	ctlr = devm_spi_alloc_host(&pdev->dev, sizeof(struct rspi_data));
 	if (ctlr == NULL)
 		return -ENOMEM;
 
@@ -1302,7 +1298,7 @@ static int rspi_probe(struct platform_device *pdev)
 	if (ops) {
 		ret = rspi_parse_dt(&pdev->dev, ctlr);
 		if (ret)
-			goto error1;
+			return ret;
 	} else {
 		ops = (struct spi_ops *)pdev->id_entry->driver_data;
 		ctlr->num_chipselect = 2; /* default */
@@ -1314,16 +1310,13 @@ static int rspi_probe(struct platform_device *pdev)
 	rspi->ctlr = ctlr;
 
 	rspi->addr = devm_platform_get_and_ioremap_resource(pdev, 0, &res);
-	if (IS_ERR(rspi->addr)) {
-		ret = PTR_ERR(rspi->addr);
-		goto error1;
-	}
+	if (IS_ERR(rspi->addr))
+		return PTR_ERR(rspi->addr);
 
 	rspi->clk = devm_clk_get(&pdev->dev, NULL);
 	if (IS_ERR(rspi->clk)) {
 		dev_err(&pdev->dev, "cannot get clock\n");
-		ret = PTR_ERR(rspi->clk);
-		goto error1;
+		return PTR_ERR(rspi->clk);
 	}
 
 	rspi->pdev = pdev;
@@ -1396,8 +1389,6 @@ error3:
 	rspi_release_dma(ctlr);
 error2:
 	pm_runtime_disable(&pdev->dev);
-error1:
-	spi_controller_put(ctlr);
 
 	return ret;
 }
