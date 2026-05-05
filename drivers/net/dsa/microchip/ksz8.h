@@ -61,7 +61,6 @@ void ksz8_phylink_mac_link_up(struct phylink_config *config,
 			      struct phy_device *phydev, unsigned int mode,
 			      phy_interface_t interface, int speed, int duplex,
 			      bool tx_pause, bool rx_pause);
-int ksz8_all_queues_split(struct ksz_device *dev, int queues);
 
 u32 ksz8463_get_port_addr(int port, int offset);
 int ksz8463_r_phy(struct ksz_device *dev, u16 phy, u16 reg, u16 *val);
