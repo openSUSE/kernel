@@ -522,15 +522,6 @@ sc1200wdt:
 
 -------------------------------------------------
 
-sc520_wdt:
-    timeout:
-	Watchdog timeout in seconds. (1 <= timeout <= 3600, default=30)
-    nowayout:
-	Watchdog cannot be stopped once started
-	(default=kernel config parameter)
-
--------------------------------------------------
-
 sch311x_wdt:
     force_id:
 	Override the detected device ID
