@@ -63,3 +63,21 @@ int aie4_query_aie_metadata(struct amdxdna_dev_hdl *ndev,
 
 	return 0;
 }
+
+int aie4_attach_work_buffer(struct amdxdna_dev_hdl *ndev)
+{
+	DECLARE_AIE_MSG(aie4_msg_attach_work_buffer, AIE4_MSG_OP_ATTACH_WORK_BUFFER);
+	struct amdxdna_dev *xdna = ndev->aie.xdna;
+	int ret;
+
+	req.buff_addr = ndev->work_buf_addr;
+	req.buff_size = AIE4_WORK_BUFFER_MIN_SIZE;
+
+	ret = aie_send_mgmt_msg_wait(&ndev->aie, &msg);
+	if (ret)
+		XDNA_ERR(xdna, "Failed to attach work buffer, ret %d", ret);
+	else
+		XDNA_DBG(xdna, "Attached work buffer");
+
+	return ret;
+}

@@ -131,3 +131,37 @@ int amdxdna_get_metadata(struct aie_device *aie,
 
 	return ret;
 }
+
+void *amdxdna_alloc_msg_buffer(struct amdxdna_dev *xdna, u32 *size,
+			       dma_addr_t *dma_addr)
+{
+	void *vaddr;
+	int order;
+
+	*size = max_t(u32, *size, SZ_8K);
+	order = get_order(*size);
+	if (order > MAX_PAGE_ORDER)
+		return ERR_PTR(-EINVAL);
+	*size = PAGE_SIZE << order;
+
+	if (amdxdna_iova_on(xdna))
+		return amdxdna_iommu_alloc(xdna, *size, dma_addr);
+
+	vaddr = dma_alloc_noncoherent(xdna->ddev.dev, *size, dma_addr,
+				      DMA_FROM_DEVICE, GFP_KERNEL);
+	if (!vaddr)
+		return ERR_PTR(-ENOMEM);
+
+	return vaddr;
+}
+
+void amdxdna_free_msg_buffer(struct amdxdna_dev *xdna, size_t size,
+			     void *cpu_addr, dma_addr_t dma_addr)
+{
+	if (amdxdna_iova_on(xdna)) {
+		amdxdna_iommu_free(xdna, size, cpu_addr, dma_addr);
+		return;
+	}
+
+	dma_free_noncoherent(xdna->ddev.dev, size, cpu_addr, dma_addr, DMA_FROM_DEVICE);
+}
