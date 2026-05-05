@@ -493,7 +493,6 @@ static int wcl_core_init(struct pmc_dev *pmcdev, struct pmc_dev_info *pmc_dev_in
 }
 
 struct pmc_dev_info wcl_pmc_dev = {
-	.pci_func = 2,
 	.regmap_list = wcl_pmc_info_list,
 	.map = &wcl_pcdn_reg_map,
 	.sub_req_show = &pmc_core_substate_blk_req_fops,
@@ -501,4 +500,5 @@ struct pmc_dev_info wcl_pmc_dev = {
 	.resume = wcl_resume,
 	.init = wcl_core_init,
 	.sub_req = pmc_core_pmt_get_blk_sub_req,
+	.ssram_hidden = true,
 };

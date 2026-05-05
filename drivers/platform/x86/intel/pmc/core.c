@@ -1646,17 +1646,13 @@ int pmc_core_pmt_get_blk_sub_req(struct pmc_dev *pmcdev, struct pmc *pmc,
 
 static int pmc_core_get_telem_info(struct pmc_dev *pmcdev, struct pmc_dev_info *pmc_dev_info)
 {
-	struct pci_dev *pcidev __free(pci_dev_put) = NULL;
 	struct telem_endpoint *ep;
 	unsigned int pmc_idx;
 	int ret;
 
-	pcidev = pci_get_domain_bus_and_slot(0, 0, PCI_DEVFN(20, pmc_dev_info->pci_func));
-	if (!pcidev)
-		return -ENODEV;
-
 	for (pmc_idx = 0; pmc_idx < ARRAY_SIZE(pmcdev->pmcs); ++pmc_idx) {
 		struct pmc *pmc;
+		u16 devid;
 
 		pmc = pmcdev->pmcs[pmc_idx];
 		if (!pmc)
@@ -1664,6 +1660,16 @@ static int pmc_core_get_telem_info(struct pmc_dev *pmcdev, struct pmc_dev_info *
 
 		if (!pmc->map->lpm_req_guid)
 			return -ENXIO;
+
+		if (pmc_dev_info->ssram_hidden)
+			devid = pmcdev->pmcs[PMC_IDX_MAIN]->devid;
+		else
+			devid = pmc->devid;
+
+		struct pci_dev *pcidev __free(pci_dev_put) =
+			pci_get_device(PCI_VENDOR_ID_INTEL, devid, NULL);
+		if (!pcidev)
+			return -ENODEV;
 
 		ep = pmt_telem_find_and_register_endpoint(&pcidev->dev, pmc->map->lpm_req_guid, 0);
 		if (IS_ERR(ep)) {
@@ -1715,6 +1721,7 @@ static int pmc_core_pmc_add(struct pmc_dev *pmcdev, unsigned int pmc_idx)
 
 	pmc->map = map;
 	pmc->base_addr = pmc_ssram_telemetry.base_addr;
+	pmc->devid = pmc_ssram_telemetry.devid;
 	pmc->regbase = ioremap(pmc->base_addr, pmc->map->regmap_length);
 
 	if (!pmc->regbase) {
