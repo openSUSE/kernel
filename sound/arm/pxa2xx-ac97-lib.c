@@ -29,7 +29,6 @@ static DECLARE_WAIT_QUEUE_HEAD(gsr_wq);
 static volatile long gsr_bits;
 static struct clk *ac97_clk;
 static struct clk *ac97conf_clk;
-static int reset_gpio;
 struct gpio_desc *rst_gpio;
 static void __iomem *ac97_reg_base;
 
@@ -140,10 +139,10 @@ static inline void pxa_ac97_warm_pxa27x(void)
 	gsr_bits = 0;
 
 	/* warm reset broken on Bulverde, so manually keep AC97 reset high */
-	pxa27x_configure_ac97reset(reset_gpio, true);
+	pxa27x_configure_ac97reset(rst_gpio, true);
 	udelay(10);
 	writel(readl(ac97_reg_base + GCR) | (GCR_WARM_RST), ac97_reg_base + GCR);
-	pxa27x_configure_ac97reset(reset_gpio, false);
+	pxa27x_configure_ac97reset(rst_gpio, false);
 	udelay(500);
 }
 
@@ -328,24 +327,14 @@ int pxa2xx_ac97_hw_probe(struct platform_device *dev)
 		return PTR_ERR(ac97_reg_base);
 	}
 
-	if (dev->dev.of_node) {
-		/* Assert reset using GPIOD_OUT_HIGH, because reset is GPIO_ACTIVE_LOW */
-		rst_gpio = devm_gpiod_get(&dev->dev, "reset", GPIOD_OUT_HIGH);
-		if (IS_ERR(rst_gpio)) {
-			ret = PTR_ERR(rst_gpio);
-			if (ret == -ENOENT)
-				reset_gpio = -1;
-			else if (ret)
-				return ret;
-		} else {
-			reset_gpio = desc_to_gpio(rst_gpio);
-		}
-	} else {
-		if (cpu_is_pxa27x())
-			reset_gpio = 113;
-	}
-
 	if (cpu_is_pxa27x()) {
+		/* Assert reset using GPIOD_OUT_HIGH, because reset is GPIO_ACTIVE_LOW */
+		rst_gpio = devm_gpiod_get_optional(&dev->dev, "reset",
+						   GPIOD_OUT_HIGH);
+		if (IS_ERR(rst_gpio))
+			return dev_err_probe(&dev->dev, PTR_ERR(rst_gpio),
+					     "reset gpio failed\n");
+
 		/*
 		 * This gpio is needed for a work-around to a bug in the ac97
 		 * controller during warm reset.  The direction and level is set
@@ -353,7 +342,7 @@ int pxa2xx_ac97_hw_probe(struct platform_device *dev)
 		 * AC97_nRESET alt function to generic gpio.
 		 */
 		gpiod_set_consumer_name(rst_gpio, "pxa27x ac97 reset");
-		pxa27x_configure_ac97reset(reset_gpio, false);
+		pxa27x_configure_ac97reset(rst_gpio, false);
 
 		ac97conf_clk = clk_get(&dev->dev, "AC97CONFCLK");
 		if (IS_ERR(ac97conf_clk)) {

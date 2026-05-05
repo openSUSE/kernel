@@ -6,6 +6,6 @@
 #include <sound/pcm.h>
 #include <sound/ac97_codec.h>
 
-extern void pxa27x_configure_ac97reset(int reset_gpio, bool to_gpio);
+extern void pxa27x_configure_ac97reset(struct gpio_desc *reset_gpio, bool to_gpio);
 
 #endif
