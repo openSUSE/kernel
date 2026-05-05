@@ -1517,6 +1517,9 @@ struct task_struct {
 	/* KCOV descriptor wired with this task or NULL: */
 	struct kcov			*kcov;
 
+	/* KCOV descriptor for remote coverage collection from other tasks: */
+	struct kcov			*kcov_remote;
+
 	/* KCOV common handle for remote coverage collection: */
 	u64				kcov_handle;
 
