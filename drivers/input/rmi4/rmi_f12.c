@@ -61,6 +61,36 @@ struct f12_data {
 	unsigned long *rel_mask;
 };
 
+static int rmi_f12_read_register_descs(struct rmi_function *fn,
+				       struct f12_data *f12, u16 query_addr)
+{
+	struct {
+		struct rmi_register_descriptor *desc;
+		const char *name;
+	} descriptors[] = {
+		{ &f12->query_reg_desc, "Query" },
+		{ &f12->control_reg_desc, "Control" },
+		{ &f12->data_reg_desc, "Data" },
+	};
+	struct rmi_device *rmi_dev = fn->rmi_dev;
+	int error;
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(descriptors); i++) {
+		error = rmi_read_register_desc(rmi_dev, query_addr,
+					       descriptors[i].desc);
+		if (error) {
+			dev_err(&fn->dev,
+				"Failed to read the %s Register Descriptor: %d\n",
+				descriptors[i].name, error);
+			return error;
+		}
+		query_addr += 3;
+	}
+
+	return 0;
+}
+
 static int rmi_f12_read_sensor_tuning(struct f12_data *f12)
 {
 	const struct rmi_register_desc_item *item;
@@ -351,6 +381,7 @@ static int rmi_f12_probe(struct rmi_function *fn)
 	struct rmi_driver_data *drvdata = dev_get_drvdata(&rmi_dev->dev);
 	u16 data_offset = 0;
 	int mask_size;
+	int i;
 
 	rmi_dbg(RMI_DEBUG_FN, &fn->dev, "%s\n", __func__);
 
@@ -393,35 +424,9 @@ static int rmi_f12_probe(struct rmi_function *fn)
 		f12->sensor_pdata = pdata->sensor_pdata;
 	}
 
-	ret = rmi_read_register_desc(rmi_dev, query_addr,
-					&f12->query_reg_desc);
-	if (ret) {
-		dev_err(&fn->dev,
-			"Failed to read the Query Register Descriptor: %d\n",
-			ret);
+	ret = rmi_f12_read_register_descs(fn, f12, query_addr);
+	if (ret)
 		return ret;
-	}
-	query_addr += 3;
-
-	ret = rmi_read_register_desc(rmi_dev, query_addr,
-						&f12->control_reg_desc);
-	if (ret) {
-		dev_err(&fn->dev,
-			"Failed to read the Control Register Descriptor: %d\n",
-			ret);
-		return ret;
-	}
-	query_addr += 3;
-
-	ret = rmi_read_register_desc(rmi_dev, query_addr,
-						&f12->data_reg_desc);
-	if (ret) {
-		dev_err(&fn->dev,
-			"Failed to read the Data Register Descriptor: %d\n",
-			ret);
-		return ret;
-	}
-	query_addr += 3;
 
 	sensor = &f12->sensor;
 	sensor->fn = fn;
@@ -452,101 +457,61 @@ static int rmi_f12_probe(struct rmi_function *fn)
 		return ret;
 
 	/*
-	 * Figure out what data is contained in the data registers. HID devices
-	 * may have registers defined, but their data is not reported in the
-	 * HID attention report. Registers which are not reported in the HID
-	 * attention report check to see if the device is receiving data from
-	 * HID attention reports.
+	 * Identify available data registers and calculate their offsets within
+	 * the attention report. For HID devices, only Data1 and Data5 are
+	 * included in the report; other registers may be described but are
+	 * not transmitted in the attention packet and thus skipped here.
 	 */
-	item = rmi_get_register_desc_item(&f12->data_reg_desc, 0);
-	if (item && !drvdata->attn_data.data)
-		data_offset += item->reg_size;
+	for (i = 0; i < 16; i++) {
+		item = rmi_get_register_desc_item(&f12->data_reg_desc, i);
+		if (!item)
+			continue;
 
-	item = rmi_get_register_desc_item(&f12->data_reg_desc, 1);
-	if (item) {
-		f12->data1 = item;
-		f12->data1_offset = data_offset;
-		data_offset += item->reg_size;
+		/* HID attention reports only contain Data1 and Data5 */
+		if (drvdata->attn_data.data && i != 1 && i != 5)
+			continue;
 
-		if (item->num_subpackets > 255) {
-			dev_err(&fn->dev, "Too many fingers declared: %d\n",
-				item->num_subpackets);
-			return -EINVAL;
+		switch (i) {
+		case 1:
+			f12->data1 = item;
+			f12->data1_offset = data_offset;
+
+			if (item->num_subpackets > 255) {
+				dev_err(&fn->dev,
+					"Too many fingers declared: %d\n",
+					item->num_subpackets);
+				return -EINVAL;
+			}
+
+			sensor->nbr_fingers = item->num_subpackets;
+			sensor->report_abs = 1;
+			sensor->attn_size += item->reg_size;
+			break;
+
+		case 5:
+			f12->data5 = item;
+			f12->data5_offset = data_offset;
+			sensor->attn_size += item->reg_size;
+			break;
+
+		case 6:
+			f12->data6 = item;
+			f12->data6_offset = data_offset;
+			break;
+
+		case 9:
+			f12->data9 = item;
+			f12->data9_offset = data_offset;
+			if (!sensor->report_abs)
+				sensor->report_rel = 1;
+			break;
+
+		case 15:
+			f12->data15 = item;
+			f12->data15_offset = data_offset;
+			break;
 		}
 
-		sensor->nbr_fingers = item->num_subpackets;
-		sensor->report_abs = 1;
-		sensor->attn_size += item->reg_size;
-	}
-
-	item = rmi_get_register_desc_item(&f12->data_reg_desc, 2);
-	if (item && !drvdata->attn_data.data)
-		data_offset += item->reg_size;
-
-	item = rmi_get_register_desc_item(&f12->data_reg_desc, 3);
-	if (item && !drvdata->attn_data.data)
-		data_offset += item->reg_size;
-
-	item = rmi_get_register_desc_item(&f12->data_reg_desc, 4);
-	if (item && !drvdata->attn_data.data)
-		data_offset += item->reg_size;
-
-	item = rmi_get_register_desc_item(&f12->data_reg_desc, 5);
-	if (item) {
-		f12->data5 = item;
-		f12->data5_offset = data_offset;
-		data_offset += item->reg_size;
-		sensor->attn_size += item->reg_size;
-	}
-
-	item = rmi_get_register_desc_item(&f12->data_reg_desc, 6);
-	if (item && !drvdata->attn_data.data) {
-		f12->data6 = item;
-		f12->data6_offset = data_offset;
-		data_offset += item->reg_size;
-	}
-
-	item = rmi_get_register_desc_item(&f12->data_reg_desc, 7);
-	if (item && !drvdata->attn_data.data)
-		data_offset += item->reg_size;
-
-	item = rmi_get_register_desc_item(&f12->data_reg_desc, 8);
-	if (item && !drvdata->attn_data.data)
-		data_offset += item->reg_size;
-
-	item = rmi_get_register_desc_item(&f12->data_reg_desc, 9);
-	if (item && !drvdata->attn_data.data) {
-		f12->data9 = item;
-		f12->data9_offset = data_offset;
-		data_offset += item->reg_size;
-		if (!sensor->report_abs)
-			sensor->report_rel = 1;
-	}
-
-	item = rmi_get_register_desc_item(&f12->data_reg_desc, 10);
-	if (item && !drvdata->attn_data.data)
-		data_offset += item->reg_size;
-
-	item = rmi_get_register_desc_item(&f12->data_reg_desc, 11);
-	if (item && !drvdata->attn_data.data)
-		data_offset += item->reg_size;
-
-	item = rmi_get_register_desc_item(&f12->data_reg_desc, 12);
-	if (item && !drvdata->attn_data.data)
-		data_offset += item->reg_size;
-
-	item = rmi_get_register_desc_item(&f12->data_reg_desc, 13);
-	if (item && !drvdata->attn_data.data)
-		data_offset += item->reg_size;
-
-	item = rmi_get_register_desc_item(&f12->data_reg_desc, 14);
-	if (item && !drvdata->attn_data.data)
-		data_offset += item->reg_size;
-
-	item = rmi_get_register_desc_item(&f12->data_reg_desc, 15);
-	if (item && !drvdata->attn_data.data) {
-		f12->data15 = item;
-		f12->data15_offset = data_offset;
 		data_offset += item->reg_size;
 	}
 
