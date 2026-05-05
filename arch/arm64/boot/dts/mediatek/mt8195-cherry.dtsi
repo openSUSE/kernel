@@ -1622,21 +1622,23 @@
 };
 
 &xhci0 {
-	status = "okay";
-
 	rx-fifo-depth = <3072>;
 	vbus-supply = <&usb_vbus>;
+	vusb33-supply = <&mt6359_vusb_ldo_reg>;
+	status = "okay";
 };
 
 &xhci2 {
-	status = "okay";
 	vbus-supply = <&usb_vbus>;
+	vusb33-supply = <&mt6359_vusb_ldo_reg>;
+	status = "okay";
 };
 
 &xhci3 {
 	/* MT7921's USB Bluetooth has issues with USB2 LPM */
 	usb2-lpm-disable;
 	vbus-supply = <&pp3300_wlan>;
+	vusb33-supply = <&mt6359_vusb_ldo_reg>;
 	status = "okay";
 };
 
