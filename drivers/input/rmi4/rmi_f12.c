@@ -5,6 +5,7 @@
 #include <linux/input.h>
 #include <linux/input/mt.h>
 #include <linux/rmi.h>
+#include <linux/sizes.h>
 #include "rmi_driver.h"
 #include "rmi_2d_sensor.h"
 
@@ -118,7 +119,7 @@ static int rmi_f12_read_sensor_tuning(struct f12_data *f12)
 
 	if (item->reg_size > sizeof(buf)) {
 		dev_err(&fn->dev,
-			"F12 control8 should be no bigger than %zd bytes, not: %ld\n",
+			"F12 control8 should be no bigger than %zd bytes, not: %u\n",
 			sizeof(buf), item->reg_size);
 		return -ENODEV;
 	}
@@ -256,7 +257,7 @@ static irqreturn_t rmi_f12_attention(int irq, void *ctx)
 	struct rmi_driver_data *drvdata = dev_get_drvdata(&rmi_dev->dev);
 	struct f12_data *f12 = dev_get_drvdata(&fn->dev);
 	struct rmi_2d_sensor *sensor = &f12->sensor;
-	int valid_bytes = sensor->pkt_size;
+	u32 valid_bytes = sensor->pkt_size;
 
 	if (drvdata->attn_data.data) {
 		if (sensor->attn_size > drvdata->attn_data.size)
@@ -310,7 +311,7 @@ static int rmi_f12_write_control_regs(struct rmi_function *fn)
 			 * on the existence of subpacket 0. If control 20 is
 			 * larger then 3 bytes, just read the first 3.
 			 */
-			control_size = min(item->reg_size, 3UL);
+			control_size = min(item->reg_size, 3U);
 
 			ret = rmi_read_block(rmi_dev, fn->fd.control_base_addr
 					+ control_offset, buf, control_size);
@@ -379,7 +380,8 @@ static int rmi_f12_probe(struct rmi_function *fn)
 	struct rmi_2d_sensor *sensor;
 	struct rmi_device_platform_data *pdata = rmi_get_platform_data(rmi_dev);
 	struct rmi_driver_data *drvdata = dev_get_drvdata(&rmi_dev->dev);
-	u16 data_offset = 0;
+	size_t data_offset = 0;
+	size_t pkt_size;
 	int mask_size;
 	int i;
 
@@ -431,7 +433,12 @@ static int rmi_f12_probe(struct rmi_function *fn)
 	sensor = &f12->sensor;
 	sensor->fn = fn;
 	f12->data_addr = fn->fd.data_base_addr;
-	sensor->pkt_size = rmi_register_desc_calc_size(&f12->data_reg_desc);
+	pkt_size = rmi_register_desc_calc_size(&f12->data_reg_desc);
+	if (pkt_size > SZ_1M) {
+		dev_err(&fn->dev, "Invalid data packet size: %zu\n", pkt_size);
+		return -EINVAL;
+	}
+	sensor->pkt_size = pkt_size;
 
 	sensor->axis_align =
 		f12->sensor_pdata.axis_align;
@@ -444,7 +451,7 @@ static int rmi_f12_probe(struct rmi_function *fn)
 		sensor->sensor_type =
 			f12->sensor_pdata.sensor_type;
 
-	rmi_dbg(RMI_DEBUG_FN, &fn->dev, "%s: data packet size: %d\n", __func__,
+	rmi_dbg(RMI_DEBUG_FN, &fn->dev, "%s: data packet size: %u\n", __func__,
 		sensor->pkt_size);
 	sensor->data_pkt = devm_kzalloc(&fn->dev, sensor->pkt_size, GFP_KERNEL);
 	if (!sensor->data_pkt)
@@ -470,6 +477,12 @@ static int rmi_f12_probe(struct rmi_function *fn)
 		/* HID attention reports only contain Data1 and Data5 */
 		if (drvdata->attn_data.data && i != 1 && i != 5)
 			continue;
+
+		if (data_offset > U16_MAX) {
+			dev_err(&fn->dev, "Invalid offset for data%d: %zu\n",
+				i, data_offset);
+			return -EINVAL;
+		}
 
 		switch (i) {
 		case 1:

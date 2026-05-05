@@ -713,7 +713,7 @@ int rmi_read_register_desc(struct rmi_device *d, u16 addr,
 		offset += item_size;
 
 		rmi_dbg(RMI_DEBUG_CORE, &d->dev,
-			"%s: reg: %d reg size: %ld subpackets: %d\n", __func__,
+			"%s: reg: %d reg size: %u subpackets: %d\n", __func__,
 			item->reg, item->reg_size, item->num_subpackets);
 
 		reg = find_next_bit(presence_map,
@@ -746,7 +746,7 @@ size_t rmi_register_desc_calc_size(struct rmi_register_descriptor *rdesc)
 
 	for (i = 0; i < rdesc->num_registers; i++) {
 		item = &rdesc->registers[i];
-		size += item->reg_size;
+		size = size_add(size, item->reg_size);
 	}
 	return size;
 }

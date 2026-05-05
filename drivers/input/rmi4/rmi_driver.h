@@ -52,11 +52,10 @@ struct pdt_entry {
 
 /* describes a single packet register */
 struct rmi_register_desc_item {
+	u32 reg_size;
 	u16 reg;
-	unsigned long reg_size;
 	u16 num_subpackets;
-	unsigned long subpacket_map[BITS_TO_LONGS(
-				RMI_REG_DESC_SUBPACKET_BITS)];
+	DECLARE_BITMAP(subpacket_map, RMI_REG_DESC_SUBPACKET_BITS);
 };
 
 /*
