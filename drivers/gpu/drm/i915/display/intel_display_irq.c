@@ -73,7 +73,7 @@ static void irq_init(struct intel_display *display, struct intel_irq_regs regs,
 	intel_de_posting_read(display, regs.imr);
 }
 
-static void error_reset(struct intel_display *display, struct i915_error_regs regs)
+static void error_reset(struct intel_display *display, struct intel_error_regs regs)
 {
 	intel_de_write(display, regs.emr, 0xffffffff);
 	intel_de_posting_read(display, regs.emr);
@@ -84,7 +84,7 @@ static void error_reset(struct intel_display *display, struct i915_error_regs re
 	intel_de_posting_read(display, regs.eir);
 }
 
-static void error_init(struct intel_display *display, struct i915_error_regs regs,
+static void error_init(struct intel_display *display, struct intel_error_regs regs,
 		       u32 emr_val)
 {
 	intel_de_write(display, regs.eir, 0xffffffff);

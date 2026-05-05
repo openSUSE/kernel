@@ -20,6 +20,14 @@ struct intel_irq_regs {
 #define INTEL_IRQ_REGS(_imr, _ier, _iir) \
 	((const struct intel_irq_regs){ .imr = (_imr), .ier = (_ier), .iir = (_iir) })
 
+struct intel_error_regs {
+	intel_reg_t emr;
+	intel_reg_t eir;
+};
+
+#define INTEL_ERROR_REGS(_emr, _eir) \
+	((const struct intel_error_regs){ .emr = (_emr), .eir = (_eir) })
+
 #define VLV_DISPLAY_BASE		0x180000
 
 /*
