@@ -10,6 +10,16 @@
 
 typedef i915_reg_t intel_reg_t;
 
+/* A triplet for IMR/IER/IIR registers. */
+struct intel_irq_regs {
+	intel_reg_t imr;
+	intel_reg_t ier;
+	intel_reg_t iir;
+};
+
+#define INTEL_IRQ_REGS(_imr, _ier, _iir) \
+	((const struct intel_irq_regs){ .imr = (_imr), .ier = (_ier), .iir = (_iir) })
+
 #define VLV_DISPLAY_BASE		0x180000
 
 /*

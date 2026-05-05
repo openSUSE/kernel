@@ -30,7 +30,7 @@
 #include "intel_psr.h"
 #include "intel_psr_regs.h"
 
-static void irq_reset(struct intel_display *display, struct i915_irq_regs regs)
+static void irq_reset(struct intel_display *display, struct intel_irq_regs regs)
 {
 	intel_de_write(display, regs.imr, 0xffffffff);
 	intel_de_posting_read(display, regs.imr);
@@ -63,7 +63,7 @@ static void assert_iir_is_zero(struct intel_display *display, intel_reg_t reg)
 	intel_de_posting_read(display, reg);
 }
 
-static void irq_init(struct intel_display *display, struct i915_irq_regs regs,
+static void irq_init(struct intel_display *display, struct intel_irq_regs regs,
 		     u32 imr_val, u32 ier_val)
 {
 	assert_iir_is_zero(display, regs.iir);
