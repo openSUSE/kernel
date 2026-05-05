@@ -666,6 +666,14 @@ static void lan937x_switch_exit(struct ksz_device *dev)
 	lan937x_reset_switch(dev);
 }
 
+const struct phylink_mac_ops lan937x_phylink_mac_ops = {
+	.mac_config	= ksz_phylink_mac_config,
+	.mac_link_down	= ksz_phylink_mac_link_down,
+	.mac_link_up	= ksz9477_phylink_mac_link_up,
+	.mac_disable_tx_lpi = ksz_phylink_mac_disable_tx_lpi,
+	.mac_enable_tx_lpi = ksz_phylink_mac_enable_tx_lpi,
+};
+
 const struct ksz_dev_ops lan937x_dev_ops = {
 	.setup = lan937x_setup,
 	.teardown = lan937x_teardown,

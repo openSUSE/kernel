@@ -479,6 +479,16 @@ void ksz_switch_macaddr_put(struct dsa_switch *ds);
 void ksz_switch_shutdown(struct ksz_device *dev);
 int ksz_handle_wake_reason(struct ksz_device *dev, int port);
 
+void ksz_phylink_mac_disable_tx_lpi(struct phylink_config *config);
+int ksz_phylink_mac_enable_tx_lpi(struct phylink_config *config,
+				  u32 timer, bool tx_clock_stop);
+void ksz_phylink_mac_config(struct phylink_config *config,
+			    unsigned int mode,
+			    const struct phylink_link_state *state);
+void ksz_phylink_mac_link_down(struct phylink_config *config,
+			       unsigned int mode,
+			       phy_interface_t interface);
+
 /* Common register access functions */
 static inline struct regmap *ksz_regmap_8(struct ksz_device *dev)
 {

@@ -1609,6 +1609,132 @@ static void ksz9477_switch_exit(struct ksz_device *dev)
 	ksz9477_reset_switch(dev);
 }
 
+static void ksz9477_set_gbit(struct ksz_device *dev, int port, bool gbit)
+{
+	const u8 *bitval = dev->info->xmii_ctrl1;
+	const u16 *regs = dev->info->regs;
+	u8 data8;
+
+	ksz_pread8(dev, port, regs[P_XMII_CTRL_1], &data8);
+
+	data8 &= ~P_GMII_1GBIT_M;
+
+	if (gbit)
+		data8 |= FIELD_PREP(P_GMII_1GBIT_M, bitval[P_GMII_1GBIT]);
+	else
+		data8 |= FIELD_PREP(P_GMII_1GBIT_M, bitval[P_GMII_NOT_1GBIT]);
+
+	/* Write the updated value */
+	ksz_pwrite8(dev, port, regs[P_XMII_CTRL_1], data8);
+}
+
+static void ksz9477_set_100_10mbit(struct ksz_device *dev, int port, int speed)
+{
+	const u8 *bitval = dev->info->xmii_ctrl0;
+	const u16 *regs = dev->info->regs;
+	u8 data8;
+
+	ksz_pread8(dev, port, regs[P_XMII_CTRL_0], &data8);
+
+	data8 &= ~P_MII_100MBIT_M;
+
+	if (speed == SPEED_100)
+		data8 |= FIELD_PREP(P_MII_100MBIT_M, bitval[P_MII_100MBIT]);
+	else
+		data8 |= FIELD_PREP(P_MII_100MBIT_M, bitval[P_MII_10MBIT]);
+
+	/* Write the updated value */
+	ksz_pwrite8(dev, port, regs[P_XMII_CTRL_0], data8);
+}
+
+static void ksz9477_port_set_xmii_speed(struct ksz_device *dev, int port,
+					int speed)
+{
+	if (speed == SPEED_1000)
+		ksz9477_set_gbit(dev, port, true);
+	else
+		ksz9477_set_gbit(dev, port, false);
+
+	if (speed == SPEED_100 || speed == SPEED_10)
+		ksz9477_set_100_10mbit(dev, port, speed);
+}
+
+static void ksz9477_duplex_flowctrl(struct ksz_device *dev, int port, int duplex,
+				    bool tx_pause, bool rx_pause)
+{
+	const u8 *bitval = dev->info->xmii_ctrl0;
+	const u32 *masks = dev->info->masks;
+	const u16 *regs = dev->info->regs;
+	u8 mask;
+	u8 val;
+
+	mask = P_MII_DUPLEX_M | masks[P_MII_TX_FLOW_CTRL] |
+	       masks[P_MII_RX_FLOW_CTRL];
+
+	if (duplex == DUPLEX_FULL)
+		val = FIELD_PREP(P_MII_DUPLEX_M, bitval[P_MII_FULL_DUPLEX]);
+	else
+		val = FIELD_PREP(P_MII_DUPLEX_M, bitval[P_MII_HALF_DUPLEX]);
+
+	if (tx_pause)
+		val |= masks[P_MII_TX_FLOW_CTRL];
+
+	if (rx_pause)
+		val |= masks[P_MII_RX_FLOW_CTRL];
+
+	ksz_prmw8(dev, port, regs[P_XMII_CTRL_0], mask, val);
+}
+
+void ksz9477_phylink_mac_link_up(struct phylink_config *config,
+				 struct phy_device *phydev,
+				 unsigned int mode,
+				 phy_interface_t interface,
+				 int speed, int duplex, bool tx_pause,
+				 bool rx_pause)
+{
+	struct dsa_port *dp = dsa_phylink_to_port(config);
+	struct ksz_device *dev = dp->ds->priv;
+	int port = dp->index;
+	struct ksz_port *p;
+
+	p = &dev->ports[port];
+
+	/* Internal PHYs */
+	if (dev->info->internal_phy[port])
+		return;
+
+	p->speed = speed;
+
+	ksz9477_port_set_xmii_speed(dev, port, speed);
+
+	ksz9477_duplex_flowctrl(dev, port, duplex, tx_pause, rx_pause);
+}
+
+static struct phylink_pcs *
+ksz9477_phylink_mac_select_pcs(struct phylink_config *config,
+			       phy_interface_t interface)
+{
+	struct dsa_port *dp = dsa_phylink_to_port(config);
+	struct ksz_device *dev = dp->ds->priv;
+	struct ksz_port *p = &dev->ports[dp->index];
+
+	if (ksz_is_sgmii_port(dev, dp->index) &&
+	    (interface == PHY_INTERFACE_MODE_SGMII ||
+	    interface == PHY_INTERFACE_MODE_1000BASEX))
+		return p->pcs;
+
+	return NULL;
+}
+
+const struct phylink_mac_ops ksz9477_phylink_mac_ops = {
+	.mac_config	= ksz_phylink_mac_config,
+	.mac_link_down	= ksz_phylink_mac_link_down,
+	.mac_link_up	= ksz9477_phylink_mac_link_up,
+	.mac_disable_tx_lpi = ksz_phylink_mac_disable_tx_lpi,
+	.mac_enable_tx_lpi = ksz_phylink_mac_enable_tx_lpi,
+	.mac_select_pcs	= ksz9477_phylink_mac_select_pcs,
+};
+
 const struct ksz_dev_ops ksz9477_dev_ops = {
 	.setup = ksz9477_setup,
 	.get_port_addr = ksz9477_get_port_addr,
