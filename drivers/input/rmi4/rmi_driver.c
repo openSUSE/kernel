@@ -769,7 +769,7 @@ int rmi_register_desc_calc_reg_offset(
 bool rmi_register_desc_has_subpacket(const struct rmi_register_desc_item *item,
 	u8 subpacket)
 {
-	return find_next_bit(item->subpacket_map, RMI_REG_DESC_PRESENSE_BITS,
+	return find_next_bit(item->subpacket_map, RMI_REG_DESC_SUBPACKET_BITS,
 				subpacket) == subpacket;
 }
 
