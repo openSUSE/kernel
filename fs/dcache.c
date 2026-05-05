@@ -1443,6 +1443,8 @@ again:
 	read_seqbegin_or_lock(&rename_lock, &seq);
 	this_parent = parent;
 	spin_lock(&this_parent->d_lock);
+	if (unlikely(this_parent->d_flags & DCACHE_DENTRY_CURSOR))
+		goto out_unlock;
 
 	ret = enter(data, this_parent);
 	switch (ret) {
@@ -1996,7 +1998,7 @@ struct dentry *d_alloc_cursor(struct dentry * parent)
 {
 	struct dentry *dentry = d_alloc_anon(parent->d_sb);
 	if (dentry) {
-		dentry->d_flags |= DCACHE_DENTRY_CURSOR;
+		dentry->d_flags |= DCACHE_DENTRY_CURSOR | DCACHE_NORCU;
 		dentry->d_parent = dget(parent);
 	}
 	return dentry;
