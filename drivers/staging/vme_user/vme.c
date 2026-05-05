@@ -253,7 +253,7 @@ struct vme_resource *vme_slave_request(struct vme_dev *vdev, u32 address,
 {
 	struct vme_bridge *bridge;
 	struct vme_slave_resource *allocated_image = NULL;
-	struct vme_slave_resource *slave_image = NULL;
+	struct vme_slave_resource *slave_image;
 	struct vme_resource *resource = NULL;
 
 	bridge = vdev->bridge;
@@ -447,7 +447,7 @@ struct vme_resource *vme_master_request(struct vme_dev *vdev, u32 address,
 {
 	struct vme_bridge *bridge;
 	struct vme_master_resource *allocated_image = NULL;
-	struct vme_master_resource *master_image = NULL;
+	struct vme_master_resource *master_image;
 	struct vme_resource *resource = NULL;
 
 	bridge = vdev->bridge;
@@ -818,7 +818,7 @@ struct vme_resource *vme_dma_request(struct vme_dev *vdev, u32 route)
 {
 	struct vme_bridge *bridge;
 	struct vme_dma_resource *allocated_ctrlr = NULL;
-	struct vme_dma_resource *dma_ctrlr = NULL;
+	struct vme_dma_resource *dma_ctrlr;
 	struct vme_resource *resource = NULL;
 
 	/* XXX Not checking resource attributes */
@@ -1426,7 +1426,7 @@ struct vme_resource *vme_lm_request(struct vme_dev *vdev)
 {
 	struct vme_bridge *bridge;
 	struct vme_lm_resource *allocated_lm = NULL;
-	struct vme_lm_resource *lm = NULL;
+	struct vme_lm_resource *lm;
 	struct vme_resource *resource = NULL;
 
 	bridge = vdev->bridge;
