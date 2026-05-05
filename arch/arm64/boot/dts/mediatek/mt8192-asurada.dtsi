@@ -175,6 +175,17 @@
 		gpio = <&pio 143 GPIO_ACTIVE_HIGH>;
 	};
 
+	/* system wide switching 4.2V power rail */
+	pp4200_g: regulator-4v2-g {
+		compatible = "regulator-fixed";
+		regulator-name = "pp4200_g";
+		regulator-always-on;
+		regulator-boot-on;
+		regulator-min-microvolt = <4200000>;
+		regulator-max-microvolt = <4200000>;
+		vin-supply = <&ppvar_sys>;
+	};
+
 	/* system wide switching 5.0V power rail */
 	pp5000_a: regulator-5v0-a {
 		compatible = "regulator-fixed";
@@ -1444,6 +1455,10 @@
 	mt6315_6: pmic@6 {
 		compatible = "mediatek,mt6315-regulator";
 		reg = <0x6 SPMI_USID>;
+		pvdd1-supply = <&pp4200_g>;
+		pvdd2-supply = <&pp4200_g>;
+		pvdd3-supply = <&pp4200_g>;
+		pvdd4-supply = <&pp4200_g>;
 
 		regulators {
 			mt6315_6_vbuck1: vbuck1 {
@@ -1469,6 +1484,10 @@
 	mt6315_7: pmic@7 {
 		compatible = "mediatek,mt6315-regulator";
 		reg = <0x7 SPMI_USID>;
+		pvdd1-supply = <&pp4200_g>;
+		pvdd2-supply = <&pp4200_g>;
+		pvdd3-supply = <&pp4200_g>;
+		pvdd4-supply = <&pp4200_g>;
 
 		regulators {
 			mt6315_7_vbuck1: vbuck1 {
