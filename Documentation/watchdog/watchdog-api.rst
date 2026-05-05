@@ -158,7 +158,7 @@ available to ask what the device can do::
 	struct watchdog_info ident;
 	ioctl(fd, WDIOC_GETSUPPORT, &ident);
 
-the fields returned in the ident struct are:
+the fields returned in the struct watchdog_info are:
 
 	================	=============================================
         identity		a string identifying the watchdog driver
