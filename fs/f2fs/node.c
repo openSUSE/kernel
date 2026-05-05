@@ -73,7 +73,11 @@ bool f2fs_available_free_memory(struct f2fs_sb_info *sbi, int type)
 				sizeof(struct free_nid)) >> PAGE_SHIFT;
 		res = mem_size < ((avail_ram * nm_i->ram_thresh / 100) >> 2);
 	} else if (type == NAT_ENTRIES) {
-		mem_size = (nm_i->nat_cnt[TOTAL_NAT] *
+		/*
+		 * nat_cnt[] is heuristic accounting. Sample it locklessly here
+		 * to avoid taking nat_tree_lock in the balance path.
+		 */
+		mem_size = (data_race(READ_ONCE(nm_i->nat_cnt[TOTAL_NAT])) *
 				sizeof(struct nat_entry)) >> PAGE_SHIFT;
 		res = mem_size < ((avail_ram * nm_i->ram_thresh / 100) >> 2);
 		if (excess_cached_nats(sbi))
