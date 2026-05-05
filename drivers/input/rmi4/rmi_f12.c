@@ -452,7 +452,7 @@ static int rmi_f12_probe(struct rmi_function *fn)
 
 	rmi_dbg(RMI_DEBUG_FN, &fn->dev, "%s: data packet size: %u\n", __func__,
 		sensor->pkt_size);
-	sensor->data_pkt = devm_kzalloc(&fn->dev, sensor->pkt_size, GFP_KERNEL);
+	sensor->data_pkt = devm_kmalloc(&fn->dev, sensor->pkt_size, GFP_KERNEL);
 	if (!sensor->data_pkt)
 		return -ENOMEM;
 
