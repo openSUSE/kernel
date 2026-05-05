@@ -1548,6 +1548,7 @@ MODULE_DEVICE_TABLE(of, mma8452_dt_ids);
 
 static int mma8452_probe(struct i2c_client *client)
 {
+	struct device *dev = &client->dev;
 	struct mma8452_data *data;
 	struct iio_dev *indio_dev;
 	int ret;
@@ -1580,14 +1581,12 @@ static int mma8452_probe(struct i2c_client *client)
 				     "failed to get VDDIO regulator!\n");
 
 	ret = regulator_enable(data->vdd_reg);
-	if (ret) {
-		dev_err(&client->dev, "failed to enable VDD regulator!\n");
-		return ret;
-	}
+	if (ret)
+		return dev_err_probe(dev, ret, "failed to enable VDD regulator!\n");
 
 	ret = regulator_enable(data->vddio_reg);
 	if (ret) {
-		dev_err(&client->dev, "failed to enable VDDIO regulator!\n");
+		dev_err_probe(dev, ret, "failed to enable VDDIO regulator!\n");
 		goto disable_regulator_vdd;
 	}
 
