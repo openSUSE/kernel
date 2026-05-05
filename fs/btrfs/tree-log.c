@@ -5902,9 +5902,13 @@ static int log_new_dir_dentries(struct btrfs_trans_handle *trans,
 	struct btrfs_inode *curr_inode = start_inode;
 	int ret = 0;
 
+	trace_btrfs_log_new_dir_dentries_enter(trans, start_inode);
+
 	path = btrfs_alloc_path();
-	if (!path)
-		return -ENOMEM;
+	if (!path) {
+		ret = -ENOMEM;
+		goto out;
+	}
 
 	/* Pairs with btrfs_add_delayed_iput below. */
 	ihold(&curr_inode->vfs_inode);
@@ -6022,6 +6026,8 @@ out:
 		list_for_each_entry_safe(dir_elem, next, &dir_list, list)
 			kfree(dir_elem);
 	}
+
+	trace_btrfs_log_new_dir_dentries_exit(trans, start_inode, ret);
 
 	return ret;
 }
