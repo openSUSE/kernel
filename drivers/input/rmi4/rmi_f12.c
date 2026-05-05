@@ -6,6 +6,7 @@
 #include <linux/input/mt.h>
 #include <linux/rmi.h>
 #include <linux/sizes.h>
+#include <linux/unaligned.h>
 #include "rmi_driver.h"
 #include "rmi_2d_sensor.h"
 
@@ -131,8 +132,8 @@ static int rmi_f12_read_sensor_tuning(struct f12_data *f12)
 
 	offset = 0;
 	if (rmi_register_desc_has_subpacket(item, 0)) {
-		sensor->max_x = (buf[offset + 1] << 8) | buf[offset];
-		sensor->max_y = (buf[offset + 3] << 8) | buf[offset + 2];
+		sensor->max_x = get_unaligned_le16(&buf[offset]);
+		sensor->max_y = get_unaligned_le16(&buf[offset + 2]);
 		offset += 4;
 	}
 
@@ -140,8 +141,8 @@ static int rmi_f12_read_sensor_tuning(struct f12_data *f12)
 		sensor->max_x, sensor->max_y);
 
 	if (rmi_register_desc_has_subpacket(item, 1)) {
-		pitch_x = (buf[offset + 1] << 8) | buf[offset];
-		pitch_y	= (buf[offset + 3] << 8) | buf[offset + 2];
+		pitch_x = get_unaligned_le16(&buf[offset]);
+		pitch_y = get_unaligned_le16(&buf[offset + 2]);
 		offset += 4;
 	}
 
@@ -227,8 +228,8 @@ static void rmi_f12_process_objects(struct f12_data *f12, u8 *data1, int size)
 			break;
 		}
 
-		obj->x = (data1[2] << 8) | data1[1];
-		obj->y = (data1[4] << 8) | data1[3];
+		obj->x = get_unaligned_le16(&data1[1]);
+		obj->y = get_unaligned_le16(&data1[3]);
 		obj->z = data1[5];
 		obj->wx = data1[6];
 		obj->wy = data1[7];
