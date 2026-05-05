@@ -5,6 +5,7 @@
  * Copyright (C) 2017-2025 Microchip Technology Inc.
  */
 
+#include <linux/dsa/ksz_common.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/iopoll.h>
@@ -1624,6 +1625,20 @@ static enum dsa_tag_protocol ksz9477_get_tag_protocol(struct dsa_switch *ds,
 	return DSA_TAG_PROTO_KSZ9477;
 }
 
+static int ksz9477_connect_tag_protocol(struct dsa_switch *ds,
+					enum dsa_tag_protocol proto)
+{
+	struct ksz_tagger_data *tagger_data;
+
+	if (proto != DSA_TAG_PROTO_KSZ9893 && proto != DSA_TAG_PROTO_KSZ9477)
+		return -EPROTONOSUPPORT;
+
+	tagger_data = ksz_tagger_data(ds);
+	tagger_data->xmit_work_fn = ksz_port_deferred_xmit;
+
+	return 0;
+}
+
 static void ksz9477_set_gbit(struct ksz_device *dev, int port, bool gbit)
 {
 	const u8 *bitval = dev->info->xmii_ctrl1;
@@ -1790,7 +1805,7 @@ const struct ksz_dev_ops ksz9477_dev_ops = {
 
 const struct dsa_switch_ops ksz9477_switch_ops = {
 	.get_tag_protocol	= ksz9477_get_tag_protocol,
-	.connect_tag_protocol   = ksz_connect_tag_protocol,
+	.connect_tag_protocol   = ksz9477_connect_tag_protocol,
 	.get_phy_flags		= ksz_get_phy_flags,
 	.setup			= ksz_setup,
 	.teardown		= ksz_teardown,

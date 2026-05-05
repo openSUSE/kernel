@@ -2,6 +2,7 @@
 /* Microchip LAN937X switch driver main logic
  * Copyright (C) 2019-2024 Microchip Technology Inc.
  */
+#include <linux/dsa/ksz_common.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/iopoll.h>
@@ -674,6 +675,20 @@ static enum dsa_tag_protocol lan937x_get_tag_protocol(struct dsa_switch *ds,
 	return DSA_TAG_PROTO_LAN937X;
 }
 
+static int lan937x_connect_tag_protocol(struct dsa_switch *ds,
+					enum dsa_tag_protocol proto)
+{
+	struct ksz_tagger_data *tagger_data;
+
+	if (proto != DSA_TAG_PROTO_LAN937X)
+		return -EPROTONOSUPPORT;
+
+	tagger_data = ksz_tagger_data(ds);
+	tagger_data->xmit_work_fn = ksz_port_deferred_xmit;
+
+	return 0;
+}
+
 const struct phylink_mac_ops lan937x_phylink_mac_ops = {
 	.mac_config	= ksz_phylink_mac_config,
 	.mac_link_down	= ksz_phylink_mac_link_down,
@@ -722,7 +737,7 @@ const struct ksz_dev_ops lan937x_dev_ops = {
 
 const struct dsa_switch_ops lan937x_switch_ops = {
 	.get_tag_protocol	= lan937x_get_tag_protocol,
-	.connect_tag_protocol   = ksz_connect_tag_protocol,
+	.connect_tag_protocol   = lan937x_connect_tag_protocol,
 	.get_phy_flags		= ksz_get_phy_flags,
 	.setup			= ksz_setup,
 	.teardown		= ksz_teardown,

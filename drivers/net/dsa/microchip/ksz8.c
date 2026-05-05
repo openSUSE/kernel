@@ -16,6 +16,7 @@
 
 #include <linux/bitfield.h>
 #include <linux/delay.h>
+#include <linux/dsa/ksz_common.h>
 #include <linux/export.h>
 #include <linux/gpio.h>
 #include <linux/if_vlan.h>
@@ -2107,11 +2108,34 @@ static enum dsa_tag_protocol ksz8463_get_tag_protocol(struct dsa_switch *ds,
 	return DSA_TAG_PROTO_KSZ9893;
 }
 
+static int ksz8463_connect_tag_protocol(struct dsa_switch *ds,
+					enum dsa_tag_protocol proto)
+{
+	struct ksz_tagger_data *tagger_data;
+
+	if (proto != DSA_TAG_PROTO_KSZ9893)
+		return -EPROTONOSUPPORT;
+
+	tagger_data = ksz_tagger_data(ds);
+	tagger_data->xmit_work_fn = ksz_port_deferred_xmit;
+
+	return 0;
+}
+
 static enum dsa_tag_protocol ksz87xx_get_tag_protocol(struct dsa_switch *ds,
 						      int port,
 						      enum dsa_tag_protocol mp)
 {
 	return DSA_TAG_PROTO_KSZ8795;
+}
+
+static int ksz87xx_connect_tag_protocol(struct dsa_switch *ds,
+					enum dsa_tag_protocol proto)
+{
+	if (proto != DSA_TAG_PROTO_KSZ8795)
+		return -EPROTONOSUPPORT;
+
+	return 0;
 }
 
 static enum dsa_tag_protocol ksz88xx_get_tag_protocol(struct dsa_switch *ds,
@@ -2124,6 +2148,27 @@ static enum dsa_tag_protocol ksz88xx_get_tag_protocol(struct dsa_switch *ds,
 		return DSA_TAG_PROTO_KSZ8795;
 
 	return DSA_TAG_PROTO_KSZ9893;
+}
+
+static int ksz88xx_connect_tag_protocol(struct dsa_switch *ds,
+					enum dsa_tag_protocol proto)
+{
+	struct ksz_tagger_data *tagger_data;
+
+	if (ksz_is_8895_family(ds->priv)) { /* KSZ8864, KSZ8895 */
+		if (proto != DSA_TAG_PROTO_KSZ8795)
+			return -EPROTONOSUPPORT;
+
+		return 0;
+	}
+
+	if (proto != DSA_TAG_PROTO_KSZ9893)
+		return -EPROTONOSUPPORT;
+
+	tagger_data = ksz_tagger_data(ds);
+	tagger_data->xmit_work_fn = ksz_port_deferred_xmit;
+
+	return 0;
 }
 
 static void ksz88x3_phylink_mac_config(struct phylink_config *config,
@@ -2256,7 +2301,7 @@ const struct ksz_dev_ops ksz88xx_dev_ops = {
 
 const struct dsa_switch_ops ksz8463_switch_ops = {
 	.get_tag_protocol	= ksz8463_get_tag_protocol,
-	.connect_tag_protocol   = ksz_connect_tag_protocol,
+	.connect_tag_protocol   = ksz8463_connect_tag_protocol,
 	.get_phy_flags		= ksz_get_phy_flags,
 	.setup			= ksz_setup,
 	.teardown		= ksz_teardown,
@@ -2317,7 +2362,7 @@ const struct dsa_switch_ops ksz8463_switch_ops = {
 
 const struct dsa_switch_ops ksz87xx_switch_ops = {
 	.get_tag_protocol	= ksz87xx_get_tag_protocol,
-	.connect_tag_protocol   = ksz_connect_tag_protocol,
+	.connect_tag_protocol   = ksz87xx_connect_tag_protocol,
 	.get_phy_flags		= ksz_get_phy_flags,
 	.setup			= ksz_setup,
 	.teardown		= ksz_teardown,
@@ -2378,7 +2423,7 @@ const struct dsa_switch_ops ksz87xx_switch_ops = {
 
 const struct dsa_switch_ops ksz88xx_switch_ops = {
 	.get_tag_protocol	= ksz88xx_get_tag_protocol,
-	.connect_tag_protocol   = ksz_connect_tag_protocol,
+	.connect_tag_protocol   = ksz88xx_connect_tag_protocol,
 	.get_phy_flags		= ksz_get_phy_flags,
 	.setup			= ksz_setup,
 	.teardown		= ksz_teardown,
