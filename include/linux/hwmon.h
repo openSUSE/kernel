@@ -477,7 +477,8 @@ hwmon_device_register_with_info(struct device *dev,
 				const struct attribute_group **extra_groups);
 struct device *
 hwmon_device_register_for_thermal(struct device *dev, const char *name,
-				  void *drvdata);
+				  void *drvdata,
+				  const struct attribute_group **extra_groups);
 struct device *
 devm_hwmon_device_register_with_info(struct device *dev,
 				const char *name, void *drvdata,
