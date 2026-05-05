@@ -3237,7 +3237,7 @@ restart:
 			struct cgroup_subsys_state *css = cgroup_css(dsct, ss);
 			DEFINE_WAIT(wait);
 
-			if (!css || !percpu_ref_is_dying(&css->refcnt))
+			if (!css || !css_is_dying(css))
 				continue;
 
 			cgroup_get_live(dsct);
@@ -3405,7 +3405,8 @@ static void cgroup_apply_control_disable(struct cgroup *cgrp)
 			if (css->parent &&
 			    !(cgroup_ss_mask(dsct) & (1 << ss->id))) {
 				kill_css_sync(css);
-				kill_css_finish(css);
+				if (!css_is_populated(css))
+					kill_css_finish(css);
 			} else if (!css_visible(css)) {
 				css_clear_dir(css);
 				if (ss->css_reset)
