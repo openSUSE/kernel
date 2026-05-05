@@ -23,6 +23,6 @@ Driver specific
 
     watchdog-parameters
     hpwdt
-    wdt
+    ics-wdt
     mlx-wdt
     pcwd-watchdog
