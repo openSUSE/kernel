@@ -1381,7 +1381,7 @@ void pmc_core_punit_pmt_init(struct pmc_dev *pmcdev, struct pmc_dev_info *pmc_de
 		}
 
 		pmcdev->punit_ep = ep;
-		pmcdev->die_c6_offset = MTL_PMT_DMU_DIE_C6_OFFSET;
+		pmcdev->die_c6_offset = pmc_dev_info->die_c6_offset;
 	}
 
 	if (pmc_dev_info->pc_guid) {
