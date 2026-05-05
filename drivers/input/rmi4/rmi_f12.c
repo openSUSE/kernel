@@ -195,14 +195,11 @@ static int rmi_f12_read_sensor_tuning(struct f12_data *f12)
 	return 0;
 }
 
-static void rmi_f12_process_objects(struct f12_data *f12, u8 *data1, int size)
+static void rmi_f12_process_objects(struct f12_data *f12, u8 *data1, u32 size)
 {
-	int i;
 	struct rmi_2d_sensor *sensor = &f12->sensor;
-	int objects = f12->data1->num_subpackets;
-
-	if ((f12->data1->num_subpackets * F12_DATA1_BYTES_PER_OBJ) > size)
-		objects = size / F12_DATA1_BYTES_PER_OBJ;
+	u32 objects = min(f12->data1->num_subpackets, size / F12_DATA1_BYTES_PER_OBJ);
+	int i;
 
 	for (i = 0; i < objects; i++) {
 		struct rmi_2d_sensor_abs_object *obj = &sensor->objs[i];
@@ -260,10 +257,7 @@ static irqreturn_t rmi_f12_attention(int irq, void *ctx)
 	u32 valid_bytes = sensor->pkt_size;
 
 	if (drvdata->attn_data.data) {
-		if (sensor->attn_size > drvdata->attn_data.size)
-			valid_bytes = drvdata->attn_data.size;
-		else
-			valid_bytes = sensor->attn_size;
+		valid_bytes = min_t(u32, sensor->attn_size, drvdata->attn_data.size);
 		memcpy(sensor->data_pkt, drvdata->attn_data.data,
 			valid_bytes);
 		drvdata->attn_data.data += valid_bytes;
