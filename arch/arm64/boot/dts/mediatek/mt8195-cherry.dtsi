@@ -1431,6 +1431,7 @@
 			regulator-name = "mt_pmic_vmc_ldo";
 			regulator-min-microvolt = <1200000>;
 			regulator-max-microvolt = <3600000>;
+			vin-supply = <&pp4200_z2>;
 		};
 
 		mt_pmic_vmch_ldo_reg: regulator@1 {
@@ -1439,6 +1440,7 @@
 			regulator-name = "mt_pmic_vmch_ldo";
 			regulator-min-microvolt = <2700000>;
 			regulator-max-microvolt = <3600000>;
+			vin-supply = <&pp4200_z2>;
 		};
 
 		typec {
