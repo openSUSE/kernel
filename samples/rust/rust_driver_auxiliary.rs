@@ -17,8 +17,6 @@ use kernel::{
     InPlaceModule, //
 };
 
-use core::any::TypeId;
-
 const MODULE_NAME: &CStr = <LocalModule as kernel::ModuleMetadata>::NAME;
 const AUXILIARY_NAME: &CStr = c"auxiliary";
 
@@ -49,13 +47,13 @@ impl auxiliary::Driver for AuxiliaryDriver {
     }
 }
 
-#[pin_data]
+struct Data {
+    index: u32,
+}
+
 struct ParentDriver {
-    private: TypeId,
-    #[pin]
-    _reg0: Devres<auxiliary::Registration>,
-    #[pin]
-    _reg1: Devres<auxiliary::Registration>,
+    _reg0: Devres<auxiliary::Registration<Data>>,
+    _reg1: Devres<auxiliary::Registration<Data>>,
 }
 
 kernel::pci_device_table!(
@@ -71,10 +69,21 @@ impl pci::Driver for ParentDriver {
     const ID_TABLE: pci::IdTable<Self::IdInfo> = &PCI_TABLE;
 
     fn probe(pdev: &pci::Device<Core>, _info: &Self::IdInfo) -> impl PinInit<Self, Error> {
-        try_pin_init!(Self {
-            private: TypeId::of::<Self>(),
-            _reg0 <- auxiliary::Registration::new(pdev.as_ref(), AUXILIARY_NAME, 0, MODULE_NAME),
-            _reg1 <- auxiliary::Registration::new(pdev.as_ref(), AUXILIARY_NAME, 1, MODULE_NAME),
+        Ok(Self {
+            _reg0: auxiliary::Registration::new(
+                pdev.as_ref(),
+                AUXILIARY_NAME,
+                0,
+                MODULE_NAME,
+                Data { index: 0 },
+            )?,
+            _reg1: auxiliary::Registration::new(
+                pdev.as_ref(),
+                AUXILIARY_NAME,
+                1,
+                MODULE_NAME,
+                Data { index: 1 },
+            )?,
         })
     }
 }
@@ -83,7 +92,8 @@ impl ParentDriver {
     fn connect(adev: &auxiliary::Device<Bound>) -> Result {
         let dev = adev.parent();
         let pdev: &pci::Device<Bound> = dev.try_into()?;
-        let drvdata = dev.drvdata::<Self>()?;
+
+        let data = adev.registration_data::<Data>()?;
 
         dev_info!(
             dev,
@@ -95,8 +105,8 @@ impl ParentDriver {
 
         dev_info!(
             dev,
-            "We have access to the private data of {:?}.\n",
-            drvdata.private
+            "Connected to auxiliary device with index {}.\n",
+            data.index
         );
 
         Ok(())
