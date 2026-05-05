@@ -428,6 +428,17 @@ mshv_vp_dispatch(struct mshv_vp *vp, u32 flags,
 	status = hv_do_hypercall(HVCALL_DISPATCH_VP, input, output);
 	vp->run.flags.root_sched_dispatched = 0;
 
+	trace_mshv_hvcall_dispatch_vp(vp->vp_partition->pt_id,
+				      vp->vp_index, flags,
+				      output->dispatch_state,
+				      output->dispatch_event,
+#if defined(CONFIG_X86_64)
+				      vp->vp_register_page->interrupt_vectors.as_uint64,
+#else
+				      0,
+#endif
+				      status);
+
 	*res = *output;
 	preempt_enable();
 
@@ -449,6 +460,9 @@ mshv_vp_clear_explicit_suspend(struct mshv_vp *vp)
 
 	ret = mshv_set_vp_registers(vp->vp_index, vp->vp_partition->pt_id,
 				    1, &explicit_suspend);
+
+	trace_mshv_vp_clear_explicit_suspend(vp->vp_partition->pt_id,
+					     vp->vp_index, ret);
 
 	if (ret)
 		vp_err(vp, "Failed to unsuspend\n");
@@ -492,6 +506,12 @@ mshv_vp_wait_for_hv_kick(struct mshv_vp *vp)
 	if (ret)
 		return -EINTR;
 
+	trace_mshv_vp_wait_for_hv_kick(vp->vp_partition->pt_id,
+				       vp->vp_index,
+				       vp->run.kicked_by_hv,
+				       mshv_vp_dispatch_thread_blocked(vp),
+				       mshv_vp_interrupt_pending(vp));
+
 	vp->run.flags.root_sched_blocked = 0;
 	vp->run.kicked_by_hv = 0;
 
@@ -520,6 +540,12 @@ static long mshv_run_vp_with_root_scheduler(struct mshv_vp *vp)
 
 		if (__xfer_to_guest_mode_work_pending()) {
 			ret = xfer_to_guest_mode_handle_work();
+
+			trace_mshv_xfer_to_guest_mode_work(vp->vp_partition->pt_id,
+							   vp->vp_index,
+							   read_thread_flags(),
+							   ret);
+
 			if (ret)
 				break;
 		}
@@ -678,12 +704,18 @@ static long mshv_vp_ioctl_run_vp(struct mshv_vp *vp, void __user *ret_msg)
 {
 	long rc;
 
+	trace_mshv_run_vp_entry(vp->vp_partition->pt_id, vp->vp_index);
+
 	do {
 		if (hv_scheduler_type == HV_SCHEDULER_TYPE_ROOT)
 			rc = mshv_run_vp_with_root_scheduler(vp);
 		else
 			rc = mshv_run_vp_with_hyp_scheduler(vp);
 	} while (rc == 0 && mshv_vp_handle_intercept(vp));
+
+	trace_mshv_run_vp_exit(vp->vp_partition->pt_id, vp->vp_index,
+			       vp->vp_intercept_msg_page->header.message_type,
+			       rc);
 
 	if (rc)
 		return rc;
@@ -946,6 +978,8 @@ mshv_vp_release(struct inode *inode, struct file *filp)
 {
 	struct mshv_vp *vp = filp->private_data;
 
+	trace_mshv_vp_release(vp->vp_partition->pt_id, vp->vp_index);
+
 	/* Rest of VP cleanup happens in destroy_partition() */
 	mshv_partition_put(vp->vp_partition);
 	return 0;
@@ -1118,7 +1152,7 @@ mshv_partition_ioctl_create_vp(struct mshv_partition *partition,
 	partition->pt_vp_count++;
 	partition->pt_vp_array[args.vp_index] = vp;
 
-	return ret;
+	goto out;
 
 remove_debugfs_vp:
 	mshv_debugfs_vp_remove(vp);
@@ -1144,6 +1178,8 @@ unmap_intercept_message_page:
 			       intercept_msg_page, input_vtl_zero);
 destroy_vp:
 	hv_call_delete_vp(partition->pt_id, args.vp_index);
+out:
+	trace_mshv_create_vp(partition->pt_id, args.vp_index, ret);
 	return ret;
 }
 
@@ -1342,6 +1378,10 @@ mshv_map_user_memory(struct mshv_partition *partition,
 					     region->nr_pages);
 		break;
 	}
+
+	trace_mshv_map_user_memory(partition->pt_id, region->start_uaddr,
+				   region->start_gfn, region->nr_pages,
+				   region->hv_map_flags, ret);
 
 	if (ret)
 		goto errout;
@@ -1638,6 +1678,9 @@ disable_vp_dispatch(struct mshv_vp *vp)
 	if (ret)
 		vp_err(vp, "failed to suspend\n");
 
+	trace_mshv_disable_vp_dispatch(vp->vp_partition->pt_id,
+				       vp->vp_index, ret);
+
 	return ret;
 }
 
@@ -1686,6 +1729,8 @@ drain_vp_signals(struct mshv_vp *vp)
 		vp->run.kicked_by_hv = 0;
 		vp_signal_count = atomic64_read(&vp->run.vp_signaled_count);
 	}
+
+	trace_mshv_drain_vp_signals(vp->vp_partition->pt_id, vp->vp_index);
 }
 
 static void drain_all_vps(const struct mshv_partition *partition)
@@ -1738,6 +1783,8 @@ static void destroy_partition(struct mshv_partition *partition)
 		       "Attempt to destroy partition but refcount > 0\n");
 		return;
 	}
+
+	trace_mshv_destroy_partition(partition->pt_id);
 
 	if (partition->pt_initialized) {
 		/*
@@ -1844,6 +1891,8 @@ static int
 mshv_partition_release(struct inode *inode, struct file *filp)
 {
 	struct mshv_partition *partition = filp->private_data;
+
+	trace_mshv_partition_release(partition->pt_id);
 
 	mshv_eventfd_release(partition);
 
@@ -1976,6 +2025,7 @@ mshv_ioctl_create_partition(void __user *user_arg, struct device *module_dev)
 	struct mshv_partition *partition;
 	struct file *file;
 	int fd;
+	u64 pt_id = -1;
 	long ret;
 
 	ret = mshv_ioctl_process_pt_flags(user_arg, &creation_flags,
@@ -2015,9 +2065,11 @@ mshv_ioctl_create_partition(void __user *user_arg, struct device *module_dev)
 	ret = hv_call_create_partition(creation_flags,
 				       creation_properties,
 				       isolation_properties,
-				       &partition->pt_id);
+				       &pt_id);
 	if (ret)
 		goto cleanup_irq_srcu;
+
+	partition->pt_id = pt_id;
 
 	ret = add_partition(partition);
 	if (ret)
@@ -2055,6 +2107,7 @@ cleanup_irq_srcu:
 free_partition:
 	kfree(partition);
 
+	trace_mshv_create_partition(pt_id, ret);
 	return ret;
 }
 
