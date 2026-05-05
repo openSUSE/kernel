@@ -210,8 +210,8 @@ static int rng_dev_open(struct inode *inode, struct file *filp)
 	return 0;
 }
 
-static inline int rng_get_data(struct hwrng *rng, u8 *buffer, size_t size,
-			int wait) {
+static inline int rng_get_data(struct hwrng *rng, u8 *buffer, size_t size, bool wait)
+{
 	int present;
 
 	BUG_ON(!mutex_is_locked(&reading_mutex));
@@ -534,8 +534,7 @@ static int hwrng_fillfn(void *unused)
 		}
 
 		mutex_lock(&reading_mutex);
-		rc = rng_get_data(rng, rng_fillbuf,
-				  rng_buffer_size(), 1);
+		rc = rng_get_data(rng, rng_fillbuf, rng_buffer_size(), true);
 		if (current_quality != rng->quality)
 			rng->quality = current_quality; /* obsolete */
 		quality = rng->quality;
