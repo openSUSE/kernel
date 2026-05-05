@@ -528,16 +528,21 @@ static int rmi_f12_probe(struct rmi_function *fn)
 	}
 
 	/* allocate the in-kernel tracking buffers */
-	sensor->tracking_pos = devm_kcalloc(&fn->dev,
-			sensor->nbr_fingers, sizeof(struct input_mt_pos),
-			GFP_KERNEL);
-	sensor->tracking_slots = devm_kcalloc(&fn->dev,
-			sensor->nbr_fingers, sizeof(int), GFP_KERNEL);
-	sensor->objs = devm_kcalloc(&fn->dev,
-			sensor->nbr_fingers,
-			sizeof(struct rmi_2d_sensor_abs_object),
-			GFP_KERNEL);
-	if (!sensor->tracking_pos || !sensor->tracking_slots || !sensor->objs)
+	sensor->tracking_pos = devm_kcalloc(&fn->dev, sensor->nbr_fingers,
+					    sizeof(*sensor->tracking_pos),
+					    GFP_KERNEL);
+	if (!sensor->tracking_pos)
+		return -ENOMEM;
+
+	sensor->tracking_slots = devm_kcalloc(&fn->dev, sensor->nbr_fingers,
+					      sizeof(*sensor->tracking_slots),
+					      GFP_KERNEL);
+	if (!sensor->tracking_slots)
+		return -ENOMEM;
+
+	sensor->objs = devm_kcalloc(&fn->dev, sensor->nbr_fingers,
+				    sizeof(*sensor->objs), GFP_KERNEL);
+	if (!sensor->objs)
 		return -ENOMEM;
 
 	ret = rmi_2d_sensor_configure_input(fn, sensor);
