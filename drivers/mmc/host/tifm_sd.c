@@ -1041,7 +1041,7 @@ static int tifm_sd_resume(struct tifm_dev *sock)
 
 #endif /* CONFIG_PM */
 
-static struct tifm_device_id tifm_sd_id_tbl[] = {
+static const struct tifm_device_id tifm_sd_id_tbl[] = {
 	{ TIFM_TYPE_SD }, { }
 };
 MODULE_DEVICE_TABLE(tifm, tifm_sd_id_tbl);
