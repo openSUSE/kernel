@@ -1759,15 +1759,121 @@ int perf_session__deliver_synth_attr_event(struct perf_session *session,
 	return perf_session__deliver_synth_event(session, &ev.ev, NULL);
 }
 
+/*
+ * Minimum event sizes indexed by type.  Checked before swap and
+ * processing so that both cross-endian and native-endian paths
+ * are protected from accessing fields past the event boundary.
+ * Zero means no minimum beyond the 8-byte header (already
+ * enforced by the reader).
+ */
+static const u32 perf_event__min_size[PERF_RECORD_HEADER_MAX] = {
+	/*
+	 * offsetof() + 1 for types with a trailing variable-length
+	 * string (filename, comm, path, name, msg): the +1 ensures
+	 * room for at least a null terminator.  Full null-termination
+	 * within the event boundary is checked separately.
+	 *
+	 * PERF_RECORD_SAMPLE is omitted: all64_swap is bounded by
+	 * header.size, and the internal layout varies by sample_type
+	 * so a fixed minimum is not meaningful.
+	 */
+	[PERF_RECORD_MMAP]		  = offsetof(struct perf_record_mmap, filename) + 1,
+	[PERF_RECORD_LOST]		  = sizeof(struct perf_record_lost),
+	[PERF_RECORD_COMM]		  = offsetof(struct perf_record_comm, comm) + 1,
+	[PERF_RECORD_EXIT]		  = sizeof(struct perf_record_fork),
+	[PERF_RECORD_THROTTLE]		  = sizeof(struct perf_record_throttle),
+	[PERF_RECORD_UNTHROTTLE]	  = sizeof(struct perf_record_throttle),
+	[PERF_RECORD_FORK]		  = sizeof(struct perf_record_fork),
+	/*
+	 * The kernel dynamically sizes PERF_RECORD_READ based on
+	 * attr.read_format — the minimum has just pid + tid + value.
+	 */
+	[PERF_RECORD_READ]		  = offsetof(struct perf_record_read, time_enabled),
+	[PERF_RECORD_MMAP2]		  = offsetof(struct perf_record_mmap2, filename) + 1,
+	[PERF_RECORD_LOST_SAMPLES]	  = sizeof(struct perf_record_lost_samples),
+	[PERF_RECORD_AUX]		  = sizeof(struct perf_record_aux),
+	[PERF_RECORD_ITRACE_START]	  = sizeof(struct perf_record_itrace_start),
+	[PERF_RECORD_SWITCH]		  = sizeof(struct perf_event_header),
+	[PERF_RECORD_SWITCH_CPU_WIDE]	  = sizeof(struct perf_record_switch),
+	[PERF_RECORD_NAMESPACES]	  = sizeof(struct perf_record_namespaces),
+	[PERF_RECORD_CGROUP]		  = offsetof(struct perf_record_cgroup, path) + 1,
+	[PERF_RECORD_TEXT_POKE]		  = sizeof(struct perf_record_text_poke_event),
+	[PERF_RECORD_KSYMBOL]		  = offsetof(struct perf_record_ksymbol, name) + 1,
+	[PERF_RECORD_BPF_EVENT]		  = sizeof(struct perf_record_bpf_event),
+	[PERF_RECORD_HEADER_ATTR]	  = sizeof(struct perf_event_header) + PERF_ATTR_SIZE_VER0,
+	[PERF_RECORD_HEADER_EVENT_TYPE]	  = sizeof(struct perf_record_header_event_type),
+	/* Legacy events predate the __u32 pad field, accept 12-byte records */
+	[PERF_RECORD_HEADER_TRACING_DATA] = offsetof(struct perf_record_header_tracing_data, pad),
+	[PERF_RECORD_AUX_OUTPUT_HW_ID]	  = sizeof(struct perf_record_aux_output_hw_id),
+	[PERF_RECORD_AUXTRACE_INFO]	  = sizeof(struct perf_record_auxtrace_info),
+	[PERF_RECORD_AUXTRACE]		  = sizeof(struct perf_record_auxtrace),
+	[PERF_RECORD_AUXTRACE_ERROR]	  = offsetof(struct perf_record_auxtrace_error, msg) + 1,
+	[PERF_RECORD_THREAD_MAP]	  = sizeof(struct perf_record_thread_map),
+	/* Smallest valid variant is RANGE_CPUS: header(8) + type(2) + range(6) */
+	[PERF_RECORD_CPU_MAP]		  = sizeof(struct perf_event_header) +
+					    sizeof(__u16) +
+					    sizeof(struct perf_record_range_cpu_map),
+	[PERF_RECORD_STAT_CONFIG]	  = sizeof(struct perf_record_stat_config),
+	[PERF_RECORD_STAT]		  = sizeof(struct perf_record_stat),
+	[PERF_RECORD_STAT_ROUND]	  = sizeof(struct perf_record_stat_round),
+	/* Union inflates sizeof; use fixed header fields as minimum */
+	[PERF_RECORD_EVENT_UPDATE]	  = offsetof(struct perf_record_event_update, scale),
+	[PERF_RECORD_TIME_CONV]		  = offsetof(struct perf_record_time_conv, time_cycles),
+	[PERF_RECORD_ID_INDEX]		  = sizeof(struct perf_record_id_index),
+	[PERF_RECORD_HEADER_BUILD_ID]	  = sizeof(struct perf_record_header_build_id),
+	[PERF_RECORD_HEADER_FEATURE]	  = sizeof(struct perf_record_header_feature),
+	[PERF_RECORD_COMPRESSED2]	  = sizeof(struct perf_record_compressed2),
+	[PERF_RECORD_BPF_METADATA]	  = sizeof(struct perf_record_bpf_metadata),
+	[PERF_RECORD_CALLCHAIN_DEFERRED]  = sizeof(struct perf_event_header) + sizeof(__u64),
+	/*
+	 * SCHEDSTAT events have a version-dependent union after the
+	 * fixed header fields; the minimum is the base (pre-union)
+	 * portion so old and new versions both pass.
+	 */
+	[PERF_RECORD_SCHEDSTAT_CPU]	  = offsetof(struct perf_record_schedstat_cpu, v15),
+	[PERF_RECORD_SCHEDSTAT_DOMAIN]	  = offsetof(struct perf_record_schedstat_domain, v15),
+};
+
+/*
+ * Return true if the event is too small for its declared type.
+ * Caller must ensure event->header.type < PERF_RECORD_HEADER_MAX.
+ * If min is non-NULL, stores the required minimum on failure.
+ */
+static bool perf_event__too_small(const union perf_event *event, u32 *min)
+{
+	u32 min_sz = perf_event__min_size[event->header.type];
+
+	if (min_sz && event->header.size < min_sz) {
+		if (min)
+			*min = min_sz;
+		return true;
+	}
+
+	return false;
+}
+
+/* Caller must ensure event->header.type < PERF_RECORD_HEADER_MAX */
 static void event_swap(union perf_event *event, bool sample_id_all)
 {
-	perf_event__swap_op swap;
-
-	swap = perf_event__swap_ops[event->header.type];
+	perf_event__swap_op swap = perf_event__swap_ops[event->header.type];
 	if (swap)
 		swap(event, sample_id_all);
 }
 
+/*
+ * Read and validate the event at @file_offset.
+ *
+ * Returns:
+ *   0  — success: *event_ptr is set and safe to access.
+ *  -1  — error; check *event_ptr to decide whether to advance or abort:
+ *          *event_ptr set  — event header was read but the event is
+ *                            malformed (too small for its type, or byte-swap
+ *                            failed).  header.size is still valid, so the
+ *                            caller can advance past the event.
+ *          *event_ptr NULL — fatal: couldn't read the header at all
+ *                            (I/O error, offset out of range, pipe mode).
+ *                            Caller must abort.
+ */
 int perf_session__peek_event(struct perf_session *session, off_t file_offset,
 			     void *buf, size_t buf_sz,
 			     union perf_event **event_ptr,
@@ -1775,51 +1881,84 @@ int perf_session__peek_event(struct perf_session *session, off_t file_offset,
 {
 	union perf_event *event;
 	size_t hdr_sz, rest;
+	u32 min_sz;
 	int fd;
+
+	*event_ptr = NULL;
 
 	if (session->one_mmap && !session->header.needs_swap) {
 		event = file_offset - session->one_mmap_offset +
 			session->one_mmap_addr;
-		goto out_parse_sample;
+
+		/* Every event must at least contain its own header */
+		if (event->header.size < sizeof(struct perf_event_header))
+			return -1;
+	} else {
+		if (perf_data__is_pipe(session->data))
+			return -1;
+
+		fd = perf_data__fd(session->data);
+		hdr_sz = sizeof(struct perf_event_header);
+
+		if (buf_sz < hdr_sz)
+			return -1;
+
+		if (lseek(fd, file_offset, SEEK_SET) == (off_t)-1 ||
+		    readn(fd, buf, hdr_sz) != (ssize_t)hdr_sz)
+			return -1;
+
+		event = (union perf_event *)buf;
+
+		if (session->header.needs_swap)
+			perf_event_header__bswap(&event->header);
+
+		if (event->header.size < hdr_sz || event->header.size > buf_sz)
+			return -1;
+
+		buf += hdr_sz;
+		rest = event->header.size - hdr_sz;
+
+		if (readn(fd, buf, rest) != (ssize_t)rest)
+			return -1;
 	}
 
-	if (perf_data__is_pipe(session->data))
+	/* Event data is fully loaded — expose so callers can advance */
+	*event_ptr = event;
+
+	/*
+	 * Check alignment before type: an unaligned size misaligns the
+	 * stream for all subsequent reads regardless of event type.
+	 * Three legacy user events predate the 8-byte rule — exempt them.
+	 */
+	if (event->header.size % sizeof(u64) &&
+	    event->header.type != PERF_RECORD_HEADER_TRACING_DATA &&
+	    event->header.type != PERF_RECORD_COMPRESSED &&
+	    event->header.type != PERF_RECORD_HEADER_FEATURE) {
+		pr_warning("WARNING: peek_event: event type %u size %u not aligned to %zu\n",
+			   event->header.type,
+			   event->header.size, sizeof(u64));
 		return -1;
+	}
 
-	fd = perf_data__fd(session->data);
-	hdr_sz = sizeof(struct perf_event_header);
+	if (event->header.type >= PERF_RECORD_HEADER_MAX) {
+		pr_warning("WARNING: peek_event: unsupported event type %u, skipping\n",
+			   event->header.type);
+		return 0;
+	}
 
-	if (buf_sz < hdr_sz)
+	if (perf_event__too_small(event, &min_sz)) {
+		pr_warning("WARNING: peek_event: %s event size %u too small (min %u)\n",
+			   perf_event__name(event->header.type),
+			   event->header.size, min_sz);
 		return -1;
-
-	if (lseek(fd, file_offset, SEEK_SET) == (off_t)-1 ||
-	    readn(fd, buf, hdr_sz) != (ssize_t)hdr_sz)
-		return -1;
-
-	event = (union perf_event *)buf;
-
-	if (session->header.needs_swap)
-		perf_event_header__bswap(&event->header);
-
-	if (event->header.size < hdr_sz || event->header.size > buf_sz)
-		return -1;
-
-	buf += hdr_sz;
-	rest = event->header.size - hdr_sz;
-
-	if (readn(fd, buf, rest) != (ssize_t)rest)
-		return -1;
+	}
 
 	if (session->header.needs_swap)
 		event_swap(event, evlist__sample_id_all(session->evlist));
 
-out_parse_sample:
-
 	if (sample && event->header.type < PERF_RECORD_USER_TYPE_START &&
 	    evlist__parse_sample(session->evlist, event, sample))
 		return -1;
-
-	*event_ptr = event;
 
 	return 0;
 }
@@ -1858,22 +1997,70 @@ static s64 perf_session__process_event(struct perf_session *session,
 {
 	struct evlist *evlist = session->evlist;
 	const struct perf_tool *tool = session->tool;
+	u32 min_sz;
 	int ret;
 
-	if (session->header.needs_swap)
-		event_swap(event, evlist__sample_id_all(evlist));
+	/*
+	 * The kernel aligns all event sizes to sizeof(u64) — see
+	 * perf_event_comm_event() (ALIGN), perf_event_mmap_event(),
+	 * perf_event_cgroup(), perf_event_ksymbol() (IS_ALIGNED loops),
+	 * and perf_event_text_poke() (ALIGN) in kernel/events/core.c.
+	 *
+	 * An unaligned size means the file is corrupted or crafted.
+	 * Abort: there is no point continuing to read unaligned records
+	 * because the caller advances rd->head by event->header.size,
+	 * so every subsequent read would start at a misaligned offset,
+	 * producing garbage headers for the rest of the file.
+	 *
+	 * Exempt three legacy user events that predate the alignment rule:
+	 *
+	 * TRACING_DATA (66): struct tracing_data_event was 12 bytes before
+	 *   b39c915a4f36 ("libperf event: Ensure tracing data is multiple
+	 *   of 8 sized") added __u32 pad; old perf.data files still contain
+	 *   12-byte records.
+	 *   TODO: introduce HEADER_TRACING_DATA2 with guaranteed alignment.
+	 *
+	 * COMPRESSED (81): raw ZSTD output, arbitrary length.  Already
+	 *   superseded by COMPRESSED2 (83) with PERF_ALIGN.
+	 *
+	 * HEADER_FEATURE (80): do_write_string() uses a 4-byte length
+	 *   prefix with no padding to 8-byte total.
+	 *   TODO: introduce HEADER_FEATURE2 with guaranteed alignment.
+	 */
+	if (event->header.size % sizeof(u64) &&
+	    event->header.type != PERF_RECORD_HEADER_TRACING_DATA &&
+	    event->header.type != PERF_RECORD_COMPRESSED &&
+	    event->header.type != PERF_RECORD_HEADER_FEATURE) {
+		pr_err("ERROR: %s event size %u is not 8-byte aligned, aborting\n",
+		       perf_event__name(event->header.type),
+		       event->header.size);
+		return -EINVAL;
+	}
 
 	if (event->header.type >= PERF_RECORD_HEADER_MAX) {
-		/* perf should not support unaligned event, stop here. */
-		if (event->header.size % sizeof(u64))
-			return -EINVAL;
-
 		/* This perf is outdated and does not support the latest event type. */
 		ui__warning("Unsupported header type %u, please consider updating perf.\n",
 			    event->header.type);
-		/* Skip unsupported event by returning its size. */
-		return event->header.size;
+		/*
+		 * Return 0 to skip: the caller (reader__read_event)
+		 * already advances by event->header.size.
+		 */
+		return 0;
 	}
+
+	/*
+	 * Skip rather than abort: a too-small-but-aligned event
+	 * can be safely stepped over without misaligning the stream.
+	 */
+	if (perf_event__too_small(event, &min_sz)) {
+		pr_warning("WARNING: %s event size %u too small (min %u), skipping\n",
+			   perf_event__name(event->header.type),
+			   event->header.size, min_sz);
+		return 0;
+	}
+
+	if (session->header.needs_swap)
+		event_swap(event, evlist__sample_id_all(evlist));
 
 	events_stats__inc(&evlist->stats, event->header.type);
 
