@@ -11,6 +11,7 @@
 	aliases {
 		ethernet0 = &eth0;
 		ethernet1 = &eth1;
+		i2c0 = &i2c0;
 	};
 
 	memory@48000000 {
@@ -48,6 +49,11 @@
 
 &extal_clk {
 	clock-frequency = <24000000>;
+};
+
+&i2c0 {
+	pinctrl-0 = <&i2c0_pins>;
+	pinctrl-names = "default";
 };
 
 &mdio0 {
@@ -143,6 +149,11 @@
 				 <RZG3L_PORT_PINMUX(F, 2, 15)>; /* PHY_INTR */
 				 power-source = <1800>;
 		};
+	};
+
+	i2c0_pins: i2c0 {
+		pinmux = <RZG3L_PORT_PINMUX(L, 2, 4)>, /* RIIC0_SCL */
+			 <RZG3L_PORT_PINMUX(L, 3, 4)>; /* RIIC0_SDA */
 	};
 };
 
