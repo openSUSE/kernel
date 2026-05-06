@@ -2156,7 +2156,19 @@ static void rtw89_core_parse_phy_status_ie09(struct rtw89_dev *rtwdev,
 					     const struct rtw89_phy_sts_iehdr *iehdr,
 					     struct rtw89_rx_phy_ppdu *phy_ppdu)
 {
-	phy_ppdu->ie09 = (const void *)iehdr;
+	const struct rtw89_phy_gen_def *phy = rtwdev->chip->phy_def;
+	const union rtw89_phy_sts_ie09 *ie09;
+	u16 ie_len;
+
+	ie09 = (const void *)iehdr;
+
+	if (phy->physt_gen >= 2) {
+		ie_len = rtw89_core_get_phy_status_ie_len(rtwdev, (const void *)iehdr);
+		if (ie_len < sizeof(ie09->gen2))
+			return;
+	}
+
+	phy_ppdu->ie09 = ie09;
 }
 
 static void rtw89_core_parse_phy_status_ie10(struct rtw89_dev *rtwdev,
@@ -3190,7 +3202,8 @@ static void rtw89_core_update_radiotap_vht(struct rtw89_dev *rtwdev,
 					   struct ieee80211_rx_status *rx_status,
 					   struct rtw89_rx_phy_ppdu *phy_ppdu)
 {
-	const struct rtw89_phy_sts_ie09 *ie09;
+	const struct rtw89_phy_gen_def *phy = rtwdev->chip->phy_def;
+	const union rtw89_phy_sts_ie09 *ie09;
 	struct ieee80211_radiotap_vht *vht;
 	u8 group_id;
 	u32 sig_a1;
@@ -3208,7 +3221,10 @@ static void rtw89_core_update_radiotap_vht(struct rtw89_dev *rtwdev,
 	memset(vht, 0, sizeof(*vht));
 	rx_status->flag |= RX_FLAG_RADIOTAP_VHT;
 
-	sig_a1 = le64_get_bits(ie09->qw0, RTW89_PHY_STS_IE09_VHT_SIG_A1_MASK);
+	if (phy->physt_gen >= 2)
+		sig_a1 = le64_get_bits(ie09->gen2.qw0, RTW89_PHY_STS_IE09_VHT_SIG_A1_MASK_GEN2);
+	else
+		sig_a1 = le64_get_bits(ie09->gen0.qw0, RTW89_PHY_STS_IE09_VHT_SIG_A1_MASK);
 
 	group_id = u32_get_bits(sig_a1, RTW89_PHY_STS_IE09_VHT_SIG_A1_GRP_ID);
 	vht->group_id = group_id;
@@ -3233,16 +3249,26 @@ static void rtw89_core_update_radiotap_he_su(struct rtw89_dev *rtwdev,
 					     struct sk_buff *skb,
 					     struct ieee80211_rx_status *rx_status,
 					     struct ieee80211_radiotap_he *he,
-					     const struct rtw89_phy_sts_ie09 *ie09)
+					     const union rtw89_phy_sts_ie09 *ie09)
 {
+	const struct rtw89_phy_gen_def *phy = rtwdev->chip->phy_def;
 	u32 sig_a1, sig_a2;
 	u16 t;
 
 	if (!ie09)
 		return;
 
-	sig_a1 = le64_get_bits(ie09->qw0, RTW89_PHY_STS_IE09_HE_SU_SIG_A1_MASK);
-	sig_a2 = le64_get_bits(ie09->qw0, RTW89_PHY_STS_IE09_HE_SU_SIG_A2_MASK);
+	if (phy->physt_gen >= 2) {
+		sig_a1 = le64_get_bits(ie09->gen2.qw0,
+				       RTW89_PHY_STS_IE09_HE_SU_SIG_A1_MASK_GEN2);
+		sig_a2 = le64_get_bits(ie09->gen2.qw0,
+				       RTW89_PHY_STS_IE09_HE_SU_SIG_A2_MASK_GEN2_L0);
+		sig_a2 |= le64_get_bits(ie09->gen2.qw1,
+					RTW89_PHY_STS_IE09_HE_SU_SIG_A2_MASK_GEN2_H6) << 6;
+	} else {
+		sig_a1 = le64_get_bits(ie09->gen0.qw0, RTW89_PHY_STS_IE09_HE_SU_SIG_A1_MASK);
+		sig_a2 = le64_get_bits(ie09->gen0.qw0, RTW89_PHY_STS_IE09_HE_SU_SIG_A2_MASK);
+	}
 
 	he->data1 |= cpu_to_le16(IEEE80211_RADIOTAP_HE_DATA1_BEAM_CHANGE_KNOWN |
 				 IEEE80211_RADIOTAP_HE_DATA1_UL_DL_KNOWN |
@@ -3295,16 +3321,26 @@ static void rtw89_core_update_radiotap_he_tb(struct rtw89_dev *rtwdev,
 					     struct sk_buff *skb,
 					     struct ieee80211_rx_status *rx_status,
 					     struct ieee80211_radiotap_he *he,
-					     const struct rtw89_phy_sts_ie09 *sig)
+					     const union rtw89_phy_sts_ie09 *sig)
 {
+	const struct rtw89_phy_gen_def *phy = rtwdev->chip->phy_def;
 	u32 sig_a1, sig_a2;
 	u16 t;
 
 	if (!sig)
 		return;
 
-	sig_a1 = le64_get_bits(sig->qw0, RTW89_PHY_STS_IE09_HE_TB_SIG_A1_MASK);
-	sig_a2 = le64_get_bits(sig->qw0, RTW89_PHY_STS_IE09_HE_TB_SIG_A2_MASK);
+	if (phy->physt_gen >= 2) {
+		sig_a1 = le64_get_bits(sig->gen2.qw0,
+				       RTW89_PHY_STS_IE09_HE_TB_SIG_A1_MASK_GEN2);
+		sig_a2 = le64_get_bits(sig->gen2.qw0,
+				       RTW89_PHY_STS_IE09_HE_TB_SIG_A2_MASK_GEN2_L0);
+		sig_a2 |= le64_get_bits(sig->gen2.qw1,
+					RTW89_PHY_STS_IE09_HE_TB_SIG_A2_MASK_GEN2_H6);
+	} else {
+		sig_a1 = le64_get_bits(sig->gen0.qw0, RTW89_PHY_STS_IE09_HE_TB_SIG_A1_MASK);
+		sig_a2 = le64_get_bits(sig->gen0.qw0, RTW89_PHY_STS_IE09_HE_TB_SIG_A2_MASK);
+	}
 
 	he->data1 |= cpu_to_le16(IEEE80211_RADIOTAP_HE_DATA1_BSS_COLOR_KNOWN |
 				 IEEE80211_RADIOTAP_HE_DATA1_SPTL_REUSE_KNOWN |
@@ -3445,9 +3481,10 @@ static void rtw89_core_update_radiotap_he_mu(struct rtw89_dev *rtwdev,
 					     struct ieee80211_rx_status *rx_status,
 					     struct ieee80211_radiotap_he *he,
 					     struct ieee80211_radiotap_he_mu *he_mu,
-					     const struct rtw89_phy_sts_ie09 *ie09,
+					     const union rtw89_phy_sts_ie09 *ie09,
 					     const struct rtw89_phy_sts_ie10 *ie10)
 {
+	const struct rtw89_phy_gen_def *phy = rtwdev->chip->phy_def;
 	const u8 *c1 = NULL, *c2 = NULL;
 	int n_center_26tone, n_ru, i;
 	bool doppler, comp;
@@ -3468,8 +3505,17 @@ static void rtw89_core_update_radiotap_he_mu(struct rtw89_dev *rtwdev,
 				 IEEE80211_RADIOTAP_HE_DATA2_PRE_FEC_PAD_KNOWN |
 				 IEEE80211_RADIOTAP_HE_DATA2_PE_DISAMBIG_KNOWN);
 
-	sig_a1 = le64_get_bits(ie09->qw0, RTW89_PHY_STS_IE09_HE_MU_SIG_A1_MASK);
-	sig_a2 = le64_get_bits(ie09->qw0, RTW89_PHY_STS_IE09_HE_MU_SIG_A2_MASK);
+	if (phy->physt_gen >= 2) {
+		sig_a1 = le64_get_bits(ie09->gen2.qw0,
+				       RTW89_PHY_STS_IE09_HE_MU_SIG_A1_MASK_GEN2);
+		sig_a2 = le64_get_bits(ie09->gen2.qw0,
+				       RTW89_PHY_STS_IE09_HE_MU_SIG_A2_MASK_GEN2_L0);
+		sig_a2 |= le64_get_bits(ie09->gen2.qw1,
+					RTW89_PHY_STS_IE09_HE_MU_SIG_A2_MASK_GEN2_H6) << 6;
+	} else {
+		sig_a1 = le64_get_bits(ie09->gen0.qw0, RTW89_PHY_STS_IE09_HE_MU_SIG_A1_MASK);
+		sig_a2 = le64_get_bits(ie09->gen0.qw0, RTW89_PHY_STS_IE09_HE_MU_SIG_A2_MASK);
+	}
 
 	t = u32_get_bits(sig_a1, RTW89_PHY_STS_IE09_HE_MU_SIG_A1_ULDL);
 	he->data3 |= le16_encode_bits(t, IEEE80211_RADIOTAP_HE_DATA3_UL_DL);
@@ -3593,7 +3639,7 @@ static void rtw89_core_update_radiotap_he(struct rtw89_dev *rtwdev,
 		.data2 = cpu_to_le16(IEEE80211_RADIOTAP_HE_DATA2_GI_KNOWN),
 	};
 	struct ieee80211_radiotap_he_mu *he_mu = NULL;
-	const struct rtw89_phy_sts_ie09 *ie09;
+	const union rtw89_phy_sts_ie09 *ie09;
 	const struct rtw89_phy_sts_ie10 *ie10;
 	struct ieee80211_radiotap_he *he;
 	u16 he_format;

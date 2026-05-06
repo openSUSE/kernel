@@ -24,7 +24,7 @@ struct rtw89_h2c_rf_tssi;
 struct rtw89_fw_txpwr_track_cfg;
 struct rtw89_phy_rfk_log_fmt;
 struct rtw89_phy_calc_efuse_gain;
-struct rtw89_phy_sts_ie09;
+union rtw89_phy_sts_ie09;
 struct rtw89_phy_sts_ie10;
 struct rtw89_debugfs;
 struct rtw89_regd_data;
@@ -867,7 +867,7 @@ struct rtw89_rx_phy_ppdu {
 	bool to_self;
 	bool valid;
 	bool hdr_2_en;
-	const struct rtw89_phy_sts_ie09 *ie09; /* SIG-A */
+	const union rtw89_phy_sts_ie09 *ie09; /* SIG-A */
 	const struct rtw89_phy_sts_ie10 *ie10; /* SIG-B */
 };
 
