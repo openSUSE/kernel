@@ -3481,8 +3481,8 @@ static int alg_test_comp(const struct alg_test_desc *desc, const char *driver,
 	return err;
 }
 
-static int drbg_cavs_test(const struct drbg_testvec *test, int pr,
-			  const char *driver, u32 type, u32 mask)
+static int drbg_cavs_test(const struct drbg_testvec *test, const char *driver,
+			  u32 type, u32 mask)
 {
 	int ret = -EAGAIN;
 	struct crypto_rng *drng;
@@ -3519,8 +3519,6 @@ static int drbg_cavs_test(const struct drbg_testvec *test, int pr,
 		}
 	}
 
-	if (pr)
-		crypto_rng_set_entropy(drng, test->entpra, test->entprlen);
 	ret = crypto_rng_generate(drng, test->addtla, test->addtllen,
 				  buf, test->expectedlen);
 	if (ret < 0) {
@@ -3529,8 +3527,6 @@ static int drbg_cavs_test(const struct drbg_testvec *test, int pr,
 		goto outbuf;
 	}
 
-	if (pr)
-		crypto_rng_set_entropy(drng, test->entprb, test->entprlen);
 	ret = crypto_rng_generate(drng, test->addtlb, test->addtllen,
 				  buf, test->expectedlen);
 	if (ret < 0) {
@@ -3552,16 +3548,12 @@ static int alg_test_drbg(const struct alg_test_desc *desc, const char *driver,
 			 u32 type, u32 mask)
 {
 	int err = 0;
-	int pr = 0;
 	int i = 0;
 	const struct drbg_testvec *template = desc->suite.drbg.vecs;
 	unsigned int tcount = desc->suite.drbg.count;
 
-	if (0 == memcmp(driver, "drbg_pr_", 8))
-		pr = 1;
-
 	for (i = 0; i < tcount; i++) {
-		err = drbg_cavs_test(&template[i], pr, driver, type, mask);
+		err = drbg_cavs_test(&template[i], driver, type, mask);
 		if (err) {
 			printk(KERN_ERR "alg: drbg: Test %d failed for %s\n",
 			       i, driver);
@@ -4655,13 +4647,6 @@ static const struct alg_test_desc alg_test_descs[] = {
 		.fips_allowed = 1,
 		.suite = {
 			.drbg = __VECS(drbg_nopr_hmac_sha512_tv_template)
-		}
-	}, {
-		.alg = "drbg_pr_hmac_sha512",
-		.test = alg_test_drbg,
-		.fips_allowed = 1,
-		.suite = {
-			.drbg = __VECS(drbg_pr_hmac_sha512_tv_template)
 		}
 	}, {
 		.alg = "ecb(aes)",
