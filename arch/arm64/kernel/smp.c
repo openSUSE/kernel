@@ -745,15 +745,21 @@ void __init smp_init_cpus(void)
 	else
 		acpi_parse_and_init_cpus();
 
-	if (cpu_count > nr_cpu_ids)
-		pr_warn("Number of cores (%d) exceeds configured maximum of %u - clipping\n",
-			cpu_count, nr_cpu_ids);
-
 	if (!bootcpu_valid) {
 		pr_err("missing boot CPU MPIDR, not enabling secondaries\n");
 		return;
 	}
 
+	/*
+	 * For the nosmp/maxcpus=0 case, do not mark the secondary CPUs
+	 * possible.
+	 */
+	if (!setup_max_cpus)
+		return;
+
+	if (cpu_count > nr_cpu_ids)
+		pr_warn("Number of cores (%d) exceeds configured maximum of %u - clipping\n",
+			cpu_count, nr_cpu_ids);
 	/*
 	 * We need to set the cpu_logical_map entries before enabling
 	 * the cpus so that cpu processor description entries (DT cpu nodes
