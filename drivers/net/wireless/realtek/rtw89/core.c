@@ -3568,6 +3568,7 @@ void rtw89_core_query_rxdesc(struct rtw89_dev *rtwdev,
 	desc_info->hw_dec = le32_get_bits(rxd_s->dword3, AX_RXD_HW_DEC);
 	desc_info->sw_dec = le32_get_bits(rxd_s->dword3, AX_RXD_SW_DEC);
 	desc_info->addr1_match = le32_get_bits(rxd_s->dword3, AX_RXD_A1_MATCH);
+	desc_info->ampdu = le32_get_bits(rxd_s->dword3, AX_RXD_AMPDU);
 
 	shift_len = desc_info->shift << 1; /* 2-byte unit */
 	drv_info_len = desc_info->drv_info_size << 3; /* 8-byte unit */
@@ -3624,6 +3625,7 @@ void rtw89_core_query_rxdesc_v2(struct rtw89_dev *rtwdev,
 	desc_info->hw_dec = le32_get_bits(rxd_s->dword3, BE_RXD_HW_DEC);
 	desc_info->sw_dec = le32_get_bits(rxd_s->dword3, BE_RXD_SW_DEC);
 	desc_info->addr1_match = le32_get_bits(rxd_s->dword3, BE_RXD_A1_MATCH);
+	desc_info->ampdu = le32_get_bits(rxd_s->dword3, BE_RXD_AMPDU);
 
 	desc_info->bw = le32_get_bits(rxd_s->dword4, BE_RXD_BW_MASK);
 	desc_info->data_rate = le32_get_bits(rxd_s->dword4, BE_RXD_RX_DATARATE_MASK);
@@ -3698,6 +3700,7 @@ void rtw89_core_query_rxdesc_v3(struct rtw89_dev *rtwdev,
 	desc_info->hw_dec = le32_get_bits(rxd_s->dword3, BE_RXD_HW_DEC);
 	desc_info->sw_dec = le32_get_bits(rxd_s->dword3, BE_RXD_SW_DEC);
 	desc_info->addr1_match = le32_get_bits(rxd_s->dword3, BE_RXD_A1_MATCH);
+	desc_info->ampdu = le32_get_bits(rxd_s->dword3, BE_RXD_AMPDU);
 
 	desc_info->bw = le32_get_bits(rxd_s->dword4, BE_RXD_BW_MASK);
 	desc_info->data_rate = le32_get_bits(rxd_s->dword4, BE_RXD_RX_DATARATE_MASK);
@@ -3829,6 +3832,11 @@ static void rtw89_core_update_rx_status(struct rtw89_dev *rtwdev,
 	if (desc_info->hw_dec &&
 	    !(desc_info->sw_dec || desc_info->icv_err))
 		rx_status->flag |= RX_FLAG_DECRYPTED;
+
+	if (desc_info->ampdu) {
+		rx_status->flag |= RX_FLAG_AMPDU_DETAILS;
+		rx_status->ampdu_reference = desc_info->ppdu_cnt;
+	}
 
 	rx_status->bw = rtw89_hw_to_rate_info_bw(desc_info->bw);
 

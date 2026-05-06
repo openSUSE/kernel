@@ -1130,6 +1130,7 @@ struct rtw89_rx_desc_info {
 	bool hw_dec;
 	bool sw_dec;
 	bool addr1_match;
+	bool ampdu;
 	u8 frag;
 	u16 seq;
 	u8 frame_type;
