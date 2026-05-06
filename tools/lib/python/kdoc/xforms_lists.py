@@ -29,6 +29,7 @@ class CTransforms:
         (CMatch("__aligned"), ""),
         (CMatch("__counted_by"), ""),
         (CMatch("__counted_by_(le|be)"), ""),
+        (CMatch("__counted_by_ptr"), ""),
         (CMatch("__guarded_by"), ""),
         (CMatch("__pt_guarded_by"), ""),
         (CMatch("__packed"), ""),
