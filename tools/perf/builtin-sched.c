@@ -3947,6 +3947,8 @@ static struct schedstat_domain *domain_second_pass;
 static bool after_workload_flag;
 static bool verbose_field;
 
+static void free_schedstat(struct list_head *head);
+
 static void store_schedstat_cpu_diff(struct schedstat_cpu *after_workload)
 {
 	struct perf_record_schedstat_cpu *before = cpu_second_pass->cpu_data;
@@ -4170,37 +4172,50 @@ static void summarize_schedstat_domain(struct schedstat_domain *summary_domain,
  */
 static int get_all_cpu_stats(struct list_head *head)
 {
-	struct schedstat_cpu *cptr = list_first_entry(head, struct schedstat_cpu, cpu_list);
-	struct schedstat_cpu *summary_head = NULL;
-	struct perf_record_schedstat_domain *ds;
-	struct perf_record_schedstat_cpu *cs;
+	struct schedstat_cpu *cptr, *summary_head = NULL;
 	struct schedstat_domain *dptr, *tdptr;
 	bool is_last = false;
 	int cnt = 1;
 	int ret = 0;
+	struct list_head tmp_cleanup_list;
 
-	if (cptr) {
-		summary_head = zalloc(sizeof(*summary_head));
-		if (!summary_head)
-			return -ENOMEM;
+	assert(!list_empty(head));
+	cptr = list_first_entry(head, struct schedstat_cpu, cpu_list);
 
-		summary_head->cpu_data = zalloc(sizeof(*cs));
-		memcpy(summary_head->cpu_data, cptr->cpu_data, sizeof(*cs));
+	INIT_LIST_HEAD(&tmp_cleanup_list);
 
-		INIT_LIST_HEAD(&summary_head->domain_head);
+	summary_head = zalloc(sizeof(*summary_head));
+	if (!summary_head)
+		return -ENOMEM;
 
-		list_for_each_entry(dptr, &cptr->domain_head, domain_list) {
-			tdptr = zalloc(sizeof(*tdptr));
-			if (!tdptr)
-				return -ENOMEM;
+	INIT_LIST_HEAD(&summary_head->domain_head);
+	INIT_LIST_HEAD(&summary_head->cpu_list);
+	list_add(&summary_head->cpu_list, &tmp_cleanup_list);
 
-			tdptr->domain_data = zalloc(sizeof(*ds));
-			if (!tdptr->domain_data)
-				return -ENOMEM;
+	summary_head->cpu_data = zalloc(sizeof(*summary_head->cpu_data));
+	if (!summary_head->cpu_data) {
+		ret = -ENOMEM;
+		goto out_cleanup;
+	}
+	memcpy(summary_head->cpu_data, cptr->cpu_data, sizeof(*summary_head->cpu_data));
 
-			memcpy(tdptr->domain_data, dptr->domain_data, sizeof(*ds));
-			list_add_tail(&tdptr->domain_list, &summary_head->domain_head);
+	list_for_each_entry(dptr, &cptr->domain_head, domain_list) {
+		tdptr = zalloc(sizeof(*tdptr));
+		if (!tdptr) {
+			ret = -ENOMEM;
+			goto out_cleanup;
 		}
+		INIT_LIST_HEAD(&tdptr->domain_list);
+
+		tdptr->domain_data = zalloc(sizeof(*tdptr->domain_data));
+		if (!tdptr->domain_data) {
+			free(tdptr);
+			ret = -ENOMEM;
+			goto out_cleanup;
+		}
+
+		memcpy(tdptr->domain_data, dptr->domain_data, sizeof(*tdptr->domain_data));
+		list_add_tail(&tdptr->domain_list, &summary_head->domain_head);
 	}
 
 	list_for_each_entry(cptr, head, cpu_list) {
@@ -4212,31 +4227,51 @@ static int get_all_cpu_stats(struct list_head *head)
 
 		cnt++;
 		summarize_schedstat_cpu(summary_head, cptr, cnt, is_last);
+		if (list_empty(&summary_head->domain_head))
+			continue;
+
 		tdptr = list_first_entry(&summary_head->domain_head, struct schedstat_domain,
 					 domain_list);
 
 		list_for_each_entry(dptr, &cptr->domain_head, domain_list) {
 			summarize_schedstat_domain(tdptr, dptr, cnt, is_last);
+			if (list_is_last(&tdptr->domain_list, &summary_head->domain_head)) {
+				tdptr = NULL;
+				break;
+			}
 			tdptr = list_next_entry(tdptr, domain_list);
 		}
 	}
 
+	list_del_init(&summary_head->cpu_list);
 	list_add(&summary_head->cpu_list, head);
+	return 0;
+
+out_cleanup:
+	free_schedstat(&tmp_cleanup_list);
 	return ret;
 }
 
-static int show_schedstat_data(struct list_head *head1, struct cpu_domain_map **cd_map1,
-			       struct list_head *head2, struct cpu_domain_map **cd_map2,
+static int show_schedstat_data(struct list_head *head1, struct cpu_domain_map **cd_map1, int nr1,
+			       struct list_head *head2, struct cpu_domain_map **cd_map2, int nr2,
 			       bool summary_only)
 {
 	struct schedstat_cpu *cptr1 = list_first_entry(head1, struct schedstat_cpu, cpu_list);
 	struct perf_record_schedstat_domain *ds1 = NULL, *ds2 = NULL;
-	struct perf_record_schedstat_cpu *cs1 = NULL, *cs2 = NULL;
 	struct schedstat_domain *dptr1 = NULL, *dptr2 = NULL;
 	struct schedstat_cpu *cptr2 = NULL;
 	__u64 jiffies1 = 0, jiffies2 = 0;
 	bool is_summary = true;
 	int ret = 0;
+
+	if (!cd_map1) {
+		pr_err("Error: CPU domain map 1 is missing.\n");
+		return -1;
+	}
+	if (head2 && !cd_map2) {
+		pr_err("Error: CPU domain map 2 is missing.\n");
+		return -1;
+	}
 
 	printf("Description\n");
 	print_separator2(SEP_LEN, "", 0);
@@ -4260,21 +4295,47 @@ static int show_schedstat_data(struct list_head *head1, struct cpu_domain_map **
 	printf("\n");
 
 	ret = get_all_cpu_stats(head1);
+	if (ret)
+		return ret;
 	if (cptr2) {
 		ret = get_all_cpu_stats(head2);
+		if (ret)
+			return ret;
 		cptr2 = list_first_entry(head2, struct schedstat_cpu, cpu_list);
 	}
 
 	list_for_each_entry(cptr1, head1, cpu_list) {
 		struct cpu_domain_map *cd_info1 = NULL, *cd_info2 = NULL;
+		struct perf_record_schedstat_cpu *cs1 = cptr1->cpu_data;
+		struct perf_record_schedstat_cpu *cs2 = NULL;
 
-		cs1 = cptr1->cpu_data;
+		dptr2 = NULL;
+		if (cs1->cpu >= (u32)nr1) {
+			pr_err("Error: CPU %d exceeds domain map size %d\n", cs1->cpu, nr1);
+			return -1;
+		}
 		cd_info1 = cd_map1[cs1->cpu];
+		if (!cd_info1) {
+			pr_err("Error: CPU %d domain info is missing in map 1.\n",
+			       cs1->cpu);
+			return -1;
+		}
 		if (cptr2) {
 			cs2 = cptr2->cpu_data;
+			if (cs2->cpu >= (u32)nr2) {
+				pr_err("Error: CPU %d exceeds domain map size %d\n", cs2->cpu, nr2);
+				return -1;
+			}
 			cd_info2 = cd_map2[cs2->cpu];
-			dptr2 = list_first_entry(&cptr2->domain_head, struct schedstat_domain,
-						 domain_list);
+			if (!cd_info2) {
+				pr_err("Error: CPU %d domain info is missing in map 2.\n",
+				       cs2->cpu);
+				return -1;
+			}
+			if (!list_empty(&cptr2->domain_head))
+				dptr2 = list_first_entry(&cptr2->domain_head,
+							 struct schedstat_domain,
+							 domain_list);
 		}
 
 		if (cs2 && cs1->cpu != cs2->cpu) {
@@ -4302,10 +4363,31 @@ static int show_schedstat_data(struct list_head *head1, struct cpu_domain_map **
 			struct domain_info *dinfo1 = NULL, *dinfo2 = NULL;
 
 			ds1 = dptr1->domain_data;
+			ds2 = NULL;
+			if (ds1->domain >= cd_info1->nr_domains) {
+				pr_err("Error: Domain %d exceeds max domains %d for CPU %d in map 1.\n",
+				       ds1->domain, cd_info1->nr_domains, cs1->cpu);
+				return -1;
+			}
 			dinfo1 = cd_info1->domains[ds1->domain];
+			if (!dinfo1) {
+				pr_err("Error: Domain %d info is missing for CPU %d in map 1.\n",
+				       ds1->domain, cs1->cpu);
+				return -1;
+			}
 			if (dptr2) {
 				ds2 = dptr2->domain_data;
+				if (ds2->domain >= cd_info2->nr_domains) {
+					pr_err("Error: Domain %d exceeds max domains %d for CPU %d in map 2.\n",
+					       ds2->domain, cd_info2->nr_domains, cs2->cpu);
+					return -1;
+				}
 				dinfo2 = cd_info2->domains[ds2->domain];
+				if (!dinfo2) {
+					pr_err("Error: Domain %d info is missing for CPU %d in map 2.\n",
+					       ds2->domain, cs2->cpu);
+					return -1;
+				}
 			}
 
 			if (dinfo2 && dinfo1->domain != dinfo2->domain) {
@@ -4334,14 +4416,22 @@ static int show_schedstat_data(struct list_head *head1, struct cpu_domain_map **
 			print_domain_stats(ds1, ds2, jiffies1, jiffies2);
 			print_separator2(SEP_LEN, "", 0);
 
-			if (dptr2)
-				dptr2 = list_next_entry(dptr2, domain_list);
+			if (dptr2) {
+				if (list_is_last(&dptr2->domain_list, &cptr2->domain_head))
+					dptr2 = NULL;
+				else
+					dptr2 = list_next_entry(dptr2, domain_list);
+			}
 		}
 		if (summary_only)
 			break;
 
-		if (cptr2)
-			cptr2 = list_next_entry(cptr2, cpu_list);
+		if (cptr2) {
+			if (list_is_last(&cptr2->cpu_list, head2))
+				cptr2 = NULL;
+			else
+				cptr2 = list_next_entry(cptr2, cpu_list);
+		}
 
 		is_summary = false;
 	}
@@ -4473,9 +4563,11 @@ static void free_schedstat(struct list_head *head)
 	list_for_each_entry_safe(cptr, n2, head, cpu_list) {
 		list_for_each_entry_safe(dptr, n1, &cptr->domain_head, domain_list) {
 			list_del_init(&dptr->domain_list);
+			free(dptr->domain_data);
 			free(dptr);
 		}
 		list_del_init(&cptr->cpu_list);
+		free(cptr->cpu_data);
 		free(cptr);
 	}
 }
@@ -4523,7 +4615,9 @@ static int perf_sched__schedstat_report(struct perf_sched *sched)
 		}
 
 		cd_map = session->header.env.cpu_domain;
-		err = show_schedstat_data(&cpu_head, cd_map, NULL, NULL, false);
+		err = show_schedstat_data(&cpu_head, cd_map,
+					  session->header.env.nr_cpus_avail,
+					  NULL, NULL, 0, false);
 	}
 
 out:
@@ -4538,7 +4632,7 @@ static int perf_sched__schedstat_diff(struct perf_sched *sched,
 	struct cpu_domain_map **cd_map0 = NULL, **cd_map1 = NULL;
 	struct list_head cpu_head_ses0, cpu_head_ses1;
 	struct perf_session *session[2];
-	struct perf_data data[2];
+	struct perf_data data[2] = {0};
 	int ret = 0, err = 0;
 	static const char *defaults[] = {
 		"perf.data.old",
@@ -4573,8 +4667,10 @@ static int perf_sched__schedstat_diff(struct perf_sched *sched,
 	}
 
 	err = perf_session__process_events(session[0]);
-	if (err)
+	if (err) {
+		free_schedstat(&cpu_head);
 		goto out_delete_ses0;
+	}
 
 	cd_map0 = session[0]->header.env.cpu_domain;
 	list_replace_init(&cpu_head, &cpu_head_ses0);
@@ -4590,8 +4686,10 @@ static int perf_sched__schedstat_diff(struct perf_sched *sched,
 	}
 
 	err = perf_session__process_events(session[1]);
-	if (err)
+	if (err) {
+		free_schedstat(&cpu_head);
 		goto out_delete_ses1;
+	}
 
 	cd_map1 = session[1]->header.env.cpu_domain;
 	list_replace_init(&cpu_head, &cpu_head_ses1);
@@ -4607,10 +4705,13 @@ static int perf_sched__schedstat_diff(struct perf_sched *sched,
 	if (list_empty(&cpu_head_ses0)) {
 		pr_err("Data is not available\n");
 		ret = -1;
-		goto out_delete_ses0;
+		goto out_delete_ses1;
 	}
 
-	show_schedstat_data(&cpu_head_ses0, cd_map0, &cpu_head_ses1, cd_map1, true);
+	ret = show_schedstat_data(&cpu_head_ses0, cd_map0, session[0]->header.env.nr_cpus_avail,
+				  &cpu_head_ses1, cd_map1, session[1]->header.env.nr_cpus_avail, true);
+	if (ret)
+		goto out_delete_ses1;
 
 out_delete_ses1:
 	free_schedstat(&cpu_head_ses1);
@@ -4720,7 +4821,7 @@ static int perf_sched__schedstat_live(struct perf_sched *sched,
 		goto out;
 	}
 
-	show_schedstat_data(&cpu_head, cd_map, NULL, NULL, false);
+	err = show_schedstat_data(&cpu_head, cd_map, nr, NULL, NULL, 0, false);
 	free_cpu_domain_info(cd_map, sv, nr);
 out:
 	free_schedstat(&cpu_head);
