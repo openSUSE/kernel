@@ -1338,6 +1338,26 @@ int __clocksource_register_scale(struct clocksource *cs, u32 scale, u32 freq)
 }
 EXPORT_SYMBOL_GPL(__clocksource_register_scale);
 
+static void __devm_clocksource_unregister(void *data)
+{
+	struct clocksource *cs = data;
+
+	clocksource_unregister(cs);
+}
+
+int __devm_clocksource_register_scale(struct device *dev, struct clocksource *cs,
+				      u32 scale, u32 freq)
+{
+	int ret;
+
+	ret = __clocksource_register_scale(cs, scale, freq);
+	if (ret)
+		return ret;
+
+	return devm_add_action_or_reset(dev, __devm_clocksource_unregister, cs);
+}
+EXPORT_SYMBOL_GPL(__devm_clocksource_register_scale);
+
 /*
  * Unbind clocksource @cs. Called with clocksource_mutex held
  */
