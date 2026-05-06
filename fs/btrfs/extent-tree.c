@@ -495,7 +495,6 @@ again:
 		}
 		path->slots[0]++;
 	}
-fail:
 	return ret;
 }
 
