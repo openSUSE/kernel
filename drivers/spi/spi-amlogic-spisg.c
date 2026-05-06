@@ -258,8 +258,7 @@ static int aml_spisg_setup_transfer(struct spisg_device *spisg,
 	int ret;
 
 	memset(desc, 0, sizeof(*desc));
-	if (exdesc)
-		memset(exdesc, 0, sizeof(*exdesc));
+	memset(exdesc, 0, sizeof(*exdesc));
 	aml_spisg_set_speed(spisg, xfer->speed_hz);
 	xfer->effective_speed_hz = spisg->effective_speed_hz;
 
