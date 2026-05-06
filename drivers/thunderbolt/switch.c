@@ -1767,8 +1767,6 @@ int tb_switch_wait_for_bit(struct tb_switch *sw, u32 offset, u32 bit,
 /*
  * tb_plug_events_active() - enable/disable plug events on a switch
  *
- * Also configures a sane plug_events_delay of 255ms.
- *
  * Return: %0 on success, negative errno otherwise.
  */
 static int tb_plug_events_active(struct tb_switch *sw, bool active)
@@ -1778,11 +1776,6 @@ static int tb_plug_events_active(struct tb_switch *sw, bool active)
 
 	if (tb_switch_is_icm(sw) || tb_switch_is_usb4(sw))
 		return 0;
-
-	sw->config.plug_events_delay = 0xff;
-	res = tb_sw_write(sw, ((u32 *) &sw->config) + 4, TB_CFG_SWITCH, 4, 1);
-	if (res)
-		return res;
 
 	res = tb_sw_read(sw, &data, TB_CFG_SWITCH, sw->cap_plug_events + 1, 1);
 	if (res)
@@ -2645,6 +2638,8 @@ int tb_switch_configure(struct tb_switch *sw)
 
 	sw->config.enabled = 1;
 
+	/* Set Notification Timeout to 255 ms for all routers */
+	sw->config.plug_events_delay = 0xff;
 	if (tb_switch_is_usb4(sw)) {
 		/*
 		 * For USB4 devices, we need to program the CM version
@@ -2656,7 +2651,6 @@ int tb_switch_configure(struct tb_switch *sw)
 			sw->config.cmuv = ROUTER_CS_4_CMUV_V1;
 		else
 			sw->config.cmuv = ROUTER_CS_4_CMUV_V2;
-		sw->config.plug_events_delay = 0xa;
 
 		/* Enumerate the switch */
 		ret = tb_sw_write(sw, (u32 *)&sw->config + 1, TB_CFG_SWITCH,
@@ -2677,7 +2671,7 @@ int tb_switch_configure(struct tb_switch *sw)
 
 		/* Enumerate the switch */
 		ret = tb_sw_write(sw, (u32 *)&sw->config + 1, TB_CFG_SWITCH,
-				  ROUTER_CS_1, 3);
+				  ROUTER_CS_1, 4);
 	}
 	if (ret)
 		return ret;

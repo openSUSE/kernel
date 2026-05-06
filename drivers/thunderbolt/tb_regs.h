@@ -182,8 +182,7 @@ struct tb_regs_switch_header {
 	/* DWORD 4 */
 	u32 plug_events_delay:8; /*
 				  * RW, pause between plug events in
-				  * milliseconds. Writing 0x00 is interpreted
-				  * as 255ms.
+				  * milliseconds.
 				  */
 	u32 cmuv:8;
 	u32 __unknown4:8;
