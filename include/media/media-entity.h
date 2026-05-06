@@ -726,7 +726,7 @@ int media_entity_pads_init(struct media_entity *entity, u16 num_pads,
  * the entity (currently, it does nothing).
  *
  * Calling media_entity_cleanup() on a media_entity whose memory has been
- * zeroed but that has not been initialized with media_entity_pad_init() is
+ * zeroed but that has not been initialized with media_entity_pads_init() is
  * valid and is a no-op.
  */
 #if IS_ENABLED(CONFIG_MEDIA_CONTROLLER)
