@@ -858,7 +858,7 @@ static int scsi_probe_lun(struct scsi_device *sdev, unsigned char *inq_result,
 }
 
 /**
- * scsi_add_lun - allocate and fully initialze a scsi_device
+ * scsi_add_lun - allocate and fully initialize a scsi_device
  * @sdev:	holds information to be stored in the new scsi_device
  * @inq_result:	holds the result of a previous INQUIRY to the LUN
  * @bflags:	black/white list flag
