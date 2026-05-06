@@ -316,8 +316,10 @@ static inline bool kvm_vcpu_can_poll(ktime_t cur, ktime_t stop)
 struct kvm_mmio_fragment {
 	gpa_t gpa;
 	void *data;
+#ifdef CONFIG_X86
 	u64 val;
-	unsigned int len;
+#endif
+	unsigned len;
 };
 
 struct kvm_vcpu {
