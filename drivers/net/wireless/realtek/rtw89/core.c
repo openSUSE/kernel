@@ -2099,6 +2099,7 @@ static void rtw89_core_parse_phy_status_ie01(struct rtw89_dev *rtwdev,
 	phy_ppdu->chan_idx = le32_get_bits(ie->w0, RTW89_PHY_STS_IE01_W0_CH_IDX);
 	phy_ppdu->ldpc = le32_get_bits(ie->w2, RTW89_PHY_STS_IE01_W2_LDPC);
 	phy_ppdu->stbc = le32_get_bits(ie->w2, RTW89_PHY_STS_IE01_W2_STBC);
+	phy_ppdu->bf = le32_get_bits(ie->w3, RTW89_PHY_STS_IE01_W3_BF);
 
 	if (!phy_ppdu->hdr_2_en)
 		phy_ppdu->rx_path_en =
@@ -2115,7 +2116,6 @@ static void rtw89_core_parse_phy_status_ie01(struct rtw89_dev *rtwdev,
 	phy_ppdu->ofdm.avg_snr = le32_get_bits(ie->w2, RTW89_PHY_STS_IE01_W2_AVG_SNR);
 	phy_ppdu->ofdm.evm_max = le32_get_bits(ie->w2, RTW89_PHY_STS_IE01_W2_EVM_MAX);
 	phy_ppdu->ofdm.evm_min = le32_get_bits(ie->w2, RTW89_PHY_STS_IE01_W2_EVM_MIN);
-	phy_ppdu->bf = le32_get_bits(ie->w3, RTW89_PHY_STS_IE01_W3_BF);
 	phy_ppdu->ofdm.has = true;
 
 	/* sign conversion for S(12,2) */
@@ -3146,6 +3146,8 @@ void rtw89_core_update_rx_status_by_ppdu(struct rtw89_dev *rtwdev,
 	if (!phy_ppdu)
 		return;
 
+	if (phy_ppdu->bf)
+		rx_status->enc_flags |= RX_ENC_FLAG_BF;
 	if (phy_ppdu->ldpc)
 		rx_status->enc_flags |= RX_ENC_FLAG_LDPC;
 	if (phy_ppdu->stbc)
@@ -6848,7 +6850,8 @@ static int rtw89_core_register_hw(struct rtw89_dev *rtwdev)
 
 	hw->radiotap_mcs_details |= IEEE80211_RADIOTAP_MCS_HAVE_FEC |
 				    IEEE80211_RADIOTAP_MCS_HAVE_STBC;
-	hw->radiotap_vht_details |= IEEE80211_RADIOTAP_VHT_KNOWN_STBC;
+	hw->radiotap_vht_details |= IEEE80211_RADIOTAP_VHT_KNOWN_STBC |
+				    IEEE80211_RADIOTAP_VHT_KNOWN_BEAMFORMED;
 
 	ieee80211_hw_set(hw, SIGNAL_DBM);
 	ieee80211_hw_set(hw, HAS_RATE_CONTROL);
