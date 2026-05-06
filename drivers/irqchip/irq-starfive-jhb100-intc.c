@@ -208,8 +208,8 @@ static int starfive_intc_probe(struct platform_device *pdev, struct device_node 
 		return -ENOMEM;
 
 	irqc->base = devm_platform_ioremap_resource(pdev, 0);
-	if (!irqc->base)
-		return dev_err_probe(&pdev->dev, -ENXIO, "unable to map registers\n");
+	if (IS_ERR(irqc->base))
+		return dev_err_probe(&pdev->dev, PTR_ERR(irqc->base), "unable to map registers\n");
 
 	rst = devm_reset_control_get_optional_exclusive_deasserted(&pdev->dev, NULL);
 	if (IS_ERR(rst))
