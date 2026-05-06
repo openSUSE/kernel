@@ -308,17 +308,15 @@ static int sdw_add_element_group_count(struct sdw_group *group,
 		unsigned int *rates;
 		unsigned int *lanes;
 
-		rates = krealloc(group->rates,
-				 sizeof(int) * (group->max_size + 1),
-				 GFP_KERNEL);
+		rates = krealloc_array(group->rates, group->max_size + 1,
+				       sizeof(*group->rates), GFP_KERNEL);
 		if (!rates)
 			return -ENOMEM;
 
 		group->rates = rates;
 
-		lanes = krealloc(group->lanes,
-				 sizeof(int) * (group->max_size + 1),
-				 GFP_KERNEL);
+		lanes = krealloc_array(group->lanes, group->max_size + 1,
+				       sizeof(*group->lanes), GFP_KERNEL);
 		if (!lanes)
 			return -ENOMEM;
 
