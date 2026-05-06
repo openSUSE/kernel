@@ -3176,6 +3176,50 @@ void rtw89_core_update_rx_status_by_ppdu(struct rtw89_dev *rtwdev,
 		rx_status->enc_flags |= u8_encode_bits(1, RX_ENC_FLAG_STBC_MASK);
 }
 
+static void rtw89_core_update_radiotap_vht(struct rtw89_dev *rtwdev,
+					   struct sk_buff *skb,
+					   struct ieee80211_rx_status *rx_status,
+					   struct rtw89_rx_phy_ppdu *phy_ppdu)
+{
+	const struct rtw89_phy_sts_ie09 *ie09;
+	struct ieee80211_radiotap_vht *vht;
+	u8 group_id;
+	u32 sig_a1;
+	u16 paid;
+	u8 nss;
+
+	if (!phy_ppdu)
+		return;
+
+	ie09 = phy_ppdu->ie09;
+	if (!ie09)
+		return;
+
+	vht = skb_push(skb, sizeof(*vht));
+	memset(vht, 0, sizeof(*vht));
+	rx_status->flag |= RX_FLAG_RADIOTAP_VHT;
+
+	sig_a1 = le64_get_bits(ie09->qw0, RTW89_PHY_STS_IE09_VHT_SIG_A1_MASK);
+
+	group_id = u32_get_bits(sig_a1, RTW89_PHY_STS_IE09_VHT_SIG_A1_GRP_ID);
+	vht->group_id = group_id;
+
+	if (group_id == 0 || group_id == 63) {
+		paid = u32_get_bits(sig_a1, RTW89_PHY_STS_IE09_VHT_SIG_A1_SU_PAID);
+		vht->partial_aid = cpu_to_le16(paid);
+	} else {
+		/* let mac80211 fill vht->mcs_nss[0] */
+#define WITH_MCS_IS_NOT_KNOWN(nss) ((nss) ? (15 << 4) | (nss) : 0)
+		nss = u32_get_bits(sig_a1, RTW89_PHY_STS_IE09_VHT_SIG_A1_MU_NSTS1);
+		vht->mcs_nss[1] = WITH_MCS_IS_NOT_KNOWN(nss);
+		nss = u32_get_bits(sig_a1, RTW89_PHY_STS_IE09_VHT_SIG_A1_MU_NSTS2);
+		vht->mcs_nss[2] = WITH_MCS_IS_NOT_KNOWN(nss);
+		nss = u32_get_bits(sig_a1, RTW89_PHY_STS_IE09_VHT_SIG_A1_MU_NSTS3);
+		vht->mcs_nss[3] = WITH_MCS_IS_NOT_KNOWN(nss);
+#undef WITH_MCS_IS_NOT_KNOWN
+	}
+}
+
 static void rtw89_core_update_radiotap_he(struct rtw89_dev *rtwdev,
 					  struct sk_buff *skb,
 					  struct ieee80211_rx_status *rx_status)
@@ -3266,12 +3310,15 @@ static void rtw89_core_update_radiotap_eht(struct rtw89_dev *rtwdev,
 
 static void rtw89_core_update_radiotap(struct rtw89_dev *rtwdev,
 				       struct sk_buff *skb,
-				       struct ieee80211_rx_status *rx_status)
+				       struct ieee80211_rx_status *rx_status,
+				       struct rtw89_rx_phy_ppdu *phy_ppdu)
 {
 	if (!(rtwdev->hw->conf.flags & IEEE80211_CONF_MONITOR))
 		return;
 
-	if (rx_status->encoding == RX_ENC_HE)
+	if (rx_status->encoding == RX_ENC_VHT)
+		rtw89_core_update_radiotap_vht(rtwdev, skb, rx_status, phy_ppdu);
+	else if (rx_status->encoding == RX_ENC_HE)
 		rtw89_core_update_radiotap_he(rtwdev, skb, rx_status);
 	else if (rx_status->encoding == RX_ENC_EHT)
 		rtw89_core_update_radiotap_eht(rtwdev, skb, rx_status);
@@ -3484,7 +3531,7 @@ static void rtw89_core_rx_to_mac80211(struct rtw89_dev *rtwdev,
 	rtw89_core_hw_to_sband_rate(rx_status);
 	rtw89_core_rx_stats(rtwdev, phy_ppdu, desc_info, skb_ppdu);
 	rtw89_core_update_rx_status_by_ppdu(rtwdev, rx_status, phy_ppdu);
-	rtw89_core_update_radiotap(rtwdev, skb_ppdu, rx_status);
+	rtw89_core_update_radiotap(rtwdev, skb_ppdu, rx_status, phy_ppdu);
 	rtw89_core_validate_rx_signal(rx_status);
 	rtw89_core_update_rx_freq_from_ie(rtwdev, skb_ppdu, rx_status);
 	rtw89_core_correct_mcc_chan(rtwdev, desc_info, rx_status, phy_ppdu);
