@@ -133,14 +133,6 @@ config MTD_SC520CDP
 	  Dual-in-line JEDEC chip. This 'mapping' driver supports that
 	  arrangement, implementing three MTD devices.
 
-config MTD_NETSC520
-	tristate "CFI Flash device mapped on AMD NetSc520"
-	depends on (MELAN || COMPILE_TEST) && MTD_CFI
-	help
-	  This enables access routines for the flash chips on the AMD NetSc520
-	  demonstration board. If you have one of these boards and would like
-	  to use the flash chips on it, say 'Y'.
-
 config MTD_SBC_GXX
 	tristate "CFI Flash device mapped on Arcom SBC-GXx boards"
 	depends on X86 && MTD_CFI_INTELEXT && MTD_COMPLEX_MAPPINGS
