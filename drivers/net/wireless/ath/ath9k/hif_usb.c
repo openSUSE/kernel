@@ -1530,12 +1530,4 @@ static struct usb_driver ath9k_hif_usb_driver = {
 	.disable_hub_initiated_lpm = 1,
 };
 
-int ath9k_hif_usb_init(void)
-{
-	return usb_register(&ath9k_hif_usb_driver);
-}
-
-void ath9k_hif_usb_exit(void)
-{
-	usb_deregister(&ath9k_hif_usb_driver);
-}
+module_usb_driver(ath9k_hif_usb_driver);
