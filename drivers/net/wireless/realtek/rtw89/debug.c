@@ -4919,6 +4919,77 @@ rtw89_debug_priv_mlo_mode_set(struct rtw89_dev *rtwdev,
 	return count;
 }
 
+static int rtw89_get_beacon_info(struct rtw89_dev *rtwdev, struct rtw89_bb_ctx *bb,
+				 char *buf, size_t bufsz)
+{
+	struct rtw89_pkt_stat *pkt_stat = &bb->last_pkt_stat;
+	char *p = buf, *end = buf + bufsz;
+
+	p += scnprintf(p, end - p, "[PHY %u]\n", bb->phy_idx);
+	p += scnprintf(p, end - p, "Beacon: %u\n", pkt_stat->beacon_nr);
+	p += scnprintf(p, end - p, "raw rssi: %lu\n", ewma_rssi_read(&bb->bcn_rssi));
+	p += scnprintf(p, end - p, "hw rate: %u\n", pkt_stat->beacon_rate);
+	p += scnprintf(p, end - p, "length: %u\n\n", pkt_stat->beacon_len);
+
+	return p - buf;
+}
+
+static ssize_t
+rtw89_debug_priv_beacon_info_get(struct rtw89_dev *rtwdev,
+				 struct rtw89_debugfs_priv *debugfs_priv,
+				 char *buf, size_t bufsz)
+{
+	struct rtw89_beacon_track_info *bcn_track = &rtwdev->bcn_track;
+	struct rtw89_beacon_stat *bcn_stat = &rtwdev->phystat.bcn_stat;
+	struct rtw89_beacon_dist *bcn_dist = &bcn_stat->bcn_dist;
+	u16 upper, lower = bcn_stat->tbtt_tu_min;
+	char *p = buf, *end = buf + bufsz;
+	u16 *drift = bcn_stat->drift;
+	u8 bcn_num = bcn_stat->num;
+	struct rtw89_bb_ctx *bb;
+	u8 count;
+	u8 i;
+
+	rtw89_for_each_active_bb(rtwdev, bb)
+		p += rtw89_get_beacon_info(rtwdev, bb, p, end - p);
+
+	p += scnprintf(p, end - p, "[Beacon info]\n");
+	p += scnprintf(p, end - p, "interval: %u\n", bcn_track->beacon_int);
+	p += scnprintf(p, end - p, "dtim: %u\n", bcn_track->dtim);
+
+	p += scnprintf(p, end - p, "\n[Distribution]\n");
+	p += scnprintf(p, end - p, "tbtt\n");
+	for (i = 0; i < RTW89_BCN_TRACK_MAX_BIN_NUM; i++) {
+		upper = lower + RTW89_BCN_TRACK_BIN_WIDTH - 1;
+		if (i == RTW89_BCN_TRACK_MAX_BIN_NUM - 1)
+			upper = max(upper, bcn_stat->tbtt_tu_max);
+
+		p += scnprintf(p, end - p, "%02u - %02u: %u\n",
+			       lower, upper, bcn_dist->bins[i]);
+
+		lower = upper + 1;
+	}
+
+	p += scnprintf(p, end - p, "\ndrift\n");
+
+	for (i = 0; i < bcn_num; i += count) {
+		count = 1;
+		while (i + count < bcn_num && drift[i] == drift[i + count])
+			count++;
+
+		p += scnprintf(p, end - p, "%u: %u\n", drift[i], count);
+	}
+	p += scnprintf(p, end - p, "\nlower bound: %u\n", bcn_dist->lower_bound);
+	p += scnprintf(p, end - p, "upper bound: %u\n", bcn_dist->upper_bound);
+	p += scnprintf(p, end - p, "outlier count: %u\n", bcn_dist->outlier_count);
+
+	p += scnprintf(p, end - p, "\n[Tracking]\n");
+	p += scnprintf(p, end - p, "tbtt offset: %u\n", bcn_track->tbtt_offset);
+	p += scnprintf(p, end - p, "bcn timeout: %u\n", bcn_track->bcn_timeout);
+
+	return p - buf;
+}
+
 enum __diag_mac_cmd {
 	__CMD_EQUALV,
 	__CMD_EQUALO,
@@ -5251,77 +5322,6 @@ rtw89_debug_priv_diag_bb_get(struct rtw89_dev *rtwdev,
 
 	rtw89_for_each_active_bb(rtwdev, bb)
 		p += rtw89_get_diag_bb(rtwdev, bb, p, end - p);
-
-	return p - buf;
-}
-
-static int rtw89_get_beacon_info(struct rtw89_dev *rtwdev, struct rtw89_bb_ctx *bb,
-				 char *buf, size_t bufsz)
-{
-	struct rtw89_pkt_stat *pkt_stat = &bb->last_pkt_stat;
-	char *p = buf, *end = buf + bufsz;
-
-	p += scnprintf(p, end - p, "[PHY %u]\n", bb->phy_idx);
-	p += scnprintf(p, end - p, "Beacon: %u\n", pkt_stat->beacon_nr);
-	p += scnprintf(p, end - p, "raw rssi: %lu\n", ewma_rssi_read(&bb->bcn_rssi));
-	p += scnprintf(p, end - p, "hw rate: %u\n", pkt_stat->beacon_rate);
-	p += scnprintf(p, end - p, "length: %u\n\n", pkt_stat->beacon_len);
-
-	return p - buf;
-}
-
-static ssize_t
-rtw89_debug_priv_beacon_info_get(struct rtw89_dev *rtwdev,
-				 struct rtw89_debugfs_priv *debugfs_priv,
-				 char *buf, size_t bufsz)
-{
-	struct rtw89_beacon_track_info *bcn_track = &rtwdev->bcn_track;
-	struct rtw89_beacon_stat *bcn_stat = &rtwdev->phystat.bcn_stat;
-	struct rtw89_beacon_dist *bcn_dist = &bcn_stat->bcn_dist;
-	u16 upper, lower = bcn_stat->tbtt_tu_min;
-	char *p = buf, *end = buf + bufsz;
-	u16 *drift = bcn_stat->drift;
-	u8 bcn_num = bcn_stat->num;
-	struct rtw89_bb_ctx *bb;
-	u8 count;
-	u8 i;
-
-	rtw89_for_each_active_bb(rtwdev, bb)
-		p += rtw89_get_beacon_info(rtwdev, bb, p, end - p);
-
-	p += scnprintf(p, end - p, "[Beacon info]\n");
-	p += scnprintf(p, end - p, "interval: %u\n", bcn_track->beacon_int);
-	p += scnprintf(p, end - p, "dtim: %u\n", bcn_track->dtim);
-
-	p += scnprintf(p, end - p, "\n[Distribution]\n");
-	p += scnprintf(p, end - p, "tbtt\n");
-	for (i = 0; i < RTW89_BCN_TRACK_MAX_BIN_NUM; i++) {
-		upper = lower + RTW89_BCN_TRACK_BIN_WIDTH - 1;
-		if (i == RTW89_BCN_TRACK_MAX_BIN_NUM - 1)
-			upper = max(upper, bcn_stat->tbtt_tu_max);
-
-		p += scnprintf(p, end - p, "%02u - %02u: %u\n",
-			       lower, upper, bcn_dist->bins[i]);
-
-		lower = upper + 1;
-	}
-
-	p += scnprintf(p, end - p, "\ndrift\n");
-
-	for (i = 0; i < bcn_num; i += count) {
-		count = 1;
-		while (i + count < bcn_num && drift[i] == drift[i + count])
-			count++;
-
-		p += scnprintf(p, end - p, "%u: %u\n", drift[i], count);
-	}
-	p += scnprintf(p, end - p, "\nlower bound: %u\n", bcn_dist->lower_bound);
-	p += scnprintf(p, end - p, "upper bound: %u\n", bcn_dist->upper_bound);
-	p += scnprintf(p, end - p, "outlier count: %u\n", bcn_dist->outlier_count);
-
-	p += scnprintf(p, end - p, "\n[Tracking]\n");
-	p += scnprintf(p, end - p, "tbtt offset: %u\n", bcn_track->tbtt_offset);
-	p += scnprintf(p, end - p, "bcn timeout: %u\n", bcn_track->bcn_timeout);
 
 	return p - buf;
 }
