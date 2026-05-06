@@ -2152,13 +2152,37 @@ static void rtw89_core_parse_phy_status_ie00_v2(struct rtw89_dev *rtwdev,
 		rpl_path[i] = tmp_rpl[i] >> 1;
 }
 
+static void rtw89_core_parse_phy_status_ie09(struct rtw89_dev *rtwdev,
+					     const struct rtw89_phy_sts_iehdr *iehdr,
+					     struct rtw89_rx_phy_ppdu *phy_ppdu)
+{
+	phy_ppdu->ie09 = (const void *)iehdr;
+}
+
+static void rtw89_core_parse_phy_status_ie10(struct rtw89_dev *rtwdev,
+					     const struct rtw89_phy_sts_iehdr *iehdr,
+					     struct rtw89_rx_phy_ppdu *phy_ppdu)
+{
+	phy_ppdu->ie10 = (const void *)iehdr;
+}
+
 static int rtw89_core_process_phy_status_ie(struct rtw89_dev *rtwdev,
 					    const struct rtw89_phy_sts_iehdr *iehdr,
 					    struct rtw89_rx_phy_ppdu *phy_ppdu)
 {
+	bool accept;
 	u8 ie;
 
 	ie = le32_get_bits(iehdr->w0, RTW89_PHY_STS_IEHDR_TYPE);
+
+	/*
+	 * For normal mode, only parse ppdu_sts that are A1-matched, except for
+	 * scanning that needs to get chan_idx in IE01.
+	 */
+	accept = phy_ppdu->to_self || ie == RTW89_PHYSTS_IE01_CMN_OFDM ||
+		 rtwdev->hw->conf.flags & IEEE80211_CONF_MONITOR;
+	if (!accept)
+		return 0;
 
 	switch (ie) {
 	case RTW89_PHYSTS_IE00_CMN_CCK:
@@ -2168,6 +2192,12 @@ static int rtw89_core_process_phy_status_ie(struct rtw89_dev *rtwdev,
 		break;
 	case RTW89_PHYSTS_IE01_CMN_OFDM:
 		rtw89_core_parse_phy_status_ie01(rtwdev, iehdr, phy_ppdu);
+		break;
+	case RTW89_PHYSTS_IE09_FTR_0:
+		rtw89_core_parse_phy_status_ie09(rtwdev, iehdr, phy_ppdu);
+		break;
+	case RTW89_PHYSTS_IE10_FTR_PLCP_EXT:
+		rtw89_core_parse_phy_status_ie10(rtwdev, iehdr, phy_ppdu);
 		break;
 	default:
 		break;
@@ -2228,11 +2258,14 @@ static int rtw89_core_rx_process_phy_ppdu(struct rtw89_dev *rtwdev,
 static int rtw89_core_rx_parse_phy_sts(struct rtw89_dev *rtwdev,
 				       struct rtw89_rx_phy_ppdu *phy_ppdu)
 {
-	u16 ie_len;
 	void *pos, *end;
+	bool accept;
+	u16 ie_len;
 
-	/* mark invalid reports and bypass them */
-	if (phy_ppdu->ie < RTW89_CCK_PKT)
+	/* for normal mode, mark invalid reports and bypass them */
+	accept = phy_ppdu->ie >= RTW89_CCK_PKT ||
+		 rtwdev->hw->conf.flags & IEEE80211_CONF_MONITOR;
+	if (!accept)
 		return -EINVAL;
 
 	pos = phy_ppdu->buf + PHY_STS_HDR_LEN;
@@ -2246,6 +2279,10 @@ static int rtw89_core_rx_parse_phy_sts(struct rtw89_dev *rtwdev,
 		rtw89_core_process_phy_status_ie(rtwdev, iehdr, phy_ppdu);
 		pos += ie_len;
 		if (pos > end || ie_len == 0) {
+			/* clear pointers to prevent accessing out of IE */
+			phy_ppdu->ie09 = NULL;
+			phy_ppdu->ie10 = NULL;
+
 			rtw89_debug(rtwdev, RTW89_DBG_TXRX,
 				    "phy status parse failed\n");
 			return -EINVAL;

@@ -98,6 +98,9 @@ static int rtw89_ops_config(struct ieee80211_hw *hw, int radio_idx, u32 changed)
 	    !rtwdev->scanning)
 		rtw89_enter_ips(rtwdev);
 
+	if (changed & IEEE80211_CONF_CHANGE_MONITOR)
+		rtw89_physts_parsing_init(rtwdev);
+
 	return 0;
 }
 

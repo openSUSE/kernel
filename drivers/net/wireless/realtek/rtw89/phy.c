@@ -7085,9 +7085,20 @@ static void rtw89_physts_enable_hdr_2(struct rtw89_dev *rtwdev, enum rtw89_phy_i
 static void __rtw89_physts_parsing_init(struct rtw89_dev *rtwdev,
 					enum rtw89_phy_idx phy_idx)
 {
+	const struct rtw89_phy_gen_def *phy = rtwdev->chip->phy_def;
 	const struct rtw89_chip_info *chip = rtwdev->chip;
+	u32 monitor_mode_mu_ies = 0;
+	u32 monitor_mode_su_ies = 0;
 	u32 val;
 	u8 i;
+
+	if (rtwdev->hw->conf.flags & IEEE80211_CONF_MONITOR) {
+		monitor_mode_mu_ies = BIT(RTW89_PHYSTS_IE09_FTR_0);
+		if (phy->physt_gen < 2)
+			monitor_mode_mu_ies |= BIT(RTW89_PHYSTS_IE10_FTR_PLCP_EXT);
+
+		monitor_mode_su_ies = BIT(RTW89_PHYSTS_IE09_FTR_0);
+	}
 
 	rtw89_physts_enable_fail_report(rtwdev, false, phy_idx);
 
@@ -7102,6 +7113,7 @@ static void __rtw89_physts_parsing_init(struct rtw89_dev *rtwdev,
 		val = rtw89_physts_get_ie_bitmap(rtwdev, i, phy_idx);
 		if (i == RTW89_HE_MU || i == RTW89_VHT_MU) {
 			val |= BIT(RTW89_PHYSTS_IE13_DL_MU_DEF);
+			val |= monitor_mode_mu_ies;
 		} else if (i == RTW89_TRIG_BASE_PPDU) {
 			val |= BIT(RTW89_PHYSTS_IE13_DL_MU_DEF) |
 			       BIT(RTW89_PHYSTS_IE01_CMN_OFDM);
@@ -7115,11 +7127,14 @@ static void __rtw89_physts_parsing_init(struct rtw89_dev *rtwdev,
 				val |= BIT(RTW89_PHYSTS_IE20_DBG_OFDM_FD_USER_SEG_0);
 		}
 
+		if (i == RTW89_HE_PKT || i == RTW89_VHT_PKT)
+			val |= monitor_mode_su_ies;
+
 		rtw89_physts_set_ie_bitmap(rtwdev, i, val, phy_idx);
 	}
 }
 
-static void rtw89_physts_parsing_init(struct rtw89_dev *rtwdev)
+void rtw89_physts_parsing_init(struct rtw89_dev *rtwdev)
 {
 	__rtw89_physts_parsing_init(rtwdev, RTW89_PHY_0);
 	if (rtwdev->dbcc_en)

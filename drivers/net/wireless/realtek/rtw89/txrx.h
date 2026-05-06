@@ -658,6 +658,15 @@ struct rtw89_phy_sts_ie01_v2 {
 #define RTW89_PHY_STS_IE01_V2_W9_RPL_FD_C GENMASK(11, 4)
 #define RTW89_PHY_STS_IE01_V2_W9_RPL_FD_D GENMASK(23, 16)
 
+struct rtw89_phy_sts_ie09 {
+	__le64 qw0;
+} __packed;
+
+struct rtw89_phy_sts_ie10 {
+	__le64 qw0;
+	u8 sigb[];
+} __packed;
+
 enum rtw89_tx_channel {
 	RTW89_TXCH_ACH0	= 0,
 	RTW89_TXCH_ACH1	= 1,
