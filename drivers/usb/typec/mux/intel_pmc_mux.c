@@ -732,7 +732,7 @@ static int pmc_usb_probe(struct platform_device *pdev)
 {
 	struct fwnode_handle *fwnode = NULL;
 	struct pmc_usb *pmc;
-	u8 num_ports;
+	u8 num_ports = 0;
 	int i = 0;
 	int ret;
 
