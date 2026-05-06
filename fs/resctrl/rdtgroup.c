@@ -2022,7 +2022,7 @@ static struct rftype res_common_files[] = {
 	},
 	{
 		.name		= "event_filter",
-		.mode		= 0644,
+		.mode		= 0444,
 		.kf_ops		= &rdtgroup_kf_single_ops,
 		.seq_show	= event_filter_show,
 		.write		= event_filter_write,
@@ -2213,6 +2213,15 @@ void resctrl_file_fflags_init(const char *config, unsigned long fflags)
 	rft = rdtgroup_get_rftype_by_name(config);
 	if (rft)
 		rft->fflags = fflags;
+}
+
+void resctrl_file_mode_init(const char *config, umode_t mode)
+{
+	struct rftype *rft;
+
+	rft = rdtgroup_get_rftype_by_name(config);
+	if (rft)
+		rft->mode = mode;
 }
 
 /**

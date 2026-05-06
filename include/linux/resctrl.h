@@ -286,13 +286,14 @@ enum resctrl_schema_fmt {
 
 /**
  * struct resctrl_mon - Monitoring related data of a resctrl resource.
- * @num_rmid:		Number of RMIDs available.
- * @mbm_cfg_mask:	Memory transactions that can be tracked when bandwidth
- *			monitoring events can be configured.
- * @num_mbm_cntrs:	Number of assignable counters.
- * @mbm_cntr_assignable:Is system capable of supporting counter assignment?
- * @mbm_assign_on_mkdir:True if counters should automatically be assigned to MBM
- *			events of monitor groups created via mkdir.
+ * @num_rmid:			Number of RMIDs available.
+ * @mbm_cfg_mask:		Memory transactions that can be tracked when
+ *				bandwidth monitoring events can be configured.
+ * @num_mbm_cntrs:		Number of assignable counters.
+ * @mbm_cntr_assignable:	Is system capable of supporting counter assignment?
+ * @mbm_assign_on_mkdir:	True if counters should automatically be assigned to MBM
+ *				events of monitor groups created via mkdir.
+ * @mbm_cntr_configurable:	True if assignable counters are configurable.
  */
 struct resctrl_mon {
 	u32			num_rmid;
@@ -300,6 +301,7 @@ struct resctrl_mon {
 	int			num_mbm_cntrs;
 	bool			mbm_cntr_assignable;
 	bool			mbm_assign_on_mkdir;
+	bool			mbm_cntr_configurable;
 };
 
 /**
