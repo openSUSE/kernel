@@ -22,6 +22,8 @@
 			enable-method = "psci";
 			reg = <0x0 0x0>;
 			device_type = "cpu";
+			power-domains = <&scmi_dvfs SKY1_PERF_CPU_L>;
+			power-domain-names = "perf";
 			capacity-dmips-mhz = <403>;
 		};
 
@@ -30,6 +32,8 @@
 			enable-method = "psci";
 			reg = <0x0 0x100>;
 			device_type = "cpu";
+			power-domains = <&scmi_dvfs SKY1_PERF_CPU_L>;
+			power-domain-names = "perf";
 			capacity-dmips-mhz = <403>;
 		};
 
@@ -38,6 +42,8 @@
 			enable-method = "psci";
 			reg = <0x0 0x200>;
 			device_type = "cpu";
+			power-domains = <&scmi_dvfs SKY1_PERF_CPU_L>;
+			power-domain-names = "perf";
 			capacity-dmips-mhz = <403>;
 		};
 
@@ -46,6 +52,8 @@
 			enable-method = "psci";
 			reg = <0x0 0x300>;
 			device_type = "cpu";
+			power-domains = <&scmi_dvfs SKY1_PERF_CPU_L>;
+			power-domain-names = "perf";
 			capacity-dmips-mhz = <403>;
 		};
 
@@ -54,6 +62,8 @@
 			enable-method = "psci";
 			reg = <0x0 0x400>;
 			device_type = "cpu";
+			power-domains = <&scmi_dvfs SKY1_PERF_CPU_M0>;
+			power-domain-names = "perf";
 			capacity-dmips-mhz = <1024>;
 		};
 
@@ -62,6 +72,8 @@
 			enable-method = "psci";
 			reg = <0x0 0x500>;
 			device_type = "cpu";
+			power-domains = <&scmi_dvfs SKY1_PERF_CPU_M0>;
+			power-domain-names = "perf";
 			capacity-dmips-mhz = <1024>;
 		};
 
@@ -70,6 +82,8 @@
 			enable-method = "psci";
 			reg = <0x0 0x600>;
 			device_type = "cpu";
+			power-domains = <&scmi_dvfs SKY1_PERF_CPU_M1>;
+			power-domain-names = "perf";
 			capacity-dmips-mhz = <1024>;
 		};
 
@@ -78,6 +92,8 @@
 			enable-method = "psci";
 			reg = <0x0 0x700>;
 			device_type = "cpu";
+			power-domains = <&scmi_dvfs SKY1_PERF_CPU_M1>;
+			power-domain-names = "perf";
 			capacity-dmips-mhz = <1024>;
 		};
 
@@ -86,6 +102,8 @@
 			enable-method = "psci";
 			reg = <0x0 0x800>;
 			device_type = "cpu";
+			power-domains = <&scmi_dvfs SKY1_PERF_CPU_B0>;
+			power-domain-names = "perf";
 			capacity-dmips-mhz = <1024>;
 		};
 
@@ -94,6 +112,8 @@
 			enable-method = "psci";
 			reg = <0x0 0x900>;
 			device_type = "cpu";
+			power-domains = <&scmi_dvfs SKY1_PERF_CPU_B0>;
+			power-domain-names = "perf";
 			capacity-dmips-mhz = <1024>;
 		};
 
@@ -102,6 +122,8 @@
 			enable-method = "psci";
 			reg = <0x0 0xa00>;
 			device_type = "cpu";
+			power-domains = <&scmi_dvfs SKY1_PERF_CPU_B1>;
+			power-domain-names = "perf";
 			capacity-dmips-mhz = <1024>;
 		};
 
@@ -110,6 +132,8 @@
 			enable-method = "psci";
 			reg = <0x0 0xb00>;
 			device_type = "cpu";
+			power-domains = <&scmi_dvfs SKY1_PERF_CPU_B1>;
+			power-domain-names = "perf";
 			capacity-dmips-mhz = <1024>;
 		};
 
@@ -163,6 +187,11 @@
 			shmem = <&ap2pm_scmi_mem>, <&pm2ap_scmi_mem>;
 			#address-cells = <1>;
 			#size-cells = <0>;
+
+			scmi_dvfs: protocol@13 {
+				reg = <0x13>;
+				#power-domain-cells = <1>;
+			};
 
 			scmi_clk: protocol@14 {
 				reg = <0x14>;
