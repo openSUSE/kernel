@@ -575,6 +575,11 @@ All groups contain the following files:
 	then the task must already belong to the CTRL_MON parent of this
 	group. The task is removed from any previous MON group.
 
+	When writing to this file, a task id of 0 is interpreted as the
+	task id of the currently running task. On reading the file, a task
+	id of 0 will never be shown and there is no representation of the
+	idle tasks. Instead, a CPU's idle task is always considered as a
+	member of the group owning the CPU.
 
 "cpus":
 	Reading this file shows a bitmask of the logical CPUs owned by
