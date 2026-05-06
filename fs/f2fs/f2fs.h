@@ -2125,12 +2125,12 @@ static inline void f2fs_update_time(struct f2fs_sb_info *sbi, int type)
 {
 	unsigned long now = jiffies;
 
-	sbi->last_time[type] = now;
+	WRITE_ONCE(sbi->last_time[type], now);
 
 	/* DISCARD_TIME and GC_TIME are based on REQ_TIME */
 	if (type == REQ_TIME) {
-		sbi->last_time[DISCARD_TIME] = now;
-		sbi->last_time[GC_TIME] = now;
+		WRITE_ONCE(sbi->last_time[DISCARD_TIME], now);
+		WRITE_ONCE(sbi->last_time[GC_TIME], now);
 	}
 }
 
@@ -2138,7 +2138,7 @@ static inline bool f2fs_time_over(struct f2fs_sb_info *sbi, int type)
 {
 	unsigned long interval = sbi->interval_time[type] * HZ;
 
-	return time_after(jiffies, sbi->last_time[type] + interval);
+	return time_after(jiffies, READ_ONCE(sbi->last_time[type]) + interval);
 }
 
 static inline unsigned int f2fs_time_to_wait(struct f2fs_sb_info *sbi,
@@ -2148,7 +2148,7 @@ static inline unsigned int f2fs_time_to_wait(struct f2fs_sb_info *sbi,
 	unsigned int wait_ms = 0;
 	long delta;
 
-	delta = (sbi->last_time[type] + interval) - jiffies;
+	delta = (READ_ONCE(sbi->last_time[type]) + interval) - jiffies;
 	if (delta > 0)
 		wait_ms = jiffies_to_msecs(delta);
 
