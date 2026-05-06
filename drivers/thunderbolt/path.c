@@ -484,7 +484,7 @@ void tb_path_deactivate(struct tb_path *path)
  * tb_path_activate() - activate a path
  * @path: Path to activate
  *
- * Activate a path starting with the last hop and iterating backwards. The
+ * Activate a path starting with the first hop and ending on the last hop. The
  * caller must fill path->hops before calling tb_path_activate().
  *
  * Return: %0 on success, negative errno otherwise.
@@ -526,7 +526,7 @@ int tb_path_activate(struct tb_path *path)
 	}
 
 	/* Activate hops. */
-	for (i = path->path_length - 1; i >= 0; i--) {
+	for (i = 0; i < path->path_length; i++) {
 		struct tb_regs_hop hop = { 0 };
 
 		/* If it is left active deactivate it first */
@@ -576,7 +576,7 @@ int tb_path_activate(struct tb_path *path)
 		res = tb_port_write(path->hops[i].in_port, &hop, TB_CFG_HOPS,
 				    2 * path->hops[i].in_hop_index, 2);
 		if (res) {
-			__tb_path_deactivate_hops(path, i);
+			__tb_path_deactivate_hops(path, 0);
 			__tb_path_deallocate_nfc(path, 0);
 			goto err;
 		}
