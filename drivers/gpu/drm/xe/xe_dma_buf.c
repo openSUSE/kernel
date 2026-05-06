@@ -193,6 +193,18 @@ static int xe_dma_buf_begin_cpu_access(struct dma_buf *dma_buf,
 	return 0;
 }
 
+static void xe_dma_buf_release(struct dma_buf *dmabuf)
+{
+	struct drm_gem_object *obj = dmabuf->priv;
+	struct xe_bo *bo = gem_to_xe_bo(obj);
+
+	xe_bo_lock(bo, false);
+	xe_bo_willneed_put_locked(bo);
+	xe_bo_unlock(bo);
+
+	drm_gem_dmabuf_release(dmabuf);
+}
+
 static const struct dma_buf_ops xe_dmabuf_ops = {
 	.attach = xe_dma_buf_attach,
 	.detach = xe_dma_buf_detach,
@@ -200,7 +212,7 @@ static const struct dma_buf_ops xe_dmabuf_ops = {
 	.unpin = xe_dma_buf_unpin,
 	.map_dma_buf = xe_dma_buf_map,
 	.unmap_dma_buf = xe_dma_buf_unmap,
-	.release = drm_gem_dmabuf_release,
+	.release = xe_dma_buf_release,
 	.begin_cpu_access = xe_dma_buf_begin_cpu_access,
 	.mmap = drm_gem_dmabuf_mmap,
 	.vmap = drm_gem_dmabuf_vmap,
@@ -241,18 +253,26 @@ struct dma_buf *xe_gem_prime_export(struct drm_gem_object *obj, int flags)
 		ret = -EINVAL;
 		goto out_unlock;
 	}
+
+	xe_bo_willneed_get_locked(bo);
 	xe_bo_unlock(bo);
 
 	ret = ttm_bo_setup_export(&bo->ttm, &ctx);
 	if (ret)
-		return ERR_PTR(ret);
+		goto out_put;
 
 	buf = drm_gem_prime_export(obj, flags);
-	if (!IS_ERR(buf))
-		buf->ops = &xe_dmabuf_ops;
+	if (IS_ERR(buf)) {
+		ret = PTR_ERR(buf);
+		goto out_put;
+	}
 
+	buf->ops = &xe_dmabuf_ops;
 	return buf;
 
+out_put:
+	xe_bo_lock(bo, false);
+	xe_bo_willneed_put_locked(bo);
 out_unlock:
 	xe_bo_unlock(bo);
 	return ERR_PTR(ret);
