@@ -127,7 +127,8 @@ int aie2_assign_mgmt_pasid(struct amdxdna_dev_hdl *ndev, u16 pasid)
 	return aie_send_mgmt_msg_wait(&ndev->aie, &msg);
 }
 
-int aie2_query_aie_version(struct amdxdna_dev_hdl *ndev, struct aie_version *version)
+int aie2_query_aie_version(struct amdxdna_dev_hdl *ndev,
+			   struct amdxdna_drm_query_aie_version *version)
 {
 	DECLARE_AIE_MSG(aie_version_info, MSG_OP_QUERY_AIE_VERSION);
 	struct amdxdna_dev *xdna = ndev->aie.xdna;
@@ -146,7 +147,8 @@ int aie2_query_aie_version(struct amdxdna_dev_hdl *ndev, struct aie_version *ver
 	return 0;
 }
 
-int aie2_query_aie_metadata(struct amdxdna_dev_hdl *ndev, struct aie_metadata *metadata)
+int aie2_query_aie_metadata(struct amdxdna_dev_hdl *ndev,
+			    struct amdxdna_drm_query_aie_metadata *metadata)
 {
 	DECLARE_AIE_MSG(aie_tile_info, MSG_OP_QUERY_AIE_TILE_INFO);
 	int ret;
@@ -155,7 +157,7 @@ int aie2_query_aie_metadata(struct amdxdna_dev_hdl *ndev, struct aie_metadata *m
 	if (ret)
 		return ret;
 
-	metadata->size = resp.info.size;
+	metadata->col_size = resp.info.size;
 	metadata->cols = resp.info.cols;
 	metadata->rows = resp.info.rows;
 
@@ -375,7 +377,7 @@ int aie2_query_status(struct amdxdna_dev_hdl *ndev, char __user *buf,
 	u8 *buff_addr;
 	int ret;
 
-	buf_sz = ndev->metadata.cols * ndev->metadata.size;
+	buf_sz = ndev->aie.metadata.cols * ndev->aie.metadata.col_size;
 	buff_addr = aie2_alloc_msg_buffer(ndev, &buf_sz, &dma_addr);
 	if (IS_ERR(buff_addr))
 		return PTR_ERR(buff_addr);

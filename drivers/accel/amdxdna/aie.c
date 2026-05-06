@@ -117,3 +117,17 @@ void amdxdna_vbnv_init(struct amdxdna_dev *xdna)
 
 	amdxdna_update_vbnv(xdna, info->rev_vbnv_tbl, rev);
 }
+
+int amdxdna_get_metadata(struct aie_device *aie,
+			 struct amdxdna_client *client,
+			 struct amdxdna_drm_get_info *args)
+{
+	int ret = 0;
+	u32 buf_sz;
+
+	buf_sz = min(args->buffer_size, sizeof(aie->metadata));
+	if (copy_to_user(u64_to_user_ptr(args->buffer), &aie->metadata, buf_sz))
+		ret = -EFAULT;
+
+	return ret;
+}
