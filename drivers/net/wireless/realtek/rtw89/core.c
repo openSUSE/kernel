@@ -3176,6 +3176,24 @@ void rtw89_core_update_rx_status_by_ppdu(struct rtw89_dev *rtwdev,
 		rx_status->enc_flags |= u8_encode_bits(1, RX_ENC_FLAG_STBC_MASK);
 }
 
+static void rtw89_core_update_radiotap_he(struct rtw89_dev *rtwdev,
+					  struct sk_buff *skb,
+					  struct ieee80211_rx_status *rx_status)
+{
+	static const struct ieee80211_radiotap_he known_he = {
+		.data1 = cpu_to_le16(IEEE80211_RADIOTAP_HE_DATA1_DATA_MCS_KNOWN |
+				     IEEE80211_RADIOTAP_HE_DATA1_CODING_KNOWN |
+				     IEEE80211_RADIOTAP_HE_DATA1_STBC_KNOWN |
+				     IEEE80211_RADIOTAP_HE_DATA1_BW_RU_ALLOC_KNOWN),
+		.data2 = cpu_to_le16(IEEE80211_RADIOTAP_HE_DATA2_GI_KNOWN),
+	};
+	struct ieee80211_radiotap_he *he;
+
+	rx_status->flag |= RX_FLAG_RADIOTAP_HE;
+	he = skb_push(skb, sizeof(*he));
+	*he = known_he;
+}
+
 static const u8 rx_status_bw_to_radiotap_eht_usig[] = {
 	[RATE_INFO_BW_20] = IEEE80211_RADIOTAP_EHT_USIG_COMMON_BW_20MHZ,
 	[RATE_INFO_BW_5] = U8_MAX,
@@ -3250,25 +3268,13 @@ static void rtw89_core_update_radiotap(struct rtw89_dev *rtwdev,
 				       struct sk_buff *skb,
 				       struct ieee80211_rx_status *rx_status)
 {
-	static const struct ieee80211_radiotap_he known_he = {
-		.data1 = cpu_to_le16(IEEE80211_RADIOTAP_HE_DATA1_DATA_MCS_KNOWN |
-				     IEEE80211_RADIOTAP_HE_DATA1_CODING_KNOWN |
-				     IEEE80211_RADIOTAP_HE_DATA1_STBC_KNOWN |
-				     IEEE80211_RADIOTAP_HE_DATA1_BW_RU_ALLOC_KNOWN),
-		.data2 = cpu_to_le16(IEEE80211_RADIOTAP_HE_DATA2_GI_KNOWN),
-	};
-	struct ieee80211_radiotap_he *he;
-
 	if (!(rtwdev->hw->conf.flags & IEEE80211_CONF_MONITOR))
 		return;
 
-	if (rx_status->encoding == RX_ENC_HE) {
-		rx_status->flag |= RX_FLAG_RADIOTAP_HE;
-		he = skb_push(skb, sizeof(*he));
-		*he = known_he;
-	} else if (rx_status->encoding == RX_ENC_EHT) {
+	if (rx_status->encoding == RX_ENC_HE)
+		rtw89_core_update_radiotap_he(rtwdev, skb, rx_status);
+	else if (rx_status->encoding == RX_ENC_EHT)
 		rtw89_core_update_radiotap_eht(rtwdev, skb, rx_status);
-	}
 }
 
 static void rtw89_core_validate_rx_signal(struct ieee80211_rx_status *rx_status)
