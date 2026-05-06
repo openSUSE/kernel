@@ -729,11 +729,9 @@ int media_entity_pads_init(struct media_entity *entity, u16 num_pads,
  * zeroed but that has not been initialized with media_entity_pads_init() is
  * valid and is a no-op.
  */
-#if IS_ENABLED(CONFIG_MEDIA_CONTROLLER)
-static inline void media_entity_cleanup(struct media_entity *entity) {}
-#else
-#define media_entity_cleanup(entity) do { } while (false)
-#endif
+static inline void media_entity_cleanup(struct media_entity *entity)
+{
+}
 
 /**
  * media_get_pad_index() - retrieves a pad index from an entity
