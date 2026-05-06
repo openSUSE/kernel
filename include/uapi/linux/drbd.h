@@ -333,6 +333,9 @@ enum drbd_uuid_index {
 
 #define HISTORY_UUIDS MAX_PEERS
 
+#define DRBD_NL_UUIDS_SIZE		(UI_SIZE * sizeof(__u64))
+#define DRBD_NL_HISTORY_UUIDS_SIZE	(HISTORY_UUIDS * sizeof(__u64))
+
 enum drbd_timeout_flag {
 	UT_DEFAULT      = 0,
 	UT_DEGRADED     = 1,
