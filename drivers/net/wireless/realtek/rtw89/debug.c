@@ -93,6 +93,7 @@ struct rtw89_debugfs {
 	struct rtw89_debugfs_priv beacon_info;
 	struct rtw89_debugfs_priv diag_mac;
 	struct rtw89_debugfs_priv diag_bb;
+	struct rtw89_debugfs_priv monitor_opts;
 };
 
 struct rtw89_debugfs_iter_data {
@@ -5326,6 +5327,54 @@ rtw89_debug_priv_diag_bb_get(struct rtw89_dev *rtwdev,
 	return p - buf;
 }
 
+static ssize_t
+rtw89_debug_priv_monitor_opts_get(struct rtw89_dev *rtwdev,
+				  struct rtw89_debugfs_priv *debugfs_priv,
+				  char *buf, size_t bufsz)
+{
+	const struct rtw89_chip_info *chip = rtwdev->chip;
+	char *p = buf, *end = buf + bufsz;
+	u32 bss_color;
+	u32 aid;
+
+	lockdep_assert_wiphy(rtwdev->hw->wiphy);
+
+	rtw89_leave_ps_mode(rtwdev);
+
+	bss_color = rtw89_phy_read32_idx(rtwdev, chip->bss_clr_map_reg,
+					 B_BSS_CLR_MAP_TGT, RTW89_PHY_0);
+	aid = rtw89_phy_read32_idx(rtwdev, chip->bss_clr_map_reg,
+				   B_BSS_CLR_MAP_STAID, RTW89_PHY_0);
+
+	p += scnprintf(p, end - p, "bss_color=0x%x aid=0x%x\n", bss_color, aid);
+
+	return p - buf;
+}
+
+static ssize_t
+rtw89_debug_priv_monitor_opts_set(struct rtw89_dev *rtwdev,
+				  struct rtw89_debugfs_priv *debugfs_priv,
+				  const char *buf, size_t count)
+{
+	u32 bss_color;
+	u32 aid;
+	int num;
+
+	lockdep_assert_wiphy(rtwdev->hw->wiphy);
+
+	num = sscanf(buf, "%x %x", &bss_color, &aid);
+	if (num != 2) {
+		rtw89_info(rtwdev, "valid format: <bss color> <aid>\n");
+		return -EINVAL;
+	}
+
+	rtw89_leave_ps_mode(rtwdev);
+
+	__rtw89_phy_set_bss_color(rtwdev, bss_color, aid, RTW89_PHY_0);
+
+	return count;
+}
+
 #define rtw89_debug_priv_get(name, opts...)			\
 {								\
 	.cb_read = rtw89_debug_priv_ ##name## _get,		\
@@ -5390,6 +5439,7 @@ static const struct rtw89_debugfs rtw89_debugfs_templ = {
 	.beacon_info = rtw89_debug_priv_get(beacon_info),
 	.diag_mac = rtw89_debug_priv_get(diag_mac, RSIZE_16K, RLOCK),
 	.diag_bb = rtw89_debug_priv_get(diag_bb, RSIZE_8K, RLOCK),
+	.monitor_opts = rtw89_debug_priv_set_and_get(monitor_opts, RWLOCK),
 };
 
 #define rtw89_debugfs_add(name, mode, fopname, parent)				\
@@ -5435,12 +5485,18 @@ void rtw89_debugfs_add_sec1(struct rtw89_dev *rtwdev, struct dentry *debugfs_top
 	rtw89_debugfs_add_r(phy_info);
 	rtw89_debugfs_add_rw(bb_info);
 	rtw89_debugfs_add_r(stations);
+}
+
+static
+void rtw89_debugfs_add_sec2(struct rtw89_dev *rtwdev, struct dentry *debugfs_topdir)
+{
 	rtw89_debugfs_add_rw(disable_dm);
 	rtw89_debugfs_add_rw(static_pd_th);
 	rtw89_debugfs_add_rw(mlo_mode);
 	rtw89_debugfs_add_r(beacon_info);
 	rtw89_debugfs_add_r(diag_mac);
 	rtw89_debugfs_add_r(diag_bb);
+	rtw89_debugfs_add_rw(monitor_opts);
 }
 
 void rtw89_debugfs_init(struct rtw89_dev *rtwdev)
@@ -5457,6 +5513,7 @@ void rtw89_debugfs_init(struct rtw89_dev *rtwdev)
 
 	rtw89_debugfs_add_sec0(rtwdev, debugfs_topdir);
 	rtw89_debugfs_add_sec1(rtwdev, debugfs_topdir);
+	rtw89_debugfs_add_sec2(rtwdev, debugfs_topdir);
 }
 
 void rtw89_debugfs_deinit(struct rtw89_dev *rtwdev)

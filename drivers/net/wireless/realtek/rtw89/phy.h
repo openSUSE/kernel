@@ -1128,6 +1128,8 @@ void rtw89_phy_antdiv_track(struct rtw89_dev *rtwdev);
 void rtw89_phy_antdiv_work(struct wiphy *wiphy, struct wiphy_work *work);
 void rtw89_phy_set_bss_color(struct rtw89_dev *rtwdev,
 			     struct rtw89_vif_link *rtwvif_link);
+void __rtw89_phy_set_bss_color(struct rtw89_dev *rtwdev, u8 bss_color, u16 aid,
+			       enum rtw89_phy_idx phy_idx);
 void rtw89_phy_tssi_ctrl_set_bandedge_cfg(struct rtw89_dev *rtwdev,
 					  enum rtw89_mac_idx mac_idx,
 					  enum rtw89_tssi_bandedge_cfg bandedge_cfg);

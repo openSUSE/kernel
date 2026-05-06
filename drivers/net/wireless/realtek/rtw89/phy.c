@@ -8231,12 +8231,24 @@ void rtw89_phy_dm_init_data(struct rtw89_dev *rtwdev)
 		__rtw89_phy_dm_init_data(rtwdev, bb);
 }
 
+void __rtw89_phy_set_bss_color(struct rtw89_dev *rtwdev, u8 bss_color, u16 aid,
+			       enum rtw89_phy_idx phy_idx)
+{
+	const struct rtw89_chip_info *chip = rtwdev->chip;
+	const struct rtw89_reg_def *bss_clr_vld = &chip->bss_clr_vld;
+
+	rtw89_phy_write32_idx(rtwdev, bss_clr_vld->addr, bss_clr_vld->mask, 0x1,
+			      phy_idx);
+	rtw89_phy_write32_idx(rtwdev, chip->bss_clr_map_reg, B_BSS_CLR_MAP_TGT,
+			      bss_color, phy_idx);
+	rtw89_phy_write32_idx(rtwdev, chip->bss_clr_map_reg, B_BSS_CLR_MAP_STAID,
+			      aid, phy_idx);
+}
+
 void rtw89_phy_set_bss_color(struct rtw89_dev *rtwdev,
 			     struct rtw89_vif_link *rtwvif_link)
 {
 	struct ieee80211_vif *vif = rtwvif_link_to_vif(rtwvif_link);
-	const struct rtw89_chip_info *chip = rtwdev->chip;
-	const struct rtw89_reg_def *bss_clr_vld = &chip->bss_clr_vld;
 	enum rtw89_phy_idx phy_idx = rtwvif_link->phy_idx;
 	struct ieee80211_bss_conf *bss_conf;
 	u8 bss_color;
@@ -8253,12 +8265,7 @@ void rtw89_phy_set_bss_color(struct rtw89_dev *rtwdev,
 
 	rcu_read_unlock();
 
-	rtw89_phy_write32_idx(rtwdev, bss_clr_vld->addr, bss_clr_vld->mask, 0x1,
-			      phy_idx);
-	rtw89_phy_write32_idx(rtwdev, chip->bss_clr_map_reg, B_BSS_CLR_MAP_TGT,
-			      bss_color, phy_idx);
-	rtw89_phy_write32_idx(rtwdev, chip->bss_clr_map_reg, B_BSS_CLR_MAP_STAID,
-			      vif->cfg.aid, phy_idx);
+	__rtw89_phy_set_bss_color(rtwdev, bss_color, vif->cfg.aid, phy_idx);
 }
 
 static bool rfk_chan_validate_desc(const struct rtw89_rfk_chan_desc *desc)
