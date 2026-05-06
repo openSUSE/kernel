@@ -1417,7 +1417,6 @@ static const struct pinfunction nord_functions[] = {
 	MSM_PIN_FUNCTION(prng_rosc0),
 	MSM_PIN_FUNCTION(prng_rosc1),
 	MSM_PIN_FUNCTION(pwrbrk_i_n),
-	MSM_PIN_FUNCTION(qdss_cti),
 	MSM_PIN_FUNCTION(qdss),
 	MSM_PIN_FUNCTION(qdss_cti),
 	MSM_PIN_FUNCTION(qspi),
