@@ -122,7 +122,7 @@
  * so that the value never quite completely fills the range of a size_t,
  * allowing the health check to verify that larger values are rejected.
  */
-#define DRBG_MAX_ADDTL		(U32_MAX - 1)
+#define DRBG_MAX_ADDTL_BYTES	(U32_MAX - 1)
 
 struct drbg_state {
 	struct mutex drbg_mutex;	/* lock around DRBG */
@@ -237,7 +237,7 @@ static int drbg_seed(struct drbg_state *drbg, const u8 *pers, size_t pers_len,
 	const u8 *entropy;
 
 	/* 9.1 / 9.2 / 9.3.1 step 3 */
-	if (pers_len > DRBG_MAX_ADDTL) {
+	if (pers_len > DRBG_MAX_ADDTL_BYTES) {
 		pr_devel("DRBG: personalization string too long %zu\n",
 			 pers_len);
 		return -EINVAL;
@@ -355,7 +355,7 @@ static int drbg_generate(struct drbg_state *drbg, u8 *out, size_t outlen,
 	/* 9.3.1 step 3 is implicit with the chosen DRBG */
 
 	/* 9.3.1 step 4 */
-	if (addtl_len > DRBG_MAX_ADDTL) {
+	if (addtl_len > DRBG_MAX_ADDTL_BYTES) {
 		pr_devel("DRBG: additional information string too long %zu\n",
 			 addtl_len);
 		return -EINVAL;
@@ -570,14 +570,15 @@ static inline int __init drbg_healthcheck_sanity(void)
 	 */
 
 	/* overflow addtllen with additional info string */
-	ret = drbg_generate(drbg, buf, OUTBUFLEN, buf, DRBG_MAX_ADDTL + 1);
+	ret = drbg_generate(drbg, buf, OUTBUFLEN, buf,
+			    DRBG_MAX_ADDTL_BYTES + 1);
 	BUG_ON(ret == 0);
 	/* overflow max_bits */
 	ret = drbg_generate(drbg, buf, DRBG_MAX_REQUEST_BYTES + 1, NULL, 0);
 	BUG_ON(ret == 0);
 
 	/* overflow max addtllen with personalization string */
-	ret = drbg_seed(drbg, buf, DRBG_MAX_ADDTL + 1, false);
+	ret = drbg_seed(drbg, buf, DRBG_MAX_ADDTL_BYTES + 1, false);
 	BUG_ON(ret == 0);
 	/* all tests passed */
 
