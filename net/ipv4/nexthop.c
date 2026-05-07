@@ -2154,8 +2154,6 @@ static bool __remove_nexthop_fib(struct net *net, struct nexthop *nh)
 
 	list_for_each_entry(fi, &nh->fi_list, nh_list)
 		fi->fib_flags |= RTNH_F_DEAD;
-	if (need_flush)
-		fib_flush(net);
 
 	spin_lock_bh(&nh->lock);
 
@@ -2218,6 +2216,13 @@ static bool remove_nexthop(struct net *net, struct nexthop *nh,
 	nexthop_put(nh);
 
 	return need_flush;
+}
+
+static void remove_one_nexthop(struct net *net, struct nexthop *nh,
+			       struct nl_info *nlinfo)
+{
+	if (remove_nexthop(net, nh, nlinfo))
+		fib_flush(net);
 }
 
 /* if any FIB entries reference this nexthop, any dst entries
@@ -2602,7 +2607,7 @@ static int replace_nexthop(struct net *net, struct nexthop *old,
 	if (!err) {
 		nh_rt_cache_flush(net, old, new);
 
-		__remove_nexthop(net, new, NULL);
+		WARN_ON_ONCE(__remove_nexthop(net, new, NULL));
 		nexthop_put(new);
 	}
 
@@ -2709,6 +2714,7 @@ static void nexthop_flush_dev(struct net_device *dev, unsigned long event)
 	unsigned int hash = nh_dev_hashfn(dev->ifindex);
 	struct net *net = dev_net(dev);
 	struct hlist_head *head = &net->nexthop.devhash[hash];
+	bool need_flush = false;
 	struct hlist_node *n;
 	struct nh_info *nhi;
 
@@ -2720,22 +2726,28 @@ static void nexthop_flush_dev(struct net_device *dev, unsigned long event)
 		    (event == NETDEV_DOWN || event == NETDEV_CHANGE))
 			continue;
 
-		remove_nexthop(net, nhi->nh_parent, NULL);
+		need_flush |= remove_nexthop(net, nhi->nh_parent, NULL);
 	}
+
+	if (need_flush)
+		fib_flush(net);
 }
 
 /* rtnl; called when net namespace is deleted */
 static void flush_all_nexthops(struct net *net)
 {
 	struct rb_root *root = &net->nexthop.rb_root;
+	bool need_flush = false;
 	struct rb_node *node;
 	struct nexthop *nh;
 
 	while ((node = rb_first(root))) {
 		nh = rb_entry(node, struct nexthop, rb_node);
-		remove_nexthop(net, nh, NULL);
+		need_flush |= remove_nexthop(net, nh, NULL);
 		cond_resched();
 	}
+	if (need_flush)
+		fib_flush(net);
 }
 
 static struct nexthop *nexthop_create_group(struct net *net,
@@ -3004,7 +3016,7 @@ static struct nexthop *nexthop_add(struct net *net, struct nh_config *cfg,
 
 	err = insert_nexthop(net, nh, cfg, extack);
 	if (err) {
-		__remove_nexthop(net, nh, NULL);
+		WARN_ON_ONCE(__remove_nexthop(net, nh, NULL));
 		nexthop_put(nh);
 		nh = ERR_PTR(err);
 	}
@@ -3373,7 +3385,7 @@ static int rtm_del_nexthop(struct sk_buff *skb, struct nlmsghdr *nlh,
 
 	nh = nexthop_find_by_id(net, id);
 	if (nh)
-		remove_nexthop(net, nh, &nlinfo);
+		remove_one_nexthop(net, nh, &nlinfo);
 	else
 		err = -ENOENT;
 
