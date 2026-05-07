@@ -729,9 +729,9 @@ static bool btrfs_bio_is_contig(struct btrfs_bio_ctrl *bio_ctrl,
 		bio_end_sector(bio) == sector;
 }
 
-static void alloc_new_bio(struct btrfs_inode *inode,
-			  struct btrfs_bio_ctrl *bio_ctrl,
-			  u64 disk_bytenr, u64 file_offset)
+static int alloc_new_bio(struct btrfs_inode *inode,
+			 struct btrfs_bio_ctrl *bio_ctrl,
+			 u64 disk_bytenr, u64 file_offset)
 {
 	struct btrfs_fs_info *fs_info = inode->root->fs_info;
 	struct btrfs_bio *bbio;
@@ -748,13 +748,25 @@ static void alloc_new_bio(struct btrfs_inode *inode,
 	if (bio_ctrl->wbc) {
 		struct btrfs_ordered_extent *ordered;
 
+		/* This must be a write for data inodes. */
+		ASSERT(btrfs_op(&bio_ctrl->bbio->bio) == BTRFS_MAP_WRITE);
+		ASSERT(is_data_inode(inode));
+
 		ordered = btrfs_lookup_ordered_extent(inode, file_offset);
-		if (ordered) {
-			bio_ctrl->len_to_oe_boundary = min_t(u32, U32_MAX,
-					ordered->file_offset +
-					ordered->disk_num_bytes - file_offset);
-			bbio->ordered = ordered;
+		if (unlikely(!ordered)) {
+			bio_ctrl->bbio = NULL;
+			bio_ctrl->next_file_offset = 0;
+			bio_put(&bbio->bio);
+			btrfs_err_rl(fs_info,
+	"root %lld ino %llu file offset %llu is marked dirty without notifying the fs",
+				     btrfs_root_id(inode->root), btrfs_ino(inode),
+				     file_offset);
+			return -EUCLEAN;
 		}
+		bio_ctrl->len_to_oe_boundary = min_t(u32, U32_MAX,
+				ordered->file_offset +
+				ordered->disk_num_bytes - file_offset);
+		bbio->ordered = ordered;
 
 		/*
 		 * Pick the last added device to support cgroup writeback.  For
@@ -765,6 +777,7 @@ static void alloc_new_bio(struct btrfs_inode *inode,
 		bio_set_dev(&bbio->bio, fs_info->fs_devices->latest_dev->bdev);
 		wbc_init_bio(bio_ctrl->wbc, &bbio->bio);
 	}
+	return 0;
 }
 
 /*
@@ -780,14 +793,19 @@ static void alloc_new_bio(struct btrfs_inode *inode,
  * new one in @bio_ctrl->bbio.
  * The mirror number for this IO should already be initialized in
  * @bio_ctrl->mirror_num.
+ *
+ * Return the number of bytes that are queued into a bio.
+ * If the returned bytes is smaller than @size, it means we hit a critical error
+ * for data write, where there is no ordered extent for the range.
  */
-static void submit_extent_folio(struct btrfs_bio_ctrl *bio_ctrl,
-			       u64 disk_bytenr, struct folio *folio,
-			       size_t size, unsigned long pg_offset,
-			       u64 read_em_generation)
+static unsigned int submit_extent_folio(struct btrfs_bio_ctrl *bio_ctrl,
+					u64 disk_bytenr, struct folio *folio,
+					size_t size, unsigned long pg_offset,
+					u64 read_em_generation)
 {
 	struct btrfs_inode *inode = folio_to_inode(folio);
 	loff_t file_offset = folio_pos(folio) + pg_offset;
+	unsigned int queued = 0;
 
 	ASSERT(pg_offset + size <= folio_size(folio));
 	ASSERT(bio_ctrl->end_io_func);
@@ -800,8 +818,13 @@ static void submit_extent_folio(struct btrfs_bio_ctrl *bio_ctrl,
 		u32 len = size;
 
 		/* Allocate new bio if needed */
-		if (!bio_ctrl->bbio)
-			alloc_new_bio(inode, bio_ctrl, disk_bytenr, file_offset);
+		if (!bio_ctrl->bbio) {
+			int ret;
+
+			ret = alloc_new_bio(inode, bio_ctrl, disk_bytenr, file_offset);
+			if (ret < 0)
+				break;
+		}
 
 		/* Cap to the current ordered extent boundary if there is one. */
 		if (len > bio_ctrl->len_to_oe_boundary) {
@@ -829,6 +852,7 @@ static void submit_extent_folio(struct btrfs_bio_ctrl *bio_ctrl,
 		pg_offset += len;
 		disk_bytenr += len;
 		file_offset += len;
+		queued += len;
 
 		/*
 		 * len_to_oe_boundary defaults to U32_MAX, which isn't folio or
@@ -868,6 +892,7 @@ static void submit_extent_folio(struct btrfs_bio_ctrl *bio_ctrl,
 			submit_one_bio(bio_ctrl);
 
 	} while (size);
+	return queued;
 }
 
 static int attach_extent_buffer_folio(struct extent_buffer *eb,
@@ -1040,6 +1065,7 @@ static int btrfs_do_readpage(struct folio *folio, struct extent_map **em_cached,
 		u64 disk_bytenr;
 		u64 block_start;
 		u64 em_gen;
+		unsigned int queued;
 
 		ASSERT(IS_ALIGNED(cur, fs_info->sectorsize));
 		if (cur >= last_byte) {
@@ -1153,8 +1179,10 @@ static int btrfs_do_readpage(struct folio *folio, struct extent_map **em_cached,
 
 		if (force_bio_submit)
 			submit_one_bio(bio_ctrl);
-		submit_extent_folio(bio_ctrl, disk_bytenr, folio, blocksize,
-				    pg_offset, em_gen);
+		queued = submit_extent_folio(bio_ctrl, disk_bytenr, folio, blocksize,
+					     pg_offset, em_gen);
+		/* Read submission should not fail. */
+		ASSERT(queued == blocksize);
 	}
 	return 0;
 }
@@ -1647,6 +1675,7 @@ static int submit_one_sector(struct btrfs_inode *inode,
 	u64 extent_offset;
 	u64 em_end;
 	const u32 sectorsize = fs_info->sectorsize;
+	unsigned int queued;
 
 	ASSERT(IS_ALIGNED(filepos, sectorsize));
 
@@ -1713,8 +1742,15 @@ static int submit_one_sector(struct btrfs_inode *inode,
 	 */
 	ASSERT(folio_test_writeback(folio));
 
-	submit_extent_folio(bio_ctrl, disk_bytenr, folio,
-			    sectorsize, filepos - folio_pos(folio), 0);
+	queued = submit_extent_folio(bio_ctrl, disk_bytenr, folio,
+				     sectorsize, filepos - folio_pos(folio), 0);
+	if (unlikely(queued < sectorsize)) {
+		btrfs_folio_clear_writeback(fs_info, folio, filepos, sectorsize);
+		btrfs_folio_clear_ordered(fs_info, folio, filepos, sectorsize);
+		btrfs_mark_ordered_io_finished(inode, filepos, fs_info->sectorsize,
+					       false);
+		return -EUCLEAN;
+	}
 	return 0;
 }
 
@@ -1747,19 +1783,6 @@ static noinline_for_stack int extent_writepage_io(struct btrfs_inode *inode,
 	ASSERT(start >= folio_start, "start=%llu folio_start=%llu", start, folio_start);
 	ASSERT(end <= folio_end, "start=%llu len=%u folio_start=%llu folio_size=%zu",
 	       start, len, folio_start, folio_size(folio));
-
-	if (unlikely(!folio_test_ordered(folio))) {
-		DEBUG_WARN();
-		btrfs_err_rl(fs_info,
-	"root %lld ino %llu folio %llu is marked dirty without notifying the fs",
-			     btrfs_root_id(inode->root),
-			     btrfs_ino(inode),
-			     folio_pos(folio));
-		btrfs_folio_clear_dirty(fs_info, folio, start, len);
-		btrfs_folio_set_writeback(fs_info, folio, start, len);
-		btrfs_folio_clear_writeback(fs_info, folio, start, len);
-		return -EUCLEAN;
-	}
 
 	bitmap_set(&range_bitmap, (start - folio_pos(folio)) >> fs_info->sectorsize_bits,
 		   len >> fs_info->sectorsize_bits);
