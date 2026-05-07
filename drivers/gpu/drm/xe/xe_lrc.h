@@ -39,6 +39,8 @@ struct xe_lrc_snapshot {
 	u32 seqno;
 	u64 ctx_timestamp;
 	u64 ctx_timestamp_ms;
+	u64 queue_timestamp;
+	u64 queue_timestamp_ms;
 	u32 ctx_job_timestamp;
 };
 

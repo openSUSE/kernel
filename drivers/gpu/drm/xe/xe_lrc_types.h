@@ -64,6 +64,9 @@ struct xe_lrc {
 	/** @ctx_timestamp: readout value of CTX_TIMESTAMP on last update */
 	u64 ctx_timestamp;
 
+	/** @queue_timestamp: value of QUEUE_TIMESTAMP on last update */
+	u64 queue_timestamp;
+
 	/** @multi_queue: Multi queue LRC related information */
 	struct {
 		/** @multi_queue.primary_lrc: Primary lrc of this multi-queue group*/
