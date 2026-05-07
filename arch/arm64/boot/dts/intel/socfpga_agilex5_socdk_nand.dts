@@ -41,7 +41,7 @@
 
 &gmac0 {
 	status = "okay";
-	phy-mode = "rgmii-id";
+	phy-mode = "rgmii"; /* TX/RX clock delays provided by Agilex5 I/O hardware */
 	phy-handle = <&emac0_phy0>;
 	max-frame-size = <9000>;
 
