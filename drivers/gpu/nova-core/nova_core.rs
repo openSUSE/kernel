@@ -67,7 +67,7 @@ impl InPlaceModule for NovaCoreModule {
 
 module! {
     type: NovaCoreModule,
-    name: "NovaCore",
+    name: "nova-core",
     authors: ["Danilo Krummrich"],
     description: "Nova Core GPU driver",
     license: "GPL v2",
