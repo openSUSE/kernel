@@ -2585,6 +2585,11 @@ static int get_ctx_timestamp(struct xe_lrc *lrc, u32 engine_id, u64 *reg_ctx_ts)
 	return 0;
 }
 
+static bool context_active(struct xe_lrc *lrc)
+{
+	return xe_lrc_ctx_timestamp(lrc) == CONTEXT_ACTIVE;
+}
+
 /**
  * xe_lrc_timestamp() - Current ctx timestamp
  * @lrc: Pointer to the lrc.
@@ -2597,33 +2602,23 @@ static int get_ctx_timestamp(struct xe_lrc *lrc, u32 engine_id, u64 *reg_ctx_ts)
  */
 u64 xe_lrc_timestamp(struct xe_lrc *lrc)
 {
-	u64 lrc_ts, reg_ts, new_ts = lrc->ctx_timestamp;
-	u32 engine_id;
+	u64 reg_ts, new_ts = lrc->ctx_timestamp;
 
-	lrc_ts = xe_lrc_ctx_timestamp(lrc);
 	/* CTX_TIMESTAMP mmio read is invalid on VF, so return the LRC value */
-	if (IS_SRIOV_VF(lrc_to_xe(lrc))) {
-		new_ts = lrc_ts;
-		goto done;
-	}
+	if (IS_SRIOV_VF(lrc_to_xe(lrc)))
+		return xe_lrc_ctx_timestamp(lrc);
 
-	if (lrc_ts == CONTEXT_ACTIVE) {
-		engine_id = xe_lrc_engine_id(lrc);
-		if (!get_ctx_timestamp(lrc, engine_id, &reg_ts))
-			new_ts = reg_ts;
-
-		/* read lrc again to ensure context is still active */
-		lrc_ts = xe_lrc_ctx_timestamp(lrc);
-	}
+	if (context_active(lrc) &&
+	    !get_ctx_timestamp(lrc, xe_lrc_engine_id(lrc), &reg_ts))
+		new_ts = reg_ts;
 
 	/*
-	 * If context switched out, just use the lrc_ts. Note that this needs to
-	 * be a separate if condition.
+	 * If context swicthed out while we were here, just return the latest
+	 * LRC CTX TIMESTAMP value.
 	 */
-	if (lrc_ts != CONTEXT_ACTIVE)
-		new_ts = lrc_ts;
+	if (!context_active(lrc))
+		return xe_lrc_ctx_timestamp(lrc);
 
-done:
 	return new_ts;
 }
 
