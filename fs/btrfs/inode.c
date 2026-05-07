@@ -7593,15 +7593,20 @@ static void btrfs_invalidate_folio(struct folio *folio, size_t offset,
 				page_end);
 		ASSERT(range_end + 1 - cur < U32_MAX);
 		range_len = range_end + 1 - cur;
-		if (!btrfs_folio_test_ordered(fs_info, folio, cur, range_len)) {
-			/*
-			 * If Ordered is cleared, it means endio has
-			 * already been executed for the range.
-			 * We can't delete the extent states as
-			 * btrfs_finish_ordered_io() may still use some of them.
-			 */
+		/*
+		 * If the range is not dirty, the range has been submitted and
+		 * since we have waited for the writeback, endio has been
+		 * executed, thus we must skip the range to avoid double
+		 * accounting for the ordered extent.
+		 */
+		if (!btrfs_folio_test_dirty(fs_info, folio, cur, range_len))
 			goto next;
-		}
+
+		/*
+		 * The range is dirty meaning it has not been submitted.
+		 * Here we need to truncate the OE range as the range will never
+		 * be submitted.
+		 */
 		btrfs_folio_clear_ordered(fs_info, folio, cur, range_len);
 
 		/*
