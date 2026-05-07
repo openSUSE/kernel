@@ -18,11 +18,31 @@ static int hns_debugfs_seqfile_open(struct inode *inode, struct file *f)
 	return single_open(f, seqfile->read, seqfile->data);
 }
 
+static ssize_t hns_debugfs_seqfile_write(struct file *file,
+					 const char __user *buffer,
+					 size_t count, loff_t *ppos)
+{
+	struct hns_debugfs_seqfile *seqfile = file_inode(file)->i_private;
+	char buf[16] = {};
+
+	if (!seqfile->write)
+		return -EOPNOTSUPP;
+
+	if (count >= sizeof(buf))
+		return -EINVAL;
+
+	if (copy_from_user(buf, buffer, count))
+		return -EFAULT;
+
+	return seqfile->write(buf, count, seqfile->data);
+}
+
 static const struct file_operations hns_debugfs_seqfile_fops = {
 	.owner = THIS_MODULE,
 	.open = hns_debugfs_seqfile_open,
 	.release = single_release,
 	.read = seq_read,
+	.write = hns_debugfs_seqfile_write,
 	.llseek = seq_lseek
 };
 

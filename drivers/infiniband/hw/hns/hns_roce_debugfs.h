@@ -9,6 +9,7 @@
 /* debugfs seqfile */
 struct hns_debugfs_seqfile {
 	int (*read)(struct seq_file *seq, void *data);
+	ssize_t (*write)(char *buf, size_t count, void *data);
 	void *data;
 };
 
