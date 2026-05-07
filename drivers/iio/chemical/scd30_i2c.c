@@ -71,6 +71,9 @@ static int scd30_i2c_command(struct scd30_state *state, enum scd30_cmd cmd, u16 
 	int i, ret;
 	char crc;
 
+	if (!response && size != 0)
+		return -EINVAL;
+
 	put_unaligned_be16(scd30_i2c_cmd_lookup_tbl[cmd], buf);
 	i = 2;
 
