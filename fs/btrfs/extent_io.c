@@ -957,6 +957,17 @@ void clear_folio_extent_mapped(struct folio *folio)
 	struct btrfs_fs_info *fs_info;
 
 	ASSERT(folio->mapping);
+	/*
+	 * The folio should not have writeback nor dirty flag set.
+	 *
+	 * If dirty flag is set, the folio can be written back again and we
+	 * expect the private flag set for the folio.
+	 *
+	 * If writeback flag is set, the endio may need to utilize the
+	 * private for btrfs_folio_state.
+	 */
+	ASSERT(!folio_test_dirty(folio));
+	ASSERT(!folio_test_writeback(folio));
 
 	if (!folio_test_private(folio))
 		return;
@@ -2572,7 +2583,7 @@ retry:
 			}
 
 			if (folio_test_writeback(folio) ||
-			    !folio_clear_dirty_for_io(folio)) {
+			    !folio_test_dirty(folio)) {
 				folio_unlock(folio);
 				continue;
 			}
@@ -3729,17 +3740,6 @@ void free_extent_buffer_stale(struct extent_buffer *eb)
 	release_extent_buffer(eb);
 }
 
-static void btree_clear_folio_dirty_tag(struct folio *folio)
-{
-	ASSERT(!folio_test_dirty(folio));
-	ASSERT(folio_test_locked(folio));
-	xa_lock_irq(&folio->mapping->i_pages);
-	if (!folio_test_dirty(folio))
-		__xa_clear_mark(&folio->mapping->i_pages, folio->index,
-				PAGECACHE_TAG_DIRTY);
-	xa_unlock_irq(&folio->mapping->i_pages);
-}
-
 void btrfs_clear_buffer_dirty(struct btrfs_trans_handle *trans,
 			      struct extent_buffer *eb)
 {
@@ -3780,7 +3780,7 @@ void btrfs_clear_buffer_dirty(struct btrfs_trans_handle *trans,
 		folio_lock(folio);
 		last = btrfs_meta_folio_clear_and_test_dirty(folio, eb);
 		if (last)
-			btree_clear_folio_dirty_tag(folio);
+			btrfs_clear_folio_dirty_tag(folio);
 		folio_unlock(folio);
 	}
 	WARN_ON(refcount_read(&eb->refs) == 0);

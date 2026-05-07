@@ -7665,6 +7665,8 @@ next:
 					       &cached_state);
 		cur = range_end + 1;
 	}
+	btrfs_folio_clear_dirty(fs_info, folio, page_start, folio_size(folio));
+	btrfs_clear_folio_dirty_tag(folio);
 	/*
 	 * We have iterated through all ordered extents of the page, the page
 	 * should not have Ordered anymore, or the above iteration
