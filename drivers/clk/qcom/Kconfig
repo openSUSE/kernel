@@ -434,6 +434,16 @@ config IPQ_GCC_9574
 	  i2c, USB, SD/eMMC, etc. Select this for the root clock
 	  of ipq9574.
 
+config IPQ_GCC_9650
+	tristate "IPQ9650 Global Clock Controller"
+	depends on ARM64 || COMPILE_TEST
+	default ARCH_QCOM
+	help
+	  Support for global clock controller on ipq9650 devices.
+	  Say Y if you want to use peripheral devices such as UART, SPI,
+	  i2c, USB, SD/eMMC, etc. Select this for the root clock
+	  of ipq9650.
+
 config IPQ_NSSCC_5424
 	tristate "IPQ5424 NSS Clock Controller"
 	depends on ARM64 || COMPILE_TEST
