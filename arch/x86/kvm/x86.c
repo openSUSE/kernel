@@ -6834,10 +6834,12 @@ static int emulator_read_write_onepage(unsigned long addr, void *val,
 	frag = &vcpu->mmio_fragments[vcpu->mmio_nr_fragments++];
 	frag->gpa = gpa;
 	if (write && bytes <= 8u) {
-		frag->val = 0;
-		frag->data = &frag->val;
-		memcpy(&frag->val, val, bytes);
+		vcpu->mmio_frag_val[vcpu->mmio_nr_fragments - 1] = 0;
+		frag->data = &vcpu->mmio_frag_val[vcpu->mmio_nr_fragments - 1];
+		frag->data_copied = true;
+		memcpy(frag->data, val, bytes);
 	} else {
+		frag->data_copied = false;
 		frag->data = val;
 	}
 	frag->len = bytes;
@@ -10089,7 +10091,7 @@ static int complete_emulated_mmio(struct kvm_vcpu *vcpu)
 		frag++;
 		vcpu->mmio_cur_fragment++;
 	} else {
-		if (WARN_ON_ONCE(frag->data == &frag->val))
+		if (WARN_ON_ONCE(frag->data_copied))
 			return -EIO;
 
 		/* Go forward to the next mmio piece. */
