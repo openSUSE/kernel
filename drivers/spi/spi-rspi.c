@@ -1222,11 +1222,6 @@ static const struct of_device_id rspi_of_match[] __maybe_unused = {
 MODULE_DEVICE_TABLE(of, rspi_of_match);
 
 #ifdef CONFIG_OF
-static void rspi_reset_control_assert(void *data)
-{
-	reset_control_assert(data);
-}
-
 static int rspi_parse_dt(struct device *dev, struct spi_controller *ctlr)
 {
 	struct reset_control *rstc;
@@ -1242,22 +1237,10 @@ static int rspi_parse_dt(struct device *dev, struct spi_controller *ctlr)
 
 	ctlr->num_chipselect = num_cs;
 
-	rstc = devm_reset_control_get_optional_exclusive(dev, NULL);
+	rstc = devm_reset_control_get_optional_exclusive_deasserted(dev, NULL);
 	if (IS_ERR(rstc))
 		return dev_err_probe(dev, PTR_ERR(rstc),
-					     "failed to get reset ctrl\n");
-
-	error = reset_control_deassert(rstc);
-	if (error) {
-		dev_err(dev, "failed to deassert reset %d\n", error);
-		return error;
-	}
-
-	error = devm_add_action_or_reset(dev, rspi_reset_control_assert, rstc);
-	if (error) {
-		dev_err(dev, "failed to register assert devm action, %d\n", error);
-		return error;
-	}
+				     "failed to get reset ctrl and deassert reset\n");
 
 	return 0;
 }
