@@ -368,6 +368,11 @@ properties:
 
       - items:
           - enum:
+              - qcom,ipq9650-rdp488
+          - const: qcom,ipq9650
+
+      - items:
+          - enum:
               - qcom,kaanapali-mtp
               - qcom,kaanapali-qrd
           - const: qcom,kaanapali
