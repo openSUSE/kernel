@@ -1516,13 +1516,18 @@ void jbd2_buffer_abort_trigger(struct journal_head *jh,
  */
 int jbd2_journal_dirty_metadata(handle_t *handle, struct buffer_head *bh)
 {
-	transaction_t *transaction = handle->h_transaction;
-	journal_t *journal = transaction->t_journal;
+	transaction_t *transaction;
+	journal_t *journal;
 	struct journal_head *jh;
 	int ret = 0;
 
+	if (is_handle_aborted(handle))
+		return -EROFS;
 	if (!buffer_jbd(bh))
 		return -EUCLEAN;
+
+	transaction = handle->h_transaction;
+	journal = transaction->t_journal;
 
 	/*
 	 * We don't grab jh reference here since the buffer must be part
