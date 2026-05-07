@@ -852,11 +852,6 @@ static int xe_exec_queue_group_init(struct xe_device *xe, struct xe_exec_queue *
 	return 0;
 }
 
-static inline bool xe_exec_queue_supports_multi_queue(struct xe_exec_queue *q)
-{
-	return q->gt->info.multi_queue_engine_class_mask & BIT(q->class);
-}
-
 static int xe_exec_queue_group_validate(struct xe_device *xe, struct xe_exec_queue *q,
 					u32 primary_id)
 {
@@ -931,7 +926,7 @@ static void xe_exec_queue_group_delete(struct xe_device *xe, struct xe_exec_queu
 static int exec_queue_set_multi_group(struct xe_device *xe, struct xe_exec_queue *q,
 				      u64 value)
 {
-	if (XE_IOCTL_DBG(xe, !xe_exec_queue_supports_multi_queue(q)))
+	if (XE_IOCTL_DBG(xe, !xe_gt_supports_multi_queue(q->gt, q->class)))
 		return -ENODEV;
 
 	if (XE_IOCTL_DBG(xe, !xe_device_uc_enabled(xe)))
