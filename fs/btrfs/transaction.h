@@ -243,12 +243,36 @@ static inline bool btrfs_abort_should_print_stack(int error)
 }
 
 /*
+ * Compile-time and run-time verification of error passed to transaction abort.
+ * Direct constants will be caught at compile time, errors read from variables
+ * can be caught only at run-time and will warn under debugging config.
+ *
+ * How verification works:
+ * - accepted builtin constants are all -EIO and such
+ * - for compile-time check, invalid condition produces a negative-sized array
+ *   type, valid zero-sized
+ * - when a variable is passed as error the first check is a no-op
+ * - with enabled debugging, the second array type size is constructed from the
+ *   real variable value, valid condition produces array of size 1
+ * - sizeof(type) does not generate any code
+ */
+#define VERIFY_NEGATIVE_ERROR(error)						\
+do {										\
+	(void)sizeof(char[-!(__builtin_constant_p(error) ? (error) < 0 : 1)]);	\
+	if (IS_ENABLED(CONFIG_BTRFS_DEBUG)) {					\
+		if (sizeof(char[(error) < 0]) != 1)				\
+			DEBUG_WARN("error >= 0 passed to btrfs_abort_transaction()"); \
+	}									\
+} while(0)
+
+/*
  * Call btrfs_abort_transaction as early as possible when an error condition is
  * detected, that way the exact stack trace is reported for some errors.
  */
 #define btrfs_abort_transaction(trans, error)		\
 do {								\
 	bool __first = false;					\
+	VERIFY_NEGATIVE_ERROR(error);				\
 	/* Report first abort since mount */			\
 	if (!test_and_set_bit(BTRFS_FS_STATE_TRANS_ABORTED,	\
 			&((trans)->fs_info->fs_state))) {	\
