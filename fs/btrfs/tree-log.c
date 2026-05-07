@@ -491,7 +491,7 @@ static int overwrite_item(struct walk_control *wc)
 	 * the leaf before writing into the log tree. See the comments at
 	 * copy_items() for more details.
 	 */
-	ASSERT(btrfs_root_id(root) != BTRFS_TREE_LOG_OBJECTID, "root_id=%llu", btrfs_root_id(root));
+	ASSERT(btrfs_root_id(root) != BTRFS_TREE_LOG_OBJECTID);
 
 	item_size = btrfs_item_size(wc->log_leaf, wc->log_slot);
 	src_ptr = btrfs_item_ptr_offset(wc->log_leaf, wc->log_slot);
@@ -6843,8 +6843,7 @@ static int log_new_delayed_dentries(struct btrfs_trans_handle *trans,
 	 */
 	lockdep_assert_not_held(&inode->log_mutex);
 
-	ASSERT(!ctx->logging_new_delayed_dentries,
-	       "ctx->logging_new_delayed_dentries=%d", ctx->logging_new_delayed_dentries);
+	ASSERT(!ctx->logging_new_delayed_dentries);
 	ctx->logging_new_delayed_dentries = true;
 
 	list_for_each_entry(item, delayed_ins_list, log_list) {
