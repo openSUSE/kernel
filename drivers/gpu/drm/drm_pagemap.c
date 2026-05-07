@@ -347,10 +347,7 @@ drm_pagemap_migrate_map_system_pages(struct device *dev,
 
 		if (!try_alloc) {
 			dma_iova_try_alloc(dev, &state->dma_state,
-					   (npages - i) * PAGE_SIZE >=
-					   HPAGE_PMD_SIZE ?
-					   HPAGE_PMD_SIZE : 0,
-					   npages * PAGE_SIZE);
+					   0, npages * PAGE_SIZE);
 			try_alloc = true;
 		}
 
