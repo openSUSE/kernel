@@ -914,6 +914,7 @@ static void nfs_server_set_fsinfo(struct nfs_server *server,
  */
 static int nfs_probe_fsinfo(struct nfs_server *server, struct nfs_fh *mntfh, struct nfs_fattr *fattr)
 {
+	struct nfs_pathconf pathinfo = { };
 	struct nfs_fsinfo fsinfo;
 	struct nfs_client *clp = server->nfs_client;
 	int error;
@@ -933,15 +934,23 @@ static int nfs_probe_fsinfo(struct nfs_server *server, struct nfs_fh *mntfh, str
 
 	nfs_server_set_fsinfo(server, &fsinfo);
 
-	/* Get some general file system info */
-	if (server->namelen == 0) {
-		struct nfs_pathconf pathinfo;
+	pathinfo.fattr = fattr;
+	nfs_fattr_init(fattr);
 
-		pathinfo.fattr = fattr;
-		nfs_fattr_init(fattr);
+	/* Clear before probing so a failed RPC does not retain stale bits. */
+	if (clp->rpc_ops->version < 4)
+		server->caps &= ~(NFS_CAP_CASE_INSENSITIVE |
+				  NFS_CAP_CASE_NONPRESERVING);
 
-		if (clp->rpc_ops->pathconf(server, mntfh, &pathinfo) >= 0)
+	if (clp->rpc_ops->pathconf(server, mntfh, &pathinfo) >= 0) {
+		if (server->namelen == 0)
 			server->namelen = pathinfo.max_namelen;
+		if (clp->rpc_ops->version < 4) {
+			if (pathinfo.case_insensitive)
+				server->caps |= NFS_CAP_CASE_INSENSITIVE;
+			if (!pathinfo.case_preserving)
+				server->caps |= NFS_CAP_CASE_NONPRESERVING;
+		}
 	}
 
 	if (clp->rpc_ops->discover_trunking != NULL &&
