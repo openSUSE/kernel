@@ -3368,6 +3368,10 @@ N: Anil Ravindranath
 E: anil_ravindranath@pmc-sierra.com
 D: PMC-Sierra MaxRAID driver
 
+N: Dwaipayan Ray
+E: dwaipayanray1@gmail.com
+D: checkpatch improvements
+
 N: Eric S. Raymond
 E: esr@thyrsus.com
 W: http://www.tuxedo.org/~esr/
