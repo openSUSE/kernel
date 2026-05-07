@@ -771,6 +771,7 @@ static void devm_mux_state_release(struct device *dev, void *res)
  * @dev: The device that needs a mux-state.
  * @mux_name: The name identifying the mux-state.
  * @optional: Whether to return NULL and silence errors when mux doesn't exist.
+ * @np: The device nodes, use dev->of_node if it is NULL.
  * @init: Optional function pointer for mux-state object initialisation.
  * @exit: Optional function pointer for mux-state object cleanup on release.
  *
