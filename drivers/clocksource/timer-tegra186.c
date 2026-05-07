@@ -57,6 +57,13 @@
 #define WDTUR 0x00c
 #define  WDTUR_UNLOCK_PATTERN 0x0000c45a
 
+/* WDT security configuration registers */
+#define WDTSCR(x)		(0xf02c + (x) * 4)
+#define  WDTSCR_SEC_WEN		BIT(28)
+#define  WDTSCR_SEC_REN		BIT(27)
+#define  WDTSCR_SEC_G1W		BIT(9)
+#define  WDTSCR_SEC_G1R		BIT(1)
+
 struct tegra186_timer_soc {
 	unsigned int num_timers;
 	unsigned int num_wdts;
@@ -89,7 +96,7 @@ struct tegra186_timer {
 	struct device *dev;
 	void __iomem *regs;
 
-	struct tegra186_wdt *wdt;
+	struct tegra186_wdt **wdts;
 	struct clocksource usec;
 	struct clocksource tsc;
 	struct clocksource osc;
@@ -298,6 +305,23 @@ static const struct watchdog_ops tegra186_wdt_ops = {
 	.get_timeleft = tegra186_wdt_get_timeleft,
 };
 
+static bool tegra186_wdt_is_accessible(struct tegra186_timer *tegra, unsigned int index)
+{
+	u32 value;
+
+	value = readl_relaxed(tegra->regs + WDTSCR(index));
+
+	/* Check OS write access if write blocking is enabled. */
+	if ((value & WDTSCR_SEC_WEN) && !(value & WDTSCR_SEC_G1W))
+		return false;
+
+	/* Check OS read access if read blocking is enabled. */
+	if ((value & WDTSCR_SEC_REN) && !(value & WDTSCR_SEC_G1R))
+		return false;
+
+	return true;
+}
+
 static struct tegra186_wdt *tegra186_wdt_create(struct tegra186_timer *tegra,
 						unsigned int index)
 {
@@ -424,6 +448,7 @@ static int tegra186_timer_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
 	struct tegra186_timer *tegra;
+	unsigned int i;
 	int err;
 
 	tegra = devm_kzalloc(dev, sizeof(*tegra), GFP_KERNEL);
@@ -442,12 +467,20 @@ static int tegra186_timer_probe(struct platform_device *pdev)
 	if (err < 0)
 		return err;
 
-	/* create a watchdog using a preconfigured timer */
-	tegra->wdt = tegra186_wdt_create(tegra, 0);
-	if (IS_ERR(tegra->wdt)) {
-		err = PTR_ERR(tegra->wdt);
-		dev_err(dev, "failed to create WDT: %d\n", err);
-		return err;
+	tegra->wdts = devm_kcalloc(dev, tegra->soc->num_wdts, sizeof(*tegra->wdts), GFP_KERNEL);
+	if (!tegra->wdts)
+		return -ENOMEM;
+
+	for (i = 0; i < tegra->soc->num_wdts; i++) {
+		if (!tegra186_wdt_is_accessible(tegra, i)) {
+			dev_warn(dev, "WDT%u is not accessible\n", i);
+			continue;
+		}
+
+		tegra->wdts[i] = tegra186_wdt_create(tegra, i);
+		if (IS_ERR(tegra->wdts[i]))
+			return dev_err_probe(dev, PTR_ERR(tegra->wdts[i]),
+					     "failed to create WDT%u\n", i);
 	}
 
 	err = tegra186_timer_tsc_init(tegra);
@@ -489,9 +522,12 @@ static void tegra186_timer_remove(struct platform_device *pdev)
 static int __maybe_unused tegra186_timer_suspend(struct device *dev)
 {
 	struct tegra186_timer *tegra = dev_get_drvdata(dev);
+	unsigned int i;
 
-	if (watchdog_active(&tegra->wdt->base))
-		tegra186_wdt_disable(tegra->wdt);
+	for (i = 0; i < tegra->soc->num_wdts; i++) {
+		if (tegra->wdts[i] && watchdog_active(&tegra->wdts[i]->base))
+			tegra186_wdt_disable(tegra->wdts[i]);
+	}
 
 	return 0;
 }
@@ -499,9 +535,12 @@ static int __maybe_unused tegra186_timer_suspend(struct device *dev)
 static int __maybe_unused tegra186_timer_resume(struct device *dev)
 {
 	struct tegra186_timer *tegra = dev_get_drvdata(dev);
+	unsigned int i;
 
-	if (watchdog_active(&tegra->wdt->base))
-		tegra186_wdt_enable(tegra->wdt);
+	for (i = 0; i < tegra->soc->num_wdts; i++) {
+		if (tegra->wdts[i] && watchdog_active(&tegra->wdts[i]->base))
+			tegra186_wdt_enable(tegra->wdts[i]);
+	}
 
 	return 0;
 }
