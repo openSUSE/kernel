@@ -77,6 +77,10 @@ def stop_pcaps():
     completes after the signal handler is fired.  List will be empty
     if logdir is not set
     """
+
+    if not tcpdump_procs:
+        return
+
     ksft_pr("Stopping network packet captures")
     while tcpdump_procs:
         proc = tcpdump_procs.pop()
@@ -279,6 +283,10 @@ for s in sockets:
                 pass
 
 ksft_pr(f"getsockopt(): {nr_success}/{nr_error}")
+
+# cancel timeout
+signal.alarm(0)
+
 stop_pcaps()
 
 # We're done sending and receiving stuff, now let's check if what
