@@ -7340,6 +7340,19 @@ fail:
 	return false;
 }
 
+void intel_dp_cleanup_connector(struct intel_digital_port *dig_port,
+				struct intel_connector *connector)
+{
+	struct intel_display *display = to_intel_display(connector);
+	struct intel_dp *intel_dp = &dig_port->dp;
+
+	intel_display_power_flush_work(display);
+
+	intel_dp_mst_encoder_cleanup(dig_port);
+	intel_dp_aux_fini(intel_dp);
+	drm_connector_cleanup(&connector->base);
+}
+
 void intel_dp_mst_suspend(struct intel_display *display)
 {
 	struct intel_encoder *encoder;

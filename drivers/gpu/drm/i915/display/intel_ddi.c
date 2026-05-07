@@ -4729,6 +4729,15 @@ static int intel_ddi_init_dp_connector(struct intel_digital_port *dig_port)
 	return 0;
 }
 
+static void intel_ddi_cleanup_dp_connector(struct intel_digital_port *dig_port)
+{
+	struct intel_dp *intel_dp = &dig_port->dp;
+	struct intel_connector *connector = intel_dp->attached_connector;
+
+	intel_dp_cleanup_connector(dig_port, connector);
+	kfree(connector);
+}
+
 static int intel_hdmi_reset_link(struct intel_encoder *encoder,
 				 struct drm_modeset_acquire_ctx *ctx)
 {
@@ -5492,11 +5501,14 @@ void intel_ddi_init(struct intel_display *display,
 	 */
 	if (encoder->type != INTEL_OUTPUT_EDP && init_hdmi) {
 		if (intel_ddi_init_hdmi_connector(dig_port))
-			goto err_dp_connector_init;
+			goto err_hdmi_connector_init;
 	}
 
 	return;
 
+err_hdmi_connector_init:
+	if (init_dp)
+		intel_ddi_cleanup_dp_connector(dig_port);
 err_dp_connector_init:
 	if (intel_encoder_is_tc(encoder))
 		intel_tc_port_cleanup(dig_port);
