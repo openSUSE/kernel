@@ -188,7 +188,15 @@ static const char *const pmic_models[] = {
 	[80] = "PM7550",
 	[82] = "PMC8380",
 	[83] = "SMB2360",
+	[86] = "PM8750B",
+	[87] = "PMD8028",
 	[91] = "PMIV0108",
+	[92] = "PMK8850",
+	[93] = "PMH0101",
+	[95] = "SMB2370",
+	[96] = "PMH0104",
+	[97] = "PMH0110",
+	[98] = "PMCX0102",
 };
 
 struct socinfo_params {
