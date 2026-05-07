@@ -266,21 +266,24 @@ do {										\
 } while(0)
 
 /*
- * Call btrfs_abort_transaction as early as possible when an error condition is
- * detected, that way the exact stack trace is reported for some errors.
+ * Call btrfs_abort_transaction() as early as possible when an error condition
+ * is detected, that way the exact stack trace is reported for some errors.
+ *
+ * Error number must be negative as it encodes wheather it's the first abort.
  */
 #define btrfs_abort_transaction(trans, error)		\
 do {								\
-	bool __first = false;					\
+	int __error = (error);					\
+								\
 	VERIFY_NEGATIVE_ERROR(error);				\
 	/* Report first abort since mount */			\
 	if (!test_and_set_bit(BTRFS_FS_STATE_TRANS_ABORTED,	\
 			&((trans)->fs_info->fs_state))) {	\
-		__first = true;					\
-		WARN_ON(btrfs_abort_should_print_stack(error));	\
+		WARN_ON(btrfs_abort_should_print_stack(__error)); \
+		__error = -__error;				\
 	}							\
 	__btrfs_abort_transaction((trans), __func__,		\
-				  __LINE__, (error), __first);	\
+				  __LINE__, __error);		\
 } while (0)
 
 int btrfs_end_transaction(struct btrfs_trans_handle *trans);
@@ -318,7 +321,7 @@ void btrfs_add_dropped_root(struct btrfs_trans_handle *trans,
 void btrfs_trans_release_chunk_metadata(struct btrfs_trans_handle *trans);
 void __cold __btrfs_abort_transaction(struct btrfs_trans_handle *trans,
 				      const char *function,
-				      unsigned int line, int error, bool first_hit);
+				      unsigned int line, int error);
 
 int __init btrfs_transaction_init(void);
 void __cold btrfs_transaction_exit(void);

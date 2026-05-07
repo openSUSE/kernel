@@ -2727,12 +2727,23 @@ int btrfs_clean_one_deleted_snapshot(struct btrfs_fs_info *fs_info)
  *
  * We'll complete the cleanup in btrfs_end_transaction and
  * btrfs_commit_transaction.
+ *
+ * Note: the parameter @error encodes whether the transactin abort was first hit
+ *       (setting the FS_ERROR state bit in btrfs_abort_transaction())
+ *       - positive number - first hit
+ *       - negative number - abort after it was already done
  */
 void __cold __btrfs_abort_transaction(struct btrfs_trans_handle *trans,
 				      const char *function,
-				      unsigned int line, int error, bool first_hit)
+				      unsigned int line, int error)
 {
 	struct btrfs_fs_info *fs_info = trans->fs_info;
+	bool first_hit = false;
+
+	if (error > 0) {
+		error = -error;
+		first_hit = true;
+	}
 
 	WRITE_ONCE(trans->aborted, error);
 	WRITE_ONCE(trans->transaction->aborted, error);
