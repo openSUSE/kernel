@@ -1228,6 +1228,72 @@ TRACE_EVENT(btrfs_log_new_dir_dentries_exit,
 			__entry->transid, __entry->ret)
 );
 
+TRACE_EVENT(btrfs_add_conflicting_inode_enter,
+
+	TP_PROTO(const struct btrfs_trans_handle *trans,
+		 const struct btrfs_log_ctx *ctx,
+		 u64 ino, u64 parent),
+
+	TP_ARGS(trans, ctx, ino, parent),
+
+	TP_STRUCT__entry_btrfs(
+		__field(	u64,     	root_objectid		)
+		__field(	u64,		transid			)
+		__field(	u64,	 	ctx_ino			)
+		__field(	u64,	 	conflict_ino		)
+		__field(	u64,	 	conflict_ino_parent	)
+	),
+
+	TP_fast_assign(
+		TP_fast_assign_fsid(trans->fs_info);
+		__entry->root_objectid		= btrfs_root_id(ctx->inode->root);
+		__entry->transid		= trans->transid;
+		__entry->ctx_ino		= btrfs_ino(ctx->inode);
+		__entry->conflict_ino		= ino;
+		__entry->conflict_ino_parent	= parent;
+	),
+
+	TP_printk_btrfs("root=%llu(%s) transid=%llu ctx_ino=%llu conflict_ino=%llu"
+			" conflict_ino_parent=%llu",
+			show_root_type(__entry->root_objectid), __entry->transid,
+			__entry->ctx_ino, __entry->conflict_ino,
+			__entry->conflict_ino_parent)
+);
+
+TRACE_EVENT(btrfs_add_conflicting_inode_exit,
+
+	TP_PROTO(const struct btrfs_trans_handle *trans,
+		 const struct btrfs_log_ctx *ctx,
+		 u64 ino, u64 parent, int ret),
+
+	TP_ARGS(trans, ctx, ino, parent, ret),
+
+	TP_STRUCT__entry_btrfs(
+		__field(	u64,     	root_objectid		)
+		__field(	u64,		transid			)
+		__field(	u64,	 	ctx_ino			)
+		__field(	u64,	 	conflict_ino		)
+		__field(	u64,	 	conflict_ino_parent	)
+		__field(	int,	 	ret			)
+	),
+
+	TP_fast_assign(
+		TP_fast_assign_fsid(trans->fs_info);
+		__entry->root_objectid		= btrfs_root_id(ctx->inode->root);
+		__entry->transid		= trans->transid;
+		__entry->ctx_ino		= btrfs_ino(ctx->inode);
+		__entry->conflict_ino		= ino;
+		__entry->conflict_ino_parent	= parent;
+		__entry->ret			= ret;
+	),
+
+	TP_printk_btrfs("root=%llu(%s) transid=%llu ctx_ino=%llu conflict_ino=%llu"
+			" conflict_ino_parent=%llu ret=%d",
+			show_root_type(__entry->root_objectid), __entry->transid,
+			__entry->ctx_ino, __entry->conflict_ino,
+			__entry->conflict_ino_parent, __entry->ret)
+);
+
 TRACE_EVENT(btrfs_sync_fs,
 
 	TP_PROTO(const struct btrfs_fs_info *fs_info, int wait),

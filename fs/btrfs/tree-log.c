@@ -6121,6 +6121,9 @@ static int add_conflicting_inode(struct btrfs_trans_handle *trans,
 {
 	struct btrfs_ino_list *ino_elem;
 	struct btrfs_inode *inode;
+	int ret = 0;
+
+	trace_btrfs_add_conflicting_inode_enter(trans, ctx, ino, parent);
 
 	/*
 	 * It's rare to have a lot of conflicting inodes, in practice it is not
@@ -6129,8 +6132,10 @@ static int add_conflicting_inode(struct btrfs_trans_handle *trans,
 	 * LOG_INODE_EXISTS mode) and slow down other fsyncs or transaction
 	 * commits.
 	 */
-	if (ctx->num_conflict_inodes >= MAX_CONFLICT_INODES)
-		return BTRFS_LOG_FORCE_COMMIT;
+	if (ctx->num_conflict_inodes >= MAX_CONFLICT_INODES) {
+		ret = BTRFS_LOG_FORCE_COMMIT;
+		goto out;
+	}
 
 	inode = btrfs_iget_logging(ino, root);
 	/*
@@ -6154,26 +6159,27 @@ static int add_conflicting_inode(struct btrfs_trans_handle *trans,
 	 *    some inode from it to some other directory).
 	 */
 	if (IS_ERR(inode)) {
-		int ret = PTR_ERR(inode);
-
+		ret = PTR_ERR(inode);
 		if (ret != -ENOENT)
-			return ret;
+			goto out;
 
 		ret = conflicting_inode_is_dir(root, ino, path);
 		/* Not a directory or we got an error. */
 		if (ret <= 0)
-			return ret;
+			goto out;
 
 		/* Conflicting inode is a directory, so we'll log its parent. */
 		ino_elem = kmalloc_obj(*ino_elem, GFP_NOFS);
-		if (!ino_elem)
-			return -ENOMEM;
+		if (!ino_elem) {
+			ret = -ENOMEM;
+			goto out;
+		}
 		ino_elem->ino = ino;
 		ino_elem->parent = parent;
 		list_add_tail(&ino_elem->list, &ctx->conflict_inodes);
 		ctx->num_conflict_inodes++;
-
-		return 0;
+		ret = 0;
+		goto out;
 	}
 
 	/*
@@ -6213,25 +6219,31 @@ static int add_conflicting_inode(struct btrfs_trans_handle *trans,
 	 */
 	if (!need_log_inode(trans, inode)) {
 		btrfs_add_delayed_iput(inode);
-		return 0;
+		goto out;
 	}
 
 	if (!can_log_conflicting_inode(trans, inode)) {
 		btrfs_add_delayed_iput(inode);
-		return BTRFS_LOG_FORCE_COMMIT;
+		ret = BTRFS_LOG_FORCE_COMMIT;
+		goto out;
 	}
 
 	btrfs_add_delayed_iput(inode);
 
 	ino_elem = kmalloc_obj(*ino_elem, GFP_NOFS);
-	if (!ino_elem)
-		return -ENOMEM;
+	if (!ino_elem) {
+		ret = -ENOMEM;
+		goto out;
+	}
 	ino_elem->ino = ino;
 	ino_elem->parent = parent;
 	list_add_tail(&ino_elem->list, &ctx->conflict_inodes);
 	ctx->num_conflict_inodes++;
 
-	return 0;
+out:
+	trace_btrfs_add_conflicting_inode_exit(trans, ctx, ino, parent, ret);
+
+	return ret;
 }
 
 static int log_conflicting_inodes(struct btrfs_trans_handle *trans,
