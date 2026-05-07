@@ -2531,7 +2531,7 @@ static int dw_hdmi_connector_get_modes(struct drm_connector *connector)
 }
 
 static int dw_hdmi_connector_atomic_check(struct drm_connector *connector,
-					  struct drm_atomic_state *state)
+					  struct drm_atomic_commit *state)
 {
 	struct drm_connector_state *old_state =
 		drm_atomic_get_old_connector_state(state, connector);
@@ -2979,7 +2979,7 @@ static void dw_hdmi_bridge_mode_set(struct drm_bridge *bridge,
 }
 
 static void dw_hdmi_bridge_atomic_disable(struct drm_bridge *bridge,
-					  struct drm_atomic_state *state)
+					  struct drm_atomic_commit *state)
 {
 	struct dw_hdmi *hdmi = bridge->driver_private;
 
@@ -2993,7 +2993,7 @@ static void dw_hdmi_bridge_atomic_disable(struct drm_bridge *bridge,
 }
 
 static void dw_hdmi_bridge_atomic_enable(struct drm_bridge *bridge,
-					 struct drm_atomic_state *state)
+					 struct drm_atomic_commit *state)
 {
 	struct dw_hdmi *hdmi = bridge->driver_private;
 	struct drm_connector *connector;

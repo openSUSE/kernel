@@ -672,7 +672,7 @@ tc358768_bridge_mode_valid(struct drm_bridge *bridge,
 }
 
 static void tc358768_bridge_atomic_disable(struct drm_bridge *bridge,
-					   struct drm_atomic_state *state)
+					   struct drm_atomic_commit *state)
 {
 	struct tc358768_priv *priv = bridge_to_tc358768(bridge);
 	int ret;
@@ -695,7 +695,7 @@ static void tc358768_bridge_atomic_disable(struct drm_bridge *bridge,
 }
 
 static void tc358768_bridge_atomic_post_disable(struct drm_bridge *bridge,
-						struct drm_atomic_state *state)
+						struct drm_atomic_commit *state)
 {
 	struct tc358768_priv *priv = bridge_to_tc358768(bridge);
 
@@ -776,7 +776,7 @@ static u32 tc358768_dsi_bytes_to_ns(struct tc358768_priv *priv, u32 val)
 }
 
 static void tc358768_bridge_atomic_pre_enable(struct drm_bridge *bridge,
-					      struct drm_atomic_state *state)
+					      struct drm_atomic_commit *state)
 {
 	struct tc358768_priv *priv = bridge_to_tc358768(bridge);
 	struct mipi_dsi_device *dsi_dev = priv->output.dev;
@@ -1195,7 +1195,7 @@ static void tc358768_config_video_format(struct tc358768_priv *priv)
 }
 
 static void tc358768_bridge_atomic_enable(struct drm_bridge *bridge,
-					  struct drm_atomic_state *state)
+					  struct drm_atomic_commit *state)
 {
 	struct tc358768_priv *priv = bridge_to_tc358768(bridge);
 	int ret;

@@ -261,22 +261,10 @@ static void guc_submit_sw_fini(struct drm_device *drm, void *arg)
 static void guc_submit_fini(void *arg)
 {
 	struct xe_guc *guc = arg;
-
-	/* Forcefully kill any remaining exec queues */
-	xe_guc_ct_stop(&guc->ct);
-	guc_submit_reset_prepare(guc);
-	xe_guc_softreset(guc);
-	xe_guc_submit_stop(guc);
-	xe_uc_fw_sanitize(&guc->fw);
-	xe_guc_submit_pause_abort(guc);
-}
-
-static void guc_submit_wedged_fini(void *arg)
-{
-	struct xe_guc *guc = arg;
 	struct xe_exec_queue *q;
 	unsigned long index;
 
+	/* Drop any wedged queue refs */
 	mutex_lock(&guc->submission_state.lock);
 	xa_for_each(&guc->submission_state.exec_queue_lookup, index, q) {
 		if (exec_queue_wedged(q)) {
@@ -286,6 +274,14 @@ static void guc_submit_wedged_fini(void *arg)
 		}
 	}
 	mutex_unlock(&guc->submission_state.lock);
+
+	/* Forcefully kill any remaining exec queues */
+	xe_guc_ct_stop(&guc->ct);
+	guc_submit_reset_prepare(guc);
+	xe_guc_softreset(guc);
+	xe_guc_submit_stop(guc);
+	xe_uc_fw_sanitize(&guc->fw);
+	xe_guc_submit_pause_abort(guc);
 }
 
 static const struct xe_exec_queue_ops guc_exec_queue_ops;
@@ -1320,10 +1316,8 @@ static void disable_scheduling_deregister(struct xe_guc *guc,
 void xe_guc_submit_wedge(struct xe_guc *guc)
 {
 	struct xe_device *xe = guc_to_xe(guc);
-	struct xe_gt *gt = guc_to_gt(guc);
 	struct xe_exec_queue *q;
 	unsigned long index;
-	int err;
 
 	xe_gt_assert(guc_to_gt(guc), guc_to_xe(guc)->wedged.mode);
 
@@ -1335,15 +1329,6 @@ void xe_guc_submit_wedge(struct xe_guc *guc)
 		return;
 
 	if (xe->wedged.mode == XE_WEDGED_MODE_UPON_ANY_HANG_NO_RESET) {
-		err = devm_add_action_or_reset(guc_to_xe(guc)->drm.dev,
-					       guc_submit_wedged_fini, guc);
-		if (err) {
-			xe_gt_err(gt, "Failed to register clean-up on wedged.mode=%s; "
-				  "Although device is wedged.\n",
-				  xe_wedged_mode_to_string(XE_WEDGED_MODE_UPON_ANY_HANG_NO_RESET));
-			return;
-		}
-
 		mutex_lock(&guc->submission_state.lock);
 		xa_for_each(&guc->submission_state.exec_queue_lookup, index, q)
 			if (xe_exec_queue_get_unless_zero(q))
@@ -2983,9 +2968,10 @@ int xe_guc_exec_queue_reset_handler(struct xe_guc *guc, u32 *msg, u32 len)
 	if (unlikely(!q))
 		return -EPROTO;
 
-	xe_gt_info(gt, "Engine reset: engine_class=%s, logical_mask: 0x%x, guc_id=%d, state=0x%0x",
-		   xe_hw_engine_class_to_str(q->class), q->logical_mask, guc_id,
-		   atomic_read(&q->guc->state));
+	if (!exec_queue_killed(q))
+		xe_gt_info(gt, "Engine reset: engine_class=%s, logical_mask: 0x%x, guc_id=%d, state=0x%0x",
+			   xe_hw_engine_class_to_str(q->class), q->logical_mask, guc_id,
+			   atomic_read(&q->guc->state));
 
 	trace_xe_exec_queue_reset(q);
 

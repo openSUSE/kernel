@@ -307,7 +307,7 @@ vmw_vkms_crtc_cleanup(struct drm_crtc *crtc)
 
 void
 vmw_vkms_crtc_atomic_begin(struct drm_crtc *crtc,
-			   struct drm_atomic_state *state)
+			   struct drm_atomic_commit *state)
 {
 	struct vmw_private *vmw = vmw_priv(crtc->dev);
 
@@ -317,7 +317,7 @@ vmw_vkms_crtc_atomic_begin(struct drm_crtc *crtc,
 
 void
 vmw_vkms_crtc_atomic_flush(struct drm_crtc *crtc,
-			   struct drm_atomic_state *state)
+			   struct drm_atomic_commit *state)
 {
 	unsigned long flags;
 	struct vmw_private *vmw = vmw_priv(crtc->dev);
@@ -343,7 +343,7 @@ vmw_vkms_crtc_atomic_flush(struct drm_crtc *crtc,
 
 void
 vmw_vkms_crtc_atomic_enable(struct drm_crtc *crtc,
-			    struct drm_atomic_state *state)
+			    struct drm_atomic_commit *state)
 {
 	struct vmw_private *vmw = vmw_priv(crtc->dev);
 
@@ -353,7 +353,7 @@ vmw_vkms_crtc_atomic_enable(struct drm_crtc *crtc,
 
 void
 vmw_vkms_crtc_atomic_disable(struct drm_crtc *crtc,
-			     struct drm_atomic_state *state)
+			     struct drm_atomic_commit *state)
 {
 	struct vmw_private *vmw = vmw_priv(crtc->dev);
 

@@ -129,7 +129,7 @@ static int mchp_lvds_attach(struct drm_bridge *bridge,
 }
 
 static void mchp_lvds_atomic_enable(struct drm_bridge *bridge,
-				    struct drm_atomic_state *state)
+				    struct drm_atomic_commit *state)
 {
 	struct mchp_lvds *lvds = bridge_to_lvds(bridge);
 	struct drm_connector *connector;
@@ -158,7 +158,7 @@ static void mchp_lvds_atomic_enable(struct drm_bridge *bridge,
 }
 
 static void mchp_lvds_atomic_disable(struct drm_bridge *bridge,
-				     struct drm_atomic_state *state)
+				     struct drm_atomic_commit *state)
 {
 	struct mchp_lvds *lvds = bridge_to_lvds(bridge);
 

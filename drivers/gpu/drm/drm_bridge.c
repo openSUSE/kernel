@@ -799,7 +799,7 @@ EXPORT_SYMBOL(drm_bridge_chain_mode_set);
  * Note: the bridge passed should be the one closest to the encoder
  */
 void drm_atomic_bridge_chain_disable(struct drm_bridge *bridge,
-				     struct drm_atomic_state *state)
+				     struct drm_atomic_commit *state)
 {
 	struct drm_encoder *encoder;
 	struct drm_bridge *iter;
@@ -824,7 +824,7 @@ void drm_atomic_bridge_chain_disable(struct drm_bridge *bridge,
 EXPORT_SYMBOL(drm_atomic_bridge_chain_disable);
 
 static void drm_atomic_bridge_call_post_disable(struct drm_bridge *bridge,
-						struct drm_atomic_state *state)
+						struct drm_atomic_commit *state)
 {
 	if (state && bridge->funcs->atomic_post_disable)
 		bridge->funcs->atomic_post_disable(bridge, state);
@@ -857,7 +857,7 @@ static void drm_atomic_bridge_call_post_disable(struct drm_bridge *bridge,
  * Note: the bridge passed should be the one closest to the encoder
  */
 void drm_atomic_bridge_chain_post_disable(struct drm_bridge *bridge,
-					  struct drm_atomic_state *state)
+					  struct drm_atomic_commit *state)
 {
 	struct drm_encoder *encoder;
 	struct drm_bridge *next, *limit;
@@ -921,7 +921,7 @@ void drm_atomic_bridge_chain_post_disable(struct drm_bridge *bridge,
 EXPORT_SYMBOL(drm_atomic_bridge_chain_post_disable);
 
 static void drm_atomic_bridge_call_pre_enable(struct drm_bridge *bridge,
-					      struct drm_atomic_state *state)
+					      struct drm_atomic_commit *state)
 {
 	if (state && bridge->funcs->atomic_pre_enable)
 		bridge->funcs->atomic_pre_enable(bridge, state);
@@ -953,7 +953,7 @@ static void drm_atomic_bridge_call_pre_enable(struct drm_bridge *bridge,
  * Note: the bridge passed should be the one closest to the encoder
  */
 void drm_atomic_bridge_chain_pre_enable(struct drm_bridge *bridge,
-					struct drm_atomic_state *state)
+					struct drm_atomic_commit *state)
 {
 	struct drm_encoder *encoder;
 	struct drm_bridge *iter, *next, *limit;
@@ -1023,7 +1023,7 @@ EXPORT_SYMBOL(drm_atomic_bridge_chain_pre_enable);
  * Note: the bridge passed should be the one closest to the encoder
  */
 void drm_atomic_bridge_chain_enable(struct drm_bridge *first_bridge,
-				    struct drm_atomic_state *state)
+				    struct drm_atomic_commit *state)
 {
 	if (!first_bridge)
 		return;
@@ -1248,7 +1248,7 @@ drm_atomic_bridge_chain_select_bus_fmts(struct drm_bridge *bridge,
 static void
 drm_atomic_bridge_propagate_bus_flags(struct drm_bridge *bridge,
 				      struct drm_connector *conn,
-				      struct drm_atomic_state *state)
+				      struct drm_atomic_commit *state)
 {
 	struct drm_bridge_state *bridge_state, *next_bridge_state;
 	u32 output_flags = 0;

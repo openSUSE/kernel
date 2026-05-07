@@ -1163,7 +1163,7 @@ int amdgpu_vm_update_range(struct amdgpu_device *adev, struct amdgpu_vm *vm,
 	params.pages_addr = pages_addr;
 	params.unlocked = unlocked;
 	params.needs_flush = flush_tlb;
-	params.allow_override = allow_override;
+	params.override_pte = allow_override && adev->gmc.override_pte;
 	INIT_LIST_HEAD(&params.tlb_flush_waitlist);
 
 	amdgpu_vm_eviction_lock(vm);
@@ -3023,11 +3023,22 @@ bool amdgpu_vm_handle_fault(struct amdgpu_device *adev, u32 pasid,
 
 	is_compute_context = vm->is_compute_context;
 
-	if (is_compute_context && !svm_range_restore_pages(adev, pasid, vmid,
-	    node_id, addr >> PAGE_SHIFT, ts, write_fault)) {
+	if (is_compute_context) {
+		/* Unreserve root since svm_range_restore_pages might try to reserve it. */
+		/* TODO: rework svm_range_restore_pages so that this isn't necessary. */
 		amdgpu_bo_unreserve(root);
+
+		if (!svm_range_restore_pages(adev, pasid, vmid,
+					     node_id, addr >> PAGE_SHIFT, ts, write_fault)) {
+			amdgpu_bo_unref(&root);
+			return true;
+		}
 		amdgpu_bo_unref(&root);
-		return true;
+
+		/* Re-acquire the VM lock, could be that the VM was freed in between. */
+		vm = amdgpu_vm_lock_by_pasid(adev, &root, pasid);
+		if (!vm)
+			return false;
 	}
 
 	addr /= AMDGPU_GPU_PAGE_SIZE;

@@ -352,6 +352,7 @@ static void ofdrm_pci_release(void *data)
 	struct pci_dev *pcidev = data;
 
 	pci_disable_device(pcidev);
+	pci_dev_put(pcidev);
 }
 
 static int ofdrm_device_init_pci(struct ofdrm_device *odev)
@@ -377,6 +378,7 @@ static int ofdrm_device_init_pci(struct ofdrm_device *odev)
 	if (ret) {
 		drm_err(dev, "pci_enable_device(%s) failed: %d\n",
 			dev_name(&pcidev->dev), ret);
+		pci_dev_put(pcidev);
 		return ret;
 	}
 	ret = devm_add_action_or_reset(&pdev->dev, ofdrm_pci_release, pcidev);
@@ -725,7 +727,7 @@ static const struct drm_plane_funcs ofdrm_primary_plane_funcs = {
 	.destroy = drm_plane_cleanup,
 };
 
-static void ofdrm_crtc_helper_atomic_flush(struct drm_crtc *crtc, struct drm_atomic_state *state)
+static void ofdrm_crtc_helper_atomic_flush(struct drm_crtc *crtc, struct drm_atomic_commit *state)
 {
 	struct ofdrm_device *odev = ofdrm_device_of_dev(crtc->dev);
 	struct drm_crtc_state *crtc_state = drm_atomic_get_new_crtc_state(state, crtc);
