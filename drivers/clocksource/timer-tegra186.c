@@ -511,12 +511,12 @@ static SIMPLE_DEV_PM_OPS(tegra186_timer_pm_ops, tegra186_timer_suspend,
 
 static const struct tegra186_timer_soc tegra186_timer = {
 	.num_timers = 10,
-	.num_wdts = 3,
+	.num_wdts = 2,
 };
 
 static const struct tegra186_timer_soc tegra234_timer = {
 	.num_timers = 16,
-	.num_wdts = 3,
+	.num_wdts = 2,
 };
 
 static const struct of_device_id tegra186_timer_of_match[] = {
