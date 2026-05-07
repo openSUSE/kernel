@@ -32,8 +32,8 @@ const INFO: drm::DriverInfo = drm::DriverInfo {
     major: 0,
     minor: 0,
     patchlevel: 0,
-    name: c"nova",
-    desc: c"Nvidia Graphics",
+    name: c"nova-drm",
+    desc: c"NVIDIA Graphics and Compute",
 };
 
 const NOVA_CORE_MODULE_NAME: &CStr = c"nova-core";
