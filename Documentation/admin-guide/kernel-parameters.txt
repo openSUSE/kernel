@@ -1669,10 +1669,6 @@ Kernel parameters
 			very early in the boot process. For early debugging
 			via a serial port see kgdboc_earlycon instead.
 
-	elanfreq=	[X86-32]
-			See comment before function elanfreq_setup() in
-			arch/x86/kernel/cpu/cpufreq/elanfreq.c.
-
 	elfcorehdr=[size[KMG]@]offset[KMG] [PPC,SH,X86,S390,EARLY]
 			Specifies physical address of start of kernel core
 			image elf header and optionally the size. Generally
