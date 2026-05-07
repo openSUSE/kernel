@@ -2712,6 +2712,8 @@ static u64 xe_lrc_update_multi_queue_timestamp(struct xe_lrc *lrc, u64 *old_ts)
 	*old_ts = lrc->queue_timestamp;
 	lrc->queue_timestamp = xe_lrc_multi_queue_timestamp(lrc);
 
+	trace_xe_lrc_update_queue_timestamp(lrc, *old_ts);
+
 	return lrc->queue_timestamp;
 }
 
