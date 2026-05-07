@@ -37,7 +37,7 @@ struct xe_lrc_snapshot {
 	} tail;
 	u32 start_seqno;
 	u32 seqno;
-	u32 ctx_timestamp;
+	u64 ctx_timestamp;
 	u32 ctx_job_timestamp;
 };
 
