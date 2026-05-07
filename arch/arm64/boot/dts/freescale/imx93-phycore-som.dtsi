@@ -9,6 +9,7 @@
  */
 
 #include <dt-bindings/leds/common.h>
+#include <dt-bindings/regulator/nxp,pca9450-regulator.h>
 
 #include "imx93.dtsi"
 
@@ -162,6 +163,7 @@
 				regulator-max-microvolt = <1800000>;
 				regulator-boot-on;
 				regulator-always-on;
+				regulator-initial-mode = <PCA9450_BUCK_MODE_FORCE_PWM>;
 			};
 
 			buck6: BUCK6 {
