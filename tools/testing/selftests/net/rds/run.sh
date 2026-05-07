@@ -189,17 +189,21 @@ check_gcov_conf
 
 TRACE_CMD=()
 if [[ -n "$LOG_DIR" ]]; then
-   rm -fr "$LOG_DIR"
    FLAGS+=("-d" "$LOG_DIR")
 
    TRACE_FILE="${LOG_DIR}/rds-strace.txt"
    COVR_DIR="${LOG_DIR}/coverage/"
+   DMESG_FILE="${LOG_DIR}/rds-dmesg.out"
+
    mkdir -p  "$LOG_DIR"
    mkdir -p "$COVR_DIR"
 
-   echo "#Traces will be logged to ${TRACE_FILE}"
    rm -f "$TRACE_FILE"
+   rm -f "$DMESG_FILE"
+   rm -f "$LOG_DIR"/rds-*.pcap
+   rm -f "$COVR_DIR"/gcovr*
 
+   echo "# Traces will be logged to ${TRACE_FILE}"
    TRACE_CMD=(strace -T -tt -o "${TRACE_FILE}")
 fi
 
@@ -210,7 +214,7 @@ echo "#running RDS tests..."
 test_rc=$?
 
 if [[ -n "$LOG_DIR" ]]; then
-   dmesg > "${LOG_DIR}/dmesg.out"
+   dmesg > "${DMESG_FILE}"
 fi
 
 if [[ -n "$LOG_DIR" ]] && [ "$GENERATE_GCOV_REPORT" -eq 1 ]; then

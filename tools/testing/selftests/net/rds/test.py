@@ -151,7 +151,7 @@ tcpdump_procs = []
 # Start a packet capture on each network
 if logdir is not None:
     for net in [NET0, NET1]:
-        pcap = logdir+'/'+net+'.pcap'
+        pcap = logdir+'/rds-'+net+'.pcap'
 
         tcpdump_cmd = ['ip', 'netns', 'exec', net, '/usr/sbin/tcpdump']
         sudo_user = os.environ.get('SUDO_USER')
