@@ -6261,7 +6261,15 @@ static int log_conflicting_inodes(struct btrfs_trans_handle *trans,
 	if (ctx->logging_conflict_inodes)
 		return 0;
 
+	/*
+	 * Avoid any work if no conflicting inodes and emitting the trace event
+	 * which only adds noise and it's useless if there are no inodes.
+	 */
+	if (list_empty(&ctx->conflict_inodes))
+		return 0;
+
 	ctx->logging_conflict_inodes = true;
+	trace_btrfs_log_conflicting_inodes_enter(trans, ctx);
 
 	/*
 	 * New conflicting inodes may be found and added to the list while we
@@ -6355,6 +6363,7 @@ static int log_conflicting_inodes(struct btrfs_trans_handle *trans,
 	ctx->logging_conflict_inodes = false;
 	if (ret)
 		free_conflicting_inodes(ctx);
+	trace_btrfs_log_conflicting_inodes_exit(trans, ctx, ret);
 
 	return ret;
 }
