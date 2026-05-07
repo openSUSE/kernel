@@ -16,6 +16,8 @@ use crate::{
 
 /// Driver use the GEM memory manager. This should be set for all modern drivers.
 pub(crate) const FEAT_GEM: u32 = bindings::drm_driver_feature_DRIVER_GEM;
+/// Driver supports render nodes, i.e.: /dev/dri/renderDXX devices.
+pub(crate) const FEAT_RENDER: u32 = bindings::drm_driver_feature_DRIVER_RENDER;
 
 /// Information data for a DRM Driver.
 pub struct DriverInfo {
@@ -115,6 +117,16 @@ pub trait Driver {
 
     /// IOCTL list. See `kernel::drm::ioctl::declare_drm_ioctls!{}`.
     const IOCTLS: &'static [drm::ioctl::DrmIoctlDescriptor];
+
+    /// Sets the `DRIVER_RENDER` feature for this driver.
+    ///
+    /// When enabled, the driver exposes `/dev/dri/renderDXX` render nodes to
+    /// userspace. The render node is an alternate low-priviledge way to access
+    /// the driver, which is enforced on a per-ioctl level. Userspace processes
+    /// that open the render node can only invoke ioctls explicitly listed as
+    /// usable from the render node (i.e. marked DRM_RENDER_ALLOW), whereas
+    /// userspace processes using the master node can invoke any ioctl.
+    const FEAT_RENDER: bool = false;
 }
 
 /// The registration type of a `drm::Device`.
