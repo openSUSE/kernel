@@ -24931,7 +24931,7 @@ F:	drivers/char/sonypi.c
 F:	drivers/platform/x86/sony-laptop.c
 
 SOPHGO DEVICETREES and DRIVERS
-M:	Chen Wang <unicorn_wang@outlook.com>
+M:	Chen Wang <chen.wang@linux.dev>
 M:	Inochi Amaoto <inochiama@gmail.com>
 L:	sophgo@lists.linux.dev
 W:	https://github.com/sophgo/linux/wiki
