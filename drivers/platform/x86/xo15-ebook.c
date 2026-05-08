@@ -57,16 +57,15 @@ static int ebook_send_state(struct acpi_device *device)
 	return 0;
 }
 
-static void ebook_switch_notify(struct acpi_device *device, u32 event)
+static void ebook_switch_notify(acpi_handle handle, u32 event, void *data)
 {
 	switch (event) {
 	case ACPI_FIXED_HARDWARE_EVENT:
 	case XO15_EBOOK_NOTIFY_STATUS:
-		ebook_send_state(device);
+		ebook_send_state(data);
 		break;
 	default:
-		acpi_handle_debug(device->handle,
-				  "Unsupported event [0x%x]\n", event);
+		acpi_handle_debug(handle, "Unsupported event [0x%x]\n", event);
 		break;
 	}
 }
@@ -123,6 +122,11 @@ static int ebook_switch_add(struct acpi_device *device)
 	if (error)
 		goto err_free_input;
 
+	error = acpi_dev_install_notify_handler(device, ACPI_DEVICE_NOTIFY,
+						ebook_switch_notify, device);
+	if (error)
+		goto err_unregister_input;
+
 	ebook_send_state(device);
 
 	if (device->wakeup.flags.valid) {
@@ -139,6 +143,10 @@ err_free_input:
 err_free_button:
 	kfree(button);
 	return error;
+
+err_unregister_input:
+	input_unregister_device(input);
+	goto err_free_button;
 }
 
 static void ebook_switch_remove(struct acpi_device *device)
@@ -149,6 +157,8 @@ static void ebook_switch_remove(struct acpi_device *device)
 		acpi_disable_gpe(device->wakeup.gpe_device,
 				 device->wakeup.gpe_number);
 
+	acpi_dev_remove_notify_handler(device, ACPI_DEVICE_NOTIFY,
+				       ebook_switch_notify);
 	input_unregister_device(button->input);
 	kfree(button);
 }
@@ -160,7 +170,6 @@ static struct acpi_driver xo15_ebook_driver = {
 	.ops = {
 		.add = ebook_switch_add,
 		.remove = ebook_switch_remove,
-		.notify = ebook_switch_notify,
 	},
 	.drv.pm = &ebook_switch_pm,
 };
