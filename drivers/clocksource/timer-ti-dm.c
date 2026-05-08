@@ -21,8 +21,10 @@
 #include <linux/clk.h>
 #include <linux/clk-provider.h>
 #include <linux/clocksource.h>
+#include <linux/clockchips.h>
 #include <linux/cpu_pm.h>
 #include <linux/module.h>
+#include <linux/interrupt.h>
 #include <linux/io.h>
 #include <linux/device.h>
 #include <linux/err.h>
@@ -156,6 +158,13 @@ struct dmtimer_clocksource {
 	unsigned int loadval;
 };
 
+struct omap_dm_timer_clockevent {
+	struct clock_event_device dev;
+	struct dmtimer *timer;
+	u32 period;
+};
+
+static bool omap_dm_timer_clockevent_setup;
 static void __iomem *omap_dm_timer_sched_clock_counter;
 
 enum {
@@ -1281,6 +1290,106 @@ static int omap_dm_timer_setup_clocksource(struct dmtimer *timer)
 	return 0;
 }
 
+static struct omap_dm_timer_clockevent *to_dm_timer_clockevent(struct clock_event_device *evt)
+{
+	return container_of(evt, struct omap_dm_timer_clockevent, dev);
+}
+
+static int omap_dm_timer_evt_set_next_event(unsigned long cycles,
+					    struct clock_event_device *evt)
+{
+	struct omap_dm_timer_clockevent *clkevt = to_dm_timer_clockevent(evt);
+	struct dmtimer *timer = clkevt->timer;
+
+	dmtimer_write(timer, OMAP_TIMER_COUNTER_REG, 0xffffffff - cycles);
+	dmtimer_write(timer, OMAP_TIMER_CTRL_REG, OMAP_TIMER_CTRL_ST);
+
+	return 0;
+}
+
+static int omap_dm_timer_evt_shutdown(struct clock_event_device *evt)
+{
+	struct omap_dm_timer_clockevent *clkevt = to_dm_timer_clockevent(evt);
+	struct dmtimer *timer = clkevt->timer;
+
+	__omap_dm_timer_stop(timer);
+
+	return 0;
+}
+
+static int omap_dm_timer_evt_set_periodic(struct clock_event_device *evt)
+{
+	struct omap_dm_timer_clockevent *clkevt = to_dm_timer_clockevent(evt);
+	struct dmtimer *timer = clkevt->timer;
+
+	omap_dm_timer_evt_shutdown(evt);
+
+	omap_dm_timer_set_load(&timer->cookie, clkevt->period);
+	dmtimer_write(timer, OMAP_TIMER_COUNTER_REG, clkevt->period);
+	dmtimer_write(timer, OMAP_TIMER_CTRL_REG,
+		      OMAP_TIMER_CTRL_AR | OMAP_TIMER_CTRL_ST);
+
+	return 0;
+}
+
+static irqreturn_t omap_dm_timer_evt_interrupt(int irq, void *dev_id)
+{
+	struct omap_dm_timer_clockevent *clkevt = dev_id;
+	struct dmtimer *timer = clkevt->timer;
+
+	__omap_dm_timer_write_status(timer, OMAP_TIMER_INT_OVERFLOW);
+
+	clkevt->dev.event_handler(&clkevt->dev);
+
+	return IRQ_HANDLED;
+}
+
+static int omap_dm_timer_setup_clockevent(struct dmtimer *timer)
+{
+	struct device *dev = &timer->pdev->dev;
+	struct omap_dm_timer_clockevent *clkevt;
+	int ret;
+
+	clkevt = devm_kzalloc(dev, sizeof(*clkevt), GFP_KERNEL);
+	if (!clkevt)
+		return -ENOMEM;
+
+	timer->reserved = 1;
+	clkevt->timer = timer;
+
+	clkevt->dev.name = "omap_dm_timer";
+	clkevt->dev.features = CLOCK_EVT_FEAT_PERIODIC | CLOCK_EVT_FEAT_ONESHOT;
+	clkevt->dev.rating = 300;
+	clkevt->dev.set_next_event = omap_dm_timer_evt_set_next_event;
+	clkevt->dev.set_state_shutdown = omap_dm_timer_evt_shutdown;
+	clkevt->dev.set_state_periodic = omap_dm_timer_evt_set_periodic;
+	clkevt->dev.set_state_oneshot = omap_dm_timer_evt_shutdown;
+	clkevt->dev.set_state_oneshot_stopped = omap_dm_timer_evt_shutdown;
+	clkevt->dev.tick_resume = omap_dm_timer_evt_shutdown;
+	clkevt->dev.cpumask = cpu_possible_mask;
+	clkevt->period = 0xffffffff - DIV_ROUND_CLOSEST(timer->fclk_rate, HZ);
+
+	__omap_dm_timer_init_regs(timer);
+	__omap_dm_timer_stop(timer);
+	__omap_dm_timer_enable_posted(timer);
+
+	ret = devm_request_irq(dev, timer->irq, omap_dm_timer_evt_interrupt,
+			       IRQF_TIMER, "omap_dm_timer_clockevent", clkevt);
+	if (ret) {
+		dev_err(dev, "Failed to request interrupt: %d\n", ret);
+		return ret;
+	}
+
+	__omap_dm_timer_int_enable(timer, OMAP_TIMER_INT_OVERFLOW);
+
+	clockevents_config_and_register(&clkevt->dev, timer->fclk_rate,
+					3,
+					0xffffffff);
+
+	omap_dm_timer_clockevent_setup = true;
+	return 0;
+}
+
 /**
  * omap_dm_timer_probe - probe function called for every registered device
  * @pdev:	pointer to current timer platform device
@@ -1368,11 +1477,16 @@ static int omap_dm_timer_probe(struct platform_device *pdev)
 
 	timer->pdev = pdev;
 
-	if (timer->capability & OMAP_TIMER_ALWON && !IS_ERR_OR_NULL(timer->fclk) &&
-	    !omap_dm_timer_sched_clock_counter) {
-		ret = omap_dm_timer_setup_clocksource(timer);
-		if (ret)
-			return ret;
+	if (timer->capability & OMAP_TIMER_ALWON && !IS_ERR_OR_NULL(timer->fclk)) {
+		if (!omap_dm_timer_sched_clock_counter) {
+			ret = omap_dm_timer_setup_clocksource(timer);
+			if (ret)
+				return ret;
+		} else if (!omap_dm_timer_clockevent_setup) {
+			ret = omap_dm_timer_setup_clockevent(timer);
+			if (ret)
+				return ret;
+		}
 	}
 
 	pm_runtime_enable(dev);
