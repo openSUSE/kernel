@@ -2397,7 +2397,7 @@ static void rt5640_jack_work(struct work_struct *work)
 		 * disabled the OVCD IRQ, the IRQ pin will stay high and as
 		 * we react to edges, we miss the unplug event -> recheck.
 		 */
-		queue_delayed_work(system_long_wq, &rt5640->jack_work, 0);
+		queue_delayed_work(system_dfl_long_wq, &rt5640->jack_work, 0);
 	}
 }
 
@@ -2410,7 +2410,8 @@ static irqreturn_t rt5640_irq(int irq, void *data)
 		delay = 100;
 
 	if (rt5640->jack)
-		mod_delayed_work(system_long_wq, &rt5640->jack_work, delay);
+		mod_delayed_work(system_dfl_long_wq, &rt5640->jack_work,
+				 delay);
 
 	return IRQ_HANDLED;
 }
@@ -2419,7 +2420,7 @@ static irqreturn_t rt5640_jd_gpio_irq(int irq, void *data)
 {
 	struct rt5640_priv *rt5640 = data;
 
-	queue_delayed_work(system_long_wq, &rt5640->jack_work,
+	queue_delayed_work(system_dfl_long_wq, &rt5640->jack_work,
 			   msecs_to_jiffies(JACK_SETTLE_TIME));
 
 	return IRQ_HANDLED;
@@ -2579,7 +2580,7 @@ static void rt5640_enable_jack_detect(struct snd_soc_component *component,
 	rt5640->irq_requested = true;
 
 	/* sync initial jack state */
-	queue_delayed_work(system_long_wq, &rt5640->jack_work, 0);
+	queue_delayed_work(system_dfl_long_wq, &rt5640->jack_work, 0);
 }
 
 static const struct snd_soc_dapm_route rt5640_hda_jack_dapm_routes[] = {
@@ -2632,7 +2633,7 @@ static void rt5640_enable_hda_jack_detect(
 	rt5640->irq_requested = true;
 
 	/* sync initial jack state */
-	queue_delayed_work(system_long_wq, &rt5640->jack_work, 0);
+	queue_delayed_work(system_dfl_long_wq, &rt5640->jack_work, 0);
 
 	snd_soc_dapm_add_routes(dapm, rt5640_hda_jack_dapm_routes,
 		ARRAY_SIZE(rt5640_hda_jack_dapm_routes));
@@ -2860,7 +2861,7 @@ static int rt5640_resume(struct snd_soc_component *component)
 		}
 
 		enable_irq(rt5640->irq);
-		queue_delayed_work(system_long_wq, &rt5640->jack_work, 0);
+		queue_delayed_work(system_dfl_long_wq, &rt5640->jack_work, 0);
 	}
 
 	return 0;
