@@ -1317,7 +1317,7 @@ static int yas537_power_on(struct yas5xx *yas5xx)
 		return ret;
 
 	/* Wait until the coil has ramped up */
-	usleep_range(YAS537_MAG_RCOIL_TIME_US, YAS537_MAG_RCOIL_TIME_US + 100);
+	fsleep(YAS537_MAG_RCOIL_TIME_US);
 
 	return 0;
 }
@@ -1426,7 +1426,7 @@ static int yas5xx_probe(struct i2c_client *i2c)
 		return dev_err_probe(dev, ret, "cannot enable regulators\n");
 
 	/* See comment in runtime resume callback */
-	usleep_range(31000, 40000);
+	fsleep(31 * USEC_PER_MSEC);
 
 	/* This will take the device out of reset if need be */
 	yas5xx->reset = devm_gpiod_get_optional(dev, "reset", GPIOD_OUT_LOW);
@@ -1565,7 +1565,7 @@ static int yas5xx_runtime_resume(struct device *dev)
 	 * for all voltages to settle. The YAS532 is 10ms then 4ms for the
 	 * I2C to come online. Let's keep it safe and put this at 31ms.
 	 */
-	usleep_range(31000, 40000);
+	fsleep(31 * USEC_PER_MSEC);
 	gpiod_set_value_cansleep(yas5xx->reset, 0);
 
 	ret = ci->power_on(yas5xx);
