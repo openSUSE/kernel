@@ -10380,9 +10380,11 @@ static int __init scx_init(void)
 	/*
 	 * cid-form must end exactly at @priv - validate_ops() skips
 	 * cpu_acquire/cpu_release for cid-form because reading those fields
-	 * past the BPF allocation would be UB.
+	 * past the BPF allocation would be UB. offsetofend() on both sides
+	 * instead of sizeof() on sched_ext_ops_cid to sidestep trailing
+	 * struct padding (e.g. 32-bit PPC tail-pads ops_cid past @priv).
 	 */
-	BUILD_BUG_ON(sizeof(struct sched_ext_ops_cid) !=
+	BUILD_BUG_ON(offsetofend(struct sched_ext_ops_cid, priv) !=
 		     offsetofend(struct sched_ext_ops, priv));
 #undef CID_OFFSET_MATCH
 
