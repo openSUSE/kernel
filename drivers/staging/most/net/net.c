@@ -329,13 +329,13 @@ static int comp_probe_channel(struct most_interface *iface, int channel_idx,
 	} else {
 		ch = ccfg->direction == MOST_CH_TX ? &nd->tx : &nd->rx;
 		if (ch->linked) {
-			pr_err("direction is allocated\n");
+			netdev_err(nd->dev, "direction is allocated\n");
 			ret = -EINVAL;
 			goto unlock;
 		}
 
 		if (register_netdev(nd->dev)) {
-			pr_err("register_netdev() failed\n");
+			netdev_err(nd->dev, "register_netdev() failed\n");
 			ret = -EINVAL;
 			goto unlock;
 		}
@@ -454,7 +454,7 @@ static int comp_rx_data(struct mbo *mbo)
 
 	if (!skb) {
 		dev->stats.rx_dropped++;
-		pr_err_once("drop packet: no memory for skb\n");
+		netdev_err_once(dev, "drop packet: no memory for skb\n");
 		goto out;
 	}
 
