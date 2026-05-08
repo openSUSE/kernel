@@ -15,6 +15,7 @@
 #include <linux/types.h>
 #include <linux/input.h>
 #include <linux/acpi.h>
+#include <linux/platform_device.h>
 
 #define MODULE_NAME "xo15-ebook"
 
@@ -41,13 +42,13 @@ struct ebook_switch {
 	bool gpe_enabled;
 };
 
-static int ebook_send_state(struct acpi_device *device)
+static int ebook_send_state(struct device *dev)
 {
-	struct ebook_switch *button = acpi_driver_data(device);
+	struct ebook_switch *button = dev_get_drvdata(dev);
 	unsigned long long state;
 	acpi_status status;
 
-	status = acpi_evaluate_integer(device->handle, "EBK", NULL, &state);
+	status = acpi_evaluate_integer(ACPI_HANDLE(dev), "EBK", NULL, &state);
 	if (ACPI_FAILURE(status))
 		return -EIO;
 
@@ -73,14 +74,15 @@ static void ebook_switch_notify(acpi_handle handle, u32 event, void *data)
 #ifdef CONFIG_PM_SLEEP
 static int ebook_switch_resume(struct device *dev)
 {
-	return ebook_send_state(to_acpi_device(dev));
+	return ebook_send_state(dev);
 }
 #endif
 
 static SIMPLE_DEV_PM_OPS(ebook_switch_pm, NULL, ebook_switch_resume);
 
-static int ebook_switch_add(struct acpi_device *device)
+static int ebook_switch_probe(struct platform_device *pdev)
 {
+	struct acpi_device *device = ACPI_COMPANION(&pdev->dev);
 	const struct acpi_device_id *id;
 	struct ebook_switch *button;
 	struct input_dev *input;
@@ -90,7 +92,7 @@ static int ebook_switch_add(struct acpi_device *device)
 	if (!button)
 		return -ENOMEM;
 
-	device->driver_data = button;
+	platform_set_drvdata(pdev, button);
 
 	button->input = input = input_allocate_device();
 	if (!input) {
@@ -100,7 +102,7 @@ static int ebook_switch_add(struct acpi_device *device)
 
 	id = acpi_match_acpi_device(ebook_device_ids, device);
 	if (!id) {
-		dev_err(&device->dev, "Unsupported hid\n");
+		dev_err(&pdev->dev, "Unsupported hid\n");
 		error = -ENODEV;
 		goto err_free_input;
 	}
@@ -113,7 +115,7 @@ static int ebook_switch_add(struct acpi_device *device)
 	input->name = acpi_device_name(device);
 	input->phys = button->phys;
 	input->id.bustype = BUS_HOST;
-	input->dev.parent = &device->dev;
+	input->dev.parent = &pdev->dev;
 
 	input->evbit[0] = BIT_MASK(EV_SW);
 	set_bit(SW_TABLET_MODE, input->swbit);
@@ -123,11 +125,11 @@ static int ebook_switch_add(struct acpi_device *device)
 		goto err_free_input;
 
 	error = acpi_dev_install_notify_handler(device, ACPI_DEVICE_NOTIFY,
-						ebook_switch_notify, device);
+						ebook_switch_notify, &pdev->dev);
 	if (error)
 		goto err_unregister_input;
 
-	ebook_send_state(device);
+	ebook_send_state(&pdev->dev);
 
 	if (device->wakeup.flags.valid) {
 		/* Button's GPE is run-wake GPE */
@@ -149,9 +151,10 @@ err_unregister_input:
 	goto err_free_button;
 }
 
-static void ebook_switch_remove(struct acpi_device *device)
+static void ebook_switch_remove(struct platform_device *pdev)
 {
-	struct ebook_switch *button = acpi_driver_data(device);
+	struct ebook_switch *button = platform_get_drvdata(pdev);
+	struct acpi_device *device = ACPI_COMPANION(&pdev->dev);
 
 	if (button->gpe_enabled)
 		acpi_disable_gpe(device->wakeup.gpe_device,
@@ -163,14 +166,13 @@ static void ebook_switch_remove(struct acpi_device *device)
 	kfree(button);
 }
 
-static struct acpi_driver xo15_ebook_driver = {
-	.name = MODULE_NAME,
-	.class = XO15_EBOOK_CLASS,
-	.ids = ebook_device_ids,
-	.ops = {
-		.add = ebook_switch_add,
-		.remove = ebook_switch_remove,
+static struct platform_driver xo15_ebook_driver = {
+	.probe = ebook_switch_probe,
+	.remove = ebook_switch_remove,
+	.driver = {
+		.name = MODULE_NAME,
+		.acpi_match_table = ebook_device_ids,
+		.pm = &ebook_switch_pm,
 	},
-	.drv.pm = &ebook_switch_pm,
 };
-module_acpi_driver(xo15_ebook_driver);
+module_platform_driver(xo15_ebook_driver);
