@@ -101,6 +101,12 @@ intel_fb_pin_to_dpt(struct drm_gem_object *_obj, struct intel_dpt *dpt,
 	i915_gem_object_flush_if_display(obj);
 
 	i915_vma_get(vma);
+
+	/*
+	 * The DPT object contains only one vma, and there is no VT-d
+	 * guard, so the VMA's offset within the DPT is always 0.
+	 */
+	drm_WARN_ON(&i915->drm, i915_dpt_offset(vma));
 err:
 	atomic_dec(&i915->pending_fb_pin);
 
@@ -255,7 +261,6 @@ int intel_plane_pin_fb(struct intel_plane_state *plane_state,
 		       const struct intel_plane_state *old_plane_state)
 {
 	struct intel_display *display = to_intel_display(plane_state);
-	struct drm_i915_private *i915 = to_i915(plane_state->uapi.plane->dev);
 	struct intel_plane *plane = to_intel_plane(plane_state->uapi.plane);
 	const struct intel_framebuffer *fb =
 		to_intel_framebuffer(plane_state->hw.fb);
@@ -304,12 +309,6 @@ int intel_plane_pin_fb(struct intel_plane_state *plane_state,
 		plane_state->dpt_vma = vma;
 
 		WARN_ON(plane_state->ggtt_vma == plane_state->dpt_vma);
-
-		/*
-		 * The DPT object contains only one vma, and there is no VT-d
-		 * guard, so the VMA's offset within the DPT is always 0.
-		 */
-		drm_WARN_ON(&i915->drm, i915_dpt_offset(plane_state->dpt_vma));
 	}
 
 	/*
