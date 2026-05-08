@@ -892,7 +892,6 @@ unbind:
 static void thermal_release(struct device *dev)
 {
 	struct thermal_zone_device *tz;
-	struct thermal_cooling_device *cdev;
 
 	if (!strncmp(dev_name(dev), "thermal_zone",
 		     sizeof("thermal_zone") - 1)) {
@@ -902,13 +901,6 @@ static void thermal_release(struct device *dev)
 		ida_destroy(&tz->ida);
 		mutex_destroy(&tz->lock);
 		complete(&tz->removal);
-	} else if (!strncmp(dev_name(dev), "cooling_device",
-			    sizeof("cooling_device") - 1)) {
-		cdev = to_cooling_device(dev);
-		thermal_cooling_device_destroy_sysfs(cdev);
-		kfree_const(cdev->type);
-		ida_free(&thermal_cdev_ida, cdev->id);
-		kfree(cdev);
 	}
 }
 
@@ -980,6 +972,16 @@ static void thermal_cooling_device_init_complete(struct thermal_cooling_device *
 		thermal_zone_cdev_bind(tz, cdev);
 }
 
+static void thermal_cdev_release(struct device *dev)
+{
+	struct thermal_cooling_device *cdev = to_cooling_device(dev);
+
+	thermal_cooling_device_destroy_sysfs(cdev);
+	kfree_const(cdev->type);
+	ida_free(&thermal_cdev_ida, cdev->id);
+	kfree(cdev);
+}
+
 /**
  * __thermal_cooling_device_register() - register a new thermal cooling device
  * @np:		a pointer to a device tree node.
@@ -1033,6 +1035,7 @@ __thermal_cooling_device_register(struct device_node *np,
 	cdev->ops = ops;
 	cdev->updated = false;
 	cdev->device.class = &thermal_class;
+	cdev->device.release = thermal_cdev_release;
 	cdev->devdata = devdata;
 
 	ret = cdev->ops->get_max_state(cdev, &cdev->max_state);
