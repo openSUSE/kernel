@@ -264,7 +264,10 @@ int intel_plane_pin_fb(struct intel_plane_state *plane_state,
 	struct intel_plane *plane = to_intel_plane(plane_state->uapi.plane);
 	const struct intel_framebuffer *fb =
 		to_intel_framebuffer(plane_state->hw.fb);
-	struct i915_vma *vma;
+	struct i915_vma *ggtt_vma = NULL;
+	struct i915_vma *dpt_vma = NULL;
+	int fence_id = -1;
+	u32 offset;
 
 	if (!intel_fb_uses_dpt(&fb->base)) {
 		struct intel_fb_pin_params pin_params = {
@@ -277,15 +280,25 @@ int intel_plane_pin_fb(struct intel_plane_state *plane_state,
 			.needs_physical = intel_plane_needs_physical(plane),
 			.needs_fence = intel_plane_needs_fence(display),
 		};
-		int fence_id = -1;
 
-		vma = intel_fb_pin_to_ggtt(intel_fb_bo(&fb->base), &pin_params,
-					   intel_plane_uses_fence(plane_state) ? &fence_id : NULL);
-		if (IS_ERR(vma))
-			return PTR_ERR(vma);
+		ggtt_vma = intel_fb_pin_to_ggtt(intel_fb_bo(&fb->base), &pin_params,
+						intel_plane_uses_fence(plane_state) ? &fence_id : NULL);
+		if (IS_ERR(ggtt_vma))
+			return PTR_ERR(ggtt_vma);
 
-		plane_state->ggtt_vma = vma;
-		plane_state->fence_id = fence_id;
+		/*
+		 * Pre-populate the dma address before we enter the vblank
+		 * evade critical section as i915_gem_object_get_dma_address()
+		 * will trigger might_sleep() even if it won't actually sleep,
+		 * which is the case when the fb has already been pinned.
+		 */
+		if (intel_plane_needs_physical(plane)) {
+			struct drm_i915_gem_object *obj = to_intel_bo(intel_fb_bo(&fb->base));
+
+			offset = i915_gem_object_get_dma_address(obj, 0);
+		} else {
+			offset = i915_ggtt_offset(ggtt_vma);
+		}
 	} else {
 		struct intel_fb_pin_params pin_params = {
 			.view = &plane_state->view.gtt,
@@ -293,39 +306,25 @@ int intel_plane_pin_fb(struct intel_plane_state *plane_state,
 			.needs_cpu_lmem_access = intel_fb_needs_cpu_access(&fb->base),
 		};
 
-		vma = i915_dpt_pin_to_ggtt(fb->dpt, pin_params.alignment / 512);
-		if (IS_ERR(vma))
-			return PTR_ERR(vma);
+		ggtt_vma = i915_dpt_pin_to_ggtt(fb->dpt, pin_params.alignment / 512);
+		if (IS_ERR(ggtt_vma))
+			return PTR_ERR(ggtt_vma);
 
-		plane_state->ggtt_vma = vma;
-
-		vma = intel_fb_pin_to_dpt(intel_fb_bo(&fb->base), fb->dpt, &pin_params);
-		if (IS_ERR(vma)) {
+		dpt_vma = intel_fb_pin_to_dpt(intel_fb_bo(&fb->base), fb->dpt, &pin_params);
+		if (IS_ERR(dpt_vma)) {
 			i915_dpt_unpin_from_ggtt(fb->dpt);
-			plane_state->ggtt_vma = NULL;
-			return PTR_ERR(vma);
+			return PTR_ERR(dpt_vma);
 		}
 
-		plane_state->dpt_vma = vma;
+		WARN_ON(ggtt_vma == dpt_vma);
 
-		WARN_ON(plane_state->ggtt_vma == plane_state->dpt_vma);
+		offset = i915_ggtt_offset(ggtt_vma);
 	}
 
-	/*
-	 * Pre-populate the dma address before we enter the vblank
-	 * evade critical section as i915_gem_object_get_dma_address()
-	 * will trigger might_sleep() even if it won't actually sleep,
-	 * which is the case when the fb has already been pinned.
-	 */
-	if (intel_plane_needs_physical(plane)) {
-		struct drm_i915_gem_object *obj = to_intel_bo(intel_fb_bo(&fb->base));
-
-		plane_state->surf = i915_gem_object_get_dma_address(obj, 0) +
-			plane->surf_offset(plane_state);
-	} else {
-		plane_state->surf = i915_ggtt_offset(plane_state->ggtt_vma) +
-			plane->surf_offset(plane_state);
-	}
+	plane_state->dpt_vma = dpt_vma;
+	plane_state->ggtt_vma = ggtt_vma;
+	plane_state->fence_id = fence_id;
+	plane_state->surf = offset + plane->surf_offset(plane_state);
 
 	return 0;
 }
