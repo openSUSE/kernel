@@ -22,6 +22,29 @@ static bool zen4_ibs_extensions;
 static bool ldlat_cap;
 static bool dtlb_pgsize_cap;
 
+/*
+ * Status fields of IBS_FETCH_CTL and IBS_FETCH_CTL_EXT are valid only if
+ * IBS_FETCH_CTL[PhyAddrValid] is set.
+ */
+static int fetch_ctl_depends_on_phy_addr_valid(void)
+{
+	static int depends = -1; /* -1: Don't know, 1: Yes, 0: No */
+
+	if (depends != -1)
+		return depends;
+
+	depends = 0;
+	if (cpu_family > 0x1a ||
+	    (cpu_family == 0x1a && (
+	     (cpu_model >= 0x50 && cpu_model <= 0x5f) ||
+	     (cpu_model >= 0x80 && cpu_model <= 0xaf) ||
+	     (cpu_model >= 0xc0 && cpu_model <= 0xcf)))) {
+		depends = 1;
+	}
+
+	return depends;
+}
+
 static void pr_ibs_fetch_ctl(union ibs_fetch_ctl reg)
 {
 	const char * const ic_miss_strs[] = {
@@ -43,6 +66,18 @@ static void pr_ibs_fetch_ctl(union ibs_fetch_ctl reg)
 	const char *ic_miss_str = NULL;
 	const char *l1tlb_pgsz_str = NULL;
 	char l3_miss_str[sizeof(" L3MissOnly _ FetchOcMiss _ FetchL3Miss _")] = "";
+	char l3_miss_only_str[sizeof(" L3MissOnly _")] = "";
+
+	if (fetch_ctl_depends_on_phy_addr_valid() && !reg.phy_addr_valid) {
+		snprintf(l3_miss_only_str, sizeof(l3_miss_only_str),
+			 " L3MissOnly %d", reg.l3_miss_only);
+
+		printf("ibs_fetch_ctl:\t%016llx MaxCnt %7d Cnt %7d En %d Val %d Comp %d "
+		       "PhyAddrValid 0 RandEn %d%s\n", reg.val, reg.fetch_maxcnt << 4,
+		       reg.fetch_cnt << 4, reg.fetch_en, reg.fetch_val, reg.fetch_comp,
+		       reg.rand_en, l3_miss_only_str);
+		return;
+	}
 
 	if (cpu_family == 0x19 && cpu_model < 0x10) {
 		/*
@@ -72,8 +107,11 @@ static void pr_ibs_fetch_ctl(union ibs_fetch_ctl reg)
 		l3_miss_str);
 }
 
-static void pr_ic_ibs_extd_ctl(union ic_ibs_extd_ctl reg)
+static void pr_ic_ibs_extd_ctl(union ibs_fetch_ctl fetch_ctl, union ic_ibs_extd_ctl reg)
 {
+	if (fetch_ctl_depends_on_phy_addr_valid() && !fetch_ctl.phy_addr_valid)
+		return;
+
 	printf("ic_ibs_ext_ctl:\t%016llx IbsItlbRefillLat %3d\n", reg.val, reg.itlb_refill_lat);
 }
 
@@ -285,7 +323,7 @@ static void amd_dump_ibs_fetch(struct perf_sample *sample)
 	printf("IbsFetchLinAd:\t%016llx\n", *addr++);
 	if (fetch_ctl->phy_addr_valid)
 		printf("IbsFetchPhysAd:\t%016llx\n", *addr);
-	pr_ic_ibs_extd_ctl(*extd_ctl);
+	pr_ic_ibs_extd_ctl(*fetch_ctl, *extd_ctl);
 }
 
 /*
