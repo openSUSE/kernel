@@ -320,10 +320,6 @@ void *__devm_drm_panel_alloc(struct device *dev, size_t size, size_t offset,
 					offsetof(type, member), funcs, \
 					connector_type))
 
-void drm_panel_init(struct drm_panel *panel, struct device *dev,
-		    const struct drm_panel_funcs *funcs,
-		    int connector_type);
-
 struct drm_panel *drm_panel_get(struct drm_panel *panel);
 void drm_panel_put(struct drm_panel *panel);
 
