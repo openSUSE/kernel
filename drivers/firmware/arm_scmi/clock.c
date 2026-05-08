@@ -467,7 +467,6 @@ iter_clk_describe_update_state(struct scmi_iterator_state *st,
 	st->num_remaining = NUM_REMAINING(flags);
 	st->num_returned = NUM_RETURNED(flags);
 	p->clkd->rate_discrete = RATE_DISCRETE(flags);
-	p->clkd->info.rate_discrete = p->clkd->rate_discrete;
 
 	/* Warn about out of spec replies ... */
 	if (!p->clkd->rate_discrete &&
@@ -532,21 +531,13 @@ scmi_clock_describe_rates_get(const struct scmi_protocol_handle *ph, u32 clk_id,
 		return 0;
 
 	if (!clkd->rate_discrete) {
-		clkd->info.range.min_rate = clkd->rates[RATE_MIN];
-		clkd->info.range.max_rate = clkd->rates[RATE_MAX];
-		clkd->info.range.step_size = clkd->rates[RATE_STEP];
 		clkd->info.max_rate = clkd->rates[RATE_MAX];
 		dev_dbg(ph->dev, "Min %llu Max %llu Step %llu Hz\n",
 			clkd->rates[RATE_MIN], clkd->rates[RATE_MAX],
 			clkd->rates[RATE_STEP]);
 	} else {
-		unsigned int i;
-
 		sort(clkd->rates, clkd->num_rates,
 		     sizeof(clkd->rates[0]), rate_cmp_func, NULL);
-		clkd->info.list.num_rates = clkd->num_rates;
-		for (i = 0; i < clkd->num_rates; i++)
-			clkd->info.list.rates[i] = clkd->rates[i];
 		clkd->info.max_rate = clkd->rates[clkd->num_rates - 1];
 	}
 	clkd->info.min_rate = clkd->rates[RATE_MIN];

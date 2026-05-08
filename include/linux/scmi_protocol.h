@@ -44,7 +44,6 @@ struct scmi_base_info {
 struct scmi_clock_info {
 	char name[SCMI_MAX_STR_SIZE];
 	unsigned int enable_latency;
-	bool rate_discrete;
 	bool rate_changed_notifications;
 	bool rate_change_requested_notifications;
 	bool state_ctrl_forbidden;
@@ -53,17 +52,6 @@ struct scmi_clock_info {
 	bool extended_config;
 	u64 min_rate;
 	u64 max_rate;
-	union {
-		struct {
-			int num_rates;
-			u64 rates[SCMI_MAX_NUM_RATES];
-		} list;
-		struct {
-			u64 min_rate;
-			u64 max_rate;
-			u64 step_size;
-		} range;
-	};
 	int num_parents;
 	u32 *parents;
 };
