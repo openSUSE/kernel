@@ -6844,6 +6844,15 @@ static int log_new_delayed_dentries(struct btrfs_trans_handle *trans,
 	lockdep_assert_not_held(&inode->log_mutex);
 
 	ASSERT(!ctx->logging_new_delayed_dentries);
+
+	/*
+	 * Return early if empty list, avoid emitting redundant trace events
+	 * that generate noise only.
+	 */
+	if (list_empty(delayed_ins_list))
+		return 0;
+
+	trace_btrfs_log_new_delayed_dentries_enter(trans, inode);
 	ctx->logging_new_delayed_dentries = true;
 
 	list_for_each_entry(item, delayed_ins_list, log_list) {
@@ -6886,6 +6895,7 @@ static int log_new_delayed_dentries(struct btrfs_trans_handle *trans,
 
 	ctx->log_new_dentries = orig_log_new_dentries;
 	ctx->logging_new_delayed_dentries = false;
+	trace_btrfs_log_new_delayed_dentries_exit(trans, inode, ret);
 
 	return ret;
 }
