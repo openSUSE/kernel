@@ -2,7 +2,7 @@
 .. Copyright © 2026 Intel Corporation
 
 Display PLLs
-------------
+============
 
 .. kernel-doc:: drivers/gpu/drm/i915/display/intel_dpll_mgr.c
    :doc: Display PLLs
