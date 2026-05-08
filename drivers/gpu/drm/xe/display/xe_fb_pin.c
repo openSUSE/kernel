@@ -412,22 +412,11 @@ static void __xe_unpin_fb_vma(struct i915_vma *vma)
 	kfree(vma);
 }
 
-struct i915_vma *
-intel_fb_pin_to_ggtt(struct drm_gem_object *obj,
-		     const struct intel_fb_pin_params *pin_params,
-		     int *out_fence_id)
-{
-	if (out_fence_id)
-		*out_fence_id = -1;
-
-	return __xe_pin_fb_vma(obj, false, pin_params);
-}
-
-static int xe_fb_pin_ggtt_pin(struct drm_gem_object *obj,
-			      const struct intel_fb_pin_params *pin_params,
-			      struct i915_vma **out_ggtt_vma,
-			      u32 *out_offset,
-			      int *out_fence_id)
+int xe_fb_pin_ggtt_pin(struct drm_gem_object *obj,
+		       const struct intel_fb_pin_params *pin_params,
+		       struct i915_vma **out_ggtt_vma,
+		       u32 *out_offset,
+		       int *out_fence_id)
 {
 	struct i915_vma *ggtt_vma;
 

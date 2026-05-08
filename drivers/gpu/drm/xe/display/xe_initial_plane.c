@@ -7,12 +7,16 @@
 
 #include "regs/xe_gtt_defs.h"
 
-#include "intel_display_types.h"
+/* FIXME move intel_remapped_info_size() & co. */
 #include "intel_fb.h"
-#include "intel_fb_pin.h"
+
+/* FIXME move intel_initial_plane_config */
+#include "intel_display_types.h"
+
 #include "xe_bo.h"
 #include "xe_display_bo.h"
 #include "xe_display_vma.h"
+#include "xe_fb_pin.h"
 #include "xe_ggtt.h"
 #include "xe_mmio.h"
 #include "xe_vram_types.h"
@@ -137,14 +141,16 @@ xe_initial_plane_setup(struct drm_plane_state *_plane_state,
 	struct intel_fb_pin_params pin_params = {
 		.view = &plane_state->view.gtt,
 	};
+	u32 offset;
+	int ret;
 
-	vma = intel_fb_pin_to_ggtt(intel_fb_bo(fb), &pin_params, NULL);
-	if (IS_ERR(vma))
-		return PTR_ERR(vma);
+	ret = xe_fb_pin_ggtt_pin(intel_fb_bo(fb), &pin_params, &vma, &offset, NULL);
+	if (ret)
+		return ret;
 
 	plane_state->ggtt_vma = vma;
 
-	plane_state->surf = xe_ggtt_node_addr(plane_state->ggtt_vma->node);
+	plane_state->surf = offset;
 
 	plane_config->vma = vma;
 
