@@ -920,22 +920,58 @@ static void riscv_iommu_bond_unlink(struct riscv_iommu_domain *domain,
 	}
 }
 
-/*
- * Send IOTLB.INVAL for whole address space for ranges larger than 2MB.
- * This limit will be replaced with range invalidations, if supported by
- * the hardware, when RISC-V IOMMU architecture specification update for
- * range invalidations update will be available.
- */
-#define RISCV_IOMMU_IOTLB_INVAL_LIMIT	(2 << 20)
+struct riscv_iommu_tlbi {
+	u64 start;
+	u64 last;
+	bool non_leaf;
+	struct {
+		bool use_global;
+		u8 stride_lg2;
+		unsigned int num;
+	} single;
+};
 
-static void riscv_iommu_iotlb_inval(struct riscv_iommu_domain *domain,
-				    struct iommu_iotlb_gather *gather)
+static void riscv_iommu_tlbi_calc(struct riscv_iommu_tlbi *tlbi,
+				  struct iommu_iotlb_gather *gather)
 {
-	unsigned long start;
-	unsigned long end;
-	struct riscv_iommu_bond *bond;
-	struct riscv_iommu_device *iommu, *prev;
+	u8 combined = gather->pt.leaf_levels_bitmap |
+		      gather->pt.table_levels_bitmap;
+	u64 num;
+
+	tlbi->non_leaf = gather->pt.table_levels_bitmap != 0;
+	tlbi->start = gather->start;
+	tlbi->last = gather->end;
+
+	/* No level information available */
+	if (!combined) {
+		tlbi->single.use_global = true;
+		return;
+	}
+
+	/*
+	 * Calculate stride from the lowest changed level. RISC-V uses 4KiB
+	 * granule with 9 bits per level.
+	 */
+	tlbi->single.stride_lg2 = 9 * __ffs(combined) + 12;
+	num = (tlbi->last - tlbi->start + 1) >> tlbi->single.stride_lg2;
+	if (!num || num > 512) {
+		tlbi->single.use_global = true;
+	} else {
+		tlbi->single.num = num;
+		tlbi->single.use_global = false;
+	}
+}
+
+static void riscv_iommu_iotlb_inval_iommu(struct riscv_iommu_device *iommu,
+					  int pscid,
+					  struct riscv_iommu_tlbi *tlbi)
+{
 	struct riscv_iommu_command cmd;
+	unsigned long iova;
+	unsigned int i;
+
+	riscv_iommu_cmd_inval_vma(&cmd);
+	riscv_iommu_cmd_inval_set_pscid(&cmd, pscid);
 
 	/*
 	 * When non-leaf page table entries were changed, the base spec
@@ -943,13 +979,28 @@ static void riscv_iommu_iotlb_inval(struct riscv_iommu_domain *domain,
 	 * way to do targeted non-leaf invalidation without the NL
 	 * extension. Force global invalidation to preserve correctness.
 	 */
-	if (gather->pt.table_levels_bitmap) {
-		start = 0;
-		end = ULONG_MAX;
-	} else {
-		start = gather->start;
-		end = gather->end;
+	if (tlbi->single.use_global || tlbi->non_leaf)
+		goto global;
+
+	iova = tlbi->start;
+	for (i = 0; i < tlbi->single.num; i++) {
+		riscv_iommu_cmd_inval_set_addr(&cmd, iova);
+		riscv_iommu_cmd_send(iommu, &cmd);
+		iova += 1ULL << tlbi->single.stride_lg2;
 	}
+	return;
+global:
+	riscv_iommu_cmd_send(iommu, &cmd);
+}
+
+static void riscv_iommu_iotlb_inval(struct riscv_iommu_domain *domain,
+				    struct iommu_iotlb_gather *gather)
+{
+	struct riscv_iommu_device *iommu, *prev;
+	struct riscv_iommu_bond *bond;
+	struct riscv_iommu_tlbi tlbi;
+
+	riscv_iommu_tlbi_calc(&tlbi, gather);
 
 	/*
 	 * For each IOMMU linked with this protection domain (via bonds->dev),
@@ -990,19 +1041,7 @@ static void riscv_iommu_iotlb_inval(struct riscv_iommu_domain *domain,
 		if (iommu == prev)
 			continue;
 
-		riscv_iommu_cmd_inval_vma(&cmd);
-		riscv_iommu_cmd_inval_set_pscid(&cmd, domain->pscid);
-		if (end - start < RISCV_IOMMU_IOTLB_INVAL_LIMIT - 1) {
-			unsigned long iova = start;
-
-			do {
-				riscv_iommu_cmd_inval_set_addr(&cmd, iova);
-				riscv_iommu_cmd_send(iommu, &cmd);
-			} while (!check_add_overflow(iova, PAGE_SIZE, &iova) &&
-				 iova < end);
-		} else {
-			riscv_iommu_cmd_send(iommu, &cmd);
-		}
+		riscv_iommu_iotlb_inval_iommu(iommu, domain->pscid, &tlbi);
 		prev = iommu;
 	}
 
