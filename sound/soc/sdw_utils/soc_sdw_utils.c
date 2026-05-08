@@ -1688,20 +1688,16 @@ int asoc_sdw_get_dai_type(u32 type)
 }
 EXPORT_SYMBOL_NS(asoc_sdw_get_dai_type, "SND_SOC_SDW_UTILS");
 
-/*
- * Check if the SDCA endpoint is present by the SDW peripheral
- *
+/**
+ * is_sdca_endpoint_present - Check if an SDCA endpoint is present on the SDW peripheral
  * @dev: Device pointer
  * @codec_info: Codec info pointer
  * @adr_link: ACPI link address
  * @adr_index: Index of the ACPI link address
  * @end_index: Index of the endpoint
  *
- * Return: 1 if the endpoint is present,
- *	   0 if the endpoint is not present,
- *	   negative error code.
+ * Return: 1 if the endpoint is present, 0 if the endpoint is not present, or negative error code.
  */
-
 static int is_sdca_endpoint_present(struct device *dev,
 				    struct asoc_sdw_codec_info *codec_info,
 				    const struct snd_soc_acpi_link_adr *adr_link,
