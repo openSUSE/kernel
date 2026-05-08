@@ -929,11 +929,27 @@ static void riscv_iommu_bond_unlink(struct riscv_iommu_domain *domain,
 #define RISCV_IOMMU_IOTLB_INVAL_LIMIT	(2 << 20)
 
 static void riscv_iommu_iotlb_inval(struct riscv_iommu_domain *domain,
-				    unsigned long start, unsigned long end)
+				    struct iommu_iotlb_gather *gather)
 {
+	unsigned long start;
+	unsigned long end;
 	struct riscv_iommu_bond *bond;
 	struct riscv_iommu_device *iommu, *prev;
 	struct riscv_iommu_command cmd;
+
+	/*
+	 * When non-leaf page table entries were changed, the base spec
+	 * requires a full PSCID invalidation (AV=0) since there is no
+	 * way to do targeted non-leaf invalidation without the NL
+	 * extension. Force global invalidation to preserve correctness.
+	 */
+	if (gather->pt.table_levels_bitmap) {
+		start = 0;
+		end = ULONG_MAX;
+	} else {
+		start = gather->start;
+		end = gather->end;
+	}
 
 	/*
 	 * For each IOMMU linked with this protection domain (via bonds->dev),
@@ -1145,8 +1161,14 @@ static void riscv_iommu_iodir_update(struct riscv_iommu_device *iommu,
 static void riscv_iommu_iotlb_flush_all(struct iommu_domain *iommu_domain)
 {
 	struct riscv_iommu_domain *domain = iommu_domain_to_riscv(iommu_domain);
+	struct iommu_iotlb_gather gather = {
+		.start = 0,
+		.end = ULONG_MAX,
+		.pt.leaf_levels_bitmap = 0xFF,
+		.pt.table_levels_bitmap = 0xFE,
+	};
 
-	riscv_iommu_iotlb_inval(domain, 0, ULONG_MAX);
+	riscv_iommu_iotlb_inval(domain, &gather);
 }
 
 static void riscv_iommu_iotlb_sync(struct iommu_domain *iommu_domain,
@@ -1154,19 +1176,8 @@ static void riscv_iommu_iotlb_sync(struct iommu_domain *iommu_domain,
 {
 	struct riscv_iommu_domain *domain = iommu_domain_to_riscv(iommu_domain);
 
-	if (iommu_pages_list_empty(&gather->freelist)) {
-		riscv_iommu_iotlb_inval(domain, gather->start, gather->end);
-	} else {
-		/*
-		 * In 1.0 spec version, the smallest scope we can use to
-		 * invalidate all levels of page table (i.e. leaf and non-leaf)
-		 * is an invalidate-all-PSCID IOTINVAL.VMA with AV=0.
-		 * This will be updated with hardware support for
-		 * capability.NL (non-leaf) IOTINVAL command.
-		 */
-		riscv_iommu_iotlb_inval(domain, 0, ULONG_MAX);
-		iommu_put_pages_list(&gather->freelist);
-	}
+	riscv_iommu_iotlb_inval(domain, gather);
+	iommu_put_pages_list(&gather->freelist);
 }
 
 static void riscv_iommu_free_paging_domain(struct iommu_domain *iommu_domain)
@@ -1267,7 +1278,8 @@ static struct iommu_domain *riscv_iommu_alloc_paging_domain(struct device *dev)
 	 */
 	cfg.common.features = BIT(PT_FEAT_SIGN_EXTEND) |
 			      BIT(PT_FEAT_FLUSH_RANGE) |
-			      BIT(PT_FEAT_RISCV_SVNAPOT_64K);
+			      BIT(PT_FEAT_RISCV_SVNAPOT_64K) |
+			      BIT(PT_FEAT_DETAILED_GATHER);
 	if (iommu->caps & RISCV_IOMMU_CAPABILITIES_SVPBMT)
 		cfg.common.features |= BIT(PT_FEAT_RISCV_SVPBMT);
 	domain->riscvpt.iommu.nid = dev_to_node(iommu->dev);
