@@ -889,24 +889,8 @@ unbind:
 	kfree(pos);
 }
 
-static void thermal_release(struct device *dev)
-{
-	struct thermal_zone_device *tz;
-
-	if (!strncmp(dev_name(dev), "thermal_zone",
-		     sizeof("thermal_zone") - 1)) {
-		tz = to_thermal_zone(dev);
-		thermal_zone_destroy_device_groups(tz);
-		thermal_set_governor(tz, NULL);
-		ida_destroy(&tz->ida);
-		mutex_destroy(&tz->lock);
-		complete(&tz->removal);
-	}
-}
-
 static const struct class thermal_class = {
 	.name = "thermal",
-	.dev_release = thermal_release,
 };
 static bool thermal_class_unavailable __ro_after_init = true;
 
@@ -1413,6 +1397,17 @@ static void thermal_zone_init_complete(struct thermal_zone_device *tz)
 	__thermal_zone_device_update(tz, THERMAL_EVENT_UNSPECIFIED);
 }
 
+static void thermal_zone_device_release(struct device *dev)
+{
+	struct thermal_zone_device *tz = to_thermal_zone(dev);
+
+	thermal_zone_destroy_device_groups(tz);
+	thermal_set_governor(tz, NULL);
+	ida_destroy(&tz->ida);
+	mutex_destroy(&tz->lock);
+	complete(&tz->removal);
+}
+
 /**
  * thermal_zone_device_register_with_trips() - register a new thermal zone device
  * @type:	the thermal zone device type
@@ -1520,6 +1515,7 @@ thermal_zone_device_register_with_trips(const char *type,
 		tz->ops.critical = thermal_zone_device_critical;
 
 	tz->device.class = &thermal_class;
+	tz->device.release = thermal_zone_device_release;
 	tz->devdata = devdata;
 	tz->num_trips = num_trips;
 	for_each_trip_desc(tz, td) {
