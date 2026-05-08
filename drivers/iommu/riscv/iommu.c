@@ -966,6 +966,8 @@ static void riscv_iommu_iotlb_inval_iommu(struct riscv_iommu_device *iommu,
 					  int pscid,
 					  struct riscv_iommu_tlbi *tlbi)
 {
+	bool use_nl = tlbi->non_leaf &&
+		      (iommu->caps & RISCV_IOMMU_CAPABILITIES_NL);
 	struct riscv_iommu_command cmd;
 	unsigned long iova;
 	unsigned int i;
@@ -974,17 +976,17 @@ static void riscv_iommu_iotlb_inval_iommu(struct riscv_iommu_device *iommu,
 	riscv_iommu_cmd_inval_set_pscid(&cmd, pscid);
 
 	/*
-	 * When non-leaf page table entries were changed, the base spec
-	 * requires a full PSCID invalidation (AV=0) since there is no
-	 * way to do targeted non-leaf invalidation without the NL
-	 * extension. Force global invalidation to preserve correctness.
+	 * If non-leaf entries were changed and the IOMMU doesn't
+	 * support NL, we must fall back to global invalidation (AV=0).
 	 */
-	if (tlbi->single.use_global || tlbi->non_leaf)
+	if (tlbi->single.use_global || (tlbi->non_leaf && !use_nl))
 		goto global;
 
 	iova = tlbi->start;
 	for (i = 0; i < tlbi->single.num; i++) {
 		riscv_iommu_cmd_inval_set_addr(&cmd, iova);
+		if (use_nl)
+			riscv_iommu_cmd_inval_set_nl(&cmd);
 		riscv_iommu_cmd_send(iommu, &cmd);
 		iova += 1ULL << tlbi->single.stride_lg2;
 	}
