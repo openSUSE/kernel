@@ -2584,7 +2584,7 @@ static void rcu_do_batch(struct rcu_data *rdp)
 		const long npj = NSEC_PER_SEC / HZ;
 		long rrn = READ_ONCE(rcu_resched_ns);
 
-		rrn = rrn < NSEC_PER_MSEC ? NSEC_PER_MSEC : rrn > NSEC_PER_SEC ? NSEC_PER_SEC : rrn;
+		rrn = clamp(rrn, NSEC_PER_MSEC, NSEC_PER_SEC);
 		tlimit = local_clock() + rrn;
 		jlimit = jiffies + (rrn + npj + 1) / npj;
 		jlimit_check = true;
