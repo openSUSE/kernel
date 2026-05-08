@@ -560,11 +560,6 @@ struct intel_framebuffer *intel_fbdev_framebuffer(struct intel_fbdev *fbdev)
 	return fbdev->fb;
 }
 
-struct i915_vma *intel_fbdev_vma_pointer(struct intel_fbdev *fbdev)
-{
-	return fbdev ? fbdev->vma : NULL;
-}
-
 void intel_fbdev_get_map(struct intel_display *display, struct iosys_map *map)
 {
 	struct intel_fbdev *fbdev = display->fbdev.fbdev;
