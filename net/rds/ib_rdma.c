@@ -540,13 +540,21 @@ void *rds_ib_get_mr(struct scatterlist *sg, unsigned long nents,
 {
 	struct rds_ib_device *rds_ibdev;
 	struct rds_ib_mr *ibmr = NULL;
-	struct rds_ib_connection *ic = rs->rs_conn->c_transport_data;
+	struct rds_ib_connection *ic = NULL;
 	int ret;
 
 	rds_ibdev = rds_ib_get_device(rs->rs_bound_addr);
 	if (!rds_ibdev) {
 		ret = -ENODEV;
 		goto out;
+	}
+
+	if (rs->rs_conn) {
+		ic = rs->rs_conn->c_transport_data;
+		if (!ic || !ic->i_cm_id || !ic->i_cm_id->qp) {
+			ret = -ENODEV;
+			goto out;
+		}
 	}
 
 	if (!rds_ibdev->mr_8k_pool || !rds_ibdev->mr_1m_pool) {
