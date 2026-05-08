@@ -929,6 +929,10 @@ struct riscv_iommu_tlbi {
 		u8 stride_lg2;
 		unsigned int num;
 	} single;
+	struct {
+		u8 sz_lg2;
+		u64 addr;
+	} range;
 };
 
 static void riscv_iommu_tlbi_calc(struct riscv_iommu_tlbi *tlbi,
@@ -945,8 +949,22 @@ static void riscv_iommu_tlbi_calc(struct riscv_iommu_tlbi *tlbi,
 	/* No level information available */
 	if (!combined) {
 		tlbi->single.use_global = true;
+		tlbi->range.sz_lg2 = 0;
 		return;
 	}
+
+	/*
+	 * Calculate the smallest NAPOT range containing [start, last].
+	 * NAPOT encoding requires a power-of-two sized, naturally aligned
+	 * range. Over-invalidation is always safe.
+	 */
+	tlbi->range.sz_lg2 = fls64(tlbi->start ^ tlbi->last);
+	if (unlikely(tlbi->range.sz_lg2 >= 64)) {
+		tlbi->single.use_global = true;
+		tlbi->range.sz_lg2 = 0;
+		return;
+	}
+	tlbi->range.addr = tlbi->start & ~(BIT_U64(tlbi->range.sz_lg2) - 1);
 
 	/*
 	 * Calculate stride from the lowest changed level. RISC-V uses 4KiB
@@ -969,7 +987,6 @@ static void riscv_iommu_iotlb_inval_iommu(struct riscv_iommu_device *iommu,
 	bool use_nl = tlbi->non_leaf &&
 		      (iommu->caps & RISCV_IOMMU_CAPABILITIES_NL);
 	struct riscv_iommu_command cmd;
-	unsigned long iova;
 	unsigned int i;
 
 	riscv_iommu_cmd_inval_vma(&cmd);
@@ -979,16 +996,30 @@ static void riscv_iommu_iotlb_inval_iommu(struct riscv_iommu_device *iommu,
 	 * If non-leaf entries were changed and the IOMMU doesn't
 	 * support NL, we must fall back to global invalidation (AV=0).
 	 */
-	if (tlbi->single.use_global || (tlbi->non_leaf && !use_nl))
+	if (tlbi->non_leaf && !use_nl)
 		goto global;
 
-	iova = tlbi->start;
-	for (i = 0; i < tlbi->single.num; i++) {
-		riscv_iommu_cmd_inval_set_addr(&cmd, iova);
+	if (iommu->caps & RISCV_IOMMU_CAPABILITIES_S &&
+	    tlbi->range.sz_lg2 >= 13) {
+		riscv_iommu_cmd_inval_set_napot(&cmd, tlbi->range.addr,
+						tlbi->range.sz_lg2);
 		if (use_nl)
 			riscv_iommu_cmd_inval_set_nl(&cmd);
 		riscv_iommu_cmd_send(iommu, &cmd);
-		iova += 1ULL << tlbi->single.stride_lg2;
+	} else {
+		unsigned long iova;
+
+		if (tlbi->single.use_global)
+			goto global;
+
+		iova = tlbi->start;
+		for (i = 0; i < tlbi->single.num; i++) {
+			riscv_iommu_cmd_inval_set_addr(&cmd, iova);
+			if (use_nl)
+				riscv_iommu_cmd_inval_set_nl(&cmd);
+			riscv_iommu_cmd_send(iommu, &cmd);
+			iova += 1ULL << tlbi->single.stride_lg2;
+		}
 	}
 	return;
 global:

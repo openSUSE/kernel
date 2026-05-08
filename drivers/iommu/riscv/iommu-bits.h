@@ -64,6 +64,7 @@
 #define RISCV_IOMMU_CAPABILITIES_PD17		BIT_ULL(39)
 #define RISCV_IOMMU_CAPABILITIES_PD20		BIT_ULL(40)
 #define RISCV_IOMMU_CAPABILITIES_NL		BIT_ULL(42)
+#define RISCV_IOMMU_CAPABILITIES_S		BIT_ULL(43)
 
 /**
  * enum riscv_iommu_igs_settings - Interrupt Generation Support Settings
@@ -475,6 +476,7 @@ struct riscv_iommu_command {
 #define RISCV_IOMMU_CMD0_IOTINVAL_GV		BIT_ULL(33)
 #define RISCV_IOMMU_CMD0_IOTINVAL_GSCID		GENMASK_ULL(59, 44)
 #define RISCV_IOMMU_CMD0_IOTINVAL_NL		BIT_ULL(34)
+#define RISCV_IOMMU_CMD1_IOTINVAL_S		BIT_ULL(9)
 /* dword1[61:10] is the 4K-aligned page address */
 #define RISCV_IOMMU_CMD1_IOTINVAL_ADDR		GENMASK_ULL(61, 10)
 
@@ -729,6 +731,22 @@ static inline void riscv_iommu_cmd_inval_set_addr(struct riscv_iommu_command *cm
 static inline void riscv_iommu_cmd_inval_set_nl(struct riscv_iommu_command *cmd)
 {
 	cmd->dword0 |= RISCV_IOMMU_CMD0_IOTINVAL_NL;
+}
+
+/*
+ * Set NAPOT-encoded address for range invalidation (S=1).
+ * sz_lg2: log2 of total range in bytes, must be >= 13 (8KiB, 2 pages).
+ * addr must be naturally aligned to 2^sz_lg2.
+ */
+static inline void riscv_iommu_cmd_inval_set_napot(
+	struct riscv_iommu_command *cmd, u64 addr, unsigned int sz_lg2)
+{
+	u64 pfn = addr >> 12;
+
+	pfn |= BIT_U64(sz_lg2 - 13) - 1;
+	cmd->dword1 = FIELD_PREP(RISCV_IOMMU_CMD1_IOTINVAL_ADDR, pfn) |
+		      RISCV_IOMMU_CMD1_IOTINVAL_S;
+	cmd->dword0 |= RISCV_IOMMU_CMD0_IOTINVAL_AV;
 }
 
 static inline void riscv_iommu_cmd_inval_set_pscid(struct riscv_iommu_command *cmd,
