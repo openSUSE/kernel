@@ -130,7 +130,6 @@ static const struct spi_device_id sysconfig_spi_ids[] = {
 };
 MODULE_DEVICE_TABLE(spi, sysconfig_spi_ids);
 
-#if IS_ENABLED(CONFIG_OF)
 static const struct of_device_id sysconfig_of_ids[] = {
 	{
 		.compatible = "lattice,sysconfig-ecp5",
@@ -139,14 +138,13 @@ static const struct of_device_id sysconfig_of_ids[] = {
 	{}
 };
 MODULE_DEVICE_TABLE(of, sysconfig_of_ids);
-#endif /* IS_ENABLED(CONFIG_OF) */
 
 static struct spi_driver lattice_sysconfig_driver = {
 	.probe = sysconfig_spi_probe,
 	.id_table = sysconfig_spi_ids,
 	.driver = {
 		.name = "lattice_sysconfig_spi_fpga_mgr",
-		.of_match_table = of_match_ptr(sysconfig_of_ids),
+		.of_match_table = sysconfig_of_ids,
 	},
 };
 module_spi_driver(lattice_sysconfig_driver);
