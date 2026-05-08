@@ -518,7 +518,7 @@ static int psp_sw_init(struct amdgpu_ip_block *ip_block)
 	}
 
 	ret = amdgpu_bo_create_kernel(adev, PSP_1_MEG, PSP_1_MEG,
-				      (amdgpu_sriov_vf(adev) || adev->debug_use_vram_fw_buf) ?
+				      (amdgpu_sriov_vf(adev) || adev->debug_use_vram_fw_buf || adev->gmc.xgmi.connected_to_cpu) ?
 				      AMDGPU_GEM_DOMAIN_VRAM : AMDGPU_GEM_DOMAIN_GTT,
 				      &psp->fw_pri_bo,
 				      &psp->fw_pri_mc_addr,
@@ -1076,24 +1076,25 @@ int psp_update_fw_reservation(struct psp_context *psp)
 		return 0;
 	}
 
-	amdgpu_bo_free_kernel(&adev->mman.fw_reserved_memory, NULL, NULL);
+	amdgpu_ttm_unmark_vram_reserved(adev, AMDGPU_RESV_FW);
 
 	reserv_size = roundup(reserv_size, SZ_1M);
 
-	ret = amdgpu_bo_create_kernel_at(adev, reserv_addr, reserv_size, &adev->mman.fw_reserved_memory, NULL);
+	amdgpu_ttm_init_vram_resv(adev, AMDGPU_RESV_FW,
+				  reserv_addr, reserv_size, false);
+	ret = amdgpu_ttm_mark_vram_reserved(adev, AMDGPU_RESV_FW);
 	if (ret) {
 		dev_err(adev->dev, "reserve fw region failed(%d)!\n", ret);
-		amdgpu_bo_free_kernel(&adev->mman.fw_reserved_memory, NULL, NULL);
 		return ret;
 	}
 
 	reserv_size_ext = roundup(reserv_size_ext, SZ_1M);
 
-	ret = amdgpu_bo_create_kernel_at(adev, reserv_addr_ext, reserv_size_ext,
-					 &adev->mman.fw_reserved_memory_extend, NULL);
+	amdgpu_ttm_init_vram_resv(adev, AMDGPU_RESV_FW_EXTEND,
+				  reserv_addr_ext, reserv_size_ext, false);
+	ret = amdgpu_ttm_mark_vram_reserved(adev, AMDGPU_RESV_FW_EXTEND);
 	if (ret) {
 		dev_err(adev->dev, "reserve extend fw region failed(%d)!\n", ret);
-		amdgpu_bo_free_kernel(&adev->mman.fw_reserved_memory_extend, NULL, NULL);
 		return ret;
 	}
 
@@ -3526,7 +3527,12 @@ int psp_init_toc_microcode(struct psp_context *psp, const char *chip_name)
 	const struct psp_firmware_header_v1_0 *toc_hdr;
 	int err = 0;
 
-	err = amdgpu_ucode_request(adev, &adev->psp.toc_fw, AMDGPU_UCODE_REQUIRED,
+	if (amdgpu_ip_version(adev, MP0_HWIP, 0) == IP_VERSION(15, 0, 8) &&
+	    adev->rev_id == 0)
+		err = amdgpu_ucode_request(adev, &adev->psp.toc_fw, AMDGPU_UCODE_REQUIRED,
+				   "amdgpu/%s_toc_1.bin", chip_name);
+	else
+		err = amdgpu_ucode_request(adev, &adev->psp.toc_fw, AMDGPU_UCODE_REQUIRED,
 				   "amdgpu/%s_toc.bin", chip_name);
 	if (err)
 		goto out;

@@ -694,6 +694,39 @@ enum drm_bus_flags {
 };
 
 /**
+ * struct drm_amd_vsdb_info - AMD-specific VSDB information
+ *
+ * This structure holds information parsed from the AMD Vendor-Specific Data
+ * Block (VSDB) version 3.
+ */
+struct drm_amd_vsdb_info {
+	/**
+	 * @version: Version of the Vendor-Specific Data Block (VSDB)
+	 */
+	u8 version;
+
+	/**
+	 * @replay_mode: Panel Replay supported
+	 */
+	bool replay_mode;
+
+	/**
+	 * @panel_type: Panel technology type
+	 */
+	u8 panel_type;
+
+	/**
+	 * @luminance_range1: Luminance for max back light
+	 */
+	struct drm_luminance_range_info luminance_range1;
+
+	/**
+	 * @luminance_range2: Luminance for min back light
+	 */
+	struct drm_luminance_range_info luminance_range2;
+};
+
+/**
  * struct drm_display_info - runtime data about the connected sink
  *
  * Describes a given display (e.g. CRT or flat panel) and its limitations. For
@@ -883,6 +916,11 @@ struct drm_display_info {
 	 * Defaults to CEC_PHYS_ADDR_INVALID (0xffff).
 	 */
 	u16 source_physical_address;
+
+	/**
+	 * @amd_vsdb: AMD-specific VSDB information.
+	 */
+	struct drm_amd_vsdb_info amd_vsdb;
 };
 
 int drm_display_info_set_bus_formats(struct drm_display_info *info,
@@ -1060,8 +1098,8 @@ struct drm_connector_state {
 	 */
 	enum drm_link_status link_status;
 
-	/** @state: backpointer to global drm_atomic_state */
-	struct drm_atomic_state *state;
+	/** @state: backpointer to global drm_atomic_commit */
+	struct drm_atomic_commit *state;
 
 	/**
 	 * @commit: Tracks the pending commit to prevent use-after-free conditions.
@@ -2306,7 +2344,7 @@ struct drm_connector {
 	 *
 	 * This is protected by &drm_mode_config.connection_mutex. Note that
 	 * nonblocking atomic commits access the current connector state without
-	 * taking locks. Either by going through the &struct drm_atomic_state
+	 * taking locks. Either by going through the &struct drm_atomic_commit
 	 * pointers, see for_each_oldnew_connector_in_state(),
 	 * for_each_old_connector_in_state() and
 	 * for_each_new_connector_in_state(). Or through careful ordering of
@@ -2518,7 +2556,7 @@ int drm_connector_attach_vrr_capable_property(
 void drm_connector_attach_panel_type_property(struct drm_connector *connector);
 int drm_connector_attach_broadcast_rgb_property(struct drm_connector *connector);
 int drm_connector_attach_colorspace_property(struct drm_connector *connector);
-int drm_connector_attach_hdr_output_metadata_property(struct drm_connector *connector);
+void drm_connector_attach_hdr_output_metadata_property(struct drm_connector *connector);
 bool drm_connector_atomic_hdr_metadata_equal(struct drm_connector_state *old_state,
 					     struct drm_connector_state *new_state);
 int drm_mode_create_aspect_ratio_property(struct drm_device *dev);

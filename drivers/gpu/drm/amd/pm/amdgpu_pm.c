@@ -995,12 +995,15 @@ static ssize_t amdgpu_get_pp_dpm_clock(struct device *dev,
 		return ret;
 
 	ret = amdgpu_dpm_emit_clock_levels(adev, type, buf, &size);
-	if (ret)
-		return ret;
+	if (ret) {
+		size = ret;
+		goto out_pm_put;
+	}
 
 	if (size == 0)
 		size = sysfs_emit(buf, "\n");
 
+out_pm_put:
 	amdgpu_pm_put_access(adev);
 
 	return size;
@@ -2502,12 +2505,12 @@ static ssize_t amdgpu_set_pm_policy_attr(struct device *dev,
 		.dev_attr = __ATTR(_name, 0644, amdgpu_get_pm_policy_attr, \
 				   amdgpu_set_pm_policy_attr),             \
 		.id = PP_PM_POLICY_##_id,                                  \
-	};
+	}
 
 #define AMDGPU_PM_POLICY_ATTR_VAR(_name) pm_policy_attr_##_name.dev_attr.attr
 
-AMDGPU_PM_POLICY_ATTR(soc_pstate, SOC_PSTATE)
-AMDGPU_PM_POLICY_ATTR(xgmi_plpd, XGMI_PLPD)
+AMDGPU_PM_POLICY_ATTR(soc_pstate, SOC_PSTATE);
+AMDGPU_PM_POLICY_ATTR(xgmi_plpd, XGMI_PLPD);
 
 static struct attribute *pm_policy_attrs[] = {
 	&AMDGPU_PM_POLICY_ATTR_VAR(soc_pstate),
@@ -3902,11 +3905,14 @@ static int amdgpu_retrieve_od_settings(struct amdgpu_device *adev,
 		return ret;
 
 	ret = amdgpu_dpm_emit_clock_levels(adev, od_type, buf, &size);
-	if (ret)
-		return ret;
+	if (ret) {
+		size = ret;
+		goto out_pm_put;
+	}
 	if (size == 0)
 		size = sysfs_emit(buf, "\n");
 
+out_pm_put:
 	amdgpu_pm_put_access(adev);
 
 	return size;

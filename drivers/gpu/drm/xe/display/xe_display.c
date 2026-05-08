@@ -21,6 +21,7 @@
 #include "intel_audio.h"
 #include "intel_bw.h"
 #include "intel_display.h"
+#include "intel_display_core.h"
 #include "intel_display_device.h"
 #include "intel_display_driver.h"
 #include "intel_display_irq.h"
@@ -519,9 +520,10 @@ void xe_display_pm_runtime_resume(struct xe_device *xe)
 
 static void display_device_remove(struct drm_device *dev, void *arg)
 {
-	struct intel_display *display = arg;
+	struct xe_device *xe = arg;
 
-	intel_display_device_remove(display);
+	intel_display_device_remove(xe->display);
+	xe->display = NULL;
 }
 
 static bool irq_enabled(struct drm_device *drm)
@@ -586,11 +588,11 @@ int xe_display_probe(struct xe_device *xe)
 	if (IS_ERR(display))
 		return PTR_ERR(display);
 
-	err = drmm_add_action_or_reset(&xe->drm, display_device_remove, display);
+	xe->display = display;
+
+	err = drmm_add_action_or_reset(&xe->drm, display_device_remove, xe);
 	if (err)
 		return err;
-
-	xe->display = display;
 
 	if (intel_display_device_present(display))
 		return 0;

@@ -90,6 +90,8 @@ static void populate_dml21_timing_config_from_stream_state(struct dml2_timing_cf
 		struct pipe_ctx *pipe_ctx,
 		struct dml2_context *dml_ctx)
 {
+	const unsigned int min_v_front_porch = (stream->timing.flags.INTERLACE != 0) ? 2 : 1;
+
 	unsigned int hblank_start, vblank_start;
 	uint64_t min_hardware_refresh_in_uhz;
 	uint32_t pix_clk_100hz;
@@ -97,7 +99,8 @@ static void populate_dml21_timing_config_from_stream_state(struct dml2_timing_cf
 	timing->h_active = stream->timing.h_addressable + stream->timing.h_border_left + stream->timing.h_border_right + pipe_ctx->dsc_padding_params.dsc_hactive_padding;
 	timing->v_active = stream->timing.v_addressable + stream->timing.v_border_bottom + stream->timing.v_border_top;
 	timing->h_front_porch = stream->timing.h_front_porch;
-	timing->v_front_porch = stream->timing.v_front_porch;
+	timing->v_front_porch = stream->timing.v_front_porch > min_v_front_porch ?
+			stream->timing.v_front_porch : min_v_front_porch;
 	timing->pixel_clock_khz = stream->timing.pix_clk_100hz / 10;
 	if (pipe_ctx->dsc_padding_params.dsc_hactive_padding != 0)
 		timing->pixel_clock_khz = pipe_ctx->dsc_padding_params.dsc_pix_clk_100hz / 10;
@@ -116,7 +119,7 @@ static void populate_dml21_timing_config_from_stream_state(struct dml2_timing_cf
 	if (hblank_start < stream->timing.h_addressable)
 		timing->h_blank_end = 0;
 
-	vblank_start = stream->timing.v_total - stream->timing.v_front_porch;
+	vblank_start = timing->v_total - timing->v_front_porch;
 
 	timing->v_blank_end = vblank_start - stream->timing.v_addressable
 		- stream->timing.v_border_top - stream->timing.v_border_bottom;
@@ -389,7 +392,9 @@ static void populate_dml21_dummy_surface_cfg(struct dml2_surface_cfg *surface, c
 	surface->tiling = dml2_sw_64kb_2d;
 }
 
-static void populate_dml21_dummy_plane_cfg(struct dml2_plane_parameters *plane, const struct dc_stream_state *stream)
+static void populate_dml21_dummy_plane_cfg(struct dml2_plane_parameters *plane,
+					   const struct dc_stream_state *stream,
+					   const struct dml2_soc_bb *soc_bb)
 {
 	unsigned int width, height;
 
@@ -433,7 +438,8 @@ static void populate_dml21_dummy_plane_cfg(struct dml2_plane_parameters *plane, 
 	plane->pixel_format = dml2_444_32;
 
 	plane->dynamic_meta_data.enable = false;
-	plane->overrides.gpuvm_min_page_size_kbytes = 256;
+	plane->overrides.gpuvm_min_page_size_kbytes = soc_bb->gpuvm_min_page_size_kbytes;
+	plane->overrides.hostvm_min_page_size_kbytes = soc_bb->hostvm_min_page_size_kbytes;
 }
 
 static void populate_dml21_surface_config_from_plane_state(
@@ -441,6 +447,7 @@ static void populate_dml21_surface_config_from_plane_state(
 		struct dml2_surface_cfg *surface,
 		const struct dc_plane_state *plane_state)
 {
+	(void)in_dc;
 	surface->plane0.pitch = plane_state->plane_size.surface_pitch;
 	surface->plane1.pitch = plane_state->plane_size.chroma_pitch;
 	surface->plane0.height = plane_state->plane_size.surface_size.height;
@@ -503,7 +510,7 @@ static const struct scaler_data *get_scaler_data_for_plane(
 
 static void populate_dml21_plane_config_from_plane_state(struct dml2_context *dml_ctx,
 		struct dml2_plane_parameters *plane, const struct dc_plane_state *plane_state,
-		const struct dc_state *context, unsigned int stream_index)
+		const struct dc_state *context, unsigned int stream_index, const struct dml2_soc_bb *soc_bb)
 {
 	const struct scaler_data *scaler_data = get_scaler_data_for_plane(dml_ctx, plane_state, context);
 	struct dc_stream_state *stream = context->streams[stream_index];
@@ -647,7 +654,8 @@ static void populate_dml21_plane_config_from_plane_state(struct dml2_context *dm
 	plane->composition.rotation_angle = (enum dml2_rotation_angle) plane_state->rotation;
 	plane->stream_index = stream_index;
 
-	plane->overrides.gpuvm_min_page_size_kbytes = 256;
+	plane->overrides.gpuvm_min_page_size_kbytes = soc_bb->gpuvm_min_page_size_kbytes;
+	plane->overrides.hostvm_min_page_size_kbytes = soc_bb->hostvm_min_page_size_kbytes;
 
 	plane->immediate_flip = plane_state->flip_immediate;
 
@@ -785,7 +793,9 @@ bool dml21_map_dc_state_into_dml_display_cfg(const struct dc *in_dc, struct dc_s
 		if (context->stream_status[stream_index].plane_count == 0) {
 			disp_cfg_plane_location = dml_dispcfg->num_planes++;
 			populate_dml21_dummy_surface_cfg(&dml_dispcfg->plane_descriptors[disp_cfg_plane_location].surface, context->streams[stream_index]);
-			populate_dml21_dummy_plane_cfg(&dml_dispcfg->plane_descriptors[disp_cfg_plane_location], context->streams[stream_index]);
+			populate_dml21_dummy_plane_cfg(
+				&dml_dispcfg->plane_descriptors[disp_cfg_plane_location],
+				context->streams[stream_index], &dml_ctx->v21.dml_init.soc_bb);
 			dml_dispcfg->plane_descriptors[disp_cfg_plane_location].stream_index = disp_cfg_stream_location;
 		} else {
 			for (plane_index = 0; plane_index < context->stream_status[stream_index].plane_count; plane_index++) {
@@ -797,7 +807,10 @@ bool dml21_map_dc_state_into_dml_display_cfg(const struct dc *in_dc, struct dc_s
 				ASSERT(disp_cfg_plane_location >= 0 && disp_cfg_plane_location < __DML2_WRAPPER_MAX_STREAMS_PLANES__);
 
 				populate_dml21_surface_config_from_plane_state(in_dc, &dml_dispcfg->plane_descriptors[disp_cfg_plane_location].surface, context->stream_status[stream_index].plane_states[plane_index]);
-				populate_dml21_plane_config_from_plane_state(dml_ctx, &dml_dispcfg->plane_descriptors[disp_cfg_plane_location], context->stream_status[stream_index].plane_states[plane_index], context, stream_index);
+				populate_dml21_plane_config_from_plane_state(
+					dml_ctx, &dml_dispcfg->plane_descriptors[disp_cfg_plane_location],
+					context->stream_status[stream_index].plane_states[plane_index],
+					context, stream_index, &dml_ctx->v21.dml_init.soc_bb);
 				dml_dispcfg->plane_descriptors[disp_cfg_plane_location].stream_index = disp_cfg_stream_location;
 
 				if (dml21_wrapper_get_plane_id(context, context->streams[stream_index]->stream_id, context->stream_status[stream_index].plane_states[plane_index], &dml_ctx->v21.dml_to_dc_pipe_mapping.disp_cfg_to_plane_id[disp_cfg_plane_location]))
@@ -838,10 +851,10 @@ void dml21_copy_clocks_to_dc_state(struct dml2_context *in_ctx, struct dc_state 
 	context->bw_ctx.bw.dcn.clk.socclk_khz = in_ctx->v21.mode_programming.programming->min_clocks.dcn4x.socclk_khz;
 	context->bw_ctx.bw.dcn.clk.subvp_prefetch_dramclk_khz = in_ctx->v21.mode_programming.programming->min_clocks.dcn4x.svp_prefetch_no_throttle.uclk_khz;
 	context->bw_ctx.bw.dcn.clk.subvp_prefetch_fclk_khz = in_ctx->v21.mode_programming.programming->min_clocks.dcn4x.svp_prefetch_no_throttle.fclk_khz;
-	context->bw_ctx.bw.dcn.clk.stutter_efficiency.base_efficiency = in_ctx->v21.mode_programming.programming->stutter.base_percent_efficiency;
-	context->bw_ctx.bw.dcn.clk.stutter_efficiency.low_power_efficiency = in_ctx->v21.mode_programming.programming->stutter.low_power_percent_efficiency;
-	context->bw_ctx.bw.dcn.clk.stutter_efficiency.z8_stutter_efficiency = in_ctx->v21.mode_programming.programming->informative.power_management.z8.stutter_efficiency;
-	context->bw_ctx.bw.dcn.clk.stutter_efficiency.z8_stutter_period = in_ctx->v21.mode_programming.programming->informative.power_management.z8.stutter_period;
+	context->bw_ctx.bw.dcn.clk.stutter_efficiency.base_efficiency = (uint8_t)in_ctx->v21.mode_programming.programming->stutter.base_percent_efficiency;
+	context->bw_ctx.bw.dcn.clk.stutter_efficiency.low_power_efficiency = (uint8_t)in_ctx->v21.mode_programming.programming->stutter.low_power_percent_efficiency;
+	context->bw_ctx.bw.dcn.clk.stutter_efficiency.z8_stutter_efficiency = (uint8_t)in_ctx->v21.mode_programming.programming->informative.power_management.z8.stutter_efficiency;
+	context->bw_ctx.bw.dcn.clk.stutter_efficiency.z8_stutter_period = (int)in_ctx->v21.mode_programming.programming->informative.power_management.z8.stutter_period;
 	context->bw_ctx.bw.dcn.clk.zstate_support = in_ctx->v21.mode_programming.programming->z8_stutter.supported_in_blank; /*ignore meets_eco since it is not used*/
 }
 
@@ -873,6 +886,7 @@ static struct dml2_dchub_watermark_regs *wm_set_index_to_dc_wm_set(union dcn_wat
 
 void dml21_extract_watermark_sets(const struct dc *in_dc, union dcn_watermark_set *watermarks, struct dml2_context *in_ctx)
 {
+	(void)in_dc;
 	const struct dml2_display_cfg_programming *programming = in_ctx->v21.mode_programming.programming;
 
 	unsigned int wm_index;
@@ -907,6 +921,7 @@ void dml21_get_pipe_mcache_config(
 	struct dml2_per_plane_programming *pln_prog,
 	struct dml2_pipe_configuration_descriptor *mcache_pipe_config)
 {
+	(void)context;
 	mcache_pipe_config->plane0.viewport_x_start = pipe_ctx->plane_res.scl_data.viewport.x;
 	mcache_pipe_config->plane0.viewport_width = pipe_ctx->plane_res.scl_data.viewport.width;
 

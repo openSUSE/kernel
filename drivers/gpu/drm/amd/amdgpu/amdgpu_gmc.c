@@ -280,6 +280,15 @@ void amdgpu_gmc_sysvm_location(struct amdgpu_device *adev, struct amdgpu_gmc *mc
 			mc->gart_size >> 20, mc->gart_start, mc->gart_end);
 }
 
+void amdgpu_gmc_set_gart_size(struct amdgpu_device *adev, u64 default_size)
+{
+	if (amdgpu_gart_size == -1)
+		adev->gmc.gart_size =
+			default_size + adev->pm.smu_prv_buffer_size;
+	else
+		adev->gmc.gart_size = (u64)amdgpu_gart_size << 20;
+}
+
 /**
  * amdgpu_gmc_gart_location - try to find GART location
  *
@@ -314,7 +323,10 @@ void amdgpu_gmc_gart_location(struct amdgpu_device *adev, struct amdgpu_gmc *mc,
 		mc->gart_start = max_mc_address - mc->gart_size + 1;
 		break;
 	case AMDGPU_GART_PLACEMENT_LOW:
-		mc->gart_start = 0;
+		if (size_bf >= mc->gart_size)
+			mc->gart_start = 0;
+		else
+			mc->gart_start = ALIGN(mc->fb_end, four_gb);
 		break;
 	case AMDGPU_GART_PLACEMENT_BEST_FIT:
 	default:
@@ -708,11 +720,13 @@ int amdgpu_gmc_allocate_vm_inv_eng(struct amdgpu_device *adev)
 void amdgpu_gmc_flush_gpu_tlb(struct amdgpu_device *adev, uint32_t vmid,
 			      uint32_t vmhub, uint32_t flush_type)
 {
-	struct amdgpu_ring *ring = adev->mman.buffer_funcs_ring;
+	struct amdgpu_ring *ring;
 	struct amdgpu_vmhub *hub = &adev->vmhub[vmhub];
 	struct dma_fence *fence;
 	struct amdgpu_job *job;
 	int r;
+
+	ring = to_amdgpu_ring(adev->mman.buffer_funcs_scheds[0]);
 
 	if (!hub->sdma_invalidation_workaround || vmid ||
 	    !adev->mman.buffer_funcs_enabled || !adev->ib_pool_ready ||
@@ -1002,6 +1016,9 @@ void amdgpu_gmc_noretry_set(struct amdgpu_device *adev)
 				gc_ver == IP_VERSION(9, 5, 0) ||
 				gc_ver >= IP_VERSION(10, 3, 0));
 
+	/* For GFX12.1 B0, set xnack (retry) on as default */
+	if (gc_ver == IP_VERSION(12, 1, 0) && (adev->rev_id & 0xf) == 0x1)
+		noretry_default = false;
 	if (!amdgpu_sriov_xnack_support(adev))
 		gmc->noretry = 1;
 	else
@@ -1033,17 +1050,17 @@ void amdgpu_gmc_set_vm_fault_masks(struct amdgpu_device *adev, int hub_type,
 	}
 }
 
-void amdgpu_gmc_get_vbios_allocations(struct amdgpu_device *adev)
+void amdgpu_gmc_init_vga_resv_regions(struct amdgpu_device *adev)
 {
 	unsigned size;
+
+	if (adev->gmc.is_app_apu)
+		return;
 
 	/*
 	 * Some ASICs need to reserve a region of video memory to avoid access
 	 * from driver
 	 */
-	adev->mman.stolen_reserved_offset = 0;
-	adev->mman.stolen_reserved_size = 0;
-
 	/*
 	 * TODO:
 	 * Currently there is a bug where some memory client outside
@@ -1060,8 +1077,8 @@ void amdgpu_gmc_get_vbios_allocations(struct amdgpu_device *adev)
 		 */
 #ifdef CONFIG_X86
 		if (amdgpu_sriov_vf(adev) && hypervisor_is_type(X86_HYPER_MS_HYPERV)) {
-			adev->mman.stolen_reserved_offset = 0x500000;
-			adev->mman.stolen_reserved_size = 0x200000;
+			amdgpu_ttm_init_vram_resv(adev, AMDGPU_RESV_STOLEN_RESERVED,
+						  0x500000, 0x200000, false);
 		}
 #endif
 		break;
@@ -1099,11 +1116,14 @@ void amdgpu_gmc_get_vbios_allocations(struct amdgpu_device *adev)
 		size = 0;
 
 	if (size > AMDGPU_VBIOS_VGA_ALLOCATION) {
-		adev->mman.stolen_vga_size = AMDGPU_VBIOS_VGA_ALLOCATION;
-		adev->mman.stolen_extended_size = size - adev->mman.stolen_vga_size;
+		amdgpu_ttm_init_vram_resv(adev, AMDGPU_RESV_STOLEN_VGA,
+					  0, AMDGPU_VBIOS_VGA_ALLOCATION, false);
+		amdgpu_ttm_init_vram_resv(adev, AMDGPU_RESV_STOLEN_EXTENDED,
+					  AMDGPU_VBIOS_VGA_ALLOCATION,
+					  size - AMDGPU_VBIOS_VGA_ALLOCATION, false);
 	} else {
-		adev->mman.stolen_vga_size = size;
-		adev->mman.stolen_extended_size = 0;
+		amdgpu_ttm_init_vram_resv(adev, AMDGPU_RESV_STOLEN_VGA,
+					  0, size, false);
 	}
 }
 

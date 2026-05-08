@@ -250,10 +250,12 @@ static void fill_backlight_transform_table(struct dmcu_iram_parameters params,
 	unsigned int lut_index;
 
 	table->backlight_thresholds[0] = 0;
-	table->backlight_offsets[0] = params.backlight_lut_array[0];
+	ASSERT(params.backlight_lut_array[0] <= 0xFFFF);
+	table->backlight_offsets[0] = (uint16_t)params.backlight_lut_array[0];
 	table->backlight_thresholds[num_entries-1] = 0xFFFF;
+	ASSERT(params.backlight_lut_array[params.backlight_lut_array_size - 1] <= 0xFFFF);
 	table->backlight_offsets[num_entries-1] =
-		params.backlight_lut_array[params.backlight_lut_array_size - 1];
+		(uint16_t)params.backlight_lut_array[params.backlight_lut_array_size - 1];
 
 	/* Setup all brightness levels between 0% and 100% exclusive
 	 * Fills brightness-to-backlight transform table. Backlight custom curve
@@ -265,12 +267,17 @@ static void fill_backlight_transform_table(struct dmcu_iram_parameters params,
 	 */
 	for (i = 1; i+1 < num_entries; i++) {
 		lut_index = (params.backlight_lut_array_size - 1) * i / (num_entries - 1);
+
 		ASSERT(lut_index < params.backlight_lut_array_size);
 
-		table->backlight_thresholds[i] =
-			cpu_to_be16(DIV_ROUNDUP((i * 65536), num_entries));
-		table->backlight_offsets[i] =
-			cpu_to_be16(params.backlight_lut_array[lut_index]);
+		unsigned int threshold_val = DIV_ROUNDUP((i * 65536), num_entries);
+		unsigned int offset_val = params.backlight_lut_array[lut_index];
+
+		ASSERT(threshold_val <= 0xFFFF);
+		ASSERT(offset_val <= 0xFFFF);
+
+		table->backlight_thresholds[i] = cpu_to_be16((uint16_t)threshold_val);
+		table->backlight_offsets[i]    = cpu_to_be16((uint16_t)offset_val);
 	}
 }
 
@@ -282,10 +289,12 @@ static void fill_backlight_transform_table_v_2_2(struct dmcu_iram_parameters par
 	unsigned int lut_index;
 
 	table->backlight_thresholds[0] = 0;
-	table->backlight_offsets[0] = params.backlight_lut_array[0];
+	ASSERT(params.backlight_lut_array[0] <= 0xFFFF);
+	table->backlight_offsets[0] = (uint16_t)params.backlight_lut_array[0];
 	table->backlight_thresholds[num_entries-1] = 0xFFFF;
+	ASSERT(params.backlight_lut_array[params.backlight_lut_array_size - 1] <= 0xFFFF);
 	table->backlight_offsets[num_entries-1] =
-		params.backlight_lut_array[params.backlight_lut_array_size - 1];
+		(uint16_t)params.backlight_lut_array[params.backlight_lut_array_size - 1];
 
 	/* Setup all brightness levels between 0% and 100% exclusive
 	 * Fills brightness-to-backlight transform table. Backlight custom curve
@@ -299,12 +308,16 @@ static void fill_backlight_transform_table_v_2_2(struct dmcu_iram_parameters par
 		lut_index = DIV_ROUNDUP((i * params.backlight_lut_array_size), num_entries);
 		ASSERT(lut_index < params.backlight_lut_array_size);
 
+		unsigned int threshold_val = DIV_ROUNDUP((i * 65536), num_entries);
+		unsigned int offset_val = params.backlight_lut_array[lut_index];
+
+		ASSERT(threshold_val <= 0xFFFF);
+		ASSERT(offset_val <= 0xFFFF);
+
 		table->backlight_thresholds[i] = (big_endian) ?
-			cpu_to_be16(DIV_ROUNDUP((i * 65536), num_entries)) :
-			cpu_to_le16(DIV_ROUNDUP((i * 65536), num_entries));
+			cpu_to_be16((uint16_t)threshold_val) : cpu_to_le16((uint16_t)threshold_val);
 		table->backlight_offsets[i] = (big_endian) ?
-			cpu_to_be16(params.backlight_lut_array[lut_index]) :
-			cpu_to_le16(params.backlight_lut_array[lut_index]);
+			cpu_to_be16((uint16_t)offset_val) : cpu_to_le16((uint16_t)offset_val);
 	}
 }
 
@@ -634,12 +647,12 @@ static void fill_iram_v_2_3(struct iram_table_v_2_2 *ram_table, struct dmcu_iram
 	unsigned int set = params.set;
 
 	ram_table->flags = 0x0;
-	ram_table->min_abm_backlight = (big_endian) ?
+	ram_table->min_abm_backlight = (uint16_t)((big_endian) ?
 		cpu_to_be16(params.min_abm_backlight) :
-		cpu_to_le16(params.min_abm_backlight);
+		cpu_to_le16(params.min_abm_backlight));
 
 	for (i = 0; i < NUM_AGGR_LEVEL; i++) {
-		ram_table->hybrid_factor[i] = abm_settings[set][i].brightness_gain;
+		ram_table->hybrid_factor[i] = (uint8_t)abm_settings[set][i].brightness_gain;
 		ram_table->contrast_factor[i] = abm_settings[set][i].contrast_factor;
 		ram_table->deviation_gain[i] = abm_settings[set][i].deviation_gain;
 		ram_table->min_knee[i] = abm_settings[set][i].min_knee;
@@ -740,9 +753,12 @@ bool dmub_init_abm_config(struct resource_pool *res_pool,
 	}
 
 	if (params.backlight_ramping_override) {
+
+		ASSERT(params.backlight_ramping_reduction <= 0xFFFF);
+		ASSERT(params.backlight_ramping_start <= 0xFFFF);
 		for (i = 0; i < NUM_AGGR_LEVEL; i++) {
-			config.blRampReduction[i] = params.backlight_ramping_reduction;
-			config.blRampStart[i] = params.backlight_ramping_start;
+			config.blRampReduction[i] = (uint16_t)params.backlight_ramping_reduction;
+			config.blRampStart[i]     = (uint16_t)params.backlight_ramping_start;
 		}
 	} else {
 		for (i = 0; i < NUM_AGGR_LEVEL; i++) {
@@ -944,8 +960,8 @@ bool psr_su_set_dsc_slice_height(struct dc *dc, struct dc_link *link,
 			      struct dc_stream_state *stream,
 			      struct psr_config *config)
 {
-	uint16_t pic_height;
-	uint16_t slice_height;
+	uint32_t pic_height;
+	uint32_t slice_height;
 
 	config->dsc_slice_height = 0;
 	if (!(link->connector_signal & SIGNAL_TYPE_EDP) ||
@@ -962,7 +978,7 @@ bool psr_su_set_dsc_slice_height(struct dc *dc, struct dc_link *link,
 		return false;
 
 	slice_height = pic_height / stream->timing.dsc_cfg.num_slices_v;
-	config->dsc_slice_height = slice_height;
+	config->dsc_slice_height = (uint16_t)slice_height;
 
 	if (slice_height) {
 		if (config->su_y_granularity &&
@@ -1040,7 +1056,7 @@ void set_replay_low_rr_full_screen_video_src_vtotal(struct dc_link *link, uint16
 void calculate_replay_link_off_frame_count(struct dc_link *link,
 	uint16_t vtotal, uint16_t htotal)
 {
-	uint8_t max_link_off_frame_count = 0;
+	uint32_t max_link_off_frame_count = 0;
 	uint16_t max_deviation_line = 0,  pixel_deviation_per_line = 0;
 
 	if (!link || link->replay_settings.config.replay_version != DC_FREESYNC_REPLAY)
@@ -1060,6 +1076,7 @@ void calculate_replay_link_off_frame_count(struct dc_link *link,
 bool fill_custom_backlight_caps(unsigned int config_no, struct dm_acpi_atif_backlight_caps *caps)
 {
 	unsigned int data_points_size;
+	uint64_t caps_size;
 
 	if (config_no >= ARRAY_SIZE(custom_backlight_profiles))
 		return false;
@@ -1067,14 +1084,16 @@ bool fill_custom_backlight_caps(unsigned int config_no, struct dm_acpi_atif_back
 	data_points_size = custom_backlight_profiles[config_no].num_data_points
 			* sizeof(custom_backlight_profiles[config_no].data_points[0]);
 
-	caps->size = sizeof(struct dm_acpi_atif_backlight_caps) - sizeof(caps->data_points) + data_points_size;
+	caps_size = sizeof(struct dm_acpi_atif_backlight_caps) - sizeof(caps->data_points) + data_points_size;
+	ASSERT(caps_size <= 0xFFFF);
+	caps->size = (uint16_t)caps_size;
 	caps->flags = 0;
 	caps->error_code = 0;
 	caps->ac_level_percentage = custom_backlight_profiles[config_no].ac_level_percentage;
 	caps->dc_level_percentage = custom_backlight_profiles[config_no].dc_level_percentage;
 	caps->min_input_signal = custom_backlight_profiles[config_no].min_input_signal;
 	caps->max_input_signal = custom_backlight_profiles[config_no].max_input_signal;
-	caps->num_data_points = custom_backlight_profiles[config_no].num_data_points;
+	caps->num_data_points = (uint8_t)custom_backlight_profiles[config_no].num_data_points;
 	memcpy(caps->data_points, custom_backlight_profiles[config_no].data_points, data_points_size);
 	return true;
 }

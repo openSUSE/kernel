@@ -35,6 +35,9 @@
 
 /**
  * dm_ism_next_state - Get next state based on current state and event
+ * @current_state: current ISM state
+ * @event: event being processed
+ * @next_state: place to store the next state
  *
  * This function defines the idle state management FSM. Invalid transitions
  * are ignored and will not progress the FSM.
@@ -148,6 +151,11 @@ static uint64_t dm_ism_get_sso_delay(const struct amdgpu_dm_ism *ism,
 
 /**
  * dm_ism_get_idle_allow_delay - Calculate hysteresis-based idle allow delay
+ * @ism: ISM instance containing configuration, history, and current state
+ * @stream: display stream used to derive frame timing values for delay
+ *
+ * Calculates the delay before allowing idle optimizations based on recent
+ * idle history and the current stream timing.
  */
 static uint64_t dm_ism_get_idle_allow_delay(const struct amdgpu_dm_ism *ism,
 					    const struct dc_stream_state *stream)
@@ -212,6 +220,7 @@ static uint64_t dm_ism_get_idle_allow_delay(const struct amdgpu_dm_ism *ism,
 
 /**
  * dm_ism_insert_record - Insert a record into the circular history buffer
+ * @ism: ISM instance
  */
 static void dm_ism_insert_record(struct amdgpu_dm_ism *ism)
 {
@@ -261,7 +270,6 @@ static void dm_ism_commit_idle_optimization_state(struct amdgpu_dm_ism *ism,
 	struct amdgpu_crtc *acrtc = ism_to_amdgpu_crtc(ism);
 	struct amdgpu_device *adev = drm_to_adev(acrtc->base.dev);
 	struct amdgpu_display_manager *dm = &adev->dm;
-	int r;
 
 	trace_amdgpu_dm_ism_commit(dm->active_vblank_irq_count,
 				   vblank_enabled,
@@ -283,24 +291,16 @@ static void dm_ism_commit_idle_optimization_state(struct amdgpu_dm_ism *ism,
 	 */
 	if (stream && stream->link) {
 		/*
-		 * If allow_panel_sso is true when disabling vblank, allow
-		 * deeper panel sleep states such as PSR1 and Replay static
-		 * screen optimization.
+		 * If the OS requires vblank events (or vblank is otherwise enabled),
+		 * do not allow static screen optimizations.
+		 *
+		 * Keep ism->allow_static_screen_optimizations unchanged so the
+		 * hysteresis-based decision can be reused once vblank is disabled.
 		 */
-		if (!vblank_enabled && allow_panel_sso) {
-			amdgpu_dm_crtc_set_panel_sr_feature(
-				dm, acrtc, stream, false,
-				acrtc->dm_irq_params.allow_sr_entry);
-		} else if (vblank_enabled) {
-			/* Make sure to exit SSO on vblank enable */
-			amdgpu_dm_crtc_set_panel_sr_feature(
-				dm, acrtc, stream, true,
-				acrtc->dm_irq_params.allow_sr_entry);
-		}
-		/*
-		 * Else, vblank_enabled == false and allow_panel_sso == false;
-		 * do nothing here.
-		 */
+		allow_panel_sso = allow_panel_sso && !vblank_enabled;
+		amdgpu_dm_crtc_set_static_screen_optimze(
+			dm, stream, allow_panel_sso,
+			acrtc->dm_irq_params.allow_sr_entry);
 	}
 
 	/*
@@ -314,16 +314,7 @@ static void dm_ism_commit_idle_optimization_state(struct amdgpu_dm_ism *ism,
 	 */
 	if (!vblank_enabled && dm->active_vblank_irq_count == 0) {
 		dc_post_update_surfaces_to_stream(dm->dc);
-
-		r = amdgpu_dpm_pause_power_profile(adev, true);
-		if (r)
-			dev_warn(adev->dev, "failed to set default power profile mode\n");
-
 		dc_allow_idle_optimizations(dm->dc, true);
-
-		r = amdgpu_dpm_pause_power_profile(adev, false);
-		if (r)
-			dev_warn(adev->dev, "failed to restore the power profile mode\n");
 	}
 }
 
@@ -463,6 +454,9 @@ void amdgpu_dm_ism_commit_event(struct amdgpu_dm_ism *ism,
 	/* ISM transitions must be called with mutex acquired */
 	ASSERT(mutex_is_locked(&dm->dc_lock));
 
+	/* ISM should not run after dc is destroyed */
+	ASSERT(dm->dc);
+
 	if (!acrtc_state) {
 		trace_amdgpu_dm_ism_event(acrtc->crtc_id, "NO_STATE",
 					  "NO_STATE", "N/A");
@@ -535,6 +529,8 @@ void amdgpu_dm_ism_disable(struct amdgpu_display_manager *dm)
 	struct drm_crtc *crtc;
 	struct amdgpu_crtc *acrtc;
 	struct amdgpu_dm_ism *ism;
+
+	ASSERT(mutex_is_locked(&dm->dc_lock));
 
 	drm_for_each_crtc(crtc, dm->ddev) {
 		acrtc = to_amdgpu_crtc(crtc);

@@ -17,7 +17,6 @@
 #include <linux/nvme-auth.h>
 #endif
 #include <linux/nvme-keyring.h>
-#include <crypto/hash.h>
 #include <crypto/kpp.h>
 #include <linux/nospec.h>
 
@@ -301,6 +300,31 @@ static ssize_t nvmet_param_max_queue_size_store(struct config_item *item,
 }
 
 CONFIGFS_ATTR(nvmet_, param_max_queue_size);
+
+static ssize_t nvmet_param_mdts_show(struct config_item *item, char *page)
+{
+	struct nvmet_port *port = to_nvmet_port(item);
+
+	return snprintf(page, PAGE_SIZE, "%d\n", port->mdts);
+}
+
+static ssize_t nvmet_param_mdts_store(struct config_item *item,
+		const char *page, size_t count)
+{
+	struct nvmet_port *port = to_nvmet_port(item);
+	int ret;
+
+	if (nvmet_is_port_enabled(port, __func__))
+		return -EACCES;
+	ret = kstrtoint(page, 0, &port->mdts);
+	if (ret) {
+		pr_err("Invalid value '%s' for mdts\n", page);
+		return -EINVAL;
+	}
+	return count;
+}
+
+CONFIGFS_ATTR(nvmet_, param_mdts);
 
 #ifdef CONFIG_BLK_DEV_INTEGRITY
 static ssize_t nvmet_param_pi_enable_show(struct config_item *item,
@@ -1996,6 +2020,7 @@ static struct configfs_attribute *nvmet_port_attrs[] = {
 	&nvmet_attr_addr_tsas,
 	&nvmet_attr_param_inline_data_size,
 	&nvmet_attr_param_max_queue_size,
+	&nvmet_attr_param_mdts,
 #ifdef CONFIG_BLK_DEV_INTEGRITY
 	&nvmet_attr_param_pi_enable,
 #endif
@@ -2054,6 +2079,7 @@ static struct config_group *nvmet_ports_make(struct config_group *group,
 	INIT_LIST_HEAD(&port->referrals);
 	port->inline_data_size = -1;	/* < 0 == let the transport choose */
 	port->max_queue_size = -1;	/* < 0 == let the transport choose */
+	port->mdts = -1;		/* < 0 == let the transport choose */
 
 	port->disc_addr.trtype = NVMF_TRTYPE_MAX;
 	port->disc_addr.portid = cpu_to_le16(portid);
@@ -2181,8 +2207,6 @@ static ssize_t nvmet_host_dhchap_hash_store(struct config_item *item,
 	hmac_id = nvme_auth_hmac_id(page);
 	if (hmac_id == NVME_AUTH_HASH_INVALID)
 		return -EINVAL;
-	if (!crypto_has_shash(nvme_auth_hmac_name(hmac_id), 0, 0))
-		return -ENOTSUPP;
 	host->dhchap_hash_id = hmac_id;
 	return count;
 }

@@ -30,7 +30,7 @@
 #include "i915_reg_defs.h"
 #include "intel_display_limits.h"
 
-struct drm_atomic_state;
+struct drm_atomic_commit;
 struct drm_device;
 struct drm_display_mode;
 struct drm_encoder;
@@ -212,22 +212,23 @@ enum phy_fia {
 			    base.head)					\
 		for_each_if((intel_plane)->pipe == (intel_crtc)->pipe)
 
-#define for_each_intel_crtc(dev, intel_crtc)				\
-	list_for_each_entry(intel_crtc,					\
-			    &(dev)->mode_config.crtc_list,		\
-			    base.head)
+#define for_each_intel_crtc(dev, crtc) \
+	list_for_each_entry((crtc), \
+			    &to_intel_display(dev)->pipe_list, \
+			    pipe_head)
 
-#define for_each_intel_crtc_in_pipe_mask(dev, intel_crtc, pipe_mask)	\
-	list_for_each_entry(intel_crtc,					\
-			    &(dev)->mode_config.crtc_list,		\
-			    base.head)					\
-		for_each_if((pipe_mask) & BIT(intel_crtc->pipe))
+#define for_each_intel_crtc_reverse(dev, crtc) \
+	list_for_each_entry_reverse((crtc), \
+				    &to_intel_display(dev)->pipe_list, \
+				    pipe_head)
 
-#define for_each_intel_crtc_in_pipe_mask_reverse(dev, intel_crtc, pipe_mask)	\
-	list_for_each_entry_reverse((intel_crtc),				\
-				    &(dev)->mode_config.crtc_list,		\
-				    base.head)					\
-		for_each_if((pipe_mask) & BIT((intel_crtc)->pipe))
+#define for_each_intel_crtc_in_pipe_mask(dev, crtc, pipe_mask) \
+	for_each_intel_crtc((dev), (crtc)) \
+		for_each_if((pipe_mask) & BIT((crtc)->pipe))
+
+#define for_each_intel_crtc_in_pipe_mask_reverse(dev, crtc, pipe_mask) \
+	for_each_intel_crtc_reverse((dev), (crtc)) \
+		for_each_if((pipe_mask) & BIT((crtc)->pipe))
 
 #define for_each_intel_encoder(dev, intel_encoder)		\
 	list_for_each_entry(intel_encoder,			\
@@ -269,14 +270,6 @@ enum phy_fia {
 	     (__i)++) \
 		for_each_if(plane)
 
-#define for_each_old_intel_crtc_in_state(__state, crtc, old_crtc_state, __i) \
-	for ((__i) = 0; \
-	     (__i) < (__state)->base.dev->mode_config.num_crtc && \
-		     ((crtc) = to_intel_crtc((__state)->base.crtcs[__i].ptr), \
-		      (old_crtc_state) = to_intel_crtc_state((__state)->base.crtcs[__i].old_state), 1); \
-	     (__i)++) \
-		for_each_if(crtc)
-
 #define for_each_new_intel_plane_in_state(__state, plane, new_plane_state, __i) \
 	for ((__i) = 0; \
 	     (__i) < (__state)->base.dev->mode_config.num_total_plane && \
@@ -284,22 +277,6 @@ enum phy_fia {
 		      (new_plane_state) = to_intel_plane_state((__state)->base.planes[__i].new_state), 1); \
 	     (__i)++) \
 		for_each_if(plane)
-
-#define for_each_new_intel_crtc_in_state(__state, crtc, new_crtc_state, __i) \
-	for ((__i) = 0; \
-	     (__i) < (__state)->base.dev->mode_config.num_crtc && \
-		     ((crtc) = to_intel_crtc((__state)->base.crtcs[__i].ptr), \
-		      (new_crtc_state) = to_intel_crtc_state((__state)->base.crtcs[__i].new_state), 1); \
-	     (__i)++) \
-		for_each_if(crtc)
-
-#define for_each_new_intel_crtc_in_state_reverse(__state, crtc, new_crtc_state, __i) \
-	for ((__i) = (__state)->base.dev->mode_config.num_crtc - 1; \
-	     (__i) >= 0  && \
-	     ((crtc) = to_intel_crtc((__state)->base.crtcs[__i].ptr), \
-	      (new_crtc_state) = to_intel_crtc_state((__state)->base.crtcs[__i].new_state), 1); \
-	     (__i)--) \
-		for_each_if(crtc)
 
 #define for_each_oldnew_intel_plane_in_state(__state, plane, old_plane_state, new_plane_state, __i) \
 	for ((__i) = 0; \
@@ -310,23 +287,32 @@ enum phy_fia {
 	     (__i)++) \
 		for_each_if(plane)
 
+#define for_each_old_intel_crtc_in_state(__state, crtc, old_crtc_state, __i) \
+	for_each_intel_crtc((__state)->base.dev, (crtc)) \
+		for_each_if(((__i) = drm_crtc_index(&(crtc)->base), (void)(__i), \
+			     (old_crtc_state) = intel_atomic_get_old_crtc_state((__state), (crtc))))
+
+#define for_each_new_intel_crtc_in_state(__state, crtc, new_crtc_state, __i) \
+	for_each_intel_crtc((__state)->base.dev, (crtc)) \
+		for_each_if(((__i) = drm_crtc_index(&(crtc)->base), (void)(__i), \
+			     (new_crtc_state) = intel_atomic_get_new_crtc_state((__state), (crtc))))
+
+#define for_each_new_intel_crtc_in_state_reverse(__state, crtc, new_crtc_state, __i) \
+	for_each_intel_crtc_reverse((__state)->base.dev, (crtc)) \
+		for_each_if(((__i) = drm_crtc_index(&(crtc)->base), (void)(__i), \
+			     (new_crtc_state) = intel_atomic_get_new_crtc_state((__state), (crtc))))
+
 #define for_each_oldnew_intel_crtc_in_state(__state, crtc, old_crtc_state, new_crtc_state, __i) \
-	for ((__i) = 0; \
-	     (__i) < (__state)->base.dev->mode_config.num_crtc && \
-		     ((crtc) = to_intel_crtc((__state)->base.crtcs[__i].ptr), \
-		      (old_crtc_state) = to_intel_crtc_state((__state)->base.crtcs[__i].old_state), \
-		      (new_crtc_state) = to_intel_crtc_state((__state)->base.crtcs[__i].new_state), 1); \
-	     (__i)++) \
-		for_each_if(crtc)
+	for_each_intel_crtc((__state)->base.dev, (crtc)) \
+		for_each_if(((__i) = drm_crtc_index(&(crtc)->base), (void)(__i), \
+			     (old_crtc_state) = intel_atomic_get_old_crtc_state((__state), (crtc)), \
+			     (new_crtc_state) = intel_atomic_get_new_crtc_state((__state), (crtc))))
 
 #define for_each_oldnew_intel_crtc_in_state_reverse(__state, crtc, old_crtc_state, new_crtc_state, __i) \
-	for ((__i) = (__state)->base.dev->mode_config.num_crtc - 1; \
-	     (__i) >= 0  && \
-	     ((crtc) = to_intel_crtc((__state)->base.crtcs[__i].ptr), \
-	      (old_crtc_state) = to_intel_crtc_state((__state)->base.crtcs[__i].old_state), \
-	      (new_crtc_state) = to_intel_crtc_state((__state)->base.crtcs[__i].new_state), 1); \
-	     (__i)--) \
-		for_each_if(crtc)
+	for_each_intel_crtc_reverse((__state)->base.dev, (crtc)) \
+		for_each_if(((__i) = drm_crtc_index(&(crtc)->base), (void)(__i), \
+			     (old_crtc_state) = intel_atomic_get_old_crtc_state((__state), (crtc)), \
+			     (new_crtc_state) = intel_atomic_get_new_crtc_state((__state), (crtc))))
 
 #define intel_atomic_crtc_state_for_each_plane_state( \
 		  plane, plane_state, \
@@ -368,7 +354,7 @@ enum phy_fia {
 				       _intel_modeset_secondary_pipes(crtc_state), \
 				       i)
 
-int intel_atomic_check(struct drm_device *dev, struct drm_atomic_state *state);
+int intel_atomic_check(struct drm_device *dev, struct drm_atomic_commit *state);
 u8 intel_calc_enabled_pipes(struct intel_atomic_state *state,
 			    u8 enabled_pipes);
 u8 intel_calc_active_pipes(struct intel_atomic_state *state,
@@ -507,7 +493,7 @@ int intel_initial_commit(struct intel_display *display);
 void intel_panel_sanitize_ssc(struct intel_display *display);
 enum drm_mode_status intel_mode_valid(struct drm_device *dev,
 				      const struct drm_display_mode *mode);
-int intel_atomic_commit(struct drm_device *dev, struct drm_atomic_state *_state,
+int intel_atomic_commit(struct drm_device *dev, struct drm_atomic_commit *_state,
 			bool nonblock);
 
 /* modesetting asserts */
