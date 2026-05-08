@@ -512,13 +512,15 @@ static int tegra114_emc_prepare_timing_change(struct tegra_emc *emc,
 	enum emc_dll_change dll_change;
 	unsigned int pre_wait = 0;
 	u32 val, mask;
-	bool next_dll_enabled = !(timing->emc_mode_1 & 0x1);
 	bool last_dll_enabled = !(last->emc_mode_1 & 0x1);
 	bool update = false;
+	bool next_dll_enabled;
 	unsigned int i;
 
 	if (!timing)
 		return -ENOENT;
+
+	next_dll_enabled = !(timing->emc_mode_1 & 0x1);
 
 	if (next_dll_enabled == last_dll_enabled)
 		dll_change = DLL_CHANGE_NONE;
