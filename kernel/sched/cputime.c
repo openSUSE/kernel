@@ -47,7 +47,8 @@ static void irqtime_account_delta(struct irqtime *irqtime, u64 delta,
 	u64_stats_update_begin(&irqtime->sync);
 	cpustat[idx] += delta;
 	irqtime->total += delta;
-	irqtime->tick_delta += delta;
+	if (!kcpustat_idle_dyntick())
+		irqtime->tick_delta += delta;
 	u64_stats_update_end(&irqtime->sync);
 }
 
@@ -444,6 +445,10 @@ static void kcpustat_idle_stop(struct kernel_cpustat *kc, u64 now)
 
 static void kcpustat_idle_start(struct kernel_cpustat *kc, u64 now)
 {
+	/* Irqtime accounting might have been enabled in the middle of the IRQ */
+	if (kc->idle_elapse)
+		return;
+
 	write_seqcount_begin(&kc->idle_sleeptime_seq);
 	kc->idle_entrytime = now;
 	kc->idle_elapse = true;
@@ -478,7 +483,8 @@ void kcpustat_irq_enter(u64 now)
 {
 	struct kernel_cpustat *kc = kcpustat_this_cpu;
 
-	if (!vtime_generic_enabled_this_cpu())
+	if (!vtime_generic_enabled_this_cpu() &&
+	    (irqtime_enabled() || vtime_accounting_enabled_this_cpu()))
 		kcpustat_idle_stop(kc, now);
 }
 
@@ -486,7 +492,15 @@ void kcpustat_irq_exit(u64 now)
 {
 	struct kernel_cpustat *kc = kcpustat_this_cpu;
 
-	if (!vtime_generic_enabled_this_cpu())
+	/*
+	 * Generic vtime already does its own idle accounting.
+	 * But irqtime accounting or arch vtime which also accounts IRQs
+	 * need to pause nohz accounting. Resume nohz accounting as long
+	 * as the irqtime config is enabled to handle case where irqtime
+	 * accounting got runtime disabled in the middle of an IRQ.
+	 */
+	if (!vtime_generic_enabled_this_cpu() &&
+	    (IS_ENABLED(CONFIG_IRQ_TIME_ACCOUNTING) || vtime_accounting_enabled_this_cpu()))
 		kcpustat_idle_start(kc, now);
 }
 
