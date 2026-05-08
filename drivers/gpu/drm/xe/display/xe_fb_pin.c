@@ -328,6 +328,9 @@ static struct i915_vma *__xe_pin_fb_vma(struct drm_gem_object *obj, bool is_dpt,
 	struct drm_exec exec;
 	int ret = 0;
 
+	/* We reject creating !SCANOUT fb's, so this is weird.. */
+	drm_WARN_ON(bo->ttm.base.dev, !(bo->flags & XE_BO_FLAG_FORCE_WC));
+
 	if (!vma)
 		return ERR_PTR(-ENODEV);
 
@@ -473,7 +476,6 @@ int intel_plane_pin_fb(struct intel_plane_state *new_plane_state,
 {
 	struct drm_framebuffer *fb = new_plane_state->hw.fb;
 	struct drm_gem_object *obj = intel_fb_bo(fb);
-	struct xe_bo *bo = gem_to_xe_bo(obj);
 	struct i915_vma *vma;
 	struct intel_plane *plane = to_intel_plane(new_plane_state->uapi.plane);
 	struct intel_fb_pin_params pin_params = {
@@ -484,9 +486,6 @@ int intel_plane_pin_fb(struct intel_plane_state *new_plane_state,
 
 	if (reuse_vma(new_plane_state, old_plane_state))
 		return 0;
-
-	/* We reject creating !SCANOUT fb's, so this is weird.. */
-	drm_WARN_ON(bo->ttm.base.dev, !(bo->flags & XE_BO_FLAG_FORCE_WC));
 
 	vma = __xe_pin_fb_vma(obj, intel_fb_uses_dpt(fb), &pin_params);
 
