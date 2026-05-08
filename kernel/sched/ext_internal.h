@@ -938,6 +938,9 @@ struct sched_ext_ops_cid {
 
 	/* internal use only, must be NULL */
 	void __rcu *priv;
+
+	/* layout end anchor for the BUILD_BUG_ON in scx_init(); keep last */
+	char __end[0];
 };
 
 enum scx_opi {
