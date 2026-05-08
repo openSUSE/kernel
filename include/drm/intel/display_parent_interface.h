@@ -16,6 +16,7 @@ struct drm_mode_fb_cmd2;
 struct drm_plane_state;
 struct drm_scanout_buffer;
 struct fb_info;
+struct i915_gtt_view;
 struct i915_vma;
 struct intel_dpt;
 struct intel_dsb_buffer;
@@ -28,6 +29,17 @@ struct iosys_map;
 struct ref_tracker;
 struct seq_file;
 struct vm_area_struct;
+
+struct intel_fb_pin_params {
+	const struct i915_gtt_view *view;
+	unsigned int alignment;
+	unsigned int phys_alignment;
+	unsigned int vtd_guard;
+	bool needs_cpu_lmem_access;
+	bool needs_low_address;
+	bool needs_physical;
+	bool needs_fence;
+};
 
 /* Keep struct definitions sorted */
 

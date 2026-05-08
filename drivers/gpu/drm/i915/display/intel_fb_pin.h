@@ -10,20 +10,10 @@
 
 struct drm_gem_object;
 struct i915_vma;
+struct intel_fb_pin_params;
 struct intel_plane_state;
 struct i915_gtt_view;
 struct iosys_map;
-
-struct intel_fb_pin_params {
-	const struct i915_gtt_view *view;
-	unsigned int alignment;
-	unsigned int phys_alignment;
-	unsigned int vtd_guard;
-	bool needs_cpu_lmem_access;
-	bool needs_low_address;
-	bool needs_physical;
-	bool needs_fence;
-};
 
 struct i915_vma *
 intel_fb_pin_to_ggtt(struct drm_gem_object *obj,
