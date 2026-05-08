@@ -20,6 +20,7 @@
 
 #include <linux/clk.h>
 #include <linux/clk-provider.h>
+#include <linux/clocksource.h>
 #include <linux/cpu_pm.h>
 #include <linux/module.h>
 #include <linux/io.h>
@@ -29,6 +30,7 @@
 #include <linux/of.h>
 #include <linux/platform_device.h>
 #include <linux/platform_data/dmtimer-omap.h>
+#include <linux/sched_clock.h>
 
 #include <clocksource/timer-ti-dm.h>
 #include <linux/delay.h>
@@ -147,6 +149,14 @@ struct dmtimer {
 static u32 omap_reserved_systimers;
 static LIST_HEAD(omap_timer_list);
 static DEFINE_SPINLOCK(dm_timer_lock);
+
+struct dmtimer_clocksource {
+	struct clocksource dev;
+	struct dmtimer *timer;
+	unsigned int loadval;
+};
+
+static void __iomem *omap_dm_timer_sched_clock_counter;
 
 enum {
 	REQUEST_ANY = 0,
@@ -1185,6 +1195,92 @@ static const struct dev_pm_ops omap_dm_timer_pm_ops = {
 
 static const struct of_device_id omap_timer_match[];
 
+static struct dmtimer_clocksource *omap_dm_timer_to_clocksource(struct clocksource *cs)
+{
+	return container_of(cs, struct dmtimer_clocksource, dev);
+}
+
+static u64 omap_dm_timer_read_cycles(struct clocksource *cs)
+{
+	struct dmtimer_clocksource *clksrc = omap_dm_timer_to_clocksource(cs);
+	struct dmtimer *timer = clksrc->timer;
+
+	return (u64)__omap_dm_timer_read_counter(timer);
+}
+
+static u64 notrace omap_dm_timer_read_sched_clock(void)
+{
+	/* Posted mode is not active here, so we can read directly */
+	return readl_relaxed(omap_dm_timer_sched_clock_counter);
+}
+
+static void omap_dm_timer_clocksource_suspend(struct clocksource *cs)
+{
+	struct dmtimer_clocksource *clksrc = omap_dm_timer_to_clocksource(cs);
+	struct dmtimer *timer = clksrc->timer;
+
+	clksrc->loadval = __omap_dm_timer_read_counter(timer);
+	__omap_dm_timer_stop(timer);
+}
+
+static void omap_dm_timer_clocksource_resume(struct clocksource *cs)
+{
+	struct dmtimer_clocksource *clksrc = omap_dm_timer_to_clocksource(cs);
+	struct dmtimer *timer = clksrc->timer;
+
+	dmtimer_write(timer, OMAP_TIMER_COUNTER_REG, clksrc->loadval);
+	dmtimer_write(timer, OMAP_TIMER_CTRL_REG, OMAP_TIMER_CTRL_ST | OMAP_TIMER_CTRL_AR);
+}
+
+static void omap_dm_timer_clocksource_unregister(void *data)
+{
+	struct clocksource *cs = data;
+
+	clocksource_unregister(cs);
+}
+
+static int omap_dm_timer_setup_clocksource(struct dmtimer *timer)
+{
+	struct device *dev = &timer->pdev->dev;
+	struct dmtimer_clocksource *clksrc;
+	int err;
+
+	__omap_dm_timer_init_regs(timer);
+
+	timer->reserved = 1;
+
+	clksrc = devm_kzalloc(dev, sizeof(*clksrc), GFP_KERNEL);
+	if (!clksrc)
+		return -ENOMEM;
+
+	clksrc->timer = timer;
+
+	clksrc->dev.name = "omap_dm_timer";
+	clksrc->dev.rating = 300;
+	clksrc->dev.read = omap_dm_timer_read_cycles;
+	clksrc->dev.mask = CLOCKSOURCE_MASK(32);
+	clksrc->dev.flags = CLOCK_SOURCE_IS_CONTINUOUS;
+	clksrc->dev.suspend = omap_dm_timer_clocksource_suspend;
+	clksrc->dev.resume = omap_dm_timer_clocksource_resume;
+
+	dmtimer_write(timer, OMAP_TIMER_COUNTER_REG, 0);
+	dmtimer_write(timer, OMAP_TIMER_LOAD_REG, 0);
+	dmtimer_write(timer, OMAP_TIMER_CTRL_REG, OMAP_TIMER_CTRL_ST | OMAP_TIMER_CTRL_AR);
+
+	omap_dm_timer_sched_clock_counter = timer->func_base + _OMAP_TIMER_COUNTER_OFFSET;
+	sched_clock_register(omap_dm_timer_read_sched_clock, 32, timer->fclk_rate);
+
+	err = clocksource_register_hz(&clksrc->dev, timer->fclk_rate);
+	if (err)
+		return dev_err_probe(dev, err, "Could not register as clocksource\n");
+
+	err = devm_add_action_or_reset(dev, omap_dm_timer_clocksource_unregister, &clksrc->dev);
+	if (err)
+		return dev_err_probe(dev, err, "Could not register clocksource_unregister action\n");
+
+	return 0;
+}
+
 /**
  * omap_dm_timer_probe - probe function called for every registered device
  * @pdev:	pointer to current timer platform device
@@ -1271,6 +1367,13 @@ static int omap_dm_timer_probe(struct platform_device *pdev)
 	timer->errata = pdata->timer_errata;
 
 	timer->pdev = pdev;
+
+	if (timer->capability & OMAP_TIMER_ALWON && !IS_ERR_OR_NULL(timer->fclk) &&
+	    !omap_dm_timer_sched_clock_counter) {
+		ret = omap_dm_timer_setup_clocksource(timer);
+		if (ret)
+			return ret;
+	}
 
 	pm_runtime_enable(dev);
 
