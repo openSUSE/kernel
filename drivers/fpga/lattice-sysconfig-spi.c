@@ -3,8 +3,14 @@
  * Lattice FPGA programming over slave SPI sysCONFIG interface.
  */
 
-#include <linux/of.h>
+#include <linux/dev_printk.h>
+#include <linux/device/devres.h>
+#include <linux/errno.h>
+#include <linux/mod_devicetable.h>
+#include <linux/module.h>
+#include <linux/slab.h>
 #include <linux/spi/spi.h>
+#include <linux/types.h>
 
 #include "lattice-sysconfig.h"
 
