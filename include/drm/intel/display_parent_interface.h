@@ -24,6 +24,7 @@ struct intel_hdcp_gsc_context;
 struct intel_initial_plane_config;
 struct intel_panic;
 struct intel_stolen_node;
+struct iosys_map;
 struct ref_tracker;
 struct seq_file;
 struct vm_area_struct;
@@ -67,6 +68,10 @@ struct intel_display_dsb_interface {
 	struct intel_dsb_buffer *(*create)(struct drm_device *drm, size_t size);
 	void (*cleanup)(struct intel_dsb_buffer *dsb_buf);
 	void (*flush_map)(struct intel_dsb_buffer *dsb_buf);
+};
+
+struct intel_display_fb_pin_interface {
+	void (*get_map)(struct i915_vma *vma, struct iosys_map *map);
 };
 
 struct intel_display_frontbuffer_interface {
@@ -210,6 +215,9 @@ struct intel_display_parent_interface {
 
 	/** @dsb: DSB buffer interface */
 	const struct intel_display_dsb_interface *dsb;
+
+	/** @fb_pin: Framebuffer pin interface */
+	const struct intel_display_fb_pin_interface *fb_pin;
 
 	/** @frontbuffer: Frontbuffer interface */
 	const struct intel_display_frontbuffer_interface *frontbuffer;

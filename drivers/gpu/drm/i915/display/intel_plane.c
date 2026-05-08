@@ -1404,7 +1404,7 @@ static void intel_panic_flush(struct drm_plane *_plane)
 	if (fb == intel_fbdev_framebuffer(display->fbdev.fbdev)) {
 		struct iosys_map map;
 
-		intel_fbdev_get_map(display->fbdev.fbdev, &map);
+		intel_fbdev_get_map(display, &map);
 		drm_clflush_virt_range(map.vaddr, fb->base.pitches[0] * fb->base.height);
 		return;
 	}
@@ -1462,7 +1462,7 @@ static int intel_get_scanout_buffer(struct drm_plane *plane,
 		return -ENODEV;
 
 	if (fb == intel_fbdev_framebuffer(display->fbdev.fbdev)) {
-		intel_fbdev_get_map(display->fbdev.fbdev, &sb->map[0]);
+		intel_fbdev_get_map(display, &sb->map[0]);
 	} else {
 		int ret;
 		/* Can't disable tiling if DPT is in use */

@@ -55,6 +55,7 @@
 #include "intel_fb_pin.h"
 #include "intel_fbdev.h"
 #include "intel_frontbuffer.h"
+#include "intel_parent.h"
 #include "intel_plane.h"
 
 struct intel_fbdev {
@@ -563,7 +564,9 @@ struct i915_vma *intel_fbdev_vma_pointer(struct intel_fbdev *fbdev)
 	return fbdev ? fbdev->vma : NULL;
 }
 
-void intel_fbdev_get_map(struct intel_fbdev *fbdev, struct iosys_map *map)
+void intel_fbdev_get_map(struct intel_display *display, struct iosys_map *map)
 {
-	intel_fb_get_map(fbdev->vma, map);
+	struct intel_fbdev *fbdev = display->fbdev.fbdev;
+
+	intel_parent_fb_pin_get_map(display, fbdev->vma, map);
 }

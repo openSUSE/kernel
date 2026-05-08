@@ -3,6 +3,7 @@
  * Copyright © 2021 Intel Corporation
  */
 
+#include <drm/intel/display_parent_interface.h>
 #include <drm/ttm/ttm_bo.h>
 
 #include "intel_display_core.h"
@@ -13,6 +14,7 @@
 #include "xe_bo.h"
 #include "xe_device.h"
 #include "xe_display_vma.h"
+#include "xe_fb_pin.h"
 #include "xe_ggtt.h"
 #include "xe_pm.h"
 #include "xe_vram_types.h"
@@ -505,7 +507,11 @@ void intel_plane_unpin_fb(struct intel_plane_state *old_plane_state)
 	old_plane_state->ggtt_vma = NULL;
 }
 
-void intel_fb_get_map(struct i915_vma *vma, struct iosys_map *map)
+static void xe_fb_pin_get_map(struct i915_vma *vma, struct iosys_map *map)
 {
 	*map = vma->bo->vmap;
 }
+
+const struct intel_display_fb_pin_interface xe_display_fb_pin_interface = {
+	.get_map = xe_fb_pin_get_map,
+};

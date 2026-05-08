@@ -8,6 +8,7 @@
  */
 
 #include <drm/drm_print.h>
+#include <drm/intel/display_parent_interface.h>
 
 #include "display/intel_display_core.h"
 #include "display/intel_display_types.h"
@@ -18,6 +19,7 @@
 #include "gem/i915_gem_domain.h"
 #include "gem/i915_gem_object.h"
 
+#include "i915_fb_pin.h"
 #include "i915_dpt.h"
 #include "i915_drv.h"
 #include "i915_vma.h"
@@ -352,7 +354,11 @@ void intel_plane_unpin_fb(struct intel_plane_state *old_plane_state)
 	}
 }
 
-void intel_fb_get_map(struct i915_vma *vma, struct iosys_map *map)
+static void i915_fb_pin_get_map(struct i915_vma *vma, struct iosys_map *map)
 {
 	iosys_map_set_vaddr_iomem(map, i915_vma_get_iomap(vma));
 }
+
+const struct intel_display_fb_pin_interface i915_display_fb_pin_interface = {
+	.get_map = i915_fb_pin_get_map,
+};

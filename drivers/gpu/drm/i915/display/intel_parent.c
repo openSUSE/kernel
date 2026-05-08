@@ -52,6 +52,13 @@ void intel_parent_dpt_resume(struct intel_display *display, struct intel_dpt *dp
 		display->parent->dpt->resume(dpt);
 }
 
+/* fb_pin */
+void intel_parent_fb_pin_get_map(struct intel_display *display,
+				 struct i915_vma *vma, struct iosys_map *map)
+{
+	return display->parent->fb_pin->get_map(vma, map);
+}
+
 /* frontbuffer */
 struct intel_frontbuffer *intel_parent_frontbuffer_get(struct intel_display *display, struct drm_gem_object *obj)
 {

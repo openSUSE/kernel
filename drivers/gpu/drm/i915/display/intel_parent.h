@@ -18,6 +18,7 @@ struct intel_frontbuffer;
 struct intel_hdcp_gsc_context;
 struct intel_panic;
 struct intel_stolen_node;
+struct iosys_map;
 
 /* dpt */
 struct intel_dpt *intel_parent_dpt_create(struct intel_display *display,
@@ -25,6 +26,10 @@ struct intel_dpt *intel_parent_dpt_create(struct intel_display *display,
 void intel_parent_dpt_destroy(struct intel_display *display, struct intel_dpt *dpt);
 void intel_parent_dpt_suspend(struct intel_display *display, struct intel_dpt *dpt);
 void intel_parent_dpt_resume(struct intel_display *display, struct intel_dpt *dpt);
+
+/* fb_pin */
+void intel_parent_fb_pin_get_map(struct intel_display *display,
+				 struct i915_vma *vma, struct iosys_map *map);
 
 /* frontbuffer */
 struct intel_frontbuffer *intel_parent_frontbuffer_get(struct intel_display *display, struct drm_gem_object *obj);
