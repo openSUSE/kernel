@@ -423,11 +423,6 @@ intel_fb_pin_to_ggtt(struct drm_gem_object *obj,
 	return __xe_pin_fb_vma(obj, false, pin_params);
 }
 
-void intel_fb_unpin_vma(struct i915_vma *vma, int fence_id)
-{
-	__xe_unpin_fb_vma(vma);
-}
-
 static int xe_fb_pin_ggtt_pin(struct drm_gem_object *obj,
 			      const struct intel_fb_pin_params *pin_params,
 			      struct i915_vma **out_ggtt_vma,

@@ -222,7 +222,7 @@ err:
 	return vma;
 }
 
-void intel_fb_unpin_vma(struct i915_vma *vma, int fence_id)
+static void intel_fb_unpin_vma(struct i915_vma *vma, int fence_id)
 {
 	if (fence_id >= 0)
 		i915_vma_unpin_fence(vma);

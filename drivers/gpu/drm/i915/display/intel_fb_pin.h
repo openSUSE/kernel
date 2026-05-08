@@ -20,8 +20,6 @@ intel_fb_pin_to_ggtt(struct drm_gem_object *obj,
 		     const struct intel_fb_pin_params *pin_params,
 		     int *out_fence_id);
 
-void intel_fb_unpin_vma(struct i915_vma *vma, int fence_id);
-
 int intel_plane_pin_fb(struct intel_plane_state *new_plane_state,
 		       const struct intel_plane_state *old_plane_state);
 void intel_plane_unpin_fb(struct intel_plane_state *old_plane_state);
