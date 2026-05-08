@@ -6511,12 +6511,10 @@ static int ocfs2_reflink_xattr_inline(struct ocfs2_xattr_reflink *args)
 	handle_t *handle;
 	struct ocfs2_super *osb = OCFS2_SB(args->old_inode->i_sb);
 	struct ocfs2_dinode *di = (struct ocfs2_dinode *)args->old_bh->b_data;
-	int inline_size = le16_to_cpu(di->i_xattr_inline_size);
-	int header_off = osb->sb->s_blocksize - inline_size;
-	struct ocfs2_xattr_header *xh = (struct ocfs2_xattr_header *)
-					(args->old_bh->b_data + header_off);
-	struct ocfs2_xattr_header *new_xh = (struct ocfs2_xattr_header *)
-					(args->new_bh->b_data + header_off);
+	int inline_size;
+	int header_off;
+	struct ocfs2_xattr_header *xh;
+	struct ocfs2_xattr_header *new_xh;
 	struct ocfs2_alloc_context *meta_ac = NULL;
 	struct ocfs2_inode_info *new_oi;
 	struct ocfs2_dinode *new_di;
@@ -6524,6 +6522,15 @@ static int ocfs2_reflink_xattr_inline(struct ocfs2_xattr_reflink *args)
 		.vb_bh = args->new_bh,
 		.vb_access = ocfs2_journal_access_di,
 	};
+
+	ret = ocfs2_xattr_ibody_lookup_header(args->old_inode, di, &xh);
+	if (ret)
+		goto out;
+
+	inline_size = le16_to_cpu(di->i_xattr_inline_size);
+	header_off = osb->sb->s_blocksize - inline_size;
+	new_xh = (struct ocfs2_xattr_header *)
+		(args->new_bh->b_data + header_off);
 
 	ret = ocfs2_reflink_lock_xattr_allocators(osb, xh, args->ref_root_bh,
 						  &credits, &meta_ac);
