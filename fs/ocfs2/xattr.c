@@ -6016,13 +6016,16 @@ static int ocfs2_xattr_inline_attach_refcount(struct inode *inode,
 				struct ocfs2_cached_dealloc_ctxt *dealloc)
 {
 	struct ocfs2_dinode *di = (struct ocfs2_dinode *)fe_bh->b_data;
-	struct ocfs2_xattr_header *header = (struct ocfs2_xattr_header *)
-				(fe_bh->b_data + inode->i_sb->s_blocksize -
-				le16_to_cpu(di->i_xattr_inline_size));
+	struct ocfs2_xattr_header *header;
+	int ret;
 	struct ocfs2_xattr_value_buf vb = {
 		.vb_bh = fe_bh,
 		.vb_access = ocfs2_journal_access_di,
 	};
+
+	ret = ocfs2_xattr_ibody_lookup_header(inode, di, &header);
+	if (ret)
+		return ret;
 
 	return ocfs2_xattr_attach_refcount_normal(inode, &vb, header,
 						  ref_ci, ref_root_bh, dealloc);
