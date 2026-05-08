@@ -168,6 +168,7 @@ struct yas5xx;
 /**
  * struct yas5xx_chip_info - device-specific data and function pointers
  * @devid: device ID number
+ * @product_label: product label used in Linux
  * @product_name: product name of the YAS variant
  * @version_names: version letters or namings
  * @volatile_reg: device-specific volatile registers
@@ -189,6 +190,7 @@ struct yas5xx;
  */
 struct yas5xx_chip_info {
 	unsigned int devid;
+	const char *product_label;
 	const char *product_name;
 	const char *version_names[2];
 	const int *volatile_reg;
@@ -1323,6 +1325,7 @@ static int yas537_power_on(struct yas5xx *yas5xx)
 static const struct yas5xx_chip_info yas5xx_chip_info_tbl[] = {
 	[yas530] = {
 		.devid = YAS530_DEVICE_ID,
+		.product_label = "yas530",
 		.product_name = "YAS530 MS-3E",
 		.version_names = { "A", "B" },
 		.volatile_reg = yas530_volatile_reg,
@@ -1338,6 +1341,7 @@ static const struct yas5xx_chip_info yas5xx_chip_info_tbl[] = {
 	},
 	[yas532] = {
 		.devid = YAS532_DEVICE_ID,
+		.product_label = "yas532",
 		.product_name = "YAS532 MS-3R",
 		.version_names = { "AB", "AC" },
 		.volatile_reg = yas530_volatile_reg,
@@ -1353,6 +1357,7 @@ static const struct yas5xx_chip_info yas5xx_chip_info_tbl[] = {
 	},
 	[yas533] = {
 		.devid = YAS532_DEVICE_ID,
+		.product_label = "yas533",
 		.product_name = "YAS533 MS-3F",
 		.version_names = { "AB", "AC" },
 		.volatile_reg = yas530_volatile_reg,
@@ -1368,6 +1373,7 @@ static const struct yas5xx_chip_info yas5xx_chip_info_tbl[] = {
 	},
 	[yas537] = {
 		.devid = YAS537_DEVICE_ID,
+		.product_label = "yas537",
 		.product_name = "YAS537 MS-3T",
 		.version_names = { "v0", "v1" }, /* version naming unknown */
 		.volatile_reg = yas537_volatile_reg,
@@ -1385,7 +1391,6 @@ static const struct yas5xx_chip_info yas5xx_chip_info_tbl[] = {
 
 static int yas5xx_probe(struct i2c_client *i2c)
 {
-	const struct i2c_device_id *id = i2c_client_get_device_id(i2c);
 	struct iio_dev *indio_dev;
 	struct device *dev = &i2c->dev;
 	struct yas5xx *yas5xx;
@@ -1443,7 +1448,7 @@ static int yas5xx_probe(struct i2c_client *i2c)
 	if (id_check != ci->devid) {
 		ret = dev_err_probe(dev, -ENODEV,
 				    "device ID %02x doesn't match %s\n",
-				    id_check, id->name);
+				    id_check, ci->product_label);
 		goto assert_reset;
 	}
 
@@ -1469,7 +1474,7 @@ static int yas5xx_probe(struct i2c_client *i2c)
 	indio_dev->info = &yas5xx_info;
 	indio_dev->available_scan_masks = yas5xx_scan_masks;
 	indio_dev->modes = INDIO_DIRECT_MODE;
-	indio_dev->name = id->name;
+	indio_dev->name = ci->product_label;
 	indio_dev->channels = yas5xx_channels;
 	indio_dev->num_channels = ARRAY_SIZE(yas5xx_channels);
 
