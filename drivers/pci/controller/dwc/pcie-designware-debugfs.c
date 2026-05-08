@@ -507,11 +507,6 @@ static int ltssm_status_show(struct seq_file *s, void *v)
 	return 0;
 }
 
-static int ltssm_status_open(struct inode *inode, struct file *file)
-{
-	return single_open(file, ltssm_status_show, inode->i_private);
-}
-
 #define dwc_debugfs_create(name)			\
 debugfs_create_file(#name, 0644, rasdes_debug, pci,	\
 			&dbg_ ## name ## _fops)
@@ -548,10 +543,7 @@ static const struct file_operations dwc_pcie_counter_value_ops = {
 	.read = counter_value_read,
 };
 
-static const struct file_operations dwc_pcie_ltssm_status_ops = {
-	.open = ltssm_status_open,
-	.read = seq_read,
-};
+DEFINE_SHOW_ATTRIBUTE(ltssm_status);
 
 static void dwc_pcie_rasdes_debugfs_deinit(struct dw_pcie *pci)
 {
@@ -642,7 +634,7 @@ err_deinit:
 static void dwc_pcie_ltssm_debugfs_init(struct dw_pcie *pci, struct dentry *dir)
 {
 	debugfs_create_file("ltssm_status", 0444, dir, pci,
-			    &dwc_pcie_ltssm_status_ops);
+			    &ltssm_status_fops);
 }
 
 static int dw_pcie_ptm_check_capability(void *drvdata)
