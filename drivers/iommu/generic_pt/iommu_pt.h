@@ -43,6 +43,8 @@ static void flush_writes_item(const struct pt_state *pts)
 struct iommupt_pending_gather {
 	struct iommu_iotlb_gather *iotlb_gather;
 	struct iommu_pages_list free_list;
+	u8 leaf_levels_bitmap;
+	u8 table_levels_bitmap;
 };
 
 static void gather_add_table(struct iommupt_pending_gather *pending,
@@ -50,6 +52,17 @@ static void gather_add_table(struct iommupt_pending_gather *pending,
 			     struct pt_table_p *table)
 {
 	iommu_pages_list_add(&pending->free_list, table);
+	if (pts_feature(pts, PT_FEAT_DETAILED_GATHER))
+		pending->table_levels_bitmap |= BIT(pts->level);
+}
+
+static void gather_add_leaf(struct iommupt_pending_gather *pending,
+			    const struct pt_state *pts)
+{
+	if (!pts_feature(pts, PT_FEAT_DETAILED_GATHER))
+		return;
+
+	pending->leaf_levels_bitmap |= BIT(pts->level);
 }
 
 static void gather_range_pending(struct iommupt_pending_gather *pending,
@@ -86,6 +99,15 @@ static void gather_range_pending(struct iommupt_pending_gather *pending,
 
 	iommu_pages_list_splice(&pending->free_list, &iotlb_gather->freelist);
 	INIT_LIST_HEAD(&pending->free_list.pages);
+
+	if (pt_feature(common, PT_FEAT_DETAILED_GATHER)) {
+		iotlb_gather->pt.leaf_levels_bitmap |=
+			pending->leaf_levels_bitmap;
+		iotlb_gather->pt.table_levels_bitmap |=
+			pending->table_levels_bitmap;
+		pending->leaf_levels_bitmap = 0;
+		pending->table_levels_bitmap = 0;
+	}
 }
 
 #define DOMAIN_NS(op) CONCATENATE(CONCATENATE(pt_iommu_, PTPFX), op)
@@ -1059,6 +1081,7 @@ start_oa:
 			 */
 			num_contig_lg2 = pt_entry_num_contig_lg2(&pts);
 			pt_clear_entries(&pts, num_contig_lg2);
+			gather_add_leaf(&unmap->pending, &pts);
 			num_oas += log2_to_int(num_contig_lg2);
 			if (pts.index < flush_start_index)
 				flush_start_index = pts.index;
