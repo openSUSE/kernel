@@ -22,6 +22,7 @@ static bool zen4_ibs_extensions;
 static bool ldlat_cap;
 static bool dtlb_pgsize_cap;
 static bool rmtsocket_cap;
+static bool strmst_cap;
 
 /*
  * Status fields of IBS_FETCH_CTL and IBS_FETCH_CTL_EXT are valid only if
@@ -166,12 +167,15 @@ static void pr_ibs_op_data2_extended(union ibs_op_data2 reg)
 	};
 	int data_src = (reg.data_src_hi << 3) | reg.data_src_lo;
 	char rmtsocket[sizeof("RmtSocket _ ")] = "";
+	char strmst[sizeof("StrmSt _ ")] = "";
 
 	if (rmtsocket_cap)
 		snprintf(rmtsocket, sizeof(rmtsocket), "RmtSocket %d ", reg.rmt_socket);
+	if (strmst_cap)
+		snprintf(strmst, sizeof(strmst), "StrmSt %d ", reg.strm_st);
 
-	printf("ibs_op_data2:\t%016llx %s%sRmtNode %d%s\n", reg.val,
-		rmtsocket,
+	printf("ibs_op_data2:\t%016llx %s%s%sRmtNode %d%s\n", reg.val,
+		rmtsocket, strmst,
 		(data_src == 1 || data_src == 2 || data_src == 5) ?
 			(reg.cache_hit_st ? "CacheHitSt 1=O-State " : "CacheHitSt 0=M-state ") : "",
 		reg.rmt_node,
@@ -191,12 +195,15 @@ static void pr_ibs_op_data2_default(union ibs_op_data2 reg)
 		" DataSrc 7=Other"
 	};
 	char rmtsocket[sizeof("RmtSocket _ ")] = "";
+	char strmst[sizeof("StrmSt _ ")] = "";
 
 	if (rmtsocket_cap)
 		snprintf(rmtsocket, sizeof(rmtsocket), "RmtSocket %d ", reg.rmt_socket);
+	if (strmst_cap)
+		snprintf(strmst, sizeof(strmst), "StrmSt %d ", reg.strm_st);
 
-	printf("ibs_op_data2:\t%016llx %s%sRmtNode %d%s\n", reg.val,
-	       rmtsocket,
+	printf("ibs_op_data2:\t%016llx %s%s%sRmtNode %d%s\n", reg.val,
+	       rmtsocket, strmst,
 	       reg.data_src_lo == 2 ? (reg.cache_hit_st ? "CacheHitSt 1=O-State "
 						     : "CacheHitSt 0=M-state ") : "",
 	       reg.rmt_node, data_src_str[reg.data_src_lo]);
@@ -442,6 +449,9 @@ bool evlist__has_amd_ibs(struct evlist *evlist)
 
 	if (perf_env__find_pmu_cap(env, "ibs_op", "rmtsocket"))
 		rmtsocket_cap = 1;
+
+	if (perf_env__find_pmu_cap(env, "ibs_op", "strmst"))
+		strmst_cap = 1;
 
 	if (ibs_fetch_type || ibs_op_type) {
 		if (!cpu_family)
