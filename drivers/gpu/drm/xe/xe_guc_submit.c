@@ -852,10 +852,27 @@ static void xe_guc_exec_queue_group_cgp_sync(struct xe_guc *guc,
 	xe_guc_ct_send(&guc->ct, action, len, G2H_LEN_DW_MULTI_QUEUE_CONTEXT, 1);
 }
 
-static void __register_exec_queue_group(struct xe_guc *guc,
-					struct xe_exec_queue *q,
+static void guc_exec_queue_send_cgp_sync(struct xe_exec_queue *q)
+{
+#define MAX_MULTI_QUEUE_CGP_SYNC_SIZE	(2)
+	struct xe_guc *guc = exec_queue_to_guc(q);
+	struct xe_exec_queue_group *group = q->multi_queue.group;
+	u32 action[MAX_MULTI_QUEUE_CGP_SYNC_SIZE];
+	int len = 0;
+
+	action[len++] = XE_GUC_ACTION_MULTI_QUEUE_CONTEXT_CGP_SYNC;
+	action[len++] = group->primary->guc->id;
+
+	xe_gt_assert(guc_to_gt(guc), len <= MAX_MULTI_QUEUE_CGP_SYNC_SIZE);
+#undef MAX_MULTI_QUEUE_CGP_SYNC_SIZE
+
+	xe_guc_exec_queue_group_cgp_sync(guc, q, action, len);
+}
+
+static void __register_exec_queue_group(struct xe_exec_queue *q,
 					struct guc_ctxt_registration_info *info)
 {
+	struct xe_guc *guc = exec_queue_to_guc(q);
 #define MAX_MULTI_QUEUE_REG_SIZE	(8)
 	u32 action[MAX_MULTI_QUEUE_REG_SIZE];
 	int len = 0;
@@ -874,29 +891,6 @@ static void __register_exec_queue_group(struct xe_guc *guc,
 
 	/*
 	 * The above XE_GUC_ACTION_REGISTER_CONTEXT_MULTI_QUEUE do expect a
-	 * XE_GUC_ACTION_NOTIFY_MULTI_QUEUE_CONTEXT_CGP_SYNC_DONE response
-	 * from guc.
-	 */
-	xe_guc_exec_queue_group_cgp_sync(guc, q, action, len);
-}
-
-static void xe_guc_exec_queue_group_add(struct xe_guc *guc,
-					struct xe_exec_queue *q)
-{
-#define MAX_MULTI_QUEUE_CGP_SYNC_SIZE  (2)
-	u32 action[MAX_MULTI_QUEUE_CGP_SYNC_SIZE];
-	int len = 0;
-
-	xe_gt_assert(guc_to_gt(guc), xe_exec_queue_is_multi_queue_secondary(q));
-
-	action[len++] = XE_GUC_ACTION_MULTI_QUEUE_CONTEXT_CGP_SYNC;
-	action[len++] = q->multi_queue.group->primary->guc->id;
-
-	xe_gt_assert(guc_to_gt(guc), len <= MAX_MULTI_QUEUE_CGP_SYNC_SIZE);
-#undef MAX_MULTI_QUEUE_CGP_SYNC_SIZE
-
-	/*
-	 * The above XE_GUC_ACTION_MULTI_QUEUE_CONTEXT_CGP_SYNC do expect a
 	 * XE_GUC_ACTION_NOTIFY_MULTI_QUEUE_CONTEXT_CGP_SYNC_DONE response
 	 * from guc.
 	 */
@@ -1028,7 +1022,7 @@ static void register_exec_queue(struct xe_exec_queue *q, int ctx_type)
 	set_exec_queue_registered(q);
 	trace_xe_exec_queue_register(q);
 	if (xe_exec_queue_is_multi_queue_primary(q))
-		__register_exec_queue_group(guc, q, &info);
+		__register_exec_queue_group(q, &info);
 	else if (xe_exec_queue_is_parallel(q))
 		__register_mlrc_exec_queue(guc, q, &info);
 	else if (!xe_exec_queue_is_multi_queue_secondary(q))
@@ -1038,7 +1032,7 @@ static void register_exec_queue(struct xe_exec_queue *q, int ctx_type)
 		init_policies(guc, q);
 
 	if (xe_exec_queue_is_multi_queue_secondary(q))
-		xe_guc_exec_queue_group_add(guc, q);
+		guc_exec_queue_send_cgp_sync(q);
 }
 
 static u32 wq_space_until_wrap(struct xe_exec_queue *q)
@@ -1887,21 +1881,8 @@ static void __guc_exec_queue_process_msg_set_multi_queue_priority(struct xe_sche
 {
 	struct xe_exec_queue *q = msg->private_data;
 
-	if (guc_exec_queue_allowed_to_change_state(q)) {
-#define MAX_MULTI_QUEUE_CGP_SYNC_SIZE        (2)
-		struct xe_guc *guc = exec_queue_to_guc(q);
-		struct xe_exec_queue_group *group = q->multi_queue.group;
-		u32 action[MAX_MULTI_QUEUE_CGP_SYNC_SIZE];
-		int len = 0;
-
-		action[len++] = XE_GUC_ACTION_MULTI_QUEUE_CONTEXT_CGP_SYNC;
-		action[len++] = group->primary->guc->id;
-
-		xe_gt_assert(guc_to_gt(guc), len <= MAX_MULTI_QUEUE_CGP_SYNC_SIZE);
-#undef MAX_MULTI_QUEUE_CGP_SYNC_SIZE
-
-		xe_guc_exec_queue_group_cgp_sync(guc, q, action, len);
-	}
+	if (guc_exec_queue_allowed_to_change_state(q))
+		guc_exec_queue_send_cgp_sync(q);
 
 	kfree(msg);
 }
