@@ -1405,7 +1405,10 @@ static int yas5xx_probe(struct i2c_client *i2c)
 	yas5xx = iio_priv(indio_dev);
 	i2c_set_clientdata(i2c, indio_dev);
 	yas5xx->dev = dev;
-	mutex_init(&yas5xx->lock);
+
+	ret = devm_mutex_init(dev, &yas5xx->lock);
+	if (ret)
+		return ret;
 
 	ret = iio_read_mount_matrix(dev, &yas5xx->orientation);
 	if (ret)
