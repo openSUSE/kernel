@@ -125,7 +125,8 @@ static const struct spi_device_id sysconfig_spi_ids[] = {
 	{
 		.name = "sysconfig-ecp5",
 		.driver_data = (kernel_ulong_t)&ecp5_spi_max_speed_hz,
-	}, {},
+	},
+	{}
 };
 MODULE_DEVICE_TABLE(spi, sysconfig_spi_ids);
 
@@ -134,7 +135,8 @@ static const struct of_device_id sysconfig_of_ids[] = {
 	{
 		.compatible = "lattice,sysconfig-ecp5",
 		.data = &ecp5_spi_max_speed_hz,
-	}, {},
+	},
+	{}
 };
 MODULE_DEVICE_TABLE(of, sysconfig_of_ids);
 #endif /* IS_ENABLED(CONFIG_OF) */
