@@ -950,6 +950,41 @@ static int ocfs2_xattr_list_entries(struct inode *inode,
 	return result;
 }
 
+static int ocfs2_xattr_ibody_lookup_header(struct inode *inode,
+					   struct ocfs2_dinode *di,
+					   struct ocfs2_xattr_header **header)
+{
+	u16 xattr_count;
+	size_t max_entries;
+	u16 inline_size = le16_to_cpu(di->i_xattr_inline_size);
+
+	if (inline_size > inode->i_sb->s_blocksize ||
+	    inline_size < sizeof(struct ocfs2_xattr_header)) {
+		ocfs2_error(inode->i_sb,
+			    "Invalid xattr inline size %u in inode %llu\n",
+			    inline_size,
+			    (unsigned long long)OCFS2_I(inode)->ip_blkno);
+		return -EFSCORRUPTED;
+	}
+
+	*header = (struct ocfs2_xattr_header *)
+		((void *)di + inode->i_sb->s_blocksize - inline_size);
+
+	xattr_count = le16_to_cpu((*header)->xh_count);
+	max_entries = (inline_size - sizeof(struct ocfs2_xattr_header)) /
+		      sizeof(struct ocfs2_xattr_entry);
+
+	if (xattr_count > max_entries) {
+		ocfs2_error(inode->i_sb,
+			    "xattr entry count %u exceeds maximum %zu in inode %llu\n",
+			    xattr_count, max_entries,
+			    (unsigned long long)OCFS2_I(inode)->ip_blkno);
+		return -EFSCORRUPTED;
+	}
+
+	return 0;
+}
+
 int ocfs2_has_inline_xattr_value_outside(struct inode *inode,
 					 struct ocfs2_dinode *di)
 {
@@ -975,39 +1010,13 @@ static int ocfs2_xattr_ibody_list(struct inode *inode,
 	struct ocfs2_xattr_header *header = NULL;
 	struct ocfs2_inode_info *oi = OCFS2_I(inode);
 	int ret = 0;
-	u16 xattr_count;
-	size_t max_entries;
-	u16 inline_size;
 
 	if (!(oi->ip_dyn_features & OCFS2_INLINE_XATTR_FL))
 		return ret;
 
-	inline_size = le16_to_cpu(di->i_xattr_inline_size);
-
-	/* Validate inline size is reasonable */
-	if (inline_size > inode->i_sb->s_blocksize ||
-	    inline_size < sizeof(struct ocfs2_xattr_header)) {
-		ocfs2_error(inode->i_sb,
-			    "Invalid xattr inline size %u in inode %llu\n",
-			    inline_size,
-			    (unsigned long long)OCFS2_I(inode)->ip_blkno);
-		return -EFSCORRUPTED;
-	}
-
-	header = (struct ocfs2_xattr_header *)
-		 ((void *)di + inode->i_sb->s_blocksize - inline_size);
-
-	xattr_count = le16_to_cpu(header->xh_count);
-	max_entries = (inline_size - sizeof(struct ocfs2_xattr_header)) /
-		       sizeof(struct ocfs2_xattr_entry);
-
-	if (xattr_count > max_entries) {
-		ocfs2_error(inode->i_sb,
-			    "xattr entry count %u exceeds maximum %zu in inode %llu\n",
-			    xattr_count, max_entries,
-			    (unsigned long long)OCFS2_I(inode)->ip_blkno);
-		return -EFSCORRUPTED;
-	}
+	ret = ocfs2_xattr_ibody_lookup_header(inode, di, &header);
+	if (ret)
+		return ret;
 
 	ret = ocfs2_xattr_list_entries(inode, header, buffer, buffer_size);
 
@@ -1200,8 +1209,9 @@ static int ocfs2_xattr_ibody_get(struct inode *inode,
 		return -ENODATA;
 
 	xs->end = (void *)di + inode->i_sb->s_blocksize;
-	xs->header = (struct ocfs2_xattr_header *)
-			(xs->end - le16_to_cpu(di->i_xattr_inline_size));
+	ret = ocfs2_xattr_ibody_lookup_header(inode, di, &xs->header);
+	if (ret)
+		return ret;
 	xs->base = (void *)xs->header;
 	xs->here = xs->header->xh_entries;
 
@@ -2726,12 +2736,14 @@ static int ocfs2_xattr_ibody_find(struct inode *inode,
 
 	xs->xattr_bh = xs->inode_bh;
 	xs->end = (void *)di + inode->i_sb->s_blocksize;
-	if (oi->ip_dyn_features & OCFS2_INLINE_XATTR_FL)
-		xs->header = (struct ocfs2_xattr_header *)
-			(xs->end - le16_to_cpu(di->i_xattr_inline_size));
-	else
+	if (oi->ip_dyn_features & OCFS2_INLINE_XATTR_FL) {
+		ret = ocfs2_xattr_ibody_lookup_header(inode, di, &xs->header);
+		if (ret)
+			return ret;
+	} else {
 		xs->header = (struct ocfs2_xattr_header *)
 			(xs->end - OCFS2_SB(inode->i_sb)->s_xattr_inline_size);
+	}
 	xs->base = (void *)xs->header;
 	xs->here = xs->header->xh_entries;
 
