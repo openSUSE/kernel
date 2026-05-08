@@ -134,9 +134,9 @@ static int ebook_switch_add(struct acpi_device *device)
 
 	return 0;
 
- err_free_input:
+err_free_input:
 	input_free_device(input);
- err_free_button:
+err_free_button:
 	kfree(button);
 	return error;
 }
