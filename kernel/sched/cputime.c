@@ -425,19 +425,32 @@ static inline void irqtime_account_process_tick(struct task_struct *p, int user_
 static void kcpustat_idle_stop(struct kernel_cpustat *kc, u64 now)
 {
 	u64 *cpustat = kc->cpustat;
-	u64 delta;
+	u64 delta, steal, steal_delta;
+	int iowait;
 
 	if (!kc->idle_elapse)
 		return;
 
+	iowait = nr_iowait_cpu(smp_processor_id()) > 0;
 	delta = now - kc->idle_entrytime;
+	steal = steal_account_process_time(delta);
 
+	/*
+	 * Record the idle time after substracting the steal time from
+	 * previous update sequence. Don't substract the steal time from
+	 * the current update sequence to avoid readers moving backward.
+	 */
 	write_seqcount_begin(&kc->idle_sleeptime_seq);
-	if (nr_iowait_cpu(smp_processor_id()) > 0)
+	steal_delta = min_t(u64, kc->idle_stealtime[iowait], delta);
+	delta -= steal_delta;
+	kc->idle_stealtime[iowait] -= steal_delta;
+
+	if (iowait)
 		cpustat[CPUTIME_IOWAIT] += delta;
 	else
 		cpustat[CPUTIME_IDLE] += delta;
 
+	kc->idle_stealtime[iowait] += steal;
 	kc->idle_entrytime = now;
 	kc->idle_elapse = false;
 	write_seqcount_end(&kc->idle_sleeptime_seq);
@@ -464,7 +477,6 @@ void kcpustat_dyntick_stop(u64 now)
 		kcpustat_idle_stop(kc, now);
 		kc->idle_dyntick = false;
 		vtime_dyntick_stop();
-		steal_account_process_time(ULONG_MAX);
 	}
 }
 
@@ -508,6 +520,7 @@ static u64 kcpustat_field_dyntick(int cpu, enum cpu_usage_stat idx,
 				  bool compute_delta, u64 now)
 {
 	struct kernel_cpustat *kc = &kcpustat_cpu(cpu);
+	int iowait = idx == CPUTIME_IOWAIT;
 	u64 *cpustat = kc->cpustat;
 	unsigned int seq;
 	u64 idle;
@@ -516,8 +529,13 @@ static u64 kcpustat_field_dyntick(int cpu, enum cpu_usage_stat idx,
 		seq = read_seqcount_begin(&kc->idle_sleeptime_seq);
 
 		idle = cpustat[idx];
-		if (kc->idle_elapse && compute_delta && now > kc->idle_entrytime)
-			idle += (now - kc->idle_entrytime);
+
+		if (kc->idle_elapse && compute_delta && now > kc->idle_entrytime) {
+			u64 delta = now - kc->idle_entrytime;
+
+			delta -= min_t(u64, kc->idle_stealtime[iowait], delta);
+			idle += delta;
+		}
 	} while (read_seqcount_retry(&kc->idle_sleeptime_seq, seq));
 
 	return idle;
