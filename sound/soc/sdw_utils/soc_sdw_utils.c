@@ -1553,6 +1553,63 @@ int asoc_sdw_init_simple_dai_link(struct device *dev, struct snd_soc_dai_link *d
 }
 EXPORT_SYMBOL_NS(asoc_sdw_init_simple_dai_link, "SND_SOC_SDW_UTILS");
 
+/**
+ * is_sdca_aux_dev_present - Check if an SDCA aux device is present on the SDW peripheral
+ * @dev: Device pointer
+ * @aux_codec_name: Aux codec name from the codec info (e.g. "snd_soc_sdca.HID.2")
+ * @adr_link: ACPI link address
+ * @adr_index: Index of the ACPI link address
+ *
+ * Return: 1 if the aux is present, 0 if the aux is not present, or negative error code.
+ */
+static int is_sdca_aux_dev_present(struct device *dev,
+				   const char *aux_codec_name,
+				   const struct snd_soc_acpi_link_adr *adr_link,
+				   int adr_index)
+{
+	struct sdw_slave *slave;
+	struct device *sdw_dev;
+	const char *sdw_codec_name;
+	int ret = 0;
+	int i;
+
+	if (!aux_codec_name)
+		return 0;
+
+	sdw_codec_name = _asoc_sdw_get_codec_name(dev, adr_link, adr_index);
+	if (!sdw_codec_name)
+		return -ENOMEM;
+
+	sdw_dev = bus_find_device_by_name(&sdw_bus_type, NULL, sdw_codec_name);
+	if (!sdw_dev) {
+		dev_err(dev, "codec %s not found\n", sdw_codec_name);
+		return -EINVAL;
+	}
+
+	slave = dev_to_sdw_dev(sdw_dev);
+
+	if (!slave->sdca_data.interface_revision) {
+		dev_warn(dev, "No SDCA properties, assuming aux '%s' present\n", aux_codec_name);
+		ret = 1;
+		goto put_dev;
+	}
+
+	for (i = 0; i < slave->sdca_data.num_functions; i++) {
+		const char *fname = slave->sdca_data.function[i].name;
+
+		if (fname && strstr(aux_codec_name, fname)) {
+			ret = 1;
+			goto put_dev;
+		}
+	}
+
+	dev_dbg(dev, "SDCA function for aux '%s' NOT FOUND on slave, skipping\n", aux_codec_name);
+
+put_dev:
+	put_device(sdw_dev);
+	return ret;
+}
+
 int asoc_sdw_count_sdw_endpoints(struct snd_soc_card *card,
 				 int *num_devs, int *num_ends, int *num_aux)
 {
@@ -1560,7 +1617,7 @@ int asoc_sdw_count_sdw_endpoints(struct snd_soc_card *card,
 	struct snd_soc_acpi_mach *mach = dev_get_platdata(dev);
 	struct snd_soc_acpi_mach_params *mach_params = &mach->mach_params;
 	const struct snd_soc_acpi_link_adr *adr_link;
-	int i;
+	int i, j, ret;
 
 	for (adr_link = mach_params->links; adr_link->num_adr; adr_link++) {
 		*num_devs += adr_link->num_adr;
@@ -1575,7 +1632,14 @@ int asoc_sdw_count_sdw_endpoints(struct snd_soc_card *card,
 			if (!codec_info)
 				return -EINVAL;
 
-			*num_aux += codec_info->aux_num;
+			for (j = 0; j < codec_info->aux_num; j++) {
+				ret = is_sdca_aux_dev_present(dev, codec_info->auxs[j].codec_name,
+							      adr_link, i);
+				if (ret < 0)
+					return ret;
+				if (ret)
+					(*num_aux)++;
+			}
 		}
 	}
 
@@ -1738,6 +1802,14 @@ int asoc_sdw_parse_sdw_endpoints(struct snd_soc_card *card,
 
 			for (j = 0; j < codec_info->aux_num; j++) {
 				struct snd_soc_component *component;
+
+				ret = is_sdca_aux_dev_present(dev, codec_info->auxs[j].codec_name,
+							      adr_link, i);
+				if (ret < 0)
+					return ret;
+
+				if (ret == 0)
+					continue;
 
 				component = snd_soc_lookup_component_by_name(codec_info->auxs[j].codec_name);
 				if (component) {
