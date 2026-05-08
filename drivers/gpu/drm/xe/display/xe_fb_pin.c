@@ -466,26 +466,30 @@ int intel_plane_pin_fb(struct intel_plane_state *new_plane_state,
 {
 	struct drm_framebuffer *fb = new_plane_state->hw.fb;
 	struct drm_gem_object *obj = intel_fb_bo(fb);
-	struct i915_vma *vma;
 	struct intel_plane *plane = to_intel_plane(new_plane_state->uapi.plane);
 	struct intel_fb_pin_params pin_params = {
 		.view = &new_plane_state->view.gtt,
 		.alignment = intel_plane_fb_min_alignment(new_plane_state),
 		.needs_cpu_lmem_access = intel_fb_needs_cpu_access(fb),
 	};
+	struct i915_vma *ggtt_vma = NULL;
+	struct i915_vma *dpt_vma = NULL;
+	int fence_id = -1;
+	u32 offset;
 
 	if (reuse_vma(new_plane_state, old_plane_state))
 		return 0;
 
-	vma = __xe_pin_fb_vma(obj, intel_fb_uses_dpt(fb), &pin_params);
+	ggtt_vma = __xe_pin_fb_vma(obj, intel_fb_uses_dpt(fb), &pin_params);
+	if (IS_ERR(ggtt_vma))
+		return PTR_ERR(ggtt_vma);
 
-	if (IS_ERR(vma))
-		return PTR_ERR(vma);
+	offset = xe_ggtt_node_addr(ggtt_vma->node);
 
-	new_plane_state->ggtt_vma = vma;
-
-	new_plane_state->surf = xe_ggtt_node_addr(new_plane_state->ggtt_vma->node) +
-		plane->surf_offset(new_plane_state);
+	new_plane_state->dpt_vma = dpt_vma;
+	new_plane_state->ggtt_vma = ggtt_vma;
+	new_plane_state->fence_id = fence_id;
+	new_plane_state->surf = offset + plane->surf_offset(new_plane_state);
 
 	return 0;
 }
