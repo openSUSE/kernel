@@ -1287,8 +1287,7 @@ static int imx_rproc_probe(struct platform_device *pdev)
 	const struct imx_rproc_dcfg *dcfg;
 	int ret;
 
-	/* set some other name then imx */
-	rproc = devm_rproc_alloc(dev, "imx-rproc", &imx_rproc_ops,
+	rproc = devm_rproc_alloc(dev, np->name, &imx_rproc_ops,
 				 NULL, sizeof(*priv));
 	if (!rproc)
 		return -ENOMEM;
