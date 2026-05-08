@@ -427,6 +427,34 @@ void intel_fb_unpin_vma(struct i915_vma *vma, int fence_id)
 	__xe_unpin_fb_vma(vma);
 }
 
+static int xe_fb_pin_ggtt_pin(struct drm_gem_object *obj,
+			      const struct intel_fb_pin_params *pin_params,
+			      struct i915_vma **out_ggtt_vma,
+			      u32 *out_offset,
+			      int *out_fence_id)
+{
+	struct i915_vma *ggtt_vma;
+
+	ggtt_vma = __xe_pin_fb_vma(obj, false, pin_params);
+	if (IS_ERR(ggtt_vma))
+		return PTR_ERR(ggtt_vma);
+
+	*out_ggtt_vma = ggtt_vma;
+	*out_offset = xe_ggtt_node_addr(ggtt_vma->node);
+	if (out_fence_id)
+		*out_fence_id = -1;
+
+	return 0;
+}
+
+static void xe_fb_pin_ggtt_unpin(struct i915_vma *ggtt_vma,
+				 int fence_id)
+{
+	WARN_ON(fence_id >= 0);
+
+	__xe_unpin_fb_vma(ggtt_vma);
+}
+
 static int xe_fb_pin_dpt_pin(struct drm_gem_object *obj, struct intel_dpt *dpt,
 			     const struct intel_fb_pin_params *pin_params,
 			     struct i915_vma **out_dpt_vma,
@@ -512,11 +540,10 @@ int intel_plane_pin_fb(struct intel_plane_state *new_plane_state,
 		return 0;
 
 	if (!intel_fb_uses_dpt(&fb->base)) {
-		ggtt_vma = __xe_pin_fb_vma(obj, false, &pin_params);
-		if (IS_ERR(ggtt_vma))
-			return PTR_ERR(ggtt_vma);
-
-		offset = xe_ggtt_node_addr(ggtt_vma->node);
+		ret = xe_fb_pin_ggtt_pin(obj, &pin_params,
+					 &ggtt_vma, &offset, NULL);
+		if (ret)
+			return ret;
 	} else {
 		ret = xe_fb_pin_dpt_pin(obj, fb->dpt, &pin_params,
 					&dpt_vma, &ggtt_vma, &offset);
@@ -537,9 +564,11 @@ void intel_plane_unpin_fb(struct intel_plane_state *old_plane_state)
 	const struct intel_framebuffer *fb = to_intel_framebuffer(old_plane_state->hw.fb);
 
 	if (!intel_fb_uses_dpt(&fb->base)) {
-		__xe_unpin_fb_vma(old_plane_state->ggtt_vma);
+		xe_fb_pin_ggtt_unpin(old_plane_state->ggtt_vma,
+				     old_plane_state->fence_id);
 
 		old_plane_state->ggtt_vma = NULL;
+		old_plane_state->fence_id = -1;
 	} else {
 		xe_fb_pin_dpt_unpin(fb->dpt, old_plane_state->dpt_vma,
 				    old_plane_state->ggtt_vma);
