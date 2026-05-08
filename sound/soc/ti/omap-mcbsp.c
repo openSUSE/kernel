@@ -290,23 +290,22 @@ static u16 omap_mcbsp_get_rx_delay(struct omap_mcbsp *mcbsp)
 
 static int omap_mcbsp_request(struct omap_mcbsp *mcbsp)
 {
-	void *reg_cache;
+	void *reg_cache __free(kfree) = kzalloc(mcbsp->reg_cache_size, GFP_KERNEL);
 	int err;
 
-	reg_cache = kzalloc(mcbsp->reg_cache_size, GFP_KERNEL);
 	if (!reg_cache)
 		return -ENOMEM;
 
-	spin_lock(&mcbsp->lock);
-	if (!mcbsp->free) {
-		dev_err(mcbsp->dev, "McBSP%d is currently in use\n", mcbsp->id);
-		err = -EBUSY;
-		goto err_kfree;
-	}
+	scoped_guard(spinlock, &mcbsp->lock) {
+		if (!mcbsp->free) {
+			dev_err(mcbsp->dev, "McBSP%d is currently in use\n", mcbsp->id);
+			return -EBUSY;
+		}
 
-	mcbsp->free = false;
-	mcbsp->reg_cache = reg_cache;
-	spin_unlock(&mcbsp->lock);
+		mcbsp->free = false;
+		mcbsp->reg_cache = reg_cache;
+		reg_cache = NULL;
+	}
 
 	if(mcbsp->pdata->ops && mcbsp->pdata->ops->request)
 		mcbsp->pdata->ops->request(mcbsp->id - 1);
@@ -352,12 +351,11 @@ err_clk_disable:
 	if (mcbsp->pdata->has_wakeup)
 		MCBSP_WRITE(mcbsp, WAKEUPEN, 0);
 
-	spin_lock(&mcbsp->lock);
-	mcbsp->free = true;
-	mcbsp->reg_cache = NULL;
-err_kfree:
-	spin_unlock(&mcbsp->lock);
-	kfree(reg_cache);
+	scoped_guard(spinlock, &mcbsp->lock) {
+		reg_cache = mcbsp->reg_cache;
+		mcbsp->free = true;
+		mcbsp->reg_cache = NULL;
+	}
 
 	return err;
 }
@@ -395,13 +393,13 @@ static void omap_mcbsp_free(struct omap_mcbsp *mcbsp)
 	if (!mcbsp_omap1())
 		omap2_mcbsp_set_clks_src(mcbsp, MCBSP_CLKS_PRCM_SRC);
 
-	spin_lock(&mcbsp->lock);
-	if (mcbsp->free)
-		dev_err(mcbsp->dev, "McBSP%d was not reserved\n", mcbsp->id);
-	else
-		mcbsp->free = true;
-	mcbsp->reg_cache = NULL;
-	spin_unlock(&mcbsp->lock);
+	scoped_guard(spinlock, &mcbsp->lock) {
+		if (mcbsp->free)
+			dev_err(mcbsp->dev, "McBSP%d was not reserved\n", mcbsp->id);
+		else
+			mcbsp->free = true;
+		mcbsp->reg_cache = NULL;
+	}
 
 	kfree(reg_cache);
 }
@@ -581,15 +579,11 @@ static ssize_t dma_op_mode_store(struct device *dev,
 	if (i < 0)
 		return i;
 
-	spin_lock_irq(&mcbsp->lock);
+	guard(spinlock_irq)(&mcbsp->lock);
 	if (!mcbsp->free) {
-		size = -EBUSY;
-		goto unlock;
+		return -EBUSY;
 	}
 	mcbsp->dma_op_mode = i;
-
-unlock:
-	spin_unlock_irq(&mcbsp->lock);
 
 	return size;
 }
