@@ -113,7 +113,7 @@
 		compatible = "regulator-fixed";
 		pinctrl-names = "default";
 		pinctrl-0 = <&pinctrl_usdhc2_pwr_en>;
-		gpio = <&gpio3 7 GPIO_ACTIVE_HIGH>;
+		gpios = <&gpio3 7 GPIO_ACTIVE_HIGH>;
 		enable-active-high;
 		off-on-delay-us = <100000>;
 		regulator-max-microvolt = <3300000>;
