@@ -264,10 +264,10 @@ static void cx81801_timeout(struct timer_list *unused)
 {
 	int muted;
 
-	spin_lock(&ams_delta_lock);
-	cx81801_cmd_pending = 0;
-	muted = ams_delta_muted;
-	spin_unlock(&ams_delta_lock);
+	scoped_guard(spinlock, &ams_delta_lock) {
+		cx81801_cmd_pending = 0;
+		muted = ams_delta_muted;
+	}
 
 	/* Reconnect the codec DAI back from the modem to the CPU DAI
 	 * only if digital mute still off */
@@ -373,11 +373,11 @@ static void cx81801_receive(struct tty_struct *tty, const u8 *cp, const u8 *fp,
 			continue;
 		/* Complete modem response received, apply config to codec */
 
-		spin_lock_bh(&ams_delta_lock);
-		mod_timer(&cx81801_timer, jiffies + msecs_to_jiffies(150));
-		apply = !ams_delta_muted && !cx81801_cmd_pending;
-		cx81801_cmd_pending = 1;
-		spin_unlock_bh(&ams_delta_lock);
+		scoped_guard(spinlock_bh, &ams_delta_lock) {
+			mod_timer(&cx81801_timer, jiffies + msecs_to_jiffies(150));
+			apply = !ams_delta_muted && !cx81801_cmd_pending;
+			cx81801_cmd_pending = 1;
+		}
 
 		/* Apply config pulse by connecting the codec to the modem
 		 * if not already done */
@@ -426,10 +426,10 @@ static int ams_delta_mute(struct snd_soc_dai *dai, int mute, int direction)
 	if (ams_delta_muted == mute)
 		return 0;
 
-	spin_lock_bh(&ams_delta_lock);
-	ams_delta_muted = mute;
-	apply = !cx81801_cmd_pending;
-	spin_unlock_bh(&ams_delta_lock);
+	scoped_guard(spinlock_bh, &ams_delta_lock) {
+		ams_delta_muted = mute;
+		apply = !cx81801_cmd_pending;
+	}
 
 	if (apply)
 		gpiod_set_value(gpiod_modem_codec, !!mute);
