@@ -53,6 +53,59 @@ void intel_parent_dpt_resume(struct intel_display *display, struct intel_dpt *dp
 }
 
 /* fb_pin */
+int intel_parent_fb_pin_ggtt_pin(struct intel_display *display,
+				 struct drm_gem_object *obj,
+				 const struct intel_fb_pin_params *pin_params,
+				 struct i915_vma **out_ggtt_vma,
+				 u32 *out_offset,
+				 int *out_fence_id)
+{
+	return display->parent->fb_pin->ggtt_pin(obj, pin_params,
+						 out_ggtt_vma, out_offset, out_fence_id);
+}
+
+void intel_parent_fb_pin_ggtt_unpin(struct intel_display *display,
+				    struct i915_vma *ggtt_vma,
+				    int fence_id)
+{
+	return display->parent->fb_pin->ggtt_unpin(ggtt_vma, fence_id);
+}
+
+int intel_parent_fb_pin_dpt_pin(struct intel_display *display,
+				struct drm_gem_object *obj,
+				struct intel_dpt *dpt,
+				const struct intel_fb_pin_params *pin_params,
+				struct i915_vma **out_dpt_vma,
+				struct i915_vma **out_ggtt_vma,
+				u32 *out_offset)
+{
+	return display->parent->fb_pin->dpt_pin(obj, dpt, pin_params,
+						out_dpt_vma, out_ggtt_vma, out_offset);
+}
+
+void intel_parent_fb_pin_dpt_unpin(struct intel_display *display,
+				   struct intel_dpt *dpt,
+				   struct i915_vma *dpt_vma,
+				   struct i915_vma *ggtt_vma)
+{
+	return display->parent->fb_pin->dpt_unpin(dpt, dpt_vma, ggtt_vma);
+}
+
+struct i915_vma *intel_parent_fb_pin_reuse_vma(struct intel_display *display,
+					       struct i915_vma *old_ggtt_vma,
+					       struct drm_gem_object *old_obj,
+					       const struct i915_gtt_view *old_view,
+					       struct drm_gem_object *new_obj,
+					       const struct i915_gtt_view *new_view,
+					       u32 *out_offset)
+{
+	if (!display->parent->fb_pin->reuse_vma)
+		return NULL;
+
+	return display->parent->fb_pin->reuse_vma(old_ggtt_vma, old_obj, old_view,
+						  new_obj, new_view, out_offset);
+}
+
 void intel_parent_fb_pin_get_map(struct intel_display *display,
 				 struct i915_vma *vma, struct iosys_map *map)
 {

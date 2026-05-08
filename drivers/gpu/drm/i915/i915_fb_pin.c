@@ -14,6 +14,7 @@
 #include "display/intel_display_types.h"
 #include "display/intel_fb.h"
 #include "display/intel_fb_pin.h"
+#include "display/intel_parent.h"
 #include "display/intel_plane.h"
 
 #include "gem/i915_gem_domain.h"
@@ -360,9 +361,9 @@ int intel_plane_pin_fb(struct intel_plane_state *plane_state,
 			.needs_fence = intel_plane_needs_fence(display),
 		};
 
-		ret = i915_fb_pin_ggtt_pin(intel_fb_bo(&fb->base),
-					   &pin_params, &ggtt_vma, &offset,
-					   intel_plane_uses_fence(plane_state) ? &fence_id : NULL);
+		ret = intel_parent_fb_pin_ggtt_pin(display, intel_fb_bo(&fb->base),
+						   &pin_params, &ggtt_vma, &offset,
+						   intel_plane_uses_fence(plane_state) ? &fence_id : NULL);
 		if (ret)
 			return ret;
 	} else {
@@ -372,9 +373,9 @@ int intel_plane_pin_fb(struct intel_plane_state *plane_state,
 			.needs_cpu_lmem_access = intel_fb_needs_cpu_access(&fb->base),
 		};
 
-		ret = i915_fb_pin_dpt_pin(intel_fb_bo(&fb->base), fb->dpt,
-					  &pin_params, &dpt_vma,
-					  &ggtt_vma, &offset);
+		ret = intel_parent_fb_pin_dpt_pin(display, intel_fb_bo(&fb->base),
+						  fb->dpt, &pin_params,
+						  &dpt_vma, &ggtt_vma, &offset);
 		if (ret)
 			return ret;
 	}
@@ -389,19 +390,21 @@ int intel_plane_pin_fb(struct intel_plane_state *plane_state,
 
 void intel_plane_unpin_fb(struct intel_plane_state *old_plane_state)
 {
+	struct intel_display *display = to_intel_display(old_plane_state);
 	const struct intel_framebuffer *fb =
 		to_intel_framebuffer(old_plane_state->hw.fb);
 
 	if (!intel_fb_uses_dpt(&fb->base)) {
-		i915_fb_pin_ggtt_unpin(old_plane_state->ggtt_vma,
-				       old_plane_state->fence_id);
+		intel_parent_fb_pin_ggtt_unpin(display,
+					       old_plane_state->ggtt_vma,
+					       old_plane_state->fence_id);
 
 		old_plane_state->ggtt_vma = NULL;
 		old_plane_state->fence_id = -1;
 	} else {
-		i915_fb_pin_dpt_unpin(fb->dpt,
-				      old_plane_state->dpt_vma,
-				      old_plane_state->ggtt_vma);
+		intel_parent_fb_pin_dpt_unpin(display, fb->dpt,
+					      old_plane_state->dpt_vma,
+					      old_plane_state->ggtt_vma);
 
 		old_plane_state->dpt_vma = NULL;
 		old_plane_state->ggtt_vma = NULL;
@@ -414,5 +417,9 @@ static void i915_fb_pin_get_map(struct i915_vma *vma, struct iosys_map *map)
 }
 
 const struct intel_display_fb_pin_interface i915_display_fb_pin_interface = {
+	.ggtt_pin = i915_fb_pin_ggtt_pin,
+	.ggtt_unpin = i915_fb_pin_ggtt_unpin,
+	.dpt_pin = i915_fb_pin_dpt_pin,
+	.dpt_unpin = i915_fb_pin_dpt_unpin,
 	.get_map = i915_fb_pin_get_map,
 };

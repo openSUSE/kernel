@@ -10,6 +10,7 @@
 #include "intel_display_types.h"
 #include "intel_fb.h"
 #include "intel_fb_pin.h"
+#include "intel_parent.h"
 #include "xe_bo.h"
 #include "xe_device.h"
 #include "xe_display_vma.h"
@@ -516,6 +517,7 @@ intel_plane_fb_min_alignment(const struct intel_plane_state *plane_state)
 int intel_plane_pin_fb(struct intel_plane_state *new_plane_state,
 		       const struct intel_plane_state *old_plane_state)
 {
+	struct intel_display *display = to_intel_display(new_plane_state);
 	const struct intel_framebuffer *fb = to_intel_framebuffer(new_plane_state->hw.fb);
 	const struct intel_framebuffer *old_fb = to_intel_framebuffer(old_plane_state->hw.fb);
 	struct drm_gem_object *obj = intel_fb_bo(&fb->base);
@@ -531,23 +533,25 @@ int intel_plane_pin_fb(struct intel_plane_state *new_plane_state,
 	u32 offset;
 	int ret;
 
-	ggtt_vma = xe_fb_pin_reuse_vma(old_plane_state->ggtt_vma,
-				       intel_fb_bo(&old_fb->base),
-				       &old_plane_state->view.gtt,
-				       intel_fb_bo(&fb->base),
-				       &new_plane_state->view.gtt,
-				       &offset);
+	ggtt_vma = intel_parent_fb_pin_reuse_vma(display,
+						 old_plane_state->ggtt_vma,
+						 intel_fb_bo(&old_fb->base),
+						 &old_plane_state->view.gtt,
+						 intel_fb_bo(&fb->base),
+						 &new_plane_state->view.gtt,
+						 &offset);
 	if (ggtt_vma)
 		goto got_vma;
 
 	if (!intel_fb_uses_dpt(&fb->base)) {
-		ret = xe_fb_pin_ggtt_pin(obj, &pin_params,
-					 &ggtt_vma, &offset, NULL);
+		ret = intel_parent_fb_pin_ggtt_pin(display, obj, &pin_params,
+						   &ggtt_vma, &offset, NULL);
 		if (ret)
 			return ret;
 	} else {
-		ret = xe_fb_pin_dpt_pin(obj, fb->dpt, &pin_params,
-					&dpt_vma, &ggtt_vma, &offset);
+		ret = intel_parent_fb_pin_dpt_pin(display, obj, fb->dpt,
+						  &pin_params, &dpt_vma,
+						  &ggtt_vma, &offset);
 		if (ret)
 			return ret;
 	}
@@ -563,17 +567,20 @@ got_vma:
 
 void intel_plane_unpin_fb(struct intel_plane_state *old_plane_state)
 {
+	struct intel_display *display = to_intel_display(old_plane_state);
 	const struct intel_framebuffer *fb = to_intel_framebuffer(old_plane_state->hw.fb);
 
 	if (!intel_fb_uses_dpt(&fb->base)) {
-		xe_fb_pin_ggtt_unpin(old_plane_state->ggtt_vma,
-				     old_plane_state->fence_id);
+		intel_parent_fb_pin_ggtt_unpin(display,
+					       old_plane_state->ggtt_vma,
+					       old_plane_state->fence_id);
 
 		old_plane_state->ggtt_vma = NULL;
 		old_plane_state->fence_id = -1;
 	} else {
-		xe_fb_pin_dpt_unpin(fb->dpt, old_plane_state->dpt_vma,
-				    old_plane_state->ggtt_vma);
+		intel_parent_fb_pin_dpt_unpin(display, fb->dpt,
+					      old_plane_state->dpt_vma,
+					      old_plane_state->ggtt_vma);
 
 		old_plane_state->dpt_vma = NULL;
 		old_plane_state->ggtt_vma = NULL;
@@ -586,5 +593,10 @@ static void xe_fb_pin_get_map(struct i915_vma *vma, struct iosys_map *map)
 }
 
 const struct intel_display_fb_pin_interface xe_display_fb_pin_interface = {
+	.ggtt_pin = xe_fb_pin_ggtt_pin,
+	.ggtt_unpin = xe_fb_pin_ggtt_unpin,
+	.dpt_pin = xe_fb_pin_dpt_pin,
+	.dpt_unpin = xe_fb_pin_dpt_unpin,
+	.reuse_vma = xe_fb_pin_reuse_vma,
 	.get_map = xe_fb_pin_get_map,
 };
