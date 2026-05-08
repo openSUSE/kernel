@@ -43,6 +43,7 @@ Hardware Monitoring Kernel Drivers
    amc6821
    aps-379
    aquacomputer_d5next
+   arctic_fan_controller
    asb100
    asc7621
    aspeed-g6-pwm-tach
