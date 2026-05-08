@@ -31,6 +31,11 @@ static inline bool vtime_generic_enabled_cpu(int cpu)
 	return context_tracking_enabled_cpu(cpu);
 }
 
+static inline bool vtime_generic_enabled_this_cpu(void)
+{
+	return context_tracking_enabled_this_cpu();
+}
+
 #ifdef CONFIG_VIRT_CPU_ACCOUNTING_NATIVE
 extern void vtime_account_idle(struct task_struct *tsk);
 extern void vtime_account_irq(struct task_struct *tsk, unsigned int offset);
@@ -90,7 +95,7 @@ static inline bool vtime_accounting_enabled_cpu(int cpu)
 
 static inline bool vtime_accounting_enabled_this_cpu(void)
 {
-	return context_tracking_enabled_this_cpu();
+	return vtime_generic_enabled_this_cpu();
 }
 
 extern void vtime_task_switch_generic(struct task_struct *prev);
