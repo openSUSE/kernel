@@ -485,30 +485,24 @@ static void xe_fb_pin_dpt_unpin(struct intel_dpt *dpt,
 	__xe_unpin_fb_vma(ggtt_vma);
 }
 
-static bool reuse_vma(struct intel_plane_state *new_plane_state,
-		      const struct intel_plane_state *old_plane_state)
+static struct i915_vma *
+xe_fb_pin_reuse_vma(struct i915_vma *old_ggtt_vma,
+		    struct drm_gem_object *old_obj,
+		    const struct i915_gtt_view *old_view,
+		    struct drm_gem_object *new_obj,
+		    const struct i915_gtt_view *new_view,
+		    u32 *out_offset)
 {
-	struct intel_plane *plane = to_intel_plane(new_plane_state->uapi.plane);
-	struct i915_vma *vma;
+	if (old_ggtt_vma && old_obj == new_obj &&
+	    !memcmp(old_view, new_view, sizeof(*new_view))) {
+		refcount_inc(&old_ggtt_vma->ref);
 
-	if (old_plane_state->hw.fb == new_plane_state->hw.fb &&
-	    !memcmp(&old_plane_state->view.gtt,
-		    &new_plane_state->view.gtt,
-		    sizeof(new_plane_state->view.gtt))) {
-		vma = old_plane_state->ggtt_vma;
-		goto found;
+		*out_offset = xe_ggtt_node_addr(old_ggtt_vma->node);
+
+		return old_ggtt_vma;
 	}
 
-	return false;
-
-found:
-	refcount_inc(&vma->ref);
-	new_plane_state->ggtt_vma = vma;
-
-	new_plane_state->surf = xe_ggtt_node_addr(new_plane_state->ggtt_vma->node) +
-		plane->surf_offset(new_plane_state);
-
-	return true;
+	return NULL;
 }
 
 static unsigned int
@@ -522,7 +516,8 @@ intel_plane_fb_min_alignment(const struct intel_plane_state *plane_state)
 int intel_plane_pin_fb(struct intel_plane_state *new_plane_state,
 		       const struct intel_plane_state *old_plane_state)
 {
-	struct intel_framebuffer *fb = to_intel_framebuffer(new_plane_state->hw.fb);
+	const struct intel_framebuffer *fb = to_intel_framebuffer(new_plane_state->hw.fb);
+	const struct intel_framebuffer *old_fb = to_intel_framebuffer(old_plane_state->hw.fb);
 	struct drm_gem_object *obj = intel_fb_bo(&fb->base);
 	struct intel_plane *plane = to_intel_plane(new_plane_state->uapi.plane);
 	struct intel_fb_pin_params pin_params = {
@@ -536,8 +531,14 @@ int intel_plane_pin_fb(struct intel_plane_state *new_plane_state,
 	u32 offset;
 	int ret;
 
-	if (reuse_vma(new_plane_state, old_plane_state))
-		return 0;
+	ggtt_vma = xe_fb_pin_reuse_vma(old_plane_state->ggtt_vma,
+				       intel_fb_bo(&old_fb->base),
+				       &old_plane_state->view.gtt,
+				       intel_fb_bo(&fb->base),
+				       &new_plane_state->view.gtt,
+				       &offset);
+	if (ggtt_vma)
+		goto got_vma;
 
 	if (!intel_fb_uses_dpt(&fb->base)) {
 		ret = xe_fb_pin_ggtt_pin(obj, &pin_params,
@@ -551,6 +552,7 @@ int intel_plane_pin_fb(struct intel_plane_state *new_plane_state,
 			return ret;
 	}
 
+got_vma:
 	new_plane_state->dpt_vma = dpt_vma;
 	new_plane_state->ggtt_vma = ggtt_vma;
 	new_plane_state->fence_id = fence_id;
