@@ -92,5 +92,8 @@ int intel_plane_atomic_check(struct intel_atomic_state *state);
 bool intel_plane_format_mod_supported_async(struct drm_plane *plane,
 					    u32 format,
 					    u64 modifier);
+int intel_plane_pin_fb(struct intel_plane_state *new_plane_state,
+		       const struct intel_plane_state *old_plane_state);
+void intel_plane_unpin_fb(struct intel_plane_state *old_plane_state);
 
 #endif /* __INTEL_PLANE_H__ */

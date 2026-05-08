@@ -3,19 +3,8 @@
  * Copyright © 2021 Intel Corporation
  */
 
-/**
- * DOC: display pinning helpers
- */
-
 #include <drm/drm_print.h>
 #include <drm/intel/display_parent_interface.h>
-
-#include "display/intel_display_core.h"
-#include "display/intel_display_types.h"
-#include "display/intel_fb.h"
-#include "display/intel_fb_pin.h"
-#include "display/intel_parent.h"
-#include "display/intel_plane.h"
 
 #include "gem/i915_gem_domain.h"
 #include "gem/i915_gem_object.h"
@@ -114,7 +103,7 @@ err:
 	return vma;
 }
 
-struct i915_vma *
+static struct i915_vma *
 intel_fb_pin_to_ggtt(struct drm_gem_object *_obj,
 		     const struct intel_fb_pin_params *pin_params,
 		     int *out_fence_id)
@@ -230,34 +219,6 @@ static void intel_fb_unpin_vma(struct i915_vma *vma, int fence_id)
 	i915_vma_put(vma);
 }
 
-static unsigned int
-intel_plane_fb_min_alignment(const struct intel_plane_state *plane_state)
-{
-	const struct intel_framebuffer *fb = to_intel_framebuffer(plane_state->hw.fb);
-
-	return fb->min_alignment;
-}
-
-static unsigned int
-intel_plane_fb_min_phys_alignment(const struct intel_plane_state *plane_state)
-{
-	struct intel_plane *plane = to_intel_plane(plane_state->uapi.plane);
-	const struct drm_framebuffer *fb = plane_state->hw.fb;
-
-	if (!intel_plane_needs_physical(plane))
-		return 0;
-
-	return plane->min_alignment(plane, fb, 0);
-}
-
-static unsigned int
-intel_plane_fb_vtd_guard(const struct intel_plane_state *plane_state)
-{
-	return intel_fb_view_vtd_guard(plane_state->hw.fb,
-				       &plane_state->view,
-				       plane_state->hw.rotation);
-}
-
 static int i915_fb_pin_ggtt_pin(struct drm_gem_object *obj,
 				const struct intel_fb_pin_params *pin_params,
 				struct i915_vma **out_ggtt_vma,
@@ -334,81 +295,6 @@ static void i915_fb_pin_dpt_unpin(struct intel_dpt *dpt,
 		intel_fb_unpin_vma(dpt_vma, -1);
 	if (ggtt_vma)
 		i915_dpt_unpin_from_ggtt(dpt);
-}
-
-int intel_plane_pin_fb(struct intel_plane_state *plane_state,
-		       const struct intel_plane_state *old_plane_state)
-{
-	struct intel_display *display = to_intel_display(plane_state);
-	struct intel_plane *plane = to_intel_plane(plane_state->uapi.plane);
-	const struct intel_framebuffer *fb =
-		to_intel_framebuffer(plane_state->hw.fb);
-	struct i915_vma *ggtt_vma = NULL;
-	struct i915_vma *dpt_vma = NULL;
-	int fence_id = -1;
-	u32 offset;
-	int ret;
-
-	if (!intel_fb_uses_dpt(&fb->base)) {
-		struct intel_fb_pin_params pin_params = {
-			.view = &plane_state->view.gtt,
-			.alignment = intel_plane_fb_min_alignment(plane_state),
-			.phys_alignment = intel_plane_fb_min_phys_alignment(plane_state),
-			.vtd_guard = intel_plane_fb_vtd_guard(plane_state),
-			.needs_cpu_lmem_access = intel_fb_needs_cpu_access(&fb->base),
-			.needs_low_address = intel_plane_needs_low_address(display),
-			.needs_physical = intel_plane_needs_physical(plane),
-			.needs_fence = intel_plane_needs_fence(display),
-		};
-
-		ret = intel_parent_fb_pin_ggtt_pin(display, intel_fb_bo(&fb->base),
-						   &pin_params, &ggtt_vma, &offset,
-						   intel_plane_uses_fence(plane_state) ? &fence_id : NULL);
-		if (ret)
-			return ret;
-	} else {
-		struct intel_fb_pin_params pin_params = {
-			.view = &plane_state->view.gtt,
-			.alignment = intel_plane_fb_min_alignment(plane_state),
-			.needs_cpu_lmem_access = intel_fb_needs_cpu_access(&fb->base),
-		};
-
-		ret = intel_parent_fb_pin_dpt_pin(display, intel_fb_bo(&fb->base),
-						  fb->dpt, &pin_params,
-						  &dpt_vma, &ggtt_vma, &offset);
-		if (ret)
-			return ret;
-	}
-
-	plane_state->dpt_vma = dpt_vma;
-	plane_state->ggtt_vma = ggtt_vma;
-	plane_state->fence_id = fence_id;
-	plane_state->surf = offset + plane->surf_offset(plane_state);
-
-	return 0;
-}
-
-void intel_plane_unpin_fb(struct intel_plane_state *old_plane_state)
-{
-	struct intel_display *display = to_intel_display(old_plane_state);
-	const struct intel_framebuffer *fb =
-		to_intel_framebuffer(old_plane_state->hw.fb);
-
-	if (!intel_fb_uses_dpt(&fb->base)) {
-		intel_parent_fb_pin_ggtt_unpin(display,
-					       old_plane_state->ggtt_vma,
-					       old_plane_state->fence_id);
-
-		old_plane_state->ggtt_vma = NULL;
-		old_plane_state->fence_id = -1;
-	} else {
-		intel_parent_fb_pin_dpt_unpin(display, fb->dpt,
-					      old_plane_state->dpt_vma,
-					      old_plane_state->ggtt_vma);
-
-		old_plane_state->dpt_vma = NULL;
-		old_plane_state->ggtt_vma = NULL;
-	}
 }
 
 static void i915_fb_pin_get_map(struct i915_vma *vma, struct iosys_map *map)

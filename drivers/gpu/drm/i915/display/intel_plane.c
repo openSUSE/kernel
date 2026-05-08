@@ -44,6 +44,7 @@
 #include <drm/drm_gem_atomic_helper.h>
 #include <drm/drm_panic.h>
 #include <drm/drm_print.h>
+#include <drm/intel/display_parent_interface.h>
 
 #include "i9xx_plane_regs.h"
 #include "intel_cdclk.h"
@@ -53,7 +54,6 @@
 #include "intel_display_trace.h"
 #include "intel_display_types.h"
 #include "intel_fb.h"
-#include "intel_fb_pin.h"
 #include "intel_fbdev.h"
 #include "intel_parent.h"
 #include "intel_plane.h"
@@ -1189,6 +1189,122 @@ int intel_plane_check_src_coordinates(struct intel_plane_state *plane_state)
 	}
 
 	return 0;
+}
+
+static unsigned int
+intel_plane_fb_min_alignment(const struct intel_plane_state *plane_state)
+{
+	const struct intel_framebuffer *fb = to_intel_framebuffer(plane_state->hw.fb);
+
+	return fb->min_alignment;
+}
+
+static unsigned int
+intel_plane_fb_min_phys_alignment(const struct intel_plane_state *plane_state)
+{
+	struct intel_plane *plane = to_intel_plane(plane_state->uapi.plane);
+	const struct drm_framebuffer *fb = plane_state->hw.fb;
+
+	if (!intel_plane_needs_physical(plane))
+		return 0;
+
+	return plane->min_alignment(plane, fb, 0);
+}
+
+static unsigned int
+intel_plane_fb_vtd_guard(const struct intel_plane_state *plane_state)
+{
+	return intel_fb_view_vtd_guard(plane_state->hw.fb,
+				       &plane_state->view,
+				       plane_state->hw.rotation);
+}
+
+int intel_plane_pin_fb(struct intel_plane_state *plane_state,
+		       const struct intel_plane_state *old_plane_state)
+{
+	struct intel_display *display = to_intel_display(plane_state);
+	struct intel_plane *plane = to_intel_plane(plane_state->uapi.plane);
+	const struct intel_framebuffer *fb =
+		to_intel_framebuffer(plane_state->hw.fb);
+	const struct intel_framebuffer *old_fb =
+		to_intel_framebuffer(old_plane_state->hw.fb);
+	struct i915_vma *ggtt_vma = NULL;
+	struct i915_vma *dpt_vma = NULL;
+	int fence_id = -1;
+	u32 offset = 0;
+	int ret;
+
+	/* hack for xe since it can't keep track of vmas properly */
+	ggtt_vma = intel_parent_fb_pin_reuse_vma(display,
+						 old_plane_state->ggtt_vma,
+						 intel_fb_bo(&old_fb->base),
+						 &old_plane_state->view.gtt,
+						 intel_fb_bo(&fb->base),
+						 &plane_state->view.gtt,
+						 &offset);
+	if (ggtt_vma)
+		goto got_vma;
+
+	if (!intel_fb_uses_dpt(&fb->base)) {
+		struct intel_fb_pin_params pin_params = {
+			.view = &plane_state->view.gtt,
+			.alignment = intel_plane_fb_min_alignment(plane_state),
+			.phys_alignment = intel_plane_fb_min_phys_alignment(plane_state),
+			.vtd_guard = intel_plane_fb_vtd_guard(plane_state),
+			.needs_cpu_lmem_access = intel_fb_needs_cpu_access(&fb->base),
+			.needs_low_address = intel_plane_needs_low_address(display),
+			.needs_physical = intel_plane_needs_physical(plane),
+			.needs_fence = intel_plane_needs_fence(display),
+		};
+
+		ret = intel_parent_fb_pin_ggtt_pin(display, intel_fb_bo(&fb->base),
+						   &pin_params, &ggtt_vma, &offset,
+						   intel_plane_uses_fence(plane_state) ? &fence_id : NULL);
+	} else {
+		struct intel_fb_pin_params pin_params = {
+			.view = &plane_state->view.gtt,
+			.alignment = intel_plane_fb_min_alignment(plane_state),
+			.needs_cpu_lmem_access = intel_fb_needs_cpu_access(&fb->base),
+		};
+
+		ret = intel_parent_fb_pin_dpt_pin(display, intel_fb_bo(&fb->base),
+						  fb->dpt, &pin_params,
+						  &dpt_vma, &ggtt_vma, &offset);
+	}
+	if (ret)
+		return ret;
+
+got_vma:
+	plane_state->dpt_vma = dpt_vma;
+	plane_state->ggtt_vma = ggtt_vma;
+	plane_state->fence_id = fence_id;
+
+	plane_state->surf = offset + plane->surf_offset(plane_state);
+
+	return 0;
+}
+
+void intel_plane_unpin_fb(struct intel_plane_state *old_plane_state)
+{
+	struct intel_display *display = to_intel_display(old_plane_state);
+	const struct intel_framebuffer *fb =
+		to_intel_framebuffer(old_plane_state->hw.fb);
+
+	if (!intel_fb_uses_dpt(&fb->base)) {
+		intel_parent_fb_pin_ggtt_unpin(display,
+					       old_plane_state->ggtt_vma,
+					       old_plane_state->fence_id);
+
+		old_plane_state->ggtt_vma = NULL;
+		old_plane_state->fence_id = -1;
+	} else {
+		intel_parent_fb_pin_dpt_unpin(display, fb->dpt,
+					      old_plane_state->dpt_vma,
+					      old_plane_state->ggtt_vma);
+
+		old_plane_state->dpt_vma = NULL;
+		old_plane_state->ggtt_vma = NULL;
+	}
 }
 
 static int add_dma_resv_fences(struct dma_resv *resv,

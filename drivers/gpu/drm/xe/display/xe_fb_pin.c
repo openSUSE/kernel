@@ -6,11 +6,12 @@
 #include <drm/intel/display_parent_interface.h>
 #include <drm/ttm/ttm_bo.h>
 
-#include "intel_display_core.h"
-#include "intel_display_types.h"
+/* FIXME move the types to parent interface? */
+#include "i915_gtt_view_types.h"
+
+/* FIXME move intel_remapped_info_size() & co. to parent interface? */
 #include "intel_fb.h"
-#include "intel_fb_pin.h"
-#include "intel_parent.h"
+
 #include "xe_bo.h"
 #include "xe_device.h"
 #include "xe_display_vma.h"
@@ -488,87 +489,6 @@ xe_fb_pin_reuse_vma(struct i915_vma *old_ggtt_vma,
 	}
 
 	return NULL;
-}
-
-static unsigned int
-intel_plane_fb_min_alignment(const struct intel_plane_state *plane_state)
-{
-	const struct intel_framebuffer *fb = to_intel_framebuffer(plane_state->hw.fb);
-
-	return fb->min_alignment;
-}
-
-int intel_plane_pin_fb(struct intel_plane_state *new_plane_state,
-		       const struct intel_plane_state *old_plane_state)
-{
-	struct intel_display *display = to_intel_display(new_plane_state);
-	const struct intel_framebuffer *fb = to_intel_framebuffer(new_plane_state->hw.fb);
-	const struct intel_framebuffer *old_fb = to_intel_framebuffer(old_plane_state->hw.fb);
-	struct drm_gem_object *obj = intel_fb_bo(&fb->base);
-	struct intel_plane *plane = to_intel_plane(new_plane_state->uapi.plane);
-	struct intel_fb_pin_params pin_params = {
-		.view = &new_plane_state->view.gtt,
-		.alignment = intel_plane_fb_min_alignment(new_plane_state),
-		.needs_cpu_lmem_access = intel_fb_needs_cpu_access(&fb->base),
-	};
-	struct i915_vma *ggtt_vma = NULL;
-	struct i915_vma *dpt_vma = NULL;
-	int fence_id = -1;
-	u32 offset;
-	int ret;
-
-	ggtt_vma = intel_parent_fb_pin_reuse_vma(display,
-						 old_plane_state->ggtt_vma,
-						 intel_fb_bo(&old_fb->base),
-						 &old_plane_state->view.gtt,
-						 intel_fb_bo(&fb->base),
-						 &new_plane_state->view.gtt,
-						 &offset);
-	if (ggtt_vma)
-		goto got_vma;
-
-	if (!intel_fb_uses_dpt(&fb->base)) {
-		ret = intel_parent_fb_pin_ggtt_pin(display, obj, &pin_params,
-						   &ggtt_vma, &offset, NULL);
-		if (ret)
-			return ret;
-	} else {
-		ret = intel_parent_fb_pin_dpt_pin(display, obj, fb->dpt,
-						  &pin_params, &dpt_vma,
-						  &ggtt_vma, &offset);
-		if (ret)
-			return ret;
-	}
-
-got_vma:
-	new_plane_state->dpt_vma = dpt_vma;
-	new_plane_state->ggtt_vma = ggtt_vma;
-	new_plane_state->fence_id = fence_id;
-	new_plane_state->surf = offset + plane->surf_offset(new_plane_state);
-
-	return 0;
-}
-
-void intel_plane_unpin_fb(struct intel_plane_state *old_plane_state)
-{
-	struct intel_display *display = to_intel_display(old_plane_state);
-	const struct intel_framebuffer *fb = to_intel_framebuffer(old_plane_state->hw.fb);
-
-	if (!intel_fb_uses_dpt(&fb->base)) {
-		intel_parent_fb_pin_ggtt_unpin(display,
-					       old_plane_state->ggtt_vma,
-					       old_plane_state->fence_id);
-
-		old_plane_state->ggtt_vma = NULL;
-		old_plane_state->fence_id = -1;
-	} else {
-		intel_parent_fb_pin_dpt_unpin(display, fb->dpt,
-					      old_plane_state->dpt_vma,
-					      old_plane_state->ggtt_vma);
-
-		old_plane_state->dpt_vma = NULL;
-		old_plane_state->ggtt_vma = NULL;
-	}
 }
 
 static void xe_fb_pin_get_map(struct i915_vma *vma, struct iosys_map *map)
