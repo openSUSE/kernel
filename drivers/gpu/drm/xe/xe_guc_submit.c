@@ -1216,10 +1216,8 @@ guc_exec_queue_run_job(struct drm_sched_job *drm_job)
 		if (xe_exec_queue_is_multi_queue_secondary(q)) {
 			struct xe_exec_queue *primary = xe_exec_queue_multi_queue_primary(q);
 
-			if (exec_queue_killed_or_banned_or_wedged(primary)) {
-				killed_or_banned_or_wedged = true;
+			if (exec_queue_killed_or_banned_or_wedged(primary))
 				goto run_job_out;
-			}
 
 			if (!exec_queue_registered(primary))
 				register_exec_queue(primary, GUC_CONTEXT_NORMAL);
