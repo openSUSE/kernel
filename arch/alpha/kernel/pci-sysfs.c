@@ -191,30 +191,6 @@ bool pci_legacy_has_sparse(struct pci_bus *bus, enum pci_mmap_state type)
 	return has_sparse(hose, type);
 }
 
-/**
- * pci_adjust_legacy_attr - adjustment of legacy file attributes
- * @bus: bus to create files under
- * @mmap_type: I/O port or memory
- *
- * Adjust file name and size for sparse mappings.
- */
-void pci_adjust_legacy_attr(struct pci_bus *bus, enum pci_mmap_state mmap_type)
-{
-	struct pci_controller *hose = bus->sysdata;
-
-	if (!has_sparse(hose, mmap_type))
-		return;
-
-	if (mmap_type == pci_mmap_mem) {
-		bus->legacy_mem->attr.name = "legacy_mem_sparse";
-		bus->legacy_mem->size <<= 5;
-	} else {
-		bus->legacy_io->attr.name = "legacy_io_sparse";
-		bus->legacy_io->size <<= 5;
-	}
-	return;
-}
-
 /* Legacy I/O bus read/write functions */
 int pci_legacy_read(struct pci_bus *bus, loff_t port, u32 *val, size_t size)
 {
@@ -291,9 +267,9 @@ static inline enum pci_mmap_state pci_bar_mmap_type(struct pci_dev *pdev,
 	return pci_resource_is_mem(pdev, bar) ? pci_mmap_mem : pci_mmap_io;
 }
 
-static inline umode_t __pci_dev_resource_is_visible(struct kobject *kobj,
-						    const struct bin_attribute *a,
-						    int bar)
+static inline umode_t __pci_resource_attr_is_visible(struct kobject *kobj,
+						     const struct bin_attribute *a,
+						     int bar)
 {
 	struct pci_dev *pdev = to_pci_dev(kobj_to_dev(kobj));
 
@@ -313,7 +289,7 @@ static umode_t pci_dev_resource_is_visible(struct kobject *kobj,
 	if (has_sparse(hose, pci_bar_mmap_type(pdev, bar)))
 		return 0;
 
-	return __pci_dev_resource_is_visible(kobj, a, bar);
+	return __pci_resource_attr_is_visible(kobj, a, bar);
 }
 
 static umode_t pci_dev_resource_sparse_is_visible(struct kobject *kobj,
@@ -330,7 +306,7 @@ static umode_t pci_dev_resource_sparse_is_visible(struct kobject *kobj,
 	if (type == pci_mmap_mem && !sparse_mem_mmap_fits(pdev, bar))
 		return 0;
 
-	return __pci_dev_resource_is_visible(kobj, a, bar);
+	return __pci_resource_attr_is_visible(kobj, a, bar);
 }
 
 static umode_t pci_dev_resource_dense_is_visible(struct kobject *kobj,
@@ -346,14 +322,14 @@ static umode_t pci_dev_resource_dense_is_visible(struct kobject *kobj,
 		return 0;
 
 	if (type == pci_mmap_mem && !sparse_mem_mmap_fits(pdev, bar))
-		return __pci_dev_resource_is_visible(kobj, a, bar);
+		return __pci_resource_attr_is_visible(kobj, a, bar);
 
 	dense_base = (type == pci_mmap_mem) ? hose->dense_mem_base :
 					      hose->dense_io_base;
 	if (!dense_base)
 		return 0;
 
-	return __pci_dev_resource_is_visible(kobj, a, bar);
+	return __pci_resource_attr_is_visible(kobj, a, bar);
 }
 
 static inline size_t __pci_dev_resource_bin_size(struct kobject *kobj,
