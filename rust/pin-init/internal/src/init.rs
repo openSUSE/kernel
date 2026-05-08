@@ -354,7 +354,7 @@ fn make_field_check(
             ::core::ptr::write(slot, #path {
                 #(
                     #(#field_attrs)*
-                    #field_name: ::core::panic!(),
+                    #field_name: loop {},
                 )*
                 #zeroing_trailer
             })
