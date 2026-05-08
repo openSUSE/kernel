@@ -289,6 +289,7 @@ struct qcom_pcie {
 	const struct qcom_pcie_cfg *cfg;
 	struct dentry *debugfs;
 	struct list_head ports;
+	struct gpio_desc *reset;
 	bool use_pm_opp;
 };
 
@@ -1798,6 +1799,13 @@ static int qcom_pcie_parse_perst(struct qcom_pcie *pcie,
 	struct gpio_desc *reset;
 	int ret;
 
+	if (pcie->reset) {
+		dev_warn_once(dev,
+			      "Reusing PERST# from Root Complex node. DT needs to be fixed!\n");
+		reset = pcie->reset;
+		goto skip_perst_parsing;
+	}
+
 	if (!of_find_property(np, "reset-gpios", NULL))
 		goto parse_child_node;
 
@@ -1816,6 +1824,7 @@ static int qcom_pcie_parse_perst(struct qcom_pcie *pcie,
 		return PTR_ERR(reset);
 	}
 
+skip_perst_parsing:
 	perst = devm_kzalloc(dev, sizeof(*perst), GFP_KERNEL);
 	if (!perst)
 		return -ENOMEM;
@@ -1873,6 +1882,13 @@ static int qcom_pcie_parse_ports(struct qcom_pcie *pcie)
 	struct device *dev = pcie->pci->dev;
 	int ret = -ENODEV;
 
+	if (of_find_property(dev->of_node, "perst-gpios", NULL)) {
+		pcie->reset = devm_gpiod_get_optional(dev, "perst",
+						      GPIOD_OUT_HIGH);
+		if (IS_ERR(pcie->reset))
+			return PTR_ERR(pcie->reset);
+	}
+
 	for_each_available_child_of_node_scoped(dev->of_node, of_port) {
 		if (!of_node_is_type(of_port, "pci"))
 			continue;
@@ -1899,17 +1915,12 @@ static int qcom_pcie_parse_legacy_binding(struct qcom_pcie *pcie)
 	struct device *dev = pcie->pci->dev;
 	struct qcom_pcie_perst *perst;
 	struct qcom_pcie_port *port;
-	struct gpio_desc *reset;
 	struct phy *phy;
 	int ret;
 
 	phy = devm_phy_optional_get(dev, "pciephy");
 	if (IS_ERR(phy))
 		return PTR_ERR(phy);
-
-	reset = devm_gpiod_get_optional(dev, "perst", GPIOD_OUT_HIGH);
-	if (IS_ERR(reset))
-		return PTR_ERR(reset);
 
 	ret = phy_init(phy);
 	if (ret)
@@ -1927,7 +1938,7 @@ static int qcom_pcie_parse_legacy_binding(struct qcom_pcie *pcie)
 	INIT_LIST_HEAD(&port->list);
 	list_add_tail(&port->list, &pcie->ports);
 
-	perst->desc = reset;
+	perst->desc = pcie->reset;
 	INIT_LIST_HEAD(&port->perst);
 	INIT_LIST_HEAD(&perst->list);
 	list_add_tail(&perst->list, &port->perst);
