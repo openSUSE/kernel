@@ -24,8 +24,11 @@ driver. The display driver isn't an independent driver in that sense.
    :caption: Detailed display topics
 
    async-flip
+   atomic
    audio
+   casf
    cdclk
+   cmtg
    dmc
    dpio
    dpll
@@ -37,4 +40,5 @@ driver. The display driver isn't an independent driver in that sense.
    hotplug
    plane
    psr
+   snps-phy
    vbt
