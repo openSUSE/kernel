@@ -58,8 +58,8 @@ class MaintainersParser:
         self.field_content = ""
         self.subsystem_name = None
 
-        self.app_dir = app_dir
-        self.base_dir, self.doc_dir, self.sphinx_dir = app_dir.partition("Documentation")
+        self.app_dir = os.path.abspath(app_dir)
+        self.base_dir, _, self.sphinx_dir = self.app_dir.partition("Documentation")
 
         self.re_doc = re.compile(r'(Documentation/([^\s\?\*]*)\.rst)')
 
@@ -104,10 +104,25 @@ class MaintainersParser:
 
     def linkify(self, text):
         """Linkify all non-wildcard refs to ReST files in Documentation/"""
+
         m = self.re_doc.search(text)
         if m:
-            # maintainers.rst is in a subdirectory, so include "../".
-            text = self.re_doc.sub(':doc:`%s <../%s>`' % (m.group(2), m.group(2)), text)
+            fname = m.group(1)
+            ename = m.group(2)
+
+            entry = os.path.relpath(self.base_dir + fname, self.app_dir)
+            entry = entry.removesuffix(".rst")
+
+            #
+            # When SPHINXDIRS is used, it will try to reference files
+            # outside srctree, causing warnings. To avoid that, point
+            # to the latest official documentation
+            #
+            if entry.startswith("../"):
+                html = KERNELDOC_URL + ename + ".html"
+                text = self.re_doc.sub(f'`{ename} <{html}>`_', text)
+            else:
+                text = self.re_doc.sub(f':doc:`{ename} </{entry}>`', text)
 
         return text
 
@@ -176,27 +191,32 @@ class MaintainersParser:
         if field == "P":
             match = self.re_doc.match(details)
             if match:
-                name = "".join(match.groups())
-                entry = os.path.relpath(self.base_dir + name, self.app_dir)
+                fname = match.group(1)
+                ename = match.group(2)
 
-                full_name = os.path.join(self.base_dir, name)
-                path = os.path.relpath(full_name, self.app_dir)
+                entry = os.path.relpath(self.base_dir + fname, self.app_dir)
+                entry = entry.removesuffix(".rst")
                 #
                 # When SPHINXDIRS is used, it will try to reference files
                 # outside srctree, causing warnings. To avoid that, point
                 # to the latest official documentation
                 #
-                if path.startswith("../"):
-                    entry = KERNELDOC_URL + "/" + match.group(2) + ".html"
+
+                if entry.startswith("../"):
+                    entry = KERNELDOC_URL + ename + ".html"
                 else:
                     entry = "/" + entry
 
                 if "*" in entry:
                     for e in glob(entry):
-                        self.profile_toc.add(e)
+                        if "html" not in e:
+                            self.profile_toc.add(e)
+
                         self.profile_entries[self.subsystem_name] = e
                 else:
-                    self.profile_toc.add(entry)
+                    if "html" not in entry:
+                        self.profile_toc.add(entry)
+
                     self.profile_entries[self.subsystem_name] = entry
             else:
                 match = re.match(r"(https?://.*)", details)
