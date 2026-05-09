@@ -610,19 +610,9 @@ static inline int __must_check __tdp_mmu_set_spte_atomic(struct kvm *kvm,
 	WARN_ON_ONCE(iter->yielded || is_frozen_spte(iter->old_spte));
 
 	if (is_mirror_sptep(iter->sptep) && !is_frozen_spte(new_spte)) {
-		bool was_present = is_shadow_present_pte(iter->old_spte);
 		int ret;
 
-		KVM_BUG_ON(was_present, kvm);
-
 		lockdep_assert_held(&kvm->mmu_lock);
-
-		/*
-		 * Users of atomic zapping don't operate on mirror roots,
-		 * so don't handle it and bug the VM if it's seen.
-		 */
-		if (KVM_BUG_ON(!is_shadow_present_pte(new_spte), kvm))
-			return -EBUSY;
 
 		/*
 		 * We need to lock out other updates to the SPTE until the external
