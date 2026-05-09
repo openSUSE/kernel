@@ -19,8 +19,8 @@ void odm_NHMCounterStatisticsInit(void *pDM_VOID)
 	rtw_write32(pDM_Odm->Adapter, ODM_REG_NHM_TH3_TO_TH0_11N, 0xffffff52);	/* 0x898 = 0xffffff52		th_3, th_2, th_1, th_0 */
 	rtw_write32(pDM_Odm->Adapter, ODM_REG_NHM_TH7_TO_TH4_11N, 0xffffffff);	/* 0x89c = 0xffffffff		th_7, th_6, th_5, th_4 */
 	PHY_SetBBReg(pDM_Odm->Adapter, ODM_REG_FPGA0_IQK_11N, bMaskByte0, 0xff);		/* 0xe28[7:0]= 0xff		th_8 */
-	PHY_SetBBReg(pDM_Odm->Adapter, ODM_REG_NHM_TH9_TH10_11N, BIT10|BIT9|BIT8, 0x7);	/* 0x890[9:8]=3			enable CCX */
-	PHY_SetBBReg(pDM_Odm->Adapter, ODM_REG_OFDM_FA_RSTC_11N, BIT7, 0x1);		/* 0xc0c[7]= 1			max power among all RX ants */
+	PHY_SetBBReg(pDM_Odm->Adapter, ODM_REG_NHM_TH9_TH10_11N, BIT(10)|BIT(9)|BIT(8), 0x7);	/* 0x890[9:8]=3			enable CCX */
+	PHY_SetBBReg(pDM_Odm->Adapter, ODM_REG_OFDM_FA_RSTC_11N, BIT(7), 0x1);		/* 0xc0c[7]= 1			max power among all RX ants */
 }
 
 void odm_NHMCounterStatistics(void *pDM_VOID)
@@ -48,8 +48,8 @@ void odm_NHMCounterStatisticsReset(void *pDM_VOID)
 {
 	struct dm_odm_t *pDM_Odm = (struct dm_odm_t *)pDM_VOID;
 
-	PHY_SetBBReg(pDM_Odm->Adapter, ODM_REG_NHM_TH9_TH10_11N, BIT1, 0);
-	PHY_SetBBReg(pDM_Odm->Adapter, ODM_REG_NHM_TH9_TH10_11N, BIT1, 1);
+	PHY_SetBBReg(pDM_Odm->Adapter, ODM_REG_NHM_TH9_TH10_11N, BIT(1), 0);
+	PHY_SetBBReg(pDM_Odm->Adapter, ODM_REG_NHM_TH9_TH10_11N, BIT(1), 1);
 }
 
 void odm_NHMBBInit(void *pDM_VOID)
@@ -143,9 +143,9 @@ void odm_SearchPwdBLowerBound(void *pDM_VOID, u8 IGI_target)
 		for (cnt = 0; cnt < 20; cnt++) {
 			value32 = PHY_QueryBBReg(pDM_Odm->Adapter, ODM_REG_RPT_11N, bMaskDWord);
 
-			if (value32 & BIT30)
+			if (value32 & BIT(30))
 				pDM_Odm->txEdcca1 = pDM_Odm->txEdcca1 + 1;
-			else if (value32 & BIT29)
+			else if (value32 & BIT(29))
 				pDM_Odm->txEdcca1 = pDM_Odm->txEdcca1 + 1;
 			else
 				pDM_Odm->txEdcca0 = pDM_Odm->txEdcca0 + 1;
@@ -209,7 +209,7 @@ void odm_AdaptivityInit(void *pDM_VOID)
 	pDM_Odm->Adaptivity_IGI_upper = 0;
 	odm_NHMBBInit(pDM_Odm);
 
-	PHY_SetBBReg(pDM_Odm->Adapter, REG_RD_CTRL, BIT11, 1); /*  stop counting if EDCCA is asserted */
+	PHY_SetBBReg(pDM_Odm->Adapter, REG_RD_CTRL, BIT(11), 1); /*  stop counting if EDCCA is asserted */
 }
 
 
@@ -612,9 +612,9 @@ void odm_FalseAlarmCounterStatistics(void *pDM_VOID)
 
 	/* hold ofdm counter */
 	/* hold page C counter */
-	PHY_SetBBReg(pDM_Odm->Adapter, ODM_REG_OFDM_FA_HOLDC_11N, BIT31, 1);
+	PHY_SetBBReg(pDM_Odm->Adapter, ODM_REG_OFDM_FA_HOLDC_11N, BIT(31), 1);
 	/* hold page D counter */
-	PHY_SetBBReg(pDM_Odm->Adapter, ODM_REG_OFDM_FA_RSTD_11N, BIT31, 1);
+	PHY_SetBBReg(pDM_Odm->Adapter, ODM_REG_OFDM_FA_RSTD_11N, BIT(31), 1);
 
 	ret_value = PHY_QueryBBReg(
 		pDM_Odm->Adapter, ODM_REG_OFDM_FA_TYPE1_11N, bMaskDWord
@@ -649,8 +649,8 @@ void odm_FalseAlarmCounterStatistics(void *pDM_VOID)
 
 	{
 		/* hold cck counter */
-		PHY_SetBBReg(pDM_Odm->Adapter, ODM_REG_CCK_FA_RST_11N, BIT12, 1);
-		PHY_SetBBReg(pDM_Odm->Adapter, ODM_REG_CCK_FA_RST_11N, BIT14, 1);
+		PHY_SetBBReg(pDM_Odm->Adapter, ODM_REG_CCK_FA_RST_11N, BIT(12), 1);
+		PHY_SetBBReg(pDM_Odm->Adapter, ODM_REG_CCK_FA_RST_11N, BIT(14), 1);
 
 		ret_value = PHY_QueryBBReg(
 			pDM_Odm->Adapter, ODM_REG_CCK_FA_LSB_11N, bMaskByte0

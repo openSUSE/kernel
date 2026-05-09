@@ -79,7 +79,7 @@ static void setIqkMatrix_8723B(
 			PHY_SetBBReg(pDM_Odm->Adapter, rOFDM0_XCTxAFE, bMaskH4Bits, value32);
 
 			value32 = ((IqkResult_X * ele_D)>>7)&0x01;
-			PHY_SetBBReg(pDM_Odm->Adapter, rOFDM0_ECCAThreshold, BIT24, value32);
+			PHY_SetBBReg(pDM_Odm->Adapter, rOFDM0_ECCAThreshold, BIT(24), value32);
 			break;
 		case RF_PATH_B:
 			/* write new elements A, C, D to regC88 and regC9C,
@@ -92,7 +92,7 @@ static void setIqkMatrix_8723B(
 			PHY_SetBBReg(pDM_Odm->Adapter, rOFDM0_XDTxAFE, bMaskH4Bits, value32);
 
 			value32 = ((IqkResult_X * ele_D)>>7)&0x01;
-			PHY_SetBBReg(pDM_Odm->Adapter, rOFDM0_ECCAThreshold, BIT28, value32);
+			PHY_SetBBReg(pDM_Odm->Adapter, rOFDM0_ECCAThreshold, BIT(28), value32);
 
 			break;
 		default:
@@ -103,13 +103,13 @@ static void setIqkMatrix_8723B(
 		case RF_PATH_A:
 			PHY_SetBBReg(pDM_Odm->Adapter, rOFDM0_XATxIQImbalance, bMaskDWord, OFDMSwingTable_New[OFDM_index]);
 			PHY_SetBBReg(pDM_Odm->Adapter, rOFDM0_XCTxAFE, bMaskH4Bits, 0x00);
-			PHY_SetBBReg(pDM_Odm->Adapter, rOFDM0_ECCAThreshold, BIT24, 0x00);
+			PHY_SetBBReg(pDM_Odm->Adapter, rOFDM0_ECCAThreshold, BIT(24), 0x00);
 			break;
 
 		case RF_PATH_B:
 			PHY_SetBBReg(pDM_Odm->Adapter, rOFDM0_XBTxIQImbalance, bMaskDWord, OFDMSwingTable_New[OFDM_index]);
 			PHY_SetBBReg(pDM_Odm->Adapter, rOFDM0_XDTxAFE, bMaskH4Bits, 0x00);
-			PHY_SetBBReg(pDM_Odm->Adapter, rOFDM0_ECCAThreshold, BIT28, 0x00);
+			PHY_SetBBReg(pDM_Odm->Adapter, rOFDM0_ECCAThreshold, BIT(28), 0x00);
 			break;
 
 		default:
@@ -427,7 +427,7 @@ static u8 phy_PathA_IQK_8723B(
 		tmp = 0x400 - tmp;
 
 	if (
-		!(regEAC & BIT28) &&
+		!(regEAC & BIT(28)) &&
 		(((regE94 & 0x03FF0000)>>16) != 0x142) &&
 		(((regE9C & 0x03FF0000)>>16) != 0x42) &&
 		(((regE94 & 0x03FF0000)>>16) < 0x110) &&
@@ -526,7 +526,7 @@ static u8 phy_PathA_RxIQK8723B(
 		tmp = 0x400 - tmp;
 
 	if (
-		!(regEAC & BIT28) &&
+		!(regEAC & BIT(28)) &&
 		(((regE94 & 0x03FF0000)>>16) != 0x142) &&
 		(((regE9C & 0x03FF0000)>>16) != 0x42) &&
 		(((regE94 & 0x03FF0000)>>16) < 0x110) &&
@@ -617,7 +617,7 @@ static u8 phy_PathA_RxIQK8723B(
 		tmp = 0x400 - tmp;
 
 	if (
-		!(regEAC & BIT27) && /* if Tx is OK, check whether Rx is OK */
+		!(regEAC & BIT(27)) && /* if Tx is OK, check whether Rx is OK */
 		(((regEA4 & 0x03FF0000)>>16) != 0x132) &&
 		(((regEAC & 0x03FF0000)>>16) != 0x36) &&
 		(((regEA4 & 0x03FF0000)>>16) < 0x110) &&
@@ -710,7 +710,7 @@ static u8 phy_PathB_IQK_8723B(struct adapter *padapter)
 		tmp = 0x400 - tmp;
 
 	if (
-		!(regEAC & BIT28) &&
+		!(regEAC & BIT(28)) &&
 		(((regE94 & 0x03FF0000)>>16) != 0x142) &&
 		(((regE9C & 0x03FF0000)>>16) != 0x42) &&
 		(((regE94 & 0x03FF0000)>>16) < 0x110) &&
@@ -805,7 +805,7 @@ static u8 phy_PathB_RxIQK8723B(struct adapter *padapter, bool configPathB)
 		tmp = 0x400 - tmp;
 
 	if (
-		!(regEAC & BIT28) &&
+		!(regEAC & BIT(28)) &&
 		(((regE94 & 0x03FF0000)>>16) != 0x142) &&
 		(((regE9C & 0x03FF0000)>>16) != 0x42)  &&
 		(((regE94 & 0x03FF0000)>>16) < 0x110) &&
@@ -897,7 +897,7 @@ static u8 phy_PathB_RxIQK8723B(struct adapter *padapter, bool configPathB)
 		tmp = 0x400 - tmp;
 
 	if (
-		!(regEAC & BIT27) && /* if Tx is OK, check whether Rx is OK */
+		!(regEAC & BIT(27)) && /* if Tx is OK, check whether Rx is OK */
 		(((regEA4 & 0x03FF0000)>>16) != 0x132) &&
 		(((regEAC & 0x03FF0000)>>16) != 0x36) &&
 		(((regEA4 & 0x03FF0000)>>16) < 0x110) &&
@@ -1196,9 +1196,9 @@ static void _PHY_MACSettingCalibration8723B(
 	rtw_write8(pDM_Odm->Adapter, MACReg[i], 0x3F);
 
 	for (i = 1 ; i < (IQK_MAC_REG_NUM - 1); i++) {
-		rtw_write8(pDM_Odm->Adapter, MACReg[i], (u8)(MACBackup[i]&(~BIT3)));
+		rtw_write8(pDM_Odm->Adapter, MACReg[i], (u8)(MACBackup[i]&(~BIT(3))));
 	}
-	rtw_write8(pDM_Odm->Adapter, MACReg[i], (u8)(MACBackup[i]&(~BIT5)));
+	rtw_write8(pDM_Odm->Adapter, MACReg[i], (u8)(MACBackup[i]&(~BIT(5))));
 
 }
 

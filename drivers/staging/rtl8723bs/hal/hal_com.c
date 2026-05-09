@@ -756,7 +756,7 @@ void rtw_bb_rf_gain_offset(struct adapter *padapter)
 	u32 v1 = 0, v2 = 0, target = 0;
 	u32 i = 0;
 
-	if (value & BIT4) {
+	if (value & BIT(4)) {
 		if (padapter->eeprompriv.EEPROMRFGainVal != 0xff) {
 			rtw_hal_read_rfreg(padapter, RF_PATH_A, 0x7f, 0xffffffff);
 
@@ -768,7 +768,7 @@ void rtw_bb_rf_gain_offset(struct adapter *padapter)
 					break;
 				}
 			}
-			PHY_SetRFReg(padapter, RF_PATH_A, REG_RF_BB_GAIN_OFFSET, BIT18|BIT17|BIT16|BIT15, target);
+			PHY_SetRFReg(padapter, RF_PATH_A, REG_RF_BB_GAIN_OFFSET, BIT(18)|BIT(17)|BIT(16)|BIT(15), target);
 
 			rtw_hal_read_rfreg(padapter, RF_PATH_A, 0x7f, 0xffffffff);
 		}

@@ -494,7 +494,7 @@ static bool _rtw_camid_is_gk(struct adapter *adapter, u8 cam_id)
 	if (!(cam_ctl->bitmap & BIT(cam_id)))
 		goto exit;
 
-	ret = (dvobj->cam_cache[cam_id].ctrl & BIT6) ? true : false;
+	ret = (dvobj->cam_cache[cam_id].ctrl & BIT(6)) ? true : false;
 
 exit:
 	return ret;

@@ -185,7 +185,7 @@ static void halbtc8723b2ant_QueryBtInfo(struct btc_coexist *pBtCoexist)
 
 	pCoexSta->bC2hBtInfoReqSent = true;
 
-	H2C_Parameter[0] |= BIT0;	/*  trigger */
+	H2C_Parameter[0] |= BIT(0);	/*  trigger */
 
 	pBtCoexist->fBtcFillH2c(pBtCoexist, 0x61, 1, H2C_Parameter);
 }
@@ -509,7 +509,7 @@ static void halbtc8723b2ant_SetSwPenaltyTxRateAdaptive(
 	H2C_Parameter[0] = 0x6;	/*  opCode, 0x6 = Retry_Penalty */
 
 	if (bLowPenaltyRa) {
-		H2C_Parameter[1] |= BIT0;
+		H2C_Parameter[1] |= BIT(0);
 		H2C_Parameter[2] = 0x00;  /* normal rate except MCS7/6/5, OFDM54/48/36 */
 		H2C_Parameter[3] = 0xf7;  /* MCS7 or OFDM54 */
 		H2C_Parameter[4] = 0xf8;  /* MCS6 or OFDM48 */
@@ -748,7 +748,7 @@ static void halbtc8723b2ant_SetFwIgnoreWlanAct(
 	u8 	H2C_Parameter[1] = {0};
 
 	if (bEnable)
-		H2C_Parameter[0] |= BIT0;		/*  function enable */
+		H2C_Parameter[0] |= BIT(0);		/*  function enable */
 
 	pBtCoexist->fBtcFillH2c(pBtCoexist, 0x63, 1, H2C_Parameter);
 }
@@ -877,8 +877,8 @@ static void halbtc8723b2ant_SetAntPath(
 		if (bInitHwCfg) {
 			/*  0x4c[23]= 0, 0x4c[24]= 1  Antenna control by WL/BT */
 			u4Tmp = pBtCoexist->fBtcRead4Byte(pBtCoexist, 0x4c);
-			u4Tmp &= ~BIT23;
-			u4Tmp |= BIT24;
+			u4Tmp &= ~BIT(23);
+			u4Tmp |= BIT(24);
 			pBtCoexist->fBtcWrite4Byte(pBtCoexist, 0x4c, u4Tmp);
 		}
 
@@ -895,8 +895,8 @@ static void halbtc8723b2ant_SetAntPath(
 		if (bInitHwCfg) {
 			/*  0x4c[23]= 0, 0x4c[24]= 1  Antenna control by WL/BT */
 			u4Tmp = pBtCoexist->fBtcRead4Byte(pBtCoexist, 0x4c);
-			u4Tmp |= BIT23;
-			u4Tmp &= ~BIT24;
+			u4Tmp |= BIT(23);
+			u4Tmp &= ~BIT(24);
 			pBtCoexist->fBtcWrite4Byte(pBtCoexist, 0x4c, u4Tmp);
 		}
 
@@ -2336,7 +2336,7 @@ void EXhalbtc8723b2ant_PowerOnSetting(struct btc_coexist *pBtCoexist)
 
 	/*  enable BB, REG_SYS_FUNC_EN such that we can write 0x948 correctly. */
 	u2Tmp = pBtCoexist->fBtcRead2Byte(pBtCoexist, 0x2);
-	pBtCoexist->fBtcWrite2Byte(pBtCoexist, 0x2, u2Tmp | BIT0 | BIT1);
+	pBtCoexist->fBtcWrite2Byte(pBtCoexist, 0x2, u2Tmp | BIT(0) | BIT(1));
 
 	/*  set GRAN_BT = 1 */
 	pBtCoexist->fBtcWrite1Byte(pBtCoexist, 0x765, 0x18);
@@ -2505,7 +2505,7 @@ void EXhalbtc8723b2ant_BtInfoNotify(
 
 		/*  Here we need to resend some wifi info to BT */
 		/*  because bt is reset and loss of the info. */
-		if ((pCoexSta->btInfoExt & BIT1)) {
+		if ((pCoexSta->btInfoExt & BIT(1))) {
 			pBtCoexist->fBtcGet(pBtCoexist, BTC_GET_BL_WIFI_CONNECTED, &bWifiConnected);
 
 			if (bWifiConnected)
@@ -2514,7 +2514,7 @@ void EXhalbtc8723b2ant_BtInfoNotify(
 				EXhalbtc8723b2ant_MediaStatusNotify(pBtCoexist, BTC_MEDIA_DISCONNECT);
 		}
 
-		if ((pCoexSta->btInfoExt & BIT3)) {
+		if ((pCoexSta->btInfoExt & BIT(3))) {
 			halbtc8723b2ant_IgnoreWlanAct(pBtCoexist, FORCE_EXEC, false);
 		} else {
 			/*  BT already NOT ignore Wlan active, do nothing here. */

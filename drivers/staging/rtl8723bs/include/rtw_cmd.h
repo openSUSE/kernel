@@ -33,8 +33,8 @@
 
 	/* cmd flags */
 	enum {
-		RTW_CMDF_DIRECTLY = BIT0,
-		RTW_CMDF_WAIT_ACK = BIT1,
+		RTW_CMDF_DIRECTLY = BIT(0),
+		RTW_CMDF_WAIT_ACK = BIT(1),
 	};
 
 	struct cmd_priv {

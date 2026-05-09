@@ -155,8 +155,8 @@
 
 /* DIG Related */
 #define	ODM_BIT_IGI_11N					0x0000007F
-#define	ODM_BIT_CCK_RPT_FORMAT_11N		BIT9
+#define	ODM_BIT_CCK_RPT_FORMAT_11N		BIT(9)
 #define	ODM_BIT_BB_RX_PATH_11N			0xF
-#define	ODM_BIT_BB_ATC_11N				BIT11
+#define	ODM_BIT_BB_ATC_11N				BIT(11)
 
 #endif

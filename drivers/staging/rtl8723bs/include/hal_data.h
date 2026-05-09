@@ -77,7 +77,7 @@ enum {
 struct dm_priv {
 	u8 DM_Type;
 
-#define DYNAMIC_FUNC_BT BIT0
+#define DYNAMIC_FUNC_BT BIT(0)
 
 	u8 DMFlag;
 	u8 InitDMFlag;
