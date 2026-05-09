@@ -152,6 +152,15 @@ struct netem_sched_data {
 		u8  state;
 	} clg;
 
+	/* Impairment counters */
+	u64			delayed;
+	u64			dropped;
+	u64			corrupted;
+	u64			duplicated;
+	u64			ecn_marked;
+	u64			reordered;
+	u64			allocation_errors;
+
 	/* Cold tail: slot reschedule config and the watchdog timer. */
 	struct tc_netem_slot	slot_config;
 	struct qdisc_watchdog	watchdog;
@@ -462,16 +471,21 @@ static int netem_enqueue(struct sk_buff *skb, struct Qdisc *sch,
 	skb->prev = NULL;
 
 	/* Random duplication */
-	if (q->duplicate && q->duplicate >= get_crandom(&q->dup_cor, &q->prng))
+	if (q->duplicate && q->duplicate >= get_crandom(&q->dup_cor, &q->prng)) {
 		++count;
+		WRITE_ONCE(q->duplicated, q->duplicated + 1);
+	}
 
 	/* Drop packet? */
 	if (loss_event(q)) {
-		if (q->ecn && INET_ECN_set_ce(skb))
-			qdisc_qstats_drop(sch); /* mark packet */
-		else
+		if (q->ecn && INET_ECN_set_ce(skb)) {
+			WRITE_ONCE(q->ecn_marked, q->ecn_marked + 1);
+		} else {
+			WRITE_ONCE(q->dropped, q->dropped + 1);
 			--count;
+		}
 	}
+
 	if (count == 0) {
 		qdisc_qstats_drop(sch);
 		__qdisc_drop(skb, to_free);
@@ -488,8 +502,11 @@ static int netem_enqueue(struct sk_buff *skb, struct Qdisc *sch,
 	 * If we need to duplicate packet, then clone it before
 	 * original is modified.
 	 */
-	if (count > 1)
+	if (count > 1) {
 		skb2 = skb_clone(skb, GFP_ATOMIC);
+		if (!skb2)
+			WRITE_ONCE(q->allocation_errors, q->allocation_errors + 1);
+	}
 
 	/*
 	 * Randomized packet corruption.
@@ -500,8 +517,10 @@ static int netem_enqueue(struct sk_buff *skb, struct Qdisc *sch,
 	if (q->corrupt && q->corrupt >= get_crandom(&q->corrupt_cor, &q->prng)) {
 		if (skb_is_gso(skb)) {
 			skb = netem_segment(skb, sch, to_free);
-			if (!skb)
+			if (!skb) {
+				WRITE_ONCE(q->allocation_errors, q->allocation_errors + 1);
 				goto finish_segs;
+			}
 
 			segs = skb->next;
 			skb_mark_not_on_list(skb);
@@ -510,11 +529,13 @@ static int netem_enqueue(struct sk_buff *skb, struct Qdisc *sch,
 
 		skb = skb_unshare(skb, GFP_ATOMIC);
 		if (unlikely(!skb)) {
+			WRITE_ONCE(q->allocation_errors, q->allocation_errors + 1);
 			qdisc_qstats_drop(sch);
 			goto finish_segs;
 		}
 		if (skb_linearize(skb) ||
 		    (skb->ip_summed == CHECKSUM_PARTIAL && skb_checksum_help(skb))) {
+			WRITE_ONCE(q->allocation_errors, q->allocation_errors + 1);
 			qdisc_drop(skb, sch, to_free);
 			skb = NULL;
 			goto finish_segs;
@@ -523,6 +544,7 @@ static int netem_enqueue(struct sk_buff *skb, struct Qdisc *sch,
 		if (skb->len) {
 			u32 offset = get_random_u32_below(skb->len);
 			skb->data[offset] ^= 1 << get_random_u32_below(8);
+			WRITE_ONCE(q->corrupted, q->corrupted + 1);
 		}
 	}
 
@@ -604,12 +626,16 @@ static int netem_enqueue(struct sk_buff *skb, struct Qdisc *sch,
 
 		cb->time_to_send = now + delay;
 		++q->counter;
+		if (delay)
+			WRITE_ONCE(q->delayed, q->delayed + 1);
+
 		tfifo_enqueue(skb, sch);
 	} else {
 		/*
 		 * Do re-ordering by putting one out of N packets at the front
 		 * of the queue.
 		 */
+		WRITE_ONCE(q->reordered, q->reordered + 1);
 		cb->time_to_send = ktime_get_ns();
 		q->counter = 0;
 
@@ -1348,6 +1374,22 @@ nla_put_failure:
 	return -1;
 }
 
+static int netem_dump_stats(struct Qdisc *sch, struct gnet_dump *d)
+{
+	struct netem_sched_data *q = qdisc_priv(sch);
+	struct tc_netem_xstats st = {
+		.delayed    = READ_ONCE(q->delayed),
+		.dropped    = READ_ONCE(q->dropped),
+		.corrupted  = READ_ONCE(q->corrupted),
+		.duplicated = READ_ONCE(q->duplicated),
+		.reordered  = READ_ONCE(q->reordered),
+		.ecn_marked = READ_ONCE(q->ecn_marked),
+		.allocation_errors = READ_ONCE(q->allocation_errors),
+	};
+
+	return gnet_stats_copy_app(d, &st, sizeof(st));
+}
+
 static int netem_dump_class(struct Qdisc *sch, unsigned long cl,
 			  struct sk_buff *skb, struct tcmsg *tcm)
 {
@@ -1410,6 +1452,7 @@ static struct Qdisc_ops netem_qdisc_ops __read_mostly = {
 	.destroy	=	netem_destroy,
 	.change		=	netem_change,
 	.dump		=	netem_dump,
+	.dump_stats	=	netem_dump_stats,
 	.owner		=	THIS_MODULE,
 };
 MODULE_ALIAS_NET_SCH("netem");
