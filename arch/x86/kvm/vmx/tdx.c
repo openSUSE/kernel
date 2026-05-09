@@ -1764,8 +1764,8 @@ static void tdx_track(struct kvm *kvm)
 	kvm_make_all_cpus_request(kvm, KVM_REQ_OUTSIDE_GUEST_MODE);
 }
 
-static int tdx_sept_remove_private_spte(struct kvm *kvm, gfn_t gfn,
-					enum pg_level level, u64 old_spte)
+static int tdx_sept_remove_leaf_spte(struct kvm *kvm, gfn_t gfn,
+				     enum pg_level level, u64 old_spte)
 {
 	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
 	kvm_pfn_t pfn = spte_to_pfn(old_spte);
@@ -1838,7 +1838,7 @@ static int tdx_sept_set_private_spte(struct kvm *kvm, gfn_t gfn, u64 old_spte,
 	lockdep_assert_held(&kvm->mmu_lock);
 
 	if (is_shadow_present_pte(old_spte))
-		return tdx_sept_remove_private_spte(kvm, gfn, level, old_spte);
+		return tdx_sept_remove_leaf_spte(kvm, gfn, level, old_spte);
 
 	if (KVM_BUG_ON(!is_shadow_present_pte(new_spte), kvm))
 		return -EIO;
@@ -2832,7 +2832,7 @@ void tdx_flush_tlb_current(struct kvm_vcpu *vcpu)
 void tdx_flush_tlb_all(struct kvm_vcpu *vcpu)
 {
 	/*
-	 * TDX has called tdx_track() in tdx_sept_remove_private_spte() to
+	 * TDX has called tdx_track() in tdx_sept_remove_leaf_spte() to
 	 * ensure that private EPT will be flushed on the next TD enter. No need
 	 * to call tdx_track() here again even when this callback is a result of
 	 * zapping private EPT.
