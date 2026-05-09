@@ -240,6 +240,8 @@ class MaintainersParser:
                 if match:
                     entry = match.group(1).strip()
                     self.profile_entries[self.subsystem_name] = entry
+                else:
+                    self.profile_entries[self.subsystem_name] = f"``{details}``"
 
         details = self.linkify(details)
 
@@ -328,12 +330,15 @@ class MaintainersProfile(Include):
         #
         output = ""
         for profile, entry in sorted(maint_parser.profile_entries.items()):
-            profile = profile.title()
+            name = profile.title()
 
             if entry.startswith("http"):
-                output += f"- `{profile} <{entry}>`_\n"
+                output += f"- `{name} <{entry}>`_\n"
+            elif entry.startswith("`"):
+                output += f"- {name}: {entry}\n"
+                self.warning(f"{profile}: Invalid 'P' tag: {entry}\n")
             else:
-                output += f"- :doc:`{profile} <{entry}>`\n"
+                output += f"- :doc:`{name} <{entry}>`\n"
 
         #
         # Create a hidden TOC table with all profiles. That allows adding
