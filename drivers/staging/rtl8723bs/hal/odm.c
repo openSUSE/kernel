@@ -952,31 +952,6 @@ void ODM_CmnInfoUpdate(struct dm_odm_t *pDM_Odm, u32 CmnInfo, u64 Value)
 		pDM_Odm->bBtDisableEdcaTurbo = (bool)Value;
 		break;
 
-/*
-	case	ODM_CMNINFO_OP_MODE:
-		pDM_Odm->OPMode = (u8)Value;
-		break;
-
-	case	ODM_CMNINFO_WM_MODE:
-		pDM_Odm->WirelessMode = (u8)Value;
-		break;
-
-	case	ODM_CMNINFO_SEC_CHNL_OFFSET:
-		pDM_Odm->SecChOffset = (u8)Value;
-		break;
-
-	case	ODM_CMNINFO_SEC_MODE:
-		pDM_Odm->Security = (u8)Value;
-		break;
-
-	case	ODM_CMNINFO_BW:
-		pDM_Odm->BandWidth = (u8)Value;
-		break;
-
-	case	ODM_CMNINFO_CHNL:
-		pDM_Odm->Channel = (u8)Value;
-		break;
-*/
 	default:
 		/* do nothing */
 		break;
