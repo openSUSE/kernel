@@ -207,17 +207,17 @@ static void atmel_sha204a_remove(struct i2c_client *client)
 	kfree((void *)i2c_priv->hwrng.priv);
 }
 
-static const struct of_device_id atmel_sha204a_dt_ids[] __maybe_unused = {
+static const struct of_device_id atmel_sha204a_dt_ids[] = {
 	{ .compatible = "atmel,atsha204", .data = &atsha204_quality },
 	{ .compatible = "atmel,atsha204a", },
-	{ /* sentinel */ }
+	{ }
 };
 MODULE_DEVICE_TABLE(of, atmel_sha204a_dt_ids);
 
 static const struct i2c_device_id atmel_sha204a_id[] = {
 	{ "atsha204", (kernel_ulong_t)&atsha204_quality },
 	{ "atsha204a" },
-	{ /* sentinel */ }
+	{ }
 };
 MODULE_DEVICE_TABLE(i2c, atmel_sha204a_id);
 
@@ -227,7 +227,7 @@ static struct i2c_driver atmel_sha204a_driver = {
 	.id_table		= atmel_sha204a_id,
 
 	.driver.name		= "atmel-sha204a",
-	.driver.of_match_table	= of_match_ptr(atmel_sha204a_dt_ids),
+	.driver.of_match_table	= atmel_sha204a_dt_ids,
 };
 
 static int __init atmel_sha204a_init(void)
