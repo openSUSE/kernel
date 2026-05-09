@@ -661,9 +661,9 @@ static int glk_coef_tap(int i)
 	return i % 7;
 }
 
-static u16 glk_nearest_filter_coef(int t)
+static u16 glk_nearest_filter_coef(int tap)
 {
-	return t == 3 ? 0x0800 : 0x3000;
+	return tap == 3 ? 0x0800 : 0x3000;
 }
 
 /*
@@ -715,13 +715,13 @@ static void glk_program_nearest_filter_coefs(struct intel_display *display,
 
 	for (i = 0; i < 17 * 7; i += 2) {
 		u32 tmp;
-		int t;
+		int tap;
 
-		t = glk_coef_tap(i);
-		tmp = glk_nearest_filter_coef(t);
+		tap = glk_coef_tap(i);
+		tmp = glk_nearest_filter_coef(tap);
 
-		t = glk_coef_tap(i + 1);
-		tmp |= glk_nearest_filter_coef(t) << 16;
+		tap = glk_coef_tap(i + 1);
+		tmp |= glk_nearest_filter_coef(tap) << 16;
 
 		intel_de_write_dsb(display, dsb,
 				   GLK_PS_COEF_DATA_SET(pipe, id, set), tmp);
