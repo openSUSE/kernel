@@ -148,7 +148,8 @@ static void setCCKFilterCoefficient(struct dm_odm_t *pDM_Odm, u8 CCKSwingIndex)
  *When		Who	Remark
  *04/23/2012	MHC	Create Version 0.
  *
- *---------------------------------------------------------------------------*/
+ *---------------------------------------------------------------------------
+ */
 void ODM_TxPwrTrackSetPwr_8723B(
 	struct dm_odm_t *pDM_Odm,
 	enum pwrtrack_method Method,

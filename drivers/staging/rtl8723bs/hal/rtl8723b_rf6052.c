@@ -53,7 +53,8 @@
  * Return:      NONE
  *
  * Note:		For RF type 0222D
- *---------------------------------------------------------------------------*/
+ *---------------------------------------------------------------------------
+ */
 void PHY_RF6052SetBandwidth8723B(
 	struct adapter *Adapter, enum channel_width Bandwidth
 ) /* 20M or 40M */
