@@ -632,8 +632,8 @@ static inline int __must_check __tdp_mmu_set_spte_atomic(struct kvm *kvm,
 		if (!try_cmpxchg64(raw_sptep, &iter->old_spte, FROZEN_SPTE))
 			return -EBUSY;
 
-		ret = kvm_x86_call(set_external_spte)(kvm, iter->gfn, iter->level,
-						      new_spte);
+		ret = kvm_x86_call(set_external_spte)(kvm, iter->gfn, iter->old_spte,
+						      new_spte, iter->level);
 
 		if (ret)
 			__kvm_tdp_mmu_write_spte(iter->sptep, iter->old_spte);
