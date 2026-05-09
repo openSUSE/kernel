@@ -495,7 +495,7 @@ static void handle_removed_pt(struct kvm *kvm, tdp_ptep_t pt, bool shared)
 }
 
 /**
- * handle_changed_spte - handle bookkeeping associated with an SPTE change
+ * __handle_changed_spte - handle bookkeeping associated with an SPTE change
  * @kvm: kvm instance
  * @sp: the page table in which the SPTE resides
  * @gfn: the base GFN that was mapped by the SPTE
@@ -510,9 +510,9 @@ static void handle_removed_pt(struct kvm *kvm, tdp_ptep_t pt, bool shared)
  * dirty logging updates are handled in common code, not here (see make_spte()
  * and fast_pf_fix_direct_spte()).
  */
-static void handle_changed_spte(struct kvm *kvm, struct kvm_mmu_page *sp,
-				gfn_t gfn, u64 old_spte, u64 new_spte,
-				int level, bool shared)
+static int __handle_changed_spte(struct kvm *kvm, struct kvm_mmu_page *sp,
+				 gfn_t gfn, u64 old_spte, u64 new_spte,
+				 int level, bool shared)
 {
 	bool was_present = is_shadow_present_pte(old_spte);
 	bool is_present = is_shadow_present_pte(new_spte);
@@ -549,9 +549,7 @@ static void handle_changed_spte(struct kvm *kvm, struct kvm_mmu_page *sp,
 	}
 
 	if (old_spte == new_spte)
-		return;
-
-	trace_kvm_tdp_mmu_spte_changed(as_id, gfn, level, old_spte, new_spte);
+		return 0;
 
 	if (is_leaf)
 		check_spte_writable_invariants(new_spte);
@@ -578,29 +576,51 @@ static void handle_changed_spte(struct kvm *kvm, struct kvm_mmu_page *sp,
 			       "a temporary frozen SPTE.\n"
 			       "as_id: %d gfn: %llx old_spte: %llx new_spte: %llx level: %d",
 			       as_id, gfn, old_spte, new_spte, level);
-		return;
-	}
 
-	if (is_leaf != was_leaf)
-		kvm_update_page_stats(kvm, level, is_leaf ? 1 : -1);
+		trace_kvm_tdp_mmu_spte_changed(as_id, gfn, level, old_spte, new_spte);
+		return 0;
+	}
 
 	/*
 	 * Recursively handle child PTs if the change removed a subtree from
 	 * the paging structure.  Note the WARN on the PFN changing without the
 	 * SPTE being converted to a hugepage (leaf) or being zapped.  Shadow
 	 * pages are kernel allocations and should never be migrated.
+	 *
+	 * For the mirror page table, propagate changes to present or changes of
+	 * leaf SPTEs to !present under shared mmu_lock to the external SPTE via
+	 * set_external_spte() op.
 	 */
 	if (was_present && !was_leaf &&
-	    (is_leaf || !is_present || WARN_ON_ONCE(pfn_changed)))
+	    (is_leaf || !is_present || WARN_ON_ONCE(pfn_changed))) {
 		handle_removed_pt(kvm, spte_to_child_pt(old_spte, level), shared);
+	} else if (is_mirror_sp(sp) && (is_present || shared)) {
+		int r;
+
+		r = kvm_x86_call(set_external_spte)(kvm, gfn, old_spte, new_spte, level);
+		if (r)
+			return r;
+	}
+	trace_kvm_tdp_mmu_spte_changed(as_id, gfn, level, old_spte, new_spte);
+
+	if (is_leaf != was_leaf)
+		kvm_update_page_stats(kvm, level, is_leaf ? 1 : -1);
+
+	return 0;
+}
+
+static void handle_changed_spte(struct kvm *kvm, struct kvm_mmu_page *sp,
+				gfn_t gfn, u64 old_spte, u64 new_spte,
+				int level, bool shared)
+{
+	KVM_BUG_ON(__handle_changed_spte(kvm, sp, gfn, old_spte, new_spte,
+					 level, shared), kvm);
 }
 
 static inline int __must_check __tdp_mmu_set_spte_atomic(struct kvm *kvm,
 							 struct tdp_iter *iter,
 							 u64 new_spte)
 {
-	u64 *raw_sptep = rcu_dereference(iter->sptep);
-
 	/*
 	 * The caller is responsible for ensuring the old SPTE is not a FROZEN
 	 * SPTE.  KVM should never attempt to zap or manipulate a FROZEN SPTE,
@@ -609,31 +629,6 @@ static inline int __must_check __tdp_mmu_set_spte_atomic(struct kvm *kvm,
 	 */
 	WARN_ON_ONCE(iter->yielded || is_frozen_spte(iter->old_spte));
 
-	/* Should not set FROZEN_SPTE as a long-term value. */
-	KVM_MMU_WARN_ON(is_frozen_spte(new_spte));
-
-	if (is_mirror_sptep(iter->sptep)) {
-		int ret;
-
-		/*
-		 * We need to lock out other updates to the SPTE until the external
-		 * page table has been modified. Use FROZEN_SPTE similar to
-		 * the zapping case.
-		 */
-		if (!try_cmpxchg64(raw_sptep, &iter->old_spte, FROZEN_SPTE))
-			return -EBUSY;
-
-		ret = kvm_x86_call(set_external_spte)(kvm, iter->gfn, iter->old_spte,
-						      new_spte, iter->level);
-
-		if (ret)
-			__kvm_tdp_mmu_write_spte(iter->sptep, iter->old_spte);
-		else
-			__kvm_tdp_mmu_write_spte(iter->sptep, new_spte);
-
-		return ret;
-	}
-
 	/*
 	 * Note, fast_pf_fix_direct_spte() can also modify TDP MMU SPTEs and
 	 * does not hold the mmu_lock.  On failure, i.e. if a different logical
@@ -641,7 +636,7 @@ static inline int __must_check __tdp_mmu_set_spte_atomic(struct kvm *kvm,
 	 * the current value, so the caller operates on fresh data, e.g. if it
 	 * retries tdp_mmu_set_spte_atomic().
 	 */
-	if (!try_cmpxchg64(raw_sptep, &iter->old_spte, new_spte))
+	if (!try_cmpxchg64(rcu_dereference(iter->sptep), &iter->old_spte, new_spte))
 		return -EBUSY;
 
 	return 0;
@@ -673,14 +668,51 @@ static inline int __must_check tdp_mmu_set_spte_atomic(struct kvm *kvm,
 
 	lockdep_assert_held_read(&kvm->mmu_lock);
 
-	ret = __tdp_mmu_set_spte_atomic(kvm, iter, new_spte);
+	/* Should not set FROZEN_SPTE as a long-term value. */
+	KVM_MMU_WARN_ON(is_frozen_spte(new_spte));
+
+	/*
+	 * Temporarily freeze the SPTE until the external PTE operation has
+	 * completed, e.g. so that concurrent faults don't attempt to install a
+	 * child PTE in the external page table before the parent PTE has been
+	 * written.
+	 */
+	if (is_mirror_sptep(iter->sptep))
+		ret = __tdp_mmu_set_spte_atomic(kvm, iter, FROZEN_SPTE);
+	else
+		ret = __tdp_mmu_set_spte_atomic(kvm, iter, new_spte);
+
 	if (ret)
 		return ret;
 
-	handle_changed_spte(kvm, sp, iter->gfn, iter->old_spte,
-			    new_spte, iter->level, true);
-
-	return 0;
+	/*
+	 * Handle the change from iter->old_spte to new_spte.
+	 *
+	 * Note: for mirror page table, this means the updates of the external
+	 * PTE, statistics, or updates of child SPTEs, child external PTEs and
+	 * corresponding statistics are performed while the mirror SPTE is in
+	 * frozen state (i.e., before the mirror SPTE is set to new_spte).
+	 */
+	ret = __handle_changed_spte(kvm, sp, iter->gfn, iter->old_spte,
+				    new_spte, iter->level, true);
+	/*
+	 * Unfreeze the mirror SPTE.  If updating the external SPTE failed,
+	 * restore the old value so that the mirror SPTE isn't frozen in
+	 * perpetuity, otherwise set the mirror SPTE to the new desired value.
+	 */
+	if (is_mirror_sptep(iter->sptep)) {
+		if (ret)
+			__kvm_tdp_mmu_write_spte(iter->sptep, iter->old_spte);
+		else
+			__kvm_tdp_mmu_write_spte(iter->sptep, new_spte);
+	} else {
+		/*
+		 * Bug the VM if handling the change failed, as failure is only
+		 * allowed if KVM couldn't update the external SPTE.
+		 */
+		KVM_BUG_ON(ret, kvm);
+	}
+	return ret;
 }
 
 /*
@@ -1333,6 +1365,10 @@ bool kvm_tdp_mmu_unmap_gfn_range(struct kvm *kvm, struct kvm_gfn_range *range,
 static void kvm_tdp_mmu_age_spte(struct kvm *kvm, struct tdp_iter *iter)
 {
 	u64 new_spte;
+
+	/* TODO: Add support for aging external SPTEs, if necessary. */
+	if (WARN_ON_ONCE(is_mirror_sptep(iter->sptep)))
+		return;
 
 	if (spte_ad_enabled(iter->old_spte)) {
 		iter->old_spte = tdp_mmu_clear_spte_bits_atomic(iter->sptep,
