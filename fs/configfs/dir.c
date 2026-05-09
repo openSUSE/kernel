@@ -1329,7 +1329,11 @@ static struct dentry *configfs_mkdir(struct mnt_idmap *idmap, struct inode *dir,
 	const struct config_item_type *type;
 	struct module *subsys_owner = NULL, *new_item_owner = NULL;
 	struct configfs_fragment *frag;
-	char *name;
+	struct name_snapshot n;
+	const char *name;
+
+	take_dentry_name_snapshot(&n, dentry);
+	name = n.name.name;
 
 	sd = dentry->d_parent->d_fsdata;
 
@@ -1381,14 +1385,6 @@ static struct dentry *configfs_mkdir(struct mnt_idmap *idmap, struct inode *dir,
 		goto out_put;
 	}
 
-	name = kmalloc(dentry->d_name.len + 1, GFP_KERNEL);
-	if (!name) {
-		ret = -ENOMEM;
-		goto out_subsys_put;
-	}
-
-	snprintf(name, dentry->d_name.len + 1, "%s", dentry->d_name.name);
-
 	mutex_lock(&subsys->su_mutex);
 	if (type->ct_group_ops->make_group) {
 		group = type->ct_group_ops->make_group(to_config_group(parent_item), name);
@@ -1410,7 +1406,6 @@ static struct dentry *configfs_mkdir(struct mnt_idmap *idmap, struct inode *dir,
 	}
 	mutex_unlock(&subsys->su_mutex);
 
-	kfree(name);
 	if (ret) {
 		/*
 		 * If ret != 0, then link_obj() was never called.
@@ -1497,6 +1492,7 @@ out_put:
 	put_fragment(frag);
 
 out:
+	release_dentry_name_snapshot(&n);
 	return ERR_PTR(ret);
 }
 
