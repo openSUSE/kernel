@@ -1721,6 +1721,8 @@ static int tdx_sept_map_leaf_spte(struct kvm *kvm, gfn_t gfn, enum pg_level leve
 static int tdx_sept_set_private_spte(struct kvm *kvm, gfn_t gfn, u64 old_spte,
 				     u64 new_spte, enum pg_level level)
 {
+	lockdep_assert_held(&kvm->mmu_lock);
+
 	if (KVM_BUG_ON(is_shadow_present_pte(old_spte), kvm))
 		return -EIO;
 

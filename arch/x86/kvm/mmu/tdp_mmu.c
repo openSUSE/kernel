@@ -612,8 +612,6 @@ static inline int __must_check __tdp_mmu_set_spte_atomic(struct kvm *kvm,
 	if (is_mirror_sptep(iter->sptep) && !is_frozen_spte(new_spte)) {
 		int ret;
 
-		lockdep_assert_held(&kvm->mmu_lock);
-
 		/*
 		 * We need to lock out other updates to the SPTE until the external
 		 * page table has been modified. Use FROZEN_SPTE similar to
