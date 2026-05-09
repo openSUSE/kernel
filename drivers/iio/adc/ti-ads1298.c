@@ -617,15 +617,6 @@ static int ads1298_init(struct iio_dev *indio_dev)
 	if (!indio_dev->name)
 		return -ENOMEM;
 
-	/* Enable internal test signal, double amplitude, double frequency */
-	ret = regmap_write(priv->regmap, ADS1298_REG_CONFIG2,
-			   ADS1298_MASK_CONFIG2_RESERVED |
-			   ADS1298_MASK_CONFIG2_INT_TEST |
-			   ADS1298_MASK_CONFIG2_TEST_AMP |
-			   ADS1298_MASK_CONFIG2_TEST_FREQ_FAST);
-	if (ret)
-		return ret;
-
 	val = ADS1298_MASK_CONFIG3_RESERVED; /* Must write 1 always */
 	if (!priv->reg_vref) {
 		/* Enable internal reference */
