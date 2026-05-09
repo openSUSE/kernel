@@ -525,6 +525,7 @@ static int lp50xx_probe_dt(struct lp50xx *priv)
 			}
 
 			mc_led_info[multi_index].color_index = color_id;
+			mc_led_info[multi_index].max_intensity = 255;
 			num_colors++;
 		}
 
