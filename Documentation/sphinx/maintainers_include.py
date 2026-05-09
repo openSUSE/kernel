@@ -95,7 +95,7 @@ class MaintainersParser:
         self.base_dir = base_dir
         self.app_dir = app_dir
 
-        self.re_doc = re.compile(r'(Documentation/([^\s\?\*]*)\.rst)')
+        self.re_doc = re.compile(r'(Documentation/(\S*)\.rst)')
 
         #
         # Output variables with maintainers content to be stored
@@ -132,29 +132,47 @@ class MaintainersParser:
                 # Retain previous line for state machine transitions.
                 prev = line
 
+    def get_entries(self, text):
+        """Generate refs to ReST files in Documentation/"""
+
+        if "Documentation/" not in text:
+            return None
+
+        if "*" in text or "?" in text:
+            m = self.re_doc.search(text)
+            if not m:
+                return None
+
+            doc_list = glob(m.group(1), root_dir=self.base_dir)
+        else:
+            doc_list = [text]
+
+        entries = {}
+        for doc in doc_list:
+            m = self.re_doc.search(doc)
+            if m:
+                fname = m.group(1)
+                ename = m.group(2)
+
+                entry = os.path.relpath(self.base_dir + fname, self.app_dir)
+                entry = entry.removesuffix(".rst")
+
+                if entry.startswith("../"):
+                    html = KERNELDOC_URL + ename + ".html"
+                    entries[entry] = f'`{ename} <{html}>`_'
+                else:
+                    entries[entry] = f':doc:`{ename} </{entry}>`'
+
+        return entries
+
     def linkify(self, text):
-        """Linkify all non-wildcard refs to ReST files in Documentation/"""
+        """Return a list of doc files converted to cross-references"""
 
-        m = self.re_doc.search(text)
-        if m:
-            fname = m.group(1)
-            ename = m.group(2)
+        entries = self.get_entries(text)
+        if not entries:
+            return text
 
-            entry = os.path.relpath(self.base_dir + fname, self.app_dir)
-            entry = entry.removesuffix(".rst")
-
-            #
-            # When SPHINXDIRS is used, it will try to reference files
-            # outside srctree, causing warnings. To avoid that, point
-            # to the latest official documentation
-            #
-            if entry.startswith("../"):
-                html = KERNELDOC_URL + ename + ".html"
-                text = self.re_doc.sub(f'`{ename} <{html}>`_', text)
-            else:
-                text = self.re_doc.sub(f':doc:`{ename} </{entry}>`', text)
-
-        return text
+        return self.re_doc.sub(", ".join(entries.values()), text)
 
     def parse_descriptions(self, line):
         """Handle contents of the descriptions section."""
@@ -206,35 +224,15 @@ class MaintainersParser:
         # Handle profile entries - either as files or as https refs
         #
         if field == "P":
-            match = self.re_doc.match(details)
-            if match:
-                fname = match.group(1)
-                ename = match.group(2)
+            entries = self.get_entries(details)
+            if entries:
+                for e, link in entries.items():
+                    if "html" not in link:
+                        self.profile_toc.add(e)
 
-                entry = os.path.relpath(self.base_dir + fname, self.app_dir)
-                entry = entry.removesuffix(".rst")
-                #
-                # When SPHINXDIRS is used, it will try to reference files
-                # outside srctree, causing warnings. To avoid that, point
-                # to the latest official documentation
-                #
+                    self.profile_entries[self.subsystem_name] = link
 
-                if entry.startswith("../"):
-                    entry = KERNELDOC_URL + ename + ".html"
-                else:
-                    entry = "/" + entry
-
-                if "*" in entry:
-                    for e in glob(entry):
-                        if "html" not in e:
-                            self.profile_toc.add(e)
-
-                        self.profile_entries[self.subsystem_name] = e
-                else:
-                    if "html" not in entry:
-                        self.profile_toc.add(entry)
-
-                    self.profile_entries[self.subsystem_name] = entry
+                details = ", ".join(entries.values())
             else:
                 match = re.match(r"(https?://.*)", details)
                 if match:
@@ -243,7 +241,9 @@ class MaintainersParser:
                 else:
                     self.profile_entries[self.subsystem_name] = f"``{details}``"
 
-        details = self.linkify(details)
+                details = self.linkify(details)
+        else:
+            details = self.linkify(details)
 
         #
         # Mark paths (and regexes) as literal text for improved
@@ -340,7 +340,7 @@ class MaintainersProfile(Include):
                 output += f"- {name}: {entry}\n"
                 self.warning(f"{profile}: Invalid 'P' tag: {entry}\n")
             else:
-                output += f"- :doc:`{name} <{entry}>`\n"
+                output += f"- {entry}\n"
 
         #
         # Create a hidden TOC table with all profiles. That allows adding
@@ -355,6 +355,9 @@ class MaintainersProfile(Include):
             output += f"   {fname}\n"
 
         output += "\n"
+
+        # For debugging the pre-rendered results...
+        #print(output, file=open("/tmp/profiles.rst", "w"))
 
         self.state.document.settings.record_dependencies.add(path)
         self.state_machine.insert_input(statemachine.string2lines(output), path)
