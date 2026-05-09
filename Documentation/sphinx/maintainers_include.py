@@ -47,9 +47,6 @@ class MaintainersParser:
         self.maintainers = False
         self.subsystems = False
 
-        # Field letter to field name mapping.
-        self.field_letter = None
-
         self.subsystem_name = None
 
         self.app_dir = os.path.abspath(app_dir)
@@ -125,19 +122,22 @@ class MaintainersParser:
             self.header += "\n" + line
             return
 
-        # Escape the escapes in preformatted text.
-        self.header += "| " + self.linkify(line).replace("\\", "\\\\")
-
         # Look for and record field letter to field name mappings:
         #   R: Designated *reviewer*: FullName <address@domain>
-        m = re.search(r"\s(\S):\s", line)
+        m = re.match(r"\s+(\S):\s+(\S+)", line)
         if m:
-            self.field_letter = m.group(1)
+            field = m.group(1)
+            details = m.group(2)
 
-        if self.field_letter and self.field_letter not in self.fields:
-            m = re.search(r"\*([^\*]+)\*", line)
-            if m:
-                self.fields[self.field_letter] = m.group(1)
+            if field not in self.fields:
+                m = re.search(r"\*([^\*]+)\*", line)
+                if m:
+                    self.fields[field] = m.group(1)
+            elif field in ['F', 'N', 'X', 'K']:
+                line = line.replace(details, f'``{details}``')
+
+        self.header += "| " + self.linkify(line)
+
 
     def parse_subsystems(self, line):
         """Handle contents of the per-subsystem sections."""
@@ -206,7 +206,7 @@ class MaintainersParser:
         #
         if field in ['F', 'N', 'X', 'K']:
             # But only if not already marked :)
-            if not ':doc:' in details:
+            if ':doc:' not in details and "http" not in details:
                 details = '``%s``' % (details)
 
         if self.subsystem_name not in self.maint_entries:
