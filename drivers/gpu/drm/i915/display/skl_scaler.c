@@ -951,35 +951,35 @@ void skl_scaler_get_config(struct intel_crtc_state *crtc_state)
 	struct intel_crtc *crtc = to_intel_crtc(crtc_state->uapi.crtc);
 	struct intel_crtc_scaler_state *scaler_state = &crtc_state->scaler_state;
 	int scaler_id;
+	u32 pos, size;
 
 	/* find scaler attached to this pipe */
 	for (scaler_id = 0; scaler_id < crtc->num_scalers; scaler_id++) {
-		u32 ctl, pos, size;
+		u32 ctl;
 
 		ctl = intel_de_read(display, SKL_PS_CTRL(crtc->pipe, scaler_id));
-		if ((ctl & (PS_SCALER_EN | PS_BINDING_MASK)) != (PS_SCALER_EN | PS_BINDING_PIPE))
-			continue;
-
-		if (scaler_has_casf(display, scaler_id))
-			intel_casf_sharpness_get_config(crtc_state);
-
-		crtc_state->pch_pfit.enabled = true;
-
-		pos = intel_de_read(display, SKL_PS_WIN_POS(crtc->pipe, scaler_id));
-		size = intel_de_read(display, SKL_PS_WIN_SZ(crtc->pipe, scaler_id));
-
-		drm_rect_init(&crtc_state->pch_pfit.dst,
-			      REG_FIELD_GET(PS_WIN_XPOS_MASK, pos),
-			      REG_FIELD_GET(PS_WIN_YPOS_MASK, pos),
-			      REG_FIELD_GET(PS_WIN_XSIZE_MASK, size),
-			      REG_FIELD_GET(PS_WIN_YSIZE_MASK, size));
-
-		scaler_state->scalers[scaler_id].in_use = true;
-		break;
+		if ((ctl & (PS_SCALER_EN | PS_BINDING_MASK)) == (PS_SCALER_EN | PS_BINDING_PIPE))
+			break;
 	}
 
 	if (scaler_id == crtc->num_scalers)
 		return;
+
+	if (scaler_has_casf(display, scaler_id))
+		intel_casf_sharpness_get_config(crtc_state);
+
+	crtc_state->pch_pfit.enabled = true;
+
+	pos = intel_de_read(display, SKL_PS_WIN_POS(crtc->pipe, scaler_id));
+	size = intel_de_read(display, SKL_PS_WIN_SZ(crtc->pipe, scaler_id));
+
+	drm_rect_init(&crtc_state->pch_pfit.dst,
+		      REG_FIELD_GET(PS_WIN_XPOS_MASK, pos),
+		      REG_FIELD_GET(PS_WIN_YPOS_MASK, pos),
+		      REG_FIELD_GET(PS_WIN_XSIZE_MASK, size),
+		      REG_FIELD_GET(PS_WIN_YSIZE_MASK, size));
+
+	scaler_state->scalers[scaler_id].in_use = true;
 
 	scaler_state->scaler_id = scaler_id;
 	if (scaler_id >= 0)
