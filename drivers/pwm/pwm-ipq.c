@@ -260,4 +260,5 @@ static struct platform_driver ipq_pwm_driver = {
 
 module_platform_driver(ipq_pwm_driver);
 
+MODULE_DESCRIPTION("Qualcomm IPQ PWM driver");
 MODULE_LICENSE("GPL");
