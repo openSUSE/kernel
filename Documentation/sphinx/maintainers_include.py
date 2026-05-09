@@ -44,10 +44,6 @@ class MaintainersParser:
 
     def __init__(self, app_dir, path):
         self.path = path
-        self.profile_toc = set()
-        self.profile_entries = {}
-
-        self.output = ".. _maintainers:\n\n"
 
         # Poor man's state machine.
         self.descriptions = False
@@ -66,6 +62,13 @@ class MaintainersParser:
         self.base_dir, self.doc_dir, self.sphinx_dir = app_dir.partition("Documentation")
 
         self.re_doc = re.compile(r'(Documentation/([^\s\?\*]*)\.rst)')
+
+        #
+        # Output variables with maintainers content to be stored
+        #
+        self.profile_toc = set()
+        self.profile_entries = {}
+        self.output = ".. _maintainers:\n\n"
 
         prev = None
         for line in open(path):
@@ -98,6 +101,16 @@ class MaintainersParser:
 
         self.output = self.output.rstrip()
 
+
+    def linkify(self, text):
+        """Linkify all non-wildcard refs to ReST files in Documentation/"""
+        m = self.re_doc.search(text)
+        if m:
+            # maintainers.rst is in a subdirectory, so include "../".
+            text = self.re_doc.sub(':doc:`%s <../%s>`' % (m.group(2), m.group(2)), text)
+
+        return text
+
     def parse_descriptions(self, line):
         """Handle contents of the descriptions section."""
 
@@ -107,14 +120,8 @@ class MaintainersParser:
             self.output += "\n" + line
             return
 
-        # Linkify all non-wildcard refs to ReST files in Documentation/.
-        m = self.re_doc.search(line)
-        if m:
-            # maintainers.rst is in a subdirectory, so include "../".
-            line = self.re_doc.sub(':doc:`%s <../%s>`' % (m.group(2), m.group(2)), line)
-
         # Escape the escapes in preformatted text.
-        output = "| %s" % (line.replace("\\", "\\\\"))
+        self.output += "| " + self.linkify(line).replace("\\", "\\\\")
 
         # Look for and record field letter to field name mappings:
         #   R: Designated *reviewer*: FullName <address@domain>
@@ -127,105 +134,96 @@ class MaintainersParser:
             if m:
                 self.fields[self.field_letter] = m.group(1)
 
-        # Append parsed content to self.output
-        self.output += output
-
     def parse_subsystems(self, line):
         """Handle contents of the per-subsystem sections."""
 
         # Drop needless input whitespace.
         line = line.rstrip()
 
+        # Skip empty lines: subsystem parser adds them as needed.
+        if not line:
+            return
+
+        # Subsystem fields are batched into "field_content"
+        if line[1] != ':':
+            line = self.linkify(line)
+
+            # Render a subsystem entry as:
+            #   SUBSYSTEM NAME
+            #   ~~~~~~~~~~~~~~
+            # Flush pending field content.
+            self.output += self.field_content + "\n\n"
+            self.field_content = ""
+
+            self.subsystem_name = line.title()
+
+            # Collapse whitespace in subsystem name.
+            heading = re.sub(r"\s+", " ", line)
+            self.output += "%s\n%s" % (heading, "~" * len(heading)) + "\n"
+            self.field_prev = ""
+
+            return
+
+        # Render a subsystem field as:
+        #   :Field: entry
+        #           entry...
+        field, details = line.split(':', 1)
+        details = details.strip()
+
         #
         # Handle profile entries - either as files or as https refs
         #
-        match = re.match(rf"P:\s*({self.doc_dir})(/\S+)\.rst", line)
-        if match:
-            name = "".join(match.groups())
-            entry = os.path.relpath(self.base_dir + name, self.app_dir)
-
-            full_name = os.path.join(self.base_dir, name)
-            path = os.path.relpath(full_name, self.app_dir)
-            #
-            # When SPHINXDIRS is used, it will try to reference files
-            # outside srctree, causing warnings. To avoid that, point
-            # to the latest official documentation
-            #
-            if path.startswith("../"):
-                entry = KERNELDOC_URL + match.group(2) + ".html"
-            else:
-                entry = "/" + entry
-
-            if "*" in entry:
-                for e in glob(entry):
-                    self.profile_toc.add(e)
-                    self.profile_entries[self.subsystem_name] = e
-            else:
-                self.profile_toc.add(entry)
-                self.profile_entries[self.subsystem_name] = entry
-        else:
-            match = re.match(r"P:\s*(https?://.*)", line)
+        if field == "P":
+            match = self.re_doc.match(details)
             if match:
-                entry = match.group(1).strip()
-                self.profile_entries[self.subsystem_name] = entry
+                name = "".join(match.groups())
+                entry = os.path.relpath(self.base_dir + name, self.app_dir)
 
-        # Linkify all non-wildcard refs to ReST files in Documentation/.
-        m = self.re_doc.search(line)
-        if m:
-            # maintainers.rst is in a subdirectory, so include "../".
-            line = self.re_doc.sub(':doc:`%s <../%s>`' % (m.group(2), m.group(2)), line)
+                full_name = os.path.join(self.base_dir, name)
+                path = os.path.relpath(full_name, self.app_dir)
+                #
+                # When SPHINXDIRS is used, it will try to reference files
+                # outside srctree, causing warnings. To avoid that, point
+                # to the latest official documentation
+                #
+                if path.startswith("../"):
+                    entry = KERNELDOC_URL + "/" + match.group(2) + ".html"
+                else:
+                    entry = "/" + entry
 
-        # Check state machine for output rendering behavior.
-        output = None
-        if self.subsystems:
-            # Skip empty lines: subsystem parser adds them as needed.
-            if len(line) == 0:
-                return
-            # Subsystem fields are batched into "field_content"
-            if line[1] != ':':
-                # Render a subsystem entry as:
-                #   SUBSYSTEM NAME
-                #   ~~~~~~~~~~~~~~
-                # Flush pending field content.
-                output = self.field_content + "\n\n"
-                self.field_content = ""
-
-                self.subsystem_name = line.title()
-
-                # Collapse whitespace in subsystem name.
-                heading = re.sub(r"\s+", " ", line)
-                output = output + "%s\n%s" % (heading, "~" * len(heading))
-                self.field_prev = ""
+                if "*" in entry:
+                    for e in glob(entry):
+                        self.profile_toc.add(e)
+                        self.profile_entries[self.subsystem_name] = e
+                else:
+                    self.profile_toc.add(entry)
+                    self.profile_entries[self.subsystem_name] = entry
             else:
-                # Render a subsystem field as:
-                #   :Field: entry
-                #           entry...
-                field, details = line.split(':', 1)
-                details = details.strip()
+                match = re.match(r"(https?://.*)", details)
+                if match:
+                    entry = match.group(1).strip()
+                    self.profile_entries[self.subsystem_name] = entry
 
-                # Mark paths (and regexes) as literal text for improved
-                # readability and to escape any escapes.
-                if field in ['F', 'N', 'X', 'K']:
-                    # But only if not already marked :)
-                    if not ':doc:' in details:
-                        details = '``%s``' % (details)
+        details = self.linkify(details)
 
-                # Comma separate email field continuations.
-                if field == self.field_prev and self.field_prev in ['M', 'R', 'L']:
-                    self.field_content = self.field_content + ","
+        # Mark paths (and regexes) as literal text for improved
+        # readability and to escape any escapes.
+        if field in ['F', 'N', 'X', 'K']:
+            # But only if not already marked :)
+            if not ':doc:' in details:
+                details = '``%s``' % (details)
 
-                # Do not repeat field names, so that field entries
-                # will be collapsed together.
-                if field != self.field_prev:
-                    output = self.field_content + "\n"
-                    self.field_content = ":%s:" % (self.fields.get(field, field))
-                self.field_content = self.field_content + "\n\t%s" % (details)
-                self.field_prev = field
-        elif not self.descriptions:
-            output = line
+        # Comma separate email field continuations.
+        if field == self.field_prev and self.field_prev in ['M', 'R', 'L']:
+            self.field_content = self.field_content + ","
 
-        if output is not None:
-            self.output += output + "\n"
+        # Do not repeat field names, so that field entries
+        # will be collapsed together.
+        if field != self.field_prev:
+            self.output += self.field_content + "\n\n"
+            self.field_content = ":%s:" % (self.fields.get(field, field))
+        self.field_content = self.field_content + "\n\t%s" % (details)
+        self.field_prev = field
 
 
 class MaintainersInclude(Include):
