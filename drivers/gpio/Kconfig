@@ -869,7 +869,7 @@ config GPIO_XTENSA
 
 config GPIO_ZEVIO
 	bool "LSI ZEVIO SoC memory mapped GPIOs"
-	depends on ARM
+	depends on ARM || COMPILE_TEST
 	help
 	  Say yes here to support the GPIO controller in LSI ZEVIO SoCs.
 
