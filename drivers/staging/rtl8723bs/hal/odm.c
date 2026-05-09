@@ -279,22 +279,22 @@ static void odm_RefreshRateAdaptiveMaskCE(struct dm_odm_t *pDM_Odm)
 }
 
 /*-----------------------------------------------------------------------------
-* Function:	odm_RefreshRateAdaptiveMask()
-*
-* Overview:	Update rate table mask according to rssi
-*
-* Input:		NONE
-*
-* Output:		NONE
-*
-* Return:		NONE
-*
-* Revised History:
-*When		Who		Remark
-*05/27/2009	hpfan	Create Version 0.
-*
-* --------------------------------------------------------------------------
-*/
+ * Function:	odm_RefreshRateAdaptiveMask()
+ *
+ * Overview:	Update rate table mask according to rssi
+ *
+ * Input:		NONE
+ *
+ * Output:		NONE
+ *
+ * Return:		NONE
+ *
+ * Revised History:
+ *When		Who		Remark
+ *05/27/2009	hpfan	Create Version 0.
+ *
+ * --------------------------------------------------------------------------
+ */
 static void odm_RefreshRateAdaptiveMask(struct dm_odm_t *pDM_Odm)
 {
 
