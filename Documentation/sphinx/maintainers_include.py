@@ -31,6 +31,49 @@ __version__ = "1.0"
 
 maint_parser = None  # pylint: disable=C0103
 
+JS_FILTER = """
+(function() {
+  function filterTable(table) {
+    const filter = document.getElementById("filter-table").value.trim();
+    const rows = table.querySelectorAll("tbody tr");
+    for (let i = 0; i < rows.length; i++) {
+      const tds = rows[i].getElementsByTagName("td");
+      let match = false;
+      for (let j = 0; j < tds.length; j++) {
+        const cellText = (tds[j].textContent || tds[j].innerText);
+        if (cellText.includes(filter)) {
+          match = true;
+          break;
+        }
+      }
+      rows[i].style.display = match ? "table-row" : "none";
+    }
+  }
+  function addInput() {
+    const table = document.getElementById("maintainers-table");
+    if (!table) return;
+    let input = document.getElementById("filter-table");
+    if (!input) {
+      const filt_div = document.createElement('div');
+      filt_div.innerHTML = `
+        <p>Filter:
+          <input type="search" id="filter-table" placeholder="search string"/>
+          subsystem or property (case-sensitive)
+        </p>
+      `;
+      table.parentNode.insertBefore(filt_div, table);
+      const input = document.getElementById("filter-table")
+      input.addEventListener('input', () => filterTable(table));
+    }
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', addInput);
+  } else {
+    addInput();
+  }
+})();
+"""
+
 
 # Shamelessly stolen from docutils
 def ErrorString(exc):  # pylint: disable=C0103, C0116
@@ -59,7 +102,7 @@ class MaintainersParser:
         #
         self.profile_toc = set()
         self.profile_entries = {}
-        self.header = ".. _maintainers:\n\n"
+        self.header = ""
         self.maint_entries = {}
         self.fields = {}
 
@@ -228,15 +271,28 @@ class MaintainersInclude(Include):
     def emit(self):
         """Parse all the MAINTAINERS lines into ReST for human-readability"""
         path = maint_parser.path
-        output = maint_parser.header
+        output = ".. _maintainers:\n\n"
+        output += maint_parser.header
+
+        output += ".. _maintainers_table:\n\n"
+        output += ".. flat-table::\n"
+        output += "  :header-rows: 1\n\n"
+        output += "  * - Subsystem\n"
+        output += "    - Properties\n\n"
+
+        self.state.document['maintainers_included'] = True
 
         for name, fields in sorted(maint_parser.maint_entries.items()):
-            output += "\n" + name + "\n"
-            output += "~" * len(name) + "\n"
-
+            output += f"  * - {name}\n"
+            tag = "-"
             for field, lines in fields.items():
                 field_name = maint_parser.fields.get(field, field)
-                output += f":{field_name}:\n\t" + ",\n\t".join(lines) + "\n\n"
+
+                output += f"    {tag} :{field_name}:\n        "
+                output += ",\n        ".join(lines) + "\n"
+                tag = " "
+
+            output += "\n"
 
         # For debugging the pre-rendered results...
         #print(output, file=open("/tmp/MAINTAINERS.rst", "w"))
@@ -308,6 +364,14 @@ class MaintainersProfile(Include):
         return []
 
 
+# pylint: disable=W0613
+def add_filter_script(app, pagename, templatename, context, doctree):
+    """Add Filter javascript only to maintainers page"""
+
+    if doctree and doctree.get('maintainers_included'):
+        app.add_js_file(None, body=JS_FILTER)
+
+
 def setup(app):
     """Setup Sphinx extension"""
     global maint_parser  # pylint: disable=W0603
@@ -324,6 +388,8 @@ def setup(app):
 
     app.add_directive("maintainers-include", MaintainersInclude)
     app.add_directive("maintainers-profile-toc", MaintainersProfile)
+
+    app.connect("html-page-context", add_filter_script)
 
     return {
         "version": __version__,
