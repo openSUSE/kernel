@@ -82,7 +82,7 @@ def ErrorString(exc):  # pylint: disable=C0103, C0116
 class MaintainersParser:
     """Parse MAINTAINERS file(s) content"""
 
-    def __init__(self, app_dir, path):
+    def __init__(self, base_dir, app_dir, path):
         self.path = path
 
         # Poor man's state machine.
@@ -92,8 +92,8 @@ class MaintainersParser:
 
         self.subsystem_name = None
 
-        self.app_dir = os.path.abspath(app_dir)
-        self.base_dir, _, self.sphinx_dir = self.app_dir.partition("Documentation")
+        self.base_dir = base_dir
+        self.app_dir = app_dir
 
         self.re_doc = re.compile(r'(Documentation/([^\s\?\*]*)\.rst)')
 
@@ -323,6 +323,8 @@ class MaintainersProfile(Include):
 
     def emit(self):
         """Parse all the MAINTAINERS lines looking for profile entries"""
+        env = self.state.document.settings.env
+        docdir = os.path.dirname(os.path.join(env.srcdir, env.docname))
         path = maint_parser.path
 
         #
@@ -347,7 +349,9 @@ class MaintainersProfile(Include):
         output += "\n.. toctree::\n"
         output += "   :hidden:\n\n"
 
-        for fname in sorted(maint_parser.profile_toc):
+        for f in sorted(maint_parser.profile_toc):
+            fname = os.path.join(maint_parser.base_dir, "Documentation", f)
+            fname = os.path.relpath(fname, docdir)
             output += f"   {fname}\n"
 
         output += "\n"
@@ -381,15 +385,15 @@ def setup(app):
     """Setup Sphinx extension"""
     global maint_parser  # pylint: disable=W0603
 
-    #
-    # NOTE: we're using os.fspath() here because of a Sphinx warning:
-    #   RemovedInSphinx90Warning: Sphinx 9 will drop support for representing paths as strings. Use "pathlib.Path" or "os.fspath" instead.
-    #
-    app_dir = os.fspath(app.srcdir)
-    srctree = os.path.abspath(os.environ["srctree"])
-    path = os.path.join(srctree, "MAINTAINERS")
+    app_dir = os.path.abspath(app.srcdir)
+    match = re.match(r"(.*/)Documentation", app_dir)
+    if not match:
+        raise ValueError('Documentation directory not found.')
 
-    maint_parser = MaintainersParser(app_dir, path)
+    base_dir = match.group(1)
+    path = os.path.join(base_dir, "MAINTAINERS")
+
+    maint_parser = MaintainersParser(base_dir, app_dir, path)
 
     app.add_directive("maintainers-include", MaintainersInclude)
     app.add_directive("maintainers-profile-toc", MaintainersProfile)
