@@ -45,16 +45,6 @@ enum {
 	 */
 	btrfs_bitmap_nr_ordered,
 
-	/*
-	 * The locked bit is for async delalloc range (compression), currently
-	 * async extent is queued with the range locked, until the compression
-	 * is done.
-	 * So an async extent can unlock the range at any random timing.
-	 *
-	 * This will need a rework on the async extent lifespan (mark writeback
-	 * and do compression) before deprecating this flag.
-	 */
-	btrfs_bitmap_nr_locked,
 	btrfs_bitmap_nr_max
 };
 
