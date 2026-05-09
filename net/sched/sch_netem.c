@@ -513,16 +513,17 @@ static int netem_enqueue(struct sk_buff *skb, struct Qdisc *sch,
 			qdisc_qstats_drop(sch);
 			goto finish_segs;
 		}
-		if (skb->ip_summed == CHECKSUM_PARTIAL &&
-		    skb_checksum_help(skb)) {
+		if (skb_linearize(skb) ||
+		    (skb->ip_summed == CHECKSUM_PARTIAL && skb_checksum_help(skb))) {
 			qdisc_drop(skb, sch, to_free);
 			skb = NULL;
 			goto finish_segs;
 		}
 
-		if (skb_headlen(skb))
-			skb->data[get_random_u32_below(skb_headlen(skb))] ^=
-				1 << get_random_u32_below(8);
+		if (skb->len) {
+			u32 offset = get_random_u32_below(skb->len);
+			skb->data[offset] ^= 1 << get_random_u32_below(8);
+		}
 	}
 
 	if (unlikely(sch->q.qlen >= sch->limit)) {
