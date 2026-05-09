@@ -368,18 +368,12 @@ static void atmel_ecc_remove(struct i2c_client *client)
 	spin_unlock(&driver_data.i2c_list_lock);
 }
 
-#ifdef CONFIG_OF
 static const struct of_device_id atmel_ecc_dt_ids[] = {
-	{
-		.compatible = "atmel,atecc508a",
-	}, {
-		.compatible = "atmel,atecc608b",
-	}, {
-		/* sentinel */
-	}
+	{ .compatible = "atmel,atecc508a", },
+	{ .compatible = "atmel,atecc608b", },
+	{ }
 };
 MODULE_DEVICE_TABLE(of, atmel_ecc_dt_ids);
-#endif
 
 static const struct i2c_device_id atmel_ecc_id[] = {
 	{ "atecc508a" },
@@ -391,7 +385,7 @@ MODULE_DEVICE_TABLE(i2c, atmel_ecc_id);
 static struct i2c_driver atmel_ecc_driver = {
 	.driver = {
 		.name	= "atmel-ecc",
-		.of_match_table = of_match_ptr(atmel_ecc_dt_ids),
+		.of_match_table = atmel_ecc_dt_ids,
 	},
 	.probe		= atmel_ecc_probe,
 	.remove		= atmel_ecc_remove,
