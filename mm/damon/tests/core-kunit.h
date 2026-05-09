@@ -273,54 +273,70 @@ static void damon_test_merge_regions_of(struct kunit *test)
 
 static void damon_test_split_regions_of(struct kunit *test)
 {
+	struct damon_ctx *c;
 	struct damon_target *t;
 	struct damon_region *r;
 	unsigned long sa[] = {0, 300, 500};
 	unsigned long ea[] = {220, 400, 700};
 	int i;
 
+	c = damon_new_ctx();
+	if (!c)
+		kunit_skip(test, "ctx alloc fail");
+
 	t = damon_new_target();
-	if (!t)
+	if (!t) {
+		damon_destroy_ctx(c);
 		kunit_skip(test, "target alloc fail");
+	}
 	r = damon_new_region(0, 22);
 	if (!r) {
 		damon_free_target(t);
+		damon_destroy_ctx(c);
 		kunit_skip(test, "region alloc fail");
 	}
 	damon_add_region(r, t);
-	damon_split_regions_of(t, 2, 1);
+	damon_split_regions_of(c, t, 2, 1);
 	KUNIT_EXPECT_LE(test, damon_nr_regions(t), 2u);
 	damon_free_target(t);
 
 	t = damon_new_target();
-	if (!t)
+	if (!t) {
+		damon_destroy_ctx(c);
 		kunit_skip(test, "second target alloc fail");
+	}
 	r = damon_new_region(0, 220);
 	if (!r) {
 		damon_free_target(t);
+		damon_destroy_ctx(c);
 		kunit_skip(test, "second region alloc fail");
 	}
 	damon_add_region(r, t);
-	damon_split_regions_of(t, 4, 1);
+	damon_split_regions_of(c, t, 4, 1);
 	KUNIT_EXPECT_LE(test, damon_nr_regions(t), 4u);
 	damon_free_target(t);
 
 	t = damon_new_target();
-	if (!t)
+	if (!t) {
+		damon_destroy_ctx(c);
 		kunit_skip(test, "third target alloc fail");
+	}
 	for (i = 0; i < ARRAY_SIZE(sa); i++) {
 		r = damon_new_region(sa[i], ea[i]);
 		if (!r) {
 			damon_free_target(t);
+			damon_destroy_ctx(c);
 			kunit_skip(test, "region alloc fail");
 		}
 		damon_add_region(r, t);
 	}
-	damon_split_regions_of(t, 4, 5);
+	damon_split_regions_of(c, t, 4, 5);
 	KUNIT_EXPECT_LE(test, damon_nr_regions(t), 12u);
 	damon_for_each_region(r, t)
 		KUNIT_EXPECT_GE(test, damon_sz_region(r) % 5ul, 0ul);
 	damon_free_target(t);
+
+	damon_destroy_ctx(c);
 }
 
 static void damon_test_ops_registration(struct kunit *test)

@@ -8,22 +8,17 @@
 #ifndef _DAMON_H_
 #define _DAMON_H_
 
+#include <linux/math64.h>
 #include <linux/memcontrol.h>
 #include <linux/mutex.h>
+#include <linux/prandom.h>
 #include <linux/time64.h>
 #include <linux/types.h>
-#include <linux/random.h>
 
 /* Minimal region size.  Every damon_region is aligned by this. */
 #define DAMON_MIN_REGION_SZ	PAGE_SIZE
 /* Max priority score for DAMON-based operation schemes */
 #define DAMOS_MAX_SCORE		(99)
-
-/* Get a random number in [l, r) */
-static inline unsigned long damon_rand(unsigned long l, unsigned long r)
-{
-	return l + get_random_u32_below(r - l);
-}
 
 /**
  * struct damon_addr_range - Represents an address region of [@start, @end).
@@ -859,7 +854,26 @@ struct damon_ctx {
 
 	struct list_head adaptive_targets;
 	struct list_head schemes;
+
+	/* Per-ctx PRNG state for damon_rand(); kdamond is the sole consumer. */
+	struct rnd_state rnd_state;
 };
+
+/* Get a random number in [@l, @r) using @ctx's lockless PRNG. */
+static inline unsigned long damon_rand(struct damon_ctx *ctx,
+				       unsigned long l, unsigned long r)
+{
+	unsigned long span = r - l;
+	u64 rnd;
+
+	if (span <= U32_MAX) {
+		rnd = prandom_u32_state(&ctx->rnd_state);
+		return l + (unsigned long)((rnd * span) >> 32);
+	}
+	rnd = ((u64)prandom_u32_state(&ctx->rnd_state) << 32) |
+	      prandom_u32_state(&ctx->rnd_state);
+	return l + mul_u64_u64_shr(rnd, span, 64);
+}
 
 static inline struct damon_region *damon_next_region(struct damon_region *r)
 {

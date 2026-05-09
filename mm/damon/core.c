@@ -611,6 +611,8 @@ struct damon_ctx *damon_new_ctx(void)
 	INIT_LIST_HEAD(&ctx->adaptive_targets);
 	INIT_LIST_HEAD(&ctx->schemes);
 
+	prandom_seed_state(&ctx->rnd_state, get_random_u64());
+
 	return ctx;
 }
 
@@ -2939,8 +2941,9 @@ static void damon_split_region_at(struct damon_target *t,
 }
 
 /* Split every region in the given target into 'nr_subs' regions */
-static void damon_split_regions_of(struct damon_target *t, int nr_subs,
-				  unsigned long min_region_sz)
+static void damon_split_regions_of(struct damon_ctx *ctx,
+				   struct damon_target *t, int nr_subs,
+				   unsigned long min_region_sz)
 {
 	struct damon_region *r, *next;
 	unsigned long sz_region, sz_sub = 0;
@@ -2955,7 +2958,7 @@ static void damon_split_regions_of(struct damon_target *t, int nr_subs,
 			 * Randomly select size of left sub-region to be at
 			 * least 10 percent and at most 90% of original region
 			 */
-			sz_sub = ALIGN_DOWN(damon_rand(1, 10) *
+			sz_sub = ALIGN_DOWN(damon_rand(ctx, 1, 10) *
 					sz_region / 10, min_region_sz);
 			/* Do not allow blank region */
 			if (sz_sub == 0 || sz_sub >= sz_region)
@@ -2996,7 +2999,8 @@ static void kdamond_split_regions(struct damon_ctx *ctx)
 		nr_subregions = 3;
 
 	damon_for_each_target(t, ctx)
-		damon_split_regions_of(t, nr_subregions, ctx->min_region_sz);
+		damon_split_regions_of(ctx, t, nr_subregions,
+				       ctx->min_region_sz);
 
 	last_nr_regions = nr_regions;
 }
