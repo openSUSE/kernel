@@ -49,10 +49,7 @@ class MaintainersParser:
 
         # Field letter to field name mapping.
         self.field_letter = None
-        self.fields = {}
 
-        self.field_prev = ""
-        self.field_content = ""
         self.subsystem_name = None
 
         self.app_dir = os.path.abspath(app_dir)
@@ -65,7 +62,9 @@ class MaintainersParser:
         #
         self.profile_toc = set()
         self.profile_entries = {}
-        self.output = ".. _maintainers:\n\n"
+        self.header = ".. _maintainers:\n\n"
+        self.maint_entries = {}
+        self.fields = {}
 
         prev = None
         with open(path, "r", encoding="utf-8") as fp:
@@ -77,11 +76,11 @@ class MaintainersParser:
                         self.subsystems = True
                         self.parse_subsystems(line)
                     else:
-                        self.output += line
+                        self.header += line
                 elif self.subsystems:
                     self.parse_subsystems(line)
                 else:
-                    self.output += line
+                    self.header += line
 
                 # Update the state machine when we find heading separators.
                 if line.startswith("----------"):
@@ -92,13 +91,6 @@ class MaintainersParser:
 
                 # Retain previous line for state machine transitions.
                 prev = line
-
-        # Flush pending field contents.
-        if self.field_content:
-            self.output += self.field_content + "\n\n"
-
-        self.output = self.output.rstrip()
-
 
     def linkify(self, text):
         """Linkify all non-wildcard refs to ReST files in Documentation/"""
@@ -130,11 +122,11 @@ class MaintainersParser:
         # Have we reached the end of the preformatted Descriptions text?
         if line.startswith("Maintainers"):
             self.descriptions = False
-            self.output += "\n" + line
+            self.header += "\n" + line
             return
 
         # Escape the escapes in preformatted text.
-        self.output += "| " + self.linkify(line).replace("\\", "\\\\")
+        self.header += "| " + self.linkify(line).replace("\\", "\\\\")
 
         # Look for and record field letter to field name mappings:
         #   R: Designated *reviewer*: FullName <address@domain>
@@ -157,24 +149,8 @@ class MaintainersParser:
         if not line:
             return
 
-        # Subsystem fields are batched into "field_content"
         if line[1] != ':':
-            line = self.linkify(line)
-
-            # Render a subsystem entry as:
-            #   SUBSYSTEM NAME
-            #   ~~~~~~~~~~~~~~
-            # Flush pending field content.
-            self.output += self.field_content + "\n\n"
-            self.field_content = ""
-
-            self.subsystem_name = line.title()
-
-            # Collapse whitespace in subsystem name.
-            heading = re.sub(r"\s+", " ", line)
-            self.output += "%s\n%s" % (heading, "~" * len(heading)) + "\n"
-            self.field_prev = ""
-
+            self.subsystem_name = re.sub(r"\s+", " ", self.linkify(line))
             return
 
         # Render a subsystem field as:
@@ -224,23 +200,23 @@ class MaintainersParser:
 
         details = self.linkify(details)
 
+        #
         # Mark paths (and regexes) as literal text for improved
         # readability and to escape any escapes.
+        #
         if field in ['F', 'N', 'X', 'K']:
             # But only if not already marked :)
             if not ':doc:' in details:
                 details = '``%s``' % (details)
 
-        # Comma separate email field continuations.
-        if field == self.field_prev and self.field_prev in ['M', 'R', 'L']:
-            self.field_content = self.field_content + ","
+        if self.subsystem_name not in self.maint_entries:
+            self.maint_entries[self.subsystem_name] = {}
 
-        # Do not repeat field names, so that field entries
-        # will be collapsed together.
-        if field != self.field_prev:
-            self.output += self.field_content + "\n\n"
-            self.field_content = ":%s:" % (self.fields.get(field, field))
-        self.field_content = self.field_content + "\n\t%s" % (details)
+        if field not in self.maint_entries[self.subsystem_name]:
+            self.maint_entries[self.subsystem_name][field] = []
+
+        self.maint_entries[self.subsystem_name][field].append(details)
+
         self.field_prev = field
 
 
@@ -252,7 +228,15 @@ class MaintainersInclude(Include):
     def emit(self):
         """Parse all the MAINTAINERS lines into ReST for human-readability"""
         path = maint_parser.path
-        output = maint_parser.output
+        output = maint_parser.header
+
+        for name, fields in sorted(maint_parser.maint_entries.items()):
+            output += "\n" + name + "\n"
+            output += "~" * len(name) + "\n"
+
+            for field, lines in fields.items():
+                field_name = maint_parser.fields.get(field, field)
+                output += f":{field_name}:\n\t" + ",\n\t".join(lines) + "\n\n"
 
         # For debugging the pre-rendered results...
         #print(output, file=open("/tmp/MAINTAINERS.rst", "w"))
@@ -288,6 +272,8 @@ class MaintainersProfile(Include):
         #
         output = ""
         for profile, entry in sorted(maint_parser.profile_entries.items()):
+            profile = profile.title()
+
             if entry.startswith("http"):
                 output += f"- `{profile} <{entry}>`_\n"
             else:
