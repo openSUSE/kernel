@@ -3741,10 +3741,6 @@ void site_survey(struct adapter *padapter)
 	}
 
 	if (survey_channel != 0) {
-		/* PAUSE 4-AC Queue when site_survey */
-		/* rtw_hal_get_hwreg(padapter, HW_VAR_TXPAUSE, (u8 *)(&val8)); */
-		/* val8 |= 0x0f; */
-		/* rtw_hal_set_hwreg(padapter, HW_VAR_TXPAUSE, (u8 *)(&val8)); */
 		if (pmlmeext->sitesurvey_res.channel_idx == 0) {
 				set_channel_bwmode(padapter, survey_channel, HAL_PRIME_CHNL_OFFSET_DONT_CARE, CHANNEL_WIDTH_20);
 		} else {
