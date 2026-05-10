@@ -69,11 +69,6 @@ static const struct ieee80211_iface_limit iwl_mld_limits_nan[] = {
 		.max = 1,
 		.types = BIT(NL80211_IFTYPE_NAN),
 	},
-	/* Removed when two channels are permitted */
-	{
-		.max = 1,
-		.types = BIT(NL80211_IFTYPE_AP),
-	},
 };
 
 static const struct ieee80211_iface_combination
@@ -90,19 +85,13 @@ iwl_mld_iface_combinations[] = {
 		.limits = iwl_mld_limits_ap,
 		.n_limits = ARRAY_SIZE(iwl_mld_limits_ap),
 	},
-	/* NAN combinations follow, these exclude P2P */
+	/* NAN combination follow, this excludes P2P and AP */
 	{
 		.num_different_channels = 2,
 		.max_interfaces = 3,
 		.limits = iwl_mld_limits_nan,
-		.n_limits = ARRAY_SIZE(iwl_mld_limits_nan) - 1,
-	},
-	{
-		.num_different_channels = 1,
-		.max_interfaces = 4,
-		.limits = iwl_mld_limits_nan,
 		.n_limits = ARRAY_SIZE(iwl_mld_limits_nan),
-	}
+	},
 };
 
 static const u8 ext_capa_base[IWL_MLD_STA_EXT_CAPA_SIZE] = {
@@ -376,7 +365,7 @@ static void iwl_mac_hw_set_wiphy(struct iwl_mld *mld)
 	} else {
 		/* Do not include NAN combinations */
 		wiphy->n_iface_combinations =
-			ARRAY_SIZE(iwl_mld_iface_combinations) - 2;
+			ARRAY_SIZE(iwl_mld_iface_combinations) - 1;
 	}
 
 	wiphy_ext_feature_set(wiphy, NL80211_EXT_FEATURE_VHT_IBSS);
