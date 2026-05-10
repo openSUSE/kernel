@@ -1545,6 +1545,29 @@ int btrfs_remove_block_group_free_space(struct btrfs_trans_handle *trans,
 	return 0;
 }
 
+static int validate_free_space_key(struct btrfs_block_group *block_group,
+				   const struct btrfs_key *key, u8 expected_type)
+{
+	const u64 end = btrfs_block_group_end(block_group);
+
+	if (unlikely(key->type != expected_type)) {
+		btrfs_err(block_group->fs_info,
+			  "block group %llu has unexpected free space key type %u, expected %u",
+			  block_group->start, key->type, expected_type);
+		return -EUCLEAN;
+	}
+
+	if (unlikely(key->objectid + key->offset > end)) {
+		btrfs_err(block_group->fs_info,
+			  "block group %llu has invalid free space key (%llu %u %llu)",
+			  block_group->start, key->objectid, key->type,
+			  key->offset);
+		return -EUCLEAN;
+	}
+
+	return 0;
+}
+
 static int load_free_space_bitmaps(struct btrfs_caching_control *caching_ctl,
 				   struct btrfs_path *path,
 				   u32 expected_extent_count)
@@ -1576,8 +1599,9 @@ static int load_free_space_bitmaps(struct btrfs_caching_control *caching_ctl,
 		if (key.type == BTRFS_FREE_SPACE_INFO_KEY)
 			break;
 
-		ASSERT(key.type == BTRFS_FREE_SPACE_BITMAP_KEY);
-		ASSERT(key.objectid < end && key.objectid + key.offset <= end);
+		ret = validate_free_space_key(block_group, &key, BTRFS_FREE_SPACE_BITMAP_KEY);
+		if (unlikely(ret))
+			return ret;
 
 		offset = key.objectid;
 		while (offset < key.objectid + key.offset) {
@@ -1633,7 +1657,6 @@ static int load_free_space_extents(struct btrfs_caching_control *caching_ctl,
 	struct btrfs_fs_info *fs_info = block_group->fs_info;
 	struct btrfs_root *root;
 	struct btrfs_key key;
-	const u64 end = btrfs_block_group_end(block_group);
 	u64 total_found = 0;
 	u32 extent_count = 0;
 	int ret;
@@ -1654,8 +1677,9 @@ static int load_free_space_extents(struct btrfs_caching_control *caching_ctl,
 		if (key.type == BTRFS_FREE_SPACE_INFO_KEY)
 			break;
 
-		ASSERT(key.type == BTRFS_FREE_SPACE_EXTENT_KEY);
-		ASSERT(key.objectid < end && key.objectid + key.offset <= end);
+		ret = validate_free_space_key(block_group, &key, BTRFS_FREE_SPACE_EXTENT_KEY);
+		if (unlikely(ret))
+			return ret;
 
 		ret = btrfs_add_new_free_space(block_group, key.objectid,
 					       key.objectid + key.offset,
