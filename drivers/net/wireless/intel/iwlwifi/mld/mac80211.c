@@ -677,6 +677,9 @@ int iwl_mld_mac80211_add_interface(struct ieee80211_hw *hw,
 	if (ret)
 		return ret;
 
+	if (vif->type == NL80211_IFTYPE_NAN_DATA)
+		return 0;
+
 	/*
 	 * Add the default link, but not if this is an MLD vif as that implies
 	 * the HW is restarting and it will be configured by change_vif_links.
@@ -745,7 +748,7 @@ void iwl_mld_mac80211_remove_interface(struct ieee80211_hw *hw,
 
 	if (vif->type == NL80211_IFTYPE_NAN)
 		mld->nan_device_vif = NULL;
-	else
+	else if (vif->type != NL80211_IFTYPE_NAN_DATA)
 		iwl_mld_remove_link(mld, &vif->bss_conf);
 
 #ifdef CONFIG_IWLWIFI_DEBUGFS
@@ -1371,6 +1374,10 @@ iwl_mld_mac80211_link_info_changed(struct ieee80211_hw *hw,
 		if (changes & BSS_CHANGED_MU_GROUPS)
 			iwl_mld_update_mu_groups(mld, link_conf);
 		break;
+	case NL80211_IFTYPE_NAN:
+	case NL80211_IFTYPE_NAN_DATA:
+		/* NAN has no links */
+		break;
 	default:
 		/* shouldn't happen */
 		WARN_ON_ONCE(1);
@@ -1417,6 +1424,11 @@ void iwl_mld_mac80211_vif_cfg_changed(struct ieee80211_hw *hw,
 	int ret;
 
 	lockdep_assert_wiphy(mld->wiphy);
+
+	if (vif->type == NL80211_IFTYPE_NAN) {
+		iwl_mld_nan_vif_cfg_changed(mld, vif, changes);
+		return;
+	}
 
 	if (vif->type != NL80211_IFTYPE_STATION)
 		return;
@@ -1613,7 +1625,7 @@ iwl_mld_mac80211_conf_tx(struct ieee80211_hw *hw,
 
 	lockdep_assert_wiphy(mld->wiphy);
 
-	if (vif->type == NL80211_IFTYPE_NAN)
+	if (vif->type == NL80211_IFTYPE_NAN || vif->type == NL80211_IFTYPE_NAN_DATA)
 		return 0;
 
 	link = iwl_mld_link_dereference_check(mld_vif, link_id);

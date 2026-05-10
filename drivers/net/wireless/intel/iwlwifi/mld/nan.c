@@ -296,3 +296,25 @@ void iwl_mld_handle_nan_dw_end_notif(struct iwl_mld *mld,
 	wdev = ieee80211_vif_to_wdev(mld->nan_device_vif);
 	cfg80211_next_nan_dw_notif(wdev, chan, GFP_KERNEL);
 }
+
+void iwl_mld_nan_vif_cfg_changed(struct iwl_mld *mld,
+				 struct ieee80211_vif *vif,
+				 u64 changes)
+{
+	struct ieee80211_nan_sched_cfg *sched_cfg = &vif->cfg.nan_sched;
+	struct iwl_mld_vif *mld_vif = iwl_mld_vif_from_mac80211(vif);
+	bool has_sched = memchr_inv(sched_cfg->schedule, 0,
+				    sizeof(sched_cfg->schedule));
+
+	lockdep_assert_wiphy(mld->wiphy);
+
+	if (!(changes & BSS_CHANGED_NAN_LOCAL_SCHED))
+		return;
+
+	if (has_sched && !mld_vif->nan.mac_added) {
+		if (iwl_mld_add_nan_vif(mld, vif))
+			IWL_ERR(mld, "Failed to add NAN vif\n");
+	} else if (!has_sched && mld_vif->nan.mac_added) {
+		iwl_mld_rm_vif(mld, vif);
+	}
+}

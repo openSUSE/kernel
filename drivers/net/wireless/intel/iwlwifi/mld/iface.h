@@ -152,6 +152,8 @@ struct iwl_mld_emlsr {
  *	p2p device only. Set to %ROC_NUM_ACTIVITIES when not in use.
  * @aux_sta: station used for remain on channel. Used in P2P device.
  * @mlo_scan_start_wk: worker to start a deferred MLO scan
+ * @nan: NAN parameters
+ * @nan.mac_added: track whether or not the MAC was added to FW
  */
 struct iwl_mld_vif {
 	/* Add here fields that need clean up on restart */
@@ -174,6 +176,11 @@ struct iwl_mld_vif {
 	struct iwl_mld *mld;
 	struct iwl_mld_link deflink;
 	struct iwl_mld_link __rcu *link[IEEE80211_MLD_MAX_NUM_LINKS];
+
+	struct {
+		/* use only with wiphy protection */
+		bool mac_added;
+	} nan;
 
 	struct iwl_mld_emlsr emlsr;
 
@@ -206,6 +213,20 @@ iwl_mld_vif_to_mac80211(struct iwl_mld_vif *mld_vif)
 /* Call only for interfaces that were added to the driver! */
 static inline bool iwl_mld_vif_fw_id_valid(struct iwl_mld_vif *mld_vif)
 {
+	struct ieee80211_vif *vif = iwl_mld_vif_to_mac80211(mld_vif);
+
+	switch (vif->type) {
+	case NL80211_IFTYPE_NAN_DATA:
+		return false;
+	case NL80211_IFTYPE_NAN:
+		if (!mld_vif->nan.mac_added)
+			return false;
+		break;
+	default:
+		break;
+	}
+
+	/* Should be added to FW */
 	if (WARN_ON(mld_vif->fw_id >= ARRAY_SIZE(mld_vif->mld->fw_id_to_vif)))
 		return false;
 
@@ -235,6 +256,7 @@ void iwl_mld_cleanup_vif(void *data, u8 *mac, struct ieee80211_vif *vif);
 int iwl_mld_mac_fw_action(struct iwl_mld *mld, struct ieee80211_vif *vif,
 			  u32 action);
 int iwl_mld_add_vif(struct iwl_mld *mld, struct ieee80211_vif *vif);
+int iwl_mld_add_nan_vif(struct iwl_mld *mld, struct ieee80211_vif *vif);
 void iwl_mld_rm_vif(struct iwl_mld *mld, struct ieee80211_vif *vif);
 void iwl_mld_set_vif_associated(struct iwl_mld *mld,
 				struct ieee80211_vif *vif);

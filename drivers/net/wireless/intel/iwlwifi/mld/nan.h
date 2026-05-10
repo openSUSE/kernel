@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause */
 /*
- * Copyright (C) 2025 Intel Corporation
+ * Copyright (C) 2025-2026 Intel Corporation
  */
 #ifndef __iwl_mld_nan_h__
 #define __iwl_mld_nan_h__
@@ -27,5 +27,8 @@ bool iwl_mld_cancel_nan_cluster_notif(struct iwl_mld *mld,
 bool iwl_mld_cancel_nan_dw_end_notif(struct iwl_mld *mld,
 				     struct iwl_rx_packet *pkt,
 				     u32 obj_id);
+void iwl_mld_nan_vif_cfg_changed(struct iwl_mld *mld,
+				 struct ieee80211_vif *vif,
+				 u64 changes);
 
 #endif /* __iwl_mld_nan_h__ */

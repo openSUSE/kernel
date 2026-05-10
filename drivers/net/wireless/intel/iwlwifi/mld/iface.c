@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause
 /*
- * Copyright (C) 2024-2025 Intel Corporation
+ * Copyright (C) 2024-2026 Intel Corporation
  */
 #include <net/cfg80211.h>
 
@@ -55,6 +55,9 @@ void iwl_mld_cleanup_vif(void *data, u8 *mac, struct ieee80211_vif *vif)
 
 	ieee80211_iter_keys(mld->hw, vif, iwl_mld_cleanup_keys_iter, NULL);
 
+	if (vif->type == NL80211_IFTYPE_NAN)
+		mld_vif->nan.mac_added = false;
+
 	CLEANUP_STRUCT(mld_vif);
 }
 
@@ -94,6 +97,8 @@ static int iwl_mld_mac80211_iftype_to_fw(const struct ieee80211_vif *vif)
 		return FW_MAC_TYPE_P2P_DEVICE;
 	case NL80211_IFTYPE_ADHOC:
 		return FW_MAC_TYPE_IBSS;
+	case NL80211_IFTYPE_NAN:
+		return FW_MAC_TYPE_NAN;
 	default:
 		WARN_ON_ONCE(1);
 	}
@@ -362,6 +367,42 @@ static void iwl_mld_fill_mac_cmd_ibss(struct iwl_mld *mld,
 					 MAC_CFG_FILTER_ACCEPT_GRP);
 }
 
+static int iwl_mld_fill_mac_cmd_nan(struct iwl_mld *mld,
+				    struct ieee80211_vif *vif,
+				    struct ieee80211_vif *ndi_being_added,
+				    struct iwl_mac_config_cmd *cmd)
+{
+	struct ieee80211_vif *iter;
+	u32 idx = 0;
+
+	cmd->filter_flags = cpu_to_le32(MAC_CFG_FILTER_ACCEPT_CONTROL_AND_MGMT);
+
+	/*
+	 * A NAN_DATA vif might be in the process of being added - it won't
+	 * be found by the iteration below since it's not yet active/in-driver.
+	 * In hw restart, the iteration below will find the ndi_being_added.
+	 */
+	if (ndi_being_added && !mld->fw_status.in_hw_restart) {
+		memcpy(cmd->nan.ndi_addrs[idx].addr, ndi_being_added->addr, ETH_ALEN);
+		idx++;
+	}
+
+	for_each_active_interface(iter, mld->hw) {
+		if (iter->type != NL80211_IFTYPE_NAN_DATA)
+			continue;
+
+		if (WARN_ON_ONCE(idx >= ARRAY_SIZE(cmd->nan.ndi_addrs)))
+			return -EINVAL;
+
+		memcpy(cmd->nan.ndi_addrs[idx].addr, iter->addr, ETH_ALEN);
+		idx++;
+	}
+
+	cmd->nan.ndi_addrs_count = cpu_to_le32(idx);
+
+	return 0;
+}
+
 static int
 iwl_mld_rm_mac_from_fw(struct iwl_mld *mld, struct ieee80211_vif *vif)
 {
@@ -374,16 +415,23 @@ iwl_mld_rm_mac_from_fw(struct iwl_mld *mld, struct ieee80211_vif *vif)
 	return iwl_mld_send_mac_cmd(mld, &cmd);
 }
 
-int iwl_mld_mac_fw_action(struct iwl_mld *mld, struct ieee80211_vif *vif,
-			  u32 action)
+static int
+__iwl_mld_mac_fw_action(struct iwl_mld *mld, struct ieee80211_vif *vif,
+			u32 action, struct ieee80211_vif *ndi_being_added)
 {
 	struct iwl_mac_config_cmd cmd = {};
+	int ret;
 
 	lockdep_assert_wiphy(mld->wiphy);
 
-	/* NAN interface type is not known to FW */
-	if (vif->type == NL80211_IFTYPE_NAN)
-		return 0;
+	/* NAN_DATA interface type is not known to FW */
+	if (WARN_ON(vif->type == NL80211_IFTYPE_NAN_DATA))
+		return -EINVAL;
+
+	/* ndi_being_added is only relevant for NAN and when adding a NAN_DATA interface */
+	if (WARN_ON(ndi_being_added &&
+		    (vif->type != NL80211_IFTYPE_NAN || action != FW_CTXT_ACTION_MODIFY)))
+		return -EINVAL;
 
 	if (action == FW_CTXT_ACTION_REMOVE)
 		return iwl_mld_rm_mac_from_fw(mld, vif);
@@ -411,12 +459,23 @@ int iwl_mld_mac_fw_action(struct iwl_mld *mld, struct ieee80211_vif *vif,
 	case NL80211_IFTYPE_ADHOC:
 		iwl_mld_fill_mac_cmd_ibss(mld, vif, &cmd);
 		break;
+	case NL80211_IFTYPE_NAN:
+		ret = iwl_mld_fill_mac_cmd_nan(mld, vif, ndi_being_added, &cmd);
+		if (ret)
+			return ret;
+		break;
 	default:
 		WARN(1, "not supported yet\n");
 		return -EOPNOTSUPP;
 	}
 
 	return iwl_mld_send_mac_cmd(mld, &cmd);
+}
+
+int iwl_mld_mac_fw_action(struct iwl_mld *mld, struct ieee80211_vif *vif,
+			  u32 action)
+{
+	return __iwl_mld_mac_fw_action(mld, vif, action, NULL);
 }
 
 static void iwl_mld_mlo_scan_start_wk(struct wiphy *wiphy,
@@ -459,6 +518,24 @@ iwl_mld_init_vif(struct iwl_mld *mld, struct ieee80211_vif *vif)
 	iwl_mld_init_internal_sta(&mld_vif->aux_sta);
 }
 
+static int iwl_mld_update_nan_mac(struct iwl_mld *mld,
+				  struct ieee80211_vif *ndi_being_added)
+{
+	struct ieee80211_vif *vif = mld->nan_device_vif;
+	struct iwl_mld_vif *mld_vif;
+
+	if (WARN_ON_ONCE(!vif))
+		return -ENODEV;
+
+	mld_vif = iwl_mld_vif_from_mac80211(vif);
+
+	if (!iwl_mld_vif_fw_id_valid(mld_vif))
+		return 0;
+
+	return __iwl_mld_mac_fw_action(mld, vif, FW_CTXT_ACTION_MODIFY,
+				       ndi_being_added);
+}
+
 int iwl_mld_add_vif(struct iwl_mld *mld, struct ieee80211_vif *vif)
 {
 	struct iwl_mld_vif *mld_vif = iwl_mld_vif_from_mac80211(vif);
@@ -468,9 +545,13 @@ int iwl_mld_add_vif(struct iwl_mld *mld, struct ieee80211_vif *vif)
 
 	iwl_mld_init_vif(mld, vif);
 
-	/* NAN interface type is not known to FW */
+	/* NAN MACs are added to FW only when a schedule is set */
 	if (vif->type == NL80211_IFTYPE_NAN)
 		return 0;
+
+	/* NAN_DATA interface type is not known to FW, but we need to update NAN MAC */
+	if (vif->type == NL80211_IFTYPE_NAN_DATA)
+		return iwl_mld_update_nan_mac(mld, vif);
 
 	ret = iwl_mld_allocate_vif_fw_id(mld, &mld_vif->fw_id, vif);
 	if (ret)
@@ -483,22 +564,51 @@ int iwl_mld_add_vif(struct iwl_mld *mld, struct ieee80211_vif *vif)
 	return ret;
 }
 
+int iwl_mld_add_nan_vif(struct iwl_mld *mld, struct ieee80211_vif *vif)
+{
+	struct iwl_mld_vif *mld_vif = iwl_mld_vif_from_mac80211(vif);
+	int ret;
+
+	lockdep_assert_wiphy(mld->wiphy);
+
+	if (WARN_ON(vif->type != NL80211_IFTYPE_NAN))
+		return -EINVAL;
+
+	ret = iwl_mld_allocate_vif_fw_id(mld, &mld_vif->fw_id, vif);
+	if (ret)
+		return ret;
+
+	ret = iwl_mld_mac_fw_action(mld, vif, FW_CTXT_ACTION_ADD);
+	if (ret) {
+		RCU_INIT_POINTER(mld->fw_id_to_vif[mld_vif->fw_id], NULL);
+		return ret;
+	}
+
+	mld_vif->nan.mac_added = true;
+
+	return 0;
+}
+
 void iwl_mld_rm_vif(struct iwl_mld *mld, struct ieee80211_vif *vif)
 {
 	struct iwl_mld_vif *mld_vif = iwl_mld_vif_from_mac80211(vif);
 
 	lockdep_assert_wiphy(mld->wiphy);
 
-	/* NAN interface type is not known to FW */
-	if (vif->type == NL80211_IFTYPE_NAN)
+	if (vif->type == NL80211_IFTYPE_NAN_DATA) {
+		iwl_mld_update_nan_mac(mld, NULL);
+		return;
+	}
+
+	if (!iwl_mld_vif_fw_id_valid(mld_vif))
 		return;
 
 	iwl_mld_mac_fw_action(mld, vif, FW_CTXT_ACTION_REMOVE);
 
-	if (WARN_ON(mld_vif->fw_id >= ARRAY_SIZE(mld->fw_id_to_vif)))
-		return;
-
 	RCU_INIT_POINTER(mld->fw_id_to_vif[mld_vif->fw_id], NULL);
+
+	if (vif->type == NL80211_IFTYPE_NAN)
+		mld_vif->nan.mac_added = false;
 
 	iwl_mld_cancel_notifications_of_object(mld, IWL_MLD_OBJECT_TYPE_VIF,
 					       mld_vif->fw_id);
