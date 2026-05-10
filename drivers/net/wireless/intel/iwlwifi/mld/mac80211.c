@@ -290,8 +290,12 @@ static void iwl_mld_hw_set_nan(struct iwl_mld *mld)
 				      NAN_OP_MODE_PHY_MODE_HE |
 				      NAN_OP_MODE_160MHZ;
 
-	/* Support 2 antennas for Tx and Rx */
-	hw->wiphy->nan_capa.n_antennas = 0x22;
+	hw->wiphy->nan_capa.n_antennas =
+		(hweight32(hw->wiphy->available_antennas_tx) &
+		 NAN_DEV_CAPA_NUM_TX_ANT_MASK) |
+		((hweight32(hw->wiphy->available_antennas_rx) <<
+		  NAN_DEV_CAPA_NUM_RX_ANT_POS) &
+		 NAN_DEV_CAPA_NUM_RX_ANT_MASK);
 
 	/* Maximal channel switch time is 4 msec */
 	hw->wiphy->nan_capa.max_channel_switch_time = 4;
