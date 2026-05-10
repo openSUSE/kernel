@@ -401,8 +401,14 @@ iwl_mld_nan_link_add(struct iwl_mld *mld,
 	u8 fw_id;
 	int ret;
 
+	lockdep_assert_wiphy(mld->wiphy);
+
 	ret = iwl_mld_allocate_link_fw_id(mld, &fw_id, ERR_PTR(-ENODEV));
-	if (ret < 0)
+	/*
+	 * We should always have enough links. The schedule contains up to 3,
+	 * and the BSS vif cannot do EMLSR - so can only have 1.
+	 */
+	if (WARN_ON(ret < 0))
 		return NULL;
 
 	nan_link = &mld_vif->nan.links[fw_id];
@@ -504,19 +510,21 @@ void iwl_mld_nan_vif_cfg_changed(struct iwl_mld *mld,
 				 struct ieee80211_vif *vif,
 				 u64 changes)
 {
+	struct iwl_nan_schedule_cmd cmd = {};
 	struct iwl_mld_vif *mld_vif = iwl_mld_vif_from_mac80211(vif);
 	bool previously_empty_schedule = !iwl_mld_nan_have_links(mld_vif);
 	struct ieee80211_nan_sched_cfg *sched_cfg = &vif->cfg.nan_sched;
 	struct iwl_mld_nan_link *links[ARRAY_SIZE(sched_cfg->channels)] = {};
+	struct ieee80211_nan_channel **slots = sched_cfg->schedule;
 	bool link_used[ARRAY_SIZE(mld_vif->nan.links)] = {};
 	struct iwl_mld_nan_link *nan_link;
 	bool empty_schedule = true;
-	int ret;
+	int ret, i;
 
 	if (!(changes & BSS_CHANGED_NAN_LOCAL_SCHED))
 		return;
 
-	for (int i = 0; i < ARRAY_SIZE(sched_cfg->channels); i++) {
+	for (i = 0; i <  ARRAY_SIZE(sched_cfg->channels); i++) {
 		if (!sched_cfg->channels[i].chanreq.oper.chan)
 			continue;
 		empty_schedule = false;
@@ -539,8 +547,12 @@ void iwl_mld_nan_vif_cfg_changed(struct iwl_mld *mld,
 		return;
 	}
 
+	/* this currently just uses the same index */
+	BUILD_BUG_ON(ARRAY_SIZE(sched_cfg->channels) !=
+		     ARRAY_SIZE(cmd.channels));
+
 	/* find links we can keep (same chanctx/PHY) */
-	for (int i = 0; i < ARRAY_SIZE(sched_cfg->channels); i++) {
+	for (i = 0; i < ARRAY_SIZE(sched_cfg->channels); i++) {
 		struct ieee80211_chanctx_conf *chanctx;
 		struct iwl_mld_nan_link *link;
 
@@ -556,7 +568,7 @@ void iwl_mld_nan_vif_cfg_changed(struct iwl_mld *mld,
 	}
 
 	/* add/reassign links for new channels */
-	for (int i = 0; i < ARRAY_SIZE(sched_cfg->channels); i++) {
+	for (i = 0; i < ARRAY_SIZE(sched_cfg->channels); i++) {
 		struct ieee80211_chanctx_conf *chanctx;
 
 		/* already have an existing active link */
@@ -581,6 +593,39 @@ void iwl_mld_nan_vif_cfg_changed(struct iwl_mld *mld,
 		}
 	}
 
+	/* fill the command */
+	for (i = 0; i < ARRAY_SIZE(sched_cfg->channels); i++) {
+		cmd.channels[i].link_id = FW_CTXT_ID_INVALID;
+
+		if (!sched_cfg->channels[i].chanreq.oper.chan)
+			continue;
+
+		memcpy(cmd.channels[i].channel_entry,
+		       sched_cfg->channels[i].channel_entry, 6);
+		cmd.channels[i].link_id =
+			links[i] ? links[i]->fw_id : FW_CTXT_ID_INVALID;
+	}
+
+	for (i = 0; i < CFG80211_NAN_SCHED_NUM_TIME_SLOTS; i++) {
+		int chan_idx;
+
+		if (!slots[i])
+			continue;
+
+		chan_idx = slots[i] - sched_cfg->channels;
+		if (WARN_ON_ONCE(chan_idx < 0 ||
+				 chan_idx >= ARRAY_SIZE(cmd.channels)))
+			continue;
+
+		cmd.channels[chan_idx].availability_map |= cpu_to_le32(BIT(i));
+	}
+
+	ret = iwl_mld_send_cmd_pdu(mld,
+				   WIDE_ID(MAC_CONF_GROUP, NAN_SCHEDULE_CMD),
+				   &cmd);
+	if (ret)
+		IWL_ERR(mld, "NAN: failed to update schedule (%d)\n", ret);
+
 	/* delete unused links */
 	for_each_mld_nan_valid_link(mld_vif, nan_link) {
 		if (!link_used[nan_link->fw_id]) {
@@ -595,7 +640,8 @@ void iwl_mld_nan_vif_cfg_changed(struct iwl_mld *mld,
 		WARN_ON_ONCE(!mld_vif->nan.mac_added);
 
 		/* mac80211 should reconfigure same state */
-		if (!WARN_ON_ONCE(mld->fw_status.in_hw_restart))
+		if (!WARN_ON_ONCE(mld->fw_status.in_hw_restart &&
+				  !iwl_mld_error_before_recovery(mld)))
 			iwl_mld_rm_vif(mld, vif);
 	}
 }

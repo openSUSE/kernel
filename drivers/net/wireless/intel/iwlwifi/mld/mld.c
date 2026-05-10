@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause
 /*
- * Copyright (C) 2024-2025 Intel Corporation
+ * Copyright (C) 2024-2026 Intel Corporation
  */
 #include <linux/rtnetlink.h>
 #include <net/mac80211.h>
@@ -236,6 +236,7 @@ static const struct iwl_hcmd_names iwl_mld_mac_conf_names[] = {
 	HCMD_NAME(STA_REMOVE_CMD),
 	HCMD_NAME(ROC_CMD),
 	HCMD_NAME(NAN_CFG_CMD),
+	HCMD_NAME(NAN_SCHEDULE_CMD),
 	HCMD_NAME(NAN_DW_END_NOTIF),
 	HCMD_NAME(NAN_JOINED_CLUSTER_NOTIF),
 	HCMD_NAME(MISSED_BEACONS_NOTIF),

@@ -8,6 +8,7 @@
 #define __iwl_fw_api_mac_cfg_h__
 
 #include "mac.h"
+#include "phy-ctxt.h"
 
 /**
  * enum iwl_mac_conf_subcmd_ids - mac configuration command IDs
@@ -71,6 +72,10 @@ enum iwl_mac_conf_subcmd_ids {
 	 * @NAN_CFG_CMD: &struct iwl_nan_config_cmd
 	 */
 	NAN_CFG_CMD = 0x12,
+	/**
+	 * @NAN_SCHEDULE_CMD: &struct iwl_nan_schedule_cmd
+	 */
+	NAN_SCHEDULE_CMD = 0x13,
 	/**
 	 * @NAN_DW_END_NOTIF: &struct iwl_nan_dw_end_notif
 	 */
@@ -1243,6 +1248,25 @@ struct iwl_nan_config_cmd {
 	__le32 nan_vendor_elems_len;
 	u8 beacon_data[];
 } __packed; /*  NAN_CONFIG_CMD_API_S_VER_1 */
+
+/**
+ * struct iwl_nan_schedule_cmd - NAN schedule command
+ * @channels: per channel information
+ * @channels.availability_map: bitmap of slots this channel is advertising
+ *	availability on, will be ULW'ed out if no link/inactive link is
+ *	referenced by the link ID below
+ * @channels.channel_entry: NAN channel entry descriptor
+ * @channels.link_id: FW link ID, or %0xFF for unset
+ * @channels.reserved: (reserved)
+ */
+struct iwl_nan_schedule_cmd {
+	struct {
+		__le32 availability_map;
+		u8 channel_entry[6];
+		u8 link_id;
+		u8 reserved;
+	} __packed channels[NUM_PHY_CTX];
+} __packed; /* NAN_SCHEDULE_CMD_API_S_VER_1 */
 
 /**
  * enum iwl_nan_cluster_notif_flags - flags for the cluster notification
