@@ -163,7 +163,7 @@ void mq_dump_common(struct Qdisc *sch, struct sk_buff *skb)
 				     &qdisc->bstats, false);
 		gnet_stats_add_queue(&sch->qstats, qdisc->cpu_qstats,
 				     &qdisc->qstats);
-		qlen += qdisc_qlen(qdisc);
+		qlen += qdisc_qlen_lockless(qdisc);
 
 		spin_unlock_bh(qdisc_lock(qdisc));
 	}

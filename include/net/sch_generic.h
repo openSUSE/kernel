@@ -542,6 +542,11 @@ static inline int qdisc_qlen(const struct Qdisc *q)
 	return q->q.qlen;
 }
 
+static inline int qdisc_qlen_lockless(const struct Qdisc *q)
+{
+	return READ_ONCE(q->q.qlen);
+}
+
 static inline void qdisc_qlen_inc(struct Qdisc *q)
 {
 	WRITE_ONCE(q->q.qlen, q->q.qlen + 1);
@@ -561,7 +566,7 @@ static inline int qdisc_qlen_sum(const struct Qdisc *q)
 		for_each_possible_cpu(i)
 			qlen += READ_ONCE(per_cpu_ptr(q->cpu_qstats, i)->qlen);
 	} else {
-		qlen += READ_ONCE(q->q.qlen);
+		qlen += qdisc_qlen_lockless(q);
 	}
 
 	return qlen;

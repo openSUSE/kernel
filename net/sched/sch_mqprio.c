@@ -576,7 +576,7 @@ static int mqprio_dump(struct Qdisc *sch, struct sk_buff *skb)
 				     &qdisc->bstats, false);
 		gnet_stats_add_queue(&sch->qstats, qdisc->cpu_qstats,
 				     &qdisc->qstats);
-		qlen += qdisc_qlen(qdisc);
+		qlen += qdisc_qlen_lockless(qdisc);
 
 		spin_unlock_bh(qdisc_lock(qdisc));
 	}
@@ -691,7 +691,7 @@ static int mqprio_dump_class_stats(struct Qdisc *sch, unsigned long cl,
 					     &qdisc->bstats, false);
 			gnet_stats_add_queue(&qstats, qdisc->cpu_qstats,
 					     &qdisc->qstats);
-			qlen += qdisc_qlen(qdisc);
+			qlen += qdisc_qlen_lockless(qdisc);
 
 			spin_unlock_bh(qdisc_lock(qdisc));
 		}
