@@ -3323,6 +3323,18 @@ static void alc256_fixup_acer_sfg16_micmute_led(struct hda_codec *codec,
 	alc_fixup_hp_gpio_led(codec, action, 0, 0x04);
 }
 
+static void alc287_fixup_acer_micmute_led(struct hda_codec *codec,
+	const struct hda_fixup *fix, int action)
+{
+	struct alc_spec *spec = codec->spec;
+
+	alc_fixup_hp_gpio_led(codec, action, 0, 0x10);
+	if (action == HDA_FIXUP_ACT_PRE_PROBE) {
+		spec->micmute_led_polarity = 1;
+		spec->gpio_mask |= 0x10;
+		spec->gpio_dir |= 0x10;
+	}
+}
 
 /* for alc295_fixup_hp_top_speakers */
 #include "../helpers/hp_x360.c"
@@ -4112,6 +4124,7 @@ enum {
 	ALC245_FIXUP_CS35L41_I2C_2_MUTE_LED,
 	ALC236_FIXUP_HP_DMIC,
 	ALC256_FIXUP_HONOR_MRB_XXX_M1020_AUDIO,
+	ALC287_FIXUP_ACER_MICMUTE_LED,
 };
 
 /* A special fixup for Lenovo C940 and Yoga Duet 7;
@@ -6664,6 +6677,12 @@ static const struct hda_fixup alc269_fixups[] = {
 			{ 0x1b, 0x90170110 },
 			{ }
 		}
+	},
+	[ALC287_FIXUP_ACER_MICMUTE_LED] = {
+		.type = HDA_FIXUP_FUNC,
+		.v.func = alc287_fixup_acer_micmute_led,
+		.chained = true,
+		.chain_id = ALC2XX_FIXUP_HEADSET_MIC,
 	}
 };
 
@@ -6714,7 +6733,7 @@ static const struct hda_quirk alc269_fixup_tbl[] = {
 	SND_PCI_QUIRK(0x1025, 0x1466, "Acer Aspire A515-56", ALC255_FIXUP_ACER_HEADPHONE_AND_MIC),
 	SND_PCI_QUIRK(0x1025, 0x1534, "Acer Predator PH315-54", ALC255_FIXUP_ACER_MIC_NO_PRESENCE),
 	SND_PCI_QUIRK(0x1025, 0x1539, "Acer Nitro 5 AN515-57", ALC2XX_FIXUP_HEADSET_MIC),
-	SND_PCI_QUIRK(0x1025, 0x159c, "Acer Nitro 5 AN515-58", ALC2XX_FIXUP_HEADSET_MIC),
+	SND_PCI_QUIRK(0x1025, 0x159c, "Acer Nitro 5 AN515-58", ALC287_FIXUP_ACER_MICMUTE_LED),
 	SND_PCI_QUIRK(0x1025, 0x1597, "Acer Nitro 5 AN517-55", ALC2XX_FIXUP_HEADSET_MIC),
 	SND_PCI_QUIRK(0x1025, 0x160e, "Acer PT316-51S", ALC2XX_FIXUP_HEADSET_MIC),
 	SND_PCI_QUIRK(0x1025, 0x1679, "Acer Nitro 16 AN16-41", ALC2XX_FIXUP_HEADSET_MIC),
