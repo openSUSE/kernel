@@ -975,10 +975,6 @@ enum ODM_FW_Config_Type {
 	CONFIG_FW_BT,
 };
 
-#ifdef REMOVE_PACK
-#pragma pack()
-#endif
-
 /* include "odm_function.h" */
 
 /* 3 =========================================================== */
