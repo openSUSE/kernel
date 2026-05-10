@@ -1491,17 +1491,6 @@ static signed int validate_recv_frame(struct adapter *adapter, union recv_frame 
 			struct recv_priv *precvpriv = &adapter->recvpriv;
 
 			precvpriv->rx_drop++;
-		} else if (retval == _SUCCESS) {
-#ifdef DBG_RX_DUMP_EAP
-			u8 bDumpRxPkt;
-			u16 eth_type;
-
-			/*  dump eapol */
-			rtw_hal_get_def_var(adapter, HAL_DEF_DBG_DUMP_RXPKT, &(bDumpRxPkt));
-			/*  get ether_type */
-			memcpy(&eth_type, ptr + pattrib->hdrlen + pattrib->iv_len + LLC_HEADER_LENGTH, 2);
-			eth_type = ntohs((unsigned short) eth_type);
-#endif
 		}
 		break;
 	default:
