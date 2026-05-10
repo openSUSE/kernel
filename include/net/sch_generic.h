@@ -952,6 +952,15 @@ static inline void _bstats_update(struct gnet_stats_basic_sync *bstats,
 	u64_stats_update_end(&bstats->syncp);
 }
 
+static inline void _bstats_set(struct gnet_stats_basic_sync *bstats,
+			       u64 bytes, u64 packets)
+{
+	u64_stats_update_begin(&bstats->syncp);
+	u64_stats_set(&bstats->bytes, bytes);
+	u64_stats_set(&bstats->packets, packets);
+	u64_stats_update_end(&bstats->syncp);
+}
+
 static inline void bstats_update(struct gnet_stats_basic_sync *bstats,
 				 const struct sk_buff *skb)
 {
