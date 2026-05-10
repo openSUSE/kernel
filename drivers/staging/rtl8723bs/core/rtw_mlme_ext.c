@@ -3741,11 +3741,11 @@ void site_survey(struct adapter *padapter)
 	}
 
 	if (survey_channel != 0) {
-		if (pmlmeext->sitesurvey_res.channel_idx == 0) {
-				set_channel_bwmode(padapter, survey_channel, HAL_PRIME_CHNL_OFFSET_DONT_CARE, CHANNEL_WIDTH_20);
-		} else {
-				r8723bs_select_channel(padapter, survey_channel);
-		}
+		if (pmlmeext->sitesurvey_res.channel_idx == 0)
+			set_channel_bwmode(padapter, survey_channel,
+					   HAL_PRIME_CHNL_OFFSET_DONT_CARE, CHANNEL_WIDTH_20);
+		else
+			r8723bs_select_channel(padapter, survey_channel);
 
 		if (ScanType == SCAN_ACTIVE) { /* obey the channel plan setting... */
 			{
