@@ -468,6 +468,7 @@ static int ip6_forward_proxy_check(struct sk_buff *skb)
 		default:
 			break;
 		}
+		hdr = ipv6_hdr(skb);
 	}
 
 	/*
@@ -582,6 +583,8 @@ int ip6_forward(struct sk_buff *skb)
 	if (READ_ONCE(net->ipv6.devconf_all->proxy_ndp) &&
 	    pneigh_lookup(&nd_tbl, net, &hdr->daddr, skb->dev)) {
 		int proxied = ip6_forward_proxy_check(skb);
+
+		hdr = ipv6_hdr(skb);
 		if (proxied > 0) {
 			/* It's tempting to decrease the hop limit
 			 * here by 1, as we do at the end of the
