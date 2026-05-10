@@ -299,8 +299,6 @@ static void iwl_mld_hw_set_nan(struct iwl_mld *mld)
 
 	/* Maximal channel switch time is 4 msec */
 	hw->wiphy->nan_capa.max_channel_switch_time = 4;
-	hw->wiphy->nan_capa.dev_capabilities =
-		NAN_DEV_CAPA_EXT_KEY_ID_SUPPORTED;
 
 	hw->wiphy->nan_capa.phy.ht = mld->nvm_data->nan_phy_capa.ht;
 	hw->wiphy->nan_capa.phy.vht = mld->nvm_data->nan_phy_capa.vht;
