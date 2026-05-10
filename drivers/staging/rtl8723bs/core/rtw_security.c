@@ -649,13 +649,8 @@ static void construct_mic_iv(u8 *mic_iv,
 
 		for (i = 2; i < 8; i++)
 			mic_iv[i] = mpdu[i + 8];   /* mic_iv[2:7] = A2[0:5] = mpdu[10:15] */
-		#ifdef CONSISTENT_PN_ORDER
-		for (i = 8; i < 14; i++)
-			mic_iv[i] = pn_vector[i - 8];           /* mic_iv[8:13] = PN[0:5] */
-		#else
 		for (i = 8; i < 14; i++)
 			mic_iv[i] = pn_vector[13 - i];          /* mic_iv[8:13] = PN[5:0] */
-		#endif
 		mic_iv[14] = (unsigned char)(payload_length / 256);
 		mic_iv[15] = (unsigned char)(payload_length % 256);
 }
@@ -772,13 +767,8 @@ static void construct_ctr_preload(u8 *ctr_preload,
 
 	for (i = 2; i < 8; i++)
 		ctr_preload[i] = mpdu[i + 8];                       /* ctr_preload[2:7] = A2[0:5] = mpdu[10:15] */
-#ifdef CONSISTENT_PN_ORDER
-	for (i = 8; i < 14; i++)
-		ctr_preload[i] =    pn_vector[i - 8];           /* ctr_preload[8:13] = PN[0:5] */
-#else
 	for (i = 8; i < 14; i++)
 		ctr_preload[i] =    pn_vector[13 - i];          /* ctr_preload[8:13] = PN[5:0] */
-#endif
 	ctr_preload[14] = (unsigned char)(c / 256); /* Ctr */
 	ctr_preload[15] = (unsigned char)(c % 256);
 }
