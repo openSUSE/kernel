@@ -91,7 +91,6 @@ static int sysconfig_spi_bitstream_burst_complete(struct sysconfig_priv *priv)
 
 static int sysconfig_spi_probe(struct spi_device *spi)
 {
-	const struct spi_device_id *dev_id;
 	struct device *dev = &spi->dev;
 	struct sysconfig_priv *priv;
 	const u32 *spi_max_speed;
@@ -100,15 +99,7 @@ static int sysconfig_spi_probe(struct spi_device *spi)
 	if (!priv)
 		return -ENOMEM;
 
-	spi_max_speed = device_get_match_data(dev);
-	if (!spi_max_speed) {
-		dev_id = spi_get_device_id(spi);
-		if (!dev_id)
-			return -ENODEV;
-
-		spi_max_speed = (const u32 *)dev_id->driver_data;
-	}
-
+	spi_max_speed = spi_get_device_match_data(spi);
 	if (!spi_max_speed)
 		return -EINVAL;
 
