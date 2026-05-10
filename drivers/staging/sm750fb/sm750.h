@@ -39,13 +39,13 @@ enum sm750_path {
 };
 
 struct init_status {
-	ushort powerMode;
+	ushort power_mode;
 	/* below three clocks are in unit of MHZ*/
 	ushort chip_clk;
 	ushort mem_clk;
 	ushort master_clk;
 	ushort setAllEngOff;
-	ushort resetMemory;
+	ushort reset_memory;
 };
 
 struct lynx_accel {
