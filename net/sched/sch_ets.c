@@ -448,7 +448,7 @@ static int ets_qdisc_enqueue(struct sk_buff *skb, struct Qdisc *sch,
 		cl->deficit = cl->quantum;
 	}
 
-	sch->qstats.backlog += len;
+	qstats_backlog_add(sch, len);
 	qdisc_qlen_inc(sch);
 	return err;
 }

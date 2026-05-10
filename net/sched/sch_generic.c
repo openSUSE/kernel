@@ -1063,7 +1063,7 @@ void qdisc_reset(struct Qdisc *qdisc)
 	__skb_queue_purge(&qdisc->skb_bad_txq);
 
 	WRITE_ONCE(qdisc->q.qlen, 0);
-	qdisc->qstats.backlog = 0;
+	WRITE_ONCE(qdisc->qstats.backlog, 0);
 }
 EXPORT_SYMBOL(qdisc_reset);
 

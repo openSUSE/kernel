@@ -650,7 +650,7 @@ static int htb_enqueue(struct sk_buff *skb, struct Qdisc *sch,
 		htb_activate(q, cl);
 	}
 
-	sch->qstats.backlog += len;
+	qstats_backlog_add(sch, len);
 	qdisc_qlen_inc(sch);
 	return NET_XMIT_SUCCESS;
 }

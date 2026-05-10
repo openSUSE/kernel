@@ -177,7 +177,7 @@ static unsigned int fq_codel_drop(struct Qdisc *sch, unsigned int max_packets,
 	WRITE_ONCE(q->backlogs[idx], q->backlogs[idx] - len);
 	q->memory_usage -= mem;
 	__qdisc_qstats_drop(sch, i);
-	sch->qstats.backlog -= len;
+	qstats_backlog_sub(sch, len);
 	WRITE_ONCE(sch->q.qlen, sch->q.qlen - i);
 	return idx;
 }
@@ -268,7 +268,7 @@ static struct sk_buff *dequeue_func(struct codel_vars *vars, void *ctx)
 			   q->backlogs[flow - q->flows] - qdisc_pkt_len(skb));
 		q->memory_usage -= get_codel_cb(skb)->mem_usage;
 		qdisc_qlen_dec(sch);
-		sch->qstats.backlog -= qdisc_pkt_len(skb);
+		qdisc_qstats_backlog_dec(sch, skb);
 	}
 	return skb;
 }

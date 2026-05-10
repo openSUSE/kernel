@@ -232,7 +232,7 @@ static int tbf_segment(struct sk_buff *skb, struct Qdisc *sch,
 		}
 	}
 	WRITE_ONCE(sch->q.qlen, sch->q.qlen + nb);
-	sch->qstats.backlog += len;
+	qstats_backlog_add(sch, len);
 	if (nb > 0) {
 		qdisc_tree_reduce_backlog(sch, 1 - nb, prev_len - len);
 		consume_skb(skb);
@@ -263,7 +263,7 @@ static int tbf_enqueue(struct sk_buff *skb, struct Qdisc *sch,
 		return ret;
 	}
 
-	sch->qstats.backlog += len;
+	qstats_backlog_add(sch, len);
 	qdisc_qlen_inc(sch);
 	return NET_XMIT_SUCCESS;
 }

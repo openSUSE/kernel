@@ -802,7 +802,7 @@ static void fq_reset(struct Qdisc *sch)
 	unsigned int idx;
 
 	WRITE_ONCE(sch->q.qlen, 0);
-	sch->qstats.backlog = 0;
+	WRITE_ONCE(sch->qstats.backlog, 0);
 
 	fq_flow_purge(&q->internal);
 
