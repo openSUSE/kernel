@@ -557,10 +557,12 @@ iwl_mld_fill_tx_cmd(struct iwl_mld *mld, struct sk_buff *skb,
 		flags |= IWL_TX_FLAGS_ENCRYPT_DIS;
 
 	/* For data and mgmt packets rate info comes from the fw.
-	 * Only set rate/antenna for injected frames with fixed rate, or
-	 * when no sta is given.
+	 * Only set rate/antenna for:
+	 * - injected frames with fixed rate,
+	 * - when no sta is given.
+	 * - frames that are sent to an NMI sta, which is only used for management.
 	 */
-	if (unlikely(!sta ||
+	if (unlikely(!sta || mld_sta->vif->type == NL80211_IFTYPE_NAN ||
 		     info->control.flags & IEEE80211_TX_CTRL_RATE_INJECT)) {
 		flags |= IWL_TX_FLAGS_CMD_RATE;
 		rate_n_flags = iwl_mld_get_tx_rate_n_flags(mld, info, sta,
