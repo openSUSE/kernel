@@ -1054,7 +1054,7 @@ static inline void qdisc_qstats_overlimit(struct Qdisc *sch)
 	WRITE_ONCE(sch->qstats.overlimits, sch->qstats.overlimits + 1);
 }
 
-static inline int qdisc_qstats_copy(struct gnet_dump *d, struct Qdisc *sch)
+static inline int qdisc_qstats_copy(struct gnet_dump *d, const struct Qdisc *sch)
 {
 	__u32 qlen = qdisc_qlen_sum(sch);
 
