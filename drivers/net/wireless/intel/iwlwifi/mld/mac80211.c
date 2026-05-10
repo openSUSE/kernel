@@ -2863,4 +2863,5 @@ const struct ieee80211_ops iwl_mld_hw_ops = {
 	.start_nan = iwl_mld_start_nan,
 	.stop_nan = iwl_mld_stop_nan,
 	.nan_change_conf = iwl_mld_nan_change_config,
+	.nan_peer_sched_changed = iwl_mld_mac802111_nan_peer_sched_changed,
 };

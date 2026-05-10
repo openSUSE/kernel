@@ -664,3 +664,87 @@ void iwl_mld_nan_vif_cfg_changed(struct iwl_mld *mld,
 			iwl_mld_rm_vif(mld, vif);
 	}
 }
+
+int iwl_mld_mac802111_nan_peer_sched_changed(struct ieee80211_hw *hw,
+					     struct ieee80211_sta *sta)
+{
+	struct iwl_mld_sta *mld_sta = iwl_mld_sta_from_mac80211(sta);
+	struct ieee80211_nan_peer_sched *sched = sta->nan_sched;
+	struct iwl_mld_vif *mld_vif = iwl_mld_vif_from_mac80211(mld_sta->vif);
+	struct iwl_mld *mld = IWL_MAC80211_GET_MLD(hw);
+	struct iwl_mld_nan_link *nan_link;
+	struct iwl_nan_peer_cmd cmd = {
+		.nmi_sta_id = mld_sta->deflink.fw_id,
+		.sequence_id = sched->seq_id,
+		.committed_dw_info = cpu_to_le16(sched->committed_dw),
+		.max_channel_switch_time = cpu_to_le16(sched->max_chan_switch),
+		.initial_ulw_size = cpu_to_le32(sched->ulw_size),
+		.per_phy[0 ... NUM_PHY_CTX - 1] = {
+			/* unused by FW if availability_map == 0 */
+			.map_id = CFG80211_NAN_INVALID_MAP_ID,
+			.link_id = FW_CTXT_ID_INVALID,
+		},
+		/* .initial_ulw directly provided below by data[1]/len[1] */
+	};
+	struct iwl_host_cmd hcmd = {
+		.id = WIDE_ID(MAC_CONF_GROUP, NAN_PEER_CMD),
+		.data[0] = &cmd,
+		.len[0] = sizeof(cmd),
+		.data[1] = sched->init_ulw,
+		.len[1] = sched->ulw_size,
+		.dataflags[1] = IWL_HCMD_DFL_DUP,
+	};
+
+	for (int i = 0; i < ARRAY_SIZE(sched->maps); i++) {
+		if (sched->maps[i].map_id == CFG80211_NAN_INVALID_MAP_ID)
+			continue;
+
+		BUILD_BUG_ON(ARRAY_SIZE(sched->maps[i].slots) != 32);
+		for (int slot = 0;
+		     slot < ARRAY_SIZE(sched->maps[i].slots);
+		     slot++) {
+			struct ieee80211_chanctx_conf *ctx;
+			struct ieee80211_nan_channel *chan;
+			struct iwl_mld_phy *phy;
+
+			chan = sched->maps[i].slots[slot];
+			if (!chan)
+				continue;
+
+			ctx = chan->chanctx_conf;
+			if (!ctx)
+				continue;
+
+			phy = iwl_mld_phy_from_mac80211(ctx);
+
+			for_each_mld_nan_valid_link(mld_vif, nan_link) {
+				if (nan_link->chanctx == ctx) {
+					cmd.per_phy[phy->fw_id].link_id =
+						nan_link->fw_id;
+					break;
+				}
+			}
+
+			if (WARN_ON(cmd.per_phy[phy->fw_id].link_id ==
+				    FW_CTXT_ID_INVALID))
+				continue;
+
+			/*
+			 * each channel can only appear in one map,
+			 * upper layers enforce that
+			 */
+			if (WARN_ON(cmd.per_phy[phy->fw_id].map_id != CFG80211_NAN_INVALID_MAP_ID &&
+				    cmd.per_phy[phy->fw_id].map_id != sched->maps[i].map_id))
+				continue;
+
+			cmd.per_phy[phy->fw_id].map_id = sched->maps[i].map_id;
+			memcpy(cmd.per_phy[phy->fw_id].channel_entry,
+			       chan->channel_entry,
+			       sizeof(cmd.per_phy[phy->fw_id].channel_entry));
+			cmd.per_phy[phy->fw_id].availability_map |=
+				cpu_to_le32(BIT(slot));
+		}
+	}
+
+	return iwl_mld_send_cmd(mld, &hcmd);
+}

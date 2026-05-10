@@ -77,6 +77,10 @@ enum iwl_mac_conf_subcmd_ids {
 	 */
 	NAN_SCHEDULE_CMD = 0x13,
 	/**
+	 * @NAN_PEER_CMD: &struct iwl_nan_peer_cmd
+	 */
+	NAN_PEER_CMD = 0x14,
+	/**
 	 * @NAN_DW_END_NOTIF: &struct iwl_nan_dw_end_notif
 	 */
 	NAN_DW_END_NOTIF = 0xf4,
@@ -1267,6 +1271,44 @@ struct iwl_nan_schedule_cmd {
 		u8 reserved;
 	} __packed channels[NUM_PHY_CTX];
 } __packed; /* NAN_SCHEDULE_CMD_API_S_VER_1 */
+
+/**
+ * struct iwl_nan_peer_cmd - NAN peer command
+ * @nmi_sta_id: NAN management station ID
+ * @sequence_id: NAN Availability attribute sequence ID
+ * @committed_dw_info: committed DW info from the NAN Device
+ *	Capability attribute
+ * @max_channel_switch_time: maximum channel switch time
+ *	(in microseconds); 0 means unavailable
+ * @reserved: (reserved)
+ * @per_phy: per-PHY information for this peer, indexed by PHY ID
+ * @per_phy.availability_map: bitmap of which slots this peer
+ *	is available in on this PHY. 0 indicates the this per-PHY entry
+ *	is unused.
+ * @per_phy.channel_entry: the channel description the peer is using,
+ *	used for comparisons in ULW management
+ * @per_phy.link_id: FW link ID, should be a valid id.
+ * @per_phy.map_id: map ID from peer's NAN Availability attributec
+ * @initial_ulw_size: size of the initial ULW blob
+ * @initial_ulw: initial ULW data from the peer
+ */
+struct iwl_nan_peer_cmd {
+	u8 nmi_sta_id;
+	u8 sequence_id;
+	__le16 committed_dw_info;
+	__le16 max_channel_switch_time;
+	__le16 reserved;
+
+	struct {
+		__le32 availability_map;
+		u8 channel_entry[6];
+		u8 link_id;
+		u8 map_id;
+	} __packed per_phy[NUM_PHY_CTX];
+
+	__le32 initial_ulw_size;
+	u8 initial_ulw[];
+} __packed; /* NAN_PEER_SCHEDULE_CMD_API_S_VER_1 */
 
 /**
  * enum iwl_nan_cluster_notif_flags - flags for the cluster notification

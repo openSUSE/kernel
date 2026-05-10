@@ -50,4 +50,7 @@ void iwl_mld_nan_vif_cfg_changed(struct iwl_mld *mld,
 				 struct ieee80211_vif *vif,
 				 u64 changes);
 
+int iwl_mld_mac802111_nan_peer_sched_changed(struct ieee80211_hw *hw,
+					     struct ieee80211_sta *sta);
+
 #endif /* __iwl_mld_nan_h__ */
