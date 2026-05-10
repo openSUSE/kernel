@@ -558,12 +558,18 @@ iwl_mld_allocate_##_type##_fw_id(struct iwl_mld *mld,					\
 static inline struct ieee80211_bss_conf *
 iwl_mld_fw_id_to_link_conf(struct iwl_mld *mld, u8 fw_link_id)
 {
+	struct ieee80211_bss_conf *link;
+
 	if (IWL_FW_CHECK(mld, fw_link_id >= mld->fw->ucode_capa.num_links,
 			 "Invalid fw_link_id: %d\n", fw_link_id))
 		return NULL;
 
-	return wiphy_dereference(mld->wiphy,
+	link = wiphy_dereference(mld->wiphy,
 				 mld->fw_id_to_bss_conf[fw_link_id]);
+	if (IS_ERR(link))
+		return NULL;
+
+	return link;
 }
 
 #define MSEC_TO_TU(_msec)	((_msec) * 1000 / 1024)

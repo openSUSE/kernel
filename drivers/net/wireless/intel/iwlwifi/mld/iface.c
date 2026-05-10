@@ -5,6 +5,7 @@
 #include <net/cfg80211.h>
 
 #include "iface.h"
+#include "nan.h"
 #include "hcmd.h"
 #include "key.h"
 #include "mlo.h"
@@ -55,8 +56,12 @@ void iwl_mld_cleanup_vif(void *data, u8 *mac, struct ieee80211_vif *vif)
 
 	ieee80211_iter_keys(mld->hw, vif, iwl_mld_cleanup_keys_iter, NULL);
 
-	if (vif->type == NL80211_IFTYPE_NAN)
+	if (vif->type == NL80211_IFTYPE_NAN) {
 		mld_vif->nan.mac_added = false;
+		/* Clean up NAN links */
+		for (int i = 0; i < ARRAY_SIZE(mld_vif->nan.links); i++)
+			iwl_mld_cleanup_nan_link(&mld_vif->nan.links[i]);
+	}
 
 	CLEANUP_STRUCT(mld_vif);
 }
@@ -515,6 +520,14 @@ iwl_mld_init_vif(struct iwl_mld *mld, struct ieee80211_vif *vif)
 		wiphy_delayed_work_init(&mld_vif->mlo_scan_start_wk,
 					iwl_mld_mlo_scan_start_wk);
 	}
+
+	if (vif->type == NL80211_IFTYPE_NAN) {
+		for (int i = 0; i < ARRAY_SIZE(mld_vif->nan.links); i++) {
+			memset(&mld_vif->nan.links[i], 0, sizeof(mld_vif->nan.links[i]));
+			mld_vif->nan.links[i].fw_id = FW_CTXT_ID_INVALID;
+		}
+	}
+
 	iwl_mld_init_internal_sta(&mld_vif->aux_sta);
 }
 

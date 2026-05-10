@@ -8,6 +8,7 @@
 #include <net/mac80211.h>
 
 #include "link.h"
+#include "nan.h"
 #include "session-protect.h"
 #include "d3.h"
 #include "fw/api/time-event.h"
@@ -153,6 +154,7 @@ struct iwl_mld_emlsr {
  * @aux_sta: station used for remain on channel. Used in P2P device.
  * @mlo_scan_start_wk: worker to start a deferred MLO scan
  * @nan: NAN parameters
+ * @nan.links: NAN links for FW (indexed by FW link ID)
  * @nan.mac_added: track whether or not the MAC was added to FW
  */
 struct iwl_mld_vif {
@@ -179,6 +181,7 @@ struct iwl_mld_vif {
 
 	struct {
 		/* use only with wiphy protection */
+		struct iwl_mld_nan_link links[IWL_FW_MAX_LINKS];
 		bool mac_added;
 	} nan;
 
@@ -241,6 +244,12 @@ static inline bool iwl_mld_vif_fw_id_valid(struct iwl_mld_vif *mld_vif)
 	for (int link_id = 0; link_id < ARRAY_SIZE((mld_vif)->link);	\
 	     link_id++)							\
 		if ((mld_link = iwl_mld_link_dereference_check(mld_vif, link_id)))
+
+#define for_each_mld_nan_valid_link(mld_vif, nan_link)			\
+	for (nan_link = &(mld_vif)->nan.links[0];			\
+	     nan_link < &(mld_vif)->nan.links[ARRAY_SIZE((mld_vif)->nan.links)]; \
+	     nan_link++)						\
+		if (nan_link->fw_id != FW_CTXT_ID_INVALID)
 
 /* Retrieve pointer to mld link from mac80211 structures */
 static inline struct iwl_mld_link *

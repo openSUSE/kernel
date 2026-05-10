@@ -16,13 +16,16 @@
 #include "fw/api/context.h"
 #include "fw/dbg.h"
 
-static int iwl_mld_send_link_cmd(struct iwl_mld *mld,
-				 struct iwl_link_config_cmd *cmd,
-				 enum iwl_ctxt_action action)
+int iwl_mld_send_link_cmd(struct iwl_mld *mld,
+			  struct iwl_link_config_cmd *cmd,
+			  enum iwl_ctxt_action action)
 {
 	int ret;
 
 	lockdep_assert_wiphy(mld->wiphy);
+
+	if (WARN_ON_ONCE(cmd->link_id == cpu_to_le32(FW_CTXT_ID_INVALID)))
+		return -EINVAL;
 
 	cmd->action = cpu_to_le32(action);
 	ret = iwl_mld_send_cmd_pdu(mld,
@@ -437,7 +440,8 @@ iwl_mld_rm_link_from_fw(struct iwl_mld *mld, struct ieee80211_bss_conf *link)
 	iwl_mld_send_link_cmd(mld, &cmd, FW_CTXT_ACTION_REMOVE);
 }
 
-static IWL_MLD_ALLOC_FN(link, bss_conf)
+IWL_MLD_ALLOC_FN(link, bss_conf)
+EXPORT_SYMBOL_IF_IWLWIFI_KUNIT(iwl_mld_allocate_link_fw_id);
 
 /* Constructor function for struct iwl_mld_link */
 static int

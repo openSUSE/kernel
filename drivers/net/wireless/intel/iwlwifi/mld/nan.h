@@ -7,6 +7,25 @@
 #include <net/cfg80211.h>
 #include <linux/etherdevice.h>
 
+/**
+ * struct iwl_mld_nan_link - struct representing a NAN link
+ * @chanctx: the channel context
+ * @active: indicates the NAN link is currently active
+ * @fw_id: FW link ID
+ */
+struct iwl_mld_nan_link {
+	struct ieee80211_chanctx_conf *chanctx;
+	bool active;
+	u8 fw_id;
+};
+
+/* Cleanup function for struct iwl_mld_nan_link, will be called in restart */
+static inline void iwl_mld_cleanup_nan_link(struct iwl_mld_nan_link *nan_link)
+{
+	memset(nan_link, 0, sizeof(*nan_link));
+	nan_link->fw_id = FW_CTXT_ID_INVALID;
+}
+
 bool iwl_mld_nan_supported(struct iwl_mld *mld);
 int iwl_mld_start_nan(struct ieee80211_hw *hw,
 		      struct ieee80211_vif *vif,

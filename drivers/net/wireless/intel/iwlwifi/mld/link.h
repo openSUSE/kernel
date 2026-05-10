@@ -99,6 +99,13 @@ iwl_mld_cleanup_link(struct iwl_mld *mld, struct iwl_mld_link *link)
 /* Convert a percentage from [0,100] to [0,255] */
 #define NORMALIZE_PERCENT_TO_255(percentage) ((percentage) * 256 / 100)
 
+int iwl_mld_allocate_link_fw_id(struct iwl_mld *mld, u8 *fw_id,
+				struct ieee80211_bss_conf *mac80211_ptr);
+
+int iwl_mld_send_link_cmd(struct iwl_mld *mld,
+			  struct iwl_link_config_cmd *cmd,
+			  enum iwl_ctxt_action action);
+
 int iwl_mld_add_link(struct iwl_mld *mld,
 		     struct ieee80211_bss_conf *bss_conf);
 void iwl_mld_remove_link(struct iwl_mld *mld,

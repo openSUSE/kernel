@@ -68,8 +68,6 @@ int iwlmld_kunit_test_init(struct kunit *test)
 	return 0;
 }
 
-static IWL_MLD_ALLOC_FN(link, bss_conf)
-
 static void iwlmld_kunit_init_link(struct ieee80211_vif *vif,
 				   struct ieee80211_bss_conf *link,
 				   struct iwl_mld_link *mld_link, int link_id)

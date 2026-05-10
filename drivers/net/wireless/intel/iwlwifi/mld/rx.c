@@ -158,7 +158,7 @@ static bool iwl_mld_used_average_energy(struct iwl_mld *mld, int link_id,
 	guard(rcu)();
 
 	link_conf = rcu_dereference(mld->fw_id_to_bss_conf[link_id]);
-	if (!link_conf)
+	if (IS_ERR_OR_NULL(link_conf))
 		return false;
 
 	mld_link = iwl_mld_link_from_mac80211(link_conf);
