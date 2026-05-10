@@ -464,19 +464,17 @@ static int iwl_mld_nan_link_set_active(struct iwl_mld *mld,
 }
 
 static void iwl_mld_nan_link_remove(struct iwl_mld *mld,
-				    struct iwl_mld_nan_link *nan_link)
+				    struct iwl_mld_nan_link *nan_link,
+				    u32 link_id)
 {
 	struct iwl_link_config_cmd cmd = {
-		.link_id = cpu_to_le32(nan_link->fw_id),
+		.link_id = cpu_to_le32(link_id),
 		.phy_id = cpu_to_le32(FW_CTXT_ID_INVALID),
 	};
 
-	if (WARN_ON_ONCE(nan_link->fw_id == FW_CTXT_ID_INVALID))
-		return;
-
 	iwl_mld_send_link_cmd(mld, &cmd, FW_CTXT_ACTION_REMOVE);
 
-	RCU_INIT_POINTER(mld->fw_id_to_bss_conf[nan_link->fw_id], NULL);
+	RCU_INIT_POINTER(mld->fw_id_to_bss_conf[link_id], NULL);
 	nan_link->fw_id = FW_CTXT_ID_INVALID;
 	nan_link->active = false;
 	nan_link->chanctx = NULL;
@@ -518,6 +516,8 @@ void iwl_mld_nan_vif_cfg_changed(struct iwl_mld *mld,
 	struct ieee80211_nan_channel **slots = sched_cfg->schedule;
 	bool link_used[ARRAY_SIZE(mld_vif->nan.links)] = {};
 	struct iwl_mld_nan_link *nan_link;
+	unsigned long remove_link_ids = 0;
+	bool added_links = false;
 	bool empty_schedule = true;
 	int ret, i;
 
@@ -588,6 +588,7 @@ void iwl_mld_nan_vif_cfg_changed(struct iwl_mld *mld,
 
 		/* we have a link, activate it */
 		if (links[i]) {
+			added_links = true;
 			link_used[links[i]->fw_id] = true;
 			iwl_mld_nan_link_set_active(mld, links[i], true);
 		}
@@ -626,13 +627,31 @@ void iwl_mld_nan_vif_cfg_changed(struct iwl_mld *mld,
 	if (ret)
 		IWL_ERR(mld, "NAN: failed to update schedule (%d)\n", ret);
 
-	/* delete unused links */
+	/* prepare stations for links we'll remove */
 	for_each_mld_nan_valid_link(mld_vif, nan_link) {
 		if (!link_used[nan_link->fw_id]) {
 			iwl_mld_nan_link_set_active(mld, nan_link, false);
-			iwl_mld_nan_link_remove(mld, nan_link);
+			remove_link_ids |= BIT(nan_link->fw_id);
+			/* mark unused for STA updates */
+			nan_link->fw_id = FW_CTXT_ID_INVALID;
 		}
 	}
+
+	if (added_links || remove_link_ids) {
+		struct ieee80211_sta *sta;
+
+		for_each_station(sta, mld->hw) {
+			struct iwl_mld_sta *mld_sta = iwl_mld_sta_from_mac80211(sta);
+
+			if (mld_sta->sta_type == STATION_TYPE_NAN_PEER_NMI ||
+			    mld_sta->sta_type == STATION_TYPE_NAN_PEER_NDI)
+				iwl_mld_add_modify_sta_cmd(mld, &sta->deflink);
+		}
+	}
+
+	/* delete unused links */
+	for_each_set_bit(i, &remove_link_ids, ARRAY_SIZE(mld_vif->nan.links))
+		iwl_mld_nan_link_remove(mld, &mld_vif->nan.links[i], i);
 
 	/* remove MAC if needed */
 	if (!previously_empty_schedule && empty_schedule) {

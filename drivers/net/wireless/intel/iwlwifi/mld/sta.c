@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause
 /*
- * Copyright (C) 2024-2025 Intel Corporation
+ * Copyright (C) 2024-2026 Intel Corporation
  */
 
 #include <linux/ieee80211.h>
@@ -13,6 +13,7 @@
 #include "key.h"
 #include "agg.h"
 #include "tlc.h"
+#include "nan.h"
 #include "fw/api/sta.h"
 #include "fw/api/mac.h"
 #include "fw/api/rx.h"
@@ -43,13 +44,13 @@ int iwl_mld_fw_sta_id_from_link_sta(struct iwl_mld *mld,
 
 static void
 iwl_mld_fill_ampdu_size_and_dens(struct ieee80211_link_sta *link_sta,
-				 struct ieee80211_bss_conf *link,
+				 bool is_6ghz,
 				 __le32 *tx_ampdu_max_size,
 				 __le32 *tx_ampdu_spacing)
 {
 	u32 agg_size = 0, mpdu_dens = 0;
 
-	if (WARN_ON(!link_sta || !link))
+	if (WARN_ON(!link_sta))
 		return;
 
 	/* Note that we always use only legacy & highest supported PPDUs, so
@@ -63,7 +64,7 @@ iwl_mld_fill_ampdu_size_and_dens(struct ieee80211_link_sta *link_sta,
 		mpdu_dens = link_sta->ht_cap.ampdu_density;
 	}
 
-	if (link->chanreq.oper.chan->band == NL80211_BAND_6GHZ) {
+	if (is_6ghz) {
 		/* overwrite HT values on 6 GHz */
 		mpdu_dens =
 			le16_get_bits(link_sta->he_6ghz_capa.capa,
@@ -439,29 +440,56 @@ static int iwl_mld_send_sta_cmd(struct iwl_mld *mld,
 	return ret;
 }
 
-static int
-iwl_mld_add_modify_sta_cmd(struct iwl_mld *mld,
-			   struct ieee80211_link_sta *link_sta)
+int iwl_mld_add_modify_sta_cmd(struct iwl_mld *mld,
+			      struct ieee80211_link_sta *link_sta)
 {
 	struct ieee80211_sta *sta = link_sta->sta;
 	struct iwl_mld_sta *mld_sta = iwl_mld_sta_from_mac80211(sta);
-	struct ieee80211_bss_conf *link;
-	struct iwl_mld_link *mld_link;
 	struct iwl_sta_cfg_cmd cmd = {};
 	int fw_id = iwl_mld_fw_sta_id_from_link_sta(mld, link_sta);
+	bool is_6ghz, uora_exists;
+	u32 link_mask;
 
 	lockdep_assert_wiphy(mld->wiphy);
 
-	link = link_conf_dereference_protected(mld_sta->vif,
-					       link_sta->link_id);
-
-	mld_link = iwl_mld_link_from_mac80211(link);
-
-	if (WARN_ON(!link || !mld_link) || fw_id < 0)
+	if (WARN_ON(fw_id < 0))
 		return -EINVAL;
 
+	if (mld_sta->sta_type == STATION_TYPE_NAN_PEER_NMI ||
+	    mld_sta->sta_type == STATION_TYPE_NAN_PEER_NDI) {
+		struct iwl_mld_nan_link *nan_link;
+		struct iwl_mld_vif *nan_dev;
+
+		is_6ghz = false;
+		uora_exists = false;
+
+		if (WARN_ON(!mld->nan_device_vif))
+			return -EINVAL;
+
+		nan_dev = iwl_mld_vif_from_mac80211(mld->nan_device_vif);
+
+		link_mask = 0;
+
+		for_each_mld_nan_valid_link(nan_dev, nan_link)
+			link_mask |= BIT(nan_link->fw_id);
+	} else {
+		struct ieee80211_bss_conf *link;
+		struct iwl_mld_link *mld_link;
+
+		link = link_conf_dereference_protected(mld_sta->vif,
+						       link_sta->link_id);
+		mld_link = iwl_mld_link_from_mac80211(link);
+
+		if (WARN_ON(!link || !mld_link))
+			return -EINVAL;
+
+		link_mask = BIT(mld_link->fw_id);
+		is_6ghz = link->chanreq.oper.chan->band == NL80211_BAND_6GHZ;
+		uora_exists = link->uora_exists;
+	}
+
 	cmd.sta_id = cpu_to_le32(fw_id);
-	cmd.link_mask = cpu_to_le32(BIT(mld_link->fw_id));
+	cmd.link_mask = cpu_to_le32(link_mask);
 	cmd.station_type = cpu_to_le32(mld_sta->sta_type);
 
 	memcpy(&cmd.peer_mld_address, sta->addr, ETH_ALEN);
@@ -499,7 +527,7 @@ iwl_mld_add_modify_sta_cmd(struct iwl_mld *mld,
 		break;
 	}
 
-	iwl_mld_fill_ampdu_size_and_dens(link_sta, link,
+	iwl_mld_fill_ampdu_size_and_dens(link_sta, is_6ghz,
 					 &cmd.tx_ampdu_max_size,
 					 &cmd.tx_ampdu_spacing);
 
@@ -511,7 +539,7 @@ iwl_mld_add_modify_sta_cmd(struct iwl_mld *mld,
 
 	if (link_sta->he_cap.has_he) {
 		cmd.trig_rnd_alloc =
-			cpu_to_le32(link->uora_exists ? 1 : 0);
+			cpu_to_le32(uora_exists ? 1 : 0);
 
 		/* PPE Thresholds */
 		iwl_mld_fill_pkt_ext(mld, link_sta, &cmd.pkt_ext);
@@ -523,6 +551,25 @@ iwl_mld_add_modify_sta_cmd(struct iwl_mld *mld,
 		if (link_sta->he_cap.he_cap_elem.mac_cap_info[2] &
 		    IEEE80211_HE_MAC_CAP2_ACK_EN)
 			cmd.ack_enabled = cpu_to_le32(1);
+	}
+
+	if (mld_sta->sta_type == STATION_TYPE_NAN_PEER_NDI) {
+		struct ieee80211_sta *nmi_sta =
+			wiphy_dereference(mld->wiphy, sta->nmi);
+		int nmi_fw_id;
+
+		/* copy the local NDI address */
+		ether_addr_copy(cmd.ndi_local_addr, mld_sta->vif->addr);
+
+		if (WARN_ON(!nmi_sta))
+			return -EINVAL;
+
+		nmi_fw_id = iwl_mld_fw_sta_id_from_link_sta(mld,
+					&nmi_sta->deflink);
+		if (nmi_fw_id < 0)
+			return -EINVAL;
+
+		cmd.nmi_sta_id = (u8) nmi_fw_id;
 	}
 
 	return iwl_mld_send_sta_cmd(mld, &cmd);
@@ -759,10 +806,23 @@ int iwl_mld_add_sta(struct iwl_mld *mld, struct ieee80211_sta *sta,
 {
 	struct iwl_mld_sta *mld_sta = iwl_mld_sta_from_mac80211(sta);
 	struct ieee80211_link_sta *link_sta;
+	enum iwl_fw_sta_type type;
 	int link_id;
 	int ret;
 
-	ret = iwl_mld_init_sta(mld, sta, vif, STATION_TYPE_PEER);
+	switch (vif->type) {
+	case NL80211_IFTYPE_NAN:
+		type = STATION_TYPE_NAN_PEER_NMI;
+		break;
+	case NL80211_IFTYPE_NAN_DATA:
+		type = STATION_TYPE_NAN_PEER_NDI;
+		break;
+	default:
+		type = STATION_TYPE_PEER;
+		break;
+	}
+
+	ret = iwl_mld_init_sta(mld, sta, vif, type);
 	if (ret)
 		return ret;
 

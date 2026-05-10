@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause */
 /*
- * Copyright (C) 2024-2025 Intel Corporation
+ * Copyright (C) 2024-2026 Intel Corporation
  */
 
 #ifndef __iwl_mld_sta_h__
@@ -195,6 +195,8 @@ void iwl_mld_remove_sta(struct iwl_mld *mld, struct ieee80211_sta *sta);
 int iwl_mld_fw_sta_id_from_link_sta(struct iwl_mld *mld,
 				    struct ieee80211_link_sta *link_sta);
 u32 iwl_mld_fw_sta_id_mask(struct iwl_mld *mld, struct ieee80211_sta *sta);
+int iwl_mld_add_modify_sta_cmd(struct iwl_mld *mld,
+			       struct ieee80211_link_sta *link_sta);
 int iwl_mld_update_all_link_stations(struct iwl_mld *mld,
 				     struct ieee80211_sta *sta);
 void iwl_mld_flush_sta_txqs(struct iwl_mld *mld, struct ieee80211_sta *sta);

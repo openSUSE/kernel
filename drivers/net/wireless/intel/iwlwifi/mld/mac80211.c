@@ -1841,7 +1841,7 @@ static int iwl_mld_move_sta_state_up(struct iwl_mld *mld,
 		   new_state == IEEE80211_STA_AUTHORIZED) {
 		ret = 0;
 
-		if (!sta->tdls) {
+		if (vif->type == NL80211_IFTYPE_STATION && !sta->tdls) {
 			mld_vif->authorized = true;
 
 			/* Ensure any block due to a non-BSS link is synced */
