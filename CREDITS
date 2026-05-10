@@ -1451,6 +1451,14 @@ N: Andy Gospodarek
 E: andy@greyhouse.net
 D: Maintenance and contributions to the network interface bonding driver.
 
+N: Vivek Goyal
+E: vgoyal@redhat.com
+D: KDUMP, KEXEC, and VIRTIO FILE SYSTEM
+
+N: Alexander Graf
+E: graf@amazon.com
+D: Kexec Handover (KHO)
+
 N: Wolfgang Grandegger
 E: wg@grandegger.com
 D: Controller Area Network (device drivers)
@@ -3643,6 +3651,11 @@ D: Dial on demand facility (diald).
 S: Dag Hammerskjolds v. 3E
 S: S-226 64 LUND
 S: Sweden
+
+N: Tilman Schmidt
+E: tilman@imap.cc
+D: Siemens Gigaset ISDN driver author and maintainer
+D: ISDN CAPI subsystem contributions
 
 N: Henning P. Schmiedehausen
 E: hps@tanstaafl.de

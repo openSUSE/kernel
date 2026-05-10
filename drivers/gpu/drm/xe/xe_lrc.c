@@ -746,9 +746,16 @@ size_t xe_lrc_reg_size(struct xe_device *xe)
 		return 80 * sizeof(u32);
 }
 
-size_t xe_lrc_skip_size(struct xe_device *xe)
+/**
+ * xe_lrc_engine_state_size() - Get size of the engine state within LRC
+ * @gt: the &xe_gt struct instance
+ * @class: Hardware engine class
+ *
+ * Returns: Size of the engine state
+ */
+size_t xe_lrc_engine_state_size(struct xe_gt *gt, enum xe_engine_class class)
 {
-	return LRC_PPHWSP_SIZE + xe_lrc_reg_size(xe);
+	return xe_gt_lrc_hang_replay_size(gt, class) - xe_lrc_reg_size(gt_to_xe(gt));
 }
 
 static inline u32 __xe_lrc_seqno_offset(struct xe_lrc *lrc)
@@ -1214,7 +1221,7 @@ static ssize_t setup_invalidate_state_cache_wa(struct xe_lrc *lrc,
 	if (xe_gt_WARN_ON(lrc->gt, max_len < 3))
 		return -ENOSPC;
 
-	*cmd++ = MI_LOAD_REGISTER_IMM | MI_LRI_NUM_REGS(1);
+	*cmd++ = MI_LOAD_REGISTER_IMM | MI_LRI_LRM_CS_MMIO | MI_LRI_NUM_REGS(1);
 	*cmd++ = CS_DEBUG_MODE2(0).addr;
 	*cmd++ = REG_MASKED_FIELD_ENABLE(INSTRUCTION_STATE_CACHE_INVALIDATE);
 

@@ -535,10 +535,11 @@ static int amdgpu_discovery_get_table_info(struct amdgpu_device *adev,
 		*info = &bhdrv2->table_list[table_id];
 		break;
 	case 1:
+	case 0:
 		*info = &bhdr->table_list[table_id];
 		break;
 	default:
-		dev_err(adev->dev, "Invalid ip discovery table version\n");
+		dev_err(adev->dev, "Invalid ip discovery table version %d\n",bhdr->version_major);
 		return -EINVAL;
 	}
 
@@ -3089,10 +3090,8 @@ int amdgpu_discovery_set_ip_blocks(struct amdgpu_device *adev)
 	case IP_VERSION(11, 5, 1):
 	case IP_VERSION(11, 5, 2):
 	case IP_VERSION(11, 5, 3):
-		adev->family = AMDGPU_FAMILY_GC_11_5_0;
-		break;
 	case IP_VERSION(11, 5, 4):
-		adev->family = AMDGPU_FAMILY_GC_11_5_4;
+		adev->family = AMDGPU_FAMILY_GC_11_5_0;
 		break;
 	case IP_VERSION(12, 0, 0):
 	case IP_VERSION(12, 0, 1):

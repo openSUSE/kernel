@@ -89,7 +89,6 @@ int cifs_handle_standard(struct TCP_Server_Info *server,
 			 struct mid_q_entry *mid);
 char *smb3_fs_context_fullpath(const struct smb3_fs_context *ctx, char dirsep);
 int smb3_parse_devname(const char *devname, struct smb3_fs_context *ctx);
-int smb3_parse_opt(const char *options, const char *key, char **val);
 int cifs_ipaddr_cmp(struct sockaddr *srcaddr, struct sockaddr *rhs);
 bool cifs_match_ipaddr(struct sockaddr *srcaddr, struct sockaddr *rhs);
 int cifs_discard_remaining_data(struct TCP_Server_Info *server);
@@ -350,9 +349,6 @@ int __cifs_calc_signature(struct smb_rqst *rqst,
 			  struct cifs_calc_sig_ctx *ctx);
 enum securityEnum cifs_select_sectype(struct TCP_Server_Info *server,
 				      enum securityEnum requested);
-
-int cifs_alloc_hash(const char *name, struct shash_desc **sdesc);
-void cifs_free_hash(struct shash_desc **sdesc);
 
 int cifs_try_adding_channels(struct cifs_ses *ses);
 int smb3_update_ses_channels(struct cifs_ses *ses,
