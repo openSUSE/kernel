@@ -98,7 +98,7 @@ struct sm750_dev {
 	__u32 vidmem_size;
 	__u32 vidreg_size;
 	void __iomem *pvReg;
-	unsigned char __iomem *pvMem;
+	unsigned char __iomem *vmem;
 	/* locks*/
 	spinlock_t slock;
 
