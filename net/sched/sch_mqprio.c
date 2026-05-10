@@ -672,9 +672,11 @@ static int mqprio_dump_class(struct Qdisc *sch, unsigned long cl,
 
 static int mqprio_dump_class_stats(struct Qdisc *sch, unsigned long cl,
 				   struct gnet_dump *d)
-	__releases(d->lock)
-	__acquires(d->lock)
 {
+	const struct Qdisc *qdisc;
+	int res = 0;
+
+	rcu_read_lock();
 	if (cl >= TC_H_MIN_PRIORITY) {
 		struct net_device *dev = qdisc_dev(sch);
 		struct netdev_tc_txq tc = dev->tc_to_txq[cl & TC_BITMASK];
@@ -684,46 +686,34 @@ static int mqprio_dump_class_stats(struct Qdisc *sch, unsigned long cl,
 		int i;
 
 		gnet_stats_basic_sync_init(&bstats);
-		/* Drop lock here it will be reclaimed before touching
-		 * statistics this is required because the d->lock we
-		 * hold here is the look on dev_queue->qdisc_sleeping
-		 * also acquired below.
-		 */
-		if (d->lock)
-			spin_unlock_bh(d->lock);
 
 		for (i = tc.offset; i < tc.offset + tc.count; i++) {
 			struct netdev_queue *q = netdev_get_tx_queue(dev, i);
-			struct Qdisc *qdisc = rtnl_dereference(q->qdisc);
 
-			spin_lock_bh(qdisc_lock(qdisc));
-
+			qdisc = rcu_dereference(q->qdisc);
 			gnet_stats_add_basic(&bstats, qdisc->cpu_bstats,
-					     &qdisc->bstats, false);
+					     &qdisc->bstats, true);
 			gnet_stats_add_queue(&qstats, qdisc->cpu_qstats,
 					     &qdisc->qstats);
 			qlen += qdisc_qlen_lockless(qdisc);
-
-			spin_unlock_bh(qdisc_lock(qdisc));
 		}
+
 		qlen = qlen + qstats.qlen;
 
-		/* Reclaim root sleeping lock before completing stats */
-		if (d->lock)
-			spin_lock_bh(d->lock);
 		if (gnet_stats_copy_basic(d, NULL, &bstats, false) < 0 ||
 		    gnet_stats_copy_queue(d, NULL, &qstats, qlen) < 0)
-			return -1;
+			res = -1;
 	} else {
 		struct netdev_queue *dev_queue = mqprio_queue_get(sch, cl);
 
-		sch = rtnl_dereference(dev_queue->qdisc_sleeping);
-		if (gnet_stats_copy_basic(d, sch->cpu_bstats,
-					  &sch->bstats, true) < 0 ||
-		    qdisc_qstats_copy(d, sch) < 0)
-			return -1;
+		qdisc = rcu_dereference(dev_queue->qdisc_sleeping);
+		if (gnet_stats_copy_basic(d, qdisc->cpu_bstats,
+					  &qdisc->bstats, true) < 0 ||
+		    qdisc_qstats_copy(d, qdisc) < 0)
+			res = -1;
 	}
-	return 0;
+	rcu_read_unlock();
+	return res;
 }
 
 static void mqprio_walk(struct Qdisc *sch, struct qdisc_walker *arg)
