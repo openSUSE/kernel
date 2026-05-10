@@ -903,6 +903,24 @@ static void __scx_task_iter_maybe_relock(struct scx_task_iter *iter)
 }
 
 /**
+ * scx_task_iter_relock - Re-acquire scx_tasks_lock and, optionally, @p's rq
+ * @iter: iterator to relock
+ * @p: task whose rq to lock, or %NULL for scx_tasks_lock only
+ *
+ * Counterpart to scx_task_iter_unlock(). Locking @p's rq is optional. Once
+ * re-acquired, both locks are managed by the iterator from here on.
+ */
+static void scx_task_iter_relock(struct scx_task_iter *iter,
+				 struct task_struct *p)
+{
+	__scx_task_iter_maybe_relock(iter);
+	if (p) {
+		iter->rq = task_rq_lock(p, &iter->rf);
+		iter->locked_task = p;
+	}
+}
+
+/**
  * scx_task_iter_stop - Stop a task iteration and unlock scx_tasks_lock
  * @iter: iterator to exit
  *
@@ -7064,6 +7082,9 @@ static void scx_root_enable_workfn(struct kthread_work *work)
 		scx_task_iter_unlock(&sti);
 
 		ret = scx_init_task(sch, p, false);
+
+		scx_task_iter_relock(&sti, p);
+
 		if (ret) {
 			put_task_struct(p);
 			scx_task_iter_stop(&sti);
@@ -7076,15 +7097,12 @@ static void scx_root_enable_workfn(struct kthread_work *work)
 		scx_set_task_state(p, SCX_TASK_READY);
 
 		/*
-		 * Insert into the tid hash under scx_tasks_lock so we can't
-		 * race sched_ext_dead() and leave a stale entry for an already
-		 * exited task.
+		 * Insert into the tid hash. scx_tasks_lock is held by the iter;
+		 * list_empty() guards against sched_ext_dead() having taken @p
+		 * off the list while init ran unlocked.
 		 */
-		if (scx_tid_to_task_enabled()) {
-			guard(raw_spinlock_irq)(&scx_tasks_lock);
-			if (!list_empty(&p->scx.tasks_node))
-				scx_tid_hash_insert(p);
-		}
+		if (scx_tid_to_task_enabled() && !list_empty(&p->scx.tasks_node))
+			scx_tid_hash_insert(p);
 
 		put_task_struct(p);
 	}
