@@ -91,7 +91,7 @@ struct fuse_submount_lookup {
 /* Container for data related to mapping to backing file */
 struct fuse_backing {
 	struct file *file;
-	struct cred *cred;
+	const struct cred *cred;
 
 	/* refcount */
 	refcount_t count;
