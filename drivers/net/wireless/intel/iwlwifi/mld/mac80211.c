@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause
 /*
- * Copyright (C) 2024-2025 Intel Corporation
+ * Copyright (C) 2024-2026 Intel Corporation
  */
 
 #include <net/mac80211.h>
@@ -360,6 +360,10 @@ static void iwl_mac_hw_set_wiphy(struct iwl_mld *mld)
 		hw->wiphy->nan_capa.dev_capabilities =
 			NAN_DEV_CAPA_EXT_KEY_ID_SUPPORTED |
 			NAN_DEV_CAPA_NDPE_SUPPORTED;
+
+		hw->wiphy->nan_capa.phy.ht = mld->nvm_data->nan_phy_capa.ht;
+		hw->wiphy->nan_capa.phy.vht = mld->nvm_data->nan_phy_capa.vht;
+		hw->wiphy->nan_capa.phy.he = mld->nvm_data->nan_phy_capa.he;
 	} else {
 		wiphy->iface_combinations = iwl_mld_iface_combinations;
 		/* Do not include NAN combinations */

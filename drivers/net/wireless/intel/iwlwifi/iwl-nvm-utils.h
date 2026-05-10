@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause */
 /*
- * Copyright (C) 2005-2014, 2018, 2020-2023 Intel Corporation
+ * Copyright (C) 2005-2014, 2018, 2020-2023, 2026 Intel Corporation
  * Copyright (C) 2015 Intel Mobile Communications GmbH
  */
 #ifndef __iwl_eeprom_parse_h__
@@ -54,6 +54,12 @@ struct iwl_nvm_data {
 		struct ieee80211_sband_iftype_data high[2];
 		struct ieee80211_sband_iftype_data uhb[2];
 	} iftd;
+
+	struct {
+		struct ieee80211_sta_ht_cap ht;
+		struct ieee80211_sta_vht_cap vht;
+		struct ieee80211_sta_he_cap he;
+	} nan_phy_capa;
 
 	struct ieee80211_channel channels[];
 };

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause
 /*
- * Copyright (C) 2005-2014, 2018-2023, 2025 Intel Corporation
+ * Copyright (C) 2005-2014, 2018-2023, 2025-2026 Intel Corporation
  * Copyright (C) 2013-2015 Intel Mobile Communications GmbH
  * Copyright (C) 2016-2017 Intel Deutschland GmbH
  */
@@ -1053,6 +1053,46 @@ static void iwl_init_he_hw_capab(struct iwl_trans *trans,
 	iwl_init_he_6ghz_capa(trans, data, sband, tx_chains, rx_chains);
 }
 
+static void
+iwl_init_nan_phy_capa(const struct iwl_fw *fw, struct iwl_nvm_data *data)
+{
+	const struct ieee80211_sta_he_cap *he_cap;
+
+	if (!fw_has_capa(&fw->ucode_capa, IWL_UCODE_TLV_CAPA_NAN_SYNC_SUPPORT))
+		return;
+
+	data->nan_phy_capa.ht = data->bands[NL80211_BAND_2GHZ].ht_cap;
+	data->nan_phy_capa.vht = data->bands[NL80211_BAND_5GHZ].vht_cap;
+
+	he_cap = ieee80211_get_he_iftype_cap(&data->bands[NL80211_BAND_2GHZ],
+					     NL80211_IFTYPE_STATION);
+	if (he_cap) {
+		data->nan_phy_capa.he = *he_cap;
+		data->nan_phy_capa.he.he_cap_elem.phy_cap_info[0] |=
+			IEEE80211_HE_PHY_CAP0_CHANNEL_WIDTH_SET_40MHZ_80MHZ_IN_5G |
+			IEEE80211_HE_PHY_CAP0_CHANNEL_WIDTH_SET_160MHZ_IN_5G;
+	}
+
+	/*
+	 * FIXME: we copied HE capabilities from the 2.4 GHz band,
+	 * but there are bits that are band-dependent:
+	 *
+	 * IEEE80211_HE_MAC_CAP3_MAX_AMPDU_LEN_EXP_EXT_1 - 2.4 GHz - set
+	 * IEEE80211_HE_MAC_CAP3_MAX_AMPDU_LEN_EXP_EXT_3 - 5 GHz - not set
+	 * IEEE80211_HE_PHY_CAP0_CHANNEL_WIDTH_SET_40MHZ_IN_2G - set
+	 * IEEE80211_HE_PHY_CAP0_CHANNEL_WIDTH_SET_40MHZ_80MHZ_IN_5G - set
+	 * IEEE80211_HE_PHY_CAP0_CHANNEL_WIDTH_SET_160MHZ_IN_5G - set
+	 *
+	 * We copied from STA iftype - so we have the following bits set:
+	 * IEEE80211_HE_PHY_CAP1_MIDAMBLE_RX_TX_MAX_NSTS
+	 * IEEE80211_HE_PHY_CAP2_MIDAMBLE_RX_TX_MAX_NSTS
+	 * IEEE80211_HE_PHY_CAP7_MAX_NC_1
+	 * IEEE80211_HE_PHY_CAP2_UL_MU_FULL_MU_MIMO
+	 *
+	 * Need to check which one should actually be set for NAN.
+	 */
+}
+
 void iwl_reinit_cab(struct iwl_trans *trans, struct iwl_nvm_data *data,
 		    u8 tx_chains, u8 rx_chains, const struct iwl_fw *fw)
 {
@@ -1081,6 +1121,8 @@ void iwl_reinit_cab(struct iwl_trans *trans, struct iwl_nvm_data *data,
 	if (data->sku_cap_11ax_enable && !iwlwifi_mod_params.disable_11ax)
 		iwl_init_he_hw_capab(trans, data, sband, tx_chains, rx_chains,
 				     fw);
+
+	iwl_init_nan_phy_capa(fw, data);
 }
 IWL_EXPORT_SYMBOL(iwl_reinit_cab);
 
@@ -2104,6 +2146,8 @@ struct iwl_nvm_data *iwl_get_nvm(struct iwl_trans *trans,
 
 	iwl_init_sbands(trans, nvm, channel_profile, tx_ant, rx_ant,
 			sbands_flags, v4, fw);
+
+	iwl_init_nan_phy_capa(fw, nvm);
 
 	iwl_free_resp(&hcmd);
 	return nvm;
