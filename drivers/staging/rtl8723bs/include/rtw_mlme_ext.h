@@ -705,9 +705,4 @@ enum {
 	MAX_C2HEVT
 };
 
-
-#ifdef _RTW_MLME_EXT_C_
-
-#endif/* _RTL8192C_CMD_C_ */
-
 #endif
