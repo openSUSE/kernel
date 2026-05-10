@@ -398,10 +398,6 @@ void init_mlme_ext_priv(struct adapter *padapter)
 	pmlmeext->chan_scan_time = SURVEY_TO;
 	pmlmeext->mlmeext_init = true;
 	pmlmeext->active_keep_alive_check = true;
-
-#ifdef DBG_FIXED_CHAN
-	pmlmeext->fixed_chan = 0xFF;
-#endif
 }
 
 void free_mlme_ext_priv(struct mlme_ext_priv *pmlmeext)
@@ -3750,18 +3746,8 @@ void site_survey(struct adapter *padapter)
 		/* val8 |= 0x0f; */
 		/* rtw_hal_set_hwreg(padapter, HW_VAR_TXPAUSE, (u8 *)(&val8)); */
 		if (pmlmeext->sitesurvey_res.channel_idx == 0) {
-#ifdef DBG_FIXED_CHAN
-			if (pmlmeext->fixed_chan != 0xff)
-				set_channel_bwmode(padapter, pmlmeext->fixed_chan, HAL_PRIME_CHNL_OFFSET_DONT_CARE, CHANNEL_WIDTH_20);
-			else
-#endif
 				set_channel_bwmode(padapter, survey_channel, HAL_PRIME_CHNL_OFFSET_DONT_CARE, CHANNEL_WIDTH_20);
 		} else {
-#ifdef DBG_FIXED_CHAN
-			if (pmlmeext->fixed_chan != 0xff)
-				r8723bs_select_channel(padapter, pmlmeext->fixed_chan);
-			else
-#endif
 				r8723bs_select_channel(padapter, survey_channel);
 		}
 
