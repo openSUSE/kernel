@@ -7,7 +7,7 @@
 
 #include "adf_common_drv.h"
 
-static int __init adf_register_ctl_device_driver(void)
+static int __init adf_register_module(void)
 {
 	if (adf_init_misc_wq())
 		goto err_misc_wq;
@@ -43,7 +43,7 @@ err_misc_wq:
 	return -EFAULT;
 }
 
-static void __exit adf_unregister_ctl_device_driver(void)
+static void __exit adf_unregister_module(void)
 {
 	adf_exit_misc_wq();
 	adf_exit_aer();
@@ -54,8 +54,8 @@ static void __exit adf_unregister_ctl_device_driver(void)
 	adf_clean_vf_map(false);
 }
 
-module_init(adf_register_ctl_device_driver);
-module_exit(adf_unregister_ctl_device_driver);
+module_init(adf_register_module);
+module_exit(adf_unregister_module);
 MODULE_LICENSE("Dual BSD/GPL");
 MODULE_AUTHOR("Intel");
 MODULE_DESCRIPTION("Intel(R) QuickAssist Technology");

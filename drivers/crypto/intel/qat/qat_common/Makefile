@@ -9,7 +9,6 @@ intel_qat-y := adf_accel_engine.o \
 	adf_cfg.o \
 	adf_cfg_services.o \
 	adf_clock.o \
-	adf_ctl_drv.o \
 	adf_dc.o \
 	adf_dev_mgr.o \
 	adf_gen2_config.o \
@@ -26,6 +25,7 @@ intel_qat-y := adf_accel_engine.o \
 	adf_hw_arbiter.o \
 	adf_init.o \
 	adf_isr.o \
+	adf_module.o \
 	adf_mstate_mgr.o \
 	adf_rl_admin.o \
 	adf_rl.o \
