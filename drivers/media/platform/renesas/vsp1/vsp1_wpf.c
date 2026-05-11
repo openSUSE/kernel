@@ -366,13 +366,12 @@ static void wpf_configure_frame(struct vsp1_entity *entity,
 	const unsigned int mask = BIT(WPF_CTRL_VFLIP)
 				| BIT(WPF_CTRL_HFLIP);
 	struct vsp1_rwpf *wpf = to_rwpf(&entity->subdev);
-	unsigned long flags;
 	u32 outfmt;
 
-	spin_lock_irqsave(&wpf->flip.lock, flags);
-	wpf->flip.active = (wpf->flip.active & ~mask)
-			 | (wpf->flip.pending & mask);
-	spin_unlock_irqrestore(&wpf->flip.lock, flags);
+	scoped_guard(spinlock_irqsave, &wpf->flip.lock) {
+		wpf->flip.active = (wpf->flip.active & ~mask)
+				 | (wpf->flip.pending & mask);
+	}
 
 	outfmt = (wpf->alpha << VI6_WPF_OUTFMT_PDV_SHIFT) | wpf->outfmt;
 

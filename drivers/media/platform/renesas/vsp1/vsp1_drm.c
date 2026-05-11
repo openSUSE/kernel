@@ -655,7 +655,6 @@ int vsp1_du_enable(struct device *dev, unsigned int pipe_index,
 	struct vsp1_device *vsp1 = dev_get_drvdata(dev);
 	struct vsp1_drm_pipeline *drm_pipe;
 	struct vsp1_pipeline *pipe;
-	unsigned long flags;
 	int ret;
 
 	if (pipe_index >= vsp1->info->lif_count)
@@ -708,9 +707,9 @@ int vsp1_du_enable(struct device *dev, unsigned int pipe_index,
 	}
 
 	/* Start the pipeline. */
-	spin_lock_irqsave(&pipe->irqlock, flags);
-	vsp1_pipeline_run(pipe);
-	spin_unlock_irqrestore(&pipe->irqlock, flags);
+	scoped_guard(spinlock_irqsave, &pipe->irqlock) {
+		vsp1_pipeline_run(pipe);
+	}
 
 	dev_dbg(vsp1->dev, "%s: pipeline enabled\n", __func__);
 

@@ -496,7 +496,6 @@ int vsp1_pipeline_stop(struct vsp1_pipeline *pipe)
 {
 	struct vsp1_device *vsp1 = pipe->output->entity.vsp1;
 	struct vsp1_entity *entity;
-	unsigned long flags;
 	int ret;
 
 	if (pipe->lif) {
@@ -506,16 +505,16 @@ int vsp1_pipeline_stop(struct vsp1_pipeline *pipe)
 		 */
 		ret = vsp1_reset_wpf(vsp1, pipe->output->entity.index);
 		if (ret == 0) {
-			spin_lock_irqsave(&pipe->irqlock, flags);
-			pipe->state = VSP1_PIPELINE_STOPPED;
-			spin_unlock_irqrestore(&pipe->irqlock, flags);
+			scoped_guard(spinlock_irqsave, &pipe->irqlock) {
+				pipe->state = VSP1_PIPELINE_STOPPED;
+			}
 		}
 	} else {
 		/* Otherwise just request a stop and wait. */
-		spin_lock_irqsave(&pipe->irqlock, flags);
-		if (pipe->state == VSP1_PIPELINE_RUNNING)
-			pipe->state = VSP1_PIPELINE_STOPPING;
-		spin_unlock_irqrestore(&pipe->irqlock, flags);
+		scoped_guard(spinlock_irqsave, &pipe->irqlock) {
+			if (pipe->state == VSP1_PIPELINE_RUNNING)
+				pipe->state = VSP1_PIPELINE_STOPPING;
+		}
 
 		ret = wait_event_timeout(pipe->wq, vsp1_pipeline_stopped(pipe),
 					 msecs_to_jiffies(500));

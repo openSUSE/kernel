@@ -1064,17 +1064,15 @@ void vsp1_dlm_setup(struct vsp1_device *vsp1)
 
 void vsp1_dlm_reset(struct vsp1_dl_manager *dlm)
 {
-	unsigned long flags;
 	size_t list_count;
 
-	spin_lock_irqsave(&dlm->lock, flags);
+	scoped_guard(spinlock_irqsave, &dlm->lock) {
+		__vsp1_dl_list_put(dlm->active);
+		__vsp1_dl_list_put(dlm->queued);
+		__vsp1_dl_list_put(dlm->pending);
 
-	__vsp1_dl_list_put(dlm->active);
-	__vsp1_dl_list_put(dlm->queued);
-	__vsp1_dl_list_put(dlm->pending);
-
-	list_count = list_count_nodes(&dlm->free);
-	spin_unlock_irqrestore(&dlm->lock, flags);
+		list_count = list_count_nodes(&dlm->free);
+	}
 
 	WARN_ON_ONCE(list_count != dlm->list_count);
 
