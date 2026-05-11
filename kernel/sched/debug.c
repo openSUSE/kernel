@@ -136,7 +136,7 @@ sched_feat_write(struct file *filp, const char __user *ubuf,
 	if (cnt > 63)
 		cnt = 63;
 
-	if (copy_from_user(&buf, ubuf, cnt))
+	if (copy_from_user(buf, ubuf, cnt))
 		return -EFAULT;
 
 	buf[cnt] = 0;
@@ -263,7 +263,7 @@ static ssize_t sched_dynamic_write(struct file *filp, const char __user *ubuf,
 	if (cnt > 15)
 		cnt = 15;
 
-	if (copy_from_user(&buf, ubuf, cnt))
+	if (copy_from_user(buf, ubuf, cnt))
 		return -EFAULT;
 
 	buf[cnt] = 0;
