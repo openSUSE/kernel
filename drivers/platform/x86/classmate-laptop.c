@@ -748,12 +748,12 @@ static acpi_status cmpc_get_tablet(acpi_handle handle,
 
 static void cmpc_tablet_handler(acpi_handle handle, u32 event, void *data)
 {
-	struct acpi_device *dev = data;
+	struct device *dev = data;
 	unsigned long long val = 0;
-	struct input_dev *inputdev = dev_get_drvdata(&dev->dev);
+	struct input_dev *inputdev = dev_get_drvdata(dev);
 
 	if (event == 0x81) {
-		if (ACPI_SUCCESS(cmpc_get_tablet(dev->handle, &val))) {
+		if (ACPI_SUCCESS(cmpc_get_tablet(ACPI_HANDLE(dev), &val))) {
 			input_report_switch(inputdev, SW_TABLET_MODE, !val);
 			input_sync(inputdev);
 		}
@@ -762,40 +762,44 @@ static void cmpc_tablet_handler(acpi_handle handle, u32 event, void *data)
 
 static void cmpc_tablet_idev_init(struct input_dev *inputdev)
 {
+	acpi_handle handle = ACPI_HANDLE(inputdev->dev.parent);
 	unsigned long long val = 0;
-	struct acpi_device *acpi;
 
 	set_bit(EV_SW, inputdev->evbit);
 	set_bit(SW_TABLET_MODE, inputdev->swbit);
 
-	acpi = to_acpi_device(inputdev->dev.parent);
-	if (ACPI_SUCCESS(cmpc_get_tablet(acpi->handle, &val))) {
+	if (ACPI_SUCCESS(cmpc_get_tablet(handle, &val))) {
 		input_report_switch(inputdev, SW_TABLET_MODE, !val);
 		input_sync(inputdev);
 	}
 }
 
-static int cmpc_tablet_add(struct acpi_device *acpi)
+static int cmpc_tablet_probe(struct platform_device *pdev)
 {
+	struct acpi_device *acpi;
 	int error;
 
-	error = cmpc_add_notify_device(&acpi->dev, "cmpc_tablet", cmpc_tablet_idev_init);
+	acpi = ACPI_COMPANION(&pdev->dev);
+	if (!acpi)
+		return -ENODEV;
+
+	error = cmpc_add_notify_device(&pdev->dev, "cmpc_tablet", cmpc_tablet_idev_init);
 	if (error)
 		return error;
 
 	error = acpi_dev_install_notify_handler(acpi, ACPI_DEVICE_NOTIFY,
-						cmpc_tablet_handler, acpi);
+						cmpc_tablet_handler, &pdev->dev);
 	if (error)
-		cmpc_remove_notify_device(&acpi->dev);
+		cmpc_remove_notify_device(&pdev->dev);
 
 	return error;
 }
 
-static void cmpc_tablet_remove(struct acpi_device *acpi)
+static void cmpc_tablet_remove(struct platform_device *pdev)
 {
-	acpi_dev_remove_notify_handler(acpi, ACPI_DEVICE_NOTIFY,
-				       cmpc_tablet_handler);
-	cmpc_remove_notify_device(&acpi->dev);
+	acpi_dev_remove_notify_handler(ACPI_COMPANION(&pdev->dev),
+				       ACPI_DEVICE_NOTIFY, cmpc_tablet_handler);
+	cmpc_remove_notify_device(&pdev->dev);
 }
 
 #ifdef CONFIG_PM_SLEEP
@@ -804,7 +808,7 @@ static int cmpc_tablet_resume(struct device *dev)
 	struct input_dev *inputdev = dev_get_drvdata(dev);
 
 	unsigned long long val = 0;
-	if (ACPI_SUCCESS(cmpc_get_tablet(to_acpi_device(dev)->handle, &val))) {
+	if (ACPI_SUCCESS(cmpc_get_tablet(ACPI_HANDLE(dev), &val))) {
 		input_report_switch(inputdev, SW_TABLET_MODE, !val);
 		input_sync(inputdev);
 	}
@@ -819,15 +823,14 @@ static const struct acpi_device_id cmpc_tablet_device_ids[] = {
 	{"", 0}
 };
 
-static struct acpi_driver cmpc_tablet_acpi_driver = {
-	.name = "cmpc_tablet",
-	.class = "cmpc_tablet",
-	.ids = cmpc_tablet_device_ids,
-	.ops = {
-		.add = cmpc_tablet_add,
-		.remove = cmpc_tablet_remove,
+static struct platform_driver cmpc_tablet_acpi_driver = {
+	.probe = cmpc_tablet_probe,
+	.remove = cmpc_tablet_remove,
+	.driver = {
+		.name = "cmpc_tablet",
+		.acpi_match_table = cmpc_tablet_device_ids,
+		.pm = &cmpc_tablet_pm,
 	},
-	.drv.pm = &cmpc_tablet_pm,
 };
 
 
@@ -1166,7 +1169,7 @@ static int cmpc_init(void)
 	if (r)
 		goto failed_bl;
 
-	r = acpi_bus_register_driver(&cmpc_tablet_acpi_driver);
+	r = platform_driver_register(&cmpc_tablet_acpi_driver);
 	if (r)
 		goto failed_tablet;
 
@@ -1184,7 +1187,7 @@ failed_accel_v4:
 	platform_driver_unregister(&cmpc_accel_acpi_driver);
 
 failed_accel:
-	acpi_bus_unregister_driver(&cmpc_tablet_acpi_driver);
+	platform_driver_unregister(&cmpc_tablet_acpi_driver);
 
 failed_tablet:
 	acpi_bus_unregister_driver(&cmpc_ipml_acpi_driver);
@@ -1200,7 +1203,7 @@ static void cmpc_exit(void)
 {
 	platform_driver_unregister(&cmpc_accel_acpi_driver_v4);
 	platform_driver_unregister(&cmpc_accel_acpi_driver);
-	acpi_bus_unregister_driver(&cmpc_tablet_acpi_driver);
+	platform_driver_unregister(&cmpc_tablet_acpi_driver);
 	acpi_bus_unregister_driver(&cmpc_ipml_acpi_driver);
 	acpi_bus_unregister_driver(&cmpc_keys_acpi_driver);
 }
