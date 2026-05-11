@@ -20,7 +20,6 @@
 #include <linux/serial_reg.h>
 #include <linux/slab.h>
 #include <linux/tty.h>
-#include <linux/tty_driver.h>
 #include <linux/tty_flip.h>
 #include <linux/uaccess.h>
 #include <linux/usb.h>

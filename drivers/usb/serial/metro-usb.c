@@ -13,7 +13,6 @@
 #include <linux/usb.h>
 #include <linux/errno.h>
 #include <linux/slab.h>
-#include <linux/tty_driver.h>
 #include <linux/tty_flip.h>
 #include <linux/moduleparam.h>
 #include <linux/spinlock.h>
