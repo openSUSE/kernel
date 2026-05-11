@@ -300,6 +300,13 @@
 			};
 		};
 
+		watchdog@f410000 {
+			compatible = "qcom,apss-wdt-ipq9650", "qcom,kpss-wdt";
+			reg = <0x0 0x0f410000 0x0 0x1000>;
+			interrupts = <GIC_SPI 0 IRQ_TYPE_EDGE_RISING 0>;
+			clocks = <&sleep_clk>;
+		};
+
 		timer@f420000 {
 			compatible = "arm,armv7-timer-mem";
 			reg = <0x0 0x0f420000 0x0 0x1000>;
