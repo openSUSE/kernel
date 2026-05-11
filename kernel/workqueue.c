@@ -5300,16 +5300,6 @@ static struct pool_workqueue *alloc_unbound_pwq(struct workqueue_struct *wq,
 	return pwq;
 }
 
-static void apply_wqattrs_lock(void)
-{
-	mutex_lock(&wq_pool_mutex);
-}
-
-static void apply_wqattrs_unlock(void)
-{
-	mutex_unlock(&wq_pool_mutex);
-}
-
 /**
  * wq_calc_pod_cpumask - calculate a wq_attrs' cpumask for a pod
  * @attrs: the wq_attrs of the default pwq of the target workqueue
@@ -5863,7 +5853,7 @@ static struct workqueue_struct *__alloc_workqueue(const char *fmt,
 	 * wq_pool_mutex protects the workqueues list, allocations of PWQs,
 	 * and the global freeze state.
 	 */
-	apply_wqattrs_lock();
+	mutex_lock(&wq_pool_mutex);
 
 	if (alloc_and_link_pwqs(wq) < 0)
 		goto err_unlock_free_node_nr_active;
@@ -5877,7 +5867,7 @@ static struct workqueue_struct *__alloc_workqueue(const char *fmt,
 	if (wq_online && init_rescuer(wq) < 0)
 		goto err_unlock_destroy;
 
-	apply_wqattrs_unlock();
+	mutex_unlock(&wq_pool_mutex);
 
 	if ((wq->flags & WQ_SYSFS) && workqueue_sysfs_register(wq))
 		goto err_destroy;
@@ -5885,7 +5875,7 @@ static struct workqueue_struct *__alloc_workqueue(const char *fmt,
 	return wq;
 
 err_unlock_free_node_nr_active:
-	apply_wqattrs_unlock();
+	mutex_unlock(&wq_pool_mutex);
 	/*
 	 * Failed alloc_and_link_pwqs() may leave pending pwq->release_work,
 	 * flushing the pwq_release_worker ensures that the pwq_release_workfn()
@@ -5900,7 +5890,7 @@ err_free_wq:
 	kfree(wq);
 	return NULL;
 err_unlock_destroy:
-	apply_wqattrs_unlock();
+	mutex_unlock(&wq_pool_mutex);
 err_destroy:
 	destroy_workqueue(wq);
 	return NULL;
@@ -7301,7 +7291,7 @@ static ssize_t wq_nice_store(struct device *dev, struct device_attribute *attr,
 	struct workqueue_attrs *attrs;
 	int ret = -ENOMEM;
 
-	apply_wqattrs_lock();
+	mutex_lock(&wq_pool_mutex);
 
 	attrs = wq_sysfs_prep_attrs(wq);
 	if (!attrs)
@@ -7314,7 +7304,7 @@ static ssize_t wq_nice_store(struct device *dev, struct device_attribute *attr,
 		ret = -EINVAL;
 
 out_unlock:
-	apply_wqattrs_unlock();
+	mutex_unlock(&wq_pool_mutex);
 	free_workqueue_attrs(attrs);
 	return ret ?: count;
 }
@@ -7340,7 +7330,7 @@ static ssize_t wq_cpumask_store(struct device *dev,
 	struct workqueue_attrs *attrs;
 	int ret = -ENOMEM;
 
-	apply_wqattrs_lock();
+	mutex_lock(&wq_pool_mutex);
 
 	attrs = wq_sysfs_prep_attrs(wq);
 	if (!attrs)
@@ -7351,7 +7341,7 @@ static ssize_t wq_cpumask_store(struct device *dev,
 		ret = apply_workqueue_attrs_locked(wq, attrs);
 
 out_unlock:
-	apply_wqattrs_unlock();
+	mutex_unlock(&wq_pool_mutex);
 	free_workqueue_attrs(attrs);
 	return ret ?: count;
 }
@@ -7387,13 +7377,13 @@ static ssize_t wq_affn_scope_store(struct device *dev,
 	if (affn < 0)
 		return affn;
 
-	apply_wqattrs_lock();
+	mutex_lock(&wq_pool_mutex);
 	attrs = wq_sysfs_prep_attrs(wq);
 	if (attrs) {
 		attrs->affn_scope = affn;
 		ret = apply_workqueue_attrs_locked(wq, attrs);
 	}
-	apply_wqattrs_unlock();
+	mutex_unlock(&wq_pool_mutex);
 	free_workqueue_attrs(attrs);
 	return ret ?: count;
 }
@@ -7418,13 +7408,13 @@ static ssize_t wq_affinity_strict_store(struct device *dev,
 	if (sscanf(buf, "%d", &v) != 1)
 		return -EINVAL;
 
-	apply_wqattrs_lock();
+	mutex_lock(&wq_pool_mutex);
 	attrs = wq_sysfs_prep_attrs(wq);
 	if (attrs) {
 		attrs->affn_strict = (bool)v;
 		ret = apply_workqueue_attrs_locked(wq, attrs);
 	}
-	apply_wqattrs_unlock();
+	mutex_unlock(&wq_pool_mutex);
 	free_workqueue_attrs(attrs);
 	return ret ?: count;
 }
@@ -7465,12 +7455,12 @@ static int workqueue_set_unbound_cpumask(cpumask_var_t cpumask)
 	cpumask_and(cpumask, cpumask, cpu_possible_mask);
 	if (!cpumask_empty(cpumask)) {
 		ret = 0;
-		apply_wqattrs_lock();
+		mutex_lock(&wq_pool_mutex);
 		if (!cpumask_equal(cpumask, wq_unbound_cpumask))
 			ret = workqueue_apply_unbound_cpumask(cpumask);
 		if (!ret)
 			cpumask_copy(wq_requested_unbound_cpumask, cpumask);
-		apply_wqattrs_unlock();
+		mutex_unlock(&wq_pool_mutex);
 	}
 
 	return ret;
