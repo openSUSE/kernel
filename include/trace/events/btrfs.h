@@ -1456,6 +1456,31 @@ TRACE_EVENT(btrfs_record_snapshot_destroy,
 			__entry->dir)
 );
 
+TRACE_EVENT(btrfs_record_new_subvolume,
+
+	TP_PROTO(const struct btrfs_trans_handle *trans,
+		 const struct btrfs_inode *dir),
+
+	TP_ARGS(trans, dir),
+
+	TP_STRUCT__entry_btrfs(
+		__field(	u64,     	root_objectid		)
+		__field(	u64,		transid			)
+		__field(	u64,	 	dir			)
+	),
+
+	TP_fast_assign(
+		TP_fast_assign_fsid(trans->fs_info);
+		__entry->root_objectid		= btrfs_root_id(dir->root);
+		__entry->transid		= trans->transid;
+		__entry->dir			= btrfs_ino(dir);
+	),
+
+	TP_printk_btrfs("root=%llu(%s) transid=%llu dir=%llu",
+			show_root_type(__entry->root_objectid), __entry->transid,
+			__entry->dir)
+);
+
 TRACE_EVENT(btrfs_sync_fs,
 
 	TP_PROTO(const struct btrfs_fs_info *fs_info, int wait),
