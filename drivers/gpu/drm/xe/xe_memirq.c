@@ -212,7 +212,11 @@ out:
 
 static void memirq_set_enable(struct xe_memirq *memirq, bool enable)
 {
-	iosys_map_wr(&memirq->mask, 0, u32, enable ? GENMASK(15, 0) : 0);
+	/*
+	 * We only care about the GT_MI_USER_INTERRUPT from the engines and
+	 * the GuC does not look at the ENABLE mask at all.
+	 */
+	iosys_map_wr(&memirq->mask, 0, u32, enable ? GT_MI_USER_INTERRUPT : 0);
 
 	memirq->enabled = enable;
 }
