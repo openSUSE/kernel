@@ -511,17 +511,6 @@ int mlx5e_ethtool_set_channels(struct mlx5e_priv *priv,
 
 	mutex_lock(&priv->state_lock);
 
-	if (mlx5e_rx_res_get_current_hash(priv->rx_res).hfunc == ETH_RSS_HASH_XOR) {
-		unsigned int xor8_max_channels = mlx5e_rqt_max_num_channels_allowed_for_xor8();
-
-		if (count > xor8_max_channels) {
-			err = -EINVAL;
-			netdev_err(priv->netdev, "%s: Requested number of channels (%d) exceeds the maximum allowed by the XOR8 RSS hfunc (%d)\n",
-				   __func__, count, xor8_max_channels);
-			goto out;
-		}
-	}
-
 	/* If RXFH is configured, changing the channels number is allowed only if
 	 * it does not require resizing the RSS table. This is because the previous
 	 * configuration may no longer be compatible with the new RSS table.
@@ -1501,29 +1490,6 @@ static int mlx5e_get_rxfh(struct net_device *netdev, struct ethtool_rxfh_param *
 	return 0;
 }
 
-static int mlx5e_rxfh_hfunc_check(struct mlx5e_priv *priv,
-				  const struct ethtool_rxfh_param *rxfh,
-				  struct netlink_ext_ack *extack)
-{
-	unsigned int count;
-
-	count = priv->channels.params.num_channels;
-
-	if (rxfh->hfunc == ETH_RSS_HASH_XOR) {
-		unsigned int xor8_max_channels = mlx5e_rqt_max_num_channels_allowed_for_xor8();
-
-		if (count > xor8_max_channels) {
-			NL_SET_ERR_MSG_FMT_MOD(
-				extack,
-				"Number of channels (%u) exceeds the max for XOR8 RSS (%u)",
-				count, xor8_max_channels);
-			return -EINVAL;
-		}
-	}
-
-	return 0;
-}
-
 static int mlx5e_set_rxfh(struct net_device *dev,
 			  struct ethtool_rxfh_param *rxfh,
 			  struct netlink_ext_ack *extack)
@@ -1535,16 +1501,11 @@ static int mlx5e_set_rxfh(struct net_device *dev,
 
 	mutex_lock(&priv->state_lock);
 
-	err = mlx5e_rxfh_hfunc_check(priv, rxfh, extack);
-	if (err)
-		goto unlock;
-
 	err = mlx5e_rx_res_rss_set_rxfh(priv->rx_res, rxfh->rss_context,
 					rxfh->indir, rxfh->key,
 					hfunc == ETH_RSS_HASH_NO_CHANGE ? NULL : &hfunc,
 					rxfh->input_xfrm == RXH_XFRM_NO_CHANGE ? NULL : &symmetric);
 
-unlock:
 	mutex_unlock(&priv->state_lock);
 	return err;
 }
@@ -1560,10 +1521,6 @@ static int mlx5e_create_rxfh_context(struct net_device *dev,
 	int err;
 
 	mutex_lock(&priv->state_lock);
-
-	err = mlx5e_rxfh_hfunc_check(priv, rxfh, extack);
-	if (err)
-		goto unlock;
 
 	err = mlx5e_rx_res_rss_init(priv->rx_res, rxfh->rss_context,
 				    priv->channels.params.num_channels);
@@ -1601,16 +1558,11 @@ static int mlx5e_modify_rxfh_context(struct net_device *dev,
 
 	mutex_lock(&priv->state_lock);
 
-	err = mlx5e_rxfh_hfunc_check(priv, rxfh, extack);
-	if (err)
-		goto unlock;
-
 	err = mlx5e_rx_res_rss_set_rxfh(priv->rx_res, rxfh->rss_context,
 					rxfh->indir, rxfh->key,
 					hfunc == ETH_RSS_HASH_NO_CHANGE ? NULL : &hfunc,
 					rxfh->input_xfrm == RXH_XFRM_NO_CHANGE ? NULL : &symmetric);
 
-unlock:
 	mutex_unlock(&priv->state_lock);
 	return err;
 }
