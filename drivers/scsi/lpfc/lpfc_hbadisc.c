@@ -1,7 +1,7 @@
 /*******************************************************************
  * This file is part of the Emulex Linux Device Driver for         *
  * Fibre Channel Host Bus Adapters.                                *
- * Copyright (C) 2017-2025 Broadcom. All Rights Reserved. The term *
+ * Copyright (C) 2017-2026 Broadcom. All Rights Reserved. The term *
  * “Broadcom” refers to Broadcom Inc. and/or its subsidiaries.     *
  * Copyright (C) 2004-2016 Emulex.  All rights reserved.           *
  * EMULEX and SLI are trademarks of Emulex.                        *
@@ -6600,11 +6600,6 @@ lpfc_nlp_get(struct lpfc_nodelist *ndlp)
 	unsigned long flags;
 
 	if (ndlp) {
-		lpfc_debugfs_disc_trc(ndlp->vport, LPFC_DISC_TRC_NODE,
-			"node get:        did:x%x flg:x%lx refcnt:x%x",
-			ndlp->nlp_DID, ndlp->nlp_flag,
-			kref_read(&ndlp->kref));
-
 		/* The check of ndlp usage to prevent incrementing the
 		 * ndlp reference count that is in the process of being
 		 * released.
@@ -6612,9 +6607,8 @@ lpfc_nlp_get(struct lpfc_nodelist *ndlp)
 		spin_lock_irqsave(&ndlp->lock, flags);
 		if (!kref_get_unless_zero(&ndlp->kref)) {
 			spin_unlock_irqrestore(&ndlp->lock, flags);
-			lpfc_printf_vlog(ndlp->vport, KERN_WARNING, LOG_NODE,
-				"0276 %s: ndlp:x%px refcnt:%d\n",
-				__func__, (void *)ndlp, kref_read(&ndlp->kref));
+			pr_info("0276 %s: NDLP x%px has zero reference count. "
+				"Exiting\n", __func__, ndlp);
 			return NULL;
 		}
 		spin_unlock_irqrestore(&ndlp->lock, flags);
