@@ -14,7 +14,6 @@
 
 #include <osdep_service_linux.h>
 
-#define BIT2	0x00000004
 
 extern int RTW_STATUS_CODE(int error_code);
 
