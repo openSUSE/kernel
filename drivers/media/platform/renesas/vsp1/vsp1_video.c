@@ -815,21 +815,20 @@ static int vsp1_video_start_streaming(struct vb2_queue *vq, unsigned int count)
 	unsigned long flags;
 	int ret;
 
-	mutex_lock(&pipe->lock);
-	if (pipe->stream_count == pipe->num_inputs) {
-		ret = vsp1_video_setup_pipeline(pipe);
-		if (ret < 0) {
-			vsp1_video_release_buffers(video);
-			vsp1_video_cleanup_pipeline(pipe);
-			mutex_unlock(&pipe->lock);
-			return ret;
+	scoped_guard(mutex, &pipe->lock) {
+		if (pipe->stream_count == pipe->num_inputs) {
+			ret = vsp1_video_setup_pipeline(pipe);
+			if (ret < 0) {
+				vsp1_video_release_buffers(video);
+				vsp1_video_cleanup_pipeline(pipe);
+				return ret;
+			}
+
+			start_pipeline = true;
 		}
 
-		start_pipeline = true;
+		pipe->stream_count++;
 	}
-
-	pipe->stream_count++;
-	mutex_unlock(&pipe->lock);
 
 	/*
 	 * vsp1_pipeline_ready() is not sufficient to establish that all streams
@@ -864,16 +863,17 @@ static void vsp1_video_stop_streaming(struct vb2_queue *vq)
 	pipe->buffers_ready &= ~(1 << video->pipe_index);
 	spin_unlock_irqrestore(&video->irqlock, flags);
 
-	mutex_lock(&pipe->lock);
-	if (--pipe->stream_count == pipe->num_inputs) {
-		/* Stop the pipeline. */
-		ret = vsp1_pipeline_stop(pipe);
-		if (ret == -ETIMEDOUT)
-			dev_err(video->vsp1->dev, "pipeline stop timeout\n");
+	scoped_guard(mutex, &pipe->lock) {
+		if (--pipe->stream_count == pipe->num_inputs) {
+			/* Stop the pipeline. */
+			ret = vsp1_pipeline_stop(pipe);
+			if (ret == -ETIMEDOUT)
+				dev_err(video->vsp1->dev,
+					"pipeline stop timeout\n");
 
-		vsp1_video_cleanup_pipeline(pipe);
+			vsp1_video_cleanup_pipeline(pipe);
+		}
 	}
-	mutex_unlock(&pipe->lock);
 
 	video_device_pipeline_stop(&video->video);
 	vsp1_video_release_buffers(video);
@@ -1000,21 +1000,15 @@ vsp1_video_streamon(struct file *file, void *fh, enum v4l2_buf_type type)
 	 * touching an entity in the pipeline can be activated or deactivated
 	 * once streaming is started.
 	 */
-	mutex_lock(&mdev->graph_mutex);
+	scoped_guard(mutex, &mdev->graph_mutex) {
+		pipe = vsp1_video_pipeline_get(video);
+		if (IS_ERR(pipe))
+			return PTR_ERR(pipe);
 
-	pipe = vsp1_video_pipeline_get(video);
-	if (IS_ERR(pipe)) {
-		mutex_unlock(&mdev->graph_mutex);
-		return PTR_ERR(pipe);
+		ret = __video_device_pipeline_start(&video->video, &pipe->pipe);
+		if (ret < 0)
+			goto err_pipe;
 	}
-
-	ret = __video_device_pipeline_start(&video->video, &pipe->pipe);
-	if (ret < 0) {
-		mutex_unlock(&mdev->graph_mutex);
-		goto err_pipe;
-	}
-
-	mutex_unlock(&mdev->graph_mutex);
 
 	/*
 	 * Verify that the configured format matches the output of the connected

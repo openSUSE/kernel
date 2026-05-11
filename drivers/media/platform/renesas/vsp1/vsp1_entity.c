@@ -216,10 +216,10 @@ int vsp1_subdev_enum_mbus_code(struct v4l2_subdev *subdev,
 		if (!state)
 			return -EINVAL;
 
-		mutex_lock(&entity->lock);
-		format = v4l2_subdev_state_get_format(state, 0);
-		code->code = format->code;
-		mutex_unlock(&entity->lock);
+		scoped_guard(mutex, &entity->lock) {
+			format = v4l2_subdev_state_get_format(state, 0);
+			code->code = format->code;
+		}
 	}
 
 	return 0;

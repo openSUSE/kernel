@@ -196,9 +196,10 @@ static int brx_get_selection(struct v4l2_subdev *subdev,
 		if (!state)
 			return -EINVAL;
 
-		mutex_lock(&brx->entity.lock);
-		sel->r = *v4l2_subdev_state_get_compose(state, sel->pad);
-		mutex_unlock(&brx->entity.lock);
+		scoped_guard(mutex, &brx->entity.lock) {
+			sel->r = *v4l2_subdev_state_get_compose(state, sel->pad);
+		}
+
 		return 0;
 
 	default:

@@ -675,43 +675,37 @@ int vsp1_du_enable(struct device *dev, unsigned int pipe_index,
 		__func__, pipe_index, cfg->width, cfg->height,
 		pipe->interlaced ? "i" : "");
 
-	mutex_lock(&vsp1->drm->lock);
+	scoped_guard(mutex, &vsp1->drm->lock) {
+		/* Setup formats through the pipeline. */
+		ret = vsp1_du_pipeline_setup_inputs(vsp1, pipe);
+		if (ret < 0)
+			return ret;
 
-	/* Setup formats through the pipeline. */
-	ret = vsp1_du_pipeline_setup_inputs(vsp1, pipe);
-	if (ret < 0)
-		goto unlock;
+		ret = vsp1_du_pipeline_setup_output(vsp1, pipe);
+		if (ret < 0)
+			return ret;
 
-	ret = vsp1_du_pipeline_setup_output(vsp1, pipe);
-	if (ret < 0)
-		goto unlock;
+		vsp1_pipeline_dump(pipe, "DU enable");
 
-	vsp1_pipeline_dump(pipe, "DU enable");
+		/* Enable the VSP1. */
+		ret = vsp1_device_get(vsp1);
+		if (ret < 0)
+			return ret;
 
-	/* Enable the VSP1. */
-	ret = vsp1_device_get(vsp1);
-	if (ret < 0)
-		goto unlock;
+		/*
+		 * Register a callback to allow us to notify the DRM driver of frame
+		 * completion events.
+		 */
+		drm_pipe->du_complete = cfg->callback;
+		drm_pipe->du_private = cfg->callback_data;
 
-	/*
-	 * Register a callback to allow us to notify the DRM driver of frame
-	 * completion events.
-	 */
-	drm_pipe->du_complete = cfg->callback;
-	drm_pipe->du_private = cfg->callback_data;
+		/* Disable the display interrupts. */
+		vsp1_write(vsp1, VI6_DISP_IRQ_STA(pipe_index), 0);
+		vsp1_write(vsp1, VI6_DISP_IRQ_ENB(pipe_index), 0);
 
-	/* Disable the display interrupts. */
-	vsp1_write(vsp1, VI6_DISP_IRQ_STA(pipe_index), 0);
-	vsp1_write(vsp1, VI6_DISP_IRQ_ENB(pipe_index), 0);
-
-	/* Configure all entities in the pipeline. */
-	vsp1_du_pipeline_configure(pipe);
-
-unlock:
-	mutex_unlock(&vsp1->drm->lock);
-
-	if (ret < 0)
-		return ret;
+		/* Configure all entities in the pipeline. */
+		vsp1_du_pipeline_configure(pipe);
+	}
 
 	/* Start the pipeline. */
 	spin_lock_irqsave(&pipe->irqlock, flags);
@@ -739,7 +733,6 @@ int vsp1_du_disable(struct device *dev, unsigned int pipe_index)
 	struct vsp1_device *vsp1 = dev_get_drvdata(dev);
 	struct vsp1_drm_pipeline *drm_pipe;
 	struct vsp1_pipeline *pipe;
-	struct vsp1_brx *brx;
 	unsigned int i;
 	int ret;
 
@@ -749,44 +742,42 @@ int vsp1_du_disable(struct device *dev, unsigned int pipe_index)
 	drm_pipe = &vsp1->drm->pipe[pipe_index];
 	pipe = &drm_pipe->pipe;
 
-	mutex_lock(&vsp1->drm->lock);
+	scoped_guard(mutex, &vsp1->drm->lock) {
+		struct vsp1_brx *brx = to_brx(&pipe->brx->subdev);
 
-	brx = to_brx(&pipe->brx->subdev);
+		ret = vsp1_pipeline_stop(pipe);
+		if (ret == -ETIMEDOUT)
+			dev_err(vsp1->dev, "DRM pipeline stop timeout\n");
 
-	ret = vsp1_pipeline_stop(pipe);
-	if (ret == -ETIMEDOUT)
-		dev_err(vsp1->dev, "DRM pipeline stop timeout\n");
+		for (i = 0; i < ARRAY_SIZE(pipe->inputs); ++i) {
+			struct vsp1_rwpf *rpf = pipe->inputs[i];
 
-	for (i = 0; i < ARRAY_SIZE(pipe->inputs); ++i) {
-		struct vsp1_rwpf *rpf = pipe->inputs[i];
+			if (!rpf)
+				continue;
 
-		if (!rpf)
-			continue;
+			/*
+			 * Remove the RPF from the pipe and the list of BRx
+			 * inputs.
+			 */
+			WARN_ON(!rpf->entity.pipe);
+			rpf->entity.pipe = NULL;
+			list_del(&rpf->entity.list_pipe);
+			pipe->inputs[i] = NULL;
 
-		/*
-		 * Remove the RPF from the pipe and the list of BRx
-		 * inputs.
-		 */
-		WARN_ON(!rpf->entity.pipe);
-		rpf->entity.pipe = NULL;
-		list_del(&rpf->entity.list_pipe);
-		pipe->inputs[i] = NULL;
+			brx->inputs[rpf->brx_input].rpf = NULL;
+		}
 
-		brx->inputs[rpf->brx_input].rpf = NULL;
+		drm_pipe->du_complete = NULL;
+		pipe->num_inputs = 0;
+
+		dev_dbg(vsp1->dev, "%s: pipe %u: releasing %s\n",
+			__func__, pipe->lif->index,
+			BRX_NAME(pipe->brx));
+
+		list_del(&pipe->brx->list_pipe);
+		pipe->brx->pipe = NULL;
+		pipe->brx = NULL;
 	}
-
-	drm_pipe->du_complete = NULL;
-	pipe->num_inputs = 0;
-
-	dev_dbg(vsp1->dev, "%s: pipe %u: releasing %s\n",
-		__func__, pipe->lif->index,
-		BRX_NAME(pipe->brx));
-
-	list_del(&pipe->brx->list_pipe);
-	pipe->brx->pipe = NULL;
-	pipe->brx = NULL;
-
-	mutex_unlock(&vsp1->drm->lock);
 
 	vsp1_dlm_reset(pipe->output->dlm);
 	vsp1_device_put(vsp1);
