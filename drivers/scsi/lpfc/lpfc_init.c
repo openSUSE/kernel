@@ -1087,7 +1087,6 @@ lpfc_hba_down_post_s4(struct lpfc_hba *phba)
 	struct lpfc_async_xchg_ctx *ctxp, *ctxp_next;
 	struct lpfc_sli4_hdw_queue *qp;
 	LIST_HEAD(aborts);
-	LIST_HEAD(nvme_aborts);
 	LIST_HEAD(nvmet_aborts);
 	struct lpfc_sglq *sglq_entry = NULL;
 	int cnt, idx;
@@ -1946,6 +1945,7 @@ lpfc_sli4_port_sta_fn_reset(struct lpfc_hba *phba, int mbx_action,
 
 	lpfc_offline_prep(phba, mbx_action);
 	lpfc_sli_flush_io_rings(phba);
+	lpfc_nvme_flush_abts_list(phba);
 	lpfc_nvmels_flush_cmd(phba);
 	lpfc_offline(phba);
 	/* release interrupt for possible resource change */

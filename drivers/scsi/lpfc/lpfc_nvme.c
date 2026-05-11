@@ -1,7 +1,7 @@
 /*******************************************************************
  * This file is part of the Emulex Linux Device Driver for         *
  * Fibre Channel Host Bus Adapters.                                *
- * Copyright (C) 2017-2025 Broadcom. All Rights Reserved. The term *
+ * Copyright (C) 2017-2026 Broadcom. All Rights Reserved. The term *
  * “Broadcom” refers to Broadcom Inc. and/or its subsidiaries.  *
  * Copyright (C) 2004-2016 Emulex.  All rights reserved.           *
  * EMULEX and SLI are trademarks of Emulex.                        *
@@ -2843,6 +2843,54 @@ lpfc_nvme_cancel_iocb(struct lpfc_hba *phba, struct lpfc_iocbq *pwqeIn,
 
 	memcpy(&pwqeIn->wcqe_cmpl, wcqep, sizeof(*wcqep));
 	(pwqeIn->cmd_cmpl)(phba, pwqeIn, pwqeIn);
+#endif
+}
+
+/**
+ * lpfc_nvme_flush_abts_list - Clean up nvme commands from the abts list
+ * @phba: Pointer to HBA context object.
+ *
+ **/
+void
+lpfc_nvme_flush_abts_list(struct lpfc_hba *phba)
+{
+#if (IS_ENABLED(CONFIG_NVME_FC))
+	struct lpfc_io_buf *psb, *psb_next;
+	struct lpfc_sli4_hdw_queue *qp;
+	LIST_HEAD(aborts);
+	int i;
+
+	/* abts_xxxx_buf_list_lock required because worker thread uses this
+	 * list.
+	 */
+	spin_lock_irq(&phba->hbalock);
+	for (i = 0; i < phba->cfg_hdw_queue; i++) {
+		qp = &phba->sli4_hba.hdwq[i];
+
+		spin_lock(&qp->abts_io_buf_list_lock);
+		list_for_each_entry_safe(psb, psb_next,
+					 &qp->lpfc_abts_io_buf_list, list) {
+			if (!(psb->cur_iocbq.cmd_flag & LPFC_IO_NVME))
+				continue;
+			list_move(&psb->list, &aborts);
+			qp->abts_nvme_io_bufs--;
+		}
+		spin_unlock(&qp->abts_io_buf_list_lock);
+	}
+	spin_unlock_irq(&phba->hbalock);
+
+	list_for_each_entry_safe(psb, psb_next, &aborts, list) {
+		list_del_init(&psb->list);
+		lpfc_printf_log(phba, KERN_INFO, LOG_NVME_ABTS,
+				"6195 %s: lpfc_ncmd x%px flags x%x "
+				"cmd_flag x%x xri x%x\n", __func__,
+				psb, psb->flags,
+				psb->cur_iocbq.cmd_flag,
+				psb->cur_iocbq.sli4_xritag);
+		psb->flags &= ~LPFC_SBUF_XBUSY;
+		psb->status = IOSTAT_SUCCESS;
+		lpfc_sli4_nvme_pci_offline_aborted(phba, psb);
+	}
 #endif
 }
 
