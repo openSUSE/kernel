@@ -589,6 +589,16 @@ enum rtw89_oob_dpd_onoff {
 	OOB_DPD_ON = 1,
 };
 
+enum rtw89_cim3k_onoff {
+	CIM3K_ON = 1,
+	CIM3K_OFF = 0,
+};
+
+enum rtw89_cim3k_en_dis {
+	CIM3K_ENABLE = 1,
+	CIM3K_DISABLE = 0,
+};
+
 enum rtw89_rfsi_ctrl_modulation {
 	RFSI_BPSK = 0,
 	RFSI_QPSK = 1,
@@ -617,6 +627,9 @@ enum rtw89_rfsi_ctrl_modulation {
 
 struct rtw89_bb_wrap_common_data {
 	struct {
+		struct rtw89_bb_wrap_data_cim3k {
+			u8 th, ow, non_bandedge, bandedge;
+		} cim3k;
 		u32 rfsi_ct_opt[2];
 		u8 pb_tb;
 	} bands[RFSI_CTRL_BAND_NUM];
