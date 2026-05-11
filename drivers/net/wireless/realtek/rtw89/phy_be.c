@@ -769,6 +769,75 @@ static void rtw89_phy_bb_wrap_tx_rfsi_qam_comp_th_init(struct rtw89_dev *rtwdev,
 	rtw89_write32_idx(rtwdev, R_COMP_CIM3K_BE4, B_COMP_CIM3K_TH2_BE4, 0x2, mac_idx);
 }
 
+static void rtw89_phy_bb_wrap_tx_rfsi_qam_comp_th_gen3_init(struct rtw89_dev *rtwdev,
+							    const struct rtw89_chan *chan,
+							    enum rtw89_mac_idx mac_idx)
+{
+	const struct rtw89_bb_wrap_data *d = rtwdev->phy_info.bb_wrap_data;
+	const struct rtw89_bb_wrap_common_data_gen3 *common_gen3;
+	const u8 *ths;
+
+	if (!d || !d->common_gen3)
+		return;
+
+	common_gen3 = d->common_gen3;
+	ths = common_gen3->bands[chan->rfsi_band].qam_th;
+
+	rtw89_write32_idx(rtwdev, R_QAM3_TH0_BE4, B_QAM3_TH0_0_BE4, ths[0], mac_idx);
+	rtw89_write32_idx(rtwdev, R_QAM3_TH0_BE4, B_QAM3_TH0_1_BE4, ths[0], mac_idx);
+	rtw89_write32_idx(rtwdev, R_QAM3_TH0_BE4, B_QAM3_TH0_2_BE4, ths[0], mac_idx);
+	rtw89_write32_idx(rtwdev, R_QAM3_TH0_BE4, B_QAM3_TH0_3_BE4, ths[0], mac_idx);
+	rtw89_write32_idx(rtwdev, R_QAM3_TH0_BE4, B_QAM3_TH0_4_BE4, ths[0], mac_idx);
+	rtw89_write32_idx(rtwdev, R_QAM3_TH0_BE4, B_QAM3_TH0_5_BE4, ths[0], mac_idx);
+	rtw89_write32_idx(rtwdev, R_QAM3_TH0_BE4, B_QAM3_TH0_6_BE4, ths[0], mac_idx);
+	rtw89_write32_idx(rtwdev, R_QAM3_TH0_BE4, B_QAM3_TH0_7_BE4, ths[0], mac_idx);
+
+	rtw89_write32_idx(rtwdev, R_QAM3_TH0_BE4, B_QAM3_TH1_0_BE4, ths[1], mac_idx);
+	rtw89_write32_idx(rtwdev, R_QAM3_TH0_BE4, B_QAM3_TH1_1_BE4, ths[1], mac_idx);
+	rtw89_write32_idx(rtwdev, R_QAM3_TH1_BE4, B_QAM3_TH1_2_BE4, ths[1], mac_idx);
+	rtw89_write32_idx(rtwdev, R_QAM3_TH1_BE4, B_QAM3_TH1_3_BE4, ths[1], mac_idx);
+	rtw89_write32_idx(rtwdev, R_QAM3_TH1_BE4, B_QAM3_TH1_4_BE4, ths[1], mac_idx);
+	rtw89_write32_idx(rtwdev, R_QAM3_TH1_BE4, B_QAM3_TH1_5_BE4, ths[1], mac_idx);
+	rtw89_write32_idx(rtwdev, R_QAM3_TH1_BE4, B_QAM3_TH1_6_BE4, ths[1], mac_idx);
+	rtw89_write32_idx(rtwdev, R_QAM3_TH1_BE4, B_QAM3_TH1_7_BE4, ths[1], mac_idx);
+
+	rtw89_write32_idx(rtwdev, R_QAM3_TH1_BE4, B_QAM3_TH2_0_BE4, ths[2], mac_idx);
+	rtw89_write32_idx(rtwdev, R_QAM3_TH1_BE4, B_QAM3_TH2_1_BE4, ths[2], mac_idx);
+	rtw89_write32_idx(rtwdev, R_QAM3_TH1_BE4, B_QAM3_TH2_2_BE4, ths[2], mac_idx);
+	rtw89_write32_idx(rtwdev, R_QAM3_TH1_BE4, B_QAM3_TH2_3_BE4, ths[2], mac_idx);
+	rtw89_write32_idx(rtwdev, R_QAM3_TH2_BE4, B_QAM3_TH2_4_BE4, ths[2], mac_idx);
+	rtw89_write32_idx(rtwdev, R_QAM3_TH2_BE4, B_QAM3_TH2_5_BE4, ths[2], mac_idx);
+	rtw89_write32_idx(rtwdev, R_QAM3_TH2_BE4, B_QAM3_TH2_6_BE4, ths[2], mac_idx);
+	rtw89_write32_idx(rtwdev, R_QAM3_TH2_BE4, B_QAM3_TH2_7_BE4, ths[2], mac_idx);
+
+	rtw89_write32_idx(rtwdev, R_QAM3_TH2_BE4, B_QAM3_TH3_0_BE4, ths[3], mac_idx);
+	rtw89_write32_idx(rtwdev, R_QAM3_TH2_BE4, B_QAM3_TH3_1_BE4, ths[3], mac_idx);
+	rtw89_write32_idx(rtwdev, R_QAM3_TH2_BE4, B_QAM3_TH3_2_BE4, ths[3], mac_idx);
+	rtw89_write32_idx(rtwdev, R_QAM3_TH2_BE4, B_QAM3_TH3_3_BE4, ths[3], mac_idx);
+	rtw89_write32_idx(rtwdev, R_QAM3_TH2_BE4, B_QAM3_TH3_4_BE4, ths[3], mac_idx);
+	rtw89_write32_idx(rtwdev, R_QAM3_TH2_BE4, B_QAM3_TH3_5_BE4, ths[3], mac_idx);
+	rtw89_write32_idx(rtwdev, R_QAM3_TH3_BE4, B_QAM3_TH3_6_BE4, ths[3], mac_idx);
+	rtw89_write32_idx(rtwdev, R_QAM3_TH3_BE4, B_QAM3_TH3_7_BE4, ths[3], mac_idx);
+
+	rtw89_write32_idx(rtwdev, R_QAM3_TH4_BE4, B_QAM3_TH4_0_BE4, ths[4], mac_idx);
+	rtw89_write32_idx(rtwdev, R_QAM3_TH4_BE4, B_QAM3_TH4_1_BE4, ths[4], mac_idx);
+	rtw89_write32_idx(rtwdev, R_QAM3_TH4_BE4, B_QAM3_TH4_2_BE4, ths[4], mac_idx);
+	rtw89_write32_idx(rtwdev, R_QAM3_TH4_BE4, B_QAM3_TH4_3_BE4, ths[4], mac_idx);
+	rtw89_write32_idx(rtwdev, R_QAM3_TH4_BE4, B_QAM3_TH4_4_BE4, ths[4], mac_idx);
+	rtw89_write32_idx(rtwdev, R_QAM3_TH4_BE4, B_QAM3_TH4_5_BE4, ths[4], mac_idx);
+	rtw89_write32_idx(rtwdev, R_QAM3_TH4_BE4, B_QAM3_TH4_6_BE4, ths[4], mac_idx);
+	rtw89_write32_idx(rtwdev, R_QAM3_TH4_BE4, B_QAM3_TH4_7_BE4, ths[4], mac_idx);
+
+	rtw89_write32_idx(rtwdev, R_QAM3_TH3_BE4, B_QAM3_TH5_0_BE4, ths[5], mac_idx);
+	rtw89_write32_idx(rtwdev, R_QAM3_TH3_BE4, B_QAM3_TH5_1_BE4, ths[5], mac_idx);
+	rtw89_write32_idx(rtwdev, R_QAM3_TH3_BE4, B_QAM3_TH5_2_BE4, ths[5], mac_idx);
+	rtw89_write32_idx(rtwdev, R_QAM3_TH3_BE4, B_QAM3_TH5_3_BE4, ths[5], mac_idx);
+	rtw89_write32_idx(rtwdev, R_QAM3_TH3_BE4, B_QAM3_TH5_4_BE4, ths[5], mac_idx);
+	rtw89_write32_idx(rtwdev, R_QAM3_TH3_BE4, B_QAM3_TH5_5_BE4, ths[5], mac_idx);
+	rtw89_write32_idx(rtwdev, R_QAM3_TH3_BE4, B_QAM3_TH5_6_BE4, ths[5], mac_idx);
+	rtw89_write32_idx(rtwdev, R_QAM3_TH3_BE4, B_QAM3_TH5_7_BE4, ths[5], mac_idx);
+}
+
 static void rtw89_phy_bb_wrap_tx_rfsi_scenario_def(struct rtw89_dev *rtwdev,
 						   enum rtw89_mac_idx mac_idx)
 {
@@ -987,6 +1056,39 @@ static void rtw89_phy_bb_set_cim3k_val(struct rtw89_dev *rtwdev,
 	rtw89_write32_idx(rtwdev, R_CIM3K_SU_FORCE, B_CIM3K_SU_FORCE_VAL, 0, mac_idx);
 }
 
+static void rtw89_phy_bb_set_cck_cfir_filter_val_gen3(struct rtw89_dev *rtwdev,
+						      enum rtw89_mac_idx mac_idx)
+{
+	const struct rtw89_bb_wrap_data *d = rtwdev->phy_info.bb_wrap_data;
+	const struct rtw89_bb_wrap_common_data_gen3 *common_gen3;
+	u8 cck0, cck1;
+
+	if (!d || !d->common_gen3)
+		return;
+
+	common_gen3 = d->common_gen3;
+	cck0 = common_gen3->cck_val[0];
+	cck1 = common_gen3->cck_val[1];
+
+	rtw89_write32_idx(rtwdev, R_QAM3_TH4_BE4, B_QAM3_CFIR0_BE4, cck0, mac_idx);
+	rtw89_write32_idx(rtwdev, R_QAM3_TH4_BE4, B_QAM3_CFIR1_BE4, cck0, mac_idx);
+	rtw89_write32_idx(rtwdev, R_QAM3_TH4_BE4, B_QAM3_CFIR2_BE4, cck0, mac_idx);
+	rtw89_write32_idx(rtwdev, R_QAM3_TH4_BE4, B_QAM3_CFIR3_BE4, cck0, mac_idx);
+	rtw89_write32_idx(rtwdev, R_QAM3_TH4_BE4, B_QAM3_CFIR4_BE4, cck0, mac_idx);
+	rtw89_write32_idx(rtwdev, R_QAM3_TH4_BE4, B_QAM3_CFIR5_BE4, cck0, mac_idx);
+	rtw89_write32_idx(rtwdev, R_QAM3_TH4_BE4, B_QAM3_CFIR6_BE4, cck0, mac_idx);
+	rtw89_write32_idx(rtwdev, R_QAM3_TH4_BE4, B_QAM3_CFIR7_BE4, cck0, mac_idx);
+
+	rtw89_write32_idx(rtwdev, R_QAM3_FLTR_BE4, B_QAM3_FLTR0_BE4, cck1, mac_idx);
+	rtw89_write32_idx(rtwdev, R_QAM3_FLTR_BE4, B_QAM3_FLTR1_BE4, cck1, mac_idx);
+	rtw89_write32_idx(rtwdev, R_QAM3_FLTR_BE4, B_QAM3_FLTR2_BE4, cck1, mac_idx);
+	rtw89_write32_idx(rtwdev, R_QAM3_FLTR_BE4, B_QAM3_FLTR3_BE4, cck1, mac_idx);
+	rtw89_write32_idx(rtwdev, R_QAM3_FLTR_BE4, B_QAM3_FLTR4_BE4, cck1, mac_idx);
+	rtw89_write32_idx(rtwdev, R_QAM3_FLTR_BE4, B_QAM3_FLTR5_BE4, cck1, mac_idx);
+	rtw89_write32_idx(rtwdev, R_QAM3_FLTR_BE4, B_QAM3_FLTR6_BE4, cck1, mac_idx);
+	rtw89_write32_idx(rtwdev, R_QAM3_FLTR_BE4, B_QAM3_FLTR7_BE4, cck1, mac_idx);
+}
+
 static void rtw89_phy_bb_wrap_tx_rfsi_ctrl_init(struct rtw89_dev *rtwdev,
 						enum rtw89_mac_idx mac_idx)
 {
@@ -998,18 +1100,18 @@ static void rtw89_phy_bb_wrap_tx_rfsi_ctrl_init(struct rtw89_dev *rtwdev,
 	if (chip_id != RTL8922D)
 		return;
 
+	rtw89_entity_get_conf(rtwdev, &conf);
+	chan = conf.chans[phy_idx];
+
 	rtw89_phy_bb_wrap_tx_rfsi_qam_comp_th_init(rtwdev, mac_idx);
+	rtw89_phy_bb_wrap_tx_rfsi_qam_comp_th_gen3_init(rtwdev, chan, mac_idx);
 	rtw89_phy_bb_wrap_tx_rfsi_scenario_def(rtwdev, mac_idx);
 	rtw89_phy_bb_wrap_tx_rfsi_qam_comp_val(rtwdev, mac_idx);
 	rtw89_phy_bb_set_oob_dpd_qam_comp_val(rtwdev, mac_idx);
 	rtw89_phy_bb_set_mdpd_qam_comp_val(rtwdev, mac_idx);
 	rtw89_phy_bb_set_cim3k_val(rtwdev, mac_idx);
-
+	rtw89_phy_bb_set_cck_cfir_filter_val_gen3(rtwdev, mac_idx);
 	rtw89_phy_bb_wrap_set_rfsi_ct_opt(rtwdev, 0, phy_idx);
-
-	rtw89_entity_get_conf(rtwdev, &conf);
-	chan = conf.chans[phy_idx];
-
 	rtw89_phy_bb_wrap_set_rfsi_bandedge_ch(rtwdev, chan, phy_idx);
 }
 

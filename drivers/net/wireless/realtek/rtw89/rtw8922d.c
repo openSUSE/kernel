@@ -320,8 +320,23 @@ static const struct rtw89_bb_wrap_common_data rtw8922d_bb_wrap_common_data_7090 
 	.qam_th = {RFSI_BPSK, RFSI_QPSK, RFSI_256QAM, RFSI_MAX, RFSI_MAX, RFSI_MAX},
 };
 
+static const
+struct rtw89_bb_wrap_common_data_gen3 rtw8922d_bb_wrap_common_data_gen3_7090 = {
+	.bands = {
+	[RFSI_CTRL_BAND_5_6GHZ] = {
+		.qam_th = {RFSI_QPSK, RFSI_BPSK, RFSI_256QAM, RFSI_MAX,
+			   RFSI_MAX, RFSI_MAX},
+	},
+	[RFSI_CTRL_BAND_2GHZ] = {
+		.qam_th = {RFSI_MAX, RFSI_MAX, RFSI_256QAM, RFSI_MAX,
+			   RFSI_MAX, RFSI_MAX},
+	}},
+	.cck_val = {CFIR_OFF, FILTER_A_OFF},
+};
+
 static const struct rtw89_bb_wrap_data rtw8922d_bb_wrap_data_7025_default = {
 	.common = &rtw8922d_bb_wrap_common_data_7025,
+	.common_gen3 = NULL,
 	.bands = {
 	[RFSI_CTRL_BAND_5_6GHZ] = {
 		.qam_comp_th0 = {0x4000, 0x6400, 0x6500, 0x6000, 0, 0, 0, 0, 0, 0},
@@ -348,6 +363,7 @@ static const struct rtw89_bb_wrap_data rtw8922d_bb_wrap_data_7025_default = {
 
 static const struct rtw89_bb_wrap_data rtw8922d_bb_wrap_data_7090_default = {
 	.common = &rtw8922d_bb_wrap_common_data_7090,
+	.common_gen3 = &rtw8922d_bb_wrap_common_data_gen3_7090,
 	.bands = {
 	[RFSI_CTRL_BAND_5_6GHZ] = {
 		.qam_comp_th0 = {0x4000, 0x6420, 0x6520, 0x6000, 0, 0, 0, 0, 0, 0},
@@ -374,6 +390,7 @@ static const struct rtw89_bb_wrap_data rtw8922d_bb_wrap_data_7090_default = {
 
 static const struct rtw89_bb_wrap_data rtw8922d_bb_wrap_data_7090_rfe35_41_44 = {
 	.common = &rtw8922d_bb_wrap_common_data_7090,
+	.common_gen3 = &rtw8922d_bb_wrap_common_data_gen3_7090,
 	.bands = {
 	[RFSI_CTRL_BAND_5_6GHZ] = {
 		.qam_comp_th0 = {0x4000, 0x6420, 0x6520, 0x6000, 0, 0, 0, 0, 0, 0},

@@ -603,6 +603,16 @@ enum rtw89_rfsi_ctrl_modulation {
 	RFSI_MAX,
 };
 
+enum rtw89_cfir_onoff {
+	CFIR_ON = 1,
+	CFIR_OFF = 0,
+};
+
+enum rtw89_filter_onoff {
+	FILTER_A_ON = 1,
+	FILTER_A_OFF = 0,
+};
+
 #define MAX_TX_RFSI_CTRL_OPT 10
 
 #define _8nibble(n0, n1, n2, n3, n4, n5, n6, n7) \
@@ -629,8 +639,16 @@ struct rtw89_bb_wrap_common_data {
 	u8 qam_th[6];
 };
 
+struct rtw89_bb_wrap_common_data_gen3 {
+	struct {
+		u8 qam_th[6];
+	} bands[RFSI_CTRL_BAND_NUM];
+	u8 cck_val[2];
+};
+
 struct rtw89_bb_wrap_data {
 	const struct rtw89_bb_wrap_common_data *common;
+	const struct rtw89_bb_wrap_common_data_gen3 *common_gen3;
 	struct {
 		u16 qam_comp_th0[MAX_TX_RFSI_CTRL_OPT];
 		u16 qam_comp_th1[MAX_TX_RFSI_CTRL_OPT]; /* encoded */
