@@ -9862,7 +9862,7 @@ preempt:
 	resched_curr_lazy(rq);
 }
 
-static struct task_struct *pick_task_fair(struct rq *rq, struct rq_flags *rf)
+struct task_struct *pick_task_fair(struct rq *rq, struct rq_flags *rf)
 	__must_hold(__rq_lockp(rq))
 {
 	struct sched_entity *se;
@@ -9905,72 +9905,6 @@ idle:
 	return NULL;
 }
 
-static void __set_next_task_fair(struct rq *rq, struct task_struct *p, bool first);
-static void set_next_task_fair(struct rq *rq, struct task_struct *p, bool first);
-
-struct task_struct *
-pick_next_task_fair(struct rq *rq, struct task_struct *prev, struct rq_flags *rf)
-	__must_hold(__rq_lockp(rq))
-{
-	struct sched_entity *se;
-	struct task_struct *p;
-
-	p = pick_task_fair(rq, rf);
-	if (unlikely(p == RETRY_TASK))
-		return p;
-	if (!p)
-		return p;
-	se = &p->se;
-
-#ifdef CONFIG_FAIR_GROUP_SCHED
-	if (prev->sched_class != &fair_sched_class)
-		goto simple;
-
-	__put_prev_set_next_dl_server(rq, prev, p);
-
-	/*
-	 * Because of the set_next_buddy() in dequeue_task_fair() it is rather
-	 * likely that a next task is from the same cgroup as the current.
-	 *
-	 * Therefore attempt to avoid putting and setting the entire cgroup
-	 * hierarchy, only change the part that actually changes.
-	 *
-	 * Since we haven't yet done put_prev_entity and if the selected task
-	 * is a different task than we started out with, try and touch the
-	 * least amount of cfs_rqs.
-	 */
-	if (prev != p) {
-		struct sched_entity *pse = &prev->se;
-		struct cfs_rq *cfs_rq;
-
-		while (!(cfs_rq = is_same_group(se, pse))) {
-			int se_depth = se->depth;
-			int pse_depth = pse->depth;
-
-			if (se_depth <= pse_depth) {
-				put_prev_entity(cfs_rq_of(pse), pse);
-				pse = parent_entity(pse);
-			}
-			if (se_depth >= pse_depth) {
-				set_next_entity(cfs_rq_of(se), se, true);
-				se = parent_entity(se);
-			}
-		}
-
-		put_prev_entity(cfs_rq, pse);
-		set_next_entity(cfs_rq, se, true);
-
-		__set_next_task_fair(rq, p, true);
-	}
-
-	return p;
-
-simple:
-#endif /* CONFIG_FAIR_GROUP_SCHED */
-	put_prev_set_next_task(rq, prev, p);
-	return p;
-}
-
 static struct task_struct *
 fair_server_pick_task(struct sched_dl_entity *dl_se, struct rq_flags *rf)
 	__must_hold(__rq_lockp(dl_se->rq))
@@ -9994,10 +9928,33 @@ static void put_prev_task_fair(struct rq *rq, struct task_struct *prev, struct t
 {
 	struct sched_entity *se = &prev->se;
 	struct cfs_rq *cfs_rq;
+	struct sched_entity *nse = NULL;
 
-	for_each_sched_entity(se) {
+#ifdef CONFIG_FAIR_GROUP_SCHED
+	if (next && next->sched_class == &fair_sched_class)
+		nse = &next->se;
+#endif
+
+	while (se) {
 		cfs_rq = cfs_rq_of(se);
-		put_prev_entity(cfs_rq, se);
+		if (!nse || cfs_rq->curr)
+			put_prev_entity(cfs_rq, se);
+#ifdef CONFIG_FAIR_GROUP_SCHED
+		if (nse) {
+			if (is_same_group(se, nse))
+				break;
+
+			int d = nse->depth - se->depth;
+			if (d >= 0) {
+				/* nse has equal or greater depth, ascend */
+				nse = parent_entity(nse);
+				/* if nse is the deeper, do not ascend se */
+				if (d > 0)
+					continue;
+			}
+		}
+#endif
+		se = parent_entity(se);
 	}
 }
 
@@ -15021,9 +14978,29 @@ static void switched_to_fair(struct rq *rq, struct task_struct *p)
 	}
 }
 
-static void __set_next_task_fair(struct rq *rq, struct task_struct *p, bool first)
+/*
+ * Account for a task changing its policy or group.
+ *
+ * This routine is mostly called to set cfs_rq->curr field when a task
+ * migrates between groups/classes.
+ */
+static void set_next_task_fair(struct rq *rq, struct task_struct *p, bool first)
 {
 	struct sched_entity *se = &p->se;
+
+	for_each_sched_entity(se) {
+		struct cfs_rq *cfs_rq = cfs_rq_of(se);
+
+		if (IS_ENABLED(CONFIG_FAIR_GROUP_SCHED) &&
+		    first && cfs_rq->curr)
+			break;
+
+		set_next_entity(cfs_rq, se, first);
+		/* ensure bandwidth has been allocated on our new cfs_rq */
+		account_cfs_rq_runtime(cfs_rq, 0);
+	}
+
+	se = &p->se;
 
 	if (task_on_rq_queued(p)) {
 		/*
@@ -15042,27 +15019,6 @@ static void __set_next_task_fair(struct rq *rq, struct task_struct *p, bool firs
 
 	update_misfit_status(p, rq);
 	sched_fair_update_stop_tick(rq, p);
-}
-
-/*
- * Account for a task changing its policy or group.
- *
- * This routine is mostly called to set cfs_rq->curr field when a task
- * migrates between groups/classes.
- */
-static void set_next_task_fair(struct rq *rq, struct task_struct *p, bool first)
-{
-	struct sched_entity *se = &p->se;
-
-	for_each_sched_entity(se) {
-		struct cfs_rq *cfs_rq = cfs_rq_of(se);
-
-		set_next_entity(cfs_rq, se, first);
-		/* ensure bandwidth has been allocated on our new cfs_rq */
-		account_cfs_rq_runtime(cfs_rq, 0);
-	}
-
-	__set_next_task_fair(rq, p, first);
 }
 
 void init_cfs_rq(struct cfs_rq *cfs_rq)
@@ -15376,7 +15332,6 @@ DEFINE_SCHED_CLASS(fair) = {
 	.wakeup_preempt		= wakeup_preempt_fair,
 
 	.pick_task		= pick_task_fair,
-	.pick_next_task		= pick_next_task_fair,
 	.put_prev_task		= put_prev_task_fair,
 	.set_next_task          = set_next_task_fair,
 

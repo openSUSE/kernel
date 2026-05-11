@@ -6030,16 +6030,15 @@ __pick_next_task(struct rq *rq, struct task_struct *prev, struct rq_flags *rf)
 	if (likely(!sched_class_above(prev->sched_class, &fair_sched_class) &&
 		   rq->nr_running == rq->cfs.h_nr_queued)) {
 
-		p = pick_next_task_fair(rq, prev, rf);
+		p = pick_task_fair(rq, rf);
 		if (unlikely(p == RETRY_TASK))
 			goto restart;
 
 		/* Assume the next prioritized class is idle_sched_class */
-		if (!p) {
+		if (!p)
 			p = pick_task_idle(rq, rf);
-			put_prev_set_next_task(rq, prev, p);
-		}
 
+		put_prev_set_next_task(rq, prev, p);
 		return p;
 	}
 
@@ -6047,20 +6046,12 @@ restart:
 	prev_balance(rq, prev, rf);
 
 	for_each_active_class(class) {
-		if (class->pick_next_task) {
-			p = class->pick_next_task(rq, prev, rf);
-			if (unlikely(p == RETRY_TASK))
-				goto restart;
-			if (p)
-				return p;
-		} else {
-			p = class->pick_task(rq, rf);
-			if (unlikely(p == RETRY_TASK))
-				goto restart;
-			if (p) {
-				put_prev_set_next_task(rq, prev, p);
-				return p;
-			}
+		p = class->pick_task(rq, rf);
+		if (unlikely(p == RETRY_TASK))
+			goto restart;
+		if (p) {
+			put_prev_set_next_task(rq, prev, p);
+			return p;
 		}
 	}
 
