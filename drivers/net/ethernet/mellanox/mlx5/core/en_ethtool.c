@@ -45,6 +45,10 @@
 
 #define LANES_UNKNOWN		 0
 
+#define MLX5E_MAX_INDIR_RQT_SIZE \
+	roundup_pow_of_two(MLX5E_MAX_NUM_CHANNELS * \
+			   MLX5E_UNIFORM_SPREAD_RQT_FACTOR)
+
 void mlx5e_ethtool_get_drvinfo(struct mlx5e_priv *priv,
 			       struct ethtool_drvinfo *drvinfo)
 {
@@ -2692,6 +2696,7 @@ const struct ethtool_ops mlx5e_ethtool_ops = {
 	.supported_input_xfrm = RXH_XFRM_SYM_OR_XOR,
 	.supported_ring_params = ETHTOOL_RING_USE_TCP_DATA_SPLIT |
 				 ETHTOOL_RING_USE_HDS_THRS,
+	.rxfh_indir_space = MLX5E_MAX_INDIR_RQT_SIZE,
 	.get_drvinfo       = mlx5e_get_drvinfo,
 	.get_link          = ethtool_op_get_link,
 	.get_link_ext_state  = mlx5e_get_link_ext_state,
