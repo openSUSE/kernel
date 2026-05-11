@@ -589,7 +589,18 @@ enum rtw89_oob_dpd_onoff {
 	OOB_DPD_ON = 1,
 };
 
+#define _8nibble(n0, n1, n2, n3, n4, n5, n6, n7) \
+	((n0) << 0  | (n1) << 4  | (n2) << 8  | (n3) << 12 | \
+	 (n4) << 16 | (n5) << 20 | (n6) << 24 | (n7) << 28)
+
+struct rtw89_bb_wrap_common_data {
+	struct {
+		u32 rfsi_ct_opt[2];
+	} bands[RFSI_CTRL_BAND_NUM];
+};
+
 struct rtw89_bb_wrap_data {
+	const struct rtw89_bb_wrap_common_data *common;
 	struct {
 		u8 oob_dpd_by_cbw[8];
 	} bands[RFSI_CTRL_BAND_NUM];

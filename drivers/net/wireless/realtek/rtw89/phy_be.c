@@ -648,13 +648,20 @@ static u32 rtw89_phy_bb_wrap_be_bandedge_decision(struct rtw89_dev *rtwdev,
 void rtw89_phy_bb_wrap_set_rfsi_ct_opt(struct rtw89_dev *rtwdev,
 				       enum rtw89_phy_idx phy_idx)
 {
+	const struct rtw89_bb_wrap_data *d = rtwdev->phy_info.bb_wrap_data;
+	const u32 *val;
 	u32 reg;
 
+	if (!d || !d->common)
+		return;
+
+	val = d->common->bands[0].rfsi_ct_opt;
+
 	reg = rtw89_mac_reg_by_idx(rtwdev, R_RFSI_CT_OPT_0_BE4, phy_idx);
-	rtw89_write32(rtwdev, reg, 0x00010001);
+	rtw89_write32(rtwdev, reg, val[0]);
 
 	reg = rtw89_mac_reg_by_idx(rtwdev, R_RFSI_CT_OPT_8_BE4, phy_idx);
-	rtw89_write32(rtwdev, reg, 0x00010001);
+	rtw89_write32(rtwdev, reg, val[1]);
 }
 EXPORT_SYMBOL(rtw89_phy_bb_wrap_set_rfsi_ct_opt);
 
