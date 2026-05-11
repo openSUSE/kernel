@@ -600,9 +600,20 @@ enum rtw89_rfsi_ctrl_modulation {
 	RFSI_MAX,
 };
 
+#define MAX_TX_RFSI_CTRL_OPT 10
+
 #define _8nibble(n0, n1, n2, n3, n4, n5, n6, n7) \
 	((n0) << 0  | (n1) << 4  | (n2) << 8  | (n3) << 12 | \
 	 (n4) << 16 | (n5) << 20 | (n6) << 24 | (n7) << 28)
+
+#define _qam_comp_code(c) ((((c) & (BIT(15) | BIT(14))) >> 11) | \
+			   (((c) & BIT(12)) >> 10) | \
+			   (((c) & (BIT(9) | BIT(8))) >> 8))
+
+#define _10qam_comp_code(c0, c1, c2, c3, c4, c5, c6, c7, c8, c9) \
+	_qam_comp_code(c0), _qam_comp_code(c1),  _qam_comp_code(c2),  _qam_comp_code(c3), \
+	_qam_comp_code(c4), _qam_comp_code(c5),  _qam_comp_code(c6),  _qam_comp_code(c7), \
+	_qam_comp_code(c8), _qam_comp_code(c9)
 
 struct rtw89_bb_wrap_common_data {
 	struct {
@@ -614,6 +625,10 @@ struct rtw89_bb_wrap_common_data {
 struct rtw89_bb_wrap_data {
 	const struct rtw89_bb_wrap_common_data *common;
 	struct {
+		u16 qam_comp_th0[MAX_TX_RFSI_CTRL_OPT];
+		u16 qam_comp_th1[MAX_TX_RFSI_CTRL_OPT]; /* encoded */
+		u16 qam_comp_th2[MAX_TX_RFSI_CTRL_OPT]; /* encoded */
+		u16 qam_comp_ow[MAX_TX_RFSI_CTRL_OPT];
 		u8 oob_dpd_by_cbw[8];
 	} bands[RFSI_CTRL_BAND_NUM];
 	u8 mdpd_by_dbw[4];
