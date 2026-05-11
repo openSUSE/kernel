@@ -9641,6 +9641,10 @@ static int ath12k_mac_start(struct ath12k *ar)
 	ar->allocated_vdev_map = 0;
 	ar->chan_tx_pwr = ATH12K_PDEV_TX_POWER_INVALID;
 
+	spin_lock_bh(&ar->data_lock);
+	ar->incumbent_signal_interference.handling_in_progress = false;
+	spin_unlock_bh(&ar->data_lock);
+
 	/* Configure monitor status ring with default rx_filter to get rx status
 	 * such as rssi, rx_duration.
 	 */
@@ -9854,6 +9858,10 @@ static void ath12k_mac_stop(struct ath12k *ar)
 	synchronize_rcu();
 
 	atomic_set(&ar->num_pending_mgmt_tx, 0);
+
+	spin_lock_bh(&ar->data_lock);
+	ar->incumbent_signal_interference.handling_in_progress = false;
+	spin_unlock_bh(&ar->data_lock);
 }
 
 void ath12k_mac_op_stop(struct ieee80211_hw *hw, bool suspend)
@@ -11440,8 +11448,10 @@ ath12k_mac_update_vif_chan(struct ath12k *ar,
 			   struct ieee80211_vif_chanctx_switch *vifs,
 			   int n_vifs)
 {
+	struct ath12k_incumbent_signal_interference *incumbent;
 	struct ath12k_wmi_vdev_up_params params = {};
 	struct ieee80211_bss_conf *link_conf;
+	struct cfg80211_chan_def *chandef;
 	struct ath12k_base *ab = ar->ab;
 	struct ath12k_link_vif *arvif;
 	struct ieee80211_vif *vif;
@@ -11553,6 +11563,42 @@ ath12k_mac_update_vif_chan(struct ath12k *ar,
 		if (!ath12k_mac_monitor_stop(ar))
 			ath12k_mac_monitor_start(ar);
 	}
+
+	incumbent = &ar->incumbent_signal_interference;
+	spin_lock_bh(&ar->data_lock);
+	if (incumbent->handling_in_progress) {
+		chandef = &vifs[0].new_ctx->def;
+		if (incumbent->chan_bw_interference_bitmap &
+		    ATH12K_WMI_DCS_SEG_PRI20) {
+			if (incumbent->center_freq !=
+			    chandef->chan->center_freq) {
+				incumbent->chan_bw_interference_bitmap = 0;
+				incumbent->handling_in_progress = false;
+				ath12k_dbg(ab, ATH12K_DBG_MAC,
+					   "incumbent signal interference chan switch completed\n");
+			} else {
+				ath12k_warn(ab,
+					    "incumbent signal interference chan switch not done, freq %u\n",
+					    incumbent->center_freq);
+			}
+		} else {
+			if (incumbent->center_freq !=
+			    chandef->chan->center_freq ||
+			    incumbent->width != chandef->width) {
+				incumbent->chan_bw_interference_bitmap = 0;
+				incumbent->handling_in_progress = false;
+				ath12k_dbg(ab, ATH12K_DBG_MAC,
+					   "Bandwidth/channel change due to incumbent signal interference completed\n");
+			} else {
+				ath12k_warn(ab, "Bandwidth/channel change due to incumbent sig intf not done intf_freq %u chan_freq %u intf_width %u chan_width %u\n",
+					    incumbent->center_freq,
+					    chandef->chan->center_freq,
+					    incumbent->width,
+					    chandef->width);
+			}
+		}
+	}
+	spin_unlock_bh(&ar->data_lock);
 }
 
 static void
