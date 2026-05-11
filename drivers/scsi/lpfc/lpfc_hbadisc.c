@@ -3175,7 +3175,11 @@ lpfc_init_vfi_cmpl(struct lpfc_hba *phba, LPFC_MBOXQ_t *mboxq)
 		return;
 	}
 
-	lpfc_initial_flogi(vport);
+	if (!lpfc_initial_flogi(vport)) {
+		lpfc_printf_vlog(vport, KERN_ERR, LOG_MBOX | LOG_ELS,
+				 "2345 Can't issue initial FLOGI\n");
+		lpfc_vport_set_state(vport, FC_VPORT_FAILED);
+	}
 	mempool_free(mboxq, phba->mbox_mem_pool);
 	return;
 }
@@ -3248,8 +3252,14 @@ lpfc_init_vpi_cmpl(struct lpfc_hba *phba, LPFC_MBOXQ_t *mboxq)
 			return;
 	}
 
-	if (phba->link_flag & LS_NPIV_FAB_SUPPORTED)
-		lpfc_initial_fdisc(vport);
+	if (phba->link_flag & LS_NPIV_FAB_SUPPORTED) {
+		if (!lpfc_initial_fdisc(vport)) {
+			lpfc_printf_vlog(vport, KERN_WARNING,
+					 LOG_MBOX | LOG_ELS,
+					 "2346 Can't issue initial FDISC\n");
+			lpfc_vport_set_state(vport, FC_VPORT_FAILED);
+		}
+	}
 	else {
 		lpfc_vport_set_state(vport, FC_VPORT_NO_FABRIC_SUPP);
 		lpfc_printf_vlog(vport, KERN_ERR, LOG_TRACE_EVENT,
