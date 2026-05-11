@@ -8058,6 +8058,8 @@ void btrfs_log_new_name(struct btrfs_trans_handle *trans,
 	bool log_pinned = false;
 	int ret;
 
+	trace_btrfs_log_new_name_enter(trans, inode, old_dir, old_dir_index);
+
 	/* The inode has a new name (ref/extref), so make sure we log it. */
 	set_bit(BTRFS_INODE_COPY_EVERYTHING, &inode->runtime_flags);
 
@@ -8080,7 +8082,7 @@ void btrfs_log_new_name(struct btrfs_trans_handle *trans,
 		goto out;
 	} else if (ret == 0) {
 		if (!old_dir)
-			return;
+			goto out;
 		/*
 		 * If the inode was not logged and we are doing a rename (old_dir is not
 		 * NULL), check if old_dir was logged - if it was not we can return and
@@ -8090,7 +8092,7 @@ void btrfs_log_new_name(struct btrfs_trans_handle *trans,
 		if (ret < 0)
 			goto out;
 		else if (ret == 0)
-			return;
+			goto out;
 	}
 	ret = 0;
 
@@ -8189,6 +8191,7 @@ void btrfs_log_new_name(struct btrfs_trans_handle *trans,
 	btrfs_log_inode_parent(trans, inode, parent, LOG_INODE_EXISTS, &ctx);
 	ASSERT(list_empty(&ctx.conflict_inodes));
 out:
+	trace_btrfs_log_new_name_exit(trans, inode, old_dir, ret);
 	/*
 	 * If an error happened mark the log for a full commit because it's not
 	 * consistent and up to date or we couldn't find out if one of the

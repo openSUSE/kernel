@@ -1481,6 +1481,72 @@ TRACE_EVENT(btrfs_record_new_subvolume,
 			__entry->dir)
 );
 
+TRACE_EVENT(btrfs_log_new_name_enter,
+
+	TP_PROTO(const struct btrfs_trans_handle *trans,
+		 const struct btrfs_inode *inode,
+		 const struct btrfs_inode *old_dir,
+		 u64 old_dir_index),
+
+	TP_ARGS(trans, inode, old_dir, old_dir_index),
+
+	TP_STRUCT__entry_btrfs(
+		__field(	u64,     	root_objectid		)
+		__field(	u64,		transid			)
+		__field(	u64,	 	ino			)
+		__field(	umode_t,	mode			)
+		__field(	u64,	 	old_dir_ino		)
+		__field(	u64,		old_dir_index		)
+	),
+
+	TP_fast_assign(
+		TP_fast_assign_fsid(trans->fs_info);
+		__entry->root_objectid		= btrfs_root_id(inode->root);
+		__entry->transid		= trans->transid;
+		__entry->ino			= btrfs_ino(inode);
+		__entry->mode			= inode->vfs_inode.i_mode;
+		__entry->old_dir_ino		= old_dir ? btrfs_ino(old_dir) : 0;
+		__entry->old_dir_index		= old_dir_index;
+	),
+
+	TP_printk_btrfs("root=%llu(%s) transid=%llu ino=%llu type=%s"
+			" old_dir=%llu old_dir_index=%llu",
+			show_root_type(__entry->root_objectid), __entry->transid,
+			__entry->ino, show_inode_type(__entry->mode),
+			__entry->old_dir_ino, __entry->old_dir_index)
+);
+
+TRACE_EVENT(btrfs_log_new_name_exit,
+
+	TP_PROTO(const struct btrfs_trans_handle *trans,
+		 const struct btrfs_inode *inode,
+		 const struct btrfs_inode *old_dir,
+		 int ret),
+
+	TP_ARGS(trans, inode, old_dir, ret),
+
+	TP_STRUCT__entry_btrfs(
+		__field(	u64,     	root_objectid		)
+		__field(	u64,		transid			)
+		__field(	u64,	 	ino			)
+		__field(	u64,	 	old_dir_ino		)
+		__field(	int,		ret			)
+	),
+
+	TP_fast_assign(
+		TP_fast_assign_fsid(trans->fs_info);
+		__entry->root_objectid		= btrfs_root_id(inode->root);
+		__entry->transid		= trans->transid;
+		__entry->ino			= btrfs_ino(inode);
+		__entry->old_dir_ino		= old_dir ? btrfs_ino(old_dir) : 0;
+		__entry->ret			= ret;
+	),
+
+	TP_printk_btrfs("root=%llu(%s) transid=%llu ino=%llu old_dir=%llu ret=%d",
+			show_root_type(__entry->root_objectid), __entry->transid,
+			__entry->ino, __entry->old_dir_ino, __entry->ret)
+);
+
 TRACE_EVENT(btrfs_sync_fs,
 
 	TP_PROTO(const struct btrfs_fs_info *fs_info, int wait),
