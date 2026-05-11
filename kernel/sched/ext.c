@@ -6877,6 +6877,7 @@ static struct scx_sched *scx_alloc_and_add_sched(struct scx_enable_cmd *cmd,
 		ret = kobject_init_and_add(&sch->kobj, &scx_ktype, NULL, "root");
 
 	if (ret < 0) {
+		RCU_INIT_POINTER(ops->priv, NULL);
 		kobject_put(&sch->kobj);
 		return ERR_PTR(ret);
 	}
@@ -6884,6 +6885,7 @@ static struct scx_sched *scx_alloc_and_add_sched(struct scx_enable_cmd *cmd,
 	if (ops->sub_attach) {
 		sch->sub_kset = kset_create_and_add("sub", NULL, &sch->kobj);
 		if (!sch->sub_kset) {
+			RCU_INIT_POINTER(ops->priv, NULL);
 			kobject_put(&sch->kobj);
 			return ERR_PTR(-ENOMEM);
 		}
@@ -6891,6 +6893,7 @@ static struct scx_sched *scx_alloc_and_add_sched(struct scx_enable_cmd *cmd,
 #else	/* CONFIG_EXT_SUB_SCHED */
 	ret = kobject_init_and_add(&sch->kobj, &scx_ktype, NULL, "root");
 	if (ret < 0) {
+		RCU_INIT_POINTER(ops->priv, NULL);
 		kobject_put(&sch->kobj);
 		return ERR_PTR(ret);
 	}
@@ -6899,6 +6902,7 @@ static struct scx_sched *scx_alloc_and_add_sched(struct scx_enable_cmd *cmd,
 
 #ifdef CONFIG_EXT_SUB_SCHED
 err_free_lb_resched:
+	RCU_INIT_POINTER(ops->priv, NULL);
 	free_cpumask_var(sch->bypass_lb_resched_cpumask);
 #endif
 err_free_lb_cpumask:
@@ -7026,6 +7030,19 @@ static void scx_root_enable_workfn(struct kthread_work *work)
 	mutex_lock(&scx_enable_mutex);
 
 	if (scx_enable_state() != SCX_DISABLED) {
+		ret = -EBUSY;
+		goto err_unlock;
+	}
+
+	/*
+	 * @ops->priv binds @ops to its scx_sched instance. It is set here by
+	 * scx_alloc_and_add_sched() and cleared at the tail of bpf_scx_unreg(),
+	 * which runs after scx_root_disable() has dropped scx_enable_mutex. If
+	 * it's still non-NULL here, a previous attachment on @ops has not
+	 * finished tearing down; proceeding would let the in-flight unreg's
+	 * RCU_INIT_POINTER(NULL) clobber the @ops->priv we are about to assign.
+	 */
+	if (rcu_access_pointer(ops->priv)) {
 		ret = -EBUSY;
 		goto err_unlock;
 	}
@@ -7205,10 +7222,10 @@ static void scx_root_enable_workfn(struct kthread_work *work)
 		if (unlikely(ret)) {
 			if (scx_get_task_state(p) != SCX_TASK_DEAD)
 				scx_set_task_state(p, SCX_TASK_NONE);
-			put_task_struct(p);
 			scx_task_iter_stop(&sti);
 			scx_error(sch, "ops.init_task() failed (%d) for %s[%d]",
 				  ret, p->comm, p->pid);
+			put_task_struct(p);
 			goto err_disable_unlock_all;
 		}
 
@@ -7376,6 +7393,12 @@ static void scx_sub_enable_workfn(struct kthread_work *work)
 
 	if (!scx_enabled()) {
 		ret = -ENODEV;
+		goto out_unlock;
+	}
+
+	/* See scx_root_enable_workfn() for the @ops->priv check. */
+	if (rcu_access_pointer(ops->priv)) {
+		ret = -EBUSY;
 		goto out_unlock;
 	}
 
