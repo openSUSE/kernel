@@ -229,6 +229,10 @@ static const struct vsp1_format_info vsp1_video_hsit_formats[] = {
 	  1, { 32, 0, 0 }, false, false, 1, 1, false },
 };
 
+#define vsp1_for_each_format(info, formats) \
+	for (const struct vsp1_format_info *info = &formats[0]; \
+	     info < formats + ARRAY_SIZE(formats); ++info)
+
 /**
  * vsp1_get_format_info - Retrieve format information for a 4CC
  * @vsp1: the VSP1 device
@@ -240,30 +244,20 @@ static const struct vsp1_format_info vsp1_video_hsit_formats[] = {
 const struct vsp1_format_info *vsp1_get_format_info(struct vsp1_device *vsp1,
 						    u32 fourcc)
 {
-	unsigned int i;
-
-	for (i = 0; i < ARRAY_SIZE(vsp1_video_formats); ++i) {
-		const struct vsp1_format_info *info = &vsp1_video_formats[i];
-
+	vsp1_for_each_format(info, vsp1_video_formats) {
 		if (info->fourcc == fourcc)
 			return info;
 	}
 
 	if (vsp1->info->gen == 2) {
-		for (i = 0; i < ARRAY_SIZE(vsp1_video_gen2_formats); ++i) {
-			const struct vsp1_format_info *info =
-				&vsp1_video_gen2_formats[i];
-
+		vsp1_for_each_format(info, vsp1_video_gen2_formats) {
 			if (info->fourcc == fourcc)
 				return info;
 		}
 	}
 
 	if (vsp1_feature(vsp1, VSP1_HAS_HSIT)) {
-		for (i = 0; i < ARRAY_SIZE(vsp1_video_hsit_formats); ++i) {
-			const struct vsp1_format_info *info =
-				&vsp1_video_hsit_formats[i];
-
+		vsp1_for_each_format(info, vsp1_video_hsit_formats) {
 			if (info->fourcc == fourcc)
 				return info;
 		}
@@ -287,8 +281,6 @@ const struct vsp1_format_info *
 vsp1_get_format_info_by_index(struct vsp1_device *vsp1, unsigned int index,
 			      u32 code)
 {
-	unsigned int i;
-
 	if (!code) {
 		if (index < ARRAY_SIZE(vsp1_video_formats))
 			return &vsp1_video_formats[index];
@@ -308,9 +300,7 @@ vsp1_get_format_info_by_index(struct vsp1_device *vsp1, unsigned int index,
 		return NULL;
 	}
 
-	for (i = 0; i < ARRAY_SIZE(vsp1_video_formats); ++i) {
-		const struct vsp1_format_info *info = &vsp1_video_formats[i];
-
+	vsp1_for_each_format(info, vsp1_video_formats) {
 		if (info->mbus == code) {
 			if (!index)
 				return info;
@@ -319,10 +309,7 @@ vsp1_get_format_info_by_index(struct vsp1_device *vsp1, unsigned int index,
 	}
 
 	if (vsp1->info->gen == 2) {
-		for (i = 0; i < ARRAY_SIZE(vsp1_video_gen2_formats); ++i) {
-			const struct vsp1_format_info *info =
-				&vsp1_video_gen2_formats[i];
-
+		vsp1_for_each_format(info, vsp1_video_gen2_formats) {
 			if (info->mbus == code) {
 				if (!index)
 					return info;
@@ -332,10 +319,7 @@ vsp1_get_format_info_by_index(struct vsp1_device *vsp1, unsigned int index,
 	}
 
 	if (vsp1_feature(vsp1, VSP1_HAS_HSIT)) {
-		for (i = 0; i < ARRAY_SIZE(vsp1_video_hsit_formats); ++i) {
-			const struct vsp1_format_info *info =
-				&vsp1_video_hsit_formats[i];
-
+		vsp1_for_each_format(info, vsp1_video_hsit_formats) {
 			if (info->mbus == code) {
 				if (!index)
 					return info;
