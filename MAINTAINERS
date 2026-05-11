@@ -22756,6 +22756,7 @@ F:	drivers/net/ethernet/stmicro/stmmac/dwmac-renesas-gbeth.c
 
 RENESAS RZ/V2H(P) INPUT VIDEO CONTROL BLOCK DRIVER
 M:	Daniel Scally <dan.scally@ideasonboard.com>
+M:	Jacopo Mondi <jacopo.mondi@ideasonboard.com>
 L:	linux-media@vger.kernel.org
 S:	Maintained
 F:	Documentation/devicetree/bindings/media/renesas,r9a09g057-ivc.yaml
