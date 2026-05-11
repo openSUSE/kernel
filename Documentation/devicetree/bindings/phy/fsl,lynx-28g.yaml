@@ -78,6 +78,21 @@ required:
   - reg
   - "#phy-cells"
 
+allOf:
+  # LX2162A SerDes 1 has fewer lanes than the others
+  - if:
+      properties:
+        compatible:
+          contains:
+            const: fsl,lx2162a-serdes1
+    then:
+      patternProperties:
+        "^phy@[0-7]$":
+          properties:
+            reg:
+              minimum: 4
+              maximum: 7
+
 additionalProperties: false
 
 examples:
