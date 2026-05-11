@@ -4861,6 +4861,7 @@ F:	kernel/bpf/*iter.c
 BPF [L7 FRAMEWORK] (sockmap)
 M:	John Fastabend <john.fastabend@gmail.com>
 M:	Jakub Sitnicki <jakub@cloudflare.com>
+M:	Jiayuan Chen <jiayuan.chen@linux.dev>
 L:	netdev@vger.kernel.org
 L:	bpf@vger.kernel.org
 S:	Maintained
