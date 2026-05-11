@@ -7,7 +7,7 @@
 #include <linux/kernel.h>
 
 #define MLX5E_INDIR_MIN_RQT_SIZE (BIT(8))
-#define MLX5E_UNIFORM_SPREAD_RQT_FACTOR 2
+#define MLX5E_UNIFORM_SPREAD_RQT_FACTOR 4
 
 struct mlx5_core_dev;
 
