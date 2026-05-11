@@ -618,6 +618,7 @@ enum rtw89_rfsi_ctrl_modulation {
 struct rtw89_bb_wrap_common_data {
 	struct {
 		u32 rfsi_ct_opt[2];
+		u8 pb_tb;
 	} bands[RFSI_CTRL_BAND_NUM];
 	u8 qam_th[6];
 };

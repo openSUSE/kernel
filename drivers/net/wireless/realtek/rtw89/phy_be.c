@@ -771,13 +771,19 @@ static void rtw89_phy_bb_wrap_tx_rfsi_qam_comp_th_init(struct rtw89_dev *rtwdev,
 static void rtw89_phy_bb_wrap_tx_rfsi_scenario_def(struct rtw89_dev *rtwdev,
 						   enum rtw89_mac_idx mac_idx)
 {
+	const struct rtw89_bb_wrap_data *d = rtwdev->phy_info.bb_wrap_data;
+	u8 pb_tb = 0;
+
+	if (d && d->common)
+		pb_tb = d->common->bands[0].pb_tb;
+
 	rtw89_write32_idx(rtwdev, R_RFSI_CT_DEF_BE4, B_RFSI_CT_ER_BE4, 0x0, mac_idx);
 	rtw89_write32_idx(rtwdev, R_RFSI_CT_DEF_BE4, B_RFSI_CT_SUBF_BE4, 0x0, mac_idx);
 	rtw89_write32_idx(rtwdev, R_RFSI_CT_DEF_BE4, B_RFSI_CT_FTM_BE4, 0x0, mac_idx);
 	rtw89_write32_idx(rtwdev, R_RFSI_CT_DEF_BE4, B_RFSI_CT_SENS_BE4, 0x0, mac_idx);
 
 	rtw89_write32_idx(rtwdev, R_FBTB_CT_DEF_BE4, B_FBTB_CT_DEF_BE, 0x0, mac_idx);
-	rtw89_write32_idx(rtwdev, R_FBTB_CT_DEF_BE4, B_FBTB_CT_PB_BE4, 0x0, mac_idx);
+	rtw89_write32_idx(rtwdev, R_FBTB_CT_DEF_BE4, B_FBTB_CT_PB_BE4, pb_tb, mac_idx);
 	rtw89_write32_idx(rtwdev, R_FBTB_CT_DEF_BE4, B_FBTB_CT_DL_WO_BE4, 0x0, mac_idx);
 	rtw89_write32_idx(rtwdev, R_FBTB_CT_DEF_BE4, B_FBTB_CT_DL_BF_BE4, 0x0, mac_idx);
 	rtw89_write32_idx(rtwdev, R_FBTB_CT_DEF_BE4, B_FBTB_CT_MUMIMO_BE4, 0x0, mac_idx);
