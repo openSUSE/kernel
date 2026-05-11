@@ -5933,14 +5933,11 @@ static void scx_sub_disable(struct scx_sched *sch)
 		WARN_ON_ONCE(!scx_task_on_sched(sch, p));
 
 		/*
-		 * If $p is about to be freed, nothing prevents $sch from
-		 * unloading before $p reaches sched_ext_free(). Disable and
-		 * exit $p right away.
+		 * @p is pinned by the iter: css_task_iter_next() takes a
+		 * reference and holds it until the next iter_next() call, so
+		 * @p->usage is guaranteed > 0.
 		 */
-		if (!tryget_task_struct(p)) {
-			scx_disable_and_exit_task(sch, p);
-			continue;
-		}
+		get_task_struct(p);
 
 		scx_task_iter_unlock(&sti);
 
@@ -7181,12 +7178,13 @@ static void scx_root_enable_workfn(struct kthread_work *work)
 	scx_task_iter_start(&sti, NULL);
 	while ((p = scx_task_iter_next_locked(&sti))) {
 		/*
-		 * @p may already be dead, have lost all its usages counts and
-		 * be waiting for RCU grace period before being freed. @p can't
-		 * be initialized for SCX in such cases and should be ignored.
+		 * @p is in scx_tasks under scx_tasks_lock, and SCX_TASK_DEAD
+		 * tasks are filtered by scx_task_iter_next_locked().
+		 * sched_ext_dead() removes @p from scx_tasks under the same
+		 * lock before put_task_struct_rcu_user() runs, so @p->usage
+		 * is guaranteed > 0 here.
 		 */
-		if (!tryget_task_struct(p))
-			continue;
+		get_task_struct(p);
 
 		/*
 		 * Set %INIT_BEGIN under the iter's rq lock so that a concurrent
@@ -7487,9 +7485,8 @@ static void scx_sub_enable_workfn(struct kthread_work *work)
 		if (p->scx.flags & SCX_TASK_SUB_INIT)
 			continue;
 
-		/* see scx_root_enable() */
-		if (!tryget_task_struct(p))
-			continue;
+		/* @p is pinned by the iter; see scx_sub_disable() */
+		get_task_struct(p);
 
 		if (!assert_task_ready_or_enabled(p)) {
 			ret = -EINVAL;
