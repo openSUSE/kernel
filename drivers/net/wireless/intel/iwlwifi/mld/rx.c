@@ -1206,6 +1206,13 @@ static void iwl_mld_decode_eht_non_tb(struct iwl_mld_rx_phy_data *phy_data,
 	iwl_mld_eht_set_ru_alloc(rx_status,
 				 le32_get_bits(phy_data->ntfy->sigs.eht.b2,
 					       OFDM_RX_FRAME_EHT_STA_RU));
+
+	if (phy_data->with_data)
+		eht->user_info[0] |=
+			cpu_to_le32(IEEE80211_RADIOTAP_EHT_USER_INFO_STA_ID_KNOWN) |
+			LE32_DEC_ENC(phy_data->ntfy->sigs.eht.user_id,
+				     OFDM_RX_FRAME_EHT_USER_FIELD_ID,
+				     IEEE80211_RADIOTAP_EHT_USER_INFO_STA_ID);
 }
 
 static void iwl_mld_decode_eht_phy_data(struct iwl_mld_rx_phy_data *phy_data,
@@ -1313,14 +1320,6 @@ static void iwl_mld_rx_eht(struct iwl_mld *mld, struct sk_buff *skb,
 
 	if (likely(!phy_data->ntfy))
 		return;
-
-	if (phy_data->with_data) {
-		eht->user_info[0] |=
-			cpu_to_le32(IEEE80211_RADIOTAP_EHT_USER_INFO_STA_ID_KNOWN) |
-			LE32_DEC_ENC(phy_data->ntfy->sigs.eht.user_id,
-				     OFDM_RX_FRAME_EHT_USER_FIELD_ID,
-				     IEEE80211_RADIOTAP_EHT_USER_INFO_STA_ID);
-	}
 
 	iwl_mld_decode_eht_usig(phy_data, skb);
 	iwl_mld_decode_eht_phy_data(phy_data, rx_status, eht);
