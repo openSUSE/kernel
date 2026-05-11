@@ -48,15 +48,6 @@ int vsp1_du_enable(struct device *dev, unsigned int pipe_index,
 		   const struct vsp1_du_lif_config *cfg);
 int vsp1_du_disable(struct device *dev, unsigned int pipe_index);
 
-static inline int vsp1_du_setup_lif(struct device *dev, unsigned int pipe_index,
-				    const struct vsp1_du_lif_config *cfg)
-{
-	if (cfg)
-		return vsp1_du_enable(dev, pipe_index, cfg);
-	else
-		return vsp1_du_disable(dev, pipe_index);
-}
-
 /**
  * struct vsp1_du_atomic_config - VSP atomic configuration parameters
  * @pixelformat: plane pixel format (V4L2 4CC)
