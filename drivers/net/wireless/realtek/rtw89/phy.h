@@ -589,6 +589,17 @@ enum rtw89_oob_dpd_onoff {
 	OOB_DPD_ON = 1,
 };
 
+enum rtw89_rfsi_ctrl_modulation {
+	RFSI_BPSK = 0,
+	RFSI_QPSK = 1,
+	RFSI_16QAM = 2,
+	RFSI_64QAM = 3,
+	RFSI_256QAM = 4,
+	RFSI_1024QAM = 5,
+	RFSI_4096QAM = 6,
+	RFSI_MAX,
+};
+
 #define _8nibble(n0, n1, n2, n3, n4, n5, n6, n7) \
 	((n0) << 0  | (n1) << 4  | (n2) << 8  | (n3) << 12 | \
 	 (n4) << 16 | (n5) << 20 | (n6) << 24 | (n7) << 28)
@@ -597,6 +608,7 @@ struct rtw89_bb_wrap_common_data {
 	struct {
 		u32 rfsi_ct_opt[2];
 	} bands[RFSI_CTRL_BAND_NUM];
+	u8 qam_th[6];
 };
 
 struct rtw89_bb_wrap_data {
