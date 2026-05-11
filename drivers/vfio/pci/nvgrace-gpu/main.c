@@ -61,6 +61,7 @@ struct nvgrace_gpu_pci_core_device {
 	struct mem_region resmem;
 	/* Lock to control device memory kernel mapping */
 	struct mutex remap_lock;
+	void __iomem *bar0_base;
 	bool has_mig_hw_bug;
 	/* GPU has just been reset */
 	bool reset_done;
@@ -171,6 +172,7 @@ static int nvgrace_gpu_open_device(struct vfio_device *core_vdev)
 	struct nvgrace_gpu_pci_core_device *nvdev =
 		container_of(core_vdev, struct nvgrace_gpu_pci_core_device,
 			     core_device.vdev);
+	void __iomem *io;
 	int ret;
 
 	ret = vfio_pci_core_enable(vdev);
@@ -184,14 +186,14 @@ static int nvgrace_gpu_open_device(struct vfio_device *core_vdev)
 
 	/*
 	 * GPU readiness is checked by reading the BAR0 registers.
-	 *
-	 * ioremap BAR0 to ensure that the BAR0 mapping is present before
-	 * register reads on first fault before establishing any GPU
-	 * memory mapping.
+	 * The BAR map was just set up by vfio_pci_core_enable(), so
+	 * bail early if that wasn't successful:
 	 */
-	ret = vfio_pci_core_setup_barmap(vdev, 0);
-	if (ret)
+	io = vfio_pci_core_get_iomap(vdev, 0);
+	if (IS_ERR(io)) {
+		ret = PTR_ERR(io);
 		goto error_exit;
+	}
 
 	if (nvdev->resmem.memlength) {
 		ret = nvgrace_gpu_vfio_pci_register_pfn_range(core_vdev, &nvdev->resmem);
@@ -204,6 +206,8 @@ static int nvgrace_gpu_open_device(struct vfio_device *core_vdev)
 		goto register_mem_failed;
 
 	vfio_pci_core_finish_enable(vdev);
+	nvdev->bar0_base = io;
+
 	return 0;
 
 register_mem_failed:
@@ -219,6 +223,8 @@ static void nvgrace_gpu_close_device(struct vfio_device *core_vdev)
 	struct nvgrace_gpu_pci_core_device *nvdev =
 		container_of(core_vdev, struct nvgrace_gpu_pci_core_device,
 			     core_device.vdev);
+
+	nvdev->bar0_base = NULL;
 
 	if (nvdev->resmem.memlength)
 		unregister_pfn_address_space(&nvdev->resmem.pfn_address_space);
@@ -275,7 +281,7 @@ nvgrace_gpu_check_device_ready(struct nvgrace_gpu_pci_core_device *nvdev)
 	if (!__vfio_pci_memory_enabled(vdev))
 		return -EIO;
 
-	ret = nvgrace_gpu_wait_device_ready(vdev->barmap[0]);
+	ret = nvgrace_gpu_wait_device_ready(nvdev->bar0_base);
 	if (ret)
 		return ret;
 

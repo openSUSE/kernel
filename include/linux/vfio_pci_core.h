@@ -188,7 +188,6 @@ int vfio_pci_core_match_token_uuid(struct vfio_device *core_vdev,
 int vfio_pci_core_enable(struct vfio_pci_core_device *vdev);
 void vfio_pci_core_disable(struct vfio_pci_core_device *vdev);
 void vfio_pci_core_finish_enable(struct vfio_pci_core_device *vdev);
-int vfio_pci_core_setup_barmap(struct vfio_pci_core_device *vdev, int bar);
 pci_ers_result_t vfio_pci_core_aer_err_detected(struct pci_dev *pdev,
 						pci_channel_state_t state);
 ssize_t vfio_pci_core_do_io_rw(struct vfio_pci_core_device *vdev, bool test_mem,
@@ -232,6 +231,25 @@ static inline bool is_aligned_for_order(struct vm_area_struct *vma,
 	return !(order && (addr < vma->vm_start ||
 			   addr + (PAGE_SIZE << order) > vma->vm_end ||
 			   !IS_ALIGNED(pfn, 1 << order)));
+}
+
+/*
+ * Returns a BAR's iomap base or an ERR_PTR() if, for example, the
+ * BAR isn't valid, its resource wasn't acquired, or its iomap
+ * failed.  This shall only be used after vfio_pci_core_enable()
+ * has set up the BAR maps and before vfio_pci_core_disable()
+ * tears them down.
+ */
+static inline void __iomem __must_check *
+vfio_pci_core_get_iomap(struct vfio_pci_core_device *vdev, unsigned int bar)
+{
+	if (WARN_ON_ONCE(bar >= PCI_STD_NUM_BARS))
+		return ERR_PTR(-EINVAL);
+
+	if (WARN_ON_ONCE(!vdev->barmap[bar]))
+		return ERR_PTR(-ENODEV);
+
+	return vdev->barmap[bar];
 }
 
 int vfio_pci_dma_buf_iommufd_map(struct dma_buf_attachment *attachment,
