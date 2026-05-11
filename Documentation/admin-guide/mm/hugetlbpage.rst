@@ -475,11 +475,11 @@ Examples
 
 .. _examples:
 
-``hugepage-shm``
-	see tools/testing/selftests/mm/hugepage-shm.c
+``hugetlb-shm``
+	see tools/testing/selftests/mm/hugetlb-shm.c
 
-``hugepage-mmap``
-	see tools/testing/selftests/mm/hugepage-mmap.c
+``hugetlb-mmap``
+	see tools/testing/selftests/mm/hugetlb-mmap.c
 
 The `libhugetlbfs`_  library provides a wide range of userspace tools
 to help with huge page usability, environment setup, and control.
