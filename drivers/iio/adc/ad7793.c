@@ -268,7 +268,12 @@ static int ad7793_setup(struct iio_dev *indio_dev,
 	ret = ad_sd_reset(&st->sd);
 	if (ret < 0)
 		goto out;
-	usleep_range(500, 2000); /* Wait for at least 500us */
+
+	/*
+	 * Per AD7792/AD7793 datasheet (Rev. B, page 25, RESET section),
+	 * allow 500 us after a reset before accessing on-chip registers.
+	 */
+	fsleep(500);
 
 	/* write/read test for device presence */
 	ret = ad_sd_read_reg(&st->sd, AD7793_REG_ID, 1, &id);
