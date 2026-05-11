@@ -501,6 +501,7 @@ int mlx5e_ethtool_set_channels(struct mlx5e_priv *priv,
 	unsigned int count = ch->combined_count;
 	int new_rqt_size, cur_rqt_size;
 	struct mlx5e_params new_params;
+	struct mlx5e_rss *rss0;
 	bool arfs_enabled;
 	bool has_rss_ctxs;
 	bool opened;
@@ -538,19 +539,16 @@ int mlx5e_ethtool_set_channels(struct mlx5e_priv *priv,
 	}
 
 	cur_rqt_size = mlx5e_rqt_size(priv->mdev, cur_params->num_channels);
+	rss0 = mlx5e_rx_res_rss_get(priv->rx_res, 0);
 
-	/* If RXFH is configured, changing the channels number is allowed only if
-	 * it does not require resizing the RSS table. This is because the previous
-	 * configuration may no longer be compatible with the new RSS table.
-	 */
-	if (netif_is_rxfh_configured(priv->netdev)) {
-		if (new_rqt_size != cur_rqt_size) {
-			err = -EINVAL;
-			netdev_err(priv->netdev,
-				   "%s: RXFH is configured, block changing channels number that affects RSS table size (new: %d, current: %d)\n",
-				   __func__, new_rqt_size, cur_rqt_size);
-			goto out;
-		}
+	if (!ethtool_rxfh_indir_can_resize(priv->netdev,
+					   mlx5e_rss_get_indir_table(rss0),
+					   cur_rqt_size, new_rqt_size)) {
+		netdev_err(priv->netdev,
+			   "%s: cannot resize RSS table (%u -> %u); reset indirection table to allow this change\n",
+			   __func__, cur_rqt_size, new_rqt_size);
+		err = -EINVAL;
+		goto out;
 	}
 
 	/* Don't allow changing the number of channels if HTB offload is active,
