@@ -1,7 +1,7 @@
 /*******************************************************************
  * This file is part of the Emulex Linux Device Driver for         *
  * Fibre Channel Host Bus Adapters.                                *
- * Copyright (C) 2017-2025 Broadcom. All Rights Reserved. The term *
+ * Copyright (C) 2017-2026 Broadcom. All Rights Reserved. The term *
  * “Broadcom” refers to Broadcom Inc. and/or its subsidiaries.     *
  * Copyright (C) 2004-2016 Emulex.  All rights reserved.           *
  * EMULEX and SLI are trademarks of Emulex.                        *
@@ -14772,11 +14772,22 @@ lpfc_sli4_sp_handle_rcqe(struct lpfc_hba *phba, struct lpfc_rcqe *rcqe)
 					atomic_read(&tgtp->rcv_fcp_cmd_out),
 					atomic_read(&tgtp->xmt_fcp_release));
 		}
+		hrq->RQ_discard_frm++;
 		fallthrough;
-
 	case FC_STATUS_INSUFF_BUF_NEED_BUF:
+		/* Unexpected event - bump the counter for support. */
 		hrq->RQ_no_posted_buf++;
-		/* Post more buffers if possible */
+
+		lpfc_log_msg(phba, KERN_WARNING,
+			     LOG_ELS | LOG_DISCOVERY | LOG_SLI,
+			     "6423 RQE completion Status x%x, needed x%x "
+			     "discarded x%x\n", status,
+			     hrq->RQ_no_posted_buf - hrq->RQ_discard_frm,
+			     hrq->RQ_discard_frm);
+
+		/* For SLI3, post more buffers if possible. No action for SLI4.
+		 * SLI4 is reposting immediately after processing the RQE.
+		 */
 		set_bit(HBA_POST_RECEIVE_BUFFER, &phba->hba_flag);
 		workposted = true;
 		break;
