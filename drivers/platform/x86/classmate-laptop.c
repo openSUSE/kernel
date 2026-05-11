@@ -38,8 +38,8 @@ struct cmpc_accel {
 
 typedef void (*input_device_init)(struct input_dev *dev);
 
-static int cmpc_add_acpi_notify_device(struct device *dev, char *name,
-				       input_device_init idev_init)
+static int cmpc_add_notify_device(struct device *dev, char *name,
+				  input_device_init idev_init)
 {
 	struct input_dev *inputdev;
 	int error;
@@ -59,7 +59,7 @@ static int cmpc_add_acpi_notify_device(struct device *dev, char *name,
 	return 0;
 }
 
-static void cmpc_remove_acpi_notify_device(struct device *dev)
+static void cmpc_remove_notify_device(struct device *dev)
 {
 	input_unregister_device(dev_get_drvdata(dev));
 }
@@ -404,8 +404,7 @@ static int cmpc_accel_add_v4(struct acpi_device *acpi)
 
 	accel->inputdev_state = CMPC_ACCEL_DEV_STATE_CLOSED;
 
-	error = cmpc_add_acpi_notify_device(&acpi->dev, "cmpc_accel_v4",
-					    cmpc_accel_idev_init_v4);
+	error = cmpc_add_notify_device(&acpi->dev, "cmpc_accel_v4", cmpc_accel_idev_init_v4);
 	if (error)
 		return error;
 
@@ -432,7 +431,7 @@ static int cmpc_accel_add_v4(struct acpi_device *acpi)
 failed_g_select:
 	device_remove_file(&acpi->dev, &cmpc_accel_sensitivity_attr_v4);
 failed_sensitivity:
-	cmpc_remove_acpi_notify_device(&acpi->dev);
+	cmpc_remove_notify_device(&acpi->dev);
 	return error;
 }
 
@@ -440,7 +439,7 @@ static void cmpc_accel_remove_v4(struct acpi_device *acpi)
 {
 	device_remove_file(&acpi->dev, &cmpc_accel_g_select_attr_v4);
 	device_remove_file(&acpi->dev, &cmpc_accel_sensitivity_attr_v4);
-	cmpc_remove_acpi_notify_device(&acpi->dev);
+	cmpc_remove_notify_device(&acpi->dev);
 }
 
 static SIMPLE_DEV_PM_OPS(cmpc_accel_pm, cmpc_accel_suspend_v4,
@@ -651,8 +650,7 @@ static int cmpc_accel_add(struct acpi_device *acpi)
 	if (!accel)
 		return -ENOMEM;
 
-	error = cmpc_add_acpi_notify_device(&acpi->dev, "cmpc_accel",
-					    cmpc_accel_idev_init);
+	error = cmpc_add_notify_device(&acpi->dev, "cmpc_accel", cmpc_accel_idev_init);
 	if (error)
 		return error;
 
@@ -670,14 +668,14 @@ static int cmpc_accel_add(struct acpi_device *acpi)
 	return 0;
 
 failed_file:
-	cmpc_remove_acpi_notify_device(&acpi->dev);
+	cmpc_remove_notify_device(&acpi->dev);
 	return error;
 }
 
 static void cmpc_accel_remove(struct acpi_device *acpi)
 {
 	device_remove_file(&acpi->dev, &cmpc_accel_sensitivity_attr);
-	cmpc_remove_acpi_notify_device(&acpi->dev);
+	cmpc_remove_notify_device(&acpi->dev);
 }
 
 static const struct acpi_device_id cmpc_accel_device_ids[] = {
@@ -748,13 +746,12 @@ static void cmpc_tablet_idev_init(struct input_dev *inputdev)
 
 static int cmpc_tablet_add(struct acpi_device *acpi)
 {
-	return cmpc_add_acpi_notify_device(&acpi->dev, "cmpc_tablet",
-					   cmpc_tablet_idev_init);
+	return cmpc_add_notify_device(&acpi->dev, "cmpc_tablet", cmpc_tablet_idev_init);
 }
 
 static void cmpc_tablet_remove(struct acpi_device *acpi)
 {
-	cmpc_remove_acpi_notify_device(&acpi->dev);
+	cmpc_remove_notify_device(&acpi->dev);
 }
 
 #ifdef CONFIG_PM_SLEEP
@@ -1072,13 +1069,12 @@ static void cmpc_keys_idev_init(struct input_dev *inputdev)
 
 static int cmpc_keys_add(struct acpi_device *acpi)
 {
-	return cmpc_add_acpi_notify_device(&acpi->dev, "cmpc_keys",
-					   cmpc_keys_idev_init);
+	return cmpc_add_notify_device(&acpi->dev, "cmpc_keys", cmpc_keys_idev_init);
 }
 
 static void cmpc_keys_remove(struct acpi_device *acpi)
 {
-	cmpc_remove_acpi_notify_device(&acpi->dev);
+	cmpc_remove_notify_device(&acpi->dev);
 }
 
 static const struct acpi_device_id cmpc_keys_device_ids[] = {
