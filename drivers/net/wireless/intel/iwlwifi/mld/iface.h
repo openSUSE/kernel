@@ -289,4 +289,19 @@ static inline bool iwl_mld_vif_low_latency(const struct iwl_mld_vif *mld_vif)
 
 struct ieee80211_vif *iwl_mld_get_bss_vif(struct iwl_mld *mld);
 
+static inline struct iwl_mld_link_sta *
+iwl_mld_get_ap_link_sta(struct ieee80211_vif *vif, int link_id)
+{
+	struct iwl_mld_vif *mld_vif = iwl_mld_vif_from_mac80211(vif);
+	struct ieee80211_sta *ap_sta = mld_vif->ap_sta;
+	struct iwl_mld_sta *mld_ap_sta;
+
+	if (!ap_sta)
+		return NULL;
+
+	mld_ap_sta = iwl_mld_sta_from_mac80211(ap_sta);
+
+	return iwl_mld_link_sta_dereference_check(mld_ap_sta, link_id);
+}
+
 #endif /* __iwl_mld_iface_h__ */

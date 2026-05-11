@@ -28,6 +28,9 @@ struct iwl_mld_rxq_dup_data {
  * This represents the link-level sta - the driver level equivalent to the
  * ieee80211_link_sta
  *
+ * @rx_igtk: FW can only have one IGTK for RX at a time, whereas mac80211 will
+ *	have two. This tracks the one IGTK that currently exists in FW, to
+ *	remove it there when a new one is installed.
  * @last_rate_n_flags: rate_n_flags from the last &iwl_tlc_update_notif
  * @signal_avg: the signal average coming from the firmware
  * @in_fw: whether the link STA is uploaded to the FW (false during restart)
@@ -37,6 +40,7 @@ struct iwl_mld_rxq_dup_data {
 struct iwl_mld_link_sta {
 	/* Add here fields that need clean up on restart */
 	struct_group(zeroed_on_hw_restart,
+		struct ieee80211_key_conf *rx_igtk;
 		u32 last_rate_n_flags;
 		bool in_fw;
 		s8 signal_avg;

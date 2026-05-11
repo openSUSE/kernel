@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause
 /*
- * Copyright (C) 2024-2025 Intel Corporation
+ * Copyright (C) 2024-2026 Intel Corporation
  */
 #include "mld.h"
 
@@ -951,19 +951,25 @@ iwl_mld_add_mcast_rekey(struct ieee80211_vif *vif,
 
 	iwl_mld_update_mcast_rx_seq(key_config, key_data);
 
-	/* The FW holds only one igtk so we keep track of the valid one */
+	/* The FW holds only one IGTK so we keep track of the valid one */
 	if (key_config->keyidx == 4 || key_config->keyidx == 5) {
-		struct iwl_mld_link *mld_link =
-			iwl_mld_link_from_mac80211(link_conf);
+		struct iwl_mld_link_sta *mld_ap_link_sta;
+
+		mld_ap_link_sta = iwl_mld_get_ap_link_sta(vif,
+							  link_conf->link_id);
+		if (WARN_ON(!mld_ap_link_sta))
+			return;
 
 		/* If we had more than one rekey, mac80211 will tell us to
 		 * remove the old and add the new so we will update the IGTK in
 		 * drv_set_key
 		 */
-		if (mld_link->igtk && mld_link->igtk != key_config) {
+		if (mld_ap_link_sta->rx_igtk &&
+		    mld_ap_link_sta->rx_igtk != key_config) {
 			/* mark the old IGTK as not in FW */
-			mld_link->igtk->hw_key_idx = STA_KEY_IDX_INVALID;
-			mld_link->igtk = key_config;
+			mld_ap_link_sta->rx_igtk->hw_key_idx =
+				STA_KEY_IDX_INVALID;
+			mld_ap_link_sta->rx_igtk = key_config;
 		}
 	}
 

@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause */
 /*
- * Copyright (C) 2024-2025 Intel Corporation
+ * Copyright (C) 2024-2026 Intel Corporation
  */
 #ifndef __iwl_mld_link_h__
 #define __iwl_mld_link_h__
@@ -34,8 +34,9 @@ struct iwl_probe_resp_data {
  * @chan_ctx: pointer to the channel context assigned to the link. If a link
  *	has an assigned channel context it means that it is active.
  * @he_ru_2mhz_block: 26-tone RU OFDMA transmissions should be blocked.
- * @igtk: fw can only have one IGTK at a time, whereas mac80211 can have two.
- *	This tracks the one IGTK that currently exists in FW.
+ * @tx_igtk: FW can only have one IGTK per MAC at a time, whereas mac80211 can
+ *	have two. This tracks the one IGTK that currently exists in FW, for TX
+ *	purposes. The RX IGTKs are tracked per station.
  * @bigtks: BIGTKs of the AP. Only valid for STA mode.
  * @bcast_sta: station used for broadcast packets. Used in AP, GO and IBSS.
  * @mcast_sta: station used for multicast packets. Used in AP, GO and IBSS.
@@ -60,7 +61,7 @@ struct iwl_mld_link {
 		struct ieee80211_tx_queue_params queue_params[IEEE80211_NUM_ACS];
 		struct ieee80211_chanctx_conf __rcu *chan_ctx;
 		bool he_ru_2mhz_block;
-		struct ieee80211_key_conf *igtk;
+		struct ieee80211_key_conf *tx_igtk;
 		struct ieee80211_key_conf __rcu *bigtks[2];
 	);
 	/* And here fields that survive a fw restart */
