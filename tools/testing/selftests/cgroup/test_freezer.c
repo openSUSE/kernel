@@ -1353,7 +1353,7 @@ static int test_cgfreezer_time_child(const char *root)
 	}
 
 	if (ctime <= ptime) {
-		debug("Expect ctime (%ld) <= ptime (%ld)\n", ctime, ptime);
+		debug("Expect ctime (%ld) > ptime (%ld)\n", ctime, ptime);
 		goto cleanup;
 	}
 
