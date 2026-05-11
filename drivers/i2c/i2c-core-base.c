@@ -1621,7 +1621,7 @@ static int i2c_register_adapter(struct i2c_adapter *adap)
 
 	res = i2c_setup_smbus_alert(adap);
 	if (res)
-		goto out_reg;
+		goto err_deregister_clients;
 
 	dev_dbg(&adap->dev, "adapter [%s] registered\n", adap->name);
 
@@ -1640,7 +1640,7 @@ static int i2c_register_adapter(struct i2c_adapter *adap)
 
 	return 0;
 
-out_reg:
+err_deregister_clients:
 	i2c_deregister_clients(adap);
 	device_del(&adap->dev);
 err_replace_id:
