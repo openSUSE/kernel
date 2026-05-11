@@ -499,10 +499,14 @@ int mlx5e_ethtool_set_channels(struct mlx5e_priv *priv,
 {
 	struct mlx5e_params *cur_params = &priv->channels.params;
 	unsigned int count = ch->combined_count;
+	int new_rqt_size, cur_rqt_size;
 	struct mlx5e_params new_params;
 	bool arfs_enabled;
+	bool has_rss_ctxs;
 	bool opened;
 	int err = 0;
+
+	ASSERT_RTNL();
 
 	if (!count) {
 		netdev_info(priv->netdev, "%s: combined_count=0 not supported\n",
@@ -513,16 +517,33 @@ int mlx5e_ethtool_set_channels(struct mlx5e_priv *priv,
 	if (cur_params->num_channels == count)
 		return 0;
 
+	new_rqt_size = mlx5e_rqt_size(priv->mdev, count);
+	/* Validate that all non-default RSS contexts can be resized before
+	 * committing to the channel count change.
+	 * ethtool_rxfh_ctxs_can_resize() acquires rss_lock internally and
+	 * cannot be called under state_lock (rss_lock -> state_lock ordering).
+	 */
+	has_rss_ctxs = priv->rx_res && mlx5e_rx_res_rss_cnt(priv->rx_res) > 1;
+	if (has_rss_ctxs) {
+		err = ethtool_rxfh_ctxs_can_resize(priv->netdev, new_rqt_size);
+		if (err)
+			return err;
+	}
+
 	mutex_lock(&priv->state_lock);
+
+	if (!priv->rx_res) {
+		err = -EINVAL;
+		goto out;
+	}
+
+	cur_rqt_size = mlx5e_rqt_size(priv->mdev, cur_params->num_channels);
 
 	/* If RXFH is configured, changing the channels number is allowed only if
 	 * it does not require resizing the RSS table. This is because the previous
 	 * configuration may no longer be compatible with the new RSS table.
 	 */
 	if (netif_is_rxfh_configured(priv->netdev)) {
-		int cur_rqt_size = mlx5e_rqt_size(priv->mdev, cur_params->num_channels);
-		int new_rqt_size = mlx5e_rqt_size(priv->mdev, count);
-
 		if (new_rqt_size != cur_rqt_size) {
 			err = -EINVAL;
 			netdev_err(priv->netdev,
@@ -576,6 +597,14 @@ int mlx5e_ethtool_set_channels(struct mlx5e_priv *priv,
 
 out:
 	mutex_unlock(&priv->state_lock);
+
+	/* After a successful channel count change that altered the RQT size,
+	 * fold or unfold the indirection tables of all non-default RSS
+	 * contexts. Must run after state_lock is released because
+	 * ethtool_rxfh_ctxs_resize() acquires rss_lock internally.
+	 */
+	if (!err && cur_rqt_size != new_rqt_size && has_rss_ctxs)
+		ethtool_rxfh_ctxs_resize(priv->netdev, new_rqt_size);
 
 	return err;
 }

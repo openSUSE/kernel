@@ -85,9 +85,21 @@ bool mlx5e_rss_get_inner_ft_support(struct mlx5e_rss *rss)
 	return rss->params.inner_ft_support;
 }
 
-void mlx5e_rss_params_indir_modify_actual_size(struct mlx5e_rss *rss, u32 num_channels)
+void mlx5e_rss_set_indir_actual_size(struct mlx5e_rss *rss, u32 size)
 {
-	rss->indir.actual_table_size = mlx5e_rqt_size(rss->mdev, num_channels);
+	rss->indir.actual_table_size = size;
+}
+
+/* Handles non-default contexts, replicate existing pattern into new entries,
+ * matching what ethtool_rxfh_ctxs_resize() does.
+ */
+void mlx5e_rss_ctx_resize(struct mlx5e_rss *rss, u32 new_size)
+{
+	u32 old_size = rss->indir.actual_table_size;
+	u32 i;
+
+	for (i = old_size; i < new_size; i++)
+		rss->indir.table[i] = rss->indir.table[i % old_size];
 }
 
 int mlx5e_rss_params_indir_init(struct mlx5e_rss_params_indir *indir,

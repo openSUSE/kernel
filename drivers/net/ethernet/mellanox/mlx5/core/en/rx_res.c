@@ -42,11 +42,20 @@ static u32 *get_vhca_ids(struct mlx5e_rx_res *res, int offset)
 
 void mlx5e_rx_res_rss_update_num_channels(struct mlx5e_rx_res *res, u32 nch)
 {
+	u32 new_size = mlx5e_rqt_size(res->mdev, nch);
 	int i;
 
-	for (i = 0; i < MLX5E_MAX_NUM_RSS; i++) {
-		if (res->rss[i])
-			mlx5e_rss_params_indir_modify_actual_size(res->rss[i], nch);
+	WARN_ON_ONCE(res->rss_active);
+
+	/* Default context */
+	mlx5e_rss_set_indir_actual_size(res->rss[0], new_size);
+
+	/* Non-default contexts */
+	for (i = 1; i < MLX5E_MAX_NUM_RSS; i++) {
+		if (res->rss[i]) {
+			mlx5e_rss_ctx_resize(res->rss[i], new_size);
+			mlx5e_rss_set_indir_actual_size(res->rss[i], new_size);
+		}
 	}
 }
 
