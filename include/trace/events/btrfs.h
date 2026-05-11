@@ -1400,6 +1400,37 @@ TRACE_EVENT(btrfs_log_new_delayed_dentries_exit,
 			__entry->ino, __entry->ret)
 );
 
+TRACE_EVENT(btrfs_record_unlink_dir,
+
+	TP_PROTO(const struct btrfs_trans_handle *trans,
+		 const struct btrfs_inode *dir,
+		 const struct btrfs_inode *inode,
+		 bool for_rename),
+
+	TP_ARGS(trans, dir, inode, for_rename),
+
+	TP_STRUCT__entry_btrfs(
+		__field(	u64,     	root_objectid		)
+		__field(	u64,		transid			)
+		__field(	u64,	 	ino			)
+		__field(	u64,	 	dir			)
+		__field(	bool,	 	for_rename		)
+	),
+
+	TP_fast_assign(
+		TP_fast_assign_fsid(trans->fs_info);
+		__entry->root_objectid		= btrfs_root_id(inode->root);
+		__entry->transid		= trans->transid;
+		__entry->ino			= btrfs_ino(inode);
+		__entry->dir			= btrfs_ino(dir);
+		__entry->for_rename		= for_rename;
+	),
+
+	TP_printk_btrfs("root=%llu(%s) transid=%llu ino=%llu dir=%llu for_rename=%d",
+			show_root_type(__entry->root_objectid), __entry->transid,
+			__entry->ino, __entry->dir, __entry->for_rename)
+);
+
 TRACE_EVENT(btrfs_sync_fs,
 
 	TP_PROTO(const struct btrfs_fs_info *fs_info, int wait),

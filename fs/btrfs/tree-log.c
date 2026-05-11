@@ -7938,6 +7938,8 @@ void btrfs_record_unlink_dir(struct btrfs_trans_handle *trans,
 			     struct btrfs_inode *dir, struct btrfs_inode *inode,
 			     bool for_rename)
 {
+	trace_btrfs_record_unlink_dir(trans, dir, inode, for_rename);
+
 	/*
 	 * when we're logging a file, if it hasn't been renamed
 	 * or unlinked, and its inode is fully committed on disk,
