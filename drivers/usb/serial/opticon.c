@@ -16,7 +16,6 @@
 #include <linux/module.h>
 #include <linux/usb.h>
 #include <linux/usb/serial.h>
-#include <linux/uaccess.h>
 
 #define CONTROL_RTS			0x02
 #define RESEND_CTS_STATE	0x03

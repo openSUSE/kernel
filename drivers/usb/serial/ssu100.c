@@ -15,7 +15,6 @@
 #include <linux/usb.h>
 #include <linux/usb/serial.h>
 #include <linux/serial_reg.h>
-#include <linux/uaccess.h>
 
 #define QT_OPEN_CLOSE_CHANNEL       0xca
 #define QT_SET_GET_DEVICE           0xc2

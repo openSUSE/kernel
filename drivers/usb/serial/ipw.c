@@ -40,7 +40,6 @@
 #include <linux/spinlock.h>
 #include <linux/usb.h>
 #include <linux/usb/serial.h>
-#include <linux/uaccess.h>
 #include "usb-wwan.h"
 
 #define DRIVER_AUTHOR	"Roelf Diedericks"

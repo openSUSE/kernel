@@ -16,7 +16,6 @@
 #include <linux/tty_flip.h>
 #include <linux/moduleparam.h>
 #include <linux/spinlock.h>
-#include <linux/uaccess.h>
 #include <linux/usb/serial.h>
 
 #define DRIVER_DESC "Metrologic Instruments Inc. - USB-POS driver"
