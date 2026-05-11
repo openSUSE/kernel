@@ -323,9 +323,9 @@ static void scx_set_task_sched(struct task_struct *p, struct scx_sched *sch)
 	rcu_assign_pointer(p->scx.sched, sch);
 }
 #else	/* CONFIG_EXT_SUB_SCHED */
-static struct scx_sched *scx_parent(struct scx_sched *sch) { return NULL; }
-static struct scx_sched *scx_next_descendant_pre(struct scx_sched *pos, struct scx_sched *root) { return pos ? NULL : root; }
-static void scx_set_task_sched(struct task_struct *p, struct scx_sched *sch) {}
+static inline struct scx_sched *scx_parent(struct scx_sched *sch) { return NULL; }
+static inline struct scx_sched *scx_next_descendant_pre(struct scx_sched *pos, struct scx_sched *root) { return pos ? NULL : root; }
+static inline void scx_set_task_sched(struct task_struct *p, struct scx_sched *sch) {}
 #endif	/* CONFIG_EXT_SUB_SCHED */
 
 /**
@@ -4649,9 +4649,9 @@ static void scx_cgroup_unlock(void)
 #endif
 }
 #else	/* CONFIG_EXT_GROUP_SCHED || CONFIG_EXT_SUB_SCHED */
-static struct cgroup *root_cgroup(void) { return NULL; }
-static void scx_cgroup_lock(void) {}
-static void scx_cgroup_unlock(void) {}
+static inline struct cgroup *root_cgroup(void) { return NULL; }
+static inline void scx_cgroup_lock(void) {}
+static inline void scx_cgroup_unlock(void) {}
 #endif	/* CONFIG_EXT_GROUP_SCHED || CONFIG_EXT_SUB_SCHED */
 
 #ifdef CONFIG_EXT_SUB_SCHED
@@ -4670,8 +4670,8 @@ static void set_cgroup_sched(struct cgroup *cgrp, struct scx_sched *sch)
 		rcu_assign_pointer(pos->scx_sched, sch);
 }
 #else	/* CONFIG_EXT_SUB_SCHED */
-static struct cgroup *sch_cgroup(struct scx_sched *sch) { return NULL; }
-static void set_cgroup_sched(struct cgroup *cgrp, struct scx_sched *sch) {}
+static inline struct cgroup *sch_cgroup(struct scx_sched *sch) { return NULL; }
+static inline void set_cgroup_sched(struct cgroup *cgrp, struct scx_sched *sch) {}
 #endif	/* CONFIG_EXT_SUB_SCHED */
 
 /*
@@ -6039,8 +6039,8 @@ static void scx_sub_disable(struct scx_sched *sch)
 	kobject_del(&sch->kobj);
 }
 #else	/* CONFIG_EXT_SUB_SCHED */
-static void drain_descendants(struct scx_sched *sch) { }
-static void scx_sub_disable(struct scx_sched *sch) { }
+static inline void drain_descendants(struct scx_sched *sch) { }
+static inline void scx_sub_disable(struct scx_sched *sch) { }
 #endif	/* CONFIG_EXT_SUB_SCHED */
 
 static void scx_root_disable(struct scx_sched *sch)
