@@ -196,12 +196,35 @@ static int gpio_regmap_get_direction(struct gpio_chip *chip,
 		return GPIO_LINE_DIRECTION_IN;
 }
 
+static int gpio_regmap_try_direction_fixed(struct gpio_regmap *gpio,
+					   unsigned int offset, bool output)
+{
+	if (test_bit(offset, gpio->fixed_direction_output)) {
+		if (output)
+			return 0;
+		else
+			return -EINVAL;
+	} else {
+		if (output)
+			return -EINVAL;
+		else
+			return 0;
+	}
+}
+
 static int gpio_regmap_set_direction(struct gpio_chip *chip,
 				     unsigned int offset, bool output)
 {
 	struct gpio_regmap *gpio = gpiochip_get_data(chip);
 	unsigned int base, val, reg, mask;
 	int invert, ret;
+
+	/*
+	 * If the direction is fixed, only accept the fixed
+	 * direction in this call.
+	 */
+	if (gpio_regmap_fixed_direction(gpio, offset))
+		return gpio_regmap_try_direction_fixed(gpio, offset, output);
 
 	if (gpio->reg_dir_out_base) {
 		base = gpio_regmap_addr(gpio->reg_dir_out_base);
@@ -234,6 +257,20 @@ static int gpio_regmap_direction_input(struct gpio_chip *chip,
 static int gpio_regmap_direction_output(struct gpio_chip *chip,
 					unsigned int offset, int value)
 {
+	struct gpio_regmap *gpio = gpiochip_get_data(chip);
+	int ret;
+
+	/*
+	 * First check if this is gonna work on a fixed direction line,
+	 * if it doesn't (i.e. this is a fixed input line), then do not
+	 * attempt to set the output value either and just bail out.
+	 */
+	if (gpio_regmap_fixed_direction(gpio, offset)) {
+		ret = gpio_regmap_try_direction_fixed(gpio, offset, true);
+		if (ret)
+			return ret;
+	}
+
 	gpio_regmap_set(chip, offset, value);
 
 	return gpio_regmap_set_direction(chip, offset, true);
