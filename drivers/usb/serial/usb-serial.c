@@ -23,7 +23,6 @@
 #include <linux/tty.h>
 #include <linux/tty_driver.h>
 #include <linux/module.h>
-#include <linux/moduleparam.h>
 #include <linux/seq_file.h>
 #include <linux/spinlock.h>
 #include <linux/mutex.h>

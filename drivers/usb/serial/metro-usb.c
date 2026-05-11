@@ -14,7 +14,6 @@
 #include <linux/errno.h>
 #include <linux/slab.h>
 #include <linux/tty_flip.h>
-#include <linux/moduleparam.h>
 #include <linux/spinlock.h>
 #include <linux/usb/serial.h>
 
