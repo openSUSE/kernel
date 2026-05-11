@@ -1484,15 +1484,21 @@ static void emit_clear_link_copy(struct xe_gt *gt, struct xe_bb *bb, u64 src_ofs
 	bb->len += len;
 }
 
+static u32 blt_fast_color_cmd_len(struct xe_device *xe)
+{
+	if (GRAPHICS_VERx100(xe) >= 1250)
+		return 16;
+	else
+		return 11;
+}
+
 static void emit_clear_main_copy(struct xe_gt *gt, struct xe_bb *bb,
 				 u64 src_ofs, u32 size, u32 pitch, bool is_vram)
 {
 	struct xe_device *xe = gt_to_xe(gt);
 	u32 *cs = bb->cs + bb->len;
-	u32 len = XY_FAST_COLOR_BLT_DW;
+	u32 len = blt_fast_color_cmd_len(xe);
 
-	if (GRAPHICS_VERx100(xe) < 1250)
-		len = 11;
 
 	*cs++ = XY_FAST_COLOR_BLT_CMD | XY_FAST_COLOR_BLT_DEPTH_32 |
 		(len - 2);
@@ -1527,10 +1533,12 @@ static void emit_clear_main_copy(struct xe_gt *gt, struct xe_bb *bb,
 
 static u32 emit_clear_cmd_len(struct xe_gt *gt)
 {
+	struct xe_device *xe = gt_to_xe(gt);
+
 	if (gt->info.has_xe2_blt_instructions)
 		return PVC_MEM_SET_CMD_LEN_DW;
 	else
-		return XY_FAST_COLOR_BLT_DW;
+		return blt_fast_color_cmd_len(xe);
 }
 
 static void emit_clear(struct xe_gt *gt, struct xe_bb *bb, u64 src_ofs,
