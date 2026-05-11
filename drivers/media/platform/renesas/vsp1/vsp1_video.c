@@ -595,9 +595,9 @@ static void vsp1_video_pipeline_put(struct vsp1_pipeline *pipe)
 {
 	struct media_device *mdev = &pipe->output->entity.vsp1->media_dev;
 
-	mutex_lock(&mdev->graph_mutex);
+	guard(mutex)(&mdev->graph_mutex);
+
 	kref_put(&pipe->kref, vsp1_video_pipeline_release);
-	mutex_unlock(&mdev->graph_mutex);
 }
 
 /* -----------------------------------------------------------------------------
@@ -938,9 +938,9 @@ vsp1_video_get_format(struct file *file, void *fh, struct v4l2_format *format)
 	if (format->type != video->queue.type)
 		return -EINVAL;
 
-	mutex_lock(&video->lock);
+	guard(mutex)(&video->lock);
+
 	format->fmt.pix_mp = video->rwpf->format;
-	mutex_unlock(&video->lock);
 
 	return 0;
 }
@@ -972,19 +972,15 @@ vsp1_video_set_format(struct file *file, void *fh, struct v4l2_format *format)
 	if (ret < 0)
 		return ret;
 
-	mutex_lock(&video->lock);
+	guard(mutex)(&video->lock);
 
-	if (vb2_is_busy(&video->queue)) {
-		ret = -EBUSY;
-		goto done;
-	}
+	if (vb2_is_busy(&video->queue))
+		return -EBUSY;
 
 	video->rwpf->format = format->fmt.pix_mp;
 	video->rwpf->fmtinfo = info;
 
-done:
-	mutex_unlock(&video->lock);
-	return ret;
+	return 0;
 }
 
 static int

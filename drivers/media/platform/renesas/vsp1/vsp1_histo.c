@@ -196,18 +196,15 @@ static int histo_get_selection(struct v4l2_subdev *subdev,
 	struct v4l2_subdev_state *state;
 	struct v4l2_mbus_framefmt *format;
 	struct v4l2_rect *crop;
-	int ret = 0;
 
 	if (sel->pad != HISTO_PAD_SINK)
 		return -EINVAL;
 
-	mutex_lock(&histo->entity.lock);
+	guard(mutex)(&histo->entity.lock);
 
 	state = vsp1_entity_get_state(&histo->entity, sd_state, sel->which);
-	if (!state) {
-		ret = -EINVAL;
-		goto done;
-	}
+	if (!state)
+		return -EINVAL;
 
 	switch (sel->target) {
 	case V4L2_SEL_TGT_COMPOSE_BOUNDS:
@@ -237,13 +234,10 @@ static int histo_get_selection(struct v4l2_subdev *subdev,
 		break;
 
 	default:
-		ret = -EINVAL;
-		break;
+		return -EINVAL;
 	}
 
-done:
-	mutex_unlock(&histo->entity.lock);
-	return ret;
+	return 0;
 }
 
 static int histo_set_crop(struct v4l2_subdev *subdev,
@@ -321,29 +315,22 @@ static int histo_set_selection(struct v4l2_subdev *subdev,
 {
 	struct vsp1_histogram *histo = subdev_to_histo(subdev);
 	struct v4l2_subdev_state *state;
-	int ret;
 
 	if (sel->pad != HISTO_PAD_SINK)
 		return -EINVAL;
 
-	mutex_lock(&histo->entity.lock);
+	guard(mutex)(&histo->entity.lock);
 
 	state = vsp1_entity_get_state(&histo->entity, sd_state, sel->which);
-	if (!state) {
-		ret = -EINVAL;
-		goto done;
-	}
+	if (!state)
+		return -EINVAL;
 
 	if (sel->target == V4L2_SEL_TGT_CROP)
-		ret = histo_set_crop(subdev, state, sel);
+		return histo_set_crop(subdev, state, sel);
 	else if (sel->target == V4L2_SEL_TGT_COMPOSE)
-		ret = histo_set_compose(subdev, state, sel);
+		return histo_set_compose(subdev, state, sel);
 	else
-		ret = -EINVAL;
-
-done:
-	mutex_unlock(&histo->entity.lock);
-	return ret;
+		return -EINVAL;
 }
 
 static int histo_set_format(struct v4l2_subdev *subdev,

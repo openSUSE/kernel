@@ -920,7 +920,7 @@ void vsp1_du_atomic_flush(struct device *dev, unsigned int pipe_index,
 
 	drm_pipe->crc = cfg->crc;
 
-	mutex_lock(&vsp1->drm->lock);
+	guard(mutex)(&vsp1->drm->lock);
 
 	if (cfg->writeback.pixelformat) {
 		const struct vsp1_du_writeback_config *wb_cfg = &cfg->writeback;
@@ -929,7 +929,7 @@ void vsp1_du_atomic_flush(struct device *dev, unsigned int pipe_index,
 						       wb_cfg->pixelformat,
 						       wb_cfg->pitch);
 		if (WARN_ON(ret < 0))
-			goto done;
+			return;
 
 		pipe->output->mem.addr[0] = wb_cfg->mem[0];
 		pipe->output->mem.addr[1] = wb_cfg->mem[1];
@@ -942,9 +942,6 @@ void vsp1_du_atomic_flush(struct device *dev, unsigned int pipe_index,
 	vsp1_pipeline_dump(pipe, "atomic update");
 
 	vsp1_du_pipeline_configure(pipe);
-
-done:
-	mutex_unlock(&vsp1->drm->lock);
 }
 EXPORT_SYMBOL_GPL(vsp1_du_atomic_flush);
 
