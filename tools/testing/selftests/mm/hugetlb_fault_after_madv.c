@@ -54,7 +54,6 @@ void *madv(void *unused)
 
 int main(void)
 {
-	unsigned long free_hugepages;
 	pthread_t thread1, thread2;
 	/*
 	 * On kernel 6.4, we are able to reproduce the problem with ~1000
@@ -78,11 +77,8 @@ int main(void)
 	ksft_print_msg("[INFO] detected default hugetlb page size: %zu KiB\n",
 		       huge_page_size / 1024);
 
-	free_hugepages = hugetlb_free_default_pages();
-	if (free_hugepages != 1) {
-		ksft_exit_skip("This test needs one and only one page to execute. Got %lu\n",
-			       free_hugepages);
-	}
+	if (!hugetlb_setup_default(1))
+		ksft_exit_skip("Not enough HugeTLB pages\n");
 
 	while (max--) {
 		huge_ptr = mmap(NULL, huge_page_size, PROT_READ | PROT_WRITE,
