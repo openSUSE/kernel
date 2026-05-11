@@ -406,12 +406,19 @@ static int cmpc_accel_add_v4(struct acpi_device *acpi)
 
 	accel->inputdev_state = CMPC_ACCEL_DEV_STATE_CLOSED;
 
+	error = cmpc_add_acpi_notify_device(acpi, "cmpc_accel_v4",
+					    cmpc_accel_idev_init_v4);
+	if (error)
+		return error;
+
+	inputdev = dev_get_drvdata(&acpi->dev);
+
 	accel->sensitivity = CMPC_ACCEL_SENSITIVITY_DEFAULT;
 	cmpc_accel_set_sensitivity_v4(acpi->handle, accel->sensitivity);
 
 	error = device_create_file(&acpi->dev, &cmpc_accel_sensitivity_attr_v4);
 	if (error)
-		return error;
+		goto failed_sensitivity;
 
 	accel->g_select = CMPC_ACCEL_G_SELECT_DEFAULT;
 	cmpc_accel_set_g_select_v4(acpi->handle, accel->g_select);
@@ -420,27 +427,21 @@ static int cmpc_accel_add_v4(struct acpi_device *acpi)
 	if (error)
 		goto failed_g_select;
 
-	error = cmpc_add_acpi_notify_device(acpi, "cmpc_accel_v4",
-					    cmpc_accel_idev_init_v4);
-	if (error)
-		goto failed_input;
-
-	inputdev = dev_get_drvdata(&acpi->dev);
 	dev_set_drvdata(&inputdev->dev, accel);
 
 	return 0;
 
-failed_input:
-	device_remove_file(&acpi->dev, &cmpc_accel_g_select_attr_v4);
 failed_g_select:
 	device_remove_file(&acpi->dev, &cmpc_accel_sensitivity_attr_v4);
+failed_sensitivity:
+	cmpc_remove_acpi_notify_device(acpi);
 	return error;
 }
 
 static void cmpc_accel_remove_v4(struct acpi_device *acpi)
 {
-	device_remove_file(&acpi->dev, &cmpc_accel_sensitivity_attr_v4);
 	device_remove_file(&acpi->dev, &cmpc_accel_g_select_attr_v4);
+	device_remove_file(&acpi->dev, &cmpc_accel_sensitivity_attr_v4);
 	cmpc_remove_acpi_notify_device(acpi);
 }
 
@@ -652,25 +653,26 @@ static int cmpc_accel_add(struct acpi_device *acpi)
 	if (!accel)
 		return -ENOMEM;
 
+	error = cmpc_add_acpi_notify_device(acpi, "cmpc_accel",
+					    cmpc_accel_idev_init);
+	if (error)
+		return error;
+
+	inputdev = dev_get_drvdata(&acpi->dev);
+
 	accel->sensitivity = CMPC_ACCEL_SENSITIVITY_DEFAULT;
 	cmpc_accel_set_sensitivity(acpi->handle, accel->sensitivity);
 
 	error = device_create_file(&acpi->dev, &cmpc_accel_sensitivity_attr);
 	if (error)
-		return error;
+		goto failed_file;
 
-	error = cmpc_add_acpi_notify_device(acpi, "cmpc_accel",
-					    cmpc_accel_idev_init);
-	if (error)
-		goto failed_input;
-
-	inputdev = dev_get_drvdata(&acpi->dev);
 	dev_set_drvdata(&inputdev->dev, accel);
 
 	return 0;
 
-failed_input:
-	device_remove_file(&acpi->dev, &cmpc_accel_sensitivity_attr);
+failed_file:
+	cmpc_remove_acpi_notify_device(acpi);
 	return error;
 }
 
