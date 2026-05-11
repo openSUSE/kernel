@@ -239,8 +239,8 @@ int iwl_mld_store_ap_early_key(struct iwl_mld *mld,
 	return -ENOSPC;
 }
 
-void iwl_mld_stop_beacon(struct iwl_mld *mld, struct ieee80211_vif *vif,
-			 struct ieee80211_bss_conf *link)
+static void iwl_mld_stop_beacon(struct iwl_mld *mld, struct ieee80211_vif *vif,
+				struct ieee80211_bss_conf *link)
 {
 	struct iwl_mld_link *mld_link = iwl_mld_link_from_mac80211(link);
 	struct iwl_mac_beacon_cmd cmd = {};
@@ -256,6 +256,39 @@ void iwl_mld_stop_beacon(struct iwl_mld *mld, struct ieee80211_vif *vif,
 	cmd.link_id = cpu_to_le32(mld_link->fw_id);
 
 	iwl_mld_send_cmd_pdu(mld, BEACON_TEMPLATE_CMD, &cmd);
+}
+
+void
+iwl_mld_link_info_changed_ap_ibss(struct iwl_mld *mld,
+				  struct ieee80211_vif *vif,
+				  struct ieee80211_bss_conf *link,
+				  u64 changes)
+{
+	u32 link_changes = 0;
+
+	if (changes & BSS_CHANGED_ERP_SLOT)
+		link_changes |= LINK_CONTEXT_MODIFY_RATES_INFO;
+
+	if (changes & (BSS_CHANGED_ERP_CTS_PROT | BSS_CHANGED_HT))
+		link_changes |= LINK_CONTEXT_MODIFY_PROTECT_FLAGS;
+
+	if (changes & (BSS_CHANGED_QOS | BSS_CHANGED_BANDWIDTH))
+		link_changes |= LINK_CONTEXT_MODIFY_QOS_PARAMS;
+
+	if (changes & BSS_CHANGED_HE_BSS_COLOR)
+		link_changes |= LINK_CONTEXT_MODIFY_HE_PARAMS;
+
+	if (link_changes)
+		iwl_mld_change_link_in_fw(mld, link, link_changes);
+
+	if (changes & BSS_CHANGED_BEACON) {
+		WARN_ON(!link->enable_beacon);
+		iwl_mld_update_beacon_template(mld, vif, link);
+	}
+
+	/* Enabling beacons was already covered above */
+	if ((changes & BSS_CHANGED_BEACON_ENABLED) && !link->enable_beacon)
+		iwl_mld_stop_beacon(mld, vif, link);
 }
 
 static int iwl_mld_send_ap_early_keys(struct iwl_mld *mld,

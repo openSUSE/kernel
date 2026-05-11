@@ -1235,39 +1235,6 @@ int iwl_mld_mac80211_set_rts_threshold(struct ieee80211_hw *hw, int radio_idx,
 	return 0;
 }
 
-static void
-iwl_mld_link_info_changed_ap_ibss(struct iwl_mld *mld,
-				  struct ieee80211_vif *vif,
-				  struct ieee80211_bss_conf *link,
-				  u64 changes)
-{
-	u32 link_changes = 0;
-
-	if (changes & BSS_CHANGED_ERP_SLOT)
-		link_changes |= LINK_CONTEXT_MODIFY_RATES_INFO;
-
-	if (changes & (BSS_CHANGED_ERP_CTS_PROT | BSS_CHANGED_HT))
-		link_changes |= LINK_CONTEXT_MODIFY_PROTECT_FLAGS;
-
-	if (changes & (BSS_CHANGED_QOS | BSS_CHANGED_BANDWIDTH))
-		link_changes |= LINK_CONTEXT_MODIFY_QOS_PARAMS;
-
-	if (changes & BSS_CHANGED_HE_BSS_COLOR)
-		link_changes |= LINK_CONTEXT_MODIFY_HE_PARAMS;
-
-	if (link_changes)
-		iwl_mld_change_link_in_fw(mld, link, link_changes);
-
-	if (changes & BSS_CHANGED_BEACON) {
-		WARN_ON(!link->enable_beacon);
-		iwl_mld_update_beacon_template(mld, vif, link);
-	}
-
-	/* Enabling beacons was already covered above */
-	if ((changes & BSS_CHANGED_BEACON_ENABLED) && !link->enable_beacon)
-		iwl_mld_stop_beacon(mld, vif, link);
-}
-
 static
 u32 iwl_mld_link_changed_mapping(struct iwl_mld *mld,
 				 struct ieee80211_vif *vif,

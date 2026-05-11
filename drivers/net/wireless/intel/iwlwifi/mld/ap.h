@@ -14,9 +14,11 @@ int iwl_mld_update_beacon_template(struct iwl_mld *mld,
 				   struct ieee80211_vif *vif,
 				   struct ieee80211_bss_conf *link_conf);
 
-void iwl_mld_stop_beacon(struct iwl_mld *mld,
-			 struct ieee80211_vif *vif,
-			 struct ieee80211_bss_conf *link_conf);
+void
+iwl_mld_link_info_changed_ap_ibss(struct iwl_mld *mld,
+				  struct ieee80211_vif *vif,
+				  struct ieee80211_bss_conf *link,
+				  u64 changes);
 
 int iwl_mld_start_ap_ibss(struct ieee80211_hw *hw,
 			  struct ieee80211_vif *vif,
