@@ -18,8 +18,16 @@
 
 bool iwl_mld_nan_supported(struct iwl_mld *mld)
 {
-	return fw_has_capa(&mld->fw->ucode_capa,
-			   IWL_UCODE_TLV_CAPA_NAN_SYNC_SUPPORT);
+	const struct iwl_fw *fw = mld->fw;
+
+	if (fw_has_capa(&fw->ucode_capa, IWL_UCODE_TLV_CAPA_NAN_SYNC_SUPPORT) &&
+	    iwl_fw_lookup_cmd_ver(fw, WIDE_ID(MAC_CONF_GROUP, NAN_SCHEDULE_CMD), 0) >= 1 &&
+	    iwl_fw_lookup_cmd_ver(fw, WIDE_ID(MAC_CONF_GROUP, NAN_PEER_CMD), 0) >= 1 &&
+	    iwl_fw_lookup_cmd_ver(fw, WIDE_ID(MAC_CONF_GROUP, STA_CONFIG_CMD), 0) >= 3 &&
+	    iwl_fw_lookup_cmd_ver(fw, WIDE_ID(MAC_CONF_GROUP, MAC_CONFIG_CMD), 0) >= 4 &&
+	    iwl_fw_lookup_cmd_ver(fw, WIDE_ID(DATA_PATH_GROUP, TLC_MNG_CONFIG_CMD), 0) >= 6)
+		return true;
+	return false;
 }
 
 static int iwl_mld_nan_send_config_cmd(struct iwl_mld *mld,

@@ -62,12 +62,16 @@ static const struct ieee80211_iface_limit iwl_mld_limits_ap[] = {
 
 static const struct ieee80211_iface_limit iwl_mld_limits_nan[] = {
 	{
-		.max = 2,
+		.max = 1,
 		.types = BIT(NL80211_IFTYPE_STATION),
 	},
 	{
 		.max = 1,
 		.types = BIT(NL80211_IFTYPE_NAN),
+	},
+	{
+		.max = 2,
+		.types = BIT(NL80211_IFTYPE_NAN_DATA),
 	},
 };
 
@@ -87,8 +91,8 @@ iwl_mld_iface_combinations[] = {
 	},
 	/* NAN combination follow, this excludes P2P and AP */
 	{
-		.num_different_channels = 2,
-		.max_interfaces = 3,
+		.num_different_channels = 3,
+		.max_interfaces = 4,
 		.limits = iwl_mld_limits_nan,
 		.n_limits = ARRAY_SIZE(iwl_mld_limits_nan),
 	},
@@ -266,6 +270,7 @@ static void iwl_mld_hw_set_nan(struct iwl_mld *mld)
 	struct ieee80211_hw *hw = mld->hw;
 
 	hw->wiphy->interface_modes |= BIT(NL80211_IFTYPE_NAN);
+	hw->wiphy->interface_modes |= BIT(NL80211_IFTYPE_NAN_DATA);
 
 	hw->wiphy->nan_supported_bands = BIT(NL80211_BAND_2GHZ);
 	if (mld->nvm_data->bands[NL80211_BAND_5GHZ].n_channels)
@@ -363,7 +368,7 @@ static void iwl_mac_hw_set_wiphy(struct iwl_mld *mld)
 			ARRAY_SIZE(iwl_mld_iface_combinations);
 		iwl_mld_hw_set_nan(mld);
 	} else {
-		/* Do not include NAN combinations */
+		/* Do not include NAN combination */
 		wiphy->n_iface_combinations =
 			ARRAY_SIZE(iwl_mld_iface_combinations) - 1;
 	}
