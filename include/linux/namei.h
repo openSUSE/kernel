@@ -61,7 +61,6 @@ extern struct dentry *start_creating_path(int, const char *, struct path *, unsi
 extern struct dentry *start_creating_user_path(int, const char __user *, struct path *, unsigned int);
 extern void end_creating_path(const struct path *, struct dentry *);
 extern struct dentry *start_removing_path(const char *, struct path *);
-extern struct dentry *start_removing_user_path_at(int , const char __user *, struct path *);
 static inline void end_removing_path(const struct path *path , struct dentry *dentry)
 {
 	end_creating_path(path, dentry);

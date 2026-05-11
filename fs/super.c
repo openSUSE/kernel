@@ -882,7 +882,6 @@ void drop_super_exclusive(struct super_block *sb)
 	super_unlock_excl(sb);
 	put_super(sb);
 }
-EXPORT_SYMBOL(drop_super_exclusive);
 
 enum super_iter_flags_t {
 	SUPER_ITER_EXCL		= (1U << 0),
