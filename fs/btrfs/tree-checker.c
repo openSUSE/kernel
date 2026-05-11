@@ -2143,27 +2143,39 @@ static int check_free_space_info(struct extent_buffer *leaf, struct btrfs_key *k
 	return 0;
 }
 
-static int check_free_space_extent(struct extent_buffer *leaf, struct btrfs_key *key, int slot)
+static int check_free_space_common_key(struct extent_buffer *leaf, struct btrfs_key *key, int slot)
 {
 	struct btrfs_fs_info *fs_info = leaf->fs_info;
 	const u32 blocksize = fs_info->sectorsize;
+	const char *type_str = (key->type == BTRFS_FREE_SPACE_EXTENT_KEY) ? "extent" : "bitmap";
 
 	if (unlikely(!IS_ALIGNED(key->objectid, blocksize))) {
 		generic_err(leaf, slot,
-		"free space extent key objectid is not aligned to %u, has " BTRFS_KEY_FMT,
-			    blocksize, BTRFS_KEY_FMT_VALUE(key));
+		"free space %s key objectid is not aligned to %u, has " BTRFS_KEY_FMT,
+			    type_str, blocksize, BTRFS_KEY_FMT_VALUE(key));
 		return -EUCLEAN;
 	}
 	if (unlikely(!IS_ALIGNED(key->offset, blocksize))) {
 		generic_err(leaf, slot,
-		"free space extent key offset is not aligned to %u, has " BTRFS_KEY_FMT,
-			    blocksize, BTRFS_KEY_FMT_VALUE(key));
+		"free space %s key offset is not aligned to %u, has " BTRFS_KEY_FMT,
+			    type_str, blocksize, BTRFS_KEY_FMT_VALUE(key));
 		return -EUCLEAN;
 	}
 	if (unlikely(key->offset == 0)) {
-		generic_err(leaf, slot, "free space extent length is 0");
+		generic_err(leaf, slot, "free space %s length is 0", type_str);
 		return -EUCLEAN;
 	}
+	return 0;
+}
+
+static int check_free_space_extent(struct extent_buffer *leaf, struct btrfs_key *key, int slot)
+{
+	int ret;
+
+	ret = check_free_space_common_key(leaf, key, slot);
+	if (unlikely(ret < 0))
+		return ret;
+
 	if (unlikely(btrfs_item_size(leaf, slot) != 0)) {
 		generic_err(leaf, slot,
 			    "invalid item size for free space info, has %u expect 0",
@@ -2177,25 +2189,13 @@ static int check_free_space_bitmap(struct extent_buffer *leaf,
 				   struct btrfs_key *key, int slot)
 {
 	struct btrfs_fs_info *fs_info = leaf->fs_info;
-	const u32 blocksize = fs_info->sectorsize;
 	u32 expected_item_size;
+	int ret;
 
-	if (unlikely(!IS_ALIGNED(key->objectid, blocksize))) {
-		generic_err(leaf, slot,
-		"free space bitmap key objectid is not aligned to %u, has " BTRFS_KEY_FMT,
-			    blocksize, BTRFS_KEY_FMT_VALUE(key));
-		return -EUCLEAN;
-	}
-	if (unlikely(!IS_ALIGNED(key->offset, blocksize))) {
-		generic_err(leaf, slot,
-		"free space bitmap key offset is not aligned to %u, has " BTRFS_KEY_FMT,
-			    blocksize, BTRFS_KEY_FMT_VALUE(key));
-		return -EUCLEAN;
-	}
-	if (unlikely(key->offset == 0)) {
-		generic_err(leaf, slot, "free space bitmap length is 0");
-		return -EUCLEAN;
-	}
+	ret = check_free_space_common_key(leaf, key, slot);
+	if (unlikely(ret < 0))
+		return ret;
+
 	/*
 	 * The item must hold exactly the right number of bitmap bytes for the
 	 * range described by key->offset.  A mismatch means the item was
