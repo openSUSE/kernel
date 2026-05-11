@@ -3029,15 +3029,6 @@ struct dentry *start_removing_path(const char *name, struct path *path)
 	return __start_removing_path(AT_FDCWD, filename, path);
 }
 
-struct dentry *start_removing_user_path_at(int dfd,
-					   const char __user *name,
-					   struct path *path)
-{
-	CLASS(filename, filename)(name);
-	return __start_removing_path(dfd, filename, path);
-}
-EXPORT_SYMBOL(start_removing_user_path_at);
-
 int kern_path(const char *name, unsigned int flags, struct path *path)
 {
 	CLASS(filename_kernel, filename)(name);
