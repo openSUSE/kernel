@@ -425,7 +425,6 @@ lpfc_check_nlp_post_devloss(struct lpfc_vport *vport,
 {
 	if (test_and_clear_bit(NLP_IN_RECOV_POST_DEV_LOSS, &ndlp->save_flags)) {
 		clear_bit(NLP_DROPPED, &ndlp->nlp_flag);
-		lpfc_nlp_get(ndlp);
 		lpfc_printf_vlog(vport, KERN_INFO, LOG_DISCOVERY | LOG_NODE,
 				 "8438 Devloss timeout reversed on DID x%x "
 				 "refcnt %d ndlp %p flag x%lx "
