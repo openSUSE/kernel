@@ -572,6 +572,9 @@ struct rtw89_phy_rfk_log_fmt {
 	const struct rtw89_fw_element_hdr *elm[RTW89_PHY_C2H_RFK_LOG_FUNC_NUM];
 };
 
+struct rtw89_bb_wrap_data {
+};
+
 struct rtw89_phy_gen_def {
 	u32 cr_base;
 	u32 physt_bmp_start;

@@ -3086,6 +3086,7 @@ static const struct rtw89_chip_ops rtw8922a_chip_ops = {
 	.read_efuse		= rtw8922a_read_efuse,
 	.read_phycap		= rtw8922a_read_phycap,
 	.fem_setup		= NULL,
+	.data_setup		= NULL,
 	.rfe_gpio		= NULL,
 	.rfk_hw_init		= rtw8922a_rfk_hw_init,
 	.rfk_init		= rtw8922a_rfk_init,

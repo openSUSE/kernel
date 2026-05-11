@@ -7312,6 +7312,10 @@ int rtw89_chip_info_setup(struct rtw89_dev *rtwdev)
 	if (ret)
 		goto out;
 
+	ret = rtw89_chip_data_setup(rtwdev);
+	if (ret)
+		goto out;
+
 	rtw89_core_setup_rfe_parms(rtwdev);
 	rtwdev->ps_mode = rtw89_update_ps_mode(rtwdev);
 

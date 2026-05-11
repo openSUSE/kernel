@@ -286,6 +286,15 @@ static const struct rtw89_efuse_block_cfg rtw8922d_efuse_blocks[] = {
 	[RTW89_EFUSE_BLOCK_ADIE]		= {.offset = 0x70000, .size = 0x10},
 };
 
+static const struct rtw89_bb_wrap_data rtw8922d_bb_wrap_data_7025_default = {
+};
+
+static const struct rtw89_bb_wrap_data rtw8922d_bb_wrap_data_7090_default = {
+};
+
+static const struct rtw89_bb_wrap_data rtw8922d_bb_wrap_data_7090_rfe35_41_44 = {
+};
+
 static void rtw8922d_sel_bt_rx_path(struct rtw89_dev *rtwdev, u8 val,
 				    enum rtw89_rf_path rx_path)
 {
@@ -916,6 +925,34 @@ static void rtw8922d_power_trim(struct rtw89_dev *rtwdev)
 	rtw8922d_thermal_trim(rtwdev);
 	rtw8922d_pa_bias_trim(rtwdev);
 	rtw8922d_pad_bias_trim(rtwdev);
+}
+
+static int rtw8922d_data_setup(struct rtw89_dev *rtwdev)
+{
+	const struct rtw89_bb_wrap_data *data;
+	struct rtw89_hal *hal = &rtwdev->hal;
+	bool rfe35_41_44 = false;
+
+	switch (rtwdev->efuse.rfe_type) {
+	case 35:
+	case 41:
+	case 44:
+		rfe35_41_44 = true;
+		break;
+	}
+
+	if (hal->cid == RTL8922D_CID7025) {
+		data = &rtw8922d_bb_wrap_data_7025_default;
+	} else {
+		if (rfe35_41_44)
+			data = &rtw8922d_bb_wrap_data_7090_rfe35_41_44;
+		else
+			data = &rtw8922d_bb_wrap_data_7090_default;
+	}
+
+	rtwdev->phy_info.bb_wrap_data = data;
+
+	return 0;
 }
 
 static void rtw8922d_set_channel_mac(struct rtw89_dev *rtwdev,
@@ -2933,6 +2970,7 @@ static const struct rtw89_chip_ops rtw8922d_chip_ops = {
 	.read_efuse		= rtw8922d_read_efuse,
 	.read_phycap		= rtw8922d_read_phycap,
 	.fem_setup		= NULL,
+	.data_setup		= rtw8922d_data_setup,
 	.rfe_gpio		= NULL,
 	.rfk_hw_init		= rtw8922d_rfk_hw_init,
 	.rfk_init		= rtw8922d_rfk_init,

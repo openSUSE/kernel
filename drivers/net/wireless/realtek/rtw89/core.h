@@ -29,6 +29,7 @@ struct rtw89_phy_sts_ie10;
 struct rtw89_debugfs;
 struct rtw89_regd_data;
 struct rtw89_wow_cam_info;
+struct rtw89_bb_wrap_data;
 struct rtw89_fw_cmd_ofld_info;
 
 extern const struct ieee80211_ops rtw89_ops;
@@ -3851,6 +3852,7 @@ struct rtw89_chip_ops {
 			  enum rtw89_efuse_block block);
 	int (*read_phycap)(struct rtw89_dev *rtwdev, u8 *phycap_map);
 	void (*fem_setup)(struct rtw89_dev *rtwdev);
+	int (*data_setup)(struct rtw89_dev *rtwdev);
 	void (*rfe_gpio)(struct rtw89_dev *rtwdev);
 	void (*rfk_hw_init)(struct rtw89_dev *rtwdev);
 	void (*rfk_init)(struct rtw89_dev *rtwdev);
@@ -4597,6 +4599,7 @@ struct rtw89_bb_stat_cfg {
 };
 
 struct rtw89_phy_info {
+	const struct rtw89_bb_wrap_data *bb_wrap_data;
 	struct rtw89_bb_stat_cfg bb_stat_cfg;
 };
 
@@ -7482,6 +7485,16 @@ static inline void rtw89_chip_fem_setup(struct rtw89_dev *rtwdev)
 
 	if (chip->ops->fem_setup)
 		chip->ops->fem_setup(rtwdev);
+}
+
+static inline int rtw89_chip_data_setup(struct rtw89_dev *rtwdev)
+{
+	const struct rtw89_chip_info *chip = rtwdev->chip;
+
+	if (!chip->ops->data_setup)
+		return 0;
+
+	return chip->ops->data_setup(rtwdev);
 }
 
 static inline void rtw89_chip_rfe_gpio(struct rtw89_dev *rtwdev)
