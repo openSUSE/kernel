@@ -510,7 +510,8 @@ static void tls_encrypt_done(struct crypto_async_request *req, int err)
 		if (rec == first_rec) {
 			/* Schedule the transmission */
 			if (!test_and_set_bit(BIT_TX_SCHEDULED,
-					      &ctx->tx_bitmask))
+					      &ctx->tx_bitmask) &&
+			    !ctx->tx_work.disabled)
 				schedule_delayed_work(&ctx->tx_work.work, 1);
 		}
 	}
@@ -573,6 +574,16 @@ static int tls_do_encryption(struct sock *sk,
 	if (rc == -EBUSY) {
 		rc = tls_encrypt_async_wait(ctx);
 		rc = rc ?: -EINPROGRESS;
+		/*
+		 * The async callback tls_encrypt_done() has already
+		 * decremented encrypt_pending and restored the sge on
+		 * both success and error. Skip the synchronous cleanup
+		 * below on error, just remove the record and return.
+		 */
+		if (rc != -EINPROGRESS) {
+			list_del(&rec->list);
+			return rc;
+		}
 	}
 	if (!rc || rc != -EINPROGRESS) {
 		atomic_dec(&ctx->encrypt_pending);
@@ -2163,6 +2174,8 @@ void tls_sw_cancel_work_tx(struct tls_context *tls_ctx)
 
 	set_bit(BIT_TX_CLOSING, &ctx->tx_bitmask);
 	set_bit(BIT_TX_SCHEDULED, &ctx->tx_bitmask);
+	/* disable queueing, workaround for missing disable_ */
+	ctx->tx_work.disabled = true;
 	cancel_delayed_work_sync(&ctx->tx_work.work);
 }
 
@@ -2287,7 +2300,8 @@ void tls_sw_write_space(struct sock *sk, struct tls_context *ctx)
 
 	/* Schedule the transmission if tx list is ready */
 	if (is_tx_ready(tx_ctx) &&
-	    !test_and_set_bit(BIT_TX_SCHEDULED, &tx_ctx->tx_bitmask))
+	    !test_and_set_bit(BIT_TX_SCHEDULED, &tx_ctx->tx_bitmask) &&
+	    !tx_ctx->tx_work.disabled)
 		schedule_delayed_work(&tx_ctx->tx_work.work, 0);
 }
 
@@ -2361,6 +2375,7 @@ int tls_set_sw_offload(struct sock *sk, struct tls_context *ctx, int tx)
 		cctx = &ctx->tx;
 		aead = &sw_ctx_tx->aead_send;
 		INIT_LIST_HEAD(&sw_ctx_tx->tx_list);
+		sw_ctx_tx->tx_work.disabled = false;
 		INIT_DELAYED_WORK(&sw_ctx_tx->tx_work.work, tx_work_handler);
 		sw_ctx_tx->tx_work.sk = sk;
 	} else {
