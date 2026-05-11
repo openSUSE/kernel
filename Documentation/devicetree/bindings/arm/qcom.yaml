@@ -1182,6 +1182,10 @@ properties:
           - const: qcom,x1e80100
 
       - items:
+          - const: microsoft,surface-pro-12in
+          - const: qcom,x1p42100
+
+      - items:
           - enum:
               - qcom,purwa-iot-evk
           - const: qcom,purwa-iot-som
