@@ -10574,16 +10574,36 @@ L:	netdev@vger.kernel.org
 S:	Maintained
 F:	drivers/net/ethernet/fungible/
 
-FUSE: FILESYSTEM IN USERSPACE
+FUSE FILESYSTEM [CORE]
 M:	Miklos Szeredi <miklos@szeredi.hu>
-L:	linux-fsdevel@vger.kernel.org
-S:	Maintained
+L:	fuse-devel@lists.linux.dev
+S:	Supported
 W:	https://github.com/libfuse/
 T:	git git://git.kernel.org/pub/scm/linux/kernel/git/mszeredi/fuse.git
 F:	Documentation/filesystems/fuse/*
 F:	fs/fuse/
 F:	include/uapi/linux/fuse.h
 F:	tools/testing/selftests/filesystems/fuse/
+
+FUSE FILESYSTEM [IO-URING]
+M:	Bernd Schubert <bernd@bsbernd.com>
+M:	Joanne Koong <joannelkoong@gmail.com>
+L:	fuse-devel@lists.linux.dev
+S:	Maintained
+T:	git git://git.kernel.org/pub/scm/linux/kernel/git/mszeredi/fuse.git
+F:	Documentation/filesystems/fuse/fuse-io-uring.rst
+F:	fs/fuse/dev_uring.c
+F:	fs/fuse/dev_uring_i.h
+
+FUSE FILESYSTEM [PASSTHROUGH]
+M:	Amir Goldstein <amir73il@gmail.com>
+L:	fuse-devel@lists.linux.dev
+S:	Maintained
+T:	git git://git.kernel.org/pub/scm/linux/kernel/git/mszeredi/fuse.git
+F:	Documentation/filesystems/fuse/fuse-passthrough.rst
+F:	fs/fuse/backing.c
+F:	fs/fuse/iomode.c
+F:	fs/fuse/passthrough.c
 
 FUTEX SUBSYSTEM
 M:	Thomas Gleixner <tglx@kernel.org>
