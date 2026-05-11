@@ -86,7 +86,7 @@ static ssize_t htm_return_check(long rc)
 static ssize_t htmdump_read(struct file *filp, char __user *ubuf,
 			     size_t count, loff_t *ppos)
 {
-	void *htm_buf = filp->private_data;
+	void *htm_buf_data = filp->private_data;
 	unsigned long page, read_size, available;
 	loff_t offset;
 	long rc, ret;
@@ -100,7 +100,7 @@ static ssize_t htmdump_read(struct file *filp, char __user *ubuf,
 	 * - last three values are address, size and offset
 	 */
 	rc = htm_hcall_wrapper(htmflags, nodeindex, nodalchipindex, coreindexonchip,
-				   htmtype, H_HTM_OP_DUMP_DATA, virt_to_phys(htm_buf),
+				   htmtype, H_HTM_OP_DUMP_DATA, virt_to_phys(htm_buf_data),
 				   PAGE_SIZE, page);
 
 	ret = htm_return_check(rc);
@@ -112,7 +112,7 @@ static ssize_t htmdump_read(struct file *filp, char __user *ubuf,
 	available = PAGE_SIZE;
 	read_size = min(count, available);
 	*ppos += read_size;
-	return simple_read_from_buffer(ubuf, count, &offset, htm_buf, available);
+	return simple_read_from_buffer(ubuf, count, &offset, htm_buf_data, available);
 }
 
 static const struct file_operations htmdump_fops = {
@@ -226,7 +226,7 @@ static int htmstart_get(void *data, u64 *val)
 static ssize_t htmstatus_read(struct file *filp, char __user *ubuf,
 			     size_t count, loff_t *ppos)
 {
-	void *htm_status_buf = filp->private_data;
+	void *htm_status_data = filp->private_data;
 	long rc, ret;
 	u64 *num_entries;
 	u64 to_copy;
@@ -238,7 +238,7 @@ static ssize_t htmstatus_read(struct file *filp, char __user *ubuf,
 	 * - last three values as addr, size and offset
 	 */
 	rc = htm_hcall_wrapper(htmflags, nodeindex, nodalchipindex, coreindexonchip,
-				   htmtype, H_HTM_OP_STATUS, virt_to_phys(htm_status_buf),
+				   htmtype, H_HTM_OP_STATUS, virt_to_phys(htm_status_data),
 				   PAGE_SIZE, 0);
 
 	ret = htm_return_check(rc);
@@ -255,13 +255,13 @@ static ssize_t htmstatus_read(struct file *filp, char __user *ubuf,
 	 * So total count to copy is:
 	 * 32 bytes (for first 7 fields) + (number of HTM entries * entry size)
 	 */
-	num_entries = htm_status_buf + 0x10;
+	num_entries = htm_status_data + 0x10;
 	if (htmtype == 0x2)
 		htmstatus_flag = 0x8;
 	else
 		htmstatus_flag = 0x6;
 	to_copy = 32 + (be64_to_cpu(*num_entries) * htmstatus_flag);
-	return simple_read_from_buffer(ubuf, count, ppos, htm_status_buf, to_copy);
+	return simple_read_from_buffer(ubuf, count, ppos, htm_status_data, to_copy);
 }
 
 static const struct file_operations htmstatus_fops = {
@@ -273,7 +273,7 @@ static const struct file_operations htmstatus_fops = {
 static ssize_t htminfo_read(struct file *filp, char __user *ubuf,
 			     size_t count, loff_t *ppos)
 {
-	void *htm_info_buf = filp->private_data;
+	void *htm_info_data = filp->private_data;
 	long rc, ret;
 	u64 *num_entries;
 	u64 to_copy;
@@ -284,7 +284,7 @@ static ssize_t htminfo_read(struct file *filp, char __user *ubuf,
 	 * - last three values as addr, size and offset
 	 */
 	rc = htm_hcall_wrapper(htmflags, nodeindex, nodalchipindex, coreindexonchip,
-				   htmtype, H_HTM_OP_DUMP_SYSPROC_CONF, virt_to_phys(htm_info_buf),
+				   htmtype, H_HTM_OP_DUMP_SYSPROC_CONF, virt_to_phys(htm_info_data),
 				   PAGE_SIZE, 0);
 
 	ret = htm_return_check(rc);
@@ -301,15 +301,15 @@ static ssize_t htminfo_read(struct file *filp, char __user *ubuf,
 	 * So total count to copy is:
 	 * 32 bytes (for first 5 fields) + (number of HTM entries * entry size)
 	 */
-	num_entries = htm_info_buf + 0x10;
+	num_entries = htm_info_data + 0x10;
 	to_copy = 32 + (be64_to_cpu(*num_entries) * 16);
-	return simple_read_from_buffer(ubuf, count, ppos, htm_info_buf, to_copy);
+	return simple_read_from_buffer(ubuf, count, ppos, htm_info_data, to_copy);
 }
 
 static ssize_t htmcaps_read(struct file *filp, char __user *ubuf,
 			     size_t count, loff_t *ppos)
 {
-	void *htm_caps_buf = filp->private_data;
+	void *htm_caps_data = filp->private_data;
 	long rc, ret;
 
 	/*
@@ -319,7 +319,7 @@ static ssize_t htmcaps_read(struct file *filp, char __user *ubuf,
 	 *   and zero
 	 */
 	rc = htm_hcall_wrapper(htmflags, nodeindex, nodalchipindex, coreindexonchip,
-				   htmtype, H_HTM_OP_CAPABILITIES, virt_to_phys(htm_caps_buf),
+				   htmtype, H_HTM_OP_CAPABILITIES, virt_to_phys(htm_caps_data),
 				   0x80, 0);
 
 	ret = htm_return_check(rc);
@@ -328,7 +328,7 @@ static ssize_t htmcaps_read(struct file *filp, char __user *ubuf,
 		return ret;
 	}
 
-	return simple_read_from_buffer(ubuf, count, ppos, htm_caps_buf, 0x80);
+	return simple_read_from_buffer(ubuf, count, ppos, htm_caps_data, 0x80);
 }
 
 static const struct file_operations htminfo_fops = {
@@ -482,6 +482,9 @@ static void __exit htmdump_exit(void)
 {
 	debugfs_remove_recursive(htmdump_debugfs_dir);
 	kfree(htm_buf);
+	kfree(htm_status_buf);
+	kfree(htm_info_buf);
+	kfree(htm_caps_buf);
 }
 
 module_init(htmdump_init);
