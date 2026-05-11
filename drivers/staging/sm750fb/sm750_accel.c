@@ -159,7 +159,6 @@ int sm750_hw_copyarea(struct lynx_accel *accel,
 
 	direction = LEFT_TO_RIGHT;
 	/* Direction of ROP2 operation: 1 = Left to Right, (-1) = Right to Left */
-	de_ctrl = 0;
 
 	/* If source and destination are the same surface, need to check for overlay cases */
 	if (source_base == dest_base && source_pitch == dest_pitch) {
@@ -326,7 +325,7 @@ int sm750_hw_imageblit(struct lynx_accel *accel, const char *src_buf,
 	unsigned int bytes_per_scan;
 	unsigned int words_per_scan;
 	unsigned int bytes_remain;
-	unsigned int de_ctrl = 0;
+	unsigned int de_ctrl;
 	unsigned char remain[4];
 	int i, j;
 	int ret;
