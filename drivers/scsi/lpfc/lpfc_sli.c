@@ -4573,59 +4573,41 @@ void
 lpfc_sli_abort_iocb_ring(struct lpfc_hba *phba, struct lpfc_sli_ring *pring)
 {
 	LIST_HEAD(tx_completions);
-	LIST_HEAD(txcmplq_completions);
+	spinlock_t *plock;		/* for transmit queue access */
 	struct lpfc_iocbq *iocb, *next_iocb;
 	int offline;
 
-	if (pring->ringno == LPFC_ELS_RING) {
+	if (phba->sli_rev >= LPFC_SLI_REV4)
+		plock = &pring->ring_lock;
+	else
+		plock = &phba->hbalock;
+
+	if (pring->ringno == LPFC_ELS_RING)
 		lpfc_fabric_abort_hba(phba);
-	}
+
 	offline = pci_channel_offline(phba->pcidev);
 
-	/* Error everything on txq and txcmplq
-	 * First do the txq.
-	 */
-	if (phba->sli_rev >= LPFC_SLI_REV4) {
-		spin_lock_irq(&pring->ring_lock);
-		list_splice_init(&pring->txq, &tx_completions);
-		pring->txq_cnt = 0;
-
-		if (offline) {
-			list_splice_init(&pring->txcmplq,
-					 &txcmplq_completions);
-		} else {
-			/* Next issue ABTS for everything on the txcmplq */
-			list_for_each_entry_safe(iocb, next_iocb,
-						 &pring->txcmplq, list)
-				lpfc_sli_issue_abort_iotag(phba, pring,
-							   iocb, NULL);
-		}
-		spin_unlock_irq(&pring->ring_lock);
-	} else {
-		spin_lock_irq(&phba->hbalock);
-		list_splice_init(&pring->txq, &tx_completions);
-		pring->txq_cnt = 0;
-
-		if (offline) {
-			list_splice_init(&pring->txcmplq, &txcmplq_completions);
-		} else {
-			/* Next issue ABTS for everything on the txcmplq */
-			list_for_each_entry_safe(iocb, next_iocb,
-						 &pring->txcmplq, list)
-				lpfc_sli_issue_abort_iotag(phba, pring,
-							   iocb, NULL);
-		}
-		spin_unlock_irq(&phba->hbalock);
-	}
+	/* Cancel everything on txq */
+	spin_lock_irq(plock);
+	list_splice_init(&pring->txq, &tx_completions);
+	pring->txq_cnt = 0;
 
 	if (offline) {
-		/* Cancel all the IOCBs from the completions list */
-		lpfc_sli_cancel_iocbs(phba, &txcmplq_completions,
-				      IOSTAT_LOCAL_REJECT, IOERR_SLI_ABORTED);
+		/* Cancel everything on txcmplq */
+		list_for_each_entry_safe(iocb, next_iocb, &pring->txcmplq, list)
+			iocb->cmd_flag &= ~LPFC_IO_ON_TXCMPLQ;
+		list_splice_init(&pring->txcmplq, &tx_completions);
+		pring->txcmplq_cnt = 0;
 	} else {
-		/* Make sure HBA is alive */
-		lpfc_issue_hb_tmo(phba);
+		/* Issue ABTS for everything on the txcmplq */
+		list_for_each_entry_safe(iocb, next_iocb, &pring->txcmplq, list)
+			lpfc_sli_issue_abort_iotag(phba, pring, iocb, NULL);
 	}
+	spin_unlock_irq(plock);
+
+	if (!offline)
+		lpfc_issue_hb_tmo(phba);
+
 	/* Cancel all the IOCBs from the completions list */
 	lpfc_sli_cancel_iocbs(phba, &tx_completions, IOSTAT_LOCAL_REJECT,
 			      IOERR_SLI_ABORTED);
