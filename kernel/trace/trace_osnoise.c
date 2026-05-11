@@ -2544,9 +2544,12 @@ timerlat_fd_read(struct file *file, char __user *ubuf, size_t count,
 		notify_new_max_latency(diff);
 
 		tlat->tracing_thread = false;
-		if (osnoise_data.stop_tracing_total)
-			if (time_to_us(diff) >= osnoise_data.stop_tracing_total)
+		if (osnoise_data.stop_tracing_total) {
+			if (time_to_us(diff) >= osnoise_data.stop_tracing_total) {
+				timerlat_dump_stack(time_to_us(diff));
 				osnoise_stop_tracing();
+			}
+		}
 	} else {
 		tlat->tracing_thread = false;
 		tlat->kthread = current;
