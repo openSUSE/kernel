@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0 */
-#ifndef __THP_SETTINGS_H__
-#define __THP_SETTINGS_H__
+#ifndef __HUGEPAGE_SETTINGS_H__
+#define __HUGEPAGE_SETTINGS_H__
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -86,4 +86,4 @@ unsigned long thp_shmem_supported_orders(void);
 bool thp_available(void);
 bool thp_is_enabled(void);
 
-#endif /* __THP_SETTINGS_H__ */
+#endif /* __HUGEPAGE_SETTINGS_H__ */
