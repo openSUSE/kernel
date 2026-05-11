@@ -1612,6 +1612,7 @@ out_reg:
 	device_del(&adap->dev);
 err_remove_debugfs:
 	debugfs_remove_recursive(adap->debugfs);
+	pm_runtime_disable(&adap->dev);
 err_put_adap:
 	init_completion(&adap->dev_released);
 	put_device(&adap->dev);
