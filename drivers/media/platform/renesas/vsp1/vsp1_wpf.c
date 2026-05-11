@@ -111,9 +111,9 @@ static int vsp1_wpf_s_ctrl(struct v4l2_ctrl *ctrl)
 	if (rotation == 180 || rotation == 270)
 		flip ^= BIT(WPF_CTRL_VFLIP) | BIT(WPF_CTRL_HFLIP);
 
-	spin_lock_irq(&wpf->flip.lock);
+	guard(spinlock_irq)(&wpf->flip.lock);
+
 	wpf->flip.pending = flip;
-	spin_unlock_irq(&wpf->flip.lock);
 
 	return 0;
 }

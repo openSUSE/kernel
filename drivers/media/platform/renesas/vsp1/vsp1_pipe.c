@@ -487,14 +487,9 @@ void vsp1_pipeline_run(struct vsp1_pipeline *pipe)
 
 bool vsp1_pipeline_stopped(struct vsp1_pipeline *pipe)
 {
-	unsigned long flags;
-	bool stopped;
+	guard(spinlock_irqsave)(&pipe->irqlock);
 
-	spin_lock_irqsave(&pipe->irqlock, flags);
-	stopped = pipe->state == VSP1_PIPELINE_STOPPED;
-	spin_unlock_irqrestore(&pipe->irqlock, flags);
-
-	return stopped;
+	return pipe->state == VSP1_PIPELINE_STOPPED;
 }
 
 int vsp1_pipeline_stop(struct vsp1_pipeline *pipe)
