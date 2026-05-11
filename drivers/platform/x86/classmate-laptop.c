@@ -1098,13 +1098,13 @@ static int cmpc_keys_codes[] = {
 
 static void cmpc_keys_handler(acpi_handle handle, u32 event, void *data)
 {
-	struct acpi_device *dev = data;
+	struct device *dev = data;
 	struct input_dev *inputdev;
 	int code = KEY_MAX;
 
 	if ((event & 0x0F) < ARRAY_SIZE(cmpc_keys_codes))
 		code = cmpc_keys_codes[event & 0x0F];
-	inputdev = dev_get_drvdata(&dev->dev);
+	inputdev = dev_get_drvdata(dev);
 	input_report_key(inputdev, code, !(event & 0x10));
 	input_sync(inputdev);
 }
@@ -1118,27 +1118,32 @@ static void cmpc_keys_idev_init(struct input_dev *inputdev)
 		set_bit(cmpc_keys_codes[i], inputdev->keybit);
 }
 
-static int cmpc_keys_add(struct acpi_device *acpi)
+static int cmpc_keys_probe(struct platform_device *pdev)
 {
+	struct acpi_device *acpi;
 	int error;
 
-	error = cmpc_add_notify_device(&acpi->dev, "cmpc_keys", cmpc_keys_idev_init);
+	acpi = ACPI_COMPANION(&pdev->dev);
+	if (!acpi)
+		return -ENODEV;
+
+	error = cmpc_add_notify_device(&pdev->dev, "cmpc_keys", cmpc_keys_idev_init);
 	if (error)
 		return error;
 
 	error = acpi_dev_install_notify_handler(acpi, ACPI_DEVICE_NOTIFY,
-						cmpc_keys_handler, acpi);
+						cmpc_keys_handler, &pdev->dev);
 	if (error)
-		cmpc_remove_notify_device(&acpi->dev);
+		cmpc_remove_notify_device(&pdev->dev);
 
 	return error;
 }
 
-static void cmpc_keys_remove(struct acpi_device *acpi)
+static void cmpc_keys_remove(struct platform_device *pdev)
 {
-	acpi_dev_remove_notify_handler(acpi, ACPI_DEVICE_NOTIFY,
-				       cmpc_keys_handler);
-	cmpc_remove_notify_device(&acpi->dev);
+	acpi_dev_remove_notify_handler(ACPI_COMPANION(&pdev->dev),
+				       ACPI_DEVICE_NOTIFY, cmpc_keys_handler);
+	cmpc_remove_notify_device(&pdev->dev);
 }
 
 static const struct acpi_device_id cmpc_keys_device_ids[] = {
@@ -1146,14 +1151,13 @@ static const struct acpi_device_id cmpc_keys_device_ids[] = {
 	{"", 0}
 };
 
-static struct acpi_driver cmpc_keys_acpi_driver = {
-	.name = "cmpc_keys",
-	.class = "cmpc_keys",
-	.ids = cmpc_keys_device_ids,
-	.ops = {
-		.add = cmpc_keys_add,
-		.remove = cmpc_keys_remove,
-	}
+static struct platform_driver cmpc_keys_acpi_driver = {
+	.probe = cmpc_keys_probe,
+	.remove = cmpc_keys_remove,
+	.driver = {
+		.name = "cmpc_keys",
+		.acpi_match_table = cmpc_keys_device_ids,
+	},
 };
 
 
@@ -1165,7 +1169,7 @@ static int cmpc_init(void)
 {
 	int r;
 
-	r = acpi_bus_register_driver(&cmpc_keys_acpi_driver);
+	r = platform_driver_register(&cmpc_keys_acpi_driver);
 	if (r)
 		goto failed_keys;
 
@@ -1197,7 +1201,7 @@ failed_tablet:
 	platform_driver_unregister(&cmpc_ipml_acpi_driver);
 
 failed_bl:
-	acpi_bus_unregister_driver(&cmpc_keys_acpi_driver);
+	platform_driver_unregister(&cmpc_keys_acpi_driver);
 
 failed_keys:
 	return r;
@@ -1209,7 +1213,7 @@ static void cmpc_exit(void)
 	platform_driver_unregister(&cmpc_accel_acpi_driver);
 	platform_driver_unregister(&cmpc_tablet_acpi_driver);
 	platform_driver_unregister(&cmpc_ipml_acpi_driver);
-	acpi_bus_unregister_driver(&cmpc_keys_acpi_driver);
+	platform_driver_unregister(&cmpc_keys_acpi_driver);
 }
 
 module_init(cmpc_init);
