@@ -295,11 +295,12 @@ zl3073x_dpll_input_pin_ref_sync_set(const struct dpll_pin *dpll_pin,
 static int
 zl3073x_dpll_input_pin_ffo_get(const struct dpll_pin *dpll_pin, void *pin_priv,
 			       const struct dpll_device *dpll, void *dpll_priv,
-			       s64 *ffo, struct netlink_ext_ack *extack)
+			       struct dpll_ffo_param *ffo,
+			       struct netlink_ext_ack *extack)
 {
 	struct zl3073x_dpll_pin *pin = pin_priv;
 
-	*ffo = pin->freq_offset;
+	ffo->ffo = pin->freq_offset;
 
 	return 0;
 }
@@ -1274,6 +1275,7 @@ zl3073x_dpll_freq_monitor_set(const struct dpll_device *dpll,
 }
 
 static const struct dpll_pin_ops zl3073x_dpll_input_pin_ops = {
+	.supported_ffo = BIT(DPLL_FFO_PORT_RXTX_RATE),
 	.direction_get = zl3073x_dpll_pin_direction_get,
 	.esync_get = zl3073x_dpll_input_pin_esync_get,
 	.esync_set = zl3073x_dpll_input_pin_esync_set,
