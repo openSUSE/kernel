@@ -277,15 +277,26 @@ static ssize_t htminfo_read(struct file *filp, char __user *ubuf,
 	long rc, ret;
 	u64 *num_entries;
 	u64 to_copy;
+	loff_t offset = 0;
+	u64 info_offset = 0;
 
 	/*
 	 * Invoke H_HTM call with:
 	 * - operation as htm status (H_HTM_OP_STATUS)
 	 * - last three values as addr, size and offset
+	 *   "offset" is value from output buffer header
+	 *   that points to next entry to dump. 0 is the first
+	 *   entry to dump. next entry is read from the output
+	 *   bufferbyte offset 0x8.
 	 */
+	if (*ppos) {
+		info_offset = *(u64 *)(htm_info_data + 0x8);
+		if (info_offset == -1)
+			return 0;
+	}
 	rc = htm_hcall_wrapper(htmflags, nodeindex, nodalchipindex, coreindexonchip,
 				   htmtype, H_HTM_OP_DUMP_SYSPROC_CONF, virt_to_phys(htm_info_data),
-				   PAGE_SIZE, 0);
+				   PAGE_SIZE, be64_to_cpu(info_offset));
 
 	ret = htm_return_check(rc);
 	if (ret <= 0) {
@@ -303,7 +314,9 @@ static ssize_t htminfo_read(struct file *filp, char __user *ubuf,
 	 */
 	num_entries = htm_info_data + 0x10;
 	to_copy = 32 + (be64_to_cpu(*num_entries) * 16);
-	return simple_read_from_buffer(ubuf, count, ppos, htm_info_data, to_copy);
+
+	*ppos += to_copy;
+	return simple_read_from_buffer(ubuf, count, &offset, htm_info_data, to_copy);
 }
 
 static ssize_t htmcaps_read(struct file *filp, char __user *ubuf,
