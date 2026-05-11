@@ -33,7 +33,7 @@
 
 static size_t pagesize;
 static int nr_hugetlbsizes;
-static size_t hugetlbsizes[10];
+static unsigned long hugetlbsizes[10];
 static int gup_fd;
 
 static __fsword_t get_fs_type(int fd)

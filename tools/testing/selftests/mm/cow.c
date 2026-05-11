@@ -37,7 +37,7 @@ static size_t pmdsize;
 static int nr_thpsizes;
 static size_t thpsizes[20];
 static int nr_hugetlbsizes;
-static size_t hugetlbsizes[10];
+static unsigned long hugetlbsizes[10];
 static int gup_fd;
 static bool has_huge_zeropage;
 
