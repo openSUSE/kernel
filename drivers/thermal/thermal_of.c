@@ -98,7 +98,7 @@ static struct thermal_trip *thermal_of_trips_init(struct device_node *np, int *n
 	int ret, count;
 
 	*ntrips = 0;
-	
+
 	struct device_node *trips __free(device_node) = of_get_child_by_name(np, "trips");
 	if (!trips)
 		return NULL;
@@ -494,7 +494,7 @@ EXPORT_SYMBOL_GPL(devm_thermal_of_zone_register);
 /**
  * devm_thermal_of_zone_unregister - Resource managed version of
  *				thermal_of_zone_unregister().
- * @dev: Device for which which resource was allocated.
+ * @dev: Device for which resource was allocated.
  * @tz: a pointer to struct thermal_zone where the sensor is registered.
  *
  * This function removes the sensor callbacks and private data from the
