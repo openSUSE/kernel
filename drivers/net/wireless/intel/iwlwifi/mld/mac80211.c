@@ -2282,8 +2282,19 @@ static int iwl_mld_mac80211_set_key(struct ieee80211_hw *hw,
 				    struct ieee80211_sta *sta,
 				    struct ieee80211_key_conf *key)
 {
+	struct iwl_mld_vif *mld_vif = iwl_mld_vif_from_mac80211(vif);
 	struct iwl_mld *mld = IWL_MAC80211_GET_MLD(hw);
 	int ret;
+
+	/*
+	 * FW always needs the AP STA for client mode.
+	 * Note that during removal this could already
+	 * be NULL (mac80211 removes keys after STAs)
+	 * but then we'll already have removed the key
+	 * and set hw_key_idx = STA_KEY_IDX_INVALID.
+	 */
+	if (!sta && vif->type == NL80211_IFTYPE_STATION)
+		sta = mld_vif->ap_sta;
 
 	switch (cmd) {
 	case SET_KEY:

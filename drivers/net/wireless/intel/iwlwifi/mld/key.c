@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause
 /*
- * Copyright (C) 2024 Intel Corporation
+ * Copyright (C) 2024, 2026 Intel Corporation
  */
 #include "key.h"
 #include "iface.h"
@@ -12,7 +12,6 @@ static u32 iwl_mld_get_key_flags(struct iwl_mld *mld,
 				 struct ieee80211_sta *sta,
 				 struct ieee80211_key_conf *key)
 {
-	struct iwl_mld_vif *mld_vif = iwl_mld_vif_from_mac80211(vif);
 	bool pairwise = key->flags & IEEE80211_KEY_FLAG_PAIRWISE;
 	bool igtk = key->keyidx == 4 || key->keyidx == 5;
 	u32 flags = 0;
@@ -37,9 +36,6 @@ static u32 iwl_mld_get_key_flags(struct iwl_mld *mld,
 		flags |= IWL_SEC_KEY_FLAG_CIPHER_GCMP;
 		break;
 	}
-
-	if (!sta && vif->type == NL80211_IFTYPE_STATION)
-		sta = mld_vif->ap_sta;
 
 	/* If we are installing an iGTK (in AP or STA mode), we need to tell
 	 * the firmware this key will en/decrypt MGMT frames.
@@ -92,11 +88,7 @@ static u32 iwl_mld_get_key_sta_mask(struct iwl_mld *mld,
 		return BIT(link->mcast_sta.sta_id);
 	}
 
-	/* for client mode use the AP STA also for group keys */
-	if (!sta && vif->type == NL80211_IFTYPE_STATION)
-		sta = mld_vif->ap_sta;
-
-	/* STA should be non-NULL now */
+	/* STA should be non-NULL */
 	if (WARN_ON(!sta))
 		return 0;
 
