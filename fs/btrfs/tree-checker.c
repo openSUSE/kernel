@@ -2102,6 +2102,7 @@ static int check_free_space_info(struct extent_buffer *leaf, struct btrfs_key *k
 	struct btrfs_fs_info *fs_info = leaf->fs_info;
 	struct btrfs_free_space_info *fsi;
 	const u32 blocksize = fs_info->sectorsize;
+	u64 end;
 	u32 flags;
 
 	if (unlikely(!IS_ALIGNED(key->objectid, blocksize))) {
@@ -2114,6 +2115,12 @@ static int check_free_space_info(struct extent_buffer *leaf, struct btrfs_key *k
 		generic_err(leaf, slot,
 		"free space info key offset is not aligned to %u, has " BTRFS_KEY_FMT,
 			    blocksize, BTRFS_KEY_FMT_VALUE(key));
+		return -EUCLEAN;
+	}
+	if (unlikely(check_add_overflow(key->objectid, key->offset, &end))) {
+		generic_err(leaf, slot,
+			    "free space info key overflows, has " BTRFS_KEY_FMT,
+			    BTRFS_KEY_FMT_VALUE(key));
 		return -EUCLEAN;
 	}
 	if (unlikely(btrfs_item_size(leaf, slot) !=
@@ -2148,6 +2155,7 @@ static int check_free_space_common_key(struct extent_buffer *leaf, struct btrfs_
 	struct btrfs_fs_info *fs_info = leaf->fs_info;
 	const u32 blocksize = fs_info->sectorsize;
 	const char *type_str = (key->type == BTRFS_FREE_SPACE_EXTENT_KEY) ? "extent" : "bitmap";
+	u64 end;
 
 	if (unlikely(!IS_ALIGNED(key->objectid, blocksize))) {
 		generic_err(leaf, slot,
@@ -2163,6 +2171,12 @@ static int check_free_space_common_key(struct extent_buffer *leaf, struct btrfs_
 	}
 	if (unlikely(key->offset == 0)) {
 		generic_err(leaf, slot, "free space %s length is 0", type_str);
+		return -EUCLEAN;
+	}
+	if (unlikely(check_add_overflow(key->objectid, key->offset, &end))) {
+		generic_err(leaf, slot,
+			    "free space %s end overflow, have objectid %llu offset %llu",
+			    type_str, key->objectid, key->offset);
 		return -EUCLEAN;
 	}
 	return 0;
