@@ -1461,12 +1461,17 @@ struct dma_fence *xe_migrate_vram_copy_chunk(struct xe_bo *vram_bo, u64 vram_off
 	return fence;
 }
 
+static u32 blt_mem_set_cmd_len(struct xe_device *xe)
+{
+	return 7;
+}
+
 static void emit_clear_link_copy(struct xe_gt *gt, struct xe_bb *bb, u64 src_ofs,
 				 u32 size, u32 pitch)
 {
 	struct xe_device *xe = gt_to_xe(gt);
 	u32 *cs = bb->cs + bb->len;
-	u32 len = PVC_MEM_SET_CMD_LEN_DW;
+	u32 len = blt_mem_set_cmd_len(xe);
 
 	*cs++ = PVC_MEM_SET_CMD | PVC_MEM_SET_MATRIX | (len - 2);
 	*cs++ = pitch - 1;
@@ -1536,7 +1541,7 @@ static u32 emit_clear_cmd_len(struct xe_gt *gt)
 	struct xe_device *xe = gt_to_xe(gt);
 
 	if (gt->info.has_xe2_blt_instructions)
-		return PVC_MEM_SET_CMD_LEN_DW;
+		return blt_mem_set_cmd_len(xe);
 	else
 		return blt_fast_color_cmd_len(xe);
 }
