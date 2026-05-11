@@ -1543,6 +1543,8 @@ static int iomap_zero_iter(struct iomap_iter *iter, bool *did_zero,
 		size_t offset;
 		bool ret;
 
+		balance_dirty_pages_ratelimited(iter->inode->i_mapping);
+
 		bytes = min_t(u64, SIZE_MAX, bytes);
 		status = iomap_write_begin(iter, write_ops, &folio, &offset,
 				&bytes);
