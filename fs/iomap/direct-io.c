@@ -603,9 +603,6 @@ static int iomap_dio_inline_iter(struct iomap_iter *iomi, struct iomap_dio *dio)
 	if (WARN_ON_ONCE(!inline_data))
 		return -EIO;
 
-	if (WARN_ON_ONCE(!iomap_inline_data_valid(iomap)))
-		return -EIO;
-
 	if (dio->flags & IOMAP_DIO_WRITE) {
 		loff_t size = iomi->inode->i_size;
 
