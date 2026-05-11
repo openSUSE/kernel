@@ -57,6 +57,50 @@ static void vsp1_du_pipeline_frame_end(struct vsp1_pipeline *pipe,
  * Pipeline Configuration
  */
 
+/* Configure all entities in the pipeline. */
+static void vsp1_du_pipeline_configure(struct vsp1_pipeline *pipe)
+{
+	struct vsp1_drm_pipeline *drm_pipe = to_vsp1_drm_pipeline(pipe);
+	struct vsp1_entity *entity;
+	struct vsp1_entity *next;
+	struct vsp1_dl_list *dl;
+	struct vsp1_dl_body *dlb;
+	unsigned int dl_flags = 0;
+
+	vsp1_pipeline_calculate_partition(pipe, &pipe->part_table[0],
+					  drm_pipe->width, 0);
+
+	if (drm_pipe->force_brx_release)
+		dl_flags |= VSP1_DL_FRAME_END_INTERNAL;
+	if (pipe->output->writeback)
+		dl_flags |= VSP1_DL_FRAME_END_WRITEBACK;
+
+	dl = vsp1_dl_list_get(pipe->output->dlm);
+	dlb = vsp1_dl_list_get_body0(dl);
+
+	list_for_each_entry_safe(entity, next, &pipe->entities, list_pipe) {
+		/* Disconnect unused entities from the pipeline. */
+		if (!entity->pipe) {
+			vsp1_dl_body_write(dlb, entity->route->reg,
+					   VI6_DPR_NODE_UNUSED);
+
+			entity->sink = NULL;
+			list_del(&entity->list_pipe);
+
+			continue;
+		}
+
+		vsp1_entity_route_setup(entity, pipe, dlb);
+		vsp1_entity_configure_stream(entity, entity->state, pipe,
+					     dl, dlb);
+		vsp1_entity_configure_frame(entity, pipe, dl, dlb);
+		vsp1_entity_configure_partition(entity, pipe,
+						&pipe->part_table[0], dl, dlb);
+	}
+
+	vsp1_dl_list_commit(dl, dl_flags);
+}
+
 /*
  * Insert the UIF in the pipeline between the prev and next entities. If no UIF
  * is available connect the two entities directly.
@@ -224,8 +268,6 @@ static int vsp1_du_pipeline_setup_rpf(struct vsp1_device *vsp1,
 /* Setup the BRx source pad. */
 static int vsp1_du_pipeline_setup_inputs(struct vsp1_device *vsp1,
 					 struct vsp1_pipeline *pipe);
-static void vsp1_du_pipeline_configure(struct vsp1_pipeline *pipe);
-
 static int vsp1_du_pipeline_setup_brx(struct vsp1_device *vsp1,
 				      struct vsp1_pipeline *pipe)
 {
@@ -539,50 +581,6 @@ static int vsp1_du_pipeline_setup_output(struct vsp1_device *vsp1,
 	}
 
 	return 0;
-}
-
-/* Configure all entities in the pipeline. */
-static void vsp1_du_pipeline_configure(struct vsp1_pipeline *pipe)
-{
-	struct vsp1_drm_pipeline *drm_pipe = to_vsp1_drm_pipeline(pipe);
-	struct vsp1_entity *entity;
-	struct vsp1_entity *next;
-	struct vsp1_dl_list *dl;
-	struct vsp1_dl_body *dlb;
-	unsigned int dl_flags = 0;
-
-	vsp1_pipeline_calculate_partition(pipe, &pipe->part_table[0],
-					  drm_pipe->width, 0);
-
-	if (drm_pipe->force_brx_release)
-		dl_flags |= VSP1_DL_FRAME_END_INTERNAL;
-	if (pipe->output->writeback)
-		dl_flags |= VSP1_DL_FRAME_END_WRITEBACK;
-
-	dl = vsp1_dl_list_get(pipe->output->dlm);
-	dlb = vsp1_dl_list_get_body0(dl);
-
-	list_for_each_entry_safe(entity, next, &pipe->entities, list_pipe) {
-		/* Disconnect unused entities from the pipeline. */
-		if (!entity->pipe) {
-			vsp1_dl_body_write(dlb, entity->route->reg,
-					   VI6_DPR_NODE_UNUSED);
-
-			entity->sink = NULL;
-			list_del(&entity->list_pipe);
-
-			continue;
-		}
-
-		vsp1_entity_route_setup(entity, pipe, dlb);
-		vsp1_entity_configure_stream(entity, entity->state, pipe,
-					     dl, dlb);
-		vsp1_entity_configure_frame(entity, pipe, dl, dlb);
-		vsp1_entity_configure_partition(entity, pipe,
-						&pipe->part_table[0], dl, dlb);
-	}
-
-	vsp1_dl_list_commit(dl, dl_flags);
 }
 
 static int vsp1_du_pipeline_set_rwpf_format(struct vsp1_device *vsp1,
