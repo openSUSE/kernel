@@ -728,7 +728,22 @@ static void emit_copy_ccs(struct xe_gt *gt, struct xe_bb *bb,
 	bb->len = cs - bb->cs;
 }
 
-#define EMIT_COPY_DW 10
+static u32 blt_fast_copy_cmd_len(struct xe_device *xe)
+{
+	return 10;
+}
+
+static u32 blt_mem_copy_cmd_len(struct xe_device *xe)
+{
+	return 10;
+}
+
+static u32 emit_copy_cmd_len(struct xe_device *xe)
+{
+	return (xe->info.has_mem_copy_instr) ? blt_mem_copy_cmd_len(xe) :
+		  blt_fast_copy_cmd_len(xe);
+}
+
 static void emit_xy_fast_copy(struct xe_gt *gt, struct xe_bb *bb, u64 src_ofs,
 			      u64 dst_ofs, unsigned int size,
 			      unsigned int pitch)
@@ -736,6 +751,7 @@ static void emit_xy_fast_copy(struct xe_gt *gt, struct xe_bb *bb, u64 src_ofs,
 	struct xe_device *xe = gt_to_xe(gt);
 	u32 mocs = 0;
 	u32 tile_y = 0;
+	u32 len;
 
 	xe_gt_assert(gt, !(pitch & 3));
 	xe_gt_assert(gt, size / pitch <= S16_MAX);
@@ -748,7 +764,8 @@ static void emit_xy_fast_copy(struct xe_gt *gt, struct xe_bb *bb, u64 src_ofs,
 	if (GRAPHICS_VERx100(xe) >= 1250)
 		tile_y = XY_FAST_COPY_BLT_D1_SRC_TILE4 | XY_FAST_COPY_BLT_D1_DST_TILE4;
 
-	bb->cs[bb->len++] = XY_FAST_COPY_BLT_CMD | (10 - 2);
+	len = blt_fast_copy_cmd_len(xe);
+	bb->cs[bb->len++] = XY_FAST_COPY_BLT_CMD | (len - 2);
 	bb->cs[bb->len++] = XY_FAST_COPY_BLT_DEPTH_32 | pitch | tile_y | mocs;
 	bb->cs[bb->len++] = 0;
 	bb->cs[bb->len++] = (size / pitch) << 16 | pitch / 4;
@@ -765,6 +782,7 @@ static void emit_mem_copy(struct xe_gt *gt, struct xe_bb *bb, u64 src_ofs,
 			  u64 dst_ofs, unsigned int size, unsigned int pitch)
 {
 	u32 mode, copy_type, width;
+	u32 len;
 
 	xe_gt_assert(gt, IS_ALIGNED(size, pitch));
 	xe_gt_assert(gt, pitch <= U16_MAX);
@@ -790,7 +808,9 @@ static void emit_mem_copy(struct xe_gt *gt, struct xe_bb *bb, u64 src_ofs,
 
 	xe_gt_assert(gt, width <= U16_MAX);
 
-	bb->cs[bb->len++] = MEM_COPY_CMD | mode | copy_type;
+	len = blt_mem_copy_cmd_len(gt_to_xe(gt));
+
+	bb->cs[bb->len++] = MEM_COPY_CMD | mode | copy_type | (len - 2);
 	bb->cs[bb->len++] = width - 1;
 	bb->cs[bb->len++] = size / pitch - 1; /* ignored by hw for page-copy/linear above */
 	bb->cs[bb->len++] = pitch - 1;
@@ -967,7 +987,7 @@ static struct dma_fence *__xe_migrate_copy(struct xe_migrate *m,
 		}
 
 		/* Add copy commands size here */
-		batch_size += ((copy_only_ccs) ? 0 : EMIT_COPY_DW) +
+		batch_size += ((copy_only_ccs) ? 0 : emit_copy_cmd_len(xe)) +
 			((needs_ccs_emit ? EMIT_COPY_CCS_DW : 0));
 
 		bb = xe_bb_new(gt, batch_size, usm);
@@ -1406,7 +1426,7 @@ struct dma_fence *xe_migrate_vram_copy_chunk(struct xe_bo *vram_bo, u64 vram_off
 
 		batch_size += pte_update_size(m, 0, sysmem, &sysmem_it, &vram_L0, &sysmem_L0_ofs,
 					      &sysmem_L0_pt, 0, avail_pts, avail_pts);
-		batch_size += EMIT_COPY_DW;
+		batch_size += emit_copy_cmd_len(xe);
 
 		bb = xe_bb_new(gt, batch_size, usm);
 		if (IS_ERR(bb)) {
@@ -2216,7 +2236,7 @@ static struct dma_fence *xe_migrate_vram(struct xe_migrate *m,
 	xe_assert(xe, npages * PAGE_SIZE <= MAX_PREEMPTDISABLE_TRANSFER);
 
 	batch_size += pte_update_cmd_size(npages << PAGE_SHIFT);
-	batch_size += EMIT_COPY_DW;
+	batch_size += emit_copy_cmd_len(xe);
 
 	bb = xe_bb_new(gt, batch_size, use_usm_batch);
 	if (IS_ERR(bb)) {
