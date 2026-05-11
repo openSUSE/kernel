@@ -1724,8 +1724,16 @@ iwl_parse_nvm_mcc_info(struct iwl_trans *trans,
 	IWL_DEBUG_DEV(dev, IWL_DL_LAR, "building regdom for %d channels\n",
 		      num_of_ch);
 
-	/* build a regdomain rule for every valid channel */
-	regd = kzalloc_flex(*regd, reg_rules, num_of_ch);
+	/* build a regdomain rule for every valid channel.
+	 * Certain firmware versions might report no valid channels
+	 * if booted in RF-kill, i.e. not all calibrations etc. are
+	 * running. We'll get out of this situation later when the
+	 * rfkill is removed and we update the regdomain again, but
+	 * since cfg80211 doesn't accept an empty regdomain, we need
+	 * to allocate space for at least one rule to add a dummy
+	 * (unusable) rule in this case so we can init.
+	 */
+	regd = kzalloc_flex(*regd, reg_rules, num_of_ch ?: 1);
 	if (!regd)
 		return ERR_PTR(-ENOMEM);
 
@@ -1799,14 +1807,7 @@ iwl_parse_nvm_mcc_info(struct iwl_trans *trans,
 		reg_query_regdb_wmm(regd->alpha2, center_freq, rule);
 	}
 
-	/*
-	 * Certain firmware versions might report no valid channels
-	 * if booted in RF-kill, i.e. not all calibrations etc. are
-	 * running. We'll get out of this situation later when the
-	 * rfkill is removed and we update the regdomain again, but
-	 * since cfg80211 doesn't accept an empty regdomain, add a
-	 * dummy (unusable) rule here in this case so we can init.
-	 */
+	/* If no valid rules were found, add a dummy rule */
 	if (!valid_rules) {
 		valid_rules = 1;
 		rule = &regd->reg_rules[valid_rules - 1];
