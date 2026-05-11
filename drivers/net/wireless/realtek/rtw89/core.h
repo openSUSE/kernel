@@ -1015,6 +1015,13 @@ enum rtw89_sc_offset {
 	RTW89_SC_40_LOWER	= 10,
 };
 
+enum rtw89_rfsi_ctrl_band {
+	RFSI_CTRL_BAND_5_6GHZ,
+	RFSI_CTRL_BAND_2GHZ,
+
+	RFSI_CTRL_BAND_NUM,
+};
+
 /* only mgd features can be added to the enum */
 enum rtw89_wow_flags {
 	RTW89_WOW_FLAG_EN_MAGIC_PKT,
@@ -1038,6 +1045,7 @@ struct rtw89_chan {
 	enum rtw89_tx_comp_band tx_comp_band;
 	enum rtw89_sc_offset pri_ch_idx;
 	u8 pri_sb_idx;
+	enum rtw89_rfsi_ctrl_band rfsi_band;
 };
 
 struct rtw89_chan_rcd {

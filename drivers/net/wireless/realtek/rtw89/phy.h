@@ -572,13 +572,6 @@ struct rtw89_phy_rfk_log_fmt {
 	const struct rtw89_fw_element_hdr *elm[RTW89_PHY_C2H_RFK_LOG_FUNC_NUM];
 };
 
-enum rtw89_rfsi_ctrl_band {
-	RFSI_CTRL_BAND_5_6GHZ,
-	RFSI_CTRL_BAND_2GHZ,
-
-	RFSI_CTRL_BAND_NUM,
-};
-
 enum rtw89_mdpd_onoff {
 	MDPD_ON = 0,
 	MDPD_OFF = 1,
@@ -1032,6 +1025,7 @@ static inline void rtw89_phy_bb_wrap_init(struct rtw89_dev *rtwdev)
 }
 
 void rtw89_phy_bb_wrap_set_rfsi_ct_opt(struct rtw89_dev *rtwdev,
+				       enum rtw89_rfsi_ctrl_band ctrl_band,
 				       enum rtw89_phy_idx phy_idx);
 void rtw89_phy_bb_wrap_set_rfsi_bandedge_ch(struct rtw89_dev *rtwdev,
 					    const struct rtw89_chan *chan,

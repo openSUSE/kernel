@@ -646,6 +646,7 @@ static u32 rtw89_phy_bb_wrap_be_bandedge_decision(struct rtw89_dev *rtwdev,
 }
 
 void rtw89_phy_bb_wrap_set_rfsi_ct_opt(struct rtw89_dev *rtwdev,
+				       enum rtw89_rfsi_ctrl_band rfsi_band,
 				       enum rtw89_phy_idx phy_idx)
 {
 	const struct rtw89_bb_wrap_data *d = rtwdev->phy_info.bb_wrap_data;
@@ -655,7 +656,7 @@ void rtw89_phy_bb_wrap_set_rfsi_ct_opt(struct rtw89_dev *rtwdev,
 	if (!d || !d->common)
 		return;
 
-	val = d->common->bands[0].rfsi_ct_opt;
+	val = d->common->bands[rfsi_band].rfsi_ct_opt;
 
 	reg = rtw89_mac_reg_by_idx(rtwdev, R_RFSI_CT_OPT_0_BE4, phy_idx);
 	rtw89_write32(rtwdev, reg, val[0]);
@@ -1004,7 +1005,7 @@ static void rtw89_phy_bb_wrap_tx_rfsi_ctrl_init(struct rtw89_dev *rtwdev,
 	rtw89_phy_bb_set_mdpd_qam_comp_val(rtwdev, mac_idx);
 	rtw89_phy_bb_set_cim3k_val(rtwdev, mac_idx);
 
-	rtw89_phy_bb_wrap_set_rfsi_ct_opt(rtwdev, phy_idx);
+	rtw89_phy_bb_wrap_set_rfsi_ct_opt(rtwdev, 0, phy_idx);
 
 	rtw89_entity_get_conf(rtwdev, &conf);
 	chan = conf.chans[phy_idx];
