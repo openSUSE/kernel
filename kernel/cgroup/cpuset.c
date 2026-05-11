@@ -4231,6 +4231,9 @@ bool cpuset_current_node_allowed(int node, gfp_t gfp_mask)
 	if (gfp_mask & __GFP_HARDWALL)	/* If hardwall request, stop here */
 		return false;
 
+	if (cpuset_v2())
+		return true;
+
 	/* Not hardwall and node outside mems_allowed: scan up cpusets */
 	spin_lock_irqsave(&callback_lock, flags);
 
