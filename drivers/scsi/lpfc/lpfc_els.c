@@ -1107,7 +1107,7 @@ stop_rr_fcf_flogi:
 		vport->vmid_flag = 0;
 	}
 	if (sp->cmn.priority_tagging)
-		vport->phba->pport->vmid_flag |= (LPFC_VMID_ISSUE_QFPA |
+		vport->vmid_flag |= (LPFC_VMID_ISSUE_QFPA |
 						  LPFC_VMID_TYPE_PRIO);
 
 	/*
