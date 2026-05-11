@@ -6,6 +6,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+/* Transparent Huge Pages (THP) */
+
 enum thp_enabled {
 	THP_NEVER,
 	THP_ALWAYS,
@@ -85,5 +87,11 @@ unsigned long thp_shmem_supported_orders(void);
 
 bool thp_available(void);
 bool thp_is_enabled(void);
+
+/* HugeTLB */
+
+int detect_hugetlb_page_sizes(size_t sizes[], int max);
+unsigned long default_huge_page_size(void);
+unsigned long get_free_hugepages(void);
 
 #endif /* __HUGEPAGE_SETTINGS_H__ */

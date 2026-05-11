@@ -46,6 +46,7 @@
 #include <sys/ptrace.h>
 #include <setjmp.h>
 
+#include "hugepage_settings.h"
 #include "pkey-helpers.h"
 
 int iteration_nr = 1;
