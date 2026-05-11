@@ -231,15 +231,26 @@ static ssize_t htmstatus_read(struct file *filp, char __user *ubuf,
 	u64 *num_entries;
 	u64 to_copy;
 	int htmstatus_flag;
+	loff_t offset = 0;
+	u64 status_offset = 0;
 
 	/*
 	 * Invoke H_HTM call with:
 	 * - operation as htm status (H_HTM_OP_STATUS)
-	 * - last three values as addr, size and offset
+	 * - last three values as addr, size and offset.
+	 *   "offset" is value from output buffer header
+	 *   that points to next entry to dump. 0 is the first
+	 *   entry to dump. next entry is read from the output
+	 *   bufferbyte offset 0x8.
 	 */
+	if (*ppos) {
+		status_offset = *(u64 *)(htm_status_data + 0x8);
+		if (status_offset == -1)
+			return 0;
+	}
 	rc = htm_hcall_wrapper(htmflags, nodeindex, nodalchipindex, coreindexonchip,
 				   htmtype, H_HTM_OP_STATUS, virt_to_phys(htm_status_data),
-				   PAGE_SIZE, 0);
+				   PAGE_SIZE, be64_to_cpu(status_offset));
 
 	ret = htm_return_check(rc);
 	if (ret <= 0) {
@@ -261,7 +272,9 @@ static ssize_t htmstatus_read(struct file *filp, char __user *ubuf,
 	else
 		htmstatus_flag = 0x6;
 	to_copy = 32 + (be64_to_cpu(*num_entries) * htmstatus_flag);
-	return simple_read_from_buffer(ubuf, count, ppos, htm_status_data, to_copy);
+	*ppos += to_copy;
+
+	return simple_read_from_buffer(ubuf, count, &offset, htm_status_data, to_copy);
 }
 
 static const struct file_operations htmstatus_fops = {
