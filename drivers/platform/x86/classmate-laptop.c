@@ -997,11 +997,16 @@ struct ipml200_dev {
 	struct rfkill *rf;
 };
 
-static int cmpc_ipml_add(struct acpi_device *acpi)
+static int cmpc_ipml_probe(struct platform_device *pdev)
 {
 	int retval;
 	struct ipml200_dev *ipml;
 	struct backlight_properties props;
+	acpi_handle handle;
+
+	handle = ACPI_HANDLE(&pdev->dev);
+	if (!handle)
+		return -ENODEV;
 
 	ipml = kmalloc_obj(*ipml);
 	if (ipml == NULL)
@@ -1010,16 +1015,16 @@ static int cmpc_ipml_add(struct acpi_device *acpi)
 	memset(&props, 0, sizeof(struct backlight_properties));
 	props.type = BACKLIGHT_PLATFORM;
 	props.max_brightness = 7;
-	ipml->bd = backlight_device_register("cmpc_bl", &acpi->dev,
-					     acpi->handle, &cmpc_bl_ops,
+	ipml->bd = backlight_device_register("cmpc_bl", &pdev->dev,
+					     handle, &cmpc_bl_ops,
 					     &props);
 	if (IS_ERR(ipml->bd)) {
 		retval = PTR_ERR(ipml->bd);
 		goto out_bd;
 	}
 
-	ipml->rf = rfkill_alloc("cmpc_rfkill", &acpi->dev, RFKILL_TYPE_WLAN,
-				&cmpc_rfkill_ops, acpi->handle);
+	ipml->rf = rfkill_alloc("cmpc_rfkill", &pdev->dev, RFKILL_TYPE_WLAN,
+				&cmpc_rfkill_ops, handle);
 	/*
 	 * If RFKILL is disabled, rfkill_alloc will return ERR_PTR(-ENODEV).
 	 * This is OK, however, since all other uses of the device will not
@@ -1033,7 +1038,7 @@ static int cmpc_ipml_add(struct acpi_device *acpi)
 		}
 	}
 
-	dev_set_drvdata(&acpi->dev, ipml);
+	platform_set_drvdata(pdev, ipml);
 	return 0;
 
 out_bd:
@@ -1041,11 +1046,11 @@ out_bd:
 	return retval;
 }
 
-static void cmpc_ipml_remove(struct acpi_device *acpi)
+static void cmpc_ipml_remove(struct platform_device *pdev)
 {
 	struct ipml200_dev *ipml;
 
-	ipml = dev_get_drvdata(&acpi->dev);
+	ipml = platform_get_drvdata(pdev);
 
 	backlight_device_unregister(ipml->bd);
 
@@ -1062,14 +1067,13 @@ static const struct acpi_device_id cmpc_ipml_device_ids[] = {
 	{"", 0}
 };
 
-static struct acpi_driver cmpc_ipml_acpi_driver = {
-	.name = "cmpc",
-	.class = "cmpc",
-	.ids = cmpc_ipml_device_ids,
-	.ops = {
-		.add = cmpc_ipml_add,
-		.remove = cmpc_ipml_remove
-	}
+static struct platform_driver cmpc_ipml_acpi_driver = {
+	.probe = cmpc_ipml_probe,
+	.remove = cmpc_ipml_remove,
+	.driver = {
+		.name = "cmpc",
+		.acpi_match_table = cmpc_ipml_device_ids,
+	},
 };
 
 
@@ -1165,7 +1169,7 @@ static int cmpc_init(void)
 	if (r)
 		goto failed_keys;
 
-	r = acpi_bus_register_driver(&cmpc_ipml_acpi_driver);
+	r = platform_driver_register(&cmpc_ipml_acpi_driver);
 	if (r)
 		goto failed_bl;
 
@@ -1190,7 +1194,7 @@ failed_accel:
 	platform_driver_unregister(&cmpc_tablet_acpi_driver);
 
 failed_tablet:
-	acpi_bus_unregister_driver(&cmpc_ipml_acpi_driver);
+	platform_driver_unregister(&cmpc_ipml_acpi_driver);
 
 failed_bl:
 	acpi_bus_unregister_driver(&cmpc_keys_acpi_driver);
@@ -1204,7 +1208,7 @@ static void cmpc_exit(void)
 	platform_driver_unregister(&cmpc_accel_acpi_driver_v4);
 	platform_driver_unregister(&cmpc_accel_acpi_driver);
 	platform_driver_unregister(&cmpc_tablet_acpi_driver);
-	acpi_bus_unregister_driver(&cmpc_ipml_acpi_driver);
+	platform_driver_unregister(&cmpc_ipml_acpi_driver);
 	acpi_bus_unregister_driver(&cmpc_keys_acpi_driver);
 }
 
