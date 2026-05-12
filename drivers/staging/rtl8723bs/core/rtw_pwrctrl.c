@@ -302,7 +302,7 @@ static u8 PS_RDY_CHECK(struct adapter *padapter)
 
 	curr_time = jiffies;
 
-	delta_time = curr_time - pwrpriv->DelayLPSLastTimeStamp;
+	delta_time = curr_time - pwrpriv->delay_lps_last_time_stamp;
 
 	if (delta_time < LPS_DELAY_TIME)
 		return false;
