@@ -852,7 +852,11 @@ struct task_struct {
 	struct alloc_tag		*alloc_tag;
 #endif
 
-	int				on_cpu;
+	u8				on_cpu;
+	u8				on_rq;
+	u8				is_blocked;
+	u8				__pad;
+
 	struct __call_single_node	wake_entry;
 	unsigned int			wakee_flips;
 	unsigned long			wakee_flip_decay_ts;
@@ -867,7 +871,6 @@ struct task_struct {
 	 */
 	int				recent_used_cpu;
 	int				wake_cpu;
-	int				on_rq;
 
 	int				prio;
 	int				static_prio;
