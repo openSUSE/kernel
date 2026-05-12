@@ -785,8 +785,8 @@ void *knav_pool_create(const char *name,
 	pool->queue = knav_queue_open(name, KNAV_QUEUE_GP, 0);
 	if (IS_ERR(pool->queue)) {
 		dev_err(knav_qdev->dev,
-			"failed to open queue for pool(%s), error %ld\n",
-			name, PTR_ERR(pool->queue));
+			"failed to open queue for pool(%s), error %pe\n",
+			name, pool->queue);
 		ret = PTR_ERR(pool->queue);
 		goto err;
 	}
