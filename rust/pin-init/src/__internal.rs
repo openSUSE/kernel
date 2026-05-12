@@ -251,6 +251,83 @@ fn stack_init_reuse() {
 pub struct Pinned;
 pub struct Unpinned;
 
+/// Represent an uninitialized field.
+///
+/// # Invariants
+///
+/// - `ptr` is valid, properly aligned and points to uninitialized and exclusively accessed memory.
+/// - If `P` is `Pinned`, then `ptr` is structurally pinned.
+pub struct Slot<P, T: ?Sized> {
+    ptr: *mut T,
+    _phantom: PhantomData<P>,
+}
+
+impl<P, T: ?Sized> Slot<P, T> {
+    /// # Safety
+    ///
+    /// - `ptr` is valid, properly aligned and points to uninitialized and exclusively accessed
+    ///   memory.
+    /// - If `P` is `Pinned`, then `ptr` is structurally pinned.
+    #[inline(always)]
+    pub unsafe fn new(ptr: *mut T) -> Self {
+        // INVARIANT: Per safety requirement.
+        Self {
+            ptr,
+            _phantom: PhantomData,
+        }
+    }
+
+    /// Initialize the field by value.
+    #[inline(always)]
+    pub fn write(self, value: T) -> DropGuard<P, T>
+    where
+        T: Sized,
+    {
+        // SAFETY: `self.ptr` is a valid and aligned pointer for write.
+        unsafe { self.ptr.write(value) }
+        // SAFETY:
+        // - `self.ptr` is valid and properly aligned per type invariant.
+        // - `*self.ptr` is initialized above and the ownership is transferred to the guard.
+        // - If `P` is `Pinned`, `self.ptr` is pinned.
+        unsafe { DropGuard::new(self.ptr) }
+    }
+}
+
+impl<T: ?Sized> Slot<Unpinned, T> {
+    /// Initialize the field.
+    #[inline(always)]
+    pub fn init<E>(self, init: impl Init<T, E>) -> Result<DropGuard<Unpinned, T>, E> {
+        // SAFETY:
+        // - `self.ptr` is valid and properly aligned.
+        // - when `Err` is returned, we also propagate the error without touching `slot`;
+        //   also `self` is consumed so it cannot be touched further.
+        unsafe { init.__init(self.ptr)? };
+
+        // SAFETY:
+        // - `self.ptr` is valid and properly aligned per type invariant.
+        // - `*self.ptr` is initialized above and the ownership is transferred to the guard.
+        Ok(unsafe { DropGuard::new(self.ptr) })
+    }
+}
+
+impl<T: ?Sized> Slot<Pinned, T> {
+    /// Initialize the field.
+    #[inline(always)]
+    pub fn init<E>(self, init: impl PinInit<T, E>) -> Result<DropGuard<Pinned, T>, E> {
+        // SAFETY:
+        // - `self.ptr` is valid and properly aligned.
+        // - when `Err` is returned, we also propagate the error without touching `ptr`;
+        //   also `self` is consumed so it cannot be touched further.
+        // - the drop guard will not hand out `&mut` (only `Pin<&mut T>`).
+        unsafe { init.__pinned_init(self.ptr)? };
+
+        // SAFETY:
+        // - `self.ptr` is valid, properly aligned and pinned per type invariant.
+        // - `*self.ptr` is initialized above and the ownership is transferred to the guard.
+        Ok(unsafe { DropGuard::new(self.ptr) })
+    }
+}
+
 /// When a value of this type is dropped, it drops a `T`.
 ///
 /// Can be forgotten to prevent the drop.
