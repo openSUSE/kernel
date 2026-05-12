@@ -423,6 +423,29 @@ static inline int nlm_compare_locks(const struct file_lock *fl1,
 }
 
 /**
+ * lockd_set_file_lock_range3 - set the byte range of a file_lock
+ * @fl: file_lock whose length fields are to be initialized
+ * @off: starting offset of the lock, in bytes
+ * @len: length of the byte range, in bytes, or zero
+ *
+ * NLMv3 uses a (start, length) representation for lock byte ranges,
+ * while the kernel's file_lock uses (start, end). Treat a length of
+ * zero or arithmetic overflow (end wrapping negative when the sum
+ * exceeds S32_MAX) as "lock to end of file."
+ */
+static inline void
+lockd_set_file_lock_range3(struct file_lock *fl, u32 off, u32 len)
+{
+	s32 end = off + len - 1;
+
+	fl->fl_start = off;
+	if (len == 0 || end < 0)
+		fl->fl_end = OFFSET_MAX;
+	else
+		fl->fl_end = end;
+}
+
+/**
  * lockd_set_file_lock_range4 - set the byte range of a file_lock
  * @fl: file_lock whose length fields are to be initialized
  * @off: starting offset of the lock, in bytes

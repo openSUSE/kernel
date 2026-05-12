@@ -26,6 +26,106 @@
 
 #define NLMDBG_FACILITY		NLMDBG_CLIENT
 
+/*
+ * Size of an NFSv2 file handle, in bytes, which is 32.
+ * Defined locally to avoid including uapi/linux/nfs2.h.
+ */
+#define NLM3_FHSIZE		32
+
+/*
+ * Wrapper structures combine xdrgen types with legacy lockd_lock.
+ * The xdrgen field must be first so the structure can be cast
+ * to its XDR type for the RPC dispatch layer.
+ */
+struct nlm_testargs_wrapper {
+	struct nlm_testargs		xdrgen;
+	struct lockd_lock		lock;
+};
+
+static_assert(offsetof(struct nlm_testargs_wrapper, xdrgen) == 0);
+
+struct nlm_testres_wrapper {
+	struct nlm_testres		xdrgen;
+	struct lockd_lock		lock;
+};
+
+static_assert(offsetof(struct nlm_testres_wrapper, xdrgen) == 0);
+
+static struct nlm_host *
+nlm3svc_lookup_host(struct svc_rqst *rqstp, string caller, bool monitored)
+{
+	struct nlm_host *host;
+
+	if (!nlmsvc_ops)
+		return NULL;
+	host = nlmsvc_lookup_host(rqstp, caller.data, caller.len);
+	if (!host)
+		return NULL;
+	if (monitored && nsm_monitor(host) < 0) {
+		nlmsvc_release_host(host);
+		return NULL;
+	}
+	return host;
+}
+
+static __be32
+nlm3svc_lookup_file(struct svc_rqst *rqstp, struct nlm_host *host,
+		    struct lockd_lock *lock, struct nlm_file **filp,
+		    struct nlm_lock *xdr_lock, unsigned char type)
+{
+	bool is_test = (rqstp->rq_proc == NLMPROC_TEST ||
+			rqstp->rq_proc == NLMPROC_TEST_MSG);
+	struct file_lock *fl = &lock->fl;
+	struct nlm_file *file = NULL;
+	__be32 error;
+	int mode;
+
+	if (xdr_lock->fh.len != NLM3_FHSIZE)
+		return nlm_lck_denied_nolocks;
+	lock->fh.size = xdr_lock->fh.len;
+	memcpy(lock->fh.data, xdr_lock->fh.data, xdr_lock->fh.len);
+
+	lock->oh.len = xdr_lock->oh.len;
+	lock->oh.data = xdr_lock->oh.data;
+
+	lock->svid = xdr_lock->uppid;
+	lock->lock_start = xdr_lock->l_offset;
+	lock->lock_len = xdr_lock->l_len;
+
+	locks_init_lock(fl);
+	fl->c.flc_type = type;
+	lockd_set_file_lock_range3(fl, lock->lock_start, lock->lock_len);
+
+	mode = lock_to_openmode(fl);
+	if (is_test)
+		mode = O_RDWR;
+
+	error = nlm_lookup_file(rqstp, &file, lock, mode);
+	switch (error) {
+	case nlm_granted:
+		break;
+	case nlm__int__stale_fh:
+	case nlm__int__failed:
+		return nlm_lck_denied_nolocks;
+	default:
+		return error;
+	}
+	*filp = file;
+
+	fl->c.flc_flags = FL_POSIX;
+	if (is_test)
+		fl->c.flc_file = nlmsvc_file_file(file);
+	else
+		fl->c.flc_file = file->f_file[mode];
+	fl->c.flc_pid = current->tgid;
+	fl->fl_lmops = &nlmsvc_lock_operations;
+	nlmsvc_locks_init_private(fl, host, (pid_t)lock->svid);
+	if (!fl->c.flc_owner)
+		return nlm_lck_denied_nolocks;
+
+	return nlm_granted;
+}
+
 #ifdef CONFIG_LOCKD_V4
 static inline __be32 cast_status(__be32 status)
 {
@@ -178,10 +278,79 @@ __nlmsvc_proc_test(struct svc_rqst *rqstp, struct lockd_res *resp)
 	return rc;
 }
 
-static __be32
-nlmsvc_proc_test(struct svc_rqst *rqstp)
+/**
+ * nlmsvc_proc_test - TEST: Check for conflicting lock
+ * @rqstp: RPC transaction context
+ *
+ * Returns:
+ *   %rpc_success:		RPC executed successfully.
+ *   %rpc_drop_reply:		Do not send an RPC reply.
+ *
+ * RPC synopsis:
+ *   nlm_testres NLM_TEST(nlm_testargs) = 1;
+ *
+ * Permissible procedure status codes:
+ *   %LCK_GRANTED:		The server would be able to grant the
+ *				requested lock.
+ *   %LCK_DENIED:		The requested lock conflicted with existing
+ *				lock reservations for the file.
+ *   %LCK_DENIED_NOLOCKS:	The server could not allocate the resources
+ *				needed to process the request.
+ *   %LCK_DENIED_GRACE_PERIOD:	The server has recently restarted and is
+ *				re-establishing existing locks, and is not
+ *				yet ready to accept normal service requests.
+ */
+static __be32 nlmsvc_proc_test(struct svc_rqst *rqstp)
 {
-	return __nlmsvc_proc_test(rqstp, rqstp->rq_resp);
+	struct nlm_testargs_wrapper *argp = rqstp->rq_argp;
+	unsigned char type = argp->xdrgen.exclusive ? F_WRLCK : F_RDLCK;
+	struct nlm_testres_wrapper *resp = rqstp->rq_resp;
+	struct nlm_file *file = NULL;
+	struct nlm_host	*host;
+
+	resp->xdrgen.cookie = argp->xdrgen.cookie;
+
+	resp->xdrgen.test_stat.stat = nlm_lck_denied_nolocks;
+	host = nlm3svc_lookup_host(rqstp, argp->xdrgen.alock.caller_name, false);
+	if (!host)
+		goto out;
+
+	resp->xdrgen.test_stat.stat =
+		nlm3svc_lookup_file(rqstp, host, &argp->lock, &file,
+				    &argp->xdrgen.alock, type);
+	if (resp->xdrgen.test_stat.stat)
+		goto out;
+
+	resp->xdrgen.test_stat.stat =
+		cast_status(nlmsvc_testlock(rqstp, file, host, &argp->lock,
+					    &resp->lock));
+	nlmsvc_release_lockowner(&argp->lock);
+
+	if (resp->xdrgen.test_stat.stat == nlm_lck_denied) {
+		struct lockd_lock *conf = &resp->lock;
+		struct nlm_holder *holder = &resp->xdrgen.test_stat.u.holder;
+
+		holder->exclusive = (conf->fl.c.flc_type != F_RDLCK);
+		holder->uppid = conf->svid;
+		holder->oh.len = conf->oh.len;
+		holder->oh.data = conf->oh.data;
+		holder->l_offset = min_t(loff_t, conf->fl.fl_start,
+					 NLM_OFFSET_MAX);
+		if (conf->fl.fl_end == OFFSET_MAX)
+			holder->l_len = 0;
+		else
+			holder->l_len = min_t(loff_t,
+					      conf->fl.fl_end -
+					      conf->fl.fl_start + 1,
+					      NLM_OFFSET_MAX);
+	}
+
+out:
+	if (file)
+		nlm_release_file(file);
+	nlmsvc_release_host(host);
+	return resp->xdrgen.test_stat.stat == nlm__int__drop_reply ?
+		rpc_drop_reply : rpc_success;
 }
 
 static __be32
@@ -592,15 +761,15 @@ static const struct svc_procedure nlmsvc_procedures[24] = {
 		.pc_xdrressize	= XDR_void,
 		.pc_name	= "NULL",
 	},
-	[NLMPROC_TEST] = {
-		.pc_func = nlmsvc_proc_test,
-		.pc_decode = nlmsvc_decode_testargs,
-		.pc_encode = nlmsvc_encode_testres,
-		.pc_argsize = sizeof(struct lockd_args),
-		.pc_argzero = sizeof(struct lockd_args),
-		.pc_ressize = sizeof(struct lockd_res),
-		.pc_xdrressize = Ck+St+2+No+Rg,
-		.pc_name = "TEST",
+	[NLM_TEST] = {
+		.pc_func	= nlmsvc_proc_test,
+		.pc_decode	= nlm_svc_decode_nlm_testargs,
+		.pc_encode	= nlm_svc_encode_nlm_testres,
+		.pc_argsize	= sizeof(struct nlm_testargs_wrapper),
+		.pc_argzero	= 0,
+		.pc_ressize	= sizeof(struct nlm_testres_wrapper),
+		.pc_xdrressize	= NLM3_nlm_testres_sz,
+		.pc_name	= "TEST",
 	},
 	[NLMPROC_LOCK] = {
 		.pc_func = nlmsvc_proc_lock,
@@ -828,6 +997,8 @@ static const struct svc_procedure nlmsvc_procedures[24] = {
  * Storage requirements for XDR arguments and results
  */
 union nlmsvc_xdrstore {
+	struct nlm_testargs_wrapper	testargs;
+	struct nlm_testres_wrapper	testres;
 	struct lockd_args		args;
 	struct lockd_res		res;
 	struct lockd_reboot		reboot;
