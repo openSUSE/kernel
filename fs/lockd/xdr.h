@@ -20,8 +20,6 @@ struct nsm_private {
 	unsigned char		data[SM_PRIV_SIZE];
 };
 
-struct svc_rqst;
-
 #define NLM_MAXCOOKIELEN    	32
 #define NLM_MAXSTRLEN		1024
 
@@ -63,9 +61,6 @@ struct lockd_args {
 	u32			block;
 	u32			reclaim;
 	u32			state;
-	u32			monitor;
-	u32			fsm_access;
-	u32			fsm_mode;
 };
 
 /*
@@ -86,20 +81,5 @@ struct lockd_reboot {
 	u32			state;
 	struct nsm_private	priv;
 };
-
-bool	nlmsvc_decode_void(struct svc_rqst *rqstp, struct xdr_stream *xdr);
-bool	nlmsvc_decode_testargs(struct svc_rqst *rqstp, struct xdr_stream *xdr);
-bool	nlmsvc_decode_lockargs(struct svc_rqst *rqstp, struct xdr_stream *xdr);
-bool	nlmsvc_decode_cancargs(struct svc_rqst *rqstp, struct xdr_stream *xdr);
-bool	nlmsvc_decode_unlockargs(struct svc_rqst *rqstp, struct xdr_stream *xdr);
-bool	nlmsvc_decode_res(struct svc_rqst *rqstp, struct xdr_stream *xdr);
-bool	nlmsvc_decode_reboot(struct svc_rqst *rqstp, struct xdr_stream *xdr);
-bool	nlmsvc_decode_shareargs(struct svc_rqst *rqstp, struct xdr_stream *xdr);
-bool	nlmsvc_decode_notify(struct svc_rqst *rqstp, struct xdr_stream *xdr);
-
-bool	nlmsvc_encode_testres(struct svc_rqst *rqstp, struct xdr_stream *xdr);
-bool	nlmsvc_encode_res(struct svc_rqst *rqstp, struct xdr_stream *xdr);
-bool	nlmsvc_encode_void(struct svc_rqst *rqstp, struct xdr_stream *xdr);
-bool	nlmsvc_encode_shareres(struct svc_rqst *rqstp, struct xdr_stream *xdr);
 
 #endif /* _LOCKD_XDR_H */
