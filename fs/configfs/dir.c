@@ -563,16 +563,15 @@ out:
  * Walk the tree, resetting CONFIGFS_USET_DROPPING wherever it was
  * set.
  */
-static void configfs_detach_rollback(struct dentry *dentry)
+static void configfs_detach_rollback(struct configfs_dirent *parent_sd)
 {
-	struct configfs_dirent *parent_sd = dentry->d_fsdata;
 	struct configfs_dirent *sd;
 
 	parent_sd->s_type &= ~CONFIGFS_USET_DROPPING;
 
 	list_for_each_entry(sd, &parent_sd->s_children, s_sibling)
 		if (sd->s_type & CONFIGFS_USET_DEFAULT)
-			configfs_detach_rollback(sd->s_dentry);
+			configfs_detach_rollback(sd);
 }
 
 /*
@@ -1537,7 +1536,7 @@ static int configfs_rmdir(struct inode *dir, struct dentry *dentry)
 		if (!ret) {
 			ret = configfs_detach_prep(sd, &wait);
 			if (ret)
-				configfs_detach_rollback(dentry);
+				configfs_detach_rollback(sd);
 		}
 		spin_unlock(&configfs_dirent_lock);
 		mutex_unlock(&configfs_symlink_mutex);
@@ -1558,7 +1557,7 @@ static int configfs_rmdir(struct inode *dir, struct dentry *dentry)
 	frag = sd->s_frag;
 	if (down_write_killable(&frag->frag_sem)) {
 		spin_lock(&configfs_dirent_lock);
-		configfs_detach_rollback(dentry);
+		configfs_detach_rollback(sd);
 		spin_unlock(&configfs_dirent_lock);
 		config_item_put(parent_item);
 		return -EINTR;
