@@ -4554,6 +4554,9 @@ static const struct ieee80211_sband_iftype_data sband_capa_2ghz[] = {
 		},
 		.uhr_cap = {
 			.has_uhr = true,
+			.mac.mac_cap = {
+				[0] = IEEE80211_UHR_MAC_CAP0_NPCA_SUPP,
+			},
 			.phy.cap = IEEE80211_UHR_PHY_CAP_ELR_RX |
 				   IEEE80211_UHR_PHY_CAP_ELR_TX,
 		},
@@ -4667,6 +4670,9 @@ static const struct ieee80211_sband_iftype_data sband_capa_2ghz[] = {
 		},
 		.uhr_cap = {
 			.has_uhr = true,
+			.mac.mac_cap = {
+				[0] = IEEE80211_UHR_MAC_CAP0_NPCA_SUPP,
+			},
 			.phy.cap = IEEE80211_UHR_PHY_CAP_ELR_RX |
 				   IEEE80211_UHR_PHY_CAP_ELR_TX,
 		},
@@ -4841,6 +4847,9 @@ static const struct ieee80211_sband_iftype_data sband_capa_5ghz[] = {
 		},
 		.uhr_cap = {
 			.has_uhr = true,
+			.mac.mac_cap = {
+				[0] = IEEE80211_UHR_MAC_CAP0_NPCA_SUPP,
+			},
 			.phy.cap = IEEE80211_UHR_PHY_CAP_ELR_RX |
 				   IEEE80211_UHR_PHY_CAP_ELR_TX,
 		},
@@ -4971,6 +4980,9 @@ static const struct ieee80211_sband_iftype_data sband_capa_5ghz[] = {
 		},
 		.uhr_cap = {
 			.has_uhr = true,
+			.mac.mac_cap = {
+				[0] = IEEE80211_UHR_MAC_CAP0_NPCA_SUPP,
+			},
 			.phy.cap = IEEE80211_UHR_PHY_CAP_ELR_RX |
 				   IEEE80211_UHR_PHY_CAP_ELR_TX,
 		},
@@ -5169,6 +5181,9 @@ static const struct ieee80211_sband_iftype_data sband_capa_6ghz[] = {
 		},
 		.uhr_cap = {
 			.has_uhr = true,
+			.mac.mac_cap = {
+				[0] = IEEE80211_UHR_MAC_CAP0_NPCA_SUPP,
+			},
 			.phy.cap = IEEE80211_UHR_PHY_CAP_ELR_RX |
 				   IEEE80211_UHR_PHY_CAP_ELR_TX,
 		},
@@ -5320,6 +5335,9 @@ static const struct ieee80211_sband_iftype_data sband_capa_6ghz[] = {
 		},
 		.uhr_cap = {
 			.has_uhr = true,
+			.mac.mac_cap = {
+				[0] = IEEE80211_UHR_MAC_CAP0_NPCA_SUPP,
+			},
 			.phy.cap = IEEE80211_UHR_PHY_CAP_ELR_RX |
 				   IEEE80211_UHR_PHY_CAP_ELR_TX,
 		},
@@ -5416,6 +5434,9 @@ static const struct ieee80211_sband_iftype_data sband_capa_6ghz[] = {
 		},
 		.uhr_cap = {
 			.has_uhr = true,
+			.mac.mac_cap = {
+				[0] = IEEE80211_UHR_MAC_CAP0_NPCA_SUPP,
+			},
 			.phy.cap = IEEE80211_UHR_PHY_CAP_ELR_RX |
 				   IEEE80211_UHR_PHY_CAP_ELR_TX,
 		},
