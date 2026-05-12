@@ -2260,6 +2260,30 @@ void iwl_mld_handle_rx_queues_sync_notif(struct iwl_mld *mld,
 		wake_up(&mld->rxq_sync.waitq);
 }
 
+#ifdef CONFIG_PM_SLEEP
+void iwl_mld_handle_rsc_notif(struct iwl_mld *mld,
+			      struct iwl_rx_packet *pkt, int queue)
+{
+	const struct iwl_wowlan_all_rsc_tsc_v5 *notif = (void *)pkt->data;
+	u32 len = iwl_rx_packet_payload_len(pkt);
+	struct ieee80211_vif *bss_vif;
+
+	if (IWL_FW_CHECK(mld, len != sizeof(*notif),
+			 "invalid notification size %u (%zu)\n",
+			 len, sizeof(*notif)))
+		return;
+
+	/* for the bss lookup and updating the keys' pn */
+	guard(rcu)();
+
+	bss_vif = iwl_mld_get_bss_vif(mld);
+	if (WARN_ON(!bss_vif))
+		return;
+
+	iwl_mld_process_rsc_notification(mld, bss_vif, notif, queue);
+}
+#endif /* CONFIG_PM_SLEEP */
+
 static void iwl_mld_no_data_rx(struct iwl_mld *mld,
 			       struct napi_struct *napi,
 			       struct iwl_rx_phy_air_sniffer_ntfy *ntfy)

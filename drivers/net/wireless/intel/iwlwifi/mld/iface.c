@@ -853,6 +853,6 @@ struct ieee80211_vif *iwl_mld_get_bss_vif(struct iwl_mld *mld)
 
 	fw_id = __ffs(fw_id_bitmap);
 
-	return wiphy_dereference(mld->wiphy,
-				 mld->fw_id_to_vif[fw_id]);
+	return rcu_dereference_wiphy(mld->wiphy,
+				     mld->fw_id_to_vif[fw_id]);
 }

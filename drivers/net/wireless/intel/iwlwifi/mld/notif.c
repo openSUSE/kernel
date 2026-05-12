@@ -599,6 +599,11 @@ void iwl_mld_rx(struct iwl_op_mode *op_mode, struct napi_struct *napi,
 	else if (unlikely(cmd_id == WIDE_ID(DATA_PATH_GROUP,
 					    RX_QUEUES_NOTIFICATION)))
 		iwl_mld_handle_rx_queues_sync_notif(mld, napi, pkt, 0);
+#ifdef CONFIG_PM_SLEEP
+	else if (unlikely(cmd_id == WIDE_ID(DATA_PATH_GROUP,
+					    RSC_NOTIF)))
+		iwl_mld_handle_rsc_notif(mld, pkt, 0);
+#endif
 	else if (cmd_id == WIDE_ID(DATA_PATH_GROUP, PHY_AIR_SNIFFER_NOTIF))
 		iwl_mld_handle_phy_air_sniffer_notif(mld, napi, pkt);
 	else
@@ -622,6 +627,11 @@ void iwl_mld_rx_rss(struct iwl_op_mode *op_mode, struct napi_struct *napi,
 		iwl_mld_handle_rx_queues_sync_notif(mld, napi, pkt, queue);
 	else if (unlikely(cmd_id == WIDE_ID(LEGACY_GROUP, FRAME_RELEASE)))
 		iwl_mld_handle_frame_release_notif(mld, napi, pkt, queue);
+#ifdef CONFIG_PM_SLEEP
+	else if (unlikely(cmd_id == WIDE_ID(DATA_PATH_GROUP,
+					    RSC_NOTIF)))
+		iwl_mld_handle_rsc_notif(mld, pkt, queue);
+#endif
 }
 
 void iwl_mld_delete_handlers(struct iwl_mld *mld, const u16 *cmds, int n_cmds)
