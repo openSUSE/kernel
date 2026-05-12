@@ -1,7 +1,7 @@
 /*******************************************************************
  * This file is part of the Emulex Linux Device Driver for         *
  * Fibre Channel Host Bus Adapters.                                *
- * Copyright (C) 2017-2025 Broadcom. All Rights Reserved. The term *
+ * Copyright (C) 2017-2026 Broadcom. All Rights Reserved. The term *
  * “Broadcom” refers to Broadcom Inc. and/or its subsidiaries.     *
  * Copyright (C) 2004-2016 Emulex.  All rights reserved.           *
  * EMULEX and SLI are trademarks of Emulex.                        *
@@ -818,9 +818,10 @@ struct unsol_rcv_ct_ctx {
 #define LPFC_USER_LINK_SPEED_16G	16	/* 16 Gigabaud */
 #define LPFC_USER_LINK_SPEED_32G	32	/* 32 Gigabaud */
 #define LPFC_USER_LINK_SPEED_64G	64	/* 64 Gigabaud */
-#define LPFC_USER_LINK_SPEED_MAX	LPFC_USER_LINK_SPEED_64G
+#define LPFC_USER_LINK_SPEED_128G	128	/* 128 Gigabaud */
+#define LPFC_USER_LINK_SPEED_MAX	LPFC_USER_LINK_SPEED_128G
 
-#define LPFC_LINK_SPEED_STRING "0, 1, 2, 4, 8, 10, 16, 32, 64"
+#define LPFC_LINK_SPEED_STRING "0, 1, 2, 4, 8, 10, 16, 32, 64, 128"
 
 enum nemb_type {
 	nemb_mse = 1,
@@ -1023,7 +1024,6 @@ struct lpfc_hba {
 #define LPFC_SLI3_CRP_ENABLED		0x08
 #define LPFC_SLI3_BG_ENABLED		0x20
 #define LPFC_SLI3_DSS_ENABLED		0x40
-#define LPFC_SLI4_PERFH_ENABLED		0x80
 #define LPFC_SLI4_PHWQ_ENABLED		0x100
 	uint32_t iocb_cmd_size;
 	uint32_t iocb_rsp_size;
@@ -1196,7 +1196,6 @@ struct lpfc_hba {
 	uint32_t cfg_ras_fwlog_func;
 	uint32_t cfg_enable_bbcr;	/* Enable BB Credit Recovery */
 	uint32_t cfg_enable_dpp;	/* Enable Direct Packet Push */
-	uint32_t cfg_enable_pbde;
 	uint32_t cfg_enable_mi;
 	struct nvmet_fc_target_port *targetport;
 	lpfc_vpd_t vpd;		/* vital product data */
@@ -1703,6 +1702,8 @@ lpfc_phba_elsring(struct lpfc_hba *phba)
  * @mask: Pointer to phba's cpumask member.
  * @start: starting cpu index
  *
+ * Returns: next online CPU in @mask on success
+ *
  * Note: If no valid cpu found, then nr_cpu_ids is returned.
  *
  **/
@@ -1722,6 +1723,8 @@ lpfc_next_online_cpu(const struct cpumask *mask, unsigned int start)
  * lpfc_next_present_cpu - Finds next present CPU after n
  * @n: the cpu prior to search
  *
+ * Returns: next present CPU after CPU @n
+ *
  * Note: If no next present cpu, then fallback to first present cpu.
  *
  **/
@@ -1740,7 +1743,7 @@ static inline unsigned int lpfc_next_present_cpu(int n)
 /**
  * lpfc_sli4_mod_hba_eq_delay - update EQ delay
  * @phba: Pointer to HBA context object.
- * @q: The Event Queue to update.
+ * @eq: The Event Queue to update.
  * @delay: The delay value (in us) to be written.
  *
  **/
@@ -1802,8 +1805,9 @@ static const char *routine(enum enum_name table_key)			\
  * Pr Tag     1               0              N
  * Pr Tag     1               1              Y
  * Pr Tag     2               *              Y
- ---------------------------------------------------
+ * ---------------------------------------------------
  *
+ * Returns: whether VMID is enabled
  **/
 static inline int lpfc_is_vmid_enabled(struct lpfc_hba *phba)
 {
