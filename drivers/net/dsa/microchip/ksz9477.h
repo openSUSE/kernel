@@ -19,12 +19,12 @@ void ksz9477_r_mib_pkt(struct ksz_device *dev, int port, u16 addr,
 		       u64 *dropped, u64 *cnt);
 void ksz9477_freeze_mib(struct ksz_device *dev, int port, bool freeze);
 void ksz9477_port_init_cnt(struct ksz_device *dev, int port);
-int ksz9477_port_vlan_filtering(struct ksz_device *dev, int port,
+int ksz9477_port_vlan_filtering(struct dsa_switch *ds, int port,
 				bool flag, struct netlink_ext_ack *extack);
-int ksz9477_port_vlan_add(struct ksz_device *dev, int port,
+int ksz9477_port_vlan_add(struct dsa_switch *ds, int port,
 			  const struct switchdev_obj_port_vlan *vlan,
 			  struct netlink_ext_ack *extack);
-int ksz9477_port_vlan_del(struct ksz_device *dev, int port,
+int ksz9477_port_vlan_del(struct dsa_switch *ds, int port,
 			  const struct switchdev_obj_port_vlan *vlan);
 int ksz9477_port_mirror_add(struct ksz_device *dev, int port,
 			    struct dsa_mall_mirror_tc_entry *mirror,
