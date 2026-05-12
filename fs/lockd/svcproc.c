@@ -393,38 +393,6 @@ out:
 }
 
 static __be32
-__nlmsvc_proc_lock(struct svc_rqst *rqstp, struct lockd_res *resp)
-{
-	struct lockd_args *argp = rqstp->rq_argp;
-	struct nlm_host	*host;
-	struct nlm_file	*file;
-	__be32 rc = rpc_success;
-
-	dprintk("lockd: LOCK          called\n");
-
-	resp->cookie = argp->cookie;
-
-	/* Obtain client and file */
-	if ((resp->status = nlmsvc_retrieve_args(rqstp, argp, &host, &file)))
-		return resp->status == nlm__int__drop_reply ?
-			rpc_drop_reply : rpc_success;
-
-	/* Now try to lock the file */
-	resp->status = cast_status(nlmsvc_lock(rqstp, file, host, &argp->lock,
-					       argp->block, &argp->cookie,
-					       argp->reclaim));
-	if (resp->status == nlm__int__drop_reply)
-		rc = rpc_drop_reply;
-	else
-		dprintk("lockd: LOCK         status %d\n", ntohl(resp->status));
-
-	nlmsvc_release_lockowner(&argp->lock);
-	nlmsvc_release_host(host);
-	nlm_release_file(file);
-	return rc;
-}
-
-static __be32
 nlmsvc_do_lock(struct svc_rqst *rqstp, bool monitored)
 {
 	struct nlm_lockargs_wrapper *argp = rqstp->rq_argp;
@@ -1218,18 +1186,34 @@ out:
 		rpc_drop_reply : rpc_success;
 }
 
-/*
- * NM_LOCK: Create an unmonitored lock
+/**
+ * nlmsvc_proc_nm_lock - NM_LOCK: Establish a non-monitored lock
+ * @rqstp: RPC transaction context
+ *
+ * Returns:
+ *   %rpc_success:		RPC executed successfully.
+ *   %rpc_drop_reply:		Do not send an RPC reply.
+ *
+ * RPC synopsis:
+ *   nlm_res NLM_NM_LOCK(nlm_lockargs) = 22;
+ *
+ * Permissible procedure status codes:
+ *   %LCK_GRANTED:		The requested lock was granted.
+ *   %LCK_DENIED:		The requested lock conflicted with existing
+ *				lock reservations for the file.
+ *   %LCK_DENIED_NOLOCKS:	The server could not allocate the resources
+ *				needed to process the request.
+ *   %LCK_BLOCKED:		The blocking request cannot be granted
+ *				immediately. The server will send an
+ *				NLM_GRANTED callback to the client when
+ *				the lock can be granted.
+ *   %LCK_DENIED_GRACE_PERIOD:	The server has recently restarted and is
+ *				re-establishing existing locks, and is not
+ *				yet ready to accept normal service requests.
  */
-static __be32
-nlmsvc_proc_nm_lock(struct svc_rqst *rqstp)
+static __be32 nlmsvc_proc_nm_lock(struct svc_rqst *rqstp)
 {
-	struct lockd_args *argp = rqstp->rq_argp;
-
-	dprintk("lockd: NM_LOCK       called\n");
-
-	argp->monitor = 0;		/* just clean the monitor flag */
-	return __nlmsvc_proc_lock(rqstp, rqstp->rq_resp);
+	return nlmsvc_do_lock(rqstp, false);
 }
 
 /*
@@ -1482,15 +1466,15 @@ static const struct svc_procedure nlmsvc_procedures[24] = {
 		.pc_xdrressize	= NLM3_nlm_shareres_sz,
 		.pc_name	= "UNSHARE",
 	},
-	[NLMPROC_NM_LOCK] = {
-		.pc_func = nlmsvc_proc_nm_lock,
-		.pc_decode = nlmsvc_decode_lockargs,
-		.pc_encode = nlmsvc_encode_res,
-		.pc_argsize = sizeof(struct lockd_args),
-		.pc_argzero = sizeof(struct lockd_args),
-		.pc_ressize = sizeof(struct lockd_res),
-		.pc_xdrressize = Ck+St,
-		.pc_name = "NM_LOCK",
+	[NLM_NM_LOCK] = {
+		.pc_func	= nlmsvc_proc_nm_lock,
+		.pc_decode	= nlm_svc_decode_nlm_lockargs,
+		.pc_encode	= nlm_svc_encode_nlm_res,
+		.pc_argsize	= sizeof(struct nlm_lockargs_wrapper),
+		.pc_argzero	= 0,
+		.pc_ressize	= sizeof(struct nlm_res_wrapper),
+		.pc_xdrressize	= NLM3_nlm_res_sz,
+		.pc_name	= "NM_LOCK",
 	},
 	[NLMPROC_FREE_ALL] = {
 		.pc_func = nlmsvc_proc_free_all,
