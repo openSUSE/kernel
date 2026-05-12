@@ -735,6 +735,8 @@ struct iwl_rx_mpdu_desc {
 	     * RX_MPDU_RES_START_API_S_VER_4,
 	     * RX_MPDU_RES_START_API_S_VER_5,
 	     * RX_MPDU_RES_START_API_S_VER_6
+	     * RX_MPDU_RES_START_API_S_VER_7
+	     * RX_MPDU_RES_START_API_S_VER_8
 	     */
 
 #define IWL_RX_DESC_SIZE_V1 offsetofend(struct iwl_rx_mpdu_desc, v1)
