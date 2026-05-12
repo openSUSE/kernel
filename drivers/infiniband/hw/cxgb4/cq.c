@@ -1115,13 +1115,11 @@ int c4iw_create_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr,
 		/* communicate to the userspace that
 		 * kernel driver supports 64B CQE
 		 */
-		uresp.flags |= C4IW_64B_CQE;
+		if (!ucontext->is_32b_cqe)
+			uresp.flags |= C4IW_64B_CQE;
 
 		spin_unlock(&ucontext->mmap_lock);
-		ret = ib_copy_to_udata(udata, &uresp,
-				       ucontext->is_32b_cqe ?
-				       sizeof(uresp) - sizeof(uresp.flags) :
-				       sizeof(uresp));
+		ret = ib_respond_udata(udata, uresp);
 		if (ret)
 			goto err_free_mm2;
 
