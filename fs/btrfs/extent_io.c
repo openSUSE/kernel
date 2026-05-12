@@ -250,8 +250,6 @@ static void process_one_folio(struct btrfs_fs_info *fs_info,
 	ASSERT(end + 1 - start != 0 && end + 1 - start < U32_MAX);
 	len = end + 1 - start;
 
-	if (page_ops & PAGE_SET_ORDERED)
-		btrfs_folio_clamp_set_ordered(fs_info, folio, start, len);
 	if (page_ops & PAGE_START_WRITEBACK) {
 		btrfs_folio_clamp_clear_dirty(fs_info, folio, start, len);
 		btrfs_folio_clamp_set_writeback(fs_info, folio, start, len);
@@ -530,7 +528,6 @@ static void end_bbio_data_write(struct btrfs_bio *bbio)
 		u32 len = fi.length;
 
 		bio_size += len;
-		btrfs_folio_clear_ordered(fs_info, folio, start, len);
 		btrfs_folio_clear_writeback(fs_info, folio, start, len);
 	}
 
@@ -1629,7 +1626,6 @@ static noinline_for_stack int writepage_delalloc(struct btrfs_inode *inode,
 			u64 start = page_start + (start_bit << fs_info->sectorsize_bits);
 			u32 len = (end_bit - start_bit) << fs_info->sectorsize_bits;
 
-			btrfs_folio_clear_ordered(fs_info, folio, start, len);
 			btrfs_mark_ordered_io_finished(inode, start, len, false);
 		}
 		return ret;
@@ -1707,7 +1703,6 @@ static int submit_one_sector(struct btrfs_inode *inode,
 		 * ordered extent.
 		 */
 		btrfs_folio_clear_dirty(fs_info, folio, filepos, sectorsize);
-		btrfs_folio_clear_ordered(fs_info, folio, filepos, sectorsize);
 		btrfs_folio_set_writeback(fs_info, folio, filepos, sectorsize);
 		btrfs_folio_clear_writeback(fs_info, folio, filepos, sectorsize);
 
@@ -1756,7 +1751,6 @@ static int submit_one_sector(struct btrfs_inode *inode,
 				     sectorsize, filepos - folio_pos(folio), 0);
 	if (unlikely(queued < sectorsize)) {
 		btrfs_folio_clear_writeback(fs_info, folio, filepos, sectorsize);
-		btrfs_folio_clear_ordered(fs_info, folio, filepos, sectorsize);
 		btrfs_mark_ordered_io_finished(inode, filepos, fs_info->sectorsize,
 					       false);
 		return -EUCLEAN;
@@ -1821,7 +1815,6 @@ static noinline_for_stack int extent_writepage_io(struct btrfs_inode *inode,
 			spin_unlock(&inode->ordered_tree_lock);
 			btrfs_put_ordered_extent(ordered);
 
-			btrfs_folio_clear_ordered(fs_info, folio, cur, fs_info->sectorsize);
 			btrfs_mark_ordered_io_finished(inode, cur, fs_info->sectorsize, true);
 			/*
 			 * This range is beyond i_size, thus we don't need to
