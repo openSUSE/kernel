@@ -16,6 +16,23 @@
 #include "fw/api/context.h"
 #include "fw/dbg.h"
 
+/**
+ * struct iwl_mld_link_chan_load_threshold - channel load thresholds
+ * @high_lim: level up transition thresholds, in percentage
+ * @low_lim: level down transition thresholds, in percentage
+ */
+struct iwl_mld_link_chan_load_threshold {
+	u8 high_lim;
+	u8 low_lim;
+};
+
+static const struct iwl_mld_link_chan_load_threshold
+link_chan_load_thresh_tbl[] = {
+	[LINK_CHAN_LOAD_LVL1] = { .high_lim = 45, .low_lim = 40 },
+	[LINK_CHAN_LOAD_LVL2] = { .high_lim = 70, .low_lim = 65 },
+	[LINK_CHAN_LOAD_LVL3] = { .high_lim = 85, .low_lim = 80 },
+};
+
 int iwl_mld_send_link_cmd(struct iwl_mld *mld,
 			  struct iwl_link_config_cmd *cmd,
 			  enum iwl_ctxt_action action)
@@ -790,6 +807,50 @@ int iwl_mld_get_chan_load_by_others(struct iwl_mld *mld,
 		chan_load -= chan_load_by_us;
 
 	return chan_load;
+}
+
+/* Returns whether internal MLO Scan needs to be triggered */
+bool iwl_mld_chan_load_requires_scan(struct iwl_mld *mld,
+				     struct ieee80211_bss_conf *link_conf,
+				     u32 new_chan_load)
+{
+	struct iwl_mld_link *mld_link = iwl_mld_link_from_mac80211(link_conf);
+	enum iwl_mld_link_chan_load_level new_lvl;
+	bool scan_trig = false;
+
+	if (WARN_ON(!mld_link))
+		return false;
+
+	/* For each Level,
+	 * First check if high limit threshold crosses
+	 * If not then, check if low limit threshold crosses
+	 * Set new level based on low limit thresh only if old level
+	 * is not lower than level threshold
+	 */
+	for (new_lvl = LINK_CHAN_LOAD_LVL_MAX;
+	     new_lvl > LINK_CHAN_LOAD_LVL_NONE; new_lvl--) {
+		if (new_chan_load >=
+		    link_chan_load_thresh_tbl[new_lvl].high_lim)
+			break;
+		if (new_chan_load >=
+		    link_chan_load_thresh_tbl[new_lvl].low_lim &&
+		    mld_link->chan_load_lvl >= new_lvl)
+			break;
+	}
+
+	/* Trigger scan only for Level Up Transition */
+	if (new_lvl > mld_link->chan_load_lvl)
+		scan_trig = true;
+
+	IWL_DEBUG_EHT(mld,
+		      "Link %d: chan_load=%d%%, old_lvl=%d, new_lvl=%d, scan_trig=%d\n",
+		      link_conf->link_id, new_chan_load,
+		      mld_link->chan_load_lvl, new_lvl, scan_trig);
+
+	/* Update computed new level */
+	mld_link->chan_load_lvl = new_lvl;
+
+	return scan_trig;
 }
 
 static unsigned int

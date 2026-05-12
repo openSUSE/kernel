@@ -10,6 +10,14 @@
 #include "mld.h"
 #include "sta.h"
 
+enum iwl_mld_link_chan_load_level {
+	LINK_CHAN_LOAD_LVL_NONE,
+	LINK_CHAN_LOAD_LVL1,
+	LINK_CHAN_LOAD_LVL2,
+	LINK_CHAN_LOAD_LVL3,
+	LINK_CHAN_LOAD_LVL_MAX  = LINK_CHAN_LOAD_LVL3
+};
+
 /**
  * struct iwl_probe_resp_data - data for NoA/CSA updates
  * @rcu_head: used for freeing the data on update
@@ -50,6 +58,8 @@ struct iwl_probe_resp_data {
  * @silent_deactivation: next deactivation needs to be silent.
  * @probe_resp_data: data from FW notification to store NOA related data to be
  *	inserted into probe response.
+ * @chan_load_lvl: current channel load level for a link, computed based on
+ *	channel load by others on a link.
  */
 struct iwl_mld_link {
 	struct rcu_head rcu_head;
@@ -63,6 +73,7 @@ struct iwl_mld_link {
 		bool he_ru_2mhz_block;
 		struct ieee80211_key_conf *tx_igtk;
 		struct ieee80211_key_conf __rcu *bigtks[2];
+		enum iwl_mld_link_chan_load_level chan_load_lvl;
 	);
 	/* And here fields that survive a fw restart */
 	struct iwl_mld_int_sta bcast_sta;
@@ -134,6 +145,10 @@ unsigned int iwl_mld_get_chan_load(struct iwl_mld *mld,
 int iwl_mld_get_chan_load_by_others(struct iwl_mld *mld,
 				    struct ieee80211_bss_conf *link_conf,
 				    bool expect_active_link);
+
+bool  iwl_mld_chan_load_requires_scan(struct iwl_mld *mld,
+				      struct ieee80211_bss_conf *link_conf,
+				      u32 new_chan_load);
 
 void iwl_mld_handle_beacon_filter_notif(struct iwl_mld *mld,
 					struct iwl_rx_packet *pkt);

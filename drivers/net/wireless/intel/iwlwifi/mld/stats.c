@@ -515,6 +515,10 @@ static void iwl_mld_fill_chanctx_stats(struct ieee80211_hw *hw,
 						  (old_load >> 1);
 	}
 
+	IWL_DEBUG_EHT(phy->mld,
+		      "PHY %d: load_by_us=%u%% load_not_by_us=%u%%\n",
+		      phy->fw_id, phy->channel_load_by_us, new_load);
+
 	iwl_mld_emlsr_check_chan_load(hw, phy, old_load);
 }
 
