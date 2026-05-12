@@ -354,7 +354,7 @@ static void nlm4_xdr_enc_testargs(struct rpc_rqst *req,
 				  struct xdr_stream *xdr,
 				  const void *data)
 {
-	const struct nlm_args *args = data;
+	const struct lockd_args *args = data;
 	const struct lockd_lock *lock = &args->lock;
 
 	encode_cookie(xdr, &args->cookie);
@@ -376,7 +376,7 @@ static void nlm4_xdr_enc_lockargs(struct rpc_rqst *req,
 				  struct xdr_stream *xdr,
 				  const void *data)
 {
-	const struct nlm_args *args = data;
+	const struct lockd_args *args = data;
 	const struct lockd_lock *lock = &args->lock;
 
 	encode_cookie(xdr, &args->cookie);
@@ -399,7 +399,7 @@ static void nlm4_xdr_enc_cancargs(struct rpc_rqst *req,
 				  struct xdr_stream *xdr,
 				  const void *data)
 {
-	const struct nlm_args *args = data;
+	const struct lockd_args *args = data;
 	const struct lockd_lock *lock = &args->lock;
 
 	encode_cookie(xdr, &args->cookie);
@@ -418,7 +418,7 @@ static void nlm4_xdr_enc_unlockargs(struct rpc_rqst *req,
 				    struct xdr_stream *xdr,
 				    const void *data)
 {
-	const struct nlm_args *args = data;
+	const struct lockd_args *args = data;
 	const struct lockd_lock *lock = &args->lock;
 
 	encode_cookie(xdr, &args->cookie);

@@ -154,7 +154,7 @@ nlmsvc_decode_void(struct svc_rqst *rqstp, struct xdr_stream *xdr)
 bool
 nlmsvc_decode_testargs(struct svc_rqst *rqstp, struct xdr_stream *xdr)
 {
-	struct nlm_args *argp = rqstp->rq_argp;
+	struct lockd_args *argp = rqstp->rq_argp;
 	u32 exclusive;
 
 	if (!svcxdr_decode_cookie(xdr, &argp->cookie))
@@ -172,7 +172,7 @@ nlmsvc_decode_testargs(struct svc_rqst *rqstp, struct xdr_stream *xdr)
 bool
 nlmsvc_decode_lockargs(struct svc_rqst *rqstp, struct xdr_stream *xdr)
 {
-	struct nlm_args *argp = rqstp->rq_argp;
+	struct lockd_args *argp = rqstp->rq_argp;
 	u32 exclusive;
 
 	if (!svcxdr_decode_cookie(xdr, &argp->cookie))
@@ -197,7 +197,7 @@ nlmsvc_decode_lockargs(struct svc_rqst *rqstp, struct xdr_stream *xdr)
 bool
 nlmsvc_decode_cancargs(struct svc_rqst *rqstp, struct xdr_stream *xdr)
 {
-	struct nlm_args *argp = rqstp->rq_argp;
+	struct lockd_args *argp = rqstp->rq_argp;
 	u32 exclusive;
 
 	if (!svcxdr_decode_cookie(xdr, &argp->cookie))
@@ -217,7 +217,7 @@ nlmsvc_decode_cancargs(struct svc_rqst *rqstp, struct xdr_stream *xdr)
 bool
 nlmsvc_decode_unlockargs(struct svc_rqst *rqstp, struct xdr_stream *xdr)
 {
-	struct nlm_args *argp = rqstp->rq_argp;
+	struct lockd_args *argp = rqstp->rq_argp;
 
 	if (!svcxdr_decode_cookie(xdr, &argp->cookie))
 		return false;
@@ -270,7 +270,7 @@ nlmsvc_decode_reboot(struct svc_rqst *rqstp, struct xdr_stream *xdr)
 bool
 nlmsvc_decode_shareargs(struct svc_rqst *rqstp, struct xdr_stream *xdr)
 {
-	struct nlm_args *argp = rqstp->rq_argp;
+	struct lockd_args *argp = rqstp->rq_argp;
 	struct lockd_lock *lock = &argp->lock;
 
 	memset(lock, 0, sizeof(*lock));
@@ -297,7 +297,7 @@ nlmsvc_decode_shareargs(struct svc_rqst *rqstp, struct xdr_stream *xdr)
 bool
 nlmsvc_decode_notify(struct svc_rqst *rqstp, struct xdr_stream *xdr)
 {
-	struct nlm_args *argp = rqstp->rq_argp;
+	struct lockd_args *argp = rqstp->rq_argp;
 	struct lockd_lock *lock = &argp->lock;
 
 	if (!svcxdr_decode_string(xdr, &lock->caller, &lock->len))

@@ -128,7 +128,7 @@ static struct nlm_lockowner *nlmclnt_find_lockowner(struct nlm_host *host, fl_ow
  */
 static void nlmclnt_setlockargs(struct nlm_rqst *req, struct file_lock *fl)
 {
-	struct nlm_args	*argp = &req->a_args;
+	struct lockd_args *argp = &req->a_args;
 	struct lockd_lock *lock = &argp->lock;
 	char *nodename = req->a_host->h_rpcclnt->cl_nodename;
 
@@ -266,7 +266,7 @@ nlmclnt_call(const struct cred *cred, struct nlm_rqst *req, u32 proc)
 {
 	struct nlm_host	*host = req->a_host;
 	struct rpc_clnt	*clnt;
-	struct nlm_args	*argp = &req->a_args;
+	struct lockd_args *argp = &req->a_args;
 	struct nlm_res	*resp = &req->a_res;
 	struct rpc_message msg = {
 		.rpc_argp	= argp,

@@ -57,7 +57,7 @@ struct lockd_cookie {
 /*
  * Generic lockd arguments for all but sm_notify
  */
-struct nlm_args {
+struct lockd_args {
 	struct lockd_cookie	cookie;
 	struct lockd_lock	lock;
 	u32			block;

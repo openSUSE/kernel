@@ -171,7 +171,7 @@ struct nlm_rqst {
 	refcount_t		a_count;
 	unsigned int		a_flags;	/* initial RPC task flags */
 	struct nlm_host *	a_host;		/* host handle */
-	struct nlm_args		a_args;		/* arguments */
+	struct lockd_args	a_args;		/* arguments */
 	struct nlm_res		a_res;		/* result */
 	struct nlm_block *	a_block;
 	unsigned int		a_retries;	/* Retry count */
