@@ -56,6 +56,7 @@ properties:
           - enum:
               - qcom,eliza-tsens
               - qcom,glymur-tsens
+              - qcom,hawi-tsens
               - qcom,kaanapali-tsens
               - qcom,milos-tsens
               - qcom,nord-tsens
