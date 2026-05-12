@@ -61,6 +61,7 @@ static_assert(offsetof(struct nlm_lockargs_wrapper, xdrgen) == 0);
 
 struct nlm_res_wrapper {
 	struct nlm_res			xdrgen;
+	struct lockd_cookie		cookie;
 };
 
 static_assert(offsetof(struct nlm_res_wrapper, xdrgen) == 0);
@@ -997,6 +998,30 @@ static __be32 nlmsvc_proc_granted_msg(struct svc_rqst *rqstp)
 			       __nlmsvc_proc_granted_msg);
 }
 
+/**
+ * nlmsvc_proc_granted_res - GRANTED_RES: Lock Granted result
+ * @rqstp: RPC transaction context
+ *
+ * Returns:
+ *   %rpc_success:		RPC executed successfully.
+ *
+ * RPC synopsis:
+ *   void NLMPROC_GRANTED_RES(nlm_res) = 15;
+ */
+static __be32 nlmsvc_proc_granted_res(struct svc_rqst *rqstp)
+{
+	struct nlm_res_wrapper *argp = rqstp->rq_argp;
+
+	if (!nlmsvc_ops)
+		return rpc_success;
+
+	if (nlm_netobj_to_cookie(&argp->cookie, &argp->xdrgen.cookie))
+		return rpc_success;
+	nlmsvc_grant_reply(&argp->cookie, argp->xdrgen.stat.stat);
+
+	return rpc_success;
+}
+
 /*
  * SHARE: create a DOS share or alter existing share.
  */
@@ -1122,23 +1147,6 @@ nlmsvc_proc_sm_notify(struct svc_rqst *rqstp)
 	}
 
 	nlm_host_rebooted(SVC_NET(rqstp), argp);
-	return rpc_success;
-}
-
-/*
- * client sent a GRANTED_RES, let's remove the associated block
- */
-static __be32
-nlmsvc_proc_granted_res(struct svc_rqst *rqstp)
-{
-	struct lockd_res *argp = rqstp->rq_argp;
-
-	if (!nlmsvc_ops)
-		return rpc_success;
-
-	dprintk("lockd: GRANTED_RES   called\n");
-
-	nlmsvc_grant_reply(&argp->cookie, argp->status);
 	return rpc_success;
 }
 
@@ -1310,15 +1318,15 @@ static const struct svc_procedure nlmsvc_procedures[24] = {
 		.pc_xdrressize	= XDR_void,
 		.pc_name	= "UNLOCK_RES",
 	},
-	[NLMPROC_GRANTED_RES] = {
-		.pc_func = nlmsvc_proc_granted_res,
-		.pc_decode = nlmsvc_decode_res,
-		.pc_encode = nlmsvc_encode_void,
-		.pc_argsize = sizeof(struct lockd_res),
-		.pc_argzero = sizeof(struct lockd_res),
-		.pc_ressize = sizeof(struct nlm_void),
-		.pc_xdrressize = St,
-		.pc_name = "GRANTED_RES",
+	[NLM_GRANTED_RES] = {
+		.pc_func	= nlmsvc_proc_granted_res,
+		.pc_decode	= nlm_svc_decode_nlm_res,
+		.pc_encode	= nlm_svc_encode_void,
+		.pc_argsize	= sizeof(struct nlm_res_wrapper),
+		.pc_argzero	= 0,
+		.pc_ressize	= 0,
+		.pc_xdrressize	= XDR_void,
+		.pc_name	= "GRANTED_RES",
 	},
 	[NLMPROC_NSM_NOTIFY] = {
 		.pc_func = nlmsvc_proc_sm_notify,
